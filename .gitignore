@@ -1,0 +1,5 @@
+# Vim
+*.sw?
+
+# macOS
+.DS_Store
