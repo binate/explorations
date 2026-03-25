@@ -1,0 +1,629 @@
+(* Newlang Formal Grammar — EBNF *)
+(* Reference: claude-notes.md, claude-discussion-detailed-notes.md *)
+
+(* Bootstrap subset annotations:
+   [BOOTSTRAP] = included in the Go bootstrap interpreter
+   [DEFERRED]  = not in bootstrap, full language only
+   Unmarked productions are included if all their components are.
+*)
+
+
+(* ============================================================ *)
+(* 1. Lexical Elements                                          *)
+(* ============================================================ *)
+
+(* --- Characters and basics --- *)
+
+letter        = "a"…"z" | "A"…"Z" | "_" ;
+digit         = "0"…"9" ;
+hex_digit     = digit | "a"…"f" | "A"…"F" ;
+octal_digit   = "0"…"7" ;
+binary_digit  = "0" | "1" ;
+
+(* --- Identifiers --- *)
+
+identifier    = letter { letter | digit } ;
+
+(* --- Keywords --- *)
+(* The following identifiers are reserved:
+   break    case     const    continue   default   else
+   false    for      func     if         impl      import   in
+   interface         nil      package    return    struct   switch
+   true     type     var
+
+   The following are also keywords (builtin operations with special syntax):
+   make     box      cast     bit_cast   len       unsafe_index
+*)
+
+(* --- Predeclared names (not reserved, can be shadowed) --- *)
+(* [BOOTSTRAP] int  uint  int8  int16  int32  int64
+   [BOOTSTRAP] uint8  uint16  uint32  uint64
+   [BOOTSTRAP] bool  byte  char  any  iota
+   [DEFERRED]  float32  float64
+*)
+
+(* --- Integer literals --- *)
+
+decimal_lit   = "1"…"9" { digit }
+              | "0" ;
+hex_lit       = "0" ( "x" | "X" ) hex_digit { hex_digit } ;
+octal_lit     = "0" ( "o" | "O" ) octal_digit { octal_digit } ;
+binary_lit    = "0" ( "b" | "B" ) binary_digit { binary_digit } ;
+int_literal   = decimal_lit | hex_lit | octal_lit | binary_lit ;
+
+(* --- Float literals --- *)
+
+float_literal = digit { digit } "." { digit } [ exponent ]
+              | digit { digit } exponent
+              | "." digit { digit } [ exponent ] ;
+exponent      = ( "e" | "E" ) [ "+" | "-" ] digit { digit } ;
+
+(* --- String literals --- *)
+(* Always null-terminated in storage; slice excludes the null *)
+
+string_literal = '"' { string_char | escape_seq } '"' ;
+string_char    = (* any character except '"', '\', newline *) ;
+
+(* --- Char/byte literals --- *)
+
+char_literal  = "'" ( char_char | escape_seq ) "'" ;
+char_char     = (* any character except "'", '\', newline *) ;
+
+(* --- Escape sequences --- *)
+
+escape_seq    = "\" ( "n" | "r" | "t" | "\" | "'" | '"' | "0"
+              | "x" hex_digit hex_digit
+              | "u" hex_digit hex_digit hex_digit hex_digit ) ;
+
+(* --- Operators and punctuation --- *)
+(*
+   +   -   *   /   %
+   &   |   ^   ~   <<  >>
+   ==  !=  <   >   <=  >=
+   &&  ||  !
+   =   +=  -=  *=  /=  %=
+   &=  |=  ^=  <<=  >>=
+   ++  --
+   :=
+   .   ,   ;   :   @   #
+   (   )   [   ]   {   }
+   ...
+*)
+
+(* --- Comments --- *)
+
+line_comment  = "//" { (* any character except newline *) } ;
+block_comment = "/*" { (* any character *) } "*/" ;
+
+(* --- Automatic semicolon insertion --- *)
+(* A semicolon is automatically inserted after the final token of a line
+   if that token is:
+   - an identifier or predeclared name
+   - an integer, float, char, or string literal
+   - true, false, nil
+   - break, continue, return
+   - ++, --
+   - ), ], }
+   Consequence: multi-line argument lists, element lists, and parameter lists
+   require a trailing comma after the last element if the closing delimiter
+   is on the next line. E.g.:
+     foo(
+         1,
+         2,    // trailing comma required — without it, "2" triggers ";"
+     )
+   Same rule as Go.
+   [BOOTSTRAP] includes all semicolon insertion rules.
+*)
+
+
+(* ============================================================ *)
+(* 2. Source File Structure                                     *)
+(* ============================================================ *)
+
+SourceFile    = PackageClause ";" { ImportDecl ";" } { TopLevelDecl ";" } ;
+
+PackageClause = "package" string_literal ;
+
+ImportDecl    = [ Annotation ] "import" ImportSpec
+              | [ Annotation ] "import" "(" { ImportSpec ";" } ")" ;
+ImportSpec    = [ identifier ] string_literal ;
+
+TopLevelDecl  = Declaration                              (* [BOOTSTRAP] *)
+              | FuncDecl                                  (* [BOOTSTRAP] *)
+              | MethodDecl                                (* [DEFERRED] *)
+              | ImplDecl ;                                (* [DEFERRED] *)
+
+
+(* ============================================================ *)
+(* 3. Declarations                                              *)
+(* ============================================================ *)
+
+Declaration   = TypeDecl
+              | VarDecl
+              | ConstDecl ;
+
+(* --- Type declarations --- *)
+
+TypeDecl      = [ Annotation ] "type" TypeSpec
+              | [ Annotation ] "type" "(" { TypeSpec ";" } ")" ;  (* grouped *)
+TypeSpec      = identifier TypeDef ;
+
+(* DISAMBIGUATION for TypeDef when "[" follows: see D11.
+   Both Type (via ArrayType "[" expr "]" Type) and TypeParams ("[" ident ident "]")
+   start with "[". The parser uses two-token lookahead after "[":
+     "[" integer_literal   → ArrayType (expression)
+     "[" identifier ident  → TypeParams (param name + constraint)
+     "[" identifier "]"    → ArrayType (expression = single variable)
+     "[" identifier ","    → TypeParams (multiple params)
+     "[" identifier op     → ArrayType (expression with operator)
+   See disambiguation summary for full details. *)
+
+TypeDef       = "=" Type                                  (* alias [BOOTSTRAP] *)
+              | [ Annotation ] "struct" StructBody        (* named struct [BOOTSTRAP] — no annotations *)
+              | [ Annotation ] "interface" InterfaceBody  (* named interface [DEFERRED] *)
+              | Type                                      (* distinct type [BOOTSTRAP] *)
+              | TypeParams TypeDef ;                      (* generic type [DEFERRED] *)
+
+TypeParams    = "[" TypeParamList "]" ;
+TypeParamList = TypeParamDecl { "," TypeParamDecl } ;
+TypeParamDecl = identifier TypeName ;                     (* name + constraint *)
+
+(* DISAMBIGUATION for StructField: see D10.
+   When an identifier starts a field, the parser uses lookahead to determine
+   whether it is a field name (followed by a type) or an anonymous embed:
+     identifier identifier/*/@ /[/(/func/struct/interface/const → named field
+     identifier ";" or "}" → anonymous embed (TypeName = identifier)
+     identifier "." → anonymous embed (QualifiedName = pkg.Type)
+   See disambiguation summary for full details. *)
+
+StructBody    = "{" { StructField ";" } "}" ;
+StructField   = [ Annotation ] [ identifier ] Type        (* named or anonymous field *)
+              | [ Annotation ] identifier Annotation Type ; (* annotated type *)
+
+InterfaceBody = "{" { InterfaceElement ";" } "}" ;
+InterfaceElement = identifier Signature                   (* method *)
+              | TypeName ;                                (* embedded interface *)
+
+(* --- Variable declarations --- *)
+
+VarDecl       = [ Annotation ] "var" VarSpec
+              | [ Annotation ] "var" "(" { VarSpec ";" } ")" ;  (* grouped *)
+VarSpec       = identifier Type [ "=" Expression ]
+              | identifier "=" Expression ;               (* type inferred *)
+
+(* --- Short variable declaration (statement) --- *)
+(* DISAMBIGUATION: see D1. Parser parses LHS as ExpressionList, then
+   checks the operator. If ":=", verifies LHS is all identifiers and
+   reinterprets as ShortVarDecl. If "=" or compound, it's Assignment. *)
+
+ShortVarDecl  = IdentifierList ":=" ExpressionList ;
+
+(* --- Constant declarations --- *)
+(* Within a grouped const block, iota is predeclared as the zero-based
+   index of the current spec. If a spec omits type and expression, it
+   repeats the previous spec's type and expression (with iota incremented).
+   A bare identifier spec is distinguished from the next spec by the
+   ";" (from auto-insertion at end of line). *)
+
+ConstDecl     = [ Annotation ] "const" ConstSpec
+              | [ Annotation ] "const" "(" { ConstSpec ";" } ")" ;  (* grouped — enables iota *)
+ConstSpec     = identifier [ Type ] "=" Expression
+              | identifier ;                              (* repeats previous type+expr *)
+
+
+(* ============================================================ *)
+(* 4. Function & Method Declarations                            *)
+(* ============================================================ *)
+
+FuncDecl      = [ Annotation ] "func" identifier [ TypeParams ] Signature FuncBody ;
+              (* [BOOTSTRAP] — without annotations or TypeParams *)
+
+MethodDecl    = [ Annotation ] "func" Receiver identifier Signature FuncBody ;
+              (* [DEFERRED] *)
+
+Receiver      = "(" identifier ReceiverType ")" ;
+ReceiverType  = Type ;                                    (* e.g., *Point, @Point, *const Point, Point *)
+
+Signature     = Parameters [ Result ] ;
+Parameters    = "(" [ ParameterList ] ")" ;
+ParameterList = ParameterDecl { "," ParameterDecl } ;
+ParameterDecl = [ "const" ] identifier Type                (* [BOOTSTRAP] — without const *)
+              | [ "const" ] identifier "..." Type ;       (* variadic — last param only [DEFERRED] *)
+
+(* Single return type needs no parens. Multiple returns require parens.
+   (Type) with parens and a single type is equivalent to Type without. *)
+Result        = Type                                      (* single return *)
+              | "(" TypeList ")" ;                        (* multiple returns *)
+TypeList      = Type { "," Type } ;
+
+FuncBody      = Block ;
+
+(* --- Impl declarations --- *)
+
+ImplDecl      = [ Annotation ] "impl" Type ":" InterfaceList ;  (* [DEFERRED] *)
+InterfaceList = TypeName { "," TypeName } ;
+
+
+(* ============================================================ *)
+(* 5. Types                                                     *)
+(* ============================================================ *)
+
+(* DISAMBIGUATION for "@[]T" managed slice sugar:
+   "@" "[" "]" → managed slice @[]T.
+   "@" "(" → grouping, e.g., @([]T) for managed pointer to raw slice.
+   "@" otherwise → managed pointer @T.
+   The parser checks for "[" "]" as a two-token sequence after "@". *)
+
+Type          = TypeName                                  (* [BOOTSTRAP] *)
+              | TypeLit                                   (* [BOOTSTRAP] — subset *)
+              | "(" Type ")"                              (* grouping, e.g., @([]T) [BOOTSTRAP] *)
+              | "const" Type                              (* const modifier [DEFERRED] *)
+              | "*" Type                                  (* raw pointer [BOOTSTRAP] *)
+              | "@" Type                                  (* managed pointer [BOOTSTRAP] *)
+              | "@" "[" "]" Type ;                        (* managed slice sugar [BOOTSTRAP] *)
+
+(* Qualified names support package-prefixed types: pkg.TypeName.
+   In type context, this is unambiguous. *)
+TypeName      = QualifiedName
+              | QualifiedName "[" TypeArgList "]" ;        (* generic instantiation *)
+QualifiedName = identifier [ "." identifier ] ;            (* optional package qualifier *)
+TypeArgList   = Type { "," Type } ;
+
+TypeLit       = ArrayType                                (* [BOOTSTRAP] *)
+              | SliceType                                (* [BOOTSTRAP] *)
+              | StructType                               (* [BOOTSTRAP] — no annotations *)
+              | InterfaceType                            (* [DEFERRED] *)
+              | FuncType ;                               (* [DEFERRED] *)
+
+ArrayType     = "[" Expression "]" Type ;                 (* fixed-size array *)
+SliceType     = "[" "]" Type ;                            (* raw slice *)
+StructType    = [ Annotation ] "struct" StructBody ;
+InterfaceType = "interface" InterfaceBody ;
+FuncType      = "func" Signature ;
+
+
+(* ============================================================ *)
+(* 6. Annotations                                               *)
+(* ============================================================ *)
+
+(* [DEFERRED] — entire annotation system deferred from bootstrap.
+   Annotations attach to the immediately following element.
+   Multiple annotations are comma-separated within one block.
+   No stacking of separate #[...] blocks. *)
+
+Annotation    = "#" "[" AnnotationList "]" ;
+AnnotationList = AnnotationEntry { "," AnnotationEntry } ;
+AnnotationEntry = AnnotationName [ "(" AnnotationArgs ")" ] ;
+AnnotationName = identifier { "." identifier } ;          (* e.g., packed, compiler.inline, tool.export *)
+AnnotationArgs = Expression { "," Expression } ;
+
+
+(* ============================================================ *)
+(* 7. Statements                                                *)
+(* ============================================================ *)
+
+Statement     = Declaration
+              | SimpleStmt
+              | ReturnStmt
+              | BreakStmt
+              | ContinueStmt
+              | Block
+              | IfStmt
+              | ForStmt
+              | SwitchStmt ;
+
+SimpleStmt    = EmptyStmt
+              | ExpressionStmt
+              | Assignment
+              | ShortVarDecl
+              | IncDecStmt ;
+
+EmptyStmt     = (* empty *) ;
+
+ExpressionStmt = Expression ;
+
+(* Simple assignment allows multiple LHS/RHS for multi-return functions:
+   x, err = foo(). Compound assignment (+=, etc.) requires exactly one
+   expression on each side. *)
+Assignment    = ExpressionList "=" ExpressionList
+              | Expression compound_assign_op Expression ;
+compound_assign_op = "+=" | "-=" | "*=" | "/=" | "%="
+              | "&=" | "|=" | "^=" | "<<=" | ">>=" ;
+
+IncDecStmt    = Expression ( "++" | "--" ) ;
+
+ReturnStmt    = "return" [ ExpressionList ] ;
+
+BreakStmt     = "break" ;
+
+ContinueStmt  = "continue" ;
+
+Block         = "{" { Statement ";" } "}" ;
+
+(* --- If statement --- *)
+(* DISAMBIGUATION: composite literals in the condition of if, for, and
+   switch must be parenthesized to avoid ambiguity with the opening "{".
+   E.g., "if Point{x:1} != nil {" is a parse error — write
+   "if (Point{x:1}) != nil {" instead. Same rule as Go. *)
+
+IfStmt        = "if" Expression Block [ "else" ( IfStmt | Block ) ] ;
+
+(* --- For statement --- *)
+(* DISAMBIGUATION for ForClause:
+   - If the token after "for" is "{", it's an infinite loop (empty clause).
+   - If the first SimpleStmt is followed by ";", it's C-style (ForCClause).
+   - If an identifier list is followed by "in", it's ForInClause.
+   - Otherwise, it's a while-style condition (Expression).
+   The parser uses lookahead to distinguish these. Same approach as Go
+   (which distinguishes range-for from C-style for similarly). *)
+
+ForStmt       = "for" ForClause Block ;
+ForClause     = (* empty *)                               (* infinite loop: for { } *)
+              | Expression                                (* while-style: for cond { } *)
+              | ForCClause                                (* C-style: for init; cond; post { } *)
+              | ForInClause ;                             (* range: for x in collection { } *)
+
+ForCClause    = SimpleStmt ";" [ Expression ] ";" SimpleStmt ;
+
+(* for-in always declares new variables in the for block's scope.
+   Single variable receives the VALUE at each iteration.
+   Two variables receive INDEX and VALUE respectively.
+   This matches the intuition of dropping the index when you don't need it.
+   Iterating over slices and arrays (including managed versions).
+   Additional iterable types may be added in the future. *)
+ForInClause   = IdentifierList "in" Expression ;
+
+(* --- Switch statement --- *)
+(* Same composite-literal disambiguation rule as if/for. *)
+
+SwitchStmt    = "switch" [ Expression ] "{" { CaseClause } "}" ;
+CaseClause    = ( "case" ExpressionList | "default" ) ":" { Statement ";" } ;
+
+
+(* ============================================================ *)
+(* 8. Expressions                                               *)
+(* ============================================================ *)
+
+(* Operator precedence (lowest to highest):
+   1. ||
+   2. &&
+   3. == != < > <= >=
+   4. |
+   5. ^
+   6. &
+   7. << >>
+   8. + -
+   9. * / %
+   10. unary: ! ~ - * &   (right-associative: *p * x = (*p) * x)
+   11. postfix: . [] ()
+*)
+
+Expression    = OrExpr ;
+
+OrExpr        = AndExpr { "||" AndExpr } ;
+AndExpr       = CompareExpr { "&&" CompareExpr } ;
+CompareExpr   = BitOrExpr [ compare_op BitOrExpr ] ;      (* no chaining *)
+compare_op    = "==" | "!=" | "<" | ">" | "<=" | ">=" ;
+BitOrExpr     = BitXorExpr { "|" BitXorExpr } ;
+BitXorExpr    = BitAndExpr { "^" BitAndExpr } ;
+BitAndExpr    = ShiftExpr { "&" ShiftExpr } ;
+ShiftExpr     = AddExpr { ( "<<" | ">>" ) AddExpr } ;
+AddExpr       = MulExpr { ( "+" | "-" ) MulExpr } ;
+MulExpr       = UnaryExpr { ( "*" | "/" | "%" ) UnaryExpr } ;
+
+UnaryExpr     = PostfixExpr
+              | "!" UnaryExpr
+              | "~" UnaryExpr
+              | "-" UnaryExpr
+              | "*" UnaryExpr                             (* dereference *)
+              | "&" UnaryExpr ;                           (* address-of *)
+
+PostfixExpr   = PrimaryExpr { PostfixOp } ;
+PostfixOp     = "." identifier                            (* field access / method / pkg member *)
+              | "[" Expression "]"                         (* index *)
+              | "[" [ Expression ] ":" [ Expression ] "]" (* slice *)
+              | "[" TypeArgList "]"                        (* generic instantiation [DEFERRED] *)
+              | CallArgs ;                                (* function call *)
+
+(* DISAMBIGUATION for "[" after a postfix expression (D5):
+   "[" with ":" inside → slice expression (colon is unambiguous).
+   "[" with commas inside → generic instantiation (commas can't appear
+   in a single index Expression).
+   "[" with single contents and "]" followed by "(" → try generic
+   instantiation first (single type arg); if that fails, fall back to indexing.
+   "[" with single contents and "]" NOT followed by "(" → indexing.
+   Note: generic composite literals (e.g., List[int]{...}) are handled by
+   CompositeLiteral in PrimaryExpr via TypeName, not by PostfixOp.
+   [DEFERRED] — generics not in bootstrap, so bootstrap always parses as index/slice. *)
+
+CallArgs      = "(" [ ExpressionList ] ")" ;
+
+(* PrimaryExpr ordering:
+   Builtin calls and composite literals are tried BEFORE bare identifier.
+   The parser checks:
+   1. If current token is a builtin keyword (make, box, etc.): BuiltinCall.
+   2. If current token is an identifier followed by "{": CompositeLiteral.
+      (Also handles QualifiedName: identifier "." identifier "{"
+       and generic types: identifier "[" TypeArgList "]" "{")
+   3. If current token is "[": ArrayLiteral (via CompositeLiteral).
+   4. Otherwise: bare identifier, literal, or parenthesized expression. *)
+
+PrimaryExpr   = BuiltinCall                               (* make, box, cast, etc. — keywords *)
+              | CompositeLiteral                           (* TypeName "{" ... *)
+              | identifier
+              | int_literal
+              | float_literal
+              | string_literal
+              | char_literal
+              | "true" | "false"
+              | "nil"
+              | FuncLiteral                               (* [DEFERRED] — closures *)
+              (* Note: iota is a predeclared name, not a keyword. It is matched
+                 by the "identifier" alternative above. Semantic analysis gives it
+                 special meaning inside const() blocks. *)
+              | "(" Expression ")" ;
+
+(* --- Function literals (closures) --- *)
+
+FuncLiteral   = "func" Signature FuncBody ;
+
+(* --- Composite literals --- *)
+(* DISAMBIGUATION: in the condition of if/for/switch, composite literals
+   must be parenthesized to avoid ambiguity with the block's "{". See D4.
+
+   The parser recognizes a composite literal when it sees TypeName (which
+   is identifier or identifier.identifier, optionally with generic args)
+   followed by "{". Since builtins are keywords (not identifiers), there
+   is no conflict with BuiltinCall. *)
+
+CompositeLiteral = TypeName "{" [ ElementList [ "," ] ] "}"   (* struct/type literal *)
+              | ArrayLiteral ;
+
+ElementList   = Element { "," Element } ;
+
+(* Element keys are parsed as Expressions. Semantic analysis determines
+   whether a bare identifier is a struct field name or an array index
+   expression, based on the composite literal's type. *)
+Element       = [ Expression ":" ] Expression ;
+
+ArrayLiteral  = "[" ArrayLen "]" Type "{" [ ElementList [ "," ] ] "}" ;
+ArrayLen      = Expression | "..." ;
+
+(* --- Builtin calls --- *)
+(* make, box, cast, bit_cast, len, and unsafe_index are keywords with
+   special syntax. They take types and/or expressions as arguments,
+   which distinguishes them from regular function calls. *)
+
+BuiltinCall   = "make" "(" MakeArg ")"                    (* [BOOTSTRAP] *)
+              | "box" "(" Expression ")"                  (* [BOOTSTRAP] *)
+              | "cast" "(" Type "," Expression ")"        (* [BOOTSTRAP] *)
+              | "bit_cast" "(" Type "," Expression ")"    (* [BOOTSTRAP] *)
+              | "unsafe_index" "(" Expression "," Expression ")"  (* [DEFERRED] *)
+              | "len" "(" Expression ")" ;                (* [BOOTSTRAP] *)
+
+MakeArg       = SliceType "," Expression                  (* make([]int, n) — runtime-sized *)
+              | Type ;                                    (* make(Point), make([100]int) — zero-init *)
+
+(* --- Expression and identifier lists --- *)
+
+ExpressionList = Expression { "," Expression } ;
+IdentifierList = identifier { "," identifier } ;
+
+
+(* ============================================================ *)
+(* 9. Operator Precedence and Associativity Summary             *)
+(* ============================================================ *)
+
+(* All binary operators are left-associative.
+   Unary operators are right-associative (prefix).
+
+   Precedence (highest to lowest):
+    11. Postfix:    .  []  ()
+    10. Unary:      !  ~  -  *  &
+     9. Mul:        *  /  %
+     8. Add:        +  -
+     7. Shift:      <<  >>
+     6. BitAnd:     &
+     5. BitXor:     ^
+     4. BitOr:      |
+     3. Compare:    ==  !=  <  >  <=  >=   (no chaining)
+     2. LogAnd:     &&
+     1. LogOr:      ||
+
+   Assignment operators (=, +=, etc.) are statements, not expressions.
+   ++/-- are postfix statements, not expressions.
+   Comparisons do not chain: a < b < c is a syntax error.
+*)
+
+
+(* ============================================================ *)
+(* 10. Disambiguation Summary                                   *)
+(* ============================================================ *)
+
+(* This section collects all disambiguation rules in one place.
+
+   D1. ShortVarDecl vs Assignment:
+       The parser parses the LHS as an ExpressionList, then checks the
+       operator. If ":=", it verifies the LHS consists entirely of
+       identifiers and reinterprets as ShortVarDecl. If "=" or a compound
+       operator, it's Assignment. This avoids backtracking.
+
+   D2. For-clause variants:
+       "for" "{" → infinite loop (empty ForClause).
+       "for" IdentifierList "in" → range (ForInClause). Lookahead for "in".
+       "for" ... ";" → C-style (ForCClause). Lookahead for ";" after first SimpleStmt.
+       "for" Expression "{" → while-style. Default if no "in" or ";" found.
+
+   D3. "@[]T" managed slice sugar vs "@" followed by a type:
+       "@" "[" "]" → managed slice @[]T.
+       "@" "(" → grouping, e.g., @([]T) for managed pointer to raw slice.
+       "@" otherwise → managed pointer @T.
+       Two-token lookahead after "@".
+
+   D4. Composite literals in control flow conditions:
+       In the condition of if, for, and switch, a bare composite literal
+       (TypeName "{" ...) is disallowed because "{" is ambiguous with the
+       block body. Must parenthesize: (TypeName{...}). Same rule as Go.
+
+   D5. Generic instantiation vs indexing/slicing (expression context):
+       PostfixOp "[" has three possible interpretations: index, slice, or
+       generic instantiation. The parser resolves as follows:
+         "[" ... ":" ... "]" → slice expression (colon is unambiguous).
+         "[" Type "," ... "]" → generic instantiation (commas can't appear
+           in a single index Expression, so this is unambiguous).
+         "[" single-contents "]" followed by "(" → try generic
+           instantiation (single type arg); fall back to index on failure.
+         "[" single-contents "]" otherwise → index expression.
+       Note: "[" single-contents "]" followed by "{" is handled at the
+       PrimaryExpr level by CompositeLiteral, not by PostfixOp.
+       In type context (make, cast, type declarations), "[" TypeArgList "]"
+       is always generic instantiation — no ambiguity.
+
+   D6. Element key in composite literals:
+       Element keys are always parsed as Expressions. For struct literals,
+       a bare identifier key is semantically interpreted as a field name.
+       For array literals, keys are index expressions. The parser does not
+       distinguish — semantic analysis resolves based on the target type.
+
+   D7. ConstSpec bare identifier:
+       In a grouped const block, a bare identifier (no type, no "=") repeats
+       the previous spec. Distinguished from the start of the next spec by
+       the ";" (auto-inserted at end of line).
+
+   D8. Unary * vs binary *:
+       Resolved by precedence. Unary * (dereference) is in UnaryExpr;
+       binary * (multiplication) is in MulExpr. Unary binds tighter:
+       *p * x = (*p) * x.
+
+   D9. PrimaryExpr ordering:
+       Builtin keywords (make, box, cast, etc.) are tried first — they are
+       keywords, not identifiers, so the lexer distinguishes them.
+       CompositeLiteral (TypeName "{" ...) is tried before bare identifier:
+       when an identifier is followed by "{" (or "." identifier "{" for
+       qualified names, or "[" TypeArgList "]" "{" for generic types),
+       it's a composite literal. Otherwise, bare identifier.
+
+   D10. StructField: named field vs anonymous embed:
+        StructField = [ Annotation ] [ identifier ] Type — when the field
+        starts with an identifier, the parser uses one-token lookahead:
+          identifier followed by identifier, *, @, [, (, func, struct,
+            interface, const → named field (identifier is the field name,
+            next tokens begin the type)
+          identifier followed by ";", "}" → anonymous embed (identifier is
+            a TypeName)
+          identifier followed by "." → anonymous embed with qualified name
+            (identifier "." identifier is a QualifiedName)
+
+   D11. TypeDef: TypeParams vs ArrayType when "[" follows:
+        TypeDef = ... | Type | TypeParams TypeDef — both start with "[".
+        Two-token lookahead after "[" resolves:
+          "[" integer/float/string literal → ArrayType (expression)
+          "[" identifier identifier → TypeParams (param + constraint)
+          "[" identifier "]" → ArrayType (expression = single variable)
+          "[" identifier "," → TypeParams (multiple type params)
+          "[" identifier operator → ArrayType (expression with binary op)
+          "[" "." → ArrayType (expression starting with "."; unlikely)
+          "[" unary-op → ArrayType (expression with unary prefix)
+        Note: "[" "]" in TypeDef context is not valid for either alternative
+        (SliceType is handled in the Type production, not TypeDef directly).
+*)
