@@ -535,6 +535,15 @@ Main package: `package "main"` is a special case — requires `main()` function,
 
 The compiler should have a backend architecture that supports cross-compilation from the start, so bootstrap doesn't need to happen on target (32-bit) systems.
 
+**Current status**: Step 1 is mostly complete. The Go bootstrap interpreter
+(`github.com/binate/bootstrap`) can parse, type-check, and run single-file `.bn` programs
+covering the bootstrap subset: functions, structs, pointers, slices, arrays, control flow,
+constants, and I/O via the `pkg/bootstrap` package. Multi-file support and hardening remain.
+
+Note: many items marked "IN PROGRESS" above were resolved during the grammar
+specification phase (Phase 3). See `grammar.ebnf` for the authoritative specification
+and `claude-bootstrap-plan.md` for implementation status.
+
 **Host language for bootstrap interpreter**: Go
 
 ### Operators — DECIDED

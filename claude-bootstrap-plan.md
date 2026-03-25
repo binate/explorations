@@ -43,15 +43,16 @@ bootstrap/
     checker.go         // type checking pass
     checker_test.go
   interpreter/
-    interpreter.go     // tree-walking evaluator
+    interpreter.go     // tree-walking evaluator + builtins + I/O
     value.go           // runtime value representation
-    memory.go          // managed allocation, refcounting
-    builtins.go        // make, box, cast, bit_cast, len
-    io.go              // file I/O, stdout
     interpreter_test.go
   testdata/
     *.bn               // test programs
 ```
+
+Note: the original plan called for separate `memory.go`, `builtins.go`, and `io.go` files.
+In practice, everything lives in `interpreter.go` and `value.go` — the codebase is small
+enough that splitting would be premature.
 
 ---
 
@@ -276,15 +277,30 @@ Since the interpreter runs on Go (which has its own GC), we don't literally `mal
 - `bit_cast(T, expr)` → reinterpret bits
 - `len(expr)` → slice length or array length
 
-### 5.5 Standard Library / I/O
+### 5.5 Builtins and the `pkg/bootstrap` Package
 
-Minimal, just enough to be useful:
+Builtins are split into two categories:
 
-- **stdout**: `print(args...)` and `println(args...)` — probably interpreter builtins, not Binate functions (since we don't have variadic/interfaces in bootstrap)
-- **File I/O**: `open(path, mode)`, `read(fd, buf)`, `write(fd, buf)`, `close(fd)` — exposed as builtin functions
-- **Process**: `exit(code)`, `args()` (command-line args)
-- **Memory**: `make`, `box` (already builtins)
-- **String operations**: basic operations exposed as builtins or via slice manipulation
+**Language-level builtins** (always available, no import needed):
+- `print(args...)`, `println(args...)` — variadic output
+- `append(slice, elems...)` — slice append, returns new slice
+- `panic(msg)` — abort with message
+- `make(T)`, `make([]T, n)` — managed allocation (keyword builtin)
+- `box(expr)` — allocate managed copy (keyword builtin)
+- `cast(T, expr)`, `bit_cast(T, expr)` — type conversions (keyword builtins)
+- `len(expr)` — slice/array length (keyword builtin)
+
+**`pkg/bootstrap` package** (requires `import "pkg/bootstrap"`):
+- **I/O**: `bootstrap.open(path, flags)`, `bootstrap.read(fd, buf, n)`, `bootstrap.write(fd, buf, n)`, `bootstrap.close(fd)`
+- **Process**: `bootstrap.exit(code)`, `bootstrap.args()`
+- **Conversions**: `bootstrap.string(val)`
+- **Constants**: `O_RDONLY`, `O_WRONLY`, `O_RDWR`, `O_CREATE`, `O_TRUNC`, `O_APPEND`, `STDIN`, `STDOUT`, `STDERR`
+
+The `pkg/` prefix follows the convention that these packages have implementations that can
+be provided as normal Binate packages in the real compiler. Code written against
+`pkg/bootstrap` is portable between the bootstrap interpreter and the eventual self-hosted
+toolchain — the real compiler would provide a drop-in `pkg/bootstrap/` package with the
+same interface.
 
 The exact stdlib surface will be driven by what the self-hosted compiler needs. Start minimal, add as needed.
 
@@ -331,73 +347,70 @@ As bugs are found, add minimal reproduction cases. These become the permanent te
 
 Build incrementally. Each step produces something testable.
 
-### Step 1: Lexer
+### Step 1: Lexer — DONE
 - Token types and keyword table
 - Scanner with ASI
-- Lexer tests
+- Lexer tests (25 tests)
 - **Milestone**: can tokenize any bootstrap-subset `.bn` file
 
-### Step 2: Parser — Expressions
+### Step 2: Parser — Expressions — DONE
 - AST node types for expressions
-- Parse expression precedence chain
+- Parse expression precedence chain (11 levels)
 - Parse primary expressions (literals, identifiers, parens, builtins)
 - Parse postfix ops (dot, index, slice, call)
 - Parser tests for expressions
 - **Milestone**: can parse and print expression ASTs
 
-### Step 3: Parser — Statements and Declarations
+### Step 3: Parser — Statements and Declarations — DONE
 - Statements: assignment, short var decl, if, for, switch, return, break, continue, block
 - Declarations: var, const (with iota), type, func
 - Top-level: package, import, source file
-- Parser tests
+- Parser tests (70+ tests)
+- D4 disambiguation: `noCompositeLit` flag in if/for/switch conditions
+- D2 disambiguation: for-loop variant detection via keyword lookahead
 - **Milestone**: can parse complete `.bn` files into ASTs
 
-### Step 4: Type Checker — Basics
-- Type representations
-- Symbol table and scoping
+### Step 4: Type Checker — Basics — DONE
+- Type representations (IntType, BoolType, PointerType, SliceType, ArrayType, StructType, etc.)
+- Symbol table and scoping (nested scopes with parent chain)
+- Two-pass checking: pass 1 collects declarations, pass 2 checks bodies
+- Untyped constants (UntypedIntType, UntypedBoolType) assignable to concrete types
 - Type-check expressions (operators, calls, field access)
 - Type-check statements (assignment compatibility, return types)
 - Type-check declarations (var, const, type, func signatures)
+- Package import support with package-qualified name resolution
+- 35 type checker tests
 - **Milestone**: can type-check valid programs and reject type errors
 
-### Step 5: Interpreter — Expressions and Simple Statements
-- Runtime value representation
-- Expression evaluation
-- Variable storage (environments/frames)
-- Assignment, short var decl
-- Print builtin for testing
-- **Milestone**: can evaluate expressions and print results
+### Steps 5–8: Interpreter — DONE
+Steps 5–8 were implemented together since the features are interdependent.
 
-### Step 6: Interpreter — Control Flow
-- if/else, for (all variants), switch/case
-- break, continue (loop targeting)
-- Function calls and returns (including multiple returns)
-- **Milestone**: can run programs with control flow and functions
+- Runtime value types: IntVal, BoolVal, CharVal, StringVal, NilVal, PointerVal, ManagedPtrVal, SliceVal, ArrayVal, StructVal, FuncVal, MultiVal
+- Environment with HeapObject-backed variable cells (enables correct `&x` semantics)
+- Signal-based control flow: panic(signalReturn/signalBreak/signalContinue) with recover
+- Function calls save/restore env to handle return unwinding through nested scopes
+- Full expression evaluation: all operators, short-circuit &&/||, calls, index, slice, selector, composite literals
+- All control flow: if/else, for (C-style, while, infinite, for-in), switch/case, break, continue
+- Structs, arrays, slices, pointers (raw and managed), make, box, cast, len
+- Multiple return values
+- 35 interpreter tests
+- **Milestone**: can run programs with all bootstrap-subset features
 
-### Step 7: Interpreter — Structs and Types
-- Struct values, field access, composite literals
-- Array values, array literals
-- Distinct types, aliases, cast, bit_cast
-- **Milestone**: can run programs with structured data
+### Step 9: Interpreter — Packages and I/O — DONE (partial)
+- CLI entry point (`main.go`): parse, type-check, and run `.bn` files
+- `pkg/bootstrap` package with I/O (open/read/write/close), process (exit/args), and conversions (string)
+- Package import resolution: local name derived from last path segment
+- File descriptor table with stdin/stdout/stderr pre-registered
+- Named constants for file flags and standard FDs
+- Test programs: hello.bn, fib.bn, cat.bn, wc.bn
+- **Not yet done**: multi-file package support, `.bni` interface file loading
+- **Milestone**: can run single-file programs that read/write files
 
-### Step 8: Interpreter — Pointers and Memory
-- Raw pointers (&, *, dot auto-deref)
-- Managed pointers (@T, make, box)
-- Refcount tracking (retain, release, recursive release)
-- Managed and raw slices, slice expressions, len
-- **Milestone**: can run programs with heap allocation and verify refcount correctness
-
-### Step 9: Interpreter — Packages and I/O
-- Multi-file package support
-- Import resolution (simplified — no .bni enforcement)
-- File I/O builtins
-- Command-line args
-- **Milestone**: can run multi-file programs that read/write files
-
-### Step 10: Test Suite and Hardening
+### Step 10: Test Suite and Hardening — TODO
 - Build out testdata/ suite
 - Edge cases: integer overflow (wrapping), division by zero (trap), bounds checking
-- Error messages with source positions
+- Error messages with source positions in runtime panics
+- Multi-file package support
 - **Milestone**: robust enough to start writing the self-hosted compiler in Binate
 
 ---
