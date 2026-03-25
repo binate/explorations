@@ -1,6 +1,6 @@
-# Newlang Detailed Design Discussion Notes
+# Binate Detailed Design Discussion Notes
 
-This document captures the full discussion of Newlang's design, including rationales for decisions, alternatives considered and why they were rejected, open questions, and the reasoning that led to the current design.
+This document captures the full discussion of Binate's design, including rationales for decisions, alternatives considered and why they were rejected, open questions, and the reasoning that led to the current design.
 
 ---
 
@@ -526,7 +526,7 @@ const *const int     // const pointer to const int
 []*const int         // slice of pointers to const int
 ```
 
-This avoids C's left-right parsing confusion entirely because Newlang types are always read left-to-right.
+This avoids C's left-right parsing confusion entirely because Binate types are always read left-to-right.
 
 **Const on variable declarations:** the variable can't be reassigned:
 ```
@@ -657,9 +657,8 @@ This was identified as one of the design decisions with the widest-reaching posi
 
 ### File Extensions
 
-- `.nl` — implementation files
-- `.nli` — interface files (will follow same pattern when language is renamed)
-
+- `.bn` — implementation files
+- `.bni` — interface files
 ### Package Declaration
 
 String-based, matching the import path:
@@ -674,15 +673,15 @@ Every file starts with a package declaration (after comments/whitespace). The st
 Interface file sits as a **sibling** of the implementation directory:
 ```
 pkg/
-  foo.nli          // interface
+  foo.bni          // interface
   foo/             // implementation directory
-    impl1.nl
-    impl2.nl
+    impl1.bn
+    impl2.bn
 ```
 
-**Why sibling rather than inside:** enforces separateness and makes it clear that the `.nli` contents have "extern" semantics — declarations that must be properly defined in the `.nl` files.
+**Why sibling rather than inside:** enforces separateness and makes it clear that the `.bni` contents have "extern" semantics — declarations that must be properly defined in the `.bn` files.
 
-**One interface file per package.** Multiple `.nl` files per package are supported (all in the same directory, all declaring the same package string).
+**One interface file per package.** Multiple `.bn` files per package are supported (all in the same directory, all declaring the same package string).
 
 ### Import Syntax
 
@@ -691,7 +690,7 @@ import "pkg/foo"              // standard import
 import myname "pkg/foo"       // aliased import
 ```
 
-Go-style. When compiling a package, only `.nli` files are needed for imported packages — the implementation is only needed when compiling/interpreting the implementation itself, or at link/load time.
+Go-style. When compiling a package, only `.bni` files are needed for imported packages — the implementation is only needed when compiling/interpreting the implementation itself, or at link/load time.
 
 ### Search Path & Visibility
 
@@ -700,19 +699,19 @@ Go-style. When compiling a package, only `.nli` files are needed for imported pa
 - Non-`pkg/` packages are inherently local (not subject to external search path)
 - Shadowing allowed: project-local packages take priority over external
 
-**No language-enforced `internal/` convention.** With separate interface files, visibility is already controlled by whether a `.nli` file exists and is on the search path. Unlike Go, the interface/implementation separation already provides the access control.
+**No language-enforced `internal/` convention.** With separate interface files, visibility is already controlled by whether a `.bni` file exists and is on the search path. Unlike Go, the interface/implementation separation already provides the access control.
 
 ### Main Package
 
 `package "main"` is a special case:
 - Requires a `main()` function
-- No `.nli` required (it's the entry point, not a library)
-- Multiple `.nl` files supported (all in same directory)
-- The standard `main.nli` could potentially be overridden for special embedded configurations (e.g., different entry point signatures), though this would require linker configuration
+- No `.bni` required (it's the entry point, not a library)
+- Multiple `.bn` files supported (all in same directory)
+- The standard `main.bni` could potentially be overridden for special embedded configurations (e.g., different entry point signatures), though this would require linker configuration
 
 ### Alternatives Considered
 
-- **Go-style directory = package**: adopted as the basic model, with the addition of separate `.nli` files
+- **Go-style directory = package**: adopted as the basic model, with the addition of separate `.bni` files
 - **Rust-style `mod` declarations**: rejected for simplicity — file system is the source of truth
 - **C-style `#include`**: rejected — preprocessor-based inclusion is fragile and order-dependent
 
@@ -900,7 +899,7 @@ This was preferred over having interfaces specify const-ness because:
 
 ### Decision: Builtin Functions, Not a Type Qualifier
 
-Unlike C's `volatile` keyword (which is a type qualifier that infects the type system), volatile access in Newlang is done through builtin functions: `volatile_read`, `volatile_write`, etc.
+Unlike C's `volatile` keyword (which is a type qualifier that infects the type system), volatile access in Binate is done through builtin functions: `volatile_read`, `volatile_write`, etc.
 
 **Why not a type qualifier:**
 - C's `volatile` is viral — it infects pointer types and must be tracked through every cast and assignment
@@ -1207,7 +1206,7 @@ func convert[T Castable](c *Converter, val T) int { ... }
 
 **No conditional impls for v1.** You can't write `impl [T Stringer] List[T] : Stringer`. Only specific instantiations: `impl List[int] : Stringer`. Conditional impls are powerful (Rust has them) but add significant complexity. Deferred.
 
-**Cross-package generics:** generic function/type bodies must be included in `.nli` files. The consumer needs the body to instantiate — this is the same trade-off as C++ templates in headers. The `.nli` exposes the implementation of generics, but there's no way around this with monomorphization.
+**Cross-package generics:** generic function/type bodies must be included in `.bni` files. The consumer needs the body to instantiate — this is the same trade-off as C++ templates in headers. The `.bni` exposes the implementation of generics, but there's no way around this with monomorphization.
 
 **Zero values in generics:** `make(T)` inside a generic needs to zero-init `T`. Currently safe since all types have zero values (nullable pointers). If non-nullable pointers are added in v2, this interaction needs care.
 
@@ -1352,9 +1351,9 @@ The formal grammar (`grammar.ebnf`) covers the full language and is annotated wi
 - **C**: most portable and closest to the metal, but slower to develop. No real benefit for a throwaway bootstrap tool.
 
 **Bootstrap path:**
-1. Write minimal interpreter in Go (supports a subset of Newlang)
-2. Write full interpreter and compiler in Newlang
-3. Use Go interpreter to run Newlang compiler → produce native binaries
+1. Write minimal interpreter in Go (supports a subset of Binate)
+2. Write full interpreter and compiler in Binate
+3. Use Go interpreter to run Binate compiler → produce native binaries
 4. Compile the interpreter and compiler with themselves → fully self-hosted
 5. Discard Go bootstrap interpreter
 
@@ -1459,7 +1458,7 @@ This is robust because we can't know all the places that reference `g` (pointers
 
 ### Embedded Development Use Case
 
-The critical review surfaced an important framing for the dual-mode story: in embedded development today, "real" code is written in C/C++ while exploratory work uses MicroPython or similar. These are completely separate worlds — different languages, different semantics, can't share code. Newlang bridges this gap: same language for both, explore interactively via the interpreter, compile for production. No rewrite, no semantic mismatch.
+The critical review surfaced an important framing for the dual-mode story: in embedded development today, "real" code is written in C/C++ while exploratory work uses MicroPython or similar. These are completely separate worlds — different languages, different semantics, can't share code. Binate bridges this gap: same language for both, explore interactively via the interpreter, compile for production. No rewrite, no semantic mismatch.
 
 ---
 
@@ -1487,4 +1486,4 @@ The overarching philosophy that emerged through discussion:
 - **Design for v1 simplicity but don't block v2 power.** Non-nullable pointers, generics, tagged unions, and atomic refcounts are all deferred but the v1 design is careful not to foreclose them.
 - **The dual-mode story must be seamless.** Every design decision (memory model, type system, calling conventions) is evaluated partly on whether it supports transparent compiled/interpreted interop.
 - **Simplicity of use vs. simplicity of implementation.** These are distinct and sometimes in tension. The managed/raw split is the minimum complexity to serve both: managed for ergonomics (especially REPL), raw for implementation simplicity and systems work.
-- **Bridge the embedded gap.** Today, embedded developers use C for production and MicroPython for exploration — two separate worlds. Newlang bridges this: one language for both, with the interpreter running alongside production code on the target device.
+- **Bridge the embedded gap.** Today, embedded developers use C for production and MicroPython for exploration — two separate worlds. Binate bridges this: one language for both, with the interpreter running alongside production code on the target device.

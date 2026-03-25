@@ -1,4 +1,4 @@
-# Newlang — Plan to Nail Down the Language Design
+# Binate — Plan to Nail Down the Language Design
 
 This plan identifies the areas that need to be fully specified before we can write a formal grammar and begin implementing the bootstrap interpreter. It's organized into phases: things that must be resolved first (because other decisions depend on them), things that can be resolved in parallel, and things that can be deferred until after the bootstrap interpreter is underway.
 
@@ -170,13 +170,13 @@ Point{x: 1, y: 2}          // named fields
 
 - **Package declaration**: `package "pkg/foo"` (string-based, matches import path)
 - **Import syntax**: `import "pkg/foo"`, `import alias "pkg/foo"`
-- **File extensions**: `.nl` (implementation), `.nli` (interface)
-- **Directory layout**: `pkg/foo.nli` (interface sibling), `pkg/foo/*.nl` (implementation)
-- **One interface file per package**. Multiple `.nl` files per package.
+- **File extensions**: `.bn` (implementation), `.bni` (interface)
+- **Directory layout**: `pkg/foo.bni` (interface sibling), `pkg/foo/*.bn` (implementation)
+- **One interface file per package**. Multiple `.bn` files per package.
 - **Search path**: project root highest priority. `pkg/`-prefixed = public. Non-`pkg/` = local.
 - **No `internal/`** — interface file existence controls visibility.
-- **Main package**: `package "main"`, requires `main()`, no `.nli` needed.
-- **Visibility**: no per-symbol keywords. In the `.nli` = public. Not in `.nli` = private.
+- **Main package**: `package "main"`, requires `main()`, no `.bni` needed.
+- **Visibility**: no per-symbol keywords. In the `.bni` = public. Not in `.bni` = private.
 
 ### 1.4 Operator Set — DONE
 
@@ -261,7 +261,7 @@ No capacity argument. Growing is a library concern.
 - Body checked once against constraint; instantiation verifies type satisfies constraint
 - No generic methods on types (Go's rule). Use free functions.
 - No conditional impls for v1. Only specific instantiations can `impl`.
-- Cross-package: generic bodies in `.nli` files (needed for instantiation).
+- Cross-package: generic bodies in `.bni` files (needed for instantiation).
 
 ### 2.5 String & Array Semantics — DONE
 
@@ -290,7 +290,7 @@ Once Phases 1 and 2 are sufficiently resolved:
 
 ### 3.2 Identify the Bootstrap Subset — DONE
 
-The bootstrap interpreter only needs to support enough of the language to run the Newlang compiler/interpreter source. Identify what can be deferred:
+The bootstrap interpreter only needs to support enough of the language to run the Binate compiler/interpreter source. Identify what can be deferred:
 
 **In the bootstrap subset:**
 - Functions (non-generic)
@@ -306,7 +306,7 @@ The bootstrap interpreter only needs to support enough of the language to run th
 - `cast`, `bit_cast`, `len`
 - Multiple return values
 - Basic I/O (file read/write, stdout)
-- Package/import (simplified — no `.nli` enforcement)
+- Package/import (simplified — no `.bni` enforcement)
 
 **Deferred from bootstrap:**
 - Generics (type parameters, constraints, instantiation)
@@ -319,7 +319,7 @@ The bootstrap interpreter only needs to support enough of the language to run th
 - `const` in types (const pointers/slices)
 - Function types as values (beyond simple function calls)
 - REPL / retained-vs-immediate mode
-- `.nli` interface file enforcement
+- `.bni` interface file enforcement
 
 See `grammar.ebnf` for the formal grammar with `[BOOTSTRAP]`/`[DEFERRED]` annotations.
 
@@ -341,16 +341,16 @@ See `grammar.ebnf` for the formal grammar with `[BOOTSTRAP]`/`[DEFERRED]` annota
 
 ### 4.4 Tree-Walking Interpreter
 - Evaluate the AST directly
-- Implement managed memory with refcounting (in Go, backed by Go's GC for the interpreter's own allocations, but tracking refcounts for Newlang objects)
+- Implement managed memory with refcounting (in Go, backed by Go's GC for the interpreter's own allocations, but tracking refcounts for Binate objects)
 - Implement basic standard library (I/O, string operations, memory allocation)
 
 ### 4.5 Self-Test
-- Write small Newlang programs to test the interpreter
+- Write small Binate programs to test the interpreter
 - Build up a test suite that will also serve the future compiler
 
 ---
 
-## Phase 5: Writing the Real Compiler/Interpreter in Newlang
+## Phase 5: Writing the Real Compiler/Interpreter in Binate
 
 (Beyond the scope of this plan, but the end goal of Phases 1-4.)
 

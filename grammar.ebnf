@@ -1,4 +1,4 @@
-(* Newlang Formal Grammar — EBNF *)
+(* Binate Formal Grammar — EBNF *)
 (* Reference: claude-notes.md, claude-discussion-detailed-notes.md *)
 
 (* Bootstrap subset annotations:

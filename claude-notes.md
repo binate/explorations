@@ -1,4 +1,4 @@
-# Newlang Design Notes
+# Binate Design Notes
 
 ## Summary of Goals (from README)
 
@@ -467,9 +467,8 @@ Type identity: only standard/compiler annotations that affect representation (e.
 **Package system — DECIDED**:
 
 File extensions:
-- `.nl` — implementation files
-- `.nli` — interface files (will follow same pattern when language is renamed)
-
+- `.bn` — implementation files
+- `.bni` — interface files
 Package declaration: string-based, matches import path:
 ```
 package "pkg/foo"
@@ -478,13 +477,13 @@ package "pkg/foo"
 Directory layout: interface file is sibling of implementation directory:
 ```
 pkg/
-  foo.nli          // interface
+  foo.bni          // interface
   foo/             // implementation
-    impl1.nl
-    impl2.nl
+    impl1.bn
+    impl2.bn
 ```
 
-One interface file per package. Compiler finds `.nli` on search path, verifies implementation matches.
+One interface file per package. Compiler finds `.bni` on search path, verifies implementation matches.
 
 Import syntax:
 ```
@@ -494,11 +493,11 @@ import myname "pkg/foo"    // alias
 
 Search path: project root is highest priority, followed by other directories. `pkg/`-prefixed packages are "public" and found via search path. Non-`pkg/` packages are inherently local.
 
-No language-enforced `internal/` — with separate interfaces, visibility is already controlled by whether a `.nli` exists.
+No language-enforced `internal/` — with separate interfaces, visibility is already controlled by whether a `.bni` exists.
 
 Shadowing: allowed. Project-local packages take priority over external.
 
-Main package: `package "main"` is a special case — requires `main()` function, no `.nli` needed. Multiple `.nl` files per package supported (all in same directory).
+Main package: `package "main"` is a special case — requires `main()` function, no `.bni` needed. Multiple `.bn` files per package supported (all in same directory).
 
 ### Visibility & package interfaces — LEANING
 
@@ -529,9 +528,9 @@ Main package: `package "main"` is a special case — requires `main()` function,
 ### Self-hosting bootstrap — IN PROGRESS
 
 **Strategy**: interpreter-first bootstrap.
-1. Write a minimal interpreter in a host language (subset of Newlang only)
-2. Write the full interpreter and compiler in Newlang
-3. Use the minimal interpreter to run the Newlang compiler → compile everything → native binaries
+1. Write a minimal interpreter in a host language (subset of Binate only)
+2. Write the full interpreter and compiler in Binate
+3. Use the minimal interpreter to run the Binate compiler → compile everything → native binaries
 4. Discard the bootstrap interpreter. Fully self-hosted.
 
 The compiler should have a backend architecture that supports cross-compilation from the start, so bootstrap doesn't need to happen on target (32-bit) systems.
@@ -681,7 +680,7 @@ func foo[T ComparableStringer, U any](a T, b U) { ... }
 
 **No conditional impls** for v1. Only specific instantiations can have `impl` declarations.
 
-**Cross-package generics**: generic bodies included in `.nli` files (consumer needs them for instantiation, like C++ templates in headers).
+**Cross-package generics**: generic bodies included in `.bni` files (consumer needs them for instantiation, like C++ templates in headers).
 
 ### String & array semantics — DECIDED
 
