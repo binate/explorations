@@ -363,15 +363,18 @@ See `grammar.ebnf` for the formal grammar with `[BOOTSTRAP]`/`[DEFERRED]` annota
 **Phase 3 is complete.** Formal EBNF grammar written (`grammar.ebnf`) with bootstrap subset annotations.
 **Phase 4 is complete.** Bootstrap interpreter implemented in Go (`github.com/binate/bootstrap`):
 - Lexer, parser, type checker, tree-walking interpreter all functional
-- CLI runs `.bn` files: `go run main.go file1.bn [file2.bn ...] [-- args...]`
+- CLI: `binate [-root dir] file1.bn [file2.bn ...] [-- args...]`
 - Multi-file package support (merge multiple `.bn` files from same package)
-- `.bni` interface file loading: `pkg/bootstrap` declarations parsed from embedded `bootstrap.bni`
+- User-defined package imports with transitive dependency resolution and cycle detection
+- `.bni` interface file loading for package declarations (both embedded and on-disk)
+- Package loader: discovers `$ROOT/pkg/foo.bni` + `$ROOT/pkg/foo/*.bn`, validates package names match paths
 - I/O and process builtins in `pkg/bootstrap` package (open, read, write, close, exit, args, string)
 - Runtime error reporting with source positions (division by zero, index out of bounds, nil pointer dereference)
 - `iota` support in grouped const declarations
 - String indexing (`s[i]` returns char)
-- 28 lexer tests, 79 parser tests, 35 checker tests, 51 interpreter tests — all passing
-- Test programs: hello.bn, fib.bn, cat.bn, wc.bn, multi_math.bn + multi_main.bn
+- Project root defaults to cwd, overridable with `-root` flag
+- 28 lexer tests, 79 parser tests, 35 checker tests, 51+ interpreter tests — all passing
+- Test programs: hello.bn, fib.bn, cat.bn, wc.bn, multi-file examples, multi-package project (pkgtest)
 
 **Next:**
 1. Begin Phase 5 — writing the self-hosted compiler/interpreter in Binate
