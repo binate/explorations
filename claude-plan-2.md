@@ -384,4 +384,25 @@ Features that are fully designed but not implemented in the bootstrap subset:
 
 ## Current Status
 
-**Phase 5a is next.** Start with `pkg/token` — the smallest, most self-contained package.
+**Phase 5a in progress.** Frontend packages 1–4 are complete and tested:
+
+| # | Package | Status | Tests | Notes |
+|---|---------|--------|-------|-------|
+| 1 | `pkg/token` | Done | 6 | Token types, positions, keyword lookup |
+| 2 | `pkg/ast` | Done | 9 | Tagged union AST (Kind discriminators, managed pointers) |
+| 3 | `pkg/lexer` | Done | 17 | Full tokenizer with ASI, char literals, comments |
+| 4 | `pkg/parser` | Done | 44 | Recursive descent, all disambiguations (D1/D2/D4/D10) |
+| 5 | `pkg/types` | **Next** | — | Type checker: scopes, type resolution, assignability |
+| 6 | `pkg/interp` | — | — | Tree-walking interpreter |
+| 7 | `main.bn` | — | — | CLI driver |
+| 8 | Self-test | — | — | Validate against Go bootstrap |
+
+Total: **76 self-hosted tests** passing (all run via Go bootstrap).
+
+### Key decisions made during implementation
+
+- **AST representation**: tagged unions with `Kind int` discriminators. Each node type (Expr, Stmt, Decl, TypeExpr) is a single struct with a union of fields. Managed pointers (`@Expr`, `@Stmt`) for self-referential types. Works well without interfaces.
+- **Testing convention**: `TestXxx() testing.TestResult` — return-value based (empty = pass, non-empty = failure message). No panic recovery needed.
+- **char = uint8**: `char` is an alias for `uint8` in the bootstrap, matching the language design. Char literals produce uint8 values.
+- **Parser style**: layered precedence functions for expressions (not Pratt), matching the bootstrap parser structure. Pratt-style `continueBinaryExpr` used only for the for-loop disambiguation path.
+- **No variadic `append`**: bootstrap doesn't support `...` spread. String building uses `appendChars` helper loops instead.

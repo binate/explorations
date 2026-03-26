@@ -569,7 +569,11 @@ covering the bootstrap subset: functions, structs, pointers (raw and managed), s
 arrays, control flow, constants with iota, string indexing, and I/O via the `pkg/bootstrap`
 package. Multi-file packages, `.bni` interface loading, user-defined package imports with
 transitive dependency resolution, and runtime error reporting with source positions are
-all implemented. Ready for Step 2 (writing the self-hosted compiler/interpreter in Binate).
+all implemented.
+
+**Step 2 is in progress.** The self-hosted frontend (Phase 5a packages 1–4) is complete:
+`pkg/token`, `pkg/ast`, `pkg/lexer`, and `pkg/parser` — 76 tests passing. Next is the
+type checker (`pkg/types`), then the tree-walking interpreter (`pkg/interp`).
 
 Note: many items marked "IN PROGRESS" above were resolved during the grammar
 specification phase (Phase 3). See `grammar.ebnf` for the authoritative specification

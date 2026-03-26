@@ -1619,7 +1619,32 @@ The bootstrap interpreter implements `-test` mode in `main.go`:
 
 ---
 
-## 29. Topics Still Flagged for Future Discussion
+## 29. Self-Hosted Frontend Implementation
+
+The first four packages of Phase 5a are implemented and tested (76 tests total):
+
+**pkg/token** (6 tests): Token type enum via `iota`, `Pos` struct, keyword lookup, ASI trigger query. Straightforward port — first real Binate code.
+
+**pkg/ast** (9 tests): Tagged union AST using `Kind int` discriminators. Four node types: `Expr` (14 kinds), `Stmt` (13 kinds), `Decl` (5 kinds), `TypeExpr` (8 kinds). Each is a single struct with a union of fields; unused fields left at zero value. Managed pointers (`@Expr`, `@Stmt`, etc.) for self-referential types. Helper types: `Element`, `ParamDecl`, `FieldDecl`, `CaseClause`, `ImportSpec`, `File`. This works well without interfaces — the `Kind` check is explicit but readable. Decision validated: tagged unions are a reasonable AST representation for the bootstrap subset.
+
+**pkg/lexer** (17 tests): Full tokenizer with automatic semicolon insertion. Character-by-character scanning of identifiers, keywords, builtins, integer literals (decimal, hex, octal, binary), string literals, char literals. Operator and punctuation tokenization. Line/block comment skipping with newline tracking for ASI. Uses char literals throughout (`'+'`, `'\n'`, `'\0'`) for readability after the char=uint8 fix.
+
+**pkg/parser** (44 tests): Recursive descent parser, direct port from the Go bootstrap. Key aspects:
+- **Expression parsing**: layered precedence functions (parseOrExpr → parseAndExpr → ... → parseMulExpr → parseUnaryExpr → parsePostfixExpr → parsePrimaryExpr). Also has `continueBinaryExpr` with Pratt-style precedence climbing for the for-loop disambiguation path.
+- **Disambiguations**: D1 (simple stmt — parse expr list, then check operator), D2 (for-in via `in` keyword lookahead), D4 (composite literal suppression via `noCompositeLit` flag in if/for/switch conditions), D10 (struct field named vs anonymous via lookahead after identifier).
+- **Translation patterns**: Go methods → free functions taking `@Parser`; Go interface-based AST construction → tagged union `make(ast.Expr)` + field assignment; Go `fmt.Sprintf` → manual `appendChars` string building; Go `defer` → manual save/restore of `noCompositeLit`.
+- **Error handling**: `ParseError` structs with position and message. No error recovery beyond recording and continuing — sufficient for the bootstrap.
+
+### Lessons learned
+
+1. **No variadic append**: `append(slice, "literal"...)` doesn't work in the bootstrap (no spread operator). Use `appendChars(dst, src)` helper loops instead.
+2. **`cast(int, token.SOME_TYPE)`**: token types are `token.Type` (an `int`-based distinct type), but AST `Op` fields are plain `int`. Need explicit `cast(int, ...)` to store token types in Op fields.
+3. **No `fmt.Sprintf`**: error messages must be built manually by appending char slices. Verbose but works.
+4. **Managed pointer nil comparison**: `@T` pointers can be compared to `nil`, used for optional AST children (e.g., else branch, for-loop init/post).
+
+---
+
+## 30. Topics Still Flagged for Future Discussion
 
 - **Move/transfer ownership optimizations**: avoid refcount bumps when the compiler can prove last-use. Pure optimization, deferred.
 - **Hot-swapping interpreted code at runtime**: natural fit for the thunk model, deferred.
@@ -1637,7 +1662,7 @@ The bootstrap interpreter implements `-test` mode in `main.go`:
 
 ---
 
-## 30. Design Philosophy Summary
+## 31. Design Philosophy Summary
 
 The overarching philosophy that emerged through discussion:
 
