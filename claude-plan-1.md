@@ -361,19 +361,17 @@ See `grammar.ebnf` for the formal grammar with `[BOOTSTRAP]`/`[DEFERRED]` annota
 **Phase 1 is complete.** All core language specification items decided.
 **Phase 2 is complete.** All detailed semantics decided.
 **Phase 3 is complete.** Formal EBNF grammar written (`grammar.ebnf`) with bootstrap subset annotations.
-**Phase 4 is mostly complete.** Bootstrap interpreter implemented in Go (`github.com/binate/bootstrap`):
+**Phase 4 is complete.** Bootstrap interpreter implemented in Go (`github.com/binate/bootstrap`):
 - Lexer, parser, type checker, tree-walking interpreter all functional
-- CLI can run `.bn` files: `go run main.go file.bn`
-- I/O and process builtins in `pkg/bootstrap` package
-- 25 lexer tests, 70+ parser tests, 35 checker tests, 35 interpreter tests — all passing
-- Test programs: hello.bn, fib.bn, cat.bn, wc.bn
-
-**Remaining for Phase 4:**
-1. Multi-file package support (currently single-file only)
-2. `.bni` interface file loading for package declarations
-3. Hardening: bounds checking, division by zero traps, better runtime error messages
-4. Expanded test suite
+- CLI runs `.bn` files: `go run main.go file1.bn [file2.bn ...] [-- args...]`
+- Multi-file package support (merge multiple `.bn` files from same package)
+- `.bni` interface file loading: `pkg/bootstrap` declarations parsed from embedded `bootstrap.bni`
+- I/O and process builtins in `pkg/bootstrap` package (open, read, write, close, exit, args, string)
+- Runtime error reporting with source positions (division by zero, index out of bounds, nil pointer dereference)
+- `iota` support in grouped const declarations
+- String indexing (`s[i]` returns char)
+- 28 lexer tests, 79 parser tests, 35 checker tests, 51 interpreter tests — all passing
+- Test programs: hello.bn, fib.bn, cat.bn, wc.bn, multi_math.bn + multi_main.bn
 
 **Next:**
-1. Complete Phase 4 remaining items
-2. Begin Phase 5 — writing the self-hosted compiler/interpreter in Binate
+1. Begin Phase 5 — writing the self-hosted compiler/interpreter in Binate
