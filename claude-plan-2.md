@@ -368,6 +368,15 @@ These don't need to be resolved now but should be addressed as we encounter them
 
 8. **Cross-compilation.** The compiler architecture should support cross-compilation from day one (just select a different backend). But we don't need to test it until after self-hosting.
 
+### Deferred from bootstrap
+
+Features that are fully designed but not implemented in the bootstrap subset:
+- **Spread operator** (`...`): needed for `append(a, b...)` and variadic forwarding. Bootstrap uses `Concat` builtin for string concatenation instead.
+- **Const types**: bootstrap does not support `const` in types. String literals are `[]char` (not `[]const char`).
+- **Generics**: bootstrap uses concrete types per key/value combination.
+- **Interfaces / impl / methods**: designed but not in bootstrap subset (decision pending on whether to add for AST representation).
+- **Function values / closures**: workaround via switch statements.
+
 ---
 
 ## Current Status

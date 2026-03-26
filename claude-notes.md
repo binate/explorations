@@ -253,7 +253,7 @@ Same principle for struct/type redefinition: existing instances retain the old l
 
 **String literal → slice**: the raw storage includes the null, but a slice of it excludes the null. `"abc"` → storage is `{'a','b','c','\0'}` (4 bytes), but the slice is `(ptr, 3)`. `len()` returns 3. The null is there in memory for C interop but isn't part of the slice's view. This avoids the "does len include the null?" confusion.
 
-**No explicit `string` type.** Strings are char arrays/slices. Language targets small systems where full UTF-8 support is too heavy to justify a separate type.
+**No `string` type.** `string` does NOT exist as a type in Binate. String literals are `[]const char` (or `[]char` in the bootstrap, which lacks const types). The bootstrap interpreter has `string` as an internal convenience alias for `[]char`, but self-hosted code must use `[]char`. Language targets small systems where full UTF-8 support is too heavy to justify a separate type.
 
 ### Type system richness
 
@@ -437,6 +437,13 @@ func (p *const Point) distance() float64 { ... }
 - Managed interface variadics (`...@Stringer`) for functions that retain args.
 - `println`/`printf` likely compiler builtins for practical reasons, but user-defined variadic logging functions work efficiently with raw interface args.
 
+### Spread operator — DECIDED
+
+- `...` spread operator for passing slices to variadic functions and for `append`: `append(a, b...)`
+- Syntax: `expr...` where `expr` is a slice — expands the slice into individual arguments
+- Use cases: `append(a, b...)` for slice concatenation, passing slices to variadic functions (e.g., forwarding args in `printf` calling `sprintf`)
+- Deferred from bootstrap subset — bootstrap uses `Concat` builtin for string concatenation instead
+
 **Type declarations — DECIDED**:
 - `type Celsius float64` — distinct new type, same representation. Requires `cast()` to convert. Can have methods and impl interfaces.
 - `type byte = uint8` — alias, fully interchangeable. Cannot have methods.
@@ -512,6 +519,13 @@ No language-enforced `internal/` — with separate interfaces, visibility is alr
 Shadowing: allowed. Project-local packages take priority over external.
 
 Main package: `package "main"` is a special case — requires `main()` function, no `.bni` needed. Multiple `.bn` files per package supported (all in same directory).
+
+### Naming conventions — DECIDED
+
+- Exported symbols (those in `.bni` files) should be capitalized (Go-style): `TypeName`, `IsKeyword`, `Lookup`
+- Private symbols (not in `.bni`) use lowercase/snake_case: `helper_func`, `internal_state`
+- This is a convention, not enforced by the compiler — visibility is still determined by `.bni` presence
+- Types, functions, and constants in `.bni` should all follow this convention
 
 ### Visibility & package interfaces — LEANING
 

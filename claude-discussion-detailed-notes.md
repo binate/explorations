@@ -1523,7 +1523,36 @@ This is an open decision. Adding interfaces to the bootstrap is the cleanest pat
 
 ---
 
-## 26. Topics Still Flagged for Future Discussion
+## 26. Spread Operator
+
+### Decision: `...` spread operator for expanding slices into variadic arguments
+
+The `...` spread operator allows a slice to be expanded into individual arguments when calling a variadic function. Syntax: `expr...` where `expr` is a slice type.
+
+**Primary use cases:**
+- `append(a, b...)` — slice concatenation (append all elements of `b` to `a`)
+- Forwarding variadic arguments, e.g., a `printf` implementation that calls `sprintf` with accumulated args
+
+**Why `append(a, b)` without spread was rejected:**
+When `a` is `[]any`, `append(a, b)` is ambiguous — you cannot tell whether `b` is a single element to append or a slice whose elements should be spread. The explicit `b...` syntax resolves this ambiguity.
+
+**Deferred from bootstrap.** The bootstrap subset does not implement the spread operator. For the primary bootstrap need (string concatenation), the `Concat` builtin is used instead.
+
+---
+
+## 27. Naming Conventions
+
+### Decision: Capitalized exports (Go-style)
+
+Exported symbols — those declared in `.bni` interface files — should use capitalized names: `TypeName`, `IsKeyword`, `Lookup`. Private symbols (not in `.bni`) use lowercase or snake_case: `helper_func`, `internal_state`.
+
+**This is convention only.** The compiler does not enforce capitalization. Visibility is still determined solely by whether a symbol appears in the `.bni` file. The convention ensures readable code and makes it visually clear which symbols are part of the public API.
+
+Types, functions, and constants that appear in `.bni` files should all follow this convention.
+
+---
+
+## 28. Topics Still Flagged for Future Discussion
 
 - **Move/transfer ownership optimizations**: avoid refcount bumps when the compiler can prove last-use. Pure optimization, deferred.
 - **Hot-swapping interpreted code at runtime**: natural fit for the thunk model, deferred.
@@ -1540,7 +1569,7 @@ This is an open decision. Adding interfaces to the bootstrap is the cleanest pat
 
 ---
 
-## 27. Design Philosophy Summary
+## 29. Design Philosophy Summary
 
 The overarching philosophy that emerged through discussion:
 
