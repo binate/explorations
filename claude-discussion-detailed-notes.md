@@ -1462,7 +1462,45 @@ The critical review surfaced an important framing for the dual-mode story: in em
 
 ---
 
-## 24. Topics Still Flagged for Future Discussion
+## 24. Phase 5 Planning: Self-Hosted Toolchain
+
+With the Go bootstrap interpreter complete (Phase 4), the next step is writing the self-hosted toolchain in Binate itself. See `claude-plan-2.md` for the full plan. Key discussion points and rationale:
+
+### Interpreter first, then compiler
+
+The frontend (lexer, parser, type checker) is shared between interpreter and compiler. Writing the interpreter first means we build and validate the entire frontend before tackling codegen. The tree-walker backend is comparatively simple. This gets us to a self-hosting milestone sooner and provides a development platform for the compiler.
+
+The bootstrapping chain: Go bootstrap → self-hosted interpreter → self-hosted compiler → self-compiled compiler (native binary).
+
+### Single repo vs. multiple repos
+
+The user's initial instinct was three repos (common code, interpreter, compiler). After discussion, starting with a single repo was preferred because:
+- No cross-repo dependency tooling exists yet for Binate
+- Shared frontend code will be heavily iterated; same-repo refactoring is trivial
+- Binate's package system already enforces separation (`pkg/lexer`, `pkg/parser`, etc.)
+- Can split mechanically later once boundaries are stable
+
+### AST representation: the interface question
+
+The bootstrap subset doesn't include interfaces, but the AST is inherently polymorphic (expressions, statements, declarations are all different types). Three options discussed:
+
+1. **Tagged union with kind field + `*any` casts.** Works in the bootstrap subset but is ugly and error-prone. Would need refactoring once interfaces are available.
+2. **Add interfaces to the Go bootstrap.** Significant work (vtable dispatch, impl declarations, method receivers) but produces clean self-hosted code from the start. Interfaces are already fully designed in the language spec.
+3. **Hybrid approach.** E.g., use distinct types with a kind field but avoid `*any` by having per-kind accessor functions.
+
+This is an open decision. Adding interfaces to the bootstrap is the cleanest path but the most work. The decision point is when we start writing `pkg/ast` for the self-hosted toolchain.
+
+### Compiler architecture decisions
+
+- **IR**: SSA-based, typed, target-independent. High-level operations (refcount inc/dec, bounds checks) lowered progressively.
+- **Backends**: pluggable, one architecture at a time. Start with the dev machine's architecture.
+- **Optimization**: optional and pluggable. Refcount elision and escape analysis prioritized (biggest wins for Binate's memory model).
+- **Object files**: emit platform-native formats (ELF, Mach-O) directly behind a clean abstraction. Shell out to system linker initially; write own linker later for hermetic builds.
+- **Inline assembly**: proposed `#[asm("arch")]` annotation syntax. Can be avoided for initial self-hosting by keeping OS primitives in builtin packages.
+
+---
+
+## 25. Topics Still Flagged for Future Discussion
 
 - **Move/transfer ownership optimizations**: avoid refcount bumps when the compiler can prove last-use. Pure optimization, deferred.
 - **Hot-swapping interpreted code at runtime**: natural fit for the thunk model, deferred.
@@ -1473,10 +1511,13 @@ The critical review surfaced an important framing for the dual-mode story: in em
 - **Sentinel refcount details**: exact value for immortal/static managed data, interaction with overflow checking.
 - **Optional optimizer modules**: compiler with varying optimization passes, relevant for self-hosting on small systems.
 - **Annotations on control flow statements**: `#[likely] if cond { ... }`, `#[cold] for ...`, branch prediction hints. Natural extension of the annotation attachment model to statements.
+- **Inline assembly syntax**: `#[asm("arch")]` proposed but details TBD (parameter-to-register mapping, clobber lists, whole-function vs. inline blocks).
+- **Object file format strategy**: start with platform-native (ELF/Mach-O), possibly move to Binate-specific format with converters later.
+- **Own linker**: needed eventually for hermetic builds and cross-compilation, deferred.
 
 ---
 
-## 25. Design Philosophy Summary
+## 26. Design Philosophy Summary
 
 The overarching philosophy that emerged through discussion:
 

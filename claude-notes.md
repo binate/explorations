@@ -714,13 +714,13 @@ func foo[T ComparableStringer, U any](a T, b U) { ... }
 
 ## Next Steps
 
-See `claude-plan-1.md` for a detailed plan of what needs to be nailed down before implementation. Key areas:
+Phases 1–4 are complete. See `claude-plan-1.md` for the full record.
 
-1. Primitive types (exact set, naming)
-2. Concrete syntax for every construct (especially pointer/slice syntax)
-3. Package & module system details
-4. Operator set
-5. Scoping rules, memory layout details, method dispatch
-6. Formal grammar (EBNF/PEG)
-7. Bootstrap subset definition
-8. Go bootstrap interpreter implementation
+**Phase 5: Self-hosted toolchain** — see `claude-plan-2.md` for the detailed plan. Key decisions:
+
+1. **Interpreter first, then compiler.** Shared frontend (lexer, parser, types) is the bulk of the work. Interpreter adds just a tree-walker; compiler adds IR, codegen, backends.
+2. **Single repo to start** (`binate/binate`). Split into core/interp/compiler repos once boundaries stabilize.
+3. **Compiler architecture**: SSA-based IR, pluggable backends (x86-64, ARM64), optional optimization passes (refcount elision and escape analysis prioritized).
+4. **Object files**: emit platform-native formats (ELF/Mach-O) directly, shell out to system linker initially.
+5. **Inline assembly**: `#[asm("arch")]` annotation syntax proposed; deferred for initial self-hosting.
+6. **Key open question**: AST representation without interfaces — tagged unions, `*any` casts, or add interfaces to the bootstrap subset. Decision when we start writing `pkg/ast`.
