@@ -269,6 +269,20 @@ Same principle for struct/type redefinition: existing instances retain the old l
   - Don't design initialization rules that conflict with future definite-initialization analysis
   - Ensure null checks (`if p != nil`) are clean and expressible — they become compiler-checked patterns later
 
+### Maps / hash tables — DECIDED
+
+**No built-in map type.** Maps are a library/package concern, provided via generics.
+
+Rationale:
+- Built-in maps (like Go's) are "magic" — special deletion syntax, special iteration, can't take address of elements. This kind of special-casing conflicts with Binate's minimal-core philosophy.
+- With generics, `Map[K, V]` in a standard package is just as ergonomic, with hashability/comparability expressed via interface constraints.
+- Library maps allow implementation flexibility (hash map, tree map, open addressing, etc.) rather than locking in one implementation.
+- Binate targets small systems — not every program needs a hash table. Import only if needed.
+
+For the bootstrap (no generics), two viable approaches:
+- Concrete map types per key/value combination (`StringToInt`, `StringToType`, etc.) — more code but translates cleanly to generic `Map[K, V]` later.
+- Sorted arrays + binary search — simpler, sufficient for bootstrap-scale symbol tables.
+
 ### Enums — DECIDED (revised: no first-class enums)
 
 **No first-class enums.** Use `type` + `const` blocks with `iota` (Go's approach).

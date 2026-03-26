@@ -354,7 +354,7 @@ These don't need to be resolved now but should be addressed as we encounter them
 
 1. **AST representation without interfaces.** Three options: (a) tagged union with kind field + `*any`, (b) extend the Go bootstrap to support interfaces/impl/methods, or (c) some hybrid. Adding interfaces to the bootstrap is more upfront work but produces cleaner self-hosted code and avoids a painful refactor later. Decision point: when we start writing `pkg/ast`.
 
-2. **Map/hash table.** The lexer needs keyword lookup, the type checker needs symbol tables. Without generics, we need concrete map types (e.g., `StringIntMap`, `StringTypeMap`). Should we add a builtin `map` type to the bootstrap, or implement hash tables manually?
+2. **Map/hash table.** The lexer needs keyword lookup, the type checker needs symbol tables. Maps are a library feature (no builtin `map` type — see design notes). Without generics in the bootstrap, use concrete map types per key/value combination (`StringToInt`, `StringToType`, etc.) — these translate mechanically to `Map[K, V]` once generics arrive.
 
 3. **String operations.** The bootstrap has minimal string support. We'll need: concatenation (currently `+`?), substring, comparison, conversion to/from byte slices. May need to extend `pkg/bootstrap`.
 

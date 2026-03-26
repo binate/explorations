@@ -1500,7 +1500,30 @@ This is an open decision. Adding interfaces to the bootstrap is the cleanest pat
 
 ---
 
-## 25. Topics Still Flagged for Future Discussion
+## 25. Maps / Hash Tables
+
+### Decision: Library-only, no built-in map type
+
+**Alternatives considered:**
+
+1. **Built-in `map[K]V` (Go-style).** Convenient, but introduces language magic: special syntax for deletion, special iteration behavior, can't take address of elements, compiler must generate type-specific code behind the scenes. Conflicts with the "minimal core, no special-casing" philosophy.
+
+2. **Library via generics (chosen).** `Map[K, V]` in a standard package, with hashability/comparability expressed as interface constraints on `K`. Just as ergonomic as a builtin once generics are available. Allows multiple implementations (hash map, tree map, etc.) without language changes.
+
+**Why not built-in:**
+- Go's built-in maps are one of its most "magical" features — they don't follow the same rules as user-defined types. Binate's design avoids this kind of special-casing.
+- A library map is a normal generic type with normal semantics. No special deletion syntax, no hidden allocator, no compiler magic.
+- Small-system targets may not need hash tables at all. Library = pay only if you import it.
+- Implementation flexibility: users and the standard library can provide hash maps, tree maps, concurrent maps, etc. — all through the same generic interface.
+
+**Bootstrap strategy (no generics available):**
+- Concrete map types per key/value combination: `StringToInt`, `StringToType`, etc. More boilerplate, but the API shape matches what `Map[string, int]` would look like, so the transition to generics is mechanical.
+- Alternative: sorted arrays + binary search. Simpler to implement, sufficient for bootstrap-scale data, but the API is more different from a generic map.
+- Preference: concrete map types, because fewer code changes when generics arrive.
+
+---
+
+## 26. Topics Still Flagged for Future Discussion
 
 - **Move/transfer ownership optimizations**: avoid refcount bumps when the compiler can prove last-use. Pure optimization, deferred.
 - **Hot-swapping interpreted code at runtime**: natural fit for the thunk model, deferred.
@@ -1517,7 +1540,7 @@ This is an open decision. Adding interfaces to the bootstrap is the cleanest pat
 
 ---
 
-## 26. Design Philosophy Summary
+## 27. Design Philosophy Summary
 
 The overarching philosophy that emerged through discussion:
 
