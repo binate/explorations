@@ -384,7 +384,7 @@ Features that are fully designed but not implemented in the bootstrap subset:
 
 ## Current Status
 
-**Phase 5a in progress.** Frontend packages 1–4 are complete and tested:
+**Phase 5a complete.** All packages ported, tested, and self-test passing:
 
 | # | Package | Status | Tests | Notes |
 |---|---------|--------|-------|-------|
@@ -392,12 +392,12 @@ Features that are fully designed but not implemented in the bootstrap subset:
 | 2 | `pkg/ast` | Done | 9 | Tagged union AST (Kind discriminators, managed pointers) |
 | 3 | `pkg/lexer` | Done | 17 | Full tokenizer with ASI, char literals, comments |
 | 4 | `pkg/parser` | Done | 44 | Recursive descent, all disambiguations (D1/D2/D4/D10) |
-| 5 | `pkg/types` | **Next** | — | Type checker: scopes, type resolution, assignability |
-| 6 | `pkg/interp` | — | — | Tree-walking interpreter |
-| 7 | `main.bn` | — | — | CLI driver |
-| 8 | Self-test | — | — | Validate against Go bootstrap |
+| 5 | `pkg/types` | Done | 58 | Type checker: scopes, type resolution, assignability, checker integration |
+| 6 | `pkg/interp` | Done | 49 | Tree-walking interpreter: values, env, 38 integration tests |
+| 7 | `main.bn` | Done | — | Minimal single-file driver (parse + interpret, no type checking) |
+| 8 | Self-test | Done | 8 | selftest.bn: arithmetic, bools, loops, funcs, recursion, slices |
 
-Total: **76 self-hosted tests** passing (all run via Go bootstrap).
+Total: **183 self-hosted tests** passing (all run via Go bootstrap), plus 8 self-test checks through the full bootstrap → self-hosted → selftest chain.
 
 ### Key decisions made during implementation
 
