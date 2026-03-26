@@ -384,20 +384,35 @@ Features that are fully designed but not implemented in the bootstrap subset:
 
 ## Current Status
 
-**Phase 5a complete.** All packages ported, tested, and self-test passing:
+**Phase 5a complete. Phase 5b (compiler) in progress — see claude-plan-3.md.**
 
 | # | Package | Status | Tests | Notes |
 |---|---------|--------|-------|-------|
 | 1 | `pkg/token` | Done | 6 | Token types, positions, keyword lookup |
 | 2 | `pkg/ast` | Done | 9 | Tagged union AST (Kind discriminators, managed pointers) |
-| 3 | `pkg/lexer` | Done | 17 | Full tokenizer with ASI, char literals, comments |
+| 3 | `pkg/lexer` | Done | 28 | Full tokenizer with ASI, char/string literals, comments |
 | 4 | `pkg/parser` | Done | 44 | Recursive descent, all disambiguations (D1/D2/D4/D10) |
-| 5 | `pkg/types` | Done | 58 | Type checker: scopes, type resolution, assignability, checker integration |
-| 6 | `pkg/interp` | Done | 49 | Tree-walking interpreter: values, env, 38 integration tests |
-| 7 | `main.bn` | Done | — | Minimal single-file driver (parse + interpret, no type checking) |
-| 8 | Self-test | Done | 8 | selftest.bn: arithmetic, bools, loops, funcs, recursion, slices |
+| 5 | `pkg/types` | Done | 58 | Type checker: scopes, type resolution, assignability |
+| 6 | `pkg/interp` | Done | 100 | Tree-walking interpreter: values, env, builtins, cross-package calls |
+| 7 | `pkg/loader` | Done | 32 | Package discovery, parsing, merging, topological sort |
+| 8 | `pkg/ir` | Done | 34 | SSA IR: 55 ops, data structures, constructors, emitters |
+| 9 | `pkg/ir/gen.bn` | Done | — | IR generation from AST (funcs, vars, arith, if/else, for, println) |
+| 10 | `pkg/codegen` | Done | — | LLVM IR text emission |
+| 11 | `runtime/` | Done | — | Minimal C runtime (print, exit) |
+| 12 | `compile.bn` | Done | — | Compiler driver: parse → IR → LLVM IR → stdout |
+| 13 | `main.bn` | Done | — | Multi-file driver with package loading and arg forwarding |
+| 14 | Self-test | Done | 8 | selftest.bn: arithmetic, bools, loops, funcs, recursion, slices |
+| 15 | Double interp | Done | — | bootstrap -> main.bn -> main.bn -> selftest.bn verified |
+| 16 | Conformance | Done | 25 | Standalone test programs shared across backends (bootstrap + selfhost) |
 
-Total: **183 self-hosted tests** passing (all run via Go bootstrap), plus 8 self-test checks through the full bootstrap → self-hosted → selftest chain.
+### Bootstrap additions (beyond original plan)
+- `ReadDir`, `Stat` builtins for package loader file discovery
+- `append(nil, x)` and `len(nil)` handling (Go semantics)
+- `StringVal` slicing support (produces `[]char SliceVal`)
+- Bootstrap forwarding layer (`RegisterBootstrapPackage`, `callBootstrapBuiltin`)
+- `SetArgs` for passing program arguments to inner interpreter
+
+Total: **~270 self-hosted tests** passing (all run via Go bootstrap), 25 conformance tests passing on both bootstrap and self-hosted interpreter, plus 8 self-test checks through the full bootstrap → self-hosted → selftest chain.
 
 ### Key decisions made during implementation
 
