@@ -211,6 +211,7 @@ pkg/codegen/
   codegen/*.bn         shared utilities (register allocation, instruction selection helpers)
   x86_64.bni + x86_64/*.bn     x86-64 backend
   arm64.bni + arm64/*.bn       ARM64 backend
+  llvm.bni + llvm/*.bn           LLVM IR emission backend
   (future: riscv64, wasm, ...)
 ```
 
@@ -221,6 +222,8 @@ A backend must provide:
 - **Object file emission.** Encode instructions and relocations into the target format.
 
 **Start with one backend** — whichever architecture we're developing on (likely ARM64 for Apple Silicon or x86-64). Add the second backend once the first is solid.
+
+**LLVM IR backend**: an alternative to custom codegen on "big" platforms. Emit LLVM IR and let LLVM handle instruction selection, register allocation, and optimization. This gives competitive native code quality quickly without writing a full backend per architecture. Custom backends are still needed for embedded/small targets where the LLVM toolchain is too heavy, but LLVM is the pragmatic path for desktop/server use. The pluggable backend interface should accommodate both custom and LLVM backends.
 
 ### Optimization
 

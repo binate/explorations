@@ -1621,6 +1621,7 @@ The bootstrap interpreter implements `-test` mode in `main.go`:
 - **Inline assembly syntax**: `#[asm("arch")]` proposed but details TBD (parameter-to-register mapping, clobber lists, whole-function vs. inline blocks).
 - **Object file format strategy**: start with platform-native (ELF/Mach-O), possibly move to Binate-specific format with converters later.
 - **Own linker**: needed eventually for hermetic builds and cross-compilation, deferred.
+- **LLVM IR backend**: alongside the custom backends (x86-64, ARM64), an LLVM IR emission backend would give high-quality native codegen on "big" platforms (desktop, server) essentially for free. Custom backends are still needed for embedded/small targets where LLVM is too heavy, but LLVM would be the pragmatic fast path to competitive native code on mainstream platforms. Worth considering as a pluggable backend alongside the custom ones.
 
 ---
 

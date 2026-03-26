@@ -748,7 +748,7 @@ Phases 1–4 are complete. See `claude-plan-1.md` for the full record.
 
 1. **Interpreter first, then compiler.** Shared frontend (lexer, parser, types) is the bulk of the work. Interpreter adds just a tree-walker; compiler adds IR, codegen, backends.
 2. **Single repo to start** (`binate/binate`). Split into core/interp/compiler repos once boundaries stabilize.
-3. **Compiler architecture**: SSA-based IR, pluggable backends (x86-64, ARM64), optional optimization passes (refcount elision and escape analysis prioritized).
+3. **Compiler architecture**: SSA-based IR, pluggable backends (x86-64, ARM64, LLVM IR), optional optimization passes (refcount elision and escape analysis prioritized). LLVM IR backend gives quality native codegen on big platforms quickly; custom backends needed for embedded targets where LLVM is too heavy.
 4. **Object files**: emit platform-native formats (ELF/Mach-O) directly, shell out to system linker initially.
 5. **Inline assembly**: `#[asm("arch")]` annotation syntax proposed; deferred for initial self-hosting.
 6. **AST representation — DECIDED**: tagged unions (structs with `Kind int` fields). Without interfaces in the bootstrap subset, each AST node type (Expr, Stmt, Decl, TypeExpr) is a single struct with a Kind discriminator and union of fields. Managed pointers (`@Expr`, `@Stmt`) enable self-referential types. Two-pass type resolution (pre-register placeholders, then resolve) handles forward references.
