@@ -760,9 +760,10 @@ Unit testing built into the toolchain with a lightweight, convention-based appro
 - **Test files**: `*_test.bn`, live alongside regular `.bn` files in the same package directory
 - **Same-package tests**: test files use the same `package` declaration as the code they test (no separate `foo_test` package). They can access all symbols including unexported helpers.
 - **Exclusion by default**: `_test.bn` files are excluded from normal builds. Only included when the package is a `-test` target.
-- **Test functions**: `TestXxx()` — no parameters, no return value. Discovered automatically by name prefix.
-- **Failure signaling**: `panic("message")`. The test runner catches panics and reports them. No test framework needed.
+- **Test functions**: `TestXxx() testing.TestResult` — no parameters, returns `testing.TestResult`. Discovered automatically by name prefix and signature.
+- **Failure signaling**: return a non-empty string (the failure message). Empty string means pass. No panic recovery needed — works identically in interpreter and compiled code.
+- **`pkg/builtin/testing`**: provides `type TestResult = []char`. Test files import this package.
 - **CLI**: `binate -test [-root dir] <pkg/foo> [pkg/bar ...]` — supports multiple packages in one invocation.
 - **Output format**: Go-style (`=== RUN`, `--- PASS`/`--- FAIL`, `ok`/`FAIL` per package, summary).
 
-Design rationale: minimal complexity, works within the bootstrap subset (no interfaces, no generics, no closures needed), and scales to self-hosted. The convention is close enough to Go's that it feels familiar, but simpler (no `testing.T` parameter, no sub-tests).
+Design rationale: minimal complexity, works within the bootstrap subset (no interfaces, no generics, no closures needed), and works identically in interpreted and compiled code (no panic recovery needed). The convention is close enough to Go's that it feels familiar, but simpler (no `testing.T` parameter, no sub-tests). Wrong-signature `TestXxx` functions produce a warning.

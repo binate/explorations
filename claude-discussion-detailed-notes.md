@@ -1566,9 +1566,19 @@ We considered Go's optional `foo_test` external test package pattern but rejecte
 
 ### Test discovery and execution
 
-Test functions follow the naming convention `TestXxx()` — no parameters, no return value. The test runner discovers them automatically by scanning for functions whose names start with `Test`.
+Test functions follow the naming convention `TestXxx() testing.TestResult` — no parameters, returns `testing.TestResult`. The test runner discovers them automatically by scanning for functions whose names start with `Test` and have the correct signature. Functions named `TestXxx` with the wrong signature produce a warning and are skipped.
 
-Failure is signaled by `panic("message")`. The test runner wraps each test in a `recover` and reports panics as failures. This avoids the need for a `testing.T` parameter or any test framework types.
+Failure is signaled by returning a non-empty string (the failure message). An empty return means pass. This approach was chosen over `panic("message")` because it works identically in both the interpreter and compiled code — no panic recovery mechanism needed. The compiled test binary can call each test function and inspect the return value directly, with no `setjmp`/`longjmp` or signal-handling machinery.
+
+### pkg/builtin/testing
+
+The `pkg/builtin/testing` package provides the `TestResult` type:
+
+```
+type TestResult = []char
+```
+
+This is a type alias, so string literals can be returned directly. Test files must `import "pkg/builtin/testing"`.
 
 ### Build integration
 
@@ -1585,7 +1595,7 @@ Multiple packages can be tested in a single invocation. The runner loads all spe
 --- PASS: TestFoo
 === RUN   TestBar
 --- FAIL: TestBar
-    bar_test.bn:12:9: expected 42, got 0
+    expected 42, got 0
 ok  	pkg/foo	2 tests
 FAIL	pkg/bar
 ```
@@ -1593,8 +1603,9 @@ FAIL	pkg/bar
 ### Design rationale
 
 - **Minimal complexity**: works within the bootstrap subset (no interfaces, generics, or closures needed)
-- **Convention over configuration**: no registration, no test main, no imports required
+- **Convention over configuration**: no registration, no test main — just import `pkg/builtin/testing` and write `TestXxx() testing.TestResult` functions
 - **Familiar**: close to Go's model but simpler (no `testing.T`, no sub-tests, no benchmarks)
+- **Portable across execution modes**: return-value-based failure works identically in the interpreter and compiled code — no panic recovery mechanism needed
 - **Scales to self-hosted**: same convention will work in the self-hosted toolchain; test framework features (benchmarks, sub-tests) can be added later without breaking the basic convention
 
 ### Bootstrap implementation
@@ -1602,8 +1613,9 @@ FAIL	pkg/bar
 The bootstrap interpreter implements `-test` mode in `main.go`:
 1. Loader's `TestPackages` map controls which packages include `_test.bn` files
 2. Synthetic imports load test packages and their dependencies
-3. After type-checking, test functions are discovered by iterating package declarations
-4. `interpreter.RunTestFunc()` calls each test function with panic recovery
+3. After type-checking, test functions are discovered by iterating package declarations — checking for `TestXxx() testing.TestResult` signature
+4. `interpreter.RunTestFunc()` calls each test function and inspects the return value (empty = pass, non-empty = failure message)
+5. Functions named `TestXxx` with wrong signatures get a warning
 
 ---
 
