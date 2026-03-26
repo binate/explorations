@@ -751,4 +751,18 @@ Phases 1–4 are complete. See `claude-plan-1.md` for the full record.
 3. **Compiler architecture**: SSA-based IR, pluggable backends (x86-64, ARM64), optional optimization passes (refcount elision and escape analysis prioritized).
 4. **Object files**: emit platform-native formats (ELF/Mach-O) directly, shell out to system linker initially.
 5. **Inline assembly**: `#[asm("arch")]` annotation syntax proposed; deferred for initial self-hosting.
-6. **Key open question**: AST representation without interfaces — tagged unions, `*any` casts, or add interfaces to the bootstrap subset. Decision when we start writing `pkg/ast`.
+6. **AST representation — DECIDED**: tagged unions (structs with `Kind int` fields). Without interfaces in the bootstrap subset, each AST node type (Expr, Stmt, Decl, TypeExpr) is a single struct with a Kind discriminator and union of fields. Managed pointers (`@Expr`, `@Stmt`) enable self-referential types. Two-pass type resolution (pre-register placeholders, then resolve) handles forward references.
+
+### Testing convention — DECIDED
+
+Unit testing built into the toolchain with a lightweight, convention-based approach:
+
+- **Test files**: `*_test.bn`, live alongside regular `.bn` files in the same package directory
+- **Same-package tests**: test files use the same `package` declaration as the code they test (no separate `foo_test` package). They can access all symbols including unexported helpers.
+- **Exclusion by default**: `_test.bn` files are excluded from normal builds. Only included when the package is a `-test` target.
+- **Test functions**: `TestXxx()` — no parameters, no return value. Discovered automatically by name prefix.
+- **Failure signaling**: `panic("message")`. The test runner catches panics and reports them. No test framework needed.
+- **CLI**: `binate -test [-root dir] <pkg/foo> [pkg/bar ...]` — supports multiple packages in one invocation.
+- **Output format**: Go-style (`=== RUN`, `--- PASS`/`--- FAIL`, `ok`/`FAIL` per package, summary).
+
+Design rationale: minimal complexity, works within the bootstrap subset (no interfaces, no generics, no closures needed), and scales to self-hosted. The convention is close enough to Go's that it feels familiar, but simpler (no `testing.T` parameter, no sub-tests).

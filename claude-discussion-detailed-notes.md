@@ -1552,7 +1552,62 @@ Types, functions, and constants that appear in `.bni` files should all follow th
 
 ---
 
-## 28. Topics Still Flagged for Future Discussion
+## 28. Testing Convention
+
+### Decision
+
+Binate has a built-in, convention-based unit testing system. No test framework or library required.
+
+### File convention
+
+Test files are named `*_test.bn` and placed alongside implementation files in the same package directory. They use the **same package declaration** as the code under test (same-package testing), giving them access to all symbols including unexported helpers.
+
+We considered Go's optional `foo_test` external test package pattern but rejected it — it would require special-casing the package-name-must-match-directory rule, and same-package testing is simpler and sufficient for bootstrap needs.
+
+### Test discovery and execution
+
+Test functions follow the naming convention `TestXxx()` — no parameters, no return value. The test runner discovers them automatically by scanning for functions whose names start with `Test`.
+
+Failure is signaled by `panic("message")`. The test runner wraps each test in a `recover` and reports panics as failures. This avoids the need for a `testing.T` parameter or any test framework types.
+
+### Build integration
+
+`_test.bn` files are **excluded from normal builds**. They are only included when a package is explicitly named as a `-test` target:
+
+```
+binate -test [-root dir] <pkg/foo> [pkg/bar ...]
+```
+
+Multiple packages can be tested in a single invocation. The runner loads all specified packages and their dependencies, discovers test functions, runs them, and reports results in a Go-style format:
+
+```
+=== RUN   TestFoo
+--- PASS: TestFoo
+=== RUN   TestBar
+--- FAIL: TestBar
+    bar_test.bn:12:9: expected 42, got 0
+ok  	pkg/foo	2 tests
+FAIL	pkg/bar
+```
+
+### Design rationale
+
+- **Minimal complexity**: works within the bootstrap subset (no interfaces, generics, or closures needed)
+- **Convention over configuration**: no registration, no test main, no imports required
+- **Familiar**: close to Go's model but simpler (no `testing.T`, no sub-tests, no benchmarks)
+- **Scales to self-hosted**: same convention will work in the self-hosted toolchain; test framework features (benchmarks, sub-tests) can be added later without breaking the basic convention
+
+### Bootstrap implementation
+
+The bootstrap interpreter implements `-test` mode in `main.go`:
+1. Loader's `TestPackages` map controls which packages include `_test.bn` files
+2. Synthetic imports load test packages and their dependencies
+3. After type-checking, test functions are discovered by iterating package declarations
+4. `interpreter.RunTestFunc()` calls each test function with panic recovery
+
+---
+
+## 29. Topics Still Flagged for Future Discussion
 
 - **Move/transfer ownership optimizations**: avoid refcount bumps when the compiler can prove last-use. Pure optimization, deferred.
 - **Hot-swapping interpreted code at runtime**: natural fit for the thunk model, deferred.
@@ -1569,7 +1624,7 @@ Types, functions, and constants that appear in `.bni` files should all follow th
 
 ---
 
-## 29. Design Philosophy Summary
+## 30. Design Philosophy Summary
 
 The overarching philosophy that emerged through discussion:
 
