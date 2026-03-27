@@ -682,7 +682,7 @@ Detect at compile time from the host, or accept as a flag.
 
 ## Current Status
 
-**Phase 5b: Steps 1–13 complete. 59 conformance tests (59 pass on compiled, 59 pass on bootstrap, 57 pass + 2 XFAIL on selfhost).**
+**Phase 5b: Steps 1–13 complete. 59/59 conformance tests passing on all three backends (bootstrap, selfhost, compiled). Zero XFAILs.**
 
 | # | Component | Status | Notes |
 |---|-----------|--------|-------|
