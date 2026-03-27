@@ -605,6 +605,77 @@ Fixed chained managed pointer field access (`list.next.val`).
 - Slice of slices, slice of structs
 - Multi-return with managed pointers
 
+### Step 15: Type Layout Computation
+
+**Motivation:** The design (claude-notes.md line 27) requires "same struct layouts — no marshalling" between compiled and interpreted code. Currently:
+
+- The compiler's `typeSizeBytes()` in emit.bn sums field sizes with **no alignment padding** — incorrect for mixed-width structs
+- LLVM applies its own alignment rules, so the size `bn_alloc` requests can disagree with the actual LLVM struct size
+- The interpreter uses `Fields []@Value` (tagged heap objects) — completely different from flat memory
+- Layout knowledge is hardcoded in emit.bn, not shared with other packages
+
+This step adds a shared layout computation system to `pkg/types` that both the compiler and interpreter can use. This doesn't yet change the interpreter's representation (that's a larger future change), but it establishes the canonical layout rules so Phase 6 features (methods, interfaces, closures) use them from the start.
+
+**15a. Layout functions in `pkg/types`**
+
+Add to `pkg/types.bni` and implement in `pkg/types/types.bn`:
+
+```
+func SizeOf(t @Type) int      // size in bytes (includes trailing padding)
+func AlignOf(t @Type) int     // alignment requirement in bytes
+func FieldOffset(t @Type, index int) int  // byte offset of field in struct
+```
+
+Layout rules (matching LLVM's default non-packed layout on LP64):
+
+| Type | Size | Align |
+|------|------|-------|
+| bool | 1 | 1 |
+| int8, uint8, char | 1 | 1 |
+| int16, uint16 | 2 | 2 |
+| int32, uint32 | 4 | 4 |
+| int, int64, uint, uint64 | 8 | 8 |
+| pointer (raw, managed) | 8 | 8 |
+| slice (raw) | 16 | 8 |
+| managed slice | 24 | 8 |
+| [N]T | N * SizeOf(T) | AlignOf(T) |
+| struct { fields } | sum of field sizes + padding | max field align |
+
+Struct field layout: fields in declaration order, each padded to its alignment. Struct size padded to struct alignment. Example:
+```
+struct { a int8; b int64; c int8 }
+  offset 0: a (1 byte) + 7 padding
+  offset 8: b (8 bytes)
+  offset 16: c (1 byte) + 7 padding
+  total: 24 bytes, align 8
+```
+
+**15b. Compiler uses `pkg/types` layout**
+
+Replace `typeSizeBytes()` and `elemSizeOf()` in emit.bn with calls to `types.SizeOf()`. This ensures the compiler's `bn_alloc` size matches LLVM's actual struct layout.
+
+Also: emit LLVM struct types using the same field order and types, so LLVM's layout matches our computed layout. (This should already be the case, but verify by adding a conformance test with mixed-width struct fields.)
+
+**15c. Layout unit tests**
+
+Add tests in `pkg/types/types_test.bn`:
+- `SizeOf`/`AlignOf` for all primitive types
+- `SizeOf` for structs with uniform fields (all same type)
+- `SizeOf` for structs with mixed-width fields (padding verification)
+- `FieldOffset` for structs with padding
+- `SizeOf` for nested structs
+- `SizeOf` for arrays of structs
+- `SizeOf` for structs containing slices and pointers
+
+**15d. Conformance test for layout correctness**
+
+Add a conformance test that allocates a mixed-width struct via `make(T)`, writes to each field, and reads them back. This catches size mismatches between `bn_alloc` and LLVM's layout (which would corrupt memory).
+
+**Future (not this step):**
+- Interpreter uses flat byte buffers with `SizeOf`/`FieldOffset` instead of `Fields []@Value`
+- `#[packed]` annotation support
+- 32-bit target layout (different pointer/int sizes)
+
 ### Step 14: Self-Compilation Readiness
 
 Once the above is solid, try compiling the compiler itself. This requires:
@@ -700,3 +771,4 @@ Detect at compile time from the host, or accept as a flag.
 | 12 | Memory management | Done | 12a runtime, 12b scope-based refcount, 12c slice free (12d elision: future) |
 | 13 | Test gap coverage | Done | 59 tests; added 054–059, fixed self-referential structs + chained managed ptr access |
 | 14 | Self-compilation | TODO | Multi-package compilation first |
+| 15 | Type layout computation | TODO | SizeOf/AlignOf/FieldOffset in pkg/types, fix compiler layout bugs |
