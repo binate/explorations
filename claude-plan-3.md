@@ -554,17 +554,15 @@ compile.bn is now a full compiler driver:
 - Codegen emits `OP_REFCOUNT_INC`/`DEC` as calls to runtime functions
 - Also implemented: `OP_MAKE` emission via `bn_alloc` (was missing)
 
-**12b. Scope-based refcount insertion — PARTIALLY DONE**
-- Done:
-  - Inc managed ptr params at function entry (callee owns a reference)
-  - Dec all managed ptr locals before function return (skip returned values)
-  - On `p = newval`: dec old, inc new (if copy, not fresh creation)
-  - On `var p = expr` / `p := expr`: inc if RHS is a copy
-  - `isFreshManagedPtr()` distinguishes make/box/call from copies
-- TODO:
-  - Dec at block scope exit (if/else, for body) — currently only at function return
-  - Dec for managed ptr fields inside structs when struct is freed (recursive release)
-  - Dec for managed ptrs stored in slices
+**12b. Scope-based refcount insertion — DONE**
+- Inc managed ptr params at function entry (callee owns a reference)
+- Dec all managed ptr locals before function return (skip returned values)
+- Dec managed ptr vars at block scope exit (if/else, for body, nested blocks)
+- On `p = newval`: dec old, inc new (if copy, not fresh creation)
+- On `var p = expr` / `p := expr`: inc if RHS is a copy
+- `isFreshManagedPtr()` distinguishes make/box/call from copies
+- `emitDecForScopeVars()` handles inner scope cleanup
+- Future: recursive release for managed ptr fields in structs, managed ptrs in slices
 
 **12c. Slice memory management — TODO**
 - `append` leaks the old backing array on realloc
@@ -720,12 +718,12 @@ Detect at compile time from the host, or accept as a flag.
 | 3 | `pkg/codegen/emit.bn` | Done | LLVM IR text emission |
 | 4 | `runtime/binate_runtime.c` | Done | Print, slices, box, bounds check |
 | 5 | `compile.bn` driver | Done | Parse → IR → LLVM → auto-invokes clang |
-| 6 | Conformance suite | Done | 51 tests, 3 backends (bootstrap/selfhost/compiled) |
+| 6 | Conformance suite | Done | 53 tests, 3 backends (bootstrap/selfhost/compiled) |
 | 7 | Global variables | Done | IR collection, @name emission, load/store |
 | 8 | Integer literal bases | Done | Hex, octal, binary |
 | 9 | For-in loops | Done | Arrays and slices |
 | 10 | Multi-return | Done | Aggregate struct packing |
 | 11 | Compiler ergonomics | Done | compile.bn auto-invokes clang, -o flag, --emit-llvm, runtime auto-discovery |
-| 12 | Memory management | Partial | 12a done (runtime), 12b partial (func-level), 12c TODO (slices) |
+| 12 | Memory management | Partial | 12a done (runtime), 12b done (scope-based), 12c TODO (slices) |
 | 13 | Test gap coverage | Partial | 51 tests; many gaps from Step 13 list now covered (041–051) |
 | 14 | Self-compilation | TODO | Multi-package compilation first |
