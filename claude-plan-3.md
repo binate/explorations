@@ -605,13 +605,24 @@ Fixed chained managed pointer field access (`list.next.val`).
 - Slice of slices, slice of structs
 - Multi-return with managed pointers
 
-### Step 15: Type Layout Computation
+### Step 15: Type Layout Computation — DONE
 
-**Motivation:** The design (claude-notes.md line 27) requires "same struct layouts — no marshalling" between compiled and interpreted code. Currently:
+Binate now defines its own struct layout rules, independent of any backend. The compiler emits packed LLVM structs with explicit padding, ensuring deterministic layout.
 
-- The compiler's `typeSizeBytes()` in emit.bn sums field sizes with **no alignment padding** — incorrect for mixed-width structs
-- LLVM applies its own alignment rules, so the size `bn_alloc` requests can disagree with the actual LLVM struct size
-- The interpreter uses `Fields []@Value` (tagged heap objects) — completely different from flat memory
+**What was done:**
+- Added `SizeOf()`, `AlignOf()`, `FieldOffset()` to `pkg/types` — Binate-defined layout rules (alignment = min(size, 8), fields padded to natural alignment, struct size rounded to max field alignment)
+- Codegen emits packed LLVM structs (`<{ ... }>`) with explicit `[N x i8]` padding fields
+- `structLLVMIndex()` maps Binate field indices to LLVM indices (accounting for padding entries)
+- `typeSizeBytes()`/`elemSizeOf()` now delegate to `types.SizeOf()`
+- 13 new layout unit tests in types_test.bn (72 total)
+- Conformance test 060_mixed_struct — 60/60 all backends
+
+**Remaining (future):**
+- Interpreter flat byte buffers (15e) — deferred until after self-compilation
+- `#[packed]` annotation support
+- 32-bit target layout (word_size=4)
+
+**Original motivation:** The design (claude-notes.md line 27) requires "same struct layouts — no marshalling" between compiled and interpreted code. Previously:
 - Layout knowledge is hardcoded in emit.bn, not shared with other packages
 
 **Key principle:** Binate defines its own layout rules. LLVM is just a backend — we don't match its rules, we tell it what to do. Struct types are emitted as packed LLVM structs with explicit padding fields inserted by us, so layout is deterministic and backend-independent.
@@ -874,7 +885,7 @@ Detect at compile time from the host, or accept as a flag.
 
 ## Current Status
 
-**Phase 5b: Steps 1–13 complete. 59/59 conformance tests passing on all three backends (bootstrap, selfhost, compiled). Zero XFAILs.**
+**Phase 5b: Steps 1–13, 15 complete. 60/60 conformance tests passing on all three backends (bootstrap, selfhost, compiled). Zero XFAILs.**
 
 | # | Component | Status | Notes |
 |---|-----------|--------|-------|
@@ -883,7 +894,7 @@ Detect at compile time from the host, or accept as a flag.
 | 3 | `pkg/codegen/emit.bn` | Done | LLVM IR text emission |
 | 4 | `runtime/binate_runtime.c` | Done | Print, slices, box, bounds check |
 | 5 | `compile.bn` driver | Done | Parse → IR → LLVM → auto-invokes clang |
-| 6 | Conformance suite | Done | 59 tests, 3 backends (bootstrap/selfhost/compiled) |
+| 6 | Conformance suite | Done | 60 tests, 3 backends (bootstrap/selfhost/compiled) |
 | 7 | Global variables | Done | IR collection, @name emission, load/store |
 | 8 | Integer literal bases | Done | Hex, octal, binary |
 | 9 | For-in loops | Done | Arrays and slices |
@@ -891,5 +902,5 @@ Detect at compile time from the host, or accept as a flag.
 | 11 | Compiler ergonomics | Done | compile.bn auto-invokes clang, -o flag, --emit-llvm, runtime auto-discovery |
 | 12 | Memory management | Done | 12a runtime, 12b scope-based refcount, 12c slice free (12d elision: future) |
 | 13 | Test gap coverage | Done | 59 tests; added 054–059, fixed self-referential structs + chained managed ptr access |
-| 14 | Self-compilation | TODO | Multi-package compilation first |
-| 15 | Type layout computation | TODO | SizeOf/AlignOf/FieldOffset in pkg/types, fix compiler layout bugs |
+| 14 | Self-compilation | TODO | Multi-package compilation, separate compilation per package, name mangling |
+| 15 | Type layout computation | Done | Binate-defined layout rules, packed LLVM structs, 60 conformance tests |
