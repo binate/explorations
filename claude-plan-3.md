@@ -902,7 +902,7 @@ Detect at compile time from the host, or accept as a flag.
 
 ## Current Status
 
-**Phase 5b: Steps 1–13, 15 complete. Step 14 in progress (infrastructure done, self-compilation remaining). 60/60 conformance tests passing on all three backends (bootstrap, selfhost, compiled). Zero XFAILs.**
+**Phase 5b: Steps 1–13, 15 complete. Step 14 in progress (infrastructure done, self-compilation remaining). 65/65 conformance tests passing on all three backends (bootstrap, selfhost, compiled). Zero XFAILs.**
 
 | # | Component | Status | Notes |
 |---|-----------|--------|-------|
@@ -911,7 +911,7 @@ Detect at compile time from the host, or accept as a flag.
 | 3 | `pkg/codegen/emit.bn` | Done | LLVM IR text emission |
 | 4 | `runtime/binate_runtime.c` | Done | Print, slices, box, bounds check |
 | 5 | `compile.bn` driver | Done | Parse → IR → LLVM → auto-invokes clang |
-| 6 | Conformance suite | Done | 60 tests, 3 backends (bootstrap/selfhost/compiled) |
+| 6 | Conformance suite | Done | 65 tests, 3 backends; multi-package test support |
 | 7 | Global variables | Done | IR collection, @name emission, load/store |
 | 8 | Integer literal bases | Done | Hex, octal, binary |
 | 9 | For-in loops | Done | Arrays and slices |
