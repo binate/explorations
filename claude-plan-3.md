@@ -564,11 +564,14 @@ compile.bn is now a full compiler driver:
 - `emitDecForScopeVars()` handles inner scope cleanup
 - Future: recursive release for managed ptr fields in structs, managed ptrs in slices
 
-**12c. Slice memory management — TODO**
-- `append` leaks the old backing array on realloc
-- `bn_make_slice` doesn't use refcounted allocation
-- Sub-slicing copies data (safe but wasteful)
-- Needs: refcounted backing array or explicit free-old-on-realloc in `bn_append`
+**12c. Slice memory management — DONE**
+- `bn_slice_free()` runtime function frees slice backing data (no-op for nil)
+- `OP_SLICE_FREE` IR op emitted at scope exit and function return for local slices
+- Function parameters are marked `IsParam` and skipped (caller owns the data)
+- Returned slices are skipped (ownership transfers to caller)
+- `append` uses `realloc` which handles the old buffer correctly
+- Sub-slicing copies data (safe, no double-free risk)
+- Future: refcounted backing for shared sub-slices (not needed while copying)
 
 **12d. Refcount elision (optimization, later)**
 - Escape analysis: if a managed pointer doesn't escape the function, skip refcounting
@@ -724,6 +727,6 @@ Detect at compile time from the host, or accept as a flag.
 | 9 | For-in loops | Done | Arrays and slices |
 | 10 | Multi-return | Done | Aggregate struct packing |
 | 11 | Compiler ergonomics | Done | compile.bn auto-invokes clang, -o flag, --emit-llvm, runtime auto-discovery |
-| 12 | Memory management | Partial | 12a done (runtime), 12b done (scope-based), 12c TODO (slices) |
+| 12 | Memory management | Done | 12a runtime, 12b scope-based refcount, 12c slice free (12d elision: future) |
 | 13 | Test gap coverage | Partial | 51 tests; many gaps from Step 13 list now covered (041–051) |
 | 14 | Self-compilation | TODO | Multi-package compilation first |
