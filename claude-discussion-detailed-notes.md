@@ -1644,6 +1644,41 @@ The first four packages of Phase 5a are implemented and tested (76 tests total):
 
 ---
 
+## 29.5. Self-Hosted Backend & Self-Compilation
+
+All 10 packages of the self-hosted toolchain are now implemented:
+
+**pkg/types** (type checker): Type resolution, struct registration, function signature validation. Two-pass type resolution for forward references (pre-register placeholders, then resolve fields).
+
+**pkg/ir** (SSA IR): SSA-based intermediate representation. Key design: `@Instr` nodes with `Op` discriminator, basic blocks, `@Func` and `@Module` containers. `RegisterImports` uses a two-pass approach to handle cross-package type resolution (register all struct names first, then resolve fields) — this was critical for avoiding import-order-dependent failures.
+
+**pkg/codegen** (LLVM IR emission): Emits LLVM IR text from SSA IR. Handles managed pointer refcounting (retain/release calls), slice operations (get/set/append with struct vs. scalar dispatch), multi-return via LLVM aggregate types, and name mangling (`bn_pkg__Name`) for cross-package symbols. Per-function counters (`retSeq`, `tmpSeq`) generate unique SSA names for multi-return extracts and void instructions.
+
+**pkg/linker**: Invokes `clang` to assemble LLVM IR and link with the Binate runtime.
+
+**pkg/bootstrap**: Runtime support (I/O, memory allocation) bridging to OS primitives.
+
+**pkg/interp**: Tree-walking interpreter. Passes all 70 conformance tests when run via the bootstrap.
+
+**compile.bn**: The compiler driver. Parses, type-checks, lowers to IR, emits LLVM IR, links. Handles multi-package compilation with transitive dependency resolution.
+
+### Self-compilation milestone
+
+The bootstrap interpreter successfully runs `compile.bn` to compile `compile.bn` itself, producing a ~410KB native binary. This is the first self-compilation of the Binate compiler. The self-compiled binary runs (prints usage) but segfaults when actually compiling programs — debugging the self-compiled binary's runtime behavior is the next frontier.
+
+### Key codegen bugs fixed during self-compilation
+
+1. **Duplicate SSA names for multi-return**: multiple `return` statements in one function generated duplicate `%v.ret.0` names. Fixed with per-function `retSeq` counter.
+2. **Wrong types in `OP_EXTRACT`**: `EmitExtract` always used `TypInt()`. Fixed by looking up actual function return types via `lookupFuncResults`.
+3. **Import-order-dependent type resolution**: cross-package struct types resolved to `TypInt()` when imported before the defining package. Fixed with two-pass `RegisterImports`.
+4. **Slice-of-slices as struct elements**: `[][]char` elements are `%BnSlice` (16-byte struct), not `i64`. Extended `isStructElem`/`isStructElemFromSlice` and SLICE_GET dispatch.
+5. **Pointer dereference type inference**: `*ptr` defaulted to `i64` instead of the pointed-to type. Fixed by inferring from the variable's type in `genUnary`.
+6. **Void instruction name collisions**: instructions with ID=-1 collided on `%v-1.stmp`. Fixed with `tmpSeq` counter.
+7. **String-to-chars for `append` to `[][]char`**: string literals weren't converted to `[]char` when appended. Added `StringToChars` conversion.
+8. **i8 widening for char slice set**: `bn_slice_set_i8` expects i64 but cast result is i8. Added `zext i8 to i64`.
+
+---
+
 ## 30. Topics Still Flagged for Future Discussion
 
 - **Move/transfer ownership optimizations**: avoid refcount bumps when the compiler can prove last-use. Pure optimization, deferred.
@@ -1659,6 +1694,7 @@ The first four packages of Phase 5a are implemented and tested (76 tests total):
 - **Object file format strategy**: start with platform-native (ELF/Mach-O), possibly move to Binate-specific format with converters later.
 - **Own linker**: needed eventually for hermetic builds and cross-compilation, deferred.
 - **LLVM IR backend**: alongside the custom backends (x86-64, ARM64), an LLVM IR emission backend would give high-quality native codegen on "big" platforms (desktop, server) essentially for free. Custom backends are still needed for embedded/small targets where LLVM is too heavy, but LLVM would be the pragmatic fast path to competitive native code on mainstream platforms. Worth considering as a pluggable backend alongside the custom ones.
+- **`append` performance**: the current `append` builtin always copies (O(n) per call, O(n²) for incremental building). This is a significant footgun — the self-hosted compiler uses append-based string building extensively, which works but is quadratic. Options: add capacity to managed slices, provide a library `Buffer[T]` type, remove `append` in favor of explicit buffer types, or a hybrid approach. Needs review against slice representation decisions.
 
 ---
 

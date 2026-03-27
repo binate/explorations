@@ -571,9 +571,23 @@ package. Multi-file packages, `.bni` interface loading, user-defined package imp
 transitive dependency resolution, and runtime error reporting with source positions are
 all implemented.
 
-**Step 2 is in progress.** The self-hosted frontend (Phase 5a packages 1–4) is complete:
-`pkg/token`, `pkg/ast`, `pkg/lexer`, and `pkg/parser` — 76 tests passing. Next is the
-type checker (`pkg/types`), then the tree-walking interpreter (`pkg/interp`).
+**Step 2 is complete** (self-hosted frontend and backend). All 10 packages of the
+self-hosted toolchain are implemented: `pkg/token`, `pkg/ast`, `pkg/lexer`, `pkg/parser`,
+`pkg/types`, `pkg/ir`, `pkg/codegen`, `pkg/linker`, `pkg/bootstrap`, and `pkg/interp`.
+The self-hosted interpreter (`main.bn`) passes all 70 conformance tests. The self-hosted
+compiler (`compile.bn`) produces native binaries via LLVM IR emission and system linking.
+
+**Step 3 is in progress** (self-compilation). The bootstrap interpreter can run
+`compile.bn` to compile `compile.bn` itself, producing a ~410KB native binary. The
+self-compiled compiler runs (prints usage) but segfaults when actually compiling programs —
+debugging the self-compiled binary is the current frontier.
+
+**Conformance test coverage**: 70 tests, run in 5 modes:
+- `bootstrap` — Go bootstrap interpreter runs `.bn` directly (70/70 pass)
+- `selfhost` — bootstrap interprets `main.bn`, which runs `.bn` (70/70 pass)
+- `compiled` — bootstrap interprets `compile.bn`, compiles `.bn` to native (58/70 pass)
+- `compiled-interp` — self-compiled interpreter binary runs `.bn` (not yet working)
+- `compiled-compiler` — self-compiled compiler binary compiles `.bn` to native (not yet working)
 
 Note: many items marked "IN PROGRESS" above were resolved during the grammar
 specification phase (Phase 3). See `grammar.ebnf` for the authoritative specification
@@ -771,3 +785,31 @@ Unit testing built into the toolchain with a lightweight, convention-based appro
 - **Output format**: Go-style (`=== RUN`, `--- PASS`/`--- FAIL`, `ok`/`FAIL` per package, summary).
 
 Design rationale: minimal complexity, works within the bootstrap subset (no interfaces, no generics, no closures needed), and works identically in interpreted and compiled code (no panic recovery needed). The convention is close enough to Go's that it feels familiar, but simpler (no `testing.T` parameter, no sub-tests). Wrong-signature `TestXxx` functions produce a warning.
+
+### `append` as a performance footgun — TO DISCUSS
+
+The current `append(slice, elem)` builtin always allocates a new slice (copy-on-append
+semantics). This was acceptable for the bootstrap subset and keeps the language simple,
+but it's a significant performance trap:
+
+- **O(n²) for building slices incrementally**: every append copies the entire existing
+  slice, making `for { s = append(s, x) }` quadratic.
+- **Hidden in idiomatic code**: string building via `appendStr`/`appendChars` (used
+  extensively in the self-hosted compiler) is append-per-character, making it extremely
+  expensive.
+- **Contrast with Go**: Go's `append` has amortized O(1) cost via capacity tracking and
+  geometric growth. Binate's `[]T` representation (ptr, length) has no capacity field,
+  so Go-style growth isn't possible without changing the slice representation.
+
+**Options to discuss**:
+1. **Add capacity to managed slices** (`@[]T` becomes ptr, raw ptr, length, capacity —
+   four words). Raw slices (`[]T`) stay two words. `append` on `@[]T` gets amortized O(1).
+2. **Library-level `Buffer[T]`** or `Builder` type with capacity, keep `append` as-is
+   but discourage it for hot paths.
+3. **Remove `append` entirely** — slices are views, not growable containers. Growing
+   requires an explicit `Buffer` type.
+4. **Hybrid**: keep `append` for convenience (small/cold paths) but add a capacity-aware
+   `Buffer` in the standard library for performance-sensitive code.
+
+This should be revisited against the spec/notes, especially the slice representation
+decisions and the managed vs. raw slice semantics.
