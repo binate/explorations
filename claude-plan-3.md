@@ -689,15 +689,110 @@ Before self-compilation (while running under the bootstrap), the interpreter kee
 - `#[packed]` annotation support
 - 32-bit target layout (word_size=4)
 
-### Step 14: Self-Compilation Readiness
+### Step 14: Multi-Package Compilation & Self-Compilation
 
-Once the above is solid, try compiling the compiler itself. This requires:
+The compiler currently handles single-file programs only. To compile `main.bn` (interpreter) or `compile.bn` (compiler), it must handle multi-package programs with cross-package calls, type references, and the bootstrap runtime.
 
-1. **Multi-package compilation**: The compiler uses ~8 packages. compile.bn must handle imports.
-2. **Bootstrap package bridging**: `pkg/bootstrap` functions must be available as linked runtime functions.
-3. **Self-hosted interpreter on self-hosted interpreter**: Run `main.bn` on `main.bn` — validates the interpreter is complete enough.
-4. **Compiler on self-hosted interpreter**: Run `compile.bn` on `main.bn` — validates the compiler works through the interpreter.
-5. **Compile the interpreter**: Use `compile.bn` to compile `main.bn` to native code — the first natively compiled Binate program of real complexity.
+**Architecture decision:** Merge all packages into a single LLVM module (one `.ll` file). This avoids separate compilation, linking, and cross-module symbol resolution — all of which add significant complexity. A single-module approach is simpler and sufficient for self-hosting. Separate compilation can be added later when build times matter.
+
+#### 14a. Loader integration in compile.bn
+
+compile.bn currently reads one file, parses it, and calls `ir.GenModule(file)`. Change it to:
+
+1. Parse input file(s) and merge them (like main.bn does)
+2. Use `pkg/loader` to discover and load all imported packages recursively
+3. Pass the full set of packages to IR gen
+
+This reuses the existing loader — no new package resolution code needed.
+
+#### 14b. Multi-package IR generation
+
+`ir.GenModule` currently takes a single `@ast.File`. Extend it to take a list of packages in dependency order (as the loader already provides).
+
+For each package:
+1. Register its struct types (two-pass, as already implemented)
+2. Register its function signatures
+3. Generate IR for all function bodies
+
+Cross-package name resolution:
+- Function names are mangled: `parser.New` → `bn_parser__New` (or similar scheme). The dot in `parser.New` is already captured in IR as `StrVal`; the codegen needs a consistent mangling.
+- Struct type names are mangled similarly: `parser.Parser` → `%bn_parser__Parser`
+- Constants from imported packages must be inlined at IR gen time (they're compile-time values)
+- Global variables from imported packages need qualified names
+
+Key constraint: the `main` package's `main()` function continues to be emitted as `@bn_main` (called by the C runtime's `main()`).
+
+#### 14c. Cross-package type resolution
+
+Currently `resolveTypeExpr` in gen.bn only looks up types from `moduleStructs` (one package). For multi-package compilation:
+
+- Each package's types must be registered with qualified names
+- `resolveTypeExpr` must handle qualified type references (e.g., `ast.File`, `parser.Parser`)
+- `.bni` files declare the public API — use these to know what types exist in each package before processing implementation files
+
+The loader already parses `.bni` files and provides them as `Package.BNI`. IR gen can process these first to register types and function signatures from all dependencies.
+
+#### 14d. Bootstrap runtime in C
+
+`pkg/bootstrap` is a special "builtin" package — it has no `.bn` implementation, only a `.bni` interface. The bootstrap interpreter implements it in Go. For compiled code, we need C implementations in `binate_runtime.c`:
+
+Functions needed (from bootstrap.bni / Go implementation):
+```c
+// Already implemented:
+void    bn_exit(int64_t code);
+void    bn_print_string(char *s);
+void    bn_print_int(int64_t v);
+void    bn_print_bool(int1_t v);
+void    bn_print_newline();
+// ... slice functions, alloc, refcount ...
+
+// Need to add:
+int64_t bn_bootstrap__Open(BnSlice path, int64_t flags);
+int64_t bn_bootstrap__Read(int64_t fd, BnSlice buf, int64_t n);
+int64_t bn_bootstrap__Write(int64_t fd, BnSlice data, int64_t n);
+int64_t bn_bootstrap__Close(int64_t fd);
+BnSlice bn_bootstrap__Itoa(int64_t v);
+BnSlice bn_bootstrap__Concat(BnSlice a, BnSlice b);
+int64_t bn_bootstrap__Stat(BnSlice path);
+BnSlice bn_bootstrap__Args();          // returns [][]char
+BnSlice bn_bootstrap__ReadDir(BnSlice path);  // returns [][]char
+int64_t bn_bootstrap__Exec(BnSlice program, BnSlice args);  // [][]char args
+```
+
+Note: functions taking `[]char` receive `%BnSlice` (data ptr + len). Functions returning `[][]char` need a slice-of-slices representation. `Exec` takes `[][]char` — this requires the runtime to unpack nested slices.
+
+#### 14e. LLVM function declarations for imported packages
+
+The codegen must emit `declare` directives for all cross-package functions that are called but defined in other packages (or in the C runtime). For functions defined in Binate packages that are part of the same compilation, they'll have `define` directives. For bootstrap builtins, they'll have `declare` directives matching the C runtime.
+
+#### 14f. Validation milestones
+
+1. **Compile a two-package program**: A trivial `main.bn` that imports a helper package. Validates the loader + multi-package IR + name mangling pipeline.
+2. **Compile a program using pkg/bootstrap**: Validates the C runtime bridge (file I/O, string ops).
+3. **Compile the compiler** (`compile.bn`): Imports `pkg/parser`, `pkg/ast`, `pkg/ir`, `pkg/codegen`, `pkg/bootstrap`, `pkg/debug`. Validates the full pipeline.
+4. **Compile the interpreter** (`main.bn`): Imports `pkg/parser`, `pkg/ast`, `pkg/interp`, `pkg/loader`, `pkg/bootstrap`, `pkg/debug`. This is the largest target.
+5. **Self-compilation**: The natively compiled compiler compiles itself. Validates correctness — the output should be functionally identical.
+
+#### 14g. Expected challenges
+
+- **Slice-of-slices** (`[][]char`): `bootstrap.Args()` and `bootstrap.ReadDir()` return these. The IR/codegen doesn't currently handle nested slices well.
+- **Package-qualified field access**: `pkg.Struct.Field` resolution across packages.
+- **Circular type references across packages**: Unlikely in current code, but possible.
+- **Scale**: The interpreter + all its packages is ~5000 lines of Binate. This will stress the IR gen and LLVM emission at a scale not yet tested.
+- **Bootstrap string handling**: Bootstrap functions use `[]char` with null-terminator conventions. The C runtime must match these conventions.
+
+#### Order of work
+
+Suggested order within Step 14:
+1. 14a + 14b: Loader integration + multi-package IR gen (core plumbing)
+2. 14c: Cross-package type resolution
+3. 14e: Function declarations for imports
+4. 14f.1: Validate with a trivial two-package program
+5. 14d: Bootstrap C runtime functions
+6. 14f.2: Validate with a bootstrap-using program
+7. 14f.3: Compile the compiler
+8. 14f.4: Compile the interpreter
+9. 14f.5: Self-compilation
 
 ---
 
