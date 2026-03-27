@@ -614,19 +614,19 @@ Fixed chained managed pointer field access (`list.next.val`).
 - The interpreter uses `Fields []@Value` (tagged heap objects) — completely different from flat memory
 - Layout knowledge is hardcoded in emit.bn, not shared with other packages
 
-This step adds a shared layout computation system to `pkg/types` that both the compiler and interpreter can use. This doesn't yet change the interpreter's representation (that's a larger future change), but it establishes the canonical layout rules so Phase 6 features (methods, interfaces, closures) use them from the start.
+**Key principle:** Binate defines its own layout rules. LLVM is just a backend — we don't match its rules, we tell it what to do. Struct types are emitted as packed LLVM structs with explicit padding fields inserted by us, so layout is deterministic and backend-independent.
 
 **15a. Layout functions in `pkg/types`**
 
 Add to `pkg/types.bni` and implement in `pkg/types/types.bn`:
 
 ```
-func SizeOf(t @Type) int      // size in bytes (includes trailing padding)
-func AlignOf(t @Type) int     // alignment requirement in bytes
+func SizeOf(t @Type) int                  // size in bytes (includes trailing padding)
+func AlignOf(t @Type) int                 // alignment requirement in bytes
 func FieldOffset(t @Type, index int) int  // byte offset of field in struct
 ```
 
-Layout rules (matching LLVM's default non-packed layout on LP64):
+Binate layout rules (LP64, 64-bit targets):
 
 | Type | Size | Align |
 |------|------|-------|
@@ -641,7 +641,9 @@ Layout rules (matching LLVM's default non-packed layout on LP64):
 | [N]T | N * SizeOf(T) | AlignOf(T) |
 | struct { fields } | sum of field sizes + padding | max field align |
 
-Struct field layout: fields in declaration order, each padded to its alignment. Struct size padded to struct alignment. Example:
+**Rule: alignment = min(size, word_size).** Fields are aligned to their natural alignment. Struct size is rounded up to struct alignment (= max field alignment).
+
+Example:
 ```
 struct { a int8; b int64; c int8 }
   offset 0: a (1 byte) + 7 padding
@@ -650,11 +652,18 @@ struct { a int8; b int64; c int8 }
   total: 24 bytes, align 8
 ```
 
-**15b. Compiler uses `pkg/types` layout**
+Future: 32-bit targets would have word_size=4, changing pointer/int sizes and the alignment cap.
 
-Replace `typeSizeBytes()` and `elemSizeOf()` in emit.bn with calls to `types.SizeOf()`. This ensures the compiler's `bn_alloc` size matches LLVM's actual struct layout.
+**15b. Compiler emits packed structs with explicit padding**
 
-Also: emit LLVM struct types using the same field order and types, so LLVM's layout matches our computed layout. (This should already be the case, but verify by adding a conformance test with mixed-width struct fields.)
+Change codegen to emit LLVM packed structs (`<{ ... }>`) with explicit `[N x i8]` padding fields between real fields. This ensures LLVM uses exactly the layout we computed — no surprises.
+
+Example: `struct { a int8; b int64 }` emits:
+```llvm
+%MyStruct = type <{ i8, [7 x i8], i64 }>
+```
+
+Replace `typeSizeBytes()` and `elemSizeOf()` in emit.bn with calls to `types.SizeOf()`. Update `getelementptr` field indices to account for padding fields.
 
 **15c. Layout unit tests**
 
@@ -663,18 +672,22 @@ Add tests in `pkg/types/types_test.bn`:
 - `SizeOf` for structs with uniform fields (all same type)
 - `SizeOf` for structs with mixed-width fields (padding verification)
 - `FieldOffset` for structs with padding
-- `SizeOf` for nested structs
-- `SizeOf` for arrays of structs
+- `SizeOf` for nested structs, arrays of structs
 - `SizeOf` for structs containing slices and pointers
 
 **15d. Conformance test for layout correctness**
 
-Add a conformance test that allocates a mixed-width struct via `make(T)`, writes to each field, and reads them back. This catches size mismatches between `bn_alloc` and LLVM's layout (which would corrupt memory).
+Add a conformance test that allocates a mixed-width struct via `make(T)`, writes to each field, and reads them back. This catches size mismatches between `bn_alloc` and the actual struct layout.
 
-**Future (not this step):**
-- Interpreter uses flat byte buffers with `SizeOf`/`FieldOffset` instead of `Fields []@Value`
+**15e. Interpreter flat byte buffers (after self-compilation)**
+
+Once the interpreter is compiled natively (Step 14), managed pointers become real native pointers with the same `[refcount | free_fn | payload]` header as compiled code. At that point, struct values in the interpreter can use flat byte buffers with `SizeOf`/`FieldOffset` for field access. No marshalling needed for interop — interpreted and compiled code share the same memory representation.
+
+Before self-compilation (while running under the bootstrap), the interpreter keeps its current `Fields []@Value` representation. The bootstrap doesn't need interop with compiled code.
+
+**Future:**
 - `#[packed]` annotation support
-- 32-bit target layout (different pointer/int sizes)
+- 32-bit target layout (word_size=4)
 
 ### Step 14: Self-Compilation Readiness
 
