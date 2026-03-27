@@ -413,7 +413,7 @@ pkg/
     emit.bn             // Main emitter: module → LLVM IR text
     emit_type.bn        // Type emission: Binate type → LLVM type string
     emit_instr.bn       // Instruction emission: IR instr → LLVM instruction
-    emit_func.bn        // Function emission: IR func → LLVM function
+    emit_func.bn        // IR function → LLVM function text
     runtime.bn          // Runtime function declarations
     codegen_test.bn     // Tests
 ```
@@ -489,49 +489,154 @@ Pipeline: `bootstrap compile.bn -- input.bn > out.ll && clang -o out out.ll runt
 
 Tested with: hello world, arithmetic, variables, if/else, for loops, function calls, recursion (fibonacci), factorial.
 
-TODO: Add `compiled` mode to `conformance/run.sh`.
-
 ### Steps 6–7: Arithmetic, Variables, Control Flow — DONE
 
 All included in the initial gen.bn implementation above.
 Tested: `2+3*4=14`, `fib(10)=55`, `factorial(7)=5040`, variable mutation, if/else branching, for loops with `sum(1..10)=55`.
 
-### Step 8: Structs & Pointers
+### Step 8: Structs & Pointers — DONE
 
-Add:
 - `OP_STRUCT_LIT`, `OP_GET_FIELD_PTR`, `OP_LOAD`/`OP_STORE` for fields
 - Raw pointers: `OP_ALLOC` + address-of
 - Managed pointers: `OP_MAKE`, `OP_BOX`, `OP_DEREF`, `OP_NIL_CHECK`
 
-**Target:** Conformance tests 011–013 (structs, pointers, managed_ptr).
+**Tested:** Conformance tests 011–013 (structs, pointers, managed_ptr).
 
-### Step 9: Slices & Arrays
+### Step 9: Slices & Arrays — DONE
 
-Add:
 - Slice runtime: `bn_append`, `bn_slice_expr`
 - `OP_SLICE_GET`/`SET`, `OP_SLICE_LEN`, `OP_BOUNDS_CHECK`
 - `OP_APPEND`, `OP_SLICE_EXPR`
 - Array literals and indexing
+- For-in loops over arrays and slices
 
-**Target:** Conformance tests 009, 014, 016 (slices, arrays, for-in).
+**Tested:** Conformance tests 009, 014, 016 (slices, arrays, for-in).
 
-### Step 10: Strings & Remaining Features
+### Step 10: Strings & Remaining Features — DONE
 
-Add:
-- String operations: concat, len, indexing, slicing
+- String operations: len, indexing, slicing (via []char)
 - Switch statements
 - Bitwise operations
 - Type declarations, const/iota
 - Compound assignment, inc/dec
 - Multi-return
+- Global variables
+- Integer literal bases (hex, octal, binary)
 
-**Target:** All 25 conformance tests passing.
+**Tested:** All 40 conformance tests passing.
 
-### Step 11: Self-Compilation Readiness
+---
 
-Once conformance passes, try compiling the compiler itself:
-- Compile each package (token, ast, lexer, parser, types, ir, codegen)
-- This is the ultimate test and the gateway to Phase 5c
+## Part 4: Remaining Work
+
+### Step 11: Compiler Ergonomics — DONE
+
+compile.bn is now a full compiler driver:
+- Added `bootstrap.Exec` builtin for subprocess execution
+- compile.bn writes `.ll` to temp file, auto-invokes `clang`, cleans up
+- Flags: `-o <name>`, `--emit-llvm`, `--runtime <path>`, `-v`
+- Auto-discovers runtime relative to input file via `findRuntime(inputFile)`
+- Single-file workflow: `bootstrap compile.bn -- input.bn` → native binary
+
+**Still TODO (multi-package, library output):**
+- Multi-file packages: compile each `.bn` to `.ll`, link together
+- Library packages: produce `.o` per package (or `.a` archive)
+- Pre-compile `binate_runtime.c` to `.o`/`.a` for distribution
+
+### Step 12: Memory Management
+
+Currently using Option A (leak everything). This is correct for short-lived programs but must be addressed for real use.
+
+**12a. Reference counting (Option B)**
+- Modify `bn_box` / `bn_alloc` to allocate `[refcount | payload]` layout
+- Managed pointer points past the header (at payload)
+- `bn_refcount_inc(ptr)`: atomically increment `((int64_t*)ptr)[-1]`
+- `bn_refcount_dec(ptr)`: atomically decrement; if zero, free `ptr - 8`
+- IR gen must emit `OP_REFCOUNT_INC` at assignment (new reference created) and `OP_REFCOUNT_DEC` at end of scope / overwrite
+- emit.bn must emit calls to `bn_refcount_inc`/`bn_refcount_dec`
+
+**12b. Scope-based refcount insertion**
+- On `var p @T = expr`: inc the result
+- On `p = newval`: dec old, inc new
+- On scope exit (function return, block end): dec all live managed pointers
+- On return: dec all locals except the returned value
+
+**12c. Slice memory management**
+- `append` currently leaks the old backing array on realloc
+- Sub-slicing copies data (safe but wasteful)
+- Future: shared backing with COW or reference counting on the backing array
+
+**12d. Refcount elision (optimization, later)**
+- Escape analysis: if a managed pointer doesn't escape the function, skip refcounting
+- Stack promotion: `box(v)` where result doesn't escape → alloca instead of malloc
+- These require an optimization pass over the IR
+
+### Step 13: Test Gaps
+
+The following areas need additional conformance tests:
+
+**Managed pointers/slices:** (partially covered by 041, 047)
+- ~~Nil managed pointer as function arg/return~~ → 041
+- ~~Managed pointer to struct with field access~~ → 047
+- `make(T)` for zero-initialized managed struct
+- `@[]T` managed slices (create, access, pass to functions)
+- Multiple managed pointers to same type
+
+**Structs:** (partially covered by 042, 045, 047, 050, 051)
+- ~~Struct assignment (copy semantics)~~ → 042
+- ~~Array of structs~~ → 045
+- ~~Nested struct~~ → 047
+- ~~Multi-return with struct~~ → 050
+- ~~Array copy semantics~~ → 051
+- Nested struct with managed pointer fields
+- Struct containing slice fields
+
+**Type system:** (partially covered by 044, 048)
+- ~~Distinct types~~ → 044
+- ~~Character arithmetic~~ → 048
+- Type alias behavior
+- Signed vs unsigned integer operations (especially >>)
+- Integer overflow/wrapping behavior
+- Mixed-width arithmetic (int8 + int, etc.)
+
+**Control flow edge cases:** (partially covered by 049)
+- ~~Switch inside loop~~ → 049
+- Nested switch statements
+- Switch with multiple values per case (if supported)
+- Break from nested loops (labeled break if supported)
+- Return from inside switch inside loop
+
+**Slices/arrays:** (partially covered by 043)
+- ~~Nil slice behavior (len, append to nil)~~ → 043
+- Slice of slices (`[][]int`)
+- Nested arrays (`[2][2]int`) — fails on compiled backend
+- Slice of structs
+- Large array stack allocation
+
+**Strings:**
+- String comparison
+- ~~String as function param~~ → 048
+- Multi-line string edge cases
+
+**Functions:** (partially covered by 046)
+- ~~Functions with many parameters (6, 8)~~ → 046
+- Recursive functions with managed pointer returns
+- Functions returning structs by value
+
+**Multi-return:**
+- Discarding return values
+- ~~Multi-return with struct values~~ → 050
+- Multi-return with managed pointers
+
+### Step 14: Self-Compilation Readiness
+
+Once the above is solid, try compiling the compiler itself. This requires:
+
+1. **Multi-package compilation**: The compiler uses ~8 packages. compile.bn must handle imports.
+2. **Bootstrap package bridging**: `pkg/bootstrap` functions must be available as linked runtime functions.
+3. **Self-hosted interpreter on self-hosted interpreter**: Run `main.bn` on `main.bn` — validates the interpreter is complete enough.
+4. **Compiler on self-hosted interpreter**: Run `compile.bn` on `main.bn` — validates the compiler works through the interpreter.
+5. **Compile the interpreter**: Use `compile.bn` to compile `main.bn` to native code — the first natively compiled Binate program of real complexity.
 
 ---
 
@@ -592,47 +697,29 @@ Detect at compile time from the host, or accept as a flag.
 
 ### 6. Memory Management Strategy (Phased)
 
-- **Phase 1 (now):** Leak everything. `bn_alloc` = `malloc`, never free. All conformance tests are short-lived.
+- **Phase 1 (current):** Leak everything. `bn_alloc` = `malloc`, never free. All conformance tests are short-lived.
 - **Phase 2:** Reference counting. Add header before each allocation, emit inc/dec at assignment boundaries. Use the IR's `OP_REFCOUNT_INC/DEC` instructions.
 - **Phase 3:** Refcount elision. Escape analysis determines which pointers don't need counting.
 
 ---
 
-## Package Layout
+## Current Status
 
-```
-binate/
-  pkg/
-    ir.bni                    IR types and generation interface
-    ir/
-      ir.bn                   IR data structures, constructors, OP_* constants
-      gen.bn                  AST → IR generation
-      gen_expr.bn             Expression IR generation
-      gen_stmt.bn             Statement IR generation
-      gen_test.bn             Unit tests
+**Phase 5b: Steps 1–11 complete. 51/51 conformance tests passing on bootstrap and compiled.**
 
-    codegen.bni               Codegen interface
-    codegen/
-      emit.bn                 LLVM IR text emission (module level)
-      emit_type.bn            Binate type → LLVM type string
-      emit_instr.bn           IR instruction → LLVM instruction text
-      emit_func.bn            IR function → LLVM function text
-      codegen_test.bn         Unit tests
-
-  runtime/
-    binate_runtime.c          C runtime (alloc, I/O, panic, slice ops)
-    binate_runtime.h          Header for runtime
-
-  conformance/
-    run.sh                    Updated with `compiled` mode
-```
-
----
-
-## Success Criteria
-
-1. **Milestone 1:** Hello world compiles and runs (`001_hello`).
-2. **Milestone 2:** Arithmetic + variables + functions work (`001`–`008`).
-3. **Milestone 3:** All 25 conformance tests pass as compiled binaries.
-4. **Milestone 4:** Compiler can compile non-trivial programs (selftest.bn).
-5. **Milestone 5 (Phase 5c):** Compiler compiles itself.
+| # | Component | Status | Notes |
+|---|-----------|--------|-------|
+| 1 | `pkg/ir` data structures | Done | 55 ops, 34 unit tests |
+| 2 | `pkg/ir/gen.bn` | Done | Full AST→IR for bootstrap subset |
+| 3 | `pkg/codegen/emit.bn` | Done | LLVM IR text emission |
+| 4 | `runtime/binate_runtime.c` | Done | Print, slices, box, bounds check |
+| 5 | `compile.bn` driver | Done | Parse → IR → LLVM → auto-invokes clang |
+| 6 | Conformance suite | Done | 51 tests, 3 backends (bootstrap/selfhost/compiled) |
+| 7 | Global variables | Done | IR collection, @name emission, load/store |
+| 8 | Integer literal bases | Done | Hex, octal, binary |
+| 9 | For-in loops | Done | Arrays and slices |
+| 10 | Multi-return | Done | Aggregate struct packing |
+| 11 | Compiler ergonomics | Done | compile.bn auto-invokes clang, -o flag, --emit-llvm, runtime auto-discovery |
+| 12 | Memory management | TODO | Currently leaking; need refcounting |
+| 13 | Test gap coverage | Partial | 51 tests; many gaps from Step 13 list now covered (041–051) |
+| 14 | Self-compilation | TODO | Multi-package compilation first |
