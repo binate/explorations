@@ -545,26 +545,32 @@ compile.bn is now a full compiler driver:
 
 ### Step 12: Memory Management
 
-Currently using Option A (leak everything). This is correct for short-lived programs but must be addressed for real use.
+**12a. Reference counting runtime — DONE**
+- Two-word header: `[refcount (i64) | free_fn_ptr | payload]`
+- `bn_alloc(size)`: allocates with header, refcount=1, zero-init payload
+- `bn_box(val, size)`: `bn_alloc` + memcpy
+- `bn_refcount_inc(ptr)` / `bn_refcount_dec(ptr)`: inc/dec with nil-check and immortal sentinel
+- When refcount hits 0, calls free_fn (default: `free(base_ptr)`)
+- Codegen emits `OP_REFCOUNT_INC`/`DEC` as calls to runtime functions
+- Also implemented: `OP_MAKE` emission via `bn_alloc` (was missing)
 
-**12a. Reference counting (Option B)**
-- Modify `bn_box` / `bn_alloc` to allocate `[refcount | payload]` layout
-- Managed pointer points past the header (at payload)
-- `bn_refcount_inc(ptr)`: atomically increment `((int64_t*)ptr)[-1]`
-- `bn_refcount_dec(ptr)`: atomically decrement; if zero, free `ptr - 8`
-- IR gen must emit `OP_REFCOUNT_INC` at assignment (new reference created) and `OP_REFCOUNT_DEC` at end of scope / overwrite
-- emit.bn must emit calls to `bn_refcount_inc`/`bn_refcount_dec`
+**12b. Scope-based refcount insertion — PARTIALLY DONE**
+- Done:
+  - Inc managed ptr params at function entry (callee owns a reference)
+  - Dec all managed ptr locals before function return (skip returned values)
+  - On `p = newval`: dec old, inc new (if copy, not fresh creation)
+  - On `var p = expr` / `p := expr`: inc if RHS is a copy
+  - `isFreshManagedPtr()` distinguishes make/box/call from copies
+- TODO:
+  - Dec at block scope exit (if/else, for body) — currently only at function return
+  - Dec for managed ptr fields inside structs when struct is freed (recursive release)
+  - Dec for managed ptrs stored in slices
 
-**12b. Scope-based refcount insertion**
-- On `var p @T = expr`: inc the result
-- On `p = newval`: dec old, inc new
-- On scope exit (function return, block end): dec all live managed pointers
-- On return: dec all locals except the returned value
-
-**12c. Slice memory management**
-- `append` currently leaks the old backing array on realloc
+**12c. Slice memory management — TODO**
+- `append` leaks the old backing array on realloc
+- `bn_make_slice` doesn't use refcounted allocation
 - Sub-slicing copies data (safe but wasteful)
-- Future: shared backing with COW or reference counting on the backing array
+- Needs: refcounted backing array or explicit free-old-on-realloc in `bn_append`
 
 **12d. Refcount elision (optimization, later)**
 - Escape analysis: if a managed pointer doesn't escape the function, skip refcounting
@@ -720,6 +726,6 @@ Detect at compile time from the host, or accept as a flag.
 | 9 | For-in loops | Done | Arrays and slices |
 | 10 | Multi-return | Done | Aggregate struct packing |
 | 11 | Compiler ergonomics | Done | compile.bn auto-invokes clang, -o flag, --emit-llvm, runtime auto-discovery |
-| 12 | Memory management | TODO | Currently leaking; need refcounting |
+| 12 | Memory management | Partial | 12a done (runtime), 12b partial (func-level), 12c TODO (slices) |
 | 13 | Test gap coverage | Partial | 51 tests; many gaps from Step 13 list now covered (041–051) |
 | 14 | Self-compilation | TODO | Multi-package compilation first |
