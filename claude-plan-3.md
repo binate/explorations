@@ -586,7 +586,7 @@ Fixed chained managed pointer field access (`list.next.val`).
 
 **New tests:**
 - 054_make_zero_init — `make(T)` zero-initializes struct fields ✓
-- 055_struct_with_slice — struct containing slice field (compiled: XFAIL, struct+slice codegen incomplete)
+- 055_struct_with_slice — struct containing slice field ✓ (fixed: string-to-chars for field assign, struct zero-init)
 - 056_mixed_width — mixed-width integer arithmetic ✓
 - 057_return_struct — functions returning structs by value ✓
 - 058_recursive_managed — recursive managed pointer with chained field access ✓
@@ -596,10 +596,11 @@ Fixed chained managed pointer field access (`list.next.val`).
 - Two-pass struct registration: register names first, populate fields second (enables self-referential types)
 - `getSelectorType` handles `TYP_MANAGED_PTR` for chained access (`list.next.val`)
 - `genSelector` dereferences managed ptr before field access in chains
+- String-to-chars conversion for selector assignment (`b.name = "test"` where field is `[]char`)
+- Zero-initialize struct allocas (fixes uninitialized slice fields in structs)
 
 **Remaining test gaps (future):**
 - `@[]T` managed slices
-- Struct containing slice fields (055 XFAIL on compiled)
 - Nested arrays on compiled backend
 - Slice of slices, slice of structs
 - Multi-return with managed pointers
@@ -681,7 +682,7 @@ Detect at compile time from the host, or accept as a flag.
 
 ## Current Status
 
-**Phase 5b: Steps 1–13 complete. 59 conformance tests (58 pass + 1 XFAIL on compiled, 59 pass on bootstrap, 57 pass + 2 XFAIL on selfhost).**
+**Phase 5b: Steps 1–13 complete. 59 conformance tests (59 pass on compiled, 59 pass on bootstrap, 57 pass + 2 XFAIL on selfhost).**
 
 | # | Component | Status | Notes |
 |---|-----------|--------|-------|
