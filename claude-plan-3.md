@@ -693,7 +693,18 @@ Before self-compilation (while running under the bootstrap), the interpreter kee
 
 The compiler currently handles single-file programs only. To compile `main.bn` (interpreter) or `compile.bn` (compiler), it must handle multi-package programs with cross-package calls, type references, and the bootstrap runtime.
 
-**Architecture decision:** Merge all packages into a single LLVM module (one `.ll` file). This avoids separate compilation, linking, and cross-module symbol resolution — all of which add significant complexity. A single-module approach is simpler and sufficient for self-hosting. Separate compilation can be added later when build times matter.
+**Architecture decision:** Separate compilation per package. Each package compiles to its own `.ll` → `.o` file, then all are linked together. This enables partial recompilation (only rebuild changed packages) and scales better than merging everything into one module.
+
+The key enabler is a **consistent name mangling scheme** so cross-package references resolve at link time:
+- Functions: `pkg.Func` → `bn_pkg__Func` (e.g., `parser.New` → `bn_parser__New`)
+- Struct types: `pkg.Type` → `%bn_pkg__Type` (e.g., `ast.File` → `%bn_ast__File`)
+- The `main` package's `main()` → `@bn_main` (called by C runtime)
+- Package-local (unexported) names still get mangled with the package prefix for uniqueness
+
+Each package's `.ll` file contains:
+- `define` for its own functions
+- `declare` for functions it imports from other packages or the C runtime
+- Struct type definitions for its own types and any types it references from other packages
 
 #### 14a. Loader integration in compile.bn
 
@@ -701,9 +712,10 @@ compile.bn currently reads one file, parses it, and calls `ir.GenModule(file)`. 
 
 1. Parse input file(s) and merge them (like main.bn does)
 2. Use `pkg/loader` to discover and load all imported packages recursively
-3. Pass the full set of packages to IR gen
+3. Compile each package separately (IR gen → LLVM emission → `.ll` file)
+4. Invoke clang to compile each `.ll` to `.o`, then link all `.o` files + runtime
 
-This reuses the existing loader — no new package resolution code needed.
+The loader already provides packages in dependency order, so each package can reference types/functions from its dependencies.
 
 #### 14b. Multi-package IR generation
 
@@ -784,15 +796,16 @@ The codegen must emit `declare` directives for all cross-package functions that 
 #### Order of work
 
 Suggested order within Step 14:
-1. 14a + 14b: Loader integration + multi-package IR gen (core plumbing)
-2. 14c: Cross-package type resolution
-3. 14e: Function declarations for imports
-4. 14f.1: Validate with a trivial two-package program
-5. 14d: Bootstrap C runtime functions
-6. 14f.2: Validate with a bootstrap-using program
-7. 14f.3: Compile the compiler
-8. 14f.4: Compile the interpreter
-9. 14f.5: Self-compilation
+1. Name mangling scheme (implement in codegen, applied to all function/type names)
+2. 14a: Loader integration in compile.bn
+3. 14b + 14c: Per-package IR gen with cross-package type resolution
+4. 14e: Emit `declare` for imported functions
+5. 14f.1: Validate with a trivial two-package program
+6. 14d: Bootstrap C runtime functions
+7. 14f.2: Validate with a bootstrap-using program
+8. 14f.3: Compile the compiler
+9. 14f.4: Compile the interpreter
+10. 14f.5: Self-compilation
 
 ---
 
