@@ -700,9 +700,26 @@ Before self-compilation (while running under the bootstrap), the interpreter kee
 - `#[packed]` annotation support
 - 32-bit target layout (word_size=4)
 
-### Step 14: Multi-Package Compilation & Self-Compilation
+### Step 14: Multi-Package Compilation & Self-Compilation — IN PROGRESS
 
 The compiler currently handles single-file programs only. To compile `main.bn` (interpreter) or `compile.bn` (compiler), it must handle multi-package programs with cross-package calls, type references, and the bootstrap runtime.
+
+**Done so far:**
+- Name mangling: `bn_pkg__Name` scheme for all functions/structs/globals
+- Extern function declarations: `declare` for imported functions in LLVM IR
+- IR gen infrastructure: `InitModule`, `RegisterImport`, `GeneratePackage` for per-package compilation
+- Package-qualified type resolution: `te.Pkg` field for cross-package type refs
+- Package-qualified constant access: `math.PI_APPROX` resolved via selectors
+- Loader integration in compile.bn: per-package .ll generation, link all with clang
+- Bootstrap C runtime: Open, Read, Write, Close, ReadDir, Stat, Exit, Args, Exec, Itoa, Concat
+- Validation: two-package test with functions, structs, and constants passes
+- All 60 conformance tests pass on all backends
+
+**Remaining:**
+- 14f.2: Validate with a bootstrap-using program
+- 14f.3: Compile the compiler
+- 14f.4: Compile the interpreter
+- 14f.5: Self-compilation
 
 **Architecture decision:** Separate compilation per package. Each package compiles to its own `.ll` → `.o` file, then all are linked together. This enables partial recompilation (only rebuild changed packages) and scales better than merging everything into one module.
 
@@ -885,7 +902,7 @@ Detect at compile time from the host, or accept as a flag.
 
 ## Current Status
 
-**Phase 5b: Steps 1–13, 15 complete. 60/60 conformance tests passing on all three backends (bootstrap, selfhost, compiled). Zero XFAILs.**
+**Phase 5b: Steps 1–13, 15 complete. Step 14 in progress (infrastructure done, self-compilation remaining). 60/60 conformance tests passing on all three backends (bootstrap, selfhost, compiled). Zero XFAILs.**
 
 | # | Component | Status | Notes |
 |---|-----------|--------|-------|
@@ -902,5 +919,5 @@ Detect at compile time from the host, or accept as a flag.
 | 11 | Compiler ergonomics | Done | compile.bn auto-invokes clang, -o flag, --emit-llvm, runtime auto-discovery |
 | 12 | Memory management | Done | 12a runtime, 12b scope-based refcount, 12c slice free (12d elision: future) |
 | 13 | Test gap coverage | Done | 59 tests; added 054–059, fixed self-referential structs + chained managed ptr access |
-| 14 | Self-compilation | TODO | Multi-package compilation, separate compilation per package, name mangling |
+| 14 | Self-compilation | In progress | Name mangling, loader integration, bootstrap C runtime, two-package validation done; self-compilation remaining |
 | 15 | Type layout computation | Done | Binate-defined layout rules, packed LLVM structs, 60 conformance tests |
