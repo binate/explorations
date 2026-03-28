@@ -831,37 +831,28 @@ both cases; the newer multi-import path was missing it.
 and its inner function `registerImportFieldsAndFuncs` was written from scratch rather than
 factored from `RegisterImport`, so the DECL_GROUP case was missed.
 
-### Self-hosting: short-circuit evaluation — OPEN BUG
+### Self-hosting: short-circuit evaluation — FIXED
 
-**Bug**: The IR generator (`genBinary` in gen.bn) evaluates both sides of `&&` and `||` eagerly.
-LLVM's `and`/`or` instructions don't short-circuit — they're bitwise operations on already-
-computed values. This means `p != nil && p.Val > 0` crashes because `p.Val` is evaluated
-even when `p` is nil.
+**Bug (now fixed)**: The IR generator (`genBinary` in gen.bn) evaluated both sides of `&&`
+and `||` eagerly. LLVM's `and`/`or` instructions don't short-circuit — they're bitwise
+operations on already-computed values. This meant `p != nil && p.Val > 0` crashed because
+`p.Val` was evaluated even when `p` was nil.
 
-**Impact**: This is a **blocking bug for full self-hosting**. The self-compiled compiler crashes
-(SIGSEGV) on any `&&` chain where the right-hand side dereferences something guarded by the
-left-hand side. A workaround was applied to `GeneratePackage` (splitting `&&` chains into
-nested `if` blocks), but the rest of the compiler still has vulnerable `&&` expressions.
+**Fix**: Alloca+branch+load pattern with `CurBlock` tracking through `GenContext`.
 
-**Attempted fix**: Short-circuit via alloca+branch+load pattern (alloca a bool, store default,
-branch on LHS, conditionally evaluate RHS). This caused the compiled binary to hang (exit 137
-SIGKILL after timeout). The implementation was reverted.
+- Added `CurBlock @Block` field to `GenContext` so `genExpr` can communicate block changes
+  to callers when short-circuit creates new blocks.
+- `genShortCircuitAnd`: alloca result (default false), evaluate LHS, branch on LHS
+  (true → evaluate RHS and store, false → skip to merge), load result from merge block.
+- `genShortCircuitOr`: same pattern, inverted — default true, branch false → evaluate RHS.
+- All ~40 `genExpr` call sites updated with `b = ctx.CurBlock` to pick up block changes.
 
-**Workaround in place**: In `GeneratePackage`, compound `&&` conditions like
-`d.Kind == ast.DECL_TYPE && d.TypeRef != nil && d.TypeRef.Kind == ast.TEXPR_STRUCT`
-were manually split into nested `if` blocks.
+The earlier attempt failed because `genExpr` created new blocks but callers continued
+emitting to the old block. The `CurBlock` field solves this by providing a side channel
+for block state. The manual `&&` workarounds in `GeneratePackage` are now redundant but
+harmless.
 
-**Path forward**: Implementing short-circuit requires either:
-1. **Phi nodes** — proper SSA approach, but `OP_PHI` is not yet supported in the LLVM emitter
-2. **Alloca+branch+load** — worked conceptually but the initial implementation had a bug
-   (possibly related to block tracking or the emitter's handling of multiple branches)
-3. **AST-level desugaring** — transform `a && b` into `if a { b } else { false }` during
-   parsing or before IR generation, avoiding the issue entirely at the IR level
-
-Option 3 is likely the simplest path. It would work without any IR or emitter changes.
-
-Conformance tests 071 (short-circuit &&) and 072 (short-circuit ||) have been added with
-xfail markers for compiled and compiled-compiler modes.
+Conformance tests 071 (short-circuit &&) and 072 (short-circuit ||) pass in all modes.
 
 ### Debugging process improvements — TO DISCUSS
 

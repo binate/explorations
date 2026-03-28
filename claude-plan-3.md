@@ -902,16 +902,16 @@ Detect at compile time from the host, or accept as a flag.
 
 ## Current Status
 
-**Phase 5b: Steps 1–13, 15 complete. Step 14 in progress (infrastructure done, self-compilation remaining). 65/65 conformance tests passing on all three backends (bootstrap, selfhost, compiled). Zero XFAILs.**
+**Phase 5b: Steps 1–15 complete. Step 14 done (self-compilation achieved). 72 conformance tests, all passing on bootstrap; 61/72 on compiled (11 pre-existing struct failures). Short-circuit && and || fixed.**
 
 | # | Component | Status | Notes |
 |---|-----------|--------|-------|
-| 1 | `pkg/ir` data structures | Done | 55 ops, 34 unit tests |
-| 2 | `pkg/ir/gen.bn` | Done | Full AST→IR for bootstrap subset |
+| 1 | `pkg/ir` data structures | Done | 55 ops, 52 unit tests |
+| 2 | `pkg/ir/gen.bn` | Done | Full AST→IR for bootstrap subset, short-circuit &&/\|\| |
 | 3 | `pkg/codegen/emit.bn` | Done | LLVM IR text emission |
 | 4 | `runtime/binate_runtime.c` | Done | Print, slices, box, bounds check |
 | 5 | `compile.bn` driver | Done | Parse → IR → LLVM → auto-invokes clang |
-| 6 | Conformance suite | Done | 65 tests, 3 backends; multi-package test support |
+| 6 | Conformance suite | Done | 72 tests, 4 backends (bootstrap, selfhost, compiled, compiled-compiler) |
 | 7 | Global variables | Done | IR collection, @name emission, load/store |
 | 8 | Integer literal bases | Done | Hex, octal, binary |
 | 9 | For-in loops | Done | Arrays and slices |
@@ -919,5 +919,5 @@ Detect at compile time from the host, or accept as a flag.
 | 11 | Compiler ergonomics | Done | compile.bn auto-invokes clang, -o flag, --emit-llvm, runtime auto-discovery |
 | 12 | Memory management | Done | 12a runtime, 12b scope-based refcount, 12c slice free (12d elision: future) |
 | 13 | Test gap coverage | Done | 59 tests; added 054–059, fixed self-referential structs + chained managed ptr access |
-| 14 | Self-compilation | In progress | Name mangling, loader integration, bootstrap C runtime, two-package validation done; self-compilation remaining |
+| 14 | Self-compilation | Done | Self-compiled compiler builds and produces output; DECL_GROUP import bug fixed; short-circuit evaluation fixed |
 | 15 | Type layout computation | Done | Binate-defined layout rules, packed LLVM structs, 60 conformance tests |
