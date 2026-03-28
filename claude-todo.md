@@ -16,11 +16,11 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Emit per-instruction `DILocation` with real line numbers (currently all line 0)
 - Prerequisite: lightweight debug info (done)
 
-### Self-compiled compiler crashes (SIGSEGV) after lexing
-- The for-loop hang is fixed (was: short-circuit back-edge bug, see Done)
-- Now crashes in `bn_slice_get_i8` with address `0x656c75646f4d203b` (ASCII "; Module" — string data read as pointer)
-- Likely a struct layout / field offset issue — the `[]uint8` src slice in the Lexer struct may have its data pointer read from the wrong offset
-- Related to the 11 pre-existing struct conformance failures
+### Self-compiled compiler crashes (SIGSEGV)
+- Struct literal init bug fixed (see Done), previously caused most struct conformance failures
+- Still crashes — now in `bn_refcount_dec` from `bn_ir__GeneratePackage` (call #2128)
+- Root cause: a managed pointer with `free_fn=0` — likely another struct field offset issue or spurious refcount_dec
+- 72/74 conformance tests pass in compiled mode; 2 remaining: 067_slice_of_slices, 069_nested_managed_sel
 
 ### Remove redundant && workarounds in GeneratePackage
 - `gen.bn` `GeneratePackage` still has manually-split `&&` chains from before short-circuit was fixed
@@ -33,6 +33,13 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Pre-existing `TestRegisterImportStruct` failure needs investigation (expects 2 fields, gets different count)
 
 ## Done
+
+### Struct literal field initialization in GeneratePackage
+- `GeneratePackage` populated `moduleStructs[si].Typ.Fields` but not `moduleStructs[si].Fields`
+- `genCompositeLit` reads `moduleStructs[si].Fields`, so all struct literals were zero-initialized
+- Fix: one line — also set `moduleStructs[si].Fields = fields` in the second pass
+- Root cause of most struct conformance failures (11→2) and self-compiled compiler SIGSEGV
+- Conformance test 074, unit test `TestGeneratePackageStructLitInit`
 
 ### Lightweight debug info (-g flag)
 - `-g`/`--debug` flag on compile.bn enables DWARF metadata emission
