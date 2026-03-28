@@ -16,10 +16,11 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Emit per-instruction `DILocation` with real line numbers (currently all line 0)
 - Prerequisite: lightweight debug info (done)
 
-### Self-compiled compiler hangs on input
-- The self-compiled compiler binary builds and starts (shows usage without args) but hangs/times out when actually compiling input
-- Separate issue from short-circuit fix
-- Needs investigation: possibly infinite loop in loader or parser when run as native binary
+### Self-compiled compiler crashes (SIGSEGV) after lexing
+- The for-loop hang is fixed (was: short-circuit back-edge bug, see Done)
+- Now crashes in `bn_slice_get_i8` with address `0x656c75646f4d203b` (ASCII "; Module" — string data read as pointer)
+- Likely a struct layout / field offset issue — the `[]uint8` src slice in the Lexer struct may have its data pointer read from the wrong offset
+- Related to the 11 pre-existing struct conformance failures
 
 ### Remove redundant && workarounds in GeneratePackage
 - `gen.bn` `GeneratePackage` still has manually-split `&&` chains from before short-circuit was fixed
@@ -41,6 +42,13 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - `BINATE_FLAGS` env var added to conformance runners
 - lldb now shows Binate function names and source file in backtraces
 - Committed: `56ea542`
+
+### For-loop back-edge with short-circuit conditions
+- `genFor` was using `condBlk` (updated to short-circuit merge block by genExpr) for the post→cond jump
+- Fix: save `condStart` before condition evaluation, use it for the back-edge
+- Root cause of self-compiled compiler hanging in `scanIdentifier` (`for isLetter(ch) || isDigit(ch)`)
+- Conformance test 073, unit test `TestGenForShortCircuitBackedge`
+- Committed: `04534c7`
 
 ### Short-circuit && and || in compiled mode
 - Implemented alloca+branch+load pattern with CurBlock tracking in GenContext
