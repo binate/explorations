@@ -813,3 +813,79 @@ but it's a significant performance trap:
 
 This should be revisited against the spec/notes, especially the slice representation
 decisions and the managed vs. raw slice semantics.
+
+### Self-hosting: DECL_GROUP import bug — FIXED (2026-03-27)
+
+**Bug**: When the self-compiled compiler processed imported packages, `registerImportFieldsAndFuncs`
+handled `DECL_CONST` (individual constants) but not `DECL_GROUP` (const groups using iota).
+This caused all iota constants from imported packages to resolve to 0 in the compiled binary.
+
+**Impact**: The self-compiled compiler's parser couldn't distinguish token types — `token.STRING`,
+`token.PACKAGE`, etc. all had value 0, causing parse failures.
+
+**Fix**: Added `if d.Kind == ast.DECL_GROUP { registerImportConstGroup(alias, d) }` in
+`registerImportFieldsAndFuncs` (gen.bn). The older `RegisterImport` function already handled
+both cases; the newer multi-import path was missing it.
+
+**Root cause**: `RegisterImports` (plural) was added later for cross-package type resolution
+and its inner function `registerImportFieldsAndFuncs` was written from scratch rather than
+factored from `RegisterImport`, so the DECL_GROUP case was missed.
+
+### Self-hosting: short-circuit evaluation — OPEN BUG
+
+**Bug**: The IR generator (`genBinary` in gen.bn) evaluates both sides of `&&` and `||` eagerly.
+LLVM's `and`/`or` instructions don't short-circuit — they're bitwise operations on already-
+computed values. This means `p != nil && p.Val > 0` crashes because `p.Val` is evaluated
+even when `p` is nil.
+
+**Impact**: This is a **blocking bug for full self-hosting**. The self-compiled compiler crashes
+(SIGSEGV) on any `&&` chain where the right-hand side dereferences something guarded by the
+left-hand side. A workaround was applied to `GeneratePackage` (splitting `&&` chains into
+nested `if` blocks), but the rest of the compiler still has vulnerable `&&` expressions.
+
+**Attempted fix**: Short-circuit via alloca+branch+load pattern (alloca a bool, store default,
+branch on LHS, conditionally evaluate RHS). This caused the compiled binary to hang (exit 137
+SIGKILL after timeout). The implementation was reverted.
+
+**Workaround in place**: In `GeneratePackage`, compound `&&` conditions like
+`d.Kind == ast.DECL_TYPE && d.TypeRef != nil && d.TypeRef.Kind == ast.TEXPR_STRUCT`
+were manually split into nested `if` blocks.
+
+**Path forward**: Implementing short-circuit requires either:
+1. **Phi nodes** — proper SSA approach, but `OP_PHI` is not yet supported in the LLVM emitter
+2. **Alloca+branch+load** — worked conceptually but the initial implementation had a bug
+   (possibly related to block tracking or the emitter's handling of multiple branches)
+3. **AST-level desugaring** — transform `a && b` into `if a { b } else { false }` during
+   parsing or before IR generation, avoiding the issue entirely at the IR level
+
+Option 3 is likely the simplest path. It would work without any IR or emitter changes.
+
+Conformance tests 071 (short-circuit &&) and 072 (short-circuit ||) have been added with
+xfail markers for compiled and compiled-compiler modes.
+
+### Debugging process improvements — TO DISCUSS
+
+During self-hosting debugging, several pain points surfaced:
+
+1. **No `gtimeout` initially**: macOS lacks `timeout`, so hung binaries had to be killed
+   manually. Now resolved — `gtimeout` is available via coreutils.
+
+2. **Slow feedback loop**: Each test of the self-compiled compiler requires:
+   bootstrap interprets compile.bn → compiles compile.bn to native → run native compiler.
+   This multi-minute cycle makes iterating on bugs expensive.
+
+3. **Limited debug output from compiled binaries**: When the compiled compiler crashes,
+   there's no stack trace or useful error — just SIGSEGV. Adding debug prints requires
+   a full rebuild cycle.
+
+4. **Conformance tests don't cover the compiled-compiler path well**: Most tests run via
+   bootstrap or single-stage compilation. The compiled-compiler runner exists but is slow
+   and doesn't have good coverage of compiler-internal edge cases.
+
+**Potential improvements**:
+- Add a `--trace` or `--debug` flag to the compiler that can be toggled without recompilation
+- Build a "compiler test corpus" of .bni/.bn inputs that exercise specific IR generation paths
+- Consider an incremental approach: test individual IR generation functions via unit tests
+  before running the full compiler pipeline
+- Use the unit test framework to test `RegisterImports`, `GeneratePackage`, etc. with
+  crafted AST inputs that trigger specific code paths
