@@ -17,10 +17,10 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Prerequisite: lightweight debug info (done)
 
 ### Self-compiled compiler — remaining issues
-- Six codegen bugs fixed; simple programs (no vars) compile to identical IR
-- Programs with var declarations crash self-compiled binary during parsing
-  - `bn_refcount_dec` called on bad pointer (0x42) in `parseStmt`
-  - Likely use-after-free from disabled freeing in bn_refcount_dec
+- Seven codegen bugs fixed; IR output matches bootstrap for tested programs
+- Self-compiled binary compiles and emits IR correctly for programs with vars
+- Link still fails: `_bn_main` undefined even though IR has `define void @bn_main()`
+  - Possible issue in `compileLL` — .o file may not be produced or linked correctly
 - `findRuntime()` doesn't discover runtime unless `--runtime` flag is passed
 - Freeing temporarily disabled in bn_refcount_dec; slice ownership semantics needed
 
@@ -35,6 +35,14 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Pre-existing `TestRegisterImportStruct` failure — fixed (`6de59ba`)
 
 ## Done
+
+### Uninitialized managed pointer locals hit garbage in refcount_dec
+- `var d @Foo` emitted alloca without storing nil
+- First assignment did `refcount_dec(old)` on stack garbage (e.g., 0x42)
+- Self-compiled compiler crashed in `parseStmt` parsing programs with var declarations
+- Fix: initialize managed ptr locals to nil, same as slices
+- Conformance test 080, unit test `TestManagedPtrDeclNilInit`. 83/83 pass
+- Committed: `b9ef64c`
 
 ### String literal assignment to []char missing conversion
 - `genAssign` for ident assignment (`s = "hello"`) didn't call `EmitStringToChars`
