@@ -16,10 +16,12 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Emit per-instruction `DILocation` with real line numbers (currently all line 0)
 - Prerequisite: lightweight debug info (done)
 
-### Self-compiled compiler — remaining link/runtime issue
-- Five codegen bugs fixed (see Done section); compiler no longer crashes or truncates
-- Self-compiled binary now parses args and compiles, but link fails: `_main` undefined
-- Likely missing runtime linkage — `findRuntime()` may not locate `binate_runtime.c`
+### Self-compiled compiler — remaining issues
+- Six codegen bugs fixed; simple programs (no vars) compile to identical IR
+- Programs with var declarations crash self-compiled binary during parsing
+  - `bn_refcount_dec` called on bad pointer (0x42) in `parseStmt`
+  - Likely use-after-free from disabled freeing in bn_refcount_dec
+- `findRuntime()` doesn't discover runtime unless `--runtime` flag is passed
 - Freeing temporarily disabled in bn_refcount_dec; slice ownership semantics needed
 
 ### Remove redundant && workarounds in GeneratePackage
@@ -33,6 +35,13 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Pre-existing `TestRegisterImportStruct` failure — fixed (`6de59ba`)
 
 ## Done
+
+### String literal assignment to []char missing conversion
+- `genAssign` for ident assignment (`s = "hello"`) didn't call `EmitStringToChars`
+- Raw `i8*` stored into `%BnSlice` alloca, leaving length at 0
+- Self-compiled compiler emitted empty return types, icmp predicates, and truncated function names
+- Conformance test 079, unit test `TestAssignStringToChars`. 82/82 pass
+- Committed: `f4e5461`
 
 ### Stale ctx.CurBlock after if drops subsequent statements
 - `genIf` returns merge block but doesn't set `ctx.CurBlock`
