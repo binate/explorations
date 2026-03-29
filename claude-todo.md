@@ -17,9 +17,9 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Prerequisite: lightweight debug info (done)
 
 ### Self-compiled compiler crashes when compiling
-- Self-compiled compiler now builds successfully (field assign refcount fix resolved build crash)
-- But the resulting binary crashes (SIGSEGV) when used to compile programs
-- Separate issue from the build crash — needs investigation
+- Three crashes fixed: nil-to-slice calling convention, append refcount, slice-free dangling ptr
+- Still crashes (unreachable in genFunc) — under investigation
+- Freeing temporarily disabled in bn_refcount_dec; slice ownership semantics needed
 
 ### Remove redundant && workarounds in GeneratePackage
 - `gen.bn` `GeneratePackage` still has manually-split `&&` chains from before short-circuit was fixed
@@ -29,9 +29,20 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 ### Backfill unit tests (second pass)
 - First pass added 18 tests (15 ir, 3 types)
 - A second review pass was discussed but deferred
-- Pre-existing `TestRegisterImportStruct` failure needs investigation (expects 2 fields, gets different count)
+- Pre-existing `TestRegisterImportStruct` failure — fixed (`6de59ba`)
 
 ## Done
+
+### Nil-to-slice calling convention, append refcount, slice free
+- Nil passed to slice params emitted `i8*` (1 reg) instead of `%BnSlice` (2 regs), shifting args
+- Root cause of crash: `bn_refcount_inc` received ASCII "_newline" data in shifted x6 register
+- Also: append of managed ptr to slice didn't inc refcount; slice free caused dangling ptr
+- Conformance test 076, unit test `TestNilSliceArgCoercion`. 79/79 pass
+- Committed: `7e5a6b9`
+
+### RegisterImport missing Fields
+- Same bug pattern as GeneratePackage struct literal init — `moduleStructs[si].Fields` not set
+- Committed: `6de59ba`
 
 ### Managed pointer field assignment refcounting
 - `genAssign` EXPR_SELECTOR path didn't manage refcounts for managed pointer fields
