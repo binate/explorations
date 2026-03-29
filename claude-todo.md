@@ -16,9 +16,10 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Emit per-instruction `DILocation` with real line numbers (currently all line 0)
 - Prerequisite: lightweight debug info (done)
 
-### Self-compiled compiler crashes when compiling
-- Three crashes fixed: nil-to-slice calling convention, append refcount, slice-free dangling ptr
-- Still crashes (unreachable in genFunc) — under investigation
+### Self-compiled compiler — remaining link/runtime issue
+- Five codegen bugs fixed (see Done section); compiler no longer crashes or truncates
+- Self-compiled binary now parses args and compiles, but link fails: `_main` undefined
+- Likely missing runtime linkage — `findRuntime()` may not locate `binate_runtime.c`
 - Freeing temporarily disabled in bn_refcount_dec; slice ownership semantics needed
 
 ### Remove redundant && workarounds in GeneratePackage
@@ -32,6 +33,22 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Pre-existing `TestRegisterImportStruct` failure — fixed (`6de59ba`)
 
 ## Done
+
+### Stale ctx.CurBlock after if drops subsequent statements
+- `genIf` returns merge block but doesn't set `ctx.CurBlock`
+- `genStmt` STMT_DECL returned stale `ctx.CurBlock` (pointed to then-block with terminator)
+- `genBlock` loop saw terminated block and stopped processing remaining statements
+- Root cause of self-compiled compiler producing empty binary (all code after arg check dropped)
+- Fix: set `ctx.CurBlock = b` before `genDecl` call
+- Conformance test 078, unit test `TestDeclAfterIfBlock`. 81/81 pass
+- Committed: `0f4afa8`
+
+### STMT_DECL wrong block after short-circuit in initializer
+- `genStmt` returned original `b` instead of `ctx.CurBlock` after `genDecl`
+- When `||`/`&&` in var initializer creates new blocks, subsequent stmts on wrong block
+- Root cause of unreachable crash in genFunc (`var isVoid bool = ... || ...`)
+- Conformance test 077, unit test `TestDeclShortCircuitBlock`. 80/80 pass
+- Committed: `22ba787`
 
 ### Nil-to-slice calling convention, append refcount, slice free
 - Nil passed to slice params emitted `i8*` (1 reg) instead of `%BnSlice` (2 regs), shifting args
