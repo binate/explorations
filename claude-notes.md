@@ -99,8 +99,8 @@
 - Assigned to a managed array → allocate, copy, set up refcount
 - Raw pointer → pointer to static data
 
-**Managed slice representation — DECIDED**: three words:
-1. Managed pointer to the underlying allocation (keeps it alive)
+**Managed slice representation — DECIDED**: a managed slice is a managed pointer to the backing array paired with a raw slice: `(refptr, slice)`, i.e., `(refptr, raw_ptr, length)` — three words. This framing makes the `@[]T` → `[]T` conversion obvious: just drop the refptr (and dec it). Equivalently:
+1. Managed pointer to the underlying allocation (keeps it alive via refcounting)
 2. Raw pointer to the start of the view (direct data access, no arithmetic needed)
 3. Length
 
@@ -110,7 +110,32 @@
 
 **API semantics**: managed vs. raw slice at function boundaries communicates intent — managed = "I will retain this," raw = "I just need it now."
 
+**Introspection builtins**: for low-level transparency, testing, and debugging:
+- Something that takes a managed pointer (`@T`) and returns the management header (refcount, free function) as a Binate struct.
+- Something that takes a raw slice (`[]T`) and returns the slice representation (data ptr, length) as a Binate struct.
+- Something that takes a managed slice (`@[]T`) and returns the managed slice representation (refptr, slice struct) as a Binate struct.
+- All management/representation structs should be proper Binate structs, not opaque C constructs.
+- These can have "obscure" names (e.g., `_refcount_header`, `_slice_repr`, or `bn_`-prefixed) since they're not intended for normal use.
+
+**`append` — REMOVE**: `append` should be removed from the language entirely. It's a performance footgun (O(n) per call, O(n²) for incremental building) and doesn't fit the language's design. Growable collections belong in the standard library (e.g., a `Buffer[T]` or `Vec[T]` type with capacity management), not as a language builtin. Raw slices are fixed-size views; managed slices can be backed by a library type that handles growth.
+
 **Future optimization**: move/transfer ownership semantics to avoid refcount bumps (e.g., last use of a managed pointer skips the bump/decrement). Pure optimization, doesn't change semantics — deferred.
+
+### Minimize C runtime — DIRECTION
+
+The C runtime (`binate_runtime.c`) should shrink over time, not grow. The goal is to write as much as possible in Binate itself.
+
+**What must stay in C** (or equivalent FFI):
+- Wrappers for OS interfaces where the C standard library provides the stable ABI (file I/O, memory allocation — `malloc`/`free`/`realloc`).
+- Eventually, even these can be replaced by direct syscalls (as Go does on Linux), but that's more work and amounts to replacing C with assembly.
+
+**What should move to Binate**:
+- Refcount management (inc, dec, free dispatch)
+- Slice operations (append, get, set, bounds checking, slice expressions)
+- String-to-chars conversion, printing
+- Box, alloc wrappers (above the raw malloc layer)
+
+**End state**: declare external C library functions via compiler annotations (or a natural FFI mechanism) and remove the C runtime entirely. Pure Binate systems — where everything is written in Binate — should be possible. The C dependency exists only insofar as it's the practical way to talk to the OS; it's not a permanent architectural choice.
 
 ### Threading — DECIDED
 

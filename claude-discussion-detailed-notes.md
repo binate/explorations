@@ -88,12 +88,12 @@ This area went through several iterations during discussion.
 
 **Two flavors of slice:**
 
-**Managed slice** — three words:
+**Managed slice** — a managed pointer to the backing array paired with a raw slice: `(refptr, slice)`, i.e., `(refptr, raw_ptr, length)` — three words:
 1. Managed pointer to the underlying allocation (keeps it alive via refcounting)
 2. Raw pointer to the start of the view (for direct data access, no arithmetic needed)
 3. Length
 
-The three-word representation was chosen over (managed pointer, offset, length) because the raw pointer gives direct data access without arithmetic, and is what you'd pass to C code or use in tight loops.
+This framing makes the `@[]T` → `[]T` conversion obvious: just drop the refptr (and dec it). The three-word representation was chosen over (managed pointer, offset, length) because the raw pointer gives direct data access without arithmetic, and is what you'd pass to C code or use in tight loops.
 
 **Raw slice** — two words:
 1. Raw pointer to start
@@ -137,6 +137,40 @@ Fixed-size arrays (e.g., `char[123]`) are value types. They don't store their le
 ### Move/Ownership Optimizations
 
 Discussed briefly but deferred. The compiler could detect last-use of a managed pointer and skip refcount bumps/decrements. This is a pure optimization that doesn't change semantics.
+
+### Introspection Builtins
+
+For low-level transparency, testing, and debugging, the language should provide ways to inspect the internal representation of managed types:
+
+- **Managed pointer header**: given `@T`, return the management header as a Binate struct — fields for refcount and free function pointer.
+- **Raw slice repr**: given `[]T`, return the slice representation as a Binate struct — data pointer and length.
+- **Managed slice repr**: given `@[]T`, return the managed slice representation as a Binate struct — refptr and raw slice struct.
+
+All of these representation/management structs should be proper Binate structs, not opaque C constructs. This enables writing tests and debugging tools in pure Binate.
+
+Return by value is natural since these are small structs (2-3 words).
+
+These can have "obscure" names (e.g., `_refcount_header`, `_slice_repr`, or `bn_`-prefixed) — they're not intended for normal/regular use, just low-level inspection.
+
+### Minimize C Runtime — Direction
+
+The C runtime (`binate_runtime.c`) should shrink over time, not grow. The long-term goal is to write as much as possible in Binate itself.
+
+**What must stay in C (or equivalent FFI):**
+- Wrappers for OS interfaces where the C standard library provides the stable ABI to the OS: file I/O (`open`, `read`, `write`, `close`), memory allocation (`malloc`, `free`, `realloc`).
+- On Linux, it is also possible to bypass C and do syscalls directly (as Go does), but this replaces C with assembly — more work, and not necessary as a first step.
+
+**What should move to Binate:**
+- Refcount management (inc, dec, free dispatch)
+- Slice operations (append, get, set, bounds checking, slice expressions)
+- String conversions, printing helpers
+- Box/alloc wrappers (everything above the raw malloc layer)
+
+**End state — two paths:**
+1. **FFI to C**: declare external C library functions via compiler annotations or a natural FFI declaration syntax, then remove the C runtime file entirely. The C standard library is still linked, but no Binate-specific C code exists.
+2. **Pure Binate systems**: everything is written in Binate, including OS interaction (via direct syscalls or platform-specific assembly stubs). No C dependency at all.
+
+Path 1 is the practical near-term goal. Path 2 is the long-term vision for embedded/freestanding targets.
 
 ---
 
@@ -1694,7 +1728,7 @@ The bootstrap interpreter successfully runs `compile.bn` to compile `compile.bn`
 - **Object file format strategy**: start with platform-native (ELF/Mach-O), possibly move to Binate-specific format with converters later.
 - **Own linker**: needed eventually for hermetic builds and cross-compilation, deferred.
 - **LLVM IR backend**: alongside the custom backends (x86-64, ARM64), an LLVM IR emission backend would give high-quality native codegen on "big" platforms (desktop, server) essentially for free. Custom backends are still needed for embedded/small targets where LLVM is too heavy, but LLVM would be the pragmatic fast path to competitive native code on mainstream platforms. Worth considering as a pluggable backend alongside the custom ones.
-- **`append` performance**: the current `append` builtin always copies (O(n) per call, O(n²) for incremental building). This is a significant footgun — the self-hosted compiler uses append-based string building extensively, which works but is quadratic. Options: add capacity to managed slices, provide a library `Buffer[T]` type, remove `append` in favor of explicit buffer types, or a hybrid approach. Needs review against slice representation decisions.
+- **`append` — REMOVE**: `append` should be removed from the language entirely. It's a performance footgun (O(n) per call, O(n²) for incremental building) and doesn't belong as a language builtin. The self-hosted compiler uses append-based string building extensively, which works but is quadratic. Growable collections belong in the standard library — a `Buffer[T]` or `Vec[T]` type with capacity management. Raw slices are fixed-size views; managed slices can be backed by a library type that handles growth. The bootstrap compiler will continue to support `append` for pragmatic reasons, but it's not part of the language going forward.
 - **Debug info for compiled binaries**: currently a compiled Binate program that crashes gives SIGSEGV with no stack trace, function name, or line number. Two levels of improvement discussed:
   - **Lightweight (in progress)**: pass `-g` to clang, emit `source_filename` in LLVM IR module header, and emit `DISubprogram` metadata for each function. This gives function-level backtraces and lets debuggers show Binate function names. Minimal effort (~30 min), high value.
   - **Full DWARF**: add `Pos` field to IR `Instr` struct, thread `token.Pos` from AST through IR generation (~40 call sites in gen.bn), emit `DIFile`/`DICompileUnit`/`DILocation` metadata in emit.bn, attach `!dbg` to every instruction. This gives line-level source mapping in debuggers and profilers. Moderate effort (several sessions). The foundation is already there — AST nodes carry full `token.Pos` (file, line, col), the IR just doesn't propagate it yet.
