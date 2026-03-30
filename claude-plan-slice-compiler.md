@@ -125,7 +125,7 @@ type CharBuf struct {
 }
 ```
 
-Uses `@[]char` (managed slice) for proper memory management. Geometric growth
+Uses `@[]char` (managed-slice) for proper memory management. Geometric growth
 (doubling) gives amortized O(1) append. Return-by-value pattern:
 `b = buf.WriteByte(b, 'x')`.
 

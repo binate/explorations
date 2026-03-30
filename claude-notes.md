@@ -84,9 +84,15 @@
 
 `char[]` (and arrays of unspecified size generally) are **slices** — a view into underlying data, not a container of data themselves.
 
+**Terminology — IMPORTANT**: "managed-slice" (hyphenated) refers specifically to `@[]T`,
+the 3-word type `(refptr, raw_ptr, length)` created by `make_slice`. "Managed slice"
+(two words, no hyphen) is ambiguous — it could mean `@[]T` (managed-slice) or `@([]T)`
+(a managed pointer to a raw slice). In these notes we use the hyphenated form
+"managed-slice" when referring to `@[]T` to avoid confusion.
+
 **Two flavors**:
-- **Managed slice**: keeps the underlying allocation alive via refcounting. Representation TBD — possibly (managed pointer to allocation, raw pointer to start of slice, length) = three words, since the slice may start at an offset from the allocation start.
-- **Raw slice**: (raw pointer to start, length). Two words. No refcounting. Caller manages lifetime.
+- **Managed-slice** (`@[]T`): keeps the underlying allocation alive via refcounting. Three words: (managed pointer to allocation, raw pointer to start of slice, length).
+- **Raw slice** (`[]T`): (raw pointer to start, length). Two words. No refcounting. Caller manages lifetime.
 
 **Key benefits**:
 - Fixed-size arrays (`char[123]`) don't need to store their length — it's captured in the slice when you create a view
@@ -99,25 +105,25 @@
 - Assigned to a managed array → allocate, copy, set up refcount
 - Raw pointer → pointer to static data
 
-**Managed slice representation — DECIDED**: a managed slice is a managed pointer to the backing array paired with a raw slice: `(refptr, slice)`, i.e., `(refptr, raw_ptr, length)` — three words. This framing makes the `@[]T` → `[]T` conversion obvious: just drop the refptr (and dec it). Equivalently:
+**Managed-slice representation — DECIDED**: a managed-slice (`@[]T`) is a managed pointer to the backing array paired with a raw slice: `(refptr, slice)`, i.e., `(refptr, raw_ptr, length)` — three words. This framing makes the `@[]T` → `[]T` conversion obvious: just drop the refptr (and dec it). Equivalently:
 1. Managed pointer to the underlying allocation (keeps it alive via refcounting)
 2. Raw pointer to the start of the view (direct data access, no arithmetic needed)
 3. Length
 
 **Raw slice representation**: two words: (raw pointer to start, length)
 
-**Constraint**: managed slices can only refer to managed allocations. For stack/static data, use a raw slice. To pass stack/static data where a managed slice is expected, copy into a managed allocation first. This maintains clean lifetime guarantees.
+**Constraint**: managed-slices can only refer to managed allocations. For stack/static data, use a raw slice. To pass stack/static data where a managed-slice is expected, copy into a managed allocation first. This maintains clean lifetime guarantees.
 
-**API semantics**: managed vs. raw slice at function boundaries communicates intent — managed = "I will retain this," raw = "I just need it now."
+**API semantics**: managed-slice vs. raw slice at function boundaries communicates intent — managed-slice = "I will retain this," raw = "I just need it now."
 
 **Introspection builtins**: for low-level transparency, testing, and debugging:
 - Something that takes a managed pointer (`@T`) and returns the management header (refcount, free function) as a Binate struct.
 - Something that takes a raw slice (`[]T`) and returns the slice representation (data ptr, length) as a Binate struct.
-- Something that takes a managed slice (`@[]T`) and returns the managed slice representation (refptr, slice struct) as a Binate struct.
+- Something that takes a managed-slice (`@[]T`) and returns the managed-slice representation (refptr, slice struct) as a Binate struct.
 - All management/representation structs should be proper Binate structs, not opaque C constructs.
 - These can have "obscure" names (e.g., `_refcount_header`, `_slice_repr`, or `bn_`-prefixed) since they're not intended for normal use.
 
-**`append` — REMOVE**: `append` should be removed from the language entirely. It's a performance footgun (O(n) per call, O(n²) for incremental building) and doesn't fit the language's design. Growable collections belong in the standard library (e.g., a `Buffer[T]` or `Vec[T]` type with capacity management), not as a language builtin. Raw slices are fixed-size views; managed slices can be backed by a library type that handles growth.
+**`append` — REMOVE**: `append` should be removed from the language entirely. It's a performance footgun (O(n) per call, O(n²) for incremental building) and doesn't fit the language's design. Growable collections belong in the standard library (e.g., a `Buffer[T]` or `Vec[T]` type with capacity management), not as a language builtin. Raw slices are fixed-size views; managed-slices can be backed by a library type that handles growth.
 
 **Future optimization**: move/transfer ownership semantics to avoid refcount bumps (e.g., last use of a managed pointer skips the bump/decrement). Pure optimization, doesn't change semantics — deferred.
 
@@ -432,7 +438,7 @@ C-family, leaning toward Go's direction (clean, minimal, familiar).
 - `@T` = managed pointer to T
 - `&x` = take raw address of x
 - `make(T)` = allocate managed T (zero-init), returns `@T` (any type T, no size arg)
-- `make_slice(T, n)` = allocate runtime-sized managed slice, returns `@[]T`
+- `make_slice(T, n)` = allocate runtime-sized managed-slice, returns `@[]T`
 - `box(expr)` = allocate managed copy of value, returns `@T` (e.g., `box(Point{x: 1})`, `box(42)`)
 - Forward-compatible with non-nullable pointers (no intermediate nil state)
 - `.` auto-dereferences (Go-style, no `->`)
@@ -440,11 +446,11 @@ C-family, leaning toward Go's direction (clean, minimal, familiar).
 
 **Slice syntax — DECIDED**:
 - `[]T` = raw slice of T (two words: raw ptr, length)
-- `@[]T` = managed slice of T (three words: managed ptr, raw ptr, length) — syntactic sugar
+- `@[]T` = managed-slice of T (three words: managed ptr, raw ptr, length) — syntactic sugar
 - `*[]T` = raw pointer to a raw slice
 - `@([]T)` = managed pointer to a raw slice (parens break the `@[]` sugar)
 - `arr[low:high]` = slice expression (exclusive end, like Go)
-- The `@[]` sugar is syntactic only: in generics, `@T` where `T=[]int` means `@([]int)` (managed pointer to raw slice), not managed slice.
+- The `@[]` sugar is syntactic only: in generics, `@T` where `T=[]int` means `@([]int)` (managed pointer to raw slice), not managed-slice.
 
 **Function syntax — IN PROGRESS**:
 ```
@@ -691,7 +697,7 @@ make(Point)              // @Point, zero-init (takes a type)
 make([100]int)           // @([100]int), zero-init managed fixed-size array
 make([]int)              // @([]int), managed pointer to zero-value raw slice
 
-make_slice(int, n)       // @[]int, runtime-sized managed slice, n zero-init elements
+make_slice(int, n)       // @[]int, runtime-sized managed-slice, n zero-init elements
 
 box(42)                  // @int, box a literal (takes an expression)
 box(x)                   // @T where x: T, copies value
@@ -701,16 +707,16 @@ box(Point{x: 1, y: 2})  // @Point, allocate and init
 - `make(T)` always takes a type, returns `@T`. Zero-initializes. Works for ANY type T,
   including `[]T` (→ `@([]T)`, managed ptr to raw slice) and `[k]T` (→ `@([k]T)`,
   managed ptr to fixed-size array). No size argument.
-- `make_slice(T, n)` takes an element type and runtime size. Returns `@[]T` (managed
-  slice — the special 3-word type). This is the ONLY way to create runtime-sized managed
-  slices. Separate builtin because `make([]T, n)` is ambiguous (does it return `@([]T)`
+- `make_slice(T, n)` takes an element type and runtime size. Returns `@[]T` (managed-slice
+  — the special 3-word type). This is the ONLY way to create runtime-sized managed-slices.
+  Separate builtin because `make([]T, n)` is ambiguous (does it return `@([]T)`
   or `@[]T`?).
 - `box` always takes a value expression. Allocates and copies. No ambiguity.
 - No capacity argument — growing is a library concern (CharBuf, Vec[T], etc.)
 
 **Notation — DECIDED**: `@([k]T)` (with parens) for managed pointer to fixed-size array,
-to distinguish from `@[]T` (managed slice sugar). `@[k]T` is ambiguous and should not
-be used. The `@[]` sugar applies ONLY to `@[]T` (managed slice); all other combinations
+to distinguish from `@[]T` (managed-slice sugar). `@[k]T` is ambiguous and should not
+be used. The `@[]` sugar applies ONLY to `@[]T` (managed-slice); all other combinations
 use explicit parens to break the sugar.
 
 ### Method resolution & dispatch — DECIDED
@@ -828,7 +834,7 @@ Design rationale: minimal complexity, works within the bootstrap subset (no inte
 
 `append` is being removed from the language. See the "append — REMOVE" note above.
 Growable collections are a library concern: `CharBuf` for strings, `Vec[T]` (post-generics)
-for general lists. `make_slice` provides the primitive for allocating managed slices;
+for general lists. `make_slice` provides the primitive for allocating managed-slices;
 library types handle growth/capacity on top of that.
 
 ### Self-hosting: DECL_GROUP import bug — FIXED (2026-03-27)

@@ -15,14 +15,14 @@ type CharBuf struct {
 ```
 
 **Why `@[]char` not `[]char`?** Raw slices are unmanaged — there's no way to free
-or grow them safely. A managed slice gives us refcounted ownership of the backing
+or grow them safely. A managed-slice gives us refcounted ownership of the backing
 array. When CharBuf is copied (it's a value type), the refcount on Data increments;
 when a copy goes out of scope, it decrements. The last owner frees the memory.
 
-**Why a separate Cap field?** `len(Data)` gives the managed slice's length, which
+**Why a separate Cap field?** `len(Data)` gives the managed-slice's length, which
 equals the capacity. Having Cap explicit avoids repeated `len()` calls and makes
 the growth logic clearer. It also allows for a future optimization where we don't
-need to update the managed slice's length on every append — we only replace Data
+need to update the managed-slice's length on every append — we only replace Data
 when we grow.
 
 **Return-by-value pattern:** All mutating functions take a CharBuf by value and
@@ -59,9 +59,9 @@ func BufLen(b CharBuf) int                      // current logical length
 
 ## Dependency: `make_slice`
 
-CharBuf requires `make_slice(char, n)` to return `@[]char` (a proper managed slice).
+CharBuf requires `make_slice(char, n)` to return `@[]char` (a proper managed-slice).
 This builtin doesn't exist yet — the current `make([]T, n)` is broken (returns raw
-`BnSlice` instead of managed slice) and is being removed.
+`BnSlice` instead of managed-slice) and is being removed.
 
 **This means CharBuf cannot be implemented until `make_slice` exists.** See
 `claude-plan-fix-make.md` for the migration plan (specifically step 4).

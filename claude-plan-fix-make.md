@@ -7,7 +7,7 @@
 1. **Semantic ambiguity.** `make(T)` should return `@T` for any type T. If T is
    `[]int`, then `make([]int)` should return `@([]int)` — a managed pointer to a
    raw slice. But the current `make([]T, n)` is special-cased to return `@[]T`
-   (a managed slice — the 3-word type). This breaks `make`'s uniformity and creates
+   (a managed-slice — the 3-word type). This breaks `make`'s uniformity and creates
    a trap for generics (`make(T)` where `T=[]int`).
 
 2. **Implementation mismatch.** Even with the special-case typing, the runtime
@@ -22,8 +22,8 @@
   - `make([100]int)` → `@([100]int)` (managed ptr to zero-init fixed-size array)
 
 - **`make_slice(T, n)`** takes an element type and runtime size, returns `@[]T`
-  (managed slice — the special 3-word type: refptr, data_ptr, length). This is
-  the ONLY way to create runtime-sized managed slices.
+  (managed-slice — the special 3-word type: refptr, data_ptr, length). This is
+  the ONLY way to create runtime-sized managed-slices.
 
 - **`make_raw_deprecated([]T, n)`** temporary builtin preserving current broken
   behavior (returns raw `[]T` via `calloc`). Exists only during migration.
@@ -88,7 +88,7 @@ Now that no code uses `make([]T, n)`, remove the special-case:
   for slice types. `make([]T)` returns `@([]T)`.
 - IR gen: `make([]T)` emits `OP_MAKE` (like any other type), not `OP_MAKE_SLICE`
 - Bootstrap interpreter: `make([]T)` creates a managed pointer to a zero-value
-  raw slice (null ptr, length 0), not a managed slice
+  raw slice (null ptr, length 0), not a managed-slice
 
 For `make([k]T)`:
 - Type checker: returns `@([k]T)` — managed pointer to fixed-size array
@@ -106,7 +106,7 @@ Validate at each commit.
 ### Step 4: Add `make_slice` builtin
 
 New builtin: `make_slice(T, n)` takes an element type T and a runtime size n,
-returns `@[]T` (managed slice — 3-word type).
+returns `@[]T` (managed-slice — 3-word type).
 
 #### 4a: Runtime — `bn_make_managed_slice`
 
@@ -153,7 +153,7 @@ Operations needed:
 |-----------|------|--------|
 | Token | `pkg/ast.bni`, bootstrap `token/` | Add `MAKE_SLICE` token |
 | Parser | `pkg/parser/parser.bn`, bootstrap parser | Parse `make_slice(T, n)` |
-| Type checker | `pkg/types/checker.bn`, bootstrap checker | Returns `@[]T` (managed slice type) |
+| Type checker | `pkg/types/checker.bn`, bootstrap checker | Returns `@[]T` (managed-slice type) |
 | IR gen | `pkg/ir/gen.bn` | New `OP_MAKE_MANAGED_SLICE` (or reuse `OP_MAKE_SLICE` with different semantics) |
 | Codegen | `pkg/codegen/emit.bn` | Emit `bn_make_managed_slice` call, `%BnManagedSlice` type |
 | Runtime | `binate_runtime.c` | Add `bn_make_managed_slice` |
@@ -179,11 +179,11 @@ Validate at each commit.
 ### Step 5: Add `@([k]T) → @[]T` conversion
 
 A managed pointer to a fixed-size array (`@([k]T)`) can be converted to a
-managed slice (`@[]T`) by constructing `(refptr, data_ptr, k)` where `data_ptr`
+managed-slice (`@[]T`) by constructing `(refptr, data_ptr, k)` where `data_ptr`
 points into the same allocation.
 
 This is useful for: `make([100]int)` → `@([100]int)`, then convert to `@[]int`
-for passing to functions that take managed slices.
+for passing to functions that take managed-slices.
 
 **Commit 5**: Conversion support in type checker + codegen.
 
@@ -232,11 +232,11 @@ touches: LLVM type representation, load/store, function call ABI, refcount
 management, conversion to/from raw slices.
 
 However, managed pointers (`@T` as `i8*`) already work, so there's precedent.
-The managed slice is conceptually `(managed_ptr, raw_slice)` bundled together.
+The managed-slice is conceptually `(managed_ptr, raw_slice)` bundled together.
 
 **Mitigation:** Each sub-commit is validated independently. If step 4 proves
 too large, we can pause after step 2 (everything works with `make_raw_deprecated`)
-and take more time on the managed slice implementation.
+and take more time on the managed-slice implementation.
 
 **Step 3 is moderate risk** — changing `make([]T)` semantics affects type checking
 and IR generation. But since no code uses this form after step 2, there's nothing

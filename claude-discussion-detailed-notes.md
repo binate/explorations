@@ -88,23 +88,27 @@ This area went through several iterations during discussion.
 
 **Two flavors of slice:**
 
-**Managed slice** — a managed pointer to the backing array paired with a raw slice: `(refptr, slice)`, i.e., `(refptr, raw_ptr, length)` — three words:
+**Terminology note**: we use "managed-slice" (hyphenated) for `@[]T`, the 3-word type.
+Without the hyphen, "managed slice" is ambiguous — it could mean `@[]T` (managed-slice)
+or `@([]T)` (a managed pointer to a raw slice, which is a different thing entirely).
+
+**Managed-slice** (`@[]T`) — a managed pointer to the backing array paired with a raw slice: `(refptr, slice)`, i.e., `(refptr, raw_ptr, length)` — three words:
 1. Managed pointer to the underlying allocation (keeps it alive via refcounting)
 2. Raw pointer to the start of the view (for direct data access, no arithmetic needed)
 3. Length
 
 This framing makes the `@[]T` → `[]T` conversion obvious: just drop the refptr (and dec it). The three-word representation was chosen over (managed pointer, offset, length) because the raw pointer gives direct data access without arithmetic, and is what you'd pass to C code or use in tight loops.
 
-**Raw slice** — two words:
+**Raw slice** (`[]T`) — two words:
 1. Raw pointer to start
 2. Length
 
-**Constraint: managed slices can only refer to managed allocations.** For stack or static data, use a raw slice. If you need to pass stack/static data where a managed slice is expected, copy into a managed allocation first.
+**Constraint: managed-slices can only refer to managed allocations.** For stack or static data, use a raw slice. If you need to pass stack/static data where a managed-slice is expected, copy into a managed allocation first.
 
-This constraint was debated. The alternative was allowing managed slices with a nil managed pointer for non-managed data, but this was rejected as deceptive — you'd lose the lifetime guarantees that are the whole point of managed slices.
+This constraint was debated. The alternative was allowing managed-slices with a nil managed pointer for non-managed data, but this was rejected as deceptive — you'd lose the lifetime guarantees that are the whole point of managed-slices.
 
-**API semantics**: the choice of managed vs. raw slice at function boundaries communicates intent:
-- Managed slice = "I will retain this data"
+**API semantics**: the choice of managed-slice vs. raw slice at function boundaries communicates intent:
+- Managed-slice = "I will retain this data"
 - Raw slice = "I just need to read it now"
 
 This falls out naturally from the type system with no extra annotations needed.
@@ -144,7 +148,7 @@ For low-level transparency, testing, and debugging, the language should provide 
 
 - **Managed pointer header**: given `@T`, return the management header as a Binate struct — fields for refcount and free function pointer.
 - **Raw slice repr**: given `[]T`, return the slice representation as a Binate struct — data pointer and length.
-- **Managed slice repr**: given `@[]T`, return the managed slice representation as a Binate struct — refptr and raw slice struct.
+- **Managed-slice repr**: given `@[]T`, return the managed-slice representation as a Binate struct — refptr and raw slice struct.
 
 All of these representation/management structs should be proper Binate structs, not opaque C constructs. This enables writing tests and debugging tools in pure Binate.
 
@@ -444,7 +448,7 @@ make(Point)              // zero-init, returns @Point (takes a type)
 make([]int)              // managed ptr to zero-value raw slice, returns @([]int)
 make([100]int)           // managed ptr to zero-init array, returns @([100]int)
 
-make_slice(int, n)       // runtime-sized managed slice, returns @[]int
+make_slice(int, n)       // runtime-sized managed-slice, returns @[]int
 
 box(42)                  // box an integer, returns @int (takes an expression)
 box(Point{x: 1, y: 2})  // allocate with init, returns @Point
@@ -452,10 +456,10 @@ box(Point{x: 1, y: 2})  // allocate with init, returns @Point
 
 `make(T)` takes any type T and returns `@T` — always. No size argument. This means
 `make([]int)` returns `@([]int)` (managed pointer to a raw slice), NOT `@[]int`
-(managed slice). The distinction matters: `@([]int)` is a 1-word managed pointer
-to a 2-word raw slice; `@[]int` is a 3-word managed slice (refptr + ptr + len).
+(managed-slice). The distinction matters: `@([]int)` is a 1-word managed pointer
+to a 2-word raw slice; `@[]int` is a 3-word managed-slice (refptr + ptr + len).
 
-`make_slice(T, n)` is a separate builtin that creates runtime-sized managed slices.
+`make_slice(T, n)` is a separate builtin that creates runtime-sized managed-slices.
 It takes an element type and a length, returns `@[]T`. This avoids the ambiguity of
 `make([]T, n)` — which would be unclear whether it returns `@([]T)` or `@[]T`.
 
@@ -465,18 +469,18 @@ with non-nullable pointers (no intermediate nil state).
 
 **Notation**: `@([k]T)` (with parens) for managed pointer to fixed-size array.
 `@[k]T` without parens is ambiguous and should not be used. The `@[]` sugar applies
-ONLY to `@[]T` (managed slice); all other `@` + collection combinations use parens.
+ONLY to `@[]T` (managed-slice); all other `@` + collection combinations use parens.
 
 ### Slice Syntax
 
 Mirrors the pointer pattern — `@` prefix means "managed version":
 ```
 []T             // raw slice (two words: raw ptr, length)
-@[]T            // managed slice (three words: managed ptr, raw ptr, length)
+@[]T            // managed-slice (three words: managed ptr, raw ptr, length)
 arr[low:high]   // slice expression (exclusive end, like Go)
 ```
 
-**Ambiguity with pointers to slices:** `@[]T` is syntactic sugar for "managed slice of T." If you need a managed pointer to a raw slice (rare), use parentheses to break the sugar: `@([]T)`. The `@[]` sugar is syntactic only — in generics, `@T` where `T=[]int` means `@([]int)` (managed pointer), not managed slice.
+**Ambiguity with pointers to slices:** `@[]T` is syntactic sugar for "managed-slice of T." If you need a managed pointer to a raw slice (rare), use parentheses to break the sugar: `@([]T)`. The `@[]` sugar is syntactic only — in generics, `@T` where `T=[]int` means `@([]int)` (managed pointer), not managed-slice.
 
 ### Interface Values — Managed/Raw Pattern
 
@@ -1130,7 +1134,7 @@ make(Point)              // @Point, zero-init (takes a type)
 make([100]int)           // @([100]int), managed ptr to zero-init fixed-size array
 make([]int)              // @([]int), managed ptr to zero-value raw slice
 
-make_slice(int, n)       // @[]int, runtime-sized managed slice, n zero-init elements
+make_slice(int, n)       // @[]int, runtime-sized managed-slice, n zero-init elements
 
 box(42)                  // @int (takes an expression)
 box(x)                   // @T where x: T
@@ -1147,10 +1151,10 @@ below for the disambiguation rationale.
 `@([]int)` — a managed pointer to a raw slice (the raw slice is zero-valued:
 null ptr, length 0). This is well-defined but not what you usually want.
 
-What you usually want is `@[]int` — a managed slice (3-word type: refptr, data ptr,
+What you usually want is `@[]int` — a managed-slice (3-word type: refptr, data ptr,
 length) backed by a freshly allocated array. That's what `make_slice(int, n)` gives
 you. It takes an *element type* and a runtime size, allocates a backing array of `n`
-zero-initialized elements, and returns the managed slice.
+zero-initialized elements, and returns the managed-slice.
 
 The old `make([]T, n)` syntax was ambiguous: does it return `@([]T)` (because
 `make(T)` returns `@T`) or `@[]T` (special-cased for slices)? The answer was
@@ -1158,11 +1162,11 @@ The old `make([]T, n)` syntax was ambiguous: does it return `@([]T)` (because
 the special case and makes `make` perfectly uniform.
 
 This also matters for generics: `make(T)` where `T=[]int` unambiguously returns
-`@([]int)`, not `@[]int`. Generic code that needs a managed slice uses `make_slice`.
+`@([]int)`, not `@[]int`. Generic code that needs a managed-slice uses `make_slice`.
 
 **Runtime-sized arrays:** `make_slice(int, n)` is needed because `make([n]int)`
 requires `n` to be a compile-time constant. Dynamic sizes are common (reading files,
-building buffers). The result is `@[]int` — a managed slice pointing to a freshly
+building buffers). The result is `@[]int` — a managed-slice pointing to a freshly
 allocated backing array of `n` zero-initialized elements.
 
 **No capacity argument** (unlike Go's `make([]T, len, cap)`). Growing/resizable
@@ -1186,7 +1190,7 @@ No overlap, no ambiguity. The parser knows: after `make(`, expect a type. After
 make(Point)              // @Point, zero-init
 make([]int)              // @([]int), managed ptr to zero-value raw slice
 make([100]int)           // @([100]int), managed ptr to zero-init array
-make_slice(int, n)       // @[]int, runtime-sized managed slice
+make_slice(int, n)       // @[]int, runtime-sized managed-slice
 box(42)                  // @int
 box(x)                   // @T where x: T
 box(Point{x: 1, y: 2})  // @Point, allocate with init
@@ -1194,16 +1198,16 @@ box(Point{x: 1, y: 2})  // @Point, allocate with init
 
 **Why `make_slice` instead of `make([]T, n)`:** `make(T)` returns `@T` uniformly.
 If T is `[]int`, then `make([]int)` returns `@([]int)` — a managed pointer to a
-raw slice. But `make([]int, n)` was special-cased to return `@[]int` — a managed
-slice (different type!). This special case breaks the uniformity of `make` and
+raw slice. But `make([]int, n)` was special-cased to return `@[]int` — a managed-slice
+(different type!). This special case breaks the uniformity of `make` and
 creates a subtle trap, especially with generics (`make(T)` where `T=[]int` should
-return `@([]int)`, not `@[]int`). Splitting runtime-sized managed slice creation
+return `@([]int)`, not `@[]int`). Splitting runtime-sized managed-slice creation
 into `make_slice` makes everything uniform and unambiguous.
 
 `box(Point{x: 1, y: 2})` replaces the old `make(Point{x: 1, y: 2})`. The composite literal is an expression, so `box` handles it naturally.
 
 **Alternatives considered for dynamic arrays:**
-- `make([100]int)[:]` for creating a managed slice from a managed fixed-size array — works but only for compile-time sizes
+- `make([100]int)[:]` for creating a managed-slice from a managed fixed-size array — works but only for compile-time sizes
 - Go-style `make([]int, len, cap)` — adds a concept (capacity vs length) at the language level that belongs in a library
 - `make([]T, n)` with special-case return type — rejected due to ambiguity (see above)
 
@@ -1395,7 +1399,7 @@ The formal grammar (`grammar.ebnf`) covers the full language and is annotated wi
 
 2. **D2 — For-clause variants**: `for` followed by tokens is disambiguated: if `in` keyword appears, it's for-in; if `;` appears, it's C-style; otherwise while-style or infinite. The parser looks ahead for `;` or `in`.
 
-3. **D3 — `@[]T` managed slice sugar**: `@[]T` is managed slice sugar (3-word representation). `@([]T)` is a managed pointer to a raw slice. Parens break the sugar. In generics, `@T` where `T=[]int` means `@([]int)`, not managed slice sugar.
+3. **D3 — `@[]T` managed-slice sugar**: `@[]T` is managed-slice sugar (3-word representation). `@([]T)` is a managed pointer to a raw slice. Parens break the sugar. In generics, `@T` where `T=[]int` means `@([]int)`, not managed-slice sugar.
 
 4. **D4 — Composite literals in control flow**: `if x == Point{...}` is ambiguous — does `{` start the if-body or a composite literal? Resolved: in `if`, `for`, `switch` conditions, `{` cannot start a composite literal. Use parens: `if x == (Point{x: 1})`.
 
@@ -1786,7 +1790,7 @@ The bootstrap interpreter successfully runs `compile.bn` to compile `compile.bn`
 - **Object file format strategy**: start with platform-native (ELF/Mach-O), possibly move to Binate-specific format with converters later.
 - **Own linker**: needed eventually for hermetic builds and cross-compilation, deferred.
 - **LLVM IR backend**: alongside the custom backends (x86-64, ARM64), an LLVM IR emission backend would give high-quality native codegen on "big" platforms (desktop, server) essentially for free. Custom backends are still needed for embedded/small targets where LLVM is too heavy, but LLVM would be the pragmatic fast path to competitive native code on mainstream platforms. Worth considering as a pluggable backend alongside the custom ones.
-- **`append` — REMOVE**: `append` should be removed from the language entirely. It's a performance footgun (O(n) per call, O(n²) for incremental building) and doesn't belong as a language builtin. The self-hosted compiler uses append-based string building extensively, which works but is quadratic. Growable collections belong in the standard library — a `Buffer[T]` or `Vec[T]` type with capacity management. Raw slices are fixed-size views; managed slices can be backed by a library type that handles growth. The bootstrap compiler will continue to support `append` for pragmatic reasons, but it's not part of the language going forward.
+- **`append` — REMOVE**: `append` should be removed from the language entirely. It's a performance footgun (O(n) per call, O(n²) for incremental building) and doesn't belong as a language builtin. The self-hosted compiler uses append-based string building extensively, which works but is quadratic. Growable collections belong in the standard library — a `Buffer[T]` or `Vec[T]` type with capacity management. Raw slices are fixed-size views; managed-slices can be backed by a library type that handles growth. The bootstrap compiler will continue to support `append` for pragmatic reasons, but it's not part of the language going forward.
 - **Debug info for compiled binaries**: currently a compiled Binate program that crashes gives SIGSEGV with no stack trace, function name, or line number. Two levels of improvement discussed:
   - **Lightweight (in progress)**: pass `-g` to clang, emit `source_filename` in LLVM IR module header, and emit `DISubprogram` metadata for each function. This gives function-level backtraces and lets debuggers show Binate function names. Minimal effort (~30 min), high value.
   - **Full DWARF**: add `Pos` field to IR `Instr` struct, thread `token.Pos` from AST through IR generation (~40 call sites in gen.bn), emit `DIFile`/`DICompileUnit`/`DILocation` metadata in emit.bn, attach `!dbg` to every instruction. This gives line-level source mapping in debuggers and profilers. Moderate effort (several sessions). The foundation is already there — AST nodes carry full `token.Pos` (file, line, col), the IR just doesn't propagate it yet.

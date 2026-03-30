@@ -47,7 +47,7 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - Refcounted via the managed pointer (keeps backing allocation alive)
 - `@[]T` is syntactic sugar, distinct from `@([]T)` (managed pointer to raw slice)
 - `make_slice(T, n)` returns `@[]T` (new builtin, replaces old `make([]T, n)`)
-- `make([]T)` returns `@([]T)` (managed ptr to raw slice — not managed slice)
+- `make([]T)` returns `@([]T)` (managed ptr to raw slice — not managed-slice)
 - `@([k]T)` notation for managed ptr to fixed-size array (not `@[k]T`)
 - Not yet implemented in the compiler
 
@@ -61,12 +61,12 @@ Binate is NOT Go. The two types of slice are intentionally different:
   an internal library providing capacity+length buffer types (primarily for chars/strings).
 
 ### Phase 2: Managed slices + remove append
-- Implement managed slices (`@[]T`) — three words: (refptr, raw_ptr, length)
+- Implement managed-slices (`@[]T`) — three words: (refptr, raw_ptr, length)
 - Remove `append` builtin from the language
 - Write a mini internal library for growable buffers (capacity + length)
   - Primarily needed for chars/strings (the compiler's main use of append)
   - Replaces all current `append` usage in the self-hosted compiler
-- Switch compiler internals from `[]T` + append to managed slices / buffer types where appropriate
+- Switch compiler internals from `[]T` + append to managed-slices / buffer types where appropriate
 
 ### ~~Remove redundant && workarounds in GeneratePackage~~ ✓
 - Collapsed nested `if` blocks back to `&&` in GeneratePackage

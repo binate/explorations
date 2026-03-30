@@ -213,4 +213,4 @@ path). But it must remain correct for the selfhost mode to pass.
 
 The biggest risk is the pre-sized allocation pattern — `make_raw_deprecated([]T, n)`
 preserves the current raw-slice allocation behavior during migration.
-`make_slice(T, n)` returns `@[]T` (managed slice) once implemented.
+`make_slice(T, n)` returns `@[]T` (managed-slice) once implemented.
