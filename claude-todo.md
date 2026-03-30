@@ -55,9 +55,16 @@ Binate is NOT Go. The two types of slice are intentionally different:
   be removed or replaced with a note that raw slice backing arrays are caller-managed.
 - `s = nil` for slices works in bootstrap (Go semantics leaking through) but shouldn't
   exist per spec. Slices are value types; use `len(s) == 0`.
-- `append` performance (O(n²) for incremental building) is a known design question —
-  see discussion notes. Options: capacity on managed slices, library Buffer[T] type,
-  or removing append in favor of explicit buffer types.
+- `append` is being removed from the language (see design notes). Replace with
+  an internal library providing capacity+length buffer types (primarily for chars/strings).
+
+### Phase 2: Managed slices + remove append
+- Implement managed slices (`@[]T`) — three words: (refptr, raw_ptr, length)
+- Remove `append` builtin from the language
+- Write a mini internal library for growable buffers (capacity + length)
+  - Primarily needed for chars/strings (the compiler's main use of append)
+  - Replaces all current `append` usage in the self-hosted compiler
+- Switch compiler internals from `[]T` + append to managed slices / buffer types where appropriate
 
 ### ~~Remove redundant && workarounds in GeneratePackage~~ ✓
 - Collapsed nested `if` blocks back to `&&` in GeneratePackage
