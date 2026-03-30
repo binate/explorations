@@ -16,25 +16,59 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Emit per-instruction `DILocation` with real line numbers (currently all line 0)
 - Prerequisite: lightweight debug info (done)
 
-### Self-compiled compiler — remaining issues
-- Seven codegen bugs fixed; IR output matches bootstrap for tested programs
-- Self-compiled binary compiles and emits IR correctly for programs with vars
-- Link still fails: `_bn_main` undefined even though IR has `define void @bn_main()`
-  - Possible issue in `compileLL` — .o file may not be produced or linked correctly
+### Self-compiled compiler — FULLY PASSING (81/81)
+- All conformance tests pass with self-compiled compiler
 - `findRuntime()` doesn't discover runtime unless `--runtime` flag is passed
 - Freeing temporarily disabled in bn_refcount_dec; slice ownership semantics needed
 
-### Remove redundant && workarounds in GeneratePackage
-- `gen.bn` `GeneratePackage` still has manually-split `&&` chains from before short-circuit was fixed
-- Now redundant — can be simplified back to normal `&&` expressions
-- Low priority, harmless as-is
+### ~~Remove redundant && workarounds in GeneratePackage~~ ✓
+- Collapsed nested `if` blocks back to `&&` in GeneratePackage
+- Committed: `b26357f`
 
-### Backfill unit tests (second pass)
+### ~~Backfill unit tests (second pass)~~ ✓
 - First pass added 18 tests (15 ir, 3 types)
-- A second review pass was discussed but deferred
+- Second pass added 5 tests (3 ir, 2 codegen) covering OP_SLICE_ELEM_PTR, nil-to-slice, struct slice codegen
+- ir: 83 → 86 tests, codegen: 12 → 14 tests
 - Pre-existing `TestRegisterImportStruct` failure — fixed (`6de59ba`)
+- Committed: `cc17909`
 
 ## Done
+
+### Nil-to-slice assignment stores i8* instead of zeroed BnSlice
+- `moduleStructs = nil` emitted `store i8* null` (8 bytes) to BnSlice global (16 bytes)
+- Only cleared data pointer, left len field with stale value (e.g. len=2, data=NULL)
+- Self-compiled compiler crashed in lookupStructIdx on cross-pkg struct compilations
+- Fix: detect nil-to-slice assignment and re-emit as typed nil slice (zeroinitializer)
+- Self-compiled conformance: 80 → 81/81 (FULL PASS)
+- Committed: `ce85c8f`
+
+### OP_SLICE_ELEM_PTR for in-place struct slice element access
+- `genIndexPtr` only handled arrays, not slices — `sliceOfStructs[i].field = value` silently dropped
+- Struct types in moduleStructs never got fields populated → composite literals were zero-initialized
+- Fix: added OP_SLICE_ELEM_PTR (bn_slice_get_struct + bitcast, no load) for typed pointer to slice element
+- Self-compiled conformance: 68 → 78 (10 struct composite literal tests fixed)
+- Committed: `cace611`
+
+### bn_slice_expr_struct and chained managed-ptr assignment workarounds
+- `bn_slice_expr_i64` used for struct slices (e.g. `[]VarSlot`) copied n*8 bytes instead of n*elem_size
+- Corrupted variable scope tracking in genBlock → lookupVar failures in for-loop bodies
+- Also: chained `moduleStructs[si].Typ.Fields = fields` silently dropped (genSelectorPtr couldn't resolve)
+- Fix: added `bn_slice_expr_struct` runtime function + broke chained assignments into two steps
+- Self-compiled conformance: 8 → 68
+- Committed: `21e1c9e`
+
+### Compiled-compiler test runner missing default --root
+- Runner didn't pass `--root` for single-file tests, causing bootstrap package imports to fail
+- Fix: default to `$BINATE_DIR` matching the compiled runner
+- Committed: `499a4d1`
+
+### Runtime Open flags bitmask extraction
+- `bn_bootstrap__Open` used `flags == 1` equality checks for base mode
+- Combined flags like O_WRONLY|O_CREATE|O_TRUNC (577) didn't match, opened read-only
+- Writes silently failed → empty .ll files → link failure in self-compiled compiler
+- Fix: extract base mode with `flags & 3` bitmask
+- Conformance test 081. 81/81 pass
+- Committed: `d7e81c5`
 
 ### Uninitialized managed pointer locals hit garbage in refcount_dec
 - `var d @Foo` emitted alloca without storing nil
