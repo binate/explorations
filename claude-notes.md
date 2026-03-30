@@ -166,7 +166,7 @@ Benefits:
 - **`cast(T, expr)`**: value conversion (e.g., `cast(int, myFloat)`). Explicit, required between named types.
 - **`bit_cast(T, expr)`**: reinterpret bits. No conversion, no checking. The "I know what I'm doing" escape hatch.
 - Both are builtins (like `make`), not functions — they take types as first arguments.
-- **Builtins are keywords** (not predeclared names): `make`, `box`, `cast`, `bit_cast`, `len`, `unsafe_index`. They take types as arguments, which can't be parsed as regular function calls.
+- **Builtins are keywords** (not predeclared names): `make`, `make_slice`, `box`, `cast`, `bit_cast`, `len`, `unsafe_index`. They take types as arguments, which can't be parsed as regular function calls.
 
 ### Const-ness — DECIDED
 
@@ -431,9 +431,9 @@ C-family, leaning toward Go's direction (clean, minimal, familiar).
 - `*T` = raw pointer to T (C-like)
 - `@T` = managed pointer to T
 - `&x` = take raw address of x
-- `make(T)` = allocate managed T (zero-init), returns `@T`
+- `make(T)` = allocate managed T (zero-init), returns `@T` (any type T, no size arg)
+- `make_slice(T, n)` = allocate runtime-sized managed slice, returns `@[]T`
 - `box(expr)` = allocate managed copy of value, returns `@T` (e.g., `box(Point{x: 1})`, `box(42)`)
-- `make([]T, n)` = allocate runtime-sized managed slice, returns `@[]T`
 - Forward-compatible with non-nullable pointers (no intermediate nil state)
 - `.` auto-dereferences (Go-style, no `->`)
 - Implicit conversion from `@T` to `*T` (safe: managed is "narrower"). Never implicit `*T` → `@T`.
@@ -685,20 +685,33 @@ and `claude-bootstrap-plan.md` for implementation status.
 - Static managed data uses a sentinel refcount (e.g., `UINT_MAX`) — never decremented, never freed
 - No destructor in the header — statically-typed code knows the concrete type's drop behavior. Interface values carry drop info in the vtable/type-info.
 
-**`make` and `box` — clean split, no ambiguity**:
+**`make`, `make_slice`, and `box` — clean split, no ambiguity**:
 ```
 make(Point)              // @Point, zero-init (takes a type)
-make([100]int)           // @[100]int, zero-init fixed-size array
-make([]int, n)           // @[]int, runtime-sized managed slice, zero-init
+make([100]int)           // @([100]int), zero-init managed fixed-size array
+make([]int)              // @([]int), managed pointer to zero-value raw slice
+
+make_slice(int, n)       // @[]int, runtime-sized managed slice, n zero-init elements
 
 box(42)                  // @int, box a literal (takes an expression)
 box(x)                   // @T where x: T, copies value
 box(Point{x: 1, y: 2})  // @Point, allocate and init
 ```
 
-- `make` always takes a type (+ optional size for slices). Zero-initializes. No ambiguity.
+- `make(T)` always takes a type, returns `@T`. Zero-initializes. Works for ANY type T,
+  including `[]T` (→ `@([]T)`, managed ptr to raw slice) and `[k]T` (→ `@([k]T)`,
+  managed ptr to fixed-size array). No size argument.
+- `make_slice(T, n)` takes an element type and runtime size. Returns `@[]T` (managed
+  slice — the special 3-word type). This is the ONLY way to create runtime-sized managed
+  slices. Separate builtin because `make([]T, n)` is ambiguous (does it return `@([]T)`
+  or `@[]T`?).
 - `box` always takes a value expression. Allocates and copies. No ambiguity.
-- No capacity argument (unlike Go's `make([]T, len, cap)`) — growing is a library concern
+- No capacity argument — growing is a library concern (CharBuf, Vec[T], etc.)
+
+**Notation — DECIDED**: `@([k]T)` (with parens) for managed pointer to fixed-size array,
+to distinguish from `@[]T` (managed slice sugar). `@[k]T` is ambiguous and should not
+be used. The `@[]` sugar applies ONLY to `@[]T` (managed slice); all other combinations
+use explicit parens to break the sugar.
 
 ### Method resolution & dispatch — DECIDED
 
@@ -811,33 +824,12 @@ Unit testing built into the toolchain with a lightweight, convention-based appro
 
 Design rationale: minimal complexity, works within the bootstrap subset (no interfaces, no generics, no closures needed), and works identically in interpreted and compiled code (no panic recovery needed). The convention is close enough to Go's that it feels familiar, but simpler (no `testing.T` parameter, no sub-tests). Wrong-signature `TestXxx` functions produce a warning.
 
-### `append` as a performance footgun — TO DISCUSS
+### `append` — REMOVE (decided)
 
-The current `append(slice, elem)` builtin always allocates a new slice (copy-on-append
-semantics). This was acceptable for the bootstrap subset and keeps the language simple,
-but it's a significant performance trap:
-
-- **O(n²) for building slices incrementally**: every append copies the entire existing
-  slice, making `for { s = append(s, x) }` quadratic.
-- **Hidden in idiomatic code**: string building via `appendStr`/`appendChars` (used
-  extensively in the self-hosted compiler) is append-per-character, making it extremely
-  expensive.
-- **Contrast with Go**: Go's `append` has amortized O(1) cost via capacity tracking and
-  geometric growth. Binate's `[]T` representation (ptr, length) has no capacity field,
-  so Go-style growth isn't possible without changing the slice representation.
-
-**Options to discuss**:
-1. **Add capacity to managed slices** (`@[]T` becomes ptr, raw ptr, length, capacity —
-   four words). Raw slices (`[]T`) stay two words. `append` on `@[]T` gets amortized O(1).
-2. **Library-level `Buffer[T]`** or `Builder` type with capacity, keep `append` as-is
-   but discourage it for hot paths.
-3. **Remove `append` entirely** — slices are views, not growable containers. Growing
-   requires an explicit `Buffer` type.
-4. **Hybrid**: keep `append` for convenience (small/cold paths) but add a capacity-aware
-   `Buffer` in the standard library for performance-sensitive code.
-
-This should be revisited against the spec/notes, especially the slice representation
-decisions and the managed vs. raw slice semantics.
+`append` is being removed from the language. See the "append — REMOVE" note above.
+Growable collections are a library concern: `CharBuf` for strings, `Vec[T]` (post-generics)
+for general lists. `make_slice` provides the primitive for allocating managed slices;
+library types handle growth/capacity on top of that.
 
 ### Self-hosting: DECL_GROUP import bug — FIXED (2026-03-27)
 

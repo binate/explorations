@@ -40,7 +40,8 @@ if s[i] == 'r' { buf = append(buf, '\r'); i = i + 1; continue }
 ...
 ```
 
-**Fix:** Replace with `CharBuf` from `pkg/buf`. Same type used by the compiler.
+**Fix:** Replace with `CharBuf` from `pkg/buf` (see `claude-plan-charbuf.md`).
+Same type used by the compiler. Requires `make` fix first (`claude-plan-fix-make.md`).
 
 ### 2. Value list accumulation — ~30 calls
 
@@ -107,18 +108,19 @@ for i := lo; i < hi; i++ {
 ```
 Size is known: `hi - lo`. Could pre-allocate.
 
-**Fix for all known-size cases:** Use `make([]T, n)` (or a pre-sized allocation
-pattern) and index assignment instead of append. Since these are all cases where
-the final size is known before the loop, this is straightforward:
+**Fix for all known-size cases:** Use `make_raw_deprecated([]T, n)` (or
+`make_slice(T, n)` once available) and index assignment instead of append.
+Since these are all cases where the final size is known before the loop:
 ```
-var args []@Value = make([]Value, len(e.Args))  // or equivalent
+var args @[]@Value = make_slice(Value, len(e.Args))
 for i := 0; i < len(e.Args); i++ {
     args[i] = evalExpr(interp, e.Args[i])
 }
 ```
-Note: this requires `make([]T, n)` to work for raw slices (allocating n elements).
-If that's not available yet, a helper function `makeSlice(n int) []@Value` could
-wrap the allocation.
+Or with `make_raw_deprecated` during the transition:
+```
+var args []@Value = make_raw_deprecated([]Value, len(e.Args))
+```
 
 ### 3. Retained state accumulation — ~8 calls
 
@@ -136,7 +138,7 @@ These grow over the lifetime of interpretation. They're small (packages: ~10,
 aliases: ~10, env entries: ~50 per scope) but truly dynamic.
 
 **Fix:** Concrete buffer types (e.g., `PkgList`, `AliasList`, `EntryList`) or
-keep as raw slices if we add a `make([]T, n)` + copy growth pattern. Since these
+keep as raw slices if we add a `make_raw_deprecated` + copy growth pattern. Since these
 are small and grow infrequently, even O(n) copy on growth is acceptable.
 
 ### 4. Nil-slice semantics
@@ -149,6 +151,9 @@ are small and grow infrequently, even O(n) copy on growth is acceptable.
 `= []T{}` or `.Clear()` on buffer types.
 
 ## Implementation Order
+
+### Prerequisite: Fix `make` + implement CharBuf
+See `claude-plan-fix-make.md` and `claude-plan-charbuf.md`.
 
 ### Step 1: CharBuf conversion (depends on pkg/buf existing)
 - `value.bn`: intToStr, concatStr, valueToString, strCopy
@@ -188,10 +193,10 @@ are small and grow infrequently, even O(n) copy on growth is acceptable.
 
 ## Dependencies
 
-- `pkg/buf` (CharBuf) must exist first
-- `make([]T, n)` for raw slice pre-allocation — needs to work in compiled mode
-  (currently `make` is only for managed pointers). Alternative: a helper function
-  that allocates via the runtime.
+- `make` must be fixed first (`claude-plan-fix-make.md`)
+- `pkg/buf` (CharBuf) must exist (`claude-plan-charbuf.md`)
+- `make_raw_deprecated([]T, n)` for raw slice pre-allocation during migration
+  (or `make_slice(T, n)` once available, returning `@[]T`)
 - Append removal (language-wide) must happen before step 4
 
 ## Validation
@@ -206,6 +211,6 @@ Medium. The self-hosted interpreter is exercised by the selfhost conformance mod
 and is less critical than the compiler (the bootstrap Go interpreter is the primary
 path). But it must remain correct for the selfhost mode to pass.
 
-The biggest risk is the pre-sized allocation pattern — if `make([]T, n)` doesn't
-work for raw slices in compiled mode, we need an alternative. A `mallocSlice(n)`
-runtime helper could bridge the gap.
+The biggest risk is the pre-sized allocation pattern — `make_raw_deprecated([]T, n)`
+preserves the current raw-slice allocation behavior during migration.
+`make_slice(T, n)` returns `@[]T` (managed slice) once implemented.

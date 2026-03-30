@@ -46,7 +46,9 @@ Binate is NOT Go. The two types of slice are intentionally different:
 **Managed slices (`@[]T`)** — three words: (managed ptr, raw ptr, length)
 - Refcounted via the managed pointer (keeps backing allocation alive)
 - `@[]T` is syntactic sugar, distinct from `@([]T)` (managed pointer to raw slice)
-- `make([]T, n)` returns `@[]T`
+- `make_slice(T, n)` returns `@[]T` (new builtin, replaces old `make([]T, n)`)
+- `make([]T)` returns `@([]T)` (managed ptr to raw slice — not managed slice)
+- `@([k]T)` notation for managed ptr to fixed-size array (not `@[k]T`)
 - Not yet implemented in the compiler
 
 **Current code deviations from spec** (to fix):

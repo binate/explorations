@@ -115,41 +115,22 @@ type checker rejects this, the codegen path can be removed.
 We need two internal types, both implemented in Binate:
 
 ### `CharBuf` — growable character buffer
-```
-type CharBuf struct {
-    data *char    // raw pointer to backing array (malloc'd)
-    len  int      // current length
-    cap  int      // allocated capacity
-}
-```
-Or, until we have raw pointer arithmetic in Binate, use the managed pointer
-header trick:
-```
-type CharBuf struct {
-    buf @[N]char   // managed pointer to backing allocation
-    len int
-    cap int
-}
-```
-Actually, simplest approach given current capabilities:
-```
-type CharBuf struct {
-    data []char    // raw slice used as backing store
-    len  int       // logical length (data may be longer)
-}
-```
-This is a raw slice where `len(data)` is the capacity and `self.len` is the
-logical length. Growth = allocate new slice, copy, replace. This is what we
-have today but with amortized doubling instead of per-element realloc.
 
-**Methods/functions:**
-- `CharBuf_new() CharBuf` — empty buffer
-- `CharBuf_writeByte(b *CharBuf, c char)` — append one char
-- `CharBuf_writeStr(b *CharBuf, s []char)` — append string
-- `CharBuf_writeInt(b *CharBuf, n int)` — append decimal integer
-- `CharBuf_toSlice(b *CharBuf) []char` — return contents as slice (view or copy)
-- `CharBuf_clear(b *CharBuf)` — reset to empty
-- `CharBuf_len(b *CharBuf) int` — current length
+See `claude-plan-charbuf.md` for the full design. Summary:
+```
+type CharBuf struct {
+    Data @[]char   // managed backing store (refcounted)
+    Len  int       // logical length
+    Cap  int       // allocated capacity
+}
+```
+
+Uses `@[]char` (managed slice) for proper memory management. Geometric growth
+(doubling) gives amortized O(1) append. Return-by-value pattern:
+`b = buf.WriteByte(b, 'x')`.
+
+**Dependency:** Requires `make_slice(T, n)` to exist and return `@[]T`. See
+`claude-plan-fix-make.md` for the migration plan.
 
 ### `List[T]` — growable typed list (post-generics)
 
@@ -170,10 +151,14 @@ growable lists (module accumulators), write concrete buffer types.
 
 ## Implementation Order
 
-### Step 1: Add `CharBuf` type to a new `pkg/buf` package
-- Implement CharBuf with doubling growth strategy
-- Add writeByte, writeStr, writeInt, toSlice, clear
-- Unit tests
+### Prerequisite: Fix `make` semantics
+
+See `claude-plan-fix-make.md`. Steps 1-3 of that plan must complete before
+CharBuf can be implemented (CharBuf needs `make_slice(T, n)` → `@[]T`).
+
+### Step 1: Implement CharBuf (`pkg/buf`)
+
+See `claude-plan-charbuf.md`. Depends on correct `make`.
 
 ### Step 2: Convert `emit.bn` to use CharBuf
 - This is the biggest win (82 appends → CharBuf method calls)

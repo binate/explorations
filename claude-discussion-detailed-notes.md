@@ -438,15 +438,34 @@ p.field         // auto-dereference with . (Go-style, no ->)
 
 **Implicit conversion:** `@T` → `*T` is implicit (safe — managed is "narrower," caller keeps the managed pointer alive). `*T` → `@T` is never implicit. This was debated — explicit conversion would be safer but too noisy. Since raw pointer receivers are the common case, requiring decoration at every method call site would be burdensome. The implicit direction is always safe as long as the managed pointer remains live in the caller's scope.
 
-**`make` and `box` for managed allocation:**
+**`make`, `make_slice`, and `box` for managed allocation:**
 ```
 make(Point)              // zero-init, returns @Point (takes a type)
-make([]int, n)           // runtime-sized managed slice, returns @[]int
+make([]int)              // managed ptr to zero-value raw slice, returns @([]int)
+make([100]int)           // managed ptr to zero-init array, returns @([100]int)
+
+make_slice(int, n)       // runtime-sized managed slice, returns @[]int
+
 box(42)                  // box an integer, returns @int (takes an expression)
 box(Point{x: 1, y: 2})  // allocate with init, returns @Point
 ```
 
-`make` always takes a type (+ optional size for slices). `box` always takes a value expression. This clean split eliminates the parsing ambiguity of `make(foo)` where `foo` could be a type or a variable. Forward-compatible with non-nullable pointers (no intermediate nil state).
+`make(T)` takes any type T and returns `@T` — always. No size argument. This means
+`make([]int)` returns `@([]int)` (managed pointer to a raw slice), NOT `@[]int`
+(managed slice). The distinction matters: `@([]int)` is a 1-word managed pointer
+to a 2-word raw slice; `@[]int` is a 3-word managed slice (refptr + ptr + len).
+
+`make_slice(T, n)` is a separate builtin that creates runtime-sized managed slices.
+It takes an element type and a length, returns `@[]T`. This avoids the ambiguity of
+`make([]T, n)` — which would be unclear whether it returns `@([]T)` or `@[]T`.
+
+`box` always takes a value expression. This clean split eliminates the parsing
+ambiguity of `make(foo)` where `foo` could be a type or a variable. Forward-compatible
+with non-nullable pointers (no intermediate nil state).
+
+**Notation**: `@([k]T)` (with parens) for managed pointer to fixed-size array.
+`@[k]T` without parens is ambiguous and should not be used. The `@[]` sugar applies
+ONLY to `@[]T` (managed slice); all other `@` + collection combinations use parens.
 
 ### Slice Syntax
 
@@ -1104,50 +1123,89 @@ The free function in the header was chosen over always using the default allocat
 
 **Static managed data:** uses a sentinel refcount value (e.g., `UINT_MAX`) that the decrement logic checks. If refcount is the sentinel, don't decrement, don't free. Static managed objects are effectively immortal. This enables pre-initialized managed data in ROM/static memory with a no-op free function and immortal refcount.
 
-### `make` and `box` Semantics
+### `make`, `make_slice`, and `box` Semantics
 
 ```
 make(Point)              // @Point, zero-init (takes a type)
-make([100]int)           // @[100]int, fixed-size managed array
-make([]int, n)           // @[]int, runtime-sized managed slice
+make([100]int)           // @([100]int), managed ptr to zero-init fixed-size array
+make([]int)              // @([]int), managed ptr to zero-value raw slice
+
+make_slice(int, n)       // @[]int, runtime-sized managed slice, n zero-init elements
 
 box(42)                  // @int (takes an expression)
 box(x)                   // @T where x: T
 box(Point{x: 1, y: 2})  // @Point, allocate with init
 ```
 
-`make` always takes a type; `box` always takes an expression. See "make vs box" section below for the disambiguation rationale.
+`make(T)` takes any type T and returns `@T`. Always. No size argument, no special
+cases. `box(expr)` takes any expression and returns `@T`. See "make vs box" section
+below for the disambiguation rationale.
 
-**Runtime-sized arrays:** `make([]int, n)` is needed because `make([n]int)` requires `n` to be a compile-time constant. Dynamic sizes are common (reading files, building buffers). The result is `@[]int` — a managed slice pointing to a freshly allocated backing array of `n` zero-initialized elements.
+**Why `make_slice` is separate from `make`:**
 
-**No capacity argument** (unlike Go's `make([]T, len, cap)`). Growing/resizable arrays are a standard library concern (a `Vec`/`Buffer` type). This keeps the language primitive simple.
+`make(T)` returns `@T` for any T. If T is `[]int`, then `make([]int)` returns
+`@([]int)` — a managed pointer to a raw slice (the raw slice is zero-valued:
+null ptr, length 0). This is well-defined but not what you usually want.
 
-### `make` vs `box` — Resolving the Ambiguity
+What you usually want is `@[]int` — a managed slice (3-word type: refptr, data ptr,
+length) backed by a freshly allocated array. That's what `make_slice(int, n)` gives
+you. It takes an *element type* and a runtime size, allocates a backing array of `n`
+zero-initialized elements, and returns the managed slice.
+
+The old `make([]T, n)` syntax was ambiguous: does it return `@([]T)` (because
+`make(T)` returns `@T`) or `@[]T` (special-cased for slices)? The answer was
+"special-cased," which was a design smell. Splitting into `make_slice` eliminates
+the special case and makes `make` perfectly uniform.
+
+This also matters for generics: `make(T)` where `T=[]int` unambiguously returns
+`@([]int)`, not `@[]int`. Generic code that needs a managed slice uses `make_slice`.
+
+**Runtime-sized arrays:** `make_slice(int, n)` is needed because `make([n]int)`
+requires `n` to be a compile-time constant. Dynamic sizes are common (reading files,
+building buffers). The result is `@[]int` — a managed slice pointing to a freshly
+allocated backing array of `n` zero-initialized elements.
+
+**No capacity argument** (unlike Go's `make([]T, len, cap)`). Growing/resizable
+arrays are a standard library concern (`CharBuf`, `Vec[T]`). This keeps the
+language primitive simple.
+
+### `make` vs `box` vs `make_slice` — Resolving the Ambiguities
 
 The original design had `make` handling both type-based allocation (`make(Point)`) and value-based boxing (`make(42)`, `make(x)`). This created a parsing ambiguity: `make(foo)` — is `foo` a type (zero-init allocation) or a variable (box its value)? Since type names and variable names share a namespace, this is genuinely ambiguous.
 
-**Solution: split into two builtins.**
+**Solution: split into three builtins.**
 
-- `make(T)` — always takes a type. Zero-initializes. Returns `@T`.
-- `make([]T, n)` — takes a slice type + runtime size. Returns `@[]T`.
+- `make(T)` — always takes a type. Zero-initializes. Returns `@T`. No size argument.
+- `make_slice(T, n)` — takes an element type + runtime size. Returns `@[]T`.
 - `box(expr)` — always takes a value expression. Allocates, copies. Returns `@T`.
 
-No overlap, no ambiguity. The parser knows: after `make(`, expect a type. After `box(`, expect an expression.
+No overlap, no ambiguity. The parser knows: after `make(`, expect a type. After
+`make_slice(`, expect an element type + size. After `box(`, expect an expression.
 
 ```
 make(Point)              // @Point, zero-init
-make([]int, n)           // @[]int, runtime-sized
+make([]int)              // @([]int), managed ptr to zero-value raw slice
+make([100]int)           // @([100]int), managed ptr to zero-init array
+make_slice(int, n)       // @[]int, runtime-sized managed slice
 box(42)                  // @int
 box(x)                   // @T where x: T
 box(Point{x: 1, y: 2})  // @Point, allocate with init
 ```
+
+**Why `make_slice` instead of `make([]T, n)`:** `make(T)` returns `@T` uniformly.
+If T is `[]int`, then `make([]int)` returns `@([]int)` — a managed pointer to a
+raw slice. But `make([]int, n)` was special-cased to return `@[]int` — a managed
+slice (different type!). This special case breaks the uniformity of `make` and
+creates a subtle trap, especially with generics (`make(T)` where `T=[]int` should
+return `@([]int)`, not `@[]int`). Splitting runtime-sized managed slice creation
+into `make_slice` makes everything uniform and unambiguous.
 
 `box(Point{x: 1, y: 2})` replaces the old `make(Point{x: 1, y: 2})`. The composite literal is an expression, so `box` handles it naturally.
 
 **Alternatives considered for dynamic arrays:**
 - `make([100]int)[:]` for creating a managed slice from a managed fixed-size array — works but only for compile-time sizes
 - Go-style `make([]int, len, cap)` — adds a concept (capacity vs length) at the language level that belongs in a library
-- Separate `alloc(T, n)` builtin — adds another builtin when `make` can handle it
+- `make([]T, n)` with special-case return type — rejected due to ambiguity (see above)
 
 ---
 
@@ -1329,7 +1387,7 @@ The operator set follows C/Go conventions with one critical difference: **no und
 
 The formal grammar (`grammar.ebnf`) covers the full language and is annotated with `[BOOTSTRAP]`/`[DEFERRED]` markers for the Go interpreter subset.
 
-**Builtins as keywords:** `make`, `box`, `cast`, `bit_cast`, `len`, `unsafe_index` are **keywords**, not predeclared names. They take types as arguments (e.g., `make(Point)`, `cast(int, x)`), which can't be parsed as regular function calls — a regular function can't take a type as an argument. Making them keywords eliminates the ambiguity at the grammar level.
+**Builtins as keywords:** `make`, `make_slice`, `box`, `cast`, `bit_cast`, `len`, `unsafe_index` are **keywords**, not predeclared names. They take types as arguments (e.g., `make(Point)`, `make_slice(int, n)`, `cast(int, x)`), which can't be parsed as regular function calls — a regular function can't take a type as an argument. Making them keywords eliminates the ambiguity at the grammar level.
 
 **Eleven disambiguation rules (D1–D11):**
 
