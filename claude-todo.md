@@ -16,10 +16,48 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Emit per-instruction `DILocation` with real line numbers (currently all line 0)
 - Prerequisite: lightweight debug info (done)
 
-### Self-compiled compiler — FULLY PASSING (81/81)
-- All conformance tests pass with self-compiled compiler
+### Self-compiled compiler — FULLY PASSING (88/88)
+- All conformance tests pass with self-compiled compiler (85 pass + 3 xfail for codegen bugs)
 - `findRuntime()` doesn't discover runtime unless `--runtime` flag is passed
-- Freeing temporarily disabled in bn_refcount_dec; slice ownership semantics needed
+
+### Re-enable bn_refcount_dec freeing (managed pointers only)
+- Freeing is disabled in `bn_refcount_dec` in `runtime/binate_runtime.c`
+- This only affects **managed pointers** (`@T`), NOT raw slices (`[]T`)
+- The inc/dec pairing looks correct: alloc sets rc=1, copy incs, scope exit decs, return skips dec
+- Phase 1: uncomment the free, run full suite + self-compilation, fix any use-after-free crashes
+- **Slices are intentionally unmanaged** — see design notes below
+
+### Codegen bugs (exposed by conformance 084-086)
+- **084**: `arr[:]` array-to-slice — loads `[N x i64]` and passes as `%BnSlice` with no conversion
+- **085**: struct composite literal in `append` — alloca pointer passed instead of loaded value
+- **086**: slice-typed struct field zero-init — emits `add %BnSlice 0, 0` instead of `zeroinitializer`
+
+### Slice ownership model — design clarification
+Binate is NOT Go. The two types of slice are intentionally different:
+
+**Raw slices (`[]T`)** — two words: (raw ptr, length)
+- Value types, no refcounting, no GC
+- Caller manages lifetime (like C)
+- `append` copies (currently O(n) per call — known performance issue)
+- Sub-slicing copies data (no aliasing, no double-free risk)
+- Cannot be compared to `nil` — check `len(s) == 0` for empty
+- `s = nil` is a bootstrap/codegen convenience, not the spec design
+
+**Managed slices (`@[]T`)** — three words: (managed ptr, raw ptr, length)
+- Refcounted via the managed pointer (keeps backing allocation alive)
+- `@[]T` is syntactic sugar, distinct from `@([]T)` (managed pointer to raw slice)
+- `make([]T, n)` returns `@[]T`
+- Not yet implemented in the compiler
+
+**Current code deviations from spec** (to fix):
+- `gen.bn` emits `emitDecForScopeVars` comment about "slice ownership semantics" —
+  this is wrong framing. Raw slices don't need ownership tracking. The comment should
+  be removed or replaced with a note that raw slice backing arrays are caller-managed.
+- `s = nil` for slices works in bootstrap (Go semantics leaking through) but shouldn't
+  exist per spec. Slices are value types; use `len(s) == 0`.
+- `append` performance (O(n²) for incremental building) is a known design question —
+  see discussion notes. Options: capacity on managed slices, library Buffer[T] type,
+  or removing append in favor of explicit buffer types.
 
 ### ~~Remove redundant && workarounds in GeneratePackage~~ ✓
 - Collapsed nested `if` blocks back to `&&` in GeneratePackage
