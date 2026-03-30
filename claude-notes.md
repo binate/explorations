@@ -710,7 +710,8 @@ box(Point{x: 1, y: 2})  // @Point, allocate and init
 - `make_slice(T, n)` takes an element type and runtime size. Returns `@[]T` (managed-slice
   — the special 3-word type). This is the ONLY way to create runtime-sized managed-slices.
   Separate builtin because `make([]T, n)` is ambiguous (does it return `@([]T)`
-  or `@[]T`?).
+  or `@[]T`?). **Always returns managed-slice** — a non-managed version makes no sense,
+  since you'd be allocating memory with no way to free it.
 - `box` always takes a value expression. Allocates and copies. No ambiguity.
 - No capacity argument — growing is a library concern (CharBuf, Vec[T], etc.)
 
