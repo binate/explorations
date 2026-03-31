@@ -196,3 +196,16 @@ Each commit should change **one thing** and be as minimal as possible while stil
 standalone (compiling, passing tests). Large refactors, feature additions, or migrations
 should be broken into many small, incremental commits. This makes review easier, bisection
 possible, and rollbacks safe.
+
+### Testing Before Committing
+
+Before committing, run **all applicable tests**:
+- Unit tests for any packages you changed.
+- Conformance tests in all applicable configurations (bootstrap, selfhost, compiled,
+  etc.).
+
+If there are **pre-existing test failures** (failures that exist before your changes),
+you do not need to fix them before committing — and you should not, to keep the commit
+focused. However, addressing those pre-existing failures should be done as an immediate
+follow-up. The only exception is if a pre-existing failure obviously impedes validation
+of the code you changed in the commit.
