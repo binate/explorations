@@ -127,12 +127,14 @@ This falls out naturally from the type system with no extra annotations needed.
 - Never null-terminated (clean but every C FFI call needs conversion)
 - Dual literal syntax (`"abc"` vs `c"abc"`) — cheap to support but always-null-terminated is simpler and less annoying long-term
 
-**String literals are raw static data in the binary** (like C). The compiler generates wrapping code based on context:
-- Assigned to a raw slice → slice pointing into static data, no allocation
+**String literals are raw static data in the binary** (like C). A string literal of length N is always stored as N+1 bytes (the characters plus a null terminator). The **natural type** is `[N+1]char` (or `[N+1]const char`) — the full storage including the null. The **default type** (when context is ambiguous) is `[]const char`.
+
+String literals are **untyped** (like integer literals) and coerce to the appropriate type from context. The compiler generates wrapping code based on that context:
+- Assigned to a slice (`[]char` / `[]const char`) → slice view pointing into static data with `len` = N (excludes null from the view, but the underlying storage still contains the null terminator after the data)
+- Assigned to a managed slice (`@[]char`) → same slice view semantics (len = N, null still in storage), with a managed backing allocation
+- Assigned to an array (`[N+1]char`) → the natural type, full storage including null
 - Assigned to a managed array → compiler generates allocation + copy code
 - Used as a raw pointer → pointer to static data
-
-String literals are **untyped** (like integer literals) and coerce to the appropriate type from context.
 
 ### Fixed-Size Arrays
 
@@ -683,12 +685,12 @@ char = uint8                        // alias
 When type context is ambiguous (e.g., `x := 123`):
 - Integer literals → `int`
 - Float literals → `float64`
-- String literals → `[]const char` (raw slice into static read-only data)
+- String literals → `[]const char` (slice view into static read-only data; view excludes null terminator, but storage always includes it)
 - Bool literals → `bool`
 
 **Literal overflow is a compile error:** `var x uint8 = 256` fails. Literals are checked at compile time for fit.
 
-**String literal representation:** the raw storage includes a null terminator for C interop, but the slice excludes it. `"abc"` → storage is `{'a','b','c','\0'}`, default type is `[]const char` with length 3. The null exists in memory but isn't part of the slice's view.
+**String literal representation:** a string literal of length N is stored as N+1 bytes (including null terminator). The **natural type** is `[N+1]const char` — the full storage. The **default type** is `[]const char` — a slice view that excludes the null from the view (`len` = N), but the underlying storage always retains the null terminator after the slice data. `"abc"` → storage is `{'a','b','c','\0'}` (4 bytes), natural type `[4]const char`, default type `[]const char` with `len()` = 3. This is equivalent to `cast([4]const char, "abc")[:3]`.
 
 ---
 
@@ -1530,7 +1532,7 @@ Option 3 is unacceptable for a systems language. Const is the cheapest correct s
 
 **Concern**: len() including the null terminator is error-prone.
 
-**Decision**: String literal → slice excludes the null from the slice. Storage for `"abc"` is `{'a','b','c','\0'}` (4 bytes), but the slice is `(ptr, 3)`. `len()` returns 3. The null exists in memory for C interop but isn't part of the slice's view. Clean separation.
+**Decision**: String literal → slice excludes the null from the view, but the underlying storage always includes it. Storage for `"abc"` is `{'a','b','c','\0'}` (4 bytes, natural type `[4]const char`). As a slice (the default type `[]const char`), the view is `(ptr, 3)` — `len()` returns 3. The null byte is still present in memory immediately after the slice data, ensuring C interop safety. This is as if the literal were its natural array type, sliced: `cast([4]const char, "abc")[:3]`. Clean separation.
 
 ### REPL Redefinition Semantics — REVISED
 

@@ -270,12 +270,12 @@ Same principle for struct/type redefinition: existing instances retain the old l
 **Untyped literals**: literals have no inherent type and coerce to any compatible type from context. Unlike Go, this does NOT extend to named constants — only literals.
 - `123` → `int`, `uint`, `i32`, `byte`, etc.
 - `3.14` → `f32`, `f64`, etc.
-- `"abc"` → `char[4]` (if null-terminated?), `char[3]`, `char[]`, etc. — depends on null termination decision
+- `"abc"` → `[4]char` (natural type, includes null), `[]char` / `[]const char` (slice view excludes null, but the underlying storage still includes it)
 
 **Default types** (when context is ambiguous, e.g., `x := 123`):
 - Integer literals: `int`
 - Float literals: `float64`
-- String literals: `[]const char` (raw slice into static read-only data)
+- String literals: `[]const char` (default type — a slice view of the static data, excluding the null terminator from the view but not from the underlying storage)
 - Bool literals: `bool`
 
 **Literal overflow**: assigning a literal to an explicit type that can't hold it is a compile error (`var x uint8 = 256` → error). Literals are checked at compile time for fit.
@@ -284,9 +284,9 @@ Same principle for struct/type redefinition: existing instances retain the old l
 
 **Null termination**: always null-terminated for string literals. One byte of overhead per string, avoids ambiguity. Any string literal is safe to pass to C without copying.
 
-**String literal → slice**: the raw storage includes the null, but a slice of it excludes the null. `"abc"` → storage is `{'a','b','c','\0'}` (4 bytes), but the slice is `(ptr, 3)`. `len()` returns 3. The null is there in memory for C interop but isn't part of the slice's view. This avoids the "does len include the null?" confusion.
+**String literal storage and types**: a string literal of length N is always stored as N+1 bytes (including the null terminator). The **natural type** is `[N+1]char` (or `[N+1]const char`) — the full storage including the null. The **default type** (when context is ambiguous, e.g., `s := "abc"`) is `[]const char`. When taken as a slice (`[]char` or `[]const char`), the literal behaves as if it were the underlying array sliced to exclude the null: i.e., `cast([N+1]char, "...")[:N]`. So `"abc"` has storage `{'a','b','c','\0'}` (4 bytes), natural type `[4]const char`, default type `[]const char` with `len()` = 3. The null is there in memory for C interop but isn't part of the slice's view.
 
-**No `string` type.** `string` does NOT exist as a type in Binate. String literals are `[]const char` (or `[]char` in the bootstrap, which lacks const types). The bootstrap interpreter has `string` as an internal convenience alias for `[]char`, but self-hosted code must use `[]char`. Language targets small systems where full UTF-8 support is too heavy to justify a separate type.
+**No `string` type.** `string` does NOT exist as a type in Binate. String literals default to `[]const char` (or `[]char` in the bootstrap, which lacks const types), but their natural type is `[N+1]const char` where N is the string length. The bootstrap interpreter has `string` as an internal convenience alias for `[]char`, but self-hosted code must use `[]char`. Language targets small systems where full UTF-8 support is too heavy to justify a separate type.
 
 ### Type system richness
 
@@ -795,7 +795,7 @@ func foo[T ComparableStringer, U any](a T, b U) { ... }
 
 **Indexing**: zero-based. `s[i]` reads/writes element. `s[low:high]` creates a sub-slice (exclusive end). `s[:]`, `s[low:]`, `s[:high]` are shorthand forms. All bounds-checked.
 
-**`len()`**: returns slice length field, or compile-time constant for fixed-size arrays. String literal slices: length excludes null terminator.
+**`len()`**: returns slice length field, or compile-time constant for fixed-size arrays. For string literals taken as slices: length excludes null terminator (slice view is `[:N]` of the `[N+1]char` storage). For string literals taken as arrays: length includes the null (`len([4]char("abc"))` = 4).
 
 ### Comparison points
 - **Forth**: simple, dual-mode (threaded interpretation + compilation), embeddable, used in firmware — but very different paradigm
