@@ -45,7 +45,7 @@ This is the same layout as the current C runtime — the change is expressing it
 
 ### @T — unchanged representation
 
-`@T` remains `i8*` in LLVM. A single pointer to the data, with the `MgmtHeader` at negative offset. `bn_alloc`, `bn_refcount_inc`, `bn_refcount_dec` continue to work as-is.
+`@T` remains `i8*` in LLVM. A single pointer to the data, with the `MgmtHeader` at negative offset. `rt.Alloc`, `rt.RefInc`, `rt.RefDec` (in pkg/rt) manage the lifecycle.
 
 ### Unsigned for lengths and refcounts
 
@@ -79,13 +79,11 @@ if t.Kind == TYP_MANAGED_SLICE { return "%BnManagedSlice" }
 
 ### 3. Codegen — `OP_MAKE_SLICE` emits managed-slice creation
 
-**File:** `binate/pkg/codegen/emit.bn` (lines 938-949)
+**File:** `binate/pkg/codegen/emit.bn`
 
-`make_slice(T, n)` must:
-1. Allocate backing array via `bn_alloc(n * elem_size)` — returns managed `@any` (payload ptr with refcount header)
-2. Return `%BnManagedSlice { data_ptr, len, refptr }` where `refptr = data_ptr = the bn_alloc result`
-
-New runtime function: `bn_make_managed_slice(i64 elem_size, i64 length) -> %BnManagedSlice`
+`make_slice(T, n)` calls `rt.MakeManagedSlice(elemSize, length)` from pkg/rt, which returns
+a `ManagedSlice` struct (layout-compatible with `%BnManagedSlice`). The codegen bitcasts
+the packed struct return to `%BnManagedSlice`.
 
 ### 4. Codegen — slice operations on `@[]T`
 
@@ -96,38 +94,34 @@ All slice operations (`len`, `get`, `set`, `slice_expr`, `append`) currently tak
 
 ### 5. Codegen — refcounting for `@[]T`
 
-When a `@[]T` is copied (assigned, passed), increment the refcount on `refptr`.
-When it goes out of scope, decrement. This uses the existing `bn_refcount_inc`/`bn_refcount_dec` on the `refptr` field (field 2 of `%BnManagedSlice`).
+When a `@[]T` is copied (assigned, passed), extract the `refptr` (field 2) and call `rt.RefInc`.
+When it goes out of scope, extract `refptr` and call `rt.RefDec`. This happens at: var declarations,
+assignments, field assignments, function params, scope exit, and return cleanup.
 
 ### 6. Codegen — `@[]T → []T` conversion
 
 Extract fields 0,1 (`data`, `len`) from `%BnManagedSlice` — these are already a `%BnSlice` by layout. Can be done with a simple bitcast of the pointer (since `%BnSlice` is a prefix of `%BnManagedSlice`) or extractvalue pair. No refcount change (the raw slice borrows).
 
-### 7. Runtime — `bn_make_managed_slice`
+### 7. Runtime — `rt.MakeManagedSlice` (pkg/rt)
 
-**File:** `binate/runtime/binate_runtime.c`
+Managed-slice creation is now in Binate (`pkg/rt/rt.bn`), not C:
 
-```c
-typedef struct {
-    void    *data;     // *T: pointer to first element (= refptr for fresh allocs)
-    int64_t  len;      // uint: number of elements
-    void    *refptr;   // @any: managed pointer to backing array (refcounted)
-} BnManagedSlice;
-// Note: first two fields match BnSlice layout exactly.
-
-BnManagedSlice bn_make_managed_slice(int64_t elem_size, int64_t length) {
-    BnManagedSlice ms;
-    ms.len = length;
-    if (length > 0) {
-        ms.refptr = bn_alloc(length * elem_size);  // refcounted
-        ms.data = ms.refptr;  // initially same pointer
-    } else {
-        ms.refptr = NULL;
-        ms.data = NULL;
+```binate
+func MakeManagedSlice(elemSize int, length int) ManagedSlice {
+    var ms ManagedSlice
+    if length > 0 {
+        var ptr *any = Alloc(length * elemSize)
+        ms.Data = ptr
+        ms.Refptr = ptr
     }
-    return ms;
+    ms.Len = length
+    return ms
 }
 ```
+
+The old C runtime functions (`bn_alloc`, `bn_refcount_inc`, `bn_refcount_dec`,
+`bn_make_managed_slice`) have been removed from `binate_runtime.c`. Only `bn_alloc`
+remains (used by `bn_box`, which hasn't been migrated yet).
 
 ### 8. Self-hosted interpreter — `@[]T` as 3-field value
 
@@ -149,12 +143,13 @@ The bootstrap interpreter can mostly remain as-is since it uses Go-level GC. The
 2. ~~**Type system**: Fix `SizeOf` for `TYP_MANAGED_SLICE` → 24 bytes~~ — DONE
 3. ~~**Codegen**: Add `%BnManagedSlice` type, update `llvmType`, update `OP_MAKE_SLICE` emission~~ — DONE
 4. ~~**Codegen**: Handle slice operations on `@[]T` (extract inner `%BnSlice`, dispatch)~~ — DONE (emitManagedToRaw + emitSliceRef)
-5. **Codegen**: Update field indices for new `{ data, len, refptr }` layout (fields 0,1,2)
-6. **Codegen**: Add refcounting for `@[]T` (inc on copy, dec on scope exit) — refptr at field 2
-7. **Codegen**: Implement `@[]T → []T` conversion — trivial with prefix layout
-8. **pkg/rt**: Add MakeManagedSlice, migrate OP_MAKE_SLICE to call it
+5. ~~**Codegen**: Update field indices for `{ data, len, refptr }` layout (fields 0,1,2)~~ — DONE (prefix-compatible with `[]T`)
+6. ~~**Codegen**: Add refcounting for `@[]T` (inc on copy, dec on scope exit) — refptr at field 2~~ — DONE (extractvalue field 2, call rt.RefInc/RefDec)
+7. ~~**Codegen**: Implement `@[]T → []T` conversion~~ — DONE (OP_MANAGED_TO_RAW: extractvalue 0,1 into %BnSlice)
+8. ~~**pkg/rt**: Add MakeManagedSlice, migrate OP_MAKE_SLICE to call it~~ — DONE (codegen calls bn_rt__MakeManagedSlice)
 9. **Self-hosted interpreter**: Add HeapObj tracking for managed-slices
-10. **Tests**: Add new tests for @[]T refcounting and conversion
+10. ~~**Tests**: Add conformance tests for @[]T~~ — DONE (093_rt_managed_slice, 094_managed_to_raw_slice)
+11. ~~**Remove old C runtime functions**: bn_refcount_inc, bn_refcount_dec, bn_make_managed_slice removed from binate_runtime.c~~ — DONE
 
 Each step should be a separate commit. Run conformance tests after each.
 

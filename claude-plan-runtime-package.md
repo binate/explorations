@@ -262,10 +262,15 @@ This happens in the IR gen, not the codegen emitter. The codegen just sees
 4. ~~**Conformance tests** — add tests for bit_cast and pointer indexing~~ — DONE (090, 091)
 5. ~~**C stubs** — create runtime/rt_stubs.c~~ — DONE
 6. ~~**pkg/rt** — create pkg/rt.bni and pkg/rt/rt.bn with Alloc, RefInc, RefDec~~ — DONE (test 092 passes)
-7. **MakeManagedSlice in pkg/rt** — implement and wire up
-8. **compile.bn** — implicit pkg/rt import, link rt_stubs.c
-9. **Migrate codegen** — replace OP_CALL_BUILTIN with OP_CALL to pkg/rt
-10. **Test** — conformance suite across all modes
+7. ~~**MakeManagedSlice in pkg/rt** — implement and wire up~~ — DONE (test 093 passes)
+8. ~~**compile.bn** — implicit pkg/rt import, link rt_stubs.c~~ — DONE (ensureRtLoaded + appendRtImport + discoverBinateRoot)
+9. ~~**Migrate codegen** — replace C runtime calls with pkg/rt~~ — DONE (bn_alloc→rt.Alloc, bn_refcount_inc→rt.RefInc, bn_refcount_dec→rt.RefDec, bn_make_managed_slice→rt.MakeManagedSlice)
+10. ~~**Test** — conformance suite across all modes~~ — DONE (91 compiled, 90 bootstrap, 90 selfhost — all passing)
+
+### Also completed (beyond original plan):
+- **Package search paths**: Loader supports multiple roots (`Roots [][]char`), iterates them to find packages. Compiler discovers binate project root from runtime path and adds as secondary search path. Enables cross-package tests to find pkg/rt.
+- **Remove old C runtime functions**: `bn_refcount_inc`, `bn_refcount_dec`, `bn_make_managed_slice` removed from `binate_runtime.c`. `bn_alloc` remains (used by `bn_box`, not yet migrated).
+- **@[]T refcounting**: Extract refptr (field 2) from managed slice, call rt.RefInc/RefDec at var declarations, assignments, field assignments, function params, scope exit, return cleanup.
 
 ## Verification
 

@@ -16,16 +16,15 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Emit per-instruction `DILocation` with real line numbers (currently all line 0)
 - Prerequisite: lightweight debug info (done)
 
-### Self-compiled compiler — FULLY PASSING (88/88)
-- All conformance tests pass with self-compiled compiler (85 pass + 3 xfail for codegen bugs)
-- `findRuntime()` doesn't discover runtime unless `--runtime` flag is passed
+### Self-compiled compiler — FULLY PASSING (91/91)
+- All conformance tests pass with self-compiled compiler (88 pass + 3 xfail for codegen bugs)
 
-### Re-enable bn_refcount_dec freeing (managed pointers only)
-- Freeing is disabled in `bn_refcount_dec` in `runtime/binate_runtime.c`
-- This only affects **managed pointers** (`@T`), NOT raw slices (`[]T`)
+### Re-enable rt.RefDec freeing (managed pointers only)
+- Freeing is disabled in `rt.RefDec` in `pkg/rt/rt.bn` (dec but no free on zero)
+- Also disabled in `bn_alloc`-based `bn_box` path (C runtime still has `bn_alloc`)
+- This only affects **managed pointers** (`@T`) and **managed slices** (`@[]T`)
 - The inc/dec pairing looks correct: alloc sets rc=1, copy incs, scope exit decs, return skips dec
-- Phase 1: uncomment the free, run full suite + self-compilation, fix any use-after-free crashes
-- **Slices are intentionally unmanaged** — see design notes below
+- Phase 1: enable free in rt.RefDec, run full suite + self-compilation, fix any use-after-free crashes
 
 ### Codegen bugs (exposed by conformance 084-086)
 - **084**: `arr[:]` array-to-slice — loads `[N x i64]` and passes as `%BnSlice` with no conversion
@@ -35,35 +34,37 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 ### Slice ownership model — design clarification
 Binate is NOT Go. The two types of slice are intentionally different:
 
-**Raw slices (`[]T`)** — two words: (raw ptr, length)
+**Raw slices (`[]T`)** — two words: (data ptr, length)
 - Value types, no refcounting, no GC
 - Caller manages lifetime (like C)
-- `append` copies (currently O(n) per call — known performance issue)
+- `append` copies (currently O(n) per call — known performance issue, append is being removed)
 - Sub-slicing copies data (no aliasing, no double-free risk)
 - Cannot be compared to `nil` — check `len(s) == 0` for empty
 - `s = nil` is a bootstrap/codegen convenience, not the spec design
 
-**Managed slices (`@[]T`)** — three words: (managed ptr, raw ptr, length)
-- Refcounted via the managed pointer (keeps backing allocation alive)
+**Managed slices (`@[]T`)** — three words: (data ptr, length, refptr)
+- Layout is prefix-compatible with `[]T` — first two words are identical
+- Refcounted via the refptr (field 2), which is a managed pointer to the backing allocation
 - `@[]T` is syntactic sugar, distinct from `@([]T)` (managed pointer to raw slice)
 - `make_slice(T, n)` returns `@[]T` (new builtin, replaces old `make([]T, n)`)
-- `make([]T)` returns `@([]T)` (managed ptr to raw slice — not managed-slice)
-- `@([k]T)` notation for managed ptr to fixed-size array (not `@[k]T`)
-- Not yet implemented in the compiler
+- `@[]T → []T` conversion: trivial extractvalue of fields 0,1 (OP_MANAGED_TO_RAW)
+- **Implemented in compiler**: type system (24 bytes), codegen (%BnManagedSlice), refcounting (extract refptr, call rt.RefInc/RefDec), make (calls rt.MakeManagedSlice), conversion (@[]T → []T)
 
 **Current code deviations from spec** (to fix):
-- `gen.bn` emits `emitDecForScopeVars` comment about "slice ownership semantics" —
-  this is wrong framing. Raw slices don't need ownership tracking. The comment should
-  be removed or replaced with a note that raw slice backing arrays are caller-managed.
 - `s = nil` for slices works in bootstrap (Go semantics leaking through) but shouldn't
   exist per spec. Slices are value types; use `len(s) == 0`.
 - `append` is being removed from the language (see design notes). Replace with
   an internal library providing capacity+length buffer types (primarily for chars/strings).
 
-### Phase 2: Managed slices + remove append
-- Implement managed-slices (`@[]T`) — three words: (data_ptr, length, refptr)
+### Phase 2: Remove append + library buffer types
+- ~~Implement managed-slices (`@[]T`) — three words: (data_ptr, length, refptr)~~ — DONE
+- ~~Implement @[]T refcounting (inc on copy, dec on scope exit)~~ — DONE
+- ~~Implement @[]T → []T conversion (OP_MANAGED_TO_RAW)~~ — DONE
+- ~~Create pkg/rt with Alloc, RefInc, RefDec, MakeManagedSlice~~ — DONE
+- ~~Migrate codegen from C runtime to pkg/rt~~ — DONE
+- ~~Package search paths for multi-root package resolution~~ — DONE
 - Remove `append` builtin from the language
-- Write a mini internal library for growable buffers (capacity + length)
+- Write CharBuf and library buffer types for growable collections
   - Primarily needed for chars/strings (the compiler's main use of append)
   - Replaces all current `append` usage in the self-hosted compiler
 - Switch compiler internals from `[]T` + append to managed-slices / buffer types where appropriate
@@ -80,6 +81,41 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - Committed: `cc17909`
 
 ## Done
+
+### @[]T refcounting, OP_MAKE_SLICE migration, C runtime cleanup
+- Added `@[]T` refcounting: extract refptr (field 2), call rt.RefInc/RefDec at var declarations, assignments, field assignments, function params, scope exit, return cleanup
+- `isFreshManagedSlice` check skips refcount inc for `OP_MAKE_SLICE` results (already rc=1)
+- Migrated `OP_MAKE_SLICE` codegen from inline alloc+insertvalue to `rt.MakeManagedSlice` call
+- Removed `bn_refcount_inc`, `bn_refcount_dec`, `bn_make_managed_slice` from `binate_runtime.c`
+- 91 compiled / 90 bootstrap / 90 selfhost — all passing
+- Committed: `80b5150`
+
+### Package search paths and implicit pkg/rt import
+- Loader supports multiple roots (`Roots [][]char`), iterates them in `loadPackage`
+- `discoverBinateRoot` derives project root from runtime path (two `dirOf` up from binate_runtime.c)
+- Compiler adds binate project root as secondary search path via `loader.AddRoot`
+- `ensureRtLoaded` creates synthetic import for pkg/rt; `appendRtImport` adds it to every module
+- Deduplication: skips implicit rt import when explicit import exists
+- Cross-package conformance tests (061-065) find pkg/rt even with custom `--root`
+- 91 compiled / 90 bootstrap / 90 selfhost — all passing
+- Committed: `ad394ee`
+
+### @[]T layout, MakeManagedSlice, @[]T → []T conversion
+- Updated `@[]T` layout from `{ refptr, data, len }` to `{ data, len, refptr }` (prefix-compatible with `[]T`)
+- Added `MakeManagedSlice` to pkg/rt (Binate implementation, not C runtime)
+- Added `OP_MANAGED_TO_RAW` for `@[]T → []T` conversion (extractvalue fields 0,1)
+- Implicit coercion at var declarations, assignments, function call arguments
+- Fixed `moduleFuncs = nil` bug that cleared imported function signatures
+- Conformance tests: 093_rt_managed_slice, 094_managed_to_raw_slice
+- Committed: `da07f70`
+
+### bit_cast, pointer indexing, and pkg/rt Binate runtime
+- `bit_cast(TargetType, val)` codegen: ptrtoint/inttoptr/bitcast as appropriate
+- Pointer indexing `ptr[i]` and `ptr[i] = val` via GEP (supports negative indices)
+- Created `pkg/rt` with Alloc, Free, RefInc, RefDec (Binate implementations)
+- Created `runtime/rt_stubs.c` with thin C wrappers for libc (c_malloc, c_free, c_memset, c_memcpy)
+- Conformance tests: 090_bit_cast, 091_pointer_indexing, 092_rt_alloc
+- Committed: `c80d962`
 
 ### Nil-to-slice assignment stores i8* instead of zeroed BnSlice
 - `moduleStructs = nil` emitted `store i8* null` (8 bytes) to BnSlice global (16 bytes)

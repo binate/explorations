@@ -755,6 +755,7 @@ Go-style. When compiling a package, only `.bni` files are needed for imported pa
 - `pkg/`-prefixed packages are "public" — found via the full search path
 - Non-`pkg/` packages are inherently local (not subject to external search path)
 - Shadowing allowed: project-local packages take priority over external
+- **Multiple roots** are supported: the loader iterates `Roots [][]char` when resolving packages. The compiler auto-discovers the binate project root from the runtime path and adds it as a secondary search path. This enables cross-project tests to find stdlib packages like `pkg/rt`.
 
 **No language-enforced `internal/` convention.** With separate interface files, visibility is already controlled by whether a `.bni` file exists and is on the search path. Unlike Go, the interface/implementation separation already provides the access control.
 

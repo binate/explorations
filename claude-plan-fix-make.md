@@ -108,20 +108,11 @@ Validate at each commit.
 New builtin: `make_slice(T, n)` takes an element type T and a runtime size n,
 returns `@[]T` (managed-slice — 3-word type).
 
-#### 4a: Runtime — `bn_make_managed_slice`
+#### 4a: Runtime — `rt.MakeManagedSlice` ✅ DONE
 
-```c
-// Returns: {i8* data, i64 len, i8* refptr}
-// NOTE: C runtime version superseded by pkg/rt Binate implementation.
-// Kept here for reference. First two fields match BnSlice layout.
-typedef struct {
-    void    *data;     // points past header to element data
-    int64_t  len;
-    void    *refptr;   // points to refcount header
-} BnManagedSlice;
-```
+Implemented in `pkg/rt/rt.bn`. The old C runtime `bn_make_managed_slice` has been removed.
 
-#### 4b: LLVM representation for `@[]T`
+#### 4b: LLVM representation for `@[]T` ✅ DONE
 
 ```llvm
 %BnManagedSlice = type { i8*, i64, i8* }  ; {data, len, refptr}
@@ -129,12 +120,12 @@ typedef struct {
 
 Fields 0,1 are identical to `%BnSlice = type { i8*, i64 }` — prefix layout match.
 
-Operations needed:
-- **Create**: via pkg/rt `MakeManagedSlice` (returns struct with same layout)
-- **Refcount inc**: extract refptr (field 2), call `rt.RefInc`
-- **Refcount dec**: extract refptr (field 2), call `rt.RefDec`
-- **To raw slice** (`@[]T → []T`): extract fields 1+2 into `%BnSlice`
-- **Length**: extract field 2
+All operations implemented:
+- **Create**: codegen calls `bn_rt__MakeManagedSlice` (pkg/rt) ✅
+- **Refcount inc**: extract refptr (field 2), call `rt.RefInc` ✅
+- **Refcount dec**: extract refptr (field 2), call `rt.RefDec` ✅
+- **To raw slice** (`@[]T → []T`): extractvalue fields 0,1 into `%BnSlice` (OP_MANAGED_TO_RAW) ✅
+- **Length**: extract `%BnSlice` prefix, call `bn_slice_len` ✅
 - **Index**: extract data ptr (field 1), GEP + load/store
 - **Load/store**: 3 × i64 loads/stores (or treat as `{i8*, i8*, i64}` aggregate)
 

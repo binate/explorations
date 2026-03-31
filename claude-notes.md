@@ -135,11 +135,12 @@ The C runtime (`binate_runtime.c`) should shrink over time, not grow. The goal i
 - Wrappers for OS interfaces where the C standard library provides the stable ABI (file I/O, memory allocation — `malloc`/`free`/`realloc`).
 - Eventually, even these can be replaced by direct syscalls (as Go does on Linux), but that's more work and amounts to replacing C with assembly.
 
-**What should move to Binate**:
-- Refcount management (inc, dec, free dispatch)
+**What should move to Binate** (status as of 2026-03-30):
+- ~~Refcount management (inc, dec, free dispatch)~~ — DONE (pkg/rt: Alloc, RefInc, RefDec, Free)
+- ~~Managed-slice creation~~ — DONE (pkg/rt: MakeManagedSlice)
 - Slice operations (append, get, set, bounds checking, slice expressions)
 - String-to-chars conversion, printing
-- Box, alloc wrappers (above the raw malloc layer)
+- Box wrappers (bn_box still in C, uses bn_alloc)
 
 **End state**: declare external C library functions via compiler annotations (or a natural FFI mechanism) and remove the C runtime entirely. Pure Binate systems — where everything is written in Binate — should be possible. The C dependency exists only insofar as it's the practical way to talk to the OS; it's not a permanent architectural choice.
 
