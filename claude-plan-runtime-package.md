@@ -271,6 +271,9 @@ This happens in the IR gen, not the codegen emitter. The codegen just sees
 - **Package search paths**: Loader supports multiple roots (`Roots [][]char`), iterates them to find packages. Compiler discovers binate project root from runtime path and adds as secondary search path. Enables cross-package tests to find pkg/rt.
 - **Remove old C runtime functions**: `bn_refcount_inc`, `bn_refcount_dec`, `bn_make_managed_slice` removed from `binate_runtime.c`. `bn_alloc` remains (used by `bn_box`, not yet migrated).
 - **@[]T refcounting**: Extract refptr (field 2) from managed slice, call rt.RefInc/RefDec at var declarations, assignments, field assignments, function params, scope exit, return cleanup.
+- **Port bn_box to pkg/rt**: rt.Box = Alloc + c_memcpy. `bn_alloc` and `bn_box` removed from C runtime.
+- **Port bounds checking to pkg/rt**: rt.BoundsCheck with c_bounds_fail stub. `bn_bounds_check` removed from C runtime.
+- **Self-hosted interpreter HeapObj tracking**: HeapObject gains Refcount field. Managed slices carry HeapObj with Refcount=1. copyValue increments Refcount on managed slice copy. coerce handles @[]T → []T. Bootstrap interpreter updated in parallel. Conformance: 095_managed_slice_sharing.
 
 ## Verification
 

@@ -6,7 +6,10 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## In Progress
 
-(none)
+### Phase 2: CharBuf + append removal
+- Next: implement CharBuf (growable char buffer using make_slice)
+- Then migrate ~423 append calls across the compiler to use CharBuf
+- Finally remove append from the language
 
 ## TODO
 
@@ -16,8 +19,8 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Emit per-instruction `DILocation` with real line numbers (currently all line 0)
 - Prerequisite: lightweight debug info (done)
 
-### Self-compiled compiler — FULLY PASSING (91/91)
-- All conformance tests pass with self-compiled compiler (88 pass + 3 xfail for codegen bugs)
+### Self-compiled compiler — FULLY PASSING (92/92)
+- All conformance tests pass with self-compiled compiler (89 pass + 3 xfail for codegen bugs)
 
 ### Re-enable rt.RefDec freeing (managed pointers only)
 - Freeing is disabled in `rt.RefDec` in `pkg/rt/rt.bn` (dec but no free on zero)
@@ -89,6 +92,18 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - Removed `bn_refcount_inc`, `bn_refcount_dec`, `bn_make_managed_slice` from `binate_runtime.c`
 - 91 compiled / 90 bootstrap / 90 selfhost — all passing
 - Committed: `80b5150`
+
+### Self-hosted interpreter HeapObj tracking for managed slices
+- Added `Refcount int` to HeapObject struct
+- `MakeManagedSliceVal` constructor creates HeapObj with Refcount=1
+- `copyValue` increments Refcount when copying managed slices (sharing semantics)
+- `coerce` handles `@[]T → []T` conversion (strips HeapObj, shares Elems)
+- `evalAppendCall` preserves managed-ness on append results
+- `isCharSlice` recognizes `@[]char` (TYP_MANAGED_SLICE)
+- Bootstrap interpreter updated in parallel (SliceVal gains HeapObj, same semantics)
+- 92 compiled / 91 bootstrap / 91 selfhost — all passing
+- Conformance: 095_managed_slice_sharing
+- Committed: `c997b9f` (binate), `4e346c5` (bootstrap)
 
 ### Package search paths and implicit pkg/rt import
 - Loader supports multiple roots (`Roots [][]char`), iterates them in `loadPackage`

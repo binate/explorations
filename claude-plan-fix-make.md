@@ -103,10 +103,10 @@ zero-value raw slice.
 
 Validate at each commit.
 
-### Step 4: Add `make_slice` builtin
+### Step 4: Add `make_slice` builtin ✅ DONE
 
 New builtin: `make_slice(T, n)` takes an element type T and a runtime size n,
-returns `@[]T` (managed-slice — 3-word type).
+returns `@[]T` (managed-slice — 3-word type). Fully implemented across all layers.
 
 #### 4a: Runtime — `rt.MakeManagedSlice` ✅ DONE
 

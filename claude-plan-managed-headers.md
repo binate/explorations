@@ -147,8 +147,8 @@ The bootstrap interpreter can mostly remain as-is since it uses Go-level GC. The
 6. ~~**Codegen**: Add refcounting for `@[]T` (inc on copy, dec on scope exit) — refptr at field 2~~ — DONE (extractvalue field 2, call rt.RefInc/RefDec)
 7. ~~**Codegen**: Implement `@[]T → []T` conversion~~ — DONE (OP_MANAGED_TO_RAW: extractvalue 0,1 into %BnSlice)
 8. ~~**pkg/rt**: Add MakeManagedSlice, migrate OP_MAKE_SLICE to call it~~ — DONE (codegen calls bn_rt__MakeManagedSlice)
-9. **Self-hosted interpreter**: Add HeapObj tracking for managed-slices
-10. ~~**Tests**: Add conformance tests for @[]T~~ — DONE (093_rt_managed_slice, 094_managed_to_raw_slice)
+9. ~~**Self-hosted interpreter**: Add HeapObj tracking for managed-slices~~ — DONE (HeapObject gains Refcount, MakeManagedSliceVal, copyValue inc, coerce @[]T→[]T, 095_managed_slice_sharing)
+10. ~~**Tests**: Add conformance tests for @[]T~~ — DONE (093_rt_managed_slice, 094_managed_to_raw_slice, 095_managed_slice_sharing)
 11. ~~**Remove old C runtime functions**: bn_refcount_inc, bn_refcount_dec, bn_make_managed_slice removed from binate_runtime.c~~ — DONE
 
 Each step should be a separate commit. Run conformance tests after each.
