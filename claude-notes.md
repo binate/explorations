@@ -85,13 +85,13 @@
 `char[]` (and arrays of unspecified size generally) are **slices** — a view into underlying data, not a container of data themselves.
 
 **Terminology — IMPORTANT**: "managed-slice" (hyphenated) refers specifically to `@[]T`,
-the 3-word type `(refptr, raw_ptr, length)` created by `make_slice`. "Managed slice"
+the 3-word type `(data_ptr, length, refptr)` created by `make_slice`. "Managed slice"
 (two words, no hyphen) is ambiguous — it could mean `@[]T` (managed-slice) or `@([]T)`
 (a managed pointer to a raw slice). In these notes we use the hyphenated form
 "managed-slice" when referring to `@[]T` to avoid confusion.
 
 **Two flavors**:
-- **Managed-slice** (`@[]T`): keeps the underlying allocation alive via refcounting. Three words: (managed pointer to allocation, raw pointer to start of slice, length).
+- **Managed-slice** (`@[]T`): keeps the underlying allocation alive via refcounting. Three words: (raw pointer to start of slice, length, managed pointer to allocation). The first two words match raw slice layout exactly.
 - **Raw slice** (`[]T`): (raw pointer to start, length). Two words. No refcounting. Caller manages lifetime.
 
 **Key benefits**:
@@ -105,10 +105,10 @@ the 3-word type `(refptr, raw_ptr, length)` created by `make_slice`. "Managed sl
 - Assigned to a managed array → allocate, copy, set up refcount
 - Raw pointer → pointer to static data
 
-**Managed-slice representation — DECIDED**: a managed-slice (`@[]T`) is a managed pointer to the backing array paired with a raw slice: `(refptr, slice)`, i.e., `(refptr, raw_ptr, length)` — three words. This framing makes the `@[]T` → `[]T` conversion obvious: just drop the refptr (and dec it). Equivalently:
-1. Managed pointer to the underlying allocation (keeps it alive via refcounting)
-2. Raw pointer to the start of the view (direct data access, no arithmetic needed)
-3. Length
+**Managed-slice representation — DECIDED (updated 2026-03-30)**: a managed-slice (`@[]T`) is a raw slice followed by a managed pointer: `(data_ptr, length, refptr)` — three words. The first two words are identical in layout to a raw slice `[]T`, so `@[]T` → `[]T` conversion is trivial (just read the first 16 bytes, no field extraction needed). The refptr is the third word and carries the refcount. Equivalently:
+1. Raw pointer to the start of the view (direct data access, no arithmetic needed)
+2. Length
+3. Managed pointer to the underlying allocation (keeps it alive via refcounting)
 
 **Raw slice representation**: two words: (raw pointer to start, length)
 
@@ -119,7 +119,7 @@ the 3-word type `(refptr, raw_ptr, length)` created by `make_slice`. "Managed sl
 **Introspection builtins**: for low-level transparency, testing, and debugging:
 - Something that takes a managed pointer (`@T`) and returns the management header (refcount, free function) as a Binate struct.
 - Something that takes a raw slice (`[]T`) and returns the slice representation (data ptr, length) as a Binate struct.
-- Something that takes a managed-slice (`@[]T`) and returns the managed-slice representation (refptr, slice struct) as a Binate struct.
+- Something that takes a managed-slice (`@[]T`) and returns the managed-slice representation (data ptr, length, refptr) as a Binate struct.
 - All management/representation structs should be proper Binate structs, not opaque C constructs.
 - These can have "obscure" names (e.g., `_refcount_header`, `_slice_repr`, or `bn_`-prefixed) since they're not intended for normal use.
 
@@ -446,7 +446,7 @@ C-family, leaning toward Go's direction (clean, minimal, familiar).
 
 **Slice syntax — DECIDED**:
 - `[]T` = raw slice of T (two words: raw ptr, length)
-- `@[]T` = managed-slice of T (three words: managed ptr, raw ptr, length) — syntactic sugar
+- `@[]T` = managed-slice of T (three words: raw ptr, length, managed ptr) — syntactic sugar
 - `*[]T` = raw pointer to a raw slice
 - `@([]T)` = managed pointer to a raw slice (parens break the `@[]` sugar)
 - `arr[low:high]` = slice expression (exclusive end, like Go)

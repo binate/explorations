@@ -61,7 +61,7 @@ Binate is NOT Go. The two types of slice are intentionally different:
   an internal library providing capacity+length buffer types (primarily for chars/strings).
 
 ### Phase 2: Managed slices + remove append
-- Implement managed-slices (`@[]T`) — three words: (refptr, raw_ptr, length)
+- Implement managed-slices (`@[]T`) — three words: (data_ptr, length, refptr)
 - Remove `append` builtin from the language
 - Write a mini internal library for growable buffers (capacity + length)
   - Primarily needed for chars/strings (the compiler's main use of append)

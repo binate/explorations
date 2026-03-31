@@ -4,7 +4,7 @@
 
 Currently `@T` and `@[]T` have incorrect/incomplete LLVM representations:
 - `@T` = `i8*` (pointer to payload, header at negative offset — correct structure but not expressed as a Binate struct)
-- `@[]T` = `%BnSlice = { i8*, i64 }` — **wrong**, identical to `[]T`. Should be 3 words: `{ @any refptr, *T data, uint len }`
+- `@[]T` = `%BnSlice = { i8*, i64 }` — **wrong**, identical to `[]T`. Should be 3 words: `{ *T data, uint len, @any refptr }`
 
 The management header `{ refcount, free_fn }` exists in C runtime but isn't modeled as a Binate struct. All of these should be expressed as explicit Binate structs so the compiler and interpreter handle them uniformly.
 
@@ -20,11 +20,11 @@ LLVM: `%BnSlice = type { i8*, i64 }` (unchanged)
 
 **`@[]T`** — managed-slice (3 words, 24 bytes):
 ```
-struct { refptr @any, data *T, len uint }
+struct { data *T, len uint, refptr @any }
 ```
-LLVM: `%BnManagedSlice = type { i8*, i8*, i64 }`
+LLVM: `%BnManagedSlice = type { i8*, i64, i8* }`
 
-The `refptr` is a managed pointer (`@any`) to the backing allocation. It carries the refcount. `data` and `len` describe the usable window (like a raw slice).
+The first two fields (`data`, `len`) are identical in layout to `%BnSlice`. This means a `@[]T` can be accessed as a `[]T` by simply reading the first 16 bytes — no field extraction or pointer arithmetic needed. The `refptr` (a managed pointer `@any` to the backing allocation, carrying the refcount) is appended as the third word.
 
 ### Management header (at negative offset from managed data)
 
@@ -69,7 +69,7 @@ if t.Kind == TYP_MANAGED_SLICE { return 24 }
 
 Add type definition (after line 144):
 ```llvm
-%BnManagedSlice = type { i8*, i8*, i64 }
+%BnManagedSlice = type { i8*, i64, i8* }
 ```
 
 Change `llvmType` (line 1657):
@@ -83,25 +83,25 @@ if t.Kind == TYP_MANAGED_SLICE { return "%BnManagedSlice" }
 
 `make_slice(T, n)` must:
 1. Allocate backing array via `bn_alloc(n * elem_size)` — returns managed `@any` (payload ptr with refcount header)
-2. Return `%BnManagedSlice { refptr, data_ptr, len }` where `refptr = data_ptr = the bn_alloc result`
+2. Return `%BnManagedSlice { data_ptr, len, refptr }` where `refptr = data_ptr = the bn_alloc result`
 
 New runtime function: `bn_make_managed_slice(i64 elem_size, i64 length) -> %BnManagedSlice`
 
 ### 4. Codegen — slice operations on `@[]T`
 
 All slice operations (`len`, `get`, `set`, `slice_expr`, `append`) currently take/return `%BnSlice`. For `@[]T`, they need to:
-- Extract the `{ data, len }` sub-struct from `%BnManagedSlice` (fields 1,2)
-- Pass it as a `%BnSlice` to existing runtime functions
-- Reconstruct `%BnManagedSlice` with updated data/len when operations return new slices (e.g., append)
+- Extract the `{ data, len }` prefix from `%BnManagedSlice` (fields 0,1) — identical layout to `%BnSlice`
+- Pass as `%BnSlice` to existing runtime functions (or bitcast pointer since layout is a prefix match)
+- Reconstruct `%BnManagedSlice` with updated data/len when operations return new slices (e.g., append), preserving the refptr (field 2)
 
 ### 5. Codegen — refcounting for `@[]T`
 
 When a `@[]T` is copied (assigned, passed), increment the refcount on `refptr`.
-When it goes out of scope, decrement. This uses the existing `bn_refcount_inc`/`bn_refcount_dec` on the `refptr` field (field 0 of `%BnManagedSlice`).
+When it goes out of scope, decrement. This uses the existing `bn_refcount_inc`/`bn_refcount_dec` on the `refptr` field (field 2 of `%BnManagedSlice`).
 
 ### 6. Codegen — `@[]T → []T` conversion
 
-Extract fields 1,2 (`data`, `len`) from `%BnManagedSlice` and pack as `%BnSlice`. This is a pure data extraction — no refcount change (the raw slice borrows).
+Extract fields 0,1 (`data`, `len`) from `%BnManagedSlice` — these are already a `%BnSlice` by layout. Can be done with a simple bitcast of the pointer (since `%BnSlice` is a prefix of `%BnManagedSlice`) or extractvalue pair. No refcount change (the raw slice borrows).
 
 ### 7. Runtime — `bn_make_managed_slice`
 
@@ -109,10 +109,11 @@ Extract fields 1,2 (`data`, `len`) from `%BnManagedSlice` and pack as `%BnSlice`
 
 ```c
 typedef struct {
-    void    *refptr;   // @any: managed pointer to backing array
     void    *data;     // *T: pointer to first element (= refptr for fresh allocs)
     int64_t  len;      // uint: number of elements
+    void    *refptr;   // @any: managed pointer to backing array (refcounted)
 } BnManagedSlice;
+// Note: first two fields match BnSlice layout exactly.
 
 BnManagedSlice bn_make_managed_slice(int64_t elem_size, int64_t length) {
     BnManagedSlice ms;
@@ -144,14 +145,16 @@ The bootstrap interpreter can mostly remain as-is since it uses Go-level GC. The
 
 ## Implementation Order
 
-1. **Runtime**: Add `BnManagedSlice` struct and `bn_make_managed_slice` to C runtime
-2. **Type system**: Fix `SizeOf` for `TYP_MANAGED_SLICE` → 24 bytes
-3. **Codegen**: Add `%BnManagedSlice` type, update `llvmType`, update `OP_MAKE_SLICE` emission
-4. **Codegen**: Handle slice operations on `@[]T` (extract inner `%BnSlice`, dispatch)
-5. **Codegen**: Add refcounting for `@[]T` (inc on copy, dec on scope exit)
-6. **Codegen**: Implement `@[]T → []T` conversion
-7. **Self-hosted interpreter**: Add HeapObj tracking for managed-slices
-8. **Tests**: Update conformance test 089, add new tests for @[]T refcounting and conversion
+1. ~~**Runtime**: Add `BnManagedSlice` struct and `bn_make_managed_slice` to C runtime~~ — DONE (pivoted to pkg/rt in Binate)
+2. ~~**Type system**: Fix `SizeOf` for `TYP_MANAGED_SLICE` → 24 bytes~~ — DONE
+3. ~~**Codegen**: Add `%BnManagedSlice` type, update `llvmType`, update `OP_MAKE_SLICE` emission~~ — DONE
+4. ~~**Codegen**: Handle slice operations on `@[]T` (extract inner `%BnSlice`, dispatch)~~ — DONE (emitManagedToRaw + emitSliceRef)
+5. **Codegen**: Update field indices for new `{ data, len, refptr }` layout (fields 0,1,2)
+6. **Codegen**: Add refcounting for `@[]T` (inc on copy, dec on scope exit) — refptr at field 2
+7. **Codegen**: Implement `@[]T → []T` conversion — trivial with prefix layout
+8. **pkg/rt**: Add MakeManagedSlice, migrate OP_MAKE_SLICE to call it
+9. **Self-hosted interpreter**: Add HeapObj tracking for managed-slices
+10. **Tests**: Add new tests for @[]T refcounting and conversion
 
 Each step should be a separate commit. Run conformance tests after each.
 

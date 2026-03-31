@@ -22,7 +22,7 @@
   - `make([100]int)` → `@([100]int)` (managed ptr to zero-init fixed-size array)
 
 - **`make_slice(T, n)`** takes an element type and runtime size, returns `@[]T`
-  (managed-slice — the special 3-word type: refptr, data_ptr, length). This is
+  (managed-slice — the special 3-word type: data_ptr, length, refptr). This is
   the ONLY way to create runtime-sized managed-slices.
 
 - **`make_raw_deprecated([]T, n)`** temporary builtin preserving current broken
@@ -111,37 +111,28 @@ returns `@[]T` (managed-slice — 3-word type).
 #### 4a: Runtime — `bn_make_managed_slice`
 
 ```c
-// Returns: {i8* refptr, i8* data, i64 len}
+// Returns: {i8* data, i64 len, i8* refptr}
+// NOTE: C runtime version superseded by pkg/rt Binate implementation.
+// Kept here for reference. First two fields match BnSlice layout.
 typedef struct {
-    void    *refptr;   // points to refcount header
     void    *data;     // points past header to element data
     int64_t  len;
+    void    *refptr;   // points to refcount header
 } BnManagedSlice;
-
-BnManagedSlice bn_make_managed_slice(int64_t elem_size, int64_t length) {
-    size_t header_size = 2 * sizeof(int64_t); // refcount + free_fn
-    size_t data_size = length * elem_size;
-    int64_t *header = calloc(1, header_size + data_size);
-    header[0] = 1;                        // refcount = 1
-    header[1] = (int64_t)free;            // free_fn = stdlib free
-    BnManagedSlice ms;
-    ms.refptr = (void*)header;
-    ms.data = (void*)(header + 2);
-    ms.len = length;
-    return ms;
-}
 ```
 
 #### 4b: LLVM representation for `@[]T`
 
 ```llvm
-%BnManagedSlice = type { i8*, i8*, i64 }  ; {refptr, data, len}
+%BnManagedSlice = type { i8*, i64, i8* }  ; {data, len, refptr}
 ```
 
+Fields 0,1 are identical to `%BnSlice = type { i8*, i64 }` — prefix layout match.
+
 Operations needed:
-- **Create**: `call %BnManagedSlice @bn_make_managed_slice(i64 elem_size, i64 n)`
-- **Refcount inc**: extract refptr (field 0), call `bn_refcount_inc`
-- **Refcount dec**: extract refptr (field 0), call `bn_refcount_dec`
+- **Create**: via pkg/rt `MakeManagedSlice` (returns struct with same layout)
+- **Refcount inc**: extract refptr (field 2), call `rt.RefInc`
+- **Refcount dec**: extract refptr (field 2), call `rt.RefDec`
 - **To raw slice** (`@[]T → []T`): extract fields 1+2 into `%BnSlice`
 - **Length**: extract field 2
 - **Index**: extract data ptr (field 1), GEP + load/store
@@ -179,7 +170,7 @@ Validate at each commit.
 ### Step 5: Add `@([k]T) → @[]T` conversion
 
 A managed pointer to a fixed-size array (`@([k]T)`) can be converted to a
-managed-slice (`@[]T`) by constructing `(refptr, data_ptr, k)` where `data_ptr`
+managed-slice (`@[]T`) by constructing `(data_ptr, k, refptr)` where `data_ptr`
 points into the same allocation.
 
 This is useful for: `make([100]int)` → `@([100]int)`, then convert to `@[]int`

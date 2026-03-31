@@ -64,11 +64,11 @@ CharBuf's `Data` field is `@[]T`. For this to work correctly in compiled mode,
 `@[]T` needs a proper LLVM representation distinct from `[]T`:
 
 - `[]T` (raw slice) = `{ i8*, i64 }` (data ptr, length) — current `%BnSlice`
-- `@[]T` (managed-slice) = `{ i8*, i8*, i64 }` (refptr, data ptr, length)
+- `@[]T` (managed-slice) = `{ i8*, i64, i8* }` (data ptr, length, refptr)
 
-The refptr points to a management header with refcount. This needs to be
-implemented before CharBuf can work in compiled mode. See the managed-type
-headers plan for details.
+The first two fields match `[]T` layout exactly (prefix match), so `@[]T` can
+be read as `[]T` with no arithmetic. The refptr (field 2) points to a management
+header with refcount. See the managed-type headers plan for details.
 
 ## Conversion Order (after CharBuf exists)
 

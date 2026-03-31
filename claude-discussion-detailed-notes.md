@@ -92,12 +92,12 @@ This area went through several iterations during discussion.
 Without the hyphen, "managed slice" is ambiguous — it could mean `@[]T` (managed-slice)
 or `@([]T)` (a managed pointer to a raw slice, which is a different thing entirely).
 
-**Managed-slice** (`@[]T`) — a managed pointer to the backing array paired with a raw slice: `(refptr, slice)`, i.e., `(refptr, raw_ptr, length)` — three words:
-1. Managed pointer to the underlying allocation (keeps it alive via refcounting)
-2. Raw pointer to the start of the view (for direct data access, no arithmetic needed)
-3. Length
+**Managed-slice** (`@[]T`) — a raw slice extended with a managed pointer: `(data_ptr, length, refptr)` — three words:
+1. Raw pointer to the start of the view (for direct data access, no arithmetic needed)
+2. Length
+3. Managed pointer to the underlying allocation (keeps it alive via refcounting)
 
-This framing makes the `@[]T` → `[]T` conversion obvious: just drop the refptr (and dec it). The three-word representation was chosen over (managed pointer, offset, length) because the raw pointer gives direct data access without arithmetic, and is what you'd pass to C code or use in tight loops.
+The first two words are identical in layout to a raw slice `[]T`. This means `@[]T` → `[]T` conversion is trivial — just read the first 16 bytes (no field extraction or reordering needed). The managed pointer is appended as the third word. The three-word representation was chosen over (managed pointer, offset, length) because the raw pointer gives direct data access without arithmetic, and is what you'd pass to C code or use in tight loops. (Layout updated 2026-03-30 to put refptr last for prefix compatibility with `[]T`.)
 
 **Raw slice** (`[]T`) — two words:
 1. Raw pointer to start
@@ -148,7 +148,7 @@ For low-level transparency, testing, and debugging, the language should provide 
 
 - **Managed pointer header**: given `@T`, return the management header as a Binate struct — fields for refcount and free function pointer.
 - **Raw slice repr**: given `[]T`, return the slice representation as a Binate struct — data pointer and length.
-- **Managed-slice repr**: given `@[]T`, return the managed-slice representation as a Binate struct — refptr and raw slice struct.
+- **Managed-slice repr**: given `@[]T`, return the managed-slice representation as a Binate struct — data ptr, length, refptr.
 
 All of these representation/management structs should be proper Binate structs, not opaque C constructs. This enables writing tests and debugging tools in pure Binate.
 
@@ -457,7 +457,7 @@ box(Point{x: 1, y: 2})  // allocate with init, returns @Point
 `make(T)` takes any type T and returns `@T` — always. No size argument. This means
 `make([]int)` returns `@([]int)` (managed pointer to a raw slice), NOT `@[]int`
 (managed-slice). The distinction matters: `@([]int)` is a 1-word managed pointer
-to a 2-word raw slice; `@[]int` is a 3-word managed-slice (refptr + ptr + len).
+to a 2-word raw slice; `@[]int` is a 3-word managed-slice (ptr + len + refptr).
 
 `make_slice(T, n)` is a separate builtin that creates runtime-sized managed-slices.
 It takes an element type and a length, returns `@[]T`. This avoids the ambiguity of
@@ -476,7 +476,7 @@ ONLY to `@[]T` (managed-slice); all other `@` + collection combinations use pare
 Mirrors the pointer pattern — `@` prefix means "managed version":
 ```
 []T             // raw slice (two words: raw ptr, length)
-@[]T            // managed-slice (three words: managed ptr, raw ptr, length)
+@[]T            // managed-slice (three words: raw ptr, length, managed ptr)
 arr[low:high]   // slice expression (exclusive end, like Go)
 ```
 
@@ -1151,8 +1151,8 @@ below for the disambiguation rationale.
 `@([]int)` — a managed pointer to a raw slice (the raw slice is zero-valued:
 null ptr, length 0). This is well-defined but not what you usually want.
 
-What you usually want is `@[]int` — a managed-slice (3-word type: refptr, data ptr,
-length) backed by a freshly allocated array. That's what `make_slice(int, n)` gives
+What you usually want is `@[]int` — a managed-slice (3-word type: data ptr, length,
+refptr) backed by a freshly allocated array. That's what `make_slice(int, n)` gives
 you. It takes an *element type* and a runtime size, allocates a backing array of `n`
 zero-initialized elements, and returns the managed-slice.
 
