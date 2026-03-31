@@ -115,8 +115,10 @@ For fixed-size allocations where the size is known, use `make_slice(T, n)`.
 
 - **Source files** (`.bn`): keep to roughly **500 lines maximum** (600 as a hard
   ceiling), including comments and blank lines. If a file is getting long, split it.
-- **Test files** (`_test.bn`): each `.bn` source file should have a corresponding
-  `_test.bn` file with unit tests.
+- **Test files** (`_test.bn`): every `.bn` file that contains code (functions, methods
+  — not just type definitions or constants) **must** have a corresponding `_test.bn`
+  file that tests it. Test files may be longer than 500 lines, as long as they only
+  test the corresponding source file.
 - **Interface files** (`.bni`): one per package, declares the public API.
 
 ---
