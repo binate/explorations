@@ -13,6 +13,13 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
+### Audit and fix `*any` misuse as `void*`
+- `*any` is a pointer to an `any` interface value (2 words: data ptr + vtable ptr) — NOT equivalent to C's `void*`
+- Code currently uses `*any` where it means "untyped address" — this is semantically wrong
+- Replace with `*uint8` (or `*const uint8`) as the opaque byte pointer type, with `bit_cast` to recover the real type
+- Audit: design notes (claude-notes.md, claude-discussion-detailed-notes.md), grammar.ebnf, bootstrap interpreter (Go), all self-hosted Binate code (pkg/rt, pkg/ir, pkg/codegen, pkg/interp, pkg/linker, pkg/types, pkg/ast, pkg/lexer, pkg/parser, pkg/bootstrap, compile.bn, main.bn), and .bni interface files
+- Update design notes to document `*uint8` as the `void*` equivalent
+
 ### Unit test runners for all 3 modes
 - Ensure all 3 runners (bootstrap, selfhost interpreter, compiler) can run Binate unit tests (`-test` flag)
 - Currently unit tests may only be exercised via the bootstrap interpreter
