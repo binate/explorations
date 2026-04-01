@@ -1,6 +1,6 @@
 # Plan: Fix `make` Semantics, Add `make_slice`, Migrate Existing Code
 
-> **STATUS (2026-03-31): COMPLETED.** `make_slice(T, n)` is implemented. `append` has been fully removed from the language; `CharBuf` and per-type helpers are the replacements.
+> **STATUS (2026-04-01): COMPLETED.** `make_slice(T, n)` is implemented. Both `append` and `make_raw_deprecated` have been fully removed from the language. `CharBuf` and per-type helpers are the replacements for growable collections.
 
 ## Problem
 

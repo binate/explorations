@@ -12,7 +12,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - ~~Remove append from conformance tests~~ — DONE
 - ~~Remove append from _test.bn files~~ — DONE
 - ~~Remove append builtin from parser, type checker, IR gen, codegen, and interpreter~~ — DONE
-- Remove `make_raw_deprecated` builtin (replaced by `make_slice`)
+- ~~Remove `make_raw_deprecated` builtin (replaced by `make_slice`)~~ — DONE
 
 ## TODO
 

@@ -93,12 +93,10 @@ if err != 0 {
 
 ## String Building and Growable Collections
 
-**`append()` has been removed from the language.** It was a performance footgun
-(O(n) per call, O(n^2) for incremental building) and did not fit the language's design.
-Using `append()` is now a compile error.
-
-**`make_raw_deprecated()` must also not be used in new code.** It is a transitional
-builtin that will be removed.
+**`append()` and `make_raw_deprecated()` have been removed from the language.**
+`append` was a performance footgun (O(n) per call, O(n^2) for incremental building)
+and did not fit the language's design. `make_raw_deprecated` was a transitional builtin
+that has been replaced by `make_slice`. Using either is now a compile error.
 
 Until generics are available, the current approach for growable collections is:
 - **`CharBuf`** for building strings incrementally (backed by `@[]char` with geometric

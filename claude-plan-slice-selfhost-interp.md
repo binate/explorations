@@ -1,6 +1,6 @@
 # Plan: Fix Slice Usage in the Self-Hosted Interpreter
 
-> **STATUS (2026-03-31): COMPLETED.** All `append` calls in the self-hosted interpreter have been replaced. `append` has been fully removed from the language.
+> **STATUS (2026-04-01): COMPLETED.** All `append` and `make_raw_deprecated` calls have been replaced with `make_slice`. Both builtins have been fully removed from the language.
 
 ## Problem
 

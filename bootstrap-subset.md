@@ -127,9 +127,6 @@ Fully supported:
 | `bit_cast(T, expr)` | target type + value | `T` | Reinterpret bits (same as `cast` in bootstrap) |
 | `len(x)` | slice/array/string | `int` | Length |
 
-**`make_raw_deprecated([]T, n)`** also exists as a transitional builtin that creates a raw
-(unmanaged) slice. It is deprecated and should not be used in new code.
-
 ---
 
 ## Operators
@@ -560,28 +557,23 @@ types (e.g., `var x uint8 = 256` should be a compile error).
 The full language supports indexed array literals (`[5]int{1: 10, 3: 30}`), but the
 bootstrap parser does not handle this syntax.
 
-### 7. `make_raw_deprecated` existence
-
-This builtin does not exist in the language spec. It was added as a transitional
-measure during the `make`/`make_slice` split and should not appear in new code.
-
-### 8. Pointer indexing panics instead of working
+### 7. Pointer indexing panics instead of working
 
 The full language supports pointer indexing (`ptr[i]`) for raw pointers (equivalent
 to C's `ptr[i]`). The bootstrap explicitly panics on this with "pointer indexing not
 supported". This is a known limitation, not a bug — it was intentionally deferred.
 
-### 9. No `if` init statements
+### 8. No `if` init statements
 
 The full language (per the grammar) supports `if x := f(); x > 0 { ... }`. The
 bootstrap parser does not handle this form.
 
-### 10. No labeled break/continue
+### 9. No labeled break/continue
 
 The full language supports labeled loops with `break label` and `continue label`. The
 bootstrap only supports unlabeled `break` and `continue`.
 
-### 11. Value semantics for function arguments
+### 10. Value semantics for function arguments
 
 The bootstrap copies structs and arrays when passing them as function arguments (value
 semantics), which is correct per the spec. However, the full compiled language will need
@@ -589,14 +581,14 @@ the optimization of passing large value-type arguments by `*const T` pointer und
 hood (the "value receivers implemented as `*const T`" rule). The bootstrap doesn't
 need this optimization since it's interpreted.
 
-### 12. for-in iteration is limited
+### 11. for-in iteration is limited
 
 For-in only works on slices and arrays. The full language may extend for-in to work
 with user-defined iterable types (via interfaces). Attempting to use for-in on
 anything other than a slice or array panics at runtime rather than producing a
 type-check error.
 
-### 13. No exhaustive switch checking
+### 12. No exhaustive switch checking
 
 Switch statements have no exhaustiveness checking, even for values of a distinct
 integer type that acts as an enum (e.g., `type Opcode uint8` with `const` values).

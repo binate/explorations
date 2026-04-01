@@ -1230,8 +1230,8 @@ allocated backing array of `n` zero-initialized elements.
 **`make_slice` always returns a managed-slice (`@[]T`).** A non-managed version
 makes no sense: `make_slice` allocates heap memory for the backing array, and
 without a managed pointer there's no way to free it. If you need a raw `[]T`,
-use `make_raw_deprecated([]T, n)` (temporary) or eventually construct one manually
-from a raw pointer + length.
+construct one manually from a raw pointer + length. (`make_raw_deprecated` has been
+removed from the language.)
 
 **No capacity argument** (unlike Go's `make([]T, len, cap)`). Growing/resizable
 arrays are a standard library concern (`CharBuf`, `Vec[T]`). This keeps the
