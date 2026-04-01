@@ -623,20 +623,23 @@ all implemented.
 **Step 2 is complete** (self-hosted frontend and backend). All 10 packages of the
 self-hosted toolchain are implemented: `pkg/token`, `pkg/ast`, `pkg/lexer`, `pkg/parser`,
 `pkg/types`, `pkg/ir`, `pkg/codegen`, `pkg/linker`, `pkg/bootstrap`, and `pkg/interp`.
-The self-hosted interpreter (`main.bn`) passes all 70 conformance tests. The self-hosted
-compiler (`compile.bn`) produces native binaries via LLVM IR emission and system linking.
+The self-hosted interpreter (`cmd/bni`) passes all 94 conformance tests (4 skipped:
+`bit_cast` and pointer indexing are compiled-mode-only). The self-hosted compiler
+(`cmd/bnc`) produces native binaries via LLVM IR emission and system linking, passing
+all 98 conformance tests with zero failures and zero XFAILs.
 
-**Step 3 is in progress** (self-compilation). The bootstrap interpreter can run
-`compile.bn` to compile `compile.bn` itself, producing a ~410KB native binary. The
-self-compiled compiler runs (prints usage) but segfaults when actually compiling programs —
-debugging the self-compiled binary is the current frontier.
+**Self-compilation works.** The bootstrap interprets `cmd/bnc` to compile itself,
+producing a native compiler binary. The self-compiled compiler passes all conformance
+tests. Gen2 compilation (gen1 compiles gen1) is the next frontier.
 
-**Conformance test coverage**: 70 tests, run in 5 modes:
-- `bootstrap` — Go bootstrap interpreter runs `.bn` directly (70/70 pass)
-- `selfhost` — bootstrap interprets `main.bn`, which runs `.bn` (70/70 pass)
-- `compiled` — bootstrap interprets `compile.bn`, compiles `.bn` to native (58/70 pass)
-- `compiled-interp` — self-compiled interpreter binary runs `.bn` (not yet working)
-- `compiled-compiler` — self-compiled compiler binary compiles `.bn` to native (not yet working)
+**Conformance test coverage**: 98 tests, run in 7 modes:
+- `bootstrap` — Go bootstrap interpreter runs `.bn` directly (94/98, 4 skip)
+- `selfhost` — bootstrap interprets `cmd/bni`, which runs `.bn` (94/98, 4 skip)
+- `double-interp` — bootstrap → cmd/bni → cmd/bni → `.bn`
+- `compiled` — bootstrap interprets `cmd/bnc`, compiles `.bn` to native (98/98)
+- `compiled-interp` — self-compiled interpreter binary runs `.bn`
+- `compiled-compiler` — self-compiled compiler binary compiles `.bn` to native
+- `gen2-compiler` — second-generation compiler (gen1 compiles gen1)
 
 Note: many items marked "IN PROGRESS" above were resolved during the grammar
 specification phase (Phase 3). See `grammar.ebnf` for the authoritative specification

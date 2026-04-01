@@ -75,7 +75,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 ### Standard library design
 - Start thinking about and designing standard library packages
 - Candidates: growable collections (Vec[T], Map[K,V] post-generics), I/O abstractions, string utilities, formatting
-- CharBuf is the immediate need (in progress); broader stdlib design should inform its API
+- CharBuf is implemented (pkg/buf); broader stdlib design should inform future collection APIs
 - Consider: what's in the language vs. stdlib vs. third-party, naming conventions, minimal footprint for embedded targets
 
 ### Full DWARF debug info (line-level source mapping)
@@ -84,8 +84,8 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Emit per-instruction `DILocation` with real line numbers (currently all line 0)
 - Prerequisite: lightweight debug info (done)
 
-### Self-compiled compiler — FULLY PASSING (92/92)
-- All conformance tests pass with self-compiled compiler (89 pass + 3 xfail for codegen bugs)
+### ~~Self-compiled compiler — FULLY PASSING~~ ✓
+- All 98 conformance tests pass with self-compiled compiler (0 fail, 0 xfail)
 
 ### Re-enable rt.RefDec freeing (managed pointers only)
 - Freeing is disabled in `rt.RefDec` in `pkg/rt/rt.bn` (dec but no free on zero)
@@ -94,15 +94,13 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - The inc/dec pairing looks correct: alloc sets rc=1, copy incs, scope exit decs, return skips dec
 - Phase 1: enable free in rt.RefDec, run full suite + self-compilation, fix any use-after-free crashes
 
-### Codegen bugs (exposed by conformance 084-086)
-- **084**: `arr[:]` array-to-slice — loads `[N x i64]` and passes as `%BnSlice` with no conversion
-- **085**: struct composite literal as function arg — alloca pointer passed instead of loaded value
-- **086**: slice-typed struct field zero-init — emits `add %BnSlice 0, 0` instead of `zeroinitializer`
+### ~~Codegen bugs (084-086)~~ — ALL FIXED
+- ~~**084**: `arr[:]` array-to-slice~~ — fixed: genSliceExpr builds BnSlice from array alloca
+- ~~**085**: struct composite literal in slice element write~~ — fixed: genIndexPtr handles @[]T, load struct before slice_set
+- ~~**086**: nested struct slice field write~~ — fixed: genIndexPtr handles selector base (c.Items[i]), positional composite literals, nil zero-init for slice/pointer fields
 
-### Fix array-to-slice (`arr[:]`) in compiled mode, then clean up conformance tests
-- `arr[:]` works in bootstrap and selfhost interpreters, but compiled codegen passes `[N x i64]` as `%BnSlice` with no conversion (XFAIL 084)
-- Fix: emit proper conversion in codegen (alloca BnSlice, GEP for data ptr, store len, load result)
-- Once fixed: rewrite conformance tests that use `make_slice` + indexed assignment for static data to use the cleaner `[N]T{...}` array literal + `arr[:]` pattern instead
+### Clean up conformance tests to use array literal + `arr[:]` pattern
+- Now that `arr[:]` works in compiled mode, conformance tests that use `make_slice` + indexed assignment for static data could use the cleaner `[N]T{...}` array literal + `arr[:]` pattern instead
 - Also consider adding slice literal syntax (`[]T{...}`) to the parser as sugar for the array+slice pattern
 
 ### Slice ownership model — design clarification
