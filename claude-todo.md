@@ -13,6 +13,11 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
+### Unit test runners for all 3 modes
+- Ensure all 3 runners (bootstrap, selfhost interpreter, compiler) can run Binate unit tests (`-test` flag)
+- Currently unit tests may only be exercised via the bootstrap interpreter
+- Goal: unit tests run and pass in bootstrap, selfhost, and compiled modes, same as conformance tests
+
 ### Full DWARF debug info (line-level source mapping)
 - Add `Pos token.Pos` field to `ir.Instr` struct (in `ir.bni`)
 - Thread `token.Pos` from AST nodes through IR generation in `gen.bn` (~40 `genExpr`/`genStmt` call sites)
