@@ -17,15 +17,17 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 ## TODO
 
 ### Self-hosted interpreter memory model parity with compiler
-- The self-hosted interpreter (cmd/bni / pkg/interp) currently uses a tree-walking model with Go/Binate-level values — no raw memory, no real pointers, no bit_cast
-- When the interpreter itself is compiled (compiled-interp mode, or compiled selfhost interpreting programs), the interpreted programs still use the interpreter's value model, but the **interpreter's own code** runs natively and must handle `bit_cast`, pointer indexing, etc.
-- More importantly: when the interpreter interprets programs that use `bit_cast`, pointer indexing, or `pkg/rt`, it needs to actually execute those operations — which requires a flat-memory model or FFI bridge
+- The self-hosted interpreter (cmd/bni / pkg/interp) currently uses a tagged-union value model (`VAL_INT`, `VAL_STRUCT`, `VAL_SLICE`, etc.) that doesn't correspond to flat memory. This means `bit_cast` and pointer indexing can't work because there are no real addresses to reinterpret or index into.
 - Currently XFAIL: 090 (bit_cast), 091 (pointer indexing), 092/093 (pkg/rt — depends on both)
-- Options:
-  1. Implement `bit_cast` and pointer indexing in the interpreter's eval loop (simulate raw memory with a byte-addressable heap)
-  2. JIT/FFI bridge: compiled-mode builtins called from the interpreter via function pointers
-  3. Accept that the interpreter can't run all programs and document the subset clearly
-- This becomes critical when the selfhost interpreter is the primary tool (not just a bootstrap artifact) — users expect `bni program.bn` to work for any valid program
+- **This is more tractable than it first appears.** The fix is to make the interpreter lay out data in memory the same way the compiler does:
+  - Structs: fields at the same offsets with the same padding (matching `SizeOf`/`AlignOf`/`FieldOffset`)
+  - `@T`: heap-allocated with the refcount header at negative offset (matching `rt.Alloc` layout)
+  - `@[]T`: `{data_ptr, len, refptr}` — same 3-word `%BnManagedSlice` layout
+  - `[]T`: `{data_ptr, len}` — same 2-word `%BnSlice` layout
+  - Arrays: contiguous elements at `elem_size` stride
+- With ABI-compatible layout, `bit_cast(int, ptr)` is just reading the pointer address as an integer, and `ptr[i]` is pointer arithmetic — no simulated heap needed, just real memory operations on the interpreter's own heap.
+- **Scope**: this is a refactor of `pkg/interp`'s value representation, not a fundamental architecture change. The interpreter already tracks types, sizes, and refcounts — it just needs to store values in flat memory instead of tagged unions.
+- **Note**: `pkg/rt` uses `bit_cast` and pointer indexing, so it can only be loaded as a compiled package today. Once the interpreter has ABI-compatible layout, pkg/rt could run interpreted too — but since it's a low-level runtime, keeping it compiled-only is also reasonable.
 
 ### Temporary lifetime (statement-level implicit scope)
 - Investigate current behavior in both the bootstrap interpreter and self-hosted compiler
