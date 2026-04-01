@@ -1,5 +1,7 @@
 # Plan: CharBuf — Growable Character Buffer
 
+> **STATUS (2026-03-31): COMPLETED.** `CharBuf` is implemented as `buf.CharBuf` and is used throughout the compiler and interpreter. `append` has been fully removed from the language.
+
 ## Context
 
 The compiler and interpreter build strings via repeated `append` to `[]char`, which

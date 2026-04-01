@@ -1,5 +1,7 @@
 # Plan: Remove `append` from the Binate Language
 
+> **STATUS (2026-03-31): COMPLETED.** `append` has been fully removed from the language -- parser, type checker, IR gen, codegen, both interpreters, all source code, tests, and conformance tests. Replacements: `buf.CharBuf` for strings, `make_slice(T, n)` + indexed assignment for known-size allocations, per-type append helpers for other types.
+
 ## Decision
 
 `append` is being removed from the language entirely. It's a performance footgun

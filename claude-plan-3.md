@@ -1,5 +1,7 @@
 # Binate — Phase 5b: Compiler (IR + LLVM Backend)
 
+> **NOTE (2026-03-31):** `append` has been fully removed from the Binate language. References to `append`, `OP_APPEND`, and `bn_append_*` runtime functions in this historical plan are outdated.
+
 This plan covers the compiler pipeline: Binate source → SSA IR → LLVM IR → native executable.
 
 Reference documents:

@@ -1,5 +1,7 @@
 # Plan: Fix Slice Usage in the Self-Hosted Interpreter
 
+> **STATUS (2026-03-31): COMPLETED.** All `append` calls in the self-hosted interpreter have been replaced. `append` has been fully removed from the language.
+
 ## Problem
 
 The self-hosted interpreter (`pkg/interp/`) uses raw slices with append throughout

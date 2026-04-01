@@ -1,5 +1,7 @@
 # Plan: Fix Slice Usage in the Bootstrap Interpreter
 
+> **STATUS (2026-03-31): COMPLETED.** `append` has been fully removed from the language. The bootstrap interpreter no longer has a Binate-level `append` builtin.
+
 ## Problem
 
 The bootstrap interpreter (Go) treats slices as Go slices — nullable, GC-managed,

@@ -1,5 +1,7 @@
 # Plan: Fix `make` Semantics, Add `make_slice`, Migrate Existing Code
 
+> **STATUS (2026-03-31): COMPLETED.** `make_slice(T, n)` is implemented. `append` has been fully removed from the language; `CharBuf` and per-type helpers are the replacements.
+
 ## Problem
 
 `make([]T, n)` has two issues:

@@ -1,5 +1,7 @@
 # Plan: Binate Runtime Package (pkg/rt)
 
+> **STATUS (2026-03-31): COMPLETED.** `pkg/rt` is implemented with Alloc, RefInc, RefDec, MakeManagedSlice, BoundsCheck, and Box. `append` has been fully removed from the language; the C runtime `bn_append_*` functions have been deleted.
+
 ## Goal
 
 Replace C runtime functions with Binate implementations in `pkg/rt`. Only thin C

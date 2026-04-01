@@ -1,5 +1,7 @@
 # Binate Bootstrap Interpreter — Implementation Plan (Go)
 
+> **NOTE (2026-03-31):** `append` has been fully removed from the Binate language. References to `append` as a builtin in this historical plan are outdated.
+
 This plan covers the Go-based bootstrap interpreter that will run enough of Binate to eventually execute the self-hosted compiler/interpreter. The bootstrap subset is defined in `grammar.ebnf` (marked `[BOOTSTRAP]`).
 
 Reference: `claude-plan-1.md` Phase 4, `grammar.ebnf` for the formal grammar.

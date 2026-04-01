@@ -1,5 +1,7 @@
 # Binate — Phase 5: Self-Hosted Toolchain
 
+> **NOTE (2026-03-31):** `append` has been fully removed from the Binate language. References to `append` as a builtin in this historical plan are outdated.
+
 This plan covers the transition from the Go bootstrap interpreter to a self-hosted Binate toolchain — interpreter, compiler, and supporting tools.
 
 Reference documents:

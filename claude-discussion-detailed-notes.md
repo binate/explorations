@@ -168,7 +168,7 @@ The C runtime (`binate_runtime.c`) should shrink over time, not grow. The long-t
 
 **What should move to Binate:**
 - Refcount management (inc, dec, free dispatch)
-- Slice operations (append, get, set, bounds checking, slice expressions)
+- Slice operations (get, set, bounds checking, slice expressions) — note: `append` has been removed from the language
 - String conversions, printing helpers
 - Box/alloc wrappers (everything above the raw malloc layer)
 
@@ -1690,11 +1690,12 @@ This is an open decision. Adding interfaces to the bootstrap is the cleanest pat
 The `...` spread operator allows a slice to be expanded into individual arguments when calling a variadic function. Syntax: `expr...` where `expr` is a slice type.
 
 **Primary use cases:**
-- `append(a, b...)` — slice concatenation (append all elements of `b` to `a`)
 - Forwarding variadic arguments, e.g., a `printf` implementation that calls `sprintf` with accumulated args
 
-**Why `append(a, b)` without spread was rejected:**
-When `a` is `[]any`, `append(a, b)` is ambiguous — you cannot tell whether `b` is a single element to append or a slice whose elements should be spread. The explicit `b...` syntax resolves this ambiguity.
+> **Note (2026-03-31):** `append` has been removed from the language. The original `append(a, b...)` use case no longer applies. The spread operator remains relevant for variadic argument forwarding.
+
+**Why `append(a, b)` without spread was rejected (historical):**
+When `a` was `[]any`, `append(a, b)` was ambiguous — you could not tell whether `b` was a single element to append or a slice whose elements should be spread. The explicit `b...` syntax resolved this ambiguity. (This discussion is now moot since `append` has been removed.)
 
 **Deferred from bootstrap.** The bootstrap subset does not implement the spread operator. For the primary bootstrap need (string concatenation), the `Concat` builtin is used instead.
 
@@ -1797,7 +1798,7 @@ The first four packages of Phase 5a are implemented and tested (76 tests total):
 
 ### Lessons learned
 
-1. **No variadic append**: `append(slice, "literal"...)` doesn't work in the bootstrap (no spread operator). Use `appendChars(dst, src)` helper loops instead.
+1. **No variadic append** (historical — `append` has since been removed from the language): `append(slice, "literal"...)` didn't work in the bootstrap (no spread operator). Used `appendChars(dst, src)` helper loops instead. Now replaced by `buf.CharBuf`.
 2. **`cast(int, token.SOME_TYPE)`**: token types are `token.Type` (an `int`-based distinct type), but AST `Op` fields are plain `int`. Need explicit `cast(int, ...)` to store token types in Op fields.
 3. **No `fmt.Sprintf`**: error messages must be built manually by appending char slices. Verbose but works.
 4. **Managed pointer nil comparison**: `@T` pointers can be compared to `nil`, used for optional AST children (e.g., else branch, for-loop init/post).
@@ -1812,7 +1813,7 @@ All 10 packages of the self-hosted toolchain are now implemented:
 
 **pkg/ir** (SSA IR): SSA-based intermediate representation. Key design: `@Instr` nodes with `Op` discriminator, basic blocks, `@Func` and `@Module` containers. `RegisterImports` uses a two-pass approach to handle cross-package type resolution (register all struct names first, then resolve fields) — this was critical for avoiding import-order-dependent failures.
 
-**pkg/codegen** (LLVM IR emission): Emits LLVM IR text from SSA IR. Handles managed pointer refcounting (retain/release calls), slice operations (get/set/append with struct vs. scalar dispatch), multi-return via LLVM aggregate types, and name mangling (`bn_pkg__Name`) for cross-package symbols. Per-function counters (`retSeq`, `tmpSeq`) generate unique SSA names for multi-return extracts and void instructions.
+**pkg/codegen** (LLVM IR emission): Emits LLVM IR text from SSA IR. Handles managed pointer refcounting (retain/release calls), slice operations (get/set with struct vs. scalar dispatch), multi-return via LLVM aggregate types, and name mangling (`bn_pkg__Name`) for cross-package symbols. Per-function counters (`retSeq`, `tmpSeq`) generate unique SSA names for multi-return extracts and void instructions.
 
 **pkg/linker**: Invokes `clang` to assemble LLVM IR and link with the Binate runtime.
 
@@ -1834,7 +1835,7 @@ The bootstrap interpreter successfully runs `compile.bn` to compile `compile.bn`
 4. **Slice-of-slices as struct elements**: `[][]char` elements are `%BnSlice` (16-byte struct), not `i64`. Extended `isStructElem`/`isStructElemFromSlice` and SLICE_GET dispatch.
 5. **Pointer dereference type inference**: `*ptr` defaulted to `i64` instead of the pointed-to type. Fixed by inferring from the variable's type in `genUnary`.
 6. **Void instruction name collisions**: instructions with ID=-1 collided on `%v-1.stmp`. Fixed with `tmpSeq` counter.
-7. **String-to-chars for `append` to `[][]char`**: string literals weren't converted to `[]char` when appended. Added `StringToChars` conversion.
+7. **String-to-chars for `append` to `[][]char`** (historical — `append` has since been removed): string literals weren't converted to `[]char` when appended. Added `StringToChars` conversion.
 8. **i8 widening for char slice set**: `bn_slice_set_i8` expects i64 but cast result is i8. Added `zext i8 to i64`.
 
 ---
@@ -1854,7 +1855,7 @@ The bootstrap interpreter successfully runs `compile.bn` to compile `compile.bn`
 - **Object file format strategy**: start with platform-native (ELF/Mach-O), possibly move to Binate-specific format with converters later.
 - **Own linker**: needed eventually for hermetic builds and cross-compilation, deferred.
 - **LLVM IR backend**: alongside the custom backends (x86-64, ARM64), an LLVM IR emission backend would give high-quality native codegen on "big" platforms (desktop, server) essentially for free. Custom backends are still needed for embedded/small targets where LLVM is too heavy, but LLVM would be the pragmatic fast path to competitive native code on mainstream platforms. Worth considering as a pluggable backend alongside the custom ones.
-- **`append` — REMOVE**: `append` should be removed from the language entirely. It's a performance footgun (O(n) per call, O(n²) for incremental building) and doesn't belong as a language builtin. The self-hosted compiler uses append-based string building extensively, which works but is quadratic. Growable collections belong in the standard library — a `Buffer[T]` or `Vec[T]` type with capacity management. Raw slices are fixed-size views; managed-slices can be backed by a library type that handles growth. The bootstrap compiler will continue to support `append` for pragmatic reasons, but it's not part of the language going forward.
+- **`append` — REMOVED (2026-03-31)**: `append` has been fully removed from the language (parser, type checker, IR gen, codegen, both interpreters, all source code, tests, and conformance tests). It was a performance footgun (O(n) per call, O(n^2) for incremental building). Replacements: `buf.CharBuf` for strings, `make_slice(T, n)` + indexed assignment for known-size allocations, per-type append helpers for other types, and eventually `Vec[T]` (post-generics).
 - **Debug info for compiled binaries**: currently a compiled Binate program that crashes gives SIGSEGV with no stack trace, function name, or line number. Two levels of improvement discussed:
   - **Lightweight (in progress)**: pass `-g` to clang, emit `source_filename` in LLVM IR module header, and emit `DISubprogram` metadata for each function. This gives function-level backtraces and lets debuggers show Binate function names. Minimal effort (~30 min), high value.
   - **Full DWARF**: add `Pos` field to IR `Instr` struct, thread `token.Pos` from AST through IR generation (~40 call sites in gen.bn), emit `DIFile`/`DICompileUnit`/`DILocation` metadata in emit.bn, attach `!dbg` to every instruction. This gives line-level source mapping in debuggers and profilers. Moderate effort (several sessions). The foundation is already there — AST nodes carry full `token.Pos` (file, line, col), the IR just doesn't propagate it yet.

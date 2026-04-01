@@ -1,5 +1,7 @@
 # Plan: Proper Managed-Type Headers and @[]T Representation
 
+> **STATUS (2026-03-31): COMPLETED.** Managed-slice (`@[]T`) representation is implemented with the 3-word layout. `append` has been fully removed from the language; slice operations no longer include append.
+
 ## Context
 
 Currently `@T` and `@[]T` have incorrect/incomplete LLVM representations:

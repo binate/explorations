@@ -1,5 +1,7 @@
 # Plan: Fix Slice Usage in the Self-Hosted Compiler
 
+> **STATUS (2026-03-31): COMPLETED.** All `append` calls in the self-hosted compiler have been replaced with `buf.CharBuf`, `make_slice` + indexed assignment, and per-type helpers. `append` has been fully removed from the language.
+
 ## Problem
 
 The self-hosted compiler (`.bn` files under `pkg/`) uses raw slices (`[]T`) with

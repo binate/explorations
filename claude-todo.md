@@ -6,12 +6,12 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## In Progress
 
-### Phase 2: Remove append from the language
+### ~~Phase 2: Remove append from the language~~ — DONE
 - ~~Implement CharBuf (growable char buffer using make_slice)~~ — DONE
 - ~~Migrate all append calls in source code to CharBuf / make_slice / per-type helpers~~ — DONE
 - ~~Remove append from conformance tests~~ — DONE
-- Remove append from _test.bn files (remaining uses exercise evalAppendCall)
-- Remove append builtin from parser, type checker, IR gen, codegen, and interpreter
+- ~~Remove append from _test.bn files~~ — DONE
+- ~~Remove append builtin from parser, type checker, IR gen, codegen, and interpreter~~ — DONE
 - Remove `make_raw_deprecated` builtin (replaced by `make_slice`)
 
 ## TODO
@@ -63,7 +63,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ### Codegen bugs (exposed by conformance 084-086)
 - **084**: `arr[:]` array-to-slice — loads `[N x i64]` and passes as `%BnSlice` with no conversion
-- **085**: struct composite literal in `append` — alloca pointer passed instead of loaded value
+- **085**: struct composite literal as function arg — alloca pointer passed instead of loaded value
 - **086**: slice-typed struct field zero-init — emits `add %BnSlice 0, 0` instead of `zeroinitializer`
 
 ### Fix array-to-slice (`arr[:]`) in compiled mode, then clean up conformance tests
@@ -78,7 +78,7 @@ Binate is NOT Go. The two types of slice are intentionally different:
 **Raw slices (`[]T`)** — two words: (data ptr, length)
 - Value types, no refcounting, no GC
 - Caller manages lifetime (like C)
-- `append` copies (currently O(n) per call — known performance issue, append is being removed)
+- ~~`append` copies (was O(n) per call)~~ — `append` has been removed from the language
 - Sub-slicing copies data (no aliasing, no double-free risk)
 - Cannot be compared to `nil` — check `len(s) == 0` for empty
 - `s = nil` is a bootstrap/codegen convenience, not the spec design
@@ -94,21 +94,18 @@ Binate is NOT Go. The two types of slice are intentionally different:
 **Current code deviations from spec** (to fix):
 - `s = nil` for slices works in bootstrap (Go semantics leaking through) but shouldn't
   exist per spec. Slices are value types; use `len(s) == 0`.
-- `append` is being removed from the language (see design notes). Replace with
-  an internal library providing capacity+length buffer types (primarily for chars/strings).
+- ~~`append` has been removed from the language~~ — DONE (replaced by `buf.CharBuf`, `make_slice`, and per-type helpers)
 
-### Phase 2: Remove append + library buffer types
+### ~~Phase 2: Remove append + library buffer types~~ — DONE
 - ~~Implement managed-slices (`@[]T`) — three words: (data_ptr, length, refptr)~~ — DONE
 - ~~Implement @[]T refcounting (inc on copy, dec on scope exit)~~ — DONE
 - ~~Implement @[]T → []T conversion (OP_MANAGED_TO_RAW)~~ — DONE
 - ~~Create pkg/rt with Alloc, RefInc, RefDec, MakeManagedSlice~~ — DONE
 - ~~Migrate codegen from C runtime to pkg/rt~~ — DONE
 - ~~Package search paths for multi-root package resolution~~ — DONE
-- Remove `append` builtin from the language
-- Write CharBuf and library buffer types for growable collections
-  - Primarily needed for chars/strings (the compiler's main use of append)
-  - Replaces all current `append` usage in the self-hosted compiler
-- Switch compiler internals from `[]T` + append to managed-slices / buffer types where appropriate
+- ~~Remove `append` builtin from the language~~ — DONE
+- ~~Write CharBuf and library buffer types for growable collections~~ — DONE
+- ~~Switch compiler internals from `[]T` + append to managed-slices / buffer types~~ — DONE
 
 ### ~~Remove redundant && workarounds in GeneratePackage~~ ✓
 - Collapsed nested `if` blocks back to `&&` in GeneratePackage
@@ -136,7 +133,7 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - `MakeManagedSliceVal` constructor creates HeapObj with Refcount=1
 - `copyValue` increments Refcount when copying managed slices (sharing semantics)
 - `coerce` handles `@[]T → []T` conversion (strips HeapObj, shares Elems)
-- `evalAppendCall` preserves managed-ness on append results
+- ~~`evalAppendCall` preserves managed-ness on append results~~ (append has been removed)
 - `isCharSlice` recognizes `@[]char` (TYP_MANAGED_SLICE)
 - Bootstrap interpreter updated in parallel (SliceVal gains HeapObj, same semantics)
 - 92 compiled / 91 bootstrap / 91 selfhost — all passing
@@ -237,10 +234,10 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - Conformance test 077, unit test `TestDeclShortCircuitBlock`. 80/80 pass
 - Committed: `22ba787`
 
-### Nil-to-slice calling convention, append refcount, slice free
+### Nil-to-slice calling convention, slice free
 - Nil passed to slice params emitted `i8*` (1 reg) instead of `%BnSlice` (2 regs), shifting args
 - Root cause of crash: `bn_refcount_inc` received ASCII "_newline" data in shifted x6 register
-- Also: append of managed ptr to slice didn't inc refcount; slice free caused dangling ptr
+- (Historical note: also fixed append refcount bug, but append has since been removed)
 - Conformance test 076, unit test `TestNilSliceArgCoercion`. 79/79 pass
 - Committed: `7e5a6b9`
 

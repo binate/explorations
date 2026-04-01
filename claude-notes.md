@@ -123,7 +123,7 @@ the 3-word type `(data_ptr, length, refptr)` created by `make_slice`. "Managed s
 - All management/representation structs should be proper Binate structs, not opaque C constructs.
 - These can have "obscure" names (e.g., `_refcount_header`, `_slice_repr`, or `bn_`-prefixed) since they're not intended for normal use.
 
-**`append` — REMOVE**: `append` should be removed from the language entirely. It's a performance footgun (O(n) per call, O(n²) for incremental building) and doesn't fit the language's design. Growable collections belong in the standard library (e.g., a `Buffer[T]` or `Vec[T]` type with capacity management), not as a language builtin. Raw slices are fixed-size views; managed-slices can be backed by a library type that handles growth.
+**`append` — REMOVED**: `append` has been fully removed from the language (parser, type checker, IR gen, codegen, interpreter, all source code, tests, and conformance tests). Growable collections are a library concern: `buf.CharBuf` for strings, per-type append helpers that do O(n) copy for other types, and eventually a generic `Vec[T]` type. For known-size allocations, use `make_slice(T, n)` + indexed assignment.
 
 **Future optimization**: move/transfer ownership semantics to avoid refcount bumps (e.g., last use of a managed pointer skips the bump/decrement). Pure optimization, doesn't change semantics — deferred.
 
@@ -140,7 +140,7 @@ The C runtime (`binate_runtime.c`) should shrink over time, not grow. The goal i
 - ~~Managed-slice creation~~ — DONE (pkg/rt: MakeManagedSlice)
 - ~~Bounds checking~~ — DONE (pkg/rt: BoundsCheck, c_bounds_fail stub)
 - ~~Box wrappers~~ — DONE (pkg/rt: Box = Alloc + c_memcpy)
-- Slice operations (append, get, set, slice expressions) — still in C runtime
+- Slice operations (get, set, slice expressions) — still in C runtime
 - String-to-chars conversion, printing — still in C runtime
 
 **End state**: declare external C library functions via compiler annotations (or a natural FFI mechanism) and remove the C runtime entirely. Pure Binate systems — where everything is written in Binate — should be possible. The C dependency exists only insofar as it's the practical way to talk to the OS; it's not a permanent architectural choice.
@@ -490,9 +490,9 @@ func (p *const Point) distance() float64 { ... }
 
 ### Spread operator — DECIDED
 
-- `...` spread operator for passing slices to variadic functions and for `append`: `append(a, b...)`
+- `...` spread operator for passing slices to variadic functions
 - Syntax: `expr...` where `expr` is a slice — expands the slice into individual arguments
-- Use cases: `append(a, b...)` for slice concatenation, passing slices to variadic functions (e.g., forwarding args in `printf` calling `sprintf`)
+- Use cases: passing slices to variadic functions (e.g., forwarding args in `printf` calling `sprintf`)
 - Deferred from bootstrap subset — bootstrap uses `Concat` builtin for string concatenation instead
 
 **Type declarations — DECIDED**:
@@ -851,12 +851,9 @@ Unit testing built into the toolchain with a lightweight, convention-based appro
 
 Design rationale: minimal complexity, works within the bootstrap subset (no interfaces, no generics, no closures needed), and works identically in interpreted and compiled code (no panic recovery needed). The convention is close enough to Go's that it feels familiar, but simpler (no `testing.T` parameter, no sub-tests). Wrong-signature `TestXxx` functions produce a warning.
 
-### `append` — REMOVE (decided)
+### `append` — REMOVED
 
-`append` is being removed from the language. See the "append — REMOVE" note above.
-Growable collections are a library concern: `CharBuf` for strings, `Vec[T]` (post-generics)
-for general lists. `make_slice` provides the primitive for allocating managed-slices;
-library types handle growth/capacity on top of that.
+`append` has been fully removed from the language (parser, type checker, IR gen, codegen, both interpreters, all source code, tests, and conformance tests). Growable collections are a library concern: `buf.CharBuf` for strings, per-type append helpers for other types, and `Vec[T]` (post-generics) for general lists. `make_slice(T, n)` provides the primitive for allocating managed-slices; library types handle growth/capacity on top of that.
 
 ### Self-hosting: DECL_GROUP import bug — FIXED (2026-03-27)
 

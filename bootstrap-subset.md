@@ -457,7 +457,7 @@ instead of function tables.
 ### Variadic Parameters and Spread
 User-defined variadic functions (`func f(args ...T)`) are not supported. The spread
 operator (`slice...`) is not supported. Only the built-in `print`, `println`, and
-`append` are variadic.
+`print` and `println` are variadic.
 
 ### Const-Qualified Types
 No `const` modifier on types: no `*const T`, no `[]const char`, no const receivers.
@@ -483,29 +483,24 @@ Not implemented. Deferred pending full compiler backend.
 
 ---
 
-## `append()` — TO BE REMOVED
+## `append()` — REMOVED
 
-**`append()` is being removed from the Binate language entirely. No new code should use
-it.**
+**`append()` has been fully removed from the Binate language.** It has been removed from
+the parser, type checker, IR gen, codegen, both interpreters, all source code, tests,
+and conformance tests. Using `append()` is now a compile/interpret error.
 
-### Why
+### Why It Was Removed
 
-`append` is a performance footgun. It copies the entire slice on every call (O(n) per
-append, O(n^2) for incremental building). It doesn't fit the language's design philosophy
+`append` was a performance footgun. It copied the entire slice on every call (O(n) per
+append, O(n^2) for incremental building). It did not fit the language's design philosophy
 of making costs visible.
 
-### What to Use Instead
+### Replacements
 
-Growable collections belong in the standard library, not as a language builtin:
-- **`CharBuf`** (or similar) for building strings incrementally
+- **`buf.CharBuf`** for building strings incrementally (backed by `@[]char` with geometric growth)
+- **`make_slice(T, n)`** + indexed assignment for known-size allocations
+- Per-type append helpers that do O(n) copy for other element types
 - **`Vec[T]`** (post-generics) for general growable lists
-- **`make_slice(T, n)`** for allocating fixed-size managed slices when the size is known
-
-### Current Status
-
-`append` still exists in the bootstrap interpreter for compatibility with existing
-self-hosted code, but it should be considered deprecated. It will not exist in the
-self-hosted toolchain.
 
 ### Bootstrap Behavior (for reference only)
 

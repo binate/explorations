@@ -93,9 +93,9 @@ if err != 0 {
 
 ## String Building and Growable Collections
 
-**`append()` is being removed from the language. New code MUST NOT use `append()`.**
-It is a performance footgun (O(n) per call, O(n^2) for incremental building) and does
-not fit the language's design.
+**`append()` has been removed from the language.** It was a performance footgun
+(O(n) per call, O(n^2) for incremental building) and did not fit the language's design.
+Using `append()` is now a compile error.
 
 **`make_raw_deprecated()` must also not be used in new code.** It is a transitional
 builtin that will be removed.
