@@ -398,6 +398,42 @@ Interface values follow the managed/raw pattern:
 
 Both are value types. The compiler may devirtualize as an optimization.
 
+### Pointers to Interface Values — DECIDED
+
+Interface values are regular value types and can have pointers taken to them, just like any other value type. This was initially unclear (the design implicitly disallowed pointers to interface values), but allowing them is necessary for consistency and avoids special-casing.
+
+**Why this matters:**
+- **Generics**: `*T` where `T = Stringer` must work. If pointers to interface values were disallowed, generic code couldn't operate on interface types uniformly.
+- **Arrays**: `[10]Stringer` or `[10]@Stringer` should be straightforward — arrays of value types.
+- **Out parameters**: `func resolve(name []char, result *Stringer) bool` — a common pattern that requires `*Stringer`.
+- **Containers**: `Vec[Stringer]` stores interface values inline with no special-casing.
+
+**Syntax**: follows the same pattern as slices — `@Iface` is sugar (like `@[]T`), parens break the sugar:
+
+| Meaning | Syntax |
+|---|---|
+| Raw interface value | `Stringer` |
+| Managed interface value (sugar) | `@Stringer` |
+| Raw ptr to raw interface value | `*Stringer` |
+| Raw ptr to managed interface value | `*@Stringer` or `*(@Stringer)` |
+| Managed ptr to raw interface value | `@(Stringer)` |
+| Managed ptr to managed interface value | `@(@Stringer)` |
+
+The `@Iface` sugar is syntactic only — in generics, `@T` where `T=Stringer` means `@(Stringer)` (managed pointer to raw interface value), not managed interface value. This matches the `@[]T` precedent exactly.
+
+**Alternatives considered:**
+- **Disallow pointers to interface values**: simpler but creates a special case that breaks generics, prevents out parameters, and makes interface values unlike every other value type in the language.
+
+### Boxing Value Types for Interface Values — DECIDED
+
+An interface value holds a pointer to the data, so value types like `int` must live somewhere addressable. There is no "atom" or singleton representation for primitive values — each value is a distinct instance that needs storage.
+
+**Raw interface values** (`Stringer`): the compiler implicitly takes the address of a stack-local copy. The raw interface contract is "caller keeps data alive," so the stack copy is safe for the duration of the enclosing scope. This is zero-cost — no heap allocation, no refcounting. This is what makes raw interface variadics zero-overhead (the variadic design already depends on this).
+
+**Managed interface values** (`@Stringer`): the data must be heap-allocated with refcounting, so the programmer must explicitly box: `var s @Stringer = box(42)`. No hidden heap allocations — consistent with the "no implicit costs" philosophy.
+
+**Go comparison**: Go implicitly boxes value types when assigned to interfaces. The programmer writes `var s Stringer = myInt` and Go silently heap-allocates (or stack-allocates via escape analysis). This is ergonomic but hides costs — in a systems language targeting small platforms, implicit heap allocations are unacceptable. Binate's split makes the cost structure explicit: raw interfaces are free, managed interfaces cost a box.
+
 ### Connection to Package Interface Files
 
 Interface files can contain forward declarations of interfaces, types, impl declarations, and method signatures without bodies. This enables binary-only library distribution and is critical for the interpreter's ability to call compiled code.
@@ -493,6 +529,8 @@ Stringer        // raw interface value: (raw ptr to data, vtable ptr) — no ref
 ```
 
 This was discovered when discussing variadic functions. Raw interface values are zero-overhead — no boxing, no heap allocation. Managed interface values keep the data alive. The pattern is consistent: raw = "temporary use," managed = "I keep this alive."
+
+**Pointers to interface values** are allowed, following the same syntax pattern as slices (see section 6, "Pointers to Interface Values"). `@Iface` is sugar for managed interface value; parens break the sugar (`@(Iface)` = managed pointer to raw interface value). This keeps interface values uniform with all other value types — no special-casing needed for generics, arrays, out parameters, or containers.
 
 ### Variadic Functions
 

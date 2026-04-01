@@ -365,8 +365,13 @@ Explicit, declared interfaces with **separate `impl` declarations** and **method
   - Raw interface value (e.g., `Stringer`): (raw ptr to data, vtable ptr) — no refcounting, caller keeps data alive
   - Managed interface value (e.g., `@Stringer`): (managed ptr to data, vtable ptr) — keeps data alive via refcounting
 - Both are value types (small, copyable)
+- Pointers to interface values are allowed, just like any other value type (see syntax below)
 
-**Built-in implicit interfaces**: a small, closed, language-defined set of interfaces implicitly implemented by all types. `any` is the primary one (provides `void*`/type-erasure equivalent). Others may be added (e.g., `Sized`) but only by the language spec — user-defined interfaces are always explicit.
+**Boxing for interface values — DECIDED**: an interface value holds a pointer to the data, so value types (int, etc.) must live somewhere addressable:
+- **Raw interface values**: compiler implicitly takes the address of a stack-local copy. Zero-cost, no heap allocation. Safe because the raw interface contract is "caller keeps data alive."
+- **Managed interface values**: require explicit boxing — `var s @Stringer = box(42)`. No hidden heap allocations.
+
+**Built-in implicit interfaces**: a small, closed, language-defined set of interfaces implicitly implemented by all types. `any` is the primary one (provides type-erasure equivalent). Others may be added (e.g., `Sized`) but only by the language spec — user-defined interfaces are always explicit.
 
 **Interface extension**: supported. An interface can extend one or more other interfaces.
 
@@ -453,6 +458,16 @@ C-family, leaning toward Go's direction (clean, minimal, familiar).
 - `@([]T)` = managed pointer to a raw slice (parens break the `@[]` sugar)
 - `arr[low:high]` = slice expression (exclusive end, like Go)
 - The `@[]` sugar is syntactic only: in generics, `@T` where `T=[]int` means `@([]int)` (managed pointer to raw slice), not managed-slice.
+
+**Interface value syntax — DECIDED**:
+- `Iface` = raw interface value (two words: raw ptr to data, vtable ptr)
+- `@Iface` = managed interface value (two words: managed ptr to data, vtable ptr) — syntactic sugar, like `@[]T`
+- `*Iface` = raw pointer to a raw interface value
+- `*@Iface` or `*(@Iface)` = raw pointer to a managed interface value
+- `@(Iface)` = managed pointer to a raw interface value (parens break the `@Iface` sugar)
+- `@(@Iface)` = managed pointer to a managed interface value
+- The `@Iface` sugar is syntactic only: in generics, `@T` where `T=Stringer` means `@(Stringer)` (managed pointer to raw interface value), not managed interface value.
+- Interface values are regular value types — pointers to them, arrays of them, etc. all work. This avoids special-casing in generics (`*T` where `T=Stringer`), enables out parameters (`result *Stringer`), and keeps the type system uniform.
 
 **Function syntax — IN PROGRESS**:
 ```
