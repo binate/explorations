@@ -6,10 +6,13 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## In Progress
 
-### Phase 2: CharBuf + append removal
-- Next: implement CharBuf (growable char buffer using make_slice)
-- Then migrate ~423 append calls across the compiler to use CharBuf
-- Finally remove append from the language
+### Phase 2: Remove append from the language
+- ~~Implement CharBuf (growable char buffer using make_slice)~~ — DONE
+- ~~Migrate all append calls in source code to CharBuf / make_slice / per-type helpers~~ — DONE
+- ~~Remove append from conformance tests~~ — DONE
+- Remove append from _test.bn files (remaining uses exercise evalAppendCall)
+- Remove append builtin from parser, type checker, IR gen, codegen, and interpreter
+- Remove `make_raw_deprecated` builtin (replaced by `make_slice`)
 
 ## TODO
 
@@ -31,6 +34,17 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Currently unit tests may only be exercised via the bootstrap interpreter
 - Goal: unit tests run and pass in bootstrap, selfhost, and compiled modes, same as conformance tests
 
+### Package directory organization and conventions
+- Think more carefully about `pkg/` directory structure and naming conventions for our own packages
+- Current layout mixes toolchain internals (token, ast, lexer, parser, types, ir, codegen, linker, interp) with runtime (rt) and bootstrap support (bootstrap)
+- Questions: should toolchain packages be under a sub-prefix? Where do future stdlib packages live? What distinguishes "shipped with the language" from "toolchain internal"?
+
+### Standard library design
+- Start thinking about and designing standard library packages
+- Candidates: growable collections (Vec[T], Map[K,V] post-generics), I/O abstractions, string utilities, formatting
+- CharBuf is the immediate need (in progress); broader stdlib design should inform its API
+- Consider: what's in the language vs. stdlib vs. third-party, naming conventions, minimal footprint for embedded targets
+
 ### Full DWARF debug info (line-level source mapping)
 - Add `Pos token.Pos` field to `ir.Instr` struct (in `ir.bni`)
 - Thread `token.Pos` from AST nodes through IR generation in `gen.bn` (~40 `genExpr`/`genStmt` call sites)
@@ -51,6 +65,12 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **084**: `arr[:]` array-to-slice — loads `[N x i64]` and passes as `%BnSlice` with no conversion
 - **085**: struct composite literal in `append` — alloca pointer passed instead of loaded value
 - **086**: slice-typed struct field zero-init — emits `add %BnSlice 0, 0` instead of `zeroinitializer`
+
+### Fix array-to-slice (`arr[:]`) in compiled mode, then clean up conformance tests
+- `arr[:]` works in bootstrap and selfhost interpreters, but compiled codegen passes `[N x i64]` as `%BnSlice` with no conversion (XFAIL 084)
+- Fix: emit proper conversion in codegen (alloca BnSlice, GEP for data ptr, store len, load result)
+- Once fixed: rewrite conformance tests that use `make_slice` + indexed assignment for static data to use the cleaner `[N]T{...}` array literal + `arr[:]` pattern instead
+- Also consider adding slice literal syntax (`[]T{...}`) to the parser as sugar for the array+slice pattern
 
 ### Slice ownership model — design clarification
 Binate is NOT Go. The two types of slice are intentionally different:
