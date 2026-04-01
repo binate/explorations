@@ -16,6 +16,17 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
+### Self-hosted interpreter memory model parity with compiler
+- The self-hosted interpreter (cmd/bni / pkg/interp) currently uses a tree-walking model with Go/Binate-level values — no raw memory, no real pointers, no bit_cast
+- When the interpreter itself is compiled (compiled-interp mode, or compiled selfhost interpreting programs), the interpreted programs still use the interpreter's value model, but the **interpreter's own code** runs natively and must handle `bit_cast`, pointer indexing, etc.
+- More importantly: when the interpreter interprets programs that use `bit_cast`, pointer indexing, or `pkg/rt`, it needs to actually execute those operations — which requires a flat-memory model or FFI bridge
+- Currently XFAIL: 090 (bit_cast), 091 (pointer indexing), 092/093 (pkg/rt — depends on both)
+- Options:
+  1. Implement `bit_cast` and pointer indexing in the interpreter's eval loop (simulate raw memory with a byte-addressable heap)
+  2. JIT/FFI bridge: compiled-mode builtins called from the interpreter via function pointers
+  3. Accept that the interpreter can't run all programs and document the subset clearly
+- This becomes critical when the selfhost interpreter is the primary tool (not just a bootstrap artifact) — users expect `bni program.bn` to work for any valid program
+
 ### Temporary lifetime (statement-level implicit scope)
 - Investigate current behavior in both the bootstrap interpreter and self-hosted compiler
 - **Interpreter**: does the bootstrap interpreter already release temporaries at statement boundaries, or are they released immediately after expression evaluation? Check how managed values created in function call arguments are tracked.
