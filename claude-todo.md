@@ -16,6 +16,26 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
+### Temporary lifetime (statement-level implicit scope)
+- Investigate current behavior in both the bootstrap interpreter and self-hosted compiler
+- **Interpreter**: does the bootstrap interpreter already release temporaries at statement boundaries, or are they released immediately after expression evaluation? Check how managed values created in function call arguments are tracked.
+- **Self-hosted interpreter** (pkg/interp): same investigation — does `evalExpr` / `evalCallExpr` keep temporaries alive through the call?
+- **Compiler** (pkg/codegen): when `@[]int{1,2,3}` is passed to a function taking `[]int`, does the emitted LLVM IR keep the managed allocation alive through the call? Check whether `genCallExpr` emits release after the call returns or earlier.
+- Spec: temporaries are unnamed locals in a statement-level implicit scope, released at statement end
+- See claude-notes.md "Temporary lifetime" and claude-discussion-detailed-notes.md section 19.6
+
+### Remove implicit null termination from string literals
+- **Design change (2026-04-01)**: string literals no longer include a hidden null terminator. `"abc"` is 3 bytes `{'a','b','c'}`, natural type `[3]const char`, default `[]const char` with len=3. Explicit `"abc\0"` for C interop. Library helpers (not language features) can handle null termination.
+- **Bootstrap interpreter (Go)**: audit how string literals are stored and how `StringVal` / string-to-slice conversions work. Currently likely stores Go strings which are not null-terminated anyway, but the slice length and array natural type logic may assume N+1.
+- **Self-hosted interpreter (pkg/interp)**: audit `evalStringLiteral` or equivalent — check whether it appends a null byte or computes lengths as N+1.
+- **Self-hosted compiler (pkg/codegen, pkg/ir)**: audit `EmitStringToChars` / string literal emission in LLVM IR. Currently likely emits `c"abc\00"` with null — should emit `c"abc"` without. Check all `StringToChars`, `bn_string_to_chars`, and related codegen paths.
+- **Lexer (pkg/lexer, bootstrap)**: check whether the lexer includes the null in the token's string value.
+- **Type checker (pkg/types)**: string literal natural type should be `[N]const char` not `[N+1]const char`. Check type inference for string literals assigned to arrays.
+- **C runtime (`binate_runtime.c`)**: audit `bn_string_to_chars` and any other string helpers for null-termination assumptions.
+- **Conformance tests**: audit all tests that use string literals — check for assumptions about null terminators, `len()` values, or array sizes that assumed N+1.
+- **Grammar (grammar.ebnf)**: check if string literal semantics are specified there and update if so.
+- **Self-hosted source code**: audit all `"...\0"` in .bn files — some may have been manually adding nulls that were redundant under the old design but are now the correct way to get null termination. Others may need `\0` added if they pass strings to C.
+
 ### Audit and fix `*any` misuse as `void*`
 - `*any` is a pointer to an `any` interface value (2 words: data ptr + vtable ptr) — NOT equivalent to C's `void*`
 - Code currently uses `*any` where it means "untyped address" — this is semantically wrong

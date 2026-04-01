@@ -123,16 +123,21 @@ This falls out naturally from the type system with no extra annotations needed.
 
 **No explicit `string` type.** Strings are just char arrays/slices. Rationale: the language targets small systems where full UTF-8 support is too heavy, so distinguishing strings from char arrays adds a concept without sufficient benefit.
 
-**String literals are always null-terminated.** One byte of overhead, but avoids the "is this null-terminated?" ambiguity. Any string literal is safe to pass to C without copying. This was chosen over:
-- Never null-terminated (clean but every C FFI call needs conversion)
-- Dual literal syntax (`"abc"` vs `c"abc"`) — cheap to support but always-null-terminated is simpler and less annoying long-term
+**No implicit null termination (revised 2026-04-01).** String literals contain exactly the characters specified. `"abc"` is 3 bytes: `{'a','b','c'}`. No hidden null terminator.
 
-**String literals are raw static data in the binary** (like C). A string literal of length N is always stored as N+1 bytes (the characters plus a null terminator). The **natural type** is `[N+1]char` (or `[N+1]const char`) — the full storage including the null. The **default type** (when context is ambiguous) is `[]const char`.
+The previous design always null-terminated string literals but excluded the null from slice views — storage was N+1 bytes, natural type was `[N+1]const char`, but the default `[]const char` had len=N. This was rejected because:
+- The "null is there but not in the view" semantics were too complicated to explain and reason about
+- In practice, tracking which slices happened to have a null beyond their bounds was impractical — subslicing, copying, or any manipulation lost the implicit guarantee
+- The benefit (any string literal safe to pass to C without copying) was fragile and created a false sense of security
+
+**If null termination is needed** (e.g., for C FFI), include it explicitly: `"abc\0"`. Library functions can also handle null termination (e.g., a `WithTerminatingNull([]const char) @[]char` helper), but these are library concerns, not language features.
+
+**String literals are raw static data in the binary** (like C). A string literal of length N is stored as exactly N bytes. The **natural type** is `[N]const char`. The **default type** (when context is ambiguous) is `[]const char` with len=N.
 
 String literals are **untyped** (like integer literals) and coerce to the appropriate type from context. The compiler generates wrapping code based on that context:
-- Assigned to a slice (`[]char` / `[]const char`) → slice view pointing into static data with `len` = N (excludes null from the view, but the underlying storage still contains the null terminator after the data)
-- Assigned to a managed slice (`@[]char`) → same slice view semantics (len = N, null still in storage), with a managed backing allocation
-- Assigned to an array (`[N+1]char`) → the natural type, full storage including null
+- Assigned to a slice (`[]char` / `[]const char`) → slice view pointing into static data with `len` = N
+- Assigned to a managed slice (`@[]char`) → allocate, copy, managed-slice with `len` = N
+- Assigned to an array (`[N]char`) → the natural type, exact contents
 - Assigned to a managed array → compiler generates allocation + copy code
 - Used as a raw pointer → pointer to static data
 
@@ -740,12 +745,12 @@ char = uint8                        // alias
 When type context is ambiguous (e.g., `x := 123`):
 - Integer literals → `int`
 - Float literals → `float64`
-- String literals → `[]const char` (slice view into static read-only data; view excludes null terminator, but storage always includes it)
+- String literals → `[]const char` (slice view into static read-only data, exact contents, no implicit null)
 - Bool literals → `bool`
 
 **Literal overflow is a compile error:** `var x uint8 = 256` fails. Literals are checked at compile time for fit.
 
-**String literal representation:** a string literal of length N is stored as N+1 bytes (including null terminator). The **natural type** is `[N+1]const char` — the full storage. The **default type** is `[]const char` — a slice view that excludes the null from the view (`len` = N), but the underlying storage always retains the null terminator after the slice data. `"abc"` → storage is `{'a','b','c','\0'}` (4 bytes), natural type `[4]const char`, default type `[]const char` with `len()` = 3. This is equivalent to `cast([4]const char, "abc")[:3]`.
+**String literal representation:** a string literal of length N is stored as exactly N bytes. The **natural type** is `[N]const char`. The **default type** is `[]const char` with `len` = N. `"abc"` → storage is `{'a','b','c'}` (3 bytes), natural type `[3]const char`, default type `[]const char` with `len()` = 3. No implicit null terminator.
 
 ---
 
@@ -1277,6 +1282,70 @@ into `make_slice` makes everything uniform and unambiguous.
 
 ---
 
+## 19.6. Temporary Lifetime
+
+### Decision: Statement-Level Implicit Scope
+
+**The problem**: when a managed value is created as part of an expression and implicitly converted to a raw type (e.g., `@[]int` → `[]int`, `@T` → `*T`), the managed allocation must stay alive through the use of the raw value. Without a rule, the temporary could be freed immediately after the conversion, leaving the raw value dangling.
+
+Example:
+```
+foo(@[]int{1, 2, 3})   // foo takes []int
+```
+
+The `@[]int{1, 2, 3}` is created (refcount 1), converted to `[]int` (no refcount change — raw slices don't participate in refcounting), and passed to foo. If the temporary is freed before foo runs, the `[]int` points to freed memory.
+
+**The rule: each statement has an implicit scope; temporaries are unnamed locals in that scope.**
+
+Every expression that produces a managed value that isn't assigned to a named managed-type variable creates an unnamed local in the statement's implicit scope. These locals are released (refcount decremented) when the statement completes.
+
+**Why "implicit scope" rather than "temporaries live until end of statement"**: the pseudo-scope framing reuses existing scope/lifetime machinery rather than introducing a new concept. Opening and closing a scope is already well-defined — managed locals get their refcount decremented on scope exit, stack locals are reclaimed. The statement scope is just another instance of this.
+
+**Cases covered**:
+
+```
+// Managed-to-raw conversion in function args
+foo(@[]int{1, 2, 3})       // foo takes []int — @[]int lives in statement scope
+foo(make(Point))            // foo takes *Point — @Point lives in statement scope
+
+// Chained calls — temporary lives through entire statement
+bar(foo(@[]int{1, 2, 3}))  // @[]int lives until bar returns
+
+// Stack temporaries — same rule, naturally safe
+foo([]int{1, 2, 3})         // creates temp [3]int on stack, slices it
+                             // stack temp lives in statement scope (and beyond — stack
+                             // locals live until function/scope exit anyway)
+
+// Direct managed parameter — no issue, move/copy handles it
+foo(@[]int{1, 2, 3})       // foo takes @[]int — refcount bumped on parameter copy
+```
+
+**The dangerous case this intentionally does NOT protect against**:
+
+```
+var s []int = @[]int{1, 2, 3}   // temporary freed at end of statement
+foo(s)                           // s is a dangling raw slice
+```
+
+This is consistent with the raw slice contract — `[]int` means "caller manages lifetime." The programmer explicitly stored a raw slice; they took on lifetime responsibility. The fix is to use `var s @[]int = @[]int{1, 2, 3}`.
+
+This is the same class of danger as storing a raw pointer to a managed struct and using it after the struct is freed — already accepted in the design philosophy.
+
+**Implementation approaches**:
+
+- **Interpreter**: maintain a list of temporaries during statement evaluation. Release all at statement end. Essentially push/pop a scope around each statement.
+- **Compiler**: emit retains for temporaries into an implicit scope. Emit corresponding releases after all statement effects (including function calls and return value handling) are complete. For stack temporaries, the stack frame already handles lifetime, so the scope mainly matters for managed values.
+
+**Relationship to move semantics**: when a temporary is the sole argument to a function taking a managed type (e.g., `foo(@[]int{...})` where foo takes `@[]int`), the compiler can optimize by transferring ownership — skip the refcount bump on the parameter and skip the release of the temporary. The statement scope rule defines the semantics; move optimization doesn't change observable behavior.
+
+**Alternatives considered**:
+
+- **C++ full-expression rule**: essentially the same semantics but described in terms of "full expressions" rather than scopes. The scope framing is cleaner for Binate because it reuses existing machinery.
+- **Immediate release after conversion**: would make `foo(@[]int{1,2,3})` where foo takes `[]int` unsafe. Clearly wrong.
+- **Extend lifetime to enclosing block scope**: unnecessarily long — temporaries would accumulate within loops, potentially exhausting memory. Statement granularity is the right balance.
+
+---
+
 ## 19.7. Method Resolution & Dispatch
 
 ### One Method Per Name
@@ -1409,7 +1478,7 @@ The compiler may still optimize away provably-redundant checks, but this is a bo
 
 **Indexing:** zero-based. `s[i]` reads/writes. `s[low:high]` sub-slice, exclusive end. `s[:]`, `s[low:]`, `s[:high]` shorthand.
 
-**`len()`:** returns the slice's length field. For fixed-size arrays `[N]T`, returns `N` as a compile-time constant. For string literal slices, returns length excluding the null terminator.
+**`len()`:** returns the slice's length field. For fixed-size arrays `[N]T`, returns `N` as a compile-time constant. `len("abc")` = 3 — no hidden null to account for.
 
 ---
 
@@ -1583,11 +1652,11 @@ Interface files could optionally be auto-generated from source code, but hand-wr
 
 Option 3 is unacceptable for a systems language. Const is the cheapest correct solution.
 
-### String Handling — REVISED
+### String Handling — REVISED (twice)
 
-**Concern**: len() including the null terminator is error-prone.
+**First revision**: len() including the null terminator was error-prone, so the design was changed to exclude the null from slice views while keeping it in storage. `"abc"` stored as 4 bytes, natural type `[4]const char`, default type `[]const char` with len=3.
 
-**Decision**: String literal → slice excludes the null from the view, but the underlying storage always includes it. Storage for `"abc"` is `{'a','b','c','\0'}` (4 bytes, natural type `[4]const char`). As a slice (the default type `[]const char`), the view is `(ptr, 3)` — `len()` returns 3. The null byte is still present in memory immediately after the slice data, ensuring C interop safety. This is as if the literal were its natural array type, sliced: `cast([4]const char, "abc")[:3]`. Clean separation.
+**Second revision (2026-04-01)**: the "null in storage but not in view" semantics were still too complicated. Tracking which slices had a null beyond their bounds was impractical — subslicing, copying, or any manipulation lost the guarantee. The design was simplified: string literals contain exactly the characters specified, no implicit null. `"abc"` is 3 bytes, natural type `[3]const char`, default type `[]const char` with len=3. Null termination for C interop is explicit: `"abc\0"` or via library helpers. This is consistent with the language's philosophy of no hidden behavior.
 
 ### REPL Redefinition Semantics — REVISED
 

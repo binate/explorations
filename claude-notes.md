@@ -273,23 +273,21 @@ Same principle for struct/type redefinition: existing instances retain the old l
 **Untyped literals**: literals have no inherent type and coerce to any compatible type from context. Unlike Go, this does NOT extend to named constants — only literals.
 - `123` → `int`, `uint`, `i32`, `byte`, etc.
 - `3.14` → `f32`, `f64`, etc.
-- `"abc"` → `[4]char` (natural type, includes null), `[]char` / `[]const char` (slice view excludes null, but the underlying storage still includes it)
+- `"abc"` → `[3]char` (natural type), `[]char` / `[]const char` (slice, len=3)
 
 **Default types** (when context is ambiguous, e.g., `x := 123`):
 - Integer literals: `int`
 - Float literals: `float64`
-- String literals: `[]const char` (default type — a slice view of the static data, excluding the null terminator from the view but not from the underlying storage)
+- String literals: `[]const char` (default type — a slice view of the static data)
 - Bool literals: `bool`
 
 **Literal overflow**: assigning a literal to an explicit type that can't hold it is a compile error (`var x uint8 = 256` → error). Literals are checked at compile time for fit.
 
 **Cast semantics**: `cast(T, expr)` on typed (non-literal) values wraps/truncates — hardware semantics, well-defined. `cast(uint, -1)` is a compile error (literal doesn't fit). `cast(uint, x)` where x is int wraps to UINT_MAX.
 
-**Null termination**: always null-terminated for string literals. One byte of overhead per string, avoids ambiguity. Any string literal is safe to pass to C without copying.
+**No implicit null termination (revised 2026-04-01)**: string literals contain exactly the characters specified, with no hidden null terminator. `"abc"` is stored as `{'a','b','c'}` (3 bytes), natural type `[3]const char`, default type `[]const char` with `len()` = 3. If a null terminator is needed (e.g., for C interop), include it explicitly: `"abc\0"` (4 bytes, natural type `[4]const char`). Null termination for C interop can also be handled by library functions. This replaces the previous design where string literals always included a hidden null terminator beyond the slice view — that was too complicated to reason about in practice (tracking which slices had a null beyond their bounds was impractical).
 
-**String literal storage and types**: a string literal of length N is always stored as N+1 bytes (including the null terminator). The **natural type** is `[N+1]char` (or `[N+1]const char`) — the full storage including the null. The **default type** (when context is ambiguous, e.g., `s := "abc"`) is `[]const char`. When taken as a slice (`[]char` or `[]const char`), the literal behaves as if it were the underlying array sliced to exclude the null: i.e., `cast([N+1]char, "...")[:N]`. So `"abc"` has storage `{'a','b','c','\0'}` (4 bytes), natural type `[4]const char`, default type `[]const char` with `len()` = 3. The null is there in memory for C interop but isn't part of the slice's view.
-
-**No `string` type.** `string` does NOT exist as a type in Binate. String literals default to `[]const char` (or `[]char` in the bootstrap, which lacks const types), but their natural type is `[N+1]const char` where N is the string length. The bootstrap interpreter has `string` as an internal convenience alias for `[]char`, but self-hosted code must use `[]char`. Language targets small systems where full UTF-8 support is too heavy to justify a separate type.
+**No `string` type.** `string` does NOT exist as a type in Binate. String literals default to `[]const char` (or `[]char` in the bootstrap, which lacks const types), with natural type `[N]const char` where N is the string length. The bootstrap interpreter has `string` as an internal convenience alias for `[]char`, but self-hosted code must use `[]char`. Language targets small systems where full UTF-8 support is too heavy to justify a separate type.
 
 ### Type system richness
 
@@ -740,6 +738,30 @@ to distinguish from `@[]T` (managed-slice sugar). `@[k]T` is ambiguous and shoul
 be used. The `@[]` sugar applies ONLY to `@[]T` (managed-slice); all other combinations
 use explicit parens to break the sugar.
 
+### Temporary lifetime — DECIDED
+
+**Rule: each statement has an implicit scope; temporaries are locals in that scope.**
+
+When an expression creates a managed value (via `make`, `make_slice`, `box`, or a managed literal) that is not assigned to a named variable of managed type, the value is an unnamed local in the statement's implicit scope. Its refcount is decremented when the statement completes.
+
+This guarantees that managed temporaries survive implicit conversions to raw types within the same statement:
+
+```
+foo(@[]int{1, 2, 3})    // foo takes []int — managed-slice lives through the call
+foo(make(Point))         // foo takes *Point — @Point lives through the call
+bar(foo(@[]int{1, 2, 3}))  // chained — temporary lives through entire statement
+```
+
+The same rule applies to stack-allocated temporaries (e.g., `[]int{1, 2, 3}` creates a temporary `[3]int` on the stack and slices it — the array lives in the statement scope).
+
+**What this does NOT save you from:**
+```
+var s []int = @[]int{1, 2, 3}   // temporary freed at end of statement
+foo(s)                           // s is a dangling slice — programmer error
+```
+
+This is consistent with the raw slice contract: `[]int` means "caller manages lifetime." Use `@[]int` if you need the allocation to persist.
+
 ### Method resolution & dispatch — DECIDED
 
 **One method per name per base type.** No overloading on receiver kind. A method name is defined once, regardless of whether the receiver is value, `*T`, or `@T`.
@@ -813,7 +835,7 @@ func foo[T ComparableStringer, U any](a T, b U) { ... }
 
 **Indexing**: zero-based. `s[i]` reads/writes element. `s[low:high]` creates a sub-slice (exclusive end). `s[:]`, `s[low:]`, `s[:high]` are shorthand forms. All bounds-checked.
 
-**`len()`**: returns slice length field, or compile-time constant for fixed-size arrays. For string literals taken as slices: length excludes null terminator (slice view is `[:N]` of the `[N+1]char` storage). For string literals taken as arrays: length includes the null (`len([4]char("abc"))` = 4).
+**`len()`**: returns slice length field, or compile-time constant for fixed-size arrays. `len("abc")` = 3 (whether taken as a slice or array). No hidden null terminator to account for.
 
 ### Comparison points
 - **Forth**: simple, dual-mode (threaded interpretation + compilation), embeddable, used in firmware — but very different paradigm
