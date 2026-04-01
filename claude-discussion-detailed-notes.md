@@ -674,6 +674,23 @@ All three (`make`, `cast`, `bit_cast`) are builtins that take types as arguments
 - Typed values wrap/truncate at runtime: `cast(uint, x)` where x is int with value -1 → wraps to UINT_MAX
 - `bit_cast` always just reinterprets bits, no checking
 
+### sizeof and alignof — DECIDED
+
+```
+sizeof(Point)         // size of Point in bytes
+alignof(int)          // alignment requirement of int in bytes
+sizeof([]int)         // 2 words (the slice value, not the data)
+sizeof(Stringer)      // 2 words (the interface value, not the data)
+```
+
+**Types only, not expressions.** This follows the `make`/`box` precedent: `make` takes a type, `box` takes an expression. `sizeof` and `alignof` take types. If you need the size of a variable's type, spell out the type name. This avoids the parsing ambiguity of `sizeof(foo)` (is `foo` a type or a variable?).
+
+Both return `uint` and are compile-time constants. Both are builtins (keywords), like `make`, `cast`, etc.
+
+**For composite value types**, sizeof returns the size of the value representation itself — `sizeof([]int)` is 2 words (raw ptr + length), `sizeof(@[]int)` is 3 words (raw ptr + length + managed ptr), `sizeof(Stringer)` is 2 words (data ptr + vtable ptr). Not the size of the data they reference.
+
+**Why include these:** essential for a systems language — FFI/C interop, manual memory management, writing allocators, serialization, and the runtime library (pkg/rt). Currently sizes must be hardcoded; sizeof/alignof make them correct and portable across 32-bit and 64-bit targets.
+
 ### Variable Declarations
 
 ```
@@ -1438,7 +1455,7 @@ The operator set follows C/Go conventions with one critical difference: **no und
 
 The formal grammar (`grammar.ebnf`) covers the full language and is annotated with `[BOOTSTRAP]`/`[DEFERRED]` markers for the Go interpreter subset.
 
-**Builtins as keywords:** `make`, `make_slice`, `box`, `cast`, `bit_cast`, `len`, `unsafe_index` are **keywords**, not predeclared names. They take types as arguments (e.g., `make(Point)`, `make_slice(int, n)`, `cast(int, x)`), which can't be parsed as regular function calls — a regular function can't take a type as an argument. Making them keywords eliminates the ambiguity at the grammar level.
+**Builtins as keywords:** `make`, `make_slice`, `box`, `cast`, `bit_cast`, `len`, `unsafe_index`, `sizeof`, `alignof` are **keywords**, not predeclared names. They take types as arguments (e.g., `make(Point)`, `make_slice(int, n)`, `cast(int, x)`, `sizeof(Point)`, `alignof(int)`), which can't be parsed as regular function calls — a regular function can't take a type as an argument. Making them keywords eliminates the ambiguity at the grammar level.
 
 **Eleven disambiguation rules (D1–D11):**
 

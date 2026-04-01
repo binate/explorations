@@ -174,7 +174,10 @@ Benefits:
 - **`cast(T, expr)`**: value conversion (e.g., `cast(int, myFloat)`). Explicit, required between named types.
 - **`bit_cast(T, expr)`**: reinterpret bits. No conversion, no checking. The "I know what I'm doing" escape hatch.
 - Both are builtins (like `make`), not functions — they take types as first arguments.
-- **Builtins are keywords** (not predeclared names): `make`, `make_slice`, `box`, `cast`, `bit_cast`, `len`, `unsafe_index`. They take types as arguments, which can't be parsed as regular function calls.
+- **`sizeof(T)`**: size of type T in bytes. Returns `uint`. Compile-time constant. Takes a type, not an expression.
+- **`alignof(T)`**: alignment requirement of type T in bytes. Returns `uint`. Compile-time constant. Takes a type, not an expression.
+- For composite value types: `sizeof([]int)` = 2 words (the slice value itself), `sizeof(Stringer)` = 2 words (the interface value itself) — not the data they point to.
+- **Builtins are keywords** (not predeclared names): `make`, `make_slice`, `box`, `cast`, `bit_cast`, `len`, `unsafe_index`, `sizeof`, `alignof`. They take types as arguments, which can't be parsed as regular function calls.
 
 ### Const-ness — DECIDED
 
