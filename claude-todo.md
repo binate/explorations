@@ -85,14 +85,15 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Prerequisite: lightweight debug info (done)
 
 ### ~~Self-compiled compiler — FULLY PASSING~~ ✓
-- All 98 conformance tests pass with self-compiled compiler (0 fail, 0 xfail)
+- All 98 conformance tests pass with self-compiled compiler (boot-comp-comp: 0 fail, 0 xfail)
+- Gen2 compiler (boot-comp-comp-comp) also passes 98/98
 
 ### Re-enable rt.RefDec freeing (managed pointers only)
 - Freeing is disabled in `rt.RefDec` in `pkg/rt/rt.bn` (dec but no free on zero)
+- **Root cause identified**: writing `@T` into `[]@T` via `slice_set` doesn't emit `RefInc`. When a local `@T` goes out of scope, `RefDec` drops refcount to 0 and frees, even though the slice still references it. This caused the gen1 compiler crash (use-after-free in parser: AST decl nodes freed while still in `file.Decls`).
+- **Fix needed**: codegen must emit `RefInc` when storing a managed pointer into a raw slice element (`[]@T`), and `RefDec` when overwriting an existing element
 - Also disabled in `bn_alloc`-based `bn_box` path (C runtime still has `bn_alloc`)
-- This only affects **managed pointers** (`@T`) and **managed slices** (`@[]T`)
-- The inc/dec pairing looks correct: alloc sets rc=1, copy incs, scope exit decs, return skips dec
-- Phase 1: enable free in rt.RefDec, run full suite + self-compilation, fix any use-after-free crashes
+- Phase 1: implement slice element refcounting in codegen (IR gen + emit), then re-enable Free in rt.RefDec
 
 ### ~~Codegen bugs (084-086)~~ — ALL FIXED
 - ~~**084**: `arr[:]` array-to-slice~~ — fixed: genSliceExpr builds BnSlice from array alloca
