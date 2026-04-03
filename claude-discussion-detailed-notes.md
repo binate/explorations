@@ -33,6 +33,29 @@ The central question was: manual (C-style), ownership/borrowing (Rust-style), or
 
 When a managed struct's refcount hits zero, it **recursively releases all managed fields** — decrementing their refcounts, which may trigger further drops. This gives deterministic, cascading cleanup. There was no real alternative considered here; it's the natural and expected behavior.
 
+### Ownership Transfer and Refcount Lifecycle — DECIDED (2026-04-02)
+
+**Problem discovered during implementation**: when a function returns a managed pointer loaded from a slice or field (e.g., `GetPackage` returning a `@Package` from `l.Packages[i]`), the caller receives a pointer whose refcount doesn't account for the caller's reference. The caller's local variable eventually RefDec's it, dropping the refcount prematurely. This causes use-after-free when Free is enabled.
+
+**Root cause**: the function return path didn't RefInc the return value. The callee loaded a pointer from a slice (rc reflects the slice's reference) and returned it directly. The caller treated it as "fresh" (no RefInc needed), but nobody added the reference that the caller assumed existed.
+
+**Solution — slow (safe) approach**: every `return expr` where the return type is `@T` or `@[]T` emits RefInc on the return value. Normal scope cleanup (RefDec on locals and temporaries) runs after. The caller receives a value with one guaranteed reference.
+
+**Worked-through cases**:
+- `return localVar`: RefInc(+1), then local's RefDec(-1) on exit. Net: one ref transferred. ✓
+- `return globalVar`: RefInc(+1), global keeps its ref. Caller gets a new ref. ✓
+- `return box(...)`: box creates rc=1 (temporary). RefInc(+1)=rc=2. Temp dies(-1)=rc=1. ✓
+- `return otherFunc()`: inner call transfers rc=1 (its own RefInc-on-return). RefInc(+1)=rc=2. Temp dies(-1)=rc=1. ✓
+- `return slice[i]`: slice element has rc≥1. RefInc(+1). One ref transferred to caller. ✓
+
+**Temporaries are real references**: `box(...)`, function call results, and other expressions that produce `@T` values create temporaries. A temporary is born with rc=1 (or with a transferred ref) and dies at the end of the statement. Even `f(box(...))` must keep the temporary alive for the duration of the call — whether `f` takes `@T` (ownership transferred to parameter) or `*T` (implicit conversion, temporary must survive).
+
+**Analogy to C++11 moves**: the fast approach (deferred) recognizes expiring values (last-use locals, temporaries) and skips the RefInc + corresponding RefDec pair. This is equivalent to move semantics — only applies when the source is provably expiring. Doesn't apply to globals, captured variables, or anything with a lifetime beyond the transfer point.
+
+**Convention at call sites**: `isFreshManagedPtr` returns true for `OP_CALL` returning managed types. This is correct because the callee's RefInc-on-return already creates the caller's reference. The caller doesn't need an additional RefInc when storing in a local — the transferred ref IS the local's ref.
+
+See `explorations/refcount-lifecycle.md` for the full lifecycle specification.
+
 ### Dual-Mode Benefit
 
 The management info embedded in managed structs is critical for the dual-mode story. An object carries its own cleanup semantics, so neither compiled nor interpreted code needs special knowledge about objects created by the other mode. This was identified as one of the design choices that makes seamless interop possible without marshalling.

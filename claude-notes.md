@@ -61,6 +61,14 @@
 
 **Drop semantics**: when refcount hits zero, recursively release all managed fields (decrement their refcounts, which may trigger further drops). This gives deterministic, predictable cleanup.
 
+**Ownership transfer convention — DECIDED (2026-04-02)**: every managed value (`@T`, `@[]T`) carries its refcount as the count of live references. When a value is passed between contexts (return, assignment, argument), ownership of one reference is transferred.
+
+The **slow (safe) approach** (implemented first): explicit RefInc/RefDec at every transfer point. A `return expr` where the return type is `@T` always emits RefInc on the return value — the caller receives one transferred reference. Normal scope cleanup (RefDec on locals) runs after. This is always correct regardless of what `expr` is (local, global, temporary, nested call).
+
+The **fast approach** (deferred optimization): when the source is expiring (last use of a local, temporary), skip the RefInc-on-return and the corresponding RefDec-on-exit. The source's reference becomes the caller's reference directly. Analogous to C++11 move semantics. Only applies when the source is provably expiring.
+
+**Invariant: rc == 0 means dead.** Every live reference must be reflected in the refcount. See `explorations/refcount-lifecycle.md` for full details on every context (returns, temporaries, function arguments, slice operations, field access).
+
 ### Value types vs. reference types — DECIDED
 
 **Value types**: integers, floats, pointers (including managed pointers!), raw structs, fixed-size arrays, fixed-size strings. Copied on assignment/pass. Live on the stack or inline within other structs. You can only take raw pointers to them, never managed pointers.
