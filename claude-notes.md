@@ -125,42 +125,6 @@ the 3-word type `(data_ptr, length, refptr)` created by `make_slice`. "Managed s
 
 **`append` — REMOVED**: `append` has been fully removed from the language (parser, type checker, IR gen, codegen, interpreter, all source code, tests, and conformance tests). Growable collections are a library concern: `buf.CharBuf` for strings, per-type append helpers that do O(n) copy for other types, and eventually a generic `Vec[T]` type. For known-size allocations, use `make_slice(T, n)` + indexed assignment.
 
-### Managed-arrays — DECIDED (2026-04-02)
-
-**Terminology**: "managed-array" (hyphenated) refers to `@[N]T`, analogous to how "managed-slice" refers to `@[]T`. `@([N]T)` (with parens) is a different thing: a managed pointer to a raw array.
-
-**`@[N]T` is NOT `@([N]T)`**: A managed-array is a distinct type with an array header that stores the element count. A managed pointer to a raw array (`@([N]T)`) is just a boxed array with no header. In generics, `@X` where `X = [N]T` yields `@([N]T)`, not `@[N]T` — same rule as slices.
-
-**Memory layout**:
-```
-[ MgmtHeader (refcount, free_fn) | ArrayHeader (size) | element[0] ... element[N-1] ]
-                                   ^-- refptr points here
-```
-
-The ArrayHeader is one word (the element count). The refptr in managed-slices derived from this managed-array points to the ArrayHeader, giving destructors access to the element count.
-
-**Relationship to managed-slices**: `make_slice(T, n)` allocates a managed-array of `n` elements and returns a managed-slice viewing all of it. Subslicing produces a new managed-slice with the same refptr but different data/len. The backing managed-array's size is unchanged and available for cleanup.
-
-**`box()` vs literals**:
-```
-box([3]int{1, 2, 3})    // → @([3]int) — boxed raw array, no ArrayHeader
-@[3]int{1, 2, 3}        // → @[3]int  — managed-array with ArrayHeader
-```
-
-### Destructors and RefDec cleanup — DECIDED (2026-04-02)
-
-When a managed allocation's refcount hits zero, managed references inside it must be RefDec'd before the memory is freed. This is done via **destructors** — per-type generated functions.
-
-**RefDec takes a destructor**: `RefDec(ptr, dtor)` where `dtor` is a function pointer (or nil). At each call site, the codegen knows the type being dec'd and passes the appropriate destructor. When refcount hits 0: call `dtor(ptr)` if non-nil, then `Free(ptr)`.
-
-**Destructors are separate from free_fn**: The `free_fn` in the management header is for custom allocator support (different deallocation strategies). The destructor handles deinitialization (decrementing managed fields). Deinitialization ≠ deallocation.
-
-**Struct destructors**: Generated for any struct with managed fields. Walks fields and RefDec's each `@T` and `@[]T` refptr.
-
-**Managed-array destructors**: Generated per element type. Uses the ArrayHeader's `size` field to iterate elements and RefDec each one (calling the element's destructor if needed).
-
-**Destructor is statically known**: At every RefDec call site, the type is known, so the destructor is looked up at compile time. No runtime type info needed.
-
 **Future optimization**: move/transfer ownership semantics to avoid refcount bumps (e.g., last use of a managed pointer skips the bump/decrement). Pure optimization, doesn't change semantics — deferred.
 
 ### Minimize C runtime — DIRECTION

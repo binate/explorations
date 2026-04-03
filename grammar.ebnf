@@ -248,13 +248,11 @@ InterfaceList = TypeName { "," TypeName } ;
 (* 5. Types                                                     *)
 (* ============================================================ *)
 
-(* DISAMBIGUATION for "@[]T" and "@[N]T" sugar:
-   "@" "[" "]"      → managed-slice @[]T
-   "@" "[" expr "]" → managed-array @[N]T
-   "@" "("          → grouping, e.g., @([]T) for managed pointer to raw slice
-   "@" otherwise    → managed pointer @T
-   The parser checks for "[" after "@", then "]" (managed-slice)
-   or expression "]" (managed-array). *)
+(* DISAMBIGUATION for "@[]T" managed slice sugar:
+   "@" "[" "]" → managed slice @[]T.
+   "@" "(" → grouping, e.g., @([]T) for managed pointer to raw slice.
+   "@" otherwise → managed pointer @T.
+   The parser checks for "[" "]" as a two-token sequence after "@". *)
 
 Type          = TypeName                                  (* [BOOTSTRAP] *)
               | TypeLit                                   (* [BOOTSTRAP] — subset *)
@@ -262,8 +260,7 @@ Type          = TypeName                                  (* [BOOTSTRAP] *)
               | "const" Type                              (* const modifier [DEFERRED] *)
               | "*" Type                                  (* raw pointer [BOOTSTRAP] *)
               | "@" Type                                  (* managed pointer [BOOTSTRAP] *)
-              | "@" "[" "]" Type                          (* managed-slice sugar [BOOTSTRAP] *)
-              | "@" "[" Expression "]" Type ;             (* managed-array sugar *)
+              | "@" "[" "]" Type ;                        (* managed slice sugar [BOOTSTRAP] *)
 
 (* Qualified names support package-prefixed types: pkg.TypeName.
    In type context, this is unambiguous. *)
@@ -557,12 +554,11 @@ IdentifierList = identifier { "," identifier } ;
        "for" ... ";" → C-style (ForCClause). Lookahead for ";" after first SimpleStmt.
        "for" Expression "{" → while-style. Default if no "in" or ";" found.
 
-   D3. "@[]T" managed-slice and "@[N]T" managed-array sugar:
-       "@" "[" "]" → managed-slice @[]T.
-       "@" "[" expr "]" → managed-array @[N]T.
+   D3. "@[]T" managed slice sugar vs "@" followed by a type:
+       "@" "[" "]" → managed slice @[]T.
        "@" "(" → grouping, e.g., @([]T) for managed pointer to raw slice.
        "@" otherwise → managed pointer @T.
-       After "@" "[", check for "]" (managed-slice) or expression (managed-array).
+       Two-token lookahead after "@".
 
    D4. Composite literals in control flow conditions:
        In the condition of if, for, and switch, a bare composite literal
