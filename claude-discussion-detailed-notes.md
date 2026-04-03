@@ -145,6 +145,72 @@ String literals are **untyped** (like integer literals) and coerce to the approp
 
 Fixed-size arrays (e.g., `char[123]`) are value types. They don't store their length — the compiler knows it statically. When you create a slice from one, the length is captured in the slice.
 
+### Managed-Arrays — DECIDED (2026-04-02)
+
+**Problem**: when a managed-slice's backing allocation is freed, the destructor needs to know how many elements to clean up. But a managed-slice's `len` field only describes the current view (which may be a subslice), not the full backing array. The backing allocation carries no element count.
+
+**Solution**: managed-arrays (`@[N]T`). These are a distinct type — NOT `@([N]T)` (a managed pointer to a boxed raw array). A managed-array has an ArrayHeader that stores the element count.
+
+**Memory layout**:
+```
+[ MgmtHeader (refcount, free_fn) | ArrayHeader (size) | elements... ]
+                                   ^-- refptr points here
+```
+
+The refptr (used by managed-slices) points to the ArrayHeader, giving destructors access to the element count. Element data starts at `refptr + sizeof(ArrayHeader)`.
+
+**Relationship to managed-slices**: `make_slice(T, n)` allocates a managed-array of `n` elements under the hood, then returns a managed-slice `{ data: &elements[0], len: n, refptr: &ArrayHeader }` viewing all of it. Subslicing produces a new managed-slice with the same refptr (same backing) but different data/len. The backing's element count is unchanged.
+
+**Syntax**: `@[N]T` is managed-array syntax, parallel to `@[]T` for managed-slices. Parser disambiguation after `@[`:
+- `@[` `]` → managed-slice (`@[]T`)
+- `@[` expr `]` → managed-array (`@[N]T`)
+
+**Generic behavior**: `@X` where `X = [N]T` yields `@([N]T)`, NOT `@[N]T`. This is the same rule as `@X` where `X = []T` yielding `@([]T)`, not `@[]T`. The sugar only applies when written directly.
+
+**`box()` vs managed-array literals**:
+```
+box([3]int{1, 2, 3})    // → @([3]int) — boxed raw array, no ArrayHeader
+@[3]int{1, 2, 3}        // → @[3]int  — managed-array with ArrayHeader
+```
+
+This is entirely analogous to the slice/managed-slice distinction.
+
+### Destructors and RefDec Cleanup — DECIDED (2026-04-02)
+
+**Problem**: when a managed allocation's refcount hits zero, managed references inside it (e.g., `@T` fields in a struct, `@T` elements in a managed-array) must be RefDec'd. Without this, contained references leak (refcount never reaches zero) or dangle (freed while still referenced elsewhere). The gen1 compiler crashes when Free is enabled because this cleanup is missing.
+
+**Design — destructor function pointers at RefDec call sites**:
+
+At every RefDec call site, the type being dec'd is statically known. The codegen generates a destructor function for each type that needs cleanup, and passes it to RefDec:
+
+```
+RefDec(ptr, dtor)   // dtor is a function pointer, or nil
+```
+
+When refcount hits 0: call `dtor(ptr)` if non-nil, then `Free(ptr)`.
+
+**Destructors are NOT `free_fn`**: The `free_fn` in the management header is reserved for custom allocator support (e.g., objects allocated from a pool that need pool-specific deallocation). The destructor handles deinitialization — decrementing managed fields. These are separate concerns: deinitialization happens before deallocation.
+
+**Struct destructors**: generated for any struct type with managed fields (`@T`, `@[]T`, `@[N]T`). The destructor walks the struct's fields and RefDec's each managed reference, passing sub-destructors as needed.
+
+**Managed-array destructors**: generated per element type. The destructor reads the element count from the ArrayHeader, then iterates elements, RefDec'ing each one with the element type's destructor.
+
+Example for `@[]@Node` where `Node` has managed fields:
+```
+func __dtor_managed_array_of_Node(ptr *uint8) {
+    var count int = *bit_cast(*int, ptr)     // ArrayHeader.size
+    var data *uint8 = ptr + 8                 // skip ArrayHeader
+    for i := 0; i < count; i++ {
+        var elem *uint8 = data[i * 8]        // each @Node is a pointer
+        RefDec(elem, __dtor_Node)
+    }
+}
+```
+
+**Dedup**: managed-array destructors are keyed on element type. `@[]@Node` and any other `@[]@Node` share `__dtor_managed_array_of_Node`. Emitted once per element type per compilation unit; cross-package uses `declare`.
+
+**No runtime type info needed**: everything is resolved at compile time from static type information.
+
 ### Move/Ownership Optimizations
 
 Discussed briefly but deferred. The compiler could detect last-use of a managed pointer and skip refcount bumps/decrements. This is a pure optimization that doesn't change semantics.
