@@ -92,12 +92,26 @@ This area went through several iterations during discussion.
 Without the hyphen, "managed slice" is ambiguous — it could mean `@[]T` (managed-slice)
 or `@([]T)` (a managed pointer to a raw slice, which is a different thing entirely).
 
-**Managed-slice** (`@[]T`) — a raw slice extended with a managed pointer: `(data_ptr, length, refptr)` — three words:
+**Managed-slice** (`@[]T`) — four words: `(data, len, backing_refptr, backing_len)`:
 1. Raw pointer to the start of the view (for direct data access, no arithmetic needed)
-2. Length
-3. Managed pointer to the underlying allocation (keeps it alive via refcounting)
+2. View length (number of elements visible through this slice)
+3. Managed pointer to the backing allocation (keeps it alive via refcounting)
+4. Backing length (total number of elements in the backing allocation)
 
-The first two words are identical in layout to a raw slice `[]T`. This means `@[]T` → `[]T` conversion is trivial — just read the first 16 bytes (no field extraction or reordering needed). The managed pointer is appended as the third word. The three-word representation was chosen over (managed pointer, offset, length) because the raw pointer gives direct data access without arithmetic, and is what you'd pass to C code or use in tight loops. (Layout updated 2026-03-30 to put refptr last for prefix compatibility with `[]T`.)
+The first two words are identical in layout to a raw slice `[]T`. This means `@[]T` → `[]T` conversion is trivial — just read the first 16 bytes (no field extraction or reordering needed). The representation was chosen over (managed pointer, offset, length) because the raw pointer gives direct data access without arithmetic, and is what you'd pass to C code or use in tight loops.
+
+(Layout history: initially `(data, len, refptr)` — 3 words. Updated 2026-03-30 to put refptr last for prefix compatibility with `[]T`. Updated 2026-04-02 to add backing_len as the 4th word for destructor support.)
+
+**Why backing_len?** When a managed-slice's backing allocation is freed (refcount hits zero), the destructor must iterate ALL elements in the backing to RefDec managed references. The view length is insufficient because subslicing changes it — `s[2:5]` has len=3 but the backing may have 100 elements. The backing_len is set at allocation time and preserved through subslicing.
+
+**Capacity is now computable**: with both the view data pointer and the backing refptr + backing_len, the Go-style capacity (`backing_len - (data - backing_start) / elem_size`) can be derived. This means a correct `append()` is technically feasible. However, the spirit of managed-slices is as pure views, so append is not currently planned (may be reconsidered).
+
+**Subslicing**: `s[lo:hi]` produces `{ s.data + lo*elemSize, hi-lo, s.backing_refptr, s.backing_len }`. The backing refptr and backing_len are copied unchanged. RefInc on the backing_refptr (new managed-slice references the same backing).
+
+**Alternative considered (2026-04-02)**: managed-arrays (`@[N]T`) as a separate type with an ArrayHeader storing the element count. Rejected in favor of the 4-word managed-slice because:
+- No new type system concept needed
+- Simpler — all the info lives in the managed-slice value itself
+- The 8-byte overhead per managed-slice value is acceptable (32 bytes vs 24 bytes)
 
 **Raw slice** (`[]T`) — two words:
 1. Raw pointer to start
@@ -145,6 +159,28 @@ String literals are **untyped** (like integer literals) and coerce to the approp
 
 Fixed-size arrays (e.g., `char[123]`) are value types. They don't store their length — the compiler knows it statically. When you create a slice from one, the length is captured in the slice.
 
+### Destructors and RefDec Cleanup — DECIDED (2026-04-02)
+
+**Problem**: when a managed allocation's refcount hits zero, managed references inside it must be RefDec'd. Without this, contained references leak or dangle. Concretely: the gen1 compiler crashes when Free is enabled because managed-slice backings containing `@Instr` pointers are freed without decrementing the elements' refcounts.
+
+**Design — destructor function pointers at RefDec call sites**:
+
+At every RefDec call site, the type being dec'd is statically known. The codegen generates a destructor function for each type that needs cleanup, and passes it to RefDec:
+
+```
+RefDec(ptr, dtor)   // dtor is a function pointer, or nil
+```
+
+When refcount hits 0: call `dtor(ptr)` if non-nil, then `Free(ptr)`.
+
+**Destructors are NOT `free_fn`**: `free_fn` in the management header is for custom allocator support (e.g., objects from a memory pool needing pool-specific deallocation). The destructor handles deinitialization — decrementing managed fields before memory is freed. These are separate concerns.
+
+**Struct destructors**: generated for any struct type with managed fields (`@T`, `@[]T`). The destructor walks fields and RefDec's each managed reference, passing sub-destructors as needed.
+
+**Managed-slice backing destructors**: when a managed-slice's backing allocation is freed, the destructor needs the element count. This is available via `backing_len` in the 4-word managed-slice. At the RefDec call site, the codegen has the full managed-slice value and can pass `backing_len` to the destructor (or emit an inline cleanup loop, checking refcount == 1 before iterating).
+
+**No runtime type info needed**: everything is resolved at compile time from static type information at the call site.
+
 ### Move/Ownership Optimizations
 
 Discussed briefly but deferred. The compiler could detect last-use of a managed pointer and skip refcount bumps/decrements. This is a pure optimization that doesn't change semantics.
@@ -155,7 +191,7 @@ For low-level transparency, testing, and debugging, the language should provide 
 
 - **Managed pointer header**: given `@T`, return the management header as a Binate struct — fields for refcount and free function pointer.
 - **Raw slice repr**: given `[]T`, return the slice representation as a Binate struct — data pointer and length.
-- **Managed-slice repr**: given `@[]T`, return the managed-slice representation as a Binate struct — data ptr, length, refptr.
+- **Managed-slice repr**: given `@[]T`, return the managed-slice representation as a Binate struct — data ptr, view length, backing refptr, backing length.
 
 All of these representation/management structs should be proper Binate structs, not opaque C constructs. This enables writing tests and debugging tools in pure Binate.
 

@@ -105,10 +105,17 @@ the 3-word type `(data_ptr, length, refptr)` created by `make_slice`. "Managed s
 - Assigned to a managed array → allocate, copy, set up refcount
 - Raw pointer → pointer to static data
 
-**Managed-slice representation — DECIDED (updated 2026-03-30)**: a managed-slice (`@[]T`) is a raw slice followed by a managed pointer: `(data_ptr, length, refptr)` — three words. The first two words are identical in layout to a raw slice `[]T`, so `@[]T` → `[]T` conversion is trivial (just read the first 16 bytes, no field extraction needed). The refptr is the third word and carries the refcount. Equivalently:
+**Managed-slice representation — DECIDED (updated 2026-04-02)**: a managed-slice (`@[]T`) is four words: `(data, len, backing_refptr, backing_len)`. The first two words are identical in layout to a raw slice `[]T`, so `@[]T` → `[]T` conversion is trivial (just read the first 16 bytes). The remaining two words describe the backing allocation:
 1. Raw pointer to the start of the view (direct data access, no arithmetic needed)
-2. Length
-3. Managed pointer to the underlying allocation (keeps it alive via refcounting)
+2. View length (number of elements visible through this slice)
+3. Managed pointer to the backing allocation (keeps it alive via refcounting)
+4. Backing length (total number of elements in the backing allocation)
+
+The backing length is needed for destructor cleanup — when the backing's refcount hits zero, the destructor must iterate all backing_len elements to RefDec managed references. This cannot be derived from the view length because subslicing changes the view but not the backing.
+
+Note: with both view length and backing length available, the Go-style "capacity" (`backing_len - (data - backing_start) / elem_size`) is computable. This means a correct `append()` is possible. However, the spirit of managed-slices is as pure views — append may be reconsidered in the future but is not planned.
+
+(Previous 3-word layout `(data, len, refptr)` was updated to 4 words to support destructor cleanup.)
 
 **Raw slice representation**: two words: (raw pointer to start, length)
 
@@ -123,7 +130,21 @@ the 3-word type `(data_ptr, length, refptr)` created by `make_slice`. "Managed s
 - All management/representation structs should be proper Binate structs, not opaque C constructs.
 - These can have "obscure" names (e.g., `_refcount_header`, `_slice_repr`, or `bn_`-prefixed) since they're not intended for normal use.
 
-**`append` — REMOVED**: `append` has been fully removed from the language (parser, type checker, IR gen, codegen, interpreter, all source code, tests, and conformance tests). Growable collections are a library concern: `buf.CharBuf` for strings, per-type append helpers that do O(n) copy for other types, and eventually a generic `Vec[T]` type. For known-size allocations, use `make_slice(T, n)` + indexed assignment.
+**`append` — REMOVED**: `append` has been fully removed from the language (parser, type checker, IR gen, codegen, interpreter, all source code, tests, and conformance tests). Growable collections are a library concern: `buf.CharBuf` for strings, per-type append helpers that do O(n) copy for other types, and eventually a generic `Vec[T]` type. For known-size allocations, use `make_slice(T, n)` + indexed assignment. Note: with the 4-word managed-slice layout, a correct append is now technically feasible (capacity is computable), so this decision may be revisited.
+
+### Destructors and RefDec cleanup — DECIDED (2026-04-02)
+
+When a managed allocation's refcount hits zero, managed references inside it must be RefDec'd before the memory is freed. This is done via **destructors** — per-type generated functions passed to RefDec at each call site.
+
+**RefDec takes a destructor**: `RefDec(ptr, dtor)` where `dtor` is a function pointer (or nil). At each call site, the codegen knows the type being dec'd and passes the appropriate destructor. When refcount hits 0: call `dtor(ptr)` if non-nil, then `Free(ptr)`.
+
+**Destructors are separate from free_fn**: The `free_fn` in the management header is for custom allocator support (different deallocation strategies). The destructor handles deinitialization (decrementing managed fields). Deinitialization ≠ deallocation.
+
+**Struct destructors**: Generated for any struct with managed fields. Walks fields and RefDec's each `@T` and `@[]T` field.
+
+**Managed-slice backing destructors**: When a managed-slice's backing is freed, the destructor uses `backing_len` (from the 4-word managed-slice) to iterate all elements and RefDec each one. The destructor is keyed on the element type.
+
+**Destructor is statically known**: At every RefDec call site, the type is known, so the destructor is looked up at compile time. No runtime type info needed.
 
 **Future optimization**: move/transfer ownership semantics to avoid refcount bumps (e.g., last use of a managed pointer skips the bump/decrement). Pure optimization, doesn't change semantics — deferred.
 
