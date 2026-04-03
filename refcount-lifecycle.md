@@ -227,9 +227,11 @@ gets a new one).
 
 3. **Struct freed without RefDec-ing managed fields** (needs destructors).
 
-4. **Nil assignment to managed-slice struct field causes corruption.** Workaround:
-   use `field = field[:0]` instead of `field = nil`. Root cause unknown — likely
-   a codegen bug in how nil %BnManagedSlice is stored to struct fields.
+4. ~~Nil assignment to managed-slice struct field causes corruption.~~ **Fixed 2026-04-03.**
+   Root cause: field assignment and pointer dereference assignment were missing nil
+   coercion — raw `OP_CONST_NIL` (typed `TYP_NIL`) was stored instead of a proper
+   `%BnManagedSlice zeroinitializer`. Added nil coercion for slice, managed-slice,
+   and managed-ptr types in both paths.
 
 ## Completed: RefInc on Return (2026-04-02)
 
