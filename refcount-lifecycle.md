@@ -192,7 +192,7 @@ gets a new one).
 
 `globalVar = expr`: RefDec old global value, RefInc new value (unless fresh).
 
-## Current Implementation Status
+## Current Implementation Status (updated 2026-04-02)
 
 **Working (slow approach)**:
 - Variable declaration: RefInc on non-fresh values ✓
@@ -201,25 +201,52 @@ gets a new one).
 - Slice element assignment: RefDec old, RefInc new ✓
 - Function parameter entry/exit: RefInc/RefDec ✓
 - Managed-slice backing RefInc/RefDec on copy/scope-exit ✓
+- **Function return: RefInc on return value before scope cleanup ✓** (fixed 2026-04-02)
+- **Free re-enabled in RefDec ✓** (boot-comp-comp and gen2 pass all 106 tests)
 
-**Missing (causes crashes with Free enabled)**:
-- Function return: no RefInc on return value ← **primary bug**
-- Slice element read: no RefInc on loaded value (fragile but works while slice is alive)
-- Struct field read of @T: no RefInc on loaded value (same fragility)
+**Known issues — subslicing and temporaries (causes leaks, not crashes)**:
 
-**Missing (causes leaks, not crashes)**:
-- Managed-slice backing freed without RefDec-ing elements
-- Struct freed without RefDec-ing managed fields (needs destructors)
+1. **Subslicing `@[]T` does not RefInc the backing refptr.** When `s[lo:hi]`
+   creates a new managed-slice sharing the backing, it should RefInc the
+   backing (new reference). Currently it doesn't. This means the subslice
+   "borrows" without tracking. It works as long as the original slice
+   remains alive, but if the original is RefDec'd to 0 while a subslice
+   exists, the backing is freed with the subslice still pointing to it.
+   Currently safe in practice because subslices are typically created from
+   locals that outlive the subslice, but this is fragile.
 
-## Implementation Plan: RefInc on Return
+2. **Managed-value temporaries do not get RefDec'd.** When an expression
+   produces a temporary managed value (e.g., `foo().Field`, `s[i]` used
+   inline, `box(x)` as a function argument), the temporary should be
+   RefDec'd at end of statement. Currently no mechanism exists for tracking
+   temporary lifetimes. This causes leaks (temporary's ref never released).
+   For `@T` temporaries this is straightforward (one RefDec). For `@[]T`
+   temporaries, the backing refptr needs RefDec.
 
-### Fix: emit RefInc at every OP_RETURN for managed return types
+3. **Managed-slice backing freed without RefDec-ing elements** (needs destructors —
+   see plan-4word-managed-slice-destructors.md).
 
-**Where**: `pkg/codegen/emit_instr.bn`, emission of `OP_RETURN`
+4. **Struct freed without RefDec-ing managed fields** (needs destructors).
 
-For each return value with type `@T` or `@[]T`, emit `RefInc` before
-the `ret` instruction. The normal scope-exit RefDec's will fire for
-locals, balancing the counts.
+Issues 1 and 2 happen to cancel out in common patterns: subslicing doesn't
+RefInc, so the backing rc is 1 fewer than it should be. But temporaries
+don't RefDec, so leaked refs prevent the rc from hitting 0. The result is
+correct behavior by coincidence, not by design. Both should be fixed.
+
+## Completed: RefInc on Return (2026-04-02)
+
+**Fix**: emit `OP_REFCOUNT_INC` (for `@T`) or managed-slice refptr RefInc
+(for `@[]T`) on return values in the IR gen (`gen_stmt.bn`), BEFORE
+`emitDecForManagedLocals`. This ensures the return value's reference is
+created before scope cleanup runs.
+
+**Where**: `pkg/ir/gen_stmt.bn`, in the `STMT_RETURN` handler, before
+`emitDecForManagedLocals`.
+
+**Critical ordering**: the RefInc must be before scope-exit RefDecs.
+Initially placed in codegen's `emitReturn` (after scope cleanup) — this
+caused use-after-free because scope cleanup freed the backing before the
+RefInc could run.
 
 **What stays the same**:
 - `isFreshManagedPtr` returns true for `OP_CALL` — correct, because the
