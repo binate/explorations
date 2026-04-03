@@ -192,7 +192,7 @@ gets a new one).
 
 `globalVar = expr`: RefDec old global value, RefInc new value (unless fresh).
 
-## Current Implementation Status (updated 2026-04-02)
+## Current Implementation Status (updated 2026-04-03)
 
 **Working (slow approach)**:
 - Variable declaration: RefInc on non-fresh values ✓
@@ -201,37 +201,35 @@ gets a new one).
 - Slice element assignment: RefDec old, RefInc new ✓
 - Function parameter entry/exit: RefInc/RefDec ✓
 - Managed-slice backing RefInc/RefDec on copy/scope-exit ✓
-- **Function return: RefInc on return value before scope cleanup ✓** (fixed 2026-04-02)
-- **Free re-enabled in RefDec ✓** (boot-comp-comp and gen2 pass all 106 tests)
+- Function return: RefInc on return value before scope cleanup ✓ (fixed 2026-04-02)
+- Free re-enabled in RefDec ✓
+- **Subslice RefInc ✓** — `s[lo:hi]` on `@[]T` emits RefInc on backing refptr (fixed 2026-04-03)
+- **Temporary RefDec ✓** — managed temporaries (from calls, make, box, make_slice, subslice)
+  are tracked per-statement and RefDec'd at statement end. Values consumed by assignment
+  or declaration are removed from the temp list. Short-circuit evaluation (&&, ||)
+  cleans up temps in each branch before crossing block boundaries. (fixed 2026-04-03)
+- **Pointer dereference refcounting ✓** — `*p = val` for managed types RefDec's old, RefInc's new
+- **@[]T → []T conversion consumes temp** — when managed slice is converted to raw, the
+  temp is consumed (backing borrowed by raw slice, not freed at statement end)
 
-**Known issues — subslicing and temporaries (causes leaks, not crashes)**:
+**Known issues (causes leaks, not crashes)**:
 
-1. **Subslicing `@[]T` does not RefInc the backing refptr.** When `s[lo:hi]`
-   creates a new managed-slice sharing the backing, it should RefInc the
-   backing (new reference). Currently it doesn't. This means the subslice
-   "borrows" without tracking. It works as long as the original slice
-   remains alive, but if the original is RefDec'd to 0 while a subslice
-   exists, the backing is freed with the subslice still pointing to it.
-   Currently safe in practice because subslices are typically created from
-   locals that outlive the subslice, but this is fragile.
+1. **Returned-variable RefDec skip leaks +1 refcount.** When `return localVar`
+   is compiled, the local is skipped by emitDecForManagedLocals (move optimization:
+   the local's reference becomes the caller's reference). But since we also emit
+   RefInc on the return value, the net effect is rc+1 leak. Fixing this requires
+   either: (a) removing the skip and ensuring destructors prevent cascading frees,
+   or (b) also skipping the RefInc for returned-local expressions (true move opt).
+   Currently safe — leaks but doesn't crash.
 
-2. **Managed-value temporaries do not get RefDec'd.** When an expression
-   produces a temporary managed value (e.g., `foo().Field`, `s[i]` used
-   inline, `box(x)` as a function argument), the temporary should be
-   RefDec'd at end of statement. Currently no mechanism exists for tracking
-   temporary lifetimes. This causes leaks (temporary's ref never released).
-   For `@T` temporaries this is straightforward (one RefDec). For `@[]T`
-   temporaries, the backing refptr needs RefDec.
-
-3. **Managed-slice backing freed without RefDec-ing elements** (needs destructors —
+2. **Managed-slice backing freed without RefDec-ing elements** (needs destructors —
    see plan-4word-managed-slice-destructors.md).
 
-4. **Struct freed without RefDec-ing managed fields** (needs destructors).
+3. **Struct freed without RefDec-ing managed fields** (needs destructors).
 
-Issues 1 and 2 happen to cancel out in common patterns: subslicing doesn't
-RefInc, so the backing rc is 1 fewer than it should be. But temporaries
-don't RefDec, so leaked refs prevent the rc from hitting 0. The result is
-correct behavior by coincidence, not by design. Both should be fixed.
+4. **Nil assignment to managed-slice struct field causes corruption.** Workaround:
+   use `field = field[:0]` instead of `field = nil`. Root cause unknown — likely
+   a codegen bug in how nil %BnManagedSlice is stored to struct fields.
 
 ## Completed: RefInc on Return (2026-04-02)
 
