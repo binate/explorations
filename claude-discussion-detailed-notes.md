@@ -152,34 +152,29 @@ This falls out naturally from the type system with no extra annotations needed.
 
 ### Nil Semantics for Slices (added 2026-04-03)
 
-The original position was that slices cannot be compared to nil — check
-`len(s) == 0` instead. This was revised because practical code throughout
-the codebase already uses `s == nil`, and the semantics need to be well-defined.
+**Decision: slices cannot be compared to or assigned from nil.**
 
-**Raw slices (`[]T`)**: a raw slice is nil if and only if its length is 0.
-The implementation enforces this by requiring that 0-length raw slices always
-have a null data pointer. This means `s == nil`, `len(s) == 0`, and
-`s.data == null` are all equivalent for raw slices. There is no such thing
-as a non-nil empty raw slice — this eliminates a category of subtle bugs
-(dangling-pointer-but-length-zero states).
+The type checker rejects `s == nil`, `s != nil`, and `s = nil` for both
+raw slices (`[]T`) and managed-slices (`@[]T`). Use `len(s) == 0` to check
+for empty slices. Use introspection functions (e.g., `rt.HasBacking()`) to
+distinguish "no backing" from "empty view" for managed-slices.
 
-**Managed-slices (`@[]T`)**: the nil check tests `backing_refptr == null`.
-A managed-slice with a live backing but a 0-length view is NOT nil — the
-backing allocation is still alive and capacity exists. This matters for
-subslicing: `s[0:0]` on a non-empty managed-slice keeps the backing alive.
+**Why not allow nil?** The original position disallowed it, then it was
+briefly reconsidered (2026-04-03) to allow nil comparisons with different
+semantics for raw vs managed-slices:
+- Raw: nil ↔ len == 0 (redundant with len check)
+- Managed: nil ↔ no backing (different from raw semantics!)
 
-Invariants for managed-slices:
-- `backing_refptr != null` → data points somewhere within the backing,
-  even for 0-length views. This ensures capacity is always computable as
-  `backing_len - (data - backing_start) / elem_size`.
-- `backing_len == 0` → all fields are null/0 (no degenerate empty-backing
-  states). A 0-length backing allocation is not useful and is forbidden.
-- `backing_refptr == null` → `data == null`, `len == 0`, `backing_len == 0`.
+This was immediately reverted because:
+1. For raw slices, `s == nil` adds no information over `len(s) == 0`.
+2. For managed-slices, the meaning would differ from raw slices, which is
+   confusing.
+3. It would also differ from Go's nil-slice semantics (Go allows non-nil
+   empty slices), adding cross-language confusion.
+4. Disallowing nil for slices is a clean, simple rule.
 
-This asymmetry between raw and managed-slices reflects their different roles:
-raw slices are simple views (nil = empty = nothing to see), while
-managed-slices carry ownership (nil = no allocation, but non-nil + empty
-view = allocation exists, just not viewing any of it).
+**Existing code**: the codebase has many `s == nil` checks on slices that
+need to be migrated to `len(s) == 0`. This is a mechanical change.
 
 ### Alternatives Considered for Length Storage
 

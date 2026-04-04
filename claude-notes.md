@@ -863,13 +863,11 @@ func foo[T ComparableStringer, U any](a T, b U) { ... }
 
 **Bounds checking**: always on by default. `s[i]` and `s[low:high]` are bounds-checked; out-of-bounds is a runtime trap (not UB, not recoverable). `unsafe_index(buf, i)` builtin for unchecked access in performance-critical code. Compiler may also optimize away redundant checks, but programmer doesn't have to rely on it.
 
-**Nil slices — UPDATED (2026-04-03)**: slices can be compared to `nil`, with different semantics for raw and managed-slices:
+**Nil slices — DECIDED (reaffirmed 2026-04-03)**: slices cannot be compared to `nil` or assigned from `nil`. `nil` is only for pointer types (`*T`, `@T`). For raw slices, check `len(s) == 0` for empty. For managed-slices, use introspection (e.g., `rt.HasBacking(s)`) if you need to distinguish "no backing" from "empty view of live backing". The type checker enforces this — `s == nil` and `s = nil` on slice types are compile errors.
 
-- **Raw slices (`[]T`)**: a 0-length raw slice IS nil. The invariant is: `len(s) == 0` ↔ `s == nil` ↔ data pointer is null. There is no such thing as a non-nil empty raw slice. This simplifies reasoning: `s == nil` and `len(s) == 0` are interchangeable.
+Rationale: Go's nil-slice vs empty-slice distinction is a well-known source of confusion. For raw slices, nilness would be equivalent to `len(s) == 0` (adding no information). For managed-slices, the semantics would differ from raw slices (nil = no backing, not just empty), making it even more confusing. Disallowing nil for slices entirely is cleaner.
 
-- **Managed-slices (`@[]T`)**: nil when backing_refptr is null (no backing allocation). A managed-slice can be non-nil with a 0-length view (e.g., `s[0:0]` on a non-empty slice) — the backing is still alive and capacity is available. When backing_len is 0, all fields must be null/0 (no degenerate empty-backing states). The data pointer always points within the backing when the backing exists, even for 0-length views — this keeps capacity computable.
-
-(Previous position was that slices could not be compared to nil at all. Revised to match practical usage and clarify the raw/managed distinction.)
+(This was briefly revised to allow nil comparisons (2026-04-03) but immediately reverted — the distinction is more confusing than helpful, especially since it would differ from Go's semantics.)
 
 **Indexing**: zero-based. `s[i]` reads/writes element. `s[low:high]` creates a sub-slice (exclusive end). `s[:]`, `s[low:]`, `s[:high]` are shorthand forms. All bounds-checked.
 
