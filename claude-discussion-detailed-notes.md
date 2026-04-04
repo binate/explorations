@@ -150,6 +150,37 @@ This constraint was debated. The alternative was allowing managed-slices with a 
 
 This falls out naturally from the type system with no extra annotations needed.
 
+### Nil Semantics for Slices (added 2026-04-03)
+
+The original position was that slices cannot be compared to nil — check
+`len(s) == 0` instead. This was revised because practical code throughout
+the codebase already uses `s == nil`, and the semantics need to be well-defined.
+
+**Raw slices (`[]T`)**: a raw slice is nil if and only if its length is 0.
+The implementation enforces this by requiring that 0-length raw slices always
+have a null data pointer. This means `s == nil`, `len(s) == 0`, and
+`s.data == null` are all equivalent for raw slices. There is no such thing
+as a non-nil empty raw slice — this eliminates a category of subtle bugs
+(dangling-pointer-but-length-zero states).
+
+**Managed-slices (`@[]T`)**: the nil check tests `backing_refptr == null`.
+A managed-slice with a live backing but a 0-length view is NOT nil — the
+backing allocation is still alive and capacity exists. This matters for
+subslicing: `s[0:0]` on a non-empty managed-slice keeps the backing alive.
+
+Invariants for managed-slices:
+- `backing_refptr != null` → data points somewhere within the backing,
+  even for 0-length views. This ensures capacity is always computable as
+  `backing_len - (data - backing_start) / elem_size`.
+- `backing_len == 0` → all fields are null/0 (no degenerate empty-backing
+  states). A 0-length backing allocation is not useful and is forbidden.
+- `backing_refptr == null` → `data == null`, `len == 0`, `backing_len == 0`.
+
+This asymmetry between raw and managed-slices reflects their different roles:
+raw slices are simple views (nil = empty = nothing to see), while
+managed-slices carry ownership (nil = no allocation, but non-nil + empty
+view = allocation exists, just not viewing any of it).
+
 ### Alternatives Considered for Length Storage
 
 1. **Length in the data** (non-raw arrays carry length inline): works but wastes a word for inlined fixed-size arrays.

@@ -863,7 +863,13 @@ func foo[T ComparableStringer, U any](a T, b U) { ... }
 
 **Bounds checking**: always on by default. `s[i]` and `s[low:high]` are bounds-checked; out-of-bounds is a runtime trap (not UB, not recoverable). `unsafe_index(buf, i)` builtin for unchecked access in performance-critical code. Compiler may also optimize away redundant checks, but programmer doesn't have to rely on it.
 
-**Nil slices**: slices cannot be compared to `nil`. `nil` is only for pointer types (`*T`, `@T`). Slices are value types — check `len(s) == 0` for empty. Use `*[]T` or `@[]T` if you need optional/nullable slice semantics.
+**Nil slices — UPDATED (2026-04-03)**: slices can be compared to `nil`, with different semantics for raw and managed-slices:
+
+- **Raw slices (`[]T`)**: a 0-length raw slice IS nil. The invariant is: `len(s) == 0` ↔ `s == nil` ↔ data pointer is null. There is no such thing as a non-nil empty raw slice. This simplifies reasoning: `s == nil` and `len(s) == 0` are interchangeable.
+
+- **Managed-slices (`@[]T`)**: nil when backing_refptr is null (no backing allocation). A managed-slice can be non-nil with a 0-length view (e.g., `s[0:0]` on a non-empty slice) — the backing is still alive and capacity is available. When backing_len is 0, all fields must be null/0 (no degenerate empty-backing states). The data pointer always points within the backing when the backing exists, even for 0-length views — this keeps capacity computable.
+
+(Previous position was that slices could not be compared to nil at all. Revised to match practical usage and clarify the raw/managed distinction.)
 
 **Indexing**: zero-based. `s[i]` reads/writes element. `s[low:high]` creates a sub-slice (exclusive end). `s[:]`, `s[low:]`, `s[:high]` are shorthand forms. All bounds-checked.
 
