@@ -37,17 +37,8 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Spec: temporaries are unnamed locals in a statement-level implicit scope, released at statement end
 - See claude-notes.md "Temporary lifetime" and claude-discussion-detailed-notes.md section 19.6
 
-### Remove implicit null termination from string literals
-- **Design change (2026-04-01)**: string literals no longer include a hidden null terminator. `"abc"` is 3 bytes `{'a','b','c'}`, natural type `[3]const char`, default `[]const char` with len=3. Explicit `"abc\0"` for C interop. Library helpers (not language features) can handle null termination.
-- **Bootstrap interpreter (Go)**: audit how string literals are stored and how `StringVal` / string-to-slice conversions work. Currently likely stores Go strings which are not null-terminated anyway, but the slice length and array natural type logic may assume N+1.
-- **Self-hosted interpreter (pkg/interp)**: audit `evalStringLiteral` or equivalent — check whether it appends a null byte or computes lengths as N+1.
-- **Self-hosted compiler (pkg/codegen, pkg/ir)**: audit `EmitStringToChars` / string literal emission in LLVM IR. Currently likely emits `c"abc\00"` with null — should emit `c"abc"` without. Check all `StringToChars`, `bn_string_to_chars`, and related codegen paths.
-- **Lexer (pkg/lexer, bootstrap)**: check whether the lexer includes the null in the token's string value.
-- **Type checker (pkg/types)**: string literal natural type should be `[N]const char` not `[N+1]const char`. Check type inference for string literals assigned to arrays.
-- **C runtime (`binate_runtime.c`)**: audit `bn_string_to_chars` and any other string helpers for null-termination assumptions.
-- **Conformance tests**: audit all tests that use string literals — check for assumptions about null terminators, `len()` values, or array sizes that assumed N+1.
-- **Grammar (grammar.ebnf)**: check if string literal semantics are specified there and update if so.
-- **Self-hosted source code**: audit all `"...\0"` in .bn files — some may have been manually adding nulls that were redundant under the old design but are now the correct way to get null termination. Others may need `\0` added if they pass strings to C.
+### ~~Remove implicit null termination from string literals~~ — DONE
+- All 3 environments updated: bootstrap (was already clean), compiler (LLVM constants no longer emit `\00`, `bn_print_string`/`bn_string_to_chars` take `(i8*, i64)`), self-hosted interpreter (`MakeStringVal` no longer appends `\0`, `strLen`/`strContent` removed)
 
 ### Audit and fix `*any` misuse as `void*`
 - `*any` is a pointer to an `any` interface value (2 words: data ptr + vtable ptr) — NOT equivalent to C's `void*`
@@ -62,10 +53,16 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Needed for: generics (`*T` where `T=Stringer`), out parameters, arrays of interfaces, containers
 - Implementation: grammar, parser, type checker, codegen, bootstrap interpreter
 
-### Unit test runners for all 3 modes
-- Ensure all 3 runners (bootstrap, selfhost interpreter, compiler) can run Binate unit tests (`-test` flag)
-- Currently unit tests may only be exercised via the bootstrap interpreter
-- Goal: unit tests run and pass in bootstrap, selfhost, and compiled modes, same as conformance tests
+### ~~Unit test runners for all 3 modes~~ — DONE
+- All 3 tools support `-test`/`--test`: bootstrap, bni, bnc
+- Unit test runner (`scripts/unittest/run.sh`) with modes: boot, boot-int, boot-comp, boot-comp-int
+- All pass (pkg/rt xfail'd in interpreter modes, passes in boot-comp)
+
+### Backfill negative conformance tests
+- The conformance test framework now supports `.error` files for negative tests (programs that should fail to compile/type-check)
+- Currently only 112_slice_nil_rejected exists
+- Need negative tests for at least: type mismatches, undeclared variables, wrong number of arguments, invalid type conversions, duplicate declarations, invalid nil usage on non-pointer types
+- Both bni and bnc now run the Binate type checker, so negative tests work across all modes
 
 ### Package directory organization and conventions
 - Think more carefully about `pkg/` directory structure and naming conventions for our own packages
@@ -115,17 +112,17 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - Cannot be compared to `nil` — check `len(s) == 0` for empty
 - `s = nil` is a bootstrap/codegen convenience, not the spec design
 
-**Managed slices (`@[]T`)** — three words: (data ptr, length, refptr)
+**Managed-slices (`@[]T`)** — four words: (data ptr, length, backing_refptr, backing_len)
 - Layout is prefix-compatible with `[]T` — first two words are identical
-- Refcounted via the refptr (field 2), which is a managed pointer to the backing allocation
+- Refcounted via the backing_refptr (field 2), which is a managed pointer to the backing allocation
+- backing_len (field 3) stores total element count for destructor cleanup
 - `@[]T` is syntactic sugar, distinct from `@([]T)` (managed pointer to raw slice)
 - `make_slice(T, n)` returns `@[]T` (new builtin, replaces old `make([]T, n)`)
 - `@[]T → []T` conversion: trivial extractvalue of fields 0,1 (OP_MANAGED_TO_RAW)
 - **Implemented in compiler**: type system (24 bytes), codegen (%BnManagedSlice), refcounting (extract refptr, call rt.RefInc/RefDec), make (calls rt.MakeManagedSlice), conversion (@[]T → []T)
 
 **Current code deviations from spec** (to fix):
-- `s = nil` for slices works in bootstrap (Go semantics leaking through) but shouldn't
-  exist per spec. Slices are value types; use `len(s) == 0`.
+- ~~`s = nil` for slices~~ — DONE: both type checkers now reject nil on slices. All code migrated to `len(s) == 0`.
 - ~~`append` has been removed from the language~~ — DONE (replaced by `buf.CharBuf`, `make_slice`, and per-type helpers)
 
 ### ~~Phase 2: Remove append + library buffer types~~ — DONE
