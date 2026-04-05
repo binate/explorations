@@ -81,6 +81,18 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Naming scheme (decided)**: `__dtor_anon_<type1>_<type2>_...` using dtorTypeSuffix encoding with package-qualified struct names (e.g., `mp_ast.File`). If name exceeds ~128 chars, use `__dtor_anon_h<hex_hash>` of the stringified type sequence. `linkonce_odr` for linker dedup.
 - Dtor depends only on field type sequence, not field names — so `struct{X @Node; Y int}` and `struct{A @Node; B int}` share a dtor.
 
+### Anonymous struct types in the compiler
+- Anonymous struct types (`struct { X int; Y @Node }`) don't compile at all — IR gen produces `alloca void` because `llvmType` falls through for unnamed structs. Xfail 113.
+- **Must support**: anonymous struct types as variable types, struct field types, function parameter types, and return types. These are part of the language spec (line 534 of claude-notes.md).
+- **Conformance tests needed**: anonymous struct as field type, as function param, as return value (all xfail boot-comp until codegen is fixed).
+- The IR gen needs to register anonymous struct types (assign them synthetic LLVM type names like `%anon.0` or based on field types) and handle them in `llvmType`, `emitAlloc`, `emitGetFieldPtr`, etc.
+
+### Function-local type declarations — design question
+- Go supports `type Foo struct { ... }` inside function bodies. Binate currently doesn't handle this in the compiler (works in bootstrap interpreter).
+- **Consider**: do we want function-local types at all? They're somewhat limited in Go (can't define methods on them in the same scope, can't use them outside the function).
+- If not, the parser should reject them. If yes, the IR gen needs to handle them (register the struct type when encountered in the function body).
+- Low priority — package-level types cover most use cases.
+
 ### Verify anonymous struct equivalence
 - Anonymous structs should use structural equivalence: same type iff field names AND types match in sequence (Go semantics)
 - Verify this is implemented correctly in both type checkers (bootstrap Go and self-hosted Binate)
