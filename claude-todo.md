@@ -63,16 +63,10 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Need negative tests for at least: type mismatches, undeclared variables, wrong number of arguments, invalid type conversions, duplicate declarations, invalid nil usage on non-pointer types
 - Both bni and bnc now run the Binate type checker, so negative tests work across all modes
 
-### Array element field access broken in compiled mode
-- `arr[i].Field` where arr is `[N]@T` returns zero in compiled mode (works in bootstrap)
-- The array load returns `@T` (managed pointer, i8*) but the selector `.Field` dereference doesn't work correctly — likely missing the managed-ptr-to-struct bitcast in the GEP chain
-- Also: array element assignment through struct selectors (`cont.Items[i] = v`) silently drops the store because the array path only handles `EXPR_IDENT` base, not `EXPR_SELECTOR`
-- Conformance test: 117_array_elem_field (xfail boot-comp)
-
-### Array element refcounting for managed pointers
-- Storing `@T` into `[N]@T` via `arr[i] = val` now emits RefInc/RefDec (added alongside array dtors)
-- BUT: this only works for local array variables (EXPR_IDENT base). Array fields accessed through selectors (`cont.Items[i] = v`) skip the array path entirely — the store is dropped.
-- Related to the selector-base array access issue above.
+### ~~Array element field access and selector-base array assignment~~ — FIXED
+- `arr[i].Field` where arr is `[N]@T`: genSelector now handles managed-ptr elements from genIndexPtr
+- `cont.Items[i] = v`: genControl and genIndexPtr now handle EXPR_SELECTOR base for arrays
+- Conformance tests: 117 (array elem field), 118 (selector array assign)
 
 ### Compiler must process package's own .bni file
 - When compiling a package, the compiler currently only processes `.bn` files via `GeneratePackage`. Struct types defined in the `.bni` are only seen through the import mechanism (as qualified names like `token.Token`).
