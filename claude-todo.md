@@ -75,17 +75,16 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Impact**: Simplifies destructor generation (local structs get local dtors, no qualified-name gymnastics). Also needed for correctness — struct type definitions need to be in the compiled output.
 - **Related**: Forward struct declarations in `.bni` (declare name only, define in `.bn`) — future feature, not yet needed.
 
-### Anonymous struct destructors
-- Anonymous structs with managed fields need destructors, but currently have no name to derive the dtor function name from
-- Also: anonymous structs don't compile correctly in boot-comp (LLVM "void type only allowed for function results" error — separate codegen bug) — xfail 113
-- **Naming scheme (decided)**: `__dtor_anon_<type1>_<type2>_...` using dtorTypeSuffix encoding with package-qualified struct names (e.g., `mp_ast.File`). If name exceeds ~128 chars, use `__dtor_anon_h<hex_hash>` of the stringified type sequence. `linkonce_odr` for linker dedup.
-- Dtor depends only on field type sequence, not field names — so `struct{X @Node; Y int}` and `struct{A @Node; B int}` share a dtor.
+### ~~Anonymous struct destructors~~ — DONE
+- Anonymous structs compile and work in boot-comp, including with managed fields
+- IR gen assigns synthetic names (`__anon_N`), deduplicates identical structs
+- Dtor naming uses field type sequence: `__dtor_anon_<type1>_<type2>_...` with hash fallback for long names
+- Conformance tests: 113 (anon struct dtor), 119-121 (field, param, return)
 
-### Anonymous struct types in the compiler
-- Anonymous struct types (`struct { X int; Y @Node }`) don't compile at all — IR gen produces `alloca void` because `llvmType` falls through for unnamed structs. Xfail 113.
-- **Must support**: anonymous struct types as variable types, struct field types, function parameter types, and return types. These are part of the language spec (line 534 of claude-notes.md).
-- **Conformance tests needed**: anonymous struct as field type, as function param, as return value (all xfail boot-comp until codegen is fixed).
-- The IR gen needs to register anonymous struct types (assign them synthetic LLVM type names like `%anon.0` or based on field types) and handle them in `llvmType`, `emitAlloc`, `emitGetFieldPtr`, etc.
+### ~~Anonymous struct types in the compiler~~ — DONE
+- IR gen assigns synthetic names (`__anon_N`), registers in moduleStructs, deduplicates identical field sequences
+- Works for variable types, struct fields, function parameters, return types
+- Conformance tests: 119 (field), 120 (param), 121 (return), 113 (dtor)
 
 ### Function-local type declarations — design question
 - Go supports `type Foo struct { ... }` inside function bodies. Binate currently doesn't handle this in the compiler (works in bootstrap interpreter).
