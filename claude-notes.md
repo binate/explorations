@@ -531,8 +531,9 @@ func (p *const Point) distance() float64 { ... }
 - `type byte = uint8` — alias, fully interchangeable. Cannot have methods.
 - Named structs via `type`: `type Point struct { x int; y int }` — the only way to declare a named struct (no `struct Point{...}` shorthand, like Go).
 - Distinct types from any type: pointers (`type Handle @SomeStruct`), slices (`type Buffer []uint8`), etc.
-- Anonymous struct types: `struct{x int}` — structural equivalence (two occurrences of the same shape = same type). `type Foo = struct{x int}` is an alias for the anonymous type.
+- Anonymous struct types: `struct{x int}` — structural equivalence (two occurrences of the same field sequence = same type). Equivalence requires both field **names** and **types** to match in order (following Go). `type Foo = struct{x int}` is an alias for the anonymous type.
 - Methods and `impl` require named types. Anonymous types cannot be receivers (Go's rule).
+- **Anonymous struct destructors**: dtor naming is based on field TYPE sequence only (not names), since cleanup logic depends only on types. Short names: `__dtor_anon_int_mp_Node_ms_uint8`. If the name exceeds ~128 characters, a hash of the stringified type sequence is used instead: `__dtor_anon_h<hex>`. `linkonce_odr` for linker dedup across modules.
 
 **Struct literals — DECIDED**:
 - Named fields: `Point{x: 1, y: 2}`

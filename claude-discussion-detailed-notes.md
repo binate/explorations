@@ -2047,3 +2047,26 @@ This is analogous to C's `struct foo;` forward declaration. Use cases:
 - Types whose layout is an implementation detail
 
 Not yet implemented. All current `.bni` struct definitions include full field lists.
+
+## 22. Anonymous struct equivalence and destructors
+
+### Structural equivalence
+
+Anonymous struct types use structural equivalence (following Go): two anonymous struct types are the same type iff their field sequences match in both **names** and **types**, in order. For example:
+
+- `struct { X int; Y int }` and `struct { X int; Y int }` are the same type
+- `struct { X int; Y int }` and `struct { Y int; X int }` are different (order matters)
+- `struct { X int; Y int }` and `struct { A int; B int }` are different (names matter)
+
+Named structs are never structurally equivalent — `type Point struct{...}` and `type Vec2 struct{...}` are distinct even if fields match. Only anonymous (unnamed) struct types use structural equivalence.
+
+### Destructor naming for anonymous structs
+
+Destructors need a function name, but anonymous structs have no name. The dtor is keyed on the field **type** sequence only (not names), because cleanup logic depends only on which fields need RefDec:
+
+- Short form: `__dtor_anon_<type1>_<type2>_...` using the same type suffix encoding as other dtors (e.g., `mp_Node` for `@Node`, `ms_uint8` for `@[]char`)
+- Hash fallback: if the name exceeds ~128 characters, use `__dtor_anon_h<hex_hash>` where the hash is computed from the stringified type sequence
+
+This means two anonymous structs with the same field types but different field names share a destructor — which is correct since destruction doesn't depend on field names.
+
+`linkonce_odr` linkage ensures cross-module deduplication by the linker.

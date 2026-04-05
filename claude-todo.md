@@ -77,12 +77,15 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ### Anonymous struct destructors
 - Anonymous structs with managed fields need destructors, but currently have no name to derive the dtor function name from
-- Also: anonymous structs don't compile correctly in boot-comp (LLVM "void type only allowed for function results" error) — xfail 113
-- Naming approach: generate a unique name from the struct's field types in sequence (e.g., `__dtor_int_@Node_@[]char`)
-  - Pro: reduces code duplication (identical field layouts share one dtor)
-  - Con: cross-package duplicates unless package name is included, in which case there's physical code duplication
-  - Alternative: counter-based names (`__dtor_anon_0`), simpler but potentially more duplicates
-- Low priority — anonymous structs with managed fields are rare in practice
+- Also: anonymous structs don't compile correctly in boot-comp (LLVM "void type only allowed for function results" error — separate codegen bug) — xfail 113
+- **Naming scheme (decided)**: `__dtor_anon_<type1>_<type2>_...` using dtorTypeSuffix encoding with package-qualified struct names (e.g., `mp_ast.File`). If name exceeds ~128 chars, use `__dtor_anon_h<hex_hash>` of the stringified type sequence. `linkonce_odr` for linker dedup.
+- Dtor depends only on field type sequence, not field names — so `struct{X @Node; Y int}` and `struct{A @Node; B int}` share a dtor.
+
+### Verify anonymous struct equivalence
+- Anonymous structs should use structural equivalence: same type iff field names AND types match in sequence (Go semantics)
+- Verify this is implemented correctly in both type checkers (bootstrap Go and self-hosted Binate)
+- Test cases: same fields same order (equal), reordered fields (not equal), same types different names (not equal)
+- See claude-notes.md and claude-discussion-detailed-notes.md section 22
 
 ### Package directory organization and conventions
 - Think more carefully about `pkg/` directory structure and naming conventions for our own packages
