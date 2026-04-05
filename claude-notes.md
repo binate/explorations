@@ -93,7 +93,7 @@ The **fast approach** (deferred optimization): when the source is expiring (last
 `char[]` (and arrays of unspecified size generally) are **slices** — a view into underlying data, not a container of data themselves.
 
 **Terminology — IMPORTANT**: "managed-slice" (hyphenated) refers specifically to `@[]T`,
-the 3-word type `(data_ptr, length, refptr)` created by `make_slice`. "Managed slice"
+the 4-word type `(data_ptr, length, backing_refptr, backing_len)` created by `make_slice`. "Managed slice"
 (two words, no hyphen) is ambiguous — it could mean `@[]T` (managed-slice) or `@([]T)`
 (a managed pointer to a raw slice). In these notes we use the hyphenated form
 "managed-slice" when referring to `@[]T` to avoid confusion.
@@ -140,19 +140,23 @@ Note: with both view length and backing length available, the Go-style "capacity
 
 **`append` — REMOVED**: `append` has been fully removed from the language (parser, type checker, IR gen, codegen, interpreter, all source code, tests, and conformance tests). Growable collections are a library concern: `buf.CharBuf` for strings, per-type append helpers that do O(n) copy for other types, and eventually a generic `Vec[T]` type. For known-size allocations, use `make_slice(T, n)` + indexed assignment. Note: with the 4-word managed-slice layout, a correct append is now technically feasible (capacity is computable), so this decision may be revisited.
 
-### Destructors and RefDec cleanup — DECIDED (2026-04-02)
+### Destructors and RefDec cleanup — IMPLEMENTED (2026-04-03)
 
 When a managed allocation's refcount hits zero, managed references inside it must be RefDec'd before the memory is freed. This is done via **destructors** — per-type generated functions passed to RefDec at each call site.
 
-**RefDec takes a destructor**: `RefDec(ptr, dtor)` where `dtor` is a function pointer (or nil). At each call site, the codegen knows the type being dec'd and passes the appropriate destructor. When refcount hits 0: call `dtor(ptr)` if non-nil, then `Free(ptr)`.
+**RefDec takes a destructor**: `RefDec(ptr *uint8, dtor *uint8)` where `dtor` is a function pointer (or nil). At each call site, the codegen knows the type being dec'd and passes the appropriate destructor. When refcount hits 0: call `dtor(ptr)` if non-nil, then `Free(ptr)`. The indirect call goes through a thin C stub (`c_call_dtor`) because the bootstrap subset doesn't support function pointer calls.
 
 **Destructors are separate from free_fn**: The `free_fn` in the management header is for custom allocator support (different deallocation strategies). The destructor handles deinitialization (decrementing managed fields). Deinitialization ≠ deallocation.
 
-**Struct destructors**: Generated for any struct with managed fields. Walks fields and RefDec's each `@T` and `@[]T` field.
+**Every type that `NeedsDestruction` gets a dtor** (generated at the IR level, backend-agnostic):
+- **Struct dtors** (`__dtor_<Name>`): walks fields, RefDec's `@T` fields with pointee dtor, calls managed-slice/array/struct dtors for inline fields.
+- **Managed-slice dtors** (`__dtor_ms_<elemType>`): checks `Refcount(backing) == 1`, iterates `backing_len` elements calling element cleanup, then RefDec's the backing. Generated even when elements don't need destruction (just RefDec backing).
+- **Array dtors** (`__dtor_arrN_<elemType>`): iterates N elements calling element cleanup. Per-size function (trampoline design for future interface vtables).
+- **Anonymous struct dtors** (`__dtor_anon_<type1>_<type2>_...`): named by field type sequence. Hash fallback (`__dtor_anon_h<hex>`) for names exceeding 128 characters.
 
-**Managed-slice backing destructors**: When a managed-slice's backing is freed, the destructor uses `backing_len` (from the 4-word managed-slice) to iterate all elements and RefDec each one. The destructor is keyed on the element type.
+**All dtors use `linkonce_odr`** for linker deduplication across modules.
 
-**Destructor is statically known**: At every RefDec call site, the type is known, so the destructor is looked up at compile time. No runtime type info needed.
+**Destructor is statically known**: At every RefDec call site, the type is known, so the destructor is resolved at compile time. No runtime type info needed. `OP_FUNC_ADDR` IR opcode produces function address as `i8*`.
 
 **Future optimization**: move/transfer ownership semantics to avoid refcount bumps (e.g., last use of a managed pointer skips the bump/decrement). Pure optimization, doesn't change semantics — deferred.
 
@@ -487,7 +491,7 @@ C-family, leaning toward Go's direction (clean, minimal, familiar).
 
 **Slice syntax — DECIDED**:
 - `[]T` = raw slice of T (two words: raw ptr, length)
-- `@[]T` = managed-slice of T (three words: raw ptr, length, managed ptr) — syntactic sugar
+- `@[]T` = managed-slice of T (four words: data ptr, length, backing refptr, backing len) — syntactic sugar
 - `*[]T` = raw pointer to a raw slice
 - `@([]T)` = managed pointer to a raw slice (parens break the `@[]` sugar)
 - `arr[low:high]` = slice expression (exclusive end, like Go)
@@ -657,23 +661,22 @@ all implemented.
 **Step 2 is complete** (self-hosted frontend and backend). All 10 packages of the
 self-hosted toolchain are implemented: `pkg/token`, `pkg/ast`, `pkg/lexer`, `pkg/parser`,
 `pkg/types`, `pkg/ir`, `pkg/codegen`, `pkg/linker`, `pkg/bootstrap`, and `pkg/interp`.
-The self-hosted interpreter (`cmd/bni`) passes all 94 conformance tests (4 skipped:
-`bit_cast` and pointer indexing are compiled-mode-only). The self-hosted compiler
-(`cmd/bnc`) produces native binaries via LLVM IR emission and system linking, passing
-all 98 conformance tests with zero failures and zero XFAILs.
+The self-hosted interpreter (`cmd/bni`) passes 110 conformance tests (11 skipped:
+`bit_cast`, pointer indexing, and rt-dependent tests are compiled-mode-only). The
+self-hosted compiler (`cmd/bnc`) produces native binaries via LLVM IR, passing all
+121 conformance tests with zero failures and zero skips.
 
 **Self-compilation works.** The bootstrap interprets `cmd/bnc` to compile itself,
 producing a native compiler binary. The self-compiled compiler passes all conformance
-tests. Gen2 compilation (gen1 compiles gen1) is the next frontier.
+tests. Gen2 compilation (gen1 compiles gen1) also passes.
 
-**Conformance test coverage**: 98 tests, run in 7 modes:
-- `bootstrap` — Go bootstrap interpreter runs `.bn` directly (94/98, 4 skip)
-- `selfhost` — bootstrap interprets `cmd/bni`, which runs `.bn` (94/98, 4 skip)
-- `double-interp` — bootstrap → cmd/bni → cmd/bni → `.bn`
-- `compiled` — bootstrap interprets `cmd/bnc`, compiles `.bn` to native (98/98)
-- `compiled-interp` — self-compiled interpreter binary runs `.bn`
-- `compiled-compiler` — self-compiled compiler binary compiles `.bn` to native
-- `gen2-compiler` — second-generation compiler (gen1 compiles gen1)
+**Conformance test coverage**: 121 tests, run in multiple modes:
+- `boot` — Go bootstrap interpreter runs `.bn` directly (110/121, 11 skip)
+- `boot-int` — bootstrap interprets `cmd/bni`, which runs `.bn` (110/121, 11 skip)
+- `boot-comp` — bootstrap interprets `cmd/bnc`, compiles `.bn` to native (121/121)
+- `boot-comp-int` — compiled interpreter binary runs `.bn`
+- `boot-comp-comp` — self-compiled compiler compiles `.bn`
+- `boot-comp-comp-comp` — gen2 compiler compiles `.bn`
 
 Note: many items marked "IN PROGRESS" above were resolved during the grammar
 specification phase (Phase 3). See `grammar.ebnf` for the authoritative specification
@@ -763,7 +766,7 @@ box(Point{x: 1, y: 2})  // @Point, allocate and init
   including `[]T` (→ `@([]T)`, managed ptr to raw slice) and `[k]T` (→ `@([k]T)`,
   managed ptr to fixed-size array). No size argument.
 - `make_slice(T, n)` takes an element type and runtime size. Returns `@[]T` (managed-slice
-  — the special 3-word type). This is the ONLY way to create runtime-sized managed-slices.
+  — the special 4-word type). This is the ONLY way to create runtime-sized managed-slices.
   Separate builtin because `make([]T, n)` is ambiguous (does it return `@([]T)`
   or `@[]T`?). **Always returns managed-slice** — a non-managed version makes no sense,
   since you'd be allocating memory with no way to free it.
