@@ -2027,3 +2027,23 @@ The overarching philosophy that emerged through discussion:
 - **The dual-mode story must be seamless.** Every design decision (memory model, type system, calling conventions) is evaluated partly on whether it supports transparent compiled/interpreted interop.
 - **Simplicity of use vs. simplicity of implementation.** These are distinct and sometimes in tension. The managed/raw split is the minimum complexity to serve both: managed for ergonomics (especially REPL), raw for implementation simplicity and systems work.
 - **Bridge the embedded gap.** Today, embedded developers use C for production and MicroPython for exploration — two separate worlds. Binate bridges this: one language for both, with the interpreter running alongside production code on the target device.
+
+## 21. `.bni` files and struct definitions
+
+### Struct definitions belong in `.bni` files
+
+In practice, struct type definitions are part of a package's public API — consumers need to know the layout to allocate, access fields, and pass values. The `.bni` file is the authoritative source for struct definitions.
+
+**Current convention**: All structs in the self-hosted toolchain are defined in `.bni` files only. The `.bn` files reference these types but don't redefine them. This is the normal pattern.
+
+**Compiler implication**: When compiling a package, the compiler MUST process the package's own `.bni` file in addition to its `.bn` files. Type definitions from the `.bni` are part of the package — they need to generate struct type definitions, destructor functions, etc. in the compiled output. This is different from the `.bni` files of *imported* packages, which are only used for declarations.
+
+### Forward struct declarations (future)
+
+A `.bni` file could contain a forward declaration: `type Foo struct` (no body). This says "Foo is a struct type exported by this package, but the full definition is in the `.bn` files." Consumers would not be able to allocate or access fields — only use it by pointer.
+
+This is analogous to C's `struct foo;` forward declaration. Use cases:
+- Opaque types (consumers only interact via functions, never see internals)
+- Types whose layout is an implementation detail
+
+Not yet implemented. All current `.bni` struct definitions include full field lists.

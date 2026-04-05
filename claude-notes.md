@@ -198,8 +198,8 @@ Benefits:
 
 ### Untyped pointers & casting — DECIDED
 
-- **Managed `*any`**: pointer to refcounted allocation of unknown type. Refcounting works (management info is in the allocation). Must cast to use the data.
-- **Raw `*any`**: just an address. Equivalent to C's `void*`.
+- **`*uint8`** is the opaque byte pointer type (equivalent to C's `void*`). Use `bit_cast` to convert to/from typed pointers. This is what `pkg/rt` uses for `Alloc`, `Free`, `RefInc`, `RefDec`, `Box`, etc.
+- **`any`** will eventually be the empty interface type (2 words: data ptr + vtable ptr). `*any` would then be a pointer to an interface value — NOT equivalent to `void*`. (Not yet implemented.)
 - **`cast(T, expr)`**: value conversion (e.g., `cast(int, myFloat)`). Explicit, required between named types.
 - **`bit_cast(T, expr)`**: reinterpret bits. No conversion, no checking. The "I know what I'm doing" escape hatch.
 - Both are builtins (like `make`), not functions — they take types as first arguments.
@@ -414,7 +414,11 @@ Explicit, declared interfaces with **separate `impl` declarations** and **method
 
 **Receiver smoothing**: compiler auto-converts at call sites. Safe direction only: managed → raw → value (copying). Cannot auto-promote raw → managed.
 
-**Package interface files**: can contain forward declarations of interfaces, types, impl declarations, and method signatures — without bodies.
+**Package interface files** (`.bni`): contain the public API of a package — type definitions, function signatures, constants. Bodies are omitted for functions (except generics, which need bodies for instantiation).
+
+**Struct definitions in `.bni` files**: A struct fully defined in the `.bni` is the **authoritative definition**. It does NOT need to be redefined in the `.bn` files. The `.bni` definition is compiled as part of the package — the compiler processes both `.bni` and `.bn` files.
+
+**Forward struct declarations** (future): A `.bni` could declare `type Foo struct` without fields, meaning "Foo exists, it's a struct, but the full definition is in the `.bn` files." This is analogous to C's `struct foo;` forward declaration. Not yet implemented — currently all struct definitions in `.bni` files are full definitions.
 
 **Impl syntax — DECIDED**: `impl Type : Interface, Interface2, ...`
 - Type-first, colon separator, comma-separated interfaces

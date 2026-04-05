@@ -22,7 +22,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **This is more tractable than it first appears.** The fix is to make the interpreter lay out data in memory the same way the compiler does:
   - Structs: fields at the same offsets with the same padding (matching `SizeOf`/`AlignOf`/`FieldOffset`)
   - `@T`: heap-allocated with the refcount header at negative offset (matching `rt.Alloc` layout)
-  - `@[]T`: `{data_ptr, len, refptr}` — same 3-word `%BnManagedSlice` layout
+  - `@[]T`: `{data_ptr, len, backing_refptr, backing_len}` — same 4-word `%BnManagedSlice` layout
   - `[]T`: `{data_ptr, len}` — same 2-word `%BnSlice` layout
   - Arrays: contiguous elements at `elem_size` stride
 - With ABI-compatible layout, `bit_cast(int, ptr)` is just reading the pointer address as an integer, and `ptr[i]` is pointer arithmetic — no simulated heap needed, just real memory operations on the interpreter's own heap.
@@ -40,12 +40,11 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 ### ~~Remove implicit null termination from string literals~~ — DONE
 - All 3 environments updated: bootstrap (was already clean), compiler (LLVM constants no longer emit `\00`, `bn_print_string`/`bn_string_to_chars` take `(i8*, i64)`), self-hosted interpreter (`MakeStringVal` no longer appends `\0`, `strLen`/`strContent` removed)
 
-### Audit and fix `*any` misuse as `void*`
-- `*any` is a pointer to an `any` interface value (2 words: data ptr + vtable ptr) — NOT equivalent to C's `void*`
-- Code currently uses `*any` where it means "untyped address" — this is semantically wrong
-- Replace with `*uint8` (or `*const uint8`) as the opaque byte pointer type, with `bit_cast` to recover the real type
-- Audit: design notes (claude-notes.md, claude-discussion-detailed-notes.md), grammar.ebnf, bootstrap interpreter (Go), all self-hosted Binate code (pkg/rt, pkg/ir, pkg/codegen, pkg/interp, pkg/linker, pkg/types, pkg/ast, pkg/lexer, pkg/parser, pkg/bootstrap, compile.bn, main.bn), and .bni interface files
-- Update design notes to document `*uint8` as the `void*` equivalent
+### ~~Audit and fix `*any` misuse as `void*`~~ — DONE
+- All `*any` in pkg/rt (.bn, .bni), tests, and conformance tests replaced with `*uint8`
+- No other Binate source files used `*any`
+- Design notes (claude-notes.md) updated: `*uint8` is the opaque byte pointer; `any` reserved for future empty interface type
+- `any` still registered in type checker universe scope (as `TypVoid()`) for forward compatibility
 
 ### Pointers to interface values
 - Interface values are regular value types — allow `*Iface`, `@(Iface)`, `*@Iface`, `@(@Iface)`, etc.
@@ -63,6 +62,22 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Currently only 112_slice_nil_rejected exists
 - Need negative tests for at least: type mismatches, undeclared variables, wrong number of arguments, invalid type conversions, duplicate declarations, invalid nil usage on non-pointer types
 - Both bni and bnc now run the Binate type checker, so negative tests work across all modes
+
+### Compiler must process package's own .bni file
+- When compiling a package, the compiler currently only processes `.bn` files via `GeneratePackage`. Struct types defined in the `.bni` are only seen through the import mechanism (as qualified names like `token.Token`).
+- **Problem**: Almost all structs are defined only in `.bni` files (not redefined in `.bn`). This means the package's own struct definitions aren't compiled as local types — they're treated as cross-package imports of itself.
+- **Fix**: The compiler should load and process the package's own `.bni` file when compiling. Struct definitions from the `.bni` should be registered as local (unqualified) types, just as if they were in a `.bn` file.
+- **Impact**: Simplifies destructor generation (local structs get local dtors, no qualified-name gymnastics). Also needed for correctness — struct type definitions need to be in the compiled output.
+- **Related**: Forward struct declarations in `.bni` (declare name only, define in `.bn`) — future feature, not yet needed.
+
+### Anonymous struct destructors
+- Anonymous structs with managed fields need destructors, but currently have no name to derive the dtor function name from
+- Also: anonymous structs don't compile correctly in boot-comp (LLVM "void type only allowed for function results" error) — xfail 113
+- Naming approach: generate a unique name from the struct's field types in sequence (e.g., `__dtor_int_@Node_@[]char`)
+  - Pro: reduces code duplication (identical field layouts share one dtor)
+  - Con: cross-package duplicates unless package name is included, in which case there's physical code duplication
+  - Alternative: counter-based names (`__dtor_anon_0`), simpler but potentially more duplicates
+- Low priority — anonymous structs with managed fields are rare in practice
 
 ### Package directory organization and conventions
 - Think more carefully about `pkg/` directory structure and naming conventions for our own packages
@@ -85,12 +100,10 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - All 98 conformance tests pass with self-compiled compiler (boot-comp-comp: 0 fail, 0 xfail)
 - Gen2 compiler (boot-comp-comp-comp) also passes 98/98
 
-### Re-enable rt.RefDec freeing (managed pointers only)
-- Freeing is disabled in `rt.RefDec` in `pkg/rt/rt.bn` (dec but no free on zero)
-- **Root cause identified**: writing `@T` into `[]@T` via `slice_set` doesn't emit `RefInc`. When a local `@T` goes out of scope, `RefDec` drops refcount to 0 and frees, even though the slice still references it. This caused the gen1 compiler crash (use-after-free in parser: AST decl nodes freed while still in `file.Decls`).
-- **Fix needed**: codegen must emit `RefInc` when storing a managed pointer into a raw slice element (`[]@T`), and `RefDec` when overwriting an existing element
-- Also disabled in `bn_alloc`-based `bn_box` path (C runtime still has `bn_alloc`)
-- Phase 1: implement slice element refcounting in codegen (IR gen + emit), then re-enable Free in rt.RefDec
+### ~~Re-enable rt.RefDec freeing~~ — DONE
+- Free is called in `rt.RefDec` when refcount hits 0
+- Slice element refcounting (RefInc on store, RefDec on overwrite) is implemented
+- Destructors call `dtor(ptr)` before `Free(ptr)` for struct types with managed fields
 
 ### ~~Codegen bugs (084-086)~~ — ALL FIXED
 - ~~**084**: `arr[:]` array-to-slice~~ — fixed: genSliceExpr builds BnSlice from array alloca
@@ -148,6 +161,22 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - Committed: `cc17909`
 
 ## Done
+
+### Struct destructors and managed-slice element cleanup
+- `rt.RefDec(ptr *uint8, dtor *uint8)` — dtor is called before Free when rc hits 0
+- `c_call_dtor` C stub for indirect function pointer call (bootstrap subset can't call fn ptrs)
+- `types.NeedsDestruction(t)` — recursive query for types requiring cleanup
+- `OP_FUNC_ADDR` — new IR opcode for function address as `i8*`
+- `generateStructDtors(m)` — generates `__dtor_<Name>` IR functions for structs with managed fields
+  - Handles local structs, .bni-only structs, and cross-package extern declarations
+- `emitManagedPtrRefDec(f, b, ptrVal)` — passes struct dtor to RefDec at all managed pointer cleanup sites
+- `emitManagedSliceRefDec` — emits element cleanup loop when element type needs destruction
+  - Checks `Refcount(backing) == 1` before iterating (only on last reference)
+  - Loops over `backing_len` elements, loads each, RefDec's with appropriate dtor
+  - Returns continuation block (callers updated across gen_util, gen_stmt, gen_flow, gen_expr, gen_control)
+- `*any` → `*uint8` migration in pkg/rt (opaque byte pointer, not interface pointer)
+- Conformance tests: 114 (struct dtor), 115 (slice element dtor)
+- Anonymous struct dtors: xfail 113, TODO for future (naming by field types)
 
 ### @[]T refcounting, OP_MAKE_SLICE migration, C runtime cleanup
 - Added `@[]T` refcounting: extract refptr (field 2), call rt.RefInc/RefDec at var declarations, assignments, field assignments, function params, scope exit, return cleanup
