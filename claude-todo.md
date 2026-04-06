@@ -18,11 +18,11 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - With ABI-compatible layout, `bit_cast(int, ptr)` is just reading the pointer address as an integer, and `ptr[i]` is pointer arithmetic — no simulated heap needed, just real memory operations on the interpreter's own heap.
 - **Scope**: this is a refactor of `pkg/interp`'s value representation, not a fundamental architecture change. The interpreter already tracks types, sizes, and refcounts — it just needs to store values in flat memory instead of tagged unions.
 
-### Temporary lifetime — partially investigated
-- **Function params**: FIXED — `@[]T → []T` conversion for function params and println no longer leaks. The temp stays in the cleanup list and is RefDec'd at end of statement (after the call returns). Conformance test 122.
-- **Assignment leak**: `var s []int = someManagedSliceTemp` still leaks — `consumeTemp` prevents the RefDec to avoid use-after-free (the raw slice variable outlives the statement). Fixing this requires scope-aware backing tracking or accepting the UAF as user error.
-- **Bootstrap interpreter**: not yet investigated. Does the bootstrap interpreter already release temporaries at statement boundaries?
-- **Broader design question**: should `var s []int = @[]T_temp` be a compile-time warning or error? The raw slice borrows a temporary that will be freed. Go avoids this by having GC; Binate has no GC.
+### ~~Temporary lifetime~~ — FIXED
+- All `consumeTemp` calls for `@[]T → []T` conversion removed. Temps stay in cleanup and get RefDec'd at end of statement. No more leaks.
+- If `var s []int = make_slice(int, 3)` causes UAF, that's user error (raw slice borrows a temporary). The compiler never leaks.
+- `bootstrap.Exec` signature changed to `[]@[]char` (was `[][]char`). bnc migrated to `@[]@[]char` throughout.
+- Conformance test: 122_temp_slice_param.
 
 ### ~~Compiler must process package's own .bni file~~ — DONE
 - `RegisterSelfTypes(pkg.BNI)` now handles struct types, type aliases, and constants from the package's own .bni file. Also fixed: moduleStructs[si].Fields was not being set.
