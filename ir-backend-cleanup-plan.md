@@ -46,6 +46,8 @@ See `ir-backend-guidelines.md` for the principles behind these decisions.
 - `codegen/emit.bn` calls the shared function instead of computing padding inline
 - Future ARM backend uses the same function
 
+See `layout-extraction-plan.md` for the detailed step-by-step plan covering Steps 1.1 and 1.2.
+
 **Depends on**: P1 (layout depends on target)
 
 ### 1.2. Extract field index mapping
