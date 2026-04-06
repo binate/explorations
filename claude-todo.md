@@ -6,6 +6,15 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
+### Linux/x86_64 compiled code segfaults
+- Compiled test binaries segfault on Linux/x86_64 (GitHub CI ubuntu-latest) but work on macOS/ARM64
+- **boot-comp**: only `pkg/token` TestPosString segfaults (string formatting via Concat/Itoa) — xfail'd for now
+- **boot-comp-int**: all packages segfault (compiled interpreter crashes immediately)
+- **boot-comp-comp**: all packages segfault (self-compiled compiler crashes — this is also the known frontier bug on macOS, but it may be a different root cause on Linux)
+- CI currently runs only `boot` and `boot-comp` modes; deeper modes need this fixed first
+- **Likely causes**: platform-dependent assumptions in the C runtime or generated LLVM IR (e.g., calling convention differences, struct layout assumptions, or stack alignment issues between ARM64 and x86_64)
+- **Approach**: reproduce on a Linux machine or in a container, run under valgrind/asan to find the crash
+
 ### Self-hosted interpreter: investigate boot-comp-int-int failures
 - boot-comp-int-int (compiled bni interprets bni which interprets test) fails 75/142 conformance tests and 11/14 unit test packages. The failing tests produce empty output (silent failure or hang).
 - **This is surprising**: boot-int (bootstrap interprets bni which interprets test) worked fine (128/142). boot-comp-int (compiled bni interprets test) works (129/142). So the self-hosted interpreter can interpret user programs, but breaks when interpreting *itself* interpreting a program.
