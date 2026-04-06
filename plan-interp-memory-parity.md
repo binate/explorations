@@ -2,135 +2,178 @@
 
 ## Goal
 
-Make the self-hosted interpreter (pkg/interp) store values in flat ABI-compatible memory, matching the compiled code's layout. This enables `bit_cast`, pointer indexing, and eventual dual-mode interop.
+Make the self-hosted interpreter (pkg/interp) store ALL values in flat ABI-compatible memory, matching the compiled code's layout. This enables `bit_cast`, pointer indexing, `&x` on locals, and eventual dual-mode interop.
 
 ## Current State
 
 The interpreter uses tagged-union `Value` objects:
 - Structs: `Fields @[]@Value` — array of boxed values
-- Slices: `Elems @[]@Value` — array of boxed values  
+- Slices: `Elems @[]@Value` — array of boxed values
 - Arrays: `Elems @[]@Value` — array of boxed values
 - Pointers: `HeapObj @HeapObject` → `Val @Value`
-- Scalars: `IntVal int`, `BoolVal bool`, `StrVal @[]char`
+- Scalars: `IntVal int`, `BoolVal bool`
 
 Problems:
 - No byte addresses to reinterpret (`bit_cast` can't work)
 - No pointer arithmetic (`ptr[i]` can't work)
+- Scalars in structs/arrays aren't at real memory offsets
+- `&x` on a local int doesn't produce a real address
 - Layout doesn't match compiled code (can't interop)
 
-## Design: Flat Memory Backing
+## Design: All Values in Flat Memory
 
-### Core Change
+### Core Principle
 
-Add a `Data *uint8` field to Value (or HeapObject) that points to a flat memory block with ABI-compatible layout. The interpreter allocates these blocks using `c_malloc` (via pkg/rt stubs or bootstrap.Alloc equivalent) and reads/writes values at computed byte offsets using `types.SizeOf`, `types.FieldOffset`, etc.
+Every value lives at a **real memory address** with ABI-compatible layout. The interpreter's expression evaluator produces either:
+- **lvalue**: an address (for assignment targets, `&x`, field/element access)
+- **rvalue**: a loaded value (for computation — ints in registers, structs as addresses)
 
-### Value Representation (After)
+### Value Representation
 
 ```
+// An interpreted value is an address + type.
+// For scalars used in computation, we cache the int/bool value
+// to avoid constant load/store for arithmetic.
 type Value struct {
-    Kind    int
-    Typ     @types.Type
-    Data    *uint8       // flat memory for this value (nil for scalars/nil)
-    IntVal  int          // still used for scalars (int, bool, untyped)
-    // ... other fields for func values, multi-returns, etc.
+    Addr  *uint8        // address where this value's bytes live
+    Typ   @types.Type   // type of the value at Addr
+    // Cached scalar (optimization — avoids reading from memory for arithmetic)
+    IntVal  int
+    BoolVal bool
+    Kind    int          // VAL_INT, VAL_BOOL for cached scalars; VAL_ADDR for address-based
 }
 ```
 
-**Scalars** (int, bool): stored in IntVal as before. `Data` is nil. `bit_cast(int, scalar)` just reinterprets IntVal.
+Actually, simpler: split into two concepts:
+- **Addr** (`*uint8`): a pointer to bytes in flat memory
+- **ScalarVal**: an int/bool in a register (for arithmetic)
 
-**Structs**: `Data` points to a malloc'd block of `SizeOf(structType)` bytes. Fields are at `FieldOffset(structType, i)`. Reading field i: read `SizeOf(fieldType)` bytes at `Data + FieldOffset(structType, i)`, interpret according to field type.
+Expression evaluation returns one or the other depending on context. `evalExpr` returns an `Addr` for lvalues and a loaded scalar for rvalues.
 
-**Arrays**: `Data` points to `N * SizeOf(elemType)` bytes. Element i is at `Data + i * SizeOf(elemType)`.
+### Memory Layout by Type
 
-**Raw slices** (`[]T`): `Data` points to 2 words: `{data_ptr, len}`. The `data_ptr` points to the element array. Element access: read `data_ptr`, compute `data_ptr + i * SizeOf(elemType)`.
+All layouts match compiled code (via `types.SizeOf`, `types.FieldOffset`, etc.):
 
-**Managed slices** (`@[]T`): `Data` points to 4 words: `{data_ptr, len, backing_refptr, backing_len}`. Same as raw slice for element access, plus refcount management through `backing_refptr`.
+| Type | Size | Layout |
+|------|------|--------|
+| `int` | 8 bytes | 8 bytes at addr |
+| `bool` | 1 byte | 1 byte at addr |
+| `int8`/`uint8` | 1 byte | 1 byte at addr |
+| `int32`/`uint32` | 4 bytes | 4 bytes at addr |
+| `*T` | 8 bytes | pointer value (address of target) |
+| `@T` | 8 bytes | pointer value (managed allocation payload) |
+| `[]T` | 16 bytes | `{data *uint8, len int}` |
+| `@[]T` | 32 bytes | `{data *uint8, len int, backing *uint8, backingLen int}` |
+| `[N]T` | `N * SizeOf(T)` bytes | contiguous elements |
+| `struct{...}` | `SizeOf(struct)` bytes | fields at `FieldOffset` with padding |
+| `string` | 8 bytes | pointer to char data (same as `i8*` in LLVM) |
 
-**Raw pointers** (`*T`): `Data` points to the target. Dereferencing: read/write at `Data` according to `T`'s layout.
+### Local Variable Storage
 
-**Managed pointers** (`@T`): `Data` points to a managed allocation (with refcount header at negative offset, matching `rt.Alloc` layout). The payload starts at `Data`. Dereferencing: same as raw pointer at `Data`.
+`var x int` → allocate `SizeOf(int)` = 8 bytes. Environment maps `"x"` → `*uint8` (the address).
 
-**Strings**: `Data` points to raw char data (same as `[]char` data pointer). Length tracked separately or via the slice representation.
+`var s struct{X int; Y bool}` → allocate `SizeOf(struct)` bytes. `s.X` = addr + `FieldOffset(struct, 0)`. `s.Y` = addr + `FieldOffset(struct, 1)`.
 
-### Key Operations
+`&x` → just return x's address. No boxing needed.
 
-**Read a value from flat memory** (`readValue(addr *uint8, typ @types.Type) @Value`):
-- Int/bool: read N bytes, return IntVal
-- Pointer/managed-ptr: read 8 bytes (pointer), return as Value with Data = that address
-- Struct: return Value with Data = addr (no copy needed for read)
-- Slice: read 16 bytes (data, len), return as Value
-- Managed-slice: read 32 bytes (data, len, backing, backingLen)
-- Array: return Value with Data = addr
+### Expression Evaluation
 
-**Write a value to flat memory** (`writeValue(addr *uint8, val @Value, typ @types.Type)`):
-- Int/bool: write N bytes from IntVal
-- Pointer/managed-ptr: write 8 bytes (the pointer address)
-- Struct: memcpy SizeOf(structType) bytes from val.Data to addr
-- Slice: write 16 bytes
-- Managed-slice: write 32 bytes
-- Array: memcpy N * SizeOf(elemType) bytes
+**Ident** (`x`): look up address in env, load value from that address.
 
-**Field access** (`val.Data + FieldOffset(structType, i)`): replace name-based lookup with offset computation.
+**Selector** (`s.X`): evaluate `s` to get struct address, compute `addr + FieldOffset(structType, fieldIndex)`.
 
-**Slice element** (`readPtr(val.Data + SliceDataOffset()) + i * SizeOf(elemType)`): replace `Elems[i]` with pointer arithmetic.
+**Index** (`a[i]`): evaluate `a` to get slice/array address. For slices: read `data_ptr` from `addr + SliceDataOffset()`, compute `data_ptr + i * SizeOf(elemType)`. For arrays: `addr + i * SizeOf(elemType)`.
 
-**bit_cast**: trivially reinterpret bytes at `Data`. `bit_cast(int, ptr)` = read 8 bytes as int. `bit_cast(*T, int)` = treat int as address.
+**Deref** (`*p`): evaluate `p` to get pointer address, read the pointer value from that address. The result is the target address.
 
-**Pointer indexing** (`ptr[i]`): `Data + i * SizeOf(elemType)`.
+**Address-of** (`&x`): evaluate `x` as an lvalue (get its address, don't load).
+
+**bit_cast** (`bit_cast(TargetType, val)`): evaluate `val`, get its address (or store scalar to temp), reinterpret the bytes at that address as TargetType.
+
+**Pointer indexing** (`p[i]`): evaluate `p` to get pointer value, compute `p_value + i * SizeOf(elemType)`.
 
 ### Managed Pointer Allocation
 
-`make(T)` allocates:
+`make(T)` allocates via `c_malloc`:
 ```
-[refcount (8 bytes)] [free_fn (8 bytes)] [payload (SizeOf(T) bytes)]
-                                          ^-- Data points here
+[refcount: 8 bytes] [free_fn: 8 bytes] [payload: SizeOf(T) bytes]
+                                         ^-- returned address
 ```
-This matches `rt.Alloc` layout. `Data - ManagedHeaderSize()` = header start.
+This matches `rt.Alloc`. Header at `addr - ManagedHeaderSize()`.
 
-### Migration Strategy
+RefInc: `*(int*)(addr - ManagedHeaderSize()) += 1`
+RefDec: `*(int*)(addr - ManagedHeaderSize()) -= 1; if 0, call dtor + free`
 
-**Phase 1: Add flat memory infrastructure**
-- Add `readInt`, `writeInt`, `readPtr`, `writePtr` helpers (byte-level memory access)
-- Add `readValue`, `writeValue` for type-aware read/write
-- Add `allocFlat(size int) *uint8` and `freeFlat(ptr *uint8)` wrappers
+### Slice Allocation
 
-**Phase 2: Migrate struct values**
-- `MakeStructVal` allocates flat memory, writes zero values at field offsets
-- Field read: `readValue(data + FieldOffset, fieldType)` instead of `Fields[i]`
-- Field write: `writeValue(data + FieldOffset, val, fieldType)` instead of `Fields[i] = val`
-- Remove `Fields @[]@Value` usage for structs
+`make_slice(T, n)` allocates backing via `c_malloc(n * SizeOf(T))` (with managed header), then constructs the 4-word managed-slice value:
+```
+{data = backing_payload, len = n, backing_refptr = backing_payload, backing_len = n}
+```
 
-**Phase 3: Migrate managed pointers**
-- `make(T)` allocates header + payload via `allocManaged(SizeOf(T))`
-- Dereference: read from `Data` using the pointee type
-- RefInc/RefDec: read/write refcount at `Data - ManagedHeaderSize()`
+### Assignment
 
-**Phase 4: Migrate slices and arrays**
-- `make_slice(T, n)` allocates backing + 4-word managed-slice value
-- Slice element access via pointer arithmetic on data_ptr
-- Array values stored as flat byte blocks
+`x = val`: write `SizeOf(type)` bytes from val to x's address.
 
-**Phase 5: Enable bit_cast and pointer indexing**
-- `bit_cast(int, ptr)` = read Data as int
-- `bit_cast(*T, int)` = create Value with Data = int-as-pointer
-- `ptr[i]` = Data + i * SizeOf(T)
-- Remove xfails for 090-093
+`s.X = val`: compute field address, write there.
 
-### Open Questions
+`a[i] = val`: compute element address, write there.
 
-1. **Should scalars also use flat memory?** Keeping IntVal for scalars avoids unnecessary indirection. But `bit_cast(float, int)` would need both to be in memory. Since Binate doesn't have floats yet, IntVal is fine for now.
+### Function Calls
 
-2. **Environment storage**: Variables are currently Name → HeapObject → Value. With flat memory, should variables just point to their flat memory location? E.g., `var x int` → allocate 8 bytes, env maps "x" → address. This would make `&x` trivial (just return the address).
+Arguments are passed by value: allocate parameter slots, `memcpy` from caller's memory to callee's parameter addresses. Return values: caller provides a return slot address.
 
-3. **String representation**: Strings are currently `@[]char`. In flat memory, a string literal would be a pointer to char data + length. This matches the `[]char` or `@[]char` representation.
+### String Handling
 
-4. **Bootstrap interpreter**: The Go bootstrap interpreter uses a completely different value model (Go interfaces). Parity with the bootstrap is NOT a goal — only parity with the compiled code matters.
+String literals: the interpreter stores them as `*uint8` (pointer to char data). A `[]char` from a string literal: `{data = charPtr, len = strlen}`. This matches the compiled representation.
 
-5. **Memory allocation**: The interpreter can use `c_malloc`/`c_free` (from pkg/rt stubs) or Go's `make([]uint8, n)` (via bootstrap). For the self-hosted interpreter running through the bootstrap, it would use bootstrap.Alloc or similar. For the compiled interpreter, it would use c_malloc directly.
+## Migration Strategy
 
-## Verification
+### Phase 1: Memory infrastructure
+- `interpAlloc(size int) *uint8` — malloc wrapper
+- `interpFree(ptr *uint8)` — free wrapper
+- `readInt(addr *uint8, size int) int` — read N bytes as int
+- `writeInt(addr *uint8, size int, val int)` — write int as N bytes
+- `readPtr(addr *uint8) *uint8` — read pointer from address
+- `writePtr(addr *uint8, val *uint8)` — write pointer to address
+- `memcpyInterp(dst *uint8, src *uint8, size int)` — byte copy
+- Unit tests for round-tripping values through flat memory
 
-After each phase:
-- Run conformance tests in boot-int mode
-- After Phase 5: xfails 090-093 should be removed
-- Unit tests for readValue/writeValue round-tripping
+### Phase 2: Environment and local variables
+- Environment maps name → `*uint8` (address) instead of name → `@Value`
+- `var x int` allocates 8 bytes, stores address in env
+- Variable read: `readInt(addr, SizeOf(type))`
+- Variable write: `writeInt(addr, SizeOf(type), val)`
+- Zero-initialization: `memset(addr, 0, SizeOf(type))`
+
+### Phase 3: Struct fields
+- Struct allocation: `interpAlloc(SizeOf(structType))`
+- Field read: `addr + FieldOffset(structType, i)`
+- Field write: write at computed offset
+- Remove `Fields @[]@Value` usage
+
+### Phase 4: Managed pointers
+- `make(T)`: allocate with managed header
+- Dereference: just use the payload address
+- RefInc/RefDec: read/write header at negative offset
+
+### Phase 5: Slices, arrays, strings
+- Slice values: 16/32-byte flat blocks
+- Array values: contiguous element blocks
+- Element access via pointer arithmetic
+- String → `[]char` conversion produces flat slice value
+
+### Phase 6: bit_cast and pointer indexing
+- `bit_cast(TargetType, val)`: reinterpret bytes
+- `ptr[i]`: pointer arithmetic
+- Remove xfails 090-093, 104-106
+
+## Open Questions
+
+1. **Scalar optimization**: Should the evaluator carry scalars as ints (avoiding load/store for `a + b`), or always go through memory? Recommendation: keep scalar optimization for arithmetic — store to temp memory only when address is needed (`&x`, `bit_cast`, passing to function).
+
+2. **Interpreter's own allocator**: Use `c_malloc`/`c_free` from rt_stubs, or the Go bootstrap's allocator? For the self-hosted interpreter running through the bootstrap, `c_malloc` is available. For the compiled interpreter, also `c_malloc`.
+
+3. **Garbage collection of interpreter memory**: The interpreter itself is GC'd (refcounted). The flat memory blocks are raw allocations that must be freed explicitly when variables go out of scope or managed pointers are RefDec'd to 0.
+
+4. **Bootstrap interpreter**: NOT changed. Only the self-hosted interpreter (pkg/interp) gets flat memory. The Go bootstrap keeps its interface-based Value model.
