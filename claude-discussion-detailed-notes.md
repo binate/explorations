@@ -2070,3 +2070,103 @@ Destructors need a function name, but anonymous structs have no name. The dtor i
 This means two anonymous structs with the same field types but different field names share a destructor — which is correct since destruction doesn't depend on field names.
 
 `linkonce_odr` linkage ensures cross-module deduplication by the linker.
+
+## 23. IR/Backend Split and Multi-Backend Strategy
+
+### Problem
+
+The initial compiler was built with a single backend (LLVM IR emission via `pkg/codegen`). This worked well for getting native binaries quickly, but the codegen package accumulated responsibilities that are language-semantic rather than LLVM-specific:
+
+- **Struct layout computation** — computing padding between fields, trailing padding, mapping logical field indices to physical indices that account for padding. This is determined by the type system and target architecture, not by LLVM.
+- **Name mangling** — the `bn_pkg__Name` convention is project-wide.
+- **String constant collection** — deduplicating string literals across all functions in a module.
+- **Runtime function declarations** — the set of runtime functions the generated code may call (25+ functions hardcoded as LLVM `declare` statements).
+- **Slice type representation** — the `%BnSlice = type { i8*, i64 }` definition encodes a language-level decision in LLVM syntax.
+
+When adding a second backend (direct ARM32 machine code emission), each of these would need to be reimplemented — incorrectly duplicating logic and creating divergence risk.
+
+### Decision: Shared Layer + Thin Backends
+
+The split is motivated not just by backend reuse but by the **compiler/interpreter interop requirement**. Binate's dual-mode execution means compiled and interpreted code share the same heap and call each other transparently. This requires the compiler (all backends) and interpreter to agree on the memory layout of every data type: structs, arrays, slices, managed-slices, managed pointer headers, and (future) interface values.
+
+If layout computation is embedded in a backend, the interpreter can't use it — or worse, reimplements it and diverges. A single authoritative layout layer ensures compiled and interpreted code see the same struct field offsets, slice sizes, and managed pointer headers. This is what makes seamless interop possible without marshalling.
+
+**Shared layer** handles everything derivable from the language spec and target parameters:
+
+1. **Type layout** (`pkg/types`): `SizeOf`, `AlignOf`, `FieldOffset` parameterized by `TargetInfo { PointerSize, IntSize, MaxAlign }`. Struct padding computation becomes a shared function rather than inline code in each backend.
+
+2. **Name mangling**: shared package (or in `pkg/ir`) provides `MangleFuncName`, `MangleGlobalName`, `MangleStructName`. All backends use the same symbol names.
+
+3. **String constants**: `ir.CollectStrings(module)` returns deduplicated string constants. Backends emit them in their format.
+
+4. **Runtime manifest**: a data description of required runtime functions (name, param types, return types, whether inlineable). Backends read this and emit declarations/implementations.
+
+5. **Slice/managed-slice layout**: abstract description (field count, field types, field semantics) in a shared location. Backends map to their concrete representations.
+
+**Backends** handle only target-specific concerns:
+
+- Instruction selection (IR ops → target instructions)
+- Register allocation (for native backends; LLVM does this itself)
+- Calling convention (argument passing, stack frame layout)
+- Type representation format (LLVM type strings, ARM register classes)
+- Binary format (ELF, Mach-O, `.ll` text)
+- Debug info format (DWARF metadata, etc.)
+- Linking strategy
+
+### Why Not Lower Everything in IR?
+
+An alternative is to lower high-level operations (slice get/set, bounds checks, refcount operations) to primitive operations (pointer arithmetic, loads, stores, branches) in the IR itself, so backends only see a small set of primitives.
+
+**Arguments for keeping high-level ops in IR:**
+- Backends can choose the best implementation (inline vs runtime call, target-specific instructions)
+- The IR remains readable and debuggable (you can see "this is a slice access" rather than "this is pointer arithmetic that happens to implement a slice access")
+- Optimization passes can reason about high-level semantics (e.g., "this bounds check is redundant because it's in a loop that already checked the range")
+
+**Arguments for lowering in IR:**
+- Backends become simpler (fewer operations to handle)
+- Less room for backends to diverge in behavior
+
+**Decision**: keep high-level operations in IR. The number of backends will be small (LLVM, ARM32, maybe Wasm), and the semantic information is valuable for future optimization passes. The shared layer provides the layout/sizing information backends need to lower correctly; the backends choose how to lower.
+
+### Slice Operations: Runtime Calls vs Inlining
+
+The current LLVM backend implements slice get/set/len/expr as calls to C runtime functions (`bn_slice_get_i64`, etc.). These are trivial operations (pointer arithmetic + load/store) that can be inlined.
+
+**For the LLVM backend**: runtime calls are acceptable — LLVM can inline them if the C runtime is compiled with LTO, and the function call overhead is small.
+
+**For native backends**: inlining is strongly preferred — it avoids the C runtime dependency entirely and is more efficient. A slice get is just `load(data + index * elemSize)` after a bounds check.
+
+The IR emits abstract `OP_SLICE_GET` etc. Each backend decides whether to inline or call.
+
+### Target Parameterization
+
+The compiler needs to support at least two targets: 64-bit x86 (current, via LLVM) and 32-bit ARM (new, direct machine code). Key differences:
+
+| Property | x86-64 | ARM32 |
+|----------|--------|-------|
+| Pointer size | 8 bytes | 4 bytes |
+| Int size | 8 bytes | 4 bytes |
+| Max alignment | 8 bytes | 4 bytes |
+| Managed ptr header | 16 bytes | 8 bytes |
+| Raw slice size | 16 bytes | 8 bytes |
+| Managed-slice size | 32 bytes | 16 bytes |
+
+All of these derive from `TargetInfo.PointerSize`. The type layout functions (`SizeOf`, `AlignOf`, `FieldOffset`) are parameterized by target, set once at compiler startup.
+
+The interpreter must use the same target-parameterized layout functions. When the interpreter runs alongside compiled code (the dual-mode interop scenario), it must access struct fields at the same offsets, allocate managed headers of the same size, and represent slices with the same word layout as the compiled code. The shared `pkg/types` layout layer is the single source of truth for both.
+
+### Testing Without Hardware
+
+32-bit ARM binaries are tested via QEMU user-mode emulation (`qemu-arm`). This runs a single statically-linked ARM32 Linux ELF binary on the host Mac, translating ARM instructions and forwarding Linux syscalls. No VM, no kernel boot, no disk image needed.
+
+The "Linux dependency" is minimal — just the syscall ABI (`write` for stdout, `exit_group` for exit, `mmap2` for page allocation). These are stable, well-documented, and serve as the natural platform abstraction boundary.
+
+### Memory Allocator
+
+A libc-free target needs its own allocator. The design:
+
+- **Page source** (platform-dependent): Linux uses `mmap2` syscall, bare metal carves from a known memory region. One function: `PageAlloc(size int) *uint8`.
+- **Allocator** (platform-independent, written in Binate): segregated free-list allocator on top of the page source. Handles `Alloc(size)` and `Free(ptr)` for the runtime's managed memory system.
+- **Pluggable**: different allocators can be swapped in (e.g., a debug allocator that detects use-after-free, a bump allocator for batch processing).
+
+This is a separate workstream from the backend and can be developed and tested independently.

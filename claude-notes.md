@@ -902,6 +902,34 @@ Phases 1–4 are complete. See `claude-plan-1.md` for the full record.
 5. **Inline assembly**: `#[asm("arch")]` annotation syntax proposed; deferred for initial self-hosting.
 6. **AST representation — DECIDED**: tagged unions (structs with `Kind int` fields). Without interfaces in the bootstrap subset, each AST node type (Expr, Stmt, Decl, TypeExpr) is a single struct with a Kind discriminator and union of fields. Managed pointers (`@Expr`, `@Stmt`) enable self-referential types. Two-pass type resolution (pre-register placeholders, then resolve) handles forward references.
 
+### IR/backend architecture — IN PROGRESS
+
+The compiler's backend layer needs to support multiple targets. The current LLVM backend (`pkg/codegen`) mixes language-semantic logic (struct layout, name mangling, runtime function declarations, string constant collection) with LLVM-specific code generation. This needs to be separated so that new backends (starting with 32-bit ARM) don't duplicate shared logic.
+
+**Key principle**: if two backends would compute the same thing, it belongs in a shared layer.
+
+**Hard constraint from dual-mode interop**: memory layout of all data types (structs, arrays, slices, managed-slices, managed pointer headers, future interface values) must be identical between the compiler (all backends) and the interpreter. They share the same heap and call each other via function pointers — any layout divergence means data corruption. This means layout is not a backend-internal decision; it is a language-level contract defined once in `pkg/types` and used by everything.
+
+**Shared layer** (IR, types, or new shared packages):
+- **Memory layout** — struct padding, slice/managed-slice/array/managed-pointer-header representation (parameterized by target). Used by all backends AND the interpreter.
+- Name mangling (`bn_pkg__Name` convention)
+- String constant collection and deduplication
+- Runtime function manifest (which functions the generated code may call)
+- Multi-return struct representation
+
+**Backend-specific**:
+- Instruction selection, register allocation, calling convention
+- Type representation format (LLVM types, ARM registers, etc.)
+- Binary/object format (ELF, Mach-O, `.ll` text)
+- Debug info format
+- Linking
+
+**Target parameterization**: `types.SizeOf`/`AlignOf`/`FieldOffset` must be parameterized by a `TargetInfo` (pointer size, int size, max alignment) rather than assuming 64-bit. This is a prerequisite for 32-bit ARM support.
+
+**Testing strategy**: 32-bit ARM binaries are tested via QEMU user-mode emulation (`qemu-arm`) on the development Mac. Binaries target Linux/ARM ELF format (minimal syscall usage: `write`, `exit_group`, `mmap2`). The conformance runner gets a `compiled-arm` mode.
+
+See `ir-backend-guidelines.md` for the full guidelines and `ir-backend-cleanup-plan.md` for the work plan.
+
 ### Testing convention — DECIDED
 
 Unit testing built into the toolchain with a lightweight, convention-based approach:
