@@ -6,16 +6,19 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
+### Self-hosted interpreter: investigate boot-comp-int-int failures
+- boot-comp-int-int (compiled bni interprets bni which interprets test) fails 75/142 conformance tests and 11/14 unit test packages. The failing tests produce empty output (silent failure or hang).
+- **This is surprising**: boot-int (bootstrap interprets bni which interprets test) worked fine (128/142). boot-comp-int (compiled bni interprets test) works (129/142). So the self-hosted interpreter can interpret user programs, but breaks when interpreting *itself* interpreting a program.
+- **Must investigate before flat memory migration**: the interpreter has fundamental bugs that should be fixed first, otherwise the flat memory migration will be fighting these bugs at the same time.
+- Likely causes: stack overflow from deep recursion, unhandled edge cases in self-interpretation (e.g., the interpreter's own use of managed slices/structs differs from user code patterns), or missing features in the self-hosted interpreter that the bootstrap handles.
+- **Approach**: compare a specific failing test (e.g., 003_variables) between boot-comp-int (passes) and boot-comp-int-int (fails) to isolate what goes wrong when the interpreter interprets itself.
+
 ### Self-hosted interpreter memory model parity with compiler
-- The self-hosted interpreter (cmd/bni / pkg/interp) currently uses a tagged-union value model (`VAL_INT`, `VAL_STRUCT`, `VAL_SLICE`, etc.) that doesn't correspond to flat memory. This means `bit_cast` and pointer indexing can't work because there are no real addresses to reinterpret or index into.
-- Currently XFAIL: 090 (bit_cast), 091 (pointer indexing), 092/093 (pkg/rt — depends on both)
-- **This is more tractable than it first appears.** The fix is to make the interpreter lay out data in memory the same way the compiler does:
-  - Structs: fields at the same offsets with the same padding (matching `SizeOf`/`AlignOf`/`FieldOffset`)
-  - `@T`: heap-allocated with the refcount header at negative offset (matching `rt.Alloc` layout)
-  - `@[]T`: `{data_ptr, len, backing_refptr, backing_len}` — same 4-word `%BnManagedSlice` layout
-  - `[]T`: `{data_ptr, len}` — same 2-word `%BnSlice` layout
-  - Arrays: contiguous elements at `elem_size` stride
-- With ABI-compatible layout, `bit_cast(int, ptr)` is just reading the pointer address as an integer, and `ptr[i]` is pointer arithmetic — no simulated heap needed, just real memory operations on the interpreter's own heap.
+- Plan: `explorations/plan-interp-memory-parity.md`
+- Phase 1 (done): infrastructure — `flat.bn` with readFlatValue/writeFlatValue, using bit_cast and pkg/rt
+- Phase 2 (started): scalar variables stored in flat memory — envDefine/envGet/envSet use flat addresses for ints
+- **Blocked on**: investigating boot-comp-int-int failures first (see above)
+- The interpreter no longer runs on the bootstrap (boot-int dropped). It only runs compiled (boot-comp-int and above). This means it can freely use bit_cast, pointer indexing, and pkg/rt.
 
 ### Binate type checker: duplicate function detection
 - The Binate type checker (pkg/types) does not detect duplicate function declarations within the same package
