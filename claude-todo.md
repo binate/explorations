@@ -25,9 +25,15 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Spec: temporaries are unnamed locals in a statement-level implicit scope, released at statement end
 - See claude-notes.md "Temporary lifetime" and claude-discussion-detailed-notes.md section 19.6
 
-### Compiler must process package's own .bni file
-- `RegisterSelfTypes(pkg.BNI)` partially handles this (struct types from .bni registered as local), but full .bni processing (constants, type aliases, etc.) is not done.
-- **Impact**: Simplifies destructor generation (local structs get local dtors). Also needed for completeness — all package-level definitions should come from the .bni.
+### ~~Compiler must process package's own .bni file~~ — DONE
+- `RegisterSelfTypes(pkg.BNI)` now handles struct types, type aliases, and constants from the package's own .bni file. Also fixed: moduleStructs[si].Fields was not being set.
+
+### Verify .bni vs .bn visibility semantics
+- Both `.bni` and `.bn` files can contain type declarations, constants, aliases, and globals
+- `.bni` declarations are public (visible to importers); `.bn` declarations are private
+- **Verify**: that declarations in `.bn` files are NOT accessible to importing packages
+- **Add negative conformance tests**: importing a private type/constant should fail to compile
+- **Check**: if the same name is declared in both `.bni` and `.bn`, does it cause duplicate registration errors?
 - **Related**: Forward struct declarations in `.bni` (declare name only, define in `.bn`) — future feature.
 
 ### Backfill negative conformance tests
