@@ -68,6 +68,12 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Current layout mixes toolchain internals with runtime and bootstrap support
 - Questions: should toolchain packages be under a sub-prefix? Where do future stdlib packages live?
 
+### Conformance tests: consider a separate repo
+- Running conformance tests in CI creates a circular dependency: the bootstrap repo needs the binate repo (which contains the test cases), and the binate repo needs the bootstrap binary (to run the tests)
+- Consider moving conformance tests to their own repo (e.g., `binate/conformance`) that both repos reference
+- This also gives a natural place for test infrastructure (run.sh, runners, xfail metadata) that doesn't belong to either the bootstrap or self-hosted repo
+- The unit test runner (`binate/scripts/unittest/`) has a similar issue — it's in the binate repo but the `boot` mode runs via Go in the bootstrap repo
+
 ### Standard library design
 - Candidates: growable collections (Vec[T], Map[K,V] post-generics), I/O abstractions, string utilities, formatting
 - CharBuf is implemented (pkg/buf); broader stdlib design should inform future collection APIs
