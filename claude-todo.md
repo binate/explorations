@@ -20,10 +20,19 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ### Self-hosted interpreter memory model parity with compiler
 - Plan: `explorations/plan-interp-memory-parity.md`
-- Phase 1 (done): infrastructure — `flat.bn` with readFlatValue/writeFlatValue, using bit_cast and pkg/rt
-- Phase 2 (started): scalar variables stored in flat memory — envDefine/envGet/envSet use flat addresses for ints
-- **Blocked on**: investigating boot-comp-int-int failures first (see above)
 - The interpreter no longer runs on the bootstrap (boot-int dropped). It only runs compiled (boot-comp-int and above). This means it can freely use bit_cast, pointer indexing, and pkg/rt.
+- **boot-comp-int: 134/142 conformance tests pass** (was 129 before this work)
+- Phase 1 (done): infrastructure — `flat.bn` with readFlatValue/writeFlatValue using bit_cast and pkg/rt
+- Phase 2 (done): scalar variables in flat memory — envDefine/envGet/envSet use flat addresses for ints
+- Phase 4 (done): raw slices in flat memory — `[]T` as `{data, len}` in 16 bytes. `arr[:]` creates flat slices.
+- bit_cast (done): pointer↔int, pointer↔pointer — 090 passes
+- Pointer indexing (done): `p[i]` read/write, `&arr[i]` — 091 passes
+- pkg/rt forwarding (done): c_malloc, Alloc, Free, RefInc, RefDec, Refcount, MakeManagedSlice — 092, 093, 104, 123 pass
+- Pointer comparison (done): `p == q` via RawAddr
+- String→[]char for flat slices (done): 079, 088 pass
+- C ABI sret fix (done): large struct returns from C externs on ARM64
+- **Remaining (8 xfails)**: 064 (Itoa @[]char forwarding), 105-106 (managed-slice refcounting), 108 (temp RefDec), 114-116 (destructors), 206 (duplicate function detection)
+- **Next**: managed-slice refcounting in the interpreter (make_slice returns real managed allocation, scope exit RefDec's, copy RefInc's)
 
 ### Binate type checker: duplicate function detection
 - The Binate type checker (pkg/types) does not detect duplicate function declarations within the same package
