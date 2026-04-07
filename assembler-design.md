@@ -167,6 +167,64 @@ Directives and instruction operands accept constant expressions:
 
 Label references in data directives emit relocations. Same-section label differences resolve at assembly time.
 
+## Core Data Structures — DECIDED
+
+```
+// A section being assembled
+Section:
+    name        []char
+    flags       uint        // read, write, execute, etc.
+    data        @[]uint8    // byte buffer (grows during assembly)
+    fixups      @[]Fixup    // unresolved references within this section
+
+// A fixup — an unresolved reference to a label
+Fixup:
+    offset      uint        // byte offset in section's data buffer
+    label       []char      // target label name
+    kind        int         // architecture-specific: AARCH64_BRANCH26, X86_REL32, etc.
+    addend      int         // constant to add to resolved address
+
+// A symbol in the symbol table
+Symbol:
+    name        []char
+    section     int         // index into section list (-1 for external/undefined)
+    offset      uint        // byte offset within section
+    binding     int         // LOCAL, GLOBAL, WEAK
+
+// A relocation — a fixup that couldn't be resolved internally
+// (cross-section or external), passed to the object file emitter
+Relocation:
+    section     int         // which section contains the reference
+    offset      uint        // byte offset in that section
+    symbol      int         // index into symbol table
+    kind        int         // architecture-specific relocation type
+    addend      int
+
+// The assembler itself
+Assembler:
+    sections    @[]@Section
+    symbols     @[]Symbol
+    current     int         // index of current section
+    arch        int         // target architecture
+    word_size   int         // 4 or 8
+```
+
+Growing byte buffers for section data use a `ByteBuf` type (aliased from or copied from `CharBuf`, since `char = uint8`). This is temporary until generics and a standard library provide a generic growable buffer.
+
+Symbol lookup is by linear scan over the symbol list. Sufficient for initial use; can be upgraded to sorted array + binary search if performance requires it.
+
+### Fixup resolution callback
+
+The shared core calls back into per-architecture code during `Finalize()` to patch fixup bytes. Each architecture provides a fixup resolver via function pointer:
+
+```
+// Per-architecture: given fixup kind, patch the bytes
+// Returns false if the fixup can't be resolved (e.g., out of range)
+ResolveFixup(data @[]uint8, fixup Fixup, target_addr uint, fixup_addr uint) bool
+```
+
+The core dispatches to the appropriate resolver based on the assembler's architecture. Using a function pointer (not interfaces) keeps this compatible with the bootstrap subset.
+
 ## Library API — DECIDED
 
 ### Architecture
@@ -246,12 +304,88 @@ aarch64.SubImm(a, SP, SP, frame_size)
 aarch64.Stp(a, FP, LR, SP, 0)
 ```
 
+## Instruction Encoding — DECIDED
+
+**Hand-coded** with ad hoc internal helper functions to reduce repetition. No table-driven encoding framework.
+
+ARM64 instructions are 32-bit fixed-width with regular field positions. Instruction families (data processing, loads/stores, branches, system) share encoding structure, so internal helpers handle the common bit layouts:
+
+```
+// Internal helper: emit a 32-bit instruction word
+func emit32(a @asm.Assembler, inst uint32) { ... }
+
+// Internal helper: data processing (register) — covers ADD, SUB, AND, ORR, etc.
+func dpReg(sf bool, opc uint32, rm uint8, rn uint8, rd uint8) uint32 { ... }
+
+// Internal helper: data processing (immediate)
+func dpImm(sf bool, opc uint32, imm uint32, rn uint8, rd uint8) uint32 { ... }
+
+// Public API dispatches on operand kind
+func Add(a @asm.Assembler, rd uint8, rn uint8, op Operand) {
+    if op.Kind == REG {
+        emit32(a, dpReg(isX(rd), 0x0B000000, op.Reg, rn, rd))
+    } else if op.Kind == IMM {
+        emit32(a, dpImm(isX(rd), 0x11000000, cast(uint32, op.Imm), rn, rd))
+    }
+    // ... shifted register, extended register
+}
+```
+
+This approach is simple, easy to audit per-instruction, and handles irregular encodings naturally (just write the special case). Helpers emerge organically from the encoding patterns.
+
+## Text Parser — DECIDED
+
+The CLI assembler reads `.s` files and produces the same sequence of operations as the library API.
+
+### Two-layer structure
+
+**Shared parser** — handles architecture-independent syntax:
+- `.arch` declaration (selects the per-arch instruction parser)
+- Directives (`.section`, `.global`, `.align`, data emission, etc.)
+- Labels (global and local)
+- Constants (`name = expr`)
+- Expression parsing (arithmetic, labels, `$`)
+- Comments
+
+**Per-architecture instruction parser** — handles one line of instruction text:
+- Parses the mnemonic (possibly with condition/size suffixes)
+- Parses operands in architecture-specific syntax (registers, addressing modes, shifts)
+- Calls the corresponding library emit function
+
+The shared parser reads a line: if it starts with `.`, it's a directive; if it ends with `:`, it's a label; if it matches `name = expr`, it's a constant; otherwise, hand it to the per-arch instruction parser.
+
+### Mnemonic dispatch
+
+A sorted array of `(mnemonic, handler_function_pointer)` entries per architecture. The handler receives the assembler and the remaining tokens on the line, parses operands, and calls the appropriate emit function. Binary search for lookup. ARM64 has ~200-300 mnemonics; sorted search is adequate.
+
+### Operand parsing
+
+Per-architecture. For ARM64, operands are parsed greedily — after parsing a register, check if the next token is a shift keyword (`lsl`, `lsr`, `asr`, `ror`) and if so, consume it as part of a compound shifted-register operand. Memory operands are bracketed (`[...]`) and unambiguous.
+
+### Error reporting
+
+Source location (file, line, column) attached to all errors:
+```
+foo.s:12:5: error: expected register, got '#42'
+foo.s:15:1: error: unknown mnemonic 'addd' (did you mean 'add'?)
+foo.s:20:15: error: immediate value out of range for ADD (got 8192, max 4095)
+```
+
+Range checking on immediates is important — ARM64 has specific ranges for different instruction forms.
+
+### Intentional limitations
+
+- No preprocessor (`#include`, `#define`, `#ifdef`)
+- No macros
+- No multi-file input (one `.s` in, one object file out; build system handles composition)
+- Line-oriented processing, no AST, no multi-pass analysis
+
 ## Deferred / TODO
 
 - **Convenience directives for Binate types**: emitting `[]const char` (pointer + length pair) or `@[]const char` (with sentinel refcount + managed-slice layout) directly from assembly. Useful for static string data consumed by Binate code. v2.
 - **Macros**: adds significant complexity. Binate can generate assembly programmatically via the library API. Defer unless hand-written assembly demand justifies it.
 - **Conditional assembly** (`.if`, `.ifdef`): same reasoning as macros. Defer.
 - **`.include`**: build system can handle file composition. Defer.
-- **Text parser**: the CLI assembler needs a parser that reads `.s` files and produces the same structures as the library API. Design TBD.
 - **Object format details**: exact flag syntax for `.section`, Mach-O segment/section mapping, ELF symbol types/sizes. TBD when implementing.
+- **CLI interface**: command-line flags, invocation syntax. TBD.
 - **LLVM backend integration**: whether/how the existing LLVM backend interacts with the assembler is TBD.

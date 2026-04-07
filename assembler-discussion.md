@@ -185,7 +185,79 @@ The compiler backend calls per-architecture emit functions directly, going from 
 
 ---
 
-## 4. Bootstrapping
+## 4. Core Data Structures
+
+### Growing byte buffers
+
+Sections accumulate bytes as instructions and data are emitted. Binate has no built-in `append` — growable collections are a library concern. The existing `CharBuf` type handles growable `[]char` buffers. Since `char = uint8`, a `ByteBuf` for section data can be type-aliased from `CharBuf` or trivially copied with `s/char/uint8/g`. This is pragmatic scaffolding until generics provide a proper `Vec[T]`.
+
+### Symbol lookup
+
+The self-hosted compiler uses linear scan everywhere — `Lookup()` in `pkg/types/scope.bn` iterates `@[]@Symbol` with `charEq` comparisons, as do field lookup, package lookup, and codegen symbol lookup. All O(n). This is sufficient for the compiler's symbol table sizes.
+
+The assembler will start with the same approach. For large assembly files (thousands of symbols), sorted array + binary search would be an upgrade, but linear scan is fine initially.
+
+### Fixup resolution: architecture callback
+
+The shared core needs to patch bytes during `Finalize()`, but the patching logic is architecture-specific — different fixup kinds mean different bit fields, scaling factors, and PC-relative calculations.
+
+**Approaches considered:**
+- **Interface method**: clean, but requires interfaces (not in bootstrap subset)
+- **Switch on architecture enum**: core dispatches to per-arch resolver based on `Assembler.arch`. Couples the core to all architectures.
+- **Function pointer**: the assembler stores a resolver function pointer set at initialization. Per-arch packages provide the resolver. Core is decoupled.
+
+**Chose function pointer** — keeps the core architecture-independent, works in the bootstrap subset, and is a single function pointer (not worth an interface even if interfaces were available).
+
+---
+
+## 5. Instruction Encoding
+
+### Hand-coded vs table-driven
+
+**Table-driven encoding** defines instructions as data (opcode pattern, operand field positions, bit widths) with a generic encoder that reads the tables. Benefits: tables can drive both assembly and disassembly, adding instructions is data not code, and the generic encoder is tested once. Costs: the framework is complex upfront, irregular encodings need escape hatches, and the table format is its own design problem.
+
+**Hand-coded encoding** writes a function (or shares a helper) per instruction family. Benefits: simple, easy to audit per-instruction, irregular encodings are just code. Costs: more code per architecture, disassembly requires separate work, and patterns may be duplicated.
+
+**Chose hand-coded** — simpler to get started, especially for ARM64 (likely first target). ARM64's fixed-width 32-bit instructions have enough regularity that internal helper functions naturally reduce duplication:
+
+- Data processing instructions (ADD, SUB, AND, ORR, etc.) share a common bit layout — one helper per form (register, immediate, shifted register, extended register)
+- Load/store instructions share encoding structure — helpers for immediate offset, register offset, pre/post-index
+- Branch instructions share a common layout — helpers for conditional, unconditional, compare-and-branch
+
+If the pattern of adding architectures later justifies it, a table-driven approach can be introduced — but it's not needed to ship the first architecture.
+
+---
+
+## 6. Text Parser
+
+### Design: line-oriented, two layers
+
+The text parser is intentionally simple — it's a line-oriented processor, not a full language parser. Read a line, parse it, call into the library, move on. No AST, no multi-pass analysis. The only state is the assembler itself (current section, symbol table, pending fixups).
+
+The shared layer handles all architecture-independent syntax. The per-architecture layer handles instruction parsing. This split means adding a new architecture to the text parser requires only writing the instruction parser — all directive/label/expression handling is shared.
+
+### Mnemonic dispatch: sorted array
+
+A sorted array of `(mnemonic, handler)` entries, searched with binary search. Each handler is a function pointer that receives the assembler and the remaining tokens, parses operands, and calls emit functions.
+
+**Alternatives considered:**
+- **Hash map**: faster lookup but requires a hash map implementation (not available in the bootstrap subset without writing one)
+- **Trie/prefix tree**: ARM64 mnemonics cluster by prefix, but the complexity isn't justified over sorted search for ~200-300 entries
+- **Linear scan**: fine for small instruction sets but O(n) per line parsed
+
+Sorted array is the right complexity level — O(log n) lookup with no extra data structure dependencies.
+
+### Operand parsing challenges
+
+ARM64 operand parsing has one notable complication: shifted register operands. In `add x0, x1, x2, lsl #3`, the comma-separated tokens are `x0`, `x1`, `x2`, `lsl #3` — but `x2, lsl #3` is a single compound operand (shifted register), not two operands. The parser handles this by greedy consumption: after parsing a register, check if the next token is a shift keyword and consume it as part of the operand.
+
+x86 (Intel syntax) has its own challenge: memory operand parsing (`[rbx+rcx*4+8]`) requires expression parsing within brackets, with the scale factor being a specific syntax element rather than general arithmetic.
+
+Both are manageable with per-architecture operand parsers — the shared expression parser handles the general case, and per-arch code handles the architecture-specific forms.
+
+---
+
+## 7. Bootstrapping
 
 The assembler is written in Binate. This raises the question of which subset of Binate to target:
 
@@ -197,7 +269,7 @@ The decision doesn't need to be made upfront — starting in the bootstrap subse
 
 ---
 
-## 5. Multi-Architecture Coverage
+## 8. Multi-Architecture Coverage
 
 ### Priority order
 
@@ -211,7 +283,7 @@ ARM32 binaries tested via QEMU user-mode emulation (`qemu-arm`) on the developme
 
 ---
 
-## 6. Object Format Output
+## 9. Object Format Output
 
 ### Pluggable format emission
 
