@@ -328,3 +328,66 @@ The original design used a function pointer (`*uint8`) in the `Assembler` struct
 ### Fixup ordering
 
 Fixups must be recorded *before* emitting the instruction, not after. `AddFixup` captures `CurrentOffset()` as the fixup location, so if it's called after `emit32`, the offset points past the instruction rather than at it. This was caught by the first branch resolution tests.
+
+---
+
+## 11. Bitmask Immediate Encoding
+
+### The problem
+
+AArch64 logical immediates (AND/ORR/EOR with immediate operands) use a compact N/immr/imms encoding that represents repeating bit patterns. Not all 64-bit values are encodable — only values consisting of a contiguous run of 1-bits within a power-of-2 sized element, tiled across the register.
+
+### The algorithm
+
+1. Reject all-zeros and all-ones (not encodable)
+2. For 32-bit operations, replicate the 32-bit value to fill 64 bits
+3. Find the smallest repeating element size by checking `ror64(value, half) == value` for decreasing sizes (64 → 32 → 16 → 8 → 4 → 2)
+4. Extract one element, count set bits
+5. Find the 0→1 transition point in the element ring — this is where the contiguous run of 1-bits starts
+6. Verify the 1-bits are actually contiguous
+7. Compute immr from the start position: `immr = (size - start) % size`
+8. Compute N and imms: N=1 for 64-bit elements, N=0 with a size-encoding prefix for smaller elements. `imms = ((~(2*size-1)) & 0x3f) | (ones-1)`
+
+### Bootstrap limitations encountered
+
+Three issues required workarounds:
+
+1. **4-value multiple return**: the bootstrap interpreter crashed on `func f() (bool, int, int, int)`. Solution: return a `BitmaskResult` struct instead.
+
+2. **Large hex literals**: `0xFFFFFFFFFFFFFFFF` causes the bootstrap's integer parser to panic ("invalid integer literal"). Solution: `allOnes64()` helper that builds the value from `(0xFFFFFFFF << 32) | 0xFFFFFFFF`.
+
+3. **Bitwise NOT operator**: `~x` may not be supported by the bootstrap. Solution: use `x ^ -1` instead.
+
+---
+
+## 12. Text Parser Implementation
+
+### Design confirmed: line-oriented, two layers
+
+The implemented parser follows the designed architecture exactly. Each line is lexed, then dispatched:
+- `.` prefix → directive
+- Identifier followed by `:` → label definition
+- Identifier followed by `=` → constant definition
+- Otherwise → instruction (dispatched to per-arch parser)
+
+### Lexer design
+
+A simple hand-written lexer that returns `(Lexer, Token)` pairs. The `Lexer` is a value type (position in source), so backtracking is trivial — just save the lexer state. This is used for peeking ahead (e.g., checking if an identifier is followed by `:` or `=`).
+
+Token text is stored as `@[]char` (managed-slice) — each identifier/string is a fresh copy. This is slightly wasteful but simple and correct.
+
+### Expression evaluation
+
+The expression parser uses recursive descent with standard precedence levels. Expressions are evaluated immediately (no AST) — this works because all expression values are compile-time constants.
+
+### AArch64 instruction parsing: operand ambiguity
+
+The main parsing challenge is **shifted register operands**. In `add x0, x1, x2, lsl #3`, the commas are ambiguous — is `lsl` a fourth operand or a modifier on `x2`? The parser handles this with greedy lookahead: after parsing a register in operand position, it peeks ahead for a shift keyword. If found, it consumes the shift as part of the operand.
+
+### Register name ambiguity
+
+Named registers `wzr`, `xzr` start with `w`/`x`, which is the same prefix as numbered registers `w0`–`w30`, `x0`–`x30`. The initial implementation tried numbered parsing first, which failed on `wzr` (the `z` isn't a digit). Fixed by checking named registers before attempting the `x`/`w` + digits pattern.
+
+### SP vs XZR encoding ambiguity
+
+Register 31 means SP in some instruction contexts (ADD/SUB immediate) and XZR in others (logical register operations). The text parser doesn't need to handle this — it passes register numbers to the library API, which already handles the disambiguation (e.g., `MOV` uses ADD when SP is involved).

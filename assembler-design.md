@@ -391,10 +391,10 @@ Section management, symbol table, labels, fixups, data emission (uint8/16/32/64,
 Operand tagged union (register, immediate, shifted register, memory modes, label). Comprehensive instruction coverage:
 
 - **Arithmetic**: ADD, SUB, ADDS, SUBS, MUL, MADD, MSUB, SDIV, UDIV, NEG
-- **Logical**: AND, ORR, EOR (register and shifted-register forms)
+- **Logical**: AND, ORR, EOR, ANDS (register, shifted-register, and bitmask immediate forms)
 - **Shift**: LSL, LSR, ASR (register and immediate), ROR (register)
 - **Move**: MOV (register, SP-aware, immediate), MOVZ, MOVK, MOVN
-- **Compare/test**: CMP, CMN, TST
+- **Compare/test**: CMP, CMN, TST (register and immediate)
 - **Conditional**: CSEL, CSINC
 - **Load/Store**: LDR, STR (unsigned/pre/post/register), LDRB, STRB, LDRH, STRH, LDRSB, LDRSH, LDRSW, LDP, STP
 - **Extend**: SXTB, SXTH, SXTW, UXTB, UXTH
@@ -402,7 +402,9 @@ Operand tagged union (register, immediate, shifted register, memory modes, label
 - **Address**: ADR, ADRP
 - **System**: NOP, SVC
 
-Fixup resolver handles BRANCH26, BRANCH19, BRANCH14, and ADR for same-section references. 41 unit tests.
+Bitmask immediate encoding (N/immr/imms) handles repeating bit patterns at element sizes 2–64, with rotated contiguous masks. Workarounds for bootstrap limitations (no `~` operator, no large hex literals, no 4-value multiple return).
+
+Fixup resolver handles BRANCH26, BRANCH19, BRANCH14, and ADR for same-section references. 46 unit tests.
 
 ### Mach-O emission (`pkg/asm/macho`) — IMPLEMENTED
 
@@ -415,17 +417,30 @@ Emits valid Mach-O MH_OBJECT files for AArch64 (or x86-64). Includes mach_header
 - Multiply and divide (MUL, SDIV)
 - Conditional select (CSEL)
 
-61 tests total across all packages.
+### Text parser (`pkg/asm/parse`) — IMPLEMENTED
+
+Line-oriented text assembly parser with two-layer architecture:
+
+**Lexer**: identifiers, integers (decimal/hex/binary/octal), strings, characters, all assembly punctuation tokens. Handles `//` comments.
+
+**Expression parser**: full precedence — `|`, `^`, `&`, `<<`/`>>`, `+`/`-`, `*`/`/`/`%`, unary `-`/`~`. Parentheses, integer/char literals, `$` for current position.
+
+**Directive parser**: `.arch`, `.section`, `.global`/`.local`/`.weak`, data emission (`.uint8` through `.uint64` and signed variants), `.ascii`, `.asciz`, `.align`, `.zero`, `.fill`. Labels (global and NASM-style local scoping). Constants (`name = expr`).
+
+**AArch64 instruction parser**: register parsing (x0-x30, w0-w30, sp, xzr, wzr, fp, lr), operand parsing (#immediates, [memory] modes with pre/post-index, shifted registers), condition codes for B.cond. Covers: add, sub, adds, subs, and, orr, eor, mul, sdiv, udiv, lsl, lsr, asr, ldr, str, cmp, b, bl, br, blr, b.cond, cbz, cbnz, svc, nop, ret.
+
+23 tests including end-to-end: parse text → assemble → Mach-O → link → run.
+
+89 tests total across all packages.
 
 ## Deferred / TODO
 
-- **Logical immediate encoding**: AND/ORR/EOR with immediate operands. AArch64's bitmask immediate encoding is complex (N/immr/imms fields). Important for compiler backends.
+- **CLI tool** (`cmd/bnas`): command-line entry point that reads a `.s` file and produces a `.o` file. The parser and Mach-O emitter are ready; this is just the main() wrapper.
 - **ELF emission**: needed for Linux/CI targets. Same core data model, different serialization.
-- **Text parser**: CLI assembler that reads `.s` files. Designed (see above) but not yet implemented.
+- **More instruction parser coverage**: MOV, memory instructions (ldrb, ldrh, stp, ldp), extend instructions, etc. are in the library API but not yet in the text parser.
 - **Convenience directives for Binate types**: emitting `[]const char` or `@[]const char` from assembly. v2.
 - **Macros**: adds significant complexity. Binate can generate assembly programmatically via the library API. Defer unless hand-written assembly demand justifies it.
 - **Conditional assembly** (`.if`, `.ifdef`): same reasoning as macros. Defer.
 - **`.include`**: build system can handle file composition. Defer.
-- **CLI interface**: command-line flags, invocation syntax. TBD.
 - **LLVM backend integration**: whether/how the existing LLVM backend interacts with the assembler is TBD.
 - **ARM32 and x86-64 backends**: designed to be added as separate per-arch packages following the AArch64 pattern.
