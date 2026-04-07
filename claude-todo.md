@@ -6,12 +6,10 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
-### Linux/x86-64: boot-comp-comp string corruption
-- **boot and boot-comp PASS on CI** (x86-64 Linux). The sret fix for C ABI struct returns works correctly for boot-comp.
-- **boot-comp-comp and boot-comp-comp-comp FAIL**: the gen1 compiler (compiled by boot-comp) produces garbage filenames when calling clang. Output looks like raw pointer values (e.g., `<A0><97><FF><9E><C8>U`) — suggests `@[]char` / `BnManagedSlice` data is being misinterpreted.
-- **Root cause unknown**: sret is correctly applied to `bootstrap.Concat` and `bootstrap.Itoa` declarations. The boot-comp compiler (interpreted bnc) correctly compiles programs that call Concat. But the gen1 compiler (compiled bnc binary) fails when IT calls Concat to build clang args. This suggests a difference in how the self-compiled binary handles `@[]char` return values vs the interpreted path.
-- **CI currently runs basic modes** (boot, boot-comp, boot-comp-int) which all pass.
-- **Approach**: reproduce on x86-64, compare LLVM IR from boot-comp vs boot-comp-comp for a simple Concat call. Check if the gen1 binary's code for `appendRawCharSlice` / `compileLL` differs from what the interpreted bnc produces.
+### ~~Linux/x86-64: boot-comp-comp string corruption~~ — FIXED
+- **Root cause**: use-after-free in `cmd/bnc/test.bn`. `runtimePath` was declared as `[]char` (raw slice) instead of `@[]char` (managed). When the `candidate @[]char` from `bootstrap.Concat(root, "/runtime/binate_runtime.c")` went out of scope, it was RefDec'd and freed — but `runtimePath` still borrowed its data, creating a dangling pointer. The garbage filenames were freed memory being read as strings.
+- **Fix**: changed `var runtimePath []char` to `var runtimePath @[]char = buf.CopyStr(cli.RuntimePath)` in test.bn, matching the pattern already used in main.bn.
+- **CI now runs all modes** including boot-comp-comp and boot-comp-comp-comp.
 
 ### Self-hosted interpreter: investigate boot-comp-int-int failures
 - boot-comp-int-int (compiled bni interprets bni which interprets test) fails 75/142 conformance tests and 11/14 unit test packages. The failing tests produce empty output (silent failure or hang).
