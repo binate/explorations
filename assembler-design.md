@@ -4,7 +4,7 @@
 
 - Multi-architecture assembler for use with Binate's native compiler backends
 - Library with a thin CLI wrapper — the compiler backend calls the library directly, the CLI provides a standalone tool for hand-written assembly
-- Written in Binate, in a separate repo
+- Written in Binate, in the binate repo (alongside the compiler and interpreter — avoids cross-repo dependency issues; can split out later once boundaries stabilize)
 - Support multiple architectures: ARM32 (highest priority), AArch64 (practical for development), x86-64 (CI, common Linux)
 - Pluggable object format output: ELF, Mach-O
 
