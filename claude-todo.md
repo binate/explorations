@@ -6,14 +6,12 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
-### Linux/x86_64 compiled code segfaults
-- Compiled test binaries segfault on Linux/x86_64 (GitHub CI ubuntu-latest) but work on macOS/ARM64
-- **boot-comp**: only `pkg/token` TestPosString segfaults (string formatting via Concat/Itoa) — xfail'd for now
-- **boot-comp-int**: all packages segfault (compiled interpreter crashes immediately)
-- **boot-comp-comp**: all packages segfault (self-compiled compiler crashes — this is also the known frontier bug on macOS, but it may be a different root cause on Linux)
-- CI currently runs only `boot` and `boot-comp` modes; deeper modes need this fixed first
-- **Likely causes**: platform-dependent assumptions in the C runtime or generated LLVM IR (e.g., calling convention differences, struct layout assumptions, or stack alignment issues between ARM64 and x86_64)
-- **Approach**: reproduce on a Linux machine or in a container, run under valgrind/asan to find the crash
+### Linux/x86-64: boot-comp-comp string corruption
+- **boot and boot-comp PASS on CI** (x86-64 Linux). The sret fix for C ABI struct returns works correctly for boot-comp.
+- **boot-comp-comp and boot-comp-comp-comp FAIL**: the gen1 compiler (compiled by boot-comp) produces garbage filenames when calling clang. Output looks like raw pointer values (e.g., `<A0><97><FF><9E><C8>U`) — suggests `@[]char` / `BnManagedSlice` data is being misinterpreted.
+- **Root cause unknown**: sret is correctly applied to `bootstrap.Concat` and `bootstrap.Itoa` declarations. The boot-comp compiler (interpreted bnc) correctly compiles programs that call Concat. But the gen1 compiler (compiled bnc binary) fails when IT calls Concat to build clang args. This suggests a difference in how the self-compiled binary handles `@[]char` return values vs the interpreted path.
+- **CI currently runs basic modes** (boot, boot-comp, boot-comp-int) which all pass.
+- **Approach**: reproduce on x86-64, compare LLVM IR from boot-comp vs boot-comp-comp for a simple Concat call. Check if the gen1 binary's code for `appendRawCharSlice` / `compileLL` differs from what the interpreted bnc produces.
 
 ### Self-hosted interpreter: investigate boot-comp-int-int failures
 - boot-comp-int-int (compiled bni interprets bni which interprets test) fails 75/142 conformance tests and 11/14 unit test packages. The failing tests produce empty output (silent failure or hang).
