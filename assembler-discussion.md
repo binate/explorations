@@ -285,12 +285,46 @@ ARM32 binaries tested via QEMU user-mode emulation (`qemu-arm`) on the developme
 
 ## 9. Object Format Output
 
-### Pluggable format emission
+### Mach-O implementation
 
-The shared core produces architecture-independent data structures (sections with bytes, symbol table, relocation list). Per-format packages serialize these to ELF or Mach-O.
+Mach-O MH_OBJECT emission is implemented. The emitter writes:
+- `mach_header_64` with correct CPU type/subtype
+- `LC_SEGMENT_64` with per-section headers, mapping assembler section names to Mach-O conventions (`text` → `__TEXT,__text`, `data` → `__DATA,__data`, etc.)
+- Section data with inter-section alignment
+- Relocation entries (`relocation_info` structs) between section data and symbol table, mapping assembler fixup kinds to Mach-O ARM64 relocation types
+- `LC_SYMTAB` with `nlist_64` entries and string table
+- `LC_BUILD_VERSION` for macOS platform identification (suppresses linker warnings)
 
-**Practical order**: Mach-O may come first (primary dev machine), ELF for ARM32/Linux targets. Both should be straightforward since the core data model maps cleanly to either format.
+The section name mapping is abstract — assembler code uses `text`, `data`, `rodata`, `bss` and the emitter maps to format-specific names. This keeps assembly files portable across object formats.
 
-### Format-specific concerns deferred
+### Relocation mapping
 
-Exact details of ELF section flags, Mach-O segment/section mapping, symbol table entries, relocation encoding, and debug info format are deferred to implementation time. The design accommodates them without prescribing specifics.
+Assembler fixup kinds map to Mach-O types:
+- `FIX_BRANCH26` → `ARM64_RELOC_BRANCH26`
+- `FIX_ADR_LO21` / `FIX_ADRP_HI21` → `ARM64_RELOC_PAGE21`
+- Generic absolute (kind 0) → `ARM64_RELOC_UNSIGNED`
+
+The relocation entry packs symbol index, PC-relative flag, length, extern flag, and type into the `r_symbolnum`/flags word per Mach-O spec.
+
+### ELF emission — deferred
+
+ELF emission follows the same pattern: same core data structures, different serialization. The section naming is simpler for ELF (assembler names map directly with a `.` prefix). Deferred until Linux/CI targets are needed.
+
+---
+
+## 10. Fixup Resolution Without Function Pointers
+
+### The bootstrap subset constraint
+
+The original design used a function pointer (`*uint8`) in the `Assembler` struct for per-architecture fixup resolution. This doesn't work in the bootstrap subset — the bootstrap interpreter can't call through function pointers (only `c_call_dtor` in the C runtime supports indirect calls, and that's a special case for destructors).
+
+**Approaches considered:**
+- **Function pointer callback**: clean but doesn't work in bootstrap subset
+- **Architecture enum dispatch in core**: the core switches on `Assembler.arch` and calls per-arch code. Couples the core to all architectures.
+- **Per-arch ResolveFixups function**: each architecture provides a `ResolveFixups(a)` function that the user calls explicitly before `Finalize`.
+
+**Chose per-arch ResolveFixups** — the user calls `aarch64.ResolveFixups(a)` then `asm.Finalize(a)`. The core stays architecture-independent, it works in the bootstrap subset, and the two-call pattern is explicit about what's happening. Resolved fixups are marked with `Kind = -1` so `Finalize` skips them.
+
+### Fixup ordering
+
+Fixups must be recorded *before* emitting the instruction, not after. `AddFixup` captures `CurrentOffset()` as the fixup location, so if it's called after `emit32`, the offset points past the instruction rather than at it. This was caught by the first branch resolution tests.

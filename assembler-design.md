@@ -380,12 +380,52 @@ Range checking on immediates is important — ARM64 has specific ranges for diff
 - No multi-file input (one `.s` in, one object file out; build system handles composition)
 - Line-oriented processing, no AST, no multi-pass analysis
 
+## Implementation Status
+
+### Shared core (`pkg/asm`) — IMPLEMENTED
+
+Section management, symbol table, labels, fixups, data emission (uint8/16/32/64, asciz, align, zero, fill), fixup resolution with per-arch callbacks, finalization (unresolved fixups become relocations). 12 unit tests.
+
+### AArch64 encoding (`pkg/asm/aarch64`) — IMPLEMENTED
+
+Operand tagged union (register, immediate, shifted register, memory modes, label). Comprehensive instruction coverage:
+
+- **Arithmetic**: ADD, SUB, ADDS, SUBS, MUL, MADD, MSUB, SDIV, UDIV, NEG
+- **Logical**: AND, ORR, EOR (register and shifted-register forms)
+- **Shift**: LSL, LSR, ASR (register and immediate), ROR (register)
+- **Move**: MOV (register, SP-aware, immediate), MOVZ, MOVK, MOVN
+- **Compare/test**: CMP, CMN, TST
+- **Conditional**: CSEL, CSINC
+- **Load/Store**: LDR, STR (unsigned/pre/post/register), LDRB, STRB, LDRH, STRH, LDRSB, LDRSH, LDRSW, LDP, STP
+- **Extend**: SXTB, SXTH, SXTW, UXTB, UXTH
+- **Branches**: B, BL, BR, BLR, RET, B.cond, CBZ, CBNZ, TBZ, TBNZ
+- **Address**: ADR, ADRP
+- **System**: NOP, SVC
+
+Fixup resolver handles BRANCH26, BRANCH19, BRANCH14, and ADR for same-section references. 41 unit tests.
+
+### Mach-O emission (`pkg/asm/macho`) — IMPLEMENTED
+
+Emits valid Mach-O MH_OBJECT files for AArch64 (or x86-64). Includes mach_header_64, LC_SEGMENT_64 with section headers, LC_SYMTAB, LC_BUILD_VERSION, relocation entries (ARM64_RELOC_BRANCH26, ARM64_RELOC_UNSIGNED, etc.). 8 tests including end-to-end tests that assemble, link with the system linker, and run the resulting executable:
+
+- Loop with backward branch (sum 1..9 = 45)
+- Conditional branch (CBNZ)
+- Function call (BL with prologue/epilogue)
+- Cross-object linking (external BL relocation)
+- Multiply and divide (MUL, SDIV)
+- Conditional select (CSEL)
+
+61 tests total across all packages.
+
 ## Deferred / TODO
 
-- **Convenience directives for Binate types**: emitting `[]const char` (pointer + length pair) or `@[]const char` (with sentinel refcount + managed-slice layout) directly from assembly. Useful for static string data consumed by Binate code. v2.
+- **Logical immediate encoding**: AND/ORR/EOR with immediate operands. AArch64's bitmask immediate encoding is complex (N/immr/imms fields). Important for compiler backends.
+- **ELF emission**: needed for Linux/CI targets. Same core data model, different serialization.
+- **Text parser**: CLI assembler that reads `.s` files. Designed (see above) but not yet implemented.
+- **Convenience directives for Binate types**: emitting `[]const char` or `@[]const char` from assembly. v2.
 - **Macros**: adds significant complexity. Binate can generate assembly programmatically via the library API. Defer unless hand-written assembly demand justifies it.
 - **Conditional assembly** (`.if`, `.ifdef`): same reasoning as macros. Defer.
 - **`.include`**: build system can handle file composition. Defer.
-- **Object format details**: exact flag syntax for `.section`, Mach-O segment/section mapping, ELF symbol types/sizes. TBD when implementing.
 - **CLI interface**: command-line flags, invocation syntax. TBD.
 - **LLVM backend integration**: whether/how the existing LLVM backend interacts with the assembler is TBD.
+- **ARM32 and x86-64 backends**: designed to be added as separate per-arch packages following the AArch64 pattern.
