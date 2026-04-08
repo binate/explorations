@@ -82,12 +82,10 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - If not, the parser should reject them. If yes, the IR gen needs to handle them.
 - Low priority — package-level types cover most use cases.
 
-### ARM32 assembler: end-to-end testing via QEMU
-- Assemble ARM32 `.s` → ELF32 `.o` → link with ARM32 cross-toolchain → run under `qemu-arm`
-- Validates the full pipeline: parser → encoder → ELF32 → linker → execution
-- Requires: `qemu-arm` (or `qemu-arm-static`), ARM32 cross-linker (`arm-linux-gnueabihf-gcc` or similar)
-- Tests should skip gracefully when QEMU/cross-tools aren't available (like the Mach-O link-and-run tests)
-- Test cases: exit code via SVC, loop with backward branch, function call with PUSH/POP prologue/epilogue
+### x86-64 assembler: end-to-end tests on Linux CI
+- Assemble x86-64 → ELF64 → link → run natively (no QEMU needed)
+- CI runs Linux x86-64 so this would be a native end-to-end test
+- Test cases: exit via SYSCALL, loop, function call with PUSH/POP
 
 ### Clean up conformance tests to use array literal + `arr[:]` pattern
 - `arr[:]` works in compiled mode; conformance tests using `make_slice` + indexed assignment for static data could use `[N]T{...}` + `arr[:]` instead
@@ -137,6 +135,21 @@ Binate is NOT Go. The two types of slice are intentionally different:
 ---
 
 ## Done (session 2026-04-08)
+
+### x86-64 assembler backend — IMPLEMENTED
+- **pkg/asm/x64**: full x86-64 instruction encoding with REX prefix, ModR/M, SIB byte. MOV, PUSH/POP, LEA, ADD/SUB/AND/OR/XOR/CMP/TEST, INC/DEC/NEG/NOT, SHL/SHR/SAR, IMUL (2 and 3 operand)/IDIV/DIV, CQO/CDQ, JMP/Jcc/CALL/RET, NOP/SYSCALL/INT. 40 unit tests.
+- **x86-64 text parser**: register parsing (4 sizes × 16 regs), memory operands with `[base + index*scale + disp]`, size prefixes, Jcc mnemonic parsing. Full parity with encoding backend. 28 parser tests.
+- **ELF relocation mapping**: FIX_REL32 → R_X86_64_PC32, FIX_ABS64 → R_X86_64_64.
+- 295 tests total across all assembler packages.
+
+### AArch64 parser: MVN added, full parity
+- Added MVN (bitwise NOT) to encoding backend and parser. MVN Rd, Op2 = ORN Rd, XZR, Op2. AArch64 parser now has full parity with encoding backend. 3 encoding tests + 1 parser test.
+
+### ARM32 semihosting end-to-end tests — IMPLEMENTED
+- 3 tests: exit code, loop (sum 1..9=45), function call (PUSH/POP with BL)
+- Uses `qemu-system-arm -semihosting` with SYS_EXIT_EXTENDED (0x20) for exit code passthrough
+- Linked with `arm-none-eabi-ld` as bare-metal at 0x40000000 (virt machine)
+- Fixed ELF symbol table ordering (locals before globals, required by GNU ld)
 
 ### ARM32 assembler backend — IMPLEMENTED
 - **pkg/asm/arm32**: full ARMv7-A instruction encoding (data processing, load/store, load/store multiple, branches, multiply, system). Rotated 8-bit immediate encoder. All instructions accept condition codes. 73 unit tests.
