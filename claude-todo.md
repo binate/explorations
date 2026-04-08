@@ -128,6 +128,13 @@ Binate is NOT Go. The two types of slice are intentionally different:
 
 ---
 
+## Done (session 2026-04-08)
+
+### 4-word managed-slice migration — finalized
+- **Conformance test 129**: subslice preserving backing_len. Creates `@[]int` of 5 elements, subslices to `s[1:3]` (len=2), verifies backing_len stays 5. Also tests double-subslice. Xfail'd in interpreter modes (bit_cast on managed-slice layout).
+- **Bootstrap interpreter**: confirmed no changes needed. The Go-side `SliceVal` doesn't need a `BackingLen` field — `rt.ManagedSlice` is a regular Binate struct interpreted normally via field access. The bootstrap's `SliceVal` is only used for actual `[]T`/`@[]T` values, not the `rt.ManagedSlice` struct type.
+- **Status**: all plan steps complete (type system, LLVM type def, runtime struct, make_slice codegen, subslice codegen, string-to-managed-chars, interpreter flat memory, unit tests, conformance tests).
+
 ## Done (session 2026-04-07)
 
 ### Interpreter flat memory: fix 4 struct regressions + 2 new bugs
