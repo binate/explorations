@@ -102,33 +102,19 @@ See `layout-extraction-plan.md` for the detailed step-by-step plan covering Step
 
 **Depends on**: Nothing (independent)
 
-## Phase 2: Slice Operation Inlining
+## Phase 2: Slice Operation Inlining — DONE
 
-### 2.1. Audit C runtime slice operations
+Analysis complete. See `slice-operations-analysis.md` for the full writeup.
 
-**What**: The C runtime (`binate_runtime.c`) implements slice get/set/len/expr as function calls. For a libc-free backend, these need to be either inlined or reimplemented in Binate.
+**Decision**: keep high-level IR ops (`OP_SLICE_GET`, etc.) and let each backend choose how to lower them. The LLVM backend continues using runtime calls; native backends should inline as pointer arithmetic + load/store.
 
-**Where**: `runtime/binate_runtime.c`, `pkg/codegen/emit_slice.bn`
-
-**Details**:
-- `bn_slice_get_i8/i64(s, i)` → `s.data[i]` — trivial pointer arithmetic + load
-- `bn_slice_set_i8/i64(s, i, v)` → `s.data[i] = v` — trivial pointer arithmetic + store
-- `bn_slice_get_struct(s, i, elemSize)` → `s.data + i * elemSize` — returns pointer
-- `bn_slice_set_struct(s, i, src, elemSize)` → memcpy into `s.data + i * elemSize`
-- `bn_slice_expr_i8/i64/struct(s, lo, hi)` → `{ s.data + lo * elemSize, hi - lo }` with bounds check
-- `bn_slice_len(s)` → `s.len` — trivial field access
-- `bn_make_slice(elemSize, len)` → calloc + pack into struct
-- `bn_slice_free(s)` → free(s.data)
-
-**Outcome**: Document which can be trivially inlined and which genuinely need runtime support (make_slice needs an allocator, slice_free needs a deallocator).
-
-### 2.2. Define IR-level lowering for simple slice ops
-
-**What**: For slice operations that are trivial (get, set, len, expr), consider whether the IR should lower them to pointer arithmetic + load/store *before* the backend sees them. This would eliminate per-backend reimplementation.
-
-**Alternative**: Keep them as high-level IR ops and let each backend choose to inline or call. This is simpler if backends are few.
-
-**Decision needed**: IR-level lowering vs backend-level inlining. Recommendation: keep as high-level IR ops for now (the LLVM backend already works with runtime calls), but document the expected semantics so native backends can inline them.
+**Key findings**:
+- Slice get/set/len are trivially inlineable (1–3 instructions, no allocator needed)
+- Slice expressions and make_slice need an allocator but are otherwise simple
+- I/O functions must remain as runtime calls or syscalls
+- Bounds checking is already a separate IR op, so inline lowering can skip redundant checks
+- **Bug found**: raw slice `s[lo:hi]` in C runtime copies data instead of producing a zero-copy view. Tracked in TODO.
+- The `Inlineable` field in `ir.RuntimeFunc` (added in Phase 1) already marks the right functions
 
 ## Phase 3: Runtime Abstraction
 
