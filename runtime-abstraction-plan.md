@@ -7,7 +7,7 @@ Work plan for decoupling the compiler from the C runtime, enabling libc-free tar
 The compiled Binate program depends on two C files at link time:
 
 1. **`runtime/binate_runtime.c`** (~480 lines) — provides:
-   - Slice operations (get/set/len/expr/free/make/append) — 16 functions
+   - Slice operations (get/set/len/expr/free/make) — 13 functions
    - String conversion (`string_to_chars`) — 1 function
    - I/O (`print_string`, `print_int`, `print_bool`, `print_newline`, `print_chars`, `exit`) — 6 functions
    - Bootstrap package (file I/O, process control, `Itoa`, `Concat`) — 11 functions
@@ -21,7 +21,7 @@ Additionally, **`pkg/rt`** (written in Binate) implements higher-level memory ma
 - `Alloc`, `Free`, `RefInc`, `RefDec`, `Refcount`, `Box`, `BoundsCheck`, `MakeManagedSlice`
 - Managed pointer header: 16 bytes (refcount + destructor function pointer) at negative offset from payload
 
-The IR runtime manifest (`pkg/ir/runtime.bn`) lists 22 C runtime functions. 10 of these are marked `Inlineable` (slice get/set/len/expr — see `slice-operations-analysis.md`).
+The IR runtime manifest (`pkg/ir/runtime.bn`) lists 19 C runtime functions. 10 of these are marked `Inlineable` (slice get/set/len/expr — see `slice-operations-analysis.md`). The legacy `bn_append_*` functions have been removed (dead code — no IR opcode, no callers).
 
 ## Goals
 
@@ -113,8 +113,6 @@ Key insight: `pkg/rt` is already written in Binate. The only C dependency is the
 - `bn_slice_free(s)` — `free(s.data)` → use `rt.c_free`
 
 **Why separate from 3.1**: These need the allocator (malloc/calloc/free), so they're slightly more complex.
-
-**Note**: The `bn_append_*` functions are legacy (being phased out in favor of managed-slice operations) and are not part of this step.
 
 **Depends on**: Nothing (can be done in parallel with 3.1)
 

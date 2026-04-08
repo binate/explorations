@@ -74,11 +74,9 @@ These require OS interaction and must remain as runtime calls (either C function
 **`bn_print_chars(s)`** — prints slice contents via `fwrite`
 **`bn_exit(code)`** — exits process
 
-### Append Operations (special case)
+### Append Operations — REMOVED
 
-**`bn_append_i8/i64/struct`** — reallocate and append one element. These use `realloc`, which is allocator-dependent. A native backend with its own allocator would implement these differently (probably alloc new + copy + free old, since a free-list allocator typically doesn't support realloc).
-
-These currently return `BnSlice` (raw), which means the old slice's data pointer is invalidated. This is a footgun — callers must not hold aliases to the old data. The append functions are used in the bootstrap interpreter but are being phased out of the self-hosted code in favor of managed-slice operations.
+The `bn_append_i8/i64/struct` functions have been removed. They were dead code — no IR opcode, no codegen emission, no callers in the self-hosted compiler.
 
 ## Bounds Checking
 
@@ -133,7 +131,7 @@ A native backend (e.g., ARM32) should:
 | slice_expr_* | yes | needs alloc+memcpy | inline with allocator |
 | make_slice | yes | needs calloc | inline with allocator |
 | string_to_chars | yes | needs alloc+memcpy | inline with allocator |
-| append_* | yes | needs realloc | inline with allocator |
+| ~~append_*~~ | ~~yes~~ | ~~needs realloc~~ | **removed** (dead code) |
 | print_* | no | no | runtime call or syscall |
 | exit | no | no | runtime call or syscall |
 
