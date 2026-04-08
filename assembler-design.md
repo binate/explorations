@@ -404,7 +404,7 @@ Operand tagged union (register, immediate, shifted register, memory modes, label
 
 Bitmask immediate encoding (N/immr/imms) handles repeating bit patterns at element sizes 2–64, with rotated contiguous masks. Workarounds for bootstrap limitations (no `~` operator, no large hex literals, no 4-value multiple return).
 
-Fixup resolver handles BRANCH26, BRANCH19, BRANCH14, and ADR for same-section references. 46 unit tests.
+Fixup resolver handles BRANCH26, BRANCH19, BRANCH14, and ADR for same-section references. 49 unit tests.
 
 ### ARM32 encoding (`pkg/asm/arm32`) — IMPLEMENTED
 
@@ -447,7 +447,7 @@ Line-oriented text assembly parser with two-layer architecture:
 
 **Directive parser**: `.arch`, `.section`, `.global`/`.local`/`.weak`, data emission (`.uint8` through `.uint64` and signed variants), `.ascii`, `.asciz`, `.align`, `.zero`, `.fill`. Labels (global and NASM-style local scoping). Constants (`name = expr`).
 
-**AArch64 instruction parser**: register parsing (x0-x30, w0-w30, sp, xzr, wzr, fp, lr), operand parsing (#immediates, [memory] modes with pre/post-index, shifted registers), condition codes for B.cond. Covers all instructions in the AArch64 encoding backend.
+**AArch64 instruction parser**: register parsing (x0-x30, w0-w30, sp, xzr, wzr, fp, lr), operand parsing (#immediates, [memory] modes with pre/post-index, shifted registers), condition codes for B.cond. Full parity with the AArch64 encoding backend.
 
 **ARM32 instruction parser**: register parsing (r0-r15, sp, lr, pc, fp, ip), operand parsing (#immediates, [memory] with all addressing modes, shifted registers, register-shifted registers), register list parsing (`{r0-r7, lr}`). Condition suffix stripping from mnemonics (`addeq` → ADD+EQ, `adds` → ADD+S, `addseq` → ADD+S+EQ). Covers all instructions in the ARM32 encoding backend.
 
@@ -455,13 +455,12 @@ Line-oriented text assembly parser with two-layer architecture:
 
 Command-line assembler: reads a `.s` file, assembles it, writes a `.o` file. Supports `-o` output path (default: input with `.s` → `.o`). 3 unit tests.
 
-65 parser tests, 220 tests total across all assembler packages.
+66 parser tests, 227 tests total across all assembler packages.
 
 ## Deferred / TODO
 
 - **End-to-end testing via QEMU**: assemble ARM32 `.s` → ELF32 → link → run under `qemu-arm` to validate the full pipeline.
 - **x86-64 encoding backend**: instruction encoding library following the AArch64/ARM32 pattern.
-- **More AArch64 instruction parser coverage**: MOV, memory instructions (ldrb, ldrh, stp, ldp), extend instructions, etc. are in the library API but not yet in the text parser.
 - **Convenience directives for Binate types**: emitting `[]const char` or `@[]const char` from assembly. v2.
 - **Macros**: adds significant complexity. Binate can generate assembly programmatically via the library API. Defer unless hand-written assembly demand justifies it.
 - **Conditional assembly** (`.if`, `.ifdef`): same reasoning as macros. Defer.
