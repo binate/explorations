@@ -52,6 +52,14 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Needs edge case testing: nested anonymous structs, anonymous struct with managed fields, cross-package anonymous struct equivalence
 - See claude-discussion-detailed-notes.md section 22
 
+### Raw slice subslice expression copies data (bug)
+- `bn_slice_expr_i8/i64/struct` in `binate_runtime.c` allocate a new buffer and copy. This is wrong — raw slice `s[lo:hi]` should produce a zero-copy view `{s.data + lo * elemSize, hi - lo}`, since raw slices are borrowed views.
+- The copy breaks borrowing semantics: mutations to the subslice don't affect the original.
+- `@[]T` subslice is already correct (codegen adjusts data/len, preserves backing refptr).
+- **Fix**: change C runtime to return `{s.data + lo * elemSize, hi - lo}` without allocating.
+- **Conformance tests needed**: test that mutating a subslice affects the original (e.g., `s := arr[:]; sub := s[1:3]; sub[0] = 99; assert s[1] == 99`). Test for both `[]T` and `@[]T`.
+- See `explorations/slice-operations-analysis.md`.
+
 ### Continue backfilling negative conformance tests
 - 19 negative tests exist (112, 200-210, 214-220), covering type mismatches, undeclared vars, wrong args, nil semantics, operators, comparisons, field access, indexing, non-function calls, managed pointer misuse, multi-return, undefined types
 - `.error` files now use `grep -E` regex matching (patterns like `(foo|bar)` match across type checkers)

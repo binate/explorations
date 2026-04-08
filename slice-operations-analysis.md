@@ -47,7 +47,7 @@ These allocate memory, so they can be inlined but require access to an allocator
 - Current implementation: allocates new buffer, copies `s.data[lo..hi]`
 - Inline: `alloc(hi - lo)`, `memcpy(dst, s.data + lo, hi - lo)`, return `{dst, hi - lo}`
 - Bounds check is done inline (check `lo >= 0 && hi >= lo && hi <= s.len`)
-- **Note**: this copies data. A zero-copy subslice (adjusting the data pointer and length without copying) is also possible but changes semantics — the subslice would alias the original. The current copy semantics are intentional for raw slices (they don't own memory, so there's no refcount to share). For `@[]T` subslices, the LLVM codegen already handles the managed case separately (preserves the backing refptr).
+- **Bug**: the C runtime copies the data, but this is wrong. A raw slice `[]T` is a borrowed view — `s[lo:hi]` should just produce a new view `{s.data + lo * elemSize, hi - lo}` without copying. The copy wastes memory and breaks borrowing semantics (mutations to the subslice don't affect the original). For `@[]T` subslices, the LLVM codegen already handles this correctly (adjusts data/len, preserves backing refptr). The raw slice case should be a zero-copy pointer adjustment. See TODO.
 
 **`bn_slice_expr_i64(s, lo, hi)` → copy subslice of int64s**
 - Same as i8 but with `elemSize = 8`
