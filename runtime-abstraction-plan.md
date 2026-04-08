@@ -105,17 +105,16 @@ Key insight: `pkg/rt` is already written in Binate. The only C dependency is the
 
 ### 3.2. Reimplement non-inlineable slice operations in Binate
 
-**What**: `bn_make_slice`, `bn_string_to_chars`, `bn_slice_free`, and the three `bn_append_*` functions.
+**What**: `bn_make_slice`, `bn_string_to_chars`, and `bn_slice_free`.
 
 **Functions**:
 - `bn_make_slice(elemSize, length) → slice` — `calloc(length, elemSize)` → use `rt.c_calloc`
 - `bn_string_to_chars(str, len) → slice` — `malloc(len)` + `memcpy` → use `rt.c_malloc` + `rt.c_memcpy`
 - `bn_slice_free(s)` — `free(s.data)` → use `rt.c_free`
-- `bn_append_i8/i64/struct(s, val) → mslice` — `realloc` + copy → reimplement without realloc
 
-**Why separate from 3.1**: These need the allocator (malloc/calloc/free), so they're slightly more complex. The append functions also use `realloc`, which a free-list allocator can't support — they'll need to alloc-copy-free instead.
+**Why separate from 3.1**: These need the allocator (malloc/calloc/free), so they're slightly more complex.
 
-**Consideration**: `realloc` doesn't exist in `rt_stubs.c`. The append functions can use `c_malloc` + `c_memcpy` + `c_free` instead of `realloc`. This is less efficient but works with any allocator and is correct.
+**Note**: The `bn_append_*` functions are legacy (being phased out in favor of managed-slice operations) and are not part of this step.
 
 **Depends on**: Nothing (can be done in parallel with 3.1)
 
@@ -136,9 +135,9 @@ Key insight: `pkg/rt` is already written in Binate. The only C dependency is the
 
 **Consideration**: `printf`/`fprintf`/`fwrite` all go through stdio buffering. If we switch to raw `write`, output may interleave differently with stderr. For correctness, unbuffered `write` to fd 1 is fine — Binate programs don't use stdio anyway.
 
-**Consideration**: `print_int` needs integer-to-string conversion. `bootstrap.Itoa` exists but returns `@[]char` (allocates). For `print_int`, we should convert to a stack buffer (no allocation needed). A small helper that writes digits into a `[20]char` array suffices.
+**Consideration**: `print_int` needs int-to-decimal conversion, which is the same operation as `Itoa` (3.4). If `Itoa` is done first, `print_int` can reuse the same conversion logic with a stack buffer (no allocation needed — write digits into a `[20]char` array). Alternatively, do `print_int` first with a stack-buffer helper, then `Itoa` wraps the same logic with an allocation.
 
-**Depends on**: Nothing (independent of 3.1 and 3.2)
+**Depends on**: Nothing (independent of 3.1 and 3.2), but shares int-to-string logic with `Itoa` in 3.4
 
 ### 3.4. Reimplement bootstrap package functions in Binate
 
