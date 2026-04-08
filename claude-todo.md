@@ -81,6 +81,13 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - If not, the parser should reject them. If yes, the IR gen needs to handle them.
 - Low priority — package-level types cover most use cases.
 
+### ARM32 assembler: end-to-end testing via QEMU
+- Assemble ARM32 `.s` → ELF32 `.o` → link with ARM32 cross-toolchain → run under `qemu-arm`
+- Validates the full pipeline: parser → encoder → ELF32 → linker → execution
+- Requires: `qemu-arm` (or `qemu-arm-static`), ARM32 cross-linker (`arm-linux-gnueabihf-gcc` or similar)
+- Tests should skip gracefully when QEMU/cross-tools aren't available (like the Mach-O link-and-run tests)
+- Test cases: exit code via SVC, loop with backward branch, function call with PUSH/POP prologue/epilogue
+
 ### Clean up conformance tests to use array literal + `arr[:]` pattern
 - `arr[:]` works in compiled mode; conformance tests using `make_slice` + indexed assignment for static data could use `[N]T{...}` + `arr[:]` instead
 - Consider adding slice literal syntax (`[]T{...}`) as sugar
@@ -129,6 +136,14 @@ Binate is NOT Go. The two types of slice are intentionally different:
 ---
 
 ## Done (session 2026-04-08)
+
+### ARM32 assembler backend — IMPLEMENTED
+- **pkg/asm/arm32**: full ARMv7-A instruction encoding (data processing, load/store, load/store multiple, branches, multiply, system). Rotated 8-bit immediate encoder. All instructions accept condition codes. 73 unit tests.
+- **ELF32 support**: generalized `pkg/asm/elf` writer to emit ELF32 (for ARM32) or ELF64 (for AArch64/x86-64). Proper structure sizes, field ordering, r_info encoding for each class. Extracted `elf_util.bn` for code hygiene. 16 tests.
+- **ARM32 text parser**: register parsing (r0-r15 + named), all operand types including register lists with range syntax (`{r0-r7, lr}`). Condition suffix + S flag stripping from mnemonics (`bne`→B+NE, `addseq`→ADD+S+EQ). Full instruction dispatch. Added `TOK_LBRACE`/`TOK_RBRACE` to lexer. 32 new parser tests (65 total).
+- **Parser hookup**: `.arch arm32` directive, dispatch to ARM32 instruction parser.
+- **CLI**: `cmd/bnas` already works for ARM32 via the parser — no changes needed.
+- 220 tests total across all assembler packages.
 
 ### 4-word managed-slice migration — finalized
 - **Conformance test 129**: subslice preserving backing_len. Creates `@[]int` of 5 elements, subslices to `s[1:3]` (len=2), verifies backing_len stays 5. Also tests double-subslice. Xfail'd in interpreter modes (bit_cast on managed-slice layout).

@@ -406,6 +406,22 @@ Bitmask immediate encoding (N/immr/imms) handles repeating bit patterns at eleme
 
 Fixup resolver handles BRANCH26, BRANCH19, BRANCH14, and ADR for same-section references. 46 unit tests.
 
+### ARM32 encoding (`pkg/asm/arm32`) — IMPLEMENTED
+
+Operand tagged union (register, immediate, shifted register, register-shifted register, all memory addressing modes, label). Comprehensive instruction coverage:
+
+- **Arithmetic**: ADD, SUB, RSB, ADC, SBC, RSC (all with optional S suffix and condition code)
+- **Logical**: AND, ORR, EOR, BIC (register, shifted register, and rotated 8-bit immediate forms)
+- **Move**: MOV, MVN (register and immediate), MOVW, MOVT (16-bit immediate halves)
+- **Compare/test**: CMP, CMN, TST, TEQ (register and immediate)
+- **Load/Store**: LDR, STR, LDRB, STRB (immediate offset, register offset, scaled register, pre/post-index), LDRH, STRH, LDRSB, LDRSH (extra load/store encoding)
+- **Load/Store multiple**: LDM, STM, LDMDB, STMDB, PUSH, POP
+- **Branches**: B, BL (with 24-bit PC-relative fixups), BX, BLX (register)
+- **Multiply**: MUL, MLA, UMULL, SMULL, SDIV, UDIV
+- **Misc**: CLZ, NOP, SVC, BKPT
+
+Rotated 8-bit immediate encoding (16 rotation positions). Every instruction accepts a condition code parameter. Fixup resolver handles BRANCH24 for same-section references (with ARM pipeline +8 adjustment). 73 unit tests.
+
 ### Mach-O emission (`pkg/asm/macho`) — IMPLEMENTED
 
 Emits valid Mach-O MH_OBJECT files for AArch64 (or x86-64). Includes mach_header_64, LC_SEGMENT_64 with section headers, LC_SYMTAB, LC_BUILD_VERSION, relocation entries (ARM64_RELOC_BRANCH26, ARM64_RELOC_UNSIGNED, etc.). 8 tests including end-to-end tests that assemble, link with the system linker, and run the resulting executable:
@@ -417,30 +433,37 @@ Emits valid Mach-O MH_OBJECT files for AArch64 (or x86-64). Includes mach_header
 - Multiply and divide (MUL, SDIV)
 - Conditional select (CSEL)
 
+### ELF emission (`pkg/asm/elf`) — IMPLEMENTED
+
+Emits valid ELF relocatable object files. Supports both ELF64 (AArch64, x86-64) and ELF32 (ARM32). Handles section headers, symbol table, string tables, `.rela` relocation sections. Architecture-specific relocation type mapping for AArch64 (JUMP26, CONDBR19, ADR, ADRP, TSTBR14), ARM32 (JUMP24, ABS32), and x86-64. 16 unit tests including an ARM32 ELF32 header validation test.
+
 ### Text parser (`pkg/asm/parse`) — IMPLEMENTED
 
 Line-oriented text assembly parser with two-layer architecture:
 
-**Lexer**: identifiers, integers (decimal/hex/binary/octal), strings, characters, all assembly punctuation tokens. Handles `//` comments.
+**Lexer**: identifiers, integers (decimal/hex/binary/octal), strings, characters, all assembly punctuation tokens including `{`/`}` for register lists. Handles `//` comments.
 
 **Expression parser**: full precedence — `|`, `^`, `&`, `<<`/`>>`, `+`/`-`, `*`/`/`/`%`, unary `-`/`~`. Parentheses, integer/char literals, `$` for current position.
 
 **Directive parser**: `.arch`, `.section`, `.global`/`.local`/`.weak`, data emission (`.uint8` through `.uint64` and signed variants), `.ascii`, `.asciz`, `.align`, `.zero`, `.fill`. Labels (global and NASM-style local scoping). Constants (`name = expr`).
 
-**AArch64 instruction parser**: register parsing (x0-x30, w0-w30, sp, xzr, wzr, fp, lr), operand parsing (#immediates, [memory] modes with pre/post-index, shifted registers), condition codes for B.cond. Covers: add, sub, adds, subs, and, orr, eor, mul, sdiv, udiv, lsl, lsr, asr, ldr, str, cmp, b, bl, br, blr, b.cond, cbz, cbnz, svc, nop, ret.
+**AArch64 instruction parser**: register parsing (x0-x30, w0-w30, sp, xzr, wzr, fp, lr), operand parsing (#immediates, [memory] modes with pre/post-index, shifted registers), condition codes for B.cond. Covers all instructions in the AArch64 encoding backend.
 
-23 tests including end-to-end: parse text → assemble → Mach-O → link → run.
+**ARM32 instruction parser**: register parsing (r0-r15, sp, lr, pc, fp, ip), operand parsing (#immediates, [memory] with all addressing modes, shifted registers, register-shifted registers), register list parsing (`{r0-r7, lr}`). Condition suffix stripping from mnemonics (`addeq` → ADD+EQ, `adds` → ADD+S, `addseq` → ADD+S+EQ). Covers all instructions in the ARM32 encoding backend.
 
-89 tests total across all packages.
+### CLI tool (`cmd/bnas`) — IMPLEMENTED
+
+Command-line assembler: reads a `.s` file, assembles it, writes a `.o` file. Supports `-o` output path (default: input with `.s` → `.o`). 3 unit tests.
+
+65 parser tests, 220 tests total across all assembler packages.
 
 ## Deferred / TODO
 
-- **CLI tool** (`cmd/bnas`): command-line entry point that reads a `.s` file and produces a `.o` file. The parser and Mach-O emitter are ready; this is just the main() wrapper.
-- **ELF emission**: needed for Linux/CI targets. Same core data model, different serialization.
-- **More instruction parser coverage**: MOV, memory instructions (ldrb, ldrh, stp, ldp), extend instructions, etc. are in the library API but not yet in the text parser.
+- **End-to-end testing via QEMU**: assemble ARM32 `.s` → ELF32 → link → run under `qemu-arm` to validate the full pipeline.
+- **x86-64 encoding backend**: instruction encoding library following the AArch64/ARM32 pattern.
+- **More AArch64 instruction parser coverage**: MOV, memory instructions (ldrb, ldrh, stp, ldp), extend instructions, etc. are in the library API but not yet in the text parser.
 - **Convenience directives for Binate types**: emitting `[]const char` or `@[]const char` from assembly. v2.
 - **Macros**: adds significant complexity. Binate can generate assembly programmatically via the library API. Defer unless hand-written assembly demand justifies it.
 - **Conditional assembly** (`.if`, `.ifdef`): same reasoning as macros. Defer.
 - **`.include`**: build system can handle file composition. Defer.
 - **LLVM backend integration**: whether/how the existing LLVM backend interacts with the assembler is TBD.
-- **ARM32 and x86-64 backends**: designed to be added as separate per-arch packages following the AArch64 pattern.
