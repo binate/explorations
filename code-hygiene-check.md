@@ -35,6 +35,8 @@ for f in $(find pkg/ cmd/ -name '*.bn' -not -name '*_test.bn'); do
 done
 ```
 
+This includes `cmd/` packages — `main` packages can and should be tested. Test files use `package "main"` and can test helper functions like any other package.
+
 When splitting a source file (e.g., `foo.bn` into `foo.bn` + `foo_bar.bn`), split the test file to match. Shared test helpers (like `fail`, `readInst`) go in one test file and are visible to sibling test files in the same package.
 
 ## 4. Interface file comments (`.bni`)
