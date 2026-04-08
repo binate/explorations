@@ -38,6 +38,15 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Unit tests**: 151 in pkg/interp (boot-comp). pkg/interp xfail'd in boot-comp-int due to inner interpreter return value wrapping (pre-existing limitation, not a regression).
 - **Next**: managed-slice backing refcounting (RefInc/RefDec on backing_refptr during env operations), then managed-slice element cleanup on scope exit
 
+### Managed-slice/pointer element-copy refcounting (compiler bug)
+- **Root cause**: when copying managed-slice elements via `ns[i] = s[i]` (e.g., in append helpers), the C runtime's `bn_slice_set_struct` does a memcpy of the element struct — no RefInc on managed fields within the element. Both old and new slices share the same element backings with only one refcount.
+- **Symptom**: when the old slice's destructor runs and finds `Refcount(backing) == 1` (last reference), it iterates elements and RefDec's their managed field backings. The new slice's elements become dangling pointers → use-after-free.
+- **Currently masked by**: the return-value refcount leak (tests 131/132). The leaked +1 reference prevents the destructor from ever seeing `rc == 1`, so element cleanup never triggers. Fixing the return leak unmasks this bug.
+- **Fix needed**: the compiler must generate RefInc calls for managed-type fields when copying struct elements into managed slices. Alternatively, refactor slice set/get operations to be refcount-aware.
+- **Affects**: any `@[]T` where T contains managed fields (@ptr, @[]U, etc.) — e.g., `@[]EnvEntry`, `@[]@[]char`, `@[]@ast.Decl`.
+- **Conformance tests**: 131 (managed-slice return rc) and 132 (managed-ptr return rc) document the return leak that masks this.
+- **Related**: raw slice subslice copy bug (below), slice operation refactoring.
+
 ### Binate type checker: duplicate function detection
 - The Binate type checker (pkg/types) does not detect duplicate function declarations within the same package
 - The bootstrap Go type checker does ("foo redeclared in this block")
