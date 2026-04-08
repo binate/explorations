@@ -682,7 +682,7 @@ refcounting, and scope cleanup. 2 xfails: 126 (managed-slice flat storage) and 2
 - `boot-comp-comp` — self-compiled compiler compiles `.bn`
 - `boot-comp-comp-comp` — gen2 compiler compiles `.bn`
 
-Note: `boot-int` mode was dropped (interpreter only runs compiled now).
+Note: `boot-int` mode was dropped (the self-hosted interpreter can no longer run under the bootstrap, since it now uses `bit_cast`, pointer indexing, and `pkg/rt` which require compiled mode).
 
 Note: many items marked "IN PROGRESS" above were resolved during the grammar
 specification phase (Phase 3). See `grammar.ebnf` for the authoritative specification
