@@ -19,7 +19,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 ### Self-hosted interpreter memory model parity with compiler
 - Plan: `explorations/plan-interp-memory-parity.md`
 - The self-hosted interpreter can no longer run under the bootstrap (boot-int dropped) since it now uses `bit_cast`, pointer indexing, and `pkg/rt`. It requires compiled mode (boot-comp-int and above).
-- **boot-comp-int: 142/144 conformance tests pass** (was 129 before this work began)
+- **boot-comp-int: 146/147 conformance tests pass** (was 129 before this work began)
 - Phase 1 (done): infrastructure — `flat.bn` with readFlatValue/writeFlatValue using bit_cast and pkg/rt
 - Phase 2 (done): scalar variables in flat memory — envDefine/envGet/envSet use flat addresses for ints
 - Phase 3 (done): structs in flat memory — `evalMake` allocates via `rt.Alloc`, all field access through `RawAddr + FieldOffset`. Lazy struct reads (no eager field materialization). Self-referential type resolution (in-place field update).
@@ -33,9 +33,10 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - C ABI sret fix (done): large struct returns from C externs on ARM64
 - TYP_NAMED resolution (done): `resolveUnderlying` resolves named types (`type Kind int`) in flat read/write paths
 - Lazy struct optimization (done): `readFlatValue` for TYP_STRUCT returns RawAddr-only Values, avoiding O(n) allocation per field access. Fixed parser.ParseFile hang in boot-comp-int.
-- **Remaining xfails (2)**: 126 (managed-slice flat storage — interpreter still uses legacy Elems for `make_slice`), 206 (duplicate function detection — type checker gap, not memory model)
+- Managed-slice flat storage (done): `TYP_MANAGED_SLICE` in `useFlatType`. 32-byte flat headers with `rt.MakeManagedSlice` backing. Flat-to-flat copy, subslicing, `@[]T→[]T` coercion, element refcounting. Fixed tests 126, 129.
+- **Remaining xfails (1)**: 206 (duplicate function detection — type checker gap, not memory model)
 - **Unit tests**: 151 in pkg/interp (boot-comp). pkg/interp xfail'd in boot-comp-int due to inner interpreter return value wrapping (pre-existing limitation, not a regression).
-- **Next**: managed-slice flat storage (`make_slice` returns real `rt.MakeManagedSlice` backing instead of legacy Elems), which would fix test 126
+- **Next**: managed-slice backing refcounting (RefInc/RefDec on backing_refptr during env operations), then managed-slice element cleanup on scope exit
 
 ### Binate type checker: duplicate function detection
 - The Binate type checker (pkg/types) does not detect duplicate function declarations within the same package
@@ -146,9 +147,19 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - 220 tests total across all assembler packages.
 
 ### 4-word managed-slice migration — finalized
-- **Conformance test 129**: subslice preserving backing_len. Creates `@[]int` of 5 elements, subslices to `s[1:3]` (len=2), verifies backing_len stays 5. Also tests double-subslice. Xfail'd in interpreter modes (bit_cast on managed-slice layout).
-- **Bootstrap interpreter**: confirmed no changes needed. The Go-side `SliceVal` doesn't need a `BackingLen` field — `rt.ManagedSlice` is a regular Binate struct interpreted normally via field access. The bootstrap's `SliceVal` is only used for actual `[]T`/`@[]T` values, not the `rt.ManagedSlice` struct type.
-- **Status**: all plan steps complete (type system, LLVM type def, runtime struct, make_slice codegen, subslice codegen, string-to-managed-chars, interpreter flat memory, unit tests, conformance tests).
+- **Conformance test 129**: subslice preserving backing_len. Creates `@[]int` of 5 elements, subslices to `s[1:3]` (len=2), verifies backing_len stays 5. Also tests double-subslice.
+- **Bootstrap interpreter**: confirmed no changes needed.
+- **Status**: all plan steps complete.
+
+### Managed-slice flat storage in self-hosted interpreter
+- **boot-comp-int: 146/147 conformance tests pass** (was 142 before)
+- Added `TYP_MANAGED_SLICE` to `useFlatType` — managed-slice variables now use 32-byte flat headers with real `rt.MakeManagedSlice` backing
+- `writeFlatValue`: added flat-to-flat copy path (memcpy 32-byte header)
+- `@[]T → []T` coercion: flat managed-slice creates flat raw slice sharing same data pointer
+- Flat managed-slice subslicing: creates new 4-word header sharing backing, preserves backing_len, RefIncs backing
+- Element refcounting: flat index assignment RefInc/RefDec managed-ptr elements; `cleanupFlatMSliceElems` on reassignment
+- Managed-slice backing refcounting deferred (leaks backing allocations, no correctness issues)
+- Removed xfails: 126 (boot-comp-int, boot-comp-comp-int), 129 (boot-comp-int, boot-comp-comp-int)
 
 ## Done (session 2026-04-07)
 
