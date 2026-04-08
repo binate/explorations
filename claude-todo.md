@@ -11,28 +11,31 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Fix**: changed `var runtimePath []char` to `var runtimePath @[]char = buf.CopyStr(cli.RuntimePath)` in test.bn, matching the pattern already used in main.bn.
 - **CI now runs all modes** including boot-comp-comp and boot-comp-comp-comp.
 
-### Self-hosted interpreter: investigate boot-comp-int-int failures
-- boot-comp-int-int (compiled bni interprets bni which interprets test) fails 75/142 conformance tests and 11/14 unit test packages. The failing tests produce empty output (silent failure or hang).
-- **This is surprising**: boot-int (bootstrap interprets bni which interprets test) worked fine (128/142). boot-comp-int (compiled bni interprets test) works (129/142). So the self-hosted interpreter can interpret user programs, but breaks when interpreting *itself* interpreting a program.
-- **Must investigate before flat memory migration**: the interpreter has fundamental bugs that should be fixed first, otherwise the flat memory migration will be fighting these bugs at the same time.
-- Likely causes: stack overflow from deep recursion, unhandled edge cases in self-interpretation (e.g., the interpreter's own use of managed slices/structs differs from user code patterns), or missing features in the self-hosted interpreter that the bootstrap handles.
-- **Approach**: compare a specific failing test (e.g., 003_variables) between boot-comp-int (passes) and boot-comp-int-int (fails) to isolate what goes wrong when the interpreter interprets itself.
+### Self-hosted interpreter: boot-comp-int-int still failing
+- boot-comp-int-int (compiled bni interprets bni which interprets test) still has issues.
+- **Known issue**: inner interpreter function return values get wrapped in an extra `@Value` indirection through flat memory. When the outer compiled interpreter interprets the inner interpreter's `callFunc`, the return value goes through flat serialization/deserialization which adds a managed pointer layer. `println(add(3, 4))` prints "nil" instead of "7".
+- Removed from mode sets. Needs dual-mode interop (flat memory roundtripping of `@Value` tagged unions) to work properly.
 
 ### Self-hosted interpreter memory model parity with compiler
 - Plan: `explorations/plan-interp-memory-parity.md`
 - The interpreter no longer runs on the bootstrap (boot-int dropped). It only runs compiled (boot-comp-int and above). This means it can freely use bit_cast, pointer indexing, and pkg/rt.
-- **boot-comp-int: 134/142 conformance tests pass** (was 129 before this work)
+- **boot-comp-int: 142/144 conformance tests pass** (was 129 before this work began)
 - Phase 1 (done): infrastructure — `flat.bn` with readFlatValue/writeFlatValue using bit_cast and pkg/rt
 - Phase 2 (done): scalar variables in flat memory — envDefine/envGet/envSet use flat addresses for ints
+- Phase 3 (done): structs in flat memory — `evalMake` allocates via `rt.Alloc`, all field access through `RawAddr + FieldOffset`. Lazy struct reads (no eager field materialization). Self-referential type resolution (in-place field update).
 - Phase 4 (done): raw slices in flat memory — `[]T` as `{data, len}` in 16 bytes. `arr[:]` creates flat slices.
+- Managed pointer refcounting (done): `envDefine` RefInc, `envSet` RefDec/RefInc, `cleanupEnvExcept` for scope exit, `interpRefDec` for recursive struct field cleanup, `interpCleanupSlice` for managed-slice element cleanup. Return values excluded from scope cleanup.
 - bit_cast (done): pointer↔int, pointer↔pointer — 090 passes
 - Pointer indexing (done): `p[i]` read/write, `&arr[i]` — 091 passes
 - pkg/rt forwarding (done): c_malloc, Alloc, Free, RefInc, RefDec, Refcount, MakeManagedSlice — 092, 093, 104, 123 pass
 - Pointer comparison (done): `p == q` via RawAddr
 - String→[]char for flat slices (done): 079, 088 pass
 - C ABI sret fix (done): large struct returns from C externs on ARM64
-- **Remaining (8 xfails)**: 064 (Itoa @[]char forwarding), 105-106 (managed-slice refcounting), 108 (temp RefDec), 114-116 (destructors), 206 (duplicate function detection)
-- **Next**: managed-slice refcounting in the interpreter (make_slice returns real managed allocation, scope exit RefDec's, copy RefInc's)
+- TYP_NAMED resolution (done): `resolveUnderlying` resolves named types (`type Kind int`) in flat read/write paths
+- Lazy struct optimization (done): `readFlatValue` for TYP_STRUCT returns RawAddr-only Values, avoiding O(n) allocation per field access. Fixed parser.ParseFile hang in boot-comp-int.
+- **Remaining xfails (2)**: 126 (managed-slice flat storage — interpreter still uses legacy Elems for `make_slice`), 206 (duplicate function detection — type checker gap, not memory model)
+- **Unit tests**: 151 in pkg/interp (boot-comp). pkg/interp xfail'd in boot-comp-int due to inner interpreter return value wrapping (pre-existing limitation, not a regression).
+- **Next**: managed-slice flat storage (`make_slice` returns real `rt.MakeManagedSlice` backing instead of legacy Elems), which would fix test 126
 
 ### Binate type checker: duplicate function detection
 - The Binate type checker (pkg/types) does not detect duplicate function declarations within the same package
@@ -124,6 +127,29 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - `make_slice(T, n)` returns `@[]T`. `@[]T → []T` conversion: extractvalue fields 0,1.
 
 ---
+
+## Done (session 2026-04-07)
+
+### Interpreter flat memory: fix 4 struct regressions + 2 new bugs
+- **Managed-slice RawAddr confusion**: `readFlatValue` for `TYP_MANAGED_SLICE` set `RawAddr` to backing refptr, but `evalLen` treated it as the slice header address. Fixed: `RawAddr` = header address, `evalLen` uses `MSliceLenOffset` for managed-slices. Tests: 109, unit `TestFlatStructManagedSliceField`.
+- **Self-referential type resolution**: `execTypeDecl` replaced pre-registered struct types with new objects, breaking `Node { next @Node }` where the field still pointed to the old empty placeholder. Fixed: update placeholder's Fields in-place. Tests: 058, unit `TestSelfReferentialType`.
+- **Return value managed-slice cleanup**: `cleanupEnvExcept` called `interpCleanupSlice` on return values, freeing elements. Fixed: skip cleanup for managed-slices in the return-values exception list. Tests: 107, unit `TestReturnManagedSlicePreservesElements`.
+- **Lazy struct reads**: `readFlatValue` for `TYP_STRUCT` eagerly materialized ALL fields (including string/slice data), causing O(n) allocation per struct access. Fixed: return lazy Value with RawAddr only. `evalSelector` reads specific fields on demand. This fixed the `parser.ParseFile` infinite hang in boot-comp-int.
+- **TYP_NAMED resolution**: `readFlatValue`/`writeFlatValue` didn't resolve named types (`type Kind int`), falling through to memset. Fixed: `resolveUnderlying` resolves both aliases and named types. Tests: 127, unit `TestFlatStructNamedTypeField`.
+- **Lazy struct copy**: `copyValue` and `writeFlatValue` handle lazy structs via memcpy. Tests: 128, unit `TestFlatStructCopyOutAndBack`.
+
+### Unit test backfill for flat memory model
+- 15 new unit tests in `pkg/interp/call_test.bn` (total: 151)
+- Covers: managed-slice fields, managed-ptr fields, string→@[]char, nil managed-slice, self-referential types, return value survival, len/index through flat struct fields, nested structs, named types, lazy struct copy
+
+### Conformance tests added
+- 127: named type struct fields (TYP_NAMED in flat memory)
+- 128: struct field copy (lazy struct copy/write paths)
+
+### boot-comp-int progress
+- 142/144 conformance tests pass (was 138 at start of session)
+- Fixed 4 xfails: 058, 102, 107, 109 (flat struct regressions)
+- pkg/interp unit test xfail updated: no longer hangs (was "RegisterBootstrapPackage hang"), now xfail'd for inner interpreter return value wrapping
 
 ## Done (session 2026-04-03/04/05)
 

@@ -4,21 +4,31 @@
 
 Make the self-hosted interpreter (pkg/interp) store ALL values in flat ABI-compatible memory, matching the compiled code's layout. This enables `bit_cast`, pointer indexing, `&x` on locals, and eventual dual-mode interop.
 
-## Current State
+## Current State (updated 2026-04-07)
 
-The interpreter uses tagged-union `Value` objects:
-- Structs: `Fields @[]@Value` — array of boxed values
-- Slices: `Elems @[]@Value` — array of boxed values
-- Arrays: `Elems @[]@Value` — array of boxed values
-- Pointers: `HeapObj @HeapObject` → `Val @Value`
-- Scalars: `IntVal int`, `BoolVal bool`
+**boot-comp-int: 142/144 conformance tests pass.** The interpreter uses a hybrid model:
 
-Problems:
-- No byte addresses to reinterpret (`bit_cast` can't work)
-- No pointer arithmetic (`ptr[i]` can't work)
-- Scalars in structs/arrays aren't at real memory offsets
-- `&x` on a local int doesn't produce a real address
-- Layout doesn't match compiled code (can't interop)
+**Flat (done)**:
+- Managed pointer structs: `make(T)` allocates via `rt.Alloc`, all field access through `RawAddr + FieldOffset`. Lazy struct reads (no eager field materialization).
+- Scalars in env: int/bool stored in flat `*uint8` addresses via `useFlatType`.
+- Raw slices: `[]T` as `{data, len}` in 16 bytes.
+- Arrays of scalars: flat memory, `&arr[i]` produces real addresses.
+- Managed pointer refcounting: `envDefine` RefInc, `envSet` RefDec/RefInc, `cleanupEnvExcept` scope cleanup, `interpRefDec` recursive struct cleanup, `interpCleanupSlice` element cleanup.
+- Pointer operations: `bit_cast`, pointer indexing, pointer comparison via RawAddr.
+- Named type resolution: `resolveUnderlying` handles `type Kind int` in flat paths.
+
+**Legacy (still using Elems/HeapObj)**:
+- `make_slice(T, n)` → `MakeManagedSliceVal` with `Elems @[]@Value` and `HeapObj` for refcounting. NOT backed by real `rt.MakeManagedSlice` flat memory.
+- When a managed-slice is written to a flat struct field, `writeFlatValue` allocates a real backing and copies elements. Reading back via `readFlatValue` creates Elems from the flat backing. This means managed-slices stored in struct fields ARE flat, but standalone variables are legacy.
+
+**Remaining xfails**: 126 (managed-slice flat storage), 206 (type checker gap).
+
+### Original problems (status)
+- ~~No byte addresses to reinterpret (`bit_cast` can't work)~~ — FIXED
+- ~~No pointer arithmetic (`ptr[i]` can't work)~~ — FIXED
+- ~~Scalars in structs/arrays aren't at real memory offsets~~ — FIXED (struct fields are flat)
+- ~~`&x` on a local int doesn't produce a real address~~ — FIXED (flat env entries)
+- Layout doesn't match compiled code (can't interop) — PARTIALLY FIXED (structs match, standalone managed-slices don't)
 
 ## Design: All Values in Flat Memory
 

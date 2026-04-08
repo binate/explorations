@@ -661,22 +661,28 @@ all implemented.
 **Step 2 is complete** (self-hosted frontend and backend). All 10 packages of the
 self-hosted toolchain are implemented: `pkg/token`, `pkg/ast`, `pkg/lexer`, `pkg/parser`,
 `pkg/types`, `pkg/ir`, `pkg/codegen`, `pkg/linker`, `pkg/bootstrap`, and `pkg/interp`.
-The self-hosted interpreter (`cmd/bni`) passes 110 conformance tests (11 skipped:
-`bit_cast`, pointer indexing, and rt-dependent tests are compiled-mode-only). The
-self-hosted compiler (`cmd/bnc`) produces native binaries via LLVM IR, passing all
-121 conformance tests with zero failures and zero skips.
+The self-hosted interpreter (`cmd/bni`) passes 130 conformance tests in bootstrap mode
+(14 skipped: `bit_cast`, pointer indexing, and rt-dependent tests are compiled-mode-only).
+The self-hosted compiler (`cmd/bnc`) produces native binaries via LLVM IR, passing 143
+of 144 conformance tests (1 xfail: duplicate function detection in the type checker).
 
 **Self-compilation works.** The bootstrap interprets `cmd/bnc` to compile itself,
 producing a native compiler binary. The self-compiled compiler passes all conformance
 tests. Gen2 compilation (gen1 compiles gen1) also passes.
 
-**Conformance test coverage**: 121 tests, run in multiple modes:
-- `boot` — Go bootstrap interpreter runs `.bn` directly (110/121, 11 skip)
-- `boot-int` — bootstrap interprets `cmd/bni`, which runs `.bn` (110/121, 11 skip)
-- `boot-comp` — bootstrap interprets `cmd/bnc`, compiles `.bn` to native (121/121)
-- `boot-comp-int` — compiled interpreter binary runs `.bn`
+**Compiled interpreter** (`boot-comp-int`): 142/144 conformance tests pass. The
+interpreter uses flat ABI-compatible memory with lazy struct reads, managed pointer
+refcounting, and scope cleanup. 2 xfails: 126 (managed-slice flat storage) and 206
+(duplicate function detection).
+
+**Conformance test coverage**: 146 tests (128 positive + 18 negative), run in multiple modes:
+- `boot` — Go bootstrap interpreter runs `.bn` directly (130/146, 14 skip)
+- `boot-comp` — bootstrap interprets `cmd/bnc`, compiles `.bn` to native (143/146, 1 xfail)
+- `boot-comp-int` — compiled interpreter binary runs `.bn` (142/146, 2 xfail)
 - `boot-comp-comp` — self-compiled compiler compiles `.bn`
 - `boot-comp-comp-comp` — gen2 compiler compiles `.bn`
+
+Note: `boot-int` mode was dropped (interpreter only runs compiled now).
 
 Note: many items marked "IN PROGRESS" above were resolved during the grammar
 specification phase (Phase 3). See `grammar.ebnf` for the authoritative specification
