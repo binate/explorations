@@ -39,13 +39,26 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Unit tests**: 151 in pkg/interp (boot-comp). pkg/interp xfail'd in boot-comp-int due to inner interpreter return value wrapping (pre-existing limitation, not a regression).
 - **Next**: port compiler refcount fixes to interpreter (return leak, element-copy, RefInc-before-RefDec ordering)
 
+### Interpreter: eliminate legacy Elems path — make everything flat
+- The interpreter has TWO storage paths: flat (real addresses via allocFlat) and legacy (Elems-based @[]@Value arrays in Cell storage). Having both means every refcounting fix must be applied in two places — this is a losing battle.
+- **Goal**: expand `useFlatType` to ALL types. Every variable gets flat storage with a real address. Remove the legacy Elems code paths entirely.
+- **Currently flat**: int, bool, []T, @[]T, [N]int, [N]bool
+- **Not yet flat**: @T (managed-ptr), structs (value types), [N]@T, [N]@[]T, [N]Struct
+- **Blocking**: expanding arrays to all element types needs the compiler codegen bug for `[N]@T` field-write-through-index fixed first (test 139). The interpreter's legacy path works around it.
+- **Benefits**: single code path for refcounting, `&arr[i]` works for all arrays, `*@T` and `@(@T)` patterns work naturally, compiler-compatible memory layout.
+
 ### Self-hosted interpreter refcounting gaps
-- The self-hosted interpreter (pkg/interp) has the SAME refcounting bugs that were fixed in the compiler, but interpreter-side fixes are pending.
+- The interpreter has the SAME refcounting bugs that were fixed in the compiler, but interpreter-side fixes are pending (partially blocked on the flat migration above).
 - **Managed-ptr return leak**: envDefine unconditionally RefInc's return values (xfail: 108, 132, 138)
 - **Managed-slice return leak**: same pattern (xfail: 131, 133)
-- **Element-copy refcounting**: interpreter doesn't RefInc managed-slice/struct elements on slice/array assignment (xfail: 134, 135)
+- **Element-copy refcounting**: struct elem managed fields not RefInc'd (xfail: 135); managed-slice array elem FIXED (134)
 - **Assignment cascade ordering**: interpreter envSet doesn't RefInc new before RefDec old (xfail: 138)
-- These are all the interpreter equivalents of compiler bugs fixed this session.
+
+### Compiler codegen bug: [N]@T field write through index
+- `arr[i].Field = val` where arr is `[N]@T` produces wrong code — field write goes nowhere, reads return 0.
+- `arr[i] = presetNode` (assign pre-built node, then read field) works fine (test 117 passes).
+- Root cause: likely the GEP for `arr[i]` in the LHS selector-index path doesn't correctly handle managed-ptr array elements.
+- Conformance test: 139 (xfail boot-comp).
 
 ### Binate type checker: duplicate function detection
 - The Binate type checker (pkg/types) does not detect duplicate function declarations within the same package
