@@ -41,9 +41,11 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - All refcounting fixed: return leak (IsFresh flag), element-copy, struct field, assignment cascade, pointer deref write, managed-slice element cleanup (rc==1 check).
 - **158/158 in boot-comp, boot-comp-int, and boot-comp-comp. Zero xfails.**
 
-### Interpreter: remove remaining legacy Elems/Cell/HeapObj code
-- **Status**: all data types flat. Legacy cleanup mostly done (Elems 53→3, HeapObj 30→3). Remaining 3 Elems are for VAL_MULTI (multi-return tuples) — needs multi-return-as-anonymous-struct redesign. Remaining 3 HeapObj are for function-value Cell storage — needs compiled-compatible function value design.
-- See `explorations/plan-interp-memory-parity.md` for details.
+### Interpreter Value struct cleanup
+- **Done**: removed Elems (0 refs), Fields (0 refs), HeapObj (0 refs), BoolVal (flat), IntVal (flat), MakeMultiVal, MakeStructVal, MakeSliceVal, MakeArrayVal, MakeManagedSliceVal, VAL_MULTI.
+- **Remaining**: StrVal (last scalar cache — needs string-literal-as-global-@[]char redesign), 3 HeapObject refs for function-value Cell storage, IntTyp (int type info for readScalar width).
+- See `explorations/plan-string-literals.md` for StrVal removal plan.
+- See `explorations/plan-interp-memory-parity.md` for function values.
 
 ### Function values: compiled-compatible representation (required for interop)
 - Function values MUST use the same representation in compiled and interpreted code, because function values can be passed between the two modes (compiled code calling interpreted functions and vice versa).
