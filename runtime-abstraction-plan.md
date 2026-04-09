@@ -72,36 +72,24 @@ Key insight: `pkg/rt` is already written in Binate. The only C dependency is the
 
 ## Step-by-Step Plan
 
-### 3.1. Lower slice operations to primitive IR ops — PARTIALLY DONE
+### 3.1. Lower slice operations to primitive IR ops — DONE
 
-**What**: The high-level slice IR ops (`OP_SLICE_GET`, `OP_SLICE_SET`, `OP_SLICE_LEN`, `OP_SLICE_PTR`, `OP_SLICE_EXPR`, `OP_SLICE_ELEM_PTR`) currently produce IR opcodes that the LLVM codegen lowers to C runtime function calls (`bn_slice_get_i64`, etc.). Instead, lower these in the IR gen layer into sequences of primitive IR ops that any backend already handles.
+All high-level slice IR ops have been lowered to primitive ops in the IR gen layer (`EmitSliceGet`, `EmitSliceSet`, `EmitSliceLen`, `EmitSliceExpr`, `EmitSliceElemPtr` in `pkg/ir/ir_ops.bn`). The `Emit*` functions still exist as the public API, but they now emit sequences of `OP_EXTRACT`, `OP_GET_ELEM_PTR`, `OP_LOAD`, `OP_STORE`, etc. instead of dedicated slice opcodes.
 
-**Why this approach**: Slice/managed-slice layout is a language-level contract (shared by all backends and the interpreter for dual-mode interop). The decomposition into primitives — how to extract the data pointer, compute element addresses, load/store — should be encoded once in the IR gen (shared layer), not independently per backend. This is the same pattern already used for arrays: `arr[i]` emits `OP_GET_ELEM_PTR` + `OP_LOAD`, not a high-level `OP_ARRAY_GET`.
+**What was done**:
+- `EmitSliceLen(s)` → `OP_EXTRACT(s, 1)` (extract len field)
+- `EmitSliceGet(s, i)` → extract data ptr + GEP + load
+- `EmitSliceSet(s, i, v)` → extract data ptr + GEP + store
+- `EmitSliceElemPtr(s, i)` → extract data ptr + GEP (returns pointer)
+- `EmitSliceExpr(s, lo, hi)` → extract data ptr + GEP by lo + sub for new len + alloca/store/load to construct result. For `@[]T`, preserves refptr and backingLen from original.
+- Deprecated opcode constants (`OP_SLICE_LEN/PTR/GET/SET/EXPR/ELEM_PTR`) removed from `ir.bni`
+- 9 C runtime functions removed (`bn_slice_len`, `bn_slice_get_i64/i8/struct`, `bn_slice_set_i64/i8/struct`, `bn_slice_expr_i8/i64/struct`)
+- Runtime manifest reduced from 22 to 9 functions
+- Codegen `emit_slice.bn` deleted entirely
 
-**Original approach (superseded)**: reimplement these as Binate functions in `pkg/rt`. This was abandoned because: (a) some ops like `len()` would be circular (Binate `SliceLen` calls `len` which compiles to `SliceLen`), (b) it introduces naming/ABI coupling between the IR manifest and the Binate package, (c) it doesn't share layout knowledge between backends.
+**Why this approach**: Slice layout is a language-level contract (shared by all backends and the interpreter). The decomposition into primitives is encoded once in the IR gen, not per backend. Same pattern as arrays.
 
-**Operations to lower** (using existing primitive ops: `OP_EXTRACT`, `OP_BIT_CAST`, `OP_GET_ELEM_PTR`, `OP_LOAD`, `OP_STORE`):
-
-| High-level op | Lowered to |
-|---------------|------------|
-| `OP_SLICE_LEN(s)` | `OP_EXTRACT(s, 1)` — extract len field from slice struct — **DONE** (inlined as `extractvalue` in codegen) |
-| `OP_SLICE_PTR(s)` | `OP_EXTRACT(s, 0)` — extract data ptr field |
-| `OP_SLICE_GET(s, i)` | extract data ptr, bitcast to `*elemType`, GEP by index, load |
-| `OP_SLICE_SET(s, i, v)` | extract data ptr, bitcast to `*elemType`, GEP by index, store |
-| `OP_SLICE_ELEM_PTR(s, i)` | extract data ptr, bitcast to `*elemType`, GEP by index (no load — returns ptr) |
-| `OP_SLICE_EXPR(s, lo, hi)` | extract data ptr, GEP by lo, construct new slice `{new_ptr, hi-lo}` |
-
-**Where the change happens**: In `EmitSliceGet`, `EmitSliceSet`, `EmitSliceLen`, etc. in `pkg/ir/ir_ops.bn`. These functions currently create a single high-level IR instruction; they should instead emit a sequence of primitive instructions. The codegen's handling of the high-level ops becomes dead code and can be removed.
-
-**For each op, also**:
-- Remove the C runtime function from `binate_runtime.c`
-- Remove from the runtime manifest (`pkg/ir/runtime.bn`)
-- Remove codegen handling of the high-level op
-- Update codegen tests
-
-**Note on struct elements**: `OP_SLICE_SET` for struct elements currently uses `memcpy` via the C runtime (`bn_slice_set_struct`). The lowered version needs a memcpy-equivalent — either `OP_STORE` of the struct value (LLVM handles struct stores), or a call to `c_memcpy`. The former is cleaner if LLVM's struct store semantics match.
-
-**Note on bounds checking**: The C runtime functions include redundant bounds checks (the IR gen already emits `OP_BOUNDS_CHECK` separately). The lowered primitives naturally omit these.
+**Also fixed**: Raw slice subslice copy bug — `s[lo:hi]` on `[]T` now produces a zero-copy view `{data+lo*elemSize, hi-lo}` instead of copying data (the C runtime was wrong).
 
 **Depends on**: Nothing (independent)
 

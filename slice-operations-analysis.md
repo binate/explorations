@@ -92,47 +92,25 @@ result = load(slice.data + index * elemSize)   // no bounds check needed
 
 The `rt.BoundsCheck` function (in `pkg/rt`) prints an error message and exits. A native backend could call this or emit its own panic path.
 
-## Decision: Keep High-Level IR Ops
+## Decision: Lower Slice Ops in IR Gen (updated 2026-04-09)
 
-As discussed in the design notes (section 23), we keep high-level slice operations in the IR rather than lowering them to primitive pointer arithmetic. Reasons:
+The original decision was to keep high-level slice ops in the IR and let each backend choose how to lower them. This was revised: since slice layout is a language-level contract (shared by all backends and the interpreter for interop), the lowering is now done once in the IR gen layer. The `Emit*` functions (`EmitSliceGet`, `EmitSliceSet`, `EmitSliceLen`, `EmitSliceExpr`, `EmitSliceElemPtr`) emit sequences of primitive ops (`OP_EXTRACT`, `OP_GET_ELEM_PTR`, `OP_LOAD`, `OP_STORE`, etc.). This is the same pattern used for arrays.
 
-1. **Backends choose the implementation.** The LLVM backend can continue using runtime calls (LLVM may inline them via LTO anyway). A native ARM backend inlines them directly as pointer arithmetic + load/store.
-
-2. **IR readability.** `OP_SLICE_GET` is immediately understandable; a sequence of GEP + load is not.
-
-3. **Future optimization.** An optimization pass could eliminate redundant bounds checks (e.g., in a counted loop), merge adjacent slice accesses, or prove that a slice expression doesn't need to copy if the original is dead.
-
-## Recommendations for Native Backends
-
-A native backend (e.g., ARM32) should:
-
-1. **Inline all slice get/set/len operations** — these are 1–3 instructions each.
-
-2. **Inline bounds checks** as a compare-and-branch to a shared panic path (one per function or one global).
-
-3. **Inline slice expressions** with an allocator call for the new buffer + a memcpy (or loop for small sizes).
-
-4. **Keep I/O as runtime calls** — either via C runtime or direct syscalls.
-
-5. **Keep make_slice as a runtime/allocator call** — it needs zeroed memory (calloc or alloc + memset).
+The high-level opcodes (`OP_SLICE_GET`, etc.) have been removed from `ir.bni`. Backends only need to handle universal primitives.
 
 ## Summary Table
 
-| Function | Inlineable | Needs Allocator | Recommendation |
-|----------|-----------|-----------------|----------------|
-| slice_get_i64 | yes | no | always inline |
-| slice_get_i8 | yes | no | always inline |
-| slice_get_struct | yes | no | always inline |
-| slice_set_i64 | yes | no | always inline |
-| slice_set_i8 | yes | no | always inline |
-| slice_set_struct | yes | no (uses memcpy) | always inline |
-| slice_len | yes | no | always inline |
-| slice_free | yes | needs free() | inline with allocator |
-| slice_expr_* | yes | needs alloc+memcpy | inline with allocator |
-| make_slice | yes | needs calloc | inline with allocator |
-| string_to_chars | yes | needs alloc+memcpy | inline with allocator |
-| ~~append_*~~ | ~~yes~~ | ~~needs realloc~~ | **removed** (dead code) |
-| print_* | no | no | runtime call or syscall |
-| exit | no | no | runtime call or syscall |
+| Function | Status | Notes |
+|----------|--------|-------|
+| slice_get_i64/i8/struct | **removed** | lowered to extract+GEP+load in IR gen |
+| slice_set_i64/i8/struct | **removed** | lowered to extract+GEP+store in IR gen |
+| slice_len | **removed** | lowered to extract(field 1) in IR gen |
+| slice_expr_i8/i64/struct | **removed** | lowered to GEP+sub+alloca in IR gen (zero-copy) |
+| ~~append_*~~ | **removed** | dead code |
+| slice_free | remaining | needs free() — still a C runtime call |
+| make_slice | remaining | needs calloc — still a C runtime call |
+| string_to_chars | remaining | needs alloc+memcpy — still a C runtime call |
+| print_* | remaining | I/O — runtime call or syscall |
+| exit | remaining | process control — runtime call or syscall |
 
-The `Inlineable` field in `ir.RuntimeFunc` already marks the appropriate functions. No IR changes are needed for Phase 2 — the analysis confirms that the current architecture (high-level IR ops + backend-chosen lowering) is correct.
+Runtime manifest: 22 → 9 functions remaining.

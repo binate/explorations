@@ -102,19 +102,13 @@ See `layout-extraction-plan.md` for the detailed step-by-step plan covering Step
 
 **Depends on**: Nothing (independent)
 
-## Phase 2: Slice Operation Inlining — DONE
+## Phase 2: Slice Operation Inlining — DONE (analysis), IMPLEMENTED (in Phase 3.1)
 
-Analysis complete. See `slice-operations-analysis.md` for the full writeup.
+Analysis complete. See `slice-operations-analysis.md` for the writeup.
 
-**Decision**: keep high-level IR ops (`OP_SLICE_GET`, etc.) and let each backend choose how to lower them. The LLVM backend continues using runtime calls; native backends should inline as pointer arithmetic + load/store.
+**Decision (revised)**: lower slice ops to primitive IR ops in the IR gen layer, not per-backend. Slice layout is a language-level contract; the decomposition is encoded once. The high-level opcodes (`OP_SLICE_GET`, etc.) have been removed. See Phase 3.1 in `runtime-abstraction-plan.md`.
 
-**Key findings**:
-- Slice get/set/len are trivially inlineable (1–3 instructions, no allocator needed)
-- Slice expressions and make_slice need an allocator but are otherwise simple
-- I/O functions must remain as runtime calls or syscalls
-- Bounds checking is already a separate IR op, so inline lowering can skip redundant checks
-- **Bug found**: raw slice `s[lo:hi]` in C runtime copies data instead of producing a zero-copy view. Tracked in TODO.
-- The `Inlineable` field in `ir.RuntimeFunc` (added in Phase 1) already marks the right functions
+**Implemented**: all 10 inlineable slice ops lowered, 9 C runtime functions removed, raw slice subslice copy bug fixed (now zero-copy). Runtime manifest: 22 → 9.
 
 ## Phase 3: Runtime Abstraction
 
