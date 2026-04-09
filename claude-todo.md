@@ -39,13 +39,21 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Unit tests**: 151 in pkg/interp (boot-comp). pkg/interp xfail'd in boot-comp-int due to inner interpreter return value wrapping (pre-existing limitation, not a regression).
 - **Next**: port compiler refcount fixes to interpreter (return leak, element-copy, RefInc-before-RefDec ordering)
 
-### Interpreter: eliminate legacy Elems path — make everything flat
-- The interpreter has TWO storage paths: flat (real addresses via allocFlat) and legacy (Elems-based @[]@Value arrays in Cell storage). Having both means every refcounting fix must be applied in two places — this is a losing battle.
-- **Goal**: expand `useFlatType` to ALL types. Every variable gets flat storage with a real address. Remove the legacy Elems code paths entirely.
-- **Currently flat**: int, bool, []T, @[]T, [N]int, [N]bool
-- **Not yet flat**: @T (managed-ptr), structs (value types), [N]@T, [N]@[]T, [N]Struct
-- **Blocking**: expanding arrays to all element types needs the compiler codegen bug for `[N]@T` field-write-through-index fixed first (test 139). The interpreter's legacy path works around it.
-- **Benefits**: single code path for refcounting, `&arr[i]` works for all arrays, `*@T` and `@(@T)` patterns work naturally, compiler-compatible memory layout.
+### Interpreter: flat migration — MOSTLY DONE, function values remaining
+- **Status**: all data types now use flat storage. Only function values remain Cell-based.
+- **Flat**: int, bool, `[]T`, `@[]T`, `@T`, `*T`, `[N]T` (all element types), structs, strings, named types (via resolveUnderlying)
+- **Still Cell**: function values (closures carry env, type entries, import aliases — complex interpreter-level state that has no compiled-code equivalent)
+- **Legacy path removal**: Cell/HeapObj/Elems code can be gradually removed as dead code for non-function-value types. The legacy Elems path in `assignTo` for arrays/slices is now only reachable for function-value elements (rare).
+
+### Function values in flat memory — design needed
+- Function values in the interpreter are `FuncVal` structs carrying: function name, AST declaration, closure env, type entries, import aliases. This is interpreter-level metadata with no compiled-code counterpart.
+- In compiled code, function values are just `i8*` (function pointer) or `{i8*, i8*}` (function pointer + closure context). The interpreter's representation is much richer.
+- **Options**:
+  - (a) Store function values as opaque managed allocations: allocate a `FuncVal` via `rt.Alloc`, store the 8-byte pointer in flat memory. Field access would need a registered type layout. This matches `@FuncVal` semantics.
+  - (b) Keep function values Cell-based but make them the ONLY exception. Accept that function-value variables don't have real addresses.
+  - (c) Redesign function values to match compiled representation: `{funcPtr, closureCtx}` pair in flat memory. Would require rethinking how the interpreter resolves calls.
+- **Impact**: function values are rarely stored in slices/arrays or refcounted. The main use case is first-class function variables and callbacks. Option (b) is pragmatic; option (a) is more complete; option (c) is needed for true dual-mode interop.
+- **Blocked on**: deciding whether function values need `&f` or `bit_cast` support. If not, option (b) suffices.
 
 ### Self-hosted interpreter refcounting gaps
 - The interpreter has the SAME refcounting bugs that were fixed in the compiler, but interpreter-side fixes are pending (partially blocked on the flat migration above).
