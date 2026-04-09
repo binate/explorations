@@ -3,8 +3,11 @@
 ## Goal
 
 Make the self-hosted interpreter (pkg/interp) store ALL values in flat
-ABI-compatible memory, matching the compiled code's layout. This enables
-`bit_cast`, pointer indexing, `&x` on locals, and dual-mode interop.
+ABI-compatible memory, matching the compiled code's layout. Flat storage
+is not a goal in itself — it's required for **dual-mode interop**:
+compiled code and interpreted code share the same heap, call each other
+via function pointers, and pass values by address. This requires
+identical memory layout.
 
 ## Current State (updated 2026-04-09)
 
@@ -72,27 +75,26 @@ In compiled code, function values are just `i8*` (function pointer) or
 representation is much richer because it needs to resolve types and
 imports when entering a function scope.
 
-**Options**:
+Function values must ultimately use the **same representation** in both
+compiled and interpreted code, because function values can be passed
+between the two modes — compiled code must be able to call interpreted
+functions (via a trampoline) and vice versa.
 
-**(a) Opaque managed allocation**: allocate `FuncVal` via `rt.Alloc`,
-store as `@FuncVal` (8-byte managed pointer) in flat memory. Field
-access through registered type layout. Matches `@T` semantics. The
-`FuncVal` struct would need to be defined as a proper Binate type with
-known field offsets.
+**Target representation (required for interop)**: `{funcPtr, closureCtx}`
+pair, matching the compiled representation. The closure context for an
+interpreted function would point to a trampoline that dispatches into
+the interpreter. This is a non-trivial design — the trampoline needs
+access to the AST declaration, closure env, types, and aliases.
 
-**(b) Keep Cell-based (pragmatic)**: function values are the only
-exception. Accept that function-value variables don't have real
-addresses. Since functions are rarely stored in slices/arrays or
-refcounted, the impact is minimal.
+**Current pragmatic approach**: keep function values Cell-based. This
+works because the bootstrap subset doesn't have closures or first-class
+function values (only direct calls by name). The Cell representation
+is a temporary compromise until the full interop design is implemented.
 
-**(c) Compiled-compatible representation**: `{funcPtr, closureCtx}` pair.
-Would require rethinking how the interpreter resolves calls — the
-closure context would need to encode env/types/aliases in a
-compiler-compatible format. Needed for true dual-mode interop where
-compiled code calls interpreter functions and vice versa.
-
-**Recommendation**: start with (b), move to (a) if needed, target (c)
-for dual-mode interop.
+**When this blocks**: if/when Binate gains closures, function values
+stored in slices/maps, or callbacks passed between compiled and
+interpreted code. At that point, the `{funcPtr, closureCtx}` design
+becomes mandatory.
 
 ### Legacy path cleanup
 

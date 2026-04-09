@@ -45,15 +45,12 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Still Cell**: function values (closures carry env, type entries, import aliases — complex interpreter-level state that has no compiled-code equivalent)
 - **Legacy path removal**: Cell/HeapObj/Elems code can be gradually removed as dead code for non-function-value types. The legacy Elems path in `assignTo` for arrays/slices is now only reachable for function-value elements (rare).
 
-### Function values in flat memory — design needed
-- Function values in the interpreter are `FuncVal` structs carrying: function name, AST declaration, closure env, type entries, import aliases. This is interpreter-level metadata with no compiled-code counterpart.
-- In compiled code, function values are just `i8*` (function pointer) or `{i8*, i8*}` (function pointer + closure context). The interpreter's representation is much richer.
-- **Options**:
-  - (a) Store function values as opaque managed allocations: allocate a `FuncVal` via `rt.Alloc`, store the 8-byte pointer in flat memory. Field access would need a registered type layout. This matches `@FuncVal` semantics.
-  - (b) Keep function values Cell-based but make them the ONLY exception. Accept that function-value variables don't have real addresses.
-  - (c) Redesign function values to match compiled representation: `{funcPtr, closureCtx}` pair in flat memory. Would require rethinking how the interpreter resolves calls.
-- **Impact**: function values are rarely stored in slices/arrays or refcounted. The main use case is first-class function variables and callbacks. Option (b) is pragmatic; option (a) is more complete; option (c) is needed for true dual-mode interop.
-- **Blocked on**: deciding whether function values need `&f` or `bit_cast` support. If not, option (b) suffices.
+### Function values: compiled-compatible representation (required for interop)
+- Function values MUST use the same representation in compiled and interpreted code, because function values can be passed between the two modes (compiled code calling interpreted functions and vice versa).
+- **Target**: `{funcPtr, closureCtx}` pair matching compiled representation. For interpreted functions, `funcPtr` would be a trampoline that dispatches into the interpreter using `closureCtx` to find the AST decl, closure env, types, and aliases.
+- **Current**: Cell-based `FuncVal` with interpreter-level metadata. Works because the bootstrap subset doesn't have closures or first-class function values.
+- **When this blocks**: closures, function values in slices/maps, callbacks between compiled and interpreted code.
+- See `explorations/plan-interp-memory-parity.md` for details.
 
 ### Self-hosted interpreter refcounting gaps
 - The interpreter has the SAME refcounting bugs that were fixed in the compiler, but interpreter-side fixes are pending (partially blocked on the flat migration above).
