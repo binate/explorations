@@ -19,7 +19,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 ### Self-hosted interpreter memory model parity with compiler
 - Plan: `explorations/plan-interp-memory-parity.md`
 - The self-hosted interpreter can no longer run under the bootstrap (boot-int dropped) since it now uses `bit_cast`, pointer indexing, and `pkg/rt`. It requires compiled mode (boot-comp-int and above).
-- **boot-comp-int: 146/147 conformance tests pass** (was 129 before this work began)
+- **boot-comp-int: 148/156 conformance tests pass** (was 129 before this work began)
 - Phase 1 (done): infrastructure — `flat.bn` with readFlatValue/writeFlatValue using bit_cast and pkg/rt
 - Phase 2 (done): scalar variables in flat memory — envDefine/envGet/envSet use flat addresses for ints
 - Phase 3 (done): structs in flat memory — `evalMake` allocates via `rt.Alloc`, all field access through `RawAddr + FieldOffset`. Lazy struct reads (no eager field materialization). Self-referential type resolution (in-place field update).
@@ -34,23 +34,18 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - TYP_NAMED resolution (done): `resolveUnderlying` resolves named types (`type Kind int`) in flat read/write paths
 - Lazy struct optimization (done): `readFlatValue` for TYP_STRUCT returns RawAddr-only Values, avoiding O(n) allocation per field access. Fixed parser.ParseFile hang in boot-comp-int.
 - Managed-slice flat storage (done): `TYP_MANAGED_SLICE` in `useFlatType`. 32-byte flat headers with `rt.MakeManagedSlice` backing. Flat-to-flat copy, subslicing, `@[]T→[]T` coercion, element refcounting. Fixed tests 126, 129.
-- **Remaining xfails (1)**: 206 (duplicate function detection — type checker gap, not memory model)
+- Managed-slice backing refcounting (done): envDefine/envSet RefInc/RefDec for backing_refptr. cleanupEnvExcept RefDec on scope exit. Element-level RefInc/RefDec for managed-ptr elements in flat index assignment.
+- **Remaining xfails (8)**: 206 (type checker gap), 108/131/132/133/134/135/138 (interpreter refcounting gaps — see "Self-hosted interpreter refcounting gaps" above)
 - **Unit tests**: 151 in pkg/interp (boot-comp). pkg/interp xfail'd in boot-comp-int due to inner interpreter return value wrapping (pre-existing limitation, not a regression).
-- **Next**: managed-slice backing refcounting (RefInc/RefDec on backing_refptr during env operations), then managed-slice element cleanup on scope exit
+- **Next**: port compiler refcount fixes to interpreter (return leak, element-copy, RefInc-before-RefDec ordering)
 
-### Managed-pointer return refcount leak (compiler)
-- **Status**: managed-SLICE return leak FIXED (test 131 passes). Managed-POINTER return leak still present (test 132 xfail).
-- **Blocking issue**: fixing the managed-ptr return leak (skip RefInc for returned @T locals) causes a refcount underflow in the compiled interpreter's type checker (`checkExpr` cleanup RefDec's an already-freed object). The freed object's header reads garbage → `h[0] <= 0` guard in RefDec fires.
-- **Key finding from ASan**: full ASan instrumentation on Binate code detects NO UAF — suggesting the double-free cascades through Binate's own `ptr - 16` header arithmetic that may bypass ASan shadow checks. The non-ASan build crashes, ASan build works.
-- **Root pattern**: with rc=1 (correct), `consumeTemp` at call sites means locals hold the only reference. When a destructor cascade (e.g., scope cleanup freeing symbols) RefDec's a shared object to 0, another local pointing to the same object becomes dangling. The leaked rc=2 masked this by keeping objects alive through cascades.
-- **What's needed**: identify the specific missing RefInc in the type checker's code path (likely a managed-ptr value obtained from a scope/symbol that doesn't get RefInc'd when stored in a local variable).
-- **Conformance tests**: 132 (managed-ptr return rc) documents the leak.
-
-### Element-copy refcounting — FIXED
-- **Fixed**: compiler now generates RefInc/RefDec for managed-ptr, managed-slice, and struct-with-managed-fields elements during slice/array element assignment.
-- **Also fixed**: RefInc-before-RefDec ordering in field/variable assignment (prevents cascade-unsafe frees, e.g., popScope pattern).
-- **Also fixed**: parser raw-slice borrow bug (parseImportDecl `[]@ast.ImportSpec` → `@[]@ast.ImportSpec`).
-- **Conformance tests**: 131 (managed-slice return), 133 (element-copy), 134 (array elem), 135 (struct elem), 136 (grouped imports).
+### Self-hosted interpreter refcounting gaps
+- The self-hosted interpreter (pkg/interp) has the SAME refcounting bugs that were fixed in the compiler, but interpreter-side fixes are pending.
+- **Managed-ptr return leak**: envDefine unconditionally RefInc's return values (xfail: 108, 132, 138)
+- **Managed-slice return leak**: same pattern (xfail: 131, 133)
+- **Element-copy refcounting**: interpreter doesn't RefInc managed-slice/struct elements on slice/array assignment (xfail: 134, 135)
+- **Assignment cascade ordering**: interpreter envSet doesn't RefInc new before RefDec old (xfail: 138)
+- These are all the interpreter equivalents of compiler bugs fixed this session.
 
 ### Binate type checker: duplicate function detection
 - The Binate type checker (pkg/types) does not detect duplicate function declarations within the same package
@@ -149,6 +144,22 @@ Binate is NOT Go. The two types of slice are intentionally different:
 ---
 
 ## Done (session 2026-04-08)
+
+### Compiler refcount leak fixes — NO KNOWN COMPILER MEMORY ISSUES
+- **boot-comp: 155/156** (was 147). Only xfail: 206 (type checker gap, not memory).
+- **Managed-slice return leak** (test 131): skip RefInc for returned managed-slice locals. The cleanup skip already transfers ownership.
+- **Managed-ptr return leak** (test 132): same pattern. Key bug was `lookupVar()` falling back to globals — returning a singleton (like `TypUntypedInt`) would skip RefInc, freeing the singleton. Fixed by adding `lookupLocalVar()` that only searches function-local variables.
+- **Element-copy refcounting** (tests 133-135): compiler now generates RefInc/RefDec for managed-ptr, managed-slice, and struct-with-managed-fields elements during slice/array assignment. Previously, `bn_slice_set_struct` did a plain memcpy.
+- **RefInc-before-RefDec ordering** (test 138): variable/field assignment now RefInc's the new value before RefDec'ing the old, preventing cascade-unsafe frees (e.g., `s = s.Parent` where freeing child cascades to free parent via destructor).
+- **Parser raw-slice borrow** (test 136): `parseImportDecl` returned `@[]@ast.ImportSpec` but caller stored as `[]@ast.ImportSpec`, freeing backing at statement end.
+- **Debugging technique**: sentinel-based RefDec (set rc=-999 instead of free, panic on RefInc/RefDec of sentinel) pinpointed the global-return bug that ASan couldn't catch.
+
+### Managed-slice flat storage in interpreter
+- boot-comp-int: 148/156 (was 142 before).
+- `TYP_MANAGED_SLICE` in `useFlatType`, flat subslicing, `@[]T→[]T` coercion, element refcounting, backing refcounting.
+
+### 4-word managed-slice migration — finalized
+- Conformance test 129 (subslice preserving backing_len), bootstrap interpreter confirmed no changes needed.
 
 ### x86-64 assembler backend — IMPLEMENTED
 - **pkg/asm/x64**: full x86-64 instruction encoding with REX prefix, ModR/M, SIB byte. MOV, PUSH/POP, LEA, ADD/SUB/AND/OR/XOR/CMP/TEST, INC/DEC/NEG/NOT, SHL/SHR/SAR, IMUL (2 and 3 operand)/IDIV/DIV, CQO/CDQ, JMP/Jcc/CALL/RET, NOP/SYSCALL/INT. 40 unit tests.
