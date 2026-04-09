@@ -197,12 +197,14 @@ The previous design always null-terminated string literals but excluded the null
 
 **String literals are raw static data in the binary** (like C). A string literal of length N is stored as exactly N bytes. The **natural type** is `[N]const char`. The **default type** (when context is ambiguous) is `[]const char` with len=N.
 
-String literals are **untyped** (like integer literals) and coerce to the appropriate type from context. The compiler generates wrapping code based on that context:
-- Assigned to a slice (`[]char` / `[]const char`) → slice view pointing into static data with `len` = N
-- Assigned to a managed slice (`@[]char`) → allocate, copy, managed-slice with `len` = N
-- Assigned to an array (`[N]char`) → the natural type, exact contents
-- Assigned to a managed array → compiler generates allocation + copy code
-- Used as a raw pointer → pointer to static data
+String literals are **untyped** (like integer literals) and coerce to the appropriate type from context. The allowed target types are the **const** variants only — string literals are immutable data and must not be assignable to mutable types:
+- Assigned to `[]const char` → raw slice view pointing into static data with `len` = N
+- Assigned to `@[]const char` → managed-slice pointing into static data (backing_refptr = null, never freed), `len` = N
+- Assigned to `[N]const char` → the natural type, exact contents
+
+Non-const variants (`[]char`, `@[]char`, `[N]char`) are NOT valid targets for string literals. The semantics would be unsound: `[]char` borrows immutable static data but allows mutation; `@[]char` would require an implicit copy (hidden allocation), which violates the no-hidden-behavior principle. If mutable chars are needed, use an explicit copy: `var s @[]char = buf.CopyStr("hello")`.
+
+(In the bootstrap, which lacks const types, `[]char` and `@[]char` are used as stand-ins. This is a pragmatic compromise that will be fixed when const types are added to the self-hosted compiler.)
 
 ### Fixed-Size Arrays
 
@@ -835,7 +837,7 @@ When type context is ambiguous (e.g., `x := 123`):
 
 **Literal overflow is a compile error:** `var x uint8 = 256` fails. Literals are checked at compile time for fit.
 
-**String literal representation:** a string literal of length N is stored as exactly N bytes. The **natural type** is `[N]const char`. The **default type** is `[]const char` with `len` = N. `"abc"` → storage is `{'a','b','c'}` (3 bytes), natural type `[3]const char`, default type `[]const char` with `len()` = 3. No implicit null terminator.
+**String literal representation:** a string literal of length N is stored as exactly N bytes. The **natural type** is `[N]const char`. The **default type** is `@[]const char` with `len` = N. `"abc"` → storage is `{'a','b','c'}` (3 bytes), natural type `[3]const char`, default type `@[]const char` with `len()` = 3. No implicit null terminator. String literals may only be assigned to const-qualified char types (`[]const char`, `@[]const char`, `[N]const char`) — not to mutable variants. For mutable chars, use an explicit copy.
 
 ---
 

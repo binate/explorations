@@ -28,24 +28,30 @@ compiler. This creates several problems:
 ### String literals are untyped constants
 
 A string literal `"abc"` is an untyped constant that can be used in
-the following type contexts:
+the following **const-qualified** type contexts only:
 
-- **`@[]char`** (managed char slice): allocates a refcounted backing
-  with the character data. Safe to store, pass around, return.
-  Mutation of the copy is allowed (each `@[]char` copy shares the
-  backing via refcounting; copy-on-write is not needed since the
-  compiler already handles RefInc/RefDec).
+- **`@[]const char`** (managed const char slice): managed-slice
+  header pointing into static data. `backing_refptr = null` (static,
+  never freed). RefInc/RefDec on null is a no-op. This is the
+  **default type** for string literals.
 
-- **`[]char`** (raw char slice): borrows from an immutable global
-  constant. The slice header `{data, len}` points into read-only
-  data. Mutation through this slice is undefined behavior (and will
-  be prevented by `[]const char` when const types are added).
+- **`[]const char`** (raw const char slice): raw slice header
+  `{data, len}` borrowing from static data. Read-only.
 
-- **`[N]char`** (char array): copies the literal data into a
-  fixed-size array (stack or struct field). `N` must be >= the
-  literal length.
+- **`[N]const char`** (const char array): the **natural type**.
+  Copies literal data into a fixed-size array.
 
-### Implementation: global @[]char per string literal
+Non-const variants (`[]char`, `@[]char`, `[N]char`) are NOT valid
+targets for string literals. Mutation of literal data is unsound
+(the data lives in read-only static storage), and implicit copying
+to allow mutation violates the no-hidden-behavior principle. For
+mutable chars, use an explicit copy: `buf.CopyStr("hello")`.
+
+(In the bootstrap, which lacks const types, `[]char` and `@[]char`
+are used as stand-ins. This pragmatic compromise will be resolved
+when const types are added to the self-hosted compiler.)
+
+### Implementation: global @[]const char per string literal
 
 For each unique string literal in a package, the compiler generates
 a **global `@[]char` constant**:
@@ -117,19 +123,17 @@ When a string literal is used:
    kept as an internal "untyped string literal" kind (like
    `TYP_UNTYPED_INT`) that gets resolved during type checking.
 
-### Interaction with const types (future)
+### Interaction with const types
 
-When const types are added:
+String literals are const-only by design — they will only ever be
+`@[]const char`, `[]const char`, or `[N]const char`. This is not
+a future restriction waiting for const types; it's the semantic
+design. Non-const variants would require either unsound mutation of
+static data or implicit hidden copies.
 
-- `"abc"` naturally has type `@[]const char` or `[]const char`
-- Assignment to `@[]char` (mutable) requires a copy
-- Assignment to `[]const char` borrows from the global (no copy)
-- This prevents the mutation-of-literal-data problem
-
-Until const types exist, `@[]char` from a string literal shares
-the global data. Mutation through the shared backing is technically
-possible but unsound — the programmer should treat string-derived
-`@[]char` as immutable. This matches current behavior.
+Until const types are implemented in the self-hosted compiler, the
+bootstrap uses `[]char` and `@[]char` as stand-ins. This is
+documented as a pragmatic compromise.
 
 ## Migration order
 
