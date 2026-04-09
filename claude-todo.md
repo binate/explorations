@@ -122,17 +122,13 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - This also gives a natural place for test infrastructure (run.sh, runners, xfail metadata) that doesn't belong to either the bootstrap or self-hosted repo
 - The unit test runner (`binate/scripts/unittest/`) has a similar issue — it's in the binate repo but the `boot` mode runs via Go in the bootstrap repo
 
-### Compiler bug: multi-return with struct containing managed fields generates bad LLVM IR
-- `func f() (StructWithManagedField, int)` generates `ret i64 %v7` type mismatch in LLVM IR
-- Reproducer: `strTabAdd(st StrTab, s []char) (StrTab, int)` where `StrTab` contains a `buf.CharBuf` (which has `@[]char`)
-- **Workaround applied**: changed to `strTabAdd(st *StrTab, s []char) int` (pointer param instead of struct return) in `pkg/asm/macho/macho.bn`
-- **TODO**: fix the compiler codegen to handle this correctly, then revert the workaround
-- May also affect `pkg/asm/parse` functions that return `(Lexer, Token)` and `(Lexer, Token, ExprResult)` — these structs don't contain managed fields, so they may be fine, but worth checking
-- Likely root cause: the LLVM IR codegen for multi-return struct lowering doesn't correctly handle structs that contain managed pointer or managed-slice fields
+### ~~Compiler bug: multi-return with struct containing managed fields~~ — FIXED
+- Bug was already fixed by earlier refcounting changes. Workaround reverted. Test 141 passes.
 
-### Multi-return as anonymous struct — ABI contract
-- Multi-return is an ABI contract: `func f() (T1, T2)` returns `struct { _0 T1; _1 T2 }` with standard struct layout. Both compiler and interpreter must use the same representation for interop.
-- **Fixes**: the multi-return managed-fields compiler bug (above), eliminates the last 3 Value.Elems in the interpreter, unifies return handling across backends.
+### Multi-return as anonymous struct — compiler DONE, interpreter TODO
+- Multi-return is an ABI contract: `func f() (T1, T2)` returns `struct { _0 T1; _1 T2 }`.
+- **Compiler side done**: `Func.MultiReturnType` struct type, propagated through FuncSig/call sites/return instructions, LLVM emission uses `llvmType(MultiReturnType)`.
+- **Interpreter side TODO**: replace VAL_MULTI/Elems with flat anonymous struct. This eliminates the last 3 Value.Elems references.
 - **Plan**: `explorations/plan-multi-return-struct.md`
 
 ### Standard library design
