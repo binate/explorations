@@ -143,6 +143,12 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - May also affect `pkg/asm/parse` functions that return `(Lexer, Token)` and `(Lexer, Token, ExprResult)` — these structs don't contain managed fields, so they may be fine, but worth checking
 - Likely root cause: the LLVM IR codegen for multi-return struct lowering doesn't correctly handle structs that contain managed pointer or managed-slice fields
 
+### Multi-return as anonymous struct
+- Multi-return values should be implemented as if they are returns of anonymous structs, where the field type sequence corresponds to the return type sequence. E.g., `func f() (int, bool)` returns a `struct { int; bool }`.
+- **Step 1 (compiler)**: change multi-return codegen to construct and return an anonymous struct. This should also resolve the outstanding multi-return bug above (struct containing managed fields generates bad LLVM IR), since anonymous struct returns would go through the normal struct return path.
+- **Step 2 (interpreter)**: change multi-return handling to use flat anonymous structs instead of VAL_MULTI with Elems. This eliminates the last 3 Value.Elems references (exec.bn lines 106, 283 and value.bn MakeMultiVal), completing the legacy Elems removal.
+- **Benefit**: uniform representation — multi-return is just a struct, no special-casing in codegen, interpreter, or refcounting. The caller destructures via field access.
+
 ### Standard library design
 - Candidates: growable collections (Vec[T], Map[K,V] post-generics), I/O abstractions, string utilities, formatting
 - CharBuf is implemented (pkg/buf); broader stdlib design should inform future collection APIs
