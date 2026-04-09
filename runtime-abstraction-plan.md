@@ -72,34 +72,36 @@ Key insight: `pkg/rt` is already written in Binate. The only C dependency is the
 
 ## Step-by-Step Plan
 
-### 3.1. Reimplement inlineable slice operations in Binate
+### 3.1. Lower slice operations to primitive IR ops — PARTIALLY DONE
 
-**What**: The 10 inlineable runtime functions (slice get/set/len/expr) are currently in `binate_runtime.c`. Reimplement them in Binate (in `pkg/rt` or a new `pkg/slice` package).
+**What**: The high-level slice IR ops (`OP_SLICE_GET`, `OP_SLICE_SET`, `OP_SLICE_LEN`, `OP_SLICE_PTR`, `OP_SLICE_EXPR`, `OP_SLICE_ELEM_PTR`) currently produce IR opcodes that the LLVM codegen lowers to C runtime function calls (`bn_slice_get_i64`, etc.). Instead, lower these in the IR gen layer into sequences of primitive IR ops that any backend already handles.
 
-**Why do this first**: These functions are the simplest — pure pointer arithmetic, no allocator, no I/O. They validate the approach of replacing C runtime functions with Binate implementations.
+**Why this approach**: Slice/managed-slice layout is a language-level contract (shared by all backends and the interpreter for dual-mode interop). The decomposition into primitives — how to extract the data pointer, compute element addresses, load/store — should be encoded once in the IR gen (shared layer), not independently per backend. This is the same pattern already used for arrays: `arr[i]` emits `OP_GET_ELEM_PTR` + `OP_LOAD`, not a high-level `OP_ARRAY_GET`.
 
-**Functions to reimplement** (all take/return raw slices as pointer+len pairs):
-- `bn_slice_len(s) → int` — read second word of slice
-- `bn_slice_get_i64(s, i) → int` — `load(s.data + i * 8)`
-- `bn_slice_set_i64(s, i, v)` — `store(v, s.data + i * 8)`
-- `bn_slice_get_i8(s, i) → int` — `load(s.data + i)`, zero-extend
-- `bn_slice_set_i8(s, i, v)` — `store(trunc(v), s.data + i)`
-- `bn_slice_get_struct(s, i, elemSize) → *uint8` — `s.data + i * elemSize`
-- `bn_slice_set_struct(s, i, ptr, elemSize)` — `memcpy(s.data + i * elemSize, ptr, elemSize)`
-- `bn_slice_expr_i8(s, lo, hi) → slice` — subslice (currently copies — should be zero-copy view, see TODO)
-- `bn_slice_expr_i64(s, lo, hi) → slice` — subslice
-- `bn_slice_expr_struct(s, lo, hi, elemSize) → slice` — subslice
+**Original approach (superseded)**: reimplement these as Binate functions in `pkg/rt`. This was abandoned because: (a) some ops like `len()` would be circular (Binate `SliceLen` calls `len` which compiles to `SliceLen`), (b) it introduces naming/ABI coupling between the IR manifest and the Binate package, (c) it doesn't share layout knowledge between backends.
 
-**Implementation approach**:
-- These functions use `bit_cast`, pointer indexing (`p[i]`), and `rt.c_memcpy` — all available in Binate
-- Put them in `pkg/rt` (they already depend on `c_memcpy` from there)
-- The LLVM backend continues calling them by name (same ABI)
-- A native backend can inline them instead (they're marked `Inlineable` in the manifest)
-- Remove the corresponding functions from `binate_runtime.c`
+**Operations to lower** (using existing primitive ops: `OP_EXTRACT`, `OP_BIT_CAST`, `OP_GET_ELEM_PTR`, `OP_LOAD`, `OP_STORE`):
 
-**Consideration**: The C runtime versions include bounds checking (redundant — `OP_BOUNDS_CHECK` is emitted separately). The Binate versions should NOT include bounds checking, matching the assumption that bounds are already checked.
+| High-level op | Lowered to |
+|---------------|------------|
+| `OP_SLICE_LEN(s)` | `OP_EXTRACT(s, 1)` — extract len field from slice struct — **DONE** (inlined as `extractvalue` in codegen) |
+| `OP_SLICE_PTR(s)` | `OP_EXTRACT(s, 0)` — extract data ptr field |
+| `OP_SLICE_GET(s, i)` | extract data ptr, bitcast to `*elemType`, GEP by index, load |
+| `OP_SLICE_SET(s, i, v)` | extract data ptr, bitcast to `*elemType`, GEP by index, store |
+| `OP_SLICE_ELEM_PTR(s, i)` | extract data ptr, bitcast to `*elemType`, GEP by index (no load — returns ptr) |
+| `OP_SLICE_EXPR(s, lo, hi)` | extract data ptr, GEP by lo, construct new slice `{new_ptr, hi-lo}` |
 
-**Consideration**: The slice get/set functions currently have specific signatures for i8, i64, and struct variants. In Binate, these can be unified with `bit_cast` and pointer indexing, but we need to maintain the same external symbol names for LLVM backend compatibility.
+**Where the change happens**: In `EmitSliceGet`, `EmitSliceSet`, `EmitSliceLen`, etc. in `pkg/ir/ir_ops.bn`. These functions currently create a single high-level IR instruction; they should instead emit a sequence of primitive instructions. The codegen's handling of the high-level ops becomes dead code and can be removed.
+
+**For each op, also**:
+- Remove the C runtime function from `binate_runtime.c`
+- Remove from the runtime manifest (`pkg/ir/runtime.bn`)
+- Remove codegen handling of the high-level op
+- Update codegen tests
+
+**Note on struct elements**: `OP_SLICE_SET` for struct elements currently uses `memcpy` via the C runtime (`bn_slice_set_struct`). The lowered version needs a memcpy-equivalent — either `OP_STORE` of the struct value (LLVM handles struct stores), or a call to `c_memcpy`. The former is cleaner if LLVM's struct store semantics match.
+
+**Note on bounds checking**: The C runtime functions include redundant bounds checks (the IR gen already emits `OP_BOUNDS_CHECK` separately). The lowered primitives naturally omit these.
 
 **Depends on**: Nothing (independent)
 

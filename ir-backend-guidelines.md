@@ -60,6 +60,10 @@ The abstract layout of slices should be defined in a shared place:
 
 Backends map these to their concrete representations (e.g., LLVM uses `%BnSlice = type { i8*, i64 }`), but the *structure* (which field is at which offset, how many words) is language-defined.
 
+**Slice operation lowering**: High-level slice operations (`slice[i]`, `len(s)`, `s[lo:hi]`) should be lowered in the IR gen into sequences of primitive IR ops — not emitted as high-level opcodes for backends to lower independently. The decomposition encodes layout knowledge (data pointer is field 0, length is field 1, element stride = `SizeOf(elemType)`) that is part of the language contract. This is the same pattern used for arrays: `arr[i]` emits `OP_GET_ELEM_PTR` + `OP_LOAD`, not a backend-specific `OP_ARRAY_GET`.
+
+Concretely, `slice[i]` lowers to: extract data pointer (field 0), bitcast to `*elemType`, GEP by index, load. Backends only need to handle these universal primitives, which they already implement for arrays and struct fields.
+
 ### 5. Managed Pointer Header Layout
 
 The header layout `[refcount, free_fn]` at negative offset from the payload is a language/runtime contract, not a backend decision. The header size (currently 16 bytes on 64-bit, would be 8 bytes on 32-bit) should be derivable from the target's pointer/int size.
