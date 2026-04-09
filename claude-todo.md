@@ -39,7 +39,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - readFlatValue no longer materializes Elems (O(n) → O(1)). All consumers (for-in, index, len, print, subslice) use flat paths.
 - Legacy Elems code removed: MakeSliceVal, MakeArrayVal, MakeManagedSliceVal removed. writeFlatValue Elems→flat conversion removed. Elems refs: 53→3 (VAL_MULTI only). HeapObj refs: 30→3 (function values only).
 - All refcounting fixed: return leak (IsFresh flag), element-copy, struct field, assignment cascade, pointer deref write, managed-slice element cleanup (rc==1 check).
-- **Remaining xfails (1)**: 206 (type checker duplicate function detection)
+- **158/158 in boot-comp, boot-comp-int, and boot-comp-comp. Zero xfails.**
 
 ### Interpreter: remove remaining legacy Elems/Cell/HeapObj code
 - **Status**: all data types flat. Legacy cleanup mostly done (Elems 53→3, HeapObj 30→3). Remaining 3 Elems are for VAL_MULTI (multi-return tuples) — needs multi-return-as-anonymous-struct redesign. Remaining 3 HeapObj are for function-value Cell storage — needs compiled-compatible function value design.
@@ -53,7 +53,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - See `explorations/plan-interp-memory-parity.md` for details.
 
 ### Self-hosted interpreter refcounting — ALL FIXED
-- **No known memory issues.** boot-comp-int: 157/158 (only xfail: 206 type checker gap).
+- **No known memory issues.** boot-comp-int: 158/158. Zero xfails.
 - Return leak fixed via IsFresh flag on Value (make/make_slice/box set IsFresh; execReturn sets IsFresh for local-ident returns via envGetLocalAddr; envDefine/envSet skip RefInc when IsFresh).
 - Element-copy refcounting fixed for managed-ptr, managed-slice, and struct elements in slice/array assignment.
 - Struct field assignment RefInc/RefDec for managed-ptr and managed-slice fields.
@@ -61,16 +61,6 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Assignment cascade: RefInc new before RefDec old (cascade-safe) for managed-ptrs.
 - Pointer deref write (*p = val): RefInc/RefDec for managed types.
 
-### Compiler codegen bug: [N]@T field write through index
-- `arr[i].Field = val` where arr is `[N]@T` produces wrong code — field write goes nowhere, reads return 0.
-- `arr[i] = presetNode` (assign pre-built node, then read field) works fine (test 117 passes).
-- Root cause: likely the GEP for `arr[i]` in the LHS selector-index path doesn't correctly handle managed-ptr array elements.
-- Conformance test: 139 (xfail boot-comp).
-
-### Binate type checker: duplicate function detection
-- The Binate type checker (pkg/types) does not detect duplicate function declarations within the same package
-- The bootstrap Go type checker does ("foo redeclared in this block")
-- Conformance test 206 is xfail'd for boot-int and boot-comp
 
 ### Verify .bni vs .bn visibility semantics
 - Both `.bni` and `.bn` files can contain type declarations, constants, aliases, and globals
@@ -186,9 +176,16 @@ Binate is NOT Go. The two types of slice are intentionally different:
 ### Remove dead bn_append_* functions
 - No IR opcode, no codegen emission, no callers. Removed from C runtime and manifest.
 
-### NO KNOWN MEMORY ISSUES IN COMPILER OR INTERPRETER
-- **boot-comp: 156/158** (was 147). Xfails: 139 (codegen [N]@T field-write-through-index), 206 (type checker).
-- **boot-comp-int: 157/158** (was 142). Only xfail: 206 (type checker).
+### 158/158 — ZERO XFAILS IN ALL MODES
+- **boot-comp: 158/158. boot-comp-int: 158/158. boot-comp-comp: 158/158.**
+- Was 147/147 at start of session (with xfails). Now 158/158 with zero xfails.
+
+### [N]@T field-write-through-index — FIXED (test 139)
+- `genSelectorPtr` for `arr[i].Field` only handled struct elements. For `[N]@Node`, element type is `@Node` (TYP_MANAGED_PTR). Added: load managed-ptr from array element, then GEP for field.
+
+### Duplicate function detection — FIXED (test 206)
+- Added `checkDuplicateDecls`: O(n²) scan of declaration list for duplicate names. Reports "redeclared in this block". Skips .bni→.bn matches (only checks within same file).
+- Added `LookupLocal` to Scope (current scope only, not parents).
 
 ### Compiler refcount fixes
 - **Managed-slice return leak** (test 131): skip RefInc for returned managed-slice locals via `lookupLocalVar`.

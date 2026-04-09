@@ -11,8 +11,8 @@ identical memory layout.
 
 ## Current State (updated 2026-04-09)
 
-**boot-comp-int: 157/158 conformance tests pass.** No known memory issues.
-Only xfail: 206 (type checker duplicate function detection).
+**boot-comp: 158/158. boot-comp-int: 158/158. boot-comp-comp: 158/158.**
+Zero xfails. No known memory issues. No known codegen issues.
 
 ### What's flat (done)
 
