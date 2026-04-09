@@ -96,27 +96,43 @@ stored in slices/maps, or callbacks passed between compiled and
 interpreted code. At that point, the `{funcPtr, closureCtx}` design
 becomes mandatory.
 
-### Legacy path cleanup
+### Legacy path removal — HIGH PRIORITY
 
-With all data types flat, the legacy Cell/Elems code paths are mostly
-dead for non-function-value types:
-- `Cell @HeapObject` in `EnvEntry`: only used for function values
-- `Elems @[]@Value` in `assignTo`: only reachable for function-value elements (rare)
-- `HeapObj` on managed-slice Values: can be removed (flat backing handles refcounting)
-- `interpCleanupSlice`: can be replaced by flat backing RefDec
-- `copyValue` HeapObj.Refcount logic: can be removed
+The legacy Elems/Cell/HeapObj code MUST be removed. Having two parallel
+storage paths has an extremely high long-term cost: every future change
+must reason about both paths, bugs hide in the cold fallbacks, and
+refcounting fixes must be duplicated. This is not optional cleanup —
+it's a prerequisite for correctness.
 
-This cleanup can be done incrementally — it's dead code elimination,
-not behavioral change.
+**Status (2026-04-09)**: 37 Elems references remain. Hot paths are flat.
+Remaining Elems are in:
+- `writeFlatValue` Elems consumers (10): for edge cases that still
+  produce Elems-based Values (bootstrap_fwd `[][]char`, coerce)
+- Value constructors (8): MakeSliceVal, MakeArrayVal, MakeManagedSliceVal,
+  MakeMultiVal — still called from a few places
+- Legacy fallbacks (12): for-in, index, subslice, nil check — all have
+  flat primary paths but keep Elems as safety net
+- Multi-return (2): VAL_MULTI tuple type
+- bootstrap_fwd (5): `[][]char` creation + sliceToChars fallback
+
+**Next steps**:
+1. Convert bootstrap_fwd `[][]char` creation to flat (allocate raw slice
+   backing, write `[]char` headers at element offsets)
+2. Convert writeFlatValue to assert RawAddr for slices/arrays (remove
+   Elems fallback, fix any remaining creators)
+3. Remove MakeSliceVal, MakeArrayVal, MakeManagedSliceVal (replace
+   remaining callers with flat allocation)
+4. Remove Elems field from Value struct
+5. Remove Cell/HeapObj from EnvEntry (except for function values)
+6. Remove legacy fallbacks from for-in, index, subslice, nil check
 
 ### Interpreter refcounting fixes (unblocked)
 
-With everything flat, the remaining interpreter refcounting fixes are
-straightforward — single code path:
+With the flat primary paths in place, the remaining interpreter
+refcounting fixes are straightforward — single code path:
 - Return leak (108, 131, 132, 133): skip RefInc for returned locals
 - Element-copy for struct fields (135): RefInc managed fields in struct elements
 - Assignment cascade (138): already fixed for flat managed-ptrs in step 1
-- These can be done incrementally after the flat migration.
 
 ## Memory Layout Reference
 

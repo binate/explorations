@@ -39,11 +39,11 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Unit tests**: 151 in pkg/interp (boot-comp). pkg/interp xfail'd in boot-comp-int due to inner interpreter return value wrapping (pre-existing limitation, not a regression).
 - **Next**: port compiler refcount fixes to interpreter (return leak, element-copy, RefInc-before-RefDec ordering)
 
-### Interpreter: flat migration — MOSTLY DONE, function values remaining
-- **Status**: all data types now use flat storage. Only function values remain Cell-based.
-- **Flat**: int, bool, `[]T`, `@[]T`, `@T`, `*T`, `[N]T` (all element types), structs, strings, named types (via resolveUnderlying)
-- **Still Cell**: function values (closures carry env, type entries, import aliases — complex interpreter-level state that has no compiled-code equivalent)
-- **Legacy path removal**: Cell/HeapObj/Elems code can be gradually removed as dead code for non-function-value types. The legacy Elems path in `assignTo` for arrays/slices is now only reachable for function-value elements (rare).
+### Interpreter: remove remaining legacy Elems/Cell/HeapObj code — HIGH PRIORITY
+- **Status**: all data types use flat storage. Hot paths (read, write, for-in, index, len, print) use flat. 37 Elems references remain in cold fallbacks, constructors, and writeFlatValue edge cases.
+- **Why high priority**: two parallel storage paths (flat + legacy) are a correctness liability. Every future change must reason about both. Bugs hide in the cold fallbacks. Refcounting fixes must be duplicated. This debt compounds.
+- **Remaining work**: convert bootstrap_fwd `[][]char` to flat, remove writeFlatValue Elems fallbacks, remove MakeSliceVal/MakeArrayVal/MakeManagedSliceVal, remove Elems from Value struct, remove Cell/HeapObj from EnvEntry (except function values).
+- See `explorations/plan-interp-memory-parity.md` for detailed steps.
 
 ### Function values: compiled-compatible representation (required for interop)
 - Function values MUST use the same representation in compiled and interpreted code, because function values can be passed between the two modes (compiled code calling interpreted functions and vice versa).
