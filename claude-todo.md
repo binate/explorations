@@ -171,6 +171,21 @@ Binate is NOT Go. The two types of slice are intentionally different:
 
 ## Done (session 2026-04-08/09)
 
+### NeedsDestruction TYP_NAMED resolution (compiler bug)
+- `NeedsDestruction` did not resolve `TYP_NAMED` (only `TYP_ALIAS`), so named struct types with managed fields were not detected as needing cleanup. Similarly, `emitStructElemRefcount` bailed out when element type was `TYP_NAMED` instead of `TYP_STRUCT`.
+- Fixed both. Conformance test 140 added.
+
+### Managed-slice dtor: iterate from backing start, not data ptr
+- `genManagedSliceDtor` iterated elements from the `data` pointer (field 0), but after subslicing, `data` points into the middle of the backing. The dtor must iterate from `refptr` (field 2 = backing allocation start) over `backingLen` elements.
+- This was the root cause of the boot-comp-comp crash: `ctx.Vars[:savedLen]` created subslices, and the dtor walked stale memory past the subslice boundary.
+- boot-comp-comp now works (hello world compiles and runs).
+
+### Inline OP_SLICE_LEN as extractvalue
+- `len()` on slices now emits `extractvalue %BnSlice %s, 1` instead of calling `bn_slice_len`. Removed from C runtime and manifest (18 functions remaining).
+
+### Remove dead bn_append_* functions
+- No IR opcode, no codegen emission, no callers. Removed from C runtime and manifest.
+
 ### NO KNOWN MEMORY ISSUES IN COMPILER OR INTERPRETER
 - **boot-comp: 156/158** (was 147). Xfails: 139 (codegen [N]@T field-write-through-index), 206 (type checker).
 - **boot-comp-int: 157/158** (was 142). Only xfail: 206 (type checker).

@@ -121,6 +121,8 @@ the 4-word type `(data_ptr, length, backing_refptr, backing_len)` created by `ma
 
 The backing length is needed for destructor cleanup — when the backing's refcount hits zero, the destructor must iterate all backing_len elements to RefDec managed references. This cannot be derived from the view length because subslicing changes the view but not the backing.
 
+**Subslicing semantics**: `s[lo:hi]` on a managed-slice produces a new view: `(data + lo * elemSize, hi - lo, same_refptr, same_backingLen)`. The subslice RefInc's the backing (shared ownership) but does NOT RefInc individual elements. When the last reference to the backing dies (refcount → 0), the destructor iterates from `refptr` (the backing allocation start), NOT from `data` (the view start), over all `backingLen` elements. This is critical: after subslicing, `data ≠ refptr`, so iterating from `data` would walk into wrong memory.
+
 Note: with both view length and backing length available, the Go-style "capacity" (`backing_len - (data - backing_start) / elem_size`) is computable. This means a correct `append()` is possible. However, the spirit of managed-slices is as pure views — append may be reconsidered in the future but is not planned.
 
 (Previous 3-word layout `(data, len, refptr)` was updated to 4 words to support destructor cleanup.)
@@ -150,7 +152,7 @@ When a managed allocation's refcount hits zero, managed references inside it mus
 
 **Every type that `NeedsDestruction` gets a dtor** (generated at the IR level, backend-agnostic):
 - **Struct dtors** (`__dtor_<Name>`): walks fields, RefDec's `@T` fields with pointee dtor, calls managed-slice/array/struct dtors for inline fields.
-- **Managed-slice dtors** (`__dtor_ms_<elemType>`): checks `Refcount(backing) == 1`, iterates `backing_len` elements calling element cleanup, then RefDec's the backing. Generated even when elements don't need destruction (just RefDec backing).
+- **Managed-slice dtors** (`__dtor_ms_<elemType>`): checks `Refcount(backing) == 1`; if last reference, iterates `backing_len` elements starting from `refptr` (backing start, NOT `data`) calling element cleanup, then RefDec's the backing. If not last reference, just RefDec's backing without touching elements. Generated even when elements don't need destruction (just RefDec backing).
 - **Array dtors** (`__dtor_arrN_<elemType>`): iterates N elements calling element cleanup. Per-size function (trampoline design for future interface vtables).
 - **Anonymous struct dtors** (`__dtor_anon_<type1>_<type2>_...`): named by field type sequence. Hash fallback (`__dtor_anon_h<hex>`) for names exceeding 128 characters.
 
