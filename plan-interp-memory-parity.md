@@ -11,7 +11,8 @@ identical memory layout.
 
 ## Current State (updated 2026-04-09)
 
-**boot-comp-int: 150/157 conformance tests pass.**
+**boot-comp-int: 157/158 conformance tests pass.** No known memory issues.
+Only xfail: 206 (type checker duplicate function detection).
 
 ### What's flat (done)
 
@@ -33,11 +34,11 @@ identical memory layout.
 |------|-----|--------|
 | function values | `FuncVal` carries interpreter metadata (AST decl, closure env, type entries, import aliases) with no compiled-code counterpart | `&f` doesn't work, function values in slices/arrays use Elems path |
 
-### Refcounting status
+### Refcounting status — ALL FIXED
 
-Compiler: no known memory issues (155/157, only xfails: 139 codegen, 206 type checker).
-Interpreter: 7 refcounting xfails (108, 131, 132, 133, 135, 138, 139).
-These are now fixable with a single code path (no more legacy/flat duplication).
+No known memory issues in compiler or interpreter.
+- Compiler: 156/158 (xfails: 139 codegen, 206 type checker).
+- Interpreter: 157/158 (xfail: 206 type checker).
 
 ## Completed Steps
 
@@ -96,43 +97,27 @@ stored in slices/maps, or callbacks passed between compiled and
 interpreted code. At that point, the `{funcPtr, closureCtx}` design
 becomes mandatory.
 
-### Legacy path removal — HIGH PRIORITY
+### Legacy path removal — MOSTLY DONE
 
-The legacy Elems/Cell/HeapObj code MUST be removed. Having two parallel
-storage paths has an extremely high long-term cost: every future change
-must reason about both paths, bugs hide in the cold fallbacks, and
-refcounting fixes must be duplicated. This is not optional cleanup —
-it's a prerequisite for correctness.
+**Status (2026-04-09)**: Elems 53→3, HeapObj 30→3. All legacy fallbacks
+removed from hot paths. MakeSliceVal, MakeArrayVal, MakeManagedSliceVal
+removed. writeFlatValue Elems paths removed. readFlatValue no longer
+materializes Elems.
 
-**Status (2026-04-09)**: 37 Elems references remain. Hot paths are flat.
-Remaining Elems are in:
-- `writeFlatValue` Elems consumers (10): for edge cases that still
-  produce Elems-based Values (bootstrap_fwd `[][]char`, coerce)
-- Value constructors (8): MakeSliceVal, MakeArrayVal, MakeManagedSliceVal,
-  MakeMultiVal — still called from a few places
-- Legacy fallbacks (12): for-in, index, subslice, nil check — all have
-  flat primary paths but keep Elems as safety net
-- Multi-return (2): VAL_MULTI tuple type
-- bootstrap_fwd (5): `[][]char` creation + sliceToChars fallback
+**Remaining 3 Elems**: VAL_MULTI for multi-return tuples. Needs
+multi-return-as-anonymous-struct redesign (see TODO).
 
-**Next steps**:
-1. Convert bootstrap_fwd `[][]char` creation to flat (allocate raw slice
-   backing, write `[]char` headers at element offsets)
-2. Convert writeFlatValue to assert RawAddr for slices/arrays (remove
-   Elems fallback, fix any remaining creators)
-3. Remove MakeSliceVal, MakeArrayVal, MakeManagedSliceVal (replace
-   remaining callers with flat allocation)
-4. Remove Elems field from Value struct
-5. Remove Cell/HeapObj from EnvEntry (except for function values)
-6. Remove legacy fallbacks from for-in, index, subslice, nil check
+**Remaining 3 HeapObj**: function-value Cell storage. Needs
+compiled-compatible `{funcPtr, closureCtx}` design (see TODO).
 
-### Interpreter refcounting fixes (unblocked)
+### Interpreter refcounting — ALL FIXED
 
-With the flat primary paths in place, the remaining interpreter
-refcounting fixes are straightforward — single code path:
-- Return leak (108, 131, 132, 133): skip RefInc for returned locals
-- Element-copy for struct fields (135): RefInc managed fields in struct elements
-- Assignment cascade (138): already fixed for flat managed-ptrs in step 1
+- Return leak: IsFresh flag on Value (make/make_slice/box/local-ident return)
+- Element-copy: managed-ptr, managed-slice, struct elements in slice/array assignment
+- Struct field assignment: managed-ptr and managed-slice fields
+- Managed-slice element cleanup: rc==1 check before iterating
+- Assignment cascade: RefInc before RefDec
+- Pointer deref write: managed type RefInc/RefDec
 
 ## Memory Layout Reference
 

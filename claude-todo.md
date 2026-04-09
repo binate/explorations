@@ -19,7 +19,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 ### Self-hosted interpreter memory model parity with compiler
 - Plan: `explorations/plan-interp-memory-parity.md`
 - The self-hosted interpreter can no longer run under the bootstrap (boot-int dropped) since it now uses `bit_cast`, pointer indexing, and `pkg/rt`. It requires compiled mode (boot-comp-int and above).
-- **boot-comp-int: 148/156 conformance tests pass** (was 129 before this work began)
+- **boot-comp-int: 157/158 conformance tests pass** (was 129 before this work began)
 - Phase 1 (done): infrastructure — `flat.bn` with readFlatValue/writeFlatValue using bit_cast and pkg/rt
 - Phase 2 (done): scalar variables in flat memory — envDefine/envGet/envSet use flat addresses for ints
 - Phase 3 (done): structs in flat memory — `evalMake` allocates via `rt.Alloc`, all field access through `RawAddr + FieldOffset`. Lazy struct reads (no eager field materialization). Self-referential type resolution (in-place field update).
@@ -35,15 +35,15 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Lazy struct optimization (done): `readFlatValue` for TYP_STRUCT returns RawAddr-only Values, avoiding O(n) allocation per field access. Fixed parser.ParseFile hang in boot-comp-int.
 - Managed-slice flat storage (done): `TYP_MANAGED_SLICE` in `useFlatType`. 32-byte flat headers with `rt.MakeManagedSlice` backing. Flat-to-flat copy, subslicing, `@[]T→[]T` coercion, element refcounting. Fixed tests 126, 129.
 - Managed-slice backing refcounting (done): envDefine/envSet RefInc/RefDec for backing_refptr. cleanupEnvExcept RefDec on scope exit. Element-level RefInc/RefDec for managed-ptr elements in flat index assignment.
-- **Remaining xfails (8)**: 206 (type checker gap), 108/131/132/133/134/135/138 (interpreter refcounting gaps — see "Self-hosted interpreter refcounting gaps" above)
-- **Unit tests**: 151 in pkg/interp (boot-comp). pkg/interp xfail'd in boot-comp-int due to inner interpreter return value wrapping (pre-existing limitation, not a regression).
-- **Next**: port compiler refcount fixes to interpreter (return leak, element-copy, RefInc-before-RefDec ordering)
+- Full flat migration (done): ALL data types use flat storage (int, bool, []T, @[]T, @T, *T, [N]T, struct, string, named types). Only function values remain Cell-based.
+- readFlatValue no longer materializes Elems (O(n) → O(1)). All consumers (for-in, index, len, print, subslice) use flat paths.
+- Legacy Elems code removed: MakeSliceVal, MakeArrayVal, MakeManagedSliceVal removed. writeFlatValue Elems→flat conversion removed. Elems refs: 53→3 (VAL_MULTI only). HeapObj refs: 30→3 (function values only).
+- All refcounting fixed: return leak (IsFresh flag), element-copy, struct field, assignment cascade, pointer deref write, managed-slice element cleanup (rc==1 check).
+- **Remaining xfails (1)**: 206 (type checker duplicate function detection)
 
-### Interpreter: remove remaining legacy Elems/Cell/HeapObj code — HIGH PRIORITY
-- **Status**: all data types use flat storage. Hot paths (read, write, for-in, index, len, print) use flat. 37 Elems references remain in cold fallbacks, constructors, and writeFlatValue edge cases.
-- **Why high priority**: two parallel storage paths (flat + legacy) are a correctness liability. Every future change must reason about both. Bugs hide in the cold fallbacks. Refcounting fixes must be duplicated. This debt compounds.
-- **Remaining work**: convert bootstrap_fwd `[][]char` to flat, remove writeFlatValue Elems fallbacks, remove MakeSliceVal/MakeArrayVal/MakeManagedSliceVal, remove Elems from Value struct, remove Cell/HeapObj from EnvEntry (except function values).
-- See `explorations/plan-interp-memory-parity.md` for detailed steps.
+### Interpreter: remove remaining legacy Elems/Cell/HeapObj code
+- **Status**: all data types flat. Legacy cleanup mostly done (Elems 53→3, HeapObj 30→3). Remaining 3 Elems are for VAL_MULTI (multi-return tuples) — needs multi-return-as-anonymous-struct redesign. Remaining 3 HeapObj are for function-value Cell storage — needs compiled-compatible function value design.
+- See `explorations/plan-interp-memory-parity.md` for details.
 
 ### Function values: compiled-compatible representation (required for interop)
 - Function values MUST use the same representation in compiled and interpreted code, because function values can be passed between the two modes (compiled code calling interpreted functions and vice versa).
@@ -52,12 +52,14 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **When this blocks**: closures, function values in slices/maps, callbacks between compiled and interpreted code.
 - See `explorations/plan-interp-memory-parity.md` for details.
 
-### Self-hosted interpreter refcounting gaps
-- The interpreter has the SAME refcounting bugs that were fixed in the compiler, but interpreter-side fixes are pending (partially blocked on the flat migration above).
-- **Managed-ptr return leak**: envDefine unconditionally RefInc's return values (xfail: 108, 132, 138)
-- **Managed-slice return leak**: same pattern (xfail: 131, 133)
-- **Element-copy refcounting**: struct elem managed fields not RefInc'd (xfail: 135); managed-slice array elem FIXED (134)
-- **Assignment cascade ordering**: interpreter envSet doesn't RefInc new before RefDec old (xfail: 138)
+### Self-hosted interpreter refcounting — ALL FIXED
+- **No known memory issues.** boot-comp-int: 157/158 (only xfail: 206 type checker gap).
+- Return leak fixed via IsFresh flag on Value (make/make_slice/box set IsFresh; execReturn sets IsFresh for local-ident returns via envGetLocalAddr; envDefine/envSet skip RefInc when IsFresh).
+- Element-copy refcounting fixed for managed-ptr, managed-slice, and struct elements in slice/array assignment.
+- Struct field assignment RefInc/RefDec for managed-ptr and managed-slice fields.
+- Managed-slice element cleanup: only iterates elements when backing refcount==1 (last reference). Handles managed-ptr, managed-slice, and struct elements.
+- Assignment cascade: RefInc new before RefDec old (cascade-safe) for managed-ptrs.
+- Pointer deref write (*p = val): RefInc/RefDec for managed types.
 
 ### Compiler codegen bug: [N]@T field write through index
 - `arr[i].Field = val` where arr is `[N]@T` produces wrong code — field write goes nowhere, reads return 0.
@@ -167,16 +169,33 @@ Binate is NOT Go. The two types of slice are intentionally different:
 
 ---
 
-## Done (session 2026-04-08)
+## Done (session 2026-04-08/09)
 
-### Compiler refcount leak fixes — NO KNOWN COMPILER MEMORY ISSUES
-- **boot-comp: 155/156** (was 147). Only xfail: 206 (type checker gap, not memory).
-- **Managed-slice return leak** (test 131): skip RefInc for returned managed-slice locals. The cleanup skip already transfers ownership.
-- **Managed-ptr return leak** (test 132): same pattern. Key bug was `lookupVar()` falling back to globals — returning a singleton (like `TypUntypedInt`) would skip RefInc, freeing the singleton. Fixed by adding `lookupLocalVar()` that only searches function-local variables.
-- **Element-copy refcounting** (tests 133-135): compiler now generates RefInc/RefDec for managed-ptr, managed-slice, and struct-with-managed-fields elements during slice/array assignment. Previously, `bn_slice_set_struct` did a plain memcpy.
-- **RefInc-before-RefDec ordering** (test 138): variable/field assignment now RefInc's the new value before RefDec'ing the old, preventing cascade-unsafe frees (e.g., `s = s.Parent` where freeing child cascades to free parent via destructor).
-- **Parser raw-slice borrow** (test 136): `parseImportDecl` returned `@[]@ast.ImportSpec` but caller stored as `[]@ast.ImportSpec`, freeing backing at statement end.
-- **Debugging technique**: sentinel-based RefDec (set rc=-999 instead of free, panic on RefInc/RefDec of sentinel) pinpointed the global-return bug that ASan couldn't catch.
+### NO KNOWN MEMORY ISSUES IN COMPILER OR INTERPRETER
+- **boot-comp: 156/158** (was 147). Xfails: 139 (codegen [N]@T field-write-through-index), 206 (type checker).
+- **boot-comp-int: 157/158** (was 142). Only xfail: 206 (type checker).
+
+### Compiler refcount fixes
+- **Managed-slice return leak** (test 131): skip RefInc for returned managed-slice locals via `lookupLocalVar`.
+- **Managed-ptr return leak** (test 132): same pattern. Key bug: `lookupVar()` fell back to globals — returning a singleton freed it. Fixed with `lookupLocalVar()`.
+- **Element-copy refcounting** (tests 133-135): RefInc/RefDec for managed-ptr, managed-slice, and struct elements during slice/array assignment.
+- **RefInc-before-RefDec ordering** (test 138): cascade-safe assignment (e.g., popScope).
+- **Parser raw-slice borrow** (test 136): `parseImportDecl` `[]@ast.ImportSpec` → `@[]@ast.ImportSpec`.
+- **Debugging**: sentinel-based RefDec (rc=-999) and ASan with instrumented .ll files.
+
+### Interpreter flat migration — COMPLETE
+- ALL data types use flat storage: int, bool, []T, @[]T, @T, *T, [N]T, struct, string, named types. Only function values remain Cell-based (pending interop design).
+- readFlatValue no longer materializes Elems — O(1) variable read.
+- evalMakeSlice, evalArrayLit, evalStructLit, ZeroValue, stringToCharSlice all produce flat Values directly.
+- Legacy code removed: MakeSliceVal, MakeArrayVal, MakeManagedSliceVal, writeFlatValue Elems paths, HeapObj deref fallbacks, legacy index/subslice/for-in/struct-field paths. Elems: 53→3. HeapObj: 30→3.
+
+### Interpreter refcount fixes
+- **Return leak**: IsFresh flag on Value. make/make_slice/box set IsFresh (rc starts at 1, skip envDefine RefInc). execReturn sets IsFresh for local-ident returns via envGetLocalAddr (not parents/globals). envDefine/envSet skip RefInc when IsFresh.
+- **Element-copy**: RefInc/RefDec for managed-ptr, managed-slice, and struct elements in both flat slice and flat array assignment paths.
+- **Struct field assignment**: RefInc/RefDec for managed-ptr and managed-slice fields in both auto-deref and value-struct paths.
+- **Managed-slice element cleanup**: only iterates elements when backing refcount==1 (last reference). Handles managed-ptr, managed-slice, and struct elements.
+- **Assignment cascade**: RefInc new before RefDec old for managed-ptrs (cascade-safe).
+- **Pointer deref write**: RefInc/RefDec for managed types in `*p = val`.
 
 ### Managed-slice flat storage in interpreter
 - boot-comp-int: 148/156 (was 142 before).
