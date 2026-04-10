@@ -6,6 +6,13 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
+### Compiler bug: missing RefInc on struct copies with managed fields
+- **Root cause**: when a struct containing `@[]T` or `@T` fields is copied by value (variable assignment, function return, function argument, struct field assignment), the compiler does not RefInc the managed fields in the copy. Destructors do RefDec them at scope exit, leading to over-decrement → use-after-free → heap corruption.
+- **Symptoms**: `pkg/types` and `pkg/parser` unit tests crash in boot-comp with `malloc(): unaligned tcache chunk detected` after ~7-8 test calls. Each test creates/destroys many `token.Token` and `token.Pos` structs containing `@[]char` fields.
+- **Detailed writeup**: `explorations/bug-struct-copy-refcount.md`
+- **Affects**: any struct with managed fields copied by value. Known triggers: `token.Token`, `token.Pos`, `buf.CharBuf`.
+- **Fix locations**: `pkg/ir/gen_control.bn` (variable/field assignment), `pkg/ir/gen_expr.bn` (function return/arguments). Need to walk struct fields with `types.NeedsDestruction(t)` and emit RefInc for managed fields on copy.
+
 ### ~~Linux/x86-64: boot-comp-comp string corruption~~ — FIXED
 - **Root cause**: use-after-free in `cmd/bnc/test.bn`. `runtimePath` was declared as `[]char` (raw slice) instead of `@[]char` (managed). When the `candidate @[]char` from `bootstrap.Concat(root, "/runtime/binate_runtime.c")` went out of scope, it was RefDec'd and freed — but `runtimePath` still borrowed its data, creating a dangling pointer. The garbage filenames were freed memory being read as strings.
 - **Fix**: changed `var runtimePath []char` to `var runtimePath @[]char = buf.CopyStr(cli.RuntimePath)` in test.bn, matching the pattern already used in main.bn.
