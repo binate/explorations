@@ -169,12 +169,12 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - `make_slice(T, n)` returns `@[]T`. `@[]T → []T` conversion: extractvalue fields 0,1.
 
 ### Test runner improvements
+- ~~**Better docs/help**~~: DONE. Both runners show description, examples, flag docs, test format/convention docs, xfail mechanism. READMEs added for conformance/ and scripts/unittest/.
+- ~~**Better output**~~: DONE. `-v` (verbose: all test names), `-q` (quiet: failures+summary only), default (dots for passes, detail for failures).
+- ~~**Mode sets in files**~~: DONE. `scripts/modesets/` directory with one file per set (basic, all, full). Adding a new mode set is just adding a file. Both runners read from the shared directory. Help output dynamically lists available sets.
 - **Better filtering**: ability to specify which tests to run more precisely, especially for unit tests (e.g., individual test functions, not just packages).
 - **Better mode specification**: support specifying multiple modes, e.g., `boot,boot-comp` instead of requiring a predefined mode set.
-- **Better output**: auto-summarize on success, but more verbose/explicit output for errors and failures.
 - **Timeout/hang handling**: better and/or automatic detection and handling of tests that hang.
-- **Better docs/help**: improve documentation and help output for the test runners.
-- **Mode sets in files**: define mode sets in files (e.g., a directory of mode set definitions) so adding a new mode set is just adding a file. CI runners could read these files to manually run everything in a mode set.
 - **Parallelization**: consider running test packages in parallel within a mode.
 
 ### Compiler/interpreter interop
