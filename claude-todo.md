@@ -6,12 +6,17 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
-### Compiler bug: missing RefInc on struct copies with managed fields
-- **Root cause**: when a struct containing `@[]T` or `@T` fields is copied by value (variable assignment, function return, function argument, struct field assignment), the compiler does not RefInc the managed fields in the copy. Destructors do RefDec them at scope exit, leading to over-decrement → use-after-free → heap corruption.
-- **Symptoms**: `pkg/types` and `pkg/parser` unit tests crash in boot-comp with `malloc(): unaligned tcache chunk detected` after ~7-8 test calls. Each test creates/destroys many `token.Token` and `token.Pos` structs containing `@[]char` fields.
+### Compiler bug: missing RefInc on struct copies with managed fields — IN PROGRESS
+- **Root cause**: two related issues:
+  1. When a struct containing `@[]T` or `@T` fields is copied by value, the compiler does not RefInc the managed fields in the copy.
+  2. Stack-allocated struct locals with managed fields were not cleaned up at scope exit (no dtor call).
+- **Symptoms**: `pkg/types` and `pkg/parser` unit tests crash in boot-comp on Linux with `malloc(): unaligned tcache chunk detected` after ~7-8 test calls.
 - **Detailed writeup**: `explorations/bug-struct-copy-refcount.md`
-- **Affects**: any struct with managed fields copied by value. Known triggers: `token.Token`, `token.Pos`, `buf.CharBuf`.
-- **Fix locations**: `pkg/ir/gen_control.bn` (variable/field assignment), `pkg/ir/gen_expr.bn` (function return/arguments). Need to walk struct fields with `types.NeedsDestruction(t)` and emit RefInc for managed fields on copy.
+- **Plan**: `explorations/plan-copy-constructors.md`
+- **Fix**: Generate `__copy_X` functions (symmetric to `__dtor_X`) for structs and `[N]T` arrays. Call copy at struct copy sites (var decl, var assign, field assign, deref assign, function args, function return). Call dtor at scope exit for struct locals.
+- **Status**: Core implementation done. `__copy_X` and `__dtor_X` for structs/arrays generated and called at all copy/cleanup sites. All conformance tests pass on boot-comp, boot-comp-int, boot-comp-comp (175/175, 176/176, 175/175). Unit test crash on Linux not yet verified.
+- **Conformance tests**: 222 (struct copy managed), 223 (nested struct copy managed), 224 (struct field assign managed).
+- **Remaining**: struct temp cleanup (struct-returning function call results that aren't assigned to a variable leak their managed fields). This is a pre-existing issue made more visible by the copy/dtor infrastructure.
 
 ### ~~Linux/x86-64: boot-comp-comp string corruption~~ — FIXED
 - **Root cause**: use-after-free in `cmd/bnc/test.bn`. `runtimePath` was declared as `[]char` (raw slice) instead of `@[]char` (managed). When the `candidate @[]char` from `bootstrap.Concat(root, "/runtime/binate_runtime.c")` went out of scope, it was RefDec'd and freed — but `runtimePath` still borrowed its data, creating a dangling pointer. The garbage filenames were freed memory being read as strings.
