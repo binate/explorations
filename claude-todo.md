@@ -117,6 +117,13 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - The type checker (or a separate validation pass) should verify that `.bn` function signatures match their `.bni` declarations and report an error on mismatch.
 - Affects: return types, parameter types, number of parameters/returns.
 
+### Compiler bug: cast to sub-word pointer type emits invalid LLVM IR
+- `cast(*uint8, ptr)` emits `add i8* %v, 0` — LLVM rejects this because `add` requires integer operands, not pointers.
+- Same issue for `*uint16`, `*uint32`, or any pointer to a sub-word type.
+- `cast(*int, ptr)` and `cast(*uint8, ptr)` should both emit `bitcast` or `inttoptr`/`ptrtoint`, not `add`.
+- Conformance test 161 xfail'd in boot-comp/boot-comp-comp/boot-comp-comp-comp for this reason.
+- Likely root cause: the `cast` codegen path uses `add <type> %v, 0` as a no-op to set the result type, but this only works for integer types, not pointers.
+
 ### x86-64 assembler: end-to-end tests on Linux CI
 - Assemble x86-64 → ELF64 → link → run natively (no QEMU needed)
 - CI runs Linux x86-64 so this would be a native end-to-end test
