@@ -42,11 +42,16 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **161/161 in boot-comp, boot-comp-int, and boot-comp-comp. Zero xfails.**
 
 ### Interpreter Value struct cleanup
-- **Done**: removed Elems (0 refs), Fields (0 refs), HeapObj (0 refs), BoolVal (flat), IntVal (flat), MakeMultiVal, MakeStructVal, MakeSliceVal, MakeArrayVal, MakeManagedSliceVal, VAL_MULTI.
-- **Remaining**: StrVal (last scalar cache — needs string-literal-as-global-@[]const-char redesign), 3 HeapObject refs for function-value Cell storage, IntTyp (int type info for readScalar width).
-- **String literals plan**: compiler emits statically-initialized `%BnManagedSlice` globals (constant data + null backing_refptr). No runtime allocation. `load %BnManagedSlice` replaces `bn_string_to_chars` call. Interpreter follows with flat `@[]char` and StrVal removal.
+- **Done**: removed Elems, Fields, HeapObj, BoolVal, IntVal, StrVal, VAL_MULTI, VAL_STRING. All scalar caches eliminated.
+- **Remaining**: 3 HeapObject refs for function-value Cell storage, IntTyp (int type info for readScalar width).
+- **String literals**: compiler done (static `%BnManagedSlice` globals, `bn_string_to_chars` removed). Interpreter done (StrVal removed, MakeStringVal produces flat @[]char).
 - See `explorations/plan-string-literals.md` for full plan.
 - See `explorations/plan-interp-memory-parity.md` for function values.
+
+### Lift string literal lowering from LLVM backend to IR level
+- Currently, `OP_STRING_TO_CHARS` is lowered to a `load %BnManagedSlice` from a static global in `emit_instr.bn` (LLVM backend). The string constant collection and global emission are also in the LLVM backend (`emit.bn`).
+- For multi-backend support, this should be at the IR level: an IR instruction like `OP_STRING_LITERAL` that produces an `@[]char` value. String constant globals become IR-level module data. Each backend then lowers to its own representation (LLVM: load from constant global; ARM: load from data section address; etc.).
+- See `explorations/ir-backend-guidelines.md` for the IR vs backend responsibility split.
 
 ### Function values: compiled-compatible representation (required for interop)
 - Function values MUST use the same representation in compiled and interpreted code, because function values can be passed between the two modes (compiled code calling interpreted functions and vice versa).
