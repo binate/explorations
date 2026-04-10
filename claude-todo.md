@@ -99,6 +99,13 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - If not, the parser should reject them. If yes, the IR gen needs to handle them.
 - Low priority — package-level types cover most use cases.
 
+### Test harness `isTestResultReturn` should resolve type aliases
+- All three test harnesses (bootstrap Go `main.go`, self-hosted `cmd/bni/main.bn`, self-hosted `cmd/bnc/test.bn`) only accept `testing.TestResult` (qualified) or `@[]char` (literal managed-slice of char) as test return types.
+- They don't resolve type aliases, so an unqualified `TestResult` from within the `pkg/builtin/testing` package itself is rejected ("wrong signature").
+- **Fix**: resolve the return type through aliases before checking. If the return type is a named type in the current package, look up its definition and check the underlying type.
+- **Workaround**: use `@[]char` as the return type in `pkg/builtin/testing/testing_test.bn`.
+- Affects: `cmd/bni/main.bn:isTestResultReturn`, `cmd/bnc/test.bn:isTestResultReturn`, `bootstrap/main.go:isTestResultReturn`.
+
 ### x86-64 assembler: end-to-end tests on Linux CI
 - Assemble x86-64 → ELF64 → link → run natively (no QEMU needed)
 - CI runs Linux x86-64 so this would be a native end-to-end test
