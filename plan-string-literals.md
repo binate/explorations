@@ -15,18 +15,33 @@ terminated pointer) in the compiler and `VAL_STRING` with `StrVal
 
 ## Design
 
-### String literals are const-only untyped constants
+### String literal type coercion rules
 
 `"abc"` is an untyped constant. Allowed target types:
-- `@[]const char` — **default type**. Managed-slice pointing to static data.
-- `[]const char` — raw slice borrowing from static data.
+
+- `@[]const char` — **default type**. Managed-slice borrowing from
+  static data (null backing_refptr). Zero cost.
+- `@[]char` — managed-slice with **allocated+copied** backing.
+  Mutation is safe because the managed-slice owns its copy. This is
+  the only non-const variant allowed — the allocation is explicit
+  (`@[]T` is an owning type, so the copy is part of the semantics).
+- `[]const char` — raw slice borrowing from static data. Zero cost.
 - `[N]const char` — **natural type**. Array copy.
+- `[N]char` — array copy. Mutation is safe (data is in the array).
 
-NOT allowed: `[]char`, `@[]char`, `[N]char`. Mutation of literal data
-is unsound; implicit copying violates no-hidden-behavior. For mutable
-chars: `buf.CopyStr("hello")`.
+NOT allowed:
+- `[]char` — raw slices don't own their backing. A mutable borrow
+  of immutable static data is unsound, and there's nowhere to put a
+  mutable copy (raw slices are non-owning views).
 
-(Bootstrap uses non-const as stand-in until const types are added.)
+This generalizes to all slice/array literals (not just strings):
+- `@[]T` literals: always allowed (both const and non-const).
+  Non-const incurs allocation+copy; const borrows from static.
+- `[]T` literals: const-only (borrows from static).
+- `[N]T` literals: always allowed (data copied into array).
+
+(Bootstrap uses `[]char` and `@[]char` as stand-ins since it lacks
+const types. Pragmatic compromise.)
 
 ### Statically-initialized global @[]const char
 
@@ -66,10 +81,16 @@ never freed. No "immortal refcount" sentinel needed.
 - **As `@[]const char`** (default): load the 4-word value from the
   global. Zero cost — no allocation, no copy.
 
+- **As `@[]char`** (non-const): allocate a new managed-slice backing
+  via `rt.MakeManagedSlice`, memcpy the character data, construct a
+  4-word header with the new backing. The caller owns the copy and
+  may mutate it freely. This is the equivalent of `buf.CopyStr()`.
+
 - **As `[]const char`**: extract the first 2 words from the global
   (data pointer + length). Produces a raw slice borrowing static data.
 
-- **As `[N]const char`**: memcpy from the data pointer into the array.
+- **As `[N]const char`** / **`[N]char`**: memcpy from the data
+  pointer into the array.
 
 - **As function argument `[]char` (bootstrap compat)**: extract first
   2 words. In the bootstrap (which lacks const), this is the common
@@ -118,9 +139,14 @@ never freed. No "immortal refcount" sentinel needed.
 
 ### Interaction with const types
 
-String literals are const-only by design. This is the semantic
-contract, not a future restriction. Non-const variants would require
-unsound mutation of static data or implicit hidden copies.
+String literals default to const types but allow non-const `@[]T`
+(which owns its backing, so the copy is semantically explicit).
+The disallowed case is non-const `[]T` (raw slice) — borrowing
+static data mutably is unsound, and raw slices can't own a copy.
+
+This generalizes to all literal types: const literals borrow from
+static data (zero cost); non-const managed-slice literals incur
+allocation+copy (owning); non-const raw-slice literals are unsound.
 
 Until const types are implemented, the bootstrap uses `[]char` and
 `@[]char` as stand-ins. Documented as pragmatic compromise.

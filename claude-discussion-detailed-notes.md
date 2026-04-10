@@ -197,14 +197,17 @@ The previous design always null-terminated string literals but excluded the null
 
 **String literals are raw static data in the binary** (like C). A string literal of length N is stored as exactly N bytes. The **natural type** is `[N]const char`. The **default type** (when context is ambiguous) is `[]const char` with len=N.
 
-String literals are **untyped** (like integer literals) and coerce to the appropriate type from context. The allowed target types are the **const** variants only — string literals are immutable data and must not be assignable to mutable types:
-- Assigned to `[]const char` → raw slice view pointing into static data with `len` = N
-- Assigned to `@[]const char` → managed-slice pointing into static data (backing_refptr = null, never freed), `len` = N
-- Assigned to `[N]const char` → the natural type, exact contents
+String literals are **untyped** (like integer literals) and coerce to the appropriate type from context:
+- Assigned to `@[]const char` → **default**. Managed-slice borrowing from static data (backing_refptr = null, never freed). Zero cost.
+- Assigned to `@[]char` → managed-slice with **allocated+copied** backing. Mutation is safe — the managed-slice owns its copy. This is the only non-const slice variant allowed (the allocation is explicit: `@[]T` is an owning type).
+- Assigned to `[]const char` → raw slice view borrowing from static data. Zero cost.
+- Assigned to `[N]const char` / `[N]char` → the natural type, copy into array. Mutation is safe (data is in the array).
 
-Non-const variants (`[]char`, `@[]char`, `[N]char`) are NOT valid targets for string literals. The semantics would be unsound: `[]char` borrows immutable static data but allows mutation; `@[]char` would require an implicit copy (hidden allocation), which violates the no-hidden-behavior principle. If mutable chars are needed, use an explicit copy: `var s @[]char = buf.CopyStr("hello")`.
+NOT allowed: `[]char` — raw slices don't own their backing. A mutable borrow of immutable static data is unsound, and there's nowhere to put a mutable copy. Raw slices are non-owning views.
 
-(In the bootstrap, which lacks const types, `[]char` and `@[]char` are used as stand-ins. This is a pragmatic compromise that will be fixed when const types are added to the self-hosted compiler.)
+This generalizes to all slice/array literals (not just strings): `@[]T` literals are always allowed (const borrows static, non-const allocates+copies); `[]T` literals are const-only; `[N]T` literals are always allowed (copy).
+
+(In the bootstrap, which lacks const types, `[]char` and `@[]char` are used as stand-ins. Pragmatic compromise.)
 
 ### Fixed-Size Arrays
 
@@ -837,7 +840,7 @@ When type context is ambiguous (e.g., `x := 123`):
 
 **Literal overflow is a compile error:** `var x uint8 = 256` fails. Literals are checked at compile time for fit.
 
-**String literal representation:** a string literal of length N is stored as exactly N bytes. The **natural type** is `[N]const char`. The **default type** is `@[]const char` with `len` = N. `"abc"` → storage is `{'a','b','c'}` (3 bytes), natural type `[3]const char`, default type `@[]const char` with `len()` = 3. No implicit null terminator. String literals may only be assigned to const-qualified char types (`[]const char`, `@[]const char`, `[N]const char`) — not to mutable variants. For mutable chars, use an explicit copy.
+**String literal representation:** a string literal of length N is stored as exactly N bytes. The **natural type** is `[N]const char`. The **default type** is `@[]const char` with `len` = N. `"abc"` → storage is `{'a','b','c'}` (3 bytes), natural type `[3]const char`, default type `@[]const char` with `len()` = 3. No implicit null terminator. Allowed targets: `@[]const char` (borrow static), `@[]char` (allocate+copy), `[]const char` (borrow static), `[N]const char` / `[N]char` (array copy). NOT allowed: `[]char` (raw slices can't own a mutable copy).
 
 ---
 
