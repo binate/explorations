@@ -93,18 +93,27 @@ All high-level slice IR ops have been lowered to primitive ops in the IR gen lay
 
 **Depends on**: Nothing (independent)
 
-### 3.2. Reimplement non-inlineable slice operations in Binate
+### 3.2. Lower remaining slice/string operations — IN PROGRESS
 
-**What**: `bn_make_slice`, `bn_string_to_chars`, and `bn_slice_free`.
+**What**: Lower `OP_MAKE_SLICE`, `OP_SLICE_FREE`, and `OP_STRING_TO_CHARS`/`OP_STRING_TO_ARRAY` from backend-specific runtime calls to IR-level operations. Same principle as 3.1: layout and allocation semantics are language-level, not backend-specific.
 
-**Functions**:
-- `bn_make_slice(elemSize, length) → slice` — `calloc(length, elemSize)` → use `rt.c_calloc`
-- `bn_string_to_chars(str, len) → slice` — `malloc(len)` + `memcpy` → use `rt.c_malloc` + `rt.c_memcpy`
-- `bn_slice_free(s)` — `free(s.data)` → use `rt.c_free`
+`bn_string_to_chars` has already been removed (string literals are now static `%BnManagedSlice` globals). But the lowering of `OP_STRING_TO_CHARS` still happens in the LLVM backend (`emit_instr.bn`). This should be lifted to the IR level.
 
-**Why separate from 3.1**: These need the allocator (malloc/calloc/free), so they're slightly more complex.
+**Operations to lower**:
 
-**Depends on**: Nothing (can be done in parallel with 3.1)
+| Operation | Current | Target |
+|-----------|---------|--------|
+| `OP_MAKE_SLICE` | codegen calls `bn_make_slice` (C runtime) | IR gen emits call to `rt.MakeManagedSlice` (already exists in Binate) |
+| `OP_SLICE_FREE` | codegen calls `bn_slice_free` (C runtime) | IR gen emits `OP_EXTRACT(s, 0)` + call to `rt.c_free` |
+| `OP_STRING_TO_CHARS` | codegen loads from static `%BnManagedSlice` global | IR gen emits load from module-level string constant (needs IR-level string constant representation) |
+
+**For `OP_MAKE_SLICE`**: The Binate function `rt.MakeManagedSlice(elemSize, len)` already exists and is compiled into every binary. Change the codegen (or IR gen) to call `bn_rt__MakeManagedSlice` instead of `bn_make_slice`. Then remove `bn_make_slice` from the C runtime and manifest.
+
+**For `OP_SLICE_FREE`**: Lower to `extract data ptr` + `call rt.c_free(dataPtr)`. Remove from C runtime and manifest.
+
+**For `OP_STRING_TO_CHARS`**: This is more involved — the string constant collection, deduplication, and global emission are currently in the LLVM backend. To support multiple backends, string constants should become IR-level module data (e.g., `Module.Strings`), and the IR gen should emit a load/reference to the constant. Each backend then emits the constant data in its own format. See TODO "Lift string literal lowering from LLVM backend to IR level".
+
+**Depends on**: 3.1 (done)
 
 ### 3.3. Reimplement I/O functions in Binate
 
