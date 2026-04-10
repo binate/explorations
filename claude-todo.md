@@ -43,8 +43,9 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ### Interpreter Value struct cleanup
 - **Done**: removed Elems (0 refs), Fields (0 refs), HeapObj (0 refs), BoolVal (flat), IntVal (flat), MakeMultiVal, MakeStructVal, MakeSliceVal, MakeArrayVal, MakeManagedSliceVal, VAL_MULTI.
-- **Remaining**: StrVal (last scalar cache — needs string-literal-as-global-@[]char redesign), 3 HeapObject refs for function-value Cell storage, IntTyp (int type info for readScalar width).
-- See `explorations/plan-string-literals.md` for StrVal removal plan.
+- **Remaining**: StrVal (last scalar cache — needs string-literal-as-global-@[]const-char redesign), 3 HeapObject refs for function-value Cell storage, IntTyp (int type info for readScalar width).
+- **String literals plan**: compiler emits statically-initialized `%BnManagedSlice` globals (constant data + null backing_refptr). No runtime allocation. `load %BnManagedSlice` replaces `bn_string_to_chars` call. Interpreter follows with flat `@[]char` and StrVal removal.
+- See `explorations/plan-string-literals.md` for full plan.
 - See `explorations/plan-interp-memory-parity.md` for function values.
 
 ### Function values: compiled-compatible representation (required for interop)

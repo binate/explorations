@@ -1,176 +1,168 @@
-# Plan: String Literals as Global @[]char Constants
+# Plan: String Literals as Statically-Initialized Global @[]const char
 
 ## Motivation
 
-String literals in Binate are currently represented as a special
-`VAL_STRING` kind in the interpreter (with `StrVal @[]char` on the
-Value struct) and as `i8*` pointers to null-terminated data in the
-compiler. This creates several problems:
+String literals in Binate are currently represented as `i8*` (null-
+terminated pointer) in the compiler and `VAL_STRING` with `StrVal
+@[]char` in the interpreter. This creates problems:
 
-1. **No uniform type**: string literals don't have a proper Binate type.
-   They're a special case in the type checker, IR gen, codegen, and
-   interpreter.
-
-2. **Semantics are unclear**: `var x []char = "abc"` — is `x` a mutable
-   view of immutable data? If so, mutation is unsound. If the data is
-   copied, where does it live and who owns it?
-
-3. **Interpreter has a special Value kind**: `VAL_STRING` with `StrVal`
-   is the last remaining non-flat scalar cache. It prevents interop
-   with compiled code.
-
-4. **Null termination is an artifact**: the compiler uses `i8*` with
-   null termination because it inherited a C-string model. Binate
-   slices carry their length — null termination is unnecessary.
+1. No uniform type — special-cased everywhere.
+2. Mutable aliasing unsound — `var x []char = "abc"` allows mutation
+   of immutable static data.
+3. Interpreter StrVal cache prevents interop with compiled code.
+4. Runtime overhead — `bn_string_to_chars` allocates+copies at runtime
+   for every string-to-slice conversion.
 
 ## Design
 
-### String literals are untyped constants
+### String literals are const-only untyped constants
 
-A string literal `"abc"` is an untyped constant that can be used in
-the following **const-qualified** type contexts only:
+`"abc"` is an untyped constant. Allowed target types:
+- `@[]const char` — **default type**. Managed-slice pointing to static data.
+- `[]const char` — raw slice borrowing from static data.
+- `[N]const char` — **natural type**. Array copy.
 
-- **`@[]const char`** (managed const char slice): managed-slice
-  header pointing into static data. `backing_refptr = null` (static,
-  never freed). RefInc/RefDec on null is a no-op. This is the
-  **default type** for string literals.
+NOT allowed: `[]char`, `@[]char`, `[N]char`. Mutation of literal data
+is unsound; implicit copying violates no-hidden-behavior. For mutable
+chars: `buf.CopyStr("hello")`.
 
-- **`[]const char`** (raw const char slice): raw slice header
-  `{data, len}` borrowing from static data. Read-only.
+(Bootstrap uses non-const as stand-in until const types are added.)
 
-- **`[N]const char`** (const char array): the **natural type**.
-  Copies literal data into a fixed-size array.
+### Statically-initialized global @[]const char
 
-Non-const variants (`[]char`, `@[]char`, `[N]char`) are NOT valid
-targets for string literals. Mutation of literal data is unsound
-(the data lives in read-only static storage), and implicit copying
-to allow mutation violates the no-hidden-behavior principle. For
-mutable chars, use an explicit copy: `buf.CopyStr("hello")`.
+For each unique string literal, the compiler emits a **statically-
+initialized** `%BnManagedSlice` global. No runtime allocation.
 
-(In the bootstrap, which lacks const types, `[]char` and `@[]char`
-are used as stand-ins. This pragmatic compromise will be resolved
-when const types are added to the self-hosted compiler.)
+```llvm
+; Character data — constant, read-only
+@str.0.data = private constant [5 x i8] c"hello"
 
-### Implementation: global @[]const char per string literal
-
-For each unique string literal in a package, the compiler generates
-a **global `@[]char` constant**:
-
-```
-; Global string constant for "hello"
-@str.0 = private constant [5 x i8] c"hello"
-@str.0.ms = private global %BnManagedSlice {
-    i8* getelementptr ([5 x i8], [5 x i8]* @str.0, i64 0, i64 0),
+; Managed-slice header — statically initialized, constant
+; backing_refptr = null → immortal (RefInc/RefDec are no-ops on null)
+@str.0 = private constant %BnManagedSlice {
+    i8* getelementptr ([5 x i8], [5 x i8]* @str.0.data, i64 0, i64 0),
     i64 5,
-    i8* null,    ; no managed backing (static data, never freed)
+    i8* null,
     i64 5
 }
 ```
 
-The managed-slice header has `backing_refptr = null` — this indicates
-static data that is never freed. RefInc/RefDec on null is a no-op
-(already the case in `rt.RefInc`/`rt.RefDec`).
+Using `"hello"` in code is just:
+```llvm
+%s = load %BnManagedSlice, %BnManagedSlice* @str.0
+```
 
-When a string literal is used:
+A 4-word value load. No allocation, no runtime initialization, no
+`bn_string_to_chars` call.
 
-- As `@[]char`: load the 4-word value from the global. If the caller
-  needs a mutable copy, the type checker/codegen can emit a copy
-  (allocate new backing, memcpy characters). For read-only use (most
-  cases), the shared global is sufficient.
+**Why `backing_refptr = null`**: `rt.RefInc(nil)` and `rt.RefDec(nil,
+...)` are already no-ops. This means string literal `@[]char` values
+can be freely copied, assigned, passed, stored in structs — RefInc/
+RefDec on the null backing pointer do nothing, so the static data is
+never freed. No "immortal refcount" sentinel needed.
 
-- As `[]char`: extract the first 2 words (data pointer, length) from
-  the global. This produces a raw slice borrowing from the static data.
+### Using a string literal
 
-- As `[N]char`: memcpy from the global's data pointer into the array.
+- **As `@[]const char`** (default): load the 4-word value from the
+  global. Zero cost — no allocation, no copy.
+
+- **As `[]const char`**: extract the first 2 words from the global
+  (data pointer + length). Produces a raw slice borrowing static data.
+
+- **As `[N]const char`**: memcpy from the data pointer into the array.
+
+- **As function argument `[]char` (bootstrap compat)**: extract first
+  2 words. In the bootstrap (which lacks const), this is the common
+  pattern. Mutation through this raw slice is undefined behavior.
 
 ### Interpreter changes
 
-1. **Remove `VAL_STRING`** and `StrVal` from Value. String expressions
-   produce `VAL_SLICE` with `Typ = @[]char` or `[]char`.
+1. **Remove `VAL_STRING`** and `StrVal`. String expressions produce
+   `VAL_SLICE` with `Typ = @[]char` (or `@[]const char` when const
+   types exist).
 
-2. **`MakeStringVal` → allocate flat @[]char**: allocate a managed-slice
-   header (32 bytes) and a character backing. Write character data into
-   the backing. Set `backing_refptr = null` for string constants (static,
-   never freed) or to the backing allocation for dynamic strings.
+2. **`MakeStringVal` → flat @[]char with null backing**: allocate a
+   32-byte managed-slice header. Allocate character backing via
+   `c_malloc` (not `rt.Alloc` — no managed header needed since
+   backing_refptr is null). Write characters. Set backing_refptr =
+   null in the header.
 
-3. **String comparison**: currently `streq(a.StrVal, b.StrVal)`. With
-   flat slices, compare by reading data pointers and lengths from the
-   slice headers, then memcmp (or byte-by-byte).
+3. **String comparison**: read data pointers and lengths from slice
+   headers, compare byte-by-byte.
 
-4. **String printing**: currently reads `v.StrVal`. With flat slices,
-   read data pointer and length, then print bytes.
+4. **String printing**: read data pointer and length, print bytes.
 
-5. **Bootstrap forwarding**: `bootstrap.Open(path, ...)` etc. currently
-   extract `args[0].StrVal`. With flat slices, read the slice header
-   and pass the data pointer + length to the C function.
+5. **Bootstrap forwarding**: extract data pointer + length from the
+   slice header for C function calls.
 
 ### Compiler changes
 
-1. **String constant collection**: already exists in `pkg/ir/strings.bn`
-   (`CollectStrings`, `FindStringID`). Currently emits `i8*` globals.
-   Change to emit `%BnManagedSlice` globals with null backing_refptr.
+1. **String constant collection** (already in `pkg/ir/strings.bn`):
+   change emission from `@"str.N" = private constant [K x i8]` to
+   the two-part pattern: `@str.N.data` (constant bytes) +
+   `@str.N` (constant `%BnManagedSlice` with null backing_refptr).
 
-2. **String-to-chars conversion**: currently `OP_STRING_TO_CHARS` emits
-   a call to `bn_string_to_chars` in the C runtime. Change to load
-   from the global `@[]char` constant. For `@[]char` assignment where
-   mutation is possible, emit a copy (allocate + memcpy).
+2. **String-to-chars conversion**: `OP_STRING_TO_CHARS` currently
+   calls `bn_string_to_chars` at runtime. Change to
+   `load %BnManagedSlice, %BnManagedSlice* @str.N` — a compile-time
+   load from the global constant. Zero runtime cost.
 
-3. **String comparison in codegen**: currently compares `i8*` pointers.
-   Change to compare slice lengths, then memcmp data.
+3. **Remove `bn_string_to_chars`** from C runtime. Remove from
+   runtime function manifest.
 
-4. **Remove `TYP_STRING`**: string literals resolve to `@[]char` or
-   `[]char` at the type level. The `TYP_STRING` type kind may be
-   kept as an internal "untyped string literal" kind (like
-   `TYP_UNTYPED_INT`) that gets resolved during type checking.
+4. **String comparison**: compare as managed-slices (length check +
+   byte-by-byte data comparison).
+
+5. **Remove `TYP_STRING`** or rename to `TYP_UNTYPED_STRING` (kept
+   only as the untyped literal kind, resolved during type checking).
 
 ### Interaction with const types
 
-String literals are const-only by design — they will only ever be
-`@[]const char`, `[]const char`, or `[N]const char`. This is not
-a future restriction waiting for const types; it's the semantic
-design. Non-const variants would require either unsound mutation of
-static data or implicit hidden copies.
+String literals are const-only by design. This is the semantic
+contract, not a future restriction. Non-const variants would require
+unsound mutation of static data or implicit hidden copies.
 
-Until const types are implemented in the self-hosted compiler, the
-bootstrap uses `[]char` and `@[]char` as stand-ins. This is
-documented as a pragmatic compromise.
+Until const types are implemented, the bootstrap uses `[]char` and
+`@[]char` as stand-ins. Documented as pragmatic compromise.
 
 ## Migration order
 
-### Phase 1: Interpreter — remove StrVal (incremental)
+### Phase 1: Compiler — static string globals
 
-1. Change `MakeStringVal` to allocate flat `@[]char` with character
-   backing (null backing_refptr for constants).
-2. Update all `v.StrVal` reads to go through flat slice access.
-3. Update string comparison to use flat data.
-4. Update bootstrap forwarding to extract chars from flat slices.
-5. Remove `StrVal` from Value struct, remove `VAL_STRING`.
-
-### Phase 2: Compiler — global @[]char constants
-
-1. Change string constant emission from `i8*` to `%BnManagedSlice`.
-2. Change `OP_STRING_TO_CHARS` to load from global constant.
-3. Remove `bn_string_to_chars` from C runtime.
+1. Change string constant emission to `%BnManagedSlice` globals with
+   constant character data and null backing_refptr.
+2. Change `OP_STRING_TO_CHARS` to load from global (no runtime call).
+3. Remove `bn_string_to_chars` from C runtime and manifest.
 4. Update string comparison codegen.
+5. Run conformance tests — all string-related tests should pass.
+
+### Phase 2: Interpreter — remove StrVal
+
+1. Change `MakeStringVal` to allocate flat `@[]char` with null
+   backing_refptr.
+2. Update all `v.StrVal` reads to go through flat slice access.
+3. Update string comparison, printing, bootstrap forwarding.
+4. Remove `StrVal` from Value struct, remove `VAL_STRING`.
 
 ### Phase 3: Type system cleanup
 
-1. Resolve `TYP_STRING` to `@[]char` / `[]char` during type checking.
-2. Remove `TYP_STRING` or rename to `TYP_UNTYPED_STRING`.
-3. Update assignability rules for string literals.
+1. Resolve `TYP_STRING` to `@[]const char` / `[]const char` during
+   type checking.
+2. Remove or rename `TYP_STRING`.
+3. Update assignability rules.
 
 ## Open questions
 
-1. **Should string literals allocate a fresh backing every time, or
-   share a global?** Sharing is more efficient but allows aliased
-   mutation. With const types this is resolved; without them, sharing
-   is pragmatic.
+1. **`println("hello")`**: with the new model, the string literal is
+   a `@[]const char` value (4-word managed-slice). `println` reads
+   the data pointer and length from the header. This is the same as
+   printing any `[]char` — no special string handling needed.
 
-2. **What about `println("hello")`?** Currently this is a string
-   literal passed to println. With the new model, it's a `@[]char`
-   value. The print function would read the data pointer and length
-   from the 4-word header.
+2. **Null-terminated C interop**: `slice_to_cstr` in the C runtime
+   copies and null-terminates. No change needed. (String literal data
+   does NOT include a null terminator — `"abc"` is 3 bytes.)
 
-3. **Null-terminated C interop**: some C functions need null-terminated
-   strings. The `slice_to_cstr` helper in the C runtime already handles
-   this by copying and null-terminating. No change needed.
+3. **Deduplication**: the IR `CollectStrings` / `FindStringID`
+   already deduplicates string literals within a module. Cross-module
+   deduplication is handled by the linker (private constants are
+   per-module).
