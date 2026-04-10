@@ -172,8 +172,9 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - ~~**Better docs/help**~~: DONE. Both runners show description, examples, flag docs, test format/convention docs, xfail mechanism. READMEs added for conformance/ and scripts/unittest/.
 - ~~**Better output**~~: DONE. `-v` (verbose: all test names), `-q` (quiet: failures+summary only), default (dots for passes, detail for failures).
 - ~~**Mode sets in files**~~: DONE. `scripts/modesets/` directory with one file per set (basic, all, full). Adding a new mode set is just adding a file. Both runners read from the shared directory. Help output dynamically lists available sets.
-- **Better filtering**: ability to specify which tests to run more precisely, especially for unit tests (e.g., individual test functions, not just packages).
-- **Better mode specification**: support specifying multiple modes, e.g., `boot,boot-comp` instead of requiring a predefined mode set.
+- ~~**Better mode specification**~~: DONE. Comma-separated modes (`boot,boot-comp`) expand into sequential runs. Works alongside mode set files.
+- ~~**Better filtering (unit tests)**~~: DONE. Fixed unit test runner to use substring match (was exact match). `token` now matches `pkg/token`, consistent with conformance runner.
+- **Better filtering (individual test functions)**: ability to specify individual test functions, not just packages (e.g., `run.sh boot-comp pkg/ir TestFoo`).
 - **Timeout/hang handling**: better and/or automatic detection and handling of tests that hang.
 - **Parallelization**: consider running test packages in parallel within a mode.
 
