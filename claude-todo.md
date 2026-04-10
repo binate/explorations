@@ -162,6 +162,54 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - backing_len stores total element count for destructor cleanup.
 - `make_slice(T, n)` returns `@[]T`. `@[]T → []T` conversion: extractvalue fields 0,1.
 
+### Test runner improvements
+- **Better filtering**: ability to specify which tests to run more precisely, especially for unit tests (e.g., individual test functions, not just packages).
+- **Better mode specification**: support specifying multiple modes, e.g., `boot,boot-comp` instead of requiring a predefined mode set.
+- **Better output**: auto-summarize on success, but more verbose/explicit output for errors and failures.
+- **Timeout/hang handling**: better and/or automatic detection and handling of tests that hang.
+- **Better docs/help**: improve documentation and help output for the test runners.
+- **Mode sets in files**: define mode sets in files (e.g., a directory of mode set definitions) so adding a new mode set is just adding a file. CI runners could read these files to manually run everything in a mode set.
+- **Parallelization**: consider running test packages in parallel within a mode.
+
+### Compiler/interpreter interop
+- **Goal**: enable calling between compiled and interpreted code in both directions.
+- **Start with**: exposing compiled packages to the interpreter.
+  - Pass compiled package objects to the interpreter at init time.
+  - **Question**: how does one specify/describe a package to the interpreter?
+  - **Proposal**: for each package, build an object/struct describing it (based on the .bni). Made available automatically, e.g., `import "pkg/foo"` gives you `foo.Package` (or similar). But naming conflicts are a concern (see import aliases below).
+  - Alternatively, packages could be referred to by path (e.g., `"pkg/foo"`), but that's less powerful. Having package objects means they could also be constructed dynamically in code.
+  - Another option: `foo` itself *is* the package object after import, but this may be confusing. Also unclear what the "self" package object for the current package would be.
+- **Interpreter structure**: separate initialization from calling. Starting a program = init (with main package, search paths, etc.) + call main.
+  - Init could also accept compiled package objects.
+  - Loading could be a series of steps during init, some of which inject package objects.
+  - Maybe loading a package in the interpreter produces a package object, which is then added to the interpreter.
+  - Separating init from call also enables the reverse direction: compiled code calling into the interpreter.
+
+### Import aliases and blank imports
+- Do we support Go-like `import somethingelse "pkg/foo"` currently? We'll likely need this.
+- Do we support `import _ "pkg/foo"`? Should we? (Side-effect-only imports.)
+- Both interact with the package object naming question above.
+
+### Package path strategy
+- Consider a more coherent strategy for package resolution paths:
+  - **BNI path**: searched for `.bni` interface files (like PATH, maybe `:` separated).
+  - **BN source path**: searched for `.bn` package implementations.
+  - **BN object/library path**: searched for `.a` or `.o` compiled package artifacts.
+
+### CLI flag coherence
+- Review and unify command-line flags across `bnc`, `bni`, `bnas`, `bnlint` for consistency (e.g., `-root` vs `--root`, `-v` vs `--verbose`).
+
+### Annotations and C function interop
+- Consider implementing annotations (decorators/attributes).
+- Specific use case: annotating functions as C functions.
+  - **Option A**: annotation in `.bni` — callers know the name and calling convention, but mixes interface with implementation.
+  - **Option B**: annotation on the definition (with empty body) — `bnc` generates a trampoline. But empty body is weird (missing return values?).
+  - **Option C**: annotation on a call site, indicating it's a C function call. Maybe a "magic" C package so no annotation is needed at all.
+  - **Option D**: manual trampolines, with a magic C package for declarations.
+
+### Simplify bootstrap.Read/Write signatures
+- The `len` parameter in `bootstrap.Read(fd, buf, len)` and `bootstrap.Write(fd, buf, len)` is redundant — the slice already carries its length. If you want a smaller length, subslice.
+
 ---
 
 ## Done (session 2026-04-08/09)
