@@ -39,7 +39,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - readFlatValue no longer materializes Elems (O(n) → O(1)). All consumers (for-in, index, len, print, subslice) use flat paths.
 - Legacy Elems code removed: MakeSliceVal, MakeArrayVal, MakeManagedSliceVal removed. writeFlatValue Elems→flat conversion removed. Elems refs: 53→3 (VAL_MULTI only). HeapObj refs: 30→3 (function values only).
 - All refcounting fixed: return leak (IsFresh flag), element-copy, struct field, assignment cascade, pointer deref write, managed-slice element cleanup (rc==1 check).
-- **158/158 in boot-comp, boot-comp-int, and boot-comp-comp. Zero xfails.**
+- **161/161 in boot-comp, boot-comp-int, and boot-comp-comp. Zero xfails.**
 
 ### Interpreter Value struct cleanup
 - **Done**: removed Elems (0 refs), Fields (0 refs), HeapObj (0 refs), BoolVal (flat), IntVal (flat), MakeMultiVal, MakeStructVal, MakeSliceVal, MakeArrayVal, MakeManagedSliceVal, VAL_MULTI.
@@ -163,15 +163,23 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - This was the root cause of the boot-comp-comp crash: `ctx.Vars[:savedLen]` created subslices, and the dtor walked stale memory past the subslice boundary.
 - boot-comp-comp now works (hello world compiles and runs).
 
-### Inline OP_SLICE_LEN as extractvalue
-- `len()` on slices now emits `extractvalue %BnSlice %s, 1` instead of calling `bn_slice_len`. Removed from C runtime and manifest (18 functions remaining).
+### Phase 3.1: Lower slice ops to primitive IR ops — DONE
+- All slice ops (`OP_SLICE_GET/SET/LEN/EXPR/ELEM_PTR`) lowered to primitives (`OP_EXTRACT`, `OP_GET_ELEM_PTR`, `OP_LOAD/STORE`) in the IR gen layer. Deprecated opcodes removed from `ir.bni`.
+- 13 C runtime functions removed (22→9 in manifest). `emit_slice.bn` deleted.
+- Raw slice subslice copy bug fixed: `s[lo:hi]` now zero-copy (was incorrectly copying in C runtime).
+- **EmitSliceSet element type bug**: was using `val.Typ` (int/64-bit) instead of slice element type, causing wrong GEP stride for `[]uint8`. Test 141 added.
+- **EmitSliceExpr GEP type mismatch**: codegen's internal bitcast produced typed pointer but slice field 0 expects `i8*`. Fixed with byte-level GEP.
+- **readFile UAF** (6 call sites in cmd/bnc, cmd/bni, pkg/loader): `var src []uint8 = readFile(...)` dropped backing reference immediately. Changed to `@[]uint8`. Previously masked by copying slice_expr. Tests 142 added.
 
 ### Remove dead bn_append_* functions
 - No IR opcode, no codegen emission, no callers. Removed from C runtime and manifest.
 
-### 158/158 — ZERO XFAILS IN ALL MODES
-- **boot-comp: 158/158. boot-comp-int: 158/158. boot-comp-comp: 158/158.**
-- Was 147/147 at start of session (with xfails). Now 158/158 with zero xfails.
+### ModuleConst.Name UAF
+- `ModuleConst.Name` was `[]char` (raw) but assigned from `buf.CopyStr()` (`@[]char`). The managed temporary was freed at end of statement. Changed to `@[]char`. This caused iota values all reading 0 and cascading boot-comp-comp failures.
+
+### 161/161 — ZERO XFAILS IN ALL MODES
+- **boot-comp: 161/161. boot-comp-int: 161/161. boot-comp-comp: 161/161.**
+- Was 158/158 before Phase 3 work. New tests: 140 (named struct slice elem rc), 141 (slice param mutation + multi-return managed field), 142 (read slice mutation).
 
 ### [N]@T field-write-through-index — FIXED (test 139)
 - `genSelectorPtr` for `arr[i].Field` only handled struct elements. For `[N]@Node`, element type is `@Node` (TYP_MANAGED_PTR). Added: load managed-ptr from array element, then GEP for field.
