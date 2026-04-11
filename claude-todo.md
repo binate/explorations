@@ -6,6 +6,14 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
+### boot-comp-int crash: TYP_SLICE vs TYP_MANAGED_SLICE type mismatch
+- Compiled interpreter segfaults in `--test` mode on large packages (`pkg/ir`, `pkg/codegen`, `pkg/lint`)
+- Valgrind: 16-byte allocation (raw slice) read/written as 32 bytes (managed slice) — heap buffer overflow
+- Root cause narrowed: a `@Type` object's `Kind` field is mutated from `TYP_MANAGED_SLICE` (10) to `TYP_SLICE` (9), likely use-after-free of the type object
+- Only happens in `--test` mode with large packages; same code works in non-test mode
+- **Detailed writeup**: `explorations/bug-boot-comp-int-type-mismatch.md`
+- **Next**: add line-level DWARF debug info, or add targeted debug prints to find the exact struct.field where types diverge
+
 ### ~~Compiler bug: missing RefInc on struct copies with managed fields~~ — FIXED
 - **Root cause**: two related issues:
   1. When a struct containing `@[]T` or `@T` fields is copied by value, the compiler did not RefInc the managed fields in the copy.
