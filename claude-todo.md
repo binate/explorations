@@ -126,11 +126,10 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Workaround**: use `@[]char` as the return type in `pkg/builtin/testing/testing_test.bn`.
 - Affects: `cmd/bni/main.bn:isTestResultReturn`, `cmd/bnc/test.bn:isTestResultReturn`, `bootstrap/main.go:isTestResultReturn`.
 
-### .bni/.bn return type mismatch should be a compile error
-- The compiler silently accepts a `.bn` function with a different return type than its `.bni` declaration (e.g., `.bni` declares `func Foo() @[]char` but `.bn` defines `func Foo() []char`).
-- This caused a real bug: `TypeName` in `pkg/types` declared `@[]char` in `.bni` but returned `[]char` in `.bn`, silently dropping the managed wrapper.
-- The type checker (or a separate validation pass) should verify that `.bn` function signatures match their `.bni` declarations and report an error on mismatch.
-- Affects: return types, parameter types, number of parameters/returns.
+### ~~.bni/.bn return type mismatch should be a compile error~~ — FIXED
+- The type checker now verifies that `.bn` function definitions match their `.bni` declarations (parameter count/types, return count/types). Mismatches are reported as compile errors.
+- Immediately caught two real bugs: `MakeStringVal` and `AddBlock` had `@[]char` in `.bni` but `[]char` in `.bn`. Both `.bni` files fixed.
+- Conformance test 221 now passes on all compiled modes.
 
 ### Compiler bug: cast to sub-word pointer type emits invalid LLVM IR
 - `cast(*uint8, ptr)` emits `add i8* %v, 0` — LLVM rejects this because `add` requires integer operands, not pointers.
