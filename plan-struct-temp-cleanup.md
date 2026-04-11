@@ -129,19 +129,34 @@ constructor at consumption sites (var decl, var assign, arg). Never
 consumeTemp. Temp cleanup at end of statement dtors remaining temps.
 
 **Result**: test 226 passes on boot-comp. But boot-comp-comp breaks
-catastrophically (126/187 failures). The gen1 compiler's own code has
-hundreds of struct-returning calls (`buf.WriteStr`, `buf.WriteByte`,
-etc.) that all get temp-registered. The temp cleanup dtor fires on
-every unconsumed struct temp at end of statement, prematurely freeing
-CharBuf backings that are still live.
+catastrophically (126/187 failures).
 
-**Root cause**: the "always copy" rule means `var cb = buf.New()` calls
-copy (RefInc) + scope dtor will RefDec + temp cleanup will also dtor.
-That's +1 -1 -1 = -1 from the return's +1, which is correct in
-isolation. But the gen1 compiler processes many statements, and the
-cumulative effect of temp-registering every CharBuf return causes the
-LLVM IR output to include dtor calls that corrupt the compiler's own
-state mid-codegen.
+**Root cause**: a pre-existing leak in the struct return move
+optimization, amplified by the temp cleanup. When a struct local is
+returned via move (skip dtor), managed fields carry an extra RefInc
+from their field assignment that is never RefDec'd. Example:
+
+```
+func WriteStr(b CharBuf, s []char) CharBuf {
+    // grows: b.Data = make_slice(...) → new backing rc=1
+    // field assign RefInc new → rc=2, RefDec old
+    return b  // skip dtor → new backing still rc=2
+}
+```
+
+The returned struct has Data.backing rc=2 (1 from make + 1 from field
+assign). The caller gets this, and:
+
+- **Current code** (skip copy for OP_CALL var decl, no temp): rc=2.
+  Scope exit dtor: -1 → rc=1. **Leak** (small, 1 ref per grow).
+- **Attempt 1** (copy + temp cleanup): copy +1 → rc=3. Temp dtor -1 →
+  rc=2. Scope exit -1 → rc=1. **Same leak**, but the extra dtor calls
+  in the generated IR change codegen enough to cause cascading failures
+  in the gen1 compiler.
+
+The non-grow case (same backing) is fine because old and new share the
+backing — the assignment save-old/dtor-old path absorbs the extra ref.
+But grows produce a new backing whose extra +1 is never balanced.
 
 ### Attempt 2: register + consumeTemp for var decl + copy for others
 
@@ -180,6 +195,59 @@ The approach works for `@T` and `@[]T` because those are scalar values
 RefDec. For structs, cleanup requires calling a dtor function (which
 walks fields), and the dtor generation + calling infrastructure adds
 significant complexity to the generated code.
+
+## Underlying Issue: Struct Return Move and Field RefInc
+
+The struct temp cleanup is blocked by a deeper problem: the struct return
+move optimization (skip dtor for returned locals) doesn't account for
+managed fields that were RefInc'd by field assignment inside the function.
+
+When a function builds a struct by assigning managed fields:
+```
+var w Wrapper
+w.Node = n       // field assign: RefInc n
+return w          // move: skip dtor (which would have RefDec'd w.Node)
+```
+
+The returned struct has `Node` at rc = original + 1 (from the field assign
+RefInc). The skip-dtor means this +1 is never cancelled. The caller gets
+a struct with an "extra" ref on the managed field.
+
+**For @T variables**, this is handled by the callee-entry RefInc / exit
+RefDec protocol (section 3 of refcount-lifecycle.md). The extra +1 from
+the field assign is balanced by the scope exit RefDec of the @T param.
+
+**For struct returns**, the analogous balance should come from the struct
+copy constructor at the call site. But the current code skips copy for
+OP_CALL results (`needsStructCopy(typ) && val.Op != OP_CALL`), relying
+on the return's ownership transfer. This is correct when the returned
+struct's managed fields were NOT additionally RefInc'd inside the
+function. But when fields ARE assigned (the common case for builder
+functions like `buf.WriteStr`), the skip-copy leaves an extra +1.
+
+**Fix options**:
+
+1. **Don't skip dtor for struct returns with managed fields**: run the
+   dtor (RefDec managed fields), and also run the copy constructor on the
+   return value (RefInc for the caller). This is the "slow path" — always
+   RefInc on return, always dtor at scope exit. The move optimization
+   doesn't apply to structs with managed fields.
+
+2. **Emit struct copy on return instead of skip-dtor**: instead of
+   skipping the dtor, emit a copy constructor call on the return value
+   before the dtor runs. The copy RefInc's managed fields for the caller,
+   and the dtor RefDec's them for the local. Net: one ref transferred.
+   This is semantically the same as option 1 but framed as "copy then
+   destroy" rather than "don't destroy."
+
+3. **Keep skip-dtor but also skip copy at call site**: this is the current
+   approach. It works when managed fields aren't separately RefInc'd
+   inside the function (e.g., `return make(T)` where make creates the
+   struct directly). It leaks when fields ARE assigned. The leak is small
+   (bounded per call) and doesn't cause UAF.
+
+Option 1 or 2 would fix the leak AND make struct temp cleanup safe. The
+test 226 fix would then work because the refcount math would be balanced.
 
 ## Possible approaches (not yet tried)
 
