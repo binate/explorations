@@ -87,13 +87,37 @@ Candidates:
 - **Simple interpreter source bugs**: `envDefine`, `assignTo`, `evalSelector`,
   `readFlatValue`, `writeFlatValue`, `coerce` all appear correct on inspection.
 
+## Confirmed: use-after-free (2026-04-11)
+
+**DWARF line-level debug info added** — compiler now emits per-instruction
+`!DILocation(line: N, scope: !M)` for source-level debugging.
+
+**Disabling `Free` in `rt.bn` eliminates the bug.** With free disabled:
+- pkg/lexer: all 10 tests PASS (was hanging on first test)
+- pkg/lint: all 11 tests PASS (was crashing on first test)
+- pkg/ir: gets much further (was hanging on first test)
+- No rc≤0 sentinel triggers — the object IS correctly freed (rc reaches 0
+  legitimately), but something still holds a dangling pointer to it.
+
+**Not a double-free.** The object's refcount reaches 0 exactly once, and
+the free is correct. The bug is that some other code holds a raw pointer
+(or `@Type` reference without proper RefInc) that outlives the managed
+reference keeping the object alive.
+
+**Duplicate type registrations observed** (Type, TestResult from
+pkg/builtin/testing) but confirmed NOT the cause — they happen in working
+packages too, and skipping re-registration doesn't fix the bug.
+
+**17 managed-to-raw-assign lint diagnostics in pkg/interp**, but inspection
+shows they're all read-only patterns (StrOf → []char). The corruption
+requires a *write* through a dangling pointer.
+
 ## Next steps
 
-- Add DWARF line-level debug info to the compiler (currently all lines are 0),
-  then re-run valgrind to get exact source locations.
-- Or: add targeted debug prints in `assignTo`'s managed-slice branch to log
-  which struct.field triggers the type mismatch, tracing back to where the
-  struct type was resolved.
-- The bug only manifests with large packages (many declarations), suggesting
-  it may be related to the number of type entries or the depth of the
-  interpreter's type resolution stack.
+- The corruption writes to freed memory that gets reused for `@Type` objects.
+  The write likely comes through a dangling flat-memory address
+  (`EnvEntry.Addr`) or a dangling `Value.RawAddr` that outlives its scope.
+- Instrument `writeFlatValue`/`writeScalar` to check if the target address
+  overlaps a freed allocation (requires tracking freed ranges).
+- Or: add a generation counter to `@Type` objects — set on creation, verify
+  on use. If it doesn't match, the type was freed and reused.
