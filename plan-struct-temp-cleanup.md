@@ -120,30 +120,92 @@ short.
 mode). The previous attempt to implement this broke boot-comp-comp because
 of exactly this pattern.
 
-## Implementation Steps
+## Attempts (2026-04-11)
 
-1. Register struct call results as temps in `genCall` (`gen_expr.bn`)
-2. Add struct temp handling in `emitTempCleanup` and `emitTempCleanupSince`
-3. consumeTemp in var decl for OP_CALL struct results (`gen_stmt.bn`)
-4. Skip copy + consumeTemp in var assign for OP_CALL struct results (`gen_control.bn`)
-5. consumeTemp in multi-return destructuring (`gen_control.bn`)
-6. Verify conformance test 226 passes
-7. **Critical**: verify boot-comp-comp still passes (all 179 tests)
-8. If boot-comp-comp fails, investigate which CharBuf/struct patterns
-   break and whether the refcounting inside WriteStr/WriteByte is correct
-   for the new ownership model
+### Attempt 1: always register + always copy + never consumeTemp
 
-## Fallback
+**Idea**: register all struct call results as temps. Always call copy
+constructor at consumption sites (var decl, var assign, arg). Never
+consumeTemp. Temp cleanup at end of statement dtors remaining temps.
 
-If the value-type API pattern (CharBuf) is fundamentally incompatible with
-struct temp cleanup, options are:
+**Result**: test 226 passes on boot-comp. But boot-comp-comp breaks
+catastrophically (126/187 failures). The gen1 compiler's own code has
+hundreds of struct-returning calls (`buf.WriteStr`, `buf.WriteByte`,
+etc.) that all get temp-registered. The temp cleanup dtor fires on
+every unconsumed struct temp at end of statement, prematurely freeing
+CharBuf backings that are still live.
 
-- **Opt-out by type**: only register struct temps for types where the
-  struct is NOT used in value-type API patterns. This is fragile.
-- **Copy elision**: don't temp-cleanup if the result is consumed in the
-  same statement (by any path — assignment, arg, etc.). Only temp-cleanup
-  if the result is used for field access or other non-consuming operations.
-  This requires tracking whether a temp was "consumed" vs "borrowed".
-- **Accept the leak for now**: the leak is bounded (one refcount per inline
-  struct use). It's not a correctness issue (no UAF), just a memory leak.
-  Low priority relative to other work.
+**Root cause**: the "always copy" rule means `var cb = buf.New()` calls
+copy (RefInc) + scope dtor will RefDec + temp cleanup will also dtor.
+That's +1 -1 -1 = -1 from the return's +1, which is correct in
+isolation. But the gen1 compiler processes many statements, and the
+cumulative effect of temp-registering every CharBuf return causes the
+LLVM IR output to include dtor calls that corrupt the compiler's own
+state mid-codegen.
+
+### Attempt 2: register + consumeTemp for var decl + copy for others
+
+**Idea**: consumeTemp at var decl (skip copy, as before). Keep copy for
+var assign and args. Temp cleanup handles inline uses.
+
+**Result**: same boot-comp-comp failure. Even with consumeTemp for var
+decl, the temp registration + dtor infrastructure generates dtor calls
+for struct temps in other patterns (e.g., struct returned from one call
+and immediately passed to another). The gen1 compiler uses many such
+patterns.
+
+### Attempt 3: register + consumeTemp at var decl/assign/multi-return
+
+**Idea**: consume at all assignment-like sites. Only temp-cleanup for
+truly inline uses (field access on call result, etc.).
+
+**Result**: boot-comp passes but boot-comp-comp still breaks. The
+problem is fundamental: registering ALL struct call results as temps
+means every `buf.WriteStr` call in the compiler generates temp cleanup
+code. Even if consumed, the temp infrastructure changes the generated
+IR enough to cause issues in the gen1 compiler.
+
+## Analysis
+
+The core difficulty is that the temp registration approach works at the
+**statement** level, but struct-returning functions are used pervasively
+in the compiler's own code at the **expression** level. Every `buf.*`
+call returns a CharBuf struct with managed fields. Registering all of
+them as temps and ensuring every one is properly consumed or cleaned up
+requires tracking at every consumption site, which is fragile and
+incomplete.
+
+The approach works for `@T` and `@[]T` because those are scalar values
+— the temp is the managed pointer/slice itself, and cleanup is a single
+RefDec. For structs, cleanup requires calling a dtor function (which
+walks fields), and the dtor generation + calling infrastructure adds
+significant complexity to the generated code.
+
+## Possible approaches (not yet tried)
+
+1. **Expression-level tracking**: instead of registering at the statement
+   level, track struct temps at the expression level. When a struct call
+   result is consumed (by assignment, arg, or field access), emit the
+   cleanup immediately after the consumption site, not at end of statement.
+   This is more precise but requires rethinking the temp tracking model.
+
+2. **Only register for specific patterns**: instead of registering ALL
+   struct call results, only register when the result is used for field
+   access (e.g., `makeOuter(n, 42).Tag`). For assignment and arg patterns,
+   the existing copy/dtor infrastructure handles refcounting. This would
+   fix the specific test 226 pattern without affecting the gen1 compiler.
+
+3. **Callee-side struct cleanup**: make the callee responsible for cleaning
+   up struct return values that the caller doesn't consume. This would
+   require a protocol for the caller to signal whether it consumed the
+   return. Complex but potentially more robust.
+
+4. **Accept the leak**: the leak is bounded (one refcount per inline struct
+   use). It's not a correctness issue (no UAF), just a memory leak for
+   code that uses struct-returning functions inline. Most real code assigns
+   struct returns to variables. Low priority relative to other work.
+
+**Recommendation**: option 2 is the most pragmatic — it fixes the actual
+bug (test 226) without touching the gen1 compiler's CharBuf patterns.
+Option 1 is the most principled but requires significant refactoring of
+the temp tracking model.
