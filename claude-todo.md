@@ -6,6 +6,12 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
+### Interpreter: @T parameter stored in struct field over-increments refcount
+- Conformance tests 228/229 show rc increasing by 2 per call instead of 1 on boot-comp-int. The compiler handles this correctly (tests pass on boot-comp).
+- The spec (`refcount-lifecycle.md` section 3) says: callee RefInc's @T param on entry, RefDec's at scope exit. Field assignment RefInc's separately. The compiler does exactly this (callee-side RefInc in `gen_stmt.bn:104`). The interpreter's `envDefine` RefInc's (equivalent), but something causes a double-increment — possibly the interpreter's field assignment path RefInc's redundantly, or `cleanupEnvExcept` fails to RefDec the param.
+- Tests 228/229 xfail'd on boot-comp-int.
+- May be related to the boot-comp-int unit test crashes/hangs on larger packages.
+
 ### boot-comp-int crash: TYP_SLICE vs TYP_MANAGED_SLICE type mismatch
 - Compiled interpreter segfaults in `--test` mode on large packages (`pkg/ir`, `pkg/codegen`, `pkg/lint`)
 - Valgrind: 16-byte allocation (raw slice) read/written as 32 bytes (managed slice) — heap buffer overflow
