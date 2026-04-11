@@ -24,7 +24,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Conformance tests**: 222 (struct copy managed), 223 (nested struct copy), 224 (struct field assign), 225 (managed ptr scope cleanup).
 - **Detailed writeup**: `explorations/bug-struct-copy-refcount.md`
 - **Plans**: `explorations/plan-copy-constructors.md`, `explorations/plan-interp-struct-copy-refcount.md`
-- **Remaining**: struct temp cleanup (struct-returning function call results not assigned to a variable leak managed fields). Pre-existing issue.
+- **Remaining**: struct temp cleanup (struct-returning function call results used inline, not assigned to a variable, leak managed fields). Conformance test 226 xfail'd on all modes. Test 227 (multi-return managed cleanup) passes on compiled modes, xfail'd on boot/boot-comp-int. Anonymous struct dtor/copy generation for multi-return types fixed (commit 8e1d836).
 
 ### ~~Linux/x86-64: boot-comp-comp string corruption~~ — FIXED
 - **Root cause**: use-after-free in `cmd/bnc/test.bn`. `runtimePath` was declared as `[]char` (raw slice) instead of `@[]char` (managed). When the `candidate @[]char` from `bootstrap.Concat(root, "/runtime/binate_runtime.c")` went out of scope, it was RefDec'd and freed — but `runtimePath` still borrowed its data, creating a dangling pointer. The garbage filenames were freed memory being read as strings.
