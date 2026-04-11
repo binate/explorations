@@ -131,12 +131,9 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Immediately caught two real bugs: `MakeStringVal` and `AddBlock` had `@[]char` in `.bni` but `[]char` in `.bn`. Both `.bni` files fixed.
 - Conformance test 221 now passes on all compiled modes.
 
-### Compiler bug: cast to sub-word pointer type emits invalid LLVM IR
-- `cast(*uint8, ptr)` emits `add i8* %v, 0` — LLVM rejects this because `add` requires integer operands, not pointers.
-- Same issue for `*uint16`, `*uint32`, or any pointer to a sub-word type.
-- `cast(*int, ptr)` and `cast(*uint8, ptr)` should both emit `bitcast` or `inttoptr`/`ptrtoint`, not `add`.
-- Conformance test 161 xfail'd in boot-comp/boot-comp-comp/boot-comp-comp-comp for this reason.
-- Likely root cause: the `cast` codegen path uses `add <type> %v, 0` as a no-op to set the result type, but this only works for integer types, not pointers.
+### ~~Compiler bug: cast to sub-word pointer type emits invalid LLVM IR~~ — FIXED
+- Cast codegen now uses `bitcast` (ptr→ptr), `ptrtoint` (ptr→int), `inttoptr` (int→ptr) instead of `add` for pointer types.
+- Conformance test 161 passes on all compiled modes.
 
 ### x86-64 assembler: end-to-end tests on Linux CI
 - Assemble x86-64 → ELF64 → link → run natively (no QEMU needed)
