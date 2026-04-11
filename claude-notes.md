@@ -61,13 +61,15 @@
 
 **Drop semantics**: when refcount hits zero, recursively release all managed fields (decrement their refcounts, which may trigger further drops). This gives deterministic, predictable cleanup.
 
-**Ownership transfer convention — DECIDED (2026-04-02)**: every managed value (`@T`, `@[]T`) carries its refcount as the count of live references. When a value is passed between contexts (return, assignment, argument), ownership of one reference is transferred.
+**Ownership transfer convention — DECIDED (2026-04-02, spec updated 2026-04-11)**: every managed value (`@T`, `@[]T`) carries its refcount as the count of live references. When a value is passed between contexts (return, assignment, argument), ownership of one reference is transferred.
 
-The **slow (safe) approach** (implemented first): explicit RefInc/RefDec at every transfer point. A `return expr` where the return type is `@T` always emits RefInc on the return value — the caller receives one transferred reference. Normal scope cleanup (RefDec on locals) runs after. This is always correct regardless of what `expr` is (local, global, temporary, nested call).
+**Function parameters**: the callee owns a reference to each `@T`/`@[]T` parameter for the duration of the function body. The callee RefInc's on entry and RefDec's at scope exit (unless the parameter is returned). The caller is uninvolved — its reference is unaffected. For struct parameters with managed fields, copy constructors handle the RefInc at the call site; destructors handle RefDec at scope exit.
 
-The **fast approach** (deferred optimization): when the source is expiring (last use of a local, temporary), skip the RefInc-on-return and the corresponding RefDec-on-exit. The source's reference becomes the caller's reference directly. Analogous to C++11 move semantics. Only applies when the source is provably expiring.
+**Function returns**: the callee arranges for the return value to carry exactly one transferred reference for the caller. For the slow approach, this is RefInc before scope cleanup. A move optimization (implemented for local returns) skips the RefInc and the local's scope RefDec, transferring the local's reference directly.
 
-**Invariant: rc == 0 means dead.** Every live reference must be reflected in the refcount. See `explorations/refcount-lifecycle.md` for full details on every context (returns, temporaries, function arguments, slice operations, field access).
+**Move semantics**: currently an optimization, not a language guarantee. The observable behavior (when objects are freed) is the same. Intermediate refcount values may differ. Whether to make move a language-level concept is an open question.
+
+**Invariant: rc == 0 means dead.** Every live reference must be reflected in the refcount. See `explorations/refcount-lifecycle.md` for the full spec covering returns, arguments, temporaries, struct fields, slice operations, and scope cleanup.
 
 ### Value types vs. reference types — DECIDED
 

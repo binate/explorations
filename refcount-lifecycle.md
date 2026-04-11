@@ -63,7 +63,12 @@ func foo() @T {
 }
 ```
 
-**Slow approach**: every `return expr` where the return type is `@T` or `@[]T`:
+**Spec**: The callee is responsible for ensuring the returned value carries
+exactly one transferred reference for the caller. After the return, the
+caller owns that reference.
+
+**Implementation (slow approach)**: every `return expr` where the return
+type is `@T` or `@[]T`:
 1. Evaluate `expr`
 2. **RefInc the return value** — this creates the caller's reference
 3. Normal scope cleanup runs (locals RefDec'd, temporaries die)
@@ -82,11 +87,19 @@ When stored in a local variable, that transferred reference IS the local's
 reference — no additional RefInc needed. This is why `isFreshManagedPtr`
 returns true for `OP_CALL`: the callee already accounted for the transfer.
 
-**Fast approach (deferred)**: when `expr` is an expiring local (last use before
-scope exit), skip the RefInc and skip that local's RefDec. The local's
-reference becomes the caller's reference directly. Analogous to C++11 move
-semantics — only applies when the source is expiring. Does NOT apply to
-globals, captured variables, or anything with a lifetime beyond the return.
+**Move optimization (implemented for locals)**: when `expr` is a local
+variable, skip the RefInc and skip that local's RefDec at scope exit. The
+local's reference becomes the caller's reference directly. This is
+observable via `rt.Refcount` (the intermediate rc=+1 from RefInc is never
+seen), but the final result is the same. The current compiler implements
+this for local-ident returns but not for arbitrary expiring values.
+
+**Struct return values**: when the return type is a struct with managed
+fields, the same principle applies — the callee arranges for the returned
+struct's managed fields to have correct refcounts for one owner. For local
+struct returns, the scope-exit dtor is skipped (move). For non-local struct
+returns, a copy constructor (RefInc managed fields) runs before scope
+cleanup.
 
 ### 3. Function Arguments
 
@@ -94,17 +107,39 @@ globals, captured variables, or anything with a lifetime beyond the return.
 foo(expr)
 ```
 
-Where `foo` takes `@T`:
+**Spec**: Before the function body executes, each `@T` or `@[]T` parameter
+must own its own reference. During the function body, the parameter is a
+live reference. At function exit (scope cleanup), the parameter's reference
+is released (RefDec), unless the parameter is being returned (ownership
+transfer to caller).
 
-**Slow approach**:
-- Callee entry: RefInc each `@T` parameter (the parameter is a new reference)
-- Callee exit: RefDec each `@T` parameter (the parameter's reference dies)
+**Implementation (callee-side RefInc)**:
+- **Caller**: does NOT RefInc `@T`/`@[]T` arguments. The argument value is
+  passed "as-is" — the caller's reference keeps it alive during the call.
+- **Callee entry**: RefInc each `@T` parameter (creating the parameter's
+  own reference). For `@[]T`, RefInc the backing refptr.
+- **Callee exit**: RefDec each `@T`/`@[]T` parameter via scope cleanup
+  (releasing the parameter's reference), unless the parameter is returned.
 
-This means the caller doesn't need to do anything special — the callee manages
-its own parameter references. The caller's reference (if any) is unaffected.
+This design means the caller is uninvolved — the callee manages its own
+parameter references. The caller's reference is unaffected by the call.
 
-**Fast approach (deferred)**: if the argument is an expiring temporary or
-last-use local, skip the caller's RefDec and the callee's entry RefInc.
+**Why callee-side**: this keeps the call site simple and avoids the
+question of who "owns" the argument during the call boundary. It also
+means the caller doesn't need to know whether a parameter is `@T` or `*T`
+at the IR level (though in practice, the type is known).
+
+**Struct parameters**: when a struct with managed fields is passed by value,
+the copy constructor runs (RefInc all managed fields in the copy). At scope
+exit, the struct destructor runs (RefDec all managed fields). For struct
+args from function call results (OP_CALL), the copy is skipped — the
+return value's managed fields already have correct refcounts.
+
+**Move optimization (not yet implemented for arguments)**: if the argument
+is an expiring temporary (e.g., `f(make(T))`), the temporary's reference
+could transfer directly to the parameter, skipping the callee entry RefInc
+and the temp cleanup RefDec. This is a pure optimization — the observable
+result is the same.
 
 **Raw pointer parameters** (`*T`): when `@T` is passed to a function taking
 `*T`, the managed-to-raw conversion is implicit. The managed value must remain
@@ -117,6 +152,31 @@ exit (rc=1). After the call, the temporary dies (RefDec, rc=0, freed). Correct.
 If `f` takes `*T`: implicit `@T → *T` conversion. The temporary (rc=1) must
 survive the call. The temporary's RefDec happens after `f` returns (end of
 statement), so the temporary is alive during the call. Correct.
+
+### 3a. Storing Parameters in Struct Fields
+
+A common pattern:
+```
+func MakeWrapper(n @Node, tag int) Wrapper {
+    var w Wrapper
+    w.Node = n    // field assignment: RefInc n
+    w.Tag = tag
+    return w
+}
+```
+
+The field assignment `w.Node = n` RefInc's `n` (creating a new reference
+owned by the field). The callee-entry RefInc created the parameter's
+reference. At scope exit, the parameter's RefDec releases one reference.
+The field's reference survives in the returned struct.
+
+Trace for `var w = MakeWrapper(shared, 1)` where shared has rc=N:
+1. Callee entry: RefInc shared → rc=N+1 (param owns a ref)
+2. `w.Node = shared`: RefInc → rc=N+2 (field owns a ref)
+3. `return w`: move (skip dtor for local w)
+4. Scope cleanup: RefDec param → rc=N+1 (param's ref released)
+5. Caller stores result: one reference from return (the field's)
+6. **Result: rc=N+1** — shared has its original refs + one from w.Node. ✓
 
 ### 4. Temporaries
 
@@ -192,40 +252,46 @@ gets a new one).
 
 `globalVar = expr`: RefDec old global value, RefInc new value (unless fresh).
 
-## Current Implementation Status (updated 2026-04-03)
+## Current Implementation Status (updated 2026-04-11)
 
-**Working (slow approach)**:
+**Working (compiler)**:
 - Variable declaration: RefInc on non-fresh values ✓
 - Variable assignment: RefDec old, RefInc new ✓
 - Struct field assignment: RefDec old, RefInc new ✓
 - Slice element assignment: RefDec old, RefInc new ✓
-- Function parameter entry/exit: RefInc/RefDec ✓
+- Function parameter entry/exit: callee-side RefInc/RefDec ✓
 - Managed-slice backing RefInc/RefDec on copy/scope-exit ✓
-- Function return: RefInc on return value before scope cleanup ✓ (fixed 2026-04-02)
-- Free re-enabled in RefDec ✓
-- **Subslice RefInc ✓** — `s[lo:hi]` on `@[]T` emits RefInc on backing refptr (fixed 2026-04-03)
-- **Temporary RefDec ✓** — managed temporaries (from calls, make, box, make_slice, subslice)
-  are tracked per-statement and RefDec'd at statement end. Values consumed by assignment
-  or declaration are removed from the temp list. Short-circuit evaluation (&&, ||)
-  cleans up temps in each branch before crossing block boundaries. (fixed 2026-04-03)
-- **Pointer dereference refcounting ✓** — `*p = val` for managed types RefDec's old, RefInc's new
-- **@[]T → []T conversion consumes temp** — when managed slice is converted to raw, the
-  temp is consumed (backing borrowed by raw slice, not freed at statement end)
+- Function return: RefInc on return value before scope cleanup ✓
+- Move optimization for local returns: skip RefInc + skip scope RefDec ✓
+- Subslice RefInc on backing refptr ✓
+- Temporary RefDec for @T/@[]T at end of statement ✓
+- Pointer dereference refcounting (*p = val) ✓
+- @[]T → []T conversion: temp borrowed, not freed until statement end ✓
+- **Copy constructors** (__copy_X) for structs/arrays with managed fields ✓
+- **Destructors** (__dtor_X) for structs/arrays with managed fields at scope exit ✓
+- **Struct field write-through copy/dtor** ✓
+- **.bni/.bn signature mismatch detection** ✓
 
-**Known issues (causes leaks, not crashes)**:
+**Working (interpreter)**:
+- envDefine/envSet RefInc/RefDec for @T, @[]T ✓
+- structRefInc/structRefDec for struct/array fields ✓
+- cleanupEnvExcept: @T, @[]T, struct scope cleanup ✓
+- IsFresh flag for ownership transfer on returns ✓
+- VAL_MANAGED_SLICE distinguishes @[]T from []T ✓
 
-1. **Returned-variable RefDec skip leaks +1 refcount.** When `return localVar`
-   is compiled, the local is skipped by emitDecForManagedLocals (move optimization:
-   the local's reference becomes the caller's reference). But since we also emit
-   RefInc on the return value, the net effect is rc+1 leak. Fixing this requires
-   either: (a) removing the skip and ensuring destructors prevent cascading frees,
-   or (b) also skipping the RefInc for returned-local expressions (true move opt).
-   Currently safe — leaks but doesn't crash.
+**Known issues**:
 
-2. **Managed-slice backing freed without RefDec-ing elements** (needs destructors —
-   see plan-4word-managed-slice-destructors.md).
+1. **Struct temp cleanup** — struct-returning function call results used
+   inline (not assigned to a variable) leak managed fields. Conformance
+   test 226 xfail'd. See `plan-struct-temp-cleanup.md`.
 
-3. **Struct freed without RefDec-ing managed fields** (needs destructors).
+2. **Interpreter @T param over-increment** — tests 228/229 show rc
+   increasing by 2 per `wrap(n, tag)` call instead of 1 on boot-comp-int.
+   The compiler handles this correctly.
+
+3. **Interpreter multi-return anonymous struct cleanup** — test 227
+   xfail'd on boot-comp-int. The anonymous struct from multi-return is
+   not cleaned up in the interpreter.
 
 4. ~~Nil assignment to managed-slice struct field causes corruption.~~ **Fixed 2026-04-03.**
    Root cause: field assignment and pointer dereference assignment were missing nil
@@ -233,37 +299,21 @@ gets a new one).
    `%BnManagedSlice zeroinitializer`. Added nil coercion for slice, managed-slice,
    and managed-ptr types in both paths.
 
-## Completed: RefInc on Return (2026-04-02)
+## Changelog
 
-**Fix**: emit `OP_REFCOUNT_INC` (for `@T`) or managed-slice refptr RefInc
-(for `@[]T`) on return values in the IR gen (`gen_stmt.bn`), BEFORE
-`emitDecForManagedLocals`. This ensures the return value's reference is
-created before scope cleanup runs.
-
-**Where**: `pkg/ir/gen_stmt.bn`, in the `STMT_RETURN` handler, before
-`emitDecForManagedLocals`.
-
-**Critical ordering**: the RefInc must be before scope-exit RefDecs.
-Initially placed in codegen's `emitReturn` (after scope cleanup) — this
-caused use-after-free because scope cleanup freed the backing before the
-RefInc could run.
-
-**What stays the same**:
-- `isFreshManagedPtr` returns true for `OP_CALL` — correct, because the
-  callee's return-RefInc already accounts for the caller's reference
-- Callee entry RefInc / exit RefDec on parameters — unchanged
-- Variable assignment RefInc/RefDec — unchanged
-
-### Steps
-
-1. Write a conformance test that fails with Free enabled (demonstrates the bug)
-2. Fix codegen: emit RefInc on return values of managed type
-3. Verify the conformance test passes
-4. Re-enable Free and run boot-comp-comp
-5. If more crashes: investigate (likely the slice-element-read or field-read issues)
+- **2026-04-02**: RefInc on return values before scope cleanup.
+- **2026-04-03**: Subslice RefInc. Temporary tracking and cleanup. Pointer
+  dereference refcounting.
+- **2026-04-10**: Copy constructors and destructors for structs/arrays with
+  managed fields. Scope-exit dtors for struct locals. Interpreter
+  structRefInc/structRefDec. VAL_MANAGED_SLICE. Interpreter @T cleanup
+  fixes (false isRet match, IsFresh on args).
+- **2026-04-11**: Sections 2-3 rewritten as normative spec. Added section
+  3a (param stored in field). Updated status.
 
 ### Future (deferred)
 
-- Move optimization: skip RefInc-on-return + skip RefDec-on-local for expiring locals
-- RefInc on slice element reads and struct field reads of @T
-- Destructors for managed-slice backing and struct fields
+- Move optimization for function arguments (skip callee RefInc + temp RefDec)
+- Struct temp cleanup (test 226) — see `plan-struct-temp-cleanup.md`
+- RefInc on slice element reads and struct field reads of @T (currently
+  relies on the container staying alive)
