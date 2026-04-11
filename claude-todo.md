@@ -6,17 +6,17 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
-### Compiler bug: missing RefInc on struct copies with managed fields — IN PROGRESS
+### ~~Compiler bug: missing RefInc on struct copies with managed fields~~ — FIXED
 - **Root cause**: two related issues:
-  1. When a struct containing `@[]T` or `@T` fields is copied by value, the compiler does not RefInc the managed fields in the copy.
+  1. When a struct containing `@[]T` or `@T` fields is copied by value, the compiler did not RefInc the managed fields in the copy.
   2. Stack-allocated struct locals with managed fields were not cleaned up at scope exit (no dtor call).
-- **Symptoms**: `pkg/types` and `pkg/parser` unit tests crash in boot-comp on Linux with `malloc(): unaligned tcache chunk detected` after ~7-8 test calls.
+- **Compiler fix**: Generate `__copy_X` functions (symmetric to `__dtor_X`) for structs and `[N]T` arrays. Call copy at struct copy sites (var decl, var assign, field assign, deref assign, function args, function return). Call dtor at scope exit for struct locals.
+- **Interpreter fix**: `structRefInc`/`structRefDec` helpers walk struct fields recursively. Called from `cleanupEnvExcept` (scope exit), `envDefine` (var decl), `envSet` (var assign). Also fixed: `cleanupEnvExcept` false `isRet` match for `@T` (offset-0 field address collision); `IsFresh` leak on fresh `@T` function args.
+- **`VAL_MANAGED_SLICE`**: added to distinguish `@[]T` from `[]T` at Value.Kind level (was both `VAL_SLICE`), matching `VAL_MANAGED_PTR` vs `VAL_POINTER`.
+- **Conformance tests**: 222 (struct copy managed), 223 (nested struct copy), 224 (struct field assign), 225 (managed ptr scope cleanup).
 - **Detailed writeup**: `explorations/bug-struct-copy-refcount.md`
-- **Plan**: `explorations/plan-copy-constructors.md`
-- **Fix**: Generate `__copy_X` functions (symmetric to `__dtor_X`) for structs and `[N]T` arrays. Call copy at struct copy sites (var decl, var assign, field assign, deref assign, function args, function return). Call dtor at scope exit for struct locals.
-- **Status**: Core implementation done. `__copy_X` and `__dtor_X` for structs/arrays generated and called at all copy/cleanup sites. All conformance tests pass on boot-comp, boot-comp-int, boot-comp-comp (175/175, 176/176, 175/175). Unit test crash on Linux not yet verified.
-- **Conformance tests**: 222 (struct copy managed), 223 (nested struct copy managed), 224 (struct field assign managed).
-- **Remaining**: struct temp cleanup (struct-returning function call results that aren't assigned to a variable leak their managed fields). This is a pre-existing issue made more visible by the copy/dtor infrastructure.
+- **Plans**: `explorations/plan-copy-constructors.md`, `explorations/plan-interp-struct-copy-refcount.md`
+- **Remaining**: struct temp cleanup (struct-returning function call results not assigned to a variable leak managed fields). Pre-existing issue.
 
 ### ~~Linux/x86-64: boot-comp-comp string corruption~~ — FIXED
 - **Root cause**: use-after-free in `cmd/bnc/test.bn`. `runtimePath` was declared as `[]char` (raw slice) instead of `@[]char` (managed). When the `candidate @[]char` from `bootstrap.Concat(root, "/runtime/binate_runtime.c")` went out of scope, it was RefDec'd and freed — but `runtimePath` still borrowed its data, creating a dangling pointer. The garbage filenames were freed memory being read as strings.
@@ -31,7 +31,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 ### Self-hosted interpreter memory model parity with compiler
 - Plan: `explorations/plan-interp-memory-parity.md`
 - The self-hosted interpreter can no longer run under the bootstrap (boot-int dropped) since it now uses `bit_cast`, pointer indexing, and `pkg/rt`. It requires compiled mode (boot-comp-int and above).
-- **boot-comp-int: 157/158 conformance tests pass** (was 129 before this work began)
+- **boot-comp-int: 177/177 conformance tests pass** (was 129 before this work began)
 - Phase 1 (done): infrastructure — `flat.bn` with readFlatValue/writeFlatValue using bit_cast and pkg/rt
 - Phase 2 (done): scalar variables in flat memory — envDefine/envGet/envSet use flat addresses for ints
 - Phase 3 (done): structs in flat memory — `evalMake` allocates via `rt.Alloc`, all field access through `RawAddr + FieldOffset`. Lazy struct reads (no eager field materialization). Self-referential type resolution (in-place field update).
@@ -51,7 +51,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - readFlatValue no longer materializes Elems (O(n) → O(1)). All consumers (for-in, index, len, print, subslice) use flat paths.
 - Legacy Elems code removed: MakeSliceVal, MakeArrayVal, MakeManagedSliceVal removed. writeFlatValue Elems→flat conversion removed. Elems refs: 53→3 (VAL_MULTI only). HeapObj refs: 30→3 (function values only).
 - All refcounting fixed: return leak (IsFresh flag), element-copy, struct field, assignment cascade, pointer deref write, managed-slice element cleanup (rc==1 check).
-- **161/161 in boot-comp, boot-comp-int, and boot-comp-comp. Zero xfails.**
+- **177/177 in boot-comp-int, 176/176 in boot-comp and boot-comp-comp. Zero xfails.**
 
 ### Interpreter Value struct cleanup
 - **Done**: removed Elems, Fields, HeapObj, BoolVal, IntVal, StrVal, VAL_MULTI, VAL_STRING. All scalar caches eliminated.
@@ -73,13 +73,16 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - See `explorations/plan-interp-memory-parity.md` for details.
 
 ### Self-hosted interpreter refcounting — ALL FIXED
-- **No known memory issues.** boot-comp-int: 158/158. Zero xfails.
+- **No known memory issues.** boot-comp-int: 177/177. Zero xfails.
 - Return leak fixed via IsFresh flag on Value (make/make_slice/box set IsFresh; execReturn sets IsFresh for local-ident returns via envGetLocalAddr; envDefine/envSet skip RefInc when IsFresh).
 - Element-copy refcounting fixed for managed-ptr, managed-slice, and struct elements in slice/array assignment.
 - Struct field assignment RefInc/RefDec for managed-ptr and managed-slice fields.
 - Managed-slice element cleanup: only iterates elements when backing refcount==1 (last reference). Handles managed-ptr, managed-slice, and struct elements.
 - Assignment cascade: RefInc new before RefDec old (cascade-safe) for managed-ptrs.
 - Pointer deref write (*p = val): RefInc/RefDec for managed types.
+- Struct copy refcounting: `structRefInc`/`structRefDec` walk struct/array fields recursively. Called from `cleanupEnvExcept`, `envDefine`, `envSet`.
+- `cleanupEnvExcept` `@T` false-match fix: check `except[j].Kind == VAL_MANAGED_PTR` to avoid offset-0 field address collision.
+- `IsFresh` cleared on function args in `callFunc` to prevent over-decrement at scope exit.
 
 
 ### Verify .bni vs .bn visibility semantics

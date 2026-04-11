@@ -1,21 +1,24 @@
 # Bug: Missing RefInc on Struct Copies with Managed Fields
 
-## Status: FIXED in compiler (commit 2052570), interpreter NOT YET FIXED
+## Status: FIXED in both compiler and interpreter
 
 ## Summary
 
-When a struct containing `@[]T` (managed-slice) or `@T` (managed-pointer) fields is copied by value, the compiler did not emit RefInc for the managed fields in the copy. The compiler *does* generate destructors that RefDec these fields at end of scope. The result was that each struct copy over-decremented the backing refcount, leading to use-after-free and heap corruption.
+When a struct containing `@[]T` (managed-slice) or `@T` (managed-pointer) fields was copied by value, neither the compiler nor the interpreter RefInc'd the managed fields in the copy. Destructors/scope cleanup RefDec'd them, leading to over-decrement → use-after-free → heap corruption.
 
 ### Compiler fix
 
-Commit `2052570` ("Implement copy constructors for structs with managed fields") adds `emitStructCopy` / `emitStructDtor` calls to variable assignment, pointer deref assignment, and field assignment paths in `gen_control.bn`. This fixed the `pkg/types` and `pkg/parser` unit test crashes.
+Commit `2052570` ("Implement copy constructors for structs with managed fields") generates `__copy_X` functions (symmetric to `__dtor_X`) for structs and `[N]T` arrays. Copy calls emitted at variable decl/assign, field assign, deref assign, function args, function return. Scope-exit cleanup calls dtors on struct locals.
 
-### Interpreter NOT YET FIXED
+### Interpreter fix
 
-The self-hosted interpreter (`pkg/interp`) does **not** run copy constructors or destructors for struct copies with managed fields. This means:
-- `TestScopeCleanupRefDec` in `call_test.bn` expects refcount to return to 1 after a function call that copies a managed struct, but the interpreter leaves it at 3 (param copy + local copy not decremented on scope exit).
-- The test has been updated to expect the current (broken) behavior with a TODO comment.
-- **Fix needed**: the interpreter's scope cleanup (`cleanupScope` or equivalent) should RefDec managed fields in struct-typed variables when they go out of scope, mirroring the compiler's destructor behavior.
+Commit `78f959c` adds `structRefInc`/`structRefDec` helpers that recursively walk struct/array fields. Called from `cleanupEnvExcept` (scope exit), `envDefine` (var decl), `envSet` (var assign).
+
+Two additional bugs found and fixed during the interpreter work:
+1. **`cleanupEnvExcept` false `isRet` match** (commit `965c459`): when returning a field at offset 0 (e.g., `return node.Val`), the field's address equals the struct base, falsely matching the managed pointer value. Fixed by checking `except[j].Kind == VAL_MANAGED_PTR`.
+2. **`IsFresh` leak on function args** (same commit): fresh `@T` values passed as args skipped RefInc in `envDefine`, but scope cleanup RefDec'd → over-decrement. Fixed by clearing `IsFresh` on args in `callFunc`.
+
+`VAL_MANAGED_SLICE` added (commit `6bbf722`) to distinguish `@[]T` from `[]T` at Value.Kind level, matching `VAL_MANAGED_PTR` vs `VAL_POINTER`.
 
 ## Symptoms
 
