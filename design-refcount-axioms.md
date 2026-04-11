@@ -214,8 +214,12 @@ Phase 2: Slow path for @T and @[]T (clean up isFresh/consumeTemp).
 
 Phase 3: Move optimization (optional, performance).
 1. Identify expiring temps and last-use locals.
-2. Replace copy+dtor with move+zero.
-3. For the temp list: `consumeTemp` + zero is equivalent to move.
+2. Replace copy+dtor with move+zero (memcpy + memset source to zero).
+3. The zero+dtor-of-zero can be eliminated further down the pipeline
+   (LLVM will optimize away a dtor called on a zeroed struct, since the
+   null checks on each managed field all short-circuit). So the IR
+   doesn't need to be clever — emit the move+zero literally, and let
+   the optimizer clean it up.
 4. Verify correctness with zeroing.
 
 ## Relationship to Existing Code
