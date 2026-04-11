@@ -246,8 +246,32 @@ functions like `buf.WriteStr`), the skip-copy leaves an extra +1.
    struct directly). It leaks when fields ARE assigned. The leak is small
    (bounded per call) and doesn't cause UAF.
 
-Option 1 or 2 would fix the leak AND make struct temp cleanup safe. The
-test 226 fix would then work because the refcount math would be balanced.
+### Attempt 4: slow path (always copy on return, always dtor at exit)
+
+**Idea**: remove the move optimization for struct returns with managed
+fields. Always emit copy constructor on return (RefInc managed fields for
+caller). Always run dtor at scope exit (RefDec managed fields for local).
+At call site: skip copy + consumeTemp for var decl/assign (return copy
+provides ownership). Register struct temps for inline uses.
+
+**Result**: boot-comp passes (187/187). boot-comp-comp still breaks
+(126/187 failures). Same pattern as attempts 1-3.
+
+**Conclusion**: the boot-comp-comp failure is NOT caused by incorrect
+refcount math in any specific pattern. The gen1 compiler (built with the
+modified code) is sensitive to ANY change in struct return/temp handling.
+Even the theoretically-correct slow path causes heap corruption in the
+gen1 compiler's own execution.
+
+This suggests a pre-existing latent bug in the compiler that is exposed by
+the struct temp infrastructure. The extra alloca+store+dtor calls for temps
+may change memory layout or allocation patterns enough to trigger a
+use-after-free or buffer overflow that was previously benign.
+
+**Next step**: instrument the gen1 compiler with ASan or refcount sentinels
+to find the actual corruption site. This is beyond what can be fixed by
+adjusting refcount rules — it requires debugging the gen1 compiler's own
+execution.
 
 ## Possible approaches (not yet tried)
 
