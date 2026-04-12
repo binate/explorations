@@ -27,3 +27,7 @@ The language reflects the native CPU word size of the target platform. It assume
 ## Status
 
 Early design and exploration phase.
+
+## License
+
+[MIT](LICENSE)
