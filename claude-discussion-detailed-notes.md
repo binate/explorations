@@ -2241,3 +2241,83 @@ A libc-free target needs its own allocator. The design:
 - **Pluggable**: different allocators can be swapped in (e.g., a debug allocator that detects use-after-free, a bump allocator for batch processing).
 
 This is a separate workstream from the backend and can be developed and tested independently.
+
+---
+
+## 23. Restricting Implicit `@T` → `*T` Conversion — PROPOSAL (2026-04-12)
+
+### The Problem
+
+Currently, `@T` converts implicitly to `*T` in all contexts. This was chosen for
+convenience — raw pointer receivers are the common case, and requiring explicit
+conversion at every method call would be burdensome. However, the same implicit
+conversion also applies in dangerous contexts:
+
+```
+var p *T = managedPtr     // p can outlive managedPtr's refcount
+s.rawField = managedPtr   // stored raw pointer can dangle
+return managedPtr         // caller gets raw pointer, callee releases reference
+```
+
+These patterns are the root cause of use-after-free bugs that the linter's
+`raw-slice-return` and `managed-to-raw-assign` rules attempt to catch. But the
+linter is advisory — the type system permits these conversions silently.
+
+### The Proposal
+
+Restrict implicit `@T` → `*T` (and `@[]T` → `*[]T`) to **borrowing positions** —
+contexts where the managed value is provably live for the duration of the raw
+pointer's use:
+
+1. **Function arguments**: `f(x)` where `x: @T` and `f` takes `*T`. The caller
+   holds `x` for the call's duration.
+2. **Method receivers**: `x.g()` where `x: @T` and `g` takes `*T` receiver. Same.
+3. **Subexpressions**: `*x + 1` where `x: @T`. The managed value is live for the
+   statement.
+
+In **storing positions** (variable assignment, struct field store, return), the
+conversion would require an explicit cast or conversion builtin.
+
+### Discussion
+
+**Why this is attractive**: it turns a class of runtime bugs into compile-time errors.
+The borrowing/storing distinction is syntactic — no flow analysis needed. Argument
+position and receiver position are syntactically obvious.
+
+**Why it needs investigation**:
+
+- **Migration impact**: the self-hosted codebase uses `@T` → `*T` in assignment
+  contexts (e.g., extracting a raw slice from a managed-slice for local use). How
+  many of these exist? Are they all safe? The migration burden matters.
+
+- **Explicit conversion syntax**: `cast(*T, x)` is the natural candidate but
+  `cast` is normally for value conversions (int → uint). A dedicated builtin like
+  `raw(x)` or `borrow(x)` would be clearer but adds a keyword. `bit_cast` is
+  too strong — it connotes bit reinterpretation.
+
+- **Temporaries**: `f(g(x))` where `g` returns `@T` and `f` takes `*T`. The
+  temporary is live for the statement, so argument-position rule applies. But
+  this should be verified carefully.
+
+- **Short variable declarations**: `p := x` where `x: @T`. The inferred type
+  should be `@T`, not `*T` — conversion only triggers when `*T` is explicitly
+  expected. This is a natural consequence of type inference rules.
+
+- **Relationship to `*[]T` syntax change**: complementary. The `*` prefix makes
+  raw slices visually distinct; restricting implicit conversion makes the
+  distinction enforced by the type checker. Together they significantly reduce
+  the risk of accidental raw-pointer-to-managed-value bugs.
+
+**Key insight from discussion**: the distinction between borrowing and storing
+positions is that borrowing positions have a *syntactically bounded lifetime* —
+the call returns, the expression evaluates, and the raw pointer is gone. Storing
+positions create raw pointers with *unbounded lifetimes* — the pointer persists
+until the variable goes out of scope, which could be long after the managed value
+is freed.
+
+This is reminiscent of Rust's borrow checker but much simpler — no lifetime
+annotations, no flow analysis, just a syntactic rule about where implicit
+conversion is allowed.
+
+See `explorations/proposal-restrict-implicit-raw-conversion.md` for the full
+proposal including edge cases and open questions.

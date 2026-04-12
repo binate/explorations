@@ -1004,6 +1004,24 @@ harmless.
 
 Conformance tests 071 (short-circuit &&) and 072 (short-circuit ||) pass in all modes.
 
+---
+
+## Proposed Changes
+
+### Raw slice syntax: `[]T` → `*[]T` — ACCEPTED (pending implementation)
+- Raw slices change from `[]T` to `*[]T`, making the `*`/`@` prefix consistent for both pointers and slices.
+- Disambiguation rule: `*[` and `@[` before `]` or a digit are always slice/managed-slice sugar. Pointer-to-array or pointer-to-slice requires parens: `*([N]T)`, `*(*[]T)`, `@(*[]T)`.
+- Staged migration plan in `explorations/plan-raw-slice-syntax.md`.
+
+### Restrict implicit `@T` → `*T` conversion to borrowing positions — PROPOSAL
+- Currently `@T` converts implicitly to `*T` (and `@[]T` to `*[]T`) in all contexts, including variable assignment, struct field stores, and returns — where the raw pointer can outlive the managed value.
+- Proposal: restrict implicit conversion to **borrowing positions** only (function arguments, method receivers, subexpressions). In storing positions (assignment, return, field store), require explicit conversion.
+- This would make many use-after-free bugs compile-time errors instead of runtime crashes.
+- Needs investigation: migration impact, explicit conversion syntax, edge cases.
+- Full proposal in `explorations/proposal-restrict-implicit-raw-conversion.md`.
+
+---
+
 ### Debugging process improvements — TO DISCUSS
 
 During self-hosting debugging, several pain points surfaced:
