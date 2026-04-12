@@ -31,9 +31,9 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Detailed writeup**: `explorations/bug-struct-copy-refcount.md`
 - **Plans**: `explorations/plan-copy-constructors.md`, `explorations/plan-interp-struct-copy-refcount.md`
 - **Principled slow path** (2026-04-11): always copy on return, always dtor at scope exit, register struct call results as temps. Tests 226 and 227 now pass on compiled modes. See `design-refcount-axioms.md`.
-- **[]char UAF migration**: the slow path exposes latent UAFs where `[]char` borrows from `@[]char` that gets freed by struct dtors. Systematic migration of function return types and callers from `[]char` to `@[]char`. Key fixes: `EmitModule`, `llvmType`, `pathJoin`, `FuncRetType` fields, `parser.Errors` callers, `CheckerErrors` callers, many test helpers. 187/187 conformance on boot-comp, boot-comp-comp, boot-comp-comp-comp.
-- **Remaining**: 6 boot-comp unit test failures (pkg/lint, pkg/types, pkg/asm/parse, pkg/ir, pkg/interp, cmd/bnc) from heap corruption that ASan can't catch (freed-and-reallocated memory reuse). All tests pass WITH ASan. More `@[]T → []T` coercion sites to find.
-- **`--cflag` option** added to bnc for passing flags to clang (e.g., `--cflag -fsanitize=address`).
+- **[]char UAF migration** (2026-04-12): the slow path exposes latent UAFs where `[]char` (or `[]T`) borrows from `@[]char` (or `@[]T`) that gets freed by struct dtors. Systematic migration of function return types and callers. Key fixes: `EmitModule`, `llvmType`, `pathJoin`, `FuncRetType` fields, `parser.Errors`/`CheckerErrors` callers, `sliceToChars`/`StrOf` callers, `concatChars`, `quotePath`, test helpers. Also fixed: slice element assignment for nested struct fields (was only handling top-level `@T`/`@[]T`), multi-return assignment for struct variables (missing save-copy-destroy).
+- **Status**: 187/187 conformance on boot-comp, boot-comp-comp, boot-comp-comp-comp. **26/26 boot-comp unit tests pass.** Zero failures.
+- **`--cflag` option** added to bnc for passing flags to clang (e.g., `--cflag -fsanitize=address`). Used with libgmalloc to debug UAFs.
 
 ### ~~Linux/x86-64: boot-comp-comp string corruption~~ — FIXED
 - **Root cause**: use-after-free in `cmd/bnc/test.bn`. `runtimePath` was declared as `[]char` (raw slice) instead of `@[]char` (managed). When the `candidate @[]char` from `bootstrap.Concat(root, "/runtime/binate_runtime.c")` went out of scope, it was RefDec'd and freed — but `runtimePath` still borrowed its data, creating a dangling pointer. The garbage filenames were freed memory being read as strings.
@@ -48,7 +48,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 ### Self-hosted interpreter memory model parity with compiler
 - Plan: `explorations/plan-interp-memory-parity.md`
 - The self-hosted interpreter can no longer run under the bootstrap (boot-int dropped) since it now uses `bit_cast`, pointer indexing, and `pkg/rt`. It requires compiled mode (boot-comp-int and above).
-- **boot-comp-int: 177/177 conformance tests pass** (was 129 before this work began)
+- **boot-comp-int: 183/183 conformance tests pass** (was 129 before this work began)
 - Phase 1 (done): infrastructure — `flat.bn` with readFlatValue/writeFlatValue using bit_cast and pkg/rt
 - Phase 2 (done): scalar variables in flat memory — envDefine/envGet/envSet use flat addresses for ints
 - Phase 3 (done): structs in flat memory — `evalMake` allocates via `rt.Alloc`, all field access through `RawAddr + FieldOffset`. Lazy struct reads (no eager field materialization). Self-referential type resolution (in-place field update).
@@ -68,7 +68,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - readFlatValue no longer materializes Elems (O(n) → O(1)). All consumers (for-in, index, len, print, subslice) use flat paths.
 - Legacy Elems code removed: MakeSliceVal, MakeArrayVal, MakeManagedSliceVal removed. writeFlatValue Elems→flat conversion removed. Elems refs: 53→3 (VAL_MULTI only). HeapObj refs: 30→3 (function values only).
 - All refcounting fixed: return leak (IsFresh flag), element-copy, struct field, assignment cascade, pointer deref write, managed-slice element cleanup (rc==1 check).
-- **177/177 in boot-comp-int, 176/176 in boot-comp and boot-comp-comp. Zero xfails.**
+- **187/187 in boot-comp and boot-comp-comp. 183/183 in boot-comp-int (4 xfail'd). 26/26 boot-comp unit tests.**
 
 ### Interpreter Value struct cleanup
 - **Done**: removed Elems, Fields, HeapObj, BoolVal, IntVal, StrVal, VAL_MULTI, VAL_STRING. All scalar caches eliminated.
@@ -89,17 +89,11 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **When this blocks**: closures, function values in slices/maps, callbacks between compiled and interpreted code.
 - See `explorations/plan-interp-memory-parity.md` for details.
 
-### Self-hosted interpreter refcounting — ALL FIXED
-- **No known memory issues.** boot-comp-int: 177/177. Zero xfails.
-- Return leak fixed via IsFresh flag on Value (make/make_slice/box set IsFresh; execReturn sets IsFresh for local-ident returns via envGetLocalAddr; envDefine/envSet skip RefInc when IsFresh).
-- Element-copy refcounting fixed for managed-ptr, managed-slice, and struct elements in slice/array assignment.
-- Struct field assignment RefInc/RefDec for managed-ptr and managed-slice fields.
-- Managed-slice element cleanup: only iterates elements when backing refcount==1 (last reference). Handles managed-ptr, managed-slice, and struct elements.
-- Assignment cascade: RefInc new before RefDec old (cascade-safe) for managed-ptrs.
-- Pointer deref write (*p = val): RefInc/RefDec for managed types.
-- Struct copy refcounting: `structRefInc`/`structRefDec` walk struct/array fields recursively. Called from `cleanupEnvExcept`, `envDefine`, `envSet`.
-- `cleanupEnvExcept` `@T` false-match fix: check `except[j].Kind == VAL_MANAGED_PTR` to avoid offset-0 field address collision.
-- `IsFresh` cleared on function args in `callFunc` to prevent over-decrement at scope exit.
+### Self-hosted interpreter refcounting — MOSTLY FIXED, needs axiom audit
+- boot-comp-int: 177/177 conformance. boot-comp-int unit tests: pre-existing failures in pkg/ir, pkg/codegen, pkg/lint, pkg/asm/* (9 packages). These are likely from the interpreter not following refcounting axioms consistently.
+- **Known issue**: tests 228/229 (@T param stored in struct field over-increments) — see above.
+- **Needs**: systematic audit of interpreter refcounting against `design-refcount-axioms.md`. The compiler now follows axioms 1-5; the interpreter needs the same treatment.
+- Previous fixes: IsFresh flag, structRefInc/structRefDec, cleanupEnvExcept false-match, IsFresh on args, VAL_MANAGED_SLICE.
 
 
 ### Verify .bni vs .bn visibility semantics
