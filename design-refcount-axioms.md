@@ -236,6 +236,31 @@ Phase 3: Move optimization (optional, performance).
    the optimizer clean it up.
 4. Verify correctness with zeroing.
 
+## Audit: Assignment Ordering (Axiom 5)
+
+All assignment paths in `gen_control.bn` follow copy-then-destroy:
+
+**@T variable**: RefInc(new), Load(old), RefDec(old), Store(new). The
+RefInc ensures the new value survives even if RefDec of old triggers a
+cascading destructor. Self-assignment `x = x`: RefInc(+1), RefDec(-1)
+= net 0. ✓
+
+**@[]T variable**: Same pattern. ✓
+
+**Struct variable**: Save(old→tmp), Store(new→ptr), Copy(ptr), Dtor(tmp).
+Copy comes before Dtor. The Store before Copy is necessary — Copy operates
+on the destination's bytes. Self-assignment: Copy and Dtor cancel. ✓
+
+**@T field**: Same as variable (RefInc new, load old, RefDec old, Store). ✓
+
+**Struct field**: Same as struct variable (save-store-copy-destroy). ✓
+
+**Fresh optimization** (`isFreshManagedPtr`/`consumeTemp`): applies to
+both declarations and assignments. For assignments, it's correct because
+the fresh value (rc=1) transfers directly — consumeTemp prevents
+temp cleanup from double-decrementing. The old value is still destroyed
+via the load-RefDec path.
+
 ## Relationship to Existing Code
 
 ### What `isFreshManagedPtr` Really Means
