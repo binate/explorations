@@ -30,7 +30,10 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Conformance tests**: 222 (struct copy managed), 223 (nested struct copy), 224 (struct field assign), 225 (managed ptr scope cleanup).
 - **Detailed writeup**: `explorations/bug-struct-copy-refcount.md`
 - **Plans**: `explorations/plan-copy-constructors.md`, `explorations/plan-interp-struct-copy-refcount.md`
-- **Remaining**: struct temp cleanup (struct-returning function call results used inline, not assigned to a variable, leak managed fields). Conformance test 226 xfail'd on all modes. Test 227 (multi-return managed cleanup) passes on compiled modes, xfail'd on boot/boot-comp-int. Anonymous struct dtor/copy generation for multi-return types fixed (commit 8e1d836).
+- **Principled slow path** (2026-04-11): always copy on return, always dtor at scope exit, register struct call results as temps. Tests 226 and 227 now pass on compiled modes. See `design-refcount-axioms.md`.
+- **[]char UAF migration**: the slow path exposes latent UAFs where `[]char` borrows from `@[]char` that gets freed by struct dtors. Systematic migration of function return types and callers from `[]char` to `@[]char`. Key fixes: `EmitModule`, `llvmType`, `pathJoin`, `FuncRetType` fields, `parser.Errors` callers, `CheckerErrors` callers, many test helpers. 187/187 conformance on boot-comp, boot-comp-comp, boot-comp-comp-comp.
+- **Remaining**: 6 boot-comp unit test failures (pkg/lint, pkg/types, pkg/asm/parse, pkg/ir, pkg/interp, cmd/bnc) from heap corruption that ASan can't catch (freed-and-reallocated memory reuse). All tests pass WITH ASan. More `@[]T → []T` coercion sites to find.
+- **`--cflag` option** added to bnc for passing flags to clang (e.g., `--cflag -fsanitize=address`).
 
 ### ~~Linux/x86-64: boot-comp-comp string corruption~~ — FIXED
 - **Root cause**: use-after-free in `cmd/bnc/test.bn`. `runtimePath` was declared as `[]char` (raw slice) instead of `@[]char` (managed). When the `candidate @[]char` from `bootstrap.Concat(root, "/runtime/binate_runtime.c")` went out of scope, it was RefDec'd and freed — but `runtimePath` still borrowed its data, creating a dangling pointer. The garbage filenames were freed memory being read as strings.

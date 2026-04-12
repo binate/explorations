@@ -131,9 +131,9 @@ at the IR level (though in practice, the type is known).
 
 **Struct parameters**: when a struct with managed fields is passed by value,
 the copy constructor runs (RefInc all managed fields in the copy). At scope
-exit, the struct destructor runs (RefDec all managed fields). For struct
-args from function call results (OP_CALL), the copy is skipped — the
-return value's managed fields already have correct refcounts.
+exit, the struct destructor runs (RefDec all managed fields). No special
+cases for OP_CALL results — always copy (axiom 3). The temp cleanup at end
+of statement provides the balancing RefDec for the return's ownership ref.
 
 **Move optimization (not yet implemented for arguments)**: if the argument
 is an expiring temporary (e.g., `f(make(T))`), the temporary's reference
@@ -252,25 +252,30 @@ gets a new one).
 
 `globalVar = expr`: RefDec old global value, RefInc new value (unless fresh).
 
-## Current Implementation Status (updated 2026-04-11)
+## Current Implementation Status (updated 2026-04-12)
 
 **Working (compiler)**:
-- Variable declaration: RefInc on non-fresh values ✓
-- Variable assignment: RefDec old, RefInc new ✓
-- Struct field assignment: RefDec old, RefInc new ✓
+- Variable declaration: always copy (axiom 3), no OP_CALL skip ✓
+- Variable assignment: save-copy-destroy (axiom 5) ✓
+- Struct field assignment: save-copy-destroy ✓
 - Slice element assignment: RefDec old, RefInc new ✓
 - Function parameter entry/exit: callee-side RefInc/RefDec ✓
 - Managed-slice backing RefInc/RefDec on copy/scope-exit ✓
-- Function return: RefInc on return value before scope cleanup ✓
-- Move optimization for local returns: skip RefInc + skip scope RefDec ✓
+- Function return: always copy for structs (no local-return skip) ✓
+- Move optimization for @T/@[]T local returns: skip RefInc + skip scope RefDec ✓
+- Scope exit: always dtor structs (no returned-local skip) ✓
 - Subslice RefInc on backing refptr ✓
-- Temporary RefDec for @T/@[]T at end of statement ✓
+- Temporary RefDec for @T, @[]T, and structs at end of statement ✓
+- Multi-return: RefInc extracted @T/@[]T fields from anon struct ✓
 - Pointer dereference refcounting (*p = val) ✓
 - @[]T → []T conversion: temp borrowed, not freed until statement end ✓
-- **Copy constructors** (__copy_X) for structs/arrays with managed fields ✓
-- **Destructors** (__dtor_X) for structs/arrays with managed fields at scope exit ✓
-- **Struct field write-through copy/dtor** ✓
-- **.bni/.bn signature mismatch detection** ✓
+- Copy constructors (__copy_X) for structs/arrays with managed fields ✓
+- Destructors (__dtor_X) for structs/arrays with managed fields ✓
+- Struct field write-through copy/dtor ✓
+- .bni/.bn signature mismatch detection ✓
+- **Principled slow path**: axioms 1-5 from `design-refcount-axioms.md` ✓
+
+**187/187 conformance on boot-comp, boot-comp-comp, boot-comp-comp-comp.**
 
 **Working (interpreter)**:
 - envDefine/envSet RefInc/RefDec for @T, @[]T ✓
@@ -281,9 +286,11 @@ gets a new one).
 
 **Known issues**:
 
-1. **Struct temp cleanup** — struct-returning function call results used
-   inline (not assigned to a variable) leak managed fields. Conformance
-   test 226 xfail'd. See `plan-struct-temp-cleanup.md`.
+1. **[]char UAF migration incomplete** — the slow path exposes latent UAFs
+   where `[]char` (or `[]T`) borrows from `@[]char` (or `@[]T`) that gets
+   freed by struct dtors. Many sites fixed; 6 boot-comp unit test packages
+   still crash from freed-and-reallocated memory (passes with ASan). More
+   `@[]T → []T` coercion sites to find. See `design-refcount-axioms.md`.
 
 2. **Interpreter @T param over-increment** — tests 228/229 show rc
    increasing by 2 per `wrap(n, tag)` call instead of 1 on boot-comp-int.
@@ -310,6 +317,12 @@ gets a new one).
   fixes (false isRet match, IsFresh on args).
 - **2026-04-11**: Sections 2-3 rewritten as normative spec. Added section
   3a (param stored in field). Updated status.
+- **2026-04-12**: Principled slow path (axioms 1-5). Always copy on struct
+  return/decl/assign, always dtor at scope exit. Struct call results
+  registered as temps. Multi-return RefInc for extracted managed fields.
+  Systematic `[]char → @[]char` migration for functions returning
+  buf.Bytes/llvmType/etc. Tests 226/227 pass. 187/187 conformance on
+  all compiled modes. `--cflag` option for bnc.
 
 ### Future (deferred)
 
