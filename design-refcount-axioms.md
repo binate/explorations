@@ -32,6 +32,20 @@ This document proposes a principled approach based on four axioms.
    is a no-op. A zeroed/nil managed pointer or struct has no references to
    decrement.
 
+5. **Assignment = copy-then-destroy.** `x = y` must: (a) save old x to a
+   temporary, (b) copy y into x (invoking copy constructor), (c) destroy
+   the saved old x (invoking destructor). The order is critical: the copy
+   of y must complete before the old x is destroyed. The degenerate case
+   is `x = x`: destroying x first would invalidate the source. More
+   subtle cases include `x = f(x)` where f returns a value sharing
+   backing with x, or `a.field = b.field` where a and b alias. The
+   save-copy-destroy order is always safe regardless of aliasing.
+
+   For fresh values (move optimization): `var x = make(T)` can skip the
+   copy if the source is moved (zeroed). But `x = expr` where x already
+   has a value MUST save-copy-destroy. The "fresh" optimization only
+   applies to declarations of new variables (no old value to destroy).
+
 ## What This Means
 
 ### The Slow Path (Always Correct)
