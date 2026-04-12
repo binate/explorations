@@ -136,7 +136,7 @@ The first two words are identical in layout to a raw slice `[]T`. This means `@[
 - Simpler — all the info lives in the managed-slice value itself
 - The 8-byte overhead per managed-slice value is acceptable (32 bytes vs 24 bytes)
 
-**Raw slice** (`[]T`) — two words:
+**Raw slice** (`*[]T`, previously `[]T`) — two words:
 1. Raw pointer to start
 2. Length
 
@@ -200,10 +200,10 @@ The previous design always null-terminated string literals but excluded the null
 String literals are **untyped** (like integer literals) and coerce to the appropriate type from context:
 - Assigned to `@[]const char` → **default**. Managed-slice borrowing from static data (backing_refptr = null, never freed). Zero cost.
 - Assigned to `@[]char` → managed-slice with **allocated+copied** backing. Mutation is safe — the managed-slice owns its copy. This is the only non-const slice variant allowed (the allocation is explicit: `@[]T` is an owning type).
-- Assigned to `[]const char` → raw slice view borrowing from static data. Zero cost.
+- Assigned to `*[]const char` → raw slice view borrowing from static data. Zero cost.
 - Assigned to `[N]const char` / `[N]char` → the natural type, copy into array. Mutation is safe (data is in the array).
 
-NOT allowed: `[]char` — raw slices don't own their backing. A mutable borrow of immutable static data is unsound, and there's nowhere to put a mutable copy. Raw slices are non-owning views.
+NOT allowed: `*[]char` — raw slices don't own their backing. A mutable borrow of immutable static data is unsound, and there's nowhere to put a mutable copy. Raw slices are non-owning views.
 
 This generalizes to all slice/array literals (not just strings): `@[]T` literals are always allowed (const borrows static, non-const allocates+copies); `[]T` literals are const-only; `[N]T` literals are always allowed (copy).
 
@@ -604,16 +604,82 @@ with non-nullable pointers (no intermediate nil state).
 `@[k]T` without parens is ambiguous and should not be used. The `@[]` sugar applies
 ONLY to `@[]T` (managed-slice); all other `@` + collection combinations use parens.
 
-### Slice Syntax
+### Slice Syntax — Revised 2026-04-11: `[]T` → `*[]T`
 
-Mirrors the pointer pattern — `@` prefix means "managed version":
+**Original design**: `[]T` for raw slices, `@[]T` for managed-slices. This mirrored Go's
+slice syntax, which was comfortable but had a problem: Binate raw slices behave very
+differently from Go slices (no GC, no ownership, caller manages lifetime), yet they
+looked identical. The `@[]T` managed-slice was the one that actually owned its data.
+
+**Revised design**: `*[]T` for raw slices, `@[]T` for managed-slices. The `*`/`@` prefix
+pattern is now consistent across pointers and slices:
+
+| | Raw | Managed |
+|---|---|---|
+| Pointer | `*T` | `@T` |
+| Slice | `*[]T` | `@[]T` |
+
 ```
-[]T             // raw slice (two words: raw ptr, length)
-@[]T            // managed-slice (three words: raw ptr, length, managed ptr)
+*[]T            // raw slice (two words: raw ptr, length)
+@[]T            // managed-slice (four words: raw ptr, length, backing refptr, backing len)
 arr[low:high]   // slice expression (exclusive end, like Go)
 ```
 
-**Ambiguity with pointers to slices:** `@[]T` is syntactic sugar for "managed-slice of T." If you need a managed pointer to a raw slice (rare), use parentheses to break the sugar: `@([]T)`. The `@[]` sugar is syntactic only — in generics, `@T` where `T=[]int` means `@([]int)` (managed pointer), not managed-slice.
+**The reasoning chain:**
+
+1. The `*`/`@` distinction for pointers was well-established and worked well. Systems
+   programmers immediately understand `*T` as "raw" and `@T` as "managed."
+
+2. Raw slices are conceptually "raw" — they're a `(pointer, length)` pair with no
+   ownership semantics, exactly like `*T` is a pointer with no ownership. The `*` prefix
+   communicates this.
+
+3. The visual similarity between `[]T` (Binate) and `[]T` (Go) was actively harmful —
+   Go slices are garbage-collected and safe to return from functions. Binate raw slices
+   are not. Returning `[]T` from a function that allocates is a use-after-free bug.
+   Making raw slices visually distinct (`*[]T`) makes the danger more apparent.
+
+4. The parallel also makes the coding guide's central rule more intuitive: "returning
+   `*[]T` from a function that allocates is almost always wrong — use `@[]T` instead."
+   The `*` screams "raw/unmanaged."
+
+**Disambiguation rule — `*` or `@` before `[` requires slice sugar or parens:**
+
+The question arose: if `*[]T` means "raw slice," what about "pointer to a raw slice"
+(previously `*[]T`)? And "pointer to an array" (previously `*[N]T`)?
+
+The answer: **parentheses are required when `*` or `@` precedes `[` and the intent is
+NOT slice sugar.** This rule already existed for `@[` — `@[]T` is managed-slice sugar,
+and `@([N]T)` requires parens for managed pointer to array. The change extends the same
+rule to `*[`.
+
+| Meaning | Syntax |
+|---|---|
+| Raw slice of T | `*[]T` |
+| Managed-slice of T | `@[]T` |
+| Pointer to raw slice | `*(*[]T)` |
+| Pointer to managed-slice | `*(@[]T)` |
+| Managed pointer to raw slice | `@(*[]T)` |
+| Pointer to array | `*([N]T)` |
+| Managed pointer to array | `@([N]T)` |
+
+The rule is narrow: only `*[` and `@[` trigger it. `**T` (pointer to pointer) does NOT
+require parens — there's no ambiguity. The question of whether to require parens more
+broadly (e.g., `*(*T)` for pointer to pointer) was considered and rejected as a step too far.
+
+**"Pointer to raw slice" use case**: the main scenario is out parameters
+(`result *(*[]T)`). This is rare enough that the parens are acceptable. Analogously,
+`*(@[]T)` for an out parameter of a managed-slice.
+
+**Migration plan**: staged to avoid disruption. Stage 0 reclaims the `*[]T` syntax by
+requiring parens for the old meaning. Stage 1 adds `*[]T` as raw slice syntax alongside
+`[]T`. Stage 2 migrates all code. Stage 3 removes `[]T`. See
+`explorations/plan-raw-slice-syntax.md` for details.
+
+**Ambiguity with pointers to slices:** `@[]T` is syntactic sugar for "managed-slice of T."
+If you need a managed pointer to a raw slice, use `@(*[]T)`. The `@[]` and `*[]` sugars
+are syntactic only — in generics, `@T` where `T=*[]int` means `@(*[]int)` (managed
+pointer to raw slice), not managed-slice.
 
 ### Interface Values — Managed/Raw Pattern
 

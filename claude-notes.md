@@ -101,8 +101,8 @@ the 4-word type `(data_ptr, length, backing_refptr, backing_len)` created by `ma
 "managed-slice" when referring to `@[]T` to avoid confusion.
 
 **Two flavors**:
-- **Managed-slice** (`@[]T`): keeps the underlying allocation alive via refcounting. Three words: (raw pointer to start of slice, length, managed pointer to allocation). The first two words match raw slice layout exactly.
-- **Raw slice** (`[]T`): (raw pointer to start, length). Two words. No refcounting. Caller manages lifetime.
+- **Managed-slice** (`@[]T`): keeps the underlying allocation alive via refcounting. Four words: (raw pointer to start of slice, length, backing refptr, backing len). The first two words match raw slice layout exactly.
+- **Raw slice** (`*[]T`, previously `[]T`): (raw pointer to start, length). Two words. No refcounting. Caller manages lifetime.
 
 **Key benefits**:
 - Fixed-size arrays (`char[123]`) don't need to store their length — it's captured in the slice when you create a view
@@ -129,11 +129,11 @@ Note: with both view length and backing length available, the Go-style "capacity
 
 (Previous 3-word layout `(data, len, refptr)` was updated to 4 words to support destructor cleanup.)
 
-**Raw slice representation**: two words: (raw pointer to start, length)
+**Raw slice representation**: two words: (raw pointer to start, length). Syntax: `*[]T` (the `*` prefix parallels `*T` for raw pointers).
 
 **Constraint**: managed-slices can only refer to managed allocations. For stack/static data, use a raw slice. To pass stack/static data where a managed-slice is expected, copy into a managed allocation first. This maintains clean lifetime guarantees.
 
-**API semantics**: managed-slice vs. raw slice at function boundaries communicates intent — managed-slice = "I will retain this," raw = "I just need it now."
+**API semantics**: managed-slice vs. raw slice at function boundaries communicates intent — managed-slice = "I will retain this," raw = "I just need it now." The `*[]T` / `@[]T` syntax makes this distinction visually prominent.
 
 **Introspection builtins**: for low-level transparency, testing, and debugging:
 - Something that takes a managed pointer (`@T`) and returns the management header (refcount, free function) as a Binate struct.
@@ -310,21 +310,21 @@ Same principle for struct/type redefinition: existing instances retain the old l
 **Untyped literals**: literals have no inherent type and coerce to any compatible type from context. Unlike Go, this does NOT extend to named constants — only literals.
 - `123` → `int`, `uint`, `i32`, `byte`, etc.
 - `3.14` → `f32`, `f64`, etc.
-- `"abc"` → `[3]char` (natural type), `[]char` / `[]const char` (slice, len=3)
+- `"abc"` → `[3]char` (natural type), `*[]char` / `*[]const char` (slice, len=3)
 
 **Default types** (when context is ambiguous, e.g., `x := 123`):
 - Integer literals: `int`
 - Float literals: `float64`
-- String literals: `[]const char` (default type — a slice view of the static data)
+- String literals: `*[]const char` (default type — a slice view of the static data)
 - Bool literals: `bool`
 
 **Literal overflow**: assigning a literal to an explicit type that can't hold it is a compile error (`var x uint8 = 256` → error). Literals are checked at compile time for fit.
 
 **Cast semantics**: `cast(T, expr)` on typed (non-literal) values wraps/truncates — hardware semantics, well-defined. `cast(uint, -1)` is a compile error (literal doesn't fit). `cast(uint, x)` where x is int wraps to UINT_MAX.
 
-**No implicit null termination (revised 2026-04-01)**: string literals contain exactly the characters specified, with no hidden null terminator. `"abc"` is stored as `{'a','b','c'}` (3 bytes), natural type `[3]const char`, default type `@[]const char` with `len()` = 3. If a null terminator is needed (e.g., for C interop), include it explicitly: `"abc\0"` (4 bytes, natural type `[4]const char`). Null termination for C interop can also be handled by library functions. This replaces the previous design where string literals always included a hidden null terminator beyond the slice view — that was too complicated to reason about in practice (tracking which slices had a null beyond their bounds was impractical).
+**No implicit null termination (revised 2026-04-01)**: string literals contain exactly the characters specified, with no hidden null terminator. `"abc"` is stored as `{'a','b','c'}` (3 bytes), natural type `[3]const char`, default type `@[]const char` with `len()` = 3. (Note: `*[]const char` is also allowed — a raw slice borrowing from static data.) If a null terminator is needed (e.g., for C interop), include it explicitly: `"abc\0"` (4 bytes, natural type `[4]const char`). Null termination for C interop can also be handled by library functions. This replaces the previous design where string literals always included a hidden null terminator beyond the slice view — that was too complicated to reason about in practice (tracking which slices had a null beyond their bounds was impractical).
 
-**No `string` type.** `string` does NOT exist as a type in Binate. String literals are untyped constants with natural type `[N]const char` and default type `@[]const char`. Allowed targets: `@[]const char` (borrows static data, zero cost), `@[]char` (allocate+copy — managed-slice owns its backing, so mutation is safe), `[]const char` (raw slice borrowing static data), `[N]const char` / `[N]char` (array copy). NOT allowed: `[]char` (raw slice can't own a mutable copy, and borrowing static data mutably is unsound). This generalizes to all slice/array literals. (The bootstrap uses `[]char` as a stand-in since it lacks const types.) Language targets small systems where full UTF-8 support is too heavy to justify a separate type.
+**No `string` type.** `string` does NOT exist as a type in Binate. String literals are untyped constants with natural type `[N]const char` and default type `@[]const char`. Allowed targets: `@[]const char` (borrows static data, zero cost), `@[]char` (allocate+copy — managed-slice owns its backing, so mutation is safe), `*[]const char` (raw slice borrowing static data), `[N]const char` / `[N]char` (array copy). NOT allowed: `*[]char` (raw slice can't own a mutable copy, and borrowing static data mutably is unsound). This generalizes to all slice/array literals. (The bootstrap uses `*[]char` as a stand-in since it lacks const types.) Language targets small systems where full UTF-8 support is too heavy to justify a separate type.
 
 ### Type system richness
 
@@ -493,13 +493,18 @@ C-family, leaning toward Go's direction (clean, minimal, familiar).
 - `.` auto-dereferences (Go-style, no `->`)
 - Implicit conversion from `@T` to `*T` (safe: managed is "narrower"). Never implicit `*T` → `@T`.
 
-**Slice syntax — DECIDED**:
-- `[]T` = raw slice of T (two words: raw ptr, length)
+**Slice syntax — DECIDED (revised 2026-04-11: `[]T` → `*[]T`)**:
+- `*[]T` = raw slice of T (two words: raw ptr, length) — the `*` prefix parallels `*T` for raw pointers
 - `@[]T` = managed-slice of T (four words: data ptr, length, backing refptr, backing len) — syntactic sugar
-- `*[]T` = raw pointer to a raw slice
-- `@([]T)` = managed pointer to a raw slice (parens break the `@[]` sugar)
+- `*(*[]T)` = raw pointer to a raw slice (parens required — bare `*[]T` is raw slice, not pointer-to-slice)
+- `@(*[]T)` = managed pointer to a raw slice (parens required)
+- `*([N]T)` = raw pointer to array (parens required — bare `*[` is always slice sugar)
+- `@([N]T)` = managed pointer to array (parens required, unchanged)
 - `arr[low:high]` = slice expression (exclusive end, like Go)
-- The `@[]` sugar is syntactic only: in generics, `@T` where `T=[]int` means `@([]int)` (managed pointer to raw slice), not managed-slice.
+- The `@[]` sugar is syntactic only: in generics, `@T` where `T=*[]int` means `@(*[]int)` (managed pointer to raw slice), not managed-slice.
+- **Disambiguation rule**: `*` or `@` immediately before `[` is only valid as slice sugar. For pointer-to-array or pointer-to-slice, parens are required. This rule already applied to `@[`; it now extends to `*[`.
+- **Migration**: `[]T` syntax is deprecated and will be removed. See `explorations/plan-raw-slice-syntax.md` for the staged migration plan.
+- **Rationale**: makes `*`/`@` consistently mean raw/managed for both pointers and slices. Visually distinguishes raw slices from Go slices (which look identical but have very different ownership semantics).
 
 **Interface value syntax — DECIDED**:
 - `Iface` = raw interface value (two words: raw ptr to data, vtable ptr)
