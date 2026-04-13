@@ -110,10 +110,11 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Fixed by lowering `OP_SLICE_EXPR` to primitive IR ops (step 3.1). Raw slice `s[lo:hi]` now produces a zero-copy view `{data + lo * elemSize, hi - lo}` via GEP. The C runtime `bn_slice_expr_*` functions (which incorrectly copied) have been removed.
 
 ### Continue backfilling negative conformance tests
-- 28 negative tests exist (112, 200-210, 214-221, 235-236, 238-243), covering type mismatches, undeclared vars, wrong args, nil semantics, operators, comparisons, field access, indexing, non-function calls, managed pointer misuse, multi-return, undefined types, .bni/.bn mismatch, visibility, imports, type conversion, const/break/continue/param
+- 31 negative tests exist (112, 200-210, 214-221, 235-236, 238-246), covering type mismatches, undeclared vars, wrong args, nil semantics, operators, comparisons, field access, indexing, non-function calls, managed pointer misuse, multi-return, undefined types, .bni/.bn mismatch, visibility, imports, type conversion, const/break/continue/param, package mismatch, missing return, var redeclaration
 - `.error` files use `grep -E` regex matching
-- **Missing diagnostics** (xfail'd): assign to const (238), break outside loop (239), continue outside loop (242), duplicate param names (243)
-- Still needed: shadowing errors, package name mismatch, missing return, const expression errors
+- **Missing diagnostics** (xfail'd, 6 total): assign to const (238), break outside loop (239), continue outside loop (242), duplicate param names (243), missing return (245), var redeclaration in same scope (246)
+- Bootstrap-only: package name mismatch not detected in single-file mode (244 xfail on boot)
+- Still needed: const expression errors, more shadowing edge cases
 
 ### Pointers to interface values
 - Interface values are regular value types — allow `*Iface`, `@(Iface)`, `*@Iface`, `@(@Iface)`, etc.
