@@ -96,13 +96,10 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Previous fixes: IsFresh flag, structRefInc/structRefDec, cleanupEnvExcept false-match, IsFresh on args, VAL_MANAGED_SLICE.
 
 
-### Verify .bni vs .bn visibility semantics
-- Both `.bni` and `.bn` files can contain type declarations, constants, aliases, and globals
-- `.bni` declarations are public (visible to importers); `.bn` declarations are private
-- **Verify**: that declarations in `.bn` files are NOT accessible to importing packages
-- **Add negative conformance tests**: importing a private type/constant should fail to compile
-- **Check**: if the same name is declared in both `.bni` and `.bn`, does it cause duplicate registration errors?
-- **Related**: Forward struct declarations in `.bni` (declare name only, define in `.bn`) — future feature.
+### ~~Verify .bni vs .bn visibility semantics~~ — VERIFIED
+- Private functions (235) and types (236) in `.bn` but not `.bni` are correctly rejected by both type checkers.
+- Public declarations work across packages (237). `.bni` and `.bn` definitions coexist without duplicate errors.
+- Forward struct declarations in `.bni` (declare name only, define in `.bn`) — future feature.
 
 ### Verify anonymous struct equivalence — edge cases
 - Both type checkers now implement structural equivalence for anonymous structs (field names + types in order)
@@ -113,10 +110,10 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Fixed by lowering `OP_SLICE_EXPR` to primitive IR ops (step 3.1). Raw slice `s[lo:hi]` now produces a zero-copy view `{data + lo * elemSize, hi - lo}` via GEP. The C runtime `bn_slice_expr_*` functions (which incorrectly copied) have been removed.
 
 ### Continue backfilling negative conformance tests
-- 19 negative tests exist (112, 200-210, 214-220), covering type mismatches, undeclared vars, wrong args, nil semantics, operators, comparisons, field access, indexing, non-function calls, managed pointer misuse, multi-return, undefined types
-- `.error` files now use `grep -E` regex matching (patterns like `(foo|bar)` match across type checkers)
-- Still needed: shadowing errors, import errors, package mismatch, type conversion errors, const expression errors
-- Some errors not caught by either type checker: break outside loop, missing return, assign to const
+- 28 negative tests exist (112, 200-210, 214-221, 235-236, 238-243), covering type mismatches, undeclared vars, wrong args, nil semantics, operators, comparisons, field access, indexing, non-function calls, managed pointer misuse, multi-return, undefined types, .bni/.bn mismatch, visibility, imports, type conversion, const/break/continue/param
+- `.error` files use `grep -E` regex matching
+- **Missing diagnostics** (xfail'd): assign to const (238), break outside loop (239), continue outside loop (242), duplicate param names (243)
+- Still needed: shadowing errors, package name mismatch, missing return, const expression errors
 
 ### Pointers to interface values
 - Interface values are regular value types — allow `*Iface`, `@(Iface)`, `*@Iface`, `@(@Iface)`, etc.
