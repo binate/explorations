@@ -249,14 +249,10 @@ Binate is NOT Go. The two types of slice are intentionally different:
 
 ## Done (session 2026-04-08/09)
 
-### NeedsDestruction TYP_NAMED resolution (compiler bug)
-- `NeedsDestruction` did not resolve `TYP_NAMED` (only `TYP_ALIAS`), so named struct types with managed fields were not detected as needing cleanup. Similarly, `emitStructElemRefcount` bailed out when element type was `TYP_NAMED` instead of `TYP_STRUCT`.
-- Fixed both. Conformance test 140 added.
+### ~~NeedsDestruction TYP_NAMED resolution~~ — FIXED
+- Fixed: `NeedsDestruction` resolves `TYP_NAMED`. Conformance test 140 passes.
 
-### Managed-slice dtor: iterate from backing start, not data ptr
-- `genManagedSliceDtor` iterated elements from the `data` pointer (field 0), but after subslicing, `data` points into the middle of the backing. The dtor must iterate from `refptr` (field 2 = backing allocation start) over `backingLen` elements.
-- This was the root cause of the boot-comp-comp crash: `ctx.Vars[:savedLen]` created subslices, and the dtor walked stale memory past the subslice boundary.
-- boot-comp-comp now works (hello world compiles and runs).
+### ~~Managed-slice dtor: iterate from backing start, not data ptr~~ — FIXED
 
 ### Phase 3.1: Lower slice ops to primitive IR ops — DONE
 - All slice ops (`OP_SLICE_GET/SET/LEN/EXPR/ELEM_PTR`) lowered to primitives (`OP_EXTRACT`, `OP_GET_ELEM_PTR`, `OP_LOAD/STORE`) in the IR gen layer. Deprecated opcodes removed from `ir.bni`.
@@ -266,11 +262,10 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - **EmitSliceExpr GEP type mismatch**: codegen's internal bitcast produced typed pointer but slice field 0 expects `i8*`. Fixed with byte-level GEP.
 - **readFile UAF** (6 call sites in cmd/bnc, cmd/bni, pkg/loader): `var src []uint8 = readFile(...)` dropped backing reference immediately. Changed to `@[]uint8`. Previously masked by copying slice_expr. Tests 142 added.
 
-### Remove dead bn_append_* functions
-- No IR opcode, no codegen emission, no callers. Removed from C runtime and manifest.
+### ~~Remove dead bn_append_* functions~~ — DONE
 
-### ModuleConst.Name UAF
-- `ModuleConst.Name` was `[]char` (raw) but assigned from `buf.CopyStr()` (`@[]char`). The managed temporary was freed at end of statement. Changed to `@[]char`. This caused iota values all reading 0 and cascading boot-comp-comp failures.
+### ~~ModuleConst.Name UAF~~ — FIXED
+- Fixed: `ModuleConst.Name` changed from `[]char` to `@[]char`.
 
 ### 161/161 — ZERO XFAILS IN ALL MODES
 - **boot-comp: 161/161. boot-comp-int: 161/161. boot-comp-comp: 161/161.**
