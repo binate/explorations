@@ -163,15 +163,53 @@ contains whatever was there before → valid-looking data → infinite loop.
   eliminates the bug — the freed memory isn't adjacent to the type object
   that gets corrupted.
 
-## Next steps
+## Further investigation (2026-04-13)
 
-- Find which specific managed-slice backing is freed while still referenced
-  from flat memory. The poison counter identifies WHEN the free happened;
-  need to match it to WHAT was freed.
-- Check `envDefine` / `writeFlatValue` paths for managed-slice fields in
-  struct values — do they properly RefInc the backing pointer stored in
-  flat memory?
-- The `structRefInc` helper walks struct fields and RefInc's `@T` and
-  `@[]T` fields. But does it handle the backing_refptr (field 2 of the
-  managed-slice) correctly? The flat managed-slice is `{data, len,
-  backing, backingLen}` — the `backing` pointer needs to be RefInc'd.
+**Poisoning header refcount** (`h[0] = -1000000 - counter`) plus adding
+`h[0] < -999999` check to `RefInc` — NEVER triggers. No managed-pointer
+operation (RefInc/RefDec) touches freed memory. The corruption is purely
+through RAW POINTER reads (`readScalar`, `readFlatValue`, `bit_cast`).
+
+**`evalLen` type check** — added check for `arg.Typ.Kind < 0 || > 20` in
+`evalLen`. Never triggers. The type pointer IS valid; the flat memory DATA
+is corrupted.
+
+**`structRefInc`/`structRefDec` audit** — these correctly handle managed
+fields in structs: `@T` fields via RefInc/RefDec, `@[]T` fields via
+`msliceRefIncBacking`/`msliceRefDecBacking`. No bugs found.
+
+**Flat memory is never freed** — `allocFlat` uses `c_malloc`, and
+`freeFlat`/`c_free` are never called from the interpreter. So `EnvEntry.Addr`
+always points to valid memory.
+
+**Lint clean** — all 6 managed-to-raw diagnostics in `pkg/interp` are
+read-only patterns (StrOf → []char). None cause writes through dangling
+pointers.
+
+**Remaining hypothesis**: the corrupted data in flat memory comes from
+`writeFlatValue` copying from a SOURCE whose memory was freed. When a
+struct value is written to flat memory via `c_memcpy`, the source's
+managed-slice headers (containing backing pointers) are copied as raw bytes.
+If the source's backing was freed between the time the Value was created
+and the time `writeFlatValue` copies from it, the flat memory gets stale
+pointers. OR: the compiler's codegen for the interpreter binary has a
+subtle refcounting bug that doesn't manifest in conformance tests but
+affects the interpreter's complex call patterns (many nested struct returns
+and copies).
+
+## What's been ruled out
+
+- Flat memory UAF (allocFlat memory is never freed)
+- Managed pointer UAF via RefInc/RefDec (poisoned header check never fires)
+- Type pointer corruption (Kind field is valid at evalLen call time)
+- structRefInc/structRefDec logic errors (audit found no issues)
+- Interpreter lint diagnostics (all read-only patterns)
+- collectTypeDecl double-resolution (partial fix committed, doesn't resolve)
+
+## What would help
+
+- Full DWARF debug info (variable-level, not just line-level) for the
+  compiled interpreter, enabling valgrind to show exact variable names
+  and source lines in the backtrace
+- Or: run on Linux with valgrind to catch the exact first invalid read
+- Or: a deterministic reproducer smaller than the full pkg/lexer test suite
