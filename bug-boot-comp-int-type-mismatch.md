@@ -274,3 +274,32 @@ pattern where a function call within the expression evaluation causes
 cleanup of a shared object.
 
 **Not confirmed** — all manual refcount traces balance correctly.
+
+## New finding with gmalloc + variable debug info (2026-04-14)
+
+**The type object is NOT freed.** Previous analysis assumed the
+TYP_MANAGED_SLICE→TYP_SLICE change was from memory reuse. New analysis
+with gmalloc (which unmaps freed pages) shows:
+
+- `val.Typ` at `0xc5c43ff40` has rc=2 (ALIVE) and Kind=9 (TYP_SLICE)
+- The FIELD type (`ft`) at `0xc5a16ff40` has Kind=10 (TYP_MANAGED_SLICE)
+- These are DIFFERENT type objects at different addresses
+- The Value has `Kind = VAL_MANAGED_SLICE` (6) but `Typ = TYP_SLICE` (9)
+
+**This is a type resolution bug, not a UAF.** The Value was created
+with the wrong type — a `TYP_SLICE` type was assigned where
+`TYP_MANAGED_SLICE` was expected. The `readFlatValue` for TYP_SLICE
+creates VAL_SLICE (not VAL_MANAGED_SLICE), so the mismatch must
+originate from a different creator.
+
+**Possible causes:**
+1. The interpreter's type resolution for `.bni` struct fields resolves
+   `@[]char` as `TYP_SLICE` instead of `TYP_MANAGED_SLICE`.
+2. A `coerce` or type-conversion path changes the type but not the Kind.
+3. A struct's field types are resolved from a different source than the
+   field values.
+
+**This contradicts the previous UAF diagnosis.** The bug may actually
+be a type system issue in the interpreter, not a refcounting issue.
+The popEnv fix (which IS correct) and the cleanValue infrastructure
+are still valuable, but may not resolve this specific crash.
