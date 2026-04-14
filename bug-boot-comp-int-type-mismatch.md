@@ -241,3 +241,36 @@ be freed while still referenced.
 interpreter to follow the refcounting axioms for @T (managed pointer)
 values — specifically for function parameters that are @Type objects.
 See `plan-interp-axiom-audit.md`.
+
+## popEnv leak found (2026-04-13)
+
+**`popEnv` discards sub-scopes without cleanup.** Variables declared
+in for-body, if-body, etc. are never RefDec'd when the scope exits.
+This causes @T locals to leak (rc never reaches 0).
+
+Reproducer: repeated `makeType(9, base)` in a for loop — `base`'s
+rc grows by 1 per iteration instead of staying at 1.
+
+**This is a leak, not the UAF.** The leak makes the crash LESS likely
+(higher rc = harder to free). The actual UAF must be from a different
+path — an uncounted reference (readFlatValue borrow) that outlives
+the counted references. The specific trigger remains unidentified.
+
+**The `popEnv` leak should be fixed regardless** (axiom 2 violation).
+Fix: `popEnv` should call `cleanupEnvExcept` before discarding the
+scope. But this fix alone won't resolve the UAF crash.
+
+## Hypothesis: readFlatValue borrow (unconfirmed)
+
+`readFlatValue` for `@T` returns a Value with `RawAddr` pointing to the
+managed allocation, WITHOUT RefInc. This is a borrow — correct only if
+the source stays alive during the borrow's use. If the source is freed
+between the read and the use, the borrow dangles.
+
+Simple tests don't reproduce this — the interpreter's sequential
+evaluation means no cleanup runs between `evalSelector` and `assignTo`
+within a single statement. The trigger must involve a more complex
+pattern where a function call within the expression evaluation causes
+cleanup of a shared object.
+
+**Not confirmed** — all manual refcount traces balance correctly.
