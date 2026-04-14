@@ -213,3 +213,31 @@ and copies).
   and source lines in the backtrace
 - Or: run on Linux with valgrind to catch the exact first invalid read
 - Or: a deterministic reproducer smaller than the full pkg/lexer test suite
+
+## Root cause identified (2026-04-13, continued)
+
+**The TYP_SLICE vs TYP_MANAGED_SLICE mismatch is caused by a freed
+@Type object.** The `@Type` object for `CharBuf.Data` (or similar)
+was originally `TYP_MANAGED_SLICE` (Kind=10), but after being freed
+and its memory reused, the `Kind` field reads as 9 (`TYP_SLICE`).
+
+Confirmed via variable-level DWARF debug info + libgmalloc:
+- `val.RawAddr` (0xb7ff17ff0) is a 16-byte allocation
+- Reading at offset 16 (backing_refptr) crosses the page boundary → crash
+- The 16-byte allocation was made by `allocFlat(TYP_SLICE)` because
+  `val.Typ.Kind == 9` (TYP_SLICE), but the struct field expects
+  `TYP_MANAGED_SLICE` (32 bytes)
+- The `@Type` object at `val.Typ` (0xb8043ff40) has Kind=9 — but this
+  type was created as TYP_MANAGED_SLICE. The Kind changed because the
+  @Type allocation was freed and reused.
+
+**This is a refcount bug on @Type objects in the interpreter.** The
+type object is shared (e.g., `MakeManagedSliceType(TypUint8())`) and
+referenced by multiple struct field entries. The interpreter's
+refcounting over-decrements the @Type, causing it to reach rc=0 and
+be freed while still referenced.
+
+**This is NOT fixable by patching `assignTo`.** The fix requires the
+interpreter to follow the refcounting axioms for @T (managed pointer)
+values — specifically for function parameters that are @Type objects.
+See `plan-interp-axiom-audit.md`.
