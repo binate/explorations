@@ -112,12 +112,66 @@ packages too, and skipping re-registration doesn't fix the bug.
 shows they're all read-only patterns (StrOf → []char). The corruption
 requires a *write* through a dangling pointer.
 
+## Interpreter refcounting fixes (2026-04-13)
+
+Two fixes committed to address Axiom 3 violations:
+
+1. **`copyValue` structRefInc** (committed): `copyValue` for structs did a raw
+   memcpy without RefInc'ing managed fields. Now calls `structRefInc` after
+   copy and sets `IsFresh=true`. This fixed conformance tests 135, 140.
+
+2. **`execReturn` structRefInc** (committed): when returning a struct with
+   managed fields, RefInc managed fields before scope cleanup. This ensures
+   the returned value survives `cleanupEnvExcept`'s `structRefDec`.
+
+Both fixes improved conformance (boot-comp-int: 193/1). But the unit test
+hang persists.
+
+## Poison-on-free diagnosis (2026-04-13)
+
+**Technique**: before `c_free`, overwrite the payload with an incrementing
+counter and set the header refcount to `-1000000 - counter`. This turns the
+hang into a detectable exit.
+
+**Result**: under lldb, the process exits instead of hanging. Backtrace:
+
+```
+frame #0: exit
+frame #1: bn_exit(code=1)
+frame #2: evalLen at interp.bn
+frame #3: evalBuiltinCall at interp.bn:215
+frame #4: evalExpr at interp.bn:61
+frame #5: execVarDecl at interp.bn:384
+frame #6: execStmt → execBlock → callFunc → evalCall → evalExpr
+```
+
+The interpreter evaluates `len(something)` on a managed-slice whose flat
+memory (`RawAddr`) points to freed-and-poisoned data. The poisoned length
+value is garbage, triggering an error exit. Without poison, the freed memory
+contains whatever was there before → valid-looking data → infinite loop.
+
+**Key observations**:
+- The affected `RawAddr` comes from `allocFlat` (c_malloc, never freed).
+  The flat allocation itself is valid. But the DATA stored in it (a
+  managed-slice header: `{data, len, backing, backingLen}`) contains a
+  pointer to freed managed memory.
+- The managed-slice backing was freed (via RefDec → rc=0) while the flat
+  memory still held the backing pointer. This is a raw-pointer UAF: the
+  flat memory stores the managed pointer as raw bytes, not as a managed
+  reference that would keep the backing alive.
+- The `allocFlat` + 8-byte prefix test confirmed that changing heap layout
+  eliminates the bug — the freed memory isn't adjacent to the type object
+  that gets corrupted.
+
 ## Next steps
 
-- The corruption writes to freed memory that gets reused for `@Type` objects.
-  The write likely comes through a dangling flat-memory address
-  (`EnvEntry.Addr`) or a dangling `Value.RawAddr` that outlives its scope.
-- Instrument `writeFlatValue`/`writeScalar` to check if the target address
-  overlaps a freed allocation (requires tracking freed ranges).
-- Or: add a generation counter to `@Type` objects — set on creation, verify
-  on use. If it doesn't match, the type was freed and reused.
+- Find which specific managed-slice backing is freed while still referenced
+  from flat memory. The poison counter identifies WHEN the free happened;
+  need to match it to WHAT was freed.
+- Check `envDefine` / `writeFlatValue` paths for managed-slice fields in
+  struct values — do they properly RefInc the backing pointer stored in
+  flat memory?
+- The `structRefInc` helper walks struct fields and RefInc's `@T` and
+  `@[]T` fields. But does it handle the backing_refptr (field 2 of the
+  managed-slice) correctly? The flat managed-slice is `{data, len,
+  backing, backingLen}` — the `backing` pointer needs to be RefInc'd.
