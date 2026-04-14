@@ -156,3 +156,25 @@ compile-time assertions:
 The hooks are optional tooling; the ownership model described here is the
 behavioral fix. See `plan-interp-value-hooks.md` for how hooks would be
 used.
+
+## Relationship to `move` builtin
+
+The proposed `move` builtin (see `claude-notes.md`) would make the
+ownership transfers in this plan explicit in source code:
+
+```binate
+// Parameter binding
+envDefine(paramName, move(argValue))  // caller gives up ownership
+
+// Return
+interp.ReturnVals[0] = move(localValue)  // local gives up ownership
+
+// Scope cleanup
+var v @Value = move(entry.Val)  // take ownership from env entry
+cleanValue(v)                    // clean contents
+v = nil                          // release Value shell
+```
+
+Without `move`, the same transfers happen via nil-and-swap patterns.
+`move` makes the intent explicit and enables compiler optimization
+(skip copy+dtor, just memcpy+zero).

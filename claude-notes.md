@@ -1096,3 +1096,42 @@ invariants benefits.
 See `explorations/plan-debug-hooks.md` for implementation plan.
 See `explorations/plan-interp-value-ownership.md` for interpreter changes.
 See `explorations/plan-interp-value-hooks.md` for hook usage in interpreter.
+
+### `move` builtin — PROPOSED
+
+**Explicit ownership transfer.** `move(x)` returns the value of `x` and
+nils/zeroes the source. This makes axiom 4 (move → zero source) a
+first-class language operation.
+
+```binate
+var x @Node = make(Node)
+f(move(x))    // x is now nil; f owns the Node
+```
+
+**Semantics by type:**
+- `@T`: returns the managed pointer, sets source to nil.
+- `@[]T`: returns the managed-slice, zeroes the source (4 words).
+- Struct value: returns the struct, zeroes the source. Naive: copy + dtor.
+  Optimized: memcpy + memset-zero (skip copy constructor and destructor
+  since the source is zeroed and the destination has the live data).
+
+**Applies to lvalues:** variables and struct fields. `move(s.field)`
+transfers ownership of a field, nilling the field in the struct.
+
+**Implementation:** parsed as a builtin (like `make`, `cast`). At the IR
+level, `OP_MOVE` loads the value and stores zero to the source.
+Optimization: the compiler can recognize move patterns and elide
+copy+dtor pairs.
+
+**Why a builtin, not a generic function:**
+- Type inference for free — `move(x)` has the type of `x`.
+- No pointer indirection — works on values directly.
+- Compiler knows it's a move at the IR level — enables optimizations.
+- Avoids requiring generics or type inference for generics.
+
+**Primary use case:** interpreter Value ownership (`envDefine(name, move(val))`).
+Also useful anywhere ownership transfer is explicit: return from function,
+pass to consuming function, swap fields.
+
+See `explorations/claude-discussion-detailed-notes.md` section 32 for
+detailed design discussion.

@@ -2405,3 +2405,119 @@ The key insight is that compiler-interpreter interop doesn't require
 self-describing Values. Types are static — at every call boundary, both
 sides know the type being transferred. So the interpreter can (and must)
 call the appropriate destructor when cleaning up Value contents.
+
+## 32. `move` builtin
+
+### Motivation
+
+The refcounting axioms describe move as "skip copy constructor, zero the
+source, so the source's eventual destructor is a no-op." Currently this
+is an implicit compiler optimization (deferred). Making it an explicit
+language operation has several benefits:
+
+1. Source code is readable — you see `move(x)` and know ownership transfers
+2. The compiler can always optimize (no need for escape analysis)
+3. Replaces ad-hoc mechanisms like `IsFresh`/`consumeTemp` in the compiler
+
+### Semantics
+
+`move(expr)` where `expr` is an lvalue:
+- Evaluates `expr` to get the value
+- Zeroes/nils the source location
+- Returns the value
+
+The returned value has the same type as `expr`. The source location now
+contains the zero value for its type (nil for pointers/slices, zeroed
+for structs).
+
+### Lvalue requirement
+
+`move` requires an lvalue — a storage location that can be zeroed. Valid:
+- Local variables: `move(x)`
+- Struct fields: `move(s.field)`, `move(p.field)`
+- Slice elements: `move(s[i])`
+- Pointer dereference: `move(*p)`
+
+Invalid:
+- Function call results: `move(f())` — no source location to zero
+- Literals: `move(42)` — not an lvalue
+- Constants: `move(CONST)` — immutable
+
+### Optimization
+
+For `@T` and `@[]T`: move is trivially optimal — load + store-nil.
+No refcount operations needed.
+
+For structs with managed fields: the naive implementation is:
+1. Copy bytes to destination (memcpy)
+2. Zero source (memset 0)
+3. No copy constructor on destination (source's refs transfer)
+4. No destructor on source (it's zeroed, dtor is no-op)
+
+This is strictly better than copy + dtor:
+- Copy constructor: walks fields, RefInc each → skip
+- Destructor: walks fields, RefDec each → skip (zeroed = all nil)
+- Net: same result, fewer operations
+
+The compiler can emit this directly as `OP_MOVE` → memcpy + memset.
+
+### Interaction with return
+
+`return move(x)` is the canonical way to transfer ownership out of a
+function:
+- Load x's value
+- Zero x's storage
+- Return the value
+- Scope cleanup runs dtors — x is zeroed, dtor is no-op
+
+This replaces the "skip dtor for returned locals" optimization with
+an explicit, correct-by-construction mechanism.
+
+### Interaction with function arguments
+
+`f(move(x))` passes ownership to f:
+- Load x's value
+- Zero x's storage
+- Pass the value to f
+- f's parameter binding gets the value (with correct refcounts)
+- After f returns, x is nil — caller doesn't accidentally use it
+
+### Interpreter Value use case
+
+The interpreter's Value ownership model (plan-interp-value-ownership.md)
+benefits directly:
+
+```binate
+// Parameter binding: transfer ownership
+envDefine(paramName, move(argValue))
+
+// Return: transfer ownership to caller
+interp.ReturnVals[0] = move(localValue)
+
+// Scope cleanup: take ownership, clean, release
+var v @Value = move(entry.Val)
+cleanValue(v)
+v = nil
+```
+
+Each `move` makes the ownership transfer explicit and auditable.
+
+### Comparison with C++ std::move
+
+Binate's `move` is simpler than C++'s `std::move`:
+- C++ `std::move` casts to rvalue reference; the actual move happens in
+  the move constructor/assignment operator. The source is in a
+  "moved-from" state (valid but unspecified).
+- Binate `move` actually performs the move and zeroes the source. The
+  source is in a known state (zero value). No move constructors needed.
+
+### Implementation sketch
+
+- **Parser**: recognize `move` as a builtin keyword (alongside `make`,
+  `cast`, `len`, etc.). Parse `move(expr)` where expr must be an lvalue.
+- **Type checker**: `move(expr)` has the same type as `expr`. Verify
+  expr is an lvalue.
+- **IR gen**: emit `OP_MOVE` (or decompose into load + store-zero).
+  For struct types, ensure the zero-store uses memset, not field-by-field.
+- **Codegen**: straightforward — load, memset source to 0, use loaded
+  value as the expression result.
