@@ -303,3 +303,34 @@ originate from a different creator.
 be a type system issue in the interpreter, not a refcounting issue.
 The popEnv fix (which IS correct) and the cleanValue infrastructure
 are still valuable, but may not resolve this specific crash.
+
+## Assertion results (2026-04-14)
+
+**Assertions in envDefine and execAssign do NOT fire.** Added checks
+for VAL_MANAGED_SLICE with Typ.Kind != TYP_MANAGED_SLICE in both
+`envDefine` (at Value storage) and `execAssign` (before `assignTo`).
+Neither fires before the crash.
+
+**This means the Value has CORRECT Kind/Typ when created and when
+evaluated.** The corruption happens INSIDE `assignTo` — the `val`
+parameter's Kind/Typ are correct at entry, but `val.RawAddr` points
+to a 16-byte allocation (from a TYP_SLICE entry) while the FIELD
+type expects 32 bytes (TYP_MANAGED_SLICE).
+
+**Possible explanation**: `val` was read from an env entry whose type
+is TYP_MANAGED_SLICE and whose flat allocation is 32 bytes. But the
+flat allocation was PREVIOUSLY corrupted by an overflow from an
+adjacent allocation. With gmalloc (page-per-alloc), this can't happen
+between c_malloc allocations. But it CAN happen within a single
+allocation — if a 16-byte write to an earlier part of a 32-byte block
+corrupts the backing pointer at offset 16-24.
+
+**Or**: the `val.RawAddr` was correctly allocated as 32 bytes, but the
+data at offset 16 (backing refptr) contains a freed pointer that gmalloc
+unmapped. The data was written correctly but the pointed-to memory was
+freed.
+
+**Next step**: add size tracking to `allocFlat` and check at the crash
+point that `val.RawAddr`'s allocation size matches what the field type
+expects. Or: breakpoint on `allocFlat` and log the address+size, then
+check which allocation `val.RawAddr` corresponds to.
