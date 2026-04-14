@@ -2321,3 +2321,87 @@ conversion is allowed.
 
 See `explorations/proposal-restrict-implicit-raw-conversion.md` for the full
 proposal including edge cases and open questions.
+
+## 31. Debug lifecycle hooks (pre-copy, pre-destruction)
+
+### Design question: annotation placement
+
+The hooks annotate the type declaration, not the struct body:
+
+```binate
+#[pre_copy(debugPreCopy), pre_destroy(debugPreDestroy)]
+type Value struct { ... }
+```
+
+This means hooks only apply to named struct types. Anonymous structs
+cannot have hooks. This is intentional — if you care enough about
+lifecycle invariants to add hooks, you're naming the type.
+
+Per the grammar, `#[annotation]` before `type` annotates the declaration.
+This is consistent with `#[packed]` annotating the type.
+
+### Hook semantics
+
+**pre_copy(funcName)**: Called after the raw bytes are copied but before
+the copy constructor runs. The hook sees the destination populated with
+the source's data. It can panic to reject the copy.
+
+Arguments: `(dst *uint8, src *uint8)` — raw pointers to the source and
+destination struct memory.
+
+**pre_destroy(funcName)**: Called before the destructor runs. The hook
+sees the struct with its current field values. It can panic to reject
+destruction (e.g., if contents haven't been explicitly cleaned).
+
+Argument: `(ptr *uint8)` — raw pointer to the struct memory.
+
+### Forcing managed status
+
+Having either hook (with `--debug-hooks` enabled) forces the struct to
+require copy construction and destruction, even if it has no managed
+fields. This means the compiler will generate `__copy_X` and `__dtor_X`
+for the struct. Without debug mode, the hooks are not emitted and the
+struct's managed status is determined normally (by whether it has managed
+fields).
+
+### Debug mode flag
+
+A new compiler flag `--debug-hooks` (or similar) controls emission.
+When disabled (default), hook annotations are parsed but ignored. When
+enabled, hook calls are inserted into the generated copy constructors
+and destructors.
+
+This means the same source code compiles correctly with or without
+the flag — the hooks are pure assertions, not behavioral changes.
+
+### Primary use case: interpreter Value
+
+The interpreter's `Value` struct holds managed data (via `RawAddr` and
+`Typ` fields) but manages ownership manually. The hooks enforce:
+
+1. Values are never copied by value (pre_copy panics)
+2. Values are explicitly cleaned before destruction (pre_destroy
+   checks `IsClean` flag)
+
+This catches the exact class of bugs causing the boot-comp-int crashes.
+
+### Interpreter Value ownership rationale
+
+The raw-pointer-preferred design for Values is about **correctness, not
+efficiency**. We always need to know who owns a Value. The simplest way
+to ensure this is to keep the refcount at 1 — unique_ptr semantics.
+
+If rc is always 1 (modulo transient bumps), there is never ambiguity
+about ownership. Raw pointers for borrowing; managed pointer only for the
+single owner. Transfer = nil the source, set the destination.
+
+The interpreter is free to manage Values however it wants — the
+interpreted code cannot observe Value internals. But the interpreter must
+ensure that when a Value dies, the managed data it contains is properly
+cleaned up. The language's type system provides the type information
+needed to do this correctly at every point.
+
+The key insight is that compiler-interpreter interop doesn't require
+self-describing Values. Types are static — at every call boundary, both
+sides know the type being transferred. So the interpreter can (and must)
+call the appropriate destructor when cleaning up Value contents.

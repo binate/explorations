@@ -1048,3 +1048,51 @@ During self-hosting debugging, several pain points surfaced:
   before running the full compiler pipeline
 - Use the unit test framework to test `RegisterImports`, `GeneratePackage`, etc. with
   crafted AST inputs that trigger specific code paths
+
+### Debug lifecycle hooks for structs — PROPOSED
+
+**Annotation-based pre-copy and pre-destruction hooks.** Structs can
+declare hook functions via standard annotations. When a compiler debug
+mode flag (`--debug-hooks`) is enabled, the compiler calls these hooks
+at the appropriate lifecycle points. With the flag disabled, zero overhead.
+
+```binate
+#[pre_copy(debugPreCopy), pre_destroy(debugPreDestroy)]
+type Value struct {
+    Kind    int
+    RawAddr *uint8
+    Typ     @types.Type
+    IsClean bool
+    // ...
+}
+
+func debugPreCopy(dst *uint8, src *uint8) {
+    panic("Value must not be copied by value")
+}
+
+func debugPreDestroy(ptr *uint8) {
+    var v *Value = cast(*Value, ptr)
+    if !v.IsClean {
+        panic("Value destroyed without cleaning contents")
+    }
+}
+```
+
+**Semantics:**
+- `pre_copy` hook: called after raw data copy, before copy constructor.
+  Signature: `func(dst *uint8, src *uint8)`.
+- `pre_destroy` hook: called before destructor. Signature: `func(ptr *uint8)`.
+- Having either hook (with debug mode enabled) forces the struct to be
+  "managed" (requires copy construction/destruction) regardless of whether
+  it has managed fields.
+- Hooks are regular functions in the same package.
+- Uses the existing annotation syntax: `#[pre_copy(funcName)]`.
+
+**Motivation:** Primarily for the self-hosted interpreter's `Value`
+struct, where we need to enforce unique ownership and explicit content
+cleanup. But the mechanism is general — any struct with lifecycle
+invariants benefits.
+
+See `explorations/plan-debug-hooks.md` for implementation plan.
+See `explorations/plan-interp-value-ownership.md` for interpreter changes.
+See `explorations/plan-interp-value-hooks.md` for hook usage in interpreter.
