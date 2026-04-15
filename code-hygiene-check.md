@@ -2,6 +2,11 @@
 
 Run these checks before committing significant new code or after file splits/refactors. See `binate-coding-guide.md` for the full conventions.
 
+Automated scripts for checks 1-3 are in `binate/scripts/hygiene/`:
+- `file-length.sh` — file size check (warns >500, errors >600)
+- `line-length.sh` — line length check (>100 chars)
+- `test-coverage.sh` — missing test file check (with whitelist)
+
 ---
 
 ## 1. File size
