@@ -35,9 +35,14 @@ for f in $(find pkg/ cmd/ -name '*.bn' -not -name '*_test.bn'); do
 done
 ```
 
-This includes `cmd/` packages — `main` packages can and should be tested. Test files use `package "main"` and can test helper functions like any other package.
+This includes `cmd/` packages — `main` packages **must** be unit tested. As much logic as possible should be extracted from `main()` into helper functions so it can be tested. Test files use `package "main"` and can test helper functions like any other package.
 
 When splitting a source file (e.g., `foo.bn` into `foo.bn` + `foo_bar.bn`), split the test file to match. Shared test helpers (like `fail`, `readInst`) go in one test file and are visible to sibling test files in the same package.
+
+## General commenting guidelines
+
+- **Function comments** (both `.bni` and `.bn`) should specify any pre- and post-conditions that aren't implied by the function signature. Examples: "fd must be a valid open file descriptor," "the returned slice is valid only while the argument is live," "the caller is responsible for closing the returned fd."
+- **Type and data structure comments** should be explicit about ownership relations and semantics. If a struct holds a raw pointer to data owned by something else, say so. If a field is expected to be non-nil after initialization, say so. If two fields alias or share backing storage, document it.
 
 ## 4. Interface file comments (`.bni`)
 
@@ -55,6 +60,7 @@ done
 ## 5. Implementation file comments (`.bn`)
 
 - Non-exported functions should have comments unless extremely short and self-explanatory.
+  - "Self-explanatory" excludes any function with **lifetime or aliasing subtleties**. If a function takes a managed-slice and returns a managed-slice, the comment must say whether the return value is a subslice of the argument (which keeps the argument's backing alive and means mutations to the argument's contents affect the return value), a copy, or a new allocation. Similar reasoning applies to managed pointers, raw pointers, and any case where the caller needs to understand ownership or sharing to use the function correctly.
 - Use inline comments for non-obvious logic, invariants, and "why" explanations.
 - Section markers (`// --- Section Name ---`) help with navigation in larger files.
 
