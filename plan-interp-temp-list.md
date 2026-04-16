@@ -3,187 +3,185 @@
 ## Context
 
 The interpreter's `readFlatValue` for `@T` (managed pointer) needs to
-RefInc so the returned `@Value` owns its reference. But every `@Value`
-that owns a reference must eventually be destroyed (RefDec'd). The
-previous attempts (steps 5-6) failed because:
+RefInc so the returned Value owns its reference. But every Value that
+owns a reference must eventually be destroyed (RefDec'd). The previous
+attempts (steps 5-6) failed because:
 
 - Putting temps on a global `interp.Temps` list confused ownership —
   the same `@Value` was both "on the temp list" and "passed around as
   an argument", violating unique ownership.
-- `cleanValue` at envDefine sites was a workaround that broke when
-  IsFresh semantics conflicted with the temp lifecycle.
+- The `@Value` type can't represent a borrow — it lives on the heap
+  and can escape anywhere.
 
 ## Design
 
-### Core principle: move semantics with clear owner
+### Core invariant
 
-A `@Value` containing a managed pointer is **always owned** by exactly
-one of:
+A `@Value` is always **owned** by exactly one of:
 1. An env entry (stored in flat memory via envDefine/envSet)
-2. A temp list (local to the current statement evaluation)
+2. A temp list (local `@[]@Value` on the stack)
 3. A return value list (retVals in execReturn)
 
 Transfers between these are **moves** — the source gives up ownership.
+There is no sharing of `@Value` ownership.
 
-### Temp list
+### Borrowing via *Value
 
-The temp list is a **local variable** (`@[]@Value`), not a field on
-the Interpreter. It's created at the start of statement evaluation and
-passed down through `evalExpr` and its callees. This makes lifetimes
-explicit — the temp list lives on the stack frame of the statement
-executor.
+Code that only needs to **read** a Value receives `*Value` — a raw
+pointer. The borrow is valid as long as the owner (`@Value` on the
+temp list or in the env) is alive. `*Value` cannot be stored on the
+heap or persisted past the current operation.
+
+### readFlatValue returns *Value
 
 ```binate
-// In execStmt / execBlock:
-var temps @[]@Value
-// ... pass &temps or temps to evalExpr etc. ...
-// At statement end:
-cleanTempList(temps)
+func readFlatValue(addr *uint8, t @types.Type,
+        temps @[]@Value) *Value
 ```
 
-### API changes
+`readFlatValue` creates a `@Value` (with RefInc for `@T`), registers
+the `@Value` on the temp list (which owns it), and returns `*Value`.
+The caller gets a borrow guaranteed alive as long as the temp list
+lives.
 
-#### evalExpr: takes temps parameter
+For ALL types (not just `@T`), the `@Value` goes on the temp list.
+This is slightly inefficient for POD types (int, bool) but uniform
+and correct. The temp list is cleaned at statement end.
+
+Internal callers (envSet old-value read, interpRefDec field walk,
+cleanupEntry) pass their own local temp list and clean it at the end
+of the operation:
+
+```binate
+func cleanupEntry(entry EnvEntry, cleanupTyp @types.Type) {
+    var localTemps @[]@Value
+    // ... readFlatValue(..., localTemps) ...
+    cleanTempList(localTemps)
+}
+```
+
+### evalExpr returns *Value
 
 ```binate
 func evalExpr(interp @Interpreter, e @ast.Expr,
-        temps @[]@Value) @Value
+        temps @[]@Value) *Value
 ```
 
-Every `evalExpr` call passes the temp list. When `evalExpr` creates a
-`@Value` via `readFlatValue` (for `@T`), it adds the Value to temps.
+`evalExpr` and all its callees (evalIdent, evalBinary, evalUnary,
+evalCall, evalIndex, evalSlice, evalSelector, etc.) take a `temps`
+parameter and return `*Value`.
 
-#### Borrowing: *Value
+When `evalIdent` looks up a variable via `envGet`, it calls
+`readFlatValue(entry.Addr, entry.Typ, temps)` — the `@Value` goes on
+temps, the `*Value` borrow is returned.
 
-Functions that only READ a Value (don't store it) should receive
-`*Value` — a raw pointer borrow. The borrow is valid as long as the
-temp list (or env entry) that owns the `@Value` is alive.
+### Moving off temps (ownership transfer)
 
-However, changing every function to take `*Value` is a massive refactor.
-As an intermediate step, we can pass `@Value` but document that
-the callee must NOT retain it — it's a conceptual borrow even though
-the type system doesn't enforce it.
-
-**Pragmatic compromise**: keep `@Value` as the parameter type for now.
-The ownership discipline is enforced by convention:
-- `evalExpr` returns `@Value` owned by the temp list
-- Callers that store (envDefine, assignTo) **move** the Value off temps
-- Callers that just read (print, comparison, field access) use the
-  Value and let it stay on temps
-- At statement end, temps are cleaned
-
-#### Moving off temps
+When a Value needs to be stored (envDefine, envSet, execReturn), the
+`@Value` is **moved** off the temp list:
 
 ```binate
-func moveTempValue(temps @[]@Value, v @Value) @Value
+// Find the @Value on the temp list that v borrows from,
+// remove it, and return the @Value (caller now owns it).
+func moveFromTemps(temps @[]@Value, v *Value) @Value
 ```
 
-Removes `v` from the temp list and returns it. The caller now owns it.
-Used by:
-- `envDefine` / `envSet` — storing in env
-- `execReturn` — transferring to retVals
-- `callFunc` param binding — transferring to callee's env
-
-#### readFlatValue
-
-Stays as-is but RefIncs for `@T`. The caller (evalIdent, evalSelector,
-evalIndex) adds the result to the temp list.
-
-Actually — `readFlatValue` is also called by internal code (envSet old
-value read, interpRefDec field walk, cleanupEntry). These internal
-callers should NOT add to temps. So the RefInc should happen at the
-evalIdent/evalSelector/evalIndex level, not in readFlatValue itself.
-
-**Decision**: `readFlatValue` does NOT RefInc. It returns a borrow.
-`evalIdent`, `evalSelector`, `evalIndex` call readFlatValue, then
-RefInc the result and add to temps. Internal callers (envSet,
-interpRefDec, cleanupEntry) use readFlatValue directly (borrow, no
-temp registration).
+The moved `@Value` is then passed to `envDefine` (which writes it to
+flat memory and takes ownership) or to `retVals` (which transfers
+to the caller).
 
 ### Statement lifecycle
 
 ```
-execStmt(interp, stmt):
-    var temps @[]@Value    // empty temp list
-    
-    // Evaluate expressions — fills temps
-    evaluate(interp, stmt, temps)
-    
-    // Clean remaining temps
-    for each v in temps:
-        cleanValue(v)       // RefDec the managed pointer
-    temps = nil
+execBlock(interp, block):
+    for each stmt in block.Stmts:
+        var temps @[]@Value
+        execStmt(interp, stmt, temps)
+        cleanTempList(temps)    // destroy remaining temps
 ```
+
+Each statement gets a fresh temp list. Everything created during
+expression evaluation is either moved (stored/returned) or destroyed.
 
 ### Function call lifecycle
 
 ```
-callFunc(interp, fn, args):
-    // args are @Values from the caller's temp list
-    // Move each arg off caller's temps into callee's env
-    for each arg in args:
-        envDefine(callee_env, param_name, arg)
-        // The arg is now owned by the callee's env
-        // The caller's temp list no longer has it
-    
-    // Execute function body — each statement has its own temps
-    for each stmt in body:
-        var temps @[]@Value
-        evaluate(interp, stmt, temps)
-        cleanTempList(temps)
-    
+callFunc(interp, fn, args []*Value, callerTemps @[]@Value):
+    // Move each arg's @Value off caller's temps into callee's env
+    for each arg, param:
+        var owned @Value = moveFromTemps(callerTemps, arg)
+        envDefine(callee_env, param.Name, owned)
+
+    // Execute body — each statement has its own temps
+    execBlock(interp, fn.Body)
+
     // Cleanup callee scope
     cleanupEnvExcept(callee_env, retVals)
-    
-    // Return value ownership transfers to caller
-    return retVals[0]  // caller adds to its temps
+
+    // Return value: the @Value from retVals is added to
+    // the caller's temps (ownership transfers to caller)
+    addToTemps(callerTemps, retVals[0])
+    return &retVals[0]  // borrow from caller's temps
 ```
 
 ### What changes
 
-1. **evalExpr signature**: add `temps @[]@Value` parameter
-2. **All evalExpr callers**: pass temps
-3. **evalIdent, evalSelector, evalIndex**: RefInc + add to temps for @T
-4. **envDefine/envSet callers**: move Value off temps before storing
-5. **execReturn**: move return Value off temps
-6. **callFunc**: move args off caller temps into callee env
-7. **execBlock**: create temps per statement, clean at end
-8. **readFlatValue**: NO RefInc (stays as borrow for internal use)
+1. **readFlatValue**: takes `temps @[]@Value`, returns `*Value`
+2. **evalExpr and all callees**: take `temps`, return `*Value`
+3. **All evalExpr callers**: pass temps, receive `*Value`
+4. **envGet**: takes temps (or wraps readFlatValue with temps)
+5. **envDefine/envSet callers**: move @Value off temps before storing
+6. **execReturn**: move @Value off temps into retVals
+7. **callFunc**: move args off caller temps into callee env
+8. **execBlock**: create temps per statement, clean at end
+9. **Internal callers** (envSet, interpRefDec, cleanupEntry): use
+   local temp lists, clean immediately
 
 ### What doesn't change
 
-- `readFlatValue` signature (still returns @Value, but as a borrow)
 - `writeFlatValue`
 - `cleanValue`, `interpRefDec`, `structRefInc/Dec`
-- `cleanupEntry`, `cleanupEnvExcept`
-- Conformance tests, unit tests
+- `cleanupEntry` logic (just passes local temps to readFlatValue)
+- Conformance tests, unit tests (same observable behavior)
 
 ### Implementation order
 
-1. Add `temps @[]@Value` parameter to `evalExpr` and all its callees
-   (evalIdent, evalBinary, evalUnary, evalCall, evalIndex, evalSlice,
-   evalSelector, evalCompositeLit, evalStructLit, evalCast, evalMake,
-   evalMakeSlice, etc.)
-2. Update all `evalExpr` callers to pass temps
-3. In evalIdent/evalSelector/evalIndex: RefInc for @T, add to temps
-4. Add `moveTempValue` helper
-5. At envDefine/envSet call sites: move Value off temps
-6. At execReturn: move Value off temps
-7. In execBlock: create temps, pass to execStmt, clean after
-8. In callFunc: handle arg ownership transfer
-9. Remove readFlatValue RefInc (if still present)
-10. Remove step 5/6 infrastructure (consumeTemp, registerTemp,
-    cleanTemps, Interpreter.Temps field)
-11. Remove refcount xfails
-12. Test: conformance + unit tests
+**Phase A: Signature changes (mechanical)**
+
+1. Change `readFlatValue` signature: add temps, return *Value
+2. Change `evalExpr` and all eval* signatures: add temps, return *Value
+3. Change all callers to pass temps and use *Value
+4. At this point, tests should still pass (temps are created but
+   never cleaned — same leak behavior as today)
+
+**Phase B: Ownership transfer**
+
+5. Add `moveFromTemps` helper
+6. At envDefine/envSet sites: move @Value off temps
+7. At execReturn: move @Value off temps
+8. At callFunc param binding: move args off caller temps
+
+**Phase C: Temp cleanup**
+
+9. In execBlock: create temps per statement, clean after
+10. In internal callers: use local temps, clean after
+11. Remove old infrastructure (Interpreter.Temps, consumeTemp,
+    registerTemp, cleanTemps, step 5 cleanValue calls)
+12. Remove refcount xfails
+
+**Phase D: Validation**
+
+13. Run conformance + unit tests across all modes
+14. Verify exact refcounts match expected values
 
 ### Risk
 
-This is a large refactor touching most of pkg/interp. The `evalExpr`
-signature change cascades to ~20 functions. Each one needs the temps
-parameter threaded through.
+Large refactor (~20 function signatures change). Every evalExpr call
+site needs updating. But the changes are mechanical — add a parameter,
+change return type. The semantic changes (move, cleanup) are
+concentrated in a few places (envDefine callers, execReturn, callFunc,
+execBlock).
 
-The bootstrap interpreter (Go) doesn't need this — it uses Go GC.
-But the self-hosted interpreter code must be compatible with both
-bootstrap and compiled execution. The `temps` parameter is just a
-`@[]@Value` — no bootstrap-incompatible features.
+The bootstrap interpreter (Go) will need corresponding changes to
+accept the new signatures, but since it uses Go GC, the temps
+parameter can be ignored (pass nil, never clean).
