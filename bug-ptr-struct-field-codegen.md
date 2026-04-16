@@ -1,73 +1,70 @@
-# Bug: Wrong LLVM IR type for @T field access through *Struct
+# Bug: Chained field access through *Struct generates wrong code
 
 ## Summary
 
-When a function takes `*Struct` (raw pointer to struct) and accesses
-a field of type `@T` (managed pointer), the compiler sometimes
-generates `i64` instead of `i8*` for the field load, causing an LLVM
-IR type mismatch (`icmp ne i64 %vN, i8* %vM`).
+When a function takes `*Struct` (raw pointer to a `.bni`-defined
+struct) and does chained field access through a `@T` field
+(`o.Ref.Val`), the compiled code returns wrong values (0 instead
+of the actual field value). Simple field access (`o.Ref`) works;
+the bug is in the chained deref.
 
-## Reproduction
+## Minimal repro
 
-The bug manifests when compiling `pkg/interp` with functions that
-take `*Value` instead of `@Value`:
+Conformance test **263_ptr_struct_field_bni** (multi-package).
 
 ```binate
-func IsString(v *Value) bool {
-    // v.Typ is @types.Type (managed pointer, should be i8*)
-    // Compiler generates i64 load instead of i8* load
-    if v.Typ != nil { ... }
+// pkg/mypkg.bni
+type Inner struct { Val int }
+type Outer struct {
+    Kind int
+    Typ  @Inner
+    Addr *uint8
+    // ... more fields ...
+}
+func GetTypVal(o *Outer) int
+
+// pkg/mypkg/mypkg.bn
+func GetTypVal(o *Outer) int {
+    if o.Typ == nil { return -1 }
+    return o.Typ.Val  // BUG: returns 0 instead of 42
 }
 ```
 
-**The bug does NOT reproduce in standalone programs.** A self-contained
-test with the same struct layout compiles correctly. The bug only
-appears when compiling multi-file packages where the struct is defined
-in a `.bni` file (`pkg/interp.bni`).
+- **boot**: PASS (interpreter handles it correctly)
+- **boot-comp**: FAIL (`GetTypVal` returns 0, `CheckTyp` returns false)
 
-Conformance test `262_ptr_struct_field_access` passes in boot and
-boot-comp modes — it's a standalone program with a local struct
-definition.
+Simple accesses work:
+- `HasTyp(o *Outer) bool { return o.Typ != nil }` → correct
+- `GetTyp(o *Outer) @Inner { return o.Typ }` → correct
+- `GetTypVal(o *Outer) int { return o.Typ.Val }` → **WRONG**
 
-## LLVM IR error
+## Analysis
 
-```
-/tmp/binate_bni_pval_interp.ll:32793:28: error:
-  '%v28' defined with type 'ptr' but expected 'i64'
-  %v29 = icmp ne i64 %v27, %v28
-```
+The first deref (`o.Typ`) works — it loads the `@Inner` pointer
+from the struct. But the second deref (`.Val` on the loaded
+`@Inner`) fails. The loaded pointer value is likely being treated
+as the wrong type, so the GEP for `.Val` reads from the wrong
+offset or the wrong base.
 
-The field (index 1, `@types.Type`) is loaded as `i64` instead of
-`i8*`. The null comparison then fails because it compares `i64`
-with `i8*`.
+## Relevant code
 
-## Context
-
-This blocks the interpreter Value ownership refactor, which requires
-changing reader functions (`IntOf`, `IsString`, `StrOf`, etc.) from
-`@Value` parameters to `*Value` parameters. Without this fix, those
-functions can't take `*Value`.
-
-## Likely cause
-
-The codegen for `OP_LOAD` or `OP_GET_FIELD_PTR` uses the field type
-from the struct layout. When the struct is defined in a `.bni` file
-and used across packages, the field type resolution may differ from
-the standalone case. Specifically, `@T` fields accessed through `*T`
-(raw pointer) might lose their managed-pointer-ness and be treated
-as plain integers.
-
-The relevant codegen is in:
-- `pkg/ir/gen_selector.bn` — `genSelector` for raw pointer field access
-- `pkg/codegen/emit_helpers.bn` — `emitGetFieldPtr` and `emitLoad`
+- `pkg/ir/gen_selector.bn` — `genSelector`, `isRawPtrToStruct`
+- `pkg/codegen/emit_helpers.bn` — `emitGetFieldPtr`
 - `pkg/codegen/emit_instr.bn` — `emitLoad`
 
-The `lookupFieldType` in the IR gen may return a different type for
-`.bni`-defined structs vs locally-defined structs.
+The chained access `o.Typ.Val` generates two selector operations:
+1. Load `o.Typ` (field 1 of Outer through *Outer) — works
+2. Load `.Val` (field 0 of Inner through @Inner) — broken
 
-## Workaround
+The second operation receives the result of the first as a
+managed pointer (`@Inner`). The codegen for accessing a field
+through `@Inner` (when the `@Inner` came from a `*Struct` field
+read) may lose type information.
 
-Keep `@Value` as parameter type for reader functions. The ownership
-discipline is enforced by convention — `@Value` returned from
-`evalExpr` is conceptually a borrow from the temp list, even though
-the type system doesn't enforce it.
+## Impact
+
+Blocks the interpreter Value ownership refactor. Reader functions
+(`IntOf`, `IsString`, `StrOf`, etc.) need to take `*Value`
+instead of `@Value` to enforce unique ownership. Without this
+fix, chained access like `v.Typ.Elem` through `*Value` would
+silently return wrong values.
