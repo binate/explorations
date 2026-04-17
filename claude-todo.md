@@ -6,6 +6,12 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
+### boot-comp-int2-int2 mode segfaults (bni2 can't self-host)
+- The `boot-comp-int2-int2` runner (added to unit/conformance/perf as a replacement for the too-slow `boot-comp-int-int`) crashes when the outer compiled bni2 is asked to interpret `cmd/bni2` source: exit 139 (SIGSEGV), with no output.
+- Single-layer `boot-comp-int2` (compiled bni2 runs test.bn directly) works fine — the issue is specifically that bni2 cannot interpret its own source.
+- Not in the `all` modeset, so CI/default runs don't exercise it. Left wired up so it can be run on demand once the self-hosting gap is closed.
+- **Next**: pick a small probe (e.g. a single-feature .bn that exercises whatever bni2 source uses) and narrow which feature of bni2 the outer VM mishandles. Likely related to the same class of bugs as the int2 field-layout issue below.
+
 ### boot-comp-int2: 17 unit-test packages fail with field-layout corruption
 - 17 packages crash or read garbage from struct fields under boot-comp-int2 (cmd/bni2 bytecode VM): pkg-lint, pkg-types, pkg-asm, pkg-asm-{x64,parse,arm32,aarch64,elf,macho}, pkg-ir, pkg-lexer, pkg-interp, pkg-parser, pkg-codegen, pkg-vm, cmd-bnlint, cmd-bnc.
 - All xfail'd in `scripts/unittest/<pkg>.xfail.boot-comp-int2`.
