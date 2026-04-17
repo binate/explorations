@@ -6,6 +6,14 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
+### Raw slice syntax migration: `[]T` → `*[]T`
+- Staged migration plan in `explorations/plan-raw-slice-syntax.md`. Raw slices change from `[]T` to `*[]T` to make the `*`/`@` prefix consistently mean raw/managed for both pointers and slices. See also `claude-notes.md` ("Raw slice syntax" decision) and `claude-discussion-detailed-notes.md` ("Slice Syntax — Revised 2026-04-11").
+- **Stage 0**: reclaim `*[` — require parens for the old `*[]T` (pointer to raw slice) and `*[N]T` (pointer to array) meanings, i.e. `*([]T)` and `*([N]T)`. Bootstrap + self-host parsers/type checkers + code migration.
+- **Stage 1**: add `*[]T` as raw slice syntax alongside `[]T`. Grammar, bootstrap parser, self-host parser, `.bni` files.
+- **Stage 2**: migrate all code (`binate/`, `bootstrap/`, `explorations/`, conformance tests) from `[]T` to `*[]T`.
+- **Stage 3**: remove `[]T` syntax entirely.
+- **Disambiguation rule**: `*[` and `@[` before a following `]` are always slice/managed-slice sugar. Pointer-to-array or pointer-to-slice always requires parens.
+
 ### boot-comp-int2-int2 mode segfaults (bni2 can't self-host)
 - The `boot-comp-int2-int2` runner (added to unit/conformance/perf as a replacement for the too-slow `boot-comp-int-int`) crashes when the outer compiled bni2 is asked to interpret `cmd/bni2` source: exit 139 (SIGSEGV), with no output.
 - Single-layer `boot-comp-int2` (compiled bni2 runs test.bn directly) works fine — the issue is specifically that bni2 cannot interpret its own source.
