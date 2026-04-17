@@ -493,7 +493,7 @@ C-family, leaning toward Go's direction (clean, minimal, familiar).
 - `.` auto-dereferences (Go-style, no `->`)
 - Implicit conversion from `@T` to `*T` (safe: managed is "narrower"). Never implicit `*T` → `@T`.
 
-**Slice syntax — DECIDED (revised 2026-04-11: `[]T` → `*[]T`)**:
+**Slice syntax — DECIDED**:
 - `*[]T` = raw slice of T (two words: raw ptr, length) — the `*` prefix parallels `*T` for raw pointers
 - `@[]T` = managed-slice of T (four words: data ptr, length, backing refptr, backing len) — syntactic sugar
 - `*(*[]T)` = raw pointer to a raw slice (parens required — bare `*[]T` is raw slice, not pointer-to-slice)
@@ -502,9 +502,9 @@ C-family, leaning toward Go's direction (clean, minimal, familiar).
 - `@([N]T)` = managed pointer to array (parens required, unchanged)
 - `arr[low:high]` = slice expression (exclusive end, like Go)
 - The `@[]` sugar is syntactic only: in generics, `@T` where `T=*[]int` means `@(*[]int)` (managed pointer to raw slice), not managed-slice.
-- **Disambiguation rule**: `*` or `@` immediately before `[` is only valid as slice sugar. For pointer-to-array or pointer-to-slice, parens are required. This rule already applied to `@[`; it now extends to `*[`.
-- **Migration**: `[]T` syntax is deprecated and will be removed. See `explorations/plan-raw-slice-syntax.md` for the staged migration plan.
+- **Disambiguation rule**: `*` or `@` immediately before `[` is only valid as slice sugar. For pointer-to-array or pointer-to-slice, parens are required.
 - **Rationale**: makes `*`/`@` consistently mean raw/managed for both pointers and slices. Visually distinguishes raw slices from Go slices (which look identical but have very different ownership semantics).
+- (History: raw slices were originally spelled `[]T`. The change to `*[]T` was decided 2026-04-11 and the migration completed soon after.)
 
 **Interface value syntax — DECIDED**:
 - `Iface` = raw interface value (two words: raw ptr to data, vtable ptr)
@@ -1007,11 +1007,6 @@ Conformance tests 071 (short-circuit &&) and 072 (short-circuit ||) pass in all 
 ---
 
 ## Proposed Changes
-
-### Raw slice syntax: `[]T` → `*[]T` — ACCEPTED (pending implementation)
-- Raw slices change from `[]T` to `*[]T`, making the `*`/`@` prefix consistent for both pointers and slices.
-- Disambiguation rule: `*[` and `@[` before `]` or a digit are always slice/managed-slice sugar. Pointer-to-array or pointer-to-slice requires parens: `*([N]T)`, `*(*[]T)`, `@(*[]T)`.
-- Staged migration plan in `explorations/plan-raw-slice-syntax.md`.
 
 ### Restrict implicit `@T` → `*T` conversion to borrowing positions — PROPOSAL
 - Currently `@T` converts implicitly to `*T` (and `@[]T` to `*[]T`) in all contexts, including variable assignment, struct field stores, and returns — where the raw pointer can outlive the managed value.

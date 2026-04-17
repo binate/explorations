@@ -671,10 +671,11 @@ broadly (e.g., `*(*T)` for pointer to pointer) was considered and rejected as a 
 (`result *(*[]T)`). This is rare enough that the parens are acceptable. Analogously,
 `*(@[]T)` for an out parameter of a managed-slice.
 
-**Migration plan**: staged to avoid disruption. Stage 0 reclaims the `*[]T` syntax by
-requiring parens for the old meaning. Stage 1 adds `*[]T` as raw slice syntax alongside
-`[]T`. Stage 2 migrates all code. Stage 3 removes `[]T`. See
-`explorations/plan-raw-slice-syntax.md` for details.
+**Migration**: completed 2026-04-17. The change shipped in four stages: Stage 0
+reclaimed the `*[]T` syntax (requiring parens for the old pointer-to-slice /
+pointer-to-array meanings); Stage 1 accepted `*[]T` as raw slice syntax
+alongside `[]T`; Stage 2 migrated all code and docs; Stage 3 removed `[]T`
+entirely (bare `[]` at a type position is now a parse error).
 
 **Ambiguity with pointers to slices:** `@[]T` is syntactic sugar for "managed-slice of T."
 If you need a managed pointer to a raw slice, use `@(*[]T)`. The `@[]` and `*[]` sugars

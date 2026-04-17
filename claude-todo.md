@@ -11,14 +11,6 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Came up during the raw-slice migration: an `errMsg` call in `pkg/parser/parser.bn:106` has a 114-char string literal that can't be shortened without losing information. Tagged `// LONG-LINE ALLOWED` as a workaround — see `scripts/hygiene/line-length.sh` and `explorations/code-hygiene-check.md`.
 - Options to discuss: C-style adjacent-string concatenation at the lexer level; a `\` line-continuation inside string literals; a compile-time const-fold of `bootstrap.Concat` on literal args; something else.
 
-### Raw slice syntax migration: `[]T` → `*[]T`
-- Staged migration plan in `explorations/plan-raw-slice-syntax.md`. Raw slices change from `[]T` to `*[]T` to make the `*`/`@` prefix consistently mean raw/managed for both pointers and slices. See also `claude-notes.md` ("Raw slice syntax" decision) and `claude-discussion-detailed-notes.md` ("Slice Syntax — Revised 2026-04-11").
-- **Stage 0**: reclaim `*[` — require parens for the old `*[]T` (pointer to raw slice) and `*[N]T` (pointer to array) meanings, i.e. `*([]T)` and `*([N]T)`. Bootstrap + self-host parsers/type checkers + code migration.
-- **Stage 1**: add `*[]T` as raw slice syntax alongside `[]T`. Grammar, bootstrap parser, self-host parser, `.bni` files.
-- **Stage 2**: migrate all code (`binate/`, `bootstrap/`, `explorations/`, conformance tests) from `[]T` to `*[]T`.
-- **Stage 3**: remove `[]T` syntax entirely.
-- **Disambiguation rule**: `*[` and `@[` before a following `]` are always slice/managed-slice sugar. Pointer-to-array or pointer-to-slice always requires parens.
-
 ### boot-comp-int2-int2 mode segfaults (bni2 can't self-host)
 - The `boot-comp-int2-int2` runner (added to unit/conformance/perf as a replacement for the too-slow `boot-comp-int-int`) crashes when the outer compiled bni2 is asked to interpret `cmd/bni2` source: exit 139 (SIGSEGV), with no output.
 - Single-layer `boot-comp-int2` (compiled bni2 runs test.bn directly) works fine — the issue is specifically that bni2 cannot interpret its own source.
@@ -299,6 +291,10 @@ Binate is NOT Go. The two types of slice are intentionally different:
 
 ### ~~Simplify bootstrap.Read/Write signatures~~ — DONE
 - `Read(fd int, buf *[]uint8) int` and `Write(fd int, buf *[]uint8) int` — redundant `len` parameter removed. Callers subslice if they want a smaller length.
+
+### ~~Raw slice syntax migration: `[]T` → `*[]T`~~ — DONE (2026-04-17)
+- Raw slices now spelled `*[]T` (the `*`/`@` prefix consistently means raw/managed for both pointers and slices). Disambiguation rule: `*[` and `@[` before `]` are always slice sugar; pointer-to-array and pointer-to-slice require parens.
+- Stages landed in order: Stage 0 (reclaim `*[`), Stage 1 (accept `*[]T` alongside `[]T`), Stage 2 (migrate all code + docs), Stage 3 (remove `[]T` entirely — `bare "[" "]"` is now a parse error in both the Go bootstrap and `pkg/parser`). Covered by conformance test 276.
 
 ---
 
