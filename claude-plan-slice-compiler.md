@@ -4,7 +4,7 @@
 
 ## Problem
 
-The self-hosted compiler (`.bn` files under `pkg/`) uses raw slices (`[]T`) with
+The self-hosted compiler (`.bn` files under `pkg/`) uses raw slices (`*[]T`) with
 append for almost all dynamic collections — struct fields in AST/IR/types, module-level
 accumulators, output buffers, temporary lists. Per the Binate spec, raw slices are
 unmanaged value types that should be used for fixed-size views or short-lived local
@@ -27,14 +27,14 @@ data, not for growable retained collections.
 
 ## Categories of Misuse
 
-### 1. String building via `[]char` append (~150 calls)
+### 1. String building via `*[]char` append (~150 calls)
 
 **Where:** `emit.bn` (82), `gen.bn` (name construction), `loader.bn` (paths),
 `parser.bn` (error messages), `debug.bn`, `compile.bn` (paths/args)
 
 **Pattern:**
 ```
-var out []char
+var out *[]char
 out = append(out, 'x')
 out = appendStr(out, "hello")
 out = appendInt(out, 42)
@@ -42,7 +42,7 @@ return out
 ```
 
 **Fix:** Replace with a `CharBuf` (or `StringBuilder`) type — a struct with a
-backing `[]char` (or `*char` + length + capacity). This is the single biggest
+backing `*[]char` (or `*char` + length + capacity). This is the single biggest
 category. The `appendStr`, `appendInt`, `appendChar` helper functions in emit.bn
 become methods or functions operating on CharBuf.
 
@@ -59,7 +59,7 @@ parameter/result lists), `parser.bn` (33 — AST lists), `interp.bn` (26),
 
 **a) Fixed-size lists built in a loop then stored:**
 ```
-var params []@Param
+var params *[]@Param
 for i := 0; i < len(decl.Params); i++ {
     params = append(params, makeParam(...))
 }
@@ -71,7 +71,7 @@ work, or these could use a pre-allocated slice if the size is known.
 
 **b) Module-level accumulators (4 globals in gen.bn):**
 ```
-var moduleStructs []ModuleStruct    // grown across entire module
+var moduleStructs *[]ModuleStruct    // grown across entire module
 moduleStructs = append(moduleStructs, ms)
 ```
 These grow during IR generation and are read later. They need a growable buffer
@@ -99,7 +99,7 @@ moduleStructs = nil
 ```
 
 **Fix:** Replace with `buf.Clear()` or `buf = CharBuf{}` / `buf = ListBuf{}`.
-Or, if these are true "reset to empty," use `[]T{}` syntax (zero-value slice
+Or, if these are true "reset to empty," use `*[]T{}` syntax (zero-value slice
 literal).
 
 ### 4. Slice nil comparisons and coercions (gen.bn, emit.bn)
@@ -138,8 +138,8 @@ Uses `@[]char` (managed-slice) for proper memory management. Geometric growth
 
 For now, since we don't have generics, we need concrete list types for the
 most common element types:
-- `InstrList` (for `[]@Instr`) — used in ir.bn
-- `FuncList` (for `[]@Func`) — used in ir.bn module
+- `InstrList` (for `*[]@Instr`) — used in ir.bn
+- `FuncList` (for `*[]@Func`) — used in ir.bn module
 - etc.
 
 Or, pragmatically: keep raw slices for small, bounded, locally-built lists
@@ -164,7 +164,7 @@ See `claude-plan-charbuf.md`. Depends on correct `make`.
 
 ### Step 2: Convert `emit.bn` to use CharBuf
 - This is the biggest win (82 appends → CharBuf method calls)
-- Replace `var out []char` with `var out CharBuf`
+- Replace `var out *[]char` with `var out CharBuf`
 - Replace `out = appendStr(out, ...)` with `CharBuf_writeStr(&out, ...)`
 - Replace `return out` with `return CharBuf_toSlice(&out)`
 - The `appendStr`, `appendInt`, `appendChar` helper functions become
@@ -186,7 +186,7 @@ See `claude-plan-charbuf.md`. Depends on correct `make`.
 ### Step 7: Remove nil-slice semantics
 - Type checker: reject `slice == nil`, `slice = nil`
 - Remove nil-to-slice coercion in gen.bn
-- Replace `x = nil` with `x = []T{}` or `x = CharBuf{}`
+- Replace `x = nil` with `x = *[]T{}` or `x = CharBuf{}`
 - Update conformance tests (043, 076, 087)
 - Fix `emitDecForScopeVars` comment
 

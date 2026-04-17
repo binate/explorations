@@ -22,8 +22,8 @@ and ratified in `explorations/claude-notes.md`. This plan covers only the
          word 0    word 1   word 2              word 3
 ```
 
-- `[]T` (raw slice) is still 2 words: `{ data, len }`
-- `@[]T → []T`: read first 2 words (prefix-compatible, unchanged)
+- `*[]T` (raw slice) is still 2 words: `{ data, len }`
+- `@[]T → *[]T`: read first 2 words (prefix-compatible, unchanged)
 - `make_slice(T, n)`: `{ &backing[0], n, backing_ptr, n }`
 - Subslice `s[lo:hi]`: `{ s.data + lo*elem, hi-lo, s.backing_refptr, s.backing_len }`
 - Field indices: 0=data, 1=len, 2=backing_refptr (unchanged), 3=backing_len (new)

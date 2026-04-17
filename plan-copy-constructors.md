@@ -90,7 +90,7 @@ Mirror the destructor naming with `__copy_` prefix:
 Mirror `gen_dtor.bn`. Functions:
 - `copyNameForType(t @types.Type) @[]char` — `"__copy_" + typeSuffix`
 - `qualifiedCopyNameForType(t @types.Type) @[]char` — cross-package variant
-- `copyName(structName []char) @[]char` — legacy-style helper
+- `copyName(structName *[]char) @[]char` — legacy-style helper
 
 Can reuse `dtorTypeSuffix` from `gen_dtor.bn` for the suffix (it builds the
 type encoding string that's shared between dtor and copy names).

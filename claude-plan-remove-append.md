@@ -18,7 +18,7 @@ language's design. Growable collections belong in a library, not as a builtin.
 ### Self-hosted compiler (.bn files)
 - 423 `append()` calls across 20 files
 - Biggest users: emit.bn (82), gen.bn (67), ir.bn (48), parser.bn (33)
-- Two patterns: string building (`[]char`) and object list accumulation
+- Two patterns: string building (`*[]char`) and object list accumulation
 
 ### Conformance tests
 - 67 `append()` calls across 18 test files

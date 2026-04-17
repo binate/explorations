@@ -4,7 +4,7 @@
 
 ## Context
 
-The compiler and interpreter build strings via repeated `append` to `[]char`, which
+The compiler and interpreter build strings via repeated `append` to `*[]char`, which
 is O(n) per append (copies the entire slice each time). Building a string of length
 m via m single-char appends is O(m^2). CharBuf replaces this with amortized O(1)
 appends using geometric growth, backed by `@[]char` (managed-slice).
@@ -43,14 +43,14 @@ type CharBuf struct {
 ```
 func New() CharBuf                            // empty, initial cap 64
 func WriteByte(b CharBuf, c char) CharBuf     // append one char
-func WriteStr(b CharBuf, s []char) CharBuf    // append a []char
+func WriteStr(b CharBuf, s *[]char) CharBuf    // append a *[]char
 func WriteInt(b CharBuf, n int) CharBuf       // append decimal integer
-func Bytes(b CharBuf) []char                  // return Data[0:Len] as raw []char
+func Bytes(b CharBuf) *[]char                  // return Data[0:Len] as raw *[]char
 func Len(b CharBuf) int                       // return b.Len
 ```
 
 `Bytes` returns `b.Data[0:b.Len]`. This works because:
-- `@[]T → []T` conversion is supported (assignable in type system)
+- `@[]T → *[]T` conversion is supported (assignable in type system)
 - Slice expressions on managed-slices work
 
 ## Files to Create
@@ -63,13 +63,13 @@ func Len(b CharBuf) int                       // return b.Len
 ## Dependency: Proper @[]T Codegen
 
 CharBuf's `Data` field is `@[]T`. For this to work correctly in compiled mode,
-`@[]T` needs a proper LLVM representation distinct from `[]T`:
+`@[]T` needs a proper LLVM representation distinct from `*[]T`:
 
-- `[]T` (raw slice) = `{ i8*, i64 }` (data ptr, length) — current `%BnSlice`
+- `*[]T` (raw slice) = `{ i8*, i64 }` (data ptr, length) — current `%BnSlice`
 - `@[]T` (managed-slice) = `{ i8*, i64, i8* }` (data ptr, length, refptr)
 
-The first two fields match `[]T` layout exactly (prefix match), so `@[]T` can
-be read as `[]T` with no arithmetic. The refptr (field 2) points to a management
+The first two fields match `*[]T` layout exactly (prefix match), so `@[]T` can
+be read as `*[]T` with no arithmetic. The refptr (field 2) points to a management
 header with refcount. See the managed-type headers plan for details.
 
 ## Conversion Order (after CharBuf exists)

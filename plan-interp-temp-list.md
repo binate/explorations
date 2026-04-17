@@ -106,7 +106,7 @@ expression evaluation is either moved (stored/returned) or destroyed.
 ### Function call lifecycle
 
 ```
-callFunc(interp, fn, args []*Value, callerTemps @[]@Value):
+callFunc(interp, fn, args *[]*Value, callerTemps @[]@Value):
     // Move each arg's @Value off caller's temps into callee's env
     for each arg, param:
         var owned @Value = moveFromTemps(callerTemps, arg)

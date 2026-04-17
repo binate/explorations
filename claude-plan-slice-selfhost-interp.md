@@ -20,15 +20,15 @@ Per the Binate spec, raw slices are unmanaged fixed-size views.
 
 ## Categories of Misuse
 
-### 1. String building (`[]char` append) — ~25 calls
+### 1. String building (`*[]char` append) — ~25 calls
 
 **Where:** `value.bn` (intToStr, concatStr, valueToString), `interp.bn` (escape
 sequence parsing in string literals)
 
 **Pattern in value.bn:**
 ```
-func intToStr(n int) []char {
-    var buf []char
+func intToStr(n int) *[]char {
+    var buf *[]char
     ...
     buf = append(buf, cast(char, d + cast(int, '0')))
     ...
@@ -54,7 +54,7 @@ struct field lists, array/slice element lists), `value.bn` (copyValue, ZeroValue
 
 **a) Building function call arguments (interp.bn:894-905):**
 ```
-var args []@Value
+var args *[]@Value
 for i := 0; i < len(e.Args); i++ {
     args = append(args, evalExpr(interp, e.Args[i]))
 }
@@ -63,7 +63,7 @@ Size is known: `len(e.Args)`. Could pre-allocate.
 
 **b) Building return value lists (interp.bn:378):**
 ```
-var vals []@Value
+var vals *[]@Value
 for i := 0; i < len(s.Exprs); i++ {
     vals = append(vals, evalExpr(interp, s.Exprs[i]))
 }
@@ -72,7 +72,7 @@ Size is known: `len(s.Exprs)`. Could pre-allocate.
 
 **c) Copying elements in copyValue (value.bn:150-157):**
 ```
-var elems []@Value
+var elems *[]@Value
 for i := 0; i < len(v.Elems); i++ {
     elems = append(elems, copyValue(v.Elems[i]))
 }
@@ -81,7 +81,7 @@ Size is known: `len(v.Elems)`. Could pre-allocate.
 
 **d) Zero-initializing struct fields (interp.bn:1130, value.bn:201):**
 ```
-var fields []@Value
+var fields *[]@Value
 for i := 0; i < len(st.Fields); i++ {
     fields = append(fields, ZeroValue(st.Fields[i].Type))
 }
@@ -110,7 +110,7 @@ for i := lo; i < hi; i++ {
 ```
 Size is known: `hi - lo`. Could pre-allocate.
 
-**Fix for all known-size cases:** Use `make_raw_deprecated([]T, n)` (or
+**Fix for all known-size cases:** Use `make_raw_deprecated(*[]T, n)` (or
 `make_slice(T, n)` once available) and index assignment instead of append.
 Since these are all cases where the final size is known before the loop:
 ```
@@ -121,7 +121,7 @@ for i := 0; i < len(e.Args); i++ {
 ```
 Or with `make_raw_deprecated` during the transition:
 ```
-var args []@Value = make_raw_deprecated([]Value, len(e.Args))
+var args *[]@Value = make_raw_deprecated(*[]Value, len(e.Args))
 ```
 
 ### 3. Retained state accumulation — ~8 calls
@@ -150,7 +150,7 @@ are small and grow infrequently, even O(n) copy on growth is acceptable.
 **interp.bn:74-75:** `interp.Types = nil; interp.ImportAliases = nil` — reset to nil
 
 **Fix:** Remove nil comparison (type checker should reject). Replace `= nil` with
-`= []T{}` or `.Clear()` on buffer types.
+`= *[]T{}` or `.Clear()` on buffer types.
 
 ## Implementation Order
 
@@ -197,7 +197,7 @@ See `claude-plan-fix-make.md` and `claude-plan-charbuf.md`.
 
 - `make` must be fixed first (`claude-plan-fix-make.md`)
 - `pkg/buf` (CharBuf) must exist (`claude-plan-charbuf.md`)
-- `make_raw_deprecated([]T, n)` for raw slice pre-allocation during migration
+- `make_raw_deprecated(*[]T, n)` for raw slice pre-allocation during migration
   (or `make_slice(T, n)` once available, returning `@[]T`)
 - Append removal (language-wide) must happen before step 4
 
@@ -213,6 +213,6 @@ Medium. The self-hosted interpreter is exercised by the selfhost conformance mod
 and is less critical than the compiler (the bootstrap Go interpreter is the primary
 path). But it must remain correct for the selfhost mode to pass.
 
-The biggest risk is the pre-sized allocation pattern — `make_raw_deprecated([]T, n)`
+The biggest risk is the pre-sized allocation pattern — `make_raw_deprecated(*[]T, n)`
 preserves the current raw-slice allocation behavior during migration.
 `make_slice(T, n)` returns `@[]T` (managed-slice) once implemented.

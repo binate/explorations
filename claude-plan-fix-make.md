@@ -4,58 +4,58 @@
 
 ## Problem
 
-`make([]T, n)` has two issues:
+`make(*[]T, n)` has two issues:
 
 1. **Semantic ambiguity.** `make(T)` should return `@T` for any type T. If T is
-   `[]int`, then `make([]int)` should return `@([]int)` — a managed pointer to a
-   raw slice. But the current `make([]T, n)` is special-cased to return `@[]T`
+   `*[]int`, then `make(*[]int)` should return `@(*[]int)` — a managed pointer to a
+   raw slice. But the current `make(*[]T, n)` is special-cased to return `@[]T`
    (a managed-slice — the 3-word type). This breaks `make`'s uniformity and creates
-   a trap for generics (`make(T)` where `T=[]int`).
+   a trap for generics (`make(T)` where `T=*[]int`).
 
 2. **Implementation mismatch.** Even with the special-case typing, the runtime
    (`bn_make_slice`) returns a raw `BnSlice` (ptr + len via `calloc`) with no
-   refcount header. All existing code assigns the result to `[]T` variables.
+   refcount header. All existing code assigns the result to `*[]T` variables.
 
 ## Design Decision
 
 - **`make(T)`** takes any type T, returns `@T`. No size argument. Uniform.
   - `make(Point)` → `@Point`
-  - `make([]int)` → `@([]int)` (managed ptr to zero-value raw slice)
+  - `make(*[]int)` → `@(*[]int)` (managed ptr to zero-value raw slice)
   - `make([100]int)` → `@([100]int)` (managed ptr to zero-init fixed-size array)
 
 - **`make_slice(T, n)`** takes an element type and runtime size, returns `@[]T`
   (managed-slice — the special 3-word type: data_ptr, length, refptr). This is
   the ONLY way to create runtime-sized managed-slices.
 
-- **`make_raw_deprecated([]T, n)`** temporary builtin preserving current broken
-  behavior (returns raw `[]T` via `calloc`). Exists only during migration.
+- **`make_raw_deprecated(*[]T, n)`** temporary builtin preserving current broken
+  behavior (returns raw `*[]T` via `calloc`). Exists only during migration.
 
 - **Notation**: `@([k]T)` with parens for managed pointer to fixed-size array.
   `@[k]T` without parens is ambiguous and should not be used.
 
-## Current `make([]T, n)` Call Sites (~10)
+## Current `make(*[]T, n)` Call Sites (~10)
 
 | File | Line | Code |
 |------|------|------|
-| compile.bn | 510 | `var buf []uint8 = make([]uint8, 4096)` |
-| compile.bn | 531 | `var buf []uint8 = make([]uint8, len(data))` |
-| main.bn | 121 | `var buf []uint8 = make([]uint8, 4096)` |
-| mini_driver.bn | 35 | `var buf []uint8 = make([]uint8, 4096)` |
-| loader/loader.bn | 63 | `var buf []uint8 = make([]uint8, 4096)` |
-| interp/bootstrap_fwd.bn | 90 | `var buf []uint8 = make([]uint8, bufSize)` |
-| interp/bootstrap_fwd.bn | 107 | `var buf []uint8 = make([]uint8, n)` |
+| compile.bn | 510 | `var buf *[]uint8 = make(*[]uint8, 4096)` |
+| compile.bn | 531 | `var buf *[]uint8 = make(*[]uint8, len(data))` |
+| main.bn | 121 | `var buf *[]uint8 = make(*[]uint8, 4096)` |
+| mini_driver.bn | 35 | `var buf *[]uint8 = make(*[]uint8, 4096)` |
+| loader/loader.bn | 63 | `var buf *[]uint8 = make(*[]uint8, 4096)` |
+| interp/bootstrap_fwd.bn | 90 | `var buf *[]uint8 = make(*[]uint8, bufSize)` |
+| interp/bootstrap_fwd.bn | 107 | `var buf *[]uint8 = make(*[]uint8, n)` |
 
 Plus 2 conformance tests (009_slices, 070_char_slice_set) and 1 test string.
 
-All assign to `[]T` (raw slice), not `@[]T`. These are I/O buffers — raw slices
+All assign to `*[]T` (raw slice), not `@[]T`. These are I/O buffers — raw slices
 are arguably correct for them (data passed to syscalls, not retained).
 
 ## Migration Plan
 
 ### Step 1: Add `make_raw_deprecated` builtin
 
-A temporary builtin that does exactly what `make([]T, n)` does today: allocates
-a raw `[]T` via `calloc`. Returns `[]T` (NOT `@[]T`).
+A temporary builtin that does exactly what `make(*[]T, n)` does today: allocates
+a raw `*[]T` via `calloc`. Returns `*[]T` (NOT `@[]T`).
 
 Changes across all layers:
 
@@ -63,7 +63,7 @@ Changes across all layers:
 |-----------|------|--------|
 | Token | `pkg/ast.bni`, bootstrap `token/` | Add `MAKE_RAW_DEPRECATED` token |
 | Parser | `pkg/parser/parser.bn`, bootstrap parser | Parse `make_raw_deprecated(...)` |
-| Type checker | `pkg/types/checker.bn`, bootstrap checker | Returns `[]T` (raw slice type) |
+| Type checker | `pkg/types/checker.bn`, bootstrap checker | Returns `*[]T` (raw slice type) |
 | IR gen | `pkg/ir/gen.bn` | Emit `OP_MAKE_SLICE` (same as current) |
 | Codegen | `pkg/codegen/emit.bn` | No change needed |
 | Bootstrap interp | `interpreter.go` | Handle `make_raw_deprecated` → SliceVal |
@@ -75,7 +75,7 @@ Changes across all layers:
 
 Validate: conformance suite, self-compilation.
 
-### Step 2: Convert existing `make([]T, n)` → `make_raw_deprecated([]T, n)`
+### Step 2: Convert existing `make(*[]T, n)` → `make_raw_deprecated(*[]T, n)`
 
 Mechanical find-and-replace across all ~10 call sites + 2 conformance tests.
 
@@ -85,11 +85,11 @@ Validate: conformance suite, self-compilation. Behavior identical.
 
 ### Step 3: Remove the `n` form from `make`
 
-Now that no code uses `make([]T, n)`, remove the special-case:
+Now that no code uses `make(*[]T, n)`, remove the special-case:
 - Type checker: `make(T)` always returns `@T`, no second argument accepted
-  for slice types. `make([]T)` returns `@([]T)`.
-- IR gen: `make([]T)` emits `OP_MAKE` (like any other type), not `OP_MAKE_SLICE`
-- Bootstrap interpreter: `make([]T)` creates a managed pointer to a zero-value
+  for slice types. `make(*[]T)` returns `@(*[]T)`.
+- IR gen: `make(*[]T)` emits `OP_MAKE` (like any other type), not `OP_MAKE_SLICE`
+- Bootstrap interpreter: `make(*[]T)` creates a managed pointer to a zero-value
   raw slice (null ptr, length 0), not a managed-slice
 
 For `make([k]T)`:
@@ -97,10 +97,10 @@ For `make([k]T)`:
 - IR gen: `OP_MAKE` with array type (may already work via existing path)
 - Codegen: existing `OP_MAKE` path allocates `sizeof([k]T)` bytes, works
 
-**Commit 3a**: Remove `n` argument from `make([]T, ...)` in type checkers.
+**Commit 3a**: Remove `n` argument from `make(*[]T, ...)` in type checkers.
 **Commit 3b**: Update IR gen — `make` with slice type emits `OP_MAKE`, not
 `OP_MAKE_SLICE`.
-**Commit 3c**: Update interpreters — `make([]T)` returns managed ptr to
+**Commit 3c**: Update interpreters — `make(*[]T)` returns managed ptr to
 zero-value raw slice.
 
 Validate at each commit.
@@ -126,7 +126,7 @@ All operations implemented:
 - **Create**: codegen calls `bn_rt__MakeManagedSlice` (pkg/rt) ✅
 - **Refcount inc**: extract refptr (field 2), call `rt.RefInc` ✅
 - **Refcount dec**: extract refptr (field 2), call `rt.RefDec` ✅
-- **To raw slice** (`@[]T → []T`): extractvalue fields 0,1 into `%BnSlice` (OP_MANAGED_TO_RAW) ✅
+- **To raw slice** (`@[]T → *[]T`): extractvalue fields 0,1 into `%BnSlice` (OP_MANAGED_TO_RAW) ✅
 - **Length**: extract `%BnSlice` prefix, call `bn_slice_len` ✅
 - **Index**: extract data ptr (field 1), GEP + load/store
 - **Load/store**: 3 × i64 loads/stores (or treat as `{i8*, i8*, i64}` aggregate)
@@ -147,7 +147,7 @@ All operations implemented:
 Additional codegen work for `@[]T` as a first-class type:
 - Load/store of `%BnManagedSlice` fields
 - Refcount inc/dec on the refptr
-- `@[]T → []T` conversion emission
+- `@[]T → *[]T` conversion emission
 - `len(@[]T)` emission
 - Index operations on `@[]T`
 
@@ -155,7 +155,7 @@ Additional codegen work for `@[]T` as a first-class type:
 **Commit 4b**: Add `make_slice` token/parser/checker across bootstrap + self-hosted.
 **Commit 4c**: IR gen + codegen for `OP_MAKE_MANAGED_SLICE`.
 **Commit 4d**: `@[]T` load/store/refcount in codegen.
-**Commit 4e**: `@[]T → []T` conversion, `len(@[]T)`, indexing.
+**Commit 4e**: `@[]T → *[]T` conversion, `len(@[]T)`, indexing.
 **Commit 4f**: Conformance test for `make_slice`.
 
 Validate at each commit.
@@ -195,7 +195,7 @@ interpreters, runtime).
 
 ```
 Step 1: Add make_raw_deprecated               [3 commits]
-Step 2: Convert make([]T,n) → make_raw_dep.   [1 commit]
+Step 2: Convert make(*[]T,n) → make_raw_dep.   [1 commit]
 Step 3: Remove n-form from make                [3 commits]
 Step 4: Add make_slice + @[]T codegen          [6 commits]
 Step 5: Add @([k]T) → @[]T conversion         [1 commit]
@@ -222,6 +222,6 @@ The managed-slice is conceptually `(managed_ptr, raw_slice)` bundled together.
 too large, we can pause after step 2 (everything works with `make_raw_deprecated`)
 and take more time on the managed-slice implementation.
 
-**Step 3 is moderate risk** — changing `make([]T)` semantics affects type checking
+**Step 3 is moderate risk** — changing `make(*[]T)` semantics affects type checking
 and IR generation. But since no code uses this form after step 2, there's nothing
 to break.

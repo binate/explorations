@@ -51,20 +51,20 @@ pkg/ir.bni:
 // ============================================================
 
 type Module struct {
-    Name     []char
-    Funcs    []@Func
-    Globals  []@Global
-    Types    []@TypeDef     // named struct types
+    Name     *[]char
+    Funcs    *[]@Func
+    Globals  *[]@Global
+    Types    *[]@TypeDef     // named struct types
 }
 
 type Global struct {
-    Name     []char
+    Name     *[]char
     Typ      @types.Type
     Init     @Value          // constant initializer (nil = zero)
 }
 
 type TypeDef struct {
-    Name     []char
+    Name     *[]char
     Typ      @types.Type     // the underlying struct type
 }
 
@@ -73,16 +73,16 @@ type TypeDef struct {
 // ============================================================
 
 type Func struct {
-    Name     []char
-    Params   []@Param
-    Results  []@types.Type
-    Blocks   []@Block
+    Name     *[]char
+    Params   *[]@Param
+    Results  *[]@types.Type
+    Blocks   *[]@Block
     // Locals  — not needed; SSA values *are* the locals
     IsExtern bool           // declared but not defined (bootstrap builtins)
 }
 
 type Param struct {
-    Name     []char
+    Name     *[]char
     Typ      @types.Type
     ID       int            // SSA value ID
 }
@@ -92,8 +92,8 @@ type Param struct {
 // ============================================================
 
 type Block struct {
-    Label    []char          // e.g., "entry", "if.then", "for.cond"
-    Instrs   []@Instr
+    Label    *[]char          // e.g., "entry", "if.then", "for.cond"
+    Instrs   *[]@Instr
     // Terminated by exactly one terminator instruction (last in Instrs)
 }
 
@@ -107,14 +107,14 @@ type Instr struct {
     Typ      @types.Type    // result type
 
     // Operands — usage depends on Op:
-    Args     []@Instr       // input values (SSA references)
+    Args     *[]@Instr       // input values (SSA references)
     Block1   @Block         // branch target / then block
     Block2   @Block         // else block / loop continue
-    Blocks   []@PhiEntry    // phi node entries
+    Blocks   *[]@PhiEntry    // phi node entries
 
     // Immediates:
     IntVal   int            // integer constant
-    StrVal   []char         // string constant, global name, field name, function name
+    StrVal   *[]char         // string constant, global name, field name, function name
     BoolVal  bool           // boolean constant
     Index    int            // field index, element index
 
@@ -134,7 +134,7 @@ type PhiEntry struct {
 ```
 OP_CONST_INT        // IntVal = value, Typ = integer type
 OP_CONST_BOOL       // BoolVal = value
-OP_CONST_STRING     // StrVal = value (as []char)
+OP_CONST_STRING     // StrVal = value (as *[]char)
 OP_CONST_NIL        // nil value of type TypeArg
 ```
 
@@ -166,7 +166,7 @@ OP_GET_ELEM_PTR     // array/slice element pointer: Args[0] = base, Args[1] = in
 ```
 OP_BOX              // box(val): Args[0] = value → managed pointer
 OP_MAKE             // make(T): TypeArg = type → managed pointer to zero value
-OP_MAKE_SLICE       // make([]T, n): TypeArg = elem type, Args[0] = length → managed slice
+OP_MAKE_SLICE       // make(*[]T, n): TypeArg = elem type, Args[0] = length → managed slice
 OP_DEREF            // dereference: Args[0] = pointer → pointed-to value
 OP_NIL_CHECK        // panic if nil: Args[0] = pointer (void result)
 OP_REFCOUNT_INC     // inc refcount: Args[0] = managed ptr (void result)
@@ -186,11 +186,11 @@ OP_APPEND           // append(slice, val): Args[0] = slice, Args[1] = value → 
 
 #### Strings
 ```
-OP_STRING_TO_CHARS  // string literal → []char: Args[0] → slice (excludes null)
+OP_STRING_TO_CHARS  // string literal → *[]char: Args[0] → slice (excludes null)
 OP_STRING_TO_ARRAY  // string literal → [N]char: Args[0] → array (includes null)
 ```
 
-Note: String literals are untyped. Once coerced to `[]char` or `[N]char`, they
+Note: String literals are untyped. Once coerced to `*[]char` or `[N]char`, they
 are just slices/arrays — `len()`, indexing, and slicing use the standard slice/array
 operations. There is no `+` operator for strings; use `Concat` from pkg/bootstrap.
 
@@ -277,10 +277,10 @@ The codegen package translates our IR Module into LLVM IR text (`.ll` file). Thi
 | bool | `i1` |
 | *T | `ptr` (opaque pointer) |
 | @T | `ptr` (same as raw pointer at LLVM level; refcount is runtime) |
-| []T | `{ ptr, i64 }` (data pointer + length) |
+| *[]T | `{ ptr, i64 }` (data pointer + length) |
 | [N]T | `[N x <elem>]` |
 | struct { ... } | `{ <field1>, <field2>, ... }` or named `%StructName` |
-| string / []char | `{ ptr, i64 }` (same as slice; backing data null-terminated for literals) |
+| string / *[]char | `{ ptr, i64 }` (same as slice; backing data null-terminated for literals) |
 | func(...)... | not first-class yet; direct calls only |
 
 #### Managed Pointer Layout
@@ -410,7 +410,7 @@ entry:
 
 ```
 pkg/
-  codegen.bni           // Codegen interface: Emit(module) → []char (LLVM IR text)
+  codegen.bni           // Codegen interface: Emit(module) → *[]char (LLVM IR text)
   codegen/
     emit.bn             // Main emitter: module → LLVM IR text
     emit_type.bn        // Type emission: Binate type → LLVM type string
@@ -516,7 +516,7 @@ Tested: `2+3*4=14`, `fib(10)=55`, `factorial(7)=5040`, variable mutation, if/els
 
 ### Step 10: Strings & Remaining Features — DONE
 
-- String operations: len, indexing, slicing (via []char)
+- String operations: len, indexing, slicing (via *[]char)
 - Switch statements
 - Bitwise operations
 - Type declarations, const/iota
@@ -598,7 +598,7 @@ Fixed chained managed pointer field access (`list.next.val`).
 - Two-pass struct registration: register names first, populate fields second (enables self-referential types)
 - `getSelectorType` handles `TYP_MANAGED_PTR` for chained access (`list.next.val`)
 - `genSelector` dereferences managed ptr before field access in chains
-- String-to-chars conversion for selector assignment (`b.name = "test"` where field is `[]char`)
+- String-to-chars conversion for selector assignment (`b.name = "test"` where field is `*[]char`)
 - Zero-initialize struct allocas (fixes uninitialized slice fields in structs)
 
 **Remaining test gaps (future):**
@@ -696,7 +696,7 @@ Add a conformance test that allocates a mixed-width struct via `make(T)`, writes
 
 Once the interpreter is compiled natively (Step 14), managed pointers become real native pointers with the same `[refcount | free_fn | payload]` header as compiled code. At that point, struct values in the interpreter can use flat byte buffers with `SizeOf`/`FieldOffset` for field access. No marshalling needed for interop — interpreted and compiled code share the same memory representation.
 
-Before self-compilation (while running under the bootstrap), the interpreter keeps its current `Fields []@Value` representation. The bootstrap doesn't need interop with compiled code.
+Before self-compilation (while running under the bootstrap), the interpreter keeps its current `Fields *[]@Value` representation. The bootstrap doesn't need interop with compiled code.
 
 **Future:**
 - `#[packed]` annotation support
@@ -796,12 +796,12 @@ int64_t bn_bootstrap__Close(int64_t fd);
 BnSlice bn_bootstrap__Itoa(int64_t v);
 BnSlice bn_bootstrap__Concat(BnSlice a, BnSlice b);
 int64_t bn_bootstrap__Stat(BnSlice path);
-BnSlice bn_bootstrap__Args();          // returns [][]char
-BnSlice bn_bootstrap__ReadDir(BnSlice path);  // returns [][]char
-int64_t bn_bootstrap__Exec(BnSlice program, BnSlice args);  // [][]char args
+BnSlice bn_bootstrap__Args();          // returns *[]*[]char
+BnSlice bn_bootstrap__ReadDir(BnSlice path);  // returns *[]*[]char
+int64_t bn_bootstrap__Exec(BnSlice program, BnSlice args);  // *[]*[]char args
 ```
 
-Note: functions taking `[]char` receive `%BnSlice` (data ptr + len). Functions returning `[][]char` need a slice-of-slices representation. `Exec` takes `[][]char` — this requires the runtime to unpack nested slices.
+Note: functions taking `*[]char` receive `%BnSlice` (data ptr + len). Functions returning `*[]*[]char` need a slice-of-slices representation. `Exec` takes `*[]*[]char` — this requires the runtime to unpack nested slices.
 
 #### 14e. LLVM function declarations for imported packages
 
@@ -817,11 +817,11 @@ The codegen must emit `declare` directives for all cross-package functions that 
 
 #### 14g. Expected challenges
 
-- **Slice-of-slices** (`[][]char`): `bootstrap.Args()` and `bootstrap.ReadDir()` return these. The IR/codegen doesn't currently handle nested slices well.
+- **Slice-of-slices** (`*[]*[]char`): `bootstrap.Args()` and `bootstrap.ReadDir()` return these. The IR/codegen doesn't currently handle nested slices well.
 - **Package-qualified field access**: `pkg.Struct.Field` resolution across packages.
 - **Circular type references across packages**: Unlikely in current code, but possible.
 - **Scale**: The interpreter + all its packages is ~5000 lines of Binate. This will stress the IR gen and LLVM emission at a scale not yet tested.
-- **Bootstrap string handling**: Bootstrap functions use `[]char` with null-terminator conventions. The C runtime must match these conventions.
+- **Bootstrap string handling**: Bootstrap functions use `*[]char` with null-terminator conventions. The C runtime must match these conventions.
 
 #### Order of work
 
@@ -855,19 +855,19 @@ This means `println` is not a regular function call — it's a compiler intrinsi
 
 String literals are **untyped constants** (like integer literals). They carry null-terminated backing data and coerce based on context:
 
-- **`[]char` (or `[]const char`):** Fat pointer `{ ptr, i64 }`. The slice view excludes the null terminator. `"hello"` → 5-element slice, but 6 bytes in backing data (`hello\0`). Same layout as any other slice.
+- **`*[]char` (or `*[]const char`):** Fat pointer `{ ptr, i64 }`. The slice view excludes the null terminator. `"hello"` → 5-element slice, but 6 bytes in backing data (`hello\0`). Same layout as any other slice.
 - **`[N]char` (or `[N]const char`):** Fixed array that includes the null. `"hello"` → `[6]char` with contents `{'h','e','l','l','o','\0'}`. Conceptually: `var s [6]char = "hello"`.
-- **Default (unforced context):** `[]const char`.
+- **Default (unforced context):** `*[]const char`.
 
 A string-to-slice coercion is conceptually `cast([N+1]const char, "lit")[:N]` — the backing data has the null, the slice view excludes it.
 
-**Current status:** The self-hosted interpreter enforces the null-terminator invariant for `VAL_STRING` and handles `[]char` coercion. The `[N]char` coercion path exists in `coerce()` but is currently unreachable — the type checker does not yet allow string-to-array assignment. The bootstrap interpreter does not enforce the invariant (not needed since it won't interop with compiled code).
+**Current status:** The self-hosted interpreter enforces the null-terminator invariant for `VAL_STRING` and handles `*[]char` coercion. The `[N]char` coercion path exists in `coerce()` but is currently unreachable — the type checker does not yet allow string-to-array assignment. The bootstrap interpreter does not enforce the invariant (not needed since it won't interop with compiled code).
 
-**LLVM emission:** String literals are emitted as `[N+1 x i8]` global constants with trailing `\00`. A `[]char` reference to one has `len = N`. An `[N+1]char` reference includes the null.
+**LLVM emission:** String literals are emitted as `[N+1 x i8]` global constants with trailing `\00`. A `*[]char` reference to one has `len = N`. An `[N+1]char` reference includes the null.
 
 **Concat** (runtime): Allocates `len(a) + len(b) + 1`, copies both, writes `\0`. Returns slice with `len = len(a) + len(b)`.
 
-**append() and slicing** don't maintain the null invariant — they produce general `[]char` values. Code that needs C interop on such strings must copy with a null terminator.
+**append() and slicing** don't maintain the null invariant — they produce general `*[]char` values. Code that needs C interop on such strings must copy with a null terminator.
 
 There is **no `+` operator** for strings or slices. Use `Concat` from pkg/bootstrap.
 

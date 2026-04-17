@@ -7,7 +7,7 @@ terminated pointer) in the compiler and `VAL_STRING` with `StrVal
 @[]char` in the interpreter. This creates problems:
 
 1. No uniform type — special-cased everywhere.
-2. Mutable aliasing unsound — `var x []char = "abc"` allows mutation
+2. Mutable aliasing unsound — `var x *[]char = "abc"` allows mutation
    of immutable static data.
 3. Interpreter StrVal cache prevents interop with compiled code.
 4. Runtime overhead — `bn_string_to_chars` allocates+copies at runtime
@@ -25,22 +25,22 @@ terminated pointer) in the compiler and `VAL_STRING` with `StrVal
   Mutation is safe because the managed-slice owns its copy. This is
   the only non-const variant allowed — the allocation is explicit
   (`@[]T` is an owning type, so the copy is part of the semantics).
-- `[]const char` — raw slice borrowing from static data. Zero cost.
+- `*[]const char` — raw slice borrowing from static data. Zero cost.
 - `[N]const char` — **natural type**. Array copy.
 - `[N]char` — array copy. Mutation is safe (data is in the array).
 
 NOT allowed:
-- `[]char` — raw slices don't own their backing. A mutable borrow
+- `*[]char` — raw slices don't own their backing. A mutable borrow
   of immutable static data is unsound, and there's nowhere to put a
   mutable copy (raw slices are non-owning views).
 
 This generalizes to all slice/array literals (not just strings):
 - `@[]T` literals: always allowed (both const and non-const).
   Non-const incurs allocation+copy; const borrows from static.
-- `[]T` literals: const-only (borrows from static).
+- `*[]T` literals: const-only (borrows from static).
 - `[N]T` literals: always allowed (data copied into array).
 
-(Bootstrap uses `[]char` and `@[]char` as stand-ins since it lacks
+(Bootstrap uses `*[]char` and `@[]char` as stand-ins since it lacks
 const types. Pragmatic compromise.)
 
 ### Statically-initialized global @[]const char
@@ -86,13 +86,13 @@ never freed. No "immortal refcount" sentinel needed.
   4-word header with the new backing. The caller owns the copy and
   may mutate it freely. This is the equivalent of `buf.CopyStr()`.
 
-- **As `[]const char`**: extract the first 2 words from the global
+- **As `*[]const char`**: extract the first 2 words from the global
   (data pointer + length). Produces a raw slice borrowing static data.
 
 - **As `[N]const char`** / **`[N]char`**: memcpy from the data
   pointer into the array.
 
-- **As function argument `[]char` (bootstrap compat)**: extract first
+- **As function argument `*[]char` (bootstrap compat)**: extract first
   2 words. In the bootstrap (which lacks const), this is the common
   pattern. Mutation through this raw slice is undefined behavior.
 
@@ -141,14 +141,14 @@ never freed. No "immortal refcount" sentinel needed.
 
 String literals default to const types but allow non-const `@[]T`
 (which owns its backing, so the copy is semantically explicit).
-The disallowed case is non-const `[]T` (raw slice) — borrowing
+The disallowed case is non-const `*[]T` (raw slice) — borrowing
 static data mutably is unsound, and raw slices can't own a copy.
 
 This generalizes to all literal types: const literals borrow from
 static data (zero cost); non-const managed-slice literals incur
 allocation+copy (owning); non-const raw-slice literals are unsound.
 
-Until const types are implemented, the bootstrap uses `[]char` and
+Until const types are implemented, the bootstrap uses `*[]char` and
 `@[]char` as stand-ins. Documented as pragmatic compromise.
 
 ## Migration order
@@ -172,7 +172,7 @@ Until const types are implemented, the bootstrap uses `[]char` and
 
 ### Phase 3: Type system cleanup
 
-1. Resolve `TYP_STRING` to `@[]const char` / `[]const char` during
+1. Resolve `TYP_STRING` to `@[]const char` / `*[]const char` during
    type checking.
 2. Remove or rename `TYP_STRING`.
 3. Update assignability rules.
@@ -182,7 +182,7 @@ Until const types are implemented, the bootstrap uses `[]char` and
 1. **`println("hello")`**: with the new model, the string literal is
    a `@[]const char` value (4-word managed-slice). `println` reads
    the data pointer and length from the header. This is the same as
-   printing any `[]char` — no special string handling needed.
+   printing any `*[]char` — no special string handling needed.
 
 2. **Null-terminated C interop**: `slice_to_cstr` in the C runtime
    copies and null-terminates. No change needed. (String literal data

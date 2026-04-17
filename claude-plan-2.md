@@ -377,7 +377,7 @@ These don't need to be resolved now but should be addressed as we encounter them
 
 Features that are fully designed but not implemented in the bootstrap subset:
 - **Spread operator** (`...`): needed for `append(a, b...)` and variadic forwarding. Bootstrap uses `Concat` builtin for string concatenation instead.
-- **Const types**: bootstrap does not support `const` in types. String literals are `[]char` (not `[]const char`).
+- **Const types**: bootstrap does not support `const` in types. String literals are `*[]char` (not `*[]const char`).
 - **Generics**: bootstrap uses concrete types per key/value combination.
 - **Interfaces / impl / methods**: designed but not in bootstrap subset (decision pending on whether to add for AST representation).
 - **Function values / closures**: workaround via switch statements.
@@ -410,7 +410,7 @@ Features that are fully designed but not implemented in the bootstrap subset:
 ### Bootstrap additions (beyond original plan)
 - `ReadDir`, `Stat` builtins for package loader file discovery
 - `append(nil, x)` and `len(nil)` handling (Go semantics)
-- `StringVal` slicing support (produces `[]char SliceVal`)
+- `StringVal` slicing support (produces `*[]char SliceVal`)
 - Bootstrap forwarding layer (`RegisterBootstrapPackage`, `callBootstrapBuiltin`)
 - `SetArgs` for passing program arguments to inner interpreter
 

@@ -96,7 +96,7 @@
 
 **Terminology — IMPORTANT**: "managed-slice" (hyphenated) refers specifically to `@[]T`,
 the 4-word type `(data_ptr, length, backing_refptr, backing_len)` created by `make_slice`. "Managed slice"
-(two words, no hyphen) is ambiguous — it could mean `@[]T` (managed-slice) or `@([]T)`
+(two words, no hyphen) is ambiguous — it could mean `@[]T` (managed-slice) or `@(*[]T)`
 (a managed pointer to a raw slice). In these notes we use the hyphenated form
 "managed-slice" when referring to `@[]T` to avoid confusion.
 
@@ -115,7 +115,7 @@ the 4-word type `(data_ptr, length, backing_refptr, backing_len)` created by `ma
 - Assigned to a managed array → allocate, copy, set up refcount
 - Raw pointer → pointer to static data
 
-**Managed-slice representation — DECIDED (updated 2026-04-02)**: a managed-slice (`@[]T`) is four words: `(data, len, backing_refptr, backing_len)`. The first two words are identical in layout to a raw slice `[]T`, so `@[]T` → `[]T` conversion is trivial (just read the first 16 bytes). The remaining two words describe the backing allocation:
+**Managed-slice representation — DECIDED (updated 2026-04-02)**: a managed-slice (`@[]T`) is four words: `(data, len, backing_refptr, backing_len)`. The first two words are identical in layout to a raw slice `*[]T`, so `@[]T` → `*[]T` conversion is trivial (just read the first 16 bytes). The remaining two words describe the backing allocation:
 1. Raw pointer to the start of the view (direct data access, no arithmetic needed)
 2. View length (number of elements visible through this slice)
 3. Managed pointer to the backing allocation (keeps it alive via refcounting)
@@ -137,7 +137,7 @@ Note: with both view length and backing length available, the Go-style "capacity
 
 **Introspection builtins**: for low-level transparency, testing, and debugging:
 - Something that takes a managed pointer (`@T`) and returns the management header (refcount, free function) as a Binate struct.
-- Something that takes a raw slice (`[]T`) and returns the slice representation (data ptr, length) as a Binate struct.
+- Something that takes a raw slice (`*[]T`) and returns the slice representation (data ptr, length) as a Binate struct.
 - Something that takes a managed-slice (`@[]T`) and returns the managed-slice representation (data ptr, length, refptr) as a Binate struct.
 - All management/representation structs should be proper Binate structs, not opaque C constructs.
 - These can have "obscure" names (e.g., `_refcount_header`, `_slice_repr`, or `bn_`-prefixed) since they're not intended for normal use.
@@ -213,7 +213,7 @@ Benefits:
 - Both are builtins (like `make`), not functions — they take types as first arguments.
 - **`sizeof(T)`**: size of type T in bytes. Returns `uint`. Compile-time constant. Takes a type, not an expression.
 - **`alignof(T)`**: alignment requirement of type T in bytes. Returns `uint`. Compile-time constant. Takes a type, not an expression.
-- For composite value types: `sizeof([]int)` = 2 words (the slice value itself), `sizeof(Stringer)` = 2 words (the interface value itself) — not the data they point to.
+- For composite value types: `sizeof(*[]int)` = 2 words (the slice value itself), `sizeof(Stringer)` = 2 words (the interface value itself) — not the data they point to.
 - **Builtins are keywords** (not predeclared names): `make`, `make_slice`, `box`, `cast`, `bit_cast`, `len`, `unsafe_index`, `sizeof`, `alignof`. They take types as arguments, which can't be parsed as regular function calls.
 
 ### Const-ness — DECIDED
@@ -224,8 +224,8 @@ Benefits:
 - `const *int` — const pointer to int (pointer can't change)
 - `*const int` — pointer to const int (data can't change)
 - `const *const int` — const pointer to const int
-- `[]const *int` — slice of const pointers to int
-- `[]*const int` — slice of pointers to const int
+- `*[]const *int` — slice of const pointers to int
+- `*[]*const int` — slice of pointers to const int
 
 **Const on variable declarations**: means the variable can't be reassigned:
 - `const x int = 5`
@@ -443,7 +443,7 @@ impl *const FileHandle : Stringer    // const raw pointer receiver
 **Example sketch:**
 ```
 type Writer interface {
-    write(buf []char) int
+    write(buf *[]char) int
     close()
 }
 
@@ -453,7 +453,7 @@ type FileHandle struct {
 
 impl *FileHandle : Writer
 
-func (f *FileHandle) write(buf []char) int { ... }
+func (f *FileHandle) write(buf *[]char) int { ... }
 func (f *FileHandle) close() { ... }
 ```
 
@@ -464,7 +464,7 @@ func (f *FileHandle) close() { ... }
 - Type checking against interface constraints (checked once against the constraint, not per instantiation)
 
 ```
-func sort[T Comparable](items []T) { ... }
+func sort[T Comparable](items *[]T) { ... }
 sort[int](myArray)
 ```
 
@@ -543,7 +543,7 @@ func (p *const Point) distance() float64 { ... }
 - `type Celsius float64` — distinct new type, same representation. Requires `cast()` to convert. Can have methods and impl interfaces.
 - `type byte = uint8` — alias, fully interchangeable. Cannot have methods.
 - Named structs via `type`: `type Point struct { x int; y int }` — the only way to declare a named struct (no `struct Point{...}` shorthand, like Go).
-- Distinct types from any type: pointers (`type Handle @SomeStruct`), slices (`type Buffer []uint8`), etc.
+- Distinct types from any type: pointers (`type Handle @SomeStruct`), slices (`type Buffer *[]uint8`), etc.
 - Anonymous struct types: `struct{x int}` — structural equivalence (two occurrences of the same field sequence = same type). Equivalence requires both field **names** and **types** to match in order (following Go). `type Foo = struct{x int}` is an alias for the anonymous type.
 - Methods and `impl` require named types. Anonymous types cannot be receivers (Go's rule).
 - **Anonymous struct destructors**: dtor naming is based on field TYPE sequence only (not names), since cleanup logic depends only on types. Short names: `__dtor_anon_int_mp_Node_ms_uint8`. If the name exceeds ~128 characters, a hash of the stringified type sequence is used instead: `__dtor_anon_h<hex>`. `linkonce_odr` for linker dedup across modules.
@@ -768,7 +768,7 @@ and `claude-bootstrap-plan.md` for implementation status.
 ```
 make(Point)              // @Point, zero-init (takes a type)
 make([100]int)           // @([100]int), zero-init managed fixed-size array
-make([]int)              // @([]int), managed pointer to zero-value raw slice
+make(*[]int)              // @(*[]int), managed pointer to zero-value raw slice
 
 make_slice(int, n)       // @[]int, runtime-sized managed-slice, n zero-init elements
 
@@ -778,11 +778,11 @@ box(Point{x: 1, y: 2})  // @Point, allocate and init
 ```
 
 - `make(T)` always takes a type, returns `@T`. Zero-initializes. Works for ANY type T,
-  including `[]T` (→ `@([]T)`, managed ptr to raw slice) and `[k]T` (→ `@([k]T)`,
+  including `*[]T` (→ `@(*[]T)`, managed ptr to raw slice) and `[k]T` (→ `@([k]T)`,
   managed ptr to fixed-size array). No size argument.
 - `make_slice(T, n)` takes an element type and runtime size. Returns `@[]T` (managed-slice
   — the special 4-word type). This is the ONLY way to create runtime-sized managed-slices.
-  Separate builtin because `make([]T, n)` is ambiguous (does it return `@([]T)`
+  Separate builtin because `make(*[]T, n)` is ambiguous (does it return `@(*[]T)`
   or `@[]T`?). **Always returns managed-slice** — a non-managed version makes no sense,
   since you'd be allocating memory with no way to free it.
 - `box` always takes a value expression. Allocates and copies. No ambiguity.
@@ -802,20 +802,20 @@ When an expression creates a managed value (via `make`, `make_slice`, `box`, or 
 This guarantees that managed temporaries survive implicit conversions to raw types within the same statement:
 
 ```
-foo(@[]int{1, 2, 3})    // foo takes []int — managed-slice lives through the call
+foo(@[]int{1, 2, 3})    // foo takes *[]int — managed-slice lives through the call
 foo(make(Point))         // foo takes *Point — @Point lives through the call
 bar(foo(@[]int{1, 2, 3}))  // chained — temporary lives through entire statement
 ```
 
-The same rule applies to stack-allocated temporaries (e.g., `[]int{1, 2, 3}` creates a temporary `[3]int` on the stack and slices it — the array lives in the statement scope).
+The same rule applies to stack-allocated temporaries (e.g., `*[]int{1, 2, 3}` creates a temporary `[3]int` on the stack and slices it — the array lives in the statement scope).
 
 **What this does NOT save you from:**
 ```
-var s []int = @[]int{1, 2, 3}   // temporary freed at end of statement
+var s *[]int = @[]int{1, 2, 3}   // temporary freed at end of statement
 foo(s)                           // s is a dangling slice — programmer error
 ```
 
-This is consistent with the raw slice contract: `[]int` means "caller manages lifetime." Use `@[]int` if you need the allocation to persist.
+This is consistent with the raw slice contract: `*[]int` means "caller manages lifetime." Use `@[]int` if you need the allocation to persist.
 
 ### Method resolution & dispatch — DECIDED
 
@@ -859,7 +859,7 @@ type ReadWriter interface {
 
 **Type parameters** on functions, structs, and interfaces:
 ```
-func sort[T Comparable](items []T) { ... }
+func sort[T Comparable](items *[]T) { ... }
 type List[T any] struct { head @Node[T] }
 type Container[T any] interface { get(index int) T }
 ```
@@ -954,7 +954,7 @@ Unit testing built into the toolchain with a lightweight, convention-based appro
 - **Exclusion by default**: `_test.bn` files are excluded from normal builds. Only included when the package is a `-test` target.
 - **Test functions**: `TestXxx() testing.TestResult` — no parameters, returns `testing.TestResult`. Discovered automatically by name prefix and signature.
 - **Failure signaling**: return a non-empty string (the failure message). Empty string means pass. No panic recovery needed — works identically in interpreter and compiled code.
-- **`pkg/builtin/testing`**: provides `type TestResult = []char`. Test files import this package.
+- **`pkg/builtin/testing`**: provides `type TestResult = *[]char`. Test files import this package.
 - **CLI**: `binate -test [-root dir] <pkg/foo> [pkg/bar ...]` — supports multiple packages in one invocation.
 - **Output format**: Go-style (`=== RUN`, `--- PASS`/`--- FAIL`, `ok`/`FAIL` per package, summary).
 

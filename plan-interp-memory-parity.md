@@ -19,7 +19,7 @@ Zero xfails. No known memory issues. No known codegen issues.
 | Type | env storage | How |
 |------|-------------|-----|
 | `int`, `bool` | `allocFlat(8)` / `allocFlat(1)` | `readScalar`/`writeScalar` |
-| `[]T` (raw slice) | `allocFlat(16)` | 2-word `{data, len}` header |
+| `*[]T` (raw slice) | `allocFlat(16)` | 2-word `{data, len}` header |
 | `@[]T` (managed slice) | `allocFlat(32)` | 4-word `{data, len, backing, backingLen}` |
 | `[N]T` (all arrays) | `allocFlat(N*elemSize)` | flat contiguous, `&arr[i]` works |
 | `@T` (managed-ptr) | `allocFlat(8)` | 8-byte pointer value |
@@ -129,7 +129,7 @@ All layouts match compiled code:
 | `bool` | 1 byte | 1 byte at addr |
 | `*T` | 8 bytes | pointer value |
 | `@T` | 8 bytes | managed allocation payload pointer |
-| `[]T` | 16 bytes | `{data *uint8, len int}` |
+| `*[]T` | 16 bytes | `{data *uint8, len int}` |
 | `@[]T` | 32 bytes | `{data, len, backing_refptr, backing_len}` |
 | `[N]T` | `N * SizeOf(T)` bytes | contiguous elements |
 | `struct` | `SizeOf(struct)` bytes | fields at `FieldOffset` |

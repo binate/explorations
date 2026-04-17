@@ -89,7 +89,7 @@ explicitly expected by the context.
 
 ### Existing code impact
 
-The self-hosted codebase likely has many `var s []T = someManaged` patterns that would
+The self-hosted codebase likely has many `var s *[]T = someManaged` patterns that would
 need explicit conversions. The migration impact should be assessed before committing
 to this change.
 

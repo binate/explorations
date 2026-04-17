@@ -137,7 +137,7 @@ returned via move (skip dtor), managed fields carry an extra RefInc
 from their field assignment that is never RefDec'd. Example:
 
 ```
-func WriteStr(b CharBuf, s []char) CharBuf {
+func WriteStr(b CharBuf, s *[]char) CharBuf {
     // grows: b.Data = make_slice(...) → new backing rc=1
     // field assign RefInc new → rc=2, RefDec old
     return b  // skip dtor → new backing still rc=2

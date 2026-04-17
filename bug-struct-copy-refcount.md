@@ -18,7 +18,7 @@ Two additional bugs found and fixed during the interpreter work:
 1. **`cleanupEnvExcept` false `isRet` match** (commit `965c459`): when returning a field at offset 0 (e.g., `return node.Val`), the field's address equals the struct base, falsely matching the managed pointer value. Fixed by checking `except[j].Kind == VAL_MANAGED_PTR`.
 2. **`IsFresh` leak on function args** (same commit): fresh `@T` values passed as args skipped RefInc in `envDefine`, but scope cleanup RefDec'd → over-decrement. Fixed by clearing `IsFresh` on args in `callFunc`.
 
-`VAL_MANAGED_SLICE` added (commit `6bbf722`) to distinguish `@[]T` from `[]T` at Value.Kind level, matching `VAL_MANAGED_PTR` vs `VAL_POINTER`.
+`VAL_MANAGED_SLICE` added (commit `6bbf722`) to distinguish `@[]T` from `*[]T` at Value.Kind level, matching `VAL_MANAGED_PTR` vs `VAL_POINTER`.
 
 ## Symptoms
 

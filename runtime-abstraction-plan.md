@@ -89,7 +89,7 @@ All high-level slice IR ops have been lowered to primitive ops in the IR gen lay
 
 **Why this approach**: Slice layout is a language-level contract (shared by all backends and the interpreter). The decomposition into primitives is encoded once in the IR gen, not per backend. Same pattern as arrays.
 
-**Also fixed**: Raw slice subslice copy bug — `s[lo:hi]` on `[]T` now produces a zero-copy view `{data+lo*elemSize, hi-lo}` instead of copying data (the C runtime was wrong).
+**Also fixed**: Raw slice subslice copy bug — `s[lo:hi]` on `*[]T` now produces a zero-copy view `{data+lo*elemSize, hi-lo}` instead of copying data (the C runtime was wrong).
 
 **Depends on**: Nothing (independent)
 

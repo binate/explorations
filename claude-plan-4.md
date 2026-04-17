@@ -88,12 +88,12 @@ func (p *const Point) magnitude() int {
 
 ```binate
 type Stringer interface {
-    string() []char
+    string() *[]char
 }
 
 impl *Point : Stringer
 
-func (p *Point) string() []char {
+func (p *Point) string() *[]char {
     return "Point"
 }
 
@@ -216,13 +216,13 @@ println(sum(1, 2, 3))  // 6
 **Design (from grammar.ebnf):**
 - `...T` in last parameter position
 - Caller passes args as a slice
-- Callee receives `[]T`
+- Callee receives `*[]T`
 - Spread: `f(slice...)` forwards a slice as variadic args
 
 **Implementation:**
 - Parser: `...` in parameter list
 - Type checker: variadic parameter, argument count validation
-- IR gen: collect variadic args into a slice, pass as single `[]T` argument
+- IR gen: collect variadic args into a slice, pass as single `*[]T` argument
 - This is mostly sugar — the IR and LLVM see a normal slice parameter
 
 ---
@@ -255,7 +255,7 @@ var y float32 = cast(float32, x)
 
 ```binate
 type List[T any] struct {
-    items []T
+    items *[]T
     len   int
 }
 
@@ -263,7 +263,7 @@ func [T any] newList() @List[T] {
     return make(List[T])
 }
 
-func [T Comparable] contains(items []T, target T) bool {
+func [T Comparable] contains(items *[]T, target T) bool {
     for item in items {
         if item == target { return true }
     }

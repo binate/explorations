@@ -137,7 +137,7 @@ One Go type per grammar production (or group of related productions). Key nodes:
 - `PointerType` (raw `*T`)
 - `ManagedPtrType` (`@T`)
 - `ManagedSliceType` (`@[]T`)
-- `SliceType` (`[]T`)
+- `SliceType` (`*[]T`)
 - `ArrayType` (length expr, element type)
 - `StructType` (fields)
 
@@ -235,7 +235,7 @@ type IntValue struct { Val int64; Typ types.Type }
 type BoolValue struct { Val bool }
 type PointerValue struct { Addr *HeapObject; Offset int; Managed bool }
 type SliceValue struct { ... }
-type StructValue struct { Fields []Value }
+type StructValue struct { Fields *[]Value }
 // etc.
 ```
 
@@ -248,7 +248,7 @@ Core of the runtime:
 ```go
 type HeapObject struct {
     Refcount  int
-    Data      []byte      // raw storage
+    Data      *[]byte      // raw storage
     Type      types.Type  // for field traversal during release
     FreeFn    func()      // normally just removes from heap tracking
 }
@@ -267,13 +267,13 @@ Since the interpreter runs on Go (which has its own GC), we don't literally `mal
 - **Environment/frame stack**: each function call pushes a frame with local variables
 - **Evaluate expressions** recursively, returning `Value`
 - **Execute statements** recursively, using Go control flow for Binate control flow
-- **Multiple returns**: return a `[]Value` from function calls
+- **Multiple returns**: return a `*[]Value` from function calls
 - **Break/continue**: use Go panic/recover or a sentinel return value to unwind to the enclosing for loop
 
 ### 5.4 Builtin Operations
 
 - `make(T)` → allocate managed, zero-init
-- `make([]T, n)` → allocate managed slice of n elements
+- `make(*[]T, n)` → allocate managed slice of n elements
 - `box(expr)` → allocate managed, copy value
 - `cast(T, expr)` → integer width conversions, truncation/extension
 - `bit_cast(T, expr)` → reinterpret bits
@@ -287,7 +287,7 @@ Builtins are split into two categories:
 - `print(args...)`, `println(args...)` — variadic output
 - `append(slice, elems...)` — slice append, returns new slice
 - `panic(msg)` — abort with message
-- `make(T)`, `make([]T, n)` — managed allocation (keyword builtin)
+- `make(T)`, `make(*[]T, n)` — managed allocation (keyword builtin)
 - `box(expr)` — allocate managed copy (keyword builtin)
 - `cast(T, expr)`, `bit_cast(T, expr)` — type conversions (keyword builtins)
 - `len(expr)` — slice/array length (keyword builtin)
@@ -330,7 +330,7 @@ testdata/
   structs.bn            // struct literals, field access
   pointers.bn           // raw pointers, &, *
   managed.bn            // @T, make, box, refcounting
-  slices.bn             // [], @[], indexing, slicing, len
+  slices.bn             // *[], @[], indexing, slicing, len
   types.bn              // distinct types, aliases, cast
   const.bn              // const, iota, grouped const
   packages.bn           // multi-file, import

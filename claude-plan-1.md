@@ -73,7 +73,7 @@ const (
 #### Interface declarations
 ```
 type Writer interface {
-    write(buf []char) int
+    write(buf *[]char) int
     close()
 }
 ```
@@ -99,16 +99,16 @@ Implicit `@T` → `*T` conversion. Never implicit `*T` → `@T`.
 
 #### Slice syntax
 ```
-[]T             // raw slice (ptr, length)
+*[]T             // raw slice (ptr, length)
 @[]T            // managed slice (managed ptr, raw ptr, length)
-@([]T)          // managed pointer to raw slice (parens break sugar)
+@(*[]T)          // managed pointer to raw slice (parens break sugar)
 arr[low:high]   // slice expression, exclusive end
 ```
 
 #### Generic syntax
 ```
 type List[T any] struct { ... }
-func sort[T Comparable](items []T) { ... }
+func sort[T Comparable](items *[]T) { ... }
 sort[int](myArray)              // no type inference
 ```
 
@@ -129,7 +129,7 @@ No fallthrough by default.
 const *int           // const pointer to int
 *const int           // pointer to const int
 const *const int     // const pointer to const int
-[]const *int         // slice of const pointers to int
+*[]const *int         // slice of const pointers to int
 ```
 
 #### Type casts (builtins, not function-call syntax)
@@ -232,7 +232,7 @@ These can be worked on in parallel, and are needed before the bootstrap interpre
 ```
 make(Point)              // @Point, zero-init (takes a type)
 make([100]int)           // @[100]int, fixed-size
-make([]int, n)           // @[]int, runtime-sized
+make(*[]int, n)           // @[]int, runtime-sized
 
 box(42)                  // @int (takes an expression)
 box(x)                   // @T where x: T
@@ -265,7 +265,7 @@ No capacity argument. Growing is a library concern.
 
 ### 2.5 String & Array Semantics — DONE
 
-- String literals: `[]const char` by default. Null-terminated in storage, slice excludes null.
+- String literals: `*[]const char` by default. Null-terminated in storage, slice excludes null.
 - Bounds checking: always on by default. Out-of-bounds = runtime trap.
 - `unsafe_index(buf, i)` builtin for unchecked access in hot paths.
 - Nil slices: slices can't be compared to `nil` (slices are value types, not pointers). Check `len(s) == 0` for empty. Use `*[]T`/`@[]T` for optional.

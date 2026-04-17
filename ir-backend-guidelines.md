@@ -22,7 +22,7 @@ This means memory layout is not a backend-internal decision — it is a **langua
 Concretely, the following layouts must be defined once in a shared location and used by all:
 - **Structs**: field offsets with padding for alignment (parameterized by target)
 - **Arrays** (`[N]T`): contiguous elements, element size derived from type
-- **Raw slices** (`[]T`): `{ data *T, len int }` — 2 words
+- **Raw slices** (`*[]T`): `{ data *T, len int }` — 2 words
 - **Managed-slices** (`@[]T`): `{ data *T, len int, backing *uint8, backingLen int }` — 4 words (first 2 words match raw slice layout)
 - **Managed pointer header**: `[ refcount, free_fn ]` at negative offset from payload — 2 words
 - **Interface values** (future): `{ data_ptr, vtable_ptr }` for raw interfaces; `{ managed_ptr, vtable_ptr }` for managed interfaces
@@ -55,7 +55,7 @@ The `types` package's `SizeOf`/`AlignOf`/`FieldOffset` functions currently assum
 
 The abstract layout of slices should be defined in a shared place:
 
-- Raw slice `[]T`: `{ data *ElemType, len int }` — 2 words
+- Raw slice `*[]T`: `{ data *ElemType, len int }` — 2 words
 - Managed-slice `@[]T`: `{ data *ElemType, len int, backing *uint8, backingLen int }` — 4 words
 
 Backends map these to their concrete representations (e.g., LLVM uses `%BnSlice = type { i8*, i64 }`), but the *structure* (which field is at which offset, how many words) is language-defined.

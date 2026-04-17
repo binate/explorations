@@ -157,7 +157,7 @@ Items 4–6 are the "bootstrap" package's responsibility and are inherently plat
 
 ### 4.1. Backend skeleton
 
-**What**: Create `pkg/arm32` (or `pkg/backend/arm32`) with a `EmitModule(m @ir.Module) []uint8` that produces an ELF binary.
+**What**: Create `pkg/arm32` (or `pkg/backend/arm32`) with a `EmitModule(m @ir.Module) *[]uint8` that produces an ELF binary.
 
 **Where**: New package
 

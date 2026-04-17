@@ -18,7 +18,7 @@ capacity management. In Binate, **slices are just views** — a pointer and a le
 nothing more. They are not resizable. They do not manage the lifetime of the data they
 point into. They are not there to help you build up arrays of data.
 
-- `[]T` (raw slice): two words — `(data_ptr, length)`. Does **not** keep the
+- `*[]T` (raw slice): two words — `(data_ptr, length)`. Does **not** keep the
   underlying data alive.
 - `@[]T` (managed-slice): three words — `(data_ptr, length, refptr)`. Keeps the
   backing allocation alive via refcounting. But still not resizable.
@@ -45,7 +45,7 @@ presence in the `.bni` file.
 
 ## Managed vs Raw: Ownership Convention
 
-Raw pointers (`*T`) and raw slices (`[]T`) do **not** keep the data they reference
+Raw pointers (`*T`) and raw slices (`*[]T`) do **not** keep the data they reference
 alive. Managed pointers (`@T`) and managed-slices (`@[]T`) do. This distinction drives
 the core convention for function signatures and data structures:
 
@@ -172,7 +172,7 @@ func TestParseIdent() testing.TestResult {
 
 - **Name**: must start with `Test` followed by an uppercase letter.
 - **Signature**: `() testing.TestResult` — no parameters, returns `testing.TestResult`.
-- **`testing.TestResult`** is a type alias for `[]char`. Return `""` (empty string) for
+- **`testing.TestResult`** is a type alias for `*[]char`. Return `""` (empty string) for
   pass, a non-empty error message for fail.
 - Test files must `import "pkg/builtin/testing"`.
 

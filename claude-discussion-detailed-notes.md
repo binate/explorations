@@ -113,7 +113,7 @@ This area went through several iterations during discussion.
 
 **Terminology note**: we use "managed-slice" (hyphenated) for `@[]T`, the 3-word type.
 Without the hyphen, "managed slice" is ambiguous — it could mean `@[]T` (managed-slice)
-or `@([]T)` (a managed pointer to a raw slice, which is a different thing entirely).
+or `@(*[]T)` (a managed pointer to a raw slice, which is a different thing entirely).
 
 **Managed-slice** (`@[]T`) — four words: `(data, len, backing_refptr, backing_len)`:
 1. Raw pointer to the start of the view (for direct data access, no arithmetic needed)
@@ -121,9 +121,9 @@ or `@([]T)` (a managed pointer to a raw slice, which is a different thing entire
 3. Managed pointer to the backing allocation (keeps it alive via refcounting)
 4. Backing length (total number of elements in the backing allocation)
 
-The first two words are identical in layout to a raw slice `[]T`. This means `@[]T` → `[]T` conversion is trivial — just read the first 16 bytes (no field extraction or reordering needed). The representation was chosen over (managed pointer, offset, length) because the raw pointer gives direct data access without arithmetic, and is what you'd pass to C code or use in tight loops.
+The first two words are identical in layout to a raw slice `*[]T`. This means `@[]T` → `*[]T` conversion is trivial — just read the first 16 bytes (no field extraction or reordering needed). The representation was chosen over (managed pointer, offset, length) because the raw pointer gives direct data access without arithmetic, and is what you'd pass to C code or use in tight loops.
 
-(Layout history: initially `(data, len, refptr)` — 3 words. Updated 2026-03-30 to put refptr last for prefix compatibility with `[]T`. Updated 2026-04-02 to add backing_len as the 4th word for destructor support.)
+(Layout history: initially `(data, len, refptr)` — 3 words. Updated 2026-03-30 to put refptr last for prefix compatibility with `*[]T`. Updated 2026-04-02 to add backing_len as the 4th word for destructor support.)
 
 **Why backing_len?** When a managed-slice's backing allocation is freed (refcount hits zero), the destructor must iterate ALL elements in the backing to RefDec managed references. The view length is insufficient because subslicing changes it — `s[2:5]` has len=3 but the backing may have 100 elements. The backing_len is set at allocation time and preserved through subslicing.
 
@@ -155,7 +155,7 @@ This falls out naturally from the type system with no extra annotations needed.
 **Decision: slices cannot be compared to or assigned from nil.**
 
 The type checker rejects `s == nil`, `s != nil`, and `s = nil` for both
-raw slices (`[]T`) and managed-slices (`@[]T`). Use `len(s) == 0` to check
+raw slices (`*[]T`) and managed-slices (`@[]T`). Use `len(s) == 0` to check
 for empty slices. Use introspection functions (e.g., `rt.HasBacking()`) to
 distinguish "no backing" from "empty view" for managed-slices.
 
@@ -188,14 +188,14 @@ need to be migrated to `len(s) == 0`. This is a mechanical change.
 
 **No implicit null termination (revised 2026-04-01).** String literals contain exactly the characters specified. `"abc"` is 3 bytes: `{'a','b','c'}`. No hidden null terminator.
 
-The previous design always null-terminated string literals but excluded the null from slice views — storage was N+1 bytes, natural type was `[N+1]const char`, but the default `[]const char` had len=N. This was rejected because:
+The previous design always null-terminated string literals but excluded the null from slice views — storage was N+1 bytes, natural type was `[N+1]const char`, but the default `*[]const char` had len=N. This was rejected because:
 - The "null is there but not in the view" semantics were too complicated to explain and reason about
 - In practice, tracking which slices happened to have a null beyond their bounds was impractical — subslicing, copying, or any manipulation lost the implicit guarantee
 - The benefit (any string literal safe to pass to C without copying) was fragile and created a false sense of security
 
-**If null termination is needed** (e.g., for C FFI), include it explicitly: `"abc\0"`. Library functions can also handle null termination (e.g., a `WithTerminatingNull([]const char) @[]char` helper), but these are library concerns, not language features.
+**If null termination is needed** (e.g., for C FFI), include it explicitly: `"abc\0"`. Library functions can also handle null termination (e.g., a `WithTerminatingNull(*[]const char) @[]char` helper), but these are library concerns, not language features.
 
-**String literals are raw static data in the binary** (like C). A string literal of length N is stored as exactly N bytes. The **natural type** is `[N]const char`. The **default type** (when context is ambiguous) is `[]const char` with len=N.
+**String literals are raw static data in the binary** (like C). A string literal of length N is stored as exactly N bytes. The **natural type** is `[N]const char`. The **default type** (when context is ambiguous) is `*[]const char` with len=N.
 
 String literals are **untyped** (like integer literals) and coerce to the appropriate type from context:
 - Assigned to `@[]const char` → **default**. Managed-slice borrowing from static data (backing_refptr = null, never freed). Zero cost.
@@ -205,9 +205,9 @@ String literals are **untyped** (like integer literals) and coerce to the approp
 
 NOT allowed: `*[]char` — raw slices don't own their backing. A mutable borrow of immutable static data is unsound, and there's nowhere to put a mutable copy. Raw slices are non-owning views.
 
-This generalizes to all slice/array literals (not just strings): `@[]T` literals are always allowed (const borrows static, non-const allocates+copies); `[]T` literals are const-only; `[N]T` literals are always allowed (copy).
+This generalizes to all slice/array literals (not just strings): `@[]T` literals are always allowed (const borrows static, non-const allocates+copies); `*[]T` literals are const-only; `[N]T` literals are always allowed (copy).
 
-(In the bootstrap, which lacks const types, `[]char` and `@[]char` are used as stand-ins. Pragmatic compromise.)
+(In the bootstrap, which lacks const types, `*[]char` and `@[]char` are used as stand-ins. Pragmatic compromise.)
 
 ### Fixed-Size Arrays
 
@@ -244,7 +244,7 @@ Discussed briefly but deferred. The compiler could detect last-use of a managed 
 For low-level transparency, testing, and debugging, the language should provide ways to inspect the internal representation of managed types:
 
 - **Managed pointer header**: given `@T`, return the management header as a Binate struct — fields for refcount and free function pointer.
-- **Raw slice repr**: given `[]T`, return the slice representation as a Binate struct — data pointer and length.
+- **Raw slice repr**: given `*[]T`, return the slice representation as a Binate struct — data pointer and length.
 - **Managed-slice repr**: given `@[]T`, return the managed-slice representation as a Binate struct — data ptr, view length, backing refptr, backing length.
 
 All of these representation/management structs should be proper Binate structs, not opaque C constructs. This enables writing tests and debugging tools in pure Binate.
@@ -309,7 +309,7 @@ This was chosen because Go's untyped constants, while useful, add complexity. Li
 **Decision: include generics, but in the simplest form possible.**
 
 - **Generic types AND functions.** Generic functions are needed alongside generic types — you can't write `sort` without them.
-- **Interface constraints on type parameters.** Type parameters are constrained by interfaces: `func sort[T Comparable](items []T)`. The compiler checks the generic function body against the interface — it can only call methods the constraint guarantees.
+- **Interface constraints on type parameters.** Type parameters are constrained by interfaces: `func sort[T Comparable](items *[]T)`. The compiler checks the generic function body against the interface — it can only call methods the constraint guarantees.
 - **No type inference for generics.** Always spell out type parameters: `sort[int](myArray)`. This simplifies the compiler and keeps code explicit. Can be relaxed in v2.
 - **Monomorphized.** `List[int]` generates specialized code with int stored inline. Trade-off: more code generated (potential code bloat on small systems), but data is stored efficiently.
 - **No trait bounds, no where clauses, no higher-kinded types.** Just "this type/function is parameterized by types that must satisfy certain interfaces."
@@ -432,7 +432,7 @@ struct FileHandle {
 
 impl *FileHandle : Writer
 
-func (f *FileHandle) write(buf []char) int { ... }
+func (f *FileHandle) write(buf *[]char) int { ... }
 func (f *FileHandle) close() { ... }
 ```
 
@@ -500,7 +500,7 @@ Interface values are regular value types and can have pointers taken to them, ju
 **Why this matters:**
 - **Generics**: `*T` where `T = Stringer` must work. If pointers to interface values were disallowed, generic code couldn't operate on interface types uniformly.
 - **Arrays**: `[10]Stringer` or `[10]@Stringer` should be straightforward — arrays of value types.
-- **Out parameters**: `func resolve(name []char, result *Stringer) bool` — a common pattern that requires `*Stringer`.
+- **Out parameters**: `func resolve(name *[]char, result *Stringer) bool` — a common pattern that requires `*Stringer`.
 - **Containers**: `Vec[Stringer]` stores interface values inline with no special-casing.
 
 **Syntax**: follows the same pattern as slices — `@Iface` is sugar (like `@[]T`), parens break the sugar:
@@ -578,7 +578,7 @@ p.field         // auto-dereference with . (Go-style, no ->)
 **`make`, `make_slice`, and `box` for managed allocation:**
 ```
 make(Point)              // zero-init, returns @Point (takes a type)
-make([]int)              // managed ptr to zero-value raw slice, returns @([]int)
+make(*[]int)              // managed ptr to zero-value raw slice, returns @(*[]int)
 make([100]int)           // managed ptr to zero-init array, returns @([100]int)
 
 make_slice(int, n)       // runtime-sized managed-slice, returns @[]int
@@ -588,13 +588,13 @@ box(Point{x: 1, y: 2})  // allocate with init, returns @Point
 ```
 
 `make(T)` takes any type T and returns `@T` — always. No size argument. This means
-`make([]int)` returns `@([]int)` (managed pointer to a raw slice), NOT `@[]int`
-(managed-slice). The distinction matters: `@([]int)` is a 1-word managed pointer
+`make(*[]int)` returns `@(*[]int)` (managed pointer to a raw slice), NOT `@[]int`
+(managed-slice). The distinction matters: `@(*[]int)` is a 1-word managed pointer
 to a 2-word raw slice; `@[]int` is a 3-word managed-slice (ptr + len + refptr).
 
 `make_slice(T, n)` is a separate builtin that creates runtime-sized managed-slices.
 It takes an element type and a length, returns `@[]T`. This avoids the ambiguity of
-`make([]T, n)` — which would be unclear whether it returns `@([]T)` or `@[]T`.
+`make(*[]T, n)` — which would be unclear whether it returns `@(*[]T)` or `@[]T`.
 
 `box` always takes a value expression. This clean split eliminates the parsing
 ambiguity of `make(foo)` where `foo` could be a type or a variable. Forward-compatible
@@ -718,7 +718,7 @@ x, y := divmod(10, 3)     // destructuring multiple returns
 func (p *Point) translate(dx int, dy int) { ... }     // raw pointer
 func (p @Point) retain() { ... }                       // managed pointer
 func (p *const Point) distance() float64 { ... }       // const raw pointer
-func (p Point) toString() []char { ... }                // const value (always const)
+func (p Point) toString() *[]char { ... }                // const value (always const)
 ```
 
 **Decisions:**
@@ -780,8 +780,8 @@ No fallthrough by default (like Go). Condition-less switch supported — cleaner
 const *int           // const pointer to int (pointer can't change)
 *const int           // pointer to const int (data can't change)
 const *const int     // const pointer to const int
-[]const *int         // slice of const pointers to int
-[]*const int         // slice of pointers to const int
+*[]const *int         // slice of const pointers to int
+*[]*const int         // slice of pointers to const int
 ```
 
 This avoids C's left-right parsing confusion entirely because Binate types are always read left-to-right.
@@ -840,7 +840,7 @@ All three (`make`, `cast`, `bit_cast`) are builtins that take types as arguments
 ```
 sizeof(Point)         // size of Point in bytes
 alignof(int)          // alignment requirement of int in bytes
-sizeof([]int)         // 2 words (the slice value, not the data)
+sizeof(*[]int)         // 2 words (the slice value, not the data)
 sizeof(Stringer)      // 2 words (the interface value, not the data)
 ```
 
@@ -848,7 +848,7 @@ sizeof(Stringer)      // 2 words (the interface value, not the data)
 
 Both return `uint` and are compile-time constants. Both are builtins (keywords), like `make`, `cast`, etc.
 
-**For composite value types**, sizeof returns the size of the value representation itself — `sizeof([]int)` is 2 words (raw ptr + length), `sizeof(@[]int)` is 3 words (raw ptr + length + managed ptr), `sizeof(Stringer)` is 2 words (data ptr + vtable ptr). Not the size of the data they reference.
+**For composite value types**, sizeof returns the size of the value representation itself — `sizeof(*[]int)` is 2 words (raw ptr + length), `sizeof(@[]int)` is 3 words (raw ptr + length + managed ptr), `sizeof(Stringer)` is 2 words (data ptr + vtable ptr). Not the size of the data they reference.
 
 **Why include these:** essential for a systems language — FFI/C interop, manual memory management, writing allocators, serialization, and the runtime library (pkg/rt). Currently sizes must be hardcoded; sizeof/alignof make them correct and portable across 32-bit and 64-bit targets.
 
@@ -901,12 +901,12 @@ char = uint8                        // alias
 When type context is ambiguous (e.g., `x := 123`):
 - Integer literals → `int`
 - Float literals → `float64`
-- String literals → `[]const char` (slice view into static read-only data, exact contents, no implicit null)
+- String literals → `*[]const char` (slice view into static read-only data, exact contents, no implicit null)
 - Bool literals → `bool`
 
 **Literal overflow is a compile error:** `var x uint8 = 256` fails. Literals are checked at compile time for fit.
 
-**String literal representation:** a string literal of length N is stored as exactly N bytes. The **natural type** is `[N]const char`. The **default type** is `@[]const char` with `len` = N. `"abc"` → storage is `{'a','b','c'}` (3 bytes), natural type `[3]const char`, default type `@[]const char` with `len()` = 3. No implicit null terminator. Allowed targets: `@[]const char` (borrow static), `@[]char` (allocate+copy), `[]const char` (borrow static), `[N]const char` / `[N]char` (array copy). NOT allowed: `[]char` (raw slices can't own a mutable copy).
+**String literal representation:** a string literal of length N is stored as exactly N bytes. The **natural type** is `[N]const char`. The **default type** is `@[]const char` with `len` = N. `"abc"` → storage is `{'a','b','c'}` (3 bytes), natural type `[3]const char`, default type `@[]const char` with `len()` = 3. No implicit null terminator. Allowed targets: `@[]const char` (borrow static), `@[]char` (allocate+copy), `*[]const char` (borrow static), `[N]const char` / `[N]char` (array copy). NOT allowed: `*[]char` (raw slices can't own a mutable copy).
 
 ---
 
@@ -973,7 +973,7 @@ Go-style. When compiling a package, only `.bni` files are needed for imported pa
 - `pkg/`-prefixed packages are "public" — found via the full search path
 - Non-`pkg/` packages are inherently local (not subject to external search path)
 - Shadowing allowed: project-local packages take priority over external
-- **Multiple roots** are supported: the loader iterates `Roots [][]char` when resolving packages. The compiler auto-discovers the binate project root from the runtime path and adds it as a secondary search path. This enables cross-project tests to find stdlib packages like `pkg/rt`.
+- **Multiple roots** are supported: the loader iterates `Roots *[]*[]char` when resolving packages. The compiler auto-discovers the binate project root from the runtime path and adds it as a secondary search path. This enables cross-project tests to find stdlib packages like `pkg/rt`.
 
 **No language-enforced `internal/` convention.** With separate interface files, visibility is already controlled by whether a `.bni` file exists and is on the search path. Unlike Go, the interface/implementation separation already provides the access control.
 
@@ -1202,7 +1202,7 @@ type Celsius float64           // distinct new type, same representation
 type byte = uint8              // alias, fully interchangeable
 type Point struct { x int; y int }  // named struct (only way to declare one)
 type Handle @SomeStruct        // distinct type wrapping a managed pointer
-type Buffer []uint8            // distinct type wrapping a slice
+type Buffer *[]uint8            // distinct type wrapping a slice
 ```
 
 **Design choices:**
@@ -1351,7 +1351,7 @@ The free function in the header was chosen over always using the default allocat
 ```
 make(Point)              // @Point, zero-init (takes a type)
 make([100]int)           // @([100]int), managed ptr to zero-init fixed-size array
-make([]int)              // @([]int), managed ptr to zero-value raw slice
+make(*[]int)              // @(*[]int), managed ptr to zero-value raw slice
 
 make_slice(int, n)       // @[]int, runtime-sized managed-slice, n zero-init elements
 
@@ -1366,8 +1366,8 @@ below for the disambiguation rationale.
 
 **Why `make_slice` is separate from `make`:**
 
-`make(T)` returns `@T` for any T. If T is `[]int`, then `make([]int)` returns
-`@([]int)` — a managed pointer to a raw slice (the raw slice is zero-valued:
+`make(T)` returns `@T` for any T. If T is `*[]int`, then `make(*[]int)` returns
+`@(*[]int)` — a managed pointer to a raw slice (the raw slice is zero-valued:
 null ptr, length 0). This is well-defined but not what you usually want.
 
 What you usually want is `@[]int` — a managed-slice (3-word type: data ptr, length,
@@ -1375,13 +1375,13 @@ refptr) backed by a freshly allocated array. That's what `make_slice(int, n)` gi
 you. It takes an *element type* and a runtime size, allocates a backing array of `n`
 zero-initialized elements, and returns the managed-slice.
 
-The old `make([]T, n)` syntax was ambiguous: does it return `@([]T)` (because
+The old `make(*[]T, n)` syntax was ambiguous: does it return `@(*[]T)` (because
 `make(T)` returns `@T`) or `@[]T` (special-cased for slices)? The answer was
 "special-cased," which was a design smell. Splitting into `make_slice` eliminates
 the special case and makes `make` perfectly uniform.
 
-This also matters for generics: `make(T)` where `T=[]int` unambiguously returns
-`@([]int)`, not `@[]int`. Generic code that needs a managed-slice uses `make_slice`.
+This also matters for generics: `make(T)` where `T=*[]int` unambiguously returns
+`@(*[]int)`, not `@[]int`. Generic code that needs a managed-slice uses `make_slice`.
 
 **Runtime-sized arrays:** `make_slice(int, n)` is needed because `make([n]int)`
 requires `n` to be a compile-time constant. Dynamic sizes are common (reading files,
@@ -1390,11 +1390,11 @@ allocated backing array of `n` zero-initialized elements.
 
 **`make_slice` always returns a managed-slice (`@[]T`).** A non-managed version
 makes no sense: `make_slice` allocates heap memory for the backing array, and
-without a managed pointer there's no way to free it. If you need a raw `[]T`,
+without a managed pointer there's no way to free it. If you need a raw `*[]T`,
 construct one manually from a raw pointer + length. (`make_raw_deprecated` has been
 removed from the language.)
 
-**No capacity argument** (unlike Go's `make([]T, len, cap)`). Growing/resizable
+**No capacity argument** (unlike Go's `make(*[]T, len, cap)`). Growing/resizable
 arrays are a standard library concern (`CharBuf`, `Vec[T]`). This keeps the
 language primitive simple.
 
@@ -1413,7 +1413,7 @@ No overlap, no ambiguity. The parser knows: after `make(`, expect a type. After
 
 ```
 make(Point)              // @Point, zero-init
-make([]int)              // @([]int), managed ptr to zero-value raw slice
+make(*[]int)              // @(*[]int), managed ptr to zero-value raw slice
 make([100]int)           // @([100]int), managed ptr to zero-init array
 make_slice(int, n)       // @[]int, runtime-sized managed-slice
 box(42)                  // @int
@@ -1421,20 +1421,20 @@ box(x)                   // @T where x: T
 box(Point{x: 1, y: 2})  // @Point, allocate with init
 ```
 
-**Why `make_slice` instead of `make([]T, n)`:** `make(T)` returns `@T` uniformly.
-If T is `[]int`, then `make([]int)` returns `@([]int)` — a managed pointer to a
-raw slice. But `make([]int, n)` was special-cased to return `@[]int` — a managed-slice
+**Why `make_slice` instead of `make(*[]T, n)`:** `make(T)` returns `@T` uniformly.
+If T is `*[]int`, then `make(*[]int)` returns `@(*[]int)` — a managed pointer to a
+raw slice. But `make(*[]int, n)` was special-cased to return `@[]int` — a managed-slice
 (different type!). This special case breaks the uniformity of `make` and
-creates a subtle trap, especially with generics (`make(T)` where `T=[]int` should
-return `@([]int)`, not `@[]int`). Splitting runtime-sized managed-slice creation
+creates a subtle trap, especially with generics (`make(T)` where `T=*[]int` should
+return `@(*[]int)`, not `@[]int`). Splitting runtime-sized managed-slice creation
 into `make_slice` makes everything uniform and unambiguous.
 
 `box(Point{x: 1, y: 2})` replaces the old `make(Point{x: 1, y: 2})`. The composite literal is an expression, so `box` handles it naturally.
 
 **Alternatives considered for dynamic arrays:**
 - `make([100]int)[:]` for creating a managed-slice from a managed fixed-size array — works but only for compile-time sizes
-- Go-style `make([]int, len, cap)` — adds a concept (capacity vs length) at the language level that belongs in a library
-- `make([]T, n)` with special-case return type — rejected due to ambiguity (see above)
+- Go-style `make(*[]int, len, cap)` — adds a concept (capacity vs length) at the language level that belongs in a library
+- `make(*[]T, n)` with special-case return type — rejected due to ambiguity (see above)
 
 ---
 
@@ -1442,14 +1442,14 @@ into `make_slice` makes everything uniform and unambiguous.
 
 ### Decision: Statement-Level Implicit Scope
 
-**The problem**: when a managed value is created as part of an expression and implicitly converted to a raw type (e.g., `@[]int` → `[]int`, `@T` → `*T`), the managed allocation must stay alive through the use of the raw value. Without a rule, the temporary could be freed immediately after the conversion, leaving the raw value dangling.
+**The problem**: when a managed value is created as part of an expression and implicitly converted to a raw type (e.g., `@[]int` → `*[]int`, `@T` → `*T`), the managed allocation must stay alive through the use of the raw value. Without a rule, the temporary could be freed immediately after the conversion, leaving the raw value dangling.
 
 Example:
 ```
-foo(@[]int{1, 2, 3})   // foo takes []int
+foo(@[]int{1, 2, 3})   // foo takes *[]int
 ```
 
-The `@[]int{1, 2, 3}` is created (refcount 1), converted to `[]int` (no refcount change — raw slices don't participate in refcounting), and passed to foo. If the temporary is freed before foo runs, the `[]int` points to freed memory.
+The `@[]int{1, 2, 3}` is created (refcount 1), converted to `*[]int` (no refcount change — raw slices don't participate in refcounting), and passed to foo. If the temporary is freed before foo runs, the `*[]int` points to freed memory.
 
 **The rule: each statement has an implicit scope; temporaries are unnamed locals in that scope.**
 
@@ -1461,14 +1461,14 @@ Every expression that produces a managed value that isn't assigned to a named ma
 
 ```
 // Managed-to-raw conversion in function args
-foo(@[]int{1, 2, 3})       // foo takes []int — @[]int lives in statement scope
+foo(@[]int{1, 2, 3})       // foo takes *[]int — @[]int lives in statement scope
 foo(make(Point))            // foo takes *Point — @Point lives in statement scope
 
 // Chained calls — temporary lives through entire statement
 bar(foo(@[]int{1, 2, 3}))  // @[]int lives until bar returns
 
 // Stack temporaries — same rule, naturally safe
-foo([]int{1, 2, 3})         // creates temp [3]int on stack, slices it
+foo(*[]int{1, 2, 3})         // creates temp [3]int on stack, slices it
                              // stack temp lives in statement scope (and beyond — stack
                              // locals live until function/scope exit anyway)
 
@@ -1479,11 +1479,11 @@ foo(@[]int{1, 2, 3})       // foo takes @[]int — refcount bumped on parameter 
 **The dangerous case this intentionally does NOT protect against**:
 
 ```
-var s []int = @[]int{1, 2, 3}   // temporary freed at end of statement
+var s *[]int = @[]int{1, 2, 3}   // temporary freed at end of statement
 foo(s)                           // s is a dangling raw slice
 ```
 
-This is consistent with the raw slice contract — `[]int` means "caller manages lifetime." The programmer explicitly stored a raw slice; they took on lifetime responsibility. The fix is to use `var s @[]int = @[]int{1, 2, 3}`.
+This is consistent with the raw slice contract — `*[]int` means "caller manages lifetime." The programmer explicitly stored a raw slice; they took on lifetime responsibility. The fix is to use `var s @[]int = @[]int{1, 2, 3}`.
 
 This is the same class of danger as storing a raw pointer to a managed struct and using it after the struct is freed — already accepted in the design philosophy.
 
@@ -1497,7 +1497,7 @@ This is the same class of danger as storing a raw pointer to a managed struct an
 **Alternatives considered**:
 
 - **C++ full-expression rule**: essentially the same semantics but described in terms of "full expressions" rather than scopes. The scope framing is cleaner for Binate because it reuses existing machinery.
-- **Immediate release after conversion**: would make `foo(@[]int{1,2,3})` where foo takes `[]int` unsafe. Clearly wrong.
+- **Immediate release after conversion**: would make `foo(@[]int{1,2,3})` where foo takes `*[]int` unsafe. Clearly wrong.
 - **Extend lifetime to enclosing block scope**: unnecessarily long — temporaries would accumulate within loops, potentially exhausting memory. Statement granularity is the right balance.
 
 ---
@@ -1518,7 +1518,7 @@ Value receivers are implemented by passing `*const T` under the hood. This avoid
 
 ### Interface Declarations
 
-Consistent with structs: `type Name interface { ... }`. Anonymous interfaces exist as type expressions: `interface { write(buf []char) int }`.
+Consistent with structs: `type Name interface { ... }`. Anonymous interfaces exist as type expressions: `interface { write(buf *[]char) int }`.
 
 **Interface embedding**: list interface names in the body. Means "is-a" for all embedded interfaces:
 
@@ -1558,7 +1558,7 @@ Each embedded interface's vtable is included in full, recursively. `any`'s entry
 
 **Type parameters** on functions, structs, and interfaces:
 ```
-func sort[T Comparable](items []T) { ... }
+func sort[T Comparable](items *[]T) { ... }
 type List[T any] struct { head @Node[T] }
 type Container[T any] interface { get(index int) T }
 ```
@@ -1614,7 +1614,7 @@ func convert[T Castable](c *Converter, val T) int { ... }
 **Alternatives considered:**
 - Always check, rely on optimizer (Go) — works well with a good optimizer, but couples performance to compiler sophistication
 - Never check (C) — buffer overruns are the #1 security bug class
-- Check in debug only (Rust's model for `[]`) — surprising behavior difference between debug and release builds
+- Check in debug only (Rust's model for `*[]`) — surprising behavior difference between debug and release builds
 - Annotation-based (`#[compiler.no_bounds_check]`) — awkward because it applies to expressions, not declarations
 
 The compiler may still optimize away provably-redundant checks, but this is a bonus, not something the programmer relies on. Optional optimizer modules are a natural fit for the compiler architecture — a minimal build skips them, a full build includes them.
@@ -1629,7 +1629,7 @@ The compiler may still optimize away provably-redundant checks, but this is a bo
 
 **Why not Go's nil-vs-empty distinction:**
 - In practice it's a source of bugs — code accidentally treats nil as empty or vice versa
-- The "meaningful empty vs no data" case is better served by explicit types: `([]T, bool)` or `*[]T`
+- The "meaningful empty vs no data" case is better served by explicit types: `(*[]T, bool)` or `*[]T`
 - Simpler mental model: a slice always has a length, period
 
 **Indexing:** zero-based. `s[i]` reads/writes. `s[low:high]` sub-slice, exclusive end. `s[:]`, `s[low:]`, `s[:high]` shorthand.
@@ -1688,7 +1688,7 @@ The formal grammar (`grammar.ebnf`) covers the full language and is annotated wi
 
 2. **D2 — For-clause variants**: `for` followed by tokens is disambiguated: if `in` keyword appears, it's for-in; if `;` appears, it's C-style; otherwise while-style or infinite. The parser looks ahead for `;` or `in`.
 
-3. **D3 — `@[]T` managed-slice sugar**: `@[]T` is managed-slice sugar (3-word representation). `@([]T)` is a managed pointer to a raw slice. Parens break the sugar. In generics, `@T` where `T=[]int` means `@([]int)`, not managed-slice sugar.
+3. **D3 — `@[]T` managed-slice sugar**: `@[]T` is managed-slice sugar (3-word representation). `@(*[]T)` is a managed pointer to a raw slice. Parens break the sugar. In generics, `@T` where `T=*[]int` means `@(*[]int)`, not managed-slice sugar.
 
 4. **D4 — Composite literals in control flow**: `if x == Point{...}` is ambiguous — does `{` start the if-body or a composite literal? Resolved: in `if`, `for`, `switch` conditions, `{` cannot start a composite literal. Use parens: `if x == (Point{x: 1})`.
 
@@ -1810,9 +1810,9 @@ Option 3 is unacceptable for a systems language. Const is the cheapest correct s
 
 ### String Handling — REVISED (twice)
 
-**First revision**: len() including the null terminator was error-prone, so the design was changed to exclude the null from slice views while keeping it in storage. `"abc"` stored as 4 bytes, natural type `[4]const char`, default type `[]const char` with len=3.
+**First revision**: len() including the null terminator was error-prone, so the design was changed to exclude the null from slice views while keeping it in storage. `"abc"` stored as 4 bytes, natural type `[4]const char`, default type `*[]const char` with len=3.
 
-**Second revision (2026-04-01)**: the "null in storage but not in view" semantics were still too complicated. Tracking which slices had a null beyond their bounds was impractical — subslicing, copying, or any manipulation lost the guarantee. The design was simplified: string literals contain exactly the characters specified, no implicit null. `"abc"` is 3 bytes, natural type `[3]const char`, default type `[]const char` with len=3. Null termination for C interop is explicit: `"abc\0"` or via library helpers. This is consistent with the language's philosophy of no hidden behavior.
+**Second revision (2026-04-01)**: the "null in storage but not in view" semantics were still too complicated. Tracking which slices had a null beyond their bounds was impractical — subslicing, copying, or any manipulation lost the guarantee. The design was simplified: string literals contain exactly the characters specified, no implicit null. `"abc"` is 3 bytes, natural type `[3]const char`, default type `*[]const char` with len=3. Null termination for C interop is explicit: `"abc\0"` or via library helpers. This is consistent with the language's philosophy of no hidden behavior.
 
 ### REPL Redefinition Semantics — REVISED
 
@@ -1832,7 +1832,7 @@ This is robust because we can't know all the places that reference `g` (pointers
 **Concern**: Go-style structural typing is simpler and eliminates the `any` special case.
 
 **Response**: Explicit `impl` is preferred for two reasons:
-1. **Explicitness**: Go's structural typing means identical interfaces are conflated. If `Reader` and `Fetcher` both have `Read([]byte) int`, a type satisfies both whether intended or not. This can't be fixed cleanly in Go.
+1. **Explicitness**: Go's structural typing means identical interfaces are conflated. If `Reader` and `Fetcher` both have `Read(*[]byte) int`, a type satisfies both whether intended or not. This can't be fixed cleanly in Go.
 2. **Implementation**: with structural typing, the compiler must check every type against every interface. With explicit `impl`, vtable generation is directed — the compiler knows exactly which (type, interface) pairs need vtables.
 
 ### 32-bit Target
@@ -1920,7 +1920,7 @@ The `...` spread operator allows a slice to be expanded into individual argument
 > **Note (2026-03-31):** `append` has been removed from the language. The original `append(a, b...)` use case no longer applies. The spread operator remains relevant for variadic argument forwarding.
 
 **Why `append(a, b)` without spread was rejected (historical):**
-When `a` was `[]any`, `append(a, b)` was ambiguous — you could not tell whether `b` was a single element to append or a slice whose elements should be spread. The explicit `b...` syntax resolved this ambiguity. (This discussion is now moot since `append` has been removed.)
+When `a` was `*[]any`, `append(a, b)` was ambiguous — you could not tell whether `b` was a single element to append or a slice whose elements should be spread. The explicit `b...` syntax resolved this ambiguity. (This discussion is now moot since `append` has been removed.)
 
 **Deferred from bootstrap.** The bootstrap subset does not implement the spread operator. For the primary bootstrap need (string concatenation), the `Concat` builtin is used instead.
 
@@ -1961,7 +1961,7 @@ Failure is signaled by returning a non-empty string (the failure message). An em
 The `pkg/builtin/testing` package provides the `TestResult` type:
 
 ```
-type TestResult = []char
+type TestResult = *[]char
 ```
 
 This is a type alias, so string literals can be returned directly. Test files must `import "pkg/builtin/testing"`.
@@ -2057,10 +2057,10 @@ The bootstrap interpreter successfully runs `compile.bn` to compile `compile.bn`
 1. **Duplicate SSA names for multi-return**: multiple `return` statements in one function generated duplicate `%v.ret.0` names. Fixed with per-function `retSeq` counter.
 2. **Wrong types in `OP_EXTRACT`**: `EmitExtract` always used `TypInt()`. Fixed by looking up actual function return types via `lookupFuncResults`.
 3. **Import-order-dependent type resolution**: cross-package struct types resolved to `TypInt()` when imported before the defining package. Fixed with two-pass `RegisterImports`.
-4. **Slice-of-slices as struct elements**: `[][]char` elements are `%BnSlice` (16-byte struct), not `i64`. Extended `isStructElem`/`isStructElemFromSlice` and SLICE_GET dispatch.
+4. **Slice-of-slices as struct elements**: `*[]*[]char` elements are `%BnSlice` (16-byte struct), not `i64`. Extended `isStructElem`/`isStructElemFromSlice` and SLICE_GET dispatch.
 5. **Pointer dereference type inference**: `*ptr` defaulted to `i64` instead of the pointed-to type. Fixed by inferring from the variable's type in `genUnary`.
 6. **Void instruction name collisions**: instructions with ID=-1 collided on `%v-1.stmp`. Fixed with `tmpSeq` counter.
-7. **String-to-chars for `append` to `[][]char`** (historical — `append` has since been removed): string literals weren't converted to `[]char` when appended. Added `StringToChars` conversion.
+7. **String-to-chars for `append` to `*[]*[]char`** (historical — `append` has since been removed): string literals weren't converted to `*[]char` when appended. Added `StringToChars` conversion.
 8. **i8 widening for char slice set**: `bn_slice_set_i8` expects i64 but cast result is i8. Added `zext i8 to i64`.
 
 ---

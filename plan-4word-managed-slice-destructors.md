@@ -22,8 +22,8 @@ Word 2: backing_refptr — managed pointer to backing allocation (refcounted)
 Word 3: backing_len    — total element count in backing allocation
 ```
 
-- `[]T` (raw slice) is still 2 words: `{ data, len }`
-- `@[]T → []T` conversion: read first 2 words (prefix-compatible, unchanged)
+- `*[]T` (raw slice) is still 2 words: `{ data, len }`
+- `@[]T → *[]T` conversion: read first 2 words (prefix-compatible, unchanged)
 - Subslicing `s[lo:hi]`: `{ s.data + lo*elemSize, hi-lo, s.backing_refptr, s.backing_len }`
 - `make_slice(T, n)`: `{ &backing[0], n, backing_ptr, n }` (view = full backing initially)
 

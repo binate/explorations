@@ -201,7 +201,7 @@ register holds the pointer to stack or heap memory).
 ### Main Loop
 
 ```
-func Run(vm @VM, funcID int, args []int) int {
+func Run(vm @VM, funcID int, args *[]int) int {
     // Push frame
     var frame = pushFrame(vm, funcID, args)
     var pc int = 0

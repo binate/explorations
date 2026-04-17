@@ -5,7 +5,7 @@
 The compiled interpreter (`bni` built by boot-comp) segfaults when running
 `--test` on packages with many declarations (e.g., `pkg/ir`, `pkg/codegen`,
 `pkg/lint`). The crash is a heap buffer overflow: a 16-byte allocation (raw
-slice `[]T`) is read/written as 32 bytes (managed slice `@[]T`).
+slice `*[]T`) is read/written as 32 bytes (managed slice `@[]T`).
 
 ## Reproduction
 
@@ -57,7 +57,7 @@ type, which says `TYP_MANAGED_SLICE` (32 bytes). The field type and the
 variable type disagree.
 
 This means somewhere in the interpreter's type resolution, a `@[]T`
-(managed-slice) type is being replaced by or confused with `[]T` (raw-slice).
+(managed-slice) type is being replaced by or confused with `*[]T` (raw-slice).
 Candidates:
 
 1. **Type object corruption (use-after-free)**: Confirmed with GDB that a
@@ -109,7 +109,7 @@ pkg/builtin/testing) but confirmed NOT the cause — they happen in working
 packages too, and skipping re-registration doesn't fix the bug.
 
 **17 managed-to-raw-assign lint diagnostics in pkg/interp**, but inspection
-shows they're all read-only patterns (StrOf → []char). The corruption
+shows they're all read-only patterns (StrOf → *[]char). The corruption
 requires a *write* through a dangling pointer.
 
 ## Interpreter refcounting fixes (2026-04-13)
@@ -183,7 +183,7 @@ fields in structs: `@T` fields via RefInc/RefDec, `@[]T` fields via
 always points to valid memory.
 
 **Lint clean** — all 6 managed-to-raw diagnostics in `pkg/interp` are
-read-only patterns (StrOf → []char). None cause writes through dangling
+read-only patterns (StrOf → *[]char). None cause writes through dangling
 pointers.
 
 **Remaining hypothesis**: the corrupted data in flat memory comes from

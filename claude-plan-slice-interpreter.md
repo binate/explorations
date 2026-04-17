@@ -5,7 +5,7 @@
 ## Problem
 
 The bootstrap interpreter (Go) treats slices as Go slices — nullable, GC-managed,
-freely aliased. This doesn't match the Binate spec where raw slices (`[]T`) are
+freely aliased. This doesn't match the Binate spec where raw slices (`*[]T`) are
 unmanaged value types. Since the bootstrap interpreter is interpreting Binate code,
 its runtime representation of slices should model the Binate semantics, not Go's.
 
@@ -13,7 +13,7 @@ its runtime representation of slices should model the Binate semantics, not Go's
 
 The interpreter has ~54 slice usages across `interpreter.go`, `value.go`, and `main.go`:
 
-- **SliceVal** uses `Elems []Value` — a Go slice that can be nil, shared, grown
+- **SliceVal** uses `Elems *[]Value` — a Go slice that can be nil, shared, grown
 - `evalNilCompare` (line 1309) checks `v.Elems == nil` — slices shouldn't be nil-comparable
 - `evalAppend` (line 178) handles `NilVal` as first arg — append shouldn't exist
 - `coerce()` converts `NilVal` to `ZeroValue(SliceType)` — nil shouldn't coerce to slice
@@ -42,8 +42,8 @@ handle struct method calls and the underlying operations (which it already does)
    to a slice variable, the type checker should reject it (nil is for pointer types only).
 
 3. **SliceVal zero value** — `ZeroValue(SliceType)` should return a SliceVal with
-   `Elems: []Value{}` (empty, non-nil) rather than `Elems: nil`. This is the zero
-   value of a slice: length 0, valid but empty. In Binate syntax: `[]T{}`.
+   `Elems: *[]Value{}` (empty, non-nil) rather than `Elems: nil`. This is the zero
+   value of a slice: length 0, valid but empty. In Binate syntax: `*[]T{}`.
 
 4. **`evalAppend` nil handling** — once append is removed from the language, delete
    the nil-as-first-arg path entirely. Until then, the `NilVal` case should create
@@ -51,7 +51,7 @@ handle struct method calls and the underlying operations (which it already does)
 
 ### Phase 3: SliceVal representation
 
-The Go `SliceVal.Elems []Value` models Binate slices using Go's own slice, which
+The Go `SliceVal.Elems *[]Value` models Binate slices using Go's own slice, which
 brings Go's aliasing semantics. This mostly works because the interpreter copies
 on sub-slicing and on append. But it's worth auditing that no code path relies on
 shared backing arrays between SliceVal instances.

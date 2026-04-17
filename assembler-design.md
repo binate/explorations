@@ -172,7 +172,7 @@ Label references in data directives emit relocations. Same-section label differe
 ```
 // A section being assembled
 Section:
-    name        []char
+    name        *[]char
     flags       uint        // read, write, execute, etc.
     data        @[]uint8    // byte buffer (grows during assembly)
     fixups      @[]Fixup    // unresolved references within this section
@@ -180,13 +180,13 @@ Section:
 // A fixup — an unresolved reference to a label
 Fixup:
     offset      uint        // byte offset in section's data buffer
-    label       []char      // target label name
+    label       *[]char      // target label name
     kind        int         // architecture-specific: AARCH64_BRANCH26, X86_REL32, etc.
     addend      int         // constant to add to resolved address
 
 // A symbol in the symbol table
 Symbol:
-    name        []char
+    name        *[]char
     section     int         // index into section list (-1 for external/undefined)
     offset      uint        // byte offset within section
     binding     int         // LOCAL, GLOBAL, WEAK
@@ -475,7 +475,7 @@ Command-line assembler: reads a `.s` file, assembles it, writes a `.o` file. Sup
 ## Deferred / TODO
 
 - **x86-64 end-to-end tests**: assemble → ELF64 → link → run natively on Linux (no QEMU needed). Would validate the full x86-64 pipeline on CI.
-- **Convenience directives for Binate types**: emitting `[]const char` or `@[]const char` from assembly. v2.
+- **Convenience directives for Binate types**: emitting `*[]const char` or `@[]const char` from assembly. v2.
 - **Macros**: adds significant complexity. Binate can generate assembly programmatically via the library API. Defer unless hand-written assembly demand justifies it.
 - **Conditional assembly** (`.if`, `.ifdef`): same reasoning as macros. Defer.
 - **`.include`**: build system can handle file composition. Defer.

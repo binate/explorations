@@ -58,18 +58,18 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   2. Stack-allocated struct locals with managed fields were not cleaned up at scope exit (no dtor call).
 - **Compiler fix**: Generate `__copy_X` functions (symmetric to `__dtor_X`) for structs and `[N]T` arrays. Call copy at struct copy sites (var decl, var assign, field assign, deref assign, function args, function return). Call dtor at scope exit for struct locals.
 - **Interpreter fix**: `structRefInc`/`structRefDec` helpers walk struct fields recursively. Called from `cleanupEnvExcept` (scope exit), `envDefine` (var decl), `envSet` (var assign). Also fixed: `cleanupEnvExcept` false `isRet` match for `@T` (offset-0 field address collision); `IsFresh` leak on fresh `@T` function args.
-- **`VAL_MANAGED_SLICE`**: added to distinguish `@[]T` from `[]T` at Value.Kind level (was both `VAL_SLICE`), matching `VAL_MANAGED_PTR` vs `VAL_POINTER`.
+- **`VAL_MANAGED_SLICE`**: added to distinguish `@[]T` from `*[]T` at Value.Kind level (was both `VAL_SLICE`), matching `VAL_MANAGED_PTR` vs `VAL_POINTER`.
 - **Conformance tests**: 222 (struct copy managed), 223 (nested struct copy), 224 (struct field assign), 225 (managed ptr scope cleanup).
 - **Detailed writeup**: `explorations/bug-struct-copy-refcount.md`
 - **Plans**: `explorations/plan-copy-constructors.md`, `explorations/plan-interp-struct-copy-refcount.md`
 - **Principled slow path** (2026-04-11): always copy on return, always dtor at scope exit, register struct call results as temps. Tests 226 and 227 now pass on compiled modes. See `design-refcount-axioms.md`.
-- **[]char UAF migration** (2026-04-12): the slow path exposes latent UAFs where `[]char` (or `[]T`) borrows from `@[]char` (or `@[]T`) that gets freed by struct dtors. Systematic migration of function return types and callers. Key fixes: `EmitModule`, `llvmType`, `pathJoin`, `FuncRetType` fields, `parser.Errors`/`CheckerErrors` callers, `sliceToChars`/`StrOf` callers, `concatChars`, `quotePath`, test helpers. Also fixed: slice element assignment for nested struct fields (was only handling top-level `@T`/`@[]T`), multi-return assignment for struct variables (missing save-copy-destroy).
+- **[]char UAF migration** (2026-04-12): the slow path exposes latent UAFs where `*[]char` (or `*[]T`) borrows from `@[]char` (or `@[]T`) that gets freed by struct dtors. Systematic migration of function return types and callers. Key fixes: `EmitModule`, `llvmType`, `pathJoin`, `FuncRetType` fields, `parser.Errors`/`CheckerErrors` callers, `sliceToChars`/`StrOf` callers, `concatChars`, `quotePath`, test helpers. Also fixed: slice element assignment for nested struct fields (was only handling top-level `@T`/`@[]T`), multi-return assignment for struct variables (missing save-copy-destroy).
 - **Status**: 187/187 conformance on boot-comp, boot-comp-comp, boot-comp-comp-comp. **26/26 boot-comp unit tests pass.** Zero failures.
 - **`--cflag` option** added to bnc for passing flags to clang (e.g., `--cflag -fsanitize=address`). Used with libgmalloc to debug UAFs.
 
 ### ~~Linux/x86-64: boot-comp-comp string corruption~~ — FIXED
-- **Root cause**: use-after-free in `cmd/bnc/test.bn`. `runtimePath` was declared as `[]char` (raw slice) instead of `@[]char` (managed). When the `candidate @[]char` from `bootstrap.Concat(root, "/runtime/binate_runtime.c")` went out of scope, it was RefDec'd and freed — but `runtimePath` still borrowed its data, creating a dangling pointer. The garbage filenames were freed memory being read as strings.
-- **Fix**: changed `var runtimePath []char` to `var runtimePath @[]char = buf.CopyStr(cli.RuntimePath)` in test.bn, matching the pattern already used in main.bn.
+- **Root cause**: use-after-free in `cmd/bnc/test.bn`. `runtimePath` was declared as `*[]char` (raw slice) instead of `@[]char` (managed). When the `candidate @[]char` from `bootstrap.Concat(root, "/runtime/binate_runtime.c")` went out of scope, it was RefDec'd and freed — but `runtimePath` still borrowed its data, creating a dangling pointer. The garbage filenames were freed memory being read as strings.
+- **Fix**: changed `var runtimePath *[]char` to `var runtimePath @[]char = buf.CopyStr(cli.RuntimePath)` in test.bn, matching the pattern already used in main.bn.
 - **CI now runs all modes** including boot-comp-comp and boot-comp-comp-comp.
 
 ### Self-hosted interpreter: boot-comp-int-int still failing
@@ -84,19 +84,19 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Phase 1 (done): infrastructure — `flat.bn` with readFlatValue/writeFlatValue using bit_cast and pkg/rt
 - Phase 2 (done): scalar variables in flat memory — envDefine/envGet/envSet use flat addresses for ints
 - Phase 3 (done): structs in flat memory — `evalMake` allocates via `rt.Alloc`, all field access through `RawAddr + FieldOffset`. Lazy struct reads (no eager field materialization). Self-referential type resolution (in-place field update).
-- Phase 4 (done): raw slices in flat memory — `[]T` as `{data, len}` in 16 bytes. `arr[:]` creates flat slices.
+- Phase 4 (done): raw slices in flat memory — `*[]T` as `{data, len}` in 16 bytes. `arr[:]` creates flat slices.
 - Managed pointer refcounting (done): `envDefine` RefInc, `envSet` RefDec/RefInc, `cleanupEnvExcept` for scope exit, `interpRefDec` for recursive struct field cleanup, `interpCleanupSlice` for managed-slice element cleanup. Return values excluded from scope cleanup.
 - bit_cast (done): pointer↔int, pointer↔pointer — 090 passes
 - Pointer indexing (done): `p[i]` read/write, `&arr[i]` — 091 passes
 - pkg/rt forwarding (done): c_malloc, Alloc, Free, RefInc, RefDec, Refcount, MakeManagedSlice — 092, 093, 104, 123 pass
 - Pointer comparison (done): `p == q` via RawAddr
-- String→[]char for flat slices (done): 079, 088 pass
+- String→*[]char for flat slices (done): 079, 088 pass
 - C ABI sret fix (done): large struct returns from C externs on ARM64
 - TYP_NAMED resolution (done): `resolveUnderlying` resolves named types (`type Kind int`) in flat read/write paths
 - Lazy struct optimization (done): `readFlatValue` for TYP_STRUCT returns RawAddr-only Values, avoiding O(n) allocation per field access. Fixed parser.ParseFile hang in boot-comp-int.
-- Managed-slice flat storage (done): `TYP_MANAGED_SLICE` in `useFlatType`. 32-byte flat headers with `rt.MakeManagedSlice` backing. Flat-to-flat copy, subslicing, `@[]T→[]T` coercion, element refcounting. Fixed tests 126, 129.
+- Managed-slice flat storage (done): `TYP_MANAGED_SLICE` in `useFlatType`. 32-byte flat headers with `rt.MakeManagedSlice` backing. Flat-to-flat copy, subslicing, `@[]T→*[]T` coercion, element refcounting. Fixed tests 126, 129.
 - Managed-slice backing refcounting (done): envDefine/envSet RefInc/RefDec for backing_refptr. cleanupEnvExcept RefDec on scope exit. Element-level RefInc/RefDec for managed-ptr elements in flat index assignment.
-- Full flat migration (done): ALL data types use flat storage (int, bool, []T, @[]T, @T, *T, [N]T, struct, string, named types). Only function values remain Cell-based.
+- Full flat migration (done): ALL data types use flat storage (int, bool, *[]T, @[]T, @T, *T, [N]T, struct, string, named types). Only function values remain Cell-based.
 - readFlatValue no longer materializes Elems (O(n) → O(1)). All consumers (for-in, index, len, print, subslice) use flat paths.
 - Legacy Elems code removed: MakeSliceVal, MakeArrayVal, MakeManagedSliceVal removed. writeFlatValue Elems→flat conversion removed. Elems refs: 53→3 (VAL_MULTI only). HeapObj refs: 30→3 (function values only).
 - All refcounting fixed: return leak (IsFresh flag), element-copy, struct field, assignment cascade, pointer deref write, managed-slice element cleanup (rc==1 check).
@@ -175,7 +175,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ### ~~.bni/.bn return type mismatch should be a compile error~~ — FIXED
 - The type checker now verifies that `.bn` function definitions match their `.bni` declarations (parameter count/types, return count/types). Mismatches are reported as compile errors.
-- Immediately caught two real bugs: `MakeStringVal` and `AddBlock` had `@[]char` in `.bni` but `[]char` in `.bn`. Both `.bni` files fixed.
+- Immediately caught two real bugs: `MakeStringVal` and `AddBlock` had `@[]char` in `.bni` but `*[]char` in `.bn`. Both `.bni` files fixed.
 - Conformance test 221 now passes on all compiled modes.
 
 ### ~~Compiler bug: cast to sub-word pointer type emits invalid LLVM IR~~ — FIXED
@@ -189,7 +189,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ### Clean up conformance tests to use array literal + `arr[:]` pattern
 - `arr[:]` works in compiled mode; conformance tests using `make_slice` + indexed assignment for static data could use `[N]T{...}` + `arr[:]` instead
-- Consider adding slice literal syntax (`[]T{...}`) as sugar
+- Consider adding slice literal syntax (`*[]T{...}`) as sugar
 
 ### DWARF debug info — foundation in place, type coverage missing
 **Done** (via `56ea542`, `a15ef50`, `2cd2c25`):
@@ -242,14 +242,14 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 ### Slice ownership model — design notes
 Binate is NOT Go. The two types of slice are intentionally different:
 
-**Raw slices (`[]T`)** — two words: (data ptr, length)
+**Raw slices (`*[]T`)** — two words: (data ptr, length)
 - Value types, no refcounting, no GC. Caller manages lifetime (like C).
 - Cannot be compared to `nil` — check `len(s) == 0` for empty.
 
 **Managed-slices (`@[]T`)** — four words: (data ptr, length, backing_refptr, backing_len)
-- Prefix-compatible with `[]T`. Refcounted via backing_refptr.
+- Prefix-compatible with `*[]T`. Refcounted via backing_refptr.
 - backing_len stores total element count for destructor cleanup.
-- `make_slice(T, n)` returns `@[]T`. `@[]T → []T` conversion: extractvalue fields 0,1.
+- `make_slice(T, n)` returns `@[]T`. `@[]T → *[]T` conversion: extractvalue fields 0,1.
 
 ### Test runner improvements
 - ~~**Better docs/help**~~: DONE. Both runners show description, examples, flag docs, test format/convention docs, xfail mechanism. READMEs added for conformance/ and scripts/unittest/.
@@ -298,7 +298,7 @@ Binate is NOT Go. The two types of slice are intentionally different:
   - **Option D**: manual trampolines, with a magic C package for declarations.
 
 ### ~~Simplify bootstrap.Read/Write signatures~~ — DONE
-- `Read(fd int, buf []uint8) int` and `Write(fd int, buf []uint8) int` — redundant `len` parameter removed. Callers subslice if they want a smaller length.
+- `Read(fd int, buf *[]uint8) int` and `Write(fd int, buf *[]uint8) int` — redundant `len` parameter removed. Callers subslice if they want a smaller length.
 
 ---
 
@@ -313,14 +313,14 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - All slice ops (`OP_SLICE_GET/SET/LEN/EXPR/ELEM_PTR`) lowered to primitives (`OP_EXTRACT`, `OP_GET_ELEM_PTR`, `OP_LOAD/STORE`) in the IR gen layer. Deprecated opcodes removed from `ir.bni`.
 - 13 C runtime functions removed (22→9 in manifest). `emit_slice.bn` deleted.
 - Raw slice subslice copy bug fixed: `s[lo:hi]` now zero-copy (was incorrectly copying in C runtime).
-- **EmitSliceSet element type bug**: was using `val.Typ` (int/64-bit) instead of slice element type, causing wrong GEP stride for `[]uint8`. Test 141 added.
+- **EmitSliceSet element type bug**: was using `val.Typ` (int/64-bit) instead of slice element type, causing wrong GEP stride for `*[]uint8`. Test 141 added.
 - **EmitSliceExpr GEP type mismatch**: codegen's internal bitcast produced typed pointer but slice field 0 expects `i8*`. Fixed with byte-level GEP.
-- **readFile UAF** (6 call sites in cmd/bnc, cmd/bni, pkg/loader): `var src []uint8 = readFile(...)` dropped backing reference immediately. Changed to `@[]uint8`. Previously masked by copying slice_expr. Tests 142 added.
+- **readFile UAF** (6 call sites in cmd/bnc, cmd/bni, pkg/loader): `var src *[]uint8 = readFile(...)` dropped backing reference immediately. Changed to `@[]uint8`. Previously masked by copying slice_expr. Tests 142 added.
 
 ### ~~Remove dead bn_append_* functions~~ — DONE
 
 ### ~~ModuleConst.Name UAF~~ — FIXED
-- Fixed: `ModuleConst.Name` changed from `[]char` to `@[]char`.
+- Fixed: `ModuleConst.Name` changed from `*[]char` to `@[]char`.
 
 ### 161/161 — ZERO XFAILS IN ALL MODES
 - **boot-comp: 161/161. boot-comp-int: 161/161. boot-comp-comp: 161/161.**
@@ -338,11 +338,11 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - **Managed-ptr return leak** (test 132): same pattern. Key bug: `lookupVar()` fell back to globals — returning a singleton freed it. Fixed with `lookupLocalVar()`.
 - **Element-copy refcounting** (tests 133-135): RefInc/RefDec for managed-ptr, managed-slice, and struct elements during slice/array assignment.
 - **RefInc-before-RefDec ordering** (test 138): cascade-safe assignment (e.g., popScope).
-- **Parser raw-slice borrow** (test 136): `parseImportDecl` `[]@ast.ImportSpec` → `@[]@ast.ImportSpec`.
+- **Parser raw-slice borrow** (test 136): `parseImportDecl` `*[]@ast.ImportSpec` → `@[]@ast.ImportSpec`.
 - **Debugging**: sentinel-based RefDec (rc=-999) and ASan with instrumented .ll files.
 
 ### Interpreter flat migration — COMPLETE
-- ALL data types use flat storage: int, bool, []T, @[]T, @T, *T, [N]T, struct, string, named types. Only function values remain Cell-based (pending interop design).
+- ALL data types use flat storage: int, bool, *[]T, @[]T, @T, *T, [N]T, struct, string, named types. Only function values remain Cell-based (pending interop design).
 - readFlatValue no longer materializes Elems — O(1) variable read.
 - evalMakeSlice, evalArrayLit, evalStructLit, ZeroValue, stringToCharSlice all produce flat Values directly.
 - Legacy code removed: MakeSliceVal, MakeArrayVal, MakeManagedSliceVal, writeFlatValue Elems paths, HeapObj deref fallbacks, legacy index/subslice/for-in/struct-field paths. Elems: 53→3. HeapObj: 30→3.
@@ -357,7 +357,7 @@ Binate is NOT Go. The two types of slice are intentionally different:
 
 ### Managed-slice flat storage in interpreter
 - boot-comp-int: 148/156 (was 142 before).
-- `TYP_MANAGED_SLICE` in `useFlatType`, flat subslicing, `@[]T→[]T` coercion, element refcounting, backing refcounting.
+- `TYP_MANAGED_SLICE` in `useFlatType`, flat subslicing, `@[]T→*[]T` coercion, element refcounting, backing refcounting.
 
 ### 4-word managed-slice migration — finalized
 - Conformance test 129 (subslice preserving backing_len), bootstrap interpreter confirmed no changes needed.
@@ -394,7 +394,7 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - **boot-comp-int: 146/147 conformance tests pass** (was 142 before)
 - Added `TYP_MANAGED_SLICE` to `useFlatType` — managed-slice variables now use 32-byte flat headers with real `rt.MakeManagedSlice` backing
 - `writeFlatValue`: added flat-to-flat copy path (memcpy 32-byte header)
-- `@[]T → []T` coercion: flat managed-slice creates flat raw slice sharing same data pointer
+- `@[]T → *[]T` coercion: flat managed-slice creates flat raw slice sharing same data pointer
 - Flat managed-slice subslicing: creates new 4-word header sharing backing, preserves backing_len, RefIncs backing
 - Element refcounting: flat index assignment RefInc/RefDec managed-ptr elements; `cleanupFlatMSliceElems` on reassignment
 - Managed-slice backing refcounting deferred (leaks backing allocations, no correctness issues)
@@ -445,8 +445,8 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - Conformance tests: 117, 118.
 
 ### Temporary lifetime fix
-- Removed all leaking `consumeTemp` for `@[]T→[]T`. Temps RefDec'd at end of statement.
-- Migrated bnc to `@[]@[]char`. `bootstrap.Exec` now takes `[]@[]char`.
+- Removed all leaking `consumeTemp` for `@[]T→*[]T`. Temps RefDec'd at end of statement.
+- Migrated bnc to `@[]@[]char`. `bootstrap.Exec` now takes `*[]@[]char`.
 - Conformance test: 122.
 
 ### .bni processing: RegisterSelfTypes expanded
@@ -466,7 +466,7 @@ Binate is NOT Go. The two types of slice are intentionally different:
 ### @[]T refcounting, OP_MAKE_SLICE migration, C runtime cleanup — `80b5150`
 ### Self-hosted interpreter HeapObj tracking — `c997b9f`
 ### Package search paths and implicit pkg/rt import — `ad394ee`
-### @[]T layout, MakeManagedSlice, @[]T → []T conversion — `da07f70`
+### @[]T layout, MakeManagedSlice, @[]T → *[]T conversion — `da07f70`
 ### bit_cast, pointer indexing, pkg/rt — `c80d962`
 ### Codegen bugs (074-087) — ALL FIXED
 ### Self-compiled compiler — FULLY PASSING ✓

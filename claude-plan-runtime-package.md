@@ -192,12 +192,12 @@ func Free(ptr *any) {
 }
 
 type ManagedSlice struct {
-    Data   *any    // pointer to first element (field 0 — matches []T layout prefix)
-    Len    int     // number of elements   (field 1 — matches []T layout prefix)
+    Data   *any    // pointer to first element (field 0 — matches *[]T layout prefix)
+    Len    int     // number of elements   (field 1 — matches *[]T layout prefix)
     Refptr *any    // managed pointer to backing array (field 2 — refcounted)
 }
-// Note: fields 0,1 are identical in layout to []T (BnSlice).
-// This means @[]T can be read as []T with no arithmetic — just ignore field 2.
+// Note: fields 0,1 are identical in layout to *[]T (BnSlice).
+// This means @[]T can be read as *[]T with no arithmetic — just ignore field 2.
 
 func MakeManagedSlice(elemSize int, length int) ManagedSlice {
     var ms ManagedSlice
@@ -270,12 +270,12 @@ This happens in the IR gen, not the codegen emitter. The codegen just sees
 10. ~~**Test** — conformance suite across all modes~~ — DONE (91 compiled, 90 bootstrap, 90 selfhost — all passing)
 
 ### Also completed (beyond original plan):
-- **Package search paths**: Loader supports multiple roots (`Roots [][]char`), iterates them to find packages. Compiler discovers binate project root from runtime path and adds as secondary search path. Enables cross-package tests to find pkg/rt.
+- **Package search paths**: Loader supports multiple roots (`Roots *[]*[]char`), iterates them to find packages. Compiler discovers binate project root from runtime path and adds as secondary search path. Enables cross-package tests to find pkg/rt.
 - **Remove old C runtime functions**: `bn_refcount_inc`, `bn_refcount_dec`, `bn_make_managed_slice` removed from `binate_runtime.c`. `bn_alloc` remains (used by `bn_box`, not yet migrated).
 - **@[]T refcounting**: Extract refptr (field 2) from managed slice, call rt.RefInc/RefDec at var declarations, assignments, field assignments, function params, scope exit, return cleanup.
 - **Port bn_box to pkg/rt**: rt.Box = Alloc + c_memcpy. `bn_alloc` and `bn_box` removed from C runtime.
 - **Port bounds checking to pkg/rt**: rt.BoundsCheck with c_bounds_fail stub. `bn_bounds_check` removed from C runtime.
-- **Self-hosted interpreter HeapObj tracking**: HeapObject gains Refcount field. Managed slices carry HeapObj with Refcount=1. copyValue increments Refcount on managed slice copy. coerce handles @[]T → []T. Bootstrap interpreter updated in parallel. Conformance: 095_managed_slice_sharing.
+- **Self-hosted interpreter HeapObj tracking**: HeapObject gains Refcount field. Managed slices carry HeapObj with Refcount=1. copyValue increments Refcount on managed slice copy. coerce handles @[]T → *[]T. Bootstrap interpreter updated in parallel. Conformance: 095_managed_slice_sharing.
 
 ## Verification
 

@@ -268,7 +268,7 @@ gets a new one).
 - Temporary RefDec for @T, @[]T, and structs at end of statement ✓
 - Multi-return: RefInc extracted @T/@[]T fields from anon struct ✓
 - Pointer dereference refcounting (*p = val) ✓
-- @[]T → []T conversion: temp borrowed, not freed until statement end ✓
+- @[]T → *[]T conversion: temp borrowed, not freed until statement end ✓
 - Copy constructors (__copy_X) for structs/arrays with managed fields ✓
 - Destructors (__dtor_X) for structs/arrays with managed fields ✓
 - Struct field write-through copy/dtor ✓
@@ -282,15 +282,15 @@ gets a new one).
 - structRefInc/structRefDec for struct/array fields ✓
 - cleanupEnvExcept: @T, @[]T, struct scope cleanup ✓
 - IsFresh flag for ownership transfer on returns ✓
-- VAL_MANAGED_SLICE distinguishes @[]T from []T ✓
+- VAL_MANAGED_SLICE distinguishes @[]T from *[]T ✓
 
 **Known issues**:
 
 1. **[]char UAF migration incomplete** — the slow path exposes latent UAFs
-   where `[]char` (or `[]T`) borrows from `@[]char` (or `@[]T`) that gets
+   where `*[]char` (or `*[]T`) borrows from `@[]char` (or `@[]T`) that gets
    freed by struct dtors. Many sites fixed; 6 boot-comp unit test packages
    still crash from freed-and-reallocated memory (passes with ASan). More
-   `@[]T → []T` coercion sites to find. See `design-refcount-axioms.md`.
+   `@[]T → *[]T` coercion sites to find. See `design-refcount-axioms.md`.
 
 2. **Interpreter @T param over-increment** — tests 228/229 show rc
    increasing by 2 per `wrap(n, tag)` call instead of 1 on boot-comp-int.
@@ -320,7 +320,7 @@ gets a new one).
 - **2026-04-12**: Principled slow path (axioms 1-5). Always copy on struct
   return/decl/assign, always dtor at scope exit. Struct call results
   registered as temps. Multi-return RefInc for extracted managed fields.
-  Systematic `[]char → @[]char` migration for functions returning
+  Systematic `*[]char → @[]char` migration for functions returning
   buf.Bytes/llvmType/etc. Tests 226/227 pass. 187/187 conformance on
   all compiled modes. `--cflag` option for bnc.
 

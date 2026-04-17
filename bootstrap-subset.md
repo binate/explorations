@@ -27,17 +27,17 @@ language defines them as platform word-size (32-bit on 32-bit targets).
 
 There is **no `string` type** in Binate. A string literal of length N is always stored
 as N+1 bytes (including a null terminator). The **natural type** is `[N+1]char` (or
-`[N+1]const char` in the full language). The **default type** is `[]const char` (or
-`[]char` in the bootstrap, which lacks const-qualified types).
+`[N+1]const char` in the full language). The **default type** is `*[]const char` (or
+`*[]char` in the bootstrap, which lacks const-qualified types).
 
-When taken as a slice (`[]char` or `[]const char`), the literal behaves as if it were
+When taken as a slice (`*[]char` or `*[]const char`), the literal behaves as if it were
 the underlying array sliced to exclude the null — i.e., `cast([N+1]char, "...")[:N]`.
 The slice view has `len` = N, but the underlying storage always retains the null
 terminator immediately after the slice data, ensuring C interop safety.
 
 The bootstrap has an internal `StringLitType` for type-checking string literals. The
-type checker treats `string` and `[]char` as mutually assignable for convenience, but
-self-hosted code must use `[]char` exclusively.
+type checker treats `string` and `*[]char` as mutually assignable for convenience, but
+self-hosted code must use `*[]char` exclusively.
 
 **String operations:**
 - String literals: `"hello"` — stored as 6 bytes (`hello\0`), natural type `[6]char`;
@@ -79,12 +79,12 @@ Fully supported:
 ### Slices
 
 Fully supported:
-- Raw slices: `[]T` — two words (data pointer, length)
+- Raw slices: `*[]T` — two words (data pointer, length)
 - Managed slices: `@[]T` — three words (data pointer, length, refpointer)
 - Slice expressions: `arr[lo:hi]`, `arr[:hi]`, `arr[lo:]`, `arr[:]`
 - `len(s)` returns length
 - Indexing: `s[i]` (bounds-checked)
-- `@[]T` → `[]T` implicit conversion (managed to raw)
+- `@[]T` → `*[]T` implicit conversion (managed to raw)
 
 **Not supported:**
 - Nil comparison: slices cannot be compared to `nil` (check `len(s) == 0` instead)
@@ -336,21 +336,21 @@ import myname "pkg/foo"       // aliased import
 Provided by the Go runtime, not `.bn` files:
 
 **File I/O:**
-- `Open(path []char, flags int) int` — returns fd (-1 on error)
-- `Read(fd int, buf []uint8, n int) int` — read up to n bytes
-- `Write(fd int, buf []uint8, n int) int` — write n bytes
+- `Open(path *[]char, flags int) int` — returns fd (-1 on error)
+- `Read(fd int, buf *[]uint8, n int) int` — read up to n bytes
+- `Write(fd int, buf *[]uint8, n int) int` — write n bytes
 - `Close(fd int) int` — close file descriptor
-- `ReadDir(path []char) [][]char` — list directory entries
-- `Stat(path []char) int` — 0=not found, 1=file, 2=directory
+- `ReadDir(path *[]char) *[]*[]char` — list directory entries
+- `Stat(path *[]char) int` — 0=not found, 1=file, 2=directory
 
 **String Utilities:**
-- `Itoa(v int) []char` — integer to decimal string
-- `Concat(a []char, b []char) []char` — string concatenation
+- `Itoa(v int) *[]char` — integer to decimal string
+- `Concat(a *[]char, b *[]char) *[]char` — string concatenation
 
 **Process:**
 - `Exit(code int)` — exit process
-- `Exec(prog []char, args [][]char) int` — run subprocess, return exit code
-- `Args() [][]char` — command-line arguments (after `--`)
+- `Exec(prog *[]char, args *[]*[]char) int` — run subprocess, return exit code
+- `Args() *[]*[]char` — command-line arguments (after `--`)
 
 **Constants:**
 - `O_RDONLY`, `O_WRONLY`, `O_RDWR`, `O_CREATE`, `O_TRUNC`, `O_APPEND`
@@ -379,7 +379,7 @@ Raises a runtime error with the given message. Not recoverable.
 
 - Test files: `*_test.bn`
 - Test functions: `TestXxx() testing.TestResult`
-- `testing.TestResult` is an alias for `[]char`
+- `testing.TestResult` is an alias for `*[]char`
 - Pass: return `""` (empty string)
 - Fail: return a non-empty error message string
 - Run: `binate -test [-root dir] pkg/foo [pkg/bar ...]`
@@ -457,8 +457,8 @@ operator (`slice...`) is not supported. Only the built-in `print`, `println`, an
 `print` and `println` are variadic.
 
 ### Const-Qualified Types
-No `const` modifier on types: no `*const T`, no `[]const char`, no const receivers.
-String literals are `[]char` rather than `[]const char`.
+No `const` modifier on types: no `*const T`, no `*[]const char`, no const receivers.
+String literals are `*[]char` rather than `*[]const char`.
 
 ### Float Types
 `float32` and `float64` are not available. All arithmetic is integer-only.
@@ -526,9 +526,9 @@ is semantically incorrect.
 ### 2. `string` exists as an internal type
 
 The bootstrap has `StringLitType` as a distinct internal type and treats `string` and
-`[]char` as interchangeable via special-casing in `AssignableTo()`. In the real
+`*[]char` as interchangeable via special-casing in `AssignableTo()`. In the real
 language, there is no `string` type at all — string literals have natural type
-`[N+1]const char` and default to `[]const char` (or `[]char` in the bootstrap).
+`[N+1]const char` and default to `*[]const char` (or `*[]char` in the bootstrap).
 Self-hosted code must not rely on `string` as a type name.
 
 ### 3. `int`/`uint` are always 64-bit
@@ -540,7 +540,7 @@ targets). Code that assumes 64-bit `int` may break on 32-bit targets.
 ### 4. No const-qualification means weaker type safety
 
 Without `const` types, the bootstrap cannot enforce immutability. String literals are
-`[]char` (mutable) rather than `[]const char` (immutable), and their natural type is
+`*[]char` (mutable) rather than `*[]const char` (immutable), and their natural type is
 `[N+1]char` rather than `[N+1]const char`. Code can mutate data that should be
 read-only. This is a known and accepted limitation of the bootstrap subset.
 

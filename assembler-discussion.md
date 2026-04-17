@@ -189,7 +189,7 @@ The compiler backend calls per-architecture emit functions directly, going from 
 
 ### Growing byte buffers
 
-Sections accumulate bytes as instructions and data are emitted. Binate has no built-in `append` — growable collections are a library concern. The existing `CharBuf` type handles growable `[]char` buffers. Since `char = uint8`, a `ByteBuf` for section data can be type-aliased from `CharBuf` or trivially copied with `s/char/uint8/g`. This is pragmatic scaffolding until generics provide a proper `Vec[T]`.
+Sections accumulate bytes as instructions and data are emitted. Binate has no built-in `append` — growable collections are a library concern. The existing `CharBuf` type handles growable `*[]char` buffers. Since `char = uint8`, a `ByteBuf` for section data can be type-aliased from `CharBuf` or trivially copied with `s/char/uint8/g`. This is pragmatic scaffolding until generics provide a proper `Vec[T]`.
 
 ### Symbol lookup
 

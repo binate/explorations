@@ -24,7 +24,7 @@ These are correct and well-tested. However:
 ### Interpreter Situation
 
 Both interpreters (Go bootstrap and self-hosted) use high-level value representations:
-- Struct fields: `[]Value` / `@[]@Value` — array of boxed values, accessed by name lookup
+- Struct fields: `*[]Value` / `@[]@Value` — array of boxed values, accessed by name lookup
 - No byte-level layout — field access is by index into the value array
 
 This works for a standalone interpreter but cannot support dual-mode interop. When compiled code passes a struct to the interpreter (or vice versa), the interpreter needs to read/write fields at the correct byte offsets in the compiled struct's memory layout. The shared layout layer is the bridge.
@@ -179,7 +179,7 @@ This stays in codegen because the concept of "LLVM physical index" is LLVM-speci
 **What:** Define the internal structure of slices, managed-slices, and managed pointer headers as queryable data, not just sizes.
 
 Currently, the layouts are:
-- Raw slice `[]T`: `{ data *T, len int }` — but this is only documented informally
+- Raw slice `*[]T`: `{ data *T, len int }` — but this is only documented informally
 - Managed-slice `@[]T`: `{ data *T, len int, backing *uint8, backingLen int }` — same
 - Managed pointer header: `[refcount, free_fn]` at negative offset — only in `pkg/rt`
 
@@ -246,8 +246,8 @@ These are trivial functions but they centralize the layout contract. The codegen
 2. **`emit.bn` slice type definitions** (line 135–136): Instead of hardcoding `%BnSlice = type { i8*, i64 }`, derive from target:
    ```
    // Still LLVM-specific string emission, but sizes from shared layer
-   var ptrType []char = "i8*"
-   var intType []char = llvmIntType()  // "i32" or "i64" based on target
+   var ptrType *[]char = "i8*"
+   var intType *[]char = llvmIntType()  // "i32" or "i64" based on target
    // emit: %BnSlice = type { ptrType, intType }
    ```
 

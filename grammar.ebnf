@@ -251,9 +251,9 @@ InterfaceList = TypeName { "," TypeName } ;
 (* DISAMBIGUATION for "*[" and "@[" slice sugar:
    "*" "[" "]" → raw slice *[]T (sugar).
    "@" "[" "]" → managed slice @[]T (sugar).
-   "*" "(" → grouping, e.g., *([]T) for raw pointer to raw slice,
+   "*" "(" → grouping, e.g., *(*[]T) for raw pointer to raw slice,
              or *([N]T) for raw pointer to array.
-   "@" "(" → grouping, e.g., @([]T) for managed pointer to raw slice,
+   "@" "(" → grouping, e.g., @(*[]T) for managed pointer to raw slice,
              or @([N]T) for managed pointer to array.
    "*" otherwise → raw pointer *T (the following Type must not start with "[").
    "@" otherwise → managed pointer @T (the following Type must not start with "[").
@@ -263,7 +263,7 @@ InterfaceList = TypeName { "," TypeName } ;
 
 Type          = TypeName                                  (* [BOOTSTRAP] *)
               | TypeLit                                   (* [BOOTSTRAP] — subset *)
-              | "(" Type ")"                              (* grouping, e.g., @([]T), *([N]T) [BOOTSTRAP] *)
+              | "(" Type ")"                              (* grouping, e.g., @(*[]T), *([N]T) [BOOTSTRAP] *)
               | "const" Type                              (* const modifier [DEFERRED] *)
               | "*" Type                                  (* raw pointer [BOOTSTRAP] — Type must not start with "[" *)
               | "*" "[" "]" Type                          (* raw slice sugar [BOOTSTRAP] *)
@@ -509,7 +509,7 @@ BuiltinCall   = "make" "(" MakeArg ")"                    (* [BOOTSTRAP] *)
               | "unsafe_index" "(" Expression "," Expression ")"  (* [DEFERRED] *)
               | "len" "(" Expression ")" ;                (* [BOOTSTRAP] *)
 
-MakeArg       = SliceType "," Expression                  (* make([]int, n) — runtime-sized *)
+MakeArg       = SliceType "," Expression                  (* make(*[]int, n) — runtime-sized *)
               | Type ;                                    (* make(Point), make([100]int) — zero-init *)
 
 (* --- Expression and identifier lists --- *)
@@ -565,8 +565,8 @@ IdentifierList = identifier { "," identifier } ;
    D3. "*[" / "@[" slice sugar vs "*" / "@" followed by a type:
        "*" "[" "]" → raw slice *[]T (sugar).
        "@" "[" "]" → managed slice @[]T (sugar).
-       "*" "(" → grouping, e.g., *([]T), *([N]T).
-       "@" "(" → grouping, e.g., @([]T), @([N]T).
+       "*" "(" → grouping, e.g., *(*[]T), *([N]T).
+       "@" "(" → grouping, e.g., @(*[]T), @([N]T).
        "*" otherwise → raw pointer *T.
        "@" otherwise → managed pointer @T.
        Two-token lookahead after "*" or "@". Bare "*[" or "@[" followed by

@@ -78,7 +78,7 @@ Provides building blocks that drivers call:
 ```
 Parse:    ReadELF(path) → InputObject
           ReadMachO(path) → InputObject
-          ReadArchive(path) → []InputObject  (with lazy member selection)
+          ReadArchive(path) → *[]InputObject  (with lazy member selection)
 
 Resolve:  BuildSymbolTable(objects) → SymbolTable
           ResolveSymbols(table) → errors
@@ -100,7 +100,7 @@ A driver is a Binate function (compiled or interpreted) that orchestrates a link
 Conceptually:
 
 ```
-func linkLinuxX64(inputs []InputObject, output []char) {
+func linkLinuxX64(inputs *[]InputObject, output *[]char) {
     // Merge sections by name
     text := link.CreateOutputSection(".text", SF_READ|SF_EXEC, 16)
     data := link.CreateOutputSection(".data", SF_READ|SF_WRITE, 8)
@@ -124,7 +124,7 @@ func linkLinuxX64(inputs []InputObject, output []char) {
 A bare-metal ARM32 driver is simpler:
 
 ```
-func linkBareMetal(inputs []InputObject, output []char) {
+func linkBareMetal(inputs *[]InputObject, output *[]char) {
     text := link.CreateOutputSection(".text", SF_READ|SF_EXEC, 4)
     data := link.CreateOutputSection(".data", SF_READ|SF_WRITE, 4)
     // ... merge ...
