@@ -6,6 +6,11 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
+### Discuss ways to split long string literals across lines
+- No way to break a long string literal across source lines: Binate has no `+` operator for strings, no adjacent-string-literal concatenation (as in C), and `bootstrap.Concat` allocates at runtime (fine for one-shot, bad for hot paths / error messages that may never fire).
+- Came up during the raw-slice migration: an `errMsg` call in `pkg/parser/parser.bn:106` has a 114-char string literal that can't be shortened without losing information. Tagged `// LONG-LINE ALLOWED` as a workaround — see `scripts/hygiene/line-length.sh` and `explorations/code-hygiene-check.md`.
+- Options to discuss: C-style adjacent-string concatenation at the lexer level; a `\` line-continuation inside string literals; a compile-time const-fold of `bootstrap.Concat` on literal args; something else.
+
 ### Raw slice syntax migration: `[]T` → `*[]T`
 - Staged migration plan in `explorations/plan-raw-slice-syntax.md`. Raw slices change from `[]T` to `*[]T` to make the `*`/`@` prefix consistently mean raw/managed for both pointers and slices. See also `claude-notes.md` ("Raw slice syntax" decision) and `claude-discussion-detailed-notes.md` ("Slice Syntax — Revised 2026-04-11").
 - **Stage 0**: reclaim `*[` — require parens for the old `*[]T` (pointer to raw slice) and `*[N]T` (pointer to array) meanings, i.e. `*([]T)` and `*([N]T)`. Bootstrap + self-host parsers/type checkers + code migration.
