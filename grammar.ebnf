@@ -278,13 +278,14 @@ QualifiedName = identifier [ "." identifier ] ;            (* optional package q
 TypeArgList   = Type { "," Type } ;
 
 TypeLit       = ArrayType                                (* [BOOTSTRAP] *)
-              | SliceType                                (* [BOOTSTRAP] *)
               | StructType                               (* [BOOTSTRAP] — no annotations *)
               | InterfaceType                            (* [DEFERRED] *)
               | FuncType ;                               (* [DEFERRED] *)
 
+(* Raw slice types are not in TypeLit — they are handled by the "*" "[" "]"
+   form in Type (raw-slice sugar). Bare "[" "]" T is no longer accepted. *)
+
 ArrayType     = "[" Expression "]" Type ;                 (* fixed-size array *)
-SliceType     = "[" "]" Type ;                            (* raw slice *)
 StructType    = [ Annotation ] "struct" StructBody ;
 InterfaceType = "interface" InterfaceBody ;
 FuncType      = "func" Signature ;
@@ -509,7 +510,7 @@ BuiltinCall   = "make" "(" MakeArg ")"                    (* [BOOTSTRAP] *)
               | "unsafe_index" "(" Expression "," Expression ")"  (* [DEFERRED] *)
               | "len" "(" Expression ")" ;                (* [BOOTSTRAP] *)
 
-MakeArg       = SliceType "," Expression                  (* make(*[]int, n) — runtime-sized *)
+MakeArg       = "*" "[" "]" Type "," Expression           (* make(*[]int, n) — runtime-sized *)
               | Type ;                                    (* make(Point), make([100]int) — zero-init *)
 
 (* --- Expression and identifier lists --- *)
