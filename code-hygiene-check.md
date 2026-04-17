@@ -29,6 +29,8 @@ find pkg/ cmd/ -name '*.bn' -o -name '*.bni' | xargs awk 'length > 100 {print FI
 
 Fix by breaking long conditions into multiple `if` statements, extracting subexpressions into variables, or wrapping comments.
 
+A line may opt out by ending with `// LONG-LINE ALLOWED`. Use sparingly — only when splitting or shortening the line is impractical (e.g. a long error-message string literal that Binate can't currently split across lines).
+
 ## 3. Test file correspondence
 
 Every non-test `.bn` file must have a matching `_test.bn` file. This applies to both `pkg/` and `cmd/` directories.
