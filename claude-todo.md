@@ -6,6 +6,16 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
+### boot-comp-int2: 17 unit-test packages fail with field-layout corruption
+- 17 packages crash or read garbage from struct fields under boot-comp-int2 (cmd/bni2 bytecode VM): pkg-lint, pkg-types, pkg-asm, pkg-asm-{x64,parse,arm32,aarch64,elf,macho}, pkg-ir, pkg-lexer, pkg-interp, pkg-parser, pkg-codegen, pkg-vm, cmd-bnlint, cmd-bnc.
+- All xfail'd in `scripts/unittest/<pkg>.xfail.boot-comp-int2`.
+- Symptoms vary by package, but the most diagnostic case is `pkg/asm` `TestNew`: `var a @Assembler = New(8); a.WordSize` reads garbage (a pointer-like value) instead of 8, and `a.Current` reads 15 instead of -1. `a.NumSections` and `a.NumSymbols` (also written by `New`) read correctly. `TestSetSection` (which writes `a.Current` via `SetSection` then reads it) passes — so write-then-read agreement varies field-by-field within the same struct in the same package. This points to a field-offset disagreement between the function that writes (`New`) and the function that reads (test code), even though both are in pkg/asm and both should be using pkg/asm's view of the struct.
+- pkg/lexer shows the same shape: `lexer.New` writes `l.line = 1`; a sibling `ProbeIntField(l) int { return l.line }` in pkg/lexer reads 64. But `SetLineSentinel(l) { l.line = 67890 }` followed by `ProbeIntField(l)` returns 67890 correctly. So the layout disagreement is selective.
+- pkg/asm/macho hits a different bug: `vm: extern not found: bootstrap.Exec` — the bytecode VM doesn't implement that extern.
+- **Distinct from** the cross-package struct field bug fixed in `2be80b9` (`Fix cmd/bni2 cross-package struct field resolution`) — that one was about cross-package field types resolving to TypInt fallback. The pkg/asm case is *self-contained* (no cross-package field types), so it's a separate root cause.
+- **Hypothesis**: there are duplicate `moduleStructs` entries for the same struct with different field layouts, and different functions resolve to different entries. May be triggered by interaction between `RegisterStructTypes` (called per-package, accumulates global state) and `RegisterSelfTypes` (also called per-package).
+- **Next**: pick one (probably pkg/asm — self-contained, smaller surface than pkg/lexer) and trace exactly which type object each field access uses. The 270 conformance test (`270_cross_pkg_struct_field_layout`) covers the already-fixed cross-package case as a regression guard.
+
 ### Interpreter: @T parameter stored in struct field over-increments refcount
 - Conformance tests 228/229 show rc increasing by 2 per call instead of 1 on boot-comp-int. The compiler handles this correctly (tests pass on boot-comp).
 - The spec (`refcount-lifecycle.md` section 3) says: callee RefInc's @T param on entry, RefDec's at scope exit. Field assignment RefInc's separately. The compiler does exactly this (callee-side RefInc in `gen_stmt.bn:104`). The interpreter's `envDefine` RefInc's (equivalent), but something causes a double-increment — possibly the interpreter's field assignment path RefInc's redundantly, or `cleanupEnvExcept` fails to RefDec the param.
