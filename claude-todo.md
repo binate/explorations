@@ -164,11 +164,29 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - `arr[:]` works in compiled mode; conformance tests using `make_slice` + indexed assignment for static data could use `[N]T{...}` + `arr[:]` instead
 - Consider adding slice literal syntax (`[]T{...}`) as sugar
 
-### Full DWARF debug info (line-level source mapping)
-- Add `Pos token.Pos` field to `ir.Instr` struct (in `ir.bni`)
-- Thread `token.Pos` from AST nodes through IR generation (~40 sites)
-- Emit per-instruction `DILocation` with real line numbers (currently all line 0)
-- Prerequisite: lightweight debug info (done)
+### DWARF debug info — foundation in place, type coverage missing
+**Done** (via `56ea542`, `a15ef50`, `2cd2c25`):
+- `-g` flag in `cmd/bnc`, `SetDebugInfo` in `pkg/codegen`; off by default.
+- Module-level: `source_filename`, `DICompileUnit` (FullDebug), `DIFile`, `DISubroutineType`, per-function `DISubprogram`.
+- Line-level: `Line int` field on `ir.Instr` (`pkg/ir.bni:170`). `genExpr` sets `.Line` from `e.Pos.Line` (`pkg/ir/gen_expr.bn:16`). `annotateBlockInstrs` backfills zero-line instrs to statement line (`pkg/ir/gen_stmt.bn:11-14`). Per-instruction inline `!DILocation(line: N, scope: !M)` in emitted LLVM (`pkg/codegen/emit_debug.bn:99-114`).
+- Variables: `llvm.dbg.declare` + `DILocalVariable` for named allocas (`emit_debug.bn:139-162`). Names propagated via `StrVal` on `OP_ALLOC`.
+- lldb/gdb now show Binate function names, file, line numbers, and local variable names.
+
+**Gaps**:
+- Type coverage is basically just `i64`. Only one `DIBasicType` emitted (`emit_debug.bn:220`), reused for every variable. No `DIBasicType` for bool/uint8/uint16/uint32/char; no `DICompositeType` for struct/array/slice; no `DIDerivedType` for pointers/typedefs. All locals show as `i64` in the debugger.
+- Parameters don't get `DILocalVariable` (stack slots exist but no dbg.declare for params).
+- `DISubprogram` has `line: 0` and `scopeLine: 0` (function definition line never captured).
+- `DISubroutineType` is a single shared generic; no per-function signature or parameter types.
+- No `llvm.dbg.value` (only `dbg.declare` for allocas).
+- Line positions: only `genExpr` explicitly threads `.Line`; most IR-emission sites rely on statement-line backfill (coarse). No columns.
+
+**Reasonable next steps** (roughly ordered by effort/payoff):
+1. Emit `DIBasicType` for each scalar kind (bool, char, u8/16/32, i32, etc.) and reference from variable declares — unlocks correct type display in debuggers.
+2. Capture function definition lines into `DISubprogram` (thread from AST `Func`/`FuncDecl` node).
+3. Emit `DILocalVariable` for parameters.
+4. Emit `DICompositeType` for structs (field names + types), `DIDerivedType` for pointers. Wire into `emit_types.bn`'s struct collection.
+5. Thread positions through more IR-gen sites (statements, assignments, calls) for finer-grained `DILocation`.
+6. Per-function `DISubroutineType` with real parameter + return types.
 
 ### Package directory organization and conventions
 - Think more carefully about `pkg/` directory structure and naming conventions
@@ -252,8 +270,8 @@ Binate is NOT Go. The two types of slice are intentionally different:
   - **Option C**: annotation on a call site, indicating it's a C function call. Maybe a "magic" C package so no annotation is needed at all.
   - **Option D**: manual trampolines, with a magic C package for declarations.
 
-### Simplify bootstrap.Read/Write signatures
-- The `len` parameter in `bootstrap.Read(fd, buf, len)` and `bootstrap.Write(fd, buf, len)` is redundant — the slice already carries its length. If you want a smaller length, subslice.
+### ~~Simplify bootstrap.Read/Write signatures~~ — DONE
+- `Read(fd int, buf []uint8) int` and `Write(fd int, buf []uint8) int` — redundant `len` parameter removed. Callers subslice if they want a smaller length.
 
 ---
 
