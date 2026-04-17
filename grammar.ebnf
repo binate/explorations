@@ -499,16 +499,20 @@ ArrayLiteral  = "[" ArrayLen "]" Type "{" [ ElementList [ "," ] ] "}" ;
 ArrayLen      = Expression | "..." ;
 
 (* --- Builtin calls --- *)
-(* make, box, cast, bit_cast, len, and unsafe_index are keywords with
-   special syntax. They take types and/or expressions as arguments,
-   which distinguishes them from regular function calls. *)
+(* make, make_slice, box, cast, bit_cast, len, unsafe_index, sizeof, and
+   alignof are keywords with special syntax. They take types and/or
+   expressions as arguments, which distinguishes them from regular
+   function calls. *)
 
 BuiltinCall   = "make" "(" MakeArg ")"                    (* [BOOTSTRAP] *)
+              | "make_slice" "(" Type "," Expression ")"  (* [BOOTSTRAP] *)
               | "box" "(" Expression ")"                  (* [BOOTSTRAP] *)
               | "cast" "(" Type "," Expression ")"        (* [BOOTSTRAP] *)
               | "bit_cast" "(" Type "," Expression ")"    (* [BOOTSTRAP] *)
               | "unsafe_index" "(" Expression "," Expression ")"  (* [DEFERRED] *)
-              | "len" "(" Expression ")" ;                (* [BOOTSTRAP] *)
+              | "len" "(" Expression ")"                  (* [BOOTSTRAP] *)
+              | "sizeof" "(" Type ")"                     (* [DEFERRED] *)
+              | "alignof" "(" Type ")" ;                  (* [DEFERRED] *)
 
 MakeArg       = "*" "[" "]" Type "," Expression           (* make(*[]int, n) — runtime-sized *)
               | Type ;                                    (* make(Point), make([100]int) — zero-init *)
