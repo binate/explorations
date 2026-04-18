@@ -1142,12 +1142,17 @@ detailed design discussion.
 A configurable value is an ordinary `const` declaration with a `#[config]` annotation. The declaration fixes the name, the type, and the default value; its placement fixes the visibility (`.bni` = exported, `.bn` = package-private) exactly like any other `const`.
 
 ```binate
-// pkg/myapp/myapp.bn — private config
+// pkg/myapp/myapp.bn — private configs
 #[config]
 const DEBUG bool = false
 
+// Applied to a `const ( ... )` group, every member of the group becomes a config.
 #[config]
-const LOG_LEVEL int = 3
+const (
+    LOG_LEVEL  int              = 3
+    MAX_CONNS  int              = 128
+    BUILD_TAG  *[]const char    = "dev"
+)
 ```
 
 ```binate
@@ -1168,25 +1173,29 @@ Syntax: `-D<package-path>:<name>=<value>`. Package path and name are both requir
 **Semantics.**
 
 - `#[config] const X T = default` is a compile-time constant of type `T`, exactly like `const X T = default`. The CLI-supplied value (if any) replaces the default *at compile time*; everything else follows.
-- Uses of the const fold in the usual way: `if DEBUG { ... }` where `DEBUG` is a compile-time `bool` const is a dead-code-eliminable `if`. No new syntax (no `if <DEBUG>`, no `#ifdef`) — the existing compile-time-constant-folding path carries it.
+- Uses of the const fold in the usual way for *intra-package* references: `if DEBUG { ... }` in the package that declares `DEBUG` is a dead-code-eliminable `if`. No new syntax (no `if <DEBUG>`, no `#ifdef`) — the existing compile-time-constant-folding path carries it.
+- *Inter-package* references are different: see "Separate compilation" below. Short version: they go through a real global, not a folded constant, so a dependent package doesn't need to be recompiled when the producing package's `-D` changes.
 - Visibility follows `.bni`/`.bn` placement. Cross-package sharing is import-based: `pkg/b` reads `pkg/a`'s config via `a.DEBUG`. You don't redefine `DEBUG` per consumer.
-- Annotation may only attach to a top-level `const`. Not to `const (...)` group members (would be ambiguous whether the annotation applies to the group or each member). Not to `iota`-driven decls.
+- `#[config]` attaches to a top-level `const` declaration or to a whole `const (...)` group. On a group, every member of the group becomes a configurable value, with its own independent CLI override key — convenient for packages with a cluster of related knobs. `iota`-driven members inside a `#[config]` group are allowed but each member is still individually overridable; overriding one does not shift the computed default of the next.
 
 **Types.** Whatever the language already allows for `const`: `bool`, integer types, character types, string constants (`*[]const char` / `[N]const char` / `@[]const char`). Values coming in from the CLI are parsed per the declared type, with the same fit-at-compile-time rules as literal assignment (`-Dpkg/a:X=256` where `X uint8` is a compile error).
 
-**Dual-mode interop.** A subtlety. When the self-hosted interpreter runs `pkg/a`, it must see the same overridden values the compiler would have, or identical source gives different answers in the two modes. Two options, both compatible with the annotation model:
+**Separate compilation, binary distribution, and dual-mode interop.** An exported `#[config]` const (one that appears in a `.bni`) is compiled into a real, named global in the producing package's object/binary. Dependent packages reference that global symbol — no constant-folding across the package boundary, no special per-dependent code path. This gives us for free:
 
-1. **Interpreter accepts the same `-D` flags** (`bni -Dpkg/a:DEBUG=true ...`) and resolves the override at package-load time.
-2. **Compiled binaries embed the resolved configs** in a per-package data blob; the embedded interpreter reads that blob when it loads a package that has a compiled sibling.
+- **Split compilation**: recompiling `pkg/a` with a new `-D` updates only `pkg/a`'s data section. Dependents (`pkg/b`, `pkg/c`, ...) don't need rebuilding — their references still resolve to the same symbol, which now holds the new value.
+- **Binary package distribution**: a consumer shipping `pkg/a` as a compiled artifact + `.bni` already carries the current config values in the data section. No separate config blob, no side-channel metadata.
+- **Dual-mode interop**: the interpreter, when loading a compiled package, reads the config from the same data-section global that compiled code reads. When a package is interpreted (no compiled artifact), the interpreter resolves the value from its own `-D` flags (or the declaration's default) at package-load time. Either way there is one authoritative value per (package, name), and both modes agree.
 
-Option 1 is simpler; option 2 is needed for mixed builds where some packages are compiled and others interpreted in the same process (the core dual-mode use case). Worth nailing down before implementation.
+Private (`.bn`-only) `#[config]` consts don't need a global — they're never referenced from outside the package, so the compiler is free to fold them as with any ordinary private `const`. The distinction mirrors the existing `.bni`/`.bn` visibility split: exports become externally-observable symbols, non-exports are implementation detail.
+
+Inside the producing package, the compiler *may* also fold references that are in the same module as the definition (since the value is known and can't change out from under the module being compiled). Whether to do so is a pure optimization; the observable semantics are "one value per (package, name), shared by all references including cross-package and cross-mode."
 
 **Open questions.**
 
 - Strict vs. lax on unknown `-D` keys. Typo-protection suggests strict (unknown package or unknown name = error). But "set DEBUG globally for a subset of packages that care" is awkward without a wildcard. Maybe `-Dpkg/a:DEBUG=true` is strict, and a future `-D*:DEBUG=true` (if we ever want it) is a separate opt-in.
 - Reproducible builds. The set of `-D` values effectively changes the output; it should probably be part of a build's recorded fingerprint.
 - `.bni` authoritativeness. For normal `const`, if it appears in the `.bni` the `.bni` is the authoritative spelling. For `#[config]`, does the `.bni` carry the `#[config]` annotation (visible to consumers) or only the const declaration? The former is clearer documentation; the latter keeps `.bni` purely type-level.
-- Grouping. Allowing `#[config] const X T1 = d1, Y T2 = d2` (or some group form) would reduce annotation noise for packages with many flags. Worth a look.
+- Interaction with the hard-folding `if`/`switch` cases. If `pkg/b` wants to dead-code-eliminate a block guarded by `a.DEBUG`, it can't — `a.DEBUG` is a global load, not a compile-time constant from `pkg/b`'s perspective. Is that acceptable (price of split-compilation), or do we want a way for `pkg/b` to opt into "treat `a.DEBUG` as a constant in this build" (at the cost of coupling `pkg/b` to `pkg/a`'s config resolution)?
 
 ### `ispod(T)` builtin — PROPOSED
 
