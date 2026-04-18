@@ -103,30 +103,14 @@ Ordered by dependency (leaf packages first). Each item is one commit.
 - `StructDef.Fields` (`*[]@types.Type` → `@[]@types.Type`)
 - `StringConst.Data` (`*[]char` → `@[]char`)
 
-### 8. pkg/interp
+### 8. ~~pkg/interp~~ — REMOVED (2026-04-17)
 
-**`*[]char` → `@[]char`:**
-- `Value.StrVal`
-- `Value.FuncName`
-- `TypeEntry.Name`
-- `AliasEntry.Name`
-- `AliasEntry.Path`
-- `EnvEntry.Name`
-- `PkgEnv.Path`
-- `Interpreter.Stdout`
+The tree-walker and its frontend `cmd/bni` have been deleted; the
+per-field migration list that lived here is moot.
 
-**`*[]@T` → `@[]@T`:**
-- `Value.Elems` (`*[]@Value` → `@[]@Value`)
-- `Value.Fields` (`*[]@Value` → `@[]@Value`)
-- `Interpreter.ReturnVals` (`*[]@Value` → `@[]@Value`)
-
-**`*[]*[]char` → `@[]@[]char`:**
-- `Interpreter.ProgArgs`
-
-### 9. cmd/bnc, cmd/bni
+### 9. cmd/bnc
 
 - cmd/bnc `CLIArgs`: OK as-is (stack-scoped value type, never `@`-allocated)
-- cmd/bni `CLIArgs.RootOverride`: OK as-is (borrowed from bootstrap.Args, single execution phase)
 
 ## Fields Confirmed Safe (No Change)
 

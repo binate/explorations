@@ -26,38 +26,14 @@ dual-mode interop.
   fixed by earlier refcounting changes. Test 141 passes. Workaround
   in macho.bn reverted.
 
-### Interpreter side — TODO
+### Interpreter side — MOOT
 
-- Step 4: change multi-return to use flat anonymous struct
-- Step 5: remove VAL_MULTI, Elems, MakeMultiVal
-
-## Remaining Work
-
-### Step 4: Interpreter — flat anonymous struct for multi-return
-
-In `pkg/interp`:
-
-1. **execReturn**: instead of creating `VAL_MULTI` with Elems,
-   construct a flat anonymous struct (allocFlat + writeFlatValue
-   for each field at its FieldOffset). Use the function's result
-   types to build the struct type (same `makeMultiReturnStructType`
-   logic as the compiler).
-
-2. **Call site destructuring**: `x, y := f()` reads fields from
-   the struct via readFlatValue at field offsets, instead of
-   indexing into Elems.
-
-3. **Remove `VAL_MULTI`**: no longer needed. Remove `MakeMultiVal`,
-   the `Elems` accesses in `execAssign` and `execShortVarDecl`.
-
-This eliminates the last 3 Value.Elems references.
-
-### Step 5: Cleanup
-
-- Remove the `Elems @[]@Value` field from the Value struct
-  (in `pkg/interp.bni`).
-- Remove `MakeMultiVal` from value.bn.
-- Update unit tests.
+The original tree-walker (`pkg/interp`) was retired in 2026-04-17;
+the "Step 4/5 — interpreter side TODO" block that used to live here
+described how to rewrite `pkg/interp`'s multi-return to flat anonymous
+structs and has been removed. The VM (`pkg/vm`) already consumes the
+compiler's IR representation directly, so it inherits the
+anonymous-struct layout with no further work needed here.
 
 ## Layout
 

@@ -1,12 +1,19 @@
 # Design: Bytecode Interpreter (`pkg/vm`)
 
+> **Status note (2026-04-17):** This document is historical design
+> rationale from when `pkg/vm` was being added alongside the existing
+> tree-walking interpreter (`pkg/interp`). `pkg/interp` and its frontend
+> `cmd/bni` have since been removed; `pkg/vm` (via `cmd/bni2`) is now
+> the sole interpreter. References to `pkg/interp` below describe the
+> retired code.
+
 ## Motivation
 
-The current self-hosted interpreter (`pkg/interp`) is a tree-walker that
-reimplements refcounting ad-hoc. This has been a persistent source of
-use-after-free bugs — the interpreter's refcounting logic diverges from
-the compiler's IR-level refcounting, leading to subtle memory corruption
-that's difficult to diagnose.
+The original self-hosted interpreter (`pkg/interp`, now removed) was a
+tree-walker that reimplemented refcounting ad-hoc. This was a persistent
+source of use-after-free bugs — the interpreter's refcounting logic
+diverged from the compiler's IR-level refcounting, leading to subtle
+memory corruption that was difficult to diagnose.
 
 A bytecode interpreter that operates on IR-derived bytecode would inherit
 the compiler's well-tested refcounting for free. The IR gen already handles:

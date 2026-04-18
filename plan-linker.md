@@ -407,8 +407,8 @@ is interpreted at link time, calling into the compiled library.
 
 7. **Interpreter integration**: Loading and calling an interpreted `.bn` file
    from a compiled program requires the interpreter to be available as a
-   library. This is the self-hosted interpreter (`pkg/interp`), which already
-   exists but may need a clean "eval file and call function" entry point.
+   library. This is the bytecode VM (`pkg/vm`), which will need a clean
+   "eval file and call function" entry point.
 
 ## Effort Estimate
 

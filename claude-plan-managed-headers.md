@@ -1,6 +1,10 @@
 # Plan: Proper Managed-Type Headers and @[]T Representation
 
-> **STATUS (2026-03-31): COMPLETED.** Managed-slice (`@[]T`) representation is implemented with the 3-word layout. `append` has been fully removed from the language; slice operations no longer include append.
+> **STATUS (2026-03-31): COMPLETED.** Managed-slice (`@[]T`) representation landed with an initial 3-word layout. `append` has been fully removed from the language; slice operations no longer include append.
+>
+> **Updates:**
+> - 4-word managed-slice layout (data, len, backing_refptr, backing_len) replaced the 3-word form later — see `plan-4word-migration.md`.
+> - Section 8 below ("Self-hosted interpreter — `@[]T` as 3-field value") describes work in `pkg/interp`, which has since been removed (2026-04-17). The VM (`pkg/vm`) uses the same flat managed-slice representation as the compiler.
 
 ## Context
 
