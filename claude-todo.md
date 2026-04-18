@@ -6,13 +6,6 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
-### Compile/build-configuration system
-- Want something like C/C++ `-DFOO`, `-DFOO=123`, `-DFOO="foo"` (`-DFOO='"foo"'` from a shell) — values that are set at build time and evaluated at compile time. Obvious driving use: `if <DEBUG> { ... }` that the compiler can fold away. Also for other per-build knobs (target flag guards, feature toggles, version strings, etc.).
-- **Open design questions**:
-  - **Typing**: how to distinguish `bool` vs `int` vs `"string"` values coming in from the CLI, and how much inference to do. The CLI itself is untyped strings.
-  - **Scoping**: are config names global, per-package, or something in between? How do you share a flag between two packages that both want to consult it (or deliberately keep them separate)?
-- **An idea (to evaluate)**: make each config a `const` declaration with an annotation, where the declaration supplies the name, the type, a default value, and the visibility (public if the const lives in the `.bni`, private if only in the `.bn`). The CLI syntax would then be path-qualified, e.g. `-Dpkg/mything:MyInt=123` or `-Dpkg/mything:myBool=false`. Typing comes from the declared type; scoping is the package; cross-package sharing is just "import the `.bni` that exports the const."
-
 ### Discuss ways to split long string literals across lines
 - No way to break a long string literal across source lines: Binate has no `+` operator for strings, no adjacent-string-literal concatenation (as in C), and `bootstrap.Concat` allocates at runtime (fine for one-shot, bad for hot paths / error messages that may never fire).
 - Came up during the raw-slice migration: an `errMsg` call in `pkg/parser/parser.bn:106` has a 114-char string literal that can't be shortened without losing information. Tagged `// LONG-LINE ALLOWED` as a workaround — see `scripts/hygiene/line-length.sh` and `explorations/code-hygiene-check.md`.

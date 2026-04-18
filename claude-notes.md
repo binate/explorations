@@ -1131,6 +1131,63 @@ pass to consuming function, swap fields.
 See `explorations/claude-discussion-detailed-notes.md` section 32 for
 detailed design discussion.
 
+### Build-time configuration system — PROPOSED
+
+**Compile-time, per-package configuration via `const` annotations and a CLI override.** Analogous to C/C++'s `-DFOO`, `-DFOO=123`, `-DFOO="str"` but with real types and package scoping.
+
+**Motivation.** The most concrete use is dead-coded debug/trace blocks: `if DEBUG { ... }` that the compiler folds away when `DEBUG` is false. But the same mechanism serves any per-build knob — default log level, feature toggles, target flag guards, version strings, etc. — without reaching for preprocessor-style conditional compilation.
+
+**Design sketch.**
+
+A configurable value is an ordinary `const` declaration with a `#[config]` annotation. The declaration fixes the name, the type, and the default value; its placement fixes the visibility (`.bni` = exported, `.bn` = package-private) exactly like any other `const`.
+
+```binate
+// pkg/myapp/myapp.bn — private config
+#[config]
+const DEBUG bool = false
+
+#[config]
+const LOG_LEVEL int = 3
+```
+
+```binate
+// pkg/myapp.bni — exported config
+#[config]
+const VERSION *[]const char = "0.1.0"
+```
+
+The CLI overrides a specific package's specific config value:
+
+```
+bnc -Dpkg/myapp:DEBUG=true -Dpkg/myapp:LOG_LEVEL=5 ...
+bnc -Dpkg/myapp:VERSION='"0.2.0-dev"' ...
+```
+
+Syntax: `-D<package-path>:<name>=<value>`. Package path and name are both required — there is no unqualified form. Values are parsed against the declared type; type mismatches are compile errors.
+
+**Semantics.**
+
+- `#[config] const X T = default` is a compile-time constant of type `T`, exactly like `const X T = default`. The CLI-supplied value (if any) replaces the default *at compile time*; everything else follows.
+- Uses of the const fold in the usual way: `if DEBUG { ... }` where `DEBUG` is a compile-time `bool` const is a dead-code-eliminable `if`. No new syntax (no `if <DEBUG>`, no `#ifdef`) — the existing compile-time-constant-folding path carries it.
+- Visibility follows `.bni`/`.bn` placement. Cross-package sharing is import-based: `pkg/b` reads `pkg/a`'s config via `a.DEBUG`. You don't redefine `DEBUG` per consumer.
+- Annotation may only attach to a top-level `const`. Not to `const (...)` group members (would be ambiguous whether the annotation applies to the group or each member). Not to `iota`-driven decls.
+
+**Types.** Whatever the language already allows for `const`: `bool`, integer types, character types, string constants (`*[]const char` / `[N]const char` / `@[]const char`). Values coming in from the CLI are parsed per the declared type, with the same fit-at-compile-time rules as literal assignment (`-Dpkg/a:X=256` where `X uint8` is a compile error).
+
+**Dual-mode interop.** A subtlety. When the self-hosted interpreter runs `pkg/a`, it must see the same overridden values the compiler would have, or identical source gives different answers in the two modes. Two options, both compatible with the annotation model:
+
+1. **Interpreter accepts the same `-D` flags** (`bni -Dpkg/a:DEBUG=true ...`) and resolves the override at package-load time.
+2. **Compiled binaries embed the resolved configs** in a per-package data blob; the embedded interpreter reads that blob when it loads a package that has a compiled sibling.
+
+Option 1 is simpler; option 2 is needed for mixed builds where some packages are compiled and others interpreted in the same process (the core dual-mode use case). Worth nailing down before implementation.
+
+**Open questions.**
+
+- Strict vs. lax on unknown `-D` keys. Typo-protection suggests strict (unknown package or unknown name = error). But "set DEBUG globally for a subset of packages that care" is awkward without a wildcard. Maybe `-Dpkg/a:DEBUG=true` is strict, and a future `-D*:DEBUG=true` (if we ever want it) is a separate opt-in.
+- Reproducible builds. The set of `-D` values effectively changes the output; it should probably be part of a build's recorded fingerprint.
+- `.bni` authoritativeness. For normal `const`, if it appears in the `.bni` the `.bni` is the authoritative spelling. For `#[config]`, does the `.bni` carry the `#[config]` annotation (visible to consumers) or only the const declaration? The former is clearer documentation; the latter keeps `.bni` purely type-level.
+- Grouping. Allowing `#[config] const X T1 = d1, Y T2 = d2` (or some group form) would reduce annotation noise for packages with many flags. Worth a look.
+
 ### `ispod(T)` builtin — PROPOSED
 
 **Compile-time type-property query: does T need destruction/copy handling?**
