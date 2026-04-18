@@ -12,7 +12,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Options to discuss: C-style adjacent-string concatenation at the lexer level; a `\` line-continuation inside string literals; a compile-time const-fold of `bootstrap.Concat` on literal args; something else.
 
 ### boot-comp-int2-int2 mode segfaults (bni2 can't self-host)
-- The `boot-comp-int2-int2` runner (added to unit/conformance/perf as a replacement for the too-slow `boot-comp-int-int`) crashes when the outer compiled bni2 is asked to interpret `cmd/bni2` source: exit 139 (SIGSEGV), with no output.
+- The `boot-comp-int2-int2` runner crashes when the outer compiled bni2 is asked to interpret `cmd/bni2` source: exit 139 (SIGSEGV), with no output.
 - Single-layer `boot-comp-int2` (compiled bni2 runs test.bn directly) works fine — the issue is specifically that bni2 cannot interpret its own source.
 - Not in the `all` modeset, so CI/default runs don't exercise it. Left wired up so it can be run on demand once the self-hosting gap is closed.
 - **Next**: pick a small probe (e.g. a single-feature .bn that exercises whatever bni2 source uses) and narrow which feature of bni2 the outer VM mishandles. Likely related to the same class of bugs as the int2 field-layout issue below.
@@ -23,31 +23,17 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Not urgent — the current per-backend qualification works and the shared helpers in `pkg/mangle` de-duplicate the core logic. Worth revisiting if backend drift keeps biting (e.g., when adding the 32-bit ARM backend).
 - Scope: touches `ir.GeneratePackage` (which currently emits unqualified names for intra-package functions), `moduleFuncs` lookup sites, `EmitCall`/`EmitFuncAddr` call sites, and all callers that pass a simple name to IR. Backends would shed their `modulePkgName` state.
 
-### boot-comp-int2: 7 unit-test packages still fail (down from 17)
-- 7 packages still xfail'd under boot-comp-int2 (cmd/bni2 bytecode VM): pkg-ir, pkg-codegen, pkg-interp, pkg-vm, cmd-bnlint, pkg-asm-elf, pkg-asm-macho. All xfail'd in `scripts/unittest/<pkg>.xfail.boot-comp-int2`.
+### boot-comp-int2: 6 unit-test packages still fail (down from 17)
+- 6 packages still xfail'd under boot-comp-int2 (cmd/bni2 bytecode VM): pkg-ir, pkg-codegen, pkg-vm, cmd-bnlint, pkg-asm-elf, pkg-asm-macho. All xfail'd in `scripts/unittest/<pkg>.xfail.boot-comp-int2`.
 - **Progress (recent)**:
   - pkg-asm and cmd-bnc unblocked by VM function-name qualification fix (`32eb2f6` / `76294d8`). Suffix-match fallback in `LookupFunc` collided cross-package functions. Fix: qualify by package at VM lowering time (dot-form `asm.New`); strict exact match. Helpers live in `pkg/mangle`.
   - pkg-asm-macho's `bootstrap.Exec` extern stub fixed (`e6b0d00`); also unblocked pkg-asm-elf and pkg-asm-macho via `bootstrap.Stat` extern stub fix (commit `4b70a9b`). Conformance tests 273 / 277 cover.
   - Cross-package struct field resolution fix (`2be80b9`) covered by conformance 270.
 - **Bytecode VM struct-copy with managed fields**: pkg-ir's `TestGenConstIota` reveals: when a struct containing an `@[]char` (or other managed) field is copied via `ns[i] = s[i]` in a copy-grow append pattern, the field reads back as empty after the source slice is dropped. Diagnosis: `lookupConst` sees `moduleConsts[i].Name == ""` for all but the last entry. genConstGroup correctly emits the consts (verified by debug prints showing iotaVal=0,1,2 and mc.Val=0,1,2), but Names get lost. Symptom is consistent with the compiler's just-fixed `__copy_X` issue: the bytecode VM lowers struct OP_STORE to a raw `BC_MEMCPY` (`pkg/vm/lower_instr.bn:359`), with no per-field RefInc/RefDec. Likely the root cause of pkg-ir, pkg-codegen, cmd-bnlint, and possibly pkg-vm xfails. Regression guard: `pkg/vm/vm_extern_test.bn:TestRepro_StructWithManagedSliceFieldAppend` (passes on boot-comp, fails on boot-comp-int2).
-- pkg-interp xfails are likely separate (different interpreter; see "Interp vs VM" memory — likely dead-end).
-- **IR already does the right thing for compiler+VM**: pkg/ir generates `__copy_X`/`__dtor_X` and emits CALLs at all the expected sites (var decl, var assign, deref/field/slice-elem assign, fn args/return). The VM lowers those CALLs as ordinary `BC_CALL` and runs them — verified by instrumenting `emitStructCopy` against the failing TestGenConstIota. So this is *not* a missing-copy/dtor problem. The original-plan reframing ("move logic to IR") was wrong; logic is already there. Tree-walker `pkg/interp` is on the deprecation path, so its parallel hand-written `structRefInc`/`structRefDec` doesn't justify a rewrite — just retire it.
-- **Actual gap**: somewhere in the RefInc/RefDec accounting under the VM target — likely an off-by-one between scope-exit dtor and the IR-emitted dtor calls, or struct-field layout disagreement, or a specific opcode lowering bug. Needs `BC_REFINC`/`BC_REFDEC` tracing on the failing case.
-- **Next**: instrument `BC_REFINC`/`BC_REFDEC` to log `(addr, op, refcount-after, calling fn)`, run TestGenConstIota under boot-comp-int2, and walk the trace for `moduleConsts[i].Name`'s backing pointer to find the unbalanced call.
-
-### Interpreter: @T parameter stored in struct field over-increments refcount
-- Conformance tests 228/229 show rc increasing by 2 per call instead of 1 on boot-comp-int. The compiler handles this correctly (tests pass on boot-comp).
-- The spec (`refcount-lifecycle.md` section 3) says: callee RefInc's @T param on entry, RefDec's at scope exit. Field assignment RefInc's separately. The compiler does exactly this (callee-side RefInc in `gen_stmt.bn:104`). The interpreter's `envDefine` RefInc's (equivalent), but something causes a double-increment — possibly the interpreter's field assignment path RefInc's redundantly, or `cleanupEnvExcept` fails to RefDec the param.
-- Tests 228/229 xfail'd on boot-comp-int.
-- May be related to the boot-comp-int unit test crashes/hangs on larger packages.
-
-### boot-comp-int crash: TYP_SLICE vs TYP_MANAGED_SLICE type mismatch
-- Compiled interpreter segfaults in `--test` mode on large packages (`pkg/ir`, `pkg/codegen`, `pkg/lint`)
-- Valgrind: 16-byte allocation (raw slice) read/written as 32 bytes (managed slice) — heap buffer overflow
-- Root cause narrowed: a `@Type` object's `Kind` field is mutated from `TYP_MANAGED_SLICE` (10) to `TYP_SLICE` (9), likely use-after-free of the type object
-- Only happens in `--test` mode with large packages; same code works in non-test mode
-- **Detailed writeup**: `explorations/bug-boot-comp-int-type-mismatch.md`
-- **Next**: add line-level DWARF debug info, or add targeted debug prints to find the exact struct.field where types diverge
+- **IR already does the right thing for compiler+VM**: pkg/ir generates `__copy_X`/`__dtor_X` and emits CALLs at all the expected sites (var decl, var assign, deref/field/slice-elem assign, fn args/return). The VM lowers those CALLs as ordinary `BC_CALL` and runs them — verified by instrumenting `emitStructCopy` against the failing TestGenConstIota. So this is *not* a missing-copy/dtor problem.
+- **Actual gap**: an unbalanced RefDec on a `@[]char` BACKING somewhere in the copy-grow dance.
+- **Bisect result (2026-04-17)**: temporarily skipping `Free()` in `pkg/rt.RefDec` makes TestGenConstIota PASS — confirming **premature freeing** is the bug. Further bisect: skipping Free *only when dtor==nil* (raw managed allocations like `@[]char` backings) ALSO makes it PASS — so the buggy free is on a nil-dtor allocation. The `@[]char` HEADER inside `moduleConsts[i].Name` is INTACT (`len(moduleConsts[i].Name) == 1`), but the data ptr points to freed memory — header is fine, backing is freed.
+- **Next**: trace which IR-emitted call site is the extra RefDec on the Name backing. Most promising suspects: `gen_control.bn:229-238` (field assign for `p.Name = mkName('A')` does `emitManagedSliceRefInc(rhs)` then `emitManagedSliceRefDec(oldVal)`); the EXTRACT slot=2 lowering on managed-slice values loaded via `BC_MOV`-as-pointer (`pkg/vm/lower_instr.bn:235`'s legacy Aux=2 path that does `regs[Dst] = p[Imm]` where p is the source register treated as `*int`). Inspect for off-by-N word indexing or treating the value-vs-pointer wrong.
 
 ### ~~Compiler bug: missing RefInc on struct copies with managed fields~~ — FIXED
 - **Root cause**: two related issues:
@@ -69,61 +55,16 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Fix**: changed `var runtimePath *[]char` to `var runtimePath @[]char = buf.CopyStr(cli.RuntimePath)` in test.bn, matching the pattern already used in main.bn.
 - **CI now runs all modes** including boot-comp-comp and boot-comp-comp-comp.
 
-### Self-hosted interpreter: boot-comp-int-int still failing
-- boot-comp-int-int (compiled bni interprets bni which interprets test) still has issues.
-- **Known issue**: inner interpreter function return values get wrapped in an extra `@Value` indirection through flat memory. When the outer compiled interpreter interprets the inner interpreter's `callFunc`, the return value goes through flat serialization/deserialization which adds a managed pointer layer. `println(add(3, 4))` prints "nil" instead of "7".
-- Removed from mode sets. Needs dual-mode interop (flat memory roundtripping of `@Value` tagged unions) to work properly.
-
-### Self-hosted interpreter memory model parity with compiler
-- Plan: `explorations/plan-interp-memory-parity.md`
-- The self-hosted interpreter can no longer run under the bootstrap (boot-int dropped) since it now uses `bit_cast`, pointer indexing, and `pkg/rt`. It requires compiled mode (boot-comp-int and above).
-- **boot-comp-int: 183/183 conformance tests pass** (was 129 before this work began)
-- Phase 1 (done): infrastructure — `flat.bn` with readFlatValue/writeFlatValue using bit_cast and pkg/rt
-- Phase 2 (done): scalar variables in flat memory — envDefine/envGet/envSet use flat addresses for ints
-- Phase 3 (done): structs in flat memory — `evalMake` allocates via `rt.Alloc`, all field access through `RawAddr + FieldOffset`. Lazy struct reads (no eager field materialization). Self-referential type resolution (in-place field update).
-- Phase 4 (done): raw slices in flat memory — `*[]T` as `{data, len}` in 16 bytes. `arr[:]` creates flat slices.
-- Managed pointer refcounting (done): `envDefine` RefInc, `envSet` RefDec/RefInc, `cleanupEnvExcept` for scope exit, `interpRefDec` for recursive struct field cleanup, `interpCleanupSlice` for managed-slice element cleanup. Return values excluded from scope cleanup.
-- bit_cast (done): pointer↔int, pointer↔pointer — 090 passes
-- Pointer indexing (done): `p[i]` read/write, `&arr[i]` — 091 passes
-- pkg/rt forwarding (done): c_malloc, Alloc, Free, RefInc, RefDec, Refcount, MakeManagedSlice — 092, 093, 104, 123 pass
-- Pointer comparison (done): `p == q` via RawAddr
-- String→*[]char for flat slices (done): 079, 088 pass
-- C ABI sret fix (done): large struct returns from C externs on ARM64
-- TYP_NAMED resolution (done): `resolveUnderlying` resolves named types (`type Kind int`) in flat read/write paths
-- Lazy struct optimization (done): `readFlatValue` for TYP_STRUCT returns RawAddr-only Values, avoiding O(n) allocation per field access. Fixed parser.ParseFile hang in boot-comp-int.
-- Managed-slice flat storage (done): `TYP_MANAGED_SLICE` in `useFlatType`. 32-byte flat headers with `rt.MakeManagedSlice` backing. Flat-to-flat copy, subslicing, `@[]T→*[]T` coercion, element refcounting. Fixed tests 126, 129.
-- Managed-slice backing refcounting (done): envDefine/envSet RefInc/RefDec for backing_refptr. cleanupEnvExcept RefDec on scope exit. Element-level RefInc/RefDec for managed-ptr elements in flat index assignment.
-- Full flat migration (done): ALL data types use flat storage (int, bool, *[]T, @[]T, @T, *T, [N]T, struct, string, named types). Only function values remain Cell-based.
-- readFlatValue no longer materializes Elems (O(n) → O(1)). All consumers (for-in, index, len, print, subslice) use flat paths.
-- Legacy Elems code removed: MakeSliceVal, MakeArrayVal, MakeManagedSliceVal removed. writeFlatValue Elems→flat conversion removed. Elems refs: 53→3 (VAL_MULTI only). HeapObj refs: 30→3 (function values only).
-- All refcounting fixed: return leak (IsFresh flag), element-copy, struct field, assignment cascade, pointer deref write, managed-slice element cleanup (rc==1 check).
-- **187/187 in boot-comp and boot-comp-comp. 183/183 in boot-comp-int (4 xfail'd). 26/26 boot-comp unit tests.**
-
-### Interpreter Value struct cleanup
-- **Done**: removed Elems, Fields, HeapObj, BoolVal, IntVal, StrVal, VAL_MULTI, VAL_STRING. All scalar caches eliminated.
-- **Remaining**: 3 HeapObject refs for function-value Cell storage, IntTyp (int type info for readScalar width).
-- **String literals**: compiler done (static `%BnManagedSlice` globals, `bn_string_to_chars` removed). Interpreter done (StrVal removed, MakeStringVal produces flat @[]char).
-- See `explorations/plan-string-literals.md` for full plan.
-- See `explorations/plan-interp-memory-parity.md` for function values.
-
 ### Lift string literal lowering from LLVM backend to IR level
 - Currently, `OP_STRING_TO_CHARS` is lowered to a `load %BnManagedSlice` from a static global in `emit_instr.bn` (LLVM backend). The string constant collection and global emission are also in the LLVM backend (`emit.bn`).
 - For multi-backend support, this should be at the IR level: an IR instruction like `OP_STRING_LITERAL` that produces an `@[]char` value. String constant globals become IR-level module data. Each backend then lowers to its own representation (LLVM: load from constant global; ARM: load from data section address; etc.).
 - See `explorations/ir-backend-guidelines.md` for the IR vs backend responsibility split.
 
-### Function values: compiled-compatible representation (required for interop)
-- Function values MUST use the same representation in compiled and interpreted code, because function values can be passed between the two modes (compiled code calling interpreted functions and vice versa).
-- **Target**: `{funcPtr, closureCtx}` pair matching compiled representation. For interpreted functions, `funcPtr` would be a trampoline that dispatches into the interpreter using `closureCtx` to find the AST decl, closure env, types, and aliases.
-- **Current**: Cell-based `FuncVal` with interpreter-level metadata. Works because the bootstrap subset doesn't have closures or first-class function values.
-- **When this blocks**: closures, function values in slices/maps, callbacks between compiled and interpreted code.
-- See `explorations/plan-interp-memory-parity.md` for details.
-
-### Self-hosted interpreter refcounting — MOSTLY FIXED, needs axiom audit
-- boot-comp-int: 177/177 conformance. boot-comp-int unit tests: pre-existing failures in pkg/ir, pkg/codegen, pkg/lint, pkg/asm/* (9 packages). These are likely from the interpreter not following refcounting axioms consistently.
-- **Known issue**: tests 228/229 (@T param stored in struct field over-increments) — see above.
-- **Needs**: systematic audit of interpreter refcounting against `design-refcount-axioms.md`. The compiler now follows axioms 1-5; the interpreter needs the same treatment.
-- Previous fixes: IsFresh flag, structRefInc/structRefDec, cleanupEnvExcept false-match, IsFresh on args, VAL_MANAGED_SLICE.
-
+### Function values: compiled-VM-compatible representation (required for interop)
+- Function values MUST use the same representation in compiled and VM-interpreted code, because function values can be passed between the two modes.
+- **Target**: `{funcPtr, closureCtx}` pair matching compiled representation. For VM-interpreted functions, `funcPtr` would be a trampoline that dispatches into the VM using `closureCtx` to find the bytecode, closure env, types, and aliases.
+- **Current**: bootstrap subset doesn't have closures or first-class function values, so representation hasn't been forced yet.
+- **When this blocks**: closures, function values in slices/maps, callbacks between compiled and VM-interpreted code.
 
 ### ~~Verify .bni vs .bn visibility semantics~~ — VERIFIED
 - Private functions (235) and types (236) in `.bn` but not `.bni` are correctly rejected by both type checkers.
@@ -164,11 +105,11 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Low priority — package-level types cover most use cases.
 
 ### Test harness `isTestResultReturn` should resolve type aliases
-- All three test harnesses (bootstrap Go `main.go`, self-hosted `cmd/bni/main.bn`, self-hosted `cmd/bnc/test.bn`) only accept `testing.TestResult` (qualified) or `@[]char` (literal managed-slice of char) as test return types.
+- The test harnesses (bootstrap Go `main.go` and self-hosted `cmd/bnc/test.bn`) only accept `testing.TestResult` (qualified) or `@[]char` (literal managed-slice of char) as test return types.
 - They don't resolve type aliases, so an unqualified `TestResult` from within the `pkg/builtin/testing` package itself is rejected ("wrong signature").
 - **Fix**: resolve the return type through aliases before checking. If the return type is a named type in the current package, look up its definition and check the underlying type.
 - **Workaround**: use `@[]char` as the return type in `pkg/builtin/testing/testing_test.bn`.
-- Affects: `cmd/bni/main.bn:isTestResultReturn`, `cmd/bnc/test.bn:isTestResultReturn`, `bootstrap/main.go:isTestResultReturn`.
+- Affects: `cmd/bnc/test.bn:isTestResultReturn`, `bootstrap/main.go:isTestResultReturn`.
 
 ### ~~.bni/.bn return type mismatch should be a compile error~~ — FIXED
 - The type checker now verifies that `.bn` function definitions match their `.bni` declarations (parameter count/types, return count/types). Mismatches are reported as compile errors.
