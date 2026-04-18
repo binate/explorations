@@ -23,15 +23,14 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Not urgent — the current per-backend qualification works and the shared helpers in `pkg/mangle` de-duplicate the core logic. Worth revisiting if backend drift keeps biting (e.g., when adding the 32-bit ARM backend).
 - Scope: touches `ir.GeneratePackage` (which currently emits unqualified names for intra-package functions), `moduleFuncs` lookup sites, `EmitCall`/`EmitFuncAddr` call sites, and all callers that pass a simple name to IR. Backends would shed their `modulePkgName` state.
 
-### boot-comp-int2: 3 unit-test packages still fail (down from 17)
-- 3 packages still xfail'd under boot-comp-int2 (cmd/bni2 bytecode VM): cmd-bnlint, pkg-asm-elf, pkg-asm-macho. All xfail'd in `scripts/unittest/<pkg>.xfail.boot-comp-int2`.
+### boot-comp-int2: 1 unit-test package still fails (down from 17)
+- Only cmd-bnlint still xfail'd under boot-comp-int2 (cmd/bni2 bytecode VM).
 - **Progress (recent)**:
   - pkg-asm and cmd-bnc unblocked by VM function-name qualification fix (`32eb2f6` / `76294d8`).
   - pkg-asm-macho's `bootstrap.Exec` extern stub fixed (`e6b0d00`); pkg-asm-elf/macho unblocked via `bootstrap.Stat` extern stub fix (`4b70a9b`). Conformance tests 273 / 277.
   - Cross-package struct field resolution fix (`2be80b9`); conformance 270.
   - **pkg-ir, pkg-codegen, pkg-vm unblocked** by zero-init fix (`0933158`). Root cause: `var x T` (no initializer) for struct/array types allocated uninitialized memory; subsequent `x.field = ...` did "axiom 5 copy-then-destroy" — load old + RefDec — on garbage bytes that occasionally looked like a valid managed pointer, freeing a stranger's allocation. LLVM hides this via dead-load elimination on uninitialized allocas; the bytecode VM doesn't. Fix: IR now emits `OP_CONST_NIL + OP_STORE` after `OP_ALLOC` for struct/array types that contain managed fields. Both backends consume the same IR — refcount semantics are now IR-driven. Also extended pkg/codegen's `emitConstNil` to handle struct/array/named types.
-- pkg-asm-elf/macho: probably env-dependent (xfail descriptions stale; needs re-investigation).
-- cmd-bnlint: TestLintPackagesClean hangs/runs slow under boot-comp-int2 — separate issue.
+- cmd-bnlint: TestLintPackagesClean hangs/runs slow under boot-comp-int2 — separate issue, not the same class as the rest.
 
 ### ~~Compiler bug: missing RefInc on struct copies with managed fields~~ — FIXED
 - **Root cause**: two related issues:
