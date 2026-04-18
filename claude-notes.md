@@ -1130,3 +1130,36 @@ pass to consuming function, swap fields.
 
 See `explorations/claude-discussion-detailed-notes.md` section 32 for
 detailed design discussion.
+
+### `ispod(T)` builtin — PROPOSED
+
+**Compile-time type-property query: does T need destruction/copy handling?**
+
+```binate
+ispod(int)                      // true — primitive
+ispod(*T)                       // true — raw pointer is just a word
+ispod(*@T)                      // true — the raw pointer is still just a word
+ispod(*[]T)                     // true — raw slice is just (ptr, len)
+ispod(@T)                       // false — copy RefIncs, destroy RefDecs
+ispod(@[]T)                     // false — same
+ispod([N]T)                     // ispod(T)
+ispod(struct{...})              // true iff every field is POD
+```
+
+**Semantics.** `ispod(T)` is `true` iff values of `T` can be copied by raw
+`memcpy` and discarded with a no-op destructor — i.e., `T` is fully
+characterized by `sizeof(T)` / `alignof(T)` and no refcount traffic is
+needed on copy or destruction. Returns `bool`. Compile-time constant.
+
+**Key subtlety:** `*@T` is POD. The raw pointer itself is a plain word —
+copying it does not touch the managed target's refcount. The raw-pointer
+contract is "you don't own this" by definition.
+
+**Motivation.** Generic code (once generics land) that wants to pick a
+fast `memcpy`-based path vs. a copy-constructor path. Serialization.
+Runtime-library helpers that want to assert POD-ness at compile time.
+
+**Name.** `ispod` fits because "plain old data" is the standard term for
+this property. An alternative `ismanaged(T)` (= `!ispod(T)`) was
+considered; `ispod` was chosen because the common use is to branch on
+the fast path being available.
