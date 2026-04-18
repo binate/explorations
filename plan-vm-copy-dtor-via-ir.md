@@ -20,7 +20,7 @@ Two reasons we must do this work, not just "patch the VM":
    need its own correct copy/dtor support. Putting the logic in IR means
    one source of truth that all backends consume as ordinary CALLs.
 
-## Current state (audit)
+## Current state (after step-1 audit)
 
 The IR layer (`pkg/ir`) **already** generates `__copy_X` and `__dtor_X`
 functions and emits CALL instructions to them at copy/scope-exit sites:
@@ -35,89 +35,88 @@ functions and emits CALL instructions to them at copy/scope-exit sites:
   arg/return passes (`gen_stmt.bn:341,481`).
 - `emitStructDtor` — emits the CALL at scope-exit sites.
 
+**Verified by instrumentation** (debug print in `emitStructCopy`):
+when the failing pkg/ir TestGenConstIota runs, the IR for
+`appendModuleConst` does emit two CALLs to `__copy_ModuleConst` (one
+per copy site — `ns[i] = s[i]` and `ns[n] = v`). Other call sites
+(genConst, genConstGroup, etc.) also emit copy calls correctly.
+
 The LLVM backend (`pkg/codegen`) consumes these CALLs as ordinary
 function calls — no special handling needed. **This works correctly.**
+
+The bytecode VM (`pkg/vm`) **also already lowers the copy/dtor CALLs
+to ordinary BC_CALL** — and `__copy_ModuleConst` itself is generated
+into the IR module and lowered like any other function. So the
+"missing copy/dtor" framing was wrong: the VM is consuming the IR
+correctly, but the test still fails. The actual gap is more subtle
+— something in the chain (struct-store BC_MEMCPY size? RefInc
+opcode lowering? cleanup ordering between scope exit and global
+reassignment?) is mis-accounting refcounts. Step 1' below replaces
+the original step 1 with the targeted follow-up needed to localize
+this.
 
 The interpreter (`pkg/interp`) does **not** consume the IR copy/dtor
 calls. Instead, `pkg/interp/exec.bn` and `helpers_refcount.bn` use
 hand-written `structRefInc`/`structRefDec` helpers driven by the same
 type info. Duplicate implementation, opportunity for divergence (see
-the just-fixed double-RefInc bug for `@T` parameters).
-
-The bytecode VM (`pkg/vm`) also does not consume the copy/dtor calls
-correctly. The bug (`pkg/vm/vm_extern_test.bn:TestRepro_…ManagedSliceFieldAppend`
-under `boot-comp-int2`) shows that struct-field `@[]char` backings get
-freed prematurely. Two questions to answer in step 1 below: are the IR
-CALLs actually present in the bytecode the VM lowers, and if so, why
-don't they preserve refcounts?
+the just-fixed double-RefInc bug for `@T` parameters). This is the
+remaining opportunity for "move to IR" — the interpreter is the one
+backend with its own parallel implementation.
 
 ## Plan
 
-### Step 1 — Diagnose the VM's actual gap (quick, ≤30 min)
+The plan now has two independent threads:
 
-Before changing anything, confirm which of these is true for the
-failing repro:
+- **Thread A (architectural — the user's stated motivation)**: migrate
+  the interpreter to consume the IR copy/dtor calls so that
+  compiler/interpreter use the same single source of truth, and the
+  multi-backend roadmap has one mechanism for new backends to inherit.
+- **Thread B (tactical — the trigger that surfaced this)**: localize
+  and fix the boot-comp-int2 VM struct-copy bug captured by
+  `TestRepro_StructWithManagedSliceFieldAppend`. This may share root
+  cause with Thread A, but per the step-1 audit, the IR/CALL plumbing
+  is already in place — the bug is somewhere narrower.
 
-- (A) `pkg/ir.emitStructCopy` is being called and emits a `CALL
-  __copy_Pair` IR instruction, the VM lowers it as a regular `BC_CALL`,
-  but `__copy_Pair` itself is not generated/registered in the VM (so
-  the call resolves to a no-op or extern-not-found path).
-- (B) The IR CALL is emitted and the function exists, but
-  `pkg/vm/lower.bn` skips or mis-lowers calls to compiler-generated
-  helpers (e.g., `LookupFunc` doesn't see them).
-- (C) `emitStructCopy` is **not** called at the slice-element store
-  site (`ns[i] = s[i]`) — i.e., a code path in `gen_control.bn`
-  reaches `EmitStore` without the copy call.
+### Thread B — step 1' (revised diagnosis, focused)
 
-Check by inspecting the IR module produced for the repro source (dump
-function names and the body of `appendPair`). This decides what the
-fix looks like.
+Confirm which of these is true for the failing repro under
+boot-comp-int2 (the IR-emit instrumentation already showed the CALLs
+*are* being emitted, so this is about runtime execution):
 
-### Step 2 — Make IR uniformly emit copy/dtor calls
+- (B-i) `__copy_X` is in `vm.Funcs` but the BC_CALL doesn't reach it
+  (name mangling/qualification skew between caller and callee
+  registration).
+- (B-ii) `__copy_X` is reached but its emitted body does the wrong
+  thing on the VM — e.g., `EmitExtract(slot=2)` reads the wrong word
+  of a managed-slice in the VM's struct-field memory layout (vs. LLVM).
+  Layout drift would be specifically a `pkg/types`-level bug for the
+  VM target.
+- (B-iii) `__copy_X` works correctly but a *different* path also
+  RefDecs (e.g., scope-exit cleanup running in the wrong order vs.
+  global-variable reassignment, double-counting once for the local
+  parameter and once for the global).
 
-Whichever case from step 1, the goal is: **for every struct/array
-copy site and scope exit, IR contains a CALL to `__copy_X`/`__dtor_X`
-that all backends will see as a normal call.**
+Concrete probe: instrument `BC_REFINC` / `BC_REFDEC` execution to log
+`(addr, op, refcount-after, calling fn name)`, then run the failing
+`TestGenConstIota` and walk the trace for `moduleConsts[i].Name`'s
+backing pointer. The trace will pinpoint which call goes too far.
 
-Likely sub-tasks:
-- Audit `gen_control.bn` paths that end in `EmitStore` for struct
-  values; ensure each is preceded by an `emitStructCopy` when the
-  destination is freshly written (and for slice-element writes, also
-  RefDec the previously-stored value if any).
-- Ensure the generated `__copy_X` / `__dtor_X` functions are emitted
-  into the IR module that every backend consumes (not gated by
-  backend).
-- Cross-package: when a struct lives in package A but is copied in
-  package B's code, the copy function must be available — either
-  declared extern in B and defined in A, or generated link-once in B.
-  `pkg/ir/gen_copy.bn` already has `qualifiedCopyName` support; verify
-  the per-module emission story is right.
-
-### Step 3 — Bytecode VM consumes the calls
-
-With step 2 done, the VM should "just work" because the calls are
-ordinary `BC_CALL`s. Likely small fixes:
-- Make sure `LookupFunc` finds `__copy_X` / `__dtor_X` (qualified
-  name conventions should match).
-- Remove the special-case in `pkg/vm/lower_instr.bn:lowerStore` that
-  emits a raw `BC_MEMCPY` for struct stores — the IR-level copy call
-  before the store is what RefIncs the new value, so the store itself
-  can stay a memcpy of the bytes (this matches what LLVM does), but
-  any "old value RefDec" responsibility must already have been emitted
-  by IR.
-- Verify scope-exit dtor calls reach the VM (alloca cleanup).
-
-### Step 4 — Interpreter consumes the same calls
+### Thread A — interpreter migration
 
 Replace `pkg/interp/exec.bn`'s hand-written `structRefInc`/
 `structRefDec` calls with execution of the IR CALL instructions to
 `__copy_X`/`__dtor_X`. The interpreter already runs IR; this is just
-deleting the hand-written paths and trusting the IR emission. Keep
-the helpers around if needed as the IMPL of the IR copy/dtor functions
-when the interpreter executes them, but the *invocation* should come
-from IR, not from a separate scope-walking pass.
+deleting the hand-written paths and trusting the IR emission. Keep the
+helpers around as the IMPL of the IR copy/dtor functions when the
+interpreter executes them, but the *invocation* should come from IR,
+not from a separate scope-walking pass.
 
-### Step 5 — Tests + cleanup
+This is risky to do without the failing-mode tests for the interpreter
+also stable (per the "Interp vs VM" memory, pkg/interp is likely
+dead-end). Defer until thread B is closed and the interpreter is
+either proven ground for migration or formally retired.
+
+### Tests + cleanup (post-thread-B)
 
 - `pkg/vm/vm_extern_test.bn:TestRepro_StructWithManagedSliceFieldAppend`
   must pass under `boot-comp-int2`.
@@ -126,25 +125,10 @@ from IR, not from a separate scope-walking pass.
 - All existing conformance tests still green across all 4 modes.
 - Lift the `pkg/ir`, `pkg/codegen`, `cmd/bnlint` xfails for
   `boot-comp-int2` (we expect this fix to unblock them).
-- Possibly lift `pkg/vm` xfail (depends on whether other VM bugs
-  remain — investigate after the copy/dtor fix lands).
-- `pkg/interp` xfail likely remains (separate "dead end" interpreter
-  per `Interp vs VM` memory).
 
 ## Out of scope
 
 - Refactoring the dtor naming scheme.
-- Performance optimization of the generated copy/dtor functions
-  (e.g., specialized "copy and inline-RefInc" opcodes for the VM).
-- Removing the interpreter altogether — it's likely dead-end work
-  but stays around until the VM is fully proven.
-
-## Risk
-
-- Step 4 (interpreter) risks breaking interp tests that currently
-  pass on the old hand-written path. If the cost is high relative to
-  the value, scope down to steps 1–3 and 5; the interpreter migration
-  can wait, since the interpreter is on the deprecation path.
-- Step 3's removal of the raw-BC_MEMCPY shortcut needs care: a
-  struct copy where the source is an IR temp (no live alias) may not
-  need the full copy-then-dtor dance.
+- Performance optimization of the generated copy/dtor functions.
+- Removing the interpreter — likely dead-end work but stays around
+  until the VM is fully proven.
