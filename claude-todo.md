@@ -85,6 +85,20 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Bootstrap-only: package name mismatch not detected in single-file mode (244 xfail on boot)
 - Still needed: const expression errors, more shadowing edge cases
 
+### `const` type modifier — needs a plan before implementing
+- The grammar (`grammar.ebnf:267`) reserves `const Type` as a read-only type-expression modifier (e.g., `*const int`, `const *int`, `const string`). The `const` keyword already exists but is only parsed in var/param decls.
+- Looks small on the surface (parser + a new `TEXPR_CONST` wrapper), but the full rollout needs design work on:
+  - **(a) Implicit conversion rules**: can `*const T` flow to `*T` (unsafe — drops write permission, bad) vs `*T` flow to `*const T` (safe widening)? Same for slices (`*[]const T` ↔ `*[]T`) and struct fields. Need to spell out assignability cleanly, probably mirroring C++'s "add const OK, drop const requires cast."
+  - **(b) String-literal default type**: `claude-notes.md` already intends `"abc"` to default to `@[]const char` (or `*[]const char` for the slice view). Moving to that default breaks code that initializes `@[]char` / `*[]char` locals from string literals without a copy — we'd need either a copy-on-init helper (`buf.CopyStr` is the current pattern) or a documented implicit `[]const T -> []T` when the source is a static literal.
+  - **(c) `const_cast` (or equivalent)**: when someone deliberately needs to escape const for C interop or low-level routines. Decide whether to add a dedicated builtin, reuse `cast`, or rely on `bit_cast`.
+- Out of scope for the initial small implementation. Do the design write-up first and ratify it in `claude-notes.md` before touching the parser.
+
+### Switch `fallthrough` — proposal
+- Not in the current grammar (`grammar.ebnf`). Binate switch cases are implicit-break (Go-style), but there's no opt-in for Go's `fallthrough` keyword.
+- Would add one reserved keyword, one AST statement kind (`STMT_FALLTHROUGH`), and one IR lowering (branch to the next case's entry block, skipping its case-value check).
+- Before implementing: decide whether we want it at all. Arguments for: matches reader expectations from Go, lets users avoid duplicated bodies across related cases. Arguments against: rarely needed in practice, adds a new keyword for a small ergonomic win, forces the type checker to recognize terminators beyond `return`/`panic` (termination analysis already inspects case bodies for bare `break`).
+- Likely a decline unless a concrete use case comes up, but worth capturing as a live option.
+
 ### Termination analysis — labeled break
 - Missing-return check (test 245) uses Go-style termination analysis simplified: RETURN terminates; `panic(...)` terminates; BLOCK terminates if last stmt does; IF terminates if both branches do; FOR with no condition and no `break` in body terminates; SWITCH with default and all cases terminating (no break) terminates.
 - **Labeled break**: Binate currently has no labels. If/when we add them, termination analysis needs to track labels — a `break L` inside a nested for doesn't break the inner for (contrary to the current "any break disqualifies enclosing for/switch" rule). Revisit when labels are on the table.
