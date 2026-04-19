@@ -85,10 +85,9 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Bootstrap-only: package name mismatch not detected in single-file mode (244 xfail on boot)
 - Still needed: const expression errors, more shadowing edge cases
 
-### Termination analysis — labeled break and `panic` design
-- Initial missing-return check (test 245) uses Go-style termination analysis simplified: RETURN terminates; BLOCK terminates if last stmt does; IF terminates if both branches do; FOR with no condition and no `break` in body terminates; SWITCH with default and all cases terminating (no break) terminates.
+### Termination analysis — labeled break
+- Missing-return check (test 245) uses Go-style termination analysis simplified: RETURN terminates; `panic(...)` terminates; BLOCK terminates if last stmt does; IF terminates if both branches do; FOR with no condition and no `break` in body terminates; SWITCH with default and all cases terminating (no break) terminates.
 - **Labeled break**: Binate currently has no labels. If/when we add them, termination analysis needs to track labels — a `break L` inside a nested for doesn't break the inner for (contrary to the current "any break disqualifies enclosing for/switch" rule). Revisit when labels are on the table.
-- **`panic` as terminator**: Binate has a non-recoverable panic. Go treats `panic(...)` calls as terminating statements. For now, we accept the awkwardness of requiring a dummy `return` after an unconditional panic — the analysis doesn't know panic terminates. Consider marking the builtin as terminating in a later revision.
 
 ### Pointers to interface values
 - Interface values are regular value types — allow `*Iface`, `@(Iface)`, `*@Iface`, `@(@Iface)`, etc.
