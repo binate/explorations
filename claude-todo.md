@@ -92,13 +92,34 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - `unsafe_index(coll, idx)` is implemented as a documented opt-out — but today it produces the same IR as `coll[idx]`. Once bounds checks are wired, `unsafe_index` stays check-free while the normal path picks up the check automatically.
 - **Next**: call `EmitBoundsCheck` from `genIndex`, from the slice-assign path in `gen_control.bn`, and from `EmitSliceExpr` (two bounds checks — lo and hi). Then verify that `unsafe_index` still skips. Negative test: out-of-range `s[len(s)]` should trap, not segfault.
 
-### `const` type modifier — needs a plan before implementing
-- The grammar (`grammar.ebnf:267`) reserves `const Type` as a read-only type-expression modifier (e.g., `*const int`, `const *int`, `const string`). The `const` keyword already exists but is only parsed in var/param decls.
-- Looks small on the surface (parser + a new `TEXPR_CONST` wrapper), but the full rollout needs design work on:
-  - **(a) Implicit conversion rules**: can `*const T` flow to `*T` (unsafe — drops write permission, bad) vs `*T` flow to `*const T` (safe widening)? Same for slices (`*[]const T` ↔ `*[]T`) and struct fields. Need to spell out assignability cleanly, probably mirroring C++'s "add const OK, drop const requires cast."
-  - **(b) String-literal default type**: `claude-notes.md` already intends `"abc"` to default to `@[]const char` (or `*[]const char` for the slice view). Moving to that default breaks code that initializes `@[]char` / `*[]char` locals from string literals without a copy — we'd need either a copy-on-init helper (`buf.CopyStr` is the current pattern) or a documented implicit `[]const T -> []T` when the source is a static literal.
-  - **(c) `const_cast` (or equivalent)**: when someone deliberately needs to escape const for C interop or low-level routines. Decide whether to add a dedicated builtin, reuse `cast`, or rely on `bit_cast`.
-- Out of scope for the initial small implementation. Do the design write-up first and ratify it in `claude-notes.md` before touching the parser.
+### `const` type modifier
+- Design plan: `plan-const-type-modifier.md`. Four-stage rollout
+  (syntax+kind → enforcement → string-literal default-type flip →
+  const method receivers deferred). Open question remaining: ratify
+  the plan's choices (new TYP_CONST wrapper kind, `cast` drops
+  const, literal-init copy rule, hard ban on `*[]char = literal`)
+  before starting Stage 0.
+
+### Observable optimizations and UB policy — broader question
+- Surfaced while planning const: allowing the compiler to allocate
+  a shared static global for all-const composite literals is an
+  optimization observable via raw-pointer comparison (`&a[0] ==
+  &b[0]` where `a`, `b` are both `"hello"`). The const plan accepts
+  this as UB rather than either blocking the optimization or
+  carving out precise "same-literal-text gives same address"
+  semantics.
+- Same class as the refcounting move optimizations that are already
+  observable via `rt.Refcount(...)` without a nailed-down spec.
+- **Broader question**: do we want a general policy of "these kinds
+  of observations are UB, the compiler may optimize across them",
+  written up somewhere authoritative? Candidates for the same UB
+  bucket: literal address identity, refcount timing, struct padding
+  bytes, uninitialized-memory reads of stack-allocated vars. The
+  alternative (fully specified observable behavior) is probably
+  incompatible with small-target codegen goals.
+- Not urgent — we're already making these trade-offs silently. A
+  short design note ratifying the policy would be useful when a
+  future optimization / feature forces the question.
 
 ### Switch `fallthrough` — proposal
 - Not in the current grammar (`grammar.ebnf`). Binate switch cases are implicit-break (Go-style), but there's no opt-in for Go's `fallthrough` keyword.

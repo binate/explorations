@@ -135,38 +135,66 @@ first-class managed value.
 - `backing_len` matches the literal length; view `len` equals
   `backing_len`.
 
-## Open question: composite literals with runtime elements
+## Composite literals: per-encounter allocation
 
-`@[]int{1, 2, 3}` is all-compile-time. `@[]int{1, 2, y}` (where `y`
-is a runtime variable) is syntactically the same composite-literal
-form but needs to evaluate `y` at allocation time. Two sub-questions:
+`@[]int{1, 2, 3}` and `@[]int{1, 2, y}` (where `y` is runtime) have
+the **same** runtime behavior: each time the composite literal is
+encountered, the compiler emits `rt.MakeManagedSlice(int, 3)` and
+stores the three element values into the fresh backing. No shared
+global. Reaching the same source expression twice (e.g. in a loop)
+allocates twice. This keeps the semantics simple and regular —
+"composite literal = fresh construction, always."
 
-**(a) Do we permit runtime-valued composite literals at all?** Go
-permits them. Binate's grammar (`CompositeLit`) doesn't distinguish
-const vs runtime element values, so the grammar already allows it.
-The implementation just needs to emit a construction sequence that
-evaluates each element and stores it. Low risk — recommend yes.
+`@[]const int{1, 2, 3}` and `@[]const int{1, 2, y}` work the same
+way: a fresh managed-slice is allocated and initialized at the
+literal's location, then sealed as const through the returned
+handle. The "const" part is about what you can do with the handle
+afterwards, not about when the init happens. The composite-literal
+syntax IS the one init-time write path for const-typed targets.
 
-**(b) What about `@[]const int{1, 2, y}` — a const-typed composite
-literal with runtime element values?** The slice is declared const,
-meaning nobody can write to its elements through this handle after
-construction. But the construction itself *is* writing `y` into the
-backing. That's allowed iff we draw a line between "initial
-construction" and "later mutation." C++ draws exactly this line
-(`const` members get set in constructors via a member-init list;
-after the object is constructed, they're immutable). I think Binate
-should do the same — the composite literal IS the init, and init
-can write.
+### Shared static storage is an optimization
 
-Alternative: disallow runtime-valued const composite literals. Then
-users would have to write `@[]int{1, 2, y}` (non-const) first and
-convert — but const → non-const isn't free in the plan above, so
-that's clunky.
+The compiler is *permitted* to detect composite literals with
+all-compile-time-constant element values and lower them to a shared
+static global (allocated once, at program load, stable address).
+This is the optimization that makes `"hello"` free. But the
+language spec does not require it, and programs may observe the
+difference: `&a[0] == &b[0]` where `a, b` are both
+`@[]const char{"hello"}` (or equivalent) is `true` under the
+optimization and `false` without it.
 
-Recommend: allow `@[]const T{...}` with runtime values. Treat the
-composite-literal syntax as the sole "init-time write" path for
-const targets. Add a conformance test making sure runtime element
-evaluation happens before the slice is observable as const.
+We accept this as **undefined behavior** in the language spec:
+comparing raw pointers produced by separate composite-literal
+evaluations yields implementation-defined values, and programs
+relying on either outcome are ill-formed.
+
+This is the same contract Binate has tacitly adopted elsewhere
+(e.g., refcounting move optimizations are already observable
+through `rt.Refcount(...)` in a way the spec doesn't nail down).
+Rather than chase an observable-behavior-parity guarantee that
+would preclude optimizations, we accept UB at the few
+opt-observable seams and trust programmers to not rely on the
+details.
+
+This means string literals — `[N]const char` arrays with all-const
+byte values — become just a special case of the general rule: the
+compiler emits them as shared static globals, which is observable
+but falls under the UB above. Today's `OP_STRING_TO_CHARS` static
+`%BnManagedSlice` global already exploits exactly this.
+
+There's a broader policy question here — "what other observable
+optimizations does Binate permit, with UB as the escape hatch?" —
+that goes beyond this plan. See TODO in `claude-todo.md`.
+
+### Summary of init behavior
+
+| Form | Allocation |
+|------|------------|
+| `"hello"` (string literal, rodata) | Shared global (optimization; UB to rely on address) |
+| `@[]const char{"hello"}` (hypothetical, all-const) | Compiler MAY share; UB to rely on |
+| `@[]int{1, 2, 3}` (all-const elements) | Fresh per encounter; compiler MAY share |
+| `@[]int{1, 2, y}` (runtime element) | Fresh per encounter; cannot share |
+| `@[]const int{1, 2, y}` | Fresh per encounter, sealed as const |
 
 ## String literals
 
