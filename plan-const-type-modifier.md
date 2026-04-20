@@ -61,24 +61,20 @@ Helper funcs:
 ## Assignability rules
 
 Const introduces a partial order: `T ≤ const T` (adding const is
-safe; dropping it isn't). **But**: for managed types, dropping
-const at initialization is allowed as an implicit allocate+copy —
-see "Implicit copy-on-init" below.
+safe; dropping it isn't).
 
 | src → dst | Allowed? |
 |-----------|----------|
 | `T` → `const T` | Yes (widening: adds restriction) |
-| `const T` → `T` | No (requires `cast`) for raw types / values |
+| `const T` → `T` | No (requires `cast`) |
 | `*T` → `*const T` | Yes |
-| `*const T` → `*T` | No (raw ptr is a borrow — no owner for a copy) |
+| `*const T` → `*T` | No |
 | `*[]T` → `*[]const T` | Yes |
-| `*[]const T` → `*[]T` | No (same — raw slice is a borrow) |
+| `*[]const T` → `*[]T` | No |
 | `@[]T` → `@[]const T` | Yes |
-| `@[]const T` → `@[]T` at init only | **Yes, with implicit copy** |
-| `@[]const T` → `@[]T` at bare assignment | No (requires explicit copy) |
+| `@[]const T` → `@[]T` | No (requires explicit copy) |
 | `@T` → `@const T` | Yes |
-| `@const T` → `@T` at init only | **Yes, with implicit copy** |
-| `@const T` → `@T` at bare assignment | No |
+| `@const T` → `@T` | No |
 | `const T` → `const U` (different T/U) | Only if `T` → `U` is allowed |
 | `const T` → `const T` | Yes (identical) |
 
@@ -87,51 +83,90 @@ it adds a read-only view to the elements, but `*const []T` →
 `*[]const T` is still distinct (first is const slice header, second
 is mutable header pointing at const elems).
 
-Call boundaries get the same rules as assignment. Passing a
-`@[]const char` to a `@[]char` parameter triggers implicit copy at
-the call site (same as initialization).
+Call boundaries get the same rules as assignment.
 
-## Implicit copy-on-init for managed types
+Note on `@[]const T` → `@[]T`: a managed slice of const elements
+cannot be widened to a managed slice of mutable elements, because
+that would let the holder mutate data that's still const from
+another view. To get a mutable managed slice from const data, the
+caller constructs one — either from a literal (see below) or by
+writing an explicit `make_slice` + element-copy.
 
-Forcing users to write `buf.CopyStr("...")` every time they want a
-mutable managed-slice initialized from a string literal — or more
-generally, from any `@[]const T` — would make ordinary code
-annoying and push people away from const-correct APIs. So the
-language allows an implicit allocate + memcpy at **initialization
-sites only**, for managed targets:
+## Literal-init copy rule (narrow)
 
-- `var s @[]T = constExpr` where `constExpr` has type `@[]const T` or
-  the natural type of a string literal (`[N]const char` defaulting to
-  `@[]const char`): compiler emits `rt.MakeManagedSlice(...)` sized
-  to match, memcpy's the source bytes, and stores the fresh managed
-  slice.
-- Same for `@T` target from `@const T` source (allocate a fresh
-  managed payload, memcpy T-sized bytes).
-- Function argument passing where the param type is `@[]T` / `@T`
-  and the argument type is the const variant: same implicit copy at
-  the call site.
-- Short-var-decl `s := constExpr` infers the const type (no copy
-  unless an explicit type annotation asks for the non-const form).
+A string literal or composite literal on the RHS of a non-const
+managed target does NOT require a prior explicit copy — the
+compiler treats the initialization as construction of a fresh
+managed value, not as widening of an existing const view. The two
+in-scope cases:
 
-**Not allowed**:
+1. **String literals**
+   - `var s @[]char = "hello"` — compiler emits a fresh
+     `rt.MakeManagedSlice(char, 5)` and memcpy's the static bytes in.
+     `s` is mutable and independent of the literal's rodata.
+   - `var s @[]const char = "hello"` — zero-copy borrow of the rodata.
+     Default form; preferred.
+   - `var s *[]const char = "hello"` — also zero-copy borrow.
+   - `var s *[]char = "hello"` — type error (no owner for a mutable
+     view of static data).
 
-- Bare assignment `s = constExpr` where `s` is already `@[]T`.
-  Rationale: the assignment semantics are save-copy-destroy on the
-  existing value. Mixing in a fresh allocation from a const source
-  is confusing. Users can write `s = buf.CopyStr(constExpr)`
-  explicitly.
-- Raw slice / raw pointer targets (`*[]T`, `*T`). These are borrows
-  — no owner for a heap copy. The existing rules apply: `cast` to
-  drop const, or re-borrow from a separate owning storage.
+2. **Composite literals**
+   - `var s @[]int = @[]int{1, 2, 3}` — the composite-literal
+     construction itself allocates a managed backing and writes the
+     values in; there's no prior const slice to widen from.
+   - `var s @[]const int = @[]const int{1, 2, 3}` — const-typed
+     composite literal; the backing is written at construction time
+     (see open question below) and then sealed.
 
-**Zero-init**: the allocated backing for `@[]T` doesn't need to be
-zeroed before the memcpy, since the memcpy immediately overwrites
-all `backing_len` bytes. Skip the zero-fill for this path.
+Neither of these is "widening a const slice to a non-const one" —
+they're fresh construction. The rule is: **literals and composite
+literals are the fresh-construction sites**, and they can target
+either const or non-const without needing an external copy step.
 
-This rule generalizes: it's not string-specific. `@[]int` can be
-initialized from `@[]const int` the same way. Users who want to
-avoid silent allocations can still use `*[]const T` (a borrow) where
-they don't need ownership.
+Anything else (an existing `@[]const T` value → a `@[]T` target)
+still requires an explicit `make_slice` + copy; the compiler
+doesn't silently insert an allocation when the RHS is already a
+first-class managed value.
+
+**Allocation / init details** (when the rule fires):
+- Backing is `rt.MakeManagedSlice(T, len)`.
+- No zero-fill needed; the subsequent stores/memcpy overwrite all
+  elements.
+- `backing_len` matches the literal length; view `len` equals
+  `backing_len`.
+
+## Open question: composite literals with runtime elements
+
+`@[]int{1, 2, 3}` is all-compile-time. `@[]int{1, 2, y}` (where `y`
+is a runtime variable) is syntactically the same composite-literal
+form but needs to evaluate `y` at allocation time. Two sub-questions:
+
+**(a) Do we permit runtime-valued composite literals at all?** Go
+permits them. Binate's grammar (`CompositeLit`) doesn't distinguish
+const vs runtime element values, so the grammar already allows it.
+The implementation just needs to emit a construction sequence that
+evaluates each element and stores it. Low risk — recommend yes.
+
+**(b) What about `@[]const int{1, 2, y}` — a const-typed composite
+literal with runtime element values?** The slice is declared const,
+meaning nobody can write to its elements through this handle after
+construction. But the construction itself *is* writing `y` into the
+backing. That's allowed iff we draw a line between "initial
+construction" and "later mutation." C++ draws exactly this line
+(`const` members get set in constructors via a member-init list;
+after the object is constructed, they're immutable). I think Binate
+should do the same — the composite literal IS the init, and init
+can write.
+
+Alternative: disallow runtime-valued const composite literals. Then
+users would have to write `@[]int{1, 2, y}` (non-const) first and
+convert — but const → non-const isn't free in the plan above, so
+that's clunky.
+
+Recommend: allow `@[]const T{...}` with runtime values. Treat the
+composite-literal syntax as the sole "init-time write" path for
+const targets. Add a conformance test making sure runtime element
+evaluation happens before the slice is observable as const.
 
 ## String literals
 
@@ -273,47 +308,49 @@ Flip the default type of string literals from the current
 - Type checker: `checkIdent` on `EXPR_STRING_LIT` returns
   `[N]const char` (array type) as the natural type, resolving to
   `@[]const char` when no explicit target drives a different choice.
-- `AssignableTo` for string literals:
-  - `[N]const char` / `[N]char` — array copy (existing rule).
-  - `@[]const char` / `*[]const char` — no-copy borrow of static
-    data (the ideal form).
-  - `@[]char` — allocate + copy via the general implicit-copy-on-init
-    rule. Not special to strings; it's the same rule that lets
-    `@[]int = constIntSlice` work.
-  - `*[]char` — type error. Users migrate to `*[]const char` (if
-    read-only) or switch to `@[]char`.
-- Migration of existing self-host source:
-  - `var x @[]char = "..."` — keeps compiling via implicit copy.
-    No code change required, though we should audit for cases where
-    the programmer *meant* `@[]const char` (most of them) and
-    downgrade to avoid the allocation.
-  - `var x *[]char = "..."` — now a type error. Audit each site:
-    read-only → `*[]const char`; needs mutation → migrate to
-    `@[]char` (which now auto-copies) and drop the raw-slice view.
-    Roughly 1500 grep hits across the tree (many are parameter
-    declarations that will pick up the const form transparently
-    once their callers pass const slices).
-  - Function parameters: walk the public API surface of cmd/bnc,
-    pkg/loader, pkg/parser, etc. Params that read their input string
-    become `*[]const char` or `@[]const char`.
-- **Transitional tolerance**: until the per-site audit is done, the
-  implicit-copy rule acts as a safety net — most existing code keeps
-  working, just with a small perf hit on init. That buys time for
-  the cleanup to land incrementally.
+- Permitted string-literal assignment targets (per the literal-init
+  copy rule above):
+  - `[N]const char` / `[N]char` — array copy.
+  - `@[]const char` / `*[]const char` — zero-copy borrow of static
+    data (ideal; preferred form).
+  - `@[]char` — literal-init copy: fresh allocation, memcpy the
+    bytes in, the result is independent of rodata.
+  - `*[]char` — **type error. No tolerance.** A raw slice is a
+    borrow; borrowing static rodata with a mutable view is
+    unsound and has no correct lowering. Every `var x *[]char =
+    "..."` site in existing source must be migrated before Stage 2
+    can land.
+- Pre-Stage-2 migration (do this *before* flipping the default):
+  - Audit every `var x *[]char = "..."` / parameter `*[]char` fed
+    a literal / struct-field `*[]char` initialized from a literal.
+    Roughly 1500 grep hits — most are parameter declarations and
+    struct fields that'll pick up the const variant transparently.
+  - For each site: if the slice is only read, change to
+    `*[]const char`. If it's mutated, change to `@[]char` (and fix
+    callers to pass a `@[]char` or a composite/string literal).
+  - Propagate const through public API surfaces (cmd/bnc, pkg/loader,
+    pkg/parser, etc.) — params that only read their input become
+    `*[]const char` or `@[]const char`.
+  - `var x @[]char = "..."` keeps compiling via the literal-init
+    copy rule, so those sites don't block the migration. Audit
+    post-flip for cases that should be `@[]const char` instead of
+    allocating a copy.
 - Bootstrap interpreter: its checker doesn't track const (treats it
   as a keyword it accepts without enforcement). Conformance tests
-  that rely on Stage 2 behavior (string literal → const variants)
-  add `.xfail.boot` markers rather than trying to update bootstrap.
+  that rely on Stage 2 behavior (const-enforced literal rules) add
+  `.xfail.boot` markers rather than trying to update bootstrap.
 - New conformance tests:
   - `var s @[]const char = "..."` (zero-copy borrow).
-  - `var s @[]char = "..."` (implicit copy — verify the copy is
+  - `var s @[]char = "..."` (literal-init copy — verify the copy is
     independent of the literal via a mutation test).
-  - Generalized implicit copy for non-char: `@[]int = someConstInts`.
+  - `var s *[]const char = "..."` (zero-copy raw-slice borrow).
+  - Composite-literal init: `@[]int{1, 2, 3}`, `@[]const int{1, 2, 3}`.
   - Negative: `*[]char = "..."` errors.
+  - Negative: `@[]char = existingConstSlice` errors (bare widening
+    without a literal — need explicit copy).
 
-**Validation**: all modes still green after migration. This is the
-stage most likely to expose real mutation-of-literal bugs, but the
-implicit-copy rule softens the landing.
+**Validation**: Stage 2 only lands once `*[]char = literal` is
+zero in the tree. Then flip the default and check all modes green.
 
 ### Stage 3 — Methods with const receivers (deferred)
 
@@ -339,21 +376,20 @@ Out of scope (noted for later):
 
 ## Risks & open questions
 
-- **Stage 2 migration size**: 1500 grep hits for `@[]char` /
-  `*[]char`. The implicit-copy-on-init rule means most `@[]char` =
-  literal sites keep compiling without change (at a small perf
-  cost). `*[]char` = literal sites are the ones that break and need
-  to migrate to `*[]const char` (read-only) or `@[]char` (mutable).
-  Parameter types should mostly pick up `const` transparently once
-  callers pass const slices.
-- **Silent allocations via implicit copy**: initializing `@[]T` from
-  `@[]const T` now quietly allocates. This is visible only as a
-  small perf/heap footprint, never a correctness issue. If it ever
-  becomes a concern (hot loops initializing large managed slices
-  from const sources), users can explicitly construct via
-  `make_slice(T, len) + element-wise copy`, or the const source can
-  be re-typed as `@[]const T` at the callee to avoid the conversion
-  site altogether.
+- **Stage 2 migration blocker**: `*[]char = "..."` is NOT tolerated
+  — it's a hard type error post-flip. Every site must be migrated
+  (to `*[]const char` for read-only or `@[]char` for owned-mutable)
+  *before* Stage 2 lands, otherwise the whole tree stops compiling.
+  Budget several sessions for this pass; the 1500 grep hits include
+  parameters, struct fields, and local var decls, many of which
+  will propagate const transparently but each needs a read-through.
+  `@[]char = "..."` is fine — the literal-init copy rule catches it.
+- **Silent allocation from string literals**: `@[]char = "..."` now
+  does a quiet alloc + memcpy. Visible only as a small perf/heap
+  footprint, never a correctness issue. In hot paths users should
+  prefer `@[]const char = "..."` (zero-copy borrow) or construct
+  via `make_slice(char, n)` + element-wise copy where the size is
+  data-dependent.
 - **Bootstrap parity**: the bootstrap checker doesn't track const. If
   enforcement diverges between self-host and bootstrap, we need
   `.xfail.boot` markers for the gap rather than updating bootstrap
