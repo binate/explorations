@@ -85,6 +85,13 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Bootstrap-only: package name mismatch not detected in single-file mode (244 xfail on boot)
 - Still needed: const expression errors, more shadowing edge cases
 
+### Bounds checks on `s[i]` / `s[lo:hi]` are not wired up
+- The design (`claude-notes.md:887`, `claude-discussion-detailed-notes.md §19.9`) requires every indexing and sub-slice operation to bounds-check at runtime and trap on failure. Today the compiler does NOT emit any bounds-check call in the normal index path — `genIndex` in `pkg/ir/gen_access.bn` lowers straight to `EmitGetElemPtr` + `EmitLoad` (and same for assigns).
+- The `EmitBoundsCheck` helper exists (`pkg/ir/ir_ops.bn:83`) and produces an `OP_BOUNDS_CHECK` instruction, but nothing calls it, so `OP_BOUNDS_CHECK` is effectively dead IR.
+- The runtime side is in place: `rt.c_bounds_fail` is declared and `bn_rt__c_bounds_fail` is stubbed in `runtime/rt_stubs.c`.
+- `unsafe_index(coll, idx)` is implemented as a documented opt-out — but today it produces the same IR as `coll[idx]`. Once bounds checks are wired, `unsafe_index` stays check-free while the normal path picks up the check automatically.
+- **Next**: call `EmitBoundsCheck` from `genIndex`, from the slice-assign path in `gen_control.bn`, and from `EmitSliceExpr` (two bounds checks — lo and hi). Then verify that `unsafe_index` still skips. Negative test: out-of-range `s[len(s)]` should trap, not segfault.
+
 ### `const` type modifier — needs a plan before implementing
 - The grammar (`grammar.ebnf:267`) reserves `const Type` as a read-only type-expression modifier (e.g., `*const int`, `const *int`, `const string`). The `const` keyword already exists but is only parsed in var/param decls.
 - Looks small on the surface (parser + a new `TEXPR_CONST` wrapper), but the full rollout needs design work on:
