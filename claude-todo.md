@@ -159,11 +159,6 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Cast codegen now uses `bitcast` (ptr→ptr), `ptrtoint` (ptr→int), `inttoptr` (int→ptr) instead of `add` for pointer types.
 - Conformance test 161 passes on all compiled modes.
 
-### x86-64 assembler: end-to-end tests on Linux CI
-- Assemble x86-64 → ELF64 → link → run natively (no QEMU needed)
-- CI runs Linux x86-64 so this would be a native end-to-end test
-- Test cases: exit via SYSCALL, loop, function call with PUSH/POP
-
 ### Clean up conformance tests to use array literal + `arr[:]` pattern
 - `arr[:]` works in compiled mode; conformance tests using `make_slice` + indexed assignment for static data could use `[N]T{...}` + `arr[:]` instead
 - Consider adding slice literal syntax (`*[]T{...}`) as sugar
@@ -347,6 +342,7 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - **pkg/asm/x64**: full x86-64 instruction encoding with REX prefix, ModR/M, SIB byte. MOV, PUSH/POP, LEA, ADD/SUB/AND/OR/XOR/CMP/TEST, INC/DEC/NEG/NOT, SHL/SHR/SAR, IMUL (2 and 3 operand)/IDIV/DIV, CQO/CDQ, JMP/Jcc/CALL/RET, NOP/SYSCALL/INT. 40 unit tests.
 - **x86-64 text parser**: register parsing (4 sizes × 16 regs), memory operands with `[base + index*scale + disp]`, size prefixes, Jcc mnemonic parsing. Full parity with encoding backend. 28 parser tests.
 - **ELF relocation mapping**: FIX_REL32 → R_X86_64_PC32, FIX_ABS64 → R_X86_64_64.
+- **x86-64 native end-to-end tests on Linux** (`29f4230`): assemble x86-64 → ELF64 → link with cc → run via host SYSCALL. Three tests in `pkg/asm/elf/elf_test.bn`: `TestX86_64ElfExit` (exit via SYSCALL), `TestX86_64ElfLoop` (sum 1..9 = 45), `TestX86_64ElfCall` (function call with PUSH/POP). `canLinkX86_64Elf()` probe makes them skip cleanly off Linux/x86-64. Verified passing on CI.
 - 295 tests total across all assembler packages.
 
 ### AArch64 parser: MVN added, full parity
