@@ -6,10 +6,44 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
-### Discuss ways to split long string literals across lines
-- No way to break a long string literal across source lines: Binate has no `+` operator for strings, no adjacent-string-literal concatenation (as in C), and `bootstrap.Concat` allocates at runtime (fine for one-shot, bad for hot paths / error messages that may never fire).
-- Came up during the raw-slice migration: an `errMsg` call in `pkg/parser/parser.bn:106` has a 114-char string literal that can't be shortened without losing information. Tagged `// LONG-LINE ALLOWED` as a workaround — see `scripts/hygiene/line-length.sh` and `explorations/code-hygiene-check.md`.
-- Options to discuss: C-style adjacent-string concatenation at the lexer level; a `\` line-continuation inside string literals; a compile-time const-fold of `bootstrap.Concat` on literal args; something else.
+### pkg/vm: implement Stage 2b implicit-copy for `string → @[]char`
+- `pkg/codegen` now allocates a fresh managed-slice and memcpys the
+  bytes when `@[]char = "..."`, so the target is owned+mutable and
+  independent of the literal's rodata (Stage 2b of the const rollout).
+- `pkg/vm/lower_instr.bn:249` still emits `BC_LOAD_STR` for every
+  `OP_STRING_TO_CHARS`, which aliases the shared static bytes. Writing
+  to `@[]char` that was initialized from a literal silently mutates
+  the rodata copy, so multiple `@[]char = "hello"` instances share
+  the same mutable bytes.
+- Conformance `298_string_to_managed_copy` covers the behavior and
+  is currently xfailed on `boot-comp-int` with a one-liner pointing
+  here.
+- Lowering plan: when `instr.BoolVal == true` on `OP_STRING_TO_CHARS`,
+  emit the VM equivalent of `MakeManagedSlice(1, N) + memcpy` instead
+  of `BC_LOAD_STR`. Look at `emitMakeSliceInstr` / `BC_MAKE_SLICE`
+  path for the shape.
+
+### Implement adjacent string-literal concatenation (C-style)
+- **Decision** (see `claude-notes.md` § Type conversions & literals and
+  `claude-discussion-detailed-notes.md` § 3 Strings): two string literals
+  separated only by whitespace merge at lex/parse time into a single
+  literal. No `+`, no runtime call, no allocation. Matches C/C++.
+- **Scope**: lex/parse layer only — an adjacent-literal sequence becomes
+  one `STRING` token (or equivalently, one string-literal AST node).
+  Cleanest place is probably in the parser's string-literal handling:
+  after parsing one string literal, peek for another; if the next token
+  is also a string literal, consume and concatenate. Do this in both the
+  Go bootstrap parser and the self-hosted `pkg/parser`.
+- **Touchpoints**: `bootstrap/parser/…` (Go), `pkg/parser/parse_expr.bn`
+  (self-hosted). Natural-type computation (`[N]const char`) should use
+  the merged length.
+- **Migration**: once the feature lands, the `// LONG-LINE ALLOWED` tag
+  at `pkg/parser/parser.bn:106` can be removed and the string split
+  across lines. Grep `LONG-LINE ALLOWED` for other candidates.
+- **Tests**: positive (two adjacent literals merge; three or more
+  merge; whitespace-only separation including newlines; mixed with
+  escapes like `"a\n" "b"` → 3 chars). Negative (non-string tokens
+  between literals don't merge — `"a", "b"` is still two expressions).
 
 ### boot-comp-int2-int2 mode segfaults (bni2 can't self-host)
 - The `boot-comp-int2-int2` runner crashes when the outer compiled bni2 is asked to interpret `cmd/bni2` source: exit 139 (SIGSEGV), with no output.
@@ -137,11 +171,20 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Needed for: generics (`*T` where `T=Stringer`), out parameters, arrays of interfaces, containers
 - Implementation: grammar, parser, type checker, codegen, bootstrap interpreter
 
-### Function-local type declarations — design question
-- Go supports `type Foo struct { ... }` inside function bodies. Binate currently doesn't handle this in the compiler (works in bootstrap interpreter).
-- **Consider**: do we want function-local types at all? They're somewhat limited in Go.
-- If not, the parser should reject them. If yes, the IR gen needs to handle them.
-- Low priority — package-level types cover most use cases.
+### Enforce parse-level rejection of function-local `type` declarations
+- **Decision**: function-local `type T ...` is a parse error. See
+  `claude-notes.md` § Scoping rules and
+  `claude-discussion-detailed-notes.md` § 16 Function-Local `type`
+  Declarations — REJECTED.
+- **Current state**: the bootstrap interpreter accepts them by accident
+  (parsed at block level without being flagged). The self-hosted
+  compiler doesn't handle them in IR gen, so they'd fail later with a
+  less clear error.
+- **Work**: reject at parse time in both the Go bootstrap parser and
+  `pkg/parser/parse_stmt.bn`. Message should be clear ("`type`
+  declarations must be at package level") so users don't waste time
+  on the error.
+- **Tests**: a negative conformance test that exercises the rejection.
 
 ### Test harness `isTestResultReturn` should resolve type aliases
 - The test harnesses (bootstrap Go `main.go` and self-hosted `cmd/bnc/test.bn`) only accept `testing.TestResult` (qualified) or `@[]char` (literal managed-slice of char) as test return types.

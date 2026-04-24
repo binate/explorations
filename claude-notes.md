@@ -326,6 +326,13 @@ Same principle for struct/type redefinition: existing instances retain the old l
 
 **No `string` type.** `string` does NOT exist as a type in Binate. String literals are untyped constants with natural type `[N]const char` and default type `@[]const char`. Allowed targets: `@[]const char` (borrows static data, zero cost), `@[]char` (allocate+copy — managed-slice owns its backing, so mutation is safe), `*[]const char` (raw slice borrowing static data), `[N]const char` / `[N]char` (array copy). NOT allowed: `*[]char` (raw slice can't own a mutable copy, and borrowing static data mutably is unsound). This generalizes to all slice/array literals. (The bootstrap uses `*[]char` as a stand-in since it lacks const types.) Language targets small systems where full UTF-8 support is too heavy to justify a separate type.
 
+**Adjacent string-literal concatenation (C-style).** Two string literals with only whitespace between them are glued into one literal at lex/parse time:
+```binate
+return errMsg(pos, "expected 'func', 'type', 'var', 'const', "
+                   "'import', or identifier at top level")
+```
+produces a single literal `"expected 'func', 'type', 'var', 'const', 'import', or identifier at top level"`. Pure compile-time operation — no runtime `Concat` call, no allocation, no const-folding pass needed. Binate doesn't have a string `+` operator (no `string` type), and runtime concatenation via `bootstrap.Concat` allocates every time the expression is reached, which is wrong for error-message literals that may fire rarely but still live in tight code paths. Adjacent concat is the right tool for splitting one logical string across source lines cleanly. See `differences-with-go.md` for why Go chose differently.
+
 ### Type system richness
 
 **Generics**: originally punted, but reconsidering — see discussion below.
@@ -748,6 +755,7 @@ and `claude-bootstrap-plan.md` for implementation status.
 - **Package-level variables**: mutable `var` and `const` both allowed (mutable globals are a fact of life in systems programming)
 - **Initialization order**: dependency-based, then source order within a file, then file order within a package
 - **No `init()` functions** (unlike Go) — explicit initialization in `main` or setup functions
+- **No function-local `type` declarations.** `type Foo ...` is a top-level-only declaration — writing it inside a function body is a parse error. Rarely used, but carries disproportionate complexity: shadowing rules vs. package-level types, name mangling, (eventual) interaction with generic parameter binding. Package-level types plus a doc comment covering the "only used by `F`" case is enough. See `differences-with-go.md`.
 
 ### Memory management details — DECIDED
 

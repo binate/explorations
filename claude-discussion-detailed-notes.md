@@ -209,6 +209,36 @@ This generalizes to all slice/array literals (not just strings): `@[]T` literals
 
 (In the bootstrap, which lacks const types, `*[]char` and `@[]char` are used as stand-ins. Pragmatic compromise.)
 
+### Adjacent String Literal Concatenation (C-style)
+
+Two string literals separated only by whitespace are merged into a single literal at lex/parse time:
+
+```binate
+var msg *[]const char = "expected 'func', 'type', 'var', 'const', "
+                        "'import', or identifier at top level"
+```
+
+is exactly equivalent to:
+
+```binate
+var msg *[]const char = "expected 'func', 'type', 'var', 'const', 'import', or identifier at top level"
+```
+
+This is purely a source-level glue — no `+` operator, no runtime call, no allocation. The merged literal's natural type is `[total_N]const char` (sum of the individual lengths) and default type is the usual `*[]const char`.
+
+**Why not Go's approach (`+` operator on strings)?** Go has a real `string` type and a `+` operator on it, which the compiler const-folds when both sides are literals. Binate has no `string` type and no operator overloading, so `+` on strings isn't an option. A language-level `+` on char slices wouldn't carry its weight (it'd also need to allocate for non-literal operands). Adjacent concatenation gives the literal-only behavior we want without needing either of those.
+
+**Why not `\`-newline continuation inside a single literal?** Like C:
+```
+"expected 'func', 'type', 'var', 'const', \
+ 'import', or identifier at top level"
+```
+The escaped newline form mixes awkwardly with indentation — the continuation line's leading whitespace is part of the string, so you either lose clean alignment or pay for trimming. Adjacent-literal concatenation preserves source indentation cleanly because whitespace between the two literals is simply not part of either.
+
+**Why not compile-time const-fold of `bootstrap.Concat(lit, lit)`?** The bootstrap runtime layer isn't meant to be permanent. Asking the compiler to peek inside a runtime call for a pattern that's better solved at the lexer level is the wrong layer; we'd be teaching every backend about a constant-folding pass to avoid runtime allocation for what the lexer can just glue together.
+
+**Caveats.** Inherits C's well-known typo trap: `{"foo" "bar", baz}` looks like a missing comma. In practice a linter check catches it; Google's C++ style guide disallows implicit concat inside argument lists for this reason. We'll adopt an equivalent convention once it bites.
+
 ### Fixed-Size Arrays
 
 Fixed-size arrays (e.g., `char[123]`) are value types. They don't store their length — the compiler knows it statically. When you create a slice from one, the length is captured in the slice.
@@ -1219,6 +1249,20 @@ type Buffer *[]uint8            // distinct type wrapping a slice
 **Alternatives considered:**
 - **Nominal equivalence for anonymous structs**: rejected — would mean every `struct{x int}` is a different type, making anonymous structs far less useful
 - **Methods on anonymous types**: rejected (Go's rule). This keeps the type system simple — if you want methods, name the type.
+
+### Function-Local `type` Declarations — REJECTED
+
+`type T ...` is parse-level top-level-only. Writing it inside a function body produces a parse error. Unlike Go, which allows function-local types.
+
+**Rationale.** Function-local types are used rarely even in Go code, and each one carries a handful of questions that have to be pinned down:
+
+- **Shadowing of package-level types.** A function-local `type File int` shadowing the package's `type File struct{...}` inside the function is confusing — and if that function calls another function in the same package that takes a `File`, the types diverge even though the name reads identically. Disallowing them sidesteps the question.
+- **Name mangling and debug info.** Package-level type `pkg.Foo` maps cleanly to a C-level name. Function-local `Foo` inside `pkg.F` needs `pkg.F.Foo` or similar, and has to thread through struct dtors, reflection (if any), and debug-info scoping. All doable, all overhead.
+- **Generics and type parameters (future).** When generics land, function-local types sitting alongside generic function bodies raises extra typing questions — can a local `type` close over the function's type parameters? Does it monomorphize per instantiation? Declining now keeps the design space clean.
+
+**The payoff is small.** In Go, a function-local type's job is typically "declare this struct right where it's used, because naming it publicly is clutter." In Binate, a package-level `type` beside the function with a doc comment ("only used by `F`") solves that readably without adding a new scope kind. If a concrete use case shows up that can't be written without function-local types, revisit.
+
+**Relation to other kinds of nesting.** Binate does allow nested blocks (`{ ... }`) to introduce fresh `var` scopes, and allows `const` inside blocks. Types are the odd one out in deliberately staying top-level-only.
 
 ---
 
