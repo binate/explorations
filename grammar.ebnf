@@ -59,9 +59,15 @@ float_literal = digit { digit } "." { digit } [ exponent ]
 exponent      = ( "e" | "E" ) [ "+" | "-" ] digit { digit } ;
 
 (* --- String literals --- *)
-(* Always null-terminated in storage; slice excludes the null *)
+(* Stored as exactly the characters specified — no hidden null terminator.
+   Adjacent string literals separated only by whitespace (including newlines)
+   are concatenated at lex/parse time into a single literal. So
+   "foo" "bar" is equivalent to "foobar" with length 6. This is a
+   source-level convenience for splitting long literals across lines; there
+   is no runtime operation involved. See differences-with-go.md. *)
 
-string_literal = '"' { string_char | escape_seq } '"' ;
+string_literal = string_piece { string_piece } ;
+string_piece   = '"' { string_char | escape_seq } '"' ;
 string_char    = (* any character except '"', '\', newline *) ;
 
 (* --- Char/byte literals --- *)
@@ -311,7 +317,12 @@ AnnotationArgs = Expression { "," Expression } ;
 (* 7. Statements                                                *)
 (* ============================================================ *)
 
-Statement     = Declaration
+(* BlockDecl is the subset of Declaration that can appear inside a function
+   body. TypeDecl is deliberately excluded — `type` declarations must be at
+   package level. See differences-with-go.md and claude-discussion-detailed-
+   notes.md § 16 Function-Local `type` Declarations — REJECTED. *)
+
+Statement     = BlockDecl
               | SimpleStmt
               | ReturnStmt
               | BreakStmt
@@ -320,6 +331,9 @@ Statement     = Declaration
               | IfStmt
               | ForStmt
               | SwitchStmt ;
+
+BlockDecl     = VarDecl
+              | ConstDecl ;
 
 SimpleStmt    = EmptyStmt
               | ExpressionStmt
