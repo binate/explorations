@@ -6,6 +6,35 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
+### Bug: struct field of array type `[N]T` indexes wrong
+- A struct field declared `name [N]T` is read back via the slice
+  data-extract codegen path: `extractvalue [N x T] %arr, 0` (giving
+  the first element), then `bitcast i8* %v to i8*` against the byte
+  value as if it were a pointer.
+- Reproducer:
+  ```
+  type T struct { name [16]int; size int }
+  func main() {
+      var t T
+      t.name[0] = 99
+      println(t.name[0])  // expected 99; emits broken IR
+  }
+  ```
+  Compiles to LLVM IR that has `bitcast i8 %v to i8*` (or the [16 x
+  i8] equivalent), which clang rejects.
+- Standalone arrays work — `var arr [3]int` then `arr[0]` is fine.
+  The bug is in the struct-field load-then-index path: the codegen
+  treats `t.name` as a slice (extractvalue field 0 for the data ptr)
+  rather than as an array (gep into the field directly).
+- Likely lives in `pkg/ir/gen_access.bn` or `pkg/codegen/emit_ops.bn`
+  — wherever index-on-load-result is dispatched. Probably needs to
+  branch on the loaded type's kind (TYP_ARRAY vs TYP_SLICE).
+- Found while testing Stage 2c Phase 1 (`var t T = T{"hello", 5}`
+  with a `name [16]const char` field). Not blocking 2c — `var s
+  [N]const char = "..."` works as a local — but blocks the natural
+  use case of fixed-size string fields in structs. Needed before any
+  conformance test exercises that pattern.
+
 ### pkg/vm: implement Stage 2b implicit-copy for `string → @[]char`
 - `pkg/codegen` now allocates a fresh managed-slice and memcpys the
   bytes when `@[]char = "..."`, so the target is owned+mutable and
