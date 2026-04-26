@@ -9,6 +9,7 @@ Automated scripts in `binate/scripts/hygiene/`:
 - `conformance-test-numbers.sh` — flags conformance tests with duplicate `NNN` prefixes
 - `lint.sh` — runs `cmd/bnlint` over all `pkg/` and `cmd/` targets; fails on any diagnostic
 - `bni-doc.sh` — first-approximation check for the `.bni` godoc rules (package-level doc + doc above each top-level func/type/const)
+- `file-format.sh` — no trailing whitespace; files end with a final newline; alphabetical import groups in `.bn`/`.bni`
 
 ---
 
@@ -100,3 +101,13 @@ bash scripts/unittest/run.sh boot 2>&1 | grep -E "^(PASS|FAIL):"
 ```
 
 Compare against the expected package list. The runner uses `find` to discover `_test.bn` files at any nesting depth under `pkg/` and `cmd/`.
+
+## 9. File formatting
+
+Applies to authored text files (`.bn`, `.bni`, `.sh`, `.md`, `.yml`); excludes `conformance/` test fixtures.
+
+- **No trailing whitespace.** No spaces or tabs at end of line.
+- **Final newline.** Every non-empty file ends with a `\n`.
+- **Alphabetical import groups.** In `.bn` / `.bni`, a contiguous run of `import "..."` lines is one group; groups are separated by blank lines (or by intervening non-import code). Each group is independently sorted alphabetically by its quoted path.
+
+Automated by `scripts/hygiene/file-format.sh`.
