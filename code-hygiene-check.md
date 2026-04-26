@@ -10,6 +10,7 @@ Automated scripts in `binate/scripts/hygiene/`:
 - `lint.sh` — runs `cmd/bnlint` over all `pkg/` and `cmd/` targets; fails on any diagnostic
 - `bni-doc.sh` — first-approximation check for the `.bni` godoc rules (package-level doc + doc above each top-level func/type/const)
 - `file-format.sh` — no trailing whitespace; files end with a final newline; alphabetical import groups in `.bn`/`.bni`
+- `naming.sh` — first-approximation check that exported `.bni` symbols start uppercase (with a `naming.whitelist` for deliberate exceptions)
 
 ---
 
