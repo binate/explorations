@@ -136,7 +136,7 @@ ImportSpec    = [ identifier ] string_literal ;
 
 TopLevelDecl  = Declaration                              (* [BOOTSTRAP] *)
               | FuncDecl                                  (* [BOOTSTRAP] *)
-              | MethodDecl                                (* [DEFERRED] *)
+              | MethodDecl                                (* [BOOTSTRAP] — no interfaces yet *)
               | ImplDecl ;                                (* [DEFERRED] *)
 
 
@@ -225,10 +225,10 @@ FuncDecl      = [ Annotation ] "func" identifier [ TypeParams ] Signature FuncBo
               (* [BOOTSTRAP] — without annotations or TypeParams *)
 
 MethodDecl    = [ Annotation ] "func" Receiver identifier Signature FuncBody ;
-              (* [DEFERRED] *)
+              (* [BOOTSTRAP] — without annotations or interfaces; static dispatch only *)
 
 Receiver      = "(" identifier ReceiverType ")" ;
-ReceiverType  = Type ;                                    (* e.g., *Point, @Point, *const Point, Point *)
+ReceiverType  = Type ;                                    (* e.g., *Point, @Point, *const Point, Point — must be a named type defined in the current package *)
 
 Signature     = Parameters [ Result ] ;
 Parameters    = "(" [ ParameterList ] ")" ;
