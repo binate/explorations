@@ -23,27 +23,19 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   of `BC_LOAD_STR`. Look at `emitMakeSliceInstr` / `BC_MAKE_SLICE`
   path for the shape.
 
-### Implement adjacent string-literal concatenation (C-style)
-- **Decision** (see `claude-notes.md` § Type conversions & literals and
-  `claude-discussion-detailed-notes.md` § 3 Strings): two string literals
-  separated only by whitespace merge at lex/parse time into a single
-  literal. No `+`, no runtime call, no allocation. Matches C/C++.
-- **Scope**: lex/parse layer only — an adjacent-literal sequence becomes
-  one `STRING` token (or equivalently, one string-literal AST node).
-  Cleanest place is probably in the parser's string-literal handling:
-  after parsing one string literal, peek for another; if the next token
-  is also a string literal, consume and concatenate. Do this in both the
-  Go bootstrap parser and the self-hosted `pkg/parser`.
-- **Touchpoints**: `bootstrap/parser/…` (Go), `pkg/parser/parse_expr.bn`
-  (self-hosted). Natural-type computation (`[N]const char`) should use
-  the merged length.
-- **Migration**: once the feature lands, the `// LONG-LINE ALLOWED` tag
-  at `pkg/parser/parser.bn:106` can be removed and the string split
-  across lines. Grep `LONG-LINE ALLOWED` for other candidates.
-- **Tests**: positive (two adjacent literals merge; three or more
-  merge; whitespace-only separation including newlines; mixed with
-  escapes like `"a\n" "b"` → 3 chars). Negative (non-string tokens
-  between literals don't merge — `"a", "b"` is still two expressions).
+### ~~Implement adjacent string-literal concatenation (C-style)~~ — DONE
+- Implemented at the parser level (not lexer) because the lexer can't
+  tell apart "merge me" from "you're between two grouped-import paths"
+  — both look like STRING SEMI("\n") STRING. Parser merges only in
+  `parsePrimaryExpr` (expression context), so grouped imports are
+  unaffected.
+- Cross-line merge works via a one-token parser lookahead (`peekTok`):
+  if the current is STRING and the next is `SEMI("\n")` followed by
+  another STRING, consume the SEMI as spurious and merge.
+- Conformance test 308 covers same-line, cross-line, three-or-more,
+  comment-in-gap, escapes, and the comma-blocks-merge negative case.
+- Migrated `pkg/parser/parser.bn:135` (the original `// LONG-LINE
+  ALLOWED` site) to use the new feature.
 
 ### boot-comp-int2-int2 mode segfaults (bni2 can't self-host)
 - The `boot-comp-int2-int2` runner crashes when the outer compiled bni2 is asked to interpret `cmd/bni2` source: exit 139 (SIGSEGV), with no output.
