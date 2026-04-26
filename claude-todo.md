@@ -37,12 +37,16 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Migrated `pkg/parser/parser.bn:135` (the original `// LONG-LINE
   ALLOWED` site) to use the new feature.
 
-### boot-comp-int-int: VM stack overflow when self-hosting
+### boot-comp-int-int: real bug, not a stack-tuning issue
 - (Mode renamed from `boot-comp-int2-int2` after the int2→int rename in `b1e4f98`.)
-- History: original symptom was SIGSEGV with no output. Then `bootstrap.ReadDir` was missing from `pkg/vm/vm_extern.bn` — added the binding (mirrors `bootstrap.Args` shape: managed-slice push + pre-RefInc outer backing and each inner `@[]char` backing). After that fix, the new symptom is `vm: stack overflow` after ~35 seconds of work on `001_hello` (verified 2026-04-25).
-- The outer VM is allocated at 8 MiB (`cmd/bni/main.bn:71,143` — `vm.NewVM(8 * 1024 * 1024)`). cmd/bni's own parser + typechecker + IR-gen + bytecode lowering all run inside the outer VM (the INNER VM only runs the test program, which is small). So the overflow is happening in the outer VM while the bni-on-bni machinery is parsing/lowering the test source.
+- History (2026-04-25 session):
+  1. Original symptom: SIGSEGV with no output.
+  2. `bootstrap.ReadDir` was missing from `pkg/vm/vm_extern.bn` — added the binding (mirrors `bootstrap.Args` shape: managed-slice push + pre-RefInc outer backing and each inner `@[]char` backing). Fixed in `c44419f`.
+  3. Next symptom: clean `vm: stack overflow` after ~35s on `001_hello`. The outer VM is at 8 MiB (`cmd/bni/main.bn:71,143` — `vm.NewVM(8 * 1024 * 1024)`); cmd/bni's parser/typechecker/IR-gen/bytecode-lowering all run inside the outer VM, so the overflow is in the bni-on-bni execution.
+  4. Probe: bumped both `vm.NewVM` sites to 64 MiB. Result: clean overflow goes away, replaced by host **SIGSEGV (exit 139)** after ~335s wall / 283s CPU and ~268 MiB peak RSS. Reverted the bump.
+- **Conclusion**: not a "raise the stack constant" issue. The clean overflow at 8 MiB was the VM detecting that *something* is consuming way too much stack; at 64 MiB the underlying bug surfaces directly (SIGSEGV). The VM dispatch loop is iterative (no native recursion for VM-VM calls), so the host SIGSEGV is unlikely C-stack overflow — likelier candidates: heap corruption, a bad pointer dereference in the VM/runtime path, or runaway VM-stack growth via genuine pathological recursion.
 - Not in the `all` modeset, so CI/default runs don't exercise it.
-- **Next**: confirm whether the overflow is real (deeply recursive parser/typechecker frames, doubly inflated by interp register-frame overhead) or a runaway recursion bug. First probe: bump the VM stack size temporarily (e.g. 64 MiB) and see if 001_hello passes. If yes, the work is to either reduce frame size or grow the default. If no, look for runaway recursion (e.g. type-resolution cycle).
+- **Next**: pick a smaller probe than "interpret all of cmd/bni". Possibilities: (a) write a minimal `.bn` that exercises one VM-heavy path (e.g. just parsing a tiny file via `parser.ParseFile`) and run it doubly-nested to measure stack-usage scaling; (b) instrument the VM to log peak SP and the deepest function chain; (c) compare frames-per-call between the OUTER cmd/bni and a known-good single-layer baseline. Skipped for now — needs more focused investigation than a single session has bandwidth for.
 
 ### Lift function-name qualification into IR (shared across backends)
 - The VM and the compiler both need to avoid cross-package function-name collisions. They currently solve it separately: `pkg/mangle.FuncName(pkgName, name)` produces C-style `bn_asm__New` for LLVM symbols, and `pkg/mangle.QualifyName(pkgShort, name)` produces dot-form `asm.New` for the VM's function table. Both backends extract the short package name from `ir.Module.Name` and apply their own qualification at lower/emit time.
