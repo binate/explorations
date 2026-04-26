@@ -117,12 +117,9 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Bootstrap-only: package name mismatch not detected in single-file mode (244 xfail on boot)
 - Still needed: const expression errors, more shadowing edge cases
 
-### Bounds checks on `s[i]` / `s[lo:hi]` are not wired up
-- The design (`claude-notes.md:887`, `claude-discussion-detailed-notes.md §19.9`) requires every indexing and sub-slice operation to bounds-check at runtime and trap on failure. Today the compiler does NOT emit any bounds-check call in the normal index path — `genIndex` in `pkg/ir/gen_access.bn` lowers straight to `EmitGetElemPtr` + `EmitLoad` (and same for assigns).
-- The `EmitBoundsCheck` helper exists (`pkg/ir/ir_ops.bn:83`) and produces an `OP_BOUNDS_CHECK` instruction, but nothing calls it, so `OP_BOUNDS_CHECK` is effectively dead IR.
-- The runtime side is in place: `rt.c_bounds_fail` is declared and `bn_rt__c_bounds_fail` is stubbed in `runtime/rt_stubs.c`.
-- `unsafe_index(coll, idx)` is implemented as a documented opt-out — but today it produces the same IR as `coll[idx]`. Once bounds checks are wired, `unsafe_index` stays check-free while the normal path picks up the check automatically.
-- **Next**: call `EmitBoundsCheck` from `genIndex`, from the slice-assign path in `gen_control.bn`, and from `EmitSliceExpr` (two bounds checks — lo and hi). Then verify that `unsafe_index` still skips. Negative test: out-of-range `s[len(s)]` should trap, not segfault.
+### ~~Bounds checks on `s[i]` / `s[lo:hi]` are not wired up~~ — DONE
+- `emitIndexBoundsCheck` helper added in `pkg/ir/gen_access.bn`; called from `genIndex`, from the multi-return / EXPR_INDEX assign paths in `gen_control.bn`, and from `genSliceExpr` (two checks: hi against len+1, lo against hi+1). `unsafe_index` stays check-free — `genIndex` takes a `checked bool` param and `EXPR_INDEX` passes true while `unsafe_index` passes false.
+- Conformance tests 298–303 cover index OOB on slice/array, index-assign OOB, slice-hi OOB, slice lo>hi, and negative slice lo. Test 301 xfailed on boot only because Go's bootstrap interpreter formats the trap message differently.
 
 ### ~~`const` type modifier~~ — Stages 0–2c LANDED; Stage 3 deferred
 - Stage 0 (syntax + TYP_CONST wrapper kind), Stage 1 (enforcement
@@ -271,11 +268,11 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 ### ~~Compiler bug: multi-return with struct containing managed fields~~ — FIXED
 - Bug was already fixed by earlier refcounting changes. Workaround reverted. Test 141 passes.
 
-### Multi-return as anonymous struct — compiler DONE, interpreter TODO
+### ~~Multi-return as anonymous struct~~ — DONE
 - Multi-return is an ABI contract: `func f() (T1, T2)` returns `struct { _0 T1; _1 T2 }`.
-- **Compiler side done**: `Func.MultiReturnType` struct type, propagated through FuncSig/call sites/return instructions, LLVM emission uses `llvmType(MultiReturnType)`.
-- **Interpreter side TODO**: replace VAL_MULTI/Elems with flat anonymous struct. This eliminates the last 3 Value.Elems references.
-- **Plan**: `explorations/plan-multi-return-struct.md`
+- Compiler side done long ago: `Func.MultiReturnType` propagated through FuncSig/call sites/return instructions; LLVM emission uses `llvmType(MultiReturnType)`.
+- Interpreter side moot: the original tree-walker `pkg/interp` was retired in 2026-04-17. The bytecode VM (`pkg/vm`) consumes the compiler's IR directly, so it inherits the anonymous-struct layout — no separate work. Verified 2026-04-26: zero references to `VAL_MULTI`, `Value.Elems`, or `HeapObj` remain in pkg/ or cmd/.
+- Plan file `plan-multi-return-struct.md` deleted (was MOOT).
 
 ### Standard library design
 - Candidates: growable collections (Vec[T], Map[K,V] post-generics), I/O abstractions, string utilities, formatting
