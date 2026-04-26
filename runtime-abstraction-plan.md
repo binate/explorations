@@ -93,25 +93,12 @@ All high-level slice IR ops have been lowered to primitive ops in the IR gen lay
 
 **Depends on**: Nothing (independent)
 
-### 3.2. Lower remaining slice/string operations — IN PROGRESS
+### 3.2. Lower remaining slice/string operations — DONE
 
-**What**: Lower `OP_MAKE_SLICE`, `OP_SLICE_FREE`, and `OP_STRING_TO_CHARS`/`OP_STRING_TO_ARRAY` from backend-specific runtime calls to IR-level operations. Same principle as 3.1: layout and allocation semantics are language-level, not backend-specific.
-
-`bn_string_to_chars` has already been removed (string literals are now static `%BnManagedSlice` globals). But the lowering of `OP_STRING_TO_CHARS` still happens in the LLVM backend (`emit_instr.bn`). This should be lifted to the IR level.
-
-**Operations to lower**:
-
-| Operation | Current | Target |
-|-----------|---------|--------|
-| `OP_MAKE_SLICE` | codegen calls `bn_make_slice` (C runtime) | IR gen emits call to `rt.MakeManagedSlice` (already exists in Binate) |
-| `OP_SLICE_FREE` | codegen calls `bn_slice_free` (C runtime) | IR gen emits `OP_EXTRACT(s, 0)` + call to `rt.c_free` |
-| `OP_STRING_TO_CHARS` | codegen loads from static `%BnManagedSlice` global | IR gen emits load from module-level string constant (needs IR-level string constant representation) |
-
-**For `OP_MAKE_SLICE`**: The Binate function `rt.MakeManagedSlice(elemSize, len)` already exists and is compiled into every binary. Change the codegen (or IR gen) to call `bn_rt__MakeManagedSlice` instead of `bn_make_slice`. Then remove `bn_make_slice` from the C runtime and manifest.
-
-**For `OP_SLICE_FREE`**: Lower to `extract data ptr` + `call rt.c_free(dataPtr)`. Remove from C runtime and manifest.
-
-**For `OP_STRING_TO_CHARS`**: This is more involved — the string constant collection, deduplication, and global emission are currently in the LLVM backend. To support multiple backends, string constants should become IR-level module data (e.g., `Module.Strings`), and the IR gen should emit a load/reference to the constant. Each backend then emits the constant data in its own format. See TODO "Lift string literal lowering from LLVM backend to IR level".
+All three sub-items landed:
+- `OP_MAKE_SLICE`: codegen lowers to `bn_rt__MakeManagedSlice` (the Binate function in `pkg/rt`); see `emit_helpers.bn:emitMakeSliceInstr`. `bn_make_slice` was removed from the C runtime.
+- `OP_SLICE_FREE`: opcode no longer exists (free is implicit through `RefDec` + dtor); `bn_slice_free` removed from the C runtime.
+- `OP_STRING_TO_CHARS`/`OP_STRING_TO_ARRAY`: lifted to IR-level via the composite-literal Phase 3.x work — `OP_RODATA_MSLICE` / `OP_RODATA_SLICE` / `OP_RODATA_ARRAY` / `OP_RODATA_MSLICE_COPY` are now the canonical IR ops; backends lower them to backend-specific representations. `OP_STRING_TO_CHARS` / `OP_STRING_TO_ARRAY` and `EmitStringToArray` were deleted in `a868b4c` (Phase 3.3); `TYP_STRING` was eliminated in `b7243e7` (Phase 3.4). See `claude-todo.md` "Phase 3: unify strings as composite-literal sugar — DONE" for the full commit chain.
 
 **Depends on**: 3.1 (done)
 
