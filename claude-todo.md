@@ -36,16 +36,30 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Migrated `pkg/parser/parser.bn:135` (the original `// LONG-LINE
   ALLOWED` site) to use the new feature.
 
-### boot-comp-int-int: real bug, not a stack-tuning issue
+### boot-comp-int-int: BC_RETURN leaks callee frame on stack-pointer return
 - (Mode renamed from `boot-comp-int2-int2` after the int2→int rename in `b1e4f98`.)
-- History (2026-04-25 session):
+- History (2026-04-25/26):
   1. Original symptom: SIGSEGV with no output.
-  2. `bootstrap.ReadDir` was missing from `pkg/vm/vm_extern.bn` — added the binding (mirrors `bootstrap.Args` shape: managed-slice push + pre-RefInc outer backing and each inner `@[]char` backing). Fixed in `c44419f`.
-  3. Next symptom: clean `vm: stack overflow` after ~35s on `001_hello`. The outer VM is at 8 MiB (`cmd/bni/main.bn:71,143` — `vm.NewVM(8 * 1024 * 1024)`); cmd/bni's parser/typechecker/IR-gen/bytecode-lowering all run inside the outer VM, so the overflow is in the bni-on-bni execution.
-  4. Probe: bumped both `vm.NewVM` sites to 64 MiB. Result: clean overflow goes away, replaced by host **SIGSEGV (exit 139)** after ~335s wall / 283s CPU and ~268 MiB peak RSS. Reverted the bump.
-- **Conclusion**: not a "raise the stack constant" issue. The clean overflow at 8 MiB was the VM detecting that *something* is consuming way too much stack; at 64 MiB the underlying bug surfaces directly (SIGSEGV). The VM dispatch loop is iterative (no native recursion for VM-VM calls), so the host SIGSEGV is unlikely C-stack overflow — likelier candidates: heap corruption, a bad pointer dereference in the VM/runtime path, or runaway VM-stack growth via genuine pathological recursion.
+  2. `bootstrap.ReadDir` was missing from `pkg/vm/vm_extern.bn` — added the binding (mirrors `bootstrap.Args` shape). Fixed in `c44419f`.
+  3. Next symptom: clean `vm: stack overflow` after ~35s on `001_hello` at 8 MiB stack.
+  4. Probe at 64 MiB → clean overflow replaced by host SIGSEGV after ~335s.
+  5. Probe at 1 MiB + diagnostic dump in `pushFrame` overflow handler → caller depth is only **4** (`main.main → main.runProgram → vm.LowerModule → vm.lowerFunc`); about to push `vm.lowerInstr` (11000 B). Frame sizes: main=12040, runProgram=28720, LowerModule=6584, **lowerFunc=998491 B (~1 MiB!)**. Not deep recursion — one bloated frame.
+  6. Probe lowerFunc's lowering-time stats: `LOWER: vm.lowerFunc NumRegs=889 (7112 B) allocas=56 frame=760 maxAlloca=48`. Total ~7912 B at lower time. So the runtime frame (998491 B) ≠ the lower-time frame (7912 B) → ~126x bloat per call.
+- **Root cause**: `BC_RETURN` (`pkg/vm/vm.bn:432-443`) leaks the entire callee frame whenever the return value points into the callee's stack region:
+  ```binate
+  if retVal >= sbase + callerSP &&
+          retVal < sbase + vm.SP {
+      // Don't pop past the return data
+      callerSP = vm.SP
+  }
+  vm.SP = callerSP
+  ```
+  When a callee returns a struct via a pointer to its own local (e.g. `lowerInstr` returns `BCInstr` from `var bc BCInstr`), `BC_RETURN` bumps `callerSP` to `vm.SP` — the callee's frame stays on the stack forever. In a tight loop calling such a function, vm.SP grows by `callee_frame_size` per iteration. `lowerFunc` calls `lowerInstr` once per IR instruction in its third pass; ~90 iterations × 11000 B ≈ 990 KB of leaked frames before overflow.
+- **Why single-layer doesn't bite**: in `boot-comp-int`, cmd/bni's loops run as native LLVM-compiled code (proper struct return ABI). In `boot-comp-int-int`, those same loops run as VM bytecode and the leak triggers.
+- **Reference shape that works**: `execFunc` (entry point, `vm.bn:60-74`) handles this correctly — when result points into callee region, it copies up to 64 bytes back to caller space then resets SP cleanly. `BC_RETURN` should mirror that.
+- **Fix shape**: in `BC_RETURN`, when `retVal` points into the callee's region, memcpy the bytes (size = `vm.SP - retVal`, capped) into caller's region at `callerSP`, then set `retVal = callerSP + (offset within copied region)` and `vm.SP = callerSP + sz`. Risks: (a) the caller may not have allocated space for the return; (b) sz cap (execFunc uses 64) is a heuristic that may not fit larger returns. May need a proper sret-style ABI for big struct returns.
 - Not in the `all` modeset, so CI/default runs don't exercise it.
-- **Next**: pick a smaller probe than "interpret all of cmd/bni". Possibilities: (a) write a minimal `.bn` that exercises one VM-heavy path (e.g. just parsing a tiny file via `parser.ParseFile`) and run it doubly-nested to measure stack-usage scaling; (b) instrument the VM to log peak SP and the deepest function chain; (c) compare frames-per-call between the OUTER cmd/bni and a known-good single-layer baseline. Skipped for now — needs more focused investigation than a single session has bandwidth for.
+- **Next**: design + implement the `BC_RETURN` copy-then-pop fix. Add a focused conformance test (a small `.bn` that loops calling a function returning a struct value, runs in single-layer fine; failure visible only via doubly-nested mode or via a stack-usage probe).
 
 ### Lift function-name qualification into IR (shared across backends)
 - The VM and the compiler both need to avoid cross-package function-name collisions. They currently solve it separately: `pkg/mangle.FuncName(pkgName, name)` produces C-style `bn_asm__New` for LLVM symbols, and `pkg/mangle.QualifyName(pkgShort, name)` produces dot-form `asm.New` for the VM's function table. Both backends extract the short package name from `ir.Module.Name` and apply their own qualification at lower/emit time.
