@@ -163,20 +163,15 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Needed for: generics (`*T` where `T=Stringer`), out parameters, arrays of interfaces, containers
 - Implementation: grammar, parser, type checker, codegen, bootstrap interpreter
 
-### Enforce parse-level rejection of function-local `type` declarations
-- **Decision**: function-local `type T ...` is a parse error. See
-  `claude-notes.md` § Scoping rules and
-  `claude-discussion-detailed-notes.md` § 16 Function-Local `type`
-  Declarations — REJECTED.
-- **Current state**: the bootstrap interpreter accepts them by accident
-  (parsed at block level without being flagged). The self-hosted
-  compiler doesn't handle them in IR gen, so they'd fail later with a
-  less clear error.
-- **Work**: reject at parse time in both the Go bootstrap parser and
-  `pkg/parser/parse_stmt.bn`. Message should be clear ("`type`
-  declarations must be at package level") so users don't waste time
-  on the error.
-- **Tests**: a negative conformance test that exercises the rejection.
+### ~~Enforce parse-level rejection of function-local `type` declarations~~ — DONE
+- Both parsers (`pkg/parser/parse_stmt.bn` and
+  `bootstrap/parser/parser.go`) now emit
+  `"type declarations must be at package level, not inside a function
+  body"` when they encounter `TYPE` at statement position. Recovery
+  is "parse the type-decl anyway and discard," so downstream parsing
+  isn't derailed.
+- Conformance test 319 (`319_err_function_local_type`) covers the
+  rejection across all three basic modes.
 
 ### Test harness `isTestResultReturn` should resolve type aliases
 - The test harnesses (bootstrap Go `main.go` and self-hosted `cmd/bnc/test.bn`) only accept `testing.TestResult` (qualified) or `@[]char` (literal managed-slice of char) as test return types.
