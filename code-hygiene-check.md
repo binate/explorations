@@ -11,6 +11,7 @@ Automated scripts in `binate/scripts/hygiene/`:
 - `bni-doc.sh` — first-approximation check for the `.bni` godoc rules (package-level doc + doc above each top-level func/type/const)
 - `file-format.sh` — no trailing whitespace; files end with a final newline; alphabetical import groups in `.bn`/`.bni`
 - `naming.sh` — first-approximation check that exported `.bni` symbols start uppercase (with a `naming.whitelist` for deliberate exceptions)
+- `bn-doc.sh` — first-approximation check that every top-level `func`/`type`/`const`/`var` in a `.bn` file has a godoc-style comment above (skips `_test.bn` files)
 
 ---
 
