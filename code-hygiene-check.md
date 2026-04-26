@@ -7,6 +7,7 @@ Automated scripts in `binate/scripts/hygiene/`:
 - `line-length.sh` — line length check (>100 chars)
 - `test-coverage.sh` — missing test file check (with whitelist)
 - `conformance-test-numbers.sh` — flags conformance tests with duplicate `NNN` prefixes
+- `lint.sh` — runs `cmd/bnlint` over all `pkg/` and `cmd/` targets; fails on any diagnostic
 
 ---
 
