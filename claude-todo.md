@@ -137,26 +137,34 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   (next entry) supersedes the spec for *how* string literals lower at
   the IR level. The semantic surface is fixed.
 
-### Phase 3: unify strings as composite-literal sugar
-- Plan: `plan-composite-literal-generalization.md` § Phase 3.
-- Goal: delete `OP_STRING_TO_CHARS` and `OP_STRING_TO_ARRAY` as
-  special IR ops. String literals become a parser-level sugar for
-  `[N]const char{'a', 'b', ...}`, lowered through the same
-  composite-literal machinery as `@[]T{...}` / `*[]const T{...}`.
-- Two parts:
-  - `OP_STRING_LITERAL` (or equivalent) at the IR level — produces
-    an `[N]const char` value and lets each backend choose how to
-    lower (LLVM: load from rodata global; ARM: data-section addr;
-    VM: `BC_LOAD_STR`-style alias / copy as today).
-  - Peephole that recognizes the all-const-byte composite-literal
-    pattern after the unification and emits the rodata-alias for
-    `@[]const char` / `*[]const char` targets — preserves today's
-    zero-copy semantics without a special op.
-- Subsumes the older "Lift string literal lowering from LLVM backend
-  to IR level" item below; tracking under one heading.
-
-### ~~Lift string literal lowering from LLVM backend to IR level~~ — see Phase 3
-- (Subsumed by the entry above — same intent, more concrete plan.)
+### ~~Phase 3: unify strings as composite-literal sugar~~ — DONE
+- Plan: `plan-composite-literal-generalization.md` § Phase 3 +
+  `plan-phase3-string-unification.md` (sub-plan).
+- End state: no string-specific IR ops, no `TYP_STRING` kind. String
+  literals flow through the same `OP_RODATA_*` ops as user-written
+  const-byte composite literals. Backend lowerings are uniform.
+- Stages and commits:
+  - **3.1** (`c164807`) — added `OP_RODATA_MSLICE` / `OP_RODATA_SLICE`;
+    `genManagedSliceLit` / `genRawSliceLit` detect all-const-byte
+    composites at IR-gen time and emit the new ops directly. Conformance
+    test 320 covers `@[]const char{'a','b','c'}` etc.
+  - **3.2** (`1264902`) — `EmitStringToChars` redirects read-only
+    string→slice through the new ops.
+  - **3.2b** (`29c4aaf`) — added `OP_RODATA_ARRAY`; redirected
+    string→array through it.
+  - **Stage 2b copy** (`d043acf`) — added `OP_RODATA_MSLICE_COPY` for
+    `@[]char = "..."` (mutable) — alloc + memcpy from rodata.
+  - **3.3** (`a868b4c`) — deleted `OP_STRING_TO_CHARS`,
+    `OP_STRING_TO_ARRAY`, `EmitStringToArray`, all backend lowerings.
+  - **3.4** (`b7243e7`) — eliminated `TYP_STRING`; IR-gen dispatch
+    keys on `val.Op == OP_CONST_STRING` instead of the type-marker.
+  - **Test backfill** (`4a2eb28`) — 7 IR-gen unit tests for the
+    dispatch + fast-path detection.
+- `EmitStringToChars` survives as the multi-way dispatch helper that
+  picks the right rodata op based on target type. `OP_CONST_STRING`
+  also survives — it's the IR's "raw bytes pointer" op (lowers to
+  LLVM `getelementptr`), now typed as `*const uint8` instead of
+  `TYP_STRING`. Both are non-string-specific in shape.
 
 ### Observable optimizations and UB policy — broader question
 - Surfaced while planning const: allowing the compiler to allocate
