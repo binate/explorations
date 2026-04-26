@@ -37,12 +37,12 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Migrated `pkg/parser/parser.bn:135` (the original `// LONG-LINE
   ALLOWED` site) to use the new feature.
 
-### boot-comp-int-int: VM extern bindings incomplete (bni can't self-host)
+### boot-comp-int-int: VM stack overflow when self-hosting
 - (Mode renamed from `boot-comp-int2-int2` after the int2→int rename in `b1e4f98`.)
-- The `boot-comp-int-int` runner is no longer SIGSEGV; it now fails cleanly with `vm: extern not found: bootstrap.ReadDir` on every test (verified on 001/002, 2026-04-25).
-- Root cause: `cmd/bni/args.bn:51` calls `bootstrap.ReadDir(args[i])` inside `expandDirArgs` to enumerate `.bn` files when an arg is a directory. When the outer compiled bni is given `cmd/bni` (a directory) as the source-to-interpret, that path is exercised inside the inner VM. `pkg/vm/vm_extern.bn` registers 10 `bootstrap.*` externs (`Open`/`Close`/`Read`/`Write`/`Exit`/`Concat`/`Itoa`/`Stat`/`Args`/`Exec`) but no `ReadDir` arm. ReadDir is the only `bootstrap.*` extern referenced by the cmd/bni or pkg tree that's missing from the VM.
+- History: original symptom was SIGSEGV with no output. Then `bootstrap.ReadDir` was missing from `pkg/vm/vm_extern.bn` — added the binding (mirrors `bootstrap.Args` shape: managed-slice push + pre-RefInc outer backing and each inner `@[]char` backing). After that fix, the new symptom is `vm: stack overflow` after ~35 seconds of work on `001_hello` (verified 2026-04-25).
+- The outer VM is allocated at 8 MiB (`cmd/bni/main.bn:71,143` — `vm.NewVM(8 * 1024 * 1024)`). cmd/bni's own parser + typechecker + IR-gen + bytecode lowering all run inside the outer VM (the INNER VM only runs the test program, which is small). So the overflow is happening in the outer VM while the bni-on-bni machinery is parsing/lowering the test source.
 - Not in the `all` modeset, so CI/default runs don't exercise it.
-- **Next**: add a `bootstrap.ReadDir` arm to `execExtern` mirroring the `bootstrap.Args` arm — push-managed-slice + pre-RefInc the outer backing and each inner `@[]char` backing so scope-cleanup leaves them alive. ~25 lines. Then re-run boot-comp-int-int to surface whatever the next stuck point is.
+- **Next**: confirm whether the overflow is real (deeply recursive parser/typechecker frames, doubly inflated by interp register-frame overhead) or a runaway recursion bug. First probe: bump the VM stack size temporarily (e.g. 64 MiB) and see if 001_hello passes. If yes, the work is to either reduce frame size or grow the default. If no, look for runaway recursion (e.g. type-resolution cycle).
 
 ### Lift function-name qualification into IR (shared across backends)
 - The VM and the compiler both need to avoid cross-package function-name collisions. They currently solve it separately: `pkg/mangle.FuncName(pkgName, name)` produces C-style `bn_asm__New` for LLVM symbols, and `pkg/mangle.QualifyName(pkgShort, name)` produces dot-form `asm.New` for the VM's function table. Both backends extract the short package name from `ir.Module.Name` and apply their own qualification at lower/emit time.
