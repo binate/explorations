@@ -37,11 +37,12 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Migrated `pkg/parser/parser.bn:135` (the original `// LONG-LINE
   ALLOWED` site) to use the new feature.
 
-### boot-comp-int2-int2 mode segfaults (bni2 can't self-host)
-- The `boot-comp-int2-int2` runner crashes when the outer compiled bni2 is asked to interpret `cmd/bni2` source: exit 139 (SIGSEGV), with no output.
-- Single-layer `boot-comp-int2` (compiled bni2 runs test.bn directly) works fine — the issue is specifically that bni2 cannot interpret its own source.
-- Not in the `all` modeset, so CI/default runs don't exercise it. Left wired up so it can be run on demand once the self-hosting gap is closed.
-- **Next**: pick a small probe (e.g. a single-feature .bn that exercises whatever bni2 source uses) and narrow which feature of bni2 the outer VM mishandles. Likely related to the same class of bugs as the int2 field-layout issue below.
+### boot-comp-int-int: VM extern bindings incomplete (bni can't self-host)
+- (Mode renamed from `boot-comp-int2-int2` after the int2→int rename in `b1e4f98`.)
+- The `boot-comp-int-int` runner is no longer SIGSEGV; it now fails cleanly with `vm: extern not found: bootstrap.ReadDir` on every test (verified on 001/002, 2026-04-25).
+- Root cause: `cmd/bni/args.bn:51` calls `bootstrap.ReadDir(args[i])` inside `expandDirArgs` to enumerate `.bn` files when an arg is a directory. When the outer compiled bni is given `cmd/bni` (a directory) as the source-to-interpret, that path is exercised inside the inner VM. `pkg/vm/vm_extern.bn` registers 10 `bootstrap.*` externs (`Open`/`Close`/`Read`/`Write`/`Exit`/`Concat`/`Itoa`/`Stat`/`Args`/`Exec`) but no `ReadDir` arm. ReadDir is the only `bootstrap.*` extern referenced by the cmd/bni or pkg tree that's missing from the VM.
+- Not in the `all` modeset, so CI/default runs don't exercise it.
+- **Next**: add a `bootstrap.ReadDir` arm to `execExtern` mirroring the `bootstrap.Args` arm — push-managed-slice + pre-RefInc the outer backing and each inner `@[]char` backing so scope-cleanup leaves them alive. ~25 lines. Then re-run boot-comp-int-int to surface whatever the next stuck point is.
 
 ### Lift function-name qualification into IR (shared across backends)
 - The VM and the compiler both need to avoid cross-package function-name collisions. They currently solve it separately: `pkg/mangle.FuncName(pkgName, name)` produces C-style `bn_asm__New` for LLVM symbols, and `pkg/mangle.QualifyName(pkgShort, name)` produces dot-form `asm.New` for the VM's function table. Both backends extract the short package name from `ir.Module.Name` and apply their own qualification at lower/emit time.
