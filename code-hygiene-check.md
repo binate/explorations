@@ -8,6 +8,7 @@ Automated scripts in `binate/scripts/hygiene/`:
 - `test-coverage.sh` — missing test file check (with whitelist)
 - `conformance-test-numbers.sh` — flags conformance tests with duplicate `NNN` prefixes
 - `lint.sh` — runs `cmd/bnlint` over all `pkg/` and `cmd/` targets; fails on any diagnostic
+- `bni-doc.sh` — first-approximation check for the `.bni` godoc rules (package-level doc + doc above each top-level func/type/const)
 
 ---
 
