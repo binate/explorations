@@ -132,8 +132,18 @@ For fixed-size allocations where the size is known, use `make_slice(T, n)`.
 
 ### Implementation Files (`.bn`)
 
-- Non-exported functions should have godoc-style comments unless the function is
-  extremely short and self-explanatory.
+- **Every** top-level `func`, `type`, and `const` (or `const ( ... )` group) needs
+  a godoc-style comment immediately above its declaration. No "trivial" carve-out:
+  in practice nearly every function has at least one pre-/post-condition, lifetime,
+  ownership, or aliasing consideration that the signature alone doesn't convey, and
+  the carve-out invites omitting comments precisely on the functions that need them
+  most. In particular, call out:
+  - Whether a returned managed-slice or managed-pointer aliases an argument (shares
+    backing, so mutations and lifetime apply to both), is a copy, or is a fresh
+    allocation.
+  - Whether the caller is responsible for closing/freeing returned resources.
+  - What happens on failure: returns `nil`, returns a sentinel, sets a flag,
+    aborts, etc.
 - Use **inline comments** to explain non-obvious logic, especially:
   - Subtle invariants or assumptions
   - References to outside requirements (e.g., "required by the language spec",

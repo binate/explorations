@@ -71,8 +71,8 @@ done
 
 ## 5. Implementation file comments (`.bn`)
 
-- Non-exported functions should have comments unless extremely short and self-explanatory.
-  - "Self-explanatory" excludes any function with **lifetime or aliasing subtleties**. If a function takes a managed-slice and returns a managed-slice, the comment must say whether the return value is a subslice of the argument (which keeps the argument's backing alive and means mutations to the argument's contents affect the return value), a copy, or a new allocation. Similar reasoning applies to managed pointers, raw pointers, and any case where the caller needs to understand ownership or sharing to use the function correctly.
+- **Every** top-level `func`, `type`, and `const` (or `const ( ... )` group) needs a godoc-style comment immediately above. No "trivial" carve-out — in practice nearly every function has at least one pre-/post-condition, lifetime, ownership, or aliasing consideration that the signature alone doesn't convey, and the carve-out invites omitting comments precisely on the functions that need them most.
+  - Specifically call out: whether a returned managed-slice or managed-pointer is a subslice/alias of an argument (and thus shares backing and mutations), a copy, or a fresh allocation; whether the caller is responsible for closing/freeing returned resources; what happens on failure (returns nil? returns a sentinel? aborts?).
 - Use inline comments for non-obvious logic, invariants, and "why" explanations.
 - Section markers (`// --- Section Name ---`) help with navigation in larger files.
 
