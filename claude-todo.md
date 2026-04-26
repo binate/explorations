@@ -6,22 +6,21 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
-### pkg/vm: implement Stage 2b implicit-copy for `string → @[]char`
-- `pkg/codegen` now allocates a fresh managed-slice and memcpys the
-  bytes when `@[]char = "..."`, so the target is owned+mutable and
-  independent of the literal's rodata (Stage 2b of the const rollout).
-- `pkg/vm/lower_instr.bn:249` still emits `BC_LOAD_STR` for every
-  `OP_STRING_TO_CHARS`, which aliases the shared static bytes. Writing
-  to `@[]char` that was initialized from a literal silently mutates
-  the rodata copy, so multiple `@[]char = "hello"` instances share
-  the same mutable bytes.
-- Conformance `298_string_to_managed_copy` covers the behavior and
-  is currently xfailed on `boot-comp-int` with a one-liner pointing
-  here.
-- Lowering plan: when `instr.BoolVal == true` on `OP_STRING_TO_CHARS`,
-  emit the VM equivalent of `MakeManagedSlice(1, N) + memcpy` instead
-  of `BC_LOAD_STR`. Look at `emitMakeSliceInstr` / `BC_MAKE_SLICE`
-  path for the shape.
+### ~~pkg/vm: Stage 2b implicit-copy + OP_STRING_TO_ARRAY~~ — DONE (`9e9042a`)
+- Added `BC_STRING_COPY_MS` (Stage 2b: fresh `@[]char` via
+  `MakeManagedSlice` + memcpy from rodata) and `BC_STRING_COPY_ARR`
+  (Stage 2c Phase 1: stack buffer of size N, zero-padded, with
+  literal bytes copied in). Lowering of `OP_STRING_TO_CHARS` now
+  branches on `instr.BoolVal`, mirroring the LLVM codegen path.
+- Latent fix: `lowerStore` for `TYP_ARRAY` was a scalar 8-byte
+  store (test `051_array_copy` passed by coincidence — only read
+  element 0). Added array to both `lowerLoad` and `lowerStore`
+  multi-word paths.
+- Removed `xfail.boot-comp-int` markers on tests 298, 299, 307;
+  boot-comp-int now at 258 passing (was 254, 7 xfails remain).
+- Refactor: extracted `lowerLoad` / `lowerStore` / `lowerGetFieldPtr`
+  into `pkg/vm/lower_memory.bn` to keep `lower_instr.bn` under the
+  600-line cap.
 
 ### ~~Implement adjacent string-literal concatenation (C-style)~~ — DONE
 - Implemented at the parser level (not lexer) because the lexer can't
@@ -84,11 +83,6 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Fix**: changed `var runtimePath *[]char` to `var runtimePath @[]char = buf.CopyStr(cli.RuntimePath)` in test.bn, matching the pattern already used in main.bn.
 - **CI now runs all modes** including boot-comp-comp and boot-comp-comp-comp.
 
-### Lift string literal lowering from LLVM backend to IR level
-- Currently, `OP_STRING_TO_CHARS` is lowered to a `load %BnManagedSlice` from a static global in `emit_instr.bn` (LLVM backend). The string constant collection and global emission are also in the LLVM backend (`emit.bn`).
-- For multi-backend support, this should be at the IR level: an IR instruction like `OP_STRING_LITERAL` that produces an `@[]char` value. String constant globals become IR-level module data. Each backend then lowers to its own representation (LLVM: load from constant global; ARM: load from data section address; etc.).
-- See `explorations/ir-backend-guidelines.md` for the IR vs backend responsibility split.
-
 ### Function values: compiled-VM-compatible representation (required for interop)
 - Function values MUST use the same representation in compiled and VM-interpreted code, because function values can be passed between the two modes.
 - **Target**: `{funcPtr, closureCtx}` pair matching compiled representation. For VM-interpreted functions, `funcPtr` would be a trampoline that dispatches into the VM using `closureCtx` to find the bytecode, closure env, types, and aliases.
@@ -123,13 +117,39 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - `unsafe_index(coll, idx)` is implemented as a documented opt-out — but today it produces the same IR as `coll[idx]`. Once bounds checks are wired, `unsafe_index` stays check-free while the normal path picks up the check automatically.
 - **Next**: call `EmitBoundsCheck` from `genIndex`, from the slice-assign path in `gen_control.bn`, and from `EmitSliceExpr` (two bounds checks — lo and hi). Then verify that `unsafe_index` still skips. Negative test: out-of-range `s[len(s)]` should trap, not segfault.
 
-### `const` type modifier
-- Design plan: `plan-const-type-modifier.md`. Four-stage rollout
-  (syntax+kind → enforcement → string-literal default-type flip →
-  const method receivers deferred). Open question remaining: ratify
-  the plan's choices (new TYP_CONST wrapper kind, `cast` drops
-  const, literal-init copy rule, hard ban on `*[]char = literal`)
-  before starting Stage 0.
+### ~~`const` type modifier~~ — Stages 0–2c LANDED; Stage 3 deferred
+- Stage 0 (syntax + TYP_CONST wrapper kind), Stage 1 (enforcement
+  + cast drops), Stage 2a (reject `string → *[]char`), Stage 2b
+  (implicit alloc+copy for `@[]char = "..."`), and Stage 2c (string
+  literal natural type `[N]const char`, default `@[]const char`,
+  array-init copy `var s [N]char = "..."`, managed-slice + raw-slice
+  composite literals `@[]T{...}` / `*[]const T{...}`) all landed.
+- Stage 3 (const method receivers) deferred — depends on the
+  methods/interfaces feature.
+- Ratification: Phase 3 of the composite-literal generalization plan
+  (next entry) supersedes the spec for *how* string literals lower at
+  the IR level. The semantic surface is fixed.
+
+### Phase 3: unify strings as composite-literal sugar
+- Plan: `plan-composite-literal-generalization.md` § Phase 3.
+- Goal: delete `OP_STRING_TO_CHARS` and `OP_STRING_TO_ARRAY` as
+  special IR ops. String literals become a parser-level sugar for
+  `[N]const char{'a', 'b', ...}`, lowered through the same
+  composite-literal machinery as `@[]T{...}` / `*[]const T{...}`.
+- Two parts:
+  - `OP_STRING_LITERAL` (or equivalent) at the IR level — produces
+    an `[N]const char` value and lets each backend choose how to
+    lower (LLVM: load from rodata global; ARM: data-section addr;
+    VM: `BC_LOAD_STR`-style alias / copy as today).
+  - Peephole that recognizes the all-const-byte composite-literal
+    pattern after the unification and emits the rodata-alias for
+    `@[]const char` / `*[]const char` targets — preserves today's
+    zero-copy semantics without a special op.
+- Subsumes the older "Lift string literal lowering from LLVM backend
+  to IR level" item below; tracking under one heading.
+
+### ~~Lift string literal lowering from LLVM backend to IR level~~ — see Phase 3
+- (Subsumed by the entry above — same intent, more concrete plan.)
 
 ### Observable optimizations and UB policy — broader question
 - Surfaced while planning const: allowing the compiler to allocate
