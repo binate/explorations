@@ -106,16 +106,51 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   - Run under lldb / Address Sanitizer (compile bni with `--cflag -fsanitize=address` per the `--cflag` precedent from earlier debugging) to catch the bad access at the moment it happens.
   - The bug likely lives in pkg/vm or a runtime helper called from VM-interpreted code; native-compiled cmd/bni doesn't trigger it.
 
-### Native AArch64 backend — 10 unit-test packages failing under `boot-comp_native_aa64`
+### Native AArch64 backend — unit-test packages failing under `boot-comp_native_aa64`
 - Conformance suite passes end-to-end under `boot-comp_native_aa64`,
-  but a unit-test sweep failed 10 of 29 packages. Three clusters: a
-  specific Mach-O reloc emission bug (pkg/ir), seven test-binary
-  crashes (likely a small number of shared root causes), and two
-  packages with assembler-encoding assertion failures.
-- Full inventory + plan of action (with required conformance
-  reproductions) in `explorations/native-aa64-bugs.md`.
+  but a unit-test sweep on 2026-04-27 failed 10 of 29 packages. Three
+  clusters: (C) a Mach-O reloc emission bug (pkg/ir), (A) seven
+  test-binary crashes/runtime errors, (B) two packages with
+  assembler-encoding assertion failures.
+- **Cluster C — DONE** (`8bc6196` + `f18ff2c` + `e4c9edd` + `491ac60`):
+  Mach-O r_extern always 1; `cmd/bnc --keep-objs`; cross-section string
+  refs use ADRP+ADD instead of ADR (±1MB → ±4GB); ResolveFixups errors
+  on out-of-range PC-rel fixups; macho writer rejects unsupported
+  fixup-kind→reloc mappings; new tests in `pkg/asm/aarch64` and
+  `pkg/asm/macho`.
+- **Cluster A** (still failing): pkg/types, pkg/asm/macho, pkg/asm/parse,
+  pkg/asm/aarch64, pkg/native/arm64, pkg/codegen, pkg/vm, pkg/ir.
+  Each test-binary crashes mid-test with a runtime OOB or SIGSEGV.
+  Likely a small number of shared root causes — needs reduction to
+  conformance programs and per-cluster diagnosis.
+- **Cluster B** (still failing): pkg/asm/arm32 (19/73 asserts fail),
+  pkg/asm/elf (3/22). Likely one or two encoding bugs each.
+- Full inventory + plan of action in `explorations/native-aa64-bugs.md`.
 - CI hookup for `boot-comp_native_aa64` is intentionally not landed
-  yet — see the doc.
+  yet — wait for clusters A and B.
+
+### Remove OP_CALL_BUILTIN and the empty C-runtime manifest
+- After Step 2b (print rewired to `bootstrap.formatX` + `bootstrap.Write`)
+  and Step 3.2 (`bn_exit` migrated to `rt.Exit`, runtime manifest
+  emptied), no IR-gen path emits `OP_CALL_BUILTIN`. The opcode +
+  plumbing is dormant and can be removed.
+- Surface to remove:
+  - `pkg/ir.bni` / `pkg/ir/ir_ops.bn`: `OP_CALL_BUILTIN`,
+    `EmitCallBuiltin`, op-name dispatch, `TestEmitCallBuiltin` in
+    `ir_ops_test.bn`.
+  - `pkg/ir/runtime.bn` (entire file once empty): `RuntimeFunc`,
+    `RuntimeFuncs`, `RT_*` kinds, `makeRtFunc`; plus `runtime_test.bn`.
+  - `pkg/codegen/emit.bn`: the `RuntimeFuncs()` loop, `emitRuntimeDecl`,
+    `runtimeKindToType` helpers; `OP_CALL_BUILTIN` arms in
+    `emit_util.bn`, `emit_instr.bn`, `emit_ops.bn`.
+  - `pkg/native/common/common.bn`: `OP_CALL_BUILTIN` checks (~6 sites).
+  - `pkg/native/arm64/arm64.bn`: `OP_CALL_BUILTIN` arm.
+  - `pkg/vm/lower.bn`: `OP_CALL_BUILTIN` arm.
+- Risk: low — every backend handles `OP_CALL_BUILTIN` identically to
+  `OP_CALL` (or as a near-twin), and the producer is gone, so removal
+  is mechanical. Already dropped a stale E2E test in `pkg/native/arm64`
+  (`927eacf`) — the IR API contract test in `ir_ops_test.bn` still
+  exists and will move/delete with the rest.
 
 ### Un-export `rt.c_*` — wrap in Binate, hide from .bni
 - Today `pkg/rt.bni` exports the C-stub bridges (`c_malloc`, `c_calloc`, `c_free`, `c_memset`, `c_memcpy`, `c_call_dtor`, `c_bounds_fail`, plus historically `c_exit` and `c_print_float`). They're conceptually implementation details, not part of pkg/rt's public API. Direct callers in pkg/* and cmd/* tie the rest of the codebase to the libc-target shape — on a libc-free target the same operations would dispatch through syscall stubs (or be inlined in Binate).
