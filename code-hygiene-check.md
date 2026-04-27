@@ -85,14 +85,18 @@ done
 
 ## 7. Bootstrap subset compatibility
 
-If the code must run via the bootstrap interpreter, watch for:
-- No `nil` for `@[]T` types — use `""` (empty string literal) instead.
-- No comparing `@[]T` to `nil` — use `len(x) == 0`.
-- No `~` operator — use `x ^ -1`.
-- No large hex literals (`0xFFFFFFFFFFFFFFFF`) — build the value with shifts.
-- No 4+ value multiple returns — use a result struct.
-- No `return f(...)` where `f` has multiple returns — use explicit variables.
-- Shift amounts use `int`, not `uint` (`x << n` where `n` is `int`).
+Code that must run via the bootstrap interpreter has a few divergences from the
+full language to watch for. The canonical, current list lives in
+`bootstrap-subset.md` — refer to that doc rather than maintaining a duplicate
+list here. Most of the historical caveats that used to live in this section
+(no `~` operator, shift-amount typing, etc.) have closed; the remaining ones
+are mostly about features the bootstrap doesn't implement, not about
+constructs you have to write differently.
+
+Note: language-level rules sometimes mistaken for bootstrap-only quirks (such
+as "slices are not nillable") are documented in `binate-coding-guide.md` and
+enforced by both type checkers — they apply everywhere, not just under
+bootstrap.
 
 ## 8. Test runner coverage
 

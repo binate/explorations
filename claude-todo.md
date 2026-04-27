@@ -36,6 +36,36 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Migrated `pkg/parser/parser.bn:135` (the original `// LONG-LINE
   ALLOWED` site) to use the new feature.
 
+### Clarify rules for integer literals and constant expressions
+- The bootstrap interpreter rejects hex literals with the high bit set
+  (`strconv.ParseInt(..., 16, 64)` overflows int64), e.g.
+  `0xFFFFFFFFFFFFFFFF`. The self-hosted type checker silently wraps
+  via int64 overflow in `pkg/types/checker_util.bn:parseHexInt`. Two
+  different bugs, both surprising.
+- Go-style bignum support for constant expressions is too onerous, but
+  we should at least support `uint64` literals — i.e. accept any
+  64-bit value as either signed or unsigned depending on context, and
+  reject (not wrap) values outside the chosen 64-bit range.
+- Open questions to nail down in the spec:
+  - What's the type of an integer literal? Currently "untyped int"
+    that fits in int64; should an unsigned literal too big for int64
+    but fitting in uint64 be allowed?
+  - What about constant-expression overflow at type-check time
+    (`1 << 63`, `0xFF * 0xFF * ... `)? Today it silently wraps.
+  - Hex / binary / octal literals all need consistent rules.
+- Update both impls together; document the result in claude-notes.md
+  and update binate-coding-guide.md.
+
+### Clarify spec for `return f(...)` with multi-return functions
+- Today both impls reject this: bootstrap (`types/checker.go:963–978`)
+  and self-hosted (`pkg/types/check_stmt.bn:237`) require the number
+  of return-statement expressions to equal the number of declared
+  result types, with no unpacking from a single multi-return call.
+- Probable resolution: support it (Go-style `return f()` where `f`
+  returns the matching tuple). Then implement in both checkers.
+- Spec change goes in claude-notes.md; remove the rule from the
+  hygiene/bootstrap-subset docs once both impls handle it.
+
 ### boot-comp-int-int: SIGSEGV after ~218s (post-BC_RETURN-fix)
 - (Mode renamed from `boot-comp-int2-int2` after the int2→int rename in `b1e4f98`.)
 - History (2026-04-25/26):

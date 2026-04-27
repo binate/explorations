@@ -20,8 +20,9 @@ point into. They are not there to help you build up arrays of data.
 
 - `*[]T` (raw slice): two words — `(data_ptr, length)`. Does **not** keep the
   underlying data alive.
-- `@[]T` (managed-slice): three words — `(data_ptr, length, refptr)`. Keeps the
-  backing allocation alive via refcounting. But still not resizable.
+- `@[]T` (managed-slice): four words — `(data_ptr, length, backing_refptr,
+  backing_len)`. Keeps the backing allocation alive via refcounting. The first
+  two words are layout-compatible with a raw slice. But still not resizable.
 
 If you find yourself wanting to append to a slice, you need a library type (see
 [String Building and Growable Collections](#string-building-and-growable-collections)
@@ -74,6 +75,23 @@ Raw pointers in structs are the exception, appropriate when:
 All variables and struct fields are zero-initialized by default. Partial struct
 literals zero-init omitted fields: `Point{x: 1}` gives `y = 0`. There is no
 uninitialized memory in safe Binate code.
+
+---
+
+## Slices Are Not Nillable
+
+Coming from Go, this trips people up: **slices in Binate are not nillable**. This
+applies to both raw slices (`*[]T`) and managed-slices (`@[]T`).
+
+- `var s @[]T` zero-initializes to an empty managed-slice (length 0, no backing
+  allocation), not to nil. Same for `*[]T`. Use it directly; do not reach for a
+  separate "nil" state.
+- `s == nil` is a type error. Test emptiness with `len(s) == 0`.
+- `nil` is only assignable to pointer types: `*T`, `@T` (and any future pointer
+  flavors). The type checker rejects `s = nil` for slices of either kind.
+
+Pointer types **are** nillable, so `*T` and `@T` follow the familiar Go pattern:
+default-init to nil, compare with `== nil` / `!= nil`, etc.
 
 ---
 
