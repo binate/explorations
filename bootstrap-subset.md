@@ -233,8 +233,22 @@ func divmod(a int, b int) (int, int) { return a / b, a % b }
 - No named return values
 - No same-type parameter shorthand (no `a, b int`)
 
+**Supported (added 2026-04-27):**
+- Method receivers: `func (p *Point) Name(...)`. Receiver kinds:
+  value `T`, raw pointer `*T`, managed pointer `@T` (and the const
+  variants once const lands in user code). Methods live in a per-type
+  method set; same-name methods on different types are independent;
+  free functions and methods can share a name. Static dispatch only.
+- Method calls: `obj.Method(args)` dispatched by the receiver
+  expression's named type. One level of auto-deref / auto-take-address
+  is accepted by the type checker; the boot interpreter and bytecode
+  VM honor it, but the LLVM IR-gen path doesn't yet emit the receiver
+  conversions (Stage 5 follow-up of plan-receivers.md).
+
 **Not supported:**
-- Method receivers: `func (p *Point) translate(...)` — not in bootstrap
+- `impl Type : Interface` — interfaces and dynamic dispatch are still deferred.
+- Method values (`x.M` as a first-class function value) and method
+  expressions (`T.M`) — depend on function-value support.
 - Variadic parameters: `func f(args ...int)` — not in bootstrap
 - Function literals / closures: `func(x int) int { ... }` — not in bootstrap
 - Function types as values — functions cannot be stored in variables or passed as arguments
@@ -436,10 +450,10 @@ notes) but are **not implemented** in the Go bootstrap interpreter:
 No `interface` type declarations, no interface values, no interface embedding, no
 dynamic dispatch. The keywords `interface` and `impl` are reserved but deferred.
 
-### Methods and Impl Declarations
-No method receivers (`func (r T) name(...)`), no `impl Type : Interface` declarations.
-All functions are free-standing. Struct field access uses `.` but there is no method
-resolution.
+### Impl Declarations
+No `impl Type : Interface` declarations — interfaces are still deferred.
+Method receivers (`func (r RT) Name(...)`) are now in the subset; see
+"Functions" above for the supported shape and the smoothing caveat.
 
 ### Generics
 No type parameters, no constraints, no generic instantiation. The self-hosted code
