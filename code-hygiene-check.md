@@ -96,13 +96,18 @@ If the code must run via the bootstrap interpreter, watch for:
 
 ## 8. Test runner coverage
 
-Verify that the unit test runner discovers all test packages:
+A test that's never run is worse than no test: it implies coverage that doesn't exist, and a future regression it would have caught will go unnoticed. When a test (or test package) is added, or when a test runner is modified, confirm the runner actually exercises the test in the modes it should and that failures are properly detected.
 
-```
-bash scripts/unittest/run.sh boot 2>&1 | grep -E "^(PASS|FAIL):"
-```
+When **adding a test (package)**:
 
-Compare against the expected package list. The runner uses `find` to discover `_test.bn` files at any nesting depth under `pkg/` and `cmd/`.
+- Run the test suite and confirm the new test/package appears in the runner's per-package output (e.g., `PASS: pkg/foo`) for each mode it's supposed to run in.
+- Where practical, force the test to fail on purpose first (return a wrong value, expect the wrong output, etc.) and confirm the runner reports it as a failure. A passing test from the start can't distinguish "the test runner is fine" from "the test runner silently skips it." This is sometimes too onerous for a single test in a large package — use judgment, but at minimum make sure failures somewhere in that package would surface.
+- If you add tests at a new directory nesting depth or under a new top-level layout, double-check: the test runner uses `find` to discover packages, so a new layout that doesn't match its globs is the typical way tests go silently undetected.
+
+When **modifying a test runner** (`scripts/unittest/run.sh`, the per-mode runners, or the modeset definitions):
+
+- Confirm the same set of packages still runs in each mode, including xfail entries — comparing the before/after output is the simplest check.
+- Confirm failures are still detected: temporarily break a test (or use a known-failing one), run the modified runner, and confirm it reports failure with a non-zero exit code. Silent success after a runner change is the bug this rule exists to catch.
 
 ## 9. File formatting
 
