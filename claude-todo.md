@@ -84,6 +84,17 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   - Run under lldb / Address Sanitizer (compile bni with `--cflag -fsanitize=address` per the `--cflag` precedent from earlier debugging) to catch the bad access at the moment it happens.
   - The bug likely lives in pkg/vm or a runtime helper called from VM-interpreted code; native-compiled cmd/bni doesn't trigger it.
 
+### Native AArch64 backend — 10 unit-test packages failing under `boot-comp_native_aa64`
+- Conformance suite passes end-to-end under `boot-comp_native_aa64`,
+  but a unit-test sweep failed 10 of 29 packages. Three clusters: a
+  specific Mach-O reloc emission bug (pkg/ir), seven test-binary
+  crashes (likely a small number of shared root causes), and two
+  packages with assembler-encoding assertion failures.
+- Full inventory + plan of action (with required conformance
+  reproductions) in `explorations/native-aa64-bugs.md`.
+- CI hookup for `boot-comp_native_aa64` is intentionally not landed
+  yet — see the doc.
+
 ### Lift function-name qualification into IR (shared across backends)
 - The VM and the compiler both need to avoid cross-package function-name collisions. They currently solve it separately: `pkg/mangle.FuncName(pkgName, name)` produces C-style `bn_asm__New` for LLVM symbols, and `pkg/mangle.QualifyName(pkgShort, name)` produces dot-form `asm.New` for the VM's function table. Both backends extract the short package name from `ir.Module.Name` and apply their own qualification at lower/emit time.
 - That duplication is fine but a cleaner alternative is to qualify in IR itself: have `pkg/ir` store all function names fully qualified ("asm.New", "bootstrap.Args") as canonical. `mangle.FuncName` already treats dotted names as pre-qualified, so the compiler would keep producing the same `bn_asm__New`. The VM would use qualified names directly. One source of truth.
