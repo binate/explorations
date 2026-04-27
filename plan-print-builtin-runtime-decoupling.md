@@ -101,8 +101,6 @@ into the new Binate format helpers.
 
 Per-arg-type format helpers + `bootstrap.Write`:
 - `formatBool(v bool, buf *[]uint8) int` — writes "true" or "false"
-- `formatFloat(v float64, buf *[]uint8) int` — `%g`-style output;
-  acceptable to defer until step 3a if the format logic is gnarly
 - `formatChars` not needed — char/string/managed-slice values are
   already byte sequences; emit `bootstrap.Write` directly
 - `print_newline` becomes `bootstrap.Write(STDOUT, "\n", 1)`
@@ -110,6 +108,24 @@ Per-arg-type format helpers + `bootstrap.Write`:
 
 Remove all remaining `bn_print_*` from `binate_runtime.c` and the IR
 runtime manifest. Strip the corresponding `execBuiltin` arms.
+
+### Step 3.1 — `formatFloat` (rolled the rest of the way) — DONE
+
+Adds `formatFloat(v float64, buf *[]uint8) int`. Bootstrap-grade
+semantics, deliberately NOT %g-compatible:
+- NaN → `"NaN"`, ±Inf → `"+Inf"` / `"-Inf"`
+- Finite, fixed-point envelope: `integer.6digits`, truncated (no
+  rounding, no trailing-zero trimming, no scientific notation)
+- Outside the envelope (`|v| ≥ 2^53` or `0 < |v| < ~1e-6`): exact
+  `mantissa*2^exponent` fallback, lossless. e.g. `println(1e-30)`
+  yields the IEEE 754 bits in ridiculous-but-honest form.
+
+Tests that need bit-exact float verification use `bit_cast` directly
+— see conformance test 330_float_bit_exact for the canonical example.
+
+After 3.1: `bn_print_float` is gone, `c_print_float` is gone, all
+`bn_print_*` shims are gone. The print/println builtin's only C
+surface is `bootstrap.Write` (the single syscall sink).
 
 ### Step 4 — `bn_exit` (deferred; discuss separately)
 
@@ -130,12 +146,15 @@ call from IR-gen, no `bn_exit` needed. But there are subtleties
   bootstrap has no Go-defined `formatInt`) — mark `.xfail.boot`. We
   may eventually fork the conformance tests so the bootstrap has its
   own limited copy; same will go for unit tests then.
-- **`formatFloat`.** `%g` semantics from `printf` are non-trivial to
-  reproduce in pure Binate. If complete reimplementation is too big,
-  this step can land in a follow-up commit using a temporary path
-  (e.g., keep `c_print_float` for now and revisit). Format-side
-  parity is not strictly required for the architectural win; the I/O
-  side (bn_print_float → Write) is.
+- **`formatFloat` requirements.** Earlier draft of this plan called
+  out `%g` semantics as "non-trivial to reproduce in pure Binate"
+  and floated deferring `bn_print_float`. That framing was wrong:
+  the algorithm is gnarly in any language, and `bootstrap`'s
+  print/println is a temporary scaffold — there was never a
+  requirement for libc-bit-exact `%g`. The actual requirement is
+  "readable enough for conformance tests, with bit-exact float
+  verification via `bit_cast` for tests that care." See step 3.1
+  for the resulting bootstrap-grade implementation.
 
 ## Non-Goals
 
