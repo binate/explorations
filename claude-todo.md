@@ -117,6 +117,18 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - CI hookup for `boot-comp_native_aa64` is intentionally not landed
   yet — see the doc.
 
+### Un-export `rt.c_*` — wrap in Binate, hide from .bni
+- Today `pkg/rt.bni` exports the C-stub bridges (`c_malloc`, `c_calloc`, `c_free`, `c_memset`, `c_memcpy`, `c_call_dtor`, `c_bounds_fail`, plus historically `c_exit` and `c_print_float`). They're conceptually implementation details, not part of pkg/rt's public API. Direct callers in pkg/* and cmd/* tie the rest of the codebase to the libc-target shape — on a libc-free target the same operations would dispatch through syscall stubs (or be inlined in Binate).
+- Pattern is already established by `rt.Exit` (`a631ca9`): a thin Binate wrapper that currently calls `c_exit` but on a libc-free target would route through a syscall stub instead. Same shape needed for the rest.
+- **Scope**:
+  - Inventory every direct caller of `rt.c_*` outside `pkg/rt` itself (likely substantial — c_memcpy / c_memset are everywhere).
+  - Add Binate wrappers for each c_* that has external callers. Naming convention: `rt.Memcpy`, `rt.Memset`, etc. (or pick whatever reads best — possibly bring them under existing higher-level helpers where applicable).
+  - Migrate callers.
+  - Un-export the c_* in `pkg/rt.bni` (move declarations to `pkg/rt/rt.bn` as package-private).
+  - Update the bni naming whitelist (drop the c_* entries).
+- Why now-ish: aligns with the multi-backend / libc-free target direction in `runtime-abstraction-plan.md`. Each c_* removed from the public surface is one less thing the ARM32 / bare-metal backend has to reproduce.
+- Why not urgent: c_* are working today; this is a refactor for future portability, not a correctness fix.
+
 ### Lift function-name qualification into IR (shared across backends)
 - The VM and the compiler both need to avoid cross-package function-name collisions. They currently solve it separately: `pkg/mangle.FuncName(pkgName, name)` produces C-style `bn_asm__New` for LLVM symbols, and `pkg/mangle.QualifyName(pkgShort, name)` produces dot-form `asm.New` for the VM's function table. Both backends extract the short package name from `ir.Module.Name` and apply their own qualification at lower/emit time.
 - That duplication is fine but a cleaner alternative is to qualify in IR itself: have `pkg/ir` store all function names fully qualified ("asm.New", "bootstrap.Args") as canonical. `mangle.FuncName` already treats dotted names as pre-qualified, so the compiler would keep producing the same `bn_asm__New`. The VM would use qualified names directly. One source of truth.
