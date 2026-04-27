@@ -1,5 +1,57 @@
 # Plan: Method Receivers (no interfaces)
 
+## Status (2026-04-27)
+
+**Feature is landed and usable across all four execution paths.**
+Stages 1–8 complete. One known gap: receiver smoothing in the LLVM
+IR-gen path (Stage 5 follow-up).
+
+| Stage | Description                                  | Status   | Commits (binate) |
+| ----- | -------------------------------------------- | -------- | ---------------- |
+| 1     | Grammar + parser (bootstrap + self-hosted)   | DONE     | `0d088c6`        |
+| 2     | Type checker — declaration side              | DONE     | `4455ce5`        |
+| 3     | Type checker — call site                     | DONE     | `9a9f803`        |
+| 4     | Mangler — fully-qualified names              | DONE     | `60e2f72`        |
+| 5a    | IR-gen — method declarations                 | DONE     | `f08a83f`        |
+| 5b    | IR-gen — method calls                        | DONE     | `a95aaeb`        |
+| 6     | Codegen / VM / interpreter                   | DONE     | `1c1de68` (binate xfail removal); `7592647` (bootstrap interpreter) |
+| 7     | Conformance test suite (323–328)             | DONE     | `0d54ae1`        |
+| 8     | bootstrap-subset.md update                   | DONE     | `a47af21` (explorations) |
+| 9     | Migrate self-hosted code (`buf.CharBuf` etc.)| TODO     | —                |
+
+### What's left
+
+**Receiver smoothing in IR-gen (Stage 5 follow-up).** The type checker
+accepts the smoothing rules in Decision 3 below — `*T → T` (auto-deref),
+`T → *T` (auto-take-address), `@T → *T` (extract data ptr), and the
+const variants. The bootstrap interpreter and bytecode VM currently
+honor these because they're loosely typed at the value level. The LLVM
+IR-gen path does not yet emit the conversions, so a call like `pp.Y()`
+where `pp` is `*Point` and `Y` has a `Point` receiver fails to compile
+(LLVM rejects passing a `%struct.Point` value as `i8*`).
+
+Concretely, in `pkg/ir/gen_method.bn:genMethodCall`, after computing
+`recvVal` and looking up the method's expected receiver type, emit:
+
+- `recvVal.Typ.Kind == TYP_POINTER || TYP_MANAGED_PTR` and method wants
+  value `T`: emit a `EmitLoad(recvVal, T)` to deref-and-copy.
+- `recvVal.Typ.Kind == TYP_NAMED || TYP_STRUCT` (value) and method
+  wants `*T`: take the address of the alloca slot for the receiver
+  expression. For simple ident receivers this is `lookupVar(ctx,
+  sel.X.Name)` — for general expressions, materialize a temp slot,
+  store, and use the slot's address.
+- `recvVal.Typ.Kind == TYP_MANAGED_PTR` and method wants `*T`: this
+  already works at the LLVM level (both lower to `i8*`); just fix the
+  IR-level type so subsequent passes don't get confused.
+
+Conformance test 327 (`327_method_smoothing`) is the regression guard;
+remove its `.xfail.boot-comp` once smoothing emits.
+
+Stage 9 (self-hosted migration) is opportunistic; not required for
+correctness or completeness.
+
+---
+
 ## Goal
 
 Add method-receiver syntax to the language. Functions declared with a
@@ -84,136 +136,130 @@ Receiver is just the first parameter. No special calling convention.
 For value receivers (`T`), the parameter is `*const T` under the hood
 (never null). The compiler takes the address at the call site.
 
-## Implementation Stages
+## Implementation Stages (as built)
 
-### Stage 1: Grammar and parser (bootstrap + self-hosted)
+### Stage 1: Grammar and parser — DONE (`0d088c6`)
 
-**Goal**: parse `func (r RT) Name(...)` declarations into AST. No type
-checking, no calls yet.
+Bootstrap (Go) and self-hosted parsers accept `func (r RT) Name(...)`.
+Disambiguation: an LPAREN after `func` introduces a receiver; an IDENT
+means a free function. `Recv` field on the func decl AST node is nil for
+free functions and non-nil for methods.
 
-**Changes**:
-- Grammar: flip `MethodDecl` from `[DEFERRED]` to live; add to
-  `TopLevelDecl`.
-- `bootstrap/parser/parser.go`: extend `parseFuncDecl` to detect a
-  receiver (peek for `(` after `func`). Build a `MethodDecl` AST node
-  (or extend `FuncDecl` with optional `Receiver`).
-- `pkg/parser/parse_decl.bn`: same change.
-- `pkg/ast` and `bootstrap/ast`: `Receiver { Name *[]char; Typ
-  TypeExpr }` field on the func decl node.
-- `pkg/parser` test: round-trip parse of `func (p *Point) Translate(x
-  int)`.
+Tests: `TestParseMethodDecl{,PointerRecv,ValueRecv,ManagedRecv}` plus a
+free-function nil-Recv check. `MethodDecl` flipped to `[BOOTSTRAP]` in
+the grammar EBNF.
 
-**Negative tests**: receiver with multiple params; receiver with no
-name; receiver type that's not a named type.
+### Stage 2: Type checker — declaration side — DONE (`4455ce5`, `4f9b63c` bootstrap)
 
-### Stage 2: Type checker — declaration side
+`Method` struct (Name, RecvType, Func) and `Methods` field on NamedType
+in both Go and self-hosted type systems. `collectMethodDecl` validates
+the receiver (named type defined in the current package; not aliases /
+builtins / imports) and registers via `AddMethod`, which detects
+duplicates. `checkFuncDecl` branches on Recv — methods bind the receiver
+name in the body's scope. Methods are skipped at IR-gen and at
+bootstrap-interpreter top-level-decl processing for now.
 
-**Goal**: register methods on their base type. Reject duplicates;
-reject methods on aliases / unnamed / cross-package types. Method
-bodies type-check with the receiver in scope.
+Tests: bootstrap `TestCheckMethod{Pointer,Value,Managed}Recv`,
+`TestCheckMethodOn{NamedPrimitive,Alias,Builtin}IsError`,
+`TestCheckMethodDuplicateIsError`,
+`TestCheckMethod{AndFreeFunctionSameName,SameNameDifferentTypes}OK`,
+`TestCheckMethodRegisteredOnNamedType`, `TestCheckMethodBodySeesReceiver`,
+`TestCheckMethodBodyTypeError` (and self-hosted equivalents).
 
-**Changes**:
-- Symbol table: each named type carries a method set
-  `{name → Func}`. Adding a method calls `LookupLocal` on the type
-  and inserts. Duplicate name → error.
-- `bootstrap/check`: validate receiver type is a named type defined
-  in the current package; bind receiver name in the function's local
-  scope.
-- `pkg/check`: same.
-- `Func` node carries the receiver type (or nil if free function) so
-  later stages can find it.
+### Stage 3: Type checker — call site — DONE (`9a9f803`, `0ac9773` bootstrap)
 
-**Tests**: method on struct, method on `type Celsius int`, method on
-struct with managed fields. Negative: method on alias, method on
-external type, duplicate methods, methods on slice/anonymous types.
+`tryMethodCall` dispatches `obj.M(args)` callees. Skips package-qualified
+calls (`pkg.Func(...)`) by detecting an IDENT receiver bound as `SYM_PKG`.
+`receiverShape` and `receiverAssignable` encode the smoothing table from
+Decision 3 (and the const-direction rules in the self-hosted side).
 
-### Stage 3: Type checker — call site
+Tests: bootstrap and self-hosted
+`TestCheckMethodCall{Pointer,Value,Managed}OnPointer/Value/Managed` plus
+arg-count, missing-method, raw→managed-rejected, dispatch-by-type.
 
-**Goal**: resolve `obj.M(args)` to a method call, applying receiver
-smoothing.
+### Stage 4: Mangler — fully-qualified names — DONE (`60e2f72`)
 
-**Changes**:
-- When checking `Selector(Call)` of form `obj.Name(args)`:
-  1. If `obj` has a field named `Name`, check `Name` is callable
-     (already supported — no method change).
-  2. Otherwise: walk the receiver-method lookup. Strip one level of
-     `*`/`@` from `obj`'s type if needed. Look up `Name` in the
-     base type's method set.
-  3. Apply receiver smoothing — convert `obj` to the receiver type per
-     the conversion table in Decision 3.
-  4. Emit a normal call with `obj` as the first arg.
-- New AST node? Probably not — keep this as `EXPR_CALL` whose callee
-  is a synthetic function reference. Tag the call with the resolved
-  method `Func`.
+`mangle.FuncName` now treats any name containing a dot as pre-qualified
+and replaces every `.` with `__`. Free-function shapes are unchanged.
+Bootstrap doesn't have a mangler (it's an interpreter), so this is
+self-hosted-only.
 
-**Tests**: pointer receiver from value, value receiver from pointer,
-managed receiver from managed, smoothing transitivity. Negative:
-trying to call a `@T` method on a `*T`.
+Tests: `TestFuncName{Method,MethodCrossPkg,MethodMultiDot}`.
 
-### Stage 4: Mangler — fully-qualified method names
+### Stage 5a: IR-gen — method declarations — DONE (`f08a83f`)
 
-**Goal**: extend `mangle.FuncName` to convert all dots to `__`, so
-`geom.Point.M` → `bn_geom__Point__M`.
+`pkg/ir/gen_method.bn` introduces `methodQualName`, `recvTypeName`,
+`methodSig`, `genMethod`. `genMethod` synthesizes a free-function-shaped
+`ast.Decl` with the receiver promoted to `Params[0]` and defers to
+`genFunc` for body emission. `GeneratePackage` and `GenModule` register
+both free-function and method signatures and emit both bodies in their
+existing passes.
 
-**Changes**:
-- `pkg/mangle/mangle.bn`: in `FuncName`, replace every `.` in the name
-  with `__` after the package-prefix logic.
-- `bootstrap/mangle/...`: same.
-- Unit tests for the new shape.
+Tests: `TestRecvTypeName*`, `TestMethodQualName*`.
 
-### Stage 5: IR generation
+### Stage 5b: IR-gen — method calls — DONE (`a95aaeb`)
 
-**Goal**: lower method declarations and method calls.
+`genCall` detects a method-call SELECTOR (receiver isn't a package alias
+in scope) and routes through `tryMethodCall` → `genMethodCall`.
+`genMethodCall` evaluates the receiver, prepends it as `Args[0]`, and
+emits a call to the fully-qualified method name. `currentModulePkgShort`
+global threads the package name from `GeneratePackage` / `GenModule`
+into `genMethodCall`. `baseNamedTypeName` walks one level of `*T` / `@T`
+to find the receiver's named-type name (handles both `TYP_NAMED` and
+`TYP_STRUCT` since IR-gen represents named structs as the latter).
 
-**Changes**:
-- `pkg/ir/gen_decl.bn`: when generating a method, name it
-  `<TypeName>.<MethodName>` (intra-package) or
-  `<pkg>.<TypeName>.<MethodName>` (cross-package). Receiver becomes
-  param 0.
-- `pkg/ir/gen_call.bn` (or wherever method calls land): when the AST
-  node is a method call, emit the receiver-conversion ops first, then
-  call. (Should fall out of Stage 3 leaving the method as a normal
-  call.)
+**Receiver smoothing is not emitted here** — see "What's left" above.
+The current implementation passes the receiver as-is; it works for
+exact matches and for the cases LLVM happens to be lenient about
+(like `@T` → `*T` since both are `i8*`). Stage 5c follow-up.
 
-**Tests**: IR-gen unit tests for method decl and call.
+Tests: `TestBuildMethodQualName`, `TestBaseNamedTypeName{Named,Struct,
+Pointer,Managed,NonNamed}`. End-to-end `322_method_basic`.
 
-### Stage 6: Codegen / VM / interpreter
+### Stage 6: Codegen / VM / interpreter — DONE (`7592647` bootstrap)
 
-**Goal**: get methods running in all four execution modes.
+LLVM, bytecode VM, and ARM64 native backends are transparent — they
+consume the IR produced by Stage 5. Verified by running 322 across
+boot-comp, boot-comp-int, and boot-comp_native_aa64.
 
-**Changes**:
-- LLVM backend: should be transparent — the IR already names the
-  function and emits a call. Verify mangling lines up.
-- Bytecode VM: should be transparent — function-table lookup uses
-  fully-qualified names already (`mangle.QualifyName`).
-- ARM64 native backend: same.
-- Bootstrap interpreter: extend `eval` for method calls. Bind receiver
-  in the new frame as the first parameter.
+The bootstrap (Go) interpreter required real work: a per-type method
+registry (`methods map[typeName]map[methodName]*ast.FuncDecl`),
+`registerMethod` in `execTopLevelDecl`, `lookupMethod` /
+`valueTypeName` for receiver-driven dispatch, and a method-call branch
+in `evalCall` that prepends the receiver. `isPackageSelector` is the
+twin of `isMethodCallSel` for the dispatch decision.
 
-**Tests**: conformance test exercising methods in all basic modes.
-Cover value, `*T`, and `@T` receivers; cover smoothing.
+Tests: bootstrap `TestMethod{PointerReceiver,ValueReceiver,WithArgs,
+SameNameDifferentTypes}`. Conformance 322 now passes on boot too.
 
-### Stage 7: Conformance test suite
+### Stage 7: Conformance test suite — DONE (`0d54ae1`)
 
-- `321_method_basic` — `func (p *Point) Translate`
-- `322_method_value_receiver` — value receiver, called on pointer
-- `323_method_managed_receiver` — `@T` receiver
-- `324_method_smoothing` — auto-conversion `@T` → `*T`
-- `325_err_method_alias` — negative: method on type alias
-- `326_err_method_external` — negative: method on imported type
-- `327_err_method_duplicate` — negative: re-declared method
-- `328_err_method_anonymous` — negative: method on unnamed type
+Six new tests in `conformance/`:
 
-### Stage 8: bootstrap-subset.md update
+- 322 — basic *T-on-*T (landed in Stage 5b)
+- 323 — `@T` receiver chained over a linked list
+- 324 — negative: method on type alias
+- 325 — negative: method on builtin (`int`)
+- 326 — negative: duplicate method declaration
+- 327 — `*T → T` smoothing (xfail.boot-comp pending Stage 5c)
+- 328 — pointer-receiver mutation
 
-Move "Methods and Impl Declarations" — split into two: methods are
-**now in the subset**; `impl Type : Interface` remains deferred.
+Cross-package method declaration in `.bni` (originally suggested as
+326_err_method_external) is deferred — it requires `.bni` method
+visibility, which is itself a follow-up.
 
-### Stage 9: Migrate self-hosted code
+### Stage 8: bootstrap-subset.md update — DONE (`a47af21` explorations)
 
-Convert opportunistically — start with one obvious candidate (e.g.,
-`buf.CharBuf` operations as `func (b *CharBuf) Write(...)`). Not
-required for the feature to land; track as a follow-up.
+Methods moved from "Not supported" to the supported list, with a note
+about the LLVM-IR-gen smoothing caveat. `impl Type : Interface` remains
+deferred. Method values / expressions called out as separate
+not-supported items.
+
+### Stage 9: Migrate self-hosted code — TODO
+
+Opportunistic. Suggested first candidate: `pkg/buf.CharBuf` operations
+as `func (b *CharBuf) Write(...)`. Not required for any other work; do
+when ergonomic.
 
 ## Open questions / pinned for later
 
@@ -221,19 +267,10 @@ required for the feature to land; track as a follow-up.
   function-values feature being designed.
 - **Method on a type that's already used in `.bni`**. The `.bni` would
   need to declare the method too (visibility rule). Same mechanism as
-  function visibility checks (test 235/236). Should fall out of Stage
-  2 with no extra work.
+  function visibility checks (test 235/236).
 
 ## Other ratified decisions
 
 - **`_` receiver name** is allowed — same semantics as `_` parameter
   names: an explicit indicator that the receiver isn't used in the
   method body. Type-checker treats it like any other unused-name.
-
-## Order of work
-
-Stages 1 → 2 → 3 → 4 → 5 → 6 sequentially. Conformance tests added
-incrementally per stage where applicable. Run `conformance/run.sh
-basic` and `scripts/unittest/run.sh boot` after each stage. Run
-`conformance/run.sh all` and full unit tests before declaring the
-feature complete.

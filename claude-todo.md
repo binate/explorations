@@ -6,6 +6,31 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ## TODO
 
+### ~~Method receivers (no interfaces)~~ — DONE
+- Plan: `plan-receivers.md` (Stages 1–8 complete; Stage 9 self-hosted
+  migration is opportunistic).
+- Methods supported across all four execution paths: boot (Go
+  interpreter), boot-comp (LLVM), boot-comp-int (bytecode VM),
+  boot-comp_native_aa64 (ARM64 native).
+- Receiver kinds: `T`, `*T`, `@T` (and const variants where
+  applicable). Static dispatch only — no interfaces.
+- IR-level naming: methods are fully qualified
+  (`<pkgShort>.<TypeName>.<MethodName>`); the mangler converts every
+  dot to `__`, yielding `bn_<pkgShort>__<TypeName>__<MethodName>` C
+  symbols.
+- Conformance: 322–328. 327 tests `*T → T` smoothing and is xfail'd on
+  boot-comp because the LLVM IR-gen path doesn't yet emit receiver
+  conversions.
+- **Remaining work** (Stage 5 follow-up): receiver smoothing in
+  `pkg/ir/gen_method.bn:genMethodCall`. The type checker, bootstrap
+  interpreter, and bytecode VM honor smoothing already; LLVM doesn't
+  because it's strict about parameter types. Removing the
+  `327_method_smoothing.xfail.boot-comp` marker is the regression
+  guard.
+- Bootstrap subset: methods are now in (`bootstrap-subset.md`,
+  Functions section). `impl Type : Interface` and method values
+  remain deferred.
+
 ### ~~pkg/vm: Stage 2b implicit-copy + OP_STRING_TO_ARRAY~~ — DONE (`9e9042a`)
 - Added `BC_STRING_COPY_MS` (Stage 2b: fresh `@[]char` via
   `MakeManagedSlice` + memcpy from rodata) and `BC_STRING_COPY_ARR`
