@@ -14,19 +14,16 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   boot-comp_native_aa64 (ARM64 native).
 - Receiver kinds: `T`, `*T`, `@T` (and const variants where
   applicable). Static dispatch only — no interfaces.
+- One level of receiver smoothing: `*T → T` (auto-deref), `T → *T`
+  (auto-take-address), `@T → *T` (reinterpret). Honored in the type
+  checker, bootstrap interpreter, bytecode VM, and LLVM IR-gen.
 - IR-level naming: methods are fully qualified
   (`<pkgShort>.<TypeName>.<MethodName>`); the mangler converts every
   dot to `__`, yielding `bn_<pkgShort>__<TypeName>__<MethodName>` C
   symbols.
-- Conformance: 322–328. 327 tests `*T → T` smoothing and is xfail'd on
-  boot-comp because the LLVM IR-gen path doesn't yet emit receiver
-  conversions.
-- **Remaining work** (Stage 5 follow-up): receiver smoothing in
-  `pkg/ir/gen_method.bn:genMethodCall`. The type checker, bootstrap
-  interpreter, and bytecode VM honor smoothing already; LLVM doesn't
-  because it's strict about parameter types. Removing the
-  `327_method_smoothing.xfail.boot-comp` marker is the regression
-  guard.
+- Conformance: 322–329 cover positive cases (basic, managed, full
+  smoothing table, mutation), the @T → *T smoothing case, and the
+  three negative cases (alias, builtin, duplicate).
 - Bootstrap subset: methods are now in (`bootstrap-subset.md`,
   Functions section). `impl Type : Interface` and method values
   remain deferred.

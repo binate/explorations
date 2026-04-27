@@ -2,9 +2,10 @@
 
 ## Status (2026-04-27)
 
-**Feature is landed and usable across all four execution paths.**
-Stages 1–8 complete. One known gap: receiver smoothing in the LLVM
-IR-gen path (Stage 5 follow-up).
+**Feature is landed and complete across all four execution paths.**
+Stages 1–8 done; Stage 5c (receiver smoothing in LLVM IR-gen) closed
+the last known gap. Stage 9 (self-hosted migration) is opportunistic
+and not part of feature completeness.
 
 | Stage | Description                                  | Status   | Commits (binate) |
 | ----- | -------------------------------------------- | -------- | ---------------- |
@@ -14,41 +15,11 @@ IR-gen path (Stage 5 follow-up).
 | 4     | Mangler — fully-qualified names              | DONE     | `60e2f72`        |
 | 5a    | IR-gen — method declarations                 | DONE     | `f08a83f`        |
 | 5b    | IR-gen — method calls                        | DONE     | `a95aaeb`        |
+| 5c    | IR-gen — receiver smoothing                  | DONE     | (work-1 `b58ac58`) |
 | 6     | Codegen / VM / interpreter                   | DONE     | `1c1de68` (binate xfail removal); `7592647` (bootstrap interpreter) |
-| 7     | Conformance test suite (323–328)             | DONE     | `0d54ae1`        |
+| 7     | Conformance test suite (322–329)             | DONE     | `0d54ae1`, follow-up in 5c commit |
 | 8     | bootstrap-subset.md update                   | DONE     | `a47af21` (explorations) |
 | 9     | Migrate self-hosted code (`buf.CharBuf` etc.)| TODO     | —                |
-
-### What's left
-
-**Receiver smoothing in IR-gen (Stage 5 follow-up).** The type checker
-accepts the smoothing rules in Decision 3 below — `*T → T` (auto-deref),
-`T → *T` (auto-take-address), `@T → *T` (extract data ptr), and the
-const variants. The bootstrap interpreter and bytecode VM currently
-honor these because they're loosely typed at the value level. The LLVM
-IR-gen path does not yet emit the conversions, so a call like `pp.Y()`
-where `pp` is `*Point` and `Y` has a `Point` receiver fails to compile
-(LLVM rejects passing a `%struct.Point` value as `i8*`).
-
-Concretely, in `pkg/ir/gen_method.bn:genMethodCall`, after computing
-`recvVal` and looking up the method's expected receiver type, emit:
-
-- `recvVal.Typ.Kind == TYP_POINTER || TYP_MANAGED_PTR` and method wants
-  value `T`: emit a `EmitLoad(recvVal, T)` to deref-and-copy.
-- `recvVal.Typ.Kind == TYP_NAMED || TYP_STRUCT` (value) and method
-  wants `*T`: take the address of the alloca slot for the receiver
-  expression. For simple ident receivers this is `lookupVar(ctx,
-  sel.X.Name)` — for general expressions, materialize a temp slot,
-  store, and use the slot's address.
-- `recvVal.Typ.Kind == TYP_MANAGED_PTR` and method wants `*T`: this
-  already works at the LLVM level (both lower to `i8*`); just fix the
-  IR-level type so subsequent passes don't get confused.
-
-Conformance test 327 (`327_method_smoothing`) is the regression guard;
-remove its `.xfail.boot-comp` once smoothing emits.
-
-Stage 9 (self-hosted migration) is opportunistic; not required for
-correctness or completeness.
 
 ---
 
@@ -208,13 +179,29 @@ into `genMethodCall`. `baseNamedTypeName` walks one level of `*T` / `@T`
 to find the receiver's named-type name (handles both `TYP_NAMED` and
 `TYP_STRUCT` since IR-gen represents named structs as the latter).
 
-**Receiver smoothing is not emitted here** — see "What's left" above.
-The current implementation passes the receiver as-is; it works for
-exact matches and for the cases LLVM happens to be lenient about
-(like `@T` → `*T` since both are `i8*`). Stage 5c follow-up.
-
 Tests: `TestBuildMethodQualName`, `TestBaseNamedTypeName{Named,Struct,
 Pointer,Managed,NonNamed}`. End-to-end `322_method_basic`.
+
+### Stage 5c: IR-gen — receiver smoothing — DONE (work-1 `b58ac58`)
+
+After Stage 5b, the receiver was passed as-is to the call. That worked
+for exact matches and for the cells LLVM happens to be lenient about
+(`@T → *T`, since both lower to `i8*`), but a `*T → T` deref or a
+`T → *T` take-address produced an LLVM type-mismatch. Stage 5c adds
+`applyReceiverConversion` after the receiver is evaluated and before
+the call is emitted:
+
+  src `*T` or `@T`, dst `T` (value)   → `EmitLoad` (deref to value)
+  src `T` (value),  dst `*T`          → take address: `lookupVar` slot
+                                        for ident receivers, else
+                                        materialize a temp slot
+  src `@T`,         dst `*T`          → reinterpret (both `i8*` in LLVM
+                                        — retype the Instr)
+  matching shape                      → identity (`recvShapeMatches`
+                                        fast path)
+
+Conformance: 327 expanded to cover all four cells of the *T/value
+table; 329 covers @T → *T; xfail.boot-comp marker removed.
 
 ### Stage 6: Codegen / VM / interpreter — DONE (`7592647` bootstrap)
 
@@ -232,17 +219,20 @@ twin of `isMethodCallSel` for the dispatch decision.
 Tests: bootstrap `TestMethod{PointerReceiver,ValueReceiver,WithArgs,
 SameNameDifferentTypes}`. Conformance 322 now passes on boot too.
 
-### Stage 7: Conformance test suite — DONE (`0d54ae1`)
+### Stage 7: Conformance test suite — DONE (`0d54ae1`, +Stage 5c follow-up)
 
-Six new tests in `conformance/`:
+Eight tests in `conformance/`:
 
 - 322 — basic *T-on-*T (landed in Stage 5b)
 - 323 — `@T` receiver chained over a linked list
 - 324 — negative: method on type alias
 - 325 — negative: method on builtin (`int`)
 - 326 — negative: duplicate method declaration
-- 327 — `*T → T` smoothing (xfail.boot-comp pending Stage 5c)
+- 327 — full smoothing table (*T-on-*T, *T-on-T, T-on-T, T-on-*T) —
+  expanded in Stage 5c after IR-gen smoothing landed
 - 328 — pointer-receiver mutation
+- 329 — `@T → *T` smoothing (managed receiver expr on *T method) —
+  added in Stage 5c
 
 Cross-package method declaration in `.bni` (originally suggested as
 326_err_method_external) is deferred — it requires `.bni` method
