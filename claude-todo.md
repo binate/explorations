@@ -8,7 +8,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ### ~~Method receivers (no interfaces)~~ — DONE
 - Plan: `plan-receivers.md` (Stages 1–8 complete; Stage 9 self-hosted
-  migration is opportunistic).
+  migration is opportunistic — see entry below).
 - Methods supported across all four execution paths: boot (Go
   interpreter), boot-comp (LLVM), boot-comp-int (bytecode VM),
   boot-comp_native_aa64 (ARM64 native).
@@ -21,12 +21,43 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   (`<pkgShort>.<TypeName>.<MethodName>`); the mangler converts every
   dot to `__`, yielding `bn_<pkgShort>__<TypeName>__<MethodName>` C
   symbols.
-- Conformance: 322–329 cover positive cases (basic, managed, full
-  smoothing table, mutation), the @T → *T smoothing case, and the
-  three negative cases (alias, builtin, duplicate).
+- Conformance: 322–331 cover positive cases (basic, managed, full
+  smoothing table, mutation, cross-package), the @T → *T smoothing
+  case, and the three negative cases (alias, builtin, duplicate).
 - Bootstrap subset: methods are now in (`bootstrap-subset.md`,
   Functions section). `impl Type : Interface` and method values
   remain deferred.
+
+### Stage 9 of plan-receivers — migrate self-hosted code to methods
+- Plan: `plan-receivers.md` § Stage 9. Opportunistic; not required
+  for any other feature work. Pattern: add methods alongside free
+  functions, migrate callers per function (perl pass for simple
+  shapes, manual fixup for nested args), drop the free function +
+  `.bni` decl. `conformance/run.sh boot` after each migration; full
+  `basic` at the end of a batch.
+- ~~`pkg/buf.CharBuf`~~ — DONE (commits `174666c` Len, `1d5a4f9`
+  Bytes, `b3cd116` Freeze, `e4a90fb` WriteHexByte, `b8799cb`
+  WriteInt, `b7958f3` WriteByte, `80e3ac8` WriteStr, `8f96357` test
+  cleanup). `New` and `CopyStr` stay free — no CharBuf receiver.
+- **Open candidates** (do as ergonomic, in any order):
+  - `pkg/asm/elf/elf_util.bn:BinBuf` — same shape as CharBuf
+    (`bbU8`/`bbU16`/`bbU32`/`bbU64`/`bbBytes`/`bbZeros`/`bbAlign`/
+    `bbAddr`/`bbGrow`). Mechanical; ~50–100 callers.
+  - `pkg/asm.Assembler` — `asm.Emit*` / `asm.AddSection` /
+    `asm.AddRelocation`. Larger surface, same pattern.
+  - `pkg/types.Type` — `IsInteger`, `IsFloat`, `Identical`,
+    `AssignableTo`, `ResolveAlias`, `SliceElem`, `PointerElem`,
+    `FieldByName`, `NeedsDestruction`, `IsConst`, `StripConst`,
+    `TypeName`, etc. Cleanly mechanical; reads naturally as
+    `t.IsInteger()`. Many call sites.
+  - `pkg/parser.Parser` — `next(p)`, `expect(p, tok)`,
+    `got(p, tok)`, `peekTok(p)`. Many small sites.
+  - `pkg/lexer.Lexer` — same shape as Parser.
+  - `pkg/ir.Func` / `Block` / `Instr` — `EmitConstInt(f, b, …)`,
+    `EmitCall(f, b, …)`, etc. **Needs a design pass first** — most
+    signatures take both Func and Block, so it's not obvious whether
+    the receiver should be Block or Func. Pick one before starting
+    mechanics.
 
 ### ~~pkg/vm: Stage 2b implicit-copy + OP_STRING_TO_ARRAY~~ — DONE (`9e9042a`)
 - Added `BC_STRING_COPY_MS` (Stage 2b: fresh `@[]char` via

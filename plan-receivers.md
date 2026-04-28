@@ -19,7 +19,7 @@ and not part of feature completeness.
 | 6     | Codegen / VM / interpreter                   | DONE     | `1c1de68` (binate xfail removal); `7592647` (bootstrap interpreter) |
 | 7     | Conformance test suite (322–329)             | DONE     | `0d54ae1`, follow-up in 5c commit |
 | 8     | bootstrap-subset.md update                   | DONE     | `a47af21` (explorations) |
-| 9     | Migrate self-hosted code (`buf.CharBuf` etc.)| TODO     | —                |
+| 9     | Migrate self-hosted code — opportunistic     | pkg/buf done; further candidates open | `174666c` `1d5a4f9` `b3cd116` `e4a90fb` `b8799cb` `b7958f3` `80e3ac8` `8f96357` |
 
 ---
 
@@ -245,11 +245,47 @@ about the LLVM-IR-gen smoothing caveat. `impl Type : Interface` remains
 deferred. Method values / expressions called out as separate
 not-supported items.
 
-### Stage 9: Migrate self-hosted code — TODO
+### Stage 9: Migrate self-hosted code — IN PROGRESS
 
-Opportunistic. Suggested first candidate: `pkg/buf.CharBuf` operations
-as `func (b *CharBuf) Write(...)`. Not required for any other work; do
-when ergonomic.
+Opportunistic, not required for feature completeness. Pattern: add
+methods alongside the existing free functions (same body), migrate
+callers function-by-function (perl pass for simple shapes, manual
+fixup for nested arg expressions), then drop the free function and
+its `.bni` declaration. Run `conformance/run.sh boot` after each
+migration; full `basic` at the end of a batch.
+
+**Done:** `pkg/buf.CharBuf` — all seven receiver-taking free
+functions (`WriteByte`, `WriteStr`, `WriteInt`, `WriteHexByte`,
+`Bytes`, `Len`, `Freeze`) migrated to methods and removed. `New`
+and `CopyStr` stay as free functions — they don't take a CharBuf
+receiver. Test pairs collapsed.
+
+**Open candidates** (none required for any other work):
+
+- **`pkg/asm/elf/elf_util.bn:BinBuf`** — same shape as CharBuf
+  (growable byte buffer with `bbU8`/`bbU16`/`bbU32`/`bbU64`/
+  `bbBytes`/`bbZeros`/`bbAlign`/`bbAddr`/`bbGrow`). Mechanical;
+  ~50–100 callers across pkg/asm/elf and tests.
+- **`pkg/asm.Assembler`** — `asm.Emit*` / `asm.AddSection` /
+  `asm.AddRelocation` free functions on `*Assembler`. Larger surface
+  but same mechanical pattern.
+- **`pkg/types.Type`** — `IsInteger(t)`, `IsFloat(t)`,
+  `IsNumeric(t)`, `IsBool(t)`, `IsPointer(t)`, `IsSlice(t)`,
+  `IsNillable(t)`, `Identical(a, b)`, `AssignableTo(src, dst)`,
+  `ResolveAlias(t)`, `SliceElem(t)`, `PointerElem(t)`,
+  `FieldByName(t, name)`, `NeedsDestruction(t)`, `IsConst(t)`,
+  `StripConst(t)`, `TypeName(t)`. Cleanly mechanical;
+  `t.IsInteger()` reads naturally. Many call sites.
+- **`pkg/parser.Parser`** — `next(p)`, `expect(p, tok)`,
+  `got(p, tok)`, `peekTok(p)`, etc. Many small sites; trivial after
+  the perl pass.
+- **`pkg/lexer.Lexer`** — same shape as Parser.
+- **`pkg/ir.Func` / `Block` / `Instr`** — `EmitConstInt(f, b, …)`,
+  `EmitCall(f, b, …)`, `EmitLoad(f, b, …)`, etc. **Needs design
+  first** — most signatures take both Func and Block, so it's not
+  obvious whether the receiver should be Block (`b.EmitConstInt(…)`,
+  drop the Func) or Func (`f.EmitConstInt(b, …)`). Pick one before
+  mechanics.
 
 ## Open questions / pinned for later
 
