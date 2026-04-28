@@ -613,6 +613,124 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - **Timeout/hang handling**: better and/or automatic detection and handling of tests that hang.
 - **Parallelization**: consider running test packages in parallel within a mode.
 
+### ARM32 bare-metal target — MAJOR PROJECT
+- **Why**: enable Binate as an OS-development language on ARM32
+  bare-metal (Cortex-A and possibly Cortex-M). Bare-metal, not Linux —
+  we want to write the OS in Binate, not run on top of one.
+- **Existing substrate that already handles bare-metal cleanly**:
+  - `pkg/asm/arm32` encodes ARMv7-A instructions (data-processing,
+    load/store, multiply/divide, branches, system); 73 unit tests pin
+    bit patterns. Assembler-side is essentially done.
+  - `pkg/asm/elf` emits ELF32 with the right ARM32 reloc set
+    (R_ARM_JUMP24, R_ARM_ABS32). End-to-end tests in
+    `pkg/asm/elf/elf_test.bn` already link with `arm-none-eabi-ld`
+    (bare-metal linker) and run under `qemu-system-arm -semihosting`
+    on virt machine. Three tests: exit, loop sum, function call.
+  - `cmd/bnas` already accepts `.arch arm32` and routes through the
+    ARM32 instruction parser.
+- **What's missing**: an IR-to-machine-code lowering for ARM32 (a
+  `pkg/native/arm32` sibling of `pkg/native/arm64`), and a bare-metal
+  runtime port.
+- **The interesting bit: bare-metal makes the runtime story
+  non-trivial.** Things the language/runtime currently assumes from
+  the host that don't exist on bare metal:
+  - **Allocator**: `pkg/rt`'s managed-pointer/managed-slice
+    allocations go through `bn_rt__c_malloc` / `bn_rt__c_free` /
+    `bn_rt__c_calloc` (libc-shaped C stubs). On bare metal we need
+    a Binate-implemented allocator — probably a simple bump
+    allocator first (no free, suitable for early boot), then a real
+    heap (free-list or buddy). Allocator implementation lives in
+    pkg/rt (or a peer package) and replaces the `c_*` bridges for
+    the bare-metal target. The existing "Un-export `rt.c_*`" TODO
+    is a prerequisite — once those are private, we can swap them.
+  - **`memset` / `memcpy`**: tiny Binate or asm implementations.
+  - **Exit / abort / panic**: semihosting `SYS_EXIT_EXTENDED` for
+    QEMU testing; on real hardware, `wfi` loop or reset.
+  - **I/O**: no stdout/stderr — need a UART driver or semihosting.
+    Two flavors:
+    - Semihosting (used by the existing QEMU tests): debug-only,
+      requires a debugger / QEMU. Useful for development, not for
+      shipping.
+    - UART: target-specific MMIO. Need a small driver per board —
+      PL011 for ARM virt machine, vendor-specific for real hardware.
+      The `bootstrap.Write` extern would dispatch to a board-defined
+      `uart_putbyte` instead of `write(2)`.
+  - **`bootstrap.*` shape**: today's bootstrap.bni is libc-shaped
+    (Open / Read / Write / Stat / Args). Bare metal has no
+    filesystem and no argv. We'd want a smaller bare-metal-friendly
+    bootstrap interface — probably just an output sink and a panic.
+    The `formatInt` / `formatBool` / `formatFloat` helpers stay
+    (they're pure Binate); only the I/O surface changes.
+- **Boot**: a tiny crt0 in asm (or Binate inline-asm if we ever add
+  it) to set up the stack, zero BSS, copy .data from flash to RAM,
+  then jump to `bn_main`. Provided as a per-board file alongside the
+  linker script.
+- **Linker script**: per-board memory map (text/rodata in flash, data
+  in RAM, BSS, stack at top of RAM, optional MMU page tables for A-
+  class). The QEMU virt machine convention (text at 0x40000000) is a
+  good first target.
+- **Two paths to actual codegen**, similar to the ARM32-Linux
+  consideration but with bare-metal twists:
+  - **LLVM-via-clang**: pass `--target=armv7a-none-eabi`,
+    `-mfloat-abi=soft` (or `hard` if we want NEON/VFP), no sysroot.
+    Fastest to first-light, but the LLVM dependency is heavier on a
+    bare-metal toolchain story (we'd need to ship clang + lld or
+    require the user to have a cross toolchain installed).
+  - **Native pkg/native/arm32**: full sibling of `pkg/native/arm64`.
+    AAPCS32 calling convention (NGRN over R0..R3, args 5+ on stack,
+    return values in R0..R3, large-aggregate return via the hidden
+    pointer in R0). Mach-O isn't relevant here — only ELF32 output.
+    No external dependency once written. Larger upfront cost; closer
+    to the OS-language goal of "no LLVM at runtime."
+- **Testing**: the existing `pkg/asm/elf` semihosting harness scales
+  up — write conformance programs that use only the bare-metal
+  runtime surface, link with `arm-none-eabi-ld`, run under QEMU
+  with `-semihosting`. Once the UART driver lands, switch to
+  reading stdout from QEMU's serial0.
+- **Adjacent in-flight items that affect this**:
+  - "Un-export `rt.c_*`" — direct prerequisite for swapping the
+    allocator/memops bridges per-target.
+  - "Native AArch64 backend cluster A" — in flight; the
+    common AAPCS dispatch helper in `pkg/native/common` is shared
+    between ARM64 and a future ARM32, so ARM32 work shouldn't start
+    until the ARM64 native backend is stable enough that we know the
+    common shape is right.
+  - The compiler/interpreter interop work is independent of this —
+    interop is mostly a layout/representation question, not a
+    target question.
+- **Suggested first milestone**: get a meaningful subset of
+  conformance running on QEMU via the LLVM backend with semihosting
+  I/O. Concretely:
+    - Pick the codegen path: LLVM-via-clang first
+      (`--target=armv7a-none-eabi -mfloat-abi=soft`). Defer the
+      native `pkg/native/arm32` backend until LLVM-via-clang
+      validates the runtime/boot/linker story.
+    - Implement a bump allocator in `pkg/rt` (no free) — enough for
+      every conformance test that doesn't actually run out of memory.
+      Allocations touch managed-pointer / managed-slice paths only,
+      so this is the same surface the existing `c_malloc`/`c_calloc`
+      bridges expose. Wire it behind a build-mode switch alongside
+      the existing libc-bridges path.
+    - Implement semihosting `SYS_EXIT_EXTENDED` (already used by the
+      pkg/asm/elf QEMU tests) and `SYS_WRITE0` for putchar/print.
+      Replace `bootstrap.Write` (the I/O primitive everything
+      eventually funnels into after the print rewire) with the
+      semihosting variant for this target.
+    - Add `memset` / `memcpy` in pure Binate (or a tiny inline-asm
+      wrapper if one is later added).
+    - Conformance tests that DON'T touch file I/O / argv / dirs
+      should pass: arithmetic, control flow, structs, slices,
+      managed pointers, methods, etc. Probably 200+ of the existing
+      278. Tests that rely on `bootstrap.Open` / `Read` / `Args` /
+      `Stat` / `ReadDir` / `Exec` would be excluded for v1.
+- **Plan doc**: write `explorations/plan-arm32-bare-metal.md` to
+  cover the items above plus: target board choice (probably QEMU
+  virt + one real Cortex-A board for v1), full allocator design
+  (bump first, heap second), the bare-metal `bootstrap.bni` shape,
+  the boot/linker-script convention, and the inventory of
+  `bootstrap.*` calls in self-hosted code that would have to either
+  go away or get bare-metal stubs.
+
 ### Compiler/interpreter interop — MAJOR PROJECT
 - **Why this is high priority**: dual-mode execution is a core promise of the
   Binate language. Compiled-and-interpreted code calling each other (in both
