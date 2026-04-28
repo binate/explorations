@@ -58,6 +58,40 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Migrated `pkg/parser/parser.bn:135` (the original `// LONG-LINE
   ALLOWED` site) to use the new feature.
 
+### pkg/types unit tests fail under bytecode-VM modes (target.PointerSize)
+- 10 of pkg/types' tests fail under boot-comp-int /
+  boot-comp-comp-int / boot-comp-comp (and likely any mode that
+  routes through pkg/vm), but pass under boot. Reproduces locally
+  on 2026-04-27.
+- Failing set: TestSizeOfPointers, TestSizeOfSlice,
+  TestAlignOfPrimitives, TestAlignOfArray, TestSizeOfUniformStruct,
+  TestSizeOfMixedStruct, TestFieldOffsetMixed,
+  TestFieldOffsetPackedSmall, TestSizeOfNestedStruct,
+  TestSizeOfStructWithSlice. Common thread: every failure depends on
+  `target.PointerSize` (the global TargetInfo struct in
+  `pkg/types/scope.bn`).
+- TestSizeOfPrimitives passes — only int8/16/32/64 with explicit
+  Width, no path through ptrSize() / target.
+- Likely VM bug reading mutable global struct-field state:
+  `initTarget()` checks `target.PointerSize == 0` then writes
+  `target.PointerSize = 8`. Either the write isn't being persisted
+  back to the global slot, or subsequent reads see a stale zero.
+  Could be an OP_LOAD/OP_STORE issue on global-variable struct
+  fields specifically, since slice-field tests (TestSizeOfSlice,
+  TestSizeOfStructWithSlice) also fail and slice layout depends on
+  `4 * ptrSize()`.
+- **Investigation steps**:
+  - Confirm: print target.PointerSize after initTarget() runs in a
+    tiny VM repro to see if the write is actually visible.
+  - Bisect: this didn't fail in earlier sessions — find the commit
+    that introduced the regression. (Last green run for these tests
+    needs to be located via gh run list.)
+  - Compare boot vs boot-comp-int IR for the failing tests; look
+    for differences in how OP_LOAD on the global is lowered.
+- Not blocking conformance (only unit tests); CI Unit-tests
+  workflow is failing because of this and the (now-fixed) arm64
+  test count.
+
 ### Clarify rules for integer literals and constant expressions
 - The bootstrap interpreter rejects hex literals with the high bit set
   (`strconv.ParseInt(..., 16, 64)` overflows int64), e.g.
