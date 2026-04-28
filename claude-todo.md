@@ -351,7 +351,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ### ~~Bounds checks on `s[i]` / `s[lo:hi]` are not wired up~~ — DONE
 - `emitIndexBoundsCheck` helper added in `pkg/ir/gen_access.bn`; called from `genIndex`, from the multi-return / EXPR_INDEX assign paths in `gen_control.bn`, and from `genSliceExpr` (two checks: hi against len+1, lo against hi+1). `unsafe_index` stays check-free — `genIndex` takes a `checked bool` param and `EXPR_INDEX` passes true while `unsafe_index` passes false.
-- Conformance tests 298–303 cover index OOB on slice/array, index-assign OOB, slice-hi OOB, slice lo>hi, and negative slice lo. Test 301 xfailed on boot only because Go's bootstrap interpreter formats the trap message differently.
+- Conformance tests 309–314 cover index OOB on slice/array, index-assign OOB, slice-hi OOB, slice lo>hi, and negative slice lo. Tests 312/313/314 xfailed on boot only because Go's bootstrap interpreter formats the trap message differently. (Original numbers 298–303; renumbered when conformance suite duplicates were resolved.)
 
 ### ~~`const` type modifier~~ — Stages 0–2c LANDED; Stage 3 deferred
 - Stage 0 (syntax + TYP_CONST wrapper kind), Stage 1 (enforcement
