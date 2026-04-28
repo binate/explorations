@@ -131,30 +131,87 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   TestAlignOfPrimitives, TestAlignOfArray, TestSizeOfUniformStruct,
   TestSizeOfMixedStruct, TestFieldOffsetMixed,
   TestFieldOffsetPackedSmall, TestSizeOfNestedStruct,
-  TestSizeOfStructWithSlice. Common thread: every failure depends on
-  `target.PointerSize` (the global TargetInfo struct in
-  `pkg/types/scope.bn`).
+  TestSizeOfStructWithSlice. Common thread: every failure exercises
+  `target.PointerSize` (the global TargetInfo struct, declared in
+  `pkg/types.bni` and reserved with storage in `pkg/types/scope.bn`).
 - TestSizeOfPrimitives passes — only int8/16/32/64 with explicit
   Width, no path through ptrSize() / target.
-- Likely VM bug reading mutable global struct-field state:
-  `initTarget()` checks `target.PointerSize == 0` then writes
-  `target.PointerSize = 8`. Either the write isn't being persisted
-  back to the global slot, or subsequent reads see a stale zero.
-  Could be an OP_LOAD/OP_STORE issue on global-variable struct
-  fields specifically, since slice-field tests (TestSizeOfSlice,
-  TestSizeOfStructWithSlice) also fail and slice layout depends on
-  `4 * ptrSize()`.
-- **Investigation steps**:
-  - Confirm: print target.PointerSize after initTarget() runs in a
-    tiny VM repro to see if the write is actually visible.
-  - Bisect: this didn't fail in earlier sessions — find the commit
-    that introduced the regression. (Last green run for these tests
-    needs to be located via gh run list.)
-  - Compare boot vs boot-comp-int IR for the failing tests; look
-    for differences in how OP_LOAD on the global is lowered.
-- Not blocking conformance (only unit tests); CI Unit-tests
-  workflow is failing because of this and the (now-fixed) arm64
-  test count.
+
+#### Diagnosis (revised — 2026-04-27)
+
+The original "write doesn't persist / read sees stale zero" hypothesis
+was wrong. Diagnostic tests written into pkg/types nailed down a
+sharper symptom:
+
+- A bare LOAD of `target.PointerSize` from test-package code returns
+  the **field's address**, not the value at that address. Concretely,
+  `bit_cast(int, &target.PointerSize)` and direct `target.PointerSize`
+  produce the same number (a heap address like `49346361104`).
+- `(&target.PointerSize)[0]` (raw pointer dereference of the same
+  address) correctly returns 0 — confirming the underlying memory IS
+  zero-initialized by `materializeGlobals`.
+- After ANY explicit write (`target.PointerSize = 99`, or
+  `setTarget32()`, etc.), all subsequent reads of the field return
+  the value correctly.
+- `initTarget()`'s body never runs because its conditional
+  `if target.PointerSize == 0` reads the field-address (a large
+  non-zero number), not the zero-initialized value, and so skips the
+  write that would have set 8.
+
+Mapping this to bytecode: `lowerLoad` in `pkg/vm/lower_memory.bn`
+emits `BC_MOV` (which just copies the source register) when
+`instr.Typ.Kind` is one of {STRUCT, SLICE, MANAGED_SLICE, ARRAY},
+and `BC_LOAD64` otherwise. The test-code LOAD on `target.PointerSize`
+must be hitting the BC_MOV branch — which would mean its `Typ.Kind`
+isn't TYP_INT as expected, but one of the multi-word kinds.
+
+**Crucially**, `ptrSize()` in scope.bn (which does the same field
+read in source) does NOT exhibit this — diag test
+`TestDiagPtrSizeDirect` calls ptrSize() and gets the right value.
+So the same source expression, IR-gen'd in the same module, produces
+different OP_LOAD types depending on call site / surrounding code.
+That's the missing piece.
+
+#### What's been ruled out
+- `materializeGlobals` zero-init: confirmed correct via
+  `(&target.PointerSize)[0] == 0`.
+- Global-table eviction across modules: each `LowerModule` call
+  resets `globalNames`/`globalAddrs`, but BC_LOAD_IMM bakes the
+  target's heap address into the bytecode at lower-time, so later
+  resets don't invalidate already-lowered code.
+- BC_FIELD_PTR offset: `FieldOffset(TargetInfo, 0) = 0`, and the
+  raw-pointer probe shows the address is correct.
+- The conditional-write pattern itself: a tiny conformance program
+  (mimicking initTarget's `if X == 0 { X = 8 }` shape, in main, with
+  a local `var g T`) passes under boot and boot-comp-int. The bug
+  needs the specific pkg/types setup to manifest.
+
+#### Side bug discovered en route
+- `&` on EXPR_SELECTOR (e.g. `&target.PointerSize`) is broken in
+  IR-gen — falls through to evaluating the selector as a value. See
+  separate "&` on EXPR_SELECTOR doesn't return a field pointer"
+  entry above. That bug means `&target.PointerSize` and
+  `target.PointerSize` happen to return the same number under VM
+  (both produce the LOAD result), which initially confused this
+  diagnosis.
+
+#### Next investigation steps
+1. **Dump bytecode side-by-side** for `ptrSize()` (in scope.bn) and a
+   minimal test-code function that reads `target.PointerSize`. Find
+   the BC_LOAD64 vs BC_MOV difference and walk back to the OP_LOAD's
+   `Typ.Kind` at IR-gen time.
+2. **Probe `lookupFieldType(si, "PointerSize")`** when called from
+   test-code IR-gen vs scope.bn IR-gen. The test-code call may be
+   getting back a struct-typed result instead of int — possibly
+   because of how the .bni-only `TargetInfo` declaration interacts
+   with `pkg.Merged` ordering, or because of state in
+   `moduleStructs` at the moment of generation.
+3. **Bisect**: this didn't fail in earlier sessions — find the
+   commit that introduced the regression via `gh run list`. The
+   triggering change is likely in IR-gen (gen_selector / gen_module)
+   or in how `pkg.Merged` is built for test packages, not in the VM.
+- Not blocking conformance (only unit tests); CI Unit-tests workflow
+  is failing because of this and the (now-fixed) arm64 test count.
 
 ### Clarify rules for integer literals and constant expressions
 - The bootstrap interpreter rejects hex literals with the high bit set
