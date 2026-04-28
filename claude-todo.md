@@ -288,13 +288,27 @@ That's the missing piece.
   on out-of-range PC-rel fixups; macho writer rejects unsupported
   fixup-kind→reloc mappings; new tests in `pkg/asm/aarch64` and
   `pkg/asm/macho`.
-- **Cluster A** (still failing): pkg/types, pkg/asm/macho, pkg/asm/parse,
-  pkg/asm/aarch64, pkg/native/arm64, pkg/codegen, pkg/vm, pkg/ir.
-  Each test-binary crashes mid-test with a runtime OOB or SIGSEGV.
-  Likely a small number of shared root causes — needs reduction to
-  conformance programs and per-cluster diagnosis. (A pre-existing
-  `pkg/asm/arm32.TestLdrshImm` crash also lands here — surfaced
-  during cluster B work; same shape as the other cluster A crashes.)
+- **Cluster A — partial** (`ca9f287` + `ac7be3f`): a tight conformance
+  reduction (`332_struct_arg_forward_inserts`) caught the
+  pkg/asm/macho TestLoopSum crash. Root cause: `regPool(i)` returns
+  X15 for any index >= 6, so `getOperand` (for the source pointer)
+  and `scratchReg` (for the load temp) both hand out X15 once
+  m.Next exceeds the pool. The collision turns the per-word ldr/str
+  into `ldr x15, [x15, #N]` chasing through loaded values — eventually
+  faults on the first NULL it traces. Fixed in emitCall's stack-arg
+  branch by hardcoding X16 (AAPCS intra-call scratch) for the load
+  temp; safe across ldr/str (no `bl` between).
+  - **pkg/asm/macho** unblocked. Other cluster A packages (pkg/types,
+    pkg/asm/parse, pkg/asm/aarch64, pkg/native/arm64, pkg/codegen,
+    pkg/vm, pkg/ir) need verification via a clean re-sweep — they
+    may be the same bug or other distinct crashes.
+  - pkg/types specifically had a different shape pre-fix: crash inside
+    RefInc writing to a read-only memory region (`r--`), suggesting a
+    bad managed pointer — possibly unrelated to the X16 collision.
+  - Larger root cause: regPool's saturation at X15 is unsafe in
+    general. A real fix spills when the pool is exhausted (or grows
+    the pool); the X16 patch only covers this one call site. Worth
+    a follow-up.
 - **Cluster B — DONE** (`43ab7a3`): one root cause for all 22 failures
   — native ARM64 mishandled multi-return tuples with sub-word fields.
   The caller-side spill walked by 8-byte word, losing the second
@@ -304,7 +318,21 @@ That's the missing piece.
   19 dpEnc-family tests in pkg/asm/arm32 all pass.
 - Full inventory + plan of action in `explorations/native-aa64-bugs.md`.
 - CI hookup for `boot-comp_native_aa64` is intentionally not landed
-  yet — wait for clusters A and B.
+  yet — wait for cluster A residual + clean re-sweep.
+
+### Native AArch64 backend — regPool saturation (cluster A follow-up)
+- `pkg/native/arm64/arm64_regmap.bn`: `regPool(i)` returns X15 for
+  any `i >= 6`. The pool is X9..X15 (7 slots). When more SSA values
+  are simultaneously live than the pool has, both `nextReg` and
+  `scratchReg` collapse to X15, silently aliasing distinct values.
+- The cluster A X16 fix patches this for one specific call site. Any
+  other call site that uses `scratchReg` while a same-pool reg holds
+  a live value risks the same collision.
+- Real fix: spill on pool exhaustion (or grow the pool, with the
+  spill-on-exhaustion fallback). Today the codegen doesn't have a
+  spill mechanism for in-instruction temporaries, so this is
+  non-trivial. Tracked separately so the cluster-A entry can close
+  cleanly when the rest of the cluster is sorted.
 
 ### ~~Remove OP_CALL_BUILTIN and the empty C-runtime manifest~~ — DONE (`0b7dd90`)
 - After Step 2b (print rewired to `bootstrap.formatX` + `bootstrap.Write`)
