@@ -261,35 +261,20 @@ That's the missing piece.
   - Run under lldb / Address Sanitizer (compile bni with `--cflag -fsanitize=address` per the `--cflag` precedent from earlier debugging) to catch the bad access at the moment it happens.
   - The bug likely lives in pkg/vm or a runtime helper called from VM-interpreted code; native-compiled cmd/bni doesn't trigger it.
 
-### Native AArch64 backend — float args via D-registers (`287_float_println`)
-- The native arm64 backend has float arithmetic / comparison / casts /
-  literals working: conformance 279, 280, 281, 282, 283 pass on
-  `boot-comp_native_aa64`. **287 (`float_println`) fails** because
-  float scalar args still go through GP regs, not D regs.
-- After the print rewire (`Step 2b: rewire print(int)` and follow-ups),
-  `print(floatExpr)` now lowers to `bootstrap.formatFloat(v, buf)` +
-  `bootstrap.Write(STDOUT, buf)`. The first arg of `formatFloat` is a
-  `float64`. AAPCS64 says float scalar args go to D(NSRN) — D0 for the
-  first one — but the native call emitter only tracks NGRN (X0..X7) and
-  spreads the float bits into a GP register, so the callee reads
-  garbage and prints nothing (the test gets empty output).
-- Fix: extend `pkg/native/common`'s AAPCS dispatch helper with NSRN
-  tracking. For each float scalar arg, place at D(NSRN), NSRN += 1.
-  emitCall writes the bit pattern into D(NSRN) instead of X(NGRN);
-  emitFunc prologue receives float params from D regs and stores to
-  spill slots.
-- Plan-receivers Stage 9-style mechanical work: the rest of the calling
-  convention (everything except float arg/return placement) is in
-  place, so this is contained to the dispatch helper + call/prologue
-  emitters + a couple of unit tests for the new instruction encodings
-  (FMOV via D regs at the boundary).
-- Originally captured in `explorations/plan-native-floats.md` (deleted
-  alongside its sibling `plan-native-aapcs-args.md`, both retired
-  2026-04-27 since stages 1–4 of the float plan and all of the AAPCS
-  plan landed in pkg/native/common + pkg/native/arm64). Plan's Stage 5
-  references `bn_print_float`, which is gone — the actual call site is
-  `bootstrap.formatFloat` now, but the underlying dispatch problem is
-  the same.
+### ~~Native AArch64 backend — float args via D-registers (`287_float_println`)~~ — DONE (`8cd555e`)
+- Two-part fix:
+  - `common.IsFloatScalarTyp` and `CallArgRegStart` / `CallArgStackOff`
+    / `CallStackBytes` skip floats from the GP NGRN budget. Mixed
+    `(int, float, *[]u8)` signatures now place the slice at X1..X2
+    instead of X2..X3 (`bootstrap.formatFloat(v float64, buf *[]uint8)`
+    is the canonical case).
+  - `emitFunc` prologue tracks NSRN separately and reads each float
+    param from D(NSRN) via FMOV → scratch GP → spill slot, mirroring
+    `emitCall`'s already-present caller-side NSRN handling.
+- Tests: `pkg/native/common.TestIsFloatScalarTyp` and
+  `TestCallArgRegStartSkipsFloats` lock in the dispatch behavior.
+  Conformance 287_float_println passes on `boot-comp_native_aa64`;
+  full native conformance 278/278.
 
 ### Native AArch64 backend — unit-test packages failing under `boot-comp_native_aa64`
 - Conformance suite passes end-to-end under `boot-comp_native_aa64`,
