@@ -7,8 +7,6 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 ## TODO
 
 ### ~~Method receivers (no interfaces)~~ — DONE
-- Plan: `plan-receivers.md` (Stages 1–8 complete; Stage 9 self-hosted
-  migration is opportunistic — see entry below).
 - Methods supported across all four execution paths: boot (Go
   interpreter), boot-comp (LLVM), boot-comp-int (bytecode VM),
   boot-comp_native_aa64 (ARM64 native).
@@ -26,15 +24,18 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   case, and the three negative cases (alias, builtin, duplicate).
 - Bootstrap subset: methods are now in (`bootstrap-subset.md`,
   Functions section). `impl Type : Interface` and method values
-  remain deferred.
+  remain deferred — see "Function values" / "Cross-package method
+  visibility in .bni" entries below for the open follow-ups.
+- Decision summary in `claude-notes.md` § "Method resolution &
+  dispatch — DECIDED" (receiver kinds, smoothing, naming, `_`
+  receiver name).
 
-### Stage 9 of plan-receivers — migrate self-hosted code to methods
-- Plan: `plan-receivers.md` § Stage 9. Opportunistic; not required
-  for any other feature work. Pattern: add methods alongside free
-  functions, migrate callers per function (perl pass for simple
-  shapes, manual fixup for nested args), drop the free function +
-  `.bni` decl. `conformance/run.sh boot` after each migration; full
-  `basic` at the end of a batch.
+### Migrate self-hosted code to method form (opportunistic)
+- Pattern: add methods alongside free functions (same body), migrate
+  callers per function (perl pass for simple shapes, manual fixup for
+  nested args), drop the free function + `.bni` decl.
+  `conformance/run.sh boot` after each migration; full `basic` at the
+  end of a batch.
 - ~~`pkg/buf.CharBuf`~~ — DONE (commits `174666c` Len, `1d5a4f9`
   Bytes, `b3cd116` Freeze, `e4a90fb` WriteHexByte, `b8799cb`
   WriteInt, `b7958f3` WriteByte, `80e3ac8` WriteStr, `8f96357` test
@@ -273,6 +274,29 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Target**: `{funcPtr, closureCtx}` pair matching compiled representation. For VM-interpreted functions, `funcPtr` would be a trampoline that dispatches into the VM using `closureCtx` to find the bytecode, closure env, types, and aliases.
 - **Current**: bootstrap subset doesn't have closures or first-class function values, so representation hasn't been forced yet.
 - **When this blocks**: closures, function values in slices/maps, callbacks between compiled and VM-interpreted code.
+- **Method values** (`x.M` as a first-class value) and method expressions
+  (`T.M`) are deferred to the same feature work — they're a closure with
+  the receiver bound. Once function values land, methods can adopt the
+  same representation.
+
+### Cross-package method visibility in `.bni`
+- Methods defined on a public type in package `foo` need to be declared
+  in `foo.bni` for callers in other packages to see them — analogous to
+  the existing `.bni` rules for free functions and types (covered by
+  conformance tests 235/236, "Verify .bni vs .bn visibility semantics"
+  is DONE).
+- Currently, methods *do* work cross-package (conformance 330/331 cover
+  it via `pkg/buf.CharBuf` methods called from `main`) because IR-gen's
+  `RegisterImport` registers methods from the imported package's `.bn`
+  source via the loader. That's a happy accident of the loader path, not
+  a deliberate visibility design.
+- Open: should `.bni` method declarations be required for cross-package
+  visibility (matching free functions / types), and should the type
+  checker enforce that? Today methods skip the `.bni` requirement.
+- When picking this up, look at: how `pkg/buf.bni` declares its type but
+  not its methods, yet cross-package callers still resolve them; whether
+  to extend `checkBniSignatureMatch` to methods; whether `.bni` method
+  decls are mandatory or just allowed.
 
 ### ~~Verify .bni vs .bn visibility semantics~~ — VERIFIED
 - Private functions (235) and types (236) in `.bn` but not `.bni` are correctly rejected by both type checkers.
