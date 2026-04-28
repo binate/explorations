@@ -81,32 +81,45 @@ symbol. Same bug likely lurks in any package big enough to need it.
 Probable fix scope: small (a few lines in
 `pkg/asm/macho` reloc emission), but needs care.
 
-### Cluster A — Seven test-binary crashes (probably 1–3 shared root causes)
+### Cluster A — pkg/asm/macho RESOLVED, 7 packages still failing
 
-Crashing tests across pkg/types, pkg/asm/macho, pkg/asm/parse,
-pkg/asm/aarch64, pkg/native/arm64, pkg/codegen, pkg/vm. The fact that
-each of these tests passes under `boot-comp` (LLVM backend) means it's
-the native backend's lowering that is wrong for the patterns those
-tests use.
+**pkg/asm/macho — DONE** (`ca9f287` + `ac7be3f`). Conformance test
+`332_struct_arg_forward_inserts` reduces the TestLoopSum failure to a
+4-line shape: a function takes a >16-byte struct by value and forwards
+it to another call that inserts extra register-args between the
+received args and the struct (e.g.
+`Add(a, sf, rd, rn, op) -> emitDPOp(a, sf, REG_OPC, IMM_OPC, rd, rn, op)`).
 
-What we *don't* know yet is which patterns. The test names suggest
-varied surfaces:
+Root cause: in `emitCall`'s "aggregate goes entirely on stack" branch,
+both `getOperand` (returning the source-pointer reg) and `scratchReg`
+(picking a load temp) hand out X15 once `m.Next` exceeds 6 — because
+`regPool(i)` saturates at X15. The collision turned the per-word
+ldr/str sequence into
 
-- `TestTarget32StructLayout` (pkg/types): no codegen, just layout
-  computation — should pass everywhere. Crashing here strongly suggests
-  the **test binary itself** (compiled via native backend) has a bad
-  prologue / stack-layout / parameter-passing bug that hits in this
-  particular call shape.
-- `TestEmitMakeSlice` (pkg/codegen): exercises the IR layer's
-  `EmitMakeSlice` plumbing — likely allocates and indexes a slice in
-  the test, which probes the backend's slice/indexing codegen.
-- `TestEmitConstNilAggregateZeroesAndPoints` (pkg/native/arm64):
-  ironically a test of the native backend itself, run under the native
-  backend.
+    ldr x15, [x15, #N]    ; field N — clobbers x15 (was source ptr)
+    ldr x15, [x15, #N+8]  ; uses x15 (now field N) as base — chases
+                          ;   through loaded values, eventually NULL
 
-Plan: reduce 1–2 of these to a minimal conformance program (see
-"Conformance reproductions" below). Many will likely collapse to the
-same root cause once reduced.
+Fix: hardcode X16 (AAPCS intra-call scratch, safe across ldr/str)
+for the load temp in this one call site. Larger root cause —
+`regPool` saturation at X15 — tracked separately.
+
+**Remaining cluster A** (7 packages, all original failures persist):
+
+| Package | First-failing test | Notes |
+|---|---|---|
+| pkg/types | `TestIntTypes` (after `TestTypeName`/`TestPredeclaredTypes` FAIL with empty msg) | Crash in `_bn_rt__RefInc` writing refcount to `0x2e2ebdb68` — a `r--` (read-only) memory region. Looks like libmalloc tiny-zone metadata; the codegen is RefInc-ing a non-managed pointer. Test pattern: `var t @T = TypInt()` (managed-pointer global return). Conformance reductions of the same shape don't reproduce — bug requires more specific conditions that haven't been isolated. |
+| pkg/asm/parse | `TestParseMov` | Not investigated. Small package, good next target. |
+| pkg/asm/aarch64 | `TestResolveFixupsAdrOutOfRangeIsError` (NEW since 491ac60 — original `TestAddReg64` now passes) | Test loops 262144 times emitting NOPs to push past ±1MB ADR range. Either the loop itself or the large-data emit triggers a backend bug. May be its own thing; passes under boot-comp. |
+| pkg/native/arm64 | `TestEmitConstNilAggregateZeroesAndPoints` | Not investigated. The native backend's own test, run under the native backend. |
+| pkg/codegen | `TestEmitMakeSlice` | Not investigated. Exercises IR-layer EmitMakeSlice plumbing. |
+| pkg/vm | `TestRepro_StructWithManagedSliceFieldAppend` | Runtime OOB (`index out of bounds: 0 (len 0)`) — most informative failure, prints a Binate-runtime panic before dying. Test name suggests already a reduced repro from prior work. |
+| pkg/ir | `TestGenIndex*` (e.g. `TestGenIndexAssignEmitsBoundsCheck` — runtime OOB on garbage int `-8070450532247928832`) | Likely the same shape as the pkg/vm failure — uninitialized slice header with garbage `len` field. |
+
+Likely several distinct root causes. The pkg/types crash (RefInc into
+read-only memory) is structurally different from the pkg/ir/pkg/vm
+crashes (uninitialized slice headers). Reducing each to a tight
+conformance program is the right next step.
 
 ### Cluster B — Assertion failures in pkg/asm/arm32 + pkg/asm/elf — RESOLVED (`43ab7a3`)
 
