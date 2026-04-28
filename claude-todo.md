@@ -292,9 +292,16 @@ That's the missing piece.
   pkg/asm/aarch64, pkg/native/arm64, pkg/codegen, pkg/vm, pkg/ir.
   Each test-binary crashes mid-test with a runtime OOB or SIGSEGV.
   Likely a small number of shared root causes — needs reduction to
-  conformance programs and per-cluster diagnosis.
-- **Cluster B** (still failing): pkg/asm/arm32 (19/73 asserts fail),
-  pkg/asm/elf (3/22). Likely one or two encoding bugs each.
+  conformance programs and per-cluster diagnosis. (A pre-existing
+  `pkg/asm/arm32.TestLdrshImm` crash also lands here — surfaced
+  during cluster B work; same shape as the other cluster A crashes.)
+- **Cluster B — DONE** (`43ab7a3`): one root cause for all 22 failures
+  — native ARM64 mishandled multi-return tuples with sub-word fields.
+  The caller-side spill walked by 8-byte word, losing the second
+  X-register for `(uint32, uint32)`; emitExtract used 64-bit LDR for
+  sub-word fields. Fixed by walking by FIELD (with sized stores) and
+  size-dispatching through emitScalarLoad. pkg/asm/elf 22/22; the
+  19 dpEnc-family tests in pkg/asm/arm32 all pass.
 - Full inventory + plan of action in `explorations/native-aa64-bugs.md`.
 - CI hookup for `boot-comp_native_aa64` is intentionally not landed
   yet — wait for clusters A and B.

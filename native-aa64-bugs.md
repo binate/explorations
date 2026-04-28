@@ -108,19 +108,43 @@ Plan: reduce 1–2 of these to a minimal conformance program (see
 "Conformance reproductions" below). Many will likely collapse to the
 same root cause once reduced.
 
-### Cluster B — Assertion failures in pkg/asm/arm32 + pkg/asm/elf
+### Cluster B — Assertion failures in pkg/asm/arm32 + pkg/asm/elf — RESOLVED (`43ab7a3`)
 
-Both packages run their tests to completion but report wrong-byte
-results:
+All 22 cluster B failures came from a single root cause: native ARM64
+codegen mishandled multi-return tuples whose fields are smaller than
+an 8-byte word, e.g. `(uint32, uint32)`.
 
-- `pkg/asm/arm32`: 19 of 73 tests fail
-- `pkg/asm/elf`: 3 of 22 tests fail
+- `pkg/asm/elf`: 3/3 cluster B failures fixed → 22/22 passing on
+  `boot-comp_native_aa64`.
+- `pkg/asm/arm32`: 19/19 cluster B failures fixed (all `TestAdd*`,
+  `TestSub*`, `TestAnd*`, `TestOrr*`, `TestEor*`, `TestBic*`,
+  `TestMov*`, `TestMvn*`, `TestCmp*`, `TestTst*`, `TestTeq*`,
+  `TestAdc*`, `TestSbc*`). The package as a whole still fails because
+  of a pre-existing `TestLdrshImm` crash (cluster A material —
+  unrelated to cluster B's encoding bugs and already on pristine main
+  before this fix).
 
-These are assembler-encoding tests that compare bytes to expected
-literals. Likely a single backend bug (e.g. wrong constant lowering for
-specific bit patterns, wrong byte order somewhere) is showing up in
-multiple tests. Need to capture the verbose failure output (which test
-expected what vs got what) to characterize.
+Two related code paths were broken:
+
+1. Caller-side spill in `emitCall`'s return-collect (`pkg/native/arm64/
+   arm64_ops.bn`): walked by 8-byte word (`SizeOf(tuple) / 8`), but
+   the callee returns each value in its own X register. For
+   `(uint32, uint32)` — total size 8 bytes / 1 word — the loop stored
+   only X0; X1 was lost. Fix: walk by FIELD; aggregate fields keep
+   their per-word spread, scalar fields take one X-register and use
+   a sized store at `FieldOffset(tuple, fi)` so a uint32 doesn't
+   clobber its 8-byte-cell neighbor.
+
+2. `emitExtract` for sub-word fields: a 64-bit LDR at slot+4 read 8
+   bytes from a slot only 8 bytes long. Fix: size-dispatch through
+   `emitScalarLoad` (matches the existing pattern in `emitLoad`).
+
+The dpEnc tests in pkg/asm/arm32 were the canonical caller — `dpEnc`
+calls `encodeOperand2(op) → (uint32, uint32)`, which is exactly the
+tuple shape that broke. pkg/asm/elf had a similar shape elsewhere.
+
+Regression test: `pkg/native/arm64.TestEmitExtractMultiReturnUint32-
+FieldUsesScalarLoad`.
 
 ## Plan of action
 
@@ -154,10 +178,9 @@ maximize information per run.
    root cause. After each Cluster-A fix, re-run the failing
    pkg-list with `-q` and re-tabulate.
 
-4. **Cluster B — capture full failure detail.** Re-run pkg/asm/arm32
-   and pkg/asm/elf verbosely, save the per-test mismatches, look for a
-   pattern (one bit consistently wrong? one opcode family wrong?). May
-   collapse to a single fix.
+4. ~~**Cluster B — capture full failure detail.**~~ — DONE (`43ab7a3`).
+   Single root cause: multi-return tuples with sub-word fields. See
+   the cluster B section above for the writeup.
 
 5. **Re-evaluate CI hookup once the dust settles.** When the failure
    count is in the low single digits (or zero), revisit
