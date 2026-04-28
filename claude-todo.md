@@ -90,37 +90,28 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Migrated `pkg/parser/parser.bn:135` (the original `// LONG-LINE
   ALLOWED` site) to use the new feature.
 
-### `&` on EXPR_SELECTOR doesn't return a field pointer (IR-gen bug)
-- `&target.PointerSize` (or `&local_struct.field`, `&p.field`) does
-  not produce the field's address — `genUnary` in
-  `pkg/ir/gen_expr.bn:255-273` only special-cases `&ident` and
-  `&arr[i]`. Anything else falls through to
-  `return genExpr(ctx, b, e.X)`, which evaluates the selector as a
-  value (i.e. emits the LOAD) and then the surrounding code treats
-  that loaded value as if it were a pointer.
-- Symptom under boot: panics with "pointer indexing not supported"
-  when the supposed pointer is then indexed (e.g. `(&s.field)[0]`).
-- Symptom under VM: silently returns whatever the selector LOAD
-  returned (often nonsense) and downstream pointer arithmetic
-  reads/writes the wrong memory.
+### ~~`&` on EXPR_SELECTOR doesn't return a field pointer (IR-gen bug)~~ — FIXED (`8866baa`)
+- Pre-fix: `genUnary`'s `&` arm only special-cased EXPR_IDENT and
+  EXPR_INDEX; an EXPR_SELECTOR fell through to `genExpr(e.X)` which
+  emitted the LOAD of the field. Result: `&s.f` came back as the
+  field VALUE rather than a field pointer; downstream
+  deref/write-through touched the wrong memory.
+- Fix shape was as anticipated: one branch in `genUnary`'s `&` arm
+  routing EXPR_SELECTOR through `genSelectorPtr` (which already
+  handles value structs, `@Struct`, `*Struct`, and indexed-element
+  struct fields).
+- Tests: `conformance/334_amp_on_selector` covers all four shapes
+  (xfailed on boot — bootstrap doesn't support `*int` index-assign,
+  separate issue not under test here). pkg/ir unit test
+  `TestGenAmpOnLocalSelector` pins the IR shape directly: `&p.x`
+  must produce OP_GET_FIELD_PTR and must NOT produce OP_LOAD-of-
+  GET_FIELD_PTR.
 - Discovered while writing diagnostic tests for the
   pkg/types-VM-regression entry below — `&target.PointerSize` and
-  `target.PointerSize` returned the same number (the field address),
-  which initially looked like a VM-LOAD bug; turned out to be this
-  IR-gen omission.
-- **Fix sketch**: in `genUnary`'s `&` arm, add an `EXPR_SELECTOR`
-  branch that calls `genSelectorPtr` (already exists for the
-  assignment side) and returns its result. The selector-ptr helper
-  already handles the same struct/managed-ptr/raw-ptr matrix as
-  selector reads, so this is a small wiring change rather than new
-  logic.
-- **Tests**: needs negative + positive conformance coverage —
-  `&local.field`, `&global.field`, `&(*p).field`, `&p.field` (where p
-  is `@Struct`), each followed by a deref or pointer-arithmetic use to
-  observe correctness.
-- Likely no callers in the self-hosted codebase rely on the broken
-  behavior (since it crashes under boot and silently misbehaves under
-  VM), so fixing it shouldn't regress anything.
+  `target.PointerSize` returned the same number (the field address)
+  in the VM, which initially looked like a VM-LOAD bug; that turned
+  out to be a separate `IsGlobalRef` issue (also fixed), and the
+  selector-`&` bug was the second bug they were tangled up with.
 
 ### ~~pkg/types unit tests fail under bytecode-VM modes (target.PointerSize)~~ — FIXED (`1b0cef8`)
 - Symptom: 10 pkg/types tests failed under boot-comp-int /
