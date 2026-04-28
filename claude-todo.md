@@ -621,19 +621,77 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - **Timeout/hang handling**: better and/or automatic detection and handling of tests that hang.
 - **Parallelization**: consider running test packages in parallel within a mode.
 
-### Compiler/interpreter interop
-- **Goal**: enable calling between compiled and interpreted code in both directions.
-- **Start with**: exposing compiled packages to the interpreter.
-  - Pass compiled package objects to the interpreter at init time.
-  - **Question**: how does one specify/describe a package to the interpreter?
-  - **Proposal**: for each package, build an object/struct describing it (based on the .bni). Made available automatically, e.g., `import "pkg/foo"` gives you `foo.Package` (or similar). But naming conflicts are a concern (see import aliases below).
-  - Alternatively, packages could be referred to by path (e.g., `"pkg/foo"`), but that's less powerful. Having package objects means they could also be constructed dynamically in code.
-  - Another option: `foo` itself *is* the package object after import, but this may be confusing. Also unclear what the "self" package object for the current package would be.
-- **Interpreter structure**: separate initialization from calling. Starting a program = init (with main package, search paths, etc.) + call main.
-  - Init could also accept compiled package objects.
-  - Loading could be a series of steps during init, some of which inject package objects.
-  - Maybe loading a package in the interpreter produces a package object, which is then added to the interpreter.
-  - Separating init from call also enables the reverse direction: compiled code calling into the interpreter.
+### Compiler/interpreter interop — MAJOR PROJECT
+- **Why this is high priority**: dual-mode execution is a core promise of the
+  Binate language. Compiled-and-interpreted code calling each other (in both
+  directions) is what makes "compile some packages, interpret others" actually
+  useful. We should make this real BEFORE pushing on more language features —
+  large language additions risk locking in design choices that close off
+  interop options.
+- **Likely-already-compatible substrate** (verify rather than redesign):
+  - **In-memory layout of types** is supposed to match across modes. Compiler
+    uses `pkg/types`'s SizeOf/AlignOf/FieldOffset; interpreter uses (or should
+    use) the same. Verify with a small cross-mode struct-pass test.
+  - **Refcounting**: managed allocations carry a header with refcount and a
+    pointer to the destructor, populated at allocation site. Compiled and
+    interpreted code use the same `rt.RefInc` / `rt.RefDec` / `rt.Free`. Free
+    paths invoke the per-type dtor through the header, so a managed value
+    allocated on one side and dropped on the other should clean up correctly.
+    Verify with a cross-mode managed-pointer round-trip.
+- **Direction to start with**: interpreted code calling compiled code. Simpler
+  than the reverse (no need for the compiler to plant trampolines into a
+  running interpreter). Once that works, compiled code calling interpreted
+  code falls out roughly symmetrically.
+- **Granularity: package-level.** For interpreted code in package P to call
+  into a compiled package Q, the interpreter needs:
+  - Q's `.bni` (so the interpreter can type-check P against Q's signatures —
+    this already works today via the existing `.bni` loading path).
+  - **Pointers to Q's compiled functions** (the actual interop primitive).
+- **Proposed mechanism: auto-generated package descriptor.** The compiler emits,
+  for each package Q, a synthetic `const` of a synthetic struct type — call it
+  e.g. `foo.Package` (working name; could be `foo.PackageImpl` or another
+  canonical name) — whose fields are pointers to Q's exported functions in some
+  canonical order (e.g., sorted by mangled name). The interpreter, when it
+  loads compiled package Q, reads that descriptor and binds each field as the
+  function value for the corresponding name in Q's scope. Naming and layout
+  must be canonical so an interpreter built against Q's `.bni` can read Q's
+  descriptor without further metadata.
+- **Symmetry**: the interpreter should produce the same shape on its own end —
+  for each interpreted package, expose a `foo.Package` whose function-pointer
+  fields are trampolines into the interpreter (call into the bytecode VM
+  using the trampoline's bound bytecode/closure-env/types/aliases). That way
+  compiled code calling interpreted code is the same mechanism, mirrored.
+- **Prerequisite**: function values. We need at least basic function-value
+  representation for the descriptor's fields (pointers to functions) to be
+  expressible. The compiled-VM-compatible representation in the "Function
+  values" entry below is exactly the substrate this needs — a single
+  `{funcPtr, closureCtx}` pair that both sides can construct and consume.
+- **Design open questions** (need a writeup before implementation):
+  - Canonical name for the descriptor — `foo.Package` reads naturally but
+    risks conflicting with user names. `foo.PackageImpl` or a reserved-prefix
+    name (`__pkg_foo`)? Reserve a keyword?
+  - Canonical layout — sort by mangled name? By declaration order in `.bni`?
+    Layout must be agreed-upon by the descriptor's emitter and reader.
+  - Interaction with import aliases (`import alt "pkg/foo"`) and blank imports
+    (`import _ "pkg/foo"`) — see the "Import aliases and blank imports" entry.
+  - What does the descriptor look like for the package being compiled itself
+    (the "self" descriptor)?
+  - How are package-level globals exposed? Functions are the obvious starting
+    point; globals are a separate (but related) interop question.
+  - Versioning: if Q's `.bni` and Q's compiled descriptor disagree (different
+    function set, different layout), how do we detect and report it?
+- **Adjacent in-flight work that affects this**:
+  - "Function values: compiled-VM-compatible representation" (below) — direct
+    prerequisite.
+  - "Lift function-name qualification into IR" (above) — would simplify name
+    resolution at the interop boundary.
+  - "Import aliases and blank imports" (below) — affects how the descriptor
+    is named at the import site.
+- **Suggested next step**: write a design doc (e.g.
+  `explorations/plan-compiler-interp-interop.md`) that nails down the
+  descriptor name/layout, walks through one concrete cross-mode call end-to-
+  end on each side, and identifies the first concrete code change to make.
+  Don't start implementation until the design is reviewed.
 
 ### Import aliases and blank imports
 - Do we support Go-like `import somethingelse "pkg/foo"` currently? We'll likely need this.
