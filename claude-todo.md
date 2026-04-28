@@ -751,13 +751,14 @@ Binate is NOT Go. The two types of slice are intentionally different:
       managed pointers, methods, etc. Probably 200+ of the existing
       278. Tests that rely on `bootstrap.Open` / `Read` / `Args` /
       `Stat` / `ReadDir` / `Exec` would be excluded for v1.
-- **Plan doc**: write `explorations/plan-arm32-bare-metal.md` to
-  cover the items above plus: target board choice (probably QEMU
-  virt + one real Cortex-A board for v1), full allocator design
-  (bump first, heap second), the bare-metal `bootstrap.bni` shape,
-  the boot/linker-script convention, and the inventory of
-  `bootstrap.*` calls in self-hosted code that would have to either
-  go away or get bare-metal stubs.
+- **Plan doc**: `explorations/plan-arm32-bare-metal.md` exists as a
+  **DRAFT** (initial sketch — not yet ratified). Covers the items
+  above plus: target board choice (QEMU virt + one real Cortex-A
+  board TBD), allocator design (bump first, heap second), bare-
+  metal `bootstrap.bni` shape, boot/linker-script convention, and a
+  placeholder for the per-package inventory of `bootstrap.*` calls
+  (the inventory itself is deferred to a follow-up). Needs review
+  pass before any implementation begins.
 
 ### Compiler/interpreter interop — MAJOR PROJECT
 - **Why this is high priority**: dual-mode execution is a core promise of the
