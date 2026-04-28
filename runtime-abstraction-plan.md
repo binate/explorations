@@ -102,48 +102,76 @@ All three sub-items landed:
 
 **Depends on**: 3.1 (done)
 
-### 3.3. Reimplement I/O functions in Binate
+### 3.3. Reimplement I/O functions in Binate — DONE
 
-**What**: `bn_print_string`, `bn_print_int`, `bn_print_bool`, `bn_print_newline`, `bn_print_chars`, `bn_exit`.
+All `bn_print_*` and `bn_exit` removed from C. The decoupling didn't
+land in `pkg/io` — instead `bootstrap.Write` (already a thin wrapper
+over POSIX `write`) became the single sink, and IR-gen now lowers
+`print(x)` to `bootstrap.formatX(x) + bootstrap.Write(1, …)`. This
+keeps the C surface smaller (one shared `write` stub instead of one
+per print variant). See `plan-print-builtin-runtime-decoupling.md` for
+the multi-step rollout (Steps 1, 2a, 2b, 3, 3.1, 3.2).
 
-**Implementation approach**:
-- Add `c_write(fd int, buf *uint8, len int) int` to `rt_stubs.c` (wraps POSIX `write`)
-- Add `c_fflush()` to `rt_stubs.c` (wraps `fflush(stdout)`) — or we can just use `write` directly and skip buffering
-- Reimplement `print_string` and `print_chars` as `c_write(1, data, len)` (write to fd 1 = stdout)
-- Reimplement `print_int` in Binate: integer-to-decimal conversion + `c_write`
-- Reimplement `print_bool` in Binate: write "true" or "false"
-- Reimplement `print_newline` as `c_write(1, "\n", 1)`
-- `bn_exit` → `rt.c_exit` (already exists)
+Specific landings:
+- Step 2b (`42260b2` chain): `print(int)` → `bootstrap.formatInt` +
+  `bootstrap.Write`; `bn_print_int` removed.
+- Step 3 (`af19ca7`): `print(string)` / `print(bool)` / `println` /
+  `print(@[]char)` / `print(*[]char)` all routed through
+  `bootstrap.Write` (with `bootstrap.formatBool` for bools);
+  `bn_print_string` / `bn_print_bool` / `bn_print_chars` /
+  `bn_print_newline` removed.
+- Step 3.1 (`6bd55dd`): `print(float)` → `bootstrap.formatFloat` +
+  `bootstrap.Write`; `bn_print_float` and `c_print_float` removed.
+  `formatFloat` is fixed-point (`integer.6digits`) with a
+  ridiculous-but-honest `mantissa*2^exponent` fallback for extreme
+  values — no `%g` dependency.
+- Step 3.2 (`a31cd8a`): `bn_exit` removed; `OP_PANIC` lowers to
+  `rt.Exit` (a Binate wrapper over `rt.c_exit`); runtime manifest now
+  empty.
+- Followup (`0b7dd90`): with the manifest empty and no IR-gen path
+  emitting `OP_CALL_BUILTIN`, the entire opcode + plumbing was
+  removed (see TODO entry).
 
-**Where**: New package `pkg/io` or extend `pkg/rt`
+**Followup**: `print(int)` does an allocation per call (`formatInt`
+returns `@[]char`). A stack-buffer variant would avoid it, but no
+hot path has been identified that cares — left as future cleanup.
 
-**Consideration**: `printf`/`fprintf`/`fwrite` all go through stdio buffering. If we switch to raw `write`, output may interleave differently with stderr. For correctness, unbuffered `write` to fd 1 is fine — Binate programs don't use stdio anyway.
+**Depends on**: Nothing (was independent of 3.1 and 3.2).
 
-**Consideration**: `print_int` needs int-to-decimal conversion, which is the same operation as `Itoa` (3.4). If `Itoa` is done first, `print_int` can reuse the same conversion logic with a stack buffer (no allocation needed — write digits into a `[20]char` array). Alternatively, do `print_int` first with a stack-buffer helper, then `Itoa` wraps the same logic with an allocation.
+### 3.4. Reimplement bootstrap package functions in Binate — PARTIAL
 
-**Depends on**: Nothing (independent of 3.1 and 3.2), but shares int-to-string logic with `Itoa` in 3.4
+**What**: The 11 `bn_bootstrap__*` functions originally in
+`binate_runtime.c`. Pure-computation pieces are done; POSIX-touching
+pieces still in C.
 
-### 3.4. Reimplement bootstrap package functions in Binate
+**Status of each**:
+- **String** (`Itoa`, `Concat`): DONE in `e8e4172` — pure Binate in
+  `pkg/bootstrap/bootstrap.bn` using `rt.Alloc`. Not exposed as
+  `IsCExtern`; the per-decl `IsCExtern` fix (driven off body
+  presence) is what made this safe to mix into a partly-C package.
+- **File I/O** (`Open`, `Read`, `Write`, `Close`): still in C. Need
+  `c_open` / `c_read` / `c_write` / `c_close` stubs in `rt_stubs.c`
+  + Binate wrappers handling path null-termination and flag
+  translation. (Note: `c_write` would also displace `bootstrap.Write`'s
+  current direct use of POSIX `write` from C, since `bootstrap.Write`
+  is now the single output sink for all print/println.)
+- **File system** (`ReadDir`, `Stat`): still in C.
+- **Process** (`Exit`, `Exec`): still in C. (`bootstrap.Exit` is
+  distinct from `rt.Exit` — the bootstrap one is the user-facing
+  exit, `rt.Exit` is the panic-path exit.)
+- **Args**: still in C — needs the entry-point work in 3.5 to give
+  Binate access to argc/argv before it can move.
 
-**What**: The 11 `bn_bootstrap__*` functions currently in `binate_runtime.c`.
+**Priority order for the remaining work**:
+1. File I/O — needed for compiler self-host on libc-free targets.
+2. `Stat` — small; pairs with file I/O.
+3. `ReadDir`, `Exec` — only compiler driver uses these; not needed
+   for compiled user programs on the target.
+4. `Args` — blocked on 3.5 (entry-point rework).
+5. `Exit` — trivial wrapper over `c_exit`; do alongside file I/O.
 
-**Functions** (grouped by what they need):
-- **File I/O**: `Open`, `Read`, `Write`, `Close` — need POSIX syscalls (open/read/write/close)
-- **File system**: `ReadDir`, `Stat` — need POSIX syscalls (getdents/stat)
-- **Process**: `Exit`, `Exec` — need POSIX syscalls (exit_group, fork/execve/waitpid)
-- **Arguments**: `Args` — need access to argc/argv (from program entry point)
-- **String**: `Itoa`, `Concat` — pure computation + allocator
-
-**Implementation approach**:
-- `Itoa` and `Concat`: rewrite in pure Binate (use `rt.Alloc` for the managed-slice backing). These are straightforward.
-- File I/O (`Open`, `Read`, `Write`, `Close`): add `c_open`, `c_read`, `c_write`, `c_close` to `rt_stubs.c`. Implement the Binate wrappers (path null-termination, flag translation) in `pkg/bootstrap`.
-- `ReadDir`, `Stat`: add `c_stat`, `c_opendir`, `c_readdir`, `c_closedir` stubs. Or use raw syscalls (getdents64 + fstat).
-- `Exec`: add `c_fork`, `c_execvp`, `c_waitpid` stubs. This is complex — consider if it's needed for ARM32. (Answer: probably not initially — ARM32 target doesn't need to run the compiler driver.)
-- `Args`: the `main()` function in `binate_runtime.c` stores argc/argv in globals. Binate's `bn_main` currently takes no args. We need a way to pass argc/argv. Options: (a) global variables set before `bn_main`, (b) change `bn_main` signature.
-
-**Priority**: `Itoa` and `Concat` are easy wins. File I/O is needed for the compiler to self-host. `Exec` and `ReadDir` are lower priority — only the compiler driver uses them, not compiled user programs.
-
-**Depends on**: 3.2 (uses allocator patterns established there)
+**Depends on**: 3.2 (uses allocator patterns established there).
+`Args` additionally depends on 3.5.
 
 ### 3.5. Reimplement program entry point
 

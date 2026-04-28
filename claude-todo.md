@@ -163,28 +163,31 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - CI hookup for `boot-comp_native_aa64` is intentionally not landed
   yet — wait for clusters A and B.
 
-### Remove OP_CALL_BUILTIN and the empty C-runtime manifest
+### ~~Remove OP_CALL_BUILTIN and the empty C-runtime manifest~~ — DONE (`0b7dd90`)
 - After Step 2b (print rewired to `bootstrap.formatX` + `bootstrap.Write`)
   and Step 3.2 (`bn_exit` migrated to `rt.Exit`, runtime manifest
-  emptied), no IR-gen path emits `OP_CALL_BUILTIN`. The opcode +
-  plumbing is dormant and can be removed.
-- Surface to remove:
-  - `pkg/ir.bni` / `pkg/ir/ir_ops.bn`: `OP_CALL_BUILTIN`,
-    `EmitCallBuiltin`, op-name dispatch, `TestEmitCallBuiltin` in
-    `ir_ops_test.bn`.
-  - `pkg/ir/runtime.bn` (entire file once empty): `RuntimeFunc`,
-    `RuntimeFuncs`, `RT_*` kinds, `makeRtFunc`; plus `runtime_test.bn`.
-  - `pkg/codegen/emit.bn`: the `RuntimeFuncs()` loop, `emitRuntimeDecl`,
-    `runtimeKindToType` helpers; `OP_CALL_BUILTIN` arms in
-    `emit_util.bn`, `emit_instr.bn`, `emit_ops.bn`.
-  - `pkg/native/common/common.bn`: `OP_CALL_BUILTIN` checks (~6 sites).
-  - `pkg/native/arm64/arm64.bn`: `OP_CALL_BUILTIN` arm.
-  - `pkg/vm/lower.bn`: `OP_CALL_BUILTIN` arm.
-- Risk: low — every backend handles `OP_CALL_BUILTIN` identically to
-  `OP_CALL` (or as a near-twin), and the producer is gone, so removal
-  is mechanical. Already dropped a stale E2E test in `pkg/native/arm64`
-  (`927eacf`) — the IR API contract test in `ir_ops_test.bn` still
-  exists and will move/delete with the rest.
+  emptied), no IR-gen path emitted `OP_CALL_BUILTIN`. Plumbing was
+  dormant; this commit removed it (20 files, −332 lines net).
+- Removed: `pkg/ir/runtime.bn` + `runtime_test.bn` (entire files);
+  `OP_CALL_BUILTIN`, `EmitCallBuiltin`, op-name dispatch arm, and the
+  `RuntimeFunc`/`RuntimeFuncs`/`RT_*` block from `pkg/ir.bni` +
+  `pkg/ir/ir_ops.bn`; `RuntimeFuncs()` declare-emission loop +
+  `emitRuntimeDecl` + `rtKindToLLVM` from `pkg/codegen/emit.bn`;
+  `OP_CALL_BUILTIN` arms from `emit_util.bn` / `emit_ops.bn` /
+  `emit_instr.bn`; `OP_CALL_BUILTIN` arms (~6 sites) from
+  `pkg/native/common/common.bn`; arm from `pkg/native/arm64/arm64.bn`;
+  `isBuiltin` parameter from `pkg/native/arm64/arm64_ops.bn:emitCall`
+  (collapses `_underscorePrefix` vs `symFor` to `symFor` only);
+  `BC_CALL_BUILTIN` from `pkg/vm.bni` + `pkg/vm/vm_exec.bn` +
+  `pkg/vm/lower_instr.bn` + `pkg/vm/lower.bn`; `execBuiltin` from
+  `pkg/vm/vm_extern.bn`; `TestEmitCallBuiltin` from
+  `pkg/ir/ir_ops_test.bn`.
+- Verified: boot 202/202, boot-comp 278/278, boot-comp-int 271/271,
+  boot-comp-comp 278/278, boot-comp-comp-int 277/277. Hygiene 9/9.
+- Cherry-pick onto main (post-merge with `pkg/buf` Stage-9 migrations)
+  required one-file conflict resolution in `pkg/codegen/emit_ops.bn`:
+  combined the OP_CALL_BUILTIN-arm collapse with main's `.Bytes()`
+  method-syntax migration. boot-comp 278/278 post-merge confirms.
 
 ### Un-export `rt.c_*` — wrap in Binate, hide from .bni
 - Today `pkg/rt.bni` exports the C-stub bridges (`c_malloc`, `c_calloc`, `c_free`, `c_memset`, `c_memcpy`, `c_call_dtor`, `c_bounds_fail`, plus historically `c_exit` and `c_print_float`). They're conceptually implementation details, not part of pkg/rt's public API. Direct callers in pkg/* and cmd/* tie the rest of the codebase to the libc-target shape — on a libc-free target the same operations would dispatch through syscall stubs (or be inlined in Binate).
