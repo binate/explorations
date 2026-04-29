@@ -81,7 +81,7 @@ symbol. Same bug likely lurks in any package big enough to need it.
 Probable fix scope: small (a few lines in
 `pkg/asm/macho` reloc emission), but needs care.
 
-### Cluster A — pkg/asm/macho RESOLVED, 7 packages still failing
+### Cluster A — pkg/asm/macho RESOLVED, 2 distinct fixes landed
 
 **pkg/asm/macho — DONE** (`ca9f287` + `ac7be3f`). Conformance test
 `332_struct_arg_forward_inserts` reduces the TestLoopSum failure to a
@@ -93,28 +93,39 @@ received args and the struct (e.g.
 Root cause: in `emitCall`'s "aggregate goes entirely on stack" branch,
 both `getOperand` (returning the source-pointer reg) and `scratchReg`
 (picking a load temp) hand out X15 once `m.Next` exceeds 6 — because
-`regPool(i)` saturates at X15. The collision turned the per-word
-ldr/str sequence into
+`regPool(i)` saturates at X15. Fix: hardcode X16 (AAPCS intra-call
+scratch, safe across ldr/str) for the load temp in this one call
+site. Larger root cause — `regPool` saturation at X15 — tracked
+separately.
 
-    ldr x15, [x15, #N]    ; field N — clobbers x15 (was source ptr)
-    ldr x15, [x15, #N+8]  ; uses x15 (now field N) as base — chases
-                          ;   through loaded values, eventually NULL
+**Multi-return tuples > 64 bytes** (`ae1b4c3` + `ab4bba7`).
+Conformance test `335_multi_return_big_tuple` reduces the trigger to
+an 8-line shape: any function returning two structs whose combined
+size exceeds 64 bytes (the X0..X7 packing limit). The native backend
+silently dropped bytes past word 8 with no fallback to the
+AAPCS-style sret indirect path used for single >64-byte aggregate
+returns. Fix: extend the sret path to multi-return tuples. New
+helpers `FuncReturnsBigMultiReturn` / `CallReturnsBigMultiReturn`;
+PlanFrame allocates SretSlotOff for these too; emitCall points X8
+at the spill slot before BL and skips the register-collect after;
+emitReturn writes through the loaded X8 at FieldOffset for each arg.
 
-Fix: hardcode X16 (AAPCS intra-call scratch, safe across ldr/str)
-for the load temp in this one call site. Larger root cause —
-`regPool` saturation at X15 — tracked separately.
+This was the proximate cause of pkg/asm/parse's TestParseMov silent
+crash (`LexNext(l) (Lexer, Token)` returns 40+64 = 104 bytes), but
+fixing it unmasked a downstream `index out of bounds: 0 (len 0)` —
+the package still fails for an unrelated reason.
 
-**Remaining cluster A** (7 packages, all original failures persist):
+**Remaining cluster A** (7 packages, distinct bugs):
 
 | Package | First-failing test | Notes |
 |---|---|---|
 | pkg/types | `TestIntTypes` (after `TestTypeName`/`TestPredeclaredTypes` FAIL with empty msg) | Crash in `_bn_rt__RefInc` writing refcount to `0x2e2ebdb68` — a `r--` (read-only) memory region. Looks like libmalloc tiny-zone metadata; the codegen is RefInc-ing a non-managed pointer. Test pattern: `var t @T = TypInt()` (managed-pointer global return). Conformance reductions of the same shape don't reproduce — bug requires more specific conditions that haven't been isolated. |
-| pkg/asm/parse | `TestParseMov` | Not investigated. Small package, good next target. |
+| pkg/asm/parse | `TestParseMov` (post multi-return fix: now `runtime error: index out of bounds: 0 (len 0)`) | Multi-return ABI fix moved past the silent crash; what remains is a Binate runtime panic — a slice somewhere along the parse path is empty when expected to have content. Probably easier to track now; needs lldb stack at panic to identify the slice. |
 | pkg/asm/aarch64 | `TestResolveFixupsAdrOutOfRangeIsError` (NEW since 491ac60 — original `TestAddReg64` now passes) | Test loops 262144 times emitting NOPs to push past ±1MB ADR range. Either the loop itself or the large-data emit triggers a backend bug. May be its own thing; passes under boot-comp. |
-| pkg/native/arm64 | `TestEmitConstNilAggregateZeroesAndPoints` | Not investigated. The native backend's own test, run under the native backend. |
-| pkg/codegen | `TestEmitMakeSlice` | Not investigated. Exercises IR-layer EmitMakeSlice plumbing. |
-| pkg/vm | `TestRepro_StructWithManagedSliceFieldAppend` | Runtime OOB (`index out of bounds: 0 (len 0)`) — most informative failure, prints a Binate-runtime panic before dying. Test name suggests already a reduced repro from prior work. |
-| pkg/ir | `TestGenIndex*` (e.g. `TestGenIndexAssignEmitsBoundsCheck` — runtime OOB on garbage int `-8070450532247928832`) | Likely the same shape as the pkg/vm failure — uninitialized slice header with garbage `len` field. |
+| pkg/native/arm64 | `TestNextRegAdvancesPool` (NEW failure — original `TestEmitConstNilAggregateZeroesAndPoints` now passes) | Multi-return + X16 fixes unblocked many earlier tests; now stuck on a regmap-test crash. Test does `make(common.RegMap)` then a couple of nextReg calls. RegMap struct grew a managed-pointer field (`MultiReturnType @types.Type`) for the multi-return fix, so this may be a managed-struct-with-managed-field codegen issue — though small conformance reductions of that shape pass. |
+| pkg/codegen | `TestEmitMakeSlice` (`TestEmitMultiReturn` now passes after multi-return fix) | Test runs `compileToLLVM(src)` then substring-checks the output for `bn_rt__MakeManagedSlice`. The crash is somewhere along that path — needs reduction. |
+| pkg/vm | `TestRepro_StructWithManagedSliceFieldAppend` | Runtime OOB (`index out of bounds: 0 (len 0)`) — same shape as pkg/asm/parse's residual. May share root cause. |
+| pkg/ir | `TestGenIndex*` (e.g. `TestGenIndexAssignEmitsBoundsCheck` — runtime OOB on garbage int `-8070450532247928832`) | Likely uninitialized slice header with garbage `len` field. May share root cause with pkg/asm/parse / pkg/vm residuals. |
 
 Likely several distinct root causes. The pkg/types crash (RefInc into
 read-only memory) is structurally different from the pkg/ir/pkg/vm
