@@ -213,10 +213,32 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   8. New symptom (2026-04-26 post-fix): `001_hello` runs for ~218s (vs 35s pre-fix), peaks at ~152 MiB RSS, then exits with SIGSEGV (139). No "vm: stack overflow" — this is genuine memory corruption / bad pointer, not a VM-stack issue.
 - **Why progress matters**: pre-fix, the leak hit overflow within ~35s of useful work. Post-fix, ~6× more work happens before any failure, so the next bug is much further along the execution. The new SIGSEGV is a separate (heap-side) bug, not a regression.
 - Not in the `all` modeset, so CI/default runs don't exercise it.
+- **Confirmed 2026-04-29**: any boot-comp-int-int run is currently
+  broken by this — `001_hello` (no floats, no exotic features)
+  produces empty output and "fails" after ~246s, identical pattern
+  to test 283 and test 272. So the per-test xfails on
+  boot-comp-int-int are misleading: the mode itself is broken at
+  the runtime level. Future per-test xfails on this mode aren't
+  worth tracking until the SIGSEGV root cause is found.
 - **Next** (skipped this session — needs separate investigation):
   - Identify what's at 152 MiB RSS — is the heap growing without bound (leak), or is it a one-shot bad alloc that crashes after some pattern of work?
   - Run under lldb / Address Sanitizer (compile bni with `--cflag -fsanitize=address` per the `--cflag` precedent from earlier debugging) to catch the bad access at the moment it happens.
   - The bug likely lives in pkg/vm or a runtime helper called from VM-interpreted code; native-compiled cmd/bni doesn't trigger it.
+
+### ~~conformance/283_float_untyped: VM float32 storage~~ — FIXED (`882893c`)
+- VM registers carry IEEE bits in their declared width — float64 in
+  8 bytes, float32 in low 4 bytes (zero-extended). float64 → float32
+  needs a real IEEE conversion (the exponent biases differ); the
+  prior lowering emitted BC_MOV, which left float32 storage
+  containing the low half of a float64 bit pattern (garbage).
+- Fix added BC_F64_TO_F32, BC_F32_TO_F64, and BC_F32TOSI; lowerCast
+  now picks the right one for f64↔f32 width changes and f32→int.
+  lowerLoad/lowerStore for float32 stay as 4-byte sub-word ops; the
+  cast does the conversion.
+- 283 now passes boot-comp-int and boot-comp-comp-int (both in
+  `all`); xfail markers removed. The boot-comp-int-int xfail was
+  also dropped — the test still fails there but only because the
+  mode itself is broken (see entry above).
 
 ### ~~Native AArch64 backend — float args via D-registers (`287_float_println`)~~ — DONE (`8cd555e`)
 - Two-part fix:
