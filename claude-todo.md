@@ -178,6 +178,20 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Spec change goes in claude-notes.md; remove the rule from the
   hygiene/bootstrap-subset docs once both impls handle it.
 
+### boot-comp-int: cross-pkg multi-return struct destructure clobbers struct on 2nd+ call
+- Repro: `conformance/157_cross_pkg_struct_multiret` in `boot-comp-int`. Marked `xfail.boot-comp-int`.
+- Surfaced 2026-04-28 while cleaning conformance tests of non-whitelisted imports — the test was rewritten to use a self-contained `pkg/counter` fixture (was `pkg/strtab` + `pkg/buf`). The rewrite changed the failure mode but not the fact of failure: previous xfail tracked "VM native stack overflow: execLoop frame too large for deep cross-pkg calls" via the buf-method-chain receiver; the new fixture is shallow and shows a different underlying VM bug.
+- Symptom: `main.bn` calls `c, prev = counter.Bump(c, ...)` twice. First destructure: `prev1=0`, `c` intact after. Second destructure: `prev2` and the post-destructure `c` both come out as garbage memory addresses (e.g. `49559896704`). `counter.InternalBump(...)` (single-return, not cross-pkg multi-return) is unaffected.
+  ```
+  expected:    actual (boot-comp-int):
+  0            0
+  5            49559896704
+  12           49559896920
+  100          100
+  ```
+- Hypothesis: VM's tuple-destructure path for cross-package multi-return where one returned value is a struct (here `Counter`) doesn't preserve the destination's storage across the second call — likely overlapping src/dst or stale frame pointer. The first call works because the destructure target is freshly initialized; the second call's target is the existing `c`, and it gets overwritten with something pointing into the popped callee frame.
+- Not investigated in depth. Single-package multi-return likely works (e.g. `conformance/320_struct_return_loop`). Cross-package + struct return is the wrinkle.
+
 ### boot-comp-int-int: SIGSEGV after ~218s (post-BC_RETURN-fix)
 - (Mode renamed from `boot-comp-int2-int2` after the int2→int rename in `b1e4f98`.)
 - History (2026-04-25/26):
