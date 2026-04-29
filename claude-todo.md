@@ -321,7 +321,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - `rt.CallDtor(dtor *uint8, ptr *uint8)` is the one Binate-runtime C extern that survived the pkg/libc migration. Implemented in C as `bn_rt__CallDtor` (a one-liner: `((void(*)(void*))dtor)(ptr)`).
 - It exists only because Binate doesn't yet have callable function-pointer types — the language can compute and store function addresses (`bit_cast(*uint8, &__dtor_X)`) but can't write `dtor(ptr)` against an arbitrary `*uint8`. Once function values are first-class (see "Function values" below), `RefDec` and the bytecode VM's dtor dispatch can call directly: `var f func(*uint8); f(ptr)`.
 - The VM additionally maintains a special override: in `pkg/vm/vm_extern.bn`'s `rt.CallDtor` arm, the dtor argument is interpreted as a 1-based VM function index (not a real C function pointer) and dispatched via `execFunc`. With proper function values that carry both a code pointer and a closure context, this override gets unified — the compiled code path follows the function pointer; the VM path follows the closure context to bytecode.
-- **Blocked on**: "Function values: compiled-VM-compatible representation". Not standalone work.
+- **Blocked on**: Phase 1 of `plan-function-values.md` (non-capturing function values). Not standalone work — Phase 1 was specifically picked to be the smallest unlock that retires CallDtor.
 - When that lands: drop `rt.CallDtor` from `pkg/rt.bni`, delete `runtime/rt_stubs.c` entirely (only `bn_rt__CallDtor` lives there now), inline the function call into `RefDec` and the VM dtor dispatch using the new function-value syntax, and remove the special-case arm in `vm_extern.bn`.
 
 ### Lift function-name qualification into IR (shared across backends)
@@ -360,15 +360,97 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Fix**: changed `var runtimePath *[]char` to `var runtimePath @[]char = buf.CopyStr(cli.RuntimePath)` in test.bn, matching the pattern already used in main.bn.
 - **CI now runs all modes** including boot-comp-comp and boot-comp-comp-comp.
 
-### Function values: compiled-VM-compatible representation (required for interop)
-- Function values MUST use the same representation in compiled and VM-interpreted code, because function values can be passed between the two modes.
-- **Target**: `{funcPtr, closureCtx}` pair matching compiled representation. For VM-interpreted functions, `funcPtr` would be a trampoline that dispatches into the VM using `closureCtx` to find the bytecode, closure env, types, and aliases.
-- **Current**: bootstrap subset doesn't have closures or first-class function values, so representation hasn't been forced yet.
-- **When this blocks**: closures, function values in slices/maps, callbacks between compiled and VM-interpreted code.
-- **Method values** (`x.M` as a first-class value) and method expressions
-  (`T.M`) are deferred to the same feature work — they're a closure with
-  the receiver bound. Once function values land, methods can adopt the
-  same representation.
+### Function values — MAJOR PROJECT (interop prerequisite)
+- **Plan doc**: `explorations/plan-function-values.md` (DRAFT — see
+  for representation, phasing, and open questions).
+- **Reframed scope**: function values were originally framed as
+  "blocked on / a piece of interop." Inverted: data interops fine
+  via shared `.bni` layout; what crosses the compiled/interpreted
+  boundary at runtime are *exported functions and methods passed
+  as values*. The package descriptor the interop work needs is just
+  a struct of function values per export. So function values are
+  the **upstream prerequisite** for the broader interop project,
+  not a sub-item of it.
+- **Representation**: 2-word `{vtable, data}`, identical to
+  interface values. Per-(signature, capture-shape) static vtable
+  carries `call` (per-shape shim or VM trampoline) and `dtor`
+  (closure-struct destructor for the type-erased data field).
+  Function types are structural — `*func(...)` / `@func(...)` —
+  with no user-visible "function interface" declaration; the
+  compiler synthesizes the impls at function-literal and method-
+  value sites.
+- **Frontend syntax**: `*func(int) int` raw / `@func(int) int`
+  managed, mirroring the slice migration (`*[]T` / `@[]T`) and the
+  proposed interface revision. Bare `func(...)` is not a usable
+  type.
+- **Phasing** (per the plan doc):
+  - Phase 1 — non-capturing function values (locks in the 2-word
+    ABI, retires `rt.CallDtor`).
+  - Phase 2 — closures + method values (capture analysis,
+    receiver-capture model from the plan doc, heap/stack alloc per
+    raw/managed).
+  - Phase 3 — cross-mode trampolines (per-signature trampoline
+    generation; unlocks the broader interop work).
+- **Backend dependency**: function values share the vtable layout
+  and dispatch path with interfaces, but **not** the frontend
+  interface syntax. They depend on the runtime/codegen vtable
+  machinery, not on `plan-interface-syntax-revision.md`. Either
+  plan can land first; both share the backend.
+- **Method values** (`x.M`, `T.M`) and **closures** are folded
+  under this plan rather than tracked separately.
+
+### Interface syntax revision — *Stringer / @Stringer + top-level decl
+- **Plan doc**: `explorations/plan-interface-syntax-revision.md`
+  (DRAFT — pending review).
+- **Scope**: revise the IN-PROGRESS interface design in
+  `claude-notes.md` § "Interfaces" before any of it ships. Three
+  shifts:
+  1. Raw / managed forms become `*Stringer` / `@Stringer`
+     (mirroring the slice migration). Bare `Stringer` is no
+     longer a usable type — only a referenceable interface name.
+  2. Top-level `interface Foo { ... }` declaration form replaces
+     `type Foo interface { ... }`. Anonymous interface type
+     expressions are dropped entirely.
+  3. Interface aliasing: `interface MyStringer = Stringer` (or
+     possibly `type MyStringer = Stringer` — open in the plan).
+- **Why**: same UAF-prevention argument as the slice migration —
+  forcing the explicit raw-vs-managed choice prevents the "I
+  thought it was managed" failure mode. Interfaces aren't types
+  in this model; they're named contracts referenced via `*Iface`
+  / `@Iface` / `impl T : Iface`.
+- **No frontend dependency on function values**, and vice versa.
+  Either can land first.
+- **Backend**: vtable machinery (per-(impl, interface) static
+  tables, vtable-indirect dispatch, cross-mode trampoline path)
+  is shared with function values — building it once serves both.
+
+### Free-function pointer in managed-allocation header — bug
+- `pkg/rt/rt.bn` defines a 2-word managed-allocation header:
+  `{refcount, free_fn}`. The `free_fn` slot is intended to carry
+  a per-allocation "which allocator releases me" function pointer
+  — critical for cross-allocator interop (compiled side may
+  allocate via libc; interpreted side may use a different
+  allocator; either side dropping the value must call the *origin
+  allocator's* free, not a globally hardcoded one).
+- **Today**: `Alloc` sets `header[1] = 0` and `Free` calls
+  `c_free` (now `libc.Free`) unconditionally. The slot exists but
+  is never set or read. This is a **real bug**, not a deferred
+  feature — it actively blocks compiler/interpreter interop where
+  the two sides may use different allocators.
+- **Fix scope**:
+  - `Alloc` (and `MakeManagedSlice`'s allocation path) must set
+    `header[1]` to the appropriate free function — for the libc
+    target, `&bn_libc__Free`.
+  - `Free` must read `header[1]` and call through it, not call
+    `libc.Free` directly. `bit_cast` to a function value once
+    function values are landed; until then, an `rt.CallFreeFn`
+    extern (parallel to `rt.CallDtor`) bridging through C.
+  - Audit any other allocation paths to ensure they all set
+    `header[1]` consistently.
+- **Adjacent**: tracks alongside the `rt.CallDtor` retirement, but
+  is independent — fix this bug regardless of when function values
+  land. (Once function values DO land, both `CallDtor` and the
+  free-fn-call can collapse into direct function-value calls.)
 
 ### Cross-package method visibility in `.bni`
 - Methods defined on a public type in package `foo` need to be declared
@@ -752,11 +834,13 @@ Binate is NOT Go. The two types of slice are intentionally different:
   fields are trampolines into the interpreter (call into the bytecode VM
   using the trampoline's bound bytecode/closure-env/types/aliases). That way
   compiled code calling interpreted code is the same mechanism, mirrored.
-- **Prerequisite**: function values. We need at least basic function-value
-  representation for the descriptor's fields (pointers to functions) to be
-  expressible. The compiled-VM-compatible representation in the "Function
-  values" entry below is exactly the substrate this needs — a single
-  `{funcPtr, closureCtx}` pair that both sides can construct and consume.
+- **Prerequisite**: function values (see `plan-function-values.md`). The
+  descriptor's fields are pointers to functions — that's exactly what
+  function values are. The 2-word `{vtable, data}` representation in the
+  function-values plan is the substrate this needs. Phase 3 of that plan
+  (cross-mode trampolines) is specifically the "VM side produces a
+  descriptor whose fields are trampoline-shaped function values that
+  dispatch back into the interpreter" piece of this work.
 - **Design open questions** (need a writeup before implementation):
   - Canonical name for the descriptor — `foo.Package` reads naturally but
     risks conflicting with user names. `foo.PackageImpl` or a reserved-prefix
@@ -772,8 +856,14 @@ Binate is NOT Go. The two types of slice are intentionally different:
   - Versioning: if Q's `.bni` and Q's compiled descriptor disagree (different
     function set, different layout), how do we detect and report it?
 - **Adjacent in-flight work that affects this**:
-  - "Function values: compiled-VM-compatible representation" (below) — direct
-    prerequisite.
+  - "Function values — MAJOR PROJECT" (above) and
+    `plan-function-values.md` — direct prerequisite. Phase 3 of
+    that plan delivers the cross-mode trampoline machinery this
+    work consumes.
+  - "Free-function pointer in managed-allocation header — bug"
+    (above) — separate but interop-critical. Without per-allocation
+    free-fn, a managed value allocated on one side and dropped on
+    the other will hit the wrong allocator.
   - "Lift function-name qualification into IR" (above) — would simplify name
     resolution at the interop boundary.
   - "Import aliases and blank imports" (below) — affects how the descriptor
