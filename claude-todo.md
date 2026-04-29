@@ -325,15 +325,14 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - The cmd/bnc + cmd/bni IR-gen drivers auto-import pkg/libc into every package's IR module (mirroring the existing pkg/rt and pkg/bootstrap auto-imports), so `bn_libc__Memcpy` calls emitted by the backends always have a matching `declare` line. Regression tests in `cmd/bnc/compile_test.bn`.
 - Discovery sequence: rename the wrappers to RawAlloc/RawAllocZero/RawFree/MemCopy/MemZero with proper preconditions (`fde6760`); introduce pkg/libc + migrate pkg/rt (`43179b7`); switch backend memcpy emission to `bn_libc__Memcpy` (`eae28a1`); auto-import pkg/libc (`d3e2081`).
 
-### Retire `rt.CallDtor` — function-pointer dispatch helper
+### Retire `rt.CallDtor` via `OP_CALL_INDIRECT`
+- **Plan doc**: `explorations/plan-call-indirect.md` (DRAFT).
 - `rt.CallDtor(dtor *uint8, ptr *uint8)` is the one Binate-runtime C extern that survived the pkg/libc migration. Implemented in C as `bn_rt__CallDtor` (a one-liner: `((void(*)(void*))dtor)(ptr)`).
-- It exists only because Binate doesn't yet have a way to write `dtor(ptr)` against an arbitrary `*uint8` — the language can compute and store function addresses (`bit_cast(*uint8, &__dtor_X)`) but can't *call* through one.
-- The VM additionally maintains a special override: in `pkg/vm/vm_extern.bn`'s `rt.CallDtor` arm, the dtor argument is interpreted as a 1-based VM function index (not a real C function pointer) and dispatched via `execFunc`.
-- **Two retirement paths under consideration** (see `plan-function-values.md` § "Open question: CallDtor retirement path"):
-  - **Path A — function-value-based**: blocked on Phase 1 of `plan-function-values.md`. RefDec calls dtor through a `@func(*uint8)` value via vtable indirect call. Reuses the same mechanism interfaces and full function values use; symmetric with the future free_fn-in-header path.
-  - **Path B — IR-op for raw indirect call**: independent of `plan-function-values.md`. Add an `OP_CALL_INDIRECT` IR op that takes a raw function pointer + args and lowers to a direct indirect call (compiled) / VM-function-index dispatch (VM). RefDec uses the IR op directly. CallDtor retires immediately, no function-value machinery needed; function values later build *on top of* the same IR op.
-- **Recommended**: Path B — lighter weight, doesn't block on Phase 1, and the IR op is a useful primitive that function values would want anyway. Action: spike Path B as a pre-Phase-1 task; if it works cleanly, land it and retire CallDtor.
-- When CallDtor is retired (either path): drop `rt.CallDtor` from `pkg/rt.bni`, delete `runtime/rt_stubs.c` entirely (only `bn_rt__CallDtor` lives there now), inline the indirect call into `RefDec`, and remove the special-case arm in `vm_extern.bn` (its VM-function-index behavior moves into the OP_CALL_INDIRECT VM lowering, if Path B).
+- It exists only because Binate doesn't yet have a way to write `dtor(ptr)` against an arbitrary `*uint8`.
+- **Approach (decided)**: add an `OP_CALL_INDIRECT` IR op that takes a raw function pointer + args and lowers to a direct indirect call (compiled / native) or VM-function-index dispatch (VM). RefDec uses the IR op directly. `rt.CallDtor` retires; `runtime/rt_stubs.c` deletes; `vm_extern.bn`'s `rt.CallDtor` arm goes away (its VM-function-index special-case moves into the IR op's VM lowering).
+- **Why this approach over function-value-based dispatch**: lighter weight (RefDec doesn't need data-ctx slots or vtable indirection — just a known-shape function-pointer call); doesn't block on `plan-function-values.md` Phase 1; and the IR op is the primitive that Phase 1's vtable-indirect call sequence will be built on, so doing it first de-risks Phase 1.
+- **Pairs with**: "Free-function pointer in managed-allocation header — bug" — same IR op handles `Free` reading and calling through `header[1]`.
+- See `plan-call-indirect.md` for IR-op shape, backend lowerings, phasing, and open questions.
 
 ### Lift function-name qualification into IR (shared across backends)
 - The VM and the compiler both need to avoid cross-package function-name collisions. They currently solve it separately: `pkg/mangle.FuncName(pkgName, name)` produces C-style `bn_asm__New` for LLVM symbols, and `pkg/mangle.QualifyName(pkgShort, name)` produces dot-form `asm.New` for the VM's function table. Both backends extract the short package name from `ir.Module.Name` and apply their own qualification at lower/emit time.
@@ -394,6 +393,10 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   managed, mirroring the slice migration (`*[]T` / `@[]T`) and the
   proposed interface revision. Bare `func(...)` is not a usable
   type.
+- **Upstream prerequisite**: `plan-call-indirect.md`. The
+  `OP_CALL_INDIRECT` IR op is what Phase 1's vtable-indirect call
+  sequence is built on. Lands first; retires `rt.CallDtor` as its
+  first concrete consumer.
 - **Phasing** (per the plan doc):
   - **Phase 1 — backend vtable machinery + non-capturing function
     values.** This is primarily about *building the shared
@@ -402,7 +405,9 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
     compiler + VM). Non-capturing function values are the
     smallest user-visible thing the backend can deliver. The same
     machinery is what user-declared interfaces will need at the
-    runtime layer.
+    runtime layer. Non-capturing call sites use a check-data-nil
+    short-circuit (consistent with other nil-checks in the
+    codebase) rather than always going through the shim.
   - **Phase 2 — closures + method values (DEFERRABLE).** Capture
     analysis, closure-struct generation, receiver-capture for
     method values. **Capture design is open** (by-value vs. by-

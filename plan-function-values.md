@@ -29,10 +29,11 @@ That promotes function values to an upstream prerequisite for:
 - **Higher-order helpers** in libraries (`slices.Map`, `Filter`,
   custom formatters, dispatch tables, etc.).
 
-`rt.CallDtor` retirement is also conventionally tracked under this
-plan, but a lighter-weight path (IR-op for raw-pointer indirect
-call) may retire it without waiting for full function-value
-machinery — see "Open question: CallDtor retirement path" below.
+`rt.CallDtor` retirement is *not* part of this plan — it lands
+ahead of Phase 1 via the `OP_CALL_INDIRECT` IR op (see
+`plan-call-indirect.md`). That op also turns out to be the
+primitive Phase 1's vtable-indirect call sequence is built on,
+so it's upstream of this plan in both senses.
 
 ## Phasing — what each phase actually delivers
 
@@ -184,7 +185,7 @@ uniform shape.
 
 #### Non-capturing: top-level function `f(a, b int) int`
 
-Two equally-defensible implementations:
+Two implementations on the table:
 
 1. **Always-shim**: emit a per-function shim that ignores its data
    arg and tail-calls the real function:
@@ -193,17 +194,22 @@ Two equally-defensible implementations:
    ```
    Vtable.call → shim. Caller always does `vtable.call(value.data,
    args...)` — uniform code path, no branch.
-2. **Check-data-nil**: caller branches on `value.data == nil`; if
-   nil, calls the real function directly with `args...`; otherwise
-   calls through the shim. Skips the shim hop entirely for the
-   common non-capturing case.
+2. **Check-data-nil** *(default)*: caller branches on
+   `value.data == nil`; if nil, calls the real function directly
+   with `args...`; otherwise calls through the shim. Skips the
+   shim hop entirely for the common non-capturing case.
 
-The previous draft claimed (1) costs "one cycle." That's
-overconfident — modern branch predictors make (2) competitive,
-maybe better, especially in tight loops where the data pointer's
-value is predictable. The right answer probably depends on
-benchmarks once Phase 1 lands. Default to (1) for simplicity;
-revisit if profiling shows (2) wins.
+**Default: check-data-nil.** Two reasons: (a) consistency — the
+codebase already uses explicit nil checks at refcounted-pointer
+call sites (`if ptr == nil { return }` in RefInc/RefDec/Free, etc.)
+rather than dispatching through shim functions, and adopting an
+always-shim mode for function values would be inconsistent with
+that; (b) modern branch predictors handle the predictable nil/
+non-nil split well, so the perf argument that originally motivated
+"always-shim, no branch" doesn't really hold. The shim still
+exists for the capturing case (where its body actually does
+something useful with `data`), but non-capturing call sites
+short-circuit it.
 
 #### Capturing closures and method values
 
@@ -332,79 +338,27 @@ values:
 
 (Full rules are part of the Phase 2 capture design.)
 
-## Open question: `rt.CallDtor` retirement path
+## Relationship to `rt.CallDtor` retirement and `OP_CALL_INDIRECT`
 
-Two viable paths, and the right choice may not be "wait for
-function values":
+`rt.CallDtor` retirement is *not* part of this plan. It lands
+ahead of Phase 1 via a separate, lighter-weight path: an
+`OP_CALL_INDIRECT` IR op that takes a raw function pointer +
+args and lowers to a native indirect call (compiled) or VM-
+function-index dispatch (VM). RefDec uses the IR op directly;
+`rt.CallDtor` and `runtime/rt_stubs.c` retire.
 
-### Path A — function-value-based (current default in this plan)
+That work has its own plan: `plan-call-indirect.md`. It's
+upstream of this plan in two ways:
 
-When Phase 1 lands, `RefDec` calls the dtor through a
-`@func(*uint8)` value (or `*func(*uint8)`). The vtable indirect-
-call mechanism handles compiled vs. interpreted dispatch
-uniformly. `rt.CallDtor` is retired because Binate code can now
-write `dtor(ptr)` against a function value directly.
+1. The IR op retires `rt.CallDtor` without waiting for Phase 1.
+2. Function values can be built *on top of* `OP_CALL_INDIRECT` —
+   the compiled-side `call` slot in a vtable becomes "load the
+   slot, OP_CALL_INDIRECT through it." Phase 1's vtable indirect-
+   call sequence is just specialized OP_CALL_INDIRECT.
 
-Pros:
-- Reuses the same mechanism that everything else needs.
-- Symmetric with how RefDec will eventually handle the
-  free_fn-in-header indirection.
-
-Cons:
-- Blocks CallDtor retirement until Phase 1 lands.
-- Heavier than necessary for what RefDec actually wants — RefDec
-  doesn't need the data-ctx slot or vtable indirection; it just
-  needs to call a known-shape function pointer.
-
-### Path B — IR-op for raw indirect call (lighter weight, possibly sooner)
-
-Add an IR op like `OP_CALL_INDIRECT` that takes a raw function
-pointer (`*uint8`) and a list of args, and lowers to a direct
-indirect call. Signature is encoded in the IR. The VM lowering
-interprets the function-pointer operand as a VM function index
-(matching the existing `vm_extern.bn` rt.CallDtor arm's special-
-case behavior); the LLVM lowering is just an indirect call through
-the cast pointer.
-
-Then `RefDec` body uses the IR op directly:
-
-```
-if dtor != nil {
-    // OP_CALL_INDIRECT signature=func(*uint8) on dtor with arg ptr
-    callIndirect(dtor, ptr)
-}
-```
-
-`rt.CallDtor` retires immediately, no function-value machinery
-needed. `runtime/rt_stubs.c` deletes (it only held bn_rt__CallDtor).
-The vm_extern.bn rt.CallDtor arm goes away — its behavior moves
-into the VM's lowering of the new IR op.
-
-Pros:
-- Doesn't block on Phase 1.
-- More primitive than function values — function values can be
-  built ON TOP of OP_CALL_INDIRECT later (the compiled-side `call`
-  slot in a vtable becomes "OP_CALL_INDIRECT through this slot").
-- Cleaner factoring overall: indirect call is a more fundamental
-  primitive than typed function values.
-
-Cons:
-- Adds an IR op + per-backend lowering that we'd want anyway, but
-  introduces it earlier than the rest of the function-value work.
-- The signature-handling story (which signatures does the IR op
-  support? how is the signature encoded?) needs design — but it's
-  contained.
-
-### Recommendation
-
-Path B looks like the better factoring. Function values build on
-top of a primitive indirect-call IR op anyway. Doing the IR op
-first lets CallDtor retire on its own clock and de-risks the
-function-value work (less to do in Phase 1).
-
-Action: spike Path B as a pre-Phase-1 task. If it works cleanly,
-land it and retire CallDtor; Phase 1 picks up from there. If it
-doesn't, fall back to Path A.
+So `OP_CALL_INDIRECT` lands first as a stand-alone primitive,
+retires CallDtor as its first concrete consumer, and serves as
+the substrate Phase 1 builds on.
 
 ## Backend dependency on the interface plan
 
@@ -432,17 +386,21 @@ What's not shared:
 
 ## Cross-references
 
+- `plan-call-indirect.md` — upstream prerequisite. Defines the
+  `OP_CALL_INDIRECT` IR op that this plan's vtable-indirect call
+  sequence is built on. Lands first; retires `rt.CallDtor` as
+  its first concrete consumer.
 - `plan-interface-syntax-revision.md` — sibling plan for the
   interface frontend. Orthogonal at the frontend, paired at the
   backend.
 - `claude-todo.md` § "Function values — MAJOR PROJECT" — current
   TODO entry pointing at this plan.
-- `claude-todo.md` § "Retire `rt.CallDtor`" — direct dependent;
-  may unblock independently via the Path B alternative above.
+- `claude-todo.md` § "Retire `rt.CallDtor`" — direct dependent
+  of `plan-call-indirect.md`, not this plan.
 - `claude-todo.md` § "Free-function pointer in managed-allocation
   header — bug" — separate runtime bug; would also benefit from
-  Path B's IR-op (since `header[1]` is a callable pointer with a
-  known signature).
+  the `OP_CALL_INDIRECT` IR op (since `header[1]` is a callable
+  pointer with a known signature).
 - `claude-todo.md` § "Compiler/interpreter interop — MAJOR PROJECT"
   — depends on Phase 3 of this plan.
 - `claude-notes.md` § "Function values" — high-level rationale
@@ -455,10 +413,12 @@ What's not shared:
   for Phase 2.
 - **`@func(...)` capturing `*T` receiver**: lean toward "allow +
   linter warning" but pin down before Phase 2.
-- **Always-shim vs check-data-nil for non-capturing call sites**:
-  default to always-shim; revisit with profiling.
-- **CallDtor retirement path**: Path B (IR-op) recommended, but
-  requires a spike to confirm.
+- ~~**Always-shim vs check-data-nil for non-capturing call sites**~~
+  — DECIDED: check-data-nil. Consistent with other nil-check sites
+  in the codebase; branch predictors handle the split fine.
+- ~~**CallDtor retirement path**~~ — DECIDED: separate plan
+  (`plan-call-indirect.md`). The `OP_CALL_INDIRECT` IR op also
+  serves as Phase 1's foundation.
 - **Vtable type identity across packages**: two
   `*func(int) int` from different packages must use the same
   vtable type (or a structurally compatible one) — pin down the
