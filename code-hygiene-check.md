@@ -113,7 +113,35 @@ When **modifying a test runner** (`scripts/unittest/run.sh`, the per-mode runner
 - Confirm the same set of packages still runs in each mode, including xfail entries — comparing the before/after output is the simplest check.
 - Confirm failures are still detected: temporarily break a test (or use a known-failing one), run the modified runner, and confirm it reports failure with a non-zero exit code. Silent success after a runner change is the bug this rule exists to catch.
 
-## 9. File formatting
+## 9. Conformance test self-containment
+
+Conformance tests under `binate/conformance/` exist to exercise the language
+and toolchain end-to-end. They should be **self-contained**: a reader should be
+able to look at the test (and any test-local packages under
+`conformance/NNN_name/pkg/...`) and see everything that's being tested,
+without chasing into the real `pkg/` library tree.
+
+**Whitelist of importable packages.** A conformance test (and any test-local
+fixture package it ships with) may import from this list and nothing else:
+
+- `pkg/bootstrap` — system calls (`Write`, `Exit`, `Args`, file I/O).
+- `pkg/rt` — runtime probes (refcount, alloc helpers).
+
+Anything else in `pkg/` (e.g. `pkg/buf`, `pkg/strtab`, `pkg/types`, …) is
+**off-limits**, both from the test's `main.bn`/top-level `.bn` and from any
+test-local fixture under `conformance/NNN_name/pkg/`. If the test needs a
+helper data structure, define it inline or in a test-local package — don't
+reach for the toolchain's own libraries.
+
+Why: importing arbitrary toolchain libraries from conformance tests makes the
+tests harder to read (the feature under test is buried behind library code),
+makes them brittle (refactors in unrelated `pkg/` code silently change what
+the test does), and conflates coverage (one test ends up incidentally
+exercising several unrelated things). The whitelist may grow over time, but
+each addition is a deliberate choice — don't drift into "anything in `pkg/` is
+fair game."
+
+## 10. File formatting
 
 Applies to authored text files (`.bn`, `.bni`, `.sh`, `.md`, `.yml`); excludes `conformance/` test fixtures.
 
