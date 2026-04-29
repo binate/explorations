@@ -327,10 +327,13 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 
 ### Retire `rt.CallDtor` — function-pointer dispatch helper
 - `rt.CallDtor(dtor *uint8, ptr *uint8)` is the one Binate-runtime C extern that survived the pkg/libc migration. Implemented in C as `bn_rt__CallDtor` (a one-liner: `((void(*)(void*))dtor)(ptr)`).
-- It exists only because Binate doesn't yet have callable function-pointer types — the language can compute and store function addresses (`bit_cast(*uint8, &__dtor_X)`) but can't write `dtor(ptr)` against an arbitrary `*uint8`. Once function values are first-class (see "Function values" below), `RefDec` and the bytecode VM's dtor dispatch can call directly: `var f func(*uint8); f(ptr)`.
-- The VM additionally maintains a special override: in `pkg/vm/vm_extern.bn`'s `rt.CallDtor` arm, the dtor argument is interpreted as a 1-based VM function index (not a real C function pointer) and dispatched via `execFunc`. With proper function values that carry both a code pointer and a closure context, this override gets unified — the compiled code path follows the function pointer; the VM path follows the closure context to bytecode.
-- **Blocked on**: Phase 1 of `plan-function-values.md` (non-capturing function values). Not standalone work — Phase 1 was specifically picked to be the smallest unlock that retires CallDtor.
-- When that lands: drop `rt.CallDtor` from `pkg/rt.bni`, delete `runtime/rt_stubs.c` entirely (only `bn_rt__CallDtor` lives there now), inline the function call into `RefDec` and the VM dtor dispatch using the new function-value syntax, and remove the special-case arm in `vm_extern.bn`.
+- It exists only because Binate doesn't yet have a way to write `dtor(ptr)` against an arbitrary `*uint8` — the language can compute and store function addresses (`bit_cast(*uint8, &__dtor_X)`) but can't *call* through one.
+- The VM additionally maintains a special override: in `pkg/vm/vm_extern.bn`'s `rt.CallDtor` arm, the dtor argument is interpreted as a 1-based VM function index (not a real C function pointer) and dispatched via `execFunc`.
+- **Two retirement paths under consideration** (see `plan-function-values.md` § "Open question: CallDtor retirement path"):
+  - **Path A — function-value-based**: blocked on Phase 1 of `plan-function-values.md`. RefDec calls dtor through a `@func(*uint8)` value via vtable indirect call. Reuses the same mechanism interfaces and full function values use; symmetric with the future free_fn-in-header path.
+  - **Path B — IR-op for raw indirect call**: independent of `plan-function-values.md`. Add an `OP_CALL_INDIRECT` IR op that takes a raw function pointer + args and lowers to a direct indirect call (compiled) / VM-function-index dispatch (VM). RefDec uses the IR op directly. CallDtor retires immediately, no function-value machinery needed; function values later build *on top of* the same IR op.
+- **Recommended**: Path B — lighter weight, doesn't block on Phase 1, and the IR op is a useful primitive that function values would want anyway. Action: spike Path B as a pre-Phase-1 task; if it works cleanly, land it and retire CallDtor.
+- When CallDtor is retired (either path): drop `rt.CallDtor` from `pkg/rt.bni`, delete `runtime/rt_stubs.c` entirely (only `bn_rt__CallDtor` lives there now), inline the indirect call into `RefDec`, and remove the special-case arm in `vm_extern.bn` (its VM-function-index behavior moves into the OP_CALL_INDIRECT VM lowering, if Path B).
 
 ### Lift function-name qualification into IR (shared across backends)
 - The VM and the compiler both need to avoid cross-package function-name collisions. They currently solve it separately: `pkg/mangle.FuncName(pkgName, name)` produces C-style `bn_asm__New` for LLVM symbols, and `pkg/mangle.QualifyName(pkgShort, name)` produces dot-form `asm.New` for the VM's function table. Both backends extract the short package name from `ir.Module.Name` and apply their own qualification at lower/emit time.
@@ -380,25 +383,46 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   the **upstream prerequisite** for the broader interop project,
   not a sub-item of it.
 - **Representation**: 2-word `{vtable, data}`, identical to
-  interface values. Per-(signature, capture-shape) static vtable
-  carries `call` (per-shape shim or VM trampoline) and `dtor`
-  (closure-struct destructor for the type-erased data field).
-  Function types are structural — `*func(...)` / `@func(...)` —
-  with no user-visible "function interface" declaration; the
-  compiler synthesizes the impls at function-literal and method-
-  value sites.
+  interface values. The vtable type is per-signature; the vtable
+  *instance* is per-(function, capture-shape). Vtable layout has
+  `dtor` first (matching all other vtables — common destruction
+  sequence) and `call` second. Function types are structural —
+  `*func(...)` / `@func(...)` — with no user-visible "function
+  interface" declaration; the compiler synthesizes the impls at
+  function-literal and method-value sites.
 - **Frontend syntax**: `*func(int) int` raw / `@func(int) int`
   managed, mirroring the slice migration (`*[]T` / `@[]T`) and the
   proposed interface revision. Bare `func(...)` is not a usable
   type.
 - **Phasing** (per the plan doc):
-  - Phase 1 — non-capturing function values (locks in the 2-word
-    ABI, retires `rt.CallDtor`).
-  - Phase 2 — closures + method values (capture analysis,
-    receiver-capture model from the plan doc, heap/stack alloc per
-    raw/managed).
-  - Phase 3 — cross-mode trampolines (per-signature trampoline
-    generation; unlocks the broader interop work).
+  - **Phase 1 — backend vtable machinery + non-capturing function
+    values.** This is primarily about *building the shared
+    interface/vtable backend* (vtable type/instance generation,
+    `call`-shim mechanism, vtable indirect-call sequence in
+    compiler + VM). Non-capturing function values are the
+    smallest user-visible thing the backend can deliver. The same
+    machinery is what user-declared interfaces will need at the
+    runtime layer.
+  - **Phase 2 — closures + method values (DEFERRABLE).** Capture
+    analysis, closure-struct generation, receiver-capture for
+    method values. **Capture design is open** (by-value vs. by-
+    reference, mutability semantics, lifetime extension) and is
+    its own design pass before implementation. Most current goals
+    do *not* need Phase 2; the compiler and self-hosted runtime
+    don't write closures, CallDtor retirement doesn't need it
+    (see Path B above), and the interop descriptor exposes only
+    non-capturing function values. Defer until there's a concrete
+    user-facing need.
+  - **Phase 3 — cross-mode trampolines.** Per-signature
+    trampolines that bridge compiled ↔ VM. Builds on Phase 1's
+    vtable layout. Unlocks the broader interop work. Doesn't
+    require Phase 2 — package descriptors expose non-capturing
+    exports.
+- **Recursive lambdas — explicit non-goal for Phase 1.** Go-style
+  recursive closures (`var f = func(x) { ... f(...) ... }`) are
+  NOT supported. Top-level named recursive functions work as
+  always. Y-combinator pattern is the workaround if needed.
+  Revisit when Phase 2 capture design is settled.
 - **Backend dependency**: function values share the vtable layout
   and dispatch path with interfaces, but **not** the frontend
   interface syntax. They depend on the runtime/codegen vtable

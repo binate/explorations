@@ -1,7 +1,10 @@
 # Plan: Function Values
 
-> **Status: DRAFT** — initial sketch for review. Some details TBD;
-> phasing and scope may shift before implementation begins.
+> **Status: DRAFT** — substantial open questions, especially around
+> capture design, recursion, and whether `rt.CallDtor` retirement
+> should ride this plan or take an independent IR-level path. See
+> "Open questions" section. Phasing and scope likely to shift
+> before implementation begins.
 
 ## Why this is more important than it looks
 
@@ -19,23 +22,102 @@ exported symbol.
 That promotes function values to an upstream prerequisite for:
 
 - **Compiler/interpreter interop** (the broader MAJOR PROJECT).
-- **`rt.CallDtor` retirement** — once Binate has callable function
-  values, RefDec can call the dtor directly through a `func(*uint8)`
-  value; the C-side helper goes away.
-- **Method values** (`x.M`, `T.M`) — already deferred to function
-  values per the existing TODO. They're function values whose
+- **Method values** (`x.M`, `T.M`) — they're function values whose
   closure captures the receiver.
 - **Closures** — the bootstrap subset explicitly excludes them; full
   function values bring them in.
 - **Higher-order helpers** in libraries (`slices.Map`, `Filter`,
   custom formatters, dispatch tables, etc.).
 
-Because function values reuse the interface-value machinery (vtable
-dispatch), they're *not* blocked on the interface frontend syntax
-revision (`plan-interface-syntax-revision.md`). What they need is
-the **backend**: vtable layout, per-(impl, interface) static-vtable
-generation, and the cross-mode trampoline path. That backend work
-serves both interfaces and function values.
+`rt.CallDtor` retirement is also conventionally tracked under this
+plan, but a lighter-weight path (IR-op for raw-pointer indirect
+call) may retire it without waiting for full function-value
+machinery — see "Open question: CallDtor retirement path" below.
+
+## Phasing — what each phase actually delivers
+
+The split into phases matters because **most current goals are
+satisfied by Phase 1 alone**. Phase 2 (closures + method values)
+can be deferred for as long as we don't need user-written closures
+or method values in self-hosted code.
+
+### Phase 1 — Backend vtable machinery + non-capturing function values
+
+This is the load-bearing phase. It is much more about *building the
+shared interface/vtable backend* than it is about "non-capturing
+function values" — that feature happens to be the smallest user-
+visible thing the backend can deliver.
+
+What lands:
+
+- **Vtable type generation** per signature (one vtable type per
+  distinct function-type signature in use across the program).
+- **Vtable instance generation** per (function, capture-shape) —
+  for non-capturing function values this is per (taken-as-value
+  function), since capture-shape is degenerate.
+- **The `call` slot mechanism** in vtable types, and the per-shape
+  shim function the slot points at.
+- **Vtable indirect-call sequence** in the compiler and the VM.
+- **Type-syntax** for function values: `*func(...)` raw and
+  `@func(...)` managed (mirroring `*[]T` / `@[]T`). Bare `func(...)`
+  is not a usable type. (Consistent with `plan-interface-syntax-
+  revision.md`.)
+- **Function literals as expressions** — restricted to non-
+  capturing literals in this phase (i.e., the literal references
+  no enclosing scope's locals).
+- **`f(args)` desugaring** to vtable-indirect call.
+
+The same vtable machinery is exactly what user-declared interfaces
+need at the runtime layer. Phase 1 builds the backend once; the
+interface frontend and function-value frontend both consume it.
+
+What's enabled by Phase 1:
+
+- Function values for top-level functions: `f := SomeFunc`.
+- Method *expressions*: `T.M` (no receiver bound — receiver
+  becomes the first arg). Equivalent to a non-capturing function
+  reference.
+- The cross-mode trampoline machinery (Phase 3) builds on these
+  vtables — laying the groundwork now means cross-mode work in
+  Phase 3 is "synthesize a per-signature trampoline and put it in
+  the vtable" rather than "redesign the dispatch path."
+
+What's NOT enabled by Phase 1:
+
+- Closures (no capture analysis yet).
+- Method values `x.M` (need receiver capture).
+- Higher-order user code that wants to construct closures.
+
+### Phase 2 — Closures + method values (DEFERRABLE)
+
+Adds capture analysis, closure-struct generation, and receiver-
+capture for method values.
+
+**This phase is deferrable.** The compiler and self-hosted runtime
+do not currently need to write closures. CallDtor retirement does
+not need it (alternative path discussed below). The interop
+descriptor does not need it (descriptor fields are non-capturing
+function values). Phase 2 is the user-facing "you can write
+closures" feature; it can wait until there's a concrete need.
+
+The capture design itself is **substantially open**. See "Capture
+design — open" below.
+
+### Phase 3 — Cross-mode trampolines
+
+Per-signature trampolines that let compiled code call into VM
+bytecode through a function value, and vice versa. Builds on
+Phase 1's vtable layout.
+
+Unlocks the broader compiler/interpreter interop work — package
+descriptors fall out as "structs of function values whose vtables
+either point at compiled code (compiled side) or trampolines
+(interpreted side)."
+
+Phase 3 does not require Phase 2: package descriptors expose
+non-capturing exports. Closures-across-the-boundary is a separate
+question (probably wants Phase 2 in some form, but isn't on the
+critical path for the current interop goals).
 
 ## Representation
 
@@ -47,293 +129,339 @@ values:
 *func(int) int   // raw function value:     (*data, vtable*)
 ```
 
-- **`vtable`**: pointer to a per-(signature, capture-shape) static
-  table. Contains:
-  - `call`: pointer to a per-shape shim that takes `(data_ptr,
-    args...)` → ret. Either a thin wrapper around the underlying
-    function (non-capturing case), the closure body itself
-    (capturing case), or a per-signature trampoline (VM case).
-  - `dtor`: destructor for the captured-ctx struct, used when the
-    function value's last reference drops. nil for non-capturing.
+- **`vtable`**: pointer to a static vtable instance.
 - **`data`**: the captured-ctx pointer. nil for non-capturing.
   Managed (refcounted) for `@func(...)`. Raw for `*func(...)`.
 
-This is a structural function type. There is no user-declared
-"function interface" — the type system synthesizes whatever
-machinery a given signature needs.
+### Vtable types vs vtable instances
+
+These were conflated in the previous draft; calling out the
+distinction explicitly:
+
+- **Vtable type** is the static *layout* shared by all vtable
+  instances for a given function signature. One vtable type per
+  signature. Defined once and referred to by pointer.
+- **Vtable instance** is a populated static global of that type.
+  One vtable instance per *(function, capture-shape)* pair, since
+  the `call` slot depends on which function's body to execute and
+  the `dtor` slot depends on the capture struct's destructor.
+
+For example, `func(int) int` is one vtable type. The instances are
+one per (top-level function `Foo` taken as a value, no captures),
+plus one per (closure literal at source location L, capture shape
+S). Many function values can share the same vtable instance —
+e.g., every site that does `f := Foo` shares one instance.
+
+### Vtable layout — dtor first
+
+The vtable type for a function-value signature `func(args...) →
+ret` looks like:
+
+```
+struct __vt_<sig> {
+    dtor   *(...)           // signature: func(*uint8) — the data dtor
+    call   *(...)           // signature: func(*uint8, args...) → ret
+}
+```
+
+**dtor is always the first slot**, matching the layout convention
+for all other vtables (interface vtables have it in the same
+position). This lets a generic "drop a vtable-using value"
+sequence load the dtor without knowing the rest of the vtable's
+shape — useful for type-erased holders and for common destructor
+emission.
+
+For non-capturing function-value vtable instances, `dtor` is nil
+(no captured ctx to clean up).
+
+### Per-shape `call` shim
+
+The `call` slot has the uniform shape `func(data *uint8, args...)
+→ ret`. The data pointer is the captured ctx, or nil for non-
+capturing. Per (function or method, capture-shape) pair, the
+compiler generates a shim that adapts the underlying body to this
+uniform shape.
+
+#### Non-capturing: top-level function `f(a, b int) int`
+
+Two equally-defensible implementations:
+
+1. **Always-shim**: emit a per-function shim that ignores its data
+   arg and tail-calls the real function:
+   ```
+   __shim_f(data *uint8, a, b int) int { return f(a, b) }
+   ```
+   Vtable.call → shim. Caller always does `vtable.call(value.data,
+   args...)` — uniform code path, no branch.
+2. **Check-data-nil**: caller branches on `value.data == nil`; if
+   nil, calls the real function directly with `args...`; otherwise
+   calls through the shim. Skips the shim hop entirely for the
+   common non-capturing case.
+
+The previous draft claimed (1) costs "one cycle." That's
+overconfident — modern branch predictors make (2) competitive,
+maybe better, especially in tight loops where the data pointer's
+value is predictable. The right answer probably depends on
+benchmarks once Phase 1 lands. Default to (1) for simplicity;
+revisit if profiling shows (2) wins.
+
+#### Capturing closures and method values
+
+See "Capture design — open" below.
 
 ### Bare `func(...)` is not a usable type
 
-Following the same shift the slice migration made (`*[]T` / `@[]T`)
-and the proposed interface syntax revision (`*Stringer` /
-`@Stringer`), function types appear only with a raw or managed
-prefix:
+Following the same shift the slice migration made (`*[]T` /
+`@[]T`) and the proposed interface syntax revision, function types
+appear only with a raw or managed prefix:
 
 - `*func(int) int` — raw function value.
 - `@func(int) int` — managed function value.
 
 Bare `func(int) int` only exists as the inner part of those forms.
-Reasoning is identical to the interface case: forcing the explicit
-raw-vs-managed choice prevents the "I thought it was managed" UAF
-class.
+Forces the explicit raw-vs-managed choice.
 
-### Why this matches interface values exactly
+## Capture design — open
 
-A function value is morally `interface { Call(args...) → ret }` for
-some specific signature. Two-word `{vtable, data}`. Single-method
-"vtable" with a `call` slot (plus a `dtor` slot for the type-erased
-data field). Identical runtime story.
+This section is a placeholder, **not a design**. Capture mechanics
+are non-trivial and need their own design pass before Phase 2
+implementation. Open questions:
 
-The difference is at the **frontend**:
+- **By-value vs by-reference for captured locals**: Go captures
+  by reference. C++ has both with explicit syntax. We may want
+  by-value for raw types (to avoid surprises) and by-managed-ref
+  for managed types. To be designed.
+- **Mutability of captured locals from inside the closure**: do
+  closures see *the* local (so writes from the closure are visible
+  outside) or a snapshot (so writes don't escape)? Depends on the
+  by-value-vs-reference decision.
+- **Lifetime extension**: a managed function value extending the
+  lifetime of captured `@T` is straightforward (RefInc the @T into
+  the closure struct). For captured locals that aren't `@T` (raw
+  scalars, value structs), what's the lifetime story for the
+  managed function-value form? Boxed copies? Stack-allocated?
+- **Closure-struct dtor generation**: per (literal, capture-shape)
+  the compiler generates a dtor that walks the captured @T fields
+  and RefDecs them. Implementation work but well-understood.
+- **Receiver capture for method values**: parallel design — the
+  captured form mirrors the actual receiver shape at the capture
+  site, with smoothing applied at call time. Three cases (T,
+  `*T`, `@T`) each generate a different shim. The semantics for
+  the value-receiver case (capture creates a stable in-ctx copy,
+  whose address is taken at call time when M wants `*T`) are
+  reasonably clear; the others are less so.
+- **`@func(...)` capturing `*T` receiver**: an unsafe combination
+  — the function value can outlive the raw pointer it captured.
+  Two stances:
+  1. Reject at type check. Semantically clean: managed function
+     values can't capture raw lifetimes. Surprising in practice
+     because the user has to convert to managed first.
+  2. Allow with a linter warning. Matches the existing escape-
+     hatch policy for raw pointers. A managed function value with
+     a raw-pointer capture is exactly as unsafe as the underlying
+     raw pointer; the user opts in.
+  
+  Lean toward (2) — consistent with how we treat raw pointers
+  elsewhere — but mark as open.
 
-- User interfaces: declared (`interface Foo { ... }`), nominal
-  identity, explicit `impl T : Foo`.
-- Function values: structural (signature determines identity, no
-  declaration), no `impl` syntax — the compiler synthesizes the
-  necessary "impl" at function-literal sites and method-value
-  sites.
+The plan above commits to the *representation* (2-word
+`{vtable, data}` with per-shape vtable instances) but not the
+*capture semantics*. Capture design is a follow-up to be done
+before Phase 2 starts. Phase 1 only needs non-capturing function
+values, where capture design is moot (`data = nil`,
+`vtable.dtor = nil`, no captured ctx).
 
-Two type-system rules, one runtime. **The frontend syntax revision
-for interfaces is independent — function values can land before
-that work, as long as the backend vtable machinery is in place.**
+## Recursion — start by NOT supporting Go-style
 
-## Per-shape shim (call slot)
+Go allows closures to refer to themselves through the var being
+assigned: `var f = func(x int) int { ... f(x-1) ... }`. The trick
+relies on Go's "closure captures by reference" semantics — the
+closure body sees the *current value* of `f`, which after the
+assignment is the closure itself.
 
-The `call` slot in the vtable always has the shape
-`func(data *uint8, args...) → ret`. The "data" parameter is the
-captured-ctx pointer (or nil for non-capturing).
+**Binate Phase 1 should NOT support this.** Reasons:
 
-Per (function or method, capture-shape) pair, the compiler
-generates a shim that adapts the underlying function/method body
-to this uniform shape:
+- Capture semantics aren't designed yet (Phase 2 territory). Go's
+  trick depends on a specific capture rule we haven't decided.
+- Recursive lambdas are rare; named recursive top-level functions
+  are common and unaffected.
+- The Y-combinator workaround (pass the function as an argument
+  to itself) exists if someone really needs anonymous recursion.
+- Easier to add later than to take away.
 
-### Non-capturing: top-level function `f(a, b int) int`
-
-```
-__shim_f(data *uint8, a, b int) int { return f(a, b) }
-```
-
-vtable.call → `__shim_f`. data is always nil. The branch / extra
-call is one cycle of overhead and avoids special-casing "data ==
-nil" at call sites.
-
-### Capturing closure: `func(a int) int { return a + captured }`
-
-```
-type __ctx_N struct { captured int }   // anonymous closure-struct
-__call_N(data *uint8, a int) int {
-    var ctx *__ctx_N = bit_cast(*__ctx_N, data)
-    return a + ctx.captured
-}
-__dtor_N(ptr *uint8) { /* RefDec any managed fields in ctx */ }
-```
-
-vtable.call → `__call_N`. vtable.dtor → `__dtor_N`. data points at
-the heap-allocated ctx (managed) or the stack-allocated ctx (raw).
-
-### Method value: `f := v.M` where M is `func (r *T) M(x int) int`
-
-The captured form mirrors the *actual* receiver type at the
-capture site — not M's declared receiver type. Smoothing happens at
-call time, against the captured ctx. Three cases:
-
-**Captured form is `T` (value receiver, M wants `*T`)**:
-```
-type __ctx_M_T struct { recv T }
-__call_M_T(data *uint8, x int) int {
-    var ctx *__ctx_M_T = bit_cast(*__ctx_M_T, data)
-    return M(&ctx.recv, x)   // address of stable in-ctx storage
-}
-__dtor_M_T(ptr *uint8) { /* dtor for T's managed fields */ }
-```
-
-**Captured form is `*T` (raw pointer receiver)**:
-```
-type __ctx_M_RawT struct { recv *T }
-__call_M_RawT(data *uint8, x int) int {
-    var ctx *__ctx_M_RawT = bit_cast(*__ctx_M_RawT, data)
-    return M(ctx.recv, x)    // pass through; UAF if recv dangles
-}
-// __dtor_M_RawT not needed (no managed fields in ctx)
-```
-
-**Captured form is `@T` (managed receiver, M wants `*T` or `T`)**:
-```
-type __ctx_M_MgT struct { recv @T }
-__call_M_MgT(data *uint8, x int) int {
-    var ctx *__ctx_M_MgT = bit_cast(*__ctx_M_MgT, data)
-    return M(ctx.recv, x)    // smoothing applies: @T → *T or T as needed
-}
-__dtor_M_MgT(ptr *uint8) { /* RefDec ctx.recv */ }
-```
-
-The shim machinery is exactly the per-(method, capture-shape)
-generation pattern that monomorphized generics already use. No new
-runtime concept needed.
+Documented stance: **anonymous recursive lambdas are not
+supported.** Top-level named recursive functions work normally
+(they reference themselves by name, not through capture). If
+recursive anonymous closures become important, revisit when Phase 2
+capture semantics are settled.
 
 ## VM-side: per-signature trampoline
 
-When a function value's `call` is implemented in interpreted
-bytecode rather than compiled native code, vtable.call points at a
-per-signature trampoline (a tiny compiled-native function) that:
+Phase 3. When a function value's underlying body is interpreted
+bytecode rather than compiled native code, the vtable instance's
+`call` slot points at a per-signature **trampoline**:
 
 1. Takes the standard `(data *uint8, args...)` shape.
 2. Uses `data` as a reference to the bytecode record (function
    index + module + closure env) the VM should execute.
-3. Sets up the VM call frame, marshals args into VM stack
+3. Sets up the VM call frame, marshals args into VM-stack
    convention, runs the bytecode, marshals the return value back.
-4. Returns to the compiled caller.
 
-Per-signature: each distinct function-value signature needs its own
-trampoline, because the arg marshaling depends on the types. The
-compiler generates trampolines for every signature that crosses
-the compiled-vs-interpreted boundary at any point in the program.
+Per signature: each distinct function-value signature needs its
+own trampoline because arg marshaling depends on types. Generated
+once per signature in use, not per function.
 
-This is the same machinery the interface backend needs for
-cross-mode method dispatch — when a compiled caller dispatches
-through an interface vtable to a method whose impl is in interpreted
-code, vtable.method[i] points at a trampoline for that method's
-signature. Function values are the single-method case.
+Trampolines live in the compiled binary (they're compiled native
+code) regardless of the called body's location.
 
 ## Boxing / allocation rules
 
-Mirrors the existing managed/raw interface boxing rule:
+Mirrors the managed/raw rules for slices and (proposed) interface
+values:
 
 - **Non-capturing, raw or managed**: degenerate. data = nil. No
-  allocation. vtable points at the per-(function, no-capture)
-  static vtable.
-- **Capturing, raw**: the closure-struct is stack-allocated at the
-  function-literal expression. The function value's `data` points
-  inside the enclosing stack frame. Lifetime is tied to that frame
-  — same "caller keeps data alive" contract as raw slices and raw
-  interface values.
-- **Capturing, managed**: the closure-struct is heap-allocated
-  (via `Alloc` / similar). The function value's `data` is the
-  managed pointer; refcount is bumped on copy, decremented on
-  drop. Survives past the function-literal's enclosing scope.
-- **Method value, `*func(...)`**: receiver-capture struct is
-  stack-allocated. Same caller-keeps-data-alive contract.
-- **Method value, `@func(...)`**: receiver-capture struct is heap-
-  allocated; the captured receiver's RefInc fires at capture time
-  if the receiver was `@T`.
+  allocation. vtable points at the static (function, no-capture)
+  vtable instance.
+- **Capturing, raw**: stack-allocated closure struct. Lifetime
+  tied to the enclosing scope.
+- **Capturing, managed**: heap-allocated closure struct, refcount
+  bumped on copy, decremented on drop.
+- **`*func → @func` is NOT auto**: matches the existing rule that
+  raw cannot auto-promote to managed. The reverse (`@func →
+  *func`) is fine via smoothing.
 
-There is **no implicit conversion from `*func(...)` to
-`@func(...)`** (you might not have a managed allocation behind the
-raw form), matching the existing raw → managed escape-hatch rule.
-The reverse (`@func → *func`) is fine via smoothing.
+(Full rules are part of the Phase 2 capture design.)
 
-## Phasing
+## Open question: `rt.CallDtor` retirement path
 
-Three phases. Phase 1 is small enough to be a meaningful early
-deliverable. Phases 2 and 3 are the substantive work.
+Two viable paths, and the right choice may not be "wait for
+function values":
 
-### Phase 1: Non-capturing function values
+### Path A — function-value-based (current default in this plan)
 
-- Function type syntax: `*func(...)` / `@func(...)`. Type checker
-  accepts them.
-- 2-word representation locked in.
-- Vtable layout: `{call, dtor}` with `dtor = nil` for non-
-  capturing.
-- Per-function shim generation for top-level functions taken as
-  function values (`f := SomeFunc`).
-- `f(args)` desugars to vtable-indirect call.
-- No closures, no method values.
+When Phase 1 lands, `RefDec` calls the dtor through a
+`@func(*uint8)` value (or `*func(*uint8)`). The vtable indirect-
+call mechanism handles compiled vs. interpreted dispatch
+uniformly. `rt.CallDtor` is retired because Binate code can now
+write `dtor(ptr)` against a function value directly.
 
-**Unlocks**:
+Pros:
+- Reuses the same mechanism that everything else needs.
+- Symmetric with how RefDec will eventually handle the
+  free_fn-in-header indirection.
 
-- `rt.CallDtor` retirement — RefDec calls the dtor through a
-  `func(*uint8)` value directly; `bn_rt__CallDtor` and
-  `runtime/rt_stubs.c` go away.
-- The 2-word ABI commitment — once this lands, that shape is
-  baked in across compiled and interpreted code.
+Cons:
+- Blocks CallDtor retirement until Phase 1 lands.
+- Heavier than necessary for what RefDec actually wants — RefDec
+  doesn't need the data-ctx slot or vtable indirection; it just
+  needs to call a known-shape function pointer.
 
-### Phase 2: Closures + method values
+### Path B — IR-op for raw indirect call (lighter weight, possibly sooner)
 
-- Capture analysis on function literals — identify which locals
-  are referenced in the body and lift them into an anonymous
-  closure-struct.
-- Closure-struct dtor generation per (literal, capture-shape).
-- Method-value receiver capture per the actual-receiver-type
-  model in this plan.
-- Heap-vs-stack allocation per the boxing rules.
+Add an IR op like `OP_CALL_INDIRECT` that takes a raw function
+pointer (`*uint8`) and a list of args, and lowers to a direct
+indirect call. Signature is encoded in the IR. The VM lowering
+interprets the function-pointer operand as a VM function index
+(matching the existing `vm_extern.bn` rt.CallDtor arm's special-
+case behavior); the LLVM lowering is just an indirect call through
+the cast pointer.
 
-**Unlocks**:
+Then `RefDec` body uses the IR op directly:
 
-- General-purpose closures and lambdas.
-- Method values, both as receiver-bound (`x.M`) and as method
-  expressions (`T.M` — receiver as first arg).
-- Higher-order library helpers.
+```
+if dtor != nil {
+    // OP_CALL_INDIRECT signature=func(*uint8) on dtor with arg ptr
+    callIndirect(dtor, ptr)
+}
+```
 
-### Phase 3: Cross-mode trampolines
+`rt.CallDtor` retires immediately, no function-value machinery
+needed. `runtime/rt_stubs.c` deletes (it only held bn_rt__CallDtor).
+The vm_extern.bn rt.CallDtor arm goes away — its behavior moves
+into the VM's lowering of the new IR op.
 
-- Per-signature trampoline generation for every function-value
-  signature that crosses the compiled / interpreted boundary.
-- Bytecode-record reference layout for VM-side function values.
-- Integration with the interface backend's cross-mode dispatch (if
-  the interface backend isn't already handling this — they'd share
-  the same trampoline machinery).
+Pros:
+- Doesn't block on Phase 1.
+- More primitive than function values — function values can be
+  built ON TOP of OP_CALL_INDIRECT later (the compiled-side `call`
+  slot in a vtable becomes "OP_CALL_INDIRECT through this slot").
+- Cleaner factoring overall: indirect call is a more fundamental
+  primitive than typed function values.
 
-**Unlocks**:
+Cons:
+- Adds an IR op + per-backend lowering that we'd want anyway, but
+  introduces it earlier than the rest of the function-value work.
+- The signature-handling story (which signatures does the IR op
+  support? how is the signature encoded?) needs design — but it's
+  contained.
 
-- Compiler/interpreter interop for function-value-passing across
-  the boundary.
-- Package descriptors for the broader interop work — fall out as
-  "struct of function values per export."
+### Recommendation
+
+Path B looks like the better factoring. Function values build on
+top of a primitive indirect-call IR op anyway. Doing the IR op
+first lets CallDtor retire on its own clock and de-risks the
+function-value work (less to do in Phase 1).
+
+Action: spike Path B as a pre-Phase-1 task. If it works cleanly,
+land it and retire CallDtor; Phase 1 picks up from there. If it
+doesn't, fall back to Path A.
 
 ## Backend dependency on the interface plan
 
 Function values share the vtable layout and dispatch path with
-interfaces. **They depend on the runtime / codegen vtable
-machinery, not on the frontend interface syntax**. Specifically:
+interfaces. **They depend on the runtime/codegen vtable
+machinery, not on the frontend interface syntax**
+(`plan-interface-syntax-revision.md`). The interface frontend
+revision can land in any order relative to function values.
 
-- Vtable layout (a static struct of function pointers + dtor) —
-  shared.
-- Per-(impl, interface) static-vtable generation — same machinery
-  generates per-(function, capture-shape) static vtables.
-- Vtable-indirect call sequence in the compiler / VM — shared.
-- Cross-mode trampoline path — shared.
+Specifically, what's shared:
 
-The frontend interface syntax revision (`plan-interface-syntax-
-revision.md`) decides **how users write interfaces**. That can land
-in any order relative to function values. What both plans need is
-the backend.
+- Vtable layout (dtor-first slot convention, static-struct
+  representation).
+- Per-(impl, interface) and per-(function, capture-shape) static
+  vtable instance generation — same machinery, two consumers.
+- Vtable-indirect call sequence in the compiler / VM.
+- Cross-mode trampoline path.
+
+What's not shared:
+
+- Frontend syntax (`*Stringer` / `@Stringer` declared interfaces
+  vs. `*func(...)` / `@func(...)` structural function types).
+- Type-checker rules (interfaces are nominal-with-explicit-impl;
+  function types are structural).
 
 ## Cross-references
 
-- `plan-interface-syntax-revision.md` — sibling plan; orthogonal at
-  the frontend, paired at the backend.
-- `claude-todo.md` § "Function values" — current TODO entry; will
-  be replaced by a pointer to this plan.
-- `claude-todo.md` § "Retire `rt.CallDtor`" — direct dependent of
-  Phase 1.
+- `plan-interface-syntax-revision.md` — sibling plan for the
+  interface frontend. Orthogonal at the frontend, paired at the
+  backend.
+- `claude-todo.md` § "Function values — MAJOR PROJECT" — current
+  TODO entry pointing at this plan.
+- `claude-todo.md` § "Retire `rt.CallDtor`" — direct dependent;
+  may unblock independently via the Path B alternative above.
+- `claude-todo.md` § "Free-function pointer in managed-allocation
+  header — bug" — separate runtime bug; would also benefit from
+  Path B's IR-op (since `header[1]` is a callable pointer with a
+  known signature).
 - `claude-todo.md` § "Compiler/interpreter interop — MAJOR PROJECT"
-  — depends on Phase 3 (and provides the broader context for why
-  function values matter).
-- `claude-notes.md` § "Function values" — high-level rationale (will
-  cross-link here when this plan ratifies).
+  — depends on Phase 3 of this plan.
+- `claude-notes.md` § "Function values" — high-level rationale
+  (will cross-link here when this plan ratifies).
 
-## Open questions
+## Open questions (consolidated)
 
-- **Vtable layout details**: just `{call, dtor}` or are there fields
-  the future interface backend will want here too (type info,
-  method table size, etc.)? Probably bare-minimum for function
-  values; expand only when interfaces force it.
-- **Equality / comparison**: are function values comparable? Go
-  says yes-for-nil, no-otherwise. Probably mirror that.
-- **`nil` function value**: layout and zero-value semantics —
-  vtable = nil, data = nil; calling a nil function value panics.
-- **Closure capture: by-reference vs. by-value for raw types**.
-  Default is by-value (copy at capture time). Capturing a local int
-  by reference would require lifting the int into a heap-allocated
-  cell, which feels surprising for raw types. Probably: managed
-  types capture by-managed-ref (RefInc); raw types capture by-
-  value. Worth pinning when Phase 2 starts.
-- **Mutability of captured locals from inside the closure**: Go
-  allows mutation of captured locals through closures (because they
-  capture by reference). Binate may prefer the more restrictive
-  "captures are immutable inside the closure" rule for raw types.
-  TBD.
-- **Recursive function values**: `var f @func(int) int = func(x int)
-  int { return f(x-1) }` — does `f` see itself in the closure?
-  Probably needs a fixpoint construction (Y-combinator pattern) or
-  a top-level named recursive function. TBD if generally supported.
+- **Capture design** (the whole "Capture design — open" section).
+- **Recursive lambdas**: confirmed NOT supported in Phase 1; revisit
+  for Phase 2.
+- **`@func(...)` capturing `*T` receiver**: lean toward "allow +
+  linter warning" but pin down before Phase 2.
+- **Always-shim vs check-data-nil for non-capturing call sites**:
+  default to always-shim; revisit with profiling.
+- **CallDtor retirement path**: Path B (IR-op) recommended, but
+  requires a spike to confirm.
+- **Vtable type identity across packages**: two
+  `*func(int) int` from different packages must use the same
+  vtable type (or a structurally compatible one) — pin down the
+  mangling / canonicalization rule.
+- **Function value equality / nil**: probably mirror Go (compare-
+  to-nil yes; structural comparison no).
