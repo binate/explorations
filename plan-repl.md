@@ -31,9 +31,21 @@ Why interpreter-only first:
   per-package incremental loading, REPL wants per-decl
   incremental loading, both want the same shape from the
   pipeline). Two birds.
-- An interpreter-only REPL is the smallest artifact that
-  demonstrates Binate's dual-mode promise as a usable thing
-  rather than a design claim.
+- An interpreter-only REPL is shippable now as a **proof of
+  concept**: minimum-viable line reading, no fancy editing /
+  history / completion, output bounded by what `println`
+  already supports. The point is proving that
+  parse → typecheck → IR-gen → lower → exec works
+  *incrementally* against an existing VM state, end-to-end
+  through the real pipeline. UX quality is explicitly
+  out of scope — UI improvements don't involve deep
+  architectural constraints and can land any time.
+- A polished REPL — pretty-printed values for arbitrary types,
+  rich I/O, real line editing — is gated on interfaces (and
+  probably generics), because pretty-printing arbitrary values
+  cleanly requires interface dispatch, and richer I/O requires
+  standard-library design that's also gated on interfaces. None
+  of that blocks shipping the PoC.
 
 ## Already decided — do not relitigate here
 
@@ -106,12 +118,24 @@ What's actually rigid:
   worth doing before Tier 1 ships, since the alternative
   (idx-baked bytecode) would close off the redefinition story.
 
-## Tier 1: Load-then-poke
+## Tier 1: Load-then-poke (PoC)
 
-Smallest useful thing. **No new declarations at the prompt, no
-redefinition, no forward refs.** Loads a `.bn` file/program the
-normal way, then drops into a prompt that accepts only
-**immediate-mode** entries against the loaded scope.
+Smallest end-to-end artifact. **No new declarations at the
+prompt, no redefinition, no forward refs.** Loads a `.bn`
+file/program the normal way, then drops into a prompt that
+accepts only **immediate-mode** entries against the loaded
+scope.
+
+**Framing.** This is a PoC, not a product. Its job is to
+validate that the incremental parse → typecheck → IR-gen →
+lower → exec pipeline actually works against a long-lived VM
+state. UX quality is explicitly out of scope: line input via
+`bootstrap.Read` (or equivalent), no editing, no history, no
+completion, no syntax highlighting. Output is whatever
+`println` can render. If the architectural pieces work, the
+PoC succeeded. UI polish is independent work that doesn't gate
+anything else and can land separately whenever we feel like
+it.
 
 ### Behavior
 
@@ -159,26 +183,24 @@ normal way, then drops into a prompt that accepts only
 - `cmd/bni` (or new `cmd/bnrepl`): the REPL driver itself.
   Reads lines, dispatches expr vs. stmt-list, formats results.
 
-### Pretty-printing (Tier 1.5)
+### Pretty-printing — DEFERRED (gated on interfaces)
 
-Promote the implicit `println` of bare expressions into a real
-pretty-printer:
+A real pretty-printer for arbitrary values (structs, managed
+pointers, etc.) needs **either** per-type `Format(self) @[]char`
+methods dispatched through an interface, **or** a megalithic
+type-switch over `pkg/types.Type` — and the latter is the kind
+of thing interfaces exist to avoid. The PoC therefore relies on
+`println` only, which currently covers primitives and char
+slices. Bare-expression input that doesn't have a directly
+`println`-able type either prints a placeholder (e.g. `<value
+of type X>`) or refuses to auto-print and tells the user to
+extract / call something explicit.
 
-- New package, e.g. `pkg/replprint`. Built on `pkg/buf.CharBuf`.
-- Knows about: int family, bool, char-slice (`*[]char`,
-  `@[]char`), structs (recursive, with field names), arrays,
-  slices (raw and managed), pointers (raw and managed; print
-  the address and the pointee, with cycle detection deferred).
-- Public entry point `Format(t @types.Type, value int)
-  @[]char` — the prompt calls this on the result of an expr
-  evaluation.
-- Out of scope for v1: function values (don't exist yet),
-  interfaces (don't exist yet), generics (don't exist yet),
-  cycles in pointer graphs.
-
-This is independently useful (debugger output, test failures,
-diagnostic dumps), and decoupling it from the REPL means we can
-land it on its own schedule.
+When interfaces (and possibly generics) land, a `pkg/replprint`
+or similar package becomes worth designing — and it should be
+designed alongside the broader standard-library effort, not as
+a one-off bolted onto `pkg/bootstrap`. Until then, this stays
+out of the critical path.
 
 ### Out of scope for Tier 1
 
@@ -279,26 +301,35 @@ dependencies) incrementally.
 - IR-gen / VM lowering: `LowerModule` already handles
   add-another-module; just needs to be re-runnable mid-session.
 
-## What's "free" — should-do-now-anyway
+## What to do now
 
-Independent of when REPL implementation actually starts, the
-following are short, low-risk, and unambiguously useful for
-both REPL and interop:
+In rough priority order. Each item is independently shippable.
 
-1. **Name → idx hash on `vm.Funcs`.** Removes the perf argument
-   for ever baking idx into bytecode. Estimate: ~50-line
-   change, plus tests.
-2. **Per-decl entry points exposed opportunistically.** When
+1. **Audit doc** (this file). Keep it current as the picture
+   firms up.
+2. **Name → idx hash on `vm.Funcs`.** Removes the perf argument
+   for ever baking idx into bytecode, which is the property
+   that makes redefinition free. Estimate: ~50-line change,
+   plus tests. Useful for non-REPL workloads too.
+3. **Per-decl entry points exposed opportunistically.** When
    `pkg/parser`, `pkg/types`, or `pkg/ir` are touched for
    unrelated reasons, add the per-decl public surface as part
-   of the change. Each shrinks Tier 2 work later.
-3. **Pretty-printer (`pkg/replprint`).** Useful for debugger
-   output, test diagnostics, and arbitrary value inspection.
-   Doesn't depend on any REPL infrastructure; can land first.
-4. **Audit doc** (this file). Keep it current as the picture
-   firms up.
+   of the change. Each shrinks Tier 1/2 work later. Doesn't
+   need to be a single project.
+4. **Tier 1 PoC.** Once (2) and a critical mass of (3) are
+   in, build the load-then-poke loop. Targets architectural
+   validation, not UX. See "Tier 1" above for entry-point
+   names and concrete steps.
 
-These can land in any order, as separate PRs / commits.
+Items deferred (gated on language progress, mostly interfaces):
+
+- **Pretty-printer** — see "Pretty-printing — DEFERRED" above.
+- **Richer I/O** (input editing, completion, history) — gated
+  on standard-library design, which is gated on interfaces +
+  probably generics.
+- **Tier 2+** (new decls at prompt, forward refs, redefinition,
+  mid-session imports) — language-semantic work; sequence with
+  the function-values plan and the broader interop story.
 
 ## Adjacencies and pressure-tests
 
@@ -321,6 +352,25 @@ These can land in any order, as separate PRs / commits.
 - **IR/backend cleanup**: no closed-world assumptions in the
   shared layer.
 
+## PoC non-goals (explicit)
+
+State up-front so they don't get re-litigated during
+implementation:
+
+- **Line editing / history / completion / syntax highlighting**.
+  Use `bootstrap.Read` (or whatever's available) for raw line
+  input. If terminal handling on the host is annoying, accept
+  the suboptimal experience.
+- **Pretty-printing of arbitrary values.** Output is whatever
+  `println` can render today.
+- **Fancy error messages.** Print the parser/checker diagnostic
+  as-is and return to prompt. Pretty-error work is unrelated.
+- **Multi-line input.** Single-line entries only, at least to
+  start. If a single line doesn't tokenize / parse, error and
+  re-prompt. (Multi-line could come later as a small UI win.)
+- **Performance tuning.** The PoC is for correctness, not
+  throughput.
+
 ## Open design questions
 
 - **REPL driver: separate `cmd/bnrepl` or `--repl` flag on
@@ -329,8 +379,14 @@ These can land in any order, as separate PRs / commits.
   the REPL grows enough surface to justify it.
 - **Top-level prompt grammar**: bare expression vs. bare
   statement list vs. either? Suggested convention above —
-  single-expr → auto-`println`-wrap, otherwise stmt list with
+  single-expr → auto-`println`-wrap (when `println` can
+  handle the type) or placeholder, otherwise stmt list with
   no auto-print.
+- **What does the PoC do for non-`println`-able expression
+  results?** Options: print a placeholder, refuse to auto-print
+  and tell the user to extract a primitive subfield, or simply
+  not auto-wrap (require explicit `println` call). All three
+  are fine for a PoC; pick one and move on.
 - **Sentinel for "no result"**: probably nothing (just return
   to the prompt).
 - **Error recovery**: parse / type / runtime errors in
