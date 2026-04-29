@@ -122,7 +122,7 @@ the package still fails for an unrelated reason.
 | pkg/types | `TestIntTypes` (after `TestTypeName`/`TestPredeclaredTypes` FAIL with empty msg) | Crash in `_bn_rt__RefInc` writing refcount to `0x2e2ebdb68` — a `r--` (read-only) memory region. Looks like libmalloc tiny-zone metadata; the codegen is RefInc-ing a non-managed pointer. Test pattern: `var t @T = TypInt()` (managed-pointer global return). Conformance reductions of the same shape don't reproduce — bug requires more specific conditions that haven't been isolated. |
 | pkg/asm/parse | `TestParseMov` (post multi-return fix: now `runtime error: index out of bounds: 0 (len 0)`) | Multi-return ABI fix moved past the silent crash; what remains is a Binate runtime panic — a slice somewhere along the parse path is empty when expected to have content. Probably easier to track now; needs lldb stack at panic to identify the slice. |
 | pkg/asm/aarch64 | `TestResolveFixupsAdrOutOfRangeIsError` (NEW since 491ac60 — original `TestAddReg64` now passes) | Test loops 262144 times emitting NOPs to push past ±1MB ADR range. Either the loop itself or the large-data emit triggers a backend bug. May be its own thing; passes under boot-comp. |
-| pkg/asm/arm32 | `TestLdrshImm` | Pre-existing cluster A crash, surfaced during cluster B work — all the cluster B (encoding) failures in pkg/asm/arm32 are fixed, the package now runs through the full TestAdd*/Sub*/etc. set, but crashes on TestLdrshImm. The test is small (assemble one LDRSH, compare 4 bytes) — should be easy to reduce. |
+| pkg/asm/arm32 | `TestLdrshImm` | Cumulative-state crash, NOT specific to LDRSH. Bisection: rename TestLdrsbImm to skip it → crash moves to TestPush; rename both → crash moves to TestLdrSregOffset. The package crashes after ~50 successful tests regardless of which test is at that position. TestLdrshImm in isolation passes. Likely a slow leak of refs/managed allocations across tests; eventually some pointer chase faults. Unrelated to conformance 337's native↔LLVM ABI mismatch (unit tests build all packages with native, so that ABI path doesn't fire). |
 | pkg/native/arm64 | `TestNextRegAdvancesPool` (NEW failure — original `TestEmitConstNilAggregateZeroesAndPoints` now passes) | Multi-return + X16 fixes unblocked many earlier tests; now stuck on a regmap-test crash. Test does `make(common.RegMap)` then a couple of nextReg calls. RegMap struct grew a managed-pointer field (`MultiReturnType @types.Type`) for the multi-return fix, so this may be a managed-struct-with-managed-field codegen issue — though small conformance reductions of that shape pass. |
 | pkg/codegen | `TestEmitMakeSlice` (`TestEmitMultiReturn` now passes after multi-return fix) | Test runs `compileToLLVM(src)` then substring-checks the output for `bn_rt__MakeManagedSlice`. The crash is somewhere along that path — needs reduction. |
 | pkg/vm | `TestRepro_StructWithManagedSliceFieldAppend` | Runtime OOB (`index out of bounds: 0 (len 0)`) — same shape as pkg/asm/parse's residual. May share root cause. |
@@ -170,6 +170,52 @@ tuple shape that broke. pkg/asm/elf had a similar shape elsewhere.
 
 Regression test: `pkg/native/arm64.TestEmitExtractMultiReturnUint32-
 FieldUsesScalarLoad`.
+
+### Separately discovered — cross-package by-value struct ABI mismatch (`337_cross_pkg_struct_arg`)
+
+Surfaced while reducing the original cluster A pkg/asm/arm32 LDRSH
+crash. Not the cause of that unit-test crash (unit tests build all
+packages native), but a real native-backend bug.
+
+Repro: a struct that doesn't fit fully in remaining arg registers,
+passed by value across a package boundary. The 56-byte (3 ints +
+@[]char) Operand-style struct in pkg/op + Encode(int, int, Operand)
+demonstrates: 2 leading int args leave 6 reg slots (X2..X7), but op
+needs 7 words. The conformance runner builds main with `-backend
+native` and pkg/op via LLVM (per cmd/bnc/main.bn:194 — deps still
+go through LLVM until the native backend self-hosts the runtime).
+
+ABI disagreement:
+- LLVM Encode prologue: split fill — reads op[0..5] from X2..X7,
+  op[6] from stack[0]. This is LLVM's `byval` struct emission.
+- Native main emitCall: writes op entirely to stack[0..48].
+  `common.CallArgRegStart` returns -1 once `ngrn + w > 8`, so the
+  caller-side code never fills X2..X7.
+
+Result: Encode reads garbage from X2..X7 as op[0..5]. op.Kind ends
+up = leftover in X2 at the call site (whatever the previous BL
+returned in X2).
+
+Conformance runner output: native fails, boot/boot-comp pass.
+xfailed under `boot-comp_native_aa64`.
+
+Fix: native `CallArgRegStart` / `CallArgStackOff` and emitCall +
+prologue need to support split passing (fill remaining regs, put
+overflow on stack) to match LLVM's `byval` behavior. Three call
+sites need the split logic:
+1. `common.CallArgRegStart` — return ngrn even when ngrn+w > 8 (if
+   ngrn < 8); add a way to also report stackOff for the overflow
+   portion (or have caller compute regWords = 8 - regStart).
+2. `arm64_ops.bn:emitCall` aggregate branch — when both regStart >=
+   0 and overflow exists, fill regs first, then overflow on stack.
+3. `arm64.bn` prologue aggregate branch — symmetrically: store regs
+   first, load overflow words from caller's stack-args area.
+
+Note that the bug requires the @[]char (managed-slice) field — pure-int
+structs of the same total size pass. That's because LLVM's struct ABI
+for managed-aware types differs from int-only structs: the managed
+field forces a different by-value passing strategy (verified
+empirically; haven't confirmed against LLVM IR).
 
 ## Plan of action
 
