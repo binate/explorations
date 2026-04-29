@@ -830,6 +830,49 @@ Binate is NOT Go. The two types of slice are intentionally different:
   aliases. Single `-` is reserved for short flags (`-v`, `-I`, `-L`),
   including future combinable `-abc`-style.
 
+### Build out e2e testing
+- We have unit tests (per package) and conformance tests (language
+  semantics). What we don't have is a place for **end-to-end tool
+  integration tests** — checks that the CLI/loader/runtime wiring
+  works the same way across all four tools that load Binate
+  packages: `bootstrap`, `bnc`, `bni`, `bnlint`.
+- A first stub lives at `e2e/split-paths.sh` (covers Stage 1–6 of
+  the package-search-paths plan): sets up a fixture where
+  `pkg/splitlib`'s `.bni` is in one root and impl is in another,
+  then invokes each tool with `-I` and `-L` and verifies output.
+- **Unique challenges this dir has to solve over time:**
+  - **4 tools, not 1.** A single feature (like `-I`/`-L`) needs to
+    be exercised on each tool independently, since each parses CLI
+    flags separately and threads them into the loader differently.
+  - **Multiple build/run modes for the binate-written tools.** bnc,
+    bni, and bnlint can each be exercised through several pipelines:
+    bnc via boot-comp / boot-comp-comp / boot-comp-comp-comp /
+    boot-comp_native_aa64; bni via boot-comp-int / boot-comp-comp-int;
+    bnlint via the same chains as bnc. Note that bni cannot be
+    interpreted directly by the bootstrap (cmd/bni imports pkg/vm,
+    whose float literals the bootstrap lexer doesn't recognize) —
+    bni really has to be built via boot-comp first.
+    Full e2e coverage of "feature X works" multiplies tools × build
+    modes — easily 10+ runs per feature. We don't necessarily want
+    that today; figuring out which slice is worth the cost is part
+    of building this out.
+  - **Fixture management.** Conformance tests share a single root;
+    e2e tests like split-paths need disjoint fixtures, ad-hoc temp
+    dirs, optional checked-in subtrees. No standard pattern yet.
+  - **Where to live in CI.** `e2e/` exists but has no runner script
+    or CI hookup. Decide: a single `e2e/run.sh` that picks up scripts
+    by convention? Per-feature scripts invoked individually? Wired
+    into existing matrix or a separate one?
+- **Why split-paths is a useful motivating example:** the `-I`/`-L`
+  feature is something `bootstrap`, `bnc`, `bni`, and `bnlint`
+  should all support **identically** — a deliberate cross-tool
+  contract. e2e is the only layer where that contract can be
+  observed directly. Most other features (codegen, type checker,
+  IR) are tool-internal and conformance covers them; CLI/loader
+  contracts span tools and need their own layer.
+- See [`plan-package-search-paths.md`](plan-package-search-paths.md)
+  for the spec the e2e/split-paths.sh fixture validates.
+
 ### Annotations and C function interop
 - Consider implementing annotations (decorators/attributes).
 - Specific use case: annotating functions as C functions.
