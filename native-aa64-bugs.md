@@ -115,13 +115,14 @@ crash (`LexNext(l) (Lexer, Token)` returns 40+64 = 104 bytes), but
 fixing it unmasked a downstream `index out of bounds: 0 (len 0)` —
 the package still fails for an unrelated reason.
 
-**Remaining cluster A** (7 packages, distinct bugs):
+**Remaining cluster A** (8 packages, distinct bugs):
 
 | Package | First-failing test | Notes |
 |---|---|---|
 | pkg/types | `TestIntTypes` (after `TestTypeName`/`TestPredeclaredTypes` FAIL with empty msg) | Crash in `_bn_rt__RefInc` writing refcount to `0x2e2ebdb68` — a `r--` (read-only) memory region. Looks like libmalloc tiny-zone metadata; the codegen is RefInc-ing a non-managed pointer. Test pattern: `var t @T = TypInt()` (managed-pointer global return). Conformance reductions of the same shape don't reproduce — bug requires more specific conditions that haven't been isolated. |
 | pkg/asm/parse | `TestParseMov` (post multi-return fix: now `runtime error: index out of bounds: 0 (len 0)`) | Multi-return ABI fix moved past the silent crash; what remains is a Binate runtime panic — a slice somewhere along the parse path is empty when expected to have content. Probably easier to track now; needs lldb stack at panic to identify the slice. |
 | pkg/asm/aarch64 | `TestResolveFixupsAdrOutOfRangeIsError` (NEW since 491ac60 — original `TestAddReg64` now passes) | Test loops 262144 times emitting NOPs to push past ±1MB ADR range. Either the loop itself or the large-data emit triggers a backend bug. May be its own thing; passes under boot-comp. |
+| pkg/asm/arm32 | `TestLdrshImm` | Pre-existing cluster A crash, surfaced during cluster B work — all the cluster B (encoding) failures in pkg/asm/arm32 are fixed, the package now runs through the full TestAdd*/Sub*/etc. set, but crashes on TestLdrshImm. The test is small (assemble one LDRSH, compare 4 bytes) — should be easy to reduce. |
 | pkg/native/arm64 | `TestNextRegAdvancesPool` (NEW failure — original `TestEmitConstNilAggregateZeroesAndPoints` now passes) | Multi-return + X16 fixes unblocked many earlier tests; now stuck on a regmap-test crash. Test does `make(common.RegMap)` then a couple of nextReg calls. RegMap struct grew a managed-pointer field (`MultiReturnType @types.Type`) for the multi-return fix, so this may be a managed-struct-with-managed-field codegen issue — though small conformance reductions of that shape pass. |
 | pkg/codegen | `TestEmitMakeSlice` (`TestEmitMultiReturn` now passes after multi-return fix) | Test runs `compileToLLVM(src)` then substring-checks the output for `bn_rt__MakeManagedSlice`. The crash is somewhere along that path — needs reduction. |
 | pkg/vm | `TestRepro_StructWithManagedSliceFieldAppend` | Runtime OOB (`index out of bounds: 0 (len 0)`) — same shape as pkg/asm/parse's residual. May share root cause. |
