@@ -309,17 +309,20 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   combined the OP_CALL_BUILTIN-arm collapse with main's `.Bytes()`
   method-syntax migration. boot-comp 278/278 post-merge confirms.
 
-### Un-export `rt.c_*` — wrap in Binate, hide from .bni
-- Today `pkg/rt.bni` exports the C-stub bridges (`c_malloc`, `c_calloc`, `c_free`, `c_memset`, `c_memcpy`, `c_call_dtor`, `c_bounds_fail`, plus historically `c_exit` and `c_print_float`). They're conceptually implementation details, not part of pkg/rt's public API. Direct callers in pkg/* and cmd/* tie the rest of the codebase to the libc-target shape — on a libc-free target the same operations would dispatch through syscall stubs (or be inlined in Binate).
-- Pattern is already established by `rt.Exit` (`a631ca9`): a thin Binate wrapper that currently calls `c_exit` but on a libc-free target would route through a syscall stub instead. Same shape needed for the rest.
-- **Scope**:
-  - Inventory every direct caller of `rt.c_*` outside `pkg/rt` itself (likely substantial — c_memcpy / c_memset are everywhere).
-  - Add Binate wrappers for each c_* that has external callers. Naming convention: `rt.Memcpy`, `rt.Memset`, etc. (or pick whatever reads best — possibly bring them under existing higher-level helpers where applicable).
-  - Migrate callers.
-  - Un-export the c_* in `pkg/rt.bni` (move declarations to `pkg/rt/rt.bn` as package-private).
-  - Update the bni naming whitelist (drop the c_* entries).
-- Why now-ish: aligns with the multi-backend / libc-free target direction in `runtime-abstraction-plan.md`. Each c_* removed from the public surface is one less thing the ARM32 / bare-metal backend has to reproduce.
-- Why not urgent: c_* are working today; this is a refactor for future portability, not a correctness fix.
+### ~~Un-export `rt.c_*`~~ — DONE (via pkg/libc, `43179b7` / `eae28a1` / `d3e2081`)
+- `pkg/rt.bni` no longer exports any `c_*` bridges. The libc dependency surface (Malloc / Calloc / Free / Memset / Memcpy / Exit) lives in a new package `pkg/libc` (.bni-only; implementations in `runtime/libc_stubs.c`). pkg/rt imports pkg/libc and forwards its raw-memory wrappers (RawAlloc / RawAllocZero / RawFree / MemCopy / MemZero) through it.
+- pkg/libc is the **only** "magic" package: it is always libc, and on a libc-free target (ARM32 bare-metal etc.) code does NOT substitute a different pkg/libc — instead, that target ships an entirely different pkg/rt that doesn't import pkg/libc and implements the runtime directly.
+- Naming whitelist: the eight `pkg/rt.bni:c_*` exemptions were dropped (no longer needed since `c_*` is gone).
+- One residual non-libc C extern remains: `rt.CallDtor` (function-pointer dispatch helper in `runtime/rt_stubs.c`). Tracked separately under "Retire `rt.CallDtor`" below.
+- The cmd/bnc + cmd/bni IR-gen drivers auto-import pkg/libc into every package's IR module (mirroring the existing pkg/rt and pkg/bootstrap auto-imports), so `bn_libc__Memcpy` calls emitted by the backends always have a matching `declare` line. Regression tests in `cmd/bnc/compile_test.bn`.
+- Discovery sequence: rename the wrappers to RawAlloc/RawAllocZero/RawFree/MemCopy/MemZero with proper preconditions (`fde6760`); introduce pkg/libc + migrate pkg/rt (`43179b7`); switch backend memcpy emission to `bn_libc__Memcpy` (`eae28a1`); auto-import pkg/libc (`d3e2081`).
+
+### Retire `rt.CallDtor` — function-pointer dispatch helper
+- `rt.CallDtor(dtor *uint8, ptr *uint8)` is the one Binate-runtime C extern that survived the pkg/libc migration. Implemented in C as `bn_rt__CallDtor` (a one-liner: `((void(*)(void*))dtor)(ptr)`).
+- It exists only because Binate doesn't yet have callable function-pointer types — the language can compute and store function addresses (`bit_cast(*uint8, &__dtor_X)`) but can't write `dtor(ptr)` against an arbitrary `*uint8`. Once function values are first-class (see "Function values" below), `RefDec` and the bytecode VM's dtor dispatch can call directly: `var f func(*uint8); f(ptr)`.
+- The VM additionally maintains a special override: in `pkg/vm/vm_extern.bn`'s `rt.CallDtor` arm, the dtor argument is interpreted as a 1-based VM function index (not a real C function pointer) and dispatched via `execFunc`. With proper function values that carry both a code pointer and a closure context, this override gets unified — the compiled code path follows the function pointer; the VM path follows the closure context to bytecode.
+- **Blocked on**: "Function values: compiled-VM-compatible representation". Not standalone work.
+- When that lands: drop `rt.CallDtor` from `pkg/rt.bni`, delete `runtime/rt_stubs.c` entirely (only `bn_rt__CallDtor` lives there now), inline the function call into `RefDec` and the VM dtor dispatch using the new function-value syntax, and remove the special-case arm in `vm_extern.bn`.
 
 ### Lift function-name qualification into IR (shared across backends)
 - The VM and the compiler both need to avoid cross-package function-name collisions. They currently solve it separately: `pkg/mangle.FuncName(pkgName, name)` produces C-style `bn_asm__New` for LLVM symbols, and `pkg/mangle.QualifyName(pkgShort, name)` produces dot-form `asm.New` for the VM's function table. Both backends extract the short package name from `ir.Module.Name` and apply their own qualification at lower/emit time.
