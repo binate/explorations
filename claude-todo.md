@@ -911,6 +911,107 @@ Binate is NOT Go. The two types of slice are intentionally different:
   end on each side, and identifies the first concrete code change to make.
   Don't start implementation until the design is reviewed.
 
+### REPL — design forcing function (do this work soon)
+- **Why this entry exists now, even before any implementation work**: the
+  REPL is an explicit core goal in `claude-notes.md` (see "Forward
+  references & REPL model — DECIDED" and the dual-mode rationale in
+  `claude-discussion-detailed-notes.md` § 11 / § 23). Its semantics are
+  largely *already decided* — what's not decided is whether our current
+  toolchain can actually realize them. The interpreter is now the
+  bytecode VM (cmd/bni → pkg/vm) rather than a tree-walker, and a VM is
+  inherently more rigid: bytecode bakes function indices, type IDs, and
+  string-table offsets into instructions. Writing this down now so that
+  decisions in adjacent areas (function values, interop descriptors, IR
+  refactors, layout extraction) get checked against REPL feasibility
+  before they land. Without that check, it's easy to ship a design that
+  locks the REPL out without anyone noticing.
+- **Already-decided semantics** (do NOT relitigate here — see
+  `claude-notes.md`):
+  - **Retained mode** (definitions: `func`, `type`, `var`, `const`,
+    `interface`, `impl`, `import`) — parsed and stored, validation
+    deferred until dependencies are met. Source files are entirely
+    retained mode.
+  - **Immediate mode** (bare expressions / statements at the prompt) —
+    fully checked at entry, can reference validated retained defs.
+    Top-level scope in source files is declarative-only; bare exprs are
+    REPL-only.
+  - **No forward declarations.** Deferred validation handles forward
+    references. Errors surface when a use of a still-pending def
+    occurs, not at definition time.
+  - **Redefinition**:
+    - *Compatible* (same signature/type, new body): **replace** — the
+      name table updates; existing references (incl. captured function
+      pointers in compiled code) keep working.
+    - *Incompatible* (different signature/type): **shadow** — old def
+      stays alive (refcounted) for anything still pointing at it; new
+      code sees the new def. Warn on outstanding refs at shadow time.
+    - Forced-shadow escape hatch even for compatible changes (syntax
+      TBD).
+  - **Hot-swap of interpreted functions while a compiled binary runs**
+    — natural fall-out of the thunk model (descriptor field points at
+    a trampoline; trampoline indirects to the current bytecode body).
+- **What the VM rigidity actually means** (verify each is addressable
+  before any design that depends on the current shape):
+  - **Static `OP_CALL <fn_idx>`**: bytecode bakes function indices
+    (qualified-name → idx resolved at lowering time, see
+    `qualifyCallName` in `pkg/vm/lower.bn`). Replace-redefinition is
+    fine if `vm.Funcs[idx].Body` is swappable in place. Shadow-
+    redefinition needs a NEW idx and the old idx kept alive for old
+    callers. Adding NEW functions in a REPL turn requires
+    `vm.Funcs` to be growable at runtime, not just at module-load
+    time.
+  - **Whole-module lowering** (`pkg/vm/lower.bn` lowers a whole
+    program in one pass): REPL needs *incremental* lowering — one
+    declaration per turn, appended to the existing VM state. The
+    lowerer's assumption that all callees are present at lower time
+    has to give way to "lower with a pending hole; fill it when the
+    callee shows up."
+  - **Type / layout table built at lowering time**: new types
+    declared in REPL turns need to be addable to the runtime type
+    universe (allocating IDs, registering destructors). The `pkg/types`
+    layout-extraction work is adjacent — the layout layer should not
+    assume types are fixed at startup.
+  - **String / const pools indexed from bytecode**: same story —
+    needs to be growable, not closed at module-load.
+  - **Cross-package symbol resolution at module load** (loader's `.bni`
+    pass): REPL turns may import new packages on the fly; the loader
+    needs an incremental path.
+  - **Frame ABI and `BC_RETURN.Aux` (multi-return tuple sizes)**:
+    fine for replace (same shape), forces shadow for incompatible
+    changes (which is consistent with the decided semantics anyway).
+- **Decisions / non-decisions in adjacent work that we should
+  pressure-test against REPL feasibility before they land**:
+  - **Function values** (`plan-function-values.md`): the thunk model
+    for hot-swap *is* a function value whose `call` slot points at a
+    trampoline. The 2-word `{vtable, data}` representation must allow
+    the `data` to be re-bound (different bytecode) without changing
+    the function-value's identity, otherwise hot-swap breaks. Phase 3
+    (cross-mode trampolines) is the place this decision gets baked in.
+  - **Compiler/interpreter interop** (above): the package descriptor
+    proposal is shaped right for REPL — interpreted-package
+    descriptors are mutable (REPL extends them); compiled-package
+    descriptors are read-only. The "canonical layout" choice (sorted
+    by mangled name vs. declaration order) interacts with REPL's
+    "add a new exported function in the middle of a session" — sorted
+    layout means descriptors aren't position-stable, which is the
+    right answer but worth confirming.
+  - **Layout extraction** (`layout-extraction-plan.md`): needs to
+    expose a runtime-extensible type universe, not a closed-at-startup
+    one.
+  - **IR/backend cleanup**: same — no closed-world assumptions in the
+    shared layer.
+- **What this entry is NOT**:
+  - A plan to implement the REPL now. That plan should land in its own
+    `plan-repl.md` doc, after function values and interop have firmer
+    shape.
+  - A relitigation of REPL semantics. Those are decided; if they change,
+    update `claude-notes.md` first, not here.
+- **Suggested next step**: when the function-values plan moves out of
+  DRAFT and the interop design doc is being written, fold a "REPL
+  feasibility" subsection into each, walking the rigidity checklist
+  above. If that exercise surfaces a hard conflict, that's a flag to
+  pull back on the adjacent design — not on the REPL.
+
 ### Import aliases and blank imports
 - Do we support Go-like `import somethingelse "pkg/foo"` currently? We'll likely need this.
 - Do we support `import _ "pkg/foo"`? Should we? (Side-effect-only imports.)
