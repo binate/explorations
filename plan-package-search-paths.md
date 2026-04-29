@@ -1,5 +1,33 @@
 # Plan: Two-path package resolution (interface + impl)
 
+## Status (2026-04-28)
+
+**Phase 1 complete (Stages 1-6).** The two-path search is shipped:
+loader, all four CLI tools (bnc, bni, bnlint, bootstrap), and the
+deprecated `Roots` field cleanup are landed in both the binate and
+bootstrap repos.
+
+| Stage | What | Commit |
+|-------|------|--------|
+| 1 | pkg/loader: split Roots into BniPath + ImplPath | binate `8736c48` |
+| 2 | cmd/bnc: -I / -L (and long forms) | binate `3a1fef4` |
+| 3 | cmd/bni: -I / -L (and long forms) | binate `f69a89c` |
+| 4 | cmd/bnlint: -I / -L (and long forms) | binate `e6a5d78` |
+| 5 | bootstrap: loader split + CLI flags | bootstrap `ad74a4c` |
+| 6 | drop deprecated Roots field | binate `f7f53fc`, bootstrap `9e6d107` |
+
+**Outstanding (deferred):**
+- **Stage 7**: env-var support
+  (`BINATE_PACKAGE_INTERFACE_PATH` / `BINATE_PACKAGE_IMPL_PATH`).
+  Gated on adding `bootstrap.Getenv`. Direct CLI is sufficient for
+  now since cross-compile drivers can construct command lines.
+- **Stage 8** (Phase 2): binary `.o`/`.a`/`.so` artifacts on
+  IMPL_PATH. Tied to having a stable per-package ABI/linker
+  contract.
+
+The body of this doc remains the design reference; everything below
+this status section is unchanged from the original plan.
+
 ## Motivation
 
 Today the loader has a single `Roots @[]@[]char` list that's searched

@@ -786,14 +786,46 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - Do we support `import _ "pkg/foo"`? Should we? (Side-effect-only imports.)
 - Both interact with the package object naming question above.
 
-### Package path strategy
-- Consider a more coherent strategy for package resolution paths:
-  - **BNI path**: searched for `.bni` interface files (like PATH, maybe `:` separated).
-  - **BN source path**: searched for `.bn` package implementations.
-  - **BN object/library path**: searched for `.a` or `.o` compiled package artifacts.
+### ~~Package path strategy (Phase 1)~~ — DONE (2026-04-28)
+- Two-path resolution shipped: `BniPath` (`.bni` interfaces) and
+  `ImplPath` (impl directories) are independently-searched, ordered
+  lists. CLI surface: `-I` / `--interface-path` and `-L` / `--impl-path`
+  on bnc, bni, bnlint, and the Go bootstrap. `--root <dir>` stays as
+  sugar for "add to both paths."
+- Stages 1–6 (loader split → per-tool CLI → drop deprecated `Roots`
+  field) all landed across the binate + bootstrap repos. See
+  [`plan-package-search-paths.md`](plan-package-search-paths.md) for
+  the design and the per-stage commit table.
 
-### CLI flag coherence
-- Review and unify command-line flags across `bnc`, `bni`, `bnas`, `bnlint` for consistency (e.g., `-root` vs `--root`, `-v` vs `--verbose`).
+### Package path: env-var support (Stage 7)
+- Add `BINATE_PACKAGE_INTERFACE_PATH` / `BINATE_PACKAGE_IMPL_PATH`
+  (long names match `LD_LIBRARY_PATH`/`PYTHONPATH` style; aliases TBD)
+  as the fallback when CLI flags are absent.
+- Gated on adding `bootstrap.Getenv` (a few lines of C + Go-interp
+  glue). Deferred because direct shell invocations of bnc/bni today
+  can construct CLI arguments — the env-var fallback is convenience
+  for users invoking the tools by hand.
+- See [`plan-package-search-paths.md`](plan-package-search-paths.md)
+  § "Env vars".
+
+### Package path: binary artifacts on IMPL_PATH (Stage 8 / Phase 2)
+- Once we have a stable per-package ABI/linker contract: accept
+  `.o`/`.a`/`.so` files on `IMPL_PATH` as alternatives to `.bn`
+  source. `hasImplFiles(dir)` becomes "has at least one of {.bn, .o,
+  .a, .so}". Precedence rule (likely .o/.a/.so wins over .bn, with
+  `--prefer-source` to override) is open.
+- bnc would also gather binary artifacts from `IMPL_PATH` and feed
+  them to the linker automatically (today users supply via
+  `--cflag`).
+- See [`plan-package-search-paths.md`](plan-package-search-paths.md)
+  § "Future: binary impl artifacts".
+
+### ~~CLI flag coherence~~ — DONE (2026-04-28, alongside Stage 1–6)
+- Standardized on `--word` for long flags across bnc, bni, bnlint,
+  bootstrap. Existing single-dash long flags (`-root`, `-add-root`,
+  `-verbose`, `-test`, `-cpuprofile`) stay accepted as back-compat
+  aliases. Single `-` is reserved for short flags (`-v`, `-I`, `-L`),
+  including future combinable `-abc`-style.
 
 ### Annotations and C function interop
 - Consider implementing annotations (decorators/attributes).
