@@ -382,7 +382,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Path taken (option C from the plan)**: compiler-internal-only — no new builtin or keyword. The `.bni` decl gives the type-checker the right signature to validate RefDec's call against; IR-gen swaps in `OP_CALL_INDIRECT` for that one magic name. Lighter weight than designing a `call_indirect` user-facing builtin; generalizes naturally when function values land (which will need their own spelling).
 - **Hygiene**: `scripts/hygiene/naming.sh` was tightened to also flag `_`-prefix exports (previously the `[a-z]` regex let them slip through). `_call_dtor` is whitelisted.
 - **Commits**: `ee93644` (PR 1: IR op + LLVM), `6f064a5` (PR 2 part 1: VM lowering), `4e20ffb` (PR 2 part 2: native arm64), `f08ddcb` (PR 2 part 3: RefDec migration + retire C trampoline).
-- **Pairs with**: "Free-function pointer in managed-allocation header — bug" — when that bug is fixed, `Free` reading `header[1]` and calling through it can reuse the same `OP_CALL_INDIRECT` op (likely via a similar `_free_via_header` magic-name pattern, or a normal call to a `_free` helper).
+- **Paired with**: "Free-function pointer in managed-allocation header — bug" (also DONE) — `Free` reads `header[1]` and dispatches indirect through it via the parallel `_call_free_fn` magic helper, sharing the same OP_CALL_INDIRECT lowering as `_call_dtor`.
 
 ### Lift function-name qualification into IR (shared across backends)
 - The VM and the compiler both need to avoid cross-package function-name collisions. They currently solve it separately: `pkg/mangle.FuncName(pkgName, name)` produces C-style `bn_asm__New` for LLVM symbols, and `pkg/mangle.QualifyName(pkgShort, name)` produces dot-form `asm.New` for the VM's function table. Both backends extract the short package name from `ir.Module.Name` and apply their own qualification at lower/emit time.
@@ -553,36 +553,35 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   tables, vtable-indirect dispatch, cross-mode trampoline path)
   is shared with function values — building it once serves both.
 
-### Free-function pointer in managed-allocation header — bug
-- `pkg/rt/rt.bn` defines a 2-word managed-allocation header:
-  `{refcount, free_fn}`. The `free_fn` slot is intended to carry
-  a per-allocation "which allocator releases me" function pointer
-  — critical for cross-allocator interop (compiled side may
-  allocate via libc; interpreted side may use a different
-  allocator; either side dropping the value must call the *origin
-  allocator's* free, not a globally hardcoded one).
-- **Today**: `Alloc` sets `header[1] = 0` and `Free` calls
-  `c_free` (now `libc.Free`) unconditionally. The slot exists but
-  is never set or read. This is a **real bug**, not a deferred
-  feature — it actively blocks compiler/interpreter interop where
-  the two sides may use different allocators.
-- **Fix scope**:
-  - `Alloc` (and `MakeManagedSlice`'s allocation path) must set
-    `header[1]` to the appropriate free function — for the libc
-    target, `&bn_libc__Free`.
-  - `Free` must read `header[1]` and call through it, not call
-    `libc.Free` directly. The `OP_CALL_INDIRECT` IR op is in
-    place (see "Retire `rt.CallDtor`" above, LANDED), so this
-    can reuse the same compiler-internal-magic pattern: a
-    `_free_via_header` (or similar) `.bni` decl that IR-gen
-    recognizes and emits as `OP_CALL_INDIRECT` — no new C
-    trampoline needed.
-  - Audit any other allocation paths to ensure they all set
-    `header[1]` consistently.
-- **Adjacent**: was tracked alongside `rt.CallDtor` retirement;
-  CallDtor retirement is now done. Fix this bug regardless of
-  when function values land — the same indirect-call substrate
-  is already available.
+### ~~Free-function pointer in managed-allocation header — bug~~ — DONE
+- `pkg/rt/rt.bn` defines a 2-word managed-allocation header
+  `{refcount, free_fn}`. The free_fn slot is now populated by
+  `Alloc` (with `&rt.RawFree`) and read by `Free`, which dispatches
+  indirect through it via the new `_call_free_fn` magic helper
+  (parallel to `_call_dtor`, same OP_CALL_INDIRECT lowering). Each
+  rt impl plugs in *its own* RawFree without Free needing to know.
+- The runtime's C-side `managed_alloc` helper (used by
+  `cstr_to_managed_slice` etc.) was updated to set
+  `header[1] = &bn_rt__RawFree`, keeping C-created managed
+  allocations consistent with rt.Alloc-created ones.
+- **Cross-mode caveat (unchanged from prior state)**: works within
+  a single mode (compiled-side allocation freed compiled-side; VM-
+  side allocated freed VM-side). Cross-mode allocation+free still
+  requires per-signature trampolines (function values Phase 3) to
+  translate header[1] between the C-pointer and VM-function-index
+  conventions. No regression vs. before — pre-fix Free silently
+  used libc.Free regardless of origin.
+- **Sub-task that landed alongside**: a new compiler-internal
+  builtin `_raw_func_addr(funcRef)` returning the raw function
+  address as `*uint8`. Underscore-prefixed because it isn't a
+  permanent language feature — when function values land, the
+  canonical spelling will accept a function value and extract the
+  underlying call slot. Used by Alloc to populate header[1].
+- **Prelim layering fix**: Alloc now routes through RawAlloc and
+  MemZero rather than calling libc.Malloc / libc.Memset directly,
+  so a non-libc pkg/rt impl can plug in its own raw-memory layer.
+- **Commits**: `eda5941` (Alloc → RawAlloc+MemZero), `217f8bb`
+  (`_raw_func_addr` builtin), `7b325eb` (header[1] populate+use).
 
 ### Cross-package method visibility in `.bni`
 - Methods defined on a public type in package `foo` need to be declared
@@ -993,9 +992,10 @@ Binate is NOT Go. The two types of slice are intentionally different:
     that plan delivers the cross-mode trampoline machinery this
     work consumes.
   - "Free-function pointer in managed-allocation header — bug"
-    (above) — separate but interop-critical. Without per-allocation
-    free-fn, a managed value allocated on one side and dropped on
-    the other will hit the wrong allocator.
+    (above, DONE within a single mode) — Free now dispatches through
+    `header[1]`. Cross-mode allocate-on-one-side / free-on-the-
+    other still requires Phase 3's trampolines to translate
+    `header[1]` between the C-pointer and VM-index conventions.
   - "Lift function-name qualification into IR" (above) — would simplify name
     resolution at the interop boundary.
   - "Import aliases and blank imports" (below) — affects how the descriptor
