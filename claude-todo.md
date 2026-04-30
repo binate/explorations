@@ -200,7 +200,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Conformance basic green (204/281/275 — boot-comp-int +1 pass);
   pkg/vm unit tests green.
 
-### boot-comp-int-int: SIGSEGV after ~218s (post-BC_RETURN-fix)
+### ~~boot-comp-int-int: SIGSEGV after ~218s (post-BC_RETURN-fix)~~ — FIXED (`900a44e`)
 - (Mode renamed from `boot-comp-int2-int2` after the int2→int rename in `b1e4f98`.)
 - History (2026-04-25/26):
   1. Original symptom: SIGSEGV with no output.
@@ -213,17 +213,56 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   8. New symptom (2026-04-26 post-fix): `001_hello` runs for ~218s (vs 35s pre-fix), peaks at ~152 MiB RSS, then exits with SIGSEGV (139). No "vm: stack overflow" — this is genuine memory corruption / bad pointer, not a VM-stack issue.
 - **Why progress matters**: pre-fix, the leak hit overflow within ~35s of useful work. Post-fix, ~6× more work happens before any failure, so the next bug is much further along the execution. The new SIGSEGV is a separate (heap-side) bug, not a regression.
 - Not in the `all` modeset, so CI/default runs don't exercise it.
-- **Confirmed 2026-04-29**: any boot-comp-int-int run is currently
-  broken by this — `001_hello` (no floats, no exotic features)
-  produces empty output and "fails" after ~246s, identical pattern
-  to test 283 and test 272. So the per-test xfails on
-  boot-comp-int-int are misleading: the mode itself is broken at
-  the runtime level. Future per-test xfails on this mode aren't
-  worth tracking until the SIGSEGV root cause is found.
-- **Next** (skipped this session — needs separate investigation):
-  - Identify what's at 152 MiB RSS — is the heap growing without bound (leak), or is it a one-shot bad alloc that crashes after some pattern of work?
-  - Run under lldb / Address Sanitizer (compile bni with `--cflag -fsanitize=address` per the `--cflag` precedent from earlier debugging) to catch the bad access at the moment it happens.
-  - The bug likely lives in pkg/vm or a runtime helper called from VM-interpreted code; native-compiled cmd/bni doesn't trigger it.
+- **Diagnosis (2026-04-29)**: ASan caught a HOST stack-overflow
+  inside `malloc`, triggered from
+  `execLoop → execExtern → libc.Malloc`. Diagnostic instrumentation
+  showed `execFuncCalls=1` and `execFuncDepth=1` throughout the
+  entire 260M+ iteration run — so the leak was NOT host-recursion of
+  `execFunc`. ulimit confirmed it was a true leak (8 MiB → 246s,
+  64 MiB → 1264s, roughly 5x more time for 8x more stack).
+- **Root cause**: 1 alloca outside execLoop's entry block —
+  `var callArgs @[]int = make_slice(int, instr.Imm)` declared
+  inside the BC_CALL extern branch. bnc emits the @[]int header
+  alloca in that branch's BB, not the function entry, so each
+  extern call leaks 32 bytes that's only released on execLoop
+  return. 8 MiB / 32 = 262144 extern calls before overflow —
+  matches the observed ~218s.
+- **Fix**: hoist `callArgs` to function entry; reuse the buffer
+  across calls (re-make_slice only when an existing buffer can't
+  hold the call's args). Bundled with a defensive iterative-dtor
+  reform of BC_REFDEC (no host recursion through dtor cascades),
+  though that wasn't load-bearing for this specific bug.
+- **Aftermath**: SIGSEGV is gone — `001_hello` no longer crashes
+  in boot-comp-int-int. But the mode is still **extremely slow**:
+  >10 minutes for `001_hello` without producing output (vs. ~1s in
+  boot-comp-int). Whether boot-comp-int-int is worth investing in
+  as a useful test mode is now a separate perf question — the
+  underlying correctness issue is resolved.
+- **Followup TODO (compiler-level)**: bnc's IR-gen should hoist
+  managed-slice (and other multi-word) allocas to function entry
+  rather than emitting them in the current basic block. Would
+  prevent any future occurrence of this bug class. Tracked
+  separately under "bnc: hoist allocas to function entry" below.
+
+### bnc: hoist managed-slice allocas to function entry
+- The boot-comp-int-int SIGSEGV was caused by bnc emitting the
+  alloca for a `var callArgs @[]int = ...` declared inside an
+  if/loop branch into that branch's basic block. Each execution
+  added 32 bytes of host stack that wasn't released until the
+  function returned — a slow leak.
+- LLVM at -O0 (which is bnc's default linker setting) doesn't hoist
+  these allocas, so the leak is real in production binaries.
+- Workaround applied for the specific case (`900a44e`): hoist by
+  hand. But any future `var x @[]T` (or struct/array) inside a hot
+  branch will reintroduce the same bug class.
+- Proper fix: have bnc IR-gen emit OP_ALLOC at function entry for
+  all locals, not at the current insertion point. LLVM's mem2reg
+  pass would also help, but that requires turning on optimization
+  (currently broken: -O2 has missing-symbol link errors — separate
+  issue worth investigating).
+- Touching this is a bnc-side change in `pkg/ir/gen_*.bn` and/or
+  the genDecl path; need to confirm where OP_ALLOC currently gets
+  attached.
 
 ### ~~conformance/283_float_untyped: VM float32 storage~~ — FIXED (`882893c`)
 - VM registers carry IEEE bits in their declared width — float64 in
