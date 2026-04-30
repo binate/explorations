@@ -200,7 +200,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Conformance basic green (204/281/275 — boot-comp-int +1 pass);
   pkg/vm unit tests green.
 
-### ~~boot-comp-int-int: SIGSEGV after ~218s (post-BC_RETURN-fix)~~ — FIXED (`900a44e`)
+### ~~boot-comp-int-int: SIGSEGV after ~218s (post-BC_RETURN-fix)~~ — FIXED (`900a44e` + `a723acb`)
 - (Mode renamed from `boot-comp-int2-int2` after the int2→int rename in `b1e4f98`.)
 - History (2026-04-25/26):
   1. Original symptom: SIGSEGV with no output.
@@ -227,17 +227,30 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   extern call leaks 32 bytes that's only released on execLoop
   return. 8 MiB / 32 = 262144 extern calls before overflow —
   matches the observed ~218s.
-- **Fix**: hoist `callArgs` to function entry; reuse the buffer
-  across calls (re-make_slice only when an existing buffer can't
-  hold the call's args). Bundled with a defensive iterative-dtor
-  reform of BC_REFDEC (no host recursion through dtor cascades),
-  though that wasn't load-bearing for this specific bug.
+- **Fix (two commits)**: First (`900a44e`) hoisted callArgs's @[]int
+  header alloca by declaring it at function entry — but bnc still
+  emitted a temp alloca for `make_slice`'s sret return INSIDE the
+  branch when the buffer needed to be (re)allocated, so the leak
+  was only partly closed. Second (`a723acb`) closed it fully:
+  pre-allocate a generously-sized callArgs (capacity 64) ONCE at
+  entry; reuse across all extern calls; panic on overflow.
+  Bundled with a defensive iterative-dtor reform of BC_REFDEC
+  (no host recursion through dtor cascades), though that wasn't
+  load-bearing for this specific bug.
+- **Regression test**: `conformance/338_extern_call_loop.bn` —
+  1M iterations of `bootstrap.Close(-1)` (cheap scalar-arg extern
+  that doesn't push onto vm.Stack per call). Pre-fix, SIGSEGV at
+  ~150K calls. Post-fix, runs in <1s.
 - **Aftermath**: SIGSEGV is gone — `001_hello` no longer crashes
-  in boot-comp-int-int. But the mode is still **extremely slow**:
-  >10 minutes for `001_hello` without producing output (vs. ~1s in
-  boot-comp-int). Whether boot-comp-int-int is worth investing in
-  as a useful test mode is now a separate perf question — the
-  underlying correctness issue is resolved.
+  in boot-comp-int-int. But the mode is still effectively unusable:
+  10-minute timeout for `001_hello` without producing output (vs.
+  ~1s in boot-comp-int). Suspected followup leaks: `BC_LOAD_STR`
+  pushes 32 bytes onto vm.Stack per call without ever popping,
+  so a tight loop with string-literal extern args overflows
+  vm.Stack at ~262K calls (separate from the host-stack leak this
+  entry covered). Likely other similar issues in the
+  bytecode-running-bytecode-VM path. Whether boot-comp-int-int is
+  worth making usable is a separate perf+correctness question.
 - **Followup TODO (compiler-level)**: bnc's IR-gen should hoist
   managed-slice (and other multi-word) allocas to function entry
   rather than emitting them in the current basic block. Would
