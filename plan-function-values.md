@@ -106,14 +106,20 @@ design — open" below.
 
 ### Phase 3 — Cross-mode trampolines
 
-Per-signature trampolines that let compiled code call into VM
-bytecode through a function value, and vice versa. Builds on
-Phase 1's vtable layout.
+Phase 1 already lays an interop-compatible vtable layout (see
+"VM-mode vtables — interop-compatible from Phase 1" below) with
+the `vtable.call` slot left as a placeholder for VM-side values.
+Phase 3's job is to fill it in: generate per-signature trampolines
+(part of cmd/bni's compiled body or per-program codegen) that
+read the VM closure record and dispatch into the VM via
+`execFunc`. Once `vtable.call` is populated, compiled code can
+read it and call directly — cross-mode dispatch just works.
 
-Unlocks the broader compiler/interpreter interop work — package
-descriptors fall out as "structs of function values whose vtables
-either point at compiled code (compiled side) or trampolines
-(interpreted side)."
+The reverse direction (VM bytecode calling a compiled-side
+function value through `vtable.call`) needs a way to invoke an
+arbitrary C function pointer with prepared args from bytecode.
+This is the longer Phase 3 work — same machinery the broader
+compiler/interpreter interop will use.
 
 Phase 3 does not require Phase 2: package descriptors expose
 non-capturing exports. Closures-across-the-boundary is a separate
@@ -215,6 +221,77 @@ short-circuit it.
 
 See "Capture design — open" below.
 
+### VM-mode vtables — interop-compatible from Phase 1
+
+A late-Phase-1 design pass: vtable layout must be interoperable —
+same 16-byte shape in both modes, with `vtable.call` holding a real
+C function pointer in both — otherwise the compiled side cannot
+call a VM-side function value through its vtable, and Phase 3
+cross-mode dispatch has to redesign the layout instead of just
+filling in a slot.
+
+In compiled mode the design is straightforward: `vtable.call` is a
+real function pointer to the actual function (or to a per-shape
+shim for capturing closures). Compiled callers dispatch directly.
+
+VM mode is harder. User-Binate functions in VM mode don't have
+real C function pointers — they exist only as bytecode. Three
+options were considered:
+
+1. **Per-function JIT trampolines**: at VM startup, allocate
+   executable memory and emit a tiny native stub per function-
+   taken-as-value with the function index baked in. Heaviest
+   (mmap MAP_EXEC, sysctl exec-on-write on macOS, ARM cache
+   flush, etc.).
+2. **Shared per-signature trampoline + data-slot-as-context**:
+   one generic trampoline per call signature, part of cmd/bni's
+   compiled body. The function value's `data` slot holds the VM
+   function index instead of a captured-ctx pointer. Phase 1 fit
+   is OK (non-capturing `data` is otherwise unused), but Phase 2
+   conflicts: capturing values need `data` for the captured ctx,
+   so the slot ends up doing two jobs.
+3. **Heap-allocated VM closure record always** *(chosen)*:
+
+       VM closure record (heap):
+           {vm_func_idx, captured_ctx_or_nil}
+
+   Even non-capturing VM-side values allocate one of these. The
+   value's `data` slot points at the record. Phase 2 just extends
+   the record's `captured_ctx` slot. Layout is uniform across
+   capturing/non-capturing.
+
+#### Phase 1 implementation (within-VM dispatch only)
+
+For Phase 1, only same-mode dispatch is supported:
+
+- Compiled-mode call site reads `vtable.call` directly and
+  dispatches.
+- VM-mode call site (a bytecode `OP_CALL_INDIRECT` through a
+  function value) **short-circuits the trampoline**: the VM lowering
+  reads the closure record's `vm_func_idx` directly out of `data`
+  and calls `execFunc(vm_func_idx, args...)`. Cheap and direct.
+
+`vtable.call` for VM-side function values stays a placeholder
+(`null` or an abort stub). **Phase 1 must add code-level TODOs at
+each VM-vtable emission site pointing at this plan**, so the
+Phase 3 work is easy to find.
+
+#### Phase 3 implementation (cross-mode dispatch)
+
+Phase 3 fills in `vtable.call` for VM-side values with a per-
+signature trampoline, generated as part of cmd/bni's compiled body
+or via a per-program codegen step. The trampoline takes
+`(data_ptr, args...)`, reads `data_ptr → vm_func_idx`, dispatches
+into the VM via `execFunc`. With `vtable.call` filled in,
+compiled code can read it and call directly — cross-mode dispatch
+just works.
+
+The reverse direction (VM-bytecode calling a compiled-side
+function value through `vtable.call`) needs a way for bytecode to
+invoke an arbitrary C function pointer with prepared args. This
+is the longer Phase 3 work — same machinery the broader
+compiler/interpreter interop will use.
+
 ### Bare `func(...)` is not a usable type
 
 Following the same shift the slice migration made (`*[]T` /
@@ -303,22 +380,13 @@ capture semantics are settled.
 
 ## VM-side: per-signature trampoline
 
-Phase 3. When a function value's underlying body is interpreted
-bytecode rather than compiled native code, the vtable instance's
-`call` slot points at a per-signature **trampoline**:
-
-1. Takes the standard `(data *uint8, args...)` shape.
-2. Uses `data` as a reference to the bytecode record (function
-   index + module + closure env) the VM should execute.
-3. Sets up the VM call frame, marshals args into VM-stack
-   convention, runs the bytecode, marshals the return value back.
-
-Per signature: each distinct function-value signature needs its
-own trampoline because arg marshaling depends on types. Generated
-once per signature in use, not per function.
-
-Trampolines live in the compiled binary (they're compiled native
-code) regardless of the called body's location.
+Folded into the "VM-mode vtables — interop-compatible from Phase 1"
+section above. Summary: Phase 3 work is to fill in `vtable.call`
+for VM-side function values with a per-signature trampoline that
+reads the VM closure record and dispatches into the VM. Phase 1
+leaves the slot as a placeholder; same-mode dispatch in Phase 1
+short-circuits the trampoline by reading the closure record
+directly from the function value's `data` slot.
 
 ## Boxing / allocation rules
 
