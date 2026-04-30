@@ -237,25 +237,42 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   Bundled with a defensive iterative-dtor reform of BC_REFDEC
   (no host recursion through dtor cascades), though that wasn't
   load-bearing for this specific bug.
-- **Regression test**: `conformance/338_extern_call_loop.bn` —
+- **Regression test**: `conformance/339_extern_call_loop.bn` —
   1M iterations of `bootstrap.Close(-1)` (cheap scalar-arg extern
   that doesn't push onto vm.Stack per call). Pre-fix, SIGSEGV at
   ~150K calls. Post-fix, runs in <1s.
-- **Aftermath**: SIGSEGV is gone — `001_hello` no longer crashes
-  in boot-comp-int-int. But the mode is still effectively unusable:
-  10-minute timeout for `001_hello` without producing output (vs.
-  ~1s in boot-comp-int). Suspected followup leaks: `BC_LOAD_STR`
-  pushes 32 bytes onto vm.Stack per call without ever popping,
-  so a tight loop with string-literal extern args overflows
-  vm.Stack at ~262K calls (separate from the host-stack leak this
-  entry covered). Likely other similar issues in the
-  bytecode-running-bytecode-VM path. Whether boot-comp-int-int is
-  worth making usable is a separate perf+correctness question.
-- **Followup TODO (compiler-level)**: bnc's IR-gen should hoist
-  managed-slice (and other multi-word) allocas to function entry
-  rather than emitting them in the current basic block. Would
-  prevent any future occurrence of this bug class. Tracked
-  separately under "bnc: hoist allocas to function entry" below.
+- **Followup work landed in this same arc**:
+  - `f3478cb` (codegen-side hoist for OP_MAKE_SLICE / sret OP_CALL):
+    closes the bug class in the LLVM backend.
+  - `daacfe3` (BC_LOAD_STR no-push): closes the parallel vm.Stack
+    leak so loops with string-literal extern args don't overflow
+    vm.Stack at ~262K iterations.
+- **Aftermath**: After the full chain (`900a44e` + `a723acb` +
+  `f3478cb` + `daacfe3`), boot-comp-int-int 001_hello no longer
+  hangs OR crashes silently. It now exits cleanly with a
+  diagnosable error from a SEPARATE bug:
+  `vm: indirect call: function index out of range`. That comes
+  from BC_CALL_INDIRECT's dtor-dispatch path (the new f08ddcb
+  `rt._call_dtor` mechanism) — its own followup, tracked below.
+
+### boot-comp-int-int: BC_CALL_INDIRECT "function index out of range" on 001_hello
+- After the chain of fixes for the host-stack overflow + vm.Stack
+  leak (`900a44e` / `a723acb` / `f3478cb` / `daacfe3`),
+  boot-comp-int-int 001_hello now reaches a clean error rather
+  than hanging or SIGSEGVing: `vm: indirect call: function index
+  out of range` from BC_CALL_INDIRECT.
+- Came in via `f08ddcb` ("RefDec dtor dispatch: rt.CallDtor →
+  IR-gen-magic _call_dtor"): RefDec now invokes the dtor through
+  OP_CALL_INDIRECT instead of the rt.CallDtor extern. In single-
+  layer modes the IR-gen-emitted helper resolves the function
+  pointer correctly. In bni-running-bni, the indirect call's
+  function index is set up wrong somewhere in the cmd/bni-as-
+  bytecode interpretation path.
+- Probable shape: a 1-based VM function index is being passed
+  through native code where a 0-based or negative-marker value
+  is expected (or vice versa). The check at vm_exec.bn fires
+  when `regs[Src1] == 0` or `regs[Src1] - 1 >= len(vm.Funcs)`.
+- Not investigated. boot-comp-int-int isn't in the `all` modeset.
 
 ### ~~bnc: hoist managed-slice allocas to function entry~~ — FIXED (`f3478cb`)
 - pkg/codegen already hoisted OP_ALLOC decls to the entry block via
