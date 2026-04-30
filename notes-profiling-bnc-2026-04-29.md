@@ -1,5 +1,13 @@
 # Profiling notes: bnc compiling itself (2026-04-29)
 
+> **Status (2026-04-29, later same day):** Recommendations #1 and the
+> out-of-scope `-O2` link bug below have been addressed and the
+> workload re-profiled at `-O2`. See
+> `notes-profiling-bnc-followup-2026-04-29.md` for the new shape and
+> the bottom-line read on remaining work. This file is preserved as
+> the original baseline; the recommendations table is updated in the
+> follow-up.
+
 > One-shot baseline run. `sample` profiler on macOS, `gen1_bnc`
 > compiling `cmd/bnc` → `gen2_bnc`. Goal: identify where bnc
 > spends its time before deciding what to optimize.
