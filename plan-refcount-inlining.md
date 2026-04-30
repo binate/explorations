@@ -81,13 +81,13 @@ new_count = h[0] - 1
 h[0] = new_count
 if new_count > 0: skip
 // slow path: refcount reached zero
-call rt.<slow-path-helper>(ptr, dtor)
+call rt.ZeroRefDestroy(ptr, dtor)
 ```
 
 The slow-path helper:
 
 ```binate
-func <slow-path-helper>(ptr *uint8, dtor *uint8) {
+func ZeroRefDestroy(ptr *uint8, dtor *uint8) {
     // refcount already at zero; ptr is non-nil.
     if dtor != nil { _call_dtor(dtor, ptr) }
     Free(ptr)
@@ -98,17 +98,11 @@ Slow path runs once per managed allocation (when its last reference
 is released), not at every assignment. Inlining the dtor + free
 sequence gains nothing because it's already rare.
 
-### Slow-path helper name — open
+### Slow-path helper name
 
-Bikeshed candidates:
-- `OnZeroRef(ptr, dtor)` — describes when it fires.
-- `ZeroRefDestroy(ptr, dtor)` — describes what it does.
-- `RefDecSlow(ptr, dtor)` — describes the call-graph relationship.
-- `Destroy(ptr, dtor)` — shortest, accurate.
-
-Implementer's choice. The compiler-internal magic-name pattern (à la
-`_call_dtor`) is also an option if we want to flag it as not-for-
-direct-user-code.
+`ZeroRefDestroy(ptr, dtor)` — describes what it does (refcount has
+already hit zero; this destroys the object). Lives in `pkg/rt`
+alongside `RefInc` / `RefDec`.
 
 ## Backend implementation
 
@@ -120,11 +114,18 @@ Replace `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC` IR-gen with a sequence
 of primitive ops (load / add / store / branch). Backends consume
 the existing primitive ops directly; no backend changes needed.
 
-Pros: portable across backends; one source of truth.
+Pros: portable across backends; one source of truth. Especially
+attractive once we have multiple native backends (arm64, future
+arm32 / x86-64), since none of them needs to know about refcount
+ops at all.
 
 Cons: IR-gen emits more ops per call site → bigger IR → slower
 IR-gen and codegen passes. Each refcount site goes from 1 op to
-~5 ops.
+~5 ops. **Critically, this is bad for the VM**: the VM dispatch
+loop is the dominant cost, and ~5 primitive bytecode dispatches
+per refcount site is much slower than a single fused dispatch.
+(Still better than the current `BC_CALL` + body, but it leaves a
+big VM win on the table.)
 
 ### Option B — Backend intrinsics (preferred)
 
@@ -134,24 +135,70 @@ backend lowers them inline:
 - **LLVM**: emit the load+add+store+branch sequence directly in
   `emit_instr.bn`. ~5 LLVM instructions per call site instead of
   one `call`. Optimizer can hoist common nil-checks and the like.
-- **VM**: emit a small bytecode sequence (BC_LOAD64 + BC_ADD +
-  BC_STORE64 + BC_BRANCH) instead of BC_CALL. Or: introduce
-  fused `BC_REFINC_INLINE` / `BC_REFDEC_INLINE_FAST` ops that the
-  VM dispatch loop handles in one switch arm — fewer dispatch
-  hops.
+- **VM**: introduce fused `BC_REFINC_INLINE` /
+  `BC_REFDEC_INLINE_FAST` ops that the VM dispatch loop handles
+  in one switch arm. **One dispatch per refcount site** instead
+  of the ~5 that Option A would imply, which is the dominant
+  perf win on the VM side.
 - **Native arm64**: emit `LDR + ADD + STR + CBZ`-style sequence.
   Already saturating registers near refcount sites, so reusing
   X16/X17 (intra-call scratch) keeps register pressure manageable.
 
-Pros: IR stays small; each backend gets its native-best sequence;
-optimizer sees the full inline form.
+Pros: IR stays small; the VM gets a single-dispatch op (the
+biggest perf delta in this whole project); native backends can
+each use their native-optimal sequence.
 
-Cons: each backend duplicates the inlining logic. Three places to
-maintain instead of one.
+Cons: each backend duplicates the inlining logic. Mitigated for
+the native side by a **shared inline-lowering helper** (see
+below).
 
-**Recommendation: Option B**. The duplication is minimal (each
-backend's lowering is ~10-15 lines) and the perf wins are bigger
-because each backend can use its native-optimal sequence.
+**Recommendation: Option B**, with a shared helper for the native
+backends.
+
+### Shared inline-lowering helper for native backends
+
+The "Option B con" — duplicated lowering across native backends —
+is mostly avoidable. The inline sequence (nil check, header-offset
+arithmetic, load, add/sub, optional zero-compare + branch, store)
+is universal across architectures; only instruction selection
+differs. A single helper in the shared backend layer can emit it
+via each backend's primitive emit functions (load / store / add /
+branch / call).
+
+Requirements for the helper to be portable to future native
+backends (arm32, x86-64, RISC-V, ...):
+
+- The shared backend layer must expose target-agnostic primitive
+  emit ops (load / store / add / sub / branch / call). Each
+  backend's instruction selection turns these into machine
+  instructions independently.
+- The helper must be parameterized by **target word sizes**:
+  header offset and refcount-field load/store size depend on
+  pointer-size and int-size on the target. arm32 and 32-bit x86
+  use 4-byte loads where arm64 / x86-64 use 8-byte. This is the
+  same target parameterization the IR/backend guidelines already
+  require for `types.SizeOf` / `FieldOffset`.
+- Instruction-level idioms (e.g., x86's `addq $1, off(%rax)`
+  memory-operand form) are an instruction-selection concern in
+  each backend, not a helper concern. The helper emits the right
+  semantic ops; LLVM folds them, a hand-rolled x86 backend would
+  fold them in its own selector.
+
+The VM does NOT use this helper — it lowers the IR ops directly to
+its fused bytecode ops. That asymmetry is intentional: the VM's
+win comes from fewer dispatches, not from a different inline
+sequence.
+
+#### Atomic refcounts (future, out of scope)
+
+If we ever switch to atomic refcounts for threading, the inline
+sequence diverges per arch — arm32 needs LDREX/STREX, arm64 has
+LDXR/STXR or LSE atomics, x86 wants `lock xadd`. At that point
+the shared helper would need per-arch hooks for the read-modify-
+write primitive, or each backend would re-specialize. This is a
+cross-cutting redesign regardless of the inlining strategy, and
+the current plan is non-atomic, so it's noted only as a future
+constraint.
 
 ## Migration
 
@@ -168,26 +215,32 @@ The runtime side:
   retire, since the VM bytecode never emits a call to it.)
 - `rt.RefDec` likely stays for the same reasons, but most call
   sites disappear from the bytecode/native output.
-- The new slow-path helper (whatever it's named) needs a `.bni`
-  declaration and a body (in `pkg/rt`).
+- `ZeroRefDestroy` needs a `.bni` declaration and a body (in
+  `pkg/rt`).
 
 ## Phasing
 
 Suggested order (each phase independently testable):
 
-1. **Add the slow-path helper** in `pkg/rt`. Define the `.bni`
+1. **Add `ZeroRefDestroy`** in `pkg/rt`. Define the `.bni`
    signature. Body calls `_call_dtor` then `Free`. No call sites
    yet.
-2. **LLVM lowering** of `OP_REFCOUNT_INC` and `OP_REFCOUNT_DEC` to
-   inline sequences. Verify all conformance modes still pass.
-3. **VM lowering** — same change for `BC_REFINC` / `BC_REFDEC`
-   (either inline the existing ops or add fused variants).
-4. **Native arm64 lowering** — `emitRefcountCall` rewrites to
-   inline. The compiled call to `bn_rt__RefInc` / `bn_rt__RefDec`
-   goes away on the native side.
-5. **Drop unused runtime symbols** if no caller remains. Tighten
-   `vm_extern.bn`. Update naming whitelist if the slow-path helper
-   uses a leading-underscore name.
+2. **Shared inline-lowering helper** for the native backends.
+   Lives in the shared backend layer; takes target word-size
+   parameters and a backend's primitive-emit interface. No
+   callers yet.
+3. **LLVM lowering** of `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC` via
+   the shared helper. Verify all conformance modes still pass.
+4. **VM lowering** — add fused `BC_REFINC_INLINE` /
+   `BC_REFDEC_INLINE_FAST` bytecode ops; lower the IR ops to
+   them directly (NOT via the shared helper — the VM is dispatch-
+   bound, so a single fused op is the win).
+5. **Native arm64 lowering** via the shared helper.
+   `emitRefcountCall` rewrites to inline. The compiled call to
+   `bn_rt__RefInc` / `bn_rt__RefDec` goes away on the native
+   side.
+6. **Drop unused runtime symbols** if no caller remains. Tighten
+   `vm_extern.bn`.
 
 Each phase should run the full conformance suite and check perf
 numbers (compile time + run time) on a benchmark.
