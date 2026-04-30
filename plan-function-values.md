@@ -340,25 +340,24 @@ values:
 
 ## Relationship to `rt.CallDtor` retirement and `OP_CALL_INDIRECT`
 
-`rt.CallDtor` retirement is *not* part of this plan. It lands
-ahead of Phase 1 via a separate, lighter-weight path: an
-`OP_CALL_INDIRECT` IR op that takes a raw function pointer +
-args and lowers to a native indirect call (compiled) or VM-
-function-index dispatch (VM). RefDec uses the IR op directly;
-`rt.CallDtor` and `runtime/rt_stubs.c` retire.
+`rt.CallDtor` retirement landed via a separate, lighter-weight
+path: the `OP_CALL_INDIRECT` IR op (see `plan-call-indirect.md`,
+status LANDED). RefDec calls a compiler-internal helper
+`_call_dtor` whose `.bni` declaration is just a type-checking
+shape; IR-gen recognizes the symbol and emits `OP_CALL_INDIRECT`.
+`rt.CallDtor` and `runtime/rt_stubs.c` are gone.
 
-That work has its own plan: `plan-call-indirect.md`. It's
-upstream of this plan in two ways:
+For this plan, the relevant takeaway is:
 
-1. The IR op retires `rt.CallDtor` without waiting for Phase 1.
+1. The IR op already exists with LLVM, VM, and native-arm64
+   lowerings, and is exercised end-to-end by RefDec's dtor
+   dispatch.
 2. Function values can be built *on top of* `OP_CALL_INDIRECT` —
    the compiled-side `call` slot in a vtable becomes "load the
    slot, OP_CALL_INDIRECT through it." Phase 1's vtable indirect-
    call sequence is just specialized OP_CALL_INDIRECT.
 
-So `OP_CALL_INDIRECT` lands first as a stand-alone primitive,
-retires CallDtor as its first concrete consumer, and serves as
-the substrate Phase 1 builds on.
+The substrate is in place; Phase 1 is unblocked on this front.
 
 ## Backend dependency on the interface plan
 

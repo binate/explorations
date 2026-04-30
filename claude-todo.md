@@ -376,14 +376,13 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - The cmd/bnc + cmd/bni IR-gen drivers auto-import pkg/libc into every package's IR module (mirroring the existing pkg/rt and pkg/bootstrap auto-imports), so `bn_libc__Memcpy` calls emitted by the backends always have a matching `declare` line. Regression tests in `cmd/bnc/compile_test.bn`.
 - Discovery sequence: rename the wrappers to RawAlloc/RawAllocZero/RawFree/MemCopy/MemZero with proper preconditions (`fde6760`); introduce pkg/libc + migrate pkg/rt (`43179b7`); switch backend memcpy emission to `bn_libc__Memcpy` (`eae28a1`); auto-import pkg/libc (`d3e2081`).
 
-### Retire `rt.CallDtor` via `OP_CALL_INDIRECT`
-- **Plan doc**: `explorations/plan-call-indirect.md` (DRAFT).
-- `rt.CallDtor(dtor *uint8, ptr *uint8)` is the one Binate-runtime C extern that survived the pkg/libc migration. Implemented in C as `bn_rt__CallDtor` (a one-liner: `((void(*)(void*))dtor)(ptr)`).
-- It exists only because Binate doesn't yet have a way to write `dtor(ptr)` against an arbitrary `*uint8`.
-- **Approach (decided)**: add an `OP_CALL_INDIRECT` IR op that takes a raw function pointer + args and lowers to a direct indirect call (compiled / native) or VM-function-index dispatch (VM). RefDec uses the IR op directly. `rt.CallDtor` retires; `runtime/rt_stubs.c` deletes; `vm_extern.bn`'s `rt.CallDtor` arm goes away (its VM-function-index special-case moves into the IR op's VM lowering).
-- **Why this approach over function-value-based dispatch**: lighter weight (RefDec doesn't need data-ctx slots or vtable indirection — just a known-shape function-pointer call); doesn't block on `plan-function-values.md` Phase 1; and the IR op is the primitive that Phase 1's vtable-indirect call sequence will be built on, so doing it first de-risks Phase 1.
-- **Pairs with**: "Free-function pointer in managed-allocation header — bug" — same IR op handles `Free` reading and calling through `header[1]`.
-- See `plan-call-indirect.md` for IR-op shape, backend lowerings, phasing, and open questions.
+### ~~Retire `rt.CallDtor` via `OP_CALL_INDIRECT`~~ — DONE
+- **Plan doc**: `explorations/plan-call-indirect.md`.
+- `rt.CallDtor` is gone. RefDec now calls a compiler-internal helper `_call_dtor` (declared in `pkg/rt.bni` as a type-checking shape only — no real symbol). IR-gen recognizes the `_call_dtor` / `rt._call_dtor` symbol and emits `OP_CALL_INDIRECT` in place of `OP_CALL`. `runtime/rt_stubs.c` deleted; `vm_extern.bn`'s two `rt.CallDtor` arms removed; the C trampoline retires.
+- **Path taken (option C from the plan)**: compiler-internal-only — no new builtin or keyword. The `.bni` decl gives the type-checker the right signature to validate RefDec's call against; IR-gen swaps in `OP_CALL_INDIRECT` for that one magic name. Lighter weight than designing a `call_indirect` user-facing builtin; generalizes naturally when function values land (which will need their own spelling).
+- **Hygiene**: `scripts/hygiene/naming.sh` was tightened to also flag `_`-prefix exports (previously the `[a-z]` regex let them slip through). `_call_dtor` is whitelisted.
+- **Commits**: `ee93644` (PR 1: IR op + LLVM), `6f064a5` (PR 2 part 1: VM lowering), `4e20ffb` (PR 2 part 2: native arm64), `f08ddcb` (PR 2 part 3: RefDec migration + retire C trampoline).
+- **Pairs with**: "Free-function pointer in managed-allocation header — bug" — when that bug is fixed, `Free` reading `header[1]` and calling through it can reuse the same `OP_CALL_INDIRECT` op (likely via a similar `_free_via_header` magic-name pattern, or a normal call to a `_free` helper).
 
 ### Lift function-name qualification into IR (shared across backends)
 - The VM and the compiler both need to avoid cross-package function-name collisions. They currently solve it separately: `pkg/mangle.FuncName(pkgName, name)` produces C-style `bn_asm__New` for LLVM symbols, and `pkg/mangle.QualifyName(pkgShort, name)` produces dot-form `asm.New` for the VM's function table. Both backends extract the short package name from `ir.Module.Name` and apply their own qualification at lower/emit time.
@@ -484,10 +483,12 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   managed, mirroring the slice migration (`*[]T` / `@[]T`) and the
   proposed interface revision. Bare `func(...)` is not a usable
   type.
-- **Upstream prerequisite**: `plan-call-indirect.md`. The
-  `OP_CALL_INDIRECT` IR op is what Phase 1's vtable-indirect call
-  sequence is built on. Lands first; retires `rt.CallDtor` as its
-  first concrete consumer.
+- **Upstream prerequisite**: `plan-call-indirect.md` — LANDED.
+  The `OP_CALL_INDIRECT` IR op (LLVM + VM + native arm64
+  lowerings) is what Phase 1's vtable-indirect call sequence is
+  built on. Already exercised end-to-end by RefDec's dtor
+  dispatch; this plan's Phase 1 doesn't need to re-invent
+  indirect dispatch.
 - **Phasing** (per the plan doc):
   - **Phase 1 — backend vtable machinery + non-capturing function
     values.** This is primarily about *building the shared
@@ -570,15 +571,18 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
     `header[1]` to the appropriate free function — for the libc
     target, `&bn_libc__Free`.
   - `Free` must read `header[1]` and call through it, not call
-    `libc.Free` directly. `bit_cast` to a function value once
-    function values are landed; until then, an `rt.CallFreeFn`
-    extern (parallel to `rt.CallDtor`) bridging through C.
+    `libc.Free` directly. The `OP_CALL_INDIRECT` IR op is in
+    place (see "Retire `rt.CallDtor`" above, LANDED), so this
+    can reuse the same compiler-internal-magic pattern: a
+    `_free_via_header` (or similar) `.bni` decl that IR-gen
+    recognizes and emits as `OP_CALL_INDIRECT` — no new C
+    trampoline needed.
   - Audit any other allocation paths to ensure they all set
     `header[1]` consistently.
-- **Adjacent**: tracks alongside the `rt.CallDtor` retirement, but
-  is independent — fix this bug regardless of when function values
-  land. (Once function values DO land, both `CallDtor` and the
-  free-fn-call can collapse into direct function-value calls.)
+- **Adjacent**: was tracked alongside `rt.CallDtor` retirement;
+  CallDtor retirement is now done. Fix this bug regardless of
+  when function values land — the same indirect-call substrate
+  is already available.
 
 ### Cross-package method visibility in `.bni`
 - Methods defined on a public type in package `foo` need to be declared

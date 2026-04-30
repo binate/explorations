@@ -1,9 +1,29 @@
 # Plan: `OP_CALL_INDIRECT` IR Op
 
-> **Status: DRAFT** — chosen path for `rt.CallDtor` retirement and
-> the foundation that `plan-function-values.md` Phase 1 builds on.
-> Open questions on signature representation and VM lowering
-> details called out at the end.
+> **Status: LANDED** — `rt.CallDtor` retired. PR 1 (`ee93644`):
+> IR op + LLVM lowering. PR 2 parts 1-3 (`6f064a5`, `4e20ffb`,
+> `f08ddcb`): VM lowering, native arm64 lowering, RefDec migration.
+> Foundation for `plan-function-values.md` Phase 1 is in place.
+>
+> Resolution of the open questions (see below):
+> - **Signature representation**: derived implicitly from
+>   `instr.Typ` (return) and `instr.Args[i].Typ` (call args). No
+>   explicit signature operand on the op.
+> - **Binate-source spelling**: option C from the plan — no
+>   user-facing builtin. RefDec calls `_call_dtor`, an internal
+>   `.bni` declaration whose role is just to give the type-checker
+>   a signature to validate against. IR-gen recognizes the symbol
+>   and emits `OP_CALL_INDIRECT`.
+> - **Type-checker rules**: existing function-decl signature-check
+>   path; no new logic.
+> - **VM null fn_ptr handling**: caller-checks (RefDec already has
+>   `if dtor != nil` before calling).
+> - **Cross-mode dtor dispatch**: per-call-site convention as
+>   originally proposed — fn_ptr is a real C pointer in compiled
+>   mode, a 1-based VM function index in VM mode. Each backend
+>   interprets the value the same way as direct calls.
+>
+> The plan body below is preserved for historical reference.
 
 ## Why this is its own plan
 
