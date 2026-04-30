@@ -426,6 +426,32 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Commits**: `ee93644` (PR 1: IR op + LLVM), `6f064a5` (PR 2 part 1: VM lowering), `4e20ffb` (PR 2 part 2: native arm64), `f08ddcb` (PR 2 part 3: RefDec migration + retire C trampoline).
 - **Paired with**: "Free-function pointer in managed-allocation header — bug" (also DONE) — `Free` reads `header[1]` and dispatches indirect through it via the parallel `_call_free_fn` magic helper, sharing the same OP_CALL_INDIRECT lowering as `_call_dtor`.
 
+### Inline RefInc / fast-path inline RefDec (perf)
+- **Plan doc**: `explorations/plan-refcount-inlining.md` (DRAFT).
+- `rt.RefInc` and `rt.RefDec` are the hottest paths in any
+  non-trivial Binate program — the compiler emits one at almost
+  every managed-pointer assignment, struct-field copy with managed
+  references, scope exit, and function-arg pass-by-value of managed
+  types. Each lowers to a `call void @bn_rt__RefInc(...)` (or
+  `RefDec`), and the call setup costs more than the work itself.
+- **Approach (hybrid, preferred)**: inline RefInc fully (load + add
+  + store + nil-check, ~5 instructions) and inline RefDec's fast
+  path (load + dec + store + branch on zero). The slow path
+  (refcount reached zero → run dtor + Free) calls out to a thin
+  runtime helper since that path is rare per allocation.
+- **Backend strategy**: keep `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC`
+  as single IR ops; each backend (LLVM / VM / native arm64)
+  lowers them inline with its own native-optimal sequence. The
+  duplication is small (~10-15 lines per backend) and avoids
+  bloating the IR.
+- **Slow-path helper name** is open (bikeshed candidates:
+  `OnZeroRef`, `ZeroRefDestroy`, `RefDecSlow`, `Destroy`, or a
+  compiler-internal magic name).
+- **User-visible impact**: none. RefInc/RefDec call sites are
+  compiler-emitted, not user-written.
+- See `plan-refcount-inlining.md` for backend specifics, phasing,
+  and open questions.
+
 ### Lift function-name qualification into IR (shared across backends)
 - The VM and the compiler both need to avoid cross-package function-name collisions. They currently solve it separately: `pkg/mangle.FuncName(pkgName, name)` produces C-style `bn_asm__New` for LLVM symbols, and `pkg/mangle.QualifyName(pkgShort, name)` produces dot-form `asm.New` for the VM's function table. Both backends extract the short package name from `ir.Module.Name` and apply their own qualification at lower/emit time.
 - That duplication is fine but a cleaner alternative is to qualify in IR itself: have `pkg/ir` store all function names fully qualified ("asm.New", "bootstrap.Args") as canonical. `mangle.FuncName` already treats dotted names as pre-qualified, so the compiler would keep producing the same `bn_asm__New`. The VM would use qualified names directly. One source of truth.
