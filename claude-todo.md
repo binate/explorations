@@ -257,25 +257,30 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   prevent any future occurrence of this bug class. Tracked
   separately under "bnc: hoist allocas to function entry" below.
 
-### bnc: hoist managed-slice allocas to function entry
-- The boot-comp-int-int SIGSEGV was caused by bnc emitting the
-  alloca for a `var callArgs @[]int = ...` declared inside an
-  if/loop branch into that branch's basic block. Each execution
-  added 32 bytes of host stack that wasn't released until the
-  function returned — a slow leak.
-- LLVM at -O0 (which is bnc's default linker setting) doesn't hoist
-  these allocas, so the leak is real in production binaries.
-- Workaround applied for the specific case (`900a44e`): hoist by
-  hand. But any future `var x @[]T` (or struct/array) inside a hot
-  branch will reintroduce the same bug class.
-- Proper fix: have bnc IR-gen emit OP_ALLOC at function entry for
-  all locals, not at the current insertion point. LLVM's mem2reg
-  pass would also help, but that requires turning on optimization
-  (currently broken: -O2 has missing-symbol link errors — separate
-  issue worth investigating).
-- Touching this is a bnc-side change in `pkg/ir/gen_*.bn` and/or
-  the genDecl path; need to confirm where OP_ALLOC currently gets
-  attached.
+### ~~bnc: hoist managed-slice allocas to function entry~~ — FIXED (`f3478cb`)
+- pkg/codegen already hoisted OP_ALLOC decls to the entry block via
+  emit_debug.bn's hoisting loop. But two other inline-alloca paths
+  were leaking:
+  - emitMakeSliceInstr's `.p = alloca %BnManagedSlice` slot for
+    bn_rt__MakeManagedSlice's store/load shuffle.
+  - emitCall's sret path's `.sret = alloca <type>` slot for callees
+    using sret return convention.
+- Fix: extended the hoisting loop to cover OP_MAKE_SLICE and sret
+  OP_CALL via two new helpers (`emitMakeSliceAllocDecl`,
+  `emitSretAllocDecl`). The original emit*Instr functions now emit
+  only the non-alloca portion.
+- Verified pkg/vm LLVM IR has zero non-entry allocas across all
+  functions. With this change, the prior hand-hoisted fix
+  in execLoop's BC_CALL extern branch (a723acb) is no longer
+  load-bearing — the codegen would have hoisted that case too.
+  The hand-hoist stays as belt-and-suspenders.
+- bnc IR-gen still emits OP_ALLOC at the current insertion point;
+  the codegen is what fixes it post-hoc. A future cleanup would
+  move the hoisting upstream to IR-gen, but the current arrangement
+  is correct.
+- Independent followup (still open): bnc -O2 has missing-symbol
+  link errors. Worth investigating separately if/when we want
+  optimization enabled by default.
 
 ### ~~conformance/283_float_untyped: VM float32 storage~~ — FIXED (`882893c`)
 - VM registers carry IEEE bits in their declared width — float64 in
