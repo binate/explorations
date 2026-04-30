@@ -299,34 +299,37 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - CI hookup for `boot-comp_native_aa64` is intentionally not landed
   yet — wait for cluster A residual + clean re-sweep.
 
-### Native AArch64 backend — cross-package by-value struct ABI mismatch (`337_cross_pkg_struct_arg`)
+### ~~Native AArch64 backend — cross-package by-value struct ABI mismatch (`337_cross_pkg_struct_arg`)~~ — FIXED (`0e3f357`)
 - Surfaced while reducing the original cluster A pkg/asm/arm32 LDRSH
   unit-test crash. Not the cause of that crash — unit tests build all
-  packages with native, so caller and callee agree. But it is a real
+  packages with native, so caller and callee agree. But it was a real
   native-backend bug exposed by the conformance runner, which builds
   main with -backend native and dependencies via LLVM.
 - Repro: 56-byte struct (3 ints + @[]char), passed by value to a
   function in another package after 2 leading int args. LLVM's callee
   prologue does a split fill (X2..X7 + 1 stack arg). Native main's
-  emitCall puts the whole 7-word struct on stack[0..48] — when
-  `ngrn + w > 8`, `CallArgRegStart` returns -1 and emitCall takes the
-  all-stack branch.
-- Fix: support split passing in three call sites:
+  emitCall used to put the whole 7-word struct on stack[0..48] — when
+  `ngrn + w > 8`, `CallArgRegStart` returned -1 and emitCall took
+  the all-stack branch.
+- Fix in `0e3f357`: support split passing in three call sites:
   1. `pkg/native/common/common.bn` `CallArgRegStart` /
-     `CallArgStackOff` — return both reg-start AND stack-off when the
-     arg straddles the boundary (or expose split via a new helper).
+     `CallArgStackOff` / `CallStackBytes` — when an aggregate
+     straddles, regStart returns the first reg AND stackOff returns
+     the overflow start; both can be ≥ 0 simultaneously.
+     CallStackBytes only counts post-X7 words.
   2. `pkg/native/arm64/arm64_ops.bn` emitCall aggregate branch — fill
-     remaining regs first, then write overflow words to the stack.
+     `8 - regStart` regs first, then write overflow to stack via X16.
   3. `pkg/native/arm64/arm64.bn` prologue aggregate branch — store
      reg portion to data slot, copy overflow words from caller's
      stack-args area.
-- Bug requires the @[]char (managed-slice) field to repro — pure-int
+- Bug required the @[]char (managed-slice) field to repro — pure-int
   structs of the same total size pass. LLVM's struct ABI for managed
   types differs from int-only structs, so the disagreement only
-  triggers on managed-aware structs.
-- Conformance test `337_cross_pkg_struct_arg` (multi-package) reduces
-  the bug to ~30 lines. Currently xfailed under
-  `boot-comp_native_aa64`.
+  triggered on managed-aware structs.
+- Conformance test `337_cross_pkg_struct_arg` (multi-package). Now
+  passes under `boot-comp_native_aa64`. Verified no regressions:
+  pre-fix and post-fix unit-test sweeps both 18 passed, 11 failed,
+  same 11 packages.
 
 ### Native AArch64 backend — regPool saturation (cluster A follow-up)
 - `pkg/native/arm64/arm64_regmap.bn`: `regPool(i)` returns X15 for

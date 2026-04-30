@@ -171,7 +171,7 @@ tuple shape that broke. pkg/asm/elf had a similar shape elsewhere.
 Regression test: `pkg/native/arm64.TestEmitExtractMultiReturnUint32-
 FieldUsesScalarLoad`.
 
-### Separately discovered — cross-package by-value struct ABI mismatch (`337_cross_pkg_struct_arg`)
+### Separately discovered — cross-package by-value struct ABI mismatch (`337_cross_pkg_struct_arg`) — RESOLVED (`0e3f357`)
 
 Surfaced while reducing the original cluster A pkg/asm/arm32 LDRSH
 crash. Not the cause of that unit-test crash (unit tests build all
@@ -196,22 +196,29 @@ Result: Encode reads garbage from X2..X7 as op[0..5]. op.Kind ends
 up = leftover in X2 at the call site (whatever the previous BL
 returned in X2).
 
-Conformance runner output: native fails, boot/boot-comp pass.
-xfailed under `boot-comp_native_aa64`.
+Conformance runner output pre-fix: native fails, boot/boot-comp pass.
 
-Fix: native `CallArgRegStart` / `CallArgStackOff` and emitCall +
-prologue need to support split passing (fill remaining regs, put
-overflow on stack) to match LLVM's `byval` behavior. Three call
-sites need the split logic:
-1. `common.CallArgRegStart` — return ngrn even when ngrn+w > 8 (if
-   ngrn < 8); add a way to also report stackOff for the overflow
-   portion (or have caller compute regWords = 8 - regStart).
-2. `arm64_ops.bn:emitCall` aggregate branch — when both regStart >=
-   0 and overflow exists, fill regs first, then overflow on stack.
-3. `arm64.bn` prologue aggregate branch — symmetrically: store regs
-   first, load overflow words from caller's stack-args area.
+Fix (`0e3f357`): support split passing across three call sites.
+1. `common.CallArgRegStart` / `CallArgStackOff` / `CallStackBytes` —
+   when an aggregate straddles, regStart returns the first reg AND
+   stackOff returns the overflow start; both can be ≥ 0
+   simultaneously. CallStackBytes only counts post-X7 words.
+2. `arm64_ops.bn:emitCall` aggregate branch — when both regStart >= 0
+   and overflow exists (stackOff >= 0), fill `8 - regStart` regs
+   first via Ldr, then write the remaining `nWords - regWords` words
+   to the stack via X16.
+3. `arm64.bn` prologue aggregate branch — symmetric: store reg
+   portion to data slot, copy overflow words from caller's stack-args
+   area.
 
-Note that the bug requires the @[]char (managed-slice) field — pure-int
+Tests updated in `pkg/native/common/common_test.bn`:
+- Renamed `TestCallStackBytesAggregateOverflowsAtomically` to
+  `…Split…`; the (@[]int, Entry5w) shape now reports
+  regStart=4, stackOff=0, stackBytes=16.
+- Added `TestCallArgRegStartFullyOnStackAfterRegsExhausted` to
+  pin down the post-saturation case (Tup8w + int → int is stack-only).
+
+Note: the bug requires the @[]char (managed-slice) field — pure-int
 structs of the same total size pass. That's because LLVM's struct ABI
 for managed-aware types differs from int-only structs: the managed
 field forces a different by-value passing strategy (verified
