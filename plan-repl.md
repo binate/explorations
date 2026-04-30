@@ -1,13 +1,104 @@
 # Plan: REPL (Interpreter-Only)
 
-> **Status: DRAFT** — initial sketch for review. Tier 1 is concrete
-> enough to start; later tiers are intentionally less specific and
-> will be filled in as we go. Compiled-mode REPL features
-> (hot-swap of interpreted functions while a compiled binary
-> runs, package descriptors, cross-mode trampolines) are
-> explicitly out of scope here — they belong to the broader
-> compiler/interpreter interop work and depend on
-> `plan-function-values.md`.
+> **Status: Tier 1 LANDED** (2026-04-30). Tier 1 PoC ships as
+> `bni --repl <file.bn|dir>`. Later tiers (2–5) remain in DRAFT
+> shape below. Compiled-mode REPL features (hot-swap of
+> interpreted functions while a compiled binary runs, package
+> descriptors, cross-mode trampolines) are explicitly out of scope
+> here — they belong to the broader compiler/interpreter interop
+> work and depend on `plan-function-values.md`.
+
+## Tier 1 landed — what shipped (2026-04-30)
+
+Five commits on main, each independently shippable, plus one
+companion entry point added during the driver work:
+
+| Layer | Entry points added | Commit |
+|---|---|---|
+| `pkg/vm` | `CallCache` per-VMFunc memoization for `BC_CALL` / `BC_FUNC_ADDR` (the perf foundation that made REPL redefinition safe to design — see "What to do now" item #2 below) | `6c8e0c0` |
+| `pkg/parser` | `ParseExpr`, `ParseStmtList` | `eac3149` |
+| `pkg/types` | `CheckExprInScope`, `CheckStmtListInScope` | `de0d168` |
+| `pkg/ir` | `GenSyntheticFunc` | `3424248` |
+| `pkg/vm` | `LowerOneFunc`, `CallByVMFunc` | `e945cdb` |
+| `pkg/types` (companion) + `cmd/bni` | `CheckMainPersistent`; `--repl` driver | `0fcf9d2` |
+
+### Deviations from the original plan
+
+- **`CheckMainPersistent` was added** to `pkg/types` (not in the
+  original plan).  Reason: `Check()` pushes a scope and pops it on
+  return, so the loaded file's symbols vanish from `c.Scope` —
+  prompt entries can't see them.  `CheckMainPersistent` does the
+  same work without the trailing `popScope`, so the file's scope
+  stays installed for the REPL session.
+
+- **`CallCache` (commit `6c8e0c0`) replaced the planned
+  "name → idx hash on `vm.Funcs`"** (item #2 under "What to do
+  now").  Both solve the same root problem (the perf argument for
+  ever baking idx into bytecode, which would close off the
+  redefinition story).  The cache is per-VMFunc, parallel to
+  `Names`, lazy-filled, and explicitly designed to be invalidated
+  on future REPL mutation of `vm.Funcs` (full flush on
+  rebind / append-with-shadow; -1-only flush is sufficient on
+  pure append).
+
+- **Auto-`println` wrap of bare expressions is deferred.** The
+  plan called for wrapping `1+2` at the prompt as `println(1+2)`
+  for primitives / char slices.  Implementation requires
+  constructing an `EXPR_CALL` AST node from `cmd/bni`, which
+  isn't blocked on anything but adds surface for one minor
+  affordance.  Tier 1 PoC ships without it — users type
+  `println(...)` explicitly.  Easy follow-up.
+
+### Verified behaviors (manual smoke)
+
+Loaded module declares `func helper(int) int { return x * 2 }`:
+
+```
+> println(helper(7))                        → 14
+> println(helper(100))                      → 200
+> var x int = helper(3); println(x + 1)     → 7
+> undefined_name                            → undefined: undefined_name
+> println(helper(7))                        → 14   (session intact after error)
+> var y int = "string"                      → cannot assign ... to int
+> println(helper(2))                        → 4    (session intact after type error)
+```
+
+Errors at parse / type / IR-gen / lower / runtime print and return
+to prompt; loaded state is unaffected.
+
+### Conformance / unit-test coverage
+
+- 282/282 `boot-comp-int` conformance after each step.
+- 29/29 unit-test packages green under `boot-comp-int`.
+- New targeted unit tests:
+  - `parser.TestParseExprBasic`,
+    `parser.TestParseStmtListSingle`,
+    `parser.TestParseStmtListMultiple`
+  - `types.TestCheckExprInScopeBasic`,
+    `types.TestCheckExprInScopeUndefined`,
+    `types.TestCheckStmtListInScopeBasic`,
+    `types.TestCheckStmtListInScopeNoLeak`,
+    `types.TestCheckMainPersistentLeavesScope`
+  - `ir.TestGenSyntheticFunc`
+  - `vm.TestLowerOneFuncAndCall`,
+    `vm.TestBCFuncAddrCacheHit`
+
+### Tier 1 follow-ups (small, optional, not blocking later tiers)
+
+- **Auto-`println` wrap** for printable bare expressions.  See
+  deviation note above.  Builds an `EXPR_CALL` for `println` over
+  the parsed expression when the parsed input is exactly one
+  `STMT_EXPR` and its type is in the printable set.  Fall back to
+  placeholder text or no-op for unprintable types.
+- **Multi-line input** at the prompt.  Currently single-line only.
+  Cheap UI win when wanted; doesn't affect any architectural
+  shape.
+- **Pretty-printer** is still gated on interfaces (Tier 1.5+).
+
+The remainder of this document describes the original plan as
+written before Tier 1 landed.  Tiers 2–5 are still DRAFT.
+
+---
 
 ## Scope and rationale
 
