@@ -1,5 +1,13 @@
 # Profiling notes: bni running fib(36) (2026-04-30)
 
+> **Status (2026-05-01):** OP_REFDEC inline lowering has since
+> landed (commits `46e8e52` / `a8104d2` / `445e40d` / `a4847b2` /
+> `19502d4`, plus `6aa78d1` ZeroRefDestroy slow-path).  See
+> `notes-profiling-bni-followup-2026-05-01.md` for the v3
+> re-profile and the new top-of-profile shape (RefDec / RefInc
+> are now zero-sample; execLoop is 61%).  This file is preserved
+> as the original baseline + CallCache result.
+
 > Companion to `notes-profiling-bnc-2026-04-29.md` /
 > `notes-profiling-bnc-followup-2026-04-29.md`. `sample` profiler on
 > macOS, compiled `bni` (cmd/bni built via boot-comp at `-O2 -g`)
