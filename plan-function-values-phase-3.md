@@ -90,7 +90,7 @@ they set. Per-function shims (compiled), generic trampolines
 Sequential. Each slice is independently shippable and conformance-
 green at every step.
 
-### Slice 3.1 — Switch compiled call sites to always-shim convention
+### Slice 3.1 — Switch compiled call sites to always-shim convention — LANDED
 
 What lands:
 
@@ -132,101 +132,143 @@ indirect call.
 
 Conformance: 338–342 + 344 still green.
 
-### Slice 3.2 — Generic VM-side trampoline (compiled→VM)
+### Slice 3.1.5 — Common kind-tag at the start of `data`
 
-Instead of a per-signature `__vmtramp_<sig>` (which would feel
-unbounded as the static signature set grows), use ONE generic
-trampoline (or a small fixed set keyed on return shape — see
-below) plus signature info carried in `data`.
+A small forward-looking refactor that lands BEFORE the trampoline
+work in 3.2. When `data != null`, it points at a record whose
+first word is a `kind` discriminator. This lets every dispatcher
+(VM bytecode, generic trampoline, future Phase 2 closure handling)
+distinguish what's actually behind the pointer without fragile
+heuristics like null-vs-non-null + "we just know it must be a
+VM closure record."
+
+Constants (defined in `pkg/rt`):
+
+```
+const (
+    DATA_KIND_VM_CLOSURE_REC int = 1   // VM-side: vm_func_idx + sig info
+    DATA_KIND_COMPILED_CLOSURE int = 2 // Phase 2: per-closure captured struct
+    // future kinds slot in here
+)
+```
+
+VM closure record layout becomes:
+
+```
+VMClosureRec (heap):
+    { kind, vm_func_idx, captured_ctx_or_nil }
+    // Slice 3.2 will add: num_args, sig info for the trampoline.
+```
 
 What lands:
 
-- Extended `data` shape for VM-side function values. The closure
-  record gains a fixed-shape signature descriptor:
+- `pkg/rt`: the kind constants.
+- `pkg/vm/vm_exec_helpers.bn` (`BC_FUNC_VALUE`): write
+  `kind = DATA_KIND_VM_CLOSURE_REC` at offset 0 of the closure
+  record. Existing fields shift by one word.
+- `pkg/vm/vm_exec.bn` (`BC_CALL_FUNC_VALUE`): the existing Phase 1
+  short-circuit reads `closure_rec[0]` as `vm_func_idx`; update
+  to read it from the new offset (post-kind). Add a kind check
+  with a clear error for unrecognized kinds — sets up the
+  multi-kind dispatch shape Slice 3.3 will fill in.
 
+Net behavior: identical to Phase 1 for VM-internal dispatch
+(same fast path, just with a small offset shift and a kind
+check). No cross-mode work yet.
+
+Conformance: 338–342 + 344 still green.
+
+### Slice 3.2 — Generic ABI-aware VM-side trampoline (compiled→VM)
+
+Compiled callers (already shim-convention from 3.1) bitcast
+`vtable.call` to `<ret>(i8* data, <args>)*` and call with typed
+args via the C ABI. For VM-side function values, vtable.call
+points at a hand-written assembly trampoline that decodes the
+incoming arg-passing registers as a uniform register bank, uses
+sig info from `data` as the schema, packs the args into the
+VM's `argv` int[] format, and calls `execFunc`. No JIT — the
+trampoline is one (or a small per-return-shape set) of native
+functions in cmd/bni's compiled body.
+
+What lands:
+
+- Extended `VMClosureRec`:
   ```
-  VMClosureRec (heap):
-    {
-      vm_func_idx     int,    // 1-based index into vm.Funcs
-      captured_ctx    *uint8, // nil for non-capturing (Phase 1)
-      // signature info (NEW in Phase 3):
-      num_args        int,
-      // result-shape and arg-shape live elsewhere or are
-      // implicit in the trampoline variant chosen — see below.
-    }
+  { kind, vm_func_idx, num_args, sig_info_words... }
   ```
+  `num_args` and (later) per-arg type/width info drive the
+  trampoline's register-bank decoding.
 
-  Compiled callers don't read the signature info (their static
-  type already tells them the layout). Only the trampoline
-  reads it.
+- Per-return-shape generic trampolines (~3 total):
+  `__bn_vmtramp_void`, `__bn_vmtramp_scalar`,
+  `__bn_vmtramp_aggregate(retbuf)`. Each is hand-written
+  assembly (or a careful Binate function with inline asm where
+  needed):
+  1. At entry, save X0..X7 + V0..V7 to a stack buffer (X0 is
+     `data`, X1+ are user args per the always-shim convention).
+  2. Read `num_args` and arg-type info from `data`.
+  3. Walk the saved register bank using AAPCS rules + sig info,
+     copy each user arg into the VM's argv int[] buffer.
+  4. Call `execFunc(rt.CurrentVM(), &vm.Funcs[vm_func_idx-1], argv)`.
+  5. For non-void: copy the return value from execFunc's result
+     into the C-ABI return slot.
 
-- A small fixed set of generic trampolines, keyed on **return
-  shape**:
-
-  - `__bn_vmtramp_void(i8* data, i64* argv)`
-  - `__bn_vmtramp_scalar(i8* data, i64* argv) → i64`
-  - `__bn_vmtramp_aggregate(i8* data, i64* argv, i8* retbuf)`
-
-  All variants read `data → vm_func_idx`, dispatch into the VM
-  via `execFunc`, and (for scalar/aggregate) marshal the return.
-  The argv buffer is the VM's standard int[]-as-register-bank
-  layout — bit-cast for floats, alloca-pointer for aggregates,
-  matching the existing VM call ABI.
+  Bootstrap-subset reality check: with no floats and only
+  scalar args ≤ 7, the trampoline's decoding is simple
+  (X1..X7 → argv[0..n-1]). Floats / aggregates / >7 args are
+  bounded extensions to add when broader signatures actually
+  reach the trampoline.
 
 - `vtable.call` for VM-side function values points at the
   appropriate variant for the function's return shape. The
-  variant is determined statically when constructing the
-  function value (the function's signature is known from the
-  ir.Func).
+  variant is determined when constructing the function value
+  (the function's signature is known from the ir.Func).
 
-- Compiled-side caller (slice 3.1's shim branch) is updated to
-  pack args into a stack-allocated `i64[]` and call the
-  trampoline with `(data, argv)`. The packing is small and
-  trivially eliminated for the data-nil branch (where we skip
-  the trampoline entirely).
+- Single global VM handle: `rt.CurrentVM()` set by cmd/bni at
+  program start. No TLS.
 
-- The trampolines rely on a single global VM handle:
-  `rt.CurrentVM()` (name TBD). `cmd/bni` sets it once at
-  program start. Multi-VM scenarios are an embedder concern;
-  the global is fine for the only consumer that exists today
-  (cmd/bni). No TLS.
+Compiled callers don't change — they already pass `(data, args)`
+via the shim convention. The trampoline accepts that convention
+on entry; its body is what's new.
 
-This gives:
-
-- Bounded (≤ 3) trampolines per binary, regardless of program
-  signature count.
-- Compiled callers see a uniform call sequence in the shim
-  branch.
-- Cross-mode dispatch in the bytecode→compiled direction
-  (Slice 3.3) can use the same packing convention from the
-  bytecode side.
+This unblocks compiled callers holding a VM-side function value.
 
 Conformance: a new test exercising compiled code that calls a
 VM-side function value end-to-end.
 
 ### Slice 3.3 — Bytecode → compiled function-value dispatch
 
-What lands:
+`BC_CALL_FUNC_VALUE` becomes a kind-aware dispatcher:
 
-- `BC_CALL_FUNC_VALUE` in `vm_exec.bn`: when the `data` slot is
-  nil (compiled-side non-capturing), invoke `vtable.call` as a
-  bare native function pointer with args. The current
-  short-circuit via `closure_rec[0]` stays as the data-non-nil
-  fast path for in-VM dispatch.
-- Bytecode-side generic native call: same trick as the compiled
-  side — pack args into argv (already the VM's register-bank
-  layout), then call a generic native dispatcher that takes
-  `(native_fn_ptr, argv, retbuf_or_nil)`. The dispatcher unpacks
-  argv into typed args according to the function value's static
-  signature and invokes the native fn. **Key observation**:
-  unlike the compiled→VM direction, the bytecode side already
-  has args in argv-shaped form (it's the VM's call ABI), so
-  packing is free.
-- The dispatcher itself is a small set of native helpers (one
-  per arg-shape pattern actually used by the program), or — if
-  the static signature set turns out small enough — a switch on
-  return-and-arity in the natively-compiled VM. Bridge to libffi-
-  style for arbitrary signatures is explicitly out of scope.
+- `data == null` → compiled non-capturing function value (its
+  caller-side construction sets data to nil). Call `vtable.call`
+  as a native indirect call, passing args.
+- `data != null && data.kind == DATA_KIND_VM_CLOSURE_REC` →
+  VM-side. Short-circuit via `vm_func_idx` + `execFunc`. **This
+  is the unchanged Phase 1 fast path.**
+- `data != null && data.kind == DATA_KIND_COMPILED_CLOSURE` →
+  Phase 2 territory; clear error for now.
+- Unknown kind → diagnostic error.
+
+The data==null path is the cross-mode bytecode→native case.
+Bytecode already has args in argv int[] format. Calling the
+native vtable.call with those needs ABI-aware unpacking — same
+problem the trampoline solves in the other direction. Two sub-
+options:
+
+  (a) **A bytecode-side counterpart trampoline** (also
+      hand-written assembly): takes (native_fn_ptr, argv,
+      num_args, retbuf_or_nil), uses argv as the schema to
+      populate X0..X7 / V0..V7 / stack per AAPCS, calls the
+      native fn, copies the return back. Works for any
+      compiled-mode signature.
+
+  (b) **Per-shape inline dispatch** in BC_CALL_FUNC_VALUE for
+      the few shapes the bootstrap subset actually exercises.
+
+(a) is more general and matches the compiled→VM trampoline's
+philosophy. Start with (a) since the cross-mode hack we want
+to retire (Slice 3.4) covers the same shape.
 
 Conformance: a function value constructed in compiled mode and
 called from bytecode.
@@ -260,16 +302,15 @@ post-hack progress level (cross-mode dispatch still works).
 - **Argv packing convention**: standardize on the VM's
   existing int[]-as-register-bank layout. Bit-cast for
   scalars, alloca-pointer for aggregates, same as the VM call
-  ABI. The compiled→VM packing in 3.2 and the VM→compiled
-  unpacking in 3.3 use the same convention, which means the
-  generic trampolines / dispatchers don't have to know the
-  signature beyond return-shape and arg-count.
+  ABI. Both the compiled→VM trampoline (3.2) and the
+  VM→compiled trampoline (3.3) decode/encode args via this
+  layout using sig info from the data record.
 
-- **Phase 2 interaction**: capturing closures need `data` as
-  the closure struct, not the VMClosureRec. The shim has to
-  be per-closure (different for each capture set). Check-
-  data-nil still works; the VM-trampoline path doesn't
-  change. Phase 2 just adds the closure-shim variants on top.
+- **Phase 2 interaction**: capturing closures get
+  `kind = DATA_KIND_COMPILED_CLOSURE` and a per-closure shim
+  in vtable.call (different from the VM trampoline). The
+  kind-tag scheme that lands in 3.1.5 makes this easy to add
+  without re-touching every dispatcher.
 
 ## Cross-references
 
