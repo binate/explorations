@@ -1,5 +1,12 @@
 # Profiling notes follow-up: bnc compiling itself (2026-04-29)
 
+> **Status (2026-05-01):** Re-profiled again after OP_REFDEC inline
+> lowering landed.  See `notes-profiling-bnc-followup-2026-05-01.md`
+> for the v4 result (RefDec / RefInc / headerPtr now zero-sample
+> at -O2; bnc-self share dropped ~35%; wall barely moves because
+> clang dominates).  This file is preserved as the v3 baseline
+> after the addStructDef and weak_odr fixes.
+
 > Follow-up to `notes-profiling-bnc-2026-04-29.md`. Two fixes from
 > the original recommendations have landed; this note records the
 > new shape after both — including a re-profile at `-O2`, which the
