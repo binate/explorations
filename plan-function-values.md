@@ -1,10 +1,16 @@
 # Plan: Function Values
 
-> **Status: DRAFT** — substantial open questions, especially around
-> capture design, recursion, and whether `rt.CallDtor` retirement
-> should ride this plan or take an independent IR-level path. See
-> "Open questions" section. Phasing and scope likely to shift
-> before implementation begins.
+> **Status: Phase 1 IN PROGRESS** — A.1–A.5 landed (type syntax,
+> nil + zero-init, function-reference-as-value, calling through a
+> function value, flow through args/returns/fields). A.6 (method
+> expressions) and A.7 (non-capturing function literals) remain.
+> See "Phase 1 progress" subsection for details.
+>
+> `rt.CallDtor` retirement landed independently via the
+> `_call_dtor` / `_call_free_fn` magic-symbol path on top of
+> `OP_CALL_INDIRECT` (so it didn't need to wait for function
+> values). Phase 2 (closures + method values) remains DEFERRABLE
+> with substantial open questions on capture design.
 
 ## Why this is more important than it looks
 
@@ -88,6 +94,49 @@ What's NOT enabled by Phase 1:
 - Closures (no capture analysis yet).
 - Method values `x.M` (need receiver capture).
 - Higher-order user code that wants to construct closures.
+
+#### Phase 1 progress (status as of 2026-04-30)
+
+Sliced internally as A.1–A.7. Conformance tests cover each landed
+slice (338+).
+
+- **A.1 — Type syntax** (`*func(...)`, `@func(...)`): LANDED.
+  Parser, type-checker, and pkg/types kinds (TYP_FUNC_VALUE /
+  TYP_MANAGED_FUNC_VALUE) accept the new syntax. Bare `func(...)`
+  remains non-usable as a type.
+- **A.2 — Nil + zero-init**: LANDED. `IsNillable` extended,
+  zero-init alloca emits the all-zeros 16-byte function value,
+  conformance test 338.
+- **A.3 — Function reference as value** (`var f *func(...) = SomeFunc`):
+  LANDED. IR-gen detects function-reference-to-function-value-type
+  in var-decl, emits OP_FUNC_VALUE. Per-function `weak_odr` vtable
+  globals in `%BnVtable = type { i8*, i8* }`. VM-mode vtables use
+  Option 3 (heap-allocated VM closure record always; lazy on
+  first BC_FUNC_VALUE). Conformance test 339.
+- **A.4 — Calling through a function value** (`f(args)`):
+  LANDED. New OP_CALL_FUNC_VALUE; LLVM extracts vtable_ptr →
+  vtable.call → indirect call. VM short-circuits the trampoline:
+  reads closure_rec.vm_func_idx and execFunc directly. Native
+  arm64 backend extracts vtable.call into X17 and BLR's it.
+  Conformance test 340. macho linker alignment quirk fixed in a
+  separate companion commit (`pkg/asm/macho`: 8-byte align section
+  addrs and file offsets).
+- **A.5 — Function values flow through args / returns / fields**:
+  LANDED (2026-04-30). Function-reference-to-function-value
+  coercion at every IR-gen site where a bare function name may
+  legitimately flow into a function-value-typed slot: call
+  arguments, return values, single-assign Ident/Selector LHS,
+  composite-literal struct fields. Reordered genCall dispatch so a
+  Selector/Index callee of function-value type takes the
+  function-value path before method-call dispatch. Conformance
+  test 341.
+- **A.6 — Method expressions** (`T.M`): NOT STARTED. Receiver
+  becomes the first arg; equivalent to a non-capturing function
+  reference. Should be a small slice on top of A.5.
+- **A.7 — Function literals as expressions** (non-capturing only):
+  NOT STARTED. Larger: parser support for `func(...) ... { ... }`
+  in expression position, lifting to module scope with a synthetic
+  name, then reducing to a function reference at the call site.
 
 ### Phase 2 — Closures + method values (DEFERRABLE)
 
