@@ -499,37 +499,34 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Commits** (chronological): `eb7332e` (OP_REFINC), `9cb934d` (LLVM RefInc), `e972953` (VM RefInc), `8b896de` (arm64 RefInc), `34511bd` (RefInc switchover); `6aa78d1` (ZeroRefDestroy), `46e8e52` (OP_REFDEC), `a8104d2` (LLVM RefDec), `445e40d` (VM RefDec), `a4847b2` (arm64 RefDec), `19502d4` (RefDec switchover + with-dtor tests).
 - **Cleanup follow-up (immediate)**: the old `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC` constants, their dispatch arms in all three backends, `BC_REFINC` / `BC_REFDEC` and their VM exec handlers, `emitRefcountCall`, and the `bn_rt__RefInc` / `bn_rt__RefDec` runtime symbols are now dead code. Removing them is a separate commit (no plan-level change, no design questions — just deletion + naming-whitelist hygiene if applicable).
 
-### Compiler bug: `bnc -g` emits invalid LLVM IR after OP_REFDEC inline lowering
-- **Repro** (2026-05-01): any source that exercises `OP_REFDEC`,
-  built with `bnc -g ...`, fails clang at compile time:
+### ~~Compiler bug: `bnc -g` emits invalid LLVM IR after OP_REFDEC inline lowering~~ — FIXED
+- **Repro** (2026-05-01): any source exercising `OP_REFINC` or
+  `OP_REFDEC`, built with `bnc -g ...`, failed clang at compile time:
   ```
   error: expected instruction opcode
    ri.0.skip:, !dbg !DILocation(line: 179, scope: !12)
              ^
   ```
-  Surfaced while re-profiling bnc; see
-  `notes-profiling-bnc-followup-2026-05-01.md`.
-- **Root cause**: the OP_REFDEC inline lowering (commit
-  `a8104d2`) emits a multi-line sequence ending with a basic-
-  block label (`ri.0.skip:`).  `addDbgToLastLine` in
-  `pkg/codegen/emit_debug.bn` then appends `, !dbg !DILocation(...)`
-  to "the last line" of whatever was emitted — including label
+  Affected both inline RefInc and RefDec sites; in practice surfaced
+  via OP_REFDEC since most -g use hits a managed-pointer destructor.
+- **Root cause**: the inline lowerings (`emitRefIncInline` /
+  `emitRefDecInline`) emit a multi-line sequence ending with a
+  basic-block label (`ri.<seq>.skip:` / `rd.<seq>.skip:`).
+  `addDbgToLastLine` in `pkg/codegen/emit_debug.bn` then appended
+  `, !dbg !DILocation(...)` to the trailing line — including label
   lines, which is invalid LLVM IR.
-- **Workaround**: build without `-g` (the `-O2` self-compile and
-  conformance runs at default no-`-g` are unaffected).  Profiling
-  works without `-g` since `sample` resolves function symbols
-  from the macho symbol table; only source-line attribution is
-  lost.
-- **Fix candidates** (not investigated yet): teach
-  `addDbgToLastLine` to skip lines ending in `:` (label lines);
-  or have the inline-lowering emitters track an "emitted at
-  least one real instruction" flag for the dispatch path that
-  tags `!dbg`; or have OP_REFDEC's emitted sequence end in a
-  real instruction (not a label) so the existing logic stays
-  correct.
-- This bug is independent of OP_REFDEC's correctness — at
-  default opts (no `-g`) everything works, and conformance is
-  green.
+- **Fix**: `addDbgToLastLine` now detects label declarations (last
+  non-newline char is `:`) and skips the annotation. The label and
+  any intermediate instructions in the multi-line emission stay un-
+  annotated, but LLVM tolerates that — the surrounding `DISubprogram`
+  is enough metadata for IR validity; only source-line attribution
+  within those few lines is lost. Same convention as other multi-
+  line emitters (e.g., `emitBoxInstr`).
+- **Test**: `pkg/codegen/emit_debug_test.bn::TestEmitDebugDoesNotAnnotateLabels`
+  compiles a managed-ptr copy under `SetDebugInfo(true)` and asserts
+  no `<label>:, !dbg` substring appears in the output.
+- **Verification**: full conformance under `BINATE_FLAGS="-g"` is
+  green (boot-comp 287/287).
 
 ### Lift function-name qualification into IR (shared across backends)
 - The VM and the compiler both need to avoid cross-package function-name collisions. They currently solve it separately: `pkg/mangle.FuncName(pkgName, name)` produces C-style `bn_asm__New` for LLVM symbols, and `pkg/mangle.QualifyName(pkgShort, name)` produces dot-form `asm.New` for the VM's function table. Both backends extract the short package name from `ir.Module.Name` and apply their own qualification at lower/emit time.
