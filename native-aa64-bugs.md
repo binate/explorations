@@ -1,20 +1,13 @@
-# Native AArch64 backend — known unit-test failures (2026-04-27)
+# Native AArch64 backend — unit-test sweep postmortem (2026-04-27 → 2026-04-30)
 
-Snapshot of where the native (Mach-O / aarch64) backend stands on its own
-unit-test suite, plus a plan of action.
+Postmortem of the native (Mach-O / aarch64) backend's unit-test sweep:
+how a 10-package failure list came down to zero, what each cluster
+turned out to be, and where the residual follow-ups are tracked.
 
-The native backend passes its own targeted unit tests
-(`pkg/native/arm64/arm64_test.bn`, modulo the `bn_print_int` test which
-was fixed in `4ccea12a`) and the conformance suite under
-`boot-comp_native_aa64` (i.e. all conformance programs run end-to-end
-against the native backend). Despite that, **running the existing
-unit-test suite under `--backend native` reveals 10 failing packages**.
-The failures are real backend bugs, not test-infrastructure issues.
-
-CI is **not** wired up for `boot-comp_native_aa64` yet — the workflow
-changes were prepared and then reverted because landing them now would
-either bake in green-via-xfail (against the project's "don't optimize
-for quick wins" rule) or leave CI permanently red on the new mode.
+**Final state**: 29/29 unit-test packages pass under `boot-comp_native_aa64`
+plus 285/285 conformance. CI matrix-split landed alongside the modeset
+add — `boot-comp_native_aa64` runs on `macos-latest` (Apple Silicon),
+the LLVM-chain modes stay on `ubuntu-latest`.
 
 ## Sweep snapshot
 
@@ -66,30 +59,28 @@ A "runtime OOB" — pkg/vm's `TestRepro_StructWithManagedSliceFieldAppend`
 
 ## Three clusters and what they probably mean
 
-### Cluster C — pkg/ir: ARM64 reloc emission (1 package, clearest lead)
+### Cluster C — pkg/ir: ARM64 reloc emission — RESOLVED (`8bc6196`)
 
-Linker reject:
+Linker reject seen pre-fix:
 
     ld: relocation in '_bn_ir__lookupTypeAlias' is not supported:
         r_address=0xA3E8, r_type=3, r_extern=0, r_pcrel=1, r_length=2
         in '/tmp/binate_test_ir.o'
 
-`r_type=3` for ARM64 is `ARM64_RELOC_PAGE21` (the `adrp` PC-relative-page
-relocation). On Mach-O / aarch64, `ld64` only accepts `PAGE21` /
-`PAGEOFF12` against **external** symbols (`r_extern=1`). What we're
-emitting here is a section-relative PC-relative `adrp` (`r_extern=0`),
-which is not a supported reloc form — the linker has no way to express
-"PC-relative page of address-X-in-section-Y". The fix is to emit
-PAGE21/PAGEOFF12 against the symbol entry rather than against the
-section, even when the target is package-local.
+`r_type=3` is `ARM64_RELOC_PAGE21` (the `adrp` PC-relative-page reloc).
+`ld64` only accepts PAGE21/PAGEOFF12 against **external** symbols
+(`r_extern=1`); the section-relative form (`r_extern=0`) is not
+supported. The linker has no way to express "PC-relative page of
+address-X-in-section-Y" against a section index.
 
-The reason this only manifests in `pkg/ir` is presumably that pkg/ir is
-the first package large enough (or with the right symbol layout) for
-the `adrp` PC-pair encoding path to fire against a same-object local
-symbol. Same bug likely lurks in any package big enough to need it.
+Fix in `pkg/asm/macho`: emit `r_extern=1` against the symbol entry
+even when the target is package-local; bind those locals into the
+symbol table (BIND_LOCAL) so the reloc has a valid index.
 
-Probable fix scope: small (a few lines in
-`pkg/asm/macho` reloc emission), but needs care.
+This only manifested in `pkg/ir` first because it was the first
+package large enough for the `adrp` PC-pair encoding path to fire
+against a same-object local symbol — but the bug applied to any
+package that grew past that threshold.
 
 ### Cluster A — RESOLVED (last fix: `1612221` imm12 overflow)
 
@@ -262,66 +253,24 @@ for managed-aware types differs from int-only structs: the managed
 field forces a different by-value passing strategy (verified
 empirically; haven't confirmed against LLVM IR).
 
-## Plan of action
+## What's left
 
-The cost model matters here: every native-backend re-test of a failing
-package takes 1–7 min (compile via bootstrap-interpreted bnc + run).
-A full sweep is ~30 min. Iteration cost is high, so the plan must
-maximize information per run.
+All three clusters are closed. The follow-ups still tracked in
+`explorations/claude-todo.md`:
 
-1. **Cluster C first** — pkg/ir reloc bug.
-   - Read the offending `_bn_ir__lookupTypeAlias` symbol from the
-     emitted `/tmp/binate_test_ir.o`; understand the byte at offset
-     `0xA3E8` and what it's trying to address.
-   - Check the Mach-O reloc emission in `pkg/asm/macho` against the
-     ARM64 ABI doc — almost certainly we're using the section index
-     instead of the symbol index for local targets.
-   - Add a unit test that constructs a same-package local symbol
-     reference forcing `adrp`/`add` and checks the emitted relocs are
-     `PAGE21`/`PAGEOFF12` with `r_extern=1`.
-   - Fix; re-run pkg/ir to confirm.
+- **regPool saturation** (claude-todo.md "regPool saturation (cluster A
+  follow-up)"). `regPool(i)` returns X15 for any `i >= 6`; the X16
+  fix in `ca9f287` patches one specific call site, but other sites
+  that use `scratchReg` while a same-pool reg holds a live value risk
+  the same collision. Real fix: spill on pool exhaustion (or grow the
+  pool with a spill-on-exhaustion fallback). Non-trivial — codegen
+  doesn't have a spill mechanism for in-instruction temporaries today.
 
-2. **Cluster A — reduce a representative crash to a conformance test.**
-   Pick one with the cleanest reduction surface; `pkg/types`'s
-   `TestTarget32StructLayout` is attractive because the test does no
-   codegen of its own (so the bug must be in *our* codegen of the test,
-   not in the test's logic). Write the reduction as a conformance
-   program under `conformance/programs/` so the failure is reproducible
-   without going through the unit-test runner. Reduce to a minimal
-   form, fix, re-test.
-
-3. **Cluster A — re-sweep after each fix.** Several tests likely share a
-   root cause. After each Cluster-A fix, re-run the failing
-   pkg-list with `-q` and re-tabulate.
-
-4. ~~**Cluster B — capture full failure detail.**~~ — DONE (`43ab7a3`).
-   Single root cause: multi-return tuples with sub-word fields. See
-   the cluster B section above for the writeup.
-
-5. **Re-evaluate CI hookup once the dust settles.** When the failure
-   count is in the low single digits (or zero), revisit
-   `scripts/modesets/all` + the matrix-dispatch workflow changes that
-   were reverted on 2026-04-27. The workflow patch handles the
-   macos-vs-ubuntu matrix split correctly (gates `apt-get install
-   clang` on Linux only); the only thing blocking it is real failures.
-
-## Conformance reproductions — required for each fix
-
-For every backend bug fixed in pursuit of this list, **add a
-conformance test** that reproduces the failure pattern. Reasons:
-
-- The unit-test sweep is slow (30 min) and packages bundle many tests.
-  A conformance program is fast (sub-second) and isolates one issue.
-- Conformance tests run on every backend; if we fix a bug only for
-  native, the LLVM backend silently keeps working — but if we
-  *introduce* a regression elsewhere, the conformance test catches it.
-- The current 10-failure list is dominated by crashes whose actual
-  root-cause patterns are unknown. Reducing each into a conformance
-  program is exactly the work that turns "test crashed" into
-  "instruction X with operand pattern Y is wrong."
-
-Each fix landing in this area should commit the conformance test
-*alongside* the fix (or before it, marked `.xfail.boot-comp_native_aa64`).
+The cluster-A "reduce to conformance test" rule still applies for any
+future native-backend bug: every fix in this area should land with a
+conformance reproducer (or a `.xfail.boot-comp_native_aa64` marker if
+the fix lags). The unit-test sweep is slow (~30 min); a conformance
+program is sub-second and isolates one issue.
 
 ## Cross-references
 

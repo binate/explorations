@@ -394,8 +394,10 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   (`LdrStrImmFitsUnsigned`). Clean sweep: 29/29 unit-test packages,
   285/285 conformance.
 - Full inventory + plan of action in `explorations/native-aa64-bugs.md`.
-- CI hookup for `boot-comp_native_aa64`: cluster A is closed — safe
-  to land now.
+- CI hookup for `boot-comp_native_aa64`: DONE — added to the `all`
+  modeset and the unit/conformance/perf workflows now split the
+  matrix so native_aa64 runs on `macos-latest` (Apple Silicon) while
+  the LLVM-chain modes stay on `ubuntu-latest`.
 
 ### ~~Native AArch64 backend — cross-package by-value struct ABI mismatch (`337_cross_pkg_struct_arg`)~~ — FIXED (`0e3f357`)
 - Surfaced while reducing the original cluster A pkg/asm/arm32 LDRSH
@@ -547,45 +549,14 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Fix**: changed `var runtimePath *[]char` to `var runtimePath @[]char = buf.CopyStr(cli.RuntimePath)` in test.bn, matching the pattern already used in main.bn.
 - **CI now runs all modes** including boot-comp-comp and boot-comp-comp-comp.
 
-### Compiler bug: `-O2` / `-Og` build fails to link (undefined dtor symbol)
-- **Repro** (2026-04-29): build gen1 with optimization, e.g.
-  `bnc -g --cflag -O2 --cflag -fno-omit-frame-pointer -o gen1_bnc cmd/bnc`
-  (or `--cflag -Og` instead of `-O2`). Plain `-g` (no `-O`)
-  links fine. Failure is at the final `clang` link step:
-  ```
-  Undefined symbols for architecture arm64:
-    "_bn_types____dtor_CheckError", referenced from:
-        _bn_main__typecheckAll in main.o
-        _bn_main__typecheckPackages in main.o
-  ```
-- **Surfaced by**: profiling work (see
-  `notes-profiling-bnc-2026-04-29.md`). Profile had to fall
-  back to `-O0`, which biases the picture toward refcount /
-  bounds / header-access helpers that would inline at `-O2`.
-  Fixing this unlocks a much truer profile baseline.
-- **Likely cause** (unverified): the dtor for
-  `pkg/types.CheckError` is emitted with linkage that allows
-  the LLVM optimizer's GlobalDCE pass to drop it as
-  internally-unused, even though it's referenced from another
-  compilation unit. Other backends / runtime hooks that drop
-  emitted symbols at higher opt levels are a likely culprit
-  (e.g., `linkonce_odr` without an `available_externally`
-  fallback, or `internal` linkage where it should be `external`
-  / `weak`).
-- **Investigation steps**:
-  - Run `clang -O2 -c types.ll -o types.o` and check
-    `nm types.o` for `_bn_types____dtor_CheckError` — is it
-    defined, defined-and-stripped-by-O2, or never emitted?
-  - Compare the LLVM IR `define` line for the dtor at `-O0`
-    vs. inspecting it after `opt -O2` would be applied. Is the
-    linkage attribute the issue?
-  - Look at how other dtors (e.g. `bn_buf____dtor_CharBuf`)
-    survive — they show up fine in the `-g`-only build. What's
-    different about `CheckError` vs. `CharBuf`?
-- **Workarounds**: build at `-O0` (no `-O` flag) for now. All
-  existing CI / test paths use `-O0`, so nothing's broken in
-  practice; the issue only surfaces if someone tries to build
-  with optimization for performance work.
+### ~~Compiler bug: `-O2` / `-Og` build fails to link (undefined dtor symbol)~~ — FIXED (`65cb258`)
+- Linkage was `linkonce_odr`, which lets the LLVM optimizer's
+  GlobalDCE pass drop a dtor as internally-unused even though it's
+  referenced from another compilation unit. Switched dtors and
+  copies to `weak_odr`, which keeps the symbol live across object
+  boundaries while still allowing the linker to dedupe.
+- Verified `-O0` / `-O2` / `-Og` all link and self-compile cmd/bnc;
+  boot-comp-comp green (282/282).
 
 ### Function values — MAJOR PROJECT (interop prerequisite)
 - **Plan doc**: `explorations/plan-function-values.md` (Phase 1 IN
