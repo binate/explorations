@@ -85,14 +85,20 @@ to prompt; loaded state is unaffected.
 
 ### Tier 1 follow-ups (small, optional, not blocking later tiers)
 
-- **Auto-`println` wrap** for printable bare expressions.  See
-  deviation note above.  Builds an `EXPR_CALL` for `println` over
-  the parsed expression when the parsed input is exactly one
-  `STMT_EXPR` and its type is in the printable set.  Fall back to
-  placeholder text or no-op for unprintable types.
-- **Multi-line input** at the prompt.  Currently single-line only.
-  Cheap UI win when wanted; doesn't affect any architectural
-  shape.
+- **Auto-`println` wrap** for printable bare expressions —
+  **explicitly DEFERRED** until interfaces / per-type `Format`
+  dispatch lands.  `bootstrap.println` is a temporary hack
+  scheduled for removal; building features on top of it
+  (extending the printable set, AST-rewrite to inject println)
+  would entrench the hack and complicate the cutover.  The plan's
+  pretty-printing section already says this; reaffirmed here so
+  it's not relitigated.
+- ~~**Multi-line input** at the prompt.~~ **LANDED.**  Brace-balance
+  scan over accumulated input; continuation prompt is `... `;
+  braces inside string / char literals and `//` / `/* ... */`
+  comments are skipped.  Doesn't track parens / brackets, so
+  multi-line `(...)` expressions still aren't recognized as
+  continuations — niche enough to leave for later.
 - **Pretty-printer** is still gated on interfaces (Tier 1.5+).
 
 The remainder of this document describes the original plan as
