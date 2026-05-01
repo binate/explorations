@@ -18,6 +18,16 @@ for quick wins" rule) or leave CI permanently red on the new mode.
 
 ## Sweep snapshot
 
+**Current** (post `1612221`):
+
+```
+=== Summary (boot-comp_native_aa64): 29 passed, 0 failed, 0 xfail, 0 skipped ===
+```
+
+Plus 285/285 conformance.
+
+**Original snapshot** (2026-04-27, kept for context):
+
 ```
 === Summary (boot-comp_native_aa64): 19 passed, 10 failed, 0 xfail, 0 skipped ===
 Failures: pkg/types pkg/asm/macho pkg/asm/parse pkg/asm/arm32 pkg/asm/aarch64
@@ -81,7 +91,31 @@ symbol. Same bug likely lurks in any package big enough to need it.
 Probable fix scope: small (a few lines in
 `pkg/asm/macho` reloc emission), but needs care.
 
-### Cluster A — pkg/asm/macho RESOLVED, 2 distinct fixes landed
+### Cluster A — RESOLVED (last fix: `1612221` imm12 overflow)
+
+The remaining 8-package residual all collapsed to a single root cause:
+`aarch64.Str/Ldr/Strb/Strh/Ldrb/Ldrh` silently masked the offset
+immediate to 12 bits when it didn't fit the unsigned-imm12 form. Any
+function with a frame > 32KB (or for sub-word ops, > 4KB) and a stored
+value at one of those high offsets would store at the wrong address.
+The auto-generated test runner in `cmd/bnc --test` builds a frame
+proportional to the test count, so packages with many unit tests
+(pkg/types, pkg/codegen, pkg/native/arm64 itself, etc.) all hit this.
+
+Fix in `pkg/asm/aarch64/aarch64_arith.bn`: `emitLdrStr` and a new
+`ldrStrSubWordEmit` helper detect overflow via
+`LdrStrImmFitsUnsigned` and materialize the address into X17 (AAPCS
+intra-call scratch) before emitting with offset 0. Tests in
+`pkg/asm/aarch64/aarch64_arith_test.bn`.
+
+Result: 29/29 unit-test packages pass under `boot-comp_native_aa64`,
+plus 285/285 conformance. The original cluster-A pre-fixes
+(macho, multi-return, X16 stack-arg-copy) below were all real bugs
+and remain in place, but the dominant residual was this one
+encoder-level bug masking what looked like ~8 distinct codegen
+problems.
+
+#### Original pre-fixes (still relevant, kept here for history)
 
 **pkg/asm/macho — DONE** (`ca9f287` + `ac7be3f`). Conformance test
 `332_struct_arg_forward_inserts` reduces the TestLoopSum failure to a
@@ -115,23 +149,27 @@ crash (`LexNext(l) (Lexer, Token)` returns 40+64 = 104 bytes), but
 fixing it unmasked a downstream `index out of bounds: 0 (len 0)` —
 the package still fails for an unrelated reason.
 
-**Remaining cluster A** (8 packages, distinct bugs):
+**Remaining cluster A** (was 8 packages, distinct-looking bugs — ALL
+turned out to be the imm12 truncation bug above. Kept for the snapshot
+of how it manifested across the unit-test suite):
 
 | Package | First-failing test | Notes |
 |---|---|---|
-| pkg/types | `TestIntTypes` (after `TestTypeName`/`TestPredeclaredTypes` FAIL with empty msg) | Crash in `_bn_rt__RefInc` writing refcount to `0x2e2ebdb68` — a `r--` (read-only) memory region. Looks like libmalloc tiny-zone metadata; the codegen is RefInc-ing a non-managed pointer. Test pattern: `var t @T = TypInt()` (managed-pointer global return). Conformance reductions of the same shape don't reproduce — bug requires more specific conditions that haven't been isolated. |
-| pkg/asm/parse | `TestParseMov` (post multi-return fix: now `runtime error: index out of bounds: 0 (len 0)`) | Multi-return ABI fix moved past the silent crash; what remains is a Binate runtime panic — a slice somewhere along the parse path is empty when expected to have content. Probably easier to track now; needs lldb stack at panic to identify the slice. |
-| pkg/asm/aarch64 | `TestResolveFixupsAdrOutOfRangeIsError` (NEW since 491ac60 — original `TestAddReg64` now passes) | Test loops 262144 times emitting NOPs to push past ±1MB ADR range. Either the loop itself or the large-data emit triggers a backend bug. May be its own thing; passes under boot-comp. |
-| pkg/asm/arm32 | `TestLdrshImm` | Cumulative-state crash, NOT specific to LDRSH. Bisection: rename TestLdrsbImm to skip it → crash moves to TestPush; rename both → crash moves to TestLdrSregOffset. The package crashes after ~50 successful tests regardless of which test is at that position. TestLdrshImm in isolation passes. Likely a slow leak of refs/managed allocations across tests; eventually some pointer chase faults. Unrelated to conformance 337's native↔LLVM ABI mismatch (unit tests build all packages with native, so that ABI path doesn't fire). |
-| pkg/native/arm64 | `TestEmitCallAggregateReturnSpillsAllWords` (post 337 fix) | **Slot-aliasing bug in PlanFrame.** Boot and boot-comp pass; only native crashes. Investigation: the 32-byte alloca for `argTypes` (id=21 in PlanFrame's debug output, at `sp+0x148`) overlaps with somewhere a `strb w9, [sp, #0x158]` writes a 1-byte bool — but `sp+0x158` is offset 0x10 within argTypes' alloca, i.e. argTypes.refptr. The bool write corrupts the refptr to 1. End-of-function auto-dtor then calls Refcount(1) → headerPtr → 0xff..fff1 → SIGSEGV. The strb appears to come from the && short-circuit lowering of the `ins.Typ != nil && IsAggregateTyp && !IsMultiReturnCall` check at line 264, but PlanFrame did NOT assign that bool's spill slot to 0x158 (debug log shows `ALLOC id=267 off=864 sz=8` — its real slot). So the codegen is computing `sp+0x158` for the strb target via some OTHER path that doesn't go through PlanFrame's ID lookup. Possibly: the bool is a STORE through a struct-field pointer that wrongly points into argTypes' alloca. Needs more investigation. |
-| pkg/codegen | `TestEmitMakeSlice` (`TestEmitMultiReturn` now passes after multi-return fix) | Test runs `compileToLLVM(src)` then substring-checks the output for `bn_rt__MakeManagedSlice`. The crash is somewhere along that path — needs reduction. |
-| pkg/vm | `TestRepro_StructWithManagedSliceFieldAppend` | Runtime OOB (`index out of bounds: 0 (len 0)`) — same shape as pkg/asm/parse's residual. May share root cause. |
-| pkg/ir | `TestGenIndex*` (e.g. `TestGenIndexAssignEmitsBoundsCheck` — runtime OOB on garbage int `-8070450532247928832`) | Likely uninitialized slice header with garbage `len` field. May share root cause with pkg/asm/parse / pkg/vm residuals. |
+| pkg/types | `TestIntTypes` | Crash in `_bn_rt__RefInc` writing refcount to `0x2e2ebdb68` — r-- memory. Symptom of imm12 truncation: a STR at frame-relative offset > 32KB silently aliased, corrupting an unrelated managed-pointer's refptr. |
+| pkg/asm/parse | `TestParseMov` | `index out of bounds: 0 (len 0)` — uninitialized-looking slice header. Same root cause: a STR landed at the wrong frame slot, leaving the slice's len field as zero. |
+| pkg/asm/aarch64 | `TestResolveFixupsAdrOutOfRangeIsError` | Loop of 262144 NOPs; collateral from the same imm12 issue affecting unrelated frame slots. |
+| pkg/asm/arm32 | `TestLdrshImm` | Cumulative-state crash. Same root cause: each test in the runner accumulates state at frame offsets that eventually cross the imm12 boundary. |
+| pkg/native/arm64 | `TestEmitCallAggregateReturnSpillsAllWords` then `TestEmitCallStackOverflowAggregateArg` | The on-the-nose case: emitCall's bool slot at sp+0x1158 → STRB silently truncated to sp+0x158 → corrupted argTypes' refptr. |
+| pkg/codegen | `TestEmitMakeSlice` | Same root cause. |
+| pkg/vm | `TestRepro_StructWithManagedSliceFieldAppend` | Same root cause. |
+| pkg/ir | `TestGenIndex*` | Same root cause. |
 
-Likely several distinct root causes. The pkg/types crash (RefInc into
-read-only memory) is structurally different from the pkg/ir/pkg/vm
-crashes (uninitialized slice headers). Reducing each to a tight
-conformance program is the right next step.
+The "different-looking" symptoms across packages (RefInc into r--,
+uninitialized slice header, runtime OOB) all bottomed out in a
+silently-truncated STR/STRB target offset corrupting something
+unrelated in the frame. Once `aarch64.Str/Strb/etc.` started
+materializing the address into X17 for oversize offsets, every
+package passed.
 
 ### Cluster B — Assertion failures in pkg/asm/arm32 + pkg/asm/elf — RESOLVED (`43ab7a3`)
 

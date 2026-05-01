@@ -341,7 +341,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   Conformance 287_float_println passes on `boot-comp_native_aa64`;
   full native conformance 278/278.
 
-### Native AArch64 backend — unit-test packages failing under `boot-comp_native_aa64`
+### ~~Native AArch64 backend — unit-test packages failing under `boot-comp_native_aa64`~~ — DONE (`1612221`)
 - Conformance suite passes end-to-end under `boot-comp_native_aa64`,
   but a unit-test sweep on 2026-04-27 failed 10 of 29 packages. Three
   clusters: (C) a Mach-O reloc emission bug (pkg/ir), (A) seven
@@ -381,9 +381,21 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   sub-word fields. Fixed by walking by FIELD (with sized stores) and
   size-dispatching through emitScalarLoad. pkg/asm/elf 22/22; the
   19 dpEnc-family tests in pkg/asm/arm32 all pass.
+- **Cluster A residual — DONE** (`1612221`): all 8 remaining failing
+  packages collapsed to a single root cause — `aarch64.Str/Ldr/Strb/
+  Strh/Ldrb/Ldrh` silently masked the imm12 offset to 12 bits when it
+  didn't fit. Frames > 32KB (or for sub-word ops, > 4KB) caused
+  STR/STRB to write at a truncated address, corrupting unrelated data
+  in the same frame. The auto-generated test runner has a frame
+  proportional to the test count, so packages with many tests
+  (pkg/types, pkg/codegen, pkg/native/arm64, pkg/ir, etc.) all hit
+  this. Fix: `emitLdrStr` and `ldrStrSubWordEmit` materialize
+  base+off into X17 when the offset doesn't fit
+  (`LdrStrImmFitsUnsigned`). Clean sweep: 29/29 unit-test packages,
+  285/285 conformance.
 - Full inventory + plan of action in `explorations/native-aa64-bugs.md`.
-- CI hookup for `boot-comp_native_aa64` is intentionally not landed
-  yet — wait for cluster A residual + clean re-sweep.
+- CI hookup for `boot-comp_native_aa64`: cluster A is closed — safe
+  to land now.
 
 ### ~~Native AArch64 backend — cross-package by-value struct ABI mismatch (`337_cross_pkg_struct_arg`)~~ — FIXED (`0e3f357`)
 - Surfaced while reducing the original cluster A pkg/asm/arm32 LDRSH
