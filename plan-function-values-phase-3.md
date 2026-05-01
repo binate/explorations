@@ -38,66 +38,97 @@ Cross-mode dispatch breaks:
 
 ## Design — call convention
 
-Stick with the parent plan's recommended **check-data-nil**
-default rather than always-shim. The vtable's `call` slot's
-*actual* signature depends on the function value's nature:
+**Decision: always-shim.** `vtable.call` always has the uniform
+shape `<ret>(i8* data, <args>)*`, regardless of the function
+value's nature:
 
-- **Compiled non-capturing**: `vtable.call` = bare function
-  pointer, signature `<ret>(<args>)*`. `data` = nil.
-- **VM-side**: `vtable.call` = per-signature trampoline,
-  signature `<ret>(i8* data, <args>)*`. `data` = closure record
-  pointer.
+- **Compiled non-capturing**: `vtable.call` = per-function shim
+  that ignores `data` and tail-calls the real function. `data`
+  = nil.
+- **VM-side**: `vtable.call` = generic trampoline (per return
+  shape — see Slice 3.2). `data` = closure record pointer.
 - **Compiled capturing (Phase 2)**: `vtable.call` = per-closure
-  shim, signature `<ret>(i8* data, <args>)*`. `data` = closure
-  struct pointer.
+  shim that uses `data` as the closure struct.
 
-Caller branches on `data == nil`:
+Caller is uniform across all cases: extract `data`, extract
+`vtable.call`, bitcast to `<ret>(i8* data, <args>)*`, call with
+`(data, args)`.
 
-- nil → bitcast `vtable.call` to bare signature, call with args.
-- non-nil → bitcast `vtable.call` to shim signature, call with
-  `(data, args)`.
+**Departure from parent plan**: the parent plan defaulted to
+"check-data-nil" — caller branches on `data == nil`, taking a
+direct path for non-capturing and a shim path for capturing /
+cross-mode. The cost wasn't appreciated when that default was
+written: at the IR-gen level, check-data-nil requires multi-
+block dispatch (cond + 2 branches + phi-merge), substantial
+changes across all three backends (LLVM, VM, native arm64).
+Always-shim collapses every call site to one straight-line
+call sequence in IR, with the per-function shim taking the
+indirect hop instead.
 
-Soundness: each producer of a function value is responsible for
-making `vtable.call`'s actual function valid for the bitcast its
-caller will use given the `data` value. The branch is
-deterministic per function value, so only one bitcast is ever
-exercised on a given instance — no UB.
+**TODO — runtime cost investigation**: the always-shim choice
+adds one indirect-call hop on the non-capturing compiled path
+(vs the current direct call through `vtable.call`). On modern
+CPUs with good branch prediction this should be near-free;
+LLVM's tail-call optimizer should fold many shims into direct
+calls in `-O2` builds. Worth measuring once we have any code
+that calls function values in a hot loop:
+- micro-benchmark a tight loop calling a non-capturing
+  function value and compare to a direct call (and to a Phase
+  1 vtable-mediated call) at `-O0` and `-O2`.
+- if the shim hop turns out to matter, revisit check-data-nil
+  with eyes open about the IR-gen cost; the call sites can
+  always be specialized later.
 
-**Why check-data-nil over always-shim:**
-
-- Matches the parent plan's documented default and reasoning
-  (`plan-function-values.md` "Per-shape `call` shim").
-- Compiled non-capturing dispatch (the common case in self-hosted
-  code today) keeps the current direct-call IR — no perf or
-  bitcast change for code that's already shipping.
-- The shim cost only shows up where it's actually meaningful
-  (capturing closures, VM-side trampolines).
+**Soundness for cross-mode**: each producer of a function value
+is responsible for making `vtable.call`'s actual function valid
+for the uniform `(data, args)` signature given whatever `data`
+they set. Per-function shims (compiled), generic trampolines
+(VM-side), and per-closure shims (Phase 2) all conform.
 
 ## Slicing
 
 Sequential. Each slice is independently shippable and conformance-
 green at every step.
 
-### Slice 3.1 — Caller branches on data == nil (compiled mode)
+### Slice 3.1 — Switch compiled call sites to always-shim convention
 
 What lands:
 
-- `pkg/codegen/emit_call.bn`, compiled-side `OP_CALL_FUNC_VALUE`:
-  emit the data-nil branch. Two call paths: bare (current)
-  and shim (new but not yet exercised because no producer sets
-  `data` to non-nil yet).
-- `pkg/native/arm64/arm64_ops.bn`, `emitCallFuncValue`: same
-  branch structure for the AArch64 backend.
-- VM backend (`pkg/vm/vm_exec.bn`, `BC_CALL_FUNC_VALUE`): same
-  branch structure. The Phase 1 short-circuit (read
-  `closure_rec[0]` directly out of `data` and call `execFunc`)
-  stays as the fast path for the non-nil branch when the
-  closure-rec shape is recognized.
+- `pkg/codegen/emit_funcvals.bn`: emit per-function shims for
+  each `OP_FUNC_VALUE`-referenced function:
+  ```
+  define <ret> @__shim.<mangled>(i8* %data, <args>) {
+    %r = tail call <ret> @<mangled>(<args>)
+    ret <ret> %r
+  }
+  ```
+  Mark them `linkonce_odr` so cross-TU duplicates dedupe (or
+  `weak_odr` matching the existing vtable globals — pick the
+  one consistent with what the existing `__vt.<mangled>`
+  global uses).
+  Update each function's `__vt.<mangled>` to point its `call`
+  slot at `__shim.<mangled>` instead of the bare function.
 
-Net behavior: identical externally — `data` is always nil with
-the Phase 1 producers, so the bare branch is taken every time.
-The shim branch is dead but emit-correct and ready for 3.2/3.3
-to start exercising.
+- `pkg/codegen/emit_call.bn`, compiled-side `OP_CALL_FUNC_VALUE`:
+  bitcast `vtable.call` to `<ret>(i8*, <args>)*`, extract `data`
+  (field 1 of the function value), and pass `data` as the first
+  argument. This is the only call-site code change.
+
+- `pkg/native/arm64/arm64_ops.bn`, `emitCallFuncValue`: same
+  signature change. The AAPCS dispatch now passes `data` in X0
+  and shifts user args one register over.
+
+- VM backend (`pkg/vm/vm_exec.bn`, `BC_CALL_FUNC_VALUE`):
+  similarly, the dispatch now needs to pass `data` (= the
+  function value's `data` slot) as the first arg. The Phase 1
+  short-circuit (read `closure_rec[0]` directly out of `data`
+  and call `execFunc`) stays — it's a same-mode optimization
+  that bypasses the shim entirely; it doesn't go through
+  `vtable.call`.
+
+Net behavior: externally identical. The shim is a tail-call
+that the optimizer folds in `-O2`; at `-O0` it's one extra
+indirect call.
 
 Conformance: 338–342 + 344 still green.
 
