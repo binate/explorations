@@ -255,12 +255,26 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   from BC_CALL_INDIRECT's dtor-dispatch path (the new f08ddcb
   `rt._call_dtor` mechanism) — its own followup, tracked below.
 
-### boot-comp-int-int: BC_CALL_INDIRECT "function index out of range" on 001_hello
-- After the chain of fixes for the host-stack overflow + vm.Stack
-  leak (`900a44e` / `a723acb` / `f3478cb` / `daacfe3`),
-  boot-comp-int-int 001_hello now reaches a clean error rather
-  than hanging or SIGSEGVing: `vm: indirect call: function index
-  out of range` from BC_CALL_INDIRECT.
+### boot-comp-int-int: vm.Stack overflow on 001_hello (post cross-mode-hack)
+- **Updated (2026-05-01)**: The `BC_CALL_INDIRECT "function
+  index out of range"` symptom was partially unblocked by a
+  hacky cross-mode-dispatch arm in `pkg/vm/vm_exec.bn`
+  (`5f4333f`): when fnIdx is outside [1, len(vm.Funcs)] AND the
+  call shape is single-arg `func(*uint8)` (the
+  _call_free_fn / _call_dtor signature), dispatch via
+  `rt._call_free_fn` so the natively-compiled VM does a real
+  native indirect call to the pointer. Narrow on purpose; the
+  proper fix is Phase 3 of plan-function-values.md.
+- Net effect on 001_hello: the test now runs ~95× longer
+  (~2274s) before hitting `vm: stack overflow` from
+  pushFrame — a separate downstream bug. The vm.Stack
+  exhaustion is presumably the residual frame-leak referenced
+  in the original entry below; the BC_RETURN copy-then-pop
+  fix mitigated but didn't fully eliminate it. Next debug
+  step would be to instrument SP at frame-pop and look for
+  unpopped frames around the dispatch site.
+
+#### Original diagnostic (pre-hack)
 - **Diagnosed (2026-04-30)**: caller is bytecode `rt.Free`; fnIdx
   is a NATIVE function pointer (e.g. 0x1043F5BAC ≈ 4.37e9) being
   treated as a 1-based VM index. The allocation was made by
@@ -595,7 +609,7 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   through a function value, flow through args/returns/fields,
   method expressions `T.M`, and non-capturing function literals
   (lifted to synthetic `__funclit_<n>` top-level Funcs).
-  Conformance tests 338–343 cover each slice; pkg/ir + pkg/types
+  Conformance tests 338–342 + 344 cover each slice; pkg/ir + pkg/types
   unit tests cover each coercion site, AssignableTo predicate,
   and capture-rejection. `pkg/ir/gen_call.bn` and
   `pkg/ir/gen_func_lit.bn` extracted to keep file-length hygiene

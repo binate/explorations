@@ -167,7 +167,7 @@ slice (338+).
     pointing at the (qualified) name. Per-package state in
     `gen.bn` (`currentModule` + `funcLitCounter`); reset by
     `resetFuncLitState` at GeneratePackage / GenModule entry.
-  - Conformance test 343_function_literal: bind-to-local, pass-
+  - Conformance test 344_function_literal: bind-to-local, pass-
     as-arg, multiple literals in one function (distinct ids),
     nested literal as arg called from another literal.
 

@@ -261,7 +261,7 @@ func divmod(a int, b int) (int, int) { return a / b, a % b }
   function literals ARE now supported under compiled and VM modes
   (Phase 1 of plan-function-values.md, Slices A.1–A.7), but remain
   unsupported under the Go bootstrap interpreter — which is why
-  the 338–343 conformance tests are xfailed under `boot`.
+  the 338–342 + 344 conformance tests are xfailed under `boot`.
 
 ---
 
