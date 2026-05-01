@@ -487,31 +487,17 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Commits**: `ee93644` (PR 1: IR op + LLVM), `6f064a5` (PR 2 part 1: VM lowering), `4e20ffb` (PR 2 part 2: native arm64), `f08ddcb` (PR 2 part 3: RefDec migration + retire C trampoline).
 - **Paired with**: "Free-function pointer in managed-allocation header — bug" (also DONE) — `Free` reads `header[1]` and dispatches indirect through it via the parallel `_call_free_fn` magic helper, sharing the same OP_CALL_INDIRECT lowering as `_call_dtor`.
 
-### Inline RefInc / fast-path inline RefDec (perf)
-- **Plan doc**: `explorations/plan-refcount-inlining.md` (DRAFT).
-- `rt.RefInc` and `rt.RefDec` are the hottest paths in any
-  non-trivial Binate program — the compiler emits one at almost
-  every managed-pointer assignment, struct-field copy with managed
-  references, scope exit, and function-arg pass-by-value of managed
-  types. Each lowers to a `call void @bn_rt__RefInc(...)` (or
-  `RefDec`), and the call setup costs more than the work itself.
-- **Approach (hybrid, preferred)**: inline RefInc fully (load + add
-  + store + nil-check, ~5 instructions) and inline RefDec's fast
-  path (load + dec + store + branch on zero). The slow path
-  (refcount reached zero → run dtor + Free) calls out to a thin
-  runtime helper since that path is rare per allocation.
-- **Backend strategy**: keep `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC`
-  as single IR ops; each backend (LLVM / VM / native arm64)
-  lowers them inline with its own native-optimal sequence. The
-  duplication is small (~10-15 lines per backend) and avoids
-  bloating the IR.
-- **Slow-path helper name** is open (bikeshed candidates:
-  `OnZeroRef`, `ZeroRefDestroy`, `RefDecSlow`, `Destroy`, or a
-  compiler-internal magic name).
-- **User-visible impact**: none. RefInc/RefDec call sites are
-  compiler-emitted, not user-written.
-- See `plan-refcount-inlining.md` for backend specifics, phasing,
-  and open questions.
+### ~~Inline RefInc / fast-path inline RefDec (perf)~~ — DONE
+- **Plan doc**: `explorations/plan-refcount-inlining.md` (Status: DONE).
+- New IR ops `OP_REFINC` / `OP_REFDEC` added alongside the old `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC`; IR-gen switched to emit the new ops; old emitters (`EmitRefcountInc` / `EmitRefcountDec` / `EmitRefcountDecDtor`) deleted in favor of `EmitRefInc` / `EmitRefDec` / `EmitRefDecDtor`.
+- All three backends (LLVM, VM, native arm64) lower the new ops inline:
+  - LLVM: nil-check diamond + header GEP at -16 + load/{add,sub}/store, with a slow-path call to `@bn_rt__ZeroRefDestroy` for RefDec when the count hits zero.
+  - VM: fused single-dispatch bytecode ops `BC_REFINC_INLINE` / `BC_REFDEC_INLINE_FAST` — one switch arm per refcount site, vs ~5 if the IR had pre-expanded to primitives.
+  - arm64: CBZ + LDR(pre-index for RefInc, separate SUB+LDR for RefDec to keep ptrReg alive across the BL) + add/sub + STR + CBNZ for RefDec; BL `bn_rt__ZeroRefDestroy` only on the slow path.
+- **Slow-path helper**: `rt.ZeroRefDestroy(ptr, dtor)` lives in `pkg/rt`; called only when the inline RefDec decrement leaves the refcount at zero. Runs the optional dtor (via `_call_dtor`) and `Free`.
+- **User-visible impact**: none. All call sites are compiler-emitted.
+- **Commits** (chronological): `eb7332e` (OP_REFINC), `9cb934d` (LLVM RefInc), `e972953` (VM RefInc), `8b896de` (arm64 RefInc), `34511bd` (RefInc switchover); `6aa78d1` (ZeroRefDestroy), `46e8e52` (OP_REFDEC), `a8104d2` (LLVM RefDec), `445e40d` (VM RefDec), `a4847b2` (arm64 RefDec), `19502d4` (RefDec switchover + with-dtor tests).
+- **Cleanup follow-up (immediate)**: the old `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC` constants, their dispatch arms in all three backends, `BC_REFINC` / `BC_REFDEC` and their VM exec handlers, `emitRefcountCall`, and the `bn_rt__RefInc` / `bn_rt__RefDec` runtime symbols are now dead code. Removing them is a separate commit (no plan-level change, no design questions — just deletion + naming-whitelist hygiene if applicable).
 
 ### Lift function-name qualification into IR (shared across backends)
 - The VM and the compiler both need to avoid cross-package function-name collisions. They currently solve it separately: `pkg/mangle.FuncName(pkgName, name)` produces C-style `bn_asm__New` for LLVM symbols, and `pkg/mangle.QualifyName(pkgShort, name)` produces dot-form `asm.New` for the VM's function table. Both backends extract the short package name from `ir.Module.Name` and apply their own qualification at lower/emit time.

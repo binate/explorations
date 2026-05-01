@@ -1,8 +1,16 @@
 # Plan: Inline RefInc / Fast-Path Inline RefDec
 
-> **Status: DRAFT** — not started. Substantial perf project that
-> touches IR, all three backends (LLVM / VM / native arm64), and the
-> runtime.
+> **Status: DONE** (RefInc + RefDec). Eleven commits across IR, all
+> three backends (LLVM / VM / native arm64), and the runtime.
+> Final commit: `19502d4 pkg/ir: switch IR-gen to emit OP_REFDEC;
+> with-dtor test coverage`. See claude-todo.md "Inline RefInc /
+> fast-path inline RefDec (perf)" for the full commit list.
+>
+> The dead `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC` ops, their backend
+> dispatch arms, `BC_REFINC` / `BC_REFDEC` and their VM exec
+> handlers, `emitRefcountCall`, and the `bn_rt__RefInc` /
+> `bn_rt__RefDec` runtime symbols are all immediately removable in a
+> follow-up cleanup commit.
 
 ## Motivation
 
