@@ -1109,7 +1109,16 @@ Binate is NOT Go. The two types of slice are intentionally different:
   end on each side, and identifies the first concrete code change to make.
   Don't start implementation until the design is reviewed.
 
-### REPL — start now, interpreter-only
+### REPL — Tier 1 + Tier 2 (first cut) LANDED (2026-04-30)
+- **Status (2026-04-30)**: Tier 1 PoC ships as `bni --repl
+  <file.bn|dir>`; Tier 2 first cut adds top-level `func` decls at
+  the prompt.  Multi-line input also landed (brace-balance
+  accumulator).  See `plan-repl.md` for the per-step commit table,
+  verified behaviors, deviations from the original plan, and the
+  Tier 2 still-out-of-scope items (type / var / const at prompt,
+  methods, prompt-introduced new managed-type dtor regen).  Tiers
+  3–5 (forward refs, redefinition, mid-session imports) remain
+  DRAFT.
 - **Why this matters now**: the REPL is an explicit core goal in
   `claude-notes.md` (see "Forward references & REPL model — DECIDED"
   and the dual-mode rationale in
@@ -1165,31 +1174,47 @@ Binate is NOT Go. The two types of slice are intentionally different:
     (bake-idx-into-bytecode) would close off the redefinition story.
 - **Tiered plan** (each tier shippable on its own; see
   `plan-repl.md` for entry-point names and concrete steps):
-  1. **Load-then-poke.** Load a `.bn` module the normal way; prompt
-     accepts only immediate-mode entries. Each entry → synthetic
-     `__repl_N()` → IR-gen → lower-one-function → call. Single-expr
-     input auto-wrapped in `println(...)`. No new defs, no
-     redefinition.
-  2. **Add new top-level decls at the prompt.** Per-decl entry points
-     in parser/types/ir/lower; append to current scope and `vm.Funcs`.
+  1. ~~**Load-then-poke.**~~ **LANDED (2026-04-30).** Load a `.bn`
+     module the normal way; prompt accepts only immediate-mode
+     entries.  Each entry → synthetic `__repl_N()` → IR-gen →
+     lower-one-function → call.  Auto-`println` wrap of bare exprs
+     was deferred (gated on interfaces / proper Format dispatch
+     once `bootstrap.println` is retired) — type `println(...)`
+     explicitly.  Multi-line input also landed.
+  2. ~~**Add new top-level decls at the prompt.**~~ **First cut
+     LANDED (2026-04-30).**  Per-decl entry points in
+     parser/types/ir; append to current scope and `vm.Funcs`.
+     `func` decls work end-to-end; type / var / const surface a
+     "first cut" diagnostic; methods + prompt-introduced
+     new-managed-type dtor regen are follow-ups (see plan-repl.md).
      Still no forward refs / no redefinition.
   3. **Forward references.** Pending-validation queue in the type
      checker.
   4. **Redefinition.** Replace path = body swap at existing idx (cheap).
      Shadow path = append + last-match `LookupFunc` semantics (or a
-     REPL-side name table layered atop).
+     REPL-side name table layered atop).  CallCache (commit
+     `6c8e0c0`) was designed with invalidation hooks for this; full
+     flush on rebind, -1-only flush sufficient on pure append.
   5. **Mid-session imports.** Loader entry point for "load this one
      package now."
 - **What's free / "should-do-now-anyway"**:
-  - The audit itself (this entry + the plan doc) — overlaps fully with
-    the "verify rather than redesign" exercise the interop work already
-    needs.
-  - Per-decl entry points exposed opportunistically when the relevant
-    code is touched for unrelated reasons.
-  - Name → idx hash in `LookupFunc` (50-line change, removes the
-    perf argument for ever baking idx into bytecode).
+  - ~~The audit itself~~ — done; `plan-repl.md` is the live doc.
+  - ~~Per-decl entry points exposed opportunistically when the
+    relevant code is touched for unrelated reasons.~~  Done as part
+    of Tier 1 + Tier 2 (parser ParseExpr / ParseStmtList /
+    ParseTopLevelDecl / IsAtTopLevelDecl; types CheckExprInScope /
+    CheckStmtListInScope / CheckDeclInScope / CheckMainPersistent;
+    ir GenSyntheticFunc / GenDecl; vm LowerOneFunc / CallByVMFunc).
+  - ~~Name → idx hash in `LookupFunc`.~~  Solved differently:
+    per-VMFunc CallCache (commit `6c8e0c0`) memoizes the lookup
+    result per call site, removing the per-dispatch scan; lazy fill
+    on first call; explicitly designed for REPL invalidation.
   - A minimal pretty-printer (probably `pkg/replprint`, leaning on
-    `pkg/buf.CharBuf`). Useful well beyond REPL.
+    `pkg/buf.CharBuf`). Useful well beyond REPL.  **Deferred until
+    interfaces land** — `bootstrap.println` is a temporary hack
+    scheduled for removal; building features on top of it would
+    entrench the hack.  See "Pretty-printer" in plan-repl.md and
+    the auto-`println` deferral note.
 - **Decisions / non-decisions in adjacent work to pressure-test**:
   - **Function values** (`plan-function-values.md`): a function value
     must be a *stable identity for what it refers to*, not for the
@@ -1210,17 +1235,23 @@ Binate is NOT Go. The two types of slice are intentionally different:
   - A REPL implementation plan — that lives in `plan-repl.md`.
   - A relitigation of REPL semantics — those are decided; if they
     change, update `claude-notes.md` first.
-- **Open design questions worth pinning before Tier 1 starts**:
-  - Top-level prompt grammar: bare expression vs. bare statement list
-    vs. either? Suggested convention: input that parses as a single
-    expression gets `println(...)`-wrapped; otherwise it's a statement
-    list, run for side effects, no auto-print.
-  - Error recovery: parse / type / runtime errors in immediate mode
-    print and return to prompt; nothing in retained mode is affected.
-  - Where pretty-printing lives.
-  - Sentinel for "no result" (probably nothing).
-  - Whether REPL is a separate `cmd/bnrepl` or a `--repl` flag on
-    `cmd/bni`.
+- **Open design questions worth pinning before Tier 1 starts** —
+  resolved as part of the Tier 1 work:
+  - ~~Top-level prompt grammar.~~  Settled as bare statement list;
+    auto-`println` wrap deferred until interfaces (above).  `func`
+    decls are dispatched to the decl path via
+    `parser.IsAtTopLevelDecl`.
+  - ~~Error recovery.~~  Implemented exactly as proposed: parse /
+    type / IR-gen / lower / runtime errors in immediate mode print
+    and return to prompt; loaded state unaffected.  Verified by
+    `e2e/repl.sh` cases.
+  - ~~Where pretty-printing lives.~~  Deferred (see above).
+  - ~~Sentinel for "no result".~~  Nothing — empty stmt lists are
+    skipped by `evalReplStmtList` before reaching IR-gen.
+  - ~~Whether REPL is a separate `cmd/bnrepl` or a `--repl` flag on
+    `cmd/bni`.~~  Settled as `--repl` flag on `cmd/bni`.
+    `scripts/build-bni.sh` (commit `22ea525`) is a convenience
+    wrapper for casual use.
 
 ### Import aliases and blank imports
 - Do we support Go-like `import somethingelse "pkg/foo"` currently? We'll likely need this.
@@ -1274,11 +1305,19 @@ Binate is NOT Go. The two types of slice are intentionally different:
   integration tests** — checks that the CLI/loader/runtime wiring
   works the same way across all four tools that load Binate
   packages: `bootstrap`, `bnc`, `bni`, `bnlint`.
-- A first stub lives at `e2e/split-paths.sh` (covers Stage 1–6 of
-  the package-search-paths plan): sets up a fixture where
-  `pkg/splitlib`'s `.bni` is in one root and impl is in another,
-  then invokes each tool with `-I` and `-L` and verifies output.
-- **Unique challenges this dir has to solve over time:**
+- **What's landed (2026-04-30):**
+  - Two scripts: `e2e/split-paths.sh` (the original — `-I`/`-L`
+    cross-tool contract; covers Stage 1–6 of the package-search-paths
+    plan) and `e2e/repl.sh` (9 cases for `bni --repl`: basic call,
+    multi-stmt, error recovery, multi-line for-block, braces in
+    string literal, plus four Tier 2 cases — func persists, cross-
+    decl call, type rejected with diagnostic, bad body recovery).
+  - CI hookup at `.github/workflows/e2e-tests.yml` — matrix-
+    discovery via `ls e2e/*.sh`, one runner per script, `fail-fast:
+    false`.  Standard checkout layout (binate + bootstrap as
+    siblings) matches what the scripts assume.  New e2e scripts are
+    picked up automatically.
+- **Unique challenges this dir still has to solve over time:**
   - **4 tools, not 1.** A single feature (like `-I`/`-L`) needs to
     be exercised on each tool independently, since each parses CLI
     flags separately and threads them into the loader differently.
@@ -1293,23 +1332,27 @@ Binate is NOT Go. The two types of slice are intentionally different:
     Full e2e coverage of "feature X works" multiplies tools × build
     modes — easily 10+ runs per feature. We don't necessarily want
     that today; figuring out which slice is worth the cost is part
-    of building this out.
+    of building this out.  Today both shipping scripts pick a
+    single mode each (split-paths covers all four tools at their
+    "default" build path; repl uses boot-comp bni).
   - **Fixture management.** Conformance tests share a single root;
     e2e tests like split-paths need disjoint fixtures, ad-hoc temp
-    dirs, optional checked-in subtrees. No standard pattern yet.
-  - **Where to live in CI.** `e2e/` exists but has no runner script
-    or CI hookup. Decide: a single `e2e/run.sh` that picks up scripts
-    by convention? Per-feature scripts invoked individually? Wired
-    into existing matrix or a separate one?
-- **Why split-paths is a useful motivating example:** the `-I`/`-L`
-  feature is something `bootstrap`, `bnc`, `bni`, and `bnlint`
-  should all support **identically** — a deliberate cross-tool
-  contract. e2e is the only layer where that contract can be
-  observed directly. Most other features (codegen, type checker,
-  IR) are tool-internal and conformance covers them; CLI/loader
-  contracts span tools and need their own layer.
+    dirs, optional checked-in subtrees. No standard pattern yet —
+    both current scripts use `mktemp -d` + `trap rm -rf` and inline
+    `cat <<EOF` heredocs for fixture files.
+- **Why these scripts are useful motivating examples:**
+  - **split-paths**: the `-I`/`-L` feature is something `bootstrap`,
+    `bnc`, `bni`, and `bnlint` should all support **identically** —
+    a deliberate cross-tool contract.  e2e is the only layer where
+    that contract can be observed directly.
+  - **repl**: the `bni --repl` PoC is a multi-stage user-facing
+    flow (load module → drive prompt via stdin → check banner +
+    prompts + results byte-for-byte).  No unit test could easily
+    exercise the full input-to-output transcript; e2e is the right
+    layer for "the REPL works end-to-end".
 - See [`plan-package-search-paths.md`](plan-package-search-paths.md)
-  for the spec the e2e/split-paths.sh fixture validates.
+  for the spec `e2e/split-paths.sh` validates and
+  [`plan-repl.md`](plan-repl.md) for what `e2e/repl.sh` covers.
 
 ### Annotations and C function interop
 - Consider implementing annotations (decorators/attributes).
