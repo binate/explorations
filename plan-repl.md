@@ -1,10 +1,12 @@
 # Plan: REPL (Interpreter-Only)
 
-> **Status: Tier 1 + Tier 2 (func + const) LANDED** (2026-05-01).
-> `bni --repl <file.bn|dir>` ships, plus top-level `func` and
-> `const` decls at the prompt persist across turns.  Tiers 3–5
-> remain DRAFT; Tier 2 also has follow-ups for type / var /
-> methods.
+> **Status: Tier 1 + Tier 2 (func + const + var) LANDED**
+> (2026-05-01).  `bni --repl <file.bn|dir>` ships, plus top-level
+> `func`, `const`, and `var` decls at the prompt persist across
+> turns.  The brace-balance accumulator is now paren-aware too,
+> so multi-line `const ( ... )` etc. are recognized as
+> continuations.  Tiers 3–5 remain DRAFT; Tier 2 also has
+> follow-ups for type / methods / var-initializer evaluation.
 > Compiled-mode REPL features (hot-swap of interpreted functions
 > while a compiled binary runs, package descriptors, cross-mode
 > trampolines) are explicitly out of scope here — they belong to
@@ -136,15 +138,20 @@ patch — no extra work needed.
 
 ### Out of scope in the first cut (Tier 2 follow-ups)
 
-- **`type` / `var` at the prompt.**  `ir.GenDecl`
-  surfaces a "not yet supported" diagnostic for these.  Each
-  needs its own machinery:
-  - `type`: register in `moduleStructs`; regenerate dtor / copy
-    helpers (and the dedup-aware machinery to avoid duplicate
-    AddFunc on a re-run); make the new type's layout known to
-    `pkg/types` queries.
-  - `var`: extend `materializeGlobals` to take a single new
-    global; allocate + initialize its memory.
+- **`type` at the prompt.**  `ir.GenDecl` surfaces a "not yet
+  supported" diagnostic.  Needs: register in `moduleStructs`;
+  regenerate dtor / copy helpers (and the dedup-aware machinery
+  to avoid duplicate AddFunc on a re-run); make the new type's
+  layout known to `pkg/types` queries.
+- **`var` initializer evaluation.**  `var x int = 42` parses
+  and registers, but the storage is zero-initialized — `mg.Init`
+  is set in IR-gen and dropped by the VM.  Pre-existing
+  limitation of the file-load path too; the prompt inherits it.
+  Fix is bigger than Tier 2 (needs a designated init function
+  emitted at IR-gen and called by the VM at module load).
+  Workaround: assign in a follow-up entry (`x = 42`).  The
+  prompt also rejects untyped `var x = 5` since type inference
+  intersects with the same machinery.
 - **Method declarations** (`func (r T) m(...) ...`).  Diagnostic
   surfaces for these too.  Method-receiver registration and
   vtable interactions add scope.
@@ -154,35 +161,85 @@ patch — no extra work needed.
   re-run of `generateDtors` / `generateCopies`.  Until then,
   bodies typed at the prompt should stick to managed-type shapes
   the loaded module already uses.
-- **Multi-line `const ( ... )` blocks.**  The brace-balance
-  scanner that drives multi-line accumulation only tracks
-  `{` / `}`, not `(` / `)`.  A grouped const broken across
-  multiple lines fires evaluation prematurely (parse error).
-  Single-line `const ( A = 10; B = 20 )` works.  Fix is to
-  extend `computeBraceDepth` to track parens too — small change,
-  worth doing alongside the next paren-shape that needs it.
 - **Forward references** (Tier 3) and **redefinition** (Tier 4)
   remain explicitly excluded.
 
 ### Conformance / unit-test coverage
 
-- 287/287 `boot-comp-int` conformance after Tier 2 (func + const).
-- 29/29 unit-test packages green under `boot-comp-int` (the
-  earlier cmd/* unit-test failures were resolved by main commit
-  `4a9cfca`, "pkg/ir: normalize moduleFuncs storage + lookups
-  to qualified names (Step 4a)" — independent of this work).
+- 288/288 `boot-comp-int` and `boot-comp` conformance after
+  Tier 2 (func + const + var).
+- 29/29 unit-test packages green under `boot-comp-int`.
 - New targeted unit tests:
   - `parser.TestParseTopLevelDeclFunc`
   - `types.TestCheckDeclInScope`,
     `types.TestCheckDeclInScopeBadBody`,
     `types.TestCheckDeclInScopeConst`,
-    `types.TestCheckDeclInScopeConstGroup`
+    `types.TestCheckDeclInScopeConstGroup`,
+    `types.TestCheckDeclInScopeVar`
   - `ir.TestGenDeclFunc`,
     `ir.TestGenDeclTypeRejected`,
     `ir.TestGenDeclConst`,
-    `ir.TestGenDeclConstGroup`
-- `e2e/repl.sh` covers the const path with four cases: typed,
-  untyped, single-line group, and `const`-then-`func`-using-it.
+    `ir.TestGenDeclConstGroup`,
+    `ir.TestGenDeclVar`,
+    `ir.TestGenDeclVarWithoutType`
+- `e2e/repl.sh` covers the const path with four cases (typed,
+  untyped, single-line group, const-then-func-using-it), the
+  multi-line const-group continuation case, and the var path
+  with three cases (read+write, func-mutates, no-type-rejected).
+
+## Tier 2 var landed — what shipped (2026-05-01)
+
+`bni --repl` accepts top-level typed `var` decls at the prompt.
+A `var counter int` registers in `c.Scope`, in `moduleGlobals`
+(so subsequent IR-gen of expressions resolves the name through
+the global path), and on the VM (storage allocated via
+`MaterializeOneGlobal`).  Reads, writes, and func-mediated
+mutations from later prompt entries all see the same storage.
+
+Single commit on main:
+
+| Layer | Change |
+|---|---|
+| `pkg/vm/lower.bn` + `.bni` | New `MaterializeOneGlobal(g)` — per-global analog of `materializeGlobals`; allocates and zero-initializes one slot, appending to `globalNames` / `globalAddrs`. |
+| `pkg/ir/gen_module.bn` | `GenDecl` now also accepts `DECL_VAR` (typed); registers in `moduleGlobals` + `AddGlobal` on the module.  Untyped `var x = 5` returns a clear diagnostic. |
+| `cmd/bni/repl.bn` | After `GenDecl` succeeds for a var, finds the new entry in `m.Globals` and dispatches it through `vm.MaterializeOneGlobal`. |
+
+### Verified behaviors
+
+```
+> var x int
+> println(x)                   → 0
+> x = 42
+> println(x)                   → 42
+> var counter int
+> func bump() { counter = counter + 1 }
+> bump(); bump(); bump()
+> println(counter)             → 3
+> var x = 5                    → var decl at the prompt requires
+                                 an explicit type
+```
+
+### Out of scope (matches file-load path's behavior)
+
+- **Initializer evaluation.**  `var x int = 42` is silently
+  zero-initialized — pre-existing limitation of the file-load
+  path; `mg.Init` is set in IR-gen but the VM doesn't consume
+  it.  Workaround: assign in a follow-up prompt entry.
+
+## Tier 2 paren-aware accumulator landed — what shipped (2026-05-01)
+
+The multi-line input accumulator (`computeBraceDepth` →
+`computeOpenDepth`) now tracks unclosed `(` / `)` as well as
+`{` / `}`.  Multi-line `const ( ... )` blocks are recognized as
+continuations (rather than firing evaluation prematurely on
+the first line); same for any other paren-bracketed
+construct typed across lines.  Brackets inside string / char
+literals and `//` / `/* ... */` comments are skipped using the
+existing escape-handling logic.
+
+The combined depth counter is a heuristic, not a real parser:
+syntactically wrong interleavings like `{(}` will balance to 0
+and the parser catches them — same contract as before.
 
 ## Tier 2 const landed — what shipped (2026-05-01)
 
