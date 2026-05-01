@@ -1142,15 +1142,18 @@ Binate is NOT Go. The two types of slice are intentionally different:
   end on each side, and identifies the first concrete code change to make.
   Don't start implementation until the design is reviewed.
 
-### REPL — Tier 1 + Tier 2 (first cut) LANDED (2026-04-30)
-- **Status (2026-04-30)**: Tier 1 PoC ships as `bni --repl
-  <file.bn|dir>`; Tier 2 first cut adds top-level `func` decls at
-  the prompt.  Multi-line input also landed (brace-balance
-  accumulator).  See `plan-repl.md` for the per-step commit table,
-  verified behaviors, deviations from the original plan, and the
-  Tier 2 still-out-of-scope items (type / var / const at prompt,
-  methods, prompt-introduced new managed-type dtor regen).  Tiers
-  3–5 (forward refs, redefinition, mid-session imports) remain
+### REPL — Tier 1 + Tier 2 (func + const) LANDED (2026-05-01)
+- **Status (2026-05-01)**: Tier 1 PoC ships as `bni --repl
+  <file.bn|dir>`; Tier 2 adds top-level `func` and `const`
+  declarations at the prompt (typed, untyped, single-line
+  groups).  Multi-line input also landed (brace-balance
+  accumulator — `{` / `}` only; multi-line `const ( ... )` not
+  yet recognized as a continuation).  See `plan-repl.md` for the
+  per-step commit table, verified behaviors, deviations from the
+  original plan, and the remaining Tier 2 follow-ups (type / var
+  at prompt, methods, prompt-introduced new managed-type dtor
+  regen, paren-aware multi-line continuation).  Tiers 3–5
+  (forward refs, redefinition, mid-session imports) remain
   DRAFT.
 - **Why this matters now**: the REPL is an explicit core goal in
   `claude-notes.md` (see "Forward references & REPL model — DECIDED"
@@ -1214,13 +1217,13 @@ Binate is NOT Go. The two types of slice are intentionally different:
      was deferred (gated on interfaces / proper Format dispatch
      once `bootstrap.println` is retired) — type `println(...)`
      explicitly.  Multi-line input also landed.
-  2. ~~**Add new top-level decls at the prompt.**~~ **First cut
-     LANDED (2026-04-30).**  Per-decl entry points in
-     parser/types/ir; append to current scope and `vm.Funcs`.
-     `func` decls work end-to-end; type / var / const surface a
-     "first cut" diagnostic; methods + prompt-introduced
-     new-managed-type dtor regen are follow-ups (see plan-repl.md).
-     Still no forward refs / no redefinition.
+  2. ~~**Add new top-level decls at the prompt.**~~ **`func` +
+     `const` LANDED (2026-04-30 / 2026-05-01).**  Per-decl entry
+     points in parser/types/ir; append to current scope, plus
+     `vm.Funcs` for funcs and `moduleConsts` for consts.  `type`
+     / `var` / methods + prompt-introduced new-managed-type dtor
+     regen are remaining follow-ups (see plan-repl.md).  Still no
+     forward refs / no redefinition.
   3. **Forward references.** Pending-validation queue in the type
      checker.
   4. **Redefinition.** Replace path = body swap at existing idx (cheap).

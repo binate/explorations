@@ -1,9 +1,10 @@
 # Plan: REPL (Interpreter-Only)
 
-> **Status: Tier 1 + Tier 2 (first cut) LANDED** (2026-04-30).
-> `bni --repl <file.bn|dir>` ships, plus top-level `func` decls
-> at the prompt persist across turns.  Tiers 3–5 remain DRAFT;
-> Tier 2 also has follow-ups for type / var / const / methods.
+> **Status: Tier 1 + Tier 2 (func + const) LANDED** (2026-05-01).
+> `bni --repl <file.bn|dir>` ships, plus top-level `func` and
+> `const` decls at the prompt persist across turns.  Tiers 3–5
+> remain DRAFT; Tier 2 also has follow-ups for type / var /
+> methods.
 > Compiled-mode REPL features (hot-swap of interpreted functions
 > while a compiled binary runs, package descriptors, cross-mode
 > trampolines) are explicitly out of scope here — they belong to
@@ -135,7 +136,7 @@ patch — no extra work needed.
 
 ### Out of scope in the first cut (Tier 2 follow-ups)
 
-- **`type` / `var` / `const` at the prompt.**  `ir.GenDecl`
+- **`type` / `var` at the prompt.**  `ir.GenDecl`
   surfaces a "not yet supported" diagnostic for these.  Each
   needs its own machinery:
   - `type`: register in `moduleStructs`; regenerate dtor / copy
@@ -144,8 +145,6 @@ patch — no extra work needed.
     `pkg/types` queries.
   - `var`: extend `materializeGlobals` to take a single new
     global; allocate + initialize its memory.
-  - `const`: register in `moduleConsts` (likely cheapest of the
-    three).
 - **Method declarations** (`func (r T) m(...) ...`).  Diagnostic
   surfaces for these too.  Method-receiver registration and
   vtable interactions add scope.
@@ -155,12 +154,19 @@ patch — no extra work needed.
   re-run of `generateDtors` / `generateCopies`.  Until then,
   bodies typed at the prompt should stick to managed-type shapes
   the loaded module already uses.
+- **Multi-line `const ( ... )` blocks.**  The brace-balance
+  scanner that drives multi-line accumulation only tracks
+  `{` / `}`, not `(` / `)`.  A grouped const broken across
+  multiple lines fires evaluation prematurely (parse error).
+  Single-line `const ( A = 10; B = 20 )` works.  Fix is to
+  extend `computeBraceDepth` to track parens too — small change,
+  worth doing alongside the next paren-shape that needs it.
 - **Forward references** (Tier 3) and **redefinition** (Tier 4)
   remain explicitly excluded.
 
 ### Conformance / unit-test coverage
 
-- 285/285 `boot-comp-int` conformance after Tier 2.
+- 287/287 `boot-comp-int` conformance after Tier 2 (func + const).
 - 29/29 unit-test packages green under `boot-comp-int` (the
   earlier cmd/* unit-test failures were resolved by main commit
   `4a9cfca`, "pkg/ir: normalize moduleFuncs storage + lookups
@@ -168,13 +174,53 @@ patch — no extra work needed.
 - New targeted unit tests:
   - `parser.TestParseTopLevelDeclFunc`
   - `types.TestCheckDeclInScope`,
-    `types.TestCheckDeclInScopeBadBody`
+    `types.TestCheckDeclInScopeBadBody`,
+    `types.TestCheckDeclInScopeConst`,
+    `types.TestCheckDeclInScopeConstGroup`
   - `ir.TestGenDeclFunc`,
-    `ir.TestGenDeclTypeRejected`
+    `ir.TestGenDeclTypeRejected`,
+    `ir.TestGenDeclConst`,
+    `ir.TestGenDeclConstGroup`
+- `e2e/repl.sh` covers the const path with four cases: typed,
+  untyped, single-line group, and `const`-then-`func`-using-it.
+
+## Tier 2 const landed — what shipped (2026-05-01)
+
+`bni --repl` accepts `const` declarations at the prompt: typed
+(`const K int = 42`), untyped (`const K = 42`), and grouped
+on a single line (`const ( A = 10; B = 20 )`).  Registered
+constants persist in `c.Scope` and `moduleConsts`, so any
+subsequent prompt entry — bare expression, stmt list, or
+new func decl — resolves the name through the existing
+`lookupConst` path.
+
+Single commit on main:
+
+| Layer | Change |
+|---|---|
+| `pkg/ir/gen_module.bn` | `GenDecl` now also accepts `DECL_CONST` (calls existing `genConst`) and `DECL_GROUP` of consts (calls existing `genConstGroup`). |
+| `cmd/bni/repl.bn` | `evalReplDecl` only routes `DECL_FUNC` results through `LowerOneFunc`; const decls register in `moduleConsts` and need no VM-side work. |
+
+No new entry points needed — `genConst` / `genConstGroup` and
+`lookupConst` already existed for the file-load path.
+
+### Verified behaviors
+
+```
+> const K int = 42
+> println(K)                     → 42
+> const L = 7
+> println(K + L)                 → 49
+> const ( A = 10; B = 20 )
+> println(A); println(B)         → 10 / 20
+> const SCALE int = 3
+> func tripled(x int) int { return x * SCALE }
+> println(tripled(11))           → 33
+```
 
 The remainder of this document describes the original plan as
-written before Tier 1 landed.  Tier 2 follow-ups (above) and
-tiers 3–5 are still DRAFT.
+written before Tier 1 landed.  Remaining Tier 2 follow-ups
+(above) and tiers 3–5 are still DRAFT.
 
 ---
 
