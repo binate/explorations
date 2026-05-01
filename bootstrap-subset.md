@@ -247,8 +247,11 @@ func divmod(a int, b int) (int, int) { return a / b, a % b }
 
 **Not supported:**
 - `impl Type : Interface` — interfaces and dynamic dispatch are still deferred.
-- Method values (`x.M` as a first-class function value) and method
-  expressions (`T.M`) — depend on function-value support.
+- Method values (`x.M` as a first-class function value) — depend on
+  Phase 2 (closures, for receiver capture). Method expressions
+  (`T.M`, no receiver bound) are supported under compiled and VM
+  modes as of Slice A.6 (2026-05-01) but remain unsupported under
+  the Go bootstrap interpreter.
 - Variadic parameters: `func f(args ...int)` — not in bootstrap
 - Function literals / closures: `func(x int) int { ... }` — not in bootstrap
 - Function types as values — functions cannot be stored in variables or

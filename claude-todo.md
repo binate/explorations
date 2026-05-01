@@ -528,11 +528,25 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - **Verification**: full conformance under `BINATE_FLAGS="-g"` is
   green (boot-comp 287/287).
 
-### Lift function-name qualification into IR (shared across backends)
-- The VM and the compiler both need to avoid cross-package function-name collisions. They currently solve it separately: `pkg/mangle.FuncName(pkgName, name)` produces C-style `bn_asm__New` for LLVM symbols, and `pkg/mangle.QualifyName(pkgShort, name)` produces dot-form `asm.New` for the VM's function table. Both backends extract the short package name from `ir.Module.Name` and apply their own qualification at lower/emit time.
-- That duplication is fine but a cleaner alternative is to qualify in IR itself: have `pkg/ir` store all function names fully qualified ("asm.New", "bootstrap.Args") as canonical. `mangle.FuncName` already treats dotted names as pre-qualified, so the compiler would keep producing the same `bn_asm__New`. The VM would use qualified names directly. One source of truth.
-- Not urgent — the current per-backend qualification works and the shared helpers in `pkg/mangle` de-duplicate the core logic. Worth revisiting if backend drift keeps biting (e.g., when adding the 32-bit ARM backend).
-- Scope: touches `ir.GeneratePackage` (which currently emits unqualified names for intra-package functions), `moduleFuncs` lookup sites, `EmitCall`/`EmitFuncAddr` call sites, and all callers that pass a simple name to IR. Backends would shed their `modulePkgName` state.
+### ~~Lift function-name qualification into IR (shared across backends)~~ — DONE
+- IR is now the single source of truth for canonical fully-qualified
+  function names. `ir.Func.Name` (formerly `QualifiedName`, with the
+  bare-name field retired) holds dot-qualified names everywhere
+  ("asm.New", "main.main", "geom.Point.M"). All backends — LLVM
+  codegen, VM, native AArch64 — read from `f.Name` directly; their
+  prior `modulePkgName + bare-name` qualification dance is gone.
+  `EmitCall` / `EmitFuncAddr` / `EmitFuncValue` / `OP_FUNC_VALUE`
+  all carry already-qualified `instr.StrVal` strings.
+- Migration was incremental (Steps 1–5b across `c1d4074` and
+  surrounding commits): introduce `QualifiedName` field, populate it
+  in `NewFunc` / `NewExternFunc`, flip writers, flip readers, then
+  rename to `Name`. `mangle.QualifyName` / `mangle.FuncName` are
+  unchanged — they already accepted pre-qualified dotted names.
+- Regression guard: `TestGeneratePackageQualifiesByModuleName` in
+  `pkg/ir/gen_module_test.bn` pins down the cmd/* divergence
+  (`file.PkgName="main"` vs `m.Name="cmd/foo"`) where IR-gen had
+  previously qualified by `file.PkgName` and broken every cmd/*
+  binary's auto-helper symbols (`__copy_X`, `__dtor_X`).
 
 ### ~~boot-comp-int: all unit-test packages pass~~ — DONE
 - All 27 unit-test packages pass under boot-comp-int (cmd/bni bytecode VM); zero xfails. Down from 17 failing at start of work.
@@ -576,15 +590,15 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 ### Function values — MAJOR PROJECT (interop prerequisite)
 - **Plan doc**: `explorations/plan-function-values.md` (Phase 1 IN
   PROGRESS — see for representation, phasing, and open questions).
-- **Phase 1 progress (2026-04-30 / 2026-05-01)**: A.1–A.5 landed
+- **Phase 1 progress (2026-04-30 / 2026-05-01)**: A.1–A.6 landed
   (type syntax, nil + zero-init, function-reference-as-value,
   calling through a function value, flow through args/returns/
-  fields). Conformance tests 338–341 cover each slice; pkg/ir +
-  pkg/types unit tests cover each coercion site and the AssignableTo
-  predicate. `pkg/ir/gen_call.bn` extracted from `gen_expr.bn` to
-  bring it back under the file-length ERROR limit. A.6 (method
-  expressions `T.M`) and A.7 (non-capturing function literals)
-  remain.
+  fields, method expressions `T.M`). Conformance tests 338–342
+  cover each slice; pkg/ir + pkg/types unit tests cover each
+  coercion site and the AssignableTo predicate.
+  `pkg/ir/gen_call.bn` extracted from `gen_expr.bn` to bring it
+  back under the file-length ERROR limit. Only A.7 (non-capturing
+  function literals) remains.
 - **Reframed scope**: function values were originally framed as
   "blocked on / a piece of interop." Inverted: data interops fine
   via shared `.bni` layout; what crosses the compiled/interpreted

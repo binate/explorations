@@ -1,10 +1,10 @@
 # Plan: Function Values
 
-> **Status: Phase 1 IN PROGRESS** — A.1–A.5 landed (type syntax,
+> **Status: Phase 1 IN PROGRESS** — A.1–A.6 landed (type syntax,
 > nil + zero-init, function-reference-as-value, calling through a
-> function value, flow through args/returns/fields). A.6 (method
-> expressions) and A.7 (non-capturing function literals) remain.
-> See "Phase 1 progress" subsection for details.
+> function value, flow through args/returns/fields, method
+> expressions `T.M`). Only A.7 (non-capturing function literals)
+> remains. See "Phase 1 progress" subsection for details.
 >
 > `rt.CallDtor` retirement landed independently via the
 > `_call_dtor` / `_call_free_fn` magic-symbol path on top of
@@ -134,9 +134,19 @@ slice (338+).
   from `gen_expr.bn` to bring the latter back under the 600-line
   ERROR limit; tests follow the same boundary in
   `gen_call_test.bn`).
-- **A.6 — Method expressions** (`T.M`): NOT STARTED. Receiver
-  becomes the first arg; equivalent to a non-capturing function
-  reference. Should be a small slice on top of A.5.
+- **A.6 — Method expressions** (`T.M`): LANDED (2026-05-01).
+  `T.M` (T a named type, M a method on T) evaluates to a function
+  value whose signature includes the method's declared receiver as
+  Params[0]. Receiver kind (value, raw pointer, managed pointer)
+  comes from the method declaration, not the user's spelling of
+  `T.M`. Type-checker: `checkSelectorExpr` returns the function-
+  value type when X resolves to SYM_TYPE; `tryMethodCall` skips
+  SYM_TYPE so the call goes through the function-value path with
+  the full signature. IR-gen: `funcRefName` recognizes the type-
+  name selector form and emits `<pkg>.T.M` via
+  `buildMethodQualName`; `gen_call.bn`'s direct-call name
+  resolution routes through `funcRefName` so `T.M(args)` direct
+  invocation also gets the qualified name. Conformance test 342.
 - **A.7 — Function literals as expressions** (non-capturing only):
   NOT STARTED. Larger: parser support for `func(...) ... { ... }`
   in expression position, lifting to module scope with a synthetic
