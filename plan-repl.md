@@ -1,12 +1,14 @@
 # Plan: REPL (Interpreter-Only)
 
-> **Status: Tier 1 LANDED** (2026-04-30). Tier 1 PoC ships as
-> `bni --repl <file.bn|dir>`. Later tiers (2–5) remain in DRAFT
-> shape below. Compiled-mode REPL features (hot-swap of
-> interpreted functions while a compiled binary runs, package
-> descriptors, cross-mode trampolines) are explicitly out of scope
-> here — they belong to the broader compiler/interpreter interop
-> work and depend on `plan-function-values.md`.
+> **Status: Tier 1 + Tier 2 (first cut) LANDED** (2026-04-30).
+> `bni --repl <file.bn|dir>` ships, plus top-level `func` decls
+> at the prompt persist across turns.  Tiers 3–5 remain DRAFT;
+> Tier 2 also has follow-ups for type / var / const / methods.
+> Compiled-mode REPL features (hot-swap of interpreted functions
+> while a compiled binary runs, package descriptors, cross-mode
+> trampolines) are explicitly out of scope here — they belong to
+> the broader compiler/interpreter interop work and depend on
+> `plan-function-values.md`.
 
 ## Tier 1 landed — what shipped (2026-04-30)
 
@@ -101,8 +103,78 @@ to prompt; loaded state is unaffected.
   continuations — niche enough to leave for later.
 - **Pretty-printer** is still gated on interfaces (Tier 1.5+).
 
+## Tier 2 first cut landed — what shipped (2026-04-30)
+
+`bni --repl` accepts top-level `func` declarations at the prompt;
+defined functions persist in `c.Scope` and `vm.Funcs` and are
+callable from subsequent prompt entries.  Single commit on main:
+
+| Layer | Entry points added | Commit |
+|---|---|---|
+| `pkg/parser` | `ParseTopLevelDecl`, `IsAtTopLevelDecl` | `b1af7d1` |
+| `pkg/types` | `CheckDeclInScope` | `b1af7d1` |
+| `pkg/ir` | `GenDecl` (DECL_FUNC only; diagnostic for other kinds) | `b1af7d1` |
+| `cmd/bni` | `evalReplLine` dispatches via `IsAtTopLevelDecl` to a new `evalReplDecl` (Tier 2) or `evalReplStmtList` (Tier 1) | `b1af7d1` |
+
+### Verified behaviors
+
+```
+> func double(x int) int { return x * 2 }
+> println(double(7))                                → 14
+> func a(x int) int { return x + 1 }
+> func b(x int) int { return a(x) * 10 }
+> println(b(4))                                     → 50
+> type T struct { X int }
+  only func declarations are supported at the prompt (Tier 2 first cut)
+> println(double(100))                              → 200    (session intact)
+```
+
+Multi-line func decls (body across several lines) work via the
+existing brace-balance accumulator from the multi-line input
+patch — no extra work needed.
+
+### Out of scope in the first cut (Tier 2 follow-ups)
+
+- **`type` / `var` / `const` at the prompt.**  `ir.GenDecl`
+  surfaces a "not yet supported" diagnostic for these.  Each
+  needs its own machinery:
+  - `type`: register in `moduleStructs`; regenerate dtor / copy
+    helpers (and the dedup-aware machinery to avoid duplicate
+    AddFunc on a re-run); make the new type's layout known to
+    `pkg/types` queries.
+  - `var`: extend `materializeGlobals` to take a single new
+    global; allocate + initialize its memory.
+  - `const`: register in `moduleConsts` (likely cheapest of the
+    three).
+- **Method declarations** (`func (r T) m(...) ...`).  Diagnostic
+  surfaces for these too.  Method-receiver registration and
+  vtable interactions add scope.
+- **New managed-type dtor needs introduced by a body.**  If a
+  func defined at the prompt uses a `@[]T` shape that wasn't in
+  the loaded module, the dtor is missing.  Fix is dedup-aware
+  re-run of `generateDtors` / `generateCopies`.  Until then,
+  bodies typed at the prompt should stick to managed-type shapes
+  the loaded module already uses.
+- **Forward references** (Tier 3) and **redefinition** (Tier 4)
+  remain explicitly excluded.
+
+### Conformance / unit-test coverage
+
+- 285/285 `boot-comp-int` conformance after Tier 2.
+- 29/29 unit-test packages green under `boot-comp-int` (the
+  earlier cmd/* unit-test failures were resolved by main commit
+  `4a9cfca`, "pkg/ir: normalize moduleFuncs storage + lookups
+  to qualified names (Step 4a)" — independent of this work).
+- New targeted unit tests:
+  - `parser.TestParseTopLevelDeclFunc`
+  - `types.TestCheckDeclInScope`,
+    `types.TestCheckDeclInScopeBadBody`
+  - `ir.TestGenDeclFunc`,
+    `ir.TestGenDeclTypeRejected`
+
 The remainder of this document describes the original plan as
-written before Tier 1 landed.  Tiers 2–5 are still DRAFT.
+written before Tier 1 landed.  Tier 2 follow-ups (above) and
+tiers 3–5 are still DRAFT.
 
 ---
 
