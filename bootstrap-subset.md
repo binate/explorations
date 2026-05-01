@@ -252,14 +252,16 @@ func divmod(a int, b int) (int, int) { return a / b, a % b }
   (`T.M`, no receiver bound) are supported under compiled and VM
   modes as of Slice A.6 (2026-05-01) but remain unsupported under
   the Go bootstrap interpreter.
+- Closures (function literals that capture enclosing-scope locals)
+  — depend on Phase 2 capture analysis.
 - Variadic parameters: `func f(args ...int)` — not in bootstrap
-- Function literals / closures: `func(x int) int { ... }` — not in bootstrap
-- Function types as values — functions cannot be stored in variables or
-  passed as arguments. **Status (2026-05-01):** function values
-  (`*func(...)` / `@func(...)`) ARE now supported under compiled and VM
-  modes (Slices A.1–A.5 of plan-function-values.md), but remain
-  unsupported under the Go bootstrap interpreter — which is why the
-  338–341 conformance tests are xfailed under `boot`.
+- Function types as values, including non-capturing function
+  literals `func(x int) int { ... }`. **Status (2026-05-01):**
+  function values (`*func(...)` / `@func(...)`) and non-capturing
+  function literals ARE now supported under compiled and VM modes
+  (Phase 1 of plan-function-values.md, Slices A.1–A.7), but remain
+  unsupported under the Go bootstrap interpreter — which is why
+  the 338–343 conformance tests are xfailed under `boot`.
 
 ---
 

@@ -588,17 +588,21 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   boot-comp-comp green (282/282).
 
 ### Function values — MAJOR PROJECT (interop prerequisite)
-- **Plan doc**: `explorations/plan-function-values.md` (Phase 1 IN
-  PROGRESS — see for representation, phasing, and open questions).
-- **Phase 1 progress (2026-04-30 / 2026-05-01)**: A.1–A.6 landed
-  (type syntax, nil + zero-init, function-reference-as-value,
-  calling through a function value, flow through args/returns/
-  fields, method expressions `T.M`). Conformance tests 338–342
-  cover each slice; pkg/ir + pkg/types unit tests cover each
-  coercion site and the AssignableTo predicate.
-  `pkg/ir/gen_call.bn` extracted from `gen_expr.bn` to bring it
-  back under the file-length ERROR limit. Only A.7 (non-capturing
-  function literals) remains.
+- **Plan doc**: `explorations/plan-function-values.md` (Phase 1
+  COMPLETE — see for representation, phasing, and open questions).
+- **Phase 1 COMPLETE (2026-05-01)**: A.1–A.7 all landed. Type
+  syntax, nil + zero-init, function-reference-as-value, calling
+  through a function value, flow through args/returns/fields,
+  method expressions `T.M`, and non-capturing function literals
+  (lifted to synthetic `__funclit_<n>` top-level Funcs).
+  Conformance tests 338–343 cover each slice; pkg/ir + pkg/types
+  unit tests cover each coercion site, AssignableTo predicate,
+  and capture-rejection. `pkg/ir/gen_call.bn` and
+  `pkg/ir/gen_func_lit.bn` extracted to keep file-length hygiene
+  clean. **Next on this plan**: Phase 3 (cross-mode trampolines)
+  — motivated independently by the boot-comp-int-int interop bug
+  below, which Phase 1 surfaces but doesn't fix. Phase 2
+  (closures + method values) remains DEFERRABLE.
 - **Reframed scope**: function values were originally framed as
   "blocked on / a piece of interop." Inverted: data interops fine
   via shared `.bni` layout; what crosses the compiled/interpreted

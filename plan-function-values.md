@@ -1,10 +1,14 @@
 # Plan: Function Values
 
-> **Status: Phase 1 IN PROGRESS** — A.1–A.6 landed (type syntax,
-> nil + zero-init, function-reference-as-value, calling through a
-> function value, flow through args/returns/fields, method
-> expressions `T.M`). Only A.7 (non-capturing function literals)
-> remains. See "Phase 1 progress" subsection for details.
+> **Status: Phase 1 COMPLETE (2026-05-01)** — A.1–A.7 all landed:
+> type syntax, nil + zero-init, function-reference-as-value,
+> calling through a function value, flow through args/returns/
+> fields, method expressions `T.M`, and non-capturing function
+> literals. See "Phase 1 progress" subsection for the per-slice
+> breakdown. Phase 2 (closures + method values) remains
+> DEFERRABLE; Phase 3 (cross-mode trampolines) is now the next
+> piece on this plan, motivated independently by the
+> boot-comp-int-int interop bug (see claude-todo.md).
 >
 > `rt.CallDtor` retirement landed independently via the
 > `_call_dtor` / `_call_free_fn` magic-symbol path on top of
@@ -148,9 +152,24 @@ slice (338+).
   resolution routes through `funcRefName` so `T.M(args)` direct
   invocation also gets the qualified name. Conformance test 342.
 - **A.7 — Function literals as expressions** (non-capturing only):
-  NOT STARTED. Larger: parser support for `func(...) ... { ... }`
-  in expression position, lifting to module scope with a synthetic
-  name, then reducing to a function reference at the call site.
+  LANDED in two commits (2026-05-01).
+  - **A.7.a** — parser + AST + type-checker. New EXPR_FUNC_LIT
+    node carrying a synthetic Decl on `Expr.DeclRef`. The type-
+    checker enforces the no-captures Phase 1 restriction by
+    parenting the literal's body scope at the package scope
+    (skipping enclosing-function scopes); references to enclosing
+    locals fail to resolve. New `Checker.PackageScope` field set
+    in Check / CheckPackage / CheckMainPersistent.
+  - **A.7.b** — IR-gen lifting. `genFuncLit` allocates a
+    synthetic `__funclit_<n>` name, calls `genFunc` on the
+    literal's Decl, adds the resulting Func to `currentModule`,
+    registers a FuncSig in `moduleFuncs`, and emits OP_FUNC_VALUE
+    pointing at the (qualified) name. Per-package state in
+    `gen.bn` (`currentModule` + `funcLitCounter`); reset by
+    `resetFuncLitState` at GeneratePackage / GenModule entry.
+  - Conformance test 343_function_literal: bind-to-local, pass-
+    as-arg, multiple literals in one function (distinct ids),
+    nested literal as arg called from another literal.
 
 ### Phase 2 — Closures + method values (DEFERRABLE)
 
