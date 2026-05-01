@@ -1,12 +1,16 @@
 # Plan: REPL (Interpreter-Only)
 
-> **Status: Tier 1 + Tier 2 (func + const + var) LANDED**
-> (2026-05-01).  `bni --repl <file.bn|dir>` ships, plus top-level
-> `func`, `const`, and `var` decls at the prompt persist across
-> turns.  The brace-balance accumulator is now paren-aware too,
-> so multi-line `const ( ... )` etc. are recognized as
-> continuations.  Tiers 3–5 remain DRAFT; Tier 2 also has
-> follow-ups for type / methods / var-initializer evaluation.
+> **Status: Tier 1 + Tier 2 (func/const/var) + Tier 4 replace
+> path LANDED** (2026-05-01).  `bni --repl <file.bn|dir>` ships;
+> top-level `func`, `const`, and `var` decls persist across
+> turns; redefining a func with the same signature replaces the
+> old body in place (subsequent calls see the new body).  The
+> brace-balance accumulator is paren-aware, so multi-line
+> `const ( ... )` etc. are recognized as continuations.  Tier 3
+> (forward refs) and Tier 5 (mid-session imports) remain DRAFT;
+> Tier 4 still needs the shadow path (different-sig
+> redefinition); Tier 2 also has follow-ups for type / methods /
+> var-initializer evaluation.
 > Compiled-mode REPL features (hot-swap of interpreted functions
 > while a compiled binary runs, package descriptors, cross-mode
 > trampolines) are explicitly out of scope here — they belong to
@@ -161,13 +165,14 @@ patch — no extra work needed.
   re-run of `generateDtors` / `generateCopies`.  Until then,
   bodies typed at the prompt should stick to managed-type shapes
   the loaded module already uses.
-- **Forward references** (Tier 3) and **redefinition** (Tier 4)
-  remain explicitly excluded.
+- **Forward references** (Tier 3) remain explicitly excluded.
+  **Redefinition** (Tier 4) replace path has since landed; see
+  the dedicated section below.
 
 ### Conformance / unit-test coverage
 
-- 288/288 `boot-comp-int` and `boot-comp` conformance after
-  Tier 2 (func + const + var).
+- 289/289 `boot-comp-int` and `boot-comp` conformance after
+  Tier 2 + Tier 4 replace path.
 - 29/29 unit-test packages green under `boot-comp-int`.
 - New targeted unit tests:
   - `parser.TestParseTopLevelDeclFunc`
@@ -181,11 +186,71 @@ patch — no extra work needed.
     `ir.TestGenDeclConst`,
     `ir.TestGenDeclConstGroup`,
     `ir.TestGenDeclVar`,
-    `ir.TestGenDeclVarWithoutType`
+    `ir.TestGenDeclVarWithoutType`,
+    `ir.TestGenDeclFuncRedefinesInPlace`
+  - `vm.TestLowerOneFuncReplacesExisting`
 - `e2e/repl.sh` covers the const path with four cases (typed,
   untyped, single-line group, const-then-func-using-it), the
-  multi-line const-group continuation case, and the var path
-  with three cases (read+write, func-mutates, no-type-rejected).
+  multi-line const-group continuation case, the var path with
+  three cases (read+write, func-mutates, no-type-rejected), and
+  the Tier 4 redef path with three cases (basic replace,
+  caller-sees-new, diff-sig-rejected).
+
+## Tier 4 replace path landed — what shipped (2026-05-01)
+
+`bni --repl` now lets the user re-type a previously-defined
+`func` with the same signature; the new body replaces the old
+in place.  Compatible-sig only — different-sig redefinition is
+still rejected (with a misleading `bni`-sig-match message
+that's slated for a clearer wording in the shadow-path commit).
+
+Single commit on main:
+
+| Layer | Change |
+|---|---|
+| `pkg/ir/gen.bn` | New `setOrAppendFuncSig(sig)` — replace by name in `moduleFuncs` or append. |
+| `pkg/ir/gen_module.bn` | `GenDecl` for DECL_FUNC uses `setOrAppendFuncSig` and qualifies `sig.Name` (drive-by fix — Tier 2 first cut stored bare names, which silently fell through to default sig lookups). |
+| `pkg/vm/lower.bn` | `LowerOneFunc` now replaces an existing `vm.Funcs` entry with the same qualified name in place; appends only if no match. |
+
+### Why in-place rebind at the existing `vm.Funcs` idx
+
+- Per-call-site `CallCache` stores resolved indices.  Rebinding
+  `vm.Funcs[idx]` keeps cached idx valid (same N, just points
+  at a new VMFunc), so no cache flush is needed.
+- `LookupFunc` returns the FIRST match by name; in-place
+  replace means subsequent lookups (and freshly-lowered
+  callers) all resolve to the new VMFunc.
+- The old VMFunc is reachable for as long as anything else
+  holds a refcount on it, then freed normally (this is the
+  substrate the future shadow path will exploit too).
+
+### Verified behaviors
+
+```
+> println(helper(7))                  → 14   (loaded helper: x*2)
+> func helper(x int) int { return x * 3 }
+> println(helper(7))                  → 21   (rebound)
+> func caller() int { return helper(10) }
+> println(caller())                   → 30
+> func helper(x int) int { return x + 100 }
+> println(caller())                   → 110  (caller sees new helper)
+```
+
+### Out of scope (deferred to shadow-path commit)
+
+- **Different-sig redefinition.**  Rejected at the type-checker
+  level by `checkBniSignatureMatch`, with the misleading message
+  "X: .bn has N parameters but .bni declares M" — needs reword
+  for the REPL context (it's not a `.bni`).
+- **Shadow path** (incompatible-sig keeps the old def reachable
+  via refcount; `LookupFunc`-returns-latest semantics).
+- **Forced-shadow escape hatch** (syntax TBD per
+  `claude-notes.md`).
+- **`c.Scope` side-effect on rejected redef.**  Pre-existing
+  type-checker behavior: even when `checkBniSignatureMatch`
+  errors, `defineFunc` still overwrites the symbol's type.
+  Symbol becomes unusable for further calls of its old shape.
+  Not a Tier 4 regression; surfaced and documented here.
 
 ## Tier 2 var landed — what shipped (2026-05-01)
 
@@ -536,9 +601,10 @@ the dependency binds, parked decls re-attempt validation.
 
 ## Tier 4: Redefinition
 
-### Replace path (compatible — same sig/type)
+### Replace path (compatible — same sig/type) — LANDED
 
-Mostly mechanical given `BC_CALL` resolves by name per call:
+See "Tier 4 replace path landed" above for the shipped detail.
+Original sketch (preserved for context):
 
 - Find existing `vm.Funcs` entry by qualified name.
 - Generate the new VMFunc.
