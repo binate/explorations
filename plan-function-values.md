@@ -129,7 +129,11 @@ slice (338+).
   composite-literal struct fields. Reordered genCall dispatch so a
   Selector/Index callee of function-value type takes the
   function-value path before method-call dispatch. Conformance
-  test 341.
+  test 341. Followed by a unit-test backfill (pkg/ir,
+  pkg/types) and a file split (`pkg/ir/gen_call.bn` extracted
+  from `gen_expr.bn` to bring the latter back under the 600-line
+  ERROR limit; tests follow the same boundary in
+  `gen_call_test.bn`).
 - **A.6 — Method expressions** (`T.M`): NOT STARTED. Receiver
   becomes the first arg; equivalent to a non-capturing function
   reference. Should be a small slice on top of A.5.

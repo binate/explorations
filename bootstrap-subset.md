@@ -251,7 +251,12 @@ func divmod(a int, b int) (int, int) { return a / b, a % b }
   expressions (`T.M`) — depend on function-value support.
 - Variadic parameters: `func f(args ...int)` — not in bootstrap
 - Function literals / closures: `func(x int) int { ... }` — not in bootstrap
-- Function types as values — functions cannot be stored in variables or passed as arguments
+- Function types as values — functions cannot be stored in variables or
+  passed as arguments. **Status (2026-05-01):** function values
+  (`*func(...)` / `@func(...)`) ARE now supported under compiled and VM
+  modes (Slices A.1–A.5 of plan-function-values.md), but remain
+  unsupported under the Go bootstrap interpreter — which is why the
+  338–341 conformance tests are xfailed under `boot`.
 
 ---
 

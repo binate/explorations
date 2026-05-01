@@ -579,11 +579,15 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 ### Function values — MAJOR PROJECT (interop prerequisite)
 - **Plan doc**: `explorations/plan-function-values.md` (Phase 1 IN
   PROGRESS — see for representation, phasing, and open questions).
-- **Phase 1 progress (2026-04-30)**: A.1–A.5 landed (type syntax,
-  nil + zero-init, function-reference-as-value, calling through a
-  function value, flow through args/returns/fields). Conformance
-  tests 338–341 cover each slice. A.6 (method expressions `T.M`)
-  and A.7 (non-capturing function literals) remain.
+- **Phase 1 progress (2026-04-30 / 2026-05-01)**: A.1–A.5 landed
+  (type syntax, nil + zero-init, function-reference-as-value,
+  calling through a function value, flow through args/returns/
+  fields). Conformance tests 338–341 cover each slice; pkg/ir +
+  pkg/types unit tests cover each coercion site and the AssignableTo
+  predicate. `pkg/ir/gen_call.bn` extracted from `gen_expr.bn` to
+  bring it back under the file-length ERROR limit. A.6 (method
+  expressions `T.M`) and A.7 (non-capturing function literals)
+  remain.
 - **Reframed scope**: function values were originally framed as
   "blocked on / a piece of interop." Inverted: data interops fine
   via shared `.bni` layout; what crosses the compiled/interpreted
