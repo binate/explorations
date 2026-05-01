@@ -255,50 +255,52 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   from BC_CALL_INDIRECT's dtor-dispatch path (the new f08ddcb
   `rt._call_dtor` mechanism) — its own followup, tracked below.
 
-### boot-comp-int-int: vm.Stack overflow on 001_hello (post cross-mode-hack)
-- **Updated (2026-05-01)**: The `BC_CALL_INDIRECT "function
-  index out of range"` symptom was partially unblocked by a
-  hacky cross-mode-dispatch arm in `pkg/vm/vm_exec.bn`
-  (`5f4333f`): when fnIdx is outside [1, len(vm.Funcs)] AND the
-  call shape is single-arg `func(*uint8)` (the
-  _call_free_fn / _call_dtor signature), dispatch via
-  `rt._call_free_fn` so the natively-compiled VM does a real
-  native indirect call to the pointer. Narrow on purpose; the
-  proper fix is Phase 3 of plan-function-values.md.
-- Net effect on 001_hello: the test now runs ~95× longer
-  (~2274s) before hitting `vm: stack overflow` from
-  pushFrame — a separate downstream bug. The vm.Stack
-  exhaustion is presumably the residual frame-leak referenced
-  in the original entry below; the BC_RETURN copy-then-pop
-  fix mitigated but didn't fully eliminate it. Next debug
-  step would be to instrument SP at frame-pop and look for
-  unpopped frames around the dispatch site.
-
-#### Original diagnostic (pre-hack)
-- **Diagnosed (2026-04-30)**: caller is bytecode `rt.Free`; fnIdx
-  is a NATIVE function pointer (e.g. 0x1043F5BAC ≈ 4.37e9) being
-  treated as a 1-based VM index. The allocation was made by
-  NATIVE rt.Alloc (e.g. via the BC_MAKE_SLICE handler in vm_exec.bn
-  calling native rt.MakeManagedSlice → native rt.Alloc, which
-  stores `_raw_func_addr(RawFree)` in h[1] as a native pointer);
-  it's then RefDec'd by bytecode rt.RefDec (in vm.Funcs because
-  cmd/bni source imports pkg/rt), which calls bytecode rt.Free,
-  which dispatches via h[1]'s value as if it were a 1-based VM
-  index — out of range.
-- **Fix path**: this is the function-values cross-mode interop
-  problem at full strength. The right answer is what upstream is
-  building: replace the indexed values with REAL function
-  pointers, going through trampolines for bytecode-target
-  callees. Then `h[1]` (and every other "function pointer" slot)
-  carries a stable C function pointer in both modes — natively
-  callable, plus bytecode-side `_call_free_fn` becomes a real
-  indirect call. Required for bidirectional native↔bytecode
-  interop, not just this specific bug.
-- Not in the `all` modeset, so doesn't block CI. Tied to the
-  function-values work (Slice A.2 just landed).
-- vm_exec.bn's BC_CALL_INDIRECT diagnostic now prints fnIdx,
-  vm.Funcs length, and caller name on failure — useful for the
-  next person debugging cross-mode dispatch issues.
+### boot-comp-int-int: vm.Stack overflow on 001_hello (post cross-mode-hack) — HAND-OFF READY
+- **Repro**: `conformance/run.sh boot-comp-int-int 001_hello`.
+  Runs ~2274s, then prints `vm: stack overflow` from `pushFrame`
+  in `pkg/vm/vm.bn` and exits. Mode is not in the `all` modeset
+  so CI is unaffected.
+- **Recent context (2026-05-01)**: a previous symptom — bytecode
+  `rt.Free` doing BC_CALL_INDIRECT through a native function
+  pointer (h[1] from native rt.Alloc) — was partially unblocked
+  by a hacky single-arg `func(*uint8)` cross-mode dispatch arm
+  in `pkg/vm/vm_exec.bn` (`5f4333f`). With that hack, the test
+  runs ~95× longer (vs the prior 24s) before hitting this
+  vm.Stack overflow. The hack is a stopgap; Phase 3 of
+  plan-function-values.md (cross-mode trampolines) is the
+  proper fix and would retire it.
+- **Hypothesis**: residual VM frame leak. The `BC_RETURN`
+  copy-then-pop fix (`be3c22e`) mitigated but apparently didn't
+  fully eliminate the frame leak referenced earlier in this
+  file ("~990 KB leaked per ~990 calls"). With more execution
+  surface unlocked by the cross-mode hack, the residual leak
+  reaches vm.StackSize (`8 * 1024 * 1024` bytes — see
+  cmd/bni/main.bn) and trips the overflow check.
+- **Suggested next steps**:
+  1. Instrument `pushFrame` / `popFrame` in `pkg/vm/vm.bn` to
+     log a running max-SP gauge plus periodic SP samples; verify
+     SP grows monotonically (leak) vs oscillates (real recursion
+     depth).
+  2. If leak: walk the dispatch sites that became reachable via
+     the cross-mode hack — esp. anywhere a callee return is
+     bypassed (BC_RETURN early-exit paths, exception-like code
+     paths in `_call_free_fn`'s lowered form, frames pushed but
+     not paired with pops).
+  3. If real recursion: profile which VMFunc holds the deepest
+     frames at overflow — the diagnostic in vm_exec.bn already
+     tracks `f.Name` for the indirect-call out-of-range case
+     and could be extended to the overflow site.
+- **Not blocking**: not in the `all` modeset; conformance and
+  unit tests pass without this. Pick up when convenient.
+- **Original cross-mode diagnostic** (pre-hack, kept for context):
+  caller was bytecode `rt.Free`, fnIdx was a NATIVE function
+  pointer (e.g. 0x1043F5BAC ≈ 4.37e9) being treated as a 1-
+  based VM index. The allocation was made by NATIVE rt.Alloc
+  via the BC_MAKE_SLICE handler in vm_exec.bn calling native
+  rt.MakeManagedSlice → native rt.Alloc, which stored
+  `_raw_func_addr(RawFree)` in h[1] as a native pointer; later
+  RefDec'd by bytecode rt.RefDec → bytecode rt.Free →
+  BC_CALL_INDIRECT mismatch. Phase 3 trampolines retire this.
 
 ### ~~bnc: hoist managed-slice allocas to function entry~~ — FIXED (`f3478cb`)
 - pkg/codegen already hoisted OP_ALLOC decls to the entry block via
