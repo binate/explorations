@@ -397,37 +397,52 @@ const (
 
 **Discriminated/tagged unions**: punted for v1. Desirable but not essential.
 
-### Interfaces — IN PROGRESS (revised)
+### Interfaces — PLAN RATIFIED, IMPLEMENTATION IN PROGRESS
 
-Explicit, declared interfaces with **separate `impl` declarations** and **methods defined outside `impl` blocks**.
+Full design lives in `plan-interface-syntax-revision.md` (RATIFIED 2026-05-01). Phase 1 (parse + type-check `interface X { ... }` declarations) is done in the binate repo. Subsequent slices land in order: bare-interface-name as type expression for `*Iface` / `@Iface`, `impl T : Iface`, vtable dispatch, generics atop the same machinery.
 
 **Core design:**
-- Interfaces are declared with a set of method signatures
-- `impl` declarations are separate from both the struct definition and the method definitions
-- Methods use Go-style receiver syntax, defined outside impl blocks — not tied to a single file
-- Vtable-based dynamic dispatch; compiler may devirtualize as an optimization
-- Interface values follow the managed/raw pattern:
-  - Raw interface value (e.g., `Stringer`): (raw ptr to data, vtable ptr) — no refcounting, caller keeps data alive
-  - Managed interface value (e.g., `@Stringer`): (managed ptr to data, vtable ptr) — keeps data alive via refcounting
-- Both are value types (small, copyable)
-- Pointers to interface values are allowed, just like any other value type (see syntax below)
+- Interfaces are declared top-level with a set of method signatures, using a dedicated `interface` keyword (not `type X interface { ... }` — which is dropped):
+  ```
+  interface Stringer {
+      toString() *[]const char
+  }
+  ```
+- Bare `Stringer` is **not** a type expression — it's a referenceable name only. Usable in `*Stringer` / `@Stringer`, in `impl T : Stringer` decls, and on the LHS of an interface alias.
+- No anonymous interfaces. Interfaces are always declared, top-level, and named.
+- `impl` declarations are separate from both the struct definition and the method definitions.
+- Methods use Go-style receiver syntax, defined outside impl blocks — not tied to a single file.
+- Vtable-based dynamic dispatch; compiler may devirtualize as an optimization.
+- Interface values follow the raw/managed pattern (mirroring the slice migration to `*[]T` / `@[]T`):
+  - `*Stringer` — raw interface value: `(raw ptr to data, vtable ptr)`. No refcounting; caller keeps data alive.
+  - `@Stringer` — managed interface value: `(managed ptr to data, vtable ptr)`. Keeps data alive via refcounting.
+- Both are 2-word value types (small, copyable). Pointers to interface values follow normal pointer rules: `**Stringer`, `*@Stringer`, `@(@Stringer)`.
+- **No `*const Stringer` / `@const Stringer`** — analogous to `*const []T` not being a thing. `const` qualifies element types in slice spellings (`*[]const T`); the interface-value spelling has no analogous slot. Const-restricted dispatch is expressed at the impl level (impls with const receivers).
 
-**Boxing for interface values — DECIDED**: an interface value holds a pointer to the data, so value types (int, etc.) must live somewhere addressable:
-- **Raw interface values**: compiler implicitly takes the address of a stack-local copy. Zero-cost, no heap allocation. Safe because the raw interface contract is "caller keeps data alive."
-- **Managed interface values**: require explicit boxing — `var s @Stringer = box(42)`. No hidden heap allocations.
+**Construction-site conversions — explicit only**: when constructing an interface value from a non-interface source, **no implicit conversions** happen. No implicit copies, no implicit `&t`, no implicit `box(t)`. The user writes the conversion explicitly, because the interface value can outlive the source. (Method-call receiver smoothing is unaffected — `t.Foo()` auto-takes `&t` for `*const T` receivers, since the receiver lifetime is bounded by the call.) Concrete table:
+- `T → *Iface` requires explicit `&t` (then routes if impl matches `*T` / `*const T` / value receiver)
+- `T → @Iface` rejected — write `box(t)` first to get `@T`, then `@T → @Iface`
+- `*T → @Iface` rejected — `*T` can't promote to `@T`
+- `@T → *Iface` and `@T → @Iface` work directly (managed acts as raw data ptr; `@T → @Iface` if impl matches)
 
-**Built-in implicit interfaces**: a small, closed, language-defined set of interfaces implicitly implemented by all types. `any` is the primary one (provides type-erasure equivalent). Others may be added (e.g., `Sized`) but only by the language spec — user-defined interfaces are always explicit.
+**Built-in implicit interfaces**: a small, closed, language-defined set of interfaces implicitly implemented by all types. `any` is the primary one — usable as `*any` (type-erased raw) and `@any` (type-erased managed). Others may be added (e.g., `Sized`) but only by the language spec.
 
 **Interface extension**: supported. An interface can extend one or more other interfaces.
 
+**Interface aliases**: `interface X = Y` for nominal-equivalent aliasing of interface names. `MyStringer` and `Stringer` are the same interface; `impl T : MyStringer` is indistinguishable from `impl T : Stringer`. There is *no* newtype-style "make this a distinct interface that happens to share the shape" form. Note: `type X = Y` aliases type expressions, so `type X = @Stringer` / `type X = *Stringer` work as type aliases; `type X = Stringer` (bare) is a type error.
+
+**Five receiver kinds** (per `claude-discussion-detailed-notes.md` § 6.5):
+1. const value
+2. const raw pointer
+3. const managed pointer
+4. raw pointer
+5. managed pointer
+
+Receiver-kind preference (informational, not a hard rule): `*T` and `*const T` are the common cases — caller guarantees the receiver's lifetime during the method call. `@T` receivers are for impls that need to *retain* the receiver. Value receivers operate on a copy.
+
+**Receiver smoothing at method call sites**: compiler auto-converts safe-direction at *method-call* sites. Cannot auto-promote raw → managed. Distinct from interface-value construction, which never auto-converts (see above).
+
 **Separate `impl` for types defined elsewhere**: naturally supported by the model. Scoping rules (who can declare an impl) TBD.
-
-**Three receiver kinds**:
-- Value receiver: gets a copy. Good for small types, builtins.
-- Raw pointer receiver: direct access, no refcount overhead. Common case even for managed objects.
-- Managed pointer receiver: bumps refcount for duration. Needed when method might cause self-destruction.
-
-**Receiver smoothing**: compiler auto-converts at call sites. Safe direction only: managed → raw → value (copying). Cannot auto-promote raw → managed.
 
 **Package interface files** (`.bni`): contain the public API of a package — type definitions, function signatures, constants. Bodies are omitted for functions (except generics, which need bodies for instantiation).
 
@@ -435,10 +450,9 @@ Explicit, declared interfaces with **separate `impl` declarations** and **method
 
 **Forward struct declarations** (future): A `.bni` could declare `type Foo struct` without fields, meaning "Foo exists, it's a struct, but the full definition is in the `.bn` files." This is analogous to C's `struct foo;` forward declaration. Not yet implemented — currently all struct definitions in `.bni` files are full definitions.
 
-**Impl syntax — DECIDED**: `impl Type : Interface, Interface2, ...`
-- Type-first, colon separator, comma-separated interfaces
-- Leading keyword for parser, reads naturally
-- Receiver type specified on the type side:
+**Impl syntax — DECIDED**: `impl ReceiverType : Interface, Interface2, ...`
+- Receiver-type-first, colon separator, comma-separated interfaces.
+- Receiver kind is specified on the receiver type:
 
 ```
 impl FileHandle : Stringer           // value receiver
@@ -449,8 +463,8 @@ impl *const FileHandle : Stringer    // const raw pointer receiver
 
 **Example sketch:**
 ```
-type Writer interface {
-    write(buf *[]char) int
+interface Writer {
+    write(buf *[]const char) int
     close()
 }
 
@@ -460,22 +474,22 @@ type FileHandle struct {
 
 impl *FileHandle : Writer
 
-func (f *FileHandle) write(buf *[]char) int { ... }
+func (f *FileHandle) write(buf *[]const char) int { ... }
 func (f *FileHandle) close() { ... }
 ```
 
 **Generics — RECONSIDERED**:
-- Generic types AND functions, with interface constraints on type parameters
-- No type inference for generics — always spell out type params fully (can relax in v2)
-- Monomorphized
-- Type checking against interface constraints (checked once against the constraint, not per instantiation)
+- Generic types AND functions, with interface constraints on type parameters.
+- No type inference for generics — always spell out type params fully (can relax in v2).
+- Monomorphized.
+- Type checking against interface constraints (checked once against the constraint, not per instantiation).
 
 ```
 func sort[T Comparable](items *[]T) { ... }
 sort[int](myArray)
 ```
 
-**Boxing**: `make(T)` or similar as the standard way to box a value type into a managed allocation.
+**Boxing**: `box(value)` is the standard way to box a value into a managed allocation. Required for `T → @Iface` interface-value construction.
 
 ### Syntax direction — IN PROGRESS
 
