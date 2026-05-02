@@ -255,11 +255,16 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   from BC_CALL_INDIRECT's dtor-dispatch path (the new f08ddcb
   `rt._call_dtor` mechanism) — its own followup, tracked below.
 
-### boot-comp-int-int: vm.Stack overflow on 001_hello — HAND-OFF READY
+### boot-comp-int-int: 001_hello hangs / silent failure — HAND-OFF READY
 - **Repro**: `conformance/run.sh boot-comp-int-int 001_hello`.
-  Runs ~2274s, then prints `vm: stack overflow` from `pushFrame`
-  in `pkg/vm/vm.bn` and exits. Mode is not in the `all` modeset
-  so CI is unaffected.
+  Pre-Phase-3: ran ~2274s, printed `vm: stack overflow` from
+  `pushFrame`, exited.
+  Post-Phase-3 (2026-05-01 retest, killed manually at ~4200s):
+  no output, no error visible — runs longer than the prior
+  overflow window, exits silently when killed. **Failure mode
+  has changed** but root cause hasn't been re-diagnosed; the
+  vm.Stack-overflow hypothesis below may no longer apply.
+  Mode is not in the `all` modeset so CI is unaffected.
 - **Cross-mode dispatch context (post-Phase-3, 2026-05-01)**: an
   earlier symptom — bytecode `rt.Free` doing BC_CALL_INDIRECT
   through a native function pointer (h[1] from native rt.Alloc)
