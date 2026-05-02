@@ -212,8 +212,10 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   - **Scope when picked up**: drop or rewrite the three conformance tests; audit/migrate the `vm_extern.bn` paths (likely part of a larger vm_extern.bn rework); then delete the symbols from `pkg/rt.bni` + `pkg/rt/rt.bn`. Not a "just deletion" change — has public-API implications.
 
 ### Function values — MAJOR PROJECT (interop prerequisite)
-- **Plan doc**: `explorations/plan-function-values.md` (Phase 1
-  COMPLETE — see for representation, phasing, and open questions).
+- **Plan docs**: `explorations/plan-function-values.md` (parent;
+  Phase 1 COMPLETE) + `explorations/plan-function-values-phase-3.md`
+  (cross-mode trampolines; Slices 3.1, 3.1.5, 3.2, 3.3, 3.4 all
+  LANDED).
 - **Phase 1 COMPLETE (2026-05-01)**: A.1–A.7 all landed. Type
   syntax, nil + zero-init, function-reference-as-value, calling
   through a function value, flow through args/returns/fields,
@@ -223,10 +225,42 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   unit tests cover each coercion site, AssignableTo predicate,
   and capture-rejection. `pkg/ir/gen_call.bn` and
   `pkg/ir/gen_func_lit.bn` extracted to keep file-length hygiene
-  clean. **Next on this plan**: Phase 3 (cross-mode trampolines)
-  — motivated independently by the boot-comp-int-int interop bug
-  below, which Phase 1 surfaces but doesn't fix. Phase 2
-  (closures + method values) remains DEFERRABLE.
+  clean.
+- **Phase 3 LANDED (per plan-function-values-phase-3.md)**:
+  cross-mode trampolines bridge compiled ↔ VM through a uniform
+  always-shim convention `<ret>(*uint8 data, <args>)`. Compiled
+  side: per-function `__shim.<mangled>` set in each `__vt.<mangled>`'s
+  `call` slot (Slice 3.1). Common kind-tag at the start of `data`
+  (Slice 3.1.5) discriminates `DATA_KIND_VM_CLOSURE_REC` vs
+  `DATA_KIND_COMPILED_CLOSURE` (Phase 2). Compiled→VM goes through
+  `vm.TrampolineScalar`, a fixed 7-int-arg trampoline that reads
+  VM handle + vm_func_idx from the closure rec and dispatches via
+  `execFunc` (Slice 3.2). Bytecode→compiled goes through
+  `dispatchCompiledFuncValue` (`pkg/vm/vm_exec_helpers.bn:247`),
+  which routes via `rt._call_shim_scalar` — a new IR-magic helper
+  alongside `_call_dtor` / `_call_free_fn`, lowered to
+  OP_CALL_INDIRECT (Slice 3.3). The earlier `5f4333f` cross-mode
+  hack for `func(*uint8)` is now reframed as `dispatchNativeIndirect`
+  — the BC_CALL_INDIRECT counterpart of BC_CALL_FUNC_VALUE's
+  data==null branch (Slice 3.4). VM handle lives in the
+  VMClosureRec (not a global), so multi-VM works without ordering
+  concerns. Bootstrap-subset constraint: scalars + pointers ≤7,
+  no floats, no aggregates — broader signatures need additional
+  trampoline shapes when they actually reach this path.
+- **Phase 2 DEFERRABLE**: closures + capturing function literals;
+  capture design (by-value vs by-ref, mutability, lifetime) is
+  its own pass. The bytecode dispatcher (`BC_CALL_FUNC_VALUE`)
+  already has a `DATA_KIND_COMPILED_CLOSURE` arm (clear-error
+  guard) ready to fill in.
+- **Downstream**: Phase 3's machinery is what the
+  compiler/interpreter interop project needs. With per-signature
+  shims + the `(data, args)` convention, a "package descriptor"
+  of function-value pointers is enough to dispatch arbitrary
+  cross-mode calls — no per-function hand-coding required. This
+  also opens the door to retiring `pkg/vm/vm_extern.bn`'s
+  hand-written extern arms (~30 of them, including the
+  `rt.RefInc` / `rt.RefDec` arms flagged for retirement above);
+  see the Compiler/interpreter interop entry below.
 - **Reframed scope**: function values were originally framed as
   "blocked on / a piece of interop." Inverted: data interops fine
   via shared `.bni` layout; what crosses the compiled/interpreted
@@ -274,11 +308,12 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     (see Path B above), and the interop descriptor exposes only
     non-capturing function values. Defer until there's a concrete
     user-facing need.
-  - **Phase 3 — cross-mode trampolines.** Per-signature
-    trampolines that bridge compiled ↔ VM. Builds on Phase 1's
-    vtable layout. Unlocks the broader interop work. Doesn't
-    require Phase 2 — package descriptors expose non-capturing
-    exports.
+  - **Phase 3 — cross-mode trampolines.** LANDED. Per-signature
+    (currently per-return-shape: TrampolineScalar) trampolines
+    bridge compiled ↔ VM through the always-shim convention.
+    See plan-function-values-phase-3.md for slice-by-slice detail
+    and the "Phase 3 LANDED" bullet above for the LANDED summary.
+    Unlocks the broader interop work; doesn't require Phase 2.
 - **Recursive lambdas — explicit non-goal for Phase 1.** Go-style
   recursive closures (`var f = func(x) { ... f(...) ... }`) are
   NOT supported. Top-level named recursive functions work as
@@ -630,13 +665,31 @@ Binate is NOT Go. The two types of slice are intentionally different:
   fields are trampolines into the interpreter (call into the bytecode VM
   using the trampoline's bound bytecode/closure-env/types/aliases). That way
   compiled code calling interpreted code is the same mechanism, mirrored.
-- **Prerequisite**: function values (see `plan-function-values.md`). The
-  descriptor's fields are pointers to functions — that's exactly what
-  function values are. The 2-word `{vtable, data}` representation in the
-  function-values plan is the substrate this needs. Phase 3 of that plan
-  (cross-mode trampolines) is specifically the "VM side produces a
-  descriptor whose fields are trampoline-shaped function values that
-  dispatch back into the interpreter" piece of this work.
+- **Prerequisite — DONE**: function values (see
+  `plan-function-values.md` + `plan-function-values-phase-3.md`).
+  The descriptor's fields are pointers to functions — that's
+  exactly what function values are. The 2-word `{vtable, data}`
+  representation, the `(*uint8 data, <args>)` always-shim
+  convention, the per-function `__shim.<mangled>` shims, the
+  bytecode-side `dispatchCompiledFuncValue` (via
+  `rt._call_shim_scalar`), and the compiled-side `TrampolineScalar`
+  are all in place. The remaining work is the descriptor itself
+  (naming, layout, emission, loading) plus the symmetric VM-side
+  emission for interpreted packages — pure plumbing; no new
+  trampoline machinery needed.
+- **Adjacent cleanup unlocked by Phase 3**: `pkg/vm/vm_extern.bn`
+  is the legacy "BC_CALL by name → execExtern hand-coded arm"
+  bridge from before the trampoline work. It hand-codes ~30 arms
+  (rt + libc + bootstrap), each unpacking args via `bit_cast`,
+  some doing manual refcount surgery (`bootstrap.Args` /
+  `ReadDir` at lines 162-200; the `rt.RefInc` / `rt.RefDec` arms
+  flagged for retirement above). With the descriptor mechanism
+  in place, BC_CALL-against-an-extern-name can be replaced by
+  "look up the host package's descriptor, call the function
+  value via the same `dispatchCompiledFuncValue` path that
+  user-code function values use." That collapses `vm_extern.bn`
+  into a generic dispatcher — the hand-written bridge is
+  obsolete once the descriptor lands.
 - **Design open questions** (need a writeup before implementation):
   - Canonical name for the descriptor — `foo.Package` reads naturally but
     risks conflicting with user names. `foo.PackageImpl` or a reserved-prefix
