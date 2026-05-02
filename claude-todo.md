@@ -187,9 +187,10 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
     mismatch, type-mismatch); `pkg/ir/gen_stmt_test.bn`
     (`TestGenReturnMultiCallEmitsExtracts` pins
     1×OP_CALL + 2×OP_EXTRACT); conformance
-    `345_return_multi_call` (all-scalar + mixed scalar/managed
-    end-to-end). xfail.boot. boot-comp / boot-comp-int /
-    boot-comp_native_aa64 all 290/0/0.
+    `347_return_multi_call` (all-scalar + mixed scalar/managed
+    end-to-end; was 345 originally, renumbered after collision
+    with `345_interface_decl`). xfail.boot. boot-comp /
+    boot-comp-int / boot-comp_native_aa64 all green.
 - **Bootstrap (pending decision)**:
   `bootstrap/types/checker.go:checkReturnStmt` (~963-978) still
   rejects this shape. Bootstrap acceptance is a separate
@@ -199,6 +200,33 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Spec recorded in `claude-notes.md` ("Tail-call return for
   multi-return functions"). `bootstrap-subset.md` notes the
   bootstrap-only rejection.
+
+### Mirror `return f(...)` acceptance in the Go bootstrap — LOW PRIORITY
+- Self-hosted accepts the shape (commits `b88918e` /
+  `d11e4f2` / `d3fc0db` / `96572fb` on main; conformance
+  `347_return_multi_call`). Bootstrap still rejects it.
+- **What's needed**:
+  1. **Type-checker** (`bootstrap/types/checker.go:checkReturnStmt`,
+     ~lines 963-978): when `len(s.Results) == 1` and
+     `len(c.funcRet) > 1`, allow it iff the single expression is
+     a `CallExpr` whose function type returns a matching tuple
+     and each per-result type is `AssignableTo` the
+     corresponding `c.funcRet[i]`. Mirrors the existing
+     multi-return shape in `checkShortVarDecl` (~lines
+     937-955) — same `(len(s.RHS) == 1 && rhsType is FuncType
+     with matching Results)` predicate.
+  2. **Bootstrap interpreter STMT_RETURN execution path**:
+     extend it to handle the single-expression-multi-return
+     shape, mirroring how `q, r := f()` is already executed
+     (single call eval + per-result destructure).
+  3. **Conformance**: drop `347_return_multi_call.xfail.boot`
+     once both impls handle it. Drop the bootstrap-only
+     rejection note from `bootstrap-subset.md`.
+- **Why low priority**: the bootstrap subset is intentionally
+  restrictive; the self-hosted toolchain doesn't need this to
+  compile, and no in-flight work depends on it. Pick up when
+  there's a concrete user (e.g., a self-hosted source file that
+  wants the form, or a broader bootstrap-subset widening pass).
 
 ### ~~boot-comp-int: cross-pkg multi-return struct destructure clobbers struct on 2nd+ call~~ — FIXED (`c5b29cb`)
 - The hypothesis ("destructure path overlaps src/dst on 2nd call") was
