@@ -1,10 +1,9 @@
 # Plan: Interface Syntax Revision
 
-> **Status: DRAFT** — proposed but not ratified. Several open
-> questions noted inline. The current "Interfaces — IN PROGRESS"
-> entry in `claude-notes.md` reflects the *previous* design; once
-> the questions here are settled, that section should be updated
-> to match.
+> **Status: RATIFIED 2026-05-01.** All open questions resolved
+> (see "Ratification notes" below). The "Interfaces — IN PROGRESS"
+> entry in `claude-notes.md` still reflects the *previous* design
+> and should be updated to match this plan.
 
 ## Context
 
@@ -32,19 +31,29 @@ This plan revises the interface syntax to match: raw interfaces are
 longer a usable type — it's just a *referenceable name for an
 interface*, not a type expression.
 
-## Decisions to ratify
+## Ratified decisions
 
 ### 1. Raw / managed interface syntax
 
 ```
 *Stringer    // raw interface value: (raw ptr to data, vtable ptr)
 @Stringer    // managed interface value: (managed ptr to data, vtable ptr)
-*const Stringer  // const raw interface value
 ```
 
 Bare `Stringer` is *not* a usable type expression. It only appears
 inside `*Stringer` / `@Stringer`, in `impl T : Stringer` decls, and
 on the LHS of an interface alias.
+
+There is **no** `*const Stringer` / `@const Stringer` form. By the
+slice analogy: `*const []T` isn't a thing either — `const` qualifies
+the *element type* in `*[]const T`, not the slice value-tuple. For
+interfaces there's no analogous element-slot for the const to bind
+to (the data ptr inside the interface value points to a single T
+of dynamic type), so the spelling has no place to put the const
+qualifier. Const-restricted dispatch falls out of the impl side
+(impls with const receivers are callable on a const view of T;
+impls with mutating receivers aren't), not from a type-expression
+qualifier on the interface value.
 
 Pointer-to-interface-value follows the same precedent the slice
 migration set:
@@ -100,35 +109,25 @@ and named.
 
 ### 4. Interface aliases
 
-Two candidate syntaxes — open question, see below.
-
 ```
-// Option A (preferred per design discussion):
 interface MyStringer = Stringer
-
-// Option B:
-type MyStringer = Stringer
 ```
 
-The case for **Option A** (`interface X = Y`):
-- Keeps `type` strictly about types. Interfaces aren't types in this
-  model, so they shouldn't ride along on the type-alias mechanism.
-- Mirrors `interface X { ... }` for the declaration form.
-- Reads at-a-glance: this declaration creates an interface name.
+`type X = Y` aliases *type names*: Y must be a type expression.
+Bare `Stringer` is **not** a type expression in this model, so
+`type MyStringer = Stringer` is a type error. The dedicated form
+`interface MyStringer = Stringer` bridges that gap for interface
+names specifically.
 
-The case for **Option B** (`type X = Y`):
-- Reuses the existing alias mechanism. Less new syntax.
-- Type aliases already work for any named type (scalars, structs);
-  extending to interfaces is "natural."
-- Counter to A: the alias *target* is the interface name, which is
-  arguably a "type-like name" even if not strictly a type.
+What `type X = Y` *can* still do, since `@Stringer` and `*Stringer`
+are full type expressions:
+- `type S = @Stringer` — alias of the managed-interface-value type.
+- `type S = *Stringer` — alias of the raw-interface-value type.
+- `type S @Stringer` — newtype whose underlying is the managed-
+  interface-value type. Distinct type, not an alias.
 
-**Open question — to resolve before ratification.** Project bias is
-toward A (consistency with "interfaces are not types"); leaving the
-final call to the implementer/reviewer.
-
-Either way: the alias is always nominal-equivalent. `MyStringer`
-and `Stringer` are the same interface; `impl T : MyStringer` is
+The interface alias is always nominal-equivalent. `MyStringer` and
+`Stringer` are the same interface; `impl T : MyStringer` is
 indistinguishable from `impl T : Stringer`. There is *no* newtype-
 style "make this a distinct interface that happens to share the
 shape" form — declare a fresh interface if you want that.
@@ -164,12 +163,15 @@ Same semantics as before; just spelled differently.
 ### Type-checker changes
 
 - Drop the `type X interface { ... }` parse path; replace with the
-  `interface X { ... }` top-level declaration.
+  `interface X { ... }` top-level declaration. (Phase 1 — done.)
 - Drop the anonymous-interface type expression path entirely.
 - Update interface-value type spelling: bare interface name is no
-  longer a type; only `*Iface` / `@Iface` (and pointer/const
-  variants).
-- Add interface-alias parse + resolution per the decision in §4.
+  longer a type; only `*Iface` / `@Iface` (plus the pointer-to-
+  interface-value forms in the §1 table).
+- Reject `type X = Iface` (bare interface name on alias RHS) at
+  the type-checker; `*Iface` / `@Iface` aliases continue to work
+  through the existing type-alias path unchanged.
+- Add interface-alias parse + resolution (`interface X = Y`) per §4.
 
 ### Codegen / runtime — UNCHANGED
 
@@ -179,15 +181,33 @@ static globals. Method calls through interface values remain vtable
 indirect calls. None of this work is affected by the syntax
 revision.
 
-### Boxing — UNCHANGED in spirit
+### Construction-site conversions — explicit only
 
-The existing boxing rule applies, with names updated:
+When constructing an interface value from a non-interface source,
+**no implicit conversions** happen — no implicit copies, no implicit
+address-takes, no implicit boxes. The user writes the conversion
+that crosses the lifetime boundary.
 
-- `*Stringer` (raw): compiler implicitly boxes a stack-local copy of
-  the data when the source is a value type. Zero-cost; the raw
-  contract is "caller keeps data alive."
-- `@Stringer` (managed): explicit `box(value)` required when the
-  source is a value type. No hidden heap allocations.
+This contrasts with method-call receiver smoothing (e.g., `t.Foo()`
+auto-takes `&t` for a `*const T` receiver), which is safe because
+the receiver's lifetime is bounded by the call. An interface value,
+once constructed, can outlive the source — so the same smoothing
+would silently extend lifetimes.
+
+| Source value | Into `*Iface` | Into `@Iface` |
+|---|---|---|
+| `t : T` (value) | Require explicit `&t` (then routes if impl matches `*T` / `*const T` / value receiver) | Reject — write `box(t)` to get `@T`, then `@T → @Iface` |
+| `&t` (raw ptr from explicit address-of) | Direct, if impl matches | Reject — `*T` can't promote to `@T` |
+| `t : *T` | Direct, if impl matches | Reject — `*T` can't promote to `@T` |
+| `t : @T` | Direct (managed acts as raw data ptr) | Direct, if impl matches |
+| `box(v)` → `@T` | (degenerate — round-trip, not common) | Direct, if impl matches |
+
+Receiver-kind preference (informational, not a hard rule):
+- `*T` and `*const T` are the common cases — caller guarantees the
+  receiver's lifetime during the method call.
+- `@T` receivers are for impls that need to *retain* the receiver
+  (register it elsewhere, hand it off across boundaries, etc.).
+- Value (`T`, `const T`) receivers operate on a copy.
 
 ### Migration — for already-shipped code
 
@@ -196,29 +216,33 @@ yet — only IN PROGRESS in claude-notes). So the revision is a pre-
 implementation plan revision, not a code migration. Once
 interfaces land for real, they land in the revised form directly.
 
-## Open questions
+## Ratification notes (2026-05-01)
 
-- **§4 alias syntax** (Option A vs. Option B). Default to Option A;
-  consider B if the implementer finds it cleaner during integration.
-- **`type X = Y` for non-interface named types** — does Binate
-  currently support both `type X = Y` (alias) and `type X Y`
-  (newtype)? Need to confirm before §4 lands. (This plan only
-  handles the *interface* alias form; newtype-of-interface is
-  explicitly excluded.)
-- **Receiver smoothing at boxing site** — when boxing a value type
-  into a `*Stringer` and the `impl` declares a managed receiver
-  (`impl @T : Stringer`), is the auto-box implicit? Probably not —
-  raw interface values can't auto-promote to managed. Worth pinning
-  down a concrete example or two when implementing.
-- **`*const Stringer` semantics** — does this read as "raw pointer
-  to a const interface value" (i.e., the interface value can't be
-  reassigned) or as "raw pointer to a value through a const-receiver
-  impl"? Need to clarify before implementation.
+The four open questions raised in the original draft were resolved
+as follows:
+
+- **§4 alias syntax**: Option A. `type X = Y` aliases type names and
+  Y must be a type expression; bare `Stringer` isn't one. The
+  dedicated `interface X = Y` form covers interface-name aliasing.
+- **`type X = Y` vs `type X Y` support**: confirmed. Binate's parser
+  already handles both forms uniformly (`parseTypeSpec` in
+  `pkg/parser/parse_decl.bn`), with `struct { ... }` being just an
+  anonymous type expression on the RHS — not a special case.
+- **Receiver smoothing at construction sites**: no implicit
+  conversions. See "Construction-site conversions — explicit only"
+  above for the full table and rationale (lifetime crosses a
+  boundary, unlike method-call smoothing).
+- **`*const Stringer`**: dropped — not a thing. By analogy with
+  `*const []T` (also not a thing), `const` has no natural slot in
+  the interface-value spelling. Const-restricted dispatch is
+  expressed at the impl level (const receivers), not at the
+  interface-value-type level.
 
 ## Cross-references
 
-- `claude-notes.md` § "Interfaces" — current (pre-revision) design.
-  Will need updating once this plan ratifies.
+- `claude-notes.md` § "Interfaces" — currently reflects the
+  pre-revision design and needs to be updated to match this plan.
+  TODO once Phase 2 (bare-name-as-type-expression) lands.
 - `claude-discussion-detailed-notes.md` § 6 — full design history.
 - `plan-function-values.md` — function values reuse the vtable
   machinery from this plan but are independent at the *frontend*
