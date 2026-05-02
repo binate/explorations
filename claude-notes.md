@@ -488,6 +488,7 @@ C-family, leaning toward Go's direction (clean, minimal, familiar).
 - No semicolons (automatic insertion)
 - **Multiple return values** (Go-style, not first-class tuples). First-class tuples were considered but reconsidered — they raise many type system questions (is `(int)` the same as `int`? named fields? nesting?) for limited practical benefit over Go-style multiple returns.
 - Destructuring assignment for multiple returns: `x, y := foo()`
+- **Tail-call return for multi-return functions**: `return f(...)` is allowed when `f` returns the matching tuple, mirroring Go. Per-result types must be assignable to the outer function's declared results. (Self-hosted only as of 2026-05-01; bootstrap acceptance is pending.)
 
 **Pointer syntax — DECIDED**:
 - `*T` = raw pointer to T (C-like)

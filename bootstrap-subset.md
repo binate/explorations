@@ -318,6 +318,8 @@ return x
 return x, y
 ```
 
+The bootstrap rejects `return f(...)` for a multi-return outer (where `f` returns the matching tuple), even though the self-hosted compiler/VM accepts it. Use the explicit destructure form (`a, b := f(); return a, b`) in code that must run under the bootstrap.
+
 ### Block Scoping
 Every `{ }` introduces a new lexical scope. Variable shadowing is allowed.
 

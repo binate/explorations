@@ -168,15 +168,37 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
 - Update both impls together; document the result in claude-notes.md
   and update binate-coding-guide.md.
 
-### Clarify spec for `return f(...)` with multi-return functions
-- Today both impls reject this: bootstrap (`types/checker.go:963–978`)
-  and self-hosted (`pkg/types/check_stmt.bn:237`) require the number
-  of return-statement expressions to equal the number of declared
-  result types, with no unpacking from a single multi-return call.
-- Probable resolution: support it (Go-style `return f()` where `f`
-  returns the matching tuple). Then implement in both checkers.
-- Spec change goes in claude-notes.md; remove the rule from the
-  hygiene/bootstrap-subset docs once both impls handle it.
+### Clarify spec for `return f(...)` with multi-return functions — SELF-HOSTED LANDED; bootstrap pending decision
+- **Self-hosted (LANDED, 2026-05-01)**: type-checker
+  (`pkg/types/check_stmt.bn:checkReturnStmt`) and IR-gen
+  (`pkg/ir/gen_stmt.bn` STMT_RETURN branch) accept
+  `return f(...)` when `f` returns the matching tuple. Each
+  per-result type must be `AssignableTo` the outer's declared
+  result. IR-gen lowers to one OP_CALL + one OP_EXTRACT per
+  result; the existing return-RefInc/copy + temp-cleanup
+  machinery handles ownership transfer. The literal-shape
+  coercions in the per-expr return path (OP_CONST_NIL retyping,
+  OP_CONST_STRING → string_to_chars, untyped-int width) all
+  fire only on literals, which can't be call results — so the
+  multi-return path skips them. The one non-literal coercion,
+  `@[]T → *[]T` when the outer expects raw, is preserved on
+  extracted values, mirroring the per-expr path.
+  - Tests: `pkg/types/check_stmt_test.bn` (positive, arity-
+    mismatch, type-mismatch); `pkg/ir/gen_stmt_test.bn`
+    (`TestGenReturnMultiCallEmitsExtracts` pins
+    1×OP_CALL + 2×OP_EXTRACT); conformance
+    `345_return_multi_call` (all-scalar + mixed scalar/managed
+    end-to-end). xfail.boot. boot-comp / boot-comp-int /
+    boot-comp_native_aa64 all 290/0/0.
+- **Bootstrap (pending decision)**:
+  `bootstrap/types/checker.go:checkReturnStmt` (~963-978) still
+  rejects this shape. Bootstrap acceptance is a separate
+  question — the bootstrap subset is intentionally restrictive,
+  and the self-hosted toolchain doesn't need this to compile.
+  Defer until there's a concrete reason to widen the subset.
+- Spec recorded in `claude-notes.md` ("Tail-call return for
+  multi-return functions"). `bootstrap-subset.md` notes the
+  bootstrap-only rejection.
 
 ### ~~boot-comp-int: cross-pkg multi-return struct destructure clobbers struct on 2nd+ call~~ — FIXED (`c5b29cb`)
 - The hypothesis ("destructure path overlaps src/dst on 2nd call") was
