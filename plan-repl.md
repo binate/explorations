@@ -1,16 +1,19 @@
 # Plan: REPL (Interpreter-Only)
 
-> **Status: Tier 1 + Tier 2 (func/const/var) + Tier 4 replace
-> path LANDED** (2026-05-01).  `bni --repl <file.bn|dir>` ships;
-> top-level `func`, `const`, and `var` decls persist across
-> turns; redefining a func with the same signature replaces the
-> old body in place (subsequent calls see the new body).  The
-> brace-balance accumulator is paren-aware, so multi-line
+> **Status: Tier 1 + Tier 2 (func/const/var) + Tier 4
+> (replace + shadow) LANDED** (2026-05-01).  `bni --repl
+> <file.bn|dir>` ships; top-level `func`, `const`, and `var`
+> decls persist across turns; redefining a func works for both
+> compatible-sig (replace in place — old callers see new body)
+> and incompatible-sig (shadow — old callers retain old body via
+> eager-filled CallCache, new callers route to the new VMFunc).
+> The brace-balance accumulator is paren-aware, so multi-line
 > `const ( ... )` etc. are recognized as continuations.  Tier 3
 > (forward refs) and Tier 5 (mid-session imports) remain DRAFT;
-> Tier 4 still needs the shadow path (different-sig
-> redefinition); Tier 2 also has follow-ups for type / methods /
-> var-initializer evaluation.
+> Tier 2 also has follow-ups for type / methods /
+> var-initializer evaluation; Tier 4 still has small follow-ups
+> (refcount-aware shadow warning, forced-shadow escape hatch,
+> method redefinition).
 > Compiled-mode REPL features (hot-swap of interpreted functions
 > while a compiled binary runs, package descriptors, cross-mode
 > trampolines) are explicitly out of scope here — they belong to
@@ -194,37 +197,98 @@ patch — no extra work needed.
   multi-line const-group continuation case, the var path with
   three cases (read+write, func-mutates, no-type-rejected), and
   the Tier 4 redef path with three cases (basic replace,
-  caller-sees-new, diff-sig-rejected).
+  caller-sees-new, shadow on diff-sig).
+
+## Tier 4 shadow path landed — what shipped (2026-05-01)
+
+Re-typing a func with a DIFFERENT signature now SHADOWS the old
+definition rather than rejecting it.  Old VMFunc stays in
+`vm.Funcs` at its existing index, callable via any caller whose
+`CallCache` already resolved that callee — those callers
+continue invoking the OLD shape.  The funcIndex re-points the
+name to the NEW (later) entry, so freshly-lowered code that
+mentions the name resolves to the new VMFunc.  The replace path
+(compatible-sig, prior commit) keeps its in-place rebind.
+
+Two commits on main, in order:
+
+### Substrate: O(1) LookupFunc + eager CallCache fill (`9af2d56`)
+
+- `pkg/vm.bni`: new `FuncIndexEntry` + 3 fields on `VM`
+  (`IndexBuckets`, `IndexCount`, `IndexMask`).
+- `pkg/vm/func_index.bn`: open-addressing string→int hash, djb2,
+  linear probing, lazy-init, resize at 75% load.
+- `pkg/vm/vm.bn`: `LookupFunc` is now a thin wrapper over the
+  hash — O(1) instead of O(N).
+- `pkg/vm/lower.bn`: `LowerModule` is two-pass (build the index
+  for all funcs, then eager-fill CallCache); `LowerOneFunc`
+  appends/replaces then eager-fills.
+
+Why eager: the lazy `CallCache` fill was correct for the
+non-REPL world where `vm.Funcs` never changes after load, but it
+made shadow semantics unfixable — an old caller whose
+`CallCache` slot was still -2 when its callee got shadowed would
+pick up the new (incompatible) callee on its next execution.
+Eager-fill freezes the binding at lowering time.  The cost is
+covered by O(1) LookupFunc.
+
+### Shadow itself (`63cc49b`)
+
+- `pkg/types.bni` + `check_decl.bn`: `Checker.AllowRedef` flag
+  suppresses `checkBniSignatureMatch` when set.
+  `CheckDeclInScope` toggles it on around its inner passes
+  (compile-time path keeps the strict check).  Removes the
+  misleading "X: .bni declares N" wording for prompt
+  redefinitions.
+- `pkg/vm/lower.bn` + `.bni`: new `LowerOneFuncShadow` —
+  always APPENDS to `vm.Funcs`; re-points the funcIndex to the
+  new (later) idx; eager-fills the new VMFunc's CallCache.
+- `cmd/bni/repl.bn`: `evalReplDecl` captures the old func type
+  before `CheckDeclInScope`, then dispatches:
+    * no existing → `LowerOneFunc` (first definition).
+    * `types.Identical(oldType, newType)` → `LowerOneFunc`
+      (replace, in-place rebind).
+    * different sig → `LowerOneFuncShadow` + warning.
+
+### Verified behaviors
+
+```
+> func caller() int { return helper(5) }
+> println(caller())                       → 10  (helper: x*2)
+> func helper(a int, b int) int { return a + b }
+warning: helper shadowed (incompatible signature);
+         existing callers retain old definition
+> println(caller())                       → 10  (old helper)
+> println(helper(3, 4))                   → 7   (new helper)
+```
+
+### Out of scope (Tier 4 follow-ups)
+
+- **Refcount probe at shadow time.**  Plan calls for a warning
+  conditioned on outstanding references to the OLD VMFunc.
+  Today the warning fires unconditionally on every shadow; the
+  conditional variant needs a way to introspect VMFunc
+  refcounts cheaply.
+- **Forced-shadow escape hatch** (syntax TBD per
+  `claude-notes.md`).
+- **Method redefinition** is still rejected at the IR-gen
+  layer (`GenDecl` rejects `DECL_FUNC` with a `Recv`).
 
 ## Tier 4 replace path landed — what shipped (2026-05-01)
 
-`bni --repl` now lets the user re-type a previously-defined
-`func` with the same signature; the new body replaces the old
-in place.  Compatible-sig only — different-sig redefinition is
-still rejected (with a misleading `bni`-sig-match message
-that's slated for a clearer wording in the shadow-path commit).
-
-Single commit on main:
+The replace path (compatible-sig redefinition) landed first in
+commit `5b0de9a`.  Shipped state:
 
 | Layer | Change |
 |---|---|
 | `pkg/ir/gen.bn` | New `setOrAppendFuncSig(sig)` — replace by name in `moduleFuncs` or append. |
 | `pkg/ir/gen_module.bn` | `GenDecl` for DECL_FUNC uses `setOrAppendFuncSig` and qualifies `sig.Name` (drive-by fix — Tier 2 first cut stored bare names, which silently fell through to default sig lookups). |
-| `pkg/vm/lower.bn` | `LowerOneFunc` now replaces an existing `vm.Funcs` entry with the same qualified name in place; appends only if no match. |
+| `pkg/vm/lower.bn` | `LowerOneFunc` replaces an existing `vm.Funcs` entry with the same qualified name in place; appends only if no match. |
 
-### Why in-place rebind at the existing `vm.Funcs` idx
-
-- Per-call-site `CallCache` stores resolved indices.  Rebinding
-  `vm.Funcs[idx]` keeps cached idx valid (same N, just points
-  at a new VMFunc), so no cache flush is needed.
-- `LookupFunc` returns the FIRST match by name; in-place
-  replace means subsequent lookups (and freshly-lowered
-  callers) all resolve to the new VMFunc.
-- The old VMFunc is reachable for as long as anything else
-  holds a refcount on it, then freed normally (this is the
-  substrate the future shadow path will exploit too).
-
-### Verified behaviors
+In-place rebind at the existing `vm.Funcs` idx keeps cached
+indices valid (same N, just points at a new VMFunc), so the
+per-call-site `CallCache` needs no flush.  Subsequent lookups
+and freshly-lowered callers all resolve to the new VMFunc.
 
 ```
 > println(helper(7))                  → 14   (loaded helper: x*2)
@@ -236,21 +300,8 @@ Single commit on main:
 > println(caller())                   → 110  (caller sees new helper)
 ```
 
-### Out of scope (deferred to shadow-path commit)
-
-- **Different-sig redefinition.**  Rejected at the type-checker
-  level by `checkBniSignatureMatch`, with the misleading message
-  "X: .bn has N parameters but .bni declares M" — needs reword
-  for the REPL context (it's not a `.bni`).
-- **Shadow path** (incompatible-sig keeps the old def reachable
-  via refcount; `LookupFunc`-returns-latest semantics).
-- **Forced-shadow escape hatch** (syntax TBD per
-  `claude-notes.md`).
-- **`c.Scope` side-effect on rejected redef.**  Pre-existing
-  type-checker behavior: even when `checkBniSignatureMatch`
-  errors, `defineFunc` still overwrites the symbol's type.
-  Symbol becomes unusable for further calls of its old shape.
-  Not a Tier 4 regression; surfaced and documented here.
+The shadow path (incompatible-sig redefinition) shipped in a
+follow-up — see "Tier 4 shadow path landed" above.
 
 ## Tier 2 var landed — what shipped (2026-05-01)
 
@@ -601,10 +652,12 @@ the dependency binds, parked decls re-attempt validation.
 
 ## Tier 4: Redefinition
 
-### Replace path (compatible — same sig/type) — LANDED
+Both halves have shipped (2026-05-01).  See "Tier 4 replace path
+landed" and "Tier 4 shadow path landed" above for the detailed
+state; the pre-implementation sketches below are preserved for
+context.
 
-See "Tier 4 replace path landed" above for the shipped detail.
-Original sketch (preserved for context):
+### Replace path (compatible — same sig/type) — LANDED
 
 - Find existing `vm.Funcs` entry by qualified name.
 - Generate the new VMFunc.
@@ -612,15 +665,21 @@ Original sketch (preserved for context):
 - The old `@VMFunc` stays alive via refcount if anything still
   holds it; otherwise it's freed.
 
-### Shadow path (incompatible — different sig/type)
+### Shadow path (incompatible — different sig/type) — LANDED
 
 - Append the new VMFunc.
-- `LookupFunc` semantics change: return *latest* match by name,
-  not first. (Or: layer a REPL-side name-table that maps name
-  → idx and shadows on assignment, leaving `vm.Funcs` purely
-  positional.)
-- Refcount probe at shadow time: if the old VMFunc has > 1 ref,
-  print a warning that outstanding references exist.
+- The shipped implementation took a different route from the
+  original "LookupFunc returns latest" sketch: instead of
+  changing LookupFunc semantics, it **freezes per-call-site
+  resolution at lowering time** by eager-filling `CallCache`
+  (substrate commit `9af2d56`).  The funcIndex hash points
+  the name at the new (later) idx, so freshly-lowered code
+  resolves to the new VMFunc; old code's eager-filled
+  `CallCache` slots still hold the old idx and route to the
+  old VMFunc.  Same end-state as latest-match; cleaner because
+  it leaves `LookupFunc` semantics unchanged.
+- Refcount probe at shadow time: not yet implemented (warning
+  fires unconditionally; conditional variant is a follow-up).
 
 ### Forced-shadow escape hatch
 

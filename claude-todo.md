@@ -1178,21 +1178,25 @@ Binate is NOT Go. The two types of slice are intentionally different:
   end on each side, and identifies the first concrete code change to make.
   Don't start implementation until the design is reviewed.
 
-### REPL — Tier 1 + Tier 2 + Tier 4 replace LANDED (2026-05-01)
+### REPL — Tier 1 + Tier 2 + Tier 4 (full) LANDED (2026-05-01)
 - **Status (2026-05-01)**: Tier 1 PoC ships as `bni --repl
   <file.bn|dir>`; Tier 2 adds top-level `func`, `const`, and
-  typed `var` declarations at the prompt; Tier 4 replace path
-  lets the user re-type a `func` with the same signature
-  (in-place rebind at the existing `vm.Funcs` index — cached
-  call indices stay valid).  Multi-line input also landed
-  (paren-aware accumulator — tracks `{`/`}` and `(`/`)` in
+  typed `var` declarations at the prompt; Tier 4 full
+  redefinition shipped — compatible-sig replaces in place
+  (old callers see new body), incompatible-sig shadows (old
+  callers retain the old VMFunc via eager-filled CallCache,
+  new callers route to the new entry).  Substrate is an O(1)
+  name→idx hash on `vm.Funcs` plus eager `CallCache` fill at
+  lowering time (commit `9af2d56`); shadow itself in
+  `63cc49b`.  Multi-line input also landed (paren-aware
+  accumulator — tracks `{`/`}` and `(`/`)` in
   `computeOpenDepth`).  See `plan-repl.md` for the per-step
-  commit table, verified behaviors, deviations from the original
-  plan, and the remaining follow-ups (Tier 2: type at prompt,
-  methods, prompt-introduced new managed-type dtor regen,
-  var-initializer evaluation; Tier 4: shadow path for
-  different-sig redefinition + clearer rejection wording for
-  the current cut).  Tier 3 (forward refs) and Tier 5
+  commit table, verified behaviors, deviations from the
+  original plan, and the remaining follow-ups (Tier 2: type
+  at prompt, methods, prompt-introduced new managed-type dtor
+  regen, var-initializer evaluation; Tier 4: refcount-aware
+  shadow warning, forced-shadow escape hatch, method
+  redefinition).  Tier 3 (forward refs) and Tier 5
   (mid-session imports) remain DRAFT.
 - **Why this matters now**: the REPL is an explicit core goal in
   `claude-notes.md` (see "Forward references & REPL model — DECIDED"
@@ -1267,14 +1271,19 @@ Binate is NOT Go. The two types of slice are intentionally different:
      plan-repl.md).  Still no forward refs.
   3. **Forward references.** Pending-validation queue in the type
      checker.
-  4. ~~**Redefinition.** Replace path~~ **LANDED (2026-05-01).**
-     Compatible-sig replace works: `LowerOneFunc` rebinds the
-     existing `vm.Funcs` entry in place at the same idx, so the
-     CallCache (cached call-target indices) stays valid.
-     `setOrAppendFuncSig` updates `moduleFuncs` in place too.
-     The shadow path (incompatible sig — append + last-match
-     `LookupFunc` or REPL-side name table; refcount probe at
-     shadow time) is the next remaining piece.
+  4. ~~**Redefinition.**~~ **LANDED (2026-05-01).**
+     Compatible-sig: `LowerOneFunc` rebinds the existing
+     `vm.Funcs` entry in place at the same idx, so the
+     CallCache stays valid; old callers see the new body.
+     Incompatible-sig: `LowerOneFuncShadow` appends a fresh
+     entry and re-points the funcIndex hash; old callers'
+     eager-filled CallCache slots keep them on the OLD VMFunc,
+     while freshly-lowered code routes through the new one.
+     Shipped via two commits: substrate (O(1) name→idx hash +
+     eager `CallCache` fill, `9af2d56`) and the shadow path
+     proper (`63cc49b`).  Refcount-aware shadow warning,
+     forced-shadow escape hatch, and method redefinition are
+     remaining Tier 4 follow-ups.
   5. **Mid-session imports.** Loader entry point for "load this one
      package now."
 - **What's free / "should-do-now-anyway"**:
