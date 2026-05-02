@@ -1,19 +1,20 @@
 # Plan: REPL (Interpreter-Only)
 
-> **Status: Tier 1 + Tier 2 (func/const/var) + Tier 4
-> (replace + shadow) LANDED** (2026-05-01).  `bni --repl
+> **Status: Tier 1 + Tier 2 (func/const/var with init) + Tier 4
+> (replace + shadow) LANDED** (2026-05-02).  `bni --repl
 > <file.bn|dir>` ships; top-level `func`, `const`, and `var`
-> decls persist across turns; redefining a func works for both
-> compatible-sig (replace in place — old callers see new body)
-> and incompatible-sig (shadow — old callers retain old body via
+> decls persist across turns; `var x T = expr` initializers
+> evaluate before subsequent reads (both at the prompt and on
+> file load); redefining a func works for both compatible-sig
+> (replace in place — old callers see new body) and
+> incompatible-sig (shadow — old callers retain old body via
 > eager-filled CallCache, new callers route to the new VMFunc).
 > The brace-balance accumulator is paren-aware, so multi-line
 > `const ( ... )` etc. are recognized as continuations.  Tier 3
 > (forward refs) and Tier 5 (mid-session imports) remain DRAFT;
-> Tier 2 also has follow-ups for type / methods /
-> var-initializer evaluation; Tier 4 still has small follow-ups
-> (refcount-aware shadow warning, forced-shadow escape hatch,
-> method redefinition).
+> Tier 2 also has follow-ups for type / methods; Tier 4 still
+> has small follow-ups (refcount-aware shadow warning,
+> forced-shadow escape hatch, method redefinition).
 > Compiled-mode REPL features (hot-swap of interpreted functions
 > while a compiled binary runs, package descriptors, cross-mode
 > trampolines) are explicitly out of scope here — they belong to
@@ -150,15 +151,13 @@ patch — no extra work needed.
   regenerate dtor / copy helpers (and the dedup-aware machinery
   to avoid duplicate AddFunc on a re-run); make the new type's
   layout known to `pkg/types` queries.
-- **`var` initializer evaluation.**  `var x int = 42` parses
-  and registers, but the storage is zero-initialized — `mg.Init`
-  is set in IR-gen and dropped by the VM.  Pre-existing
-  limitation of the file-load path too; the prompt inherits it.
-  Fix is bigger than Tier 2 (needs a designated init function
-  emitted at IR-gen and called by the VM at module load).
-  Workaround: assign in a follow-up entry (`x = 42`).  The
-  prompt also rejects untyped `var x = 5` since type inference
-  intersects with the same machinery.
+- **Untyped `var x = 5` at the prompt.**  The prompt still
+  rejects var decls without an explicit type — type inference
+  for top-level vars from initializers isn't wired through
+  `collectDecls` either at file-load or REPL time, and remains
+  a Tier 2 follow-up.  ~~Initializer evaluation itself~~
+  LANDED (2026-05-02) — see "Tier 2 var-initializer evaluation
+  landed" section below.
 - **Method declarations** (`func (r T) m(...) ...`).  Diagnostic
   surfaces for these too.  Method-receiver registration and
   vtable interactions add scope.
@@ -335,12 +334,73 @@ Single commit on main:
                                  an explicit type
 ```
 
-### Out of scope (matches file-load path's behavior)
+### Initializer evaluation — LANDED (2026-05-02)
 
-- **Initializer evaluation.**  `var x int = 42` is silently
-  zero-initialized — pre-existing limitation of the file-load
-  path; `mg.Init` is set in IR-gen but the VM doesn't consume
-  it.  Workaround: assign in a follow-up prompt entry.
+See "Tier 2 var-initializer evaluation landed" section below
+for the shipped detail.  The original Tier 2 first cut left
+`var x int = 42` silently zero-initialized (matching the
+file-load path's pre-existing limitation); the follow-up wired
+both paths through a new IR-emitted synthetic init function.
+
+## Tier 2 var-initializer evaluation landed — what shipped (2026-05-02)
+
+`var x T = expr` now actually evaluates `expr` and stores the
+result in `x` before any subsequent code runs.  Previously,
+both the file-load path and the REPL silently dropped the
+initializer (the IR layer captured `mg.Init` for int literals
+only and the VM never read it).  After this commit:
+
+- **File load**: each package gets a synthetic `<pkg>.__init`
+  function (when it has any non-trivial var inits).  A
+  per-binary `<main>.__init_all` dispatcher runs each package's
+  init in dep order, then `<main>.__entry` runs the dispatcher
+  before `main.main`.
+- **REPL prompt**: a freshly-typed `var x T = expr` runs a
+  one-shot synthetic that evaluates the assignment immediately,
+  so the next prompt entry sees `x` at its declared value.
+
+### Why an entry wrapper instead of a C runtime change
+
+The C runtime is a temporary scaffold for the pure-Binate end
+state.  Adding init dispatch into `int main()` would tie a
+Binate-level concept to the C contract.  Instead, a one-time
+mangler change moves the entry into Binate:
+
+- `main.main` no longer special-cases to `bn_main`; it
+  mangles like any other free function (`bn_main__main`).
+- A new special case `main.__entry → bn_entry` reserves a
+  stable symbol for the entry wrapper.
+- C runtime calls `bn_entry()` (one-line update); Binate's
+  `<main>.__entry` does init dispatch + main.
+
+Future entry-time concerns (panic / signal handler setup,
+finalizers, etc.) all live in Binate behind the `bn_entry`
+symbol — the C side never has to change again for this kind
+of reshuffle.
+
+### Implementation
+
+| Layer | Change |
+|---|---|
+| `pkg/ir/gen_init.bn` (new) | `generatePackageInit` emits `<pkg>.__init` per package when it has var inits.  `EmitInitDispatcher` emits `<m_pkg>.__init_all`.  `EmitMainEntry` emits `<m_pkg>.__entry`.  `MakeInitAssignStmt` builds an assignment AST for the REPL one-shot. |
+| `pkg/ir/gen_module.bn` | `GeneratePackage` and `GenModule` call `generatePackageInit` after their main passes. |
+| `pkg/mangle/mangle.bn` | Drop `main.main → bn_main` special case; add `main.__entry → bn_entry`. |
+| `cmd/bnc/main.bn` | Track which compiled packages have inits; call `EmitInitDispatcher` and `EmitMainEntry` on the main module. |
+| `cmd/bni/main.bn` | Mirror cmd/bnc's emission, then dispatch via `vm.CallFunc(vmInst, "main.__entry", ...)` (instead of calling `main.main` directly). |
+| `cmd/bni/repl.bn` | After REPL `var x T = expr`, build a one-shot synthetic via `MakeInitAssignStmt + GenSyntheticFunc + LowerOneFunc + CallByVMFunc`. |
+| `runtime/binate_runtime.c` | One-line: call `bn_entry()` instead of `bn_main()`. |
+
+Conformance test `345_global_var_init.bn` exercises the
+end-to-end path in all four chains (boot / boot-comp /
+boot-comp-int / boot-comp-comp).  pkg/ir gains 9 unit tests
+in `gen_init_test.bn` covering each emitter individually.
+
+### Out of scope (Tier 2 follow-ups still)
+
+- **Untyped `var x = 5`** at the prompt and at file scope.
+  Type inference for top-level vars from initializers isn't
+  wired through `collectDecls`; orthogonal to init evaluation
+  itself.
 
 ## Tier 2 paren-aware accumulator landed — what shipped (2026-05-01)
 
