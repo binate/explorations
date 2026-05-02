@@ -209,7 +209,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Cleanup status (2026-05-02)**: IR/backend dead code is GONE — old `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC` constants, all three backends' old dispatch arms, the non-INLINE `BC_REFINC` / `BC_REFDEC` bytecode ops + their VM exec handlers, and `emitRefcountCall` are all removed. The `bn_rt__RefInc` / `bn_rt__RefDec` runtime symbols (declared `pkg/rt.bni:122-127`, defined `pkg/rt/rt.bn:157,166`) are NOT dead — but their remaining callers are dubious and they should probably be retired:
   - **Remaining callers**: (a) VM extern handlers in `pkg/vm/vm_extern.bn` — the `rt.RefInc` / `rt.RefDec` extern arms at lines 21-29 plus the managed-slice copy/dtor paths at 169/175/191/195 that hand-RefInc element backings during structural copies; (b) conformance tests `092_rt_alloc`, `093_rt_managed_slice`, `104_rt_refcount`, which exercise these as a public manual-refcount API.
   - **Why retire**: with every compiled refcount op inlined, the runtime symbols exist only for these dubious users. Keeping them in `pkg/rt`'s public surface entrenches a manual-refcount escape hatch that nothing in the language model encourages. The `vm_extern.bn` callers are part of a broader "all of `vm_extern.bn` is dubious" question — the managed-slice copy paths there should probably move out of host code entirely.
-  - **Scope when picked up**: drop or rewrite the three conformance tests; audit/migrate the `vm_extern.bn` paths (likely part of a larger vm_extern.bn rework); then delete the symbols from `pkg/rt.bni` + `pkg/rt/rt.bn`. Not a "just deletion" change — has public-API implications.
+  - **Scope when picked up**: drop or rewrite the three conformance tests; audit/migrate the `vm_extern.bn` paths (likely part of a larger vm_extern.bn rework); then delete the symbols from `pkg/rt.bni` + `pkg/rt/rt.bn`. Not a "just deletion" change — has public-API implications. The "VM extern dispatch: name → function-value registry" entry below describes the natural vehicle: the `rt.RefInc` / `rt.RefDec` extern arms cease to exist (no caller left to register), and the surgical refcount paths in `bootstrap.Args` / `ReadDir` get audited as part of that rework.
 
 ### Function values — MAJOR PROJECT (interop prerequisite)
 - **Plan docs**: `explorations/plan-function-values.md` (parent;
@@ -326,6 +326,67 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   plan can land first; both share the backend.
 - **Method values** (`x.M`, `T.M`) and **closures** are folded
   under this plan rather than tracked separately.
+
+### VM extern dispatch: name → function-value registry
+- `pkg/vm/vm_extern.bn`'s `execExtern` is a hand-coded ~30-arm
+  `if streq(name, ...)` switch bridging each host function the
+  VM might call (rt + libc + bootstrap). It pre-dates Phase 3's
+  function-value machinery and is the "by-name dispatch" half of
+  the legacy VM-extern bridge.
+- Phase 3 made this redundant in principle: every cross-mode
+  call already goes through a 2-word `{vtable, data}` value
+  dispatched via the always-shim convention `(*uint8 data,
+  <args>)`. What's missing is the simple bridge: bind a name to
+  a function value (or raw native pointer) at VM-init time, and
+  have BC_CALL-by-name route through that binding to the
+  existing `dispatchCompiledFuncValue` path.
+- **Sketch**: a name → function-value map on the VM, populated
+  by explicit registration calls at startup. BC_CALL's "name
+  didn't resolve in vm.Funcs" branch consults the registry
+  instead of falling into execExtern's hand-coded switch.
+  Registration stays manual — no package-descriptor design
+  required (descriptors are the more general form, owned by the
+  Compiler/interpreter interop project below). Each currently-
+  supported extern becomes one line:
+  `vm.RegisterExtern("rt.Alloc", rt.Alloc)`. Same coverage,
+  uniform dispatch, no bit_cast unpacking.
+- **Why now**: addresses the "vm_extern.bn is dubious" question
+  without waiting for descriptor design. Drops out the hand-
+  coded arms (including the `rt.RefInc` / `rt.RefDec` arms
+  paired with the runtime-symbol retirement above). When
+  descriptors do land, the registry stays as the manual-
+  registration escape hatch for host-only externs that have no
+  Binate-side `.bni` package.
+- **Open questions**:
+  - **API shape**: `vm.RegisterExtern(name, fn)` per call, or
+    bulk `vm.RegisterExterns([]ExternBinding{...})`?
+  - **Registered fn shape**: hold function values (uniform
+    dispatch via `_call_shim_scalar` — but the registrant has
+    to package each function as a function value first), or raw
+    native pointers + a per-binding signature descriptor (the
+    dispatcher decodes argv per shape)? The function-value
+    route reuses Phase 3's machinery directly; the raw-pointer
+    route is more general but adds a parallel signature decoder.
+  - **`bootstrap.Args` / `ReadDir` refcount surgery**: the
+    existing arms hand-RefInc managed-slice element backings
+    before pushing onto vm.Stack. A naive function-value
+    dispatch can't replicate that. Either (a) clean up those
+    bootstrap APIs to not need surgery, (b) supply per-binding
+    "registers + adapts" shims, or (c) leave those few cases in
+    vm_extern.bn as residual until they're addressed
+    separately.
+  - **Const args**: some bootstrap calls take `*[]const char`
+    that the current arms unpack via `bit_cast(*(*[]const char),
+    args[0])`. The registry has to decide whether the registrant
+    sees the unpacked value or the raw `args[i]` int.
+  - **Timing**: register before the first BC_CALL — likely in
+    cmd/bni's main, before running user code. Per-VM init
+    instead is also reasonable if multiple VMs ever coexist.
+- **Cross-references**: the entry should be referenced from the
+  rt.RefInc/Dec retirement (the registry replaces those arms
+  cleanly) and from the Compiler/interpreter interop entry (the
+  registry is the lighter-weight first step; descriptors
+  generalize it).
 
 ### Interface syntax revision — *Stringer / @Stringer + top-level decl
 - **Plan doc**: `explorations/plan-interface-syntax-revision.md`
@@ -677,19 +738,16 @@ Binate is NOT Go. The two types of slice are intentionally different:
   (naming, layout, emission, loading) plus the symmetric VM-side
   emission for interpreted packages — pure plumbing; no new
   trampoline machinery needed.
-- **Adjacent cleanup unlocked by Phase 3**: `pkg/vm/vm_extern.bn`
-  is the legacy "BC_CALL by name → execExtern hand-coded arm"
-  bridge from before the trampoline work. It hand-codes ~30 arms
-  (rt + libc + bootstrap), each unpacking args via `bit_cast`,
-  some doing manual refcount surgery (`bootstrap.Args` /
-  `ReadDir` at lines 162-200; the `rt.RefInc` / `rt.RefDec` arms
-  flagged for retirement above). With the descriptor mechanism
-  in place, BC_CALL-against-an-extern-name can be replaced by
-  "look up the host package's descriptor, call the function
-  value via the same `dispatchCompiledFuncValue` path that
-  user-code function values use." That collapses `vm_extern.bn`
-  into a generic dispatcher — the hand-written bridge is
-  obsolete once the descriptor lands.
+- **Adjacent cleanup, lighter-weight first step**: see the
+  "VM extern dispatch: name → function-value registry" entry
+  above. A per-VM name → function-value registry with manual
+  registration (no descriptor design needed) replaces
+  `pkg/vm/vm_extern.bn`'s hand-coded switch via the same
+  `dispatchCompiledFuncValue` path Phase 3 already provides.
+  Auto-generated descriptors are the more general form of the
+  same idea — the registry stays as the manual-registration
+  escape hatch for host-only externs that have no Binate-side
+  `.bni` package.
 - **Design open questions** (need a writeup before implementation):
   - Canonical name for the descriptor — `foo.Package` reads naturally but
     risks conflicting with user names. `foo.PackageImpl` or a reserved-prefix
