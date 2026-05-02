@@ -255,16 +255,20 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   from BC_CALL_INDIRECT's dtor-dispatch path (the new f08ddcb
   `rt._call_dtor` mechanism) — its own followup, tracked below.
 
-### boot-comp-int-int: 001_hello hangs / silent failure — HAND-OFF READY
-- **Repro**: `conformance/run.sh boot-comp-int-int 001_hello`.
-  Pre-Phase-3: ran ~2274s, printed `vm: stack overflow` from
-  `pushFrame`, exited.
-  Post-Phase-3 (2026-05-01 retest, killed manually at ~4200s):
-  no output, no error visible — runs longer than the prior
-  overflow window, exits silently when killed. **Failure mode
-  has changed** but root cause hasn't been re-diagnosed; the
-  vm.Stack-overflow hypothesis below may no longer apply.
-  Mode is not in the `all` modeset so CI is unaffected.
+### boot-comp-int-int: hangs / silent failure on simple tests — HAND-OFF READY
+- **Repro**: `conformance/run.sh boot-comp-int-int 001_hello` or
+  `boot-comp-int-int 002_arithmetic` — same behavior. Mode is
+  not in the `all` modeset so CI is unaffected.
+- **2026-05-01 finding**: the mode is broken on simple tests,
+  not just on 001_hello. Both 001_hello and 002_arithmetic
+  time out at ~10 min with no output, on `da946e5` (the
+  commit immediately before Slice 3.1) AND on current main.
+  Phase 3 of plan-function-values is therefore NOT the cause.
+  The earlier narrative — `vm: stack overflow` at ~2274s on
+  001_hello — described one snapshot; current behavior is
+  silent hang. Both point at deeper VM dispatch or runtime
+  issues; the conformance suite (this mode not in `all`)
+  doesn't catch them.
 - **Cross-mode dispatch context (post-Phase-3, 2026-05-01)**: an
   earlier symptom — bytecode `rt.Free` doing BC_CALL_INDIRECT
   through a native function pointer (h[1] from native rt.Alloc)
@@ -276,27 +280,26 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   plan-function-values-phase-3.md Slices 3.1–3.4). The test
   runs ~95× longer than before the dispatch arm landed, then
   hits the vm.Stack overflow.
-- **Hypothesis**: residual VM frame leak. The `BC_RETURN`
-  copy-then-pop fix (`be3c22e`) mitigated but apparently didn't
-  fully eliminate the frame leak referenced earlier in this
-  file ("~990 KB leaked per ~990 calls"). With more execution
-  surface unlocked by the cross-mode hack, the residual leak
-  reaches vm.StackSize (`8 * 1024 * 1024` bytes — see
-  cmd/bni/main.bn) and trips the overflow check.
-- **Suggested next steps**:
-  1. Instrument `pushFrame` / `popFrame` in `pkg/vm/vm.bn` to
-     log a running max-SP gauge plus periodic SP samples; verify
-     SP grows monotonically (leak) vs oscillates (real recursion
-     depth).
-  2. If leak: walk the dispatch sites that became reachable via
-     the cross-mode hack — esp. anywhere a callee return is
-     bypassed (BC_RETURN early-exit paths, exception-like code
-     paths in `_call_free_fn`'s lowered form, frames pushed but
-     not paired with pops).
-  3. If real recursion: profile which VMFunc holds the deepest
-     frames at overflow — the diagnostic in vm_exec.bn already
-     tracks `f.Name` for the indirect-call out-of-range case
-     and could be extended to the overflow site.
+- **Earlier hypothesis (now likely stale)**: residual VM frame
+  leak from BC_RETURN copy-then-pop. With the silent-hang
+  symptom on simple tests, this no longer obviously fits — a
+  leak hitting StackSize would print "vm: stack overflow"; what
+  we're seeing is no output at all. The hang may be much earlier
+  (in compilation, lowering, or initial dispatch) rather than
+  during program execution.
+- **Suggested next steps for whoever picks this up**:
+  1. Add a coarse heartbeat: print the bnc compilation phase
+     boundaries and a periodic outer-loop counter in execLoop.
+     Localize whether the hang is in compile-then-run setup
+     (lowering cmd/bni's source to bytecode) or actual program
+     execution.
+  2. If during setup: profile `LowerModule` / `LowerOneFunc`
+     for cmd/bni's substantial body. Possible quadratic
+     blowup (e.g., name lookups, hash collisions) was
+     partially addressed by the recent `9af2d56` (name→idx
+     hash + eager CallCache fill). May need more.
+  3. If during execution: instrument `pushFrame` / `popFrame`
+     for max-SP and outer-loop iterations.
 - **Not blocking**: not in the `all` modeset; conformance and
   unit tests pass without this. Pick up when convenient.
 - **Original cross-mode diagnostic** (pre-hack, kept for context):
