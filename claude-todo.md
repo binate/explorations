@@ -255,20 +255,22 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   from BC_CALL_INDIRECT's dtor-dispatch path (the new f08ddcb
   `rt._call_dtor` mechanism) — its own followup, tracked below.
 
-### boot-comp-int-int: vm.Stack overflow on 001_hello (post cross-mode-hack) — HAND-OFF READY
+### boot-comp-int-int: vm.Stack overflow on 001_hello — HAND-OFF READY
 - **Repro**: `conformance/run.sh boot-comp-int-int 001_hello`.
   Runs ~2274s, then prints `vm: stack overflow` from `pushFrame`
   in `pkg/vm/vm.bn` and exits. Mode is not in the `all` modeset
   so CI is unaffected.
-- **Recent context (2026-05-01)**: a previous symptom — bytecode
-  `rt.Free` doing BC_CALL_INDIRECT through a native function
-  pointer (h[1] from native rt.Alloc) — was partially unblocked
-  by a hacky single-arg `func(*uint8)` cross-mode dispatch arm
-  in `pkg/vm/vm_exec.bn` (`5f4333f`). With that hack, the test
-  runs ~95× longer (vs the prior 24s) before hitting this
-  vm.Stack overflow. The hack is a stopgap; Phase 3 of
-  plan-function-values.md (cross-mode trampolines) is the
-  proper fix and would retire it.
+- **Cross-mode dispatch context (post-Phase-3, 2026-05-01)**: an
+  earlier symptom — bytecode `rt.Free` doing BC_CALL_INDIRECT
+  through a native function pointer (h[1] from native rt.Alloc)
+  — was originally addressed by a single-arg `func(*uint8)`
+  cross-mode dispatch arm in `pkg/vm/vm_exec.bn` (`5f4333f`).
+  With Phase 3 of plan-function-values landed, that arm is now
+  the BC_CALL_INDIRECT counterpart of BC_CALL_FUNC_VALUE's
+  data==null branch (a coherent design, not a stopgap; see
+  plan-function-values-phase-3.md Slices 3.1–3.4). The test
+  runs ~95× longer than before the dispatch arm landed, then
+  hits the vm.Stack overflow.
 - **Hypothesis**: residual VM frame leak. The `BC_RETURN`
   copy-then-pop fix (`be3c22e`) mitigated but apparently didn't
   fully eliminate the frame leak referenced earlier in this
@@ -448,18 +450,27 @@ Tracks work items discussed across sessions. Items move to "Done" when committed
   same 11 packages.
 
 ### Native AArch64 backend — regPool saturation (cluster A follow-up)
-- `pkg/native/arm64/arm64_regmap.bn`: `regPool(i)` returns X15 for
-  any `i >= 6`. The pool is X9..X15 (7 slots). When more SSA values
-  are simultaneously live than the pool has, both `nextReg` and
-  `scratchReg` collapse to X15, silently aliasing distinct values.
-- The cluster A X16 fix patches this for one specific call site. Any
-  other call site that uses `scratchReg` while a same-pool reg holds
-  a live value risks the same collision.
-- Real fix: spill on pool exhaustion (or grow the pool, with the
-  spill-on-exhaustion fallback). Today the codegen doesn't have a
-  spill mechanism for in-instruction temporaries, so this is
-  non-trivial. Tracked separately so the cluster-A entry can close
-  cleanly when the rest of the cluster is sorted.
+- **Silent-corruption hazard removed** (`e8dfb85`, 2026-05-01).
+  `pkg/native/arm64/arm64_regmap.bn:regPool(i)` previously returned
+  X15 for any `i >= 6`, silently aliasing distinct SSA values when
+  more than 7 live scratch regs were needed (the original cluster-A
+  miscompile shape). It now panics on `i == 7` with a clear message
+  pointing at this TODO. Any future over-allocating op pattern
+  surfaces as a loud compile-time abort with a stack trace, not a
+  silent miscompile.
+- **Live site fixed** in the same commit: `046_many_params`'s
+  8-int-arg call was hitting saturation via `emitCall` (8
+  sequential `nextReg` calls — one per arg load). Fix in
+  `arm64_call.bn`: the per-arg scratch reg is dead after the
+  immediately-following Mov-to-argReg / Str-to-stack, so reset
+  between arg slots. Conformance 289/0/0 after.
+- **Still open — structural fix.** The pool is still X9..X15 (7
+  slots) and the codegen still has no spill mechanism for
+  in-instruction temporaries. Any new op pattern that needs >7
+  simultaneously-live scratches will panic. Real fix: spill on
+  pool exhaustion, or extend the pool to X16/X17 with BL discipline
+  (BL clobbers X16/X17, so they can't span calls). Not blocking —
+  the panic is the oracle for whether anything actually needs this.
 
 ### ~~Remove OP_CALL_BUILTIN and the empty C-runtime manifest~~ — DONE (`0b7dd90`)
 - After Step 2b (print rewired to `bootstrap.formatX` + `bootstrap.Write`)

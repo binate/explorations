@@ -132,7 +132,7 @@ indirect call.
 
 Conformance: 338–342 + 344 still green.
 
-### Slice 3.1.5 — Common kind-tag at the start of `data`
+### Slice 3.1.5 — Common kind-tag at the start of `data` — LANDED
 
 A small forward-looking refactor that lands BEFORE the trampoline
 work in 3.2. When `data != null`, it points at a record whose
@@ -178,7 +178,7 @@ check). No cross-mode work yet.
 
 Conformance: 338–342 + 344 still green.
 
-### Slice 3.2 — Generic ABI-aware VM-side trampoline (compiled→VM)
+### Slice 3.2 — Generic ABI-aware VM-side trampoline (compiled→VM) — LANDED
 
 Compiled callers (already shim-convention from 3.1) bitcast
 `vtable.call` to `<ret>(i8* data, <args>)*` and call with typed
@@ -194,24 +194,33 @@ What lands:
 
 - Extended `VMClosureRec`:
   ```
-  { kind, vm_func_idx, num_args, sig_info_words... }
+  { kind, vm_handle, vm_func_idx, captured_ctx_or_nil }
   ```
-  `num_args` and (later) per-arg type/width info drive the
-  trampoline's register-bank decoding.
+  The VM handle is stored inline so each function value carries
+  its own VM (no global state, no SetCurrent ordering, multi-VM
+  works naturally). `captured_ctx` is the Phase 2 slot.
 
 - Per-return-shape generic trampolines (~3 total):
-  `__bn_vmtramp_void`, `__bn_vmtramp_scalar`,
-  `__bn_vmtramp_aggregate(retbuf)`. Each is hand-written
-  assembly (or a careful Binate function with inline asm where
-  needed):
-  1. At entry, save X0..X7 + V0..V7 to a stack buffer (X0 is
-     `data`, X1+ are user args per the always-shim convention).
-  2. Read `num_args` and arg-type info from `data`.
-  3. Walk the saved register bank using AAPCS rules + sig info,
-     copy each user arg into the VM's argv int[] buffer.
-  4. Call `execFunc(rt.CurrentVM(), &vm.Funcs[vm_func_idx-1], argv)`.
-  5. For non-void: copy the return value from execFunc's result
-     into the C-ABI return slot.
+  `TrampolineVoid`, `TrampolineScalar`, `TrampolineAggregate`.
+  Each is a regular Binate function with a fixed wide signature
+  `<ret>(*uint8 data, int a0, int a1, ..., int a6)` (7 user-arg
+  slots). The variadic-style trick — caller bitcasts vtable.call
+  to its function value's actual (typically narrower) signature
+  and passes whatever args it has — gives us register-bank
+  decoding for free under AAPCS: register args land in X1..X7
+  deterministically, the trampoline reads only the first
+  `f.NumParams` of them via execFunc (which limits the copy by
+  `len(args)` and `f.NumParams`).
+  1. Validate `data` (non-nil, kind == VM_CLOSURE_REC).
+  2. Read VM handle and vm_func_idx from data.
+  3. Pack a0..a6 into argv (7 slots; execFunc reads only
+     `f.NumParams`).
+  4. Call `execFunc(vm, fnIdx, argv)`.
+  5. For non-void variants: return execFunc's result.
+
+  Slice 3.2 starting point: `TrampolineScalar` only. Void-
+  return cross-mode dispatch is a (small) follow-up — same-mode
+  void calls already work via the closure_rec short-circuit.
 
   Bootstrap-subset reality check: with no floats and only
   scalar args ≤ 7, the trampoline's decoding is simple
@@ -224,8 +233,12 @@ What lands:
   variant is determined when constructing the function value
   (the function's signature is known from the ir.Func).
 
-- Single global VM handle: `rt.CurrentVM()` set by cmd/bni at
-  program start. No TLS.
+- VM handle lives **in the VMClosureRec** (not a global): each
+  function value carries its own VM. Multi-VM scenarios work
+  natively — no SetCurrent ordering, no thread-local. The
+  closure record stores the @VM as a raw int (bit_cast on
+  use); the VM's lifetime bounds the function value's lifetime
+  by construction.
 
 Compiled callers don't change — they already pass `(data, args)`
 via the shim convention. The trampoline accepts that convention
@@ -236,7 +249,7 @@ This unblocks compiled callers holding a VM-side function value.
 Conformance: a new test exercising compiled code that calls a
 VM-side function value end-to-end.
 
-### Slice 3.3 — Bytecode → compiled function-value dispatch
+### Slice 3.3 — Bytecode → compiled function-value dispatch — LANDED
 
 `BC_CALL_FUNC_VALUE` becomes a kind-aware dispatcher:
 
@@ -273,31 +286,45 @@ to retire (Slice 3.4) covers the same shape.
 Conformance: a function value constructed in compiled mode and
 called from bytecode.
 
-### Slice 3.4 — Retire / fold the cross-mode hack
+### Slice 3.4 — Reframe the cross-mode hack — LANDED
 
-The `5f4333f` hack handles single-arg `func(*uint8)` indirect
-calls through native pointers, only for `_call_free_fn` /
-`_call_dtor`. After 3.3, the same machinery (generic native
-indirect-call dispatch) covers it. Replace the hack's special
-arm with a call into the generic dispatch.
+The `5f4333f` "hack" handled single-arg `func(*uint8)` indirect
+calls through native pointers (the `_call_free_fn` / `_call_dtor`
+signature). With Slices 3.1–3.3 in place, this is no longer a
+stopgap: it's the BC_CALL_INDIRECT counterpart of
+BC_CALL_FUNC_VALUE's data==null branch, dispatching the bare
+`func(*uint8)` signature the same way Slice 3.3 dispatches the
+always-shim `<ret>(i8* data, <args>)` signature. The "hack"
+framing was warranted at the time (single-signature stopgap with
+no broader design behind it); it isn't anymore.
 
-If 3.3's generic dispatch handles all signatures used by
-`_call_free_fn` / `_call_dtor`, the hack is fully retired. If
-not, the hack stays for the un-handled signatures with an
-explicit TODO and a clear extension story.
+What lands:
 
-Conformance: boot-comp-int-int 001_hello stays at the same
-post-hack progress level (cross-mode dispatch still works).
+- Re-comment the BC_CALL_INDIRECT cross-mode arm in
+  `pkg/vm/vm_exec.bn` to describe it as "the bare-signature
+  counterpart" of the BC_CALL_FUNC_VALUE data==null branch.
+  Drop the "hack" / "stopgap" language.
+- Update the `claude-todo.md` boot-comp-int-int entry to
+  reflect post-Phase-3 framing — the cross-mode arm is now
+  part of a coherent design.
+
+Other signatures: future indirect-call signatures (if any new
+ones appear) need their own magic name with matching shape.
+The pattern is set: name the magic, declare it in `pkg/rt.bni`,
+extend IR-gen's dispatch list, add the BC_CALL_INDIRECT arm
+when the cross-mode case is reachable.
+
+Verified: 289/289 in boot-comp / boot-comp-int /
+boot-comp_native_aa64.
 
 ## Open questions
 
-- **VM handle access from a trampoline**: single global. No
-  TLS — Binate has no plans for thread-local. Single global
-  is sufficient for cmd/bni today and any embedder running
-  one VM at a time. Multi-VM is an embedder concern and
-  doesn't change the design: each program builds with its
-  own trampolines and registers whichever VM is current via
-  `rt.SetCurrentVM`.
+- **VM handle access from a trampoline**: stored in the
+  VMClosureRec, not a global. Each function value carries its
+  own VM (`{kind, vm_handle, vm_func_idx, captured_ctx}`).
+  Multi-VM scenarios work without ordering concerns — the
+  function value points at whichever VM constructed it. Avoids
+  the global-state pitfall entirely.
 
 - **Argv packing convention**: standardize on the VM's
   existing int[]-as-register-bank layout. Bit-cast for
