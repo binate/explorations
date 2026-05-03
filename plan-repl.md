@@ -1,10 +1,12 @@
 # Plan: REPL (Interpreter-Only)
 
-> **Status: Tier 1 + Tier 2 (func/const/var with init) + Tier 4
-> (replace + shadow) LANDED** (2026-05-02).  `bni --repl
-> <file.bn|dir>` ships; top-level `func`, `const`, and `var`
-> decls persist across turns; `var x T = expr` initializers
-> evaluate before subsequent reads (both at the prompt and on
+> **Status: Tier 1 + Tier 2 (func/const/var with init,
+> untyped var inference) + Tier 4 (replace + shadow) LANDED**
+> (2026-05-02).  `bni --repl <file.bn|dir>` ships; top-level
+> `func`, `const`, and `var` decls persist across turns
+> (`var x = expr` infers type from a literal initializer);
+> `var x T = expr` and `var x = lit` both evaluate the
+> initializer before subsequent reads (at the prompt and on
 > file load); redefining a func works for both compatible-sig
 > (replace in place — old callers see new body) and
 > incompatible-sig (shadow — old callers retain old body via
@@ -151,13 +153,16 @@ patch — no extra work needed.
   regenerate dtor / copy helpers (and the dedup-aware machinery
   to avoid duplicate AddFunc on a re-run); make the new type's
   layout known to `pkg/types` queries.
-- **Untyped `var x = 5` at the prompt.**  The prompt still
-  rejects var decls without an explicit type — type inference
-  for top-level vars from initializers isn't wired through
-  `collectDecls` either at file-load or REPL time, and remains
-  a Tier 2 follow-up.  ~~Initializer evaluation itself~~
-  LANDED (2026-05-02) — see "Tier 2 var-initializer evaluation
-  landed" section below.
+- ~~**Untyped `var x = 5` at the prompt.**~~  LANDED
+  (2026-05-02).  Type inference from a literal initializer (int
+  / bool / char-slice / char / float) works at file scope and
+  at the prompt.  Non-literal initializers (function calls,
+  arithmetic) still need an explicit type — the type checker
+  could resolve those for top-level vars too, but that would
+  require threading the checker through IR-gen.  Out of scope
+  for the literal-init common case.
+  ~~Initializer evaluation itself~~ LANDED (2026-05-02) — see
+  "Tier 2 var-initializer evaluation landed" section below.
 - **Method declarations** (`func (r T) m(...) ...`).  Diagnostic
   surfaces for these too.  Method-receiver registration and
   vtable interactions add scope.
@@ -390,17 +395,33 @@ of reshuffle.
 | `cmd/bni/repl.bn` | After REPL `var x T = expr`, build a one-shot synthetic via `MakeInitAssignStmt + GenSyntheticFunc + LowerOneFunc + CallByVMFunc`. |
 | `runtime/binate_runtime.c` | One-line: call `bn_entry()` instead of `bn_main()`. |
 
-Conformance test `345_global_var_init.bn` exercises the
+Conformance test `353_global_var_init.bn` exercises the
 end-to-end path in all four chains (boot / boot-comp /
 boot-comp-int / boot-comp-comp).  pkg/ir gains 9 unit tests
 in `gen_init_test.bn` covering each emitter individually.
 
-### Out of scope (Tier 2 follow-ups still)
+(Originally numbered 345; renumbered to 353 to free the slot
+for `345_interface_decl` which landed in parallel.)
 
-- **Untyped `var x = 5`** at the prompt and at file scope.
-  Type inference for top-level vars from initializers isn't
-  wired through `collectDecls`; orthogonal to init evaluation
-  itself.
+## Tier 2 untyped var landed — what shipped (2026-05-02)
+
+`var x = expr` (no explicit type) at file scope and at the
+REPL prompt now infers the var's type from the initializer
+literal: `var x = 42` → int, `var x = true` → bool,
+`var x = "hi"` → @[]const char, `var x = 'A'` → char,
+`var x = 1.5` → float64.
+
+Single commit on main (`fdf6b52`).  New helper
+`pkg/ir.resolveGlobalVarType(d)` honors `d.TypeRef` when set,
+infers from initializer kind otherwise.  Both file-load DECL_VAR
+sites and REPL `GenDecl` use it.
+
+Non-literal initializers (`var x = i + 100`, `var y = foo()`)
+still need an explicit type — the type checker resolves those
+for local vars but threading it through IR-gen for top-level
+vars wasn't worth the surface for this common case.  Users
+spell the type explicitly when needed.  Conformance test
+`352_global_var_untyped.bn` exercises the literal path.
 
 ## Tier 2 paren-aware accumulator landed — what shipped (2026-05-01)
 
