@@ -1,11 +1,13 @@
 # Plan: REPL (Interpreter-Only)
 
 > **Status: Tier 1 + Tier 2 (func/const/var with init,
-> untyped var inference) + Tier 4 (replace + shadow) LANDED**
-> (2026-05-02).  `bni --repl <file.bn|dir>` ships; top-level
-> `func`, `const`, and `var` decls persist across turns
-> (`var x = expr` infers type from a literal initializer);
-> `var x T = expr` and `var x = lit` both evaluate the
+> untyped var inference, type — easy paths) + Tier 4 (replace
+> + shadow) LANDED** (2026-05-03).  `bni --repl <file.bn|dir>`
+> ships; top-level `func`, `const`, `var`, and `type` decls
+> persist across turns (`var x = expr` infers type from a
+> literal initializer; `type T struct {...}` works for structs
+> without managed fields plus aliases and named non-struct
+> types); `var x T = expr` and `var x = lit` both evaluate the
 > initializer before subsequent reads (at the prompt and on
 > file load); redefining a func works for both compatible-sig
 > (replace in place — old callers see new body) and
@@ -14,9 +16,10 @@
 > The brace-balance accumulator is paren-aware, so multi-line
 > `const ( ... )` etc. are recognized as continuations.  Tier 3
 > (forward refs) and Tier 5 (mid-session imports) remain DRAFT;
-> Tier 2 also has follow-ups for type / methods; Tier 4 still
-> has small follow-ups (refcount-aware shadow warning,
-> forced-shadow escape hatch, method redefinition).
+> Tier 2 also has follow-ups for managed-field structs +
+> methods; Tier 4 still has small follow-ups (refcount-aware
+> shadow warning, forced-shadow escape hatch, method
+> redefinition).
 > Compiled-mode REPL features (hot-swap of interpreted functions
 > while a compiled binary runs, package descriptors, cross-mode
 > trampolines) are explicitly out of scope here — they belong to
@@ -148,11 +151,15 @@ patch — no extra work needed.
 
 ### Out of scope in the first cut (Tier 2 follow-ups)
 
-- **`type` at the prompt.**  `ir.GenDecl` surfaces a "not yet
-  supported" diagnostic.  Needs: register in `moduleStructs`;
-  regenerate dtor / copy helpers (and the dedup-aware machinery
-  to avoid duplicate AddFunc on a re-run); make the new type's
-  layout known to `pkg/types` queries.
+- ~~**`type` at the prompt.**~~ LANDED for the easy paths
+  (2026-05-03) — see "Tier 2 type-at-prompt landed" section
+  below.  Aliases (`type R = @[]char`), named non-struct types
+  (`type Celsius int`), and struct types without managed fields
+  (`type Point struct { X int; Y int }`) all work.  Structs
+  with managed fields are deferred — they need dedup-aware
+  regeneration of `__dtor_<T>` / `__copy_<T>` helpers, which
+  interacts with the `m.Funcs` machinery the redefinition /
+  shadow paths already manage.
 - ~~**Untyped `var x = 5` at the prompt.**~~  LANDED
   (2026-05-02).  Type inference from a literal initializer (int
   / bool / char-slice / char / float) works at file scope and
@@ -422,6 +429,42 @@ for local vars but threading it through IR-gen for top-level
 vars wasn't worth the surface for this common case.  Users
 spell the type explicitly when needed.  Conformance test
 `352_global_var_untyped.bn` exercises the literal path.
+
+## Tier 2 type-at-prompt landed — what shipped (2026-05-03)
+
+`type` declarations now work at the prompt for the three forms
+whose IR-side state mirrors what the file-load path already
+does, with no new helper-function generation needed:
+
+```
+> type Result = @[]const char            (alias)
+> type Celsius int                        (named non-struct)
+> type Point struct { X int; Y int }      (struct, no managed fields)
+> var p Point
+> p.X = 10; p.Y = 20
+> println(p.X + p.Y)                      → 30
+```
+
+Subsequent `var p Point`, field assignments, reads, and use as
+function parameter / result types all resolve through the
+existing `moduleStructs` / `moduleTypeAliases` lookups.
+
+Single commit on main (`60a23c1`).  New helper
+`pkg/ir.genReplTypeDecl` dispatches DECL_TYPE to the right
+side-table; called from GenDecl.
+
+### Out of scope (deferred)
+
+- **Struct types containing managed fields**
+  (`type T struct { S @[]int }`).  These need
+  `__dtor_<T>` / `__copy_<T>` regenerated on each prompt type
+  decl with dedup so subsequent decls don't double-emit.  The
+  dedup machinery interacts with the `m.Funcs` redefinition /
+  shadow paths and warrants its own focused commit.
+  Diagnostic surfaces ("type with managed fields not yet
+  supported at the prompt") and the session continues.
+- **Methods on prompt-defined types** remain a separate Tier 2
+  follow-up.
 
 ## Tier 2 paren-aware accumulator landed — what shipped (2026-05-01)
 
