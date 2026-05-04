@@ -1,25 +1,26 @@
 # Plan: REPL (Interpreter-Only)
 
 > **Status: Tier 1 + Tier 2 (func/const/var with init,
-> untyped var inference, type — easy paths) + Tier 4 (replace
-> + shadow) LANDED** (2026-05-03).  `bni --repl <file.bn|dir>`
-> ships; top-level `func`, `const`, `var`, and `type` decls
-> persist across turns (`var x = expr` infers type from a
-> literal initializer; `type T struct {...}` works for structs
-> without managed fields plus aliases and named non-struct
-> types); `var x T = expr` and `var x = lit` both evaluate the
-> initializer before subsequent reads (at the prompt and on
-> file load); redefining a func works for both compatible-sig
-> (replace in place — old callers see new body) and
-> incompatible-sig (shadow — old callers retain old body via
-> eager-filled CallCache, new callers route to the new VMFunc).
-> The brace-balance accumulator is paren-aware, so multi-line
+> untyped var inference, type — easy paths, methods) + Tier 4
+> (replace + shadow) LANDED** (2026-05-03).  `bni --repl
+> <file.bn|dir>` ships; top-level `func` (incl. methods),
+> `const`, `var`, and `type` decls persist across turns
+> (`var x = expr` infers type from a literal initializer;
+> `type T struct {...}` works for structs without managed
+> fields plus aliases and named non-struct types; methods
+> attach to any local receiver type); `var x T = expr` and
+> `var x = lit` both evaluate the initializer before
+> subsequent reads (at the prompt and on file load);
+> redefining a func works for both compatible-sig (replace in
+> place — old callers see new body) and incompatible-sig
+> (shadow — old callers retain old body via eager-filled
+> CallCache, new callers route to the new VMFunc).  The
+> brace-balance accumulator is paren-aware, so multi-line
 > `const ( ... )` etc. are recognized as continuations.  Tier 3
 > (forward refs) and Tier 5 (mid-session imports) remain DRAFT;
-> Tier 2 also has follow-ups for managed-field structs +
-> methods; Tier 4 still has small follow-ups (refcount-aware
-> shadow warning, forced-shadow escape hatch, method
-> redefinition).
+> Tier 2 still has a follow-up for managed-field structs;
+> Tier 4 still has small follow-ups (refcount-aware shadow
+> warning, forced-shadow escape hatch, method redefinition).
 > Compiled-mode REPL features (hot-swap of interpreted functions
 > while a compiled binary runs, package descriptors, cross-mode
 > trampolines) are explicitly out of scope here — they belong to
@@ -170,9 +171,13 @@ patch — no extra work needed.
   for the literal-init common case.
   ~~Initializer evaluation itself~~ LANDED (2026-05-02) — see
   "Tier 2 var-initializer evaluation landed" section below.
-- **Method declarations** (`func (r T) m(...) ...`).  Diagnostic
-  surfaces for these too.  Method-receiver registration and
-  vtable interactions add scope.
+- ~~**Method declarations** (`func (r T) m(...) ...`).~~
+  LANDED (2026-05-03) — see "Tier 2 methods-at-prompt landed"
+  section below.  Both pointer and value receivers; receiver
+  type can be any prompt-defined or loaded-module local type.
+  Method redefinition (Tier 4 follow-up) is still excluded —
+  needs per-type-method-set bookkeeping rather than the
+  free-func name-lookup `setOrAppendFuncSig` provides.
 - **New managed-type dtor needs introduced by a body.**  If a
   func defined at the prompt uses a `@[]T` shape that wasn't in
   the loaded module, the dtor is missing.  Fix is dedup-aware
@@ -463,8 +468,39 @@ side-table; called from GenDecl.
   shadow paths and warrants its own focused commit.
   Diagnostic surfaces ("type with managed fields not yet
   supported at the prompt") and the session continues.
-- **Methods on prompt-defined types** remain a separate Tier 2
-  follow-up.
+- ~~**Methods on prompt-defined types**~~ LANDED (2026-05-03)
+  — see "Tier 2 methods-at-prompt landed" section below.
+
+## Tier 2 methods-at-prompt landed — what shipped (2026-05-03)
+
+Method declarations now work at the prompt for any local
+receiver type (one defined at the prompt OR in the loaded
+main package).  Both pointer and value receivers; receiver
+name is in scope inside the body via the prepended-Params[0]
+convention used by the file-load path.
+
+```
+> type Counter struct { n int }
+> func (c *Counter) Inc() { c.n = c.n + 1 }
+> func (c Counter) Get() int { return c.n }
+> var k Counter
+> k.Inc(); k.Inc(); k.Inc()
+> println(k.Get())                      → 3
+```
+
+Single commit on main (`4e350fe`).  GenDecl now mirrors the
+file-load path's pass-3 (sig registration via `methodSig`)
+and pass-4 (body via `genMethod`) for DECL_FUNC with d.Recv
+!= nil.  The type checker had already handled
+collectMethodDecl in CheckDeclInScope; this just removes the
+IR-side rejection.
+
+### Out of scope (deferred)
+
+- **Method redefinition** at the prompt.  Free-func
+  redefinition uses `setOrAppendFuncSig`'s name lookup;
+  methods need per-type-method-set bookkeeping, which is a
+  Tier 4 follow-up.
 
 ## Tier 2 paren-aware accumulator landed — what shipped (2026-05-01)
 
