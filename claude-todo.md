@@ -116,48 +116,52 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   there's a concrete user (e.g., a self-hosted source file that
   wants the form, or a broader bootstrap-subset widening pass).
 
-### boot-comp-int-int: extreme slowness on simple tests (post leak fix)
-- **Repro**: `conformance/run.sh boot-comp-int-int 001_hello`.
-  Mode not in the `all` modeset, so CI is unaffected.
-- **State (2026-05-02)**: vm.Stack overflow root cause FIXED via
-  OP_SP_RESTORE plumbing across IR + all backends + IR-gen
-  end-of-statement emission. Plan + execution: see commits
-  `322a90a`, `2e1a4c3`, `7079fa6`, `f47f474`, `3393e62` (the
-  five-step series). Confirmed: 001_hello no longer crashes —
-  ran past 135min CPU / 2h16m wall with steady RSS ~11 MB
-  (no leak, no overflow). `boot-comp-int` (one level less of
-  interpretation) completes instantly with `hello world`.
-- **What's left**: the test no longer crashes but is so slow
-  it never produces output in any reasonable time. Two candidates
-  for the new bottleneck:
-  1. **Per-statement BC_SP_RESTORE overhead** — IR-gen now emits
-     OP_SP_RESTORE at end of every statement that contains a
-     vm.SP-growing op (aggregate-returning call, MAKE_SLICE,
-     FUNC_VALUE, RODATA_MSLICE_COPY, RODATA_ARRAY). cmd/bni's
-     source has many such statements, each adding one bytecode
-     dispatch. At boot-comp-int-int that's two layers of
-     interpretation, so each emitted SP_RESTORE costs O(N) per
-     execution where N is the depth of interpretation cost.
-  2. **Real recursion** previously masked by the leak hitting
-     StackSize as a brutal-but-fast termination. Without the
-     leak, the recursion just runs forever (or near-forever).
-- **Suggested next steps**:
-  1. **Perf measure bni before/after Step 5** (`3393e62`).
-     Time `bni some-real-test.bn` with the pre-Step-5 binary vs
-     the post-Step-5 binary. If post-Step-5 is significantly
-     slower for normal workloads, the SP_RESTORE emission rate
-     is the hot path — could narrow further (only emit when
-     resultTyp is genuinely "in-callee-region", which excludes
-     early-return-aliased paths).
-  2. **Heartbeat in execLoop** to confirm/refute progress —
-     periodic outer-loop counter print shows whether it's
-     making progress and at what rate.
-  3. **Profile** `LowerModule` / `LowerOneFunc` for cmd/bni's
-     substantial body — possible quadratic blowup (`9af2d56`'s
-     name→idx hash + eager CallCache fill addressed one such
-     issue; there may be more).
-- **Not blocking**: not in the `all` modeset; conformance and
-  unit tests pass without this.
+### boot-comp-int-int: blocked on registerPureCExterns from interpreted cmd/bni
+- **Repro**: `conformance/run.sh boot-comp-int-int 001_hello` (or
+  any boot-comp-int-int run). Mode not in the `all` modeset, so
+  CI is unaffected. Smaller repro: e2e/print-args.sh's `bni-under-bni`
+  case (currently SKIPed pointing here).
+- **State (2026-05-04)**: TWO root causes were stacked.
+  1. **vm.Stack overflow** — FIXED via OP_SP_RESTORE plumbing
+     across IR + all backends + IR-gen end-of-statement emission.
+     Five-step series: `322a90a`, `2e1a4c3`, `7079fa6`, `f47f474`,
+     `3393e62`.
+  2. **Infinite recursion** — FIXED. Inner cmd/bni called
+     `bootstrap.Args()` and got the OUTER process's full argv
+     (including `cmd/bni` itself), so its parseArgs reinterpreted
+     cmd/bni at every level. Fix: cmd/bni now registers a Binate
+     shim (`progArgsAfterDash`) under the `"bootstrap.Args"`
+     extern name in the per-VM registry, so programs running in
+     bni's VM see post-`--` args (matching the spec and the Go
+     bootstrap interpreter). This is what made the original "leak"
+     symptom (8 MB vmInst per recursion level) catastrophic.
+  3. **CURRENT BLOCKER**: registerPureCExterns crashes when called
+     from interpreted cmd/bni. `var libcMalloc *func(int) *uint8 =
+     libc.Malloc` requires LookupFunc("libc.Malloc") to find a
+     VMFunc; libc.Malloc has no `.bn` body, so lookup fails and
+     execLoop calls rt.Exit(1) with "vm: function not found:
+     libc.Malloc". Outer cmd/bni's main runs natively (so the
+     direct function-pointer dereference works); inner cmd/bni
+     runs as bytecode (so the same code path is hit through
+     BC_FUNC_VALUE, which can only resolve VMFunc names).
+  - Introduced by the registry refactor (`a841f30`, `9486de9`,
+    `faa98dc`). Pre-refactor, hand-coded arms in vm_extern.bn
+    served libc/bootstrap calls without any registration step;
+    refactor moved bindings into a per-VM registry that requires
+    a function value at registration time.
+- **Suggested fix paths** (architectural choice, not a quick
+  patch):
+  1. Detect interpreted context in cmd/bni and skip
+     registerPureCExterns; let calls fall through to vm_extern.bn's
+     hand-coded arms. Fragile; "interpreted" detection isn't
+     first-class.
+  2. Revert pure-C externs out of the registry — keep the registry
+     for `.bn`-bodied bindings only. Mixes two dispatch shapes per
+     extern name but localizes the change.
+  3. Add a "register by name" entry to the registry — store the
+     name only, resolve at call time via the existing vm_extern.bn
+     fallback. Fits the existing fallback structure.
+- **Not blocking**: still not in the `all` modeset.
 - **Earlier original diagnosis** (pre-leak-fix, kept for context):
   caller was bytecode `rt.Free`, fnIdx was a NATIVE function
   pointer (e.g. 0x1043F5BAC ≈ 4.37e9) being treated as a 1-
