@@ -36,6 +36,28 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     the receiver should be Block or Func. Pick one before starting
     mechanics.
 
+### pkg/types boot-comp regression: hang during unit-test run
+- **Repro**: `scripts/unittest/run.sh boot-comp pkg/types` hangs at
+  `TestCheckSizeofBasic` and gets killed by the runner's 90s
+  timeout. boot mode (Go interpreter) passes; full conformance under
+  boot-comp passes. Only the unit-test compiled binary hangs.
+- **Bisect**: introduced by `7251ffc pkg/parser: migrate Parser
+  helpers to method form`.
+  - `255dc19` (Slice 2.3a-4): pkg/types boot-comp passes.
+  - `7251ffc`: pkg/types boot-comp hangs.
+- **Suspect**: 7251ffc was a pure rename refactor (`next(p)` →
+  `p.next()`, etc.) — semantically a no-op. Conformance passes, so
+  bnc-compiled binaries generally work. Hang is specific to the
+  unit-test pattern (one binary running ~200 tests in sequence);
+  TestCheckSizeofBasic happens to be where the cumulative state
+  tips over. Could be method-call dispatch interacting badly with
+  long-running test binaries (stack growth? something cumulative?
+  GC interaction?). Not yet root-caused.
+- **Not blocking** for the interface work or compiler functionality
+  generally. boot-mode tests still pass; conformance passes; only
+  the boot-comp unit-test runner is affected. Discovered while
+  investigating Slice 2.3b regression coverage.
+
 ### Clarify rules for integer literals and constant expressions
 - The bootstrap interpreter rejects hex literals with the high bit set
   (`strconv.ParseInt(..., 16, 64)` overflows int64), e.g.
