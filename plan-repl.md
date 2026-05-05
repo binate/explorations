@@ -1,24 +1,33 @@
 # Plan: REPL (Interpreter-Only)
 
-> **Status: Tier 1 + Tier 2 (FULL) + Tier 4 (replace +
-> shadow) LANDED** (2026-05-04).  `bni --repl <file.bn|dir>`
-> ships.  Tier 2 is functionally complete: every top-level
-> decl kind now works at the prompt — `func` (incl. methods,
-> redefinition replace + shadow), `const` (single, untyped,
-> grouped), `var` (typed, untyped-with-literal-init, with
-> init), `type` (aliases, named non-struct, structs incl.
-> managed-field).  `var x T = expr` and `var x = lit` both
-> evaluate the initializer before subsequent reads (at the
-> prompt and on file load).  Redefining a func works for both
-> compatible-sig (replace in place — old callers see new body)
-> and incompatible-sig (shadow — old callers retain old body
-> via eager-filled CallCache, new callers route to the new
-> VMFunc).  The brace-balance accumulator is paren-aware, so
-> multi-line `const ( ... )` etc. are recognized as
-> continuations.  Tier 3 (forward refs) and Tier 5
-> (mid-session imports) remain DRAFT; Tier 4 still has small
-> follow-ups (refcount-aware shadow warning, forced-shadow
-> escape hatch, method redefinition).
+> **Status: Tier 1 + Tier 2 (FULL) + Tier 3 (forward refs) +
+> Tier 4 (replace + shadow) LANDED** (2026-05-05).
+> `bni --repl <file.bn|dir>` ships.  Tier 2 is functionally
+> complete: every top-level decl kind now works at the prompt
+> — `func` (incl. methods, redefinition replace + shadow),
+> `const` (single, untyped, grouped), `var` (typed,
+> untyped-with-literal-init, with init), `type` (aliases,
+> named non-struct, structs incl. managed-field).  `var x T =
+> expr` and `var x = lit` both evaluate the initializer
+> before subsequent reads (at the prompt and on file load).
+> Redefining a func works for both compatible-sig (replace
+> in place — old callers see new body) and incompatible-sig
+> (shadow — old callers retain old body via eager-filled
+> CallCache, new callers route to the new VMFunc).  The
+> brace-balance accumulator is paren-aware, so multi-line
+> `const ( ... )` etc. are recognized as continuations.
+> Tier 3 forward refs work for `func` decls: a body that
+> references a not-yet-bound name parks (sig stays in scope,
+> body deferred), the prompt prints `function f parked
+> (pending: g)`, defining the missing name retries every
+> parked decl and prints `function f resolved` when the body
+> now type-checks.  Use-site calls to a still-parked func
+> surface a clean type-check error
+> (`function f is unresolved`) instead of an opaque runtime
+> "extern not found".  Tier 5 (mid-session imports) remains
+> DRAFT; Tier 4 still has small follow-ups (refcount-aware
+> shadow warning, forced-shadow escape hatch, method
+> redefinition).
 > Compiled-mode REPL features (hot-swap of interpreted functions
 > while a compiled binary runs, package descriptors, cross-mode
 > trampolines) are explicitly out of scope here — they belong to
@@ -183,9 +192,10 @@ patch — no extra work needed.
   re-run of `generateDtors` / `generateCopies`.  Until then,
   bodies typed at the prompt should stick to managed-type shapes
   the loaded module already uses.
-- **Forward references** (Tier 3) remain explicitly excluded.
-  **Redefinition** (Tier 4) replace path has since landed; see
-  the dedicated section below.
+- **Forward references** (Tier 3) have since landed for
+  `func` decls — see the "Tier 3 forward refs landed" section
+  below.  **Redefinition** (Tier 4) replace path has also
+  landed; see the dedicated section below.
 
 ### Conformance / unit-test coverage
 
@@ -503,6 +513,59 @@ REPL work is in Tier 3 (forward refs), Tier 4 follow-ups
 (refcount-aware shadow warning, method redefinition,
 forced-shadow), and Tier 5 (mid-session imports).
 
+## Tier 3 forward refs landed — what shipped (2026-05-05)
+
+A func decl whose body references names not yet bound now
+parks rather than erroring.  When the missing names later
+arrive, the parked func is automatically re-checked, IR-gen'd,
+and lowered.  Calling a still-parked func from non-tentative
+code surfaces a clean type-checker error instead of letting
+the runtime hit "extern not found".
+
+```
+> func f() int { return g() + 1 }
+function f parked (pending: g)
+> func g() int { return 41 }
+function f resolved
+> println(f())
+42
+```
+
+Chain forward refs (`a → b → c`, all parked, all resolve when
+`c` arrives) and mutual recursion (`evenQ ↔ oddQ`) work too.
+
+DECL_FUNC only in this first cut.  Pending types / vars /
+consts (a struct definition referencing an undefined type is
+itself unsizable) need a more structural treatment of
+"unsized" type symbols and are deferred.
+
+Single commit on main (`b470bb0`).  Implementation:
+
+| Layer | Change |
+|---|---|
+| `pkg/types.bni` | New fields on `Checker`: `TentativeMode`, `TentativeMissing`, `TentativeErrors`, `Pending`.  New `PendingDecl` type.  New entry points `IsDeclPending`, `RetryPendingDecls`, `IsPendingFunc`. |
+| `pkg/types/checker.bn` | `errUndefined` + `addCheckError` honor `TentativeMode` — undefined-name capture goes to `TentativeMissing`, all other body-check errors route to `TentativeErrors` (so cascading "cannot call non-function" / "arithmetic op requires numeric" follow-ups don't surface as separate user-visible errors).  `CheckDeclInScope` for DECL_FUNC runs the body in TentativeMode; afterwards parks if missing names captured, or migrates real errors otherwise. |
+| `pkg/types/check_pending.bn` (new) | The queue mechanics — `parkPendingDecl`, `RetryPendingDecls`, `IsDeclPending`, `IsPendingFunc`, `migrateTentativeErrors`. |
+| `pkg/types/check_expr.bn` | `checkIdent` emits "function X is unresolved (pending: ...)" when the name resolves to a parked func and we're not in TentativeMode.  Returns the real func type so cascading "cannot call non-function" doesn't follow. |
+| `pkg/vm/lower.bn` | New `backfillExternCachesForName` — when a freshly-lowered VMFunc's name enters the funcIndex, walk all earlier-lowered VMFuncs and upgrade any -1 (cached "extern unknown") CallCache entries that match.  Solves the "caller lowered before callee available" problem (which Tier 3 hits when a pending callee finally resolves and lowers).  Tier 4 shadow correctness preserved — only -1 entries are touched. |
+| `cmd/bni/repl.bn` | `evalReplDecl` detects parked decls via `IsDeclPending`, prints "function X parked (pending: ...)", skips IR-gen.  After every successful decl, calls `RetryPendingDecls`; for each newly-resolved decl, prints "function X resolved" and IR-gens + lowers it. |
+
+### Out of scope (Tier 3 follow-ups)
+
+- **Pending types / vars / consts.**  A pending struct is
+  unsizable; uses of it must be transitively pending.
+  Substantial structural work beyond this commit's scope.
+- **Cycle detection** for mutually-pending decls.  Today's
+  retry loop handles real cycles trivially since both sigs
+  are in scope from `collectDecls`; no explicit cycle
+  detection needed.
+
+### Drive-by
+
+Split `pkg/types/checker.bn` (was 610 lines, over the 600
+hard cap after the Tier 3 edits) — extracted the pending-
+decl plumbing into `check_pending.bn` (505 + 116 lines now).
+
 ## Tier 2 methods-at-prompt landed — what shipped (2026-05-03)
 
 Method declarations now work at the prompt for any local
@@ -819,28 +882,32 @@ addition to immediate-mode entries.
 
 ## Tier 3: Forward references / pending validation
 
-Real new semantic infrastructure. The type checker grows a
-"pending" queue: when a declaration references a name that
-isn't bound yet, the decl is parked rather than errored. When
-the dependency binds, parked decls re-attempt validation.
+Shipped for DECL_FUNC (2026-05-05) — see "Tier 3 forward refs
+landed" section above for the detailed state.  The pre-
+implementation sketch below is preserved for context; the
+"open questions" turned out to have these answers:
 
-### What's new
+- **Pending types / vars / consts**: deferred (Tier 3
+  follow-up).  A pending struct is unsizable and uses of it
+  must be transitively pending; structural treatment beyond
+  this commit's scope.
+- **User-visible message at decl time**: yes — prints
+  "function X parked (pending: a, b)".  When the missing
+  names arrive, prints "function X resolved" and IR-gens +
+  lowers.  Use-site calls to a still-parked func surface
+  "function X is unresolved (pending: a, b)" rather than
+  letting the runtime hit "extern not found".
+
+### What was new (LANDED)
 
 - Pending queue in `pkg/types` (per-checker, per-session).
-- Re-attempt-on-bind hook.
+- Re-attempt-on-bind hook (`RetryPendingDecls`).
 - Use of a still-pending decl reports at the call site, not at
-  decl time.
-- Type checker invariants need pinning: pending decls don't
-  participate in scope lookups; pending types don't have layout.
-
-### Open questions
-
-- What does "pending" mean for a `type` (vs a `func`)? A
-  pending struct definition can't have its size computed; uses
-  of it are themselves pending until layout exists.
-- Does the user see anything? E.g. should the prompt indicate
-  `f` is currently pending on `g`? Probably yes — print a
-  one-liner at decl time.
+  decl time (via `IsPendingFunc` check in `checkIdent`).
+- Type checker invariants pinned: pending decls' SIGS DO
+  participate in scope lookups (so other code can reference
+  the parked func by name); only the body-level resolution is
+  deferred.
 
 ## Tier 4: Redefinition
 
@@ -986,7 +1053,9 @@ implementation:
   authoritative list of struct types and their dtors? Needs to
   be appendable.
 - **Pending visibility** (Tier 3): does the user see "`f`
-  pending on `g`" at decl time? Probably yes.
+  pending on `g`" at decl time? Yes — landed 2026-05-05;
+  prints "function f parked (pending: g)" / "function f
+  resolved" / "function f is unresolved" at use sites.
 - **Session save/restore**: out of scope. The save case is
   serializing the heap, which is enormous and unrelated.
   Sessions are process-bound.
