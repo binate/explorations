@@ -1,26 +1,24 @@
 # Plan: REPL (Interpreter-Only)
 
-> **Status: Tier 1 + Tier 2 (func/const/var with init,
-> untyped var inference, type — easy paths, methods) + Tier 4
-> (replace + shadow) LANDED** (2026-05-03).  `bni --repl
-> <file.bn|dir>` ships; top-level `func` (incl. methods),
-> `const`, `var`, and `type` decls persist across turns
-> (`var x = expr` infers type from a literal initializer;
-> `type T struct {...}` works for structs without managed
-> fields plus aliases and named non-struct types; methods
-> attach to any local receiver type); `var x T = expr` and
-> `var x = lit` both evaluate the initializer before
-> subsequent reads (at the prompt and on file load);
-> redefining a func works for both compatible-sig (replace in
-> place — old callers see new body) and incompatible-sig
-> (shadow — old callers retain old body via eager-filled
-> CallCache, new callers route to the new VMFunc).  The
-> brace-balance accumulator is paren-aware, so multi-line
-> `const ( ... )` etc. are recognized as continuations.  Tier 3
-> (forward refs) and Tier 5 (mid-session imports) remain DRAFT;
-> Tier 2 still has a follow-up for managed-field structs;
-> Tier 4 still has small follow-ups (refcount-aware shadow
-> warning, forced-shadow escape hatch, method redefinition).
+> **Status: Tier 1 + Tier 2 (FULL) + Tier 4 (replace +
+> shadow) LANDED** (2026-05-04).  `bni --repl <file.bn|dir>`
+> ships.  Tier 2 is functionally complete: every top-level
+> decl kind now works at the prompt — `func` (incl. methods,
+> redefinition replace + shadow), `const` (single, untyped,
+> grouped), `var` (typed, untyped-with-literal-init, with
+> init), `type` (aliases, named non-struct, structs incl.
+> managed-field).  `var x T = expr` and `var x = lit` both
+> evaluate the initializer before subsequent reads (at the
+> prompt and on file load).  Redefining a func works for both
+> compatible-sig (replace in place — old callers see new body)
+> and incompatible-sig (shadow — old callers retain old body
+> via eager-filled CallCache, new callers route to the new
+> VMFunc).  The brace-balance accumulator is paren-aware, so
+> multi-line `const ( ... )` etc. are recognized as
+> continuations.  Tier 3 (forward refs) and Tier 5
+> (mid-session imports) remain DRAFT; Tier 4 still has small
+> follow-ups (refcount-aware shadow warning, forced-shadow
+> escape hatch, method redefinition).
 > Compiled-mode REPL features (hot-swap of interpreted functions
 > while a compiled binary runs, package descriptors, cross-mode
 > trampolines) are explicitly out of scope here — they belong to
@@ -152,15 +150,16 @@ patch — no extra work needed.
 
 ### Out of scope in the first cut (Tier 2 follow-ups)
 
-- ~~**`type` at the prompt.**~~ LANDED for the easy paths
-  (2026-05-03) — see "Tier 2 type-at-prompt landed" section
-  below.  Aliases (`type R = @[]char`), named non-struct types
-  (`type Celsius int`), and struct types without managed fields
-  (`type Point struct { X int; Y int }`) all work.  Structs
-  with managed fields are deferred — they need dedup-aware
-  regeneration of `__dtor_<T>` / `__copy_<T>` helpers, which
-  interacts with the `m.Funcs` machinery the redefinition /
-  shadow paths already manage.
+- ~~**`type` at the prompt.**~~ FULLY LANDED (2026-05-03 +
+  2026-05-04) — see "Tier 2 type-at-prompt landed" and "Tier 2
+  managed-field structs landed" sections below.  Aliases
+  (`type R = @[]char`), named non-struct types
+  (`type Celsius int`), structs without managed fields
+  (`type Point struct { X int; Y int }`), AND structs with
+  managed fields (`type Bag struct { items @[]int }`) all
+  work — the dedup-aware regen of `__dtor_<T>` / `__copy_<T>`
+  reuses the existing helper machinery, scoped one-struct-at-
+  a-time and dedup'd against `m.Funcs`.
 - ~~**Untyped `var x = 5` at the prompt.**~~  LANDED
   (2026-05-02).  Type inference from a literal initializer (int
   / bool / char-slice / char / float) works at file scope and
@@ -460,16 +459,49 @@ side-table; called from GenDecl.
 
 ### Out of scope (deferred)
 
-- **Struct types containing managed fields**
-  (`type T struct { S @[]int }`).  These need
-  `__dtor_<T>` / `__copy_<T>` regenerated on each prompt type
-  decl with dedup so subsequent decls don't double-emit.  The
-  dedup machinery interacts with the `m.Funcs` redefinition /
-  shadow paths and warrants its own focused commit.
-  Diagnostic surfaces ("type with managed fields not yet
-  supported at the prompt") and the session continues.
+- ~~**Struct types containing managed fields**~~ LANDED
+  (2026-05-04) — see "Tier 2 managed-field structs landed"
+  section below.
 - ~~**Methods on prompt-defined types**~~ LANDED (2026-05-03)
   — see "Tier 2 methods-at-prompt landed" section below.
+
+## Tier 2 managed-field structs landed — what shipped (2026-05-04)
+
+`type T struct { S @[]int }` and similar — structs containing
+managed pointers or managed slices — now work at the prompt.
+This was the last open Tier 2 piece.
+
+```
+> type Bag struct { items @[]int }
+> var b Bag
+> b.items = make_slice(int, 3)
+> b.items[0] = 10; b.items[1] = 20; b.items[2] = 30
+> println(b.items[0] + b.items[1] + b.items[2])    → 60
+```
+
+Single commit on main (`ddd900f`).  Reuses the existing
+`genStructDtorWithName` / `genStructCopyWithName` /
+`ensureMsDtor` / `ensureArrayDtor` / `ensureArrayCopy`
+helpers from gen_dtor_emit.bn / gen_copy_emit.bn — same
+helpers the file-load passes call.  Difference is just the
+dedup scope: the new `ensureReplStructHelpers` targets one
+struct at a time and pre-populates the per-call `generated`
+slice from `m.Funcs` via `collectExistingHelperNames` (which
+strips the `NewFunc`-applied package qualifier so dedup
+compares unqualified-to-unqualified).  cmd/bni's
+`evalReplDecl` for DECL_TYPE now lowers every newly-added
+entry in `m.Funcs[preFuncCount:]` so emitted helpers get
+bytecode before subsequent code uses the new type.
+
+This closes out **Tier 2** — every top-level decl kind
+supported by the language now works at the REPL prompt:
+`func` (incl. methods, redefinition replace + shadow),
+`const` (single, untyped, grouped), `var` (typed,
+untyped-with-literal-init, with init), `type` (aliases,
+named non-struct, structs incl. managed-field).  Remaining
+REPL work is in Tier 3 (forward refs), Tier 4 follow-ups
+(refcount-aware shadow warning, method redefinition,
+forced-shadow), and Tier 5 (mid-session imports).
 
 ## Tier 2 methods-at-prompt landed — what shipped (2026-05-03)
 
