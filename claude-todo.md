@@ -36,27 +36,29 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     the receiver should be Block or Func. Pick one before starting
     mechanics.
 
-### pkg/types boot-comp regression: hang during unit-test run
-- **Repro**: `scripts/unittest/run.sh boot-comp pkg/types` hangs at
-  `TestCheckSizeofBasic` and gets killed by the runner's 90s
-  timeout. boot mode (Go interpreter) passes; full conformance under
-  boot-comp passes. Only the unit-test compiled binary hangs.
-- **Bisect**: introduced by `7251ffc pkg/parser: migrate Parser
-  helpers to method form`.
-  - `255dc19` (Slice 2.3a-4): pkg/types boot-comp passes.
-  - `7251ffc`: pkg/types boot-comp hangs.
-- **Suspect**: 7251ffc was a pure rename refactor (`next(p)` →
-  `p.next()`, etc.) — semantically a no-op. Conformance passes, so
-  bnc-compiled binaries generally work. Hang is specific to the
-  unit-test pattern (one binary running ~200 tests in sequence);
-  TestCheckSizeofBasic happens to be where the cumulative state
-  tips over. Could be method-call dispatch interacting badly with
-  long-running test binaries (stack growth? something cumulative?
-  GC interaction?). Not yet root-caused.
-- **Not blocking** for the interface work or compiler functionality
-  generally. boot-mode tests still pass; conformance passes; only
-  the boot-comp unit-test runner is affected. Discovered while
-  investigating Slice 2.3b regression coverage.
+### ~~pkg/types boot-comp regression: hang during unit-test run~~ — FIXED
+- **Root cause**: `pkg/ir/gen_method.bn` was missing the
+  needsStructCopy-on-arg handling that `gen_call.bn` does for free-
+  function calls. When a method takes a value-struct arg with
+  managed fields (e.g. `p.addError(pos, msg)` where `pos` is
+  `token.Pos` with `@[]char File`), the method-call path passed
+  the struct by value WITHOUT RefIncing the managed field. The
+  callee's scope cleanup then RefDec'd the field at end of scope,
+  freeing the backing under the caller. After many such calls the
+  freed-but-still-referenced backings led to use-after-free, then
+  malloc heap corruption — eventually trapped at the next Malloc
+  (which happened to be deep inside checkSrc → ParseFile →
+  appendDecl during TestCheckSizeofBasic).
+- **Why it appeared at 7251ffc**: parser helpers like next /
+  expect / addError were free functions before that commit, so
+  argument copies went through `gen_call.bn`'s correct handling.
+  Method form routed them through `gen_method.bn` instead, which
+  was missing the args-side struct-copy emit. The receiver-side
+  branch already had it; only user args were missed.
+- **Fix**: add the args-side `needsStructCopy` block to
+  `gen_method.bn` (mirrors `gen_call.bn`), and also the
+  `ctx.StmtGrewSP = true` markers on managed-slice / struct-copy
+  results (also missed). Boot-comp `pkg/types` 270/270 after fix.
 
 ### Clarify rules for integer literals and constant expressions
 - The bootstrap interpreter rejects hex literals with the high bit set
