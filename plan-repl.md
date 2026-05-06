@@ -1,7 +1,7 @@
 # Plan: REPL (Interpreter-Only)
 
 > **Status: Tier 1 + Tier 2 (FULL) + Tier 3 (forward refs) +
-> Tier 4 (replace + shadow) LANDED** (2026-05-05).
+> Tier 4 (replace + shadow, methods incl.) LANDED** (2026-05-05).
 > `bni --repl <file.bn|dir>` ships.  Tier 2 is functionally
 > complete: every top-level decl kind now works at the prompt
 > — `func` (incl. methods, redefinition replace + shadow),
@@ -10,24 +10,25 @@
 > named non-struct, structs incl. managed-field).  `var x T =
 > expr` and `var x = lit` both evaluate the initializer
 > before subsequent reads (at the prompt and on file load).
-> Redefining a func works for both compatible-sig (replace
-> in place — old callers see new body) and incompatible-sig
-> (shadow — old callers retain old body via eager-filled
-> CallCache, new callers route to the new VMFunc).  The
-> brace-balance accumulator is paren-aware, so multi-line
-> `const ( ... )` etc. are recognized as continuations.
-> Tier 3 forward refs work for `func` decls: a body that
-> references a not-yet-bound name parks (sig stays in scope,
-> body deferred), the prompt prints `function f parked
-> (pending: g)`, defining the missing name retries every
-> parked decl and prints `function f resolved` when the body
-> now type-checks.  Use-site calls to a still-parked func
-> surface a clean type-check error
-> (`function f is unresolved`) instead of an opaque runtime
-> "extern not found".  Tier 5 (mid-session imports) remains
-> DRAFT; Tier 4 still has small follow-ups (refcount-aware
-> shadow warning, forced-shadow escape hatch, method
-> redefinition).
+> Redefining a func or method works for both compatible-sig
+> (replace in place — old callers see new body) and
+> incompatible-sig (shadow — old callers retain old body via
+> eager-filled CallCache, new callers route to the new
+> VMFunc).  Method redef keys on the qualified
+> `<pkg>.<TypeName>.<Method>` name; the shadow warning
+> qualifies the name as `Counter.Add`.  The brace-balance
+> accumulator is paren-aware, so multi-line `const ( ... )`
+> etc. are recognized as continuations.  Tier 3 forward refs
+> work for `func` decls: a body that references a not-yet-
+> bound name parks (sig stays in scope, body deferred), the
+> prompt prints `function f parked (pending: g)`, defining
+> the missing name retries every parked decl and prints
+> `function f resolved` when the body now type-checks.  Use-
+> site calls to a still-parked func surface a clean type-
+> check error (`function f is unresolved`) instead of an
+> opaque runtime "extern not found".  Tier 5 (mid-session
+> imports) remains DRAFT; Tier 4 still has small follow-ups
+> (refcount-aware shadow warning, forced-shadow escape hatch).
 > Compiled-mode REPL features (hot-swap of interpreted functions
 > while a compiled binary runs, package descriptors, cross-mode
 > trampolines) are explicitly out of scope here — they belong to
@@ -183,9 +184,8 @@ patch — no extra work needed.
   LANDED (2026-05-03) — see "Tier 2 methods-at-prompt landed"
   section below.  Both pointer and value receivers; receiver
   type can be any prompt-defined or loaded-module local type.
-  Method redefinition (Tier 4 follow-up) is still excluded —
-  needs per-type-method-set bookkeeping rather than the
-  free-func name-lookup `setOrAppendFuncSig` provides.
+  Method redefinition has since LANDED (2026-05-05) — see
+  "Tier 4 method redefinition landed" section below.
 - **New managed-type dtor needs introduced by a body.**  If a
   func defined at the prompt uses a `@[]T` shape that wasn't in
   the loaded module, the dtor is missing.  Fix is dedup-aware
@@ -296,8 +296,49 @@ warning: helper shadowed (incompatible signature);
   refcounts cheaply.
 - **Forced-shadow escape hatch** (syntax TBD per
   `claude-notes.md`).
-- **Method redefinition** is still rejected at the IR-gen
-  layer (`GenDecl` rejects `DECL_FUNC` with a `Recv`).
+- ~~**Method redefinition**~~ has since LANDED (2026-05-05);
+  see "Tier 4 method redefinition landed" section below.
+
+## Tier 4 method redefinition landed — what shipped (2026-05-05)
+
+Methods at the prompt now follow the same replace/shadow rules
+free funcs already had.  Same-sig: replace in place — old
+callers see the new body via the in-place `vm.Funcs` rebind
+keyed on the qualified `<pkg>.<TypeName>.<Method>` name.
+Different-sig: shadow — old callers retain the old shape via
+their eager-filled CallCache; fresh calls route to the new
+VMFunc.  The shadow warning prints the qualified
+`Counter.Add` form for methods (bare name for free funcs).
+
+```
+> type Counter struct { n int }
+> func (c *Counter) Add() { c.n = c.n + 1 }
+> var k Counter
+> k.Add()
+> println(k.n)             → 1
+> func (c *Counter) Add(amt int) { c.n = c.n + amt }
+warning: Counter.Add shadowed (incompatible signature);
+         existing callers retain old definition
+> k.Add(7)
+> println(k.n)             → 8
+```
+
+Single commit on main (`026ad22`).  Implementation:
+
+| Layer | Change |
+|---|---|
+| `pkg/types/types.bn` | New `SetOrAppendMethod(t, m)` — replaces a same-named method on `t.Methods` in place, or appends if no match.  Sibling to `AddMethod` (which still refuses duplicates for the file-load path). |
+| `pkg/types/check_decl_func.bn` | `collectMethodDecl` branches on `c.AllowRedef`: routes through `SetOrAppendMethod` so a re-typed method replaces the method-set entry instead of tripping the duplicate-decl error.  New public `LookupMethodForDecl(c, d)` lets the REPL driver peek at the existing Method on a method decl's receiver type before `CheckDeclInScope` overwrites it. |
+| `pkg/ir/gen_repl.bn` | `GenDecl`'s method branch now uses `setOrAppendFuncSig` (matching the free-func path).  The qualified method name is unique per method, so the existing helper works as-is. |
+| `cmd/bni/repl.bn` | `evalReplDecl` pre-check + post-check now both dispatch on `d.Recv`: free funcs go through `Lookup(c.Scope, ...)`, methods go through `LookupMethodForDecl(c, d)`.  The replace/shadow dispatch and `LowerOneFunc` / `LowerOneFuncShadow` calls are otherwise unchanged.  New `printRedefName` helper qualifies the method name in the shadow warning. |
+
+### Drive-by
+
+`cmd/bni/repl.bn` was 502 lines before this change — already
+above the 500-line soft limit.  Split: extracted input-handling
+helpers (`readReplLine`, `appendByteRepl`, `computeOpenDepth`)
+into a sibling `repl_input.bn` (118 lines), leaving `repl.bn`
+at 440.  Test file split similarly into `repl_input_test.bn`.
 
 ## Tier 4 replace path landed — what shipped (2026-05-01)
 
@@ -592,10 +633,9 @@ IR-side rejection.
 
 ### Out of scope (deferred)
 
-- **Method redefinition** at the prompt.  Free-func
-  redefinition uses `setOrAppendFuncSig`'s name lookup;
-  methods need per-type-method-set bookkeeping, which is a
-  Tier 4 follow-up.
+- ~~**Method redefinition** at the prompt.~~  LANDED
+  2026-05-05; see "Tier 4 method redefinition landed" section
+  above.
 
 ## Tier 2 paren-aware accumulator landed — what shipped (2026-05-01)
 
