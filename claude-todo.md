@@ -138,40 +138,31 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   there's a concrete user (e.g., a self-hosted source file that
   wants the form, or a broader bootstrap-subset widening pass).
 
-### Array of managed-slice elements: store / read broken in bnc
-- **Repros** (in conformance, xfailed for boot-comp & downstream
-  modes; pass under boot):
-  - `365_array_managed_elem_lit.bn` — `[3]@[]char{"a","b","c"}`
-    array literal with string-literal elements.  Bootstrap prints
-    the strings; bnc prints empty lines (correct count, but each
-    @[]char header reads as `{data=nil, len=0, ...}`).  No
-    crash, no diagnostic — silent wrong output.
-  - `366_array_managed_elem_assign.bn` — declare `var arr
-    [3]@[]char` and indexed-assign `arr[i] = "x"`.  bnc fails
-    earlier, at LLVM IR generation:
-        main.ll:136:22: error: extractvalue operand must be
-        aggregate type
-        %v9 = extractvalue i8* %v2, 2
-    — codegen tries to extractvalue from a pointer instead of
-    a struct, so the bytecode for the indexed store is malformed.
-- **Why this matters**: blocks any unit-test cleanup that wants to
-  use `[N]@[]char{...}` for fixture data (came up while doing the
-  conformance "make_slice → array literal" sweep — the conformance
-  cases use scalar elements so they're unaffected, but most
-  asm/macho/loader unit tests use `make_slice(@[]char, N)` for
-  their command-arg fixtures and would need this to be fixed
-  before they can be cleaned up similarly).  Likely also affects
-  any other array of managed elements (`[N]@T`, `[N]@[]int`,
-  `[N]struct-with-managed-field`) — only `[N]@[]char` was tested.
-- **Suspect**: managed-element stores and the array-literal
-  initialization path in `pkg/codegen` / `pkg/ir`.  365 is silent
-  wrong output (likely missing RefInc + missing element store, or
-  the literal is being optimized into something that bypasses the
-  per-element managed-slice copy).  366's LLVM error suggests the
-  store-instruction emitter sees the destination's pointer as the
-  aggregate (instead of the struct value at that pointer).  Not
-  yet bisected.
-- **Not blocking** main work; xfailed.
+### ~~Array of managed-slice elements: string→@[]char in array context~~ — FIXED
+- **Was**: two distinct bnc miscompiles for arrays whose element type
+  is a char-slice (`@[]char`):
+  - `[N]@[]char{"a","b","c"}` array-literal — silent wrong output,
+    each slot's data ptr written but len/refptr/backing_len left at
+    zero, so println saw len=0 and printed nothing.
+  - `var arr [N]@[]char; arr[i] = "x"` indexed assignment — bnc
+    aborted with `extractvalue operand must be aggregate type` on
+    the refcount-Inc step (extractvalue called on a bare i8* from
+    OP_CONST_STRING instead of a %BnManagedSlice).
+  Both: var-decl / non-array-assign paths were converting
+  OP_CONST_STRING → managed-slice value via EmitStringToChars; the
+  array-literal and array-index-assign paths weren't.
+- **Repros** (now passing in all modes):
+  conformance/365_array_managed_elem_lit.bn,
+  conformance/366_array_managed_elem_assign.bn.
+- **Unit tests** in pkg/ir/gen_access_test.bn:
+  TestArrayLitManagedElemEmitsRodataMSliceCopy,
+  TestArrayIndexAssignManagedElemEmitsRodataMSliceCopy.
+- **Possibly related but not investigated**: arrays of OTHER
+  managed element types (`[N]@T`, `[N]@[]int`, `[N]struct-with-
+  managed-field`) — the fix covers char-slice elements with
+  string-literal initializers specifically; analogous patterns for
+  other shapes weren't tested.  If those surface as a bug, look
+  next to the genArrayLit / index-assign-array conversion sites.
 
 ### boot-comp-int-int: blocked on registerPureCExterns from interpreted cmd/bni
 - **Repro**: `conformance/run.sh boot-comp-int-int 001_hello` (or
