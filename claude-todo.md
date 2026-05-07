@@ -178,6 +178,20 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     `[N]S{S{...}, ...}` wrote each element's i8* alloca pointer
     into the struct-sized slot instead of the struct value.
     Fix: add the same load-from-alloca guard.
+- **Third site, found 2026-05-07** while resuming the unit-test
+  cleanup sweep into asm / bnc / bni / bnlint args fixtures
+  (which want to use `@[]@[]char{"a","b",...}` in place of
+  `make_slice(@[]char,N)` + indexed assigns): genManagedSliceLit
+  had the same gap.  String-literal elements stored only their
+  bare data pointer (8 bytes) into the 32-byte managed-slice
+  element slot, so reads came back len=0 (silent empty output).
+  Fixed and pinned by conformance/372 +
+  TestManagedSliceLitCharElemEmitsRodataMSliceCopy.  All three
+  sites — genArrayLit, gen_control's array-branch, gen_composite
+  per-field, genManagedSliceLit — now apply the same isCharSliceType
+  + OP_CONST_STRING → EmitStringToChars conversion.  If a fourth
+  store site surfaces, look for a missing instance of that same
+  pattern.
 
 ### boot-comp-int-int: blocked on registerPureCExterns from interpreted cmd/bni
 - **Repro**: `conformance/run.sh boot-comp-int-int 001_hello` (or
