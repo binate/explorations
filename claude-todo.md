@@ -212,18 +212,42 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     served libc/bootstrap calls without any registration step;
     refactor moved bindings into a per-VM registry that requires
     a function value at registration time.
-- **Suggested fix paths** (architectural choice, not a quick
-  patch):
+- **Chosen fix (2026-05-06)**: extend `BC_FUNC_VALUE`'s
+  `LookupFunc` miss path in `pkg/vm/vm_exec_helpers.bn:execFuncRefOp`
+  to fall back to the executing VM's `vm.Externs` registry. On
+  hit, build the function value as
+  `{vtable=ExternBinding.VtableAddr, data=ExternBinding.DataAddr}`
+  — same shape `OP_FUNC_VALUE` produces today, just sourced from
+  the registry instead of from `vm.Funcs`. ~15 lines, one file.
+  - **Why this and not a manifest / .bn-body wrappers**: the wall
+    is at the lookup. The registry is already populated by each
+    layer's host (cmd/bni's `registerPureCExterns`) before the
+    next layer's main runs, so each layer's `BC_FUNC_VALUE` is
+    dispatched by a VM whose `vm.Externs` already has the
+    bindings. Works at arbitrary recursion depth without any
+    bytecode-side compile-time emission and without forcing
+    pkg/libc.bn (or analogous wrapper bodies) to be loaded into
+    every nested VM.
+  - **Soft limitation**: a user program that does
+    `var f = libc.Malloc` at top-level with no surrounding
+    `RegisterExtern("libc.Malloc", ...)` in the calling VM gets
+    "function not found". Not an issue for cmd/bni-on-cmd/bni;
+    soft problem for ad-hoc scripts under unusual embeddings.
+- **Considered and rejected**:
   1. Detect interpreted context in cmd/bni and skip
-     registerPureCExterns; let calls fall through to vm_extern.bn's
-     hand-coded arms. Fragile; "interpreted" detection isn't
+     registerPureCExterns. Fragile; "interpreted" detection isn't
      first-class.
-  2. Revert pure-C externs out of the registry — keep the registry
-     for `.bn`-bodied bindings only. Mixes two dispatch shapes per
-     extern name but localizes the change.
-  3. Add a "register by name" entry to the registry — store the
-     name only, resolve at call time via the existing vm_extern.bn
-     fallback. Fits the existing fallback structure.
+  2. Revert pure-C externs out of the registry — mixes two
+     dispatch shapes per extern name.
+  3. Compile-time-emitted shim manifest in both native backends +
+     `rt.LookupShim`. Drafted in (now-deleted)
+     `plan-shim-manifest.md`. Comparable cost to option 2 below;
+     redundant with the chosen fix; only wins for the
+     "no-pre-registration" case which doesn't apply here.
+  4. `.bn`-body wrappers (intrinsic-call form `_c_<name>` or
+     `@cextern` annotation) for pure-C externs. Cleanest in
+     theory but doesn't help nested VMs that don't load
+     `pkg/libc.bn` — same wall recurs at depth.
 - **Not blocking**: still not in the `all` modeset.
 - **Earlier original diagnosis** (pre-leak-fix, kept for context):
   caller was bytecode `rt.Free`, fnIdx was a NATIVE function
