@@ -159,12 +159,25 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Unit tests** in pkg/ir/gen_access_test.bn:
   TestArrayLitManagedElemEmitsRodataMSliceCopy,
   TestArrayIndexAssignManagedElemEmitsRodataMSliceCopy.
-- **Possibly related but not investigated**: arrays of OTHER
-  managed element types (`[N]@T`, `[N]@[]int`, `[N]struct-with-
-  managed-field`) — the fix covers char-slice elements with
-  string-literal initializers specifically; analogous patterns for
-  other shapes weren't tested.  If those surface as a bug, look
-  next to the genArrayLit / index-assign-array conversion sites.
+- **Related verification sweep (2026-05-06)**: tested arrays of
+  OTHER managed element shapes after the initial fix.  `[N]@T`
+  and `[N]@[]int` (with @[]int{...} elements) work cleanly under
+  bnc.  `[N]struct-with-managed-field` revealed two additional
+  bugs in genCompositeLit and genArrayLit, now fixed and pinned
+  by conformance/367 + 368 and
+  TestGenCompositeLitStructManagedCharField:
+  - genCompositeLit's per-field string→char-slice conversion was
+    gated `&& ft.Kind == types.TYP_SLICE`, so it only fired for
+    raw-slice fields; @[]char fields fell through and the
+    managed-slice RefInc / store wrote 8 bytes into the 32-byte
+    slot.  Fix: drop the kind gate (isCharSliceType already
+    matches both raw and managed).
+  - genArrayLit didn't load struct values from their alloca
+    pointer before storing into the array slot (mirroring what
+    gen_control.bn's array-index-assign branch already did), so
+    `[N]S{S{...}, ...}` wrote each element's i8* alloca pointer
+    into the struct-sized slot instead of the struct value.
+    Fix: add the same load-from-alloca guard.
 
 ### boot-comp-int-int: blocked on registerPureCExterns from interpreted cmd/bni
 - **Repro**: `conformance/run.sh boot-comp-int-int 001_hello` (or
