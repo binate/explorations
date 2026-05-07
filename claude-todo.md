@@ -193,11 +193,16 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   store site surfaces, look for a missing instance of that same
   pattern.
 
-### boot-comp-int-int: blocked on registerPureCExterns from interpreted cmd/bni
-- **Repro**: `conformance/run.sh boot-comp-int-int 001_hello` (or
-  any boot-comp-int-int run). Mode not in the `all` modeset, so
-  CI is unaffected. Smaller repro: e2e/print-args.sh's `bni-under-bni`
-  case (currently SKIPed pointing here).
+### ~~boot-comp-int-int: blocked on registerPureCExterns from interpreted cmd/bni~~ — DONE (2026-05-07)
+- **Resolved by**: `b9e1fed` (BC_FUNC_VALUE registry-fallback in
+  execFuncRefOp). `2662c5c` then unblocked the build chain by
+  fixing four leftover `TypeName(t)` free-function call sites in
+  `pkg/types/check_decl_func.bn`. Mode now in the `all` modeset.
+  boot-comp-int-int: 314 passed / 0 failed / 1 skipped (the
+  pre-existing `272_raw_slice_star_sugar.xfail`).
+- **Repro**: `conformance/run.sh boot-comp-int-int 001_hello`.
+  Smaller repro: e2e/print-args.sh's `bni-under-bni` case
+  (currently SKIPed pointing here).
 - **State (2026-05-04)**: TWO root causes were stacked.
   1. **vm.Stack overflow** — FIXED via OP_SP_RESTORE plumbing
      across IR + all backends + IR-gen end-of-statement emission.
@@ -262,7 +267,8 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
      `@cextern` annotation) for pure-C externs. Cleanest in
      theory but doesn't help nested VMs that don't load
      `pkg/libc.bn` — same wall recurs at depth.
-- **Not blocking**: still not in the `all` modeset.
+- **CI status**: now in the `all` modeset; conformance, unit-tests,
+  and perf-tests workflows run boot-comp-int-int as a matrix entry.
 - **Earlier original diagnosis** (pre-leak-fix, kept for context):
   caller was bytecode `rt.Free`, fnIdx was a NATIVE function
   pointer (e.g. 0x1043F5BAC ≈ 4.37e9) being treated as a 1-
