@@ -1,5 +1,8 @@
 # Plan: Cross-Package Interfaces
 
+**Status (2026-05-07):** Slices 2.6, 2.7, 2.8 landed on main.
+Slice 2.9 is next.
+
 ## Motivation
 
 Interfaces (Phase 2) currently work only within a single package: an
@@ -49,93 +52,63 @@ each leaves the tree green and the conformance suite passing.
 
 ## Slices
 
-### Slice 2.6 — canonicalize vtable mangling
+### Slice 2.6 — canonicalize vtable mangling — **DONE**
 
-**Standalone change, independent of the cross-package work.** Renames
-the vtable symbol so two TUs with the same `(R, I)` pair agree on the
-mangling regardless of where the `impl` declaration lives. With same-
-package-only impls (today), the canonical packages collapse onto the
-impl's package and behavior is unchanged; the rename is purely
-forward-looking.
+Symbol form changed from `__ivt.bn_<impl_pkg>__<recv>__<iface>` to
+`__ivt.bn_<recv_pkg>__<recv>__<iface_pkg>__<iface>`. ImplInfo grew
+RecvPkg / IfacePkg; alias chains resolve to canonical (Pkg, Name) at
+collection time. Same-package impls land on `<recv_pkg> == <iface_pkg>`
+so the package appears twice in the symbol — by design.
 
-Files:
-- `pkg/ir/gen_impl.bn` (`implVtableName`): build the symbol from the
-  receiver type's defining package + name plus the interface's
-  canonical (alias-resolved) defining package + name. The
-  `ImplInfo` struct grows two fields (`RecvPkg`, `IfacePkg`) populated
-  by `collectImplsFromDecl`.
-- `pkg/ir/gen_impl.bn` (`findImplVtableName`): keys lookup on the
-  canonical pair, not on bare names.
-- `pkg/codegen/emit_impls.bn`: unchanged — `implVtableName` is the
-  single source of truth for the symbol.
-- `pkg/vm/lower.bn`: same — uses `implVtableName` from the IR layer.
-- Unit tests: update `TestEmitImplVtableSingleMethod` etc. to expect
-  the new symbol form (e.g.
-  `@__ivt.bn_main__T__main__I` instead of `@__ivt.bn_main__T__I`).
+### Slice 2.7 — type-checker: cross-package iface refs + impl import — **DONE**
 
-Acceptance: conformance green in boot-comp, boot-comp-int; same
-behavior, different symbol.
+Implementation differed from the original plan in two ways:
 
-### Slice 2.7 — type-checker: cross-package iface refs + impl import
+- The type-checker shares one `Checker` across packages
+  (CheckPackage saves/restores scope but reuses `c.Impls`), so
+  cross-package impl visibility was already implicit. The actual
+  gap was `implCoversInterface` matching by bare Name, which
+  false-matched same-named interfaces in different packages.
+  Switched to canonical (Pkg, Name) comparison; types.Type gained
+  a Pkg field stamped at TYP_INTERFACE creation. Pointer-equality
+  via Type identity would have been simpler but the bootstrap
+  interp doesn't support `@T == @T`.
+- The bni scope builder (`buildScopeFromFile`) didn't handle
+  DECL_INTERFACE at all, so .bni-declared interfaces were silently
+  dropped. Added pass-1/pass-2 handling mirroring DECL_TYPE.
+- The loader's MergeFiles dropped DECL_INTERFACE from .bni; added
+  it to the preserved-decl list so importing TUs see the iface in
+  the merged file.
+- IR-gen's ModuleInterface gained Pkg + AliasTargetPkg; lookup
+  helpers all key on (Pkg, Name). registerImportFieldsAndFuncs
+  registers imported interfaces under the import alias's pkg.
 
-Two pieces:
+Conformance: 373_cross_pkg_iface (impl in importing pkg, iface in
+imported pkg).
 
-1. **Qualified interface references.** Parser already handles
-   `*pkg.T` and `@pkg.T` for managed/raw pointers; extend the same
-   path for `*pkg.Iface` / `@pkg.Iface`. Type-checker resolves the
-   qualified ref against the imported package's interface table.
+### Slice 2.8 — IR-gen: cross-package impl table + iv emission — **DONE**
 
-2. **Cross-package impl visibility.** Each `Checker` exposes its
-   `Impls` table to importing checkers. The importing TU's
-   assignability arms (`canAssignToRawInterfaceValue` /
-   `canAssignToManagedInterfaceValue`) walk both the local impl table
-   and the imported tables to find a satisfying `(R, I)` pair. Storage
-   shape: `c.Impls @[]@Impl` becomes searched along with
-   `c.Imports[i].Impls`. The `Impl` records use canonical iface refs
-   (Slice 2.4 already added the alias-resolution helper).
+Module gained `ImportedImpls @[]@ImplInfo` (separate from local
+`Impls` so codegen doesn't re-emit imported vtables).
+registerImportFieldsAndFuncs walks DECL_IMPL in each imported
+package's merged file and appends to ImportedImpls. findImplVtableName
+walks both collections.
 
-Files:
-- `pkg/parser/parse_decl.bn`: accept `*pkg.Name` / `@pkg.Name` in the
-  type-ref grammar arm that today only handles bare iface names.
-- `pkg/types/check_impl.bn`: store canonical `IfacePkg` + `IfaceName`
-  on each `Impl`. Resolve aliases at collection time.
-- `pkg/types/types_query.bn`
-  (`canAssignToRawInterfaceValue` / managed counterpart): widen the
-  impl search to imports.
-- `pkg/types.bni`: export the impl table on `Checker` for importers.
+Two follow-on adjustments needed past the original plan:
 
-Acceptance: a conformance test where package A defines `Stringer`,
-package B defines `*T` that implements `String() @[]char`, and an
-`impl *T : A.Stringer` lives in B (or A) and gets exercised from
-either side.
+- The receiver lookup had to split into (RecvPkg, RecvTypeName)
+  because cross-package types arrive with qualified Name
+  (`hello.Hello`) while ImplInfo stores bare names. Added
+  `splitQualName` helper; `wrapAsIfaceValue` derives RecvPkg from
+  the receiver Type's Name (defaulting to currentModulePkgShort
+  for same-package).
+- Codegen emits `external constant [N+1 x i8*]` declarations for
+  imported vtables so importing TUs reference them with the right
+  array type. Slot count comes from a new `ir.IfaceMethodCount`
+  helper that consults the per-module interface registry.
 
-### Slice 2.8 — IR-gen: cross-package impl table + iv emission
-
-IR-gen needs to know which vtables exist so `OP_IFACE_VALUE` can spell
-the mangled name. Today `findImplVtableName(m, recvName, ifaceName)`
-walks `m.Impls`. With cross-package, the same lookup must walk the
-importing TU's union of (its own + each imported package's) impl
-table.
-
-The lookup is moot for the *current* TU's vtable emission — that
-still happens via `emitImplVtables(m)` and only emits impls declared
-in this TU's source. Cross-package use sites end up with `OP_IFACE_VALUE`
-that references a vtable defined `weak_odr` in another TU; the LLVM
-emitter simply names the global, and the linker resolves it.
-
-Files:
-- `pkg/ir.bni`: `Module.Impls` becomes a window onto local impls
-  plus references to imported impl tables (or a flat union, populated
-  at module-finalize time).
-- `pkg/ir/gen_impl.bn` (`findImplVtableName`): walk the union.
-- `pkg/ir/gen_module.bn`: pull imported impl tables in alongside
-  imported funcs / types.
-- No backend changes — `weak_odr` linkage already in place handles
-  duplicate vtable definitions across TUs.
-
-Acceptance: same conformance test as 2.7 but exercising a
-construction site in package C (a third package using A's iface
-over B's type with the impl declared in either A or B).
+Conformance: 376_cross_pkg_iface_impl_split (iface in pkg/greeter,
+type+impl in pkg/hello, use in main).
 
 ### Slice 2.9 — orphan-free duplicate impls
 
@@ -160,40 +133,17 @@ Files:
 Acceptance: each TU emits its `weak_odr` vtable, linker keeps one,
 behavior identical to single-impl case.
 
-## Open question: compiled/interpreted interop
+## Open question: compiled/interpreted interop — **deferred**
 
-The VM today builds its own `IfaceVtables` table at module-load time
-(`lowerImplVtables`), keyed off the same mangled symbol the LLVM side
-uses. Cross-package interop in mixed mode raises questions worth
-revisiting before the implementation work, not just at the end:
-
-- **VM's mangled-symbol lookup.** The VM's `findIfaceVtable(vm, name)`
-  is a linear scan over `vm.IfaceVtables` records loaded from the
-  module's `m.Impls`. With cross-package impls, the VM's view of
-  `m.Impls` needs to be the same union the IR-gen layer computes. If
-  the lowering layer hands the VM only the local module's impls, a
-  cross-package iv construction looks the symbol up and misses.
-- **Interleaved native + VM frames.** Today a compiled function can
-  call into VM code (and vice versa) via the function-value shim
-  convention. Iface dispatch through a VM-loaded vtable from a
-  native frame would need the VM's vtable record to match the LLVM
-  vtable's slot order *exactly* — currently they do (slot 0 = dtor,
-  slots 1..N+1 = methods, after Slice 2.5), but cross-package iface
-  values that originate in one mode and get dispatched in the other
-  put more pressure on that invariant.
-- **Dtor index encoding.** Compiled vtable slot 0 holds an `i8*`
-  function pointer. VM's `Methods[0]` holds a 1-based VM func index.
-  When an `@Iface` value is constructed in compiled mode and consumed
-  in VM mode, the VM-side scope-exit RefDec needs the dtor as a VM
-  index — but the actual vtable in memory holds the native function
-  pointer. This already works for same-package because the VM
-  `lowerImplVtables` synthesizes its own parallel vtable record, but
-  with cross-package the symmetry is more subtle (which view "owns"
-  the canonical record across TUs?).
-
-These don't block the slices above, but they shape Slice 2.8 and the
-shape of `Module.Impls`. Worth a short side-discussion before
-landing 2.8.
+Slice 2.8 didn't need to revisit this. The compiled-side flow
+landed cleanly because the VM compiles each package separately and
+the cross-TU vtable references are already weak_odr globals at the
+LLVM layer. The three concerns originally flagged (VM's mangled-
+symbol lookup, interleaved native+VM frames, dtor-index encoding
+asymmetry) are still real but specific to mixed-mode dispatch
+across cross-package interfaces — they shape some future slice
+when bytecode and native frames exchange iv values across package
+boundaries. Park as a follow-up; not blocking Slice 2.9.
 
 ## Out of scope
 
@@ -206,10 +156,9 @@ landing 2.8.
 
 ## Implementation order
 
-1. **Slice 2.6** (canonicalize vtable mangling) — independent, ship
-   first.
-2. **Slice 2.7** (type-checker cross-package).
-3. Sidebar discussion: compiled/interpreted interop expectations for
-   `Module.Impls`.
-4. **Slice 2.8** (IR-gen cross-package).
-5. **Slice 2.9** (allow duplicate impls anywhere).
+1. ~~**Slice 2.6** (canonicalize vtable mangling)~~ — **DONE**.
+2. ~~**Slice 2.7** (type-checker cross-package)~~ — **DONE**.
+3. ~~**Slice 2.8** (IR-gen cross-package)~~ — **DONE**.
+4. **Slice 2.9** (allow duplicate impls anywhere) — **next**.
+5. Mixed-mode (compiled ↔ VM) cross-package iface dispatch —
+   follow-up; not on the critical path.

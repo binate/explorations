@@ -401,6 +401,8 @@ const (
 
 Full design lives in `plan-interface-syntax-revision.md` (RATIFIED 2026-05-01). Phase 1 (parse + type-check `interface X { ... }` declarations) is done in the binate repo. Subsequent slices land in order: bare-interface-name as type expression for `*Iface` / `@Iface`, `impl T : Iface`, vtable dispatch, generics atop the same machinery.
 
+**Status (2026-05-07):** Slices 2.0–2.5b done (decl + impl + dispatch + scope-exit refdec + vtable dtor slot wired through). Cross-package work in `plan-cross-package-interfaces.md` is up through Slice 2.8 (canonical (R, I) mangling, qualified iface refs, IR-gen impl-table threading); Slice 2.9 (orphan-free duplicate impls) is next.
+
 **Core design:**
 - Interfaces are declared top-level with a set of method signatures, using a dedicated `interface` keyword (not `type X interface { ... }` — which is dropped):
   ```
