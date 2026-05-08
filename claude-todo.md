@@ -656,15 +656,20 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - lldb/gdb now show Binate function names, file, line numbers, and local variable names.
 
 **Gaps**:
-- ~~Type coverage is basically just `i64`.~~ FIXED for scalars (2026-05-07).
-  `pkg/codegen/emit_debug.bn` now emits one DIBasicType per scalar
-  kind (slots !5..!15: int / int8 / int16 / int32 / uint / uint8 /
-  uint16 / uint32 / float32 / float64 / bool); `dbgTypeID` maps a
-  TypeArg's (Kind, Width, Signed) tuple to the right slot. Non-scalar
-  TypeArgs still fall back to !5 (int) until step 4 lands proper
-  DICompositeType / DIDerivedType for structs and pointers.
-- Parameters don't get `DILocalVariable` (stack slots exist but no dbg.declare for params).
-- `DISubprogram` has `line: 0` and `scopeLine: 0` (function definition line never captured).
+- ~~Type coverage is basically just `i64`.~~ FIXED for scalars,
+  pointers, and structs (2026-05-07/08). Slices, managed-slices,
+  interface-values, function-values, named typedefs, and arrays
+  still fall back to !5 — separate follow-up.
+- ~~Parameters don't get `DILocalVariable`~~ — FIXED (2026-05-07).
+  Param allocas were already named so the existing dbg.declare
+  fired; step 3 added `arg: <N>` so lldb shows them as function
+  arguments rather than mixed in with locals.
+- ~~`DISubprogram` has `line: 0` and `scopeLine: 0`~~ — FIXED
+  (2026-05-07). `ir.Func` carries a `Line` field; gen_func.bn
+  populates it from the AST decl's `Pos.Line`; emit_debug.bn
+  threads it into both the `line:` and `scopeLine:` fields.
+  Synthetic helpers (init dispatcher / entry wrapper / dtor /
+  copy stubs) keep `line: 0`.
 - `DISubroutineType` is a single shared generic; no per-function signature or parameter types.
 - No `llvm.dbg.value` (only `dbg.declare` for allocas).
 - Line positions: only `genExpr` explicitly threads `.Line`; most IR-emission sites rely on statement-line backfill (coarse). No columns.
@@ -676,11 +681,36 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
    (`TestEmitDebugBasicTypesEmitted`), and the `dbg.declare` →
    slot wiring (`TestEmitDebugDeclareReferencesScalarType`). Full
    conformance (boot-comp, 317/0) compiled with `BINATE_FLAGS=-g`.
-2. Capture function definition lines into `DISubprogram` (thread from AST `Func`/`FuncDecl` node).
-3. Emit `DILocalVariable` for parameters.
-4. Emit `DICompositeType` for structs (field names + types), `DIDerivedType` for pointers. Wire into `emit_types.bn`'s struct collection.
-5. Thread positions through more IR-gen sites (statements, assignments, calls) for finer-grained `DILocation`.
-6. Per-function `DISubroutineType` with real parameter + return types.
+2. ~~Capture function definition lines into `DISubprogram`~~ —
+   DONE (2026-05-07). `TestEmitDebugSubprogramLine` pins
+   `line:` / `scopeLine:` for two functions on different source
+   lines; `TestSyntheticFuncDefaultLineZero` pins the synthetic
+   `Line == 0` invariant.
+3. ~~Emit `DILocalVariable` for parameters~~ — DONE (2026-05-07).
+   Step actually emitted `arg: <N>` on the existing DILocalVariable
+   for params (vs. the gap entry's premise of "no dbg.declare for
+   params" — the dbg.declare was already firing once defineVarParam
+   tagged the alloca). Tests:
+   `TestEmitDebugDeclareParamsCarryArgIndex`,
+   `TestEmitDebugMethodReceiverIsArgOne`,
+   `TestParamAllocaParamIndex`.
+4. ~~Emit `DICompositeType` for structs / `DIDerivedType` for
+   pointers~~ — DONE (2026-05-08). `pkg/codegen/emit_debug_types.bn`
+   carries a per-module type registry keyed by structural string
+   (raw vs managed pointers distinguished); ids allocate past the
+   per-function metadata block. Recursive interning means a
+   `*Counter` local pulls in Counter's struct nodes; field types
+   route back through `dbgTypeID` so scalar fields wire to !5..!15.
+   Tests in `emit_debug_types_test.bn` cover pointer + struct
+   emission, the pointer-to-struct chain, the dedup invariant, and
+   the structural-key helper. Full conformance under -g: 327/0.
+5. Wire slices, managed-slices, interface-values, function-values,
+   arrays, and named typedefs into the registry — each is a
+   separate DI node shape; today they fall back to !5. Highest-
+   impact remaining gap for "lldb shows the right thing for any
+   variable."
+6. Thread positions through more IR-gen sites (statements, assignments, calls) for finer-grained `DILocation`.
+7. Per-function `DISubroutineType` with real parameter + return types.
 
 ### Package directory organization and conventions
 - Think more carefully about `pkg/` directory structure and naming conventions
