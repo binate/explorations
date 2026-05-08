@@ -433,7 +433,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Method values** (`x.M`, `T.M`) and **closures** are folded
   under this plan rather than tracked separately.
 
-### VM extern dispatch: name → function-value registry — MOSTLY DONE
+### ~~VM extern dispatch: name → function-value registry~~ — DONE
 - ExternBinding registry + RegisterExtern / LookupExtern API:
   landed.
 - BC_FUNC_VALUE registry-fallback (`b9e1fed`): execFuncRefOp
@@ -441,20 +441,18 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   function value from `binding.VtableAddr` / `DataAddr`.  Removes
   the chicken-and-egg that blocked nested-VM
   `var x = pure_C_extern` constructions.
-- rt.* + libc.* + bootstrap.{Close, Exit, Args, Stat, Open,
-  Write, Read, Exec} all migrated through the registry; hand-
-  coded arms in vm_extern.bn retired.
-- **Residual**: `bootstrap.ReadDir` stays hand-coded.  Migration
-  attempted (the natural shape — `*func(*[]const char) @[]@[]char`
-  with ResultSize=32 via the aggregate-shim path) breaks
-  boot-comp-int-int with a uniform 313-test failure pattern.
-  Conjecture (NOT verified — needs the deeper investigation
-  the comments in vm_extern.bn alluded to): the hand-coded arm's
-  pre-RefInc surgery on the outer backing + each element backing
-  preserves an invariant the aggregate-shim path doesn't.
-  bootstrap.Args looked similar but its migration worked; ReadDir
-  may differ because its backing is built per-call (vs Args's
-  process-argv backing).
+- All host externs (rt.*, libc.*, the full bootstrap.* C-shaped
+  surface) migrated through the registry; vm_extern.bn's
+  execExtern is now a pure registry dispatch.
+- ReadDir's migration surfaced a latent codegen bug: emit_funcvals.bn's
+  aggregate-shim was emitting a register-style call
+  (`%r = call <ret> @<fn>(...)`) for IsCExtern callees regardless
+  of whether they used the C-ABI sret convention.  For >16-byte
+  returns (e.g., `@[]@[]char`), the sret-declared callee would
+  write the result through what it interpreted as the sret
+  pointer (the first user arg), corrupting memory.  Fixed in
+  `666f2c9` — sret-aware shim emission, now consistent with
+  emit.bn (declarations) and emit_call.bn (regular call sites).
 
 ### Interface syntax revision — *Stringer / @Stringer + top-level decl
 - **Plan doc**: `explorations/plan-interface-syntax-revision.md`
