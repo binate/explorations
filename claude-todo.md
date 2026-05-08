@@ -6,6 +6,53 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
+### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
+- **Problem**: with the current rules, `int` (and other predeclared
+  primitives) can't implement interfaces. Methods can only be
+  declared on TYP_NAMED types (the receiver lookup in
+  `check_decl_func.bn:resolveMethodReceiver` rejects `func (x int)
+  ...` because `int` is TYP_INT, not TYP_NAMED). So a user-written
+  `printIt(s *Stringer) { ... println(s.String()) }` can't accept
+  a literal `42` — the user has to wrap with `type MyInt int` +
+  impl, then write `printIt(&MyInt(42))`. That's a lot of
+  ceremony for a basic use case.
+- **Generics don't help.** A `printIt[T Stringer](t T)` call site
+  still requires `T` to satisfy `Stringer`, so `int` would need a
+  Stringer impl somewhere — same blocker as the non-generic case.
+  Generics solve "extensible dispatch", not "primitives need to
+  carry methods."
+- **Today's escape**: `println(42)` works only because it's a
+  compiler builtin — `bootstrap.println` synthesizes per-type
+  formatting at the call site. Not user-extensible. The hack is
+  documented as temporary in `feedback_println_hack.md`.
+- **Two real options** (discussed 2026-05-07):
+  1. **Language-blessed implicit interfaces.** The interface plan
+     already lists `any` as a built-in implicit interface and
+     reserves the mechanism for "small, closed, language-defined
+     set" of others. Add `Stringer` (and possibly `Eq`, `Hash`,
+     etc.) to that set — every type, including primitives, gets
+     a synthesized impl from the compiler. Then a user-written
+     `printIt(s *Stringer)` accepts any value uniformly.
+     Cost: every iv gets a real vtable, even for primitives, and
+     the language has to define the canonical formatting story
+     for each primitive.
+  2. **Standard-library carve-out for methods on universe types.**
+     Allow a designated package (`pkg/std` or similar) to declare
+     `func (x int) String() ...` even though `int` is a universe
+     type. The carve-out exists only for the language's own std
+     library; user packages still can't extend `int`. Closer to
+     Go's `fmt.Println` model. Heavier carve-out but lets the
+     std lib look like normal Binate code.
+- **Lean (preliminary):** option 1 — the implicit-interface
+  mechanism is already the named escape hatch, the formatting
+  story for primitives is small + closed, and the result is
+  user-extensible (their own types implement Stringer normally).
+  But this is a real design call; needs a plan doc before
+  shipping.
+- **Not blocking**: today's `println(42)` carries the load.
+  Revisit when generics land or when a user-written `printIt`-
+  style function becomes pressing.
+
 ### Migrate self-hosted code to method form (opportunistic)
 - Pattern: add methods alongside free functions (same body), migrate
   callers per function (perl pass for simple shapes, manual fixup for
