@@ -1,7 +1,8 @@
 # Plan: Cross-Package Interfaces
 
-**Status (2026-05-07):** Slices 2.6, 2.7, 2.8 landed on main.
-Slice 2.9 is next.
+**Status (2026-05-07):** All four slices (2.6 / 2.7 / 2.8 / 2.9)
+landed. Phase 2 cross-package interfaces is feature-complete per
+this plan.
 
 ## Motivation
 
@@ -110,28 +111,33 @@ Two follow-on adjustments needed past the original plan:
 Conformance: 376_cross_pkg_iface_impl_split (iface in pkg/greeter,
 type+impl in pkg/hello, use in main).
 
-### Slice 2.9 — orphan-free duplicate impls
+### Slice 2.9 — orphan-free duplicate impls — **DONE**
 
-The duplicate-OK convention. Once cross-package iface refs land
-(Slice 2.7) and IR-gen knows about transitive impls (Slice 2.8),
-this slice tightens the rules:
+Implementation was largely a small fix to IR-gen plus codegen
+dedup; the type-checker didn't actually have an explicit same-
+package check to remove (it had implicitly worked because
+RecvPkg defaulted to the impl declaration's package — fine for
+same-package, wrong for cross-package).
 
-1. The type-checker accepts identical impl declarations in different
-   packages. "Identical" means same canonical `(R, I)` pair; method
-   bindings are necessarily the same since methods are tied to `R`'s
-   defining package.
-2. No conflict diagnostic on duplicate declarations — the linker's
-   `weak_odr` collapse is the single source of truth.
+- `collectImplsFromDecl` now derives RecvPkg from the receiver's
+  TypeExpr (`recvTypePkg` helper) rather than defaulting to the
+  impl's own package. DtorFuncName and MethodFuncs use RecvPkg,
+  so an impl declared in a third package emits a vtable that
+  references the receiver-package's symbols by their canonical
+  names — byte-identical to what the receiver's own package
+  would emit, which is what makes weak_odr dedup safe.
+- Codegen's `emitImplVtables` skips imported-impl entries that
+  duplicate a local entry (importedImplCoveredLocally helper) —
+  without the dedup, a TU that both declares the impl AND
+  imports a package that also declares it would emit a local
+  weak_odr definition followed by an external declaration of the
+  same symbol, which LLVM rejects as a redefinition.
 
-Files:
-- `pkg/types/check_impl.bn`: drop the same-package requirement, drop
-  any duplicate-impl error path.
-- Conformance test: two packages declaring the same `impl *T : I`
-  for an iface from a third package, link both, verify dispatch
-  works.
-
-Acceptance: each TU emits its `weak_odr` vtable, linker keeps one,
-behavior identical to single-impl case.
+Conformance:
+- 377_iface_impl_in_third_pkg: impl declared in main, receiver in
+  pkg/hello, iface in pkg/greeter.
+- 378_iface_impl_dup: impl declared in BOTH pkg/hello and pkg/dup,
+  both linked into main; weak_odr collapses, dispatch works.
 
 ## Open question: compiled/interpreted interop — **deferred**
 
@@ -159,6 +165,6 @@ boundaries. Park as a follow-up; not blocking Slice 2.9.
 1. ~~**Slice 2.6** (canonicalize vtable mangling)~~ — **DONE**.
 2. ~~**Slice 2.7** (type-checker cross-package)~~ — **DONE**.
 3. ~~**Slice 2.8** (IR-gen cross-package)~~ — **DONE**.
-4. **Slice 2.9** (allow duplicate impls anywhere) — **next**.
+4. ~~**Slice 2.9** (allow duplicate impls anywhere)~~ — **DONE**.
 5. Mixed-mode (compiled ↔ VM) cross-package iface dispatch —
    follow-up; not on the critical path.
