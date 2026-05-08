@@ -433,66 +433,28 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Method values** (`x.M`, `T.M`) and **closures** are folded
   under this plan rather than tracked separately.
 
-### VM extern dispatch: name → function-value registry
-- `pkg/vm/vm_extern.bn`'s `execExtern` is a hand-coded ~30-arm
-  `if streq(name, ...)` switch bridging each host function the
-  VM might call (rt + libc + bootstrap). It pre-dates Phase 3's
-  function-value machinery and is the "by-name dispatch" half of
-  the legacy VM-extern bridge.
-- Phase 3 made this redundant in principle: every cross-mode
-  call already goes through a 2-word `{vtable, data}` value
-  dispatched via the always-shim convention `(*uint8 data,
-  <args>)`. What's missing is the simple bridge: bind a name to
-  a function value (or raw native pointer) at VM-init time, and
-  have BC_CALL-by-name route through that binding to the
-  existing `dispatchCompiledFuncValue` path.
-- **Sketch**: a name → function-value map on the VM, populated
-  by explicit registration calls at startup. BC_CALL's "name
-  didn't resolve in vm.Funcs" branch consults the registry
-  instead of falling into execExtern's hand-coded switch.
-  Registration stays manual — no package-descriptor design
-  required (descriptors are the more general form, owned by the
-  Compiler/interpreter interop project below). Each currently-
-  supported extern becomes one line:
-  `vm.RegisterExtern("rt.Alloc", rt.Alloc)`. Same coverage,
-  uniform dispatch, no bit_cast unpacking.
-- **Why now**: addresses the "vm_extern.bn is dubious" question
-  without waiting for descriptor design. Drops out the hand-
-  coded arms (including the `rt.RefInc` / `rt.RefDec` arms
-  paired with the runtime-symbol retirement above). When
-  descriptors do land, the registry stays as the manual-
-  registration escape hatch for host-only externs that have no
-  Binate-side `.bni` package.
-- **Open questions**:
-  - **API shape**: `vm.RegisterExtern(name, fn)` per call, or
-    bulk `vm.RegisterExterns([]ExternBinding{...})`?
-  - **Registered fn shape**: hold function values (uniform
-    dispatch via `_call_shim_scalar` — but the registrant has
-    to package each function as a function value first), or raw
-    native pointers + a per-binding signature descriptor (the
-    dispatcher decodes argv per shape)? The function-value
-    route reuses Phase 3's machinery directly; the raw-pointer
-    route is more general but adds a parallel signature decoder.
-  - **`bootstrap.Args` / `ReadDir` refcount surgery**: the
-    existing arms hand-RefInc managed-slice element backings
-    before pushing onto vm.Stack. A naive function-value
-    dispatch can't replicate that. Either (a) clean up those
-    bootstrap APIs to not need surgery, (b) supply per-binding
-    "registers + adapts" shims, or (c) leave those few cases in
-    vm_extern.bn as residual until they're addressed
-    separately.
-  - **Const args**: some bootstrap calls take `*[]const char`
-    that the current arms unpack via `bit_cast(*(*[]const char),
-    args[0])`. The registry has to decide whether the registrant
-    sees the unpacked value or the raw `args[i]` int.
-  - **Timing**: register before the first BC_CALL — likely in
-    cmd/bni's main, before running user code. Per-VM init
-    instead is also reasonable if multiple VMs ever coexist.
-- **Cross-references**: the entry should be referenced from the
-  rt.RefInc/Dec retirement (the registry replaces those arms
-  cleanly) and from the Compiler/interpreter interop entry (the
-  registry is the lighter-weight first step; descriptors
-  generalize it).
+### VM extern dispatch: name → function-value registry — MOSTLY DONE
+- ExternBinding registry + RegisterExtern / LookupExtern API:
+  landed.
+- BC_FUNC_VALUE registry-fallback (`b9e1fed`): execFuncRefOp
+  consults `vm.Externs` on `LookupFunc` miss and constructs the
+  function value from `binding.VtableAddr` / `DataAddr`.  Removes
+  the chicken-and-egg that blocked nested-VM
+  `var x = pure_C_extern` constructions.
+- rt.* + libc.* + bootstrap.{Close, Exit, Args, Stat, Open,
+  Write, Read, Exec} all migrated through the registry; hand-
+  coded arms in vm_extern.bn retired.
+- **Residual**: `bootstrap.ReadDir` stays hand-coded.  Migration
+  attempted (the natural shape — `*func(*[]const char) @[]@[]char`
+  with ResultSize=32 via the aggregate-shim path) breaks
+  boot-comp-int-int with a uniform 313-test failure pattern.
+  Conjecture (NOT verified — needs the deeper investigation
+  the comments in vm_extern.bn alluded to): the hand-coded arm's
+  pre-RefInc surgery on the outer backing + each element backing
+  preserves an invariant the aggregate-shim path doesn't.
+  bootstrap.Args looked similar but its migration worked; ReadDir
+  may differ because its backing is built per-call (vs Args's
+  process-argv backing).
 
 ### Interface syntax revision — *Stringer / @Stringer + top-level decl
 - **Plan doc**: `explorations/plan-interface-syntax-revision.md`
