@@ -240,6 +240,34 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   store site surfaces, look for a missing instance of that same
   pattern.
 
+### pkg/vm:TestExecRefIncRefDecInline hangs under boot-comp-int-int
+- **Repro**: `./scripts/unittest/run.sh boot-comp-int-int pkg/vm`.
+  Test starts (`=== RUN TestExecRefIncRefDecInline`), then hangs;
+  the runner's 90-s timeout fires before reaching PASS/FAIL.
+  xfail marker: `scripts/unittest/pkg-vm.xfail.boot-comp-int-int`.
+- **Shape**: three-level VM nesting.  OUTER cmd/bni native dispatches
+  the inner cmd/bni's bytecode (which is the unit-test harness);
+  the test creates a fresh VM_test via `vm.NewVM(1024 * 1024)` and
+  runs a hand-built IR module — `EmitMake → EmitRefInc → EmitRefDec
+  (rc=1, fast path) → rt.Refcount → EmitRefDec (rc=0, slow path)
+  → BC_RETURN`.  The slow-path RefDec's no-dtor branch in
+  `pkg/vm/vm_exec.bn` calls `rt.Free` directly (not via extern
+  dispatch), so the failure isn't an "extern not found" — it's a
+  silent loop / hang somewhere in the deeper plumbing.
+- **Surfaced by** the boot-comp-int-int unit-test sweep after the
+  vm_extern.bn cleanup (`a6a74c8` and follow-ups).  Pre-cleanup,
+  the test's failure was hidden behind the `vm: function not
+  found: bootstrap.X` shape that affected all of pkg/vm under
+  this mode (ultimately a separate codegen bug fixed in
+  `666f2c9`).  This test is the only remaining boot-comp-int-int
+  unit-test failure that isn't covered by an existing fix.
+- **Why it's only this test**: nothing else in pkg/vm exercises
+  inline-RefInc/RefDec through three nested VMs.
+  TestExecRefDecInlineSlowPath in the same file uses a dtor-bearing
+  slow path (different code path) and presumably passes; needs
+  re-checking.
+- **Investigation owner**: open.
+
 ### ~~boot-comp-int-int: blocked on registerPureCExterns from interpreted cmd/bni~~ — DONE (2026-05-07)
 - **Resolved by**: `b9e1fed` (BC_FUNC_VALUE registry-fallback in
   execFuncRefOp). `2662c5c` then unblocked the build chain by
