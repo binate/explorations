@@ -583,7 +583,13 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - lldb/gdb now show Binate function names, file, line numbers, and local variable names.
 
 **Gaps**:
-- Type coverage is basically just `i64`. Only one `DIBasicType` emitted (`emit_debug.bn:220`), reused for every variable. No `DIBasicType` for bool/uint8/uint16/uint32/char; no `DICompositeType` for struct/array/slice; no `DIDerivedType` for pointers/typedefs. All locals show as `i64` in the debugger.
+- ~~Type coverage is basically just `i64`.~~ FIXED for scalars (2026-05-07).
+  `pkg/codegen/emit_debug.bn` now emits one DIBasicType per scalar
+  kind (slots !5..!15: int / int8 / int16 / int32 / uint / uint8 /
+  uint16 / uint32 / float32 / float64 / bool); `dbgTypeID` maps a
+  TypeArg's (Kind, Width, Signed) tuple to the right slot. Non-scalar
+  TypeArgs still fall back to !5 (int) until step 4 lands proper
+  DICompositeType / DIDerivedType for structs and pointers.
 - Parameters don't get `DILocalVariable` (stack slots exist but no dbg.declare for params).
 - `DISubprogram` has `line: 0` and `scopeLine: 0` (function definition line never captured).
 - `DISubroutineType` is a single shared generic; no per-function signature or parameter types.
@@ -591,7 +597,12 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - Line positions: only `genExpr` explicitly threads `.Line`; most IR-emission sites rely on statement-line backfill (coarse). No columns.
 
 **Reasonable next steps** (roughly ordered by effort/payoff):
-1. Emit `DIBasicType` for each scalar kind (bool, char, u8/16/32, i32, etc.) and reference from variable declares — unlocks correct type display in debuggers.
+1. ~~Emit `DIBasicType` for each scalar kind~~ — DONE (2026-05-07).
+   Unit tests in `pkg/codegen/emit_debug_test.bn` pin the slot
+   layout (`TestDbgTypeIDScalars`), the emitted DIBasicType nodes
+   (`TestEmitDebugBasicTypesEmitted`), and the `dbg.declare` →
+   slot wiring (`TestEmitDebugDeclareReferencesScalarType`). Full
+   conformance (boot-comp, 317/0) compiled with `BINATE_FLAGS=-g`.
 2. Capture function definition lines into `DISubprogram` (thread from AST `Func`/`FuncDecl` node).
 3. Emit `DILocalVariable` for parameters.
 4. Emit `DICompositeType` for structs (field names + types), `DIDerivedType` for pointers. Wire into `emit_types.bn`'s struct collection.
