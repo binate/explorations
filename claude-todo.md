@@ -657,9 +657,8 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 **Gaps**:
 - ~~Type coverage is basically just `i64`.~~ FIXED for scalars,
-  pointers, and structs (2026-05-07/08). Slices, managed-slices,
-  interface-values, function-values, named typedefs, and arrays
-  still fall back to !5 — separate follow-up.
+  pointers, structs, slices, interface-values, function-values,
+  arrays, and named typedefs (2026-05-07/08).
 - ~~Parameters don't get `DILocalVariable`~~ — FIXED (2026-05-07).
   Param allocas were already named so the existing dbg.declare
   fired; step 3 added `arg: <N>` so lldb shows them as function
@@ -704,11 +703,21 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
    Tests in `emit_debug_types_test.bn` cover pointer + struct
    emission, the pointer-to-struct chain, the dedup invariant, and
    the structural-key helper. Full conformance under -g: 327/0.
-5. Wire slices, managed-slices, interface-values, function-values,
-   arrays, and named typedefs into the registry — each is a
-   separate DI node shape; today they fall back to !5. Highest-
-   impact remaining gap for "lldb shows the right thing for any
-   variable."
+5. ~~Wire slices, managed-slices, interface-values, function-values,
+   arrays, and named typedefs into the registry~~ — DONE
+   (2026-05-08). New `pkg/codegen/emit_debug_aggr.bn` carries
+   intern + emit functions for each kind. Slices map to
+   DICompositeType DW_TAG_structure_type with the runtime layout
+   (2-word for raw, 4-word for managed); iface and func values
+   map to 2-word DICompositeType; arrays map to DICompositeType
+   DW_TAG_array_type with DISubrange(count:); named typedefs map
+   to DIDerivedType DW_TAG_typedef. Tests in
+   `emit_debug_aggr_test.bn`. Full conformance under -g: 327/0
+   (1 unrelated xfail). NOTE: TYP_NAMED rarely surfaces in
+   today's IR-gen because `type Pos int` is currently treated
+   as an alias and unwrapped before reaching the alloca's
+   TypeArg; the typedef path is in place for when distinct-
+   named-type semantics land.
 6. Thread positions through more IR-gen sites (statements, assignments, calls) for finer-grained `DILocation`.
 7. Per-function `DISubroutineType` with real parameter + return types.
 
