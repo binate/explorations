@@ -242,31 +242,45 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ### pkg/vm:TestExecRefIncRefDecInline hangs under boot-comp-int-int
 - **Repro**: `./scripts/unittest/run.sh boot-comp-int-int pkg/vm`.
-  Test starts (`=== RUN TestExecRefIncRefDecInline`), then hangs;
-  the runner's 90-s timeout fires before reaching PASS/FAIL.
-  xfail marker: `scripts/unittest/pkg-vm.xfail.boot-comp-int-int`.
+  Hang is real, not slow execution: persisted past 8 minutes in
+  testing.  xfail marker:
+  `scripts/unittest/pkg-vm.xfail.boot-comp-int-int`.
 - **Shape**: three-level VM nesting.  OUTER cmd/bni native dispatches
-  the inner cmd/bni's bytecode (which is the unit-test harness);
-  the test creates a fresh VM_test via `vm.NewVM(1024 * 1024)` and
-  runs a hand-built IR module — `EmitMake → EmitRefInc → EmitRefDec
-  (rc=1, fast path) → rt.Refcount → EmitRefDec (rc=0, slow path)
-  → BC_RETURN`.  The slow-path RefDec's no-dtor branch in
-  `pkg/vm/vm_exec.bn` calls `rt.Free` directly (not via extern
-  dispatch), so the failure isn't an "extern not found" — it's a
-  silent loop / hang somewhere in the deeper plumbing.
+  the inner cmd/bni's bytecode (the unit-test harness); the test
+  creates a fresh VM_test via `vm.NewVM(...)` and runs a hand-built
+  IR module — `EmitMake → EmitRefInc → EmitRefDec (rc=1, fast
+  path) → BC_CALL "rt.Refcount" → EmitRefDec (rc=0, slow path) →
+  BC_RETURN`.
+- **Bisection** (variant-by-variant build of the IR module):
+    - `EmitMake` (BC_ALLOC) alone — ✅ returns.
+    - `EmitMake + EmitRefInc` — ✅ returns.
+    - `EmitMake + EmitRefInc + EmitRefDec(fast)` — ✅ returns.
+    - `+ BC_CALL "rt.Refcount"` — ❌ hangs.
+  So the trigger is the BC_CALL extern dispatch on a name that's
+  not in VM_test.Funcs but IS in VM_test.Externs (registered via
+  RegisterStandardExterns).
+- **Dispatch path** that hangs: VM_test BC_CALL "rt.Refcount" →
+  LookupFunc miss → `execExtern` → `dispatchExternBinding(VM_test,
+  binding, args)` → `_call_shim_scalar(fnPtr, dataPtr, args)` →
+  bytecode lowers to BC_CALL_INDIRECT in INNER's pkg/vm, dispatched
+  by OUTER native execLoop.  fnPtr is TrampolineScalar's 1-based
+  index in VM_inner_layer1.Funcs (small int, valid index range).
+- **Where it gets stuck**: BC_CALL_INDIRECT.  TrampolineScalar's
+  bytecode never executes (a `print` placed at TrampolineScalar
+  entry never appears in the output).  Output trace shows a flood
+  of `libc.Memcpy / Memset / Malloc` extern dispatches but never
+  reaches the trampoline.  Hypothesis: BC_CALL_INDIRECT's "valid VM
+  index → dispatch as VM call" branch picks the wrong vm or
+  miscopies args, producing an infinite loop in argument packing
+  or frame setup; not yet pinned down.
 - **Surfaced by** the boot-comp-int-int unit-test sweep after the
-  vm_extern.bn cleanup (`a6a74c8` and follow-ups).  Pre-cleanup,
-  the test's failure was hidden behind the `vm: function not
-  found: bootstrap.X` shape that affected all of pkg/vm under
-  this mode (ultimately a separate codegen bug fixed in
-  `666f2c9`).  This test is the only remaining boot-comp-int-int
-  unit-test failure that isn't covered by an existing fix.
-- **Why it's only this test**: nothing else in pkg/vm exercises
-  inline-RefInc/RefDec through three nested VMs.
-  TestExecRefDecInlineSlowPath in the same file uses a dtor-bearing
-  slow path (different code path) and presumably passes; needs
-  re-checking.
-- **Investigation owner**: open.
+  vm_extern.bn cleanup (`a6a74c8`).  Pre-cleanup the test was
+  hidden behind a separate codegen bug fixed in `666f2c9`.
+- **Investigation owner**: open.  Next step would be more targeted
+  prints inside OUTER native's BC_CALL_INDIRECT handler to confirm
+  which branch is taken and what fnIdx / Imm / Src2 actually
+  carry — those are native-mode prints, so no test-output
+  interleave.
 
 ### ~~boot-comp-int-int: blocked on registerPureCExterns from interpreted cmd/bni~~ — DONE (2026-05-07)
 - **Resolved by**: `b9e1fed` (BC_FUNC_VALUE registry-fallback in
@@ -553,6 +567,56 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Backend**: vtable machinery (per-(impl, interface) static
   tables, vtable-indirect dispatch, cross-mode trampoline path)
   is shared with function values — building it once serves both.
+
+### Interface embedding/extension — NOT IMPLEMENTED
+- **Design**: ratified in `claude-notes.md` § "Interfaces" (extension paragraph)
+  and detailed in `claude-discussion-detailed-notes.md` § "Interface
+  Extension". Original layout from `claude-plan-1.md` § 2.3.
+- **Syntax**: `interface X : I1, I2, ... { methods }`, mirroring
+  `impl T : I1, I2`. Empty body allowed. Parents listed once before
+  the body — no interspersing (Go-style), no anonymous embedding.
+- **Layout**: vtable concat `[any-block][parent1 full vtable][parent2 full vtable][own methods]`;
+  every interface vtable starts with the `any`-block at offset 0
+  (holds dtor; future home for `*TypeInfo` if RTTI is added).
+  `*Child → *Parent` is a fixed compile-time pointer offset.
+- **Implementation work**:
+  - **Parser** (`pkg/parser/parse_decl.bn:parseInterfaceDecl`): accept
+    `:` after the interface name, parse a comma-separated parent list
+    via `parseInterfaceRef`, store on AST.
+  - **AST** (`pkg/ast/decl.bn`): add a `Parents` slot to DECL_INTERFACE.
+  - **Type-checker**: validate parents are interfaces (not regular
+    types), no cycles, no duplicate parents, no incompatible
+    same-name method signatures across parents.
+  - **`impl T : Child` transitivity**: `impl T : Child` must contribute
+    to the impl set for Child *and all ancestors*. Affects impl-table
+    bookkeeping and which `(R, I)` vtables get emitted.
+  - **Vtable codegen**: emit the concatenated layout. Every `(R, X)`
+    vtable inlines each parent's full `(R, parent)` vtable, then X's
+    own method slots. Parent sub-vtables can be referenced as constants
+    from already-emitted `(R, parent)` vtables (LLVM `getelementptr`
+    constant expression) to avoid re-emitting them inline.
+  - **Conversion codegen**: `*Child → *Parent` becomes
+    `vtable_ptr + statically_known_offset`. Implement alongside the
+    existing interface-construction conversions.
+  - **Cross-package**: parent interface may be in another package.
+    The child vtable's mangling stays canonical `(R, child)`; parent
+    sub-vtables are inline data, not separate symbols, so no extra
+    import logic.
+  - **`.bni` files**: parents need to be visible to the loader just
+    like regular interface declarations.
+- **Tests**:
+  - Conformance: single-extension, multi-extension, deep extension,
+    cross-package extension, `impl T : Child` enables Parent dispatch,
+    method dispatch through a parent-typed view.
+  - Negative: cyclic extension (A : B, B : A), duplicate parent,
+    same-name method conflict between parents, attempting to extend
+    a non-interface.
+- **Estimated size**: medium. Parser/AST changes are small; vtable
+  codegen for the concat layout is the bulk of the work.
+- **Connection to RTTI** (separate, also open): if/when concrete-type
+  assertions land, a `*TypeInfo` slot in the `any`-block makes it
+  reachable from any interface vtable via offset 0 — independent of
+  which interface the value is currently typed as.
 
 ### Cross-package method visibility in `.bni`
 - Methods defined on a public type in package `foo` need to be declared
