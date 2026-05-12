@@ -513,7 +513,42 @@ This is elegant because it requires no extra syntax in interface declarations, a
 
 ### Interface Extension
 
-Supported. An interface can extend one or more other interfaces. More important than embedding multiple interfaces is the ability to "extend" them — building richer interfaces from simpler ones.
+Supported via the explicit syntax:
+
+```
+interface ReadCloser : Reader, Closer {
+    // optional additional methods
+}
+```
+
+The `:` mirrors `impl T : I1, I2, ...`. Parents are listed once, between `:` and `{`. The body contains only new methods (or is empty). Notable departures from Go: parents and methods can't be interspersed, and there is no "anonymous embedding" — Binate has no anonymous interfaces, so nothing to anonymously embed. The explicit form also makes "can you repeat a parent?" trivially answerable (no — duplicates are a parse-time error).
+
+**Aliases vs zero-method extension**:
+
+- `interface X = A` — alias. X and A refer to the same interface; same identity, same `(R, I)` vtable mangling.
+- `interface X : A {}` — a distinct interface that happens to require exactly A's methods. Different identity, different vtable, but `impl T : X` implicitly provides `impl T : A`.
+
+**Static upcast.** A child → parent conversion (e.g., `*ReadCloser → *Reader`) is a nominal, compile-time-known relation — no runtime query, no "does this satisfy" check. Binate is nominally typed: parent satisfaction comes only from declared extension. There is no Go-style structural query of an existing interface value to ask whether it also satisfies some other interface.
+
+**Vtable layout** (originally from `claude-plan-1.md` § 2.3). The vtable for `(R, X)` where `interface X : I1, I2 { own1; own2 }` is the concatenation:
+
+```
+[any-block]
+[full vtable of (R, I1)]
+[full vtable of (R, I2)]
+[R's own1]
+[R's own2]
+```
+
+Every interface implicitly extends `any`, so every interface vtable starts with the `any`-block at offset 0. The `any`-block holds the destructor pointer, and is the natural home for further language-defined slots (e.g., a `*TypeInfo` pointer if/when RTTI is added).
+
+Layout is recursive: each parent's "full vtable" itself starts with its own `any`-block, then its own parents (if any), then its own methods. So converting `*X → *I1` is `vtable + sizeof(any-block)`; converting `*X → *I2` is `vtable + sizeof(any-block) + sizeof(I1's full vtable)`. All offsets are statically known at compile time per `(child, parent)` pair.
+
+Some content is duplicated — the dtor pointer (and any other `any`-block contents) appears in every nested `any`-block, even though it is always the same value for a given concrete receiver R. The duplication is accepted in exchange for uniform fixed-offset conversion: no swap on conversion, no per-conversion lookup, and `*X → *Parent` for any reachable parent is one pointer add.
+
+Multi-extension fits naturally: `interface X : I1, I2 { ... }` lays out I1 and I2 side by side, and conversion to either is a fixed offset. Order matters at the layout level (offset_of(I2) depends on sizeof(I1's full vtable)) but is invisible to the user since they never write a vtable index.
+
+**Status**: not implemented. Parser today accepts only `interface X { methods... }` and `interface X = Y`. Tracked in `claude-todo.md`.
 
 ### Vtable-Based Dynamic Dispatch
 
