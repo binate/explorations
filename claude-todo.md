@@ -583,7 +583,8 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   - **Parser** (`pkg/parser/parse_decl.bn:parseInterfaceDecl`): accept
     `:` after the interface name, parse a comma-separated parent list
     via `parseInterfaceRef`, store on AST.
-  - **AST** (`pkg/ast/decl.bn`): add a `Parents` slot to DECL_INTERFACE.
+  - **AST** (`pkg/ast.bni`): reuse the existing `Decl.Interfaces`
+    field (currently used by IMPL) for DECL_INTERFACE's parent list.
   - **Type-checker**: validate parents are interfaces (not regular
     types), no cycles, no duplicate parents, no incompatible
     same-name method signatures across parents.
@@ -591,10 +592,15 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     to the impl set for Child *and all ancestors*. Affects impl-table
     bookkeeping and which `(R, I)` vtables get emitted.
   - **Vtable codegen**: emit the concatenated layout. Every `(R, X)`
-    vtable inlines each parent's full `(R, parent)` vtable, then X's
-    own method slots. Parent sub-vtables can be referenced as constants
-    from already-emitted `(R, parent)` vtables (LLVM `getelementptr`
-    constant expression) to avoid re-emitting them inline.
+    vtable inlines each parent's full `(R, parent)` vtable's slot
+    values, then X's own method slots. The parent's slot values
+    (each an `i8* bitcast (... @method to i8*)` expression) are
+    re-emitted at the right offsets inside the child's initializer
+    — there is no LLVM-level sharing across vtable symbols, because
+    offset-adjustment conversion requires the parent's slots to be
+    physically present inside the child's vtable. The `(R, parent)`
+    symbol is also emitted separately (so `*Parent` use sites still
+    have a symbol to reference).
   - **Conversion codegen**: `*Child → *Parent` becomes
     `vtable_ptr + statically_known_offset`. Implement alongside the
     existing interface-construction conversions.
