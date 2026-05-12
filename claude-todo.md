@@ -265,22 +265,42 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   bytecode lowers to BC_CALL_INDIRECT in INNER's pkg/vm, dispatched
   by OUTER native execLoop.  fnPtr is TrampolineScalar's 1-based
   index in VM_inner_layer1.Funcs (small int, valid index range).
+- **Specific to 3-level nesting.**  pkg/vm passes 107/107 under
+  boot-comp-int (2-level): TestExecRefIncRefDecInline runs cleanly
+  there.  The hang only manifests in the deeper boot-comp-int-int
+  chain.
 - **Where it gets stuck**: BC_CALL_INDIRECT.  TrampolineScalar's
   bytecode never executes (a `print` placed at TrampolineScalar
   entry never appears in the output).  Output trace shows a flood
-  of `libc.Memcpy / Memset / Malloc` extern dispatches but never
-  reaches the trampoline.  Hypothesis: BC_CALL_INDIRECT's "valid VM
-  index → dispatch as VM call" branch picks the wrong vm or
-  miscopies args, producing an infinite loop in argument packing
-  or frame setup; not yet pinned down.
+  of `libc.Memcpy / Memset / Malloc` extern dispatches with no
+  progress — suggests bytecode is running in a tight loop (frame
+  push / aggregate copy / alloc cycle), not deadlocked.  The
+  missing-print signal is suspect — `print()` itself routes
+  through `bootstrap.Write` via the same registry path the
+  test exercises, so if THAT path is broken the diagnostic is
+  silently suppressed.
+- **Working hypothesis (NOT confirmed)**: in 3-level nesting
+  there are multiple bytecode-form execLoops stacked.  The
+  bytecode-form BC_CALL_INDIRECT handler uses ITS `vm` parameter
+  for the `len(vm.Funcs)` validity check and the subsequent
+  pushFrame.  But the function-value's `vtable.call` was set by
+  registration that may have run in a different VM's context —
+  so the index is meaningful in one VM but referenced in
+  another.  If "accidentally valid" in the wrong VM, it
+  dispatches to whatever function happens to live at that
+  index — easily a high-traffic helper (rt.Box, rt.MakeManagedSlice,
+  etc.) whose execution fuels the libc.Memcpy/Memset/Malloc
+  loop seen in the trace.
 - **Surfaced by** the boot-comp-int-int unit-test sweep after the
   vm_extern.bn cleanup (`a6a74c8`).  Pre-cleanup the test was
   hidden behind a separate codegen bug fixed in `666f2c9`.
-- **Investigation owner**: open.  Next step would be more targeted
-  prints inside OUTER native's BC_CALL_INDIRECT handler to confirm
-  which branch is taken and what fnIdx / Imm / Src2 actually
-  carry — those are native-mode prints, so no test-output
-  interleave.
+- **Investigation owner**: open.  Next viable steps require
+  either (a) instrumenting OUTER cmd/bni's NATIVE execLoop with
+  prints that bypass the bytecode-Write dispatch path (so they
+  remain visible when the registry path is broken), or (b)
+  reading the VM identity at each BC_CALL_INDIRECT site via
+  native-side debug output to check whether vm.Funcs identity
+  matches the closure rec's vm handle.
 
 ### ~~boot-comp-int-int: blocked on registerPureCExterns from interpreted cmd/bni~~ — DONE (2026-05-07)
 - **Resolved by**: `b9e1fed` (BC_FUNC_VALUE registry-fallback in
