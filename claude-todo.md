@@ -827,10 +827,66 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
    `TestEmitDebugSubroutineTypeVoidWithParam` (`!{null, !5}`).
    Full conformance under -g: 327/0 (1 unrelated xfail).
 
-### Package directory organization and conventions
-- Think more carefully about `pkg/` directory structure and naming conventions
-- Current layout mixes toolchain internals with runtime and bootstrap support
-- Questions: should toolchain packages be under a sub-prefix? Where do future stdlib packages live?
+### Package manager — sketch a design
+- We don't have one yet. The current model is "everything lives under a
+  root directory; `-I` and `-L` point the loader at extra search paths."
+  Fine for the toolchain and a handful of conformance fixtures; doesn't
+  scale to "I want to depend on `someone/foo` at version vX."
+- Questions a sketch should answer:
+  - Naming: are packages identified by URL (`github.com/...` Go-style),
+    by a registry name, by a flat namespace? Interacts heavily with the
+    package-name/path conventions item below.
+  - Manifest file format and location (`binate.toml` / `bn.mod` / TBD).
+    What does a minimal valid manifest look like?
+  - Dependency resolution: version constraints, lockfile, MVS vs SAT,
+    handling of mutually-incompatible transitive deps.
+  - Vendor / cache layout: per-project, per-user, or system-wide.
+    Reproducibility story.
+  - Binary artifacts vs. source: tied to the existing IMPL_PATH split
+    (compiled `.o` / `.a` distribution vs. source) — see
+    "Package path: binary artifacts on IMPL_PATH (Stage 8 / Phase 2)"
+    below.
+  - Interop with `.bni` distribution: the loader already treats `.bni`
+    and impl as independent search paths; the package manager must
+    respect that.
+  - Bootstrap path: how does the bootstrap interpreter find packages?
+    Probably "vendored copy in tree, no resolver." Confirm that's the
+    right answer.
+  - Out-of-tree builds: where do build artifacts go? How does the
+    package manager interact with `--build-dir`?
+- Output: a plan doc in `explorations/` (e.g. `plan-package-manager.md`),
+  not implementation. Decisions are interleaved with the name/path
+  conventions item below — sketch and conventions probably ratify
+  together.
+
+### Package name/path conventions — decide and possibly reorganize
+- Current `pkg/` layout mixes toolchain internals (`pkg/parser`,
+  `pkg/types`, `pkg/codegen`, …) with runtime (`pkg/rt`), bootstrap
+  support (`pkg/bootstrap`), libc bridges (`pkg/libc`), and small
+  utilities (`pkg/buf`, `pkg/mangle`, …). Future stdlib packages would
+  pile in alongside them with no organizing principle.
+- Questions to answer:
+  - Should toolchain internals live under a distinct prefix
+    (`compiler/parser`, `compiler/types`, …) so that "what's stdlib"
+    vs. "what's compiler implementation" is visible at the import
+    path? Same question for runtime / bootstrap support.
+  - What does a Binate package path *look* like? Is `pkg/` a real
+    prefix or just a directory convention? Are external (third-party)
+    packages spelled differently?
+  - How do package paths interact with the package manager's naming
+    scheme (URL? registry name? short alias)?
+  - Mangling: short package names (`mangle.PkgShortNameFromModule`)
+    currently derive from the path's last segment. If conventions
+    change, mangled symbol names change, which affects ABI. Plan a
+    migration story.
+  - Are there packages that should move? `pkg/bootstrap` is arguably a
+    stdlib piece; `pkg/rt` is closer to runtime-internal; toolchain
+    internals could become `compiler/...`. Each move is a real refactor.
+- Heavily entangled with the package-manager sketch — they should
+  probably ratify together, since the manager design depends on what
+  paths look like.
+- Output: a plan / decision doc in `explorations/`. Reorganization is
+  a follow-up project.
 
 ### Conformance tests: consider a separate repo
 - Running conformance tests in CI creates a circular dependency: the bootstrap repo needs the binate repo (which contains the test cases), and the binate repo needs the bootstrap binary (to run the tests)
