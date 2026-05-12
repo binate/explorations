@@ -6,6 +6,44 @@ known bugs/inconsistencies versus the intended language spec, and migration note
 
 ---
 
+## Scope of Bootstrap Support
+
+The bootstrap-supported surface is **`cmd/bnc` and its dependency tree (and their
+tests)** — and nothing else. Everything outside that tree is built by bnc first and
+then exercised as a native binary (or as bytecode inside a built bni).
+
+**In-scope (must conform to the subset):**
+- `cmd/bnc` and its tests.
+- `pkg/{ast, bootstrap, buf, builtin/testing, codegen, debug, ir, lexer, loader, mangle,
+  native, native/arm64, native/common, parser, token, types}` — bnc's direct/transitive
+  imports.
+- `pkg/{asm, asm/aarch64, asm/macho}` — reached via pkg/native.
+- `pkg/{asm/arm32, asm/x64, asm/elf}` — not currently reached by bnc, but will be once
+  additional backends or platforms land; keeping them subset-conformant avoids a
+  re-enablement chore later.
+
+**Out-of-scope (no subset constraint; full language allowed):**
+- `cmd/bni` and `pkg/vm` — the bytecode interpreter and VM.
+- `cmd/bnas` and `pkg/asm/parse` — the assembler tool and its asm-source parser.
+- `cmd/bnlint` and `pkg/lint` — the linter tool and its lint helpers.
+- `pkg/rt` — the language runtime (uses raw memory ops the bootstrap can't lower).
+
+Each out-of-scope package has a `scripts/unittest/<pkg-key>.xfail.boot` marker that
+tells the unit-test runner to skip it under boot mode. Build/run paths use one of
+the `scripts/build-bn*.sh` wrappers (`build-bnc.sh`, `build-bni.sh`, `build-bnas.sh`,
+`build-bnlint.sh`) which all go `bootstrap → bnc-interpreted → tool-native`.
+
+When pulling a package out of bnc's tree, the workflow is:
+1. Add `scripts/unittest/<pkg-key>.xfail.boot` with a reason line.
+2. Update any caller that previously interpreted it via bootstrap to build it via bnc
+   first (`scripts/build-bnlint.sh` and `scripts/hygiene/lint.sh` are precedents).
+3. Update the lists in this section and in the workspace `CLAUDE.md`.
+
+The rest of this document covers what the bootstrap interpreter can and can't handle
+*within* the in-scope tree.
+
+---
+
 ## Primitive Types
 
 **Supported:**
