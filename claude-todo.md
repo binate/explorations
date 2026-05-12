@@ -739,7 +739,11 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   threads it into both the `line:` and `scopeLine:` fields.
   Synthetic helpers (init dispatcher / entry wrapper / dtor /
   copy stubs) keep `line: 0`.
-- `DISubroutineType` is a single shared generic; no per-function signature or parameter types.
+- ~~`DISubroutineType` is a single shared generic~~ — FIXED
+  (2026-05-09). Per-function DISubroutineType + types tuple
+  emitted; void/nullary funcs get `!{null}`, parameterised funcs
+  get `!{<ret-or-null>, <param1>, ...}` referencing the type
+  registry. See step 7 below.
 - No `llvm.dbg.value` (only `dbg.declare` for allocas).
 - Line positions: only `genExpr` explicitly threads `.Line`; most IR-emission sites rely on statement-line backfill (coarse). No columns.
 
@@ -789,7 +793,19 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
    TypeArg; the typedef path is in place for when distinct-
    named-type semantics land.
 6. Thread positions through more IR-gen sites (statements, assignments, calls) for finer-grained `DILocation`.
-7. Per-function `DISubroutineType` with real parameter + return types.
+7. ~~Per-function `DISubroutineType` with real parameter + return
+   types~~ — DONE (2026-05-09). `setupDbgFuncSubroutineTypes`
+   allocates a (typesList, subrType) id pair per non-extern Func
+   and eagerly interns each function's param + return types so the
+   tuple resolves; `emitDbgFuncSubroutineTypes` writes both nodes
+   after the per-function metadata block. DISubprogram now
+   references the per-func DISubroutineType instead of `!4` (the
+   legacy shared empty placeholder remains for backwards compat).
+   Tests in `emit_debug_test.bn`:
+   `TestEmitDebugSubroutineTypePerFunc` (non-!4 + `!{!5, !5...}`
+   shape), `TestEmitDebugSubroutineTypeVoidNullary` (`!{null}`),
+   `TestEmitDebugSubroutineTypeVoidWithParam` (`!{null, !5}`).
+   Full conformance under -g: 327/0 (1 unrelated xfail).
 
 ### Package directory organization and conventions
 - Think more carefully about `pkg/` directory structure and naming conventions
