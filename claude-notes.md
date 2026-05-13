@@ -495,7 +495,7 @@ sort[int](myArray)
 
 **Boxing**: `box(value)` is the standard way to box a value into a managed allocation. Required for `T → @Iface` interface-value construction.
 
-### `Self` type in interface declarations — PROPOSED 2026-05-12
+### `Self` type in interface declarations — DECIDED 2026-05-12
 
 **Problem.**  Many natural interfaces have methods whose argument or return type is "the implementing type" — `Equatable.Equals(other Self)`, `Comparable.Compare(other Self) int`, `Cloneable.Clone() Self`, `Add.Plus(other Self) Self`.  Without a way to refer to "the implementing type" inside an interface declaration, these interfaces can't be expressed.  Three workarounds exist, none clean:
 
@@ -529,7 +529,11 @@ interface Cloneable {
 - NOT in receiver position — the receiver is always Self implicitly (the impl's receiver type).
 - NOT in interface-extension parents: `interface X : Comparable[Self]` makes no sense; use the `Self` propagation through method signatures alone.
 
-**Interaction with interface values.**  `*Equatable.Equals(other ???)` — what's the type of `other` when called through an interface value?  Open: either (a) reject — methods that mention Self in non-receiver positions can't be called through an interface value (only through a generic constraint where T is known), matching Rust's "object-safe" trait restriction; or (b) accept with `other: *Equatable` (type-erased), losing the Self-ness at the dispatch site.  Lean (a) — keeps the semantics tight; the alternative makes Self an illusion at the boundary.
+**Interaction with interface values — DECIDED**.  Methods that mention `Self` in non-receiver positions are **rejected** when called through an interface value (only callable through a generic constraint where T is statically known).  Matches Rust's "object-safe" trait restriction.
+
+The alternative — accepting `other: *Comparable` at the dispatch site — doesn't work cleanly: the impl is monomorphic on the receiver type (`int.Compare` takes `int`, not `*Comparable`), so calling `iv.Compare(otherIv)` would have to either (1) require every impl to provide a type-erased entry point alongside the monomorphic one, doubling the surface; or (2) do a runtime type assertion that panics on type mismatch (e.g., calling `int.Compare` with a `string` on the other side).  Both defeat the purpose.  Rejection at the call site is cleaner — `Self`-using methods are a generic-only capability.
+
+The practical effect: `*Comparable` is a useful type for interface-value variables (you can hold them, store them, etc.), but you can't directly call `Compare` through one.  Comparison happens in generic code where T is known.  This matches the natural use pattern (you don't usually need heterogeneous comparison across two arbitrary `*Comparable` values).
 
 **Interaction with generic constraints.**  `func sort[T Comparable](xs *[]T) { ... xs[i].Compare(xs[j]) ... }` — at instantiation T=int, `Compare`'s argument type is `int` (Self → T → int), the call type-checks naturally.  This is the headline use case.
 
@@ -537,7 +541,7 @@ interface Cloneable {
 
 **Open: Self in struct types.**  Could `type Foo struct { next *Self }` work as syntactic sugar for the self-recursive case?  Currently expressed via the type's own name: `type Foo struct { next *Foo }`.  Not motivated by anything; defer.
 
-**Status.**  PROPOSED.  Resolution tracked in `claude-todo.md` § "Self type in interface declarations — DESIGN OPEN".  Until ratified, interfaces that need Self are blocked (e.g., `Comparable`, `Equatable`, `Cloneable` in the upcoming `pkg/std` carve-out per `plan-primitives-impl-interfaces.md`).
+**Status.**  DECIDED 2026-05-12.  Implementation tracked downstream when the relevant slice lands (`plan-primitives-impl-interfaces.md` Slice 2b uses Self for `Comparable` / `Orderable` / `Hashable`; `plan-generics.md` constraint check uses it for `[T Comparable]`-style constraints).
 
 ### Syntax direction — IN PROGRESS
 

@@ -7,14 +7,12 @@
 > and pins the canonical interfaces that ship in the carve-out
 > package.  Pending ratification.
 >
-> **Cross-dependency**: three of the four canonical interfaces
-> (`Comparable`, `Orderable`, `Hashable`) need a `Self` type in
-> interface declarations to be expressible without going
-> through generic interfaces.  See `claude-notes.md` § "`Self`
-> type in interface declarations — PROPOSED" and the matching
-> `claude-todo.md` entry.  Until Self ratifies (or generic
-> interfaces ship), only `Stringer` is shippable from the
-> carve-out package.
+> **Self dependency RESOLVED 2026-05-12**: the `Self` type in
+> interface declarations was ratified the same day (see
+> `claude-notes.md` § "`Self` type in interface declarations —
+> DECIDED 2026-05-12").  All four canonical interfaces
+> (`Stringer`, `Comparable`, `Orderable`, `Hashable`) can
+> ship together.
 
 ## Context
 
@@ -334,12 +332,20 @@ constraint for `==` / `!=`); the names differ in case (Go's is
 lowercase) and our `Compare()` method makes the intent
 explicit.
 
-### Self dependency
+### Self usage
 
 `Comparable.Compare(other Self) int`, `Orderable` (inherits),
-and `Hashable` (inherits Compare) all require `Self`.
-`Stringer.String() @[]const char` does not — it can ship
-without Self.  Slice 2 below splits accordingly.
+and `Hashable` (inherits Compare) all use `Self` for the
+`other` parameter.  Per the Self-decision (`claude-notes.md`
+§ "`Self` type in interface declarations — DECIDED
+2026-05-12"), these methods are callable only via generic
+constraints where T is statically known — not through
+`*Comparable` / `*Orderable` / `*Hashable` interface values.
+`Stringer.String()` uses no `Self`; callable through
+`*Stringer` directly.
+
+Slice 2 below splits the implementation along this line so
+Stringer can ship before Self's type-checker work lands.
 
 ### Composite types
 
@@ -424,17 +430,28 @@ sliced to allow Stringer to ship before Self lands).
 
 ### Slice 2b — `pkg/std`: Comparable + Orderable + Hashable
 
-> **Blocked on Self ratification** (`claude-todo.md` §
-> "`Self` type in interface declarations — DESIGN OPEN").
-> Without Self, these interfaces can't be expressed without
-> generic interfaces (which is itself a separate dependency).
+Unblocked by the Self ratification (`claude-notes.md` §
+"`Self` type in interface declarations — DECIDED 2026-05-12").
 
+- Implement `Self` in the type checker (interface-decl
+  parsing accepts `Self` as a reserved type identifier in
+  method argument / result positions; impl-collection
+  substitutes the receiver type for `Self`; calls through
+  interface values reject when a Self-using method is
+  invoked).
 - Add `Comparable`, `Orderable`, `Hashable` interface
   declarations using `Self`.
 - Write the canonical impls for every numeric primitive,
   `bool`, `char`, `byte`.
 - Float NaN handling per the IEEE-total-order convention
   pinned above.
+
+Open: whether Self lands as its own preceding slice (clean
+landable atom) or inside Slice 2b (couples interfaces +
+language feature).  Lean toward its own slice — Self is a
+real language feature with conformance implications beyond
+the stdlib, and lands cleaner without `pkg/std` as a
+prerequisite.
 
 ### Slice 3 — println rewrite
 
@@ -472,10 +489,9 @@ landing.
   primitives implement interfaces? — DESIGN OPEN" — original
   problem statement and the two options recap.
 - `claude-notes.md` § "`Self` type in interface declarations
-  — PROPOSED" — the dependency for `Comparable` / `Orderable`
-  / `Hashable`.
-- `claude-todo.md` § "`Self` type in interface declarations
-  — DESIGN OPEN" — TODO tracking the Self ratification.
+  — DECIDED 2026-05-12" — the canonical Self spec.
+- `claude-todo-done.md` § "`Self` type in interface
+  declarations — RATIFIED 2026-05-12" — ratification record.
 - `claude-notes.md` § "Built-in implicit interfaces" — the
   `any` precedent that Option 1 builds on.
 - `plan-generics.md` § "Hard dependency: primitives-implement-

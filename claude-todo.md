@@ -53,39 +53,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   Revisit when generics land or when a user-written `printIt`-
   style function becomes pressing.
 
-### `Self` type in interface declarations — DESIGN OPEN
-- **Problem**: many natural interfaces have methods whose
-  argument or return type is "the implementing type"
-  — `Equatable.Equals(other Self) bool`,
-  `Comparable.Compare(other Self) int`,
-  `Cloneable.Clone() Self`.  Without a way to refer to "the
-  implementing type" inside an interface declaration, these
-  can't be expressed cleanly.  This blocks the canonical
-  `Equatable` / `Comparable` / `Hashable` / etc. interfaces
-  in the upcoming `pkg/std` carve-out
-  (`plan-primitives-impl-interfaces.md`), which in turn
-  blocks the headline use case for constrained generics
-  (`Vec[T Comparable]`, `sort[T Comparable]` etc. in
-  `plan-generics.md`).
-- **Proposal**: see `claude-notes.md` § "`Self` type in
-  interface declarations — PROPOSED 2026-05-12".  Reserved
-  identifier valid only inside interface decls; substituted
-  with the receiver type at impl-collection time.  Mirrors
-  Rust's `Self` and Swift's protocol-`Self`.  Workable
-  alternative: generic interfaces (`Equatable[T] { Equals(T)
-  bool }`), but that pushes pkg/std behind the
-  generic-interfaces piece of `plan-generics.md` (Slice 6).
-- **Open questions** (in the proposal):
-  - Self in non-receiver positions when called through an
-    interface value — accept (with type-erased `*Equatable`
-    arg) or reject (Rust's "object-safe" restriction)?
-  - Self in struct types — useful or sugar for nothing?
-- **Next step**: ratify the proposal (or reject in favor of
-  generic interfaces).  Once ratified, fold into
-  `plan-primitives-impl-interfaces.md` so the `Equatable` /
-  `Comparable` / `Hashable` interfaces in pkg/std can be
-  pinned.
-
 ### Migrate self-hosted code to method form (opportunistic)
 - Pattern: add methods alongside free functions (same body), migrate
   callers per function (perl pass for simple shapes, manual fixup for
@@ -458,26 +425,19 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   (BL clobbers X16/X17, so they can't span calls). Not blocking —
   the panic is the oracle for whether anything actually needs this.
 
-### Native AArch64 backend — emitCallFuncValue slice-arg ABI mismatch
-- `pkg/native/arm64/arm64_call_indirect.bn:emitCallFuncValue` doesn't
-  match the per-function `__shim.<mangled>` shim's signature when the
-  user function takes a 16-byte slice (`*[]T` or `@[]T`).  The shim
-  expects the slice spread across 2 consecutive arg registers
-  (data, len) starting at the slot allocated for the slice
-  argument, but the call site treats the slice as a single-word
-  pointer.  Symptom: `conformance/364_funcval_slice_arg` produces
-  empty output instead of `5` — the called function reads garbage
-  for `len(s)` so the for-body never runs.
-- Conformance: xfail.boot-comp_native_aa64 on 364 (pinned to this
-  TODO).
-- Fix shape: branch on slice element types in the user-args loop
-  of `emitCallFuncValue` — when the arg is a slice, load both
-  fields out of the aggregate-pointer source into adjacent
-  `argReg(regStart)` and `argReg(regStart+1)` slots, matching
-  what `common.CallArgRegStart` already accounts for via
-  `IsAggregateTyp`.  emitCallIndirect's call-args loop has the
-  right pattern to mirror — that's where managed-slice and slice
-  args do work end-to-end in conformance today.
+### ~~Native AArch64 backend — emitCallFuncValue slice-arg ABI mismatch~~ — FIXED
+- Root cause was actually in `emitFuncValueShims` (arm64.bn), not
+  the call site: the shim shuffles X1..XN → X0..X(N-1) to drop
+  the closure-data slot, but counted register words by
+  `len(fvTyp.Params)` instead of summing each param's
+  `common.ArgWords`.  A slice param occupies 2 consecutive arg
+  registers, so the shim ran a single MOV X0, X1 and left
+  slice.len in X2 dangling — the callee read X1 (= slice.data)
+  as its len, so any `len(s)`-driven loop ran 0 iterations.
+- Fix: sum `common.ArgWords(fvTyp.Params[i].Type)` across all
+  params and shift that many register words.
+- `conformance/364_funcval_slice_arg` now passes under
+  boot-comp_native_aa64.
 
 ### Native AArch64 backend — interface dispatch — LANDED
 - Implemented OP_IFACE_VALUE, OP_CALL_IFACE_METHOD, OP_IFACE_DTOR

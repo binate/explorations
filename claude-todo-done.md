@@ -6,6 +6,28 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### `Self` type in interface declarations — RATIFIED 2026-05-12
+- **Outcome**: ratified as DECIDED per the proposal in
+  `claude-notes.md` § "`Self` type in interface declarations
+  — DECIDED 2026-05-12".  Reserved identifier valid only
+  inside interface declarations; substituted with the
+  receiver type at impl-collection time.
+- **Open question resolution**: methods using `Self` in
+  non-receiver positions are **rejected** when called
+  through an interface value (Rust's "object-safe"
+  restriction).  Such methods are callable only through
+  generic constraints where T is statically known.
+  Rationale: the alternative (type-erased dispatch through
+  `*Iface`) would require every impl to provide a
+  heterogeneous entry point — `int.Compare(*Comparable)`
+  would have no useful behavior when called with a
+  `string`, leaving only a panicking type assertion as the
+  implementable shape.
+- **Downstream**: unblocks `plan-primitives-impl-interfaces.md`
+  Slice 2b (`Comparable` / `Orderable` / `Hashable` for
+  primitives) and the constrained-generics path in
+  `plan-generics.md` (Slice 3).
+
 ### ~~Method receivers (no interfaces)~~ — DONE
 - Methods supported across all four execution paths: boot (Go
   interpreter), boot-comp (LLVM), boot-comp-int (bytecode VM),
