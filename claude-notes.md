@@ -495,6 +495,50 @@ sort[int](myArray)
 
 **Boxing**: `box(value)` is the standard way to box a value into a managed allocation. Required for `T → @Iface` interface-value construction.
 
+### `Self` type in interface declarations — PROPOSED 2026-05-12
+
+**Problem.**  Many natural interfaces have methods whose argument or return type is "the implementing type" — `Equatable.Equals(other Self)`, `Comparable.Compare(other Self) int`, `Cloneable.Clone() Self`, `Add.Plus(other Self) Self`.  Without a way to refer to "the implementing type" inside an interface declaration, these interfaces can't be expressed.  Three workarounds exist, none clean:
+
+1. Concrete type in the signature (`Equals(other int) bool` on a per-type basis) — defeats the point of an interface.
+2. Type-erased argument (`Equals(other *Equatable) bool`) — gives up monomorphization, defeats generic dispatch.
+3. Generic interfaces (`interface Equatable[T] { Equals(other T) bool }` instantiated as `Equatable[int]`) — works, but requires the generic-interfaces piece of the generics work to land first, AND every interface that mentions Self carries a redundant type parameter that must equal the implementing type at every use site.
+
+**Proposal.**  Add `Self` as a reserved type identifier valid only inside interface declarations.  Inside `interface I { ... }`, `Self` refers to "the type that will implement I."  At impl-collection time (`impl T : I { ... }`), each occurrence of `Self` in I's signature is substituted with T.  Mirrors Rust's `Self` and Swift's protocol-`Self` conventions.
+
+**Examples.**
+```
+interface Equatable {
+    Equals(other Self) bool
+}
+
+interface Comparable : Equatable {
+    Compare(other Self) int  // <0, 0, >0
+}
+
+interface Cloneable {
+    Clone() Self
+}
+```
+
+`impl int : Equatable { func (a int) Equals(b int) bool { return a == b } }` — `b`'s declared type is `int`, matching Self under T=int.  The type checker validates that the impl's method signature matches the interface signature with Self substituted by the receiver type.
+
+**Where Self is allowed.**
+- Argument types in interface methods.
+- Return types in interface methods.
+- Inside composite types in those positions: `*Self`, `@Self`, `*[]Self`, `@[]Self`, `(Self, Self)`, etc.
+- NOT in receiver position — the receiver is always Self implicitly (the impl's receiver type).
+- NOT in interface-extension parents: `interface X : Comparable[Self]` makes no sense; use the `Self` propagation through method signatures alone.
+
+**Interaction with interface values.**  `*Equatable.Equals(other ???)` — what's the type of `other` when called through an interface value?  Open: either (a) reject — methods that mention Self in non-receiver positions can't be called through an interface value (only through a generic constraint where T is known), matching Rust's "object-safe" trait restriction; or (b) accept with `other: *Equatable` (type-erased), losing the Self-ness at the dispatch site.  Lean (a) — keeps the semantics tight; the alternative makes Self an illusion at the boundary.
+
+**Interaction with generic constraints.**  `func sort[T Comparable](xs *[]T) { ... xs[i].Compare(xs[j]) ... }` — at instantiation T=int, `Compare`'s argument type is `int` (Self → T → int), the call type-checks naturally.  This is the headline use case.
+
+**Interaction with interface extension.**  `interface Comparable : Equatable { Compare(other Self) int }` — Self in Comparable refers to the implementing type of Comparable, which is also the implementing type of Equatable (per the extension semantics).  Consistent.
+
+**Open: Self in struct types.**  Could `type Foo struct { next *Self }` work as syntactic sugar for the self-recursive case?  Currently expressed via the type's own name: `type Foo struct { next *Foo }`.  Not motivated by anything; defer.
+
+**Status.**  PROPOSED.  Resolution tracked in `claude-todo.md` § "Self type in interface declarations — DESIGN OPEN".  Until ratified, interfaces that need Self are blocked (e.g., `Comparable`, `Equatable`, `Cloneable` in the upcoming `pkg/std` carve-out per `plan-primitives-impl-interfaces.md`).
+
 ### Syntax direction — IN PROGRESS
 
 C-family, leaning toward Go's direction (clean, minimal, familiar).

@@ -53,6 +53,39 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   Revisit when generics land or when a user-written `printIt`-
   style function becomes pressing.
 
+### `Self` type in interface declarations — DESIGN OPEN
+- **Problem**: many natural interfaces have methods whose
+  argument or return type is "the implementing type"
+  — `Equatable.Equals(other Self) bool`,
+  `Comparable.Compare(other Self) int`,
+  `Cloneable.Clone() Self`.  Without a way to refer to "the
+  implementing type" inside an interface declaration, these
+  can't be expressed cleanly.  This blocks the canonical
+  `Equatable` / `Comparable` / `Hashable` / etc. interfaces
+  in the upcoming `pkg/std` carve-out
+  (`plan-primitives-impl-interfaces.md`), which in turn
+  blocks the headline use case for constrained generics
+  (`Vec[T Comparable]`, `sort[T Comparable]` etc. in
+  `plan-generics.md`).
+- **Proposal**: see `claude-notes.md` § "`Self` type in
+  interface declarations — PROPOSED 2026-05-12".  Reserved
+  identifier valid only inside interface decls; substituted
+  with the receiver type at impl-collection time.  Mirrors
+  Rust's `Self` and Swift's protocol-`Self`.  Workable
+  alternative: generic interfaces (`Equatable[T] { Equals(T)
+  bool }`), but that pushes pkg/std behind the
+  generic-interfaces piece of `plan-generics.md` (Slice 6).
+- **Open questions** (in the proposal):
+  - Self in non-receiver positions when called through an
+    interface value — accept (with type-erased `*Equatable`
+    arg) or reject (Rust's "object-safe" restriction)?
+  - Self in struct types — useful or sugar for nothing?
+- **Next step**: ratify the proposal (or reject in favor of
+  generic interfaces).  Once ratified, fold into
+  `plan-primitives-impl-interfaces.md` so the `Equatable` /
+  `Comparable` / `Hashable` interfaces in pkg/std can be
+  pinned.
+
 ### Migrate self-hosted code to method form (opportunistic)
 - Pattern: add methods alongside free functions (same body), migrate
   callers per function (perl pass for simple shapes, manual fixup for
