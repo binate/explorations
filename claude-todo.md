@@ -240,7 +240,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   store site surfaces, look for a missing instance of that same
   pattern.
 
-### bnc: `return ""` for `@[]char` leaves undeclared `bn_libc__Memcpy`
+### ~~bnc: `return ""` for `@[]char` leaves undeclared `bn_libc__Memcpy`~~ — FIXED
 - **Surfaced by**: adding `--test --run <substr>` to `cmd/bnc`'s
   generated test runner (`21c03a4`).  The generator wanted
   `func _runnerFilter() @[]char { ...; return "" }`; the bnc codegen
