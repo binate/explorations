@@ -1,10 +1,19 @@
 # Plan: Generics
 
-> **Status: DRAFT 2026-05-06.**  Pre-implementation; pins the
-> open questions so implementation can start cleanly when the
-> interface track lands satisfaction checks (the foundational
-> dependency).  Cross-references the existing decisions in
-> `claude-notes.md` § "Generics — DECIDED".
+> **Status: DRAFT 2026-05-06; AMENDED 2026-05-12.**
+> Pre-implementation; pins the open questions so implementation
+> can start cleanly when the interface track lands satisfaction
+> checks (the foundational dependency).  Cross-references the
+> existing decisions in `claude-notes.md` § "Generics — DECIDED".
+>
+> **2026-05-12 amendment:** the design depends on a separately-
+> open question — *can primitives implement interfaces?* — that
+> needs resolution before constrained generics
+> (`[T Comparable]` etc.) can target `int` / `bool` / etc.  See
+> the new "Hard dependency: primitives-implement-interfaces"
+> section below.  Cross-package interfaces (Slices 2.6–2.9) and
+> interface extension (Slices E.1–E.3) have since landed; notes
+> below incorporate them.
 
 ## Context
 
@@ -36,6 +45,46 @@ duck-typing language** — and pins the remaining open questions
 (instantiation cache key, mangled-name scheme, type-param
 storage in `@Type`, recursive generics, `.bni` body emission).
 
+## Hard dependency: primitives-implement-interfaces
+
+> Added 2026-05-12 after surveying the broader interface track.
+
+The constraint-satisfaction model below presumes
+`impl int : Comparable`, `impl uint8 : Hashable`, etc. are
+declarable.  **Under current language rules they are not** —
+methods can only be declared on `TYP_NAMED` receivers, and
+universe primitives like `int` aren't named types.  This is
+flagged in `claude-todo.md` § "`print(42)` and friends: how do
+primitives implement interfaces? — DESIGN OPEN" with two
+candidate options:
+
+1. **Language-blessed implicit interfaces.**  Add `Comparable`,
+   `Hashable`, `Stringer`, etc. to the small closed set of
+   compiler-synthesized impls (the same mechanism that makes
+   every type implement `any`).  Every primitive gets a real
+   vtable; the language defines the canonical formatting /
+   comparison / hashing story for each.
+2. **Stdlib carve-out.**  Allow a designated package
+   (`pkg/std` or similar) to declare `func (x int) less(...)
+   bool` even though `int` is a universe type.  The carve-out
+   exists only for the language's own stdlib; user packages
+   still can't extend `int`.
+
+Until one of these (or some other resolution) lands, **the
+constrained-generics path can't satisfy on primitives**, which
+removes the motivating use case (`Vec[int]`,
+`sort[int](xs)`, `Map[*[]const char, int]`).  The unconstrained
+path (`[T any]`) is unaffected — generic containers that store
+T values and shuffle them around without consulting any T
+methods can still ship.
+
+Implication for slice ordering (see "Implementation work"
+below): Slices 1, 2, 4, 5 (`[T any]` end-to-end + generic
+structs) can land in parallel with the primitives-impl design
+call.  Slice 3 (constraint check) is blocked on the design
+call landing AND on the interface track shipping
+satisfaction-lookup primitives.
+
 ## Ratified decisions
 
 ### 1. Constraint satisfaction is explicit, via `impl`
@@ -58,10 +107,26 @@ verified at impl-collection time**, when the impl was originally
 declared.  At instantiation we just confirm the impl exists; we
 don't re-check shapes.
 
-### 2. Stdlib provides primitive impls
+**Cross-package, since 2026-05-07:** the satisfaction lookup
+naturally crosses packages now that
+`plan-cross-package-interfaces.md` (Slices 2.6–2.9) has landed
+— `impl T : I` may live in any package that has both T and I
+in scope, and the type-checker already shares one `Checker`
+across packages.  Generic instantiations get the
+cross-package impl-visibility check for free.
 
-For built-in types — `int`, `uint8`, `bool`, etc. — the standard
-library ships canonical impls:
+**Inherited methods, since 2026-05-? (Slices E.1–E.3):**
+`interface X : I1, I2 { ... }` is now a thing.  Constraint
+satisfaction must consult I's *full* method set (own +
+inherited transitively, via the `FullMethods` machinery from
+Slice E.2), not just I.Methods directly.  Same applies to
+constraint-method calls in the generic body — `t.foo()` may
+resolve to a method I inherits from I's parent.
+
+### 2. Primitives carry canonical impls
+
+For built-in types — `int`, `uint8`, `bool`, etc. — there must
+be canonical impls satisfying the standard constraints:
 
 ```
 impl int : Comparable    { func less(a, b int) bool { return a < b } }
@@ -71,17 +136,24 @@ impl uint8 : Comparable  { ... }
 ... etc.
 ```
 
-A one-time central cost.  Without this, `Vec[int]` etc. would be
-unusable for the obvious case and the language is dead on
-arrival for concrete-collection generics.  Custom user types
+Without this, `Vec[int]` is dead on arrival.  Custom user types
 follow the same pattern: `impl MyType : Comparable { ... }`
-when the user wants `Vec[MyType]` etc. to satisfy a
-constraint.
+when the user wants `Vec[MyType]` to satisfy a constraint.
+
+> **CONTINGENT** on the primitives-implement-interfaces design
+> call (see "Hard dependency" section above).  As written, the
+> code above is *not currently legal Binate* — `impl int : ...`
+> requires either compiler-synthesized impls (option 1) or a
+> stdlib carve-out (option 2).  The shape of the impl
+> declaration may differ once the design is pinned (e.g.,
+> language-blessed implicit interfaces wouldn't have visible
+> `impl` declarations at all — the compiler synthesizes them).
 
 Open: which canonical interfaces ship in v1?  Likely
 `Comparable`, `Hashable`, `Stringer`.  `Equatable` may collapse
 into `Comparable` (a < b implies != suffices for equality).
-Pinned in a follow-up `plan-stdlib-interfaces.md`.
+Pinned in a follow-up `plan-stdlib-interfaces.md` once the
+primitives-impl design call resolves.
 
 ### 3. Constraint-method calls monomorphize to direct calls
 
@@ -120,27 +192,25 @@ This is the simplest constraint and the natural starting point
 for the implementation — Slice 1 of the work plan below
 operates entirely in the `any`-only world.
 
-### 5. No `.bni` shipping decision yet for `impl T : I`
+### 5. Cross-package impl visibility — already solved
 
-The interface track has decided that `impl` declarations live in
-`.bn` source (not `.bni`) — they're an *implementation* concern.
-For non-generic code, this is fine: an impl is a vtable +
-methods, both materialized at compile time, and the `.bni`
-records the type and the interface; downstream callers don't
-need the impl declaration itself to use the interface.
+> Updated 2026-05-12 after `plan-cross-package-interfaces.md`
+> shipped (Slices 2.6–2.9, 2026-05-07).
 
-For generics, the consumer monomorphizing `f[MyType]()` needs
-to know whether `impl MyType : I` exists.  Two paths:
+The non-generic case is now done: `impl T : I` may live in
+any package that has both T and I in scope (transitively
+through imports), the type-checker shares one `Checker` across
+packages, and vtable symbols are canonical on `(Pkg(T),
+Pkg(I))` so any two TUs that reference the same `(R, I)` pair
+agree.  Generic instantiations consult `c.Impls` the same way
+non-generic interface-value construction does — no new
+visibility machinery needed for the type-check side of
+satisfaction.
 
-- **Path A**: emit a per-package "impl manifest" alongside `.bni`
-  listing every `impl T : I` declared in the package.  Consumers
-  read this when type-checking instantiations.
-- **Path B**: emit `impl` declarations into `.bni` directly,
-  treating them as part of the public surface.
-
-Neither is hard.  Path A is more orthogonal (separates "what
-types exist" from "what impls exist").  Path B keeps the
-single-file public surface.  Pinned to *Open question* below.
+The remaining concern is **generic body shipping** in `.bni`:
+a consumer monomorphizing `f[MyType]()` needs the *body* of
+`f` (since instantiation rewrites it), not just the impl
+visibility.  See Q7 below.
 
 ## Open questions
 
@@ -259,14 +329,22 @@ interface itself is generic.  Likely deferred to Slice 6 below.
 
 ### Q7 — `.bni` body emission
 
-(See ratified-decision §5 — Path A vs Path B.)  Pinning needs:
+> Scope narrowed 2026-05-12: impl visibility is solved by the
+> cross-package interfaces machinery (`plan-cross-package-
+> interfaces.md`, landed 2026-05-07).  This question now only
+> covers the **generic-body** side.
+
+Pinning needs:
 
 - Encoding format for generic bodies in `.bni` (currently
-  signature-only).
-- How `impl T : I` declarations are surfaced — manifest file
-  or in-band in `.bni`.
-- Whether *all* `.bn` source comes along (simpler) or just the
-  generic declarations (smaller `.bni` files).
+  signature-only).  Whole AST?  A serialized canonical form?
+  Reparse the source text?
+- Whether *all* `.bn` source comes along (simpler — but bloats
+  every `.bni`) or just the generic declarations (smaller
+  `.bni`, more bookkeeping).
+- Versioning: a consumer instantiating against an old `.bni`
+  body — does the compiler reject across an API-skew boundary,
+  or silently use the cached version?
 
 ### Q8 — Bootstrap subset interaction
 
@@ -386,11 +464,14 @@ Tests: `Container[int]`-shape interface, impl, dispatch.
 
 ### Slice 7 — Cross-package generics (`.bni` bodies)
 
-- Pin Q7 (Path A vs Path B).
+- Pin Q7 (body-encoding scheme).
 - Encode generic bodies in `.bni` (or sibling manifest).
-- Encode `impl T : I` declarations alongside.
 - Consumer instantiates by reading the body and
   monomorphizing locally.
+
+Note: impl visibility is already cross-package per Slices
+2.6–2.9 of `plan-cross-package-interfaces.md` — Slice 7 only
+adds the generic-body side.
 
 Tests: cross-package `Vec[int]`, `sort[T]` instantiation.
 
@@ -401,6 +482,16 @@ Tests: cross-package `Vec[int]`, `sort[T]` instantiation.
 - `plan-interface-syntax-revision.md` — interfaces are the
   foundational dependency; constraint satisfaction reuses
   the impl-collection machinery from there.
+- `plan-cross-package-interfaces.md` — landed 2026-05-07;
+  generic instantiations get cross-package impl visibility
+  for free (see §5 above).
+- `plan-interface-embedding.md` — Slices E.1–E.3 landed;
+  constraint satisfaction must consult inherited methods via
+  the `FullMethods` machinery (see §1 above).
+- `claude-todo.md` § "`print(42)` and friends: how do
+  primitives implement interfaces? — DESIGN OPEN" — the
+  blocker on constrained generics targeting primitives (see
+  "Hard dependency" section above).
 - `bootstrap-subset.md` § "Generics" — the constraint that
   self-hosted source stays generics-free until the bootstrap
   retires.
