@@ -1,9 +1,20 @@
 # Plan: Primitives Implementing Interfaces
 
-> **Status: DRAFT 2026-05-12.**  Design-open question pinned in
-> `claude-todo.md` § "`print(42)` and friends".  Lays out three
-> candidate options, evaluates them against Binate's existing
-> design stance, and recommends Option 2.  Pending ratification.
+> **Status: DRAFT 2026-05-12, REVISED 2026-05-12.**  Design-
+> open question pinned in `claude-todo.md` § "`print(42)` and
+> friends".  Lays out three candidate options, evaluates them
+> against Binate's existing design stance, recommends Option 2,
+> and pins the canonical interfaces that ship in the carve-out
+> package.  Pending ratification.
+>
+> **Cross-dependency**: three of the four canonical interfaces
+> (`Comparable`, `Orderable`, `Hashable`) need a `Self` type in
+> interface declarations to be expressible without going
+> through generic interfaces.  See `claude-notes.md` § "`Self`
+> type in interface declarations — PROPOSED" and the matching
+> `claude-todo.md` entry.  Until Self ratifies (or generic
+> interfaces ship), only `Stringer` is shippable from the
+> carve-out package.
 
 ## Context
 
@@ -265,15 +276,125 @@ function-value comparators for custom orderings, type
 wrappers for custom primitive-shaped values.  These are the
 same mitigations one would reach for in Option 1a anyway.
 
+## Canonical interfaces
+
+The carve-out package defines four interfaces and ships their
+impls for every universe primitive.  Names and shapes follow
+Go's capitalization conventions (`String()` not `toString()`).
+
+```
+interface Stringer {
+    String() @[]const char
+}
+
+interface Comparable {
+    Compare(other Self) int   // 0 iff equal; nonzero otherwise
+}
+
+interface Orderable : Comparable {}   // same method;
+                                       // ALSO promises total order
+
+interface Hashable : Comparable {
+    Hash() uint                // consistent with Compare's
+                               // equality semantic
+}
+```
+
+### Why one `Compare` method instead of separate `Equals` / `Less` / `Compare`
+
+Once `impl` declarations are explicit (per
+`plan-interface-syntax-revision.md`'s no-duck-typing stance),
+we can use a single method whose semantic contract is layered
+via interface extension:
+
+- `Comparable` requires only the equality semantic — `Compare`
+  returns 0 iff the values are "equal" (whatever the impl
+  considers equal).  Anything nonzero means non-equal.
+- `Orderable` is a zero-method extension that *additionally*
+  promises `Compare` obeys total order: transitivity,
+  antisymmetry, sign-consistency.  An impl declares
+  `impl T : Orderable` to opt into the stronger contract.
+- `Hashable` requires `Compare`'s equality semantic to be
+  defined (else hash equality is meaningless), and adds
+  `Hash() uint`.
+
+Consumer-side shapes:
+
+- Want `==` / `!=`?  `t.Compare(other) == 0` (Comparable
+  suffices).
+- Want `<`?  `t.Compare(other) < 0` (Orderable required by
+  contract; Comparable insufficient).
+- Want hashing into a `Map[K, V]`?  K must satisfy Hashable.
+
+The method-name-equals-interface-name convention (`Compare` on
+`Comparable`) follows Go's `Stringer.String()` and `error.Error()`
+patterns.  Note: Binate's `Comparable` is *not* the same as
+Go's reserved `comparable` (which is a magic compile-time
+constraint for `==` / `!=`); the names differ in case (Go's is
+lowercase) and our `Compare()` method makes the intent
+explicit.
+
+### Self dependency
+
+`Comparable.Compare(other Self) int`, `Orderable` (inherits),
+and `Hashable` (inherits Compare) all require `Self`.
+`Stringer.String() @[]const char` does not — it can ship
+without Self.  Slice 2 below splits accordingly.
+
+### Composite types
+
+A struct type that wants to satisfy `Comparable` writes the
+impl explicitly: `impl Point : Comparable { ... }`.  No
+auto-derive.  This matches the rest of the language model
+(explicit `impl` everywhere).  If the
+"every-struct-needs-boilerplate" pain becomes real, a
+follow-up `#[derive(...)]`-style annotation can be added —
+but defer until evidence.
+
+### Float NaN convention
+
+`Compare` on `float32` / `float64` must handle NaN.  Pin to
+**IEEE total ordering**: NaN sorts after every finite value
+and after positive infinity (so a sequence
+`-inf, ...finites..., +inf, NaN` is monotonic).  Matches
+`std::collections` in Rust, `Float::totalCompare` in Java.
+
+## Carve-out package layout
+
+**Package name**: `pkg/std`.  Reasons:
+
+- Conventional name for "standard library".
+- `pkg/builtin/testing` already exists for the test framework;
+  `pkg/std` for the broader stdlib stuff is a clean
+  parallel.
+- Avoids `pkg/iface` (which would imply pure-interface decls,
+  but we're shipping impls too).
+
+**No auto-import.**  Users explicitly write
+`import "pkg/std"` when they want `Stringer` / `Comparable` /
+etc.  The import naturally pulls in the universe-type impls
+(via the cross-package machinery from
+`plan-cross-package-interfaces.md`), so importing
+`pkg/std` to use `Stringer` ALSO makes `int.String()`
+available.  No magic.
+
+**Interfaces and primitive impls live in the same package.**
+Splitting the interface declarations into a thinner
+`pkg/iface` would require either auto-import (rejected
+above) or two imports for one logical concept.  Same-package
+keeps it one import, one namespace.
+
 ## Implementation work
 
-Sized for a single coherent landing once ratified.
+Sized for a single coherent landing once ratified (and
+sliced to allow Stringer to ship before Self lands).
 
 ### Slice 1 — Type-checker carve-out
 
 - Add `Checker.AllowUniverseRecv` flag (bool).
 - Loader / package-load driver sets the flag when entering
-  the carve-out package.
+  the carve-out package (identity check on the package path
+  `pkg/std`).
 - `resolveMethodReceiver` adds the exception: if the receiver
   base resolves to a universe primitive AND
   `c.AllowUniverseRecv` is set, accept the method.  Method
@@ -286,62 +407,75 @@ Sized for a single coherent landing once ratified.
   want.  Verify that test-isolation doesn't accidentally
   duplicate the singleton across runs.
 
-### Slice 2 — Stdlib package: canonical primitive impls
+### Slice 2a — `pkg/std`: Stringer + universe impls
 
-- Pick the carve-out package name (`pkg/std`?  `pkg/builtin`?
-  Consider: `pkg/builtin/testing` is already a thing).
-- Define the canonical interfaces: `Comparable`, `Hashable`,
-  `Stringer`, `Equatable`.  Likely in `pkg/std/iface.bni`
-  (or split across files).
-- Write the impls for each primitive: `int`, `int8`,
-  `int16`, ..., `uint`, ..., `bool`, `char`, `byte`,
+- Create `pkg/std` with the `Stringer` interface declaration
+  (no Self required).
+- Write `String()` impls for every universe primitive: `int`,
+  `int8`, `int16`, ..., `uint`, ..., `bool`, `char`, `byte`,
   `float32`, `float64`.
+- Cross-package vtable mangling already handles
+  `__ivt.bn_pkg_std__int__pkg_std__Stringer` (Stringer's
+  package = std; int's "package" = std under the carve-out).
+- Conformance: end-to-end test that
+  `import "pkg/std"; printIt(s *Stringer) { ... println(s.String()) ... }`
+  works with `&42` (or whatever the construction-site syntax
+  pins).
+
+### Slice 2b — `pkg/std`: Comparable + Orderable + Hashable
+
+> **Blocked on Self ratification** (`claude-todo.md` §
+> "`Self` type in interface declarations — DESIGN OPEN").
+> Without Self, these interfaces can't be expressed without
+> generic interfaces (which is itself a separate dependency).
+
+- Add `Comparable`, `Orderable`, `Hashable` interface
+  declarations using `Self`.
+- Write the canonical impls for every numeric primitive,
+  `bool`, `char`, `byte`.
+- Float NaN handling per the IEEE-total-order convention
+  pinned above.
 
 ### Slice 3 — println rewrite
 
-Once `*Stringer` accepts primitives uniformly, the
-`bootstrap.println` builtin can be rewritten as a generic
-(or a regular function over `...*Stringer` once raw-interface
-variadics land — `claude-notes.md` § "Variadic params").
-Removes one of the long-standing temporary hacks.
-
-This slice depends on either generics landing (`plan-
-generics.md` Slice 4) or raw-interface variadics landing
-(currently undeclared on the timeline).  May be deferred
-beyond the carve-out work itself.
+Once `*Stringer` accepts primitives uniformly (after Slice
+2a), the `bootstrap.println` builtin can be rewritten as a
+regular function over `...*Stringer` (raw-interface
+variadics, per `claude-notes.md`).  Removes one of the long-
+standing temporary hacks.  Depends on raw-interface variadics
+landing.
 
 ## Open questions
 
-- **Carve-out package name.**  `pkg/std`?  `pkg/builtin`?
-  `pkg/lang`?  Doesn't materially affect the design but pins
-  ergonomics.
-- **Auto-import.**  Should the carve-out package be implicitly
-  imported (like `bootstrap`)?  Probably yes — otherwise every
-  user file that uses `Comparable` etc. needs an `import
-  "pkg/std"`.  Auto-import wires the canonical impls into
-  scope without ceremony.
-- **Interface declaration location.**  The interfaces
-  themselves (`Comparable` etc.) — do they live in the
-  carve-out package alongside the impls, or in a separate
-  always-imported `pkg/iface`?  Putting them in the carve-out
-  package is simpler; splitting allows the carve-out to be a
-  pure-impl package and the interface decls to be a slim
-  always-imported namespace.
-- **Composite type story.**  When a struct type wants to
-  satisfy `Comparable`, the user writes the impl.  Open: any
-  helper macros / language affordances for the common case
-  (lexicographic-by-field)?  Probably defer — see if the
-  pain is real once generics ship.
-- **Float comparison.**  `Comparable` on `float32` /
-  `float64` runs into NaN-ordering questions.  Stdlib needs
-  to pick a convention (e.g., NaN sorts after everything;
-  matches IEEE total ordering).  Pin in Slice 2.
+- **Construction-site ergonomics.**  `printIt(s *Stringer)`
+  with a literal `42` requires `printIt(&42)` — taking the
+  address of a literal — which currently doesn't work
+  (`int` doesn't have an addressable storage slot for `42`).
+  Either (a) the construction-site rules need a small
+  extension to box-or-allocate primitive literals when
+  converting to `*Stringer`, or (b) callers explicitly
+  declare `var x int = 42; printIt(&x)`.  Option (b) is
+  ugly but unblocks the carve-out without language work.
+- **Composite type story (deferred).**  `#[derive(Comparable)]`
+  for structs?  Defer until `impl` boilerplate becomes a
+  real complaint.
+- **`Equatable` as a separate interface?**  Today the design
+  collapses equality into Comparable.  If a use case turns
+  up where a type can sensibly be compared for equality but
+  has no meaningful `Compare` other than 0/1 (e.g., set
+  membership where ordering is meaningless), splitting may
+  be worthwhile.  Defer.
 
 ## Cross-references
 
 - `claude-todo.md` § "`print(42)` and friends: how do
   primitives implement interfaces? — DESIGN OPEN" — original
   problem statement and the two options recap.
+- `claude-notes.md` § "`Self` type in interface declarations
+  — PROPOSED" — the dependency for `Comparable` / `Orderable`
+  / `Hashable`.
+- `claude-todo.md` § "`Self` type in interface declarations
+  — DESIGN OPEN" — TODO tracking the Self ratification.
 - `claude-notes.md` § "Built-in implicit interfaces" — the
   `any` precedent that Option 1 builds on.
 - `plan-generics.md` § "Hard dependency: primitives-implement-
@@ -350,5 +484,7 @@ beyond the carve-out work itself.
   and the no-duck-typing stance.
 - `plan-cross-package-interfaces.md` — `impl` may live in any
   package; the methods on T live with T's defining package.
+- `plan-interface-embedding.md` — `Hashable : Comparable`
+  uses interface extension (Slices E.1–E.3, landed).
 - `feedback_println_hack.md` — `bootstrap.println` is a
   temporary hack that this plan unblocks the removal of.
