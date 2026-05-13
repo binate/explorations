@@ -240,6 +240,40 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   store site surfaces, look for a missing instance of that same
   pattern.
 
+### bnc: `return ""` for `@[]char` leaves undeclared `bn_libc__Memcpy`
+- **Surfaced by**: adding `--test --run <substr>` to `cmd/bnc`'s
+  generated test runner (`21c03a4`).  The generator wanted
+  `func _runnerFilter() @[]char { ...; return "" }`; the bnc codegen
+  lowered the `""` exit-path literal to
+  `call void @bn_libc__Memcpy(%dst, %src, i64 0)` (size-0 memcpy
+  to copy zero bytes from a rodata placeholder into a freshly
+  `rt.MakeManagedSlice`'d 0-length buffer).  The generated runner
+  module imports `pkg/bootstrap` + the test packages — but not
+  `pkg/libc` directly — so `test_main.ll` has no
+  `declare … @bn_libc__Memcpy` and clang errors with
+  `use of undefined value '@bn_libc__Memcpy'`.
+- **Workaround in place**: the generator returns a zero-init local
+  (`var empty @[]char; … return empty`) instead of `""`.  See
+  `genTestRunner` in `cmd/bnc/test.bn` and the comment block above
+  the `_runnerFilter` emission.
+- **Two clean fixes**:
+  1. In codegen, when lowering a `""` literal for `@[]char`, skip
+     the `libc.Memcpy` emit when the size is statically zero (no
+     bytes to copy — the `rt.MakeManagedSlice` already produced an
+     empty backing).  Plausibly the right call regardless of this bug.
+  2. Or: emit a `declare void @bn_libc__Memcpy(i8*, i8*, i64)` (and
+     similar implicit-use declarations) into every module that calls
+     into them through string-literal lowering, regardless of whether
+     `pkg/libc` is in the import set.
+- **Repro after removing the workaround**:
+    1. Revert the `var empty` branch in `genTestRunner` back to
+       `return ""`.
+    2. `go run cmd/bnc -- --test --build-dir <tmp> cmd/bni` — clang
+       fails on `test_main.ll` with the undefined-value error.
+  Test would live in `pkg/codegen` (a minimal module with a single
+  `@[]char`-returning function that does `return ""`).  Not yet
+  added — recommend adding alongside fix (1).
+
 ### pkg/vm:TestExecRefIncRefDecInline crashes under boot-comp-int-int
 - **Repro**: `./scripts/unittest/run.sh boot-comp-int-int pkg/vm`.
   Symptom is actually a **SIGSEGV** (exit 139), not a hang —
