@@ -458,6 +458,44 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   (BL clobbers X16/X17, so they can't span calls). Not blocking —
   the panic is the oracle for whether anything actually needs this.
 
+### Native AArch64 backend — emitCallFuncValue slice-arg ABI mismatch
+- `pkg/native/arm64/arm64_call_indirect.bn:emitCallFuncValue` doesn't
+  match the per-function `__shim.<mangled>` shim's signature when the
+  user function takes a 16-byte slice (`*[]T` or `@[]T`).  The shim
+  expects the slice spread across 2 consecutive arg registers
+  (data, len) starting at the slot allocated for the slice
+  argument, but the call site treats the slice as a single-word
+  pointer.  Symptom: `conformance/364_funcval_slice_arg` produces
+  empty output instead of `5` — the called function reads garbage
+  for `len(s)` so the for-body never runs.
+- Conformance: xfail.boot-comp_native_aa64 on 364 (pinned to this
+  TODO).
+- Fix shape: branch on slice element types in the user-args loop
+  of `emitCallFuncValue` — when the arg is a slice, load both
+  fields out of the aggregate-pointer source into adjacent
+  `argReg(regStart)` and `argReg(regStart+1)` slots, matching
+  what `common.CallArgRegStart` already accounts for via
+  `IsAggregateTyp`.  emitCallIndirect's call-args loop has the
+  right pattern to mirror — that's where managed-slice and slice
+  args do work end-to-end in conformance today.
+
+### Native AArch64 backend — interface dispatch — LANDED
+- Implemented OP_IFACE_VALUE, OP_CALL_IFACE_METHOD, OP_IFACE_DTOR
+  in pkg/native/arm64; added `__ivt.<...>` vtable emission to
+  EmitObject; added TYP_INTERFACE_VALUE / TYP_INTERFACE_VALUE_MANAGED
+  cases to IsAggregateTyp and PlanFrame's data-region allocator.
+  See `arm64_iface.bn` + the new ops in `arm64_dispatch.bn`.
+- Verified: boot-comp_native_aa64 conformance went from 0/327
+  (everything failed at link with `_bn_entry undefined` — that
+  side was fixed earlier in the same commit chain) → 321/1/6
+  passing/failing/xfail.  The remaining failure (364) is the
+  slice-arg ABI mismatch above.
+- Layout note: matches LLVM's emit_impls.bn exactly — slot 0 is
+  the receiver dtor (or null if no dtor in this TU), slots 1..N
+  are method pointers in interface-declaration order, each slot
+  is an 8-byte ARM64_RELOC_UNSIGNED fixup that the linker
+  resolves to the symbol's absolute address.
+
 ### ~~Inline RefInc / fast-path inline RefDec (perf)~~ — DONE
 - **Plan doc**: `explorations/plan-refcount-inlining.md` (Status: DONE).
 - New IR ops `OP_REFINC` / `OP_REFDEC` added alongside the old `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC`; IR-gen switched to emit the new ops; old emitters (`EmitRefcountInc` / `EmitRefcountDec` / `EmitRefcountDecDtor`) deleted in favor of `EmitRefInc` / `EmitRefDec` / `EmitRefDecDtor`.
