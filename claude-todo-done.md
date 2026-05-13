@@ -6,6 +6,52 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### Interface embedding/extension — DONE 2026-05-13
+- **Plan**: `plan-interface-embedding.md`.  Design ratified in
+  `claude-notes.md` § "Interfaces" (extension paragraph) and
+  detailed in `claude-discussion-detailed-notes.md` § "Interface
+  Extension".  Vtable layout from `claude-plan-1.md` § 2.3.
+- **Slices** (all committed on main):
+  - **E.1**: parser + AST + reject-extension placeholder (parser
+    accepts `interface X : I1, I2, ... { ... }`; parent list
+    stored in the existing `Decl.Interfaces` field).
+  - **E.2**: type-checker parent resolution + method-set
+    propagation (no cycles via forward-ref-only rule, no
+    duplicate parents, no same-name signature conflicts; impl
+    satisfaction walks `ifaceFullMethods`).
+  - **E.3**: IR-gen transitive impl emission + concat vtable
+    codegen (`(R, child)` triggers `(R, ancestor)` ImplInfo
+    entries; LLVM vtable `[any-block][parent1 full vtable]...[own]`).
+  - **E.4 part 1**: dispatch through inherited methods —
+    `findInterfaceMethod` walks the parent chain and returns an
+    absolute vtable slot; codegen + VM consume the slot directly
+    (the old `+1` adjustment is gone).
+  - **E.4 part 2a**: type-checker iface upcast assignability
+    (`*Child → *Parent` etc.) + latent `Identical` bug fix for
+    iface types.
+  - **E.4 part 2b**: explicit upcast IR/codegen — new
+    `OP_IFACE_UPCAST`, LLVM lowering via static slot-offset GEP,
+    VM lowering via runtime name-rewrite of the vtable's mangled
+    suffix.
+  - **E.5**: cross-package extension verified by conformance
+    388, no new code needed; docs flipped from "not yet
+    implemented" to "implemented".
+- **Coverage**: 4 direct tests for the `Identical` fix /
+  inherited slot / GEP dispatch slot / managed-to-raw upcast
+  (commits `d485136..277f8b0`); end-to-end conformance 387
+  (same-package upcast) + 388 (cross-package upcast); 11
+  type-checker tests covering single/multi/deep extension,
+  diamond inheritance, parent recording, full-method-set order,
+  forward-ref/self/non-interface/duplicate-parent/signature-conflict
+  rejections; IR test for transitive ImplInfo emission +
+  redundant-parent dedup + recursive vtable size; codegen test
+  for the concat layout shape.
+- **Connection to RTTI** (still open): if/when concrete-type
+  assertions land, a `*TypeInfo` slot in the `any`-block makes
+  it reachable from any interface vtable via offset 0 —
+  independent of which interface the value is currently typed
+  as.  Tracked separately in `notes-package-introspection.md`.
+
 ### `Self` type in interface declarations — RATIFIED 2026-05-12
 - **Outcome**: ratified as DECIDED per the proposal in
   `claude-notes.md` § "`Self` type in interface declarations

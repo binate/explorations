@@ -548,7 +548,7 @@ Some content is duplicated — the dtor pointer (and any other `any`-block conte
 
 Multi-extension fits naturally: `interface X : I1, I2 { ... }` lays out I1 and I2 side by side, and conversion to either is a fixed offset. Order matters at the layout level (offset_of(I2) depends on sizeof(I1's full vtable)) but is invisible to the user since they never write a vtable index.
 
-**Status**: not implemented. Parser today accepts only `interface X { methods... }` and `interface X = Y`. Tracked in `claude-todo.md`.
+**Status**: implemented 2026-05-13.  Plan and per-slice summary in `plan-interface-embedding.md` and `claude-todo-done.md`.
 
 ### Vtable-Based Dynamic Dispatch
 

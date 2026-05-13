@@ -1,6 +1,8 @@
 # Plan: Interface Embedding / Extension
 
-**Status**: DRAFT — pending ratification.
+**Status**: DONE 2026-05-13.  All five slices landed on main; see
+`claude-todo-done.md` for the per-slice commit summary.  The plan
+content below remains as a record of the design.
 
 ## Context
 
