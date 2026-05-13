@@ -240,10 +240,11 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   store site surfaces, look for a missing instance of that same
   pattern.
 
-### pkg/vm:TestExecRefIncRefDecInline hangs under boot-comp-int-int
+### pkg/vm:TestExecRefIncRefDecInline crashes under boot-comp-int-int
 - **Repro**: `./scripts/unittest/run.sh boot-comp-int-int pkg/vm`.
-  Hang is real, not slow execution: persisted past 8 minutes in
-  testing.  xfail marker:
+  Symptom is actually a **SIGSEGV** (exit 139), not a hang —
+  earlier "hang past 8 min" reports were the runner timing out
+  on the segfaulted child.  xfail marker:
   `scripts/unittest/pkg-vm.xfail.boot-comp-int-int`.
 - **Shape**: three-level VM nesting.  OUTER cmd/bni native dispatches
   the inner cmd/bni's bytecode (the unit-test harness); the test
@@ -255,52 +256,65 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     - `EmitMake` (BC_ALLOC) alone — ✅ returns.
     - `EmitMake + EmitRefInc` — ✅ returns.
     - `EmitMake + EmitRefInc + EmitRefDec(fast)` — ✅ returns.
-    - `+ BC_CALL "rt.Refcount"` — ❌ hangs.
+    - `+ BC_CALL "rt.Refcount"` — ❌ crashes.
   So the trigger is the BC_CALL extern dispatch on a name that's
   not in VM_test.Funcs but IS in VM_test.Externs (registered via
   RegisterStandardExterns).
-- **Dispatch path** that hangs: VM_test BC_CALL "rt.Refcount" →
-  LookupFunc miss → `execExtern` → `dispatchExternBinding(VM_test,
-  binding, args)` → `_call_shim_scalar(fnPtr, dataPtr, args)` →
-  bytecode lowers to BC_CALL_INDIRECT in INNER's pkg/vm, dispatched
-  by OUTER native execLoop.  fnPtr is TrampolineScalar's 1-based
-  index in VM_inner_layer1.Funcs (small int, valid index range).
 - **Specific to 3-level nesting.**  pkg/vm passes 107/107 under
   boot-comp-int (2-level): TestExecRefIncRefDecInline runs cleanly
-  there.  The hang only manifests in the deeper boot-comp-int-int
+  there.  The crash only manifests in the deeper boot-comp-int-int
   chain.
-- **Where it gets stuck**: BC_CALL_INDIRECT.  TrampolineScalar's
-  bytecode never executes (a `print` placed at TrampolineScalar
-  entry never appears in the output).  Output trace shows a flood
-  of `libc.Memcpy / Memset / Malloc` extern dispatches with no
-  progress — suggests bytecode is running in a tight loop (frame
-  push / aggregate copy / alloc cycle), not deadlocked.  The
-  missing-print signal is suspect — `print()` itself routes
-  through `bootstrap.Write` via the same registry path the
-  test exercises, so if THAT path is broken the diagnostic is
-  silently suppressed.
-- **Working hypothesis (NOT confirmed)**: in 3-level nesting
-  there are multiple bytecode-form execLoops stacked.  The
-  bytecode-form BC_CALL_INDIRECT handler uses ITS `vm` parameter
-  for the `len(vm.Funcs)` validity check and the subsequent
-  pushFrame.  But the function-value's `vtable.call` was set by
-  registration that may have run in a different VM's context —
-  so the index is meaningful in one VM but referenced in
-  another.  If "accidentally valid" in the wrong VM, it
-  dispatches to whatever function happens to live at that
-  index — easily a high-traffic helper (rt.Box, rt.MakeManagedSlice,
-  etc.) whose execution fuels the libc.Memcpy/Memset/Malloc
-  loop seen in the trace.
+- **Crash details (2026-05-12 via lldb on `/tmp/bni_dbg` built with
+  `-g`)**:
+    - `EXC_BAD_ACCESS (code=1, address=0x1)` in OUTER native
+      `bn_vm__execMemoryOp` at line 251 — the BC_LOAD8 handler's
+      `regs[instr.Dst] = cast(int, p[0])`.
+    - The BC_LOAD8 being processed lives in
+      `VM_INNER.Funcs[1068].Code[97]` (= `vm.execMemoryOp`'s OWN
+      bytecode); pc=98 (one past). Instruction is
+      `(Op=43, Dst=78, Src1=77, Imm=0)`.
+    - vm.execMemoryOp's register 77 holds `0x01`. Bytecode at
+      pc=95/96/97: `BC_LOAD_IMM R76, 0` → `BC_ELEM_PTR R77 = R75
+      + R76*1` → `BC_LOAD8 R78 = *R77`. This corresponds to the
+      source-level `cast(int, p[0])` where `p = bit_cast(*uint8,
+      regs[instr.Src1])`. So source-level `p == 0x01` —
+      vm.execMemoryOp was called with a `regs+instr` pair where
+      `regs[instr.Src1] == 1`.
+    - Caller of execMemoryOp (saved in execMemoryOp's frame
+      header): funcIdx=1060 (= `vm.execLoop`) at saved pc=185.
+      Caller of that inner execLoop (savedFuncIdx=1064) at pc=91.
+      The inner execLoop's parameters at regsOff=12368 are
+      reg[0]=0xAF079D310 (vm), reg[1]=1032 (funcIdx), reg[2]=1168
+      (regsOff).
+    - The inner execLoop's `vm` (0xAF079D310) is NOT the
+      VM_INNER_CMD_BNI (0xAF0B58510) we entered through — so we're
+      at the deeper-nested level (probably the test's
+      `execFunc(VM_T, ...)` → execLoop call, with vm=VM_T).
+      Unresolved discrepancy: funcIdx=1032 is way out of range for
+      a VM_T that LowerModule populated with one function. So
+      either the inner execLoop is iterating something other than
+      VM_T (some intermediate VM?), or our register-offset
+      assumption for params (reg[0..2]) is off.
+- **Working hypothesis (refined)**: streq is being called on a
+  managed-slice (binding.Name or the lookup name) whose data
+  pointer has been corrupted to `0x01`. The BC_LOAD8 in the
+  crash is the per-byte char comparison `a[i] != b[i]` in streq's
+  body. Likely cause: a managed-slice refinc is missing on the
+  struct-copy paths in `RegisterExtern`'s append loop (newExterns[i]
+  = vm.Externs[i] and newExterns[len(...)] = binding), causing
+  premature free. The 3-level nesting amplifies the bug because
+  each level adds its own refcount-touching code path.
 - **Surfaced by** the boot-comp-int-int unit-test sweep after the
   vm_extern.bn cleanup (`a6a74c8`).  Pre-cleanup the test was
   hidden behind a separate codegen bug fixed in `666f2c9`.
-- **Investigation owner**: open.  Next viable steps require
-  either (a) instrumenting OUTER cmd/bni's NATIVE execLoop with
-  prints that bypass the bytecode-Write dispatch path (so they
-  remain visible when the registry path is broken), or (b)
-  reading the VM identity at each BC_CALL_INDIRECT site via
-  native-side debug output to check whether vm.Funcs identity
-  matches the closure rec's vm handle.
+- **Investigation owner**: in progress. Next steps:
+    1. Identify what `vm.Funcs[1032]` is in the inner execLoop's
+       VM — likely streq, LookupExtern, or RegisterExtern.
+    2. Confirm streq is the consumer by examining its bytecode
+       and matching pc=98 to the `a[i]` byte-load site.
+    3. Once confirmed, hunt the refcount/struct-copy bug in
+       RegisterExtern's vm.Externs growth or in the @[]char
+       Name field handling.
 
 ### ~~boot-comp-int-int: blocked on registerPureCExterns from interpreted cmd/bni~~ — DONE (2026-05-07)
 - **Resolved by**: `b9e1fed` (BC_FUNC_VALUE registry-fallback in
