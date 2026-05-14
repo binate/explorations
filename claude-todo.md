@@ -329,26 +329,86 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
       either the inner execLoop is iterating something other than
       VM_T (some intermediate VM?), or our register-offset
       assumption for params (reg[0..2]) is off.
-- **Working hypothesis (refined)**: streq is being called on a
-  managed-slice (binding.Name or the lookup name) whose data
-  pointer has been corrupted to `0x01`. The BC_LOAD8 in the
-  crash is the per-byte char comparison `a[i] != b[i]` in streq's
-  body. Likely cause: a managed-slice refinc is missing on the
-  struct-copy paths in `RegisterExtern`'s append loop (newExterns[i]
-  = vm.Externs[i] and newExterns[len(...)] = binding), causing
-  premature free. The 3-level nesting amplifies the bug because
-  each level adds its own refcount-touching code path.
+- **Root cause (2026-05-13, confirmed via lldb on `/tmp/bni_dbg`
+  with `--run TestExecRefIncRefDecInline`)**: vtable.call slot for
+  every `rt.*` extern binding in `VM_T.Externs` is stored as
+  `0x423` (= 1059), a tiny integer that isn't a native function
+  pointer.  By contrast `libc.*` / `bootstrap.*` bindings have
+  proper native call slots (e.g. `0x10010d4d4`).
+- **Dispatch path that crashes**: `dispatchExternBinding` reads
+  `vtable[1] = 1059` and feeds it into `rt._call_shim_scalar` →
+  `BC_CALL_INDIRECT` with `fnIdx=1059`.  The handler in inner
+  `pkg/vm.execLoop` does `calleeFuncIdx = fnIdx - 1 = 1058`,
+  passes the `1058 < len(vm.Funcs)` check (`INNER vm.Funcs.len`
+  = 1194), and pushes a frame for `vm.Funcs[1058]` — which is
+  `vm.genModule` (a `vm_test.bn` helper).  genModule's first
+  action is `toBytes(src)`, which dereferences `src.data`; src
+  is actually the closure record passed as `dataPtr` (=
+  `b.DataAddr`), whose word 0 is `rt.DATA_KIND_VM_CLOSURE_REC =
+  1`.  Reading the byte at address `0x1` segfaults — exit 139.
+  (Also explains the 44 GB memory blow-up the user observed when
+  leaving the test running: genModule continues past toBytes
+  into `parser.New / ParseFile` parsing the closure record as
+  Binate source — unbounded allocation.)
+- **Why vtable.call is the wrong number**: BC_FUNC_VALUE
+  construction (Path B in `pkg/vm/vm_exec_funcref.bn:99-107`)
+  sets `vtPtr[1] = bit_cast(int, _raw_func_addr(TrampolineScalar))`.
+  `_raw_func_addr` lowers to `BC_FUNC_ADDR` whose handler does
+  `idx = vm.LookupFunc(name); regs[Dst] = idx + 1`.  Here `vm`
+  is the inner execLoop's `vm` = `INNER vm`.  Evidence says
+  `INNER_vm.LookupFunc("vm.TrampolineScalar")` returns `1058` —
+  but `INNER vm.Funcs[1058]` is `vm.genModule`, not
+  `vm.TrampolineScalar`.  So the bug is either:
+    1. The funcIndex hash (`pkg/vm/func_index.bn`) gives a wrong
+       index for `"vm.TrampolineScalar"` in INNER vm.
+    2. Or the parallel arrays `vm.Funcs` and `IndexBuckets` got
+       out of sync at lowering time (Tier-4 shadow path, or a
+       LowerOneFunc / LowerOneFuncShadow regression).
 - **Surfaced by** the boot-comp-int-int unit-test sweep after the
   vm_extern.bn cleanup (`a6a74c8`).  Pre-cleanup the test was
   hidden behind a separate codegen bug fixed in `666f2c9`.
-- **Investigation owner**: in progress. Next steps:
-    1. Identify what `vm.Funcs[1032]` is in the inner execLoop's
-       VM — likely streq, LookupExtern, or RegisterExtern.
-    2. Confirm streq is the consumer by examining its bytecode
-       and matching pc=98 to the `a[i]` byte-load site.
-    3. Once confirmed, hunt the refcount/struct-copy bug in
-       RegisterExtern's vm.Externs growth or in the @[]char
-       Name field handling.
+- **Repro is now seconds**: `/tmp/bni_dbg -root <root> cmd/bni
+  -- --test --run TestExecRefIncRefDecInline -root <root> pkg/vm`
+  segfaults within ~2 s of launch (needs the `--run` filter from
+  `6bea5ba`).
+- **Investigation owner**: in progress.  Next concrete step:
+  from lldb at the SEGV, call (or inline-script) the INNER vm's
+  LookupFunc on `"vm.TrampolineScalar"` and compare against a
+  linear scan of `INNER vm.Funcs[i].Name`.  If they disagree the
+  bug is in funcIndex insertion / probing; if they agree at idx
+  1058 the bug is in LowerModule's appendVMFunc / funcIndexSet
+  pairing.
+
+### pkg/codegen `TestEmitDebug*` dominates `boot-comp-int-int` runtime (perf)
+- **Symptom**: pkg/codegen unit tests take ~1084s in CI under
+  `boot-comp-int-int` (vs ~4s under `boot-comp-int`). The 26
+  `TestEmitDebug*` tests account for ~78% of that runtime (~500s
+  on local Apple Silicon, scaling up on CI x86). Top offenders:
+  `TestEmitDebugStructWithArrayAndSliceFields` (~79s),
+  `TestEmitDebugSliceFieldInStruct` (~41s),
+  `TestEmitDebugSliceOfPointerChain` (~32s).
+- **Isolated repro**: `TestEmitDebugStructWithArrayAndSliceFields`
+  alone — 0.7s under `boot-comp-int`, ~120s under
+  `boot-comp-int-int` (>100× slowdown for one test).
+- **Mitigation in tree**: `scripts/unittest/pkg-codegen.skip.boot-comp-int-int`
+  skips the `TestEmitDebug` substring under double interp. Coverage
+  is preserved by every other mode that exercises codegen
+  (`boot`, `boot-comp`, `boot-comp-int`, `boot-comp-comp*`).
+- **Root cause to investigate**: each `TestEmitDebug*` runs
+  `compileToLLVM(src)` with `SetDebugInfo(true)`. The DWARF emission
+  path (DICompositeType chains, DIDerivedType members, member
+  scope/baseType references) is heavy on string-building and
+  small allocations. Under double interp every byte append /
+  small allocation pays 2× bytecode-dispatch overhead, and there
+  are many of them per test.
+- **Possible angles** (not yet investigated):
+  1. Buffered string construction in `pkg/codegen/emit_debug*.bn`
+     — coalesce per-node fragments to reduce CharBuf grows.
+  2. Cache stable strings (e.g. DI tag names, common type keys).
+  3. Reduce redundant work in the type registry — same composite
+     type is rebuilt every call to `compileToLLVM`.
+- **Not blocking anything**; tracking so the slowdown isn't
+  forgotten once the mode no longer times out.
 
 ### ~~boot-comp-int-int: blocked on registerPureCExterns from interpreted cmd/bni~~ — DONE (2026-05-07)
 - **Resolved by**: `b9e1fed` (BC_FUNC_VALUE registry-fallback in
