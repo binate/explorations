@@ -350,20 +350,52 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   leaving the test running: genModule continues past toBytes
   into `parser.New / ParseFile` parsing the closure record as
   Binate source — unbounded allocation.)
-- **Why vtable.call is the wrong number**: BC_FUNC_VALUE
-  construction (Path B in `pkg/vm/vm_exec_funcref.bn:99-107`)
-  sets `vtPtr[1] = bit_cast(int, _raw_func_addr(TrampolineScalar))`.
-  `_raw_func_addr` lowers to `BC_FUNC_ADDR` whose handler does
-  `idx = vm.LookupFunc(name); regs[Dst] = idx + 1`.  Here `vm`
-  is the inner execLoop's `vm` = `INNER vm`.  Evidence says
-  `INNER_vm.LookupFunc("vm.TrampolineScalar")` returns `1058` —
-  but `INNER vm.Funcs[1058]` is `vm.genModule`, not
-  `vm.TrampolineScalar`.  So the bug is either:
-    1. The funcIndex hash (`pkg/vm/func_index.bn`) gives a wrong
-       index for `"vm.TrampolineScalar"` in INNER vm.
-    2. Or the parallel arrays `vm.Funcs` and `IndexBuckets` got
-       out of sync at lowering time (Tier-4 shadow path, or a
-       LowerOneFunc / LowerOneFuncShadow regression).
+- **Why vtable.call is the wrong number (cross-VM index leak)**:
+  BC_FUNC_VALUE construction (Path B in
+  `pkg/vm/vm_exec_funcref.bn:99-107`) sets
+  `vtPtr[1] = bit_cast(int, _raw_func_addr(TrampolineScalar))`.
+  `_raw_func_addr` lowers to BC_FUNC_ADDR.  When INNER
+  pkg/vm.execLoop's bytecode dispatches BC_FUNC_VALUE, it
+  source-level-calls `execFuncRefOp(vm=INNER vm, …)`.  But
+  execFuncRefOp's BYTECODE (which contains the BC_FUNC_ADDR)
+  is then iterated by OUTER NATIVE execLoop (one level up the
+  call ladder).  OUTER native execLoop's BC_FUNC_ADDR handler
+  uses OUTER's `vm` = VM_INNER_CMD_BNI for the LookupFunc, not
+  the inner level's vm.  OUTER_vm.LookupFunc("vm.TrampolineScalar")
+  = 1058, so `vtPtr[1] = 1059`.
+- **Both directly verified via lldb**:
+    - `INNER vm.LookupFunc("vm.TrampolineScalar")` = 1076,
+      `INNER vm.Funcs[1076].Name = "vm.TrampolineScalar"`,
+      `INNER vm.Funcs[1058].Name = "vm.genModule"`.
+    - `execFuncRefOp.CallCache[22]` (the slot for the BC_FUNC_ADDR
+      to TrampolineScalar) = 1076 in INNER vm.
+    - But the actual stored `vtable[1]` for all rt.* externs
+      registered in `VM_T.Externs` = 1059.
+  So the construction came from a DIFFERENT execFuncRefOp execution
+  context — namely the one iterated by OUTER NATIVE execLoop's
+  handler chain.
+- **Generalized bug shape**: any function-value vtable whose `call`
+  slot is a 1-based VM index (Path B) is meaningful only in the
+  vm at construction time.  In 3-level VM nesting, the vtable can
+  be constructed by an upper-level execLoop and consumed by a
+  lower-level execLoop, so the numeric index resolves to the
+  wrong function.  Path A (extern registry fallback, libc.* /
+  bootstrap.*) doesn't have this problem because vtables there
+  hold native function pointers (immune to vm-context shifts).
+- **Possible fixes (require user buy-in)**:
+    1. Make Path B's `call` slot a NATIVE function pointer (the
+       address of TrampolineScalar / TrampolineAggregate in the
+       containing process).  In bytecode-mode VMs the index-based
+       path goes away; BC_CALL_INDIRECT's `dispatchNativeIndirect`
+       arm (Imm=8/9) takes over uniformly.  Cost: TrampolineScalar
+       needs to be reachable as a native function from any vm
+       depth — works if the outermost host is always native cmd/bni,
+       which is the assumption.
+    2. Store a vm-identity tag alongside the numeric index and
+       translate at dispatch time.  More invasive.
+    3. Re-resolve at first dispatch (lazy-translate the numeric
+       call slot through dispatch-time vm.LookupFunc by Name).
+       Requires keeping the symbol name in the vtable record.
 - **Surfaced by** the boot-comp-int-int unit-test sweep after the
   vm_extern.bn cleanup (`a6a74c8`).  Pre-cleanup the test was
   hidden behind a separate codegen bug fixed in `666f2c9`.
