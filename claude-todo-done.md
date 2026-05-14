@@ -6,6 +6,52 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### Migrate self-hosted code to method form (opportunistic) — DONE 2026-05-13
+- All originally-listed candidates landed (free function +
+  method shim → all callers converted → shims dropped):
+  - `pkg/buf.CharBuf` — `Len` / `Bytes` / `Freeze` /
+    `WriteHexByte` / `WriteInt` / `WriteByte` / `WriteStr` (commits
+    `174666c..8f96357`).  `New` and `CopyStr` stay free.
+  - `pkg/asm/elf.BinBuf` — `WriteU8` / `WriteU16` / `WriteU32` /
+    `WriteU64` / `WriteBytes` / `WriteZeros` / `Align` /
+    `WriteAddr` / `grow`.
+  - `pkg/asm.Assembler` — `SetError` / `SetSection` / `DefineLabel` /
+    `SetGlobal` / `SetWeak` / `AddFixup` / `Emit*` /
+    `Align`/`AlignFill`/`Zero`/`Fill` / `Finalize` plus
+    helpers (`findSection`/`addReloc`/etc.).
+  - `pkg/types.Type` — `IsInteger` / `IsFloat` / `Identical` /
+    `AssignableTo` / `ResolveAlias` / `SliceElem` / `PointerElem` /
+    `FieldByName` / `NeedsDestruction` / `IsConst` / `StripConst` /
+    `TypeName`.
+  - `pkg/types.Scope` and `pkg/types.Checker` — full API
+    methodified (Lookup / Check / CheckPackage / ExprType /
+    LoadPackageInterface / etc.; commits `cb0f624`,
+    `0b573b7`).
+  - `pkg/parser.Parser` — top-level (`Parse*`) and primitives
+    (`next` / `expect` / `got` / `peekTok`); commit `5fbba29`.
+  - `pkg/lexer.Lexer` — `Next` / `advance` / `peek` / `col` /
+    `curPos` / `newline` / `scan`.
+  - `pkg/asm/parse.Parser` — `ParseLine` / `ParseFile`
+    (commit `d18e5c8`).
+  - `pkg/native/common.RegMap` — full API (commit `33e6475`).
+  - `pkg/vm.VM` — `CallFunc` / `CallByVMFunc` (`9b4465d`),
+    later `LookupFunc` / `LookupExtern` / `LowerModule` /
+    `LowerOneFunc` / `LowerOneFuncShadow` / `RegisterExtern`
+    (`b6b6155`).
+  - `pkg/ir.Module` — `AddFunc` / `AddGlobal` / `AddTypeDef` /
+    `CollectStrings` (`00fd13a`), `FinalizeStrings` /
+    `HasPackageInit` (`d5dc8f4`), `EmitInitDispatcher` /
+    `EmitMainEntry` (`8d05e92`).
+  - `pkg/ir.Block` — `Emit*` family (~50 emitters) migrated in
+    a four-stage pass with a temporary `Block.Func` back-pointer:
+    `6708b49` (back-pointer), `49254ba` (method form alongside),
+    `8cf9093` (call sites), `d67231a` (drop shims).
+  - `pkg/ir.Instr` — `IsTerminator` (`b320c98`).
+- Migration discipline: each batch added method-form +
+  free-function shim, converted all call sites, then dropped the
+  shim — one commit per stage, conformance/`basic` green
+  throughout.  Documented in CLAUDE.md.
+
 ### Interface embedding/extension — DONE 2026-05-13
 - **Plan**: `plan-interface-embedding.md`.  Design ratified in
   `claude-notes.md` § "Interfaces" (extension paragraph) and
