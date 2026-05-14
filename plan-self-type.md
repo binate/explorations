@@ -1,9 +1,10 @@
 # Plan: `Self` Type in Interface Declarations
 
-> **Status: DRAFT 2026-05-12.**  Implementation plan for the
-> `Self` type ratified in `claude-notes.md` § "`Self` type in
-> interface declarations — DECIDED 2026-05-12".  Four slices,
-> each independently landable.
+> **Status: COMPLETE 2026-05-13.**  All four slices landed:
+> S.1 (`dca093f`), S.2 (`b780acd`), S.3 (`77369e7`),
+> S.4 (`4c33df7`).  Implements the `Self` type ratified in
+> `claude-notes.md` § "`Self` type in interface declarations
+> — DECIDED 2026-05-12".
 
 ## Context
 

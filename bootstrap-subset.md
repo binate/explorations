@@ -499,6 +499,8 @@ notes) but are **not implemented** in the Go bootstrap interpreter:
 ### Interfaces
 No `interface` type declarations, no interface values, no interface embedding, no
 dynamic dispatch. The keywords `interface` and `impl` are reserved but deferred.
+The `Self` type identifier (only meaningful inside interface method signatures)
+is also out of subset.
 
 ### Impl Declarations
 No `impl Type : Interface` declarations — interfaces are still deferred.
