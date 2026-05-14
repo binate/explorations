@@ -749,7 +749,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - Needed for: generics (`*T` where `T=Stringer`), out parameters, arrays of interfaces, containers
 - Implementation: grammar, parser, type checker, codegen, bootstrap interpreter
 
-### Test harness `isTestResultReturn` should resolve type aliases
+### ~~Test harness `isTestResultReturn` should resolve type aliases~~ — FIXED
 - The test harnesses (bootstrap Go `main.go` and self-hosted `cmd/bnc/test.bn`) only accept `testing.TestResult` (qualified) or `@[]char` (literal managed-slice of char) as test return types.
 - They don't resolve type aliases, so an unqualified `TestResult` from within the `pkg/builtin/testing` package itself is rejected ("wrong signature").
 - **Fix**: resolve the return type through aliases before checking. If the return type is a named type in the current package, look up its definition and check the underlying type.
