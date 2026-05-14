@@ -72,11 +72,12 @@ Each slice keeps tests green. Intermediate slices may "accept the syntax but rej
 ### Slice E.5 — Cross-package, edge cases, conformance hardening
 
 - **Scope**: cross-package extension (parent interface in another package), `.bni` propagation, negative conformance tests, ratification of design at the docs level (claude-notes already says "not implemented" — flip to implemented).
-- **Files**:
-  - `pkg/loader/*.bn`: verify that imported `.bni`s carry their parent lists correctly.
-  - Conformance suite: `XXX_iface_extend_basic.bn`, `XXX_iface_extend_multi.bn`, `XXX_iface_extend_deep.bn`, `XXX_iface_extend_cross_pkg.bn`, plus negatives (`XXX_iface_extend_cycle.bn`, `XXX_iface_extend_dup_parent.bn`, `XXX_iface_extend_method_conflict.bn`, `XXX_iface_extend_not_an_iface.bn`).
-  - `explorations/claude-notes.md`: update extension entry from "not yet implemented" to "implemented".
-  - `explorations/claude-todo.md`: move the TODO entry to claude-todo-done.md.
+- **Files** (landed):
+  - `pkg/loader/*.bn`: imported `.bni`s carry their parent lists correctly — verified via conformance 388.
+  - Conformance positives: `388_cross_pkg_iface_extend` (cross-package), `389_iface_extend_multi` (multi-parent), `390_iface_extend_deep` (3-level deep).  `387_iface_upcast` covers same-package single-parent dispatch + upcast.
+  - Conformance negatives: `391_iface_extend_cycle` (forward-ref cycle → "undefined"), `392_iface_extend_dup_parent`, `393_iface_extend_method_conflict`, `394_iface_extend_not_an_iface`.
+  - `explorations/claude-notes.md`: extension entry flipped to "implemented".
+  - `explorations/claude-todo.md`: TODO entry moved to `claude-todo-done.md`.
 - **Estimated size**: ~200 lines mostly tests + doc updates.
 
 ## Slicing order rationale

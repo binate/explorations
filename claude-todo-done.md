@@ -34,18 +34,24 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
     VM lowering via runtime name-rewrite of the vtable's mangled
     suffix.
   - **E.5**: cross-package extension verified by conformance
-    388, no new code needed; docs flipped from "not yet
-    implemented" to "implemented".
+    388; docs flipped from "not yet implemented" to "implemented".
+    Conformance positives + negatives added in a follow-up
+    (`6a5203b`) to pin user-facing error wording at the bnc
+    layer — 389 (multi-parent), 390 (3-level deep), 391
+    (forward-ref cycle), 392 (duplicate parent), 393 (method
+    signature conflict), 394 (parent isn't an interface).
 - **Coverage**: 4 direct tests for the `Identical` fix /
   inherited slot / GEP dispatch slot / managed-to-raw upcast
   (commits `d485136..277f8b0`); end-to-end conformance 387
-  (same-package upcast) + 388 (cross-package upcast); 11
-  type-checker tests covering single/multi/deep extension,
-  diamond inheritance, parent recording, full-method-set order,
-  forward-ref/self/non-interface/duplicate-parent/signature-conflict
-  rejections; IR test for transitive ImplInfo emission +
-  redundant-parent dedup + recursive vtable size; codegen test
-  for the concat layout shape.
+  (same-package upcast) + 388 (cross-package upcast) + 389–394
+  (extension positives + negatives); 11 type-checker tests
+  covering single/multi/deep extension, diamond inheritance,
+  parent recording, full-method-set order, forward-ref/self/
+  non-interface/duplicate-parent/signature-conflict rejections;
+  IR test for transitive ImplInfo emission + redundant-parent
+  dedup + recursive vtable size; codegen test for the concat
+  layout shape plus a direct test for `emitIfaceUpcast` (LLVM
+  extract/GEP/rebuild sequence and parent-slot offset).
 - **Connection to RTTI** (still open): if/when concrete-type
   assertions land, a `*TypeInfo` slot in the `any`-block makes
   it reachable from any interface vtable via offset 0 —
