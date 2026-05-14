@@ -513,6 +513,19 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `arm64_call.bn`: the per-arg scratch reg is dead after the
   immediately-following Mov-to-argReg / Str-to-stack, so reset
   between arg slots. Conformance 289/0/0 after.
+- **Second live site fixed** (2026-05-13, `f704e09`): `OP_RETURN`'s
+  two multi-return paths (sret-via-X8 for tuples > 64 bytes,
+  pack-into-X0..X7 for tuples ≤ 64 bytes) walked `ins.Args` without
+  resetting the regmap between iterations.  Same shape as the
+  emitCall case — pkg/asm/parse's compile under
+  boot-comp_native_aa64 panicked with "op=45 (OP_RETURN)" on a
+  9-value return.  Fix: per-arg `rm.ResetRegs()` mirroring
+  emitCall, plus `dstPtr` reload inside the loop in the sret case
+  so the reset doesn't strand it.  Same commit adds a diagnostic:
+  `regPool` now prints the current `ir.OP_*` int before panicking
+  (`currentEmitOp` package var, set by `emitInstr`), so the next
+  saturation case identifies itself in the panic instead of
+  requiring an instrumented rebuild to chase.
 - **Still open — structural fix.** The pool is still X9..X15 (7
   slots) and the codegen still has no spill mechanism for
   in-instruction temporaries. Any new op pattern that needs >7
