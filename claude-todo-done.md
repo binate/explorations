@@ -83,13 +83,13 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
     388; docs flipped from "not yet implemented" to "implemented".
     Conformance positives + negatives added in a follow-up
     (`6a5203b`) to pin user-facing error wording at the bnc
-    layer — 389 (multi-parent), 390 (3-level deep), 391
-    (forward-ref cycle), 392 (duplicate parent), 393 (method
-    signature conflict), 394 (parent isn't an interface).
+    layer — 395 (multi-parent), 396 (3-level deep), 397
+    (forward-ref cycle), 398 (duplicate parent), 399 (method
+    signature conflict), 400 (parent isn't an interface).
 - **Coverage**: 4 direct tests for the `Identical` fix /
   inherited slot / GEP dispatch slot / managed-to-raw upcast
   (commits `d485136..277f8b0`); end-to-end conformance 387
-  (same-package upcast) + 388 (cross-package upcast) + 389–394
+  (same-package upcast) + 388 (cross-package upcast) + 395–400
   (extension positives + negatives); 11 type-checker tests
   covering single/multi/deep extension, diamond inheritance,
   parent recording, full-method-set order, forward-ref/self/
