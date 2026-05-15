@@ -930,10 +930,20 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Labeled break**: Binate currently has no labels. If/when we add them, termination analysis needs to track labels — a `break L` inside a nested for doesn't break the inner for (contrary to the current "any break disqualifies enclosing for/switch" rule). Revisit when labels are on the table.
 
 ### Pointers to interface values
-- Interface values are regular value types — allow `*Iface`, `@(Iface)`, `*@Iface`, `@(@Iface)`, etc.
-- `@Iface` sugar parallels `@[]T` sugar; parens break it
-- Needed for: generics (`*T` where `T=Stringer`), out parameters, arrays of interfaces, containers
-- Implementation: grammar, parser, type checker, codegen, bootstrap interpreter
+- **Plan**: `plan-pointers-to-iface-values.md` (sliced P.1–P.5).
+- Design pinned in `claude-notes.md` § "Interfaces" line 421:
+  `**Stringer`, `*@Stringer`, `@(*Stringer)`, `@(@Stringer)` are
+  all valid pointer-to-iv shapes; parens are required by the
+  grammar to disambiguate the `@(@…)` form.
+- **Current state** (2026-05-15): `**Iface` and `*@Iface` work
+  for assignment and explicit-deref method dispatch
+  (`(*p).Foo()` after `438f3f2`). `@(*Iface)` / `@(@Iface)`
+  parse and type-check but dispatch through them returns wrong
+  values. Auto-smoothing of pointer-to-iv receivers
+  (`p.Foo()` where `p` is any pointer-to-iv) is rejected at
+  type check — needs a smoothing rule analogous to `*T → T`.
+- Needed for: generics (`*T` where `T=Stringer`), out parameters,
+  arrays of interfaces, containers.
 
 ### ~~Test harness `isTestResultReturn` should resolve type aliases~~ — FIXED
 - The test harnesses (bootstrap Go `main.go` and self-hosted `cmd/bnc/test.bn`) only accept `testing.TestResult` (qualified) or `@[]char` (literal managed-slice of char) as test return types.
