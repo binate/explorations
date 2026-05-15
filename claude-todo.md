@@ -403,14 +403,33 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   small allocations. Under double interp every byte append /
   small allocation pays 2× bytecode-dispatch overhead, and there
   are many of them per test.
-- **Possible angles** (not yet investigated):
+- **Possible angles** (investigated; first attempt was a net loss):
   1. Buffered string construction in `pkg/codegen/emit_debug*.bn`
-     — coalesce per-node fragments to reduce CharBuf grows.
+     — coalesce per-node fragments to reduce CharBuf grows.  On
+     inspection the literal-string `WriteStr` calls are already
+     coalesced; the only repeating fusable pattern is `WriteByte('!')
+     + WriteInt(id)` (~18 sites).  Mechanically fusable but ~18
+     dispatches saved per node-emit × ~10 nodes/test ≈ milliseconds.
+     Won't move 100s+ runtimes meaningfully.
   2. Cache stable strings (e.g. DI tag names, common type keys).
+     **Tried 2026-05-13**: pointer-keyed cache in `dbgTypeID` that
+     short-circuits `dbgTypeKey` for repeat lookups.  Single-test
+     baseline 160s → 106s (-34%), but aggregate of all 26
+     `TestEmitDebug*` went 441s → 513s (+16%) under boot-comp-int-int
+     locally — the added pointer-scan per call pays off only when
+     the registry is large (few slow tests) but slows the small-
+     registry common case.  Reverted; needs a cache that's O(1)
+     per call (e.g. a side-table on `@types.Type` itself, with the
+     attendant `pkg/types` layout-contract implications).
   3. Reduce redundant work in the type registry — same composite
-     type is rebuilt every call to `compileToLLVM`.
-- **Not blocking anything**; tracking so the slowdown isn't
-  forgotten once the mode no longer times out.
+     type is rebuilt every call to `compileToLLVM`.  Cross-test
+     state would also need per-module id offsets to keep nodes
+     self-consistent; non-trivial.
+- **Real next step**: actually profile before guessing again.  The
+  intuition that "many small allocations × double-interp overhead"
+  is the cost was correct in direction but wrong in distribution —
+  most of the cost isn't where it looks like it should be.
+- **Not blocking anything**; mitigation in tree (`1bffc43`).
 
 ### ~~boot-comp-int-int: blocked on registerPureCExterns from interpreted cmd/bni~~ — DONE (2026-05-07)
 - **Resolved by**: `b9e1fed` (BC_FUNC_VALUE registry-fallback in
