@@ -1592,9 +1592,13 @@ No overloading on receiver kind. A method name is defined once per base type, re
 
 One level only (like Go). For `obj` of type `@T` or `*T`, the compiler looks for methods on the pointer type and on `T`. No deep chains — `**T` requires manual deref. This keeps call resolution predictable.
 
-### Value Receivers as `*const T`
+### Value Receivers as `*const T` — REVISED 2026-05-14
 
-Value receivers are implemented by passing `*const T` under the hood. This avoids copying large structs — the callee gets a read-only pointer to the original data. Since value receivers are always const (already decided), there's no observable difference. The compiler knows value receiver pointers are never null (you can't call a method on a non-existent value), so it can skip null checks — this is a pure implementation detail, not exposed to the programmer.
+**Revised**: value receivers are implemented as proper by-value passing today.  The original idea was to lower them as `*const T` under the hood to avoid struct copies, but it ran into a real problem: method expressions (`Counter.Add`) and method-value types both reflect the user-written value-receiver shape (`*func(Counter, int) int`), and the IR-level `*const T` rewrite would surface in those types as a mismatch.  Keeping value receivers as proper value-by-value at the IR layer keeps method expressions / method values / direct calls / struct-by-value ABI all consistent with the source.
+
+The ONE place the value-receiver shape doesn't fit naturally is interface-value dispatch — the iv data slot stores a pointer, so a vtable slot pointing at a value-receiver function would receive the pointer where the function expects T.  Solved with a per-(T, I, method) thunk at the vtable slot: the thunk takes `*const T`, derefs, and calls the value-receiver method.  Pointer-receiver impls get no thunk.  See `plan-primitives-impl-interfaces.md` § "Interface-value dispatch and value receivers".
+
+The "avoid struct copies" perf optimization remains a future possibility but is not the load-bearing semantic.  When the compiler later wants to skip the copy for large value-receiver structs, the rewrite is a local optimization that doesn't change observable behavior.
 
 ### Interface Declarations
 

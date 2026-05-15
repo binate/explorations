@@ -906,7 +906,7 @@ This is consistent with the raw slice contract: `*[]int` means "caller manages l
 - Any pointer → value (by copy)
 - `*T` → `@T`: never implicit
 
-**Value receivers implemented as `*const T`** under the hood. Avoids copying large structs. The compiler knows value receiver pointers are never null.
+**Value receivers — implementation strategy.** The default implementation is to pass value receivers by value (struct copy or primitive value, like any other parameter), matching the user-visible semantics directly.  An optimization to lower value receivers as `*const T` (avoiding the copy for large structs) is permitted as a future compiler optimization but is NOT part of the language contract — method expressions, call sites, and method-value types all see the value receiver as the user wrote it.  See `plan-primitives-impl-interfaces.md` § "Interface-value dispatch and value receivers" for how iv vtable slots adapt the iv data-pointer ABI to value-receiver methods via per-(T, I) thunks.
 
 **`_` receiver name** is allowed, with the same semantics as `_` parameter names — an explicit indicator that the receiver isn't used in the method body. The type checker treats it like any other unused-name; nothing method-specific.
 

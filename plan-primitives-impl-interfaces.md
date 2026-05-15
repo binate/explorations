@@ -390,6 +390,63 @@ Splitting the interface declarations into a thinner
 above) or two imports for one logical concept.  Same-package
 keeps it one import, one namespace.
 
+## Interface-value dispatch and value receivers
+
+> Added 2026-05-14 after surfacing a design ambiguity during
+> Slice 2a implementation.
+
+The canonical Stringer impl (`func (x int) String() @[]char`)
+uses a value receiver.  Direct calls like `x.String()` work
+fine — caller passes `x` (an `int` value), callee receives an
+`int`.  But interface-value dispatch is a different ABI: the
+iv data slot stores a pointer (a `*T`-shaped i8*).  A vtable
+slot pointing directly at the value-receiver function would
+receive the pointer where the function expects the value —
+the function would interpret the pointer's numeric address
+as the int value (or struct contents).
+
+The fix: emit a **per-(T, I, method) thunk** at every value-
+receiver vtable slot.  The thunk takes the iv-shape pointer,
+derefs to load the value, and tail-calls the value-receiver
+method:
+
+```
+__bn_recvthunk_std__int__String(*const int %p) @[]char {
+    %v = load int, *const int %p
+    ret call @[]char @std.int.String(int %v)
+}
+```
+
+Pointer-receiver impls get no thunk — the vtable slot points
+at the impl method directly, since `*T` (pointer) and the
+iv data slot (also a pointer) match natively.  Same for
+managed-pointer (`@T`) and const-pointer (`*const T`)
+receivers.
+
+**Why thunks at the iv slot, not an IR-level `*const T`
+rewrite?**  The originally-considered design was to lower
+value-receiver methods as `*const T`-receiver IR functions
+with auto-deref in the body (the "value receiver = `*const T`
+under the hood" rule from claude-notes.md).  That rewrite
+breaks method expressions: `var f *func(Counter, int) int =
+Counter.Add` would have a function-value type
+(`*func(Counter, int) int`) that doesn't match the rewritten
+IR signature (`*func(*const Counter, int) int`).  See
+`claude-discussion-detailed-notes.md` § "Value Receivers as
+*const T — REVISED 2026-05-14" for the full discussion.
+Thunks at the vtable slot are localized to the actual ABI
+mismatch (iv dispatch) and don't perturb method expressions,
+direct calls, or struct-by-value ABI.
+
+**The "avoid struct copies" perf optimization** (the original
+motivation for the `*const T` rewrite) remains a future
+possibility — a local optimization the compiler can do when
+profiling shows it matters.  Not load-bearing.
+
+This work landed as part of Slice 2a (the iv-dispatch path
+needs it before pkg/std's value-receiver impls work
+end-to-end).
+
 ## Implementation work
 
 Sized for a single coherent landing once ratified (and
@@ -415,6 +472,12 @@ sliced to allow Stringer to ship before Self lands).
 
 ### Slice 2a — `pkg/std`: Stringer + universe impls
 
+- **Pre-req**: emit value-receiver thunks at iv vtable slots
+  (see "Interface-value dispatch and value receivers" above).
+  Lands before the user-visible `pkg/std` content so the
+  thunks are wired through codegen and verified against the
+  existing struct-value-receiver test base before pkg/std
+  exercises them on primitives.
 - Create `pkg/std` with the `Stringer` interface declaration
   (no Self required).
 - Write `String()` impls for every universe primitive: `int`,

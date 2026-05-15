@@ -245,7 +245,7 @@ No capacity argument. Growing is a library concern.
 - One method per name per base type (no overloading on receiver kind)
 - One level of auto-deref: `@T`/`*T` → look for methods on pointer type and on `T`
 - Receiver conversion: `@T` → `*T` → `*const T` (implicit, safe direction). Never `*T` → `@T`.
-- Value receivers implemented as `*const T` (never null). Avoids copying large structs.
+- Value receivers implemented as proper by-value passing (revised 2026-05-14; the `*const T` rewrite is a future optimization, not the load-bearing semantic — see claude-notes.md § "Method resolution & dispatch").
 - Interface declarations: `type Name interface { ... }`. Anonymous interfaces supported.
 - Interface embedding: list names in body, means "is-a". `impl *T : Child` implies parent impls.
 - Vtable layout: `[any][embed1 full vtable][embed2 full vtable][own methods]` — no dedup, uniform.

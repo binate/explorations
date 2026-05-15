@@ -55,7 +55,7 @@ func (p *const Point) magnitude() int {
 - Receiver is the first parameter, declared in `(recv Type)` syntax before the function name
 - One method per name per base type (no overloading on receiver kind)
 - Auto-deref: `@T`/`*T` → look for methods on pointer type and on `T`
-- Value receivers implemented as `*const T` (never null)
+- Value receivers implemented as proper by-value passing (revised 2026-05-14; see claude-notes.md § "Method resolution & dispatch")
 
 **Implementation — all three backends:**
 

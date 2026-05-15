@@ -642,10 +642,10 @@ bootstrap only supports unlabeled `break` and `continue`.
 ### 10. Value semantics for function arguments
 
 The bootstrap copies structs and arrays when passing them as function arguments (value
-semantics), which is correct per the spec. However, the full compiled language will need
-the optimization of passing large value-type arguments by `*const T` pointer under the
-hood (the "value receivers implemented as `*const T`" rule). The bootstrap doesn't
-need this optimization since it's interpreted.
+semantics), which is correct per the spec.  The compiled language does the same today;
+a future optimization may lower large value-receiver arguments as `*const T` pointers
+under the hood, but that is no longer a load-bearing semantic (revised 2026-05-14 — see
+claude-notes.md § "Method resolution & dispatch").
 
 ### 11. for-in iteration is limited
 
