@@ -94,24 +94,9 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **First pass landed** (binate `07b21ed`, 2026-05-15): 18 files,
   ~200 runs coalesced (`cmd/bnc/test.bn`, `cmd/bnc/util.bn`,
   `cmd/bni/main.bn`, plus check_*_test.bn and emit_*_test.bn /
-  gen_*_test.bn in pkg/types, pkg/codegen, pkg/ir).  cmd/bnc/test.bn
-  pushed from 524 → 533 lines (still over the 500-line soft
-  limit, marginally worse than before).
-
-### Split `cmd/bnc/test.bn` (over the 500-line soft limit since pre-2026-05-15)
-- **Current state**: 533 lines.  Was already 524 before the
-  WriteStr-coalesce pass made it ~10 lines longer.
-- **Natural split point**: `genTestRunner` (≈130 lines of the
-  file) is a self-contained code generator with its own helpers
-  (`lastSegment`, `hasPrefix`, `TestFunc` struct, the runner-
-  source generator itself).  Move them to `cmd/bnc/test_runner.bn`
-  in the same `main` package — no import changes needed.
-- **Why it matters**: file-length warning is a forcing function
-  against the "single-file blob" anti-pattern.  Keeping
-  test.bn over the soft limit lets that pattern creep further
-  next time someone adds to test mode.  Per
-  binate/.claude/CLAUDE.md "Take Warnings Seriously" + "Don't
-  Game Hygiene Checks".
+  gen_*_test.bn in pkg/types, pkg/codegen, pkg/ir).  The
+  cmd/bnc/test.bn growth (524 → 533) prompted a follow-up split
+  to a new `gen_test_runner.bn` — test.bn now 381 lines.
 
 ### Replace if-return chains with `switch` where applicable (opportunistic)
 - **Pattern**: code that does
