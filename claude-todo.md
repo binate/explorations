@@ -545,13 +545,26 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   (`currentEmitOp` package var, set by `emitInstr`), so the next
   saturation case identifies itself in the panic instead of
   requiring an instrumented rebuild to chase.
-- **Still open — structural fix.** The pool is still X9..X15 (7
-  slots) and the codegen still has no spill mechanism for
-  in-instruction temporaries. Any new op pattern that needs >7
-  simultaneously-live scratches will panic. Real fix: spill on
-  pool exhaustion, or extend the pool to X16/X17 with BL discipline
-  (BL clobbers X16/X17, so they can't span calls). Not blocking —
-  the panic is the oracle for whether anything actually needs this.
+- **Pool extended to X9..X17** (2026-05-14, `ecdd8ad`).  X16/X17 are
+  AAPCS IP0/IP1 — caller-saved intra-procedure scratches, undefined
+  after any BL.  Two disciplines keep the extension safe:
+    1. *BL discipline.* No emitter reads a pool reg after a BL/BLR;
+       every BL site in this package is followed by `rm.ResetRegs()`
+       (audited in arm64_call.bn, arm64_call_indirect.bn,
+       arm64_emit.bn's memcpy / MakeManagedSlice sites,
+       arm64_ops.bn's RefDec slow path).
+    2. *Direct-use discipline.* emitCall and emitCallIndirect
+       reference X16/X17 directly outside the pool; their per-arg
+       `rm.ResetRegs()` keeps `m.Next` below 7 inside those loops,
+       so the pool never hands X16/X17 back inside an op that's
+       also touching them directly.
+- **Still open — structural fix for >9.** Pool now panics at slot 9.
+  An op that needs 10+ simultaneously-live scratches would still
+  fail — fix is either a per-arg ResetRegs in that op (the pattern
+  emitCall and emitReturn use) or a real spill-on-exhaustion
+  allocator.  Not blocking — no current op hits this; the panic
+  prints `currentEmitOp` so the next saturation case identifies
+  itself in the panic.
 
 ### ~~Native AArch64 backend — emitCallFuncValue slice-arg ABI mismatch~~ — FIXED
 - Root cause was actually in `emitFuncValueShims` (arm64.bn), not
