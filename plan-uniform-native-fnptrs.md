@@ -2,12 +2,17 @@
 
 ### Status
 
-Draft (2026-05-13). Triggered by the
-`pkg/vm:TestExecRefIncRefDecInline` SEGV root-caused in
-`claude-todo.md` (commit `788ec56`): the bytecode-mode Path B in
-`BC_FUNC_VALUE` writes a 1-based VM index into `vtable.call`, and
-the same numeric slot points at a different function in a deeper-
-nested VM, so cross-VM dispatch lands on the wrong target.
+Draft (2026-05-13).  **Phase 1 landed** as `66d07c3` (register
+`vm.TrampolineScalar` / `Aggregate` as standard externs).  **Phase 2
+attempted but reverted (2026-05-14)** — a key assumption was wrong
+(see "Phase 2 misadventure" below).
+
+Triggered by the `pkg/vm:TestExecRefIncRefDecInline` SEGV root-
+caused in `claude-todo.md` (commit `788ec56`): the bytecode-mode
+Path B in `BC_FUNC_VALUE` writes a 1-based VM index into
+`vtable.call`, and the same numeric slot points at a different
+function in a deeper-nested VM, so cross-VM dispatch lands on the
+wrong target.
 
 This plan covers the architectural cleanup the user wants: stop
 distinguishing "real function pointer" vs "1-based VM index" at
@@ -15,6 +20,96 @@ the call-slot / function-pointer level — make every such value a
 native function pointer.  The current hacky check
 `if calleeFuncIdx < len(vm.Funcs) { vm-dispatch } else { native }`
 in `BC_CALL_INDIRECT` goes away; everything is native.
+
+### Phase 2 misadventure (the libc-pattern doesn't quite extend)
+
+The proposed Phase 2 was: "read `vm.Externs["vm.TrampolineScalar"].VtableAddr`
+and store its `[1]` (call slot) into the per-callee vtable."  Built
+it; the test still failed, with a *different* error:
+`TrampolineScalar: data is not a VM closure record`.  The closure
+record at the address TrampolineScalar received had `rec[0] = 0`,
+not the expected `rt.DATA_KIND_VM_CLOSURE_REC = 1`.
+
+Root cause: the binding's `VtableAddr.call` slot is the **per-
+function shim** address (`__shim.vm.TrampolineScalar`), **not** the
+trampoline function's own address.  The shim convention emits
+
+    define <ret> @__shim.X(i8* %data, <user-params>) {
+        %r = tail call <ret> @X(<user-params>)
+        ret <ret> %r
+    }
+
+i.e. the shim receives `%data` as a hidden first arg and **drops
+it** before calling the underlying X.  This is correct for ordinary
+captured closures (where `data` is private bookkeeping the function
+shouldn't see), but it breaks for the trampolines themselves —
+their entire purpose is to inspect `data` as the closure record.
+Routing through the shim makes TrampolineScalar receive the user's
+first real arg in the slot where it expected the closure record.
+
+So the actually-needed value in the registry is the trampoline's
+**function** address (`&bn_vm__TrampolineScalar`), not the shim
+address.  Pre-Phase-2's `_raw_func_addr(TrampolineScalar)` resolved
+to that function address directly in native code — which was
+correct in 2-level scenarios.  Phase 2 inadvertently swapped to the
+shim, breaking 2-level and (still) 3-level.
+
+The libc/bootstrap pattern works for them because the shim *is* the
+right call slot — those functions don't introspect `data`.  The
+trampolines are the only signature that explicitly consumes `data`
+as a user-facing parameter.
+
+### Revised mechanism options
+
+The problem reduces to: **how do we propagate `&TrampolineScalar`
+(the function symbol, not its shim) to bytecode-mode VMs at every
+depth?**  Three concrete shapes:
+
+**Option α — Hand-built registry binding with `call = &function` (not
+&shim).**  At native level, `registerVmTrampolines` skips the
+`var ts *func(...) = TrampolineScalar` construction (which uses the
+shim) and instead builds the binding's vtable manually with `vt[1]
+= bit_cast(int, _raw_func_addr(TrampolineScalar))`.  In native code
+this resolves to the function symbol; in bytecode code it doesn't.
+So this works for the outermost level but **doesn't help** when an
+inner cmd/bni's bytecode calls registerVmTrampolines for a nested
+vm — same `_raw_func_addr` bytecode-mode bug.
+
+**Option β — Process-global captured at native startup.**  Add
+C-level globals (`bn_rt__nativeTrampolineScalarAddr` etc.) in
+pkg/rt's C runtime, plus C-only setters / getters declared in
+pkg/rt.bni.  cmd/bni's `main` calls the setter with
+`_raw_func_addr(vm.TrampolineScalar)` at native startup; bytecode-
+mode code calls the getter (a libc-shape extern with a native
+shim slot) which returns the global.  Path B reads via the
+getter.  Works at any nesting depth because the C global lives in
+the process address space, shared by every VM in that process.
+
+**Option γ — Generalize `BC_FUNC_ADDR` to look up natives via the
+extern registry.**  Extend `BC_FUNC_ADDR`'s handler to first try
+`vm.LookupExtern(name)` and, on hit, return the binding's `call`
+slot **but stored differently** — the binding would need to carry
+the **function** address separately from the shim address.  This
+means adding a field to `ExternBinding` (or a parallel "raw fn
+addr" registry).  Cleaner for the long-run plan of dropping all
+idx-based fn pointers, but bigger surface change.
+
+### Recommendation
+
+**Option β** is the minimum-surface fix and the cleanest analog
+to how libc addresses already propagate (libsystem provides them
+to every process; here the binate binary provides the trampoline
+addresses to every VM inside its process).  The implementation
+cost is: a couple of C lines in pkg/rt's runtime, two `.bni`
+declarations, registration in `registerRtExterns` (or beside it),
+one `Set...` call in `cmd/bni`'s `main` (and any other binate
+binary that creates VMs), and the Path B rewrite to call the
+getter.
+
+Option γ is the right long-term destination — once `BC_FUNC_ADDR`
+returns native pointers uniformly, the `idx`-vs-pointer hack in
+`BC_CALL_INDIRECT` disappears organically.  But β is a smaller
+step that fixes the bug now and lays the groundwork for γ.
 
 ### Goal
 
