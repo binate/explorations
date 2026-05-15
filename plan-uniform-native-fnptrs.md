@@ -94,22 +94,37 @@ means adding a field to `ExternBinding` (or a parallel "raw fn
 addr" registry).  Cleaner for the long-run plan of dropping all
 idx-based fn pointers, but bigger surface change.
 
-### Recommendation
+### Recommendation (revised — option β rejected, no new C)
 
-**Option β** is the minimum-surface fix and the cleanest analog
-to how libc addresses already propagate (libsystem provides them
-to every process; here the binate binary provides the trampoline
-addresses to every VM inside its process).  The implementation
-cost is: a couple of C lines in pkg/rt's runtime, two `.bni`
-declarations, registration in `registerRtExterns` (or beside it),
-one `Set...` call in `cmd/bni`'s `main` (and any other binate
-binary that creates VMs), and the Path B rewrite to call the
-getter.
+User feedback (2026-05-14): no new C — Binate stays self-hosted.
+Option β is off the table.  We're going with **α + a slice of γ**
+together:
 
-Option γ is the right long-term destination — once `BC_FUNC_ADDR`
-returns native pointers uniformly, the `idx`-vs-pointer hack in
-`BC_CALL_INDIRECT` disappears organically.  But β is a smaller
-step that fixes the bug now and lays the groundwork for γ.
+1. **α — hand-built registry bindings** for the trampolines whose
+   `vtable.call` is the trampoline's **function** address (not its
+   per-function shim).  At native level, `_raw_func_addr(TrampolineScalar)`
+   resolves directly to the function symbol.  At bytecode level
+   (e.g., when an inner cmd/bni runs `registerVmTrampolines` for
+   its own vmInst), `_raw_func_addr` lowers to `BC_FUNC_ADDR` —
+   which today returns a 1-based vm idx, which is wrong.  So we
+   also need:
+
+2. **γ-narrow — `BC_FUNC_ADDR` checks `vm.Externs` first.**  If the
+   name is in the executing vm's Externs (the host pre-populated
+   it with the function address via α), return the binding's call
+   slot.  Otherwise fall back to the existing
+   `LookupFunc + idx+1` behavior (preserves the dtor / intra-vm
+   idx use cases that aren't in Externs and aren't broken).
+
+That combination resolves the bug without splitting `_raw_func_addr`
+into a separate "native" variant and without rebroadening to the
+whole BC_CALL_INDIRECT cleanup — those stay as future phases.
+
+The `tVtable[1]`-lookup in Path B (the change I attempted as
+"Phase 2") is no longer needed: Path B can keep using
+`_raw_func_addr(TrampolineScalar)` exactly as before; the operator
+itself now returns the right value at every level via the modified
+BC_FUNC_ADDR.
 
 ### Goal
 
