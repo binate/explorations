@@ -320,6 +320,32 @@ Same principle for struct/type redefinition: existing instances retain the old l
 
 **Literal overflow**: assigning a literal to an explicit type that can't hold it is a compile error (`var x uint8 = 256` → error). Literals are checked at compile time for fit.
 
+**Integer literal value range and constant-expression arithmetic — DECIDED 2026-05-15**:
+
+Integer literals and constant expressions follow the rules below. The model is a pragmatic, fixed-width adaptation of Go's untyped-const semantics — no bignum, but coherent rules for the int64 / uint64 union range.
+
+- **Parseable range**: an integer literal must have a value in `[-2^63, 2^64-1]` (the union of `int64` and `uint64` ranges). Outside that range → parse error. So `0xFFFFFFFFFFFFFFFF` (= `2^64-1`) is parseable; `0x10000000000000000` (= `2^64`) is not. All bases (decimal, hex, binary, octal) parse to the same value space.
+
+- **Default type when context is ambiguous** (e.g. `x := 1`, or a function arg without inference): `int`. `int` is target-width: 32 bits on 32-bit targets, 64 bits on 64-bit targets. A literal that doesn't fit in the target's `int` cannot use the default — the user must give it an explicit context (`var x int64 = 100000000000` or `cast(int64, 100000000000)`).
+
+- **Type from context**: assignment, function argument, cast, and return all provide a target type. The constant's **mathematical value** must fit in the target type's range. Hex `0xFFFFFFFFFFFFFFFF` has mathematical value `2^64-1` (a positive integer); it fits in `uint64` but not in `int64`.
+
+- **Constant-expression arithmetic** operates on **abstract values** (signed integers in the conceptual sense), internally represented at `int64`-or-`uint64` precision (union range `[-2^63, 2^64-1]`). Each operation computes the mathematical result. If any intermediate result exceeds the union range, the const-expr is **rejected at type check** — no silent wrap. Examples:
+  - `1000 - 1000` → 0 → fits any type that includes 0 ✓
+  - `0xFFFFFFFFFFFFFFFF - 1` → `2^64-2` → fits `uint64` ✓
+  - `0xFFFFFFFFFFFFFFFF + 1` → `2^64` → exceeds union range → rejected
+  - `0xFFFFFFFFFFFFFFFF + 1 - 1` → also rejected (intermediate overflows; no bignum to absorb it)
+  - `0xFF * 0xFF * 0xFF * 0xFF` → fits `uint64`, then assignability check against target type
+
+- **Sign handling**: a constant whose bit pattern fits in `int64` is treated as a signed integer (mathematical value, possibly negative). One that requires `uint64` (value > `int64`-max) is treated as a non-negative integer. The fit-check against a signed target accepts the mathematical value if it's in the signed range; against an unsigned target if it's in the unsigned range. So:
+  - `var x uint64 = -1` → mathematical value -1 → does not fit `[0, 2^64-1]` → rejected
+  - `var x int64 = 0xFFFFFFFFFFFFFFFF` → value `2^64-1` → does not fit `[-2^63, 2^63-1]` → rejected
+  - `var x uint64 = 0xFFFFFFFFFFFFFFFF` → value `2^64-1` → fits `[0, 2^64-1]` → accepted
+
+- **Mixed signed/unsigned in const-expr**: arithmetic operates at abstract precision, so `0xFFFFFFFFFFFFFFFF + (-1)` evaluates to `2^64-2` (a positive value) and is fine in a `uint64` context. Implementation-wise the const-expr evaluator stores `(uint64 magnitude, sign bool)` and does sign-magnitude arithmetic with overflow detection.
+
+- **Acknowledged limitation**: chains like `0xFFFFFFFFFFFFFFFF + 1 - 1` whose final value is representable but whose intermediates overflow the union range are rejected. The fix in user code is to reorder or break up the expression. Go avoids this via bignum; we deliberately don't, in exchange for tractable implementation.
+
 **Cast semantics**: `cast(T, expr)` on typed (non-literal) values wraps/truncates — hardware semantics, well-defined. `cast(uint, -1)` is a compile error (literal doesn't fit). `cast(uint, x)` where x is int wraps to UINT_MAX.
 
 **No implicit null termination (revised 2026-04-01)**: string literals contain exactly the characters specified, with no hidden null terminator. `"abc"` is stored as `{'a','b','c'}` (3 bytes), natural type `[3]const char`, default type `@[]const char` with `len()` = 3. (Note: `*[]const char` is also allowed — a raw slice borrowing from static data.) If a null terminator is needed (e.g., for C interop), include it explicitly: `"abc\0"` (4 bytes, natural type `[4]const char`). Null termination for C interop can also be handled by library functions. This replaces the previous design where string literals always included a hidden null terminator beyond the slice view — that was too complicated to reason about in practice (tracking which slices had a null beyond their bounds was impractical).

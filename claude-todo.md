@@ -141,25 +141,39 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `ctx.StmtGrewSP = true` markers on managed-slice / struct-copy
   results (also missed). Boot-comp `pkg/types` 270/270 after fix.
 
-### Clarify rules for integer literals and constant expressions
-- The bootstrap interpreter rejects hex literals with the high bit set
-  (`strconv.ParseInt(..., 16, 64)` overflows int64), e.g.
-  `0xFFFFFFFFFFFFFFFF`. The self-hosted type checker silently wraps
-  via int64 overflow in `pkg/types/checker_util.bn:parseHexInt`. Two
-  different bugs, both surprising.
-- Go-style bignum support for constant expressions is too onerous, but
-  we should at least support `uint64` literals — i.e. accept any
-  64-bit value as either signed or unsigned depending on context, and
-  reject (not wrap) values outside the chosen 64-bit range.
-- Open questions to nail down in the spec:
-  - What's the type of an integer literal? Currently "untyped int"
-    that fits in int64; should an unsigned literal too big for int64
-    but fitting in uint64 be allowed?
-  - What about constant-expression overflow at type-check time
-    (`1 << 63`, `0xFF * 0xFF * ... `)? Today it silently wraps.
-  - Hex / binary / octal literals all need consistent rules.
-- Update both impls together; document the result in claude-notes.md
-  and update binate-coding-guide.md.
+### Integer literals and constant expressions — RATIFIED 2026-05-15; impl pending
+- **Spec**: `claude-notes.md` § "Integer literal value range and
+  constant-expression arithmetic — DECIDED 2026-05-15".
+- **Summary**: literals parse if their value is in `[-2^63, 2^64-1]`
+  (int64 ∪ uint64).  Default type when context is ambiguous is
+  target-width `int` (32 on 32-bit, 64 on 64-bit).  Context provides
+  a target type and the constant's mathematical value must fit it.
+  Const-expr arithmetic operates on abstract values stored at
+  `(uint64 magnitude, sign bool)` with overflow detection — any
+  intermediate that exceeds `[-2^63, 2^64-1]` is rejected at type
+  check.  No silent wrap, no bignum.
+- **Current divergence to fix**: bootstrap Go rejects high-bit hex
+  via `ParseInt(..., 16, 64)`; self-hosted bnc silently wraps via
+  int64 overflow in `pkg/types/checker_util.bn:parseHexInt`. Neither
+  matches the ratified spec — both need updating.
+- **Implementation scope**:
+  - `pkg/types/checker_util.bn`: rewrite `parseIntLiteral` to parse
+    into `(uint64 magnitude, sign bool)`. Reject literals outside the
+    union range.
+  - `pkg/types` constant representation: extend untyped-int Type to
+    carry magnitude + sign for downstream fit-check. Today
+    `TYP_UNTYPED_INT` has no value payload.
+  - Const-expr evaluator: small `ConstInt` struct (magnitude uint64,
+    sign bool) + Add/Sub/Mul/Div/Shift methods returning
+    `(ConstInt, overflowed bool)`. Apply at every const-folding site.
+  - Assignment / cast / arg-passing fit-check: replace today's
+    int-fits-in-target check with the mathematical-value-in-target-
+    range form.
+  - Bootstrap `main.go`: mirror the same rules. A small sign-magnitude
+    pair works there too; `math/big.Int` would be overkill.
+  - Conformance tests pinning every row of the behavior table in
+    `claude-notes.md` (positive + negative for each shape; also the
+    "intermediate overflow rejects" cases).
 
 ### Clarify spec for `return f(...)` with multi-return functions — SELF-HOSTED LANDED; bootstrap pending decision
 - **Self-hosted (LANDED, 2026-05-01)**: type-checker
