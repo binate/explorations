@@ -14,15 +14,32 @@ without a host OS underneath: no libc, no kernel, no filesystem, no
 argv. Code runs directly on a board (real or QEMU-emulated), boots
 from reset, and uses MMIO / semihosting for I/O.
 
-This is distinct from "ARM32 Linux" (which would just need a new
-LLVM target triple plus an `armv7-linux-gnueabihf` libc). Bare-metal
-forces the runtime story we eventually want anyway:
+The endgame is bare-metal, not Linux. But "ARM32 Linux via LLVM"
+(new target triple plus the existing libc-host runtime cross-
+compiled) is a cheap **derisking step** on the way there: it shares
+the bare-metal prerequisites (parameterized type layout, `--target`
+flag, ARM32 toolchain plumbing) without any of the runtime-rewrite
+work, so it validates the type-system / dual-mode-interop changes
+at 32 bits before bare-metal complications enter the picture. See
+the v0 / v1 split under "Milestones" below.
+
+Bare-metal, by contrast, forces the runtime story we eventually
+want anyway — and importantly, **eliminates `binate_runtime.c`
+altogether**. CLAUDE.md is explicit that C exists in the toolchain
+only to interface with existing C-based systems (libc, the host
+OS); on bare metal there is no such system, so there is no reason
+to keep any C. Concretely:
 
 - Allocator implemented in Binate (no `malloc`).
 - Memory ops (`memset`/`memcpy`) implemented in Binate (no `<string.h>`).
 - Exit/abort/panic implemented via target primitives (semihosting on
   QEMU, `wfi` loop or reset on real hardware).
 - I/O implemented via UART driver or semihosting — no `write(2)`.
+- Refcount + managed-slice primitives (currently in `binate_runtime.c`)
+  rewritten in Binate as part of `pkg/rt`.
+- Reset vector + sp setup: a handful of instructions in a single
+  `.s` file (or an LLVM IR section directive once we have one).
+  Not "a C runtime."
 
 Once bare-metal works, the same runtime split makes adding kernel /
 freestanding-Linux / WASM targets cheaper.
@@ -98,6 +115,41 @@ A tiny crt0 (asm or, eventually, Binate inline-asm) that:
 A linker script per board, defining the memory map (text/rodata in
 flash or low RAM, data/BSS in RAM, stack at top of RAM, optional MMU
 page tables for A-class).
+
+### Impl selection via the existing path mechanism
+
+`bnc` already exposes separate `-I` / `--interface-path` (for `.bni`
+files) and `-L` / `--impl-path` (for `.bn` files). Per-target runtime
+implementations can be selected at build time **today**, without any
+new language feature:
+
+- **Interfaces (`.bni`)** stay shared across targets. One canonical
+  `pkg/bootstrap.bni` declares the union of `Exit` / `Write` /
+  `Args` / `Open` / `Read` / `Stat` / `ReadDir` / `Exec` / `Concat`
+  / `Itoa` / …; all targets agree on the API surface. Same for
+  `pkg/rt.bni` and `pkg/libc.bni`.
+- **Implementations (`.bn`)** live in target-specific directories.
+  Build flags resolve `--target` to the right `--impl-path` prefix:
+  - `--target host` (the current default) → `--impl-path .`, picks
+    up the existing libc-host impls.
+  - `--target arm32-linux` (v0) → same default impl path; only the
+    clang target triple changes.
+  - `--target arm32-baremetal` (v1) → `--impl-path runtime/baremetal_arm32`
+    prepended, supplying a bare-metal `pkg/bootstrap.bn` (semihosting
+    `Exit` / `Write`, empty `Args`, stub `Open` that panics), a
+    Binate-implemented `pkg/rt.bn` (allocator + refcount), and so on.
+- **Stub-and-panic** for excluded surfaces. The bare-metal
+  `pkg/bootstrap.bn` provides bodies for `Open` / `Read` / `Stat` /
+  `ReadDir` / `Exec` that simply panic — anything that calls them
+  is by construction not bare-metal-compatible, and the panic is
+  the canonical failure mode.
+
+This means **no compiler change** is required to support per-target
+runtime swap-out. `cmd/bnc` translates `--target` into the right
+clang triple, linker script, runtime entry, and `--impl-path`
+prefix, but the build mechanism downstream is unchanged. Adding a
+new target is "drop in a new impl directory + a new triple
+mapping," not "extend the language."
 
 ## Target boards
 
@@ -204,11 +256,44 @@ The existing `pkg/asm/elf` semihosting harness scales up directly:
 
 ## Milestones
 
-### v1: LLVM-via-clang on QEMU virt
+### v0: ARM32 Linux via LLVM (derisking)
+
+Goal: meaningful subset of the conformance suite passing on ARM32
+Linux under `qemu-arm` (user-mode emulation), driven by the existing
+LLVM backend with the existing libc-host runtime cross-compiled.
+
+Scope is intentionally narrow — v0 exists to validate the shared
+prerequisites (parameterized layout, `--target` flag, cross-clang
+plumbing) before committing to bare-metal runtime work. **No
+runtime changes**: `binate_runtime.c` is reused as-is, just compiled
+for armv7-linux-gnueabihf.
+
+1. **Parameterize type layout by target** (P1 from
+   `ir-backend-cleanup-plan.md`). `types.SizeOf` / `AlignOf` /
+   `FieldOffset` take a `TargetInfo` so 32-bit pointer and int
+   sizes are correct. Default stays 64-bit so nothing else breaks.
+2. **`--target` flag** in `cmd/bnc` (P2 from the same plan).
+   `--target arm32-linux` sets the layout target and the clang
+   target triple.
+3. **Cross-compile `binate_runtime.c`** for `armv7-linux-gnueabihf`.
+   Install `clang` with the multi-arch sysroot in CI + local dev.
+4. **Conformance runner gains `boot-comp_arm32_linux` mode**, which
+   builds bnc as normal, then has bnc invoke clang with the cross
+   target and runs the resulting binaries under `qemu-arm`.
+5. **CI**: add the mode to the matrix.
+
+Notably **not** in v0: bare-metal runtime, semihosting, allocator
+rewrite, linker scripts, eliminating `binate_runtime.c`. All of
+that is v1. v0 is "does the type system survive 32 bits, and does
+the LLVM cross-compile pipeline work end-to-end."
+
+### v1: ARM32 bare-metal via LLVM on QEMU virt
 
 Goal: a meaningful subset of the conformance suite passing on QEMU
 ARM32 virt machine via the LLVM backend, with a Binate allocator
-and semihosting I/O.
+and semihosting I/O. **`binate_runtime.c` is gone** at this
+milestone — the runtime is pure Binate plus a small reset-vector
+asm stub.
 
 1. **Un-export `rt.c_*`** (separate TODO; prerequisite). All callers
    go through Binate wrappers; c_* declarations move to package-

@@ -1140,8 +1140,12 @@ Binate is NOT Go. The two types of slice are intentionally different:
 
 ### ARM32 bare-metal target — MAJOR PROJECT
 - **Why**: enable Binate as an OS-development language on ARM32
-  bare-metal (Cortex-A and possibly Cortex-M). Bare-metal, not Linux —
-  we want to write the OS in Binate, not run on top of one.
+  bare-metal (Cortex-A and possibly Cortex-M). Bare-metal is the
+  endgame — we want to write the OS in Binate, not run on top of
+  one. **ARM32 Linux via LLVM** has been added to the plan as an
+  explicit v0 derisking step (it shares all the prerequisites and
+  validates the 32-bit type-system path without committing to
+  bare-metal runtime work); see plan doc.
 - **Existing substrate that already handles bare-metal cleanly**:
   - `pkg/asm/arm32` encodes ARMv7-A instructions (data-processing,
     load/store, multiply/divide, branches, system); 73 unit tests pin
