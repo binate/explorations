@@ -53,6 +53,64 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   Revisit when generics land or when a user-written `printIt`-
   style function becomes pressing.
 
+### Use interfaces more in non-bootstrap-runnable code (opportunistic)
+- **Constraint**: the bootstrap subset doesn't support interfaces
+  (see `bootstrap-subset.md`), so anything in `cmd/bnc`'s
+  dependency tree stays interface-free.  But everything *outside*
+  that tree (cmd/bni, cmd/bnas, cmd/bnlint, pkg/vm, pkg/rt,
+  pkg/lint, pkg/asm/parse, plus tests) is built by bnc first and
+  then exercised — full language is fair game there.
+- **Candidates that look natural**: anywhere we currently
+  switch on a kind tag with a dispatch table (e.g. opcode
+  handlers, AST visitors, asm encoders) is the textbook shape
+  where an interface compresses the dispatch.  Print/format
+  helpers that take a kind + value pair are another easy lift.
+- **How to land**: pick one site per PR, define the interface
+  alongside, methodify the concrete types, drop the dispatch
+  switch.  Keeps each step small enough that conformance +
+  unit-tests stay green.  Mirrors the
+  `migrate-to-method-form-opportunistic` pattern from
+  `claude-todo-done.md` (DONE 2026-05-13).
+
+### Replace repeated `WriteStr(literal)` runs with adjacent-string concat (opportunistic)
+- **Pattern**: code that builds output via a CharBuf often calls
+  `WriteStr` many times with adjacent string literals — e.g.
+  `cb.WriteStr("foo"); cb.WriteStr("bar"); cb.WriteStr("baz")`.
+  Binate allows adjacent string literals to be concatenated by
+  juxtaposition (`"foo" "bar" "baz"`), so a single
+  `cb.WriteStr("foo" "bar" "baz")` (split across lines for
+  readability) does the same work in one call.
+- **Why it matters**: each `WriteStr` call is a method dispatch
+  plus a CharBuf grow check.  Collapsing the literals into one
+  call cuts both, and is also less code to read.
+- **Most of these are in tests**, which compounds with the
+  slow-tests theme — every saved WriteStr in a test that runs
+  under boot-comp-int-int (or any interpreted mode) saves
+  bytecode-dispatch overhead × test count.
+- **How to land**: opportunistic, file at a time.  Best
+  candidates: `cmd/bnc/test.bn`'s `genTestRunner`, anywhere
+  building LLVM-IR text, and test fixtures that paste source
+  fragments together a chunk at a time.
+
+### Replace if-return chains with `switch` where applicable (opportunistic)
+- **Pattern**: code that does
+  `if x == A { ... return ... }; if x == B { ... return ... }; ...`
+  over many cases.  Common in op-dispatchers, kind-handlers, and
+  predicates.
+- **Why it matters**: a `switch` makes the structure obvious (all
+  cases over the same scrutinee, mutually exclusive), gives the
+  type-checker a hook for exhaustiveness checking if/when it
+  lands, and reads more naturally.
+- **Watch out for**: chains where the conditions aren't really
+  equality on a single scrutinee — those genuinely are
+  if/else-if and should stay.  Also: the bootstrap subset
+  supports `switch`, so this isn't restricted to non-bootstrap
+  code (unlike the interface TODO above).
+- **How to land**: opportunistic.  Top candidates: the per-op
+  dispatchers in `pkg/native/arm64/arm64_dispatch.bn`,
+  `pkg/codegen/emit_instr.bn`, `pkg/vm/vm_exec*.bn`, and
+  `pkg/ir/ir_ops.bn`'s opName / similar string-form helpers.
+
 ### ~~pkg/types boot-comp regression: hang during unit-test run~~ — FIXED
 - **Root cause**: `pkg/ir/gen_method.bn` was missing the
   needsStructCopy-on-arg handling that `gen_call.bn` does for free-
