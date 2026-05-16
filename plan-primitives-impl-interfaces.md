@@ -1,18 +1,12 @@
 # Plan: Primitives Implementing Interfaces
 
-> **Status: DRAFT 2026-05-12, REVISED 2026-05-12.**  Design-
-> open question pinned in `claude-todo.md` § "`print(42)` and
-> friends".  Lays out three candidate options, evaluates them
-> against Binate's existing design stance, recommends Option 2,
-> and pins the canonical interfaces that ship in the carve-out
-> package.  Pending ratification.
+> **Status: LANDED 2026-05-15** (slices 1, A, 2a, 2b).
+> Slice 3 (the `bootstrap.println` rewrite) remains pending
+> on raw-iface variadics.
 >
-> **Self dependency RESOLVED 2026-05-12**: the `Self` type in
-> interface declarations was ratified the same day (see
-> `claude-notes.md` § "`Self` type in interface declarations —
-> DECIDED 2026-05-12").  All four canonical interfaces
-> (`Stringer`, `Comparable`, `Orderable`, `Hashable`) can
-> ship together.
+> Design background and ratification history retained below
+> for context — see also `claude-todo-done.md` for the
+> RATIFIED record.
 
 ## Context
 
@@ -449,81 +443,91 @@ end-to-end).
 
 ## Implementation work
 
-Sized for a single coherent landing once ratified (and
-sliced to allow Stringer to ship before Self lands).
+### Slice 1 — Type-checker carve-out — LANDED `f57c770`
 
-### Slice 1 — Type-checker carve-out
+- `Checker.AllowUniverseRecv` flag added to the type checker.
+- `Check` / `CheckPackage` set the flag based on
+  `isCarveOutPackage(name)`, matching path / file-PkgName
+  against `"pkg/std"`.
+- `resolveMethodReceiver` falls back to full-chain `Lookup`
+  for primitives under the flag, and accepts primitive type
+  kinds (TYP_INT / TYP_FLOAT / TYP_BOOL) as method receivers.
+- `AddMethod` / `SetOrAppendMethod` / `LookupMethod` accept
+  primitive `@Type` singletons via a new `typeAcceptsMethods`
+  predicate.  `ReceiverBaseNamed` returns the primitive
+  itself for a bare primitive receiver.
+- 10 unit tests in `pkg/types/check_carveout_test.bn` cover
+  the carve-out gate, the singleton-method storage, and the
+  alias-rejection negative case.
 
-- Add `Checker.AllowUniverseRecv` flag (bool).
-- Loader / package-load driver sets the flag when entering
-  the carve-out package (identity check on the package path
-  `pkg/std`).
-- `resolveMethodReceiver` adds the exception: if the receiver
-  base resolves to a universe primitive AND
-  `c.AllowUniverseRecv` is set, accept the method.  Method
-  registration goes through `AddMethod` on the primitive's
-  `@Type` record (which today doesn't carry a method set —
-  we extend it to do so).
-- Open: the universe-type singletons (`predeclaredInt` etc.)
-  are shared across the whole compiler session.  Methods
-  added to them are visible everywhere, which is what we
-  want.  Verify that test-isolation doesn't accidentally
-  duplicate the singleton across runs.
+### Slice A — IV-dispatch thunks for value-receiver impls — LANDED `bb9cc07`
 
-### Slice 2a — `pkg/std`: Stringer + universe impls
+(Bonus slice that surfaced while implementing 2a: the
+existing iv-dispatch ABI doesn't pass value receivers
+correctly, so we add per-(R, M) thunks at the vtable slot.
+See "Interface-value dispatch and value receivers" above for
+the design.)
 
-- **Pre-req**: emit value-receiver thunks at iv vtable slots
-  (see "Interface-value dispatch and value receivers" above).
-  Lands before the user-visible `pkg/std` content so the
-  thunks are wired through codegen and verified against the
-  existing struct-value-receiver test base before pkg/std
-  exercises them on primitives.
-- Create `pkg/std` with the `Stringer` interface declaration
-  (no Self required).
-- Write `String()` impls for every universe primitive: `int`,
-  `int8`, `int16`, ..., `uint`, ..., `bool`, `char`, `byte`,
-  `float32`, `float64`.
-- Cross-package vtable mangling already handles
-  `__ivt.bn_pkg_std__int__pkg_std__Stringer` (Stringer's
-  package = std; int's "package" = std under the carve-out).
-- Conformance: end-to-end test that
-  `import "pkg/std"; printIt(s *Stringer) { ... println(s.String()) ... }`
-  works with `&42` (or whatever the construction-site syntax
-  pins).
+- New `pkg/ir/gen_iv_thunk.bn` with
+  `generateIvDispatchThunks(m)`, called after method-body
+  emission in both `GeneratePackage` and `GenModule`.
+- `LookupVtableSlotName(m, name)` returns the thunk name
+  for value-receiver methods, original name otherwise.
+- `pkg/codegen/emit_impls.bn` and `pkg/vm/lower.bn` both
+  call `LookupVtableSlotName` so the LLVM global and
+  vm.IfaceVtables agree slot-by-slot.
+- 11 unit tests + 1 conformance test
+  (`410_iface_value_recv_dispatch`) pin the thunk path.
 
-### Slice 2b — `pkg/std`: Comparable + Orderable + Hashable
+### Slice 2a — `pkg/std`: Stringer + universe impls — LANDED `2ba0ec6`
+
+- `pkg/std.bni` declares `Stringer { String() @[]char }`.
+- `pkg/std/std.bn` ships value-receiver `String()` impls
+  for all 13 primitives (signed/unsigned ints, bool, floats),
+  plus `impl <prim> : Stringer` for each.
+- IR + type-checker primitive-method support extended:
+  `receiverShape` (types), `baseNamedTypeName` (ir),
+  `receiverBaseTypeName` (ir) all recognize universe
+  primitives via shared predicates; primitive method names
+  are qualified `std.<primitive>` so direct calls and iv
+  dispatch agree on the symbol.
+- 11 unit tests in `pkg/std/std_test.bn` + 1 conformance test
+  (`411_pkg_std_stringer`) exercising direct-call and
+  `*Stringer` iv dispatch.
+
+### Slice 2b — `pkg/std`: Comparable + Orderable + Hashable — LANDED `00e8d22`
 
 Unblocked by the Self ratification (`claude-notes.md` §
 "`Self` type in interface declarations — DECIDED 2026-05-12").
 
-- Implement `Self` in the type checker (interface-decl
-  parsing accepts `Self` as a reserved type identifier in
-  method argument / result positions; impl-collection
-  substitutes the receiver type for `Self`; calls through
-  interface values reject when a Self-using method is
-  invoked).
-- Add `Comparable`, `Orderable`, `Hashable` interface
-  declarations using `Self`.
-- Write the canonical impls for every numeric primitive,
-  `bool`, `char`, `byte`.
-- Float NaN handling per the IEEE-total-order convention
-  pinned above.
-
-Open: whether Self lands as its own preceding slice (clean
-landable atom) or inside Slice 2b (couples interfaces +
-language feature).  Lean toward its own slice — Self is a
-real language feature with conformance implications beyond
-the stdlib, and lands cleaner without `pkg/std` as a
-prerequisite.
+- `pkg/std.bni`: `Comparable { Compare(other Self) int }`,
+  `Orderable : Comparable {}` (zero-method extension —
+  total-order opt-in), `Hashable : Comparable { Hash() uint }`.
+- `pkg/std/order.bn`: `Compare` + `Hash` methods for all 13
+  primitives; `impl <T> : Orderable` and `impl <T> : Hashable`
+  for each (transitively covering Comparable).
+- Two fixes uncovered while implementing:
+  - `pkg/types/bni_scope.bn`: `resolveInterfaceDeclInScope`
+    now wraps the per-method `resolveFuncDeclType` with
+    `AllowSelf=true`.  Without this, .bni-declared Self-using
+    interfaces failed to resolve when imported.
+  - `pkg/ir/gen_impl.bn`: `collectImplsFromDecl` now dedupes
+    against existing `m.Impls`, so two impls on the same
+    receiver whose ancestor closures overlap (e.g.,
+    Orderable + Hashable both extending Comparable) don't
+    emit the same vtable twice.
+- 15 unit tests in `pkg/std/order_test.bn` + 2 conformance
+  tests (positive direct-call `412_pkg_std_compare`,
+  negative iv-rejection `413_err_pkg_std_iv_compare`).
 
 ### Slice 3 — println rewrite
 
-Once `*Stringer` accepts primitives uniformly (after Slice
-2a), the `bootstrap.println` builtin can be rewritten as a
+Once `*Stringer` accepts primitives uniformly (which it now
+does), the `bootstrap.println` builtin can be rewritten as a
 regular function over `...*Stringer` (raw-interface
 variadics, per `claude-notes.md`).  Removes one of the long-
-standing temporary hacks.  Depends on raw-interface variadics
-landing.
+standing temporary hacks.  **Pending** raw-interface
+variadics support (not yet implemented).
 
 ## Open questions
 
