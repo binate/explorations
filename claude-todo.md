@@ -117,30 +117,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `pkg/codegen/emit_instr.bn`, `pkg/vm/vm_exec*.bn`, and
   `pkg/ir/ir_ops.bn`'s opName / similar string-form helpers.
 
-### ~~pkg/types boot-comp regression: hang during unit-test run~~ — FIXED
-- **Root cause**: `pkg/ir/gen_method.bn` was missing the
-  needsStructCopy-on-arg handling that `gen_call.bn` does for free-
-  function calls. When a method takes a value-struct arg with
-  managed fields (e.g. `p.addError(pos, msg)` where `pos` is
-  `token.Pos` with `@[]char File`), the method-call path passed
-  the struct by value WITHOUT RefIncing the managed field. The
-  callee's scope cleanup then RefDec'd the field at end of scope,
-  freeing the backing under the caller. After many such calls the
-  freed-but-still-referenced backings led to use-after-free, then
-  malloc heap corruption — eventually trapped at the next Malloc
-  (which happened to be deep inside checkSrc → ParseFile →
-  appendDecl during TestCheckSizeofBasic).
-- **Why it appeared at 7251ffc**: parser helpers like next /
-  expect / addError were free functions before that commit, so
-  argument copies went through `gen_call.bn`'s correct handling.
-  Method form routed them through `gen_method.bn` instead, which
-  was missing the args-side struct-copy emit. The receiver-side
-  branch already had it; only user args were missed.
-- **Fix**: add the args-side `needsStructCopy` block to
-  `gen_method.bn` (mirrors `gen_call.bn`), and also the
-  `ctx.StmtGrewSP = true` markers on managed-slice / struct-copy
-  results (also missed). Boot-comp `pkg/types` 270/270 after fix.
-
 ### Integer literals and constant expressions — RATIFIED 2026-05-15; impl pending
 - **Spec**: `claude-notes.md` § "Integer literal value range and
   constant-expression arithmetic — DECIDED 2026-05-15".
@@ -262,59 +238,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   compile, and no in-flight work depends on it. Pick up when
   there's a concrete user (e.g., a self-hosted source file that
   wants the form, or a broader bootstrap-subset widening pass).
-
-### ~~Array of managed-slice elements: string→@[]char in array context~~ — FIXED
-- **Was**: two distinct bnc miscompiles for arrays whose element type
-  is a char-slice (`@[]char`):
-  - `[N]@[]char{"a","b","c"}` array-literal — silent wrong output,
-    each slot's data ptr written but len/refptr/backing_len left at
-    zero, so println saw len=0 and printed nothing.
-  - `var arr [N]@[]char; arr[i] = "x"` indexed assignment — bnc
-    aborted with `extractvalue operand must be aggregate type` on
-    the refcount-Inc step (extractvalue called on a bare i8* from
-    OP_CONST_STRING instead of a %BnManagedSlice).
-  Both: var-decl / non-array-assign paths were converting
-  OP_CONST_STRING → managed-slice value via EmitStringToChars; the
-  array-literal and array-index-assign paths weren't.
-- **Repros** (now passing in all modes):
-  conformance/365_array_managed_elem_lit.bn,
-  conformance/366_array_managed_elem_assign.bn.
-- **Unit tests** in pkg/ir/gen_access_test.bn:
-  TestArrayLitManagedElemEmitsRodataMSliceCopy,
-  TestArrayIndexAssignManagedElemEmitsRodataMSliceCopy.
-- **Related verification sweep (2026-05-06)**: tested arrays of
-  OTHER managed element shapes after the initial fix.  `[N]@T`
-  and `[N]@[]int` (with @[]int{...} elements) work cleanly under
-  bnc.  `[N]struct-with-managed-field` revealed two additional
-  bugs in genCompositeLit and genArrayLit, now fixed and pinned
-  by conformance/367 + 368 and
-  TestGenCompositeLitStructManagedCharField:
-  - genCompositeLit's per-field string→char-slice conversion was
-    gated `&& ft.Kind == types.TYP_SLICE`, so it only fired for
-    raw-slice fields; @[]char fields fell through and the
-    managed-slice RefInc / store wrote 8 bytes into the 32-byte
-    slot.  Fix: drop the kind gate (isCharSliceType already
-    matches both raw and managed).
-  - genArrayLit didn't load struct values from their alloca
-    pointer before storing into the array slot (mirroring what
-    gen_control.bn's array-index-assign branch already did), so
-    `[N]S{S{...}, ...}` wrote each element's i8* alloca pointer
-    into the struct-sized slot instead of the struct value.
-    Fix: add the same load-from-alloca guard.
-- **Third site, found 2026-05-07** while resuming the unit-test
-  cleanup sweep into asm / bnc / bni / bnlint args fixtures
-  (which want to use `@[]@[]char{"a","b",...}` in place of
-  `make_slice(@[]char,N)` + indexed assigns): genManagedSliceLit
-  had the same gap.  String-literal elements stored only their
-  bare data pointer (8 bytes) into the 32-byte managed-slice
-  element slot, so reads came back len=0 (silent empty output).
-  Fixed and pinned by conformance/372 +
-  TestManagedSliceLitCharElemEmitsRodataMSliceCopy.  All three
-  sites — genArrayLit, gen_control's array-branch, gen_composite
-  per-field, genManagedSliceLit — now apply the same isCharSliceType
-  + OP_CONST_STRING → EmitStringToChars conversion.  If a fourth
-  store site surfaces, look for a missing instance of that same
-  pattern.
 
 ### ~~bnc: `return ""` for `@[]char` leaves undeclared `bn_libc__Memcpy`~~ — FIXED
 - **Surfaced by**: adding `--test --run <substr>` to `cmd/bnc`'s
@@ -537,92 +460,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   most of the cost isn't where it looks like it should be.
 - **Not blocking anything**; mitigation in tree (`1bffc43`).
 
-### ~~boot-comp-int-int: blocked on registerPureCExterns from interpreted cmd/bni~~ — DONE (2026-05-07)
-- **Resolved by**: `b9e1fed` (BC_FUNC_VALUE registry-fallback in
-  execFuncRefOp). `2662c5c` then unblocked the build chain by
-  fixing four leftover `TypeName(t)` free-function call sites in
-  `pkg/types/check_decl_func.bn`. Mode now in the `all` modeset.
-  boot-comp-int-int: 314 passed / 0 failed / 1 skipped (the
-  pre-existing `272_raw_slice_star_sugar.xfail`).
-- **Repro**: `conformance/run.sh boot-comp-int-int 001_hello`.
-  Smaller repro: e2e/print-args.sh's `bni-under-bni` case
-  (currently SKIPed pointing here).
-- **State (2026-05-04)**: TWO root causes were stacked.
-  1. **vm.Stack overflow** — FIXED via OP_SP_RESTORE plumbing
-     across IR + all backends + IR-gen end-of-statement emission.
-     Five-step series: `322a90a`, `2e1a4c3`, `7079fa6`, `f47f474`,
-     `3393e62`.
-  2. **Infinite recursion** — FIXED. Inner cmd/bni called
-     `bootstrap.Args()` and got the OUTER process's full argv
-     (including `cmd/bni` itself), so its parseArgs reinterpreted
-     cmd/bni at every level. Fix: cmd/bni now registers a Binate
-     shim (`progArgsAfterDash`) under the `"bootstrap.Args"`
-     extern name in the per-VM registry, so programs running in
-     bni's VM see post-`--` args (matching the spec and the Go
-     bootstrap interpreter). This is what made the original "leak"
-     symptom (8 MB vmInst per recursion level) catastrophic.
-  3. **CURRENT BLOCKER**: registerPureCExterns crashes when called
-     from interpreted cmd/bni. `var libcMalloc *func(int) *uint8 =
-     libc.Malloc` requires LookupFunc("libc.Malloc") to find a
-     VMFunc; libc.Malloc has no `.bn` body, so lookup fails and
-     execLoop calls rt.Exit(1) with "vm: function not found:
-     libc.Malloc". Outer cmd/bni's main runs natively (so the
-     direct function-pointer dereference works); inner cmd/bni
-     runs as bytecode (so the same code path is hit through
-     BC_FUNC_VALUE, which can only resolve VMFunc names).
-  - Introduced by the registry refactor (`a841f30`, `9486de9`,
-    `faa98dc`). Pre-refactor, hand-coded arms in vm_extern.bn
-    served libc/bootstrap calls without any registration step;
-    refactor moved bindings into a per-VM registry that requires
-    a function value at registration time.
-- **Chosen fix (2026-05-06)**: extend `BC_FUNC_VALUE`'s
-  `LookupFunc` miss path in `pkg/vm/vm_exec_helpers.bn:execFuncRefOp`
-  to fall back to the executing VM's `vm.Externs` registry. On
-  hit, build the function value as
-  `{vtable=ExternBinding.VtableAddr, data=ExternBinding.DataAddr}`
-  — same shape `OP_FUNC_VALUE` produces today, just sourced from
-  the registry instead of from `vm.Funcs`. ~15 lines, one file.
-  - **Why this and not a manifest / .bn-body wrappers**: the wall
-    is at the lookup. The registry is already populated by each
-    layer's host (cmd/bni's `registerPureCExterns`) before the
-    next layer's main runs, so each layer's `BC_FUNC_VALUE` is
-    dispatched by a VM whose `vm.Externs` already has the
-    bindings. Works at arbitrary recursion depth without any
-    bytecode-side compile-time emission and without forcing
-    pkg/libc.bn (or analogous wrapper bodies) to be loaded into
-    every nested VM.
-  - **Soft limitation**: a user program that does
-    `var f = libc.Malloc` at top-level with no surrounding
-    `RegisterExtern("libc.Malloc", ...)` in the calling VM gets
-    "function not found". Not an issue for cmd/bni-on-cmd/bni;
-    soft problem for ad-hoc scripts under unusual embeddings.
-- **Considered and rejected**:
-  1. Detect interpreted context in cmd/bni and skip
-     registerPureCExterns. Fragile; "interpreted" detection isn't
-     first-class.
-  2. Revert pure-C externs out of the registry — mixes two
-     dispatch shapes per extern name.
-  3. Compile-time-emitted shim manifest in both native backends +
-     `rt.LookupShim`. Drafted in (now-deleted)
-     `plan-shim-manifest.md`. Comparable cost to option 2 below;
-     redundant with the chosen fix; only wins for the
-     "no-pre-registration" case which doesn't apply here.
-  4. `.bn`-body wrappers (intrinsic-call form `_c_<name>` or
-     `@cextern` annotation) for pure-C externs. Cleanest in
-     theory but doesn't help nested VMs that don't load
-     `pkg/libc.bn` — same wall recurs at depth.
-- **CI status**: now in the `all` modeset; conformance, unit-tests,
-  and perf-tests workflows run boot-comp-int-int as a matrix entry.
-- **Earlier original diagnosis** (pre-leak-fix, kept for context):
-  caller was bytecode `rt.Free`, fnIdx was a NATIVE function
-  pointer (e.g. 0x1043F5BAC ≈ 4.37e9) being treated as a 1-
-  based VM index. The allocation was made by NATIVE rt.Alloc
-  via the BC_MAKE_SLICE handler in vm_exec.bn calling native
-  rt.MakeManagedSlice → native rt.Alloc, which stored
-  `_raw_func_addr(RawFree)` in h[1] as a native pointer; later
-  RefDec'd by bytecode rt.RefDec → bytecode rt.Free →
-  BC_CALL_INDIRECT mismatch. Phase 3 trampolines retire this.
-
 ### Native AArch64 backend — regPool saturation (cluster A follow-up)
 - **Silent-corruption hazard removed** (`e8dfb85`, 2026-05-01).
   `pkg/native/arm64/arm64_regmap.bn:regPool(i)` previously returned
@@ -671,52 +508,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   allocator.  Not blocking — no current op hits this; the panic
   prints `currentEmitOp` so the next saturation case identifies
   itself in the panic.
-
-### ~~Native AArch64 backend — emitCallFuncValue slice-arg ABI mismatch~~ — FIXED
-- Root cause was actually in `emitFuncValueShims` (arm64.bn), not
-  the call site: the shim shuffles X1..XN → X0..X(N-1) to drop
-  the closure-data slot, but counted register words by
-  `len(fvTyp.Params)` instead of summing each param's
-  `common.ArgWords`.  A slice param occupies 2 consecutive arg
-  registers, so the shim ran a single MOV X0, X1 and left
-  slice.len in X2 dangling — the callee read X1 (= slice.data)
-  as its len, so any `len(s)`-driven loop ran 0 iterations.
-- Fix: sum `common.ArgWords(fvTyp.Params[i].Type)` across all
-  params and shift that many register words.
-- `conformance/364_funcval_slice_arg` now passes under
-  boot-comp_native_aa64.
-
-### Native AArch64 backend — interface dispatch — LANDED
-- Implemented OP_IFACE_VALUE, OP_CALL_IFACE_METHOD, OP_IFACE_DTOR
-  in pkg/native/arm64; added `__ivt.<...>` vtable emission to
-  EmitObject; added TYP_INTERFACE_VALUE / TYP_INTERFACE_VALUE_MANAGED
-  cases to IsAggregateTyp and PlanFrame's data-region allocator.
-  See `arm64_iface.bn` + the new ops in `arm64_dispatch.bn`.
-- Verified: boot-comp_native_aa64 conformance went from 0/327
-  (everything failed at link with `_bn_entry undefined` — that
-  side was fixed earlier in the same commit chain) → 321/1/6
-  passing/failing/xfail.  The remaining failure (364) is the
-  slice-arg ABI mismatch above.
-- Layout note: matches LLVM's emit_impls.bn exactly — slot 0 is
-  the receiver dtor (or null if no dtor in this TU), slots 1..N
-  are method pointers in interface-declaration order, each slot
-  is an 8-byte ARM64_RELOC_UNSIGNED fixup that the linker
-  resolves to the symbol's absolute address.
-
-### ~~Inline RefInc / fast-path inline RefDec (perf)~~ — DONE
-- **Plan doc**: `explorations/plan-refcount-inlining.md` (Status: DONE).
-- New IR ops `OP_REFINC` / `OP_REFDEC` added alongside the old `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC`; IR-gen switched to emit the new ops; old emitters (`EmitRefcountInc` / `EmitRefcountDec` / `EmitRefcountDecDtor`) deleted in favor of `EmitRefInc` / `EmitRefDec` / `EmitRefDecDtor`.
-- All three backends (LLVM, VM, native arm64) lower the new ops inline:
-  - LLVM: nil-check diamond + header GEP at -16 + load/{add,sub}/store, with a slow-path call to `@bn_rt__ZeroRefDestroy` for RefDec when the count hits zero.
-  - VM: fused single-dispatch bytecode ops `BC_REFINC_INLINE` / `BC_REFDEC_INLINE_FAST` — one switch arm per refcount site, vs ~5 if the IR had pre-expanded to primitives.
-  - arm64: CBZ + LDR(pre-index for RefInc, separate SUB+LDR for RefDec to keep ptrReg alive across the BL) + add/sub + STR + CBNZ for RefDec; BL `bn_rt__ZeroRefDestroy` only on the slow path.
-- **Slow-path helper**: `rt.ZeroRefDestroy(ptr, dtor)` lives in `pkg/rt`; called only when the inline RefDec decrement leaves the refcount at zero. Runs the optional dtor (via `_call_dtor`) and `Free`.
-- **User-visible impact**: none. All call sites are compiler-emitted.
-- **Commits** (chronological): `eb7332e` (OP_REFINC), `9cb934d` (LLVM RefInc), `e972953` (VM RefInc), `8b896de` (arm64 RefInc), `34511bd` (RefInc switchover); `6aa78d1` (ZeroRefDestroy), `46e8e52` (OP_REFDEC), `a8104d2` (LLVM RefDec), `445e40d` (VM RefDec), `a4847b2` (arm64 RefDec), `19502d4` (RefDec switchover + with-dtor tests).
-- **Cleanup status (2026-05-02)**: IR/backend dead code is GONE — old `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC` constants, all three backends' old dispatch arms, the non-INLINE `BC_REFINC` / `BC_REFDEC` bytecode ops + their VM exec handlers, and `emitRefcountCall` are all removed. The `bn_rt__RefInc` / `bn_rt__RefDec` runtime symbols (declared `pkg/rt.bni:122-127`, defined `pkg/rt/rt.bn:157,166`) are NOT dead — but their remaining callers are dubious and they should probably be retired:
-  - **Remaining callers**: (a) VM extern handlers in `pkg/vm/vm_extern.bn` — the `rt.RefInc` / `rt.RefDec` extern arms at lines 21-29 plus the managed-slice copy/dtor paths at 169/175/191/195 that hand-RefInc element backings during structural copies; (b) conformance tests `092_rt_alloc`, `093_rt_managed_slice`, `104_rt_refcount`, which exercise these as a public manual-refcount API.
-  - **Why retire**: with every compiled refcount op inlined, the runtime symbols exist only for these dubious users. Keeping them in `pkg/rt`'s public surface entrenches a manual-refcount escape hatch that nothing in the language model encourages. The `vm_extern.bn` callers are part of a broader "all of `vm_extern.bn` is dubious" question — the managed-slice copy paths there should probably move out of host code entirely.
-  - **Scope when picked up**: drop or rewrite the three conformance tests; audit/migrate the `vm_extern.bn` paths (likely part of a larger vm_extern.bn rework); then delete the symbols from `pkg/rt.bni` + `pkg/rt/rt.bn`. Not a "just deletion" change — has public-API implications. The "VM extern dispatch: name → function-value registry" entry below describes the natural vehicle: the `rt.RefInc` / `rt.RefDec` extern arms cease to exist (no caller left to register), and the surgical refcount paths in `bootstrap.Args` / `ReadDir` get audited as part of that rework.
 
 ### Function values — MAJOR PROJECT (interop prerequisite)
 - **Plan docs**: `explorations/plan-function-values.md` (parent;
@@ -833,27 +624,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   plan can land first; both share the backend.
 - **Method values** (`x.M`, `T.M`) and **closures** are folded
   under this plan rather than tracked separately.
-
-### ~~VM extern dispatch: name → function-value registry~~ — DONE
-- ExternBinding registry + RegisterExtern / LookupExtern API:
-  landed.
-- BC_FUNC_VALUE registry-fallback (`b9e1fed`): execFuncRefOp
-  consults `vm.Externs` on `LookupFunc` miss and constructs the
-  function value from `binding.VtableAddr` / `DataAddr`.  Removes
-  the chicken-and-egg that blocked nested-VM
-  `var x = pure_C_extern` constructions.
-- All host externs (rt.*, libc.*, the full bootstrap.* C-shaped
-  surface) migrated through the registry; vm_extern.bn's
-  execExtern is now a pure registry dispatch.
-- ReadDir's migration surfaced a latent codegen bug: emit_funcvals.bn's
-  aggregate-shim was emitting a register-style call
-  (`%r = call <ret> @<fn>(...)`) for IsCExtern callees regardless
-  of whether they used the C-ABI sret convention.  For >16-byte
-  returns (e.g., `@[]@[]char`), the sret-declared callee would
-  write the result through what it interpreted as the sret
-  pointer (the first user arg), corrupting memory.  Fixed in
-  `666f2c9` — sret-aware shim emission, now consistent with
-  emit.bn (declarations) and emit_call.bn (regular call sites).
 
 ### Interface syntax revision — *Stringer / @Stringer + top-level decl
 - **Plan doc**: `explorations/plan-interface-syntax-revision.md`
