@@ -2,10 +2,30 @@
 
 ### Status
 
-Draft (2026-05-13).  **Phase 1 landed** as `66d07c3` (register
-`vm.TrampolineScalar` / `Aggregate` as standard externs).  **Phase 2
-attempted but reverted (2026-05-14)** — a key assumption was wrong
-(see "Phase 2 misadventure" below).
+(2026-05-15.)  **Phases 1–3 landed on main:**
+ * Phase 1 (`9561a3b`, originally `66d07c3` in the worktree):
+   register `vm.TrampolineScalar` / `Aggregate` as standard
+   externs.
+ * Phase 2 (folded into `29d5298`): BC_FUNC_VALUE Path B reads
+   the trampoline native addr from `vm.Externs`; also a
+   self-reference fix when the callee IS one of the trampolines.
+   This unblocked the original crash.
+ * Phase 3 (`c557870`): ExternBinding gains `RawFnAddr`;
+   `_raw_func_addr(F)` in bytecode resolves via the Externs
+   registry instead of returning a 1-based vm idx.  `pkg/vm`
+   tests + conformance green in `boot-comp`, `boot-comp-int`,
+   `boot-comp-int-int`.
+
+**Phase 4 in flight.**  The audit's BC_CALL_INDIRECT magnitude
+check still stands today.  Real elimination requires unifying the
+`_raw_func_addr` machinery with the function-value handle shape so
+that bytecode-only function references (REPL-defined, test-helper-
+in-bytecode-mode) get dispatched through the universal trampolines.
+See "Phase 4 revised" below.
+
+Original Phase 2 history (a prior attempt was reverted on
+2026-05-14 before the landed version above) is kept under
+"Phase 2 misadventure" for context.
 
 Triggered by the `pkg/vm:TestExecRefIncRefDecInline` SEGV root-
 caused in `claude-todo.md` (commit `788ec56`): the bytecode-mode
@@ -309,14 +329,132 @@ suite green.
    user takes the address of but isn't pre-registered), see the
    open question below.
 
-4. **Phase 4 — drop the VM-idx-vs-native-ptr dispatch arm in
-   `BC_CALL_INDIRECT`** (`pkg/vm/vm_exec.bn:237-263`).  Make
-   `dispatchNativeIndirect` the only path.  Validate that no
-   regression by running the full conformance + unit suite.
+4. **Phase 4 (revised) — universal function-value handles.**
+   Detailed below.  Replaces the original "just drop the
+   `BC_CALL_INDIRECT` magnitude arm" Phase 4, which couldn't
+   stand alone: it would have crashed any bytecode-only function
+   whose address gets taken (test-helper dtors in
+   `pkg/rt/rt_test.bn`, user struct dtors loaded into a vm at
+   runtime, REPL-defined functions).  Universal trampolines give
+   those a real native dispatch target, so the magnitude arm
+   genuinely becomes dead.
 
 5. **Phase 5 — strip dead code**: Path B's vtable construction,
    `dispatchNativeIndirect`'s "fall through to vm-idx" comments,
    anything that distinguished the two cases.
+
+### Phase 4 revised — universal function-value handles
+
+After Phase 3, `_raw_func_addr(F)` returns the real native
+address of F's per-function shim — but only when F is registered
+as an extern.  Functions that exist *only* as bytecode in some
+vm (test helpers under `boot-comp-int`, REPL-defined functions,
+user struct dtors emitted by bnc into a sub-vm) still fall back
+to `idx + 1`, which can't be passed to a native indirect call
+and so requires `BC_CALL_INDIRECT`'s magnitude check to survive.
+
+**Goal of Phase 4:** the result of "give me a function pointer"
+is a single *uint8 that points to a stable 16-byte `{vtable, data}`
+function-value handle.  Dispatch is uniform:
+`handle.vtable.call(handle.data, args...)`.  No magnitude check;
+no per-call-site idx production.
+
+#### Rename
+`_raw_func_addr(F)` → `_func_handle(F)`.  The name change is
+substantive: "raw" used to mean "the function's raw symbol
+address," which is no longer what it is.
+
+#### Storage
+
+**Natively-compiled functions:** `bnc` emits a static
+`__handle.F = { vtable=&__vt.F, data=null }` global per function
+whose address may be taken.  `_func_handle(F)` at native level is
+just the symbol address `&__handle.F`.  Zero heap pressure.
+
+**Bytecode-only functions:** `BC_FUNC_HANDLE` (the renamed
+opcode) lazy-allocates the handle on first use and caches it on
+the `VMFunc`:
+ * `Vtable` field: 16-byte `{ dtor=0, call=&TrampolineScalar }`
+   (or `&TrampolineAggregate` based on return shape).
+ * `VMClosureRec` field: 32-byte `{ kind, vm, vm_func_idx, captured=0 }`.
+ * `Handle` (new) field: 16-byte `{ vtable, data }` whose vtable
+   points to `Vtable` and whose data points to `VMClosureRec`.
+   `_func_handle(F)` returns the address of this.
+
+All three lazy allocations are **refcounted** (`rt.Alloc` not
+`rt.RawAlloc`).  The field types on `VMFunc` change from raw
+`int` to managed (e.g. `@[]uint8`); VMFunc's auto-emitted dtor
+refdecs them on death.  This also fixes a pre-existing leak —
+the current Path B already allocates these via `rt.RawAlloc`
+and never frees them when VMFunc dies (see
+`claude-todo.md`).
+
+#### Dispatch
+
+`_call_free_fn` and `_call_dtor` change from "indirect call
+fn(arg)" to "dispatch via handle:"
+ * Load `handle[0]` → vtable address.
+ * Load `vtable[1]` → call slot (the native function).
+ * Call `call(handle[1], arg)`.
+
+In bytecode this is the existing `BC_CALL_FUNC_VALUE` shape
+(the handle pointer IS the function-value address that opcode
+already expects).  In native it's two loads + an indirect call —
+LLVM IR generates fine.
+
+After this, `BC_CALL_INDIRECT`'s magnitude check goes away:
+every `fnIdx` it sees is a real native pointer.
+`dispatchNativeIndirect` becomes the only path.
+
+#### Compiler-internal dtor idx (don't go through the handle)
+
+`emitManagedPtrRefDec` currently emits `b.EmitFuncAddr(dtorName)`
+to feed the dtor into `BC_REFDEC_INLINE_FAST`'s `Src2`.  The
+fast path consumes a 1-based intra-vm idx (`vm.Funcs[idx-1]`)
+and the audit table classifies this as "intra-vm OK."  After
+Phase 4, `OP_FUNC_ADDR` / `_func_handle` no longer produces
+that shape — it produces a handle pointer.  So the dtor-fast-
+path dispatch needs a different source.
+
+Split out: introduce `b.EmitDtorIdx(dtorName)` (compiler-
+internal, never user-callable) that emits a new IR op
+`OP_DTOR_IDX` → bytecode op `BC_DTOR_IDX`.  Both backends
+lower it to "intra-vm function idx + 1" specifically for the
+inline-RefDec fast path.  This is the minimal carve-out;
+everything else moves to handles.
+
+#### Non-goals
+
+ * `BC_CALL_IFACE_METHOD` / `IfaceVtable.Methods` slots stay
+   1-based intra-vm idx.  These never escape the vm and the
+   handle shape would force extra allocation per method
+   slot for no benefit.
+ * `BC_REFDEC_INLINE_FAST`'s dispatch stays intra-vm idx (fed by
+   `BC_DTOR_IDX` or `BC_IFACE_DTOR`).
+ * `BC_CALL_FUNC_VALUE` is unchanged — handles are the input
+   shape it already accepts.
+
+#### Migration order
+
+ 1. Switch existing Path B lazy allocs to refcounted (managed
+    types on VMFunc).  Pre-fix for the leak, isolated change.
+ 2. Add `HandleAddr` (managed) to `ExternBinding`; update
+    `RegisterExtern` signature.  Callers updated to pass the
+    handle alongside the existing fv-addr / RawFnAddr.
+ 3. bnc emits `__handle.F` per function.
+ 4. Rename `_raw_func_addr` → `_func_handle`; native codegen
+    lowers to `&__handle.F`.
+ 5. Rename `BC_FUNC_ADDR` → `BC_FUNC_HANDLE`; handler reads
+    `HandleAddr` from Externs (hit) or lazy-allocates from
+    VMFunc fields (miss).
+ 6. Update `_call_free_fn` / `_call_dtor` lowering to handle-
+    dispatch (BC_CALL_FUNC_VALUE shape in bytecode, two-load
+    indirect call in native).
+ 7. Drop `BC_CALL_INDIRECT`'s magnitude arm.  Update
+    `dispatchNativeIndirect`'s Imm=1 arm to load handle, dispatch.
+ 8. Split out `EmitDtorIdx` / `OP_DTOR_IDX` / `BC_DTOR_IDX`;
+    update `emitManagedPtrRefDec`.
+ 9. Final pass: pkg/vm + conformance in all three modes.
 
 ### Audit: where 1-based VM indices currently live
 

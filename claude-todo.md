@@ -273,7 +273,31 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `@[]char`-returning function that does `return ""`).  Not yet
   added — recommend adding alongside fix (1).
 
-### pkg/vm:TestExecRefIncRefDecInline crashes under boot-comp-int-int
+### pkg/vm: VMFunc.Vtable / VMClosureRec lazy allocs leak on VMFunc death — IN PROGRESS
+- **State**: BC_FUNC_VALUE Path B (and Path A's transient fv) lazy-
+  allocate a 16-byte vtable + 32-byte closure record via
+  `rt.RawAlloc`, storing them on `VMFunc.Vtable` / `VMFunc.VMClosureRec`
+  as raw `int` fields.  These are not refcounted; VMFunc's auto-
+  generated dtor refdec's its managed fields (`Name`, `Code`, etc.)
+  but does nothing for these int slots.  When a VMFunc dies (REPL
+  function replacement, per-test `VM_T` teardown, etc.) those raw
+  allocations leak.
+- **Why it survived undetected**: in long-running `cmd/bni`
+  invocations the VM lasts the whole process, so the leak is
+  bounded.  REPL and `--test` workflows hit it but with small
+  per-iteration cost.
+- **Fix in flight**: Phase 4 of `plan-uniform-native-fnptrs.md`
+  switches Path B's lazy allocs from `rt.RawAlloc` to `rt.Alloc`
+  (refcounted), changes the storage field types from raw `int` to
+  managed (e.g. `@[]uint8` for the byte buffer).  VMFunc's auto-
+  emitted dtor will then refdec them on death.  Same applies to the
+  new `_func_handle` machinery's lazy-allocated handles for
+  bytecode-only functions and to `ExternBinding.HandleAddr`.
+
+### ~~pkg/vm:TestExecRefIncRefDecInline crashes under boot-comp-int-int~~ — FIXED
+- Phases 1–3 of `plan-uniform-native-fnptrs.md` landed
+  (`9561a3b`, `c557870`).  Pre-existing diagnostic detail retained
+  below for context.
 - **Repro**: `./scripts/unittest/run.sh boot-comp-int-int pkg/vm`.
   Symptom is actually a **SIGSEGV** (exit 139), not a hang —
   earlier "hang past 8 min" reports were the runner timing out
