@@ -175,7 +175,35 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     `claude-notes.md` (positive + negative for each shape; also the
     "intermediate overflow rejects" cases).
 
-### Clarify spec for `return f(...)` with multi-return functions — SELF-HOSTED LANDED; bootstrap pending decision
+### Bootstrap Go interpreter: uint64 ordering / division go through int64 (signed)
+- **Symptom**: in `boot` mode, uint64 comparisons (`<`, `>`, `<=`,
+  `>=`) and division (`/`) give wrong results when one operand has
+  the high bit set.  Concrete repro: `cast(uint64, 1) << 63 > 5`
+  evaluates **false** under boot, true under boot-comp.  And
+  `0xFFFFFFFFFFFFFFFF / 2 == 0` under boot (the dividend's int64
+  reinterpretation is -1; -1 / 2 = 0).
+- **Root cause** (suspected): the Go bootstrap interpreter
+  represents all Binate integer values as Go `int64` regardless of
+  the Binate type tag.  Bitwise ops (`&`, `|`, `^`, `<<`, `>>`)
+  and equality (`==`, `!=`) work fine because they're identical
+  for the same bit pattern under either signedness; only the
+  signedness-dependent ops (ordering, division) diverge.
+- **Impact today**: `pkg/bignum` is xfailed under boot
+  (`scripts/unittest/pkg-bignum.xfail.boot`).  In bnc operation
+  this is unobservable — Go's `strconv.ParseInt(..., 64)` rejects
+  high-bit literals at the bootstrap parser, so user code never
+  produces a uint64 value with the high bit set in boot mode.  But
+  the test-runner coverage gap is real, and any future code that
+  legitimately needs uint64-with-high-bit semantics in
+  bootstrap-runnable code will hit this.
+- **Likely fix location**: the Go interpreter's value
+  representation in `bootstrap/interpreter/`.  Currently a single
+  `int64` slot; a uint64 path would require type-aware dispatch
+  for ordering + division at the operator handler level.  Same
+  story for `uint32` / `uint16` / `uint8` though high-bit hits
+  the int64 reinterpretation less often.
+- **Not blocking anything urgent**; mostly impacts pkg/bignum test
+  coverage under boot.
 - **Self-hosted (LANDED, 2026-05-01)**: type-checker
   (`pkg/types/check_stmt.bn:checkReturnStmt`) and IR-gen
   (`pkg/ir/gen_stmt.bn` STMT_RETURN branch) accept
