@@ -6,6 +6,35 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~Native AArch64 backend — regPool saturation (cluster A follow-up)~~ — WRAPPED UP
+- **Silent-corruption hazard removed** (`e8dfb85`, 2026-05-01).
+  `pkg/native/arm64/arm64_regmap.bn:regPool(i)` previously returned
+  X15 for any `i >= 6`, silently aliasing distinct SSA values when
+  more than 7 live scratch regs were needed (the original cluster-A
+  miscompile shape). It now panics with a clear message that prints
+  the offending `ir.OP_*` so the next saturation case identifies
+  itself.
+- **Two live sites fixed**: `emitCall` (8-arg call in
+  `046_many_params`, `e8dfb85`) and `emitReturn`'s sret + pack-into-
+  X0..X7 paths (9-value return in pkg/asm/parse, `f704e09`).  Both
+  walked `ins.Args` without resetting the regmap; fix is per-arg
+  `rm.ResetRegs()` between arg slots (plus reload of `dstPtr` inside
+  the sret loop so the reset doesn't strand it).
+- **Pool extended to X9..X17** (`ecdd8ad`, 2026-05-14).  X16/X17 are
+  AAPCS IP0/IP1 — caller-saved intra-procedure scratches; safe under
+  two disciplines (audited in tree):
+    1. *BL discipline.* No emitter reads a pool reg after a BL/BLR;
+       every BL site is followed by `rm.ResetRegs()`.
+    2. *Direct-use discipline.* emitCall / emitCallIndirect use
+       X16/X17 directly outside the pool, paired with per-arg
+       `rm.ResetRegs()` so the pool never hands those regs back
+       inside the same op.
+- **If a future op ever needs 10+ live scratches**, regPool panics
+  at slot 9 with `currentEmitOp` in the message.  Fix is either the
+  per-arg ResetRegs pattern (emitCall / emitReturn) or a real
+  spill-on-exhaustion allocator.  Not actionable until something
+  trips it; the playbook lives in the regPool source comment.
+
 ### ~~Bytecode VM: unsigned compare / div / rem dispatched as signed~~ — FIXED
 - **Symptom**: pkg/bignum had 7 failing tests in `boot-comp-int`
   (Add / Sub / Mul / FitsUnsignedMax).  Root cause: uint64
