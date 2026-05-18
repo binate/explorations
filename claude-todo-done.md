@@ -6,6 +6,22 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~Bytecode VM: unsigned compare / div / rem dispatched as signed~~ — FIXED
+- **Symptom**: pkg/bignum had 7 failing tests in `boot-comp-int`
+  (Add / Sub / Mul / FitsUnsignedMax).  Root cause: uint64
+  comparisons returned wrong answers when an operand had the high
+  bit set (e.g. `uint64Max > 100` was false), and `uint64Max / 7`
+  was 0.  bignum's overflow checks rely on both.
+- **Root cause**: `pkg/vm/lower_instr_helpers.bn` always routed
+  integer cmp through BC_S* and integer DIV/REM through BC_DIV /
+  BC_REM regardless of operand signedness.  The unsigned opcodes
+  (BC_ULT / BC_ULE / BC_UGT / BC_UGE / BC_UDIV / BC_UREM) were
+  declared in `pkg/vm.bni` but had neither dispatch nor executors.
+- **Fix**: lowerCmpOp / lowerBinOp check `Args[0].Typ` (resp.
+  `instr.Typ`) for `IsInteger() && !Signed` and dispatch to the
+  BC_U* opcodes; added executors that cast operands to uint64
+  before applying the operator.
+
 ### ~~Bytecode VM: BC_LOAD8 zero-extends signed sub-word loads~~ — FIXED
 - **Symptom**: under any `*-int*` mode, signed narrow integer values
   with the high bit set came back wrong after a load through alloca'd

@@ -151,34 +151,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     `claude-notes.md` (positive + negative for each shape; also the
     "intermediate overflow rejects" cases).
 
-### pkg/bignum failing in VM modes (Add / Sub / Mul / FitsUnsignedMax)
-- **Symptom**: 7 tests in `pkg/bignum` fail under `boot-comp-int`
-  (and presumably `boot-comp-comp-int` / `boot-comp-int-int`):
-  `TestAddSmall` ("3+4 != 7"), `TestSubCancellation`,
-  `TestSubGoesNegative`, `TestMulSmall`, `TestMulNegativeNegative`,
-  `TestMulOverflow`, `TestFitsUnsignedMax`.  Parsing / `FromInt` /
-  `Cmp` / `Neg` / overflow-detection tests all pass; the failures
-  cluster on the Add / Sub / Mul / Fits paths.
-- **Pre-existing** — these were failing before the BC_LOAD8 sign-
-  extend fix (`6bf6085`) and remain so after it.  Not currently
-  xfail'd in any VM mode, so the package shows as red in CI.
-- **Not yet root-caused**.  Plausible suspects:
-    - Multi-return value-receiver methods (`Add`, `Sub`, `Mul`
-      all have signature `func (a Num) M(b Num) (Num, bool)` —
-      the iv-thunk path explicitly skips multi-return, but the
-      direct method-call ABI still has to deal with sret + a
-      value receiver; this hasn't been stressed before).
-    - uint64 arithmetic / comparison wrapping (`a.Magnitude +
-      b.Magnitude`, `a > uint64Max() - b`) when the VM's int
-      register holds the value as signed.  The boot-mode TODO
-      below documents the analogous bootstrap-interpreter bug;
-      the VM may have its own variant.
-- **Triage step**: write a minimal repro that calls a multi-return
-  value-receiver method returning a small struct + bool, then
-  reads back the struct fields.  If that repro fails, the bug is
-  in the method-call ABI; if it passes, narrow to the uint64
-  arithmetic.
-
 ### Bootstrap Go interpreter: uint64 ordering / division go through int64 (signed)
 - **Symptom**: in `boot` mode, uint64 comparisons (`<`, `>`, `<=`,
   `>=`) and division (`/`) give wrong results when one operand has
