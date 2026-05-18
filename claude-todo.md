@@ -137,24 +137,34 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   - **Slice 3** (`df58bdd`) — `+ - *` on two literal-bearing
     untyped-int operands fold at type-check time; the folded value
     feeds the AssignableTo fit-check.  Pinned by
-    `conformance/417_const_fold_arith` (positives) and
+    `conformance/421_const_fold_arith` (positives) and
     `conformance/418_err_const_fold_overflow` (rejection).
     Restricted to 31-bit-magnitude operands so host-int arithmetic
     suffices — wider operands fall through unfolded.
+  - **Slice 4** (`bcfdc20`) — `& | ^ << >>` on two literal-bearing
+    untyped-int operands fold the same way.  Same 31-bit window;
+    shift amounts capped at 31.  Pinned by
+    `conformance/420_const_fold_bitwise`.  Extracted both folders
+    into `pkg/types/check_expr_constfold.bn` along the file-length
+    cap.
 - **Still open**:
   - **Fold `/` `%`**: deferred (need div-by-zero handling + sign
     semantics; not yet user-blocking).
-  - **Fold beyond 31-bit operands**: needs bootstrap-safe bignum
-    arithmetic (the existing `pkg/bignum` Add/Sub/Mul use
-    `uint64Max() - b` style overflow checks that bootstrap-Go
-    interprets as int64-signed, breaking at the boundary).  See the
-    "Bootstrap Go interpreter: uint64 ordering / division" entry —
-    once that lands, this becomes a method-call switch.
-  - **Bitwise const-fold** (`& | ^ << >>`): not implemented; today
-    these go through `commonType` unfolded.  Should be easy on small
-    operands using host-int ops.
+  - **Fold beyond 31-bit operands**: blocked on making
+    `pkg/bignum.Add/Sub/Mul` bootstrap-safe.  The current
+    implementations use `uint64Max() - b.Magnitude` style overflow
+    checks; under bootstrap-Go that subtraction goes through int64
+    (`uint64Max()` evaluates to `-1` signed), so the comparison
+    misfires for any non-zero `b`.  The fix is the same kind of
+    rewrite as `pkg/bignum.parseDigits` already uses: precomputed
+    thresholds in the int63 range + bit-shift tests for the
+    boundary.  Self-contained; doesn't actually require fixing the
+    upstream bootstrap-Go interpreter (though that would also
+    unblock this, see the "Bootstrap Go interpreter: uint64
+    ordering / division" entry — that's the broader fix that
+    benefits any other bootstrap-runnable uint64 code).
   - **Mirror in Go bootstrap** (`bootstrap/main.go`): boot mode
-    doesn't enforce any of the above.  All four spec conformance
+    doesn't enforce any of the above.  All five spec conformance
     tests carry `.xfail.boot` markers.  Mirror would be a small
     rewrite of bootstrap's `parseIntLiteral` + assignability check.
 
