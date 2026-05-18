@@ -6,6 +6,26 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~Bytecode VM: BC_LOAD8 zero-extends signed sub-word loads~~ — FIXED
+- **Symptom**: under any `*-int*` mode, signed narrow integer values
+  with the high bit set came back wrong after a load through alloca'd
+  storage (`var x int32 = -5; x < 0` was false; `int32 INT_MIN.String()`
+  printed `"2147483648"`; `int32(-5).Compare(5)` returned 1).
+- **Root cause**: `pkg/vm/vm_exec_helpers.bn` `BC_LOAD8` zero-filled
+  upper bits regardless of the loaded type's signedness, and the
+  lowering in `pkg/vm/lower_memory.bn:lowerLoad` had no signal to
+  distinguish signed from unsigned sub-word loads.
+- **Fix**: `lowerLoad` now sets `bc.Aux = 1` when the load is a
+  sub-word `TYP_INT` with `Signed == true`.  `BC_LOAD8` honours the
+  flag by checking the assembled value's sign bit and OR-ing in the
+  upper-bit mask when set.  Store side untouched (`BC_STORE8`
+  already wrote the correct byte payload).
+- **Tests**: `conformance/416_narrow_int_sign_ext.bn` (now passes
+  in all `*-int*` modes; xfail markers dropped).  `pkg/std`
+  unit tests `TestInt32StringNegative` + `TestInt32CompareNegatives`
+  now pass; package xfail markers for `boot-comp-int` /
+  `boot-comp-comp-int` / `boot-comp-int-int` dropped.
+
 ### ~~pkg/types boot-comp regression: hang during unit-test run~~ — FIXED
 - **Root cause**: `pkg/ir/gen_method.bn` was missing the
   needsStructCopy-on-arg handling that `gen_call.bn` does for free-

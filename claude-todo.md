@@ -273,39 +273,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `@[]char`-returning function that does `return ""`).  Not yet
   added — recommend adding alongside fix (1).
 
-### Bytecode VM: BC_LOAD8 zero-extends signed sub-word loads — REPRO ADDED, FIX PENDING
-- **Symptom**: under any `*-int*` mode, signed narrow integer values
-  with the high bit set come back wrong after a load through alloca'd
-  storage.  Examples (all pass in `boot` and `boot-comp`, fail in the
-  VM):
-    - `var x int32 = -5; if x < 0 { ... }` — branch not taken.
-    - `var x int32 = -2147483648; x.String()` — prints `"2147483648"`
-      instead of `"-2147483648"`.
-    - `var a int32 = -5; var b int32 = 5; a.Compare(b)` returns 1.
-- **Root cause**: `pkg/vm/vm_exec_helpers.bn:249` — the `BC_LOAD8`
-  handler zero-fills upper bits regardless of the loaded type's
-  signedness.  The lowering in `pkg/vm/lower_memory.bn:lowerLoad`
-  emits `BC_LOAD8` with `Imm = byteCount` for sub-word loads but
-  has no signal of "this is a signed load."  `Type.Signed` is
-  available at lowering time but unused.
-- **Tests**:
-    - Conformance: `conformance/416_narrow_int_sign_ext.bn`
-      (xfail in all `*-int*` modes).
-    - Unit: `pkg/std/{std,order}_test.bn` `TestInt32StringNegative` +
-      `TestInt32CompareNegatives` (whole package xfail'd in
-      `boot-comp-int` / `boot-comp-comp-int` / `boot-comp-int-int`
-      via `scripts/unittest/pkg-std.xfail.*`).
-- **Fix sketch**:
-    1. `lowerLoad`: when load is sub-word and `instr.Typ.Kind == TYP_INT
-       && instr.Typ.Signed`, set `bc.Aux = 1`.
-    2. `BC_LOAD8` handler: when `Aux == 1`, after assembling the
-       multi-byte value, check the top-byte sign bit; if set, OR
-       in the sign-extension bits (`val |= ~((1 << bits) - 1)`).
-    3. No store-side change needed (`BC_STORE8` already writes
-       the low N bytes correctly).
-    4. After fix, drop all four xfail markers (the conformance one
-       and the three `pkg-std.xfail.*`).
-
 ### pkg/vm: VMFunc.Vtable / VMClosureRec lazy allocs leak on VMFunc death — IN PROGRESS
 - **State**: BC_FUNC_VALUE Path B (and Path A's transient fv) lazy-
   allocate a 16-byte vtable + 32-byte closure record via
