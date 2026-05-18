@@ -117,39 +117,46 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `pkg/codegen/emit_instr.bn`, `pkg/vm/vm_exec*.bn`, and
   `pkg/ir/ir_ops.bn`'s opName / similar string-form helpers.
 
-### Integer literals and constant expressions — RATIFIED 2026-05-15; impl pending
+### Integer literals and constant expressions — RATIFIED 2026-05-15; partially implemented
 - **Spec**: `claude-notes.md` § "Integer literal value range and
   constant-expression arithmetic — DECIDED 2026-05-15".
-- **Summary**: literals parse if their value is in `[-2^63, 2^64-1]`
-  (int64 ∪ uint64).  Default type when context is ambiguous is
-  target-width `int` (32 on 32-bit, 64 on 64-bit).  Context provides
-  a target type and the constant's mathematical value must fit it.
-  Const-expr arithmetic operates on abstract values stored at
-  `(uint64 magnitude, sign bool)` with overflow detection — any
-  intermediate that exceeds `[-2^63, 2^64-1]` is rejected at type
-  check.  No silent wrap, no bignum.
-- **Current divergence to fix**: bootstrap Go rejects high-bit hex
-  via `ParseInt(..., 16, 64)`; self-hosted bnc silently wraps via
-  int64 overflow in `pkg/types/checker_util.bn:parseHexInt`. Neither
-  matches the ratified spec — both need updating.
-- **Implementation scope**:
-  - `pkg/types/checker_util.bn`: rewrite `parseIntLiteral` to parse
-    into `(uint64 magnitude, sign bool)`. Reject literals outside the
-    union range.
-  - `pkg/types` constant representation: extend untyped-int Type to
-    carry magnitude + sign for downstream fit-check. Today
-    `TYP_UNTYPED_INT` has no value payload.
-  - Const-expr evaluator: small `ConstInt` struct (magnitude uint64,
-    sign bool) + Add/Sub/Mul/Div/Shift methods returning
-    `(ConstInt, overflowed bool)`. Apply at every const-folding site.
-  - Assignment / cast / arg-passing fit-check: replace today's
-    int-fits-in-target check with the mathematical-value-in-target-
-    range form.
-  - Bootstrap `main.go`: mirror the same rules. A small sign-magnitude
-    pair works there too; `math/big.Int` would be overkill.
-  - Conformance tests pinning every row of the behavior table in
-    `claude-notes.md` (positive + negative for each shape; also the
-    "intermediate overflow rejects" cases).
+- **Implemented (self-hosted bnc, all *-comp* modes)**:
+  - **Slice 0** (`97115da`) — `pkg/bignum` (uint64 magnitude + sign;
+    parse / arithmetic / fit-checks; bootstrap-safe parse via
+    precomputed thresholds).
+  - **Slice 1** (`d463bf0`) — EXPR_INT_LIT rejects literals whose
+    magnitude exceeds `2^64-1` at parse time.  Pinned by
+    `conformance/409_err_int_literal_overflow`.
+  - **Slice 2** (`24ca04a`) — `TYP_UNTYPED_INT` carries the literal's
+    `(LitMag, LitSign)` on three new primitive Type fields;
+    EXPR_UNARY MINUS propagates the value with the sign flipped;
+    AssignableTo enforces the fit-check, unwrapping
+    `TYP_NAMED`/`TYP_ALIAS`/`TYP_CONST`.  Pinned by
+    `conformance/419_err_int_fits_uint8`.  Bootstrap-safe via
+    bit-shift bounds (`(mag >> k) == 0` / `mag == (1<<k)`).
+  - **Slice 3** (`df58bdd`) — `+ - *` on two literal-bearing
+    untyped-int operands fold at type-check time; the folded value
+    feeds the AssignableTo fit-check.  Pinned by
+    `conformance/417_const_fold_arith` (positives) and
+    `conformance/418_err_const_fold_overflow` (rejection).
+    Restricted to 31-bit-magnitude operands so host-int arithmetic
+    suffices — wider operands fall through unfolded.
+- **Still open**:
+  - **Fold `/` `%`**: deferred (need div-by-zero handling + sign
+    semantics; not yet user-blocking).
+  - **Fold beyond 31-bit operands**: needs bootstrap-safe bignum
+    arithmetic (the existing `pkg/bignum` Add/Sub/Mul use
+    `uint64Max() - b` style overflow checks that bootstrap-Go
+    interprets as int64-signed, breaking at the boundary).  See the
+    "Bootstrap Go interpreter: uint64 ordering / division" entry —
+    once that lands, this becomes a method-call switch.
+  - **Bitwise const-fold** (`& | ^ << >>`): not implemented; today
+    these go through `commonType` unfolded.  Should be easy on small
+    operands using host-int ops.
+  - **Mirror in Go bootstrap** (`bootstrap/main.go`): boot mode
+    doesn't enforce any of the above.  All four spec conformance
+    tests carry `.xfail.boot` markers.  Mirror would be a small
+    rewrite of bootstrap's `parseIntLiteral` + assignability check.
 
 ### Bootstrap Go interpreter: uint64 ordering / division go through int64 (signed)
 - **Symptom**: in `boot` mode, uint64 comparisons (`<`, `>`, `<=`,
