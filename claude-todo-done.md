@@ -6,6 +6,27 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~Bootstrap Go interpreter: uint64 ordering / division go through int64 (signed)~~ — FIXED 2026-05-18
+- **Fix**: `bootstrap/63a8889` updated `evalIntBinaryOp` to
+  dispatch on operand signedness for the ops where it matters
+  (SLASH, PERCENT, SHR, LT, GT, LEQ, GEQ).  Unsigned uint64 values
+  with the high bit set now compare and divide correctly under
+  bnc-interpreted execution.
+- **Symptom**: in `boot` mode, uint64 comparisons (`<`, `>`, `<=`,
+  `>=`) and division (`/`) gave wrong results when one operand
+  had the high bit set.  Concrete repro: `cast(uint64, 1) << 63 >
+  5` was **false** under boot, true under boot-comp.
+- **Cleanup landed in `binate/72a0bac`**: dropped the
+  bootstrap-specific workarounds in `pkg/bignum.parseDigits`
+  (precomputed thresholds → natural `uint64Max - du / base`
+  overflow check), `pkg/types/types_assignable.bn:untypedIntLitFitsTarget`
+  (inline bit-shift bounds → bignum.Num.Fits* methods), and
+  `pkg/types/check_expr_constfold.bn:foldIntArith`
+  (31-bit-magnitude window → full bignum.Add / Sub / Mul).
+  `pkg/bignum` xfail.boot marker removed.
+- **Pinned by** `conformance/422_const_fold_wide` (wide-fold cases
+  that the 31-bit window couldn't handle).
+
 ### ~~Native AArch64 backend — regPool saturation (cluster A follow-up)~~ — WRAPPED UP
 - **Silent-corruption hazard removed** (`e8dfb85`, 2026-05-01).
   `pkg/native/arm64/arm64_regmap.bn:regPool(i)` previously returned

@@ -142,61 +142,26 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     Restricted to 31-bit-magnitude operands so host-int arithmetic
     suffices — wider operands fall through unfolded.
   - **Slice 4** (`bcfdc20`) — `& | ^ << >>` on two literal-bearing
-    untyped-int operands fold the same way.  Same 31-bit window;
-    shift amounts capped at 31.  Pinned by
+    untyped-int operands fold the same way.  Pinned by
     `conformance/420_const_fold_bitwise`.  Extracted both folders
     into `pkg/types/check_expr_constfold.bn` along the file-length
     cap.
+  - **Cleanup** (`72a0bac`, after `bootstrap/63a8889` fixed the
+    uint64-as-int64 bug) — dropped the bootstrap workarounds in
+    parseDigits / untypedIntLitFitsTarget / foldIntArith; const-
+    fold now uses bignum.Add / Sub / Mul across the full int64 ∪
+    uint64 union range (was previously capped at a 31-bit operand
+    window).  Pinned by `conformance/422_const_fold_wide`.
 - **Still open**:
   - **Fold `/` `%`**: deferred (need div-by-zero handling + sign
     semantics; not yet user-blocking).
-  - **Fold beyond 31-bit operands**: blocked on making
-    `pkg/bignum.Add/Sub/Mul` bootstrap-safe.  The current
-    implementations use `uint64Max() - b.Magnitude` style overflow
-    checks; under bootstrap-Go that subtraction goes through int64
-    (`uint64Max()` evaluates to `-1` signed), so the comparison
-    misfires for any non-zero `b`.  The fix is the same kind of
-    rewrite as `pkg/bignum.parseDigits` already uses: precomputed
-    thresholds in the int63 range + bit-shift tests for the
-    boundary.  Self-contained; doesn't actually require fixing the
-    upstream bootstrap-Go interpreter (though that would also
-    unblock this, see the "Bootstrap Go interpreter: uint64
-    ordering / division" entry — that's the broader fix that
-    benefits any other bootstrap-runnable uint64 code).
   - **Mirror in Go bootstrap** (`bootstrap/main.go`): boot mode
-    doesn't enforce any of the above.  All five spec conformance
-    tests carry `.xfail.boot` markers.  Mirror would be a small
-    rewrite of bootstrap's `parseIntLiteral` + assignability check.
+    doesn't enforce literal-fits-target or run const-fold.  All
+    spec-related conformance tests carry `.xfail.boot` markers.
+    Mirror would be a small rewrite of bootstrap's
+    `parseIntLiteral` + assignability check + checkBinaryOp's
+    arithmetic / bitwise branches.
 
-### Bootstrap Go interpreter: uint64 ordering / division go through int64 (signed)
-- **Symptom**: in `boot` mode, uint64 comparisons (`<`, `>`, `<=`,
-  `>=`) and division (`/`) give wrong results when one operand has
-  the high bit set.  Concrete repro: `cast(uint64, 1) << 63 > 5`
-  evaluates **false** under boot, true under boot-comp.  And
-  `0xFFFFFFFFFFFFFFFF / 2 == 0` under boot (the dividend's int64
-  reinterpretation is -1; -1 / 2 = 0).
-- **Root cause** (suspected): the Go bootstrap interpreter
-  represents all Binate integer values as Go `int64` regardless of
-  the Binate type tag.  Bitwise ops (`&`, `|`, `^`, `<<`, `>>`)
-  and equality (`==`, `!=`) work fine because they're identical
-  for the same bit pattern under either signedness; only the
-  signedness-dependent ops (ordering, division) diverge.
-- **Impact today**: `pkg/bignum` is xfailed under boot
-  (`scripts/unittest/pkg-bignum.xfail.boot`).  In bnc operation
-  this is unobservable — Go's `strconv.ParseInt(..., 64)` rejects
-  high-bit literals at the bootstrap parser, so user code never
-  produces a uint64 value with the high bit set in boot mode.  But
-  the test-runner coverage gap is real, and any future code that
-  legitimately needs uint64-with-high-bit semantics in
-  bootstrap-runnable code will hit this.
-- **Likely fix location**: the Go interpreter's value
-  representation in `bootstrap/interpreter/`.  Currently a single
-  `int64` slot; a uint64 path would require type-aware dispatch
-  for ordering + division at the operator handler level.  Same
-  story for `uint32` / `uint16` / `uint8` though high-bit hits
-  the int64 reinterpretation less often.
-- **Not blocking anything urgent**; mostly impacts pkg/bignum test
-  coverage under boot.
 - **Self-hosted (LANDED, 2026-05-01)**: type-checker
   (`pkg/types/check_stmt.bn:checkReturnStmt`) and IR-gen
   (`pkg/ir/gen_stmt.bn` STMT_RETURN branch) accept
