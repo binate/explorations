@@ -6,6 +6,38 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~Integer literals and constant expressions~~ — RATIFIED + IMPLEMENTED 2026-05-15..2026-05-18
+- **Spec**: `claude-notes.md` § "Integer literal value range and
+  constant-expression arithmetic — DECIDED 2026-05-15".
+- **Slices** (all on self-hosted bnc; xfail.boot on the conformance
+  tests since boot mode uses the Go bootstrap which doesn't run
+  const-fold or fit-check — and that mirror is explicitly out of
+  scope given the move toward bnc-as-builder):
+  - **Slice 0** (`97115da`) — `pkg/bignum` (uint64 magnitude + sign;
+    parse / arithmetic / fit-checks).
+  - **Slice 1** (`d463bf0`) — EXPR_INT_LIT rejects literals whose
+    magnitude exceeds `2^64-1` at parse time
+    (`409_err_int_literal_overflow`).
+  - **Slice 2** (`24ca04a`) — `TYP_UNTYPED_INT` carries `(LitMag,
+    LitSign)` primitives on Type; EXPR_UNARY MINUS propagates with
+    the sign flipped; AssignableTo enforces the fit-check, unwrapping
+    `TYP_NAMED` / `TYP_ALIAS` / `TYP_CONST`
+    (`419_err_int_fits_uint8`).
+  - **Slice 3** (`df58bdd`) — `+ - *` on literal-bearing untyped-int
+    operands fold at type-check (`421_const_fold_arith`,
+    `418_err_const_fold_overflow`).
+  - **Slice 4** (`bcfdc20`) — `& | ^ << >>` fold the same way
+    (`424_const_fold_bitwise`); folders extracted to
+    `pkg/types/check_expr_constfold.bn` along the file-length cap.
+  - **Cleanup** (`72a0bac`, after `bootstrap/63a8889` fixed the
+    uint64-as-int64 bug) — drop the bootstrap workarounds; const-
+    fold uses full bignum.Add / Sub / Mul across the int64 ∪ uint64
+    union range (`422_const_fold_wide`).
+  - **Slice 5** (`25fad6f`) — `/` and `%` fold with div-by-zero +
+    Go-semantics sign rules; new bignum.Num.Div + Mod (with seven
+    unit tests) underpin the fold (`426_const_fold_div_mod`,
+    `427_err_const_fold_div_by_zero`).
+
 ### ~~Bootstrap Go interpreter: uint64 ordering / division go through int64 (signed)~~ — FIXED 2026-05-18
 - **Fix**: `bootstrap/63a8889` updated `evalIntBinaryOp` to
   dispatch on operand signedness for the ops where it matters

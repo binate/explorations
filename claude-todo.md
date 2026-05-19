@@ -117,50 +117,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `pkg/codegen/emit_instr.bn`, `pkg/vm/vm_exec*.bn`, and
   `pkg/ir/ir_ops.bn`'s opName / similar string-form helpers.
 
-### Integer literals and constant expressions — RATIFIED 2026-05-15; partially implemented
-- **Spec**: `claude-notes.md` § "Integer literal value range and
-  constant-expression arithmetic — DECIDED 2026-05-15".
-- **Implemented (self-hosted bnc, all *-comp* modes)**:
-  - **Slice 0** (`97115da`) — `pkg/bignum` (uint64 magnitude + sign;
-    parse / arithmetic / fit-checks; bootstrap-safe parse via
-    precomputed thresholds).
-  - **Slice 1** (`d463bf0`) — EXPR_INT_LIT rejects literals whose
-    magnitude exceeds `2^64-1` at parse time.  Pinned by
-    `conformance/409_err_int_literal_overflow`.
-  - **Slice 2** (`24ca04a`) — `TYP_UNTYPED_INT` carries the literal's
-    `(LitMag, LitSign)` on three new primitive Type fields;
-    EXPR_UNARY MINUS propagates the value with the sign flipped;
-    AssignableTo enforces the fit-check, unwrapping
-    `TYP_NAMED`/`TYP_ALIAS`/`TYP_CONST`.  Pinned by
-    `conformance/419_err_int_fits_uint8`.  Bootstrap-safe via
-    bit-shift bounds (`(mag >> k) == 0` / `mag == (1<<k)`).
-  - **Slice 3** (`df58bdd`) — `+ - *` on two literal-bearing
-    untyped-int operands fold at type-check time; the folded value
-    feeds the AssignableTo fit-check.  Pinned by
-    `conformance/421_const_fold_arith` (positives) and
-    `conformance/418_err_const_fold_overflow` (rejection).
-    Restricted to 31-bit-magnitude operands so host-int arithmetic
-    suffices — wider operands fall through unfolded.
-  - **Slice 4** (`bcfdc20`) — `& | ^ << >>` on two literal-bearing
-    untyped-int operands fold the same way.  Pinned by
-    `conformance/420_const_fold_bitwise`.  Extracted both folders
-    into `pkg/types/check_expr_constfold.bn` along the file-length
-    cap.
-  - **Cleanup** (`72a0bac`, after `bootstrap/63a8889` fixed the
-    uint64-as-int64 bug) — dropped the bootstrap workarounds in
-    parseDigits / untypedIntLitFitsTarget / foldIntArith; const-
-    fold now uses bignum.Add / Sub / Mul across the full int64 ∪
-    uint64 union range (was previously capped at a 31-bit operand
-    window).  Pinned by `conformance/422_const_fold_wide`.
-- **Still open**:
-  - **Fold `/` `%`**: deferred (need div-by-zero handling + sign
-    semantics; not yet user-blocking).
-  - **Mirror in Go bootstrap** (`bootstrap/main.go`): boot mode
-    doesn't enforce literal-fits-target or run const-fold.  All
-    spec-related conformance tests carry `.xfail.boot` markers.
-    Mirror would be a small rewrite of bootstrap's
-    `parseIntLiteral` + assignability check + checkBinaryOp's
-    arithmetic / bitwise branches.
 
 - **Self-hosted (LANDED, 2026-05-01)**: type-checker
   (`pkg/types/check_stmt.bn:checkReturnStmt`) and IR-gen
