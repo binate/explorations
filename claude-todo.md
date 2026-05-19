@@ -194,6 +194,22 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   multi-return functions"). `bootstrap-subset.md` notes the
   bootstrap-only rejection.
 
+### `println(uint64)` of high-bit-set values prints as signed
+- **Symptom**: `var b uint64 = 9223372036854775808; println(b)` prints
+  `-9223372036854775808` instead of `9223372036854775808`. The bit
+  pattern is correct (compile + runtime carry it through fine since
+  `bootstrap/63a8889` fixed uint64 ordering), but the println IR-gen
+  lowering in `pkg/ir/gen_print.bn:emitPrintInt` always dispatches
+  through `bootstrap.formatInt` which treats the int as signed.
+- **Fix sketch**: in `emitPrintInt`, dispatch on `val.Typ.Signed` —
+  if unsigned, route to a new `bootstrap.formatUint` (mirroring
+  formatInt with the loop driven by uint64-magnitude and no sign
+  byte). The `formatInt` and `formatInt64` int-min fix in `e08ceb7`
+  / `8b94bf6` already does the uint64-magnitude digit extraction;
+  formatUint is the smaller variant without the sign byte.
+- **Not blocking** — bnc itself doesn't println uint64 values; this
+  is user-visible for code that does. Files for tracking only.
+
 ### Mirror `return f(...)` acceptance in the Go bootstrap — LOW PRIORITY
 - Self-hosted accepts the shape (commits `b88918e` /
   `d11e4f2` / `d3fc0db` / `96572fb` on main; conformance
