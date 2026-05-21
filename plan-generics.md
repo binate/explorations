@@ -466,8 +466,13 @@ Each slice is independently shippable, ordered by dependency.
   handles TEXPR_INSTANTIATE iface refs.  Per-module iface
   registry was split out to gen_iface_registry.bn to keep
   gen_impl.bn under the file-length soft cap.  Conformance
-  447 / 448 / 449 cover raw, managed, and multi-instantiation
-  dispatch.
+  451 / 452 / 453 cover raw, managed, and multi-instantiation
+  dispatch.  A follow-on (post-`bac6909`) extended
+  collectInterfaceFromDecl to handle TEXPR_INSTANTIATE *parent*
+  refs (`interface Sub : Container[int]`) so the concat-vtable
+  layout and ancestor-closure walk reach the right (R, I) pair;
+  conformance 454 (multi-method) and 455 (parent-instantiation +
+  upcast) cover this.
 
 ### Slice 7 — Cross-package generics (`.bni` bodies) — NOT STARTED
 
