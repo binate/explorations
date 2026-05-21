@@ -182,6 +182,28 @@ The C runtime (`binate_runtime.c`) should shrink over time, not grow. The goal i
 
 **End state**: declare external C library functions via compiler annotations (or a natural FFI mechanism) and remove the C runtime entirely. Pure Binate systems — where everything is written in Binate — should be possible. The C dependency exists only insofar as it's the practical way to talk to the OS; it's not a permanent architectural choice.
 
+### Language specification — primary spec is minimal — DECIDED
+
+Binate will have **multiple specs**, not one monolith. The split:
+
+**Primary language spec.** Syntax, type system, semantics, and *only* the packages intrinsically tied to the language implementation. Concretely:
+- `pkg/rt` — the runtime contract. The current `pkg/rt` is a grab-bag and needs a review pass: what truly belongs there as language-runtime, what doesn't, and what should be made internal/private (no `.bni` surface) versus part of the normative spec.
+- A future reflection / introspection package (yet-to-be-designed). Packages should automatically produce reflection information, including a list of function values for exported functions. The primary spec describes the shape of that introspection surface.
+
+**Minor secondary spec — testing.** `_test.bn` file naming/packaging convention and `pkg/builtin/testing`. The primary spec needs at least a one-line note that user files cannot be named `*_test.bn` (reserved). Everything else about the testing convention is secondary and may be folded into the primary spec or kept separate — TBD.
+
+**Major secondary spec(s) — standard library.** I/O, containers, formatting, string utilities, etc. Possibly split across multiple specs by area. The bar for "is this in the stdlib spec" is high enough that omitting it is the default.
+
+**Rationale.** Binate is a systems programming language. It must be well-specified for environments where:
+- `printf` makes no sense (no console, no output destination, or simply no support hooked up).
+- There's no filesystem (bare-metal embedded).
+- There's no process model.
+- Threading, dynamic allocation, or other host-OS facilities aren't available.
+
+A language whose primary spec embeds I/O assumptions (a `string` type, an output stream, a process model, …) becomes either unspecifiable on such targets, or requires the spec to be partially unimplemented on them. Neither is acceptable. Keeping the primary spec free of stdlib means target-specific subsets are conformant to the primary spec without contortion; the stdlib spec is what gets layered selectively per target.
+
+**Implication for current code.** `pkg/rt` review (mentioned above) is a prerequisite to writing the primary spec. See `claude-todo.md` for the spec writeup and pkg/rt-review entries.
+
 ### Threading — DECIDED
 
 **Single-threaded by default**, but threading-compatible:

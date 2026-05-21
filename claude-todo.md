@@ -839,6 +839,40 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - This also gives a natural place for test infrastructure (run.sh, runners, xfail metadata) that doesn't belong to either the bootstrap or self-hosted repo
 - The unit test runner (`binate/scripts/unittest/`) has a similar issue — it's in the binate repo but the `boot` mode runs via Go in the bootstrap repo
 
+### Language spec(s) — write the primary spec; later, secondaries
+- See `claude-notes.md` § "Language specification — primary spec is
+  minimal — DECIDED" for the philosophy.
+- **Primary language spec**: syntax, type system, semantics, plus
+  *only* the packages intrinsically tied to the language
+  implementation — `pkg/rt` (after the review below) and a future
+  reflection/introspection package. Includes the one-line note that
+  user files cannot be named `*_test.bn` (reserved).
+- **Minor secondary spec — testing**: `_test.bn` packaging
+  convention + `pkg/builtin/testing`. May fold into primary; TBD.
+- **Major secondary spec(s) — stdlib**: I/O, containers, formatting,
+  string utilities, etc. Probably split across multiple specs by
+  area.
+- **Not started.** Discussion-only at this point. When writing
+  begins, the natural artifact is `explorations/spec-*.md` (or a
+  separate `spec/` directory). The primary spec is gated on the
+  pkg/rt review entry below, since the primary spec describes
+  pkg/rt's normative surface.
+
+### pkg/rt review — decide runtime vs. stdlib vs. internal
+- Today `pkg/rt` is a grab-bag of runtime helpers, refcount
+  primitives, allocator wrappers, bounds-check stubs, etc.
+- For the primary spec to nail down "what the runtime contract
+  is," `pkg/rt`'s surface needs a review: classify each member as
+  **stay** (truly language-runtime, normative in the primary
+  spec), **move** (standard-library-shaped — belongs in a stdlib
+  package, out of `pkg/rt`), or **make-internal** (only used by
+  the language implementation itself, no `.bni` export).
+- Output: a classification of `pkg/rt` members + a follow-up
+  cleanup plan (a `plan-*.md` doc under `explorations/`). The
+  cleanup itself is separate work and can be sequenced
+  independently — what's important first is the *classification*,
+  which unblocks the primary spec writeup.
+
 ### Standard library design
 - Candidates: growable collections (Vec[T], Map[K,V] post-generics), I/O abstractions, string utilities, formatting
 - CharBuf is implemented (pkg/buf); broader stdlib design should inform future collection APIs
