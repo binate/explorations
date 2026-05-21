@@ -62,7 +62,7 @@ pointer indirection.
 Each slice should keep conformance + unit tests green and land
 as one commit.
 
-### Slice P.1 — Coverage audit + conformance pins
+### Slice P.1 — Coverage audit + conformance pins — LANDED 2026-05-20
 
 - **Scope**: write conformance tests for every shape that the
   design says should work, mark each `.xfail.boot` (interface
@@ -70,19 +70,29 @@ as one commit.
   current self-hosted toolchain misbehaves. Goal: convert
   "haven't checked" into "concrete fail entry in conformance"
   so the gaps are visible.
-- **Files**:
-  - `conformance/40N_iv_ptr_*` (one test per shape — raw, managed,
-    cross product of inner-iv and outer-pointer kinds).
-  - Method dispatch via `(*p).Foo()` already pinned by
-    `408_iface_method_call_through_deref`; extend to managed
-    forms.
-  - Slice / array of iv: `var s *[]*Iface = ...` and `var s @[]@Iface = ...`.
-  - Struct field of pointer-to-iv.
-- **Tests**: each test calls a method through the receiver,
-  prints a known value, and pins it via `.expected`. Negatives
-  (rejected `(Iface)`, rejected smoothing if we decide it
-  stays rejected) get `.error` files.
-- **Estimated size**: ~150 lines mostly conformance tests + xfail markers.
+- **Tests landed** (conformance 435–442):
+  - 435 `*@I` (raw ptr → managed iv), `(*p).Foo()` — passes.
+  - 436 `@(*I)` (managed ptr → raw iv), `(*p).Foo()` — xfail
+    in every compiled mode (returns 0); root-cause is Slice P.2.
+  - 437 `@(@I)` (managed ptr → managed iv), `(*p).Foo()` — xfail
+    in every compiled mode (returns 0); root-cause is Slice P.2.
+  - 438 `p.Foo()` smoothing on `**I` — `.error` test pinning the
+    current rejection; flips when Slice P.3 lands.
+  - 439 `var s *[]*I` (raw slice of raw iv) — xfail in every
+    compiled mode (segfaults at dispatch); Slice P.4.
+  - 440 `var s @[]@I` (managed slice of managed iv) — xfail;
+    Slice P.4.
+  - 441 `var arr [N]*I` (array of raw iv) — xfail; Slice P.4.
+  - 442 `struct { pp **I }` (struct field of pointer-to-iv) —
+    passes.  Establishes that the pointer-to-iv-in-struct path
+    works, even though iv-in-slice / iv-in-array does not.
+- `**I` (raw → raw) was already pinned by
+  `408_iface_method_call_through_deref` from before this plan.
+- **Notable absences for follow-up slices to confirm**:
+  pointer-to-iv as function arg / return; pointer-to-iv in
+  composite literals; `&iv` in const-context; raw-to-managed
+  conversion through pointer indirection.  These can be
+  added by P.4 once iv-in-container is solid.
 
 ### Slice P.2 — Fix dispatch through `@(*Iface)` / `@(@Iface)`
 
