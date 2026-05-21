@@ -1,6 +1,16 @@
 # Plan: Generics
 
-> **Status: DRAFT 2026-05-06; AMENDED 2026-05-12.**
+> **Status: PARTIALLY LANDED 2026-05-21.**  Slices 1–4 fully
+> implemented (generic functions end-to-end including constraint-
+> method dispatch via interface inheritance).  Slice 5 fully
+> implemented (generic structs end-to-end).  Slice 6 partially
+> implemented (parser + type-checker accept generic interfaces;
+> IR-gen vtable layout for instantiated interfaces is still
+> unimplemented — see Slice 6 status below).  Slice 7
+> (cross-package generic bodies) untouched.  See per-slice
+> headings further down for landing commits and residual work.
+>
+> **Original design notes (2026-05-06; AMENDED 2026-05-12).**
 > Pre-implementation; pins the open questions so implementation
 > can start cleanly when the interface track lands satisfaction
 > checks (the foundational dependency).  Cross-references the
@@ -368,101 +378,119 @@ itself use generics — but that's a separate future migration.
 
 Each slice is independently shippable, ordered by dependency.
 
-### Slice 1 — Parser + AST for generic functions
+### Slice 1 — Parser + AST for generic functions — LANDED `e8139ea`
 
-- Lex/parse `func f[T any, U any](x T, y U) T` shape.
-- New AST nodes: `TypeParam` (Name, Constraint TypeExpr),
-  `TypeParamList` on `Decl`.
-- New `TEXPR_TYPE_PARAM` kind for type-param references
-  inside types (`T` in `*[]T`).
-- Parse `f[int, *Point](x, y)` instantiation expressions.
-- New AST node: `EXPR_INSTANTIATE_OR_INDEX` (single node;
-  disambiguated downstream by the type checker).
-- All `any` constraint only — constraint parsing is just an
-  identifier lookup.
+- Parser accepts `func f[T any, U any](x T, y U) T` and
+  `name[T1, T2]` in expression position.
+- AST: new TypeParam struct, `Decl.TypeParams` field, new
+  `EXPR_INSTANTIATE_OR_INDEX` kind (covers any `name[...]`
+  shape, supersedes the prior `EXPR_INDEX`), new
+  `TEXPR_TYPE_PARAM` kind (declared; produced by the type-
+  checker, not the parser).
+- All `any` constraint only at this slice.
 
-No type-checker / IR-gen work in this slice.  Tests: parser
-unit tests covering new shapes plus rejection cases (missing
-`]`, no constraint after `,`, etc.).
+### Slice 2 — Type-checker for `[T any]` generic functions — LANDED
+- **2a** (`7bf3385`): TYP_TYPE_PARAM kind; generic-decl body
+  type-checks against a per-decl type-param scope;
+  resolveFuncDeclType + checkFuncDecl install and re-install
+  the scope around signature / body checks; IR-gen skips
+  generic decls.  Calls to generics without explicit type args
+  rejected ("no inference").
+- **2b** (`91e0b62`): `f[T1, ...](args)` at the call site.
+  instantiateGenericFunc, typeArgFromExpr (EXPR_IDENT + `*T`),
+  substituteTypeParams over composite types.  Rejection paths
+  pinned (wrong arity, arg-type mismatch, unknown type-arg).
 
-### Slice 2 — Type-checker for `[T any]` generic functions
+### Slice 3 — Constraint-satisfaction check — LANDED `6614bdd`
+- Constraints lift from `any` to interface names.  Storage:
+  `Type.TpConstraint` on TYP_TYPE_PARAM.
+- typeSatisfiesConstraint walks `c.Impls` and matches via
+  Identical-on-receiver + implCoversInterface; transitive
+  satisfaction through interface inheritance (`Slice 4b`,
+  `77be365`) — `impl int : Orderable` satisfies
+  `T : Comparable` because Orderable extends Comparable.
+- Body method-call dispatch on TYP_TYPE_PARAM receivers routes
+  through the constraint interface's method set
+  (tryTypeParamMethodCall); Self in the interface signature
+  substitutes to the type-param itself.
 
-- New `TYP_TYPE_PARAM` kind on `@Type` (Q3 above; lock the
-  shape here).
-- Generic-decl scope: type params defined as type symbols
-  inside the decl's body scope only.
-- Body check: with type-param scope installed, the function
-  body type-checks once.  References to `T` resolve to the
-  type-param symbol.
-- Instantiation site: disambiguate `EXPR_INSTANTIATE_OR_INDEX`
-  by resolving the head identifier; if generic, instantiate.
-  Substitute type args for type params, produce the
-  fully-resolved `@Type`.
-- Identity-based comparison for type params (Q3).
-- Per-(generic, type-args-tuple) instantiation cache (Q1).
+### Slice 4 — IR-gen monomorphization — LANDED
+- **4a** (`ad2a26c`): per-(generic, type-args) IR func emission
+  via a substitution context that resolveTypeExpr consults;
+  call-site dispatch routes `f[int](...)` to the mangled name.
+  Conformance 431 / 432 / 433 cover identity, multi-instantiate
+  dedup, and local-T / multi-param.
+- **4b** (`77be365`): IR-gen "just works" for constraint-method
+  calls inside specialized bodies — once the type-checker
+  accepts the constraint via inheritance, IR-gen's substituted
+  body sees `int.Compare(int)` which dispatches through the
+  existing primitives-impl-interfaces work.  Conformance 434
+  exercises `cmp[int]` and `hashOf[uint]` end-to-end via
+  pkg/std's Orderable / Hashable impls.
 
-Tests: body-checks for valid generics (containers, identity
-funcs), rejection of constraint-method calls (`t.less(other)`
-fails — no methods on `any`).
+### Slice 5 — Generic structs — LANDED
+- **5a** (`75042d6`): parser + AST for `type List[T any] struct
+  { ... }` and `List[int]` in type position (TEXPR_INSTANTIATE
+  + `TypeExpr.TypeArgs`).  Type-checker / IR-gen stub the
+  TEXPR_INSTANTIATE branch.
+- **5b** (`39b3461`): type-checker for generic struct
+  instantiation.  GenericTypeDecls registry, per-(decl, args)
+  GenericInstantiations cache (Q1), resolveTypeInstantiation
+  + buildInstantiatedStruct.  Substitution descends into
+  pointer / slice / array element types.
+- **5c** (`aa5fb38`): IR-gen for generic struct instantiation.
+  Per-(decl, args) ModuleStruct registration via
+  ensureInstantiatedStruct; fields resolve with the type-param
+  substitution context active.  Conformance 436 / 437 cover
+  field read/write and Pair[int, int] through a function arg.
 
-### Slice 3 — Constraint-satisfaction check
+### Slice 6 — Generic interfaces — PARTIALLY LANDED
+- **6a** (`ae4c4d6`): parser + AST for `interface Container[T
+  any] { ... }`.  Type-checker rejected initially.
+- **6b** (`279769f`): type-checker accepts generic interface
+  decls; resolveTypeInstantiation handles interface heads via
+  buildInstantiatedInterface (substitutes T in method
+  signatures, builds TYP_INTERFACE).  Per-(decl, args) cache
+  shared with structs.  *Container[int]* / @Container[int]
+  type-check.
+- **6c-min** (`c06c724`): IR-gen skips generic interface decls
+  in collectInterfaceFromDecl so the bare decl is harmless.
+- **6c-mid** (`f49a95f`): parseInterfaceRef accepts
+  `Container[int]` in impl iface refs and extension parent
+  lists.  Type-checker (from 6b) builds the instantiated
+  TYP_INTERFACE.
+- **6c-full — NOT YET LANDED.**  IR-gen vtable layout +
+  dispatch for instantiated interfaces.  An attempt in this
+  session got the right shape (genericIfaceDecls registry,
+  ensureInstantiatedInterface that registers a per-(decl, args)
+  ModuleInterface entry, collectImplsFromDecl extension to
+  handle TEXPR_INSTANTIATE iface refs) but failed end-to-end
+  at vtable-symbol emission with the impl's RecvTypeName
+  coming through empty — the emitted symbol was
+  `bn_main____get` instead of `bn_main__IntBox__get`.  Backed
+  out to keep main green.  Next session should reproduce with
+  a probe like:
+  ```
+  interface Container[T any] { get() T }
+  type IntBox struct { v int }
+  impl IntBox : Container[int]
+  func (b IntBox) get() int { return b.v }
+  func main() {
+      var b IntBox; b.v = 42
+      var c *Container[int] = &b
+      println(c.get())
+  }
+  ```
+  and instrument the vtable-emission path
+  (`pkg/codegen/emit_impls.bn` around `buildMethodFuncName`)
+  to find where RecvTypeName is dropped between the impl
+  collection and the slot emission.  The mangle on the
+  interface side is now bare (`Container__bn_inst__int`, not
+  `<pkg>.Container__bn_inst__int`) per Slice 6c-mid's
+  observation that ModuleInterface.Name should be bare-name
+  with the package stored separately on Pkg.
 
-**Depends on the interface track landing**: per-impl vtable
-infra (Slice 2.5+ of `plan-interface-syntax-revision.md`) and
-satisfaction-lookup machinery.
-
-- Constraint parsing — accept `[T Comparable]` etc.
-  (interface name in constraint slot).
-- At instantiation, look up `impl T : I` for each (T_arg, I)
-  pair.  Miss → clean error pointing at the missing impl.
-- Body check: constraint-method calls (`t.less(other)`)
-  type-check against the constraint interface's method set.
-- All else: same machinery as Slice 2.
-
-Tests: cross-product of (typed constraint, satisfying type,
-non-satisfying type, missing impl).  Stdlib primitive impls
-land here as a pre-req.
-
-### Slice 4 — IR-gen monomorphization
-
-- For each unique instantiation, emit one specialized IR func
-  via a per-instantiation `genFunc` pass that substitutes
-  type params for concrete types in the AST → IR walk.
-- Mangled name per Q2.
-- Rewrite constraint-method calls (`t.less(other)`) to direct
-  calls on the concrete `impl T : I` method — IR-gen knows the
-  impl from Slice 3's bookkeeping.
-- VM / codegen: no changes — they see ordinary IR funcs.
-
-Tests: end-to-end (parse → check → IR-gen → VM exec) for
-identity, generic Vec push/pop, sort by Comparable.
-
-### Slice 5 — Generic structs
-
-- Parser: `type List[T any] struct { ... }`.
-- Type-checker: pre-register generic type names with arity
-  (Q4); resolve fields in type-param scope.
-- Instantiation: `List[int]` produces a distinct `@Type` with
-  T-substituted fields; layout computed from the substituted
-  fields.
-- IR-gen: per-(struct, type-args) struct registration;
-  per-(struct, type-args) `__dtor_<mangled>` and
-  `__copy_<mangled>` helpers (mirrors the existing
-  managed-field struct emission).
-
-Tests: generic Vec, Pair, Tree, plus self-recursive
-List/Node round-trip.
-
-### Slice 6 — Generic interfaces
-
-- Parser: `type Container[T any] interface { ... }`.
-- Per-instantiation interface type + vtable.
-- Vtable global naming for `(impl, *generic-instantiation*)`
-  (Q6).
-
-Tests: `Container[int]`-shape interface, impl, dispatch.
-
-### Slice 7 — Cross-package generics (`.bni` bodies)
+### Slice 7 — Cross-package generics (`.bni` bodies) — NOT STARTED
 
 - Pin Q7 (body-encoding scheme).
 - Encode generic bodies in `.bni` (or sibling manifest).
