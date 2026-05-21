@@ -720,20 +720,45 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Plan**: `plan-pointers-to-iface-values.md` (sliced P.1–P.5).
   Slice P.1 (audit + conformance pins) and Slice P.2 (fix
   `@(*I)` / `@(@I)` deref-dispatch) LANDED 2026-05-20.
+  Slice P.3 (smoothing for pointer-to-iv receivers) LANDED
+  2026-05-21.
 - Design pinned in `claude-notes.md` § "Interfaces" line 421:
   `**Stringer`, `*@Stringer`, `@(*Stringer)`, `@(@Stringer)` are
   all valid pointer-to-iv shapes; parens are required by the
   grammar to disambiguate the `@(@…)` form.
-- **Current state** (2026-05-20): conformance 408 + 443 + 444 +
+- **Current state** (2026-05-21): conformance 408 + 443 + 444 +
   445 all pass — every pointer-to-iv shape with `(*p).Foo()`
   dispatch works after the deref-typing fix in
-  `pkg/ir/gen_expr.bn`.  Conformance 438 pins `p.Foo()`
-  smoothing rejection — Slice P.3 fills in.  Conformance
-  439–441 pin iv-in-slice / iv-in-array segfaulting —
-  Slice P.4.  Conformance 442 pins pointer-to-iv-in-struct
-  working.
+  `pkg/ir/gen_expr.bn`.  Conformance 438 / 448 / 449 / 450 also
+  all pass — `p.Foo()` smoothing through every iv-ptr shape
+  works after Slice P.3's tryMethodCall + isInterfaceMethodCall
+  /genInterfaceMethodCall extension.  Conformance 439–441 pin
+  iv-in-slice / iv-in-array segfaulting — Slice P.4.
+  Conformance 442 pins pointer-to-iv-in-struct working.
 - Needed for: generics (`*T` where `T=Stringer`), out parameters,
   arrays of interfaces, containers.
+
+### `(*p).x` (field access through explicit deref) returns 0 — bnc-compiled only
+- Discovered 2026-05-21 while auditing Slice P.2 (pointer-to-iv
+  dispatch).  Field access through an explicit deref hits the
+  `return b.EmitConstInt(0, types.TypInt())` fallback in
+  `pkg/ir/gen_selector.bn` because `genSelector` has no
+  EXPR_UNARY-base case — only IDENT / SELECTOR / CALL / BUILTIN
+  bases route to a real field-pointer.  Boot (Go interpreter)
+  handles it correctly; bnc-compiled (all modes) returns 0.
+- Pinned by `conformance/447_field_access_through_explicit_deref`
+  with `.xfail.{boot-comp, boot-comp-int, boot-comp-int-int,
+  boot-comp-comp, boot-comp-comp-int, boot-comp-comp-comp}`.
+- Workaround: use `p.x` (auto-deref) instead.  Both raw and
+  managed pointers auto-deref transparently for field access; the
+  explicit form is the broken path.
+- Fix sketch: add an EXPR_UNARY-STAR base case to `genSelector`
+  that genExprs the operand, recovers a struct/iv pointer, and
+  routes to the field-pointer / iface-method-call logic the
+  IDENT-base cases already use.  The deref-then-dispatch shape
+  is already wired correctly for iface-method calls
+  (`isInterfaceMethodCall` checks EXPR_UNARY on sel.X) — the
+  field-access shape is the residual gap.
 
 ### ~~Test harness `isTestResultReturn` should resolve type aliases~~ — FIXED
 - The test harnesses (bootstrap Go `main.go` and self-hosted `cmd/bnc/test.bn`) only accept `testing.TestResult` (qualified) or `@[]char` (literal managed-slice of char) as test return types.

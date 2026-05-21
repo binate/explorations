@@ -116,26 +116,31 @@ as one commit.
 - **Diff size**: ~10 lines in `pkg/ir/gen_expr.bn` plus the
   xfail-marker churn.
 
-### Slice P.3 — Method-call receiver smoothing to pointer-to-iv
+### Slice P.3 — Method-call receiver smoothing to pointer-to-iv — LANDED 2026-05-21
 
-- **Scope**: today `p.Foo()` where `p` is `*@Iface` (raw ptr to
-  managed iv) is rejected at type check. Add a smoothing rule:
-  pointer-to-iv auto-derefs at method-call sites the same way
-  `*T → T` does. Either: (a) at the type-checker, treat a
-  pointer-to-iv receiver as if it were dereferenced before
-  iface-value method lookup; or (b) at IR-gen, emit the
-  load-then-dispatch sequence. Probably (a) is cleaner.
-- **Question to resolve before implementation**: should smoothing
-  cover `**Iface → *Iface` (raw → raw deref) AND `@(*Iface) →
-  *Iface` (managed-ptr-deref to raw iv) AND `@(@Iface) → @Iface`?
-  All four combinations? The five-receiver-kinds doc suggests
-  yes; pin in the plan doc when we resolve it.
-- **Files**: `pkg/types/check_method.bn` (receiver-resolution),
-  `pkg/ir/gen_method.bn` or `gen_iface.bn` (lowering).
-- **Tests**: extend P.1's conformance suite to cover the
-  smoothing forms; unit tests in `pkg/types` for the new
-  receiver-kind cases.
-- **Estimated size**: ~100 lines + tests.
+- **Approach taken**: split between layers per the plan's
+  option (a) + (b) hybrid.  Type-checker accepts the call;
+  IR-gen emits the load before dispatch.
+- **All four shapes smooth**: `**I`, `*@I`, `@(*I)`, `@(@I)`
+  all auto-deref through one pointer layer to the iv at method-
+  call sites.  This matches the design intent (pointers to iv
+  follow normal pointer-receiver rules — `claude-notes.md`
+  line 421).
+- **Diff**:
+  - `pkg/types/check_method.bn` — `tryMethodCall` peels one
+    pointer layer when the operand is `TYP_POINTER` /
+    `TYP_MANAGED_PTR` with an iv `Elem`, then routes to
+    `tryInterfaceMethodCall`.
+  - `pkg/ir/gen_iface.bn` — `isInterfaceMethodCall` returns
+    true for pointer-to-iv receivers; `genInterfaceMethodCall`
+    emits a single `EmitLoad` (sized by the inner iv kind)
+    before the dispatch.
+- **Tests**: conformance 438 / 448 / 449 / 450 (one per shape)
+  + five new unit tests in `pkg/types/check_method_test.bn`
+  (four positive, one unknown-method rejection).
+- Pre-Slice-P.3 conformance 438 was an `.error` test pinning
+  the rejection; it flips to `.expected` 42 and the name drops
+  the `_err_` / `_rejected` markers.
 
 ### Slice P.4 — Slice / array / field composition
 
