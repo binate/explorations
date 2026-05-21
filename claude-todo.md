@@ -662,8 +662,8 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `**Stringer`, `*@Stringer`, `@(*Stringer)`, `@(@Stringer)` are
   all valid pointer-to-iv shapes; parens are required by the
   grammar to disambiguate the `@(@…)` form.
-- **Current state** (2026-05-20): conformance 408 + 435 pin
-  `**I` / `*@I` working.  Conformance 436 / 437 pin
+- **Current state** (2026-05-20): conformance 408 + 443 pin
+  `**I` / `*@I` working.  Conformance 444 / 445 pin
   `@(*I)` / `@(@I)` returning 0 — Slice P.2 root-causes.
   Conformance 438 pins `p.Foo()` smoothing rejection —
   Slice P.3 fills in.  Conformance 439–441 pin iv-in-slice /

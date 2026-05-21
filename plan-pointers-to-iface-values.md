@@ -70,11 +70,11 @@ as one commit.
   current self-hosted toolchain misbehaves. Goal: convert
   "haven't checked" into "concrete fail entry in conformance"
   so the gaps are visible.
-- **Tests landed** (conformance 435–442):
-  - 435 `*@I` (raw ptr → managed iv), `(*p).Foo()` — passes.
-  - 436 `@(*I)` (managed ptr → raw iv), `(*p).Foo()` — xfail
+- **Tests landed** (conformance 438–445):
+  - 443 `*@I` (raw ptr → managed iv), `(*p).Foo()` — passes.
+  - 444 `@(*I)` (managed ptr → raw iv), `(*p).Foo()` — xfail
     in every compiled mode (returns 0); root-cause is Slice P.2.
-  - 437 `@(@I)` (managed ptr → managed iv), `(*p).Foo()` — xfail
+  - 445 `@(@I)` (managed ptr → managed iv), `(*p).Foo()` — xfail
     in every compiled mode (returns 0); root-cause is Slice P.2.
   - 438 `p.Foo()` smoothing on `**I` — `.error` test pinning the
     current rejection; flips when Slice P.3 lands.
