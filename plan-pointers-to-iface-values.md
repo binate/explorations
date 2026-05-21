@@ -94,19 +94,27 @@ as one commit.
   conversion through pointer indirection.  These can be
   added by P.4 once iv-in-container is solid.
 
-### Slice P.2 — Fix dispatch through `@(*Iface)` / `@(@Iface)`
+### Slice P.2 — Fix dispatch through `@(*Iface)` / `@(@Iface)` — LANDED 2026-05-20
 
-- **Scope**: the paren-form managed-pointer-to-iv parses + type-
-  checks but `(*p).Foo()` returns 0. Root-cause and fix. Either
-  box() of an iv-value isn't faithfully preserving the iv, OR
-  the deref-then-dispatch path drops the iv shape for managed-ptr
-  receivers.
-- **Probable location**: `pkg/codegen/emit_*` for box-of-iv, OR
-  `pkg/ir/gen_iface.bn` for the iv shape recovery after deref.
-- **Tests**: re-enable conformance from P.1 that pin these
-  shapes.
-- **Estimated size**: hard to predict without root cause —
-  likely 50–200 lines including unit tests.
+- **Root cause**: `pkg/ir/gen_expr.bn` deref of `*p` only
+  recognized `TYP_POINTER` when determining the pointed-to type;
+  for `TYP_MANAGED_PTR` it fell back to `TypInt`, so the IR
+  emitted `load i64` instead of `load %BnIfaceValue`.  That
+  produced a receiver with the wrong type at `genInterfaceMethod
+  Call`, where the `iv.Typ.Elem == nil` guard fired and the
+  call returned a constant 0.
+- **Fix**: extend the deref's pointer-kind check to handle
+  `TYP_MANAGED_PTR` alongside `TYP_POINTER` (both have an
+  `Elem` field carrying the pointed-to type; the deref is a
+  value load either way, refcount stays on the operand).
+- box() of an iv-value was *not* the bug — the box correctly
+  preserved the 16-byte iv shape; the problem was on the load
+  side after the box.
+- **Tests**: conformance 444 / 445 now pass under all compiled
+  modes; their `.xfail.*` markers (except `.xfail.boot`, which
+  still applies — bootstrap doesn't have interfaces) are gone.
+- **Diff size**: ~10 lines in `pkg/ir/gen_expr.bn` plus the
+  xfail-marker churn.
 
 ### Slice P.3 — Method-call receiver smoothing to pointer-to-iv
 

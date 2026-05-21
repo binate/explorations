@@ -657,18 +657,20 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ### Pointers to interface values
 - **Plan**: `plan-pointers-to-iface-values.md` (sliced P.1–P.5).
-  Slice P.1 (audit + conformance pins) LANDED 2026-05-20.
+  Slice P.1 (audit + conformance pins) and Slice P.2 (fix
+  `@(*I)` / `@(@I)` deref-dispatch) LANDED 2026-05-20.
 - Design pinned in `claude-notes.md` § "Interfaces" line 421:
   `**Stringer`, `*@Stringer`, `@(*Stringer)`, `@(@Stringer)` are
   all valid pointer-to-iv shapes; parens are required by the
   grammar to disambiguate the `@(@…)` form.
-- **Current state** (2026-05-20): conformance 408 + 443 pin
-  `**I` / `*@I` working.  Conformance 444 / 445 pin
-  `@(*I)` / `@(@I)` returning 0 — Slice P.2 root-causes.
-  Conformance 438 pins `p.Foo()` smoothing rejection —
-  Slice P.3 fills in.  Conformance 439–441 pin iv-in-slice /
-  iv-in-array segfaulting — Slice P.4.  Conformance 442 pins
-  pointer-to-iv-in-struct working.
+- **Current state** (2026-05-20): conformance 408 + 443 + 444 +
+  445 all pass — every pointer-to-iv shape with `(*p).Foo()`
+  dispatch works after the deref-typing fix in
+  `pkg/ir/gen_expr.bn`.  Conformance 438 pins `p.Foo()`
+  smoothing rejection — Slice P.3 fills in.  Conformance
+  439–441 pin iv-in-slice / iv-in-array segfaulting —
+  Slice P.4.  Conformance 442 pins pointer-to-iv-in-struct
+  working.
 - Needed for: generics (`*T` where `T=Stringer`), out parameters,
   arrays of interfaces, containers.
 
