@@ -1,13 +1,10 @@
 # Plan: Generics
 
-> **Status: PARTIALLY LANDED 2026-05-21.**  Slices 1–4 fully
-> implemented (generic functions end-to-end including constraint-
-> method dispatch via interface inheritance).  Slice 5 fully
-> implemented (generic structs end-to-end).  Slice 6 partially
-> implemented (parser + type-checker accept generic interfaces;
-> IR-gen vtable layout for instantiated interfaces is still
-> unimplemented — see Slice 6 status below).  Slice 7
-> (cross-package generic bodies) untouched.  See per-slice
+> **Status: SAME-PACKAGE COMPLETE 2026-05-21.**  Slices 1–6 fully
+> implemented (generic functions, structs, and interfaces all
+> end-to-end including constraint-method dispatch via interface
+> inheritance and instantiated-interface vtable dispatch).
+> Slice 7 (cross-package generic bodies) untouched.  See per-slice
 > headings further down for landing commits and residual work.
 >
 > **Original design notes (2026-05-06; AMENDED 2026-05-12).**
@@ -444,7 +441,7 @@ Each slice is independently shippable, ordered by dependency.
   substitution context active.  Conformance 436 / 437 cover
   field read/write and Pair[int, int] through a function arg.
 
-### Slice 6 — Generic interfaces — PARTIALLY LANDED
+### Slice 6 — Generic interfaces — LANDED
 - **6a** (`ae4c4d6`): parser + AST for `interface Container[T
   any] { ... }`.  Type-checker rejected initially.
 - **6b** (`279769f`): type-checker accepts generic interface
@@ -459,36 +456,18 @@ Each slice is independently shippable, ordered by dependency.
   `Container[int]` in impl iface refs and extension parent
   lists.  Type-checker (from 6b) builds the instantiated
   TYP_INTERFACE.
-- **6c-full — NOT YET LANDED.**  IR-gen vtable layout +
-  dispatch for instantiated interfaces.  An attempt in this
-  session got the right shape (genericIfaceDecls registry,
-  ensureInstantiatedInterface that registers a per-(decl, args)
-  ModuleInterface entry, collectImplsFromDecl extension to
-  handle TEXPR_INSTANTIATE iface refs) but failed end-to-end
-  at vtable-symbol emission with the impl's RecvTypeName
-  coming through empty — the emitted symbol was
-  `bn_main____get` instead of `bn_main__IntBox__get`.  Backed
-  out to keep main green.  Next session should reproduce with
-  a probe like:
-  ```
-  interface Container[T any] { get() T }
-  type IntBox struct { v int }
-  impl IntBox : Container[int]
-  func (b IntBox) get() int { return b.v }
-  func main() {
-      var b IntBox; b.v = 42
-      var c *Container[int] = &b
-      println(c.get())
-  }
-  ```
-  and instrument the vtable-emission path
-  (`pkg/codegen/emit_impls.bn` around `buildMethodFuncName`)
-  to find where RecvTypeName is dropped between the impl
-  collection and the slot emission.  The mangle on the
-  interface side is now bare (`Container__bn_inst__int`, not
-  `<pkg>.Container__bn_inst__int`) per Slice 6c-mid's
-  observation that ModuleInterface.Name should be bare-name
-  with the package stored separately on Pkg.
+- **6c-full** (`bac6909`): IR-gen vtable layout + dispatch for
+  instantiated interfaces.  genericIfaceDecls registry parallel
+  to genericTypeDecls; ensureInstantiatedInterface materializes
+  a per-(decl, args) ModuleInterface entry under the bare
+  mangled name (`Container__bn_inst__int`) with Pkg stored
+  separately; isInterfaceTypeExpr / ifaceTypeForName recognize
+  TEXPR_INSTANTIATE-on-generic-iface; collectImplsFromDecl
+  handles TEXPR_INSTANTIATE iface refs.  Per-module iface
+  registry was split out to gen_iface_registry.bn to keep
+  gen_impl.bn under the file-length soft cap.  Conformance
+  447 / 448 / 449 cover raw, managed, and multi-instantiation
+  dispatch.
 
 ### Slice 7 — Cross-package generics (`.bni` bodies) — NOT STARTED
 

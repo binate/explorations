@@ -6,66 +6,17 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
-### Generics — Slice 6c-full (IR-gen vtable for instantiated interfaces) — IN PROGRESS
-- **State**: Slices 1–5 fully landed (generic functions + structs
-  end-to-end).  Slice 6 partially landed: parser + type-checker
-  accept generic interface decls, use sites (`*Container[int]`,
-  `@Container[int]`), and `impl Foo : Container[int]` refs.
-  IR-gen vtable layout / dispatch for instantiated interfaces is
-  the remaining piece — without it, programs that actually USE
-  generic interfaces fail at IR-gen.  See
-  `explorations/plan-generics.md` § "Slice 6 — Generic
-  interfaces" for the full state.
-- **Failing repro** (does not currently compile end-to-end):
-  ```
-  package "main"
-  interface Container[T any] { get() T }
-  type IntBox struct { v int }
-  impl IntBox : Container[int]
-  func (b IntBox) get() int { return b.v }
-  func main() {
-      var b IntBox; b.v = 42
-      var c *Container[int] = &b
-      println(c.get())
-  }
-  ```
-  Expected: prints `42`.
-- **Attempted shape** (worktree backed out 2026-05-21 to keep
-  main green): IR-gen-side `genericIfaceDecls` registry,
-  `ensureInstantiatedInterface(d, args)` that registers a
-  per-(decl, args) ModuleInterface entry under a bare-name
-  mangle `Container__bn_inst__int` (Pkg stored separately on
-  the entry), `collectImplsFromDecl` extended to recognize
-  TEXPR_INSTANTIATE iface refs.
-- **Symptom that blocked the attempt**: vtable emission output
-  the impl's method symbol as `bn_main____get` (empty receiver
-  type between the two `__` separators) instead of
-  `bn_main__IntBox__get`.  buildMethodFuncName in
-  `pkg/codegen/emit_impls.bn` reads `info.RecvTypeName`; that
-  came through empty.  Either the ImplInfo record was wrong
-  for the (IntBox, Container[int]) pair, or the wrong record
-  was being picked up at vtable-emit time.  Did not finish
-  debugging.
-- **Next-session entry point**: re-stage the attempted IR-gen
-  changes from the backed-out diff (parser piece `f49a95f`
-  is already in tree; the IR-gen pieces are the
-  ensureInstantiatedInterface helper + the
-  collectImplsFromDecl extension to handle TEXPR_INSTANTIATE
-  refs + the resolveTypeExpr TEXPR_INSTANTIATE branch that
-  dispatches to it).  Add `println(info.RecvTypeName)` or
-  similar instrumentation in `emitImplVtableLayout` to confirm
-  what's being read, then trace backward to the ImplInfo
-  source.
-
 ### Generics — Slice 7 (cross-package generic bodies) — NOT STARTED
 - Per plan-generics.md § "Slice 7": pin Q7 (body-encoding
   scheme), encode generic bodies in `.bni` (or sibling
   manifest), consumer instantiates by reading the body and
   monomorphizing locally.
-- Blocked on Slice 6c-full for generic interfaces (otherwise
-  cross-package generic interface use can't compile end-to-end);
-  for generic functions and structs alone, Slice 7 could
-  proceed independently.
+- Slices 1–6 fully landed (same-package generic functions,
+  structs, and interfaces end-to-end as of `bac6909`), so
+  cross-package generic functions, structs, AND interfaces
+  all become reachable in this one slice.
+- Tests: cross-package `Vec[int]`, `sort[T]`, and
+  `Container[int]` instantiation.
 
 ### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
 - **Problem**: with the current rules, `int` (and other predeclared
