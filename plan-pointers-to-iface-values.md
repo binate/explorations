@@ -142,27 +142,32 @@ as one commit.
   the rejection; it flips to `.expected` 42 and the name drops
   the `_err_` / `_rejected` markers.
 
-### Slice P.4 — Slice / array / field composition
+### Slice P.4 — Slice / array / field composition — LANDED 2026-05-21
 
-- **Scope**: ensure `*[]*Iface`, `@[]@Iface`, `[N]*Iface`,
-  `struct { iv *Iface }` and the pointer-to-iv versions of each
-  compose correctly: assignment, RefInc/RefDec for managed forms,
-  composite literal initialization, indexing + method dispatch.
-- **Tests**: conformance + unit. Most likely this "just works"
-  once P.2 / P.3 are in, but pin the cases that the design says
-  should work so a regression surfaces.
-- **Estimated size**: ~100 lines mostly tests.
+- **Root cause**: `s[i] = &t` for a slice / array / managed-slice
+  whose element type is iv bypassed the iv-construction path —
+  the rhs was generated with `lhsTypHint = nil`, so
+  `genExprOrFuncRef` saw a `*T` value and stored just the data
+  pointer into the 16-byte iv slot.  Vtable half stayed
+  undefined; subsequent dispatch loaded `{data, garbage}` and
+  segfaulted calling through the bogus vtable.
+- **Fix**: in `pkg/ir/gen_control.bn`'s single-assign path,
+  when LHS is EXPR_INSTANTIATE_OR_INDEX, set the rhs's typ-hint
+  to the collection's element type via `getIndexElemType`.  The
+  existing iv-wrap path in `genExprOrFuncRef` then fires and the
+  rhs is constructed correctly.
+- **Diff size**: ~7 lines.  Same hinting mechanism that already
+  worked for var-decl init and selector-LHS field assignment.
+- **Tests**: conformance 439 / 440 / 441 — every compiled-mode
+  xfail marker (boot-comp + chains) is gone.  Pointer-to-iv in
+  struct-field was already covered by 442 (passed pre-P.4).
 
-### Slice P.5 — Bootstrap interpreter parity (if needed)
+### Slice P.5 — Bootstrap interpreter parity — DROPPED 2026-05-21
 
-- **Scope**: the bootstrap interpreter today rejects all
-  interface forms (per `interfaces not supported by bootstrap`
-  xfail markers across the conformance suite). If/when bootstrap
-  gains iface-value support, this slice extends it to the
-  pointer-to-iv shapes.
-- **Defer**: until bootstrap gets iface-value support generally.
-  Probably never, since the self-hosted toolchain is the long-
-  term reference.
+Boot mode was removed from the toolchain (BUILDER_VERSION moved
+to `bnc-0.0.1`; conformance + unit tests now run via
+`boot-comp` and the compiled chains).  Bootstrap parity is
+moot — the slice goes away.
 
 ## Slicing order rationale
 
