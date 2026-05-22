@@ -610,7 +610,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ### Interface syntax revision — *Stringer / @Stringer + top-level decl
 - **Plan doc**: `explorations/plan-interface-syntax-revision.md`
-  (DRAFT — pending review).
+  (RATIFIED 2026-05-01).
 - **Scope**: revise the IN-PROGRESS interface design in
   `claude-notes.md` § "Interfaces" before any of it ships. Three
   shifts:
