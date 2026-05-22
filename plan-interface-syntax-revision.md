@@ -1,9 +1,13 @@
 # Plan: Interface Syntax Revision
 
-> **Status: RATIFIED 2026-05-01.** All open questions resolved
-> (see "Ratification notes" below). The "Interfaces — IN PROGRESS"
-> entry in `claude-notes.md` still reflects the *previous* design
-> and should be updated to match this plan.
+> **Status: RATIFIED 2026-05-01; ~85% IMPLEMENTED 2026-05-22.**
+> All ratified decisions §1–§5 are live in the compiler (see
+> per-section LANDED markers below). The only remaining piece is
+> §6 — the `any` built-in interface is documented but not yet
+> registered or accepted as `*any` / `@any` in the type-checker.
+> The "Interfaces — IN PROGRESS" entry in `claude-notes.md` still
+> reflects the *previous* design and should be updated to match
+> this plan.
 
 ## Context
 
@@ -33,7 +37,7 @@ interface*, not a type expression.
 
 ## Ratified decisions
 
-### 1. Raw / managed interface syntax
+### 1. Raw / managed interface syntax — LANDED
 
 ```
 *Stringer    // raw interface value: (raw ptr to data, vtable ptr)
@@ -66,7 +70,7 @@ migration set:
 | Raw ptr to managed interface value | `*@Stringer` |
 | Managed ptr to managed interface value | `@(@Stringer)` |
 
-### 2. Top-level `interface` declaration form
+### 2. Top-level `interface` declaration form — LANDED
 
 ```
 interface Stringer {
@@ -87,7 +91,7 @@ The `type` keyword stays general for *types* — scalars, structs,
 future enums. Interfaces are not types in this model; they're
 named contracts that types satisfy.
 
-### 3. No anonymous interfaces
+### 3. No anonymous interfaces — LANDED
 
 Drop `interface { ... }` as a type expression entirely.
 
@@ -107,7 +111,7 @@ the revised model, anonymous interfaces become awkward:
 Drop them. One rule: interfaces are always declared, top-level,
 and named.
 
-### 4. Interface aliases
+### 4. Interface aliases — LANDED
 
 ```
 interface MyStringer = Stringer
@@ -146,7 +150,7 @@ detailed-notes.md` § 6.5 stays:
 Auto-conversion at impl-satisfies-interface call sites follows the
 existing safe-direction-only rules.
 
-### 6. `any` interface — UNCHANGED
+### 6. `any` interface — UNCHANGED (NOT YET IMPLEMENTED)
 
 `any` is the implicit universal interface. After the syntax shift,
 the usable forms become `*any` and `@any`:
@@ -160,18 +164,24 @@ Same semantics as before; just spelled differently.
 
 ## Implementation work
 
-### Type-checker changes
+### Type-checker changes — LANDED (audit 2026-05-22)
 
-- Drop the `type X interface { ... }` parse path; replace with the
-  `interface X { ... }` top-level declaration. (Phase 1 — done.)
-- Drop the anonymous-interface type expression path entirely.
-- Update interface-value type spelling: bare interface name is no
-  longer a type; only `*Iface` / `@Iface` (plus the pointer-to-
-  interface-value forms in the §1 table).
-- Reject `type X = Iface` (bare interface name on alias RHS) at
-  the type-checker; `*Iface` / `@Iface` aliases continue to work
-  through the existing type-alias path unchanged.
-- Add interface-alias parse + resolution (`interface X = Y`) per §4.
+- ✅ Drop the `type X interface { ... }` parse path; replace with the
+  `interface X { ... }` top-level declaration. (`pkg/parser/parse_decl.bn:35`)
+- ✅ Drop the anonymous-interface type expression path entirely.
+  (No `TEXPR_INTERFACE` AST kind.)
+- ✅ Update interface-value type spelling: bare interface name is
+  no longer a type; only `*Iface` / `@Iface`. (`pkg/types/resolve_type.bn:30-50`,
+  `errInterfaceNotAType`; test 348.)
+- 🤔 Reject `type X = Iface` (bare interface name on alias RHS) —
+  flows through `resolveTypeExpr`'s bare-interface error path, but
+  there's no dedicated negative test. Add a one-line test.
+- ✅ Add interface-alias parse + resolution (`interface X = Y`).
+  (`pkg/parser/parse_decl.bn:55-60`, `pkg/types/check_interface.bn:51-65`;
+  test 369.)
+- ❌ **`any` / `*any` / `@any`** — synthesize the built-in `any`
+  interface (empty method set), accept the spellings in the type-
+  checker, route through existing iv machinery.
 
 ### Codegen / runtime — UNCHANGED
 

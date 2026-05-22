@@ -32,27 +32,19 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   to be target-agnostic (option 3).  The substitution-syntax
   option (option 2) wasn't needed.
 
-### `println(int64)` hangs on arm32-baremetal
-- Discovered 2026-05-22 while clearing 330's LP64 xfail: the
-  `bit_cast(int, ...)` → `bit_cast(int64, ...)` rewrite makes 330
-  compile on ILP32, but the test then times out under qemu —
-  `println(int64)` either hangs forever or runs astronomically
-  slow on bare-metal arm32.
-- Probable cause: the int64 digit-extraction loop in
-  pkg/bootstrap.formatInt64 divides by 10 repeatedly; on 32-bit
-  this resolves to an AEABI `__aeabi_ldivmod` helper from libgcc.
-  The bare-metal runtime impl-path may be missing the helper, or
-  the helper is linked but not delivering termination (a
-  miscompiled long-divide could loop), or the format-buffer
-  overflows.
-- Pinned by `conformance/330_float_bit_exact.xfail.builder-comp_-
-  arm32_baremetal`.  Same code path is likely hit by any other
-  arm32-baremetal test that prints an int64 / uint64 value.
-- Fix sketch: trace the AEABI helpers actually linked into a
-  bare-metal binary; if `__aeabi_ldivmod` is missing, add it via
-  the libgcc link line (already wired by `applyTarget`); if
-  present but mis-emitted, look at the codegen for OP_DIV /
-  OP_MOD on int64 operands under arm32.
+### ~~`println(int64)` hangs on arm32-baremetal~~ — FIXED 2026-05-22
+- Diagnosis was on the right track (int64 codegen on ILP32) but
+  wrong about the AEABI helper.  The actual fixes landed on main
+  in three coupled commits: `c2f8501` routes `println(int64)`
+  through `bootstrap.formatInt64` (emitPrintInt was previously
+  truncating int64 args to the target's `int` via a cast to
+  formatInt's declared param type); `d5195f0` types int64-magnitude
+  integer literals as int64 (TYP_UNTYPED_INT was lowering via
+  llvmType to i32 on arm32, silently truncating wide constants)
+  and preserves int64 width through unary-minus; `38f9319` fixes
+  formatInt's int-min handling and gives 424 an arm32 .expected
+  override.
+- 330 now passes in `builder-comp_arm32_baremetal` with no xfail.
 
 ### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
 - **Problem**: with the current rules, `int` (and other predeclared
@@ -608,30 +600,32 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Method values** (`x.M`, `T.M`) and **closures** are folded
   under this plan rather than tracked separately.
 
-### Interface syntax revision — *Stringer / @Stringer + top-level decl
+### Interface syntax revision — *Stringer / @Stringer + top-level decl — MOSTLY DONE
 - **Plan doc**: `explorations/plan-interface-syntax-revision.md`
   (RATIFIED 2026-05-01).
-- **Scope**: revise the IN-PROGRESS interface design in
-  `claude-notes.md` § "Interfaces" before any of it ships. Three
-  shifts:
-  1. Raw / managed forms become `*Stringer` / `@Stringer`
-     (mirroring the slice migration). Bare `Stringer` is no
-     longer a usable type — only a referenceable interface name.
-  2. Top-level `interface Foo { ... }` declaration form replaces
-     `type Foo interface { ... }`. Anonymous interface type
-     expressions are dropped entirely.
-  3. Interface aliasing: `interface MyStringer = Stringer` (or
-     possibly `type MyStringer = Stringer` — open in the plan).
-- **Why**: same UAF-prevention argument as the slice migration —
-  forcing the explicit raw-vs-managed choice prevents the "I
-  thought it was managed" failure mode. Interfaces aren't types
-  in this model; they're named contracts referenced via `*Iface`
-  / `@Iface` / `impl T : Iface`.
-- **No frontend dependency on function values**, and vice versa.
-  Either can land first.
-- **Backend**: vtable machinery (per-(impl, interface) static
-  tables, vtable-indirect dispatch, cross-mode trampoline path)
-  is shared with function values — building it once serves both.
+- **Implementation status (audited 2026-05-22)**: ~85% landed.
+  Verified working: top-level `interface X { ... }` decl
+  (`pkg/parser/parse_decl.bn:35`), `*Iface` / `@Iface` syntax
+  (`pkg/types/resolve_type.bn:38-50`), bare-name rejection
+  (`resolve_type.bn:30-35`, test 348), interface alias
+  `interface X = Y` (test 369), construction-site explicit-only
+  conversions (`types_assignable.bn:149-189`, tests 379/380/381),
+  five receiver kinds + `impl T : Iface` (tests 357–410), per-
+  (impl, interface) vtable codegen (`pkg/codegen/emit_impls.bn:24-40`),
+  cross-package `.bni` interface visibility (tests 373–388, 464).
+  ~55 conformance tests in the 346–467 range cover the surface.
+- **Remaining work**:
+  1. **`any` / `*any` / `@any` built-in** — plan §6 lists it as
+     "UNCHANGED" / implicit universal interface, but nothing in
+     `pkg/types` or `pkg/ir` synthesizes the `any` interface or
+     accepts the spellings yet. Modest work: synthesize a built-
+     in `any` interface with an empty method set, accept
+     `*any` / `@any` in the type-checker, route through existing
+     iv machinery.
+  2. **`type X = BareIface` explicit negative test** — the code
+     flow should reject via `resolveTypeExpr`'s bare-interface
+     error path, but it isn't separately covered. One-line
+     negative test.
 
 ### Cross-package method visibility in `.bni`
 - Methods defined on a public type in package `foo` need to be declared
