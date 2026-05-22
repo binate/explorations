@@ -1,14 +1,11 @@
 # Plan: Generics
 
-> **Status: SAME-PKG COMPLETE, CROSS-PKG PARTIAL 2026-05-21.**
-> Slices 1–6 fully implemented (generic functions, structs, and
-> interfaces all end-to-end same-package, including constraint-
-> method dispatch via interface inheritance and instantiated-
-> interface vtable dispatch).  Slice 7 partially implemented:
-> cross-package generic FUNCTIONS work (Q7 DECIDED: source-text
-> bodies in `.bni`); cross-package generic STRUCTS and
-> INTERFACES still need the type-checker side.  See per-slice
-> headings further down for landing commits and residual work.
+> **Status: COMPLETE 2026-05-21.**  Slices 1–7 fully
+> implemented: generic functions, structs, and interfaces all
+> work both same-package and cross-package, including
+> constraint-method dispatch via interface inheritance and
+> instantiated-interface vtable dispatch.  Q7 pinned 2026-05-21
+> (source-text bodies in `.bni`).
 >
 > **Original design notes (2026-05-06; AMENDED 2026-05-12).**
 > Pre-implementation; pins the open questions so implementation
@@ -494,40 +491,46 @@ Each slice is independently shippable, ordered by dependency.
   conformance 454 (multi-method) and 455 (parent-instantiation +
   upcast) cover this.
 
-### Slice 7 — Cross-package generics (`.bni` bodies) — PARTIALLY LANDED
+### Slice 7 — Cross-package generics (`.bni` bodies) — LANDED
 
 Q7 pinned 2026-05-21: source-text bodies in `.bni` for generic
 decls only (see Q7 section).
 
-- **7a — cross-package generic functions** (WIP, will land via
-  the next commit): parser keeps body for generic decls in
-  `.bni` mode; loader merger includes generic .bni decls into
-  the merged AST; IR-gen registers imported generic decls under
-  the import alias via parallel `genericDeclPkgs`; gen_call.bn
-  + type-checker `checkInstantiateOrIndex` recognize
-  `pkg.f[T](...)` (SELECTOR head) and route to
-  monomorphization.  Conformance 460 (`Id[int]` from genlib)
-  passes boot-comp-comp; xfail.boot-comp because the pinned
-  `bnc-0.0.1` builder predates the body-in-`.bni` rule.
-- **7b — cross-package generic structs** (NOT STARTED):
-  type-checker's `resolveTypeInstantiation` rejects
-  `pkg.Pair[int]` early with "cross-package generic-type
-  instantiation lands in a later slice"; needs the type-checker
-  to (1) collect imported generic type decls into a
-  per-package registry (mirror IR-gen's `genericTypeDeclPkgs`),
-  (2) cross-package-aware lookup in `resolveTypeInstantiation`.
-  IR-gen side already registers imported generic struct decls.
-- **7c — cross-package generic interfaces** (NOT STARTED):
-  parallel to 7b on the type-checker side; the IR-gen
-  collectInterfaceFromDecl already stashes imported generic
-  iface decls under the import alias.
+- **7a — cross-package generic functions** (`b670a15`):
+  parser keeps body for generic decls in `.bni` mode; loader
+  merger includes generic .bni decls into the merged AST;
+  IR-gen registers imported generic decls under the import
+  alias via parallel `genericDeclPkgs`; gen_call.bn +
+  type-checker `checkInstantiateOrIndex` recognize
+  `pkg.f[T](...)` (SELECTOR head) and route to monomorphization.
+  Conformance 460 / 461 / 462 (`Id[int]`, multi-arg
+  `pair[int, bool]`, pointer-arg `Id[*int]`) pass boot-comp-comp.
+- **7b — cross-package generic structs** (this commit):
+  type-checker's bni_scope.bn skips generic type decls in
+  Pass 1 placeholder registration and stashes them in
+  `c.GenericTypeDecls` / `GenericTypeDeclPkgs` keyed on the
+  pkg short-name; `resolveTypeInstantiation` accepts
+  pkg-qualified heads and routes via
+  `lookupGenericTypeDeclPkg`.  IR-gen `gen_util.bn`'s
+  `TEXPR_INSTANTIATE` branch accepts the qualified head too.
+  Conformance 463 (`veclib.Pair[int]`) covers.
+- **7c — cross-package generic interfaces** (this commit):
+  fell out of 7b for free — the type-checker
+  `resolveTypeInstantiation` change handles both struct and
+  iface heads; IR-gen `isInterfaceTypeExpr` /
+  `ifaceTypeForName` / `collectImplsFromDecl` /
+  `collectInterfaceFromDecl` parent-walk accept qualified
+  generic-iface refs.  Conformance 464
+  (`impl IntBox : iflib.Container[int]`) covers.
+
+All five conformance tests (460–464) are xfail.boot-comp because
+the pinned `bnc-0.0.1` builder predates the body-in-`.bni` rule;
+they pass boot-comp-comp / boot-comp-int / boot-comp-comp-int /
+boot-comp-comp-comp.
 
 Note: impl visibility is already cross-package per Slices
 2.6–2.9 of `plan-cross-package-interfaces.md` — Slice 7 only
-adds the generic-body side.
-
-Tests: cross-package `Vec[int]`, `sort[T]`, `Container[int]`.
-Currently 460 covers `sort[T]`-style.
+added the generic-body side.
 
 ## Cross-references
 

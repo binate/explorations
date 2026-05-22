@@ -35,24 +35,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
      value of the test is target-dependent).
 - Pick a mechanism, drop the xfails, and write the variants.
 
-### Generics — Slice 7 (cross-package generic bodies) — PARTIALLY LANDED
-- Q7 DECIDED 2026-05-21: source-text bodies in `.bni` for
-  generic decls only (C++ template-header analog).
-- **7a (funcs)**: cross-package generic functions work end-to-end
-  (parser keeps generic-decl bodies in .bni; loader merger
-  includes them; IR-gen + type-checker dispatch via
-  `pkg.f[T](args)`).  Conformance 460 covers it.  Xfail
-  boot-comp because the pinned `bnc-0.0.1` builder predates Q7.
-- **7b (structs) NOT STARTED**: type-checker
-  `resolveTypeInstantiation` still hard-rejects pkg-qualified
-  heads ("cross-package generic-type instantiation lands in a
-  later slice").  Needs cross-package GenericTypeDecls
-  collection + qualified lookup.  IR-gen side already registers
-  imported generic struct decls under the alias.
-- **7c (interfaces) NOT STARTED**: parallel to 7b on the
-  type-checker side; IR-gen already stashes imported generic
-  iface decls under the alias via collectInterfaceFromDecl.
-- See plan-generics.md § "Slice 7" for the full breakdown.
 
 ### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
 - **Problem**: with the current rules, `int` (and other predeclared
