@@ -32,6 +32,27 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   to be target-agnostic (option 3).  The substitution-syntax
   option (option 2) wasn't needed.
 
+### `println(int64)` hangs on arm32-baremetal
+- Discovered 2026-05-22 while clearing 330's LP64 xfail: the
+  `bit_cast(int, ...)` → `bit_cast(int64, ...)` rewrite makes 330
+  compile on ILP32, but the test then times out under qemu —
+  `println(int64)` either hangs forever or runs astronomically
+  slow on bare-metal arm32.
+- Probable cause: the int64 digit-extraction loop in
+  pkg/bootstrap.formatInt64 divides by 10 repeatedly; on 32-bit
+  this resolves to an AEABI `__aeabi_ldivmod` helper from libgcc.
+  The bare-metal runtime impl-path may be missing the helper, or
+  the helper is linked but not delivering termination (a
+  miscompiled long-divide could loop), or the format-buffer
+  overflows.
+- Pinned by `conformance/330_float_bit_exact.xfail.builder-comp_-
+  arm32_baremetal`.  Same code path is likely hit by any other
+  arm32-baremetal test that prints an int64 / uint64 value.
+- Fix sketch: trace the AEABI helpers actually linked into a
+  bare-metal binary; if `__aeabi_ldivmod` is missing, add it via
+  the libgcc link line (already wired by `applyTarget`); if
+  present but mis-emitted, look at the codegen for OP_DIV /
+  OP_MOD on int64 operands under arm32.
 
 ### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
 - **Problem**: with the current rules, `int` (and other predeclared
