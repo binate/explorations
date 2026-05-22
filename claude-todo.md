@@ -20,34 +20,17 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - Conformance 444 / 445 / 450 / 458 flipped from xfail to pass
   on `builder-comp_native_aa64-comp_native_aa64` (binate 01bb5b6).
 
-### Substitute LP64-pinned conformance tests with target-aware variants
-- **Why**: A handful of existing conformance tests pin LP64-specific
-  expected output or use `int`-typed bit_casts that assume `int` is
-  64 bits.  Under `--target arm32-baremetal` (and arm32-linux once
-  the codegen catches up), `int` is 32 bits and these tests
-  legitimately produce different output — not because of a bug
-  but because the test was written before there was a 32-bit
-  target.
-- **Currently xfailed on arm32-baremetal**:
-  - `290_sizeof_alignof` — `.expected` hardcoded for LP64 sizes
-    (sizeof(int)=8, sizeof(*[]int)=16, sizeof(@[]int)=32 etc.).
-    ILP32 emits 4 / 8 / 16.
-  - `330_float_bit_exact` — `bit_cast(int, float64)` — invalid
-    LLVM cast on 32-bit int; works on LP64 because int == int64.
-  - More likely to surface as the arm32 modes pick up more tests.
-- **Mechanism options to evaluate** (no decision yet):
-  1. Per-target `.expected.<mode>` overrides (e.g.
-     `290_sizeof_alignof.expected.boot-comp_arm32_baremetal`).
-     Local, file-based; tracks well with the existing xfail
-     mechanism's shape.
-  2. Substitution syntax in `.expected` (e.g. `@INTSIZE@`) that
-     the conformance runner resolves per target.  Less per-mode
-     duplication; needs runner support.
-  3. Rewrite the .bn to use explicit `int64` everywhere so the
-     test is target-agnostic by construction.  Works for 330 but
-     not for 290 (which tests the predeclared int's size — the
-     value of the test is target-dependent).
-- Pick a mechanism, drop the xfails, and write the variants.
+### ~~Substitute LP64-pinned conformance tests with target-aware variants~~ — DONE 2026-05-22
+- **Mechanism**: `conformance/run.sh` now honors per-mode
+  `NNN_name.expected.<mode>` (and `.error.<mode>`) overrides,
+  mirroring the `.xfail.<mode>` convention.  See binate 39bac8a.
+- **Tests retired**: 290 (override) and 330 (rewritten to
+  `bit_cast(int64, ...)`).  Both xfail.builder-comp_arm32_-
+  baremetal markers gone.  See binate 0044cde.
+- Approach for future arm32-broken tests: either drop in
+  an `.expected.<mode>` override (option 1) or rewrite the .bn
+  to be target-agnostic (option 3).  The substitution-syntax
+  option (option 2) wasn't needed.
 
 
 ### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
