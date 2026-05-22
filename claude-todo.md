@@ -122,24 +122,82 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   Revisit when generics land or when a user-written `printIt`-
   style function becomes pressing.
 
-### Use interfaces more in non-bootstrap-runnable code (opportunistic)
-- **Constraint**: the bootstrap subset doesn't support interfaces
-  (see `bootstrap-subset.md`), so anything in `cmd/bnc`'s
-  dependency tree stays interface-free.  But everything *outside*
-  that tree (cmd/bni, cmd/bnas, cmd/bnlint, pkg/vm, pkg/rt,
-  pkg/lint, pkg/asm/parse, plus tests) is built by bnc first and
-  then exercised — full language is fair game there.
+### Use interfaces more (opportunistic)
+- **Constraint**: now bounded by `BUILDER_VERSION`-pinned bnc
+  rather than the historical bootstrap subset — cmd/bnc no longer
+  has to be bootstrap-runnable now that boot mode is gone (binate
+  `c1be3cc`, 2026-05-21).  bnc-0.0.1 (the current BUILDER) supports
+  interfaces, so anything in cmd/bnc's dep tree is fair game too.
+  Generics are NOT in bnc-0.0.1, but interfaces are.
 - **Candidates that look natural**: anywhere we currently
   switch on a kind tag with a dispatch table (e.g. opcode
   handlers, AST visitors, asm encoders) is the textbook shape
   where an interface compresses the dispatch.  Print/format
   helpers that take a kind + value pair are another easy lift.
+  pkg/ast's tagged-union nodes (DECL_*, EXPR_*, STMT_*, TEXPR_*
+  Kind enums + switch-on-Kind in pkg/{parser,types,ir,codegen,
+  loader}) is the biggest single target but also the longest
+  refactor — touches every layer.
 - **How to land**: pick one site per PR, define the interface
   alongside, methodify the concrete types, drop the dispatch
   switch.  Keeps each step small enough that conformance +
   unit-tests stay green.  Mirrors the
   `migrate-to-method-form-opportunistic` pattern from
   `claude-todo-done.md` (DONE 2026-05-13).
+
+### Use `@[]@[]char{...}` composite literals (opportunistic)
+- **Constraint**: previously forbidden because bootstrap didn't
+  support managed-slice-of-managed-slice composite literals; now
+  unlocked everywhere (bnc-0.0.1 supports them).  Mirrors the
+  unconstraint situation for `cmd/bnlint`'s tests, which already
+  use this shape.
+- **Pattern to replace**: a known-fixed-length run of
+  `args = appendCharSlice(args, "foo"); args = appendCharSlice(args, "bar"); ...`
+  → `var args @[]@[]char = @[]@[]char{"foo", "bar", ...}`.  Same
+  shape for `appendRawCharSlice` (since string literals are
+  already `*[]const char`).  When the run mixes constants with
+  computed values, leave it alone — the literal form only helps
+  for known-static sets.
+- **Candidates**: argv construction in build scripts (e.g.
+  `cmd/bnc/{main,test,compile}.bn` clang-args setup), test
+  scaffolding (anywhere a test builds a known `@[]@[]char`
+  fixture), and short fixed sets of import paths.
+- **Why bother**: cuts line count, removes a runtime O(n²)
+  rebuild pattern (each `appendCharSlice` allocates a new
+  slice + copies), and matches the language's expressive
+  default instead of the bootstrap workaround.
+
+### Use function values to collapse explicit dispatch shims (opportunistic)
+- **Constraint**: function values are unlocked now that
+  cmd/bnc is no longer bootstrap-bound; bnc-0.0.1 has the
+  function-value machinery (see plan-function-values-phase-3
+  in `claude-todo-done.md`).
+- **Pattern to look for**: places where we route through a
+  `kind` int + a per-kind dispatch table, when the data flow
+  would be clearer as "the caller hands us the function it
+  wants invoked".  Candidates need a closer look before they're
+  fully scoped — function-value adoption isn't always a win
+  (each call adds an indirect-call overhead), so this is
+  selectively-opportunistic, not blanket.
+- **How to land**: TBD; needs concrete site survey.
+
+### Generics — BLOCKED on BUILDER_VERSION bump
+- **What's unlocked**: collapsing the dozens of per-type
+  `appendXxx`, `appendXxxPtr`, etc. helpers across cmd/bnc
+  and pkg/* into a single `func append[T](s @[]T, v T) @[]T`.
+  Same for the per-type slice-copy patterns in pkg/loader,
+  pkg/types, pkg/ir.
+- **Blocked because**: generics landed in binate slices
+  4–7 (`pkg/{parser,loader,ir,types}: Slice 4a` and later)
+  AFTER bnc-0.0.1 was tagged.  The current BUILDER (bnc-0.0.1)
+  can't parse generic syntax, so any cmd/bnc-tree code using
+  generics fails to compile.
+- **Cost of unblocking**: requires a bnc-0.0.2 release.  Per
+  the user's standing guidance, only advance BUILDER_VERSION
+  when there are substantial language gains to justify the
+  longer build ladder — generics IS a substantial gain, so
+  whenever the language settles around them, that's a natural
+  trigger for the bump.
 
 ### Replace repeated `WriteStr(literal)` runs with adjacent-string concat (opportunistic)
 - **Pattern**: code that builds output via a CharBuf often calls
