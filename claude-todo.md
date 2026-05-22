@@ -470,6 +470,28 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   most of the cost isn't where it looks like it should be.
 - **Not blocking anything**; mitigation in tree (`1bffc43`).
 
+### pkg/asm/aarch64 slow under `builder-comp-int-int` (perf)
+- **Symptom**: under `builder-comp-int-int`, the
+  `pkg/asm/aarch64` test package alone is slow enough to time
+  out its CI shard at the 30-min cap. Other packages in the
+  same mode finish comfortably.
+- **Mitigation in tree** (2026-05-22): xfailed via
+  `scripts/unittest/pkg-asm-aarch64.xfail.builder-comp-int-int`.
+  Coverage is preserved by `builder-comp`, `builder-comp-int`,
+  `builder-comp-comp*` and the native_aa64 / arm32 modes —
+  this is purely a double-interp pacing issue.
+- **Hypothesis**: same shape as the codegen `TestEmitDebug*`
+  entry above — many small CharBuf / refcount / bounds-check
+  operations per emitted instruction, each paying 2× bytecode-
+  dispatch overhead under VM-on-VM. The aarch64 assembler is
+  string-heavy (encoding tables, mnemonic dispatch). Hasn't
+  been profiled.
+- **Next step**: profile one `pkg/asm/aarch64` test under
+  `builder-comp-int-int` to confirm the hypothesis and identify
+  the actual hot path before guessing at fixes. See the codegen
+  entry above for the lesson on guessing-without-profiling.
+- **Not blocking anything**; mitigation in tree.
+
 ### Function values — MAJOR PROJECT (interop prerequisite)
 - **Plan docs**: `explorations/plan-function-values.md` (parent;
   Phase 1 COMPLETE) + `explorations/plan-function-values-phase-3.md`
