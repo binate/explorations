@@ -1,7 +1,16 @@
 # Binate Bootstrap Interpreter — Language Subset Reference
 
-This document describes the subset of the Binate language supported by the Go bootstrap
-interpreter (`github.com/binate/bootstrap`), including what's supported, what's not,
+> **Status note (2026-05-21):** The Go bootstrap interpreter has been retired.
+> The current operative constraint for `cmd/bnc`'s tree is "must be compilable
+> by the BUILDER bnc" (`bnc-0.0.1`), whose supported language is richer than
+> what this doc was originally written to describe (e.g., it accepts Phase 1
+> function values). This doc remains a useful catalog of language features and
+> their supported-by-X status but is no longer the single source of truth for
+> what `cmd/bnc` may use. See `.claude/CLAUDE.md` § "Builder Compatibility
+> Constraint" for the current rule.
+
+This document describes the subset of the Binate language supported by the (now-retired)
+Go bootstrap interpreter (`github.com/binate/bootstrap`), including what's supported, what's not,
 known bugs/inconsistencies versus the intended language spec, and migration notes.
 
 ---
@@ -287,19 +296,18 @@ func divmod(a int, b int) (int, int) { return a / b, a % b }
 - `impl Type : Interface` — interfaces and dynamic dispatch are still deferred.
 - Method values (`x.M` as a first-class function value) — depend on
   Phase 2 (closures, for receiver capture). Method expressions
-  (`T.M`, no receiver bound) are supported under compiled and VM
-  modes as of Slice A.6 (2026-05-01) but remain unsupported under
-  the Go bootstrap interpreter.
+  (`T.M`, no receiver bound) ARE supported (Phase 1 Slice A.6,
+  2026-05-01).
 - Closures (function literals that capture enclosing-scope locals)
   — depend on Phase 2 capture analysis.
-- Variadic parameters: `func f(args ...int)` — not in bootstrap
-- Function types as values, including non-capturing function
-  literals `func(x int) int { ... }`. **Status (2026-05-01):**
-  function values (`*func(...)` / `@func(...)`) and non-capturing
-  function literals ARE now supported under compiled and VM modes
-  (Phase 1 of plan-function-values.md, Slices A.1–A.7), but remain
-  unsupported under the Go bootstrap interpreter — which is why
-  the 338–342 + 344 conformance tests are xfailed under `boot`.
+- Variadic parameters: `func f(args ...int)` — not yet supported.
+
+**Supported (added 2026-05-01):**
+- Function values (`*func(...)` / `@func(...)`) and non-capturing
+  function literals `func(x int) int { ... }` — Phase 1 of
+  `plan-function-values.md` (Slices A.1–A.7). Cross-mode dispatch
+  (compiled ↔ VM) also LANDED via Phase 3 (Slices 3.1–3.4).
+  Conformance tests 338–342 + 344 cover each slice.
 
 ---
 
@@ -513,9 +521,11 @@ works around this with concrete types per combination (e.g., separate map-like
 structures for different key/value types).
 
 ### Function Literals and Closures
-No anonymous functions, no closures. Functions cannot be stored in variables or passed
-as arguments. The self-hosted code uses switch statements and explicit dispatching
-instead of function tables.
+Non-capturing function literals (`func(x int) int { ... }`) are supported, as are
+function values (`*func(...)` / `@func(...)`) — see Phase 1 of
+`plan-function-values.md`. Closures (literals that capture enclosing-scope locals)
+and method values (`x.M`) are not yet supported and depend on Phase 2 capture
+design.
 
 ### Variadic Parameters and Spread
 User-defined variadic functions (`func f(args ...T)`) are not supported. The spread
