@@ -174,19 +174,156 @@ The existing `WriteX86_64` calls handle both.
 
 ### Phase 3: Op coverage — straight-line code
 
-Bring up enough opcode lowering to pass the bulk of arithmetic /
-control-flow / pointer / struct / slice tests:
-- arith: ADD/SUB/MUL/DIV/SHL/SHR/AND/OR/XOR/NEG/CMP/SETcc
-- branches: Jcc / JMP / fixup resolution
-- loads/stores: MOV reg/mem/imm in all sizes (8/16/32/64)
-- function frame: push rbp / mov rbp,rsp / sub rsp / pop rbp / ret
-- alloca: SP arithmetic
-- calls: SysV-AMD64 arg-reg pack (rdi/rsi/rdx/rcx/r8/r9 + stack
-  overflow), return in rax, multi-return packing in rax/rdx, sret
-  via hidden rdi pointer.
-- string lowering: RIP-relative LEA for `.rodata`-style references.
+Goal: pass the bulk of arithmetic / control-flow / pointer / struct
+/ slice tests by lowering one IR op family at a time. Each sub-slice
+ends with the conformance suite re-run (so the green-test count
+moves visibly) and unit tests pinning the new lowering.
 
-Track failures via xfail markers — same mechanism as aa64.
+Sub-slices, in landing order. Each is meant to be a single
+cherry-pickable commit, ending green.
+
+#### Phase 3a — Function frame + ret-void
+
+Smallest end-to-end pipeline: every function gets a valid
+prologue / epilogue and `ret`. `EmitObject` returns true.
+
+- Frame planning via `pkg/native/common.NewRegMap(SysV_AMD64())`
+  + `PlanFrame` (already CallConv-aware after Phase 1).
+- Prologue: `push rbp` / `mov rbp, rsp` / `sub rsp, <frameSize>`.
+- Epilogue: `mov rsp, rbp` / `pop rbp` / `ret`.
+- Handle `OP_RETURN` for void only (other ops are no-ops in
+  this slice — `bn_main` body is silent).
+- Symbol table: each non-extern function gets a global symbol;
+  externs declared but unresolved.
+- ELF emission via `pkg/asm/elf.WriteX86_64`.
+
+**Expected outcome**: tests with empty / void-only main pass
+(if any exist); most still fail with "wrong output" because
+their bodies are silent. The pipeline produces a runnable ELF.
+
+#### Phase 3b — Integer constants + return value + binary arith
+
+Make `func f() int { return a + b * c }`-shape functions work.
+
+- `OP_CONST_INT` → MOV reg, imm (sign-extended; sized to type).
+- `OP_BINARY`: ADD/SUB/MUL (IMUL r/r, IMUL r/r/imm)/AND/OR/XOR
+  /SHL/SHR/SAR. SUB is straightforward; division (DIV/IDIV) needs
+  RDX:RAX setup so split into its own micro-step below.
+- `OP_UNARY`: NEG, NOT.
+- `OP_RETURN` for scalar values: result in RAX (RAX/RDX for 16-byte
+  multi-returns will land in 3f).
+- Register allocator: same spill-everything policy as aa64; uses
+  the existing `RegMap` SpillIDs / SpillOffsets tables.
+
+**Expected outcome**: conformance tests whose user code is a single
+expression chain start passing — probably handful of them.
+
+#### Phase 3c — Comparisons + control flow
+
+Make `if` / `for` / `while` work.
+
+- `OP_COMPARE`: `CMP r, r` + `SETcc r8` → MOVZX r, r8 for the
+  bool result.
+- `OP_BRANCH` conditional: TEST/JZ/JNZ + JMP.
+- `OP_BRANCH` unconditional: JMP.
+- Fixup resolution via `pkg/asm/x64.ResolveFixups`.
+- `OP_PHI` (if the IR emits any at this layer; verify whether
+  arm64 handles phis explicitly or relies on spill-everything to
+  flatten them — adopt the same approach).
+
+**Expected outcome**: any conformance test whose user code is
+pure-arithmetic + control-flow (no I/O, no managed memory) starts
+passing.
+
+#### Phase 3d — Memory ops: load / store / alloc / GEP
+
+- `OP_ALLOC`: SP arithmetic, zero-init for aggregates via STOSQ
+  or a memset-style runtime call (or inline `mov qword ptr [rsp+i*8], 0`
+  for small slots — match aa64's approach).
+- `OP_LOAD` / `OP_STORE`: MOV in all four sizes (i8/i16/i32/i64),
+  with sign / zero extension where the destination is wider.
+- `OP_GET_FIELD_PTR`: LEA r, [base + FieldOffset].
+- `OP_GET_ELEM_PTR`: LEA r, [base + index * elemSize] (use SIB
+  addressing where elemSize ∈ {1,2,4,8}; otherwise IMUL + LEA).
+
+**Expected outcome**: tests that use local variables / struct
+fields / array indexing start passing.
+
+#### Phase 3e — Direct calls + string constants
+
+First slice that lets tests with printed output actually pass.
+
+- `OP_CALL` (direct): SysV-AMD64 arg-reg pack — scalars in
+  RDI/RSI/RDX/RCX/R8/R9, overflow on stack (16-byte aligned at the
+  call boundary). Returns in RAX. Powered by the CallConv-aware
+  `CallArgRegStart` / `CallArgStackOff` / `CallStackBytes` from
+  Phase 1.
+- Calls to extern `bootstrap.*` C functions — same shape as
+  direct calls; CalleeUsesCSret handled in 3h.
+- `OP_CONST_STRING`: RIP-relative LEA `r, [rip + Lstr_<id>]`
+  with a R_X86_64_PC32 reloc.
+- String / rodata emission: `.rodata` section in the ELF; the
+  asm/elf layer already emits .rodata bytes (used by aa64-arm32
+  path equivalents).
+- `OP_RODATA_*` family (mirror aa64's handling).
+
+**Expected outcome**: "hello world" and other simple-output tests
+pass. This is likely the biggest single jump in green count.
+
+#### Phase 3f — Multi-return + EXTRACT
+
+- Multi-return tuple ≤ 16 bytes (≤ 2 GP words): packed in RAX/RDX
+  per SysV ABI.
+- `OP_EXTRACT`: read field i from the multi-return tuple via the
+  callee's spill-slot or direct register read.
+- Multi-return tuple > 16 bytes: sret indirection (handled in 3h
+  uniformly with single-aggregate-return).
+
+**Expected outcome**: tests using `(int, error)`-shape multi
+returns pass.
+
+#### Phase 3g — Refcount + box + make (managed memory)
+
+Last big block before sret/aggregates.
+
+- `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC`: call `bn_rt__RefInc` /
+  `bn_rt__RefDec` (same runtime entry points aa64 calls; the runtime
+  is C-compiled for x86_64-linux via the standard libc-host path).
+- `OP_BOX`: call `bn_rt__Box` (allocate + initialise + RefInc).
+- `OP_MAKE`: call `bn_rt__Alloc` (raw heap byte allocation).
+- `OP_MAKE_SLICE`: alloca a managed-slice header + call `bn_rt__Alloc`
+  for the data region.
+- `OP_CONST_NIL` for aggregate types: zero-fill the spill slot's
+  data region.
+
+**Expected outcome**: tests using managed pointers and managed
+slices pass. Triggers the runtime contract — pkg/rt must compile
+for x86_64-linux via the existing LLVM path (no change there, just
+verify it links).
+
+#### Phase 3h — Sret returns (single aggregate + big multi-return)
+
+- Single aggregate return > 16 bytes (CallConv.InternalSretBytes):
+  caller passes hidden buffer pointer in RDI, all other args shift
+  by one register. Callee writes result through RDI and returns
+  RDI in RAX (SysV requires RAX = the sret buffer pointer on
+  return).
+- `CallConv.CalleeUsesCSret`: same shape for C-extern callees
+  returning aggregates > 16 bytes (CalleeUsesCSret already returns
+  the right thing under SysV — see Phase 1 tests).
+- Big multi-return (tuple > 16 bytes): sret indirection too.
+
+**Expected outcome**: tests returning structs by value and tests
+calling C-extern functions returning aggregates pass. End of
+Phase 3.
+
+After 3h, expected conformance state: ~85–90% of tests green
+under `builder-comp_native_x64-comp_native_x64`, with the
+remainder concentrated in floats / function-values / interface
+dispatch — i.e. Phase 4's territory.
+
+Each sub-slice tracks failures via xfail markers — same mechanism
+as aa64 — and audits the xfail list at the end of the slice.
 
 ### Phase 4: Aggregates, floats, ifaces, indirect calls
 
