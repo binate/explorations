@@ -6,6 +6,35 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
+### Substitute LP64-pinned conformance tests with target-aware variants
+- **Why**: A handful of existing conformance tests pin LP64-specific
+  expected output or use `int`-typed bit_casts that assume `int` is
+  64 bits.  Under `--target arm32-baremetal` (and arm32-linux once
+  the codegen catches up), `int` is 32 bits and these tests
+  legitimately produce different output — not because of a bug
+  but because the test was written before there was a 32-bit
+  target.
+- **Currently xfailed on arm32-baremetal**:
+  - `290_sizeof_alignof` — `.expected` hardcoded for LP64 sizes
+    (sizeof(int)=8, sizeof(*[]int)=16, sizeof(@[]int)=32 etc.).
+    ILP32 emits 4 / 8 / 16.
+  - `330_float_bit_exact` — `bit_cast(int, float64)` — invalid
+    LLVM cast on 32-bit int; works on LP64 because int == int64.
+  - More likely to surface as the arm32 modes pick up more tests.
+- **Mechanism options to evaluate** (no decision yet):
+  1. Per-target `.expected.<mode>` overrides (e.g.
+     `290_sizeof_alignof.expected.boot-comp_arm32_baremetal`).
+     Local, file-based; tracks well with the existing xfail
+     mechanism's shape.
+  2. Substitution syntax in `.expected` (e.g. `@INTSIZE@`) that
+     the conformance runner resolves per target.  Less per-mode
+     duplication; needs runner support.
+  3. Rewrite the .bn to use explicit `int64` everywhere so the
+     test is target-agnostic by construction.  Works for 330 but
+     not for 290 (which tests the predeclared int's size — the
+     value of the test is target-dependent).
+- Pick a mechanism, drop the xfails, and write the variants.
+
 ### Generics — Slice 7 (cross-package generic bodies) — NOT STARTED
 - Per plan-generics.md § "Slice 7": pin Q7 (body-encoding
   scheme), encode generic bodies in `.bni` (or sibling
@@ -667,27 +696,25 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - Missing-return check (test 245) uses Go-style termination analysis simplified: RETURN terminates; `panic(...)` terminates; BLOCK terminates if last stmt does; IF terminates if both branches do; FOR with no condition and no `break` in body terminates; SWITCH with default and all cases terminating (no break) terminates.
 - **Labeled break**: Binate currently has no labels. If/when we add them, termination analysis needs to track labels — a `break L` inside a nested for doesn't break the inner for (contrary to the current "any break disqualifies enclosing for/switch" rule). Revisit when labels are on the table.
 
-### Pointers to interface values
+### ~~Pointers to interface values~~ — DONE 2026-05-21
 - **Plan**: `plan-pointers-to-iface-values.md` (sliced P.1–P.5).
-  Slice P.1 (audit + conformance pins) and Slice P.2 (fix
-  `@(*I)` / `@(@I)` deref-dispatch) LANDED 2026-05-20.
-  Slice P.3 (smoothing for pointer-to-iv receivers) LANDED
-  2026-05-21.
+  Slices P.1 (audit) + P.2 (fix `@(*I)` / `@(@I)` deref-
+  dispatch) LANDED 2026-05-20; P.3 (smoothing for pointer-to-iv
+  receivers) + P.4 (iv-in-slice / iv-in-array element-write)
+  LANDED 2026-05-21.  P.5 (bootstrap parity) DROPPED — boot
+  mode is gone.
 - Design pinned in `claude-notes.md` § "Interfaces" line 421:
   `**Stringer`, `*@Stringer`, `@(*Stringer)`, `@(@Stringer)` are
   all valid pointer-to-iv shapes; parens are required by the
   grammar to disambiguate the `@(@…)` form.
-- **Current state** (2026-05-21): conformance 408 + 443 + 444 +
-  445 all pass — every pointer-to-iv shape with `(*p).Foo()`
-  dispatch works after the deref-typing fix in
-  `pkg/ir/gen_expr.bn`.  Conformance 438 / 448 / 449 / 450 also
-  all pass — `p.Foo()` smoothing through every iv-ptr shape
-  works after Slice P.3's tryMethodCall + isInterfaceMethodCall
-  /genInterfaceMethodCall extension.  Conformance 439–441 pin
-  iv-in-slice / iv-in-array segfaulting — Slice P.4.
-  Conformance 442 pins pointer-to-iv-in-struct working.
-- Needed for: generics (`*T` where `T=Stringer`), out parameters,
-  arrays of interfaces, containers.
+- **Conformance pins**: 408 + 443 + 444 + 445 cover
+  `(*p).Foo()` dispatch through every shape; 438 + 452 + 453 +
+  450 cover `p.Foo()` smoothing; 439 + 440 + 441 cover
+  iv-in-slice / iv-in-array; 442 pins pointer-to-iv struct
+  field; 456 pins the orthogonal `(*p).x` bnc-compiled bug
+  still in `gen_selector.bn` (see entry above).
+- Was needed for: generics (`*T` where `T=Stringer`), out
+  parameters, arrays of interfaces, containers.
 
 ### `(*p).x` (field access through explicit deref) returns 0 — bnc-compiled only
 - Discovered 2026-05-21 while auditing Slice P.2 (pointer-to-iv
@@ -697,7 +724,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   EXPR_UNARY-base case — only IDENT / SELECTOR / CALL / BUILTIN
   bases route to a real field-pointer.  Boot (Go interpreter)
   handles it correctly; bnc-compiled (all modes) returns 0.
-- Pinned by `conformance/447_field_access_through_explicit_deref`
+- Pinned by `conformance/456_field_access_through_explicit_deref`
   with `.xfail.{boot-comp, boot-comp-int, boot-comp-int-int,
   boot-comp-comp, boot-comp-comp-int, boot-comp-comp-comp}`.
 - Workaround: use `p.x` (auto-deref) instead.  Both raw and
