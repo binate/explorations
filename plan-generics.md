@@ -1,10 +1,13 @@
 # Plan: Generics
 
-> **Status: SAME-PACKAGE COMPLETE 2026-05-21.**  Slices 1–6 fully
-> implemented (generic functions, structs, and interfaces all
-> end-to-end including constraint-method dispatch via interface
-> inheritance and instantiated-interface vtable dispatch).
-> Slice 7 (cross-package generic bodies) untouched.  See per-slice
+> **Status: SAME-PKG COMPLETE, CROSS-PKG PARTIAL 2026-05-21.**
+> Slices 1–6 fully implemented (generic functions, structs, and
+> interfaces all end-to-end same-package, including constraint-
+> method dispatch via interface inheritance and instantiated-
+> interface vtable dispatch).  Slice 7 partially implemented:
+> cross-package generic FUNCTIONS work (Q7 DECIDED: source-text
+> bodies in `.bni`); cross-package generic STRUCTS and
+> INTERFACES still need the type-checker side.  See per-slice
 > headings further down for landing commits and residual work.
 >
 > **Original design notes (2026-05-06; AMENDED 2026-05-12).**
@@ -334,24 +337,41 @@ per-(impl, *concrete-instantiation*) rather than per-(impl,
 interface).  Open: how vtable globals are named when the
 interface itself is generic.  Likely deferred to Slice 6 below.
 
-### Q7 — `.bni` body emission
+### Q7 — `.bni` body emission — DECIDED 2026-05-21
 
 > Scope narrowed 2026-05-12: impl visibility is solved by the
 > cross-package interfaces machinery (`plan-cross-package-
 > interfaces.md`, landed 2026-05-07).  This question now only
 > covers the **generic-body** side.
 
-Pinning needs:
+**Decision**: source-text bodies in `.bni`.  Generic decls
+(`func f[T any]`, `type Vec[T any] struct {...}`,
+`interface Container[T any] {...}`) — and only those — carry
+their full source body in the `.bni`.  Non-generic decls stay
+signature-only.
 
-- Encoding format for generic bodies in `.bni` (currently
-  signature-only).  Whole AST?  A serialized canonical form?
-  Reparse the source text?
-- Whether *all* `.bn` source comes along (simpler — but bloats
-  every `.bni`) or just the generic declarations (smaller
-  `.bni`, more bookkeeping).
-- Versioning: a consumer instantiating against an old `.bni`
-  body — does the compiler reject across an API-skew boundary,
-  or silently use the cached version?
+**Rationale**: monomorphization requires the body at the
+consumer; the body has to be visible regardless.  Inline-source
+is the smallest extension to the current `.bni` format — no new
+serialization surface — and the analog of C++ template-header
+files: templated definitions in the public header, non-templated
+in the implementation TU.  Binary-only distribution remains
+viable for everything except generics.
+
+Considered alternatives:
+
+- **Serialized canonical AST/IR sidecar.**  Smaller wire format
+  in principle but requires a writer / reader pair, a stable
+  encoding, and a versioning story for cross-version `.bni`
+  skew.  Worth revisiting if `.bni` size becomes a problem or
+  if package distribution needs to decouple from `.bn` source.
+- **Reparse the producer's `.bn` source on demand.**  Cheap to
+  implement but couples consumers to the producer's source
+  layout — incompatible with binary-only distribution.
+
+**Versioning**: out of scope for v1 — consumer compiles against
+whatever `.bni` it sees.  Skew detection is a packaging concern
+that lands separately once package distribution exists.
 
 ### Q8 — Bootstrap subset interaction
 
@@ -474,18 +494,40 @@ Each slice is independently shippable, ordered by dependency.
   conformance 454 (multi-method) and 455 (parent-instantiation +
   upcast) cover this.
 
-### Slice 7 — Cross-package generics (`.bni` bodies) — NOT STARTED
+### Slice 7 — Cross-package generics (`.bni` bodies) — PARTIALLY LANDED
 
-- Pin Q7 (body-encoding scheme).
-- Encode generic bodies in `.bni` (or sibling manifest).
-- Consumer instantiates by reading the body and
-  monomorphizing locally.
+Q7 pinned 2026-05-21: source-text bodies in `.bni` for generic
+decls only (see Q7 section).
+
+- **7a — cross-package generic functions** (WIP, will land via
+  the next commit): parser keeps body for generic decls in
+  `.bni` mode; loader merger includes generic .bni decls into
+  the merged AST; IR-gen registers imported generic decls under
+  the import alias via parallel `genericDeclPkgs`; gen_call.bn
+  + type-checker `checkInstantiateOrIndex` recognize
+  `pkg.f[T](...)` (SELECTOR head) and route to
+  monomorphization.  Conformance 460 (`Id[int]` from genlib)
+  passes boot-comp-comp; xfail.boot-comp because the pinned
+  `bnc-0.0.1` builder predates the body-in-`.bni` rule.
+- **7b — cross-package generic structs** (NOT STARTED):
+  type-checker's `resolveTypeInstantiation` rejects
+  `pkg.Pair[int]` early with "cross-package generic-type
+  instantiation lands in a later slice"; needs the type-checker
+  to (1) collect imported generic type decls into a
+  per-package registry (mirror IR-gen's `genericTypeDeclPkgs`),
+  (2) cross-package-aware lookup in `resolveTypeInstantiation`.
+  IR-gen side already registers imported generic struct decls.
+- **7c — cross-package generic interfaces** (NOT STARTED):
+  parallel to 7b on the type-checker side; the IR-gen
+  collectInterfaceFromDecl already stashes imported generic
+  iface decls under the import alias.
 
 Note: impl visibility is already cross-package per Slices
 2.6–2.9 of `plan-cross-package-interfaces.md` — Slice 7 only
 adds the generic-body side.
 
-Tests: cross-package `Vec[int]`, `sort[T]` instantiation.
+Tests: cross-package `Vec[int]`, `sort[T]`, `Container[int]`.
+Currently 460 covers `sort[T]`-style.
 
 ## Cross-references
 
