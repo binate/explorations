@@ -6,6 +6,26 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
+### Native aa64 backend: managed-pointer-to-iv deref segfaults at dispatch
+- Pinned by conformance 444 / 445 / 450 / 458 with
+  `.xfail.boot-comp_native_aa64-comp_native_aa64` (also CI's
+  `aa64-native` matrix entry).
+- Symptom: a generic LP64 LLVM build runs these tests fine; on
+  the aa64 native backend they segfault during `(*p).Foo()` or
+  `p.Foo()` where p is `@(*I)` / `@(@I)`.  `*@I` (raw outer
+  pointer) passes — only the managed-outer-pointer shapes fail.
+- Probable area: `pkg/native/arm64/arm64_emit.bn` `emitLoad`
+  aggregate path treats the deref as a pointer pass-through
+  (MOV rd ← src), but `emitCallIfaceMethod` (arm64_iface.bn)
+  then loads `vtable` / `data` from `[ivAddr+8]` / `[ivAddr+0]`.
+  For a boxed iv (the only difference between 443 and 444),
+  something about that load chain miscomputes — needs trace
+  through actual assembly.
+- Discovered while finishing Slice P.4 of pointer-to-iv work
+  (2026-05-21); CI's native_aa64 matrix entry surfaced the
+  divergence.  Marked xfail rather than chased because the bug
+  is in the aa64 backend, not in the IR fixes.
+
 ### Substitute LP64-pinned conformance tests with target-aware variants
 - **Why**: A handful of existing conformance tests pin LP64-specific
   expected output or use `int`-typed bit_casts that assume `int` is
