@@ -215,6 +215,40 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   rebuild pattern (each `appendCharSlice` allocates a new
   slice + copies), and matches the language's expressive
   default instead of the bootstrap workaround.
+- **Caveat — function calls inside `@[]@[]char{...}` are broken
+  in the current bnc.**  Replacing
+  `var a @[]@[]char = make_slice(@[]char, 1); a[0] = buf.CopyStr("libc")`
+  with `var a @[]@[]char = @[]@[]char{buf.CopyStr("libc")}` causes
+  `a[0]` to come out as the wrong value at runtime (e.g.
+  `cmd/bnc/compile_test.bn:TestAppendLibcImportNoDuplicate`
+  fails: the dedupe-by-streq check misses the existing entry and
+  appends a duplicate).  Until the bug is root-caused, only the
+  pure-string-literal form is safe — leave `make_slice + assign`
+  in place when any element is a function call.  See bug entry
+  below.
+
+### bnc: function-call element inside `@[]@[]char{...}` composite literal stores wrong value
+- **Symptom**: `var a @[]@[]char = @[]@[]char{buf.CopyStr("libc")}`
+  parses + compiles fine, but `a[0]` is not equal (under `streq`)
+  to `"libc"` at runtime.  Discovered while migrating
+  `cmd/bnc/compile_test.bn:TestAppendLibcImportNoDuplicate` to the
+  literal form — the test's dedupe check
+  (`for i { if streq((*aliases)[i], "libc") { return } }`) missed
+  the entry, so `appendLibcImport` appended a duplicate and
+  `len(aliases) != 1` tripped.
+- **Reverting** to `make_slice(@[]char, 1) + aliases[0] =
+  buf.CopyStr("libc")` makes the test pass — same value source,
+  different construction shape.
+- **Hypothesis**: codegen for the literal form mishandles the
+  refcount / lifetime of the call-result managed-slice, or stores
+  the wrong operand into the slot.  Not yet investigated.
+- **Workaround**: don't use function-call values inside
+  `@[]@[]char{...}`; use the explicit `make_slice + assign` form
+  for any element that comes from a call.  Pure string-literal
+  elements (`@[]@[]char{"foo", "bar"}`) work fine.
+- **Test gap**: no unit test pins the broken shape — would be a
+  `pkg/ir` or `pkg/codegen` test asserting that a composite literal
+  with a function-call element stores the call result.
 
 ### Use function values to collapse explicit dispatch shims (opportunistic)
 - **Constraint**: function values are unlocked now that
