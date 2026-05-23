@@ -120,41 +120,46 @@ must come from the LHS instead.
   fits in `hint`'s range → emit at `hint`.  Else fall through to
   the untyped path.
 
-#### Known prerequisite: OP_CONST_INT codegen for typed-unsigned ranges
+#### Open issue: Phase B's first attempt regressed 8 unrelated packages
 
 Attempted 2026-05-23.  An initial cut that wired hints through
 `genExprOrFuncRef` (already used by var decl / assignment / call
 args / return) broke 8 packages in pkg/asm + pkg/native, plus
-crashed pkg/bignum's `TestParseOverflowHex` at runtime.
+crashed pkg/bignum's `TestParseOverflowHex` at runtime
+(infinite-loop shape).
 
-Root cause: the codegen for `OP_CONST_INT` (`pkg/codegen/
-emit_instr.bn`) emits `add <type> <IntVal>, 0` with `IntVal`
-written verbatim via `out.WriteInt`.  When `IntVal` is a uint32
-value greater than `INT32_MAX` (e.g. `3221225472 = 0xC0000000`)
-and the target type is i32, LLVM treats `add i32 3221225472, 0`
-as out-of-range for signed-32 representation — the constant is
-silently truncated or reinterpreted in a way that doesn't match
-the untyped-then-narrow path.  Today that legacy path emits
-`add i64 3221225472, 0` followed by `trunc i64 ... to i32`,
-which preserves the bit pattern unambiguously.
+Initial hypothesis was that `OP_CONST_INT` codegen renders
+large unsigned constants (e.g. uint32 = 3221225472 = 0xC0000000)
+as out-of-range signed literals to LLVM.  Verified directly:
+`add i32 3221225472, 0` and `add i32 -1073741824, 0` produce
+identical machine code on aarch64 (both `mov w0, #-0x40000000`).
+So that's NOT the bug.
 
-The fix lives in `OP_CONST_INT` codegen, not in Phase B itself:
-when `instr.Typ` is unsigned-N-bit, emit the value as its
-two's-complement signed-N-bit representation (so a uint32 value
-`v >= 2^31` is written as `v - 2^32`).  Same bit pattern, LLVM-
-acceptable rendering.  Should be a small change in
-`emit_instr.bn`'s OP_CONST_INT branch; orthogonal to the
-context-propagation work but blocks it.
+The actual mechanism is still unidentified.  What we know:
+- The narrowing emits an OP_CONST_INT at the typed integer
+  (e.g. uint8 / uint32) instead of TYP_UNTYPED_INT.
+- Without the narrowing, the legacy path emits at
+  TYP_UNTYPED_INT (→ i64 LLVM type on host) then ensureWidth
+  inserts a `trunc i64 → iN` cast at the consumption site.
+- With the narrowing, the consumption site sees an already-
+  typed iN constant and ensureWidth becomes a no-op.
 
-Sub-step ordering:
+Same machine-level result, in principle.  Something in the IR
+shape or in downstream code that branches on `val.Typ.Kind ==
+TYP_UNTYPED_INT` is sensitive to the difference.  Next debug
+pass needs to find that branch.
 
-- **B0** *(prerequisite)* — Normalize OP_CONST_INT's LLVM
-  rendering for typed unsigned ints whose `IntVal` exceeds the
-  signed-N-bit range.  Two's-complement reinterpretation:
-  `IntVal - (1 << Width)` when `IntVal >= 1 << (Width - 1)` and
-  the type is unsigned.  Mirrors the existing `formatInt64`
-  magnitude trick.
-- B1, B2, B3 as above, after B0 lands.
+Sub-step ordering (revised):
+
+- **B0** *(needs investigation)* — Identify the specific
+  downstream code path that diverges when an int literal lands
+  as typed-iN vs TYP_UNTYPED_INT.  Likely candidates:
+  `widenType` (treats TYP_UNTYPED_INT specially); `ensureWidth`
+  (no-ops on width match); `EmitSliceSet` / store paths
+  (may auto-narrow based on operand kind); rt-call lowering
+  (slice-elem types, char-vs-byte interpretation, etc.).
+- B1+B2 — hint API + plumbing.  *(blocked on B0)*
+- B3 — `EXPR_INT_LIT` uses hint for untyped literals.
 
 ## Bignum → IntVal conversion
 
