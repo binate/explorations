@@ -1,13 +1,14 @@
 # Plan: Interface Syntax Revision
 
-> **Status: RATIFIED 2026-05-01; ~85% IMPLEMENTED 2026-05-22.**
-> All ratified decisions §1–§5 are live in the compiler (see
-> per-section LANDED markers below). The only remaining piece is
-> §6 — the `any` built-in interface is documented but not yet
-> registered or accepted as `*any` / `@any` in the type-checker.
-> The "Interfaces — IN PROGRESS" entry in `claude-notes.md` still
-> reflects the *previous* design and should be updated to match
-> this plan.
+> **Status: RATIFIED 2026-05-01; IMPLEMENTED 2026-05-23.**
+> All ratified decisions §1–§6 are live in the compiler (see
+> per-section LANDED markers below).  §6 (universe `any`) closed
+> end-to-end across type-checker, IR-gen, codegen, and VM, with
+> iv→`any` upcast wired via an offset-0 OP_IFACE_UPCAST that
+> reuses the source vtable wholesale.  Conformance coverage:
+> 470–478 + 472 (.error).  The "Interfaces — IN PROGRESS" entry
+> in `claude-notes.md` still reflects the *previous* design and
+> should be updated to match this plan.
 
 ## Context
 
@@ -150,7 +151,7 @@ detailed-notes.md` § 6.5 stays:
 Auto-conversion at impl-satisfies-interface call sites follows the
 existing safe-direction-only rules.
 
-### 6. `any` interface — UNCHANGED (NOT YET IMPLEMENTED)
+### 6. `any` interface — LANDED 2026-05-23
 
 `any` is the implicit universal interface. After the syntax shift,
 the usable forms become `*any` and `@any`:
@@ -179,9 +180,21 @@ Same semantics as before; just spelled differently.
 - ✅ Add interface-alias parse + resolution (`interface X = Y`).
   (`pkg/parser/parse_decl.bn:55-60`, `pkg/types/check_interface.bn:51-65`;
   test 369.)
-- ❌ **`any` / `*any` / `@any`** — synthesize the built-in `any`
-  interface (empty method set), accept the spellings in the type-
-  checker, route through existing iv machinery.
+- ✅ **`any` / `*any` / `@any`** — LANDED 2026-05-23.  Universe
+  `any` registered as empty-method-set TYP_INTERFACE in both
+  `pkg/types` (defineInterface in universeScope) and `pkg/ir`
+  (registerUniverseAny seeded at InitModule).  `wrapAsIfaceValue`
+  synthesizes per-(T, any) ImplInfo on demand; the existing
+  vtable-emission path produces `__ivt.bn_<T_pkg>__<T>__any` as
+  `[1 x i8*]` with T's dtor in slot 0.  iv→`any` upcast goes
+  through OP_IFACE_UPCAST with offset 0 (IfaceParentSlotOffset
+  short-circuits when target is universe `any`); the VM mirrors
+  this by detecting `__any` in the encoded suffix and reusing
+  srcVtIdxPlus instead of looking up a target vtable.  Conformance
+  tests 470–478 (+ 472.error) cover construction, dispatch
+  rejection on bare `any`, managed-field dtor invocation, multi-
+  type dedup, arg-position coercion, and the raw-iv→@any
+  lifetime-safety rejection.
 
 ### Codegen / runtime — UNCHANGED
 

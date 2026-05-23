@@ -826,26 +826,24 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `pkg/ir/gen_iface_vtable_test.bn` for vtable-name mangling
   including the empty-pkg form).
 - **Remaining (small) gaps**:
-  1. **iv-to-`any` upcast** — `var av *any = iv` where `iv` is
-     `*Stringer` (or any other iv) is currently rejected:
-     `canAssignToRawInterfaceValue` reaches the iv-to-iv branch,
-     calls `isDescendantInterface(srcIface, any)`, which returns
-     false because user interfaces don't list universe `any` as
-     a parent.  The empty-methods bypass that catches pointer-
-     shaped sources doesn't apply here.  Plausible fix:
-     short-circuit `canAssignTo{Raw,Managed}InterfaceValue` when
-     the destination is universe `any` and the source is iv —
-     accept any iv source.  IR-gen-wise the simplest lowering is
-     to keep the source's existing vtable in the result (the
-     dtor in slot 0 already carries the right T info; the empty
-     "any" method set means no dispatch ever happens through
-     the upcasted iv), i.e. the upcast is a no-op type relabel
-     at the bit level.  Not yet implemented; no conformance
-     test pins the desired behavior either way.
-  2. **`type X = BareIface` explicit negative test** — the code
+  1. **`type X = BareIface` explicit negative test** — the code
      flow should reject via `resolveTypeExpr`'s bare-interface
      error path, but it isn't separately covered. One-line
      negative test.
+  2. **Interface-value nil comparison** — `iv == nil` (for any
+     iv type, not just `*any`) is currently rejected:
+     `IsNillable` in `pkg/types/types_query.bn:196` returns true
+     only for pointer types and function-value types.  A nil iv
+     IS a meaningful runtime state (both data and vtable slots
+     zero, mirroring `*func(...)`'s convention), so the natural
+     extension is to add `TYP_INTERFACE_VALUE` /
+     `TYP_INTERFACE_VALUE_MANAGED` to `IsNillable`'s positive
+     set and check both slots zero at the comparison site
+     (codegen + VM lowering for `iv == nil`).  Not a regression;
+     pre-existed plan §6 — surfaced while writing a nil-
+     propagation test for the iv→any upcast.  This is a real
+     language-semantics extension that should be confirmed
+     before implementing.
 
 ### Cross-package method visibility in `.bni`
 - Methods defined on a public type in package `foo` need to be declared
