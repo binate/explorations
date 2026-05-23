@@ -260,40 +260,22 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   rebuild pattern (each `appendCharSlice` allocates a new
   slice + copies), and matches the language's expressive
   default instead of the bootstrap workaround.
-- **Caveat — function calls inside `@[]@[]char{...}` are broken
-  in the current bnc.**  Replacing
-  `var a @[]@[]char = make_slice(@[]char, 1); a[0] = buf.CopyStr("libc")`
-  with `var a @[]@[]char = @[]@[]char{buf.CopyStr("libc")}` causes
-  `a[0]` to come out as the wrong value at runtime (e.g.
-  `cmd/bnc/compile_test.bn:TestAppendLibcImportNoDuplicate`
-  fails: the dedupe-by-streq check misses the existing entry and
-  appends a duplicate).  Until the bug is root-caused, only the
-  pure-string-literal form is safe — leave `make_slice + assign`
-  in place when any element is a function call.  See bug entry
-  below.
-
-### bnc: function-call element inside `@[]@[]char{...}` composite literal stores wrong value
-- **Symptom**: `var a @[]@[]char = @[]@[]char{buf.CopyStr("libc")}`
-  parses + compiles fine, but `a[0]` is not equal (under `streq`)
-  to `"libc"` at runtime.  Discovered while migrating
-  `cmd/bnc/compile_test.bn:TestAppendLibcImportNoDuplicate` to the
-  literal form — the test's dedupe check
-  (`for i { if streq((*aliases)[i], "libc") { return } }`) missed
-  the entry, so `appendLibcImport` appended a duplicate and
-  `len(aliases) != 1` tripped.
-- **Reverting** to `make_slice(@[]char, 1) + aliases[0] =
-  buf.CopyStr("libc")` makes the test pass — same value source,
-  different construction shape.
-- **Hypothesis**: codegen for the literal form mishandles the
-  refcount / lifetime of the call-result managed-slice, or stores
-  the wrong operand into the slot.  Not yet investigated.
-- **Workaround**: don't use function-call values inside
-  `@[]@[]char{...}`; use the explicit `make_slice + assign` form
-  for any element that comes from a call.  Pure string-literal
-  elements (`@[]@[]char{"foo", "bar"}`) work fine.
-- **Test gap**: no unit test pins the broken shape — would be a
-  `pkg/ir` or `pkg/codegen` test asserting that a composite literal
-  with a function-call element stores the call result.
+### ~~bnc: function-call element inside `@[]@[]char{...}` composite literal stores wrong value~~ — FIXED 2026-05-23
+- **Was**: `var a @[]@[]char = @[]@[]char{buf.CopyStr("libc")}`
+  compiled fine but at runtime `a[0]` was empty (len=0).  Cause:
+  `pkg/ir/gen_access.bn:genManagedSliceLit` stored each element
+  without a refcount handoff, so a fresh managed value from a
+  call (registered as a temp by `gen_call.bn`) got RefDec'd by
+  the end-of-statement temp cleanup — leaving the slot with a
+  dangling data ptr + freed header.
+- **Fix**: mirror `gen_short_var.bn`'s `var x = …` handoff
+  pattern in `genManagedSliceLit` — for managed-ptr / managed-
+  slice element types, `consumeTemp` if `isFreshManagedPtr` /
+  `isFreshManagedSlice` (slot inherits the temp's refcount),
+  otherwise `EmitRefInc` / `emitManagedSliceRefInc` (slot takes
+  its own reference).
+- **Pinned by**: conformance/473_mslice_mslice_char_lit_call_elem
+  (output check on `@[]@[]char{copyStr("a"), copyStr("b")}`).
 
 ### Use function values to collapse explicit dispatch shims (opportunistic)
 - **Constraint**: function values are unlocked now that
