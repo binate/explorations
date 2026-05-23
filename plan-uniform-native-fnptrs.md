@@ -429,10 +429,46 @@ everything else moves to handles.
    1-based intra-vm idx.  These never escape the vm and the
    handle shape would force extra allocation per method
    slot for no benefit.
- * `BC_REFDEC_INLINE_FAST`'s dispatch stays intra-vm idx (fed by
-   `BC_DTOR_IDX` or `BC_IFACE_DTOR`).
  * `BC_CALL_FUNC_VALUE` is unchanged — handles are the input
    shape it already accepts.
+
+#### Was-a-non-goal-now-MUST-FIX (2026-05-22): BC_REFDEC_INLINE_FAST idx form
+
+The earlier draft of this plan listed
+`BC_REFDEC_INLINE_FAST`'s intra-vm idx dispatch as a non-goal
+("revisit later").  That was wrong.  Idx-form dtor refs are
+intra-vm-only: a managed value created in native and crossing
+into a bytecode VM (or vice-versa) cannot have its dtor resolved
+via `vm.Funcs[idx-1]` when the dtor lives in the *other* mode.
+That defeats the whole point of this plan — uniform interop via
+handles.
+
+The proper interop-compatible design (still iterative, no host
+recursion):
+
+ * `emitManagedPtrRefDec` emits OP_FUNC_HANDLE for the dtor ref
+   (not OP_FUNC_ADDR).  Native: `&__handle.F`.  Bytecode:
+   pointer to the lazy-allocated handle on `VMFunc.Handle`.
+ * `BC_REFDEC_INLINE_FAST`'s slow path treats `Src2` as a handle
+   pointer.  Read `handle.data`, check its `kind`
+   discriminator (same trick `dispatchCompiledFuncValue` uses
+   for `BC_CALL_FUNC_VALUE`):
+   * `DATA_KIND_VM_CLOSURE_REC` → recover `FnIdx`, do the
+     existing iterative push (`pushFrame`, `freeOnPop`, etc.).
+     No host recursion — the dtor runs as a bytecode frame
+     that `BC_RETURN` pops.
+   * other (compiled-side) → cross-mode call via
+     `rt._call_shim_scalar` / `dispatchCompiledFuncValue`.
+     This *does* take a host frame but cannot recurse back into
+     the bytecode VM, so the depth is bounded by the cross-mode
+     call chain — not by the dtor's field graph.
+
+Pre-existing `065e6f4` (dtor refs use OP_FUNC_ADDR; restore
+iterative dispatch) and `a654afd` (BC_CALL_INDIRECT idx-arm drop
+"capstone") landed the idx form as a stop-gap to fix
+`builder-comp-int-int` stack overflow without doing the kind-
+discriminating handle work.  That has to be undone in favor of
+the design above before this plan is done.
 
 #### Migration order
 
@@ -470,7 +506,7 @@ if the migration touches it, "intra-vm OK" if it remains as-is.
 | `BC_CALL_FUNC_VALUE` (`vm_exec.bn:284-356`) | Reads `closureRec[2]` (vm_func_idx) | intra-vm OK (paired with vm handle) |
 | `BC_CALL_IFACE_METHOD` (`vm_exec.bn:358-407`) | `vt.Methods[slot]` = idx+1 | intra-vm OK |
 | `lowerImplVtables` (`lower.bn:226-262`) | `slots[i] = idx+1` | intra-vm OK (constructs IfaceVtable) |
-| `BC_REFDEC_INLINE_FAST` (`vm_exec.bn:444-462`) | Reads `dtorIdx` (1-based), `dtorIdx-1` for vm.Funcs lookup | intra-vm OK (revisit later) |
+| `BC_REFDEC_INLINE_FAST` (`vm_exec.bn:444-462`) | Reads `dtorIdx` (1-based), `dtorIdx-1` for vm.Funcs lookup | **MUST FIX**: handle ptr in Src2 + kind-discriminated iterative dispatch (see "MUST-FIX" section above) |
 | `BC_IFACE_DTOR` (`vm_exec.bn` — to confirm) | Reads vt.Methods[0] | intra-vm OK |
 
 So the migration surface is small: three handlers, one Path B

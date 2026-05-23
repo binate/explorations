@@ -6,6 +6,55 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
+### Phase 4 (uniform native fn ptrs) — finish: dtor refs MUST move from idx to handle — HIGH PRIORITY
+- **Status**: Phase 4 landed at binate `666ecc0` with a **stop-gap**
+  that defeats the plan's whole point.  `emitManagedPtrRefDec`
+  emits OP_FUNC_ADDR (idx in bytecode, handle in native) instead
+  of OP_FUNC_HANDLE end-to-end, and `BC_REFDEC_INLINE_FAST`'s
+  iterative dispatch reads `Src2` as a 1-based intra-vm idx.
+  Idx form is intra-vm-only — a managed value created in native
+  that crosses into a bytecode VM (or vice-versa) cannot have
+  its dtor resolved via `vm.Funcs[idx-1]` when the dtor lives in
+  the other mode.  This **breaks the cross-mode interop that
+  Phase 4 was supposed to deliver** and must be fixed ASAP.
+- **Why I took the stop-gap**: at int-int the recursive
+  ZeroRefDestroy → handle.call → dtor → RefDec chain blows the
+  host C-stack on deeply-nested managed structs.  The pre-Phase-4
+  optimization in `BC_REFDEC_INLINE_FAST` pushed the dtor frame
+  on `vm.Stack` instead — flat, no host recursion.  I restored
+  it the lazy way (intra-vm idx) instead of generalizing it to
+  handles.
+- **Proper fix** (interop-correct + still iterative):
+  1. `emitManagedPtrRefDec` emits OP_FUNC_HANDLE (not
+     OP_FUNC_ADDR).
+  2. `BC_REFDEC_INLINE_FAST` reads `Src2` as a handle pointer.
+     Slow path:
+     - Read `handle.data` and check its `kind` discriminator
+       (same trick `dispatchCompiledFuncValue` already uses
+       for `BC_CALL_FUNC_VALUE`).
+     - `DATA_KIND_VM_CLOSURE_REC` → recover `FnIdx` from the
+       VMClosureRec, do the existing iterative push
+       (`pushFrame`, `freeOnPop`, etc.).  Same flat-stack
+       win as today.
+     - other (compiled-side data) → cross-mode call via
+       `rt._call_shim_scalar` / `dispatchCompiledFuncValue`.
+       Takes a host frame but can't recurse back into the
+       bytecode VM, so depth is bounded by the cross-mode
+       chain, not the dtor's field graph.
+  3. Revisit `OP_FUNC_ADDR` semantics — once dtor refs use
+     OP_FUNC_HANDLE, OP_FUNC_ADDR has no remaining caller and
+     can probably be deleted.
+  4. The `a654afd` "drop BC_CALL_INDIRECT idx arm" commit is
+     fine as-is; the idx remnant is in `BC_REFDEC_INLINE_FAST`,
+     not `BC_CALL_INDIRECT`.
+- **Where**: `pkg/ir/gen_util_refcount.bn` (emitManagedPtrRefDec),
+  `pkg/vm/vm_exec.bn` (BC_REFDEC_INLINE_FAST handler),
+  `pkg/codegen/emit_instr.bn` (revisit OP_FUNC_ADDR native
+  lowering once it's dead), `pkg/ir/ir_test.bn`
+  (TestDtorSelfRefPassesDtor expectation flip).
+- **Plan**: see `explorations/plan-uniform-native-fnptrs.md`
+  "Was-a-non-goal-now-MUST-FIX" section.
+
 ### ~~Native aa64 backend: managed-pointer-to-iv deref segfaults at dispatch~~ — FIXED 2026-05-22
 - Root cause: `pkg/native/arm64/arm64_emit.bn:emitBox` silently
   returned for non-OP_ALLOC operands, so `box(iv)` for a loaded
