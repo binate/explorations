@@ -800,7 +800,19 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 ### Interface syntax revision — *Stringer / @Stringer + top-level decl — MOSTLY DONE
 - **Plan doc**: `explorations/plan-interface-syntax-revision.md`
   (RATIFIED 2026-05-01).
-- **Implementation status (audited 2026-05-22)**: ~85% landed.
+- **Implementation status (audited 2026-05-22 / 2026-05-23)**:
+  Plan §1–§5 all landed.  §6 (`any` universal interface) landed
+  end-to-end across type-checker (`e5f2f8a`) and IR-gen + codegen
+  (`61eb6cd`): universe `any` is a real empty-method-set
+  TYP_INTERFACE registered in both `pkg/types` (via
+  `defineInterface`) and `pkg/ir` (via `registerUniverseAny` at
+  `InitModule` time). `wrapAsIfaceValue` synthesizes a per-(T, any)
+  ImplInfo on demand so codegen emits
+  `__ivt.bn_<T_pkg>__<T>__any` as `[1 x i8*]` with T's dtor in
+  slot 0 (or null if T has no dtor).  `@any` of a managed-field-
+  bearing pointee now RefDec's the pointee's managed fields at
+  scope exit via the synthesized vtable's dtor slot — the
+  previously-silent leak is closed.
   Verified working: top-level `interface X { ... }` decl
   (`pkg/parser/parse_decl.bn:35`), `*Iface` / `@Iface` syntax
   (`pkg/types/resolve_type.bn:38-50`), bare-name rejection
@@ -809,44 +821,27 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   conversions (`types_assignable.bn:149-189`, tests 379/380/381),
   five receiver kinds + `impl T : Iface` (tests 357–410), per-
   (impl, interface) vtable codegen (`pkg/codegen/emit_impls.bn:24-40`),
-  cross-package `.bni` interface visibility (tests 373–388, 464).
-  ~55 conformance tests in the 346–467 range cover the surface.
-- **Remaining work**:
-  1. **`any` IR-gen + codegen wiring** — the type-checker side of
-     plan §6 landed 2026-05-22 (`675d905`): universe `any` is now a
-     real empty-method-set TYP_INTERFACE; `*any` / `@any` resolve to
-     iv types in `pkg/types`; assignment from any pointer-shaped
-     source typechecks via the empty-methods bypass in
-     `types_assignable.bn`. Conformance tests 470/471/472 cover the
-     surface. **Gap**: `pkg/ir/gen_util.bn:resolveTypeExpr` and
-     `pkg/ir/gen_iface.bn:isInterfaceTypeExpr` use their own
-     module-local `moduleInterfaces` registry, which is populated
-     from `DECL_INTERFACE` AST nodes — the universe `any` isn't a
-     decl so it isn't there. Result: `*any` / `@any` fall through
-     to TYP_POINTER / TYP_MANAGED_PTR with elem=void at the IR
-     layer, not 2-word `%BnIfaceValue`. Practically:
-     - `*any` works (raw pointer is fine for type erasure).
-     - `@any` for types with NO managed fields works (e.g.,
-       `Box { x int }` in test 471).
-     - `@any` for types WITH managed fields **silently leaks** —
-       at scope exit, RefDec is called with `dtor=nil` (because
-       `emitManagedPtrRefDec` only emits the dtor branch for
-       known TYP_STRUCT elem; here elem is void). The pointee's
-       managed fields never get refdec'd.
-     To close the gap: (a) seed `moduleInterfaces` with a built-in
-     `any` entry at `InitModule` time (Pkg="", Name="any", empty
-     method list); (b) extend `isInterfaceTypeExpr` /
-     `lookupModuleInterfaceIndex` to recognize the empty-pkg
-     universe entry from any module's currentModulePkgShort
-     context; (c) extend `wrapAsIfaceValue` to handle the empty-
-     method-set case where no `impl T : any` record exists —
-     synthesize a per-(T, any) ImplInfo on demand (DtorFuncName
-     from T, empty MethodFuncs) so the normal vtable-emission +
-     OP_IFACE_VALUE construction path lights up; (d) emit
-     `__ivt.<T>__any` globals of size `[1 x i8*]` (just the dtor
-     slot) per (T, any) pair used at construction. `*any` could
-     reuse a single shared `__ivt.any` with `[0 x i8*]` if dtor
-     isn't needed.
+  cross-package `.bni` interface visibility (tests 373–388, 464),
+  universe `any` (tests 470–474, plus
+  `pkg/ir/gen_iface_vtable_test.bn` for vtable-name mangling
+  including the empty-pkg form).
+- **Remaining (small) gaps**:
+  1. **iv-to-`any` upcast** — `var av *any = iv` where `iv` is
+     `*Stringer` (or any other iv) is currently rejected:
+     `canAssignToRawInterfaceValue` reaches the iv-to-iv branch,
+     calls `isDescendantInterface(srcIface, any)`, which returns
+     false because user interfaces don't list universe `any` as
+     a parent.  The empty-methods bypass that catches pointer-
+     shaped sources doesn't apply here.  Plausible fix:
+     short-circuit `canAssignTo{Raw,Managed}InterfaceValue` when
+     the destination is universe `any` and the source is iv —
+     accept any iv source.  IR-gen-wise the simplest lowering is
+     to keep the source's existing vtable in the result (the
+     dtor in slot 0 already carries the right T info; the empty
+     "any" method set means no dispatch ever happens through
+     the upcasted iv), i.e. the upcast is a no-op type relabel
+     at the bit level.  Not yet implemented; no conformance
+     test pins the desired behavior either way.
   2. **`type X = BareIface` explicit negative test** — the code
      flow should reject via `resolveTypeExpr`'s bare-interface
      error path, but it isn't separately covered. One-line
