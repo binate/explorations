@@ -6,6 +6,41 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~Type-checker drops typed-const value through untyped binop fold~~ — FIXED 2026-05-23
+
+- **Discovered + fixed**: 2026-05-23, while wiring up
+  plan-ir-gen-typed-literals.md Phase A4 (consume the type
+  checker's bignum fold from IR-gen).
+- **Symptom**: when one operand of an untyped-arithmetic binop was
+  an EXPR_IDENT referring to a bare iota-counted const (e.g.
+  `keyword_start + 1` in pkg/token.bn:148, where `keyword_start`
+  is declared inside `const ( ... Type = iota; ... ; keyword_start )`),
+  the type checker treated the binop as foldable and wrote a
+  result Type carrying `HasLitVal=true`, but `LitMag` on that
+  result reflected only the untyped operand's value (the literal
+  `1`), not the const's iota.  In effect the fold computed
+  `0 + 1 = 1` instead of `iota_of_keyword_start + 1`.
+- **Root cause**: `pkg/types/check_decl.bn:checkConstDecl` for a
+  bare iota'd const called `defineConst(name, TypUntypedInt())` —
+  the predeclared singleton, with no `HasLitVal` attached.  At
+  reference time, `checkIdent` returned that LitVal-less
+  singleton; `foldIntArith` bailed (lt.HasLitVal == false) and
+  fell through to `commonType`, which returned the OTHER
+  operand's Type — so the binop's resolved Type inherited the
+  literal's LitVal.
+- **Fix** (binate `7ced362` / main `936a904`): construct a fresh
+  `TYP_UNTYPED_INT` Type with `HasLitVal=true` / `LitMag=c.Iota`
+  / `LitSign=false` for each bare iota-counted const, via a new
+  `makeUntypedIntWithLit` helper.  `foldIntArith` now folds
+  correctly through typed-const operand references, and Phase A4
+  drops its direct-literal gate.
+- **Tests**: `TestConstFoldIotaConstPlusLiteralFits` +
+  `TestConstFoldIotaConstPlusLiteralOverflows` in
+  pkg/types/check_expr_constfold_test.bn pin the fix at the
+  type-checker layer.  Bare-metal conformance ticks up from
+  398 → 400 passes (two integration tests that depended on
+  iota-arithmetic now compile + run cleanly).
+
 ### ~~Integer literals and constant expressions~~ — RATIFIED + IMPLEMENTED 2026-05-15..2026-05-18
 - **Spec**: `claude-notes.md` § "Integer literal value range and
   constant-expression arithmetic — DECIDED 2026-05-15".

@@ -6,48 +6,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
-### Type-checker drops typed-const value through untyped binop fold
-
-- **Discovered**: 2026-05-23, while wiring up
-  plan-ir-gen-typed-literals.md Phase A4 (consume the type
-  checker's bignum fold from IR-gen).
-- **Symptom**: when one operand of an untyped-arithmetic binop is
-  an EXPR_IDENT referring to a typed-const (e.g.
-  `keyword_start + 1` in pkg/token.bn:148 / pkg/token.bn:155,
-  where `keyword_start` is declared inside an `iota`-using `const
-  ( ... Type = iota ... )` group), the type checker still treats
-  the binop as foldable and writes a result Type carrying
-  `HasLitVal=true`.  But `LitMag` on that result reflects only
-  the untyped operand's value (the literal `1`), not the typed
-  const's underlying iota value.  In effect the fold computes
-  `0 + 1 = 1` instead of `8 + 1 = 9`.
-- **Reproducer**: in genBinary, with currentChecker set, do
-  `currentChecker.ExprType(e.ResolvedTypeID)` on a parsed
-  `keyword_start + 1` — `t.HasLitVal == true` and `t.LitMag == 1`
-  even though `keyword_start = 8` in the iota.
-- **Why it matters**: A4 wants to trust HasLitVal to short-
-  circuit the binop IR.  When LitMag is wrong, the shortcut
-  miscompiles — observable as pkg/token.Lookup() returning
-  IDENT for any keyword name, which in turn breaks the parser
-  enough to fail `TestRegisterImportsIotaConsts`.
-- **Current workaround**: A4 only fires when BOTH operands are
-  direct EXPR_INT_LIT.  That sidesteps the type-checker bug at
-  the cost of leaving e.g. `KEYWORD_START + N` style folds
-  unoptimized (they still produce real OP_ADD IR).
-- **Likely cause**: `pkg/types/check_expr.bn:checkIdent` returns
-  `sym.Type` for the const ref, but `sym.Type` for an iota'd
-  const probably doesn't carry the const's accumulated bignum
-  value (HasLitVal / LitMag / LitSign).  Then `foldIntArith`
-  treats the missing LitMag as zero rather than refusing to
-  fold.  The fix is either to propagate the const's value
-  through the symbol (preferred — every typed-const reference
-  in a fold context benefits), or to make foldIntArith bail
-  unless BOTH operands actually have HasLitVal set (defensive,
-  narrower).
-- **Tracking test**: enabling A4 without the EXPR_INT_LIT gate
-  reproduces; remove the gate after the fix lands and
-  `TestRegisterImportsIotaConsts` stays green.
-
 ### Phase 4: aa64 native backend missing OP_FUNC_HANDLE / OP_CALL_HANDLE handlers — HIGH PRIORITY (CI regression)
 - **Status**: `builder-comp_native_aa64-comp_native_aa64` (cross-
   compile native aa64 → comp native aa64) was passing pre-Phase-4
