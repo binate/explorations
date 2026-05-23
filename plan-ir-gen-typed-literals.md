@@ -68,17 +68,28 @@ High-leverage piece.  Subsumes the magnitude heuristic
   - If the Checker is unavailable (`ResolvedTypeID == 0`, e.g.
     legacy test paths) → fall back to current heuristic.
 
-- **A4** — `EXPR_BINARY` folded-shortcut.  If
-  `Checker.ExprType(e.ResolvedTypeID)` on a binop carries
-  `HasLitVal`, emit a single `OP_CONST_INT` at the resolved type
-  with the folded value and skip generating the binop IR
-  entirely.  This is what fixes the `2147483648 * 2` overflow case
-  — `(untyped * untyped → untyped with folded value)` becomes one
-  literal, picked up by A3.
+- **A4** *(deferred — see note below)* — `EXPR_BINARY` folded-
+  shortcut.  If `Checker.ExprType(e.ResolvedTypeID)` on a binop
+  carries `HasLitVal`, emit a single `OP_CONST_INT` at the
+  resolved type with the folded value and skip generating the
+  binop IR entirely.  Would be a strict optimization (the
+  existing magnitude heuristic already handles `2147483648 * 2`
+  via individually-typed operands + widenType + ensureWidth).
+  Attempted 2026-05-22; a folded `1 << 52` in `pkg/bootstrap.
+  formatFloat` (the only fold that crosses the int32 boundary at
+  bootstrap-compile time) produced IR that broke
+  `TestRegisterImportsIotaConsts` via a downstream-state path I
+  couldn't quickly trace.  Revisit once Phase B's context
+  propagation is in — the fold-shortcut may be unnecessary by
+  then, since literals + ensureWidth handle the equivalent cases
+  end-to-end without an explicit AST collapse.
 
-- **A5** — Delete the magnitude heuristic in `gen_expr.bn`'s
-  `EXPR_INT_LIT` branch (the `v < -2147483648 || v > 2147483647`
-  promotion).  A3 + A4 subsume it.
+- **A5** *(blocked on B, not A4)* — Delete the magnitude
+  heuristic in `gen_expr.bn`'s `EXPR_INT_LIT` branch (the
+  `v < -2147483648 || v > 2147483647` promotion).  Phase B's
+  context propagation subsumes it: literals adopt their
+  surrounding typed context directly, so the magnitude trigger
+  isn't needed.
 
 Each is independently testable and committable.
 
@@ -183,13 +194,16 @@ A2 implementation time.
 
 Per-step commits, each individually green on host + arm32-baremetal:
 
-1. A1 — Checker survives `typecheckAll`.
-2. A2 — Checker reaches `GenContext` (still unused).
+1. A1 — Checker survives `typecheckAll`.  *(landed)*
+2. A2 — Checker reaches `GenContext` (still unused).  *(landed)*
 3. A3 — `EXPR_INT_LIT` consults Checker for the resolved type.
-4. A4 — `EXPR_BINARY` folded-shortcut.
-5. A5 — drop the magnitude heuristic.
-6. B1+B2 — hint API + plumbing.
-7. B3 — `EXPR_INT_LIT` uses hint for untyped literals.
+   *(landed)*
+4. ~~A4~~ — `EXPR_BINARY` folded-shortcut.  *(deferred — see Phase
+   A4 note above)*
+5. B1+B2 — hint API + plumbing.
+6. B3 — `EXPR_INT_LIT` uses hint for untyped literals.
+7. A5 — drop the magnitude heuristic.  *(now last; B subsumes
+   what A4 would have covered)*
 
 After A: typed literals (uint32, int64, etc.) come through with
 the right type.  Folded untyped × untyped collapses to one
