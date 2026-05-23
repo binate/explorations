@@ -120,6 +120,42 @@ must come from the LHS instead.
   fits in `hint`'s range → emit at `hint`.  Else fall through to
   the untyped path.
 
+#### Known prerequisite: OP_CONST_INT codegen for typed-unsigned ranges
+
+Attempted 2026-05-23.  An initial cut that wired hints through
+`genExprOrFuncRef` (already used by var decl / assignment / call
+args / return) broke 8 packages in pkg/asm + pkg/native, plus
+crashed pkg/bignum's `TestParseOverflowHex` at runtime.
+
+Root cause: the codegen for `OP_CONST_INT` (`pkg/codegen/
+emit_instr.bn`) emits `add <type> <IntVal>, 0` with `IntVal`
+written verbatim via `out.WriteInt`.  When `IntVal` is a uint32
+value greater than `INT32_MAX` (e.g. `3221225472 = 0xC0000000`)
+and the target type is i32, LLVM treats `add i32 3221225472, 0`
+as out-of-range for signed-32 representation — the constant is
+silently truncated or reinterpreted in a way that doesn't match
+the untyped-then-narrow path.  Today that legacy path emits
+`add i64 3221225472, 0` followed by `trunc i64 ... to i32`,
+which preserves the bit pattern unambiguously.
+
+The fix lives in `OP_CONST_INT` codegen, not in Phase B itself:
+when `instr.Typ` is unsigned-N-bit, emit the value as its
+two's-complement signed-N-bit representation (so a uint32 value
+`v >= 2^31` is written as `v - 2^32`).  Same bit pattern, LLVM-
+acceptable rendering.  Should be a small change in
+`emit_instr.bn`'s OP_CONST_INT branch; orthogonal to the
+context-propagation work but blocks it.
+
+Sub-step ordering:
+
+- **B0** *(prerequisite)* — Normalize OP_CONST_INT's LLVM
+  rendering for typed unsigned ints whose `IntVal` exceeds the
+  signed-N-bit range.  Two's-complement reinterpretation:
+  `IntVal - (1 << Width)` when `IntVal >= 1 << (Width - 1)` and
+  the type is unsigned.  Mirrors the existing `formatInt64`
+  magnitude trick.
+- B1, B2, B3 as above, after B0 lands.
+
 ## Bignum → IntVal conversion
 
 `bignum.Num` is `(uint64 magnitude, bool sign)`.  Host `int` is
@@ -200,9 +236,11 @@ Per-step commits, each individually green on host + arm32-baremetal:
    *(landed)*
 4. ~~A4~~ — `EXPR_BINARY` folded-shortcut.  *(deferred — see Phase
    A4 note above)*
-5. B1+B2 — hint API + plumbing.
-6. B3 — `EXPR_INT_LIT` uses hint for untyped literals.
-7. A5 — drop the magnitude heuristic.  *(now last; B subsumes
+5. B0 — Normalize OP_CONST_INT codegen for typed-unsigned values.
+   *(prerequisite for B1+, blocks the rest of Phase B)*
+6. B1+B2 — hint API + plumbing.
+7. B3 — `EXPR_INT_LIT` uses hint for untyped literals.
+8. A5 — drop the magnitude heuristic.  *(now last; B subsumes
    what A4 would have covered)*
 
 After A: typed literals (uint32, int64, etc.) come through with
