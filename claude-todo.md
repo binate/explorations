@@ -702,13 +702,41 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   cross-package `.bni` interface visibility (tests 373–388, 464).
   ~55 conformance tests in the 346–467 range cover the surface.
 - **Remaining work**:
-  1. **`any` / `*any` / `@any` built-in** — plan §6 lists it as
-     "UNCHANGED" / implicit universal interface, but nothing in
-     `pkg/types` or `pkg/ir` synthesizes the `any` interface or
-     accepts the spellings yet. Modest work: synthesize a built-
-     in `any` interface with an empty method set, accept
-     `*any` / `@any` in the type-checker, route through existing
-     iv machinery.
+  1. **`any` IR-gen + codegen wiring** — the type-checker side of
+     plan §6 landed 2026-05-22 (`675d905`): universe `any` is now a
+     real empty-method-set TYP_INTERFACE; `*any` / `@any` resolve to
+     iv types in `pkg/types`; assignment from any pointer-shaped
+     source typechecks via the empty-methods bypass in
+     `types_assignable.bn`. Conformance tests 470/471/472 cover the
+     surface. **Gap**: `pkg/ir/gen_util.bn:resolveTypeExpr` and
+     `pkg/ir/gen_iface.bn:isInterfaceTypeExpr` use their own
+     module-local `moduleInterfaces` registry, which is populated
+     from `DECL_INTERFACE` AST nodes — the universe `any` isn't a
+     decl so it isn't there. Result: `*any` / `@any` fall through
+     to TYP_POINTER / TYP_MANAGED_PTR with elem=void at the IR
+     layer, not 2-word `%BnIfaceValue`. Practically:
+     - `*any` works (raw pointer is fine for type erasure).
+     - `@any` for types with NO managed fields works (e.g.,
+       `Box { x int }` in test 471).
+     - `@any` for types WITH managed fields **silently leaks** —
+       at scope exit, RefDec is called with `dtor=nil` (because
+       `emitManagedPtrRefDec` only emits the dtor branch for
+       known TYP_STRUCT elem; here elem is void). The pointee's
+       managed fields never get refdec'd.
+     To close the gap: (a) seed `moduleInterfaces` with a built-in
+     `any` entry at `InitModule` time (Pkg="", Name="any", empty
+     method list); (b) extend `isInterfaceTypeExpr` /
+     `lookupModuleInterfaceIndex` to recognize the empty-pkg
+     universe entry from any module's currentModulePkgShort
+     context; (c) extend `wrapAsIfaceValue` to handle the empty-
+     method-set case where no `impl T : any` record exists —
+     synthesize a per-(T, any) ImplInfo on demand (DtorFuncName
+     from T, empty MethodFuncs) so the normal vtable-emission +
+     OP_IFACE_VALUE construction path lights up; (d) emit
+     `__ivt.<T>__any` globals of size `[1 x i8*]` (just the dtor
+     slot) per (T, any) pair used at construction. `*any` could
+     reuse a single shared `__ivt.any` with `[0 x i8*]` if dtor
+     isn't needed.
   2. **`type X = BareIface` explicit negative test** — the code
      flow should reject via `resolveTypeExpr`'s bare-interface
      error path, but it isn't separately covered. One-line
