@@ -432,7 +432,7 @@ everything else moves to handles.
  * `BC_CALL_FUNC_VALUE` is unchanged — handles are the input
    shape it already accepts.
 
-#### Was-a-non-goal-now-MUST-FIX (2026-05-22): BC_REFDEC_INLINE_FAST idx form
+#### Was-a-non-goal-now-MUST-FIX (2026-05-22) — LANDED 2026-05-23 (binate `f3d9436`)
 
 The earlier draft of this plan listed
 `BC_REFDEC_INLINE_FAST`'s intra-vm idx dispatch as a non-goal
@@ -506,7 +506,7 @@ if the migration touches it, "intra-vm OK" if it remains as-is.
 | `BC_CALL_FUNC_VALUE` (`vm_exec.bn:284-356`) | Reads `closureRec[2]` (vm_func_idx) | intra-vm OK (paired with vm handle) |
 | `BC_CALL_IFACE_METHOD` (`vm_exec.bn:358-407`) | `vt.Methods[slot]` = idx+1 | intra-vm OK |
 | `lowerImplVtables` (`lower.bn:226-262`) | `slots[i] = idx+1` | intra-vm OK (constructs IfaceVtable) |
-| `BC_REFDEC_INLINE_FAST` (`vm_exec.bn:444-462`) | Reads `dtorIdx` (1-based), `dtorIdx-1` for vm.Funcs lookup | **MUST FIX**: handle ptr in Src2 + kind-discriminated iterative dispatch (see "MUST-FIX" section above) |
+| `BC_REFDEC_INLINE_FAST` (`vm_exec.bn`) | Reads handle ptr from Src2; if `handle.data` kind = `DATA_KIND_VM_CLOSURE_REC` → iterative push via `closureRec[2]`; else cross-mode shim call via `rt._call_shim_scalar`. | **fixed** (binate `f3d9436`) |
 | `BC_IFACE_DTOR` (`vm_exec.bn` — to confirm) | Reads vt.Methods[0] | intra-vm OK |
 
 So the migration surface is small: three handlers, one Path B

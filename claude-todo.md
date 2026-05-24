@@ -51,54 +51,37 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Note**: `pkg/native/x64` is still a scaffold (per binate
   `d422201`) — it won't need this work until it's a real backend.
 
-### Phase 4 (uniform native fn ptrs) — finish: dtor refs MUST move from idx to handle — HIGH PRIORITY
-- **Status**: Phase 4 landed at binate `666ecc0` with a **stop-gap**
-  that defeats the plan's whole point.  `emitManagedPtrRefDec`
-  emits OP_FUNC_ADDR (idx in bytecode, handle in native) instead
-  of OP_FUNC_HANDLE end-to-end, and `BC_REFDEC_INLINE_FAST`'s
-  iterative dispatch reads `Src2` as a 1-based intra-vm idx.
-  Idx form is intra-vm-only — a managed value created in native
-  that crosses into a bytecode VM (or vice-versa) cannot have
-  its dtor resolved via `vm.Funcs[idx-1]` when the dtor lives in
-  the other mode.  This **breaks the cross-mode interop that
-  Phase 4 was supposed to deliver** and must be fixed ASAP.
-- **Why I took the stop-gap**: at int-int the recursive
-  ZeroRefDestroy → handle.call → dtor → RefDec chain blows the
-  host C-stack on deeply-nested managed structs.  The pre-Phase-4
-  optimization in `BC_REFDEC_INLINE_FAST` pushed the dtor frame
-  on `vm.Stack` instead — flat, no host recursion.  I restored
-  it the lazy way (intra-vm idx) instead of generalizing it to
-  handles.
-- **Proper fix** (interop-correct + still iterative):
-  1. `emitManagedPtrRefDec` emits OP_FUNC_HANDLE (not
-     OP_FUNC_ADDR).
-  2. `BC_REFDEC_INLINE_FAST` reads `Src2` as a handle pointer.
-     Slow path:
-     - Read `handle.data` and check its `kind` discriminator
-       (same trick `dispatchCompiledFuncValue` already uses
-       for `BC_CALL_FUNC_VALUE`).
-     - `DATA_KIND_VM_CLOSURE_REC` → recover `FnIdx` from the
-       VMClosureRec, do the existing iterative push
-       (`pushFrame`, `freeOnPop`, etc.).  Same flat-stack
-       win as today.
-     - other (compiled-side data) → cross-mode call via
-       `rt._call_shim_scalar` / `dispatchCompiledFuncValue`.
-       Takes a host frame but can't recurse back into the
-       bytecode VM, so depth is bounded by the cross-mode
-       chain, not the dtor's field graph.
-  3. Revisit `OP_FUNC_ADDR` semantics — once dtor refs use
-     OP_FUNC_HANDLE, OP_FUNC_ADDR has no remaining caller and
-     can probably be deleted.
-  4. The `a654afd` "drop BC_CALL_INDIRECT idx arm" commit is
-     fine as-is; the idx remnant is in `BC_REFDEC_INLINE_FAST`,
-     not `BC_CALL_INDIRECT`.
-- **Where**: `pkg/ir/gen_util_refcount.bn` (emitManagedPtrRefDec),
-  `pkg/vm/vm_exec.bn` (BC_REFDEC_INLINE_FAST handler),
-  `pkg/codegen/emit_instr.bn` (revisit OP_FUNC_ADDR native
-  lowering once it's dead), `pkg/ir/ir_test.bn`
-  (TestDtorSelfRefPassesDtor expectation flip).
-- **Plan**: see `explorations/plan-uniform-native-fnptrs.md`
-  "Was-a-non-goal-now-MUST-FIX" section.
+### ~~Phase 4 (uniform native fn ptrs) — finish: dtor refs MUST move from idx to handle~~ — DONE 2026-05-23 (binate `f3d9436`)
+- emitManagedPtrRefDec now emits OP_FUNC_HANDLE end-to-end (handle
+  pointer in both native and bytecode), and BC_REFDEC_INLINE_FAST's
+  slow path inspects `handle.data`:
+  * `DATA_KIND_VM_CLOSURE_REC` → recover FnIdx from
+    `closureRec[2]`, push the dtor frame on vm.Stack with ptr
+    stashed in `freeOnPop`, jump.  BC_RETURN pops the frame and
+    frees ptr.  No host C-stack recursion through the dtor field
+    graph — the iterative win the earlier stop-gap was protecting.
+  * Otherwise (data is null, or future kinds like
+    DATA_KIND_COMPILED_CLOSURE) → load handle.vtable.call (the
+    per-function shim) and dispatch via
+    `rt._call_shim_scalar(shim, data, ptr, ...)`.  Cross-mode
+    call — takes a host frame but cannot recurse back into the
+    bytecode VM, so depth is bounded by the cross-mode call
+    chain.  After the shim returns, `rt.Free(ptr)`.
+- Cross-mode interop now works as Phase 4 intended: a managed
+  value created in native that crosses into a bytecode VM (or
+  vice-versa) resolves its dtor through the shared handle layout
+  instead of an intra-vm-only function index.
+- `OP_FUNC_ADDR` still exists for the dead-result name-carrier
+  use in emitIndirectCall (gen_dtor_emit.bn, gen_copy_emit.bn).
+  Cleanup follow-up: switch those to a name-only IR-magic that
+  doesn't emit a value at all, then delete `OP_FUNC_ADDR` and
+  `BC_FUNC_ADDR`.  Not blocking.
+- **Original context** (kept for posterity): Phase 4 landed at
+  binate `666ecc0` with a stop-gap (emitManagedPtrRefDec emits
+  OP_FUNC_ADDR; BC_REFDEC reads Src2 as 1-based intra-vm idx) to
+  fix `builder-comp-int-int` stack overflow.  Reverted in
+  `f3d9436` with the proper handle-pointer kind-discriminating
+  design above.
 
 ### ~~Native aa64 backend: managed-pointer-to-iv deref segfaults at dispatch~~ — FIXED 2026-05-22
 - Root cause: `pkg/native/arm64/arm64_emit.bn:emitBox` silently
