@@ -260,6 +260,37 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Pinned by**: conformance/473_mslice_mslice_char_lit_call_elem
   (output check on `@[]@[]char{copyStr("a"), copyStr("b")}`).
 
+### bnc: managed-slice local inside a `case` body miscompiles a sibling case in the same switch
+- **Symptom**: discovered while converting if-return chains in
+  `pkg/vm/vm_exec_helpers.bn:execStringOp` to a `switch instr.Op`.
+  When BC_STRING_COPY_MS's body (which contains
+  `var str @[]char = f.Strings[instr.Imm]` followed by
+  `bit_cast(*uint8, &str)` + `pushManagedSlice(...)`) was moved into
+  a `case BC_STRING_COPY_MS:` block, a *different* case in the same
+  switch — `case BC_LOAD_STR:` — stopped working: the bytecode VM
+  produced no output for `println("hello")` (001_hello and ~340
+  other builder-comp-int tests failed).  Reverting only the
+  BC_STRING_COPY_MS case to if-form restored everything, with no
+  other change.
+- **Hypothesis**: bnc's case-scope handling for a managed-slice
+  local whose address is taken (alloca offset, scope-exit cleanup,
+  or both) clobbers state shared with sibling cases — possibly via
+  overlapping stack-slot reuse or a missing branch to the switch
+  exit's RefDec on the early-return path.
+- **Not yet root-caused.**  Repro is not yet minimized — the small
+  reproductions I tried (return @[]char from a case, take address
+  of @[]char in a case, two cases where the second has a managed
+  local, loop calling that function) all worked in isolation.
+  Probably needs the specific shape of "managed local from a
+  selector-of-slice-of-managed-slice + address-take + struct-return
+  + sibling cases" to manifest.
+- **Workaround in place**: `pkg/vm/vm_exec_helpers.bn` converted
+  4 of 5 dispatchers to switch; BC_STRING_COPY_MS and
+  BC_STRING_COPY_ARR stay as if-form, with an inline comment
+  pointing at this entry.
+- **Test gap**: no minimized repro yet, so no conformance test
+  pinning it.  Add once the trigger shape is narrowed.
+
 ### Use function values to collapse explicit dispatch shims (opportunistic)
 - **Constraint**: function values are unlocked now that
   cmd/bnc is no longer bootstrap-bound; bnc-0.0.1 has the
