@@ -2,16 +2,31 @@
 
 ## Status
 
-Planned 2026-05-22.  Not started.  This plan documents the design we
-agreed on after discovering that the IR-gen layer's magnitude-only
-heuristic for typing integer literals can't satisfy both
-`var c int64 = 2147483648 * 2` (wants int64 throughout) and
-`var y uint32 = x & 0xFFFFFFFF` (wants uint32 throughout) at the same
-time, and that the fix needs the type-checker's already-computed
-information.
+Planned 2026-05-22, **landed 2026-05-23**.  All steps in main:
 
-Tracking entry in `claude-todo.md`: "IR-gen integer literal width
-promotion can break uint32-context code".
+- A1, A2, A3 (Checker plumbing + EXPR_INT_LIT via bignum)
+- A4 (EXPR_BINARY folded-shortcut, ungated after the typed-const
+  fold bug was fixed in pkg/types)
+- B (EXPR_INT_LIT and any HasLitVal-folded expression narrows to
+  its typed-int hint at every site genExprOrFuncRef serves —
+  var decl, assignment, call args, return, composite lit, binop
+  operands)
+- A5 (magnitude heuristic dropped from gen_expr's EXPR_INT_LIT
+  branch)
+- Spillover: pkg/types iota-counted bare consts now carry
+  HasLitVal/LitMag/LitSign so `keyword_start + 1`-style folds
+  compute correct values.
+
+End-to-end measure: arm32-baremetal conformance ticked from a
+baseline of 393 passes pre-work to 402 passes post-A5 — eight
+tests on the int32/int64/uint32/uint64 boundaries that
+previously regressed are now green, and no test regressed.
+
+This plan documented the design that fixed the IR-gen layer's
+magnitude-only heuristic that couldn't satisfy both
+`var c int64 = 2147483648 * 2` (wants int64 throughout) and
+`var y uint32 = x & 0xFFFFFFFF` (wants uint32 throughout) at
+the same time.
 
 ## State of the world
 
@@ -231,22 +246,64 @@ mutating `genFromSource` outright, in case some existing tests
 intentionally exercise the no-typecheck IR-gen path.  Decide at
 A2 implementation time.
 
-## Sequencing & expected commits
+## Sequencing & landed commits
 
-Per-step commits, each individually green on host + arm32-baremetal:
+All landed on main 2026-05-22..23:
 
-1. A1 — Checker survives `typecheckAll`.  *(landed)*
-2. A2 — Checker reaches `GenContext` (still unused).  *(landed)*
-3. A3 — `EXPR_INT_LIT` consults Checker for the resolved type.
-   *(landed)*
-4. ~~A4~~ — `EXPR_BINARY` folded-shortcut.  *(deferred — see Phase
-   A4 note above)*
-5. B0 — Normalize OP_CONST_INT codegen for typed-unsigned values.
-   *(prerequisite for B1+, blocks the rest of Phase B)*
-6. B1+B2 — hint API + plumbing.
-7. B3 — `EXPR_INT_LIT` uses hint for untyped literals.
-8. A5 — drop the magnitude heuristic.  *(now last; B subsumes
-   what A4 would have covered)*
+1. **A1** (`1547f3d`) — Checker survives `typecheckAll`.
+2. **A2** (`ddd7329`) — Checker reaches pkg/ir via `SetChecker`.
+3. **A3** (`0a0a3b0`) — `EXPR_INT_LIT` pulls its value from the
+   Checker's bignum via `exprIntLitValue` / `bignumToInt`.
+4. **B (var decl + typed-context sites)** (`6edc610`) —
+   genExprOrFuncRef narrows `EXPR_INT_LIT` to its typed-int hint;
+   genDecl routes var-decl RHS through genExprOrFuncRef.  Key
+   subtlety: `ctx.CurBlock = b` sync on every early-return —
+   without it, for-loop epilogue code lands in the wrong block.
+5. **B (binop operands)** (`55ac339`) — genBinary narrows literal
+   operands to the typed side's type.  Flips the
+   `TestGenUint32MaskLiteralForcedToInt64` pin to assert the
+   correct uint32 shape.  Bare-metal 394 → 397 passes.
+6. **A4** (`3f05c1a`) — EXPR_BINARY folded-shortcut, initially
+   gated to direct-literal operands to dodge a type-checker bug.
+   Bare-metal 397 → 398.
+7. **Type-checker iota-const fix** (`936a904`) — bare iota'd
+   const symbols carry `HasLitVal/LitMag/LitSign` so binop folds
+   through `keyword_start + 1`-style expressions compute correct
+   values.  A4 drops its direct-literal gate.  Bare-metal
+   398 → 400.  Recorded in claude-todo-done.md.
+8. **A5** (`83df17e`) — magnitude heuristic dropped.  B broadened
+   to fire on any expression whose resolved Type carries
+   HasLitVal (catches `EXPR_UNARY(MINUS, lit)`-style folds).
+   needsHintNarrowing relaxed to fire for any typed int with a
+   shape (width or signedness) differing from the untyped-int
+   default.  Bare-metal 400 → 402.
+
+Total bare-metal gain across the series: 393 → 402 passes (9
+tests on int width / signedness boundaries unfailed).  Plus the
+test-coverage scaffolding (`genFromSourceWithChecker` helper,
+direct unit tests for `bignumToInt` / `isTypedInt` /
+`needsHintNarrowing` / `intFitsInType` / Phase B end-to-end
+shapes) is left in place for future literal-handling work.
+
+### Detours encountered
+
+Two false starts worth recording:
+
+- **B0 codegen normalization (red herring)** — initial guess
+  that LLVM rejected `add i32 3221225472, 0` (uint32 value >
+  INT32_MAX in signed i32 representation).  Verified by direct
+  llc compile: LLVM accepts both `add i32 3221225472, 0` and
+  `add i32 -1073741824, 0` and produces identical machine code.
+  The actual divergence was the missing `ctx.CurBlock = b` sync
+  in genExprOrFuncRef's early-return path, which orphaned IR
+  blocks past for-loop terminators.
+- **A4 first cut (deferred, then re-enabled)** — folding via
+  `Checker.ExprType(binop).HasLitVal` for ALL binops broke
+  pkg/token's `keyword_start + 1` because the type checker
+  inherited the typed-const's LitVal from the OTHER (literal)
+  operand via commonType.  Workaround: gate on direct-literal
+  operands.  Permanent fix: store the const's iota value on the
+  symbol's Type — see step 7.
 
 After A: typed literals (uint32, int64, etc.) come through with
 the right type.  Folded untyped × untyped collapses to one
