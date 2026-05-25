@@ -6,50 +6,25 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
-### Phase 4: aa64 native backend missing OP_FUNC_HANDLE / OP_CALL_HANDLE handlers — HIGH PRIORITY (CI regression)
-- **Status**: `builder-comp_native_aa64-comp_native_aa64` (cross-
-  compile native aa64 → comp native aa64) was passing pre-Phase-4
-  (binate `0a0a3b0`) and now fails — every conformance test in this
-  mode fails at link time because pkg/ast / pkg/ir / etc. .o files
-  are missing `_bn_<pkg>____dtor_<T>__handle` symbols that main.o
-  references.  Phase 4 changed OP_FUNC_ADDR's LLVM lowering to emit
-  `&__handle.F` (a handle pointer) and added OP_FUNC_HANDLE +
-  OP_CALL_HANDLE, but `pkg/native/arm64` was never updated.
-- **What aa64 needs**:
-  1. `emitFuncValueVtables` collects OP_FUNC_ADDR / OP_FUNC_HANDLE
-     refs (currently only OP_FUNC_VALUE) and emits one
-     `_bn_<pkg>__<name>__handle` global per function — 16-byte
-     `{vtable_ptr, data_ptr}` with vtable→`__vt`, data=NULL.
-     Mirrors `emitFuncValueHandle` in pkg/codegen.
-  2. OP_FUNC_ADDR's dispatch handler (currently emits raw fn ptr
-     via ADRP+ADD against the function symbol) flips to emit the
-     `__handle` global address — same shape as the LLVM lowering.
-  3. Add OP_FUNC_HANDLE handler (same as updated OP_FUNC_ADDR — a
-     handle pointer).
-  4. Add OP_CALL_HANDLE handler — identical to emitCallFuncValue
-     since both load `{vtable, data}` from the same 2-word shape
-     and dispatch as `call(data, args)` via the always-shim
-     convention.
-- **Tried and rolled back (2026-05-23)**: extending
-  `collectFuncValueRefs` to scan OP_FUNC_ADDR / OP_FUNC_HANDLE and
-  synthesize sigs via a local `lookupFuncValueTypeAA64` helper
-  produced `ld: duplicate symbol` for cross-package dtors (both
-  defining and referencing modules emitted the `__vt`).  Adding an
-  `IsExtern` guard on the lookup then shifted the failure to
-  missing symbols — likely the qualified-name lookup wasn't
-  matching the auto-emitted dtor in the same module for reasons
-  that need deeper tracing.  The pkg/codegen LLVM side already
-  works at this; mirror its structure exactly and reproduce the
-  weak-symbol dedup that `weak_odr` gives LLVM through Mach-O
-  `N_WEAK_DEF`.
-- **Where**: `pkg/native/arm64/arm64.bn` (emitFuncValueVtables +
-  collectFuncValueRefs + new sig-synthesis helper),
-  `pkg/native/arm64/arm64_dispatch.bn` (OP_FUNC_ADDR change +
-  OP_FUNC_HANDLE + OP_CALL_HANDLE handlers),
-  `pkg/native/arm64/arm64.bn:handleSymFor` (new label helper).
-- **Plan**: see `explorations/plan-uniform-native-fnptrs.md`.
-- **Note**: `pkg/native/x64` is still a scaffold (per binate
-  `d422201`) — it won't need this work until it's a real backend.
+### ~~Phase 4: aa64 native backend missing OP_FUNC_HANDLE / OP_CALL_HANDLE handlers~~ — FIXED 2026-05-24 (binate `9d23198`)
+- `builder-comp_native_aa64-comp_native_aa64`: 2/413/1 → 415/0/1.
+- Three changes in `pkg/native/arm64`: new LLVM-shape name helpers
+  (`handleSymFor`, `vtableSymForLLVM`, `shimSymForLLVM`) in
+  `arm64_names.bn`; OP_FUNC_HANDLE + OP_CALL_HANDLE dispatch
+  handlers in `arm64_dispatch.bn` (handle is ADRP+ADD against
+  `___handle.<mangled>`, call delegates to `emitCallFuncValue`);
+  `collectFuncValueRefs` extended to OP_FUNC_HANDLE filtered
+  local-only via new `lookupFuncValueTypeAA64`, and
+  `emitFuncValueVtables` emits a weak `___handle.<mangled>` per
+  local entry whose vtable_ptr slot points at the existing
+  aa64-style vtable.
+- Cross-rebase note: `807a9bf` (concurrent) removed OP_FUNC_ADDR
+  entirely (Phase 4 left it dead), so the eventual landed shape
+  handles only OP_FUNC_HANDLE / OP_CALL_HANDLE.
+- The previous attempt's duplicate-symbol pitfall is avoided by
+  the local-only filter in `lookupFuncValueTypeAA64`: cross-
+  module references resolve at link time to the LLVM-emitted
+  dep's weak_odr definition; we never emit a competing one.
 
 ### ~~Phase 4 (uniform native fn ptrs) — finish: dtor refs MUST move from idx to handle~~ — DONE 2026-05-23 (binate `f3d9436`)
 - emitManagedPtrRefDec now emits OP_FUNC_HANDLE end-to-end (handle
