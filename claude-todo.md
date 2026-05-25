@@ -72,34 +72,24 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - Conformance 444 / 445 / 450 / 458 flipped from xfail to pass
   on `builder-comp_native_aa64-comp_native_aa64` (binate 01bb5b6).
 
-### IR-gen: large literals force i64 in narrow-context operations
-- **Symptom**: a uint32 (or any sub-i64 unsigned) operand combined
-  with a literal whose magnitude > INT32_MAX (e.g. `0xFFFFFFFF`)
-  produces an LLVM type mismatch — the literal is i64, the operand
-  zext's to i64, and a return from a uint32 function tries to
-  `ret i64 %v` against an i32 result type.  Bit `pkg/asm/arm32:ror32`
-  on 2026-05-22 (`result & 0xFFFFFFFF` inside a function returning
-  uint32), breaking 4 packages in builder-comp until the mask was
-  removed.
-- **Root cause**: `pkg/ir/gen_expr.bn:genExprInner` promotes any
-  literal with `v < INT32_MIN || v > INT32_MAX` directly to
-  `TypInt64()`, bypassing the type checker's context-driven
-  conversion.  Introduced in binate `d5195f0` to stop 32-bit
-  targets truncating large literals; the side effect is that
-  uint32 (and other narrow-but-unsigned) contexts get an i64
-  literal they then have to widen toward.
-- **Proper fix**: the type checker should resolve literal types
-  from context (operand types, assignment LHS, return-result
-  position) *before* IR-gen sees them.  Then IR-gen can lower a
-  literal to whichever target type its context demands.
-- **Pinned by**: `pkg/ir/gen_expr_test.bn:TestGenUint32MaskLiteralForcedToInt64`
-  asserts the BUGGY shape today; flip the assertion when the
-  proper fix lands.
-- **Workaround applied**: the offending `& 0xFFFFFFFF` mask in
-  `pkg/asm/arm32:ror32` was already redundant post-bootstrap-drop
-  (it was there for the 64-bit-uint32 bootstrap representation) so
-  removing it was clean.  Future similar uses may not have that
-  escape hatch and will need the proper fix.
+### ~~IR-gen: large literals force i64 in narrow-context operations~~ — FIXED
+- The context-driven literal type resolution that was the proper
+  fix has landed via `plan-ir-gen-typed-literals.md` Phases A/B:
+  the type checker now resolves a literal's type from context
+  (var-decl LHS, binop operand type, etc.) before IR-gen sees it,
+  so `0xFFFFFFFF` in a uint32 context lands at TYP_INT
+  Width=32 unsigned directly — no int64 promotion, no widening
+  ripple.
+- Pinned by `pkg/ir/gen_expr_test.bn`:
+  `TestGenVarDeclUint32LiteralStaysUint32`,
+  `TestGenBinopLiteralLhsAdoptsRhsType`,
+  `TestGenUint32MaskLiteralNarrowsToUint32`, plus
+  `TestGenNarrowIntLitStaysUntyped` for the inverse (narrow
+  literals retain TYP_UNTYPED_INT for further inference).
+- End-to-end probe: `func ror32(x, n uint32) uint32 { return (x >> n
+  | x << (32-n)) & 0xFFFFFFFF }` compiles and runs cleanly on both
+  host (builder-comp) and arm32-baremetal (cross-compile) — no
+  "ret i64 in i32-result function" mismatch.  Verified 2026-05-24.
 
 ### ~~Substitute LP64-pinned conformance tests with target-aware variants~~ — DONE 2026-05-22
 - **Mechanism**: `conformance/run.sh` now honors per-mode
