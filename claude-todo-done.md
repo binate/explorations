@@ -6,6 +6,357 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~Phase 4: aa64 native backend missing OP_FUNC_HANDLE / OP_CALL_HANDLE handlers~~ — FIXED 2026-05-24 (binate `9d23198`)
+- `builder-comp_native_aa64-comp_native_aa64`: 2/413/1 → 415/0/1.
+- Three changes in `pkg/native/arm64`: new LLVM-shape name helpers
+  (`handleSymFor`, `vtableSymForLLVM`, `shimSymForLLVM`) in
+  `arm64_names.bn`; OP_FUNC_HANDLE + OP_CALL_HANDLE dispatch
+  handlers in `arm64_dispatch.bn` (handle is ADRP+ADD against
+  `___handle.<mangled>`, call delegates to `emitCallFuncValue`);
+  `collectFuncValueRefs` extended to OP_FUNC_HANDLE filtered
+  local-only via new `lookupFuncValueTypeAA64`, and
+  `emitFuncValueVtables` emits a weak `___handle.<mangled>` per
+  local entry whose vtable_ptr slot points at the existing
+  aa64-style vtable.
+- Cross-rebase note: `807a9bf` (concurrent) removed OP_FUNC_ADDR
+  entirely (Phase 4 left it dead), so the eventual landed shape
+  handles only OP_FUNC_HANDLE / OP_CALL_HANDLE.
+- The previous attempt's duplicate-symbol pitfall is avoided by
+  the local-only filter in `lookupFuncValueTypeAA64`: cross-
+  module references resolve at link time to the LLVM-emitted
+  dep's weak_odr definition; we never emit a competing one.
+
+### ~~Phase 4 (uniform native fn ptrs) — finish: dtor refs MUST move from idx to handle~~ — DONE 2026-05-23 (binate `f3d9436`)
+- emitManagedPtrRefDec now emits OP_FUNC_HANDLE end-to-end (handle
+  pointer in both native and bytecode), and BC_REFDEC_INLINE_FAST's
+  slow path inspects `handle.data`:
+  * `DATA_KIND_VM_CLOSURE_REC` → recover FnIdx from
+    `closureRec[2]`, push the dtor frame on vm.Stack with ptr
+    stashed in `freeOnPop`, jump.  BC_RETURN pops the frame and
+    frees ptr.  No host C-stack recursion through the dtor field
+    graph — the iterative win the earlier stop-gap was protecting.
+  * Otherwise (data is null, or future kinds like
+    DATA_KIND_COMPILED_CLOSURE) → load handle.vtable.call (the
+    per-function shim) and dispatch via
+    `rt._call_shim_scalar(shim, data, ptr, ...)`.  Cross-mode
+    call — takes a host frame but cannot recurse back into the
+    bytecode VM, so depth is bounded by the cross-mode call
+    chain.  After the shim returns, `rt.Free(ptr)`.
+- Cross-mode interop now works as Phase 4 intended: a managed
+  value created in native that crosses into a bytecode VM (or
+  vice-versa) resolves its dtor through the shared handle layout
+  instead of an intra-vm-only function index.
+- Follow-up retired in binate `807a9bf` (2026-05-24): emitIndirectCall
+  was renamed to emitDtorOrCopyCall and now takes a name string
+  directly (no throw-away EmitFuncAddr Instr), so `OP_FUNC_ADDR` /
+  `BC_FUNC_ADDR` had no producer left and were deleted from the IR
+  + bytecode + LLVM + aa64 surface in one pass.
+- Follow-up retired in binate `aab30cf` (2026-05-24):
+  `ExternBinding.RawFnAddr` (raw int handle pointer — latent UAF
+  for heap-allocated source handles) → managed `@VMFuncHandle
+  HandleAddr` that RegisterExtern populates with a binding-owned
+  copy.  Ownership test pinned in `24fb091`.
+- Phase 4 plan doc (`plan-uniform-native-fnptrs.md`) updated to
+  mark Phase 4 LANDED in binate `42f463f`.
+- **Original context** (kept for posterity): Phase 4 landed at
+  binate `666ecc0` with a stop-gap (emitManagedPtrRefDec emits
+  OP_FUNC_ADDR; BC_REFDEC reads Src2 as 1-based intra-vm idx) to
+  fix `builder-comp-int-int` stack overflow.  Reverted in
+  `f3d9436` with the proper handle-pointer kind-discriminating
+  design above.
+
+### ~~Native aa64 backend: managed-pointer-to-iv deref segfaults at dispatch~~ — FIXED 2026-05-22
+- Root cause: `pkg/native/arm64/arm64_emit.bn:emitBox` silently
+  returned for non-OP_ALLOC operands, so `box(iv)` for a loaded
+  iv (the way to construct `@(*I)` / `@(@I)`) never emitted the
+  `bn_rt__Box` call — `p` (the @-pointer) stayed uninitialized
+  and downstream dispatch chased a stack alias instead of the
+  heap iv.
+- Fix: aggregate-load branch in `emitBox` — `getOperand` already
+  returns a register holding the pointer to the data (per
+  `common.SpillHoldsAggregatePointer`); pass it directly to
+  `bn_rt__Box`.  Mirrors LLVM's `emitBoxInstr` non-OP_ALLOC arm.
+- Conformance 444 / 445 / 450 / 458 flipped from xfail to pass
+  on `builder-comp_native_aa64-comp_native_aa64` (binate 01bb5b6).
+
+### ~~IR-gen: large literals force i64 in narrow-context operations~~ — FIXED
+- The context-driven literal type resolution that was the proper
+  fix has landed via `plan-ir-gen-typed-literals.md` Phases A/B:
+  the type checker now resolves a literal's type from context
+  (var-decl LHS, binop operand type, etc.) before IR-gen sees it,
+  so `0xFFFFFFFF` in a uint32 context lands at TYP_INT
+  Width=32 unsigned directly — no int64 promotion, no widening
+  ripple.
+- Pinned by `pkg/ir/gen_expr_test.bn`:
+  `TestGenVarDeclUint32LiteralStaysUint32`,
+  `TestGenBinopLiteralLhsAdoptsRhsType`,
+  `TestGenUint32MaskLiteralNarrowsToUint32`, plus
+  `TestGenNarrowIntLitStaysUntyped` for the inverse (narrow
+  literals retain TYP_UNTYPED_INT for further inference).
+- End-to-end probe: `func ror32(x, n uint32) uint32 { return (x >> n
+  | x << (32-n)) & 0xFFFFFFFF }` compiles and runs cleanly on both
+  host (builder-comp) and arm32-baremetal (cross-compile) — no
+  "ret i64 in i32-result function" mismatch.  Verified 2026-05-24.
+
+### ~~Substitute LP64-pinned conformance tests with target-aware variants~~ — DONE 2026-05-22
+- **Mechanism**: `conformance/run.sh` now honors per-mode
+  `NNN_name.expected.<mode>` (and `.error.<mode>`) overrides,
+  mirroring the `.xfail.<mode>` convention.  See binate 39bac8a.
+- **Tests retired**: 290 (override) and 330 (rewritten to
+  `bit_cast(int64, ...)`).  Both xfail.builder-comp_arm32_-
+  baremetal markers gone.  See binate 0044cde.
+- Approach for future arm32-broken tests: either drop in
+  an `.expected.<mode>` override (option 1) or rewrite the .bn
+  to be target-agnostic (option 3).  The substitution-syntax
+  option (option 2) wasn't needed.
+
+### ~~`println(int64)` hangs on arm32-baremetal~~ — FIXED 2026-05-22
+- Diagnosis was on the right track (int64 codegen on ILP32) but
+  wrong about the AEABI helper.  The actual fixes landed on main
+  in three coupled commits: `c2f8501` routes `println(int64)`
+  through `bootstrap.formatInt64` (emitPrintInt was previously
+  truncating int64 args to the target's `int` via a cast to
+  formatInt's declared param type); `d5195f0` types int64-magnitude
+  integer literals as int64 (TYP_UNTYPED_INT was lowering via
+  llvmType to i32 on arm32, silently truncating wide constants)
+  and preserves int64 width through unary-minus; `38f9319` fixes
+  formatInt's int-min handling and gives 424 an arm32 .expected
+  override.
+- 330 now passes in `builder-comp_arm32_baremetal` with no xfail.
+
+### ~~bnc: function-call element inside `@[]@[]char{...}` composite literal stores wrong value~~ — FIXED 2026-05-23
+- **Was**: `var a @[]@[]char = @[]@[]char{buf.CopyStr("libc")}`
+  compiled fine but at runtime `a[0]` was empty (len=0).  Cause:
+  `pkg/ir/gen_access.bn:genManagedSliceLit` stored each element
+  without a refcount handoff, so a fresh managed value from a
+  call (registered as a temp by `gen_call.bn`) got RefDec'd by
+  the end-of-statement temp cleanup — leaving the slot with a
+  dangling data ptr + freed header.
+- **Fix**: mirror `gen_short_var.bn`'s `var x = …` handoff
+  pattern in `genManagedSliceLit` — for managed-ptr / managed-
+  slice element types, `consumeTemp` if `isFreshManagedPtr` /
+  `isFreshManagedSlice` (slot inherits the temp's refcount),
+  otherwise `EmitRefInc` / `emitManagedSliceRefInc` (slot takes
+  its own reference).
+- **Pinned by**: conformance/473_mslice_mslice_char_lit_call_elem
+  (output check on `@[]@[]char{copyStr("a"), copyStr("b")}`).
+
+### ~~bnc: `return ""` for `@[]char` leaves undeclared `bn_libc__Memcpy`~~ — FIXED
+- **Surfaced by**: adding `--test --run <substr>` to `cmd/bnc`'s
+  generated test runner (`21c03a4`).  The generator wanted
+  `func _runnerFilter() @[]char { ...; return "" }`; the bnc codegen
+  lowered the `""` exit-path literal to
+  `call void @bn_libc__Memcpy(%dst, %src, i64 0)` (size-0 memcpy
+  to copy zero bytes from a rodata placeholder into a freshly
+  `rt.MakeManagedSlice`'d 0-length buffer).  The generated runner
+  module imports `pkg/bootstrap` + the test packages — but not
+  `pkg/libc` directly — so `test_main.ll` has no
+  `declare … @bn_libc__Memcpy` and clang errors with
+  `use of undefined value '@bn_libc__Memcpy'`.
+- **Workaround in place**: the generator returns a zero-init local
+  (`var empty @[]char; … return empty`) instead of `""`.  See
+  `genTestRunner` in `cmd/bnc/test.bn` and the comment block above
+  the `_runnerFilter` emission.
+- **Two clean fixes**:
+  1. In codegen, when lowering a `""` literal for `@[]char`, skip
+     the `libc.Memcpy` emit when the size is statically zero (no
+     bytes to copy — the `rt.MakeManagedSlice` already produced an
+     empty backing).  Plausibly the right call regardless of this bug.
+  2. Or: emit a `declare void @bn_libc__Memcpy(i8*, i8*, i64)` (and
+     similar implicit-use declarations) into every module that calls
+     into them through string-literal lowering, regardless of whether
+     `pkg/libc` is in the import set.
+- **Repro after removing the workaround**:
+    1. Revert the `var empty` branch in `genTestRunner` back to
+       `return ""`.
+    2. `go run cmd/bnc -- --test --build-dir <tmp> cmd/bni` — clang
+       fails on `test_main.ll` with the undefined-value error.
+  Test would live in `pkg/codegen` (a minimal module with a single
+  `@[]char`-returning function that does `return ""`).  Not yet
+  added — recommend adding alongside fix (1).
+
+### ~~pkg/vm: VMFunc.Vtable / VMClosureRec lazy allocs leak on VMFunc death~~ — FIXED
+- VMFunc's lazy heap blocks moved from raw `int` slots (filled via
+  `rt.RawAlloc`) to managed struct types: `VMFuncVtable`,
+  `VMClosureRec`, and the new `VMFuncHandle` (a 16-byte
+  `{VtableAddr, DataAddr}` block matching the `@__handle.F` static
+  shape so dispatch is uniform between bytecode-only and natively-
+  compiled functions).  `VMFunc.Vtable` / `ClosureRec` / `Handle`
+  are now `@VMFuncVtable` / `@VMClosureRec` / `@VMFuncHandle`
+  fields, allocated via `make(...)` in `vm_exec_funcref.bn:ensureHandle`.
+  VMFunc's auto-emitted dtor refdec's all three on death; no leak.
+- Same fix for `ExternBinding.HandleAddr` — now `@VMFuncHandle`.
+- Phase 4 of `plan-uniform-native-fnptrs.md` is the umbrella that
+  carried this in (along with the dtor-handle interop fix and the
+  aa64 handler additions).
+
+### ~~pkg/vm:TestExecRefIncRefDecInline crashes under boot-comp-int-int~~ — FIXED
+- Phases 1–3 of `plan-uniform-native-fnptrs.md` landed
+  (`9561a3b`, `c557870`).  Pre-existing diagnostic detail retained
+  below for context.
+- **Repro**: `./scripts/unittest/run.sh boot-comp-int-int pkg/vm`.
+  Symptom is actually a **SIGSEGV** (exit 139), not a hang —
+  earlier "hang past 8 min" reports were the runner timing out
+  on the segfaulted child.  xfail marker:
+  `scripts/unittest/pkg-vm.xfail.boot-comp-int-int`.
+- **Shape**: three-level VM nesting.  OUTER cmd/bni native dispatches
+  the inner cmd/bni's bytecode (the unit-test harness); the test
+  creates a fresh VM_test via `vm.NewVM(...)` and runs a hand-built
+  IR module — `EmitMake → EmitRefInc → EmitRefDec (rc=1, fast
+  path) → BC_CALL "rt.Refcount" → EmitRefDec (rc=0, slow path) →
+  BC_RETURN`.
+- **Bisection** (variant-by-variant build of the IR module):
+    - `EmitMake` (BC_ALLOC) alone — ✅ returns.
+    - `EmitMake + EmitRefInc` — ✅ returns.
+    - `EmitMake + EmitRefInc + EmitRefDec(fast)` — ✅ returns.
+    - `+ BC_CALL "rt.Refcount"` — ❌ crashes.
+  So the trigger is the BC_CALL extern dispatch on a name that's
+  not in VM_test.Funcs but IS in VM_test.Externs (registered via
+  RegisterStandardExterns).
+- **Specific to 3-level nesting.**  pkg/vm passes 107/107 under
+  boot-comp-int (2-level): TestExecRefIncRefDecInline runs cleanly
+  there.  The crash only manifests in the deeper boot-comp-int-int
+  chain.
+- **Crash details (2026-05-12 via lldb on `/tmp/bni_dbg` built with
+  `-g`)**:
+    - `EXC_BAD_ACCESS (code=1, address=0x1)` in OUTER native
+      `bn_vm__execMemoryOp` at line 251 — the BC_LOAD8 handler's
+      `regs[instr.Dst] = cast(int, p[0])`.
+    - The BC_LOAD8 being processed lives in
+      `VM_INNER.Funcs[1068].Code[97]` (= `vm.execMemoryOp`'s OWN
+      bytecode); pc=98 (one past). Instruction is
+      `(Op=43, Dst=78, Src1=77, Imm=0)`.
+    - vm.execMemoryOp's register 77 holds `0x01`. Bytecode at
+      pc=95/96/97: `BC_LOAD_IMM R76, 0` → `BC_ELEM_PTR R77 = R75
+      + R76*1` → `BC_LOAD8 R78 = *R77`. This corresponds to the
+      source-level `cast(int, p[0])` where `p = bit_cast(*uint8,
+      regs[instr.Src1])`. So source-level `p == 0x01` —
+      vm.execMemoryOp was called with a `regs+instr` pair where
+      `regs[instr.Src1] == 1`.
+    - Caller of execMemoryOp (saved in execMemoryOp's frame
+      header): funcIdx=1060 (= `vm.execLoop`) at saved pc=185.
+      Caller of that inner execLoop (savedFuncIdx=1064) at pc=91.
+      The inner execLoop's parameters at regsOff=12368 are
+      reg[0]=0xAF079D310 (vm), reg[1]=1032 (funcIdx), reg[2]=1168
+      (regsOff).
+    - The inner execLoop's `vm` (0xAF079D310) is NOT the
+      VM_INNER_CMD_BNI (0xAF0B58510) we entered through — so we're
+      at the deeper-nested level (probably the test's
+      `execFunc(VM_T, ...)` → execLoop call, with vm=VM_T).
+      Unresolved discrepancy: funcIdx=1032 is way out of range for
+      a VM_T that LowerModule populated with one function. So
+      either the inner execLoop is iterating something other than
+      VM_T (some intermediate VM?), or our register-offset
+      assumption for params (reg[0..2]) is off.
+- **Root cause (2026-05-13, confirmed via lldb on `/tmp/bni_dbg`
+  with `--run TestExecRefIncRefDecInline`)**: vtable.call slot for
+  every `rt.*` extern binding in `VM_T.Externs` is stored as
+  `0x423` (= 1059), a tiny integer that isn't a native function
+  pointer.  By contrast `libc.*` / `bootstrap.*` bindings have
+  proper native call slots (e.g. `0x10010d4d4`).
+- **Dispatch path that crashes**: `dispatchExternBinding` reads
+  `vtable[1] = 1059` and feeds it into `rt._call_shim_scalar` →
+  `BC_CALL_INDIRECT` with `fnIdx=1059`.  The handler in inner
+  `pkg/vm.execLoop` does `calleeFuncIdx = fnIdx - 1 = 1058`,
+  passes the `1058 < len(vm.Funcs)` check (`INNER vm.Funcs.len`
+  = 1194), and pushes a frame for `vm.Funcs[1058]` — which is
+  `vm.genModule` (a `vm_test.bn` helper).  genModule's first
+  action is `toBytes(src)`, which dereferences `src.data`; src
+  is actually the closure record passed as `dataPtr` (=
+  `b.DataAddr`), whose word 0 is `rt.DATA_KIND_VM_CLOSURE_REC =
+  1`.  Reading the byte at address `0x1` segfaults — exit 139.
+  (Also explains the 44 GB memory blow-up the user observed when
+  leaving the test running: genModule continues past toBytes
+  into `parser.New / ParseFile` parsing the closure record as
+  Binate source — unbounded allocation.)
+- **Why vtable.call is the wrong number (cross-VM index leak)**:
+  BC_FUNC_VALUE construction (Path B in
+  `pkg/vm/vm_exec_funcref.bn:99-107`) sets
+  `vtPtr[1] = bit_cast(int, _raw_func_addr(TrampolineScalar))`.
+  `_raw_func_addr` lowers to BC_FUNC_ADDR.  When INNER
+  pkg/vm.execLoop's bytecode dispatches BC_FUNC_VALUE, it
+  source-level-calls `execFuncRefOp(vm=INNER vm, …)`.  But
+  execFuncRefOp's BYTECODE (which contains the BC_FUNC_ADDR)
+  is then iterated by OUTER NATIVE execLoop (one level up the
+  call ladder).  OUTER native execLoop's BC_FUNC_ADDR handler
+  uses OUTER's `vm` = VM_INNER_CMD_BNI for the LookupFunc, not
+  the inner level's vm.  OUTER_vm.LookupFunc("vm.TrampolineScalar")
+  = 1058, so `vtPtr[1] = 1059`.
+- **Both directly verified via lldb**:
+    - `INNER vm.LookupFunc("vm.TrampolineScalar")` = 1076,
+      `INNER vm.Funcs[1076].Name = "vm.TrampolineScalar"`,
+      `INNER vm.Funcs[1058].Name = "vm.genModule"`.
+    - `execFuncRefOp.CallCache[22]` (the slot for the BC_FUNC_ADDR
+      to TrampolineScalar) = 1076 in INNER vm.
+    - But the actual stored `vtable[1]` for all rt.* externs
+      registered in `VM_T.Externs` = 1059.
+  So the construction came from a DIFFERENT execFuncRefOp execution
+  context — namely the one iterated by OUTER NATIVE execLoop's
+  handler chain.
+- **Generalized bug shape**: any function-value vtable whose `call`
+  slot is a 1-based VM index (Path B) is meaningful only in the
+  vm at construction time.  In 3-level VM nesting, the vtable can
+  be constructed by an upper-level execLoop and consumed by a
+  lower-level execLoop, so the numeric index resolves to the
+  wrong function.  Path A (extern registry fallback, libc.* /
+  bootstrap.*) doesn't have this problem because vtables there
+  hold native function pointers (immune to vm-context shifts).
+- **Possible fixes (require user buy-in)**:
+    1. Make Path B's `call` slot a NATIVE function pointer (the
+       address of TrampolineScalar / TrampolineAggregate in the
+       containing process).  In bytecode-mode VMs the index-based
+       path goes away; BC_CALL_INDIRECT's `dispatchNativeIndirect`
+       arm (Imm=8/9) takes over uniformly.  Cost: TrampolineScalar
+       needs to be reachable as a native function from any vm
+       depth — works if the outermost host is always native cmd/bni,
+       which is the assumption.
+    2. Store a vm-identity tag alongside the numeric index and
+       translate at dispatch time.  More invasive.
+    3. Re-resolve at first dispatch (lazy-translate the numeric
+       call slot through dispatch-time vm.LookupFunc by Name).
+       Requires keeping the symbol name in the vtable record.
+- **Surfaced by** the boot-comp-int-int unit-test sweep after the
+  vm_extern.bn cleanup (`a6a74c8`).  Pre-cleanup the test was
+  hidden behind a separate codegen bug fixed in `666f2c9`.
+- **Repro is now seconds**: `/tmp/bni_dbg -root <root> cmd/bni
+  -- --test --run TestExecRefIncRefDecInline -root <root> pkg/vm`
+  segfaults within ~2 s of launch (needs the `--run` filter from
+  `6bea5ba`).
+- **Investigation owner**: in progress.  Next concrete step:
+  from lldb at the SEGV, call (or inline-script) the INNER vm's
+  LookupFunc on `"vm.TrampolineScalar"` and compare against a
+  linear scan of `INNER vm.Funcs[i].Name`.  If they disagree the
+  bug is in funcIndex insertion / probing; if they agree at idx
+  1058 the bug is in LowerModule's appendVMFunc / funcIndexSet
+  pairing.
+
+### ~~Pointers to interface values~~ — DONE 2026-05-21
+- **Plan**: `plan-pointers-to-iface-values.md` (sliced P.1–P.5).
+  Slices P.1 (audit) + P.2 (fix `@(*I)` / `@(@I)` deref-
+  dispatch) LANDED 2026-05-20; P.3 (smoothing for pointer-to-iv
+  receivers) + P.4 (iv-in-slice / iv-in-array element-write)
+  LANDED 2026-05-21.  P.5 (bootstrap parity) DROPPED — boot
+  mode is gone.
+- Design pinned in `claude-notes.md` § "Interfaces" line 421:
+  `**Stringer`, `*@Stringer`, `@(*Stringer)`, `@(@Stringer)` are
+  all valid pointer-to-iv shapes; parens are required by the
+  grammar to disambiguate the `@(@…)` form.
+- **Conformance pins**: 408 + 443 + 444 + 445 cover
+  `(*p).Foo()` dispatch through every shape; 438 + 452 + 453 +
+  450 cover `p.Foo()` smoothing; 439 + 440 + 441 cover
+  iv-in-slice / iv-in-array; 442 pins pointer-to-iv struct
+  field; 456 pins the orthogonal `(*p).x` bnc-compiled bug
+  still in `gen_selector.bn` (see entry above).
+- Was needed for: generics (`*T` where `T=Stringer`), out
+  parameters, arrays of interfaces, containers.
+
+### ~~Test harness `isTestResultReturn` should resolve type aliases~~ — FIXED
+- The test harnesses (bootstrap Go `main.go` and self-hosted `cmd/bnc/test.bn`) only accept `testing.TestResult` (qualified) or `@[]char` (literal managed-slice of char) as test return types.
+- They don't resolve type aliases, so an unqualified `TestResult` from within the `pkg/builtin/testing` package itself is rejected ("wrong signature").
+- **Fix**: resolve the return type through aliases before checking. If the return type is a named type in the current package, look up its definition and check the underlying type.
+- **Workaround**: use `@[]char` as the return type in `pkg/builtin/testing/testing_test.bn`.
+- Affects: `cmd/bnc/test.bn:isTestResultReturn`, `bootstrap/main.go:isTestResultReturn`.
+
 ### ~~Type-checker drops typed-const value through untyped binop fold~~ — FIXED 2026-05-23
 
 - **Discovered + fixed**: 2026-05-23, while wiring up
