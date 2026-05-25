@@ -4,6 +4,21 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## CRITICAL
+
+### Mangler collides symbols from packages with the same last-segment short name
+- **Symptom**: `pkg/foo/bar` and `pkg/baz/bar` both mangle to the same `bn_bar__*` symbol prefix because `mangle.PkgShortName` only takes the last `/`-segment of the package path.  At link time the second `.o` overwrites the first, breaking any program where both packages are in the same transitive imports.
+- **Discovery**: Phase 2 of the SysV-AMD64 backend hit this when `pkg/native/x64` and `pkg/asm/x64` both produced `bn_x64__*` symbols.  Builds failed with "undefined symbol bn_x64__Push" because the native package's `x64.o` clobbered the asm package's slot.
+- **Root cause**: `pkg/mangle/mangle.bn:PkgShortName` returns the last segment of the import path.  Mangled-symbol generation uses that segment as the unique-per-package prefix.  Two packages sharing the last segment are indistinguishable in the mangled namespace.  This is a critical mangler defect — any future `pkg/X/foo` + `pkg/Y/foo` pair has the same problem.
+- **Workaround in place**: `pkg/native/x64` was renamed to `pkg/native/amd64` to dodge the collision (binate `9f36f62`).  This is a rename-to-avoid-the-bug, not a fix.  The collision is still latent for any future last-segment-collision package pair.
+- **Proper fix**: change the mangling scheme so that distinct package paths always mangle to distinct symbol prefixes.  Options under consideration:
+  1. Use the full path (sans leading `pkg/`), `/` → `__`: `pkg/asm/x64` → `bn_asm__x64__*`, `pkg/native/x64` → `bn_native__x64__*`.
+  2. Hash the full path: `bn_x64_<hash>__*`.  Shorter symbols but uglier to read.
+  3. Track imported-package short names at compile time, error on collision.  Less invasive but doesn't actually prevent the collision — just refuses to compile when it happens.
+- **Aftermath of the proper fix**: once the mangler is correct, we'll want to rename pkg/native and pkg/asm subpackages so they're consistent — i.e., agree on one of "x64" or "amd64" / "arm64" or "aarch64" across both directories.  Today they intentionally differ to dodge the collision; after the fix, that's no longer necessary.
+
+---
+
 ## TODO
 
 ### ~~Phase 4: aa64 native backend missing OP_FUNC_HANDLE / OP_CALL_HANDLE handlers~~ — FIXED 2026-05-24 (binate `9d23198`)
