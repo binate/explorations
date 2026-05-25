@@ -61,11 +61,18 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   value created in native that crosses into a bytecode VM (or
   vice-versa) resolves its dtor through the shared handle layout
   instead of an intra-vm-only function index.
-- `OP_FUNC_ADDR` still exists for the dead-result name-carrier
-  use in emitIndirectCall (gen_dtor_emit.bn, gen_copy_emit.bn).
-  Cleanup follow-up: switch those to a name-only IR-magic that
-  doesn't emit a value at all, then delete `OP_FUNC_ADDR` and
-  `BC_FUNC_ADDR`.  Not blocking.
+- Follow-up retired in binate `807a9bf` (2026-05-24): emitIndirectCall
+  was renamed to emitDtorOrCopyCall and now takes a name string
+  directly (no throw-away EmitFuncAddr Instr), so `OP_FUNC_ADDR` /
+  `BC_FUNC_ADDR` had no producer left and were deleted from the IR
+  + bytecode + LLVM + aa64 surface in one pass.
+- Follow-up retired in binate `aab30cf` (2026-05-24):
+  `ExternBinding.RawFnAddr` (raw int handle pointer — latent UAF
+  for heap-allocated source handles) → managed `@VMFuncHandle
+  HandleAddr` that RegisterExtern populates with a binding-owned
+  copy.  Ownership test pinned in `24fb091`.
+- Phase 4 plan doc (`plan-uniform-native-fnptrs.md`) updated to
+  mark Phase 4 LANDED in binate `42f463f`.
 - **Original context** (kept for posterity): Phase 4 landed at
   binate `666ecc0` with a stop-gap (emitManagedPtrRefDec emits
   OP_FUNC_ADDR; BC_REFDEC reads Src2 as 1-based intra-vm idx) to
