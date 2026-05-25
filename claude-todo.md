@@ -629,28 +629,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - Missing-return check (test 245) uses Go-style termination analysis simplified: RETURN terminates; `panic(...)` terminates; BLOCK terminates if last stmt does; IF terminates if both branches do; FOR with no condition and no `break` in body terminates; SWITCH with default and all cases terminating (no break) terminates.
 - **Labeled break**: Binate currently has no labels. If/when we add them, termination analysis needs to track labels — a `break L` inside a nested for doesn't break the inner for (contrary to the current "any break disqualifies enclosing for/switch" rule). Revisit when labels are on the table.
 
-### `(*p).x` (field access through explicit deref) returns 0 — bnc-compiled only
-- Discovered 2026-05-21 while auditing Slice P.2 (pointer-to-iv
-  dispatch).  Field access through an explicit deref hits the
-  `return b.EmitConstInt(0, types.TypInt())` fallback in
-  `pkg/ir/gen_selector.bn` because `genSelector` has no
-  EXPR_UNARY-base case — only IDENT / SELECTOR / CALL / BUILTIN
-  bases route to a real field-pointer.  Boot (Go interpreter)
-  handles it correctly; bnc-compiled (all modes) returns 0.
-- Pinned by `conformance/456_field_access_through_explicit_deref`
-  with `.xfail.{boot-comp, boot-comp-int, boot-comp-int-int,
-  boot-comp-comp, boot-comp-comp-int, boot-comp-comp-comp}`.
-- Workaround: use `p.x` (auto-deref) instead.  Both raw and
-  managed pointers auto-deref transparently for field access; the
-  explicit form is the broken path.
-- Fix sketch: add an EXPR_UNARY-STAR base case to `genSelector`
-  that genExprs the operand, recovers a struct/iv pointer, and
-  routes to the field-pointer / iface-method-call logic the
-  IDENT-base cases already use.  The deref-then-dispatch shape
-  is already wired correctly for iface-method calls
-  (`isInterfaceMethodCall` checks EXPR_UNARY on sel.X) — the
-  field-access shape is the residual gap.
-
 ### Clean up conformance tests to use array literal + `arr[:]` pattern
 - `arr[:]` works in compiled mode; conformance tests using `make_slice` + indexed assignment for static data could use `[N]T{...}` + `arr[:]` instead
 - Consider adding slice literal syntax (`*[]T{...}`) as sugar

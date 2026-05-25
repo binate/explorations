@@ -6,6 +6,32 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~`(*p).x` (field access through explicit deref) returns 0 — bnc-compiled only~~ — FIXED 2026-05-21 (binate `5a5ffb1`)
+- Root cause was as originally diagnosed: `genSelector`
+  (`pkg/ir/gen_selector.bn`) had no EXPR_UNARY base case — IDENT /
+  SELECTOR / INSTANTIATE_OR_INDEX / CALL / BUILTIN bases all routed
+  to a real field-pointer; the explicit-deref `*p` form fell
+  through to the `return b.EmitConstInt(0, types.TypInt())`
+  fallback, so `(*p).x` read a constant 0.
+- Fix: mirror the EXPR_CALL pattern.  `genExpr` the operand (`*p`);
+  the resulting `val` carries either a struct value (when `*p`
+  loads a `T`), a managed-pointer-to-struct (when it loads `@T`),
+  or a raw-pointer-to-struct (when it loads `*T`).  Each routes
+  through the existing field-pointer + load logic.  The struct-
+  value branch alloca+stores the loaded value (you can't GEP
+  through an SSA value), mirroring the EXPR_CALL value-struct arm.
+- Relies on the deref-typing extension from Slice P.2
+  (`pkg/ir/gen_expr.bn` sizes `*p` loads by the operand's `Elem`
+  for both raw and managed pointers), so `val.Typ` is the pointee
+  rather than `i64`.
+- **Pins**: conformance `456_field_access_through_explicit_deref`
+  (was rejection-pinned with `.xfail` markers in all six bnc-
+  compiled modes; flipped to `.expected` 42 in the fix commit) plus
+  IR-layer unit tests `TestGenExplicitDerefRawPtrFieldRead` /
+  `TestGenExplicitDerefManagedPtrFieldRead` in
+  `pkg/ir/gen_selector_test.bn` (each asserts a `GET_FIELD_PTR` is
+  emitted rather than the const-0 fallback).
+
 ### ~~Phase 4: aa64 native backend missing OP_FUNC_HANDLE / OP_CALL_HANDLE handlers~~ — FIXED 2026-05-24 (binate `9d23198`)
 - `builder-comp_native_aa64-comp_native_aa64`: 2/413/1 → 415/0/1.
 - Three changes in `pkg/native/arm64`: new LLVM-shape name helpers
