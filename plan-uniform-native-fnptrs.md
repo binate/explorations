@@ -16,12 +16,49 @@
    tests + conformance green in `boot-comp`, `boot-comp-int`,
    `boot-comp-int-int`.
 
-**Phase 4 in flight.**  The audit's BC_CALL_INDIRECT magnitude
-check still stands today.  Real elimination requires unifying the
-`_raw_func_addr` machinery with the function-value handle shape so
-that bytecode-only function references (REPL-defined, test-helper-
-in-bytecode-mode) get dispatched through the universal trampolines.
-See "Phase 4 revised" below.
+**Phase 4 LANDED (2026-05-24).**  The architectural cleanup
+described under "Phase 4 revised" below is complete; the
+BC_CALL_INDIRECT magnitude check is gone and every function-
+pointer-shaped value is now a real handle pointer.  Key landing
+commits, in order:
+
+ * `287e480` — universal function-value handles: OP_FUNC_HANDLE
+   / OP_CALL_HANDLE / BC_FUNC_HANDLE, universal trampolines,
+   per-function `@__handle.F` emission.
+ * `d2cc767` — emitCallHandle split out of emit_call.bn.
+ * `666ecc0` — initial dtor-refs-via-handle attempt (later
+   superseded by `81465cc` which made the dispatch interop-
+   correct).
+ * `a654afd` — drop BC_CALL_INDIRECT's idx arm.
+ * `8474f01` — unit tests for emit_call_handle.
+ * `c599dd9` — header[1]==0 sentinel for default-RawFree
+   (bootstrap-bridge for the C runtime).
+ * `1c5a914` — `_raw_func_addr` → `_func_handle` rename
+   (legacy spelling kept as a transitional alias).
+ * `ebb13ef` — canonical `_func_handle` test coverage +
+   diagnostic strings.
+ * `81465cc` — BC_REFDEC kind-discriminates on handle.data
+   (the "was-a-non-goal-now-MUST-FIX" arm; supersedes the
+   `666ecc0` stop-gap).
+ * `1279245` — refDecCrossModeDispatch extracted to
+   vm_exec_helpers.bn.
+ * `021a085` / `1eddf41` / `9722c59` — test coverage +
+   focused unit tests for the kind-disc paths.
+ * `807a9bf` — remove dead OP_FUNC_ADDR / BC_FUNC_ADDR.
+ * `aab30cf` — ExternBinding.RawFnAddr → managed HandleAddr
+   (refcount-tracked binding-owned copy).
+ * `24fb091` — HandleAddr ownership coverage.
+
+All three modes (builder-comp / -int / -int-int) green; hygiene
+clean.  Two unfinished cleanups remain as deferred polish:
+ * The `_raw_func_addr` alias in pkg/token.Lookup stays
+   until the prebuilt BUILDER bumps to a version that natively
+   recognizes `_func_handle`, at which point callers in pkg/rt /
+   cmd/bni / cmd/bnc switch and the alias drops.
+ * The aa64 native backend's OP_FUNC_HANDLE / OP_CALL_HANDLE
+   handlers and `__handle.F` symbol emission needed catching up
+   (was tracked in claude-todo.md and landed independently by
+   another worker during this stretch).
 
 Original Phase 2 history (a prior attempt was reverted on
 2026-05-14 before the landed version above) is kept under
@@ -470,27 +507,39 @@ iterative dispatch) and `a654afd` (BC_CALL_INDIRECT idx-arm drop
 discriminating handle work.  That has to be undone in favor of
 the design above before this plan is done.
 
-#### Migration order
+#### Migration order — all steps DONE (2026-05-24)
 
- 1. Switch existing Path B lazy allocs to refcounted (managed
+ 1. ✅ Switch existing Path B lazy allocs to refcounted (managed
     types on VMFunc).  Pre-fix for the leak, isolated change.
- 2. Add `HandleAddr` (managed) to `ExternBinding`; update
-    `RegisterExtern` signature.  Callers updated to pass the
-    handle alongside the existing fv-addr / RawFnAddr.
- 3. bnc emits `__handle.F` per function.
- 4. Rename `_raw_func_addr` → `_func_handle`; native codegen
-    lowers to `&__handle.F`.
- 5. Rename `BC_FUNC_ADDR` → `BC_FUNC_HANDLE`; handler reads
-    `HandleAddr` from Externs (hit) or lazy-allocates from
-    VMFunc fields (miss).
- 6. Update `_call_free_fn` / `_call_dtor` lowering to handle-
-    dispatch (BC_CALL_FUNC_VALUE shape in bytecode, two-load
+ 2. ✅ Add `HandleAddr` (managed) to `ExternBinding`; update
+    `RegisterExtern`.  Binding owns a managed copy.  (binate
+    `aab30cf` + coverage `24fb091`.)
+ 3. ✅ bnc emits `__handle.F` per function (LLVM via
+    `emitFuncValueHandle` in pkg/codegen; aa64 via `handleSymFor`
+    in pkg/native/arm64).
+ 4. ✅ Rename `_raw_func_addr` → `_func_handle`; native codegen
+    lowers to `&__handle.F`.  Legacy spelling kept as a
+    transitional alias.  (binate `1c5a914` + `ebb13ef`.)
+ 5. ✅ `BC_FUNC_HANDLE` handler reads `HandleAddr` from Externs
+    (hit) or lazy-allocates from VMFunc fields (miss).
+ 6. ✅ `_call_free_fn` / `_call_dtor` lower to handle-dispatch
+    (OP_CALL_HANDLE → BC_CALL_FUNC_VALUE in bytecode, two-load
     indirect call in native).
- 7. Drop `BC_CALL_INDIRECT`'s magnitude arm.  Update
-    `dispatchNativeIndirect`'s Imm=1 arm to load handle, dispatch.
- 8. Split out `EmitDtorIdx` / `OP_DTOR_IDX` / `BC_DTOR_IDX`;
-    update `emitManagedPtrRefDec`.
- 9. Final pass: pkg/vm + conformance in all three modes.
+ 7. ✅ Drop `BC_CALL_INDIRECT`'s magnitude arm (binate `a654afd`).
+    `dispatchNativeIndirect` keeps Imm=8 / Imm=9 for the
+    `_call_shim_*` shapes (Imm=1 / free_fn shape disappeared
+    along with the magnitude arm — `_call_free_fn` now routes
+    through OP_CALL_HANDLE).
+ 8. ✅ Dtor refs use OP_FUNC_HANDLE end-to-end;
+    BC_REFDEC_INLINE_FAST kind-discriminates on `handle.data`
+    (`DATA_KIND_VM_CLOSURE_REC` → iterative push; otherwise
+    cross-mode shim call).  Replaces the earlier OP_DTOR_IDX
+    proposal — no new IR op needed once the kind tag does the
+    work.  (binate `81465cc`.)  OP_FUNC_ADDR / BC_FUNC_ADDR
+    retired as dead code (binate `807a9bf`).
+ 9. ✅ Final pass: pkg/vm + conformance in all three modes
+    (`builder-comp`, `builder-comp-int`, `builder-comp-int-int`).
+    Hygiene 12/12.
 
 ### Audit: where 1-based VM indices currently live
 
