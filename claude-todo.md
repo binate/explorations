@@ -225,6 +225,29 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   unit-tests stay green.  Mirrors the
   `migrate-to-method-form-opportunistic` pattern from
   `claude-todo-done.md` (DONE 2026-05-13).
+- **Recon finding (2026-05-26)**: there is NO clean *small*
+  retrofit target.  The candidates above split into two
+  unappealing buckets: (a) enum→value lookups (reloc maps,
+  opName, the emitInstr op dispatch) where `switch` is genuinely
+  the right tool and an interface would mean manufacturing one
+  empty marker type per enum value — pure ceremony; and (b)
+  monolithic tagged unions (`ast.Stmt`/`Decl`, `ir.Instr`) where
+  a real interface means splitting a struct that touches every
+  layer.  So "use interfaces more" here is a deliberate design
+  choice, not opportunistic cleanup.
+- **Landed (2026-05-26): driver `Backend` interface** (binate
+  `0ee0faa`, `bda81ca`, `6dacb23`).  The genuinely-valuable use
+  found: `cmd/bnc/compile.bn`'s `Backend` interface
+  (`compileModule`) with `llvmBackend` / `nativeBackend` impls,
+  dispatched via `compileModuleVia`.  This collapsed the
+  duplicated driver flow — `compileMainNative` is gone, `main()`
+  picks the backend and the LLVM/native paths are unified.
+  pkg/native also got an internal arch `Backend`
+  (arm64/amd64).  These are the first non-synthetic interface
+  users beyond pkg/std's `Stringer`.  NOTE: interface values
+  must be constructed from locals, not package globals — `&global`
+  iface construction was a codegen bug (now fixed, see
+  conformance/495).
 
 ### Use `@[]@[]char{...}` composite literals (opportunistic)
 - **Constraint**: previously forbidden because bootstrap didn't
@@ -354,6 +377,19 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   dispatchers in `pkg/native/arm64/arm64_dispatch.bn`,
   `pkg/codegen/emit_instr.bn`, `pkg/vm/vm_exec*.bn`, and
   `pkg/ir/ir_ops.bn`'s opName / similar string-form helpers.
+- **Landed (2026-05-25/26)**: the big per-op dispatchers are
+  converted — `pkg/vm/vm_exec_pure.bn` + `vm_exec_helpers.bn`
+  (binate `b4456ab`, `e4e7d29`), `pkg/codegen/emit_instr.bn`
+  (`2d6d0f7`), `pkg/native/arm64/arm64_dispatch.bn` (`3756acc`).
+  Where a chain mixes equality cases with op-RANGE checks
+  (emit_instr's OP_ADD..OP_SHR / OP_EQ..OP_GE; arm64_dispatch's
+  emitCompare/emitBinop/emitUnop delegates), the range arms stay
+  as guards alongside the switch.  `ir_ops.bn`'s opName was
+  already a switch — nothing to do there.  This work flushed out
+  a CRITICAL case-scope miscompile (managed local in a `case`
+  body), since fixed (`4306197`) — see the FIXED entry above.
+  Remaining candidates are smaller / lower-value (assorted
+  if-chains in cmd/* and pkg/* tools).
 
 
 - **Self-hosted (LANDED, 2026-05-01)**: type-checker
