@@ -6,6 +6,39 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~arm32_linux unit tests SEGV at startup — C-extern struct-return sret threshold was LP64-only~~ — FIXED 2026-05-25 (binate `4874fe6`)
+- **Symptom**: every `builder-comp_arm32_linux` unit-test binary
+  SEGV'd at startup (0 passed / 33 failed), while
+  `builder-comp_arm32_linux` *conformance* was fully green.  The
+  distinguishing factor: the synthetic unit-test runner calls
+  `bootstrap.Args()` at startup (to parse `--run`), and no
+  conformance test calls a struct-returning C extern.
+- **Root cause**: `pkg/codegen/emit_types.bn:needsSret` hardcoded
+  the LP64 rule "C-extern struct return > 16 bytes → sret".  On
+  arm-linux-gnueabihf the AAPCS32 rule is "> 4 bytes → sret"
+  (verified against clang: an 8-byte struct gets `sret`, a 4-byte
+  one returns in r0).  `bootstrap.Args()` returns a 16-byte
+  `BnManagedSlice`; clang's C side (binate_runtime.c) used sret,
+  but the Binate caller — seeing 16 ≯ 16 — emitted a register-
+  return call.  The conventions diverged and the returned slice
+  was read from the wrong place: `len(bootstrap.Args())` came back
+  as garbage (0x41000004), so the runner crashed before running a
+  single test.
+- **Fix**: `needsSret` picks the threshold from the target's
+  pointer size — 4 bytes for ILP32, 16 for LP64.  Only consulted
+  for `IsCExtern` returns, so Binate-internal struct returns
+  (consistent on both sides) and all LP64 codegen are untouched.
+- **Isolated reproducer**: `conformance/487_bootstrap_args`
+  (`len(bootstrap.Args())`), which failed on arm32_linux pre-fix
+  and now passes across host (LP64) + arm32 modes — the
+  cross-mode regression guard.
+- **After-fix state**: arm32_linux conformance 417/0; unit tests
+  0→19 passing.  The remaining 14 unit-test package failures are
+  the same 32-bit-target categories tracked below (filesystem /
+  native-host arch / int32-literal-fit), plus two genuine
+  test-level failures still to investigate
+  (`TestBinBufWriteU64LittleEndian`, `TestOrrImm`).
+
 ### ~~`(*p).x` (field access through explicit deref) returns 0 — bnc-compiled only~~ — FIXED 2026-05-21 (binate `5a5ffb1`)
 - Root cause was as originally diagnosed: `genSelector`
   (`pkg/ir/gen_selector.bn`) had no EXPR_UNARY base case — IDENT /

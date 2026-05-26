@@ -21,6 +21,36 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
+### arm32 unit-test cleanup: xfail incompatible packages + investigate 2 genuine failures
+- **Context**: with the C-extern sret fix (binate `4874fe6`,
+  recorded in claude-todo-done.md), `builder-comp_arm32_linux`
+  unit tests went 0→19 passing; `builder-comp_arm32_baremetal`
+  unit tests are already xfail-clean (binate `e448d50` stamped
+  15 package xfails).  arm32_linux still has 14 failing packages.
+- **Bucket 1 — needs xfails** (same shapes as the bare-metal
+  set): `cmd/bnc`, `cmd/bni` (subprocess/compile),
+  `pkg/asm/{x64,aarch64,macho}` + `pkg/codegen` (filesystem object
+  writes / native-host arch), `pkg/native` +
+  `pkg/native/{amd64,arm64,common}` (native-host arch),
+  `pkg/buf`, `pkg/ir`, `pkg/vm`, `pkg/bootstrap` (int32-literal
+  fit-check on tests that bake in int64-min/max or FNV-style
+  > INT32_MAX constants).  Action: stamp
+  `<pkg>.xfail.builder-comp_arm32_linux` mirroring the bare-metal
+  set (note arm32_linux additionally has `pkg/bootstrap` failing
+  where bare-metal didn't, since they use different pkg/bootstrap
+  copies; bare-metal additionally had `pkg/std`).
+- **Bucket 2 — genuine test-level failures, investigate before
+  xfailing**:
+  - `TestBinBufWriteU64LittleEndian` (pkg/asm/elf) — a 64-bit
+    little-endian write; could be a real arm32 codegen bug in
+    64-bit store/shift, or an LP64 assumption in the test.
+  - `TestOrrImm` (pkg/asm/arm32) — ORR-immediate encoding; the
+    arm32 encoder under test, run on arm32 itself.  Worth a look
+    since it's the arm32 assembler exercised on its own target.
+  These two compiled + ran (not SEGV, not compile-error), so
+  they're behavioral — don't blanket-xfail without understanding
+  them.
+
 ### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
 - **Problem**: with the current rules, `int` (and other predeclared
   primitives) can't implement interfaces. Methods can only be
