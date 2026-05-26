@@ -143,72 +143,26 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   slice + copies), and matches the language's expressive
   default instead of the bootstrap workaround.
 
-### bnc: managed-slice local inside a `case` body miscompiles a sibling case in the same switch
-- **Symptom**: discovered while converting if-return chains in
-  `pkg/vm/vm_exec_helpers.bn:execStringOp` to a `switch instr.Op`.
-  When BC_STRING_COPY_MS's body (which contains
-  `var str @[]char = f.Strings[instr.Imm]` followed by
-  `bit_cast(*uint8, &str)` + `pushManagedSlice(...)`) was moved into
-  a `case BC_STRING_COPY_MS:` block, a *different* case in the same
-  switch — `case BC_LOAD_STR:` — stopped working: the bytecode VM
-  produced no output for `println("hello")` (001_hello and ~340
-  other builder-comp-int tests failed).  Reverting only the
-  BC_STRING_COPY_MS case to if-form restored everything, with no
-  other change.
-- **Investigation 2026-05-25.**  Dumped LLVM IR for `execStringOp`
-  in both the good (BC_STRING_COPY_MS as if) and bad (as case)
-  versions, side-by-sided them, and:
-  - **The IR for BC_LOAD_STR's case body is byte-identical**
-    between the two versions (modulo SSA value renumbering).  The
-    case's body terminates with `ret i1 %v50` (return true) via
-    the same `if.merge.5` → `rd.2.skip` → `rd.3.skip` → `ret`
-    path in both.
-  - **The dispatch IR (`switch instr.Op {...}` lowering) is also
-    structurally fine.**  `entry` checks op==2 → `switch.case.2`
-    (BC_LOAD_STR) or `switch.next.3` → checks op==3 →
-    `switch.case.7` (BC_STRING_COPY_MS, in bad) or
-    `switch.next.8` → `switch.exit.1` → next-`if`-chain.
-  - **Diff is concentrated at function entry + exit.**  Bad
-    version has 30 extra lines: 0 extra alloca slots in the
-    prologue (same 23 in both, just renumbered), but at function
-    exit it adds two extra RefDec blocks (rd.14, rd.15) that
-    decrement the headers stored at the str-alloca and
-    secondary-managed-slice-alloca slots — i.e. the BC_STRING_-
-    COPY_MS case body's locals get RefDec'd unconditionally at
-    every function-exit path, even ones that didn't initialize
-    them.  Both allocas appear to be zero-initialized in the
-    prologue (`store %BnManagedSlice zeroinitializer`), so the
-    RefDec on a nil header is a no-op — should be safe.
-  - **No other function in pkg/vm changes.**  The full pkg/vm
-    .ll diff is entirely within `execStringOp`.
-- **Where this leaves the bug**: with the IR for BC_LOAD_STR's
-  path provably identical and surrounding diffs apparently benign,
-  the runtime symptom (BC_LOAD_STR's output goes silent) is hard
-  to explain at the IR layer.  Two paths I didn't try:
-  - Compare the cmd/bni binary's machine code for execStringOp
-    between the two versions (clang may emit different code from
-    "identical IR" if surrounding context changes inlining
-    heuristics or attribute inference).
-  - Check whether the unconditional RefDec on the str/ms
-    allocas at function exit accidentally corrupts a refcount
-    when those allocas are NOT zero-initialized on a particular
-    call (possible if Binate skips zero-init for sub-blocks
-    that "don't need it").  The IR DOES show
-    `store %BnManagedSlice zeroinitializer, %BnManagedSlice* %v88`
-    inside the BC_STRING_COPY_MS case body itself, NOT at
-    function entry — so on the BC_LOAD_STR path the alloca slot
-    %v88 (or %v67 in bad) is uninitialized when the function-
-    exit RefDec reads its header field.  That would explain a
-    refcount on a garbage pointer.
-- **Workaround in place**: `pkg/vm/vm_exec_helpers.bn` converted
-  4 of 5 dispatchers to switch; BC_STRING_COPY_MS and
-  BC_STRING_COPY_ARR stay as if-form, with an inline comment
-  pointing at this entry.
-- **Test gap**: no minimized repro yet, so no conformance test
-  pinning it.  The minimizations I tried all worked in
-  isolation — the trigger shape probably involves something I
-  haven't replicated yet (managed-slice alloca + zero-init only
-  inside the case body + early-return on a sibling case).
+### ~~bnc: managed local inside a `switch case` body miscompiles~~ — FIXED 2026-05-25 (binate `4306197`)
+- **Was**: `genSwitch` generated case bodies with a bare `genStmt`
+  loop and no variable-scope boundary (unlike `genBlock`, which
+  saves/restores `ctx.Vars` and emits `emitDecForScopeVars` at scope
+  exit).  A managed local declared in a `case` body lingered in
+  `ctx.Vars` for the rest of the function and was RefDec'd on every
+  later exit path — sibling cases and the switch's fall-through
+  `return`s.  On those paths the local's alloca held a stale value
+  from an earlier call that DID run the case (slot reuse), so the
+  spurious RefDec freed a still-live backing → heap corruption.
+  The VM tripped it hard: `execStringOp` runs for every bytecode
+  instruction, and the `return false` path RefDec'd a stale
+  `@[]char` slot (silent SEGV / empty output, ~340 builder-comp-int
+  failures).
+- **Fix**: extracted `genCaseBody`, mirroring `genBlock` — per-case
+  var-scope save/restore + `emitDecForScopeVars` on normal fall-off.
+- **Pinned by**: conformance/489_switch_case_managed_local_scope
+  (SEGV pre-fix, correct post-fix).  Workaround removed:
+  `pkg/vm/vm_exec_helpers.bn:execStringOp` now has all dispatchers
+  in `switch` form.
 
 ### Use function values to collapse explicit dispatch shims (opportunistic)
 - **Constraint**: function values are unlocked now that
