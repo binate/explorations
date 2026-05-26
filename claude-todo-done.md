@@ -6,6 +6,35 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~Generic call type args reject `@T` / `@[]T` / `*[]T` (parser)~~ — FIXED 2026-05-26 (binate `18b8047`)
+- **Was CRITICAL.** Expression-position generic instantiation with a
+  managed-pointer (`f[@T](...)`), managed-slice (`f[@[]T](...)`), or
+  raw-slice (`f[*[]T](...)`) type argument failed to **parse** —
+  `parseIndexOrSlice` parsed the `f[...]` bracket contents as
+  expressions (to share the `arr[i]` index path), and those three
+  forms have no expression spelling.  Only bare names and `*T`
+  survived (ident / unary-deref).  Blocked the appendXxxPtr →
+  `slices.Append[@T]` migration (the bulk of the helpers append
+  managed pointers).
+- **Fix**: a new `EXPR_TYPE` Expr node wrapping a parsed `TypeExpr`,
+  threaded through four layers.  Parser (`parse_expr.bn`):
+  `startsBracketTypeArg` detects a bracket element with no expression
+  spelling — `@…` or `*[` — and `parseBracketTypeArg` parses it via
+  `parseType`, wrapping in `EXPR_TYPE`; `*T` / `*p` still flow through
+  `parseExpr` (only `*[` routes to the type parser, so `arr[*p]` stays
+  an index).  Type checker (`typeArgFromExpr`) resolves `EXPR_TYPE`'s
+  `TypeRef`; `checkExpr` errors cleanly if one reaches value position.
+  IR-gen (`exprToTypeExpr`) hands the `TypeRef` straight through.
+- **Coverage**: `pkg/parser` units (`@T` / `@[]T` / `*[]T` / mixed
+  `f[int,@T]` / `arr[*p]`-stays-an-index); conformance 492 (end-to-end
+  over the three forms, all modes) + 493 (type-arg-in-value-position
+  rejection); `pkg/slices` `Append[@Thing]` test restored.  Green
+  across builder-comp / -int / -comp.
+- **Build ladder**: BUILDER bnc-0.0.2 still has the bug (it predates
+  the fix); a future bnc-0.0.3 cut from a post-fix tree is needed
+  before `slices.Append[@T]` can be used *inside* cmd/bnc's own
+  (BUILDER-compilable) tree.  See version-history.md.
+
 ### ~~arm32_linux unit tests SEGV at startup — C-extern struct-return sret threshold was LP64-only~~ — FIXED 2026-05-25 (binate `4874fe6`)
 - **Symptom**: every `builder-comp_arm32_linux` unit-test binary
   SEGV'd at startup (0 passed / 33 failed), while
