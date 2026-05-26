@@ -21,7 +21,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
-### IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 IN PROGRESS
+### IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 DONE, LAYER 2 IN PROGRESS
 - **Symptom**: under `builder-comp_arm32_linux` unit tests, `pkg/ir`
   and everything downstream of it (`pkg/native{,/amd64,/arm64,/common}`,
   `pkg/codegen`, `pkg/vm`, `cmd/{bnc,bni,bnas}`) fail to compile for
@@ -48,26 +48,31 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `int64` is the minimal-churn choice since the existing range-check /
   negation code is written in signed terms whose bounds fit `int64`.
 
-- **Layer 1 — IR + codegen + native (IN PROGRESS)**: make the program
-  -constant path host-independent.
+- **Layer 1 — IR + codegen + native (DONE)**: made the program
+  -constant path host-independent.  Landed: binate `879ba38`
+  (asm 64-bit immediates: x64 Imm→int64 + Imm64, finished aarch64
+  Imm consumers in pkg/asm/parse), `035022c` (IR int64 contract),
+  `294b5f0` (wide-constant tests), `075e1f5` (made the int-width
+  -assuming bootstrap/vm tests 32-bit compatible).
   - `Instr.IntVal` `int` → `int64`.
-  - `exprIntLitValue` / `bignumToInt` / `parseIntLit` return `int64`.
-  - `intFitsInType(v int64, …)` (its `4294967295` bound then fits).
-  - Keep `EmitConstInt(val int, …)` for the ~90 size/length/index/
-    small-literal callers (it widens internally: `IntVal =
-    cast(int64, val)`); add `EmitConstInt64(val int64, …)` for the
-    ~6 literal-value sites.  Avoids ~30 `cast(int64, …)` noise sites.
-  - `pkg/codegen/emit_instr.bn`: `WriteInt(IntVal)` → new
-    `buf.WriteInt64`.
-  - `pkg/native/{amd64,arm64}` `emitConstInt64(val int)` → `int64`.
-  - **VM boundary**: `lower_instr.bn:16` `bc.Imm = instr.IntVal`
-    becomes `bc.Imm = cast(int, instr.IntVal)` with a comment that the
-    VM's machine word is host-`int`.  On the current 64-bit host this
-    is lossless and changes nothing; it just makes the VM word size
-    explicit instead of accidental.  NOT a silent workaround — the
-    truncation-on-32-bit is exactly what Layer 2 addresses.
+  - `exprIntLitValue` / `bignumToInt` return `int64`; `intFitsInType`
+    takes `int64`.  (`parseIntLit` stayed host-`int` — a
+    non-type-checked fallback; the real path takes the bignum branch.)
+  - `EmitConstInt(int)` kept (widens internally) + new
+    `EmitConstInt64(int64)` for the literal path.
+  - `buf.WriteInt64` added; codegen's OP_CONST_INT emit uses it.
+  - `pkg/native/{amd64,arm64}` `emitConstInt64` → `int64`; arm64
+    extracts MOVZ/MOVK chunks via int64 shifts.  Fixed a latent bug:
+    arm64 `emitConstFloat` did `cast(int, bits)` on a 64-bit IEEE
+    pattern (dropped the high word on a 32-bit host) → `cast(int64,…)`.
+  - VM boundary: `lower_instr.bn` `bc.Imm = cast(int, instr.IntVal)`
+    — lossless on a 64-bit host; the truncation-on-32-bit is what
+    Layer 2 addresses.
+  - **Result**: all 14 packages in the arm32_linux unit-test set
+    compile for arm32 (verified locally; runtime validated by the
+    `builder-comp_arm32_linux` CI job).
 
-- **Layer 2 — VM machine word (NOT STARTED)**: `pkg/vm` uses host
+- **Layer 2 — VM machine word (IN PROGRESS)**: `pkg/vm` uses host
   `int` as its universal machine word — registers, immediates,
   pointer arithmetic (`bit_cast(int, frameBase) + instr.Imm`),
   offsets.  So a 32-bit-hosted VM is a 32-bit machine and can't carry
