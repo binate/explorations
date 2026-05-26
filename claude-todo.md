@@ -96,6 +96,32 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   - Recommendation: do (a) first (correctness, minimal model change);
     treat (b)'s host-word-mostly layout as a later 32-bit perf
     refinement, not a correctness prerequisite.
+  - **Investigation findings (2026-05-26)**: the change is larger and
+    more entangled than the (a)/(b) framing implies — `int` is a
+    *single conflated word* across three distinct roles, so it can't
+    be swapped to int64 blindly:
+    1. **Register slots.** `regs *int`, accessed `regs[i]`.  But
+       `pushFrame` already budgets `f.NumRegs * 8` bytes/reg
+       (`vm.bn:181`) — 8-byte slots.  On a 64-bit host int==8 so it's
+       consistent; **on a 32-bit host this is a latent stride bug**
+       (8-byte budget, 4-byte `*int` access → registers alias).  So
+       `regs *int → *int64` actually *fixes* this and matches the
+       existing layout.
+    2. **Host pointers.** Registers also hold host addresses via
+       `bit_cast(int, vm.Stack)` / `bit_cast(*uint8, regs[i])`.  With
+       int64 regs on a 32-bit host these become a width mismatch
+       (host ptr 32-bit, reg 64-bit) — `bit_cast` is illegal
+       (size differs); they need explicit widen-on-store /
+       truncate-on-read helpers (`ptrToReg` / `regToPtr`).
+    3. **Target-memory-structure access.** `bit_cast(*int, hdrPtr)`
+       reads managed-slice/refcount headers as `*int`.  These are
+       target-word-sized fields; tying their stride to the register
+       word is wrong if the two ever differ.  Needs separating
+       "VM register word" from "target word".
+  - Surface: ~106 `bit_cast(int,…)/(*uint8,…)/(*int,…)` sites across
+    vm_exec*.bn + vm.bn, plus `BCInstr.Imm int→int64`, register
+    arithmetic, and the memory ops.  This is a multi-step refactor;
+    settle the register-word-vs-target-word model before editing.
 
 ### ~~LLVM codegen: `&global` as an interface-value data pointer emits `%v-1`~~ — FIXED 2026-05-26 (binate `a2d84c0`)
 - **Was**: constructing an interface value from the address of a
