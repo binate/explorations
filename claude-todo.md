@@ -6,6 +6,51 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### Generic call type args reject `@T` / `@[]T` / `*[]T` (parser)
+- **Symptom**: an expression-position generic instantiation whose
+  type argument is a managed pointer (`f[@T](...)`), managed slice
+  (`f[@[]T](...)`), or raw slice (`f[*[]T](...)`) fails to **parse**:
+  `expected [, got IDENT` / `expected ], got IDENT` / etc.  Bare
+  names (`f[int]`, `f[Foo]`) and raw pointers (`f[*T]`) parse fine.
+  Loud failure (parse error), not a silent miscompile.
+- **Discovery**: writing `pkg/slices` (binate `54072bc`) — the first
+  consumer of the now-unblocked generics (BUILDER bnc-0.0.2).  The
+  whole point of `slices.Append[T]` is to collapse the ~60 per-type
+  `appendXxx` / `appendXxxPtr` helpers, but the bulk of those append
+  **managed pointers** (`@[]@ast.Decl` etc.), needing
+  `slices.Append[@ast.Decl]` — which doesn't parse.  So the migration
+  is blocked on this.
+- **Root cause**: `pkg/parser/parse_expr.bn:parseIndexOrSlice` parses
+  the `f[...]` bracket contents as **expressions** (`parseExpr`),
+  deferring type-vs-value disambiguation to the type checker (the
+  `arr[i]` vs `f[T]` ambiguity, EXPR_INSTANTIATE_OR_INDEX).  `int`
+  and `*T` survive only because they happen to be valid expressions
+  (ident; unary-deref).  `@T` / `@[]T` / `*[]T` have no expression
+  form, so `parseExpr` errors.  Type-*position* instantiation
+  (`var x List[@Thing]`) is fine — `parseTypeInstantiationSuffix`
+  uses `parseType` there.
+- **Proper fix**: in `parseIndexOrSlice`, when a bracket element
+  begins with a type-only prefix — `@`, or `*`/`@` immediately
+  followed by `[` — parse that element as a **type expression**, not
+  an expression.  `arr[@x]` / `arr[*[]x]` / `arr[@[]x]` are never
+  valid value-index forms, so the leading token sequence
+  disambiguates unambiguously to a type argument.  Carry the type-
+  expr arg on EXPR_INSTANTIATE_OR_INDEX (or tag it) so the type
+  checker's existing instantiate-vs-index resolution consumes it.
+  (Note `*T` already works via the unary-deref expression coincidence;
+  the fix should also route `*[]T` — `*` followed by `[` — to the
+  type parser.)
+- **Bug-protocol bookkeeping**: add a `pkg/parser` unit test for
+  `f[@T](...)` / `f[@[]T](...)` / `f[*[]T](...)` once the fix lands
+  (a parse-error input can't sit green in the suite pre-fix);
+  `pkg/slices/slices_test.bn` has a comment marking the missing
+  managed-pointer-element `Append[@Thing]` coverage to restore then.
+- **Build-ladder note**: this was found right after BUILDER advanced
+  to bnc-0.0.2.  Reverting the ladder to bnc-0.0.1 isn't clean
+  (0.0.2 carries other fixes that later code already builds on), so
+  0.0.2 stays; the fix lands on top and a future bnc-0.0.3 picks it
+  up.
+
 ### Mangler collides symbols from packages with the same last-segment short name
 - **Symptom**: `pkg/foo/bar` and `pkg/baz/bar` both mangle to the same `bn_bar__*` symbol prefix because `mangle.PkgShortName` only takes the last `/`-segment of the package path.  At link time the second `.o` overwrites the first, breaking any program where both packages are in the same transitive imports.
 - **Discovery**: Phase 2 of the SysV-AMD64 backend hit this when `pkg/native/x64` and `pkg/asm/x64` both produced `bn_x64__*` symbols.  Builds failed with "undefined symbol bn_x64__Push" because the native package's `x64.o` clobbered the asm package's slot.
