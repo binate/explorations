@@ -21,6 +21,21 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
+### ~~CI: bump artifact actions off deprecated Node 20~~ — DONE 2026-05-26 (binate `665c198`)
+- `actions/upload-artifact@v4` / `download-artifact@v4` ran on Node
+  20 (deprecation flagged on every artifact step of the bnc-0.0.2
+  release run; GitHub forces Node 24 on 2026-06-02, removes Node 20
+  from runners 2026-09-16).
+- Bumped the 4 uses — `release.yml` + `perf-tests.yml` — to
+  `upload-artifact@v7` / `download-artifact@v8` (both node24).
+  Params we use (`name`, `path`, `if-no-files-found`,
+  `retention-days`, `pattern`) are stable across the bump; v8's
+  "direct download" skip-unzip path only triggers for
+  `archive:false` uploads, which we don't use.  `checkout@v6` /
+  `setup-go@v6` were already node24.
+- Not yet exercised by an actual run; the next Release or perf run
+  will confirm the deprecation warnings are gone.
+
 ### arm32 unit-test cleanup: xfail incompatible packages + investigate 2 genuine failures
 - **Context**: with the C-extern sret fix (binate `4874fe6`,
   recorded in claude-todo-done.md), `builder-comp_arm32_linux`
