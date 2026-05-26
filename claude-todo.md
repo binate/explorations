@@ -193,23 +193,32 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   selectively-opportunistic, not blanket.
 - **How to land**: TBD; needs concrete site survey.
 
-### Generics — BLOCKED on BUILDER_VERSION bump
-- **What's unlocked**: collapsing the dozens of per-type
-  `appendXxx`, `appendXxxPtr`, etc. helpers across cmd/bnc
-  and pkg/* into a single `func append[T](s @[]T, v T) @[]T`.
-  Same for the per-type slice-copy patterns in pkg/loader,
-  pkg/types, pkg/ir.
-- **Blocked because**: generics landed in binate slices
-  4–7 (`pkg/{parser,loader,ir,types}: Slice 4a` and later)
-  AFTER bnc-0.0.1 was tagged.  The current BUILDER (bnc-0.0.1)
-  can't parse generic syntax, so any cmd/bnc-tree code using
-  generics fails to compile.
-- **Cost of unblocking**: requires a bnc-0.0.2 release.  Per
-  the user's standing guidance, only advance BUILDER_VERSION
-  when there are substantial language gains to justify the
-  longer build ladder — generics IS a substantial gain, so
-  whenever the language settles around them, that's a natural
-  trigger for the bump.
+### Generics in cmd/bnc's tree — UNBLOCKED 2026-05-26 (BUILDER → bnc-0.0.2)
+- **Status**: BUILDER is now bnc-0.0.2 (binate `5414bab`), which
+  was cut from a tree that has generics (slices 4–7).  Verified the
+  builder compiles generic decls + explicit instantiation
+  `f[T](...)`; cross-package monomorphization works too.  So
+  cmd/bnc-tree code may now use generics.
+- **No type inference** (claude-notes.md:537, 1000): always spell
+  the type arg, e.g. `slices.Append[@ast.Decl](xs, d)`.  The
+  builder's "generic function requires type arguments" diagnostic
+  on a bare `f(...)` call is intended behavior, not a gap.
+- **First consumer — `pkg/slices`** (IN PROGRESS): `Append[T]`
+  collapses the dozens of per-type `appendXxx` / `appendXxxPtr`
+  helpers scattered across cmd/bnc + pkg/*.  Migration is staged
+  one package at a time (see below).
+  - **Generic packaging pattern**: a generic's body must live in
+    the `.bni` (body-included) so cross-package consumers can
+    monomorphize at the call site.  For an all-generic package the
+    `.bn` needs **no** copy of the body — just the `package` decl
+    (the package's own compile + tests resolve the generic from the
+    merged `.bni`).  Keeping a second body in the `.bn` is a
+    needless sync hazard; don't.
+- **Remaining migration**: replace per-type `appendXxx(Ptr)` call
+  sites with `slices.Append[T]` and delete the dead helpers, one
+  package per commit (pkg/ast, pkg/types, pkg/ir, pkg/loader, …).
+  Raw-slice (`*[]T`) variants (`appendU8`, `appendRawCharSlice`)
+  and the `copy*` helpers are a later pass.
 
 ### Replace repeated `WriteStr(literal)` runs with adjacent-string concat (opportunistic)
 - **Pattern**: code that builds output via a CharBuf often calls
