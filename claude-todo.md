@@ -21,6 +21,25 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
+### LLVM codegen: `&global` as an interface-value data pointer emits `%v-1`
+- **Symptom**: constructing an interface value from the address of a
+  package-level global — `var iv *Greeter = &g` where `g` is a global
+  struct — makes pkg/codegen emit an invalid data-pointer operand: the
+  global's address has no SSA instr id, so OP_IFACE_VALUE's
+  `%v.dp = bitcast i8* %v-1 to i8*` references a nonexistent `%v-1` and
+  clang rejects the module.  Constructing from a *local* works (357).
+- **Scope**: compiled/LLVM path only.  The bytecode VM lowers the same
+  program correctly (builder-comp-int passes).  So it's in the codegen
+  OP_IFACE_VALUE data-ptr emission (or the genExpr that should
+  materialize a global's address into an SSA value before it reaches
+  iface construction), not in IR-gen's VM-shared parts.
+- **Loud, not silent**: clang errors out, so no miscompile risk — just
+  a blocked pattern.  (It's why pkg/native's new Backend interface
+  constructs its impls from locals, not a package-global singleton.)
+- **Pinned by**: conformance/495_iface_construct_from_global
+  (expected `42`; xfail.builder-comp / -comp-comp / -comp-comp-comp,
+  passes in the VM modes).  Drop the xfails when fixed.
+
 ### ~~CI: bump artifact actions off deprecated Node 20~~ — DONE 2026-05-26 (binate `665c198`)
 - `actions/upload-artifact@v4` / `download-artifact@v4` ran on Node
   20 (deprecation flagged on every artifact step of the bnc-0.0.2
