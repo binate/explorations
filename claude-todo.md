@@ -21,6 +21,77 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
+### IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 IN PROGRESS
+- **Symptom**: under `builder-comp_arm32_linux` unit tests, `pkg/ir`
+  and everything downstream of it (`pkg/native{,/amd64,/arm64,/common}`,
+  `pkg/codegen`, `pkg/vm`, `cmd/{bnc,bni,bnas}`) fail to compile for
+  arm32 with int-width type errors.  `pkg/ir` is the cascade root.
+- **Discovery**: triaging the 14 arm32_linux unit-test failures after
+  type-check errors gained source locations (binate `c011827`,
+  conformance/494).  With locations on, `pkg/ir`'s only *source* error
+  is `gen_util_literals.bn:234` (`intFitsInType` compares against
+  `4294967295` > INT32_MAX), and tracing the value upstream shows the
+  whole literal path is `int`.
+- **Root cause**: the IR stores program integer constants in
+  `Instr.IntVal`, typed `int` (`pkg/ir.bni:356`) — host-width.  The
+  feeding path (`exprIntLitValue`, `bignumToInt`, `parseIntLit`,
+  `EmitConstInt`) is all `int` too.  On a 64-bit host this happens to
+  work (it's really storing a 64-bit *bit pattern* — a `uint64`-max
+  literal lands as the int64 pattern `-1` and codegen emits it fine).
+  On a 32-bit host `int` is 32 bits, so the path neither compiles nor
+  can represent a `uint32`/`int64` constant.  Symbol/codegen output
+  must not depend on host int width.
+- **Severity**: major.  Loud (compile failure) on 32-bit, not a silent
+  64-bit-host miscompile — but it blocks the C-free / 32-bit-hosted
+  self-hosting goal.  `int64` vs `uint64` for the field is immaterial
+  (it's a stored bit pattern reinterpreted by the constant's type);
+  `int64` is the minimal-churn choice since the existing range-check /
+  negation code is written in signed terms whose bounds fit `int64`.
+
+- **Layer 1 — IR + codegen + native (IN PROGRESS)**: make the program
+  -constant path host-independent.
+  - `Instr.IntVal` `int` → `int64`.
+  - `exprIntLitValue` / `bignumToInt` / `parseIntLit` return `int64`.
+  - `intFitsInType(v int64, …)` (its `4294967295` bound then fits).
+  - Keep `EmitConstInt(val int, …)` for the ~90 size/length/index/
+    small-literal callers (it widens internally: `IntVal =
+    cast(int64, val)`); add `EmitConstInt64(val int64, …)` for the
+    ~6 literal-value sites.  Avoids ~30 `cast(int64, …)` noise sites.
+  - `pkg/codegen/emit_instr.bn`: `WriteInt(IntVal)` → new
+    `buf.WriteInt64`.
+  - `pkg/native/{amd64,arm64}` `emitConstInt64(val int)` → `int64`.
+  - **VM boundary**: `lower_instr.bn:16` `bc.Imm = instr.IntVal`
+    becomes `bc.Imm = cast(int, instr.IntVal)` with a comment that the
+    VM's machine word is host-`int`.  On the current 64-bit host this
+    is lossless and changes nothing; it just makes the VM word size
+    explicit instead of accidental.  NOT a silent workaround — the
+    truncation-on-32-bit is exactly what Layer 2 addresses.
+
+- **Layer 2 — VM machine word (NOT STARTED)**: `pkg/vm` uses host
+  `int` as its universal machine word — registers, immediates,
+  pointer arithmetic (`bit_cast(int, frameBase) + instr.Imm`),
+  offsets.  So a 32-bit-hosted VM is a 32-bit machine and can't carry
+  64-bit immediates.  Open design question (raised by user): can the
+  VM keep host-sized words for most values and use 64-bit only when
+  necessary?
+  - On a 32-bit host the VM interprets 32-bit-*target* bytecode, where
+    pointers / `int` / sizes / offsets are all 32-bit by definition —
+    so host-word is already correct for the vast majority of values.
+    The 64-bit cases are exactly the explicitly-64-bit ones: `int64` /
+    `uint64` values and large literals.
+  - Two implementations of "64-bit only when necessary":
+    (a) uniform 64-bit value slots + width-aware ops — simplest and
+    correct; on a 32-bit host it costs 64-bit slot storage and 64-bit
+    arithmetic only where the op is 64-bit (the compiler already
+    supports `int64` on 32-bit; bytecode is largely typed already).
+    (b) host-word slots + 64-bit via register pairs / a parallel wide
+    slot, switched by typed opcodes — saves the 32-bit storage but
+    complicates the register model and bytecode (must track which
+    slots are wide).
+  - Recommendation: do (a) first (correctness, minimal model change);
+    treat (b)'s host-word-mostly layout as a later 32-bit perf
+    refinement, not a correctness prerequisite.
+
 ### LLVM codegen: `&global` as an interface-value data pointer emits `%v-1`
 - **Symptom**: constructing an interface value from the address of a
   package-level global — `var iv *Greeter = &g` where `g` is a global
