@@ -53,6 +53,37 @@ Consequence: the register word stays host-`int`, so all existing
    `NumRegs` and the IR-value-id → slot mapping accordingly.  (When
    host word ≥ 8, one slot as today.)
 
+   **Design: assign slots at emission, not via a post-pass.**  The VM
+   register number currently *is* the IR value id (`bc.Dst =
+   instr.ID`, 1:1).  Pairs break that, so an id→slot mapping (`slotOf`)
+   is needed.  Two ways considered:
+   - A centralized post-pass that rewrites `Dst`/`Src1`/`Src2` of every
+     emitted `BCInstr` through `slotOf`.  **Rejected — incorrect.**
+     Those fields are *overloaded*: `lower_instr_helpers.bn` sets
+     `bc.Dst = -1 / 0 / len(instr.Args)` to encode a return's shape
+     (void / single / multi-return count), and arg counts /
+     `callArgBase` ride in register-typed fields elsewhere.  A blanket
+     pass would compute `slotOf[len(Args)]` and corrupt them; to be
+     correct it would need per-opcode knowledge of which field is a
+     register — fragile, and duplicating semantics the lowering
+     already has.
+   - **Chosen: apply `slotOf` at the emission sites** where the code
+     knows a field holds an IR value's register.  Every register
+     reference goes through the mapping by construction; overloaded
+     fields (counts/flags) are left alone because the code there knows
+     they aren't registers.  More edits, but the register model is
+     explicit and correct rather than "id == slot, patched at the end."
+   - (Rejected C: reserve 2 IR ids per 64-bit value in IR-gen — pushes
+     a VM-32-bit concern into the target-independent IR that the
+     LLVM/native backends share.  Rejected F: a separate int64
+     register file — more moving parts, call-arg packing spans both.)
+
+   `slotOf` construction is a pure function of (per-value widths,
+   wordSize) so it is unit-testable on a 64-bit host by forcing
+   wordSize=4 (the live path keys off `REG_SLOT` and is identity when
+   wordSize ≥ 8).  Split: **2a** = SSA values + globalReg + phi copies;
+   **2b** = 64-bit call-arg packing/receipt in the VM call ABI.
+
 3. **Width-typed opcodes.**  Add `BC_LOAD_IMM64` and 64-bit arithmetic
    / bitwise / shift / compare / `MOV` / cast variants (`BC_ADD64`
    …).  `BC_LOAD64` / `BC_STORE64` already exist for memory.
