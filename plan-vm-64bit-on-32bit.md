@@ -53,26 +53,32 @@ Consequence: the register word stays host-`int`, so all existing
    `NumRegs` and the IR-value-id → slot mapping accordingly.  (When
    host word ≥ 8, one slot as today.)
 
-   **Design: assign slots at emission, not via a post-pass.**  The VM
-   register number currently *is* the IR value id (`bc.Dst =
-   instr.ID`, 1:1).  Pairs break that, so an id→slot mapping (`slotOf`)
-   is needed.  Two ways considered:
-   - A centralized post-pass that rewrites `Dst`/`Src1`/`Src2` of every
-     emitted `BCInstr` through `slotOf`.  **Rejected — incorrect.**
-     Those fields are *overloaded*: `lower_instr_helpers.bn` sets
-     `bc.Dst = -1 / 0 / len(instr.Args)` to encode a return's shape
-     (void / single / multi-return count), and arg counts /
-     `callArgBase` ride in register-typed fields elsewhere.  A blanket
-     pass would compute `slotOf[len(Args)]` and corrupt them; to be
-     correct it would need per-opcode knowledge of which field is a
-     register — fragile, and duplicating semantics the lowering
-     already has.
-   - **Chosen: apply `slotOf` at the emission sites** where the code
-     knows a field holds an IR value's register.  Every register
-     reference goes through the mapping by construction; overloaded
-     fields (counts/flags) are left alone because the code there knows
-     they aren't registers.  More edits, but the register model is
-     explicit and correct rather than "id == slot, patched at the end."
+   **Design: a single post-pass over the code array, with one audited
+   exception.**  The VM register number currently *is* the IR value id
+   (`bc.Dst = instr.ID`, 1:1).  Pairs break that, so an id→slot mapping
+   (`slotOf`) is needed.  An audit of all ~50 register-id emission
+   sites found that `Dst`/`Src1`/`Src2` hold a register (or `-1`) at
+   *every* site **except one**: `BC_RETURN`'s `Dst`, which
+   `lower_instr_helpers.bn` overloads as the return-shape code
+   (`-1`/`0`/`len(Args)`).  Nothing else overloads a register field
+   (arg counts ride in `Imm`, names/targets in `Aux`).
+
+   So after the code array is built, **one pass** remaps each
+   instruction's register fields: `Src1`/`Src2` when ≥ 0, and `Dst`
+   when ≥ 0 *unless the op is `BC_RETURN`*.  `vmf.NumRegs` becomes the
+   slot count.
+
+   Why this over applying `slotOf` at each of the ~50 emission sites:
+   a missed wrap is invisible on a 64-bit host (the mapping is the
+   identity there), so it would not surface until an int64-on-arm32
+   test exists.  Concentrating the remap in one auditable pass with a
+   single documented exception gives far fewer places to get wrong
+   than 50 scattered wraps — materially safer given the silent-on-host
+   failure mode.  (A *blanket* post-pass with no exception would be
+   incorrect — it would remap `BC_RETURN`'s shape `Dst`; the exception
+   is what makes it principled.)  Cost: the "registers except
+   `BC_RETURN.Dst`" invariant must hold as opcodes are added — guarded
+   by a comment + test.
    - (Rejected C: reserve 2 IR ids per 64-bit value in IR-gen — pushes
      a VM-32-bit concern into the target-independent IR that the
      LLVM/native backends share.  Rejected F: a separate int64
@@ -84,17 +90,54 @@ Consequence: the register word stays host-`int`, so all existing
    wordSize ≥ 8).  Split: **2a** = SSA values + globalReg + phi copies;
    **2b** = 64-bit call-arg packing/receipt in the VM call ABI.
 
-3. **Width-typed opcodes.**  Add `BC_LOAD_IMM64` and 64-bit arithmetic
-   / bitwise / shift / compare / `MOV` / cast variants (`BC_ADD64`
-   …).  `BC_LOAD64` / `BC_STORE64` already exist for memory.
+3. **Width-typed opcodes (implementation-ready spec).**  Each operand
+   and the destination of a 64-bit op is a register *pair*: the base
+   slot holds the low 32 bits, base+1 the high 32 bits.  `BCInstr.Imm`
+   stays host-`int` (no widening — avoids the ripple that the IR
+   IntVal change had): a wide constant is split into two 32-bit halves,
+   `Imm` = low, `Aux` = high.
 
-4. **Lowering emits the 64-bit variants** for `int64`/`uint64`-typed
-   IR instructions (host-word-aware); wide constants → `BC_LOAD_IMM64`
-   (carried via a 64-bit immediate field or a constant pool — TBD in
-   step 3).
+   Pure, host-independent (hence unit-testable on a 64-bit host)
+   helpers carry the bit-math — the part where a sign/zero-extension
+   slip is a silent 32-bit bug:
+   - `splitInt64(v int64) (int, int)` → `(lo, hi)` 32-bit halves
+     (`lo = cast(int, v & 0xFFFFFFFF)`, `hi = cast(int, (v >> 32) &
+     0xFFFFFFFF)`; both are bit patterns, possibly "negative" int32).
+   - `joinInt64(lo int, hi int) int64` → `cast(int64, cast(uint32, lo))
+     | (cast(int64, cast(uint32, hi)) << 32)` — **zero-extend each
+     half** (cast through uint32) so a high-bit-set low half doesn't
+     sign-pollute the upper 32 bits.
 
-5. **Exec handlers for `BC_*64`**: read the pair into an `int64`,
-   compute, write the pair back.
+   Opcodes (emitted only when `REG_SLOT < 8`):
+   - `BC_LOAD_IMM64` — `regs[Dst]=Imm`, `regs[Dst+1]=Aux` (pair write;
+     no join needed).
+   - Arithmetic/bitwise/shift: `BC_ADD64 BC_SUB64 BC_MUL64 BC_DIV64
+     BC_UDIV64 BC_REM64 BC_UREM64 BC_AND64 BC_OR64 BC_XOR64 BC_SHL64
+     BC_SHR64 BC_LSHR64` — join both src pairs, compute in `int64`
+     (uint64 for the unsigned forms), split the result to the Dst pair.
+   - Compare: `BC_EQ64 BC_NE64 BC_SLT64 …` — join both pairs, compare,
+     write a 0/1 bool to `regs[Dst]` (a bool is one slot, not a pair).
+   - `BC_MOV64` — copy both slots (phi / arg packing of a 64-bit value).
+   - Casts: int32→int64 widen (sign/zero-extend the single slot into a
+     pair), int64→int32 narrow (take the low slot), int64↔float64
+     bitcast (pair reinterpret).
+   - Memory: a 64-bit value spans 8 bytes, which `BC_LOAD64`/
+     `BC_STORE64` already move — but they move into/out of *one* host
+     slot.  On a 32-bit host these must target a pair: load 8 bytes →
+     `(regs[Dst], regs[Dst+1])`; store the pair → 8 bytes.  Likely
+     `BC_LOAD64_PAIR` / `BC_STORE64_PAIR` variants, or widen the
+     existing handlers when `REG_SLOT < 8`.
+
+   Handlers live in a standalone `execOp64(regs, instr) bool` (like
+   `execArithOp`) so they are directly unit-testable.
+
+4. **Lowering emits the 64-bit variants** for 64-bit-scalar-typed IR
+   instructions, host-word-aware (only when `REG_SLOT < 8`; on a 64-bit
+   host the existing single-slot ops handle int64 unchanged).  Wide
+   constants → `BC_LOAD_IMM64` via `splitInt64`.
+
+5. **Exec handlers for `BC_*64`** (in `execOp64`): join the src pairs,
+   compute, split to the dst pair.
 
 6. **Tests.**  Conformance: `int64`/`uint64` arithmetic exercised
    under `builder-comp_arm32_linux` (incl. values > 2^32 and the
