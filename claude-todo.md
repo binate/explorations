@@ -21,6 +21,42 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
+### amd64 native backend: aggregate argument passing unimplemented (blocks println / most programs)
+- **Symptom**: under `builder-comp_native_x64_darwin-comp_native_x64_darwin`
+  (the new local Rosetta runner), `002_arithmetic` and most tests
+  miscompile — garbage output + `runtime error: index out of bounds:
+  0 (len 0)`.  A scalar-only program (`bootstrap.Exit(42)`, no
+  aggregate args) runs correctly (pkg/native/amd64
+  `TestX64MachoExitsWithCode`), localizing the gap to aggregate
+  *arguments*.
+- **Root cause** (self-documented): `pkg/native/amd64/amd64_call.bn`
+  `emitCall` explicitly skips aggregate args —
+  `if common.IsAggregateTyp(arg.Typ) { continue }` (lines ~66-71,
+  "Aggregate args are deferred to Phase 4").  `println(int)` lowers to
+  `bootstrap.formatInt(n)` → `@[]char` (a 32-byte managed-slice) →
+  `bootstrap.Write(fd, slice)`; the slice is an aggregate arg, so
+  `Write` reads garbage from the arg registers → bad length →
+  out-of-bounds.  (The aggregate *return* / sret path in emitCall is
+  already implemented; only the aggregate-arg side is missing.)
+- **Fix**: implement SysV-AMD64 aggregate argument passing in
+  `emitCall`.  Per the ABI: an aggregate > 16 bytes (e.g. `@[]char`,
+  32B) is MEMORY-class → copied to the stack argument area; aggregates
+  ≤ 16 bytes are classified field-by-field into INTEGER/SSE eightbytes
+  and split across the GP/XMM arg registers.  Mirror the shape arm64
+  already uses (`pkg/native/arm64` passes managed-slice / struct args)
+  and the existing amd64 sret-buffer setup.  Float/SSE arg
+  classification is the adjacent deferred piece.
+- **Now locally observable**: `builder-comp_native_x64_darwin` runs
+  the conformance + unit suites through the amd64 Mach-O path on Apple
+  Silicon via Rosetta, so this (and the rest of the amd64 op-coverage
+  long tail) is verifiable end-to-end on a dev machine — no qemu /
+  Linux box.  This is the first concrete gap; the runner shows the
+  rest.
+- **Discovered**: 2026-05-26, mapping amd64 gaps after the
+  processor-backend / object-format decoupling landed (Phases 1–4 +
+  the native_x64_darwin runner) — see
+  `plan-backend-objformat-decoupling.md`.
+
 ### Cross-package generic instance def emitted with empty module qualifier (blocks appendXxx→slices.Append migration)
 - **Symptom**: a generic instantiated with a type argument whose type
   lives in a directly+transitively-imported package emits the
