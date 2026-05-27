@@ -1547,3 +1547,38 @@ Binate is NOT Go. The two types of slice are intentionally different:
       sentinel vs a `...` token vs an explicit fixed-arg count).
     - VM/dual-mode FFI dispatch (deferred above) when interpreted-mode
       `__c_call` is eventually wanted.
+  - **Companion idea — link-requirement annotation (sketch)**: Option E
+    makes a C symbol *callable*; a complementary annotation would make
+    it *resolve at link time* by declaring, at the source level, that
+    using a package requires linking some C library — so the driver
+    adds the flag automatically instead of every consumer passing
+    `--cflag -lm` / `--link-after-objs` by hand.  Prior art:
+    Rust `#[link(name = "m", kind = "static")]`, Go cgo
+    `// #cgo LDFLAGS: -lm`, MSVC `#pragma comment(lib, "foo")`.
+    Natural shape: `#[link("m")]` (optionally a `static`/`dynamic`/
+    `framework` kind), most naturally on the `.bni` since the link
+    requirement is part of the package's contract.  This is also the
+    first real payoff of the general annotations feature this item is
+    about — both Option E and this want it.
+    - **Open wrinkles**:
+      - **Transitivity** — the requirement must propagate through the
+        import graph (aggregate + dedup all declared libs for any
+        binary that transitively imports the package).  Hooks into the
+        loader's `ldr.Order` walk + the driver's `clangArgs` assembly.
+      - **Link ordering** — static archives only supply symbols
+        referenced by *earlier* inputs, so aggregated `-l` entries
+        need correct placement vs. the `.o` files and runtime (the
+        driver already does this for `linkAfterObjs`).
+      - **Search paths** — keep the annotation name-only (`-l`); leave
+        `-L<dir>` to driver flags.
+      - **Platform-conditionality** — a `libm` dep is meaningless on
+        bare-metal arm32 and `framework` kind is macOS-only, so the
+        annotation likely needs to be target-qualifiable.  Ties into
+        the C-free principle: this exists only to interface with
+        existing C systems and should evaporate on freestanding
+        targets.
+      - **Static-spec portability** — even with `kind = static`,
+        expressing it portably is messy (GNU ld `-l:libfoo.a` /
+        `-Wl,-Bstatic`; macOS `ld` has neither), so it may need
+        per-platform lowering in the driver or a full-path escape
+        hatch.
