@@ -1472,6 +1472,8 @@ Binate is NOT Go. The two types of slice are intentionally different:
   [`plan-repl.md`](plan-repl.md) for what `e2e/repl.sh` covers.
 
 ### Annotations and C function interop
+- **Option E (`__c_call` intrinsic) has a detailed implementation plan:
+  [plan-c-call.md](plan-c-call.md).**
 - Consider implementing annotations (decorators/attributes).
 - Specific use case: annotating functions as C functions.
   - **Option A**: annotation in `.bni` — callers know the name and calling convention, but mixes interface with implementation.
