@@ -21,6 +21,51 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
+### Cross-package generic instance def emitted with empty module qualifier (blocks appendXxx→slices.Append migration)
+- **Symptom**: a generic instantiated with a type argument whose type
+  lives in a directly+transitively-imported package emits the
+  instantiated function's **definition** with an EMPTY module
+  qualifier while the **call site** uses the consumer's qualifier —
+  e.g. migrating `pkg/loader` to `slices.Append[@ast.File]` produced
+  `define %BnManagedSlice @bn_Append__bn_inst__mptr_ast__File(...)`
+  (def, no `loader`) but `call ... @bn_loader__Append__bn_inst__-
+  mptr_ast__File(...)` (call).  The call's symbol is undefined, and
+  the call falls back to an `i64` return type (clang then errors on
+  the `extractvalue`).  Loud failure (compile error).
+- **Scope / trigger**: only the cross-package-type-arg instances
+  desync — in the same loader build, `Append[@Package]` (loader-local
+  type) and `Append[@[]uint8]` (primitive) correctly emit
+  `bn_loader__Append__...` for BOTH def and call.  Exactly the three
+  pkg/ast-typed instances (`@ast.File` / `@ast.Decl` /
+  `@ast.ImportSpec`) get the empty-qualifier def.
+- **Not the same as the dotted-token bug** (binate `b550f58`, FIXED):
+  that one was `mangleTypeArg` leaking a `.` into the token; this is
+  a SEPARATE issue in the instance *definition*'s module
+  qualification.  With b550f58 in place the token is dot-free
+  (`mptr_ast__File`) yet the def still loses the qualifier.
+- **Does NOT repro in an isolated fixture**: a slashed-path consumer
+  package (`pkg/cons`) calling `genlib.Append[@things.Thing]` over
+  test-local fixture packages links + runs fine.  loader differs in
+  that it imports `pkg/ast` both directly and transitively (via
+  `pkg/parser`), so the trigger appears tied to the import-graph
+  shape (the type-arg's package being instantiated/emitted in a
+  context where `currentModulePkgPath` is empty), not merely
+  "non-main consumer."
+- **Likely subsumed by the in-flight mangler/full-path rework**: as
+  of 2026-05-26 main is still mid-migration (building gen1 surfaced a
+  `bn_pkg__rt__Alloc` vs `bn_rt__Alloc` inconsistency; `build_gen1`
+  links the BUILDER bundle's runtime to work around it).  Cross-
+  package generic-instance qualification is squarely in that rework's
+  domain — re-check this once the full-path migration fully lands
+  before investigating independently.
+- **Where to look**: `pkg/ir/gen_generic.bn` — `ensureInstantiated`
+  / `instantiationMangledName` / `stripCurrentModuleQualifier` and
+  whatever sets `currentModulePkgPath` while resolving a cross-
+  package type argument; and `mangle.FuncName`'s dotted-name
+  (writeBnDotted, package-prefix-dropping) path.
+- **Migration parked**: the `pkg/loader` appendXxx→`slices.Append[T]`
+  WIP is on branch `migration-loader-wip`; resume once this is fixed.
+
 ### IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 DONE, LAYER 2 IN PROGRESS
 - **Symptom**: under `builder-comp_arm32_linux` unit tests, `pkg/ir`
   and everything downstream of it (`pkg/native{,/amd64,/arm64,/common}`,
