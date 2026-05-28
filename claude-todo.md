@@ -230,6 +230,53 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     `float64` for the actual compute.  Unblocks pkg/vm arm32 unit
     tests, which is what would E2E-validate the int64 VM path.
 
+### `__c_call` Stage 4 (variadic in the native backends) — IN PROGRESS / BLOCKED
+- **Plan**: [plan-c-call.md](plan-c-call.md) §6–§7 step 4 — the
+  hard chunk: darwin-arm64 variadic stack-passing (Apple ABI stacks
+  ALL varargs regardless of GP-reg budget) + amd64-SysV `AL` setup
+  (number of vector regs used by varargs).
+- **Status**: WIP saved on the `stage-4-wip-broken` branch of the
+  binate worktree (`temp-binate-2`).  Last sane commit `1938a86`.
+  REBASE NEEDED: main has since renamed `pkg/native/amd64` →
+  `pkg/native/x64`; the branch will need path rewriting before it
+  rebases cleanly.
+- **What the WIP contains**:
+  - `CallConv.VariadicStackOnly bool` + `AAPCS64_Darwin()` constructor
+    + three sibling V-variant helpers (`CallArgRegStartV` /
+    `CallArgStackOffV` / `CallStackBytesV`) that take a `fixedCount
+    int` and apply the saturation `if k == fixedCount &&
+    cc.VariadicStackOnly { ngrn = cc.NumGpArgRegs }` to force
+    variadic args to the stack.
+  - arm64 `emit_func.bn` instantiates `AAPCS64_Darwin()`; arm64
+    `emit_call.bn` routes through the V-variants with `fixedCount =
+    ins.CFixedArgs` (OP_C_CALL) / `len(argTypes)` (OP_CALL).
+  - amd64 `emit_call.bn` emits `MOV AL, 0` before `CALL` for variadic
+    OP_C_CALL.
+  - `common.bn`'s `PlanFrame` considers `OP_C_CALL` too and uses
+    `CallStackBytesV`.
+  - conformance/500 native xfails removed.
+- **The bug**: switching arm64 to `AAPCS64_Darwin` regresses a
+  NON-variadic OP_CALL (`bootstrap.formatInt64` from a `println(int)`)
+  to silently no-op — disasm shows the 2-word raw-slice arg going to
+  the STACK at `[sp+0..sp+8]` instead of X1+X2, then `bl
+  _bn_pkg__bootstrap__formatInt64` returning, and the program exits
+  0 with no output.  conformance/498 (non-variadic) fails under
+  AAPCS64_Darwin; conformance/500 (variadic) passes.  Flipping back
+  to AAPCS64() reverses both.  Can't get both green simultaneously.
+- **Theory**: the V-variant saturation mathematically cannot fire
+  for a non-variadic call (`k <= i < len(argTypes) = fixedCount`).
+  Something else is diverging behavior — possibly a layout
+  interaction with the new `VariadicStackOnly` struct field, or an
+  ngrn-accounting side effect I'm not seeing.  First diagnostic
+  next session: write a unit test for `CallArgRegStartV` with the
+  exact `[int64, *[]uint8]` arg shape that formatInt64 uses + a
+  Darwin CallConv + `fixedCount=2`, assert it returns `1` for arg
+  index 1.  If it does, the bug is somewhere else (e.g. PlanFrame
+  is recomputing OutgoingArgsSize wrong, or something in the
+  per-arg `rm.ResetRegs()` loop interacts).
+- **Pinned by**: conformance/500_c_call_variadic (currently xfail in
+  native modes; un-xfail when Stage 4 lands).
+
 ### ~~LLVM codegen: `&global` as an interface-value data pointer emits `%v-1`~~ — FIXED 2026-05-26 (binate `a2d84c0`)
 - **Was**: constructing an interface value from the address of a
   package-level global — `var iv *Greeter = &g` where `g` is a global

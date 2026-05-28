@@ -209,19 +209,32 @@ The `cast` builtin is the template — it already mixes a *type* arg
 
 ## 7. Staged plan (each stage independently green)
 
-1. **Surface + `pkg/c` + fixed-arg, LLVM only.** Token/parser/AST/checker
-   (§5), `pkg/c` aliases + `C_void`/`...` markers (§3–4), `OP_C_CALL`
-   IR + lowering (§2), LLVM codegen non-variadic (§6). Conformance test
-   calls a simple non-variadic libc fn (e.g. `abs`, `strlen`). `xfail`
-   the native modes (`comp_native_aa64`, arm32) until Stage 2.
-2. **Fixed-arg, native backends.** arm64 + amd64 `OP_C_CALL` →
-   `emitCCall` (raw `SetGlobal` + IsCExtern ABI). Un-`xfail`
-   `comp_native_aa64`.
-3. **Variadic, LLVM.** `CFixedArgs` wired end-to-end; codegen varargs
-   declare/call. Conformance test e.g. `snprintf(buf, n, "%d", 42)` →
-   check `buf`. `xfail` native.
-4. **Variadic, native.** The hard chunk: darwin-arm64 varargs-on-stack +
-   amd64 `AL` (§6). Un-`xfail`.
+1. **Surface + fixed-arg, LLVM only — DONE 2026-05-27** (binate
+   `4cd873f` Stage 1a frontend + checker; `ced3b85` Stage 1b IR +
+   LLVM codegen + conformance/498 calling `abs(-42) → 42`;
+   `3516877` hygiene + extra coverage; `0659108` line-length fix).
+   Narrowed to scalar/pointer args + scalar/pointer return (no
+   silent-miscompile gap with the codegen).  Variadic + `pkg/c`
+   aliases deferred to later stages.
+2. **Fixed-arg, native backends — DONE 2026-05-27** (binate
+   `2a77341` minimal `emitCall` extension: when `ins.Op == OP_C_CALL`
+   the symbol is `symPrefixed(ins.StrVal)` instead of `symFor(...)`,
+   so the call goes to the raw `_abs` / `abs` symbol; the existing
+   `CalleeUsesCSret` short-circuit on non-OP_CALL keeps sret out of
+   the picture for the scalar/pointer Stage-1 contract.  Conformance
+   498 un-xfailed for `comp_native_aa64`; `ed56af7` adds native unit
+   tests pinning the no-mangling property on both arches).
+3. **Variadic, LLVM — DONE 2026-05-27** (binate `2570b02` removes
+   the Stage-1 variadic-rejection in the checker and teaches
+   `emit_ccall.bn` to emit the explicit `<ret> (<fixed-types>, ...)`
+   call signature + `<argtypes>, ...` declare when `CFixedArgs <
+   len(Args)`; conformance/500 calls
+   `printf("answer: %d\n", 42) → "answer: 42"`.  `6ad9551` follow-on
+   pins the dedup-by-symbol contract for variadic.).
+4. **Variadic, native — IN PROGRESS / BLOCKED** (WIP saved on the
+   `stage-4-wip-broken` branch; see claude-todo.md "Stage 4 native
+   variadic" for the bug findings).  The hard chunk: darwin-arm64
+   varargs-on-stack + amd64 `AL` (§6).
 
 Per the bug-discovery / xfail protocol, each stage's conformance test is
 added up front and `.xfail.<mode>`-marked for the modes a later stage
