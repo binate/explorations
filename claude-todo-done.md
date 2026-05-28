@@ -6,6 +6,70 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~amd64 native backend: aggregate argument passing unimplemented~~ — FIXED 2026-05-27 (binate `f7a182b`, `b719d7e`)
+- **Was**: under `builder-comp_native_x64_darwin-comp_native_x64_darwin`
+  (the new local Rosetta runner), `002_arithmetic` and most tests
+  miscompiled — garbage output + `runtime error: index out of bounds`.
+  `pkg/native/amd64/amd64_call.bn::emitCall` explicitly skipped
+  aggregate args (`if common.IsAggregateTyp(arg.Typ) { continue }`),
+  so e.g. `bootstrap.formatInt(int, *[]uint8)`'s raw-slice arg (a 2-
+  eightbyte `%BnSlice`) left RSI/RDX undefined.  Discovery surfaced a
+  separate MAJOR latent bug in the shared CallConv (see next entry).
+- **Fix landed in two commits**:
+  1. `f7a182b` — `emitAggregateArg` handles the SysV INTEGER-eightbyte
+     in-register case (≤ 16 B aggregate fitting in remaining GP arg
+     regs).  Loads each eightbyte from the aggregate's storage into
+     `argReg(regStart + w)`.  Conformance on builder-comp_native_-
+     x64_darwin: 0/428 → 103/428.
+  2. `b719d7e` — together with the CallConv classifier fix, the
+     MEMORY-class path (> 16 B aggregates passed entirely on the
+     stack) is now also emitted: each word is loaded into RAX and
+     stored to `[rsp + stackOff + 8*w]`.  RAX is the load-shuttle
+     scratch (not in regPool, not a GP arg register, dead pre-CALL).
+- **Tests** (in `pkg/native/amd64/amd64_call_test.bn`):
+  - `TestEmitCallAggregateArgLoadsTwoEightbytes`: 16 B aggregate as
+    arg 1 after a scalar → 2 MOV-from-mem loads + LEA + CALL.
+  - `TestEmitCallAggregateArgFirstSlot`: 16 B aggregate as arg 0
+    (regStart = 0) — no off-by-one in `argReg(regStart + w)`.
+  - `TestEmitCallAggregateArgOver16OnStack`: 32 B managed-slice →
+    ≥ 4 MOV-from-mem loads + ≥ 4 MOV-to-mem stores.
+- **What's still amd64-specific work** (separate gaps, not aggregate
+  arg passing): many remaining x64_darwin failures (103/429) sit on
+  non-aggregate-arg issues — e.g., `101_println_managed_chars` prints
+  empty (likely OP_LOAD-of-aggregate or runtime crash), `003_variables`
+  prints `0` for `var x int = 10` (OP_LOAD-of-int chain).  Float-arg
+  passing (XMM regs) is also still unimplemented.
+
+### ~~MAJOR: shared SysV CallConv mis-models aggregate-arg dispatch~~ — FIXED 2026-05-27 (binate `b719d7e`)
+- **Was**: `pkg/native/common/common_callconv.bn` modeled SysV-AMD64
+  aggregate dispatch with AAPCS-style register/stack *splitting*, but
+  real SysV/x86_64 (and LLVM's by-value lowering of structs on x86_64)
+  classifies any aggregate larger than `AggregateInRegMax` (= 16) as
+  MEMORY class — passed *entirely* on the stack, never split, NGRN
+  unchanged.  And a ≤ 16 B aggregate that doesn't fit in the remaining
+  regs *also* goes wholly to MEMORY under SysV (no split).
+  `TestCallArgStackOffSysVSplit` deliberately pinned the wrong split
+  shape.  Implementation against the wrong classifier would silently
+  miscompile every managed-slice / > 16 B-struct argument crossing
+  the native↔LLVM boundary.
+- **Fix**: new `CallConv.SplitAggregates bool` field (AAPCS64 = true,
+  SysV_AMD64 = false).  The three dispatch helpers (`CallArgRegStart`,
+  `CallArgStackOff`, `CallStackBytes`) are rewritten to consume a
+  shared per-arg classifier `argRegWordsStackWords` gated by the
+  flag.  AAPCS path byte-identical (arm64 conformance 427/0
+  unchanged); SysV now classifies > 16 B aggregates as MEMORY and
+  ≤ 16 B aggregates that don't fit as MEMORY too, with NGRN unchanged
+  so later args still take remaining GP regs.
+- **Tests** (in `pkg/native/common/common_callconv_test.bn`):
+  - Replaced `TestCallArgStackOffSysVSplit` with three positive SysV
+    tests: 32 B managed-slice → MEMORY; 16 B raw-slice-doesn't-fit
+    → MEMORY with NGRN preserved (trailing scalar takes the still-
+    free reg); 16 B raw-slice-fits → all-in-regs at the right
+    regStart.
+  - Added `TestCallArgStackOffAapcs64SplitUnchanged` pinning that
+    AAPCS64 still splits as before.
+  - Constructor smoke tests now assert the `SplitAggregates` field.
+
 ### ~~Generic call type args reject `@T` / `@[]T` / `*[]T` (parser)~~ — FIXED 2026-05-26 (binate `18b8047`)
 - **Was CRITICAL.** Expression-position generic instantiation with a
   managed-pointer (`f[@T](...)`), managed-slice (`f[@[]T](...)`), or
