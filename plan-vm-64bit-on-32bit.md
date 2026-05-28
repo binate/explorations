@@ -1,5 +1,13 @@
 # Plan: 64-bit values in the bytecode VM on a 32-bit host (IR-int64 Layer 2)
 
+> **Status (2026-05-27): int64 path complete.**  Steps 1, 2a, 3 (full
+> BC_*64 handler set), 4 (host-word-aware lowering), 2b (single +
+> multi-return, direct + indirect call ABI), and 6 (conformance/499)
+> all landed.  See `claude-todo.md`'s "IR integer constants are
+> host-width int" entry for the commit trail.  Float64-on-32-bit is
+> the remaining parallel mini-project — see the entry's "Still open"
+> bullet.
+
 ## Goal
 
 The bytecode VM (`pkg/vm`) must correctly execute programs that use
