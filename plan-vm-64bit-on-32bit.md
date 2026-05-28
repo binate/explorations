@@ -1,23 +1,31 @@
 # Plan: 64-bit values in the bytecode VM on a 32-bit host (IR-int64 Layer 2)
 
-> **Status (2026-05-27): int64 AND float64 paths complete.**  Steps 1,
-> 2a, 3 (full BC_*64 handler set), 4 (host-word-aware lowering), 2b
-> (single + multi-return, direct + indirect call ABI), and 6
-> (conformance/499) all landed for int64.  The parallel float64-on-32-
-> bit mini-project — BC_F*64 opcodes, pure float64-pair helpers,
-> execOp64 dispatch, lowering (lowerBinOp/lowerCmpOp isFloatPair,
-> OP_NEG, OP_CONST_FLOAT) — also landed.  `pkg/vm` source compiles
-> cleanly on arm32 (since `ba1a798`'s bit_cast-through-int64 fix);
-> conformance `builder-comp_arm32_linux` is green, covering
-> compiled-side int64/float64 user-code on a 32-bit target.  The pkg/vm
-> bytecode-VM-side path (BC_*64 / BC_F*64 dispatch via the in-process
-> VM running on arm32) is exercised by pkg/vm unit tests on
-> `builder-comp_arm32_linux`, which currently have pre-existing
-> failures unrelated to this work (target-int-width assumptions in
-> test scaffolding); until those land, the dispatch and emission
-> correctness rests on host-portable pure helpers + direct execOp64 /
-> lowering gate tests.  See `claude-todo.md`'s "IR integer constants
-> are host-width int" entry for the full commit trail.
+> **Status (2026-05-28): int64 AND float64 paths complete AND
+> end-to-end-validated on arm32.**  Steps 1, 2a, 3 (full BC_*64
+> handler set), 4 (host-word-aware lowering), 2b (single + multi-
+> return, direct + indirect call ABI), and 6 (conformance/499) all
+> landed for int64.  The parallel float64-on-32-bit mini-project —
+> BC_F*64 opcodes, pure float64-pair helpers, execOp64 dispatch,
+> lowering — also landed.  Both conformance `builder-comp_arm32_linux`
+> AND pkg/vm unit tests on `builder-comp_arm32_linux` are now green,
+> so the bytecode-VM-side dispatch is validated through real arm32
+> execution (qemu-user) — not just host-portable pure helpers.
+>
+> Getting to arm32 unit-test green required a cascade of follow-on
+> fixes that landed alongside the float64 work: pkg/types initTarget
+> host-detection (was hardcoded LP64), pair-aware BC_FTOSI / BC_SITOF
+> / BC_F64_TO_F32 / BC_F32_TO_F64, is64BitScalar accepting
+> TYP_UNTYPED_FLOAT (untyped-float defaults to float64 — must be
+> pair-wide on a 32-bit host), and a host-aware managed-allocation-
+> header offset (`MANAGED_HDR` const, was hardcoded 16).  Plus
+> ~90 LP64-baked test assertions across pkg/{vm,types,codegen,
+> native/{common,aarch64,x64}} updated to host-aware checks or
+> explicit `setTarget64()` + `TypInt → TypInt64` substitution.
+>
+> See `claude-todo.md`'s "IR integer constants are host-width int"
+> entry for the full commit trail and the "arm32 unit-test cleanup"
+> entry for the remaining 5 int64-min-boundary failures (separate
+> cluster, unrelated to this work).
 
 ## Goal
 

@@ -271,28 +271,24 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
       `is64BitScalar(instr.Typ) && REG_SLOT < 8`.
     - `769d2e54`: gate test for OP_CONST_FLOAT — confirms 64-bit
       host falls back to `BC_LOAD_IMM` (no spurious pair branch).
-  - **End-to-end arm32 coverage status**:
+  - **End-to-end arm32 coverage status (2026-05-28)**:
     - `pkg/vm` source compiles cleanly on arm32 (since `ba1a798`).
-    - Conformance `builder-comp_arm32_linux` is green — covers
-      compiled (LLVM) int64/float64 user-code on a 32-bit target.
-    - The pkg/vm bytecode-VM-side path (BC_*64 / BC_F*64 dispatch
-      via the in-process VM running on arm32) is exercised by
-      pkg/vm unit tests under `builder-comp_arm32_linux`, which
-      currently have **pre-existing failures unrelated to this
-      work** — `TestLower{BinOpIntegerVsFloat,BinOpIntegerOnlyOps,
-      BinOpUnsignedDispatch,CmpOpDispatchByArgType,
-      ReturnSingleScalar,CompareOpcodes,GlobalRefSharedAcrossUses}`
-      were already failing on pre-session commits (e.g. `66eaf76`).
-      The failure mode looks like the in-process VM's
-      `types.TypInt()` returns an LP64 (Width=64) singleton on
-      arm32 instead of ILP32 (Width=32), making
-      `is64BitScalar(int)` accidentally true and the BC_*64 pair
-      branch fire for plain-`int` ops.  Tracked separately — see
-      entry below.
-    - Until the pre-existing arm32 unit-test failures clear, the
-      dispatch and emission correctness for pkg/vm-on-arm32 rests
-      on host-portable pure helpers + direct `execOp64` / lowering
-      gate tests, plus the compiled-side conformance coverage.
+    - Conformance `builder-comp_arm32_linux`: green.
+    - **pkg/vm unit tests on `builder-comp_arm32_linux`: green**
+      (was 16 failures pre-session → 9 → 1 → 0).  The bytecode-VM
+      BC_*64 / BC_F*64 dispatch and slot allocation are now fully
+      end-to-end-validated on a real 32-bit target — including
+      the `TestRepro_StructWithManagedSliceFieldAppend` managed-
+      memory path, which surfaced the hardcoded-LP64 managed-
+      allocation-header offset that `81d31b7c`'s MANAGED_HDR
+      const fixed.
+    - The cascade-revealed packages — pkg/{types, codegen,
+      native/{common,aarch64,x64}} — are also green on arm32 now
+      after the LP64-baked-test cleanup (`11ff9864`, `2d13838d`).
+    - Remaining arm32_linux failures (5) are all the int64-min-
+      boundary cluster in pkg/{bootstrap,buf,ir} — see the
+      "arm32 unit-test cleanup" entry for the bucket.  Unrelated
+      to this work.
 
 ### `__c_call` Stage 4 (variadic in the native backends) — IN PROGRESS / BLOCKED
 - **Plan**: [plan-c-call.md](plan-c-call.md) §6–§7 step 4 — the
@@ -483,7 +479,47 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   callee is LLVM-compiled" through to the call site.  Option
   (a) is correct in principle but blocks on the latent sret
   bugs.  Pinned by: standalone repro in /tmp/x/.
-- **Round-2 investigation (2026-05-28) — surgical fix also breaks bnc_native.**
+- **Round-3 root-cause (2026-05-28) — the round-2 "surgical" was
+  effectively wholesale, AND wholesale exposes a true caller/callee
+  mismatch for monomorphized generics.**  `pkg/ir.EmitCall` routes
+  every call through `qualifyForCurrentModule` →
+  `mangle.QualifyName(currentPkgPath, name)`.  `QualifyName` prepends
+  `<pkg>.` to any bare name → **every** `ins.StrVal` has a dot
+  (e.g. `splitColon` → `"main.splitColon"`).  So the round-2 helper
+  `isCrossPackageCallName(name)` (dot-presence) returned true for
+  everything — identical caller-side effect to wholesale.  Then the
+  real mismatch: monomorphized generics get instantiated into the
+  CURRENT module (`bn_main__Append__bn_inst__mslc_uint8`).  Their
+  `ins.StrVal` becomes `"main.Append__bn_inst__mslc_uint8"` (dot
+  from QualifyName).  Round-2/wholesale → caller emits sret.  But
+  the callee is native-compiled in main, where
+  `FuncReturnsBigAggregate(f)` = `32 > 64` = false → callee emits
+  reg-return.  **Mismatch.**  Disasm-confirmed in parseArgs at
+  `0x10030baf0`: caller sets `X8 = SP+0x1138`, calls
+  `bn_main__Append__bn_inst__mslc_uint8`, then later loads
+  `[X9 = 0x1]` (the corrupted "returned slice"'s data ptr) → SIGSEGV.
+- **Correct surgical fix**: predicate should check
+  `ins.StrVal` starts with `<currentPkgName>.`.  Intra-module
+  (instantiated generics included) → `InternalSretBytes` (64).
+  Cross-module (LLVM-compiled) → `CExternSretBytes` (16).
+  Requires threading `pkgName` into `CallReturnsBigAggregate` /
+  `CallReturnsBigMultiReturn` (currently `(cc CallConv) (ins)`);
+  call sites at aarch64_call.bn:120, aarch64_iface.bn:143,
+  x64_call.bn:92, x64_iface.bn:121, plus the .bni signature.
+  `pkgName` is already available at all sites.
+- **Note on wholesale**: untested whether wholesale's bnc_native
+  crash is the SAME generic-instantiation mismatch in disguise
+  (very plausible, since wholesale changes only `InternalSretBytes`
+  → both caller and callee predicates use 64→16 → caller flips
+  to sret for >16-byte aggregates, and callee
+  `FuncReturnsBigAggregate` ALSO flips → match restored
+  intra-module too).  If so, wholesale is actually a correct
+  fix that simply needs the callee/caller predicate update and
+  the test-expectation refresh (the 6 tests pinning 64).
+  Worth re-running wholesale and checking carefully before
+  committing to surgical-vs-wholesale.
+
+- **Earlier round-2 hypothesis (now superseded by round-3 above).**
   Hypothesis was: the wholesale `InternalSretBytes 64→16` change
   may be too broad; try just changing the caller-side predicate
   for CROSS-package calls (callee name contains '.') to use the
@@ -548,57 +584,59 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - Not yet exercised by an actual run; the next Release or perf run
   will confirm the deprecation warnings are gone.
 
-### arm32 unit-test cleanup: xfail incompatible packages + investigate 2 genuine failures
-- **Context**: with the C-extern sret fix (binate `4874fe6`,
-  recorded in claude-todo-done.md), `builder-comp_arm32_linux`
-  unit tests went 0→19 passing; `builder-comp_arm32_baremetal`
-  unit tests are already xfail-clean (binate `e448d50` stamped
-  15 package xfails).  arm32_linux still has 14 failing packages.
-- **Bucket 1 — needs xfails** (same shapes as the bare-metal
-  set): `cmd/bnc`, `cmd/bni` (subprocess/compile),
-  `pkg/asm/{x64,aarch64,macho}` + `pkg/codegen` (filesystem object
-  writes / native-host arch), `pkg/native` +
-  `pkg/native/{amd64,arm64,common}` (native-host arch),
-  `pkg/buf`, `pkg/ir`, `pkg/bootstrap` (int32-literal
-  fit-check on tests that bake in int64-min/max or FNV-style
-  > INT32_MAX constants).  Action: stamp
-  `<pkg>.xfail.builder-comp_arm32_linux` mirroring the bare-metal
-  set (note arm32_linux additionally has `pkg/bootstrap` failing
-  where bare-metal didn't, since they use different pkg/bootstrap
-  copies; bare-metal additionally had `pkg/std`).
-- **Bucket 1b — `pkg/vm` arm32_linux unit-test failures**: REVISED
-  diagnosis (2026-05-27).  Most failures aren't literal-fit-check
-  but lowering-shape mismatches: `TestLowerBinOpIntegerVsFloat`,
-  `TestLowerBinOpIntegerOnlyOps`, `TestLowerBinOpUnsignedDispatch`,
-  `TestLowerCmpOpDispatchByArgType`, `TestLowerReturnSingleScalar`
-  (expected BC_RETURN), `TestLowerCompareOpcodes` (expected BC_SGT),
-  `TestLowerGlobalRefSharedAcrossUses`.  All construct an IR Instr
-  with `types.TypInt()` and assert a non-pair opcode.  On arm32
-  the in-process VM's `types.TypInt()` should be Width=32 (ILP32),
-  in which case `is64BitScalar(int)` is false and the pair branch
-  doesn't fire — so the tests' expectations are correct.  The
-  observed failure pattern suggests `types.intSize()` isn't being
-  pointed at the arm32 target before `types.TypInt()` is consulted
-  in unit-test scaffolding, leaving the LP64 default (Width=64)
-  active — `is64BitScalar(int)` then returns true and lowering
-  emits BC_*64 for plain-int ops.  Action: investigate
-  `cmd/bnc`'s test entry to confirm whether `types.SetTarget`
-  runs ahead of `types.TypInt()` lookups in test contexts; root-
-  cause fix, not a blanket xfail.  Until fixed, the BC_F*64
-  dispatch (and BC_*64 in general) under pkg/vm-on-arm32 is
-  validated only by host-portable pure helpers + direct
-  `execOp64` glue tests, not real arm32 end-to-end.
-- **Bucket 2 — genuine test-level failures, investigate before
-  xfailing**:
-  - `TestBinBufWriteU64LittleEndian` (pkg/asm/elf) — a 64-bit
-    little-endian write; could be a real arm32 codegen bug in
-    64-bit store/shift, or an LP64 assumption in the test.
-  - `TestOrrImm` (pkg/asm/arm32) — ORR-immediate encoding; the
-    arm32 encoder under test, run on arm32 itself.  Worth a look
-    since it's the arm32 assembler exercised on its own target.
-  These two compiled + ran (not SEGV, not compile-error), so
-  they're behavioral — don't blanket-xfail without understanding
-  them.
+### arm32 unit-test cleanup: 5 remaining int64-boundary tests
+- **Context (2026-05-28)**: `builder-comp_arm32_linux` unit tests
+  are now down to **5 failures across 3 packages** — every other
+  cascade of arm32 issues that surfaced through May 27–28 has
+  been root-caused and fixed.  The remaining 5 share one shape:
+  int64-min literal handling on a host whose `int` is 32-bit.
+- **Resolved (commit trail)**:
+  - `aee0260` — `cmd/bni` test runner lookup keyed on full
+    pkgPath (fixed the entire `-int` unit-test lane that was
+    silently broken since `7f989ad`'s mangler full-path flip).
+  - `73651c28` — int↔int width-cast lowering: BC_TRUNC32 + emit
+    BC_SEXT / BC_ZEXT for narrowings / widenings between
+    int8/int16/int32/int64 (was unconditionally BC_MOV — wrong
+    for any non-8-bit width change).
+  - `a2588c54` — `pkg/types` `initTarget()` defaults host-detect
+    via `sizeof` (was hardcoded LP64).  Fixes the root cause that
+    made `is64BitScalar(TypInt())` true on arm32 and triggered
+    pair-branch emission for plain-int ops.
+  - `11ff9864` + `2d13838d` — LP64-baked test assertions across
+    pkg/{vm,types,codegen,native/{common,aarch64,x64}} replaced
+    with host-aware checks or explicit `setTarget64()` + a
+    `TypInt → TypInt64` substitution where the test's intent was
+    "an 8-byte int field on LP64 ABI".  Also fixed two real bugs
+    the cascade exposed: BC_FTOSI / BC_SITOF / BC_F64_TO_F32 /
+    BC_F32_TO_F64 pair-aware, and `is64BitScalar` accepting
+    TYP_UNTYPED_FLOAT.
+  - `81d31b7c` — managed-allocation header offset host-aware
+    (`MANAGED_HDR` const = `2 * sizeof(int)`, was hardcoded 16),
+    cleared the `TestRepro_StructWithManagedSliceFieldAppend`
+    qemu segfault.
+- **Status of previously-listed buckets**:
+  - **Bucket 1 (LP64-baked tests)**: pkg/vm, pkg/codegen, pkg/native/*
+    are GREEN.  pkg/asm/{x64,aarch64,macho} weren't in the
+    cascade-revealed set and remain native-host-arch dependent
+    (likely still need xfails, but separate workstream — host
+    arch != target arch).
+  - **Bucket 1b (pkg/vm TypInt width)**: ROOT-CAUSED.  Fixed by
+    `a2588c54` (initTarget host-detect — the LP64-default was
+    the deeper-than-suspected cause; not a test-scaffolding
+    SetTarget ordering issue).
+  - **Bucket 2 (genuine test-level)**: Still open as listed —
+    `TestBinBufWriteU64LittleEndian` (pkg/asm/elf),
+    `TestOrrImm` (pkg/asm/arm32).
+- **Still open — Bucket 3 (int64-min boundary)**:
+  - `pkg/bootstrap.TestFormatInt64Boundaries`
+  - `pkg/buf.TestWriteInt` — "expected int64-min round-trip"
+  - `pkg/ir.TestBignumToIntInt64Min`
+  - `pkg/ir.TestGenUnaryMinusOnInt64Preserves`
+  - `pkg/ir.TestNeedsHintNarrowing`
+  All five share the int64-min literal pattern.  Likely one
+  underlying fix: bignum / parseIntLit handling for values that
+  overflow int32 on the host but fit int64 at the target.  Not
+  blanket-xfail — investigate and fix.
 
 ### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
 - **Problem**: with the current rules, `int` (and other predeclared
