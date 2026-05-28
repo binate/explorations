@@ -1878,18 +1878,23 @@ Binate is NOT Go. The two types of slice are intentionally different:
   end on each side, and identifies the first concrete code change to make.
   Don't start implementation until the design is reviewed.
 
-### REPL — Tier 1, Tier 2 (FULL), Tier 3 (forward refs, funcs), Tier 4 (replace + shadow, methods incl.) LANDED (2026-05-05)
+### REPL — Tier 1, Tier 2 (FULL, incl. body-introduced dtor regen), Tier 3 (forward refs, funcs), Tier 4 (replace + shadow, methods incl.) LANDED (2026-05-28)
 - **Status**: `bni --repl <file.bn|dir>` ships.  `plan-repl.md` is
   the live source of truth for per-step state — commit tables,
   verified behaviors, deviations from the original plan, and the
   per-tier remaining-follow-ups list.  Briefly:
   - **Tier 1 (load-then-poke)** LANDED.
-  - **Tier 2 (top-level decls at the prompt)** LANDED in full.
-    Every top-level decl kind supported by the language works at
-    the prompt: `func` (incl. methods, redefinition replace +
-    shadow), `const` (single, untyped, grouped), `var` (typed,
-    untyped-with-literal-init, with init), `type` (aliases, named
-    non-struct, structs incl. managed-field).
+  - **Tier 2 (top-level decls at the prompt)** LANDED in full,
+    including the body-introduced dtor-regen follow-up landed
+    2026-05-28 (`EnsureReplBodyHelpers`).  Every top-level decl
+    kind supported by the language works at the prompt: `func`
+    (incl. methods, redefinition replace + shadow), `const`
+    (single, untyped, grouped), `var` (typed,
+    untyped-with-literal-init, with init), `type` (aliases,
+    named non-struct, structs incl. managed-field).  Bodies that
+    introduce a fresh managed-aggregate shape with a destructible
+    element (e.g. `@[]@Bag`) have their helper emitted before the
+    body lowers.
   - **Tier 3 (forward refs)** LANDED for `func` decls.  Pending
     types / vars / consts (need a structural treatment of
     "unsized" type symbols) are deferred.
@@ -1897,14 +1902,6 @@ Binate is NOT Go. The two types of slice are intentionally different:
     paths, free funcs and methods.
   - **Tier 5 (mid-session imports)** remains DRAFT.
 - **Remaining REPL work**, per plan-repl.md:
-  - **Tier 2**: prompt-introduced new managed-type dtor/copy
-    regen — specifically the *body-introduced shape* case (a
-    func body at the prompt that uses a `@[]T` aggregate not
-    present in the loaded module).  The *struct-introduced shape*
-    case landed 2026-05-04 (`ensureReplStructHelpers`); the
-    body-introduced shape case reuses the same dedup-aware ensure
-    machinery but needs a pass over the freshly IR-gen'd body to
-    collect the aggregate shapes it references.
   - **Tier 3**: pending types / vars / consts; cycle detection
     for mutually-pending decls (not needed today since
     `collectDecls` puts both sigs in scope, but worth noting).
@@ -1982,12 +1979,12 @@ Binate is NOT Go. The two types of slice are intentionally different:
      Multi-line input via paren-aware accumulator.  Auto-`println`
      wrap of bare exprs deferred (gated on interfaces).
   2. ~~**Add new top-level decls at the prompt.**~~ **FULLY LANDED
-     (2026-04-30 → 2026-05-04).**  All decl kinds: `func` (incl.
+     (2026-04-30 → 2026-05-28).**  All decl kinds: `func` (incl.
      methods), `const`, `var` (typed + untyped-with-literal-init +
      var-initializer evaluation), `type` (aliases, named
-     non-struct, structs incl. managed-field).  Remaining
-     follow-up: body-introduced new-managed-aggregate dtor regen
-     (see "Remaining REPL work" above).
+     non-struct, structs incl. managed-field).  Body-introduced
+     new-managed-aggregate dtor regen also landed (2026-05-28,
+     `EnsureReplBodyHelpers`).
   3. ~~**Forward references.**~~ **LANDED for `func` decls
      (2026-05-05).**  Pending-validation queue in the type checker;
      parked decls retry on every newly-resolved name.  Pending

@@ -1,7 +1,8 @@
 # Plan: REPL (Interpreter-Only)
 
-> **Status: Tier 1 + Tier 2 (FULL) + Tier 3 (forward refs) +
-> Tier 4 (replace + shadow, methods incl.) LANDED** (2026-05-05).
+> **Status: Tier 1 + Tier 2 (FULL, incl. body-introduced dtor
+> regen) + Tier 3 (forward refs) + Tier 4 (replace + shadow,
+> methods incl.) LANDED** (2026-05-28).
 > `bni --repl <file.bn|dir>` ships.  Tier 2 is functionally
 > complete: every top-level decl kind now works at the prompt
 > — `func` (incl. methods, redefinition replace + shadow),
@@ -186,12 +187,12 @@ patch — no extra work needed.
   type can be any prompt-defined or loaded-module local type.
   Method redefinition has since LANDED (2026-05-05) — see
   "Tier 4 method redefinition landed" section below.
-- **New managed-type dtor needs introduced by a body.**  If a
-  func defined at the prompt uses a `@[]T` shape that wasn't in
-  the loaded module, the dtor is missing.  Fix is dedup-aware
-  re-run of `generateDtors` / `generateCopies`.  Until then,
-  bodies typed at the prompt should stick to managed-type shapes
-  the loaded module already uses.
+- ~~**New managed-type dtor needs introduced by a body.**~~
+  LANDED (2026-05-28) — see "Tier 2 body-introduced dtor
+  regen landed" section below.  A prompt-typed body that uses
+  an aggregate shape with a destructible element (e.g. `@[]@Bag`)
+  now has its `__dtor_<T>` / `__copy_<T>` emitted before the
+  body is lowered.
 - **Forward references** (Tier 3) have since landed for
   `func` decls — see the "Tier 3 forward refs landed" section
   below.  **Redefinition** (Tier 4) replace path has also
@@ -553,6 +554,70 @@ named non-struct, structs incl. managed-field).  Remaining
 REPL work is in Tier 3 (forward refs), Tier 4 follow-ups
 (refcount-aware shadow warning, method redefinition,
 forced-shadow), and Tier 5 (mid-session imports).
+
+## Tier 2 body-introduced dtor regen landed — what shipped (2026-05-28)
+
+The struct-introduced shape case (above) shipped the
+`ensureReplStructHelpers` path for prompt-typed `type` decls
+that bring a new managed-field struct.  The body-introduced
+shape case — a prompt-typed func body, var-init, or bare stmt
+list that uses an aggregate shape with a *destructible
+element* not previously seen by the loaded module (e.g.
+`@[]@Bag`) — was still open.  Without it, the body's
+end-of-statement RefDec hit `vm: extern not found:
+<pkg>.__dtor_ms_mp_Bag`.
+
+Note that `@[]int` doesn't trigger the bug: an `int` element
+isn't destructible, so `emitManagedSliceRefDec` short-circuits
+to a plain `RefDec(refptr)` on the backing block and never
+calls `registerPendingMsDtor`.  The bug only fires when the
+element type itself needs destruction (managed pointer,
+managed slice, or array of destructible).
+
+Single commit on main (`993f320d`).  Implementation:
+
+| Layer | Change |
+|---|---|
+| `pkg/ir/gen_repl.bn` | New `EnsureReplBodyHelpers(m)` drains `pendingMsDtors` / `pendingStructDtors` (populated during the body's IR-gen) into freshly-emitted helpers in `m.Funcs`.  Dedup'd against existing helper names via the same `collectExistingHelperNames` pre-population that `ensureReplStructHelpers` uses.  Mirrors the `generateNonStructDtors` / `generateCopies` drain pass that file-load runs at end-of-module.  Resets the pending lists on return. |
+| `pkg/ir.bni` | Exposed `EnsureReplBodyHelpers`. |
+| `cmd/bni/repl.bn` | All four IR-gen paths that produce a body at the prompt — `evalReplDecl` DECL_FUNC, `runReplVarInit`, `evalReplStmtList`, `retryPending` — now capture `helpersStart := len(m.Funcs)` before the drain, call `EnsureReplBodyHelpers(m)`, and lower `m.Funcs[helpersStart:]` BEFORE the body.  Lowering order matters: helpers first means the body's eager `CallCache` fill resolves every helper name on first pass.  (`backfillExternCachesForName` would upgrade the -1 slots once the helper landed, but the explicit order avoids the round-trip.) |
+
+### Verified behaviors
+
+```
+> func g() { var s @[]@Box = make_slice(@Box, 2); println(len(s)) }
+> g()                                                  → 2
+> s := make_slice(@Box, 3); println(len(s))            → 3
+> var t @[]@Box = make_slice(@Box, 4); println(len(t)) → 4
+```
+
+Pre-fix transcript on the first case:
+
+```
+> > vm: extern not found: main.__dtor_ms_mp_Box
+```
+
+### Coverage
+
+- 4 new unit tests in `pkg/ir/gen_repl_test.bn`:
+  - `TestEnsureReplBodyHelpersNoopWhenNothingPending`
+  - `TestEnsureReplBodyHelpersBodyIntroducesManagedSlice`
+  - `TestEnsureReplBodyHelpersDedupsAgainstExisting`
+  - `TestEnsureReplBodyHelpersResetsPendingLists`
+- 3 new `e2e/repl.sh` cases covering the three driver paths
+  (`tier2-body-introduces-managed-slice-of-managed-ptr`,
+  `-stmt-list-`, `-var-init-`).
+
+### Remaining
+
+- **Untyped non-literal `var` init at the prompt** (`var x =
+  i + 100`, `var y = foo()`) still requires an explicit type.
+  Not a follow-up to the dtor-regen work — a separate
+  limitation captured in the "Tier 2 untyped var" section and
+  intentionally deferred (type checker resolves these for
+  local vars; threading it through IR-gen for top-level vars
+  wasn't worth the surface).  Users spell the type explicitly
+  when needed.
 
 ## Tier 3 forward refs landed — what shipped (2026-05-05)
 
