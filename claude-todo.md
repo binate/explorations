@@ -78,7 +78,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
-### amd64 native backend: aggregate argument passing unimplemented (blocks println / most programs)
+### amd64 native backend: aggregate argument passing (in-reg ≤16B LANDED; MEMORY-class blocked on CallConv classifier bug)
 - **Symptom**: under `builder-comp_native_x64_darwin-comp_native_x64_darwin`
   (the new local Rosetta runner), `002_arithmetic` and most tests
   miscompile — garbage output + `runtime error: index out of bounds:
@@ -87,32 +87,100 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `TestX64MachoExitsWithCode`), localizing the gap to aggregate
   *arguments*.
 - **Root cause** (self-documented): `pkg/native/amd64/amd64_call.bn`
-  `emitCall` explicitly skips aggregate args —
-  `if common.IsAggregateTyp(arg.Typ) { continue }` (lines ~66-71,
-  "Aggregate args are deferred to Phase 4").  `println(int)` lowers to
-  `bootstrap.formatInt(n)` → `@[]char` (a 32-byte managed-slice) →
-  `bootstrap.Write(fd, slice)`; the slice is an aggregate arg, so
-  `Write` reads garbage from the arg registers → bad length →
-  out-of-bounds.  (The aggregate *return* / sret path in emitCall is
-  already implemented; only the aggregate-arg side is missing.)
-- **Fix**: implement SysV-AMD64 aggregate argument passing in
-  `emitCall`.  Per the ABI: an aggregate > 16 bytes (e.g. `@[]char`,
-  32B) is MEMORY-class → copied to the stack argument area; aggregates
-  ≤ 16 bytes are classified field-by-field into INTEGER/SSE eightbytes
-  and split across the GP/XMM arg registers.  Mirror the shape arm64
-  already uses (`pkg/native/arm64` passes managed-slice / struct args)
-  and the existing amd64 sret-buffer setup.  Float/SSE arg
-  classification is the adjacent deferred piece.
-- **Now locally observable**: `builder-comp_native_x64_darwin` runs
-  the conformance + unit suites through the amd64 Mach-O path on Apple
-  Silicon via Rosetta, so this (and the rest of the amd64 op-coverage
-  long tail) is verifiable end-to-end on a dev machine — no qemu /
-  Linux box.  This is the first concrete gap; the runner shows the
-  rest.
+  `emitCall` explicitly skipped aggregate args —
+  `if common.IsAggregateTyp(arg.Typ) { continue }`.  `println(int)`
+  lowers to `bootstrap.formatInt(n, *[]uint8)` →
+  `bootstrap.Write(fd, *[]uint8)`; the raw slice (`%BnSlice`, 16 B)
+  is an aggregate arg, so `Write` read garbage from RSI/RDX → bad
+  length → out-of-bounds.  (Aggregate *return* / sret in emitCall was
+  already implemented; the gap was the aggregate-arg side.)
+- **STATUS (2026-05-27): in-register ≤16 B aggregate args LANDED**
+  (`pkg/native/amd64/amd64_call.bn` `emitAggregateArg`).  Raw slices
+  (`%BnSlice`, 16 B = 2 INTEGER eightbytes) are now loaded word-by-
+  word from their storage into the next two GP arg registers, exactly
+  matching what LLVM's by-value `%BnSlice` lowering does on SysV-x86_64.
+  Conformance jumped from 0/428 → 103/428 on `builder-comp_native_-
+  x64_darwin-comp_native_x64_darwin`; `002_arithmetic`,
+  `040_recursive`, etc. now pass.  Unit test:
+  `TestEmitCallAggregateArgLoadsTwoEightbytes` in `amd64_call_test.bn`.
+- **Remaining gap (blocked on the MAJOR CallConv entry below)**:
+  MEMORY-class aggregates (> 16 bytes, e.g. `@[]char` managed-slice
+  = 32 B) — entirely-on-stack passing per SysV — are still skipped by
+  `emitAggregateArg`.  Implementing them against the *current* shared
+  `CallConv` would silently miscompile, because the shared
+  classifier mis-models SysV aggregate dispatch as an AAPCS-style
+  reg/stack *split* (see next entry).  Once the classifier is fixed,
+  the MEMORY/stack path is a straightforward word-by-word load + store
+  to `[rsp + stackOff + 8*w]`, mirroring arm64's split-aggregate stack
+  half but using the SysV "no split: all-or-nothing" rule.
 - **Discovered**: 2026-05-26, mapping amd64 gaps after the
   processor-backend / object-format decoupling landed (Phases 1–4 +
   the native_x64_darwin runner) — see
   `plan-backend-objformat-decoupling.md`.
+
+### MAJOR: shared SysV CallConv mis-models aggregate-arg dispatch (splits where SysV requires MEMORY/stack)
+- **Symptom**: `pkg/native/common/common_callconv.bn`'s
+  `CallArgRegStart` / `CallArgStackOff` / `CallStackBytes` implement
+  AAPCS-style aggregate handling — an aggregate that doesn't fit
+  in the remaining GP arg regs is *split* across regs + stack, and
+  the `AggregateInRegMax` field (=16 for SysV) is declared but
+  unused.  This shape is correct for AAPCS64; it is **wrong** for
+  SysV-AMD64.  Per SysV, an aggregate > 16 bytes is MEMORY class →
+  passed entirely on the stack (never split), and an aggregate ≤ 16
+  bytes that doesn't fit in the remaining GP regs *also* goes wholly
+  to MEMORY (SysV has no split semantics).  LLVM's x86_64 backend
+  applies exactly that classification to by-value `%BnManagedSlice`
+  / `%BnSlice` parameters in Binate-emitted LLVM IR (direct
+  pass-by-value, no `byval`), so native must match it or the
+  native-↔-LLVM boundary silently miscompiles every managed-slice /
+  > 16-byte struct argument.
+- **Hard evidence pinning the existing wrong behavior**:
+  `pkg/native/common/common_callconv_test.bn::TestCallArgStackOffSysVSplit`
+  (lines ~223–240) deliberately asserts that under
+  `SysV_AMD64()`, a 4-word managed-slice (`@[]int`, 32 B = 4×8) after
+  three int args lands at `regStart = 3` (R3..R5 = RCX/R8/R9) + 1
+  stack word.  Real SysV: 32 B = 4 eightbytes > 2 × 8 → MEMORY →
+  entirely on stack at `stackOff = 0`, no registers consumed.  The
+  test encodes the wrong ABI, but nothing executes through it yet
+  because `pkg/native/amd64/emitCall` currently `return`s before
+  emitting the >16B/split case (see the entry above).
+- **Discovery**: 2026-05-27, while implementing the in-register ≤16 B
+  aggregate-arg case for the amd64 backend.  Verified
+  `%BnSlice` = 2*ptrSize = 16 B and `%BnManagedSlice` = 4*ptrSize =
+  32 B in `pkg/types/scope.bn:114-115`; verified direct-call args are
+  emitted as by-value LLVM struct args in `pkg/codegen/emit_call.bn`
+  (no `byval`); verified `emit_types.bn` declares the same `%BnSlice`
+  / `%BnManagedSlice` types for params + call sites.
+- **Severity**: latent silent-miscompile — caught now because the
+  amd64 backend has never executed against the wrong classifier yet,
+  but it would land the moment the >16 B aggregate-arg path is
+  implemented.  Affects every native-↔-LLVM cross-package call that
+  passes a managed-slice or > 16 B struct by value.
+- **Proposed fix**: parameterise the shared aggregate-arg
+  classification on a `CallConv.SplitAggregates` bool (AAPCS64 =
+  true, SysV_AMD64 = false) and on the existing
+  `AggregateInRegMax`.  For `SplitAggregates = false`:
+  - aggregate of size > `AggregateInRegMax` → MEMORY: `regStart =
+    -1`, all `w` words to stack at the running `stackOff` (NGRN
+    unchanged so later args still use remaining GP regs);
+  - aggregate ≤ `AggregateInRegMax` that doesn't fit in remaining
+    regs → MEMORY same as above (no split);
+  - aggregate ≤ `AggregateInRegMax` that fits → all `w` words in
+    consecutive GP regs starting at NGRN (unchanged from today).
+  Gate every new behavior strictly on `SplitAggregates = false` so
+  AAPCS64 (and the arm64 backend's tested split path) is byte-
+  identical.  Update `TestCallArgStackOffSysVSplit` to assert the
+  MEMORY/stack outcome under `SysV_AMD64()` and add complementary
+  > 16 B-aggregate tests for both modes.  Once landed, drop the
+  `if sz > 16 { return }` / `if regStart < 0 || stackOff >= 0
+  { return }` guards in `pkg/native/amd64/amd64_call.bn::emitAggregateArg`
+  and implement the stack-path word-store loop.
+- **Why this is a "raise, don't work around" bug**: the wrong
+  classifier is shared code with a deliberately-written test pinning
+  the wrong semantics, and the implementation-against-wrong-spec
+  trap is precisely the silent miscompile the CLAUDE.md protocol
+  exists to prevent.  The fix touches shared CallConv + an existing
+  test, so it's a scope decision the user owns.
 
 ### Cross-package generic instance def emitted with empty module qualifier (blocks appendXxx→slices.Append migration)
 - **Symptom**: a generic instantiated with a type argument whose type
