@@ -100,12 +100,12 @@ aliases pinning the Binate↔C scalar correspondence in one place.
 
 | `pkg/c` alias            | Binate underlying | C type                  |
 |--------------------------|-------------------|-------------------------|
-| `C_char`                 | `i8`              | `char` (signedness impl-defined; promoted on pass) |
-| `C_schar` / `C_uchar`    | `i8` / `u8`       | `signed`/`unsigned char`|
-| `C_short` / `C_ushort`   | `i16` / `u16`     | `short` / `unsigned short` |
-| `C_int` / `C_uint`       | `i32` / `u32`     | `int` / `unsigned int` (32-bit on ILP32 **and** LP64) |
+| `C_char`                 | `int8`            | `char` (signedness impl-defined; promoted on pass) |
+| `C_schar` / `C_uchar`    | `int8` / `uint8`  | `signed`/`unsigned char`|
+| `C_short` / `C_ushort`   | `int16` / `uint16`| `short` / `unsigned short` |
+| `C_int` / `C_uint`       | `int32` / `uint32`| `int` / `unsigned int` (32-bit on ILP32 **and** LP64) |
 | `C_long` / `C_ulong`     | `int` / `uint`    | `long` (target-word on Unix: ILP32→32, LP64→64) |
-| `C_longlong`/`C_ulonglong`| `i64` / `u64`    | `long long`             |
+| `C_longlong`/`C_ulonglong`| `int64` / `uint64`| `long long`           |
 | `C_size_t`               | `uint`            | `size_t` (pointer-width)|
 | `C_ssize_t`              | `int`             | `ssize_t`               |
 | `C_intptr_t`/`C_uintptr_t`| `int` / `uint`   | `intptr_t`/`uintptr_t`  |
@@ -117,9 +117,11 @@ Pointers use plain Binate `*T` (e.g. `void*` → `*uint8`, `char*` →
 `C_double=f64`) are **deferred until floats land** (not in BUILDER, and
 native amd64 defers float args).
 
-Note: C `long` ≠ C `int` on LP64; spelling `C_int` as `i32` (not Binate
-`int`) is load-bearing — on a 64-bit target Binate `int` is 64-bit but C
-`int` is 32-bit.
+Note: C `long` ≠ C `int` on LP64; spelling `C_int` as `int32` (not
+Binate `int`) is load-bearing — on a 64-bit target Binate `int` is
+64-bit but C `int` is 32-bit.  (Binate's fixed-width spellings are
+`int8`/`int16`/`int32`/`int64` and `uint8`/.../`uint64`, not the
+`i32`/`u32`-style abbreviations.)
 
 ---
 
