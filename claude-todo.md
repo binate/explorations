@@ -671,11 +671,61 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     (the package's own compile + tests resolve the generic from the
     merged `.bni`).  Keeping a second body in the `.bn` is a
     needless sync hazard; don't.
-- **Remaining migration**: replace per-type `appendXxx(Ptr)` call
-  sites with `slices.Append[T]` and delete the dead helpers, one
-  package per commit (pkg/ast, pkg/types, pkg/ir, pkg/loader, …).
-  Raw-slice (`*[]T`) variants (`appendU8`, `appendRawCharSlice`)
-  and the `copy*` helpers are a later pass.
+- **Mechanical migration DONE 2026-05-28**: ~62 per-type append
+  helpers across pkg/{ast,types,ir,parser,loader,codegen,vm,
+  native/aarch64} + cmd/bnc collapsed into ~378 call sites of
+  `slices.Append[T]`, one commit per package boundary
+  (binate `2714e67` loader → `ed727f8` parser → `bbb7fab5` ir →
+  `60f385ff` cmd/bnc → `12f20a06` types → `79c11465` ir literals →
+  `efbac9db` codegen → `d43185bb` vm → `1a45bb9b` aarch64 →
+  `d226b237` ir scattered → `13477619` types capture → `a66b287c`
+  cmd/bnc test).  Four `pkg/{loader,parser,ir,cmd-bnc}/slices.bn`
+  files deleted.  Net ~-750 lines.
+
+### Review remaining non-standard `appendXxx` helpers — opportunistic
+- 13 helpers were kept past the `slices.Append[T]` migration because
+  their bodies aren't a pure slice-of-T append (per the commit
+  messages around 2026-05-28).  Worth reviewing whether any could be
+  refactored to use `slices.Append` plus a small adapter:
+  - **Char-concat into a `@[]char` buffer** (not slice-of-T):
+    `pkg/native/x64/x64_iface.bn`'s `appendPkgIdent_x64`,
+    `appendStrIface`; `pkg/native/aarch64/aarch64_iface.bn`'s
+    `appendPkgIdentNative`, `appendStrLocal`.  These four could
+    probably share a single `buf.WriteStr`-style helper.
+  - **Dedup / diagnostic-emitting**:
+    `pkg/types/check_iface_extends.bn`'s
+    `appendIfaceMethodWithConflictCheck` (emits a `CheckError` on
+    signature mismatch) and `appendUniqueMethods` (dedup by method
+    name).  These stay non-standard.
+  - **Parallel two-slice append**:
+    `pkg/ir/gen_iface_extends.bn`'s `appendAncestors(pkgs, names,
+    pkg, name)` — could split into two `slices.Append` calls but
+    the paired-update pattern is the helper's value; debatable.
+  - **Conditional multi-arg append**: `cmd/bnc/target.bn`'s
+    `appendTargetFlags`, `appendTargetRuntime` — fine as-is.
+  - **Loader-level Imports**: `cmd/bnc/compile_imports.bn`'s
+    `appendRtImport`, `appendLibcImport`, `appendBootstrapImport` —
+    not slice append; fine as-is.
+  - **Raw-slice wrap-and-append**: `cmd/bnc/util.bn`'s
+    `appendRawCharSlice(s, *[]const char) → @[]@[]char` (CopyStr +
+    append).  Could inline the 47 call sites as
+    `slices.Append[@[]char](s, buf.CopyStr(v))` but the named
+    helper documents the wrap-and-append idiom; debatable.
+
+### Expand `pkg/slices` beyond `Append` — opportunistic
+- `pkg/slices.Append[T]` is the only generic helper today.  Natural
+  additions when call sites demand them (don't add speculatively):
+  - `Concat[T](a, b) @[]T` — current `concat(...)` patterns in
+    cmd/bnc / pkg/loader build a fresh slice with `make_slice + two
+    copy loops`, repeated per element type.
+  - `Filter[T, P]` / `Map[T, U]` — block on closures or func-value
+    params; only worth it once those constraints land properly.
+  - `RemoveLast[T](s) @[]T` — `popLoading`-style pattern (rebuild
+    minus last occurrence) repeats per element type.  Likely
+    enough call sites in pkg/loader / pkg/types / cmd/bnc to
+    justify when surveyed.
+  - Don't pre-add a kitchen-sink set — let the first 2-3 call
+    sites pull each helper in.
 
 ### Replace repeated `WriteStr(literal)` runs with adjacent-string concat (opportunistic)
 - **Pattern**: code that builds output via a CharBuf often calls
