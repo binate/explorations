@@ -120,7 +120,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   2 of function values (where the analogous capturing-`*func`
   linter rule is added — B.5 of `plan-function-values-phase-2`).
 
-### IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 + 2 (INT64) DONE; FLOAT64-ON-32-BIT FOLLOW-UP
+### IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 + 2 (INT64 + FLOAT64) DONE
 - **Symptom**: under `builder-comp_arm32_linux` unit tests, `pkg/ir`
   and everything downstream of it (`pkg/native{,/amd64,/arm64,/common}`,
   `pkg/codegen`, `pkg/vm`, `cmd/{bnc,bni,bnas}`) fail to compile for
@@ -247,15 +247,34 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
       `11da9d7` multi-return pair-aware): int64 return + call ABI
       complete.  `NumParamSlots` + slot-count `Imm` semantics.
     - Step 6 (`1fd3b9f`): conformance/499 int64 arithmetic E2E.
-  - **Still open (float64 follow-up)**: `pkg/vm`'s `BC_FNEG` /
-    `BC_FADD` / `BC_FSUB` / `BC_FMUL` / `BC_FDIV` / `BC_F*` compares
-    still use `bit_cast(int, float64)` and `bit_cast(float64,
-    regs[Src1])` — size-mismatched on a 32-bit host, so `pkg/vm`'s
-    LLVM codegen fails for arm32.  Mirror the int64 work for float64
-    (`BC_FNEG64`, `BC_FADD64`, …) using the same pair model: pair
-    bit_cast through `int64` (via splitInt64/joinInt64) into
-    `float64` for the actual compute.  Unblocks pkg/vm arm32 unit
-    tests, which is what would E2E-validate the int64 VM path.
+  - **Float64-on-32-bit (DONE)**: mirrors the int64 pair pattern.
+    - `ba1a798`: route the existing `BC_FNEG` / `BC_F*` /
+      `BC_SITOF` / `BC_FTOSI` / `BC_F64_TO_F32` / `BC_F32_TO_F64` /
+      `OP_CONST_FLOAT` `bit_cast(int, float64)` hops through
+      int64 — compile-clean on a 32-bit host without yet changing
+      lowering semantics.
+    - `3126655`: `BC_F*64` opcode decls (`BC_FNEG64`,
+      `BC_FADD64..BC_FDIV64`, `BC_FEQ64..BC_FGE64`) + pure
+      `evalFloatArith64` / `evalFloatCmp64` / `evalFloatNeg64`
+      helpers in `vm_exec64.bn` + host-testable unit tests for
+      each helper.
+    - `ae08c1ed`: `execOp64` dispatch glue — joins source pair(s),
+      bit_casts through `int64` to `float64` for the compute,
+      bit_casts back, splits to dst pair (or single-slot bool for
+      compares).  Direct `execOp64(&stackArr[0], instr)` tests
+      cover all three shapes (binary arith, unary FNEG, compare-
+      writes-single-slot).
+    - `00b10e38`: lowering — `lowerBinOp` / `lowerCmpOp` add an
+      `isFloatPair` branch alongside the existing `isIntPair`;
+      `OP_NEG` dispatches `BC_FNEG64`; `OP_CONST_FLOAT` emits
+      `BC_LOAD_IMM64` with `splitInt64` halves when
+      `is64BitScalar(instr.Typ) && REG_SLOT < 8`.
+    - `769d2e54`: gate test for OP_CONST_FLOAT — confirms 64-bit
+      host falls back to `BC_LOAD_IMM` (no spurious pair branch).
+  - **End-to-end arm32 coverage** for both int64 and float64 paths
+    is gated on `pkg/vm`'s LLVM codegen unblocking for arm32.  Until
+    then, host-independent pure helpers + direct `execOp64` /
+    lowering gate tests cover the dispatch and emission logic.
 
 ### `__c_call` Stage 4 (variadic in the native backends) — IN PROGRESS / BLOCKED
 - **Plan**: [plan-c-call.md](plan-c-call.md) §6–§7 step 4 — the
@@ -344,16 +363,38 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     2. **Field-write to the 2nd consecutive trailing-bool field**
        uses wrong offset+width (8 bytes at offset 0 instead of
        1 byte at offset 49 — the CallConv miscompile above).
-  Both LLVM-correct, both native-broken.  Likely shared root
-  cause: how the native backend / pkg/types StructLayout handles
-  struct fields BEYOND the first trailing bool (the
-  SplitAggregates / VariadicStackOnly pair).  Fix area:
-  pkg/native/aarch64 emit_call / emit_func /
-  OP_GET_FIELD_PTR / OP_STORE, or pkg/types StructLayout /
-  FieldOffset, or pkg/native/common `CallReturnsBigAggregate` /
-  `FuncReturnsBigAggregate`.  Reliable repros:
-    * Bug 1: tiny standalone shown above (cross-package
-      6-int+2-bool, no `__c_call` involved).
+  Both LLVM-correct, both native-broken.
+- **Further narrowing on Bug 1**: same-package version of the
+  cross-package repro (Base + main in one package, same struct
+  shape) **works** — exit 8.  And in the CallConv intra-package
+  case, the caller (`AAPCS64_Darwin`) DOES set up X8 before
+  `bl AAPCS64` — caller AGREES with callee on sret.  So:
+    * intra-package: `FuncReturnsBigAggregate` (callee) AND
+      `CallReturnsBigAggregate` (caller) BOTH return TRUE for
+      the 56-byte struct → both use sret → consistent.
+    * cross-package: callee TRUE, caller FALSE → MISMATCH →
+      broken.
+  Both predicates use the same `t.SizeOf() > cc.InternalSretBytes`
+  check; they differ only in input — `f.Results[0]` (callee) vs
+  `ins.Typ` (caller).  Strong hypothesis: **`SizeOf` returns
+  different values for the same struct depending on which side
+  (callee-Func-Results vs caller-ins-Typ) is asking, and that
+  asymmetry IS the underlying defect.**  Also note: the 56-byte
+  struct shouldn't trigger sret AT ALL (threshold is 64) — so
+  even the consistent intra-package "true" answer is wrong.
+  Looks like SizeOf is returning 72 (each bool padded to 8) or
+  similar in one of the contexts.
+- **Fix area**: pkg/types `SizeOf` / `StructLayout` for the
+  6-int + 2-bool shape, and/or cross-package type resolution
+  not preserving layout.  Also: `FuncReturnsBigAggregate` /
+  `CallReturnsBigAggregate` should give the same answer
+  regardless of whether the type is reached via a Func.Results
+  pointer or an Instr.Typ pointer.
+- **Reliable repros**:
+    * Bug 1: tiny standalone — `/tmp/x/pkg/foo.bni` (S struct
+      with 6 ints + 2 bools, `Base() S`), `/tmp/x/main.bn`
+      calling `foo.Base() + bootstrap.Exit(s.a)`; native exit
+      16 instead of 8.
     * Bug 2: `git checkout stage-4-wip-broken` in
       `temp-binate-2`, then `conformance/run.sh
       builder-comp_native_aa64-comp_native_aa64 498`.
