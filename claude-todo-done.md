@@ -6,6 +6,42 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~Cross-package generic instance def emitted with empty module qualifier (blocked appendXxx→slices.Append migration)~~ — RESOLVED 2026-05-27 (binate `7f51f2a`, migration landed `2714e67`)
+- **Was**: a generic instantiated with a type argument whose type
+  lived in a directly+transitively-imported package emitted the
+  instantiated function's **definition** with an EMPTY module
+  qualifier while the **call site** used the consumer's qualifier —
+  e.g. `pkg/loader`'s `slices.Append[@ast.File]` produced
+  `define %BnManagedSlice @bn_Append__bn_inst__mptr_ast__File(...)`
+  (def, no `loader`) but `call ... @bn_loader__Append__bn_inst__-
+  mptr_ast__File(...)` (call).  Only cross-package-type-arg instances
+  desynced; `Append[@Package]` (loader-local) and `Append[@[]uint8]`
+  (primitive) were fine.
+- **Root cause** (identified 2026-05-27): the bug was in the PINNED
+  BUILDER, not the current tree.  Phase B (`pkg/mangle: flip to full-
+  path symbol mangling`, binate `7f989ad` + follow-ups) had already
+  fixed the current-tree mangler so cross-package generic instances
+  emit matching def+call symbols.  But until 0.0.4 was promoted, the
+  BUILDER (`bnc-0.0.3`) was pre-Phase-B and emitted the desynced
+  symbols when compiling `cmd/bnc`'s tree (which imports `pkg/loader`
+  via `cmd/bnc/main` etc.), so the gen1 build of any tree using
+  `slices.Append[@ast.X]` failed at link.
+- **Resolution**: cut bnc-0.0.4 (binate `5ea0208`) carrying Phase B,
+  promoted `BUILDER_VERSION → bnc-0.0.4` (binate `7f51f2a`),
+  then landed the loader migration (binate `2714e67`).  No further
+  fix needed in current main beyond the BUILDER bump.
+- **Validation before promote**: built current-tree bnc with
+  `BUILDER_VERSION=bnc-0.0.4` and ran conformance (`builder-comp`)
+  430/0/1; spot-checked the headline feature by applying the
+  loader migration locally and confirming 47/47 loader tests pass.
+- **Related defensive cleanup**: binate `0e5fafc` makes
+  `mangleTypeArg` fold `/` (not just `.`) into `__` so its output
+  is identifier-safe regardless of downstream re-qualification
+  semantics in `NewFunc` / `FuncName`.  Not strictly needed to fix
+  this bug (downstream `writeBnDotted` already folds `/`), but
+  pins the helper's documented contract and provides defense-in-
+  depth.
+
 ### ~~amd64 native backend: aggregate argument passing unimplemented~~ — FIXED 2026-05-27 (binate `f7a182b`, `b719d7e`)
 - **Was**: under `builder-comp_native_x64_darwin-comp_native_x64_darwin`
   (the new local Rosetta runner), `002_arithmetic` and most tests
