@@ -70,9 +70,24 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   time, fully-qualify all cross-package references in the AST so
   later resolution doesn't need the alias map.  (b) is the cleaner
   long-term fix but invasive; (a) is a narrower patch.
-- **Test**: `conformance/389_same_last_segment_pkgs/` (locally
-  present on `temp-binate-4` worktree, not yet committed; add it
-  alongside the fix as the regression guard).
+- **Test**: `conformance/392_same_last_segment_pkgs/` (renumbered
+  from 389 due to a concurrent test landing; lives on
+  `temp-binate-4` worktree and lands alongside the fix).
+- **STATUS (2026-05-27): FIXED** by binate `2122648` (pkg/ir:
+  per-file alias scoping).  Both the registries (struct types,
+  interfaces) and the cross-package call resolution now use the
+  IMPORT PATH directly rather than the alias map.  The alias map
+  itself is populated only by the importing module's
+  RegisterImports (whose direct imports are unambiguous within a
+  file by source-level constraint); broad-registration and
+  imported-file processing push/pop the file's OWN imports around
+  per-file processing so cross-package refs resolve via THAT
+  file's aliases — not whichever alias happened to win the global
+  first-wins dedup.  A parallel `.o`-filename collision was fixed
+  in the same commit (pathFileBase folds slashes for distinct
+  intermediate filenames).  Conformance/392 is the regression
+  guard.  The planned pkg/native/amd64→x64 un-rename is now
+  unblocked.
 
 ---
 
