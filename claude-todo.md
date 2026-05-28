@@ -93,6 +93,33 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
+### Demote raw-slice escape check from type error to linter rule
+- **Today**: returning a raw slice (`*[]T`) into a local array
+  (`return arr[:]`) is a hard type-check error.  The check catches
+  the obvious pattern but **misses the real escape paths** the
+  type system can't see (escape via out-param, via mutating
+  callee, via interface, etc.), so it's a false-confidence trap:
+  the user assumes "if it type-checks, my raw slice doesn't
+  escape", which isn't what the check actually proves.
+- **Why now**: while designing Phase 2 of function values
+  (`plan-function-values-phase-2.md`), the same escape question
+  came up for capturing `*func(...)`.  Decision: no type-check
+  rejection; raw is the opt-in escape hatch, linter warns on
+  obvious patterns.  That makes the raw-slice rule the
+  inconsistent one — slices are the only raw type with a hard
+  escape check in the type system.
+- **Fix direction**: demote the raw-slice escape rejection to a
+  linter rule in `cmd/bnlint` (best-effort detection of return,
+  store-to-outliving-field, assign-to-global, etc.).  Type
+  checker stops rejecting; existing tests that exercise the
+  reject become linter-positive cases.
+- **Scope cost**: small.  One rule to remove from the type
+  checker, one to add to bnlint, conformance test updates for
+  the affected patterns, doc updates.
+- **Coordination**: ideally lands alongside or just after Phase
+  2 of function values (where the analogous capturing-`*func`
+  linter rule is added — B.5 of `plan-function-values-phase-2`).
+
 ### IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 + 2 (INT64) DONE; FLOAT64-ON-32-BIT FOLLOW-UP
 - **Symptom**: under `builder-comp_arm32_linux` unit tests, `pkg/ir`
   and everything downstream of it (`pkg/native{,/amd64,/arm64,/common}`,
