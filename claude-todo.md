@@ -754,11 +754,15 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   their bodies aren't a pure slice-of-T append (per the commit
   messages around 2026-05-28).  Worth reviewing whether any could be
   refactored to use `slices.Append` plus a small adapter:
-  - **Char-concat into a `@[]char` buffer** (not slice-of-T):
+  - ~~**Char-concat into a `@[]char` buffer** (not slice-of-T):
     `pkg/native/x64/x64_iface.bn`'s `appendPkgIdent_x64`,
     `appendStrIface`; `pkg/native/aarch64/aarch64_iface.bn`'s
     `appendPkgIdentNative`, `appendStrLocal`.  These four could
-    probably share a single `buf.WriteStr`-style helper.
+    probably share a single `buf.WriteStr`-style helper.~~ — DONE
+    2026-05-28 (binate `fd1e931c` + `1b762f16`): pulled the two
+    distinct shapes into `pkg/native/common.AppendStr` /
+    `AppendPkgIdent`, x64/aarch64 callers rewritten, 4 duplicate
+    helpers deleted, direct unit coverage in common_test.bn.
   - **Dedup / diagnostic-emitting**:
     `pkg/types/check_iface_extends.bn`'s
     `appendIfaceMethodWithConflictCheck` (emits a `CheckError` on
