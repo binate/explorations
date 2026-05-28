@@ -558,6 +558,69 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   Worth re-running wholesale and checking carefully before
   committing to surgical-vs-wholesale.
 
+- **Round-4 (2026-05-28) — wholesale fix landed as WIP
+  commit `2c0cb952` on work-2, plus first round of latent
+  native-aarch64 sret bug fixes.**
+  - `common_callconv.bn`: `InternalSretBytes` flipped 64→16
+    for AAPCS64.  Unit-test expectations updated (divergence
+    tests reshaped as "agrees" tests since both AAPCS-64 and
+    SysV-AMD64 now use 16).
+  - `aarch64_emit.bn::emitMakeSlice`: had a HARDCODED
+    reg-return convention assumption for the LLVM-compiled
+    `bn_pkg__rt__MakeManagedSlice` (expected 32-byte
+    ManagedSlice packed in X0..X3).  Wrong under AAPCS-C —
+    LLVM uses X8 sret for >16-byte aggregates.  Pre-fix it
+    happened to "work" because LLVM's local-variable register
+    allocation left the values in X0..X3 as a side effect.
+    Fixed to set X8 = &data region before BL, drop the
+    post-call register-pack copy.  x64's emitMakeSlice was
+    already correct (SysV always used 16).
+  - `aarch64.bn::emitFuncValueShims`: had hardcoded
+    `retSz > 64` for the sret-vs-pack shim shape.  Lowered
+    to `> 16` to match the new underlying-function ABI.
+  - **Verified**: standalone Bug 1 repro (/tmp/x) → exit 8
+    (correct).  All native unit tests pass.
+  - **REMAINING**: bnc_native_wholefix changes failure mode
+    from SIGSEGV (pre-fix) to a controlled runtime "index
+    out of bounds: 0 (len 0)" during cmd/bnc's startup arg
+    parsing.  `_bn_main__main` and `_bn_main__parseArgs`
+    disasms are BYTE-IDENTICAL between prefix and postfix
+    binaries, so the regression must be in a downstream
+    callee whose ABI flipped — likely a dtor, refcount
+    helper, or generic-instantiation in the main package.
+    Not yet root-caused.
+- **Key insight that REFRAMES the analysis**: pre-fix's
+  predicates were ACTUALLY CORRECT under LLVM's effective
+  AArch64 ABI for the IsCExtern case but BROKEN for the
+  non-IsCExtern case.  LLVM on AArch64 follows AAPCS-C target
+  rules even WITHOUT the `sret(...)` annotation —
+  `define %S @foo()` for a 56-byte `%S` uses X8 sret in the
+  emitted machine code.  `pkg/codegen` only emits `sret(...)`
+  annotations for `IsCExtern` functions
+  (`emit.bn:254`), but ALL aggregate-returning functions get
+  the same backend lowering on AArch64.  So for cross-package
+  calls to non-IsCExtern Binate functions returning 17–64 byte
+  aggregates, pre-fix's caller (reg-return via the wider
+  64-byte threshold) DISAGREED with the LLVM-compiled callee
+  (X8 sret).  Pre-fix's `CalleeUsesCSret` ONLY caught the
+  IsCExtern case, which is why most things "worked" — most
+  cross-package callees in the codepath either return scalars
+  or are IsCExtern.  /tmp/x's 56-byte foo.S is the smoking
+  gun proving pre-fix is broken.
+- **Where this points**: the remaining bnc_native_wholefix
+  failure isn't a side effect of the wholesale fix — it's
+  ANOTHER latent native-aarch64 emit site assuming the old
+  packed-return convention.  The set of "places that assume
+  reg-return for ≤64-byte aggregates" is the audit set;
+  that's the remaining work.  Audit candidates: any
+  `argReg(0..N)` store immediately after a `Bl(callee)` where
+  the callee returns a 17–64 byte aggregate.  Concrete
+  next-session approach: diff every function that differs
+  byte-for-byte between prefix and postfix binaries (since
+  parseArgs/main don't differ, the broken site is in some
+  other function, likely a per-package dtor, append, or
+  generic-instantiation helper in the main module).
+
 - **Earlier round-2 hypothesis (now superseded by round-3 above).**
   Hypothesis was: the wholesale `InternalSretBytes 64→16` change
   may be too broad; try just changing the caller-side predicate
