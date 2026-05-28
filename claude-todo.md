@@ -452,6 +452,37 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   range for behavior change.  This is a significant ABI change
   for Binate-Binate calls — worth a user decision before
   proceeding.
+- **Attempted Bug 1 fix (2026-05-28): InternalSretBytes 64→16 — REVERTED.**
+  Reduced AAPCS64 InternalSretBytes from 64 to 16, expecting the
+  cross-package native↔LLVM mismatch to dissolve.  All native/common
+  + native/aarch64 unit tests passed after updating the test
+  expectations (6 tests pinned the old 64-byte behavior).  Bug 1's
+  standalone repro DID flip to "exit 8" as expected (fix works for
+  that case in isolation).  But the bigger fallout: gen1-compiled
+  bnc_native CRASHES IMMEDIATELY (SIGSEGV in bn_entry) on any input
+  — ALL 430 conformance tests in `comp_native_aa64` mode failed
+  with "COMPILE_ERROR".  The bnc_native SIGSEGV looks like an
+  infinite recursion (frames 1 and 2 at the same address in lldb
+  bt) hitting a small-negative address in a refcount-style
+  increment loop (`ldr x10, [x9, #-0x10]!`).  Theory: the wider
+  sret path through native-aarch64 has latent bugs that didn't
+  surface pre-fix because internal Binate aggregates rarely
+  crossed the 17–64 byte range, so the sret return path was
+  mostly exercised by IsCExtern callees (>16-byte C-extern
+  returns).  Once every internal aggregate above 16 bytes flips
+  to sret, those latent bugs fire everywhere.  Worth pursuing
+  separately: audit the aarch64 emit_return + sret prologue
+  path for cases that pre-fix were not exercised
+  (single-aggregate ≤64 bytes, multi-return tuples ≤64 bytes).
+- **Recommended path forward**: don't ship the InternalSretBytes
+  change in isolation.  Either (a) fix the native sret path's
+  latent bugs first (then change the threshold), or (b) keep
+  the wider threshold but mark cross-LLVM-boundary calls
+  specially (route them via the CExternSretBytes=16 path).
+  Option (b) is less invasive but requires propagating "this
+  callee is LLVM-compiled" through to the call site.  Option
+  (a) is correct in principle but blocks on the latent sret
+  bugs.  Pinned by: standalone repro in /tmp/x/.
 - **Two distinct fixes blocked on this**:
     1. Stage 4 native variadic (Apple ABI stacks all varargs).
     2. Any future native-compiled package adding a 2nd consecutive
