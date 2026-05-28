@@ -147,7 +147,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   instances and the loader→slices.Append migration goes through
   cleanly.  No further code fix needed in current main.
 
-### IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 DONE, LAYER 2 IN PROGRESS
+### IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 + 2 (INT64) DONE; FLOAT64-ON-32-BIT FOLLOW-UP
 - **Symptom**: under `builder-comp_arm32_linux` unit tests, `pkg/ir`
   and everything downstream of it (`pkg/native{,/amd64,/arm64,/common}`,
   `pkg/codegen`, `pkg/vm`, `cmd/{bnc,bni,bnas}`) fail to compile for
@@ -198,7 +198,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     compile for arm32 (verified locally; runtime validated by the
     `builder-comp_arm32_linux` CI job).
 
-- **Layer 2 — VM machine word (IN PROGRESS)**: `pkg/vm` uses host
+- **Layer 2 — VM machine word (INT64 PATH DONE)**: `pkg/vm` uses host
   `int` as its universal machine word — registers, immediates,
   pointer arithmetic (`bit_cast(int, frameBase) + instr.Imm`),
   offsets.  So a 32-bit-hosted VM is a 32-bit machine and can't carry
@@ -248,6 +248,41 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     vm_exec*.bn + vm.bn, plus `BCInstr.Imm int→int64`, register
     arithmetic, and the memory ops.  This is a multi-step refactor;
     settle the register-word-vs-target-word model before editing.
+  - **What landed (int64 path)** — model in `plan-vm-64bit-on-32bit.md`:
+    register == host word; 64-bit values use register pairs; pair ops
+    only engage when `REG_SLOT < 8` (no-op on a 64-bit host).
+    Pointer-vs-target-word ambiguity stays narrow because `bit_cast`
+    sites are at register-vs-pointer boundary — register word stays
+    host `int`, so the ~106 `bit_cast` sites are untouched.
+    - Step 1 (binate `f7cae70`): `REG_SLOT = sizeof(int)`; register
+      area / frame header sized by it.
+    - Step 2a (`ca7def6`, `394a16a`, `ca41a75`): `buildSlotMap` /
+      `regWidths` / `remapRegisters` — id→slot mapping with the
+      audited `BC_RETURN.Dst` exception.
+    - Step 3 (`fd3ca06`, `f764a66`, `be877fd`, `60657fd`, `947205f`,
+      `ebaa077`): full `BC_*64` handler set — `LOAD_IMM64`, `MOV64`,
+      arith / bitwise / shifts / signed+unsigned compares / unary
+      (NEG, BITNOT) / casts (WIDEN_S, WIDEN_U, NARROW, MOV64-bitcast)
+      / pair memory `LOAD64_PAIR` / `STORE64_PAIR`.  Pure compute
+      factored into evalArith64 / evalCmp64 / evalShift64 /
+      evalUnary64 / widen64* — host-tested across the tricky cases.
+    - Step 4 (`925e9bc`, `949ea29`, `ebaa077`): lowering emits the
+      `BC_*64` ops host-word-aware — `OP_CONST_INT`, all binary
+      arith / cmp / shift, load/store, casts, NEG/BITNOT.
+    - Step 2b (`24a5d67` RETURN64, `7353523` direct CALL,
+      `2eaa8f9` indirect/func-value/iface call ABI,
+      `11da9d7` multi-return pair-aware): int64 return + call ABI
+      complete.  `NumParamSlots` + slot-count `Imm` semantics.
+    - Step 6 (`1fd3b9f`): conformance/499 int64 arithmetic E2E.
+  - **Still open (float64 follow-up)**: `pkg/vm`'s `BC_FNEG` /
+    `BC_FADD` / `BC_FSUB` / `BC_FMUL` / `BC_FDIV` / `BC_F*` compares
+    still use `bit_cast(int, float64)` and `bit_cast(float64,
+    regs[Src1])` — size-mismatched on a 32-bit host, so `pkg/vm`'s
+    LLVM codegen fails for arm32.  Mirror the int64 work for float64
+    (`BC_FNEG64`, `BC_FADD64`, …) using the same pair model: pair
+    bit_cast through `int64` (via splitInt64/joinInt64) into
+    `float64` for the actual compute.  Unblocks pkg/vm arm32 unit
+    tests, which is what would E2E-validate the int64 VM path.
 
 ### ~~LLVM codegen: `&global` as an interface-value data pointer emits `%v-1`~~ — FIXED 2026-05-26 (binate `a2d84c0`)
 - **Was**: constructing an interface value from the address of a
