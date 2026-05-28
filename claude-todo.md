@@ -267,13 +267,28 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   for a non-variadic call (`k <= i < len(argTypes) = fixedCount`).
   Something else is diverging behavior — possibly a layout
   interaction with the new `VariadicStackOnly` struct field, or an
-  ngrn-accounting side effect I'm not seeing.  First diagnostic
-  next session: write a unit test for `CallArgRegStartV` with the
-  exact `[int64, *[]uint8]` arg shape that formatInt64 uses + a
-  Darwin CallConv + `fixedCount=2`, assert it returns `1` for arg
-  index 1.  If it does, the bug is somewhere else (e.g. PlanFrame
-  is recomputing OutgoingArgsSize wrong, or something in the
-  per-arg `rm.ResetRegs()` loop interacts).
+  ngrn-accounting side effect I'm not seeing.
+- **Bisect findings (2026-05-27)**: rebased the WIP onto current
+  main (post amd64→x64 + arm64→aarch64 renames; rebase clean via
+  git's auto-rename detection), reproduced the bug, then bisected:
+    * Reverting PlanFrame's OP_C_CALL inclusion + V-routing →
+      still broken.
+    * AND reverting aarch64_call's V-variant routing (back to
+      non-V `CallArgRegStart` / `CallArgStackOff`) → still broken.
+    * AND reverting `AAPCS64_Darwin()` → `AAPCS64()` →
+      conformance/498 **passes** (500 fails as expected — variadic
+      not implemented).
+  So: the regression is triggered SOLELY by `VariadicStackOnly =
+  true` on the CallConv, even though NO LIVE CODE READS THAT FIELD
+  in this bisect state (V-variants are still in the source but
+  unreachable; grep confirms only the V-variants reference
+  `VariadicStackOnly`).  Strong suspicion: a Binate compiler or
+  ABI bug around the CallConv struct's by-value return — adding
+  the new bool field may shift the struct's size and surface a
+  pre-existing struct-return / struct-copy issue.  Worth checking
+  next session: does `AAPCS64()` (vs `AAPCS64_Darwin()`) emit
+  different IR for the struct return?  Does `cc.VariadicStackOnly
+  = true` somehow write past the struct's allocated bytes?
 - **Pinned by**: conformance/500_c_call_variadic (currently xfail in
   native modes; un-xfail when Stage 4 lands).
 
