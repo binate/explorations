@@ -93,44 +93,58 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
-### bnc: cross-package references to non-`.bni`-exported decls aren't rejected — silently resolve to 0
-- **Symptom**: a reference like `rt.HEADER_SIZE` from another
-  package builds cleanly even when `HEADER_SIZE` is declared
-  ONLY in `pkg/rt/rt.bn` (not `pkg/rt.bni`).  No type-check
-  error.  At the use site the value resolves to **0**, not the
-  declared compile-time value.
-- **Discovery**: came up during the managed-allocation-header
-  refactor (binate `c7323fb2` and follow-up).  pkg/vm's
-  BC_REFINC_INLINE / BC_REFDEC_INLINE_FAST handlers used to do
-  `ptr - 16` for the header offset.  I tried `ptr - rt.HEADER_SIZE`
-  to remove the LP64-baked literal.  The build accepted it; the
-  arithmetic produced `ptr - 0 = ptr`, so the inline RefInc/RefDec
-  silently corrupted the payload's first word.
-  TestExecRefIncRefDecInline (pkg/vm) caught it on amd64.
-- **Severity**: major.  Two compounding failure modes:
-    (a) accepts a reference that should be a hard
-        "undefined: rt.HEADER_SIZE" type error (the .bni is the
-        package's public contract);
-    (b) the resolved value is **silently wrong** (0) rather than
-        either erroring or fetching the actual const value.
-  Either mode alone would be a bug; both together make this a
-  silent-miscompile in any code that relies on cross-package
-  consts being either available or rejected.
+### bnc: `.bni`-declared const with a non-trivial initializer expression resolves to 0 at cross-package use sites
+- **Revised diagnosis (2026-05-28)**: my first writeup of this said
+  bnc accepted unexported cross-package references and resolved
+  them to 0.  Re-tested with a focused repro (and added a
+  positive boundary check at conformance `502_err_unexported_const_rejected`):
+  bnc DOES correctly reject `pkg.NAME` references when NAME isn't
+  in the package's `.bni`.  So the "boundary enforcement is
+  broken" framing was wrong — that part works.
+- **Actual symptom**: a `.bni`-declared const whose initializer is
+  a non-trivial expression (e.g.
+  `const HEADER_SIZE int = HEADER_WORDS * cast(int, sizeof(int))`)
+  is correctly visible at the cross-package boundary AND the
+  type-check / build succeeds.  But at the consuming package's
+  use site, the expression evaluates to **0** rather than the
+  declared formula's value.  Trivial `const X int = 16` form
+  works correctly; the failure shows up only when the initializer
+  goes through `sizeof` / arithmetic.
+- **Discovery**: managed-allocation-header refactor (binate
+  `c7323fb2` and follow-up).  Replacing pkg/vm's hardcoded `-16`
+  managed-header offset with `ptr - rt.HEADER_SIZE` (where
+  `rt.HEADER_SIZE` was declared in pkg/rt.bni as
+  `HEADER_WORDS * cast(int, sizeof(int))`) built cleanly but
+  produced `ptr - 0`, silently corrupting the payload's first
+  word.  TestExecRefIncRefDecInline (pkg/vm) caught it on amd64.
+- **Severity**: major silent-miscompile.  The expression's
+  declared value is well-defined at compile time, so resolving to
+  0 is a bug — not "undefined behavior" or "intentional runtime
+  resolution".
 - **Workaround applied**: declare an in-package mirror const with
-  the same formula, document the parallel-const arrangement (see
-  pkg/vm.bn's `MANAGED_HDR` and pkg/rt.bni's `ManagedHeader`).
-  Public structs work — `sizeof(rt.ManagedHeader)` resolves
-  correctly when the struct is declared in pkg/rt.bni (the
-  standard public-type pattern).  The bug is specifically about
-  unexported cross-package CONST references.
-- **Fix would look like**: type-checker rejects any `pkg.NAME`
-  reference where `NAME` isn't visible through pkg's `.bni`
-  surface.  (Side benefit: forces packages to make exports
-  explicit.)
-- **Test**: a small repro — define `const FOO int = 42` in some
-  `pkg/x/x.bn` only, reference `x.FOO` from `pkg/y`; either
-  expect a compile-time error (preferred) or assert the
-  resolved value at runtime to catch the silent-0 case.
+  the same formula.  See pkg/vm.bn's `MANAGED_HDR` (= local
+  evaluation) and pkg/rt.bni's `ManagedHeader` (the public
+  struct).  Cross-package `sizeof(rt.ManagedHeader)` ALSO works,
+  but only via the struct route — not via a `.bni`-declared
+  const that wraps the sizeof.
+- **Fix direction**: const-eval the `.bni`-declared initializer
+  expression at the consumer's use site (the same way the
+  declaring package would).  Likely the bnc IR-gen for cross-
+  package const references currently emits a load-from-symbol
+  that resolves to 0 (the symbol is declared but never assigned
+  in the consumer's compilation unit), instead of inlining the
+  declared expression value.
+- **Repro shape**:
+    ```
+    // pkg/x.bni
+    const X int = 2 * cast(int, sizeof(int))
+    // (nothing in pkg/x/x.bn)
+
+    // cmd/y/y.bn
+    import "pkg/x"
+    func main() { println(x.X) }  // prints 0 on a 64-bit host
+                                  // (expected 16)
+    ```
 
 ### Demote raw-slice escape check from type error to linter rule
 - **Today**: returning a raw slice (`*[]T`) into a local array
