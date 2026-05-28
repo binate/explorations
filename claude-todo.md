@@ -271,10 +271,28 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
       `is64BitScalar(instr.Typ) && REG_SLOT < 8`.
     - `769d2e54`: gate test for OP_CONST_FLOAT — confirms 64-bit
       host falls back to `BC_LOAD_IMM` (no spurious pair branch).
-  - **End-to-end arm32 coverage** for both int64 and float64 paths
-    is gated on `pkg/vm`'s LLVM codegen unblocking for arm32.  Until
-    then, host-independent pure helpers + direct `execOp64` /
-    lowering gate tests cover the dispatch and emission logic.
+  - **End-to-end arm32 coverage status**:
+    - `pkg/vm` source compiles cleanly on arm32 (since `ba1a798`).
+    - Conformance `builder-comp_arm32_linux` is green — covers
+      compiled (LLVM) int64/float64 user-code on a 32-bit target.
+    - The pkg/vm bytecode-VM-side path (BC_*64 / BC_F*64 dispatch
+      via the in-process VM running on arm32) is exercised by
+      pkg/vm unit tests under `builder-comp_arm32_linux`, which
+      currently have **pre-existing failures unrelated to this
+      work** — `TestLower{BinOpIntegerVsFloat,BinOpIntegerOnlyOps,
+      BinOpUnsignedDispatch,CmpOpDispatchByArgType,
+      ReturnSingleScalar,CompareOpcodes,GlobalRefSharedAcrossUses}`
+      were already failing on pre-session commits (e.g. `66eaf76`).
+      The failure mode looks like the in-process VM's
+      `types.TypInt()` returns an LP64 (Width=64) singleton on
+      arm32 instead of ILP32 (Width=32), making
+      `is64BitScalar(int)` accidentally true and the BC_*64 pair
+      branch fire for plain-`int` ops.  Tracked separately — see
+      entry below.
+    - Until the pre-existing arm32 unit-test failures clear, the
+      dispatch and emission correctness for pkg/vm-on-arm32 rests
+      on host-portable pure helpers + direct `execOp64` / lowering
+      gate tests, plus the compiled-side conformance coverage.
 
 ### `__c_call` Stage 4 (variadic in the native backends) — IN PROGRESS / BLOCKED
 - **Plan**: [plan-c-call.md](plan-c-call.md) §6–§7 step 4 — the
@@ -441,13 +459,35 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `pkg/asm/{x64,aarch64,macho}` + `pkg/codegen` (filesystem object
   writes / native-host arch), `pkg/native` +
   `pkg/native/{amd64,arm64,common}` (native-host arch),
-  `pkg/buf`, `pkg/ir`, `pkg/vm`, `pkg/bootstrap` (int32-literal
+  `pkg/buf`, `pkg/ir`, `pkg/bootstrap` (int32-literal
   fit-check on tests that bake in int64-min/max or FNV-style
   > INT32_MAX constants).  Action: stamp
   `<pkg>.xfail.builder-comp_arm32_linux` mirroring the bare-metal
   set (note arm32_linux additionally has `pkg/bootstrap` failing
   where bare-metal didn't, since they use different pkg/bootstrap
   copies; bare-metal additionally had `pkg/std`).
+- **Bucket 1b — `pkg/vm` arm32_linux unit-test failures**: REVISED
+  diagnosis (2026-05-27).  Most failures aren't literal-fit-check
+  but lowering-shape mismatches: `TestLowerBinOpIntegerVsFloat`,
+  `TestLowerBinOpIntegerOnlyOps`, `TestLowerBinOpUnsignedDispatch`,
+  `TestLowerCmpOpDispatchByArgType`, `TestLowerReturnSingleScalar`
+  (expected BC_RETURN), `TestLowerCompareOpcodes` (expected BC_SGT),
+  `TestLowerGlobalRefSharedAcrossUses`.  All construct an IR Instr
+  with `types.TypInt()` and assert a non-pair opcode.  On arm32
+  the in-process VM's `types.TypInt()` should be Width=32 (ILP32),
+  in which case `is64BitScalar(int)` is false and the pair branch
+  doesn't fire — so the tests' expectations are correct.  The
+  observed failure pattern suggests `types.intSize()` isn't being
+  pointed at the arm32 target before `types.TypInt()` is consulted
+  in unit-test scaffolding, leaving the LP64 default (Width=64)
+  active — `is64BitScalar(int)` then returns true and lowering
+  emits BC_*64 for plain-int ops.  Action: investigate
+  `cmd/bnc`'s test entry to confirm whether `types.SetTarget`
+  runs ahead of `types.TypInt()` lookups in test contexts; root-
+  cause fix, not a blanket xfail.  Until fixed, the BC_F*64
+  dispatch (and BC_*64 in general) under pkg/vm-on-arm32 is
+  validated only by host-portable pure helpers + direct
+  `execOp64` glue tests, not real arm32 end-to-end.
 - **Bucket 2 — genuine test-level failures, investigate before
   xfailing**:
   - `TestBinBufWriteU64LittleEndian` (pkg/asm/elf) — a 64-bit

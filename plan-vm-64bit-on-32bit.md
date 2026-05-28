@@ -6,13 +6,18 @@
 > (conformance/499) all landed for int64.  The parallel float64-on-32-
 > bit mini-project — BC_F*64 opcodes, pure float64-pair helpers,
 > execOp64 dispatch, lowering (lowerBinOp/lowerCmpOp isFloatPair,
-> OP_NEG, OP_CONST_FLOAT) — also landed.  End-to-end coverage of the
-> 32-bit path for both int64 and float64 arrives via arm32 conformance
-> once `pkg/vm` LLVM codegen unblocks for arm32; until then, host-
-> independent pure helpers and direct execOp64 / lowering gate tests
-> cover the dispatch and emission logic.  See `claude-todo.md`'s "IR
-> integer constants are host-width int" entry for the full commit
-> trail.
+> OP_NEG, OP_CONST_FLOAT) — also landed.  `pkg/vm` source compiles
+> cleanly on arm32 (since `ba1a798`'s bit_cast-through-int64 fix);
+> conformance `builder-comp_arm32_linux` is green, covering
+> compiled-side int64/float64 user-code on a 32-bit target.  The pkg/vm
+> bytecode-VM-side path (BC_*64 / BC_F*64 dispatch via the in-process
+> VM running on arm32) is exercised by pkg/vm unit tests on
+> `builder-comp_arm32_linux`, which currently have pre-existing
+> failures unrelated to this work (target-int-width assumptions in
+> test scaffolding); until those land, the dispatch and emission
+> correctness rests on host-portable pure helpers + direct execOp64 /
+> lowering gate tests.  See `claude-todo.md`'s "IR integer constants
+> are host-width int" entry for the full commit trail.
 
 ## Goal
 
