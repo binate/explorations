@@ -416,6 +416,42 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     * Bug 2: `git checkout stage-4-wip-broken` in
       `temp-binate-2`, then `conformance/run.sh
       builder-comp_native_aa64-comp_native_aa64 498`.
+- **ROOT CAUSE for Bug 1 IDENTIFIED 2026-05-28 — AAPCS64
+  `InternalSretBytes=64` is non-standard.**  Added a debug
+  `println` to `FuncReturnsBigAggregate` and traced: SizeOf is
+  56 in BOTH same-package and cross-package contexts — there is
+  no SizeOf asymmetry after all.  Disagreement is from a different
+  source.  gen1 compiles dependency packages via LLVM regardless
+  of `-backend native` (only the main module honors the backend
+  flag — see cmd/bnc/main.bn:183), so pkg/foo.Base ends up
+  clang-emitted from `define %bn_pkg__foo__S
+  @bn_pkg__foo__Base()`.  clang follows the AAPCS-64 spec
+  strictly: aggregates **> 16 bytes** are returned via the
+  indirect-result register X8 (sret).  Binate's `AAPCS64()` sets
+  `InternalSretBytes = 64` (common_callconv.bn:68) — a wider
+  non-standard threshold that "packs up to 8 GP regs" for
+  Binate-internal calls.  So:
+    * native main: `CallReturnsBigAggregate(ins)` → `56 > 64`
+      = false → caller uses register-return.
+    * LLVM-compiled foo.Base: standard AAPCS → 56 > 16 → uses
+      sret.
+    * MISMATCH at the native↔LLVM boundary for any aggregate
+      between 17 and 64 bytes.
+- **Why intra-package "works"**: both AAPCS64_Darwin (caller) and
+  AAPCS64 (callee) are compiled by gen1-native using the same
+  wider-threshold AAPCS64, so they coincidentally agree on sret
+  for the 56-byte CallConv.  Bug 2 (the field-write to offset 0)
+  still fires within Darwin's body but it's a separate defect.
+- **Fix proposal for Bug 1**: change `AAPCS64()` InternalSretBytes
+  from 64 to 16, matching standard AAPCS / what LLVM/clang does.
+  Loses the Binate-internal pack-up-to-8-GP-regs optimization
+  but eliminates the cross-backend silent miscompile.  Mechanical
+  changes: common_callconv.bn:68 (`= 64` → `= 16`), update
+  common_callconv_test.bn:30 (expected 64 → 16), audit
+  conformance tests with aggregate returns in the 17–64 byte
+  range for behavior change.  This is a significant ABI change
+  for Binate-Binate calls — worth a user decision before
+  proceeding.
 - **Two distinct fixes blocked on this**:
     1. Stage 4 native variadic (Apple ABI stacks all varargs).
     2. Any future native-compiled package adding a 2nd consecutive
