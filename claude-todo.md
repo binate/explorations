@@ -16,6 +16,63 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   2. Hash the full path: `bn_x64_<hash>__*`.  Shorter symbols but uglier to read.
   3. Track imported-package short names at compile time, error on collision.  Less invasive but doesn't actually prevent the collision — just refuses to compile when it happens.
 - **Aftermath of the proper fix**: once the mangler is correct, we'll want to rename pkg/native and pkg/asm subpackages so they're consistent — i.e., agree on one of "x64" or "amd64" / "arm64" or "aarch64" across both directories.  Today they intentionally differ to dodge the collision; after the fix, that's no longer necessary.
+- **STATUS (2026-05-27): partial fix LANDED — symbol mangling is now
+  full-path** (binate `7f989ad` Phase B + `f7f8f04` trampoline fixup),
+  option 1 above.  Two packages with the same last segment now mangle
+  to distinct symbols (`bn_pkg__asm__x64__Push` vs
+  `bn_pkg__native__x64__Push`).  See the next CRITICAL entry below for
+  the residual cross-package-CALL resolution collision Phase B did
+  NOT fix — the same-name un-rename of pkg/native/amd64 must wait on
+  that.
+
+### Cross-package CALL to a same-last-segment package resolves to the wrong package (Phase B residual)
+- **Symptom**: when two packages share a last path segment (e.g.
+  `pkg/alpha/widget` and `pkg/beta/widget`) and at least one consumer
+  package imports the second one, the consumer's cross-package call
+  via the source-level alias `widget.X` resolves to the FIRST
+  same-last-segment package the IR registered, not the one the
+  consumer actually imports.  In conformance test
+  `389_same_last_segment_pkgs` (added but currently failing, not yet
+  committed), `pkg/mid` `import "pkg/beta/widget"; func BetaCode() {
+  return widget.Code() }` emits a call to
+  `bn_pkg__alpha__widget__Code` (alpha — wrong) instead of
+  `bn_pkg__beta__widget__Code`.  Manifests as either a link-time
+  undefined symbol (when alpha isn't in the link unit) or a silent
+  miscompile (when both are linked — the call dispatches to the
+  WRONG function).
+- **Discovery**: 2026-05-27, while writing the end-to-end regression
+  test for the original same-last-segment collision bug.  Phase B's
+  symbol-definition mangling fixes definitions correctly, but its
+  alias→fullpath resolution map has this residual gap.
+- **Root cause**: `pkg/ir/gen_import.bn`'s alias→fullpath map
+  (`importAliasNames` / `importAliasPaths`) is a flat per-module list
+  keyed by the short alias, with first-write-wins dedup
+  (`RecordImportPath`).  `registerAllStructTypes` calls
+  `RecordImportPath(shortName(path), path)` for every package in
+  `ldr.Order` for transitive struct-name visibility, so the FIRST
+  same-last-segment package registered wins the alias slot; later
+  ones get ignored.  Then `buildQualName`'s `resolveImportPkg(alias)`
+  in any consumer-side call resolves the source alias to the wrong
+  full path.
+- **Why it's CRITICAL**: silent-miscompile risk for cross-package
+  calls (the call dispatches to the wrong function if both packages
+  are linked).  Blocks the `pkg/native/amd64`→`pkg/native/x64`
+  un-rename and any future same-last-segment package pair.
+- **Why it didn't surface in the Phase B testing**: the current bnc
+  tree has no same-last-segment pair (the `pkg/native/x64`→`amd64`
+  workaround for the original bug is still in place), so no consumer
+  call mis-resolves today.  The 389 conformance test is the first
+  end-to-end reproducer.
+- **Fix direction**: the alias→fullpath map must be per-importing-
+  FILE (each file's imports unambiguously bind aliases within that
+  file), not a flat per-module first-wins list.  Options: (a) thread
+  a per-file alias table through resolution, (b) at registration
+  time, fully-qualify all cross-package references in the AST so
+  later resolution doesn't need the alias map.  (b) is the cleaner
+  long-term fix but invasive; (a) is a narrower patch.
+- **Test**: `conformance/389_same_last_segment_pkgs/` (locally
+  present on `temp-binate-4` worktree, not yet committed; add it
+  alongside the fix as the regression guard).
 
 ---
 
@@ -101,6 +158,30 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   (writeBnDotted, package-prefix-dropping) path.
 - **Migration parked**: the `pkg/loader` appendXxx→`slices.Append[T]`
   WIP is on branch `migration-loader-wip`; resume once this is fixed.
+- **STATUS (2026-05-27): root-caused — bug is in the pinned BUILDER,
+  current main is FIXED.** Re-tested per the TODO's "re-check after
+  the full-path rework" note now that Phase B
+  (`pkg/mangle: flip to full-path symbol mangling`) is on main.  A
+  Phase-B gen1 (built before the loader migration so the BUILDER's
+  bug doesn't bite the gen1-build step itself) compiles loader's
+  `appendFilePtr` migrated to `slices.Append[@ast.File]` and emits
+  matching def + call:
+    `define %BnManagedSlice @bn_pkg__loader__Append__bn_inst__-
+       mptr_pkg__ast__File(...)` (def, full qualifier),
+    `call %BnManagedSlice @bn_pkg__loader__Append__bn_inst__-
+       mptr_pkg__ast__File(...)` (call) — and the full --test build
+  links and runs (51/51 loader tests pass).
+- **What breaks**: the BUILDER (currently `bnc-0.0.3`) emits short
+  symbols + the empty-qualifier def, so when the BUILDER compiles
+  `cmd/bnc`'s dependency tree (loader is imported by cmd/bnc's
+  main/compile/util/test files), the BUILDER chokes on loader's
+  `slices.Append[@ast.File]` and gen1's build fails — exactly the
+  "build_gen1 failed at loader.ll" shape.
+- **Unblock**: bump `BUILDER_VERSION` to a Phase-B-inclusive bnc
+  (planned `bnc-0.0.4`).  Once the BUILDER is `0.0.4`, the BUILDER
+  itself emits matching full-path def+call for cross-package generic
+  instances and the loader→slices.Append migration goes through
+  cleanly.  No further code fix needed in current main.
 
 ### IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 DONE, LAYER 2 IN PROGRESS
 - **Symptom**: under `builder-comp_arm32_linux` unit tests, `pkg/ir`
