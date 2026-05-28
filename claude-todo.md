@@ -786,17 +786,40 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 ### Expand `pkg/slices` beyond `Append` — opportunistic
 - `pkg/slices.Append[T]` is the only generic helper today.  Natural
   additions when call sites demand them (don't add speculatively):
-  - `Concat[T](a, b) @[]T` — current `concat(...)` patterns in
-    cmd/bnc / pkg/loader build a fresh slice with `make_slice + two
-    copy loops`, repeated per element type.
+  - `Concat[T](a, b) @[]T` — for the managed-slice + managed-slice
+    shape.  `bootstrap.Concat` covers the char-slice case but is
+    raw-slice-typed.
   - `Filter[T, P]` / `Map[T, U]` — block on closures or func-value
     params; only worth it once those constraints land properly.
   - `RemoveLast[T](s) @[]T` — `popLoading`-style pattern (rebuild
-    minus last occurrence) repeats per element type.  Likely
-    enough call sites in pkg/loader / pkg/types / cmd/bnc to
-    justify when surveyed.
+    minus last occurrence) repeats per element type.
   - Don't pre-add a kitchen-sink set — let the first 2-3 call
     sites pull each helper in.
+- **Survey 2026-05-28** of the BUILDER-compilable tree: none of the
+  above clears the "2-3+ same-shape sites" bar at the moment.
+  Concrete numbers found:
+    * `Concat[T]` over two managed slices: 0 sites; the only
+      `Concat` callers all funnel through char-specialised
+      `bootstrap.Concat`.
+    * `Contains[T]`: 4 candidate sites (`containsTypePtr` /
+      `containsName` / `containsPkgName` / `containsStr`) but each
+      uses a different equality (Identical / charEq / streq), so
+      collapsing them needs func-value comparators or method-based
+      equality — gap.
+    * `Reverse[T]`: 1 site (loader `popLoading`).
+    * `RemoveLast` / `RemoveByValue[T]`: 1 site (also loader
+      `popLoading`, but it's "rebuild minus *streq match*", which
+      is `RemoveWhere` shape — not a pure index/value remove).
+    * `Copy[T]` one-liner: 2 sites; most slice-copies in the tree
+      are inlined in larger functions.
+  So no new helper to add right now without going speculative.
+- **The real next pkg/slices step** the survey surfaced: 168
+  `slices.Append[T]` calls live inside `for` loops, i.e. O(n²)
+  builds.  Folding those into a growable container with amortised
+  O(1) append (a `Vector[T]` / `Builder[T]` shape with capacity
+  tracking) is a substantive design, not a quick add — file it for
+  later when the surface is being intentionally pulled into a
+  proper stdlib effort.
 
 ### Replace repeated `WriteStr(literal)` runs with adjacent-string concat (opportunistic)
 - **Pattern**: code that builds output via a CharBuf often calls
