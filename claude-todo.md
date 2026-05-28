@@ -295,27 +295,73 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   Something else is diverging behavior — possibly a layout
   interaction with the new `VariadicStackOnly` struct field, or an
   ngrn-accounting side effect I'm not seeing.
-- **Bisect findings (2026-05-27)**: rebased the WIP onto current
-  main (post amd64→x64 + arm64→aarch64 renames; rebase clean via
-  git's auto-rename detection), reproduced the bug, then bisected:
-    * Reverting PlanFrame's OP_C_CALL inclusion + V-routing →
-      still broken.
-    * AND reverting aarch64_call's V-variant routing (back to
-      non-V `CallArgRegStart` / `CallArgStackOff`) → still broken.
-    * AND reverting `AAPCS64_Darwin()` → `AAPCS64()` →
-      conformance/498 **passes** (500 fails as expected — variadic
-      not implemented).
-  So: the regression is triggered SOLELY by `VariadicStackOnly =
-  true` on the CallConv, even though NO LIVE CODE READS THAT FIELD
-  in this bisect state (V-variants are still in the source but
-  unreachable; grep confirms only the V-variants reference
-  `VariadicStackOnly`).  Strong suspicion: a Binate compiler or
-  ABI bug around the CallConv struct's by-value return — adding
-  the new bool field may shift the struct's size and surface a
-  pre-existing struct-return / struct-copy issue.  Worth checking
-  next session: does `AAPCS64()` (vs `AAPCS64_Darwin()`) emit
-  different IR for the struct return?  Does `cc.VariadicStackOnly
-  = true` somehow write past the struct's allocated bytes?
+- **Root cause IDENTIFIED 2026-05-27 — native-arm64 field-offset
+  bug for the SECOND consecutive trailing-bool struct field.**
+  Bisect on the rebased WIP narrowed the regression to setting
+  `cc.VariadicStackOnly = true` alone, even after reverting V-routing
+  AND PlanFrame.  Disassembled
+  `_bn_pkg__native__common__AAPCS64_Darwin` in the failing
+  `bnc_native` binary:
+  ```
+  mov  w8, #0x1
+  and  x8, x8, #0x1
+  str  x8, [sp, #0x48]    ; 8-byte store at offset 0 of cc
+                            (NumGpArgRegs slot!), NOT 1-byte store
+                            at offset 49 (VariadicStackOnly)
+  ```
+  The local `cc` starts at `sp+0x48` and is 56 bytes (verified by
+  the field-by-field copy preceding this in the same disasm).  The
+  assignment to the 2nd consecutive trailing-bool field is emitted
+  with the WRONG offset (0 instead of 49) AND the WRONG width
+  (8-byte vs 1-byte).  NumGpArgRegs gets clobbered from 8 to 1.
+  Downstream: every `OP_CALL` past one arg spills to stack →
+  formatInt64's 2-word raw-slice second arg lands at `[sp+0]..
+  [sp+8]` instead of X1+X2 → `println(int)` silently produces no
+  output → conformance/498 breaks.
+- **This is a separate native-backend compiler bug, not a Stage-4
+  bug.**  LLVM backend handles the same source correctly (gen1 is
+  LLVM-built and runs `AAPCS64_Darwin` fine).
+- **Standalone repro found (2026-05-27)** — and a SECOND, related
+  bug surfaced.  Cross-package 6-int+2-bool struct, `Base()`
+  constructor in `pkg/foo`, `main` calling `var s foo.S =
+  foo.Base(); bootstrap.Exit(s.a)`: expect exit 8, native gives
+  exit 16 (= s.f, the last int).  Disasm shows:
+    * `Base` ASSUMES sret-return: `mov x9, x8` (saves caller's
+      sret pointer) and stores all 7 words via `str x5, [x9]; str
+      x4, [x9+8]; …`.
+    * `main` ASSUMES register-return: no X8 setup; reads `str x0,
+      [sp]; …; str x6, [sp+0x30]` after the call.
+    * AAPCS-64 register-pack-vs-sret threshold is
+      `InternalSretBytes=64`; the struct is 56 bytes → caller
+      (`main`) is right, callee (`Base`) is wrong.  `Base`
+      happens to leave the fields in X0..X5 as a side effect
+      (in REVERSE: `ldr x5, [sp+8]` = a … `ldr x0, [sp+0x30]` =
+      f), so caller's `X0 = f = 16` instead of `X0 = a = 8`.
+  So we actually have **two distinct native-aarch64 bugs** for
+  this struct shape, both surfaced by CallConv:
+    1. **Convention mismatch**: callee uses sret, caller uses
+       register-return, for a sub-threshold (56 ≤ 64) struct.
+    2. **Field-write to the 2nd consecutive trailing-bool field**
+       uses wrong offset+width (8 bytes at offset 0 instead of
+       1 byte at offset 49 — the CallConv miscompile above).
+  Both LLVM-correct, both native-broken.  Likely shared root
+  cause: how the native backend / pkg/types StructLayout handles
+  struct fields BEYOND the first trailing bool (the
+  SplitAggregates / VariadicStackOnly pair).  Fix area:
+  pkg/native/aarch64 emit_call / emit_func /
+  OP_GET_FIELD_PTR / OP_STORE, or pkg/types StructLayout /
+  FieldOffset, or pkg/native/common `CallReturnsBigAggregate` /
+  `FuncReturnsBigAggregate`.  Reliable repros:
+    * Bug 1: tiny standalone shown above (cross-package
+      6-int+2-bool, no `__c_call` involved).
+    * Bug 2: `git checkout stage-4-wip-broken` in
+      `temp-binate-2`, then `conformance/run.sh
+      builder-comp_native_aa64-comp_native_aa64 498`.
+- **Two distinct fixes blocked on this**:
+    1. Stage 4 native variadic (Apple ABI stacks all varargs).
+    2. Any future native-compiled package adding a 2nd consecutive
+       trailing-bool field — silent miscompile risk for everyone,
+       not just `__c_call`.
 - **Pinned by**: conformance/500_c_call_variadic (currently xfail in
   native modes; un-xfail when Stage 4 lands).
 
