@@ -483,6 +483,39 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   callee is LLVM-compiled" through to the call site.  Option
   (a) is correct in principle but blocks on the latent sret
   bugs.  Pinned by: standalone repro in /tmp/x/.
+- **Round-2 investigation (2026-05-28) — surgical fix also breaks bnc_native.**
+  Hypothesis was: the wholesale `InternalSretBytes 64→16` change
+  may be too broad; try just changing the caller-side predicate
+  for CROSS-package calls (callee name contains '.') to use the
+  16-byte threshold while keeping intra-package callees at 64.
+  That should ONLY adjust the native↔LLVM boundary calls
+  (cmd/bnc → dep packages compiled by LLVM) and leave
+  intra-binary Binate-Binate calls alone.  Implemented:
+  `isCrossPackageCallName(name)` helper that returns true iff
+  the name contains '.'; threaded into `CallReturnsBigAggregate`
+  and `CallReturnsBigMultiReturn`.  Bug 1 standalone repro:
+  flips to exit 8 as expected (fix works in isolation).  All 34
+  unit-test packages still pass.  But bnc_native STILL crashes
+  on every conformance test the same way — same SIGSEGV at
+  `ldr x10, [x9, #-0x10]!` with x9 = -16 (a managed-slice
+  backing-ptr RefInc on a corrupted pointer).  So the surgical
+  fix doesn't dodge the problem.
+- **What this tells us**: tiny native programs returning the
+  same shapes (managed-slice, struct-with-managed-slice,
+  managed-slice-of-managed-slices) work fine post-fix.  The
+  bug emerges only when cmd/bnc's MANY cross-package
+  aggregate-returning calls all start using sret — probably ONE
+  specific call shape triggers the latent native sret-call
+  bug, but it took the wholesale switch (or its surgical
+  equivalent) to surface it.  Next-session approach: build
+  pre-fix and post-fix bnc_native with `--debug`, compare main
+  disasm + frame layout side-by-side, AND identify which
+  specific function in cmd/bnc's call chain first emits the
+  bad ldr/str sequence.  The standalone repro proves the sret
+  path works for SOME shapes — the question is which shape
+  breaks.  Worth diffing all functions that emit `ldr [x9,
+  #-0x10]!` (the RefInc pattern) and checking each for
+  argument/result misalignment.
 - **Two distinct fixes blocked on this**:
     1. Stage 4 native variadic (Apple ABI stacks all varargs).
     2. Any future native-compiled package adding a 2nd consecutive
