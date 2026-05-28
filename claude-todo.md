@@ -1762,26 +1762,44 @@ Binate is NOT Go. The two types of slice are intentionally different:
   end on each side, and identifies the first concrete code change to make.
   Don't start implementation until the design is reviewed.
 
-### REPL — Tier 1 + Tier 2 + Tier 4 (full) LANDED (2026-05-01)
-- **Status (2026-05-01)**: Tier 1 PoC ships as `bni --repl
-  <file.bn|dir>`; Tier 2 adds top-level `func`, `const`, and
-  typed `var` declarations at the prompt; Tier 4 full
-  redefinition shipped — compatible-sig replaces in place
-  (old callers see new body), incompatible-sig shadows (old
-  callers retain the old VMFunc via eager-filled CallCache,
-  new callers route to the new entry).  Substrate is an O(1)
-  name→idx hash on `vm.Funcs` plus eager `CallCache` fill at
-  lowering time (commit `9af2d56`); shadow itself in
-  `63cc49b`.  Multi-line input also landed (paren-aware
-  accumulator — tracks `{`/`}` and `(`/`)` in
-  `computeOpenDepth`).  See `plan-repl.md` for the per-step
-  commit table, verified behaviors, deviations from the
-  original plan, and the remaining follow-ups (Tier 2: type
-  at prompt, methods, prompt-introduced new managed-type dtor
-  regen, var-initializer evaluation; Tier 4: refcount-aware
-  shadow warning, forced-shadow escape hatch, method
-  redefinition).  Tier 3 (forward refs) and Tier 5
-  (mid-session imports) remain DRAFT.
+### REPL — Tier 1, Tier 2 (FULL), Tier 3 (forward refs, funcs), Tier 4 (replace + shadow, methods incl.) LANDED (2026-05-05)
+- **Status**: `bni --repl <file.bn|dir>` ships.  `plan-repl.md` is
+  the live source of truth for per-step state — commit tables,
+  verified behaviors, deviations from the original plan, and the
+  per-tier remaining-follow-ups list.  Briefly:
+  - **Tier 1 (load-then-poke)** LANDED.
+  - **Tier 2 (top-level decls at the prompt)** LANDED in full.
+    Every top-level decl kind supported by the language works at
+    the prompt: `func` (incl. methods, redefinition replace +
+    shadow), `const` (single, untyped, grouped), `var` (typed,
+    untyped-with-literal-init, with init), `type` (aliases, named
+    non-struct, structs incl. managed-field).
+  - **Tier 3 (forward refs)** LANDED for `func` decls.  Pending
+    types / vars / consts (need a structural treatment of
+    "unsized" type symbols) are deferred.
+  - **Tier 4 (redefinition)** LANDED for both replace and shadow
+    paths, free funcs and methods.
+  - **Tier 5 (mid-session imports)** remains DRAFT.
+- **Remaining REPL work**, per plan-repl.md:
+  - **Tier 2**: prompt-introduced new managed-type dtor/copy
+    regen — specifically the *body-introduced shape* case (a
+    func body at the prompt that uses a `@[]T` aggregate not
+    present in the loaded module).  The *struct-introduced shape*
+    case landed 2026-05-04 (`ensureReplStructHelpers`); the
+    body-introduced shape case reuses the same dedup-aware ensure
+    machinery but needs a pass over the freshly IR-gen'd body to
+    collect the aggregate shapes it references.
+  - **Tier 3**: pending types / vars / consts; cycle detection
+    for mutually-pending decls (not needed today since
+    `collectDecls` puts both sigs in scope, but worth noting).
+  - **Tier 4**: refcount-aware shadow warning (today fires
+    unconditionally); forced-shadow escape hatch (syntax TBD per
+    `claude-notes.md`).
+  - **Tier 5**: loader entry point for "load this one package
+    now."
+  - **Pretty-printer** (`pkg/replprint`) — **deferred** until
+    interfaces land.  `bootstrap.println` is a temporary hack;
+    building features on top of it would entrench it.
 - **Why this matters now**: the REPL is an explicit core goal in
   `claude-notes.md` (see "Forward references & REPL model — DECIDED"
   and the dual-mode rationale in
@@ -1828,48 +1846,47 @@ Binate is NOT Go. The two types of slice are intentionally different:
     is parsed before checking.
   - **Type checker has no concept of pending.** Errors fire immediately
     on undefined names. Deferred validation (the "retained" half of
-    the model) is real new infrastructure.
+    the model) is real new infrastructure.  *(Now: Tier 3 added a
+    pending queue (`check_pending.bn`) for `func` decls; types / vars
+    / consts still fire immediately.)*
   - **No pretty-printer for arbitrary values.** `println` covers char
-    slices and primitives only.
+    slices and primitives only.  *(Still true; deferred — see above.)*
   - **`LookupFunc` is a linear scan.** Fine today; will matter if REPL
     workloads run real volumes of calls. Easy to fix (name → idx hash)
     and worth doing before Tier 1 ships, since the alternative
     (bake-idx-into-bytecode) would close off the redefinition story.
+    *(Now: Tier 4 substrate (`9af2d56`) added the funcIndex hash;
+    `LookupFunc` is O(1).  Eager CallCache fill keeps shadow
+    semantics correct.)*
 - **Tiered plan** (each tier shippable on its own; see
-  `plan-repl.md` for entry-point names and concrete steps):
+  `plan-repl.md` for entry-point names, per-step commit tables,
+  and the live follow-up state):
   1. ~~**Load-then-poke.**~~ **LANDED (2026-04-30).** Load a `.bn`
-     module the normal way; prompt accepts only immediate-mode
-     entries.  Each entry → synthetic `__repl_N()` → IR-gen →
-     lower-one-function → call.  Auto-`println` wrap of bare exprs
-     was deferred (gated on interfaces / proper Format dispatch
-     once `bootstrap.println` is retired) — type `println(...)`
-     explicitly.  Multi-line input also landed.
-  2. ~~**Add new top-level decls at the prompt.**~~ **`func`,
-     `const`, and typed `var` LANDED (2026-04-30 / 2026-05-01).**
-     Per-decl entry points in parser/types/ir; append to current
-     scope, plus `vm.Funcs` for funcs, `moduleConsts` for consts,
-     and `globalNames`/`globalAddrs` for vars (via the new
-     `vm.MaterializeOneGlobal`).  `type` / methods +
-     prompt-introduced new-managed-type dtor regen +
-     var-initializer evaluation are remaining follow-ups (see
-     plan-repl.md).  Still no forward refs.
-  3. **Forward references.** Pending-validation queue in the type
-     checker.
-  4. ~~**Redefinition.**~~ **LANDED (2026-05-01).**
-     Compatible-sig: `LowerOneFunc` rebinds the existing
-     `vm.Funcs` entry in place at the same idx, so the
-     CallCache stays valid; old callers see the new body.
-     Incompatible-sig: `LowerOneFuncShadow` appends a fresh
-     entry and re-points the funcIndex hash; old callers'
-     eager-filled CallCache slots keep them on the OLD VMFunc,
-     while freshly-lowered code routes through the new one.
-     Shipped via two commits: substrate (O(1) name→idx hash +
-     eager `CallCache` fill, `9af2d56`) and the shadow path
-     proper (`63cc49b`).  Refcount-aware shadow warning,
-     forced-shadow escape hatch, and method redefinition are
-     remaining Tier 4 follow-ups.
-  5. **Mid-session imports.** Loader entry point for "load this one
-     package now."
+     module the normal way; prompt accepts immediate-mode entries.
+     Multi-line input via paren-aware accumulator.  Auto-`println`
+     wrap of bare exprs deferred (gated on interfaces).
+  2. ~~**Add new top-level decls at the prompt.**~~ **FULLY LANDED
+     (2026-04-30 → 2026-05-04).**  All decl kinds: `func` (incl.
+     methods), `const`, `var` (typed + untyped-with-literal-init +
+     var-initializer evaluation), `type` (aliases, named
+     non-struct, structs incl. managed-field).  Remaining
+     follow-up: body-introduced new-managed-aggregate dtor regen
+     (see "Remaining REPL work" above).
+  3. ~~**Forward references.**~~ **LANDED for `func` decls
+     (2026-05-05).**  Pending-validation queue in the type checker;
+     parked decls retry on every newly-resolved name.  Pending
+     types / vars / consts remain (see follow-ups above).
+  4. ~~**Redefinition.**~~ **LANDED in full (2026-05-01 →
+     2026-05-05).**  Compatible-sig: in-place rebind keeps
+     CallCache valid.  Incompatible-sig: `LowerOneFuncShadow`
+     appends + re-points funcIndex; old callers retain old VMFunc
+     via eager-filled CallCache.  Methods follow the same rules,
+     keyed on qualified `<pkg>.<TypeName>.<Method>`.  Substrate
+     `9af2d56`; shadow `63cc49b`; method redef `026ad22`.
+     Refcount-aware shadow warning + forced-shadow escape hatch
+     are remaining follow-ups.
+  5. **Mid-session imports.** DRAFT.  Loader entry point for
+     "load this one package now."
 - **What's free / "should-do-now-anyway"**:
   - ~~The audit itself~~ — done; `plan-repl.md` is the live doc.
   - ~~Per-decl entry points exposed opportunistically when the
