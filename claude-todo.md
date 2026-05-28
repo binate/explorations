@@ -93,6 +93,45 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
+### bnc: cross-package references to non-`.bni`-exported decls aren't rejected — silently resolve to 0
+- **Symptom**: a reference like `rt.HEADER_SIZE` from another
+  package builds cleanly even when `HEADER_SIZE` is declared
+  ONLY in `pkg/rt/rt.bn` (not `pkg/rt.bni`).  No type-check
+  error.  At the use site the value resolves to **0**, not the
+  declared compile-time value.
+- **Discovery**: came up during the managed-allocation-header
+  refactor (binate `c7323fb2` and follow-up).  pkg/vm's
+  BC_REFINC_INLINE / BC_REFDEC_INLINE_FAST handlers used to do
+  `ptr - 16` for the header offset.  I tried `ptr - rt.HEADER_SIZE`
+  to remove the LP64-baked literal.  The build accepted it; the
+  arithmetic produced `ptr - 0 = ptr`, so the inline RefInc/RefDec
+  silently corrupted the payload's first word.
+  TestExecRefIncRefDecInline (pkg/vm) caught it on amd64.
+- **Severity**: major.  Two compounding failure modes:
+    (a) accepts a reference that should be a hard
+        "undefined: rt.HEADER_SIZE" type error (the .bni is the
+        package's public contract);
+    (b) the resolved value is **silently wrong** (0) rather than
+        either erroring or fetching the actual const value.
+  Either mode alone would be a bug; both together make this a
+  silent-miscompile in any code that relies on cross-package
+  consts being either available or rejected.
+- **Workaround applied**: declare an in-package mirror const with
+  the same formula, document the parallel-const arrangement (see
+  pkg/vm.bn's `MANAGED_HDR` and pkg/rt.bni's `ManagedHeader`).
+  Public structs work — `sizeof(rt.ManagedHeader)` resolves
+  correctly when the struct is declared in pkg/rt.bni (the
+  standard public-type pattern).  The bug is specifically about
+  unexported cross-package CONST references.
+- **Fix would look like**: type-checker rejects any `pkg.NAME`
+  reference where `NAME` isn't visible through pkg's `.bni`
+  surface.  (Side benefit: forces packages to make exports
+  explicit.)
+- **Test**: a small repro — define `const FOO int = 42` in some
+  `pkg/x/x.bn` only, reference `x.FOO` from `pkg/y`; either
+  expect a compile-time error (preferred) or assert the
+  resolved value at runtime to catch the silent-0 case.
+
 ### Demote raw-slice escape check from type error to linter rule
 - **Today**: returning a raw slice (`*[]T`) into a local array
   (`return arr[:]`) is a hard type-check error.  The check catches
