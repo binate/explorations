@@ -106,7 +106,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Fix (binate `8fd4f378`)**: retry the lookup with
   `buildQualName(currentImportAlias, e.Name)` when the
   unqualified one misses.  Pinned by conformance
-  `503_bni_const_sibling_ref`.
+  `504_bni_const_sibling_ref`.
 - **Boundary-enforcement aside**: my first writeup of this also
   speculated that bnc was accepting unexported cross-package
   references.  Re-tested with a focused repro: bnc DOES correctly
