@@ -1074,7 +1074,64 @@ context.
 Syntax TBD per `claude-notes.md`. Not blocked on anything in
 this plan; lands when the syntax pins down.
 
-## Tier 5: Mid-session imports
+## Tier 5: Mid-session imports — LANDED 2026-05-29
+
+Shipped via `78685ac3` (binate).  `import "pkg/foo"` at the
+prompt loads pkg/foo (and any transitive deps not already in
+the session), type-checks the newly-loaded packages, generates
+IR, lowers them into the VM, and defines the package symbol in
+the session scope.  Subsequent prompt entries can call `foo.X`.
+
+```
+> import "pkg/repldemo"
+package pkg/repldemo loaded
+> println(repldemo.Double(21))
+42
+```
+
+What landed:
+
+  - `pkg/parser`: `IsAtImport()` predicate + `ParseImportDecl()`
+    public (single + grouped forms).
+  - `pkg/types`: `RegisterReplImport(alias, path)` — REPL driver
+    entry; calls `definePkg` on the session scope after the
+    loader-side `LoadPackageInterface` / `CheckPackage` registers
+    the package's exports.
+  - `pkg/ir`: `SaveAliasMapState()` / `RestoreAliasMapState(snap)`
+    — explicit snapshot/restore of importAliasNames/Paths.
+    Bracketing the per-package InitModule loop with these is what
+    lets the session's main alias map survive the per-package
+    wipes each InitModule does.
+  - `cmd/bni/repl_import.bn` (new): `evalReplImport` driver.
+    Session-wide state in package-level vars populated by
+    `initReplImportState` right after runRepl's initial-load loop.
+    Per-import-prompt flow:
+      1. Parse specs.
+      2. replLoader.LoadImports(specs) — transitive load.
+      3. SaveAliasMapState; iterate replLoader.Order skipping
+         already-processed packages; per new pkg: LoadPackageInterface
+         + CheckPackage + InitModule + registerPkgImports +
+         GeneratePackage + LowerModule.
+      4. RestoreAliasMapState + RecordImportPath for each
+         user-typed spec.
+      5. c.RegisterReplImport for each top-level spec.
+  - `cmd/bni/repl.bn`: runRepl calls `initReplImportState` after
+    the initial setup loop; evalReplLine dispatches IsAtImport
+    before IsAtTopLevelDecl.
+
+Coverage:
+  - 6 new unit tests in `cmd/bni/repl_import_test.bn` for the
+    package-private helpers (stripImportQuotes,
+    lastSegmentOfPath, containsPath).  evalReplImport itself is
+    exercised end-to-end by e2e/repl.sh.
+  - New e2e case `tier5-mid-session-import-call` with a sibling
+    pkg/repldemo fixture under $TMP.
+
+With this landing all five REPL tiers are functional end-to-end.
+
+The original Tier 5 design notes follow for historical reference.
+
+### Original Tier 5 design
 
 `import "pkg/foo"` at the prompt loads `pkg/foo` (and its
 dependencies) incrementally.

@@ -2079,7 +2079,7 @@ Binate is NOT Go. The two types of slice are intentionally different:
   end on each side, and identifies the first concrete code change to make.
   Don't start implementation until the design is reviewed.
 
-### REPL — Tier 1, Tier 2 (FULL, incl. body-introduced dtor regen), Tier 3 (forward refs, FULL — all decl kinds + cycle detection), Tier 4 (replace + shadow, methods incl.) LANDED (2026-05-29)
+### REPL — All five tiers LANDED (2026-05-29)
 - **Status**: `bni --repl <file.bn|dir>` ships.  `plan-repl.md` is
   the live source of truth for per-step state — commit tables,
   verified behaviors, deviations from the original plan, and the
@@ -2101,7 +2101,10 @@ Binate is NOT Go. The two types of slice are intentionally different:
     "unsized" type symbols) are deferred.
   - **Tier 4 (redefinition)** LANDED for both replace and shadow
     paths, free funcs and methods.
-  - **Tier 5 (mid-session imports)** remains DRAFT.
+  - **Tier 5 (mid-session imports)** LANDED 2026-05-29 via
+    `78685ac3`.  `import "pkg/foo"` at the prompt loads pkg/foo
+    transitively, type-checks, IR-gens, lowers, and defines the
+    package symbol in the session scope.
 - **Remaining REPL work**, per plan-repl.md:
   - ~~**Tier 3**: pending types / vars / consts; cycle
     detection.~~  **ALL STAGES LANDED** 2026-05-28 → 2026-05-29
@@ -2118,8 +2121,12 @@ Binate is NOT Go. The two types of slice are intentionally different:
   - **Tier 4**: refcount-aware shadow warning (today fires
     unconditionally); forced-shadow escape hatch (syntax TBD per
     `claude-notes.md`).
-  - **Tier 5**: loader entry point for "load this one package
-    now."
+  - ~~**Tier 5**: loader entry point for "load this one package
+    now."~~  LANDED 2026-05-29 — `evalReplImport` in
+    `cmd/bni/repl_import.bn` drives it via the session loader's
+    existing LoadImports (plus a SaveAliasMapState /
+    RestoreAliasMapState bracket around the per-package InitModule
+    loop so the main alias map survives the wipes).
   - **Pretty-printer** (`pkg/replprint`) — **deferred** until
     interfaces land.  `bootstrap.println` is a temporary hack;
     building features on top of it would entrench it.
@@ -2208,8 +2215,14 @@ Binate is NOT Go. The two types of slice are intentionally different:
      `9af2d56`; shadow `63cc49b`; method redef `026ad22`.
      Refcount-aware shadow warning + forced-shadow escape hatch
      are remaining follow-ups.
-  5. **Mid-session imports.** DRAFT.  Loader entry point for
-     "load this one package now."
+  5. ~~**Mid-session imports.**~~  **LANDED** 2026-05-29 via
+     `78685ac3`.  evalReplImport in cmd/bni/repl_import.bn
+     drives the existing loader's LoadImports for incremental
+     transitive loads, brackets the per-package InitModule
+     loop with SaveAliasMapState/RestoreAliasMapState so the
+     session's main alias map survives, and routes through
+     c.RegisterReplImport to make `foo.X` resolvable from
+     subsequent prompt entries.
 - **What's free / "should-do-now-anyway"**:
   - ~~The audit itself~~ — done; `plan-repl.md` is the live doc.
   - ~~Per-decl entry points exposed opportunistically when the
