@@ -671,22 +671,24 @@ Single commit on main (`b470bb0`).  Implementation:
 
 ### Out of scope (Tier 3 follow-ups)
 
-- **Pending types / vars / consts.**  A pending struct is
-  unsizable; uses of it must be transitively pending.
-  Substantial structural work beyond this commit's scope.
-  See [`plan-repl-tier3-pending-types.md`](plan-repl-tier3-pending-types.md)
-  for the four-stage breakdown.  Stages 1 + 2 + 3 (vars,
-  consts, struct types, aliases, named-non-struct, use-site
-  propagation, func-sig audit) LANDED 2026-05-28 via 7
-  commits on main.  Stage 2 (e) (methods-on-pending-receiver)
-  and Stage 4 (cycle detection) remain DRAFT.
-- **Cycle detection** for mutually-pending decls.  Today's
-  retry loop handles real cycles trivially since both sigs
-  are in scope from `collectDecls`; no explicit cycle
-  detection needed.  See the same plan doc for the proposed
-  Stage 4 treatment (most "cycles" through types resolve via
-  the placeholder + IsPending representation; genuine cycles
-  through sized fields are the case detection would catch).
+- ~~**Pending types / vars / consts.**~~  **ALL STAGES LANDED**
+  2026-05-28 → 2026-05-29 via 9 commits on main; see
+  [`plan-repl-tier3-pending-types.md`](plan-repl-tier3-pending-types.md)
+  for the per-stage commit table.  Every top-level decl kind
+  parks on forward-referenced deps, use-site propagation
+  works through sized contexts, the per-caller sized-vs-
+  reference distinction preserves recursive types via pointers,
+  and unbreakable cycles get a clean diagnostic at park-close
+  time.
+- ~~**Cycle detection** for mutually-pending decls.~~  **LANDED**
+  2026-05-29 via `c0cc7c03` as Stage 4 of
+  [`plan-repl-tier3-pending-types.md`](plan-repl-tier3-pending-types.md).
+  A fresh park that closes a cycle in the missing-names graph
+  produces a `pending cycle: A -> B -> A` diagnostic so the
+  user knows the chain won't resolve via retry alone.  Most
+  recursive type pairs (via pointers) still resolve via the
+  per-caller sized-vs-reference distinction — the diagnostic
+  only fires for genuine cycles through sized fields.
 
 ### Drive-by
 

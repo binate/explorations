@@ -1,30 +1,32 @@
 # Plan: REPL Tier 3 — Pending types / vars / consts
 
-> **Status: Stages 1 + 2 + 3 LANDED (2026-05-28); Stages 2 (e)
-> methods-on-pending-receiver + 4 cycle-detection DRAFT.**
+> **Status: ALL STAGES LANDED (2026-05-29).**
 > An addendum to `plan-repl.md`'s "Tier 3 follow-ups" entry,
 > expanding the design for pending non-func decls.  Tier 3
 > first cut (`b470bb0`, 2026-05-05) shipped pending-validation
-> for `func` decls only; this doc describes how to extend it
-> to `type` / `var` / `const`.  Cycle detection (the other
-> listed Tier 3 follow-up) is covered in a small section at
-> the end, since the parking mechanics here interact with it.
+> for `func` decls only; this doc described how to extend it
+> to `type` / `var` / `const` and shipped that work over 9
+> commits between 2026-05-28 and 2026-05-29:
 >
-> Stage 1 (pending vars + consts incl. per-member group
-> parking) LANDED via `312e2ffc` + `6769786e` + `573766e1`.
-> Stage 2 (a) (substrate) LANDED via `fcabdb33`.  Stage 2
-> (b)+(c) (DECL_TYPE parking + use-site propagation) LANDED
-> via `23367e32`.  Stage 2 (d) (sized-use audit closures + func-
-> sig parking + broader coverage) LANDED via `bcf8790a`; this
-> also implicitly closes Stage 3 (pending aliases + named-non-
-> struct), which falls out of the unified DECL_TYPE tentative
-> dispatch.
+>   * Stage 1 (vars + consts incl. per-member group parking):
+>     `312e2ffc` + `6769786e` + `573766e1`.
+>   * Stage 2 (a) substrate (IsPending field + helper):
+>     `fcabdb33`.
+>   * Stage 2 (b)+(c) DECL_TYPE parking + use-site propagation:
+>     `23367e32`.
+>   * Stage 2 (d) sized-use audit closures + func-sig parking
+>     + broader coverage: `bcf8790a` (this also implicitly
+>     closes Stage 3 — aliases and named-non-struct fall out
+>     of the unified DECL_TYPE tentative dispatch).
+>   * Stage 2 (e) methods on pending receivers: `183a8db1`.
+>   * Stage 4 cycle detection: `c0cc7c03`.
 >
-> Remaining: Stage 2 (e) methods-on-pending-receiver (needs
-> DECL_FUNC.Recv != nil to route through tentative dispatch —
-> `collectMethodDecl` is in pass 1 strict today); Stage 4
-> cycle detection (genuine cycles through sized fields would
-> park forever without it).
+> Tier 3 forward refs are now functionally complete: every
+> top-level decl kind parks on forward-referenced dependencies,
+> use-site propagation works through sized contexts, the per-
+> caller sized-vs-reference distinction preserves recursive
+> types via pointers, and unbreakable cycles get a clean
+> diagnostic at park-close time.
 
 ## Background — what Tier 3 shipped, what's missing
 
@@ -470,6 +472,51 @@ Mostly a smaller version of Stage 2's substrate, plus a few
 edge cases (an alias to a pending struct, an alias to an
 alias, etc.).  Expected to be ~1 commit.
 
+### Stage 4: Cycle detection — LANDED 2026-05-29
+
+Shipped via `c0cc7c03`.  Implementation:
+
+  - `pkg/types/check_pending.bn`:
+      * `FindFreshCycles(fromIdx)` — walks
+        `c.Pending[fromIdx:]` (decls parked during the most-
+        recent CheckDeclInScope call) and returns cycles
+        their missing-names chains close in the global
+        pending graph.  Each cycle is a list of names
+        starting AND ending with the same name (e.g.
+        `["B", "A", "B"]` for the canonical pair).
+      * `findCyclePathFromName` + `dfsCycleSearch` — recursive
+        DFS worker with a per-branch visited set so adjacent
+        non-cycle dependencies don't produce false positives.
+      * `pendingByName` — kind-agnostic pending-by-name
+        lookup; sibling of `check_expr.bn`'s `lookupPending`,
+        duplicated to keep cycle detection self-contained.
+
+  - `cmd/bni/repl_decl.bn`:
+      * `announcePendingCycle(path)` prints
+        `pending cycle: A -> B -> A`.
+      * `evalReplDecl` calls FindFreshCycles after the
+        parked-announce loop, before retryPending — fresh
+        parks are accurately at `c.Pending[c.PendingMark:]`
+        before retry replaces the slice.
+
+Verified end-to-end:
+
+```
+> type A struct { B B }
+type A parked (pending: B)
+> type B struct { A A }
+type B parked (pending: A)
+pending cycle: B -> A -> B
+```
+
+The user knows to break the cycle (e.g. switch one field to
+a pointer); decls stay parked, so a subsequent redefine
+either resolves them (cycle broken) or re-fires the cycle
+warning.
+
+The original Stage 4 design notes follow for historical
+reference.
+
 ### Stage 4: Cycle detection
 
 plan-repl.md's Tier 3 follow-ups list cycle detection for
@@ -511,11 +558,13 @@ be deferred to whenever the user-visible footgun arises.
   3. ~~**Stage 3** (aliases + named-non-struct).~~  **LANDED**
      implicitly via Stage 2 (d) — falls out of the unified
      DECL_TYPE tentative dispatch.
-  4. **Stage 4** (cycle detection).  Optional, ~1 commit.
+  4. ~~**Stage 4** (cycle detection).~~  **LANDED** 2026-05-29
+     via `c0cc7c03`.  See the "Stage 4 ... LANDED" section
+     above.
 
-Final tally: ~7 commits across Stages 1 + 2 + 3 (Stage 1 = 3,
-Stage 2 = 4, Stage 3 = 0 standalone).  Stage 2 (e) + Stage 4
-remain.
+Final tally: 9 commits across all stages (Stage 1 = 3, Stage 2
+= 5 incl. (e), Stage 3 = 0 standalone, Stage 4 = 1).  Tier 3
+forward refs functionally complete.
 
 ## Design decisions (resolved)
 
