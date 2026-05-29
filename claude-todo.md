@@ -1957,12 +1957,21 @@ Binate is NOT Go. The two types of slice are intentionally different:
     for mutually-pending decls (not needed today since
     `collectDecls` puts both sigs in scope, but worth noting).
     Plan in
-    [`plan-repl-tier3-pending-types.md`](plan-repl-tier3-pending-types.md)
-    — four stages.  **Stage 1** (vars + consts, incl. per-
-    member group parking) LANDED 2026-05-28 via `312e2ffc` +
-    `6769786e` + `573766e1`.  Stages 2-4 (pending struct
-    types — structural; aliases + named-non-struct; cycle
-    detection) DRAFT.
+    [`plan-repl-tier3-pending-types.md`](plan-repl-tier3-pending-types.md).
+    **Stages 1 + 2 + 3 LANDED 2026-05-28** via 7 commits on main
+    (`312e2ffc` + `6769786e` + `573766e1` + `fcabdb33` +
+    `23367e32` + `bcf8790a`).  Pending vars + consts + struct
+    types + aliases + named-non-struct all park on forward-ref
+    dependencies and resolve cleanly via retry; use-site
+    propagation through sized contexts (struct field, var
+    decl, func sig, composite literal, impl recv) + per-caller
+    sized-vs-reference distinction (pointer / managed-ptr /
+    slice elements don't propagate) work end-to-end.  Open:
+    **Stage 2 (e)** methods-on-pending-receiver (needs
+    DECL_FUNC.Recv != nil to route through tentative dispatch
+    — collectMethodDecl is pass 1 strict today); **Stage 4**
+    cycle detection (genuine cycles through sized fields park
+    forever without it).
   - **Tier 4**: refcount-aware shadow warning (today fires
     unconditionally); forced-shadow escape hatch (syntax TBD per
     `claude-notes.md`).

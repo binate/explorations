@@ -1,6 +1,7 @@
 # Plan: REPL Tier 3 — Pending types / vars / consts
 
-> **Status: Stage 1 LANDED (2026-05-28); Stages 2-4 DRAFT.**
+> **Status: Stages 1 + 2 + 3 LANDED (2026-05-28); Stages 2 (e)
+> methods-on-pending-receiver + 4 cycle-detection DRAFT.**
 > An addendum to `plan-repl.md`'s "Tier 3 follow-ups" entry,
 > expanding the design for pending non-func decls.  Tier 3
 > first cut (`b470bb0`, 2026-05-05) shipped pending-validation
@@ -10,10 +11,20 @@
 > the end, since the parking mechanics here interact with it.
 >
 > Stage 1 (pending vars + consts incl. per-member group
-> parking) LANDED via `312e2ffc` (substrate) + `6769786e`
-> (driver) + `573766e1` (per-member group parking).  See the
-> "Stage 1 landed" section below for what shipped, plus the
-> remaining Stage 2-4 plan as originally drafted.
+> parking) LANDED via `312e2ffc` + `6769786e` + `573766e1`.
+> Stage 2 (a) (substrate) LANDED via `fcabdb33`.  Stage 2
+> (b)+(c) (DECL_TYPE parking + use-site propagation) LANDED
+> via `23367e32`.  Stage 2 (d) (sized-use audit closures + func-
+> sig parking + broader coverage) LANDED via `bcf8790a`; this
+> also implicitly closes Stage 3 (pending aliases + named-non-
+> struct), which falls out of the unified DECL_TYPE tentative
+> dispatch.
+>
+> Remaining: Stage 2 (e) methods-on-pending-receiver (needs
+> DECL_FUNC.Recv != nil to route through tentative dispatch —
+> `collectMethodDecl` is in pass 1 strict today); Stage 4
+> cycle detection (genuine cycles through sized fields would
+> park forever without it).
 
 ## Background — what Tier 3 shipped, what's missing
 
@@ -209,6 +220,113 @@ Unit tests in `pkg/types/check_pending_test.bn`:
   - Migration of tentative errors when the body is clean but
     has a real type error.
 
+### Stage 2: Pending struct types — the structural piece — LANDED 2026-05-28
+
+Shipped in four commits.
+
+  - `fcabdb33` (a) substrate — `Type.IsPending bool` field +
+    package-private `capturePendingDep` helper.  No behavior
+    change yet (no call sites consult IsPending or call the
+    helper).
+  - `23367e32` (b)+(c) DECL_TYPE parking + use-site propagation:
+    * `CheckDeclInScope`'s DECL_TYPE branch dispatches through
+      a new `checkDeclTypeTentative` in `check_pending.bn`.
+      preRegisterTypeNames installs the placeholder, then
+      collectTypeDecl runs in TentativeMode.  On park, IsPending
+      goes on the placeholder Type and Underlying is cleared so
+      retry can re-resolve.  On clean retry, IsPending clears.
+    * `RetryPendingDecls` extends for `DECL_TYPE` (re-runs
+      collectTypeDecl, clears IsPending on success).
+    * `IsPendingDecl` / `lookupPending` / `pendingDeclKindNoun`
+      extend to include DECL_TYPE.
+    * New `capturePendingIfSized(c, t)` helper — if t.IsPending,
+      capture t.Name as a pending dep.  No-op outside
+      TentativeMode (capturePendingDep returns early).
+    * Sized-use call sites wired through capturePendingIfSized:
+      `resolveStructType` (each struct field), `resolveFuncDeclType`
+      (each param + result), `collectDecls` + `checkVarDecl` +
+      `checkConstDecl` (all typed-var / typed-const TypeRef
+      sites), `collectTypeDecl` (alias target + named-non-struct
+      underlying).
+    * Reference-use sites (pointer / managed-ptr / slice /
+      managed-slice elements inside `resolveTypeExpr`'s
+      recursive cases) do NOT call capturePendingIfSized — those
+      wrappers are size-stable.
+    * `repl_decl.bn`: parkedDeclLabel handles DECL_TYPE.
+      retryPending lowers helpers added by GenDecl for resolved
+      DECL_TYPE.  evalReplDecl's DECL_TYPE early-return now
+      calls retryPending before returning — a freshly-resolved
+      type may unblock decls parked on its name.
+  - `bcf8790a` (d) sized-use audit closures + func-sig parking
+    + coverage:
+    * `captureFuncSigPendingDeps` re-resolves d.Recv / d.Params /
+      d.Results in TentativeMode so a func whose sig references
+      a pending type parks.  Called from `CheckDeclInScope`'s
+      DECL_FUNC tentative pass AND from `RetryPendingDecls`'s
+      DECL_FUNC retry path (otherwise a transitively parked func
+      could be erroneously reported as resolved on retry).
+    * `check_impl.bn` / `check_expr_composite.bn` routed through
+      capturePendingIfSized — closes the audit at the last two
+      sized-use sites that weren't covered by (b)+(c).
+
+End-to-end behaviors verified by 5 e2e cases + 8 unit tests:
+
+```
+> type T struct { F Bag }
+type T parked (pending: Bag)
+> type Bag struct { N int }
+type T resolved
+> var x T
+> x.F.N = 42; println(x.F.N)
+42
+
+> type T struct { F Bag }
+type T parked (pending: Bag)
+> var x T
+variable x parked (pending: T)
+> type Bag struct { N int }
+type T resolved
+variable x resolved
+> x.F.N = 7; println(x.F.N)
+7
+
+> type A struct { Next @B }
+type A parked (pending: B)
+> type B struct { Next @A }
+type A resolved             ← mutual recursion via pointers
+                              resolves via reference-use distinction
+
+> type T struct { F Bag }
+type T parked (pending: Bag)
+> func f(x T) int { return 0 }
+function f parked (pending: T)
+> type Bag struct { N int }
+type T resolved
+function f resolved
+```
+
+Stage 2 (d) implicitly closes Stage 3 as well — aliases and
+named-non-struct fall out of the unified DECL_TYPE tentative
+dispatch.  E.g. `type R = Bag` parks via the alias branch's
+capturePendingIfSized on `target`; `type Celsius Heat` parks
+via the named-non-struct branch's capturePendingIfSized on
+`underlying`.
+
+**Stage 2 follow-ups not in scope.**
+  - **Methods on a pending receiver type** (was in the original
+    design as Stage 2's "pending-method registration" point;
+    bumped here to Stage 2 (e)).  `func (t *T) M() { ... }`
+    when T is pending: today the method registers on T's
+    method set in pass 1 strict, doesn't park.  To make it
+    park, DECL_FUNC.Recv != nil needs its own tentative
+    dispatch — `collectMethodDecl` is in pass 1.  Open work.
+  - **Generic type decls** (`type List[T] struct { ... }`).
+    Skipped by the existing generic decl dispatch; tentative
+    routing for generic instantiation is a separate concern.
+
+The original Stage 2 design notes follow for historical
+reference.
+
 ### Stage 2: Pending struct types — the structural piece
 
 **Scope.**  `type T struct { F Bag }` (or any struct-typed decl)
@@ -324,6 +442,19 @@ Unit tests in `pkg/types/check_pending_test.bn`:
   - Mutual recursion: two struct types parking on each other
     both resolve when the cycle completes.
 
+### Stage 3: Pending aliases and named-non-struct — LANDED (implicitly) via Stage 2 (d)
+
+Aliases (`type R = X`) and named-non-struct (`type Celsius
+Heat`) parking work end-to-end as a fallout of the unified
+DECL_TYPE tentative dispatch in `checkDeclTypeTentative`.  No
+separate Stage 3 commit was needed.  e2e cases
+`tier3-pending-alias-resolves` and `tier3-pending-named-
+nonstruct-resolves` (both in `bcf8790a`) verify the
+behaviors.
+
+The original Stage 3 design notes follow for historical
+reference.
+
 ### Stage 3: Pending aliases and named-non-struct
 
 **Scope.**  `type R = Bag` (alias) and `type Celsius Foo`
@@ -370,17 +501,21 @@ be deferred to whenever the user-visible footgun arises.
      `6769786e` driver wire-up + e2e; (c) `573766e1` per-
      member group parking.  See the "Stage 1 ... LANDED"
      section above for what shipped and the e2e behaviors.
-  2. **Stage 2** (pending struct types).  Substantial.  ~3-4
-     commits: (a) substrate — IsPending field + sized-vs-
-     reference plumbing; (b) DECL_TYPE parking + retry; (c)
-     use-site propagation + IR-gen gating; (d) coverage.
-  3. **Stage 3** (aliases + named-non-struct).  ~1 commit.
-     Slots in cleanly after Stage 2 since the substrate is
-     reused.
+  2. ~~**Stage 2** (pending struct types).~~  **LANDED**
+     2026-05-28 across four commits: (a) `fcabdb33` substrate
+     (IsPending + capturePendingDep); (b)+(c) `23367e32`
+     DECL_TYPE parking + use-site propagation; (d) `bcf8790a`
+     coverage + func-sig audit + audit closures.  See the
+     "Stage 2 ... LANDED" section above.  Stage 2 (e) methods-
+     on-pending-receiver remains open.
+  3. ~~**Stage 3** (aliases + named-non-struct).~~  **LANDED**
+     implicitly via Stage 2 (d) — falls out of the unified
+     DECL_TYPE tentative dispatch.
   4. **Stage 4** (cycle detection).  Optional, ~1 commit.
 
-Total: ~7-8 commits across the four stages.  Stage 1 can ship
-in days; Stage 2 is the multi-week piece.
+Final tally: ~7 commits across Stages 1 + 2 + 3 (Stage 1 = 3,
+Stage 2 = 4, Stage 3 = 0 standalone).  Stage 2 (e) + Stage 4
+remain.
 
 ## Design decisions (resolved)
 
