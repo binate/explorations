@@ -599,14 +599,27 @@ Pre-fix transcript on the first case:
 
 ### Coverage
 
-- 4 new unit tests in `pkg/ir/gen_repl_test.bn`:
+- 4 new unit tests in `pkg/ir/gen_repl_test.bn` (commit
+  `9b7d125d`):
   - `TestEnsureReplBodyHelpersNoopWhenNothingPending`
   - `TestEnsureReplBodyHelpersBodyIntroducesManagedSlice`
   - `TestEnsureReplBodyHelpersDedupsAgainstExisting`
   - `TestEnsureReplBodyHelpersResetsPendingLists`
-- 3 new `e2e/repl.sh` cases covering the three driver paths
-  (`tier2-body-introduces-managed-slice-of-managed-ptr`,
-  `-stmt-list-`, `-var-init-`).
+- 5 new `e2e/repl.sh` cases covering each driver path:
+  - `tier2-body-introduces-managed-slice-of-managed-ptr` —
+    `evalReplDecl` DECL_FUNC (free func), commit `9b7d125d`
+  - `tier2-body-stmt-list-managed-slice-of-managed-ptr` —
+    `evalReplStmtList`, commit `9b7d125d`
+  - `tier2-body-var-init-managed-slice-of-managed-ptr` —
+    `runReplVarInit`, commit `9b7d125d`
+  - `tier3-body-introduced-shape-via-retry` — `retryPending`
+    (Tier 2 + Tier 3 interaction), commit `48ddd0c2`.  Drain
+    here is an optimization, not a sole-correctness fix:
+    `backfillExternCachesForName` would upgrade f's -1
+    CallCache slot on the next prompt entry's drain.
+    Comment in `retryPending` reflects this.
+  - `tier2-method-body-introduced-shape` — `evalReplDecl`
+    DECL_FUNC (method, `genMethod` path), commit `48ddd0c2`.
 
 ### Remaining
 
