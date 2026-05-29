@@ -674,10 +674,16 @@ Single commit on main (`b470bb0`).  Implementation:
 - **Pending types / vars / consts.**  A pending struct is
   unsizable; uses of it must be transitively pending.
   Substantial structural work beyond this commit's scope.
+  See [`plan-repl-tier3-pending-types.md`](plan-repl-tier3-pending-types.md)
+  for the four-stage breakdown (vars + consts → struct types →
+  aliases/named-non-struct → cycle detection).
 - **Cycle detection** for mutually-pending decls.  Today's
   retry loop handles real cycles trivially since both sigs
   are in scope from `collectDecls`; no explicit cycle
-  detection needed.
+  detection needed.  See the same plan doc for the proposed
+  Stage 4 treatment (most "cycles" through types resolve via
+  the placeholder + IsPending representation; genuine cycles
+  through sized fields are the case detection would catch).
 
 ### Drive-by
 
