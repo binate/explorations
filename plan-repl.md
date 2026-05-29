@@ -676,7 +676,10 @@ Single commit on main (`b470bb0`).  Implementation:
   Substantial structural work beyond this commit's scope.
   See [`plan-repl-tier3-pending-types.md`](plan-repl-tier3-pending-types.md)
   for the four-stage breakdown (vars + consts → struct types →
-  aliases/named-non-struct → cycle detection).
+  aliases/named-non-struct → cycle detection).  Stage 1 (vars
+  + consts, incl. per-member const-group parking) LANDED
+  2026-05-28 via `312e2ffc` + `6769786e` + `573766e1`; Stages
+  2-4 remain DRAFT.
 - **Cycle detection** for mutually-pending decls.  Today's
   retry loop handles real cycles trivially since both sigs
   are in scope from `collectDecls`; no explicit cycle

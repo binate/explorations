@@ -1,13 +1,19 @@
 # Plan: REPL Tier 3 — Pending types / vars / consts
 
-> **Status: DRAFT (2026-05-28).**  An addendum to `plan-repl.md`'s
-> "Tier 3 follow-ups" entry, expanding the design for pending
-> non-func decls.  Tier 3 first cut (`b470bb0`, 2026-05-05)
-> shipped pending-validation for `func` decls only; this doc
-> describes how to extend it to `type` / `var` / `const`.
-> Cycle detection (the other listed Tier 3 follow-up) is covered
-> in a small section at the end, since the parking mechanics
-> here interact with it.
+> **Status: Stage 1 LANDED (2026-05-28); Stages 2-4 DRAFT.**
+> An addendum to `plan-repl.md`'s "Tier 3 follow-ups" entry,
+> expanding the design for pending non-func decls.  Tier 3
+> first cut (`b470bb0`, 2026-05-05) shipped pending-validation
+> for `func` decls only; this doc describes how to extend it
+> to `type` / `var` / `const`.  Cycle detection (the other
+> listed Tier 3 follow-up) is covered in a small section at
+> the end, since the parking mechanics here interact with it.
+>
+> Stage 1 (pending vars + consts incl. per-member group
+> parking) LANDED via `312e2ffc` (substrate) + `6769786e`
+> (driver) + `573766e1` (per-member group parking).  See the
+> "Stage 1 landed" section below for what shipped, plus the
+> remaining Stage 2-4 plan as originally drafted.
 
 ## Background — what Tier 3 shipped, what's missing
 
@@ -68,7 +74,59 @@ the structural piece plan-repl.md flags ("substantial structural
 work").  Stage 3 is a small follow-up.  Stages can be split
 further into per-commit pieces.
 
-### Stage 1: Pending vars + consts — initializer parking
+### Stage 1: Pending vars + consts — initializer parking — LANDED 2026-05-28
+
+Shipped in three commits:
+
+  - `312e2ffc` (a) substrate — `IsPendingFunc` generalized to
+    `IsPendingDecl`, `errPendingFunc` → `errPendingDecl` with
+    per-kind wording, `CheckDeclInScope` routes DECL_VAR /
+    DECL_CONST / DECL_GROUP through TentativeMode via
+    `isParkableKind`.
+  - `6769786e` (b) driver wire-up — `announceParked` uses
+    per-kind wording ("variable x", "constant N", "function f"),
+    `retryPending` extends to DECL_VAR (materialize + run init
+    synthetic) and DECL_CONST (GenDecl is enough).
+  - `573766e1` (c) per-member group parking — `PendingDecl`
+    gains `IotaIdx`, `Checker` gains `PendingMark`, new
+    `checkGroupDeclTentative` iterates group members with
+    per-member park decisions and positional iota.  IR-gen
+    side: `genConstGroup` skips parked members (still
+    incrementing iota); new `GenConstMember` for the retry
+    path.
+
+End-to-end behaviors verified by 4 e2e cases + 8 unit tests:
+
+```
+> var x int = g() + 1
+variable x parked (pending: g)
+> func g() int { return 41 }
+variable x resolved
+> println(x)
+42
+
+> const ( A=iota; B=M+iota; C=iota )
+constant B parked (pending: M)
+> println(A); println(C)
+0
+2                            ← positional iota preserved across parking
+> const M int = 10
+constant B resolved
+> println(B)
+11                           ← B = 10 + 1 (iota at position 1)
+```
+
+**Stage 1 follow-ups not in scope.**
+  - Untyped var with non-literal initializer (`var x = g() + 1`)
+    parks but its symbol isn't entered in scope until resolved
+    — use sites get "undefined: x" rather than "variable x is
+    unresolved".  First-cut limitation; users spell the type
+    explicitly.  Same applies to untyped const.
+  - Pending var redefinition while parked.  Tier 4 territory;
+    not currently exercised.
+
+The original Stage 1 design notes follow for historical
+reference.
 
 **Scope.**  `var x T = expr` and `const N T = expr` where `expr`
 references undefined names.  Type `T` is assumed to resolve
@@ -307,15 +365,11 @@ be deferred to whenever the user-visible footgun arises.
 
 ## Sequencing
 
-  1. **Stage 1** (vars + consts).  Smallest, biggest user-
-     visible win.  ~3 commits: (a) substrate (TentativeMode
-     routing for DECL_VAR + DECL_CONST in CheckDeclInScope +
-     CheckDecl's pass split + new IsPendingDecl predicate);
-     (b) IR-gen-side gating + driver glue + tests; (c) per-
-     member parking for DECL_GROUP (one PendingDecl per
-     member instead of one per group), restoring "groups are
-     syntactic sugar".  (c) can ship after (a)+(b) if
-     scheduling makes that cleaner.
+  1. ~~**Stage 1** (vars + consts).~~  **LANDED** 2026-05-28
+     across three commits: (a) `312e2ffc` substrate; (b)
+     `6769786e` driver wire-up + e2e; (c) `573766e1` per-
+     member group parking.  See the "Stage 1 ... LANDED"
+     section above for what shipped and the e2e behaviors.
   2. **Stage 2** (pending struct types).  Substantial.  ~3-4
      commits: (a) substrate — IsPending field + sized-vs-
      reference plumbing; (b) DECL_TYPE parking + retry; (c)

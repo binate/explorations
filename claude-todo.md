@@ -1938,11 +1938,13 @@ Binate is NOT Go. The two types of slice are intentionally different:
   - **Tier 3**: pending types / vars / consts; cycle detection
     for mutually-pending decls (not needed today since
     `collectDecls` puts both sigs in scope, but worth noting).
-    Design sketch in
+    Plan in
     [`plan-repl-tier3-pending-types.md`](plan-repl-tier3-pending-types.md)
-    (DRAFT, 2026-05-28) — four stages, ~7-8 commits.  Stage 1
-    (vars + consts) is the recommended start: smallest, biggest
-    user-visible win.
+    — four stages.  **Stage 1** (vars + consts, incl. per-
+    member group parking) LANDED 2026-05-28 via `312e2ffc` +
+    `6769786e` + `573766e1`.  Stages 2-4 (pending struct
+    types — structural; aliases + named-non-struct; cycle
+    detection) DRAFT.
   - **Tier 4**: refcount-aware shadow warning (today fires
     unconditionally); forced-shadow escape hatch (syntax TBD per
     `claude-notes.md`).
