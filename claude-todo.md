@@ -91,6 +91,24 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR
+
+### bnc: int64 literals under unary-minus silently truncate to i32 on ILP32 targets
+- **Symptom**: `cast(int64, -9223372036854775807)` evaluates to `1` (not `-9223372036854775807`) under `--target arm32-linux`.  Any int64 literal with magnitude > 2^31 wrapped in unary-minus (or any non-cast typed context that doesn't route through `genIntLitWithHint`) gets truncated to i32 before negation, silently producing wrong values.  No LP64 host effect — `intLL()` returns i64 there, which can hold the full magnitude.
+- **Repro** (arm32 LLVM IR for `cast(int64, -9223372036854775807)`):
+  ```
+  %v3 = add i32 9223372036854775807, 0   ; literal truncated to i32 → -1
+  %v4 = sub i32 0, %v3                   ; → 1
+  %v5 = sext i32 %v4 to i64              ; → 1
+  ```
+  For `cast(int64, 9223372036854775807)` (no unary-minus), `genIntLitWithHint` fires and emits `add i64 …, 0` correctly.
+- **Discovery**: 2026-05-28, while triaging arm32_linux unit-test failures `TestBignumToIntInt64Min` (pkg/ir), `TestFormatInt64Boundaries` (pkg/bootstrap), `TestWriteInt` (pkg/buf), which all construct int64-min via `cast(int64, -9223372036854775807) - cast(int64, 1)`.  The expression evaluates to `0` on arm32, not int64-min.
+- **Root cause**: `genExprInner`'s `EXPR_INT_LIT` branch (pkg/ir/gen_expr.bn:34) unconditionally emits the literal at `types.TypUntypedInt()`.  `TypUntypedInt` has `Width=0`, so `llvmType` falls through to `intLL()` — i64 on LP64, **i32 on `--target arm32-linux`**.  The literal text is widened to int64 by `exprIntLitValue` (via the type checker's bignum-fold), but the LLVM emit type drops back to host int, so the IR-text writer's i32 literal silently wraps.  `genIntLitWithHint` papers over this for the most common case (bare `EXPR_INT_LIT` argument to `cast(T, …)` or `var x T = …`), but it doesn't peek through `EXPR_UNARY`, so `cast(T, -lit)` falls through to the buggy path.
+- **Tests covering it**: the three failing unit tests above are the regressions.  A targeted IR-gen test would also help (e.g. `TestGenIntLit2Pow62InInt64Context` asserting the OP_CONST_INT carries Width=64).  No conformance test yet for the unary-minus shape — should add one.
+- **Proper fix (chosen, option 2)**: in `genExprInner` `EXPR_INT_LIT`, when the type checker has resolved the literal to a concrete typed-int (`TYP_INT` with `Width > 0`) wider than the host word, emit `EmitConstInt64(v, resolvedTyp)` instead of `EmitConstInt64(v, TypUntypedInt())`.  Closes the structural hole more broadly than the narrower "peek through unary-minus in `genIntLitWithHint`" alternative — also covers binop operands, return values, and any other typed context where a too-wide-for-host-int literal appears without explicit cast/var hint.
+
+---
+
 ## TODO
 
 ### ~~bnc: `.bni`-declared const with a non-trivial initializer expression resolves to 0 at cross-package use sites~~ — FIXED 2026-05-28 (binate `8fd4f378`)
