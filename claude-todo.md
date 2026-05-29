@@ -643,6 +643,64 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   breaks.  Worth diffing all functions that emit `ldr [x9,
   #-0x10]!` (the RefInc pattern) and checking each for
   argument/result misalignment.
+- **Round-5 audit (2026-05-28) — central finding: LLVM does NOT
+  consistently use sret for >16-byte aggregate returns.  Both
+  pre-fix and post-fix native predicates are wrong; the right fix
+  is in pkg/codegen.**  Empirical evidence from
+  `/tmp/bnc_native_wholefix`:
+    * `bn_pkg__rt__MakeManagedSlice` (32-byte ManagedSlice return):
+      LLVM emits `ldr x0..x3, [sp+0x10..0x28]; ret` — packs the
+      4-word return in **X0..X3** (no sret).
+    * `bn_pkg__foo__Base` (56-byte struct S): LLVM emits
+      `mov x9, x8; str x5,[x9]; ...; str w8,[x9+0x37]; ret` —
+      writes through **X8 sret**.
+    Same IR-level form (`declare %T @foo(...)`, no `sret()`
+    annotation), DIFFERENT machine code.  LLVM's AArch64 backend
+    uses its own heuristic — likely **≤4 fields → pack into
+    X0..X3; >4 fields → sret via X8** (the AArch64 "Composite
+    Type" rule applied per-field-count not per-byte-count).
+- **Implications**:
+    1. Pre-fix native predicate (pack ≤64) is correct for the
+       ManagedSlice case (matches LLVM's pack-X0..X3).  My
+       wholesale fix (sret >16) BREAKS that case: caller sets up
+       X8 buffer, callee packs into X0..X3, caller reads from
+       X8 buffer (never written) → corruption.  Exactly the
+       runtime bounds error we observe in `bnc_native_wholefix`.
+    2. Pre-fix native predicate is WRONG for the foo.S case
+       (56 bytes, 9 fields).  LLVM uses sret, native packs →
+       original Bug 1 (the /tmp/x mismatch).
+    3. Neither pure "always pack" nor pure "always sret" matches
+       LLVM's effective heuristic.  Options:
+        (a) **Mirror LLVM's heuristic exactly** in the native
+            backend.  Fragile — depends on LLVM version.
+        (b) **Force LLVM to use sret consistently** via
+            `sret(...)` annotation in pkg/codegen — drop the
+            `f.IsCExtern &&` gate at `emit.bn:254` (and the
+            matching declare path at `emit.bn:175`).  Then
+            both sides use sret universally.  Substantial
+            pkg/codegen refactor: the define-line at
+            `emit_debug.bn:43` also needs to switch to
+            `define void @name(ptr sret(%T) %retbuf, ...)`
+            for affected functions; OP_RETURN's lowering
+            inside those functions needs to write through
+            the sret pointer.
+        (c) Force LLVM to use pack consistently — impossible
+            for arbitrary struct sizes; LLVM won't pack
+            >64 bytes into 8 registers.
+- **emitMakeSlice "fix" in `2c0cb952` is WRONG.**  Pre-fix's
+  emitMakeSlice (read packed X0..X3 from MakeManagedSlice) was
+  CORRECT under current LLVM behavior.  The fix needs reverting
+  unless we also pursue option (b) above.
+- **The right path is (b)**: extend pkg/codegen to mark all
+  >16-byte aggregate returns as sret (not just IsCExtern),
+  threading it through the define/declare emission AND the
+  OP_RETURN lowering AND the call-site sret-alloca pattern.
+  Then `InternalSretBytes 64→16` in the native backend is
+  consistent, and emitMakeSlice's sret fix becomes correct.
+  This is a real refactor of pkg/codegen — significantly bigger
+  than the native-side fix I attempted.  User-level scope
+  decision before proceeding.
+
 - **Two distinct fixes blocked on this**:
     1. Stage 4 native variadic (Apple ABI stacks all varargs).
     2. Any future native-compiled package adding a 2nd consecutive
