@@ -93,58 +93,33 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## TODO
 
-### bnc: `.bni`-declared const with a non-trivial initializer expression resolves to 0 at cross-package use sites
-- **Revised diagnosis (2026-05-28)**: my first writeup of this said
-  bnc accepted unexported cross-package references and resolved
-  them to 0.  Re-tested with a focused repro (and added a
-  positive boundary check at conformance `502_err_unexported_const_rejected`):
-  bnc DOES correctly reject `pkg.NAME` references when NAME isn't
-  in the package's `.bni`.  So the "boundary enforcement is
-  broken" framing was wrong — that part works.
-- **Actual symptom**: a `.bni`-declared const whose initializer is
-  a non-trivial expression (e.g.
-  `const HEADER_SIZE int = HEADER_WORDS * cast(int, sizeof(int))`)
-  is correctly visible at the cross-package boundary AND the
-  type-check / build succeeds.  But at the consuming package's
-  use site, the expression evaluates to **0** rather than the
-  declared formula's value.  Trivial `const X int = 16` form
-  works correctly; the failure shows up only when the initializer
-  goes through `sizeof` / arithmetic.
+### ~~bnc: `.bni`-declared const with a non-trivial initializer expression resolves to 0 at cross-package use sites~~ — FIXED 2026-05-28 (binate `8fd4f378`)
+- **Final diagnosis**: an unqualified EXPR_IDENT inside a
+  `.bni`-declared const initializer (e.g. `WORDS` in
+  `const SIZE int = WORDS * cast(int, sizeof(int))`) wasn't
+  resolving during import processing — pkg/ir's evalConstExpr
+  looked the name up only in unqualified form, but the sibling
+  const had been registered under the import-qualified name
+  (`pkg/x.WORDS`).  The EXPR_IDENT arm returned (0, false), the
+  binary expression silently became 0, and the resulting const
+  was registered with value 0.
+- **Fix (binate `8fd4f378`)**: retry the lookup with
+  `buildQualName(currentImportAlias, e.Name)` when the
+  unqualified one misses.  Pinned by conformance
+  `503_bni_const_sibling_ref`.
+- **Boundary-enforcement aside**: my first writeup of this also
+  speculated that bnc was accepting unexported cross-package
+  references.  Re-tested with a focused repro: bnc DOES correctly
+  reject `pkg.NAME` references when NAME isn't in the package's
+  `.bni`.  Pinned positively by conformance
+  `502_err_unexported_const_rejected`.  That part was always fine
+  — the only bug was the sibling-ident lookup above.
 - **Discovery**: managed-allocation-header refactor (binate
-  `c7323fb2` and follow-up).  Replacing pkg/vm's hardcoded `-16`
-  managed-header offset with `ptr - rt.HEADER_SIZE` (where
-  `rt.HEADER_SIZE` was declared in pkg/rt.bni as
+  `c7323fb2`).  Replacing pkg/vm's hardcoded `-16` managed-header
+  offset with `ptr - rt.HEADER_SIZE` (declared as
   `HEADER_WORDS * cast(int, sizeof(int))`) built cleanly but
   produced `ptr - 0`, silently corrupting the payload's first
   word.  TestExecRefIncRefDecInline (pkg/vm) caught it on amd64.
-- **Severity**: major silent-miscompile.  The expression's
-  declared value is well-defined at compile time, so resolving to
-  0 is a bug — not "undefined behavior" or "intentional runtime
-  resolution".
-- **Workaround applied**: declare an in-package mirror const with
-  the same formula.  See pkg/vm.bn's `MANAGED_HDR` (= local
-  evaluation) and pkg/rt.bni's `ManagedHeader` (the public
-  struct).  Cross-package `sizeof(rt.ManagedHeader)` ALSO works,
-  but only via the struct route — not via a `.bni`-declared
-  const that wraps the sizeof.
-- **Fix direction**: const-eval the `.bni`-declared initializer
-  expression at the consumer's use site (the same way the
-  declaring package would).  Likely the bnc IR-gen for cross-
-  package const references currently emits a load-from-symbol
-  that resolves to 0 (the symbol is declared but never assigned
-  in the consumer's compilation unit), instead of inlining the
-  declared expression value.
-- **Repro shape**:
-    ```
-    // pkg/x.bni
-    const X int = 2 * cast(int, sizeof(int))
-    // (nothing in pkg/x/x.bn)
-
-    // cmd/y/y.bn
-    import "pkg/x"
-    func main() { println(x.X) }  // prints 0 on a 64-bit host
-                                  // (expected 16)
-    ```
 
 ### Demote raw-slice escape check from type error to linter rule
 - **Today**: returning a raw slice (`*[]T`) into a local array
