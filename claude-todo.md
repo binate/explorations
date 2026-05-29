@@ -439,11 +439,20 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
       "arm32 unit-test cleanup" entry for the bucket.  Unrelated
       to this work.
 
-### `__c_call` Stage 4 (variadic in the native backends) — IN PROGRESS / BLOCKED
+### `__c_call` Stage 4 (variadic in the native backends) — UNBLOCKED 2026-05-28 (Bug 1 fixed)
 - **Plan**: [plan-c-call.md](plan-c-call.md) §6–§7 step 4 — the
   hard chunk: darwin-arm64 variadic stack-passing (Apple ABI stacks
   ALL varargs regardless of GP-reg budget) + amd64-SysV `AL` setup
   (number of vector regs used by varargs).
+- **Unblocked by Bug 1 fix**: Bug 1 (the underlying convention
+  mismatch that produced the misleading Stage 4 bisect) is now
+  fixed via the universal-sret codegen series (binate 3f963073,
+  1755212f, etc.).  `stage-4-wip-broken` should rebase onto
+  current `work-2` and the Stage 4 work can resume — the field-
+  write-to-wrong-offset behavior the bisect picked up was an
+  artifact of the convention mismatch on the underlying
+  CallConv struct, not a fundamental bug in the V-variant
+  helpers.
 - **Status**: WIP saved on the `stage-4-wip-broken` branch of the
   binate worktree (`temp-binate-2`).  Last sane commit `1938a86`.
   REBASE NEEDED: main has since renamed `pkg/native/amd64` →
@@ -821,6 +830,44 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   This is a real refactor of pkg/codegen — significantly bigger
   than the native-side fix I attempted.  User-level scope
   decision before proceeding.
+
+- **DONE 2026-05-28 — option (b) landed in 4 commits on work-2.**
+  Series:
+    * `2c0cb952` WIP — native side: AAPCS64 InternalSretBytes
+      64→16, emitMakeSlice sret form, emitFuncValueShim
+      thresholds 64→16.
+    * `3f963073` codegen — universal sret for >16-byte aggregate
+      returns: drop IsCExtern gate at emit.bn:175 (declare) and
+      emit.bn:254 (registry); emit_debug.bn switches the define-
+      line to `define void @name(ptr sret(%T) align 8
+      %v.retbuf, <params>)` for IsSret funcs; emit_helpers.bn's
+      emitReturn routes via store-to-%v.retbuf + ret void;
+      emit_helpers.bn::emitMakeSliceInstr and emit_strings.bn::
+      emitStringToCharsCopy converted to sret-form
+      MakeManagedSlice calls; matching aarch64_emit.bn::
+      emitStringToCharsCopy fix.
+    * `d2d885e2` tests — invert/update the 5 unit tests pinning
+      the old reg-pack convention (1 in pkg/codegen, 1 in
+      pkg/native/common, 3 in pkg/native/aarch64).
+    * `1755212f` codegen — extend universal sret to
+      emit_funcvals.bn::funcValueUsesSret (drop IsCExtern gate)
+      and emit_impls.bn::emitCallIfaceMethod (sret-form
+      bitcast + sret-call + load pattern).  Fixes conformance
+      363 (aggregate funcval) and 411 (pkg/std.Stringer via
+      *Stringer iface dispatch).
+  Verified: all 6 CI conformance modes pass — builder-comp
+  (431/431), builder-comp-comp (431/431), builder-comp-int
+  (429/429), builder-comp-comp-int (429/429), builder-comp-
+  comp-comp (431/431), builder-comp_native_aa64-comp_native_
+  aa64 (430/430).  All 34 unit-test packages green.  /tmp/x
+  exits 8 (was 16 pre-fix).
+- **Known follow-up (not in CI's modeset)**:
+  builder-comp_native_x64_darwin-comp_native_x64_darwin fails
+  on 363/411 — x64_iface.bn needs the same sret arg-shift fix
+  aarch64 got automatically through the CallReturnsBigAggregate
+  predicate.  Skipped for this round since darwin-x64 isn't in
+  the CI mode-set; tracked separately if the user wants to
+  un-fail it.
 
 - **Two distinct fixes blocked on this**:
     1. Stage 4 native variadic (Apple ABI stacks all varargs).
