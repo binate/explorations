@@ -151,7 +151,36 @@ Resumes the original Stage-4-style silent-miscompile shape
 .bn) as a hard error: any future re-introduction of mismatched
 duplicates fails type-checking instead of slipping through.
 
-### Phase 3b: cross-package opaque-handle export — DEFERRED (resume now that Phase 4+5 are done)
+### Phase 3b: cross-package opaque-handle export — LANDED 2026-05-29 (binate `553649fc`)
+
+The forward-decl + body pattern now round-trips through the LLVM
+backend.  Root cause was narrower than feared: `pkg/ir/gen_return.bn`'s
+`genReturnStmt` unconditionally loaded struct/array allocas before
+returning, via
+
+  ```binate
+  if isStructOrArrayAlloc(val) {
+      val = b.EmitLoad(val, val.TypeArg)
+  }
+  ```
+
+That branch is correct for functions that return the struct value
+itself (`func f() S { var s S; return s }` — load alloca → struct
+value, signature emits `define %S`).  But for functions returning a
+POINTER to the struct (`func f() *S { var s S; return &s }`), the
+alloca pointer IS the desired return value; loading turned it into
+the struct value and produced `ret %S %loaded` against a `define
+ptr` signature — clang rejected.
+
+Fix: gate the load on `ctx.Func.Results[i].Kind` being TYP_STRUCT
+or TYP_ARRAY.  Functions returning pointers keep the alloca as the
+return SSA value, matching the `ptr` signature.
+
+End-to-end coverage: `conformance/512_opaque_handle_cross_pkg/`
+exercises the full pattern — `type Handle` forward decl in
+`.bni` + `type Handle struct { value int }` in `.bn` + opaque
+`*handle.Handle` caller — and asserts `handle.Get(handle.New(42))`
+prints `42`.
 
 ## Open design questions
 
