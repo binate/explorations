@@ -244,36 +244,29 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Tests covering it**: the silent crash itself is the regression — the existing 153 pkg/vm unit tests all run on amd64 and would expose the arm32 crash if reached.  A focused codegen test would help: assert the arm32 sret/non-sret threshold matches LP64's at the IR level for aggregates ≤ register-pair (which on arm32 = 8 bytes).
 - **Proposed fix**: re-examine `5331235e`'s sret threshold logic to ensure arm32 honours its ABI's smaller register-pair budget (vs. LP64's 16-byte pair).  A "universal sret for >16 bytes" rule applied verbatim across targets won't match arm32's AAPCS (4-byte word, 2-register max for return-by-value scalars, ≥8 bytes goes via sret already).  Alternatively: revert `5331235e` and apply the change per-backend.
 
-### B.3a-x64: closure shim doesn't yet stack-spill captures > AggregateInRegMax under SysV-AMD64
-- **Symptom**: a closure that captures `@[]T` (or any aggregate
-  whose `SizeOf > 16`) compiles fine and works on LLVM / aa64
-  native, but on `builder-comp_native_x64_darwin` the body reads
-  garbage from where the slice should be.  Pinned by
-  `conformance/510_capture_managed_slice` with the matching
-  `.xfail.builder-comp_native_x64_darwin-comp_native_x64_darwin`.
-- **Root cause**: SysV-AMD64 sets `AggregateInRegMax = 16` and
-  `SplitAggregates = false`, so the body's calling convention
-  passes any aggregate > 16 bytes ENTIRELY on the stack (NGRN
-  unchanged so later scalars can still take regs).  The current
-  `emitClosureShim_x64` only emits register loads — it doesn't
-  reserve outgoing-args stack space, write the capture-words
-  there, and CALL the underlying.  Net: the underlying reads
-  uninitialised stack and the body crashes on the first use
-  (the `@[]int` test sees `len == 0` and trips the bounds check).
-- **Fix direction**: thread the SysV ABI's argRegWordsStackWords
-  through the shim emitter (or its own classifier), reserve a
-  16-byte-aligned outgoing-args area at the SP, write any stack-
-  bound capture-word(s) to `[RSP + off]`, write any reg-bound
-  capture-word(s) to the right `argReg(NGRN..)`, shift user-args
-  into whatever GP slots remain, and switch from `JMP` to `CALL`
-  + `ADD RSP, <stkBytes>` + `RET` (or set up a proper tail call
-  with the stack rewound).  Mirror the planning logic in
-  `common_callconv.bn`'s `CallStackBytes` / `CallArgStackOff` so
-  the shim agrees with the body's prologue.
-- **aa64 unaffected**: AAPCS64 has `AggregateInRegMax = 64` and
-  `SplitAggregates = true`, so `@[]T` (32 bytes, 4 words) fits
-  wholly in X0..X3 — the current per-word capture-load loop is
-  correct.
+### Native closure shim: incoming user-args > 5 words still tail-jumps (FALL-BACK)
+- **Symptom**: when a capturing closure's user-arg list spills
+  past the 5-word incoming GP budget (5 = 6 SysV GP arg regs − 1
+  for the data slot in RDI), the x64 shim falls back to plain
+  JMP, which doesn't actually move any args.  The body would
+  receive wrong arguments at runtime.  Current conformance tests
+  don't exercise this — closures with > 5 incoming user-arg
+  words are rare in practice — so the bug is latent.
+- **Where**: `pkg/native/x64/x64_closure_shim.bn`
+  `emitClosureShim_x64` — the `if nUserWords > 5` early return.
+  The aa64 shim has a similar limit (`captureWords + nUserWords
+  > 8`) but its register budget is wider (X0..X7), so the
+  practical hit point is later.
+- **Fix direction**: extend the stack-spill path to also read
+  incoming stack user-args.  At shim entry, stack user-args
+  live at `[RSP + 8 + k*8]` (above the return address).  After
+  `SUB RSP, rspDelta`, they live at `[RSP + rspDelta + 8 + k*8]`.
+  For each user-arg word that doesn't fit in incoming GP regs,
+  read from there via RAX shuttle, write to outgoing position
+  (reg or stack).
+- **Why deferred**: closures with > 5 user-arg words aren't a
+  near-term goal; the typical Phase-2 closure has 0–3 user-args.
+
 
 ### Demote raw-slice escape check from type error to linter rule
 - **Final diagnosis**: an unqualified EXPR_IDENT inside a
