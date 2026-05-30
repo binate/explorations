@@ -176,7 +176,7 @@ Fix: gate the load on `ctx.Func.Results[i].Kind` being TYP_STRUCT
 or TYP_ARRAY.  Functions returning pointers keep the alloca as the
 return SSA value, matching the `ptr` signature.
 
-End-to-end coverage: `conformance/512_opaque_handle_cross_pkg/`
+End-to-end coverage: `conformance/514_opaque_handle_cross_pkg/`
 exercises the full pattern — `type Handle` forward decl in
 `.bni` + `type Handle struct { value int }` in `.bn` + opaque
 `*handle.Handle` caller — and asserts `handle.Get(handle.New(42))`
