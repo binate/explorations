@@ -6,6 +6,60 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### Type.Identical treats `*func(T) U` ≡ `*func(T) V` (and `@func(T) U` ≡ `@func(T) V`) — wrong-code generation on signature mismatch
+- **Symptom**: the type-checker accepts assignments / parameter binds where the source and destination function-value types differ in their param or result types — any pair of `TYP_FUNC_VALUE` types compares Identical, and similarly for `TYP_MANAGED_FUNC_VALUE`.  Downstream, IR-gen routes the call through the source's vtable signature while the type system thinks the value has the destination's signature — the result is silently wrong values (a body returning `int` consumed as `bool`, etc.) or worse on signature shapes that disagree on width or sret.
+- **Minimal repro**:
+  ```binate
+  package "main"
+  func main() {
+      var f @func(int) bool = func(x int) int { return x }
+      println(f(7))
+  }
+  ```
+  Type-checks cleanly (binate `da6eb9df`, current main).  Fails only at the linker because the test driver doesn't pull in `bootstrap.Write`; the bytecode VM happily dispatches and reads the int as a bool truth-value.
+- **Root cause**: `pkg/types/types_query.bn` `Type.Identical` has a proper branch for `TYP_FUNC` (lines 293–308 — compares param + result types) but NO branch for `TYP_FUNC_VALUE` or `TYP_MANAGED_FUNC_VALUE`.  Two values with the same `Kind` fall through to the catchall `return true` at line 332, so signature differences are erased.  `funcSignaturesMatch` (line 209) does the right structural compare but is only invoked from the `TYP_FUNC → TYP_*_FUNC_VALUE` assignability rule, not from `Identical`.
+- **Discovery**: 2026-05-30, while writing a B.3b commit-1 negative test
+  (`TestCheckFuncLitHintMismatchFallsThrough`) — the test was supposed
+  to assert that a `@func(int) bool` slot rejects a `func(int) int`
+  literal.  The assignment was accepted; tracing the path through
+  `checkVarDecl` → `AssignableTo` → `Identical` exposed the
+  `TYP_FUNC_VALUE` fallthrough.
+- **Why CRITICAL**: silent wrong-code generation across every backend.  Any caller that assigns one `*func` / `@func` to another with a different signature gets a vtable.call dispatch that doesn't match the static type.  The bug pre-dates B.3b (the assignability rule for `TYP_FUNC → TYP_FUNC_VALUE` walks param/result types via `funcSignaturesMatch`, but the literal-resolution path that B.3b's commit 1 added only happens to expose it more frequently — the same shape was reachable via, e.g., `var f *func(int) bool = some_pfunc_int_int_var` before).
+- **Proper fix**: in `Type.Identical`, before the catchall return, add:
+  ```binate
+  if a.Kind == TYP_FUNC_VALUE || a.Kind == TYP_MANAGED_FUNC_VALUE {
+      if len(a.Params) != len(b.Params) { return false }
+      if len(a.Results) != len(b.Results) { return false }
+      for i := 0; i < len(a.Params); i++ {
+          if !a.Params[i].Type.Identical(b.Params[i].Type) { return false }
+      }
+      for i := 0; i < len(a.Results); i++ {
+          if !a.Results[i].Identical(b.Results[i]) { return false }
+      }
+      return true
+  }
+  ```
+  Likely also worth folding the `TYP_FUNC` branch and the new function-value branch into one shared helper — both do the same structural compare.
+- **Test to pin the fix** (deferred until the user decides whether
+  to do the fix as a standalone change or in-line with B.3b
+  commit 2):
+  ```binate
+  func TestCheckFuncLitHintMismatchFallsThrough() testing.TestResult {
+      var cb buf.CharBuf = buf.New()
+      cb = cb.WriteStr(
+          "package \"test\"\n"
+          "func main() {\n"
+          "  var f @func(int) bool = func(x int) int { return x }\n"
+          "  _ = f\n"
+          "}\n")
+      var c @Checker = checkSrc(cb.Bytes())
+      return expectError(c)
+  }
+  ```
+  Lives in `pkg/types/check_func_lit_test.bn`.  Removed from the
+  initial B.3b commit-1 landing because it failed and would have
+  blocked the unit-test suite.
+
 ### codegen omits `byval` on >16-byte struct params — cross-pkg ABI miscompile
 - **Symptom**: cross-package call where the callee is LLVM-compiled
   and the caller is native (or vice-versa) and the signature includes
