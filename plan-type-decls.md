@@ -78,7 +78,7 @@ zero-initialize the type.
   d.TypeRef.Kind == ast.TEXPR_STRUCT`), so no IR-gen change was
   needed for Phase 3a.
 
-### Phase 3b: cross-package opaque-handle export — DEFERRED
+### Phase 3b: cross-package opaque-handle export — DEFERRED (resume after Phase 4)
 
 The forward-decl + body pattern still doesn't work cross-package
 because of a signature/body type-resolution split:
@@ -116,19 +116,42 @@ Two possible fixes (pick one when Phase 3b resumes):
 
 Tracked here so a future return-to-Phase-3b knows the shape.
 
-### Phase 4: cleanup (incremental, future commits)
+### Phase 4: cleanup (incremental) — DONE 2026-05-29
 
-Each currently-duplicated struct gets converted to ONE of the three
-forms above:
+All previously-duplicated struct (and one type-alias) declarations
+have been migrated to single-source-of-truth `.bni`-only canonical
+form.  Each migration was a small per-package commit:
 
-- `pkg/native/common::CallConv` etc. — fully exported (used as
-  values across the .bni boundary).  Move to `.bni`-only.
-- `pkg/rt::ManagedSlice` — same.
-- Anything used only in-package via the impl file — `.bn`-only.
-- Anything currently exposed via `*T` but where callers shouldn't
-  peek (e.g. parser internals?) — forward-decl + `.bn` body.
+- `f3447cba` pkg/native/common: CallConv + RegMap
+- `0c7d93d8` pkg/rt: ManagedSlice
+- `e8f27e07` pkg/ir: AliasMapSnapshot
+- `c9308b16` pkg/builtins/testing: TestResult
 
-Cleanup happens package-by-package post-Phase 3.
+Other packages (pkg/buf, pkg/loader, pkg/token, pkg/asm, pkg/vm,
+pkg/ast, etc.) had no actual `.bni` + `.bn` struct-definition
+duplicates at the time of survey — earlier cleanups had already
+moved them to canonical form, or the parallel pkg-layout-spec
+work shifted things in flight.
+
+A re-survey confirms zero remaining type-decl duplicates.
+
+### Phase 5: flip warning to error — LANDED with Phase 4 finish
+
+With no duplicates remaining in the tree, the Phase 2 warning
+path on mismatched bni/bn definitions can flip to a hard error.
+The `addCheckWarning` call sites in `pkg/types/check_decl.bn`'s
+struct- and named-type duplicate paths now route to
+`addCheckError` instead.  Same-shape duplicates remain silently
+deduplicated (the loader prepends .bni decls into .bn during
+file merge, so the same shape reaches collectTypeDecl twice and
+must be benign).
+
+Resumes the original Stage-4-style silent-miscompile shape
+(`type S struct {a, b}` in .bni + `type S struct {a, b, c}` in
+.bn) as a hard error: any future re-introduction of mismatched
+duplicates fails type-checking instead of slipping through.
+
+### Phase 3b: cross-package opaque-handle export — DEFERRED (resume now that Phase 4+5 are done)
 
 ## Open design questions
 
