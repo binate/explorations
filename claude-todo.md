@@ -215,7 +215,14 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Tests covering it**: the three failing unit tests above are the regressions.  A targeted IR-gen test would also help (e.g. `TestGenIntLit2Pow62InInt64Context` asserting the OP_CONST_INT carries Width=64).  No conformance test yet for the unary-minus shape — should add one.
 - **Proper fix (chosen, option 2)**: in `genExprInner` `EXPR_INT_LIT`, when the type checker has resolved the literal to a concrete typed-int (`TYP_INT` with `Width > 0`) wider than the host word, emit `EmitConstInt64(v, resolvedTyp)` instead of `EmitConstInt64(v, TypUntypedInt())`.  Closes the structural hole more broadly than the narrower "peek through unary-minus in `genIntLitWithHint`" alternative — also covers binop operands, return values, and any other typed context where a too-wide-for-host-int literal appears without explicit cast/var hint.
 
-### macOS aa64-comp_native_aa64: duplicate destructor-vtable symbol across package boundary
+### ~~macOS aa64-comp_native_aa64: duplicate destructor-vtable symbol across package boundary~~ — FIXED 2026-05-29 (binate `94b75294`)
+- **Final fix**: two-part change to ir + native/aa64.  See commit message for the full reasoning.  Short version:
+  - **ir**: `gen_dtor_emit.bn` / `gen_copy_emit.bn` pass-3 now mirrors pass-2's cross-package gate.  Consumer-side dtor/copy generation for cross-package struct types is replaced with `declareExternDtor` / `declareExternCopy` (via `funcAlreadyDeclared` dedup), so the consumer-side wrong-named duplicate (`__dtor_pkg/X.T` mangled `bn___dtor_pkg__X__T`) stops being emitted.
+  - **native/aa64**: `collectFuncValueRefs` gets a pre-pass that adds every locally-defined IsLinkOnce function to `seen[]` regardless of OP_FUNC_HANDLE references — so the defining TU always emits `__vt`/`__handle`/`__shim`.  `lookupFuncValueTypeAA64` gets an `IsExtern { continue }` gate so consumer TUs skip emitting triplets for cross-package handles (defining TU resolves them at link).
+- **Result**: macOS aa64 self-host sweep (builder-comp_native_aa64-comp_native_aa64): 33/1 (was 14 failures).  Remaining failure is pkg/vm's TestEvalFloatArith64 / TestEvalFloatCmp64 — a pre-existing aa64 float-codegen issue unrelated to dtor-vt.
+- **LLVM-side unchanged**: clang's `weak_odr` already dedups via `__DATA,__datacoal_nt` + `S_COALESCED` so pkg/codegen doesn't need either piece.
+
+### ~~OLD DIAGNOSIS (kept for reference)~~
 - **Symptom**: link failure for every package downstream of `pkg/asm` under the `builder-comp_native_aa64-comp_native_aa64` mode on macOS:
   ```
   duplicate symbol '_bn_pkg__asm____dtor_Assembler__vt' in:
