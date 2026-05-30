@@ -244,28 +244,32 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Tests covering it**: the silent crash itself is the regression — the existing 153 pkg/vm unit tests all run on amd64 and would expose the arm32 crash if reached.  A focused codegen test would help: assert the arm32 sret/non-sret threshold matches LP64's at the IR level for aggregates ≤ register-pair (which on arm32 = 8 bytes).
 - **Proposed fix**: re-examine `5331235e`'s sret threshold logic to ensure arm32 honours its ABI's smaller register-pair budget (vs. LP64's 16-byte pair).  A "universal sret for >16 bytes" rule applied verbatim across targets won't match arm32's AAPCS (4-byte word, 2-register max for return-by-value scalars, ≥8 bytes goes via sret already).  Alternatively: revert `5331235e` and apply the change per-backend.
 
-### Native closure shim: incoming user-args > 5 words still tail-jumps (FALL-BACK)
-- **Symptom**: when a capturing closure's user-arg list spills
-  past the 5-word incoming GP budget (5 = 6 SysV GP arg regs − 1
-  for the data slot in RDI), the x64 shim falls back to plain
-  JMP, which doesn't actually move any args.  The body would
-  receive wrong arguments at runtime.  Current conformance tests
-  don't exercise this — closures with > 5 incoming user-arg
-  words are rare in practice — so the bug is latent.
-- **Where**: `pkg/native/x64/x64_closure_shim.bn`
-  `emitClosureShim_x64` — the `if nUserWords > 5` early return.
-  The aa64 shim has a similar limit (`captureWords + nUserWords
-  > 8`) but its register budget is wider (X0..X7), so the
-  practical hit point is later.
-- **Fix direction**: extend the stack-spill path to also read
-  incoming stack user-args.  At shim entry, stack user-args
-  live at `[RSP + 8 + k*8]` (above the return address).  After
-  `SUB RSP, rspDelta`, they live at `[RSP + rspDelta + 8 + k*8]`.
-  For each user-arg word that doesn't fit in incoming GP regs,
-  read from there via RAX shuttle, write to outgoing position
-  (reg or stack).
-- **Why deferred**: closures with > 5 user-arg words aren't a
-  near-term goal; the typical Phase-2 closure has 0–3 user-args.
+### aa64 closure shim: outgoing user-args don't yet stack-spill when captures fill X0..X7
+- **Symptom**: a closure whose total outgoing-arg word count
+  exceeds 8 (e.g., two `@[]T` captures (4+4 words) plus a
+  single user `int` (1 word) = 9 words) falls back to plain
+  `B underlying` on aarch64.  Captures land in X0..X7 fine; the
+  user-arg never gets written to its outgoing stack slot, and
+  the underlying body reads garbage from `[SP+0]`.  Pinned by
+  the 3rd block of `conformance/510_capture_managed_slice`
+  (xfailed on `builder-comp_native_aa64`).
+- **Where**: `pkg/native/aarch64/aarch64_closure_shim.bn`
+  `emitClosureShim` — the `if captureWords + nUserWords > 8`
+  fast-path fallback.
+- **Fix direction**: mirror what `emitClosureShimStackSpill_x64`
+  does — use `common.AAPCS64()`'s `CallArgRegStart` /
+  `CallArgStackOff` to plan the outgoing call, `SUB SP, sp,
+  #stkBytes`, write stack-bound capture / user-arg words to
+  `[SP + ofs]` via a scratch register (X16 is the AAPCS
+  intra-call scratch, mirroring its use in
+  `pkg/native/aarch64/aarch64_call.bn`), load reg-bound
+  captures, `BL underlying`, `ADD SP, sp, #stkBytes`, `RET`.
+- **Symmetric x64 follow-up**: x64's `nUserWords > 5` check
+  is the same shape — when incoming user-args overflow the
+  5-word GP budget (RSI..R9 after RDI holds data), the x64
+  shim falls back to JMP without moving args.  Same fix
+  outline plus reading from `[RSP + rspDelta + 8 + k*8]` for
+  each incoming-stack user-arg word.
 
 
 ### Demote raw-slice escape check from type error to linter rule
