@@ -84,29 +84,56 @@ language-defined interfaces + universe-primitive impls package).
 
 Frees the `pkg/std` name for tier 1.
 
-## Step 4 — `pkg/rt` → `pkg/builtins/rt`
+## Step 4 — `pkg/rt` → `pkg/builtins/rt`  *(held until Step 7)*
 
-Same shape of work as Step 3.
+The same shape of work as Step 3, but **cannot land before a new
+BUILDER tarball is cut** (Step 7). The current BUILDER's compiled-in
+codegen emits hardcoded `bn_pkg__rt__*` call-site string literals
+(e.g. `out.WriteStr("call ... @bn_pkg__rt__Alloc(...)")` in
+`pkg/codegen/emit_*.bn`). When BUILDER directly compiles a program
+that imports `"pkg/builtins/rt"` (the new path), the declarations get
+mangled from the new path (`bn_pkg__builtins__rt__Alloc`) while the
+call sites still emit OLD names — clang errors with "use of
+undefined value '@bn_pkg__rt__Alloc'".
+
+This is masked for gen1-routed builds (conformance, unit tests)
+because gen1 is built FROM CURRENT source — once compiled, its NEW
+codegen emits NEW names consistently. But direct-BUILDER builds
+(`scripts/build-bni.sh`, `e2e/repl.sh`) hit the mismatch.
+
+When this step is taken up, the mechanical work is:
 
 - `pkg/rt.bni` → `pkg/builtins/rt.bni`.
 - `pkg/rt/` → `pkg/builtins/rt/`.
+- `runtime/baremetal_arm32/pkg/rt/` →
+  `runtime/baremetal_arm32/pkg/builtins/rt/` (path-shadow that the
+  arm32-baremetal target relies on).
 - `import "pkg/rt"` → `import "pkg/builtins/rt"` everywhere.
-- Symbol literals in C runtime / native backends:
-  `bn_pkg__rt__…` → `bn_pkg__builtins__rt__…`. Higher-volume than
-  Step 3 — `rt` is referenced from compiler-emitted code (`pkg/ir`'s
-  runtime manifest, inline refcount ops, etc.). Grep:
+- Symbol literals tree-wide: `pkg__rt__…` → `pkg__builtins__rt__…`
+  (covers `bn_pkg__rt__…` globals, internal mangler intermediates,
+  test pins). Grep:
 
   ```sh
-  grep -rn 'bn_pkg__rt__\|bn_pkg__rt\b' .
+  grep -rn 'pkg__rt__\|"pkg/rt' .
   ```
 
-  Several call sites are computed at codegen time via the mangler;
-  those carry through automatically. The hand-written ones in
-  `runtime/binate_runtime.c` and native-backend symbol emit need
-  updates.
+- Executable name-equality strings: `"pkg/rt._call_dtor"` /
+  `_call_free_fn` / `_call_shim_scalar` / `_call_shim_aggregate`
+  (special-case lookups in `pkg/ir/gen_call.bn`) and
+  `"pkg/rt.Refcount"` (in `pkg/ir/gen_dtor_emit.bn`).
+- `cmd/bnc/util.bn`'s synthesized import-path string
+  (`imp.Path = "\"pkg/rt\""`).
+- Whitelist updates in `scripts/hygiene/conformance-imports.sh`
+  (`ALLOWED_REAL`), `scripts/hygiene/naming.whitelist`, and
+  `scripts/hygiene/test-coverage.whitelist`.
 
-After Step 4, all current tier-0 / 0b content lives under
-`pkg/builtins/`.
+After Step 4 (when it eventually lands), all current tier-0 / 0b
+content lives under `pkg/builtins/`.
+
+A parked WIP commit on the `park-step4` branch carries this work
+already done, against the source tree as it stood post-Step-3 — pick
+it up after Step 7 ships a BUILDER built from a tree with the
+rename applied.
 
 ## Step 5 — Move tier-2 packages under `pkg/binate/`
 
@@ -114,24 +141,34 @@ The bulk of the diff. Candidates (verify each is tier 2 — most are
 the embeddable-interpreter dependency closure):
 
 ```
-pkg/asm                  → pkg/binate/asm
-pkg/asm/*                → pkg/binate/asm/*
-pkg/ast                  → pkg/binate/ast
-pkg/buf                  → pkg/binate/buf
-pkg/codegen              → pkg/binate/codegen
-pkg/debug                → pkg/binate/debug
-pkg/ir                   → pkg/binate/ir
-pkg/lexer                → pkg/binate/lexer
-pkg/lint                 → pkg/binate/lint
-pkg/loader               → pkg/binate/loader
-pkg/mangle               → pkg/binate/mangle
-pkg/native               → pkg/binate/native
-pkg/native/*             → pkg/binate/native/*
-pkg/parser               → pkg/binate/parser
-pkg/token                → pkg/binate/token
-pkg/types                → pkg/binate/types
-pkg/vm                   → pkg/binate/vm
+pkg/asm                  → pkg/binate/asm           (safe pre-BUILDER)
+pkg/asm/*                → pkg/binate/asm/*         (safe)
+pkg/ast                  → pkg/binate/ast           (safe)
+pkg/buf                  → pkg/binate/buf           (safe)
+pkg/codegen              → pkg/binate/codegen       (safe)
+pkg/debug                → pkg/binate/debug         (safe)
+pkg/ir                   → pkg/binate/ir            (safe)
+pkg/lexer                → pkg/binate/lexer         (safe)
+pkg/lint                 → pkg/binate/lint          (safe)
+pkg/loader               → pkg/binate/loader        (safe)
+pkg/mangle               → pkg/binate/mangle        (safe)
+pkg/native               → pkg/binate/native        (safe)
+pkg/native/*             → pkg/binate/native/*      (safe)
+pkg/parser               → pkg/binate/parser        (safe)
+pkg/token                → pkg/binate/token         (safe)
+pkg/types                → pkg/binate/types         (safe)
+pkg/vm                   → pkg/binate/vm   *(hold for Step 7)*
 ```
+
+The (safe) packages have **no production-code hardcoded mangled-name
+references**, so the move only changes mangler-derived symbols
+which carry through automatically. The exception is `pkg/vm`:
+`pkg/codegen/emit_funcvals.bn`'s `isUniversalTrampoline` check
+hardcodes `"bn_pkg__vm__TrampolineScalar"` and `"…Aggregate"`.
+BUILDER's compiled-in copy still tests the OLD names; if we move
+pkg/vm before BUILDER is re-cut, BUILDER-direct builds of cmd/bni
+would silently wrap universal trampolines in `__shim` (wrong
+codegen). Pkg/vm joins Step 4 in the held-for-Step-7 queue.
 
 **Per-package commit** (recommended over big-bang to preserve
 bisectability):
