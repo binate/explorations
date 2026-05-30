@@ -6,6 +6,54 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### codegen omits `byval` on >16-byte struct params — cross-pkg ABI miscompile
+- **Symptom**: cross-package call where the callee is LLVM-compiled
+  and the caller is native (or vice-versa) and the signature includes
+  a >16-byte struct param by value: callee reads the struct from the
+  wrong place, returns wrong answer (or segfaults).  Currently visible
+  as conformance failures 331 / 337 / 411 on
+  `builder-comp_native_x64_darwin`.  On aa64 the same root cause is
+  latent — the native backend currently *matches* LLVM's non-textbook
+  emission (SplitAggregates=true) so aa64 conformance is green, but
+  that match is to a non-textbook ABI, not the spec.
+- **Discovery**: 2026-05-29, while investigating remaining x64-darwin
+  conformance failures after the float-lowering work landed.  Verified
+  empirically by compiling a minimal C file with the same struct shape
+  via clang `-target x86_64-apple-darwin` and comparing the emitted IR
+  + asm to binate's.  GCC would produce identical x86_64 asm (textbook
+  SysV — entire >16-byte struct on caller's outgoing-stack).
+- **Root cause**: clang emits `ptr byval(%struct.T) align 8` for
+  >16-byte struct params; that attribute tells LLVM to lower per the
+  target's textbook calling convention (MEMORY-on-stack for SysV,
+  indirect-pointer-pass for AAPCS).  Binate's codegen never emits
+  `byval` (zero matches across `pkg/codegen/`).  Without `byval`,
+  LLVM falls back to IR-level struct-value rules — on x86_64 it
+  decomposes the struct into separate i64 args (the `RDX/RCX/R8/R9 +
+  stack…` spread we observe); on AAPCS64 it splits across X regs +
+  stack.  GCC, clang, and every other C compiler emit `byval`.
+  Binate is the outlier; native backends are forced to match the
+  outlier convention.
+- **Proper fix**: see [`plan-codegen-byval.md`](plan-codegen-byval.md).
+  Emit `ptr byval(<T>) align 8` for >16-byte aggregate params in
+  declarations, definitions, and all call-site emitters
+  (`pkg/codegen/emit_call.bn`, `emit_call_handle.bn`,
+  `emit_call_indirect.bn`, plus iface vtable shims).  Update
+  `pkg/ir/gen_func.bn`'s function-entry to skip the alloca + store
+  for byval params (use the byval pointer directly as the field-
+  access base).  Switch aa64 native aggregate-arg path from split-
+  passing to indirect-pointer-pass to match the new emission;
+  rewrite `common_callconv.bn` AAPCS64 config + the ~5 tests pinning
+  the current shape.  X64 native is already textbook-compatible
+  (`SplitAggregates=false` matches byval-SysV).  Estimated 600-1000
+  LOC across ~15 files, must land atomically (any non-atomic landing
+  breaks one arch's conformance mid-flight).
+- **Workaround NOT in place**.  The 3 failing conformance tests
+  (331, 337, 411) remain failing on x64-darwin.  A band-aid would be
+  to flip `SysV.SplitAggregates=true` in `common_callconv.bn` so x64
+  matches LLVM's non-byval emission the way aa64 does (~20 LOC).
+  That trades textbook correctness for unblocking the conformance
+  failures; the root fix is preferable when bandwidth allows.
+
 ### Type definitions duplicated between `.bni` and `.bn` — silent miscompile on mismatch
 - **Symptom**: when a struct is declared in `pkg/foo.bni` AND in
   `pkg/foo/foo.bn` with DIFFERENT field lists, the compiler accepts
