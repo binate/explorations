@@ -240,112 +240,36 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Tests covering it**: the silent crash itself is the regression — the existing 153 pkg/vm unit tests all run on amd64 and would expose the arm32 crash if reached.  A focused codegen test would help: assert the arm32 sret/non-sret threshold matches LP64's at the IR level for aggregates ≤ register-pair (which on arm32 = 8 bytes).
 - **Proposed fix**: re-examine `5331235e`'s sret threshold logic to ensure arm32 honours its ABI's smaller register-pair budget (vs. LP64's 16-byte pair).  A "universal sret for >16 bytes" rule applied verbatim across targets won't match arm32's AAPCS (4-byte word, 2-register max for return-by-value scalars, ≥8 bytes goes via sret already).  Alternatively: revert `5331235e` and apply the change per-backend.
 
-### B.2 closure body: field access through captured pointer reads 0 instead of the real field
-- **Symptom**: a closure that captures `p *T` or `b @T` and reads
-  `p.N` / `b.N` in its body returns 0 (or a default-init value)
-  instead of the real field.  The captured pointer itself round-
-  trips correctly — passing it to a helper that does the field
-  access works.
-- **Minimal reproducer (LLVM mode, fails the same way on VM /
-  native)**:
-  ```binate
-  type Box struct { N int }
-  func main() {
-      var b Box
-      b.N = 7
-      var p *Box = &b
-      var f *func() int = func() int { return p.N }
-      println(f())   // expected 7, got 0
-  }
-  ```
-- **Pass-through path works** — this distinguishes "capture
-  storage" from "body field access":
-  ```binate
-  func read(p *Box) int { return p.N }
-  ...
-  var f *func() int = func() int { return read(p) }  // works
-  ```
-- **Discovery**: 2026-05-28, while starting B.3 (managed
-  captures).  Confirmed that the same bug hits *T captures —
-  it's not specific to @T or to B.3; just B.2's existing path
-  that test 501 didn't exercise (501 uses int captures with
-  arithmetic-only bodies, never field-access-through-captured-
-  pointer).
-- **Root-cause hypothesis (unconfirmed)**: in the lifted closure
-  body, `p` is a prepended capture-as-param.  `genSelector`'s
-  raw-ptr-to-struct branch (gen_selector.bn:46) reads
-  `lookupVarType(ctx, e.X.Name)` then calls
-  `lookupStructIdx(structTyp.Name)` — likely one of these
-  returns wrong shape for the prepended-param `p`, sending the
-  access down a fall-through that loads garbage from offset 0
-  of the alloca rather than dereferencing the pointer first.
-  Needs a print-trace through `genSelector` with a captured
-  `*Box` to confirm.
-- **Why it blocks B.3**: B.3 (CAP_MANAGED captures) makes the
-  same body-side access via `@T` — the bug surfaces in every
-  body that reads through a captured managed pointer.  Without
-  fixing this first, B.3's tests pass-compile but produce 0s
-  silently.
-- **Fix direction (sketch — would need to be verified)**: walk
-  through `genSelector` with the prepended-capture-param case in
-  mind; the most likely culprit is that the param's IR slot type
-  is `*T` (raw ptr) but the body's lookupVarType sees the
-  underlying alloca's pointee type (`T`) and misroutes.  Compare
-  against the working `read(p)` path which goes through
-  `genCall` → `genExpr(p)` (which loads correctly).
-
-### B.3 architecture sketch (lost in a `git checkout --` 2026-05-28; recreate from this)
-- **Goal**: managed-pointer captures for `*func` (B.3a), then
-  `@func` heap-allocation (B.3b).  Plan is `plan-function-
-  values-phase-2.md` B.3.
-- **B.3a approach (works on LLVM with all three pieces; not yet
-  proven E2E because of the B.2 latent bug above)**:
-  1. Remove the `CAP_MANAGED → bootstrap.Exit(1)` gate in
-     `gen_func_lit.bn` (and the parallel sketch in
-     `gen_method_value.bn`).
-  2. At the capture site, for each `CAP_MANAGED` capture: emit
-     `b.EmitRefInc(val)` (or `emitManagedSliceRefInc` for
-     `@[]T`, etc.) BEFORE the `EmitStore` into the closure
-     struct field.  Route via a small helper
-     `emitCaptureRefInc(ctx, b, val, t)` that switches on
-     `t.ResolveAlias().Kind`.
-  3. Register the closure struct in `moduleStructs` so
-     `generateDtors` synthesizes a dtor that walks its managed
-     fields:
-     ```binate
-     var ms ModuleStruct
-     ms.Name = closureStruct.Name
-     ms.Typ  = closureStruct
-     ms.Fields = closureStruct.Fields
-     moduleStructs = slices.Append[ModuleStruct](moduleStructs, ms)
-     ```
-     (Guard: skip if `!closureStruct.NeedsDestruction()` or
-     duplicate.)
-  4. Register the alloca'd closure pointer in `ctx.Vars` via
-     `defineVar(ctx, "__closure_local_<n>", closurePtr,
-     closureStruct)` so `emitDecForManagedLocals`'s frame-end
-     cleanup pass runs `emitStructDtor` on it — the synthesized
-     dtor RefDec's each managed field, balancing the
-     RefInc-on-capture from (2).
-- **B.3b (`@func` heap allocation) — sketch only, NOT
-  attempted**:
-  - When the literal's destination type is `@func(...)`, alloca
-    is replaced with `b.EmitMake(closureStruct)` — heap-
-    allocated managed pointer with a refcount header.
-  - The vtable's `dtor` slot (currently null in Phase 1) points
-    at the closure-struct dtor.  Backend shim emitters need to
-    populate it for closure vtables.
-  - The `@func`'s data slot holds the managed-pointer payload,
-    so refcount machinery for `@func` use-sites works through
-    the standard managed-pointer path.
-- **One thing the lost code got right that the recreation
-  should preserve**: `emitCaptureRefInc` had only the
-  `TYP_MANAGED_PTR` and `TYP_MANAGED_SLICE` branches wired —
-  `emitManagedIfaceValueRefInc` doesn't exist as a callable
-  helper in the current tree (the iface-value-RefInc lives
-  inside OP_IFACE_VALUE construction).  For B.3a the
-  iface-managed branch is unreachable through the type
-  checker's surface; for B.3b it'll need to be added.
+### B.3a-x64: closure shim doesn't yet stack-spill captures > AggregateInRegMax under SysV-AMD64
+- **Symptom**: a closure that captures `@[]T` (or any aggregate
+  whose `SizeOf > 16`) compiles fine and works on LLVM / aa64
+  native, but on `builder-comp_native_x64_darwin` the body reads
+  garbage from where the slice should be.  Pinned by
+  `conformance/510_capture_managed_slice` with the matching
+  `.xfail.builder-comp_native_x64_darwin-comp_native_x64_darwin`.
+- **Root cause**: SysV-AMD64 sets `AggregateInRegMax = 16` and
+  `SplitAggregates = false`, so the body's calling convention
+  passes any aggregate > 16 bytes ENTIRELY on the stack (NGRN
+  unchanged so later scalars can still take regs).  The current
+  `emitClosureShim_x64` only emits register loads — it doesn't
+  reserve outgoing-args stack space, write the capture-words
+  there, and CALL the underlying.  Net: the underlying reads
+  uninitialised stack and the body crashes on the first use
+  (the `@[]int` test sees `len == 0` and trips the bounds check).
+- **Fix direction**: thread the SysV ABI's argRegWordsStackWords
+  through the shim emitter (or its own classifier), reserve a
+  16-byte-aligned outgoing-args area at the SP, write any stack-
+  bound capture-word(s) to `[RSP + off]`, write any reg-bound
+  capture-word(s) to the right `argReg(NGRN..)`, shift user-args
+  into whatever GP slots remain, and switch from `JMP` to `CALL`
+  + `ADD RSP, <stkBytes>` + `RET` (or set up a proper tail call
+  with the stack rewound).  Mirror the planning logic in
+  `common_callconv.bn`'s `CallStackBytes` / `CallArgStackOff` so
+  the shim agrees with the body's prologue.
+- **aa64 unaffected**: AAPCS64 has `AggregateInRegMax = 64` and
+  `SplitAggregates = true`, so `@[]T` (32 bytes, 4 words) fits
+  wholly in X0..X3 — the current per-word capture-load loop is
+  correct.
 
 ### Demote raw-slice escape check from type error to linter rule
 - **Final diagnosis**: an unqualified EXPR_IDENT inside a
