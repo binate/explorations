@@ -67,15 +67,54 @@ zero-initialize the type.
   body provides the layout; callers see opaque type.
 - Symmetric rule for named-type (non-struct) declarations.
 
-### Phase 3: IR-gen
+### Phase 3a: forward-decl-safe bni loading — LANDED 2026-05-29 (binate `7a6af095`)
 
-- `gen_module.bn`'s struct registration: forward decls don't create
-  a `ModuleStruct` entry on their own — only the full-body decl
-  does.
-- When processing imports: forward decls in `.bni` are treated as
-  declarations only; the full body comes from the impl file.
-- The first-wins dedup at `gen_module.bn:174` becomes "exactly one
-  wins" — the type checker has already validated.
+- `pkg/types/bni_scope.bn::resolveTypeDeclInScope` short-circuits
+  on `d.IsForward`, leaving the TYP_NAMED placeholder's
+  Underlying nil rather than crashing on the nil TypeRef.
+- Forward decls in `.bni` no longer break cross-package loading.
+- `gen_module.bn`'s struct registration already skips forward
+  decls naturally (every site filters on `d.TypeRef != nil &&
+  d.TypeRef.Kind == ast.TEXPR_STRUCT`), so no IR-gen change was
+  needed for Phase 3a.
+
+### Phase 3b: cross-package opaque-handle export — DEFERRED
+
+The forward-decl + body pattern still doesn't work cross-package
+because of a signature/body type-resolution split:
+
+  ```binate
+  // pkg/handle.bni
+  type Handle
+  func New() *Handle
+
+  // pkg/handle/handle.bn
+  type Handle struct { value int }
+  func New() *Handle { var h Handle; return &h }
+  ```
+
+At callers: `*Handle` resolves to a pointer to the placeholder
+TYP_NAMED (no underlying) → emitted in LLVM as `ptr` (opaque).
+At impl: `*Handle` resolves to a pointer to the TYP_NAMED with
+the struct filled in → IR-gen emits as `*%bn_pkg__handle__Handle`
+(typed pointer).  The `define ... ptr @New(...)` declaration and
+the `ret %struct` body disagree, and clang rejects the module.
+
+Two possible fixes (pick one when Phase 3b resumes):
+
+1. Re-resolve signatures after the body fills in Underlying.
+   The signature would then see the full struct on both sides.
+   Loses the encapsulation benefit (callers see the full layout)
+   but matches the existing duplicated-struct pattern.
+
+2. Make pkg/codegen treat `*Opaque` and `*FullStruct` as
+   structurally interchangeable at function-signature time —
+   both emit as `ptr` (opaque pointer).  Preserves callers' view
+   of the opaque type but requires every emit-side use of the
+   struct-typed-pointer form to switch to `ptr`.  Bigger change,
+   more places to touch.
+
+Tracked here so a future return-to-Phase-3b knows the shape.
 
 ### Phase 4: cleanup (incremental, future commits)
 
