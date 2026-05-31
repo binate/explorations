@@ -199,32 +199,72 @@ dependency graph. Roughly:
 If the bulk-sed is reliable enough to do as one commit, that's also
 fine — but the per-package form makes CI failures localized.
 
-## Step 6 — Loader / runner / build-script updates
+## Step 6 — Build-script updates + tier-0 ifaces/impls split
 
-The new tier-0 trees need their own `-I` / `-L` entries:
+This step landed as three sub-commits.
 
-- Today: `-I $BINATE_DIR -L $BINATE_DIR` discovers everything from
-  `pkg/`.
-- After Steps 1-4: tier-0 ifaces+impls live under `ifaces/core/`
-  and `impls/core/{common,libc}/`. These need additional `-I` / `-L`
-  entries.
-- After Step 5: in-repo tier-2 lives at `pkg/binate/<X>` — still
-  discoverable with the existing `-I $BINATE_DIR -L $BINATE_DIR`.
+**6a — build-script `-I` / `-L` updates.**  Add `ifaces/core` and
+`impls/core/common` to every `-I` / `-L` flag pair (plus
+`ifaces/stdlib` and `impls/stdlib/common` for symmetry, even though
+those trees stay empty until tier-1 lands).  Loader supports
+colon-separated multi-root values per flag, so the pattern is
 
-Concrete touches:
+    -I "$BINATE_DIR:$BINATE_DIR/ifaces/core:$BINATE_DIR/ifaces/stdlib"
+    -L "$BINATE_DIR:$BINATE_DIR/impls/core/common:$BINATE_DIR/impls/stdlib/common"
 
-- `scripts/build-bnc.sh`, `scripts/build-bni.sh`, `scripts/build-bnas.sh`,
-  `scripts/build-bnlint.sh`: add tier-0 ifaces+impls roots to their
-  `-I` / `-L` invocations.
-- `scripts/fetch-builder.sh`: its `--lib` output expands from one
-  root to several; either change `--lib` to emit a multi-root string,
-  or grow new subcommands (`--ifaces`, `--impls-common`, …).
-  Update the build helpers in `scripts/lib/build-compilers.sh` and
-  the test runners in `scripts/unittest/` / `conformance/run.sh`
-  in lockstep.
+(and the BUILDER variants append `$BUILDER_LIB` or `$blib` to each
+list).  Touches `scripts/build-{bnc,bni,bnas,bnlint}.sh`,
+`scripts/lib/build-compilers.sh`,
+`scripts/{,hygiene}/{fetch-builder,lint}.sh`,
+`scripts/unittest/runners/*.sh`,
+`conformance/runners/*.sh`, `e2e/{repl,print-args,split-paths}.sh`.
 
-Do this step after Step 5 lands so the loader sees the new layout
-in one switch.
+This commit is a functional no-op (new roots resolve to empty
+directories); it just wires the search paths so the subsequent
+moves can land.
+
+**6b — `pkg/builtins/lang` into split layout.**  Move the canonical-
+impl carve-out:
+
+    pkg/builtins/lang.bni       → ifaces/core/pkg/builtins/lang.bni
+    pkg/builtins/lang/*.bn      → impls/core/common/pkg/builtins/lang/*.bn
+
+Also extends `scripts/unittest/run.sh` to walk
+`$BINATE_DIR/impls` (in addition to `pkg/` and `cmd/`) and strip
+the `impls/<tier>/<platform>/` prefix when computing each package's
+canonical name — without it, the test runner would report
+`pkg/builtins/lang` tests as `impls/core/common/pkg/builtins/lang`.
+
+Two further runner patterns were missed by 6a's sed and needed an
+extension pass: `-I "$compile_root" -L "$compile_root"` (gen1/gen2
+conformance runners) and `-I "$root:$BINATE_DIR" -L "$root:$BINATE_DIR"`
+(interp conformance runners).
+
+**6c — `pkg/builtins/testing` into split layout.**  Move the testing
+framework's tiny surface:
+
+    pkg/builtins/testing.bni                 → ifaces/core/pkg/builtins/testing.bni
+    pkg/builtins/testing/testing_test.bn     → impls/core/common/pkg/builtins/testing/testing_test.bn
+
+(`testing.bn` was deduped into the `.bni` earlier; the package
+has no impl source — only the framework's own self-test.)
+`pkg/builtins/` is now empty under `pkg/` and removed.
+
+After 6c, all tier-0 / 0b content lives under `ifaces/core/` +
+`impls/core/common/`.  `pkg/builtins/rt` remains parked in `pkg/rt`
+(Step 4) until a new BUILDER tarball is cut (Step 7); when Step 4
+resumes it'll land directly into `ifaces/core/pkg/builtins/rt.bni`
++ `impls/core/{common,libc}/pkg/builtins/rt/` rather than going
+through `pkg/builtins/rt`.
+
+**Deferred to Step 7**: `scripts/fetch-builder.sh`'s `--lib` output.
+The current BUILDER bundle (`bnc-0.0.4`) still has the OLD pre-rename
+layout under `bundle/lib/pkg/`, and the build scripts include
+`$BUILDER_LIB` in the search-root list verbatim.  Once a new BUILDER
+ships with the split layout, `--lib` will either expand to a colon
+list of root paths or grow `--ifaces` / `--impls-common` subcommands,
+and every consumer flips in lockstep.  Defer until that release
+cuts.
 
 ## Step 7 — BUILDER tarball shape
 
@@ -244,6 +284,23 @@ content (separate effort).
 staging the bundle; the per-platform matrix entries need to know
 which `impls/<platform>/` subtree to include. `scripts/fetch-builder.sh`
 consumers need to handle the new layout on download.
+
+**Held work that resumes here**: this is also the gate for the
+two BUILDER-skewed moves parked from earlier steps.
+
+- **Step 4 — `pkg/rt` → `pkg/builtins/rt`** (parked on the
+  `park-step4` worktree branch).  Once Step 7 ships a BUILDER
+  compiled from a tree that has `bn_pkg__builtins__rt__…` baked
+  into its codegen string literals, Step 4 can land — and should
+  go straight into `ifaces/core/pkg/builtins/rt.bni` +
+  `impls/core/{common,libc}/pkg/builtins/rt/` (split-tree form)
+  rather than first going through `pkg/builtins/rt`.
+- **Step 5b — `pkg/vm` → `pkg/binate/vm`**.  Held alongside Step 4
+  because `pkg/codegen/emit_funcvals.bn`'s `isUniversalTrampoline`
+  hardcodes `"bn_pkg__vm__TrampolineScalar"` / `"…Aggregate"`, and
+  BUILDER's compiled-in copy still tests the OLD names.  After
+  Step 7 the new BUILDER's check matches the new mangled names
+  and the move is safe.
 
 Defer until the next release cuts.
 
