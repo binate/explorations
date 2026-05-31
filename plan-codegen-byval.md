@@ -1,6 +1,27 @@
 # Plan: codegen `byval` for >16-byte struct params
 
-**Status**: design / not started
+**Status**: LANDED 2026-05-30 — binate `f5340fac` + `8ba29d11`.
+Implementation diverges from the plan below on one key point: the
+emitted LLVM IR uses a plain `ptr` type (no `byval` attribute), not
+`ptr byval(<T>) align 8`.  Empirically tested: LLVM AArch64's
+`byval` lowering lays the struct on the caller stack (like SysV-
+byval), NOT the pointer-in-reg-indirect form clang picks for the
+plain `ptr` shape at the frontend.  Emitting plain `ptr` gets the
+indirect-pointer-pass on BOTH targets — matching the
+IndirectLargeAggregates path the native backends now take.  Caller-
+side alloca + memcpy is in the call's preamble
+(`writeByvalArgPreamble`) and OP_STORE's byval-param branch
+(`IsByvalParamRef` flag → emit `llvm.memcpy` from byval pointer to
+the slot alloca).
+
+x64-darwin conformance was 432 → 438 / 438 = 100%.  aa64 unchanged
+at 437 / 437 = 100%.  The original problem statement below is left
+for historical context; the "Fix shape" section is what actually
+shipped modulo the byval-vs-plain-ptr substitution.
+
+---
+
+**Original status (pre-implementation)**: design / not started
 **Tracks**: claude-todo CRITICAL entry "codegen omits byval on struct params"
 **Blocks**: x64-darwin conformance tests 331, 337, 411 (LLVM-vs-native cross-pkg ABI mismatch)
 

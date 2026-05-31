@@ -6,16 +6,34 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
-### codegen omits `byval` on >16-byte struct params — cross-pkg ABI miscompile
+### ~~codegen omits `byval` on >16-byte struct params — cross-pkg ABI miscompile~~ — FIXED 2026-05-30 (binate `f5340fac` + `8ba29d11`)
+- **Final fix**: emit a plain `ptr` (NO `byval` attribute) for
+  >16-byte aggregate params in pkg/codegen — both arches' LLVM
+  lowering then treats it as "pointer in next free GP arg reg",
+  uniformly matching the indirect-pointer-pass semantics native
+  backends now implement.  The plan doc proposed `ptr byval(<T>)`,
+  but verifying empirically showed LLVM's `byval` lowering on
+  AArch64 lays the struct on the caller stack (matching the
+  SysV-byval shape), not the pointer-in-reg-indirect shape clang
+  picks for AAPCS at the frontend.  Plain `ptr` gets the desired
+  indirect-pointer-pass on BOTH targets.  Caller-side alloca +
+  memcpy lives in the call's preamble (`writeByvalArgPreamble`).
+  Native common gained `IndirectLargeAggregates` flag (true for
+  AAPCS64 / AAPCS64_Darwin / SysV-AMD64); pkg/native/x64 also
+  needed a separate sret-shift fix in `emitCallIfaceMethod` (8ba29d11)
+  to place iv.data in RSI when the iface-dispatched callee returns
+  via sret.  Tests in common_callconv_test.bn / aarch64_call_test.bn
+  / x64_call_test.bn / x64_emit_func_test.bn updated to the new
+  shape; conformance 411 + 331 + 337 are the end-to-end pins.
 - **Symptom**: cross-package call where the callee is LLVM-compiled
   and the caller is native (or vice-versa) and the signature includes
   a >16-byte struct param by value: callee reads the struct from the
-  wrong place, returns wrong answer (or segfaults).  Currently visible
-  as conformance failures 331 / 337 / 411 on
-  `builder-comp_native_x64_darwin`.  On aa64 the same root cause is
-  latent — the native backend currently *matches* LLVM's non-textbook
-  emission (SplitAggregates=true) so aa64 conformance is green, but
-  that match is to a non-textbook ABI, not the spec.
+  wrong place, returns wrong answer (or segfaults).  Surfaced as
+  conformance failures 331 / 337 / 411 on
+  `builder-comp_native_x64_darwin`.  On aa64 the same root cause was
+  latent — the native backend *matched* LLVM's non-textbook
+  emission (SplitAggregates=true) so aa64 conformance was green, but
+  that match was to a non-textbook ABI, not the spec.
 - **Discovery**: 2026-05-29, while investigating remaining x64-darwin
   conformance failures after the float-lowering work landed.  Verified
   empirically by compiling a minimal C file with the same struct shape
