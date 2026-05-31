@@ -1,11 +1,17 @@
 # Plan: Function Values — Phase 2 (Closures + Method Values)
 
-> **Status: DRAFT (2026-05-27)** — design pass, not yet ratified.
+> **Status: LANDED (2026-05-31)** — B.1..B.6 all implemented.
 > Predecessor: [plan-function-values.md](plan-function-values.md)
 > §"Phase 2 — Closures + method values (DEFERRABLE)" + §"Capture
-> design — open". This document closes the open design questions
-> and slices the implementation into B.1..B.N. Phase 1 (A.1–A.7)
-> landed 2026-05-01 and is the substrate.
+> design — open". This document closed the open design questions
+> and sliced the implementation into B.1..B.6.  Phase 1 (A.1–A.7)
+> landed 2026-05-01; Phase 2 closed in a sequence of cherry-picks
+> through 2026-05-31.  See §"Implementation slices" for
+> per-slice landing pointers and known follow-ups.
+>
+> Single remaining xfail: capturing `@func` cleanup hangs on
+> `builder-comp_arm32_baremetal` (`conformance/515` xfail;
+> hypothesis-recorded in `claude-todo.md`).
 
 ## Why this plan exists separately
 
@@ -281,7 +287,7 @@ This matches the interface-value comparison story
 Mirroring Phase 1's A.1–A.7 cadence: each slice lands with
 conformance tests and unit tests, on a small, reviewable diff.
 
-### B.1 — Capture analysis in the type-checker
+### B.1 — Capture analysis in the type-checker — **LANDED**
 
 - Remove the "parent at package scope" reparenting in
   `checkFuncLit` (`pkg/types/check_func_lit.bn`). Use the
@@ -299,91 +305,131 @@ conformance tests and unit tests, on a small, reviewable diff.
   for the linter rule that replaces it.
 
 Tests:
-- conformance/3XX: basic by-value capture (read).
-- conformance/3XX: makeCounter pattern via `@int` capture.
-- conformance/3XX: writes inside closure don't escape.
-- Unit tests: capture-info attached to Decl with right kinds.
+- conformance/501_capture_value (basic CAP_VAL + CAP_RAW_PTR).
+- Unit tests in `pkg/types/check_capture_test.bn` and
+  `pkg/types/check_func_lit_test.bn`.
 
-### B.2 — Closure struct + dtor + call shim (non-managed only)
+### B.2 — Closure struct + dtor + call shim (non-managed only) — **LANDED**
 
-- New IR-gen pass: synthesize `__closure_<lit_id>`,
-  `__dtor_<lit_id>`, `__shim_<lit_id>` for each capturing
-  literal. (Apply only to literals with non-empty Captures;
-  empty-Captures literals stay on the Phase 1 path.)
-- Vtable instance now carries a real dtor pointer (vs Phase 1's
-  null).
-- Per-package state in `gen_func_lit.bn` extended to track the
-  set of generated closure types (for dedup across multiple
-  evaluations of the same literal).
-
-Tests:
-- conformance/3XX: `*func(...)` capturing only value-typed
-  locals; verify result; verify dtor is invoked at scope exit.
-
-### B.3 — Heap allocation for `@func(...)` capturing literals
-
-- IR-gen: when the literal's destination type is `@func(...)`,
-  emit a heap allocation of the closure struct and RefInc each
-  captured `@T` field into it. (Stack alloc for `*func(...)`,
-  per B.2.)
-- Hook the existing managed-allocation refcount infrastructure
-  (`gen_dtor*`, `RefDec`, `gen_util_refcount`) — the closure
-  struct is just a regular managed allocation.
+- IR-gen synthesises `__closure_<lit_id>`, the closure-struct
+  type whose fields back the captures; per-shape `__shim` in
+  each backend reads them out of the data pointer before
+  tail-calling the underlying.
+- Captures are prepended to the lifted body's params so the
+  body resolves their names through the normal local-name
+  mechanism (no special capture-load IR ops needed).
+- Latent bug discovered and fixed mid-B.3 work: the type-
+  checker's view of `*Box` is `TYP_POINTER → TYP_NAMED("Box")`
+  but IR-gen's view is `TYP_POINTER → TYP_STRUCT`; the closure
+  body's `p.N` selector missed the `isRawPtrToStruct` branch
+  and fell through to the `EmitConstInt(0, …)` fallback.  Fix:
+  `resolveCaptureTypes` now looks up via the IR-gen scope so
+  prepended-capture params land shape-identical to non-captured
+  ones (binate `359c128c`).
 
 Tests:
-- conformance/3XX: `@func` returned from a function, called
-  after the caller's frame is gone, captures still live.
-- conformance/3XX: managed-pointer capture; verify pointee
-  outlives the closure correctly.
-- conformance/3XX: dtor runs at refcount=0 (observable via a
-  printf in a `@CapturedThing`'s dtor).
+- conformance/501_capture_value, 508_capture_ptr_field (by-value
+  struct field-read regression).
 
-### B.4 — Method values `x.M`
+### B.3 — Heap allocation for `@func(...)` capturing literals — **LANDED**
 
-- Type-checker: extend `checkSelectorExpr` to recognize a
-  Selector whose X resolves to a value (not a SYM_TYPE) and
-  whose member is a method — emit a function-value type without
-  the receiver in Params.
-- IR-gen: extend `gen_func_lit.bn` (or a sibling
-  `gen_method_value.bn`) to synthesize closure / shim / dtor
-  per method-value site. The closure struct holds exactly the
-  receiver in the captured form per the table above.
-- Three shim shapes (one per receiver-kind T / `*T` / `@T`),
-  one per method.
+Split into two commits:
 
-Tests:
-- conformance/3XX: method value with each receiver kind.
-- conformance/3XX: method value passed as `*func(...)` arg.
-- conformance/3XX: method value stored as `@func(...)`, escapes
-  the constructing scope.
-- conformance/3XX: error case `M` requires `@T` receiver but
-  user has only `T` / `*T`.
+- **B.3a** (binate `3e0d00c5`): managed captures for `*func`.
+  Each `CAP_MANAGED` capture RefInc's at the literal site;
+  closure struct is registered in `moduleStructs` so
+  `generateDtors` synthesises a struct-dtor that RefDec's each
+  managed field; closure-local registered in `ctx.Vars` so the
+  frame-end `emitDecForManagedLocals` invokes the dtor.
+- **B.3b commit 1** (binate `da6eb9df`): type-checker context
+  propagation via `Checker.ExpectedFVType` hint, so a literal
+  flowing into an `@func()` VarDecl slot resolves as
+  `TYP_MANAGED_FUNC_VALUE` instead of the default `*func`.
+- **B.3b commit 2** (binate `1c09b410`): IR-gen heap-allocates
+  the closure struct (`EmitMake` instead of `EmitAlloc`) when
+  the resolved type is `@func`; new `OP_FUNC_VALUE_DTOR` op +
+  `emitManagedFuncValueRefDec` drive the scope-end RefDec on
+  an `@func` variable's data slot; backend populates the
+  vtable's dtor slot with the closure-struct dtor symbol.
 
-### B.5 — Linter rules
+Native-shim follow-ups in the same series:
+- Stack-spill for SysV-AMD64 aggregate captures (binate
+  `85b37efa`).
+- Stack-spill for aa64 outgoing user-args (binate `fe33556e`).
+- Indirect-large pass-by-pointer (binate `40615a69`) once both
+  ABIs flipped to `IndirectLargeAggregates = true` in
+  `f5340fac`.
 
-- `*func(...)` capturing literal flowing into a slot that may
-  outlive the enclosing frame (returned, assigned to a global,
-  stored in an outliving struct field, etc.) → warn "capturing
-  raw function value may escape its enclosing frame; consider
-  `@func(...)` if the closure must outlive the frame." Best-
-  effort detection on the obvious patterns; does not claim
-  non-escape outside the warned cases.
-- `@func(...)` capturing `*T` (any raw-pointer capture, including
-  via the receiver of a method value) → warn "managed function
-  value captures raw pointer; lifetime is the caller's
-  responsibility."
+CRITICAL pre-existing bug discovered + fixed mid-B.3b: `Type.
+Identical` had no `TYP_FUNC_VALUE` / `TYP_MANAGED_FUNC_VALUE`
+branch, so any two same-kind func-values compared identical —
+silent wrong-code on signature mismatch.  Fixed by folding the
+existing `TYP_FUNC` branch with the value variants into a
+single structural compare (binate `12bbb548`).
 
 Tests:
-- `cmd/bnlint` test fixtures exercising each warn case.
+- conformance/509_capture_managed, 513_managed_func_value_
+  noncapture, 515_managed_func_value_capture (xfail on
+  builder-comp_arm32_baremetal pending cleanup-hang
+  investigation).
+- conformance/510_capture_managed_slice, 517_capture_split_
+  aggregate, 518_capture_small_aggregate (native shim coverage).
+- Unit tests in `pkg/binate/types/types_query_test.bn`
+  (`TestIdenticalFuncValues`).
 
-### B.6 — Documentation + cleanup
+### B.4 — Method values `x.M` — **LANDED**
 
-- Update `claude-notes.md` §"Closures" with a forward reference
-  to this plan.
-- Update `plan-function-values.md` Phase 2 status block.
-- Move retired open questions from plan-function-values.md
-  §"Open questions" into the §"Decided design" sections of this
-  doc (already done in this draft).
+- **First cut** (binate, included in the B.4 series): same-shape
+  receiver only — wrapper Func synthesised per (method,
+  receiver-shape) with `IsClosure=true` so the B.2 closure
+  machinery handles the per-shape shim.  Tests 503 / 505 / 506.
+- **@T receiver** (binate `131a00b0`): drops the
+  `isManagedReceiverType` gate, RefInc's the receiver, registers
+  the closure struct + closure-local for cleanup.  Also fixes a
+  latent naming bug — `methodValueWrapperName` carries dots which
+  `generateDtors` Pass 2 treats as a package qualifier;
+  `buildMethodValueClosureStruct` now folds dots to underscores
+  up front.
+- **Cross-shape smoothing** (binate `973d3ccd`): closure-struct
+  field, wrapper receiver param, and dedup key now reflect the
+  CAPTURED form (method's declared receiver type), not x's type.
+  `genCapturedRecv` bridges x → captured form: T→*T (address-of),
+  *T/@T→T (deref), @T→*T (bitcast), and the identical / fall-
+  through cases.
+
+Tests:
+- conformance/503_method_value, 505_method_value_val,
+  506_method_value_void, 511_method_value_managed,
+  519_method_value_smoothing (all 7 smoothing shapes covered).
+
+### B.5 — Linter rules — **LANDED**
+
+(binate `10d19369`, `8ae97c74`).  Two new rules in
+`pkg/binate/lint/func_value_escape.bn`:
+
+- `func-value-escape` — capturing `*func(...)` returned from
+  its enclosing function fires (closure struct is stack-bound
+  to the returning frame; captures will dangle).  Gated on
+  `TYP_FUNC_VALUE` so the `@func` path stays silent.
+  Currently dispatched from return statements only; non-return
+  escape paths (global assign, struct field, etc.) are
+  documented as "best effort" in the plan and can land as
+  follow-up.
+- `managed-func-raw-capture` — `@func(...)` capturing a
+  `CAP_RAW_PTR` fires per capture.  Walks via
+  `walkExprFuncLits` / `walkStmtFuncLits` so nested literals
+  are reached.
+
+Tests: 7 unit tests in `pkg/binate/lint/func_value_escape_
+test.bn`, covering positives + negatives for both rules and
+the nested-literal walker.
+
+### B.6 — Documentation + cleanup — **LANDED**
+
+This commit.  Plan doc + cross-references updated; per-slice
+landing pointers recorded above.  Open follow-ups left in
+`claude-todo.md` (arm32 @func cleanup hang; >5-incoming-user-
+arg shim spill on both native backends).
 
 ## Cross-references
 

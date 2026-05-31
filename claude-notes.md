@@ -982,6 +982,50 @@ type ReadWriter interface {
 - Converting child → parent interface: adjust vtable pointer by known fixed offset
 - Redundant `any` entries are acceptable (static data, negligible cost)
 
+### Function values & closures — IMPLEMENTED (2026-05-31)
+
+Two function-value flavours:
+- `*func(...)` — raw 2-word `{vtable, data}` value, 16 bytes.
+  Data slot is nil for non-capturing literals; for capturing
+  literals it points at a stack-alloca'd closure struct whose
+  lifetime is bound to the constructing frame.
+- `@func(...)` — managed 2-word value with the same layout but
+  refcount-managed data.  Capturing literals heap-allocate the
+  closure struct so the closure outlives its constructing
+  frame; cleanup runs via the vtable's dtor slot when the
+  `@func` variable's refcount hits zero.
+
+Captures are **always by value** (no capture lists, no by-
+reference) — writes inside the closure are local; writes to
+the source variable outside the closure, after construction,
+are not visible.  Shared mutable state is via a captured
+managed pointer (the `@count := make(int)` pattern).  See
+`claude-discussion-detailed-notes.md` §"Closures" for the
+rationale.
+
+**Method values** (`x.M`) bind a specific receiver instance to
+a method, producing a function value whose signature is the
+method's signature minus the receiver.  The receiver is
+captured in the form the method declares (not necessarily x's
+form); cross-shape smoothing applies:
+- `*T`-method called as `c.M` with `c:T` → captures `&c`.
+- `T`-method called as `cp.M` with `cp:*T` / `cp:@T` → captures
+  `*cp` (snapshot copy).
+- `*T`-method called as `bp.M` with `bp:@T` → captures the raw
+  pointer alias (linter warns).
+
+**Lifetime escape hatches**:
+- `*func(...)` capturing literal returned from its enclosing
+  function → lint warning `func-value-escape`.
+- `@func(...)` capturing a raw pointer → lint warning
+  `managed-func-raw-capture`.
+
+Cross-reference: [plan-function-values-phase-2.md](plan-
+function-values-phase-2.md) for the implementation slices
+B.1..B.6 (capture analysis, closure struct / dtor / shim,
+heap-alloc for `@func`, method values, linter rules, docs)
+and binate commit pointers per slice.
+
 ### Generics — DECIDED
 
 **Type parameters** on functions, structs, and interfaces:
