@@ -10,6 +10,48 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### @func capturing literal hangs on arm32-baremetal cleanup
+- **Symptom**: a `@func()` variable holding a capturing closure
+  prints all expected output, then hangs in scope-end cleanup —
+  qemu-system-arm hits the 10s timeout and the runner reports
+  failure.  Test output up to the cleanup is identical to LP64.
+  Pinned by `conformance/515_managed_func_value_capture` with
+  the matching `.xfail.builder-comp_arm32_baremetal`.
+- **What works**: every other mode (builder-comp / -int /
+  -comp-comp-comp / native_aa64 / native_x64_darwin) runs 515
+  cleanly.  All other 5xx tests pass on arm32_baremetal — only
+  @func with a `@T` capture exposes the hang.  *func capturing
+  literal + @T capture (509) is green on arm32; @[]T (510);
+  @T method values (511); non-capturing @func (513).
+- **What I tried before xfailing**: stripped 515 down to a
+  single `var b @Box = make(Box); b.N = 7; var f @func() int =
+  func() int { return b.N }; println(f())` — same hang.
+  Removed `b.N = 7` — same hang.  Replaced `@Box` with `int`
+  (no @T capture) — passes.  So the hang requires (a) @func
+  literal, (b) a CAP_MANAGED capture, (c) arm32-baremetal
+  target.
+- **Diff'd the arm32 vs LP64 LLVM IR**: only the expected
+  size differences (i64 → i32, refcount header at -16 → -8,
+  pointer widths).  The closure-struct dtor IR, the @func
+  RefDec emit (extract data, extract dtor, call
+  `ZeroRefDestroy`), the `OP_FUNC_VALUE_DTOR` lowering — all
+  structurally identical, just narrower.
+- **Hypotheses** (untested):
+  - The arm32 calling convention for the indirect
+    `_call_dtor(dtor, ptr)` may disagree with the closure-
+    struct dtor's `void(i8*)` signature in some way LP64
+    masks.
+  - `rt.ZeroRefDestroy` (BUILDER-compiled) may treat the
+    dtor function-pointer arg differently on arm32 — e.g.,
+    misclassifying as scalar-by-stack instead of register-
+    passed.
+  - The semihosting exit path may not flush before
+    cleanup, masking output of a fault that happens during
+    `Free` or `_call_dtor`.
+- **Next step**: add semihosting trace prints around
+  `ZeroRefDestroy` and the closure-struct dtor's entry /
+  exit to localise where the hang starts.
+
 ### ~~arm32_baremetal: pkg/native/{aarch64,x64} test binaries overflow `.bss` region~~ — FIXED 2026-05-30 (binate `b0c64b14`)
 - **Final fix**: combined option-(a) + xfail-manifest-rename:
   - `runtime/baremetal_arm32/baremetal.ld`'s `LENGTH` bumped from 8 MiB to 16 MiB — the runner already launched QEMU with `-m 16M`, so the linker was underusing available memory.  Both `.bss` overflows clear with headroom.
