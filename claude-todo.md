@@ -10,19 +10,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
-### pkg/binate/asm/macho + asm/parse: link-and-run tests assume host-arch == target-arch (x64-darwin unit-test fail)
-- **Symptom**: under `builder-comp_native_x64_darwin`, `pkg/binate/asm/macho` and `pkg/binate/asm/parse` test binaries fail multiple `TestLinkAndRun` / `TestParseAndRun` / `TestLoopSum` / etc. with `ld: warning: ignoring file '/tmp/binate_asm_link_test.o': found architecture 'arm64', required architecture 'x86_64'` followed by `Undefined symbols for architecture x86_64: "_main"`.  Tests assemble AArch64 instructions to an arm64 Mach-O .o, then invoke `cc` to link without `-arch arm64`; under x64-darwin the test binary runs as x86_64 (Rosetta on Apple Silicon), and cc inherits the parent's arch → defaults to x86_64 link target → arch mismatch.  Was masked by the dtor-vt collision (binate `daf51bf1`) blocking the test binary's link entirely; surfaced once that cleared.
-- **Discovery**: 2026-05-30, immediately after the dtor-vt fix landed; previously the failure mode was the dtor-vt symbol clash before any test ran.
-- **Root cause**: `canLinkAndRun()` in `macho_test.bn` (and equivalent in `aarch64_instr_test.bn`) only gates on otool being present (macOS detection) — doesn't check host arch.  Test code invokes `cc` without `-arch arm64`, so it follows the parent's arch.
-- **Fix direction**: pass `-arch arm64` explicitly to cc.  On Apple Silicon hosts this produces an arm64 binary that the kernel executes natively even from an x86_64 parent.  On real x86_64 Macs (no Apple Silicon) the arm64 binary couldn't run — but that's not a currently-tested host config.  Fallback: skip the run portion on non-aa64 hosts via a host-arch helper.
-- **Severity**: MAJOR — blocks 2 packages of the `builder-comp_native_x64_darwin` unit-test runner; doesn't affect CI (the mode is local-only) or actual binate compilation (no compiler bug, just test-driver assumption).
-
-### pkg/binate/native/aarch64 test binary crashes silently during TestBuildMethodFuncNameNative on x64-darwin
-- **Symptom**: under `builder-comp_native_x64_darwin`, `pkg/binate/native/aarch64`'s test binary runs many tests cleanly, prints `=== RUN   TestBuildMethodFuncNameNative`, then dies before printing the test's `--- PASS` / `--- FAIL` line and before the next `=== RUN`.  No core dump shown; runner records the package as FAIL.  `TestBuildMethodFuncNameNative` is a trivial pure-data test (string concat via `common.AppendStr` and a string compare) that has no business crashing — strongly suggests the issue is in the previous test's cleanup, in the testing harness, or in something host-arch-specific about the x86_64-under-Rosetta execution environment.  Was masked by the dtor-vt collision until binate `daf51bf1` cleared it.
-- **Discovery**: 2026-05-30, immediately after the dtor-vt fix landed.
-- **Root cause (unknown)**: needs investigation.  The preceding tests (TestImplVtableNameNative, TestImplVtableNameNativeCrossPkg) pass cleanly; the next test starts then disappears.  Could be: (a) a corrupt-state issue in test runner cleanup that's host-arch-sensitive; (b) a bug in `common.AppendStr` or its callers under x86_64-darwin Rosetta; (c) a Rosetta-specific behavior with the testing harness.
-- **Severity**: MAJOR — blocks 1 package of the `builder-comp_native_x64_darwin` unit-test runner; same scope caveat as the macho/parse entry (local-only mode, no CI impact).
-
 ### @func capturing literal hangs on arm32-baremetal cleanup
 - **Symptom**: a `@func()` variable holding a capturing closure
   prints all expected output, then hangs in scope-end cleanup —
