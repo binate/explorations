@@ -6,9 +6,73 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### Codegen emits per-type dtor vtable in every package that references the type — native-mode linker collides them
+- **Symptom**: linking multiple `pkg/<X>.o` files together (e.g. the
+  `builder-comp_native_*` unit-test runners that bundle every test
+  package into one binary) fails with `duplicate symbol
+  '_bn_pkg__asm____dtor_Assembler__vt'` (and similar `___dtor_<T>__vt`
+  globals).  Each `pkg/asm/<sub>` and `pkg/native/<sub>` that uses
+  `@Assembler` (as a parameter, field, etc.) emits a copy of
+  `__dtor_Assembler__vt`; the linker sees ≥ 2 strong definitions of
+  the same global and errors.  Reproduces under
+  `builder-comp_native_x64_darwin pkg/asm/<anything>` (7 failures)
+  and `builder-comp_native_x64_darwin pkg/native/<anything>` (4
+  failures).  Conformance is unaffected because conformance test
+  binaries link one main module + the runtime, not multiple
+  pkg-test object files.
+- **Discovery**: 2026-05-29, during the float-lowering work — added a
+  unit test to `pkg/asm/x64`, ran the
+  `builder-comp_native_x64_darwin` unit-test runner, hit
+  `duplicate symbol '_bn_pkg__asm____dtor_Assembler__vt' in:
+  pkg__asm.o ... pkg__asm__x64.o`.  Verified the failure exists on a
+  clean tree without any new code by removing my added files and
+  re-running — same error.  Runner's own comment acknowledges "most
+  packages fail to compile" in this mode, but that framing dates
+  back to "amd64 backend only lowers a subset of ops"; the actual
+  blocker today is this dtor-vtable duplication, not op coverage.
+- **Root cause (hypothesis)**: `pkg/codegen`'s dtor-vtable emission
+  generates `__dtor_<T>__vt` for every type whose dtor is *referenced*
+  in a package, instead of only for the type's *owning* package.
+  When pkg/asm defines `type Assembler struct { ... }` and pkg/asm/x64
+  imports pkg/asm and uses `@Assembler` (e.g. as a function param),
+  pkg/asm/x64 ALSO emits `_bn_pkg__asm____dtor_Assembler__vt` as a
+  strong global.  At link time both copies show up.  Should be: only
+  pkg/asm emits the strong global; downstream packages emit
+  `declare ... @_bn_pkg__asm____dtor_Assembler__vt` (extern) instead.
+- **Proper fix**: in `pkg/codegen` (the dtor-vtable emitter), track
+  per-vtable "is this type owned by THIS module?" and emit a strong
+  global only when yes; otherwise emit an extern declaration.  Owner
+  is determined by the type's defining package (`<T>.PkgPath` or
+  similar) matching the module's own package path.  Some plumbing
+  through emit_dtor_vtable / emit_impls already does this for
+  function-value vtables (`__vt.<...>` uses `weak_odr` so dupes are
+  benign); the dtor-vtable path apparently does not.  Alternative
+  band-aid: change the dtor-vtable emission to `weak_odr` so the
+  linker dedupes silently, matching the function-value-vtable shape;
+  smaller change but spreads the same byte sequence into every
+  consumer's .o.
+- **Blast radius**: blocks the `builder-comp_native_*` unit-test
+  runners (locally-runnable but currently in expected-fail mode);
+  doesn't block CI or conformance.  Surfaces immediately for anyone
+  trying to extend native-mode coverage to "run pkg/* tests as a
+  single binary".
+
 ---
 
 ## MAJOR
+
+### Closure-shim emit drops `IndirectLargeAggregates` convention for >16-byte captures — IN PROGRESS
+- **Symptom**: clang compile-error on any `*func(...)` / `@func(...)` whose closure captures a >16-byte aggregate (e.g. a `@[]T` managed-slice, 32-byte `BnManagedSlice`):
+  ```
+  main.ll:66:48: error: '%cap0' defined with type '%BnManagedSlice = type { ptr, i64, ptr, i64 }' but expected 'ptr'
+    %r = tail call i64 @bn_main____funclit_0(ptr %cap0, i64 %a0)
+  ```
+  Surfaced by `conformance/510_capture_managed_slice` and `conformance/514_capture_split_aggregate` after `f5340fac` landed.
+- **Discovery**: 2026-05-30, immediately after resync to f5340fac (the `IndirectLargeAggregates` / byval landing).
+- **Root cause**: `pkg/binate/codegen/emit_funcvals_closure.bn::emitClosureShim` does GEP → `%capN_ptr` → load `%capN = struct value` → tail-call with `%capN`.  But `writeParamTypeLLVM` (used to emit the call's arg types) now returns `ptr` for any aggregate over the 16-byte threshold, since the underlying funclit was emitted with `ptr` params under the new convention.  Result: shim passes the loaded struct value where a `ptr` is expected.  The byval/indirect-aggregate convention from `plan-codegen-byval.md` was applied to function signatures (`writeParamTypeLLVM`), regular call sites (`writeByvalArgPreamble` in emit_call.bn), and impl emission (emit_impls.bn), but not to the closure-shim caller.
+- **Severity**: MAJOR — clang catches it so it's a compile error rather than a silent miscompile, but every closure capturing a >16-byte aggregate breaks; blocks 510 + 514 in builder-comp.
+- **Proper fix**: in `emitClosureShim`, for each capture: if `isByvalParam(capTyp)` is true, skip the load and pass `%capN_ptr` directly as the indirect pointer (it's already a `ptr` into the closure struct, which outlives the call).  Otherwise keep the load + value-pass shape.  Mirrors what regular call sites do via `writeByvalArgPreamble` — except the closure struct field IS already an addressable memory location, so no fresh alloca + memcpy is needed.
+- **Native backend equivalents**: needs separate audit of `pkg/native/aarch64`'s and `pkg/native/x64`'s closure-shim emit for the same shape — possibly already handled (the previous closure-shim work for these arches did stack-spill aggregates correctly), but worth confirming once the LLVM fix lands.
 
 ### @func capturing literal hangs on arm32-baremetal cleanup
 - **Symptom**: a `@func()` variable holding a capturing closure
