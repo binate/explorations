@@ -10,16 +10,22 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
-### arm32_baremetal: pkg/native/{aarch64,x64} test binaries overflow `.bss` region
-- **Symptom**: under `builder-comp_arm32_baremetal`, `pkg/native/aarch64` and `pkg/native/x64` test binaries fail to link with `ld.lld: error: section '.bss' will not fit in region 'RAM': overflowed by 92420 bytes` (aarch64) and `overflowed by 675956 bytes` (x64).  Other packages link fine — only the native-backend test suites are oversized.
-- **Discovery**: 2026-05-29, while triaging the residual arm32 CI failures after the int64-fold + sret + dtor-vt fixes cleared the other clusters.  Pre-existing — failures appear on every completed CI run going back through the session start.
-- **Why MAJOR**: blocks the arm32_baremetal CI lane for these two packages.  All other arm32_baremetal packages pass, so the lane's utility (catching arm32-specific regressions in baremetal mode) is partial.  Doesn't affect arm32_linux or LP64 lanes.
-- **Tests covering it**: the existing pkg/native/aarch64 / pkg/native/x64 test suites are the regression once a fix lands.  No focused size-budget test.
-- **Proposed fix (options)**:
-  - (a) Bump the bare-metal RAM region size in the linker script that the `builder-comp_arm32_baremetal` runner uses (cheapest if the underlying QEMU semihosting environment has headroom).
-  - (b) Split the pkg/native/aarch64 and pkg/native/x64 test suites into smaller binaries (e.g. one per source file), each fitting in the existing RAM region.  More work but exercises the same coverage.
-  - (c) Mark the two packages XFAIL under arm32_baremetal with a documented size-budget rationale.  Loses coverage but unblocks CI.
-  Worth a quick check on (a) first — if the RAM region is artificially small, bumping it is the right move.  The x64 binary's 676 KB overflow suggests the issue isn't just one or two large symbols; the suite as a whole is comprehensive.
+### ~~arm32_baremetal: pkg/native/{aarch64,x64} test binaries overflow `.bss` region~~ — FIXED 2026-05-30 (binate `b0c64b14`)
+- **Final fix**: combined option-(a) + xfail-manifest-rename:
+  - `runtime/baremetal_arm32/baremetal.ld`'s `LENGTH` bumped from 8 MiB to 16 MiB — the runner already launched QEMU with `-m 16M`, so the linker was underusing available memory.  Both `.bss` overflows clear with headroom.
+  - Stale xfail manifests `pkg-native-arm64.xfail.…` and `pkg-native-amd64.xfail.…` renamed to `pkg-native-aarch64.xfail.…` / `pkg-native-x64.xfail.…` (the packages were renamed away from `arm64`/`amd64` per the mangler-bug story in CLAUDE.md but the manifests were left at the old names and stopped applying).  Restores the original author intent ("tests require host filesystem / subprocess / native-host arch") so the file-write tests (TestArm64FormatSelectsWriterAndPrefix, TestEmitObject*) that the .bss-overflow had been masking get skipped cleanly.
+- **Followup uncovered**: `pkg/builtins/lang.TestInt32StringNegative` ("int32 INT_MIN unexpected") fails on arm32_baremetal but passes on arm32_linux.  Both targets are ILP32 with the same `Itoa` implementation; LLVM IR for the `cast(uint64, int32)` is identical (`sext i32 to i64`).  Tracked as a separate bug below.
+
+### pkg/builtins/lang: int32.String() of INT32_MIN fails on arm32_baremetal but passes on arm32_linux
+- **Symptom**: `pkg/builtins/lang.TestInt32StringNegative` fails with "int32 INT_MIN unexpected" on `builder-comp_arm32_baremetal` — `x.String()` for `var x int32 = -2147483648` returns something other than `"-2147483648"`.  Surfaced once the pkg/native .bss overflow stopped masking it.  TestIntStringNegative (smaller magnitude) passes; only the INT32_MIN edge case is wrong.
+- **Discovery**: 2026-05-30, after the pkg/native xfail-manifest rename made the lane reach pkg/builtins/lang as a non-xfail.
+- **What's odd**: arm32_linux passes the same test.  Both targets are ILP32; the LLVM IR for the `cast(uint64, v)` chain in `bootstrap.Itoa` is identical between targets (`sext i32 to i64` then arithmetic on i64).  So the bug must be in either:
+  - The baremetal target's runtime (semihosting Write, or the chars/slice machinery), OR
+  - A target-specific code-gen difference further down the LLVM pipeline (different `-target` triple / data layout), OR
+  - A runtime initialization path that's different between arm32-linux and arm32-baremetal (e.g., uninitialized globals, malloc/bump heap behaviour).
+- **Why MAJOR**: silent wrong-value for INT32_MIN formatting on arm32-baremetal.  Doesn't block other tests in the package (25 of 26 pass).  Not in CI's noisy-cluster path now that pkg/native is xfailed.
+- **Tests covering it**: `pkg/builtins/lang.TestInt32StringNegative` is the regression.  A bare-runtime repro would help: print `bootstrap.Itoa(-2147483648)` via semihosting Write directly, compare against the expected bytes.
+- **Proposed investigation**: dump the actual returned `@[]char` (or its bytes) under baremetal QEMU + compare with arm32-linux's output — if the bytes differ, look at the `cast(uint64, v)` IR emission with the bare-metal target triple (`-target arm-none-eabi` vs `-target arm-linux-gnueabihf`) for any sign-extension or data-layout subtlety.  If the bytes match but `streq` returns false, look at how the literal `"-2147483648"` is stored in rodata under baremetal.  Out of scope for the .bss-overflow fix.
 
 ### pkg/vm test binary crashes silently on arm32_linux after universal-sret commit
 - **Symptom**: under `builder-comp_arm32_linux`, the `pkg/vm` unit-test binary builds successfully but the run produces zero test output and the runner reports `FAIL: pkg/vm [8s]`.  No `--- PASS:` or `--- FAIL:` lines — the binary appears to crash before the first test runs.  153 tests are defined in the package; LP64 (`builder-comp`) runs all of them green.
