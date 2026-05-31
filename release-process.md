@@ -65,16 +65,53 @@ jobs (linux-x64, macos-arm64) finish and the `Publish release`
 job succeeds, the GitHub release exists at
 `https://github.com/binate/binate/releases/tag/bnc-X.Y.Z`.
 
-Smoke test the bundle:
+Smoke test the bundle (note: `bin/bnc` doesn't accept a `--version`
+flag, so we have to confirm-by-behavior instead of confirm-by-banner):
 
 1. Download one of the platform tarballs + `SHA256SUMS`.
-2. Verify the SHA matches.
-3. Extract; check `bin/bnc --version` reports `bnc-X.Y.Z`.
-4. Check `lib/` contains everything the build scripts expect — at
-   minimum `pkg/`, `runtime/`, `ifaces/core/`, `impls/core/common/`.
-5. Run a small program through the extracted `bin/bnc` against the
-   bundled `lib/` to confirm the tier-0 carve-out resolves and
-   `bn_pkg__builtins__lang__*` symbols are present in the runtime.
+2. Verify the SHA matches what `SHA256SUMS` claims.
+3. Extract; confirm `lib/` contains everything build scripts consume
+   — at minimum `pkg/`, `runtime/`, `ifaces/core/`, and
+   `impls/core/common/` (the last two come from the spec's split
+   tree).
+4. Compile + run a small program through the extracted `bin/bnc`
+   against the bundled `lib/`.  A reasonable shape:
+
+       BNC=./<bundle>/bin/bnc
+       LIB=./<bundle>/lib
+       cat > hello.bn <<EOF
+       package "main"
+       import "pkg/bootstrap"
+       func main() {
+           println("hello bnc-X.Y.Z")
+           bootstrap.Exit(0)
+       }
+       EOF
+       "$BNC" \
+           -I "$LIB:$LIB/ifaces/core:$LIB/ifaces/stdlib" \
+           -L "$LIB:$LIB/impls/core/common:$LIB/impls/stdlib/common" \
+           --runtime "$LIB/runtime/binate_runtime.c" \
+           -o hello hello.bn
+       ./hello
+
+5. Also exercise the tier-0 carve-out so you confirm
+   `ifaces/core/pkg/builtins/lang.bni` +
+   `impls/core/common/pkg/builtins/lang/` are reachable from the
+   bundle:
+
+       cat > carveout.bn <<EOF
+       package "main"
+       import "pkg/bootstrap"
+       import "pkg/builtins/lang"
+       func main() {
+           var x int = 42
+           var s *lang.Stringer = &x
+           println(s.String())  // expect: 42
+           bootstrap.Exit(0)
+       }
+       EOF
+       # ... same compile incantation ...
+       ./carveout
 
 If anything's wrong, delete the GitHub release + tag and start over
 — don't ship a bad release just because the tag is already there.
@@ -151,21 +188,25 @@ if the release already exists from a prior failed run).
 
 ## Why two `VERSION` bumps
 
-The `-pre` ↔ release-shape dance keeps the `cmd/bnc --version` string
-honest:
+The `-pre` ↔ release-shape dance keeps the in-tree `VERSION` manifest
+honest with what each commit represents.  (At time of writing
+`cmd/bnc` doesn't actually expose a `--version` flag and no build
+script reads the `VERSION` file — it's a written-down convention
+that the release-cut workflow and human readers rely on, not
+machine-enforced.)
 
 - Anything built from a commit whose `VERSION` says `bnc-X.Y.Z-pre`
-  reports `bnc-X.Y.Z-pre` — clearly **not** the tagged release.
-- The tagged commit itself says `bnc-X.Y.Z` exactly — `cmd/bnc
-  --version` on that build matches the tag.
-- The very next commit on `main` says `bnc-X.Y.(Z+1)-pre` — so
-  builds from `main` after the tag again clearly distinguish from
-  the release.
+  is "in-progress toward X.Y.Z" — clearly **not** a tagged release.
+- The tagged commit itself says `bnc-X.Y.Z` exactly — the file's
+  state on disk at that commit matches what `git tag bnc-X.Y.Z`
+  named.
+- The very next commit on `main` says `bnc-X.Y.(Z+1)-pre` — so the
+  tree state after the tag is again clearly "between releases."
 
-If you forget step 6 (bump VERSION to next `-pre`), every build
-from main between this release and the next would report itself
-as `bnc-X.Y.Z` even though it's not the tagged commit.  Don't
-forget.
+If you forget step 6 (bump VERSION to next `-pre`), every commit on
+main between this release and the next would still claim to be
+`bnc-X.Y.Z` in-tree even though only one of them was actually tagged.
+Don't forget.
 
 ## Pre-existing failures vs release-blockers
 
