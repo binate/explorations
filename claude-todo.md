@@ -76,6 +76,24 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Discovery**: 2026-05-30, instrumented test under QEMU semihosting after the pkg/native xfail-manifest rename made the lane reach pkg/builtins/lang as a non-xfail.
 - **Root cause** (NOT a compiler bug — earlier "target-specific IR-gen divergence" reading was wrong): `--target arm32-baremetal` swaps in a separate source file at `runtime/baremetal_arm32/pkg/bootstrap/bootstrap.bn` whose `Itoa` was duplicated from libc-host BEFORE the int-min fix (commit `8b94bf6b`) landed.  That fix moved libc-host `Itoa` to `uint64` magnitude; the baremetal copy still does `v = 0 - v` directly on `int`, which overflows at INT_MIN and leaves `temp` still negative — the digit-count loop never runs.  The "IR diff between `--target arm32-linux` and `--target arm32-baremetal` on `pkg/bootstrap`" was real but trivial: different files.  `formatInt`/`formatInt64` in the baremetal copy WERE updated for int-min (commit `38f9319c`); only `Itoa` slipped.
 - **Fix**: port the libc-host uint64-magnitude `Itoa` to the baremetal copy.  1:1 textual port, no semantic change vs the libc-host version.  Long-term followup (already noted in the file's header): extract these format helpers into a shared `pkg/format` so the duplicate goes away entirely (also true for `formatInt`, `formatInt64`, `formatUint`, `formatBool`, `formatFloat`).
+- **Status**: source fix committed to worktree (commit `e4c5140d`).  Still need to cherry-pick to main and verify the test runs to green — currently blocked by a separate link error (next entry).
+
+### runtime/baremetal_arm32: missing `__aeabi_memcpy` / `__aeabi_memmove` / `__aeabi_memset` / `__aeabi_memclr` aliases (blocks pkg/binate/buf + downstream consumers)
+- **Symptom**: linking any arm32-baremetal binary that pulls in `pkg/binate/buf` fails with `ld.lld: error: undefined symbol: __aeabi_memcpy` referenced from `bn_pkg__binate__buf__grow` / `CharBuf__WriteByte` / `CharBuf__WriteStr` (≥ 6 sites).  Currently surfaces in:
+  - `pkg/builtins/lang` unit-test binary (imports `pkg/binate/buf`).
+  - Conformance test `064_bootstrap_funcs` (uses `buf.Concat` which was moved out of `bootstrap` in commit `7e46641c`).
+  - Likely many more once their xfails come off.
+- **Discovery**: 2026-05-30, while trying to verify the runtime/baremetal_arm32 `Itoa` fix via the unit-test runner.  The link error is pre-existing (reproduces without my Itoa edit) but never had a tracking entry.
+- **Root cause**: `runtime/baremetal_arm32/semihost.s` provides `memcpy`, `memmove`, `memset`, `memcmp` and the `bn_pkg__libc__Memcpy` / `Memset` aliases, but does NOT provide the `__aeabi_*` flavor of these symbols.  LLVM's ARM EABI backend lowers the `@llvm.memcpy.*` intrinsic to `__aeabi_memcpy` (not `memcpy`) when targeting `arm-none-eabi` — and pkg/binate/buf's `grow` / `WriteByte` / `WriteStr` paths copy `CharBuf` structs around, which LLVM lowers via that intrinsic.  Bare-metal v1 link-tests passed historically because the buf code wasn't on the link path; the `pkg/buf → pkg/binate/buf` move (commit `54b338c5`) + `pkg/std → pkg/builtins/lang` carve-out (commit `c83d5381`) + the prior xfail-manifest rename on `5b7060be` together exposed it.
+- **Proper fix**: add the standard AEABI aliases in `runtime/baremetal_arm32/semihost.s` — they're trivial wrappers over the libc-style helpers already in the file:
+  - `__aeabi_memcpy` → `b memcpy` (same signature)
+  - `__aeabi_memcpy4`, `__aeabi_memcpy8` → `b memcpy` (aligned variants; we don't exploit alignment in the byte-loop copy, so aliasing is fine)
+  - `__aeabi_memmove`, `__aeabi_memmove4`, `__aeabi_memmove8` → `b memmove`
+  - `__aeabi_memset`, `__aeabi_memset4`, `__aeabi_memset8` → small shim swapping args (AEABI passes `(dst, n, c)`, libc passes `(dst, c, n)` — they are NOT direct aliases, args 2/3 swap; 2-instruction `mov r3, r1; mov r1, r2; mov r2, r3; b memset`)
+  - `__aeabi_memclr`, `__aeabi_memclr4`, `__aeabi_memclr8` → shim that calls `memset(dst, 0, n)` (one `mov r2, r1; mov r1, #0; b memset`)
+- **Why MAJOR**: blocks the baremetal lane on any test that hits pkg/binate/buf.  Trivially fixable (≈ 30 lines of assembly).  Not a compiler bug — runtime-side gap that's been latent since the EABI codegen path existed.
+- **Tests covering it**: `pkg/builtins/lang` unit-tests + conformance `064` are the surfaced regressions.  Once fixed, `pkg/builtins/lang.TestInt32StringNegative` should also unblock (depends on the Itoa fix in `e4c5140d`).
+
 
 ### pkg/vm test binary crashes silently on arm32_linux after universal-sret commit
 - **Symptom**: under `builder-comp_arm32_linux`, the `pkg/vm` unit-test binary builds successfully but the run produces zero test output and the runner reports `FAIL: pkg/vm [8s]`.  No `--- PASS:` or `--- FAIL:` lines — the binary appears to crash before the first test runs.  153 tests are defined in the package; LP64 (`builder-comp`) runs all of them green.
