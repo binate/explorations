@@ -61,57 +61,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
-### native closure shims don't yet pass indirect-large captures via pointer (post-f5340fac regression)
-- **Symptom**: capturing function literals whose captures include
-  any aggregate > AggregateInRegMax (16 bytes — e.g. a managed-
-  slice `@[]T` at 32 bytes) fail on native_aa64 and
-  native_x64_darwin.  conformance/510_capture_managed_slice and
-  conformance/517_capture_split_aggregate both regress; pinned by
-  the matching `.xfail.builder-comp_native_aa64-…` and
-  `.xfail.builder-comp_native_x64_darwin-…` files.  LLVM works
-  (sibling fix in emit_funcvals_closure.bn loads byval captures
-  via `ptr %capN_ptr`); the bytecode VM works (always passes
-  captures by pointer through the COMPILED_CLOSURE record).
-- **Root cause**: binate `f5340fac` flipped both CallConv
-  variants to `IndirectLargeAggregates = true` so the body's
-  prologue for a >16-byte aggregate param now expects a single
-  pointer in 1 GP arg reg (with the body's prologue memcpy'ing
-  from that pointer into its private alloca).  The aa64 / x64
-  closure shim emitters still expand multi-word captures into
-  per-word reg loads / stack stores — the body reads garbage
-  from the in-reg-spread or off-stack location and trips a
-  bounds-check (or worse).
-- **Fix direction**: in both aa64 and x64 closure shim emitters,
-  for each capture check `cc.argRegWordsStackWords` — if the
-  classifier reports `regWords + stackWords == 1` for an
-  aggregate, treat it as a pointer-pass:
-    1. compute `closure_ptr + field_offset` (AArch64: `add Xr,
-       X0, #ofs`; x64: `lea %rN, [%rdi + ofs]`) — do this
-       BEFORE the right-to-left scalar capture loads that
-       clobber X0 / RDI.
-    2. place the pointer in the appropriate GP arg reg per the
-       classifier (or store at the outgoing stack offset for
-       the overflow case).
-  Non-byval captures keep the existing per-word reg / stack
-  emit.  Mirror the LLVM shim's split for consistency.
-- **Order matters**: pointer captures need to be computed
-  while X0 / RDI is still the closure-struct base.  My current
-  rewrite plan for the native shims:
-    step 1 (stack-spill) — handle any byval captures whose
-      classified arg-position is a stack slot.
-    step 2 (user-arg shift) — move user args to outgoing
-      positions (right-to-left).
-    step 3 (pointer captures) — compute closure-field
-      pointers into their target arg regs.
-    step 4 (scalar captures) — load scalar reg captures
-      right-to-left so X0 / RDI is overwritten last.
-    step 5 — CALL / BL underlying with stack rewind, or B /
-      JMP for the no-stack-frame fast path.
-- **Why xfailed not fixed in this commit**: the post-rebase
-  smoke test surfaced the issue; rewriting two native shims is
-  scoped as a follow-up rather than mixed into the B.3b
-  commit-2 cherry-pick.
-
 ### @func capturing literal hangs on arm32-baremetal cleanup
 - **Symptom**: a `@func()` variable holding a capturing closure
   prints all expected output, then hangs in scope-end cleanup —
