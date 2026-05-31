@@ -6,57 +6,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
-### Codegen emits per-type dtor vtable in every package that references the type — native-mode linker collides them
-- **Symptom**: linking multiple `pkg/<X>.o` files together (e.g. the
-  `builder-comp_native_*` unit-test runners that bundle every test
-  package into one binary) fails with `duplicate symbol
-  '_bn_pkg__asm____dtor_Assembler__vt'` (and similar `___dtor_<T>__vt`
-  globals).  Each `pkg/asm/<sub>` and `pkg/native/<sub>` that uses
-  `@Assembler` (as a parameter, field, etc.) emits a copy of
-  `__dtor_Assembler__vt`; the linker sees ≥ 2 strong definitions of
-  the same global and errors.  Reproduces under
-  `builder-comp_native_x64_darwin pkg/asm/<anything>` (7 failures)
-  and `builder-comp_native_x64_darwin pkg/native/<anything>` (4
-  failures).  Conformance is unaffected because conformance test
-  binaries link one main module + the runtime, not multiple
-  pkg-test object files.
-- **Discovery**: 2026-05-29, during the float-lowering work — added a
-  unit test to `pkg/asm/x64`, ran the
-  `builder-comp_native_x64_darwin` unit-test runner, hit
-  `duplicate symbol '_bn_pkg__asm____dtor_Assembler__vt' in:
-  pkg__asm.o ... pkg__asm__x64.o`.  Verified the failure exists on a
-  clean tree without any new code by removing my added files and
-  re-running — same error.  Runner's own comment acknowledges "most
-  packages fail to compile" in this mode, but that framing dates
-  back to "amd64 backend only lowers a subset of ops"; the actual
-  blocker today is this dtor-vtable duplication, not op coverage.
-- **Root cause (hypothesis)**: `pkg/codegen`'s dtor-vtable emission
-  generates `__dtor_<T>__vt` for every type whose dtor is *referenced*
-  in a package, instead of only for the type's *owning* package.
-  When pkg/asm defines `type Assembler struct { ... }` and pkg/asm/x64
-  imports pkg/asm and uses `@Assembler` (e.g. as a function param),
-  pkg/asm/x64 ALSO emits `_bn_pkg__asm____dtor_Assembler__vt` as a
-  strong global.  At link time both copies show up.  Should be: only
-  pkg/asm emits the strong global; downstream packages emit
-  `declare ... @_bn_pkg__asm____dtor_Assembler__vt` (extern) instead.
-- **Proper fix**: in `pkg/codegen` (the dtor-vtable emitter), track
-  per-vtable "is this type owned by THIS module?" and emit a strong
-  global only when yes; otherwise emit an extern declaration.  Owner
-  is determined by the type's defining package (`<T>.PkgPath` or
-  similar) matching the module's own package path.  Some plumbing
-  through emit_dtor_vtable / emit_impls already does this for
-  function-value vtables (`__vt.<...>` uses `weak_odr` so dupes are
-  benign); the dtor-vtable path apparently does not.  Alternative
-  band-aid: change the dtor-vtable emission to `weak_odr` so the
-  linker dedupes silently, matching the function-value-vtable shape;
-  smaller change but spreads the same byte sequence into every
-  consumer's .o.
-- **Blast radius**: blocks the `builder-comp_native_*` unit-test
-  runners (locally-runnable but currently in expected-fail mode);
-  doesn't block CI or conformance.  Surfaces immediately for anyone
-  trying to extend native-mode coverage to "run pkg/* tests as a
-  single binary".
-
 ---
 
 ## MAJOR
@@ -109,17 +58,11 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   - Stale xfail manifests `pkg-native-arm64.xfail.…` and `pkg-native-amd64.xfail.…` renamed to `pkg-native-aarch64.xfail.…` / `pkg-native-x64.xfail.…` (the packages were renamed away from `arm64`/`amd64` per the mangler-bug story in CLAUDE.md but the manifests were left at the old names and stopped applying).  Restores the original author intent ("tests require host filesystem / subprocess / native-host arch") so the file-write tests (TestArm64FormatSelectsWriterAndPrefix, TestEmitObject*) that the .bss-overflow had been masking get skipped cleanly.
 - **Followup uncovered**: `pkg/builtins/lang.TestInt32StringNegative` ("int32 INT_MIN unexpected") fails on arm32_baremetal but passes on arm32_linux.  Both targets are ILP32 with the same `Itoa` implementation; LLVM IR for the `cast(uint64, int32)` is identical (`sext i32 to i64`).  Tracked as a separate bug below.
 
-### pkg/bootstrap: uint64 locals emit as `i32` allocas under `--target arm32-baremetal` (only when compiling the pkg)
+### runtime/baremetal_arm32 pkg/bootstrap.Itoa: stale int-only impl miscompiles INT_MIN (LANDED FIX)
 - **Symptom**: `pkg/builtins/lang.TestInt32StringNegative` fails with "int32 INT_MIN unexpected" on `builder-comp_arm32_baremetal` — `x.String()` for `var x int32 = -2147483648` returns just `"-"` (length 1, no digits).  `Itoa(-INT_MIN)`'s digit-count loop runs 0 iterations because the magnitude variable ends up 0.
 - **Discovery**: 2026-05-30, instrumented test under QEMU semihosting after the pkg/native xfail-manifest rename made the lane reach pkg/builtins/lang as a non-xfail.
-- **Confirmed root cause (LLVM IR diff)**: compiling `pkg/bootstrap` with `--target arm32-baremetal` emits `alloca i32` for the `mag uint64`, `temp uint64`, `rem uint64` locals inside `Itoa`, plus `sub i32` for the `cast(uint64, 0) - cast(uint64, v)` step.  Compiling the SAME source with `--target arm32-linux` correctly emits `alloca i64` + `sub i64` after `sext i32 to i64`.  Both targets are ILP32 with `setArm32Layout` setting identical `TargetInfo` (PointerSize=4, IntSize=4, MaxAlign=4), yet the IR diverges.  The cast to uint64 is silently dropped on baremetal — `sub i32 0, -2147483648` overflows back to -2147483648, the loop `temp > 0` is false, no digits emitted.
-- **Critical caveat**: the divergence does NOT reproduce with standalone files.  A self-contained `func Itoa(v int) @[]char { … cast(uint64, 0) - cast(uint64, v) … }` in a single `package "main"` file compiles to BIT-IDENTICAL IR under both targets.  A file that just `import "pkg/bootstrap"` and defines its own Itoa-shape function also emits CORRECT IR on both targets — the divergence is specific to bootstrap's own compilation.
-- **Why MAJOR**: silent wrong-value for INT32_MIN formatting (and likely any `Itoa(int-min)` call site) on arm32-baremetal.  Bigger concern: this is a target-specific IR-gen bug, and if pkg/bootstrap's compilation diverges between two ILP32 targets that have IDENTICAL `TargetInfo`, the divergence is from something OTHER than the documented target axis — possibly state-initialization order, .bni-vs-.bn interaction in the type checker, or freshness-of-type-singleton issues triggered by something the bootstrap source does that standalone repros don't.  Could plausibly miscompile other uint64 code on baremetal silently.
-- **Tests covering it**: `pkg/builtins/lang.TestInt32StringNegative` is the surfaced regression.  IR-gen diff is reproducible via `bnc --target arm32-baremetal --pkg pkg/bootstrap --emit-llvm` vs the same with `--target arm32-linux` — diff in the `define void @bn_pkg__bootstrap__Itoa` body's alloca list (`i32` vs `i64`).
-- **Investigation steps left**:
-  - Bisect what aspect of pkg/bootstrap.bn (293 lines) triggers the divergence — remove functions one by one from a local copy until the IR diff disappears, then look at the trigger.
-  - Suspect candidates: the `formatUint(v uint64, …)` parameter signature in the .bni; the multi-cast chains in `formatFloat`'s mantissa handling; or some .bni-pre-declares interaction with .bn definitions that's target-sensitive.
-  - Once isolated, the fix is likely a 1-2 line correction to the type-checker / IR-gen path that's currently sensitive to whichever bnc-internal state diverges between the two targets.
+- **Root cause** (NOT a compiler bug — earlier "target-specific IR-gen divergence" reading was wrong): `--target arm32-baremetal` swaps in a separate source file at `runtime/baremetal_arm32/pkg/bootstrap/bootstrap.bn` whose `Itoa` was duplicated from libc-host BEFORE the int-min fix (commit `8b94bf6b`) landed.  That fix moved libc-host `Itoa` to `uint64` magnitude; the baremetal copy still does `v = 0 - v` directly on `int`, which overflows at INT_MIN and leaves `temp` still negative — the digit-count loop never runs.  The "IR diff between `--target arm32-linux` and `--target arm32-baremetal` on `pkg/bootstrap`" was real but trivial: different files.  `formatInt`/`formatInt64` in the baremetal copy WERE updated for int-min (commit `38f9319c`); only `Itoa` slipped.
+- **Fix**: port the libc-host uint64-magnitude `Itoa` to the baremetal copy.  1:1 textual port, no semantic change vs the libc-host version.  Long-term followup (already noted in the file's header): extract these format helpers into a shared `pkg/format` so the duplicate goes away entirely (also true for `formatInt`, `formatInt64`, `formatUint`, `formatBool`, `formatFloat`).
 
 ### pkg/vm test binary crashes silently on arm32_linux after universal-sret commit
 - **Symptom**: under `builder-comp_arm32_linux`, the `pkg/vm` unit-test binary builds successfully but the run produces zero test output and the runner reports `FAIL: pkg/vm [8s]`.  No `--- PASS:` or `--- FAIL:` lines — the binary appears to crash before the first test runs.  153 tests are defined in the package; LP64 (`builder-comp`) runs all of them green.
