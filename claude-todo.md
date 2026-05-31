@@ -61,19 +61,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
-### Closure-shim emit drops `IndirectLargeAggregates` convention for >16-byte captures — IN PROGRESS
-- **Symptom**: clang compile-error on any `*func(...)` / `@func(...)` whose closure captures a >16-byte aggregate (e.g. a `@[]T` managed-slice, 32-byte `BnManagedSlice`):
-  ```
-  main.ll:66:48: error: '%cap0' defined with type '%BnManagedSlice = type { ptr, i64, ptr, i64 }' but expected 'ptr'
-    %r = tail call i64 @bn_main____funclit_0(ptr %cap0, i64 %a0)
-  ```
-  Surfaced by `conformance/510_capture_managed_slice` and `conformance/514_capture_split_aggregate` after `f5340fac` landed.
-- **Discovery**: 2026-05-30, immediately after resync to f5340fac (the `IndirectLargeAggregates` / byval landing).
-- **Root cause**: `pkg/binate/codegen/emit_funcvals_closure.bn::emitClosureShim` does GEP → `%capN_ptr` → load `%capN = struct value` → tail-call with `%capN`.  But `writeParamTypeLLVM` (used to emit the call's arg types) now returns `ptr` for any aggregate over the 16-byte threshold, since the underlying funclit was emitted with `ptr` params under the new convention.  Result: shim passes the loaded struct value where a `ptr` is expected.  The byval/indirect-aggregate convention from `plan-codegen-byval.md` was applied to function signatures (`writeParamTypeLLVM`), regular call sites (`writeByvalArgPreamble` in emit_call.bn), and impl emission (emit_impls.bn), but not to the closure-shim caller.
-- **Severity**: MAJOR — clang catches it so it's a compile error rather than a silent miscompile, but every closure capturing a >16-byte aggregate breaks; blocks 510 + 514 in builder-comp.
-- **Proper fix**: in `emitClosureShim`, for each capture: if `isByvalParam(capTyp)` is true, skip the load and pass `%capN_ptr` directly as the indirect pointer (it's already a `ptr` into the closure struct, which outlives the call).  Otherwise keep the load + value-pass shape.  Mirrors what regular call sites do via `writeByvalArgPreamble` — except the closure struct field IS already an addressable memory location, so no fresh alloca + memcpy is needed.
-- **Native backend equivalents**: needs separate audit of `pkg/native/aarch64`'s and `pkg/native/x64`'s closure-shim emit for the same shape — possibly already handled (the previous closure-shim work for these arches did stack-spill aggregates correctly), but worth confirming once the LLVM fix lands.
-
 ### @func capturing literal hangs on arm32-baremetal cleanup
 - **Symptom**: a `@func()` variable holding a capturing closure
   prints all expected output, then hangs in scope-end cleanup —
