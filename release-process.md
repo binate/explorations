@@ -20,6 +20,39 @@ how the moving parts fit together so you don't have to reverse-engineer
   by push of a tag matching `bnc-*`.  Builds per-platform bundles
   and attaches them to a GitHub release named after the tag.
 
+## Before you start: is this release worth cutting?
+
+Releases are **permanent additions to the build ladder** — every
+future build that needs to reconstruct the chain has one more rung,
+forever.  Cutting a release just to capture infrastructure tweaks
+(e.g. "the bundle layout includes a few new directories now") that
+have **no effect on mangled symbols or runtime ABI** is a waste:
+the new bundle is functionally identical to the previous one,
+nothing it enables couldn't have been done by waiting and folding
+the infra change into the next release that DOES change something.
+
+Concretely, ask: "what would consumers of this BUILDER see
+differently?"
+
+- Different mangled symbols (a package was renamed, the mangler
+  changed, a hardcoded symbol literal in pkg/codegen flipped)
+- Different runtime API (`pkg/builtins/rt`, `runtime/binate_runtime.c`)
+- Different bundled-stdlib semantics
+- A new tool binary
+
+If the answer is "nothing — the bundle is the same set of symbols
+arranged in a slightly different file layout," **don't cut the
+release**.  Defer until something downstream actually needs the
+change, then fold it into that release.
+
+The infrastructure to support a future layout / runtime change CAN
+still land in `main` ahead of time (release.yml updates, build-script
+search-path extensions, etc.) — those just sit dormant against the
+existing BUILDER and activate when the next *substantive* release
+ships.
+
+If yes the release does something substantive, on with it:
+
 ## The seven-step release
 
 The release itself is two commits + one tag push, with verification
