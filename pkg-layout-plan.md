@@ -1,9 +1,41 @@
 # pkg/ Directory Layout — Migration Plan
 
-Sequenced moves to get the binate repo from the current `pkg/` layout
-to the structure defined in [`pkg-layout-spec.md`](pkg-layout-spec.md).
-Covers the binate repo only; other repos (when they exist) will
-follow the same spec independently.
+Sequenced moves to get the binate repo from the original (pre-2026-05)
+`pkg/` layout to the structure defined in
+[`pkg-layout-spec.md`](pkg-layout-spec.md).  Covers the binate repo
+only; other repos (when they exist) will follow the same spec
+independently.
+
+## Status
+
+All steps **LANDED**, captured by the `bnc-0.0.5` release.  Build
+state on `main` matches the spec for tiers 0 / 0b / 2; tier 1 / 1x
+trees (`pkg/std`, `pkg/stdx`, `ifaces/stdlib`, `impls/stdlib/*`)
+are scaffolded empty pending content.
+
+| Step | Subject | Where |
+|---|---|---|
+| 1 | `ifaces/` + `impls/` skeleton | `16dede56` |
+| 2 | `pkg/builtin/` → `pkg/builtins/` | `56d61fda` |
+| 3 | `pkg/std` → `pkg/builtins/lang` | `c83d5381` (later split via 6b) |
+| 5 (14 leaves) | tier-2 → `pkg/binate/<X>` | `b3955a7a`…`b3d1c6ae` |
+| 6a | build scripts: add `ifaces/core` + `impls/core/common` to `-I`/`-L` | `bf2354a4` |
+| 6b | `pkg/builtins/lang` → split tree | `91613c27` |
+| 6c | `pkg/builtins/testing` → split tree | `6f332c70` |
+| **Pre-4** | gen1-routing of `scripts/build-*.sh` + `e2e/*.sh` | `e903aaa9` |
+| **4** | `pkg/rt` → split tree (`ifaces/core` + `impls/core/{libc,baremetal}`) | `e8f52e21` |
+| **5b** | `pkg/vm` → `pkg/binate/vm` | `a6389017` |
+| 7 (release bits) | `release.yml` bundles `ifaces/`+`impls/`; consumer `$BUILDER_LIB` paths | `8707d408` |
+| 7 (release cut) | `bnc-0.0.5` release | tag `bnc-0.0.5` at `f4557915` |
+| Post-release | `BUILDER_VERSION → bnc-0.0.5`; `VERSION → bnc-0.0.6-pre` | `5dc79ae9` |
+
+The "Pre-4" gen1-routing wasn't in the original plan; it was the
+unblocker for Steps 4 + 5b which otherwise hit the BUILDER-skew
+trap.  See its section below.
+
+The sections that follow are kept as a historical record of what
+each step entailed — useful when a follow-on migration in this
+shape needs to be done (e.g. a tier-1 `pkg/std` move someday).
 
 ## Constraints and ground rules
 
@@ -84,91 +116,133 @@ language-defined interfaces + universe-primitive impls package).
 
 Frees the `pkg/std` name for tier 1.
 
-## Step 4 — `pkg/rt` → `pkg/builtins/rt`  *(held until Step 7)*
+## Pre-Step-4 unblocker — gen1-routing `scripts/build-*.sh` + e2e
 
-The same shape of work as Step 3, but **cannot land before a new
-BUILDER tarball is cut** (Step 7). The current BUILDER's compiled-in
-codegen emits hardcoded `bn_pkg__rt__*` call-site string literals
-(e.g. `out.WriteStr("call ... @bn_pkg__rt__Alloc(...)")` in
-`pkg/codegen/emit_*.bn`). When BUILDER directly compiles a program
-that imports `"pkg/builtins/rt"` (the new path), the declarations get
-mangled from the new path (`bn_pkg__builtins__rt__Alloc`) while the
-call sites still emit OLD names — clang errors with "use of
-undefined value '@bn_pkg__rt__Alloc'".
+The BUILDER-skew trap that originally held Step 4: the BUILDER
+binary's compiled-in codegen emits hardcoded `bn_pkg__rt__*`
+call-site string literals (e.g. `out.WriteStr("call ...
+@bn_pkg__rt__Alloc(...)")` in `pkg/binate/codegen/emit_*.bn`).
+When BUILDER directly compiles a program that imports
+`"pkg/builtins/rt"` (the new path), declarations get mangled from
+the new path (`bn_pkg__builtins__rt__Alloc`) while the call sites
+still emit OLD names — clang errors with "use of undefined value
+'@bn_pkg__rt__Alloc'".
 
-This is masked for gen1-routed builds (conformance, unit tests)
-because gen1 is built FROM CURRENT source — once compiled, its NEW
-codegen emits NEW names consistently. But direct-BUILDER builds
-(`scripts/build-bni.sh`, `e2e/repl.sh`) hit the mismatch.
+Conformance / unit-test runs sidestep this because they go through
+gen1 (`scripts/lib/build-compilers.sh::build_gen1` builds gen1, then
+gen1 compiles each test).  Gen1's *compiled-in* codegen is CURRENT
+source's codegen, so gen1's outputs use the NEW literals.  But
+`scripts/build-{bnc,bni,bnas,bnlint}.sh` and `e2e/{repl,
+print-args}.sh` invoked BUILDER directly, bypassing gen1, so they
+ran into the mismatch.
 
-When this step is taken up, the mechanical work is:
+Solution: route those scripts through gen1 too.  Two-stage build:
 
-- `pkg/rt.bni` → `pkg/builtins/rt.bni`.
-- `pkg/rt/` → `pkg/builtins/rt/`.
-- `runtime/baremetal_arm32/pkg/rt/` →
-  `runtime/baremetal_arm32/pkg/builtins/rt/` (path-shadow that the
-  arm32-baremetal target relies on).
-- `import "pkg/rt"` → `import "pkg/builtins/rt"` everywhere.
-- Symbol literals tree-wide: `pkg__rt__…` → `pkg__builtins__rt__…`
-  (covers `bn_pkg__rt__…` globals, internal mangler intermediates,
-  test pins). Grep:
+1. BUILDER compiles `cmd/bnc` into a gen1 binary, linked against
+   the BUILDER bundle's C runtime (`--runtime $BUILDER_LIB/runtime/
+   binate_runtime.c`).  gen1's self-references use OLD mangling and
+   resolve against BUILDER's OLD runtime — fully consistent.
+2. gen1 compiles the final target (cmd/bnc, cmd/bni, cmd/bnas,
+   or cmd/bnlint) from current source, linked against the *checkout's*
+   C runtime.  gen1's compiled-in codegen is current-source's, so
+   the final binary's calls + declarations + runtime symbols all use
+   the NEW mangling.
 
-  ```sh
-  grep -rn 'pkg__rt__\|"pkg/rt' .
-  ```
+Same shape as the existing `build_gen2` in
+`scripts/lib/build-compilers.sh`.  Adds ~one extra gen1 compile to
+each script's wall-clock time — minor.
 
-- Executable name-equality strings: `"pkg/rt._call_dtor"` /
-  `_call_free_fn` / `_call_shim_scalar` / `_call_shim_aggregate`
-  (special-case lookups in `pkg/ir/gen_call.bn`) and
-  `"pkg/rt.Refcount"` (in `pkg/ir/gen_dtor_emit.bn`).
-- `cmd/bnc/util.bn`'s synthesized import-path string
-  (`imp.Path = "\"pkg/rt\""`).
-- Whitelist updates in `scripts/hygiene/conformance-imports.sh`
-  (`ALLOWED_REAL`), `scripts/hygiene/naming.whitelist`, and
-  `scripts/hygiene/test-coverage.whitelist`.
+This change is a NO-OP against current source (where BUILDER's and
+source's literals already match), so it can land independently.
+Landed at `e903aaa9`.
 
-After Step 4 (when it eventually lands), all current tier-0 / 0b
-content lives under `pkg/builtins/`.
+## Step 4 — `pkg/rt` → split tree
 
-A parked WIP commit on the `park-step4` branch carries this work
-already done, against the source tree as it stood post-Step-3 — pick
-it up after Step 7 ships a BUILDER built from a tree with the
-rename applied.
+Lands `pkg/rt` directly into the spec's split-tree shape (skipping
+the interim `pkg/builtins/rt` collocation the parked work originally
+had).  Possible because the previous commit's gen1-routing handles
+the BUILDER-skew that would otherwise block it.
+
+File moves:
+
+- `pkg/rt.bni` → `ifaces/core/pkg/builtins/rt.bni`
+- `pkg/rt/{rt,rt_test}.bn` →
+  `impls/core/libc/pkg/builtins/rt/` (libc-host impl + test)
+- `runtime/baremetal_arm32/pkg/rt/rt.bn` →
+  `impls/core/baremetal/pkg/builtins/rt/rt.bn`
+
+Symbol + path flips tree-wide:
+
+- `pkg/rt` → `pkg/builtins/rt` (imports + comments)
+- `pkg__rt__` → `pkg__builtins__rt__` (mangled-symbol literals
+  including `bn_pkg__rt__` globals; covers codegen emit strings,
+  pkg/binate/native backends, `runtime/binate_runtime.c`,
+  `runtime/libc_stubs.c`, the baremetal linker-script comment, the
+  hygiene whitelists)
+
+Executable name-equality strings:
+
+- `"pkg/rt._call_dtor"` / `_call_free_fn` / `_call_shim_scalar` /
+  `_call_shim_aggregate` (special-case lookups in
+  `pkg/binate/ir/gen_call.bn`) flip
+- `"pkg/rt.Refcount"` in `pkg/binate/ir/gen_dtor_emit.bn` flips
+- `cmd/bnc/util.bn::ensureRtLoaded`'s synthesized import-path
+  string (`imp.Path = "\"pkg/rt\""`) flips
+- `cmd/bni/externs_test.bn`'s pinned extern names flip
+
+Search-path updates so the libc impl is reachable + baremetal
+target preempts:
+
+- All host `-L` colon-lists that include `impls/core/common` also
+  include `impls/core/libc`
+- `cmd/bnc/target.bn`'s arm32-baremetal `targetImplPathSuffixes`
+  prepends `impls/core/baremetal` before `runtime/baremetal_arm32`,
+  so the baremetal pkg/builtins/rt impl wins over the libc-host
+  one while the target-specific pkg/bootstrap stub + pkg/semihost
+  interface continue to resolve from `runtime/baremetal_arm32`
+
+Landed at `e8f52e21`.
 
 ## Step 5 — Move tier-2 packages under `pkg/binate/`
 
-The bulk of the diff. Candidates (verify each is tier 2 — most are
-the embeddable-interpreter dependency closure):
+The bulk of the diff.  All 15 tier-2 packages now live under
+`pkg/binate/<X>`:
 
 ```
-pkg/asm                  → pkg/binate/asm           (safe pre-BUILDER)
-pkg/asm/*                → pkg/binate/asm/*         (safe)
-pkg/ast                  → pkg/binate/ast           (safe)
-pkg/buf                  → pkg/binate/buf           (safe)
-pkg/codegen              → pkg/binate/codegen       (safe)
-pkg/debug                → pkg/binate/debug         (safe)
-pkg/ir                   → pkg/binate/ir            (safe)
-pkg/lexer                → pkg/binate/lexer         (safe)
-pkg/lint                 → pkg/binate/lint          (safe)
-pkg/loader               → pkg/binate/loader        (safe)
-pkg/mangle               → pkg/binate/mangle        (safe)
-pkg/native               → pkg/binate/native        (safe)
-pkg/native/*             → pkg/binate/native/*      (safe)
-pkg/parser               → pkg/binate/parser        (safe)
-pkg/token                → pkg/binate/token         (safe)
-pkg/types                → pkg/binate/types         (safe)
-pkg/vm                   → pkg/binate/vm   *(hold for Step 7)*
+pkg/asm                  → pkg/binate/asm
+pkg/asm/*                → pkg/binate/asm/*
+pkg/ast                  → pkg/binate/ast
+pkg/buf                  → pkg/binate/buf
+pkg/codegen              → pkg/binate/codegen
+pkg/debug                → pkg/binate/debug
+pkg/ir                   → pkg/binate/ir
+pkg/lexer                → pkg/binate/lexer
+pkg/lint                 → pkg/binate/lint
+pkg/loader               → pkg/binate/loader
+pkg/mangle               → pkg/binate/mangle
+pkg/native               → pkg/binate/native
+pkg/native/*             → pkg/binate/native/*
+pkg/parser               → pkg/binate/parser
+pkg/token                → pkg/binate/token
+pkg/types                → pkg/binate/types
+pkg/vm                   → pkg/binate/vm           (held + then landed via gen1-routing)
 ```
 
-The (safe) packages have **no production-code hardcoded mangled-name
+14 of these have **no production-code hardcoded mangled-name
 references**, so the move only changes mangler-derived symbols
-which carry through automatically. The exception is `pkg/vm`:
-`pkg/codegen/emit_funcvals.bn`'s `isUniversalTrampoline` check
-hardcodes `"bn_pkg__vm__TrampolineScalar"` and `"…Aggregate"`.
-BUILDER's compiled-in copy still tests the OLD names; if we move
-pkg/vm before BUILDER is re-cut, BUILDER-direct builds of cmd/bni
-would silently wrap universal trampolines in `__shim` (wrong
-codegen). Pkg/vm joins Step 4 in the held-for-Step-7 queue.
+which carry through automatically — they shipped as 14 per-package
+commits between `b3955a7a` and `b3d1c6ae`.
+
+The exception was `pkg/vm`: `pkg/binate/codegen/emit_funcvals.bn`'s
+`isUniversalTrampoline` check hardcodes
+`"bn_pkg__vm__TrampolineScalar"` and `"…Aggregate"`.  BUILDER's
+compiled-in copy tested the OLD names; moving pkg/vm before BUILDER
+was re-cut would have made BUILDER-direct builds of cmd/bni silently
+wrap universal trampolines in `__shim` — wrong codegen.
+
+This was unblocked by the Pre-Step-4 gen1-routing: gen1 has CURRENT
+source's `isUniversalTrampoline` baked in, so the final binary's
+vtables match.  pkg/vm landed at `a6389017`, alongside Step 4.
 
 **Per-package commit** (recommended over big-bang to preserve
 bisectability):
@@ -268,50 +342,68 @@ cuts.
 
 ## Step 7 — BUILDER tarball shape
 
-The next `bnc-X.Y.Z` release packages the new tree:
+The `bnc-0.0.5` release packages the new tree:
 
 ```
 <tarball>/
-  bin/
-  ifaces/core/...
-  impls/core/{common,libc}/...
+  bin/{bnc,bni,bnas,bnlint}
+  lib/
+    pkg/                bundled stdlib (tier-2 + bootstrap + libc + …)
+    runtime/            bundled C runtime
+    ifaces/core/        tier-0 / 0b interfaces
+    impls/core/common/  tier-0 / 0b platform-indep impls
+    impls/core/libc/    tier-0 / 0b libc-host impls (currently: pkg/builtins/rt)
+    impls/core/baremetal/  tier-0 / 0b baremetal impls (currently: pkg/builtins/rt)
 ```
 
-`ifaces/stdlib/...` and `impls/stdlib/...` join once tier 1 has
-content (separate effort).
+`ifaces/stdlib/...` and `impls/stdlib/...` directories ship empty;
+content arrives when tier-1 is designed (separate effort).
 
-`.github/workflows/release.yml` needs to assemble this shape when
-staging the bundle; the per-platform matrix entries need to know
-which `impls/<platform>/` subtree to include. `scripts/fetch-builder.sh`
-consumers need to handle the new layout on download.
+Release.yml changes that landed at `8707d408`:
 
-**Held work that resumes here**: this is also the gate for the
-two BUILDER-skewed moves parked from earlier steps.
+- The `Build bundle` step now copies `binate/ifaces` and
+  `binate/impls` into the bundle's `lib/` alongside `binate/pkg` and
+  `binate/runtime`.
+- Every consumer's `-I` / `-L` colon-list extends `$BUILDER_LIB`
+  with the per-tier sub-paths (`$BUILDER_LIB/ifaces/core`,
+  `$BUILDER_LIB/impls/core/{common,libc}`), so the bundle's
+  ifaces/impls are reachable through `fetch-builder.sh --lib`
+  without a separate accessor.
 
-- **Step 4 — `pkg/rt` → `pkg/builtins/rt`** (parked on the
-  `park-step4` worktree branch).  Once Step 7 ships a BUILDER
-  compiled from a tree that has `bn_pkg__builtins__rt__…` baked
-  into its codegen string literals, Step 4 can land — and should
-  go straight into `ifaces/core/pkg/builtins/rt.bni` +
-  `impls/core/{common,libc}/pkg/builtins/rt/` (split-tree form)
-  rather than first going through `pkg/builtins/rt`.
-- **Step 5b — `pkg/vm` → `pkg/binate/vm`**.  Held alongside Step 4
-  because `pkg/codegen/emit_funcvals.bn`'s `isUniversalTrampoline`
-  hardcodes `"bn_pkg__vm__TrampolineScalar"` / `"…Aggregate"`, and
-  BUILDER's compiled-in copy still tests the OLD names.  After
-  Step 7 the new BUILDER's check matches the new mangled names
-  and the move is safe.
+bnc-0.0.5 was tagged at commit `f4557915` and released to
+`https://github.com/binate/binate/releases/tag/bnc-0.0.5`.  Both
+platforms (linux-x64, macos-arm64) built green.  Bundle was
+smoke-tested: SHA256 matched manifest, hello + carveout compile +
+run, bnc-0.0.5's emitted IR uses `bn_pkg__builtins__rt__…` (the
+NEW mangling) throughout.
 
-Defer until the next release cuts.
+`BUILDER_VERSION` then bumped to `bnc-0.0.5` and `VERSION` to
+`bnc-0.0.6-pre` at `5dc79ae9`.  CI on that commit is the real
+verification that bnc-0.0.5 works for all consumers' machines.
+
+`scripts/fetch-builder.sh`'s `--lib` accessor was NOT split into
+multiple subcommands — instead the consumer-side colon-lists
+include `$BUILDER_LIB/ifaces/core` etc. directly.  Simpler and
+keeps `fetch-builder.sh` to one moving part.
 
 ## Step 8 — Verification
 
-- All CI modes green: hygiene, unit tests (every mode), conformance,
-  e2e, perf.
-- `scripts/hygiene/*.sh` clean (file-format / naming / godoc / etc.
-  may need package-name updates).
-- `examples/selftest.bn` and friends still build and run.
-- README and project-structure docs updated to reflect the new tree.
+What was verified locally before each commit / cherry-pick:
+
+- `scripts/hygiene/run.sh` all 12 checks pass.
+- `scripts/unittest/run.sh builder-comp` all 34 packages pass.
+- `conformance/run.sh builder-comp` (448 / 448).
+- `e2e/repl.sh` (52 / 52) and `e2e/print-args.sh` (2 passed, 1
+  skipped — pre-existing).
+
+Known pre-existing failures that persist on `main` (not introduced
+by this migration; see `claude-todo.md`):
+
+- `-int*` mode regressions (broad — bytecode-VM area).
+- `native_aa64` capture-related failures.
+- arm32-baremetal `363_aggregate_funcval`.
+
+These don't block any layout step.
 
 ## Out-of-scope follow-ups
 
@@ -328,20 +420,40 @@ Separate TODOs / plan docs, not covered here:
   or annotation system.
 - **Package manager design** — separate spec + plan.
 
-## Risks
+## Risks — retrospective notes
 
-- **Forgotten symbol references** — every `bn_pkg__X__…` literal in
-  `runtime/binate_runtime.c`, native backends, runtime manifest
-  tables, and test expectations. Mitigation: exhaustive
-  `grep -rn "bn_pkg__"` before each move; rely on CI to surface
-  what's missed.
-- **xfail / skip file churn** — many of these files name packages
-  via the dashes convention. Each rename touches several xfail
-  filenames; easy to miss one.
-- **Bisectability between Step 5 sub-steps** — keep each per-package
-  commit green. If a particular move can't land green (e.g., depends
-  on a sibling), batch with the next package rather than landing red.
-- **fetch-builder.sh consumer divergence** — once the script's
-  output shape changes (Step 6), every consumer must update in
-  lockstep. Plan: identify all consumers up front, change them in
-  one commit chain.
+What materialized vs what didn't, for the historical record:
+
+- **Forgotten symbol references** — handled, but the original plan
+  underestimated the BUILDER skew.  When a `bn_pkg__X__…` literal
+  is *baked into the BUILDER binary's compiled-in codegen*, no amount
+  of careful sed in current source catches it: BUILDER emits its
+  baked-in calls + the new manifest's declarations on every compile,
+  and they mismatch.  The eventual fix was the gen1-routing of
+  build scripts (Pre-Step-4 section above), which keeps BUILDER's
+  baked-in mangling out of the final binary entirely.
+
+- **xfail / skip file churn** — minor in practice.  Each leaf-move's
+  test plan caught the renames consistently.
+
+- **Bisectability between Step 5 sub-steps** — maintained.  Each
+  per-package commit landed green; the one CI failure that materialized
+  was a pre-existing arm32 issue (`363_aggregate_funcval`), unrelated
+  to layout.
+
+- **fetch-builder.sh consumer divergence** — handled by NOT changing
+  `--lib`'s shape; consumers append `$BUILDER_LIB/ifaces/core`,
+  `$BUILDER_LIB/impls/core/{common,libc}` to their own colon-lists.
+  Keeps `fetch-builder.sh` to one moving part; consumers can land
+  independently.
+
+A new risk-class surfaced during execution:
+
+- **Premature release cuts.**  A first attempt at `bnc-0.0.5` was
+  cut before Step 4 + 5b were applied in source, which made it
+  functionally identical to `bnc-0.0.4` while still adding a
+  permanent rung to the build ladder.  Reverted; see
+  `release-process.md`'s lead section ("Is this release worth
+  cutting?") for the resulting guardrail.  The actual bnc-0.0.5
+  cut was substantively different — it bakes the post-Step-4
+  mangled-symbol contract into the next BUILDER.
