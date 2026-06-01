@@ -6,51 +6,92 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### @func capturing-literal cleanup: `_call_dtor(closure_dtor_fn_ptr, ptr)` lowers as HANDLE dispatch (silent miscompile on EVERY target)
+- **Symptom**: arm32-baremetal hangs in scope-end cleanup of an
+  `@func()` capturing closure (pinned by
+  `conformance/515_managed_func_value_capture` with matching
+  `.xfail.builder-comp_arm32_baremetal`).  LP64 / aa64 / x64
+  appear green but **also broken** — they exit cleanly only by
+  coincidence after the broken path's random jump lands somewhere
+  that returns or exits without an observable crash.  The captured
+  managed references (the `@T` capture, the `@[]T` capture, etc.)
+  are **never RefDec'd** — the closure dtor never actually runs.
+- **Root cause**: a two-layer mismatch in the @func cleanup path:
+  1. `emitManagedFuncValueRefDec`
+     (`pkg/binate/ir/gen_util_refcount.bn:430`) emits
+     `EmitFuncValueDtor(fvVal)`, lowered as `OP_FUNC_VALUE_DTOR`,
+     which **loads `vtable[0]` and yields a raw function pointer**
+     to the closure-struct dtor (`bn_main____dtor___closure___funclit_0`,
+     signature `void(i8*)`).
+  2. That raw fn ptr is passed as the `dtor` argument to
+     `ZeroRefDestroy(ptr, dtor)`.  Inside `ZeroRefDestroy`,
+     `_call_dtor(dtor, ptr)` is lowered by `genCall`
+     (`pkg/binate/ir/gen_call.bn:226`) as **`OP_CALL_HANDLE`** —
+     which treats `dtor` as a **`*BnFuncValue` HANDLE pointer**
+     (the documented contract; the same call site is reused by
+     `emitManagedPtrRefDec` which DOES pass a real handle via
+     `EmitFuncHandle(qualifiedDtorName(...))`).
+  3. `OP_CALL_HANDLE` then reads `handle[0]` (first 8 bytes at the
+     address — actually the function's own machine code), treats
+     it as a `*BnVtable`, loads `vtable[1]` (the "call shim"), and
+     invokes it with `(handle[1], ptr)`.
+
+  → the @func cleanup path dereferences the closure dtor function's
+  own machine code as if it were a {vtable, data} struct, then
+  jumps to a random pointer read from inside that machine code.
+- **Discovery**: 2026-05-31, investigating the arm32-baremetal
+  hang.  Instrumented `runtime/baremetal_arm32/pkg/rt/rt.bn`'s
+  `ZeroRefDestroy` with semihosting traces — hang localised at
+  the `_call_dtor` invocation (entering, never returning).  Dumped
+  `--emit-llvm --pkg pkg/rt` for both LP64 and arm32-baremetal,
+  found identical broken shape (`%v13.h = bitcast i8* dtor to
+  %BnFuncValue*; load vt; load vt[1]; call`).  Instrumented
+  `pkg/rt/rt.bn`'s LP64 `ZeroRefDestroy` with `println` traces and
+  confirmed `[call_dtor begin]` is reached but `[call_dtor end]`
+  never — the binary exits cleanly after.  All `_5xx` tests that
+  pass on LP64 / aa64 / x64 for `@func` capturing literals are
+  passing by coincidence; the cleanup never actually runs.
+- **Why CRITICAL**: silent miscompile of cleanup for every `@func(...)`
+  capturing literal on every backend.  Captured managed references
+  leak (programs that use `@func` capturing closures grow without
+  bound on libc-host targets; arm32-baremetal's bump allocator
+  hides the leak but exposes the hang).  Conformance B.3a/B.3b
+  passes hide it entirely.
+- **Proper fixes — three options**:
+  1. Change `EmitFuncValueDtor` to emit a per-vtable HANDLE
+     (`@__vt_handle.<vtable> = constant %BnFuncValue { @__vt,
+     null }`) instead of a raw fn ptr.  `OP_CALL_HANDLE` then
+     loads `vt[1]` (call shim).  BUT closure dtor is `void(i8*)`,
+     not `void(i8*, i8*)`, so the shim shape must change too —
+     bigger surface.
+  2. Lower `_call_dtor` as `OP_CALL_INDIRECT` instead of
+     `OP_CALL_HANDLE`.  Either always (revert the Phase-4
+     uniform-handle decision for this call site), or via a separate
+     `_call_dtor_indirect` magic.  Smallest fix surface; mixes
+     dispatch shapes at the same callsite.
+  3. Inline the closure-dtor call at `emitRefDecInline`'s slow
+     path — direct `OP_CALL_INDIRECT` to the raw fn ptr when
+     dtor is non-null, then `rt.Free`.  Avoids the bni indirection
+     entirely for the @func case.
+- **Tests covering it**:
+  - `conformance/515_managed_func_value_capture` —
+    `.xfail.builder-comp_arm32_baremetal` (only target where the
+    broken path hangs visibly).  Other modes pass-by-coincidence.
+  - Once fixed: add a unit-test on the IR shape (assert
+    `emitManagedFuncValueRefDec`'s output is structurally
+    compatible with `_call_dtor`'s lowering shape) so regressions
+    are caught at codegen rather than runtime.
+
 ---
 
 ## MAJOR
 
-### @func capturing literal hangs on arm32-baremetal cleanup
-- **Symptom**: a `@func()` variable holding a capturing closure
-  prints all expected output, then hangs in scope-end cleanup —
-  qemu-system-arm hits the 10s timeout and the runner reports
-  failure.  Test output up to the cleanup is identical to LP64.
-  Pinned by `conformance/515_managed_func_value_capture` with
-  the matching `.xfail.builder-comp_arm32_baremetal`.
-- **What works**: every other mode (builder-comp / -int /
-  -comp-comp-comp / native_aa64 / native_x64_darwin) runs 515
-  cleanly.  All other 5xx tests pass on arm32_baremetal — only
-  @func with a `@T` capture exposes the hang.  *func capturing
-  literal + @T capture (509) is green on arm32; @[]T (510);
-  @T method values (511); non-capturing @func (513).
-- **What I tried before xfailing**: stripped 515 down to a
-  single `var b @Box = make(Box); b.N = 7; var f @func() int =
-  func() int { return b.N }; println(f())` — same hang.
-  Removed `b.N = 7` — same hang.  Replaced `@Box` with `int`
-  (no @T capture) — passes.  So the hang requires (a) @func
-  literal, (b) a CAP_MANAGED capture, (c) arm32-baremetal
-  target.
-- **Diff'd the arm32 vs LP64 LLVM IR**: only the expected
-  size differences (i64 → i32, refcount header at -16 → -8,
-  pointer widths).  The closure-struct dtor IR, the @func
-  RefDec emit (extract data, extract dtor, call
-  `ZeroRefDestroy`), the `OP_FUNC_VALUE_DTOR` lowering — all
-  structurally identical, just narrower.
-- **Hypotheses** (untested):
-  - The arm32 calling convention for the indirect
-    `_call_dtor(dtor, ptr)` may disagree with the closure-
-    struct dtor's `void(i8*)` signature in some way LP64
-    masks.
-  - `rt.ZeroRefDestroy` (BUILDER-compiled) may treat the
-    dtor function-pointer arg differently on arm32 — e.g.,
-    misclassifying as scalar-by-stack instead of register-
-    passed.
-  - The semihosting exit path may not flush before
-    cleanup, masking output of a fault that happens during
-    `Free` or `_call_dtor`.
-- **Next step**: add semihosting trace prints around
-  `ZeroRefDestroy` and the closure-struct dtor's entry /
-  exit to localise where the hang starts.
+### pkg/vm.TestExternRtMakeManagedSliceViaRegistry crashes mid-run on x64-darwin native
+- **Symptom**: under `builder-comp_native_x64_darwin`, `pkg/vm`'s test binary prints `=== RUN   TestExternRtMakeManagedSliceViaRegistry` then dies with no `--- PASS`/`--- FAIL` line — runner reports `pkg/vm` as failed.  Surfaced after the x64 float-compare fix (binate `268a57cc`); was previously masked behind `TestEvalFloatCmp64`'s explicit FAIL, but the test binary was actually crashing both times — `TestEvalFloatCmp64` finished (with failure) before reaching this one.  Wait, actually: pre-fix, TestEvalFloatCmp64 FAILed but the binary continued and reached TestExternRt..., which also crashed silently — both failures coexisted, the runner just only reported the first one (it counts package-level FAIL on either).  Post-fix, TestEvalFloatCmp64 PASSes and TestExternRt's silent crash is now the sole failure.
+- **Discovery**: 2026-05-31, immediately after the float-compare fix.
+- **What the test does**: end-to-end cross-mode dispatch — registers `pkg/rt.MakeManagedSlice` (returns a 32-byte aggregate) with the VM's extern registry; calls it from bytecode user code; exercises the registry's aggregate-return path through `_call_shim_aggregate` + `TrampolineAggregate` + the inner bytecode VM's executor; expects to read back `.Len = 7`.
+- **Root cause (unknown)**: needs investigation.  The shape (silent mid-test SIGBUS while exercising aggregate-return cross-mode dispatch) is reminiscent of the PlanFrame sret-shift bug just fixed in binate `f22afb47` — the failing test heavily uses sret-returning calls.  Possibly: (a) another cross-package call shape that the PlanFrame fix didn't cover (e.g. `CalleeUsesCSret` not consulted by PlanFrame for lack of allFuncs); (b) something deeper in the trampoline / native dispatch path that's x64-specific.  Aa64 native pkg/vm passes this test, so the bug is x64-side.
+- **Severity**: MAJOR — blocks the `builder-comp_native_x64_darwin pkg/vm` unit-test lane.  Doesn't block CI or conformance.
 
 ### ~~arm32_baremetal: pkg/native/{aarch64,x64} test binaries overflow `.bss` region~~ — FIXED 2026-05-30 (binate `b0c64b14`)
 - **Final fix**: combined option-(a) + xfail-manifest-rename:
