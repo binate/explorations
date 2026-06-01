@@ -57,22 +57,28 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   bound on libc-host targets; arm32-baremetal's bump allocator
   hides the leak but exposes the hang).  Conformance B.3a/B.3b
   passes hide it entirely.
-- **Proper fixes — three options**:
-  1. Change `EmitFuncValueDtor` to emit a per-vtable HANDLE
-     (`@__vt_handle.<vtable> = constant %BnFuncValue { @__vt,
-     null }`) instead of a raw fn ptr.  `OP_CALL_HANDLE` then
-     loads `vt[1]` (call shim).  BUT closure dtor is `void(i8*)`,
-     not `void(i8*, i8*)`, so the shim shape must change too —
-     bigger surface.
-  2. Lower `_call_dtor` as `OP_CALL_INDIRECT` instead of
-     `OP_CALL_HANDLE`.  Either always (revert the Phase-4
-     uniform-handle decision for this call site), or via a separate
-     `_call_dtor_indirect` magic.  Smallest fix surface; mixes
-     dispatch shapes at the same callsite.
-  3. Inline the closure-dtor call at `emitRefDecInline`'s slow
-     path — direct `OP_CALL_INDIRECT` to the raw fn ptr when
-     dtor is non-null, then `rt.Free`.  Avoids the bni indirection
-     entirely for the @func case.
+- **Proper fix** (mirrors the `@T-with-managed-fields` path,
+  preserves cross-mode):
+  For each closure literal, emit the standard function-value
+  triple for its dtor — `@__vt.<dtor_name>` (vtable with shim in
+  slot 1), `@__shim.<dtor_name>(i8* data, i8* ptr) { tail call
+  closure_dtor(ptr) }` (data-stripping shim), `@__handle.<dtor_name>`
+  (handle = {vtable, null}).  Then change `emitFuncValueVtableDtor`
+  so the @func vtable's slot 0 stores the HANDLE POINTER
+  (`bitcast %BnFuncValue* @__handle.<dtor_name> to i8*`), not the
+  raw fn pointer.  `EmitFuncValueDtor` keeps loading vtable[0],
+  which is now a handle; `_call_dtor`'s OP_CALL_HANDLE dispatch
+  works: `handle.vtable.call(null, ptr)` → shim strips data →
+  invokes closure dtor with `ptr`.  Cross-mode-clean — VM can
+  dispatch the same handle through the trampoline.
+
+  Apply the same shape to `@__ivt.<R>__<I>` slot 0 (currently a
+  raw fn ptr — latent bug masked by caller-side RefInc; lldb on
+  conformance/370 confirms the broken iface vtable[0] path is
+  never reached in that test because the holder enters consume
+  with refcount 2, so consume's RefDec→1 skips destroy.  Any test
+  that drives an @Iface refcount to 0 inside the callee would
+  expose the same crash/hang as @func).
 - **Tests covering it**:
   - `conformance/515_managed_func_value_capture` —
     `.xfail.builder-comp_arm32_baremetal` (only target where the
