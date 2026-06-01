@@ -92,13 +92,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
-### pkg/vm.TestExternRtMakeManagedSliceViaRegistry crashes mid-run on x64-darwin native
-- **Symptom**: under `builder-comp_native_x64_darwin`, `pkg/vm`'s test binary prints `=== RUN   TestExternRtMakeManagedSliceViaRegistry` then dies with no `--- PASS`/`--- FAIL` line — runner reports `pkg/vm` as failed.  Surfaced after the x64 float-compare fix (binate `268a57cc`); was previously masked behind `TestEvalFloatCmp64`'s explicit FAIL, but the test binary was actually crashing both times — `TestEvalFloatCmp64` finished (with failure) before reaching this one.  Wait, actually: pre-fix, TestEvalFloatCmp64 FAILed but the binary continued and reached TestExternRt..., which also crashed silently — both failures coexisted, the runner just only reported the first one (it counts package-level FAIL on either).  Post-fix, TestEvalFloatCmp64 PASSes and TestExternRt's silent crash is now the sole failure.
-- **Discovery**: 2026-05-31, immediately after the float-compare fix.
-- **What the test does**: end-to-end cross-mode dispatch — registers `pkg/rt.MakeManagedSlice` (returns a 32-byte aggregate) with the VM's extern registry; calls it from bytecode user code; exercises the registry's aggregate-return path through `_call_shim_aggregate` + `TrampolineAggregate` + the inner bytecode VM's executor; expects to read back `.Len = 7`.
-- **Root cause (unknown)**: needs investigation.  The shape (silent mid-test SIGBUS while exercising aggregate-return cross-mode dispatch) is reminiscent of the PlanFrame sret-shift bug just fixed in binate `f22afb47` — the failing test heavily uses sret-returning calls.  Possibly: (a) another cross-package call shape that the PlanFrame fix didn't cover (e.g. `CalleeUsesCSret` not consulted by PlanFrame for lack of allFuncs); (b) something deeper in the trampoline / native dispatch path that's x64-specific.  Aa64 native pkg/vm passes this test, so the bug is x64-side.
-- **Severity**: MAJOR — blocks the `builder-comp_native_x64_darwin pkg/vm` unit-test lane.  Doesn't block CI or conformance.
-
 ### ~~arm32_baremetal: pkg/native/{aarch64,x64} test binaries overflow `.bss` region~~ — FIXED 2026-05-30 (binate `b0c64b14`)
 - **Final fix**: combined option-(a) + xfail-manifest-rename:
   - `runtime/baremetal_arm32/baremetal.ld`'s `LENGTH` bumped from 8 MiB to 16 MiB — the runner already launched QEMU with `-m 16M`, so the linker was underusing available memory.  Both `.bss` overflows clear with headroom.
