@@ -139,16 +139,23 @@ representable in i32/i64), with the immortal predicate `refcount < 0`.
 4. **Native inline — DONE** (`2d4a4c53`). aarch64 `TBNZ #63` after the header
    load; x64 routes through the rt library CALL (covered by step 1). Byte-count
    tests updated; runtime-validated on native aa64 (109/0).
-5. **Static-managed-node emitter — TODO.** Codegen helper that emits a
-   header+payload static global and yields the `@T`. This is the piece the
-   descriptor work consumes, and the first thing that lets a *real* immortal
-   node flow through the compiled-mode inline paths end-to-end (steps 3–4 are
-   currently validated structurally + by the synthetic library/VM unit tests;
-   no source can yet create a sentinel node, so the compiled immortal branches
-   have no runtime conformance coverage until this lands).
+5. **Static-managed-node emitter — DONE** (`work-6` `b791fd7c`).
+   `emitStaticManagedGlobal` / `staticManagedPayloadPtr` (+ shared
+   `writeStaticManagedWrapperTy`) in `pkg/binate/codegen/emit_static_managed.bn`:
+   emit a `weak_odr` global of `{ <int>, <int>, <payload> }` with the header
+   Refcount = `STATIC_MANAGED_REFCOUNT` (a codegen-local mirror of
+   `rt.STATIC_REFCOUNT`, like `managedHeaderBytes` mirrors the header size),
+   FreeFn = 0, and a GEP-to-field-2 constant yielding the `@T` payload pointer
+   (header at `payload - managedHeaderBytes()`). Unit tests pin the LP64 +
+   ILP32 IR shape, the sentinel value, and header/payload adjacency.
 
-Steps 1–4 (the sentinel checks) are landed and green. Step 5 is the bridge to
-the descriptor and unlocks end-to-end runtime coverage of the compiled paths.
+Steps 1–5 are landed/ready and green. The emitter is not yet *called* from
+non-test code, so the compiled-mode immortal branches still have no runtime
+conformance coverage — that arrives with the first **Phase B** descriptor node
+(`pkg/builtins/reflect` + per-package `Package()` emission), which calls
+`emitStaticManagedGlobal` and is exercised end-to-end by a conformance test
+that reads a package descriptor and lets the `@reflect.Package` drop at scope
+exit (immortal → never freed).
 
 ## Tests
 
