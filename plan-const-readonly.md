@@ -182,10 +182,17 @@ positions becomes `readonly T`.  Touches:
   during a deprecation window, or hard-cut to `readonly` and
   expect everyone to update in lockstep.  Hard-cut is simpler;
   the tree is small.
-- `pkg/binate/types` — the `TYP_CONST` internal type-kind can
-  keep its name (it's an internal representation, not the surface
-  syntax) or rename to `TYP_READONLY` for consistency.  Either is
-  fine; pick one to avoid confusing readers.
+- `pkg/binate/types` — **decided**: rename the `TYP_CONST` internal
+  type-kind (and `IsConst`/`StripConst`/etc. helpers) to
+  `TYP_READONLY` for consistency.  This is a tree-wide *identifier*
+  rename — `TYP_CONST` is referenced across ir/codegen/native/vm/
+  mangle/types — so the kind's definition and all its references
+  must land together (one atomic change), not package-by-package.
+- **Type-printer output — decided**: the printer (`types_query.bn`)
+  and error messages emit `readonly T` (was `const T`), matching the
+  surface syntax.  The assertion strings in `types_test.bn` /
+  `types_const_test.bn` that pin the old `const`-printer output get
+  updated in the same pass.
 - Spec doc (`claude-notes.md`).
 
 ## Source migration
@@ -229,9 +236,25 @@ The `const T` type-modifier rename touches **every** `*const T` /
    BUILDER binary; the bump makes that BUILDER active for
    subsequent steps' compilation.  Follow `release-process.md`'s
    seven-step cut.
-4. **Tree-wide sed**: rename every type-modifier `const` to
-   `readonly` in source files.  Lands as one mechanical commit;
-   verifies the new-BUILDER parser accepts `readonly` everywhere.
+4. **Per-package rename**: rename every type-modifier `const` to
+   `readonly` in source files, **one package per commit**, landing
+   (cherry-pick + resync) between packages to minimize conflicts
+   with concurrent worktrees — NOT one giant tree-wide commit.
+   Mechanical patterns that are provably type-modifier (never a
+   declaration): `*const `, `[]const `, `[N]const `, `@const `,
+   `@[]const `, `const *`.  Declaration `const` (`const NAME …`,
+   `const ( … )`) is never matched by these.  The package's own
+   tests are the safety net — a wrongly-renamed assertion string
+   fails the build, so build+test each package before committing.
+   Special cases:
+   - `pkg/binate/types` owns `TYP_CONST`, `IsConst`/`StripConst`,
+     and the type-printer whose `"const "` output is pinned by
+     test-assertion strings (`"const *[]int"` etc.).  A blind sed
+     corrupts those.  Handle manually, last; decide there whether
+     the printer output + internal kind name also rename (the plan
+     allows keeping `TYP_CONST`).
+   - Defer codegen/native/vm/rt while concurrent worktrees touch
+     them.
 5. **Parser / type-checker: remove `const` type-modifier**.  After
    step 4, no source uses it; remove the parser branch and any
    leftover error messages.  Optionally cut another release here
