@@ -15,7 +15,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   N inside main's frame) is overwritten by an outgoing-stack
   arg main writes at the same offset.  The shim then loads the
   overwritten value as the capture.  Pinned by
-  `conformance/522_closure_many_user_args` (xfail
+  `conformance/523_closure_many_user_args` (xfail
   `.builder-comp_native_x64_darwin-comp_native_x64_darwin` —
   expects 145, gets 53 because `base=100` is overwritten by
   `i=8`).
@@ -55,7 +55,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
      args at `[rsp + N]`; the two grow toward each other but
      never overlap as long as the frame is large enough.
 - **Tests covering it**:
-  - `conformance/522_closure_many_user_args` —
+  - `conformance/523_closure_many_user_args` —
     `.xfail.builder-comp_native_x64_darwin-comp_native_x64_darwin`.
   - Once fixed: add a focused test with more stack args (e.g.
     12 user-args) to expose the same defect on aa64 if it
