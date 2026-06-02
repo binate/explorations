@@ -1,12 +1,33 @@
 # Top-Level Consts of Non-Integer Types — Plan
 
 Generalize the partial fix in binate `7b0f77a3` (string-typed top-level
-consts work via `OP_CONST_STRING` + `OP_RODATA_SLICE` lowering) to cover
-every type bnc currently accepts as a const initializer.  The current
-silent-zero-placeholder behavior across all non-int cases is the
+consts now lower correctly via `OP_CONST_STRING` + `OP_RODATA_SLICE`)
+to cover every type Binate accepts as a `const` declaration.  The
+current silent-zero-placeholder behavior for non-int cases is the
 broader form of the bug fixed for strings.
 
 See `claude-todo.md` for the partial-fix context.
+
+## Binate's `const` semantics
+
+`const` in Binate marks an **immutable variable** — i.e., the variable
+itself can't be reassigned (see `claude-notes.md`, "Compile-time
+constants" / "Const on variable declarations").  It does not require
+the initializer to be reducible to an immediate at every read site.
+So:
+
+- `const X int = 5` — `X` can't be reassigned.  Reads may be const-
+  folded to the immediate `5` as an optimization.
+- `const X Point = Point{1, 2}` — `X` is a struct whose value is
+  fixed at module-initialization time and can't be reassigned.
+- `const P *int = &G` — `P` holds the address of `G` and can't be
+  reassigned to point elsewhere.  Whether `*P` is mutable depends
+  on the const-ness of the pointee per the "const-in-types" rules.
+
+The IR-gen bug today is that bnc's const-handling assumes
+"reducible-to-immediate" — only int (and now string) actually
+lowers correctly; every other type silently falls through to
+`EmitConstInt(0, TypInt())`.
 
 ## Scope
 
@@ -19,13 +40,15 @@ What's broken today (post-string-fix):
 | `[N]T` (array literal const) | Loud — `arr[i]` extractvalue on i64 |
 | `T struct` (struct literal const) | Silent — all-zero struct |
 | `*[]const T` / `@[]const T` (composite-literal slice) | Loud — len/index extractvalue on i64 |
-| `*T` / `@T` (pointer-to-value consts) | Not probed; three sub-cases (see below) |
+| `*T` / `@T` (pointer-to-value consts) | Not probed; sub-cases below |
 
-All share the same root cause: `genConst` (gen_const.bn) + the importer
-registration in `gen_import.bn::registerImportFile` go through
-`evalConstExpr`, which is integer-only.  Non-int initializers are
-silently dropped; read sites (EXPR_IDENT, qualified EXPR_SELECTOR)
-fall through to the int-zero placeholder.
+All share the same root cause: `genConst` (gen_const.bn) + the
+importer-side registration in `gen_import.bn::registerImportFile`
+go through `evalConstExpr`, which only knows how to fold integers.
+Non-int initializers are silently dropped at registration time;
+read sites (`EXPR_IDENT` in gen_expr.bn, qualified `EXPR_SELECTOR`
+in gen_selector.bn) find nothing in `moduleConsts` and emit
+`EmitConstInt(0, TypInt())` as a fallback.
 
 ## Phase A — Scalar non-int (bool, float)
 
@@ -47,8 +70,8 @@ Mechanically the same shape as the string fix.
 (`Kind` replaces the `IsStr` flag — cleaner once there are >2 cases.
 Migration: existing `IsStr` callers test `Kind == CONST_STR` instead.)
 
-**Producer changes** in `pkg/binate/ir/gen_const.bn::genConst` and
-`pkg/binate/ir/gen_import.bn::registerImportFile` recognize:
+**Producer changes** in `gen_const.bn::genConst` and
+`gen_import.bn::registerImportFile` recognize:
 
 - `EXPR_BOOL_LIT` → `Kind = CONST_BOOL`, populate `BoolVal`
 - `EXPR_FLOAT_LIT` → `Kind = CONST_FLT`, populate `FltText` with the
@@ -59,10 +82,10 @@ Migration: existing `IsStr` callers test `Kind == CONST_STR` instead.)
 `gen_selector.bn::EXPR_SELECTOR` qualified case:
 
     switch moduleConsts[i].Kind {
-    case CONST_STR: return b.EmitConstString(...) + EmitStringToChars
+    case CONST_STR:  return b.EmitConstString(...) + EmitStringToChars
     case CONST_BOOL: return b.EmitConstBool(moduleConsts[i].BoolVal)
-    case CONST_FLT: return b.EmitConstFloat(moduleConsts[i].FltText, moduleConsts[i].Typ)
-    default: return b.EmitConstInt(moduleConsts[i].Val, ctyp)
+    case CONST_FLT:  return b.EmitConstFloat(moduleConsts[i].FltText, moduleConsts[i].Typ)
+    default:         return b.EmitConstInt(moduleConsts[i].Val, ctyp)
     }
 
 **Tests**: unit-test the producer + dispatch in
@@ -71,135 +94,140 @@ in-package + cross-package reads for each scalar non-int type.
 
 Estimated diff size: comparable to the string fix (~80 lines).
 
-## Phase B — Composite types: design call
+## Phase B — Composite-typed consts: lower as initialized globals
 
-Three options for arrays, structs, slices, managed-slices, and the
-pointer cases below.  Pick one before implementing.
+Per the const-semantics summary above, `const X T = compositeLit`
+declares an immutable variable whose value is whatever the literal
+expression yields at module-init time.  The natural lowering is the
+same shape that already handles `var X T = compositeLit`:
+**initialized-once globals**, with const-ness enforced at the
+language layer by the type checker.
 
-### Option (b1) — re-emit the initializer AST at each read site
+### IR-gen route
 
-Store the const's value expression (`@ast.Expr`) in ModuleConst.
-At each read, call the existing IR-gen path for that expression as
-if it were inlined at the read site.
+Producers (`genConst`, `registerImportFile`) recognize composite-
+literal init shapes and route the decl through `moduleGlobals`
+instead of `moduleConsts`.  The literal is the global's initializer;
+the global's mangled symbol exposes it cross-package.
 
-Pro: minimal IR-gen rework — leverages the existing composite-literal
-machinery (`genCompositeLit`, slice / struct / array literal handlers).
+Read sites:
+- In-package: `EXPR_IDENT` already falls back to `lookupVar` first,
+  which checks `moduleGlobals` — an entry there resolves naturally.
+- Cross-package qualified `EXPR_SELECTOR`: same fallback path —
+  global symbol resolution via the existing imported-pkg-globals
+  machinery (verify whether tier-2 cross-pkg-var-read paths in
+  `gen_import.bn` already cover this; add if not).
 
-Con: duplicates the literal-emission code at every read.  For a
-const-typed slice referenced from N call sites, N independent
-heap-or-rodata copies / allocations land in the binary.  Cross-package
-const reads via the EXPR_SELECTOR path re-emit too, multiplying the
-duplication across packages.
+For the lowering of immutable composite data, the existing
+`OP_RODATA_SLICE` / `OP_RODATA_MSLICE` pattern (currently emitted
+for string literals through `EmitStringToChars`) generalizes:
+emit the initializer as a static rodata blob, load / view at each
+read.  Where the pointee type isn't const (`const A @[]int` —
+mutable elements via a fixed managed-slice), allocate-once at
+module-init.  Extending from string-only to arbitrary slice /
+struct / array literals is incremental work on top of the
+existing infrastructure.
 
-Probably an OK first cut but obviously not the long-term answer.
+### Const-ness enforcement
 
-### Option (b2) — demote composite-typed top-level consts to global vars in IR-gen
+The type checker is the source of truth for "no writes through the
+const."  Today this works for the int / string cases — `X = ...` is
+rejected.  Verify the same path handles composite consts:
 
-Type-checker still enforces const-ness (no writes allowed at source
-level).  But IR-gen routes such consts through `moduleGlobals`
-instead of `moduleConsts`, with the literal as initializer.  Each
-read goes through `lookupVar` → `EmitLoad` (or `EmitGetFieldPtr` for
-struct-field selectors etc.), same as any global.
+- `X = newValue` — reassignment-of-the-variable rejection.
+- `X[i] = newValue` — reject if `X`'s const-ness propagates through
+  indexing per the const-in-types rules.
+- `X.F = newValue` — same: depends on whether const-on-X
+  propagates to its fields.
 
-Pro: single allocation / rodata copy per const, regardless of read
-count.  Cross-package reads load through the global's mangled symbol.
-Matches how Go handles "var" but applies const-checking semantics.
+These rules already exist for `*const T` / `*[]const T` etc. value
+types; mostly a test-coverage exercise to pin them for the
+`const X T` form.
 
-Con: deviates from the "const is compile-time-constant" mental model
-— composite consts effectively become initialized-once globals.
-Comparison-with-zero / dead-code-elimination passes can't const-fold
-through them at LLVM time (loading from rodata isn't as transparent
-as an immediate).
+### When the const-fold-at-read-site path also applies
 
-### Option (b3) — restrict composite types in the type-checker (recommended)
+Even with the initialized-global lowering, scalar consts (int, bool,
+char, float, string) are additionally const-folded at every read
+site — produces immediate-style LLVM IR that the LLVM optimizer
+can DCE through.  That's what Phase A delivers and what the string-
+fix already does.  Phase B's "initialized global" lowering is the
+**correctness floor** for types that can't reduce to an immediate;
+the immediate path is the **optimization** for types that can.
 
-Reject top-level const declarations whose declared type is composite
-(struct, array, slice, managed-slice).  Matches Go's `const` rule:
-consts are compile-time-constant values of basic types only.  The
-broader-acceptance was a type-checker oversight, not an intentional
-language feature — bnc never had IR-gen for these and the front end
-mistakenly let them through.
-
-Pro: simpler language semantics, matches a well-known precedent,
-keeps the IR-gen const machinery focused on truly-constant scalars.
-The use cases composite consts would address (named static tables,
-configuration) are already served by top-level `var` with an
-initializer — except for compile-time constness, which can be
-emulated by package convention (Go does this too).
-
-Con: breaks any existing in-tree consts that currently silently
-mis-compile but happen to "work" because nothing reads the zeros.
-Per the probe, no current in-tree composite-typed consts exist —
-this restriction would only forbid hypothetical future ones.
-
-**Recommendation**: (b3).  Cleanest end state; matches Go; the
-type-checker change is small (extend the assignability check in
-`checkConstDecl` to also require the declared type be a non-composite).
-A new conformance test pinning the rejection completes coverage.
+A future refinement: small composites with statically-knowable
+values (e.g. `const P Point = Point{1, 2}` — 2-field 16-byte
+struct) could be const-folded at read sites too, producing better
+LLVM IR than load-from-global.  Not in scope for the initial fix
+— the goal is correctness.
 
 ## Phase C — Pointer-typed consts
 
-Three sub-cases that don't reduce to "composite type, reject" or
-"scalar, emit primitive":
+`const P *T = &G` (or `const P @T = ...`) is a const-pointer:
+the pointer variable itself can't be reassigned, the pointee's
+mutability depends on whether T is const-qualified.
 
 ### C1: const-pointer to a static global
 
     var G int = 42
     const P *int = &G
 
-`P` is a compile-time-constant POINTER VALUE: the address of `G`'s
-storage.  Sensible only if the type checker can verify `&G` is in
-fact a static address (a top-level var, not a function-local).
+`P` holds the address of `G`'s storage; the address is fixed at
+module-link time.  IR-gen emits `P` as an initialized global whose
+value is the mangled-symbol address of `G`.  Reads load `P`'s
+value normally; `*P` writes are allowed because `int` isn't
+const-qualified.
 
-If allowed, IR-gen emits `P` as a global initialized with the
-mangled-symbol address of `G`.  Reads `EmitLoad(P, *int)` and follow
-through normally.
+The type checker needs a hook to verify the initializer is a
+static-address expression (`&G` where G is a top-level var, or
+similar) — the read-only-at-module-init invariant requires the
+address itself to be link-time-fixed.
 
-### C2: const-pointer to a literal address (immediate)
+### C2: const-pointer to nil
 
     const NULL *int = nil
 
-Already-known shape (nil is a const).  Should "just work" via the
-existing nil-init path; verify it does, add a regression test.
+Mechanical — nil-init is already a known shape.  Verify the
+existing nil-handling path makes `EXPR_IDENT` for this const
+resolve correctly; add a regression test.
 
-### C3: const-pointer to a string-literal-style rodata blob
+### C3: managed-pointer consts
 
-    const HelloPtr *const uint8 = "hello"  // hypothetical?
+    const X @Box = make(Box)  // or other allocator expressions
 
-Probably not actually supported by the type system; `"hello"` has
-natural type `[N]const char` which decays to `*[]const char`, not
-`*const uint8`.  If the type checker accepts it, treat it like the
-string-fixed path.
+Probably needs design work — `make()` allocates at runtime, so
+this is more like "initialize once at module-init, reuse forever"
+than "compile-time constant."  Treat as a special case of
+Phase B's initialized-global lowering, with refcounting at
+module-init plus a final RefDec at module-shutdown (or "never
+released" — managed-pointer consts effectively pin their
+allocations for the lifetime of the program).
 
-### Recommendation for pointer consts
+### Recommendation
 
-Allow C1 (const-pointer to top-level var) and C2 (nil) explicitly;
-reject everything else.  C1 needs a type-checker hook that walks
-the initializer to confirm `&G` is a static address.  C2 is
-mechanical.
+Cover C1 + C2 in the first cut; defer C3's refcount-lifetime
+design until a use case surfaces.
 
 ## Suggested implementation order
 
-1. **Phase A** (bool, float): land first.  Mechanical, ~80 lines,
-   matches the string fix shape.  Closes most of the "loud" cases.
-2. **Phase B** (composite restriction — option b3): commit the
-   type-checker change + conformance rejection test.  Trivial diff;
-   resolves the "silent-zero struct" + "loud-extractvalue array /
-   slice" failure modes at the front-end.
-3. **Phase C** (pointer consts): smaller scope, can land anytime
-   after A; C2 (nil) probably already works and just needs a
-   regression test.
+1. **Phase A** (bool, float): mechanical, ~80 lines, matches the
+   string fix shape.  Closes the loud-LLVM-mismatch bool case +
+   the silent-zero float case.
+2. **Phase B** (composites): route composite-typed consts through
+   `moduleGlobals` with initialized-once lowering; add type-checker
+   coverage for write-rejection sub-cases.  Larger scope; needs
+   careful testing across array / struct / slice / managed-slice
+   variants.
+3. **Phase C** (pointer consts): C1 (const-pointer to static
+   global) + C2 (nil).  C3 (managed-pointer consts) deferred.
 
-Phase A is concrete enough to start; Phase B's type-checker move
-deserves a quick sanity-check on whether anything in-tree already
-declares a composite-typed const (today's probe says no).  Phase C
-can be deferred until a real use case surfaces.
+Phase A is concrete enough to start.  Phase B and C can land
+independently once the producer-side `Kind`-dispatch is in place.
 
 ## Out of scope
 
 - Generalized constant-evaluator for arbitrary const expressions
-  (e.g., `const X = f(42)` where `f` is a pure function).  Go doesn't
-  do this either; the simpler model is "consts are literals plus
-  the trivial arithmetic combinations already in `evalConstExpr`."
+  (e.g., `const X int = f(42)` where `f` is a pure function).
+  The simpler model — "consts are literals plus the trivial
+  arithmetic combinations already in `evalConstExpr`" — is enough.
 - Const-folding through function calls, type conversions involving
-  runtime work, etc.  Out of scope.
+  runtime work, etc.
