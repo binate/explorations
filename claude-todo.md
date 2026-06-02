@@ -18,6 +18,40 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### Untyped single const (`const X = 5`) is not forward-referenceable — same collectDecls gap, distinct from the (fixed) group case
+- **Symptom**: a top-level untyped single const with no explicit type
+  (`const X = 5`) reports `undefined` when referenced from a decl
+  checked BEFORE it — a forward reference within a file, or a sibling
+  file ordered ahead of it (package files are merged).  `const X int = 5`
+  (typed) does NOT have this problem.
+- **Relationship**: the sibling of the const-GROUP bare-iota-member bug
+  fixed in binate `88c9c0b7` — same root cause, `collectDecls`
+  (`pkg/binate/types/check_decl.bn`) only forward-registers consts whose
+  `TypeRef != nil`.  The group fix handled bare iota members (always
+  untyped int → trivial untyped-int placeholder); this single-const case
+  was left because it is **harder**: an untyped single const's type
+  depends on its VALUE, and naively `checkExpr`-ing the value during the
+  collection pass would emit spurious `undefined` errors for
+  reference-valued consts (`const X = Y; const Y = 5`, where Y is checked
+  after X).
+- **Discovery**: 2026-06-02, characterizing the completeness of the
+  group fix (a probe test, `TestForwardRefUntypedSingleConstKnownGap` in
+  `pkg/binate/types/check_decl_test.bn`, asserts the current buggy
+  behavior so the suite stays green).
+- **Why MAJOR (loud, not silent)**: compile-time `undefined`, not a
+  silent miscompile.  Lower-priority than the group case in practice —
+  untyped single consts forward-referenced are uncommon (most code
+  writes `const X int = …` or uses a group).
+- **Proposed fix direction**: in `collectDecls`, for an untyped single
+  const, forward-register the name when the value is a simple LITERAL
+  (int / string / float / bool / char) whose type is unambiguous and
+  dependency-free; leave reference / expression values for a later pass
+  (or a two-phase const resolution).  Avoids the spurious-error trap.
+- **Tests covering it**: `TestForwardRefUntypedSingleConstKnownGap`
+  (flip to `expectNoErrors` when fixed); add a conformance test mirroring
+  `526_forward_ref_iota_const` for the single-const case as part of the
+  fix.
+
 ### ~~Perf-tests CI lane fully red — `println(int)` programs fail to link `bootstrap.formatInt64`~~ — FIXED 2026-06-02 (binate `22b2c897`)
 - **Confirmed root cause**: the perf runners were never updated for the iface/impl pkg-layout split.  Compile runners (`builder-comp`, `-comp-comp`, `-comp-comp-comp`, `native_aa64`) passed only `-I "$src_dir" -L "$src_dir"` (= `perf/`); `println(int)` lowers to a `bootstrap.formatInt64` call, but `perf/` has no `pkg/bootstrap`, so int-printing tests (`001_fib`, `002_many_funcs`) failed to link.  Interp runners (`builder-comp-int`, `-comp-comp-int`, `-comp-int-int`) passed bare `-I "$BINATE_DIR" -L "$BINATE_DIR"`, missing the `ifaces/`+`impls/` entries — so even `000_noop` failed (cmd/bni / the test couldn't resolve a stdlib package).
 - **Fix**: every runner now uses the conformance/unit canonical set, rooted at `$BINATE_DIR` (where `pkg/bootstrap` + `pkg/binate/*` live) plus `ifaces/core:ifaces/stdlib` (-I) and `impls/core/{common,libc}:impls/stdlib/common` (-L).  The int-int runner applies it to both the outer (compiled-bni→cmd/bni) and inner (cmd/bni→test) invocations.  `$src_dir` dropped from compile runners (perf tests are single-file `main` packages importing only stdlib).
