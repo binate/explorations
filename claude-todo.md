@@ -12,6 +12,35 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### Static-managed sentinel refcount — IN PROGRESS (prerequisite for package descriptors)
+- **Status**: IN PROGRESS — worktree `temp-binate-6` / branch `work-6`,
+  started 2026-06-01.  Plan:
+  [`plan-static-managed-sentinel.md`](plan-static-managed-sentinel.md).
+- **What**: implement the long-designed sentinel refcount for immortal
+  static **managed objects** (`claude-notes.md:909`,
+  `detailed-notes:1427`), so the package descriptor's
+  `@reflect.Package` / `@TypeInfo` / `@FunctionInfo` nodes can be static,
+  never-freed `@` values.  Designed but unimplemented in **all ~5 refcount
+  paths** (library rt.bn ×2, LLVM-inline `emit_refcount.bn`, native aarch64
+  inline, native x64 (library CALL), VM `vm_exec_helpers.bn`).
+- **Root context**: immortality today rides entirely on the nil-pointer
+  skip; there is no sentinel check anywhere.  The only static-managed data
+  is string-literal managed-*slices* (immortal via `backing_refptr = null`,
+  `emit.bn:382`).  There is no managed-pointer-to-static-struct in the
+  language yet — the descriptor nodes are the first such case.
+- **Design**: negative-as-immortal (`h[0] < 0`, cheap sign test); static
+  nodes emitted with `h[0] = STATIC_REFCOUNT` (INT_MIN); `rt.RefDec`'s
+  `<= 0` abort becomes `== 0`.  Add the short-circuit to all five paths +
+  a static-node emitter (header `-16`/`-8` before payload).
+- **Investigation rider** (per user): can the string-literal null-backing
+  trick be retired / unified under the sentinel?  Representation can plausibly
+  unify; the nil-check itself can't be dropped (guards genuinely-nil `@`
+  values).  Deferred — sentinel lands first; string-literal lowering is
+  untouched in the initial landing.
+- **Tests**: conformance — immortal `@T` inc/dec'd + dropped, asserted never
+  freed (poisoned free-fn / alloc counter), pinned across modes incl. arm32;
+  unit — per-path no-op-on-sentinel + static-node IR shape.
+
 ### bni VM consumes host call stack per interpreted frame — `*-int*` unit-test modes overflow on deep recursion (e.g. type-checker, IR-gen)
 - **Symptom**: under every `builder-comp-int*` / `builder-comp-comp-int` unit-test mode, the bni VM segfaults mid-test (`EXC_BAD_ACCESS` on macOS, SIGSEGV on Linux) for any package whose tests drive deep interpreted recursion.  Test runner prints `=== RUN <Test>` then silently exits (the test process crashes; the runner reports the package FAILED).  Affected packages (sampled from CI run `26795575927`): `pkg/binate/types`, `pkg/binate/parser`, `pkg/binate/ir`, `pkg/binate/codegen`, `pkg/binate/lint`, `pkg/binate/native/common`, `pkg/binate/native/aarch64`, `pkg/binate/native/x64`, `pkg/binate/asm/{macho,parse,aarch64,elf}`, `pkg/binate/buf`, `pkg/binate/debug`, `pkg/binate/lexer`, `pkg/binate/vm`, `pkg/bignum`, `pkg/bootstrap`, `pkg/builtins/{lang,testing}`, `cmd/bnc`, `cmd/bnas`.  Native-compiled modes (`builder-comp`, `-comp-comp`, `-comp-comp-comp`, `_native_*`) all pass.
 - **Discovery**: 2026-06-01.  `pkg/binate/types/TestLoadPackageInterfaceTypeDecl` reproduced locally; lldb backtrace:
