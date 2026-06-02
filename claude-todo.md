@@ -6,6 +6,51 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### bni VM crashes calling a non-capturing `@func` returned inside a managed aggregate — cross-mode break ("unsupported function-value data kind: 0")
+- **Symptom**: a non-capturing `@func` value stored in a struct field
+  of a MANAGED struct that is then RETURNED from a function (and/or
+  copied as part of a managed aggregate) crashes the bni VM at the call
+  site with `vm: unsupported function-value data kind: 0`
+  (`pkg/binate/vm/vm_exec.bn:276`, in `BC_CALL_FUNC_VALUE`).  The
+  compiled backends handle the exact same code.  Cross-mode divergence.
+- **Root cause (narrowed, not yet fully traced)**: a directly-called or
+  directly-field-stored non-capturing `@func` has a NIL data slot
+  (`fv[1] == 0`) and dispatches via the compiled-func-value path
+  (`dispatchCompiledFuncValue`) — works (see conformance/513).  But once
+  the `@func` rides inside a managed aggregate that is returned/copied,
+  it reaches `BC_CALL_FUNC_VALUE` with a NON-nil `fv[1]` pointing at a
+  record whose kind word (`closureRec[0]`) is 0 — neither
+  `DATA_KIND_VM_CLOSURE_REC` nor `DATA_KIND_COMPILED_CLOSURE` — so the VM
+  aborts.  The managed-aggregate copy/return path in the VM (or its
+  refcount handling of a managed-func field) is setting the data slot to
+  a non-nil garbage value instead of preserving nil.  Needs tracing in
+  the VM's aggregate-copy + managed-`@func`-field refcount path.
+- **Discovery**: 2026-06-02.  Surfaced as a CI regression: cmd/bni unit
+  tests fail on every int (VM) mode (`builder-comp-int`,
+  `builder-comp-comp-int`, `builder-comp-int-int`) since REPL Stage 3
+  (binate `bc70d478`) introduced the `ReplIO` `@func` sink.
+  `setupReplState` builds an `@ReplSession` (with the sink in `s.Io`) and
+  RETURNS it; any test that then drives engine output (a parse/type
+  error → `s.errln` → `s.Io.WriteErr(...)`) calls the func value and
+  crashes the VM.  `TestEvalReplDeclParseErrorPreservesState` is the
+  first to hit it.  Pre-Stage-3 the REPL used `println` (no `@func`), so
+  cmd/bni was green in int modes.
+- **Why CRITICAL**: breaks cross-mode execution (a core project
+  invariant — the VM must agree with the compiled backends).  Loud
+  (crash), not a silent miscompile, and the production REPL is compiled
+  (works) — but any `@func`-in-managed-aggregate pattern run under the VM
+  crashes, and it is actively red on the int CI lanes.
+- **Repro**: `conformance/528_func_value_struct_field` — `build()`
+  returns an `@Sess` holding a nested non-capturing `@func`; `main` calls
+  it.  Passes `builder-comp`, crashes `builder-comp-int`.
+- **Open decisions (for the user)**: (a) fix the VM aggregate-copy/return
+  `@func` data-slot handling (proper cross-mode fix); vs (b) band-aid the
+  CI by xfailing cmd/bni (and 528) on the int modes until the VM is
+  fixed (xfail is per-package, so this drops ALL cmd/bni int-mode
+  coverage); vs (c) restructure the REPL tests to not return a
+  sink-bearing session across a function boundary (a workaround that
+  dodges, not fixes, the bug).
+
 ### ~~x64 native: closure struct allocated in outgoing-args area — silent overwrite at call site~~ — FIXED 2026-06-02 (binate `a8a7dc7a`)
 - **Final root cause** (refined from the original analysis): PlanFrame DID reserve outgoing-args at the bottom of the frame, but its sizing loop only counted `OP_CALL` and `OP_C_CALL` — `OP_CALL_FUNC_VALUE` / `OP_CALL_HANDLE` / `OP_CALL_INDIRECT` were excluded.  So func-value calls with stack-spilled user-args got an undersized outgoing-args area, and main's local-allocator placed the closure-struct local at an offset INSIDE that region.  At the call site, main wrote outgoing args (e.g. value 8 at `(rsp+0x10)`) over the closure's captured fields, and the shim later loaded the overwritten bytes as the capture (gave 53 instead of 145 = 8 + 1+2+…+9 vs 100 + 45).
 - **Fix**: new helpers in `pkg/binate/native/common/common_call.bn`:
