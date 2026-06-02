@@ -2079,6 +2079,47 @@ Binate is NOT Go. The two types of slice are intentionally different:
   end on each side, and identifies the first concrete code change to make.
   Don't start implementation until the design is reviewed.
 
+### REPL refactor: embeddable component for non-CLI hosts
+- **Why**: today the REPL is tightly coupled to stdin / stdout via
+  `bootstrap.{Read,Write}` and assumes synchronous blocking I/O.
+  That model doesn't work for embedding the REPL into a non-CLI
+  host — most concretely a wasm worker (where I/O routes through
+  message ports and the worker must hand control back to the event
+  loop while waiting for input), but also useful on its own for
+  test harnesses, IDE integrations, etc.
+- **Two pieces**:
+  1. **Customizable I/O.** Pull `read_line` / `write` behind an
+     interface (some `ReplIO` shape) so the embedding host plugs
+     its own backing. Today's CLI wires it to stdin/stdout; the
+     wasm host wires it to the worker's message-port surface;
+     future tests wire to in-memory buffers.
+  2. **Coroutine-ish behavior.** The REPL loop today is
+     `read_line → lower → execute → write_result → loop` —
+     synchronous. In a worker context, `read_line` can't block;
+     the loop must pause at the read point and resume on the next
+     input message. Three implementation shapes, in increasing
+     ambition (each warrants its own design discussion):
+     - **(a)** Hand-rolled state machine. Refactor the REPL as
+       `enum { Idle, Lowering, Executing, AwaitingInput }`
+       advanced by event callbacks. No language-feature changes.
+       Ugly to maintain but smallest scope.
+     - **(b)** Continuation-passing-style refactor. Similar
+       effect, slightly cleaner read. Still no language changes.
+     - **(c)** First-class coroutines / generators in Binate as a
+       language feature. Cleanest REPL code, but large surface
+       elsewhere — months-long language project.
+- **Other prereqs that fall out**: input editing /
+  readline-equivalent behavior (the host shouldn't need to know
+  about terminal control codes), output streaming (incremental
+  render vs. lump-at-end), interrupt / cancel semantics
+  (`Ctrl-C`-equivalent over message ports).
+- **Prereq for**: wasm B1 (REPL-in-browser demo —
+  `plan-wasm-browser.md`).  Valuable on its own for testing and
+  future IDE-style integrations.
+- **Open**: which shape (a/b/c) before any implementation. The
+  "coroutine-ish" descriptor is doing a lot of work — needs a
+  design conversation first.
+
 ### REPL — All five tiers LANDED (2026-05-29)
 - **Status**: `bni --repl <file.bn|dir>` ships.  `plan-repl.md` is
   the live source of truth for per-step state — commit tables,
