@@ -18,6 +18,36 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### Package descriptors (Phase B) — VM-mode `_Package()` not yet wired — IN PROGRESS
+- **Status**: IN PROGRESS — worktree `temp-binate-6` / branch `work-6`.
+  Compiled-mode landed; VM-mode is the open piece.
+- **What works (compiled mode)**: every package now emits an immortal
+  static-managed `reflect.Package` descriptor node + a generated
+  `_Package() @reflect.Package` accessor (codegen `emit_pkg_descriptor.bn`,
+  via the Step-5 static-managed emitter).  The type checker synthesizes the
+  `_Package` signature at selector resolution (`check_expr_access.bn`
+  `packageAccessorType`), IR-gen registers it as an imported extern so calls
+  resolve + a `declare` emits (`gen_import.bn`), and `reflect` is force-loaded
+  (`ensureReflectLoaded`).  Pinned by `conformance/526_reflect_package_accessor`
+  (`rt._Package().Name` → "pkg/builtins/rt"), green in `builder-comp` /
+  `builder-comp-comp`.  Drives a real immortal node through the compiled
+  RefInc/RefDec sentinel end-to-end (see [`plan-static-managed-sentinel.md`]).
+- **What's missing (VM mode)**: the VM can't call `_Package` —
+  `vm: extern not found: pkg/builtins/rt._Package`.  It's a codegen-only
+  function (no IR body the VM can lower) and isn't a registered VM extern.
+  Pinned by `526`'s `.xfail.builder-comp-int` / `.builder-comp-int-int` /
+  `.builder-comp-comp-int`.
+- **Fix direction**: the Phase B **interop Functions-table**
+  ([`notes-package-introspection.md`](notes-package-introspection.md) Phase B):
+  auto-register each compiled package's exported functions (incl. `_Package`)
+  with the VM, replacing the hand-maintained `RegisterStandardExterns`.  Then
+  the VM resolves `_Package` (and any compiled func) by name.  This also
+  unblocks the VM-side sentinel end-to-end coverage (RefDec of the returned
+  `@reflect.Package` in interpreted mode).
+- **Next slices (Phase B)**: the `Functions` table on `reflect.Package`
+  (name + signature + function-value per exported func); then richer type
+  metadata (Phase C) for reflection/printing + RTTI for type assertions.
+
 ### Untyped single const (`const X = 5`) is not forward-referenceable — same collectDecls gap, distinct from the (fixed) group case
 - **Symptom**: a top-level untyped single const with no explicit type
   (`const X = 5`) reports `undefined` when referenced from a decl
