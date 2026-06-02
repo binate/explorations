@@ -114,21 +114,28 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Fix**: port the libc-host uint64-magnitude `Itoa` to the baremetal copy.  1:1 textual port, no semantic change vs the libc-host version.  Long-term followup (already noted in the file's header): extract these format helpers into a shared `pkg/format` so the duplicate goes away entirely (also true for `formatInt`, `formatInt64`, `formatUint`, `formatBool`, `formatFloat`).
 - **Status**: source fix committed to worktree (commit `e4c5140d`).  Still need to cherry-pick to main and verify the test runs to green — currently blocked by a separate link error (next entry).
 
-### runtime/baremetal_arm32: missing `__aeabi_memcpy` / `__aeabi_memmove` / `__aeabi_memset` / `__aeabi_memclr` aliases (blocks pkg/binate/buf + downstream consumers)
-- **Symptom**: linking any arm32-baremetal binary that pulls in `pkg/binate/buf` fails with `ld.lld: error: undefined symbol: __aeabi_memcpy` referenced from `bn_pkg__binate__buf__grow` / `CharBuf__WriteByte` / `CharBuf__WriteStr` (≥ 6 sites).  Currently surfaces in:
-  - `pkg/builtins/lang` unit-test binary (imports `pkg/binate/buf`).
-  - Conformance test `064_bootstrap_funcs` (uses `buf.Concat` which was moved out of `bootstrap` in commit `7e46641c`).
-  - Likely many more once their xfails come off.
-- **Discovery**: 2026-05-30, while trying to verify the runtime/baremetal_arm32 `Itoa` fix via the unit-test runner.  The link error is pre-existing (reproduces without my Itoa edit) but never had a tracking entry.
-- **Root cause**: `runtime/baremetal_arm32/semihost.s` provides `memcpy`, `memmove`, `memset`, `memcmp` and the `bn_pkg__libc__Memcpy` / `Memset` aliases, but does NOT provide the `__aeabi_*` flavor of these symbols.  LLVM's ARM EABI backend lowers the `@llvm.memcpy.*` intrinsic to `__aeabi_memcpy` (not `memcpy`) when targeting `arm-none-eabi` — and pkg/binate/buf's `grow` / `WriteByte` / `WriteStr` paths copy `CharBuf` structs around, which LLVM lowers via that intrinsic.  Bare-metal v1 link-tests passed historically because the buf code wasn't on the link path; the `pkg/buf → pkg/binate/buf` move (commit `54b338c5`) + `pkg/std → pkg/builtins/lang` carve-out (commit `c83d5381`) + the prior xfail-manifest rename on `5b7060be` together exposed it.
-- **Proper fix**: add the standard AEABI aliases in `runtime/baremetal_arm32/semihost.s` — they're trivial wrappers over the libc-style helpers already in the file:
-  - `__aeabi_memcpy` → `b memcpy` (same signature)
-  - `__aeabi_memcpy4`, `__aeabi_memcpy8` → `b memcpy` (aligned variants; we don't exploit alignment in the byte-loop copy, so aliasing is fine)
-  - `__aeabi_memmove`, `__aeabi_memmove4`, `__aeabi_memmove8` → `b memmove`
-  - `__aeabi_memset`, `__aeabi_memset4`, `__aeabi_memset8` → small shim swapping args (AEABI passes `(dst, n, c)`, libc passes `(dst, c, n)` — they are NOT direct aliases, args 2/3 swap; 2-instruction `mov r3, r1; mov r1, r2; mov r2, r3; b memset`)
-  - `__aeabi_memclr`, `__aeabi_memclr4`, `__aeabi_memclr8` → shim that calls `memset(dst, 0, n)` (one `mov r2, r1; mov r1, #0; b memset`)
-- **Why MAJOR**: blocks the baremetal lane on any test that hits pkg/binate/buf.  Trivially fixable (≈ 30 lines of assembly).  Not a compiler bug — runtime-side gap that's been latent since the EABI codegen path existed.
-- **Tests covering it**: `pkg/builtins/lang` unit-tests + conformance `064` are the surfaced regressions.  Once fixed, `pkg/builtins/lang.TestInt32StringNegative` should also unblock (depends on the Itoa fix in `e4c5140d`).
+### ~~runtime/baremetal_arm32: missing `__aeabi_memcpy` / etc. aliases~~ — FIXED 2026-06-01 (binate `af8f4683`)
+- **Different resolution than originally proposed**: instead of adding the AEABI aliases on the runtime side, the compiler was changed to not *emit* the symbols in the first place.  Plan: `explorations/plan-codegen-c-free-copies.md`, landed across 5 commits (steps 1–5).  No bnc-emitted LLVM IR now contains `@llvm.memcpy.*` intrinsics, `@bn_pkg__libc__Memcpy` calls, aggregate `store <T> zeroinitializer`, or aggregate `store <T> %v, ptr` — the LLVM ARM EABI backend has no aggregate-copy lowering opportunity, so no libc memory primitive is referenced.  pkg/binate/buf, pkg/builtins/lang, conformance/064 + the other surfaced cases all link cleanly on `builder-comp_arm32_baremetal` (20/0/14 unit, 437/1/11 conformance — the 1 remaining conformance failure is unrelated, see below).
+- **Followups still on the plan** (steps 6, 7):
+  - Native backends (`pkg/binate/native/x64`, `pkg/binate/native/aarch64`) still emit assembly that calls `bn_pkg__libc__Memcpy` (rodata→stack/managed-slice paths).  These don't go through pkg/codegen so step 5 doesn't touch them; needs its own audit + fix.
+  - Aggregate `OP_LOAD` still emits `load <T>, ptr <p>` for aggregate T.  In practice the LLVM ARM EABI backend doesn't lower aggregate-LOAD to memcpy the way it does aggregate-STORE, so the baremetal lane went green without addressing this.  But for full hygiene, OP_LOAD should also fieldwise-decompose (insertvalue chain to build the aggregate result) — defer until measured to matter.
+
+### conformance/512_opaque_handle_cross_pkg: pre-existing baremetal failure on local-escape UB
+- **Symptom**: `builder-comp_arm32_baremetal` conformance run, test `512_opaque_handle_cross_pkg`: expected output `42`, actual `1090518960` (or similar — looks like an address).  Other modes (`builder-comp`, gen2, etc.) pass; only baremetal fails.
+- **Discovery**: 2026-06-01, while verifying step 5 of `plan-codegen-c-free-copies.md`.  Verified pre-existing by re-running on the prior commit (62f4fb0c) — failure reproduces identically without step 5.  The test was already failing on baremetal but wasn't xfail-marked.
+- **Root cause**: the test deliberately exercises `return &local` for an opaque type — see `conformance/512_opaque_handle_cross_pkg/pkg/handle/handle.bn`:
+  ```binate
+  func New(v int) *Handle {
+      var h Handle
+      h.value = v
+      return &h   // <-- escape of local
+  }
+  ```
+  This is **UB** (the stack frame is destroyed at return).  On LP64 host-libc builds, the stack slot happens to retain the value long enough for `Get(handle)` to read it back before any other call overwrites it.  On arm32-baremetal, the semihosting `Write` / `Exit` calls (or the bump-allocator / debug paths between New and Get) clobber the stack region, so Get reads garbage.
+- **Two options**:
+  1. **Mark xfail on baremetal** (`conformance/512_opaque_handle_cross_pkg.xfail.builder-comp_arm32_baremetal`).  Accepts that the UB pattern doesn't survive on this lane.  Trivial.
+  2. **Make `&local` escape-aware**: if IR-gen sees the address of a local escaping the function, heap-allocate the local instead of stack-allocating.  Bigger change — needs an escape analysis pass — but eliminates the UB across all targets and matches what Go does.  Probably the right long-term fix.
+- **Status**: deferred pending a separate decision.  Not blocking step 6 of the C-free-copies plan or other in-flight work.
 
 
 ### pkg/vm test binary crashes silently on arm32_linux after universal-sret commit
