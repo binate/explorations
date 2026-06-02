@@ -167,6 +167,17 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Tests**: conformance — immortal `@T` inc/dec'd + dropped, asserted never
   freed (poisoned free-fn / alloc counter), pinned across modes incl. arm32;
   unit — per-path no-op-on-sentinel + static-node IR shape.
+- **Candidate user of the sentinel** (added 2026-06-02): the VM's per-callee
+  shared non-capturing-`@func` `ClosureRec` (`ensureHandle` in
+  `pkg/binate/vm/vm_exec_funcref.bn` — `callee.ClosureRec`, a
+  `@VMClosureRec` shared by all instances of that func value) is exactly a
+  static, never-freed managed object.  It was being prematurely freed by
+  instance RefDecs (the `@func`-RefInc/RefDec-asymmetry CRITICAL bug,
+  fixed symmetrically in binate `<commit>` — see `conformance/528`).  The
+  symmetric-RefInc fix works, but making the shared `ClosureRec` an
+  immortal sentinel object would be the cleaner long-term representation
+  (no per-instance refcount churn on a shared singleton).  Consider
+  folding it in when the sentinel lands.
 
 ### ~~bnc codegen: byval-spill alloca emitted at call site leaks per loop iteration — `*-int*` unit-test modes overflow~~ — FIXED 2026-06-02 (binate `440485b0`)
 - **Root cause**: `writeByvalArgPreamble` (`pkg/binate/codegen/emit_util.bn`) emitted the per-byval-arg `alloca <T>` at the CALL-SITE basic block, not the function entry block.  LLVM allocas outside the entry block allocate fresh stack each time the block runs and aren't reclaimed until function return, so a call passing a >16-byte struct by value from inside a loop leaked one spill slot per iteration.  bni's `execLoop` passes a 48-byte `BCInstr` by value to ~13 helper calls (`execStringOp`/`execFuncRefOp`/`execMemoryOp`/`execArithOp`/...) per dispatch iteration; at ~165K iterations the 8 MiB default host stack was exhausted and the next call's prologue faulted (`EXC_BAD_ACCESS` / SIGSEGV).  lldb showed only ~5 native frames with SP ~8 MB below FP — accumulated per-iteration leaks within one `execLoop` frame, NOT recursion (the earlier extern-callback-recursion hypothesis was wrong).
