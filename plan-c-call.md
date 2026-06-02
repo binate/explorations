@@ -231,10 +231,18 @@ The `cast` builtin is the template — it already mixes a *type* arg
    len(Args)`; conformance/500 calls
    `printf("answer: %d\n", 42) → "answer: 42"`.  `6ad9551` follow-on
    pins the dedup-by-symbol contract for variadic.).
-4. **Variadic, native — IN PROGRESS / BLOCKED** (WIP saved on the
-   `stage-4-wip-broken` branch; see claude-todo.md "Stage 4 native
-   variadic" for the bug findings).  The hard chunk: darwin-arm64
-   varargs-on-stack + amd64 `AL` (§6).
+4. **Variadic, native — DONE 2026-06-02** (binate `62ae438f`
+   finalized; the implementation landed earlier via the
+   universal-sret series that fixed the underlying convention
+   mismatch + the infra migration).  darwin-arm64 forces every
+   vararg onto the stack via `AAPCS64_Darwin`'s `VariadicStackOnly`
+   + the `CallArg*V` helpers (`fixedCount = ins.CFixedArgs`);
+   amd64-SysV sets `AL = 0` for integer-only varargs before the
+   `CALL`.  Verified green on the LLVM modes + both native lanes by
+   `conformance/498` (non-variadic), `500` (single vararg), and
+   `526` (multi-vararg `printf("%d %d %d\n", 11, 22, 33)`).  Float
+   varargs (`AL` = actual vector-reg count) are out of scope here —
+   a future extension.
 
 Per the bug-discovery / xfail protocol, each stage's conformance test is
 added up front and `.xfail.<mode>`-marked for the modes a later stage
