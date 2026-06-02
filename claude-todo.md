@@ -6,7 +6,60 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
-(empty)
+### x64 native: closure struct allocated in outgoing-args area — silent overwrite at call site
+- **Symptom**: when a `*func(...)` or `@func(...)` value backed by
+  a CAPTURING literal is invoked on the x64 native backend with
+  enough user-args that some spill to the outgoing-args stack
+  (≥ 3 stack args under SysV-AMD64, total reg slots > 6), the
+  closure-struct field at `[rsp + N]` (for some local-allocation
+  N inside main's frame) is overwritten by an outgoing-stack
+  arg main writes at the same offset.  The shim then loads the
+  overwritten value as the capture.  Pinned by
+  `conformance/522_closure_many_user_args` (xfail
+  `.builder-comp_native_x64_darwin-comp_native_x64_darwin` —
+  expects 145, gets 53 because `base=100` is overwritten by
+  `i=8`).
+- **Discovery**: 2026-06-01, while landing the >5-incoming-user-
+  arg shim stack-spill on x64 (this session's #2 / binate
+  `<commit>`).  Disasm walk on the 8-user-arg failing case
+  showed main writing the 3rd outgoing stack arg `[rsp+0x10]`
+  which exactly coincides with where main earlier wrote the
+  closure struct's `base` field.  The pre-fix x64 shim's JMP
+  fallback was already wrong here (output = `13048231533`),
+  just in a different way — the new shim correctly arranges
+  args but the bug below it now shows through.
+- **Why CRITICAL**: silent miscompile of capturing closures
+  with enough user-args to spill on x64.  The same shape is
+  used by method values + linter-flagged escape paths, so
+  any program that constructs a closure with enough args and
+  invokes it through a func-value can produce wrong results.
+  aa64 doesn't surface the bug in `522` (fewer stack args
+  under AAPCS64 + 8 reg slots leaves the closure struct above
+  the smaller outgoing area), but the underlying frame-layout
+  shape is the same: locals overlap the outgoing-args area
+  when the local-allocator doesn't account for the largest
+  outgoing call.  Likely manifests on aa64 too with a wider
+  signature; a larger conformance test would expose it.
+- **Root cause**: main's frame allocator places the closure
+  struct local at an offset measured FROM `rsp` after `sub`
+  reserves the full frame, but doesn't reserve the outgoing-
+  args area at the BOTTOM of the frame before assigning local
+  offsets.  The fix is to either:
+  1. Compute the maximum outgoing-args-area size across all
+     calls in the function and reserve it at the bottom of
+     the frame before assigning local offsets (the standard
+     C-compiler layout — locals above, outgoing-args below).
+  2. Re-layout locals to be SP-relative-from-top instead of
+     SP-relative-from-bottom (BP-relative-from-bottom, since
+     main pushes RBP).  Locals are at `[rbp - N]`, outgoing
+     args at `[rsp + N]`; the two grow toward each other but
+     never overlap as long as the frame is large enough.
+- **Tests covering it**:
+  - `conformance/522_closure_many_user_args` —
+    `.xfail.builder-comp_native_x64_darwin-comp_native_x64_darwin`.
+  - Once fixed: add a focused test with more stack args (e.g.
+    12 user-args) to expose the same defect on aa64 if it
+    indeed exists there.
 
 ---
 
