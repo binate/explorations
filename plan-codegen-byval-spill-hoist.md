@@ -1,13 +1,41 @@
 # Plan: hoist byval-spill allocas to function entry block
 
-**Status**: design / not started
-**Severity**: MAJOR
+**Status**: LANDED 2026-06-02 (binate `440485b0`).  `writeByvalArgPreamble` now emits
+only the `store`; the `alloca` is hoisted to the entry block by a
+new `emitByvalAllocDecls`, called from `emitFuncDbg`'s alloca-hoist
+pre-pass (alongside OP_ALLOC / OP_MAKE_SLICE / sret).  The
+`ulimit -s` band-aid was removed in the same change.  Verified: the
+full `builder-comp-int` unit suite is 34/0 at the **default 8 MiB
+stack** (was 24/10 even WITH the 64 MiB band-aid); `pkg/binate/types`
+runs all 527 tests where it used to crash after test #1; `execLoop`
+went from 14 dynamic stack-adjustments to 0.  Conformance unchanged
+(`builder-comp` 450/0/1; native x64 byval cluster 331/337/411 still
+green).
+**Severity**: MAJOR (resolved)
 **Tracks**: `claude-todo.md` MAJOR entry
   "bnc codegen: byval-spill alloca emitted at call site leaks per
   loop iteration"
-**Blocks (today)**: every `builder-comp-int*` / `builder-comp-comp-int`
-  CI lane.  Workaround: `ulimit -s 65520` in the runner scripts
-  (landed in binate `c132324a`).
+
+## Follow-up: `.ap` (function-value-call aggregate args) is the same latent class — NOT yet fixed
+
+`emitFuncValueArgPreamble` (`pkg/binate/codegen/emit_call.bn`) emits
+its `.ap<i>` aggregate-arg slot `alloca` at the call site too, and
+`OP_CALL_HANDLE` / `OP_CALL_FUNC_VALUE` are NOT in `emitFuncDbg`'s
+hoist loop — so a function-value call passing an aggregate arg from
+inside a loop would leak the same way.  The retbuf `.rb` allocas in
+`emitCallFuncValue` / `emitCallIfaceMethod` are analogous.  A sweep
+of all 24 previously-crashing unit-test packages at default stack
+showed NONE of them currently trigger this (no hot loop passes a
+func-value/aggregate-return frequently enough), so it is a latent
+issue, not an active failure — left as a tracked follow-up rather
+than fixed speculatively.  If it ever surfaces, the fix mirrors the
+byval one: split the preamble into a store-only call-site emitter +
+an entry-block alloca-decl emitter, and add `OP_CALL_HANDLE` /
+`OP_CALL_FUNC_VALUE` to the hoist loop.
+
+---
+
+**Original plan below (design / pre-implementation).**
 
 ## Problem
 
