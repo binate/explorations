@@ -1,8 +1,27 @@
 # Plan: eliminate memcpy/memset/memmove/memclr dependencies from generated code
 
-**Status**: draft / not started
-**Tracks**: claude-todo MAJOR entry "runtime/baremetal_arm32: missing `__aeabi_memcpy` / `__aeabi_memmove` / `__aeabi_memset` / `__aeabi_memclr` aliases"
-**Blocks**: pkg/binate/buf-using tests on `builder-comp_arm32_baremetal` (pkg/builtins/lang unit-tests + conformance 064)
+**Status**: LANDED 2026-06-01 — all 8 steps complete, plus the OP_LOAD followup the original plan had marked as deferrable.  See landing pointers below.
+**Tracks**: ~~claude-todo MAJOR entry "runtime/baremetal_arm32: missing `__aeabi_memcpy` / `__aeabi_memmove` / `__aeabi_memset` / `__aeabi_memclr` aliases"~~ — resolved via this plan rather than runtime-side aliases.
+**Blocked**: pkg/binate/buf-using tests on `builder-comp_arm32_baremetal` (pkg/builtins/lang unit-tests + conformance 064) — all now green.
+
+## Landing pointers
+
+| Step | Commit | What |
+|------|--------|------|
+| 1. Helper plumbing (`emitFieldwiseCopy` / `emitFieldwiseZero`) | `dcf9f99f` | Pure plumbing — no callers yet; 10 direct unit tests. |
+| 2. Byval-spill (`emit_instr.bn` OP_STORE byval) | `c93917b9` | Replace `@llvm.memcpy` byval-spill; drop the unused declare. |
+| 3. Zero-init (`emit_const_nil.bn`, `emit_helpers.bn` `emitAlloc`) | `8c448bb0` + `3c366a6b` | Replace `store <T> zeroinitializer` with per-scalar zero-stores. The `fc`/`fz` SSA prefix split avoided idTag collisions between alloca-zero and byval-spill on the same slot. |
+| 4. Rodata copies (`emit_strings.bn`) | `f000b7ff` | Inline literal bytes as i8 constants — no `@bn_pkg__libc__Memcpy` or rodata read at runtime.  Drop the implicit-libc-memcpy declare. |
+| 5. Aggregate OP_STORE (the actual baremetal blocker) | `fd3c60c0` | Aggregate-typed stores route through `emitAggregateStoreFromSSAInstr`: extractvalue + GEP + scalar store. Walker handles named-struct (packed `<{ }>` with `[N x i8]` padding) vs anonymous tuple (non-packed `{ }`) correctly. |
+| 6. Native backends (x64 + aarch64 rodata copies) | `d8083230` | Inline byte stores replace `bn_pkg__libc__Memcpy` assembly emissions. |
+| 7. Drop implicit `pkg/libc` import (cmd/bnc + cmd/bni) | `ac301f17` | No codegen path emits libc.Memcpy anymore; the implicit injection had no purpose. |
+| 8. Verification | — | builder-comp_arm32_baremetal: 20/0/14 unit, 441/0/10 conformance.  All bnc-emitted code memcpy-free. |
+| Followup: aggregate OP_LOAD | `675e47c1` | Per-scalar GEP + load + insertvalue chain.  Originally listed as deferrable but addressed for completeness — LLVM aggregate-LOAD → memcpy lowering is size + LLVM-version dependent, "currently green" wasn't a robust guarantee. |
+| Followup: conformance/512 UB rewrite | `f152e6cc` | Pre-existing `return &local` UB; rewritten to use `@Handle` + `make` for a well-defined program (Binate's allocation is source-determined, NOT Go-style escape-analyzed). |
+
+The remaining body of this document captures the original survey + design — preserved for reference.
+
+---
 
 ## Goal
 
