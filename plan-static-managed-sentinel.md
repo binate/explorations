@@ -122,24 +122,33 @@ can static-managed be unified under one mechanism (and maybe drop a nil-check)?
 
 ## Implementation steps (small, independently-green)
 
-1. **`rt` constant + library check.** Add `STATIC_REFCOUNT` (INT_MIN) to
-   `pkg/builtins/rt`; add the `h[0] < 0` short-circuit to `rt.RefInc`/`rt.RefDec`
-   (both libc + baremetal copies); flip `RefDec`'s abort to `== 0`. Unit-test
-   in `pkg/rt` (RefInc/RefDec no-op on a sentinel header).
-2. **VM path.** Mirror the check in `vm_exec_helpers.bn`. Unit-test in `pkg/vm`.
-3. **LLVM inline.** Add the immortal branch to
-   `emit_refcount.bn:emitRefIncInline`/`emitRefDecInline`. Codegen unit-test
-   asserts the emitted IR shape; a conformance test drives an immortal node
-   through inc/dec/scope-exit and checks it is never freed.
-4. **Native inline.** Mirror in `aarch64_ops.bn`; confirm x64 (library CALL) is
-   already covered by step 1.
-5. **Static-managed-node emitter.** Codegen helper that emits a header+payload
-   static global and yields the `@T`. Unit-test the IR shape (header at `-16`,
-   sentinel value, layout adjacency). This is the piece the descriptor work
-   consumes.
+The sentinel value chosen is `STATIC_REFCOUNT = -1073741824` (deeply negative,
+representable in i32/i64), with the immortal predicate `refcount < 0`.
 
-Steps 1–4 are the sentinel itself (shippable on their own, exercised by a
-hand-written conformance test). Step 5 is the bridge to the descriptor.
+1. **`rt` constant + library check — DONE** (`work-6` `f55e888a`).
+   `STATIC_REFCOUNT` in `rt.bni`; the `h[0] < 0` short-circuit in
+   `rt.RefInc`/`rt.RefDec` (libc + baremetal); `RefDec`'s abort flipped to
+   `== 0`. Unit tests in `rt_test.bn` (no-op on sentinel; dtor skipped).
+2. **VM path — DONE** (`4cc9c9a3`). `BC_REFINC_INLINE`
+   (`vm_exec_helpers.bn`) + `BC_REFDEC_INLINE_FAST` (`vm_exec.bn`)
+   short-circuit on `< 0`. Focused unit test on the refinc arm.
+3. **LLVM inline — DONE** (`6c9487f3`). `emitRefIncInline`/`emitRefDecInline`
+   load the count and branch to `.skip` (gated behind a `.live` block) when
+   negative. IR-shape unit test; no regression across full `builder-comp`
+   conformance (448/0).
+4. **Native inline — DONE** (`2d4a4c53`). aarch64 `TBNZ #63` after the header
+   load; x64 routes through the rt library CALL (covered by step 1). Byte-count
+   tests updated; runtime-validated on native aa64 (109/0).
+5. **Static-managed-node emitter — TODO.** Codegen helper that emits a
+   header+payload static global and yields the `@T`. This is the piece the
+   descriptor work consumes, and the first thing that lets a *real* immortal
+   node flow through the compiled-mode inline paths end-to-end (steps 3–4 are
+   currently validated structurally + by the synthetic library/VM unit tests;
+   no source can yet create a sentinel node, so the compiled immortal branches
+   have no runtime conformance coverage until this lands).
+
+Steps 1–4 (the sentinel checks) are landed and green. Step 5 is the bridge to
+the descriptor and unlocks end-to-end runtime coverage of the compiled paths.
 
 ## Tests
 
