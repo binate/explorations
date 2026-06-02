@@ -104,9 +104,12 @@ flag, so we have to confirm-by-behavior instead of confirm-by-banner):
 1. Download one of the platform tarballs + `SHA256SUMS`.
 2. Verify the SHA matches what `SHA256SUMS` claims.
 3. Extract; confirm `lib/` contains everything build scripts consume
-   — at minimum `pkg/`, `runtime/`, `ifaces/core/`, and
-   `impls/core/common/` (the last two come from the spec's split
-   tree).
+   — at minimum `pkg/`, `runtime/`, `ifaces/core/`,
+   `impls/core/common/`, and `impls/core/libc/` (the last three come
+   from the spec's split tree).  `pkg/builtins/rt`'s impl lives under
+   `impls/core/libc/`, so a `-L` that omits it links fine for the
+   compile but fails at the link stage with undefined
+   `bn_pkg__builtins__rt__*` symbols.
 4. Compile + run a small program through the extracted `bin/bnc`
    against the bundled `lib/`.  A reasonable shape:
 
@@ -122,7 +125,7 @@ flag, so we have to confirm-by-behavior instead of confirm-by-banner):
        EOF
        "$BNC" \
            -I "$LIB:$LIB/ifaces/core:$LIB/ifaces/stdlib" \
-           -L "$LIB:$LIB/impls/core/common:$LIB/impls/stdlib/common" \
+           -L "$LIB:$LIB/impls/core/common:$LIB/impls/core/libc:$LIB/impls/stdlib/common" \
            --runtime "$LIB/runtime/binate_runtime.c" \
            -o hello hello.bn
        ./hello
