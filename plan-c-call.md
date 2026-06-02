@@ -240,7 +240,7 @@ The `cast` builtin is the template — it already mixes a *type* arg
    amd64-SysV sets `AL = 0` for integer-only varargs before the
    `CALL`.  Verified green on the LLVM modes + both native lanes by
    `conformance/498` (non-variadic), `500` (single vararg), and
-   `526` (multi-vararg `printf("%d %d %d\n", 11, 22, 33)`).  Float
+   `527` (multi-vararg `printf("%d %d %d\n", 11, 22, 33)`).  Float
    varargs (`AL` = actual vector-reg count) are out of scope here —
    a future extension.
 
