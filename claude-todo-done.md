@@ -6,6 +6,39 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~Top-level `const ( ... )` group members in a `.bn` file not visible across files in the same package~~ — FIXED 2026-06-02 (binate `88c9c0b7`)
+- **Was**: `collectDecls` (the forward-reference collection pass in
+  `pkg/binate/types/check_decl.bn`) only `defineConst`'d const-group
+  members with an explicit `TypeRef`.  Bare iota-continuation members
+  (`B`/`C` in `const ( A int = iota; B; C )`) have no `TypeRef`, so they
+  were never forward-registered — defined only later by `checkConstDecl`
+  in decl order.  Any reference checked BEFORE the group failed
+  `undefined`: a forward ref within a file, or (since a package's files
+  are merged before checking) a reference from a sibling file ordered
+  ahead of the group.  Blocked the const-group enum idiom in any package
+  WITHOUT a `.bni` interface (package-main executables); `.bni`-declared
+  enums were unaffected (the `.bni` exports the members).
+- **Discovery**: 2026-06-02, REPL push inversion (Stage 4a) — a
+  `const ( STEP_… int = iota; … )` group in `cmd/bni/repl_step.bn`,
+  `cmd/bni/repl.bn` referencing `STEP_EOF_CLEAN` → `undefined`.
+- **Fix**: `collectDecls` forward-registers bare group members with an
+  untyped-int placeholder; `checkConstDecl` attaches the real iota
+  value/type when the group is checked.  Bare members are always
+  iota-valued untyped ints per `checkConstDecl`, so the placeholder
+  agrees.
+- **Tests**: `TestForwardRefBareIotaConstMember` (`check_decl_test.bn`)
+  + `conformance/526_forward_ref_iota_const` (full pipeline: type-check
+  + IR-gen + runtime fold the forward-ref iota values correctly — IR-gen
+  had no parallel defect).  No regressions: `pkg/binate/types` 528/0,
+  full `builder-comp` conformance 455/0/1.
+- **Follow-up (not a bug)**: `cmd/bni` is LINTED by the BUILDER's
+  bundled `bnlint` (`scripts/hygiene/lint.sh` prefers the
+  `BUILDER_VERSION` tool), whose checker predates this fix — so `cmd/bni`
+  keeps `STEP_*` as individual `const X int = N` decls until a BUILDER
+  carrying the fix ships (binate `575b9d27` documents this in-code).
+  Switch `cmd/bni` (and other package-main enums) to `const ( … iota )`
+  groups once `BUILDER_VERSION` includes the fix.
+
 ### ~~aa64 closure shim: outgoing user-args don't stack-spill when captures fill X0..X7~~ — FIXED 2026-06-01 (binate `1f25568b`)
 - **Was**: a closure whose total outgoing-arg word count exceeded 8
   (e.g. two `@[]T` captures (4+4 words) plus a single user `int` =

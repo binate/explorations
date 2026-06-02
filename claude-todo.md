@@ -18,43 +18,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
-### Top-level `const ( ... )` group members in a `.bn` file are not visible across files in the same package — IN PROGRESS
-- **Symptom**: a top-level `const ( A int = iota; B; C )` (or any
-  `const ( ... )` group) declared in one `.bn` file resolves fine
-  *within that file* but is reported `undefined` when referenced from
-  another `.bn` file of the **same package**.  Individual
-  `const X int = N` declarations do NOT have this problem — they are
-  package-visible cross-file as expected.  So the group members are
-  being registered in **file scope** instead of **package scope** (or
-  not promoted to the package interface).
-- **Discovery**: 2026-06-02, implementing the REPL push inversion
-  (`plan-repl-embeddable.md` Stage 4a).  `cmd/bni/repl_step.bn` declared
-  `const ( STEP_NEED_MORE int = iota; STEP_EVALUATED; STEP_EOF_CLEAN;
-  STEP_EOF_UNBALANCED )`; `cmd/bni/repl.bn` referencing `STEP_EOF_CLEAN`
-  failed with `undefined: STEP_EOF_CLEAN` even though `repl_step.bn`'s
-  own uses resolved.  Worked around by switching to four individual
-  `const X int = N` decls (binate `19f23cc0`).
-- **Why MAJOR (loud, not silent)**: the failure mode is a compile-time
-  `undefined` error, not a silent miscompile — so it can't corrupt a
-  build that links.  But it's a real language-semantics divergence
-  (Go scopes both forms to the package) that blocks the idiomatic
-  enum-as-const-group pattern in any package WITHOUT a `.bni` interface
-  (most concretely `package main` executables like `cmd/bni`, `cmd/bnc`).
-  Packages that declare their kind enums in a `.bni` (e.g. `pkg/binate/ast`)
-  are unaffected because the `.bni` is the package interface and exports
-  the members.
-- **Root cause**: unknown — needs investigation in the type checker
-  (`pkg/binate/types`).  Hypothesis: the const-group checking path adds
-  members to the current file's scope rather than the package scope,
-  whereas single `const` decls (and `.bni`-declared groups) reach
-  package scope.  Not yet characterized: iota-continuation vs
-  explicit-value groups; package-main vs other no-`.bni` packages.
-- **Tests covering it**: none yet — a focused conformance/unit repro
-  (two `.bn` files in one package, group in one, reference in the other)
-  is part of the fix.
-- **Status**: IN PROGRESS (2026-06-02) — to be root-caused and fixed
-  before resuming REPL Stage 4b.
-
 ### Perf-tests CI lane fully red — `println(int)` programs fail to link `bootstrap.formatInt64`
 - **Symptom**: every perf test that prints an int (`001_fib`, `002_many_funcs`, …) fails at the link stage with `undefined reference to bn_pkg__bootstrap__formatInt64` (macOS: `Undefined symbols … _bn_pkg__bootstrap__formatInt64`).  Fails **identically on every mode** — `builder-comp`, `builder-comp-comp`, `builder-comp-comp-comp` (gen2, pure current-source), and the native lanes — so it is NOT BUILDER-skew.
 - **Root cause (high confidence)**: the perf runners (`perf/runners/builder-comp*.sh`) compile each test with only `-I "$src_dir" -L "$src_dir"` where `src_dir = $(dirname "$bn")` (i.e. the `perf/` dir).  `println(int)` lowering (`pkg/binate/ir/gen_print.bn`) emits a call to `bootstrap.formatInt64`, but the harness's `-L` set doesn't include whatever provides `pkg/bootstrap`'s object for the link, so the reference is undefined.  The conformance + unit runners pass the full `-I/-L` paths (BINATE_DIR + split impl trees) and link fine; the perf runners were never updated to match.
