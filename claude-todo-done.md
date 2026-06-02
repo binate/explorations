@@ -6,6 +6,32 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~aa64 closure shim: outgoing user-args don't stack-spill when captures fill X0..X7~~ — FIXED 2026-06-01 (binate `1f25568b`)
+- **Was**: a closure whose total outgoing-arg word count exceeded 8
+  (e.g. two `@[]T` captures (4+4 words) plus a single user `int` =
+  9 words) fell back to plain `B underlying` on aarch64.  Captures
+  landed in X0..X7 fine, but the user-arg that should have spilled
+  to the outgoing stack was never written; the underlying body read
+  garbage from `[SP+0]`.  The symmetric x64 case (`nUserWords > 5`
+  overflowing RSI..R9 after RDI holds data) fell back to JMP without
+  moving args.  Pinned by `conformance/510_capture_managed_slice`
+  (was xfailed on `builder-comp_native_aa64`).
+- **Resolution**: the native shim stack-spill landing (this session's
+  #2) added `emitClosureShimStackSpillAA64` / `emitClosureShimStackSpill_x64`,
+  which plan the outgoing call via the `AAPCS64()` / `SysVAMD64()`
+  classifier, `SUB`/`sub` the outgoing-args area, and write each
+  stack-bound capture / user-arg word through a scratch register
+  (X16 on aa64, RAX on x64) — covering all four transfer shapes
+  (reg→reg, reg→stack, stack→reg, stack→stack).  `emitClosureShim`'s
+  dispatcher routes any arg-on-stack case to the spill path, so the
+  old `captureWords + nUserWords > 8` `B`-fallback in the fast path
+  is now unreachable (it can only be reached when nothing spills,
+  which contradicts `> 8`).
+- **Tests**: `conformance/510`'s aa64 xfail removed (now green);
+  `conformance/523_closure_many_user_args` (1 cap + 9 user-args) and
+  `conformance/524_closure_many_caps_reg_to_stack` (3 caps + 8
+  user-args, exercises the stack→stack shuttle) pin the spill path.
+
 ### ~~@func / @Iface scope-end cleanup: `_call_dtor(raw_fn_ptr, ptr)` lowered as HANDLE dispatch (silent miscompile on every target)~~ — FIXED 2026-06-01 (binate `67952cf1` + `dc46ac7f`)
 - **Was**: `emitManagedFuncValueRefDec` / `emitManagedIfaceValueRefDec`
   extracted slot 0 of the value's vtable as `dtor` and passed it to

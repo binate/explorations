@@ -147,34 +147,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Tests covering it**: the silent crash itself is the regression — the existing 153 pkg/vm unit tests all run on amd64 and would expose the arm32 crash if reached.  A focused codegen test would help: assert the arm32 sret/non-sret threshold matches LP64's at the IR level for aggregates ≤ register-pair (which on arm32 = 8 bytes).
 - **Proposed fix**: re-examine `5331235e`'s sret threshold logic to ensure arm32 honours its ABI's smaller register-pair budget (vs. LP64's 16-byte pair).  A "universal sret for >16 bytes" rule applied verbatim across targets won't match arm32's AAPCS (4-byte word, 2-register max for return-by-value scalars, ≥8 bytes goes via sret already).  Alternatively: revert `5331235e` and apply the change per-backend.
 
-### aa64 closure shim: outgoing user-args don't yet stack-spill when captures fill X0..X7
-- **Symptom**: a closure whose total outgoing-arg word count
-  exceeds 8 (e.g., two `@[]T` captures (4+4 words) plus a
-  single user `int` (1 word) = 9 words) falls back to plain
-  `B underlying` on aarch64.  Captures land in X0..X7 fine; the
-  user-arg never gets written to its outgoing stack slot, and
-  the underlying body reads garbage from `[SP+0]`.  Pinned by
-  the 3rd block of `conformance/510_capture_managed_slice`
-  (xfailed on `builder-comp_native_aa64`).
-- **Where**: `pkg/native/aarch64/aarch64_closure_shim.bn`
-  `emitClosureShim` — the `if captureWords + nUserWords > 8`
-  fast-path fallback.
-- **Fix direction**: mirror what `emitClosureShimStackSpill_x64`
-  does — use `common.AAPCS64()`'s `CallArgRegStart` /
-  `CallArgStackOff` to plan the outgoing call, `SUB SP, sp,
-  #stkBytes`, write stack-bound capture / user-arg words to
-  `[SP + ofs]` via a scratch register (X16 is the AAPCS
-  intra-call scratch, mirroring its use in
-  `pkg/native/aarch64/aarch64_call.bn`), load reg-bound
-  captures, `BL underlying`, `ADD SP, sp, #stkBytes`, `RET`.
-- **Symmetric x64 follow-up**: x64's `nUserWords > 5` check
-  is the same shape — when incoming user-args overflow the
-  5-word GP budget (RSI..R9 after RDI holds data), the x64
-  shim falls back to JMP without moving args.  Same fix
-  outline plus reading from `[RSP + rspDelta + 8 + k*8]` for
-  each incoming-stack user-arg word.
-
-
 ### Demote raw-slice escape check from type error to linter rule
 - **Final diagnosis**: an unqualified EXPR_IDENT inside a
   `.bni`-declared const initializer (e.g. `WORDS` in
