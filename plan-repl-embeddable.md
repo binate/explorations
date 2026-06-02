@@ -1,9 +1,16 @@
 # Plan: Embeddable / Coroutine-ish REPL
 
-Status: **DESIGN RATIFIED — not yet started** (2026-06-02).
+Status: **IN PROGRESS — Stages 1–3 LANDED** (as of 2026-06-02);
+Stage 4 (push `Init`/`Step` + extract `pkg/binate/repl`) is next.
 Supersedes the open design question in `claude-todo.md`
 ("REPL refactor: embeddable component for non-CLI hosts"). The
-"which shape (a/b/c)" question is now decided (see Ratified Decisions).
+"which shape (a/b/c)" question is decided (see Ratified Decisions).
+
+Landed on `main`: Stage 1 (`@ReplSession`, lift globals) `7045cf95`;
+Stage 2 (`NewReplSession` constructor, errors as values) `4b95b1d1`;
+Stage 3 (`ReplIO` framing sink) `7dcd1079` (pending cherry-pick at time
+of writing). Work happens in worktree `temp-binate-4` / branch
+`repl-embeddable`.
 
 Companion docs: [`plan-repl.md`](plan-repl.md) (the shipped 5-tier
 REPL), [`pkg-layout-spec.md`](pkg-layout-spec.md) (tier-2 placement),
@@ -92,8 +99,8 @@ and **continuable suspend** (pause/resume), both delivered through a
 |---|---|---|
 | 1 | I/O model | **Push.** Host owns the read; engine exposes `Step(line, eof)`. Pull is structurally impossible on a wasm worker (can't block on inbound `postMessage`). |
 | 2 | `ReplIO` shape | **Struct of `@func` fields**, not an interface. One impl per host, chosen at construction, never polymorphically dispatched. Mirrors the extern table's own function-value representation; stays host-side (Phase-3-safe). |
-| 3 | Category-B redirection | **Extern-table rebind.** No user-code recompile. |
-| 4 | Result echo | **Distinct `WriteResult` channel** (separate from user stdout and diagnostics) so a wasm/IDE host can frame eval results distinctly. Free for the CLI (point it at the same sink as `WriteOut`). |
+| 3 | Category-B redirection | **Out of scope (revised 2026-06-02).** The REPL refactor handles only the engine's OWN framing output (cat. A). Redirecting output from EVALUATED user code is deferred — NOT via extern rebind (that machinery is being reworked); the right answer is injecting appropriate package implementations later. |
+| 4 | Result echo | **Distinct `WriteResult` channel** deferred until result-echo lands (no result echo today). When it lands: separate from user stdout and diagnostics so a wasm/IDE host can frame eval results distinctly. Stage 3 shipped `WriteOut`/`WriteErr` only. |
 | 5 | Interrupts in v1 | **Seam only.** Design + reserve the poll/status plumbing as inert (nil-poll = zero-overhead Continue); implement no interrupt behavior. Run-to-prompt is free under push. |
 | 6 | Sessions in v1 | **Single live session per process.** The `ir` process-globals stay as-is. Multi-session is an explicit, tracked blocker — see `claude-todo.md` "REPL: remove process-global session state". **Do not add new REPL globals — thread per-session state through `@ReplSession`.** |
 | 7 | Engine home | **Extract to `pkg/binate/repl`** (tier-2, per `pkg-layout-spec.md`). The embeddable library *is* the deliverable. |
@@ -272,20 +279,34 @@ REPL-specific setup divergence (leaves main's scope installed on
 - **Deliverable**: constructor returns errors, no process-exit on setup
   failure. CLI behavior unchanged. Green.
 
-### Stage 3 — `ReplIO` sink (cat. A) + extern rebind (cat. B)
-Define `ReplIO{WriteOut, WriteErr, WriteResult}`. Route every
-category-A framing/diagnostic/result print through `s.Io` — enumerated
-sites: `repl.bn:124/129/131/136/192/202` (+ the error sites now via
-returned errors), `repl_decl.bn:49/82/124/184-186/223-259/329-330/354`,
-`repl_import.bn:76/88/135/169-175`. Thread `registerExterns` as an
-injected `@func` callback (native bindings stay host-side). In
-`NewReplSession`, after the callback runs, overwrite
-`pkg/bootstrap.Write`/`Read`/`Exit` with sink-backed capturing closures;
-the `Write` shim keys on `args[0]` fd (1 → `WriteOut`, 2 → `WriteErr`).
-Add an in-memory-buffer `ReplIO` for tests.
-- **Deliverable**: per-engine I/O isolation; stdout/stderr/result split;
-  no process-killing `Exit`. Test asserts **no** output reaches fd 1
-  except via the sink. Green.
+### Stage 3 — `ReplIO` sink for the REPL's OWN framing output (cat. A only) — LANDED
+**Scope (decided 2026-06-02):** Stage 3 covers **only category-A** —
+the REPL engine's own framing output. Category-B (output produced by
+EVALUATED user code, e.g. a typed `println`) is explicitly **out of
+scope** and is NOT done via extern rebinding. The extern-table machinery
+is being reworked anyway; the correct long-term answer is **injecting
+appropriate package implementations** so user code's `Write`/`Read` go
+where the host wants. Do not rebind externs for this.
+
+**What landed (binate `7dcd1079`):** `ReplIO{WriteOut, WriteErr}` (a
+struct of `@func(*[]const char) int` channels) on `@ReplSession`;
+`NewReplSession` takes it as a param. Sink helper methods
+`out`/`outln`/`err`/`errln` replace every `print`/`println` in
+`repl.bn` / `repl_decl.bn` / `repl_import.bn`; `announceParked` /
+`announcePendingCycle` / `printRedefName` became `@ReplSession` methods
+so they reach the sink. The CLI host's `cliReplIO` wires both channels
+to the `print` builtin, so all framing output still lands on fd 1
+(byte-for-byte unchanged) — a richer host can split `WriteOut` /
+`WriteErr`. `WriteResult` deferred until result-echo actually lands (no
+result echo today). Implementation notes: func *types* in struct fields
+use unnamed params (`@func(*[]const char) int`); closure literals get
+their `@func` flavour from a typed-var hint (a bare `field = func(){}`
+assignment isn't a hint site).
+- **Deliverable (met):** per-engine framing-output redirection.
+  `TestReplFramingRoutesThroughSink` drives a diagnostic through a
+  capturing-closure sink and asserts it lands on `WriteErr`; e2e/repl.sh
+  53/53 confirms the CLI's framing output is byte-for-byte unchanged
+  through the sink; hygiene 12/12.
 
 ### Stage 4 — invert the loop to `Step`/`Init` (push) + extract `pkg/binate/repl`
 Replace the `for{}` loop with host-driven
