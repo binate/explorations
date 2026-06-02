@@ -18,6 +18,13 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### Perf-tests CI lane fully red — `println(int)` programs fail to link `bootstrap.formatInt64`
+- **Symptom**: every perf test that prints an int (`001_fib`, `002_many_funcs`, …) fails at the link stage with `undefined reference to bn_pkg__bootstrap__formatInt64` (macOS: `Undefined symbols … _bn_pkg__bootstrap__formatInt64`).  Fails **identically on every mode** — `builder-comp`, `builder-comp-comp`, `builder-comp-comp-comp` (gen2, pure current-source), and the native lanes — so it is NOT BUILDER-skew.
+- **Root cause (high confidence)**: the perf runners (`perf/runners/builder-comp*.sh`) compile each test with only `-I "$src_dir" -L "$src_dir"` where `src_dir = $(dirname "$bn")` (i.e. the `perf/` dir).  `println(int)` lowering (`pkg/binate/ir/gen_print.bn`) emits a call to `bootstrap.formatInt64`, but the harness's `-L` set doesn't include whatever provides `pkg/bootstrap`'s object for the link, so the reference is undefined.  The conformance + unit runners pass the full `-I/-L` paths (BINATE_DIR + split impl trees) and link fine; the perf runners were never updated to match.
+- **Discovery**: 2026-06-02, while verifying CI before cutting bnc-0.0.6.  No successful perf run in the last 40+ runs on main — long-standing, predates the const/readonly work.  NOT release-blocking (release.yml does not run the perf suite; all `-comp*` unit + conformance modes are green).
+- **Proposed fix**: bring the perf runners' `-I/-L` incantation in line with the conformance/unit runners (full BINATE_DIR + `impls/core/{common,libc}` + stdlib paths), or route per-test compiles through the same shared compile helper the other harnesses use.  Needs a look at how `pkg/bootstrap` is expected to be linked into a `package "main"` perf program.
+- **Tests**: the perf suite itself (`perf/run.sh <mode>`); fix is verified when `001_fib`/`002_many_funcs` link and run across `-comp*` modes.
+
 ### conformance/520 + 521 fail on both native lanes (x64-darwin + aa64) — IN PROGRESS
 - **Symptom**: `builder-comp_native_x64_darwin-comp_native_x64_darwin` and `builder-comp_native_aa64-comp_native_aa64` both fail on:
   - `520_iface_dtor_callee_sole_ref` — expected `inner-rc-before: 1`, actual something else (`foo=42` line follows in the actual but seemingly missing or off in the expected).
