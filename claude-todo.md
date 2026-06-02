@@ -25,13 +25,12 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Proposed fix**: bring the perf runners' `-I/-L` incantation in line with the conformance/unit runners (full BINATE_DIR + `impls/core/{common,libc}` + stdlib paths), or route per-test compiles through the same shared compile helper the other harnesses use.  Needs a look at how `pkg/bootstrap` is expected to be linked into a `package "main"` perf program.
 - **Tests**: the perf suite itself (`perf/run.sh <mode>`); fix is verified when `001_fib`/`002_many_funcs` link and run across `-comp*` modes.
 
-### conformance/520 + 521 fail on both native lanes (x64-darwin + aa64) — IN PROGRESS
-- **Symptom**: `builder-comp_native_x64_darwin-comp_native_x64_darwin` and `builder-comp_native_aa64-comp_native_aa64` both fail on:
-  - `520_iface_dtor_callee_sole_ref` — expected `inner-rc-before: 1`, actual something else (`foo=42` line follows in the actual but seemingly missing or off in the expected).
-  - `521_managed_func_value_propagation` — actual shows `17\n101` instead of expected.
-  Both pass under `builder-comp` (LLVM codegen).  The two native lanes share the same failure shape, suggesting a common native-backend gap (likely in iface-dtor handling or @func data-pointer plumbing) rather than per-arch issues.
-- **Discovery**: 2026-06-02, while verifying the closure-struct PlanFrame fix (binate `a8a7dc7a`).  Verified pre-existing on the prior commit — unrelated to that fix.
-- **Status**: IN PROGRESS — about to start investigating.  Look at the actual vs expected output diff first to narrow down which IR path is the suspect (iface-value dtor lowering vs @func value propagation through return paths).
+### conformance/520_iface_dtor_callee_sole_ref fails on both native lanes — IN PROGRESS
+- **Symptom**: `builder-comp_native_x64_darwin-comp_native_x64_darwin` and `builder-comp_native_aa64-comp_native_aa64` both fail on `520_iface_dtor_callee_sole_ref` — output truncates after `foo=42` (the `inner-rc-after: 1` line never prints, SIGSEGV mid-program in `_call_dtor` during `consume`'s `t @Foo` cleanup).  Passes under `builder-comp` (LLVM codegen).
+- **Companion fix LANDED**: `521_managed_func_value_propagation`, which surfaced alongside 520, was caused by OP_FUNC_VALUE_DTOR silently NOPing in the native dispatchers — fixed in binate `d014b559` by mirroring the OP_IFACE_DTOR handler.  520 has a separate root cause and remains failing.
+- **Discovery**: 2026-06-02, while verifying the closure-struct PlanFrame fix (binate `a8a7dc7a`).  Verified pre-existing on the prior commit.
+- **What's been observed**: lldb on the failing binary shows the crash in `bn_pkg__builtins__rt__ZeroRefDestroy` → `_call_dtor` with garbage args.  On entry to `consume(t @Foo)`, X0 = garbage (instruction-byte-shaped value resembling a function prologue) and X1 = a heap pointer — i.e., the @Foo aggregate's data slot is trashed by the time it reaches the callee.  Tracing into `makeFoo`'s return: `sp+0x58` (the holder-data slot of the @Foo being constructed) holds a code address `0x1000031ac` at the return-load site, but it was correctly stored as the heap holder ptr earlier in the function — so something between the store and the return overwrites `sp+0x58` with a code address.  Suspects: the inner-RefDec cleanup sequence (which involves `ZeroRefDestroy` calls and might be miscomputing offsets), or the @Holder → @Foo conversion materializing the iface value at the wrong offset.
+- **Status**: IN PROGRESS — next step is to walk the writes to `sp+0x58` in makeFoo between the initial store and the return, identifying which one corrupts it.
 
 ### Static-managed sentinel refcount — IN PROGRESS (prerequisite for package descriptors)
 - **Status**: IN PROGRESS — worktree `temp-binate-6` / branch `work-6`,
