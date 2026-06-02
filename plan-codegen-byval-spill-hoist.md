@@ -16,22 +16,30 @@ green).
   "bnc codegen: byval-spill alloca emitted at call site leaks per
   loop iteration"
 
-## Follow-up: `.ap` (function-value-call aggregate args) is the same latent class — NOT yet fixed
+## Follow-up: func-value-call + iface-method call-site allocas — LANDED 2026-06-02 (binate `d9800429`)
 
-`emitFuncValueArgPreamble` (`pkg/binate/codegen/emit_call.bn`) emits
-its `.ap<i>` aggregate-arg slot `alloca` at the call site too, and
-`OP_CALL_HANDLE` / `OP_CALL_FUNC_VALUE` are NOT in `emitFuncDbg`'s
-hoist loop — so a function-value call passing an aggregate arg from
-inside a loop would leak the same way.  The retbuf `.rb` allocas in
-`emitCallFuncValue` / `emitCallIfaceMethod` are analogous.  A sweep
-of all 24 previously-crashing unit-test packages at default stack
-showed NONE of them currently trigger this (no hot loop passes a
-func-value/aggregate-return frequently enough), so it is a latent
-issue, not an active failure — left as a tracked follow-up rather
-than fixed speculatively.  If it ever surfaces, the fix mirrors the
-byval one: split the preamble into a store-only call-site emitter +
-an entry-block alloca-decl emitter, and add `OP_CALL_HANDLE` /
-`OP_CALL_FUNC_VALUE` to the hoist loop.
+The same call-site-alloca leak class existed on two more paths and
+was closed (latent-footgun hardening — a sweep showed no package
+currently triggers them, but they're the same shape):
+
+- **OP_CALL_FUNC_VALUE**: `emitFuncValueArgPreamble`'s `.ap<i>`
+  aggregate-arg spill slots + `emitCallFuncValue`'s `.rb` aggregate-
+  return retbuf.
+- **OP_CALL_IFACE_METHOD**: `emitCallIfaceMethod`'s `.rb` sret buffer
+  for a >16-byte aggregate return (its own comment had flagged the
+  inline alloca as wanting hoisting).
+
+Fix mirrors the byval split exactly: the call-site emitters now emit
+only the store/bitcast/call/load; new `emitFuncValueCallAllocDecls`
+and `emitIfaceMethodSretAllocDecl` emit the allocas, wired into
+`emitFuncDbg`'s hoist pre-pass via `OP_CALL_FUNC_VALUE` /
+`OP_CALL_IFACE_METHOD` branches.  `OP_CALL_HANDLE` and
+`OP_CALL_INDIRECT` were verified to emit NO call-site allocas, so
+they need no hoisting.  Regression tests
+`TestFuncValueCallAggAllocasHoistedToEntry` /
+`TestIfaceMethodSretAllocaHoistedToEntry` pin both.  Verified:
+codegen unit 180/0, full `builder-comp` unit 35/0, conformance
+`builder-comp` 454/0/1.
 
 ---
 
