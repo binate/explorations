@@ -2018,46 +2018,69 @@ Binate is NOT Go. The two types of slice are intentionally different:
   end on each side, and identifies the first concrete code change to make.
   Don't start implementation until the design is reviewed.
 
-### REPL refactor: embeddable component for non-CLI hosts
-- **Why**: today the REPL is tightly coupled to stdin / stdout via
-  `bootstrap.{Read,Write}` and assumes synchronous blocking I/O.
-  That model doesn't work for embedding the REPL into a non-CLI
-  host — most concretely a wasm worker (where I/O routes through
-  message ports and the worker must hand control back to the event
-  loop while waiting for input), but also useful on its own for
-  test harnesses, IDE integrations, etc.
-- **Two pieces**:
-  1. **Customizable I/O.** Pull `read_line` / `write` behind an
-     interface (some `ReplIO` shape) so the embedding host plugs
-     its own backing. Today's CLI wires it to stdin/stdout; the
-     wasm host wires it to the worker's message-port surface;
-     future tests wire to in-memory buffers.
-  2. **Coroutine-ish behavior.** The REPL loop today is
-     `read_line → lower → execute → write_result → loop` —
-     synchronous. In a worker context, `read_line` can't block;
-     the loop must pause at the read point and resume on the next
-     input message. Three implementation shapes, in increasing
-     ambition (each warrants its own design discussion):
-     - **(a)** Hand-rolled state machine. Refactor the REPL as
-       `enum { Idle, Lowering, Executing, AwaitingInput }`
-       advanced by event callbacks. No language-feature changes.
-       Ugly to maintain but smallest scope.
-     - **(b)** Continuation-passing-style refactor. Similar
-       effect, slightly cleaner read. Still no language changes.
-     - **(c)** First-class coroutines / generators in Binate as a
-       language feature. Cleanest REPL code, but large surface
-       elsewhere — months-long language project.
-- **Other prereqs that fall out**: input editing /
-  readline-equivalent behavior (the host shouldn't need to know
-  about terminal control codes), output streaming (incremental
-  render vs. lump-at-end), interrupt / cancel semantics
-  (`Ctrl-C`-equivalent over message ports).
-- **Prereq for**: wasm B1 (REPL-in-browser demo —
-  `plan-wasm-browser.md`).  Valuable on its own for testing and
-  future IDE-style integrations.
-- **Open**: which shape (a/b/c) before any implementation. The
-  "coroutine-ish" descriptor is doing a lot of work — needs a
-  design conversation first.
+### REPL refactor: embeddable component for non-CLI hosts — DESIGN RATIFIED, not started
+- **Status (2026-06-02)**: design decided; see
+  [`plan-repl-embeddable.md`](plan-repl-embeddable.md) for the full
+  staged plan, API, and ratified decisions. The old open "which shape
+  (a/b/c)" question is resolved: **push session** (host owns the read,
+  engine exposes `Init`/`Step(line,eof) → StepResult`), with the
+  interrupt **seam designed-in but unimplemented** in v1 and
+  suspend/break staged behind it.
+- **Why**: today the REPL is welded to stdin/stdout via
+  `bootstrap.{Read,Write}` and a blocking `for{}` loop — can't embed
+  into a wasm worker (I/O over message ports; must yield to the event
+  loop while awaiting input), nor into test harnesses / IDE hosts.
+- **Decided shape** (full rationale in the plan doc): push, not pull
+  (wasm can't block on inbound `postMessage`); `ReplIO` is a struct of
+  `@func` fields, not an interface; user-program output (category B) is
+  redirected by **rebinding the `bootstrap.Write/Read/Exit` externs**
+  (no user-code recompile); REPL-framing output (category A) routes
+  through the host `ReplIO`; engine extracted to **`pkg/binate/repl`**
+  (tier-2); **single live session per process** in v1 (multi-session is
+  a tracked blocker — next entry); interrupt layer is **seam-only** in
+  v1.
+- **Staged v1** (each independently landable, green): (1) session struct
+  + re-entrancy; (2) `NewReplSession` constructor (errors as values, no
+  `Exit`); (3) `ReplIO` sink + extern rebind; (4) push `Init`/`Step` +
+  extract `pkg/binate/repl`; (5) inert interrupt seam.
+- **Future, gated**: continuable-suspend (Stage 6; partially gated on
+  `plan-bni-heap-frames.md`) and break/unwind (Stage 7; needs new IR-gen
+  cleanup landing pads — a frame-discard break LEAKS, so it is
+  forbidden without them).
+- **Out of scope** (raised, not deferred silently): running the
+  type-checker + IR-gen + VM under wasm32 in-worker — necessary for B1
+  but separate from this I/O-shape refactor; its own open scope question
+  for `plan-wasm-browser.md`.
+
+### REPL: remove process-global session state (multi-session blocker)
+- **What**: the REPL engine keeps per-session state in PROCESS-GLOBAL
+  package vars instead of threading it through the session. v1 of the
+  embeddable refactor (above) lifts the cmd/bni-local ones into
+  `@ReplSession` but deliberately keeps **single live session per
+  process**, leaving two `pkg/binate/ir` globals in place.
+- **The globals**:
+  - cmd/bni-local (lifted into `@ReplSession` by Stage 1 of the
+    refactor): `replLoader`/`replRoot`/`replBniPaths`/`replProcessedPkgs`
+    (`cmd/bni/repl_import.bn:24-41`) and `replInitCounter`
+    (`cmd/bni/repl_decl.bn:411`).
+  - `pkg/binate/ir` process-globals (NOT lifted in v1, the real
+    multi-session blocker): `currentChecker` (`pkg/binate/ir/gen.bn:148`,
+    set via `ir.SetChecker`) and the import alias map
+    `importAliasNames`/`importAliasPaths` (`gen.bn:107/110`), with
+    `Save`/`RestoreAliasMapState` bracketing in `evalReplImport`
+    (`repl_import.bn:101/146`).
+- **Why it matters**: single re-entrant session is unaffected (the ir
+  globals are set once and save/restored inside import turns as today).
+  But >1 concurrent embedded session in one process needs those globals
+  session-scoped (or save/restored at every `Step` boundary) — a
+  separate, larger change that must land BEFORE `pkg/binate/repl` can
+  honestly claim multi-session support.
+- **Guidance (applies now)**: **do not add any new REPL globals.** New
+  per-session state goes through `@ReplSession`. Adding a global "to keep
+  a signature stable" (the exact shortcut that created the current ones,
+  per `repl_import.bn:18-20`) is what this entry exists to stop.
+- **When**: only if multi-session embedding becomes a goal. Not needed
+  for wasm B1 (one worker = one session).
 
 ### REPL — All five tiers LANDED (2026-05-29)
 - **Status**: `bni --repl <file.bn|dir>` ships.  `plan-repl.md` is
