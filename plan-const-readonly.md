@@ -219,27 +219,40 @@ The `const T` type-modifier rename touches **every** `*const T` /
    compiler change yet.
 2. **Parser: add `readonly` keyword**.  Accept it as the
    type-modifier surface alongside today's `const` modifier.  No
-   semantic change.
-3. **Tree-wide sed**: rename every type-modifier `const` to
-   `readonly`.  Lands separately; verifies the parser accepts the
-   new keyword everywhere.
-4. **Parser / type-checker: remove `const` type-modifier**.  After
-   step 3, no source uses it; remove the parser branch and any
-   leftover error messages.
-5. **Type checker: scalar-only `const` decl + .bni/.bn agreement +
+   semantic change; cmd/bnc-source itself doesn't use `readonly`
+   yet, so the current BUILDER still parses cmd/bnc-source fine.
+3. **Cut bnc-0.0.6 + bump `BUILDER_VERSION`**.  Required between
+   steps 2 and 3 of the source-side phasing — step 3 puts
+   `readonly` into source files, but the current BUILDER's
+   parser doesn't know the keyword (it predates step 2's parser
+   change).  The release captures step 2's parser into a new
+   BUILDER binary; the bump makes that BUILDER active for
+   subsequent steps' compilation.  Follow `release-process.md`'s
+   seven-step cut.
+4. **Tree-wide sed**: rename every type-modifier `const` to
+   `readonly` in source files.  Lands as one mechanical commit;
+   verifies the new-BUILDER parser accepts `readonly` everywhere.
+5. **Parser / type-checker: remove `const` type-modifier**.  After
+   step 4, no source uses it; remove the parser branch and any
+   leftover error messages.  Optionally cut another release here
+   so BUILDER no longer accepts the legacy syntax — quality-of-life,
+   not strictly required.
+6. **Type checker: scalar-only `const` decl + .bni/.bn agreement +
    .bni-no-initializer rule + readonly-match enforcement**.  Add
    conformance tests pinning each rejection.
-6. **Revert the string-typed-const IR-gen extension** (binate
-   `7b0f77a3` + `a000855a`).  After step 5 the string-typed
+7. **Revert the string-typed-const IR-gen extension** (binate
+   `7b0f77a3` + `a000855a`).  After step 6 the string-typed
    `const` declarations they served are now rejected at type-check
    time; the IR-gen path is dead.
-7. **Migrate `pkg/binate/version`** to `var readonly` form.  After
+8. **Migrate `pkg/binate/version`** to `var readonly` form.  After
    this the build is fully green under the new rules.
-8. **Linter rule**: warn on uninitialized `readonly` global vars.
+9. **Linter rule**: warn on uninitialized `readonly` global vars.
    Lands last so the rule doesn't fire spuriously during the
    migration.
 
-Each step is independently testable and revertible.
+Each step is independently testable and revertible.  Step 3 is the
+only one that's hard-blocked on a release — every other step is
+either pure source-only or tolerates the prior BUILDER.
 
 ## Touched docs / TODOs
 
