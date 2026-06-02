@@ -92,6 +92,15 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### bnc: in-package read of a string-typed top-level const generates malformed LLVM IR
+- **Symptom**: declaring `const X *[]const char = "literal"` at top level in a package, then reading `X` (whether via `len(X)`, `X[i]`, `X[a:b]`, or passing `X` to a function expecting `*[]const char`) from CODE INSIDE THE SAME PACKAGE produces LLVM IR like `%v4 = extractvalue i64 %v2, 1` — an extractvalue on a scalar i64 rather than on the expected `*[]const char` slice aggregate.  clang rejects with `error: extractvalue operand must be aggregate type`.  Reproduces with the const declared either in the `.bni` or in the `.bn`; only the in-package reader's emit shape matters.
+- **Cross-package access works**: reading the same const from another package (`other.X`) emits correctly as `%BnManagedSlice` extractvalue.  So the bug is specific to *same-package* access through the const's package-internal symbol path.
+- **Discovery**: 2026-06-01, while trying to land Phase 1 of plan-version-info.md.  Building a tiny `pkg/binate/version` with `const Version *[]const char = "bnc-0.0.6-pre"` + a `Format()` function that reads `Version`'s length / indices / a slice of it tripped the bug.  Replacing the read with a literal `"bnc-0.0.6-pre"` inside Format compiles fine.
+- **Root cause (unconfirmed)**: probably an IR-gen branch that treats package-level string-typed consts as scalar-typed when emitting the local read — maybe the package-internal symbol shape collapses to the pointer field of `*[]const char` (i.e., the loader sees a `bn_pkg__binate__version__Version` global of just `i8*` rather than the `{i8*, i64}` slice descriptor), or there's a const-fold pass that mistakes the string-typed const for an integer.  Either way the type-checker still believes it's `*[]const char` (it accepts `len(X)`, `X[i]`, etc.); only the IR shape is wrong.
+- **Why MAJOR**: blocks the natural shape for `pkg/binate/version` (Phase 1 of `plan-version-info.md`) and any future package that wants a public string-typed const it reads internally.  Workarounds exist (parameterize Format on the version string from the caller; expose a function instead of a const) but they're awkward and contradict the spec's preferred-const-in-.bni rationale (Phase 3 of plan-version-info.md).
+- **Tests covering it**: none yet.  The simplest reproducer is the version package draft from this session — a 3-line `.bn` reading `len(Version)` reproduces.  A unit test asserting `len(X)` returns the expected length for a string-typed const inside the declaring package would cover it.
+- **Status**: filed; Phase 1 of plan-version-info.md is paused on this.
+
 ### ~~arm32_baremetal: pkg/native/{aarch64,x64} test binaries overflow `.bss` region~~ — FIXED 2026-05-30 (binate `b0c64b14`)
 - **Final fix**: combined option-(a) + xfail-manifest-rename:
   - `runtime/baremetal_arm32/baremetal.ld`'s `LENGTH` bumped from 8 MiB to 16 MiB — the runner already launched QEMU with `-m 16M`, so the linker was underusing available memory.  Both `.bss` overflows clear with headroom.
