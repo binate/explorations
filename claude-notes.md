@@ -258,44 +258,105 @@ Benefits:
 - For composite value types: `sizeof(*[]int)` = 2 words (the slice value itself), `sizeof(Stringer)` = 2 words (the interface value itself) — not the data they point to.
 - **Builtins are keywords** (not predeclared names): `make`, `make_slice`, `box`, `cast`, `bit_cast`, `len`, `unsafe_index`, `sizeof`, `alignof`. They take types as arguments, which can't be parsed as regular function calls.
 
-### Const-ness — DECIDED
+### Const-ness — DECIDED (revised 2026-06-01; see `plan-const-readonly.md` for the migration sequence)
 
-**Compile-time constants**: `const x = 5` — value baked in.
+Two related but distinct concepts: compile-time constants (no storage)
+and read-only access (a property of types).  Each has its own keyword
+in the surface syntax.
 
-**Const in types**: left-to-right reading, each `const` applies to the thing immediately to its right:
-- `const *int` — const pointer to int (pointer can't change)
-- `*const int` — pointer to const int (data can't change)
-- `const *const int` — const pointer to const int
-- `*[]const *int` — slice of const pointers to int
-- `*[]*const int` — slice of pointers to const int
+**Compile-time constants — `const`**: a `const` declaration introduces
+a name bound to a compile-time-knowable value.  No storage, no address
+(`&X` is an error).  Each use of X is replaced by the value at
+codegen time.
 
-**Const on variable declarations**: means the variable can't be reassigned:
-- `const x int = 5`
-- `const p *int = &y` (p can't be reassigned, but *p can be modified)
+- Scalar types only: `int` / sized ints / `char` / `bool` /
+  `float32` / `float64`.  Strings, slices, arrays, structs, pointers,
+  and other composite-storage types use `var` (see below) with
+  `readonly` modifiers as appropriate — they need storage and aren't
+  immediate-replaceable.
+- Must have a value.  Iota groups count: bare names inherit the
+  previous spec's expression with iota re-evaluated.
+- Visibility by location: declared in `.bni` → exported; declared in
+  `.bn` → package-private.  Cannot be declared in both files for the
+  same name (no "extern const" — consts resolve at every use site,
+  there's no symbol to link).
 
-**Const on function parameters**: `const` on the parameter variable itself (outermost const) is allowed but not part of the function's type signature. It's a local implementation detail, like parameter names — present for self-documentation and local discipline, ignored for signature matching.
+Examples:
+- `const x = 5` — untyped int const, value 5.
+- `const x int = 5` — typed int const.
+- `const ( A int = iota; B; C )` — A=0, B=1, C=2.
+
+**Variables — `var`**: introduces a named variable backed by storage in
+the package's compilation unit.
+
+- Storage always lives in the package's `.bn` file.  The `.bni` form
+  is an extern declaration ("this var exists in this package's `.bn`
+  and is exported") — must NOT carry an initializer.
+- `.bni` and `.bn` decls for the same name must agree on the full
+  type, including any `readonly` modifiers.
+- Type may carry `readonly` modifiers (see below); a value at a
+  readonly slot can't be written through its name.  Linter warns
+  on a `readonly` global var declared without an initializer
+  (zero-forever, almost always a bug).
+- `&X` is always legal.  For `readonly T`-typed X, the result type
+  is `*readonly T`.
+- Default-init (no `=`) is allowed at the language level for any
+  type; the storage is zero-initialized.
+
+Examples:
+- `var x int` — mutable global, zero-initialized.
+- `var x int = 5` — mutable global, initialized to 5.
+- `var x readonly int = 5` — readonly global (writes to x are
+  type-checker errors).
+- (`.bni`) `var Version readonly *[]readonly char` — exported,
+  readonly declaration.
+- (`.bn`) `var Version readonly *[]readonly char = "bnc-0.0.6-pre"`
+  — matching storage definition.
+
+**Read-only types — `readonly T`**: a type modifier marking "the value
+at this storage location can't be written through this access path."
+
+Left-to-right reading; each modifier applies to the thing immediately
+to its right:
+- `readonly *int` — readonly pointer to int (pointer can't change,
+  but *p can).
+- `*readonly int` — pointer to readonly int (data can't change).
+- `readonly *readonly int` — both.
+- `*[]readonly *int` — slice of readonly pointers to int.
+- `*[]*readonly int` — slice of pointers to readonly int.
+
+**`readonly` on function parameters**: the outermost `readonly` on a
+parameter type is local discipline, not part of the function's type
+signature — it says "this parameter can't be reassigned inside the
+body," useful for self-documentation, ignored for signature matching.
 
 **Deep immutability**: skipped for v1.
 
-**Const and receivers — five receiver kinds**:
-1. const value — read-only copy
-2. const raw pointer — read-only view, no refcount
-3. const managed pointer — read-only view, with refcount
+**Receivers — five receiver kinds**:
+1. readonly value — read-only copy
+2. readonly raw pointer — read-only view, no refcount
+3. readonly managed pointer — read-only view, with refcount
 4. raw pointer — mutable, no refcount
 5. managed pointer — mutable, with refcount
 
-Value receivers are always const (mutating a copy is pointless).
+Value receivers are always readonly (mutating a copy is pointless).
 
 **Auto-conversion**: more-permissive → more-restrictive:
-- managed → raw → const raw
-- managed → const managed → const raw
-- any pointer → value/const value (by copy)
+- managed → raw → readonly raw
+- managed → readonly managed → readonly raw
+- any pointer → value/readonly value (by copy)
 
-**`impl` declarations specify receiver type.** The receiver kind determines what pointer/value types can satisfy the interface. Interfaces themselves say nothing about const-ness.
-- `impl Stringer for FileHandle` with const receiver → `const *FileHandle` satisfies `Stringer`
-- `impl Stringer for Widget` with mutable receiver → only `*Widget` satisfies `Stringer`, not `const *Widget`
+**`impl` declarations specify receiver type.** The receiver kind
+determines what pointer/value types can satisfy the interface.
+Interfaces themselves say nothing about readonly-ness.
+- `impl Stringer for FileHandle` with readonly receiver →
+  `*readonly FileHandle` satisfies `Stringer`
+- `impl Stringer for Widget` with mutable receiver → only
+  `*Widget` satisfies `Stringer`, not `*readonly Widget`
 
-This means the same interface can be implemented with different receiver kinds by different types. No extra syntax needed in interface declarations.
+This means the same interface can be implemented with different
+receiver kinds by different types. No extra syntax needed in
+interface declarations.
 
 ### Volatile — DECIDED
 
@@ -352,12 +413,12 @@ Same principle for struct/type redefinition: existing instances retain the old l
 **Untyped literals**: literals have no inherent type and coerce to any compatible type from context. Unlike Go, this does NOT extend to named constants — only literals.
 - `123` → `int`, `uint`, `i32`, `byte`, etc.
 - `3.14` → `f32`, `f64`, etc.
-- `"abc"` → `[3]char` (natural type), `*[]char` / `*[]const char` (slice, len=3)
+- `"abc"` → `[3]char` (natural type), `*[]char` / `*[]readonly char` (slice, len=3)
 
 **Default types** (when context is ambiguous, e.g., `x := 123`):
 - Integer literals: `int`
 - Float literals: `float64`
-- String literals: `*[]const char` (default type — a slice view of the static data)
+- String literals: `*[]readonly char` (default type — a slice view of the static data)
 - Bool literals: `bool`
 
 **Literal overflow**: assigning a literal to an explicit type that can't hold it is a compile error (`var x uint8 = 256` → error). Literals are checked at compile time for fit.
@@ -390,9 +451,9 @@ Integer literals and constant expressions follow the rules below. The model is a
 
 **Cast semantics**: `cast(T, expr)` on typed (non-literal) values wraps/truncates — hardware semantics, well-defined. `cast(uint, -1)` is a compile error (literal doesn't fit). `cast(uint, x)` where x is int wraps to UINT_MAX.
 
-**No implicit null termination (revised 2026-04-01)**: string literals contain exactly the characters specified, with no hidden null terminator. `"abc"` is stored as `{'a','b','c'}` (3 bytes), natural type `[3]const char`, default type `@[]const char` with `len()` = 3. (Note: `*[]const char` is also allowed — a raw slice borrowing from static data.) If a null terminator is needed (e.g., for C interop), include it explicitly: `"abc\0"` (4 bytes, natural type `[4]const char`). Null termination for C interop can also be handled by library functions. This replaces the previous design where string literals always included a hidden null terminator beyond the slice view — that was too complicated to reason about in practice (tracking which slices had a null beyond their bounds was impractical).
+**No implicit null termination (revised 2026-04-01)**: string literals contain exactly the characters specified, with no hidden null terminator. `"abc"` is stored as `{'a','b','c'}` (3 bytes), natural type `[3]readonly char`, default type `@[]readonly char` with `len()` = 3. (Note: `*[]readonly char` is also allowed — a raw slice borrowing from static data.) If a null terminator is needed (e.g., for C interop), include it explicitly: `"abc\0"` (4 bytes, natural type `[4]readonly char`). Null termination for C interop can also be handled by library functions. This replaces the previous design where string literals always included a hidden null terminator beyond the slice view — that was too complicated to reason about in practice (tracking which slices had a null beyond their bounds was impractical).
 
-**No `string` type.** `string` does NOT exist as a type in Binate. String literals are untyped constants with natural type `[N]const char` and default type `@[]const char`. Allowed targets: `@[]const char` (borrows static data, zero cost), `@[]char` (allocate+copy — managed-slice owns its backing, so mutation is safe), `*[]const char` (raw slice borrowing static data), `[N]const char` / `[N]char` (array copy). NOT allowed: `*[]char` (raw slice can't own a mutable copy, and borrowing static data mutably is unsound). This generalizes to all slice/array literals. (The bootstrap uses `*[]char` as a stand-in since it lacks const types.) Language targets small systems where full UTF-8 support is too heavy to justify a separate type.
+**No `string` type.** `string` does NOT exist as a type in Binate. String literals are untyped constants with natural type `[N]readonly char` and default type `@[]readonly char`. Allowed targets: `@[]readonly char` (borrows static data, zero cost), `@[]char` (allocate+copy — managed-slice owns its backing, so mutation is safe), `*[]readonly char` (raw slice borrowing static data), `[N]readonly char` / `[N]char` (array copy). NOT allowed: `*[]char` (raw slice can't own a mutable copy, and borrowing static data mutably is unsound). This generalizes to all slice/array literals. (The bootstrap uses `*[]char` as a stand-in since it lacks readonly types.) Language targets small systems where full UTF-8 support is too heavy to justify a separate type.
 
 **Adjacent string-literal concatenation (C-style).** Two string literals with only whitespace between them are glued into one literal at lex/parse time:
 ```binate
@@ -475,7 +536,7 @@ Full design lives in `plan-interface-syntax-revision.md` (RATIFIED 2026-05-01). 
 - Interfaces are declared top-level with a set of method signatures, using a dedicated `interface` keyword (not `type X interface { ... }` — which is dropped):
   ```
   interface Stringer {
-      toString() *[]const char
+      toString() *[]readonly char
   }
   ```
 - Bare `Stringer` is **not** a type expression — it's a referenceable name only. Usable in `*Stringer` / `@Stringer`, in `impl T : Stringer` decls, and on the LHS of an interface alias.
@@ -487,10 +548,10 @@ Full design lives in `plan-interface-syntax-revision.md` (RATIFIED 2026-05-01). 
   - `*Stringer` — raw interface value: `(raw ptr to data, vtable ptr)`. No refcounting; caller keeps data alive.
   - `@Stringer` — managed interface value: `(managed ptr to data, vtable ptr)`. Keeps data alive via refcounting.
 - Both are 2-word value types (small, copyable). Pointers to interface values follow normal pointer rules: `**Stringer`, `*@Stringer`, `@(@Stringer)`.
-- **No `*const Stringer` / `@const Stringer`** — analogous to `*const []T` not being a thing. `const` qualifies element types in slice spellings (`*[]const T`); the interface-value spelling has no analogous slot. Const-restricted dispatch is expressed at the impl level (impls with const receivers).
+- **No `*readonly Stringer` / `@readonly Stringer`** — analogous to `*readonly []T` not being a thing. `readonly` qualifies element types in slice spellings (`*[]readonly T`); the interface-value spelling has no analogous slot. Readonly-restricted dispatch is expressed at the impl level (impls with readonly receivers).
 
-**Construction-site conversions — explicit only**: when constructing an interface value from a non-interface source, **no implicit conversions** happen. No implicit copies, no implicit `&t`, no implicit `box(t)`. The user writes the conversion explicitly, because the interface value can outlive the source. (Method-call receiver smoothing is unaffected — `t.Foo()` auto-takes `&t` for `*const T` receivers, since the receiver lifetime is bounded by the call.) Concrete table:
-- `T → *Iface` requires explicit `&t` (then routes if impl matches `*T` / `*const T` / value receiver)
+**Construction-site conversions — explicit only**: when constructing an interface value from a non-interface source, **no implicit conversions** happen. No implicit copies, no implicit `&t`, no implicit `box(t)`. The user writes the conversion explicitly, because the interface value can outlive the source. (Method-call receiver smoothing is unaffected — `t.Foo()` auto-takes `&t` for `*readonly T` receivers, since the receiver lifetime is bounded by the call.) Concrete table:
+- `T → *Iface` requires explicit `&t` (then routes if impl matches `*T` / `*readonly T` / value receiver)
 - `T → @Iface` rejected — write `box(t)` first to get `@T`, then `@T → @Iface`
 - `*T → @Iface` rejected — `*T` can't promote to `@T`
 - `@T → *Iface` and `@T → @Iface` work directly (managed acts as raw data ptr; `@T → @Iface` if impl matches)
@@ -506,13 +567,13 @@ Full design lives in `plan-interface-syntax-revision.md` (RATIFIED 2026-05-01). 
 **Interface aliases**: `interface X = Y` for nominal-equivalent aliasing of interface names. `MyStringer` and `Stringer` are the same interface; `impl T : MyStringer` is indistinguishable from `impl T : Stringer`. There is *no* newtype-style "make this a distinct interface that happens to share the shape" form. Note: `type X = Y` aliases type expressions, so `type X = @Stringer` / `type X = *Stringer` work as type aliases; `type X = Stringer` (bare) is a type error.
 
 **Five receiver kinds** (per `claude-discussion-detailed-notes.md` § 6.5):
-1. const value
-2. const raw pointer
-3. const managed pointer
+1. readonly value
+2. readonly raw pointer
+3. readonly managed pointer
 4. raw pointer
 5. managed pointer
 
-Receiver-kind preference (informational, not a hard rule): `*T` and `*const T` are the common cases — caller guarantees the receiver's lifetime during the method call. `@T` receivers are for impls that need to *retain* the receiver. Value receivers operate on a copy.
+Receiver-kind preference (informational, not a hard rule): `*T` and `*readonly T` are the common cases — caller guarantees the receiver's lifetime during the method call. `@T` receivers are for impls that need to *retain* the receiver. Value receivers operate on a copy.
 
 **Receiver smoothing at method call sites**: compiler auto-converts safe-direction at *method-call* sites. Cannot auto-promote raw → managed. Distinct from interface-value construction, which never auto-converts (see above).
 
@@ -532,13 +593,13 @@ Receiver-kind preference (informational, not a hard rule): `*T` and `*const T` a
 impl FileHandle : Stringer           // value receiver
 impl *FileHandle : Writer, Reader    // raw pointer receiver
 impl @FileHandle : Retainable        // managed pointer receiver
-impl *const FileHandle : Stringer    // const raw pointer receiver
+impl *readonly FileHandle : Stringer // readonly raw pointer receiver
 ```
 
 **Example sketch:**
 ```
 interface Writer {
-    write(buf *[]const char) int
+    write(buf *[]readonly char) int
     close()
 }
 
@@ -548,7 +609,7 @@ type FileHandle struct {
 
 impl *FileHandle : Writer
 
-func (f *FileHandle) write(buf *[]const char) int { ... }
+func (f *FileHandle) write(buf *[]readonly char) int { ... }
 func (f *FileHandle) close() { ... }
 ```
 
@@ -665,7 +726,7 @@ C-family, leaning toward Go's direction (clean, minimal, familiar).
 func add(a int, b int) int { return a + b }
 func divmod(a int, b int) (int, int) { return a / b, a % b }
 func (p *Point) translate(dx int, dy int) { p.x += dx; p.y += dy }
-func (p *const Point) distance() float64 { ... }
+func (p *readonly Point) distance() float64 { ... }
 ```
 - No named return values (confusing, not best practice)
 - No same-type param shorthand (e.g., no `a, b int`)
@@ -969,12 +1030,12 @@ This is consistent with the raw slice contract: `*[]int` means "caller manages l
 **Auto-dereferencing**: one level only (like Go). If `obj` is `@T` or `*T`, compiler looks for methods on the pointer type and on `T`.
 
 **Receiver conversion** at call sites (safe direction only):
-- `@T` → `*T` → `*const T` (implicit)
-- `@T` → `@const T` → `*const T` (implicit)
+- `@T` → `*T` → `*readonly T` (implicit)
+- `@T` → `@readonly T` → `*readonly T` (implicit)
 - Any pointer → value (by copy)
 - `*T` → `@T`: never implicit
 
-**Value receivers — implementation strategy.** The default implementation is to pass value receivers by value (struct copy or primitive value, like any other parameter), matching the user-visible semantics directly.  An optimization to lower value receivers as `*const T` (avoiding the copy for large structs) is permitted as a future compiler optimization but is NOT part of the language contract — method expressions, call sites, and method-value types all see the value receiver as the user wrote it.  See `plan-primitives-impl-interfaces.md` § "Interface-value dispatch and value receivers" for how iv vtable slots adapt the iv data-pointer ABI to value-receiver methods via per-(T, I) thunks.
+**Value receivers — implementation strategy.** The default implementation is to pass value receivers by value (struct copy or primitive value, like any other parameter), matching the user-visible semantics directly.  An optimization to lower value receivers as `*readonly T` (avoiding the copy for large structs) is permitted as a future compiler optimization but is NOT part of the language contract — method expressions, call sites, and method-value types all see the value receiver as the user wrote it.  See `plan-primitives-impl-interfaces.md` § "Interface-value dispatch and value receivers" for how iv vtable slots adapt the iv data-pointer ABI to value-receiver methods via per-(T, I) thunks.
 
 **`_` receiver name** is allowed, with the same semantics as `_` parameter names — an explicit indicator that the receiver isn't used in the method body. The type checker treats it like any other unused-name; nothing method-specific.
 
@@ -1322,35 +1383,68 @@ pass to consuming function, swap fields.
 See `explorations/claude-discussion-detailed-notes.md` section 32 for
 detailed design discussion.
 
-### Build-time configuration system — PROPOSED
+### Build-time configuration system — PROPOSED (revised 2026-06-02)
 
-**Compile-time, per-package configuration via `const` annotations and a CLI override.** Analogous to C/C++'s `-DFOO`, `-DFOO=123`, `-DFOO="str"` but with real types and package scoping.
+**Compile-time, per-package configuration via `#[config]`-annotated variables and a CLI override.**  Per-package scoped, fully typed.
 
-**Motivation.** The most concrete use is dead-coded debug/trace blocks: `if DEBUG { ... }` that the compiler folds away when `DEBUG` is false. But the same mechanism serves any per-build knob — default log level, feature toggles, target flag guards, version strings, etc. — without reaching for preprocessor-style conditional compilation.
+(Originally framed around `#[config] const`; retargeted to `var`
+once the const / var / readonly-modifier split landed.  Consts
+under the new model have no storage and no symbol, so they can't
+be flag-overridden through a link-time mechanism; vars do have
+storage and are the natural target.  The single-source-of-truth
+property is cleaner this way too: a var's value is determined
+entirely by the flags the *declaring* package was compiled with,
+removing the cross-package-flag-inconsistency concern.)
+
+**Motivation.**  The most concrete use is dead-coded debug/trace
+blocks: `if DEBUG { ... }` that the optimizer folds away when
+`DEBUG` is false.  The same mechanism serves any per-build knob —
+default log level, feature toggles, target flag guards, version
+strings, etc.
 
 **Design sketch.**
 
-A configurable value is an ordinary `const` declaration with a `#[config]` annotation. The declaration fixes the name, the type, and the default value; its placement fixes the visibility (`.bni` = exported, `.bn` = package-private) exactly like any other `const`.
+A configurable value is a `#[config]`-annotated `var` declaration.
+The declaration fixes the name, the type, and the default initial
+value; its placement (between `.bni` and `.bn`) fixes visibility
+exactly like any other `var`.
+
+`readonly` is the usual modifier — configs are typically set at
+compile time and read everywhere, so `var readonly` is the common
+shape:
 
 ```binate
-// pkg/myapp/myapp.bn — private configs
+// pkg/myapp/myapp.bn — package-private config
 #[config]
-const DEBUG bool = false
+var DEBUG readonly bool = false
 
-// Applied to a `const ( ... )` group, every member of the group becomes a config.
+// Applied to a `var ( ... )` group, every member of the group becomes a config.
 #[config]
-const (
-    LOG_LEVEL  int              = 3
-    MAX_CONNS  int              = 128
-    BUILD_TAG  *[]const char    = "dev"
+var (
+    LOG_LEVEL  readonly int              = 3
+    MAX_CONNS  readonly int              = 128
+    BUILD_TAG  readonly *[]readonly char = "dev"
 )
 ```
 
+For an exported config, declaration sits in `.bni` (as the usual
+extern declaration — no initializer), with the matching definition
++ default in the `.bn`:
+
 ```binate
-// pkg/myapp.bni — exported config
+// pkg/myapp.bni — exported config (extern declaration)
 #[config]
-const VERSION *[]const char = "0.1.0"
+var VERSION readonly *[]readonly char
+
+// pkg/myapp/myapp.bn — matching storage + default
+#[config]
+var VERSION readonly *[]readonly char = "0.1.0"
 ```
+
+`#[config]` may also annotate `var` without `readonly`, allowing a
+mutable global whose initial value is flag-controllable but which
+the package may further mutate at runtime.  Linter notes that the
+combination is unusual.
 
 The CLI overrides a specific package's specific config value:
 
@@ -1359,34 +1453,84 @@ bnc -Dpkg/myapp:DEBUG=true -Dpkg/myapp:LOG_LEVEL=5 ...
 bnc -Dpkg/myapp:VERSION='"0.2.0-dev"' ...
 ```
 
-Syntax: `-D<package-path>:<name>=<value>`. Package path and name are both required — there is no unqualified form. Values are parsed against the declared type; type mismatches are compile errors.
+Syntax: `-D<package-path>:<name>=<value>`.  Package path and name
+are both required — no unqualified form.  Values are parsed against
+the declared type; type mismatches are compile errors.
 
 **Semantics.**
 
-- `#[config] const X T = default` is a compile-time constant of type `T`, exactly like `const X T = default`. The CLI-supplied value (if any) replaces the default *at compile time*; everything else follows.
-- Uses of the const fold in the usual way for *intra-package* references: `if DEBUG { ... }` in the package that declares `DEBUG` is a dead-code-eliminable `if`. No new syntax (no `if <DEBUG>`, no `#ifdef`) — the existing compile-time-constant-folding path carries it.
-- *Inter-package* references are different: see "Separate compilation" below. Short version: they go through a real global, not a folded constant, so a dependent package doesn't need to be recompiled when the producing package's `-D` changes.
-- Visibility follows `.bni`/`.bn` placement. Cross-package sharing is import-based: `pkg/b` reads `pkg/a`'s config via `a.DEBUG`. You don't redefine `DEBUG` per consumer.
-- `#[config]` attaches to a top-level `const` declaration or to a whole `const (...)` group. On a group, every member of the group becomes a configurable value, with its own independent CLI override key — convenient for packages with a cluster of related knobs. `iota`-driven members inside a `#[config]` group are allowed but each member is still individually overridable; overriding one does not shift the computed default of the next.
+- `#[config] var X T = default` declares an ordinary variable of
+  type `T` whose initial-data value is the CLI override if one was
+  supplied for this name in this package, otherwise the declared
+  default.  Everything else follows from how `var` already works:
+  storage in the declaring package's `.bn`, exported via `.bni`,
+  read at every use site.
+- The flags affecting `X`'s initial value are **the flags for the
+  package that declares `X`**.  A consumer compiling against
+  `pkg/a`'s `.bni` sees `a.X` as a symbol; the value at that
+  symbol is whatever `pkg/a`'s compilation step wrote into the
+  data section.  Consumer-side flags don't enter into it.
+- `#[config]` attaches to a top-level `var` declaration or a whole
+  `var (...)` group.  On a group, every member becomes a
+  configurable value, with its own independent CLI override key.
 
-**Types.** Whatever the language already allows for `const`: `bool`, integer types, character types, string constants (`*[]const char` / `[N]const char` / `@[]const char`). Values coming in from the CLI are parsed per the declared type, with the same fit-at-compile-time rules as literal assignment (`-Dpkg/a:X=256` where `X uint8` is a compile error).
+**Types.**  Any type a `var` can carry — scalars (int, bool, char,
+float), strings, slices, arrays, structs, pointers.  Values coming
+in from the CLI are parsed per the declared type; mismatches are
+compile errors (`-Dpkg/a:X=256` where `X uint8` is rejected).
 
-**Separate compilation, binary distribution, and dual-mode interop.** An exported `#[config]` const (one that appears in a `.bni`) is compiled into a real, named global in the producing package's object/binary. Dependent packages reference that global symbol — no constant-folding across the package boundary, no special per-dependent code path. This gives us for free:
+**Separate compilation, binary distribution, and dual-mode
+interop.**  Because `var` already has storage in the declaring
+package's compilation unit, the configuration story falls out
+naturally:
 
-- **Split compilation**: recompiling `pkg/a` with a new `-D` updates only `pkg/a`'s data section. Dependents (`pkg/b`, `pkg/c`, ...) don't need rebuilding — their references still resolve to the same symbol, which now holds the new value.
-- **Binary package distribution**: a consumer shipping `pkg/a` as a compiled artifact + `.bni` already carries the current config values in the data section. No separate config blob, no side-channel metadata.
-- **Dual-mode interop**: the interpreter, when loading a compiled package, reads the config from the same data-section global that compiled code reads. When a package is interpreted (no compiled artifact), the interpreter resolves the value from its own `-D` flags (or the declaration's default) at package-load time. Either way there is one authoritative value per (package, name), and both modes agree.
+- **Split compilation**: recompiling `pkg/a` with a new `-D` updates
+  only `pkg/a`'s data section.  Dependents (`pkg/b`, `pkg/c`, ...)
+  don't rebuild — their references still resolve to the same
+  exported symbol, which now holds the new value.
+- **Binary package distribution**: a consumer shipping `pkg/a` as
+  a compiled artifact + `.bni` carries the current config values
+  in the data section.  No separate config blob, no side-channel
+  metadata.
+- **Dual-mode interop**: the interpreter, when loading a compiled
+  package, reads from the same data-section global that compiled
+  code reads.  When a package is interpreted (no compiled
+  artifact), the interpreter resolves the value from `-D` flags
+  (or the declaration's default) at package-load time.  Either
+  way there is one authoritative value per (package, name).
 
-Private (`.bn`-only) `#[config]` consts don't need a global — they're never referenced from outside the package, so the compiler is free to fold them as with any ordinary private `const`. The distinction mirrors the existing `.bni`/`.bn` visibility split: exports become externally-observable symbols, non-exports are implementation detail.
+**Dead-code-eliminating `if DEBUG { ... }`.**  Within the declaring
+package, the LLVM optimizer can const-propagate from a
+`readonly`-typed global with a static initializer into a single
+folded value — IPSCCP / GlobalOpt handle this for `readonly`
+globals that aren't escaped via `&`.  So `if DEBUG { ... }`
+written in the same package as `var DEBUG readonly bool = false`
+will reliably get DCE'd at `-O2`, but it's an optimization-pass
+property, not a language-level guarantee.
 
-Inside the producing package, the compiler *may* also fold references that are in the same module as the definition (since the value is known and can't change out from under the module being compiled). Whether to do so is a pure optimization; the observable semantics are "one value per (package, name), shared by all references including cross-package and cross-mode."
+Cross-package, the same DCE wants link-time optimization (LTO) to
+see all packages' resolved globals together.  Without LTO,
+`pkg/b`'s `if a.DEBUG { ... }` is a runtime branch on a load from
+a foreign symbol.  Both flow naturally from the var-has-storage
+model; the per-build flag value is real data in the producing
+package's object file, and any optimizer that sees that data can
+fold through it.
 
 **Open questions.**
 
-- Strict vs. lax on unknown `-D` keys. Typo-protection suggests strict (unknown package or unknown name = error). But "set DEBUG globally for a subset of packages that care" is awkward without a wildcard. Maybe `-Dpkg/a:DEBUG=true` is strict, and a future `-D*:DEBUG=true` (if we ever want it) is a separate opt-in.
-- Reproducible builds. The set of `-D` values effectively changes the output; it should probably be part of a build's recorded fingerprint.
-- `.bni` authoritativeness. For normal `const`, if it appears in the `.bni` the `.bni` is the authoritative spelling. For `#[config]`, does the `.bni` carry the `#[config]` annotation (visible to consumers) or only the const declaration? The former is clearer documentation; the latter keeps `.bni` purely type-level.
-- Interaction with the hard-folding `if`/`switch` cases, and cross-package optimization more generally. If `pkg/b` wants to dead-code-eliminate a block guarded by `a.DEBUG`, it can't at compile time — `a.DEBUG` is a global load, not a local constant from `pkg/b`'s perspective. The same applies to any other cross-package optimization that would want to see a `#[config]` value as a constant (branch-specialization, loop unrolling by a `MAX_N`, etc.). Two not-mutually-exclusive ways to recover this: (a) link-time optimization — an LTO pass sees all packages' resolved globals and can fold/propagate across the boundary, doing the DCE/specialization post-link; (b) an opt-in "treat `a.DEBUG` as a constant in this build" directive at the consuming site, which sacrifices split-compilation for that pair in exchange for compile-time folding. LTO is the more general answer and probably the right long-term direction; per-consumer opt-in is the expedient answer if LTO is not on the roadmap yet.
+- Strict vs. lax on unknown `-D` keys.  Typo-protection suggests
+  strict (unknown package or unknown name = error).  But "set
+  DEBUG globally for a subset of packages that care" is awkward
+  without a wildcard.  Maybe `-Dpkg/a:DEBUG=true` is strict, and a
+  future `-D*:DEBUG=true` (if we ever want it) is a separate
+  opt-in.
+- Reproducible builds.  The set of `-D` values effectively changes
+  the output; should be part of a build's recorded fingerprint.
+- `.bni` authoritativeness for the `#[config]` annotation.  Does
+  the `.bni` carry the annotation (visible to consumers as
+  documentation that this var is build-configurable), or only the
+  `var` extern declaration?  The former is clearer documentation;
+  the latter keeps `.bni` purely type-level.
 
 ### `ispod(T)` builtin — PROPOSED
 
