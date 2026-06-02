@@ -144,23 +144,43 @@ Note: with both view length and backing length available, the Go-style "capacity
 
 **`append` — REMOVED**: `append` has been fully removed from the language (parser, type checker, IR gen, codegen, interpreter, all source code, tests, and conformance tests). Growable collections are a library concern: `buf.CharBuf` for strings, per-type append helpers that do O(n) copy for other types, and eventually a generic `Vec[T]` type. For known-size allocations, use `make_slice(T, n)` + indexed assignment. Note: with the 4-word managed-slice layout, a correct append is now technically feasible (capacity is computable), so this decision may be revisited.
 
-### Destructors and RefDec cleanup — IMPLEMENTED (2026-04-03)
+### Destructors and RefDec cleanup — IMPLEMENTED (2026-04-03; reshaped to handle dispatch 2026-05; dtor-slot miscompile fixed 2026-06-01)
 
 When a managed allocation's refcount hits zero, managed references inside it must be RefDec'd before the memory is freed. This is done via **destructors** — per-type generated functions passed to RefDec at each call site.
 
-**RefDec takes a destructor**: `RefDec(ptr *uint8, dtor *uint8)` where `dtor` is a function pointer (or nil). At each call site, the codegen knows the type being dec'd and passes the appropriate destructor. When refcount hits 0: call `dtor(ptr)` if non-nil, then `Free(ptr)`. The indirect call goes through a thin C stub (`c_call_dtor`) because the bootstrap subset doesn't support function pointer calls.
+**RefDec takes a dtor handle**: `RefDec(ptr *uint8, dtor *uint8)` where `dtor` is either nil or the address of a **per-dtor handle** (a static `%BnFuncValue` value — see "Function values" above). At each call site, the codegen knows the type being dec'd and passes the matching dtor handle. When refcount hits 0: `_call_dtor(dtor, ptr)` if non-nil, then `Free(ptr)`. `_call_dtor` is a compiler intrinsic — it lowers as `OP_CALL_HANDLE` (handle dispatch: `handle.vtable.call(handle.data, ptr)`), the same shape every other function-value invocation uses. There is no C stub.
+
+**Why handle, not raw fn pointer**: handles are the cross-mode dispatch currency (Phase 4 of `plan-uniform-native-fnptrs.md`). The same dtor handle works whether the call site is in native code or bytecode VM, because the handle's vtable.call shim adapts the calling convention. A raw fn pointer would force the VM to know how to invoke a native function — which it can't, without per-target lowering. Pre-2026-06-01 the closure-dtor and impl-vtable dtor slots stored raw fn pointers and the OP_CALL_HANDLE dispatch byte-pun-read the dtor function's own machine code as a `{vtable, data}` struct. arm32-baremetal hung; LP64/aa64/x64 happened to exit cleanly via a random jump after the dispatch went off into the weeds, so the bug was silent (captured `@T` / `@[]T` references leaked on every target). See `claude-todo-done.md` for the post-mortem.
+
+**Per-dtor triple**: every dtor function `<name>` ships with a `(shim, vt, handle)` triple emitted by `emitFuncValueVtables` (`pkg/binate/codegen/emit_funcvals.bn`):
+- `@__shim.<name>(i8* %data, i8* %ptr) { tail call void @<name>(i8* %ptr); ret void }` — the data-stripping wrapper that gives the dtor body the standard `void(i8*)` shape.
+- `@__vt.<name>` = `%BnVtable { i8* null, i8* &__shim.<name> }` — slot 0 (a dtor-for-the-dtor) is null since the dtor itself has no captures; slot 1 is the call shim.
+- `@__handle.<name>` = `%BnFuncValue { i8* &__vt.<name>, i8* null }` — the address passed as `dtor` to RefDec / ZeroRefDestroy.
+
+The triple's emission is driven from three places:
+- `emitManagedPtrRefDec` (`pkg/binate/ir/gen_util_refcount.bn`) emits `EmitFuncHandle(qualifiedDtorName)` for each `@T`-with-dtor cleanup → `OP_FUNC_HANDLE` instruction → triple emitted by the main `emitFuncValueVtables` walk.
+- `emitFuncValueVtables` pre-pass walks `m.Funcs` for `IsManagedFuncValue` closures whose struct needs destruction (covers `@func` capturing literals).
+- `emitFuncValueVtables` pre-pass walks `m.Impls` for non-empty `DtorFuncName` (covers `@Iface` cleanup via impl vtables).
+
+All three feed the same emission path; dedup is by mangled name.
+
+**Where the dtor handle is stored**:
+- For `@T` cleanup: `emitManagedPtrRefDec` resolves the handle by name and passes it directly.
+- For `@func` cleanup: the @func value's vtable slot 0 stores the closure dtor's handle address; `emitManagedFuncValueRefDec` extracts it via `OP_FUNC_VALUE_DTOR` (load vtable[0]) and passes it to `OP_REFDEC_DTOR`.
+- For `@Iface` cleanup: the impl vtable `@__ivt.<R>__<I>[0]` stores the receiver dtor's handle address; `emitManagedIfaceValueRefDec` extracts it via `OP_IFACE_DTOR` (load vtable[0]) and passes it to `OP_REFDEC_DTOR`.
 
 **Destructors are separate from free_fn**: The `free_fn` in the management header is for custom allocator support (different deallocation strategies). The destructor handles deinitialization (decrementing managed fields). Deinitialization ≠ deallocation.
 
 **Every type that `NeedsDestruction` gets a dtor** (generated at the IR level, backend-agnostic):
-- **Struct dtors** (`__dtor_<Name>`): walks fields, RefDec's `@T` fields with pointee dtor, calls managed-slice/array/struct dtors for inline fields.
+- **Struct dtors** (`__dtor_<Name>`): walks fields, RefDec's `@T` fields with pointee dtor handle, calls managed-slice/array/struct dtors for inline fields.
 - **Managed-slice dtors** (`__dtor_ms_<elemType>`): checks `Refcount(backing) == 1`; if last reference, iterates `backing_len` elements starting from `refptr` (backing start, NOT `data`) calling element cleanup, then RefDec's the backing. If not last reference, just RefDec's backing without touching elements. Generated even when elements don't need destruction (just RefDec backing).
 - **Array dtors** (`__dtor_arrN_<elemType>`): iterates N elements calling element cleanup. Per-size function (trampoline design for future interface vtables).
 - **Anonymous struct dtors** (`__dtor_anon_<type1>_<type2>_...`): named by field type sequence. Hash fallback (`__dtor_anon_h<hex>`) for names exceeding 128 characters.
+- **Closure-struct dtors** (`__dtor___closure___funclit_<n>` for capturing literals): generated alongside the closure struct in `gen_func_lit.bn`'s `registerClosureStructForCleanup`; walks the captured fields and RefDec's each managed capture.
 
-**All dtors use `linkonce_odr`** for linker deduplication across modules.
+**All dtors use `weak_odr`** for linker deduplication across modules. (Earlier `linkonce_odr` was switched to `weak_odr` so the symbol stays visible to the linker for cross-TU emission of the same triple.)
 
-**Destructor is statically known**: At every RefDec call site, the type is known, so the destructor is resolved at compile time. No runtime type info needed. `OP_FUNC_ADDR` IR opcode produces function address as `i8*`.
+**Destructor is statically known**: at every RefDec call site (for `@T` of a known struct type), the type is known, so the dtor handle is resolved at compile time. For `@func` / `@Iface`, the dtor handle is loaded from the value's vtable at runtime — the vtable is statically known per literal / per impl, so still no runtime type info.
 
 **Future optimization**: move/transfer ownership semantics to avoid refcount bumps (e.g., last use of a managed pointer skips the bump/decrement). Pure optimization, doesn't change semantics — deferred.
 
@@ -670,7 +690,7 @@ func (p *const Point) distance() float64 { ... }
 - Distinct types from any type: pointers (`type Handle @SomeStruct`), slices (`type Buffer *[]uint8`), etc.
 - Anonymous struct types: `struct{x int}` — structural equivalence (two occurrences of the same field sequence = same type). Equivalence requires both field **names** and **types** to match in order (following Go). `type Foo = struct{x int}` is an alias for the anonymous type.
 - Methods and `impl` require named types. Anonymous types cannot be receivers (Go's rule). Methods can only be defined on a named type that's declared in the same package as the method — you cannot add methods to types imported from other packages (also Go's rule).
-- **Anonymous struct destructors**: dtor naming is based on field TYPE sequence only (not names), since cleanup logic depends only on types. Short names: `__dtor_anon_int_mp_Node_ms_uint8`. If the name exceeds ~128 characters, a hash of the stringified type sequence is used instead: `__dtor_anon_h<hex>`. `linkonce_odr` for linker dedup across modules.
+- **Anonymous struct destructors**: dtor naming is based on field TYPE sequence only (not names), since cleanup logic depends only on types. Short names: `__dtor_anon_int_mp_Node_ms_uint8`. If the name exceeds ~128 characters, a hash of the stringified type sequence is used instead: `__dtor_anon_h<hex>`. `weak_odr` for linker dedup across modules.
 
 **Struct literals — DECIDED**:
 - Named fields: `Point{x: 1, y: 2}`

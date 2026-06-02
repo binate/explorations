@@ -12,6 +12,29 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### bni VM consumes host call stack per interpreted frame — `*-int*` unit-test modes overflow on deep recursion (e.g. type-checker, IR-gen)
+- **Symptom**: under every `builder-comp-int*` / `builder-comp-comp-int` unit-test mode, the bni VM segfaults mid-test (`EXC_BAD_ACCESS` on macOS, SIGSEGV on Linux) for any package whose tests drive deep interpreted recursion.  Test runner prints `=== RUN <Test>` then silently exits (the test process crashes; the runner reports the package FAILED).  Affected packages (sampled from CI run `26795575927`): `pkg/binate/types`, `pkg/binate/parser`, `pkg/binate/ir`, `pkg/binate/codegen`, `pkg/binate/lint`, `pkg/binate/native/common`, `pkg/binate/native/aarch64`, `pkg/binate/native/x64`, `pkg/binate/asm/{macho,parse,aarch64,elf}`, `pkg/binate/buf`, `pkg/binate/debug`, `pkg/binate/lexer`, `pkg/binate/vm`, `pkg/bignum`, `pkg/bootstrap`, `pkg/builtins/{lang,testing}`, `cmd/bnc`, `cmd/bnas`.  Native-compiled modes (`builder-comp`, `-comp-comp`, `-comp-comp-comp`, `_native_*`) all pass.
+- **Discovery**: 2026-06-01.  `pkg/binate/types/TestLoadPackageInterfaceTypeDecl` reproduced locally; lldb backtrace:
+  ```
+  EXC_BAD_ACCESS (code=2, address=0x16f603f30)
+    frame #0: bn_pkg__binate__vm__execOp64 + 16  (str x8, [sp])
+    frame #1: bn_pkg__binate__vm__execLoop + 1252
+    frame #2: bn_pkg__binate__vm__execFunc + 400
+    frame #3: bn_pkg__binate__vm__VM__CallFunc + 336
+    frame #4: bn_main__runTests + 7624
+  ```
+  Fault address sits below the macOS-arm64 8 MiB stack region (`0x16f800000`–`0x16fffffff`).  Function frame sizes from `otool -tv`:
+  - `execLoop`: 0x900 = **2304 B**
+  - `execFunc`: 0xf0 = **240 B**
+  - `execOp64`: 0x1a0 = **416 B**
+  - `VM.CallFunc`: ~336 B
+  Pure interpreted-call recursion (`execLoop → BC_CALL → pushFrame → continue`) is iterative and doesn't consume host frames.  The host-stack growth comes from `execExtern`'s callback path: `execLoop → execExtern → native callback → VM.CallFunc → execFunc → execLoop → …`.  Each round-trip through this cycle adds ~3 KB of host stack.  The type-checker recurses ~2000+ levels deep over generic-constraint expansion / AST walks; at ~3 KB/level the 8 MiB stack runs out.
+- **Why MAJOR (not CRITICAL)**: this is **pre-existing** — the `Unit tests` CI workflow has been failing for at least 982 runs (since 2026-05-18 visible in the run list).  Bytecode-VM CI lanes have never been green on the current type-checker surface.  Doesn't block native CI (`builder-comp`/`-comp-comp`/`-comp-comp-comp` are green); doesn't block conformance (single-test binaries don't recurse as deep as the type-checker suite).  Production codepath unaffected — compilation goes through native, not the VM.
+- **Verification**: `ulimit -s 32768` (4× default) makes the first ~3 type tests pass; `ulimit -s 65520` (8×, macOS hard cap) gets ~40 more before a deep generic-constraint test still crashes.  Linear with stack budget — confirms the diagnosis as recursion depth × per-frame cost, not a leak.
+- **Band-aid landed**: `ulimit -s` bump in the three bni-using runner scripts (`builder-comp-int.sh`, `builder-comp-int-int.sh`, `builder-comp-comp-int.sh`).  Tries `unlimited` first, falls back to large value.  Makes most tests pass on Linux (where `unlimited` is typically allowed for the process); partial relief on macOS (hard cap ~64 MiB).  See `plan-bni-heap-frames.md` for the proper fix.
+- **Proper fix**: refactor bni's eval so cross-VM calls don't consume host stack — either trampoline the extern dispatcher (return-and-resume via a heap-stored continuation) or eliminate native-callback-into-VM entirely by precomputing whatever the extern needs.  Substantial work; see [`plan-bni-heap-frames.md`](plan-bni-heap-frames.md).
+- **Tests covering it**: the existing test packages above are the regression markers.  A focused unit test asserting "1000-deep interpreted call succeeds under default stack" would catch any future cliff.
+
 ### bnc: in-package read of a string-typed top-level const generates malformed LLVM IR
 - **Symptom**: declaring `const X *[]const char = "literal"` at top level in a package, then reading `X` (whether via `len(X)`, `X[i]`, `X[a:b]`, or passing `X` to a function expecting `*[]const char`) from CODE INSIDE THE SAME PACKAGE produces LLVM IR like `%v4 = extractvalue i64 %v2, 1` — an extractvalue on a scalar i64 rather than on the expected `*[]const char` slice aggregate.  clang rejects with `error: extractvalue operand must be aggregate type`.  Reproduces with the const declared either in the `.bni` or in the `.bn`; only the in-package reader's emit shape matters.
 - **Cross-package access works**: reading the same const from another package (`other.X`) emits correctly as `%BnManagedSlice` extractvalue.  So the bug is specific to *same-package* access through the const's package-internal symbol path.
