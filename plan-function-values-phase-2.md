@@ -1,6 +1,7 @@
 # Plan: Function Values — Phase 2 (Closures + Method Values)
 
-> **Status: LANDED (2026-05-31)** — B.1..B.6 all implemented.
+> **Status: LANDED (2026-05-31; cleanup miscompile fixed 2026-06-01)**
+> — B.1..B.6 all implemented.
 > Predecessor: [plan-function-values.md](plan-function-values.md)
 > §"Phase 2 — Closures + method values (DEFERRABLE)" + §"Capture
 > design — open". This document closed the open design questions
@@ -9,9 +10,19 @@
 > through 2026-05-31.  See §"Implementation slices" for
 > per-slice landing pointers and known follow-ups.
 >
-> Single remaining xfail: capturing `@func` cleanup hangs on
-> `builder-comp_arm32_baremetal` (`conformance/515` xfail;
-> hypothesis-recorded in `claude-todo.md`).
+> Post-B.6 follow-up (2026-06-01): the @func vtable's slot-0 dtor
+> pointer was a raw fn pointer, which made
+> `rt.ZeroRefDestroy`'s `_call_dtor` (lowered as OP_CALL_HANDLE)
+> byte-pun-read the dtor function's machine code as a `{vtable,
+> data}` struct.  arm32-baremetal hung; LP64/aa64/x64 exited
+> cleanly via a random jump but the closure-struct dtor never ran
+> (captured `@T` / `@[]T` references leaked on every target).
+> Fixed by emitting a per-dtor `(shim, vt, handle)` triple and
+> storing the HANDLE POINTER in vtable[0] (`67952cf1`).  Same
+> shape applied to `@__ivt[0]` for the iface side (`dc46ac7f`) —
+> a latent twin of the same bug, masked in conformance/370 by
+> caller-side RefInc but exposed by the new
+> `conformance/520_iface_dtor_callee_sole_ref`.
 
 ## Why this plan exists separately
 
@@ -369,9 +380,9 @@ single structural compare (binate `12bbb548`).
 
 Tests:
 - conformance/509_capture_managed, 513_managed_func_value_
-  noncapture, 515_managed_func_value_capture (xfail on
-  builder-comp_arm32_baremetal pending cleanup-hang
-  investigation).
+  noncapture, 515_managed_func_value_capture (the arm32-baremetal
+  xfail on 515 was lifted 2026-06-01 once the slot-0 raw-fn-ptr
+  miscompile was fixed; see post-B.6 follow-up at the top).
 - conformance/510_capture_managed_slice, 517_capture_split_
   aggregate, 518_capture_small_aggregate (native shim coverage).
 - Unit tests in `pkg/binate/types/types_query_test.bn`
@@ -428,8 +439,11 @@ the nested-literal walker.
 
 This commit.  Plan doc + cross-references updated; per-slice
 landing pointers recorded above.  Open follow-ups left in
-`claude-todo.md` (arm32 @func cleanup hang; >5-incoming-user-
-arg shim spill on both native backends).
+`claude-todo.md` (>5-incoming-user-arg shim spill on both native
+backends).  The arm32 @func cleanup hang was tracked here as a
+follow-up at landing time and root-caused + fixed 2026-06-01
+(binate `67952cf1` + `dc46ac7f`); see the status block at the
+top of this doc.
 
 ## Cross-references
 

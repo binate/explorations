@@ -6,6 +6,66 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~@func / @Iface scope-end cleanup: `_call_dtor(raw_fn_ptr, ptr)` lowered as HANDLE dispatch (silent miscompile on every target)~~ — FIXED 2026-06-01 (binate `67952cf1` + `dc46ac7f`)
+- **Was**: `emitManagedFuncValueRefDec` / `emitManagedIfaceValueRefDec`
+  extracted slot 0 of the value's vtable as `dtor` and passed it to
+  `rt.ZeroRefDestroy`.  Inside ZeroRefDestroy, `_call_dtor(dtor,
+  ptr)` is lowered as `OP_CALL_HANDLE` — which expects `dtor` to be
+  a `*BnFuncValue` HANDLE POINTER, not a raw fn pointer.  Both the
+  `@func` vtable (`@__vt.<closure>` slot 0) and the iface impl
+  vtable (`@__ivt.<R>__<I>[0]`) were emitting a raw fn pointer
+  bitcast.  OP_CALL_HANDLE then byte-pun-read the dtor function's
+  own machine code as `{vtable, data}` and jumped through random
+  bytes.  LP64 / aa64 / x64 exit cleanly after the random jump;
+  arm32-baremetal loops.  Captured `@T` / `@[]T` references in
+  closure captures were never RefDec'd on any target — every
+  `@func` capturing literal leaked the captures.  The same defect
+  existed on the iface side but was masked in 370 by caller-side
+  RefInc keeping the holder's refcount > 1 inside consume.
+- **Discovery**: 2026-05-31, investigating the
+  `.xfail.builder-comp_arm32_baremetal` on
+  `conformance/515_managed_func_value_capture`.  Instrumented
+  ZeroRefDestroy with semihosting traces + LP64 println traces;
+  localised the hang to `_call_dtor`'s entry.  Dumped LLVM IR for
+  both targets — identical broken shape.  lldb on 370 + assembly
+  walk confirmed the iface side had the same bug but the broken
+  path was never reached in 370 due to caller-side RefInc.
+- **Fix**: mirror the `@T-with-managed-fields` cleanup path.  For
+  each closure literal whose struct needs destruction, emit the
+  standard function-value triple — `@__shim.<dtor>(i8* data,
+  i8* ptr) { tail call closure_dtor(ptr) }`, `@__vt.<dtor>` =
+  `{null, &shim}`, `@__handle.<dtor>` = `{&vt, null}`.  Change
+  `emitFuncValueVtableDtor` and `emitImplVtableDtorSlot` so slot 0
+  stores the HANDLE POINTER (`bitcast %BnFuncValue* @__handle.<dtor>
+  to i8*`).  `_call_dtor`'s OP_CALL_HANDLE dispatch then works:
+  `handle.vtable.call(null, ptr)` → shim strips data → invokes
+  closure / receiver dtor with ptr.  Cross-mode-clean — VM
+  trampolines dispatch the same handle through existing machinery.
+  For the iface side, `addImplDtorsToSeen` pre-pass routes each
+  impl's `DtorFuncName` through `emitFuncValueVtables`'s main
+  emission loop so the standard triple gets emitted (dedups
+  against existing OP_FUNC_HANDLE references, so a module that
+  BOTH does `@T` cleanup AND constructs an iface from `@T` doesn't
+  double-define `@__handle.<dtor>`).
+- **Tests covering it**:
+  - `conformance/515_managed_func_value_capture` — was xfail'd on
+    arm32-baremetal; xfail lifted in the fix (now passes).
+  - `conformance/520_iface_dtor_callee_sole_ref` (new) — drives an
+    iface arg to refcount 0 inside the callee (the path 370
+    misses).  Pre-fix this hangs on arm32-baremetal and silently
+    leaks on LP64 / aa64 / x64; post-fix it prints
+    `inner-rc-after: 1` correctly across all modes.
+  - `pkg/binate/codegen/emit_funcvals_dtor_test.bn` (5 tests) —
+    pins shim / vt / handle shapes, the @func vtable[0] post-fix
+    bitcast (with explicit regression guard against the raw fn
+    ptr shape), and the no-managed-captures negative case.
+  - `pkg/binate/codegen/emit_impls_test.bn`:
+    `TestEmitImplVtableDtorSlotForManagedReceiver` strengthened to
+    pin `@__ivt[0]` = handle bitcast + regression guard +
+    assertion that `@__handle.<dtor>` / `@__shim.<dtor>` are
+    defined in the same TU (catches the dangling-handle case for
+    modules that only have iface usage of the receiver type).
+
 ### ~~pkg/vm.TestExternRtMakeManagedSliceViaRegistry crashes mid-run on x64-darwin native~~ — FIXED 2026-05-31 (binate `5e4cc23d`)
 - **Was**: under `builder-comp_native_x64_darwin`, `pkg/vm`'s test binary printed `=== RUN   TestExternRtMakeManagedSliceViaRegistry` then died with SIGBUS (exit 138).  The test exercises end-to-end cross-mode aggregate-return dispatch: bytecode user code → execExtern → dispatchExternBinding → `rt._call_shim_aggregate` (lowers to OP_CALL_INDIRECT, void return) → shim function pointer.  Was masked behind `TestEvalFloatCmp64`'s explicit FAIL pre-fix; surfaced as the sole failure once binate `268a57cc` cleared float-compare.
 - **Discovery**: 2026-05-31, immediately after the float-compare fix.  Tracked via lldb: the crashing PC was 0x7f7980108068 (a zero-filled memory region) reached via `callq *%r11` — confirming R11 held garbage at CALL time.
