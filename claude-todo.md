@@ -109,22 +109,11 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   - Native backends (`pkg/binate/native/x64`, `pkg/binate/native/aarch64`) still emit assembly that calls `bn_pkg__libc__Memcpy` (rodata→stack/managed-slice paths).  These don't go through pkg/codegen so step 5 doesn't touch them; needs its own audit + fix.
   - Aggregate `OP_LOAD` still emits `load <T>, ptr <p>` for aggregate T.  In practice the LLVM ARM EABI backend doesn't lower aggregate-LOAD to memcpy the way it does aggregate-STORE, so the baremetal lane went green without addressing this.  But for full hygiene, OP_LOAD should also fieldwise-decompose (insertvalue chain to build the aggregate result) — defer until measured to matter.
 
-### conformance/512_opaque_handle_cross_pkg: pre-existing baremetal failure on local-escape UB
-- **Symptom**: `builder-comp_arm32_baremetal` conformance run, test `512_opaque_handle_cross_pkg`: expected output `42`, actual `1090518960` (or similar — looks like an address).  Other modes (`builder-comp`, gen2, etc.) pass; only baremetal fails.
-- **Discovery**: 2026-06-01, while verifying step 5 of `plan-codegen-c-free-copies.md`.  Verified pre-existing by re-running on the prior commit (62f4fb0c) — failure reproduces identically without step 5.  The test was already failing on baremetal but wasn't xfail-marked.
-- **Root cause**: the test deliberately exercises `return &local` for an opaque type — see `conformance/512_opaque_handle_cross_pkg/pkg/handle/handle.bn`:
-  ```binate
-  func New(v int) *Handle {
-      var h Handle
-      h.value = v
-      return &h   // <-- escape of local
-  }
-  ```
-  This is **UB** (the stack frame is destroyed at return).  On LP64 host-libc builds, the stack slot happens to retain the value long enough for `Get(handle)` to read it back before any other call overwrites it.  On arm32-baremetal, the semihosting `Write` / `Exit` calls (or the bump-allocator / debug paths between New and Get) clobber the stack region, so Get reads garbage.
-- **Two options**:
-  1. **Mark xfail on baremetal** (`conformance/512_opaque_handle_cross_pkg.xfail.builder-comp_arm32_baremetal`).  Accepts that the UB pattern doesn't survive on this lane.  Trivial.
-  2. **Make `&local` escape-aware**: if IR-gen sees the address of a local escaping the function, heap-allocate the local instead of stack-allocating.  Bigger change — needs an escape analysis pass — but eliminates the UB across all targets and matches what Go does.  Probably the right long-term fix.
-- **Status**: deferred pending a separate decision.  Not blocking step 6 of the C-free-copies plan or other in-flight work.
+### ~~conformance/512_opaque_handle_cross_pkg: baremetal failure on local-escape UB~~ — FIXED 2026-06-02 (binate `f152e6cc`)
+- **Symptom**: `builder-comp_arm32_baremetal` conformance run, test `512_opaque_handle_cross_pkg`: expected output `42`, actual `1090518960` (or similar — looks like an address).  Other modes (`builder-comp`, gen2, etc.) passed; only baremetal failed.
+- **Root cause**: the test exercised `return &local` for an opaque type — `var h Handle; ...; return &h`.  That is **UB** (the stack frame is destroyed at return).  On LP64 host-libc builds the stack slot happened to retain the value long enough for `Get(handle)` to read it back; on arm32-baremetal the semihosting `Write` / `Exit` calls (and the bump-allocator / debug paths between New and Get) clobber the stack region, so Get read garbage.  Pre-existing — verified by reproducing on the prior commit (62f4fb0c) without the C-free-copies step-5 change; the test was simply never xfail-marked.
+- **Fix**: rewrite the test so `New` heap-allocates via `make(Handle)` and returns the resulting `@Handle`.  This makes the lifetime well-defined on every target while still exercising the opaque-type-cross-package property the test is actually about (which is independent of stack-vs-heap).
+- **Why not the alternatives** (both explicitly rejected): (a) xfail on baremetal — a conformance test must not rely on UB even where it *happens* to work, so accepting the UB on the green lanes was wrong; (b) make `&local` escape-aware (auto-heap-allocate escaping locals, Go-style) — runs counter to Binate's core philosophy.  Binate is **transparent** about what is allocated and where; stack vs. heap is source-determined (`var` vs `make`), not an optimizer's decision.  Implicit escape-analysis heap-allocation is exactly what Binate is *not* (this is the opposite of Go, where stack-allocation is an invisible optimization).
 
 
 ### pkg/vm test binary crashes silently on arm32_linux after universal-sret commit
