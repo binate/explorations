@@ -186,8 +186,27 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   the canonical replacement.  bootstrap and libc only get
   what's TRULY platform-essential and inappropriate for any
   higher-level package.
-- **Status**: planning.  Replaces the canceled in-place
-  migration workstream.
+- **Progress**:
+  - **libc Memcpy / Memset — DONE 2026-06-02 (binate `87965b70`)**:
+    the libc-host rt's MemCopy / MemZero now do pure-Binate byte loops
+    (matching the baremetal rt, which already did) and Box copies via
+    MemCopy, so both primitives were removed from the whole surface —
+    `pkg/libc.bni`, `runtime/libc_stubs.c`, the cmd/bni + vm extern
+    registries, and the vestigial baremetal `bn_pkg__libc__*` aliases
+    in semihost.s.  No BUILDER bump (gen1 links BUILDER's runtime;
+    gen1's outputs emit no `bn_pkg__libc__*` and link checkout's
+    runtime).  Verified across compiled / VM / self-hosted / baremetal
+    lanes.  Perf footnote: the byte loops are slower than libc
+    memcpy/memset at -O0 (no idiom recognition) — accepted for now,
+    revisit with a word-at-a-time loop if it shows in profiles.  This
+    does NOT touch the C-ABI memcpy/memset LLVM emits for aggregate
+    copies (llvm.memcpy intrinsics), which are independent of pkg/libc.
+- **Remaining libc surface**: Malloc / Calloc / Free (now the only
+  callers; need a real Binate allocator to retire) and Exit (needs a
+  process-exit syscall, gated on the C-free syscall story).
+  `pkg/bootstrap` — the larger I/O surface — is the next target.
+- **Status**: in progress.  Replaces the canceled in-place migration
+  workstream.
 
 ### Package descriptors (Phase B) — VM-mode `_Package()` not yet wired — IN PROGRESS
 - **Status**: IN PROGRESS — worktree `temp-binate-6` / branch `work-6`.
