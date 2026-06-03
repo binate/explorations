@@ -143,6 +143,14 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### Bytecode VM: an `@Iface` (interface-value) call result passed directly as a function arg dispatches as "call through nil interface value"
+- **Symptom**: `consume(makeFoo(i))` where `makeFoo` returns `@Foo` (a managed interface value) and `consume(t @Foo)` calls `t.foo()` → in `-int` (bytecode VM) the VM panics `vm: call through nil interface value`, even though the value is a present, non-nil `@Foo`.  Compiled (LLVM) and native backends run it correctly.
+- **Bisected trigger** (all in `-int`): `var f @Foo = makeFoo(i); f.foo()` (bind the call result, then dispatch) PASSES; `consume(makeFoo(i))` (pass the call result DIRECTLY as an arg) FAILS.  An inline `var f @Foo = h; f.foo()` PASSES; a `@Holder`-managed-pointer boxed at the arg (`consume(makePtr(i))`) PASSES.  So the trigger is narrow and structural: **a 2-word interface-value *call result* passed directly into another call's arg slot** — the VM materializes its vtable word from the wrong stack location.  Independent of any managed field in the receiver (reproduces with a plain `int`-field Holder).
+- **Why it matters**: this is exactly the `handle(errors.New(...))` / `log(wrap(err))` shape, so it will block `pkg/std/errors` (plan-std-errors.md) usage in `-int`.
+- **Pre-existing / not a codegen regression**: the codegen emits correct IR (works in LLVM + native); the bytecode VM (`pkg/vm`) mislowers the aggregate-call-result-as-arg.  No *existing* `-int` test regressed when the `@Iface` refcount fix landed (only the pre-existing 520 fails); the pattern was simply untested for managed interface values (360_iface_call_arg uses a raw `*Greeter`).  Likely the same root cause as **520_iface_dtor_callee_sole_ref** (also `-int`, same panic; 520 has no xfail and is a standing `-int` red).
+- **Tests**: covered (as an xfail) by conformance 547_iface_refcount_balance (xfail.builder-comp-int / .builder-comp-comp-int / .builder-comp-int-int).  A focused minimal VM test (`consume(makeFoo(i))`) should be added.
+- **Status**: discovered 2026-06-03 verifying the `@Iface` refcount fix; needs a `pkg/vm` fix (aggregate / interface-value call result passed as a call argument).  Likely also un-blocks 520.
+
 ### Bytecode VM loads large-exponent float64 constants imprecisely (silent wrong value)
 - **Symptom**: a float64 literal with a large exponent — e.g. `1e100` — has
   the correct nearest-double bit pattern 6103021453049119613 (per Go's
