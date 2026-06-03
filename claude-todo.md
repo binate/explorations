@@ -179,6 +179,29 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   than this conversion in place — the libc-runtime / BUILDER-
   skew tangle around in-place renames is more expensive than
   the architectural payoff.
+- **Lesson (do NOT re-attempt this shape)**: in-place renames
+  of packages whose surface is declared-only and resolved by
+  C symbols (`pkg/libc`, and the I/O side of `pkg/bootstrap`)
+  hit a wall that pure-Binate-package renames (pkg/rt →
+  pkg/builtins/rt) do not.  The wall: at Stage 1, gen1 is
+  linked against BUILDER's bundled `libc_stubs.c` (auto-found
+  next to `--runtime`), which only defines symbols under the
+  OLD mangled name (e.g. `bn_pkg__libc__Memset`).  Checkout
+  source — now compiling under the NEW package name —
+  emits calls to `bn_pkg__builtins__libc__Memset`, which is
+  UNRESOLVED at Stage 1's link.  Pure-Binate packages don't
+  hit this because the bnc-compiled Binate package provides
+  the NEW-name symbols as definitions in its own `.o`;
+  declare-only-via-C packages have no such Binate-side
+  definition.  Compat aliases in checkout's `libc_stubs.c`
+  don't help — BUILDER's runtime is what Stage 1 links against,
+  not checkout's.  Resolving requires either (a) changing
+  Stage 1's `--runtime` to use checkout's (build-script
+  surgery), (b) shipping a supplemental compat .o via
+  `--link-after-objs` (build-script surgery + new artifact),
+  or (c) accepting two release cycles with a transitional
+  bridge.  None are worth it for the bootstrap migration's
+  payoff; the migrate-OUT plan side-steps the whole tangle.
 - Replaced by: see "Slim pkg/bootstrap and pkg/libc by migrating
   callers OUT" below.
 
