@@ -320,6 +320,29 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   global.  Then re-export `version.Version` if a consumer appears.
 - **Discovery**: 2026-06-02, plan-const-readonly step 8.
 
+### `pkg/binate/version` top-level `var` reads as `len 1` under the bytecode VM
+- **Symptom**: `pkg/binate/version` unit tests fail in the `-int` modes
+  (`builder-comp-int` / `-comp-comp-int` / `-comp-int-int`) with
+  `runtime error: index out of bounds: 4 (len 1)` — the package-private
+  top-level `var version *[]readonly char = "bnc-..."` reads as length 1
+  under the VM.  Passes in all compiled modes.  Main is currently RED in
+  the `-int` unit lane because of this (no xfail yet).
+- **Trigger**: `c2bfac22` (plan-const-readonly step 8) migrated
+  `version` from a `const` to a package-private `var`.  A top-level
+  `var` of (readonly) string-slice type, initialized from a string
+  literal, is mis-initialized or mis-read by the VM's package-init /
+  global-read path — distinct from the non-int-const mis-emit (consts)
+  and the `.bni` extern-var gap (cross-package) above.
+- **Root cause**: unknown — needs investigation in the VM's top-level
+  `var __init` lowering / global-slice read for a string-literal-
+  initialized managed/readonly-slice var.
+- **Next**: root-cause + fix; the existing version tests already catch
+  it (compiled).  Until then an `.xfail.<mode>` for `pkg-binate-version`
+  in the `-int` modes would un-red the lane.
+- **Discovery**: 2026-06-03, during drop-libc verification — a baseline
+  run confirmed it fails identically on clean main (not introduced by
+  that work).
+
 ### Dispatch conflicts (extern registered + Binate body provided) should be a HARD ERROR
 - **What**: today the VM dispatches a `BC_CALL` by name: `LookupFunc`
   → if `>=0`, run the bytecode body; if `-1`, fall through to
