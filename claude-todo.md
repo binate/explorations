@@ -194,8 +194,10 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Discovery**: 2026-06-03, while fixing the parallel `@Iface` omission in `NeedsDestruction` (now added).  `@func` has the identical gap; left untouched as out-of-scope.
 - **Status**: tracked, not yet fixed.  Same one-line shape as the iface fix (add `if t.Kind == TYP_MANAGED_FUNC_VALUE { return true }`), but needs its own verification that `@func`-in-struct copy/dtor are correct.
 
-### bnlint typechecks dependency BODIES, not just signatures — IN PROGRESS
-- **Status**: IN PROGRESS — worktree `temp-binate-6` / branch `work-6`.
+### bnlint typechecks dependency BODIES, not just signatures — FIX LANDED 2026-06-03 (binate `3fcfdf8c`); deployment pending next BUILDER bump
+- **Status**: source fix LANDED (binate `3fcfdf8c`, + composition test
+  `a079621d`).  Takes effect in hygiene only after BUILDER_VERSION is bumped
+  to a snapshot containing it — the bundled bnlint is what hygiene runs.
 - **Symptom**: linting package A that imports package B re-typechecks B's
   function *bodies*, not just its exported signatures.  A body-level type
   error in B then surfaces when linting A — false coupling.  Concrete
@@ -212,22 +214,24 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   over-reach.  Dependents only ever consume a dep's exported surface, which
   `collectDecls` + `registerPackage` provide; body-checking a dep adds
   nothing for the dependent.
-- **Fix**: add a decls-only checker entry point (Pass 1 + `registerPackage`,
-  skipping 1.5/2) in `pkg/binate/types/checker.bn`, and have `lintPackages`
-  call it for non-target deps, full `CheckPackage` for targets.  Bounded:
-  decls-only is a strict subset of work already done.  Shrinks the present
-  skip from {vm, repl, bni} to {vm}, removes redundant re-checking, and stops
-  valid package A from failing lint because an unrelated dep B uses newer
-  syntax.
+- **Fix (landed)**: `pkg/binate/types/checker.bn` gained `CheckPackageDecls`
+  — Pass 1 (`collectDecls`) + `registerPackage`, skipping Pass 1.5/2 —
+  sharing `checkPackageImpl(checkBodies)` with `CheckPackage`.
+  `cmd/bnlint/main.bn` body-checks (`CheckPackage`) only the lint targets and
+  registers transitive deps decls-only (`CheckPackageDecls`), routed by
+  `isLintTarget`.  Removes redundant re-checking and stops a dep's body
+  errors from leaking into importers.  Once deployed, shrinks the present
+  skip from {vm, repl, bni} to {vm}.
 - **Severity**: major for the *linter's* robustness (false failures + wasted
   work); linter-only, no effect on generated code.
-- **Release note**: the bundled bnlint is what hygiene runs, so this fix only
-  takes effect after a BUILDER_VERSION bump — same release that ships the
-  `_Package` typecheck support (below).  Decision (2026-06-03): fix it now so
-  it rides that release.
-- **Tests**: unit test in `cmd/bnlint` — lint a target that imports a dep
-  whose body would not typecheck under decls-only rules (or simply assert the
-  dep's body diagnostics don't surface when it's a non-target import).
+- **Deployment**: takes effect after a BUILDER_VERSION bump — same release
+  that ships the `_Package` typecheck support (Phase B entry above).
+- **Tests (landed)**: `pkg/binate/types/checker_test.bn` —
+  `TestCheckPackageDeclsSkipsBodies` (decls-only reports no body error; full
+  check does), `TestCheckPackageDeclsRegistersScope` (exported surface still
+  registered), `TestCheckPackageDeclsDependentResolves` (a dependent resolves
+  a decls-only dep AND its body error doesn't leak).  `cmd/bnlint/main_test.bn`
+  — `TestIsLintTarget`.
 
 ### Remove the `pkg/binate/vm` lint skip after the next release
 - **What**: `scripts/hygiene/lint.sh` temporarily skips `pkg/binate/vm`,
@@ -240,7 +244,8 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `BUILDER_VERSION` is bumped to a snapshot that includes BOTH (a) the
   `_Package` selector + `_func_handle(pkg._Package)` typecheck support
   (binate `feadde2c` and predecessors), and (b) the bnlint dep-body fix
-  (entry above).  With (a), `vm` lints; with (b), the repl/bni cascade is
+  (entry above — landed in source as binate `3fcfdf8c`, awaiting only the
+  BUILDER bump).  With (a), `vm` lints; with (b), the repl/bni cascade is
   gone.  A from-source bnlint already lints all three cleanly today.
 - **Marker**: the skip block carries a `TODO(remove after next release)`
   pointing here.
