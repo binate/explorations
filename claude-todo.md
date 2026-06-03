@@ -113,6 +113,32 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### Drop `pkg/libc` via `__c_call` in `rt` — IN PROGRESS
+- **Plan**: [`plan-rt-ccall-drop-libc.md`](plan-rt-ccall-drop-libc.md).
+  Delete `pkg/libc` (now just Malloc/Calloc/Free/Exit) by having the
+  libc-host `rt` call libc directly with `__c_call("malloc"/...)`,
+  removing the `bn_pkg__libc__*` shim layer + `runtime/libc_stubs.c`.
+- **BUILDER**: verified `bnc-0.0.6` accepts non-variadic `__c_call`, so
+  no BUILDER bump (this is a runtime impl change, not a package rename
+  — no symbol skew). Direct cherry-pick.
+- **Core challenge**: `__c_call` is compiled-only (the VM hard-aborts at
+  lower on `OP_C_CALL`), and `rt` is lowered in every VM-leg run. Two
+  approaches in the plan: (A) make `rt` native-only in the VM (loses
+  `rt`'s `-int` unit tests, special-cases `rt`); (B) add a `BC_C_CALL`
+  VM opcode (keeps `rt` interpretable, unblocks user `__c_call` in the
+  VM). Plan recommends **B**; approach to be confirmed before
+  implementation.
+- **Follow-up gated on this**: see the `rt.Exit` paradigm entry below.
+
+### `rt.Exit` paradigm: `exit` vs `abort`/`panic` — DISCUSS
+- `rt.Exit` (→ libc `exit`) is the wrong model in general: process exit
+  is meaningless in an embedded/freestanding environment, and the
+  runtime mostly invokes it for *abort* conditions (OOM, bounds-fail,
+  refcount corruption). `abort`/`panic` is likely the right paradigm.
+- Surfaced 2026-06-03 alongside the `__c_call`/drop-libc work; that
+  change preserves `Exit`→`exit` behavior, so this is a clean,
+  independent follow-up. Needs a design discussion before any change.
+
 ### Type-checker can't slice a `readonly`-wrapped slice
 - **Symptom**: `var v readonly *[]readonly char = "..."; v[i:j]` fails
   type-checking with `cannot slice this type` (and the result reads as
