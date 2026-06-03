@@ -313,7 +313,36 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   statement form), so void C calls don't carry a misleading return type.
 - Surfaced 2026-06-03 by the drop-libc work.
 
-### Inject `pkg/bootstrap` into the VM + convert I/O to `__c_call` — PLANNED
+### Float function-values are silently miscompiled in the VM (`-int` modes) — IN PROGRESS
+- **Plan**: [`plan-float-arg-shim.md`](plan-float-arg-shim.md). Design A
+  (uniform all-`int` shim ABI) approved 2026-06-03.
+- **Symptom**: a function-value call with a `float64`/`float32` arg or
+  return produces the wrong value in any `-int` (bytecode VM) mode.
+  Compiled modes are correct. Currently masked: there is *zero* test
+  coverage for float func-values.
+- **Root cause**: VM dispatch routes through `rt._call_shim_scalar(fn,
+  data, a0..a6 int)` — an all-`int` `OP_CALL_INDIRECT`. The native
+  backend only places an arg in an FP register when the IR operand type
+  is float, so a float arg's bits land in a GP register while the natural-
+  typed shim reads `d0`/`xmm0`. Float returns break symmetrically
+  (aarch64 indirect has no float-return path).
+- **Fix (Design A)**: int-ify float **scalars** in shim signatures and
+  `bitcast` `i64↔double` / `i32↔float` at the shim boundary; the compiled
+  call site (`emitCallFuncValue`) bitcasts to match. VM/`rt`/native
+  unchanged; no-op for non-float signatures. Pure `pkg/binate/codegen`
+  change. Conventions: exact-width slots (f64→i64, f32→i32), aggregate
+  retbufs stay natural-typed, one shared `shimIntSlotType` predicate so
+  shim and call site can't disagree (the only silent-miscompile path).
+- **Why now**: prerequisite for the bootstrap injection below
+  (`bootstrap.formatFloat` is a native extern once bootstrap is native-
+  only) — without it, `conformance/287_float_println` regresses in `-int`.
+  Per Bug Discovery Protocol, the new func-value-float tests are the
+  tracked reproduction. Surfaced 2026-06-03 by the bootstrap work.
+
+### Inject `pkg/bootstrap` into the VM + convert I/O to `__c_call` — PLANNED (blocked on float-arg shim)
+- **Blocked on** the float-arg shim fix above: making bootstrap native-
+  only routes `bootstrap.formatFloat` through the VM extern path, which
+  miscompiles float args until Design A lands.
 - **Plan**: [`plan-bootstrap-ccall.md`](plan-bootstrap-ccall.md). The
   rt-drop-libc pattern applied to bootstrap: eliminate the hand-written
   `bn_pkg__bootstrap__*` I/O glue in `binate_runtime.c` by converting it
