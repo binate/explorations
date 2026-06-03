@@ -13,6 +13,11 @@ how the moving parts fit together so you don't have to reverse-engineer
   - `bnc-X.Y.Z-pre` — pre-release shape; `-pre` says "this tree is
     in-progress toward X.Y.Z and not yet a tagged release."  Default
     state between releases.
+  - **Kept in sync with `pkg/binate/version/version.bn`.**  That file's
+    `var version = "..."` holds the same identifier (it's what
+    `version.Format` reports for a tool's `--version`).  Every edit to
+    `VERSION` below (steps 2 and 6) must make the identical edit to
+    `version.bn`, or the `version-sync` hygiene check fails.
 - **`BUILDER_VERSION`** at repo root — names which prior-release
   binary `scripts/fetch-builder.sh` downloads to use as the BUILDER
   during local + CI builds.  Always a concrete `bnc-X.Y.Z` (no `-pre`).
@@ -69,7 +74,9 @@ committed and pushed.
 ### 2. Drop `-pre` from `VERSION`
 
 Edit `VERSION` from `bnc-X.Y.Z-pre` → `bnc-X.Y.Z`.  This is the
-commit that will be tagged.
+commit that will be tagged.  **Make the identical edit to
+`pkg/binate/version/version.bn`'s `var version = "..."`** (the
+`version-sync` hygiene check enforces they match).
 
 Commit shape:
 
@@ -166,7 +173,9 @@ the just-shipped release the new BUILDER everyone uses.
 
 Edit `VERSION` from `bnc-X.Y.Z` → `bnc-X.Y.(Z+1)-pre`.  This marks
 the tree as "post-X.Y.Z, in-progress toward X.Y.(Z+1)."  The `-pre`
-suffix is what flags a build as "not a tagged release."
+suffix is what flags a build as "not a tagged release."  **Make the
+identical edit to `pkg/binate/version/version.bn`** (version-sync
+hygiene check).
 
 Combine with the BUILDER_VERSION bump into one commit:
 
