@@ -1,8 +1,23 @@
 # Plan: `pkg/math/big.Nat` + `strconv.AppendFloat`/`FormatFloat` (Dragon4 dtoa)
 
-Status: PROPOSED (2026-06-02). Driver: extend `pkg/std/strconv` with float
-formatting. Prerequisite: a `pkg/math/big.Nat` arbitrary-precision unsigned
-integer (a standalone Tier-1 stdlib deliverable in its own right).
+Status: **COMPLETE** (landed 2026-06-03). All 7 implementation steps below are
+done: `pkg/math/big.Nat` (full unsigned bignum, Knuth-D division, ILP32-correct)
+and `strconv.AppendFloat`/`FormatFloat` in both shortest-round-trip (`prec < 0`)
+and fixed-precision (`prec >= 0`) modes, for `'f'`/`'e'`/`'E'`/`'g'`/`'G'`.
+Validated by a 208k-case differential against Go go1.26.3 (0 mismatches) plus
+adversarial multi-agent review (0 bugs); green on builder-comp / VM / gen2 and
+arm32. Cross-package conformance: `conformance/535_strconv_float_cross_pkg`.
+
+Explicit follow-ups still open (intentionally out of this work): signed `Int`
+wrapping `Nat` to replace `pkg/binate/bignum` (see "Noted for later"); `'b'`/`'x'`
+float formats (Q2); `println` rewiring off `bootstrap.formatFloat` (Q3). A
+separate VM defect surfaced during testing — large-exponent float64 *constants*
+load imprecisely on the bytecode VM — tracked in `claude-todo.md`
+(`conformance/536_float_lit_large_exp`).
+
+Original driver: extend `pkg/std/strconv` with float formatting. Prerequisite:
+a `pkg/math/big.Nat` arbitrary-precision unsigned integer (a standalone Tier-1
+stdlib deliverable in its own right).
 
 ## Decided constraints
 

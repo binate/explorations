@@ -6,6 +6,27 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~`pkg/math/big.Nat` + `strconv` float formatting (Dragon4 dtoa)~~ — DONE 2026-06-03
+- Plan: [`plan-strconv-float.md`](plan-strconv-float.md) (now marked COMPLETE).
+- **What landed**: `pkg/math/big.Nat` — a complete ILP32-correct
+  arbitrary-precision unsigned integer (Add/Sub/Mul/MulUint32/Shl/Shr/
+  DivMod via Knuth Algorithm D / DivModUint32 / Cmp / BitLen / …). On top
+  of it, `pkg/std/strconv.AppendFloat`/`FormatFloat`: a Dragon4 /
+  Burger-Dybvig dtoa over `Nat`, both shortest-round-trip (`prec < 0`) and
+  fixed precision (`prec >= 0`), for `'f'`/`'e'`/`'E'`/`'g'`/`'G'` (f32 and
+  f64). Refactored layout into a shared `renderDigits`.
+- **Verification**: a line-for-line Go transcription of the algorithm
+  matched `strconv.FormatFloat` (go1.26.3) across 208k cases (random
+  doubles + structured edges + prec to 120); two adversarial multi-agent
+  reviews found 0 bugs (only coverage gaps, all closed). Green on
+  builder-comp / VM / gen2 and arm32; cross-package
+  `conformance/535_strconv_float_cross_pkg`.
+- **Open follow-ups** (intentionally out of scope; see the plan): signed
+  `Int` wrapping `Nat` (to replace `pkg/binate/bignum`); `'b'`/`'x'` float
+  formats; `println` rewiring off `bootstrap.formatFloat`. The VM
+  large-exponent float-*constant* defect found during testing stays in
+  [claude-todo.md](claude-todo.md) (`conformance/536`).
+
 ### ~~Drop `pkg/libc` via `__c_call` in `rt`~~ — DONE 2026-06-03 (binate `e56e4d0c` + `aa017052`)
 - Plan: [`plan-rt-ccall-drop-libc.md`](plan-rt-ccall-drop-libc.md)
   (Approach A — native-only rt — chosen over the BC_C_CALL opcode; rt
