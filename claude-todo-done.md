@@ -6,6 +6,29 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~`len()` on a bare string literal mis-lowers the literal (silent wrong value on the VM)~~ — FIXED 2026-06-02 (binate `a842b691`)
+- **Was**: `len("true")` — a string literal used *directly* as the `len`
+  operand, with no slice-typed coercion target — did not produce 4.  A
+  bare literal lowers to `OP_CONST_STRING` (a `*readonly uint8` data
+  pointer), not a `{ptr,len}` slice, but the `len` IR handler fell through
+  to `EmitSliceLen`, whose field-1 extract was invalid IR on compiled
+  backends (`extractvalue i8* %v, 1`) and a silent garbage read on the VM.
+  Every other slice-consuming site promotes `OP_CONST_STRING` via
+  `EmitStringToChars`; `len` was the lone omission.
+- **Fix**: fold `len` of an `OP_CONST_STRING` to a compile-time
+  `EmitConstInt(len(StrVal))`, mirroring the existing `TYP_ARRAY ->
+  EmitConstInt(ArrayLen)` fast-path in the same handler
+  (`pkg/binate/ir/gen_expr.bn`).  The parallel `gen_call.bn` len-branch is
+  unreachable dead code — `len` is keyword-dispatched (`parse_primary.bn`
+  → `EXPR_BUILTIN`), never an `EXPR_CALL`, confirmed by a sabotage probe
+  (full conformance green with that branch returning a sentinel) — but was
+  kept in sync defensively.
+- **Test**: `conformance/533_len_string_literal` (passes all modes;
+  covers empty / single / multi-char, an escaped literal, and an
+  arithmetic context) + an IR unit test in `pkg/binate/ir/strings_test.bn`
+  asserting the fold to `OP_CONST_INT` rather than an extract over
+  `OP_CONST_STRING`.
+
 ### ~~Top-level `const ( ... )` group members in a `.bn` file not visible across files in the same package~~ — FIXED 2026-06-02 (binate `88c9c0b7`)
 - **Was**: `collectDecls` (the forward-reference collection pass in
   `pkg/binate/types/check_decl.bn`) only `defineConst`'d const-group

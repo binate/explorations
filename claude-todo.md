@@ -148,34 +148,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   BUILDER bnc has no hardcoded literal for `pkg/bignum`.  Direct
   cherry-pick to main; no BUILDER bump required.
 
-### `len()` on a bare string literal mis-lowers the literal (silent wrong value on the VM) — IN PROGRESS
-- **Status**: IN PROGRESS — worktree `temp-binate-5` / branch `temp-5`.
-- **Symptom**: `len("true")` — a string literal used *directly* as the
-  `len` operand, with no slice-typed coercion target — does not produce 4.
-  On compiled backends it fails to build with invalid IR
-  (`extractvalue i8* %v, 1`, i.e. extracting the length field of a value
-  lowered to a bare `i8*`); on the bytecode VM it **silently returns the
-  wrong value** (the regression test prints "bad", i.e. `len != 4`).
-- **Expected**: a string literal's default type is a slice
-  (`@[]readonly char`; see claude-notes "No string type": default type
-  `@[]readonly char` with `len()` = N), so `len("true")` must be 4.
-- **Root cause (suspected)**: when a string literal has no coercion
-  target (e.g. as a direct argument to `len`), it is lowered to a bare
-  data pointer (`i8*`) instead of a 2-word `{ptr,len}` slice aggregate;
-  `len`'s codegen then extracts field 1 (the length) of a non-aggregate.
-  Either the type checker isn't applying the slice default type in that
-  position, or codegen/VM-bytecode-gen materializes the default-typed
-  literal as a bare pointer.  Needs investigation in `pkg/binate/types`
-  (default typing of string literals in non-coercing positions) and/or
-  `pkg/binate/codegen` + the VM bytecode generator.
-- **Discovered**: writing `len("false")`/`len("true")` in `pkg/std/strconv`
-  `FormatBool` (worked around there by binding the literal to a
-  `var lit *[]readonly char` first, then `len(lit)`).
-- **Severity**: MAJOR — silent wrong value on the VM (loud on compiled
-  backends).  Narrow trigger and a trivial source-level avoidance, so not
-  blocking, but it is a silent miscompilation in one backend.
-- **Test**: `conformance/533_len_string_literal` (xfail on all modes).
-
 ### Package descriptors (Phase B) — VM-mode `_Package()` not yet wired — IN PROGRESS
 - **Status**: IN PROGRESS — worktree `temp-binate-6` / branch `work-6`.
   Compiled-mode landed; VM-mode is the open piece.
