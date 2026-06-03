@@ -1,22 +1,26 @@
 # Plan: Embeddable / Coroutine-ish REPL
 
-Status: **IN PROGRESS — Stages 1–3 + 4a/4b LANDED; Stage 4c underway**
-(as of 2026-06-02). Supersedes the open design question in
-`claude-todo.md` ("REPL refactor: embeddable component for non-CLI
-hosts"). The "which shape (a/b/c)" question is decided (see Ratified
-Decisions).
+Status: **Stages 1–4 DONE** (as of 2026-06-02); the embeddable engine
+lives in `pkg/binate/repl` and the CLI is just one host. Remaining: the
+Stage 5 interrupt seam (designed but not implemented). Supersedes the
+open design question in `claude-todo.md` ("REPL refactor: embeddable
+component for non-CLI hosts"). The "which shape (a/b/c)" question is
+decided (see Ratified Decisions).
 
 Landed on `main`: Stage 1 (`@ReplSession`, lift globals) `7045cf95`;
 Stage 2 (`NewReplSession` constructor, errors as values) `4b95b1d1`;
 Stage 3 (`ReplIO` framing sink) `7dcd1079`; Stage 4a (push-driven
 `Init`/`Step`) and Stage 4b (`registerExterns` callback).
 
-Stage 4c — extract the engine to `pkg/binate/repl` — is split into two
-commits so each stays green: **commit 1** (stand up `pkg/binate/repl`
-with the engine DUPLICATED — `repl.bni` + impl + full `_test.bn` set;
-cmd/bni untouched) is committed on the branch (`d331ace9`, pending
-cherry-pick); **commit 2** rewires cmd/bni to import `pkg/binate/repl`
-and deletes the cmd/bni copies. Work happens in worktree
+Stage 4c — extract the engine to `pkg/binate/repl` — landed as two
+green commits: **commit 1** stood up `pkg/binate/repl` (`repl.bni` +
+impl + full `_test.bn` set) `2286a371` (+ pure-helper coverage
+`bbabd987`); **commit 2** rewired cmd/bni onto it, deleting the cmd/bni
+engine copies (`af67550c`, pending cherry-pick at time of writing).
+`cmd/bni/irgen.bn` + `util.bn` stay (their import-registration /
+typecheck / path helpers are used by the non-REPL program runner); the
+small overlap with `pkg/binate/repl` is deliberate duplication tracked
+by the shared-helper audit TODO. Work happened in worktree
 `temp-binate-4` / branch `repl-embeddable`.
 
 Companion docs: [`plan-repl.md`](plan-repl.md) (the shipped 5-tier
