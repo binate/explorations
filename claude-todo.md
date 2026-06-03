@@ -6,57 +6,69 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
-### `@func` / `@Iface` copy-RefInc symmetry completeness (latent follow-up)
-- **What**: `@func` (and `@Iface`) values
-  are `TYP_MANAGED_FUNC_VALUE` / `TYP_INTERFACE_VALUE_MANAGED` with
-  `NeedsDestruction() == false` (`pkg/binate/types/types_query.bn:366`),
-  so the struct copy/dtor body generators (`genStructCopyWithName`,
-  `gen_dtor_emit_bodies.bn`) and `emitStructElemRefcount` skip them
-  entirely, and the assignment paths (`gen_short_var`, `gen_stmt`) have
-  `@T`/`@[]T` RefInc branches but no `@func`/`@Iface` branch.  Meanwhile
-  `@func`/`@Iface` LOCALS *are* RefDec'd at scope end
-  (`emitManagedFuncValueRefDec` / `emitManagedIfaceValueRefDec`).  The
-  non-capturing-`@func` crash (fixed in binate `d2029503` by RefInc'ing
-  the shared `ClosureRec` at construction) was one instance; a `@func`
-  LOCAL copied (`var x @func = w`) that outlives the original's RefDec is
-  a latent sibling, and the int-mode `520_iface_dtor_callee_sole_ref`
-  failure (below, MAJOR) is very likely the `@Iface` analogue.  Proper
-  fix: make `@func`/`@Iface` first-class in the copy-RefInc paths
-  (NeedsDestruction true + per-kind branches in the copy/dtor generators
-  and assignment paths) — OR adopt the static-managed sentinel for the
-  shared `ClosureRec` (see that entry).
-- **NO LONGER latent — concrete all-modes repro (2026-06-02):**
-  `conformance/534_func_value_param_to_field_capture` exercises the
-  "assignment path has no `@func` branch" sub-case directly: a CAPTURING
-  `@func` received as a PARAMETER and stored into a struct field
-  (`h.F = f`) is not RefInc'd, so the field holds a dangling ref to the
-  per-instance capture record; the parameter's end-of-call RefDec frees
-  it, and a later `h.F(...)` is a use-after-free (SIGSEGV compiled;
-  fails in **all 6 default modes** — it's an IR/shared-layer miss, not
-  backend-specific).  Minimal trigger: `func install(h @Holder, f @func(int) int) { h.F = f }`
-  then invoke `h.F`.  Direct local assignment (`h.F = localVar`) is fine;
-  a directly-stored NON-capturing `@func` param is immune COMPILED (shared
-  rec).  `534` is xfailed in all 6 modes pending the fix.
-- **Second manifestation — int mode, @func through a FORWARDING param.**
-  Even a NON-capturing `@func` corrupts under the bytecode VM when passed
-  through an extra parameter hop into a field: `f(p) { g(p) }` →
-  `g(q) { obj.Field = q }`.  The stored func value's data slot is
-  garbage; invoking it aborts with `vm: unsupported function-value data
-  kind: <garbage>`.  Discovered via `repl.SetPoll(p) { vm.SetPoll(p) }`
-  forwarding to `vm.SetPoll(q) { vm.Poll = q }` — a directly-stored
-  `vm.SetPoll(local)` is fine under int (so the second hop is the
-  trigger).  Same root cause (no `@func` branch in the param/copy/RefInc
-  paths); the VM's func-value RefInc/copy handling is also affected.
-- **Blocks the REPL interrupt seam (Stage 5 of `plan-repl-embeddable.md`).**
-  `vm.SetPoll(poll @func(@VM) int) { vm.Poll = poll }` is exactly the
-  param→field `@func` store, so (a) a host installing a CAPTURING poll
-  UAFs compiled, and (b) ANY poll installed via repl's forwarding
-  `s.SetPoll` corrupts under int.  The seam's VM/repl plumbing is written
-  and correct (and inert in v1); it cannot ship usable until this RefInc
-  lands.  Seam unit tests use non-capturing polls and exercise the VM
-  poll via DIRECT `vm.SetPoll` (immune); the int-mode-blocked repl Step
-  end-to-end seam tests were dropped (binate `7abad506`), to re-add with
-  the fix.  Capturing-compiled path covered by `534` (xfail).
+### `@func` copy-RefInc symmetry — FIXED 2026-06-03 (binate `d118a3c4` + `76099018`); `@Iface` analogue + VM-leak still open
+- **Was**: `@func` / `@Iface` values (`TYP_MANAGED_FUNC_VALUE` /
+  `TYP_INTERFACE_VALUE_MANAGED`) had `NeedsDestruction() == false`, so the
+  struct copy/dtor generators, `emitStructElemRefcount`, and the
+  assignment paths skipped them on COPY, while `@func`/`@Iface` LOCALS
+  *were* RefDec'd at scope end — an acquire/release asymmetry.  A
+  capturing `@func` stored into a struct field, passed as a parameter, or
+  returned dropped its only owning ref; the param/scope-end RefDec then
+  freed the capture record while a field/caller still pointed at it, and a
+  later invocation was a use-after-free.  Concrete all-modes repro:
+  `conformance/534_func_value_param_to_field_capture`
+  (`func install(h @Holder, f @func(int) int) { h.F = f }` then invoke
+  `h.F`) — SIGSEGV compiled.
+- **`@func` half FIXED** (binate `d118a3c4`, `76099018`):
+  1. `d118a3c4` — null-safe `emitManagedFuncValueRefDec`: guard the
+     closure-dtor fetch (vtable[0] load, `OP_FUNC_VALUE_DTOR`) + RefDec
+     behind `data != null`.  The flip below makes struct dtors run on the
+     zero-inited `@func` fields a managed struct's `make()` leaves behind
+     (`{vtable=null, data=null}`); the unguarded vtable[0] load faulted on
+     the null vtable.  Shared IR layer → fixes every backend + the VM.
+  2. `76099018` — flip `NeedsDestruction(@func) = true` + acquire (RefInc)
+     at every copy site: parameter entry, var-init / short-var
+     (isFresh-guarded), the three assignment paths, return,
+     `emitStructElemRefcount`, and slice/array element stores.
+  `534` now passes in **all 6 default modes** and is un-xfailed; `542`
+  adds a return-a-capturing-closure regression.  Unit test
+  `TestEmitFuncValueRefDecGuardsNullData` pins the guard shape.
+- **REMAINING — VM leaks the capture record on free.**  Under the bytecode
+  VM a capturing `@func`'s capture record is `DATA_KIND_COMPILED_CLOSURE`
+  (`rt.Alloc(32)` in `vm_exec_funcref.bn`); `BC_REFDEC_INLINE_FAST`'s dtor
+  dispatch (`vm_exec.bn` ~line 401) runs the iterative VM-side dtor only
+  for `DATA_KIND_VM_CLOSURE_REC`, so a COMPILED_CLOSURE at refcount 0
+  falls to `refDecCrossModeDispatch`, which does not run the closure dtor
+  → the captured managed values (and the record) leak.  Output is correct
+  in every mode (534/542 green), so no test fails — but it violates the
+  never-leak rule.  Fix: add a COMPILED_CLOSURE arm to
+  `BC_REFDEC_INLINE_FAST` that RefDec's the captured fields then frees
+  (COMPILED is already leak-clean: ZeroRefDestroy runs vtable[0]).
+- **REMAINING — `@Iface` analogue still BROKEN** (the symmetric half).
+  `emitManagedIfaceValueRefDec` has the same unguarded vtable[0] load (the
+  shared `emitVtableDtorLoad`) and there is no `@Iface` acquire arm on
+  copy.  `520_iface_dtor_callee_sole_ref` fails in all int modes ("call
+  through nil interface value"); `383_cross_pkg_iface_dtor` is in the same
+  family (and additionally hits the int-int multi-package loader bug
+  below).  Apply the same recipe to `@Iface`
+  (`TYP_INTERFACE_VALUE_MANAGED`): null-safe iface RefDec + flip + acquire
+  arms.  This is the separate "@Iface first-class" follow-up.
+- **Unblocks the REPL interrupt seam (Stage 5 of `plan-repl-embeddable.md`).**
+  `vm.SetPoll(poll @func(@VM) int) { vm.Poll = poll }` is the param→field
+  `@func` store; with the acquire arms a CAPTURING poll no longer UAFs.
+  Re-add the int-mode-blocked repl Step end-to-end seam tests dropped in
+  binate `7abad506` to confirm the forwarding-`@func` path (`s.SetPoll`
+  → `vm.SetPoll`) is clean under int.
+
+### `136_grouped_imports` / `383_cross_pkg_iface_dtor` — `package "pkg/builtins/rt" not found` under int-int (pre-existing loader bug)
+- **Symptom**: both fail ONLY in `builder-comp-int-int` with
+  `package "pkg/builtins/rt" not found` (a loader error, before execution);
+  green in all other modes.  Confirmed pre-existing on a clean tree
+  (2026-06-03) — independent of the `@func`/`@Iface` work.  Both are
+  multi-package tests (grouped imports / cross-package), so the deeply
+  nested interpreter's package resolver appears to mis-resolve a transitive
+  core import at int-int depth.  No xfail markers yet.  Root cause: unknown
+  — needs investigation of the int-int package search-path setup.
 
 ### Audit the home of generic low-level helpers shared by cmd/bni + the REPL engine (low priority / code-org)
 - **Context**: extracting the REPL engine to `pkg/binate/repl` (Stage 4c
