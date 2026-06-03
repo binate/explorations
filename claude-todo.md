@@ -33,17 +33,19 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `534` now passes in **all 6 default modes** and is un-xfailed; `542`
   adds a return-a-capturing-closure regression.  Unit test
   `TestEmitFuncValueRefDecGuardsNullData` pins the guard shape.
-- **REMAINING — VM leaks the capture record on free.**  Under the bytecode
-  VM a capturing `@func`'s capture record is `DATA_KIND_COMPILED_CLOSURE`
-  (`rt.Alloc(32)` in `vm_exec_funcref.bn`); `BC_REFDEC_INLINE_FAST`'s dtor
-  dispatch (`vm_exec.bn` ~line 401) runs the iterative VM-side dtor only
-  for `DATA_KIND_VM_CLOSURE_REC`, so a COMPILED_CLOSURE at refcount 0
-  falls to `refDecCrossModeDispatch`, which does not run the closure dtor
-  → the captured managed values (and the record) leak.  Output is correct
-  in every mode (534/542 green), so no test fails — but it violates the
-  never-leak rule.  Fix: add a COMPILED_CLOSURE arm to
-  `BC_REFDEC_INLINE_FAST` that RefDec's the captured fields then frees
-  (COMPILED is already leak-clean: ZeroRefDestroy runs vtable[0]).
+- **VM capture-record leak — FIXED 2026-06-03 (binate `77bae9ad`).**  Under
+  the bytecode VM a capturing `@func`'s data slot is a 32-byte
+  `DATA_KIND_COMPILED_CLOSURE` rec whose `rec[3]` points at the heap
+  closure struct; RefDec'ing the @func value decremented the *rec* and
+  (`vt.Dtor == 0`) just freed it, never the struct → the struct and its
+  captured managed values leaked.  Fix (`plan-vm-compiled-closure-dtor.md`):
+  `ensureHandle` marks an IsClosure callee's vtable dtor slot with a `-1`
+  sentinel; `BC_REFDEC_INLINE_FAST` recognizes it, frees the rec and
+  RefDec's the closure struct, running its dtor via an iterative frame push
+  (flat-stack, no host recursion at `-int-int` depth).  Dtor name plumbed
+  ir.Func → VMFunc, resolved by `LookupFunc`.  Conformance `548` pins it
+  (captured `@Counter` refcount returns to baseline).  @func is now
+  leak-clean on every backend + the VM.
 - **REMAINING — `@Iface` analogue still BROKEN** (the symmetric half).
   `emitManagedIfaceValueRefDec` has the same unguarded vtable[0] load (the
   shared `emitVtableDtorLoad`) and there is no `@Iface` acquire arm on

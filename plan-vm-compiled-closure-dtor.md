@@ -1,10 +1,17 @@
 # Plan: VM closure-record dtor (finish @func under the bytecode VM)
 
-Status: designed + validated 2026-06-03, ready to implement. The IR-level
-@func copy-RefInc fix is landed (binate `ec01460c` + `ee57e0e2`); 534/542
-(→546)/547 pass in all six default modes. This plan removes the one
-remaining defect: the bytecode VM **leaks** a capturing `@func`'s capture
-record and every managed value captured in it.
+Status: **DONE 2026-06-03 (binate `77bae9ad`).** Implemented exactly as
+designed below, except the sentinel is a `-1` const rather than a global's
+address (taking `&module-global` lowers to an undefined `%v-1` — a separate
+codegen limitation; `-1` is safe since no real dtor handle is ever `-1` or
+`0`). Conformance `548_func_value_capture_released` pins it (a captured
+`@Counter`'s refcount returns to baseline after the closure dies: `2`
+pre-fix = leaked, `1` now); green in all six default modes, no regressions.
+The IR-level @func copy-RefInc fix landed earlier (binate `ec01460c` +
+`ee57e0e2`). With this, @func is leak-clean on every backend + the VM.
+
+This plan removed the one remaining defect: the bytecode VM **leaked** a
+capturing `@func`'s capture record and every managed value captured in it.
 
 ## The leak (root-caused)
 
