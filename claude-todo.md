@@ -82,7 +82,8 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
-### `len()` on a bare string literal mis-lowers the literal (silent wrong value on the VM)
+### `len()` on a bare string literal mis-lowers the literal (silent wrong value on the VM) — IN PROGRESS
+- **Status**: IN PROGRESS — worktree `temp-binate-5` / branch `temp-5`.
 - **Symptom**: `len("true")` — a string literal used *directly* as the
   `len` operand, with no slice-typed coercion target — does not produce 4.
   On compiled backends it fails to build with invalid IR
