@@ -6,6 +6,40 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~`pkg/slices` → `pkg/stdx/slices` (tier-1x layout move)~~ — DONE 2026-06-02 (binate `a79b698a`)
+- **Moved**: `pkg/slices.bni` → `ifaces/stdlib/pkg/stdx/slices.bni`;
+  `pkg/slices/slices.bn` + `slices_test.bn` →
+  `impls/stdlib/common/pkg/stdx/slices/`, mirroring the existing
+  pkg/std/strconv split-tree placement.  `package "pkg/slices"` →
+  `"pkg/stdx/slices"` and every `import "pkg/slices"` →
+  `"pkg/stdx/slices"` (79 sites across cmd/bnc + pkg/binate/*); the
+  local qualifier stays `slices.` (trailing segment unchanged).
+- **No release dance**: slices is fully generic (monomorphized per call
+  site) so it emits no standalone symbols, and BUILDER carries no
+  compiled-in literal referencing pkg/slices.  Direct cherry-pick, no
+  BUILDER bump.
+- **Verified**: `scripts/unittest/run.sh builder-comp` → 37 passed,
+  0 failed; the `slices` filter resolves the moved package and its tests
+  pass; hygiene 12/12.
+
+### ~~`pkg/bignum` → `pkg/binate/bignum` (tier-2 layout move)~~ — DONE 2026-06-02 (binate `c94c893a`)
+- **Moved**: `pkg/bignum.bni` → `pkg/binate/bignum.bni`;
+  `pkg/bignum/{bignum,bignum_test}.bn` → `pkg/binate/bignum/`
+  (collocated under the `binate` org slot).  `package "pkg/bignum"` →
+  `"pkg/binate/bignum"` and every `import "pkg/bignum"` →
+  `"pkg/binate/bignum"` (pkg/binate/types); affected import groups
+  re-sorted to stay alphabetical.  Local qualifier stays `bignum.`.
+- **Scope note**: bignum's only consumer is cmd/bnc's type checker
+  (compile-time const arithmetic), so tier-2 under pkg/binate/ is honest
+  about scope.  If an external consumer ever wants general-purpose
+  bignum, promote to pkg/stdx/bignum then — don't pre-position.
+- **No release dance**: pure-Binate package; its own .o defines the
+  renamed `bn_pkg__binate__bignum__*` symbols and callers recompile.
+  BUILDER carries no literal for pkg/bignum.  Direct cherry-pick.
+- **Verified**: `scripts/unittest/run.sh builder-comp` → 37 passed,
+  0 failed (moved package discovered + green); `conformance/run.sh
+  builder-comp const_fold` → 6 passed, 0 failed; hygiene 12/12.
+
 ### ~~`len()` on a bare string literal mis-lowers the literal (silent wrong value on the VM)~~ — FIXED 2026-06-02 (binate `a842b691`)
 - **Was**: `len("true")` — a string literal used *directly* as the `len`
   operand, with no slice-typed coercion target — did not produce 4.  A
