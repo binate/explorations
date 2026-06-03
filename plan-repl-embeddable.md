@@ -1,11 +1,20 @@
 # Plan: Embeddable / Coroutine-ish REPL
 
-Status: **Stages 1–4 DONE** (as of 2026-06-02); the embeddable engine
-lives in `pkg/binate/repl` and the CLI is just one host. Remaining: the
-Stage 5 interrupt seam (designed but not implemented). Supersedes the
-open design question in `claude-todo.md` ("REPL refactor: embeddable
-component for non-CLI hosts"). The "which shape (a/b/c)" question is
-decided (see Ratified Decisions).
+Status: **Stages 1–5 DONE** (as of 2026-06-02); the embeddable engine
+lives in `pkg/binate/repl`, the CLI is just one host, and the interrupt
+seam's inert plumbing is in place. Remaining: Stage 6 (continuable
+suspend) and Stage 7 (break) — both FUTURE, plus a blocker (below).
+Supersedes the open design question in `claude-todo.md` ("REPL refactor:
+embeddable component for non-CLI hosts"). The "which shape (a/b/c)"
+question is decided (see Ratified Decisions).
+
+**Seam blocker (fix before Stage 6 is usable):** a host poll that
+CAPTURES its interrupt state, installed via `SetPoll`, hits the MAJOR
+`@func` param→struct-field RefInc use-after-free
+(`conformance/533_func_value_param_to_field_capture`; CRITICAL
+"@func/@Iface copy-RefInc symmetry" in `claude-todo.md`).  The seam
+plumbing is correct and inert; it cannot be *used* with capturing polls
+until that RefInc lands.  Seam unit tests use non-capturing polls.
 
 Landed on `main`: Stage 1 (`@ReplSession`, lift globals) `7045cf95`;
 Stage 2 (`NewReplSession` constructor, errors as values) `4b95b1d1`;
@@ -342,19 +351,31 @@ their tests into `pkg/binate/repl`; wire build-via-bnc. `readReplLine`
   tier-2-clean (the native externs must remain host-injected, not
   imported).
 
-### Stage 5 — interrupt seam (inert plumbing) — *seam-only per decision #5*
-Thread a `vm.Status` side-field + `StepStatus` through
-`execLoop → execFunc → CallFunc/CallByVMFunc → Step`, all returning
-`Continue` today. Add the `vm.Poll @func` field + a hook call site at
-`BC_SP_RESTORE` and `BC_JUMP`/`BC_BRANCH` back-edges, with **nil-poll =
-always-Continue (zero overhead)**. Add `vm.ResumePC`/`ResumeFuncIdx`/
-`ResumeRegsOff` side-fields and a `Resume()` that is a no-op in v1.
-No behavior change; everything stays green.
-- **Deliverable**: the forward-compatible seam — future suspend/break
-  need **no** second invasive return-contract refactor. Pure plumbing.
-- **Perf guard**: verify the nil-poll fast path doesn't regress the
-  conformance `int-int` runtime (the host-stack-leak comment at
-  `vm_exec.bn:24-36` shows this loop is performance-sensitive).
+### Stage 5 — interrupt seam (inert plumbing) — LANDED (binate `8dfb31c7`)
+Reserve the cooperative-interrupt seam so future suspend/break need no
+second invasive refactor.  Inert in v1: no behavior change.
+- **As built:** VM gains `Poll @func(@VM) int` + a `PollEnabled` bool
+  gate (the nil-poll fast path is `if vm.PollEnabled` — one not-taken
+  branch per poll point) + `Status` + `ResumePC`/`ResumeFuncIdx`/
+  `ResumeRegsOff` side-fields; `SetPoll` arms the gate, `Resume()` is a
+  no-op.  `execLoop` consults the poll only at `BC_SP_RESTORE` and
+  BACKWARD `BC_JUMP`/`BC_BRANCH` (loop back-edges), never per-instruction;
+  `vmPollPoint` RECORDS a requested Suspend/Break into `Status` + the
+  resume fields (recording only — unwinding is Stages 6/7).
+  `CallFunc`/`CallByVMFunc` reset `Status` per host call.  repl reserves
+  `STEP_SUSPENDED`/`STEP_BROKE`, forwards `SetPoll` to the VM, and maps a
+  recorded VM status onto `StepResult` in `Step` (inert in v1).
+- **Implementation note:** the gate is an explicit `PollEnabled` bool
+  rather than `vm.Poll != nil` — there is no precedent for comparing a
+  managed func value to nil, and a bool test is unambiguous + cheap.
+- **Deliverable (met):** the forward-compatible seam.  Verified: nil-poll
+  hot path does not regress int-mode conformance (456 pass / pre-existing
+  520); non-capturing-poll seam tests prove the hooks fire (SUSPEND flips
+  `Status`), CONTINUE is transparent, and the gate + inert default hold;
+  hygiene 12/12.
+- **Caveat (see top-of-doc blocker):** capturing host polls UAF on the
+  `@func` param→field RefInc bug (`conformance/533`); the seam is correct
+  and inert but unusable with capturing polls until that fix lands.
 
 ### Stage 6 — continuable suspend (FUTURE — the easier interrupt)
 Implement `POLL_SUSPEND` at the **outermost** `execLoop`: spill the
