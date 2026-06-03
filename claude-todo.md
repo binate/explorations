@@ -131,6 +131,15 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### Returning a managed `@Iface` from a function loses its data (silent UAF) — IN PROGRESS
+- **Symptom**: a function that returns a managed interface value — `func f() @Iface { var x @T = make(T); x.field = v; var iv @Iface = x; return iv }` — yields an `iv` whose data is freed/zeroed; a method call on it reads garbage (e.g. `f().method()` returns 0 instead of `v`).  The SAME construction *inline* in the caller (no function return) works.  Only the return-an-interface-value path is broken.
+- **Discovery**: 2026-06-03, building `plan-std-errors.md` Part 1 — `errors.New`/`Wrap` return `@Error` (a managed interface value).
+- **Pre-existing**: reproduces on a clean pre-`present` bnc.  **Untested**: NO conformance test returns a managed interface value — every `@…`-returning test returns managed *pointers* (`@Counter`/`@Item`/`@Scope`/`@Leaf`/…), not `@Iface`.  That coverage gap is why it was never caught.
+- **Root cause (hypothesis, needs confirmation)**: the boxed data's refcount isn't balanced across the function return.  The function's IR has a RefInc + RefDec on the data, but the source local's scope-exit RefDec frees the data despite the returned iface needing it — the box-into-iface + return-ownership-transfer accounting for interface values nets no retained +1 (or a double-dec).
+- **Why MAJOR**: silent use-after-free / miscompile for any function returning a managed interface value.  Blocks `plan-std-errors.md` Part 1 (`errors`).
+- **Tests**: add a conformance test returning an `@Iface` + calling a method (xfail until fixed), with an inline-vs-return contrast.
+- **Status**: IN PROGRESS — next after Part 0 (`present` builtin + empty-able interface values) lands.  See `plan-std-errors.md`.
+
 ### bnlint typechecks dependency BODIES, not just signatures — IN PROGRESS
 - **Status**: IN PROGRESS — worktree `temp-binate-6` / branch `work-6`.
 - **Symptom**: linting package A that imports package B re-typechecks B's
