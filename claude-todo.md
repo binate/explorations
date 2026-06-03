@@ -113,6 +113,45 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### Type-checker can't slice a `readonly`-wrapped slice
+- **Symptom**: `var v readonly *[]readonly char = "..."; v[i:j]` fails
+  type-checking with `cannot slice this type` (and the result reads as
+  `void`).  Slicing a `*[]readonly char` (element-readonly, no outer
+  modifier) works; only an OUTER `readonly` on the slice type breaks
+  it — `checkSliceExpr` doesn't see through `TYP_READONLY` to the
+  underlying slice.
+- **Why it matters**: blocks the plan-const-readonly design shape
+  `var X readonly *[]readonly char` for read-only globals.  Surfaced
+  while migrating `pkg/binate/version` (step 8): `version` had to be
+  typed `*[]readonly char` (immutability by convention) instead of
+  `readonly *[]readonly char` (enforced) because `Format` slices it.
+- **Proposed fix**: `checkSliceExpr` (and likely `checkIndexExpr`)
+  should resolve through an outer `TYP_READONLY`, slice the underlying
+  slice, and re-wrap the result's element type as readonly (reading a
+  readonly slice is allowed; the readonly-ness rides on the elements).
+- **Discovery**: 2026-06-02, plan-const-readonly step 8.
+
+### `.bni` extern `var` (cross-package var export) is unsupported
+- **Symptom**: a top-level `var X T` in a `.bni` is silently ignored —
+  `bni_scope.bn` handles `DECL_FUNC`/`DECL_CONST`/`DECL_TYPE`/
+  `DECL_GROUP` but not `DECL_VAR`, so the symbol is never defined/
+  exported.  No package currently exports a `var`.
+- **Why it matters**: plan-const-readonly's `var` design says
+  "`.bni`-side `var X T` is an extern declaration" — but the machinery
+  doesn't exist.  Related: the cross-package-global-read gap already
+  noted under the composite-const scouting entry below (no imported-var
+  registration in `gen_import.bn`, no qualified global read-site in
+  `gen_selector.bn`, no extern-global decl in codegen).
+- **Workaround in place**: `pkg/binate/version` keeps its version
+  string package-private (`var version` in version.bn) with `Format()`
+  as the public accessor, rather than exporting `var Version` — so no
+  extern-var was needed (step 8).
+- **Proposed fix**: teach `bni_scope` to define a `DECL_VAR` symbol,
+  the checker to enforce `.bni`/`.bn` type agreement + no-initializer
+  on the `.bni` side, and codegen/loader to emit + resolve the extern
+  global.  Then re-export `version.Version` if a consumer appears.
+- **Discovery**: 2026-06-02, plan-const-readonly step 8.
+
 ### Dispatch conflicts (extern registered + Binate body provided) should be a HARD ERROR
 - **What**: today the VM dispatches a `BC_CALL` by name: `LookupFunc`
   → if `>=0`, run the bytecode body; if `-1`, fall through to
