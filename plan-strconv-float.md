@@ -130,8 +130,8 @@ func (z @Nat) Shl(x @Nat, n uint) @Nat           // z = x << n (multiply by 2^n)
 func (z @Nat) Shr(x @Nat, n uint) @Nat           // z = x >> n. CORE; not used by dtoa, kept for symmetry.
 
 // --- Division ---
-func (z @Nat) DivMod(x @Nat, y @Nat, r @Nat) (@Nat, @Nat)   // z = x/y, r = x%y. PRECOND y != 0. CORE; dtoa-optional. Returns (z, r).
-func (z @Nat) DivModUint32(x @Nat, m uint32) (@Nat, uint32) // z = x/m, returns (z, rem<m). Fixed-prec scale + small-divisor primitive.
+func (z @Nat) DivMod(x @Nat, y @Nat, r @Nat) (@Nat, @Nat)   // z = x/y, r = x%y. PANICS if y == 0. CORE; dtoa-optional. Returns (z, r).
+func (z @Nat) DivModUint32(x @Nat, m uint32) (@Nat, uint32) // z = x/m, returns (z, rem<m). PANICS if m == 0. Fixed-prec scale + small-divisor primitive.
 ```
 
 **dtoa-need flags**: `New`, `FromUint64`, `Clone`, `IsZero`, `BitLen`, `Cmp`,
@@ -431,15 +431,22 @@ bit_cast(int64, v)`.
    fresh-result-buffer-then-assign for `Mul`/`DivMod`.
 8. **float32 shortest using float64 gaps** — `decompose32` with float32 ulp.
 
-### Open questions for the user
+### Resolved decisions
 
-- **Q1 — `DivMod` error signal**: shipped precondition-based (`y != 0` required,
-  no `ok` return), matching `bignum.ToInt`/`ToUint64` style, panic-free. Prefer
-  `(@Nat, @Nat, bool)` for a defensive public API? Small change.
-- **Q2 — `'b'`/`'x'` float formats**: out of scope (no consumer); confirm.
-- **Q3 — `println` rewiring**: confirmed out of scope (and impossible directly —
-  `bootstrap.formatFloat` is BUILDER-tree). The 6-digit hack stays until a
-  separate migration decision.
+- **Q1 — `DivMod`/`DivModUint32` on a zero divisor**: **PANIC**
+  (`"big: division by zero"`), matching Go's `big.Int.Div` and the builtin `/`.
+  Keeps the clean 2-return shapes. NOT a `(…, bool)`: div-by-zero is a programmer
+  error, and a defensive signal would want a real `error` type — which Binate
+  does not yet have. Unguarded is not an option: a zero divisor is
+  platform-dependent (ARM64 `UDIV` → 0 silently; x86 `DIV` → `#DE` trap), so it
+  must be guarded for consistent behavior across backends.
+- **Q2 — `'b'`/`'x'` float formats**: deferred as explicit follow-up TODOs (this
+  note + a `// TODO` at the fmt-dispatch site in `ftoa.bn`). Not in the first cut.
+- **Q3 — `println` rewiring**: out of scope. `bootstrap.formatFloat` is
+  BUILDER-tree and can't import `pkg/math/big`; the 6-digit hack stays until a
+  separate migration. This whole effort is a step toward eventually deprecating
+  `pkg/bootstrap` (replacing `formatFloat`, then the `println` path, are later
+  milestones of that arc).
 
 ### Noted for later (not this work)
 
