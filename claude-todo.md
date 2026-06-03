@@ -27,6 +27,25 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   shared `ClosureRec` (see that entry).  Not exercised by current tests
   beyond `520`.
 
+### Audit the home of generic low-level helpers shared by cmd/bni + the REPL engine (low priority / code-org)
+- **Context**: extracting the REPL engine to `pkg/binate/repl` (Stage 4c
+  of `plan-repl-embeddable.md`) needs generic helpers that ALSO stay in
+  cmd/bni: `streq`, `appendCharSlice`, `appendFilePtr`, `appendImportSpec`,
+  `readFile`, `quotePath` (+ the IR-gen import-registration subtree
+  `registerPkgImports`/`registerMainImports`/`loadBuiltinBNIs`/
+  `ensureBootstrapLoaded`/`addLoaderPaths`).  For 4c these are
+  **DUPLICATED** (each package keeps its own copy) to avoid a weird
+  dependency (runProgram/runTests pulling in `pkg/binate/repl` just for
+  `streq`).  `pkg/binate/buf` is the WRONG home (it owns CharBuf/CopyStr;
+  `readFile`/`quotePath` don't belong there).
+- **What to audit**: where these generic string / slice / file / IR-gen
+  helpers SHOULD live long-term.  Survey the codebase for the real
+  commonalities (who needs `streq`, `readFile`, the import-registration
+  helpers?) and decide: a genuinely-shared tier-2 package (a possibly-
+  uselessly-named `pkg/binate/utils`? a split between string-utils /
+  file-utils / ir-import-helpers?), vs leaving the small ones duplicated.
+  Consolidate the 4c duplicates once decided.
+
 ### ~~bni VM crashes calling a non-capturing `@func` returned inside a managed aggregate~~ — FIXED 2026-06-02 (binate `d2029503`)
 - **Was**: a non-capturing `@func` in the VM uses the shared per-callee
   `callee.ClosureRec` as its data slot (vs nil in compiled).
