@@ -136,6 +136,25 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   the VM resolves `_Package` (and any compiled func) by name.  This also
   unblocks the VM-side sentinel end-to-end coverage (RefDec of the returned
   `@reflect.Package` in interpreted mode).
+- **Investigation finding (2026-06-02)**: the obvious shortcut — hand-
+  registering `rt._Package` in `RegisterStandardExterns` like `rt.Alloc`
+  (`var p *func() @reflect.Package = rt._Package; RegisterExtern(...,
+  _raw_func_addr(rt._Package))`) — does NOT compile: `_func_handle argument
+  must be a named function`.  The synthesized `_Package` is codegen-only and
+  isn't a "named function" that `_func_handle` / `_raw_func_addr` accept, and
+  taking a Phase-1 func-value of it doesn't go through the normal
+  OP_FUNC_VALUE machinery.  So the Functions-table is genuinely required:
+  **codegen must emit each `_Package`'s function-VALUE directly** (the
+  {vtable, data} pair, as it already does for the descriptor node), in a
+  per-package table the VM walks — bypassing the source-level `_func_handle`
+  builtin entirely.
+- **Design crux for the table**: the VM needs to ENUMERATE all packages'
+  tables (open Q4 in notes-package-introspection.md — the cross-package
+  registry).  Also note the compiled-vs-interpreted split: builtins (rt, …)
+  are compiled INTO the bni binary (their `_Package` is a real symbol the VM
+  could dispatch); user packages run as interpreted bytecode and have no
+  bytecode `_Package` body at all — so the table + registry is the uniform
+  answer for both.
 - **Next slices (Phase B)**: the `Functions` table on `reflect.Package`
   (name + signature + function-value per exported func); then richer type
   metadata (Phase C) for reflection/printing + RTTI for type assertions.
