@@ -530,6 +530,27 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   callers; need a real Binate allocator to retire) and Exit (needs a
   process-exit syscall, gated on the C-free syscall story).
   `pkg/bootstrap` — the larger I/O surface — is the next target.
+- **TODO — migrate `bootstrap.Itoa` callers to `strconv.Itoa` /
+  `strconv.FormatInt`**: now that `pkg/std/strconv` has `Itoa(v int)`
+  (base 10) and `FormatInt(v int64, base)`, they are the canonical
+  replacement for `bootstrap.Itoa`.  Goal: every Tier-1/Tier-2 caller
+  uses strconv instead of bootstrap (a sub-step of retiring the
+  bootstrap int-format surface).  **Two hard constraints gate which
+  sites can move:**
+  - `cmd/bnc` and its **BUILDER-compilable dependency tree** (incl.
+    `pkg/binate/token`, the `native/*` backends, codegen, ir, …) CANNOT
+    import `pkg/std/strconv`: the package pulls in `pkg/math/big` (and
+    floats) via `ftoa.bn`, which is not BUILDER-compilable.  These stay
+    on `bootstrap.Itoa` until either strconv's integer-only path is split
+    into a BUILDER-compilable subpackage or the BUILDER constraint lifts.
+  - `pkg/builtins/lang` (Tier-0 core) CANNOT depend on strconv either —
+    strconv imports the builtins, so it would cycle.  Stays.
+  - **Migratable now** (built by bnc, full language, not in bnc's tree):
+    `cmd/bni/main.bn`, `cmd/bnlint/main.bn`, `pkg/binate/vm/*`,
+    `pkg/binate/repl/*`.  Audit each call site (a `grep -rn '\.Itoa('`
+    sweep currently finds ~10 non-test sites) and route base-10 ones to
+    `strconv.Itoa`, other bases to `strconv.FormatInt`; check each file's
+    BUILDER status before switching.
 - **Status**: in progress.  Replaces the canceled in-place migration
   workstream.
 
