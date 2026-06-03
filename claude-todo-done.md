@@ -6,6 +6,32 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~Drop `pkg/libc` via `__c_call` in `rt`~~ — DONE 2026-06-03 (binate `e56e4d0c` + `aa017052`)
+- Plan: [`plan-rt-ccall-drop-libc.md`](plan-rt-ccall-drop-libc.md)
+  (Approach A — native-only rt — chosen over the BC_C_CALL opcode; rt
+  is fundamental enough to mandate "rt must be native", and the future
+  is package-level native registration via the `_Package` infra).
+- **What landed**: deleted `pkg/libc` + `runtime/libc_stubs.c`. The
+  libc-host rt reaches the C allocator + exit directly via
+  `__c_call("malloc"/"calloc"/"free"/"exit", ...)` (free/exit use a
+  dummy `int` return, discarded — see the void-return follow-up todo).
+  rt is now NATIVE-ONLY in the VM: `cmd/bni` no longer lowers
+  `pkg/builtins/rt` to bytecode; `rt.X` resolves through the registered
+  native externs (like the C-shaped `pkg/bootstrap` surface).
+  `registerRtExterns` gained the two previously-missing entries (Exit,
+  ZeroRefDestroy), pinned by a new assertion in `extern_register_std_test`.
+- **No BUILDER bump**: verified `bnc-0.0.6` compiles `__c_call`;
+  `findLibcStubs` already no-ops when `libc_stubs.c` is absent.
+- **Tests**: rt's own bytecode unit tests are xfailed in the `-int`
+  modes (rt is native-only); compiled modes + every other `-int` test's
+  native-rt calls cover rt's behavior.  Verified clean across
+  builder-comp / -comp-comp / baremetal (zero new failures; the `-int`
+  failures — 520, 136/383, pkg/binate/version — are all pre-existing on
+  main, confirmed by baseline runs).
+- **Conflict note**: the concurrently-landed VM-mode `_Package` work
+  (`feadde2c`) had registered `libc._Package`; the rebase resolution
+  dropped that orphaned registration.
+
 ### ~~`pkg/slices` → `pkg/stdx/slices` (tier-1x layout move)~~ — DONE 2026-06-02 (binate `a79b698a`)
 - **Moved**: `pkg/slices.bni` → `ifaces/stdlib/pkg/stdx/slices.bni`;
   `pkg/slices/slices.bn` + `slices_test.bn` →

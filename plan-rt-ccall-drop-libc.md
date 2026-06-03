@@ -1,6 +1,8 @@
 # Plan: drop `pkg/libc` by using `__c_call` in `rt`
 
-Status: **IN PROGRESS** (started 2026-06-03)
+Status: **DONE** (2026-06-03) — Approach A landed: binate `e56e4d0c`
+(delete pkg/libc + native-only rt + `__c_call`) and `aa017052`
+(rt.Exit/ZeroRefDestroy registration test).
 
 ## Goal
 
