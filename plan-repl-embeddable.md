@@ -11,7 +11,7 @@ question is decided (see Ratified Decisions).
 **Seam blocker (fix before Stage 6 is usable):** a host poll that
 CAPTURES its interrupt state, installed via `SetPoll`, hits the MAJOR
 `@func` param→struct-field RefInc use-after-free
-(`conformance/533_func_value_param_to_field_capture`; CRITICAL
+(`conformance/534_func_value_param_to_field_capture`; CRITICAL
 "@func/@Iface copy-RefInc symmetry" in `claude-todo.md`).  The seam
 plumbing is correct and inert; it cannot be *used* with capturing polls
 until that RefInc lands.  Seam unit tests use non-capturing polls.
@@ -374,7 +374,7 @@ second invasive refactor.  Inert in v1: no behavior change.
   `Status`), CONTINUE is transparent, and the gate + inert default hold;
   hygiene 12/12.
 - **Caveat (see top-of-doc blocker):** capturing host polls UAF on the
-  `@func` param→field RefInc bug (`conformance/533`); the seam is correct
+  `@func` param→field RefInc bug (`conformance/534`); the seam is correct
   and inert but unusable with capturing polls until that fix lands.
 
 ### Stage 6 — continuable suspend (FUTURE — the easier interrupt)

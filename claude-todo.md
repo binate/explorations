@@ -26,7 +26,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   and assignment paths) — OR adopt the static-managed sentinel for the
   shared `ClosureRec` (see that entry).
 - **NO LONGER latent — concrete all-modes repro (2026-06-02):**
-  `conformance/533_func_value_param_to_field_capture` exercises the
+  `conformance/534_func_value_param_to_field_capture` exercises the
   "assignment path has no `@func` branch" sub-case directly: a CAPTURING
   `@func` received as a PARAMETER and stored into a struct field
   (`h.F = f`) is not RefInc'd, so the field holds a dangling ref to the
