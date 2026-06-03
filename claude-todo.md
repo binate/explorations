@@ -111,6 +111,24 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MINOR
+
+### `&const` rejection misses qualified consts (`&pkg.C`)
+- **Symptom**: plan-const-readonly step 6 rule 3 rejects taking the
+  address of a const, but only for the unqualified `EXPR_IDENT` case
+  (`&LocalConst`).  `&otherpkg.SomeConst` (an imported const via
+  `EXPR_SELECTOR`) is still silently accepted — it returns a pointer to
+  a value with no storage.
+- **Where**: `pkg/binate/types/check_expr.bn`, the `token.AMP` branch in
+  the unary-expr check (only handles `e.X.Kind == ast.EXPR_IDENT`).
+- **Fix**: also detect when `e.X` is an `EXPR_SELECTOR` resolving to a
+  package-qualified const (kind `SYM_CONST`) and call
+  `errCannotAddrConst`.  Needs the qualified-const resolution the
+  selector read path already does.
+- **Discovery**: 2026-06-03, plan-const-readonly step 6 coverage review.
+
+---
+
 ## MAJOR
 
 ### Drop `pkg/libc` via `__c_call` in `rt` — IN PROGRESS
