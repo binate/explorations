@@ -35,16 +35,28 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   fails in **all 6 default modes** — it's an IR/shared-layer miss, not
   backend-specific).  Minimal trigger: `func install(h @Holder, f @func(int) int) { h.F = f }`
   then invoke `h.F`.  Direct local assignment (`h.F = localVar`) is fine;
-  NON-capturing `@func` params are immune (shared rec).  `533` is xfailed
-  in all 6 modes pending the fix.
+  a directly-stored NON-capturing `@func` param is immune COMPILED (shared
+  rec).  `534` is xfailed in all 6 modes pending the fix.
+- **Second manifestation — int mode, @func through a FORWARDING param.**
+  Even a NON-capturing `@func` corrupts under the bytecode VM when passed
+  through an extra parameter hop into a field: `f(p) { g(p) }` →
+  `g(q) { obj.Field = q }`.  The stored func value's data slot is
+  garbage; invoking it aborts with `vm: unsupported function-value data
+  kind: <garbage>`.  Discovered via `repl.SetPoll(p) { vm.SetPoll(p) }`
+  forwarding to `vm.SetPoll(q) { vm.Poll = q }` — a directly-stored
+  `vm.SetPoll(local)` is fine under int (so the second hop is the
+  trigger).  Same root cause (no `@func` branch in the param/copy/RefInc
+  paths); the VM's func-value RefInc/copy handling is also affected.
 - **Blocks the REPL interrupt seam (Stage 5 of `plan-repl-embeddable.md`).**
-  `vm.SetPoll(poll @func(@VM) int) { vm.Poll = poll }` is exactly this
-  param→field capturing-`@func` store, so a host installing a CAPTURING
-  poll (the normal case — polls capture host interrupt state) UAFs.  The
-  seam's VM/repl plumbing is written and correct; it cannot ship usable
-  for capturing polls until this RefInc lands.  Seam unit tests currently
-  use non-capturing polls to stay green; the capturing path is covered by
-  `533` (xfail).
+  `vm.SetPoll(poll @func(@VM) int) { vm.Poll = poll }` is exactly the
+  param→field `@func` store, so (a) a host installing a CAPTURING poll
+  UAFs compiled, and (b) ANY poll installed via repl's forwarding
+  `s.SetPoll` corrupts under int.  The seam's VM/repl plumbing is written
+  and correct (and inert in v1); it cannot ship usable until this RefInc
+  lands.  Seam unit tests use non-capturing polls and exercise the VM
+  poll via DIRECT `vm.SetPoll` (immune); the int-mode-blocked repl Step
+  end-to-end seam tests were dropped (binate `7abad506`), to re-add with
+  the fix.  Capturing-compiled path covered by `534` (xfail).
 
 ### Audit the home of generic low-level helpers shared by cmd/bni + the REPL engine (low priority / code-org)
 - **Context**: extracting the REPL engine to `pkg/binate/repl` (Stage 4c
