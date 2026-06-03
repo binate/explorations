@@ -123,8 +123,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Why**: structural consistency.  Generic helpers belong in
   stdx where the spec puts them, and the tier-1x layout signals
   the "no inter-version compat" stability story honestly.
-- **When**: after `bnc-0.0.7` ships (which carries the pkg/bootstrap
-  + pkg/libc moves).
 
 ### `pkg/bignum` → `pkg/binate/bignum` (tier-2 layout move)
 - **What**: move `pkg/bignum.bni` + `pkg/bignum/bignum.bn` to
@@ -147,6 +145,59 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **No release dance needed**: same reasoning as pkg/slices —
   BUILDER bnc has no hardcoded literal for `pkg/bignum`.  Direct
   cherry-pick to main; no BUILDER bump required.
+
+### Dispatch conflicts (extern registered + Binate body provided) should be a HARD ERROR
+- **What**: today the VM dispatches a `BC_CALL` by name: `LookupFunc`
+  → if `>=0`, run the bytecode body; if `-1`, fall through to
+  `execExtern` (which consults `vm.Externs`).  Functions registered
+  via `RegisterExtern` shadow whatever the .bni declares, but ONLY
+  when there's no Binate body — if a user (or a future migration)
+  adds a `.bn` body for a name that's also extern-registered, the
+  bytecode body silently wins and the extern is dead code.
+- **Why a hard error**: the previously-explored "dispatch flip"
+  (silently skip lowering when an extern is registered, so the
+  extern wins) is the wrong design — the conflict represents
+  contradictory definitions of the function, and the right answer
+  is to make the user resolve it explicitly, not pick a winner
+  silently.
+- **Where**: `pkg/binate/vm/lower.bn::LowerModule` (the loader
+  pass) is the natural place to detect it — when about to lower
+  a function whose qualified name `vm.LookupExtern(...) >= 0`,
+  abort with a clear diagnostic naming the offending function
+  and both sources.  Same shape as the existing extern-registry
+  pre-checks but loud instead of silent.
+- **Tests**: unit test pinning the abort path (register an
+  extern + lower an IR module with a function under that name
+  → assert it errors with a recognizable message).
+
+### ~~Bootstrap I/O migration to `__c_call`-based Binate bodies~~ — CANCELED 2026-06-02
+- Originally framed as a proof-of-concept for moving
+  pkg/bootstrap's C-shim surface (Open/Read/Write/Close/Exit/
+  Stat/Args/Exec/ReadDir) from `runtime/binate_runtime.c`
+  wrappers to Binate-side `__c_call("close", ...)` bodies.
+- Aborted: standing up a fresh I/O package is actually easier
+  than this conversion in place — the libc-runtime / BUILDER-
+  skew tangle around in-place renames is more expensive than
+  the architectural payoff.
+- Replaced by: see "Slim pkg/bootstrap and pkg/libc by migrating
+  callers OUT" below.
+
+### Slim `pkg/bootstrap` and `pkg/libc` by migrating callers OUT
+- **What**: rather than converting bootstrap's I/O surface
+  in place, migrate callers AWAY from `pkg/bootstrap.X` and
+  `pkg/libc.X` toward whatever the long-term replacement is
+  (a new I/O package, a slimmer `pkg/std/os`, etc., TBD).
+  Goal: shrink the surface of both bootstrap and libc until
+  they can either be retired entirely or held as truly minimal
+  bootstrap primitives.
+- **Approach** (sketch — needs design): identify call sites,
+  classify them by what they want (formatted print, file I/O,
+  process control, raw libc memops), and route each class to
+  the canonical replacement.  bootstrap and libc only get
+  what's TRULY platform-essential and inappropriate for any
+  higher-level package.
+- **Status**: planning.  Replaces the canceled in-place
+  migration workstream.
 
 ### Package descriptors (Phase B) — VM-mode `_Package()` not yet wired — IN PROGRESS
 - **Status**: IN PROGRESS — worktree `temp-binate-6` / branch `work-6`.
