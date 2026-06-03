@@ -141,6 +141,32 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   selector read path already does.
 - **Discovery**: 2026-06-03, plan-const-readonly step 6 coverage review.
 
+### Redesign `pkg/binate/version` — simplify; drop the `bnc-` prefix
+- **What**: simplify the version package:
+  - Drop the `bnc-` prefix from the version *values*.  Today the repo-root
+    `VERSION` file, `version.bn`'s `version` string, and `BUILDER_VERSION`
+    all carry `bnc-X.Y.Z`; the prefix is redundant since the consuming
+    tool prepends its own name.
+  - Remove `Format` (the `bnc-` → `<tool>-` reprefixing accessor) — once
+    the prefix is gone there's nothing to strip, so callers can prepend
+    their own tool name directly.
+  - Consider changing the values stored in `BUILDER_VERSION` and the
+    repo-root `VERSION` file to match (i.e. drop `bnc-` there too).
+- **Why**: the `bnc-` prefix + `Format`'s reprefixing exist only because
+  the version string bakes in a tool name; dropping the prefix removes
+  the need for `Format` entirely and simplifies the package.
+- **Touch points**: `pkg/binate/version/version.bn` (the `version`
+  string, `Format`, `bncPrefixLen`), `version.bni`,
+  `version/version_test.bn`, the repo-root `VERSION` file,
+  `BUILDER_VERSION` (resolved via `scripts/fetch-builder.sh`), and
+  `scripts/hygiene/version-sync.sh` (greps `version.bn` against `VERSION`
+  — its expected literal/format changes when the prefix drops).
+- **Coordinate with**: `.bni` extern-var support (now landed) makes it
+  possible to export `version.Version` cross-package, so a redesign should
+  settle the final public shape (exported `var Version` vs an accessor)
+  in the same pass.
+- **Discovery**: 2026-06-03, user request during the `.bni` extern-var work.
+
 ---
 
 ## MAJOR
