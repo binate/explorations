@@ -24,8 +24,27 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   fix: make `@func`/`@Iface` first-class in the copy-RefInc paths
   (NeedsDestruction true + per-kind branches in the copy/dtor generators
   and assignment paths) — OR adopt the static-managed sentinel for the
-  shared `ClosureRec` (see that entry).  Not exercised by current tests
-  beyond `520`.
+  shared `ClosureRec` (see that entry).
+- **NO LONGER latent — concrete all-modes repro (2026-06-02):**
+  `conformance/533_func_value_param_to_field_capture` exercises the
+  "assignment path has no `@func` branch" sub-case directly: a CAPTURING
+  `@func` received as a PARAMETER and stored into a struct field
+  (`h.F = f`) is not RefInc'd, so the field holds a dangling ref to the
+  per-instance capture record; the parameter's end-of-call RefDec frees
+  it, and a later `h.F(...)` is a use-after-free (SIGSEGV compiled;
+  fails in **all 6 default modes** — it's an IR/shared-layer miss, not
+  backend-specific).  Minimal trigger: `func install(h @Holder, f @func(int) int) { h.F = f }`
+  then invoke `h.F`.  Direct local assignment (`h.F = localVar`) is fine;
+  NON-capturing `@func` params are immune (shared rec).  `533` is xfailed
+  in all 6 modes pending the fix.
+- **Blocks the REPL interrupt seam (Stage 5 of `plan-repl-embeddable.md`).**
+  `vm.SetPoll(poll @func(@VM) int) { vm.Poll = poll }` is exactly this
+  param→field capturing-`@func` store, so a host installing a CAPTURING
+  poll (the normal case — polls capture host interrupt state) UAFs.  The
+  seam's VM/repl plumbing is written and correct; it cannot ship usable
+  for capturing polls until this RefInc lands.  Seam unit tests currently
+  use non-capturing polls to stay green; the capturing path is covered by
+  `533` (xfail).
 
 ### Audit the home of generic low-level helpers shared by cmd/bni + the REPL engine (low priority / code-org)
 - **Context**: extracting the REPL engine to `pkg/binate/repl` (Stage 4c
@@ -299,7 +318,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Verification** (default 8 MiB stack, band-aid removed): `execLoop` 14 → 0 dynamic stack-adjustments; `pkg/binate/types` 527/527 (was crash after test #1); `builder-comp-int` 34/0 (was 24/10 even WITH the band-aid); `builder-comp-comp-int` 30/0/4xfail; all 24 previously-crashing packages green; conformance `builder-comp` 450/0/1.  Regression test `TestByvalSpillAllocaHoistedToEntry` (`emit_helpers_test.bn`) pins "no alloca in/after for.body for a byval call in a loop."
 - **Follow-up — also FIXED 2026-06-02 (binate `d9800429`)**: the same call-site-alloca class on the func-value-call (`.ap<i>` aggregate args + `.rb` retbuf) and iface-method (`.rb` sret) paths was hoisted too (latent — no package triggered it, but same shape).  Details in [`plan-codegen-byval-spill-hoist.md`](plan-codegen-byval-spill-hoist.md).
 
-### bnc: top-level consts of non-int types silently emit `EmitConstInt(0)` at read sites (string-case fixed; bool/float/composite/pointer remain)
+### bnc: top-level consts of non-int types silently emit `EmitConstInt(0)` at read sites (Phase A — string/bool/float — DONE; composite/pointer remain)
 - **Symptom — general**: declare a top-level `const X T = <expr>` where T is anything other than an integer-family type (or the iota-fed untyped int), and reads of X from any function — in-package OR cross-package qualified `pkg.X` — fall through to `EmitConstInt(0, TypInt())` in IR-gen.  Downstream effects depend on T's expected LLVM shape:
   - **Loud** (clang rejects the .ll with shape mismatch): types whose read sites perform an aggregate operation on what should be a slice / struct / array — get `extractvalue i64 %v, N` (extractvalue on a scalar).  Boolean reads hit `'%v' defined with type 'i64' but expected 'i1'` at branch sites.
   - **Silent wrong** (compiles cleanly, runs with zero values): scalar non-int types (float, char[fixed via lit-fold], pointer) read back as 0 / 0.0 / nil; struct reads return all-zeros.
@@ -319,7 +338,9 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Root cause**: `moduleConsts` only carried `Val int`; producers (`genConst`, `registerImportFile`) call `evalConstExpr` which is integer-only and discards non-int initializers entirely; read sites (EXPR_IDENT in gen_expr.bn, qualified EXPR_SELECTOR in gen_selector.bn) called `lookupConst` (also int-only), missed the discarded consts, and emitted a zero-int placeholder via `EmitConstInt(0, TypInt())`.  The type-checker correctly accepts these declarations — `const X T = expr` in Binate marks `X` as an immutable variable (`claude-notes.md` "Compile-time constants" / "Const on variable declarations"), not a compile-time-foldable literal — so the bug is squarely in IR-gen's const-handling.
 - **Why MAJOR**: any production package that exposes a non-int top-level const silently mis-emits.  Currently latent only because the project has no such consts yet; the version-package draft (now landed for string only) was the first encounter.  Composite-typed consts are particularly dangerous — both loud-on-aggregate-access and silent-on-zero-default-read modes occur.
 - **Tests covering it**: pkg/binate/version's tests pin the string case end-to-end through both in-package and cross-package reads; `conformance/522_cross_pkg_const_string` and the new `TestGenConstStringLit*` unit tests in `pkg/binate/ir/gen_const_test.bn` (binate `a000855a`) add coverage at the IR-gen producer + read sites.  No coverage for bool / float / composite / pointer cases yet — Phase A of `plan-const-nonint.md` adds focused unit + conformance suites for each.
-- **Status**: partial fix landed (string only) in binate `7b0f77a3`.  Follow-up plan: `plan-const-nonint.md` — Phase A (bool/float, mechanical), Phase B (composites — lower as initialized globals), Phase C (pointer consts — const-pointer-to-static-global + nil).
+- **Status**: **Phase A DONE** (2026-06-02).  Every *scalar* non-int top-level const now lowers correctly — string (binate `7b0f77a3`), bool (`c3ff33f7`, conformance 540), float incl. untyped + float32 (`82c985f5`, conformance 541), negative float literals (`054629fd`), and non-int members of `const ( … )` **groups** (`a6fef840`).  Single + group producers, in-package + imported, all route through the shared `classifyConstLit` (string/bool/(unary-negated-)float) helper in `pkg/binate/ir/gen_const.bn`; read sites dispatch on `ModuleConst.Kind` (CONST_INT/STR/BOOL/FLT).  Unit tests in `gen_const_test.bn` + conformance 540/541 (cross-package EXPR_SELECTOR + in-package EXPR_IDENT, incl. a branch-condition bool and a group member).
+  - **Coverage note** (probed): `GenConstMember` (REPL forward-ref retry) needs no non-int handling — it only ever sees *parkable* (undefined-name-referencing) consts, i.e. int/iota expressions, never literals.  `RegisterImport` (singular, `gen_register_import.bn`) is still int-only but is **test-only** (no production caller; production imports use the fixed `registerImportFieldsAndFuncs`) — a minor consistency follow-up, not a production gap.
+- **Remaining**: `plan-const-nonint.md` — **Phase B** (composite-typed consts — struct / array / slice / managed-slice literals — lowered as initialized globals; the *correctness floor* for types that can't reduce to an immediate), **Phase C** (pointer consts — const-pointer-to-static-global + nil).
 
 ### ~~arm32_baremetal: pkg/native/{aarch64,x64} test binaries overflow `.bss` region~~ — FIXED 2026-05-30 (binate `b0c64b14`)
 - **Final fix**: combined option-(a) + xfail-manifest-rename:
