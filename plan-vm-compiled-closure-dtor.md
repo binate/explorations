@@ -1,10 +1,10 @@
 # Plan: VM closure-record dtor (finish @func under the bytecode VM)
 
-Status: **DONE 2026-06-03 (binate `77bae9ad`).** Implemented exactly as
+Status: **DONE 2026-06-03 (binate `0a0d00af`).** Implemented exactly as
 designed below, except the sentinel is a `-1` const rather than a global's
 address (taking `&module-global` lowers to an undefined `%v-1` — a separate
 codegen limitation; `-1` is safe since no real dtor handle is ever `-1` or
-`0`). Conformance `548_func_value_capture_released` pins it (a captured
+`0`). Conformance `550_func_value_capture_released` pins it (a captured
 `@Counter`'s refcount returns to baseline after the closure dies: `2`
 pre-fix = leaked, `1` now); green in all six default modes, no regressions.
 The IR-level @func copy-RefInc fix landed earlier (binate `ec01460c` +

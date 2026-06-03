@@ -33,7 +33,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `534` now passes in **all 6 default modes** and is un-xfailed; `542`
   adds a return-a-capturing-closure regression.  Unit test
   `TestEmitFuncValueRefDecGuardsNullData` pins the guard shape.
-- **VM capture-record leak — FIXED 2026-06-03 (binate `77bae9ad`).**  Under
+- **VM capture-record leak — FIXED 2026-06-03 (binate `0a0d00af`).**  Under
   the bytecode VM a capturing `@func`'s data slot is a 32-byte
   `DATA_KIND_COMPILED_CLOSURE` rec whose `rec[3]` points at the heap
   closure struct; RefDec'ing the @func value decremented the *rec* and
@@ -43,7 +43,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   sentinel; `BC_REFDEC_INLINE_FAST` recognizes it, frees the rec and
   RefDec's the closure struct, running its dtor via an iterative frame push
   (flat-stack, no host recursion at `-int-int` depth).  Dtor name plumbed
-  ir.Func → VMFunc, resolved by `LookupFunc`.  Conformance `548` pins it
+  ir.Func → VMFunc, resolved by `LookupFunc`.  Conformance `550` pins it
   (captured `@Counter` refcount returns to baseline).  @func is now
   leak-clean on every backend + the VM.
 - **REMAINING — `@Iface` analogue still BROKEN** (the symmetric half).
