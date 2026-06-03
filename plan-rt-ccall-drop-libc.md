@@ -107,15 +107,24 @@ extern registry**, and registration of `malloc`/`calloc`/`free`/`exit`
 
 ## Recommendation
 
-**Approach B (`BC_C_CALL`).** It costs one VM opcode but avoids the
-coverage loss, the `rt` special-casing, and the newly-load-bearing
-aggregate-extern path of Approach A — and it makes `__c_call` a
-first-class, uniform C-FFI mechanism (the stated direction) rather than
-a compiled-only escape hatch worked around per-package. Approach A is
-the lighter-to-land option if we want to minimize new VM code and are
-willing to drop `rt`'s `-int` unit tests.
+**DECISION (2026-06-03): Approach A — native-only `rt`.** (I had
+recommended B; the user chose A, with this rationale, which supersedes
+my recommendation:)
 
-(This is a real fork; confirm the approach before implementation.)
+> B forces you to register specific C functions, and then to *know which
+> C functions you need* — a standing maintenance/knowledge burden. The
+> long-term direction is to register arbitrary native implementations at
+> the **package level** (the `_Package` infra being built now), and for
+> perf we'd want the entire standard library registered as native. `rt`
+> is fundamental enough that "rt **must** be native" is a clean,
+> acceptable invariant.
+
+So `rt` joins `pkg/libc`/`bootstrap`-C as native-in-the-VM, and its
+`-int` bytecode unit tests are intentionally dropped (rt is native, so
+interpreting its bytecode is not a supported configuration). This also
+prefigures package-level native registration: today we special-case
+`rt` by name; later that becomes a general "this package is native"
+mechanism.
 
 ## Concrete steps (Approach B)
 
