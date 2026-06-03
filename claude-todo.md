@@ -303,6 +303,26 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   statement form), so void C calls don't carry a misleading return type.
 - Surfaced 2026-06-03 by the drop-libc work.
 
+### Inject `pkg/bootstrap` into the VM + convert I/O to `__c_call` — PLANNED
+- **Plan**: [`plan-bootstrap-ccall.md`](plan-bootstrap-ccall.md). The
+  rt-drop-libc pattern applied to bootstrap: eliminate the hand-written
+  `bn_pkg__bootstrap__*` I/O glue in `binate_runtime.c` by converting it
+  to `.bn` + `__c_call`, and make bootstrap native-only in the VM.
+- **Two phases**: (1) inject — skip lowering bootstrap in `cmd/bni` +
+  register the format helpers (bootstrap is MIXED: format helpers are
+  bytecode today, I/O is already native-extern); small, behavior-
+  preserving. (2) convert I/O function-by-function (Close/Exit trivial →
+  Open/Read/Write/Stat moderate → Exec/ReadDir hard), deleting each
+  `bn_pkg__bootstrap__*` as it moves.
+- **Harder than rt**: `__c_call` is scalar/pointer-only, but bootstrap's
+  I/O takes slices + returns managed-slice aggregates → marshalling
+  (null-term cstr, data-ptr extraction, aggregate construction). `Args`
+  can't be pure `__c_call` (no libc fn returns argv) — a minimal argv
+  hook stays in C. Not C-freedom (still links libc syscall wrappers).
+- **No BUILDER bump** (bootstrap is in cmd/bnc's tree; BUILDER 0.0.6
+  accepts `__c_call`; marshalling stays in the BUILDER subset). Baremetal
+  keeps its semihost impl (per-target, like rt). Filed 2026-06-03.
+
 ### Better test-mode/target annotation than `.xfail` (unit + conformance)
 - We lean on `.xfail.<mode>` files to mark tests that can't run in a
   given configuration (e.g. `pkg-builtins-rt.xfail.builder-comp-int*`
