@@ -143,6 +143,31 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### Bytecode VM loads large-exponent float64 constants imprecisely (silent wrong value)
+- **Symptom**: a float64 literal with a large exponent — e.g. `1e100` — has
+  the correct nearest-double bit pattern 6103021453049119613 (per Go's
+  math.Float64bits) on the LLVM and native (arm32/aarch64) backends, but the
+  bytecode VM evaluates it as 6103021453049119616 (a few ULP off).
+  `bit_cast(int64, 1e100)` prints the wrong value under any VM (`int`) mode.
+  Smaller exponents (1e20 and below) are fine.
+- **Impact**: any VM-mode program using a large-exponent float64 constant
+  gets a slightly-wrong value, silently.  Surfaced while testing
+  `strconv.FormatFloat`: `FormatFloat(1e100, 'e', -1, 64)` gave
+  "1.0000000000000006e+100" on the VM vs "1e+100" on LLVM — the dtoa is
+  correct; its input constant was wrong.
+- **Root cause (suspected)**: the IR float constant is correct (LLVM and the
+  native backends, which consume the IR value directly, agree on ...613), so
+  the lexer/parser literal conversion is fine.  Only the VM diverges, so the
+  defect is in how the bytecode encodes/loads a float64 constant — likely a
+  lossy round-trip (e.g. re-serializing the constant to decimal and
+  re-parsing it with an imprecise large-exponent parser) in the VM's
+  constant-loading path.  Needs investigation in pkg/binate/vm (the float
+  constant load) and the bytecode constant encoding.
+- **Test**: `conformance/536_float_lit_large_exp` (xfail on the VM modes:
+  builder-comp-int / builder-comp-int-int / builder-comp-comp-int).
+- **Severity**: MAJOR — a silent wrong float64 value on the VM, but narrow
+  (only large-exponent constants; arithmetic and small constants are fine).
+
 ### Managed-interface-value refcount lifecycle is unwired — FAMILY of leaks + 1 UAF — IN PROGRESS / NEEDS DECISION
 - **Root cause (CONFIRMED)**: managed interface values (`@Iface`) were added to the language, but the refcount *lifecycle* machinery in `pkg/binate/ir` was only ever wired for managed-ptr / managed-slice / struct — **never iface**.  Three distinct sites are missing the `isManagedIfaceValueType` case, producing three bugs:
   1. **UAF — return a named-local `@Iface`** (`func f() @I { var s @I = q; return s }` → `f().m()` reads freed data).  `gen_return.bn`'s Axiom-3 retain loop has no iface case, so a *borrowed* (loaded) iface return is never retained for the caller; the source local's scope-exit RefDec frees it.  (The original target bug; found 2026-06-03 building `plan-std-errors.md` Part 1, where `errors.New`/`Wrap` return `@Error`.)
@@ -1815,6 +1840,70 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Scope** (per CLAUDE.md "Stay Within the Asked Scope"): add the script
   only; wiring it into `scripts/hygiene/run.sh` and CI is a separate decision
   for the user.
+
+### Per-file build constraints — conditional file inclusion/exclusion by target — DESIGN
+- **What**: a way for a single file to opt *itself* in or out of
+  compilation based on the build configuration — arch, target triple,
+  OS, libc-vs-freestanding, backend (LLVM / native-aa64 / native-x64),
+  engine (`bnc` compiled vs `bni` interpreted), etc.
+- **Why the current mechanisms are inadequate**:
+  - **Separate trees + symlinks** (what we have now —
+    `impls/{common,libc,baremetal}/…`, per
+    [`pkg-layout-spec.md`](pkg-layout-spec.md) invariant 5 "Whole-package
+    selection only"): too **coarse** (selection is whole-package /
+    whole-variant-dir; "shared core + one per-variant file in the same
+    package" is unrepresentable) and too **annoying** (symlinks to share
+    the common files across variant dirs; a new axis means a new tree).
+  - **Go-style filename suffixes** (`foo_posix.bn`, `foo_arm32.bn`): too
+    **magical** (the constraint is invisible *inside* the file, smuggled
+    in via the name) and too **coarse** (only a fixed suffix vocabulary;
+    can't express conjunctions/disjunctions like "arm32 AND libc", or
+    "any of {x64,aa64} but not baremetal").
+- **Proposed shape**: an **annotation (writ large) near the top of the
+  file** declaring the file's applicability condition as an *expression*
+  over target predicates (`arch == "arm32"`, `libc`, `engine == "bni"`,
+  with `&&` / `||` / `!`).  Two candidate syntactic forms to weigh:
+  - a real **annotation on the `package` clause** (e.g.
+    `#[build(arch == "arm32" && libc)] package foo`) — first-class,
+    grammar-integrated, parseable; but the file must parse far enough to
+    read it before we know whether to compile it, so the condition has to
+    be evaluable from a cheap leading-prefix scan (read annotation →
+    decide → continue or drop the file);
+  - a **comment-form pragma** (a recognized leading comment, e.g.
+    `//bn:build arch == "arm32" && libc` — Go-`//go:build`-shaped but
+    expression-based, not suffix-based) — even cheaper to scan, but
+    out-of-grammar / more "magical".
+- **Design questions**:
+  - **Predicate vocabulary + authority**: arch, triple, OS,
+    libc-vs-freestanding, backend, engine, possibly user-defined build
+    tags.  Where is the canonical list defined?  How extensible?
+  - **Relationship to the `impls/` trees**: does this *replace* the
+    `{common,libc,baremetal}` split (collapse back toward one tree, files
+    self-select) or *complement* it (trees for the coarse axis,
+    annotations for the fine)?  At minimum it should retire the symlink
+    workaround; possibly the per-variant impl dirs too.  Decide
+    explicitly — interacts with `pkg-layout-spec.md`.
+  - **Loader/merge interaction**: excluded files simply don't join the
+    merged package; ensure a package can still be legitimately empty (or
+    require ≥1 surviving file) for a given target without spurious errors.
+- **Tooling interaction (the bnlint question)**:
+  - bnlint + the hygiene scripts must **understand** the annotation, so a
+    file inapplicable to the current config isn't false-flagged (and so
+    they can choose to lint each file under its applicable config(s)).
+  - **Corollary worth designing in**: the same annotation surface could
+    carry a directive telling bnlint / hygiene checks to **skip or ignore**
+    a file (or regions of it) — a first-class "lint-exempt this file"
+    mechanism, unifying build-constraints and lint-control under one
+    annotation vocabulary.
+- **Related entries to unify with**: the MAJOR "Better test-mode/target
+  annotation than `.xfail`" entry above wants exactly this shape for
+  *tests* (declare applicable modes/targets); and "Annotations and C
+  function interop" below is the general annotation-syntax design.  This
+  is the *source-file* instance of the same idea — design them together.
+- **Prior art to consult**: Go build constraints (the `//go:build`
+  expression form that replaced the `_GOOS` suffix era), Rust
+  `#[cfg(...)]` / `cfg_if!`, Zig comptime target switches.  The
+  expression form is the model.
 
 ### Conformance tests: consider a separate repo
 - Running conformance tests in CI creates a circular dependency: the bootstrap repo needs the binate repo (which contains the test cases), and the binate repo needs the bootstrap binary (to run the tests)
