@@ -157,6 +157,32 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   change preserves `Exit`→`exit` behavior, so this is a clean,
   independent follow-up. Needs a design discussion before any change.
 
+### `__c_call` should support void returns
+- Today `__c_call` "requires a return type" and `checkCCall` rejects
+  void ("void and struct returns not yet supported"). So calling a void
+  C function (`free`, `exit`) means declaring a dummy scalar return
+  (e.g. `int`) and discarding it as a bare statement — see the
+  placeholders in `impls/core/libc/pkg/builtins/rt/rt.bn`
+  (`__c_call("free", int, ptr)` / `__c_call("exit", int, code)`).
+- **Fix**: accept a void return spelling for `__c_call` (and a bare-
+  statement form), so void C calls don't carry a misleading return type.
+- Surfaced 2026-06-03 by the drop-libc work.
+
+### Better test-mode/target annotation than `.xfail` (unit + conformance)
+- We lean on `.xfail.<mode>` files to mark tests that can't run in a
+  given configuration (e.g. `pkg-builtins-rt.xfail.builder-comp-int*`
+  because rt is native-only in the VM; the `__c_call` conformance tests
+  498/500/527/530 xfailed in every VM-leg mode). But "expected to FAIL"
+  is the wrong semantics for "not APPLICABLE here" — these tests are
+  *bnc-only* / *vm-only* / *target-specific* by nature, not regressions.
+- **Want**: a first-class annotation (in the test source or a manifest)
+  declaring a test's applicable modes/targets — `bnc-only`, `vm-only`,
+  per-backend, per-target — so the runner *skips* inapplicable configs
+  cleanly and reserves `xfail` for genuine known-failures. Would also
+  let `__c_call` tests declare "compiled-only" honestly instead of a
+  fan of per-mode xfail files.
+- Surfaced 2026-06-03 by the drop-libc / native-only-rt work.
+
 ### Type-checker can't slice a `readonly`-wrapped slice
 - **Symptom**: `var v readonly *[]readonly char = "..."; v[i:j]` fails
   type-checking with `cannot slice this type` (and the result reads as
