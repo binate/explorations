@@ -131,6 +131,95 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### bnlint typechecks dependency BODIES, not just signatures — IN PROGRESS
+- **Status**: IN PROGRESS — worktree `temp-binate-6` / branch `work-6`.
+- **Symptom**: linting package A that imports package B re-typechecks B's
+  function *bodies*, not just its exported signatures.  A body-level type
+  error in B then surfaces when linting A — false coupling.  Concrete
+  trigger: `pkg/binate/vm`'s `_func_handle(rt._Package)` (valid, but newer
+  than the BUILDER-bundled bnlint can typecheck) made `pkg/binate/repl` and
+  `cmd/bni` *also* fail lint purely because they import vm, forcing the
+  `scripts/hygiene/lint.sh` skip to cascade across all three.
+- **Root cause**: `cmd/bnlint/main.bn` (`lintPackages`) loops over ALL loaded
+  packages (`ldr.Order` — targets AND transitive deps) and calls
+  `c.CheckPackage(...)` on each, which runs Pass 1 (`collectDecls`) + Pass 1.5
+  (`checkAllImplsSatisfaction`) + Pass 2 (`checkDecls`, body checking).  The
+  *lint* loop below only iterates the target `pkgs`, so it already
+  distinguishes targets from deps — the body-checking of deps is incidental
+  over-reach.  Dependents only ever consume a dep's exported surface, which
+  `collectDecls` + `registerPackage` provide; body-checking a dep adds
+  nothing for the dependent.
+- **Fix**: add a decls-only checker entry point (Pass 1 + `registerPackage`,
+  skipping 1.5/2) in `pkg/binate/types/checker.bn`, and have `lintPackages`
+  call it for non-target deps, full `CheckPackage` for targets.  Bounded:
+  decls-only is a strict subset of work already done.  Shrinks the present
+  skip from {vm, repl, bni} to {vm}, removes redundant re-checking, and stops
+  valid package A from failing lint because an unrelated dep B uses newer
+  syntax.
+- **Severity**: major for the *linter's* robustness (false failures + wasted
+  work); linter-only, no effect on generated code.
+- **Release note**: the bundled bnlint is what hygiene runs, so this fix only
+  takes effect after a BUILDER_VERSION bump — same release that ships the
+  `_Package` typecheck support (below).  Decision (2026-06-03): fix it now so
+  it rides that release.
+- **Tests**: unit test in `cmd/bnlint` — lint a target that imports a dep
+  whose body would not typecheck under decls-only rules (or simply assert the
+  dep's body diagnostics don't surface when it's a non-target import).
+
+### Remove the `pkg/binate/vm` lint skip after the next release
+- **What**: `scripts/hygiene/lint.sh` temporarily skips `pkg/binate/vm`,
+  `pkg/binate/repl`, and `cmd/bni` (`LINT_SKIP`).  The BUILDER-bundled bnlint
+  (bnc-0.0.6) predates the `_Package` selector + `_func_handle` typecheck
+  support, so it aborts at the typecheck pass on `_func_handle(rt._Package)`
+  / `@reflect.Package` in `vm/extern_register_std.bn`; repl + bni cascade in
+  because bnlint typechecks dependency bodies (entry above).
+- **Removal condition**: drop the whole `LINT_SKIP` block once
+  `BUILDER_VERSION` is bumped to a snapshot that includes BOTH (a) the
+  `_Package` selector + `_func_handle(pkg._Package)` typecheck support
+  (binate `feadde2c` and predecessors), and (b) the bnlint dep-body fix
+  (entry above).  With (a), `vm` lints; with (b), the repl/bni cascade is
+  gone.  A from-source bnlint already lints all three cleanly today.
+- **Marker**: the skip block carries a `TODO(remove after next release)`
+  pointing here.
+
+### Native backends mis-lower float consts/returns — `541` silently reads 0 (Phase A float-const gap on the native code generators)
+- **Symptom**: `conformance/541_cross_pkg_const_float` passes on the
+  default C/LLVM-backed modes but **fails on the native aarch64 backend**
+  (`builder-comp_native_aa64-comp_native_aa64`): expected `7 -3 7 -3 9`,
+  actual `7 0 0 …`.  Two distinct silently-wrong cases (both → `0.0`):
+  1. **Negative float const** — `cfg.NegHalf` (`= -1.5`) read cross-package
+     reads as `0.0` (line 2).  The positive sibling `cfg.Ratio` (`= 3.5`)
+     read the same way (cross-pkg `EXPR_SELECTOR`) is **correct** (line 1 → 7),
+     so positive `EmitConstFloat` + float-mul + `cast(int, float)` all work
+     on the native backend; only the **negative/unary-minus-folded** float
+     literal mis-lowers.
+  2. **Float function return** — `cfg.Scale()` (returns `Ratio` via an
+     in-package `EXPR_IDENT` read) reads as `0.0` (line 3), ditto
+     `cfg.NegScaled()` (line 4).  Either the native float-return ABI (value
+     should arrive in `d0`, caller reads 0) or the in-package `EXPR_IDENT`
+     float-const read is broken — 541 alone can't disambiguate (need a
+     direct-return-vs-direct-read probe).
+- **Discovery**: 2026-06-03, running `./conformance/run.sh
+  builder-comp_native_aa64-comp_native_aa64` (the aa64 lane the user
+  watches).  `541` has **no xfail markers** and its own header explicitly
+  intends cross-backend stability ("cast-to-int keeps the expected output
+  stable across backends"), so this is a genuine native-backend correctness
+  hole, not an intended skip.
+- **Why MAJOR**: silent wrong float values (reads 0 instead of the real
+  value) on a shipping backend — the exact silent-miscompile class.  The
+  IR-gen Phase A fix (above, line ~462) is correct at the IR level; the gap
+  is in the **native code generators** (`pkg/binate/native/{aarch64,x64}`),
+  which Phase A never validated (it was checked on the C/LLVM modes only).
+- **Unverified / TODO**: (a) confirm whether `native_x64*` modes fail the
+  same way (likely — same native-float codegen path; not run here, no x64
+  host) and add their xfails too; (b) disambiguate case 2 (float-return ABI
+  vs in-package float-const read) with a minimal probe; (c) `534` (the
+  `@func` bug) also fails unmarked on the aa64 lane — its xfails cover only
+  the 6 default modes, so the cross-compile lanes need 534 xfails for an
+  honest suite.
+- **Tracking**: proposed xfail `541_cross_pkg_const_float.xfail.builder-comp_native_aa64-comp_native_aa64`
+  (one-line: native aa64 mis-lowers negative float const + float return → 0).
+
 ### Drop `pkg/libc` via `__c_call` in `rt` — IN PROGRESS
 - **Plan**: [`plan-rt-ccall-drop-libc.md`](plan-rt-ccall-drop-libc.md).
   Delete `pkg/libc` (now just Malloc/Calloc/Free/Exit) by having the
@@ -317,54 +406,52 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Status**: in progress.  Replaces the canceled in-place migration
   workstream.
 
-### Package descriptors (Phase B) — VM-mode `_Package()` not yet wired — IN PROGRESS
-- **Status**: IN PROGRESS — worktree `temp-binate-6` / branch `work-6`.
-  Compiled-mode landed; VM-mode is the open piece.
-- **What works (compiled mode)**: every package now emits an immortal
+### Package descriptors (Phase B) — `_Package()` works in compiled + VM modes (builtins); general Functions-table still future
+- **Status**: compiled-mode AND VM-mode `_Package()` landed (binate
+  `feadde2c`, VM-mode for the builtin packages).  The general interop
+  Functions-table (user packages, auto-enumeration) remains future work.
+- **What works (compiled mode)**: every package emits an immortal
   static-managed `reflect.Package` descriptor node + a generated
   `_Package() @reflect.Package` accessor (codegen `emit_pkg_descriptor.bn`,
-  via the Step-5 static-managed emitter).  The type checker synthesizes the
+  via the static-managed emitter).  The type checker synthesizes the
   `_Package` signature at selector resolution (`check_expr_access.bn`
   `packageAccessorType`), IR-gen registers it as an imported extern so calls
   resolve + a `declare` emits (`gen_import.bn`), and `reflect` is force-loaded
-  (`ensureReflectLoaded`).  Pinned by `conformance/526_reflect_package_accessor`
-  (`rt._Package().Name` → "pkg/builtins/rt"), green in `builder-comp` /
-  `builder-comp-comp`.  Drives a real immortal node through the compiled
+  (`ensureReflectLoaded`).  Drives a real immortal node through the compiled
   RefInc/RefDec sentinel end-to-end (see [`plan-static-managed-sentinel.md`]).
-- **What's missing (VM mode)**: the VM can't call `_Package` —
-  `vm: extern not found: pkg/builtins/rt._Package`.  It's a codegen-only
-  function (no IR body the VM can lower) and isn't a registered VM extern.
-  Pinned by `526`'s `.xfail.builder-comp-int` / `.builder-comp-int-int` /
-  `.builder-comp-comp-int`.
-- **Fix direction**: the Phase B **interop Functions-table**
+- **What works (VM mode, binate `feadde2c`)**: the earlier "Functions-table
+  is genuinely required" finding was too pessimistic.  `_Package` is already
+  a real exported per-module symbol, and the IR/func-value path already
+  mangles a qualified `pkg._Package` reference to call it — so the only
+  blocker was the type checker rejecting `_func_handle(pkg._Package)` (it's
+  compiler-synthesized, not a `SYM_FUNC` in scope).  Two small changes wired
+  it: (1) `types/check_builtin.bn` accepts `pkg._Package` as a `_func_handle`
+  argument by name; (2) `vm/extern_register_std.bn`
+  `registerPackageDescriptorExterns` binds the builtin packages' `_Package`
+  (rt, libc, bootstrap, reflect) as VM externs.  Interpreted `pkg._Package()`
+  now dispatches through the func-value shim to the real accessor, and the
+  returned `@reflect.Package` is RefDec-safe via the static-managed sentinel —
+  exercising the sentinel end-to-end in interpreted mode too.
+- **Coverage**: `conformance/532_reflect_package_accessor`
+  (`rt._Package().Name` → "pkg/builtins/rt") now green in ALL 6 default modes
+  (the 3 VM-mode xfails removed).
+- **Still future — the general Functions-table**
   ([`notes-package-introspection.md`](notes-package-introspection.md) Phase B):
-  auto-register each compiled package's exported functions (incl. `_Package`)
-  with the VM, replacing the hand-maintained `RegisterStandardExterns`.  Then
-  the VM resolves `_Package` (and any compiled func) by name.  This also
-  unblocks the VM-side sentinel end-to-end coverage (RefDec of the returned
-  `@reflect.Package` in interpreted mode).
-- **Investigation finding (2026-06-02)**: the obvious shortcut — hand-
-  registering `rt._Package` in `RegisterStandardExterns` like `rt.Alloc`
-  (`var p *func() @reflect.Package = rt._Package; RegisterExtern(...,
-  _raw_func_addr(rt._Package))`) — does NOT compile: `_func_handle argument
-  must be a named function`.  The synthesized `_Package` is codegen-only and
-  isn't a "named function" that `_func_handle` / `_raw_func_addr` accept, and
-  taking a Phase-1 func-value of it doesn't go through the normal
-  OP_FUNC_VALUE machinery.  So the Functions-table is genuinely required:
-  **codegen must emit each `_Package`'s function-VALUE directly** (the
-  {vtable, data} pair, as it already does for the descriptor node), in a
-  per-package table the VM walks — bypassing the source-level `_func_handle`
-  builtin entirely.
-- **Design crux for the table**: the VM needs to ENUMERATE all packages'
-  tables (open Q4 in notes-package-introspection.md — the cross-package
-  registry).  Also note the compiled-vs-interpreted split: builtins (rt, …)
-  are compiled INTO the bni binary (their `_Package` is a real symbol the VM
-  could dispatch); user packages run as interpreted bytecode and have no
-  bytecode `_Package` body at all — so the table + registry is the uniform
-  answer for both.
-- **Next slices (Phase B)**: the `Functions` table on `reflect.Package`
-  (name + signature + function-value per exported func); then richer type
-  metadata (Phase C) for reflection/printing + RTTI for type assertions.
+  `registerPackageDescriptorExterns` is a hand-maintained precursor covering
+  only the builtins compiled INTO the host binary (their `_Package` is a real
+  symbol the shim can call).  USER packages run as interpreted bytecode and
+  have no `_Package` body — those need the real table: codegen emits a
+  per-package `Functions` table (name + signature + function-value per
+  exported func), and the VM auto-enumerates all packages' tables (the
+  cross-package registry, open Q4 in the notes — likely a linker section with
+  start/stop symbols) to bind names → function values, replacing the hand-
+  maintained `RegisterStandardExterns` entirely.  Then richer type metadata
+  (Phase C) for reflection/printing + RTTI for type assertions.
+- **Linter caveat (see "bnlint typechecks dependency bodies" + lint-skip
+  entries)**: `registerPackageDescriptorExterns` is the first `_Package`
+  reference in *linted* source, which the BUILDER-bundled bnlint can't yet
+  typecheck — `scripts/hygiene/lint.sh` temporarily skips pkg/binate/vm +
+  pkg/binate/repl + cmd/bni until the next BUILDER bump.
 
 ### Untyped single const (`const X = 5`) is not forward-referenceable — same collectDecls gap, distinct from the (fixed) group case
 - **Symptom**: a top-level untyped single const with no explicit type
@@ -1668,6 +1755,35 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - Output: a plan / decision doc in `explorations/`. Reorganization is
   a follow-up project.
 
+### Tier + dependency-direction hygiene checks (enforce `pkg-layout-spec.md`)
+- **What**: a hygiene check (new script under `scripts/hygiene/`, alongside
+  `conformance-imports.sh`) that enforces the tier dependency-direction rule
+  from [`pkg-layout-spec.md`](pkg-layout-spec.md): a package may import only
+  packages at its own tier or **lower**; importing a strictly-higher tier is
+  a violation.  Tiers, low→high: 0 / 0b (`pkg/builtins/*`) < 1 (`pkg/std/*`)
+  < 1x (`pkg/stdx/*`) < 2 (`pkg/<org>/*`, e.g. `pkg/binate/*`) < 3
+  (app-specific).  E.g. `pkg/builtins/rt` importing `pkg/std/io` is illegal;
+  `pkg/binate/parser` importing `pkg/std/os` is fine.  (This is the runtime
+  enforcement of the spec's "Transitive constraint" + tier table.)
+- **Special case — `pkg/std` → `pkg/stdx`**: tier 1 (`std`) may depend on
+  tier 1x (`stdx`) **internally** (in `.bn` impl files) but **not externally**
+  (in `.bni` interface files).  A `.bni` importing `stdx` would leak a
+  no-inter-version-compat (1x) type into `std`'s strict-compat (tier 1)
+  surface.  So the check must scan `.bni` imports separately from `.bn`
+  imports: the std→stdx edge is allowed only from `.bn`.  (Generalize if
+  other interface-vs-impl tier asymmetries surface.)
+- **How**: derive each package's tier from its path — the realized layout
+  makes tier path-derivable (`ifaces/core` + `impls/core/*` → tier 0/0b;
+  `ifaces/stdlib/pkg/std` → tier 1, `…/pkg/stdx` → tier 1x; `pkg/binate/*`
+  → tier 2).  Walk every package's imports (split by `.bni` vs `.bn`), map
+  importer + imported to tiers, flag any higher-than-self edge, applying the
+  std/stdx interface refinement.  A whitelist file (cf.
+  `conformance-imports.whitelist` / `naming.whitelist`) covers sanctioned
+  exceptions.
+- **Scope** (per CLAUDE.md "Stay Within the Asked Scope"): add the script
+  only; wiring it into `scripts/hygiene/run.sh` and CI is a separate decision
+  for the user.
+
 ### Conformance tests: consider a separate repo
 - Running conformance tests in CI creates a circular dependency: the bootstrap repo needs the binate repo (which contains the test cases), and the binate repo needs the bootstrap binary (to run the tests)
 - Consider moving conformance tests to their own repo (e.g., `binate/conformance`) that both repos reference
@@ -1733,6 +1849,30 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - **Better filtering (individual test functions)**: ability to specify individual test functions, not just packages (e.g., `run.sh boot-comp pkg/ir TestFoo`).
 - **Timeout/hang handling**: better and/or automatic detection and handling of tests that hang.
 - **Parallelization**: consider running test packages in parallel within a mode.
+
+### Conformance-test renumbering + next-free-number helper scripts
+- **What**: two small scripts that take the manual bookkeeping out of
+  conformance test numbers, complementing the existing
+  `scripts/hygiene/conformance-test-numbers.sh` (which only *detects*
+  duplicate numbers — it doesn't pick or reassign them):
+  1. **Find next available number**: print the next free `NNN` prefix
+     (decide the policy — lowest unused vs. next after the current max;
+     numbers currently have gaps, e.g. max is 541 with 522/526/530–539
+     unused).  Handy when authoring a new test.
+  2. **Renumber a test**: given a test name/number, move it to a free
+     number, renaming **all** of its files together — `NNN_name.bn` (or
+     the `NNN_name/` directory for multi-file tests), the `.expected` /
+     `.error` sidecar, and every `NNN_name.xfail.<mode>` sidecar.  Default
+     target = next free number; allow an explicit target.  Primary use:
+     resolving the duplicate-number collisions the hygiene check flags
+     (e.g. when two branches both grabbed the same `NNN`).
+- **Details to get right**: a test is single-file (`NNN_name.bn` + one of
+  `.expected`/`.error`) OR multi-file (`NNN_name/` dir); the rename must
+  carry the full sidecar fan-out (one `.xfail.<mode>` per applicable mode in
+  `conformance/run.sh`).  Use `git mv` so history follows.  Only the `NNN`
+  prefix changes; the `_name` suffix is preserved (unless a rename is also
+  explicitly requested).
+- **Scope**: add the scripts only; no CI/hook wiring (user's call).
 
 ### ARM32 bare-metal target — MAJOR PROJECT
 - **Why**: enable Binate as an OS-development language on ARM32
