@@ -152,30 +152,21 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Tests** (xfailed in the VM modes builder-comp-int / -comp-comp-int / -int-int): 554_iface_refcount_balance (A), 555_iface_struct_field_balance (B).  A focused minimal VM repro for each should be added.
 - **Status**: discovered 2026-06-03 verifying/extending the `@Iface` refcount fix; needs a `pkg/vm` fix.  Likely also un-blocks 520.
 
-### Bytecode VM loads large-exponent float64 constants imprecisely (silent wrong value)
-- **Symptom**: a float64 literal with a large exponent — e.g. `1e100` — has
-  the correct nearest-double bit pattern 6103021453049119613 (per Go's
-  math.Float64bits) on the LLVM and native (arm32/aarch64) backends, but the
-  bytecode VM evaluates it as 6103021453049119616 (a few ULP off).
-  `bit_cast(int64, 1e100)` prints the wrong value under any VM (`int`) mode.
-  Smaller exponents (1e20 and below) are fine.
-- **Impact**: any VM-mode program using a large-exponent float64 constant
-  gets a slightly-wrong value, silently.  Surfaced while testing
-  `strconv.FormatFloat`: `FormatFloat(1e100, 'e', -1, 64)` gave
-  "1.0000000000000006e+100" on the VM vs "1e+100" on LLVM — the dtoa is
-  correct; its input constant was wrong.
-- **Root cause (suspected)**: the IR float constant is correct (LLVM and the
-  native backends, which consume the IR value directly, agree on ...613), so
-  the lexer/parser literal conversion is fine.  Only the VM diverges, so the
-  defect is in how the bytecode encodes/loads a float64 constant — likely a
-  lossy round-trip (e.g. re-serializing the constant to decimal and
-  re-parsing it with an imprecise large-exponent parser) in the VM's
-  constant-loading path.  Needs investigation in pkg/binate/vm (the float
-  constant load) and the bytecode constant encoding.
-- **Test**: `conformance/536_float_lit_large_exp` (xfail on the VM modes:
-  builder-comp-int / builder-comp-int-int / builder-comp-comp-int).
-- **Severity**: MAJOR — a silent wrong float64 value on the VM, but narrow
-  (only large-exponent constants; arithmetic and small constants are fine).
+### Conformance int-int mode: `136_grouped_imports` + `383_cross_pkg_iface_dtor` fail with "pkg/builtins/rt not found"
+- **Symptom**: on `builder-comp-int-int` (the double-VM default mode),
+  `136_grouped_imports` and `383_cross_pkg_iface_dtor` fail at compile time
+  with `package "pkg/builtins/rt" not found`.  Both PASS on `builder-comp-int`
+  and `builder-comp-comp-int`; the other ~468 int-int tests pass.
+- **Pre-existing**: confirmed on clean `17c722d1` (reproduced with the
+  pre-float-fix VM tree), so NOT caused by the float-constant work; it is a
+  recent main regression in the int-int package-resolution path.
+- **Root cause (unknown)**: only certain multi-package tests can't resolve
+  `rt` in the int-int pipeline; needs investigation of how that mode locates
+  the `rt` package (vs the single-int / comp-int modes that succeed).
+- **Discovery**: 2026-06-03, full-suite regression sweep while landing the
+  float-constant fix (536).
+- **Severity**: MAJOR — a default conformance mode is red, masking real
+  coverage on those tests.
 
 ### Managed-interface-value refcount lifecycle is unwired — FAMILY of leaks + 1 UAF — IN PROGRESS / NEEDS DECISION
 - **Root cause (CONFIRMED)**: managed interface values (`@Iface`) were added to the language, but the refcount *lifecycle* machinery in `pkg/binate/ir` was only ever wired for managed-ptr / managed-slice / struct — **never iface**.  Three distinct sites are missing the `isManagedIfaceValueType` case, producing three bugs:
@@ -292,6 +283,15 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
      so positive `EmitConstFloat` + float-mul + `cast(int, float)` all work
      on the native backend; only the **negative/unary-minus-folded** float
      literal mis-lowers.
+     **FIXED 2026-06-03 (binate `5281b138`)**: the root cause was
+     `common.ParseFloatLitToBits` (the shared text→bits converter used by
+     every native backend) silently dropping a leading `-` in the folded
+     literal text and returning 0; it now honors the sign.  Verified at unit
+     level (`TestParseFloatSigned`) and via `541` on the VM modes (the VM was
+     made to route through the same converter).  The native aa64 *lane* can't
+     confirm end-to-end because it no longer links (the duplicate-symbol entry
+     above), but the converter is the shared piece and native's emit path was
+     already correct for positive consts.  Case 2 below is still open.
   2. **Float function return** — `cfg.Scale()` (returns `Ratio` via an
      in-package `EXPR_IDENT` read) reads as `0.0` (line 3), ditto
      `cfg.NegScaled()` (line 4).  Either the native float-return ABI (value

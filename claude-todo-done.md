@@ -6,6 +6,32 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~Float literal text→bits conversion wrong for large-exponent + signed literals (536 + native 541 case 1)~~ — DONE 2026-06-03 (binate `5281b138`)
+- **What was wrong**: a float literal's value rides the IR as text
+  (`OP_CONST_FLOAT.StrVal`), parsed per-backend.  Two parsers were broken:
+  the VM's `parseFloatLit` computed `10^exp` by repeated float64 multiply
+  (imprecise — `1e100` a few ULP off, = conformance 536), and the native
+  backends' `common.ParseFloatLitToBits` computed `mantInt * 10^netExp` in
+  uint64 which **overflowed for |value| ≥ ~1e20** (silent miscompile on every
+  native backend, latent because no native test used large-exponent literals).
+  It also dropped a leading `-` in const-folded negative literals (541 case 1).
+- **Fix**: one correct integer-only converter — a 128-bit (hi:lo) mantissa
+  window, decimal `10 = 5×2` factored into a binary exponent (5^n via 128-bit
+  ×5/÷5 chunking, 2^n via the exponent), 53-bit significand rounded
+  nearest-even with a sticky bit, plus leading-sign handling.  The VM now
+  routes `OP_CONST_FLOAT` through `common.ParseFloatLitToBits`, so the constant
+  is identical across LLVM, the VM, and all native backends; the VM's own
+  parser was deleted.
+- **Verification**: a line-for-line Go transcription matched
+  `strconv.ParseFloat` across 701k cases (1eN..1e308, 1e-N..smallest denormal,
+  tie-prone integers, random mantissas, signed).  536 un-xfailed, green on all
+  6 default modes; 541 green on the VM modes; full conformance clean on
+  LLVM/gen2/gen3 + the VM modes (modulo the pre-existing 520 -int red).
+- **Still open**: 541 case 2 (native float-function-return ABI reads 0) and the
+  aa64 self-host link failure remain in [claude-todo.md](claude-todo.md).
+  Possible cleanup: `common.ParseFloatLitToBits` is now shared by the VM too,
+  so it arguably belongs in a neutral layer rather than under `native/`.
+
 ### ~~`pkg/math/big.Nat` + `strconv` float formatting (Dragon4 dtoa)~~ — DONE 2026-06-03
 - Plan: [`plan-strconv-float.md`](plan-strconv-float.md) (now marked COMPLETE).
 - **What landed**: `pkg/math/big.Nat` — a complete ILP32-correct
