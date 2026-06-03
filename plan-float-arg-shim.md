@@ -1,8 +1,33 @@
 # Plan: float-argument support for the function-value / extern shim path
 
-Status: **APPROVED — in progress** (2026-06-03). Design A chosen; landed
-standalone (ahead of, and unblocking, the bootstrap native-only work in
-[`plan-bootstrap-ccall.md`](plan-bootstrap-ccall.md)).
+Status: **MECHANISM LANDED** on binate work-2 (`85a3a167`), 2026-06-03 —
+Design A. Verified green across all default LLVM modes (full
+`builder-comp` 478/0; full `builder-comp-int` clean except the
+pre-existing `520` `@Iface`-dtor VM bug; func-value+float subset green in
+`builder-comp-comp` / `-comp-int` / `-int-int`) plus codegen + vm unit
+tests in `builder-comp` and `builder-comp-int`; hygiene clean. Native
+self-host lanes (`builder-comp_native_aa64-...`) could NOT be exercised —
+that lane is pre-existing-RED at compiler-build time (`duplicate symbol
+predeclaredNil`, see claude-todo), unrelated to this change (which is
+LLVM-backend-only). Unblocks the bootstrap native-only work in
+[`plan-bootstrap-ccall.md`](plan-bootstrap-ccall.md); pending cherry-pick
+to main.
+
+## Testing note (discovered during implementation)
+
+The `-int` bug is **only** reachable when a BYTECODE caller invokes a
+NATIVE, non-trampoline float callee through `@__shim` — i.e. a registered
+float **extern**. A *user* float func-value in `-int` is bytecode (or an
+all-int trampoline re-entry), so its float travels as a type-erased
+64-bit VM slot and round-trips fine *without* the fix. So the conformance
+tests below (550-554) are **compiled-mode guards** for the ABI reshape;
+they pass on baseline and do NOT catch the bug. The canonical
+bug-reproduction is the **VM unit tests** `pkg/binate/vm`
+`TestExternFloat{Arg,Return,32Arg}ViaRegistry`, which register a native
+float function as an extern and call it from hand-built bytecode (the
+exact shape the bni host hits for `bootstrap.formatFloat`). Confirmed:
+those two/three fail on the clean `aae8ea43` baseline and pass after the
+change.
 
 ## Problem
 
@@ -139,9 +164,12 @@ commit with the tests.
 - **Step 3** — `emitCallFuncValue` / `emitFuncValueArgList` int-ify float
   args + bitcast the int return back to float. Closes the loop; compiled
   mode green again under the new ABI.
-- **Step 4 (proof)** — func-value-float conformance + codegen unit tests
-  (below) go green in **all** modes, including `-int`. This validates the
-  mechanism end-to-end independent of bootstrap.
+- **Step 4 (proof)** — the canonical repro is the **VM unit tests**
+  (`pkg/binate/vm` `TestExternFloat*ViaRegistry`): a bytecode caller
+  invokes a native float extern via the registry — fails pre-change,
+  passes after (see Testing note above). Plus codegen golden tests
+  (int-ified shim + call site) and conformance 550-554 as compiled-mode
+  ABI-reshape guards. Validates the mechanism independent of bootstrap.
 
 After this lands, the bootstrap native-only work (`plan-bootstrap-ccall.md`)
 is unblocked: registering `bootstrap.formatFloat` as a native extern then
@@ -149,8 +177,14 @@ dispatches correctly in `-int`.
 
 ## Test plan
 
-New conformance tests (run in **all** default modes incl. `-int`) — these
-are the coverage gap that hid the latent bug:
+New VM unit tests (`pkg/binate/vm`) — the canonical bug repro (bytecode
+caller -> native float extern via the registry):
+`TestExternFloatArgViaRegistry` (float64 arg), `TestExternFloatReturn-
+ViaRegistry` (float64 arg + return), `TestExternFloat32ArgViaRegistry`
+(float32 / i32 slot). These FAIL on baseline and pass after the fix.
+
+New conformance tests (run in **all** default modes; compiled-mode
+ABI-reshape guards — they pass on baseline, see Testing note):
 1. Float-arg func value, scalar return: `var f *func(float64) int = …`.
 2. Float-return func value: `var f *func() float64 = …`.
 3. **Bit-exact round-trip** through a func value:

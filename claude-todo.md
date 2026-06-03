@@ -254,6 +254,33 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Marker**: the skip block carries a `TODO(remove after next release)`
   pointing here.
 
+### Native aa64 self-host lane fails to BUILD — `duplicate symbol _bn_pkg__binate__types__predeclaredNil` (62 dup symbols) — MAJOR, pre-existing regression
+- **Symptom**: `./conformance/run.sh
+  builder-comp_native_aa64-comp_native_aa64 <any>` fails at compiler-build
+  (link) time: `duplicate symbol '_bn_pkg__binate__types__predeclaredNil'
+  in main.o and pkg__binate__types.o`, `ld: 62 duplicate symbols`,
+  `error: link failed`. The lane never reaches running any test.
+- **Pre-existing / recent**: reproduces identically on clean `aae8ea43`
+  (so NOT caused by the float-arg-shim work). But the `541` entry below
+  (filed 2026-06-03, same day) documents the lane *running tests* and
+  producing wrong output — i.e. it BUILT then. So the build break is a
+  very recent main regression that landed after that entry, and it now
+  masks `541` (and every other aa64-lane test) entirely.
+- **Likely cause (unconfirmed)**: `predeclaredNil` is a top-level managed
+  nil sentinel in `pkg/binate/types`; a duplicate-symbol-across-TUs for a
+  top-level managed var points at the **static-managed sentinel** work
+  (IN PROGRESS, see below) emitting the sentinel with external linkage in
+  every referencing TU instead of once (should be a single definition /
+  `weak`/`linkonce`). This is the silent-... no, *loud*-miscompile class
+  (link failure), but it's a mangler/linker-emission bug.
+- **Discovery**: 2026-06-03, attempting to verify the float-arg-shim
+  conformance tests on the aa64 lane.
+- **Next**: confirm whether the static-managed-sentinel change introduced
+  it (bisect on main) and fix the linkage of top-level managed-var
+  sentinels (single definition). Until fixed, the aa64 self-host lane is
+  unbuildable and all its test-level todos (`541`, `534` aa64 xfails) are
+  blocked behind it.
+
 ### Native backends mis-lower float consts/returns — `541` silently reads 0 (Phase A float-const gap on the native code generators)
 - **Symptom**: `conformance/541_cross_pkg_const_float` passes on the
   default C/LLVM-backed modes but **fails on the native aarch64 backend**
@@ -312,9 +339,18 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   statement form), so void C calls don't carry a misleading return type.
 - Surfaced 2026-06-03 by the drop-libc work.
 
-### Float function-values are silently miscompiled in the VM (`-int` modes) — IN PROGRESS
+### Float function-values are silently miscompiled in the VM (`-int` modes) — MECHANISM LANDED on work-2 (pending cherry-pick)
 - **Plan**: [`plan-float-arg-shim.md`](plan-float-arg-shim.md). Design A
-  (uniform all-`int` shim ABI) approved 2026-06-03.
+  (uniform all-`int` shim ABI) approved 2026-06-03; landed on binate
+  work-2 `85a3a167`, verified across all default LLVM modes + codegen/vm
+  unit tests, hygiene clean. Pending cherry-pick to main; then the
+  bootstrap native-only work below is unblocked.
+- **Canonical repro**: `pkg/binate/vm` `TestExternFloat*ViaRegistry` (a
+  bytecode caller invoking a native float extern via the registry) — the
+  only path that hits the bug; user float func-values in `-int` are
+  bytecode/trampoline (all-int VM slots) and round-trip fine without the
+  fix, so the conformance 550-554 tests are compiled-mode reshape guards,
+  not the repro.
 - **Symptom**: a function-value call with a `float64`/`float32` arg or
   return produces the wrong value in any `-int` (bytecode VM) mode.
   Compiled modes are correct. Currently masked: there is *zero* test
