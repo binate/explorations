@@ -82,6 +82,53 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### `pkg/slices` → `pkg/stdx/slices` (tier-1x layout move)
+- **What**: move `pkg/slices.bni` + `pkg/slices/slices.bn` to the
+  tier-1x layout per pkg-layout-spec.md (which explicitly cites
+  `pkg/stdx/slices` as the canonical example).  Target paths:
+  `ifaces/stdlib/pkg/stdx/slices.bni` +
+  `impls/stdlib/common/pkg/stdx/slices/slices.bn` (slices is pure
+  Binate, no platform variants — common only).
+- **Scope**: file move + `package "pkg/slices"` →
+  `"pkg/stdx/slices"` + every `import "pkg/slices"` →
+  `"pkg/stdx/slices"` across the tree (cmd/bnc, cmd/bni,
+  cmd/bnlint, cmd/bnas, all of pkg/binate/*, conformance tests,
+  e2e scripts, hygiene whitelists).  Mangled symbols:
+  `bn_pkg__slices__*` → `bn_pkg__stdx__slices__*`.
+- **No release dance needed**: BUILDER bnc has no hardcoded
+  literal referencing `pkg/slices` (verified: `strings bnc | grep
+  slices` is empty).  BUILDER's compiled-in codegen / gen_print
+  emits no `bn_pkg__slices__*` calls into checkout source, so
+  there's no OLD-name leftover that requires runtime aliases.
+  Direct cherry-pick to main; no BUILDER bump required.
+- **Why**: structural consistency.  Generic helpers belong in
+  stdx where the spec puts them, and the tier-1x layout signals
+  the "no inter-version compat" stability story honestly.
+- **When**: after `bnc-0.0.7` ships (which carries the pkg/bootstrap
+  + pkg/libc moves).
+
+### `pkg/bignum` → `pkg/binate/bignum` (tier-2 layout move)
+- **What**: move `pkg/bignum.bni` + `pkg/bignum/bignum.bn` to
+  `pkg/binate/bignum.bni` + `pkg/binate/bignum/bignum.bn`
+  (collocated tier-2 under the `binate` org slot, matching
+  pkg/binate/{ast,buf,codegen,ir,...}).
+- **Rationale**: bignum's only consumer today is `cmd/bnc`'s
+  type checker (compile-time constant arithmetic).  Its
+  docstring frames it as "shaped as an abstraction so a future
+  bignum drop-in can fit," but it's currently an internal
+  toolchain utility — tier-2 under `pkg/binate/` is honest about
+  the current scope.  If/when an external consumer wants
+  general-purpose bignum, promote to tier-1x at
+  `pkg/stdx/bignum` then — don't pre-position.
+- **Scope**: file move + `package "pkg/bignum"` →
+  `"pkg/binate/bignum"` + every `import "pkg/bignum"` →
+  `"pkg/binate/bignum"` (cmd/bnc + pkg/binate/types + any tests).
+  Mangled symbols: `bn_pkg__bignum__*` →
+  `bn_pkg__binate__bignum__*`.
+- **No release dance needed**: same reasoning as pkg/slices —
+  BUILDER bnc has no hardcoded literal for `pkg/bignum`.  Direct
+  cherry-pick to main; no BUILDER bump required.
+
 ### `len()` on a bare string literal mis-lowers the literal (silent wrong value on the VM) — IN PROGRESS
 - **Status**: IN PROGRESS — worktree `temp-binate-5` / branch `temp-5`.
 - **Symptom**: `len("true")` — a string literal used *directly* as the
