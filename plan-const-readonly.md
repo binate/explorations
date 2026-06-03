@@ -17,6 +17,17 @@ single-`const` scheme and proposed extending IR-gen to lower more types
 under that one keyword.  This plan restructures the surface instead;
 the IR-gen story falls out cleanly from the new per-form split.
 
+> **Status: COMPLETE (2026-06-03).**  All nine phasing steps landed on
+> `main`: spec doc → parser accepts `readonly` → `bnc-0.0.6` release →
+> per-package `const T`→`readonly T` rename → parser drops the `const`
+> type modifier → scalar-only-const + must-have-value + `&const`
+> enforcement → string-typed-const IR-gen (`CONST_STR`) removal →
+> `pkg/binate/version` migrated to a package-private `var` → linter
+> `uninitialized-readonly-global` rule.  Known deferrals tracked in
+> `claude-todo.md`: `readonly`-slice slicing, `.bni` extern-var support
+> (so `version` could re-export), and `&pkg.Const` (qualified-const
+> address).
+
 ## The problem
 
 Today's `const` covers two genuinely-different concepts:
