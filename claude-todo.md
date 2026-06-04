@@ -608,29 +608,30 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   fan of per-mode xfail files.
 - Surfaced 2026-06-03 by the drop-libc / native-only-rt work.
 
-### VM clobbers ≥2 distinct global addresses in one instruction (shared `globalReg`) — IN PROGRESS 2026-06-03
-- **Symptom**: silent wrong-code in the bytecode VM when ONE instruction
-  takes two (or more) distinct global addresses as args — e.g.
-  `func f() (*int,*int) { return &G, &H }` or `&G == &H` or
-  `g(&G, &H)`.  All but the LAST global arg read the wrong address.
-  Concrete: `return &G, &H` yields `(&H, &H)`; `&G == &H` compares
-  `&H == &H` (→ true).  Compiled backend is correct.
-- **Root cause**: `pkg/binate/vm/lower_func.bn` (third pass, ~245-258)
-  materializes EVERY `IsGlobalRef` arg into the single shared `globalReg`
-  via consecutive `LOAD_IMM`s and sets `Args[k].ID = globalReg`.  For two
-  global args of the SAME instruction the second `LOAD_IMM` clobbers the
-  first before the instruction consumes either, so both args reference
-  `globalReg` holding the last address.  The existing "per-use LOAD_IMM"
-  comment handles CROSS-instruction clobbering but misses the
-  INTRA-instruction case.
-- **Fix direction**: materialize each global-address arg of an
-  instruction into a DISTINCT register (not the one shared `globalReg`),
-  so concurrent global args in one instruction don't alias.  Must update
-  both the instruction-count pass (first pass) and the emit pass (third
-  pass) consistently so block offsets agree.
-- **Test**: `conformance/573_addr_of_two_globals_one_instr` (correct in
-  the 3 compiled modes; xfailed in the 3 VM (`-int`) modes pending this
-  fix).
+### ~~VM clobbers ≥2 distinct global addresses in one instruction (shared `globalReg`)~~ — RESOLVED 2026-06-03 (binate `d5d31b13`)
+- **Was**: silent wrong-code in the bytecode VM when ONE instruction took
+  two (or more) distinct global addresses as args — `return &G, &H`,
+  `&G == &H`, `g(&G, &H)`.  `lower_func.bn` materialized EVERY
+  `IsGlobalRef` arg into the single shared `globalReg` via consecutive
+  `LOAD_IMM`s, so the second clobbered the first before the instruction
+  consumed either: `return &G, &H` yielded `(&H, &H)`; `&G == &H`
+  compared `&H == &H`.  Compiled backend was correct (each `@<mangled>`
+  is an independent operand).
+- **Fix**: reserve one global-address register per global arg of the
+  widest instruction (`findMaxGlobalsPerInstr`), floored at one so a
+  function with 0 or 1 global args keeps the prior frame layout exactly
+  (only genuinely multi-global instructions change).  The emit pass
+  assigns each global arg its own register (`globalRegBase + g`) instead
+  of the single shared one.  The first-pass `LOAD_IMM` count is unchanged
+  (one per global ref — only the Dst register differs), so block offsets
+  still agree.
+- **Tests**: `conformance/573_addr_of_two_globals_one_instr` un-xfailed —
+  green in all 6 modes.  Unit `TestLowerGlobalRefMultiplePerInstr`
+  (`vm/lower_func_test.bn`) pins that two globals in one instruction load
+  into DISTINCT registers.  Verified: full VM suites
+  `builder-comp-int` 492/0, `builder-comp-comp-int` 492/0,
+  `builder-comp-int-int` 489/2 (the 2 are `136`/`383`, the pre-existing
+  int-int loader bug, unrelated).
 - **Discovery**: 2026-06-03, expanding the `551` `&G`-as-value test
   (above) to cover multi-global instructions exposed it.  Pre-existing;
   the simple single-global `551` never triggered it.
