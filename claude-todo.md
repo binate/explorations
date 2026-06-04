@@ -263,8 +263,9 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   site uses).  conformance/586 pins it deterministically via refcounts;
   pkg/binate/vm TestWrappedCapturingPollSuspends covers the wrapper-poll
   shape.  Full conformance green (513 comp / 507 int).
-- **Unblocks**: the VM-free repl poll (request #3 of the repl-improvements
-  work).  Work preserved on binate branch `repl-poll-wip`.
+- **Unblocked + the VM-free poll is now LANDED 2026-06-04** (binate
+  `e3dc0d07`): repl's SetPoll takes a VM-free `@func() PollResult`, so
+  the ReplSession interface no longer mentions pkg/binate/vm.
 
 ### `136_grouped_imports` / `383_cross_pkg_iface_dtor` — `package "pkg/builtins/rt" not found` under int-int (pre-existing loader bug)
 - **Symptom**: both fail ONLY in `builder-comp-int-int` with
