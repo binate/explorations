@@ -88,9 +88,9 @@
 
 **Interior pointers**: you can take a raw pointer to a field within any struct (managed or raw). For managed structs, this is dangerous — the managed struct could be freed while the interior pointer is live. Same risk profile as raw-pointer-to-managed-struct.
 
-### Arrays and strings — IN PROGRESS
+### Arrays and strings — DECIDED
 
-### Slices/views — IN PROGRESS
+### Slices/views — DECIDED
 
 `char[]` (and arrays of unspecified size generally) are **slices** — a view into underlying data, not a container of data themselves.
 
@@ -210,7 +210,7 @@ Binate will have **multiple specs**, not one monolith. The split:
 - `pkg/rt` — the runtime contract. The current `pkg/rt` is a grab-bag and needs a review pass: what truly belongs there as language-runtime, what doesn't, and what should be made internal/private (no `.bni` surface) versus part of the normative spec.
 - A future reflection / introspection package (yet-to-be-designed). Packages should automatically produce reflection information, including a list of function values for exported functions. The primary spec describes the shape of that introspection surface.
 
-**Minor secondary spec — testing.** `_test.bn` file naming/packaging convention and `pkg/builtin/testing`. The primary spec needs at least a one-line note that user files cannot be named `*_test.bn` (reserved). Everything else about the testing convention is secondary and may be folded into the primary spec or kept separate — TBD.
+**Minor secondary spec — testing.** `_test.bn` file naming/packaging convention and `pkg/builtins/testing`. The primary spec needs at least a one-line note that user files cannot be named `*_test.bn` (reserved). Everything else about the testing convention is secondary and may be folded into the primary spec or kept separate — TBD.
 
 **Major secondary spec(s) — standard library.** I/O, containers, formatting, string utilities, etc. Possibly split across multiple specs by area. The bar for "is this in the stdlib spec" is high enough that omitting it is the default.
 
@@ -249,7 +249,7 @@ Benefits:
 ### Untyped pointers & casting — DECIDED
 
 - **`*uint8`** is the opaque byte pointer type (equivalent to C's `void*`). Use `bit_cast` to convert to/from typed pointers. This is what `pkg/rt` uses for `Alloc`, `Free`, `RefInc`, `RefDec`, `Box`, etc.
-- **`any`** will eventually be the empty interface type (2 words: data ptr + vtable ptr). `*any` would then be a pointer to an interface value — NOT equivalent to `void*`. (Not yet implemented.)
+- **`any`** is the empty interface type (2 words: data ptr + vtable ptr). `*any` is a pointer to an interface value — NOT equivalent to `void*`.
 - **`cast(T, expr)`**: value conversion (e.g., `cast(int, myFloat)`). Explicit, required between named types.
 - **`bit_cast(T, expr)`**: reinterpret bits. No conversion, no checking. The "I know what I'm doing" escape hatch.
 - Both are builtins (like `make`), not functions — they take types as first arguments.
@@ -362,7 +362,7 @@ interface declarations.
 
 Not a type qualifier (unlike C). Instead, builtin functions for volatile reads/writes. Volatility is at the point of access, not on the type. Avoids viral type annotations, keeps the type system simpler, and makes every volatile access explicit at the use site.
 
-### Type system — IN PROGRESS
+### Type system — DECIDED
 
 Statically typed. Compiled and interpreted modes use the **same type system and rules**. The difference is only *when* checks run.
 
@@ -464,7 +464,7 @@ produces a single literal `"expected 'func', 'type', 'var', 'const', 'import', o
 
 ### Type system richness
 
-**Generics**: originally punted, but reconsidering — see discussion below.
+**Generics**: implemented — monomorphized, interface-constraint-based (see the Generics section below).
 
 **Sum types**: not included. The type calculus and inference complexity is too high for the simplicity goal. Tagged unions (defined in one place, fixed variants) are a simpler alternative — to discuss separately.
 
@@ -486,7 +486,7 @@ Rationale:
 - Library maps allow implementation flexibility (hash map, tree map, open addressing, etc.) rather than locking in one implementation.
 - Binate targets small systems — not every program needs a hash table. Import only if needed.
 
-For the bootstrap (no generics), two viable approaches:
+Before generics landed, two viable approaches were considered:
 - Concrete map types per key/value combination (`StringToInt`, `StringToType`, etc.) — more code but translates cleanly to generic `Map[K, V]` later.
 - Sorted arrays + binary search — simpler, sufficient for bootstrap-scale symbol tables.
 
@@ -526,11 +526,11 @@ const (
 
 **Discriminated/tagged unions**: punted for v1. Desirable but not essential.
 
-### Interfaces — PLAN RATIFIED, IMPLEMENTATION IN PROGRESS
+### Interfaces — IMPLEMENTED
 
-Full design lives in `plan-interface-syntax-revision.md` (RATIFIED 2026-05-01). Phase 1 (parse + type-check `interface X { ... }` declarations) is done in the binate repo. Subsequent slices land in order: bare-interface-name as type expression for `*Iface` / `@Iface`, `impl T : Iface`, vtable dispatch, generics atop the same machinery.
+Full design lives in `plan-interface-syntax-revision.md` (RATIFIED 2026-05-01). Implemented end-to-end: `interface X { ... }` declarations, bare-interface-name as a type expression for `*Iface` / `@Iface`, `impl T : Iface`, vtable dispatch, and generics atop the same machinery.
 
-**Status (2026-05-07):** Slices 2.0–2.5b done (decl + impl + dispatch + scope-exit refdec + vtable dtor slot wired through). Cross-package work in `plan-cross-package-interfaces.md` is feature-complete: canonical (R, I) mangling, qualified iface refs, IR-gen impl-table threading, orphan-free duplicate impls. Mixed-mode iface dispatch (compiled ↔ VM across packages) is a parked follow-up.
+Cross-package interfaces are feature-complete (canonical (R, I) mangling, qualified iface refs, IR-gen impl-table threading, orphan-free duplicate impls). Mixed-mode iface dispatch (compiled ↔ VM across packages) is a parked follow-up.
 
 **Core design:**
 - Interfaces are declared top-level with a set of method signatures, using a dedicated `interface` keyword (not `type X interface { ... }` — which is dropped):
@@ -583,7 +583,7 @@ Receiver-kind preference (informational, not a hard rule): `*T` and `*readonly T
 
 **Struct definitions in `.bni` files**: A struct fully defined in the `.bni` is the **authoritative definition**. It does NOT need to be redefined in the `.bn` files. The `.bni` definition is compiled as part of the package — the compiler processes both `.bni` and `.bn` files.
 
-**Forward struct declarations** (future): A `.bni` could declare `type Foo struct` without fields, meaning "Foo exists, it's a struct, but the full definition is in the `.bn` files." This is analogous to C's `struct foo;` forward declaration. Not yet implemented — currently all struct definitions in `.bni` files are full definitions.
+**Forward struct declarations**: A `.bni` can declare `type Foo` (no body), meaning "Foo exists but the full definition is in the `.bn` files" — analogous to C's `struct foo;` forward declaration. The type stays opaque to importers (they hold pointers/handles but can't read fields or take its size).
 
 **Impl syntax — DECIDED**: `impl ReceiverType : Interface, Interface2, ...`
 - Receiver-type-first, colon separator, comma-separated interfaces.
@@ -613,7 +613,7 @@ func (f *FileHandle) write(buf *[]readonly char) int { ... }
 func (f *FileHandle) close() { ... }
 ```
 
-**Generics — RECONSIDERED**:
+**Generics — DECIDED**:
 - Generic types AND functions, with interface constraints on type parameters.
 - No type inference for generics — always spell out type params fully (can relax in v2).
 - Monomorphized.
@@ -674,7 +674,7 @@ The practical effect: `*Comparable` is a useful type for interface-value variabl
 
 **Status.**  DECIDED 2026-05-12.  Implementation tracked downstream when the relevant slice lands (`plan-primitives-impl-interfaces.md` Slice 2b uses Self for `Comparable` / `Orderable` / `Hashable`; `plan-generics.md` constraint check uses it for `[T Comparable]`-style constraints).
 
-### Syntax direction — IN PROGRESS
+### Syntax direction — DECIDED
 
 C-family, leaning toward Go's direction (clean, minimal, familiar).
 
@@ -685,7 +685,7 @@ C-family, leaning toward Go's direction (clean, minimal, familiar).
 - No semicolons (automatic insertion)
 - **Multiple return values** (Go-style, not first-class tuples). First-class tuples were considered but reconsidered — they raise many type system questions (is `(int)` the same as `int`? named fields? nesting?) for limited practical benefit over Go-style multiple returns.
 - Destructuring assignment for multiple returns: `x, y := foo()`
-- **Tail-call return for multi-return functions**: `return f(...)` is allowed when `f` returns the matching tuple, mirroring Go. Per-result types must be assignable to the outer function's declared results. (Self-hosted only as of 2026-05-01; bootstrap acceptance is pending.)
+- **Tail-call return for multi-return functions**: `return f(...)` is allowed when `f` returns the matching tuple, mirroring Go. Per-result types must be assignable to the outer function's declared results.
 
 **Pointer syntax — DECIDED**:
 - `*T` = raw pointer to T (C-like)
@@ -721,7 +721,7 @@ C-family, leaning toward Go's direction (clean, minimal, familiar).
 - The `@Iface` sugar is syntactic only: in generics, `@T` where `T=Stringer` means `@(Stringer)` (managed pointer to raw interface value), not managed interface value.
 - Interface values are regular value types — pointers to them, arrays of them, etc. all work. This avoids special-casing in generics (`*T` where `T=Stringer`), enables out parameters (`result *Stringer`), and keeps the type system uniform.
 
-**Function syntax — IN PROGRESS**:
+**Function syntax — DECIDED**:
 ```
 func add(a int, b int) int { return a + b }
 func divmod(a int, b int) (int, int) { return a / b, a % b }
@@ -828,7 +828,7 @@ Main package: `package "main"` is a special case — requires `main()` function,
 - This is a convention, not enforced by the compiler — visibility is still determined by `.bni` presence
 - Types, functions, and constants in `.bni` should all follow this convention
 
-### Visibility & package interfaces — LEANING
+### Visibility & package interfaces — DECIDED
 
 **No per-symbol visibility keywords** (no `pub`, no capitalization convention). Instead:
 
@@ -1137,7 +1137,7 @@ Rationale: Go's nil-slice vs empty-slice distinction is a well-known source of c
 
 Phases 1–4 are complete. See `claude-plan-1.md` for the full record.
 
-**Phase 5: Self-hosted toolchain** — see `claude-plan-2.md` for the detailed plan. Key decisions:
+**Phase 5: Self-hosted toolchain — COMPLETE** — see `claude-plan-2.md` for the detailed plan. The key decisions (still the design of record):
 
 1. **Interpreter first, then compiler.** Shared frontend (lexer, parser, types) is the bulk of the work. Interpreter adds just a tree-walker (later a bytecode VM); compiler adds IR, codegen, backends.
 2. **Single repo to start** (`binate/binate`). Split into core/interp/compiler repos once boundaries stabilize.
@@ -1146,9 +1146,9 @@ Phases 1–4 are complete. See `claude-plan-1.md` for the full record.
 5. **Inline assembly**: `#[asm("arch")]` annotation syntax proposed; deferred for initial self-hosting.
 6. **AST representation — DECIDED**: tagged unions (structs with `Kind int` fields). Without interfaces in the bootstrap subset, each AST node type (Expr, Stmt, Decl, TypeExpr) is a single struct with a Kind discriminator and union of fields. Managed pointers (`@Expr`, `@Stmt`) enable self-referential types. Two-pass type resolution (pre-register placeholders, then resolve) handles forward references.
 
-### IR/backend architecture — IN PROGRESS
+### IR/backend architecture — IMPLEMENTED
 
-The compiler's backend layer needs to support multiple targets. The current LLVM backend (`pkg/codegen`) mixes language-semantic logic (struct layout, name mangling, runtime function declarations, string constant collection) with LLVM-specific code generation. This needs to be separated so that new backends (starting with 32-bit ARM) don't duplicate shared logic.
+The compiler's backend layer needs to support multiple targets. The current LLVM backend (`pkg/codegen`) mixes language-semantic logic (struct layout, name mangling, runtime function declarations, string constant collection) with LLVM-specific code generation. This was separated so that the backends (aarch64, x64, arm32) don't duplicate shared logic.
 
 **Key principle**: if two backends would compute the same thing, it belongs in a shared layer.
 
@@ -1168,9 +1168,9 @@ The compiler's backend layer needs to support multiple targets. The current LLVM
 - Debug info format
 - Linking
 
-**Target parameterization**: `types.SizeOf`/`AlignOf`/`FieldOffset` must be parameterized by a `TargetInfo` (pointer size, int size, max alignment) rather than assuming 64-bit. This is a prerequisite for 32-bit ARM support.
+**Target parameterization**: `types.SizeOf`/`AlignOf`/`FieldOffset` must be parameterized by a `TargetInfo` (pointer size, int size, max alignment) rather than assuming 64-bit. This is in place (it was a prerequisite for the arm32 backend).
 
-**Testing strategy**: 32-bit ARM binaries are tested via QEMU user-mode emulation (`qemu-arm`) on the development Mac. Binaries target Linux/ARM ELF format (minimal syscall usage: `write`, `exit_group`, `mmap2`). The conformance runner gets a `compiled-arm` mode.
+**Testing strategy**: 32-bit ARM binaries are tested via QEMU user-mode emulation (`qemu-arm`) on the development Mac. Binaries target Linux/ARM ELF format (minimal syscall usage: `write`, `exit_group`, `mmap2`). The conformance runner has `builder-comp_arm32_linux` / `builder-comp_arm32_baremetal` modes.
 
 See `ir-backend-guidelines.md` for the full guidelines.
 
@@ -1183,7 +1183,7 @@ Unit testing built into the toolchain with a lightweight, convention-based appro
 - **Exclusion by default**: `_test.bn` files are excluded from normal builds. Only included when the package is a `-test` target.
 - **Test functions**: `TestXxx() testing.TestResult` — no parameters, returns `testing.TestResult`. Discovered automatically by name prefix and signature.
 - **Failure signaling**: return a non-empty string (the failure message). Empty string means pass. No panic recovery needed — works identically in interpreter and compiled code.
-- **`pkg/builtin/testing`**: provides `type TestResult = *[]char`. Test files import this package.
+- **`pkg/builtins/testing`**: provides `type TestResult = *[]char`. Test files import this package.
 - **CLI**: `binate -test [-root dir] <pkg/foo> [pkg/bar ...]` — supports multiple packages in one invocation.
 - **Output format**: Go-style (`=== RUN`, `--- PASS`/`--- FAIL`, `ok`/`FAIL` per package, summary).
 
@@ -1248,6 +1248,8 @@ Conformance tests 071 (short-circuit &&) and 072 (short-circuit ||) pass in all 
 
 ### Debugging process improvements — TO DISCUSS
 
+> _Predates the current BUILDER-`bnc` build flow (the Go bootstrap interpreter was retired 2026-05-21); the specific cycle described below has changed, though some pain points may still apply._
+
 During self-hosting debugging, several pain points surfaced:
 
 1. **No `gtimeout` initially**: macOS lacks `timeout`, so hung binaries had to be killed
@@ -1274,6 +1276,8 @@ During self-hosting debugging, several pain points surfaced:
   crafted AST inputs that trigger specific code paths
 
 ### Debug lifecycle hooks for structs — PROPOSED
+
+> _The motivating use case below (the tree-walking interpreter's `Value` struct) predates the bytecode VM; re-evaluate relevance against the current `pkg/vm`._
 
 **Annotation-based pre-copy and pre-destruction hooks.** Structs can
 declare hook functions via standard annotations. When a compiler debug
@@ -1322,6 +1326,8 @@ See `explorations/plan-interp-value-ownership.md` for interpreter changes.
 See `explorations/plan-interp-value-hooks.md` for hook usage in interpreter.
 
 ### `move` builtin — PROPOSED
+
+> _The "primary use case" below (interpreter `Value` ownership) predates the bytecode VM, but `move` remains broadly useful for explicit ownership transfer — re-evaluate the framing, not the proposal._
 
 **Explicit ownership transfer.** `move(x)` returns the value of `x` and
 nils/zeroes the source. This makes axiom 4 (move → zero source) a
