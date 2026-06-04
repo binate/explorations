@@ -641,24 +641,57 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Plan**: [`plan-extern-var.md`](plan-extern-var.md).
 - **Discovery**: 2026-06-02, plan-const-readonly step 8.
 
-### `&G` (address of a global scalar as a value) miscompiles in the compiled backend
-- **Symptom**: `var p *int = &G` for a top-level global SCALAR fails to
-  compile — `error: use of undefined value '%v-1'`.  The global-ref
-  pseudo-instr (id -1, `IsGlobalRef`) is rendered as `@<mangled>` only in
-  pointer-operand positions (`emitPtrRef`: load/store address, GEP base);
-  used as an rvalue (the result of `&`, then stored / assigned) it falls
-  to `emitRef(instr.ID)` → `%v-1` (never defined).  Loud, not silent.
-- **Scope**: NOT extern-var-specific — same-package `&G` hits it too.
-  Works in the bytecode VM; only the compiled (LLVM) backend breaks.
-  Blocks `&pkg.Var` (address-of an imported var) in compiled mode.
-- **Fix direction**: materialize a global's address as a real SSA value
-  when `&`'d (an IR-gen op producing `%vN = <addr of @mangled>`), or make
-  value-operand rendering `IsGlobalRef`-aware.  Index/field GEPs off a
-  global already work (real-ID GEP instrs); only the bare whole-global
-  address-as-value is broken.
-- **Test**: `conformance/551_addr_of_global_scalar` (xfail in the 3
-  compiled modes; passes in the VM).
+### ~~`&G` (address of a global scalar as a value) miscompiles in the compiled backend~~ — RESOLVED 2026-06-03 (binate `99655f4e`)
+- **Was**: `&G` for a top-level global used as an rvalue rendered the
+  IsGlobalRef pseudo (id -1) as `%v-1` (undefined) in the compiled (LLVM)
+  backend — `emitPtrRef` rendered `@<mangled>` only in address-operand
+  positions (load/store target, GEP base); value-operand emitters used
+  `emitRef(instr.ID)` → `%v-1`.  Same-package `&G` and `&pkg.Var` alike.
+- **Fix**: kept in codegen only (the IR rep is correct — the VM
+  materializes the address uniformly; an IR-gen change would have forced
+  VM/native changes for a bug they don't have).  Added `emitValRef` (the
+  value-operand analogue of `emitPtrRef`: `@<mangled>` for an IsGlobalRef
+  instr, `%vN` otherwise — a valid LLVM value operand under opaque
+  pointers, no materialization needed) and routed every value-operand
+  site through it: OP_STORE value, `emitReturn` (single/sret/multi), the
+  call-arg paths (direct, C-call, indirect, func-value, method-handle),
+  comparison operands, and the `bit_cast` source.
+- **Tests**: `conformance/551_addr_of_global_scalar` expanded (one
+  global per instruction across store / call arg / func-value call arg /
+  single return / slice-element store / composite + assigned struct
+  field) and un-xfailed — green in all 6 modes.  `conformance/573`
+  covers two globals in one instruction (compiled-correct, VM-xfail; see
+  the VM entry below).  Unit: `TestEmitAddrOfGlobalAsValue` (no-`%v-1` +
+  `@<mangled>`).  Completeness verified by emitting a comprehensive
+  probe and grepping for zero `%v-1`.
 - **Discovery**: 2026-06-03, deferral-2 Slice 3 (`&pkg.Var`).
+
+### VM clobbers ≥2 distinct global addresses in one instruction (shared `globalReg`) — IN PROGRESS 2026-06-03
+- **Symptom**: silent wrong-code in the bytecode VM when ONE instruction
+  takes two (or more) distinct global addresses as args — e.g.
+  `func f() (*int,*int) { return &G, &H }` or `&G == &H` or
+  `g(&G, &H)`.  All but the LAST global arg read the wrong address.
+  Concrete: `return &G, &H` yields `(&H, &H)`; `&G == &H` compares
+  `&H == &H` (→ true).  Compiled backend is correct.
+- **Root cause**: `pkg/binate/vm/lower_func.bn` (third pass, ~245-258)
+  materializes EVERY `IsGlobalRef` arg into the single shared `globalReg`
+  via consecutive `LOAD_IMM`s and sets `Args[k].ID = globalReg`.  For two
+  global args of the SAME instruction the second `LOAD_IMM` clobbers the
+  first before the instruction consumes either, so both args reference
+  `globalReg` holding the last address.  The existing "per-use LOAD_IMM"
+  comment handles CROSS-instruction clobbering but misses the
+  INTRA-instruction case.
+- **Fix direction**: materialize each global-address arg of an
+  instruction into a DISTINCT register (not the one shared `globalReg`),
+  so concurrent global args in one instruction don't alias.  Must update
+  both the instruction-count pass (first pass) and the emit pass (third
+  pass) consistently so block offsets agree.
+- **Test**: `conformance/573_addr_of_two_globals_one_instr` (correct in
+  the 3 compiled modes; xfailed in the 3 VM (`-int`) modes pending this
+  fix).
+- **Discovery**: 2026-06-03, expanding the `551` `&G`-as-value test
+  (above) to cover multi-global instructions exposed it.  Pre-existing;
+  the simple single-global `551` never triggered it.
 
 ### Cross-package managed-PTR extern var: value-copy crash + field-write no-op
 - **Symptom A (crash)**: copying an extern managed-ptr var's whole value
