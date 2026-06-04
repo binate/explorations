@@ -899,6 +899,37 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   was removed in `c4036777`).  Unit: `TestGetSelectorTypeQualifiedImportedVar`.
 - **Discovery**: 2026-06-03, deferral-2 Slice 4 + coverage review.
 
+### Cross-package managed refcount-safety + extern-var coverage gaps (2026-06-04 audit)
+- A coverage audit (multi-agent workflow) of cross-package extern-var
+  and managed-ptr/value test coverage — run after the 551/559/561
+  deferrals + 586 — found that most cross-package MANAGED scenarios are
+  tested only FUNCTIONALLY (output is right), not for REFCOUNT BALANCE,
+  so a leak (rc stays elevated) or an extra RefInc/RefDec would slip
+  through.  17 gaps confirmed (adversarially verified vs existing tests).
+- **Addressed**: managed-slice extern-var value-copy rc-balance is now
+  `conformance/587_cross_pkg_managed_slice_copy_balance` (the 586
+  companion; balanced in 5 default modes + native aa64, int-int xfailed
+  for the rt-loader bug).
+- **Remaining rc-balance gaps** (functional coverage exists; no
+  `rt.Refcount` before/after — add it, pattern: 586/587/130) — a managed
+  value crossing a package boundary as:
+  - a managed-slice ELEMENT assignment of a managed value
+    (`pkg.S[i] = @v`; also exercises RefDec of the overwritten element);
+  - a function ARGUMENT (`pkg.f(@T)`) / RETURN (`pkg.New() @T`);
+  - a STRUCT FIELD store (`root.X = child`, X a cross-pkg `@Node`);
+  - an INTERFACE construction (`var iv @pkg.I = h`) / interface RETURN
+    (`pkg.Make() @Shape`);
+  - a GENERIC type argument (`genlib.Append[@pkg.T](...)`).
+  These are pre-existing and NOT extern-var-specific — a broader
+  cross-package-managed refcount-safety test initiative.
+- **Extern-var FUNCTIONAL gaps** (the paths work; just untested):
+  `&pkg.X` (address-of an imported SCALAR var — the 551 analogue for
+  imports); field write through an imported RAW-ptr / value-STRUCT var
+  (the 561 analogue); raw-slice element write through a `*[]T` extern var.
+- **Blocked**: 586/587's `builder-comp-int-int` xfails clear once the
+  136/383 int-int rt-loader bug (above) is fixed.
+- **Discovery**: 2026-06-04 coverage-audit workflow.
+
 ### Dispatch conflicts (extern registered + Binate body provided) should be a HARD ERROR
 - **What**: today the VM dispatches a `BC_CALL` by name: `LookupFunc`
   → if `>=0`, run the bytecode body; if `-1`, fall through to
