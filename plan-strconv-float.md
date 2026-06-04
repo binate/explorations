@@ -1,7 +1,7 @@
-# Plan: `pkg/math/big.Nat` + `strconv.AppendFloat`/`FormatFloat` (Dragon4 dtoa)
+# Plan: `pkg/std/math/big.Nat` + `strconv.AppendFloat`/`FormatFloat` (Dragon4 dtoa)
 
 Status: **COMPLETE** (landed 2026-06-03). All 7 implementation steps below are
-done: `pkg/math/big.Nat` (full unsigned bignum, Knuth-D division, ILP32-correct)
+done: `pkg/std/math/big.Nat` (full unsigned bignum, Knuth-D division, ILP32-correct)
 and `strconv.AppendFloat`/`FormatFloat` in both shortest-round-trip (`prec < 0`)
 and fixed-precision (`prec >= 0`) modes, for `'f'`/`'e'`/`'E'`/`'g'`/`'G'`.
 Validated by a 208k-case differential against Go go1.26.3 (0 mismatches) plus
@@ -16,14 +16,14 @@ load imprecisely on the bytecode VM — tracked in `claude-todo.md`
 (`conformance/536_float_lit_large_exp`).
 
 Original driver: extend `pkg/std/strconv` with float formatting. Prerequisite:
-a `pkg/math/big.Nat` arbitrary-precision unsigned integer (a standalone Tier-1
+a `pkg/std/math/big.Nat` arbitrary-precision unsigned integer (a standalone Tier-1
 stdlib deliverable in its own right).
 
 ## Decided constraints
 
-- New package path **`pkg/math/big`** (Tier 1). Interface at the flat file
-  `ifaces/stdlib/pkg/math/big.bni`; impl under
-  `impls/stdlib/common/pkg/math/big/*.bn`. This introduces `math/` as a Tier-1
+- New package path **`pkg/std/math/big`** (Tier 1). Interface at the flat file
+  `ifaces/stdlib/pkg/std/math/big.bni`; impl under
+  `impls/stdlib/common/pkg/std/math/big/*.bn`. This introduces `math/` as a Tier-1
   namespace alongside `std/` (the layout spec's Tier-1 examples are all
   `pkg/std/X` — update `pkg-layout-spec.md` to note Go-style top-level stdlib
   namespaces like `math/` are also Tier-1).
@@ -63,12 +63,12 @@ package with no float dependency.
 
 ---
 
-## 1. `pkg/math/big.Nat`
+## 1. `pkg/std/math/big.Nat`
 
 ### Representation
 
 ```binate
-package "pkg/math/big"
+package "pkg/std/math/big"
 
 import "pkg/stdx/slices"
 
@@ -302,7 +302,7 @@ to `FormatInt`.
 **Relationship to `bootstrap.formatFloat`**: this does **NOT** replace
 `bootstrap.formatFloat` (`pkg/bootstrap/bootstrap.bn:143`, the 6-digit hack used
 by `println` codegen via `pkg/binate/ir/gen_print.bn:162`). That path is
-BUILDER-tree code and *cannot* import `pkg/math/big` (not BUILDER-compilable).
+BUILDER-tree code and *cannot* import `pkg/std/math/big` (not BUILDER-compilable).
 `AppendFloat`/`FormatFloat` is a strconv-level deliverable. **Rewiring `println`
 is out of scope and a separate user decision.** Only update `strconv.bni`'s
 header line ("Float formatting … is a planned follow-up") to reflect it landed.
@@ -314,23 +314,23 @@ header line ("Float formatting … is a planned follow-up") to reflect it landed
 Following the strconv asymmetry (flat `.bni`, subdir impl):
 
 ```
-ifaces/stdlib/pkg/math/big.bni                  # FLAT file (like strconv.bni) — NOT pkg/math/big/big.bni
-impls/stdlib/common/pkg/math/big/
+ifaces/stdlib/pkg/std/math/big.bni                  # FLAT file (like strconv.bni) — NOT pkg/std/math/big/big.bni
+impls/stdlib/common/pkg/std/math/big/
     nat.bn          # struct + New/FromUint64/Clone/SetUint64/Set/grow/norm + IsZero/BitLen/Cmp/IsUint64/ToUint64
     nat_arith.bn    # Add/Sub/AddUint32/Mul/MulUint32
     nat_div.bn      # DivMod (Knuth Alg. D) + DivModUint32
     nat_shift.bn    # Shl/Shr
     big_test.bn     # Nat unit tests (split to nat_arith_test.bn / nat_div_test.bn if >~500 lines)
 impls/stdlib/common/pkg/std/strconv/
-    ftoa.bn         # AppendFloat/FormatFloat + decompose64/32 + R/S/M setup + digit loop + layout. import "pkg/math/big"
+    ftoa.bn         # AppendFloat/FormatFloat + decompose64/32 + R/S/M setup + digit loop + layout. import "pkg/std/math/big"
     strconv_test.bn # EXTEND with TestAppendFloat*/TestFormatFloat* (split to ftoa_test.bn if over cap)
 conformance/
     NNN_big_dtoa_cross_pkg.bn + .expected         # model on 528 (pick next free number at landing time)
 ```
 
-- **Dependency**: `pkg/math/big` (T1) imports `pkg/stdx/slices` (T1x)
+- **Dependency**: `pkg/std/math/big` (T1) imports `pkg/stdx/slices` (T1x)
   **internally only** — `@[]uint32` is a builtin, no `stdx` type in `big.bni`.
-  `pkg/std/strconv` (T1) imports `pkg/math/big` (T1) — `Nat` is internal to
+  `pkg/std/strconv` (T1) imports `pkg/std/math/big` (T1) — `Nat` is internal to
   `ftoa.bn`, not in `strconv.bni`. No tier leaks.
 - **Split discipline**: split `nat*.bn` along natural boundaries from the start
   (Go's `nat.go` is ~1500 lines) — never one blob.
@@ -341,7 +341,7 @@ conformance/
 
 - **No `-I`/`-L` additions.** Runners already pass
   `-I …:ifaces/stdlib -L …:impls/stdlib/common`; the loader resolves
-  `import "pkg/math/big"` against those roots.
+  `import "pkg/std/math/big"` against those roots.
 - **Unit tests auto-discovered**: `scripts/unittest/run.sh` finds every
   `*_test.bn` under `pkg/`/`cmd/`/`impls/` and maps `impls/<tier>/<platform>/…`
   to the logical `pkg/…` name. `big_test.bn` and the extended `strconv_test.bn`
@@ -349,7 +349,7 @@ conformance/
 - **Conformance whitelist (required)**: add
   `NNN_big_dtoa_cross_pkg.bn:pkg/std/strconv` to
   `scripts/hygiene/conformance-imports.whitelist` (528 entry is the template).
-  `pkg/math/big` is transitive, needs no entry.
+  `pkg/std/math/big` is transitive, needs no entry.
 - **ILP32 xfail (likely)**: pkg/std unit tests are already xfail on
   `builder-comp_arm32_baremetal` (>int32 literals trip the ILP32 fit-check).
   Build big magnitudes through `cast(uint64,…)` / `bit_cast(float64,<int64
@@ -365,7 +365,7 @@ conformance/
 
 ## 6. Test strategy
 
-**(a) Nat unit tests (`big_test.bn`)** — `package "pkg/math/big"`, sectioned
+**(a) Nat unit tests (`big_test.bn`)** — `package "pkg/std/math/big"`, sectioned
 like `bignum_test.bn`. **Green under all modes incl. arm32 BEFORE any dtoa** — a
 Dragon4 bug usually traces to a Nat bug.
 - Direct runtime `uint32*uint32 -> uint64` test (e.g. `0xFFFFFFFF*0xFFFFFFFF ==
@@ -414,7 +414,7 @@ bit_cast(int64, v)`.
    core-query tests. Green under all modes incl. arm32.
 2. **Nat arithmetic**: `nat_arith.bn` (Add/Sub/AddUint32/Mul/MulUint32) + tests.
 3. **Nat shift + division**: `nat_shift.bn` (Shl/Shr) + `nat_div.bn` (DivMod
-   Knuth D, DivModUint32) + tests. After this, `pkg/math/big` is a complete,
+   Knuth D, DivModUint32) + tests. After this, `pkg/std/math/big` is a complete,
    independently-tested unsigned bignum.
 4. **dtoa decomposition + setup**: `ftoa.bn` decompose64/32 + R/S/M setup +
    scale-estimate/fixup, unit-tested via intermediate-state asserts.
@@ -458,7 +458,7 @@ bit_cast(int64, v)`.
 - **Q2 — `'b'`/`'x'` float formats**: deferred as explicit follow-up TODOs (this
   note + a `// TODO` at the fmt-dispatch site in `ftoa.bn`). Not in the first cut.
 - **Q3 — `println` rewiring**: out of scope. `bootstrap.formatFloat` is
-  BUILDER-tree and can't import `pkg/math/big`; the 6-digit hack stays until a
+  BUILDER-tree and can't import `pkg/std/math/big`; the 6-digit hack stays until a
   separate migration. This whole effort is a step toward eventually deprecating
   `pkg/bootstrap` (replacing `formatFloat`, then the `println` path, are later
   milestones of that arc).

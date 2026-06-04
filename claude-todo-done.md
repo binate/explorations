@@ -6,6 +6,13 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~Move `pkg/math/big` → `pkg/std/math/big`~~ — DONE 2026-06-03 (binate `fce2da76`)
+- `math/` is a stdlib namespace and belongs under `pkg/std/` with the other
+  tier-1 packages, not at a bare `pkg/math/`.  Pure path move (ifaces + impls +
+  the strconv import + comments + the conformance-imports whitelist + the
+  explorations docs); no code change.  big's tests and the strconv
+  cross-package consumer (535) stay green.
+
 ### ~~Float-literal converter: long-mantissa + huge-exponent overflow~~ — DONE 2026-06-03 (binate `26771993`)
 - **What was wrong** (found by a coverage review of `5281b138` below): the
   significand was accumulated into a uint64, so any literal with > ~19
@@ -63,9 +70,9 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
   Possible cleanup: `common.ParseFloatLitToBits` is now shared by the VM too,
   so it arguably belongs in a neutral layer rather than under `native/`.
 
-### ~~`pkg/math/big.Nat` + `strconv` float formatting (Dragon4 dtoa)~~ — DONE 2026-06-03
+### ~~`pkg/std/math/big.Nat` + `strconv` float formatting (Dragon4 dtoa)~~ — DONE 2026-06-03
 - Plan: [`plan-strconv-float.md`](plan-strconv-float.md) (now marked COMPLETE).
-- **What landed**: `pkg/math/big.Nat` — a complete ILP32-correct
+- **What landed**: `pkg/std/math/big.Nat` — a complete ILP32-correct
   arbitrary-precision unsigned integer (Add/Sub/Mul/MulUint32/Shl/Shr/
   DivMod via Knuth Algorithm D / DivModUint32 / Cmp / BitLen / …). On top
   of it, `pkg/std/strconv.AppendFloat`/`FormatFloat`: a Dragon4 /

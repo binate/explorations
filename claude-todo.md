@@ -212,6 +212,68 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### Float-literal converter 1 ULP low for ~38+ sig-digit literals just above a tie (round-bit loss) — DEFERRED, blocked on stdlib-via-BUILDER
+- **Symptom**: a float64 literal with ~38+ significant digits sitting JUST
+  ABOVE a binary rounding tie (e.g. `1.0000000000000001110223024625156540424`)
+  converts 1 ULP LOW.  `common.ParseFloatLitToBits` holds the significand in a
+  128-bit window and collapses everything below the kept 53 bits into a single
+  sticky flag, losing the exact round bit.  LLVM (its own strtod) is correct;
+  the VM and native backends share the converter, so they are wrong.
+- **Discovery**: 2026-06-03 completeness review of the 128-bit-accumulation
+  rewrite; reproduced vs strconv + a big.Float reference (~50% of constructed
+  just-above-tie inputs diverge, all +1 ULP in strconv's favor).  Realistic
+  literals (≤~37 sig digits) are correct — this is the table-maker's-dilemma
+  tail.
+- **Test**: `conformance/538_float_lit_tie_roundbit` (passes on LLVM, xfailed
+  on the VM modes).
+- **Proper fix**: exact rounding via `pkg/std/math/big` (mantInt*10^exp as a
+  Nat, extract 53 bits + round-to-even from the exact remainder — Go's
+  slow-path).  BLOCKED: the converter is in cmd/bnc's BUILDER tree, which can't
+  yet import stdlib `big`; unblocks once stdlib is bundled with BUILDER (below).
+  Interim alternative: widen the fixed window (256-bit → correct to ~76 digits)
+  — covers all realistic literals but not adversarially complete.
+- **Severity**: MAJOR (silent 1-ULP-wrong float constant), narrow (38+ digits
+  AND just-above-tie).
+
+### Bundle tier-1 stdlib (pkg/std, pkg/stdx) with the BUILDER; cut a new BUILDER release
+- **What**: the BUILDER bnc tarball should ship the tier-1 stdlib so cmd/bnc's
+  tree (and any BUILDER-compiled code) can import `pkg/std/...` / `pkg/stdx/...`
+  — including `pkg/std/math/big` and a future `strconv.ParseFloat`.  The "BUILDER
+  tree can't use stdlib" constraint is purely an artifact of stdlib not being
+  bundled (plus a few BUILDER float gaps — we're well past bnc-0.0.1; a release
+  is overdue).
+- **Unblocks**: the exact-rounding fix above; lets the float-literal converter
+  use `big` / `strconv.ParseFloat` directly.
+- **Also**: clear the remaining BUILDER float gaps so floats are fully
+  BUILDER-compilable, then cut the release and bump BUILDER_VERSION.
+
+### Implement the strconv `Parse...` series (ParseInt / ParseUint / ParseBool / ParseFloat)
+- **What**: strconv has only the `Format.../Append...`/`Itoa` (number→string)
+  direction; add the parse direction.  `ParseFloat` is the correct,
+  fully-rounded decimal→double, built over `pkg/std/math/big` (exact
+  mantInt*10^exp, round-to-even from the remainder) — the canonical home for
+  what `common.ParseFloatLitToBits` approximates.  Once stdlib is
+  BUILDER-bundled, the compiler's float-literal converter can route through it
+  (or share its core), fixing the round-bit bug above.
+
+### float32 const literal (not exactly representable) → LLVM "floating point constant invalid for type"
+- **Symptom**: `var x float32 = 0.1` (or `const C float32 = 0.1`) fails to
+  compile on the C/LLVM backend: `floating point constant invalid for type` in
+  the generated `.ll`.  The OP_CONST_FLOAT lowering (`pkg/binate/codegen/
+  emit_instr.bn`) emits a DECIMAL float literal (`fadd float 0.0, 0.1`), which
+  LLVM rejects for the 32-bit `float` type when the value isn't exactly
+  representable.  The VM handles the var-init case correctly (narrows via
+  BC_F64_TO_F32).
+- **Reachability**: any non-exact float32 literal const.  Pre-existing (the
+  emit_instr float-const path; NOT the text→bits converter).
+- **Fix**: for a float32-typed OP_CONST_FLOAT, emit the exact bits — use
+  `common.ParseFloatLitToBits`, narrow to float32, emit LLVM's hex float form
+  (`float 0xH...`) instead of the decimal literal.  Add a conformance test
+  (`const C float32` in-package + cross-package + group).
+- **Discovery**: 2026-06-03, completeness review of the float work (probed
+  directly).  **Severity**: MAJOR-ish (a normal float32 literal const won't
+  compile on the primary backend), narrow (non-exact float32 literals).
+
 ### Self-referential interface method (`Unwrap() @Error` — a method whose return type is its own interface) mis-resolves to a managed pointer → in-package ABI mismatch / would-be silent miscompile — BLOCKS `plan-std-errors.md` Part 1
 - **Symptom**: an interface with a method that returns its own interface type — e.g. `interface Error { Error() @[]char; Unwrap() @Error }` — miscompiles *in-package* at every dispatch of that method.  The vtable dispatch shim is typed `i8* (i8*)` (return = single pointer), but the method *body* returns a 16-byte `%BnIfaceValue`; the copy-site at the call (`var cause @Error = e.Unwrap()`) RefIncs the result via `extractvalue %BnIfaceValue …, 0`, so LLVM gets `%v6 = extractvalue i8* %v5, 0` → verifier error `extractvalue operand must be aggregate type`.  (Caught here only by that `extractvalue`; a dispatch whose iface-value result is merely stored/forwarded would **silently miscompile** — caller reads 1 word, callee wrote 2.)
 - **Root cause (CONFIRMED)**: `collectInterfaceFromDecl` (`pkg/binate/ir/gen_iface_registry.bn`) resolves each method's return type via `resolveTypeExpr(m.Results[0])` (≈line 143) and stores it in `mi.MethodResults` **before** appending the interface to `moduleInterfaces` (≈line 201).  So while resolving `Unwrap`'s `@Error`, `Error` is not yet in the registry → `isInterfaceTypeExpr(Error)` misses → `resolveTypeExpr` falls to `MakeManagedPtrType` (`gen_util.bn:349`) → `i8*`.  `genInterfaceMethodCall` then reads `mi.MethodResults[j]` (`gen_iface.bn:153`) as the dispatch result type, so the shim returns `i8*`.  The method *definition*'s return type is resolved later (in `gen_func`, after all interfaces are collected) and correctly yields `%BnIfaceValue` — hence the in-module mismatch.
@@ -724,7 +786,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   sites can move:**
   - `cmd/bnc` and its **BUILDER-compilable dependency tree** (incl.
     `pkg/binate/token`, the `native/*` backends, codegen, ir, …) CANNOT
-    import `pkg/std/strconv`: the package pulls in `pkg/math/big` (and
+    import `pkg/std/strconv`: the package pulls in `pkg/std/math/big` (and
     floats) via `ftoa.bn`, which is not BUILDER-compilable.  These stay
     on `bootstrap.Itoa` until either strconv's integer-only path is split
     into a BUILDER-compilable subpackage or the BUILDER constraint lifts.
