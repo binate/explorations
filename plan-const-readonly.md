@@ -12,7 +12,7 @@ their own forms:
   storage location can't be written through this access path."
   Replaces today's type-level `const T`.
 
-Supersedes `plan-const-nonint.md` — the framing there assumed today's
+Supersedes `plan-const-nonint.md` (now archived — see `historical-notes.md`) — the framing there assumed today's
 single-`const` scheme and proposed extending IR-gen to lower more types
 under that one keyword.  This plan restructures the surface instead;
 the IR-gen story falls out cleanly from the new per-form split.

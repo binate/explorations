@@ -76,7 +76,7 @@ Key insight: `pkg/rt` is already written in Binate. The only C dependency is the
 
 ### 3.1. Lower slice operations to primitive IR ops — DONE
 
-High-level slice IR ops were lowered to primitive ops (`OP_EXTRACT`, `OP_GET_ELEM_PTR`, `OP_LOAD`, `OP_STORE`, …) in the IR gen layer (`EmitSliceGet/Set/Len/Expr/ElemPtr` in `pkg/ir/ir_ops.bn`); the dedicated slice opcodes and `codegen/emit_slice.bn` were removed. See `slice-operations-analysis.md` and the commit chain in `claude-todo.md`.
+High-level slice IR ops were lowered to primitive ops (`OP_EXTRACT`, `OP_GET_ELEM_PTR`, `OP_LOAD`, `OP_STORE`, …) in the IR gen layer (`EmitSliceGet/Set/Len/Expr/ElemPtr` in `pkg/ir/ir_ops.bn`); the dedicated slice opcodes and `codegen/emit_slice.bn` were removed. See the commit chain in `claude-todo.md`.
 
 **Why this approach**: Slice layout is a language-level contract (shared by all backends and the interpreter). The decomposition into primitives is encoded once in the IR gen, not per backend. Same pattern as arrays.
 

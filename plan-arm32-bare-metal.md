@@ -269,7 +269,7 @@ runtime changes**: `binate_runtime.c` is reused as-is, just compiled
 for armv7-linux-gnueabihf.
 
 1. **Parameterize type layout by target** (P1 from
-   `ir-backend-cleanup-plan.md`). `types.SizeOf` / `AlignOf` /
+   `ir-backend-guidelines.md`). `types.SizeOf` / `AlignOf` /
    `FieldOffset` take a `TargetInfo` so 32-bit pointer and int
    sizes are correct. Default stays 64-bit so nothing else breaks.
 2. **`--target` flag** in `cmd/bnc` (P2 from the same plan).

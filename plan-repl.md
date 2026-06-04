@@ -401,7 +401,7 @@ implementation:
   "add a new exported function mid-session" — positions move
   when a new export sorts in. Confirm that's the intended
   behavior when the interop design doc is written.
-- **`layout-extraction-plan.md`**: the layout layer must
+- **Layout extraction**: the layout layer must
   expose a runtime-extensible type universe, not a
   closed-at-startup one.
 - **IR/backend cleanup**: no closed-world assumptions in the

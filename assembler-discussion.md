@@ -279,7 +279,7 @@ The decision doesn't need to be made upfront — starting in the bootstrap subse
 
 ### Testing strategy
 
-ARM32 binaries tested via QEMU user-mode emulation (`qemu-arm`) on the development Mac. This is already planned for the ARM32 compiler backend (see `ir-backend-cleanup-plan.md`). AArch64 and x86-64 can be tested natively on appropriate hardware or via CI.
+ARM32 binaries tested via QEMU user-mode emulation (`qemu-arm`) on the development Mac. This is already planned for the ARM32 compiler backend (see `ir-backend-guidelines.md`). AArch64 and x86-64 can be tested natively on appropriate hardware or via CI.
 
 ---
 

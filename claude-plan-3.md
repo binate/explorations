@@ -21,8 +21,7 @@ Reference documents:
 - `claude-notes.md` — current language-design decisions (string representation,
   managed-slice layout, name mangling, layout rules) — authoritative where it
   overlaps with this doc.
-- `ir-backend-guidelines.md`, `ir-backend-cleanup-plan.md`,
-  `layout-extraction-plan.md` — the IR/backend split and multi-backend work that
+- `ir-backend-guidelines.md` — the IR/backend split and multi-backend work that
   superseded the single-LLVM-backend structure described here.
 
 ---

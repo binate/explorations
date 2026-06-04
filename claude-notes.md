@@ -558,7 +558,7 @@ Full design lives in `plan-interface-syntax-revision.md` (RATIFIED 2026-05-01). 
 
 **Built-in implicit interfaces**: a small, closed, language-defined set of interfaces implicitly implemented by all types. `any` is the primary one — usable as `*any` (type-erased raw) and `@any` (type-erased managed). Others may be added (e.g., `Sized`) but only by the language spec.
 
-**`Self` type in interface declarations** (implemented 2026-05-13, plan-self-type.md): a reserved type identifier valid only inside interface method signatures. Substituted with the receiver type at impl-collection time; methods that mention `Self` in non-receiver positions are rejected at interface-value call sites (object-unsafe per Rust's terminology) and reachable only through generic constraints where the implementing type is statically known. See dedicated section above for the full design.
+**`Self` type in interface declarations** (implemented 2026-05-13): a reserved type identifier valid only inside interface method signatures. Substituted with the receiver type at impl-collection time; methods that mention `Self` in non-receiver positions are rejected at interface-value call sites (object-unsafe per Rust's terminology) and reachable only through generic constraints where the implementing type is statically known. See dedicated section above for the full design.
 
 **Interface extension** (implemented 2026-05-13, plan-interface-embedding.md): syntax `interface X : I1, I2, ... { methods }`, mirroring `impl T : I1, I2`. Parents are listed once between `:` and `{` — no interspersing parents and methods, no anonymous embedding (Binate has no anonymous interfaces). Empty body is allowed. Distinct from aliases: `interface X = A` is an alias (same identity); `interface X : A {}` is a distinct interface that requires exactly A's methods. `impl T : Child` transitively satisfies all ancestors. `*Child → *Parent` is a static, nominal upcast — no runtime query (Binate is nominally typed; there is no Go-style structural satisfaction check). Cross-package extension (parent in another package) works the same.
 
@@ -899,8 +899,7 @@ refcounting, and scope cleanup. 2 xfails: 126 (managed-slice flat storage) and 2
 Note: `boot-int` mode was dropped (the self-hosted interpreter can no longer run under the bootstrap, since it now uses `bit_cast`, pointer indexing, and `pkg/rt` which require compiled mode).
 
 Note: many items marked "IN PROGRESS" above were resolved during the grammar
-specification phase (Phase 3). See `grammar.ebnf` for the authoritative specification
-and `claude-bootstrap-plan.md` for implementation status.
+specification phase (Phase 3). See `grammar.ebnf` for the authoritative specification.
 
 **Host language for bootstrap interpreter**: Go
 
@@ -1195,7 +1194,7 @@ The compiler's backend layer needs to support multiple targets. The current LLVM
 
 **Testing strategy**: 32-bit ARM binaries are tested via QEMU user-mode emulation (`qemu-arm`) on the development Mac. Binaries target Linux/ARM ELF format (minimal syscall usage: `write`, `exit_group`, `mmap2`). The conformance runner gets a `compiled-arm` mode.
 
-See `ir-backend-guidelines.md` for the full guidelines and `ir-backend-cleanup-plan.md` for the work plan.
+See `ir-backend-guidelines.md` for the full guidelines.
 
 ### Testing convention — DECIDED
 
