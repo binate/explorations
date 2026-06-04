@@ -3,18 +3,22 @@
 Status: **Stages 1–5 DONE** (as of 2026-06-02); the embeddable engine
 lives in `pkg/binate/repl`, the CLI is just one host, and the interrupt
 seam's inert plumbing is in place. Remaining: Stage 6 (continuable
-suspend) and Stage 7 (break) — both FUTURE, plus a blocker (below).
+suspend) and Stage 7 (break) — both FUTURE.
 Supersedes the open design question in `claude-todo.md` ("REPL refactor:
 embeddable component for non-CLI hosts"). The "which shape (a/b/c)"
 question is decided (see Ratified Decisions).
 
-**Seam blocker (fix before Stage 6 is usable):** a host poll that
-CAPTURES its interrupt state, installed via `SetPoll`, hits the MAJOR
-`@func` param→struct-field RefInc use-after-free
-(`conformance/534_func_value_param_to_field_capture`; CRITICAL
-"@func/@Iface copy-RefInc symmetry" in `claude-todo.md`).  The seam
-plumbing is correct and inert; it cannot be *used* with capturing polls
-until that RefInc lands.  Seam unit tests use non-capturing polls.
+**Seam usable with capturing polls.** A host poll that CAPTURES its
+interrupt state, installed via `SetPoll`, crosses the `@func`
+param→struct-field store; the `@func` copy-RefInc fix (binate `d118a3c4`
++ `76099018`, with the VM capture-record dtor `0a0d00af`) makes that store
+RefInc the closure record, so a capturing poll is not use-after-freed.
+Covered by the capturing-poll seam tests
+(`pkg/binate/vm/vm_poll_test.bn` `TestCapturingPoll*`, direct `vm.SetPoll`;
+`pkg/binate/repl/step_test.bn` `TestStepCapturingPollSuspendsTurn`, the
+end-to-end `s.SetPoll → vm.SetPoll` forward) — green in every int mode,
+where the path previously UAF'd.  `conformance/534` is the cross-mode
+anchor for the same param→field store.
 
 Landed on `main`: Stage 1 (`@ReplSession`, lift globals) `7045cf95`;
 Stage 2 (`NewReplSession` constructor, errors as values) `4b95b1d1`;
@@ -373,9 +377,12 @@ second invasive refactor.  Inert in v1: no behavior change.
   520); non-capturing-poll seam tests prove the hooks fire (SUSPEND flips
   `Status`), CONTINUE is transparent, and the gate + inert default hold;
   hygiene 12/12.
-- **Caveat (see top-of-doc blocker):** capturing host polls UAF on the
-  `@func` param→field RefInc bug (`conformance/534`); the seam is correct
-  and inert but unusable with capturing polls until that fix lands.
+- **Capturing host polls work** (see top-of-doc note): the `@func`
+  param→field RefInc fix makes `SetPoll` retain a capturing closure, so a
+  poll that closes over its interrupt state survives the store and the
+  VM's later `vm.Poll(vm)` call.  Capturing-poll seam tests
+  (`vm_poll_test.bn` `TestCapturingPoll*`; `step_test.bn`
+  `TestStepCapturingPollSuspendsTurn`) are green in every int mode.
 
 ### Stage 6 — continuable suspend (FUTURE — the easier interrupt)
 Implement `POLL_SUSPEND` at the **outermost** `execLoop`: spill the
