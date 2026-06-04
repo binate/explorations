@@ -617,48 +617,67 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `emitValOperand`-style helper (a `getValOperand` mirroring the LLVM
   `emitValRef` fix); the x64 root-cause + site map is already scoped.
 
-### `550` native @func capture-record refcount — ROOT-CAUSED, ready to implement (xfailed builder-comp_native_aa64-comp_native_aa64)
-- **Symptom**: a capturing `@func`'s captured managed value is not released
-  when the closure dies on native aa64; `conformance/550` reads rt.Refcount
-  2 instead of 1.  Green on every other mode (VM fixed via `0a0d00af`; LLVM
-  via the func-value vtable dtor slot).
-- **Root cause (VERIFIED in-tree)**: native `emitFuncValueVtables`
-  (`pkg/binate/native/aarch64/aarch64.bn:391-392`) ALWAYS writes the
-  vtable's slot-0 (dtor) as `a.Zero(8)`, even for a capturing managed
-  closure whose closure struct needs destruction.  So `fv.vtable[0]` is
-  null -> `OP_FUNC_VALUE_DTOR` yields null -> `rt.ZeroRefDestroy` skips the
-  dtor -> the captured value is freed without running the closure-struct
-  dtor -> its ref is never released.  The OP_FUNC_VALUE_DTOR load
-  (aarch64_dispatch.bn) and emitRefDecInline forwarding (aarch64_ops.bn)
-  are already correct; only the slot-0 wiring is missing.
-- **LLVM does it right**: `emitFuncValueVtableDtor`
-  (`pkg/binate/codegen/emit_funcvals.bn:374`) emits a pointer to
-  `@__handle.<closureStructDtorMangledName>` when
-  `closureFunc.IsManagedFuncValue && closureFunc.ClosureStruct != nil &&
-  closureFunc.ClosureStruct.NeedsDestruction()`, else `null`.  It gets
-  `closureFunc` from `lookupClosureFunc(m, seen[i])`.
-- **Fix (native)**: in `emitFuncValueVtables`, replace the unconditional
-  `a.Zero(8)` (slot 0) with: look up the `@ir.Func` for `seen[i]` (a
-  qualified name) by matching `mod.Funcs[k].Name` (add a small
-  `lookupModuleFuncAA64(mod, qname) @ir.Func` helper -- NOTE the
-  sub-agent's `lookupClosureFuncAA64` / `lookupModuleFunc` / `emitQuadLabel`
-  names do NOT exist); if `f != nil && f.IsManagedFuncValue &&
-  f.ClosureStruct != nil && f.ClosureStruct.NeedsDestruction() &&
-  len(f.ClosureStructDtorName) > 0`, emit the dtor handle
-  (`var h = handleSymFor(pkgName, f.ClosureStructDtorName); a.SetGlobal(h);
-  a.EmitAddr(h)`) instead of `a.Zero(8)`.  `f.ClosureStructDtorName` is the
-  authoritative qualified dtor name (set in gen_func_lit.bn:169 =
-  `qualifiedDtorNameForType(closureStruct)`) and equals the dtor func's
-  `Name` in `mod.Funcs`, so the handle references the SAME `___handle.`
-  triplet that collectFuncValueRefs' IsLinkOnce pre-pass already emits for
-  the dtor func -- self-consistent, no new global needed.  The non-closure
-  / non-capturing paths keep emitting `a.Zero(8)` exactly as today.
-- **x64 parity**: mirror in `pkg/binate/native/x64` emitFuncValueVtables
-  (same slot-0 gap; not in CI but the same silent-capture-leak bug).
-- **Tests**: un-xfail `550` on native aa64; add a unit test pinning that a
-  capturing-managed-closure vtable's slot 0 is the dtor handle (EmitAddr,
-  not Zero) and a non-capturing one's is zero.  Verify 550 fails pre-fix
-  (rt.Refcount 2) and passes post-fix (1) on native aa64.
+### `550` native @func capture-record refcount — FIXED 2026-06-04 (binate `7dab4be7`; split `879fe3a1`) — pending cherry-pick
+- **Symptom**: a capturing `@func`'s captured managed value was not
+  released when the closure died on native aa64; `conformance/550` read
+  rt.Refcount 2 instead of 1.  Green on every other mode (VM via
+  `0a0d00af`; LLVM via the func-value vtable dtor slot).
+- **Root cause**: native `emitFuncValueVtables` always wrote the
+  vtable's slot-0 (dtor) as 8 zero bytes, even for a capturing managed
+  closure whose struct needs destruction.  `fv.vtable[0]` null ->
+  OP_FUNC_VALUE_DTOR yields null -> rt.ZeroRefDestroy skips the dtor ->
+  the captured value's ref leaks.  The OP_FUNC_VALUE_DTOR load and
+  emitRefDecInline forwarding were already correct; only slot-0 wiring
+  was missing.
+- **Fix**: new `emitFuncValueVtableDtorSlot` (aarch64) /
+  `emitFuncValueVtableDtorSlot_x64` emit slot 0 as a pointer to the
+  closure-struct dtor's HANDLE (`___handle.<dtor>`) when
+  `lookupClosureFuncAA64(mod, seen[i])` returns a func that is
+  `IsManagedFuncValue && ClosureStruct != nil &&
+  ClosureStruct.NeedsDestruction() && len(ClosureStructDtorName) > 0`;
+  else 8 zero bytes (unchanged).  Mirrors `emitFuncValueVtableDtor` in
+  pkg/binate/codegen.
+- **Symbol-convergence note (the part the pre-fix plan got slightly
+  wrong)**: `f.ClosureStructDtorName` is the UNqualified dtor name
+  (`__dtor_<closure>`), NOT the dtor func's qualified `Name`
+  (`<pkg>.__dtor_<closure>`).  They still resolve to ONE symbol because
+  `handleSymFor` routes through `mangle.FuncName(pkgName, ...)`, which
+  folds a same-package qualifier prefix and a pkgName-prefixed
+  unqualified name to the identical `bn_<pkg>__<dtor>` — so slot 0
+  references exactly the `___handle.<dtor>` triple that
+  collectFuncValueRefs' IsLinkOnce pre-pass already emits.  No new
+  global, no dangling reference.  (Used the EXISTING `lookupClosureFuncAA64`,
+  which returns the closure func directly — the planned
+  `lookupModuleFuncAA64` was unnecessary.)
+- **x64 parity**: same fix in `pkg/binate/native/x64/x64_funcvalue.bn`
+  (no CI lane, but had the identical latent capture-leak).
+- **Hygiene**: the +45-line fix pushed `aarch64.bn` over the 500-line
+  cap, so the func-value emission was first extracted to
+  `aarch64_funcvalue.bn` (mirrors `x64_funcvalue.bn`) in `879fe3a1`.
+- **Tests**: 550 un-xfailed on native aa64 (verified fail pre-fix /
+  pass post-fix); `aarch64_funcvalue_test.bn` pins slot-0 shape (dtor
+  handle for a capturing managed closure, null otherwise, null for the
+  *func and no-managed-capture forms).
+
+### `526_strconv_parse_cross_pkg` crashes on native aa64 — NEW, UNMARKED failure (needs investigation)
+- **Symptom**: `conformance/526_strconv_parse_cross_pkg` (added with the
+  strconv `Parse*` series, `6a91cf5b`) FAILS on
+  `builder-comp_native_aa64-comp_native_aa64`: expected the 14-line
+  ParseInt/ParseUint/ParseBool/Atoi transcript, **actual is EMPTY** —
+  the program prints nothing, i.e. it crashes/aborts before (or during)
+  the first `println`.  Green on the default C/LLVM and VM modes.
+- **Discovery**: surfaced 2026-06-04 by the first full native-aa64
+  `--check-xpass` lane run (the flag was previously mis-positioned after
+  the mode, so the lane had never actually executed end-to-end).  NOT
+  caused by the `550` work — 526 uses no closures/func-values.
+- **Status**: no `.xfail` marker yet → it makes the native-aa64 lane
+  RED.  Pre-existing on main.  Root cause UNKNOWN — candidates: native
+  int64/uint64 lowering, the `@errors.Error` multi-return + `present()`
+  path, or cross-package const/string handling in the strconv Parse
+  surface.  Empty output (vs wrong output) points at an early
+  crash/abort.  **Needs: triage to root-cause vs. xfail-and-defer
+  (user's call — it's a real native-backend miscompile, not a workaround
+  candidate to silently mark).**
 
 ### Native backends mis-lower float consts/returns — `541` silently reads 0 (Phase A float-const gap on the native code generators)
 - **Symptom**: `conformance/541_cross_pkg_const_float` passes on the
@@ -812,7 +831,21 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   fan of per-mode xfail files.
 - Surfaced 2026-06-03 by the drop-libc / native-only-rt work.
 
-### Cross-package managed-PTR extern var: value-copy crash (559 OPEN); field-write (561) RESOLVED 2026-06-03
+### Cross-package managed-PTR extern var: value-copy crash (559 OPEN — but native-aa64 XPASSES); field-write (561) RESOLVED 2026-06-03 — native-aa64 xfail now STALE
+- **Native-aa64 lane update (2026-06-04)**: now that the native aa64 lane
+  builds (after the `551`/`573` `&G`-rvalue fix `9a0f4f9a`), a full-lane
+  `--check-xpass` run shows BOTH `559` and `561` XPASS on native aa64
+  (pass despite their xfail markers).  `561` is squarely stale — it was
+  already RESOLVED on all default modes (below); its native-aa64 xfail
+  only lingered because the lane didn't build.  **Action: remove
+  `conformance/561_cross_pkg_ptr_field_write.xfail.builder-comp_native_aa64-comp_native_aa64`.**
+  `559` is more surprising: the entry below still lists it as an OPEN
+  cross-package value-copy CRASH, yet it now passes on native aa64.
+  Either a recent fix resolved the crash (making the all-mode xfails
+  stale too) or the crash is mode-specific and native aa64 happens to
+  dodge it — NEEDS a cross-mode re-check before removing 559's xfails.
+  (Surfaced while landing `550`; not caused by it — 559/561 use no
+  closures.)
 - **OPEN — Symptom A (crash, 559)**: copying an extern managed-ptr var's
   whole value — `var n @pkg.T = pkg.G` — crashes at runtime.  Isolated to
   extern + managed-ptr + value-copy (same-package managed-ptr copy works,
