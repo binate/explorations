@@ -36,7 +36,19 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Unblocks**: the repl ReplSession->interface conversion (work preserved
   on binate branch `repl-interface-wip`).
 
-### Managed-aggregate-by-value element/field stores skip save-copy-destroy — PARTIALLY FIXED; siblings remain — MEMORY-CORRECTNESS (latent)
+### Managed-aggregate-by-value element/field stores skip save-copy-destroy — ASSIGNMENT PATHS DONE; literal/short-var/raw-ptr siblings remain — MEMORY-CORRECTNESS (latent)
+- **UPDATE 2026-06-04 (binate `32bad348`)**: the two gaps below are now
+  FIXED.  The single-assign ARRAY-element aggregate arm landed; the
+  multi-assign SLICE aggregate case was switched from the incomplete
+  `emitStructElemRefcount` to the two-slot `emitStructCopy`/`emitStructDtor`
+  form (complete for `@Iface` fields + nested aggregates), and
+  `emitStructElemRefcount` was deleted.  Pinned by `conformance/583`
+  (multi-assign slice element with an `@Iface` field — verified to fail
+  pre-fix) and `582` (single-assign array aggregate).  All ASSIGNMENT-store
+  paths (single + multi assign, IDENT/SELECTOR/array/pointer/slice) now
+  save-copy-destroy correctly.  REMAINING siblings: short-var multi-bind
+  (CRITICAL), raw-pointer single-assign index (MAJOR), array/managed-slice
+  literals (MAJOR) — separate entries below.
 - **What**: when the store TARGET is a managed struct/array **by value**
   (`needsStructCopy(T)` true — a struct/array holding managed fields, NOT
   `@T`/`@[]T` which are handles), a plain store under-retains the new
