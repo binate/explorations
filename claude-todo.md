@@ -859,12 +859,14 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   native aa64**.  Both were stale:
   - `559`'s cross-package value-copy crash (the importer lacking the
     imported type's dtor for the scope-end RefDec) was closed by recent
-    main work; a CONCURRENT commit (`32bee84c`) un-xfailed it on the 5
-    clean default modes and strengthened the test to a refcount-balance
-    check (now a directory test importing `pkg/builtins/rt`).  That rt
-    import trips the pre-existing int-int loader bug (136/383 family), so
-    `builder-comp-int-int` correctly STAYS xfailed; the native-aa64 xfail
-    `32bee84c` kept carried a now-outdated "lane doesn't build" reason.
+    main work.  `559` is now the ORIGINAL aliasing test — green on ALL 6
+    default modes + native aa64, no xfail.  The refcount-BALANCE check
+    (which needs an `rt` import, tripping the int-int loader bug) was
+    split out into a new directory test `586_cross_pkg_managed_ptr_copy_balance`,
+    xfailed only in `builder-comp-int-int` (`66aef4c1`).  (Interim
+    history: `32bee84c` strengthened `559` in place + carried an int-int
+    xfail; `c4036777` dropped the stale native-aa64 xfails; `66aef4c1`
+    then split aliasing vs balance so `559` is xfail-free again.)
   - `561` was already RESOLVED on the default modes 2026-06-03
     (`733d4485`, below); only its native-aa64 xfail lingered, because
     that lane didn't build until `9a0f4f9a`.
@@ -874,15 +876,14 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   (My earlier combined removal attempt `20d7a59d` was abandoned — it
   collided with `32bee84c`'s better, concurrent 559 handling.)  Surfaced
   while landing `550`; not caused by it (559/561 use no closures).
-- **OPEN — Symptom A (crash, 559)**: copying an extern managed-ptr var's
-  whole value — `var n @pkg.T = pkg.G` — crashes at runtime.  Isolated to
-  extern + managed-ptr + value-copy (same-package managed-ptr copy works,
-  the qualified type works from a func return, managed-SLICE copy works,
-  managed-ptr FIELD read works).  The cross-package RefDec at the local's
-  scope end needs the imported type's dtor, which the importer lacks.
-  Test: `conformance/559_cross_pkg_managed_ptr_copy` (xfail all modes).
-  **Fix direction**: emit/import the managed type's dtor so a
-  cross-package managed-ptr local can RefDec at scope end.
+- **~~Symptom A (value-copy crash, 559)~~ — RESOLVED 2026-06-04**: the
+  crash (importer lacking the imported type's dtor for the scope-end
+  RefDec) was closed by recent main work; see the Resolution note above.
+  Tests: `conformance/559_cross_pkg_managed_ptr_copy` (aliasing — green on
+  all 6 default modes + native aa64) and
+  `conformance/586_cross_pkg_managed_ptr_copy_balance` (refcount balance —
+  rc 1->2 on copy, ->1 at the scope-end RefDec; xfailed in
+  `builder-comp-int-int` for the orthogonal rt-loader bug).
 - **~~Symptom B (field-write no-op, 561)~~ — RESOLVED 2026-06-03 (binate
   `733d4485`)**: `pkg.G.V = v` through an imported managed-ptr var
   silently dropped the store.  Root cause was NOT `genSelectorPtr`'s
@@ -894,8 +895,8 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   in `getSelectorType` (returns the imported var's declared type via
   `lookupImportedGlobalPtr`); `getSelectorType` moved to
   `gen_selector_type.bn` (length cap).  `conformance/561` un-xfailed
-  (green all 6 default modes; native-aa64 lane stays xfailed — it doesn't
-  build).  Unit: `TestGetSelectorTypeQualifiedImportedVar`.
+  (green all 6 default modes + native aa64 — the stale native-aa64 xfail
+  was removed in `c4036777`).  Unit: `TestGetSelectorTypeQualifiedImportedVar`.
 - **Discovery**: 2026-06-03, deferral-2 Slice 4 + coverage review.
 
 ### Dispatch conflicts (extern registered + Binate body provided) should be a HARD ERROR
