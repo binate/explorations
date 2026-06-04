@@ -935,18 +935,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `526_forward_ref_iota_const` for the single-const case as part of the
   fix.
 
-### ~~Perf-tests CI lane fully red — `println(int)` programs fail to link `bootstrap.formatInt64`~~ — FIXED 2026-06-02 (binate `22b2c897`)
-- **Confirmed root cause**: the perf runners were never updated for the iface/impl pkg-layout split.  Compile runners (`builder-comp`, `-comp-comp`, `-comp-comp-comp`, `native_aa64`) passed only `-I "$src_dir" -L "$src_dir"` (= `perf/`); `println(int)` lowers to a `bootstrap.formatInt64` call, but `perf/` has no `pkg/bootstrap`, so int-printing tests (`001_fib`, `002_many_funcs`) failed to link.  Interp runners (`builder-comp-int`, `-comp-comp-int`, `-comp-int-int`) passed bare `-I "$BINATE_DIR" -L "$BINATE_DIR"`, missing the `ifaces/`+`impls/` entries — so even `000_noop` failed (cmd/bni / the test couldn't resolve a stdlib package).
-- **Fix**: every runner now uses the conformance/unit canonical set, rooted at `$BINATE_DIR` (where `pkg/bootstrap` + `pkg/binate/*` live) plus `ifaces/core:ifaces/stdlib` (-I) and `impls/core/{common,libc}:impls/stdlib/common` (-L).  The int-int runner applies it to both the outer (compiled-bni→cmd/bni) and inner (cmd/bni→test) invocations.  `$src_dir` dropped from compile runners (perf tests are single-file `main` packages importing only stdlib).
-- **Verified locally**: `builder-comp` 3/3, `builder-comp-int` 3/3, `builder-comp-int-int` 3/3 (all `000_noop` + the two int-printing tests PASS; previously every mode was red).  Note: `001_fib` under `builder-comp-int-int` runs ~228s (inherent double-interpretation cost of a recursive program) — correct; kept as-is per user decision (no per-mode skip).
-
-### ~~conformance/520_iface_dtor_callee_sole_ref fails on both native lanes~~ — FIXED 2026-06-02 (binate `394ef21b`)
-- **Final root cause**: the native impl-vtable emitter (`emitImplVtableLayoutNative` in aarch64, `emitImplVtableLayout_x64` in x64) stored the raw dtor fn pointer in slot 0 of the impl vtable.  The LLVM-side codegen had been updated in binate `dc46ac7f` (Jun 1) to store the dtor HANDLE pointer there instead — required by `_call_dtor`'s OP_CALL_HANDLE lowering, which dereferences slot 1 of the value to get the call fn and slot 0 to get the vtable.  Passing a raw fn pointer through that path BLR's the function's first instructions as a {vtable, data} struct, SIGSEGV.  Native side missed the corresponding update; surfaced when 520 (added in `dc46ac7f` precisely to catch this) was run on the two native lanes.
-- **Fix**: switch both native emitters to reference `handleSymFor` / `handleSymFor_x64` (the `___handle.<mangled-dtor>` global), matching the LLVM-side `@__handle.<mangled-dtor>` emission.
-- **Companion fix LANDED**: `521_managed_func_value_propagation`, which surfaced alongside 520, was a separate gap — OP_FUNC_VALUE_DTOR silently NOPing in the native dispatchers — fixed in binate `d014b559` by mirroring the OP_IFACE_DTOR handler.
-- **Coverage**: conformance/520 end-to-end + direct unit test `TestEmitImplVtableSlot0IsHandleNotRawFn` in `pkg/binate/native/aarch64/aarch64_iface_test.bn` pinning slot 0 = handle symbol, NOT raw fn symbol (binate `fe233126`).  All three lanes now match at 454/0/1.
-- **The discovery story** (kept because the disasm walk was nontrivial): lldb showed the crash in `_call_dtor` at `ldr x8, [x8, #0x8]; blr x8` — the OP_CALL_HANDLE dispatch reading slot 1 of x8.  Initial trace through `makeFoo`'s return suggested the @Foo's data slot was being trashed (sp+0x58 held a code address at return).  That was a red herring — the "code address" was actually the raw dtor fn pointer being LOADED FROM the impl vtable's slot 0, which my mental model assumed was a heap data pointer.  Looking at the actual emitter (rather than chasing the symptom in the stack frame) revealed the slot-0 divergence between LLVM and native.
-
 ### Static-managed sentinel refcount — IN PROGRESS (prerequisite for package descriptors)
 - **Status**: IN PROGRESS — worktree `temp-binate-6` / branch `work-6`,
   started 2026-06-01.  Plan:
@@ -987,13 +975,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   (no per-instance refcount churn on a shared singleton).  Consider
   folding it in when the sentinel lands.
 
-### ~~bnc codegen: byval-spill alloca emitted at call site leaks per loop iteration — `*-int*` unit-test modes overflow~~ — FIXED 2026-06-02 (binate `440485b0`)
-- **Root cause**: `writeByvalArgPreamble` (`pkg/binate/codegen/emit_util.bn`) emitted the per-byval-arg `alloca <T>` at the CALL-SITE basic block, not the function entry block.  LLVM allocas outside the entry block allocate fresh stack each time the block runs and aren't reclaimed until function return, so a call passing a >16-byte struct by value from inside a loop leaked one spill slot per iteration.  bni's `execLoop` passes a 48-byte `BCInstr` by value to ~13 helper calls (`execStringOp`/`execFuncRefOp`/`execMemoryOp`/`execArithOp`/...) per dispatch iteration; at ~165K iterations the 8 MiB default host stack was exhausted and the next call's prologue faulted (`EXC_BAD_ACCESS` / SIGSEGV).  lldb showed only ~5 native frames with SP ~8 MB below FP — accumulated per-iteration leaks within one `execLoop` frame, NOT recursion (the earlier extern-callback-recursion hypothesis was wrong).
-- **Pre-existing**: the `Unit tests` CI workflow had been red for 982+ runs (since 2026-05-18).  The team had already hand-hoisted one analogous leak (`callArgs` in `execLoop`); the emit_util.bn comment had even predicted this one.
-- **Fix**: split the preamble.  `writeByvalArgPreamble` now emits only the `store`; new `emitByvalAllocDecls` emits the `alloca` in the entry block, hooked into `emitFuncDbg`'s alloca-hoist pre-pass (alongside OP_ALLOC / OP_MAKE_SLICE / sret).  Slot names `%v<callID>.bv<i>` are a pure function of (instr.ID, arg index) so the entry alloca and call-site store agree without extra plumbing.  Same change removed the `ulimit -s 65520` band-aid from the three bni-using runners (added in `1f2dc9b4` / `c132324a`).
-- **Verification** (default 8 MiB stack, band-aid removed): `execLoop` 14 → 0 dynamic stack-adjustments; `pkg/binate/types` 527/527 (was crash after test #1); `builder-comp-int` 34/0 (was 24/10 even WITH the band-aid); `builder-comp-comp-int` 30/0/4xfail; all 24 previously-crashing packages green; conformance `builder-comp` 450/0/1.  Regression test `TestByvalSpillAllocaHoistedToEntry` (`emit_helpers_test.bn`) pins "no alloca in/after for.body for a byval call in a loop."
-- **Follow-up — also FIXED 2026-06-02 (binate `d9800429`)**: the same call-site-alloca class on the func-value-call (`.ap<i>` aggregate args + `.rb` retbuf) and iface-method (`.rb` sret) paths was hoisted too (latent — no package triggered it, but same shape).  Details in [`plan-codegen-byval-spill-hoist.md`](plan-codegen-byval-spill-hoist.md).
-
 ### bnc: top-level consts of non-int types silently emit `EmitConstInt(0)` at read sites (Phase A — string/bool/float — DONE; composite/pointer remain)
 - **Symptom — general**: declare a top-level `const X T = <expr>` where T is anything other than an integer-family type (or the iota-fed untyped int), and reads of X from any function — in-package OR cross-package qualified `pkg.X` — fall through to `EmitConstInt(0, TypInt())` in IR-gen.  Downstream effects depend on T's expected LLVM shape:
   - **Loud** (clang rejects the .ll with shape mismatch): types whose read sites perform an aggregate operation on what should be a slice / struct / array — get `extractvalue i64 %v, N` (extractvalue on a scalar).  Boolean reads hit `'%v' defined with type 'i64' but expected 'i1'` at branch sites.
@@ -1021,39 +1002,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   - **Scouting handoff (if a `const`→composite extension is ever revisited)** — it is a real language extension, NOT the plan's lighter estimate: (a) composite consts would route through `moduleGlobals` + the synthetic `__init` allocate/store path (`gen_init.bn`), reusing the var-as-initialized-global lowering — **not** static rodata, which is byte/i8-only; (b) **cross-package global reads do not exist yet** — no imported-`var` registration in `gen_import.bn`, no qualified global read-site in `gen_selector.bn` (it searches only `moduleConsts`), no extern-global decl in codegen — so the plan's "reuse existing global machinery" is **false**; that plumbing must be built; (c) immutability needs **real checker work** (make a composite const read as a `TYP_READONLY` value + fix `checkIndexExpr` to re-wrap readonly on the element type so `X[i]=v` is caught), not "just tests" — `X[i]=`/`X.F=` on a composite const are silently accepted today because `SYM_CONST` (binding) and `TYP_READONLY` (type) are disjoint.
 - **Phase C (pointer consts) is also CANCELED** — a pointer isn't scalar, and more fundamentally it *refers to storage*, so it can't be a pure compile-time value.  const-pointer / const-slice / const-managed forms stay rejected (storage-referring types), alongside the composite forms above.
 - **Future direction (TODO, not started): allow `const` of transitively *purely value* types.**  A type is *purely value* iff it carries no storage reference: scalars (int-family / bool / char / float) are purely value; `[N]T` is purely value iff `T` is; a struct is purely value iff every field type is.  Pointers, slices, and managed pointers/slices are NOT (they hold a pointer to storage) and stay rejected.  (Strings are a slice of rodata, already handled as a separate immutable-rodata case in Phase A.)  A purely-value const's whole value is known at compile time, so it should be **const-folded at read sites as an immediate** — the scalar-const model (per-use `EmitConst…`), NOT Phase B's canceled initialized-global lowering.  This subsumes `const P Point = Point{1,2}` and `const M [3]int = …` as real constants.  When picked up: define an `isPurelyValueType` predicate, widen `checkConstDecl`'s accept boundary from "scalar" to "purely value", and extend the const producer + read-site dispatch to fold value-struct / value-array literals.
-
-### ~~arm32_baremetal: pkg/native/{aarch64,x64} test binaries overflow `.bss` region~~ — FIXED 2026-05-30 (binate `b0c64b14`)
-- **Final fix**: combined option-(a) + xfail-manifest-rename:
-  - `runtime/baremetal_arm32/baremetal.ld`'s `LENGTH` bumped from 8 MiB to 16 MiB — the runner already launched QEMU with `-m 16M`, so the linker was underusing available memory.  Both `.bss` overflows clear with headroom.
-  - Stale xfail manifests `pkg-native-arm64.xfail.…` and `pkg-native-amd64.xfail.…` renamed to `pkg-native-aarch64.xfail.…` / `pkg-native-x64.xfail.…` (the packages were renamed away from `arm64`/`amd64` per the mangler-bug story in CLAUDE.md but the manifests were left at the old names and stopped applying).  Restores the original author intent ("tests require host filesystem / subprocess / native-host arch") so the file-write tests (TestArm64FormatSelectsWriterAndPrefix, TestEmitObject*) that the .bss-overflow had been masking get skipped cleanly.
-- **Followup uncovered**: `pkg/builtins/lang.TestInt32StringNegative` ("int32 INT_MIN unexpected") fails on arm32_baremetal but passes on arm32_linux.  Both targets are ILP32 with the same `Itoa` implementation; LLVM IR for the `cast(uint64, int32)` is identical (`sext i32 to i64`).  Tracked as a separate bug below.
-
-### ~~runtime/baremetal_arm32 pkg/bootstrap.Itoa: stale int-only impl miscompiles INT_MIN~~ — FIXED + VERIFIED 2026-06-02 (binate `756209e2`)
-- **Symptom**: `pkg/builtins/lang.TestInt32StringNegative` fails with "int32 INT_MIN unexpected" on `builder-comp_arm32_baremetal` — `x.String()` for `var x int32 = -2147483648` returns just `"-"` (length 1, no digits).  `Itoa(-INT_MIN)`'s digit-count loop runs 0 iterations because the magnitude variable ends up 0.
-- **Discovery**: 2026-05-30, instrumented test under QEMU semihosting after the pkg/native xfail-manifest rename made the lane reach pkg/builtins/lang as a non-xfail.
-- **Root cause** (NOT a compiler bug — earlier "target-specific IR-gen divergence" reading was wrong): `--target arm32-baremetal` swaps in a separate source file at `runtime/baremetal_arm32/pkg/bootstrap/bootstrap.bn` whose `Itoa` was duplicated from libc-host BEFORE the int-min fix (commit `8b94bf6b`) landed.  That fix moved libc-host `Itoa` to `uint64` magnitude; the baremetal copy still does `v = 0 - v` directly on `int`, which overflows at INT_MIN and leaves `temp` still negative — the digit-count loop never runs.  The "IR diff between `--target arm32-linux` and `--target arm32-baremetal` on `pkg/bootstrap`" was real but trivial: different files.  `formatInt`/`formatInt64` in the baremetal copy WERE updated for int-min (commit `38f9319c`); only `Itoa` slipped.
-- **Fix**: port the libc-host uint64-magnitude `Itoa` to the baremetal copy.  1:1 textual port, no semantic change vs the libc-host version.  Long-term followup (already noted in the file's header): extract these format helpers into a shared `pkg/format` so the duplicate goes away entirely (also true for `formatInt`, `formatInt64`, `formatUint`, `formatBool`, `formatFloat`).
-- **Status**: LANDED on main as `756209e2` and VERIFIED 2026-06-02.  The separate link-error blocker (missing `__aeabi_memcpy` etc.) is itself fixed (binate `af8f4683`), so the lane now reaches + passes this test: `builder-comp_arm32_baremetal pkg/builtins/lang` runs 26/26 green, including `TestInt32StringNegative` (`impls/core/common/pkg/builtins/lang/lang_test.bn:62`, asserting `int32(-2147483648).String() == "-2147483648"`).  No xfail manifest for the package on that lane.
-
-### ~~runtime/baremetal_arm32: missing `__aeabi_memcpy` / etc. aliases~~ — FIXED 2026-06-01 (binate `af8f4683`)
-- **Different resolution than originally proposed**: instead of adding the AEABI aliases on the runtime side, the compiler was changed to not *emit* the symbols in the first place.  Plan: `explorations/plan-codegen-c-free-copies.md`, landed across 5 commits (steps 1–5).  No bnc-emitted LLVM IR now contains `@llvm.memcpy.*` intrinsics, `@bn_pkg__libc__Memcpy` calls, aggregate `store <T> zeroinitializer`, or aggregate `store <T> %v, ptr` — the LLVM ARM EABI backend has no aggregate-copy lowering opportunity, so no libc memory primitive is referenced.  pkg/binate/buf, pkg/builtins/lang, conformance/064 + the other surfaced cases all link cleanly on `builder-comp_arm32_baremetal` (20/0/14 unit, 437/1/11 conformance — the 1 remaining conformance failure is unrelated, see below).
-- **Followups still on the plan** (steps 6, 7):
-  - Native backends (`pkg/binate/native/x64`, `pkg/binate/native/aarch64`) still emit assembly that calls `bn_pkg__libc__Memcpy` (rodata→stack/managed-slice paths).  These don't go through pkg/codegen so step 5 doesn't touch them; needs its own audit + fix.
-  - Aggregate `OP_LOAD` still emits `load <T>, ptr <p>` for aggregate T.  In practice the LLVM ARM EABI backend doesn't lower aggregate-LOAD to memcpy the way it does aggregate-STORE, so the baremetal lane went green without addressing this.  But for full hygiene, OP_LOAD should also fieldwise-decompose (insertvalue chain to build the aggregate result) — defer until measured to matter.
-
-### ~~conformance/512_opaque_handle_cross_pkg: baremetal failure on local-escape UB~~ — FIXED 2026-06-02 (binate `f152e6cc`)
-- **Symptom**: `builder-comp_arm32_baremetal` conformance run, test `512_opaque_handle_cross_pkg`: expected output `42`, actual `1090518960` (or similar — looks like an address).  Other modes (`builder-comp`, gen2, etc.) passed; only baremetal failed.
-- **Root cause**: the test exercised `return &local` for an opaque type — `var h Handle; ...; return &h`.  That is **UB** (the stack frame is destroyed at return).  On LP64 host-libc builds the stack slot happened to retain the value long enough for `Get(handle)` to read it back; on arm32-baremetal the semihosting `Write` / `Exit` calls (and the bump-allocator / debug paths between New and Get) clobber the stack region, so Get read garbage.  Pre-existing — verified by reproducing on the prior commit (62f4fb0c) without the C-free-copies step-5 change; the test was simply never xfail-marked.
-- **Fix**: rewrite the test so `New` heap-allocates via `make(Handle)` and returns the resulting `@Handle`.  This makes the lifetime well-defined on every target while still exercising the opaque-type-cross-package property the test is actually about (which is independent of stack-vs-heap).
-- **Why not the alternatives** (both explicitly rejected): (a) xfail on baremetal — a conformance test must not rely on UB even where it *happens* to work, so accepting the UB on the green lanes was wrong; (b) make `&local` escape-aware (auto-heap-allocate escaping locals, Go-style) — runs counter to Binate's core philosophy.  Binate is **transparent** about what is allocated and where; stack vs. heap is source-determined (`var` vs `make`), not an optimizer's decision.  Implicit escape-analysis heap-allocation is exactly what Binate is *not* (this is the opposite of Go, where stack-allocation is an invisible optimization).
-
-
-### ~~pkg/vm test binary crashes silently on arm32_linux after universal-sret commit~~ — FIXED 2026-05-29 (binate `cde84e86`), confirmed 2026-06-02
-- **Symptom**: under `builder-comp_arm32_linux`, the `pkg/vm` unit-test binary built successfully but the run produced zero test output and the runner reported `FAIL: pkg/vm [8s]` — crash before the first test ran.  LP64 (`builder-comp`) ran all tests green.  Bisected: `22a55e49` PASS → `5331235e` (force universal sret for >16-byte aggregate returns) FAIL.
-- **Final root cause** (the original "multi-return frame corruption" hypothesis was wrong — multi-returns are consistently *non-*sret on both ends, so LLVM picks one convention for the matching def+call and they agree): `5331235e` made the function-**definition** sret decision target-aware (`needsSret`, threshold 4 bytes on arm32 vs 16 on LP64) but left the **func-value** (`funcValueUsesSret`) and **iface-method** (`emitCallIfaceMethod`) *call-site* sret decisions at a hardcoded `> 16`.  On arm32 any aggregate return in the 5..16-byte window — raw slices (`%BnSlice`, 8 B), 2-field structs, etc., which are pervasive — was *declared* sret (`define void @f(ptr sret(%T) …)`) but *called* register-style (`%r = call %T @f()`).  Caller and callee disagree on the hidden indirect-result pointer: the callee writes the aggregate through an sret pointer the caller never set up, corrupting the stack and faulting before the first test.  Only arm32 was affected because LP64's 16-byte threshold never routes a 2-word return through sret, so its def and call stayed in agreement.
-- **Fix**: binate `cde84e86` "pkg/codegen: target-aware aggregate-return + func-value sret thresholds" routed the func-value and iface-method call-site thresholds through `needsSret` too, so the definition and *every* call path (direct via `lookupIsSret`, iface via `emitCallIfaceMethod`, func-value via `funcValueUsesSret`) agree on each target.  `OP_CALL_HANDLE` (only `_call_dtor`/`_call_free_fn`, void return) and `OP_CALL_INDIRECT` (`_call_shim_aggregate` returns its aggregate through an explicit buffer-pointer arg, not an LLVM `sret` attribute) carry no sret-annotated aggregate return, so they needed no change.
-- **Confirmation**: CI *Unit tests* run `26845826907` (2026-06-02): the `builder-comp_arm32_linux` job logs `PASS: pkg/binate/vm (157 passed) [11s]`, lane summary `35 passed, 0 failed, 0 xfail, 0 skipped` (pkg/vm moved to `pkg/binate/vm`; 153→157 tests).  `builder-comp_arm32_baremetal` also green.  Independently re-verified by emitting `--target arm32-linux` LLVM IR for 2-field-struct + raw-slice returns: def and call both use `ptr sret(...)`.
-- **Coverage added**: `TestNeedsSretIsTargetAware` (`pkg/binate/codegen/emit_types_test.bn`) pins the foundation threshold host-runnably — an 8-byte aggregate srets on arm32 (> 4) but not LP64 (≤ 16); a 4-byte aggregate srets on neither; a managed-slice (>16 B) srets on both.  This runs on *every* lane (incl. amd64), so a regression in the CI-only arm32 path can't slip through silently again.  Complements the pre-existing `TestFuncValueUsesSretIsTargetAware` (func-value path).
 
 ### Demote raw-slice escape check from type error to linter rule
 - **Final diagnosis**: an unqualified EXPR_IDENT inside a
@@ -1280,36 +1228,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
       "arm32 unit-test cleanup" entry for the bucket.  Unrelated
       to this work.
 
-### ~~`__c_call` Stage 4 (variadic in the native backends)~~ — DONE 2026-06-02 (binate `62ae438f`)
-- **Resolution**: variadic `__c_call` works on both native lanes.  darwin-arm64 forces every vararg onto the stack via `AAPCS64_Darwin`'s `VariadicStackOnly` + the `CallArg*V` arg-dispatch helpers keyed on `ins.CFixedArgs`; amd64-SysV sets `AL = 0` for integer-only varargs before the `CALL`.  The implementation landed via the universal-sret series (which fixed the underlying convention mismatch — `InternalSretBytes` 64→16 — and the second-trailing-bool field-offset miscompile) plus the pkg-layout migration; this session verified + finalized it (added multi-vararg coverage, removed the stale WIP/KNOWN-BUG comments).
-- **Verified**: `conformance/498` (non-variadic), `500` (single vararg), and `527` (multi-vararg `printf("%d %d %d\n", 11, 22, 33)`) are all green on builder-comp (LLVM) + native aa64 + native x64; native aa64 full sweep 456/0/1.  The earlier "KNOWN BUG: 498 and 500 can't both be green simultaneously" was a transient artifact of the convention mismatch and no longer holds.
-- **Out of scope / future**: float varargs (amd64 `AL` = actual vector-reg count used; the V-variant + AL=0 path is integer-only) and the native arm32 backend (500/526 stay xfailed on arm32).  The `stage-4-wip-broken` branch on the `temp-binate-2` worktree is obsolete and can be deleted.
-- Full investigation history (the two distinct native-aarch64 bugs, the InternalSretBytes analysis, the disasm walks) is preserved in git history and summarized in `plan-c-call.md` §6–§7.
-
-### ~~LLVM codegen: `&global` as an interface-value data pointer emits `%v-1`~~ — FIXED 2026-05-26 (binate `a2d84c0`)
-- **Was**: constructing an interface value from the address of a
-  package-level global — `var iv *Greeter = &g` where `g` is a global
-  struct — emitted an invalid data-pointer operand (`%v-1`, no SSA id
-  for the global's address) and clang rejected the module.  Loud, not
-  silent.  Both the LLVM and native paths now materialize the global's
-  address correctly; conformance/495_iface_construct_from_global passes
-  in all modes (its xfails are gone).
-
-### ~~CI: bump artifact actions off deprecated Node 20~~ — DONE 2026-05-26 (binate `665c198`)
-- `actions/upload-artifact@v4` / `download-artifact@v4` ran on Node
-  20 (deprecation flagged on every artifact step of the bnc-0.0.2
-  release run; GitHub forces Node 24 on 2026-06-02, removes Node 20
-  from runners 2026-09-16).
-- Bumped the 4 uses — `release.yml` + `perf-tests.yml` — to
-  `upload-artifact@v7` / `download-artifact@v8` (both node24).
-  Params we use (`name`, `path`, `if-no-files-found`,
-  `retention-days`, `pattern`) are stable across the bump; v8's
-  "direct download" skip-unzip path only triggers for
-  `archive:false` uploads, which we don't use.  `checkout@v6` /
-  `setup-go@v6` were already node24.
-- Not yet exercised by an actual run; the next Release or perf run
-  will confirm the deprecation warnings are gone.
-
 ### arm32 unit-test cleanup: 5 remaining int64-boundary tests
 - **Context (2026-05-28)**: `builder-comp_arm32_linux` unit tests
   are now down to **5 failures across 3 packages** — every other
@@ -1478,27 +1396,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   rebuild pattern (each `appendCharSlice` allocates a new
   slice + copies), and matches the language's expressive
   default instead of the bootstrap workaround.
-
-### ~~bnc: managed local inside a `switch case` body miscompiles~~ — FIXED 2026-05-25 (binate `4306197`)
-- **Was**: `genSwitch` generated case bodies with a bare `genStmt`
-  loop and no variable-scope boundary (unlike `genBlock`, which
-  saves/restores `ctx.Vars` and emits `emitDecForScopeVars` at scope
-  exit).  A managed local declared in a `case` body lingered in
-  `ctx.Vars` for the rest of the function and was RefDec'd on every
-  later exit path — sibling cases and the switch's fall-through
-  `return`s.  On those paths the local's alloca held a stale value
-  from an earlier call that DID run the case (slot reuse), so the
-  spurious RefDec freed a still-live backing → heap corruption.
-  The VM tripped it hard: `execStringOp` runs for every bytecode
-  instruction, and the `return false` path RefDec'd a stale
-  `@[]char` slot (silent SEGV / empty output, ~340 builder-comp-int
-  failures).
-- **Fix**: extracted `genCaseBody`, mirroring `genBlock` — per-case
-  var-scope save/restore + `emitDecForScopeVars` on normal fall-off.
-- **Pinned by**: conformance/489_switch_case_managed_local_scope
-  (SEGV pre-fix, correct post-fix).  Workaround removed:
-  `pkg/vm/vm_exec_helpers.bn:execStringOp` now has all dispatchers
-  in `switch` form.
 
 ### Use function values to collapse explicit dispatch shims (opportunistic)
 - **Constraint**: function values are unlocked now that
