@@ -683,41 +683,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   extern + lower an IR module with a function under that name
   → assert it errors with a recognizable message).
 
-### ~~Bootstrap I/O migration to `__c_call`-based Binate bodies~~ — CANCELED 2026-06-02
-- Originally framed as a proof-of-concept for moving
-  pkg/bootstrap's C-shim surface (Open/Read/Write/Close/Exit/
-  Stat/Args/Exec/ReadDir) from `runtime/binate_runtime.c`
-  wrappers to Binate-side `__c_call("close", ...)` bodies.
-- Aborted: standing up a fresh I/O package is actually easier
-  than this conversion in place — the libc-runtime / BUILDER-
-  skew tangle around in-place renames is more expensive than
-  the architectural payoff.
-- **Lesson (do NOT re-attempt this shape)**: in-place renames
-  of packages whose surface is declared-only and resolved by
-  C symbols (`pkg/libc`, and the I/O side of `pkg/bootstrap`)
-  hit a wall that pure-Binate-package renames (pkg/rt →
-  pkg/builtins/rt) do not.  The wall: at Stage 1, gen1 is
-  linked against BUILDER's bundled `libc_stubs.c` (auto-found
-  next to `--runtime`), which only defines symbols under the
-  OLD mangled name (e.g. `bn_pkg__libc__Memset`).  Checkout
-  source — now compiling under the NEW package name —
-  emits calls to `bn_pkg__builtins__libc__Memset`, which is
-  UNRESOLVED at Stage 1's link.  Pure-Binate packages don't
-  hit this because the bnc-compiled Binate package provides
-  the NEW-name symbols as definitions in its own `.o`;
-  declare-only-via-C packages have no such Binate-side
-  definition.  Compat aliases in checkout's `libc_stubs.c`
-  don't help — BUILDER's runtime is what Stage 1 links against,
-  not checkout's.  Resolving requires either (a) changing
-  Stage 1's `--runtime` to use checkout's (build-script
-  surgery), (b) shipping a supplemental compat .o via
-  `--link-after-objs` (build-script surgery + new artifact),
-  or (c) accepting two release cycles with a transitional
-  bridge.  None are worth it for the bootstrap migration's
-  payoff; the migrate-OUT plan side-steps the whole tangle.
-- Replaced by: see "Slim pkg/bootstrap and pkg/libc by migrating
-  callers OUT" below.
-
 ### Slim `pkg/bootstrap` and `pkg/libc` by migrating callers OUT
 - **What**: rather than converting bootstrap's I/O surface
   in place, migrate callers AWAY from `pkg/bootstrap.X` and
@@ -772,8 +737,27 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     sweep currently finds ~10 non-test sites) and route base-10 ones to
     `strconv.Itoa`, other bases to `strconv.FormatInt`; check each file's
     BUILDER status before switching.
-- **Status**: in progress.  Replaces the canceled in-place migration
-  workstream.
+- **Why migrate OUT rather than convert in place (do NOT re-attempt the
+  in-place shape)**: in-place renames of packages whose surface is
+  declared-only and resolved by C symbols (`pkg/libc`, and the I/O side
+  of `pkg/bootstrap`) hit a wall that pure-Binate-package renames
+  (pkg/rt → pkg/builtins/rt) do not.  The wall: at Stage 1, gen1 is
+  linked against BUILDER's bundled `libc_stubs.c` (auto-found next to
+  `--runtime`), which only defines symbols under the OLD mangled name
+  (e.g. `bn_pkg__libc__Memset`).  Checkout source — now compiling under
+  the NEW package name — emits calls to `bn_pkg__builtins__libc__Memset`,
+  which is UNRESOLVED at Stage 1's link.  Pure-Binate packages don't hit
+  this because the bnc-compiled package provides the NEW-name symbols as
+  definitions in its own `.o`; declare-only-via-C packages have no such
+  Binate-side definition.  Compat aliases in checkout's `libc_stubs.c`
+  don't help — BUILDER's runtime is what Stage 1 links against, not
+  checkout's.  Resolving would require either (a) pointing Stage 1's
+  `--runtime` at checkout's (build-script surgery), (b) a supplemental
+  compat .o via `--link-after-objs` (build-script surgery + new
+  artifact), or (c) two release cycles with a transitional bridge —
+  none worth the bootstrap migration's payoff.  Migrating callers OUT
+  side-steps the whole tangle.
+- **Status**: in progress.
 
 ### Package descriptors (Phase B) — `_Package()` works in compiled + VM modes (builtins); general Functions-table still future
 - **Status**: compiled-mode AND VM-mode `_Package()` landed (binate
