@@ -55,12 +55,16 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   below).  Apply the same recipe to `@Iface`
   (`TYP_INTERFACE_VALUE_MANAGED`): null-safe iface RefDec + flip + acquire
   arms.  This is the separate "@Iface first-class" follow-up.
-- **Unblocks the REPL interrupt seam (Stage 5 of `plan-repl-embeddable.md`).**
-  `vm.SetPoll(poll @func(@VM) int) { vm.Poll = poll }` is the param→field
-  `@func` store; with the acquire arms a CAPTURING poll no longer UAFs.
-  Re-add the int-mode-blocked repl Step end-to-end seam tests dropped in
-  binate `7abad506` to confirm the forwarding-`@func` path (`s.SetPoll`
-  → `vm.SetPoll`) is clean under int.
+- **Unblocks the REPL interrupt seam (Stage 5 of `plan-repl-embeddable.md`)
+  — DONE.**  `vm.SetPoll(poll @func(@VM) int) { vm.Poll = poll }` is the
+  param→field `@func` store; with the acquire arms a CAPTURING poll no
+  longer UAFs.  Capturing-poll seam tests added and green in every int
+  mode: `pkg/binate/vm/vm_poll_test.bn` (`TestCapturingPollFiresViaSetPoll`,
+  `TestCapturingPollSuspendsAfterThreshold` — direct `vm.SetPoll`) and
+  `pkg/binate/repl/step_test.bn` (`TestStepCapturingPollSuspendsTurn` — the
+  end-to-end `s.SetPoll → vm.SetPoll` forward, a capture-driven SUSPEND
+  mapping onto `STEP_SUSPENDED`).  The previously-omitted non-capturing
+  NOTEs in those files are updated to describe the capturing coverage.
 
 ### `136_grouped_imports` / `383_cross_pkg_iface_dtor` — `package "pkg/builtins/rt" not found` under int-int (pre-existing loader bug)
 - **Symptom**: both fail ONLY in `builder-comp-int-int` with
@@ -127,19 +131,19 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MINOR
 
-### `&const` rejection misses qualified consts (`&pkg.C`)
-- **Symptom**: plan-const-readonly step 6 rule 3 rejects taking the
-  address of a const, but only for the unqualified `EXPR_IDENT` case
-  (`&LocalConst`).  `&otherpkg.SomeConst` (an imported const via
-  `EXPR_SELECTOR`) is still silently accepted — it returns a pointer to
-  a value with no storage.
-- **Where**: `pkg/binate/types/check_expr.bn`, the `token.AMP` branch in
-  the unary-expr check (only handles `e.X.Kind == ast.EXPR_IDENT`).
-- **Fix**: also detect when `e.X` is an `EXPR_SELECTOR` resolving to a
-  package-qualified const (kind `SYM_CONST`) and call
-  `errCannotAddrConst`.  Needs the qualified-const resolution the
-  selector read path already does.
-- **Discovery**: 2026-06-03, plan-const-readonly step 6 coverage review.
+### ~~`&const` rejection misses qualified consts (`&pkg.C`)~~ — RESOLVED 2026-06-03 (deferral 3)
+- **Was**: the `token.AMP` const-rejection handled only the unqualified
+  `EXPR_IDENT` case; `&otherpkg.SomeConst` (an imported const via
+  `EXPR_SELECTOR`) was silently accepted, returning a pointer to a
+  storage-less value.
+- **Fix**: extracted `resolveQualifiedSym` (`check_expr_access.bn`) and
+  used it in the `token.AMP` branch to reject `&pkg.C` (gate on
+  `SYM_CONST`).  The assignment sibling `pkg.C = v` — which had silently
+  lowered to a no-op store — was the same gap and is rejected via the
+  same helper in `checkAssignStmt`.
+- **Tests**: `conformance/544_err_addr_qualified_const`,
+  `557_err_assign_qualified_const`; `TestCheckRejectAddrOfQualifiedConst`,
+  `TestCheckRejectAssignQualifiedConst`.
 
 ### Redesign `pkg/binate/version` — simplify; drop the `bnc-` prefix
 - **What**: simplify the version package:
@@ -440,44 +444,96 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   fan of per-mode xfail files.
 - Surfaced 2026-06-03 by the drop-libc / native-only-rt work.
 
-### Type-checker can't slice a `readonly`-wrapped slice
-- **Symptom**: `var v readonly *[]readonly char = "..."; v[i:j]` fails
-  type-checking with `cannot slice this type` (and the result reads as
-  `void`).  Slicing a `*[]readonly char` (element-readonly, no outer
-  modifier) works; only an OUTER `readonly` on the slice type breaks
-  it — `checkSliceExpr` doesn't see through `TYP_READONLY` to the
-  underlying slice.
-- **Why it matters**: blocks the plan-const-readonly design shape
-  `var X readonly *[]readonly char` for read-only globals.  Surfaced
-  while migrating `pkg/binate/version` (step 8): `version` had to be
-  typed `*[]readonly char` (immutability by convention) instead of
-  `readonly *[]readonly char` (enforced) because `Format` slices it.
-- **Proposed fix**: `checkSliceExpr` (and likely `checkIndexExpr`)
-  should resolve through an outer `TYP_READONLY`, slice the underlying
-  slice, and re-wrap the result's element type as readonly (reading a
-  readonly slice is allowed; the readonly-ness rides on the elements).
+### ~~Type-checker can't slice a `readonly`-wrapped slice~~ — RESOLVED 2026-06-03 (deferral 1)
+- **Was**: `var v readonly *[]readonly char = "..."; v[i:j]` failed
+  type-checking with `cannot slice this type` — `checkSliceExpr` didn't
+  see through an outer `TYP_READONLY` to the underlying slice (indexing
+  already did).
+- **Fix**: `checkSliceExpr` peels the outer `TYP_READONLY` (mirroring
+  `checkIndexExpr`); the result is the underlying slice type — the
+  subslice is a fresh value, so the outer readonly does not ride along
+  (no re-wrap needed, contrary to the original proposal).
+- **Also surfaced + fixed a pre-existing MAJOR IR-gen miscompile**:
+  `isSliceType` / `isManagedSliceType` / `isCharSliceType` did not peel an
+  outer readonly, so a string-literal init into an outer-readonly slice
+  stored a bare data pointer with a garbage length word, and a
+  `readonly @[]T` was mis-classified out of the RefInc/RefDec machinery.
+- **Tests**: `conformance/542_readonly_slice_init`, `543_readonly_slice`;
+  `gen_refcount_pred_test` outer-readonly cases;
+  `TestCheckSliceExprReadonlyOuter`.
+- **Note**: `version.bn` was deliberately NOT re-typed to the enforced
+  `readonly *[]readonly char` — re-typing would plant a latent BUILDER
+  trap once a bnc-tree consumer imports `version`; the enforced shape
+  rides with the version redesign (MINOR entry above).
 - **Discovery**: 2026-06-02, plan-const-readonly step 8.
 
-### `.bni` extern `var` (cross-package var export) is unsupported
-- **Symptom**: a top-level `var X T` in a `.bni` is silently ignored —
-  `bni_scope.bn` handles `DECL_FUNC`/`DECL_CONST`/`DECL_TYPE`/
-  `DECL_GROUP` but not `DECL_VAR`, so the symbol is never defined/
-  exported.  No package currently exports a `var`.
-- **Why it matters**: plan-const-readonly's `var` design says
-  "`.bni`-side `var X T` is an extern declaration" — but the machinery
-  doesn't exist.  Related: the cross-package-global-read gap already
-  noted under the composite-const scouting entry below (no imported-var
-  registration in `gen_import.bn`, no qualified global read-site in
-  `gen_selector.bn`, no extern-global decl in codegen).
-- **Workaround in place**: `pkg/binate/version` keeps its version
-  string package-private (`var version` in version.bn) with `Format()`
-  as the public accessor, rather than exporting `var Version` — so no
-  extern-var was needed (step 8).
-- **Proposed fix**: teach `bni_scope` to define a `DECL_VAR` symbol,
-  the checker to enforce `.bni`/`.bn` type agreement + no-initializer
-  on the `.bni` side, and codegen/loader to emit + resolve the extern
-  global.  Then re-export `version.Version` if a consumer appears.
+### ~~`.bni` extern `var` (cross-package var export) is unsupported~~ — DONE 2026-06-03 (deferral 2)
+- **Delivered**: a top-level `var X T` in a `.bni` is an extern
+  declaration (storage defined in the package's `.bn`), read AND written
+  cross-package as `pkg.X` for SCALAR, RAW/readonly-slice, and
+  MANAGED-SLICE types, across all 6 default modes.
+- **Mechanism**: the cross-package reference carries the DEFINING
+  package's dotted qualname (`buildQualName`), which
+  `mangle.GlobalName` → `writeBnDotted` mangles to the owner's symbol —
+  the same escape hatch exported funcs use, so no `emit_util` change and
+  no silent-wrong-symbol risk.  Layers: `bni_scope` (`DECL_VAR` →
+  `SYM_VAR`), `checkBniVarMatch` (`.bni`/`.bn` type agreement),
+  `ir.Global.IsExtern` + `gen_import` registration,
+  `gen_func`/`gen_selector` (`lookupImportedGlobalPtr`/`Read`,
+  `genImportedVarLvalue`), `emit` (`external global`), and the VM
+  (`materializeGlobals` qualified-name keying + cross-module accumulation).
+- **Tests**: `conformance/548` (read), `552` (write), `549` (.bni/.bn
+  type mismatch), `558` (managed-slice + managed-ptr field); unit tests
+  in `bni_scope_test`, `check_decl_test`, and `lower_test`
+  (globals-accumulation isolation).
+- **Tracked follow-ups** (managed/ptr edge cases, with xfail repros — see
+  the MAJOR entries below): `&globalScalar` compiled (`551`), cross-pkg
+  managed-ptr value-copy crash (`559`), field-write through an imported
+  ptr var (`561`).
+- **Plan**: [`plan-extern-var.md`](plan-extern-var.md).
 - **Discovery**: 2026-06-02, plan-const-readonly step 8.
+
+### `&G` (address of a global scalar as a value) miscompiles in the compiled backend
+- **Symptom**: `var p *int = &G` for a top-level global SCALAR fails to
+  compile — `error: use of undefined value '%v-1'`.  The global-ref
+  pseudo-instr (id -1, `IsGlobalRef`) is rendered as `@<mangled>` only in
+  pointer-operand positions (`emitPtrRef`: load/store address, GEP base);
+  used as an rvalue (the result of `&`, then stored / assigned) it falls
+  to `emitRef(instr.ID)` → `%v-1` (never defined).  Loud, not silent.
+- **Scope**: NOT extern-var-specific — same-package `&G` hits it too.
+  Works in the bytecode VM; only the compiled (LLVM) backend breaks.
+  Blocks `&pkg.Var` (address-of an imported var) in compiled mode.
+- **Fix direction**: materialize a global's address as a real SSA value
+  when `&`'d (an IR-gen op producing `%vN = <addr of @mangled>`), or make
+  value-operand rendering `IsGlobalRef`-aware.  Index/field GEPs off a
+  global already work (real-ID GEP instrs); only the bare whole-global
+  address-as-value is broken.
+- **Test**: `conformance/551_addr_of_global_scalar` (xfail in the 3
+  compiled modes; passes in the VM).
+- **Discovery**: 2026-06-03, deferral-2 Slice 3 (`&pkg.Var`).
+
+### Cross-package managed-PTR extern var: value-copy crash + field-write no-op
+- **Symptom A (crash)**: copying an extern managed-ptr var's whole value
+  — `var n @pkg.T = pkg.G` — crashes at runtime.  Isolated to extern +
+  managed-ptr + value-copy (same-package managed-ptr copy works, the
+  qualified type works from a func return, managed-SLICE copy works,
+  managed-ptr FIELD read works).  The cross-package RefDec at the local's
+  scope end needs the imported type's dtor, which the importer lacks.
+  Test: `conformance/559_cross_pkg_managed_ptr_copy` (xfail all modes).
+- **Symptom B (silent no-op)**: writing a FIELD through an imported
+  ptr/struct var — `pkg.G.V = v` — silently drops the store.
+  `genSelectorPtr`'s package-qualified branch handles only
+  `e.X == EXPR_IDENT`, so a nested-selector lvalue (`pkg.G` is itself a
+  selector) isn't recognized → nil lvalue pointer.  Reading the field
+  works; element writes through an imported managed-SLICE var
+  (`pkg.S[i] = v`) work.  Test:
+  `conformance/561_cross_pkg_ptr_field_write` (xfail all modes).
+- **Fix direction**: (A) emit/import the managed type's dtor so a
+  cross-package managed-ptr local can RefDec at scope end; (B) a
+  `genSelectorPtr` qualified-var-base case (get the var's value via
+  `lookupImportedGlobalRead`, then GEP the field) — also covers raw-ptr
+  and value-struct imported vars.  Best done together.
+- **Discovery**: 2026-06-03, deferral-2 Slice 4 + coverage review.
 
 ### `pkg/binate/version` top-level `var` reads as `len 1` under the bytecode VM
 - **Symptom**: `pkg/binate/version` unit tests fail in the `-int` modes
