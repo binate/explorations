@@ -1,5 +1,10 @@
 # Binate — Plan to Nail Down the Language Design
 
+Status: COMPLETE (shipped). Phases 1-4 are done; the Go bootstrap interpreter they
+target has since been retired. Kept for the consolidated record of the early
+syntax/semantics decisions. Those decisions (with fuller rationale) also live in
+`claude-notes.md`, `claude-discussion-detailed-notes.md`, and `grammar.ebnf`.
+
 This plan identifies the areas that need to be fully specified before we can write a formal grammar and begin implementing the bootstrap interpreter. It's organized into phases: things that must be resolved first (because other decisions depend on them), things that can be resolved in parallel, and things that can be deferred until after the bootstrap interpreter is underway.
 
 Reference documents:
@@ -13,7 +18,7 @@ Reference documents:
 
 These must be resolved before writing a grammar. They are the foundational decisions that everything else depends on.
 
-### 1.1 Primitive Types — DONE
+### 1.1 Primitive Types
 
 ```
 int, uint                           // platform word size
@@ -31,7 +36,7 @@ char = uint8                        // alias
 - `nil` for null pointers/slices. `true`/`false` for bools.
 - `any` is a built-in implicit interface, usable in type expressions: `*any`, `@any`.
 
-### 1.2 Concrete Syntax — DONE
+### 1.2 Concrete Syntax
 
 All major syntax decisions have been made. Summary:
 
@@ -166,7 +171,7 @@ Point{x: 1, y: 2}          // named fields
 [3]int{1}                   // partial → {1, 0, 0}
 ```
 
-### 1.3 Package & Module System — DONE
+### 1.3 Package & Module System
 
 - **Package declaration**: `package "pkg/foo"` (string-based, matches import path)
 - **Import syntax**: `import "pkg/foo"`, `import alias "pkg/foo"`
@@ -178,7 +183,7 @@ Point{x: 1, y: 2}          // named fields
 - **Main package**: `package "main"`, requires `main()`, no `.bni` needed.
 - **Visibility**: no per-symbol keywords. In the `.bni` = public. Not in `.bni` = private.
 
-### 1.4 Operator Set — DONE
+### 1.4 Operator Set
 
 **Arithmetic**: `+`, `-`, `*`, `/`, `%`
 - Integer division truncates toward zero. `%` result has same sign as dividend.
@@ -208,7 +213,7 @@ Point{x: 1, y: 2}          // named fields
 
 These can be worked on in parallel, and are needed before the bootstrap interpreter can be fully functional, but don't block writing the grammar.
 
-### 2.1 Scoping Rules — DONE
+### 2.1 Scoping Rules
 
 - Block scoping: every `{}` introduces a new scope
 - Variable shadowing: allowed, compiler warns by default (suppressible)
@@ -216,7 +221,7 @@ These can be worked on in parallel, and are needed before the bootstrap interpre
 - Package-level `var` allowed (mutable globals). Init order: dependency-based, then source order.
 - No `init()` functions — explicit initialization in `main`.
 
-### 2.2 Memory Management Details — DONE
+### 2.2 Memory Management Details
 
 **Managed allocation layout** (2 words overhead):
 ```
@@ -240,7 +245,7 @@ box(Point{x: 1, y: 2})  // @Point, allocate with init
 ```
 No capacity argument. Growing is a library concern.
 
-### 2.3 Method Resolution & Dispatch — DONE
+### 2.3 Method Resolution & Dispatch
 
 - One method per name per base type (no overloading on receiver kind)
 - One level of auto-deref: `@T`/`*T` → look for methods on pointer type and on `T`
@@ -252,7 +257,7 @@ No capacity argument. Growing is a library concern.
 - Converting child → parent interface: adjust vtable pointer by fixed offset.
 - Destructor lives in the `any` vtable entry (all interfaces implicitly extend `any`).
 
-### 2.4 Generic Instantiation — DONE
+### 2.4 Generic Instantiation
 
 - Type params on functions, structs, and interfaces: `[T Comparable]`
 - Multiple constraints: define a named combined interface (no `+` syntax)
@@ -263,7 +268,7 @@ No capacity argument. Growing is a library concern.
 - No conditional impls for v1. Only specific instantiations can `impl`.
 - Cross-package: generic bodies in `.bni` files (needed for instantiation).
 
-### 2.5 String & Array Semantics — DONE
+### 2.5 String & Array Semantics
 
 - String literals: `*[]const char` by default. Null-terminated in storage, slice excludes null.
 - Bounds checking: always on by default. Out-of-bounds = runtime trap.
@@ -276,9 +281,7 @@ No capacity argument. Growing is a library concern.
 
 ## Phase 3: Formal Grammar
 
-Once Phases 1 and 2 are sufficiently resolved:
-
-### 3.1 Write an EBNF (or PEG) Grammar — DONE
+### 3.1 EBNF Grammar — see `grammar.ebnf`
 
 - Covers all syntax from Phase 1
 - Token types defined (keywords, identifiers, literals, operators, punctuation)
@@ -286,11 +289,10 @@ Once Phases 1 and 2 are sufficiently resolved:
 - Operator precedence and associativity defined
 - 11 disambiguation rules documented (D1–D11)
 - Builtins (`make`, `box`, `cast`, `bit_cast`, `len`, `unsafe_index`) are keywords (not predeclared names)
-- See `grammar.ebnf`
 
-### 3.2 Identify the Bootstrap Subset — DONE
+### 3.2 Bootstrap Subset
 
-The bootstrap interpreter only needs to support enough of the language to run the Binate compiler/interpreter source. Identify what can be deferred:
+The bootstrap interpreter only needed to support enough of the language to run the Binate compiler/interpreter source. (Historical: the Go bootstrap interpreter has since been retired; the operative constraint is now "compilable by the current BUILDER bnc" — see CLAUDE.md.)
 
 **In the bootstrap subset:**
 - Functions (non-generic)
@@ -327,54 +329,14 @@ See `grammar.ebnf` for the formal grammar with `[BOOTSTRAP]`/`[DEFERRED]` annota
 
 ## Phase 4: Bootstrap Interpreter Implementation (Go)
 
-### 4.1 Lexer
-- Tokenize the bootstrap subset
-- Handle automatic semicolon insertion
-
-### 4.2 Parser
-- Parse the bootstrap subset into an AST
-- Error recovery (at least basic)
-
-### 4.3 Type Checker
-- Type check the AST
-- Handle the subset of the type system needed for bootstrap
-
-### 4.4 Tree-Walking Interpreter
-- Evaluate the AST directly
-- Implement managed memory with refcounting (in Go, backed by Go's GC for the interpreter's own allocations, but tracking refcounts for Binate objects)
-- Implement basic standard library (I/O, string operations, memory allocation)
-
-### 4.5 Self-Test
-- Write small Binate programs to test the interpreter
-- Build up a test suite that will also serve the future compiler
+Shipped as `github.com/binate/bootstrap`: lexer, parser, type checker, and tree-walking
+interpreter for the bootstrap subset, with multi-file/multi-package support, `.bni`
+loading, refcounted managed memory, a basic standard library, and a self-test suite.
+(The Go bootstrap interpreter has since been retired; see CLAUDE.md for the current
+build path.)
 
 ---
 
 ## Phase 5: Writing the Real Compiler/Interpreter in Binate
 
-(Beyond the scope of this plan, but the end goal of Phases 1-4.)
-
----
-
-## Current Status & Next Steps
-
-**Phase 1 is complete.** All core language specification items decided.
-**Phase 2 is complete.** All detailed semantics decided.
-**Phase 3 is complete.** Formal EBNF grammar written (`grammar.ebnf`) with bootstrap subset annotations.
-**Phase 4 is complete.** Bootstrap interpreter implemented in Go (`github.com/binate/bootstrap`):
-- Lexer, parser, type checker, tree-walking interpreter all functional
-- CLI: `binate [-root dir] file1.bn [file2.bn ...] [-- args...]`
-- Multi-file package support (merge multiple `.bn` files from same package)
-- User-defined package imports with transitive dependency resolution and cycle detection
-- `.bni` interface file loading for package declarations (both embedded and on-disk)
-- Package loader: discovers `$ROOT/pkg/foo.bni` + `$ROOT/pkg/foo/*.bn`, validates package names match paths
-- I/O and process builtins in `pkg/bootstrap` package (open, read, write, close, exit, args, string)
-- Runtime error reporting with source positions (division by zero, index out of bounds, nil pointer dereference)
-- `iota` support in grouped const declarations
-- String indexing (`s[i]` returns char)
-- Project root defaults to cwd, overridable with `-root` flag
-- 28 lexer tests, 79 parser tests, 35 checker tests, 51+ interpreter tests — all passing
-- Test programs: hello.bn, fib.bn, cat.bn, wc.bn, multi-file examples, multi-package project (pkgtest)
-
-**Next:**
-1. Begin Phase 5 — writing the self-hosted compiler/interpreter in Binate
+(Beyond the scope of this plan, but the end goal of Phases 1-4.) See `claude-plan-2.md`.

@@ -1,11 +1,11 @@
 # Design: Bytecode Interpreter (`pkg/vm`)
 
-> **Status note (2026-04-17):** This document is historical design
-> rationale from when `pkg/vm` was being added alongside the existing
-> tree-walking interpreter (`pkg/interp`). `pkg/interp` and its frontend
-> `cmd/bni` have since been removed; `pkg/vm` (via `cmd/bni2`) is now
-> the sole interpreter. References to `pkg/interp` below describe the
-> retired code.
+> **Status (shipped):** This document is the historical design rationale
+> from when `pkg/vm` was being added alongside the existing tree-walking
+> interpreter (`pkg/interp`). `pkg/interp` and its frontend `cmd/bni`
+> have since been removed; `pkg/vm` (via `cmd/bni2`) is now the sole
+> interpreter. References to `pkg/interp` below describe the retired code.
+> Kept for the design rationale and the IR-op → bytecode-op mapping.
 
 ## Motivation
 
@@ -39,28 +39,6 @@ The first four stages are shared with the compiler. The bytecode
 interpreter replaces only the last stage (LLVM codegen) with:
 1. A lowering pass that converts SSA IR to register-machine bytecode
 2. A VM that executes the bytecode
-
-## Package: `pkg/vm`
-
-New package, parallel to `pkg/interp`. Does not modify any existing code.
-The compiler driver (`cmd/bnc`) and loader (`pkg/loader`) are reused as-is.
-A new command `cmd/bnvm` (or integrated into `cmd/bni`) drives the VM.
-
-### Dependencies
-
-```
-pkg/vm
-├── pkg/ir       (IR data structures, IR gen)
-├── pkg/types    (type layout: SizeOf, AlignOf, FieldOffset)
-├── pkg/rt       (managed memory: Alloc, Free, RefInc, RefDec)
-├── pkg/ast      (AST for IR gen input)
-├── pkg/token    (source positions)
-├── pkg/parser   (parsing)
-├── pkg/loader   (package loading)
-└── pkg/types    (type checking)
-```
-
-No dependency on `pkg/interp` or `pkg/codegen`.
 
 ## Bytecode Format
 
@@ -158,93 +136,7 @@ During lowering, for each `OP_PHI` instruction:
 This is the standard "parallel copy" approach. For most Binate code, phis
 have 2 predecessors (if/else merge, loop header), so this is simple.
 
-## VM State
-
-### Per-VM (global)
-
-```binate
-type VM struct {
-    Stack       *uint8      // base of stack memory
-    StackSize   int         // total stack size (e.g., 8MB)
-    SP          int         // current stack pointer (offset from Stack)
-    Funcs       @[]VMFunc   // compiled function table
-    Globals     *uint8      // global variable area
-    GlobalsSize int         // size of globals area
-    Strings     @[]StringConst  // string constant table
-}
-```
-
-### Per-Function
-
-```binate
-type VMFunc struct {
-    Name       @[]char
-    Code       @[]Instr    // bytecode instructions
-    NumRegs    int          // number of register slots needed
-    FrameSize  int          // total stack frame size (for allocas)
-    Params     @[]ParamInfo
-    Results    @[]ResultInfo
-}
-```
-
-### Per-Call-Frame
-
-```binate
-type Frame struct {
-    Func      @VMFunc     // function being executed
-    Regs      *int        // register file (NumRegs slots)
-    FrameBase *uint8      // base of stack allocations
-    RetAddr   int         // return instruction pointer
-    CallerSP  int         // caller's SP (for cleanup)
-}
-```
-
-The register file holds `int64` values. Pointers are stored as `int64`
-via bit_cast. Structs larger than 8 bytes are passed by pointer (the
-register holds the pointer to stack or heap memory).
-
 ## Execution Model
-
-### Main Loop
-
-```
-func Run(vm @VM, funcID int, args *[]int) int {
-    // Push frame
-    var frame = pushFrame(vm, funcID, args)
-    var pc int = 0
-    for {
-        var instr Instr = frame.Func.Code[pc]
-        switch instr.Op {
-        case BC_LOAD_IMM:
-            frame.Regs[instr.Dst] = instr.Imm
-        case BC_ADD:
-            frame.Regs[instr.Dst] = frame.Regs[instr.Src1] + frame.Regs[instr.Src2]
-        case BC_LOAD:
-            frame.Regs[instr.Dst] = *(int64*)frame.Regs[instr.Src1]
-        case BC_STORE:
-            *(int64*)frame.Regs[instr.Src1] = frame.Regs[instr.Src2]
-        case BC_JUMP:
-            pc = instr.Aux; continue
-        case BC_BRANCH:
-            if frame.Regs[instr.Src1] != 0: pc = instr.Src2
-            else: pc = instr.Aux
-            continue
-        case BC_CALL:
-            frame.Regs[instr.Dst] = Run(vm, instr.Aux, collectArgs(...))
-        case BC_RETURN:
-            popFrame(vm, frame)
-            return frame.Regs[instr.Src1]
-        case BC_REFINC:
-            rt.RefInc(bit_cast(*uint8, frame.Regs[instr.Src1]))
-        case BC_REFDEC:
-            rt.RefDec(bit_cast(*uint8, frame.Regs[instr.Src1]),
-                      bit_cast(*uint8, frame.Regs[instr.Src2]))
-        ...
-        }
-        pc = pc + 1
-    }
-}
-```
 
 ### Stack Management
 
@@ -288,57 +180,6 @@ them directly via function pointers or a dispatch table.
 
 This is the key advantage: `rt.RefInc(ptr)` is the SAME compiled function
 whether called from compiled code or from the VM. No reimplementation.
-
-## Implementation Plan
-
-### Phase 1: Minimal VM
-
-1. Define bytecode instruction struct in `pkg/vm.bni`
-2. Implement IR → bytecode lowering (phi elimination, label resolution)
-3. Implement VM main loop with basic ops (arithmetic, load/store, branch)
-4. Test: simple programs with int arithmetic, if/else, for loops
-
-### Phase 2: Memory and Types
-
-1. Stack allocas for variables and structs
-2. Struct field access (GET_FIELD_PTR → pointer arithmetic)
-3. Managed pointers: RefInc/RefDec through `pkg/rt`
-4. Managed slices: create, access, subslice
-5. Test: conformance tests involving structs, slices, managed pointers
-
-### Phase 3: Functions and Packages
-
-1. Function calls (BC_CALL with frame push/pop)
-2. Multi-return via anonymous struct
-3. Global variables
-4. Package loading (reuse `pkg/loader`)
-5. String constants
-6. Test: cross-package calls, globals, string operations
-
-### Phase 4: Builtins and I/O
-
-1. println/print dispatch
-2. len, make, make_slice, box, cast, bit_cast
-3. Bootstrap package forwarding (Open, Read, Write, etc.)
-4. Test: file I/O, bootstrap functions
-
-### Phase 5: Integration
-
-1. `cmd/bnvm` command (or `--vm` flag on `cmd/bni`)
-2. `--test` mode for running unit tests
-3. Conformance test runner integration
-4. Performance comparison with tree-walker
-
-## Advantages Over Tree-Walker
-
-1. **Correct by construction**: refcounting comes from IR gen, not
-   hand-written interpreter logic
-2. **Simpler**: dispatch loop over flat opcodes vs recursive AST walk
-3. **Faster**: better cache locality, no pointer chasing through AST
-4. **Easier to debug**: bytecode is inspectable, deterministic
-5. **Shared code**: IR gen, type checker, loader are all reused
-6. **Natural interop path**: compiled code and VM code use the same
-   calling convention and memory layout
 
 ## Risks and Open Questions
 

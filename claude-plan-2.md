@@ -1,5 +1,7 @@
 # Binate — Phase 5: Self-Hosted Toolchain
 
+> **Status: COMPLETE (shipped).** The self-hosted toolchain is implemented and stable; the Go bootstrap interpreter has been retired (2026-05-21). This doc is kept for design rationale (interpreter-first, repo-split sketch, IR/backend/object-file/inline-asm direction). The per-step execution plan that originally lived here has been removed as spent. See `claude-todo.md` for current work and `claude-plan-3.md`+ for compiler-phase plans.
+
 > **NOTE (2026-03-31):** `append` has been fully removed from the Binate language. References to `append` as a builtin in this historical plan are outdated.
 
 This plan covers the transition from the Go bootstrap interpreter to a self-hosted Binate toolchain — interpreter, compiler, and supporting tools.
@@ -48,144 +50,9 @@ We can split into separate repos once the boundaries are stable (probably after 
 - `binate/compiler` — IR, optimization, codegen, backends, linker
 - `binate/tools` — formatter, linter, bni generator, etc.
 
-### Repo and package layout
-
-```
-binate/
-  main.bn                        entry point (dispatches to subcommands?)
-  pkg/
-    token/                        token types and positions
-      token.bni + token/*.bn
-    ast/                          AST node types
-      ast.bni + ast/*.bn
-    lexer/                        tokenizer + semicolon insertion
-      lexer.bni + lexer/*.bn
-    parser/                       recursive descent parser
-      parser.bni + parser/*.bn
-    types/                        type system and checker
-      types.bni + types/*.bn
-    interp/                       tree-walking interpreter
-      interp.bni + interp/*.bn
-    ir/                           intermediate representation (later)
-      ir.bni + ir/*.bn
-    codegen/                      backend interface + backends (later)
-      codegen.bni + codegen/*.bn
-    platform/                     OS/arch abstractions
-      platform.bni + platform/*.bn
-    fmt/                          code formatter (later)
-    lint/                         linter (later)
-    bnigen/                       .bni file generator (later)
-```
-
 ---
 
-## Phase 5a: Self-Hosted Interpreter
-
-### What we're building
-
-A Binate program that, when run on the Go bootstrap interpreter, can itself interpret Binate programs. It must support the full bootstrap subset (everything the Go interpreter supports), because eventually it needs to run the compiler source code.
-
-### Step 1: Port the frontend
-
-The frontend is the bulk of the shared code. Port in this order (each package depends on the previous):
-
-**1. `pkg/token`** — Token types, positions, keywords
-- Straightforward data definitions
-- Token enum via `iota` const groups
-- Position struct with file/line/col
-- Keyword lookup (map or linear scan)
-- Smallest package, good warmup for writing real Binate
-
-**2. `pkg/ast`** — AST node types
-- Struct definitions for every node type
-- This is mostly type declarations — a good test of struct and pointer ergonomics
-- Will expose limitations in the bootstrap subset (no interfaces = no `ast.Node` base type)
-- **Key design question:** Without interfaces, how do we represent "any expression" or "any statement"? Options:
-  - Tagged union via distinct type + `switch` on tag (C-style)
-  - Managed pointer to a struct with a `kind` field + type-specific data as `*any`
-  - Wait until we add interfaces to the bootstrap
-  - **Recommendation:** Use a `kind` field (int enum) + `*any` for now. It's ugly but works in the bootstrap subset. Once we self-host with interface support, we refactor to proper interfaces.
-
-**3. `pkg/lexer`** — Tokenizer
-- Character-by-character scanning
-- String/char literal parsing
-- Number literal parsing
-- Automatic semicolon insertion
-- Keyword recognition
-- This is the first package that does real work; good integration test
-
-**4. `pkg/parser`** — Recursive descent parser
-- Largest package by far (the Go version is ~1500 lines)
-- Pratt parsing for expressions (or hand-coded precedence climbing)
-- Statement and declaration parsing
-- Error recovery (at minimum: sync to next statement boundary)
-- .bni interface file mode (bodyless function declarations)
-
-**5. `pkg/types`** — Type system and checker
-- Type representations (named, pointer, slice, array, struct, function)
-- Scope/environment management
-- Expression type checking
-- Statement checking
-- Package interface loading
-- Cross-package type resolution
-
-### Step 2: Port the backend (tree-walker)
-
-**6. `pkg/interp`** — Tree-walking interpreter
-- Runtime value representation
-- Expression evaluation
-- Statement execution
-- Environment/scope management
-- Managed pointer refcounting
-- Builtin functions (print, println, append, panic, len)
-- Package loading and cross-package calls
-
-### Step 3: Port the driver
-
-**7. `main.bn`** — CLI entry point
-- Argument parsing
-- File discovery and package loading
-- Orchestration: parse → check → interpret
-
-### Step 4: Self-test
-
-- Run the self-hosted interpreter (on the Go bootstrap) against every test program
-- Compare output with Go bootstrap output — must be identical
-- Once passing: the self-hosted interpreter is correct
-
-### What we'll discover along the way
-
-Writing a real program in the bootstrap subset will surface gaps:
-
-- **No interfaces.** The AST is naturally polymorphic — every expression, statement, and declaration is a different type. Without interfaces, we need a workaround (see above). **Alternatively, we could add interfaces to the bootstrap subset** — this is a real option since interfaces are already fully designed (vtable layout, impl declarations, method dispatch). Adding them to the Go bootstrap would be significant work but would make the self-hosted code much cleaner. Decision point: when we start writing `pkg/ast`.
-- **No function values.** The parser likely wants callbacks or function tables. Without function values, we use switch statements.
-- **No closures.** Environment capture for nested scopes must be explicit.
-- **No generics.** Data structures (lists, maps) must be written per-type or use `*any` with casts.
-- **Missing builtins?** We may need to add things to `pkg/bootstrap` (e.g., `stat`, `getenv`, string manipulation).
-
-Each of these is a decision point: do we extend the bootstrap subset, or work around the limitation? The bias should be toward **working around it** unless the workaround is truly unworkable — the goal is to keep the Go bootstrap simple.
-
----
-
-## Phase 5b: Self-Hosted Compiler
-
-Once the self-hosted interpreter works, we extend it with compilation.
-
-### Compiler architecture
-
-```
-Source → Lexer → Parser → AST → Type Checker → Typed AST
-                                                    ↓
-                                              IR Generation
-                                                    ↓
-                                            Optimization (optional)
-                                                    ↓
-                                              Code Generation
-                                                    ↓
-                                            Object File Emission
-                                                    ↓
-                                              Linking → Executable
-```
+## Compiler design notes (Phase 5b)
 
 ### Intermediate Representation (IR)
 
@@ -205,19 +72,7 @@ Key IR operations beyond the basics:
 
 ### Backend architecture
 
-Each backend translates IR to machine code for a specific target:
-
-```
-pkg/codegen/
-  codegen.bni          backend interface
-  codegen/*.bn         shared utilities (register allocation, instruction selection helpers)
-  x86_64.bni + x86_64/*.bn     x86-64 backend
-  arm64.bni + arm64/*.bn       ARM64 backend
-  llvm.bni + llvm/*.bn           LLVM IR emission backend
-  (future: riscv64, wasm, ...)
-```
-
-A backend must provide:
+Each backend translates IR to machine code for a specific target. A backend must provide:
 - **Instruction selection.** Map IR operations to target instructions.
 - **Register allocation.** Assign IR values to physical registers (linear scan is fine to start; graph coloring later).
 - **Calling convention.** Function prologue/epilogue, argument passing, return values.
@@ -308,118 +163,35 @@ This is a language spec change and should be designed carefully. Key questions t
 
 ---
 
-## Phase 5c: Self-Compilation
-
-Once the compiler can compile other Binate programs:
-
-1. **Compile the compiler with itself.** Run the compiler (on the interpreter, on the Go bootstrap) to compile its own source to a native binary.
-2. **Verify.** The native compiler should produce identical output to the interpreted compiler for all test programs.
-3. **Bootstrap complete.** The native compiler binary is the new reference toolchain. The Go bootstrap is no longer needed for development.
-
----
-
-## Implementation Order
-
-```
-Phase 5a: Self-hosted interpreter          (this is next)
-  1. pkg/token                              token types
-  2. pkg/ast                                AST nodes
-  3. pkg/lexer                              tokenizer
-  4. pkg/parser                             parser
-  5. pkg/types                              type checker
-  6. pkg/interp                             tree-walker
-  7. main.bn                                CLI driver
-  8. Self-test                              validate against Go bootstrap
-
-Phase 5b: Self-hosted compiler             (after interpreter works)
-  1. pkg/ir                                 IR definition
-  2. IR generation                          typed AST → IR
-  3. pkg/codegen (one arch)                 IR → machine code
-  4. Object file emission                   machine code → ELF/Mach-O
-  5. Link via system linker                 object file → executable
-  6. Second backend                         port to other arch
-  7. Optimization passes                    optional, incremental
-
-Phase 5c: Self-compilation                 (after compiler works)
-  1. Compiler compiles itself               the big test
-  2. Verify identical output                correctness proof
-  3. Retire Go bootstrap                    native toolchain is primary
-
-Tools (can be built anytime after 5a):
-  - binate fmt                              code formatter
-  - binate lint                             linter
-  - binate bni                              .bni generator from source
-```
-
----
-
 ## Open Questions
 
 These don't need to be resolved now but should be addressed as we encounter them:
 
-1. **AST representation without interfaces.** Three options: (a) tagged union with kind field + `*any`, (b) extend the Go bootstrap to support interfaces/impl/methods, or (c) some hybrid. Adding interfaces to the bootstrap is more upfront work but produces cleaner self-hosted code and avoids a painful refactor later. Decision point: when we start writing `pkg/ast`.
+1. **Map/hash table.** The lexer needs keyword lookup, the type checker needs symbol tables. Maps are a library feature (no builtin `map` type — see design notes). Without generics in the bootstrap, use concrete map types per key/value combination (`StringToInt`, `StringToType`, etc.) — these translate mechanically to `Map[K, V]` once generics arrive.
 
-2. **Map/hash table.** The lexer needs keyword lookup, the type checker needs symbol tables. Maps are a library feature (no builtin `map` type — see design notes). Without generics in the bootstrap, use concrete map types per key/value combination (`StringToInt`, `StringToType`, etc.) — these translate mechanically to `Map[K, V]` once generics arrive.
+2. **String operations.** The bootstrap has minimal string support. We'll need: concatenation (currently `+`?), substring, comparison, conversion to/from byte slices. May need to extend `pkg/bootstrap`.
 
-3. **String operations.** The bootstrap has minimal string support. We'll need: concatenation (currently `+`?), substring, comparison, conversion to/from byte slices. May need to extend `pkg/bootstrap`.
+3. **Standard library boundary.** What's in `pkg/bootstrap` (Go-backed) vs. what's in pure Binate packages? The bias should be toward pure Binate — only things that genuinely need OS interaction belong in `pkg/bootstrap`.
 
-4. **Error handling.** The Go bootstrap uses `panic` + recovery. The self-hosted version needs a strategy too. For now, `panic` with string messages is probably sufficient.
+4. **Debug info.** When should we start emitting debug info (DWARF)? Not for initial self-hosting, but eventually needed for a usable toolchain.
 
-5. **Testing infrastructure.** How do we test the self-hosted toolchain? Run test programs and compare output? A built-in test runner? For bootstrapping, output comparison is simplest.
-
-6. **Standard library boundary.** What's in `pkg/bootstrap` (Go-backed) vs. what's in pure Binate packages? The bias should be toward pure Binate — only things that genuinely need OS interaction belong in `pkg/bootstrap`.
-
-7. **Debug info.** When should we start emitting debug info (DWARF)? Not for initial self-hosting, but eventually needed for a usable toolchain.
-
-8. **Cross-compilation.** The compiler architecture should support cross-compilation from day one (just select a different backend). But we don't need to test it until after self-hosting.
-
-### Deferred from bootstrap
-
-Features that are fully designed but not implemented in the bootstrap subset:
-- **Spread operator** (`...`): needed for `append(a, b...)` and variadic forwarding. Bootstrap uses `Concat` builtin for string concatenation instead.
-- **Const types**: bootstrap does not support `const` in types. String literals are `*[]char` (not `*[]const char`).
-- **Generics**: bootstrap uses concrete types per key/value combination.
-- **Interfaces / impl / methods**: designed but not in bootstrap subset (decision pending on whether to add for AST representation).
-- **Function values / closures**: workaround via switch statements.
+5. **Cross-compilation.** The compiler architecture should support cross-compilation from day one (just select a different backend). But we don't need to test it until after self-hosting.
 
 ---
 
-## Current Status
+## Key decisions made during implementation
 
-**Phase 5a complete. Phase 5b (compiler) in progress — see claude-plan-3.md.**
-
-| # | Package | Status | Tests | Notes |
-|---|---------|--------|-------|-------|
-| 1 | `pkg/token` | Done | 6 | Token types, positions, keyword lookup |
-| 2 | `pkg/ast` | Done | 9 | Tagged union AST (Kind discriminators, managed pointers) |
-| 3 | `pkg/lexer` | Done | 28 | Full tokenizer with ASI, char/string literals, comments |
-| 4 | `pkg/parser` | Done | 44 | Recursive descent, all disambiguations (D1/D2/D4/D10) |
-| 5 | `pkg/types` | Done | 58 | Type checker: scopes, type resolution, assignability |
-| 6 | `pkg/interp` | Done | 100 | Tree-walking interpreter: values, env, builtins, cross-package calls |
-| 7 | `pkg/loader` | Done | 32 | Package discovery, parsing, merging, topological sort |
-| 8 | `pkg/ir` | Done | 34 | SSA IR: 55 ops, data structures, constructors, emitters |
-| 9 | `pkg/ir/gen.bn` | Done | — | IR generation from AST (funcs, vars, arith, if/else, for, println) |
-| 10 | `pkg/codegen` | Done | — | LLVM IR text emission |
-| 11 | `runtime/` | Done | — | Minimal C runtime (print, exit) |
-| 12 | `compile.bn` | Done | — | Compiler driver: parse → IR → LLVM IR → stdout |
-| 13 | `main.bn` | Done | — | Multi-file driver with package loading and arg forwarding |
-| 14 | Self-test | Done | 8 | selftest.bn: arithmetic, bools, loops, funcs, recursion, slices |
-| 15 | Double interp | Done | — | bootstrap -> main.bn -> main.bn -> selftest.bn verified |
-| 16 | Conformance | Done | 25 | Standalone test programs shared across backends (bootstrap + selfhost) |
+- **AST representation**: tagged unions with `Kind int` discriminators. Each node type (Expr, Stmt, Decl, TypeExpr) is a single struct with a union of fields. Managed pointers (`@Expr`, `@Stmt`) for self-referential types. Works well without interfaces. (This resolved the original open question of how to represent "any expression"/"any statement" without interfaces: a `kind` field + union, rather than adding interfaces to the bootstrap.)
+- **Testing convention**: `TestXxx() testing.TestResult` — return-value based (empty = pass, non-empty = failure message). No panic recovery needed.
+- **char = uint8**: `char` is an alias for `uint8` in the bootstrap, matching the language design. Char literals produce uint8 values.
+- **Parser style**: layered precedence functions for expressions (not Pratt), matching the bootstrap parser structure. Pratt-style `continueBinaryExpr` used only for the for-loop disambiguation path.
+- **No variadic `append`**: bootstrap doesn't support `...` spread. String building uses `appendChars` helper loops instead. (`append` has since been removed from the language entirely — see note at top.)
 
 ### Bootstrap additions (beyond original plan)
+
+These builtins/hooks were added to the Go bootstrap to support the self-hosted toolchain (the Go bootstrap has since been retired; recorded here as the sole written record):
 - `ReadDir`, `Stat` builtins for package loader file discovery
 - `append(nil, x)` and `len(nil)` handling (Go semantics)
 - `StringVal` slicing support (produces `*[]char SliceVal`)
 - Bootstrap forwarding layer (`RegisterBootstrapPackage`, `callBootstrapBuiltin`)
 - `SetArgs` for passing program arguments to inner interpreter
-
-Total: **~270 self-hosted tests** passing (all run via Go bootstrap), 25 conformance tests passing on both bootstrap and self-hosted interpreter, plus 8 self-test checks through the full bootstrap → self-hosted → selftest chain.
-
-### Key decisions made during implementation
-
-- **AST representation**: tagged unions with `Kind int` discriminators. Each node type (Expr, Stmt, Decl, TypeExpr) is a single struct with a union of fields. Managed pointers (`@Expr`, `@Stmt`) for self-referential types. Works well without interfaces.
-- **Testing convention**: `TestXxx() testing.TestResult` — return-value based (empty = pass, non-empty = failure message). No panic recovery needed.
-- **char = uint8**: `char` is an alias for `uint8` in the bootstrap, matching the language design. Char literals produce uint8 values.
-- **Parser style**: layered precedence functions for expressions (not Pratt), matching the bootstrap parser structure. Pratt-style `continueBinaryExpr` used only for the for-loop disambiguation path.
-- **No variadic `append`**: bootstrap doesn't support `...` spread. String building uses `appendChars` helper loops instead.

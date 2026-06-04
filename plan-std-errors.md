@@ -1,5 +1,9 @@
 # Plan: `present` builtin + `pkg/std/errors`
 
+Status: COMPLETE (shipped; errors package landed, conformance 545/577).
+Kept for design rationale — the `present`/empty-not-nil decision and the
+`Error` interface shape, plus still-open deferrals.
+
 Designs a Go-style error interface for Binate — and the small language
 enabler it requires. Settled through discussion 2026-06-02/03.
 
@@ -60,32 +64,6 @@ A builtin (not an `rt` function like `HasBacking`) because interface
 values have no `len`-equivalent for the pervasive "is there one?" check
 — `if present(err)` is written constantly, should be ambient, and reads
 like `len`.
-
-### Implementation (mirrors the `len` builtin end-to-end)
-
-- **token** (`pkg/binate/token/token.bn`): add `PRESENT` constant +
-  `"present"` in the token→string table (next to `LEN`).
-- **lexer** (`scan.bn` keyword table): map `"present"` → `token.PRESENT`.
-- **parser** (`parse_builtin.bn`): `parsePresentCall` — a verbatim clone
-  of `parseLenCall` (one arg, `EXPR_BUILTIN`, `Op = token.PRESENT`);
-  wire it into the builtin-call dispatch. Parser test in
-  `parse_builtin_test.bn`.
-- **type checker** (`check_builtin.bn`): `PRESENT` case — require exactly
-  one arg whose type is an interface value (`TYP_INTERFACE_VALUE` or
-  `TYP_INTERFACE_VALUE_MANAGED`); result `TypBool()`. Reject non-iface
-  args with a clear diagnostic. Checker test.
-- **IR-gen** (`genBuiltin`): lower `present(iv)` to "extract the vtable
-  word of the iface value, `icmp ne null` → i1." **Prefer reusing
-  existing field-extract + compare ops** (the method-dispatch path
-  already extracts `{data, vtable}`) so no new cross-backend op is
-  needed; if that isn't expressible, add a minimal `OP_IFACE_PRESENT`
-  and lower it in all three backends (LLVM `emit*`, native
-  aarch64/x64, VM `vm_exec`). Resolve during implementation; the
-  reuse path is strongly preferred.
-- **conformance**: `present` true for a boxed value, false for a
-  zero/empty iface, true for a boxed nil `*T` (the typed-nil honesty
-  case), across `@Iface` and `*Iface`, and through a `(T, @Iface)`
-  return.
 
 This is a self-contained language feature usable by any `(T, @Iface)`
 API, not just errors.
@@ -148,35 +126,16 @@ Rationale for the shape:
   `error` a compiler builtin). The import + `@errors.Error` qualifier is
   the same honest cost as any other cross-package type.
 
-### Impl (in `errors.bn`, unexported internals)
+### Implementation notes
 
-- `type leafError struct { msg @[]char }`
-  - `func (e *leafError) Error()  @[]char { return e.msg }` (returns a
-    refcounted reference — no copy)
-  - `func (e *leafError) Unwrap() @Error  { var none @Error; return none }`
-  - `impl *leafError : Error`
-- `type wrappedError struct { msg @[]char; cause @Error }`
-  - `Error()` builds `"msg: " + cause.Error()` fresh via `make_slice`
-    (the `strconv.Format*` idiom — tier-1 packages avoid `pkg/binate/buf`,
-    which is tier-2). Auto-prepend matches `fmt.Errorf("…: %w")`.
-  - `Unwrap() @Error { return e.cause }`
-  - `impl *wrappedError : Error`
-  - The `cause @Error` field is a managed-iface struct field; its dtor
-    cleanup is already supported (conformance 370/473/520).
+- `wrappedError.Error()` builds `"msg: " + cause.Error()` fresh via
+  `make_slice` (the `strconv.Format*` idiom — tier-1 packages avoid
+  `pkg/binate/buf`, which is tier-2). Auto-prepend matches
+  `fmt.Errorf("…: %w")`.
+- The `cause @Error` field of `wrappedError` is a managed-iface struct
+  field; its dtor cleanup is already supported.
 - `New` / `Wrap` box a heap-allocated concrete error into `@Error`
-  (`var le @leafError = make(leafError); …; var e @Error = le; return e`
-  — the `368_iface_managed` boxing form).
-
-### Conformance / tests
-
-- `errors.New(...).Error()`; `errors.Wrap(cause, ctx).Error()` ==
-  `"ctx: <cause msg>"`; `Wrap(...).Unwrap()` is the cause; `New(...)`'s
-  `Unwrap()` is empty.
-- Chain-walk: `for present(e) { println(e.Error()); e = e.Unwrap() }`.
-- The error-return pattern: a `func f(...) (int, @Error)` that returns
-  an empty `@Error` on success and a `New`/`Wrap` on failure, with the
-  caller branching on `present(err)`.
-- Cross-package: the above exercises `@errors.Error` via import.
+  (the `368_iface_managed` boxing form).
 
 ## Deferred (explicitly out of v1)
 
@@ -188,9 +147,3 @@ Rationale for the shape:
   appears; additive, never a change to `Error`.
 - A generic `Zero[@Error]()` ergonomic constructor for the empty value
   — once generics make it worthwhile; `var e @Error` suffices for now.
-
-## Sequencing
-
-Part 0 (`present`) lands first (it's the enabler and is independently
-useful); Part 1 (`errors`) builds on it. Each is its own small,
-green-the-whole-way set of commits.

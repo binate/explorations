@@ -1,102 +1,49 @@
 # Version Information for the Binate Tools — Plan
 
+Status: Phase 1 SHIPPED (version package + `scripts/gen-version.sh` exist;
+`--version` wiring tracked in `claude-todo.md`). Phases 2 and 3 deferred.
+Kept for design rationale and the open Phase 2/3 questions.
+
 Add `--version` support to all the binate tools, backed by a checked-
 in version package generated from the canonical `VERSION` file.  Lay
 groundwork for a separate `buildinfo` package that captures
 target-architecture / backend / BUILDER info for diagnostic queries
 inside compiled programs.
 
-## Phase 1 — `pkg/binate/version` + tool `--version` flags
+## Phase 1 — `pkg/binate/version` + tool `--version` flags (SHIPPED)
 
-### 1.1 `pkg/binate/version` package
-
-Tier-2 package (binate-toolchain-specific; not a runtime essential),
-collocated under `pkg/binate/`:
-
-    pkg/binate/version.bni
-    pkg/binate/version/
-      version.bn
-
-Surface:
-
-    package "pkg/binate/version"
+`pkg/binate/version` is a Tier-2 package (binate-toolchain-specific;
+not a runtime essential), collocated under `pkg/binate/`. It exports:
 
     // Version names the tools build this came from.  Format
     // `bnc-X.Y.Z` for a tagged release; `bnc-X.Y.Z-pre` for a
     // working-tree build between releases.
     const Version *[]const char = "bnc-X.Y.Z(-pre)"
 
-The const value is **declared in the .bni** (not only in the .bn).
-This makes every importer see the same value at compile time and
-sidesteps the separate-builds drift question (see open-questions
-below).  The .bn either repeats the same const or omits it; the
-hygiene check enforces consistency.
+Key decisions and their rationale:
 
-### 1.2 `scripts/gen-version.sh`
+- **The const value is declared in the .bni** (not only in the .bn).
+  This makes every importer see the same value at compile time and
+  sidesteps the separate-builds drift question (see Phase 3).  The
+  hygiene check enforces .bni/.bn consistency.
+- **The generated files are checked in** (not generated at build time
+  on the fly) so the source tree is self-consistent without a
+  pre-build step; this matches the project's overall "everything bnc
+  needs to build is in-tree" philosophy.
+- `scripts/gen-version.sh` reads `VERSION` and writes the package.
+  Default (no flag) regenerates the files; `--check` exits non-zero if
+  the files don't match `VERSION` without modifying anything. `--check`
+  is the hygiene-mode invocation, wired through `scripts/hygiene/run.sh`
+  and the `scripts/build-*.sh` scripts so a stale checkout doesn't ship
+  a binary with a mismatched `Version` string.
+- Tools share a release cycle: `cmd/bnc --version` → `bnc-X.Y.Z`,
+  `cmd/bni` → `bni-X.Y.Z`, `cmd/bnas` → `bnas-X.Y.Z`, `cmd/bnlint` →
+  `bnlint-X.Y.Z` (same X.Y.Z, only the tool prefix differs).
 
-Generator script that reads `VERSION` and writes
-`pkg/binate/version.bni` (and possibly `pkg/binate/version/version.bn`)
-with the const value set from the file.  Invocations:
-
-    scripts/gen-version.sh                  # writes files; non-zero
-                                            # exit if state changes
-                                            # (so it doubles as a check)
-    scripts/gen-version.sh --check          # exit non-zero if the
-                                            # files don't match VERSION;
-                                            # don't modify anything
-
-`--check` is the hygiene-mode invocation.  Default (no flag)
-regenerates the files; useful after editing `VERSION` (release-cut
-flow drops `-pre`, post-release flow bumps the next `-pre`, both
-need the generated package to follow).
-
-The output is checked in (not generated at build time on the fly)
-so the source tree is self-consistent without a pre-build step;
-this matches the project's overall "everything bnc needs to build
-is in-tree" philosophy.
-
-### 1.3 Hygiene check
-
-`scripts/hygiene/version.sh`: runs `scripts/gen-version.sh --check`
-and fails if the generated files diverge from `VERSION`.  Add to
-`scripts/hygiene/run.sh`'s master list so the standard
-"check hygiene" sweep catches a forgotten regeneration.
-
-`scripts/build-{bnc,bni,bnas,bnlint}.sh` also run the check at the
-top, so a stale checkout doesn't ship a binary with a mismatched
-`Version` string.  Quick (the check is one file diff); failure mode
-is "run `scripts/gen-version.sh` and rebuild."
-
-### 1.4 `--version` flag on each tool
-
-Tools and what they print:
-
-- `cmd/bnc --version` → `bnc-X.Y.Z` (or `bnc-X.Y.Z-pre`)
-- `cmd/bni --version` → `bni-X.Y.Z` (same X.Y.Z; the tools share a
-  release cycle)
-- `cmd/bnas --version` → `bnas-X.Y.Z`
-- `cmd/bnlint --version` → `bnlint-X.Y.Z`
-
-Implementation per tool: at CLI parse time, if `--version` is
-present, print `<tool>-` plus `version.Version`'s stripped `bnc-`
-prefix, then exit 0.  Shared helper lives in
-`pkg/binate/version` (e.g., `func Format(toolName *[]const char)
-@[]char`) so each tool's main is one line.
-
-### 1.5 Per-cycle workflow tweaks
-
-Release-cut flow (`explorations/release-process.md`) needs one
-extra step between editing `VERSION` and committing:
-
-> 2b. Regenerate the version package
->
->     scripts/gen-version.sh
-
-(or rely on `hygiene/run.sh` failing if it's forgotten).  Add to
-the doc's checklist.
-
-Post-release flow needs the same: after bumping `VERSION` to the
-next `-pre`, regenerate the package.
+Both the release-cut and post-release flows in
+`explorations/release-process.md` must regenerate the version package
+after editing `VERSION` (release-cut drops `-pre`, post-release bumps
+the next `-pre`); `hygiene/run.sh` fails if it's forgotten.
 
 ## Phase 2 (TODO) — `pkg/builtins/buildinfo`
 
@@ -177,17 +124,3 @@ Deferred until the CLI-flag-annotation proposal is on the table.
 - A long version string with commit hash, build date, etc.
   Reproducibility matters more than narrative — the tag is the
   identifier; people who need the commit hash can look it up.
-
-## Suggested implementation order
-
-1. **Phase 1.1 + 1.2**: create `pkg/binate/version` package +
-   `scripts/gen-version.sh`.  Initial generated content matches
-   the current `VERSION` (`bnc-0.0.6-pre`).
-2. **Phase 1.3**: hygiene check + integrate into
-   `scripts/hygiene/run.sh` and `scripts/build-*.sh`.
-3. **Phase 1.4**: wire `--version` through each tool.  Start with
-   `cmd/bnc`, then `cmd/bni`, then `cmd/bnas` + `cmd/bnlint`.
-4. **Phase 1.5**: update `explorations/release-process.md` to
-   include the regenerate-version-package step in the release-cut
-   + post-release flows.
-5. **Phase 2 + 3**: defer.
