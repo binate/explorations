@@ -130,11 +130,17 @@ release to bundle a populated tier-1 stdlib + consume it from stage-1).
 
 ### Step 4 — (separate, post-bump) let `cmd/bnc` use stdlib
 
-With BUILDER = 0.0.7, `cmd/bnc` can import `pkg/std/math/big`. Route the
-float-literal converter through it (or `strconv.ParseFloat`'s core) to fix the
-1-ULP round-bit bug and retire the duplicate dtoa. This is NOT dormant and NOT
-part of the release — it requires BUILDER 0.0.7 and is tracked separately in
-`claude-todo.md`.
+With BUILDER = 0.0.7, `cmd/bnc` can import stdlib. Fix the 1-ULP round-bit bug
+by routing the float-literal converter (`common.ParseFloatLitToBits`) through
+**`pkg/std/strconv.ParseFloat`** — it already does exactly the literal→bits
+job (decimal + hex, `bitSize` 32/64, underscores, correctly rounded via
+`pkg/std/math/big`), so the compiler imports the high-level `strconv` entry
+rather than reimplementing over `big` directly, and the duplicate in-tree dtoa
+(`ParseFloatLitToBits`) is retired. `strconv` pulls in `math/big` + `errors`
+transitively — all bundled. Convert the parsed value to the bit pattern with
+`bit_cast` (f64) / `cast(float32, …)` then `bit_cast` (f32 — which also
+resolves the separate float32-const-narrowing bug). NOT dormant, NOT part of
+the release — requires BUILDER 0.0.7; tracked in `claude-todo.md`.
 
 ## Design notes / invariants
 
