@@ -6,6 +6,13 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### Multi-value assignment `a, n = f()` mishandles managed targets — `@func` UAF (CRITICAL) + old-value leak (MAJOR)
+- **Where**: `genAssign`'s multi-assign loop (`pkg/binate/ir/gen_control.bn`).  It Axiom-3 copy-RefIncs each managed component then stores it into the target.  Two defects (the `_`-discard sibling is FIXED, see MAJOR section / `567`):
+- **Defect A — `@func` component is under-retained → use-after-free (CRITICAL, wrong-code).**  The copy-RefInc has arms for `@T` / `@[]T` / `@Iface` but **none for `@func`** (`isManagedFuncValueType`).  So `g, n = f()` where `f` returns `(@func(...), int)` stores the `@func` into `g` WITHOUT a copy-RefInc; the call-result temp's dtor then RefDec's the source `@func` to zero, freeing the closure record while `g` still points at it.  Invoking `g` is a UAF (and `g`'s scope-exit RefDec is a double-free).  **Probe (confirmed 2026-06-03)**: a capturing `@func` returned from a 2-value function, multi-assigned then invoked → SIGSEGV (no output).
+- **Defect B — target's OLD managed value is not RefDec'd → leak (MAJOR).**  The IDENT-non-struct store is a plain `EmitStore(ptr, extracted)` with no load+RefDec of the target's previous value; the INDEX (`emitIndexStore`) and SELECTOR stores are likewise old-RefDec-free.  Single-assign does RefInc-new + RefDec-old (Axiom 5); multi-assign skips the RefDec-old.  So `a, n = f()` where `a` already holds a live managed value leaks the old value (+1/exec).  **Probe (confirmed 2026-06-03)**: alias an object into `a`, reassign `a` via multi-assign → the aliased object's refcount stays elevated (2 vs 1).
+- **Proposed fix**: rework the multi-assign managed-store to mirror single-assign's RefInc-new / RefDec-old discipline across all four managed types (`@T`, `@[]T`, `@func`, `@Iface`) and all three target shapes (IDENT / INDEX / SELECTOR) — add the missing `@func` arm and a load+RefDec-old before every managed store (the struct case already does save-copy-destroy correctly).  Add balance + invoke conformance tests (refcount-returns-to-baseline for reassignment; invoke-after-multi-assign for `@func`).
+- **Discovery**: 2026-06-03, reviewing the multi-assign path while fixing the `_`-discard leak (`567`).  Pre-existing.
+
 ### `@func` copy-RefInc symmetry — FIXED 2026-06-03 (binate `d118a3c4` + `76099018`); `@Iface` analogue + VM-leak still open
 - **Was**: `@func` / `@Iface` values (`TYP_MANAGED_FUNC_VALUE` /
   `TYP_INTERFACE_VALUE_MANAGED`) had `NeedsDestruction() == false`, so the
@@ -216,17 +223,11 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Tests**: 546 (method-value, catches UAF) exists; add a new rt.Refcount-*balance* conformance test (catches leaks) for the return / discard / reassign / param shapes before landing.
 - **Status**: FIX IMPLEMENTED + verified on worktree (branch `work-1`); adding the balance conformance test, then full regression + cherry-pick.  Part 0 (`present`) already landed.  See `plan-std-errors.md`.
 
-### Multi-value return assignment to `_` leaks the discarded managed component(s) — pre-existing, NOT iface-specific
-- **Symptom**: `_, n = f()` where `f` returns `(@T, int)` (or `@Iface`, `@[]T` — any managed type) never RefDec's the `_`-discarded managed result → +1 leak per execution.  `_, n = f()` in a 1000-iter loop → the inner object's rc climbs to 1001.
-- **Isolation**: the BOTH-bound form (`a, n = f()`) and the single-value discard (`_ = g()`) are both balanced; only the multi-value *destructuring* discard-to-`_` leaks.  Reproduces with a plain `@Holder` (managed pointer) result, so it is NOT interface-specific — it's in the tuple-destructuring assignment path (`gen_control` multi-assign / blank-identifier handling), which drops the `_` component without registering/cleaning it.
-- **Discovery**: 2026-06-03, adversarial verification of the `@Iface` refcount fix (shape H stronger variant).  Pre-existing (reproduces on Part-0 `bnc-p0`).
-- **Why MAJOR**: silent memory leak for a common idiom (discarding one result of a multi-return with `_`).
-- **Status**: tracked, not yet fixed — surfaced while fixing the `@Iface` lifecycle; out of that task's scope.
-
-### `NeedsDestruction()` omits `TYP_MANAGED_FUNC_VALUE` — `@func` struct fields likely leak — pre-existing
-- **Symptom**: `NeedsDestruction()` (types_query.bn) returns false for `TYP_MANAGED_FUNC_VALUE`, so a struct whose only managed field is an `@func` gets no dtor, and the struct/array dtor/copy field loops (`if !fieldTyp.NeedsDestruction() { continue }`) skip `@func` fields even in structs that do need destruction → the closure capture record leaks.
-- **Discovery**: 2026-06-03, while fixing the parallel `@Iface` omission in `NeedsDestruction` (now added).  `@func` has the identical gap; left untouched as out-of-scope.
-- **Status**: tracked, not yet fixed.  Same one-line shape as the iface fix (add `if t.Kind == TYP_MANAGED_FUNC_VALUE { return true }`), but needs its own verification that `@func`-in-struct copy/dtor are correct.
+### Multi-value return assignment to `_` leaks the discarded managed component(s) — FIXED 2026-06-03 (binate, pending cherry-pick)
+- **Was**: `_, n = f()` where `f` returns `(@T, int)` (or `@Iface`, `@[]T` — any managed type) never RefDec'd the `_`-discarded managed result → +1 leak per execution.  Root cause: the multi-assign loop (`genAssign`, `gen_control.bn`) ran the Axiom-3 copy-RefInc for the `_` component unconditionally, but a blank target stores nothing (`lookupVar("_") == nil`), so that RefInc had no matching RefDec.  (The single-value `_ = g()` path doesn't leak because its RefInc is *inside* the `ptr != nil` guard.)
+- **Fix**: skip a blank-identifier target entirely in the multi-assign loop (`if lhs.Kind == EXPR_IDENT && isBlank(lhs.Name) { continue }`) — no copy-RefInc, no store; the call-result temp's dtor RefDec's the owned ref at end of statement.
+- **Test**: `conformance/567_blank_discard_managed_balance` (loop of 100 discards; b's refcount returns to baseline 1, was 101 pre-fix).  Verified to fail on the unfixed compiler.
+- **NOTE — the BOTH-bound form `a, n = f()` is NOT balanced** (the old entry wrongly claimed it was — it had only been checked for `@T` bound to a fresh-nil var).  See the two multi-assign defects in the CRITICAL section.
 
 ### bnlint typechecks dependency BODIES, not just signatures — FIX LANDED 2026-06-03 (binate `3fcfdf8c`); deployment pending next BUILDER bump
 - **Status**: source fix LANDED (binate `3fcfdf8c`, + composition test
