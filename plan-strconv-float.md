@@ -1,12 +1,11 @@
 # Plan: `pkg/std/math/big.Nat` + `strconv.AppendFloat`/`FormatFloat` (Dragon4 dtoa)
 
-Status: **COMPLETE** (landed 2026-06-03). All 7 implementation steps below are
-done: `pkg/std/math/big.Nat` (full unsigned bignum, Knuth-D division, ILP32-correct)
+Status: **COMPLETE** (shipped 2026-06-03); kept for design rationale. Delivered
+`pkg/std/math/big.Nat` (full unsigned bignum, Knuth-D division, ILP32-correct)
 and `strconv.AppendFloat`/`FormatFloat` in both shortest-round-trip (`prec < 0`)
 and fixed-precision (`prec >= 0`) modes, for `'f'`/`'e'`/`'E'`/`'g'`/`'G'`.
-Validated by a 208k-case differential against Go go1.26.3 (0 mismatches) plus
-adversarial multi-agent review (0 bugs); green on builder-comp / VM / gen2 and
-arm32. Cross-package conformance: `conformance/535_strconv_float_cross_pkg`.
+Validated by a 208k-case differential against Go go1.26.3 (0 mismatches).
+Cross-package conformance: `conformance/535_strconv_float_cross_pkg`.
 
 Explicit follow-ups still open (intentionally out of this work): signed `Int`
 wrapping `Nat` to replace `pkg/binate/bignum` (see "Noted for later"); `'b'`/`'x'`
@@ -51,7 +50,7 @@ stdlib deliverable in its own right).
   subset. `Nat` is a Tier-1 type an `Int` will wrap; `Mul`/`DivMod` are core to
   *that* contract regardless of dtoa. Keep small-operand fast paths
   (`MulUint32`, `DivModUint32`) that the dtoa hot loop genuinely uses, and ship
-  full `Mul`/`DivMod`/`Shr` too (each flagged below as core-bignum / dtoa-need).
+  full `Mul`/`DivMod`/`Shr` too.
 - **`Len`/cap split with geometric growth** for the limb store, mirroring
   `@Section` (`Len int` significant limbs + over-allocated `@[]uint32` backing,
   `ensureCapacity` doubling). There is no stdlib geometric-growth helper yet, so
@@ -109,53 +108,10 @@ type Nat struct {
   index-assigned — never built by looping `slices.Append`. `@[]uint32` is a
   builtin type, so no `stdx` type leaks into the public `.bni`.
 
-### Operation set (exact signatures, in `big.bni`)
+### Operation set
 
 Mutating ops use the **z-destination receiver** (`z` written and returned, for
 buffer reuse); operands `x`/`y` are not mutated and `z` may alias them.
-
-```binate
-// --- Construction ---
-func New() @Nat                                  // canonical zero
-func FromUint64(v uint64) @Nat                   // 0, 1, or 2 limbs
-func (x @Nat) Clone() @Nat                       // deep copy (fresh owned backing)
-
-// --- Queries (operand receiver, no mutation) ---
-func (x @Nat) IsZero() bool                      // x.len == 0
-func (x @Nat) BitLen() int                       // 0 for zero; else 32*(len-1)+bits(top)
-func (x @Nat) Cmp(y @Nat) int                    // -1 / 0 / 1 (magnitude)
-func (x @Nat) IsUint64() bool                    // x.len <= 2
-func (x @Nat) ToUint64() uint64                  // low 64 bits (caller checks IsUint64)
-
-// --- Set ---
-func (z @Nat) SetUint64(v uint64) @Nat           // z = v
-func (z @Nat) Set(x @Nat) @Nat                   // z = x (copy value)
-
-// --- Additive (z = result; z may alias x/y) ---
-func (z @Nat) Add(x @Nat, y @Nat) @Nat           // z = x + y
-func (z @Nat) Sub(x @Nat, y @Nat) @Nat           // z = x - y; PRECONDITION x >= y
-func (z @Nat) AddUint32(x @Nat, c uint32) @Nat   // z = x + c (carry-propagate fast path)
-
-// --- Multiplicative ---
-func (z @Nat) Mul(x @Nat, y @Nat) @Nat           // z = x*y (schoolbook). CORE; dtoa uses it only to build 10^k.
-func (z @Nat) MulUint32(x @Nat, m uint32) @Nat   // z = x*m (single-limb fast path; dtoa hot loop: *10)
-
-// --- Shifts (base-2 scaling; exact) ---
-func (z @Nat) Shl(x @Nat, n uint) @Nat           // z = x << n (multiply by 2^n) — R/S/M setup
-func (z @Nat) Shr(x @Nat, n uint) @Nat           // z = x >> n. CORE; not used by dtoa, kept for symmetry.
-
-// --- Division ---
-func (z @Nat) DivMod(x @Nat, y @Nat, r @Nat) (@Nat, @Nat)   // z = x/y, r = x%y. PANICS if y == 0. CORE; dtoa-optional. Returns (z, r).
-func (z @Nat) DivModUint32(x @Nat, m uint32) (@Nat, uint32) // z = x/m, returns (z, rem<m). PANICS if m == 0. Fixed-prec scale + small-divisor primitive.
-```
-
-**dtoa-need flags**: `New`, `FromUint64`, `Clone`, `IsZero`, `BitLen`, `Cmp`,
-`SetUint64`, `Set`, `Add`, `Sub`, `MulUint32`, `Shl` are directly load-bearing
-for Dragon4. `AddUint32` for digit-carry in fixed-precision round-up. `Mul`
-(full) is core-bignum, used by dtoa only to build `10^k` (square-and-multiply).
-`Shr`, `DivMod` (full) are core-bignum, **not** used by dtoa (the digit loop is
-comparison/subtraction-driven; `DivModUint32` covers small-divisor scaling) —
-shipped because `Nat` is a real unsigned bignum; tested independently.
 
 **Schoolbook `Mul` overflow bound (the load-bearing correctness fact):**
 ```
@@ -163,12 +119,13 @@ t = xi*yj + r[i+j] + carry
   <= (2^32-1)^2 + (2^32-1) + (2^32-1) = 2^64 - 1   < 2^64
 ```
 The uint64 accumulator never overflows — *this is why limbs are uint32*. A
-direct runtime `uint32*uint32 -> uint64` test pins it (no conformance test
-currently does).
+direct runtime `uint32*uint32 -> uint64` test pins it.
 
 **Digit extraction in Dragon4** is `d = floor(R/S)`, `d ∈ 0..9`, recovered by
 ≤9 trial subtractions (`while R.Cmp(S) >= 0 { R.Sub(R,S); d++ }`) — no `DivMod`
-call; the standard Dragon4 division-free hot loop.
+call; the standard Dragon4 division-free hot loop. `Shr` and full `DivMod` are
+core-bignum (not used by dtoa) — shipped because `Nat` is a real unsigned
+bignum; tested independently.
 
 ---
 
@@ -184,20 +141,13 @@ that compiles on LP64 and silently diverges on ILP32.
 ```binate
 // value = (-1)^sign * mant * 2^exp, mant an integer.
 struct floatParts { mant uint64; exp int; sign bool; isZero bool; isInf bool; isNaN bool }
-
-func decompose64(f float64) floatParts {
-    var bits uint64 = bit_cast(uint64, f)                  // 64-bit partner
-    var sign bool   = (bits >> 63) != cast(uint64, 0)
-    var be   int    = cast(int, (bits >> 52) & cast(uint64, 0x7FF))
-    var frac uint64 = bits & cast(uint64, 0xFFFFFFFFFFFFF)  // low 52 bits
-    // be==0x7FF: frac==0 -> Inf else NaN.
-    // be==0 && frac==0 -> zero (sign preserved for -0).
-    // be==0 && frac!=0 -> subnormal: mant=frac, exp = 1-1023-52 = -1074.
-    // else normal: mant = frac | (1<<52), exp = be - 1023 - 52.
-}
 ```
-For float32: `bit_cast(uint32, f)`, 8-bit exp bias 127, 23-bit frac, hidden bit
-`1<<23`, normal `exp = be - 127 - 23`, subnormal `exp = -149`, all-ones `0xFF`.
+
+For float64: exp bias 1023, 52-bit frac, hidden bit `1<<52`, normal
+`exp = be - 1023 - 52`, subnormal `exp = -1074`, all-ones exp `0x7FF`
+(frac==0 → Inf else NaN). For float32: `bit_cast(uint32, f)`, 8-bit exp bias
+127, 23-bit frac, hidden bit `1<<23`, normal `exp = be - 127 - 23`, subnormal
+`exp = -149`, all-ones `0xFF`.
 
 ### R / S / M⁺ / M⁻ setup (Steele-White / Burger-Dybvig FPP2)
 
@@ -304,36 +254,21 @@ to `FormatInt`.
 by `println` codegen via `pkg/binate/ir/gen_print.bn:162`). That path is
 BUILDER-tree code and *cannot* import `pkg/std/math/big` (not BUILDER-compilable).
 `AppendFloat`/`FormatFloat` is a strconv-level deliverable. **Rewiring `println`
-is out of scope and a separate user decision.** Only update `strconv.bni`'s
-header line ("Float formatting … is a planned follow-up") to reflect it landed.
+is out of scope and a separate user decision.**
 
 ---
 
 ## 4. File layout & internal dependency
 
-Following the strconv asymmetry (flat `.bni`, subdir impl):
-
-```
-ifaces/stdlib/pkg/std/math/big.bni                  # FLAT file (like strconv.bni) — NOT pkg/std/math/big/big.bni
-impls/stdlib/common/pkg/std/math/big/
-    nat.bn          # struct + New/FromUint64/Clone/SetUint64/Set/grow/norm + IsZero/BitLen/Cmp/IsUint64/ToUint64
-    nat_arith.bn    # Add/Sub/AddUint32/Mul/MulUint32
-    nat_div.bn      # DivMod (Knuth Alg. D) + DivModUint32
-    nat_shift.bn    # Shl/Shr
-    big_test.bn     # Nat unit tests (split to nat_arith_test.bn / nat_div_test.bn if >~500 lines)
-impls/stdlib/common/pkg/std/strconv/
-    ftoa.bn         # AppendFloat/FormatFloat + decompose64/32 + R/S/M setup + digit loop + layout. import "pkg/std/math/big"
-    strconv_test.bn # EXTEND with TestAppendFloat*/TestFormatFloat* (split to ftoa_test.bn if over cap)
-conformance/
-    NNN_big_dtoa_cross_pkg.bn + .expected         # model on 528 (pick next free number at landing time)
-```
+Following the strconv asymmetry (flat `.bni`, subdir impl): `big.bni` is a FLAT
+file (like `strconv.bni`) — NOT `pkg/std/math/big/big.bni`. The impl `nat*.bn`
+files are split along natural boundaries from the start (Go's `nat.go` is ~1500
+lines) — never one blob.
 
 - **Dependency**: `pkg/std/math/big` (T1) imports `pkg/stdx/slices` (T1x)
   **internally only** — `@[]uint32` is a builtin, no `stdx` type in `big.bni`.
   `pkg/std/strconv` (T1) imports `pkg/std/math/big` (T1) — `Nat` is internal to
   `ftoa.bn`, not in `strconv.bni`. No tier leaks.
-- **Split discipline**: split `nat*.bn` along natural boundaries from the start
-  (Go's `nat.go` is ~1500 lines) — never one blob.
 
 ---
 
@@ -342,21 +277,14 @@ conformance/
 - **No `-I`/`-L` additions.** Runners already pass
   `-I …:ifaces/stdlib -L …:impls/stdlib/common`; the loader resolves
   `import "pkg/std/math/big"` against those roots.
-- **Unit tests auto-discovered**: `scripts/unittest/run.sh` finds every
-  `*_test.bn` under `pkg/`/`cmd/`/`impls/` and maps `impls/<tier>/<platform>/…`
-  to the logical `pkg/…` name. `big_test.bn` and the extended `strconv_test.bn`
-  are picked up with zero runner wiring.
-- **Conformance whitelist (required)**: add
-  `NNN_big_dtoa_cross_pkg.bn:pkg/std/strconv` to
-  `scripts/hygiene/conformance-imports.whitelist` (528 entry is the template).
+- **Conformance whitelist (required)**: add the cross-pkg test entry
+  (`…:pkg/std/strconv`) to `scripts/hygiene/conformance-imports.whitelist`.
   `pkg/std/math/big` is transitive, needs no entry.
 - **ILP32 xfail (likely)**: pkg/std unit tests are already xfail on
   `builder-comp_arm32_baremetal` (>int32 literals trip the ILP32 fit-check).
   Build big magnitudes through `cast(uint64,…)` / `bit_cast(float64,<int64
-  bits>)` to avoid it; if a test still trips it, add
-  `scripts/unittest/pkg-math-big.xfail.builder-comp_arm32_baremetal` with a
-  one-line reason rather than dropping the test. **Verify under arm32 modes** —
-  LP64 passes even with a latent `int`-truncation bug.
+  bits>)` to avoid it. **Verify under arm32 modes** — LP64 passes even with a
+  latent `int`-truncation bug.
 - **Scope guard**: do NOT touch `gen_print.bn` / `bootstrap.formatFloat` / CI
   workflows. Adding the package + tests is in scope; hooking `println` to it is
   not.
@@ -365,68 +293,30 @@ conformance/
 
 ## 6. Test strategy
 
-**(a) Nat unit tests (`big_test.bn`)** — `package "pkg/std/math/big"`, sectioned
-like `bignum_test.bn`. **Green under all modes incl. arm32 BEFORE any dtoa** — a
-Dragon4 bug usually traces to a Nat bug.
-- Direct runtime `uint32*uint32 -> uint64` test (e.g. `0xFFFFFFFF*0xFFFFFFFF ==
-  0xFFFFFFFE00000001`).
-- `Mul` carry across limbs, `Add`/`Sub` carry/borrow, `Cmp` (different lengths,
-  equal, normalization), `Shl`/`Shr` by 0 / <32 / multiples of 32 / crossing,
-  `BitLen`, `DivMod` (Knuth D normalization + add-back, single vs multi-limb
-  divisor), `DivModUint32`, `FromUint64`/`ToUint64` round-trip, subtraction
-  cancelling to zero yields `len==0`.
-
-**(b) strconv float unit tests (`strconv_test.bn`)** — reuse `streq`/`fail`;
-build buffers via `make_slice(char, N)`. **Construct exact inputs via
-`bit_cast(float64, <pinned int64 bits>)`** (the `330_float_bit_exact` technique)
-— never decimal literals (the lexer rounds them).
-- Shortest (prec=-1): `0.1 → "0.1"`; `0.1+0.2` (bits `4599075939470750516`) →
-  `"0.30000000000000004"`; powers of two; `1e23`-class; max
-  `1.7976931348623157e308`; smallest subnormal `5e-324`; normal/subnormal edge.
-- Fixed precision: `f`/`e`/`g` at prec 0/1/6; carry cases `0.95 prec=1`, `9.95`,
-  `999.5`, `9.999…→10.0`.
-- fmt coverage: `f`, `e`, `E`, `g`, `G`; `g` trailing-zero strip; `g`→`e` vs `f`
-  at the exp `< -4` / `>= 21` boundaries.
-- Special values × every fmt: `NaN`, `+Inf`, `-Inf`, `+0`, `-0`, `0` prec 0/3.
-- float32 vs float64: same value at `bitSize=32` vs `64`; float32 max/subnormals.
-- Overflow contract: `len(dst)` one short → `-needed`; exactly `needed` → fits.
-
-**(c) Cross-package conformance** (`NNN_big_dtoa_cross_pkg.bn` + `.expected`),
-modeled on 528: `package "main"`, `import "pkg/std/strconv"`, `main` formats
-pinned values and `println`s. Float ops run identically on LLVM and the VM (per
-330), so no per-mode `.expected`.
-
-**(d) Round-trip**: until `strconv.ParseFloat` exists (out of scope), shortest
-output is asserted against hand-verified golden strings (the golden strings *are*
-the round-trip property — shortest output must be the canonical Dragon4 result).
-A future `ParseFloat` enables `bit_cast(int64, parse(format(v))) ==
-bit_cast(int64, v)`.
+- **Nat unit tests**: green under all modes incl. arm32 BEFORE any dtoa — a
+  Dragon4 bug usually traces to a Nat bug. Includes the direct runtime
+  `uint32*uint32 -> uint64` test (`0xFFFFFFFF*0xFFFFFFFF == 0xFFFFFFFE00000001`),
+  carry/borrow across limbs, `Shl`/`Shr` crossing 32-bit boundaries, `DivMod`
+  (Knuth D normalization + add-back).
+- **strconv float unit tests**: **construct exact inputs via
+  `bit_cast(float64, <pinned int64 bits>)`** (the `330_float_bit_exact`
+  technique) — never decimal literals (the lexer rounds them). Covers shortest
+  mode (`0.1+0.2` bits `4599075939470750516` → `"0.30000000000000004"`, max
+  `1.7976931348623157e308`, smallest subnormal `5e-324`); fixed-precision carry
+  (`0.95 prec=1`, `9.999…→10.0`); all fmts; float32-vs-float64 round-trip;
+  overflow contract at exactly `needed` and `needed-1`.
+- **Cross-package conformance** (`535_strconv_float_cross_pkg`): float ops run
+  identically on LLVM and the VM (per 330), so no per-mode `.expected`.
+- **Round-trip**: until `strconv.ParseFloat` exists (out of scope), shortest
+  output is asserted against hand-verified golden strings (the golden strings
+  *are* the round-trip property). A future `ParseFloat` enables
+  `bit_cast(int64, parse(format(v))) == bit_cast(int64, v)`.
 
 ---
 
-## 7. Implementation order & risks
+## 7. Resolved decisions, risks, follow-ups
 
-### Commit-sized steps (each keeps the tree green)
-
-1. **Nat core**: `big.bni` (full signatures) + `nat.bn`
-   (struct/New/FromUint64/Clone/Set/SetUint64/grow/norm/IsZero/BitLen/Cmp/
-   IsUint64/ToUint64) + `big_test.bn` with the `uint32*uint32->uint64` test and
-   core-query tests. Green under all modes incl. arm32.
-2. **Nat arithmetic**: `nat_arith.bn` (Add/Sub/AddUint32/Mul/MulUint32) + tests.
-3. **Nat shift + division**: `nat_shift.bn` (Shl/Shr) + `nat_div.bn` (DivMod
-   Knuth D, DivModUint32) + tests. After this, `pkg/std/math/big` is a complete,
-   independently-tested unsigned bignum.
-4. **dtoa decomposition + setup**: `ftoa.bn` decompose64/32 + R/S/M setup +
-   scale-estimate/fixup, unit-tested via intermediate-state asserts.
-5. **dtoa digit loop + shortest mode + `AppendFloat`/`FormatFloat`** (prec=-1) +
-   `strconv.bni` decls + header update + shortest-mode + special-values +
-   overflow-contract tests.
-6. **Fixed-precision + fmt rendering** (`f`/`e`/`E`/`g`/`G`, prec>=0, carry
-   propagation, trailing-zero strip) + full fmt/prec test matrix.
-7. **Cross-package conformance** `NNN_*` + `.expected` + whitelist line. Final
-   arm32 verification + any needed xfail.
-
-### Biggest risks (ranked)
+### Biggest risks (ranked) — for reference
 
 1. **ILP32 `int`-truncation in limb math** — silently corrupts on arm32, passes
    on LP64. Mitigation: every limb intermediate explicitly `uint64`; the direct
@@ -436,12 +326,11 @@ bit_cast(int64, v)`.
 3. **Unequal-gap (binade-boundary) handling** — the `mant == mantLow` branch;
    golden tests at `2^n`, min-normal, max-subnormal.
 4. **`needed` pre-pass disagreeing with the render** — finalize carry before
-   computing `needed`; derive both from shared layout helpers; test overflow at
-   exactly `needed` and `needed-1`.
+   computing `needed`; derive both from shared layout helpers.
 5. **Round-half-to-even at the terminal digit** — `0.1+0.2`, `0.1`, parity-tie
    golden vectors.
 6. **`DivMod` Knuth D correctness** (q̂ estimate, add-back) — tested
-   independently in step 3 before any dtoa.
+   independently before any dtoa.
 7. **`@Nat` aliasing / refcount in z-out ops** (`R.Mul(R, ten)`) —
    fresh-result-buffer-then-assign for `Mul`/`DivMod`.
 8. **float32 shortest using float64 gaps** — `decompose32` with float32 ulp.

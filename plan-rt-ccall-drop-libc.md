@@ -1,8 +1,7 @@
 # Plan: drop `pkg/libc` by using `__c_call` in `rt`
 
-Status: **DONE** (2026-06-03) — Approach A landed: binate `e56e4d0c`
-(delete pkg/libc + native-only rt + `__c_call`) and `aa017052`
-(rt.Exit/ZeroRefDestroy registration test).
+Status: **COMPLETE (shipped)** — Approach A landed: native-only `rt` +
+`__c_call`, delete `pkg/libc`. Kept for design rationale.
 
 ## Goal
 
@@ -29,14 +28,14 @@ callers OUT" todo, and makes `__c_call` the canonical C boundary (per
 not the C dependency. True C-freedom still needs a Binate allocator +
 syscall story.
 
-## BUILDER safety — verified
+## BUILDER safety
 
 `__c_call` need only be understood by whatever compiles `rt`. `rt` is
 the runtime, compiled+linked into every binary `bnc` builds — including
 gen1, which BUILDER builds. So BUILDER must accept `__c_call`.
 
-**Verified (2026-06-03): BUILDER `bnc-0.0.6` compiles and runs a
-`__c_call("malloc")`/`__c_call("free")` program cleanly.** Non-variadic
+BUILDER `bnc-0.0.6` compiles and runs a
+`__c_call("malloc")`/`__c_call("free")` program cleanly. Non-variadic
 `__c_call` (which is all `rt` needs) is in BUILDER. **No BUILDER bump
 required.** Unlike the canceled in-place-rename workstream, this is a
 runtime *implementation* change (not a package rename), so there is no
@@ -107,11 +106,10 @@ extern registry**, and registration of `malloc`/`calloc`/`free`/`exit`
   stays unsupported (the 7-int shim) — fine for `rt`'s non-variadic
   leaves, but the general feature is still partial.
 
-## Recommendation
+## Decision
 
-**DECISION (2026-06-03): Approach A — native-only `rt`.** (I had
-recommended B; the user chose A, with this rationale, which supersedes
-my recommendation:)
+**Approach A — native-only `rt`.** (I had recommended B; the user chose
+A, with this rationale, which supersedes my recommendation:)
 
 > B forces you to register specific C functions, and then to *know which
 > C functions you need* — a standing maintenance/knowledge burden. The
@@ -128,45 +126,8 @@ prefigures package-level native registration: today we special-case
 `rt` by name; later that becomes a general "this package is native"
 mechanism.
 
-## Concrete steps (Approach B)
-
-1. **VM `__c_call` support**:
-   - `lowerCallOp` (`pkg/binate/vm/lower_call.bn`): add an `OP_C_CALL`
-     arm — pack args like `OP_CALL`, emit `BC_C_CALL` carrying the
-     verbatim symbol via `addName(instr.StrVal)` (NOT `qualifyCallName`).
-   - `vm.bni`: add `BC_C_CALL` opcode.
-   - `vm_exec.bn`: add a `BC_C_CALL` handler — marshal `Imm` args into
-     `callArgs`, `LookupExtern(symbol)`, dispatch via
-     `dispatchExternBinding` / `_call_shim_scalar`, result → `Dst`.
-2. **Bare-C-name externs**: in `cmd/bni` (and `pkg/binate/vm`'s shared
-   registration), register `malloc`/`calloc`/`free`/`exit` under their
-   bare C names, backed by compiled `__c_call` wrappers (small Binate
-   funcs in the VM host). This replaces `registerLibcExterns`.
-3. **`rt` leaves → `__c_call`** (libc-host impl only,
-   `impls/core/libc/pkg/builtins/rt/rt.bn`): `Exit`→`__c_call("exit")`,
-   `RawAlloc`→`__c_call("malloc")`, `RawAllocZero`→`__c_call("calloc")`,
-   `RawFree`→`__c_call("free")`. Drop `import "pkg/libc"`.
-4. **Delete `pkg/libc`**: `pkg/libc.bni`, `runtime/libc_stubs.c`,
-   `registerLibcExterns` (both copies), the `pkg/libc` import in
-   `extern_register_std.bn` + `cmd/bni/externs.bn`. Audit every other
-   `pkg/libc` / `bn_pkg__libc__*` reference (mostly stale comments in
-   `native/{x64,aarch64}` + `compile_imports*`).
-5. **Baremetal untouched**: `impls/core/baremetal/.../rt.bn` is
-   libc-free (bump allocator + semihost) — out of scope.
-
-(Approach A steps, if chosen instead: skip `rt` lowering in `cmd/bni`'s
-two loops; add `Exit`+`ZeroRefDestroy` to `registerRtExterns`;
-skip/xfail `pkg-builtins-rt` in `-int` modes; steps 3–5 as above; no VM
-opcode.)
-
-## Verification matrix
-
-Same as the memset/memcpy change: unit (`builder-comp` + the `-int`
-legs), conformance (`builder-comp`, `builder-comp-int`,
-`builder-comp-comp`, `builder-comp-comp-int`, `builder-comp_arm32_
-baremetal`). Approach B should additionally let the `__c_call`
-conformance tests (498/500/527/530) drop their `-int` xfails — verify
-and un-xfail where green (non-variadic at least).
+Note: baremetal `rt` (`impls/core/baremetal/.../rt.bn`) is libc-free
+(bump allocator + semihost) and was out of scope — untouched.
 
 ## Follow-up (separate): rethink `rt.Exit`
 
