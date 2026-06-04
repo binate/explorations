@@ -152,30 +152,27 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `557_err_assign_qualified_const`; `TestCheckRejectAddrOfQualifiedConst`,
   `TestCheckRejectAssignQualifiedConst`.
 
-### Redesign `pkg/binate/version` — simplify; drop the `bnc-` prefix
-- **What**: simplify the version package:
-  - Drop the `bnc-` prefix from the version *values*.  Today the repo-root
-    `VERSION` file, `version.bn`'s `version` string, and `BUILDER_VERSION`
-    all carry `bnc-X.Y.Z`; the prefix is redundant since the consuming
-    tool prepends its own name.
-  - Remove `Format` (the `bnc-` → `<tool>-` reprefixing accessor) — once
-    the prefix is gone there's nothing to strip, so callers can prepend
-    their own tool name directly.
-  - Consider changing the values stored in `BUILDER_VERSION` and the
-    repo-root `VERSION` file to match (i.e. drop `bnc-` there too).
-- **Why**: the `bnc-` prefix + `Format`'s reprefixing exist only because
-  the version string bakes in a tool name; dropping the prefix removes
-  the need for `Format` entirely and simplifies the package.
-- **Touch points**: `pkg/binate/version/version.bn` (the `version`
-  string, `Format`, `bncPrefixLen`), `version.bni`,
-  `version/version_test.bn`, the repo-root `VERSION` file,
-  `BUILDER_VERSION` (resolved via `scripts/fetch-builder.sh`), and
-  `scripts/hygiene/version-sync.sh` (greps `version.bn` against `VERSION`
-  — its expected literal/format changes when the prefix drops).
-- **Coordinate with**: `.bni` extern-var support (now landed) makes it
-  possible to export `version.Version` cross-package, so a redesign should
-  settle the final public shape (exported `var Version` vs an accessor)
-  in the same pass.
+### ~~Redesign `pkg/binate/version` — simplify; drop the `bnc-` prefix~~ — RESOLVED 2026-06-03 (binate `b745c877`)
+- **Done**: the package-private `version` (`bnc-0.0.7-pre`) is now the
+  exported extern var `Version` (`0.0.7-pre`) — declared in
+  `version.bni`, defined in `version.bn`.  The `bnc-` prefix is gone
+  from the value; a calling tool prepends its own display name.
+  `Format` and `bncPrefixLen` are removed (Format had no callers outside
+  the package's own test).  `scripts/hygiene/version-sync.sh` now strips
+  VERSION's `bnc-` builder prefix before comparing against the package
+  literal.  The unit test (`TestVersionHasNoPrefix`) pins the no-prefix
+  invariant and the VM `__init` global-read path.
+- **Deliberately NOT changed**: the repo-root `VERSION` file and
+  `BUILDER_VERSION` keep their `bnc-` prefix (user decision) — the prefix
+  there distinguishes bnc-as-builder from the retired bootstrap
+  interpreter, so it stays and the hygiene check accounts for it.
+- **Public shape settled**: exported `var Version` (not an accessor),
+  enabled by the now-landed `.bni` extern-var support.  No bnc-tree
+  consumer imports `version` yet, so this plants no BUILDER trap (a
+  future consumer would need a BUILDER that supports extern vars — the
+  next snapshot after the extern-var landing).
+- **Follow-up (separate)**: wire `--version` into bnc / bni / bnas /
+  bnlint to consume `version.Version` (none consume it yet).
 - **Discovery**: 2026-06-03, user request during the `.bni` extern-var work.
 
 ---
