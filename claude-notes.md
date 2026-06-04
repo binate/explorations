@@ -854,7 +854,7 @@ Main package: `package "main"` is a special case — requires `main()` function,
 - Shares the same heap as compiled code (no separate managed heap)
 - Has its own evaluation state but operates on the same data
 
-### Self-hosting bootstrap — IN PROGRESS
+### Self-hosting bootstrap — DONE
 
 **Strategy**: interpreter-first bootstrap.
 1. Write a minimal interpreter in a host language (subset of Binate only)
@@ -864,44 +864,22 @@ Main package: `package "main"` is a special case — requires `main()` function,
 
 The compiler should have a backend architecture that supports cross-compilation from the start, so bootstrap doesn't need to happen on target (32-bit) systems.
 
-**Current status**: Step 1 is complete. The Go bootstrap interpreter
-(`github.com/binate/bootstrap`) can parse, type-check, and run `.bn` programs
-covering the bootstrap subset: functions, structs, pointers (raw and managed), slices,
-arrays, control flow, constants with iota, string indexing, and I/O via the `pkg/bootstrap`
-package. Multi-file packages, `.bni` interface loading, user-defined package imports with
-transitive dependency resolution, and runtime error reporting with source positions are
-all implemented.
+**Status — COMPLETE.** The toolchain is fully self-hosted. The Go bootstrap
+interpreter (`github.com/binate/bootstrap`) was retired 2026-05-21; builds now
+start from a prebuilt BUILDER `bnc` (pinned by `BUILDER_VERSION`, fetched by
+`scripts/fetch-builder.sh`) rather than a host-language interpreter — Step 4
+(discard the bootstrap interpreter) is done.
 
-**Step 2 is complete** (self-hosted frontend and backend). All 10 packages of the
-self-hosted toolchain are implemented: `pkg/token`, `pkg/ast`, `pkg/lexer`, `pkg/parser`,
-`pkg/types`, `pkg/ir`, `pkg/codegen`, `pkg/linker`, `pkg/bootstrap`, and `pkg/interp`.
-The self-hosted interpreter (`cmd/bni`) passes 130 conformance tests in bootstrap mode
-(14 skipped: `bit_cast`, pointer indexing, and rt-dependent tests are compiled-mode-only).
-The self-hosted compiler (`cmd/bnc`) produces native binaries via LLVM IR, passing 143
-of 144 conformance tests (1 xfail: duplicate function detection in the type checker).
+The self-hosted compiler (`cmd/bnc`) produces native binaries via LLVM IR and
+self-compiles: gen1 (`builder-comp-comp`) and gen2 (`builder-comp-comp-comp`)
+both pass the conformance suite, as do the alternate backends (native aa64/x64,
+arm32 linux/baremetal). The interpreter is now a bytecode VM (`pkg/vm`, driven
+by `cmd/bni`), replacing the original tree-walking `pkg/interp`.
 
-**Self-compilation works.** The bootstrap interprets `cmd/bnc` to compile itself,
-producing a native compiler binary. The self-compiled compiler passes all conformance
-tests. Gen2 compilation (gen1 compiles gen1) also passes.
-
-**Compiled interpreter** (`boot-comp-int`): 142/144 conformance tests pass. The
-interpreter uses flat ABI-compatible memory with lazy struct reads, managed pointer
-refcounting, and scope cleanup. 2 xfails: 126 (managed-slice flat storage) and 206
-(duplicate function detection).
-
-**Conformance test coverage**: 146 tests (128 positive + 18 negative), run in multiple modes:
-- `boot` — Go bootstrap interpreter runs `.bn` directly (130/146, 14 skip)
-- `boot-comp` — bootstrap interprets `cmd/bnc`, compiles `.bn` to native (143/146, 1 xfail)
-- `boot-comp-int` — compiled interpreter binary runs `.bn` (142/146, 2 xfail)
-- `boot-comp-comp` — self-compiled compiler compiles `.bn`
-- `boot-comp-comp-comp` — gen2 compiler compiles `.bn`
-
-Note: `boot-int` mode was dropped (the self-hosted interpreter can no longer run under the bootstrap, since it now uses `bit_cast`, pointer indexing, and `pkg/rt` which require compiled mode).
-
-Note: many items marked "IN PROGRESS" above were resolved during the grammar
-specification phase (Phase 3). See `grammar.ebnf` for the authoritative specification.
-
-**Host language for bootstrap interpreter**: Go
+Conformance modes are chains of `builder` (prebuilt BUILDER bnc), `comp`
+(compiler), and `int` (bytecode VM) — e.g. `builder-comp`, `builder-comp-int`,
+`builder-comp-comp-comp`; see `conformance/run.sh`. (The old Go-interpreter
+`boot*` modes are gone with the bootstrap.)
 
 ### Operators — DECIDED
 
@@ -1161,7 +1139,7 @@ Phases 1–4 are complete. See `claude-plan-1.md` for the full record.
 
 **Phase 5: Self-hosted toolchain** — see `claude-plan-2.md` for the detailed plan. Key decisions:
 
-1. **Interpreter first, then compiler.** Shared frontend (lexer, parser, types) is the bulk of the work. Interpreter adds just a tree-walker; compiler adds IR, codegen, backends.
+1. **Interpreter first, then compiler.** Shared frontend (lexer, parser, types) is the bulk of the work. Interpreter adds just a tree-walker (later a bytecode VM); compiler adds IR, codegen, backends.
 2. **Single repo to start** (`binate/binate`). Split into core/interp/compiler repos once boundaries stabilize.
 3. **Compiler architecture**: SSA-based IR, pluggable backends (x86-64, ARM64, LLVM IR), optional optimization passes (refcount elision and escape analysis prioritized). LLVM IR backend gives quality native codegen on big platforms quickly; custom backends needed for embedded targets where LLVM is too heavy.
 4. **Object files**: emit platform-native formats (ELF/Mach-O) directly, shell out to system linker initially.
