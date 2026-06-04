@@ -1,20 +1,25 @@
 # Plan: Function Values
 
-> **Status: Phase 1 COMPLETE (2026-05-01)** — A.1–A.7 all landed:
-> type syntax, nil + zero-init, function-reference-as-value,
-> calling through a function value, flow through args/returns/
-> fields, method expressions `T.M`, and non-capturing function
-> literals. See "Phase 1 progress" subsection for the per-slice
-> breakdown. Phase 2 (closures + method values) remains
-> DEFERRABLE; Phase 3 (cross-mode trampolines) is now the next
-> piece on this plan, motivated independently by the
-> boot-comp-int-int interop bug (see claude-todo.md).
+> **Status: COMPLETE (shipped); kept for design rationale.** Phase 1
+> (backend vtable machinery + non-capturing function values) and
+> Phase 3 (cross-mode trampolines) have both landed. Phase 2
+> (closures + method values) remains DEFERRABLE, with substantial
+> open questions on capture design (see "Capture design — open"
+> below). For the slice-by-slice landed record, see
+> `plan-function-values-phase-3.md` and the "Function values" entry
+> in `claude-todo.md` / `claude-todo-done.md`.
 >
 > `rt.CallDtor` retirement landed independently via the
 > `_call_dtor` / `_call_free_fn` magic-symbol path on top of
 > `OP_CALL_INDIRECT` (so it didn't need to wait for function
-> values). Phase 2 (closures + method values) remains DEFERRABLE
-> with substantial open questions on capture design.
+> values).
+>
+> **Shipped divergence from this plan:** the per-shape call
+> convention is **always-shim**, not the "check-data-nil" default
+> this doc originally ratified. Phase 3 reversed that decision; the
+> "Per-shape `call` shim" section below has been reconciled to the
+> shipped outcome, and the full reversal rationale lives in
+> `plan-function-values-phase-3.md`.
 
 ## Why this is more important than it looks
 
@@ -98,78 +103,6 @@ What's NOT enabled by Phase 1:
 - Closures (no capture analysis yet).
 - Method values `x.M` (need receiver capture).
 - Higher-order user code that wants to construct closures.
-
-#### Phase 1 progress (status as of 2026-04-30)
-
-Sliced internally as A.1–A.7. Conformance tests cover each landed
-slice (338+).
-
-- **A.1 — Type syntax** (`*func(...)`, `@func(...)`): LANDED.
-  Parser, type-checker, and pkg/types kinds (TYP_FUNC_VALUE /
-  TYP_MANAGED_FUNC_VALUE) accept the new syntax. Bare `func(...)`
-  remains non-usable as a type.
-- **A.2 — Nil + zero-init**: LANDED. `IsNillable` extended,
-  zero-init alloca emits the all-zeros 16-byte function value,
-  conformance test 338.
-- **A.3 — Function reference as value** (`var f *func(...) = SomeFunc`):
-  LANDED. IR-gen detects function-reference-to-function-value-type
-  in var-decl, emits OP_FUNC_VALUE. Per-function `weak_odr` vtable
-  globals in `%BnVtable = type { i8*, i8* }`. VM-mode vtables use
-  Option 3 (heap-allocated VM closure record always; lazy on
-  first BC_FUNC_VALUE). Conformance test 339.
-- **A.4 — Calling through a function value** (`f(args)`):
-  LANDED. New OP_CALL_FUNC_VALUE; LLVM extracts vtable_ptr →
-  vtable.call → indirect call. VM short-circuits the trampoline:
-  reads closure_rec.vm_func_idx and execFunc directly. Native
-  arm64 backend extracts vtable.call into X17 and BLR's it.
-  Conformance test 340. macho linker alignment quirk fixed in a
-  separate companion commit (`pkg/asm/macho`: 8-byte align section
-  addrs and file offsets).
-- **A.5 — Function values flow through args / returns / fields**:
-  LANDED (2026-04-30). Function-reference-to-function-value
-  coercion at every IR-gen site where a bare function name may
-  legitimately flow into a function-value-typed slot: call
-  arguments, return values, single-assign Ident/Selector LHS,
-  composite-literal struct fields. Reordered genCall dispatch so a
-  Selector/Index callee of function-value type takes the
-  function-value path before method-call dispatch. Conformance
-  test 341. Followed by a unit-test backfill (pkg/ir,
-  pkg/types) and a file split (`pkg/ir/gen_call.bn` extracted
-  from `gen_expr.bn` to bring the latter back under the 600-line
-  ERROR limit; tests follow the same boundary in
-  `gen_call_test.bn`).
-- **A.6 — Method expressions** (`T.M`): LANDED (2026-05-01).
-  `T.M` (T a named type, M a method on T) evaluates to a function
-  value whose signature includes the method's declared receiver as
-  Params[0]. Receiver kind (value, raw pointer, managed pointer)
-  comes from the method declaration, not the user's spelling of
-  `T.M`. Type-checker: `checkSelectorExpr` returns the function-
-  value type when X resolves to SYM_TYPE; `tryMethodCall` skips
-  SYM_TYPE so the call goes through the function-value path with
-  the full signature. IR-gen: `funcRefName` recognizes the type-
-  name selector form and emits `<pkg>.T.M` via
-  `buildMethodQualName`; `gen_call.bn`'s direct-call name
-  resolution routes through `funcRefName` so `T.M(args)` direct
-  invocation also gets the qualified name. Conformance test 342.
-- **A.7 — Function literals as expressions** (non-capturing only):
-  LANDED in two commits (2026-05-01).
-  - **A.7.a** — parser + AST + type-checker. New EXPR_FUNC_LIT
-    node carrying a synthetic Decl on `Expr.DeclRef`. The type-
-    checker enforces the no-captures Phase 1 restriction by
-    parenting the literal's body scope at the package scope
-    (skipping enclosing-function scopes); references to enclosing
-    locals fail to resolve. New `Checker.PackageScope` field set
-    in Check / CheckPackage / CheckMainPersistent.
-  - **A.7.b** — IR-gen lifting. `genFuncLit` allocates a
-    synthetic `__funclit_<n>` name, calls `genFunc` on the
-    literal's Decl, adds the resulting Func to `currentModule`,
-    registers a FuncSig in `moduleFuncs`, and emits OP_FUNC_VALUE
-    pointing at the (qualified) name. Per-package state in
-    `gen.bn` (`currentModule` + `funcLitCounter`); reset by
-    `resetFuncLitState` at GeneratePackage / GenModule entry.
-  - Conformance test 344_function_literal: bind-to-local, pass-
-    as-arg, multiple literals in one function (distinct ids),
-    nested literal as arg called from another literal.
 
 ### Phase 2 — Closures + method values (DEFERRABLE)
 
@@ -271,33 +204,31 @@ capturing. Per (function or method, capture-shape) pair, the
 compiler generates a shim that adapts the underlying body to this
 uniform shape.
 
-#### Non-capturing: top-level function `f(a, b int) int`
+**Shipped convention: always-shim.** `vtable.call` always has the
+uniform shape `<ret>(*uint8 data, args...)`, and every call site is
+a single straight-line sequence: extract `data`, extract
+`vtable.call`, call with `(data, args)`. For a non-capturing top-
+level function `f`, `vtable.call` points at a per-function shim
+that ignores its data arg and tail-calls the real function:
 
-Two implementations on the table:
+```
+__shim_f(data *uint8, a, b int) int { return f(a, b) }
+```
 
-1. **Always-shim**: emit a per-function shim that ignores its data
-   arg and tail-calls the real function:
-   ```
-   __shim_f(data *uint8, a, b int) int { return f(a, b) }
-   ```
-   Vtable.call → shim. Caller always does `vtable.call(value.data,
-   args...)` — uniform code path, no branch.
-2. **Check-data-nil** *(default)*: caller branches on
-   `value.data == nil`; if nil, calls the real function directly
-   with `args...`; otherwise calls through the shim. Skips the
-   shim hop entirely for the common non-capturing case.
-
-**Default: check-data-nil.** Two reasons: (a) consistency — the
-codebase already uses explicit nil checks at refcounted-pointer
-call sites (`if ptr == nil { return }` in RefInc/RefDec/Free, etc.)
-rather than dispatching through shim functions, and adopting an
-always-shim mode for function values would be inconsistent with
-that; (b) modern branch predictors handle the predictable nil/
-non-nil split well, so the perf argument that originally motivated
-"always-shim, no branch" doesn't really hold. The shim still
-exists for the capturing case (where its body actually does
-something useful with `data`), but non-capturing call sites
-short-circuit it.
+This **reverses the original "check-data-nil" default** this doc
+ratified (where the caller branched on `value.data == nil` and
+skipped the shim hop for the common non-capturing case). The
+reversal happened in Phase 3: check-data-nil requires multi-block
+dispatch (cond + 2 branches + phi-merge) replicated across all
+three backends (LLVM, VM, native arm64), whereas always-shim
+collapses every call site to one straight-line call with the per-
+function shim taking the indirect hop instead. The added hop on the
+non-capturing compiled path is expected to be near-free (good
+branch prediction; LLVM's tail-call optimizer folds many shims into
+direct calls at `-O2`); if it ever matters in a hot loop,
+check-data-nil can be revisited per-site. Full rationale and the
+runtime-cost-investigation TODO live in
+`plan-function-values-phase-3.md`.
 
 #### Capturing closures and method values
 
@@ -460,16 +391,6 @@ supported.** Top-level named recursive functions work normally
 recursive anonymous closures become important, revisit when Phase 2
 capture semantics are settled.
 
-## VM-side: per-signature trampoline
-
-Folded into the "VM-mode vtables — interop-compatible from Phase 1"
-section above. Summary: Phase 3 work is to fill in `vtable.call`
-for VM-side function values with a per-signature trampoline that
-reads the VM closure record and dispatches into the VM. Phase 1
-leaves the slot as a placeholder; same-mode dispatch in Phase 1
-short-circuits the trampoline by reading the closure record
-directly from the function value's `data` slot.
-
 ## Boxing / allocation rules
 
 Mirrors the managed/raw rules for slices and (proposed) interface
@@ -539,13 +460,14 @@ What's not shared:
   `OP_CALL_INDIRECT` IR op that this plan's vtable-indirect call
   sequence is built on. Lands first; retires `rt.CallDtor` as
   its first concrete consumer.
+- `plan-function-values-phase-3.md` — cross-mode trampoline sub-
+  plan; holds the slice-by-slice landed record and the full
+  always-shim reversal rationale.
 - `plan-interface-syntax-revision.md` — sibling plan for the
   interface frontend. Orthogonal at the frontend, paired at the
   backend.
 - `claude-todo.md` § "Function values — MAJOR PROJECT" — current
   TODO entry pointing at this plan.
-- `claude-todo.md` § "Retire `rt.CallDtor`" — direct dependent
-  of `plan-call-indirect.md`, not this plan.
 - `claude-todo.md` § "Free-function pointer in managed-allocation
   header — bug" — separate runtime bug; would also benefit from
   the `OP_CALL_INDIRECT` IR op (since `header[1]` is a callable
@@ -563,8 +485,9 @@ What's not shared:
 - **`@func(...)` capturing `*T` receiver**: lean toward "allow +
   linter warning" but pin down before Phase 2.
 - ~~**Always-shim vs check-data-nil for non-capturing call sites**~~
-  — DECIDED: check-data-nil. Consistent with other nil-check sites
-  in the codebase; branch predictors handle the split fine.
+  — DECIDED (shipped): **always-shim**. The earlier "check-data-nil"
+  default was reversed in Phase 3 on IR-gen-cost grounds (see
+  "Per-shape `call` shim" above and `plan-function-values-phase-3.md`).
 - ~~**CallDtor retirement path**~~ — DECIDED: separate plan
   (`plan-call-indirect.md`). The `OP_CALL_INDIRECT` IR op also
   serves as Phase 1's foundation.

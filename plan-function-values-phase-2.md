@@ -1,14 +1,10 @@
 # Plan: Function Values — Phase 2 (Closures + Method Values)
 
-> **Status: LANDED (2026-05-31; cleanup miscompile fixed 2026-06-01)**
-> — B.1..B.6 all implemented.
+> **Status: COMPLETE (shipped); kept for design rationale.**
 > Predecessor: [plan-function-values.md](plan-function-values.md)
 > §"Phase 2 — Closures + method values (DEFERRABLE)" + §"Capture
 > design — open". This document closed the open design questions
-> and sliced the implementation into B.1..B.6.  Phase 1 (A.1–A.7)
-> landed 2026-05-01; Phase 2 closed in a sequence of cherry-picks
-> through 2026-05-31.  See §"Implementation slices" for
-> per-slice landing pointers and known follow-ups.
+> and sliced the implementation into B.1..B.6.
 >
 > Post-B.6 follow-up (2026-06-01): the @func vtable's slot-0 dtor
 > pointer was a raw fn pointer, which made
@@ -225,10 +221,6 @@ Allowed, **with a linter warning**. Rationale: the same escape
 unsafe as that `*T`; the user opts in. The linter can flag the
 combination as a likely-bug pattern.
 
-(Open during plan-function-values.md drafting; closing here as
-"allow + linter warning" matches the existing escape-hatch
-treatment elsewhere.)
-
 ### Vtable type identity across packages
 
 Two function-value types are **structurally equivalent** iff
@@ -241,13 +233,6 @@ boundaries without conversion.
 
 The mangling: `__vt_<sig-mangled>` where `<sig-mangled>`
 follows the same name-mangling scheme as Phase 1's vtables.
-Define in `pkg/mangle` (or `pkg/codegen` if uniqueness is a
-codegen-internal concern); used uniformly by IR-gen, codegen,
-VM, and native backends.
-
-(Open during plan-function-values.md drafting; closing here as
-"structural by signature" matches the user-visible structural
-typing of function values.)
 
 ### Recursive lambdas
 
@@ -293,157 +278,62 @@ Following plan-function-values.md §"Open questions": mirror Go.
 This matches the interface-value comparison story
 (plan-interface-syntax-revision.md): only nil comparison.
 
-## Implementation slices (B.1..B.N)
+## Implementation notes / gotchas
 
-Mirroring Phase 1's A.1–A.7 cadence: each slice lands with
-conformance tests and unit tests, on a small, reviewable diff.
+Load-bearing subtleties discovered during the B.1..B.6 implementation
+(the per-slice landing log lives in git history and
+`claude-todo-done.md`):
 
-### B.1 — Capture analysis in the type-checker — **LANDED**
+- **Captures as prepended params.** Captures are prepended to the
+  lifted body's params so the body resolves their names through the
+  normal local-name mechanism (no special capture-load IR ops needed).
+  `resolveCaptureTypes` must look up via the IR-gen scope so
+  prepended-capture params land shape-identical to non-captured ones.
+  The reason this matters: the type-checker's view of `*Box` is
+  `TYP_POINTER → TYP_NAMED("Box")` but IR-gen's view is
+  `TYP_POINTER → TYP_STRUCT`; without resolving through the IR-gen
+  scope, a closure body's `p.N` selector misses the
+  `isRawPtrToStruct` branch and falls through to the
+  `EmitConstInt(0, …)` fallback (silent wrong-code reading struct
+  fields as 0).
 
-- Remove the "parent at package scope" reparenting in
-  `checkFuncLit` (`pkg/types/check_func_lit.bn`). Use the
-  enclosing scope as parent so Idents resolve naturally.
-- New AST field `Decl.Captures @[]@CaptureInfo` (each: name,
-  type, kind, source-scope depth — to distinguish "from outer
-  function" vs "from outer block in same function").
-- New checker pass `recordCapture(c, sym)` — invoked from
-  `lookupSymbol` when the resolution crosses a function-scope
-  boundary. Idempotent (first reference wins layout order).
-- Type-check the body; capture list is finalized when the body
-  exits.
-- No type-checker escape rejection for capturing `*func` — see
-  §"Allocation: raw vs managed forms" for the rationale, and B.5
-  for the linter rule that replaces it.
+- **CRITICAL — `Type.Identical` missing func-value branch.** `Type.
+  Identical` originally had no `TYP_FUNC_VALUE` /
+  `TYP_MANAGED_FUNC_VALUE` branch, so any two same-kind func-values
+  compared identical — silent wrong-code on signature mismatch. Fixed
+  by folding the existing `TYP_FUNC` branch with the value variants
+  into a single structural compare (binate `12bbb548`). Covered by
+  `TestIdenticalFuncValues` in `pkg/binate/types/types_query_test.bn`.
 
-Tests:
-- conformance/501_capture_value (basic CAP_VAL + CAP_RAW_PTR).
-- Unit tests in `pkg/types/check_capture_test.bn` and
-  `pkg/types/check_func_lit_test.bn`.
+- **Method-value wrapper naming.** `methodValueWrapperName` carries
+  dots, which `generateDtors` Pass 2 treats as a package qualifier;
+  `buildMethodValueClosureStruct` folds dots to underscores up front
+  to avoid the misparse.
 
-### B.2 — Closure struct + dtor + call shim (non-managed only) — **LANDED**
+- **Cross-shape receiver smoothing.** The method-value closure-struct
+  field, wrapper receiver param, and dedup key reflect the CAPTURED
+  form (method's declared receiver type), not x's type. `genCapturedRecv`
+  bridges x → captured form: T→*T (address-of), *T/@T→T (deref),
+  @T→*T (bitcast), and the identical / fall-through cases.
 
-- IR-gen synthesises `__closure_<lit_id>`, the closure-struct
-  type whose fields back the captures; per-shape `__shim` in
-  each backend reads them out of the data pointer before
-  tail-calling the underlying.
-- Captures are prepended to the lifted body's params so the
-  body resolves their names through the normal local-name
-  mechanism (no special capture-load IR ops needed).
-- Latent bug discovered and fixed mid-B.3 work: the type-
-  checker's view of `*Box` is `TYP_POINTER → TYP_NAMED("Box")`
-  but IR-gen's view is `TYP_POINTER → TYP_STRUCT`; the closure
-  body's `p.N` selector missed the `isRawPtrToStruct` branch
-  and fell through to the `EmitConstInt(0, …)` fallback.  Fix:
-  `resolveCaptureTypes` now looks up via the IR-gen scope so
-  prepended-capture params land shape-identical to non-captured
-  ones (binate `359c128c`).
+- **Native shim ABI.** Aggregate captures and outgoing user-args need
+  stack-spill on SysV-AMD64 and aa64; both ABIs use
+  `IndirectLargeAggregates = true` (indirect-large pass-by-pointer).
 
-Tests:
-- conformance/501_capture_value, 508_capture_ptr_field (by-value
-  struct field-read regression).
+- **@func slot-0 dtor pointer.** See the status block at the top: the
+  vtable's slot-0 must hold a HANDLE POINTER to a `(shim, vt, handle)`
+  triple, not a raw fn pointer, or `OP_CALL_HANDLE` byte-pun-reads the
+  dtor's machine code as a `{vtable, data}` struct.
 
-### B.3 — Heap allocation for `@func(...)` capturing literals — **LANDED**
+## Deferred / follow-up
 
-Split into two commits:
-
-- **B.3a** (binate `3e0d00c5`): managed captures for `*func`.
-  Each `CAP_MANAGED` capture RefInc's at the literal site;
-  closure struct is registered in `moduleStructs` so
-  `generateDtors` synthesises a struct-dtor that RefDec's each
-  managed field; closure-local registered in `ctx.Vars` so the
-  frame-end `emitDecForManagedLocals` invokes the dtor.
-- **B.3b commit 1** (binate `da6eb9df`): type-checker context
-  propagation via `Checker.ExpectedFVType` hint, so a literal
-  flowing into an `@func()` VarDecl slot resolves as
-  `TYP_MANAGED_FUNC_VALUE` instead of the default `*func`.
-- **B.3b commit 2** (binate `1c09b410`): IR-gen heap-allocates
-  the closure struct (`EmitMake` instead of `EmitAlloc`) when
-  the resolved type is `@func`; new `OP_FUNC_VALUE_DTOR` op +
-  `emitManagedFuncValueRefDec` drive the scope-end RefDec on
-  an `@func` variable's data slot; backend populates the
-  vtable's dtor slot with the closure-struct dtor symbol.
-
-Native-shim follow-ups in the same series:
-- Stack-spill for SysV-AMD64 aggregate captures (binate
-  `85b37efa`).
-- Stack-spill for aa64 outgoing user-args (binate `fe33556e`).
-- Indirect-large pass-by-pointer (binate `40615a69`) once both
-  ABIs flipped to `IndirectLargeAggregates = true` in
-  `f5340fac`.
-
-CRITICAL pre-existing bug discovered + fixed mid-B.3b: `Type.
-Identical` had no `TYP_FUNC_VALUE` / `TYP_MANAGED_FUNC_VALUE`
-branch, so any two same-kind func-values compared identical —
-silent wrong-code on signature mismatch.  Fixed by folding the
-existing `TYP_FUNC` branch with the value variants into a
-single structural compare (binate `12bbb548`).
-
-Tests:
-- conformance/509_capture_managed, 513_managed_func_value_
-  noncapture, 515_managed_func_value_capture (the arm32-baremetal
-  xfail on 515 was lifted 2026-06-01 once the slot-0 raw-fn-ptr
-  miscompile was fixed; see post-B.6 follow-up at the top).
-- conformance/510_capture_managed_slice, 517_capture_split_
-  aggregate, 518_capture_small_aggregate (native shim coverage).
-- Unit tests in `pkg/binate/types/types_query_test.bn`
-  (`TestIdenticalFuncValues`).
-
-### B.4 — Method values `x.M` — **LANDED**
-
-- **First cut** (binate, included in the B.4 series): same-shape
-  receiver only — wrapper Func synthesised per (method,
-  receiver-shape) with `IsClosure=true` so the B.2 closure
-  machinery handles the per-shape shim.  Tests 503 / 505 / 506.
-- **@T receiver** (binate `131a00b0`): drops the
-  `isManagedReceiverType` gate, RefInc's the receiver, registers
-  the closure struct + closure-local for cleanup.  Also fixes a
-  latent naming bug — `methodValueWrapperName` carries dots which
-  `generateDtors` Pass 2 treats as a package qualifier;
-  `buildMethodValueClosureStruct` now folds dots to underscores
-  up front.
-- **Cross-shape smoothing** (binate `973d3ccd`): closure-struct
-  field, wrapper receiver param, and dedup key now reflect the
-  CAPTURED form (method's declared receiver type), not x's type.
-  `genCapturedRecv` bridges x → captured form: T→*T (address-of),
-  *T/@T→T (deref), @T→*T (bitcast), and the identical / fall-
-  through cases.
-
-Tests:
-- conformance/503_method_value, 505_method_value_val,
-  506_method_value_void, 511_method_value_managed,
-  519_method_value_smoothing (all 7 smoothing shapes covered).
-
-### B.5 — Linter rules — **LANDED**
-
-(binate `10d19369`, `8ae97c74`).  Two new rules in
-`pkg/binate/lint/func_value_escape.bn`:
-
-- `func-value-escape` — capturing `*func(...)` returned from
-  its enclosing function fires (closure struct is stack-bound
-  to the returning frame; captures will dangle).  Gated on
-  `TYP_FUNC_VALUE` so the `@func` path stays silent.
-  Currently dispatched from return statements only; non-return
-  escape paths (global assign, struct field, etc.) are
-  documented as "best effort" in the plan and can land as
-  follow-up.
-- `managed-func-raw-capture` — `@func(...)` capturing a
-  `CAP_RAW_PTR` fires per capture.  Walks via
-  `walkExprFuncLits` / `walkStmtFuncLits` so nested literals
-  are reached.
-
-Tests: 7 unit tests in `pkg/binate/lint/func_value_escape_
-test.bn`, covering positives + negatives for both rules and
-the nested-literal walker.
-
-### B.6 — Documentation + cleanup — **LANDED**
-
-This commit.  Plan doc + cross-references updated; per-slice
-landing pointers recorded above.  Open follow-ups left in
-`claude-todo.md` (>5-incoming-user-arg shim spill on both native
-backends).  The arm32 @func cleanup hang was tracked here as a
-follow-up at landing time and root-caused + fixed 2026-06-01
-(binate `67952cf1` + `dc46ac7f`); see the status block at the
-top of this doc.
+- **Linter non-return escape paths.** The `func-value-escape` rule
+  (capturing `*func(...)` returned from its enclosing function) is
+  currently dispatched from return statements only. Non-return escape
+  paths (global assign, struct field, etc.) are "best effort" and can
+  land as follow-up.
+- **>5-incoming-user-arg shim spill** on both native backends —
+  tracked in `claude-todo.md`.
 
 ## Cross-references
 
@@ -478,5 +368,3 @@ None expected post-ratification. Items closed in this draft:
   1); workaround documented.
 - ~~Function value equality~~ — nil-only, mirrors interface
   values.
-
-Anything that surfaces during implementation reopens here.

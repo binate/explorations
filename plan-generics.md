@@ -1,26 +1,23 @@
 # Plan: Generics
 
-> **Status: COMPLETE 2026-05-21.**  Slices 1–7 fully
-> implemented: generic functions, structs, and interfaces all
+> **Status: COMPLETE 2026-05-21 (shipped); kept for design
+> rationale.**  Generic functions, structs, and interfaces all
 > work both same-package and cross-package, including
 > constraint-method dispatch via interface inheritance and
 > instantiated-interface vtable dispatch.  Q7 pinned 2026-05-21
 > (source-text bodies in `.bni`).
 >
 > **Original design notes (2026-05-06; AMENDED 2026-05-12).**
-> Pre-implementation; pins the open questions so implementation
-> can start cleanly when the interface track lands satisfaction
-> checks (the foundational dependency).  Cross-references the
-> existing decisions in `claude-notes.md` § "Generics — DECIDED".
+> Pins the open questions and cross-references the existing
+> decisions in `claude-notes.md` § "Generics — DECIDED".
 >
 > **2026-05-12 amendment:** the design depends on a separately-
 > open question — *can primitives implement interfaces?* — that
 > needs resolution before constrained generics
 > (`[T Comparable]` etc.) can target `int` / `bool` / etc.  See
 > the new "Hard dependency: primitives-implement-interfaces"
-> section below.  Cross-package interfaces (Slices 2.6–2.9) and
-> interface extension (Slices E.1–E.3) have since landed; notes
-> below incorporate them.
+> section below.  Cross-package interfaces and interface
+> extension have since landed; notes below incorporate them.
 
 ## Context
 
@@ -85,13 +82,6 @@ path (`[T any]`) is unaffected — generic containers that store
 T values and shuffle them around without consulting any T
 methods can still ship.
 
-Implication for slice ordering (see "Implementation work"
-below): Slices 1, 2, 4, 5 (`[T any]` end-to-end + generic
-structs) can land in parallel with the primitives-impl design
-call.  Slice 3 (constraint check) is blocked on the design
-call landing AND on the interface track shipping
-satisfaction-lookup primitives.
-
 ## Ratified decisions
 
 ### 1. Constraint satisfaction is explicit, via `impl`
@@ -114,19 +104,17 @@ verified at impl-collection time**, when the impl was originally
 declared.  At instantiation we just confirm the impl exists; we
 don't re-check shapes.
 
-**Cross-package, since 2026-05-07:** the satisfaction lookup
-naturally crosses packages now that
-`plan-cross-package-interfaces.md` (Slices 2.6–2.9) has landed
+**Cross-package:** the satisfaction lookup naturally crosses
+packages now that `plan-cross-package-interfaces.md` has landed
 — `impl T : I` may live in any package that has both T and I
 in scope, and the type-checker already shares one `Checker`
 across packages.  Generic instantiations get the
 cross-package impl-visibility check for free.
 
-**Inherited methods, since 2026-05-? (Slices E.1–E.3):**
-`interface X : I1, I2 { ... }` is now a thing.  Constraint
-satisfaction must consult I's *full* method set (own +
-inherited transitively, via the `FullMethods` machinery from
-Slice E.2), not just I.Methods directly.  Same applies to
+**Inherited methods:** `interface X : I1, I2 { ... }` is now a
+thing.  Constraint satisfaction must consult I's *full* method
+set (own + inherited transitively, via the `FullMethods`
+machinery), not just I.Methods directly.  Same applies to
 constraint-method calls in the generic body — `t.foo()` may
 resolve to a method I inherits from I's parent.
 
@@ -196,13 +184,12 @@ The implicit universal interface `any` (per `claude-notes.md`
   parameter).
 
 This is the simplest constraint and the natural starting point
-for the implementation — Slice 1 of the work plan below
-operates entirely in the `any`-only world.
+for the implementation.
 
 ### 5. Cross-package impl visibility — already solved
 
 > Updated 2026-05-12 after `plan-cross-package-interfaces.md`
-> shipped (Slices 2.6–2.9, 2026-05-07).
+> shipped (2026-05-07).
 
 The non-generic case is now done: `impl T : I` may live in
 any package that has both T and I in scope (transitively
@@ -221,8 +208,7 @@ visibility.  See Q7 below.
 
 ## Open questions
 
-These need pinning before the slice that touches them; not
-blocking earlier slices.
+These needed pinning before the slice that touched them.
 
 ### Q1 — Instantiation cache key
 
@@ -332,7 +318,7 @@ interface "shape" — the method set is parameterized by T.
 Vtable layout: same per-instantiation, but the vtable is
 per-(impl, *concrete-instantiation*) rather than per-(impl,
 interface).  Open: how vtable globals are named when the
-interface itself is generic.  Likely deferred to Slice 6 below.
+interface itself is generic.
 
 ### Q7 — `.bni` body emission — DECIDED 2026-05-21
 
@@ -388,149 +374,54 @@ constraint goes away (when the language is fully self-hosted
 and the bootstrap is retired), and the self-hosted compiler can
 itself use generics — but that's a separate future migration.
 
-## Implementation work — slices
+## Implementation notes
 
-Each slice is independently shippable, ordered by dependency.
+The implementation shipped across seven dependency-ordered
+slices (parser/AST → `[T any]` type-checking → constraint
+satisfaction → IR-gen monomorphization → generic structs →
+generic interfaces → cross-package `.bni` bodies).  Load-bearing
+divergences and notes worth preserving:
 
-### Slice 1 — Parser + AST for generic functions — LANDED `e8139ea`
+- **Constraint satisfaction is transitive through interface
+  inheritance.**  `impl int : Orderable` satisfies
+  `T : Comparable` because Orderable extends Comparable;
+  `typeSatisfiesConstraint` matches via Identical-on-receiver +
+  `implCoversInterface` over the full ancestor closure.
 
-- Parser accepts `func f[T any, U any](x T, y U) T` and
-  `name[T1, T2]` in expression position.
-- AST: new TypeParam struct, `Decl.TypeParams` field, new
-  `EXPR_INSTANTIATE_OR_INDEX` kind (covers any `name[...]`
-  shape, supersedes the prior `EXPR_INDEX`), new
-  `TEXPR_TYPE_PARAM` kind (declared; produced by the type-
-  checker, not the parser).
-- All `any` constraint only at this slice.
+- **Constraint-method IR-gen "just works."**  Once the
+  type-checker accepts the constraint via inheritance, IR-gen's
+  substituted body sees a concrete call (e.g. `int.Compare(int)`)
+  which dispatches through the existing
+  primitives-implement-interfaces work — no special monomorphizer
+  path needed.
 
-### Slice 2 — Type-checker for `[T any]` generic functions — LANDED
-- **2a** (`7bf3385`): TYP_TYPE_PARAM kind; generic-decl body
-  type-checks against a per-decl type-param scope;
-  resolveFuncDeclType + checkFuncDecl install and re-install
-  the scope around signature / body checks; IR-gen skips
-  generic decls.  Calls to generics without explicit type args
-  rejected ("no inference").
-- **2b** (`91e0b62`): `f[T1, ...](args)` at the call site.
-  instantiateGenericFunc, typeArgFromExpr (EXPR_IDENT + `*T`),
-  substituteTypeParams over composite types.  Rejection paths
-  pinned (wrong arity, arg-type mismatch, unknown type-arg).
+- **Instantiated interfaces are materialized under a bare
+  mangled name** (`Container__bn_inst__int`) with `Pkg` stored
+  separately.  IR-gen vtable layout / dispatch must recognize
+  `TEXPR_INSTANTIATE`-on-generic-iface in `isInterfaceTypeExpr`
+  / `ifaceTypeForName`, and `collectImplsFromDecl` /
+  `collectInterfaceFromDecl` must handle `TEXPR_INSTANTIATE`
+  iface refs both as impl targets and as extension *parent* refs
+  (`interface Sub : Container[int]`) so the concat-vtable layout
+  and ancestor-closure walk reach the right (R, I) pair.
 
-### Slice 3 — Constraint-satisfaction check — LANDED `6614bdd`
-- Constraints lift from `any` to interface names.  Storage:
-  `Type.TpConstraint` on TYP_TYPE_PARAM.
-- typeSatisfiesConstraint walks `c.Impls` and matches via
-  Identical-on-receiver + implCoversInterface; transitive
-  satisfaction through interface inheritance (`Slice 4b`,
-  `77be365`) — `impl int : Orderable` satisfies
-  `T : Comparable` because Orderable extends Comparable.
-- Body method-call dispatch on TYP_TYPE_PARAM receivers routes
-  through the constraint interface's method set
-  (tryTypeParamMethodCall); Self in the interface signature
-  substitutes to the type-param itself.
+- **Cross-package generic structs and interfaces share one
+  type-checker path.**  `resolveTypeInstantiation` accepts
+  pkg-qualified heads for both struct and iface heads; the
+  iface case fell out of the struct change for free.  Generic
+  type decls are skipped in the `.bni` Pass-1 placeholder
+  registration and stashed in `c.GenericTypeDecls` /
+  `GenericTypeDeclPkgs` keyed on pkg short-name.
 
-### Slice 4 — IR-gen monomorphization — LANDED
-- **4a** (`ad2a26c`): per-(generic, type-args) IR func emission
-  via a substitution context that resolveTypeExpr consults;
-  call-site dispatch routes `f[int](...)` to the mangled name.
-  Conformance 431 / 432 / 433 cover identity, multi-instantiate
-  dedup, and local-T / multi-param.
-- **4b** (`77be365`): IR-gen "just works" for constraint-method
-  calls inside specialized bodies — once the type-checker
-  accepts the constraint via inheritance, IR-gen's substituted
-  body sees `int.Compare(int)` which dispatches through the
-  existing primitives-impl-interfaces work.  Conformance 434
-  exercises `cmp[int]` and `hashOf[uint]` end-to-end via
-  pkg/std's Orderable / Hashable impls.
+- **The `bnc-0.0.1` builder predates the body-in-`.bni` rule**,
+  so the cross-package conformance tests are xfail under the
+  `boot-comp` mode (builder compiles the consumer directly);
+  they pass once a self-hosted-compiled compiler is in the
+  chain (`boot-comp-comp` and friends).
 
-### Slice 5 — Generic structs — LANDED
-- **5a** (`75042d6`): parser + AST for `type List[T any] struct
-  { ... }` and `List[int]` in type position (TEXPR_INSTANTIATE
-  + `TypeExpr.TypeArgs`).  Type-checker / IR-gen stub the
-  TEXPR_INSTANTIATE branch.
-- **5b** (`39b3461`): type-checker for generic struct
-  instantiation.  GenericTypeDecls registry, per-(decl, args)
-  GenericInstantiations cache (Q1), resolveTypeInstantiation
-  + buildInstantiatedStruct.  Substitution descends into
-  pointer / slice / array element types.
-- **5c** (`aa5fb38`): IR-gen for generic struct instantiation.
-  Per-(decl, args) ModuleStruct registration via
-  ensureInstantiatedStruct; fields resolve with the type-param
-  substitution context active.  Conformance 436 / 437 cover
-  field read/write and Pair[int, int] through a function arg.
-
-### Slice 6 — Generic interfaces — LANDED
-- **6a** (`ae4c4d6`): parser + AST for `interface Container[T
-  any] { ... }`.  Type-checker rejected initially.
-- **6b** (`279769f`): type-checker accepts generic interface
-  decls; resolveTypeInstantiation handles interface heads via
-  buildInstantiatedInterface (substitutes T in method
-  signatures, builds TYP_INTERFACE).  Per-(decl, args) cache
-  shared with structs.  *Container[int]* / @Container[int]
-  type-check.
-- **6c-min** (`c06c724`): IR-gen skips generic interface decls
-  in collectInterfaceFromDecl so the bare decl is harmless.
-- **6c-mid** (`f49a95f`): parseInterfaceRef accepts
-  `Container[int]` in impl iface refs and extension parent
-  lists.  Type-checker (from 6b) builds the instantiated
-  TYP_INTERFACE.
-- **6c-full** (`bac6909`): IR-gen vtable layout + dispatch for
-  instantiated interfaces.  genericIfaceDecls registry parallel
-  to genericTypeDecls; ensureInstantiatedInterface materializes
-  a per-(decl, args) ModuleInterface entry under the bare
-  mangled name (`Container__bn_inst__int`) with Pkg stored
-  separately; isInterfaceTypeExpr / ifaceTypeForName recognize
-  TEXPR_INSTANTIATE-on-generic-iface; collectImplsFromDecl
-  handles TEXPR_INSTANTIATE iface refs.  Per-module iface
-  registry was split out to gen_iface_registry.bn to keep
-  gen_impl.bn under the file-length soft cap.  Conformance
-  451 / 452 / 453 cover raw, managed, and multi-instantiation
-  dispatch.  A follow-on (post-`bac6909`) extended
-  collectInterfaceFromDecl to handle TEXPR_INSTANTIATE *parent*
-  refs (`interface Sub : Container[int]`) so the concat-vtable
-  layout and ancestor-closure walk reach the right (R, I) pair;
-  conformance 454 (multi-method) and 455 (parent-instantiation +
-  upcast) cover this.
-
-### Slice 7 — Cross-package generics (`.bni` bodies) — LANDED
-
-Q7 pinned 2026-05-21: source-text bodies in `.bni` for generic
-decls only (see Q7 section).
-
-- **7a — cross-package generic functions** (`b670a15`):
-  parser keeps body for generic decls in `.bni` mode; loader
-  merger includes generic .bni decls into the merged AST;
-  IR-gen registers imported generic decls under the import
-  alias via parallel `genericDeclPkgs`; gen_call.bn +
-  type-checker `checkInstantiateOrIndex` recognize
-  `pkg.f[T](...)` (SELECTOR head) and route to monomorphization.
-  Conformance 460 / 461 / 462 (`Id[int]`, multi-arg
-  `pair[int, bool]`, pointer-arg `Id[*int]`) pass boot-comp-comp.
-- **7b — cross-package generic structs** (this commit):
-  type-checker's bni_scope.bn skips generic type decls in
-  Pass 1 placeholder registration and stashes them in
-  `c.GenericTypeDecls` / `GenericTypeDeclPkgs` keyed on the
-  pkg short-name; `resolveTypeInstantiation` accepts
-  pkg-qualified heads and routes via
-  `lookupGenericTypeDeclPkg`.  IR-gen `gen_util.bn`'s
-  `TEXPR_INSTANTIATE` branch accepts the qualified head too.
-  Conformance 463 (`veclib.Pair[int]`) covers.
-- **7c — cross-package generic interfaces** (this commit):
-  fell out of 7b for free — the type-checker
-  `resolveTypeInstantiation` change handles both struct and
-  iface heads; IR-gen `isInterfaceTypeExpr` /
-  `ifaceTypeForName` / `collectImplsFromDecl` /
-  `collectInterfaceFromDecl` parent-walk accept qualified
-  generic-iface refs.  Conformance 464
-  (`impl IntBox : iflib.Container[int]`) covers.
-
-All five conformance tests (460–464) are xfail.boot-comp because
-the pinned `bnc-0.0.1` builder predates the body-in-`.bni` rule;
-they pass boot-comp-comp / boot-comp-int / boot-comp-comp-int /
-boot-comp-comp-comp.
-
-Note: impl visibility is already cross-package per Slices
-2.6–2.9 of `plan-cross-package-interfaces.md` — Slice 7 only
-added the generic-body side.
+- Impl visibility was already cross-package per
+  `plan-cross-package-interfaces.md`; the generics work only
+  added the generic-body side.
 
 ## Cross-references
 
@@ -542,7 +433,7 @@ added the generic-body side.
 - `plan-cross-package-interfaces.md` — landed 2026-05-07;
   generic instantiations get cross-package impl visibility
   for free (see §5 above).
-- `plan-interface-embedding.md` — Slices E.1–E.3 landed;
+- `plan-interface-embedding.md` — interface extension landed;
   constraint satisfaction must consult inherited methods via
   the `FullMethods` machinery (see §1 above).
 - `claude-todo.md` § "`print(42)` and friends: how do
@@ -554,5 +445,3 @@ added the generic-body side.
   retires.
 - `claude-discussion-detailed-notes.md` § "Generics" — full
   design history.
-- `claude-todo.md` — "Generics" entry once this plan is
-  ratified.
