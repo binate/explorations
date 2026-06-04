@@ -459,7 +459,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   Per Bug Discovery Protocol, the new func-value-float tests are the
   tracked reproduction. Surfaced 2026-06-03 by the bootstrap work.
 
-### Inject `pkg/bootstrap` into the VM + convert I/O to `__c_call` — Phase 1 DONE, Phase 2 next
+### Inject `pkg/bootstrap` into the VM + convert I/O to `__c_call` — Phase 1 DONE; Phase 2 DEFERRED (BUILDER-runtime coupling)
 - **Phase 1 LANDED** on main (`a7fabc7a`, 2026-06-03): bootstrap is now
   native-only in the VM — cmd/bni skips lowering it, the format helpers
   (formatInt/Int64/Uint/Bool/Float, Itoa) are registered as externs in
@@ -473,16 +473,26 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   rt-drop-libc pattern applied to bootstrap: eliminate the hand-written
   `bn_pkg__bootstrap__*` I/O glue in `binate_runtime.c` by converting it
   to `.bn` + `__c_call`, and make bootstrap native-only in the VM.
-- **Phase 2 (next)**: convert the C-implemented I/O function-by-function
-  (Close/Exit trivial → Open/Read/Write/Stat moderate → Exec/ReadDir
-  hard), deleting each `bn_pkg__bootstrap__*` as it moves.
+- **Phase 2 DEFERRED (2026-06-03), possibly indefinitely**: converting
+  the I/O to `.bn` *adds* `bn_pkg__bootstrap__{Open,Read,Write,Close,Exit}`
+  defs that collide with BUILDER's pinned runtime (gen1 links it,
+  `build-compilers.sh:55-62`) → duplicate-symbol link failure building
+  gen1. It's a runtime-ABI change, so it can only be done *during a
+  BUILDER bump/release* (the new BUILDER's runtime omits the I/O), not in
+  the pinned-BUILDER tree. The trivial+moderate `.bn` code was written +
+  reviewed (correct modulo the link blocker) and is preserved in
+  plan-bootstrap-ccall.md's appendix. `Stat` is a further defer (struct
+  stat platform divergence → needs a per-libc-platform impl split). It may
+  be better to *eliminate* these bootstrap I/O functions (subsumed by a
+  real stdlib `io`) than convert them — so this may never be worth doing.
 - **Harder than rt**: `__c_call` is scalar/pointer-only, but bootstrap's
   I/O takes slices + returns managed-slice aggregates → marshalling
   (null-term cstr, data-ptr extraction, aggregate construction). `Args`
   can't be pure `__c_call` (no libc fn returns argv) — a minimal argv
   hook stays in C. Not C-freedom (still links libc syscall wrappers).
-- **No BUILDER bump** (bootstrap is in cmd/bnc's tree; BUILDER 0.0.6
-  accepts `__c_call`; marshalling stays in the BUILDER subset). Baremetal
+- **Needs a BUILDER bump** (the deferral reason above; the original
+  "no BUILDER bump" claim was wrong — BUILDER *compiles* `__c_call` fine,
+  but its *runtime* still defines the I/O symbols gen1 links). Baremetal
   keeps its semihost impl (per-target, like rt). Filed 2026-06-03.
 
 ### Better test-mode/target annotation than `.xfail` (unit + conformance)

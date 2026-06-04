@@ -66,7 +66,23 @@ format helpers just move bytecode→native) and can land before any C→.bn
 conversion. It can be done as the very first step even with the I/O
 still in C.
 
-## Phase 2 — convert I/O C impls → `.bn` + `__c_call`
+## Phase 2 — convert I/O C impls → `.bn` + `__c_call` — DEFERRED (2026-06-03)
+
+**DEFERRED, possibly indefinitely.** Blocked by the BUILDER-runtime
+coupling (see "Constraints → BUILDER" below): the C→`.bn` migration must
+be done *during* a BUILDER bump/release, not within the pinned-BUILDER
+tree, because gen1 links BUILDER's runtime which still defines the I/O
+symbols. The trivial+moderate `.bn` code (Close/Exit/Open/Read/Write) was
+written and reviewed (correct modulo the link blocker) — preserved in the
+appendix below for whenever a BUILDER bump happens. **`Stat` is a further
+defer-within-defer**: `struct stat` is ABI-divergent across the libc
+platforms (size 88–144B, `st_mode` offset 4–24B) with no portable
+offset-free primitive, so it needs a per-libc-platform `pkg/bootstrap`
+impl split — a separate project. Also note (per the 2026-06-03 decision):
+it may be better to **eliminate** several of these bootstrap I/O functions
+(as a real stdlib `io` package subsumes them) than to convert them — so
+this conversion may never be worth doing. The original (now-superseded)
+function-by-function plan follows.
 
 `__c_call` is **scalar/pointer-only** (the checker rejects slice,
 struct, and aggregate args/returns), but bootstrap's I/O signatures are
@@ -104,12 +120,24 @@ Either way a minimal argv remnant stays in C — so "eliminate all
 
 ## Constraints / non-obvious points
 
-- **BUILDER**: bootstrap is in `cmd/bnc`'s tree (force-loaded for
-  `print`/`println`), so its `.bn` bodies are BUILDER-compiled. BUILDER
-  `bnc-0.0.6` accepts `__c_call` (verified during the rt work), and the
-  marshalling (pointer ops, `rt.RawAlloc`, byte copies) stays in the
-  BUILDER subset — so **no BUILDER bump**, same as rt. Keep the
-  marshalling free of interfaces/generics/closures/floats.
+- **BUILDER — REQUIRES A BUMP (the Phase 2 blocker, discovered
+  2026-06-03).** The original "no BUILDER bump" claim was WRONG. bootstrap
+  is force-loaded into `cmd/bnc`, so converting the I/O to `.bn` compiles
+  `bn_pkg__bootstrap__{Open,Read,Write,Close,Exit}` into gen1's
+  `pkg__bootstrap.o`. But gen1 is built by BUILDER and **deliberately
+  links BUILDER's pinned C runtime** (`scripts/lib/build-compilers.sh:55-62`),
+  which still DEFINES those symbols → **duplicate-symbol link failure
+  building gen1.** The rt precedent didn't hit this because rt only
+  *removed* C symbols (stale BUILDER copies = harmless dead code);
+  bootstrap I/O conversion *adds* `.bn` defs of symbols BUILDER's runtime
+  owns. Moving I/O out of C is a **runtime-ABI change**, and "gen1 links
+  BUILDER's pinned runtime" is exactly the invariant that gates the
+  runtime ABI. So the migration must happen **during a BUILDER bump/
+  release** (the new BUILDER's runtime omits the I/O), not within the
+  pinned-BUILDER tree. (`__c_call` itself compiles fine under BUILDER
+  `bnc-0.0.6` — the blocker is the runtime symbols, not the language.)
+  The only same-tree workaround is pointing `build_gen1`'s `--runtime` at
+  the checkout runtime, which erodes the gen1 ABI-safety margin — rejected.
 - **`__c_call` void returns**: `exit` (and any void C call) uses the
   dummy-`int`-discard workaround until the
   [proper void-return support][void] lands.
@@ -143,3 +171,56 @@ Phase 2 begins.
   hook), and `__c_call` is the uniform C boundary across rt + bootstrap.
 
 [void]: claude-todo.md — "`__c_call` should support void returns"
+
+## Appendix — ready Phase-2 `.bn` code (written 2026-06-03, unlandable per the BUILDER blocker)
+
+Goes in `pkg/bootstrap/io.bn` (collocated; the loader merges it for libc
+builds and baremetal ignores it — baremetal resolves its own complete
+copy first). Delete the matching `bn_pkg__bootstrap__{Open,Read,Write,
+Close,Exit}` from `runtime/binate_runtime.c` (keep `slice_to_cstr`,
+`managed_alloc`, `cstr_to_managed_slice` — still used by ReadDir/Args/
+Exec/Stat). Raw-pointer indexing `p[i]` and `&buf[0]` + `bit_cast(*uint8,
+…)` are proven idioms (rt.MemCopy / baremetal rt.bn). This compiles under
+BUILDER; the ONLY blocker is the gen1-links-BUILDER-runtime duplicate
+symbols — so it can only land during a BUILDER bump.
+
+```binate
+package "pkg/bootstrap"
+
+import "pkg/builtins/rt"
+
+func pathCStr(s *[]readonly char) *uint8 {
+	var n int = len(s)
+	var p *uint8 = rt.RawAlloc(n + 1)
+	for i := 0; i < n; i++ { p[i] = cast(uint8, s[i]) }
+	p[n] = cast(uint8, 0)
+	return p
+}
+
+func Open(path *[]readonly char, flags int) int {
+	var cpath *uint8 = pathCStr(path)
+	var oflags int = flags & 3
+	if (flags & 64) != 0 { oflags = oflags | 64 }       // O_CREAT
+	if (flags & 512) != 0 { oflags = oflags | 512 }     // O_TRUNC
+	if (flags & 1024) != 0 { oflags = oflags | 1024 }   // O_APPEND
+	var fd int = __c_call("open", int, cpath, oflags, 420)  // mode 0644
+	rt.RawFree(cpath)
+	return fd
+}
+
+func Read(fd int, buf *[]uint8) int {
+	var n int = len(buf)
+	if n <= 0 { return 0 }
+	return __c_call("read", int, fd, bit_cast(*uint8, &buf[0]), n)
+}
+
+func Write(fd int, buf *[]readonly uint8) int {
+	var n int = len(buf)
+	if n <= 0 { return 0 }
+	return __c_call("write", int, fd, bit_cast(*uint8, &buf[0]), n)
+}
+
+func Close(fd int) int { return __c_call("close", int, fd) }
+
+func Exit(code int) { rt.Exit(code) }
+```
