@@ -402,11 +402,15 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   (or share its core), fixing the round-bit bug above.
 - **Plan**: `explorations/plan-strconv-parse.md` (errors via the now-landed
   `@errors.Error`; input `*[]readonly uint8`).
-- **Progress (2026-06-03, binate, landed)**: `ParseBool` + the unexported
-  `numError` (`@errors.Error` impl) landed (`b4bfe843`).  Fixing it surfaced +
-  fixed a MAJOR anon-tuple field-GEP codegen bug (`5f4a8eaf`, above).
-  Remaining: `ParseInt`/`ParseUint`/`Atoi` (integer core), then `ParseFloat`
-  over `big` + the Go differential, then the cross-package conformance.
+- **Progress (binate, landed)**: `ParseBool` + the unexported `numError`
+  (`@errors.Error` impl) (`b4bfe843`); fixing it surfaced + fixed a MAJOR
+  anon-tuple field-GEP codegen bug (`5f4a8eaf`, above).  Integer core
+  `ParseInt`/`ParseUint`/`Atoi` (`6a91cf5b`) — base 0/2..36 with prefix/octal/
+  underscore inference, bitSize range saturation, INT64_MIN, all matching Go
+  (Go-differential of the algorithm: 9.6M inputs, 0 divergences); cross-package
+  consumer `526_strconv_parse_cross_pkg`.
+  Remaining: `ParseFloat` over `big` (exact decimal→double) + the Go
+  differential.
 
 ### float32 const literal: VM/native load the float64 pattern (wrong value) — DEFERRED, blocked on a new BUILDER release
 - **LLVM compile error — FIXED 2026-06-03 (binate `4fd196d0`)**: a float32-typed
