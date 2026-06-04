@@ -35,7 +35,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   bool / @[]char).
 - **Unblocked + LANDED 2026-06-04** (binate `b9ca1acc`): the repl ReplSession->interface conversion.
 
-### Managed-aggregate-by-value element/field stores skip save-copy-destroy — ASSIGNMENT PATHS DONE; literal/short-var/raw-ptr siblings remain — MEMORY-CORRECTNESS (latent)
+### ~~Managed-aggregate-by-value element/field stores skip save-copy-destroy~~ — ALL SIBLINGS FIXED + LANDED 2026-06-04 — MEMORY-CORRECTNESS (was latent)
 - **UPDATE 2026-06-04 (binate `32bad348`)**: the two gaps below are now
   FIXED.  The single-assign ARRAY-element aggregate arm landed; the
   multi-assign SLICE aggregate case was switched from the incomplete
@@ -45,9 +45,11 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   (multi-assign slice element with an `@Iface` field — verified to fail
   pre-fix) and `582` (single-assign array aggregate).  All ASSIGNMENT-store
   paths (single + multi assign, IDENT/SELECTOR/array/pointer/slice) now
-  save-copy-destroy correctly.  REMAINING siblings: short-var multi-bind
-  (CRITICAL), raw-pointer single-assign index (MAJOR), array/managed-slice
-  literals (MAJOR) — separate entries below.
+  save-copy-destroy correctly.  ALL SIBLINGS now also done: short-var
+  multi-bind (CRITICAL, `efa4f569`), raw-pointer single-assign index (MAJOR,
+  `5429a37d`), array/managed-slice/struct literals (MAJOR, `f2aff0d4`,
+  including a third-sibling `@func` struct-field UAF found during that work) —
+  see the (struck-through) entries below.
 - **What**: when the store TARGET is a managed struct/array **by value**
   (`needsStructCopy(T)` true — a struct/array holding managed fields, NOT
   `@T`/`@[]T` which are handles), a plain store under-retains the new
@@ -117,7 +119,15 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Discovery**: 2026-06-04 adversarial review workflow (probe-confirmed:
   short-var multi with `@Node` emits refinc=0 in `foo` vs the `=` form's 2).
 
-### Raw-pointer single-assign index `p[i] = v` does no element refcounting — MAJOR, LATENT
+### ~~Raw-pointer single-assign index `p[i] = v` does no element refcounting~~ — FIXED + LANDED 2026-06-04 (binate `5429a37d`)
+- **Fixed**: the TYP_POINTER arm now mirrors the array arm — RefDec-old +
+  consumeTemp-if-fresh-else-RefInc-new for the four managed-scalar kinds, and
+  save-copy-destroy (`emitStructCopy`/`emitStructDtor`) for managed aggregates.
+  Pinned by `conformance/589` (raw `*@Box`: old released 3->2, new acquired
+  1->2; output `3` not `2` pre-fix, green all 6 modes) + unit tests
+  `TestRawPtrIndexAssignManagedRefcounts` (baseline-delta) /
+  `TestRawPtrIndexAssignAggregateCopies` (`__copy_`); both fail pre-fix.
+- **Original analysis retained below.**
 - **What**: `gen_control.bn` single-assign INSTANTIATE_OR_INDEX `TYP_POINTER`
   arm is a bare `EmitGetElemPtr`+`EmitStore` — no managed-scalar RefDec-old/
   acquire-new arms (the adjacent array arm has them) and no `needsStructCopy`
@@ -132,7 +142,23 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   Conformance + unit test (`*Wrap` receiver).
 - **Discovery**: 2026-06-04 review (probe: `p[0]=w` → copy=0, dtor=1).
 
-### Array-literal / managed-slice-literal elements don't acquire managed-aggregate fields — MAJOR, LATENT
+### ~~Array-literal / managed-slice-literal elements don't acquire managed-aggregate fields~~ — FIXED + LANDED 2026-06-04 (binate `f2aff0d4`)
+- **Fixed**: all three composite-literal constructors now acquire managed
+  elements/fields.  `genArrayLit` gained the FULL acquire — it was missing
+  EVERY managed-scalar arm, not just the aggregate one this entry named, so
+  `[2]@Node{a,a}` under-retained too; now mirrors `genCompositeLit`
+  (always-RefInc @T/@[]T, consumeTemp-if-fresh @func/@Iface, OP_CONST_NIL-
+  guarded) + `emitStructCopy` for aggregates.  `genManagedSliceLit` gained the
+  omitted `@func` arm + the aggregate arm (throwaway-slot `__copy_`).
+  `genCompositeLit` (struct literals) gained the omitted `@func` field arm —
+  the SAME closure-record UAF in a third sibling, fixed as part of the class
+  (was untracked; discovered during this work).  Pinned by `conformance/590`
+  (array aggregate) + `591` (managed-slice aggregate) — green all 6 modes,
+  off-by-2 + double-free pre-fix — and 5 unit tests in `gen_composite_test.bn`
+  (aggregate `__copy_` for array+slice; per-element acquire deltas for
+  array-scalar, slice-`@func`, struct-`@func`); all fail pre-fix.  The literal
+  constructors relocated `gen_access.bn` → `gen_composite.bn` (500-line cap).
+- **Original analysis retained below.**
 - **What**: `genArrayLit` (`gen_access.bn`) element store is a bare
   `EmitStore` with no `needsStructCopy` follow-up; `genManagedSliceLit`
   handles managed-scalar elements (and even there omits the `@func` arm) but
