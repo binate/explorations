@@ -6,6 +6,46 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### Managed-aggregate-by-value element/field stores skip save-copy-destroy — LATENT (no caller today), MEMORY-CORRECTNESS
+- **What**: when the store TARGET is a managed struct/array **by value**
+  (`needsStructCopy(T)` true — a struct/array holding managed fields, NOT
+  `@T`/`@[]T` which are handles), several store paths emit a plain store with
+  no save-copy-destroy (alloc tmp, save old, store new, `emitStructCopy`
+  new, `emitStructDtor` old).  Result if exercised: the new aggregate's
+  managed fields are under-retained and the old aggregate's managed fields
+  leak — violates "the compiler must NEVER generate code that leaks."
+- **Affected paths** (verified on main, HEAD ~`30a9499a`):
+  - **Multi-assign** (`pkg/binate/ir/gen_assign_multi.bn`): SELECTOR branch
+    (~121-137) and all three `emitIndexStore` sub-cases (array ~14-29,
+    pointer ~30-39, slice ~40-52) handle `isManagedScalarType` only.  The
+    IDENT branch (~95-102) DOES handle the aggregate case.
+  - **Single-assign** (`pkg/binate/ir/gen_control.bn`): the ARRAY-element
+    path (~242-313) handles the four managed scalar kinds but lacks a
+    `needsStructCopy` arm; the raw-pointer-element path (~314-323) does no
+    element refcounting (raw = unmanaged, likely fine).  Single-assign
+    SELECTOR (~223-229) and SLICE-element (~391-401) ALREADY handle the
+    aggregate case — so the gap is specifically array-element + the
+    multi-assign SELECTOR/INDEX paths.
+- **Fix**: mirror the existing single-assign SELECTOR/slice mechanism
+  (`needsStructCopy` → alloc tmp / save old / store new / `emitStructCopy` /
+  `emitStructDtor`; slice uses the two-slot `EmitSliceGet`/`EmitSliceSet`
+  form) into the affected paths.  `emitManagedValueCopyRefInc` deliberately
+  skips aggregates, so the arms compose without double-RefInc.
+- **Severity / priority**: real memory-correctness defect, but **purely
+  latent** — a full pkg/+cmd/ sweep finds NO caller: the only SELECTOR/INDEX
+  multi-assign sites target scalar `int` (`bc.Imm, bc.Aux = splitInt64(...)`),
+  and every fixed-size array in the tree is `[N]uint8`/`[N]char` (scalar).
+  No conformance/unit test exercises it (the multi-assign index unit test
+  uses `@Node`, a managed scalar).  Invariant-hardening, not firefighting.
+- **Tests to add when fixed**: conformance with `rt.Refcount` balance for
+  `s.structField, n = f()` and `arr[i], n = f()` (managed-struct-by-value
+  element), single-assign `arr[i] = v` for a managed-struct array element,
+  plus `gen_assign_multi_test.bn` unit assertions on the emitted copy/dtor.
+- **Discovery**: 2026-06-03, investigation workflow reviewing both halves of
+  the multi-value-assign managed-target fix (`0b3f4abe`).  The multi-assign
+  entry below already noted the SELECTOR/INDEX aggregate sub-case as
+  out-of-scope-then; this entry also tracks the single-assign array sibling.
+
 ### Multi-value assignment `a, n = f()` mishandled managed targets — FIXED + LANDED 2026-06-03 (binate `0b3f4abe`)
 - **Was**: `genMultiAssign` (then inline in `genAssign`) Axiom-3 copy-RefInc'd each managed component then stored it, with two defects:
   - **Defect A (CRITICAL, wrong-code/UAF)**: the copy-RefInc had arms for `@T` / `@[]T` / `@Iface` but **none for `@func`**, so `g, n = f()` returning `(@func(...), int)` stored the `@func` without a copy-RefInc; the call-result temp's dtor freed the closure record while `g` still pointed at it → UAF on invoke (+ double-free at scope exit).  Probe: a capturing `@func` multi-assigned then invoked → SIGSEGV.
