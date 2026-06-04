@@ -6,6 +6,28 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~Float-literal converter: long-mantissa + huge-exponent overflow~~ — DONE 2026-06-03 (binate `26771993`)
+- **What was wrong** (found by a coverage review of `5281b138` below): the
+  significand was accumulated into a uint64, so any literal with > ~19
+  significant digits — or a value ≥ 2^64 written out (`3.14…279`,
+  `18446744073709551616.0`) — overflowed to arbitrary wrong bits; the worst
+  case (value ≡ 0 mod 2^64) collapsed to **+0.0**.  The lexer keeps every
+  literal digit verbatim, so it's reachable from source.  Separately, the
+  decimal exponent accumulated into `int` with no guard, so a huge exponent
+  (`1e4294967296`) wrapped on a 32-bit target → finite wrong value not +Inf/0.
+- **Fix**: accumulate the significand DIRECTLY into the 128-bit window (×10 +
+  digit + renormalize-right with sticky), so the round bit is always exact and
+  only sub-2^-128 tails are sticky (no double-rounding); saturate the exponent
+  and short-circuit unambiguous over/underflow.  `parseLargePos/NegExpToBits`
+  became `applyPos/NegPow10` over the accumulated window.
+- **Verification**: the algorithm matched `strconv.ParseFloat` across 800k
+  cases (1..60-digit mantissas, full exponent range incl. saturation, signed,
+  all boundaries).  New unit goldens (many-digit, 2^64 write-out, huge-exp), an
+  `Itoa(INT_MIN)` case, and `conformance/537_float_lit_many_digits`; green on
+  builder-comp, the VM, and gen2.
+- **Review non-findings**: digit separators (`1_000.0`) and hex floats
+  (`0x1p4`) are not reachable as FLOAT tokens — no parser change needed.
+
 ### ~~Float literal text→bits conversion wrong for large-exponent + signed literals (536 + native 541 case 1)~~ — DONE 2026-06-03 (binate `5281b138`)
 - **What was wrong**: a float literal's value rides the IR as text
   (`OP_CONST_FLOAT.StrVal`), parsed per-backend.  Two parsers were broken:
