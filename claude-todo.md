@@ -173,9 +173,40 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   consumer imports `version` yet, so this plants no BUILDER trap (a
   future consumer would need a BUILDER that supports extern vars — the
   next snapshot after the extern-var landing).
-- **Follow-up (separate)**: wire `--version` into bnc / bni / bnas /
-  bnlint to consume `version.Version` (none consume it yet).
+- **Follow-up (separate)**: wire `--version` into the four tools to
+  consume `version.Version` (none consume it yet) — see the `--version`
+  entry below.
 - **Discovery**: 2026-06-03, user request during the `.bni` extern-var work.
+
+### Wire `--version` into bnc / bni / bnas / bnlint — next-release follow-up
+- **Goal**: each tool accepts `--version` and prints its display version
+  (`<tool>-` + `version.Version`, e.g. `bnc-0.0.7-pre`) to stdout, then
+  exits 0.  Single source of truth is `version.Version` (the repo-root
+  `VERSION` file, minus its `bnc-` builder prefix).
+- **Why deferred (user, 2026-06-03)**: `cmd/bnc` is the only
+  BUILDER-compiled tool, and reading `version.Version` cross-package is
+  the extern-var-read feature (`be49c0a9`) — plus pulling the `version`
+  package into bnc's tree needs BUILDER to parse the `var Version`
+  declaration in `version.bni` (the `bni_scope` `DECL_VAR` support).
+  Neither is in `bnc-0.0.6` (confirmed: `be49c0a9` is not in the 0.0.6
+  tree).  So bnc can't consume `version.Version` until `BUILDER_VERSION`
+  is bumped to a snapshot that includes the extern-var landing.
+  `bni`/`bnas`/`bnlint` are built BY bnc (full language) and COULD be
+  wired today, but the user chose to defer all four together so they
+  land consistently after the next BUILDER bump.
+- **When**: the next release / BUILDER bump (same gate as the bnlint
+  dep-body deployment and the `vm` lint-skip removal).  After the bump,
+  BUILDER understands extern vars, so all four can
+  `import "pkg/binate/version"` and read `version.Version`.
+- **Implementation sketch**: in each tool's `main()` arg handling,
+  detect `--version` before the rest of parsing, build `<tool>-` +
+  `version.Version` via `buf.Concat`, print + newline to stdout, exit 0.
+  Each tool already imports `buf`; add `import "pkg/binate/version"`.
+- **Also update**: `release-process.md` step-4 smoke test (currently
+  notes "`bin/bnc` doesn't accept a `--version` flag") — once wired, the
+  release can confirm-by-banner instead of confirm-by-behavior.
+- **Discovery**: 2026-06-03, after landing the version redesign
+  (`b745c877`); user requested `--version` on all four tools.
 
 ---
 

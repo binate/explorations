@@ -14,10 +14,14 @@ how the moving parts fit together so you don't have to reverse-engineer
     in-progress toward X.Y.Z and not yet a tagged release."  Default
     state between releases.
   - **Kept in sync with `pkg/binate/version/version.bn`.**  That file's
-    `var version = "..."` holds the same identifier (it's what
-    `version.Format` reports for a tool's `--version`).  Every edit to
-    `VERSION` below (steps 2 and 6) must make the identical edit to
-    `version.bn`, or the `version-sync` hygiene check fails.
+    `var Version = "..."` holds the same identifier **minus the `bnc-`
+    builder prefix** — e.g. `VERSION` = `bnc-X.Y.Z`, `version.bn` =
+    `X.Y.Z`.  A calling tool prepends its own name to `version.Version`
+    for a `--version` banner (no tool wires this yet — see the
+    `--version` follow-up in `claude-todo.md`).  Every edit to `VERSION`
+    below (steps 2 and 6) must make the corresponding edit to
+    `version.bn` (dropping `bnc-`), or the `version-sync` hygiene check
+    fails.
 - **`BUILDER_VERSION`** at repo root — names which prior-release
   binary `scripts/fetch-builder.sh` downloads to use as the BUILDER
   during local + CI builds.  Always a concrete `bnc-X.Y.Z` (no `-pre`).
@@ -74,9 +78,11 @@ committed and pushed.
 ### 2. Drop `-pre` from `VERSION`
 
 Edit `VERSION` from `bnc-X.Y.Z-pre` → `bnc-X.Y.Z`.  This is the
-commit that will be tagged.  **Make the identical edit to
-`pkg/binate/version/version.bn`'s `var version = "..."`** (the
-`version-sync` hygiene check enforces they match).
+commit that will be tagged.  **Make the corresponding edit to
+`pkg/binate/version/version.bn`'s `var Version = "..."`, dropping the
+`bnc-` prefix** (i.e. `var Version *[]readonly char = "X.Y.Z"`) — the
+`version-sync` hygiene check compares them with `VERSION`'s `bnc-`
+stripped.
 
 Commit shape:
 
@@ -174,8 +180,9 @@ the just-shipped release the new BUILDER everyone uses.
 Edit `VERSION` from `bnc-X.Y.Z` → `bnc-X.Y.(Z+1)-pre`.  This marks
 the tree as "post-X.Y.Z, in-progress toward X.Y.(Z+1)."  The `-pre`
 suffix is what flags a build as "not a tagged release."  **Make the
-identical edit to `pkg/binate/version/version.bn`** (version-sync
-hygiene check).
+corresponding edit to `pkg/binate/version/version.bn`'s `var Version`,
+dropping the `bnc-` prefix** (i.e. `"X.Y.(Z+1)-pre"`) — version-sync
+strips `VERSION`'s `bnc-` before comparing.
 
 Combine with the BUILDER_VERSION bump into one commit:
 
