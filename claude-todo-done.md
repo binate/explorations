@@ -6,6 +6,172 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~bni VM crashes calling a non-capturing `@func` returned inside a managed aggregate~~ — FIXED 2026-06-02 (binate `d2029503`)
+- **Was**: a non-capturing `@func` in the VM uses the shared per-callee
+  `callee.ClosureRec` as its data slot (vs nil in compiled).
+  `BC_FUNC_VALUE` borrowed that shared rec WITHOUT RefInc, but `@func`
+  locals RefDec their data slot at scope end
+  (`emitManagedFuncValueRefDec`, ungated — `@func` is
+  `TYP_MANAGED_FUNC_VALUE` with `NeedsDestruction()==false`, so struct
+  copy/dtor never touch `@func` fields, but locals always do).  So the
+  first `@func` local's scope-end RefDec freed the shared rec, dangling
+  any surviving copy — e.g. one returned inside a managed aggregate (the
+  `ReplIO` sink `setupReplState` returns): the freed, zeroed rec reached
+  `BC_CALL_FUNC_VALUE` as `data kind: 0`.  Compiled immune (nil data →
+  RefDec no-op).
+- **Discovery**: CI regression — cmd/bni int-mode unit tests failing
+  since REPL Stage 3 (`bc70d478`) introduced the `@func` sink;
+  `TestEvalReplDeclParseErrorPreservesState` first to hit it.
+- **Fix**: RefInc the shared `ClosureRec` at non-capturing construction
+  (`BC_FUNC_VALUE`), balancing the scope-end RefDec; honors the
+  `hd[0] < 0` immortal sentinel (no-op on a sentinel rec).
+- **Tests**: `conformance/528_func_value_struct_field` (all modes);
+  cmd/bni passes `builder-comp-int`; full `builder-comp-int` conformance
+  453/1 (the 1 is `520`, a pre-existing int-mode iface-dtor issue —
+  likely the `@Iface` sibling, tracked above + MAJOR below).
+
+### ~~x64 native: closure struct allocated in outgoing-args area — silent overwrite at call site~~ — FIXED 2026-06-02 (binate `a8a7dc7a`)
+- **Final root cause** (refined from the original analysis): PlanFrame DID reserve outgoing-args at the bottom of the frame, but its sizing loop only counted `OP_CALL` and `OP_C_CALL` — `OP_CALL_FUNC_VALUE` / `OP_CALL_HANDLE` / `OP_CALL_INDIRECT` were excluded.  So func-value calls with stack-spilled user-args got an undersized outgoing-args area, and main's local-allocator placed the closure-struct local at an offset INSIDE that region.  At the call site, main wrote outgoing args (e.g. value 8 at `(rsp+0x10)`) over the closure's captured fields, and the shim later loaded the overwritten bytes as the capture (gave 53 instead of 145 = 8 + 1+2+…+9 vs 100 + 45).
+- **Fix**: new helpers in `pkg/binate/native/common/common_call.bn`:
+  - `callDispatchArgTypesAnyOp(cc, ins)` — dispatch-arg-type sequence for ANY call op (handles the prefix-slot prepending for func-value calls + the args[0]-skip for indirect-ptr).
+  - `isCallOp(op)` — predicate over the 5 dispatch ops.
+  PlanFrame uses both; the outgoing-args area is now sized correctly across all call shapes.
+- **Tests**: `conformance/523_closure_many_user_args` (xfail manifest removed, now passes), plus 3 direct unit tests in `pkg/binate/native/common/common_call_test.bn`.
+
+### ~~`&const` rejection misses qualified consts (`&pkg.C`)~~ — RESOLVED 2026-06-03 (deferral 3)
+- **Was**: the `token.AMP` const-rejection handled only the unqualified
+  `EXPR_IDENT` case; `&otherpkg.SomeConst` (an imported const via
+  `EXPR_SELECTOR`) was silently accepted, returning a pointer to a
+  storage-less value.
+- **Fix**: extracted `resolveQualifiedSym` (`check_expr_access.bn`) and
+  used it in the `token.AMP` branch to reject `&pkg.C` (gate on
+  `SYM_CONST`).  The assignment sibling `pkg.C = v` — which had silently
+  lowered to a no-op store — was the same gap and is rejected via the
+  same helper in `checkAssignStmt`.
+- **Tests**: `conformance/544_err_addr_qualified_const`,
+  `557_err_assign_qualified_const`; `TestCheckRejectAddrOfQualifiedConst`,
+  `TestCheckRejectAssignQualifiedConst`.
+
+### ~~Redesign `pkg/binate/version` — simplify; drop the `bnc-` prefix~~ — RESOLVED 2026-06-03 (binate `b745c877`)
+- **Done**: the package-private `version` (`bnc-0.0.7-pre`) is now the
+  exported extern var `Version` (`0.0.7-pre`) — declared in
+  `version.bni`, defined in `version.bn`.  The `bnc-` prefix is gone
+  from the value; a calling tool prepends its own display name.
+  `Format` and `bncPrefixLen` are removed (Format had no callers outside
+  the package's own test).  `scripts/hygiene/version-sync.sh` now strips
+  VERSION's `bnc-` builder prefix before comparing against the package
+  literal.  The unit test (`TestVersionHasNoPrefix`) pins the no-prefix
+  invariant and the VM `__init` global-read path.
+- **Deliberately NOT changed**: the repo-root `VERSION` file and
+  `BUILDER_VERSION` keep their `bnc-` prefix (user decision) — the prefix
+  there distinguishes bnc-as-builder from the retired bootstrap
+  interpreter, so it stays and the hygiene check accounts for it.
+- **Public shape settled**: exported `var Version` (not an accessor),
+  enabled by the now-landed `.bni` extern-var support.  No bnc-tree
+  consumer imports `version` yet, so this plants no BUILDER trap (a
+  future consumer would need a BUILDER that supports extern vars — the
+  next snapshot after the extern-var landing).
+- **Follow-up (separate)**: wire `--version` into the four tools to
+  consume `version.Version` (none consume it yet) — see the `--version`
+  entry below.
+- **Discovery**: 2026-06-03, user request during the `.bni` extern-var work.
+
+### ~~Type-checker can't slice a `readonly`-wrapped slice~~ — RESOLVED 2026-06-03 (deferral 1)
+- **Was**: `var v readonly *[]readonly char = "..."; v[i:j]` failed
+  type-checking with `cannot slice this type` — `checkSliceExpr` didn't
+  see through an outer `TYP_READONLY` to the underlying slice (indexing
+  already did).
+- **Fix**: `checkSliceExpr` peels the outer `TYP_READONLY` (mirroring
+  `checkIndexExpr`); the result is the underlying slice type — the
+  subslice is a fresh value, so the outer readonly does not ride along
+  (no re-wrap needed, contrary to the original proposal).
+- **Also surfaced + fixed a pre-existing MAJOR IR-gen miscompile**:
+  `isSliceType` / `isManagedSliceType` / `isCharSliceType` did not peel an
+  outer readonly, so a string-literal init into an outer-readonly slice
+  stored a bare data pointer with a garbage length word, and a
+  `readonly @[]T` was mis-classified out of the RefInc/RefDec machinery.
+- **Tests**: `conformance/542_readonly_slice_init`, `543_readonly_slice`;
+  `gen_refcount_pred_test` outer-readonly cases;
+  `TestCheckSliceExprReadonlyOuter`.
+- **Note**: `version.bn` was deliberately NOT re-typed to the enforced
+  `readonly *[]readonly char` — re-typing would plant a latent BUILDER
+  trap once a bnc-tree consumer imports `version`; the enforced shape
+  rides with the version redesign (MINOR entry above).
+- **Discovery**: 2026-06-02, plan-const-readonly step 8.
+
+### ~~`.bni` extern `var` (cross-package var export) is unsupported~~ — DONE 2026-06-03 (deferral 2)
+- **Delivered**: a top-level `var X T` in a `.bni` is an extern
+  declaration (storage defined in the package's `.bn`), read AND written
+  cross-package as `pkg.X` for SCALAR, RAW/readonly-slice, and
+  MANAGED-SLICE types, across all 6 default modes.
+- **Mechanism**: the cross-package reference carries the DEFINING
+  package's dotted qualname (`buildQualName`), which
+  `mangle.GlobalName` → `writeBnDotted` mangles to the owner's symbol —
+  the same escape hatch exported funcs use, so no `emit_util` change and
+  no silent-wrong-symbol risk.  Layers: `bni_scope` (`DECL_VAR` →
+  `SYM_VAR`), `checkBniVarMatch` (`.bni`/`.bn` type agreement),
+  `ir.Global.IsExtern` + `gen_import` registration,
+  `gen_func`/`gen_selector` (`lookupImportedGlobalPtr`/`Read`,
+  `genImportedVarLvalue`), `emit` (`external global`), and the VM
+  (`materializeGlobals` qualified-name keying + cross-module accumulation).
+- **Tests**: `conformance/548` (read), `552` (write), `549` (.bni/.bn
+  type mismatch), `558` (managed-slice + managed-ptr field); unit tests
+  in `bni_scope_test`, `check_decl_test`, and `lower_test`
+  (globals-accumulation isolation).
+- **Tracked follow-ups** (managed/ptr edge cases, with xfail repros — see
+  the MAJOR entries below): `&globalScalar` compiled (`551`), cross-pkg
+  managed-ptr value-copy crash (`559`), field-write through an imported
+  ptr var (`561`).
+- **Plan**: [`plan-extern-var.md`](plan-extern-var.md).
+- **Discovery**: 2026-06-02, plan-const-readonly step 8.
+
+### ~~`&G` (address of a global scalar as a value) miscompiles in the compiled backend~~ — RESOLVED 2026-06-03 (binate `99655f4e`)
+- **Was**: `&G` for a top-level global used as an rvalue rendered the
+  IsGlobalRef pseudo (id -1) as `%v-1` (undefined) in the compiled (LLVM)
+  backend — `emitPtrRef` rendered `@<mangled>` only in address-operand
+  positions (load/store target, GEP base); value-operand emitters used
+  `emitRef(instr.ID)` → `%v-1`.  Same-package `&G` and `&pkg.Var` alike.
+- **Fix**: kept in codegen only (the IR rep is correct — the VM
+  materializes the address uniformly; an IR-gen change would have forced
+  VM/native changes for a bug they don't have).  Added `emitValRef` (the
+  value-operand analogue of `emitPtrRef`: `@<mangled>` for an IsGlobalRef
+  instr, `%vN` otherwise — a valid LLVM value operand under opaque
+  pointers, no materialization needed) and routed every value-operand
+  site through it: OP_STORE value, `emitReturn` (single/sret/multi), the
+  call-arg paths (direct, C-call, indirect, func-value, method-handle),
+  comparison operands, and the `bit_cast` source.
+- **Tests**: `conformance/551_addr_of_global_scalar` expanded (one
+  global per instruction across store / call arg / func-value call arg /
+  single return / slice-element store / composite + assigned struct
+  field) and un-xfailed — green in all 6 modes.  `conformance/573`
+  covers two globals in one instruction (compiled-correct, VM-xfail; see
+  the VM entry below).  Unit: `TestEmitAddrOfGlobalAsValue` (no-`%v-1` +
+  `@<mangled>`).  Completeness verified by emitting a comprehensive
+  probe and grepping for zero `%v-1`.
+- **Discovery**: 2026-06-03, deferral-2 Slice 3 (`&pkg.Var`).
+
+### ~~`pkg/binate/version` top-level `var` reads as `len 1` under the bytecode VM~~ — RESOLVED 2026-06-03 (binate `d903ea4b`)
+- **Was**: `pkg/binate/version` unit tests failed in the `-int` modes
+  (`runtime error: index out of bounds: 4 (len 1)`) — the package-private
+  `var version *[]readonly char = "bnc-..."` read as a zero (len-0)
+  slice, so `version[bncPrefixLen:]` aborted.  Surfaced when step 8
+  migrated `version` `const`→`var` (a `const` needs no `__init`).
+- **Root cause** (NOT the global-read/init lowering first guessed):
+  `cmd/bni`'s `--test` mode (`runTests`) lowered all packages but never
+  built or invoked the package `__init` dispatcher — unlike the run path
+  (`EmitInitDispatcher`), which a test program lacks (no `main.__entry`).
+  So a top-level `var` initialized by `<pkg>.__init` read its zero value
+  under the `-int` unit harness.  (Conformance `main` programs were
+  unaffected — they run through `main.__entry`, which dispatches inits.)
+- **Fix**: `runTests` collects each lowered package's `__init` (where
+  `HasPackageInit`, loader dep order) and invokes it via
+  `vmInst.CallFunc` before the `Test*` functions.
+- **Verified**: `pkg/binate/version` passes in `builder-comp-int` /
+  `-comp-comp-int`; full `builder-comp-int` unit suite 37/0.  Guarded by
+  version's existing `-int` tests (`TestVersionStartsWithBncDash` reads
+  the global) — red before, green after.  The version-redesign MINOR
+  entry above should keep a global-var `-int` test as the durable guard.
+
 ### ~~Perf-tests CI lane fully red — `println(int)` programs fail to link `bootstrap.formatInt64`~~ — FIXED 2026-06-02 (binate `22b2c897`)
 - **Confirmed root cause**: the perf runners were never updated for the iface/impl pkg-layout split.  Compile runners (`builder-comp`, `-comp-comp`, `-comp-comp-comp`, `native_aa64`) passed only `-I "$src_dir" -L "$src_dir"` (= `perf/`); `println(int)` lowers to a `bootstrap.formatInt64` call, but `perf/` has no `pkg/bootstrap`, so int-printing tests (`001_fib`, `002_many_funcs`) failed to link.  Interp runners (`builder-comp-int`, `-comp-comp-int`, `-comp-int-int`) passed bare `-I "$BINATE_DIR" -L "$BINATE_DIR"`, missing the `ifaces/`+`impls/` entries — so even `000_noop` failed (cmd/bni / the test couldn't resolve a stdlib package).
 - **Fix**: every runner now uses the conformance/unit canonical set, rooted at `$BINATE_DIR` (where `pkg/bootstrap` + `pkg/binate/*` live) plus `ifaces/core:ifaces/stdlib` (-I) and `impls/core/{common,libc}:impls/stdlib/common` (-L).  The int-int runner applies it to both the outer (compiled-bni→cmd/bni) and inner (cmd/bni→test) invocations.  `$src_dir` dropped from compile runners (perf tests are single-file `main` packages importing only stdlib).
