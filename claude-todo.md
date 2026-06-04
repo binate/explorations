@@ -256,6 +256,39 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### Field access into an anonymous (multi-return tuple) struct miscomputes the LLVM GEP index when a field has alignment padding before it — wrong-code / compile error
+- **What**: `emitGetFieldPtr` (`pkg/binate/codegen/emit_helpers.bn:118`) maps the
+  Binate field index to the LLVM field index via `structLLVMIndex` (which counts
+  inserted `[N x i8]` padding fields) **unconditionally**.  But anonymous
+  multi-return tuple structs are emitted by `llvmType()` in the non-packed
+  `{...}` form **without** explicit padding fields — so for them the Binate index
+  already IS the LLVM index.  When such a tuple has a field with
+  `PaddingBefore > 0` (a pointer/aligned field following a sub-word field like
+  `bool`/`i1`), the mapping overshoots by the number of preceding padding gaps.
+- **Symptom**: a `(bool, @errors.Error)` multi-return (e.g. `strconv.ParseBool`)
+  generates its anon-tuple destructor `__dtor_anon_bool_unknown` with
+  `getelementptr inbounds {i1, %BnIfaceValue}, ... i32 0, i32 2` — index 2 into a
+  2-field struct → `error: invalid getelementptr indices`, clang fails.  If the
+  overshoot had landed in-bounds it would be a SILENT wrong-field access instead.
+- **Root cause**: `emitGetFieldPtr` is the lone `structLLVMIndex` caller missing
+  the named-vs-anonymous guard.  The SSA copy paths already do it right:
+  `emit_copy_ssa.bn:103` and `emit_copy_ssa_load.bn:85` apply `structLLVMIndex`
+  only `if named` (`named = len(t.Name) > 0`) and otherwise use the raw index.
+- **Proposed fix**: mirror that guard in `emitGetFieldPtr` — only call
+  `structLLVMIndex(baseTyp, instr.Index)` when `baseTyp` is named; for an
+  anonymous struct use `instr.Index` directly.  Clean, low-risk, parallel to
+  existing correct code; in `pkg/codegen` (a function-body change, BUILDER-safe).
+- **Affects**: LLVM backend (the GEP-index path).  Any field-ptr access to an
+  anonymous struct/tuple with internal alignment padding — newly common with the
+  errors convention `func f(...) (bool, @errors.Error)`.  VM uses byte offsets,
+  so likely unaffected (to be confirmed by a conformance repro).
+- **Discovery**: 2026-06-03, implementing `strconv.ParseBool` (first
+  `(bool, @errors.Error)` multi-return).  Blocks `ParseBool`; the rest of the
+  Parse series (`int64`/`uint64`/`float64` first elements — pointer-aligned, no
+  padding) is unaffected.
+- **Test**: a conformance `(bool, @Iface)` multi-return that is destructured and
+  cleaned up (to be added with the resolution).
+
 ### Float-literal converter 1 ULP low for ~38+ sig-digit literals just above a tie (round-bit loss) — DEFERRED, blocked on stdlib-via-BUILDER
 - **Symptom**: a float64 literal with ~38+ significant digits sitting JUST
   ABOVE a binary rounding tie (e.g. `1.0000000000000001110223024625156540424`)
