@@ -376,7 +376,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Also**: clear the remaining BUILDER float gaps so floats are fully
   BUILDER-compilable, then cut the release and bump BUILDER_VERSION.
 
-### Implement the strconv `Parse...` series (ParseInt / ParseUint / ParseBool / ParseFloat)
+### Implement the strconv `Parse...` series (ParseInt / ParseUint / ParseBool / ParseFloat) — LANDED (hex-float follow-up remains)
 - **What**: strconv has only the `Format.../Append...`/`Itoa` (number→string)
   direction; add the parse direction.  `ParseFloat` is the correct,
   fully-rounded decimal→double, built over `pkg/std/math/big` (exact
@@ -386,15 +386,21 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   (or share its core), fixing the round-bit bug above.
 - **Plan**: `explorations/plan-strconv-parse.md` (errors via the now-landed
   `@errors.Error`; input `*[]readonly uint8`).
-- **Progress (binate, landed)**: `ParseBool` + the unexported `numError`
-  (`@errors.Error` impl) (`b4bfe843`); fixing it surfaced + fixed a MAJOR
-  anon-tuple field-GEP codegen bug (`5f4a8eaf`, above).  Integer core
-  `ParseInt`/`ParseUint`/`Atoi` (`6a91cf5b`) — base 0/2..36 with prefix/octal/
-  underscore inference, bitSize range saturation, INT64_MIN, all matching Go
-  (Go-differential of the algorithm: 9.6M inputs, 0 divergences); cross-package
-  consumer `526_strconv_parse_cross_pkg`.
-  Remaining: `ParseFloat` over `big` (exact decimal→double) + the Go
-  differential.
+- **Landed (binate)**: full series —
+  `ParseBool` + unexported `numError` (`@errors.Error` impl) (`b4bfe843`;
+  surfaced + fixed a MAJOR anon-tuple field-GEP codegen bug, `5f4a8eaf`);
+  integer core `ParseInt`/`ParseUint`/`Atoi` (`6a91cf5b`); `ParseFloat`
+  over `big` — exact, correctly-rounded decimal→binary for f64 and f32
+  (`eb4a7aee`); `_` digit separators across all of them (`ea706e43`).
+  Verified by Go differentials of the algorithms (integers 9.6M; floats
+  2.59M incl. underscores + the over/underflow error kind; 0 divergences),
+  exact-bit unit goldens, a Format↔Parse round-trip, and the
+  `526_strconv_parse_cross_pkg` cross-package consumer (LLVM/VM/gen2;
+  arm32/native via CI — the code is ILP32-safe, all math in uint64).
+- **Remaining (follow-up)**: hex-float syntax (`0x1.8p3`) for `ParseFloat`
+  (needs a separate binary-exponent path).  Once stdlib is BUILDER-bundled,
+  route the compiler's float-literal converter through `ParseFloat`'s core
+  to retire the round-bit dtoa bug + the duplicate converter.
 
 ### float32 const literal: VM/native load the float64 pattern (wrong value) — DEFERRED, blocked on a new BUILDER release
 - **LLVM compile error — FIXED 2026-06-03 (binate `4fd196d0`)**: a float32-typed
