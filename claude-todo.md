@@ -2329,7 +2329,16 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - **Timeout/hang handling**: better and/or automatic detection and handling of tests that hang.
 - **Parallelization**: consider running test packages in parallel within a mode.
 
-### Conformance-test renumbering + next-free-number helper scripts
+### ~~Conformance-test renumbering + next-free-number helper scripts~~ — DONE 2026-06-03 (binate `work-6`, pending land)
+- **Done**: `conformance/next-number.sh` (next free NNN; default
+  next-after-max, `--gap` for lowest unused) and `conformance/renumber.sh`
+  (`<test> [target]` — `git mv`s the whole file fan-out: `.bn`,
+  `.expected`/`.error`, every `.xfail.<mode>` / `.expected.<mode>` sidecar,
+  and the multi-file `NNN_<name>/` directory; bare-number collisions list
+  candidates and require a stem to disambiguate).  Scripts only, no CI/hook
+  wiring.  Decided policy: next-after-max default (monotonic, never reuses a
+  retired number).
+- **Original spec retained below for reference.**
 - **What**: two small scripts that take the manual bookkeeping out of
   conformance test numbers, complementing the existing
   `scripts/hygiene/conformance-test-numbers.sh` (which only *detects*
