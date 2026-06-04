@@ -691,8 +691,8 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   analogue of the LLVM ABI mismatch fixed in `cb8c0f1a` (line ~434), but
   in the MULTI-RETURN-tuple case (the single-`@Iface` case is already
   correct on native aa64, hence `errors.New` passes).
-- **Status**: `526` xfailed on native aa64 (binate `612f60ba`, pending
-  cherry-pick) + this TODO.  **MAJOR (silent wrong-code) — NOT a
+- **Status**: `526` xfailed on native aa64 (binate `49d03616`) + this
+  TODO.  **MAJOR (silent wrong-code) — NOT a
   workaround; needs a real fix to the native-aa64 importer's tuple-
   component type resolution for `@Iface` returns.**  Discovery: 2026-06-04
   full native-aa64 `--check-xpass` lane (first correct end-to-end run; the
@@ -851,24 +851,29 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   fan of per-mode xfail files.
 - Surfaced 2026-06-03 by the drop-libc / native-only-rt work.
 
-### Cross-package managed-PTR extern var: value-copy (559) + field-write (561) — BOTH RESOLVED; all stale xfails removed 2026-06-04 (binate `20d7a59d`, pending cherry-pick)
+### Cross-package managed-PTR extern var: value-copy (559) + field-write (561) — BOTH RESOLVED 2026-06-04 (native-aa64 stale xfails removed `c4036777`)
 - **Resolution (2026-06-04)**: with the native aa64 lane now building
   (after the `551`/`573` `&G`-rvalue fix `9a0f4f9a`), a per-mode
-  `--check-xpass` sweep showed **`559` XPASSes on ALL SEVEN modes**
-  (builder-comp, -int, -int-int, -comp, -comp-int, -comp-comp, native
-  aa64) and **`561` XPASSes on native aa64**.  Both were stale:
+  `--check-xpass` sweep showed **`559` XPASSes on every execution path**
+  (LLVM, VM, self-host gen2/gen3, native aa64) and **`561` XPASSes on
+  native aa64**.  Both were stale:
   - `559`'s cross-package value-copy crash (the importer lacking the
-    imported type's dtor for the scope-end RefDec) was closed by the
-    cross-package extern-var read path (`be49c0a9`, "cross-package read
-    of .bni extern vars"); the all-mode `--check-xpass` confirms it
-    passes on LLVM, VM, self-host gen2/gen3, and native — so the fix is
-    in the shared IR layer, not mode-specific.
+    imported type's dtor for the scope-end RefDec) was closed by recent
+    main work; a CONCURRENT commit (`32bee84c`) un-xfailed it on the 5
+    clean default modes and strengthened the test to a refcount-balance
+    check (now a directory test importing `pkg/builtins/rt`).  That rt
+    import trips the pre-existing int-int loader bug (136/383 family), so
+    `builder-comp-int-int` correctly STAYS xfailed; the native-aa64 xfail
+    `32bee84c` kept carried a now-outdated "lane doesn't build" reason.
   - `561` was already RESOLVED on the default modes 2026-06-03
     (`733d4485`, below); only its native-aa64 xfail lingered, because
     that lane didn't build until `9a0f4f9a`.
-  All seven `559` xfails and the one `561` native-aa64 xfail removed in
-  `20d7a59d` (verified per-mode XPASS before removal).  Surfaced while
-  landing `550`; not caused by it (559/561 use no closures).
+  The native-aa64 xfails for BOTH `559` and `561` removed in `c4036777`
+  (the strengthened `559` test XPASSes on native aa64).  `559`'s
+  `builder-comp-int-int` xfail intentionally remains (rt loader bug).
+  (My earlier combined removal attempt `20d7a59d` was abandoned — it
+  collided with `32bee84c`'s better, concurrent 559 handling.)  Surfaced
+  while landing `550`; not caused by it (559/561 use no closures).
 - **OPEN — Symptom A (crash, 559)**: copying an extern managed-ptr var's
   whole value — `var n @pkg.T = pkg.G` — crashes at runtime.  Isolated to
   extern + managed-ptr + value-copy (same-package managed-ptr copy works,
