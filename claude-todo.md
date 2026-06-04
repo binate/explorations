@@ -43,45 +43,99 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   direct aggregate-returning calls; then un-xfail conformance/574 (+ add a
   3-field and a raw-receiver case) as passing regressions.
 
-### Managed-aggregate-by-value element/field stores skip save-copy-destroy — LATENT (no caller today), MEMORY-CORRECTNESS
+### Managed-aggregate-by-value element/field stores skip save-copy-destroy — PARTIALLY FIXED; siblings remain — MEMORY-CORRECTNESS (latent)
 - **What**: when the store TARGET is a managed struct/array **by value**
   (`needsStructCopy(T)` true — a struct/array holding managed fields, NOT
-  `@T`/`@[]T` which are handles), several store paths emit a plain store with
-  no save-copy-destroy (alloc tmp, save old, store new, `emitStructCopy`
-  new, `emitStructDtor` old).  Result if exercised: the new aggregate's
-  managed fields are under-retained and the old aggregate's managed fields
-  leak — violates "the compiler must NEVER generate code that leaks."
-- **Affected paths** (verified on main, HEAD ~`30a9499a`):
-  - **Multi-assign** (`pkg/binate/ir/gen_assign_multi.bn`): SELECTOR branch
-    (~121-137) and all three `emitIndexStore` sub-cases (array ~14-29,
-    pointer ~30-39, slice ~40-52) handle `isManagedScalarType` only.  The
-    IDENT branch (~95-102) DOES handle the aggregate case.
-  - **Single-assign** (`pkg/binate/ir/gen_control.bn`): the ARRAY-element
-    path (~242-313) handles the four managed scalar kinds but lacks a
-    `needsStructCopy` arm; the raw-pointer-element path (~314-323) does no
-    element refcounting (raw = unmanaged, likely fine).  Single-assign
-    SELECTOR (~223-229) and SLICE-element (~391-401) ALREADY handle the
-    aggregate case — so the gap is specifically array-element + the
-    multi-assign SELECTOR/INDEX paths.
-- **Fix**: mirror the existing single-assign SELECTOR/slice mechanism
-  (`needsStructCopy` → alloc tmp / save old / store new / `emitStructCopy` /
-  `emitStructDtor`; slice uses the two-slot `EmitSliceGet`/`EmitSliceSet`
-  form) into the affected paths.  `emitManagedValueCopyRefInc` deliberately
-  skips aggregates, so the arms compose without double-RefInc.
-- **Severity / priority**: real memory-correctness defect, but **purely
-  latent** — a full pkg/+cmd/ sweep finds NO caller: the only SELECTOR/INDEX
-  multi-assign sites target scalar `int` (`bc.Imm, bc.Aux = splitInt64(...)`),
-  and every fixed-size array in the tree is `[N]uint8`/`[N]char` (scalar).
-  No conformance/unit test exercises it (the multi-assign index unit test
-  uses `@Node`, a managed scalar).  Invariant-hardening, not firefighting.
-- **Tests to add when fixed**: conformance with `rt.Refcount` balance for
-  `s.structField, n = f()` and `arr[i], n = f()` (managed-struct-by-value
-  element), single-assign `arr[i] = v` for a managed-struct array element,
-  plus `gen_assign_multi_test.bn` unit assertions on the emitted copy/dtor.
-- **Discovery**: 2026-06-03, investigation workflow reviewing both halves of
-  the multi-value-assign managed-target fix (`0b3f4abe`).  The multi-assign
-  entry below already noted the SELECTOR/INDEX aggregate sub-case as
-  out-of-scope-then; this entry also tracks the single-assign array sibling.
+  `@T`/`@[]T` which are handles), a plain store under-retains the new
+  aggregate's managed fields and leaks the old's — violates "the compiler
+  must NEVER generate code that leaks."  Several store paths had this gap.
+- **FIXED (multi-assign `=` SELECTOR/array-INDEX/pointer-INDEX)**: binate
+  `6c4d45b0` (concurrent worker) added `emitElemPtrStore`
+  (`gen_assign_multi.bn`) — the save-copy-destroy via `emitStructCopy`/
+  `emitStructDtor`.  Pinned by `conformance/574_multiassign_struct_aggregate`.
+- **MAJOR BUG INTRODUCED by that fix — multi-assign SLICE aggregate is
+  INCOMPLETE**: `6c4d45b0` routed the multi-assign managed-slice-element
+  aggregate case (`gen_assign_multi.bn`, `needsStructCopy` arm) through
+  `emitStructElemRefcount` (`gen_util_refcount.bn`), which RefDec/RefIncs
+  `@T`/`@[]T`/`@func` fields field-by-field but **omits `@Iface` fields and
+  does NOT recurse into nested aggregates**.  So `s[i], n = f()` where the
+  slice element is a struct holding an `@Iface` (or a nested managed
+  aggregate) field leaks the old field / under-retains the new.  `574`
+  doesn't catch it — it uses a `@Counter` (managed-ptr) field only.  **Fix**:
+  replace the `emitStructElemRefcount` call with the complete two-slot
+  `EmitSliceGet`→`oldSlot`/`newSlot`→`emitStructCopy(newSlot)`/
+  `emitStructDtor(oldSlot)` form (mirrors single-assign slice
+  `gen_control.bn:391-401`, which uses the generated `__copy_`/`__dtor_`
+  helpers — complete for all field kinds + nesting); then delete the now-dead
+  `emitStructElemRefcount`.  Add a conformance test with an `@Iface` field in
+  a slice-element struct.
+- **STILL MISSING — single-assign ARRAY-element aggregate** (`gen_control.bn`
+  TYP_ARRAY arm): handles the four managed scalar kinds but no
+  `needsStructCopy` arm → `arr[i] = w` (managed-struct array element) leaks
+  old / under-retains new.  Fix: `emitElemPtrStore(ctx, b, elemPtr, rhs,
+  elemTyp)`.  (Single-assign SELECTOR + slice already complete.)
+- **Severity / priority**: real memory-correctness, but **purely latent** —
+  no caller in pkg/+cmd/ today (SELECTOR/INDEX multi-assign sites target
+  scalar `int`; fixed-size arrays are all `[N]uint8`/`[N]char`).  Invariant-
+  hardening.  See sibling entries: short-var multi-bind (CRITICAL, below),
+  raw-pointer single-assign index, array/managed-slice literals.
+- **Discovery**: 2026-06-03 investigation + 2026-06-04 adversarial review
+  workflow; the `@Iface` slice incompleteness found reviewing `6c4d45b0`.
+
+### Short-var multi-bind `q, n := f()` does NO refcounting on bound components — CRITICAL (double-free), LATENT
+- **What**: `genShortVar`'s multi-assign branch (`gen_short_var.bn`, the
+  `len(Exprs)>1 && len(Exprs2)==1` arm) does `EmitExtract` → `EmitAlloc` →
+  plain `EmitStore` → `defineVar` with **zero acquire** — neither the Axiom-3
+  copy-RefInc for managed scalars (`@T`/`@[]T`/`@func`/`@Iface`) nor
+  `emitStructCopy` for managed aggregates.  The extracted component is a
+  borrow from the OP_CALL result temp (whose dtor RefDec's it at end of
+  statement); the new var is registered via `defineVar` so its scope-exit
+  dtor RefDec's it AGAIN → **0 acquires, 2 releases = double-free / UAF** for
+  any managed component.  This is the exact bug `0b3f4abe` fixed for the `=`
+  form (`genMultiAssign` calls `emitManagedValueCopyRefInc`), never applied to
+  the `:=` short-var sibling.
+- **Fix**: in the multi-bind loop, after `EmitExtract`, mirror
+  `genMultiAssign`: `emitManagedValueCopyRefInc(ctx.Func, b, extracted,
+  elemTyp)` for scalar components, and for `needsStructCopy(elemTyp)`
+  `emitStructCopy` on the freshly-alloc'd slot (no old value → no dtor).
+- **Latent**: every conformance multi-`:=` (023, 066, 288) returns scalar
+  int/bool components.  Add a conformance test returning a managed scalar and
+  a managed aggregate via `:=` (rt.Refcount balance) + a unit test asserting
+  the acquire is emitted.
+- **Discovery**: 2026-06-04 adversarial review workflow (probe-confirmed:
+  short-var multi with `@Node` emits refinc=0 in `foo` vs the `=` form's 2).
+
+### Raw-pointer single-assign index `p[i] = v` does no element refcounting — MAJOR, LATENT
+- **What**: `gen_control.bn` single-assign INSTANTIATE_OR_INDEX `TYP_POINTER`
+  arm is a bare `EmitGetElemPtr`+`EmitStore` — no managed-scalar RefDec-old/
+  acquire-new arms (the adjacent array arm has them) and no `needsStructCopy`
+  arm.  `p[i] = v` for a managed-scalar OR managed-aggregate element leaks the
+  old slot contents / under-retains the new.  The multi-assign `emitIndexStore`
+  pointer arm (via `emitElemPtrStore`) IS correct, so the two forms diverge.
+  The earlier "(raw = unmanaged, likely fine)" note was WRONG: the raw pointer
+  only excuses keeping the *block* alive, not balancing the managed values
+  *inside* the slot.
+- **Fix**: give the TYP_POINTER arm the same discipline as the array arm —
+  the four managed-scalar arms + `emitElemPtrStore` for the aggregate case.
+  Conformance + unit test (`*Wrap` receiver).
+- **Discovery**: 2026-06-04 review (probe: `p[0]=w` → copy=0, dtor=1).
+
+### Array-literal / managed-slice-literal elements don't acquire managed-aggregate fields — MAJOR, LATENT
+- **What**: `genArrayLit` (`gen_access.bn`) element store is a bare
+  `EmitStore` with no `needsStructCopy` follow-up; `genManagedSliceLit`
+  handles managed-scalar elements (and even there omits the `@func` arm) but
+  has no `needsStructCopy` arm before `EmitSliceSet`.  So `[2]Wrap{w,w}` /
+  `@[]Wrap{w,w}` copy the elements' managed fields by value without RefInc
+  (initialization sites — no old value to release, but the new still needs
+  the acquire half, as `genCompositeLit` does for struct fields).  Under-
+  retain → double-free when source and element are both destroyed.
+- **Fix**: `genArrayLit` — after `EmitStore`, `if needsStructCopy(elemTyp) {
+  emitStructCopy(ctx.Func, b, elemPtr, elemTyp) }`.  `genManagedSliceLit` —
+  add a `needsStructCopy` arm (two-slot copy of `val` before/at
+  `EmitSliceSet`) AND the missing `@func` scalar arm.  Unit tests asserting
+  `__copy_` count == element count.
+- **Discovery**: 2026-06-04 review (probe: array/managed-slice literal
+  copy=0 vs struct literal copy=1).
 
 ### Multi-value assignment `a, n = f()` mishandled managed targets — FIXED + LANDED 2026-06-03 (binate `0b3f4abe`)
 - **Was**: `genMultiAssign` (then inline in `genAssign`) Axiom-3 copy-RefInc'd each managed component then stored it, with two defects:
