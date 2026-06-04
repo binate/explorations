@@ -393,32 +393,43 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Marker**: the skip block carries a `TODO(remove after next release)`
   pointing here.
 
-### Native aa64 self-host lane fails to BUILD — `duplicate symbol _bn_pkg__binate__types__predeclaredNil` (62 dup symbols) — MAJOR, pre-existing regression
-- **Symptom**: `./conformance/run.sh
-  builder-comp_native_aa64-comp_native_aa64 <any>` fails at compiler-build
-  (link) time: `duplicate symbol '_bn_pkg__binate__types__predeclaredNil'
-  in main.o and pkg__binate__types.o`, `ld: 62 duplicate symbols`,
-  `error: link failed`. The lane never reaches running any test.
-- **Pre-existing / recent**: reproduces identically on clean `aae8ea43`
-  (so NOT caused by the float-arg-shim work). But the `541` entry below
-  (filed 2026-06-03, same day) documents the lane *running tests* and
-  producing wrong output — i.e. it BUILT then. So the build break is a
-  very recent main regression that landed after that entry, and it now
-  masks `541` (and every other aa64-lane test) entirely.
-- **Likely cause (unconfirmed)**: `predeclaredNil` is a top-level managed
-  nil sentinel in `pkg/binate/types`; a duplicate-symbol-across-TUs for a
-  top-level managed var points at the **static-managed sentinel** work
-  (IN PROGRESS, see below) emitting the sentinel with external linkage in
-  every referencing TU instead of once (should be a single definition /
-  `weak`/`linkonce`). This is the silent-... no, *loud*-miscompile class
-  (link failure), but it's a mangler/linker-emission bug.
-- **Discovery**: 2026-06-03, attempting to verify the float-arg-shim
-  conformance tests on the aa64 lane.
-- **Next**: confirm whether the static-managed-sentinel change introduced
-  it (bisect on main) and fix the linkage of top-level managed-var
-  sentinels (single definition). Until fixed, the aa64 self-host lane is
-  unbuildable and all its test-level todos (`541`, `534` aa64 xfails) are
-  blocked behind it.
+### Native aa64 self-host lane failed to BUILD — `duplicate symbol` (62 dups) — FIXED 2026-06-03 (binate, pending cherry-pick)
+- **Was**: `builder-comp_native_aa64-comp_native_aa64` failed at
+  compiler-build (link) time, `ld: 62 duplicate symbols` (e.g.
+  `_bn_pkg__binate__types__predeclaredNil`,
+  `_bn_pkg__binate__ir__moduleGlobals`, …) — each a top-level package var
+  defined in BOTH `main.o` and its owning package's `.o`.  The lane never
+  reached running a test.
+- **Root cause (the static-managed-sentinel hypothesis was WRONG)**:
+  `ir.Global` carries `IsExtern` (an imported `.bni` extern var, defined by
+  its owner's TU).  The LLVM backend honors it — emits `external global`
+  (declaration only).  The NATIVE backends' `emitGlobals`
+  (`pkg/binate/native/{aarch64,x64}`) did NOT check `IsExtern`: they emitted
+  a strong definition for EVERY global, so every importing TU carrying an
+  IsExtern entry re-defined the owner's symbol → duplicate-symbol link
+  failure.  The recent cross-package extern-var feature (binate `be49c0a9`
+  etc.) populated modules with IsExtern globals, tipping the latent native
+  gap into a build break.
+- **Fix**: native `emitGlobals` (both backends) now `continue`s on
+  `g.IsExtern` (no definition — the reference resolves to the owner
+  cross-object, exactly like LLVM's `external global`).  Also open the data
+  section LAZILY (only once a real non-extern global is emitted): a module
+  whose globals are ALL extern was otherwise leaving an empty data section
+  that the Mach-O writer turned into a malformed load command (the
+  `548/552/558` cross-pkg link failures).  Unit tests:
+  `TestEmitGlobalsSkipsExtern` in both backends.
+- **Result**: the aa64 self-host lane BUILDS and runs — `491 passed, 0
+  failed` (xfails skipped).  `534` (the `@func` fix) passes on native aa64;
+  `541` stays xfailed (native float gap).
+- **Newly-exposed native-aa64 gaps (xfailed + tracked; NOT regressions —
+  these tests never ran before the lane built)**: `550` (@func
+  capture-record refcount wrong on native), `569` (float captured in a
+  closure reads 0 — native float gap, 541-family), `551` (`&G`-as-rvalue,
+  already xfailed on the other compiled modes), `559`/`561` (cross-package
+  MANAGED extern var — already xfailed on every mode; needs the imported
+  type's dtor).  All five carry a
+  `.xfail.builder-comp_native_aa64-comp_native_aa64` marker.  `550`/`569`
+  are the genuinely native-specific ones worth a follow-up.
 
 ### Native backends mis-lower float consts/returns — `541` silently reads 0 (Phase A float-const gap on the native code generators)
 - **Symptom**: `conformance/541_cross_pkg_const_float` passes on the
