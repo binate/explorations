@@ -87,7 +87,15 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Discovery**: 2026-06-03 investigation + 2026-06-04 adversarial review
   workflow; the `@Iface` slice incompleteness found reviewing `6c4d45b0`.
 
-### Short-var multi-bind `q, n := f()` does NO refcounting on bound components — CRITICAL (double-free), LATENT
+### ~~Short-var multi-bind `q, n := f()` does NO refcounting on bound components — CRITICAL (double-free)~~ — FIXED + LANDED 2026-06-04 (binate `efa4f569`)
+- **Fixed**: `genShortVar`'s multi-bind branch now acquires each managed
+  component after the store — `emitManagedValueCopyRefInc` (scalar) +
+  `emitStructCopy` for `needsStructCopy` aggregates (fresh slot → no dtor) —
+  mirroring `genMultiAssign`.  Pinned by `conformance/584`
+  (`q := fresh @Box`, aliased into `keep`, rc must read 2; verified to fail
+  pre-fix where `q` was freed at the end of the `:=` statement) + a unit
+  test asserting the scalar (OP_REFINC) / aggregate (`__copy_`) acquire.
+- **Original analysis retained below.**
 - **What**: `genShortVar`'s multi-assign branch (`gen_short_var.bn`, the
   `len(Exprs)>1 && len(Exprs2)==1` arm) does `EmitExtract` → `EmitAlloc` →
   plain `EmitStore` → `defineVar` with **zero acquire** — neither the Axiom-3
