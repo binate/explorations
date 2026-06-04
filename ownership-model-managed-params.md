@@ -72,36 +72,6 @@ both, producing the same result (rc stays at 1 after make, field assign
 brings it to 2, callee exit would NOT RefDec since moved). This is a
 potential optimization but is not currently done.
 
-## What the Interpreter Does
-
-The interpreter implements **envDefine-side RefInc**:
-
-### Caller (`callFunc` in call.bn, lines 109-116):
-- `copyValue(args[i])` — for `@T`, returns the same Value.
-- `argCopy.IsFresh = false` — forces RefInc in envDefine.
-- `envDefine(interp.Env, paramName, argCopy)` — allocates flat storage,
-  writes the pointer, then RefInc's (because `!IsFresh`).
-
-### Callee exit (`cleanupEnvExcept` in helpers.bn):
-- For `@T` entries not in the except list: reads pointer, calls
-  `interpRefDec` → RefDec.
-
-### Discrepancy: boot-comp-int test results
-
-Tests 228/229 show rc=3 after `wrap(n, 1)` where expected rc=2.
-
-Expected trace:
-1. n = make(Node) → rc=1
-2. callFunc: envDefine param n, IsFresh=false → RefInc → rc=2
-3. w.Node = n: field assign → RefInc → rc=3
-4. cleanupEnvExcept: RefDec param n → rc=2
-5. Return w with IsFresh=true → envDefine skips RefInc for struct
-
-Actual: rc=3, meaning step 4 may not be firing, or there's an extra
-RefInc somewhere. **This needs investigation.** The `cleanupEnvExcept`
-`isRet` check was fixed (commit 965c459), but there may be another
-path that prevents the RefDec from firing for `@T` params.
-
 ## Open Question: Move Semantics as Language Guarantee
 
 The move optimization (transferring a temp's ref to a param without

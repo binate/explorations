@@ -26,7 +26,10 @@ The language reflects the native CPU word size of the target platform. It assume
 
 ## Status
 
-Early design and exploration phase.
+The self-hosted toolchain is implemented and stable. The compiler and
+bytecode-VM interpreter are written in Binate, self-compile through multiple
+generations, and pass the conformance suite across all modes in CI. Design
+notes and rationale live in this repo (see `claude-notes.md`).
 
 ## License
 

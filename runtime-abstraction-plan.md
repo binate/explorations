@@ -1,5 +1,7 @@
 # Runtime Abstraction Plan (Phase 3)
 
+Status: LIVING / IN-FLIGHT. Steps 3.1–3.3 have shipped (see `claude-todo.md` for the commit chains); steps 3.4–3.7 are still pending and this doc is their design reference.
+
 Work plan for decoupling the compiler from the C runtime, enabling libc-free targets (starting with ARM32 Linux via QEMU). This is Phase 3 of the IR/backend cleanup plan.
 
 ## Current State
@@ -21,7 +23,7 @@ Additionally, **`pkg/rt`** (written in Binate) implements higher-level memory ma
 - `Alloc`, `Free`, `RefInc`, `RefDec`, `Refcount`, `Box`, `BoundsCheck`, `MakeManagedSlice`
 - Managed pointer header: 16 bytes (refcount + destructor function pointer) at negative offset from payload
 
-The IR runtime manifest (`pkg/ir/runtime.bn`) lists 19 C runtime functions. 10 of these are marked `Inlineable` (slice get/set/len/expr — see `slice-operations-analysis.md`). The legacy `bn_append_*` functions have been removed (dead code — no IR opcode, no callers).
+(After step 3.3, the IR runtime manifest is empty and the `OP_CALL_BUILTIN` opcode + plumbing has been removed; the slice/print/exit C runtime functions described above no longer exist.)
 
 ## Goals
 
@@ -74,33 +76,15 @@ Key insight: `pkg/rt` is already written in Binate. The only C dependency is the
 
 ### 3.1. Lower slice operations to primitive IR ops — DONE
 
-All high-level slice IR ops have been lowered to primitive ops in the IR gen layer (`EmitSliceGet`, `EmitSliceSet`, `EmitSliceLen`, `EmitSliceExpr`, `EmitSliceElemPtr` in `pkg/ir/ir_ops.bn`). The `Emit*` functions still exist as the public API, but they now emit sequences of `OP_EXTRACT`, `OP_GET_ELEM_PTR`, `OP_LOAD`, `OP_STORE`, etc. instead of dedicated slice opcodes.
-
-**What was done**:
-- `EmitSliceLen(s)` → `OP_EXTRACT(s, 1)` (extract len field)
-- `EmitSliceGet(s, i)` → extract data ptr + GEP + load
-- `EmitSliceSet(s, i, v)` → extract data ptr + GEP + store
-- `EmitSliceElemPtr(s, i)` → extract data ptr + GEP (returns pointer)
-- `EmitSliceExpr(s, lo, hi)` → extract data ptr + GEP by lo + sub for new len + alloca/store/load to construct result. For `@[]T`, preserves refptr and backingLen from original.
-- Deprecated opcode constants (`OP_SLICE_LEN/PTR/GET/SET/EXPR/ELEM_PTR`) removed from `ir.bni`
-- 9 C runtime functions removed (`bn_slice_len`, `bn_slice_get_i64/i8/struct`, `bn_slice_set_i64/i8/struct`, `bn_slice_expr_i8/i64/struct`)
-- Runtime manifest reduced from 22 to 9 functions
-- Codegen `emit_slice.bn` deleted entirely
+High-level slice IR ops were lowered to primitive ops (`OP_EXTRACT`, `OP_GET_ELEM_PTR`, `OP_LOAD`, `OP_STORE`, …) in the IR gen layer (`EmitSliceGet/Set/Len/Expr/ElemPtr` in `pkg/ir/ir_ops.bn`); the dedicated slice opcodes and `codegen/emit_slice.bn` were removed. See `slice-operations-analysis.md` and the commit chain in `claude-todo.md`.
 
 **Why this approach**: Slice layout is a language-level contract (shared by all backends and the interpreter). The decomposition into primitives is encoded once in the IR gen, not per backend. Same pattern as arrays.
 
 **Also fixed**: Raw slice subslice copy bug — `s[lo:hi]` on `*[]T` now produces a zero-copy view `{data+lo*elemSize, hi-lo}` instead of copying data (the C runtime was wrong).
 
-**Depends on**: Nothing (independent)
-
 ### 3.2. Lower remaining slice/string operations — DONE
 
-All three sub-items landed:
-- `OP_MAKE_SLICE`: codegen lowers to `bn_rt__MakeManagedSlice` (the Binate function in `pkg/rt`); see `emit_helpers.bn:emitMakeSliceInstr`. `bn_make_slice` was removed from the C runtime.
-- `OP_SLICE_FREE`: opcode no longer exists (free is implicit through `RefDec` + dtor); `bn_slice_free` removed from the C runtime.
-- `OP_STRING_TO_CHARS`/`OP_STRING_TO_ARRAY`: lifted to IR-level via the composite-literal Phase 3.x work — `OP_RODATA_MSLICE` / `OP_RODATA_SLICE` / `OP_RODATA_ARRAY` / `OP_RODATA_MSLICE_COPY` are now the canonical IR ops; backends lower them to backend-specific representations. `OP_STRING_TO_CHARS` / `OP_STRING_TO_ARRAY` and `EmitStringToArray` were deleted in `a868b4c` (Phase 3.3); `TYP_STRING` was eliminated in `b7243e7` (Phase 3.4). See `claude-todo.md` "Phase 3: unify strings as composite-literal sugar — DONE" for the full commit chain.
-
-**Depends on**: 3.1 (done)
+`OP_MAKE_SLICE` now lowers to `bn_rt__MakeManagedSlice` (the Binate function in `pkg/rt`); slice-free is implicit through `RefDec` + dtor (no opcode); and string-to-chars/array was lifted to IR-level `OP_RODATA_*` ops via the composite-literal work, with `TYP_STRING` eliminated. See `claude-todo.md` "Phase 3: unify strings as composite-literal sugar — DONE" for the full commit chain.
 
 ### 3.3. Reimplement I/O functions in Binate — DONE
 
@@ -109,34 +93,19 @@ land in `pkg/io` — instead `bootstrap.Write` (already a thin wrapper
 over POSIX `write`) became the single sink, and IR-gen now lowers
 `print(x)` to `bootstrap.formatX(x) + bootstrap.Write(1, …)`. This
 keeps the C surface smaller (one shared `write` stub instead of one
-per print variant). See `plan-print-builtin-runtime-decoupling.md` for
-the multi-step rollout (Steps 1, 2a, 2b, 3, 3.1, 3.2).
+per print variant). `OP_PANIC` lowers to `rt.Exit` (a Binate wrapper
+over `rt.c_exit`); the runtime manifest is now empty and the
+`OP_CALL_BUILTIN` opcode + plumbing have been removed. See
+`plan-print-builtin-runtime-decoupling.md` and `claude-todo.md` for
+the multi-step rollout.
 
-Specific landings:
-- Step 2b (`42260b2` chain): `print(int)` → `bootstrap.formatInt` +
-  `bootstrap.Write`; `bn_print_int` removed.
-- Step 3 (`af19ca7`): `print(string)` / `print(bool)` / `println` /
-  `print(@[]char)` / `print(*[]char)` all routed through
-  `bootstrap.Write` (with `bootstrap.formatBool` for bools);
-  `bn_print_string` / `bn_print_bool` / `bn_print_chars` /
-  `bn_print_newline` removed.
-- Step 3.1 (`6bd55dd`): `print(float)` → `bootstrap.formatFloat` +
-  `bootstrap.Write`; `bn_print_float` and `c_print_float` removed.
-  `formatFloat` is fixed-point (`integer.6digits`) with a
-  ridiculous-but-honest `mantissa*2^exponent` fallback for extreme
-  values — no `%g` dependency.
-- Step 3.2 (`a31cd8a`): `bn_exit` removed; `OP_PANIC` lowers to
-  `rt.Exit` (a Binate wrapper over `rt.c_exit`); runtime manifest now
-  empty.
-- Followup (`0b7dd90`): with the manifest empty and no IR-gen path
-  emitting `OP_CALL_BUILTIN`, the entire opcode + plumbing was
-  removed (see TODO entry).
+`formatFloat` is fixed-point (`integer.6digits`) with a
+ridiculous-but-honest `mantissa*2^exponent` fallback for extreme
+values — no `%g` dependency.
 
 **Followup**: `print(int)` does an allocation per call (`formatInt`
 returns `@[]char`). A stack-buffer variant would avoid it, but no
 hot path has been identified that cares — left as future cleanup.
-
-**Depends on**: Nothing (was independent of 3.1 and 3.2).
 
 ### 3.4. Reimplement bootstrap package functions in Binate — PARTIAL
 

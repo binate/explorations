@@ -1,10 +1,10 @@
 # Binate Coding Guide
 
-> **Scope**: This guide currently covers only the **bootstrap subset** of Binate — the
-> subset supported by the Go bootstrap interpreter. Features like interfaces, generics,
-> closures, const-qualified types, and floats are part of the full language but not
-> available yet. See `bootstrap-subset.md` for the complete list of what is and isn't
-> supported, and `claude-notes.md` for the full language design.
+> **Scope**: General Binate coding conventions. The full language —
+> interfaces, generics, closures, `readonly` types, floats — is available; see
+> `claude-notes.md` for the language design. Code in `cmd/bnc`'s dependency
+> tree carries an additional constraint: it must be compilable by the current
+> BUILDER `bnc` (see `bootstrap-subset.md`).
 
 ---
 
@@ -202,7 +202,7 @@ func TestParseIdent() testing.TestResult {
 - **Signature**: `() testing.TestResult` — no parameters, returns `testing.TestResult`.
 - **`testing.TestResult`** is a type alias for `*[]char`. Return `""` (empty string) for
   pass, a non-empty error message for fail.
-- Test files must `import "pkg/builtin/testing"`.
+- Test files must `import "pkg/builtins/testing"`.
 
 Functions named `TestXxx` with the wrong signature produce a warning.
 
@@ -227,8 +227,8 @@ possible, and rollbacks safe.
 
 Before committing, run **all applicable tests**:
 - Unit tests for any packages you changed.
-- Conformance tests in all applicable configurations (bootstrap, selfhost, compiled,
-  etc.).
+- Conformance tests in all applicable configurations (compiled, interpreted/VM,
+  and self-hosted — see `conformance/run.sh`).
 
 If there are **pre-existing test failures** (failures that exist before your changes),
 you do not need to fix them before committing — and you should not, to keep the commit

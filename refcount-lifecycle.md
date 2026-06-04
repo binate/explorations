@@ -252,79 +252,15 @@ gets a new one).
 
 `globalVar = expr`: RefDec old global value, RefInc new value (unless fresh).
 
-## Current Implementation Status (updated 2026-04-12)
+## Known Hazards
 
-**Working (compiler)**:
-- Variable declaration: always copy (axiom 3), no OP_CALL skip ✓
-- Variable assignment: save-copy-destroy (axiom 5) ✓
-- Struct field assignment: save-copy-destroy ✓
-- Slice element assignment: RefDec old, RefInc new ✓
-- Function parameter entry/exit: callee-side RefInc/RefDec ✓
-- Managed-slice backing RefInc/RefDec on copy/scope-exit ✓
-- Function return: always copy for structs (no local-return skip) ✓
-- Move optimization for @T/@[]T local returns: skip RefInc + skip scope RefDec ✓
-- Scope exit: always dtor structs (no returned-local skip) ✓
-- Subslice RefInc on backing refptr ✓
-- Temporary RefDec for @T, @[]T, and structs at end of statement ✓
-- Multi-return: RefInc extracted @T/@[]T fields from anon struct ✓
-- Pointer dereference refcounting (*p = val) ✓
-- @[]T → *[]T conversion: temp borrowed, not freed until statement end ✓
-- Copy constructors (__copy_X) for structs/arrays with managed fields ✓
-- Destructors (__dtor_X) for structs/arrays with managed fields ✓
-- Struct field write-through copy/dtor ✓
-- .bni/.bn signature mismatch detection ✓
-- **Principled slow path**: axioms 1-5 from `design-refcount-axioms.md` ✓
+**`*[]T` borrowing from a freed `@[]T`** — the slow path exposes latent UAFs
+where `*[]char` (or `*[]T`) borrows from `@[]char` (or `@[]T`) that gets
+freed by struct dtors. This requires migrating such borrowing sites to use
+`@[]T` (which owns) rather than `*[]T` (which borrows). See
+`design-refcount-axioms.md`.
 
-**187/187 conformance on boot-comp, boot-comp-comp, boot-comp-comp-comp.**
-
-**Working (interpreter)**:
-- envDefine/envSet RefInc/RefDec for @T, @[]T ✓
-- structRefInc/structRefDec for struct/array fields ✓
-- cleanupEnvExcept: @T, @[]T, struct scope cleanup ✓
-- IsFresh flag for ownership transfer on returns ✓
-- VAL_MANAGED_SLICE distinguishes @[]T from *[]T ✓
-
-**Known issues**:
-
-1. **[]char UAF migration incomplete** — the slow path exposes latent UAFs
-   where `*[]char` (or `*[]T`) borrows from `@[]char` (or `@[]T`) that gets
-   freed by struct dtors. Many sites fixed; 6 boot-comp unit test packages
-   still crash from freed-and-reallocated memory (passes with ASan). More
-   `@[]T → *[]T` coercion sites to find. See `design-refcount-axioms.md`.
-
-2. **Interpreter @T param over-increment** — tests 228/229 show rc
-   increasing by 2 per `wrap(n, tag)` call instead of 1 on boot-comp-int.
-   The compiler handles this correctly.
-
-3. **Interpreter multi-return anonymous struct cleanup** — test 227
-   xfail'd on boot-comp-int. The anonymous struct from multi-return is
-   not cleaned up in the interpreter.
-
-4. ~~Nil assignment to managed-slice struct field causes corruption.~~ **Fixed 2026-04-03.**
-   Root cause: field assignment and pointer dereference assignment were missing nil
-   coercion — raw `OP_CONST_NIL` (typed `TYP_NIL`) was stored instead of a proper
-   `%BnManagedSlice zeroinitializer`. Added nil coercion for slice, managed-slice,
-   and managed-ptr types in both paths.
-
-## Changelog
-
-- **2026-04-02**: RefInc on return values before scope cleanup.
-- **2026-04-03**: Subslice RefInc. Temporary tracking and cleanup. Pointer
-  dereference refcounting.
-- **2026-04-10**: Copy constructors and destructors for structs/arrays with
-  managed fields. Scope-exit dtors for struct locals. Interpreter
-  structRefInc/structRefDec. VAL_MANAGED_SLICE. Interpreter @T cleanup
-  fixes (false isRet match, IsFresh on args).
-- **2026-04-11**: Sections 2-3 rewritten as normative spec. Added section
-  3a (param stored in field). Updated status.
-- **2026-04-12**: Principled slow path (axioms 1-5). Always copy on struct
-  return/decl/assign, always dtor at scope exit. Struct call results
-  registered as temps. Multi-return RefInc for extracted managed fields.
-  Systematic `*[]char → @[]char` migration for functions returning
-  buf.Bytes/llvmType/etc. Tests 226/227 pass. 187/187 conformance on
-  all compiled modes. `--cflag` option for bnc.
-
-### Future (deferred)
+## Future (deferred)
 
 - Move optimization for function arguments (skip callee RefInc + temp RefDec)
 - Struct temp cleanup (test 226) — see `plan-struct-temp-cleanup.md`
