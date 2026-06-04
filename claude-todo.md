@@ -403,7 +403,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Also**: clear the remaining BUILDER float gaps so floats are fully
   BUILDER-compilable, then cut the release and bump BUILDER_VERSION.
 
-### Implement the strconv `Parse...` series (ParseInt / ParseUint / ParseBool / ParseFloat) — LANDED (hex-float follow-up remains)
+### Implement the strconv `Parse...` series (ParseInt / ParseUint / ParseBool / ParseFloat) — LANDED (complete)
 - **What**: strconv has only the `Format.../Append...`/`Itoa` (number→string)
   direction; add the parse direction.  `ParseFloat` is the correct,
   fully-rounded decimal→double, built over `pkg/std/math/big` (exact
@@ -424,10 +424,16 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   exact-bit unit goldens, a Format↔Parse round-trip, and the
   `526_strconv_parse_cross_pkg` cross-package consumer (LLVM/VM/gen2;
   arm32/native via CI — the code is ILP32-safe, all math in uint64).
-- **Remaining (follow-up)**: hex-float syntax (`0x1.8p3`) for `ParseFloat`
-  (needs a separate binary-exponent path).  Once stdlib is BUILDER-bundled,
-  route the compiler's float-literal converter through `ParseFloat`'s core
-  to retire the round-bit dtoa bug + the duplicate converter.
+- **Hex floats — DONE both directions**: `ParseFloat` reads `0x1.8p3`
+  (`15b6ce90`, pure-binary path sharing the rational rounding core; Go
+  differential ~2M) and `FormatFloat`/`AppendFloat` emit `'x'`/`'X'`
+  (`e85eb129`, exact nibble rendering, no big.Nat; Go differential ~4M).
+  `_` separators accepted in hex too.
+- **No remaining strconv follow-up** for parse/format parity.  (The only Go
+  float format not implemented is `'b'` — decimal mantissa, binary exponent —
+  which nothing needs yet.)  Once stdlib is BUILDER-bundled, route the
+  compiler's float-literal converter through `ParseFloat`'s core to retire the
+  round-bit dtoa bug + the duplicate converter (tracked above).
 
 ### float32 const literal: VM/native load the float64 pattern (wrong value) — DEFERRED, blocked on a new BUILDER release
 - **LLVM compile error — FIXED 2026-06-03 (binate `4fd196d0`)**: a float32-typed
