@@ -256,7 +256,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
-### Field access into an anonymous (multi-return tuple) struct miscomputes the LLVM GEP index when a field has alignment padding before it — wrong-code / compile error
+### Field access into an anonymous (multi-return tuple) struct miscomputes the LLVM GEP index when a field has alignment padding before it — FIXED 2026-06-03 (binate `c09a3154`, pending cherry-pick)
 - **What**: `emitGetFieldPtr` (`pkg/binate/codegen/emit_helpers.bn:118`) maps the
   Binate field index to the LLVM field index via `structLLVMIndex` (which counts
   inserted `[N x i8]` padding fields) **unconditionally**.  But anonymous
@@ -274,20 +274,21 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   the named-vs-anonymous guard.  The SSA copy paths already do it right:
   `emit_copy_ssa.bn:103` and `emit_copy_ssa_load.bn:85` apply `structLLVMIndex`
   only `if named` (`named = len(t.Name) > 0`) and otherwise use the raw index.
-- **Proposed fix**: mirror that guard in `emitGetFieldPtr` — only call
-  `structLLVMIndex(baseTyp, instr.Index)` when `baseTyp` is named; for an
-  anonymous struct use `instr.Index` directly.  Clean, low-risk, parallel to
-  existing correct code; in `pkg/codegen` (a function-body change, BUILDER-safe).
-- **Affects**: LLVM backend (the GEP-index path).  Any field-ptr access to an
-  anonymous struct/tuple with internal alignment padding — newly common with the
-  errors convention `func f(...) (bool, @errors.Error)`.  VM uses byte offsets,
-  so likely unaffected (to be confirmed by a conformance repro).
+- **Fix**: `emitGetFieldPtr` now gates the `structLLVMIndex` remap on
+  `len(baseTyp.ResolveAlias().Name) > 0` — named structs remap past padding
+  fields; anonymous tuples use `instr.Index` directly.  Mirrors the
+  named-vs-anonymous split already in `emitStoreSSARec`.  `pkg/codegen`
+  function-body change (BUILDER-safe).
+- **Affects**: LLVM backend (the GEP-index path).  VM uses byte offsets and was
+  unaffected (conformance 144 passes on `builder-comp-int` as well as
+  `builder-comp`).
 - **Discovery**: 2026-06-03, implementing `strconv.ParseBool` (first
-  `(bool, @errors.Error)` multi-return).  Blocks `ParseBool`; the rest of the
-  Parse series (`int64`/`uint64`/`float64` first elements — pointer-aligned, no
-  padding) is unaffected.
-- **Test**: a conformance `(bool, @Iface)` multi-return that is destructured and
-  cleaned up (to be added with the resolution).
+  `(bool, @errors.Error)` multi-return).  Had blocked `ParseBool`; the rest of
+  the Parse series (`int64`/`uint64`/`float64` first elements — pointer-aligned,
+  no padding) was unaffected.
+- **Tests**: codegen unit test `TestAnonTupleDtorFieldGepIndex`
+  (emit_refcount_test.bn) pins the GEP index; `conformance/144_multi_return_bool_iface`
+  covers it end-to-end (green on LLVM + VM).
 
 ### Float-literal converter 1 ULP low for ~38+ sig-digit literals just above a tie (round-bit loss) — DEFERRED, blocked on stdlib-via-BUILDER
 - **Symptom**: a float64 literal with ~38+ significant digits sitting JUST
@@ -332,6 +333,13 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   what `common.ParseFloatLitToBits` approximates.  Once stdlib is
   BUILDER-bundled, the compiler's float-literal converter can route through it
   (or share its core), fixing the round-bit bug above.
+- **Plan**: `explorations/plan-strconv-parse.md` (errors via the now-landed
+  `@errors.Error`; input `*[]readonly uint8`).
+- **Progress (2026-06-03, binate, pending cherry-pick)**: `ParseBool` + the
+  unexported `numError` (`@errors.Error` impl) landed (`f473ef5f`).  Fixing it
+  surfaced + fixed a MAJOR anon-tuple field-GEP codegen bug (`c09a3154`, above).
+  Remaining: `ParseInt`/`ParseUint`/`Atoi` (integer core), then `ParseFloat`
+  over `big` + the Go differential, then the cross-package conformance.
 
 ### float32 const literal: VM/native load the float64 pattern (wrong value) — DEFERRED, blocked on a new BUILDER release
 - **LLVM compile error — FIXED 2026-06-03 (binate `4fd196d0`)**: a float32-typed
