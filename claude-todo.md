@@ -573,12 +573,41 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Newly-exposed native-aa64 gaps (xfailed + tracked; NOT regressions —
   these tests never ran before the lane built)**: `550` (@func
   capture-record refcount wrong on native), `569` (float captured in a
-  closure reads 0 — native float gap, 541-family), `551` (`&G`-as-rvalue,
-  already xfailed on the other compiled modes), `559`/`561` (cross-package
+  closure reads 0 — native float gap, 541-family), `559`/`561` (cross-package
   MANAGED extern var — already xfailed on every mode; needs the imported
-  type's dtor).  All five carry a
-  `.xfail.builder-comp_native_aa64-comp_native_aa64` marker.  `550`/`569`
-  are the genuinely native-specific ones worth a follow-up.
+  type's dtor).  `550`/`569` are the genuinely native-specific ones worth a
+  follow-up.  (`551` `&G`-as-rvalue is now FIXED — see entry below.)
+
+### `551`/`573` native-aa64 `&G`-as-rvalue — FIXED 2026-06-04 (binate `9a0f4f9a`)
+- **Was**: taking a top-level global's address as a VALUE (`&G` as an
+  rvalue: store value, call arg, return value, comparison operand,
+  bit_cast source) was silently wrong on the native aarch64 backend.  `&G`
+  is the IsGlobalRef pseudo-instr (ID -1, no SSA register); `getOperand`
+  missed every lookup and returned -1, so the value-operand site dropped
+  the operand (call args / return) or stored garbage.  Native handled
+  IsGlobalRef only in ADDRESS-operand positions (load/store target, GEP
+  base) via `emitGlobalAddr`; value positions were unwired.  The native
+  analogue of the LLVM bug fixed in `99655f4e` (which rendered `%v-1`).
+- **Fix**: new `emitValOperand` (aarch64_regmap.bn) — the value-operand
+  analogue of `getOperand`: materializes an IsGlobalRef into a fresh
+  scratch via ADRP+ADD, else defers to `getOperand`.  Routed every
+  value-operand site through it (OP_STORE value; direct / indirect /
+  func-value / handle call args; OP_RETURN single / sret-multi / packed;
+  comparison operands; OP_BIT_CAST source); threaded `pkgName` into
+  emitCallIndirect / emitCallFuncValue / emitCompare.  Two globals in one
+  instruction (`&G == &H`) each get their own scratch — no clobber
+  (contrast the VM's shared globalReg, 573's still-open `-int` bug).
+- **Result**: `551` un-xfailed on native aa64; `573` (`return &G,&H` /
+  `&G == &H`) — which was failing native aa64 UNMARKED — now passes there
+  too.  Full native aa64 lane: 498 passed, 0 failed.  Unit tests:
+  `aarch64_global_ref_test.bn`.  573's VM (`-int`) xfails are unaffected
+  (the separate shared-globalReg bug, another worker's).
+- **x64 parity still OPEN**: the structurally-identical gap exists in
+  `pkg/binate/native/x64` value-operand sites (emitStore value, the call /
+  return / compare emitters) — no x64 native lane in CI catches it, so it
+  is a latent silent-wrong-value-operand bug there.  Fix with the same
+  `emitValOperand`-style helper (a `getValOperand` mirroring the LLVM
+  `emitValRef` fix); the x64 root-cause + site map is already scoped.
 
 ### Native backends mis-lower float consts/returns — `541` silently reads 0 (Phase A float-const gap on the native code generators)
 - **Symptom**: `conformance/541_cross_pkg_const_float` passes on the
