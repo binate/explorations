@@ -413,20 +413,23 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   Per Bug Discovery Protocol, the new func-value-float tests are the
   tracked reproduction. Surfaced 2026-06-03 by the bootstrap work.
 
-### Inject `pkg/bootstrap` into the VM + convert I/O to `__c_call` — IN PROGRESS (float-arg shim prerequisite landed)
-- **Unblocked**: the float-arg shim fix above landed on main (`7abc3809`),
-  so `bootstrap.formatFloat` now dispatches correctly as a native extern
-  in `-int`. Phase 1 in progress.
+### Inject `pkg/bootstrap` into the VM + convert I/O to `__c_call` — Phase 1 DONE, Phase 2 next
+- **Phase 1 LANDED** on main (`a7fabc7a`, 2026-06-03): bootstrap is now
+  native-only in the VM — cmd/bni skips lowering it, the format helpers
+  (formatInt/Int64/Uint/Bool/Float, Itoa) are registered as externs in
+  both `registerBootstrapExterns` copies, bootstrap's bytecode unit tests
+  are xfailed in the 3 `-int` modes, and `extern_register_std_test` guards
+  format-helper registration.  `formatFloat` (the first native float
+  extern) dispatches via the all-int shim ABI (`7abc3809`).  Verified:
+  `287_float_println` green in `-int`; full `builder-comp-int` /
+  `-comp-int` / `-int-int` clean but for pre-existing failures.
 - **Plan**: [`plan-bootstrap-ccall.md`](plan-bootstrap-ccall.md). The
   rt-drop-libc pattern applied to bootstrap: eliminate the hand-written
   `bn_pkg__bootstrap__*` I/O glue in `binate_runtime.c` by converting it
   to `.bn` + `__c_call`, and make bootstrap native-only in the VM.
-- **Two phases**: (1) inject — skip lowering bootstrap in `cmd/bni` +
-  register the format helpers (bootstrap is MIXED: format helpers are
-  bytecode today, I/O is already native-extern); small, behavior-
-  preserving. (2) convert I/O function-by-function (Close/Exit trivial →
-  Open/Read/Write/Stat moderate → Exec/ReadDir hard), deleting each
-  `bn_pkg__bootstrap__*` as it moves.
+- **Phase 2 (next)**: convert the C-implemented I/O function-by-function
+  (Close/Exit trivial → Open/Read/Write/Stat moderate → Exec/ReadDir
+  hard), deleting each `bn_pkg__bootstrap__*` as it moves.
 - **Harder than rt**: `__c_call` is scalar/pointer-only, but bootstrap's
   I/O takes slices + returns managed-slice aggregates → marshalling
   (null-term cstr, data-ptr extraction, aggregate construction). `Args`

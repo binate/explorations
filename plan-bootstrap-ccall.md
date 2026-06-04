@@ -1,6 +1,17 @@
 # Plan: inject `pkg/bootstrap` into the VM + convert I/O to `__c_call`
 
-Status: **PLANNED** (not started) — filed 2026-06-03
+Status: **Phase 1 DONE** (landed on main `a7fabc7a`, 2026-06-03);
+**Phase 2 not started**. The float-arg shim prerequisite
+([`plan-float-arg-shim.md`](plan-float-arg-shim.md)) landed first
+(`7abc3809`), then Phase 1 made `pkg/bootstrap` native-only in the VM:
+cmd/bni skips lowering it, the format helpers are registered as externs
+in both `registerBootstrapExterns` copies, bootstrap's bytecode unit
+tests are xfailed in the `-int` modes, and `extern_register_std_test`
+guards the format-helper registration. Verified: `287_float_println`
+green in `-int` (the float-extern payoff), full `builder-comp-int` /
+`-comp-int` (only pre-existing `520`) and `-int-int` (`520` + pre-existing
+rt-loader gap `136`/`383`), hygiene clean. Phase 2 (convert the
+C-implemented I/O to `.bn` + `__c_call`) remains — see below.
 
 ## Goal
 
@@ -34,7 +45,7 @@ ships its own bootstrap impl (semihosting) under
 selected by the path mechanism — exactly like rt's libc-vs-baremetal
 split.
 
-## Phase 1 — inject bootstrap native-only in the VM
+## Phase 1 — inject bootstrap native-only in the VM — DONE (`a7fabc7a`)
 
 Once the I/O functions gain `.bn` bodies containing `__c_call`, the VM
 must NOT lower bootstrap (the `__c_call` ops hard-abort at lower, same as
