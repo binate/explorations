@@ -1,8 +1,8 @@
 # Code Red: Tricky-Semantics Specification & Cross-Backend Pipeline Audit
 
-> **Status:** authoritative (living document). **Scope:** the four lowering targets (LLVM codegen, native-aarch64, native-x64, bytecode VM) plus the shared type/layout layer and shared IR-gen. **Describes:** the state of `main`. **Audit basis:** the findings were gathered against worktree `work-1` @ `97cecf95`, which was **14 commits behind** `main` @ `6a91cf5b` at audit time, and reconciled to `main` per the note below. Per-situation status lines reading "broken / live here" reflect the *audited worktree*; read them through the reconciliation. In any case every "broken / suspected" status is an audit lead to be re-confirmed by the P1 repros (Section 9), not a settled fact — when this document and `claude-todo.md` + the actual `main` tree disagree on a specific cell, the tree wins.
+> **Status:** authoritative (living document). **Scope:** the four lowering targets (LLVM codegen, native-aarch64, native-x64, bytecode VM) plus the shared type/layout layer and shared IR-gen. **Describes:** the state of `main`. **Audit basis:** the findings were gathered against worktree `work-1` @ `97cecf95`, now **32 commits behind** `main` (current @ `e85eb129`), and reconciled to `main` per the note below — many flagged bugs have since landed. Per-situation status lines reading "broken / live here" reflect the *audited worktree*; read them through the reconciliation. In any case every "broken / suspected" status is an audit lead to be re-confirmed by the P1 repros (Section 9), not a settled fact — when this document and `claude-todo.md` + the actual `main` tree disagree on a specific cell, the tree wins.
 
-> **Audit basis & reconciliation to `main`.** Findings the raw audit flagged as broken/live that are **already fixed on `main`** and are NOT open: short-var multi-bind acquire / double-free (`efa4f569`, conformance 584); managed-aggregate-by-value single-assign array + slice-`@Iface` store (`32bad348`); by-value struct returned through interface-method dispatch (`9baa579d`, conformance 585); anonymous-tuple field GEP padding remap (`5f4a8eaf`); cross-package imported-var nested-lvalue type resolution (`733d4485`, 561); native-aarch64 `&G`-as-rvalue (`9a0f4f9a`, 551/573); native-aarch64 `OP_BIT_CAST` global-ref value position (`1df89d9a`); the `lower_func.bn` length-cap split (`1cc8ada8`). What remains genuinely open or suspected — the real target of the plan: the array-literal / managed-slice-literal / composite-`@func`-field / raw-pointer-index / for-range-value managed-element **acquire gaps**; the **interface-method-dispatch managed-result leak**; the `@Iface` / `@[]@I` lifecycle holdouts; the VM func-value single-return copy-back; the native dtor-slot-zero + capturing-closure-shim cases; the entire **newly-surfaced** sub-word dirty-upper-bits and unsigned-int↔float classes (untracked before this audit); the ABI/byval/outgoing-args iface-method holdouts; the cross-package mangle injectivity + four-way `implVtableName` duplication; the generic array/func-value mangle collisions; the nil-`EXTRACT` VM crash; and the int-int loader miss.
+> **Audit basis & reconciliation to `main` (current @ `e85eb129`).** The audit ran against `97cecf95`, now 32 commits behind `main`; many findings have since landed. **Already fixed on `main` — NOT open:** short-var multi-bind acquire / double-free (`efa4f569`, conf 584); the *entire* managed-aggregate-by-value store class — single-assign array + slice-`@Iface`, array-element aggregate, and the literal siblings (`32bad348` + all-siblings landing); raw-pointer single-assign index `p[i]=v` element refcount (`5429a37d`); array-/managed-slice-/composite-literal managed-element acquire incl. the composite `@func` field (`f2aff0d4`); the closure `@func` **capture-site RefInc / capture-UAF — the Class-7 root cause** (`fd82c0a9` / `388c48d3`), with the VM-free repl poll now landed (`e3dc0d07`) so the wrapPoll heap-corruption thread is closed; native `@func` **vtable dtor slot → closure-struct dtor handle** + the 550 capture-record refcount (`45416376`, `7dab4be7`); by-value struct through iface dispatch (`9baa579d`, conf 585); anon-tuple field GEP padding (`5f4a8eaf`); cross-package managed-ptr value-copy `559` + field-write `561` (`32bee84c` / `733d4485` / `c4036777`, rc-balance conf 586/592); native-aa64 `&G`-as-rvalue 551/573 (`9a0f4f9a`) + `OP_BIT_CAST` global-ref (`1df89d9a`); `lower_func.bn` split (`1cc8ada8`). **Newly tracked since the audit — now a confirmed (no-longer-suspected) divergence, folded into §3.1/§3.6:** `526` — native-aa64 miscompiles a **cross-package multi-return whose component is an `@Iface`** (surfaced via `strconv.Parse`'s `(value, @errors.Error)` return; MAJOR, silent wrong-code, xfailed on the native-aa64 lane, `49d03616`). **Genuinely still open / suspected — the real remaining targets of the plan:** the **interface-method-dispatch managed-result leak** (todo: lifecycle "unwired", IN PROGRESS) + the `@[]@I` slice-literal element leak; **for-range value-bind** managed-element acquire + phantom `_` scope var; the array/slice **INDEX arms' RefDec-old-before-RefInc-new ordering** → self-alias UAF (untracked); the `@func` call-result discard leak; the VM **func-value single-return copy-back**; the **aggregate-returning capturing-closure shim** (LLVM retbuf / native); the entire **newly-surfaced sub-word dirty-upper-bits and unsigned-int↔float classes** (untracked before this audit); the **x64 multi-return** n=2 cap / ptr-not-bytes (no x64 CI lane); the **ABI iface-method byval / PlanFrame outgoing-args** holdouts; the cross-package **mangle injectivity** + four-way `implVtableName` duplication; the **generic array/func-value mangle collisions**; the **nil-`EXTRACT` VM crash**; `541` native float consts/returns + the float32-const deferral; the function-local const GROUP + untyped-single-const forward-ref; and the int-int loader `rt`-not-found. **Unrelated active work** (confirming this doc is settled relative to it): the `strconv` `ParseFloat`/`FormatFloat` series (`eb4a7aee`…`e85eb129`). When this document and `claude-todo.md` + the actual `main` tree disagree on a cell, the tree wins.
 
 ---
 
@@ -89,18 +89,18 @@ Eight root-cause classes. Each is one invariant enforced non-uniformly across th
 
 **Invariant whose uniform enforcement prevents the class:** Every site that writes a managed value into a managed storage slot — across `{= , a,b=f() , := , q,n:=f() , composite-lit elem , array-lit elem , mslice-lit elem , return , param-entry , for-range value} × {IDENT , SELECTOR , INDEX-array , INDEX-slice , INDEX-raw-ptr , blank _} × {@T , @[]T , @func , @Iface , managed struct/array}` — must acquire the new value (RefInc, or `__copy_` for aggregates, or `consumeTemp` on genuine ownership transfer) and release the prior occupant (RefDec / `__dtor_`), uniformly, with `consumeTemp` used **only** on genuine transfer and a discard target `_` skipping the acquire.
 
-**Representative bugs (confirmed live in this worktree):**
-- Short-var multi-bind `q,n := f()` does ZERO acquire (`gen_short_var.bn:17-34`) — CRITICAL double-free/UAF. (Fixed on main `efa4f569`; absent here.)
+**Representative bugs** (confirmed in the audited worktree; **most have since landed on `main`** — see reconciliation):
+- Short-var multi-bind `q,n := f()` does ZERO acquire (`gen_short_var.bn:17-34`) — CRITICAL double-free/UAF. (FIXED on `main` `efa4f569`.)
 - for-range value bind over a managed-element collection does ZERO acquire but IS scope-registered for RefDec (`gen_flow.bn:146-149`) — CRITICAL, **untracked**, no test.
-- Composite-literal `@func` field never acquires (`gen_composite.bn:115-129`) — CRITICAL.
-- Array-literal elements never acquire (`gen_access.bn:22-48`) — CRITICAL.
-- Single-assign raw-pointer index `p[i]=v` no element refcounting (`gen_control.bn:314-323`) — MAJOR.
-- Managed-slice-literal `@func`/struct elements never acquire (`gen_access.bn:152-171`) — MAJOR.
+- Composite-literal `@func` field never acquires (`gen_composite.bn:115-129`) — CRITICAL. (FIXED on `main` `f2aff0d4`.)
+- Array-literal elements never acquire (`gen_access.bn:22-48`) — CRITICAL. (FIXED on `main` `f2aff0d4`.)
+- Single-assign raw-pointer index `p[i]=v` no element refcounting (`gen_control.bn:314-323`) — MAJOR. (FIXED on `main` `5429a37d`.)
+- Managed-slice-literal `@func`/struct elements never acquire (`gen_access.bn:152-171`) — MAJOR. (FIXED on `main` `f2aff0d4`.)
 - `@func`-returning call results not registered as cleanup temps → leak when discarded (`gen_call.bn:269-287`, `gen_method.bn:269-292`) — MAJOR.
 - Single-assign array-element aggregate / multi-assign slice aggregate-with-@Iface (`gen_control.bn:242-313`, `emitStructElemRefcount` at `gen_util_refcount.bn:15-48`) — MAJOR. (Fixed on main `32bad348`; absent here.)
 - Array/slice **INDEX** assignment arms RefDec-old *before* RefInc-new (`gen_control.bn:275-310`, `:349-390`), violating the documented "RefInc-before-RefDec" order the IDENT/SELECTOR/deref arms follow → self-alias UAF for `a[i]=a[i]` — MAJOR, **untracked**.
 
-**Targets affected:** All four (shared IR-gen origin). **Status:** mixed; several CRITICAL cells confirmed live here, several MAJOR cells fixed on main but absent in this worktree.
+**Targets affected:** All four (shared IR-gen origin). **Status:** mostly FIXED on `main` since the audit — short-var multi-bind (`efa4f569`), the composite-`@func`-field / array-lit / mslice-lit acquires (`f2aff0d4`), raw-ptr index (`5429a37d`), and the array-element-aggregate sibling (`32bad348` + all-siblings) all landed. **Remaining open:** for-range value-bind acquire, the `@func` call-result discard registration, and the array/slice INDEX-arm RefDec-before-RefInc ordering.
 
 ### Class 2 — VM 16-byte address-aggregate (iface/func value) mishandling
 
@@ -148,7 +148,7 @@ Eight root-cause classes. Each is one invariant enforced non-uniformly across th
 
 **Representative bug:** wrapPoll-style closure that captures AND calls a managed `@func`, installed as VM poll, corrupts the heap; native-only observed, `-int` clean. **Open question:** does it fully reduce to the `emitCaptureRefInc` omission, or is there an *additional* native-trampoline-entry over-release on top (the `-int`-clean asymmetry needs a RefInc-vs-RefDec count probe).
 
-**Targets affected:** native backends (observed); the IR-gen omission predicts all targets. **Status:** open, root cause partially localized to a Class-1 gap.
+**Targets affected:** native backends (observed); the IR-gen omission predicts all targets. **Status:** RESOLVED on `main` — the `emitCaptureRefInc` `@func` capture-site RefInc landed (`fd82c0a9` / `388c48d3`) and the VM-free repl poll (`e3dc0d07`) retired the wrapPoll thread.
 
 ### Class 8 — Multi-package loader resolution at int-int depth
 
@@ -179,16 +179,17 @@ This is the heart of the document. One subsection per tricky situation. Each giv
 - IR-gen `emitStructElemRefcount` (multi-assign slice-element struct): **partial** (`gen_util_refcount.bn:15-48`, omits `@Iface` + nesting). *(Fixed on main `32bad348`, absent here.)*
 - IR-gen call-result temp registration / anon-tuple dtor: **ok** (`gen_call.bn:268-287`, `gen_dtor_emit_bodies.bn:48-94`).
 - LLVM: **ok** (insertvalue/extractvalue, `emit_helpers.bn:227-303`; multi-return never sret, relies on ABI legalization).
-- native-aa64 `OP_RETURN`: **ok** (sret + X0..X7 field-spread, `aarch64_dispatch.bn:252-374`; matched to AAPCS in `43ab7a3`).
+- native-aa64 `OP_RETURN`: **ok** for in-package returns (sret + X0..X7 field-spread, `aarch64_dispatch.bn:252-374`; matched to AAPCS in `43ab7a3`) — **but a cross-package multi-return with an `@Iface` component is miscompiled** (silent wrong-code; `526` xfailed, `49d03616`).
 - native-x64 pack/collect: **broken** (`x64_return.bn:141-162`, `x64_call.bn:230-247` — n=2 cap, no aggregate load-through, per-field-per-reg).
 - VM: **ok** (`packMultiReturn` per-`FieldOffset` memcpy, `isVMAddressAggregate` covers iface+func, `vm_exec_return.bn:24-66`).
 
 **Known divergences:**
 - **CRITICAL (x64):** ≤16-byte tuple with 3+ sub-word fields drops fields 2..N; def and call both cap at n=2, so even a native-only self-call gets garbage for the 3rd/4th result (`x64_return.bn:145-162`, `x64_call.bn:234-235`).
 - **CRITICAL (x64):** ≤16-byte tuple with an aggregate component puts the component's *pointer* into RAX/RDX, not its bytes (`x64_return.bn:148-159`, no `IsAggregateTyp` branch); EXTRACT then Lea's a spill slot holding a dangling pointer.
-- **CRITICAL (all targets):** short-var multi-bind ZERO refcount → under-retain → double-free/UAF (`gen_short_var.bn:26-32`).
+- **CRITICAL (all targets):** short-var multi-bind ZERO refcount → under-retain → double-free/UAF (`gen_short_var.bn:26-32`). **FIXED on `main` (`efa4f569`).**
+- **MAJOR (native-aa64), tracked:** a cross-package multi-return whose component is an `@Iface` is miscompiled — `526` xfailed on the native-aa64 lane (`49d03616`); root cause in the aa64 multi-return collect/spread for a 2-word address-aggregate component crossing a package boundary. (Anticipated under §3.9 "suspected"; now confirmed.)
 - **MAJOR (x64 + LLVM):** both natives pack small tuples one-field-per-GP-reg, disagreeing with LLVM's eightbyte coalescing at the native↔LLVM-dep boundary (x64 not matched to SysV; aa64 was matched in `43ab7a3`).
-- **MAJOR (all):** `emitStructElemRefcount` omits `@Iface` + nesting for `s[i],n=f()` (`gen_util_refcount.bn:25-46`).
+- **MAJOR (all):** `emitStructElemRefcount` omits `@Iface` + nesting for `s[i],n=f()` (`gen_util_refcount.bn:25-46`). **FIXED on `main` (`32bad348` + all-siblings).**
 
 **Suspected:** anon-tuple component with a sub-word field before a pointer-aligned field could mis-GEP on any `structLLVMIndex`/native-EXTRACT path that keeps the `8*Index` assumption for non-`TYP_STRUCT` carriers (`aarch64_emit.bn:285`, `x64_emit.bn:34-63`); needs a `{bool,@T}`/`{uint32,int64}` repro.
 
@@ -236,12 +237,12 @@ This is the heart of the document. One subsection per tricky situation. Each giv
 - LLVM/native/VM: **ok** as faithful lowerings of whatever IR-gen emits — they inherit every gap above identically.
 
 **Known divergences (all confirmed via LLVM emit inspection):**
-- **CRITICAL:** short-var multi-bind ZERO acquire (`gen_short_var.bn:17-34`).
-- **CRITICAL:** composite-literal `@func` field `Holder{f}` never acquires; field-*assignment* `h.F=f` is correct (which is why 531/534 pass) (`gen_composite.bn:116-129`).
-- **CRITICAL:** array literal of managed elements `[2]Box{b,b}`/`[2]@T{a,a}` never acquires (`gen_access.bn:22-48`).
-- **MAJOR:** single-assign array-element aggregate from a *variable* (non-fresh, mortal-backed) RHS — contradicts the taxonomy's "FIXED 32bad348" because this worktree predates it; 371/366 pass only because their RHS is a fresh literal with immortal strings.
-- **MAJOR:** single-assign raw-pointer index `p[i]=v` no refcounting (`gen_control.bn:314-323`).
-- **MAJOR:** managed-slice literal struct/`@func` elements never acquire (`gen_access.bn:152-171`).
+- **CRITICAL:** short-var multi-bind ZERO acquire (`gen_short_var.bn:17-34`). **FIXED on `main` (`efa4f569`).**
+- **CRITICAL:** composite-literal `@func` field `Holder{f}` never acquires; field-*assignment* `h.F=f` is correct (which is why 531/534 pass) (`gen_composite.bn:116-129`). **FIXED on `main` (`f2aff0d4`).**
+- **CRITICAL:** array literal of managed elements `[2]Box{b,b}`/`[2]@T{a,a}` never acquires (`gen_access.bn:22-48`). **FIXED on `main` (`f2aff0d4`).**
+- **MAJOR:** single-assign array-element aggregate from a *variable* (non-fresh) RHS — **FIXED on `main`** (`32bad348` + all-siblings landing); was live only in the audited worktree (371/366 had coincidentally balanced via fresh-literal RHS with immortal strings).
+- **MAJOR:** single-assign raw-pointer index `p[i]=v` no refcounting (`gen_control.bn:314-323`). **FIXED on `main` (`5429a37d`).**
+- **MAJOR:** managed-slice literal struct/`@func` elements never acquire (`gen_access.bn:152-171`). **FIXED on `main` (`f2aff0d4`).**
 
 **Suspected:** native-aa64 16..64-byte aggregate-in-registers `[2 x i64]` pack must match LLVM legalization byte-for-byte; a 24-byte/alignment-padded aggregate could corrupt the tail word (`aarch64_call.bn:88-113`, asserted-equal by comment, not pinned). By-value struct through iface dispatch recurrence risk (Class 3) for any aggregate result resolved during interface collection before its struct decl is registered.
 
@@ -258,12 +259,12 @@ This is the heart of the document. One subsection per tricky situation. Each giv
 - shared dispatchers `emitManagedValueCopyRefInc`/`emitManagedValueRefDec`, `emitManagedIfaceValueRefDec` (null-guarded), `emitManagedFuncValueRefDec` (null-guarded): **ok**.
 - copy/dtor generators (`@func`+`@Iface` arms present): **ok**.
 - complete copy-sites: var-decl, single-assign IDENT/deref/SELECTOR/array-index*/slice-index, multi-assign, return, param-entry. (*array-index aggregate broken here.)
-- broken copy-sites: short-var multi-bind, for-range value, composite `@func` field, array-lit, mslice-lit `@func`/struct, raw-ptr index single-assign, `@func` call-result temp registration.
+- broken copy-sites — **most FIXED on `main`** (short-var multi-bind `efa4f569`; composite `@func` field, array-lit, mslice-lit `f2aff0d4`; raw-ptr index single-assign `5429a37d`). **Remaining open:** for-range value bind, the `@func` call-result temp registration, and the INDEX-arm ordering defect below.
 - **ordering defect:** array-INDEX and slice-INDEX arms RefDec-old *before* RefInc-new (`gen_control.bn:275-310`, `:349-390`), violating Axiom 5 → self-alias UAF.
 - LLVM/native: **ok** as faithful lowerings.
 - VM: **partial** — also misses `StmtGrewSP` for the `@func` call-result gap → unreclaimed SP growth.
 
-**Known divergences:** all the Class-1 cells above (CRITICAL: short-var multi-bind, for-range value, composite `@func` field, array-lit; MAJOR: raw-ptr index, mslice-lit, `@func` call-result leak, INDEX-arm RefDec-before-RefInc ordering). `@Iface` scalar copy arms are present and correct here; the residual is `@[]@I` literal-element-dtor (440 family).
+**Known divergences:** the Class-1 cells above — of which short-var multi-bind, composite `@func` field, array-lit, raw-ptr index, and mslice-lit are **FIXED on `main`** (see reconciliation). **Remaining open** Class-1 cells: for-range value bind, the `@func` call-result leak, and the array/slice INDEX-arm RefDec-before-RefInc ordering. `@Iface` scalar copy arms are present and correct here; the residual `@Iface` work is the `@[]@I` literal-element-dtor (440 family) and the interface-method-dispatch result leak (§3.6).
 
 **Suspected:** VM-entered capturing closure that calls a captured `@func` over-releases (Class 7) — predicted by the `emitCaptureRefInc` `@func` omission, possibly with an additional native-trampoline over-release; params use MOVE for `@Iface`/`@func` (no entry RefInc) and a copy-model arg site for these on the VM would read reclaimed transient SP.
 
@@ -284,14 +285,14 @@ This is the heart of the document. One subsection per tricky situation. Each giv
 - VM: **partial** — `BC_FUNC_VALUE`/`ensureHandle`/dispatch correct; single-return copy-back omits func-value (`lower_instr_helpers.bn:42-44`); `findMaxCallArgs` omits CALL_HANDLE; `*func` capture-rec leak.
 
 **Known divergences:**
-- **CRITICAL (all):** `emitCaptureRefInc` no `@func`/`@Iface` arm → 0 acquires / 1 release → premature free of the captured value; this is the real origin of the wrapPoll heap corruption (Class 7).
-- **MAJOR (both natives):** vtable dtor slot hardcoded zero for capturing managed closures → captured managed values freed without cleanup; aa64 xfailed (550), x64 untracked-latent.
+- **CRITICAL (all):** `emitCaptureRefInc` no `@func`/`@Iface` arm → 0 acquires / 1 release → premature free of the captured value; the real origin of the wrapPoll heap corruption (Class 7). **FIXED on `main` (`fd82c0a9` / `388c48d3`); wrapPoll thread closed by the VM-free poll (`e3dc0d07`).**
+- **MAJOR (both natives):** vtable dtor slot hardcoded zero for capturing managed closures → captured managed values freed without cleanup; aa64 xfailed (550), x64 untracked-latent. **FIXED on `main` (`45416376` + `7dab4be7`).**
 - **MAJOR (LLVM + both natives):** aggregate-returning capturing closures — LLVM shim has no retbuf path; natives fall back to a plain branch.
 - **MAJOR (x64):** func value from `&G`/global drops a word (no `emitValOperand`); no x64 CI lane.
 - **MAJOR (VM):** single-return func-value copy-back omitted (`lower_instr_helpers.bn:42-44`).
 - **MINOR:** method values can never be `@func`; VM `findMaxCallArgs` omits CALL_HANDLE; VM `*func` capture-rec leak; VM cross-mode shim reads a fixed 7 args.
 
-**Suspected:** the native call-a-captured-`@func` double-free may have an additional trampoline-entry over-release beyond the `emitCaptureRefInc` omission; x64 value-operand parity gap (aa64 fixed `9a0f4f9a`).
+**Suspected:** the `emitCaptureRefInc` omission is FIXED (`fd82c0a9`) and the wrapPoll thread is closed (`e3dc0d07`), so the "additional trampoline-entry over-release" hypothesis is retired; the x64 value-operand parity gap remains open (aa64 fixed `9a0f4f9a`).
 
 ---
 
@@ -459,7 +460,7 @@ This is the heart of the document. One subsection per tricky situation. Each giv
 - **MAJOR (all):** impl-vtable symbol name hand-duplicated across FOUR functions (`emit_impls.bn:275`, `aarch64_iface.bn:341`, `x64_iface.bn:298`, `lower.bn:327`); the VM comment admits declining a shared helper.
 - **MAJOR (all):** `resolveTypeExpr` qualified arm silently returns `TypInt()` on unregistered name (`gen_util.bn:244`).
 - **MAJOR (all):** `writeBnDotted` folds `'/'` and `'.'` identically → `pkg/geom/Point.M` (free func) collides with `pkg/geom.Point.M` (method).
-- **MAJOR (all):** `var n @pkg.T = pkg.G` whole-value-copy crashes in every mode (importer's RefDec needs the imported dtor; 559 xfailed).
+- **FIXED on `main`:** `var n @pkg.T = pkg.G` whole-value-copy (importer's RefDec via the imported dtor) — `559`/`561` un-xfailed (`32bee84c` / `c4036777`, rc-balance conf 586/592). Was a live crash in every mode in the audited worktree.
 - **MINOR:** `&pkg.N` (address-of cross-package scalar global) unimplemented; singular `RegisterImport` (test-only) int-only.
 
 **Suspected:** cross-package generic-interface instance keyed on consumer not defining pkg (impl-in-A/dispatch-in-B vtable-name mismatch; 464 keeps both in main); VM `lookupGlobalAddr` 0-on-miss silent null-deref.
@@ -594,9 +595,9 @@ The four traces in the findings demonstrate the method end-to-end and are the wo
 
 **`OP_EXTRACT`** — Contract pinned (field at `FieldOffset`, never `8*Index`; one `extractYieldsAddress(fieldTyp)` predicate driving both RETURN packing and EXTRACT mode; the packed byte image must equal the platform ABI for the equivalent LLVM struct). Divergences: natives collect ≤16-byte tuples one-field-per-reg vs per-eightbyte (MAJOR, native↔LLVM boundary); natives use `FieldOffset` only for `TYP_STRUCT`, else `8*Index` (minor latent); the pointer-mode predicate is expressed three different ways that only coincidentally agree (minor-fragile); BC_EXTRACT scalar mode reads a full word with no sub-word sign-dispatch (minor suspected).
 
-**`OP_IFACE_VALUE` + `CALL_IFACE_METHOD` + `IFACE_DTOR`** — Contract pinned (2-word layout; word-1 encoding target-defined — address on LLVM/native, 1-based index on VM, all-zeros = universal nil; vtable concat layout, slot 0 = dtor HANDLE; Index indexed RAW). Divergences: by-value-struct-through-iface degrades to `int` (CRITICAL, **live here**, `9baa579d` absent); nil-iface dispatch — VM diagnostic vs compiled silent SEGV vs baremetal no-trap (MAJOR, deliberate, pinned by 385/386); three stale doc sites (aa64 says `Index+1`, vm.bni says `vtable_addr` / "declaration order") (minor).
+**`OP_IFACE_VALUE` + `CALL_IFACE_METHOD` + `IFACE_DTOR`** — Contract pinned (2-word layout; word-1 encoding target-defined — address on LLVM/native, 1-based index on VM, all-zeros = universal nil; vtable concat layout, slot 0 = dtor HANDLE; Index indexed RAW). Divergences: by-value-struct-through-iface degraded to `int` (CRITICAL — **FIXED on `main` `9baa579d`**, conf 585); native-aa64 cross-package multi-return-`@Iface` miscompile (MAJOR, `526` xfailed, `49d03616`); nil-iface dispatch — VM diagnostic vs compiled silent SEGV vs baremetal no-trap (MAJOR, deliberate, pinned by 385/386); three stale doc sites (aa64 says `Index+1`, vm.bni says `vtable_addr` / "declaration order") (minor).
 
-**`OP_FUNC_VALUE` + `CALL_FUNC_VALUE` + `FUNC_VALUE_DTOR`** — Contract pinned (16-byte `{vtable@0, data@8}` — OPPOSITE of iface, the single most error-prone fact; data null compiled / never-null VM; dtor at slot 0 must hold the closure-struct dtor handle when capturing+managed). Divergences: native vtable dtor slot hardcoded zero for capturing managed closures (MAJOR, aa64 xfailed 550, x64 untracked); dtor-consumption mechanism differs (VM raw vtable[0]/-1 sentinel vs compiled handle) (minor); slot-1 semantics differ by design but undocumented (minor); native call-a-captured-`@func` double-free (CRITICAL, suspected, Class 7).
+**`OP_FUNC_VALUE` + `CALL_FUNC_VALUE` + `FUNC_VALUE_DTOR`** — Contract pinned (16-byte `{vtable@0, data@8}` — OPPOSITE of iface, the single most error-prone fact; data null compiled / never-null VM; dtor at slot 0 must hold the closure-struct dtor handle when capturing+managed). Divergences: native vtable dtor slot hardcoded zero for capturing managed closures (MAJOR — **FIXED on `main` `45416376` + `7dab4be7`**); dtor-consumption mechanism differs (VM raw vtable[0]/-1 sentinel vs compiled handle) (minor); slot-1 semantics differ by design but undocumented (minor); native call-a-captured-`@func` double-free (Class 7 — **FIXED on `main` `fd82c0a9`**); the VM func-value single-return copy-back holdout remains (MAJOR).
 
 ### Per-op checklist template (the full audit fills this in)
 
@@ -605,8 +606,8 @@ The four traces in the findings demonstrate the method end-to-end and are the wo
 | RETURN | ✅ (§6) | ok | tail-drop (M) | n=2 cap (C), ptr-not-bytes (C), 1-field-per-reg (M) | func copy-back miss (M) | listed | non-8B struct; func-return-as-arg |
 | EXTRACT | ✅ (§6) | ok | `8*Index` non-struct (m) | same | full-word scalar (m) | listed | sub-eightbyte tuple across boundary |
 | STORE | ❌ | ok | ok | ok | nil-EXTRACT crash (C) | INDEX RefDec-before-RefInc (M) | nil-managed-slice; self-alias `a[i]=a[i]` |
-| IFACE_VALUE/CALL/DTOR | ✅ (§6) | ok | ok | ok | ok | struct-thru-iface→int (C, live) | iface-method managed return |
-| FUNC_VALUE/CALL/DTOR | ✅ (§6) | retbuf shim miss (M) | dtor-slot zero (M) | dtor-slot zero (M), valOperand (M) | single-return copy-back (M) | capturing managed closure |
+| IFACE_VALUE/CALL/DTOR | ✅ (§6) | ok | 526 xpkg-MR-`@Iface` (M) | ok | ok | struct-thru-iface→int ✓fixed; 526 (M); dispatch-result leak (C) | iface-method managed return |
+| FUNC_VALUE/CALL/DTOR | ✅ (§6) | retbuf shim miss (M) | dtor-slot ✓fixed | valOperand (M) | single-return copy-back (M) | capturing managed closure |
 | CALL/CALL_IFACE_METHOD | ❌ | byval miss (M) | outgoing-args miss (M) | outgoing-args miss (M) | SP-leak (M) | many-arg iface method |
 | LOAD / BOX / MAKE / MAKE_SLICE / STRUCT_LIT / PHI | ❌ | — | — | — | — | (refcount contract absent) | — |
 
@@ -688,7 +689,7 @@ These are **audit leads, not yet-confirmed bugs** (`confirmed=false`). Each is a
 
 9. **VM `STORE` of a managed func-value into a struct FIELD where the func-value reg is a non-fresh borrow.** Symptom: address-vs-value reg confusion. Suspected cause: `OP_STORE` of a 16-byte aggregate relies on the value reg holding the slot address; unverified for the field-store path with a borrowed (not alloca-slot) reg. Repro: a targeted VM run storing a borrowed `@func` into a struct field.
 
-10. **Native call-a-captured-`@func` double-free has an additional trampoline over-release beyond the `emitCaptureRefInc` omission.** Symptom: native heap corruption (`-int` clean). Suspected cause: the IR-gen omission predicts corruption on every target, yet `-int` is clean — the VM may mask it (the `*func` stack-alloc / never-freed rec path) while native does not. Repro: a RefInc-vs-RefDec emit-count probe for an `@func` capture vs the dtor's RefDec.
+10. ~~**Native call-a-captured-`@func` double-free has an additional trampoline over-release beyond the `emitCaptureRefInc` omission.**~~ **RESOLVED on `main`:** the `emitCaptureRefInc` `@func` capture-site RefInc landed (`fd82c0a9` / `388c48d3`) and the VM-free repl poll (`e3dc0d07`) closed the wrapPoll thread — no separate trampoline over-release remained. (Retained as a record, not an open lead.)
 
 11. **PlanFrame sret-shift + saturated-GP + float-args interaction untested** (`common_call.bn:60-75` models sret-in-gp-arg-reg but not NSRN). 12. **VM `lookupGlobalAddr` 0-on-miss silent null-deref** (`lower_data.bn:111-117`). 13. **`OP_PHI` managed-merge contract absent** (no live caller, but if phi-lowering is introduced LLVM/native silently drop it).
 
@@ -733,7 +734,7 @@ Phased. Earlier phases produce the artifacts later phases consume. The ordering 
 - A single `emitStoreManagedSlot(ctx, b, slotPtr, val, slotTyp, isInit)` encapsulating the full Axiom-5 sequence (release-old unless init; acquire-new with isFresh/consumeTemp; store), and a single "register-managed-call-result" helper that enumerates every managed-result-producing call op (CALL, CALL_FUNC_VALUE, CALL_IFACE_METHOD, methods).
 - Route every copy-site through these: var-decl, all assignment forms (single/multi `=`, single/multi `:=`), composite/array/managed-slice literal elements, return, param-entry, for-range value, raw-ptr index. Make the four managed kinds (and aggregates) a one-line addition in the dispatcher, not a per-arm switch.
 - Collapse the parallel predicates (`isFreshManaged*`, `isVMAddressAggregate` vs `IsAggregateTyp` vs the natives' two-way split) toward single shared classifiers so a list-edit can't desync a backend.
-- This phase *fixes* the Class-1 cells (short-var multi-bind, for-range, composite `@func` field, array/mslice-lit, raw-ptr index, INDEX RefDec-before-RefInc ordering, `@func` call-result registration, iface-method-dispatch result registration) by construction — but only with user authorization per the raise-don't-work-around rule, and only after P1's tests pin them.
+- This phase *fixes* the **remaining** Class-1 cells (for-range value bind, the array/slice INDEX RefDec-before-RefInc ordering, the `@func` call-result registration, the iface-method-dispatch result registration) by construction — and *folds in* the cells already fixed individually on `main` since the audit (short-var multi-bind, composite `@func` field, array/mslice-lit, raw-ptr index) so they route through the one dispatcher and cannot re-diverge — but only with user authorization per the raise-don't-work-around rule, and only after P1's tests pin them.
 
 **Ordering rationale:** centralization is the actual fix the codebase needs (Section 0 thesis), not a quick win. Doing it after P1 means the matrix tests validate every cell at once; doing it before P3 means the per-op audit measures the centralized state, not a moving target. Each routed copy-site is a small, independently-stageable, green-preserving commit.
 
@@ -752,7 +753,7 @@ Phased. Earlier phases produce the artifacts later phases consume. The ordering 
 
 **Goal.** Land the fixes for every confirmed divergence, smallest-self-contained-commit-cherry-picked-to-main first.
 
-**Deliverables (each gated on user authorization and a P1 pinning test):** the x64 multi-return drop + packing; the VM func-value single-return copy-back; the native dtor-slot zero; the aggregate-returning capturing-closure shim; the PlanFrame iface-method outgoing-args; the cross-package mangle injectivity + the four-way `implVtableName` collapse into `pkg/binate/mangle`; the generic array/func-value mangle losslessness; the nil-EXTRACT VM crash (root-cause: lower `CONST_NIL` of an aggregate type to a zeroed slot+address, matching native `emitConstNil`); the loader int-int `rt`-not-found (Class 8); the cross-package managed-copy dtor reachability (559).
+**Deliverables (each gated on user authorization and a P1 pinning test):** the x64 multi-return drop + packing; the **native-aa64 cross-package multi-return-`@Iface` miscompile (526)**; the VM func-value single-return copy-back; the aggregate-returning capturing-closure shim; the PlanFrame iface-method outgoing-args; the cross-package mangle injectivity + the four-way `implVtableName` collapse into `pkg/binate/mangle`; the generic array/func-value mangle losslessness; the nil-EXTRACT VM crash (root-cause: lower `CONST_NIL` of an aggregate type to a zeroed slot+address, matching native `emitConstNil`); the loader int-int `rt`-not-found (Class 8); the interface-method-dispatch managed-result leak (Class 6). *(The native dtor-slot zero and the cross-package managed-copy dtor reachability (559/561) have since landed on `main` — see reconciliation.)*
 
 **Ordering rationale:** fixes land last because each needs its contract (P0), its test (P1), and a stable centralized base (P2). Each is structured as a self-contained green commit cherry-picked to main promptly, never a stack of unmerged commits.
 
