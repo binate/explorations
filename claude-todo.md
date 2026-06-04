@@ -33,8 +33,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   conformance green (505 comp / 499 int); no other
   by-value-struct-returning interface exists in-tree (Backend returns
   bool / @[]char).
-- **Unblocks**: the repl ReplSession->interface conversion (work preserved
-  on binate branch `repl-interface-wip`).
+- **Unblocked + LANDED 2026-06-04** (binate `b9ca1acc`): the repl ReplSession->interface conversion.
 
 ### Managed-aggregate-by-value element/field stores skip save-copy-destroy — ASSIGNMENT PATHS DONE; literal/short-var/raw-ptr siblings remain — MEMORY-CORRECTNESS (latent)
 - **UPDATE 2026-06-04 (binate `32bad348`)**: the two gaps below are now
