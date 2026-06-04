@@ -1,12 +1,13 @@
 # Plan: `.bni` extern-var support
 
-> **Status: COMPLETE (2026-06-03).** Scalar, raw/readonly-slice, and
+> **Status: COMPLETE (2026-06-04).** Scalar, raw/readonly-slice, and
 > managed-slice extern vars work end-to-end (read + write) across all 6
-> default modes. Of the three tracked managed/ptr edge cases, two are now
+> default modes. All three tracked managed/ptr edge cases are now
 > resolved: `&globalScalar` as a compiled value (`551`, binate
-> `99655f4e`) and field-write through an imported ptr var (`561`, binate
-> `733d4485`). One remains: the cross-pkg managed-ptr value-copy crash
-> (`559`) — see `claude-todo.md`.
+> `99655f4e`), field-write through an imported ptr var (`561`, binate
+> `733d4485`), and the cross-pkg managed-ptr value-copy crash (`559`,
+> fixed by recent main work — `559` covers aliasing in all modes and the
+> new `586` verifies refcount balance, binate `66aef4c1`).
 
 ## Why
 
