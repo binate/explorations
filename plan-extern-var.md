@@ -2,10 +2,11 @@
 
 > **Status: COMPLETE (2026-06-03).** Scalar, raw/readonly-slice, and
 > managed-slice extern vars work end-to-end (read + write) across all 6
-> default modes. Three managed/ptr edge cases remain as tracked
-> follow-ups in `claude-todo.md`: `&globalScalar` compiled (`551`),
-> cross-pkg managed-ptr value-copy crash (`559`), and field-write through
-> an imported ptr var (`561`).
+> default modes. Of the three tracked managed/ptr edge cases, two are now
+> resolved: `&globalScalar` as a compiled value (`551`, binate
+> `99655f4e`) and field-write through an imported ptr var (`561`, binate
+> `733d4485`). One remains: the cross-pkg managed-ptr value-copy crash
+> (`559`) — see `claude-todo.md`.
 
 ## Why
 

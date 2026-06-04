@@ -739,27 +739,29 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   fan of per-mode xfail files.
 - Surfaced 2026-06-03 by the drop-libc / native-only-rt work.
 
-### Cross-package managed-PTR extern var: value-copy crash + field-write no-op
-- **Symptom A (crash)**: copying an extern managed-ptr var's whole value
-  — `var n @pkg.T = pkg.G` — crashes at runtime.  Isolated to extern +
-  managed-ptr + value-copy (same-package managed-ptr copy works, the
-  qualified type works from a func return, managed-SLICE copy works,
+### Cross-package managed-PTR extern var: value-copy crash (559 OPEN); field-write (561) RESOLVED 2026-06-03
+- **OPEN — Symptom A (crash, 559)**: copying an extern managed-ptr var's
+  whole value — `var n @pkg.T = pkg.G` — crashes at runtime.  Isolated to
+  extern + managed-ptr + value-copy (same-package managed-ptr copy works,
+  the qualified type works from a func return, managed-SLICE copy works,
   managed-ptr FIELD read works).  The cross-package RefDec at the local's
   scope end needs the imported type's dtor, which the importer lacks.
   Test: `conformance/559_cross_pkg_managed_ptr_copy` (xfail all modes).
-- **Symptom B (silent no-op)**: writing a FIELD through an imported
-  ptr/struct var — `pkg.G.V = v` — silently drops the store.
-  `genSelectorPtr`'s package-qualified branch handles only
-  `e.X == EXPR_IDENT`, so a nested-selector lvalue (`pkg.G` is itself a
-  selector) isn't recognized → nil lvalue pointer.  Reading the field
-  works; element writes through an imported managed-SLICE var
-  (`pkg.S[i] = v`) work.  Test:
-  `conformance/561_cross_pkg_ptr_field_write` (xfail all modes).
-- **Fix direction**: (A) emit/import the managed type's dtor so a
-  cross-package managed-ptr local can RefDec at scope end; (B) a
-  `genSelectorPtr` qualified-var-base case (get the var's value via
-  `lookupImportedGlobalRead`, then GEP the field) — also covers raw-ptr
-  and value-struct imported vars.  Best done together.
+  **Fix direction**: emit/import the managed type's dtor so a
+  cross-package managed-ptr local can RefDec at scope end.
+- **~~Symptom B (field-write no-op, 561)~~ — RESOLVED 2026-06-03 (binate
+  `733d4485`)**: `pkg.G.V = v` through an imported managed-ptr var
+  silently dropped the store.  Root cause was NOT `genSelectorPtr`'s
+  EXPR_IDENT-only branch (its nested-selector branch already recurses and
+  obtains the lvalue) but `getSelectorType` returning nil for `pkg.G` — it
+  resolved the import alias `pkg` as a (nonexistent) variable, so the
+  nested branch couldn't type the inner selector and skipped the
+  managed-ptr field-store case.  Fixed with a package-qualified-var case
+  in `getSelectorType` (returns the imported var's declared type via
+  `lookupImportedGlobalPtr`); `getSelectorType` moved to
+  `gen_selector_type.bn` (length cap).  `conformance/561` un-xfailed
+  (green all 6 default modes; native-aa64 lane stays xfailed — it doesn't
+  build).  Unit: `TestGetSelectorTypeQualifiedImportedVar`.
 - **Discovery**: 2026-06-03, deferral-2 Slice 4 + coverage review.
 
 ### Dispatch conflicts (extern registered + Binate body provided) should be a HARD ERROR
