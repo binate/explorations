@@ -6,6 +6,43 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### Returning a by-value struct through interface-method dispatch is miscompiled — SILENT WRONG-CODE
+- **What**: an interface method whose return type is a by-value struct (a
+  small aggregate, e.g. `StepResult{int,int,int}` — NOT a managed handle
+  like `@T`/`@[]T`) is miscompiled when called through an interface value
+  (vtable dispatch).  The FIRST word of the returned struct is correct;
+  every subsequent field is garbage.  Direct (concrete-receiver) calls of
+  the same method are correct.
+- **Symptom**: conformance/574_iface_struct_return returns `{A:7, B:<garbage>}`
+  instead of `{7,9}`.  Native (`builder-comp`): B = a leaked-pointer-like
+  value; VM (`builder-comp-int`): B = `28252833168`.  A raw-receiver
+  variant gives B = `0`; a 3-field variant corrupts fields 2 and 3 likewise.
+- **Affects**: BOTH native and the bytecode VM → the defect is in the
+  SHARED IR layer.  The interface-method-call lowering
+  (`OP_CALL_IFACE_METHOD` / `EmitCallIfaceMethod` in `pkg/binate/ir`) does
+  not set up the sret/struct-return pointer the way the direct-call path
+  (`gen_call`) does — it appears to treat the iface-dispatched aggregate
+  return as a single register-width value.  Independent of receiver kind
+  (`@T` and `*T` both fail) and of struct arity (2- and 3-field both fail).
+- **Why latent until now**: conformance/553 covered iface methods returning
+  a SCALAR (int) and a MANAGED-SLICE (`@[]char`, which has its own 3-word
+  ABI) — a plain by-value struct return was never exercised.  The codebase's
+  existing interfaces (Backend in cmd/bnc + pkg/binate/native) return only
+  `bool` / `@[]char`, so they are unaffected; an audit for any other
+  by-value-struct-returning interface method is warranted with the fix.
+- **Discovery**: 2026-06-03, converting `pkg/binate/repl`'s ReplSession
+  struct to an interface (`Init`/`Step` return `StepResult` by value).
+  cmd/bni's tests passed only because they never assert on the returned
+  StepResult's later fields; a new pkg/binate/repl interface-dispatch test
+  surfaced it, minimized to conformance/574.
+- **Impact / BLOCKS**: the repl ReplSession→interface conversion (the host
+  reads `StepResult.Counter`/`.Depth` — fields 2 and 3 — through the iface
+  path).  The conversion (and the 574 repro) is preserved on binate branch
+  `repl-interface-wip` pending this fix.
+- **Fix**: make the iface-method-call IR emit the same sret setup as
+  direct aggregate-returning calls; then un-xfail conformance/574 (+ add a
+  3-field and a raw-receiver case) as passing regressions.
+
 ### Managed-aggregate-by-value element/field stores skip save-copy-destroy — LATENT (no caller today), MEMORY-CORRECTNESS
 - **What**: when the store TARGET is a managed struct/array **by value**
   (`needsStructCopy(T)` true — a struct/array holding managed fields, NOT
