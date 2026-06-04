@@ -1821,18 +1821,21 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - Bootstrap-only: package name mismatch not detected in single-file mode (244 xfail on boot)
 - Still needed: const expression errors, more shadowing edge cases
 
-### ~~`const` type modifier~~ — Stages 0–2c LANDED; Stage 3 deferred
-- Stage 0 (syntax + TYP_CONST wrapper kind), Stage 1 (enforcement
-  + cast drops), Stage 2a (reject `string → *[]char`), Stage 2b
-  (implicit alloc+copy for `@[]char = "..."`), and Stage 2c (string
-  literal natural type `[N]const char`, default `@[]const char`,
-  array-init copy `var s [N]char = "..."`, managed-slice + raw-slice
-  composite literals `@[]T{...}` / `*[]const T{...}`) all landed.
-- Stage 3 (const method receivers) deferred — depends on the
-  methods/interfaces feature.
-- Ratification: Phase 3 of the composite-literal generalization plan
-  (next entry) supersedes the spec for *how* string literals lower at
-  the IR level. The semantic surface is fixed.
+### Readonly method receivers — deferred (gated on methods/interfaces)
+- A method's receiver kind (`*readonly T` / `@readonly T`, plus value
+  receivers — which are always readonly) determines which pointer kinds
+  satisfy an `impl` and bounds what the method may mutate.  See
+  `claude-notes.md` (value receivers always readonly; readonly-restricted
+  dispatch expressed at the impl level; `*readonly T` receiver smoothing
+  auto-takes `&t` at the call site).
+- This was "Stage 3" of the old `const` type modifier.  The rest of that
+  work landed and the type-level modifier is now spelled `readonly`
+  (`plan-const-readonly.md`, COMPLETE 2026-06-03 — `const` split into
+  compile-time `const` / `var` storage / `readonly T` modifier; that
+  plan's three listed deferrals — readonly-slice slicing, `.bni`
+  extern-var, `&pkg.Const` — are all since resolved).
+- Deferred, not abandoned — depends on the methods/interfaces feature.
+  Fold into that project's tracking when it firms up.
 
 ### Observable optimizations and UB policy — broader question
 - Surfaced while planning const: allowing the compiler to allocate
@@ -2178,39 +2181,6 @@ Binate is NOT Go. The two types of slice are intentionally different:
 - **Better filtering (individual test functions)**: ability to specify individual test functions, not just packages (e.g., `run.sh boot-comp pkg/ir TestFoo`).
 - **Timeout/hang handling**: better and/or automatic detection and handling of tests that hang.
 - **Parallelization**: consider running test packages in parallel within a mode.
-
-### ~~Conformance-test renumbering + next-free-number helper scripts~~ — DONE 2026-06-03 (binate `work-6`, pending land)
-- **Done**: `conformance/next-number.sh` (next free NNN; default
-  next-after-max, `--gap` for lowest unused) and `conformance/renumber.sh`
-  (`<test> [target]` — `git mv`s the whole file fan-out: `.bn`,
-  `.expected`/`.error`, every `.xfail.<mode>` / `.expected.<mode>` sidecar,
-  and the multi-file `NNN_<name>/` directory; bare-number collisions list
-  candidates and require a stem to disambiguate).  Scripts only, no CI/hook
-  wiring.  Decided policy: next-after-max default (monotonic, never reuses a
-  retired number).
-- **Original spec retained below for reference.**
-- **What**: two small scripts that take the manual bookkeeping out of
-  conformance test numbers, complementing the existing
-  `scripts/hygiene/conformance-test-numbers.sh` (which only *detects*
-  duplicate numbers — it doesn't pick or reassign them):
-  1. **Find next available number**: print the next free `NNN` prefix
-     (decide the policy — lowest unused vs. next after the current max;
-     numbers currently have gaps, e.g. max is 541 with 522/526/530–539
-     unused).  Handy when authoring a new test.
-  2. **Renumber a test**: given a test name/number, move it to a free
-     number, renaming **all** of its files together — `NNN_name.bn` (or
-     the `NNN_name/` directory for multi-file tests), the `.expected` /
-     `.error` sidecar, and every `NNN_name.xfail.<mode>` sidecar.  Default
-     target = next free number; allow an explicit target.  Primary use:
-     resolving the duplicate-number collisions the hygiene check flags
-     (e.g. when two branches both grabbed the same `NNN`).
-- **Details to get right**: a test is single-file (`NNN_name.bn` + one of
-  `.expected`/`.error`) OR multi-file (`NNN_name/` dir); the rename must
-  carry the full sidecar fan-out (one `.xfail.<mode>` per applicable mode in
-  `conformance/run.sh`).  Use `git mv` so history follows.  Only the `NNN`
-  prefix changes; the `_name` suffix is preserved (unless a rename is also
-  explicitly requested).
-- **Scope**: add the scripts only; no CI/hook wiring (user's call).
 
 ### ARM32 bare-metal target — MAJOR PROJECT
 - **Why**: enable Binate as an OS-development language on ARM32

@@ -6,6 +6,39 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~Conformance-test renumbering + next-free-number helper scripts~~ — DONE 2026-06-03 (binate `30a9499a`)
+- **Done**: `conformance/next-number.sh` (next free NNN; default
+  next-after-max, `--gap` for lowest unused) and `conformance/renumber.sh`
+  (`<test> [target]` — `git mv`s the whole file fan-out: `.bn`,
+  `.expected`/`.error`, every `.xfail.<mode>` / `.expected.<mode>` sidecar,
+  and the multi-file `NNN_<name>/` directory; bare-number collisions list
+  candidates and require a stem to disambiguate).  Scripts only, no CI/hook
+  wiring.  Decided policy: next-after-max default (monotonic, never reuses a
+  retired number).
+- **Original spec retained below for reference.**
+- **What**: two small scripts that take the manual bookkeeping out of
+  conformance test numbers, complementing the existing
+  `scripts/hygiene/conformance-test-numbers.sh` (which only *detects*
+  duplicate numbers — it doesn't pick or reassign them):
+  1. **Find next available number**: print the next free `NNN` prefix
+     (decide the policy — lowest unused vs. next after the current max;
+     numbers currently have gaps, e.g. max is 541 with 522/526/530–539
+     unused).  Handy when authoring a new test.
+  2. **Renumber a test**: given a test name/number, move it to a free
+     number, renaming **all** of its files together — `NNN_name.bn` (or
+     the `NNN_name/` directory for multi-file tests), the `.expected` /
+     `.error` sidecar, and every `NNN_name.xfail.<mode>` sidecar.  Default
+     target = next free number; allow an explicit target.  Primary use:
+     resolving the duplicate-number collisions the hygiene check flags
+     (e.g. when two branches both grabbed the same `NNN`).
+- **Details to get right**: a test is single-file (`NNN_name.bn` + one of
+  `.expected`/`.error`) OR multi-file (`NNN_name/` dir); the rename must
+  carry the full sidecar fan-out (one `.xfail.<mode>` per applicable mode in
+  `conformance/run.sh`).  Use `git mv` so history follows.  Only the `NNN`
+  prefix changes; the `_name` suffix is preserved (unless a rename is also
+  explicitly requested).
+- **Scope**: add the scripts only; no CI/hook wiring (user's call).
+
 ### ~~bni VM crashes calling a non-capturing `@func` returned inside a managed aggregate~~ — FIXED 2026-06-02 (binate `d2029503`)
 - **Was**: a non-capturing `@func` in the VM uses the shared per-callee
   `callee.ClosureRec` as its data slot (vs nil in compiled).
