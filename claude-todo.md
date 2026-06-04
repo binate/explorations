@@ -6,42 +6,35 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
-### Returning a by-value struct through interface-method dispatch is miscompiled — SILENT WRONG-CODE
-- **What**: an interface method whose return type is a by-value struct (a
-  small aggregate, e.g. `StepResult{int,int,int}` — NOT a managed handle
-  like `@T`/`@[]T`) is miscompiled when called through an interface value
-  (vtable dispatch).  The FIRST word of the returned struct is correct;
-  every subsequent field is garbage.  Direct (concrete-receiver) calls of
-  the same method are correct.
-- **Symptom**: conformance/574_iface_struct_return returns `{A:7, B:<garbage>}`
-  instead of `{7,9}`.  Native (`builder-comp`): B = a leaked-pointer-like
-  value; VM (`builder-comp-int`): B = `28252833168`.  A raw-receiver
-  variant gives B = `0`; a 3-field variant corrupts fields 2 and 3 likewise.
-- **Affects**: BOTH native and the bytecode VM → the defect is in the
-  SHARED IR layer.  The interface-method-call lowering
-  (`OP_CALL_IFACE_METHOD` / `EmitCallIfaceMethod` in `pkg/binate/ir`) does
-  not set up the sret/struct-return pointer the way the direct-call path
-  (`gen_call`) does — it appears to treat the iface-dispatched aggregate
-  return as a single register-width value.  Independent of receiver kind
-  (`@T` and `*T` both fail) and of struct arity (2- and 3-field both fail).
-- **Why latent until now**: conformance/553 covered iface methods returning
-  a SCALAR (int) and a MANAGED-SLICE (`@[]char`, which has its own 3-word
-  ABI) — a plain by-value struct return was never exercised.  The codebase's
-  existing interfaces (Backend in cmd/bnc + pkg/binate/native) return only
-  `bool` / `@[]char`, so they are unaffected; an audit for any other
-  by-value-struct-returning interface method is warranted with the fix.
-- **Discovery**: 2026-06-03, converting `pkg/binate/repl`'s ReplSession
-  struct to an interface (`Init`/`Step` return `StepResult` by value).
-  cmd/bni's tests passed only because they never assert on the returned
-  StepResult's later fields; a new pkg/binate/repl interface-dispatch test
-  surfaced it, minimized to conformance/574.
-- **Impact / BLOCKS**: the repl ReplSession→interface conversion (the host
-  reads `StepResult.Counter`/`.Depth` — fields 2 and 3 — through the iface
-  path).  The conversion (and the 574 repro) is preserved on binate branch
-  `repl-interface-wip` pending this fix.
-- **Fix**: make the iface-method-call IR emit the same sret setup as
-  direct aggregate-returning calls; then un-xfail conformance/574 (+ add a
-  3-field and a raw-receiver case) as passing regressions.
+### Returning a by-value struct through interface-method dispatch was miscompiled — FIXED + LANDED 2026-06-04 (binate `9baa579d`)
+- **Was**: an interface method returning a by-value struct (small
+  aggregate, NOT a managed handle like `@T`/`@[]T`) came back through
+  vtable dispatch with only its FIRST field correct, later fields garbage,
+  in BOTH the LLVM backend and the bytecode VM.  Direct (concrete-receiver)
+  calls were fine.
+- **Root cause**: the interface method's result type was resolved during
+  interface collection (GeneratePackage / GenModule first pass), which ran
+  interleaved with struct-name registration in declaration order.  An
+  interface method whose result is a struct declared LATER in the file
+  (`interface B { get() Pair }` before `type Pair struct {...}`) resolved
+  the struct via resolveTypeExpr's unresolved-name path, which silently
+  falls back to `int`.  OP_CALL_IFACE_METHOD's result type (`instr.Typ`)
+  thus degraded to a single word; both backends read `instr.Typ`, so both
+  miscompiled identically (llvmType -> `i64`; the VM mis-sized the result).
+  Latent because conformance/553 only returned a scalar / a managed-slice
+  through an interface, never a plain struct.
+- **Fix** (`9baa579d`): a struct-name pre-pass registers every struct name
+  before the first pass, so interface method result types resolve to the
+  real struct type.  Interface collection stays interleaved in the first
+  pass (order vs globals / type-aliases -- which may be interface-typed;
+  isInterfaceTypeExpr consults moduleInterfaces -- is unchanged).
+  conformance/581 covers 2- and 3-field structs through managed- and
+  raw-receiver dispatch, interfaces declared before the structs.  Full
+  conformance green (505 comp / 499 int); no other
+  by-value-struct-returning interface exists in-tree (Backend returns
+  bool / @[]char).
+- **Unblocks**: the repl ReplSession->interface conversion (work preserved
+  on binate branch `repl-interface-wip`).
 
 ### Managed-aggregate-by-value element/field stores skip save-copy-destroy — PARTIALLY FIXED; siblings remain — MEMORY-CORRECTNESS (latent)
 - **What**: when the store TARGET is a managed struct/array **by value**
