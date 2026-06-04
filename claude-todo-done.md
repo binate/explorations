@@ -27,6 +27,15 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
   builder-comp, the VM, and gen2.
 - **Review non-findings**: digit separators (`1_000.0`) and hex floats
   (`0x1p4`) are not reachable as FLOAT tokens — no parser change needed.
+- **ILP32 follow-on — DONE (binate `55d324f1`)**: a focused review of the
+  rewrite found the exponent-accumulation cap (`if expVal < 1000000000`)
+  admitted a multiply up to ~1e10, overflowing a 32-bit `int` on arm32 (e.g.
+  `1e4294967296` wrapped to a finite wrong double instead of +Inf) — invisible
+  on the 64-bit test host.  Lowered the cap to `< 100000000` (max post-multiply
+  999999999 < INT32_MAX); verified ILP32-correct via a simulated-int32
+  accumulation vs strconv.  Added coverage the rewrite missed: lexer dot-forms
+  (`1.e3`/`.5e3`), the largest-denormal→smallest-normal round-up boundary, the
+  saturation boundary, and a `1e2147483648` int32-boundary guard.
 
 ### ~~Float literal text→bits conversion wrong for large-exponent + signed literals (536 + native 541 case 1)~~ — DONE 2026-06-03 (binate `5281b138`)
 - **What was wrong**: a float literal's value rides the IR as text
