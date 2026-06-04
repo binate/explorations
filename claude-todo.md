@@ -665,25 +665,39 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   handle for a capturing managed closure, null otherwise, null for the
   *func and no-managed-capture forms).
 
-### `526_strconv_parse_cross_pkg` crashes on native aa64 — NEW, UNMARKED failure (needs investigation)
+### Native aa64 miscompiles a cross-package multi-return whose component is a managed interface value (`@Iface`) — MAJOR, silent wrong-code (`526` xfailed)
 - **Symptom**: `conformance/526_strconv_parse_cross_pkg` (added with the
-  strconv `Parse*` series, `6a91cf5b`) FAILS on
-  `builder-comp_native_aa64-comp_native_aa64`: expected the 14-line
-  ParseInt/ParseUint/ParseBool/Atoi transcript, **actual is EMPTY** —
-  the program prints nothing, i.e. it crashes/aborts before (or during)
-  the first `println`.  Green on the default C/LLVM and VM modes.
-- **Discovery**: surfaced 2026-06-04 by the first full native-aa64
-  `--check-xpass` lane run (the flag was previously mis-positioned after
-  the mode, so the lane had never actually executed end-to-end).  NOT
-  caused by the `550` work — 526 uses no closures/func-values.
-- **Status**: no `.xfail` marker yet → it makes the native-aa64 lane
-  RED.  Pre-existing on main.  Root cause UNKNOWN — candidates: native
-  int64/uint64 lowering, the `@errors.Error` multi-return + `present()`
-  path, or cross-package const/string handling in the strconv Parse
-  surface.  Empty output (vs wrong output) points at an early
-  crash/abort.  **Needs: triage to root-cause vs. xfail-and-defer
-  (user's call — it's a real native-backend miscompile, not a workaround
-  candidate to silently mark).**
+  strconv `Parse*` series, `6a91cf5b`) crashes on
+  `builder-comp_native_aa64-comp_native_aa64` — empty output.  The
+  `Parse*` functions return `(T, @errors.Error)`; the cross-package
+  multi-return of a managed-interface-value component is miscompiled:
+  the returned `@Iface` comes back as **non-nil garbage** and the scalar
+  component is **corrupted**, then the program crashes when the garbage
+  `@Iface` is used.  Green on the default C/LLVM and VM modes.
+- **Root cause (BISECTED 2026-06-04 with minimal native-aa64 repros)** —
+  the break is exactly *cross-package* + *multi-return* + *managed-
+  interface-value component*:
+  - same-package `(int64, @errors.Error)` multi-return → **passes**
+  - cross-package *single* `@errors.Error` return (`errors.New`) → **passes**
+  - cross-package `(int, int)` multi-return → **passes**
+  - cross-package `(int, @errors.Error)` multi-return → **FAILS**
+    (returned `@Iface` non-nil, scalar corrupted)
+  Minimal repro: a helper pkg `func Maybe(x int) (int, @errors.Error)`
+  returning `x, <nil>`, with `main` doing `n, err = helper.Maybe(7)` — on
+  native aa64 `present(err)` reads true (should be false) and `n` is
+  wrong.  The importer mis-sizes the `@Iface` tuple component (resolves
+  it to a managed pointer / wrong word-count within the return tuple), so
+  the caller's sret layout disagrees with the callee's — the native-aa64
+  analogue of the LLVM ABI mismatch fixed in `cb8c0f1a` (line ~434), but
+  in the MULTI-RETURN-tuple case (the single-`@Iface` case is already
+  correct on native aa64, hence `errors.New` passes).
+- **Status**: `526` xfailed on native aa64 (binate `612f60ba`, pending
+  cherry-pick) + this TODO.  **MAJOR (silent wrong-code) — NOT a
+  workaround; needs a real fix to the native-aa64 importer's tuple-
+  component type resolution for `@Iface` returns.**  Discovery: 2026-06-04
+  full native-aa64 `--check-xpass` lane (first correct end-to-end run; the
+  flag had been mis-positioned after the mode).  Not caused by the `550`
+  work.
 
 ### Native backends mis-lower float consts/returns — `541` silently reads 0 (Phase A float-const gap on the native code generators)
 - **Symptom**: `conformance/541_cross_pkg_const_float` passes on the
@@ -837,21 +851,24 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   fan of per-mode xfail files.
 - Surfaced 2026-06-03 by the drop-libc / native-only-rt work.
 
-### Cross-package managed-PTR extern var: value-copy crash (559 OPEN — but native-aa64 XPASSES); field-write (561) RESOLVED 2026-06-03 — native-aa64 xfail now STALE
-- **Native-aa64 lane update (2026-06-04)**: now that the native aa64 lane
-  builds (after the `551`/`573` `&G`-rvalue fix `9a0f4f9a`), a full-lane
-  `--check-xpass` run shows BOTH `559` and `561` XPASS on native aa64
-  (pass despite their xfail markers).  `561` is squarely stale — it was
-  already RESOLVED on all default modes (below); its native-aa64 xfail
-  only lingered because the lane didn't build.  **Action: remove
-  `conformance/561_cross_pkg_ptr_field_write.xfail.builder-comp_native_aa64-comp_native_aa64`.**
-  `559` is more surprising: the entry below still lists it as an OPEN
-  cross-package value-copy CRASH, yet it now passes on native aa64.
-  Either a recent fix resolved the crash (making the all-mode xfails
-  stale too) or the crash is mode-specific and native aa64 happens to
-  dodge it — NEEDS a cross-mode re-check before removing 559's xfails.
-  (Surfaced while landing `550`; not caused by it — 559/561 use no
-  closures.)
+### Cross-package managed-PTR extern var: value-copy (559) + field-write (561) — BOTH RESOLVED; all stale xfails removed 2026-06-04 (binate `20d7a59d`, pending cherry-pick)
+- **Resolution (2026-06-04)**: with the native aa64 lane now building
+  (after the `551`/`573` `&G`-rvalue fix `9a0f4f9a`), a per-mode
+  `--check-xpass` sweep showed **`559` XPASSes on ALL SEVEN modes**
+  (builder-comp, -int, -int-int, -comp, -comp-int, -comp-comp, native
+  aa64) and **`561` XPASSes on native aa64**.  Both were stale:
+  - `559`'s cross-package value-copy crash (the importer lacking the
+    imported type's dtor for the scope-end RefDec) was closed by the
+    cross-package extern-var read path (`be49c0a9`, "cross-package read
+    of .bni extern vars"); the all-mode `--check-xpass` confirms it
+    passes on LLVM, VM, self-host gen2/gen3, and native — so the fix is
+    in the shared IR layer, not mode-specific.
+  - `561` was already RESOLVED on the default modes 2026-06-03
+    (`733d4485`, below); only its native-aa64 xfail lingered, because
+    that lane didn't build until `9a0f4f9a`.
+  All seven `559` xfails and the one `561` native-aa64 xfail removed in
+  `20d7a59d` (verified per-mode XPASS before removal).  Surfaced while
+  landing `550`; not caused by it (559/561 use no closures).
 - **OPEN — Symptom A (crash, 559)**: copying an extern managed-ptr var's
   whole value — `var n @pkg.T = pkg.G` — crashes at runtime.  Isolated to
   extern + managed-ptr + value-copy (same-package managed-ptr copy works,
