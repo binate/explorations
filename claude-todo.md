@@ -191,7 +191,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `DATA_KIND_COMPILED_CLOSURE` rec whose `rec[3]` points at the heap
   closure struct; RefDec'ing the @func value decremented the *rec* and
   (`vt.Dtor == 0`) just freed it, never the struct → the struct and its
-  captured managed values leaked.  Fix (`plan-vm-compiled-closure-dtor.md`):
+  captured managed values leaked.  Fix:
   `ensureHandle` marks an IsClosure callee's vtable dtor slot with a `-1`
   sentinel; `BC_REFDEC_INLINE_FAST` recognizes it, frees the rec and
   RefDec's the closure struct, running its dtor via an iterative frame push
@@ -1093,7 +1093,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Discovery**: 2026-06-01, while trying to land Phase 1 of plan-version-info.md.  The string case tripped first; subsequent probing across other types showed the common root cause.
 - **Root cause**: `moduleConsts` only carried `Val int`; producers (`genConst`, `registerImportFile`) call `evalConstExpr` which is integer-only and discards non-int initializers entirely; read sites (EXPR_IDENT in gen_expr.bn, qualified EXPR_SELECTOR in gen_selector.bn) called `lookupConst` (also int-only), missed the discarded consts, and emitted a zero-int placeholder via `EmitConstInt(0, TypInt())`.  The type-checker correctly accepts these declarations — `const X T = expr` in Binate marks `X` as an immutable variable (`claude-notes.md` "Compile-time constants" / "Const on variable declarations"), not a compile-time-foldable literal — so the bug is squarely in IR-gen's const-handling.
 - **Why MAJOR**: any production package that exposes a non-int top-level const silently mis-emits.  Currently latent only because the project has no such consts yet; the version-package draft (now landed for string only) was the first encounter.  Composite-typed consts are particularly dangerous — both loud-on-aggregate-access and silent-on-zero-default-read modes occur.
-- **Tests covering it**: pkg/binate/version's tests pin the string case end-to-end through both in-package and cross-package reads; `conformance/522_cross_pkg_const_string` and the new `TestGenConstStringLit*` unit tests in `pkg/binate/ir/gen_const_test.bn` (binate `a000855a`) add coverage at the IR-gen producer + read sites.  No coverage for bool / float / composite / pointer cases yet — Phase A of `plan-const-nonint.md` adds focused unit + conformance suites for each.
+- **Tests covering it**: pkg/binate/version's tests pin the string case end-to-end through both in-package and cross-package reads; `conformance/522_cross_pkg_const_string` and the new `TestGenConstStringLit*` unit tests in `pkg/binate/ir/gen_const_test.bn` (binate `a000855a`) add coverage at the IR-gen producer + read sites.  No coverage for bool / float / composite / pointer cases yet — Phase A adds focused unit + conformance suites for each.
 - **Status**: **Phase A DONE** (2026-06-02).  Every *scalar* non-int top-level const now lowers correctly — string (binate `7b0f77a3`), bool (`c3ff33f7`, conformance 540), float incl. untyped + float32 (`82c985f5`, conformance 541), negative float literals (`054629fd`), and non-int members of `const ( … )` **groups** (`a6fef840`).  Single + group producers, in-package + imported, all route through the shared `classifyConstLit` (string/bool/(unary-negated-)float) helper in `pkg/binate/ir/gen_const.bn`; read sites dispatch on `ModuleConst.Kind` (CONST_INT/STR/BOOL/FLT).  Unit tests in `gen_const_test.bn` + conformance 540/541 (cross-package EXPR_SELECTOR + in-package EXPR_IDENT, incl. a branch-condition bool and a group member).
   - **Coverage note** (probed): `GenConstMember` (REPL forward-ref retry) needs no non-int handling — it only ever sees *parkable* (undefined-name-referencing) consts, i.e. int/iota expressions, never literals.  `RegisterImport` (singular, `gen_register_import.bn`) is still int-only but is **test-only** (no production caller; production imports use the fixed `registerImportFieldsAndFuncs`) — a minor consistency follow-up, not a production gap.
 - **Decision (2026-06-02): Phase B (composite-typed consts) is CANCELED.**  `const` stays **scalar-only** (per `claude-notes.md:267-283`); immutable composite data is expressed with `var readonly` (`plan-const-readonly.md`), not `const`.
@@ -1258,7 +1258,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
     vm_exec*.bn + vm.bn, plus `BCInstr.Imm int→int64`, register
     arithmetic, and the memory ops.  This is a multi-step refactor;
     settle the register-word-vs-target-word model before editing.
-  - **What landed (int64 path)** — model in `plan-vm-64bit-on-32bit.md`:
+  - **What landed (int64 path)** — model:
     register == host word; 64-bit values use register pairs; pair ops
     only engage when `REG_SLOT < 8` (no-op on a 64-bit host).
     Pointer-vs-target-word ambiguity stays narrow because `bit_cast`
@@ -2818,7 +2818,7 @@ Binate is NOT Go. The two types of slice are intentionally different:
     layout interacts with "add a new exported function mid-session"
     (positions move when a new export sorts in); confirm that's the
     intended behavior.
-  - **Layout extraction** (`layout-extraction-plan.md`): expose a
+  - **Layout extraction** (archived — see `historical-notes.md`): expose a
     runtime-extensible type universe, not a closed-at-startup one.
   - **IR/backend cleanup**: no closed-world assumptions in the shared
     layer.
