@@ -1,10 +1,13 @@
 # Plan: Decouple the Processor Backend from the Object-File Format
 
-Status: **DRAFT** (2026-05-26) — design discussion resolved the four
-open questions (see "Resolved decisions" at the end); the slices
-themselves are not yet ratified for implementation. Captures the
+Status: **COMPLETE (shipped)** — kept for design rationale. The core
+decoupling shipped: `nativeObjFormatForTarget()` lives in
+`cmd/bnc/target.bn` beside `nativeArchForTarget()`, and the local
+x86-64 Mach-O / Rosetta conformance path exists (the
+`…_native_x64_darwin…` modes). This doc captures the
 "the processor backend should be independent of the object file
-format" observation and a concrete design for acting on it.
+format" observation, the design that was acted on, and the four
+resolved decisions behind it.
 
 Complements (does not replace):
 - [`plan-native-x64.md`](plan-native-x64.md) — building out the
@@ -60,33 +63,24 @@ CI's primary x86-64 target stays Linux-ELF (per `plan-native-x64.md`
 decision 2); this doc does not change that. It adds the Mach-O axis
 for **local dev verification** and makes the format a real parameter.
 
-## What's already in place (the encouraging part)
+## The two coupling points
 
-The separation mostly exists at the `pkg/asm` layer:
-
-- Encoders fill an abstract `asm.Assembler` — `Section`s, `Symbol`s,
-  and *arch-specific* `Fixup`/`Relocation` `Kind`s
-  (`pkg/asm.bni`). The encoder does **not** know the object format.
-- Both object writers already cover both arches:
-  `macho.WriteX86_64` **and** `macho.WriteARM64`; `elf.WriteX86_64`,
-  `elf.WriteAArch64`, `elf.WriteARM32`. Each routes through a shared
-  `Write(a, …)` parameterized by CPU type / machine.
-- x86-64 → Mach-O assembly is already exercised end-to-end at the asm
-  layer: `pkg/asm/macho/macho_x64_test.bn` assembles + links + runs
-  x86-64 Mach-O with macOS syscall conventions.
-
-So `{x64,aarch64} × {Mach-O,ELF}` is essentially a populated matrix
-*below* `pkg/native`.
-
-## The two coupling points (what actually needs work)
+The separation mostly already existed at the `pkg/asm` layer:
+encoders fill an abstract `asm.Assembler` (`Section`s, `Symbol`s, and
+*arch-specific* `Fixup`/`Relocation` `Kind`s) and don't know the
+object format; both object writers already cover both arches
+(`macho.WriteX86_64`/`WriteARM64`, `elf.WriteX86_64`/`WriteAArch64`/
+`WriteARM32`, each routing through a shared `Write(a, …)`); and
+x86-64 → Mach-O assembly was already exercised end-to-end at the asm
+layer by `pkg/asm/macho/macho_x64_test.bn`. So `{x64,aarch64} ×
+{Mach-O,ELF}` was essentially a populated matrix *below* `pkg/native`.
+Two coupling points above that layer needed work.
 
 ### 1. `EmitObject` hardcodes one writer per arch
-- `pkg/native/amd64/amd64.bn:EmitObject` → `elf.WriteX86_64(a, path)`.
-- `pkg/native/arm64/arm64.bn:EmitObject` → `macho.WriteARM64(a, path)`.
-
-Fix: parameterize the emit path by an **object-format selector**, and
-pick the writer from it. The writers already exist; this is the easy
-half.
+`EmitObject` hardcoded `elf.WriteX86_64` (amd64) / `macho.WriteARM64`
+(arm64). Fix: parameterize the emit path by an **object-format
+selector**, and pick the writer from it. The writers already exist;
+this is the easy half.
 
 ### 2. Symbol-prefix convention leaks into the encoder (the crux)
 Mach-O C linkage requires a leading `_` on symbols; ELF does not.
@@ -133,24 +127,13 @@ on both (modulo corners). So calling convention is **arch-determined,
 not OS-determined** — no work needed on that axis. (Windows/Win64 is
 an explicit non-goal, per `plan-native-x64.md`.)
 
-### To verify, not assume
-- That `macho.Write`'s relocation mapping handles the **x86-64**
-  fixup kinds (its arm64 path is exercised; the x86-64-into-Mach-O
-  reloc types — `X86_64_RELOC_*` — differ and must be covered).
-  `macho_x64_test.bn` suggests yes; confirm it covers the reloc
-  kinds the IR driver actually emits (PC32 calls, ABS64 data, GOT-ish
-  refs if any).
-- Mirror check for `elf.Write` + aarch64 fixup kinds (for the future
-  arm64→ELF direction; not on the critical path for the x64 win).
-
-## Proposed design
+## Design
 
 **The object format is not a new axis to invent — it is already a
 projection of the target triple** (Resolved decision 1). The triple
 (`x86_64-apple-darwin` vs `x86_64-linux-gnu`) already encodes arch +
 OS + format, and `cmd/bnc/target.bn` is already the single place that
-decodes it (`applyTarget` → `targetTriple`; `nativeArchForTarget()` →
-arch string).
+decodes it.
 
 **Mirror what the LLVM backend already does.** The LLVM `Backend`
 impl just forwards `targetTriple` to clang (`-target`); clang
@@ -162,8 +145,8 @@ triple"), not a new abstraction.
 
 Concretely:
 
-- **Ownership: `cmd/bnc/target.bn`.** Add a `nativeObjFormatForTarget()`
-  sibling to `nativeArchForTarget()` that decodes the *same* triple
+- **Ownership: `cmd/bnc/target.bn`.** `nativeObjFormatForTarget()`
+  sits beside `nativeArchForTarget()` and decodes the *same* triple
   into `{ format, symPrefix }` (`*-darwin → { Mach-O, "_" }`,
   `*-linux → { ELF, "" }`). `symPrefix` is a pure function of format,
   so it isn't a separate input.
@@ -184,17 +167,17 @@ re-derive one from the other inside a backend.
 
 ## Verification path (the point of the exercise)
 
-Stand up a **local x86-64 Mach-O run path** on Apple Silicon:
+A **local x86-64 Mach-O run path** on Apple Silicon:
 - `bnc --target x86_64-darwin --backend native` → x86-64 Mach-O `.o`.
 - Link with the macOS x86-64 toolchain (`cc -arch x86_64 …`, as
   `macho_x64_test.bn` already does).
 - Run via Rosetta (`arch -x86_64 ./exe`, or direct exec — Rosetta is
   transparent for `exec`).
-- A conformance runner mode (e.g. `…_native_x64_macho…`) that does
-  this, used **locally** to exercise the amd64 backend end-to-end.
-  Linux-ELF CI stays the canonical gate; the Mach-O runner is the
-  dev-loop accelerator. **Local-only — not in CI** (Resolved
-  decision 2).
+- A conformance runner mode (the `…_native_x64_darwin…` modes) that
+  does this, used **locally** to exercise the amd64 backend
+  end-to-end. Linux-ELF CI stays the canonical gate; the Mach-O
+  runner is the dev-loop accelerator. **Local-only — not in CI**
+  (Resolved decision 2).
 
 ### Testing strategy: cover each axis, not every combination
 
@@ -220,26 +203,14 @@ So the off-diagonal cells are local-only / optional:
   that specific combination is ever wanted: GitHub now offers
   `ubuntu-24.04-arm` arm64-Linux runners.
 
-## Phasing (small, independently-landable slices)
+## Deferred / future
 
-1. **Symbol-prefix consolidation (no behavior change).** Funnel all
-   three name-site categories (mangled names; `bn_rt__…` runtime
-   refs; `__ivt.`/`__handle.` labels) through a single prefix-aware
-   helper, threading a `symPrefix` value. Seed it with each arch's
-   current hardcoded value (`"_"` arm64, `""` amd64) so every existing
-   test stays green. This removes the scattered `underscorePrefix(...)`
-   calls and bare `bn_rt__…` literals, isolating the cross-cutting
-   change from any behavior change.
-2. **`EmitObject` format parameter.** Add the format parameter +
-   writer selection; default each arch to its current format. Still
-   no behavior change.
-3. **x86-64 → Mach-O.** Wire `x86_64-darwin` to `{ macho.WriteX86_64,
-   "_" }`. Verify the reloc mapping; fix gaps in `macho.Write`'s
-   x86-64 reloc handling if any. Land the local Rosetta runner.
-   *This is the slice that unblocks local amd64 verification.*
-4. **(Later) arm64 → ELF.** Symmetric; wire `aarch64-linux` to
-   `{ elf.WriteAArch64, "" }`. Not on the critical path; do it when
-   arm64-Linux becomes a goal.
+- **(Later) arm64 → ELF.** Symmetric with the x86-64 → Mach-O work;
+  wire `aarch64-linux` to `{ elf.WriteAArch64, "" }`. Not on the
+  critical path; do it when arm64-Linux becomes a goal. Before relying
+  on it, mirror the reloc-mapping check done for x86-64-into-Mach-O:
+  confirm `elf.Write` covers the aarch64 fixup kinds the IR driver
+  emits.
 
 ## Non-goals
 

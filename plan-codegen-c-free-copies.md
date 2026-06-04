@@ -1,27 +1,12 @@
 # Plan: eliminate memcpy/memset/memmove/memclr dependencies from generated code
 
-**Status**: LANDED 2026-06-01 — all 8 steps complete, plus the OP_LOAD followup the original plan had marked as deferrable.  See landing pointers below.
-**Tracks**: ~~claude-todo MAJOR entry "runtime/baremetal_arm32: missing `__aeabi_memcpy` / `__aeabi_memmove` / `__aeabi_memset` / `__aeabi_memclr` aliases"~~ — resolved via this plan rather than runtime-side aliases.
-**Blocked**: pkg/binate/buf-using tests on `builder-comp_arm32_baremetal` (pkg/builtins/lang unit-tests + conformance 064) — all now green.
-
-## Landing pointers
-
-| Step | Commit | What |
-|------|--------|------|
-| 1. Helper plumbing (`emitFieldwiseCopy` / `emitFieldwiseZero`) | `dcf9f99f` | Pure plumbing — no callers yet; 10 direct unit tests. |
-| 2. Byval-spill (`emit_instr.bn` OP_STORE byval) | `c93917b9` | Replace `@llvm.memcpy` byval-spill; drop the unused declare. |
-| 3. Zero-init (`emit_const_nil.bn`, `emit_helpers.bn` `emitAlloc`) | `8c448bb0` + `3c366a6b` | Replace `store <T> zeroinitializer` with per-scalar zero-stores. The `fc`/`fz` SSA prefix split avoided idTag collisions between alloca-zero and byval-spill on the same slot. |
-| 4. Rodata copies (`emit_strings.bn`) | `f000b7ff` | Inline literal bytes as i8 constants — no `@bn_pkg__libc__Memcpy` or rodata read at runtime.  Drop the implicit-libc-memcpy declare. |
-| 5. Aggregate OP_STORE (the actual baremetal blocker) | `fd3c60c0` | Aggregate-typed stores route through `emitAggregateStoreFromSSAInstr`: extractvalue + GEP + scalar store. Walker handles named-struct (packed `<{ }>` with `[N x i8]` padding) vs anonymous tuple (non-packed `{ }`) correctly. |
-| 6. Native backends (x64 + aarch64 rodata copies) | `d8083230` | Inline byte stores replace `bn_pkg__libc__Memcpy` assembly emissions. |
-| 7. Drop implicit `pkg/libc` import (cmd/bnc + cmd/bni) | `ac301f17` | No codegen path emits libc.Memcpy anymore; the implicit injection had no purpose. |
-| 8. Verification | — | builder-comp_arm32_baremetal: 20/0/14 unit, 441/0/10 conformance.  All bnc-emitted code memcpy-free. |
-| Followup: aggregate OP_LOAD | `675e47c1` | Per-scalar GEP + load + insertvalue chain.  Originally listed as deferrable but addressed for completeness — LLVM aggregate-LOAD → memcpy lowering is size + LLVM-version dependent, "currently green" wasn't a robust guarantee. |
-| Followup: conformance/512 UB rewrite | `f152e6cc` | Pre-existing `return &local` UB; rewritten to use `@Handle` + `make` for a well-defined program (Binate's allocation is source-determined, NOT Go-style escape-analyzed). |
-
-The remaining body of this document captures the original survey + design — preserved for reference.
-
----
+**Status**: COMPLETE (shipped 2026-06-01) — kept for design rationale. Resolved
+the claude-todo MAJOR entry "runtime/baremetal_arm32: missing `__aeabi_memcpy` /
+`__aeabi_memmove` / `__aeabi_memset` / `__aeabi_memclr` aliases" via codegen
+changes rather than runtime-side aliases. The aggregate `OP_LOAD` followup (which
+the original plan marked deferrable) was also addressed for completeness — LLVM
+aggregate-LOAD → memcpy lowering is size + LLVM-version dependent, so "currently
+green" wasn't a robust guarantee.
 
 ## Goal
 
@@ -52,91 +37,6 @@ exist to back symbols that **we** never emit), and `bn_pkg__libc__Memcpy`
 stays in the libc-host runtime as a possible target for user-level
 `pkg/libc` callers.  This plan is about what bnc *emits*, not what
 hand-written C provides.
-
-## Current emission sites
-
-Survey by `grep -rn "llvm\.mem\|libc__Mem" pkg/binate/codegen/`:
-
-### Site A — `emit_instr.bn:129-146` — `OP_STORE` byval-param spill
-
-When a >16-byte struct param arrives via the `byval` calling convention
-(landed in commit `f5340fac` as part of plan-codegen-byval), the callee
-emits a slot alloca and copies the caller-provided buffer into it.
-Current shape:
-
-```llvm
-%v.slot = alloca %T
-call void @llvm.memcpy.p0.p0.i64(ptr %v.slot, ptr %v.byvalParam, i64 sizeof(T), i1 false)
-```
-
-**Replacement**: per-field GEP + scalar store.  We have `types.SizeOf` /
-`FieldOffset` already.  Emit one `load <scalar>` + `store <scalar>` pair
-per field.  For nested aggregates, recurse.
-
-### Site B — `emit_strings.bn:55-65` — `OP_RODATA_CHARS_COPY`
-
-The "copy from rodata into a stack array" path (for `var s [N]char = "hi"`-
-style decls).  Emits:
-
-```llvm
-call void @bn_pkg__libc__Memcpy(i8* %v.dst, i8* %v.src, i32 strLen)
-```
-
-**Replacement**: emit an inline loop in LLVM IR over `i8` (or `i32` for
-4-byte-aligned chunks).  Or, since rodata-array sizes are known at
-compile time, fully unroll into `strLen` individual `store i8` ops.
-Unrolling is simpler and likely faster for the typical short-string case.
-
-### Site C — `emit_strings.bn:160-170` — `OP_RODATA_MSLICE_COPY`
-
-The "make a fresh `@[]char` from a string literal" path.  Same shape as
-Site B; same replacement strategy.  This is the much more common path
-(every `"foo"` literal goes through here).
-
-### Site D — `emit_const_nil.bn:13-31` — zero-init of `%BnSlice` / `%BnManagedSlice`
-
-```llvm
-store %BnSlice zeroinitializer, %BnSlice* %v
-store %BnManagedSlice zeroinitializer, %BnManagedSlice* %v
-```
-
-These are aggregate stores.  `%BnSlice` is 8 bytes (`{i8*, i32}`), small
-enough that LLVM inlines.  `%BnManagedSlice` is 16 bytes — sometimes
-inlined, sometimes lowered to memset.  Even when inlined to 4 scalar
-stores, the ARM backend may pick `__aeabi_memclr8` for the all-zero case
-under some `-O` settings.
-
-**Replacement**: emit per-field `store i32 0` / `store ptr null` sequences
-explicitly.  No aggregate store, no zeroinitializer.
-
-### Site E — implicit LLVM lowering of `store <Aggregate>` / `load <Aggregate>`
-
-The actual root cause of the current baremetal link failure.  In
-`emit_instr.bn:148-157`, the "plain" `OP_STORE` path emits:
-
-```llvm
-store <T> <val>, <T>* <ptr>
-```
-
-For `<T>` larger than a few words (CharBuf = 20 bytes), the LLVM backend
-lowers this to `@llvm.memcpy` → `__aeabi_memcpy`.
-
-**Replacement**: at the codegen level, when `<T>` is an aggregate
-(struct / array / fixed-size composite), emit per-field stores via GEP
-instead of the aggregate store.  Mirror change for aggregate loads.
-
-This is the central piece of the plan.
-
-### Site F — native backends (pkg/binate/native/x64, /aarch64)
-
-The native backends do their own ABI lowering, but the
-IndirectLargeAggregates path (landed in `f5340fac`) and
-`_call_shim_aggregate` (used for closure captures) currently copy via
-runtime helpers.  Need to audit each call site and replace the byte-loop
-runtime helpers with inline scalar-store sequences.
-
-This is mostly orthogonal to A-E (different IR-gen layer) and can be a
-separate step.
 
 ## Proposed replacement strategy
 
@@ -184,16 +84,16 @@ we'd write a Binate-level byte-loop helper (`rt.CopyBytes(dst, src, n)`)
 and emit a call to it.  But the threshold for that is well above any
 struct size in current usage — start without one, add later if measured.
 
-### Types module support needed
+The codegen helpers are `emitFieldwiseCopy(out, dstPtr, srcPtr, T) → buf`
+(walks `T`'s layout via `types.SizeOf` / `types.FieldOffset` /
+`types.FieldType`, emits the per-field load/store sequence) and a sibling
+`emitFieldwiseZero(out, dstPtr, T) → buf` (per-field zero-stores, no
+source pointer) for zero-init.
 
-A new codegen helper: `emitFieldwiseCopy(out, dstPtr, srcPtr, T) → buf`
-that walks `T`'s layout (via `types.SizeOf` / `types.FieldOffset` /
-`types.FieldType`) and emits the per-field load/store sequence.  Lives
-in `pkg/binate/codegen/emit_util.bn` or a new `emit_copy.bn`.
-
-For zero-init (Site D), a sibling `emitFieldwiseZero(out, dstPtr, T) → buf`
-that walks `T`'s layout and emits per-field zero-stores.  Same shape,
-no source pointer.
+The aggregate-store walker handles named-struct (packed `<{ }>` with
+`[N x i8]` padding) vs anonymous tuple (non-packed `{ }`) correctly. The
+`fc`/`fz` SSA prefix split avoided idTag collisions between alloca-zero
+and byval-spill on the same slot.
 
 ## Risks and considerations
 
@@ -227,57 +127,6 @@ no source pointer.
    to regenerate goldens after the codegen change, with manual review
    of one representative golden per shape (struct of scalars / struct
    of slices / nested struct / array of struct).
-
-## Sequencing
-
-The order is the natural difficulty gradient — each step lands
-independently, doesn't regress the prior, and the test suite stays
-green throughout.
-
-1. **Add `emitFieldwiseCopy` + `emitFieldwiseZero` helpers** in a new
-   `pkg/binate/codegen/emit_copy.bn`.  Unit-test directly (build a
-   synthetic IR-gen invocation, dump the LLVM text, assert on the
-   expected scalar-store sequence).  No callers yet — pure plumbing.
-
-2. **Site A**: replace `@llvm.memcpy` in `OP_STORE` byval-param branch
-   with `emitFieldwiseCopy`.  Only path that's been in the tree < 1 wk;
-   smallest blast radius.  Run unit + conformance suites in all modes.
-
-3. **Site D**: replace `store %BnSlice zeroinitializer` / `store
-   %BnManagedSlice zeroinitializer` with `emitFieldwiseZero`.  All
-   four scalar stores per `%BnSlice` (2 fields) / `%BnManagedSlice` (4
-   fields).  Refresh codegen goldens.
-
-4. **Sites B + C** (rodata copies): replace `@bn_pkg__libc__Memcpy` with
-   unrolled per-byte stores (length is known at compile time, so
-   unrolling is trivial — no loop needed).  Drop the
-   `@bn_pkg__libc__Memcpy` declaration from `emit.bn` once both call
-   sites are gone.
-
-5. **Site E** (the actual blocker): change the generic `OP_STORE` /
-   `OP_LOAD` paths so that aggregate-typed operations route through
-   `emitFieldwiseCopy` / a matching `emitFieldwiseLoadInto`.  Largest
-   blast radius — every struct copy in the codebase changes shape.
-
-6. **Site F** (native backends): audit `pkg/binate/native/{x64,aarch64}`
-   for direct memcpy/memset emission in the indirect-large aggregate
-   and closure-capture paths.  Replace with inline scalar stores or
-   call into the same Binate-level helpers used by Site B/C.
-
-7. **Drop unused declarations**: `@llvm.memcpy.p0.p0.i64` and
-   `@bn_pkg__libc__Memcpy` from `emit.bn`.  Drop the
-   `__aeabi_memcpy`/`memcpy` placeholders from
-   `runtime/baremetal_arm32/semihost.s` (keep `memcmp` — that's
-   user-callable via `pkg/libc`).
-
-8. **Verification**: with steps 1-7 landed, the
-   `runtime/baremetal_arm32` lane should run `pkg/binate/buf`-using
-   tests cleanly.  Bring `pkg/builtins/lang` and conformance `064` to
-   green; remove their de-facto-xfail status.
-
-Each step is one commit.  Steps 1-4 should be 1-2 days of work; step 5
-is 2-3 days; step 6 is independent and can interleave with the
-remaining language-feature work; step 7-8 are cleanup.
 
 ## Out of scope (followups, not blockers)
 

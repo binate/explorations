@@ -1,5 +1,7 @@
 # Plan: bnc as Builder (Replacing the Bootstrap Interpreter)
 
+Status: COMPLETE (shipped); kept for design rationale. The bootstrap interpreter has been retired, `BUILDER_VERSION` advanced past the transition, and the `builder` runner modes are canonical. This doc is retained as the sole written record of the `BUILDER_VERSION`/`VERSION` convention, the chicken-and-egg release loop, and the rebuild-from-source escape-hatch base case.
+
 The bootstrap interpreter (`bootstrap/` Go program) has run its course as the canonical first-stage compiler.  It is slow (every test compile pays the interp tax), restricts the language to a "bootstrap subset" that we maintain by hand, and ties the binate repo's CI/dev story to a sibling repo's working tree.  Replace it with a tagged binary of a previous `bnc` release.  Day-to-day development uses the prebuilt binary; the ladder back to the bootstrap interpreter exists only as an escape hatch for when no prebuilt is available.
 
 ## Goals
@@ -80,59 +82,6 @@ The script also supports `--rebuild-from-source`: ignore the cache and rebuild t
 
 GitHub Actions cache keyed on `BUILDER_VERSION` + os + arch.  Cache hits skip the download; cache misses fall through to fetch from the release.
 
-## Phases
-
-### Phase 0: Land the first release
-
-**Goal.**  Have a `bnc-0.0.1` tag with binaries on GitHub before any `BUILDER_VERSION` work in the repo.
-
-1. Cut release candidate from current main: confirm conformance + unit tests green across all supported modes.
-2. Tag `bnc-0.0.1`.  Manual GitHub release create with the platform binaries attached (later automated by phase 4).
-3. Write the SHA256 manifest.
-
-No code changes to main during this phase — just establish the artifact exists.
-
-### Phase 1: BUILDER_VERSION + fetcher
-
-**Goal.**  Wire up the builder fetcher and the `BUILDER_VERSION` file; CI still runs `boot` as canonical.
-
-1. Add `BUILDER_VERSION = bnc-0.0.1` at the repo root.
-2. Add `VERSION = bnc-0.0.2-pre`.
-3. Write `scripts/fetch-builder.sh`.
-4. Write a no-op smoke test in CI that fetches the builder, compiles `conformance/001_hello.bn`, and checks the output.  Doesn't replace anything yet — just proves the fetcher works.
-
-### Phase 2: `builder` runner alongside `boot`
-
-**Goal.**  Both modes run side-by-side in CI for one or two commits, so we can confirm parity before flipping.
-
-1. Add `scripts/unittest/runners/builder.sh` mirroring `boot.sh` but using the fetched binary.
-2. Add `conformance/runners/builder.sh` analogously.
-3. Add the `builder` mode to the all-mode-set.  CI runs both `boot` and `builder` for the transition window.
-4. Diff-check: any test that passes in `boot` but fails in `builder` (or vice versa) is a parity bug to fix before phase 3.
-
-### Phase 3: Move bootstrap-subset tests to the bootstrap repo
-
-**Goal.**  Tests that were intended to exercise the bootstrap interpreter's subset move to where they're actually verifying that subject.
-
-1. In the bootstrap repo, set up `conformance/` mirroring binate's directory layout.  Copy the boot-runnable subset of tests over.
-2. Set up the bootstrap repo's CI to run its conformance against its own interpreter.
-3. Remove those tests from the binate repo (or leave them in place and stop running them under `boot` in CI).
-
-The cross-repo test duplication is the cost of cleanly separating "tests the bootstrap interpreter" from "tests bnc."  An alternative considered: keep tests in binate and have the bootstrap repo's CI pull them via submodule.  Either works; submodule adds dependency complexity but avoids the duplication.  Recommend starting with copy + revisit if it becomes burdensome.
-
-### Phase 4: Make `builder` canonical, drop `boot` from binate
-
-**Goal.**  `boot` is gone from binate; `builder` is the first stage everywhere.
-
-1. Rename mode references: `boot-comp` → `builder-comp`, `boot-comp_native_aa64-comp_native_aa64` → `builder-comp_native_aa64-comp_native_aa64`, etc.  Mass rename of `.xfail.boot*` files to `.xfail.builder*`.
-2. Drop the `boot.sh` runner files and the `boot` mode from the all-mode-set.
-3. Drop the bootstrap dependency from binate's CI workflows (no more `cd bootstrap && go run .`).
-4. Automate the release workflow (the manual step from phase 0).  Tag pushes trigger platform-matrix builds and GitHub release publishing.
-
-### Phase 5: Steady state
-
-`BUILDER_VERSION` advances when a new feature requires bnc capabilities the current builder lacks (see chicken-and-egg below).  Cadence: probably tied to features, not time — when something useful accumulates, cut a release.  Pre-release work can land freely behind the existing builder.
-
 ## Chicken-and-egg situation
 
 A change that wants to *use* a new bnc feature in binate's own source requires the builder to *support* that feature.  The workflow:
@@ -171,5 +120,5 @@ Cache directory keyed on version, so multiple `BUILDER_VERSION`s coexist (e.g., 
 
 - **Tag prefix:** `bnc-X.Y.Z` or just `vX.Y.Z` (Go convention)?  `bnc-` is more self-documenting when multiple binaries might ship from the same repo (bni, bnas, bnlint).  Recommend `bnc-`.
 - **Versioning scheme:** semver, calver, or 0.0.X-forever-until-1.0?  Probably 0.0.X for now — none of the API is stable.  Bump to 0.1.0 when the language reaches a meaningful milestone (e.g. "self-host without bootstrap fallback").
-- **Bootstrap repo lifecycle:** kept indefinitely (it's still the only way to build bnc-0.0.1 from scratch), but development on it slows after phase 4.  Eventually moves to "maintenance only" status.
+- **Bootstrap repo lifecycle:** kept indefinitely (it's still the only way to build bnc-0.0.1 from scratch), but development on it slows after the transition.  Eventually moves to "maintenance only" status.
 - **Workflow for the bootstrap repo when it's needed:** how does someone produce an updated bootstrap interpreter if a new bnc release needs language features the current bootstrap doesn't support?  Answer: it doesn't; releases are built by the previous bnc release, not by bootstrap.  Bootstrap is only the universal base case for the absolute first release.
