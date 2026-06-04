@@ -535,28 +535,27 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   and value-struct imported vars.  Best done together.
 - **Discovery**: 2026-06-03, deferral-2 Slice 4 + coverage review.
 
-### `pkg/binate/version` top-level `var` reads as `len 1` under the bytecode VM
-- **Symptom**: `pkg/binate/version` unit tests fail in the `-int` modes
-  (`builder-comp-int` / `-comp-comp-int` / `-comp-int-int`) with
-  `runtime error: index out of bounds: 4 (len 1)` — the package-private
-  top-level `var version *[]readonly char = "bnc-..."` reads as length 1
-  under the VM.  Passes in all compiled modes.  Main is currently RED in
-  the `-int` unit lane because of this (no xfail yet).
-- **Trigger**: `c2bfac22` (plan-const-readonly step 8) migrated
-  `version` from a `const` to a package-private `var`.  A top-level
-  `var` of (readonly) string-slice type, initialized from a string
-  literal, is mis-initialized or mis-read by the VM's package-init /
-  global-read path — distinct from the non-int-const mis-emit (consts)
-  and the `.bni` extern-var gap (cross-package) above.
-- **Root cause**: unknown — needs investigation in the VM's top-level
-  `var __init` lowering / global-slice read for a string-literal-
-  initialized managed/readonly-slice var.
-- **Next**: root-cause + fix; the existing version tests already catch
-  it (compiled).  Until then an `.xfail.<mode>` for `pkg-binate-version`
-  in the `-int` modes would un-red the lane.
-- **Discovery**: 2026-06-03, during drop-libc verification — a baseline
-  run confirmed it fails identically on clean main (not introduced by
-  that work).
+### ~~`pkg/binate/version` top-level `var` reads as `len 1` under the bytecode VM~~ — RESOLVED 2026-06-03 (binate `d903ea4b`)
+- **Was**: `pkg/binate/version` unit tests failed in the `-int` modes
+  (`runtime error: index out of bounds: 4 (len 1)`) — the package-private
+  `var version *[]readonly char = "bnc-..."` read as a zero (len-0)
+  slice, so `version[bncPrefixLen:]` aborted.  Surfaced when step 8
+  migrated `version` `const`→`var` (a `const` needs no `__init`).
+- **Root cause** (NOT the global-read/init lowering first guessed):
+  `cmd/bni`'s `--test` mode (`runTests`) lowered all packages but never
+  built or invoked the package `__init` dispatcher — unlike the run path
+  (`EmitInitDispatcher`), which a test program lacks (no `main.__entry`).
+  So a top-level `var` initialized by `<pkg>.__init` read its zero value
+  under the `-int` unit harness.  (Conformance `main` programs were
+  unaffected — they run through `main.__entry`, which dispatches inits.)
+- **Fix**: `runTests` collects each lowered package's `__init` (where
+  `HasPackageInit`, loader dep order) and invokes it via
+  `vmInst.CallFunc` before the `Test*` functions.
+- **Verified**: `pkg/binate/version` passes in `builder-comp-int` /
+  `-comp-comp-int`; full `builder-comp-int` unit suite 37/0.  Guarded by
+  version's existing `-int` tests (`TestVersionStartsWithBncDash` reads
+  the global) — red before, green after.  The version-redesign MINOR
+  entry above should keep a global-var `-int` test as the durable guard.
 
 ### Dispatch conflicts (extern registered + Binate body provided) should be a HARD ERROR
 - **What**: today the VM dispatches a `BC_CALL` by name: `LookupFunc`
