@@ -621,6 +621,49 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `emitValOperand`-style helper (a `getValOperand` mirroring the LLVM
   `emitValRef` fix); the x64 root-cause + site map is already scoped.
 
+### `550` native @func capture-record refcount — ROOT-CAUSED, ready to implement (xfailed builder-comp_native_aa64-comp_native_aa64)
+- **Symptom**: a capturing `@func`'s captured managed value is not released
+  when the closure dies on native aa64; `conformance/550` reads rt.Refcount
+  2 instead of 1.  Green on every other mode (VM fixed via `0a0d00af`; LLVM
+  via the func-value vtable dtor slot).
+- **Root cause (VERIFIED in-tree)**: native `emitFuncValueVtables`
+  (`pkg/binate/native/aarch64/aarch64.bn:391-392`) ALWAYS writes the
+  vtable's slot-0 (dtor) as `a.Zero(8)`, even for a capturing managed
+  closure whose closure struct needs destruction.  So `fv.vtable[0]` is
+  null -> `OP_FUNC_VALUE_DTOR` yields null -> `rt.ZeroRefDestroy` skips the
+  dtor -> the captured value is freed without running the closure-struct
+  dtor -> its ref is never released.  The OP_FUNC_VALUE_DTOR load
+  (aarch64_dispatch.bn) and emitRefDecInline forwarding (aarch64_ops.bn)
+  are already correct; only the slot-0 wiring is missing.
+- **LLVM does it right**: `emitFuncValueVtableDtor`
+  (`pkg/binate/codegen/emit_funcvals.bn:374`) emits a pointer to
+  `@__handle.<closureStructDtorMangledName>` when
+  `closureFunc.IsManagedFuncValue && closureFunc.ClosureStruct != nil &&
+  closureFunc.ClosureStruct.NeedsDestruction()`, else `null`.  It gets
+  `closureFunc` from `lookupClosureFunc(m, seen[i])`.
+- **Fix (native)**: in `emitFuncValueVtables`, replace the unconditional
+  `a.Zero(8)` (slot 0) with: look up the `@ir.Func` for `seen[i]` (a
+  qualified name) by matching `mod.Funcs[k].Name` (add a small
+  `lookupModuleFuncAA64(mod, qname) @ir.Func` helper -- NOTE the
+  sub-agent's `lookupClosureFuncAA64` / `lookupModuleFunc` / `emitQuadLabel`
+  names do NOT exist); if `f != nil && f.IsManagedFuncValue &&
+  f.ClosureStruct != nil && f.ClosureStruct.NeedsDestruction() &&
+  len(f.ClosureStructDtorName) > 0`, emit the dtor handle
+  (`var h = handleSymFor(pkgName, f.ClosureStructDtorName); a.SetGlobal(h);
+  a.EmitAddr(h)`) instead of `a.Zero(8)`.  `f.ClosureStructDtorName` is the
+  authoritative qualified dtor name (set in gen_func_lit.bn:169 =
+  `qualifiedDtorNameForType(closureStruct)`) and equals the dtor func's
+  `Name` in `mod.Funcs`, so the handle references the SAME `___handle.`
+  triplet that collectFuncValueRefs' IsLinkOnce pre-pass already emits for
+  the dtor func -- self-consistent, no new global needed.  The non-closure
+  / non-capturing paths keep emitting `a.Zero(8)` exactly as today.
+- **x64 parity**: mirror in `pkg/binate/native/x64` emitFuncValueVtables
+  (same slot-0 gap; not in CI but the same silent-capture-leak bug).
+- **Tests**: un-xfail `550` on native aa64; add a unit test pinning that a
+  capturing-managed-closure vtable's slot 0 is the dtor handle (EmitAddr,
+  not Zero) and a non-capturing one's is zero.  Verify 550 fails pre-fix
+  (rt.Refcount 2) and passes post-fix (1) on native aa64.
+
 ### Native backends mis-lower float consts/returns — `541` silently reads 0 (Phase A float-const gap on the native code generators)
 - **Symptom**: `conformance/541_cross_pkg_const_float` passes on the
   default C/LLVM-backed modes but **fails on the native aarch64 backend**
