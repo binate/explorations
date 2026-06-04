@@ -303,7 +303,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
-### Field access into an anonymous (multi-return tuple) struct miscomputes the LLVM GEP index when a field has alignment padding before it — FIXED 2026-06-03 (binate `c09a3154`, pending cherry-pick)
+### Field access into an anonymous (multi-return tuple) struct miscomputes the LLVM GEP index when a field has alignment padding before it — FIXED 2026-06-03 (binate `5f4a8eaf`)
 - **What**: `emitGetFieldPtr` (`pkg/binate/codegen/emit_helpers.bn:118`) maps the
   Binate field index to the LLVM field index via `structLLVMIndex` (which counts
   inserted `[N x i8]` padding fields) **unconditionally**.  But anonymous
@@ -382,9 +382,9 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   (or share its core), fixing the round-bit bug above.
 - **Plan**: `explorations/plan-strconv-parse.md` (errors via the now-landed
   `@errors.Error`; input `*[]readonly uint8`).
-- **Progress (2026-06-03, binate, pending cherry-pick)**: `ParseBool` + the
-  unexported `numError` (`@errors.Error` impl) landed (`f473ef5f`).  Fixing it
-  surfaced + fixed a MAJOR anon-tuple field-GEP codegen bug (`c09a3154`, above).
+- **Progress (2026-06-03, binate, landed)**: `ParseBool` + the unexported
+  `numError` (`@errors.Error` impl) landed (`b4bfe843`).  Fixing it surfaced +
+  fixed a MAJOR anon-tuple field-GEP codegen bug (`5f4a8eaf`, above).
   Remaining: `ParseInt`/`ParseUint`/`Atoi` (integer core), then `ParseFloat`
   over `big` + the Go differential, then the cross-package conformance.
 
