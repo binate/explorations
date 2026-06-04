@@ -2,6 +2,10 @@
 
 Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active work lives there.
 
+Some older entries reference design/plan docs that have since been archived (see
+[historical-notes.md](historical-notes.md)) or removed outright; those filenames may
+no longer resolve in the tree, though git history retains them.
+
 ---
 
 ## Done
@@ -250,7 +254,7 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 - **Pre-existing**: the `Unit tests` CI workflow had been red for 982+ runs (since 2026-05-18).  The team had already hand-hoisted one analogous leak (`callArgs` in `execLoop`); the emit_util.bn comment had even predicted this one.
 - **Fix**: split the preamble.  `writeByvalArgPreamble` now emits only the `store`; new `emitByvalAllocDecls` emits the `alloca` in the entry block, hooked into `emitFuncDbg`'s alloca-hoist pre-pass (alongside OP_ALLOC / OP_MAKE_SLICE / sret).  Slot names `%v<callID>.bv<i>` are a pure function of (instr.ID, arg index) so the entry alloca and call-site store agree without extra plumbing.  Same change removed the `ulimit -s 65520` band-aid from the three bni-using runners (added in `1f2dc9b4` / `c132324a`).
 - **Verification** (default 8 MiB stack, band-aid removed): `execLoop` 14 → 0 dynamic stack-adjustments; `pkg/binate/types` 527/527 (was crash after test #1); `builder-comp-int` 34/0 (was 24/10 even WITH the band-aid); `builder-comp-comp-int` 30/0/4xfail; all 24 previously-crashing packages green; conformance `builder-comp` 450/0/1.  Regression test `TestByvalSpillAllocaHoistedToEntry` (`emit_helpers_test.bn`) pins "no alloca in/after for.body for a byval call in a loop."
-- **Follow-up — also FIXED 2026-06-02 (binate `d9800429`)**: the same call-site-alloca class on the func-value-call (`.ap<i>` aggregate args + `.rb` retbuf) and iface-method (`.rb` sret) paths was hoisted too (latent — no package triggered it, but same shape).  Details in [`plan-codegen-byval-spill-hoist.md`](plan-codegen-byval-spill-hoist.md).
+- **Follow-up — also FIXED 2026-06-02 (binate `d9800429`)**: the same call-site-alloca class on the func-value-call (`.ap<i>` aggregate args + `.rb` retbuf) and iface-method (`.rb` sret) paths was hoisted too (latent — no package triggered it, but same shape).  Details in `plan-codegen-byval-spill-hoist.md` (archived — see `historical-notes.md`).
 
 ### ~~arm32_baremetal: pkg/native/{aarch64,x64} test binaries overflow `.bss` region~~ — FIXED 2026-05-30 (binate `b0c64b14`)
 - **Final fix**: combined option-(a) + xfail-manifest-rename:
