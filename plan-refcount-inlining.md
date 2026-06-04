@@ -1,10 +1,9 @@
 # Plan: Inline RefInc / Fast-Path Inline RefDec
 
-> **Status: DONE** (RefInc + RefDec). Eleven commits across IR, all
-> three backends (LLVM / VM / native arm64), and the runtime.
-> Final commit: `19502d4 pkg/ir: switch IR-gen to emit OP_REFDEC;
-> with-dtor test coverage`. See claude-todo.md "Inline RefInc /
-> fast-path inline RefDec (perf)" for the full commit list.
+> **Status: COMPLETE (shipped); kept for design rationale.** RefInc +
+> RefDec inlining landed across IR, all three backends (LLVM / VM /
+> native arm64), and the runtime. See claude-todo-done.md "Inline
+> RefInc / fast-path inline RefDec (perf)".
 >
 > The dead `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC` ops, their backend
 > dispatch arms, `BC_REFINC` / `BC_REFDEC` and their VM exec
@@ -106,8 +105,6 @@ Slow path runs once per managed allocation (when its last reference
 is released), not at every assignment. Inlining the dtor + free
 sequence gains nothing because it's already rare.
 
-### Slow-path helper name
-
 `ZeroRefDestroy(ptr, dtor)` — describes what it does (refcount has
 already hit zero; this destroys the object). Lives in `pkg/rt`
 alongside `RefInc` / `RefDec`.
@@ -135,7 +132,7 @@ per refcount site is much slower than a single fused dispatch.
 (Still better than the current `BC_CALL` + body, but it leaves a
 big VM win on the table.)
 
-### Option B — Backend intrinsics (preferred)
+### Option B — Backend intrinsics (preferred, shipped)
 
 Keep `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC` as single ops. Each
 backend lowers them inline:
@@ -159,9 +156,6 @@ each use their native-optimal sequence.
 Cons: each backend duplicates the inlining logic. Mitigated for
 the native side by a **shared inline-lowering helper** (see
 below).
-
-**Recommendation: Option B**, with a shared helper for the native
-backends.
 
 ### Shared inline-lowering helper for native backends
 
@@ -226,63 +220,21 @@ The runtime side:
 - `ZeroRefDestroy` needs a `.bni` declaration and a body (in
   `pkg/rt`).
 
-## Phasing
+## Open / deferred questions
 
-Suggested order (each phase independently testable):
-
-1. **Add `ZeroRefDestroy`** in `pkg/rt`. Define the `.bni`
-   signature. Body calls `_call_dtor` then `Free`. No call sites
-   yet.
-2. **Shared inline-lowering helper** for the native backends.
-   Lives in the shared backend layer; takes target word-size
-   parameters and a backend's primitive-emit interface. No
-   callers yet.
-3. **LLVM lowering** of `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC` via
-   the shared helper. Verify all conformance modes still pass.
-4. **VM lowering** — add fused `BC_REFINC_INLINE` /
-   `BC_REFDEC_INLINE_FAST` bytecode ops; lower the IR ops to
-   them directly (NOT via the shared helper — the VM is dispatch-
-   bound, so a single fused op is the win).
-5. **Native arm64 lowering** via the shared helper.
-   `emitRefcountCall` rewrites to inline. The compiled call to
-   `bn_rt__RefInc` / `bn_rt__RefDec` goes away on the native
-   side.
-6. **Drop unused runtime symbols** if no caller remains. Tighten
-   `vm_extern.bn`.
-
-Each phase should run the full conformance suite and check perf
-numbers (compile time + run time) on a benchmark.
-
-## Open questions
-
-- **Multi-word values (managed slices, struct types).** Current
+- **Multi-word values (managed slices, struct types).**
   `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC` operate on the underlying
   managed pointer. Multi-word values get a separate
   `emitManagedSliceRefInc` helper that extracts the refptr. The
-  inlining plan above assumes the IR-gen has already extracted the
-  refptr — confirm before implementation.
-- **Dtor parameter on RefDec.** Current `OP_REFCOUNT_DEC` takes the
-  dtor as a second argument. The fast-path-inline version still
-  needs to pass the dtor through to the slow-path helper when the
-  refcount hits zero. Make sure the dtor is in a usable form in a
-  register (or addressable spill slot) at the call site.
-- **Stack-frame impact on arm64.** Inlining adds a few instructions
-  but no extra stack usage (refcount lives in the header; no spill
-  needed). Verify by inspecting frame size for a representative
-  test.
+  inlining assumes the IR-gen has already extracted the refptr.
+- **Dtor parameter on RefDec.** `OP_REFCOUNT_DEC` takes the dtor as
+  a second argument. The fast-path-inline version still needs to
+  pass the dtor through to the slow-path helper when the refcount
+  hits zero — the dtor must be in a usable form in a register (or
+  addressable spill slot) at the call site.
 - **Effect on debug info.** Each refcount site goes from one `call`
-  with a `!dbg` to several primitive ops. Make sure the `!dbg`
-  annotation lands somewhere sensible.
+  with a `!dbg` to several primitive ops; the `!dbg` annotation
+  needs to land somewhere sensible.
 - **Should the slow-path helper itself be inlinable?** Probably
   not — slow-path is rare, helper is small but has a function call
   to dtor anyway. Leave it as a normal extern.
-
-## Cross-references
-
-- `claude-todo.md` § "Inline RefInc / fast-path inline RefDec
-  (perf)" — the entry that points to this plan.
-- `pkg/rt/rt.bn` — current RefInc / RefDec implementations.
-- `pkg/codegen/emit_instr.bn` — current `OP_REFCOUNT_INC` /
-  `OP_REFCOUNT_DEC` lowerings (call-out form).
-- `pkg/vm/lower_instr.bn` + `pkg/vm/vm_exec.bn` — VM side.
-- `pkg/native/arm64/arm64_ops.bn::emitRefcountCall` — native side.
