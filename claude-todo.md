@@ -907,11 +907,12 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   so a leak (rc stays elevated) or an extra RefInc/RefDec would slip
   through.  17 gaps confirmed (adversarially verified vs existing tests).
 - **Addressed**: managed-slice extern-var value-copy rc-balance is now
-  `conformance/587_cross_pkg_managed_slice_copy_balance` (the 586
+  `conformance/589_cross_pkg_managed_slice_copy_balance` (the 586
   companion; balanced in 5 default modes + native aa64, int-int xfailed
-  for the rt-loader bug).
+  for the rt-loader bug).  (Numbered 589 — 587/588 were taken by a
+  concurrent @func-capture test landing.)
 - **Remaining rc-balance gaps** (functional coverage exists; no
-  `rt.Refcount` before/after — add it, pattern: 586/587/130) — a managed
+  `rt.Refcount` before/after — add it, pattern: 586/589/130) — a managed
   value crossing a package boundary as:
   - a managed-slice ELEMENT assignment of a managed value
     (`pkg.S[i] = @v`; also exercises RefDec of the overwritten element);
@@ -926,7 +927,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `&pkg.X` (address-of an imported SCALAR var — the 551 analogue for
   imports); field write through an imported RAW-ptr / value-STRUCT var
   (the 561 analogue); raw-slice element write through a `*[]T` extern var.
-- **Blocked**: 586/587's `builder-comp-int-int` xfails clear once the
+- **Blocked**: 586/589's `builder-comp-int-int` xfails clear once the
   136/383 int-int rt-loader bug (above) is fixed.
 - **Discovery**: 2026-06-04 coverage-audit workflow.
 
