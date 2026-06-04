@@ -152,6 +152,43 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   mapping onto `STEP_SUSPENDED`).  The previously-omitted non-capturing
   NOTEs in those files are updated to describe the capturing coverage.
 
+### A closure that CAPTURES and CALLS a managed `@func`, invoked via the VM poll path, corrupts the heap — SILENT, native only
+- **What**: distinct from the `@func` copy-RefInc symmetry fix above (that
+  covered storing/passing/returning a capturing `@func`).  Here a closure
+  that CAPTURES a managed `@func` and CALLS it —
+  `func(v @VM) int { return host() }`, capturing `host @func() int` —
+  installed as the VM poll (`vm.SetPoll`) and invoked through the VM poll
+  path, corrupts the heap.  Silent: the invoking test passes its own
+  assertions; a LATER test/allocation then crashes.  Native backend only;
+  the bytecode VM (`-int`) is clean.
+- **Why it is NOT the fix above**: a DIRECT capturing poll (captures a
+  `@pollCounter` struct, calls nothing) —
+  `TestCapturingPollSuspendsAfterThreshold` — is green.  A wrapper that
+  captures + calls a `@func` but is invoked ONCE DIRECTLY (not via the VM
+  path) is also fine.  The trigger is the combination: a closure that calls
+  its captured `@func`, entered via the VM trampoline / `_call_shim`.
+- **Repro** (binate branch `repl-poll-wip`, `pkg/binate/vm/vm_poll_test.bn`):
+  `wrapPoll(host)` + `TestWrappedCapturingPollSuspends` passes its
+  assertions, then the next test (`TestSimpleReturn`) crashes under
+  `builder-comp`.  NOT landed: a crashing unit test takes down the whole
+  package binary, so it can't be cleanly xfailed.
+- **Hypothesis**: the native call-a-captured-`@func` site over-releases
+  (double-frees) the captured `@func` when the VM-entered closure invokes
+  it — the inner call consumes a ref the closure record still owns, so the
+  later dtor double-frees.  Same family as `d118a3c4` / `76099018`;
+  investigate the call-site of a captured `@func` + the VM trampoline entry.
+- **Discovery**: 2026-06-03, making pkg/binate/repl's poll VM-free.  The
+  only cycle-free adapter from the host's `@func() PollResult` to the VM's
+  `@func(@VM) int` is a wrapper that captures + calls the host poll
+  (capturing the session instead would cycle session<->VM) — exactly this
+  pattern.
+- **Impact / BLOCKS**: the repl poll-VM-free change (any VM-free poll
+  adapter needs such a wrapper).  Preserved on `repl-poll-wip`.  The typed
+  `StepStatus` enum half of the repl cleanup landed independently (binate
+  `cafe4b1a`).
+- **Open**: SUSPEND-specific, or does a CONTINUE-only wrapper also corrupt?
+  (Likely corrupts at closure dtor → CONTINUE also affected; unconfirmed.)
+
 ### `136_grouped_imports` / `383_cross_pkg_iface_dtor` — `package "pkg/builtins/rt" not found` under int-int (pre-existing loader bug)
 - **Symptom**: both fail ONLY in `builder-comp-int-int` with
   `package "pkg/builtins/rt" not found` (a loader error, before execution);
