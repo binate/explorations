@@ -368,17 +368,16 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   statement form), so void C calls don't carry a misleading return type.
 - Surfaced 2026-06-03 by the drop-libc work.
 
-### Float function-values are silently miscompiled in the VM (`-int` modes) — MECHANISM LANDED on work-2 (pending cherry-pick)
+### Float function-values are silently miscompiled in the VM (`-int` modes) — FIXED on main (`7abc3809`)
 - **Plan**: [`plan-float-arg-shim.md`](plan-float-arg-shim.md). Design A
-  (uniform all-`int` shim ABI) approved 2026-06-03; landed on binate
-  work-2 `85a3a167`, verified across all default LLVM modes + codegen/vm
-  unit tests, hygiene clean. Pending cherry-pick to main; then the
-  bootstrap native-only work below is unblocked.
+  (uniform all-`int` shim ABI) approved + landed on main `7abc3809`
+  (2026-06-03), verified across all default LLVM modes + codegen/vm unit
+  tests, hygiene clean. Unblocks the bootstrap native-only work below.
 - **Canonical repro**: `pkg/binate/vm` `TestExternFloat*ViaRegistry` (a
   bytecode caller invoking a native float extern via the registry) — the
   only path that hits the bug; user float func-values in `-int` are
   bytecode/trampoline (all-int VM slots) and round-trip fine without the
-  fix, so the conformance 550-554 tests are compiled-mode reshape guards,
+  fix, so the conformance 562-566 tests are compiled-mode reshape guards,
   not the repro.
 - **Symptom**: a function-value call with a `float64`/`float32` arg or
   return produces the wrong value in any `-int` (bytecode VM) mode.
@@ -403,10 +402,10 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   Per Bug Discovery Protocol, the new func-value-float tests are the
   tracked reproduction. Surfaced 2026-06-03 by the bootstrap work.
 
-### Inject `pkg/bootstrap` into the VM + convert I/O to `__c_call` — PLANNED (blocked on float-arg shim)
-- **Blocked on** the float-arg shim fix above: making bootstrap native-
-  only routes `bootstrap.formatFloat` through the VM extern path, which
-  miscompiles float args until Design A lands.
+### Inject `pkg/bootstrap` into the VM + convert I/O to `__c_call` — IN PROGRESS (float-arg shim prerequisite landed)
+- **Unblocked**: the float-arg shim fix above landed on main (`7abc3809`),
+  so `bootstrap.formatFloat` now dispatches correctly as a native extern
+  in `-int`. Phase 1 in progress.
 - **Plan**: [`plan-bootstrap-ccall.md`](plan-bootstrap-ccall.md). The
   rt-drop-libc pattern applied to bootstrap: eliminate the hand-written
   `bn_pkg__bootstrap__*` I/O glue in `binate_runtime.c` by converting it

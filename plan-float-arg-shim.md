@@ -1,6 +1,6 @@
 # Plan: float-argument support for the function-value / extern shim path
 
-Status: **MECHANISM LANDED** on binate work-2 (`85a3a167`), 2026-06-03 —
+Status: **MECHANISM LANDED on main** (`7abc3809`), 2026-06-03 —
 Design A. Verified green across all default LLVM modes (full
 `builder-comp` 478/0; full `builder-comp-int` clean except the
 pre-existing `520` `@Iface`-dtor VM bug; func-value+float subset green in
@@ -10,8 +10,7 @@ self-host lanes (`builder-comp_native_aa64-...`) could NOT be exercised —
 that lane is pre-existing-RED at compiler-build time (`duplicate symbol
 predeclaredNil`, see claude-todo), unrelated to this change (which is
 LLVM-backend-only). Unblocks the bootstrap native-only work in
-[`plan-bootstrap-ccall.md`](plan-bootstrap-ccall.md); pending cherry-pick
-to main.
+[`plan-bootstrap-ccall.md`](plan-bootstrap-ccall.md).
 
 ## Testing note (discovered during implementation)
 
@@ -20,7 +19,7 @@ NATIVE, non-trampoline float callee through `@__shim` — i.e. a registered
 float **extern**. A *user* float func-value in `-int` is bytecode (or an
 all-int trampoline re-entry), so its float travels as a type-erased
 64-bit VM slot and round-trips fine *without* the fix. So the conformance
-tests below (550-554) are **compiled-mode guards** for the ABI reshape;
+tests below (562-566) are **compiled-mode guards** for the ABI reshape;
 they pass on baseline and do NOT catch the bug. The canonical
 bug-reproduction is the **VM unit tests** `pkg/binate/vm`
 `TestExternFloat{Arg,Return,32Arg}ViaRegistry`, which register a native
@@ -168,7 +167,7 @@ commit with the tests.
   (`pkg/binate/vm` `TestExternFloat*ViaRegistry`): a bytecode caller
   invokes a native float extern via the registry — fails pre-change,
   passes after (see Testing note above). Plus codegen golden tests
-  (int-ified shim + call site) and conformance 550-554 as compiled-mode
+  (int-ified shim + call site) and conformance 562-566 as compiled-mode
   ABI-reshape guards. Validates the mechanism independent of bootstrap.
 
 After this lands, the bootstrap native-only work (`plan-bootstrap-ccall.md`)
