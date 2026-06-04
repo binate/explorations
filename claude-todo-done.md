@@ -6,6 +6,34 @@ Items moved from [claude-todo.md](claude-todo.md) once fully complete. Active wo
 
 ## Done
 
+### ~~VM clobbers ≥2 distinct global addresses in one instruction (shared `globalReg`)~~ — RESOLVED 2026-06-03 (binate `d5d31b13`)
+- **Was**: silent wrong-code in the bytecode VM when ONE instruction took
+  two (or more) distinct global addresses as args — `return &G, &H`,
+  `&G == &H`, `g(&G, &H)`.  `lower_func.bn` materialized EVERY
+  `IsGlobalRef` arg into the single shared `globalReg` via consecutive
+  `LOAD_IMM`s, so the second clobbered the first before the instruction
+  consumed either: `return &G, &H` yielded `(&H, &H)`; `&G == &H`
+  compared `&H == &H`.  Compiled backend was correct (each `@<mangled>`
+  is an independent operand).
+- **Fix**: reserve one global-address register per global arg of the
+  widest instruction (`findMaxGlobalsPerInstr`), floored at one so a
+  function with 0 or 1 global args keeps the prior frame layout exactly
+  (only genuinely multi-global instructions change).  The emit pass
+  assigns each global arg its own register (`globalRegBase + g`) instead
+  of the single shared one.  The first-pass `LOAD_IMM` count is unchanged
+  (one per global ref — only the Dst register differs), so block offsets
+  still agree.
+- **Tests**: `conformance/573_addr_of_two_globals_one_instr` un-xfailed —
+  green in all 6 modes.  Unit `TestLowerGlobalRefMultiplePerInstr`
+  (`vm/lower_func_test.bn`) pins that two globals in one instruction load
+  into DISTINCT registers.  Verified: full VM suites
+  `builder-comp-int` 492/0, `builder-comp-comp-int` 492/0,
+  `builder-comp-int-int` 489/2 (the 2 are `136`/`383`, the pre-existing
+  int-int loader bug, unrelated).
+- **Discovery**: 2026-06-03, expanding the `551` `&G`-as-value test
+  (above) to cover multi-global instructions exposed it.  Pre-existing;
+  the simple single-global `551` never triggered it.
+
 ### ~~Conformance-test renumbering + next-free-number helper scripts~~ — DONE 2026-06-03 (binate `30a9499a`)
 - **Done**: `conformance/next-number.sh` (next free NNN; default
   next-after-max, `--gap` for lowest unused) and `conformance/renumber.sh`
