@@ -426,6 +426,20 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### Managed-struct under multi-assign / multi-short-var miscompiled on the x64 native backend — CONFIRMED, x64-specific
+- **Symptom**: a by-value managed-struct destructured into a target via
+  multi-assign (`s.f, _ = pair()`, `arr[i], _ = pair()`, …) or multi-short-var
+  (`a, _ := pair()`) is miscompiled by the x64 native backend — the
+  refcount-balance cell reads a wrong value. PASSES on aa64-native and the
+  LLVM / VM modes, so it is x64-codegen-specific.
+- **Test**: `conformance/matrix/refcount/multi-assign/{ident,index-array,
+  index-rawptr,index-slice,selector}/managed-struct` +
+  `multi-short-var/ident/managed-struct` (6 cells, xfailed both x64 modes).
+- **Discovery**: 2026-06-05, triaging the matrix on the x64 native lane (via
+  x64_darwin/Rosetta), while enabling x64 in the `all` modeset.
+- **Root cause**: unknown — the x64 native backend's aggregate handling in the
+  multi-assign / multi-bind element-store path. Needs investigation.
+
 ### Discarded `@func`-returning call result leaks — CONFIRMED leak
 - **Symptom**: a managed `@func` returned by a call and discarded (`_ = f()`,
   or an unused call result) is never released — its closure record (and any
