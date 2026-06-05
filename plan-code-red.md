@@ -693,6 +693,16 @@ These are **audit leads, not yet-confirmed bugs** (`confirmed=false`). Each is a
 
 11. **PlanFrame sret-shift + saturated-GP + float-args interaction untested** (`common_call.bn:60-75` models sret-in-gp-arg-reg but not NSRN). 12. **VM `lookupGlobalAddr` 0-on-miss silent null-deref** (`lower_data.bn:111-117`). 13. **`OP_PHI` managed-merge contract absent** (no live caller, but if phi-lowering is introduced LLVM/native silently drop it).
 
+**P0 verification deltas (2026-06-04; landed `070f9e84`/`0acdafa5`).** Authoring the in-source op specs (P0) re-verified every op against current `main` and surfaced these additional deviations — the spec states the correct contract, these are the lowerings to conform:
+
+14. **Divide-by-zero / mod-by-zero is unspecified across targets — needs a ratified language contract.** `OP_DIV`/`OP_REM` emit raw division on every backend: LLVM `sdiv`/`udiv` (`/0` is **UB** at the LLVM level, not a guaranteed trap), native `IDIV`/`SDIV` (hardware SIGFPE — traps only by accident), VM host `/`/`%` (`vm_exec_pure.bn`). There is no `OP_DIV_CHECK`. Whether the intended semantics is a defined panic (like bounds-check) or target-dependent is a **user decision** — tracked as a DISCUSS in `claude-todo.md`; `ir.bni` documents it as UNSPECIFIED until ratified.
+15. **LLVM `emitExtract` resolves the real component type only for `OP_CALL` results** (`emit_helpers.bn:299-304`); for `OP_CALL_FUNC_VALUE` / `OP_CALL_IFACE_METHOD` / `OP_CALL_INDIRECT` results it falls to `llvmType(Args[0].Typ)`, which can mis-type a managed / 16-byte-address-aggregate component (MAJOR suspected; sharpens the §3.2 "retTypes gated on OP_CALL only" note from the EXTRACT side).
+16. **`isFreshManagedFuncValue` / `isFreshManagedIfaceValue` omit the call ops** (`gen_refcount_pred.bn:152-161` / `:170-179`): a managed `@func`/`@Iface` returned by `CALL_FUNC_VALUE`/`CALL_HANDLE`/`CALL_INDIRECT`/`CALL_IFACE_METHOD` is mis-classified non-fresh → an extra RefInc at the copy-site; AND the `@func` call result is never `registerTemp`'d (`gen_call.bn:268-288`, `gen_method.bn`) → a discarded `@func`-returning call LEAKS (MAJOR — the precise sites behind the open "`@func` call-result registration" item).
+17. **aa64/x64 `OP_EXTRACT` use `FieldOffset` only for `TYP_STRUCT` carriers**, else `8*Index` (`aarch64_emit.bn:285`, `x64_emit.bn:38`) — latent mis-GEP for a sub-word-before-pointer field on a non-struct carrier (sharpens suspected #8 with the carrier-kind condition).
+18. **VM `OP_DEREF` always lowers to `BC_LOAD64`** (one 8-byte word; `lower_instr.bn:235-238`) — no aggregate / 64-on-32-pair / sub-word path; correct for today's word-sized-pointee callers, latent under-copy otherwise.
+19. **`isFreshManagedSlice` omits `OP_RODATA_MSLICE_COPY`** (`gen_refcount_pred.bn:137-145`): on the generic copy path the fresh-owned `@[]T` copy would be RefInc'd (leak) instead of moved; not currently reached (produced only at store sites that consume it directly), but a latent trap if a new caller routes it through the generic path.
+20. **`BC_EXTRACT` Aux=1 pointer-mode predicate is re-spelled per pass** (`isMultiWordField || isVMAddressAggregate` in `lower_instr.bn` vs `packMultiReturn`) — they only coincidentally agree; editing one and not the other desyncs packing from extraction. (Candidate for the P2 single-classifier collapse.)
+
 ---
 
 ## 9. Execution plan & sequencing
@@ -712,6 +722,8 @@ Phased. Earlier phases produce the artifacts later phases consume. The ordering 
 - The four worked cross-backend traces (Section 6) become the canonical per-op spec entries for RETURN / EXTRACT / IFACE / FUNC_VALUE.
 
 **Ordering rationale:** docs are load-bearing for P1/P3 (a wrong spec comment lets a real regression hide behind "matches the spec"). Zero behavior change → trivially green.
+
+**Status — DONE (2026-06-04, landed `070f9e84` + `0acdafa5`):** `vm.bni` 8 bytecode-op corrections; `ir.bni` per-op refcount/ownership contracts for the managed-touching ops (the four traced ops — RETURN/EXTRACT/IFACE/FUNC_VALUE — get the richer contract) plus the LAND/LOR-short-circuit, DIV/REM/SHR-signedness, and `CALL_IFACE_METHOD`-`Index`-is-the-absolute-concat-vtable-slot doc-vs-code fixes (the last verified against `gen_iface.bn:99-106`). The 5-agent verification surfaced §8 items 14–20. **Remaining P0 tail:** the stale per-op doc sites in the native iface emitters (`aarch64_iface.bn` "Index+1") + the `vm.bni` `BC_CALL_IFACE_METHOD` "declaration order" comment + the stale `> 64 bytes` comment (`common.bn:160-161`) are not yet corrected.
 
 ### P1 — Build the test matrix & confirm/deny the suspected defects
 

@@ -824,6 +824,21 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   change preserves `Exit`→`exit` behavior, so this is a clean,
   independent follow-up. Needs a design discussion before any change.
 
+### Divide-by-zero / mod-by-zero semantics are unspecified — DISCUSS
+- `OP_DIV` / `OP_REM` (and the `*64` variants) emit raw division on every
+  backend, and the three backends disagree on what `x/0` does: LLVM
+  `sdiv`/`udiv` → **UB** at the LLVM level (no guaranteed trap), native
+  `IDIV`/`SDIV` → hardware SIGFPE (traps, but by accident of the ISA), VM
+  → host `/` / `%` (`vm_exec_pure.bn`). There is no `OP_DIV_CHECK` /
+  bounds-check analogue for a zero divisor.
+- **Decision needed**: is divide/mod-by-zero a DEFINED runtime panic
+  (like an out-of-bounds index — IR-gen emits a guard and all backends
+  agree) or deliberately unchecked/UB? The language design should pin
+  this; today it is accidental and target-dependent.
+- Surfaced 2026-06-04 by the P0 op-spec verification (code-red).
+  `ir.bni`'s `OP_DIV`/`OP_REM` comments document it as UNSPECIFIED
+  pending this decision. See `plan-code-red.md` §8 item 14.
+
 ### `__c_call` should support void returns
 - Today `__c_call` "requires a return type" and `checkCCall` rejects
   void ("void and struct returns not yet supported"). So calling a void
