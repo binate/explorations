@@ -300,6 +300,22 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MINOR
 
+### Bare func literal in assignment position doesn't infer its managed/raw flavour from the LHS
+- `existing = func(){...}` where `existing @func(...)...` fails type checking
+  with `cannot assign <unknown> to <unknown>`: a bare func literal in
+  **assignment** (non-var-init) position does not pick up its managed
+  (`@func`) vs raw (`*func`) flavour from the assignment target's type.
+  Var-init works (`var x @func(...)... = func(){...}` — the declared type
+  hints the flavour).
+- **Workaround in use**: assign through a typed var
+  (`var drop @func(...)... = func(){...}; existing = drop`) — see
+  `conformance/587_closure_captures_func_value.bn` and
+  `conformance/matrix/assign/ident/func-value.bn`.
+- **Fix**: in the assignment type-checker, flow the LHS func type's flavour
+  to a bare func-literal RHS — the same hinting var-init already applies.
+- Surfaced 2026-06-05 while authoring the conformance matrix func-value cell
+  (plan-code-red.md §7 / P1).
+
 ### Wire `--version` into bnc / bni / bnas / bnlint — next-release follow-up
 - **Goal**: each tool accepts `--version` and prints its display version
   (`<tool>-` + `version.Version`, e.g. `bnc-0.0.7-pre`) to stdout, then
