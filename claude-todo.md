@@ -6,6 +6,40 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### >16-byte struct passed by value through an indirect call SIGSEGVs on LLVM — CONFIRMED wrong-code, default modes
+- **Symptom**: passing a struct larger than 16 bytes (`three-int` = 24B, all
+  `int` fields) **by value** as an **interface-method argument** or through a
+  **function-value call** segfaults (exit 139) on the LLVM backend, before any
+  output. The *direct* call `takeS(s)` with the identical 24B struct is correct,
+  so it is the indirect-call path specifically. Crashes on every LLVM execution
+  mode: `builder-comp`, `builder-comp-comp`, `builder-comp-comp-comp` (verified),
+  and — by reasoning, since arm32 is LLVM-codegen — `builder-comp_arm32_linux` /
+  `builder-comp_arm32_baremetal` (CI to confirm). The bytecode VM passes, and the
+  native aa64/x64 backends pass `three-int` (they have their own non-8-multiple /
+  sub-word packing defects on other shapes, but not this).
+- **Root cause (suspected — needs codegen confirmation)**: the >16-byte
+  "memory class" aggregate is lowered with a `byval`-pointer parameter on the
+  *direct* call signature but the **indirect** call site (the iface vtable slot
+  type, or the function-value's function-pointer type) is emitted without the
+  matching `byval` attribute / pointer indirection — caller passes the aggregate
+  by-value-in-registers while the callee reads it through a pointer (or vice
+  versa), so the callee dereferences a non-pointer field → wild load → SIGSEGV.
+  This is the §3.9 "byval/sret threshold disagreement," now confirmed as a hard
+  crash rather than a value error. The boundary is bracketed to (16, 24]; a
+  17-byte shape would pin it.
+- **Test**: `conformance/matrix/abi/iface-param/three-int` and
+  `.../funcval-param/three-int` (value-correctness; both SIGSEGV). Xfailed on the
+  5 LLVM modes above; `struct-param/three-int` (direct) is the passing control.
+- **Discovery**: 2026-06-05, extending the ABI matrix with the call-shape axis
+  (iface-method / func-value param passing) — the direct-call cells were all
+  green, so the indirect path was the first thing the new axis exercised.
+- **Fix**: make the indirect-call signature (iface vtable slot type and
+  function-value pointer type) carry the *same* aggregate-passing convention
+  (`byval` ptr for memory-class structs) as the direct call. Likely in codegen's
+  function-type construction for vtable slots / function-value pointers — it must
+  reuse the same param-lowering decision the direct path uses, not a default
+  by-value lowering.
+
 ### `&slice[i]` (address-of a slice element) lowers to a wild pointer — CONFIRMED wrong-code, both backends
 - **Symptom**: taking the address of a *slice*-indexed element yields a garbage
   pointer instead of the element address. `var p *uint8 = &s[0]; *p = 66`
