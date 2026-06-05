@@ -6,6 +6,27 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### `for v in coll` over a managed-element collection over-releases the bound value — CONFIRMED double-free, LATENT
+- **Symptom**: `for v in s` where `s @[]@T` (or `[N]@T`) loads each element as a
+  borrow (no RefInc) but `defineVar` registers `v` as a managed scope var, so
+  scope cleanup RefDec's `v` — an unbalanced release. Per iteration the bound
+  element is over-released by one; at the collection's destruction it
+  double-frees. Latent because the over-release lands at v's SCOPE END (after a
+  mid-function refcount read), so it surfaces only once that scope closes.
+- **Root cause (CONFIRMED)**: `genForIn` (`gen_flow.bn:137-149`) emits the
+  element load (a borrow) then a raw `OP_STORE` into v's slot + `defineVar` —
+  no RefInc of the new value, yet v joins `ctx.Vars` and is RefDec'd at cleanup.
+  The bind must acquire (RefInc / `__copy_`, the isFresh/RefInc-borrowed hybrid
+  the assignment arms use) before defining v, OR v must be a non-owning borrow
+  not registered for RefDec. Also covers `for i, v`, array collections, and the
+  blank `_` value (a phantom scope var today).
+- **Test**: `conformance/matrix/for-range-value/value/managed-ptr.bn` (xfailed in
+  all 6 default modes) — `loopOnce(s)` ranges + returns, then `rt.Refcount`
+  reads 1 instead of the balanced 2. Confirmed comp / int / int-int /
+  comp-comp-comp.
+- **Discovery**: 2026-06-05, P1 conformance-matrix authoring. Pre-existing;
+  flagged suspected in plan-code-red.md §3.2/§3.4, now confirmed with a repro.
+
 ### Returning a by-value struct through interface-method dispatch was miscompiled — FIXED + LANDED 2026-06-04 (binate `9baa579d`)
 - **Was**: an interface method returning a by-value struct (small
   aggregate, NOT a managed handle like `@T`/`@[]T`) came back through
