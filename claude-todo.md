@@ -23,8 +23,24 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   §8; now confirmed + systematically covered.
 - **Fix**: narrow sub-word op results to their width — a post-op narrow in the
   VM/native arith handlers, or an IR-gen narrow after each sub-word value-
-  producing op (a P3 design call). Also covers the native variants + the
-  unsigned-int↔float conversion gap (§3.8).
+  producing op (a P3 design call). Also covers the native variants.
+
+### Unsigned int→float uses a SIGNED conversion in the VM — wrong value — CONFIRMED
+- **Symptom**: `cast(float64, y)` for an unsigned int whose top register bit is
+  set (on the 64-bit host, only `uint64` with bit 63) yields a NEGATIVE float —
+  the VM converts as signed. E.g. `cast(float64, <uint64 bit-63>) > 0.0` is
+  true on LLVM, false on the VM.
+- **Root cause (CONFIRMED)**: the VM's int→float lowering uses `BC_SITOF`
+  (signed) regardless of the operand's signedness; LLVM uses `uitofp` for
+  unsigned. The native backends carry the same gap (§3.8). A `uint32` is
+  zero-extended (positive in the 64-bit register), so only `uint64` triggers
+  it on the host.
+- **Test**: `conformance/matrix/scalar/int-to-float/64/unsigned` (xfailed the 3
+  VM modes; `/32` passes as a baseline).
+- **Discovery**: 2026-06-05, P1 scalar matrix int-to-float cells. Flagged §3.8.
+- **Fix**: dispatch int→float on operand signedness (a `BC_UITOF` / unsigned
+  path), mirroring the cmp/div/shift signedness selection. Same for float→int
+  and the native backends.
 
 ### Short-var single-bind `x := s` of a managed struct-by-value skips the copy — CONFIRMED double-free, LATENT
 - **Symptom**: `x := src` where `src` is a struct with a managed field copies the
