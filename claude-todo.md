@@ -426,6 +426,30 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### aa64 native backend mis-packs non-8-multiple / sub-word-packed structs (param + return) — CONFIRMED
+- **Symptom**: a struct whose size is not a multiple of 8 (`3×uint32` = 12B) or
+  whose fields pack sub-word (`5×uint8` = 5B), passed OR returned by value,
+  loses/corrupts its trailing field on the aa64 native backend — e.g.
+  struct-return of `{uint32,uint32,uint32}` reads the third field wrong.
+- **Test**: `conformance/matrix/abi/struct-{param,return}/{three-u32,five-u8}`
+  (4 cells, xfailed aa64-native). Pass on LLVM + VM (and x64-return).
+- **Discovery**: 2026-06-05, P1 ABI matrix. §3.9 (the aa64 non-8-multiple
+  tail-drop / sub-word packing).
+- **Root cause**: the aa64 aggregate param/return regWords-vs-stack split
+  drops or mis-sizes the trailing sub-8-byte chunk. Needs investigation.
+
+### x64 native backend mis-packs sub-word multi-return + non-8-multiple struct params — CONFIRMED
+- **Symptom**: (a) a sub-word (`uint16`) multi-return at arity ≥ 3 mis-packs the
+  3rd+ component; (b) a `3×uint32` (12B) or `5×uint8` (5B) struct passed by value
+  as a param loses its trailing field. (x64 struct-RETURN works.) On x64 native.
+- **Test**: `conformance/matrix/abi/multi-return/u16/{3,4,5}` +
+  `abi/struct-param/{three-u32,five-u8}` (5 cells, xfailed both x64 modes). Pass
+  on LLVM + VM (and aa64 multi-return).
+- **Discovery**: 2026-06-05, P1 ABI matrix. §3.9. NOTE: the all-int multi-return
+  n=2-cap from §3.1 is **FIXED** (arity ≤ 5 all-int passes everywhere).
+- **Root cause**: x64 aggregate-arg + sub-word multi-return packing. Needs
+  investigation.
+
 ### Managed-struct under multi-assign / multi-short-var miscompiled on the x64 native backend — CONFIRMED, x64-specific
 - **Symptom**: a by-value managed-struct destructured into a target via
   multi-assign (`s.f, _ = pair()`, `arr[i], _ = pair()`, …) or multi-short-var
