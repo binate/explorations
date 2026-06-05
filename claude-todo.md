@@ -334,6 +334,40 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### Interface dispatch drops the trailing scalar after a multi-word by-value arg (LLVM/native codegen) — xfail'd
+- **Symptom**: an interface method whose params include a multi-word BY-VALUE
+  arg (a struct with managed fields, or a `@[]T` managed-slice param — both 4
+  words) followed by a scalar drops the scalar through vtable dispatch — the
+  multi-word arg shifts it.  E.g. `Take(b Box, tag int)` (Box has a `@[]int`
+  field) reads `tag` as 0; `Hold(xs @[]int, n int)` reads `n` as 0.  Same
+  failure mode as the (fixed) repl arg-coercion bug, but for params that are
+  INHERENTLY multi-word: `coerceArg` cannot help — it only NARROWS a managed
+  slice to a 2-word raw slice (which the ABI passes correctly), so a natively
+  ≥3-word by-value arg still shifts.
+- **Scope**: LLVM/native codegen ONLY — the bytecode **VM is correct** (the
+  `-int` conformance modes pass `598`; the `-comp`-final modes fail).  So the
+  fix is the LLVM iface-call emission / vtable-thunk arg ABI (`pkg/binate/
+  codegen`, `emit_iface_call.bn` — it reconstructs the call signature from the
+  arg instructions' LLVM types, which mis-passes a multi-word by-value param
+  vs the impl method's actual ABI).
+- **Test**: `conformance/598_iface_dispatch_multiword_arg` (struct-by-value +
+  `@[]int` param each drop the trailing scalar — 4 instead of 9 / 5).  Xfail'd
+  on `builder-comp`, `builder-comp-comp`, `builder-comp-comp-comp`; passes in
+  the `-int` modes.  The cross/native comp conformance jobs (already red) may
+  also show it.
+- **Discovery**: 2026-06-04 exhaustive iface-dispatch coverage review (workflow)
+  after the arg-coercion fix (`d6bb3b2f`) — the new coverage tests surfaced this
+  deeper ABI bug.
+- **Why MAJOR**: a silent dropped scalar arg in any *compiled* iface method
+  with a multi-word by-value arg before a scalar.  Latent (no current caller
+  has that exact shape), but a real miscompile.
+- **Fix direction**: pass a multi-word by-value arg through the vtable thunk
+  with the ABI the impl method expects (by-ref/sret-style or correct
+  multi-register layout — match what the VM already does).  Once fixed, add the
+  further dispatch coverage the review listed: iface-value arg (move vs RefInc),
+  managed-slice RETURN through dispatch, iface-wrap/upcast args, and a multi-
+  return-iface-dispatch deferral-lock (`.error`).
+
 ### A `@[]@[]@T` (managed-slice-of-managed-slice) STRUCT FIELD emits a reference to an undefined nested cross-package element dtor — LATENT
 - **Symptom**: adding a struct field of type `@[]@[]@types.Type` to a struct in
   `pkg/binate/ir` made clang fail building `pkg__binate__ir.ll` with `use of
