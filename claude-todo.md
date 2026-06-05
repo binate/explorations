@@ -6,6 +6,36 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### `&slice[i]` (address-of a slice element) lowers to a wild pointer — CONFIRMED wrong-code, both backends
+- **Symptom**: taking the address of a *slice*-indexed element yields a garbage
+  pointer instead of the element address. `var p *uint8 = &s[0]; *p = 66`
+  SIGSEGVs (the store writes through `(i8*)0x41`). Affects both `@[]T`
+  managed-slices and `*[]T` raw slices; **fixed arrays `[N]T` are correct**
+  (`&a[0]` works). Crashes identically compiled (bnc) and interpreted (bni), so
+  the defect is in the shared IR address-of lowering, not a backend.
+- **Root cause (CONFIRMED)**: the address-of path for a slice-indexed l-value
+  computes the correct element address via GEP, then wrongly falls through to the
+  *r-value* path — it loads the element and `inttoptr`s the byte:
+  `%a = getelementptr i8, i8* %data, i64 %idx` (element address — correct) →
+  `%v = load i8, i8* %a` (BUG: loads the VALUE) →
+  `%p = inttoptr i8 %v to i8*` (BUG: byte → pointer). Fixed arrays take the
+  proper address path (yield the GEP), which is why `&a[0]` works; slice-indexed
+  operands share the load path instead. Likely in IR-gen's address-of handling
+  for a SliceIndex operand (gen_expr l-value path).
+- **Test**: NEEDS a conformance test — `&slice[i]` write-through + read-back on
+  `@[]T` and `*[]T` (mutation must be visible; currently SIGSEGVs), xfail all
+  default modes. Staged at `/tmp/minbasic-staging/addr_of_slice_elem.bn`; pending
+  a binate worktree to land + number.
+- **Discovery**: 2026-06-05, while probing bundle I/O for the minbasic example —
+  `__c_call("write", …, &buf[0], …)` silently wrote nothing; chasing it exposed
+  the address-of miscompile. Confirmed firsthand against `bnc-0.0.7` with
+  `--emit-llvm`. Unknown whether current HEAD already fixes it — verify first.
+- **Fix**: the slice-indexed l-value address-of must yield the GEP'd element
+  address, not load+inttoptr — mirror the fixed-array address path. (If
+  `&slice[i]` were intentionally unsupported, reject at type-check instead — but
+  arrays support it and raw pointers are the documented hot-path escape, so
+  emitting the address is the intended fix.)
+
 ### Sub-word arithmetic results not narrowed in the VM (and natives) — dirty upper bits → wrong values — CONFIRMED
 - **Symptom**: a sub-word integer op (`uint8/16/32` add/mul/…) whose true result
   overflows the width leaves the un-narrowed value in the host register; a
