@@ -56,14 +56,14 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   proper address path (yield the GEP), which is why `&a[0]` works; slice-indexed
   operands share the load path instead. Likely in IR-gen's address-of handling
   for a SliceIndex operand (gen_expr l-value path).
-- **Test**: NEEDS a conformance test — `&slice[i]` write-through + read-back on
-  `@[]T` and `*[]T` (mutation must be visible; currently SIGSEGVs), xfail all
-  default modes. Staged at `/tmp/minbasic-staging/addr_of_slice_elem.bn`; pending
-  a binate worktree to land + number.
+- **Test**: `conformance/599_addr_of_slice_elem.bn` — `&slice[i]` write-through +
+  read-back on `@[]T` and `*[]T` (mutation must be visible; currently SIGSEGVs).
+  Xfailed in all 6 default modes.
 - **Discovery**: 2026-06-05, while probing bundle I/O for the minbasic example —
   `__c_call("write", …, &buf[0], …)` silently wrote nothing; chasing it exposed
   the address-of miscompile. Confirmed firsthand against `bnc-0.0.7` with
-  `--emit-llvm`. Unknown whether current HEAD already fixes it — verify first.
+  `--emit-llvm`, and **confirmed still present in local main HEAD** (2026-06-05)
+  via `conformance/run.sh builder-comp` + `builder-comp-int`.
 - **Fix**: the slice-indexed l-value address-of must yield the GEP'd element
   address, not load+inttoptr — mirror the fixed-array address path. (If
   `&slice[i]` were intentionally unsupported, reject at type-check instead — but
