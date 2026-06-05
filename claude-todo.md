@@ -334,6 +334,30 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### `bni --repl` SIGSEGV on the basic-call case — E2E `repl.sh` red since 2026-06-04 16:52
+- **Symptom**: `e2e/repl.sh` `basic-call` fails with `Segmentation fault (core
+  dumped)`.  The REPL prints the prompt + evaluates (`> 14`) but then crashes
+  instead of printing the post-Ctrl-D `> ` and exiting cleanly.  `bni` *builds*
+  fine; the segfault is at runtime in `--repl` mode only — the VM core is
+  unaffected (`-int` conformance is green, e.g. 526/001 builder-comp-int).
+- **Introduced**: the first red E2E run is `2026-06-04T16:52` on **"repl: make
+  ReplSession an interface; replSession…"** (binate `b9ca1acc`, the
+  ReplSession→interface conversion).  Green through `16:47` immediately before
+  it.  So this is a regression from that refactor, not from the stdlib /
+  bnc-0.0.7 release work (which is green on all other suites).
+- **Cost / why MAJOR**: E2E is now red on *every* main commit, which masks any
+  *new* E2E regression (you can't tell a fresh break from this standing one).
+  Also `bnc-0.0.7` ships a `bni` whose interactive REPL segfaults — accepted
+  for that release (REPL is a Tier-1 PoC, not build-critical; the bundle's
+  compiler/VM/asm/lint are verified good) with the fix to land in 0.0.8-pre so
+  the next release is clean.
+- **Root cause**: unknown — needs investigation.  Likely the ReplSession
+  interface-dispatch change interacts badly with the session/VM lifetime on the
+  exit path (the crash is after eval, around Ctrl-D handling).  Start from
+  `cmd/bni`'s repl driver + the `b9ca1acc` diff; reproduce locally with
+  `e2e/repl.sh` (basic-call).  See the REPL section below and `plan-repl.md`.
+- **Test**: `e2e/repl.sh` `basic-call` (already covers it — currently failing).
+
 ### Field access into an anonymous (multi-return tuple) struct miscomputes the LLVM GEP index when a field has alignment padding before it — FIXED 2026-06-03 (binate `5f4a8eaf`)
 - **What**: `emitGetFieldPtr` (`pkg/binate/codegen/emit_helpers.bn:118`) maps the
   Binate field index to the LLVM field index via `structLLVMIndex` (which counts
