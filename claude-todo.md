@@ -390,6 +390,24 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### Discarded `@func`-returning call result leaks — CONFIRMED leak
+- **Symptom**: a managed `@func` returned by a call and discarded (`_ = f()`,
+  or an unused call result) is never released — its closure record (and any
+  captured managed values) leaks. `@T` / `@[]T` / `@Iface` / struct call results
+  are registered as cleanup temps and freed; only `@func` is missing.
+- **Root cause (CONFIRMED)**: `genFuncDirectCall` (`gen_call.bn:268-288`) /
+  `genFuncValueCall` (`gen_call.bn:366-382`) / `gen_method.bn` register
+  `@T`/`@[]T`/`@Iface`/struct results as end-of-statement cleanup temps but have
+  no `isManagedFuncValueType` arm; `emitTempCleanupBody` likewise lacks the
+  func-value RefDec arm, and `isFreshManagedFuncValue` omits the call ops.
+- **Test**: `conformance/matrix/assign/blank/func-value.bn` (xfailed all 6
+  default modes) — `_ = wrap(src)` leaves the @func record at 2 instead of 1.
+- **Discovery**: 2026-06-05, P1 matrix blank-discard form. Pre-existing; flagged
+  suspected in plan-code-red.md §3.4 / §8 #16, now confirmed with a repro.
+- **Fix**: add the `isManagedFuncValueType` arm to the call-result temp
+  registration (gen_call / gen_method) + the func-value RefDec arm in
+  `emitTempCleanupBody`; add the call ops to `isFreshManagedFuncValue`.
+
 ### Interface dispatch drops the trailing scalar after a multi-word by-value arg (LLVM/native codegen) — xfail'd
 - **Symptom**: an interface method whose params include a multi-word BY-VALUE
   arg (a struct with managed fields, or a `@[]T` managed-slice param — both 4
