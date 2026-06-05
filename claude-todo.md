@@ -334,29 +334,41 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
-### `bni --repl` SIGSEGV on the basic-call case — E2E `repl.sh` red since 2026-06-04 16:52
-- **Symptom**: `e2e/repl.sh` `basic-call` fails with `Segmentation fault (core
-  dumped)`.  The REPL prints the prompt + evaluates (`> 14`) but then crashes
-  instead of printing the post-Ctrl-D `> ` and exiting cleanly.  `bni` *builds*
-  fine; the segfault is at runtime in `--repl` mode only — the VM core is
-  unaffected (`-int` conformance is green, e.g. 526/001 builder-comp-int).
-- **Introduced**: the first red E2E run is `2026-06-04T16:52` on **"repl: make
-  ReplSession an interface; replSession…"** (binate `b9ca1acc`, the
-  ReplSession→interface conversion).  Green through `16:47` immediately before
-  it.  So this is a regression from that refactor, not from the stdlib /
-  bnc-0.0.7 release work (which is green on all other suites).
-- **Cost / why MAJOR**: E2E is now red on *every* main commit, which masks any
-  *new* E2E regression (you can't tell a fresh break from this standing one).
-  Also `bnc-0.0.7` ships a `bni` whose interactive REPL segfaults — accepted
-  for that release (REPL is a Tier-1 PoC, not build-critical; the bundle's
-  compiler/VM/asm/lint are verified good) with the fix to land in 0.0.8-pre so
-  the next release is clean.
-- **Root cause**: unknown — needs investigation.  Likely the ReplSession
-  interface-dispatch change interacts badly with the session/VM lifetime on the
-  exit path (the crash is after eval, around Ctrl-D handling).  Start from
-  `cmd/bni`'s repl driver + the `b9ca1acc` diff; reproduce locally with
-  `e2e/repl.sh` (basic-call).  See the REPL section below and `plan-repl.md`.
-- **Test**: `e2e/repl.sh` `basic-call` (already covers it — currently failing).
+### Interface method dispatch drops args after a width-mismatched managed-slice arg (codegen) — surfaces as the `bni --repl` hang, E2E `repl.sh` red since 2026-06-04 16:52
+- **Root cause (CONFIRMED)**: `genInterfaceMethodCall` (`pkg/binate/ir/gen_iface.bn:89-94`)
+  builds its call args with a bare `genExpr` per arg — it **omits the argument
+  coercions** the regular call path applies (`gen_call.bn:140-202`), notably the
+  `@[]T → *[]T` managed→raw slice conversion (`EmitManagedToRaw`).  When an iface
+  method param is a raw slice (`*[]readonly uint8`, 2 words) and the arg is a
+  managed slice (`@[]uint8`, 4 words), the unconverted 4-word value is passed
+  where 2 words are expected, **shifting every following argument** — the next
+  scalar arg is read from the wrong slot.  General MAJOR codegen bug; latent in
+  conformance (no iface method has a managed-slice→raw-slice param).  The other
+  omitted coercions (string-lit→chars, nil→slice, by-value struct-copy RefInc,
+  iface-value move/RefInc) are each their own latent iface-arg bug.
+- **How it surfaces (repl)**: the host loop calls `s.Step(line, eof)` where
+  `line` is `@[]uint8` and `Step(line *[]readonly uint8, eof bool)`; with the
+  conversion missing, `eof` is read as garbage/false, so an EOF turn never
+  returns `STEP_EOF_CLEAN`.  The loop spins forever printing `> ` (NOT a clean
+  segfault — it exhausts and dies; CI's captured output shows `> 14` then the
+  crash).  `b9ca1acc` (ReplSession→interface) exposed it by routing `Step`
+  through iface dispatch; green through `16:47`, first red `16:52`.  Not from
+  the stdlib / bnc-0.0.7 work.
+- **Minimal repro**: an iface method `M(line *[]readonly uint8, b bool) Res`
+  (struct return) called via the interface with a `@[]uint8` arg returns the
+  `b=false` branch even when `b=true` is passed.  Controls: `(int,bool)→int`,
+  `(int,bool)→struct`, and `(@[]uint8,bool)→struct` (matched width) all pass —
+  isolating it to the width mismatch, not sret / multi-word args in general.
+- **Fix (planned)**: add `MethodParams` to `ModuleInterface` (populate alongside
+  `MethodResults` during registration); factor the per-arg coercion loop out of
+  `gen_call.bn` into a shared helper and call it from `genInterfaceMethodCall`
+  too, so both paths stay in sync.
+- **Why MAJOR**: silent wrong-arg in iface dispatch (not just repl).  Also E2E is
+  red on *every* main commit, masking new E2E regressions; and `bnc-0.0.7` ships
+  a `bni` whose interactive REPL hangs (accepted — REPL is a Tier-1 PoC, not
+  build-critical; fix to land in 0.0.8-pre).
+- **Test**: `e2e/repl.sh` `basic-call` (covers it end-to-end) + a new unit/
+  conformance test from the minimal repro above.
 
 ### Field access into an anonymous (multi-return tuple) struct miscomputes the LLVM GEP index when a field has alignment padding before it — FIXED 2026-06-03 (binate `5f4a8eaf`)
 - **What**: `emitGetFieldPtr` (`pkg/binate/codegen/emit_helpers.bn:118`) maps the
