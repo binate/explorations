@@ -824,20 +824,28 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   change preserves `Exit`→`exit` behavior, so this is a clean,
   independent follow-up. Needs a design discussion before any change.
 
-### Divide-by-zero / mod-by-zero semantics are unspecified — DISCUSS
-- `OP_DIV` / `OP_REM` (and the `*64` variants) emit raw division on every
-  backend, and the three backends disagree on what `x/0` does: LLVM
-  `sdiv`/`udiv` → **UB** at the LLVM level (no guaranteed trap), native
-  `IDIV`/`SDIV` → hardware SIGFPE (traps, but by accident of the ISA), VM
-  → host `/` / `%` (`vm_exec_pure.bn`). There is no `OP_DIV_CHECK` /
-  bounds-check analogue for a zero divisor.
-- **Decision needed**: is divide/mod-by-zero a DEFINED runtime panic
-  (like an out-of-bounds index — IR-gen emits a guard and all backends
-  agree) or deliberately unchecked/UB? The language design should pin
-  this; today it is accidental and target-dependent.
-- Surfaced 2026-06-04 by the P0 op-spec verification (code-red).
-  `ir.bni`'s `OP_DIV`/`OP_REM` comments document it as UNSPECIFIED
-  pending this decision. See `plan-code-red.md` §8 item 14.
+### Divide-by-zero / mod-by-zero must panic (DEFINED) + `unsafe_div`/`unsafe_rem` — RATIFIED, impl pending
+- **Decision (2026-06-04)**: integer `/` and `%` are CHECKED like array
+  subscripting — a zero divisor OR the signed `MIN/-1` overflow is a
+  DEFINED runtime panic on all four backends (today it is accidental:
+  LLVM `sdiv`/`udiv` is UB, native `IDIV` faults via SIGFPE, the VM uses
+  host `/`/`%`). Floats are unaffected (IEEE `±Inf`/`NaN`). Matches Go and
+  Rust (both panic on integer `/0`; Rust also panics on `MIN/-1`).
+- **Design** (mirrors `unsafe_index` / `OP_BOUNDS_CHECK`):
+  - New `OP_DIV_CHECK` (void panic op) emitted before `OP_DIV`/`OP_REM`
+    (and the `*64` variants), guarding `divisor == 0` and
+    `dividend == <signed-MIN> && divisor == -1`.
+  - New `unsafe_div` / `unsafe_rem` builtins (one per operator, drop-in)
+    that opt out of the check. The `%` form is `unsafe_rem` (truncated
+    remainder, sign of the dividend — `OP_REM`/srem-urem), NOT
+    `unsafe_mod` (which would imply floored/Euclidean modulo).
+- **Spec**: `ir.bni` `OP_DIV`/`OP_REM` now document this contract (binate
+  `699f08eb`), replacing the prior UNSPECIFIED note. See `plan-code-red.md`
+  §8 item 14.
+- **Status**: contract ratified; `OP_DIV_CHECK` + the unsafe builtins are
+  NOT yet implemented. Impl = IR-gen guard emission + lowering on all four
+  backends + the two builtins (lexer/checker/IR-gen) + conformance tests
+  for `/0`, `MIN/-1`, and the unsafe opt-outs across all modes.
 
 ### `__c_call` should support void returns
 - Today `__c_call` "requires a return type" and `checkCCall` rejects
