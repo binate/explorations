@@ -6,6 +6,26 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### Sub-word arithmetic results not narrowed in the VM (and natives) — dirty upper bits → wrong values — CONFIRMED
+- **Symptom**: a sub-word integer op (`uint8/16/32` add/mul/…) whose true result
+  overflows the width leaves the un-narrowed value in the host register; a
+  width-sensitive consumer reached DIRECTLY (no intervening sized store/cast) —
+  shift, unsigned compare, divide, widen — reads the dirty upper bits → wrong
+  value. E.g. `(a*b) >> 8` for `uint16 a=b=60000`: **164 on LLVM, 37796 on the VM**.
+- **Root cause (CONFIRMED)**: the bytecode VM's `execArithOp`
+  (`vm_exec_pure.bn`) computes at the host word width with no post-op narrowing
+  to the result type's width; the native backends (x64/aa64) carry the same gap
+  (§3.8). LLVM is correct (true-width SSA). Storing the result into a sized var
+  re-narrows it, so the bug is latent until the op result is consumed directly.
+- **Test**: `conformance/matrix/scalar/{add,mul}/{8,16,32}/unsigned` (xfailed the
+  3 VM default modes; pass on LLVM). The scalar matrix's first members.
+- **Discovery**: 2026-06-05, P1 scalar matrix. Flagged in plan-code-red.md §3.8 /
+  §8; now confirmed + systematically covered.
+- **Fix**: narrow sub-word op results to their width — a post-op narrow in the
+  VM/native arith handlers, or an IR-gen narrow after each sub-word value-
+  producing op (a P3 design call). Also covers the native variants + the
+  unsigned-int↔float conversion gap (§3.8).
+
 ### Short-var single-bind `x := s` of a managed struct-by-value skips the copy — CONFIRMED double-free, LATENT
 - **Symptom**: `x := src` where `src` is a struct with a managed field copies the
   struct WITHOUT `__copy_` — the copy's managed field is not RefInc'd, so when
