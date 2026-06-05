@@ -6,6 +6,25 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### Short-var single-bind `x := s` of a managed struct-by-value skips the copy — CONFIRMED double-free, LATENT
+- **Symptom**: `x := src` where `src` is a struct with a managed field copies the
+  struct WITHOUT `__copy_` — the copy's managed field is not RefInc'd, so when
+  both `src` and `x` leave scope the field is RefDec'd twice (double-free).
+  `var x T = src` and `x = src` (var-init / assign) copy correctly; only short-var
+  `:=` under-copies.
+- **Root cause (CONFIRMED)**: `genShortVar`'s single-bind arm
+  (`gen_short_var.bn:83-117`) has `isManagedPtrType` / `isManagedSliceType` /
+  `isManagedFuncValueType` / `isManagedIfaceValueType` cases but NO
+  `needsStructCopy` arm — a managed struct/array aggregate RHS is stored raw.
+  var-init and the short-var MULTI-bind arm (`:41`) both `emitStructCopy`; the
+  single-bind arm is the gap.
+- **Test**: `conformance/matrix/short-var/ident/managed-struct.bn` (xfailed all 6
+  default modes) — observable refcount stays 1 after `tgt := src` vs the balanced 2.
+- **Discovery**: 2026-06-05, P1 matrix generator (the managed-struct cell across
+  forms — var-init/assign pass, short-var fails).
+- **Fix**: add a `needsStructCopy(typ) { emitStructCopy(...) }` arm to
+  genShortVar's single-bind path, mirroring var-init.
+
 ### `for v in coll` over a managed-element collection over-releases the bound value — CONFIRMED double-free, LATENT
 - **Symptom**: `for v in s` where `s @[]@T` (or `[N]@T`) loads each element as a
   borrow (no RefInc) but `defineVar` registers `v` as a managed scope var, so
