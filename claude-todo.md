@@ -334,7 +334,49 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
-### Interface method dispatch drops args after a width-mismatched managed-slice arg (codegen) — surfaces as the `bni --repl` hang, E2E `repl.sh` red since 2026-06-04 16:52
+### A `@[]@[]@T` (managed-slice-of-managed-slice) STRUCT FIELD emits a reference to an undefined nested cross-package element dtor — LATENT
+- **Symptom**: adding a struct field of type `@[]@[]@types.Type` to a struct in
+  `pkg/binate/ir` made clang fail building `pkg__binate__ir.ll` with `use of
+  undefined value '@bn_pkg__binate__types____dtor_ms_mp_pkg__binate__types__Type'`.
+  The generated nested dtor `__dtor_ms_ms_mp_Type` (for the field) references the
+  inner element dtor `__dtor_ms_mp_Type` qualified to the *element's* package
+  (`pkg/binate/types`), but that inner dtor is never emitted/defined there.
+- **Discovery**: 2026-06-04, building the interface-arg-coercion fix (`d6bb3b2f`)
+  — `ModuleInterface` initially carried `MethodParams @[]@[]@types.Type`.  Worked
+  around by switching to a flat encoding (`MethodParamsFlat @[]@types.Type` +
+  `MethodParamCounts @[]int`), so the shape stays at `@[]@Type` (known-good, ==
+  `MethodResults`).  `gen_dtor.bn` documents `ms_ms_mp` dtors as supported in the
+  abstract, but the cross-package element-dtor emission for a *struct field* of
+  that shape isn't wired up.
+- **Why MAJOR / latent**: it's a silent undefined-symbol at link for a legal
+  type shape; latent because nothing in the BUILDER tree currently needs a
+  `@[]@[]@T` struct field (the flat workaround avoids it).  A non-flat use would
+  hit it again.
+- **Root cause**: unknown — needs investigation in the dtor-emission path
+  (does the nested ms-of-ms dtor ensure its inner element dtor is emitted, and
+  with the right package qualification, when the element type is cross-package?).
+- **Fix direction**: ensure `__dtor_ms_mp_<Elem>` is emitted (in the element's
+  package, or homed where referenced) whenever a `__dtor_ms_ms_mp_<Elem>` is
+  generated.  Add a unit/conformance test with a `@[]@[]@T` struct field where T
+  is a cross-package managed type.
+
+### ~~Interface method dispatch drops args after a width-mismatched managed-slice arg (codegen)~~ — FIXED + LANDED 2026-06-04 (binate `d6bb3b2f`)
+- **Fixed**: factored the per-arg coercion loop out of `genCall` into a shared
+  `coerceArg` helper (used by `genCall` + `genMethodCall`); `genInterfaceMethodCall`
+  now evaluates args via `genExprOrFuncRef(...paramTyp)` + `coerceArg` like the
+  regular path.  Interface method param types are carried via
+  `ModuleInterface.MethodParamsFlat` + `MethodParamCounts` (flat encoding —
+  `@[]@[]@types.Type` as a struct field trips a missing nested cross-package
+  element dtor in the BUILDER, tracked separately below), populated at the decl
+  AND generic-instantiation sites; `findInterfaceMethod` returns the param list
+  from the inheritance level that owns the method (so embedded methods coerce
+  too).  Pinned by `conformance/593` (own + inherited + func-value arg;
+  negative-verified 3/3/3 without the fix vs 700/3/700 with) and `e2e/repl.sh`
+  (now 53/53; `basic-call` was the hang).  Full conformance 522/0 + unit 39/39.
+  Adversarial-reviewed before implementing (C1 inherited / C2 whole coercion
+  machinery / M2 generic site / M3 self-ref timing / V2 flat encoding).
+  Follow-up: a dedicated generic-interface-method slice-arg regression test
+  (the generic-site population is code-identical to the verified decl path).
 - **Root cause (CONFIRMED)**: `genInterfaceMethodCall` (`pkg/binate/ir/gen_iface.bn:89-94`)
   builds its call args with a bare `genExpr` per arg — it **omits the argument
   coercions** the regular call path applies (`gen_call.bn:140-202`), notably the
