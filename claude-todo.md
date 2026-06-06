@@ -39,11 +39,55 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   parser side + `value.bn`, still OOMs at ~8.5 GB; removing `value.bn` makes it
   light (~2 s).
 - **Discovery**: 2026-06-05, building minbasic M1 slice 1 (examples `5b55644`).
-- **Next step**: needs a memory profile of `bnc`'s front-end / IR-gen on the
-  reduced repro to find the pathological pass/structure (no `--time-passes` /
-  profiling flag exists on `bnc`). Suspect: per-function generation/analysis of
-  managed-type copy/dtor handling that is super-linear across a package's
-  functions/types.
+- **Root cause (triaged 2026-06-05, 5-agent static analysis — strong
+  cross-corroboration; all five independently fingered the same site)**: the
+  dominant term is **`registerPendingStructDtor` / `registerPendingMsDtor`**
+  (`pkg/binate/ir/gen_util_refcount.bn:96-102` / `:143-149`). Each call does a
+  linear dedup scan of the **module-global** `pendingStructDtors` list AND, for
+  **every** existing entry, *recomputes* `dtorNameForType(entry)` — a `buf.New()`
+  managed-slice allocation + a recursive type-spelling walk + `Bytes()`. It is
+  invoked from `emitStructCopy`/`emitStructDtor`, which fire at every
+  managed-AGGREGATE copy/dtor/scope-cleanup site (var-init, assignment,
+  composite-literal field/element, return, and every scope-exit cleanup for every
+  managed-aggregate local) across **all** functions; the list grows monotonically
+  for the whole package. Net **O(functions × managed-aggregate-types)** with a
+  throwaway name-buffer allocation per existing entry per call → both the 54 s
+  time and the multi-GB transient/persistent RSS, all before a single IR line.
+- **Why `value.bn` is the trigger**: before it, the parser side holds its AST via
+  `@Expr` / `@[]@Expr` — managed **pointers/slices**, which take the *scalar*
+  refcount arms (`EmitRefInc`/`emitManagedSliceRefDec`), NOT
+  `emitStructCopy`/`emitStructDtor`, so `pendingStructDtors` stays ~empty.
+  `Value{int,float64,@[]char}` is a managed-**aggregate** (`needsStructCopy` via
+  the `@[]char` field), so the moment any `Value` is copied/dtor'd/cleaned-up the
+  *aggregate* arms fire across the package's many functions — flipping the
+  dominant term from ~0 to `functions × aggregate-sites`.
+- **Amplifiers (corroborated, secondary)**: (a) `slices.Append` (stdx) is **O(n)
+  per append** — `make_slice(n+1)` + copy-all, no capacity doubling — so every
+  hot IR-gen accumulator (`pendingStructDtors`, `ctx.Temps`, `ctx.Vars`, return
+  `vals`) is O(n²); (b) `NeedsDestruction` (`types_query.bn:377`) and
+  `SizeOf`/`AlignOf`/`FieldOffset` (`scope.bn:112/160/207`) are **unmemoized**
+  (no cache slot on `@types.Type`, `types.bni:71`), recomputed at every emit-site;
+  (c) `emitDecForManagedLocals` re-scans **all** `ctx.Vars` at each scope-exit;
+  (d) `resolveTypeExpr` allocates a fresh `@Type` per type-expr occurrence (no
+  interning); (e) `lookupFuncParams`/`collectFuncStrings` do O(n) linear scans.
+  The unifying disease: **no memoization on the `@types.Type` node + module-global
+  accumulators scanned/re-mangled linearly.**
+- **Fix (ranked, layered)**: **(1) PRIMARY** — make the
+  `registerPendingStructDtor`/`registerPendingMsDtor` dedup O(1): compute the
+  dtor name once for the incoming type, look it up in a set (or hang a
+  `DtorRegistered` flag / cached name on `@types.Type`); never recompute
+  `dtorNameForType(existing)` in the loop. This alone removes the dominant
+  O(functions × types) + per-entry-allocation term. **(2)** add cache slots to
+  `@types.Type` and memoize `NeedsDestruction` + `SizeOf`/`AlignOf`/`FieldOffset`
+  + the dtor/copy name (layout is fixed within a compile). **(3)** give `slices`
+  a capacity-doubling amortized-O(1) append (or use growable buffers for the hot
+  accumulators). **(4)** track managed-cleanup slots in a compact per-function
+  list instead of re-scanning `ctx.Vars`. (1) is the high-leverage fix; (2)-(4)
+  remove the remaining super-linear factors.
+- **Validation suggested**: instrument `registerPendingStructDtor`'s call-count ×
+  list-length (or a knob-scaled repro: N managed-aggregate types × M functions)
+  to confirm the O(N×M) curve, then re-run the reduced minbasic repro after fix
+  (1). No `bnc` profiling flag exists; a temporary counter is the cheapest probe.
 
 ### >16-byte struct passed by value through an indirect call SIGSEGVs on LLVM — CONFIRMED wrong-code, default modes
 - **Symptom**: passing a struct larger than 16 bytes (`three-int` = 24B, all
