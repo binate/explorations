@@ -4,6 +4,29 @@
 > Source-confirmed: each defect cites root cause, fix shape, files, and test status.
 > Defect details are tracked in `claude-todo.md`; this plan is the execution view.
 
+## Status (execution progress)
+
+- **Step 1 — shared dispatchers**: LANDED (binate `f7432452`).
+  `emitStoreManagedSlot` / `emitAcquireManagedScalar` / `registerManagedCallResult`
+  (new `gen_store_slot.bn`) + `isFreshManagedValue` (`gen_refcount_pred.bn`), with
+  unit tests. Additive — no caller yet. Decision recorded: the dispatcher uses the
+  MOVE model (consumeTemp-if-fresh, else RefInc) uniformly across the four scalar
+  kinds; observably refcount-equivalent at statement boundaries (where the matrix
+  asserts), and matches what short-var single-bind and the INDEX arms already do.
+- **Step 2 — defect 3 (call-result registration)**: in progress. Also found and
+  fixed a cleanup-side counterpart the plan omitted: `emitTempCleanupBody` /
+  `emitTempCleanupSince` lacked the `@func` arm, so registering a `@func` call
+  result did nothing without it. Predicate fix broadened to `OP_CALL_FUNC_VALUE`
+  too (not just `OP_CALL_IFACE_METHOD`). Tests: un-xfail `assign/blank/func-value`,
+  new `discard/stmt` matrix form (bare-statement discard, all 5 types), new
+  `601_iface_dispatch_result_discard`, 3 predicate unit tests.
+- **Steps 3–6**: not started. Confirmed against the current tree (line numbers
+  drifted; see below). Note: the slice-INDEX arm has the same §3.4 release-before-
+  acquire defect as array/pointer (plan title scoped to array/pointer only) — fold
+  it into step 4. Defect 2.5's mangler fix must NOT revert the `MethodParamsFlat`
+  `@[]@types.Type` workaround in the same commit (the running BUILDER still has the
+  bug; only a rebuilt bnc has the fix).
+
 ## Summary
 
 All six defects are the SAME shape (plan-code-red.md §3.4): the Axiom-5 managed-value acquire/release invariant is hand-authored arm-by-arm at each copy/store/call-result site in pkg/binate/ir, so each new site is born missing a managed-kind arm (or the whole acquire) — silent leak/double-free/UAF that only surfaces when a mortal @T/@func/@Iface/aggregate flows through that exact untouched cell. The shared dispatchers emitManagedValueCopyRefInc / emitManagedValueRefDec already exist and are correct (gen_util_refcount.bn:18,35); the bugs are at the SITES that fail to call them (or hand-roll a partial four-way switch). Two defects are construction-side acquire gaps (short-var single-bind, for-range), one is call-result-temp registration (@func discard, plus the iface-method-dispatch leak), and two are name-collision/dtor-selection defects in the dtor-name builder (@[]@I → __dtor_ms_unknown; nested cross-package ms-of-ms element dtor undefined). The unifying fix is to introduce ONE emitStoreManagedSlot dispatcher + ONE registerManagedCallResult helper and route every site through them.
