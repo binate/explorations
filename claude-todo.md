@@ -800,6 +800,28 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### Float `!=` is ORDERED (`NaN != NaN` is false) — diverges from IEEE/Go/C; `==` and `!=` not complementary for NaN
+- **Symptom**: `var n float64 = NaN; n != n` evaluates to **false** (and `n == n`
+  is also false), so the two are not complements. Every other language (Go, C,
+  Rust, IEEE 754) makes `!=` *unordered*: `NaN != NaN` is **true**, and
+  `(a == b) == !(a != b)` always holds. Any Binate code using the idiomatic
+  `x != x` NaN test, or doing NaN-aware compare/sort/dedup, silently
+  mis-behaves.
+- **Root cause (deliberate, now reversed by user, 2026-06-06)**: the float
+  compare emitters force ordered semantics for `!=`. LLVM `emit_ops.bn` uses
+  `one` (ordered) instead of `une`; x64 `x64_float.bn` AND's `SETNE` with
+  `SETNP` (NaN-gate); aarch64 `aarch64_float.bn` adds a `Csel … COND_VC` to
+  zero the unordered result. `==` (`oeq`) and the four relationals (`olt`/`ole`/
+  `ogt`/`oge`) are already correct; only `!=` is wrong.
+- **Fix** (Phase 0 of `plan-std-math.md`): `one`→`une` (LLVM); `SETNE OR SETP`
+  (x64); delete the aarch64 `OP_NE` Csel block; VM is fixed transitively
+  (recompile) + a test. `oeq`/`une` are exact complements, restoring
+  complementarity. Pin with a conformance cell (NaN compares + complementarity)
+  across all default + native alt-modes; update the misleading code comments and
+  add a float-comparison spec entry to `claude-notes.md`.
+- **Discovered**: 2026-06-06 while scoping `pkg/std/math` (IsNaN needs correct
+  NaN semantics). Prerequisite for the math package; lands standalone first.
+
 ### Native widening int casts don't sign/zero-extend from the SOURCE width — silent wrong value for a non-canonical source — FIXED 2026-06-05 (binate 445d846a)
 - **Symptom**: a widening integer cast (`cast(int, <int32 x>)`, sub-word →
   host-word) on both native backends does NOT re-extend the value from the
