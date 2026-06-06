@@ -73,7 +73,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   untyped-float literals at call-arg, composite-literal-field, and return
   positions — the same narrowing the var-init path already performs.
 
-### Local `const` declarations silently materialize 0 — CONFIRMED wrong-code, ALL backends
+### Local `const` declarations silently materialize 0 — FIXED+LANDED (binate `273d7e4a`, 2026-06-05)
 - **Symptom**: a `const` declared inside a function body (`func main() { const C
   T = V; var x T = C }`) reads as **0** (the zero value), for EVERY type
   (int/uint of all widths, float32, float64). The value `V` is dropped entirely.
@@ -169,7 +169,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   matrix's `funcval-param` cells. So the §3.9 "CALL_HANDLE aggregate by-value"
   concern has no user-level test surface; nothing to add.
 
-### `&slice[i]` (address-of a slice element) lowers to a wild pointer — CONFIRMED wrong-code, both backends
+### `&slice[i]` (address-of a slice element) lowers to a wild pointer — FIXED+LANDED (binate `937ae78e`, 2026-06-05)
 - **Symptom**: taking the address of a *slice*-indexed element yields a garbage
   pointer instead of the element address. `var p *uint8 = &s[0]; *p = 66`
   SIGSEGVs (the store writes through `(i8*)0x41`). Affects both `@[]T`
