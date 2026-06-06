@@ -6,6 +6,54 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### Whole-array (aggregate) `=` assignment is silently dropped — CONFIRMED wrong-code, default modes
+- **Symptom**: `a = [4]int{10,20,30,40}` (a whole-array assignment via `=`, RHS a
+  composite literal) does NOT update `a` — it stays at its prior value. The store
+  is silently a no-op; no error, no diagnostic.
+- **Discovery**: 2026-06-06, porting `math.Pow10` (which wants package-level
+  `var pow10tab [32]float64 = {...}` lookup tables). Minimal repro in a unit test:
+  `var a [4]int = [4]int{0,0,0,0}; a = [4]int{10,20,30,40}; a[0]` reads `0`.
+- **Scope confirmed by probing (builder-comp / LLVM gen1)**:
+  - LOCAL array *decl-init* (`var a [N]T = [N]T{...}`): WORKS (int + float).
+  - Whole-array `=` *assignment* (`a = [N]T{...}`): BROKEN (no-op) — the LHS keeps
+    its old value. This is the underlying defect.
+  - GLOBAL array initializer (`var arr [N]T = {...}` at package scope): BROKEN
+    (reads as all-zero) — because the synthetic per-package `__init` (gen_init.bn)
+    lowers each `var x = expr` into the assignment `x = expr`, and whole-array
+    assignment is the dropped op. (GLOBAL *scalar* int init via `__init` WORKS,
+    confirming `__init` itself runs in the unit-test harness.)
+- **Likely root cause (needs confirming)**: IR-gen for `STMT_ASSIGN` with an
+  aggregate (array, and probably struct) LHS/RHS doesn't emit an element-wise copy
+  / memcpy — only scalar assignments store. The decl-init path (genLocalVarDecl)
+  emits the element stores, which is why decl-init works but `=` doesn't.
+- **Severity**: CRITICAL — silent data loss on a routine operation (`arr = other`,
+  `arr = {...}`, and therefore *all* global array/struct initializers). Any program
+  relying on a package-level table reads zeros with no warning.
+- **Impact / blocks**: `math.Pow10` (table-based) is blocked; any global aggregate
+  table or `arr = arr2` copy is unsafe until fixed.
+- **Test (TODO when fixing)**: conformance cell for whole-array `=` assignment and
+  global array-initializer readback (LLVM/VM/native/gen2), xfailed until the fix.
+
+### Global float `var` emits invalid LLVM (`global double 0`) — CONFIRMED compile failure, LLVM backend
+- **Symptom**: any package-level `var x float64` (with or without an initializer)
+  makes the LLVM backend emit `@<mangled> = global double 0`, which clang rejects:
+  `error: integer constant must have integer type` — the whole package fails to
+  compile. (`var x float64 = 7.5` fails identically; the initializer is irrelevant
+  because the static zero is what's malformed.)
+- **Root cause**: `pkg/binate/codegen/emit.bn` global-var emission (~line 156-170)
+  picks the static zero by type kind: `null` for pointers, `zeroinitializer` for
+  slice/struct/array, and a bare ` 0` for *everything else* — but ` 0` is only
+  valid for integer LLVM types. For `double`/`float` it must be ` 0.0` (or
+  `0.000000e+00`). The runtime value (for `= expr`) comes from `__init`, which
+  works for scalars — so emitting the correct float zero fully fixes scalar float
+  globals.
+- **Severity**: MAJOR — hard compile error (not silent), blocks any global float
+  var. Discovered 2026-06-06 alongside the array-assignment bug, porting `Pow10`.
+- **Proposed fix**: in the global-var zero-emission, branch on float type kinds
+  (TYP_FLOAT64/TYP_FLOAT32) to emit ` 0.0`; keep ` 0` for integers. One-line-ish.
+- **Test (TODO when fixing)**: codegen unit test asserting a `double`/`float`
+  global emits a float zero, plus a conformance cell reading back a global float.
+
 ### Integer shift by a count >= bit width is hardware-masked (mod width), NOT the spec's defined 0 / sign-extend — FIXED 2026-06-06 (binate `32fde83d`)
 - **Fix**: a branchless overshift guard in IR-gen (`gen_binary.bn`,
   `emitGuardedShift`), so a non-constant (or out-of-range constant) shift count
