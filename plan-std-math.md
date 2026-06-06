@@ -19,7 +19,19 @@ outputs **bit-for-bit**, reusing Go's test vectors.
   bug (shift by count >= width was hardware-masked, not the spec's 0/sign-fill)
   — fixed in IR-gen `gen_binary.bn` (binate `32fde83d`), all backends. Surfaced
   by porting `math.RoundToEven`.
-- **Next**: Phase 3 (`Exp`/`Exp2`/`Expm1`/`Log`/`Log2`/`Log10`/`Log1p`/`Pow`).
+- **Phase 3 — transcendentals** — IN PROGRESS. `Exp` LANDED (binate `4311098c`):
+  Go's fdlibm port; the FP-contraction bit-identity risk is **retired** —
+  `Exp(1)` equals the `E` constant bit-for-bit on LLVM, VM, and native-aa64
+  (plain fmul/fadd at -O2 don't fuse, so transcendentals stay bit-identical
+  across backends). The remaining ports — `Log` (the other foundational one),
+  then `Log2`/`Log10`/`Log1p`, `Exp2`/`Expm1`/`Pow10`, and `Pow` — follow the
+  same proven pattern: package-level `<fn>`-prefixed magic-constant consts,
+  fully-parenthesized shift-vs-add expressions (Binate shift binds looser than
+  `+`), and a bit-exact pin in the test to guard cross-backend identity.
+- **Next on resume**: `Log` (`math/log.go`), then the derived exp/log functions
+  and `Pow`. Workflow note: a porting workflow works well (see the Tier-0 fan-out)
+  BUT constrain agents to structured output only — one agent wrote scratch files
+  into the main checkout, which had to be cleaned up.
 
 ## Ratified decisions (user, 2026-06-06)
 
