@@ -6,9 +6,9 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
-### bnc front-end / IR-gen memory blows up (>8.5 GB, OOM) compiling a ~1370-line program — super-linear, NOT raw size — PRIMARY FIX LANDED (worktree, pending cherry-pick)
-- **Status (2026-06-05)**: fix **(1)** below LANDED on the worktree (binate
-  `4e9d8de9`, pending cherry-pick) — `registerPendingStructDtor`/
+### bnc front-end / IR-gen memory blows up (>8.5 GB, OOM) compiling a ~1370-line program — super-linear, NOT raw size — PRIMARY FIX LANDED on main
+- **Status (2026-06-05)**: fix **(1)** below LANDED on main (binate
+  `7804c287`) — `registerPendingStructDtor`/
   `registerPendingMsDtor` now dedup via a precomputed-name list (`hasName`) with
   the incoming name built once, instead of re-spelling every existing entry per
   call. **Validated**: minbasic `bnc cmd/run` now compiles to a working 270 KB
