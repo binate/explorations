@@ -252,12 +252,12 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   arg (`use(w)` with `w` a local) is fine — only the un-materialized
   return-value-as-arg combination loses the vtable word. Workaround: bind to a
   local first (`var w @func(...) = mk(); use(w)`).
-- **Test**: NEEDS a conformance test — `use(mk())` returning/passing a non-
-  capturing `@func(int) int`, asserting the invoked result. Xfail the 3 VM-final
-  default modes (`builder-comp-int`, `builder-comp-int-int`,
-  `builder-comp-comp-int`); the compiled-final modes pass. Staged at
-  `/tmp/minbasic-staging/funcval_return_as_arg.bn`; pending approval to land on
-  main.
+- **Test**: ✅ `conformance/regressions/funcval/return-as-arg` (binate
+  `d493b25b`, on the worktree, pending cherry-pick). `use(mk())` returning/
+  passing a non-capturing `@func(int) int`, asserts `42`. Verified: compiled-
+  final + native pass; the 3 VM-final modes (`builder-comp-int`,
+  `builder-comp-int-int`, `builder-comp-comp-int`) abort `nil vtable` and are
+  xfailed — un-xfail when the fix lands.
 - **Discovery**: 2026-06-05, wiring minbasic's injected `@func` writer
   (`basic.Run(host.NewWriter())`): the VM aborted with nil vtable. Isolated to
   the return-value-as-arg pattern; `bnc-0.0.7`.
