@@ -40,6 +40,84 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   reuse the same param-lowering decision the direct path uses, not a default
   by-value lowering.
 
+### A float literal narrowed to `float32` is NOT coerced at call-arg / composite-field / return positions — CONFIRMED wrong-code, ALL backends
+- **Symptom**: an untyped float literal flowing into a `float32` slot via a
+  function **argument** (`f(0.1)` where `f(x float32)`), a **composite-literal
+  field** (`S{f: 0.1}`, field `f float32`), or a **return** (`func g() float32 {
+  return 0.1 }`) is NOT narrowed double→float32. Arg and field SILENTLY produce
+  the wrong value: `bit_cast(int32, x)` reads `0x9999999A` (low 32 bits of
+  `double(0.1)`) instead of `0x3DCCCCCD` (`float32(0.1)`). Return emits invalid
+  LLVM (`value doesn't match function result type 'float'`) → clang rejects.
+  Fails on **every** backend (LLVM, VM, native) — it is a front-end gap, not a
+  backend issue. The control cases `var x float32 = 0.1`, `const C float32 = 0.1`,
+  and a const-group member all narrow correctly (so the coercion exists; it is
+  just not applied at these three positions).
+- **Root cause (suspected)**: the front-end inserts the float-narrowing
+  `OP_CAST` (→ `fptrunc` / `BC_F64_TO_F32`) only on var-init / typed-const decls
+  via `ensureWidth`; the call-arg path (`genExprOrFuncRef` / `coerceArg`),
+  composite-field store (`gen_composite.bn` `EmitStore`, no `ensureWidth`), and
+  the `return` path do INT narrowing only — an untyped-float literal at a
+  `float32` slot keeps its `double` type. Cite: gen_composite.bn:50-59,140;
+  gen_expr.bn:37-39 (untyped-float born `double`).
+- **Severity**: CRITICAL — passing a float literal to a `float32` parameter or
+  initializing a `float32` struct field with one are idiomatic, and the value is
+  silently wrong (no diagnostic). Distinct from the DEFERRED §844 (which is the
+  *backend* float32-const bug on VM/native); this is a front-end coercion gap
+  that hits LLVM too.
+- **Test**: `conformance/matrix/const/{call-arg,field,return}/float32/*` (9 cells;
+  arg/field = wrong value, return = compile error). To land: see the
+  matrix-vs-regressions decision below — likely a few representative
+  `regressions/` cells (the bug is position-dependent, not type-dependent).
+- **Discovery**: 2026-06-05, P1 const matrix (read-form axis).
+- **Fix**: apply the float-width coercion (`ensureWidth`/equivalent) for
+  untyped-float literals at call-arg, composite-literal-field, and return
+  positions — the same narrowing the var-init path already performs.
+
+### Local `const` declarations silently materialize 0 — CONFIRMED wrong-code, ALL backends
+- **Symptom**: a `const` declared inside a function body (`func main() { const C
+  T = V; var x T = C }`) reads as **0** (the zero value), for EVERY type
+  (int/uint of all widths, float32, float64). The value `V` is dropped entirely.
+  Fails on every backend (LLVM/VM/native). Package-level `const`, const-group
+  members, and inline literals all work — only the **local** const form is
+  broken. Local `const` is currently used nowhere in the compiler tree or
+  conformance suite, so real-world impact is nil today, but it is a silent-wrong-
+  value landmine.
+- **Root cause (unknown — needs investigation)**: a local const declaration
+  appears to register the name but never bind its value at the IR-gen read site
+  (the read resolves to a zero-initialized slot rather than the const's
+  materialized value). Either local consts must materialize like package consts,
+  or the type-checker should reject local `const` until supported — silently
+  emitting 0 is the wrong outcome.
+- **Test**: `conformance/matrix/const/local-const/*` (12 cells, all types). To
+  land: see the matrix-vs-regressions decision (one representative cell likely
+  suffices — the bug is type-independent).
+- **Discovery**: 2026-06-05, P1 const matrix (read-form axis).
+- **Fix**: bind a local const's materialized value at its read site (mirror the
+  package-const path), or reject local `const` at type-check if intentionally
+  unsupported.
+
+### Binary float const expr (`const X float64 = 0.1 + 0.2`) is routed through the integer const-fold path → invalid IR — CONFIRMED
+- **Symptom**: a `const` whose initializer is a **binary** float expression
+  (`0.1 + 0.2`) miscompiles: codegen emits integer arithmetic over float
+  operands — `%v2 = mul i64 %v0, %v1` where `%v0/%v1` are `double` — which clang
+  rejects (`'%v1' defined with type 'double' but expected 'i64'`). A bare or
+  unary-minus float const literal is fine; only a binary float const expr trips.
+- **Root cause (suspected)**: `floatConstText` (gen_const.bn:185-197) only
+  recognizes a bare or unary-minus float literal as a CONST_FLT; a binary float
+  expression falls through to the integer `evalConstExpr` / fold path, which
+  emits integer ops over what are really doubles.
+- **Severity**: MAJOR — a compile error (loud), but on a reasonable construct;
+  and on a backend that does not validate IR it would silently miscompile.
+- **Test**: needs a cell — `const X float64 = 0.1 + 0.2` then assert `X ≈ 0.3`
+  (currently a compile error). Found via a standalone probe, not in the matrix
+  product (const-expr folding is a distinct axis from single-value
+  materialization).
+- **Discovery**: 2026-06-05, P1 const matrix design probes.
+- **Fix**: fold float const binary exprs at float precision (extend the
+  float-const-expr path to handle binary/parenthesized float arithmetic), or
+  reject with a clear "float const expressions unsupported" diagnostic rather
+  than emitting integer ops.
+
 ### `&slice[i]` (address-of a slice element) lowers to a wild pointer — CONFIRMED wrong-code, both backends
 - **Symptom**: taking the address of a *slice*-indexed element yields a garbage
   pointer instead of the element address. `var p *uint8 = &s[0]; *p = 66`
