@@ -834,7 +834,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
-### Native widening int casts don't sign/zero-extend from the SOURCE width — silent wrong value for a non-canonical source — CONFIRMED 2026-06-05
+### Native widening int casts don't sign/zero-extend from the SOURCE width — silent wrong value for a non-canonical source — FIXED 2026-06-05 (binate 445d846a)
 - **Symptom**: a widening integer cast (`cast(int, <int32 x>)`, sub-word →
   host-word) on both native backends does NOT re-extend the value from the
   source width; it just MOVs, assuming the source register is already
@@ -853,35 +853,28 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   zero-extended bits → `println` prints `3184315597` instead of `-1110651699`.
   This is the residual on **conformance/539_float32_const** (xfailed on all 3
   native lanes; the 4 non-negative lines pass; passes on VM + LLVM).
-- **A blanket "narrow bit_cast results" fix is WRONG**: making OP_BIT_CAST call
-  the sub-word narrow corrupts the compiler's OWN internal bit_casts (observed:
-  `bnc` then emits a broken link — `_bn_pkg__bootstrap__Write` undefined,
-  267/796 aa64 conformance failures). Do NOT narrow at bit_cast; fix the cast.
-- **Proposed fix (correct, but BLOCKED — see below)**: thread the source type
-  into `emitCast` on both natives and, for a widening cast (target host-word),
-  sign/zero-extend from the SOURCE width per the SOURCE signedness — mirroring
-  the VM's `BC_SEXT`/`BC_ZEXT` selection. Narrowing casts keep the current
-  target-width behavior. This makes 539 XPASS on BOTH native lanes (verified).
-- **BLOCKED by a self-compilation break (2026-06-05)**: this `emitCast` fix —
-  like the bit_cast-narrow above — breaks the native self-build **identically**
-  (`_bn_pkg__bootstrap__Write` undefined, ~267/796 aa64 failures), even though
-  539 itself passes. So `cmd/bnc`'s OWN tree (compiled main-module-native by
-  GEN1) depends on the current non-canonical sub-word cast/bit_cast behavior at
-  some site: a value typed as a sub-word int but carrying full-width bits, where
-  the old plain-MOV widening preserved all 64 bits and the canonicalizing fix
-  truncates/extends it. That hidden site (a likely SECOND bug — a wrong source
-  type on a cast in `cmd/bnc`'s tree, or a deliberate width-lie) must be found
-  and fixed FIRST; only then can the `emitCast` canonicalization land. NOTE the
-  oddity to chase: with the broken `bnc`, single-test runs of 539 link fine but
-  scalar/add etc. do NOT — same `bnc`, inconsistent linking — so the corruption
-  is in `bnc`'s own emitted output (dep manifest / symbol emission), not a
-  uniform "drop bootstrap.o".
-- **Test**: `conformance/539_float32_const` (native lanes) is the existing
-  pinning case; once unblocked + fixed, drop the 3 native 539 xfails. Consider a
-  direct `cast(int, bit_cast(int32, <high-bit u32>))` regression cell too.
-- **Severity**: MAJOR (silent wrong value, native-only, narrow trigger today but
-  a real correctness divergence from VM/LLVM). Tracked under plan-cr-p2-4 #4.1
-  as the remaining leftover; the self-compilation dependency is the real work.
+- **Fix (LANDED 445d846a)**: thread the source type into `emitCast` on both
+  natives; on a widening cast (target host-word), sign/zero-extend from the
+  SOURCE width per the source's signedness — mirroring the VM's `BC_SEXT`/
+  `BC_ZEXT`. Narrowing casts keep the target-width behavior. No-op for canonical
+  sources (scalar-matrix cells unaffected). The fix at the CAST is the right
+  layer — do NOT narrow at OP_BIT_CAST instead (that would also touch the
+  compiler's internal pointer bit_casts; the cast site is where the widening
+  semantics belong).
+- **CORRECTION — the earlier "blocked by a self-compilation break" conclusion
+  was WRONG**: I had attributed a ~267/796 aa64 conformance wipeout (`bnc` link
+  error `_bn_pkg__bootstrap__Write` undefined) to this fix. That breakage is the
+  **separate, already-tracked CRITICAL aa64-native lane regression** (from the
+  divide-fault guard series) — my experiments were rebased onto a base that
+  already had it. There is NO hidden cmd/bnc cast/bit_cast dependency. Proof: the
+  fix on the **clean x64_darwin lane** gives 807 passed / 4 failed (only the 4
+  unrelated pre-existing failures, NOT 267), and 539 passes. The aa64 lane can't
+  confirm until its CRITICAL issue is resolved, but 539 passed there too and the
+  aa64 emitCast uses identical logic.
+- **Test**: `conformance/539_float32_const` — now green on all modes (native
+  xfails dropped). A direct `cast(int, bit_cast(int32, <high-bit u32>))`
+  regression cell would harden it further.
+- **Severity**: was MAJOR (silent wrong value, native-only). Resolved.
 
 ### aa64 native backend mis-packs non-8-multiple / sub-word-packed structs (param + return) — CONFIRMED
 - **Symptom**: a struct whose size is not a multiple of 8 (`3×uint32` = 12B) or
