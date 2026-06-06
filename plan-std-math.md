@@ -19,20 +19,25 @@ outputs **bit-for-bit**, reusing Go's test vectors.
   bug (shift by count >= width was hardware-masked, not the spec's 0/sign-fill)
   — fixed in IR-gen `gen_binary.bn` (binate `32fde83d`), all backends. Surfaced
   by porting `math.RoundToEven`.
-- **Phase 3 — transcendentals** — IN PROGRESS. `Exp` LANDED (binate `4311098c`)
-  and `Log` LANDED (binate `696b1b5a`): both are Go fdlibm ports, and the
-  FP-contraction bit-identity risk is **retired** — `Exp(1)` equals `E`, and
-  `Log(e)`/`Log(2)`/`Log(10)` equal `1`/`Ln2`/`Ln10`, bit-for-bit on LLVM, VM,
-  gen2, and native-aa64 (plain fmul/fadd at -O2 don't fuse, so transcendentals
-  stay bit-identical across backends). The remaining ports — `Log2`/`Log10`/
-  `Log1p`, `Exp2`/`Expm1`/`Pow10`, and `Pow` — follow the same proven pattern:
-  package-level `<fn>`-prefixed magic-constant consts, fully-parenthesized
-  shift-vs-add expressions (Binate shift binds looser than `+`), Go-derived
-  bit-pattern test vectors, and a bit-exact pin to guard cross-backend identity.
-- **Next on resume**: the derived log functions (`Log2`/`Log10`/`Log1p`), then
-  `Exp2`/`Expm1`/`Pow10`, then `Pow`. Workflow note: a porting workflow works
-  well (see the Tier-0 fan-out) BUT constrain agents to structured output only —
-  one agent wrote scratch files into the main checkout, which had to be cleaned up.
+- **Phase 3 — transcendentals** — IN PROGRESS. The exp/log core is LANDED:
+  `Exp` (`4311098c`), `Log` (`696b1b5a`), and `Log2`/`Log10`/`Log1p` (`f0b9558a`)
+  — all Go fdlibm ports. The FP-contraction bit-identity risk is **retired**:
+  `Exp(1)==E`; `Log(e)`/`Log(2)`/`Log(10)`==`1`/`Ln2`/`Ln10`; powers of two/ten
+  are exact under `Log2`/`Log10`; `Log1p(tiny)==tiny` — all bit-for-bit on LLVM
+  (gen1/gen2), the VM, and native-aa64 (plain fmul/fadd at -O2 don't fuse, even
+  the FMA-prone `Log(frac)*Log2E+exp`). `Log2E`/`Log10E` are bit-identical to
+  Go's full-precision `1/Ln2`/`1/Ln10`, so the reciprocals are precomputed
+  consts, never runtime division of the rounded `Ln2`/`Ln10`. The proven pattern:
+  package-level `<fn>`-prefixed magic-constant consts (reuse shared fdlibm
+  coefficients across functions where the value is genuinely the same),
+  fully-parenthesized shift-vs-add expressions (Binate shift binds looser than
+  `+`), the `ldexp.bn` `cast(int, iu>>shift)-cast(int, bias)` idiom for exponent
+  recovery (no uint64->int wraparound), Go-derived bit-pattern test vectors, and
+  a bit-exact pin to guard cross-backend identity.
+- **Next on resume**: `Exp2`/`Expm1`/`Pow10`, then `Pow`. Workflow note: a
+  porting workflow works well (see the Tier-0 fan-out) BUT constrain agents to
+  structured output only — one agent wrote scratch files into the main checkout,
+  which had to be cleaned up.
 
 ## Ratified decisions (user, 2026-06-06)
 
