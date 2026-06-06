@@ -74,10 +74,13 @@ ops only. Place it as a sibling subtree (`conformance/matrix/<op>-diff/` or a
 
 ## Phasing
 
-1. **v1: shifts + conversions** (`gen-diff-scalar.py`, flavor A, batched). These
-   are the live-CRITICAL / recently-buggy ops; ~a few hundred input-tuples per op
-   across widths/signs/counts, boundary + seeded-random, spec-computed expected.
-   xfail where a backend diverges (the shift family is currently all-red).
+1. **v1: shifts + conversions** — LANDED 2026-06-06 (binate `d89d14ba`,
+   `conformance/gen-diff-scalar.py`, 41 cells / 1707 tuples, flavor A,
+   self-checking). Oracle adversarially validated (5 spec-readers, all agree).
+   Green on LLVM + arm32 baremetal; found two backend defects, xfailed + filed:
+   VM `int→float32` (`vm-int-to-float32`) and native-aa64 sub-word narrowing
+   (`aa64-subword`). int↔int casts and all shifts pass everywhere (the shift
+   family is no longer red — `32fde83d` landed). See `claude-todo.md`.
 2. **v2: arithmetic + comparisons + bitwise**, same generator.
 3. **v3: port the generator to Binate** (dogfood) + consider flavor B for the
    highest-volume ops; wire a fixed sample-size knob.
