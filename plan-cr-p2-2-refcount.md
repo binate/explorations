@@ -113,9 +113,20 @@ pre-processing. The `isFreshManagedPtr/Slice` non-broadening is balance-neutral
   by mirroring ensureArrayDtor's array-element recursion. (Copy side needs no
   change — no managed-slice copy fn exists; @[]T copies its backing inline.)
   Test: `621_ms_of_array_dtor`. Full builder-comp green (852/0).
-- **⑤ 603 self-alias UAF reads freed-but-pristine memory** (weak test): pending.
-  Strengthen with forced freed-block reuse + an allocator-independent
-  IR-ordering unit test for the slice-element arm.
+- **⑤ 603 self-alias UAF reads freed-but-pristine memory** (weak test): LANDED
+  (binate `f68cc024`). 603 read the freed-but-pristine element (no sanitizer / no
+  intervening alloc), so it passed even with the UAF. Strengthened: after each
+  self-alias, allocate a fresh same-size object that reclaims the freed block
+  (under the bug the element aliases it, reading 91/92/93 not 7/8/9). Plus an
+  allocator-independent IR-ordering unit test for the slice arm
+  (TestSliceElemSelfAssignAcquiresBeforeReleases); the array/raw-pointer arms were
+  already pinned by TestEmitStoreManagedSlotAcquireBeforeRelease. Test-only.
+
+**All five adversarial-review fixes landed (binate, through `f68cc024`).** Two
+were regressions this plan introduced (① ②), two pre-existing compile-error bugs
+adjacent to the fixes (③ ④), one a weak test (⑤). The post-rebase hygiene
+re-check caught and forced a renumber on ① (613→617) and ④ (620→621) before
+landing.
 
 ## Summary
 
