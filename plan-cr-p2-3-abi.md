@@ -6,6 +6,18 @@
 
 ## Status (2026-06-05)
 
+> **Adversarial review (2026-06-05, binate 867887f6):** all six landed fixes
+> reviewed for correctness/completeness/optimality/test-coverage — **0
+> confirmed correctness defects** (red-zone over-read, AL=nsrn, byval `ptr`,
+> gap-1 sufficiency, five-u8 read all refuted with substantiation). Confirmed
+> findings were test-coverage breadth only; three were closed: the
+> prefixSlots=2 iface-method dispatch arm (unit), a multi-word aggregate
+> multi-return component (memcpy loop >1 iteration), and a 17-byte byval
+> boundary cell. Open/flagged (not regressions): float32 `__c_call` varargs
+> are not promoted to double; >8 float args drop; arm32 xfail-marker
+> inconsistency on three-u32 vs three-int.
+
+
 - **3.2** aa64 non-8-multiple param/return — **LANDED** (binate 6bbea800)
 - **3.3b** x64 non-8-multiple param — **LANDED** (binate 6bbea800; shared ArgWords ceil fix)
 - **3.1 / 3.7** >16-byte aggregate args through indirect calls (iface-method +
