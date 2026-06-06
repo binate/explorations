@@ -10,6 +10,52 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~A `@[]@[]@T` (managed-slice-of-managed-slice) STRUCT FIELD emits a reference to an undefined nested cross-package element dtor~~ — FIXED + LANDED 2026-06-05 (binate `1cb4490c`, plan-cr-p2-2 step 6; `elemDtorName`/`elemCopyName` call ms/array element dtor/copy by their LOCAL weak_odr name; `607`). NOTE: the `MethodParamsFlat` `@[]@types.Type` workaround is NOT yet reverted — gated on a BUILDER bump (a bnc rebuilt from this fix accepts the natural nested encoding).
+- **Symptom**: adding a struct field of type `@[]@[]@types.Type` to a struct in
+  `pkg/binate/ir` made clang fail building `pkg__binate__ir.ll` with `use of
+  undefined value '@bn_pkg__binate__types____dtor_ms_mp_pkg__binate__types__Type'`.
+  The generated nested dtor `__dtor_ms_ms_mp_Type` (for the field) references the
+  inner element dtor `__dtor_ms_mp_Type` qualified to the *element's* package
+  (`pkg/binate/types`), but that inner dtor is never emitted/defined there.
+- **Discovery**: 2026-06-04, building the interface-arg-coercion fix (`d6bb3b2f`)
+  — `ModuleInterface` initially carried `MethodParams @[]@[]@types.Type`.  Worked
+  around by switching to a flat encoding (`MethodParamsFlat @[]@types.Type` +
+  `MethodParamCounts @[]int`), so the shape stays at `@[]@Type` (known-good, ==
+  `MethodResults`).  `gen_dtor.bn` documents `ms_ms_mp` dtors as supported in the
+  abstract, but the cross-package element-dtor emission for a *struct field* of
+  that shape isn't wired up.
+- **Why MAJOR / latent**: it's a silent undefined-symbol at link for a legal
+  type shape; latent because nothing in the BUILDER tree currently needs a
+  `@[]@[]@T` struct field (the flat workaround avoids it).  A non-flat use would
+  hit it again.
+- **Root cause**: unknown — needs investigation in the dtor-emission path
+  (does the nested ms-of-ms dtor ensure its inner element dtor is emitted, and
+  with the right package qualification, when the element type is cross-package?).
+- **Fix direction**: ensure `__dtor_ms_mp_<Elem>` is emitted (in the element's
+  package, or homed where referenced) whenever a `__dtor_ms_ms_mp_<Elem>` is
+  generated.  Add a unit/conformance test with a `@[]@[]@T` struct field where T
+  is a cross-package managed type.
+
+### ~~A managed-slice-of-interface-value (`@[]@I`) constructed via a slice LITERAL leaks its elements~~ — FIXED + LANDED 2026-06-05 (binate `fddf8676`, plan-cr-p2-2 step 6; root cause was the `__dtor_ms_unknown` name collision when a module has both `@[]@I` and `@[]@func` — dtorTypeSuffix now emits injective `iv`/`fv` suffixes; `606`)
+- **Symptom**: `var s @[]@Foo = @[]@Foo{makeFoo(i)}` (a slice literal of interface values), dropped at scope exit, never RefDec's its `@Foo` elements — the receiver (and its managed fields) leak (rc 1→2, never back to 1).  The element-ASSIGN form (`var s @[]@Foo = make_slice(@Foo, n); s[0] = makeFoo(i)`) is balanced; only the literal leaks.
+- **Root cause (from `--emit-llvm`)**: both forms call the slice's `__dtor_ms_unknown`, which RefDec's the slice backing with a NULL dtor and does not walk the interface-valued elements (no per-element iface dtor).  So the element-type isn't propagated into the managed-slice dtor selection for the literal shape.  This is the `@[]@I` feature area already flagged as incomplete by `440_iv_in_slice_mgd` ("compiles, but writes into the iv slot segfault").
+- **Discovery**: 2026-06-03 adversarial coverage audit of the `@Iface` refcount lifecycle.  Likely **pre-existing** / part of the known-incomplete `@[]@I` support — NOT a regression in the core refcount wiring (the common copy-sites — return / var-init / assign / field / array-element / managed-slice-element-assign / composite / struct-copy / param / deref — are all rc-balanced, pinned by 553/554/556/560/567).
+- **Status**: tracked, not fixed.  Lower priority (exotic shape in a known-incomplete feature); fix alongside the broader `@[]@I` completion (440).
+
+### ~~Managed-interface-value refcount lifecycle is unwired — FAMILY of leaks + 1 UAF~~ — FIXED + LANDED (core wired 2026-06-03; residual closed 2026-06-05 plan-cr-p2-2 steps 2+5: the iface-method-DISPATCH result leak — `genInterfaceMethodCall` registered nothing — via `registerManagedCallResult` (binate `f5410fcf`), and the per-arm `@Iface`/`@func` copy switches consolidated onto `emitStoreManagedSlot` (binate `ce2c8175`); b2 depth coverage `605`)
+- **Root cause (CONFIRMED)**: managed interface values (`@Iface`) were added to the language, but the refcount *lifecycle* machinery in `pkg/binate/ir` was only ever wired for managed-ptr / managed-slice / struct — **never iface**.  Three distinct sites are missing the `isManagedIfaceValueType` case, producing three bugs:
+  1. **UAF — return a named-local `@Iface`** (`func f() @I { var s @I = q; return s }` → `f().m()` reads freed data).  `gen_return.bn`'s Axiom-3 retain loop has no iface case, so a *borrowed* (loaded) iface return is never retained for the caller; the source local's scope-exit RefDec frees it.  (The original target bug; found 2026-06-03 building `plan-std-errors.md` Part 1, where `errors.New`/`Wrap` return `@Error`.)
+  2. **LEAK — discarded / non-moved iface temp** (`makeFoo(inner)` as a bare statement → inner rc 1→2, dtor never runs).  `emitTempCleanupBody` (gen_util_refcount.bn:292) RefDec's managed-ptr/slice/struct temps but **skips iface temps**, even though they are registered in `ctx.Temps` (gen_call.bn:252).  **Pre-existing**, independent of the return path (reproduces on Part-0 `bnc`).
+  3. **LEAK — reassigning an `@Iface` local** (`var f @I = a; f = b` → `a`'s old iface value is overwritten without a RefDec → leaked).  `gen_assign` doesn't RefDec the previous managed-interface value.  **Pre-existing.**
+- **Why these were never caught**: NO conformance test returns / discards / reassigns a managed interface value — every `@…` test uses managed *pointers* (`@Counter`/`@Item`/…).  520 is the only test that returns an `@Foo`, and only via the *boxed-on-return* shape (which happens to be balanced).
+- **Verified shape matrix** (rt.Refcount before/after, 8 return shapes, adversarially adjudicated): balanced *before any fix* = boxed-on-return (A/520), call-result (C), field-extract (E), multi-return (H), empty (G).  Broken *before any fix* = named-local (B) and param (D) → the UAF.  A naive unconditional `gen_return` RefInc fixes B/D but **over-retains the already-owned producers** (C call-result, E field-extract) → new leaks.  A narrow `rv.Op != OP_IFACE_VALUE` gate still leaks C/E (call/extract are owned too).  → the discriminator is "borrowed load vs owned producer", which the temp/local machinery already tracks for `@T`.
+- **Fix (chosen: principled / uniform, 2026-06-03)**: wired `@Iface` through the refcount machinery everywhere `@func` / `@[]T` already go.  Added `isFreshManagedIfaceValue` (gen_refcount_pred); iface RefDec in `emitTempCleanupBody`/`Since`; the consume-fresh / RefInc-borrowed hybrid at every copy-site (return / var-init / `:=` / assign / index-range / composite / slice-literal element); iface struct/array copy+dtor field cases (gen_copy_emit, gen_dtor_emit_bodies); registration of iface call/method results (gen_call, gen_method); and `NeedsDestruction → true` for `TYP_INTERFACE_VALUE_MANAGED` (types_query — was making the struct-field handling dead code).
+  - **Params/args use the MOVE model, NOT the copy model** (this is the subtle part): an iface param gets NO entry RefInc; the caller MOVES a fresh arg in via `consumeTemp` or RefInc's a borrowed one (gen_call/gen_method arg sites), and the param's scope-exit RefDec releases that single ref.  Reason: the bytecode VM passes a 2-word iface value on transient `vm.SP` that the call reclaims, so the copy model (caller retains + cleans its arg COPY post-call) reads freed stack and crashes (370/383 in `-int`).  `@T` can use the copy model only because it's 1 word in a stable local.
+- **Verification**: all 16 lifecycle shapes (return×6 / var-init / assign / composite / struct-by-value-copy / multi-consumer / discard / reassign / 1000-iter loop / self-assign) rt.Refcount-balanced, adversarially adjudicated.  Conformance 370/383/473/521/545/546 green in builder-comp / -int / -comp-comp / native aa64+x64.  (520 still fails in `-int` = the separate pre-existing "call through nil interface value" VM bug; 383 fails only in `-int-int` = the pre-existing cross-package double-interp loader limit, which also fails 136_grouped_imports.)
+- **Why MAJOR/critical**: #1 is a silent UAF; #2/#3 are silent leaks (violate the "compiler must NEVER leak" invariant).  Blocks `plan-std-errors.md` Part 1.
+- **Tests**: 546 (method-value, catches UAF) exists; add a new rt.Refcount-*balance* conformance test (catches leaks) for the return / discard / reassign / param shapes before landing.
+- **Status**: FIX IMPLEMENTED + verified on worktree (branch `work-1`); adding the balance conformance test, then full regression + cherry-pick.  Part 0 (`present`) already landed.  See `plan-std-errors.md`.
+
 ### ~~Short-var single-bind `x := s` of a managed struct-by-value skips the copy~~ — FIXED + LANDED 2026-06-05 (binate `b0eb7299`, plan-cr-p2-2 step 3; routed through `emitStoreManagedSlot`; matrix short-var/ident/managed-struct un-xfailed)
 - **Symptom**: `x := src` where `src` is a struct with a managed field copies the
   struct WITHOUT `__copy_` — the copy's managed field is not RefInc'd, so when
