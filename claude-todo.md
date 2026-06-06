@@ -558,7 +558,7 @@ Discovery Protocol) — most don't have one yet.
   value is marshalled — the vtable word is being dropped for the return-value-as-
   arg case.
 
-### Sub-word arithmetic results not narrowed in the VM (and natives) — dirty upper bits → wrong values — CONFIRMED
+### Sub-word arithmetic results not narrowed in the VM (and natives) — dirty upper bits → wrong values — CONFIRMED — UPDATE 2026-06-06: the scalar-diff differential confirms the native-aa64 variant extends beyond arithmetic to sub-word **signed shifts, all int-casts, and signed sub-word conversions**; see `aa64-subword` below
 - **Symptom**: a sub-word integer op (`uint8/16/32` add/mul/…) whose true result
   overflows the width leaves the un-narrowed value in the host register; a
   width-sensitive consumer reached DIRECTLY (no intervening sized store/cast) —
@@ -577,7 +577,7 @@ Discovery Protocol) — most don't have one yet.
   VM/native arith handlers, or an IR-gen narrow after each sub-word value-
   producing op (a P3 design call). Also covers the native variants.
 
-### Unsigned int→float uses a SIGNED conversion in the VM — wrong value — CONFIRMED
+### Unsigned int→float uses a SIGNED conversion in the VM — wrong value — CONFIRMED — UPDATE 2026-06-06: the scalar-diff differential shows the unsigned→**float64** path now PASSES on the VM (so this specific signedness bug appears resolved); a *distinct* int→float32 defect remains — see `vm-int-to-float32` below
 - **Symptom**: `cast(float64, y)` for an unsigned int whose top register bit is
   set (on the 64-bit host, only `uint64` with bit 63) yields a NEGATIVE float —
   the VM converts as signed. E.g. `cast(float64, <uint64 bit-63>) > 0.0` is
@@ -593,6 +593,43 @@ Discovery Protocol) — most don't have one yet.
 - **Fix**: dispatch int→float on operand signedness (a `BC_UITOF` / unsigned
   path), mirroring the cmp/div/shift signedness selection. Same for float→int
   and the native backends.
+
+### Differential scalar harness (`matrix/scalar-diff`) landed — two backend defects found: `vm-int-to-float32` and `aa64-subword` — CONFIRMED
+- **What landed**: `conformance/gen-diff-scalar.py` + 41 cells / 1707 tuples
+  under `conformance/matrix/scalar-diff/` — a property-based **differential**
+  value-correctness harness for scalar shifts & conversions. Oracle is the
+  **spec** (computed at full precision, independently validated by a 5-reader
+  adversarial pass), not a backend, so spec-divergences (the shift-bug class)
+  are caught too. Self-checking cells (`println(cast(int, computed == spec))`)
+  for target-stability across 32/64-bit. Green on all LLVM modes + arm32
+  baremetal; the two clusters below are xfailed (verified non-stale via
+  `--check-xpass`). Idempotent generator; `int↔int` casts and all shifts pass
+  on every real backend (broadened regression net for `32fde83d`).
+- **`vm-int-to-float32` — VM `int → float32` is broken (every width/sign)**:
+  every `cast(float32, <int>)` diverges — even `cast(float32, 1) > 0.0` is
+  false on the VM. `float64` conversions, `float32 → int` truncation, and
+  `float32` literals all work; the 17 xfailed VM cells (all `int-to-float` /
+  `float-to-int` / `float-cast`) fail *only* on their `float32` tuples.
+  Distinct from the now-resolved unsigned→float64 signedness bug above. Likely
+  the VM never implemented (or mis-lowered) the 32-bit-float conversion target.
+  Tests: the 17 cells, xfailed on `builder-comp-int` / `-int-int` /
+  `-comp-comp-int`. Fix: implement/repair `int → float32` in the VM's
+  `lower_cast` (both `BC_SITOF`/`BC_UITOF` to a 32-bit float result).
+- **`aa64-subword` — native-aa64 doesn't narrow/sign-extend sub-word results**:
+  a sub-word op leaves dirty high bits / wrong sign. `int8(-128) << 1` keeps
+  bit 8 set (so `== 0` fails); `cast(int8, 128:uint8)` and the other
+  `uint8 → int{8,16}` casts are wrong. 17 xfailed cells: `shl`/`shr` 8/16/32
+  **signed**, all 8 `int-cast`, signed sub-word `float-to-int`/`int-to-float`.
+  64-bit and most unsigned paths are fine. The native sibling of the VM/native
+  sub-word-narrowing gap above, here confirmed across shifts/casts/conversions
+  (not just arithmetic). Fix: post-op narrow + sign-extend sub-word results in
+  the aa64 backend (or an IR-gen narrow — the shared P3 design call).
+- **native-x64 / arm32-linux not evaluated**: the host lacks x86_64 C runtime
+  headers (`stdio.h` → every native-x64 cell `COMPILE_ERROR`s uniformly, an env
+  limitation, *not* a backend result — no x64 xfails placed), and `arm32-linux`
+  needs `qemu-arm` (skipped). Re-check on an x64 host: the aa64 sub-word defect
+  very likely has an x64 analog needing its own xfails.
+- **Discovery**: 2026-06-06, differential-harness v1 (plan-differential-testing.md).
 
 ### ~~Short-var single-bind `x := s` of a managed struct-by-value skips the copy~~ — FIXED + LANDED 2026-06-05 (binate `b0eb7299`, plan-cr-p2-2 step 3; routed through `emitStoreManagedSlot`; matrix short-var/ident/managed-struct un-xfailed)
 - **Symptom**: `x := src` where `src` is a struct with a managed field copies the
