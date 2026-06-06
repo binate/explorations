@@ -100,8 +100,13 @@ pre-processing. The `isFreshManagedPtr/Slice` non-broadening is balance-neutral
   alongside @[]@Iface/@[]@func, balanced + no crash) + a dtorNameForType unit
   test. Full builder-comp green (848/0).
 - **③ cross-pkg top-level array-by-value copy → undefined symbol** (pre-existing):
-  pending. emitStructCopy still qualifies a top-level [N]@pkg.T array copy; fix:
-  route through elemCopyName.
+  LANDED (binate `ed515778`). emitStructCopy named a top-level [N]@pkg.T array's
+  copy via qualifiedCopyNameForType (→ a never-defined `pkg.__copy_arrN_...`)
+  while ensureArrayCopy emits it locally (weak_odr). Fixed by routing
+  emitStructCopy through elemCopyName (top-level array → local; struct stays
+  qualified) + emitStructDtor through elemDtorName (symmetric, behavior-
+  preserving). Test: `619` (`var b [2]@store.Node = a`). Full builder-comp green
+  (849/0).
 - **④ @[]([N]@T) ms-of-array dtor → undefined symbol** (pre-existing): pending.
   ensureMsDtor never recurses into ARRAY elements; fix: mirror ensureArrayDtor.
 - **⑤ 603 self-alias UAF reads freed-but-pristine memory** (weak test): pending.
