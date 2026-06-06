@@ -746,6 +746,42 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MAJOR
 
+### Native widening int casts don't sign/zero-extend from the SOURCE width — silent wrong value for a non-canonical source — CONFIRMED 2026-06-05
+- **Symptom**: a widening integer cast (`cast(int, <int32 x>)`, sub-word →
+  host-word) on both native backends does NOT re-extend the value from the
+  source width; it just MOVs, assuming the source register is already
+  sign/zero-canonical. The VM (`BC_SEXT`/`BC_ZEXT`) and LLVM (`sext`/`zext`)
+  extend per the source type, so this is a native-only divergence — a silent
+  wrong value whenever the source register is non-canonical.
+- **Root cause**: `emitCast` (aa64 `aarch64_ops.bn:476`, x64 mirror) keys ONLY
+  on the TARGET width: for `target.Width == 0 || >= 64` it emits a plain MOV
+  (no extension); the sub-word LSL+ASR/LSR path only runs for a *narrowing*
+  target. It never receives the source type, so it cannot extend-from-source on
+  a widening cast.
+- **Why it surfaced now**: post-4.1 (sub-word arith narrowing), arith results
+  ARE canonical, so `cast(int, arithResult)` is correct via the MOV. But a
+  `bit_cast(int32, <float32 const>)` result is left ZERO-extended (bit_cast is a
+  plain reinterpret MOV), so `cast(int, bit_cast(int32, Neg))` keeps the
+  zero-extended bits → `println` prints `3184315597` instead of `-1110651699`.
+  This is the residual on **conformance/539_float32_const** (xfailed on all 3
+  native lanes; the 4 non-negative lines pass; passes on VM + LLVM).
+- **A blanket "narrow bit_cast results" fix is WRONG**: making OP_BIT_CAST call
+  the sub-word narrow corrupts the compiler's OWN internal bit_casts (observed:
+  `bnc` then emits a broken link — `_bn_pkg__bootstrap__Write` undefined,
+  267/796 aa64 conformance failures). Do NOT narrow at bit_cast; fix the cast.
+- **Proposed fix**: thread the source type into `emitCast` on both natives and,
+  for a widening cast (target width >= source width, or target host-word),
+  sign/zero-extend from the SOURCE width per the SOURCE signedness — mirroring
+  the VM's `BC_SEXT`/`BC_ZEXT` selection. Narrowing casts keep the current
+  target-width behavior. No-op for canonical sources, so it can't regress the
+  now-passing scalar-matrix cells. Touches `emitCast` + its callers on aa64/x64.
+- **Test**: `conformance/539_float32_const` (native lanes) is the existing
+  pinning case; once fixed, drop the 3 native 539 xfails. Consider a direct
+  `cast(int, bit_cast(int32, <high-bit u32>))` regression cell too.
+- **Severity**: MAJOR (silent wrong value, native-only, narrow trigger today
+  but a real correctness divergence from VM/LLVM). Tracked under plan-cr-p2-4
+  #4.1 as the remaining leftover.
+
 ### aa64 native backend mis-packs non-8-multiple / sub-word-packed structs (param + return) — CONFIRMED
 - **Symptom**: a struct whose size is not a multiple of 8 (`3×uint32` = 12B) or
   whose fields pack sub-word (`5×uint8` = 5B), passed OR returned by value,
