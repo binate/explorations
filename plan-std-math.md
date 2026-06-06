@@ -61,6 +61,10 @@ Exact change, per backend (verified against the source):
 - **VM** `pkg/binate/vm/vm_exec64.bn` (`evalFloatCmp64`): `BC_FNE64` executes the
   host `a != b`, which becomes `une` once the VM is recompiled by the fixed
   compiler — no code change, but add a VM test so the transitive fix is pinned.
+  Also **flip the existing assertion** in `pkg/binate/vm/vm_exec64_test.bn` that
+  currently pins *"NaN != NaN must be false (ordered)"* — it must now expect
+  `true` (this test is the one concrete piece of in-tree reliance on the old
+  semantics; the adversarial review confirmed nothing else depends on it).
 
 Tests:
 - Conformance cell: `NaN != NaN == true`, `NaN == NaN == false`,
