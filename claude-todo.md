@@ -34,6 +34,11 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Root cause**: codegen emits the raw hardware shift. LLVM `shl`/`lshr`/`ashr`
   by >= width is poison, lowered to a masking hardware shift; the native shifts
   mask the count register directly.
+- **Test**: `conformance/matrix/scalar/{shl,shr}-overshift/<width>/<sign>` (16
+  cells, binate `6fdb56eb`) — count == width, runtime `var` count (exercises the
+  backend shift, not const-fold). CONFIRMED wrong on **every** backend (LLVM, VM,
+  both natives); xfailed all modes — **un-xfail when the fix lands**. (Closes the
+  scalar matrix's value-axis gap: shifts were only tested as in-range consumers.)
 - **Fix (in progress, honor the spec)**: make codegen guard each variable-count
   shift so a count >= width yields 0 (logical `<<` / `>>`) or sign-fill
   (arithmetic `>>`), on every backend + the VM. The alternative — changing the
