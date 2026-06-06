@@ -6,7 +6,18 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
-### bnc front-end / IR-gen memory blows up (>8.5 GB, OOM) compiling a ~1370-line program — super-linear, NOT raw size
+### bnc front-end / IR-gen memory blows up (>8.5 GB, OOM) compiling a ~1370-line program — super-linear, NOT raw size — PRIMARY FIX LANDED (worktree, pending cherry-pick)
+- **Status (2026-06-05)**: fix **(1)** below LANDED on the worktree (binate
+  `4e9d8de9`, pending cherry-pick) — `registerPendingStructDtor`/
+  `registerPendingMsDtor` now dedup via a precomputed-name list (`hasName`) with
+  the incoming name built once, instead of re-spelling every existing entry per
+  call. **Validated**: minbasic `bnc cmd/run` now compiles to a working 270 KB
+  binary in **~1 s at 27 MB peak RSS** (was >8.5 GB / OOM-killed after ~15 min);
+  `--emit-llvm` 27 MB / 2 s (was 7.5 GB / 54 s / 0 IR lines). `refcount` matrix
+  105/0 and the `pkg/binate/ir` unit tests stay green. Fixes (2)-(4) below remain
+  as follow-ups — they remove the *other* super-linear factors (unmemoized Type
+  queries, O(n) `slices.Append`, `ctx.Vars` rescan) for even larger programs, but
+  (1) alone brought minbasic back to tractable.
 - **Symptom**: compiling the minbasic example (examples repo, `minbasic/cmd/run`
   — ~1370 lines of `pkg/basic` plus transitive `strconv`/`buf`/`slices`/`errors`)
   drives `bnc` to **>8.5 GB RSS** and it is OOM-killed (SIGKILL) after ~15 min on
