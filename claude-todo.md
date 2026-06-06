@@ -6,34 +6,48 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
-### aa64-native: every program fails to LINK — `bootstrap.Write` undefined, referenced from `rt.RawAlloc` / `rt.BoundsFail` — REGRESSION (whole native-aa64 lane red)
-- **Symptom**: ANY program compiled via the native-aa64 backend
+### aa64 native backend MISCOMPILES cmd/bnc (the link logic) — self-hosted `BNC_NATIVE` drops `binate_runtime.c`, so every aa64-native program fails to link — CRITICAL self-hosting regression
+- **Symptom**: ANY program built by the native-aa64 conformance lane
   (`builder-comp_native_aa64-comp_native_aa64`) fails at link with
   `Undefined symbols for architecture arm64: "_bn_pkg__bootstrap__Write",
-  referenced from: _bn_pkg__builtins__rt__RawAlloc` (and `…__BoundsFail`). A
-  trivial managed-struct cell fails identically — it is NOT program-specific.
-- **Scope**: **aa64-native only.** The LLVM/`comp` path links fine (provides
-  `bootstrap.Write`), the bytecode VM is unaffected, and **x64-native links and
-  runs fine** (`funcval/return-as-arg` passes on
-  `builder-comp_native_x64_darwin-…`). So it is the **arm64** native link/runtime
-  manifest specifically that no longer provides/links `bootstrap.Write`.
-- **Regression**: earlier THIS SESSION (2026-06-05) aa64-native compiled+linked+
-  ran fine — the matrices reported real passes (e.g. ABI matrix "24 passed" on
-  `native_aa64`). It broke since. Likely culprit area: the recent `rt`/`libc`/
-  `bootstrap` reorganization — `e56e4d0c` (pkg/libc deleted; rt calls libc via
-  `__c_call`), `f3327891` (rt DivCheck/DivFail), `e8f52e21`/`87965b70` — one of
-  which left the arm64 native link without `bootstrap.Write` (the rt
-  RawAlloc/BoundsFail/DivFail print path). Needs confirmation by bisect.
+  referenced from: _bn_pkg__builtins__rt__RawAlloc` (and `…__BoundsFail`).
+  `bootstrap.Write` is the C I/O sink in `runtime/binate_runtime.c:139` (it
+  compiles for arm64 and DEFINES `_bn_pkg__bootstrap__Write` — verified); the
+  symbol is simply not in the link because `binate_runtime.c` was dropped.
+- **ROOT CAUSE (isolated 2026-06-05) — NOT a driver/runtime/rt bug**: the
+  failing compiler is **`BNC_NATIVE`** — cmd/bnc compiled *by the aa64 native
+  backend* (`build_bnc_native_aa64`). Decisive isolation: **`gen1 --backend
+  native`** (cmd/bnc compiled by LLVM, running the *same* native backend on the
+  test) compiles, links, and RUNS the exact failing managed-struct cell fine
+  (prints `1 2 7`); the *only* variable is whether the driver is the
+  LLVM-compiled bnc (correct) or the native-compiled bnc (broken). So the aa64
+  native backend **miscompiles cmd/bnc's own runtime-link logic** — the
+  `findRuntime` / `runtimePath` path handling (`cmd/bnc/main.bn:82-84,210`),
+  which is char/sub-word (uint8) arithmetic — so `BNC_NATIVE` computes an empty
+  or wrong `runtimePath` and the `if len(runtimePath) > 0` gate skips adding
+  `binate_runtime.c`. A native test program itself is compiled correctly; only
+  the *self-hosted bnc* is miscompiled.
+- **Prime suspect**: `ee671b6c` "native/aarch64: narrow sub-word integer
+  arithmetic results to their type width" (a recent aa64-backend change to how
+  sub-word/uint8 arithmetic is emitted — exactly what char/path handling uses).
+  Needs a confirming bisect (build `BNC_NATIVE` at `ee671b6c^` and re-test).
+- **Scope**: **aa64-native only.** LLVM/`comp` + the VM are unaffected (different
+  backend), and **x64-native links and runs fine** (so the analogous x64
+  sub-word change `57e72d9e` is either correct or the bug is aa64-specific).
 - **Impact**: the entire `native_aa64` CI lane (in the `all` modeset) is red on
-  `main`; every aa64-native matrix/conformance cell fails to link. NOT a
-  per-test bug — do not xfail individual cells around it.
+  `main` — every aa64-native cell fails to link. This is a **self-hosting
+  miscompilation** (the native backend can't correctly compile its own
+  compiler), strictly worse than a single wrong-code cell. NOT a per-test bug —
+  do not xfail individual cells around it.
 - **Discovery**: 2026-06-05, un-xfailing `regressions/funcval/return-as-arg`
-  after the VM nil-vtable fix — the test (correctly green on comp/VM/x64-native)
-  surfaced the aa64-native link break.
-- **Fix**: restore `bootstrap.Write` on the arm64 native link — ensure
-  `pkg/bootstrap` (the `Write` primitive) is compiled+linked for arm64-native,
-  or route rt's write path the same way x64-native does (whatever provides
-  `bootstrap.Write` there). Confirm against the bisected culprit.
+  after the VM nil-vtable fix surfaced the aa64-native link break; root-caused by
+  the gen1-native-vs-BNC_NATIVE isolation above.
+- **Fix**: find the sub-word op in the aa64 backend that the narrowing change
+  miscompiles (bisect to `ee671b6c`; then a unit/conformance repro of the exact
+  uint8/char pattern from `findRuntime`/path handling), and fix the native
+  codegen. A self-hosting smoke (build `BNC_NATIVE`, compile a managed cell with
+  IT) should be added to guard the native-compiled-bnc path, since the matrices
+  run via `gen1`-native and did NOT catch this.
 
 ### bnc front-end / IR-gen memory blows up (>8.5 GB, OOM) compiling a ~1370-line program — super-linear, NOT raw size — PRIMARY FIX LANDED on main
 - **Status (2026-06-05)**: fix **(1)** below LANDED on main (binate
