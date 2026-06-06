@@ -4,6 +4,16 @@
 > Source-confirmed: each defect cites root cause, fix shape, files, and test status.
 > Defect details are tracked in `claude-todo.md`; this plan is the execution view.
 
+## Status (2026-06-05)
+
+- **3.2** aa64 non-8-multiple param/return — **LANDED** (binate 6bbea800)
+- **3.3b** x64 non-8-multiple param — **LANDED** (binate 6bbea800; shared ArgWords ceil fix)
+- **3.1 / 3.7** >16-byte aggregate args through indirect calls (iface-method +
+  func-value shim) — fix implemented, verified XPASS on builder-comp /
+  builder-comp-comp / builder-comp-comp-comp + full builder-comp 0-fail;
+  awaiting landing approval (binate worktree 265ed067).
+- **3.3a, 3.4, 3.5, 3.6, 3.8** — open (see Sequencing).
+
 ## Summary
 
 Every defect here is one violation of the §3.9 invariant: the pass/return shape of an aggregate or 2-word address-aggregate must be ONE target-parameterized decision applied byte-identically at the definition, at every call-site lowering (direct, C, indirect, handle, func-value, iface-method), and across all four backends. Today each indirect call shape and each backend re-derives that decision per-arm, so a value of the exact triggering shape (>16B struct, non-8-multiple struct, sub-word multi-return, 16-byte func/iface value, variadic float) silently breaks in one cell while its siblings pass. The cluster splits into three sub-themes that share root causes: (a) indirect-call aggregate-arg passing in LLVM codegen never applies the byval/i8*-pointer convention the direct path and the callee declare; (b) the native backends mis-count words for non-8-multiple aggregates (ArgWords sz/8 truncation), cap/mis-coalesce sub-word multi-returns, omit iface-method from the PlanFrame outgoing-args walk, and mis-place variadic floats; (c) the VM classifies 16-byte func values as one scalar word at the arg-marshal and single-return-copyback sites instead of as a 2-word address-aggregate.
@@ -23,18 +33,33 @@ Two structural fixes cover the majority. STRUCTURAL FIX 1 (native word-count): r
 - **Files**: `pkg/binate/codegen/emit_iface_call.bn (emitCallIfaceMethod)`; `pkg/binate/codegen/emit_funcvals_shim.bn (emitFuncValueShim, emitFuncValueShimAggregate)`; `pkg/binate/codegen/emit_util.bn (isByvalParam/writeParamTypeLLVM/writeByvalArgLLVM/writeByvalArgPreamble — reuse, parameterize threshold)`; `pkg/binate/codegen/emit_call_handle.bn (sibling, low-priority)`
 - **Tests**: covered: conformance/matrix/abi/{iface-param,funcval-param}/three-int (24B, both SIGSEGV; xfailed builder-comp, builder-comp-comp, builder-comp-comp-comp, builder-comp_arm32_linux, builder-comp_arm32_baremetal). Control: struct-param/three-int (direct) passes. GAP: a 17-byte shape to pin the (16,24] boundary; an iface/funcval >16B-with-managed-field struct (sret + byval together).
 
-### 3.2 aa64 native backend mis-packs non-8-multiple / sub-word-packed structs (param + return)
+### 3.2 aa64 native backend mis-packs non-8-multiple / sub-word-packed structs (param + return) — LANDED 2026-06-05 (binate 6bbea800)
 
-**MAJOR · CONFIRMED**
+**MAJOR · CONFIRMED · FIXED**
+
+> Landed scope was broader than the cited sites: the `sz/8` truncation was
+> duplicated at *every* aggregate marshalling boundary, not just the
+> return-collect ones the plan named. The first caller-only attempt showed
+> 0 XPASS — the callee stored one fewer word than the (now-fixed) caller
+> loaded. The fix routes the corrected `common.ArgWords` (ceil) plus the
+> aa64 callee param-receive (aarch64_emit_func.bn), callee return-pack
+> (aarch64_dispatch.bn) and indirect-call spread (aarch64_call_indirect.bn).
+> Un-xfailed struct/funcval/iface-param/{three-u32,five-u8} and
+> struct-return/{three-u32,five-u8} on native_aa64 + native_x64{,_darwin}.
 
 - **Root cause**: common.ArgWords (pkg/binate/native/common/common_call.bn:22-28) computes `w := sz/8; if w<1 {w=1}` — integer TRUNCATION, not ceil. A 12-byte struct (three-u32) -> 12/8 = 1 word, so the trailing 4 bytes (3rd u32) are never loaded into a register. aa64 reg-load path uses this nWords (aarch64_call.bn:88,99-102). The single-aggregate-RETURN collect path uses a bare `nWords := sz/8` (aarch64_call.bn:199) — same truncation drops the tail eightbyte; the aggregate-FIELD multi-return path (aarch64_call.bn:236) also uses `fldSz/8`. The classifier argRegWordsStackWords (common_callconv.bn:106-108) consumes ArgWords, so reg-vs-stack assignment under-counts too. five-u8 (5B) is loaded as `sz/8=0` words in the reg path -> nothing loaded. aarch64_iface.bn replicates the same `ArgWords`/`sz/8` (lines 105, 189, 215).
 - **Fix shape**: Fix common.ArgWords to round UP: `w := (sz + 7) / 8; if w < 1 { w = 1 }`. Then replace every hand-rolled `sz/8` / `fldSz/8` aggregate word-count in the natives with ArgWords: aarch64_call.bn:199 (single-aggregate return), :236 (aggregate field), and the aarch64_iface.bn:189/:215 mirrors. For sub-word PACKED structs (five-u8=5B), loading a full eightbyte from the data region is fine IF the source region has 8 valid bytes; ensure the data-region alloc is sized to a whole word (verify via types.SizeOf/alloc sizing) so the partial-tail eightbyte read is in-bounds. Pin against aa64-via-LLVM byte-for-byte (the §8 suspected-defect-1 24-byte/padded cross-check).
 - **Files**: `pkg/binate/native/common/common_call.bn (ArgWords — the shared root)`; `pkg/binate/native/aarch64/aarch64_call.bn (emitCall aggregate-arg load + return collect)`; `pkg/binate/native/aarch64/aarch64_iface.bn (mirror)`; `pkg/binate/native/common/common_callconv.bn (argRegWordsStackWords consumes ArgWords)`
 - **Tests**: covered: conformance/matrix/abi/struct-{param,return}/{three-u32,five-u8} (xfailed builder-comp_native_aa64-comp_native_aa64). struct-return/three-u32 + five-u8 xfail aa64-only; struct-param both xfail aa64+x64. Pass on LLVM/VM. GAP: a 24-byte/alignment-padded aggregate (§8 #1) and a {u16,int} padded shape cross-checked aa64-vs-LLVM.
 
-### 3.3 x64 native backend mis-packs sub-word multi-return + non-8-multiple struct params
+### 3.3 x64 native backend mis-packs sub-word multi-return + non-8-multiple struct params — PARTIAL
 
-**MAJOR · CONFIRMED**
+**MAJOR · CONFIRMED · PARTIALLY FIXED**
+
+> (b) Non-8-multiple struct PARAM: **LANDED** 2026-06-05 (binate 6bbea800)
+> via the shared ArgWords ceil fix and the x64 callee param-receive
+> (x64_emit_func.bn) — see 3.2. (a) Sub-word multi-return n=2 cap +
+> eightbyte coalescing: still open — see Sequencing #4 / defect 3.4.
 
 - **Root cause**: Two distinct x64 gaps. (a) Sub-word multi-return at arity >=3: emitMultiReturnPack (x64_return.bn:145-162) caps at `n=2` (line 147) AND packs one full word per field (RAX, then RDX), dropping field 2+ entirely and never coalescing sub-word fields into a single eightbyte. The collect side (x64_call.bn:230-247) mirrors the same n=2 cap (line 235) and reads each field at its FieldOffset from RAX/RDX. For (u16,u16,u16) SysV coalesces all three into the low 48 bits of one eightbyte (RAX), but native splits field0->RAX, field1->RDX, drops field2 -> wrong values + disagrees with LLVM at the native<->LLVM boundary. (b) Non-8-multiple struct PARAM: emitAggregateArg (x64_call.bn:49-92) loads `nWords := common.ArgWords` (line 71) which is the `sz/8` truncation -> a 12-byte three-u32 loads 1 word, drops the 3rd u32; five-u8 loads 0 words. x64 struct-RETURN works (uses sz>8 check in emitAggregateReturnPack, not ArgWords).
 - **Fix shape**: (a) Multi-return: remove the n=2 caps (x64_return.bn:147, x64_call.bn:235) and implement true SysV eightbyte coalescing — pack the tuple into eightbytes by FieldOffset/SizeOf (multiple sub-word fields per RAX/RDX eightbyte; for <=16B that is at most RAX+RDX), matching what LLVM legalizes for the equivalent {...} struct, and collect symmetrically. This MUST agree with the callee pack scheme (both ends derive from the same eightbyte layout). (b) Param: same ArgWords ceil fix as the aa64 defect resolves the truncation (shared common.ArgWords). Coordinate the pack/collect coalescing as one change so def and call stay in lockstep.
