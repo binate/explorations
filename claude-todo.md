@@ -821,18 +821,31 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   the sub-word narrow corrupts the compiler's OWN internal bit_casts (observed:
   `bnc` then emits a broken link — `_bn_pkg__bootstrap__Write` undefined,
   267/796 aa64 conformance failures). Do NOT narrow at bit_cast; fix the cast.
-- **Proposed fix**: thread the source type into `emitCast` on both natives and,
-  for a widening cast (target width >= source width, or target host-word),
+- **Proposed fix (correct, but BLOCKED — see below)**: thread the source type
+  into `emitCast` on both natives and, for a widening cast (target host-word),
   sign/zero-extend from the SOURCE width per the SOURCE signedness — mirroring
   the VM's `BC_SEXT`/`BC_ZEXT` selection. Narrowing casts keep the current
-  target-width behavior. No-op for canonical sources, so it can't regress the
-  now-passing scalar-matrix cells. Touches `emitCast` + its callers on aa64/x64.
+  target-width behavior. This makes 539 XPASS on BOTH native lanes (verified).
+- **BLOCKED by a self-compilation break (2026-06-05)**: this `emitCast` fix —
+  like the bit_cast-narrow above — breaks the native self-build **identically**
+  (`_bn_pkg__bootstrap__Write` undefined, ~267/796 aa64 failures), even though
+  539 itself passes. So `cmd/bnc`'s OWN tree (compiled main-module-native by
+  GEN1) depends on the current non-canonical sub-word cast/bit_cast behavior at
+  some site: a value typed as a sub-word int but carrying full-width bits, where
+  the old plain-MOV widening preserved all 64 bits and the canonicalizing fix
+  truncates/extends it. That hidden site (a likely SECOND bug — a wrong source
+  type on a cast in `cmd/bnc`'s tree, or a deliberate width-lie) must be found
+  and fixed FIRST; only then can the `emitCast` canonicalization land. NOTE the
+  oddity to chase: with the broken `bnc`, single-test runs of 539 link fine but
+  scalar/add etc. do NOT — same `bnc`, inconsistent linking — so the corruption
+  is in `bnc`'s own emitted output (dep manifest / symbol emission), not a
+  uniform "drop bootstrap.o".
 - **Test**: `conformance/539_float32_const` (native lanes) is the existing
-  pinning case; once fixed, drop the 3 native 539 xfails. Consider a direct
-  `cast(int, bit_cast(int32, <high-bit u32>))` regression cell too.
-- **Severity**: MAJOR (silent wrong value, native-only, narrow trigger today
-  but a real correctness divergence from VM/LLVM). Tracked under plan-cr-p2-4
-  #4.1 as the remaining leftover.
+  pinning case; once unblocked + fixed, drop the 3 native 539 xfails. Consider a
+  direct `cast(int, bit_cast(int32, <high-bit u32>))` regression cell too.
+- **Severity**: MAJOR (silent wrong value, native-only, narrow trigger today but
+  a real correctness divergence from VM/LLVM). Tracked under plan-cr-p2-4 #4.1
+  as the remaining leftover; the self-compilation dependency is the real work.
 
 ### aa64 native backend mis-packs non-8-multiple / sub-word-packed structs (param + return) — CONFIRMED
 - **Symptom**: a struct whose size is not a multiple of 8 (`3×uint32` = 12B) or
