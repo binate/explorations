@@ -40,7 +40,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   reuse the same param-lowering decision the direct path uses, not a default
   by-value lowering.
 
-### A float literal narrowed to `float32` is NOT coerced at call-arg / composite-field / return positions — CONFIRMED wrong-code, ALL backends
+### A float literal narrowed to `float32` is NOT coerced at call-arg / composite-field / return positions — FIXED+LANDED (binate `d37cc7ba`, 2026-06-05)
 - **Symptom**: an untyped float literal flowing into a `float32` slot via a
   function **argument** (`f(0.1)` where `f(x float32)`), a **composite-literal
   field** (`S{f: 0.1}`, field `f float32`), or a **return** (`func g() float32 {
