@@ -719,6 +719,10 @@ These are **audit leads, not yet-confirmed bugs** (`confirmed=false`). Each is a
 
 ## 9. Execution plan & sequencing
 
+> **P2 is now partitioned into four disjoint, parallelizable work plans — see
+> `plan-cr-p2.md` (index) and `plan-cr-p2-{1-frontend,2-refcount,3-abi,4-scalar}.md`.**
+> P1 (the matrix family + regressions suites) is realized (§7.1 / §7.1b).
+
 Phased. Earlier phases produce the artifacts later phases consume. The ordering rationale is uniform: **write the contract before building the comparison; build the comparison before mass-fixing; centralize the discipline before it can drift again.** Confirmed critical/major defects are raised to the user for prioritization at the moment of confirmation — not silently fixed in-phase.
 
 ### P0 — Write the contracts/specs (no behavior change)
