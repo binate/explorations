@@ -1176,6 +1176,37 @@ Discovery Protocol) — most don't have one yet.
 
 ## MAJOR
 
+### VM drops a returned aggregate / managed-slice element of a local (`return container[i]`) — CONFIRMED wrong-result, VM-only — IN PROGRESS (2026-06-06)
+- **Symptom**: under `builder-comp-int` (bytecode VM), a function that returns an
+  aggregate element loaded directly from a local container — e.g.
+  `func f() @[]char { var s @[]@[]char = @[]@[]char{"hello","world"}; return s[0] }`
+  — returns an EMPTY/garbage value (the managed-slice element comes back empty; a
+  struct array element reads garbage). The compiled backends (LLVM + native) are
+  correct; only the VM is wrong.
+- **Confirmed**: `conformance/regressions/return-aggregate-element-of-local` —
+  expected `hello\n1\n2\n3`, VM prints an EMPTY first line then `1 2 3`. PASSES in
+  `builder-comp` and `builder-comp-comp` (922/0), FAILS only in `builder-comp-int`
+  (untracked — NOT xfail'd, so the default VM conformance lane is live-red on it).
+- **This is the VM analog of the native aggregate-`OP_LOAD` aliasing bug** fixed in
+  binate `1285683e` (PlanFrame/emitLoad now reserve an own data region so the load
+  owns its bytes instead of aliasing the source, which gets RefDec'd/freed at
+  function cleanup BEFORE the copy into the sret/result). That entry asserts "LLVM
+  and the VM were always correct" — STALE: the VM mishandles this exact case.
+- **Root cause (hypothesis — under investigation)**: the VM's lowering/execution of
+  an aggregate `OP_LOAD` (likely `pkg/binate/vm/lower_memory.bn` / the exec path)
+  represents the loaded aggregate as an alias/pointer into the source local rather
+  than materializing a copy; the local's backing is RefDec'd (freed/zeroed) at
+  function-end cleanup before the value reaches the caller, so the result reads
+  freed memory. Needs confirmation against the VM bytecode.
+- **Severity**: MAJOR — silent wrong-result (data loss) on a routine
+  `return container[i]` under the VM; VM-only (the compile path is correct).
+- **Discovery**: 2026-06-06, regression-testing the `genExprOrFuncRef` CurBlock fix
+  (binate `47d05c81`); this failure is unrelated to that fix (the test has no
+  function-value types — proven: same IR passes natively, fails only in the VM).
+- **Test**: `conformance/regressions/return-aggregate-element-of-local` (already
+  exists; currently failing `builder-comp-int`). Add VM-targeted unit coverage with
+  the fix.
+
 ### Float `!=` is ORDERED (`NaN != NaN` is false) — diverges from IEEE/Go/C; `==` and `!=` not complementary for NaN — FIXED 2026-06-06 (binate `8f78575f`)
 - **Symptom**: `var n float64 = NaN; n != n` evaluates to **false** (and `n == n`
   is also false), so the two are not complements. Every other language (Go, C,
