@@ -1828,7 +1828,13 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   typecheck — `scripts/hygiene/lint.sh` temporarily skips pkg/binate/vm +
   pkg/binate/repl + cmd/bni until the next BUILDER bump.
 
-### Untyped single const (`const X = 5`) is not forward-referenceable — same collectDecls gap, distinct from the (fixed) group case
+### Checker does not fold `iota` in expressions — bit-flag const COMPILE-TIME values stay plain-iota (MINOR follow-up)
+- **Symptom**: iota-repeat (binate `52a9eabf`) gives correct RUNTIME values for bit-flag consts (`const ( B0 int = 1 << iota; B1; B2 )` -> 1,2,4 at runtime). But `checkIdent` returns a plain `TYP_UNTYPED_INT` for `iota` (no `HasLitVal`), so the checker never folds an iota expression to a value: a bare member is given the plain-iota value via `makeUntypedIntWithLit(c.Iota)`; an explicit `1 << iota` member gets no value. So a bit-flag const's COMPILE-TIME value (array dimensions, assignability/overflow checks) is wrong/absent -- e.g. `var x uint8 = B10` with `B10 = 1 << 10 = 1024` is wrongly accepted because the checker thinks `B10 = 10`.
+- **Scope**: compile-time only; runtime values are correct (IR-gen). The dominant `= iota` enum idiom is unaffected (plain-iota == iota-repeat there). Affects only bit-flag-style consts used as array dims or in narrow-type checks -- rare.
+- **Fix sketch**: fold `iota` in `checkExpr` (return `makeUntypedIntWithLit(c.Iota)` from `checkIdent`), and have `checkGroupDecl` re-check a bare member's repeated previous expression with the current iota so its symbol value matches IR-gen. Watch for new overflow errors on large iota enums assigned to narrow types.
+- **Discovery**: 2026-06-05, while implementing iota-repeat (Plan 1 / 1.3d).
+
+### Untyped single const (`const X = 5`) is not forward-referenceable — FIXED+LANDED (binate `99057185`, 2026-06-05)
 - **Symptom**: a top-level untyped single const with no explicit type
   (`const X = 5`) reports `undefined` when referenced from a decl
   checked BEFORE it — a forward reference within a file, or a sibling
