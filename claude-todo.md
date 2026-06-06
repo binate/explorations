@@ -1213,7 +1213,7 @@ Discovery Protocol) — most don't have one yet.
 - **Fix shape**: in the float-arith lowering, when the op type is float32, widen each operand f32→f64 before the double op and narrow the result f64→f32 (or emit native single-precision FADD.S/FMUL.S using the S-register moves the asm lib already has: `Fmov_w_to_s`/`Fmov_s_to_w`, `Fcvt_s_to_d`/`Fcvt_d_to_s`). Apply on all three non-LLVM backends via a shared signedness/width-classifier discipline; drop the 635 xfails per backend as fixed.
 - **NOT a Plan-4 regression**: the float-arith emitters were untouched by the float-return (4.3) and round-bit converter (4.5) work; the bug was simply never exercised (no float32-arithmetic conformance test existed). float32 CONST materialization (539) and float32 RETURN bits (634) are correct.
 
-### VM drops a returned aggregate / managed-slice element of a local (`return container[i]`) — CONFIRMED wrong-result, VM-only — IN PROGRESS (2026-06-06)
+### VM drops a returned aggregate / managed-slice element of a local (`return container[i]`) — wrong-result, VM-only — FIXED 2026-06-06 (binate work-3 `30f21816`, pending land)
 - **Symptom**: under `builder-comp-int` (bytecode VM), a function that returns an
   aggregate element loaded directly from a local container — e.g.
   `func f() @[]char { var s @[]@[]char = @[]@[]char{"hello","world"}; return s[0] }`
@@ -1229,20 +1229,25 @@ Discovery Protocol) — most don't have one yet.
   owns its bytes instead of aliasing the source, which gets RefDec'd/freed at
   function cleanup BEFORE the copy into the sret/result). That entry asserts "LLVM
   and the VM were always correct" — STALE: the VM mishandles this exact case.
-- **Root cause (hypothesis — under investigation)**: the VM's lowering/execution of
-  an aggregate `OP_LOAD` (likely `pkg/binate/vm/lower_memory.bn` / the exec path)
-  represents the loaded aggregate as an alias/pointer into the source local rather
-  than materializing a copy; the local's backing is RefDec'd (freed/zeroed) at
-  function-end cleanup before the value reaches the caller, so the result reads
-  freed memory. Needs confirmation against the VM bytecode.
+- **Root cause (confirmed)**: `pkg/binate/vm/lower_memory.bn` `lowerLoad` emitted
+  `BC_MOV` for a multi-word (aggregate) load — the loaded register just ALIASED the
+  source pointer ("the consumer handles the bytes"). For `return container[i]` that
+  alias pointed into the local's backing, which the function's cleanup RefDec'd
+  (freed/zeroed) before the sret copy ran, so the return read freed memory.
+- **Fix (binate `30f21816`, work-3)**: the VM frame planner (`lower_func.bn`) now
+  reserves an own region for every aggregate `OP_LOAD` (`isAggregateLoadTyp`,
+  matching native `common.IsAggregateTyp`); a new `BC_LOAD_AGGREGATE` bytecode copies
+  the loaded bytes into that region and points the result there, so the load owns its
+  bytes — mirroring the LLVM/native aggregate load (and native fix `1285683e`).
 - **Severity**: MAJOR — silent wrong-result (data loss) on a routine
   `return container[i]` under the VM; VM-only (the compile path is correct).
 - **Discovery**: 2026-06-06, regression-testing the `genExprOrFuncRef` CurBlock fix
-  (binate `47d05c81`); this failure is unrelated to that fix (the test has no
-  function-value types — proven: same IR passes natively, fails only in the VM).
-- **Test**: `conformance/regressions/return-aggregate-element-of-local` (already
-  exists; currently failing `builder-comp-int`). Add VM-targeted unit coverage with
-  the fix.
+  (binate `47d05c81`); unrelated to that fix (the test has no function-value types —
+  same IR passes natively, failed only in the VM).
+- **Tests**: `conformance/regressions/return-aggregate-element-of-local` now passes
+  `builder-comp-int` (full lane 895/0, was 894/1); `TestAggregateElementLoadMaterializesCopy`
+  (`lower_memory_test.bn`) pins aggregate `OP_LOAD` → `BC_LOAD_AGGREGATE`. Pending
+  cherry-pick to main.
 
 ### Float `!=` is ORDERED (`NaN != NaN` is false) — diverges from IEEE/Go/C; `==` and `!=` not complementary for NaN — FIXED 2026-06-06 (binate `8f78575f`)
 - **Symptom**: `var n float64 = NaN; n != n` evaluates to **false** (and `n == n`
