@@ -4,6 +4,23 @@ Implement `pkg/std/math`, analogous to Go's `math` package, starting with the
 common functions. float64 only. Ports Go function-for-function and matches its
 outputs **bit-for-bit**, reusing Go's test vectors.
 
+## Status (2026-06-06)
+
+- **Phase 0 — float `!=` → IEEE-unordered** — LANDED (binate `8f78575f`).
+- **Phase 1 — Tier 0** — LANDED. Constants + bits/sign/special-value
+  (`ac96ebb3`), rounding + Modf (`13551db1`), decompose + min/max + modular
+  (`b10dae20`): `Float64bits/frombits`, `Abs`, `Signbit`, `Copysign`, `NaN`,
+  `Inf`, `IsNaN`, `IsInf`, `Floor`, `Ceil`, `Trunc`, `Round`, `RoundToEven`,
+  `Modf`, `Frexp`, `Ldexp`, `Max`, `Min`, `Dim`, `Mod`, `Remainder`.
+- **Phase 2 — Sqrt + dependents** — LANDED `Sqrt` (`4d38b763`); `Hypot` + `Cbrt`
+  (`8fd3ca32`). Software Sqrt is correctly-rounded and bit-identical on LLVM /
+  VM / native-aa64.
+- **Found + fixed along the way**: a CRITICAL integer-shift-overshift wrong-code
+  bug (shift by count >= width was hardware-masked, not the spec's 0/sign-fill)
+  — fixed in IR-gen `gen_binary.bn` (binate `32fde83d`), all backends. Surfaced
+  by porting `math.RoundToEven`.
+- **Next**: Phase 3 (`Exp`/`Exp2`/`Expm1`/`Log`/`Log2`/`Log10`/`Log1p`/`Pow`).
+
 ## Ratified decisions (user, 2026-06-06)
 
 - **Fix float `!=` to IEEE-unordered semantics** (Phase 0, prerequisite). Today
