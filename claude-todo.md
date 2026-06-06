@@ -141,6 +141,30 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Test (TODO when fixing)**: a cross-package program with `var g StructType`,
   xfailed until fixed.
 
+### VM returns an EMPTY/garbage aggregate element loaded directly from a local — CONFIRMED, VM-only, latent since `1285683e`
+- **Symptom**: `return s[0]` of a local `@[]@[]char{"hello","world"}` returns an
+  EMPTY managed-slice on the bytecode VM (LLVM + native are correct).
+  `conformance/regressions/return-aggregate-element-of-local` fails on
+  `builder-comp-int`: `msElem()` prints a blank line instead of `hello`, and the
+  struct-array-element return's last field is wrong too.
+- **Discovery / bisect**: 2026-06-06, running the full `builder-comp-int`
+  conformance suite while validating the whole-array-assignment fix. The test
+  FAILS on the VM even at `1285683e` — the commit that *added* it — so it is NOT a
+  regression; it is a latent VM bug never noticed because the test was validated
+  only on the LLVM + native lanes (per its own todo note above) and carries no
+  `.xfail.builder-comp-int`.  **Left un-xfailed by user decision (2026-06-06), so
+  it stays visibly red on the VM lane until fixed.**
+- **Severity**: MAJOR — the VM (a default conformance mode) silently mis-returns
+  an aggregate element loaded directly from a local; any `return container[i]` of
+  a managed-slice / struct element on the VM is suspect.  Also implies the VM
+  conformance lane is not actually gating this in CI (it has been red and unseen).
+- **Likely root cause (needs investigation)**: the VM analogue of the native bug
+  fixed in `1285683e` — an aggregate `OP_LOAD` returns a reference into the local
+  container's backing instead of materializing a copy, and the backing is
+  reclaimed at function cleanup before the caller reads it. Unconfirmed.
+- **Test**: `conformance/regressions/return-aggregate-element-of-local` (already
+  in the suite; failing on `builder-comp-int`).
+
 ### Integer shift by a count >= bit width is hardware-masked (mod width), NOT the spec's defined 0 / sign-extend — FIXED 2026-06-06 (binate `32fde83d`)
 - **Fix**: a branchless overshift guard in IR-gen (`gen_binary.bn`,
   `emitGuardedShift`), so a non-constant (or out-of-range constant) shift count
