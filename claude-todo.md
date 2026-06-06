@@ -3894,19 +3894,20 @@ are the remaining matrix-shaped classes not yet built as their own matrix —
 candidates for after the loose-axis finish (const-expr folding + ABI
 `handle`/`__c_call` shapes).
 
-### (b1) Class 2 matrix — VM 16-byte address-aggregate (iface / func value) handling
-- **Why a matrix**: Class 2 (plan-code-red.md §2) is the VM's handling of
-  16-byte address-aggregates — interface values `{data, vtable}` and function
-  values `{vtable, data}` — where the VM's EXTRACT/word-order/copy handling can
-  diverge from codegen. Axes would be `aggregate-kind (@Iface / @func) ×
-  operation (construct / extract-field / copy / pass-as-arg / return / store-in-
-  struct) × backend`. Assertion: both words survive with correct order/values.
-- **Status**: partly touched by the refcount matrix's `@Iface`/`@func` value-
-  type axis (lifecycle/balance), but NOT the word-order / extract / 2-word-ABI
-  value-correctness angle. Needs new cells.
-- **Note**: overlaps the CONFIRMED CRITICAL "2-word raw-slice param's len dropped
-  through iface vtable" and the VM "func value returned-then-passed nil vtable"
-  — a matrix here would systematize that neighborhood.
+### (b1) Class 2 matrix — VM 16-byte address-aggregate (iface / func value) handling — ✅ REALIZED 2026-06-05 (binate `12d6782f`)
+- **Realized**: `conformance/matrix/addr-aggregate` (generator
+  `gen-addr-aggregate-matrix.py`). Axes `kind (@func / @Iface) × operation
+  (direct / copy / return / arg / return-arg / field / array-elem)`; assertion:
+  both words of the 16-byte value survive the boundary, observed by invoking it
+  (→ 42); a dropped/swapped word faults or returns wrong. 14 cells.
+- **Result**: all 14 green on `comp` (LLVM), `int` (VM), and x64-native — the
+  Class-2 fixes that landed in P2 (the VM func-value nil-vtable `e337e413`, the
+  2-word-slice-len-drop) hold across the grid; this is regression coverage, no
+  new defects. aa64-native is collateral-red on the self-hosting `BNC_NATIVE`
+  miscompile (separate CRITICAL), not these cells.
+- **Note**: the `field`/`array-elem` cells store an already-typed value (a bare
+  func literal in those positions trips the separate filed bare-func-literal
+  flavour-inference MINOR, not 2-word survival).
 
 ### (b2) Lifecycle matrix — Class 6 (`@Iface` / `@[]@I`) + Class 7 (captured-`@func` over-release) — PARTLY ADDRESSED 2026-06-05 (plan-cr-p2-2 step 5)
 - **Status**: the existing `conformance/matrix/refcount` form × type grid already
