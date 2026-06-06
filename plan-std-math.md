@@ -34,10 +34,24 @@ outputs **bit-for-bit**, reusing Go's test vectors.
   `+`), the `ldexp.bn` `cast(int, iu>>shift)-cast(int, bias)` idiom for exponent
   recovery (no uint64->int wraparound), Go-derived bit-pattern test vectors, and
   a bit-exact pin to guard cross-backend identity.
-- **Next on resume**: `Exp2`/`Expm1`/`Pow10`, then `Pow`. Workflow note: a
-  porting workflow works well (see the Tier-0 fan-out) BUT constrain agents to
-  structured output only — one agent wrote scratch files into the main checkout,
-  which had to be cleaned up.
+  `Pow10` is also LANDED (`6d687d97`): table-based (three package-level
+  `float64` lookup tables), bit-exact to Go across all four backends.
+- **Compiler-fix detour (LANDED)**: building `Pow10`'s global float tables
+  surfaced two codegen bugs — whole-array/struct `=` assignment silently dropped
+  (it stored the composite-literal's alloca pointer, not the contents; this also
+  broke all global array/struct initializers, which route through `__init`'s
+  `x = expr`) and a global float `var` emitting invalid LLVM (`global double 0`).
+  Both fixed in binate `65f79253` (ident/deref assignment arms now load the
+  aggregate, matching the selector arm; float globals emit `0.0`). A new
+  `conformance/matrix/aggregate/` value-movement matrix (`bf185391`,
+  `gen-aggregate-matrix.py`, 46 cells) is the systematic prevention — it fails 13
+  cells on the pre-fix compiler. Also surfaced (filed in `claude-todo.md`):
+  nested arrays `[N][M]T` mis-compiled, and a cross-module global-struct-type
+  decl gap.
+- **Next on resume**: `Exp2`/`Expm1`, then `Pow`. Workflow note: a porting
+  workflow works well (see the Tier-0 fan-out) BUT constrain agents to structured
+  output only — one agent wrote scratch files into the main checkout, which had
+  to be cleaned up.
 
 ## Ratified decisions (user, 2026-06-06)
 
