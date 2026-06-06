@@ -16,7 +16,7 @@ Route every coercion through a small set of type-driven classifiers, one per con
 
 ### 4.1 Sub-word arithmetic results not narrowed in the VM and both native backends — dirty upper bits corrupt unsigned compare/shift/div/widen/return
 
-**CRITICAL · CONFIRMED · ARITH NARROWING LANDED on all 3 backends 2026-06-05 (binate 435b6cdd, ee671b6c, 57e72d9e)**
+**CRITICAL · CONFIRMED · FULLY LANDED 2026-06-05 (arith: 435b6cdd, ee671b6c, 57e72d9e; native widening-cast residual: 445d846a)**
 
 - **Decided design**: per-backend narrowing keyed on a single shared classifier
   `common.SubWordNarrow(t, wordBits) -> (width, signed)` (the user's call: each
@@ -36,10 +36,13 @@ Route every coercion through a small set of type-driven classifiers, one per con
     for the owning plans.
   All three dropped the add/sub/mul × {8,16,32} scalar-matrix xfails on their
   lanes; div/rem were never xfailed; int-to-float stays (defect 4.2).
-  REMAINING (the only 4.1 leftover): the native bit_cast(int32)/widening
-  sign-extension residual (539 negative const) — same invariant on a non-arith
-  producer. Fix the native widening-cast / bit_cast-to-signed path so the
-  high-bit-set int32 sign-extends, then drop the native 539 xfails.
+  The native bit_cast(int32)/widening sign-extension residual (539 negative
+  const) is now ALSO FIXED (445d846a): `emitCast` re-extends a widening cast from
+  the SOURCE width, so the non-canonical bit_cast result (zero-extended) is
+  sign-extended when widened to int for println. 539 is green on all modes; the
+  3 native 539 xfails dropped. Verified on the clean x64_darwin lane (807/4, no
+  regression); the earlier "self-compilation break" was the separate tracked
+  CRITICAL aa64-native lane regression, not this fix. **4.1 fully landed.**
 - **Root cause**: VM: vm_exec_pure.bn:19-43 execArithOp computes regs[Dst]=regs[Src1] op regs[Src2] at host int width with NO post-op narrowing; e.g. (uint16 a*b)>>8 leaves the un-narrowed product, so the shift reads dirty bits 16-63 (37796 on VM vs 164 on LLVM). The BCInstr (vm.bni:342) carries no width field, so execArithOp cannot narrow even if it wanted to — the lowerer (lower_instr_helpers.bn lowerBinOp:144-215) selects only the opcode, never stashing the result width. Natives: aarch64_ops.bn:53-93 emitBinop emits every op at 64-bit (aarch64.Add(a,true,...)); x64_ops.bn:90-97 emits at SZ64; both have ins.Typ available (used for the isUnsigned gate, aarch64_ops.bn:50-51 / x64 emitDivOrRem) but never narrow the result to instr.Typ.Width. LLVM is correct via true-width SSA. Latent until an op result is consumed by a width-sensitive op (shift/unsigned-cmp/div/widen/return) WITHOUT an intervening sized store/cast (which re-narrows).
 - **Fix shape**: Add a single shared 'narrow to result width' step keyed on instr.Typ.Width (sub-64) and signedness. VM: extend BCInstr with the result width (or repurpose Imm/Aux on the arith ops — they currently set only Op/Src1/Src2/Dst, so Imm is free), and either (a) emit a separate BC_NARROW8/16/32 (sext for signed, zext/mask for unsigned) right after the arith opcode in lower_instr.bn's arith arm (lines 70-80), or (b) make execArithOp narrow inline using the carried width. Prefer the post-op-narrow-in-lowerer form so it composes with the existing BC_SEXT/BC_ZEXT/BC_TRUNC handlers (vm_exec_helpers.bn:167-194). Natives: after each Add/Sub/Mul/And/Or/Xor/Shl in emitBinop, when ins.Typ.IsInteger() && Width<wordbits, emit a width-narrowing tail — aarch64 SBFM/UBFM (sxtb/sxth/sxtw / uxtb/uxth + 32-bit-mov-zeroes-upper) or AND-mask; x64 movsx/movzx from the sub-width reg or AND with the width mask — gated on signedness. Decide (user call, per plan-code-red.md P3/§3.8) whether this is each backend's job or one IR-gen narrowing cast; either way it must be a single shared classifier, not per-op-arm copies. Mirror the existing isUnsigned selection pattern.
 - **Files**: `pkg/binate/vm/vm_exec_pure.bn (execArithOp:19-43)`; `pkg/binate/vm/lower_instr.bn (arith arm:70-80)`; `pkg/binate/vm/lower_instr_helpers.bn (lowerBinOp:144-215)`; `pkg/binate/vm.bni (BCInstr:342 — may need a width field)`; `pkg/binate/native/aarch64/aarch64_ops.bn (emitBinop:17-95)`; `pkg/binate/native/x64/x64_ops.bn (emitBinop:39-110; emitDivOrRem)`; `pkg/binate/asm/aarch64/* and pkg/binate/asm/x64/* (sub-word narrow encoders if not present)`
