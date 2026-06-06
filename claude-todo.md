@@ -34,10 +34,23 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `~`, the result type is always exactly the operand type (no widening). A
   one-site fix resolving both facets.
 
-### Whole-array (aggregate) `=` assignment is silently dropped — CONFIRMED wrong-code, default modes
-- **Symptom**: `a = [4]int{10,20,30,40}` (a whole-array assignment via `=`, RHS a
-  composite literal) does NOT update `a` — it stays at its prior value. The store
-  is silently a no-op; no error, no diagnostic.
+### Whole-array (aggregate) `=` assignment is silently dropped — FIXED 2026-06-06 (binate, gen_control.bn)
+- **Fix**: the ident and deref assignment arms in `gen_control.bn` now load the
+  aggregate value out of an `OP_ALLOC` RHS (`isStructOrArrayAlloc(rhs)` →
+  `EmitLoad`) before the store, matching the selector arm (which already did).
+  Whole-array/struct `=` from a composite literal or another variable, and
+  `*p = {...}`, now copy the value.  This *also* fixes GLOBAL array/struct
+  initializers (they route through `__init`'s `x = expr`).  Pinned by
+  `conformance/regressions/whole-aggregate-assign` + `global-aggregate-init`
+  (LLVM/VM/gen2/native); full builder-comp conformance 882/0, no regression.
+- **Confirmed root cause**: `emitStoreManagedSlot`'s non-managed path does a plain
+  `EmitStore(slotPtr, val)`; the ident/deref arms passed `val` = the RHS `OP_ALLOC`
+  *pointer* (a composite literal lowers to a stack alloca), so the pointer bits
+  were stored into the aggregate slot instead of the contents. The selector and
+  (struct-only) index arms already loaded first; ident/deref did not.
+- **Symptom (was)**: `a = [4]int{10,20,30,40}` (a whole-array assignment via `=`,
+  RHS a composite literal) did NOT update `a` — it stayed at its prior value. The
+  store was silently a no-op; no error, no diagnostic.
 - **Discovery**: 2026-06-06, porting `math.Pow10` (which wants package-level
   `var pow10tab [32]float64 = {...}` lookup tables). Minimal repro in a unit test:
   `var a [4]int = [4]int{0,0,0,0}; a = [4]int{10,20,30,40}; a[0]` reads `0`.
@@ -62,8 +75,12 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Test (TODO when fixing)**: conformance cell for whole-array `=` assignment and
   global array-initializer readback (LLVM/VM/native/gen2), xfailed until the fix.
 
-### Global float `var` emits invalid LLVM (`global double 0`) — CONFIRMED compile failure, LLVM backend
-- **Symptom**: any package-level `var x float64` (with or without an initializer)
+### Global float `var` emits invalid LLVM (`global double 0`) — FIXED 2026-06-06 (binate, emit.bn)
+- **Fix**: `emit.bn`'s global-var static-zero emission now emits ` 0.0` when
+  `g.Typ.IsFloat()` (else ` 0` for integers).  The runtime initializer value
+  still flows through `__init`, so `var x float64 = 7.5` both compiles and reads
+  back 7.5.  Pinned by `conformance/regressions/global-aggregate-init`.
+- **Symptom (was)**: any package-level `var x float64` (with or without an initializer)
   makes the LLVM backend emit `@<mangled> = global double 0`, which clang rejects:
   `error: integer constant must have integer type` — the whole package fails to
   compile. (`var x float64 = 7.5` fails identically; the initializer is irrelevant
@@ -81,6 +98,48 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   (TYP_FLOAT64/TYP_FLOAT32) to emit ` 0.0`; keep ` 0` for integers. One-line-ish.
 - **Test (TODO when fixing)**: codegen unit test asserting a `double`/`float`
   global emits a float zero, plus a conformance cell reading back a global float.
+
+### Nested arrays (`[N][M]T`) are mis-compiled — CONFIRMED wrong-code / invalid IR, LLVM backend
+- **Symptom**: a 2-D array literal stores POINTERS to inner-array allocas into the
+  flat outer storage instead of copying the inner values, and element reads
+  pointer-chase, producing invalid LLVM.  `var aa [2][2]int = {...}; aa[0][0]`
+  does not compile (`bitcast i8* %v to i64*` where `%v` is an `i64` extracted from
+  the element → "i64 but expected ptr"). Even pure read (no assignment) is broken.
+- **IR evidence** (gen1, `[2][2]int`): outer storage is `[2 x [2 x i64]]`, but the
+  literal emits `store i8* %inner, i8** %elem` (inner alloca pointer into the
+  element slot), and the read does `extractvalue [2 x i64] %row, 0` → `bitcast i8*
+  %that to i64*` → load.  Layout (flat) and init/read codegen (pointer-indirected)
+  disagree.
+- **Discovery**: 2026-06-06, probing the whole-array-assignment fix with
+  `aa[i] = [M]T{...}`; the array-index assignment arm's struct-only load was a red
+  herring — nested arrays are broken at construction, independent of assignment.
+- **Severity**: MAJOR — nested arrays are non-functional (don't compile). Distinct
+  from, and pre-existing relative to, the whole-array-`=` fix above.
+- **Likely root cause**: composite-literal lowering for an array whose element is
+  itself an array treats the element as a pointer-to-subarray rather than an
+  inline sub-array; the read path mirrors that wrong shape.  Needs investigation
+  in the array-literal / element-store codegen (gen_composite / gen_access).
+- **Test (TODO when fixing)**: conformance cell for `[N][M]T` literal init +
+  element read + `aa[i] = [M]T{...}`, xfailed until fixed.
+
+### Cross-module global of struct type emits `external global %Struct` without declaring the type — CONFIRMED compile failure, LLVM backend
+- **Symptom**: a module that references another package's package-level `var g
+  StructType` emits `@<mangled> = external global %bn_<pkg>__Struct` but never
+  emits `%bn_<pkg>__Struct = type {...}` in that module → clang "use of undefined
+  type named '...'".  Observed via the unit-test harness module (`test_main.ll`)
+  referencing a `var gStruct Pt` in the package under test.
+- **Discovery**: 2026-06-06, testing a global struct var readback alongside the
+  aggregate-assignment fix.  (Scalar and array-of-scalar globals are fine; only
+  the named-struct type def is missing.)
+- **Severity**: MAJOR — blocks any cross-module reference to a global of struct
+  type.  Needs confirming whether it also bites a normal cross-package import (not
+  just the test harness), but the `external global` type-decl gap is real either way.
+- **Likely root cause**: `emit.bn`'s extern-global path emits `= external global
+  llvmType(g.Typ)` for the named struct, but the consuming module's struct-type-def
+  collection (`moduleStructDefs`) doesn't include types reachable only through an
+  imported global, so the named type is never declared.
+- **Test (TODO when fixing)**: a cross-package program with `var g StructType`,
+  xfailed until fixed.
 
 ### Integer shift by a count >= bit width is hardware-masked (mod width), NOT the spec's defined 0 / sign-extend — FIXED 2026-06-06 (binate `32fde83d`)
 - **Fix**: a branchless overshift guard in IR-gen (`gen_binary.bn`,
