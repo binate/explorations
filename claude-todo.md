@@ -59,7 +59,9 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   contract) crashes `cmd/basic` at session teardown in BOTH modes against a
   `main`-built bundle. Spelling them raw `*func` (no managed dtor) avoids it —
   minbasic ships `*func` as a marked temporary (examples `2c553d8`,
-  `examples/TODO.md`).
+  `examples/TODO.md`). Re-confirmed 2026-06-06 against `975db032`: the `@func`
+  flip → rc 133 compiled / `vm: func_value_dtor on nil` interpreted; reverting
+  to `*func` is clean.
 - **Could NOT minimize to a small standalone repro** — these all WORK (no crash,
   both modes, main bundle): a struct of two `@func` fields; `@func` + a managed
   pointer (either order); a nested `IO{2 @func}` + a sibling `@func` (± a managed
@@ -80,6 +82,60 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   (2-word {vtable,data}) member is dtor'd at the right offset within a struct that
   mixes it with other (possibly deep) managed members; today it dtors a
   wrong/nil func value.
+
+### Native backend leaks native stack per loop iteration for a default-initialized managed local — CONFIRMED stack-overflow crash, native-only (compiled); VM unaffected
+- **Symptom**: a compiled program that declares a *default-initialized* managed
+  local (e.g. `var m @[]char` with no initializer) inside a loop body SIGSEGVs
+  (exit 139) once the loop runs enough iterations — the local need not even be
+  used. The bytecode VM (`bni`) runs the identical program fine.
+- **Minimal repro** (crashes compiled after ~130k iterations on an 8 MiB stack;
+  completes under the VM):
+
+      package "main"
+      func main() {
+          for i := 0; i < 3000000; i++ {
+              var m @[]char
+          }
+      }
+
+- **Proven native-stack growth, not a heap leak**: peak RSS is flat
+  (~10 MiB ≈ stack limit + heap) regardless of iteration count, and the crash
+  threshold scales linearly with `ulimit -s` — 8 MiB → ~130k iters, 64 MiB →
+  ~1 M iters; the *same* N=800 000 program crashes at 8 MiB but completes at
+  64 MiB. So each iteration leaks a fixed ~64 bytes of native stack that is never
+  reclaimed.
+- **Trigger axis = default-init vs expression-init** (matrix, 3 M iters,
+  native-aa64): `var m @[]char` (no initializer) → CRASH, whether the local is
+  unused / passed by value / has its address taken; `var m @[]char =
+  make_slice(char, 0)` → OK in all the same shapes; a default-init *raw* local
+  (`var x int; &x`) → OK. So the leak is specific to a managed local that is
+  *implicitly zero-initialized*; an explicit managed initializer takes a
+  different (correct) code path.
+- **Root-cause hypothesis** (for the backend owner): the implicit zero-init /
+  cleanup-slot setup for a default-valued managed aggregate local is emitted at
+  the declaration site *inside the loop body* via a stack allocation that is not
+  hoisted to the function entry block (or a cleanup registration that pushes a
+  per-iteration frame), so it accumulates across iterations. Expression-init
+  managed locals reuse a hoisted slot and don't leak. The VM is unaffected (it
+  doesn't use the native C stack for these).
+- **Impact**: any compiled loop with a default-init managed local that iterates
+  more than ~130k times crashes — a common idiom. Concretely it crashes the
+  compiled minbasic interpreter (`examples`): `runProgramInto`'s step loop has
+  `var errMsg @[]char` (default-init), so any BASIC program exceeding ~130k
+  statement-steps SIGSEGVs the compiled `minbasic` binary while the interpreted
+  one completes. (minbasic could side-step it by hoisting `errMsg` out of the
+  loop / giving it an initializer, but that masks the backend defect — left as-is
+  pending this fix.)
+- **Discovery**: 2026-06-06, characterizing a "FOR/NEXT crash" flagged during
+  minbasic M5 conformance; reduced from BASIC FOR/GOTO loops to the 6-line repro
+  above.
+- **Test**: needs a conformance test — a default-init managed local in a
+  ~200k-iteration loop, expected to complete; xfail the compiled/native modes
+  (VM passes). NOT yet added (would land in the binate repo).
+- **Fix**: hoist the implicit-zero-init/cleanup stack slot for a default-valued
+  managed local to the function entry block (allocate once), so it is reused
+  across loop iterations exactly as expression-initialized managed locals already
+  are.
 
 ### Plan-1 adversarial review (2026-06-06) — regressions + completeness gaps from the const/slice fixes
 
