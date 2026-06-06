@@ -1213,7 +1213,7 @@ Discovery Protocol) — most don't have one yet.
 - **Fix shape**: in the float-arith lowering, when the op type is float32, widen each operand f32→f64 before the double op and narrow the result f64→f32 (or emit native single-precision FADD.S/FMUL.S using the S-register moves the asm lib already has: `Fmov_w_to_s`/`Fmov_s_to_w`, `Fcvt_s_to_d`/`Fcvt_d_to_s`). Apply on all three non-LLVM backends via a shared signedness/width-classifier discipline; drop the 635 xfails per backend as fixed.
 - **NOT a Plan-4 regression**: the float-arith emitters were untouched by the float-return (4.3) and round-bit converter (4.5) work; the bug was simply never exercised (no float32-arithmetic conformance test existed). float32 CONST materialization (539) and float32 RETURN bits (634) are correct.
 
-### VM drops a returned aggregate / managed-slice element of a local (`return container[i]`) — wrong-result, VM-only — FIXED 2026-06-06 (binate work-3 `30f21816`, pending land)
+### VM drops a returned aggregate / managed-slice element of a local (`return container[i]`) — wrong-result, VM-only — FIXED + LANDED 2026-06-06 (binate `61488b48`)
 - **Symptom**: under `builder-comp-int` (bytecode VM), a function that returns an
   aggregate element loaded directly from a local container — e.g.
   `func f() @[]char { var s @[]@[]char = @[]@[]char{"hello","world"}; return s[0] }`
@@ -1246,8 +1246,7 @@ Discovery Protocol) — most don't have one yet.
   same IR passes natively, failed only in the VM).
 - **Tests**: `conformance/regressions/return-aggregate-element-of-local` now passes
   `builder-comp-int` (full lane 895/0, was 894/1); `TestAggregateElementLoadMaterializesCopy`
-  (`lower_memory_test.bn`) pins aggregate `OP_LOAD` → `BC_LOAD_AGGREGATE`. Pending
-  cherry-pick to main.
+  (`lower_memory_test.bn`) pins aggregate `OP_LOAD` → `BC_LOAD_AGGREGATE`.
 
 ### Float `!=` is ORDERED (`NaN != NaN` is false) — diverges from IEEE/Go/C; `==` and `!=` not complementary for NaN — FIXED 2026-06-06 (binate `8f78575f`)
 - **Symptom**: `var n float64 = NaN; n != n` evaluates to **false** (and `n == n`
