@@ -918,32 +918,31 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   compiler's float-literal converter through `ParseFloat`'s core to retire the
   round-bit dtoa bug + the duplicate converter (tracked above).
 
-### float32 const literal: VM/native load the float64 pattern (wrong value) — DEFERRED, blocked on a new BUILDER release
+### float32 const literal: VM/native loaded the float64 pattern (wrong value) — FIXED 2026-06-05 (binate, plan-cr-p2 Plan 4 step 1)
 - **LLVM compile error — FIXED 2026-06-03 (binate `4fd196d0`)**: a float32-typed
   OP_CONST_FLOAT emitted a decimal `float` constant (`fadd float 0.0, 0.1`),
   which LLVM rejects unless exactly representable (`floating point constant
   invalid for type`).  Fixed in `pkg/binate/codegen/emit_instr.bn`: materialize
   the value as a `double` (decimal is valid there) and `fptrunc` to `float`.
-- **Still open — VM/native load the wrong VALUE**: a float32-typed const on the
-  VM and native backends loads the LOW 32 BITS of the float64 pattern instead of
-  narrowing to float32 (e.g. `const C float32 = 0.1` → `bit_cast(int32, C)`
-  reads `0x9999999A` not `0x3DCCCCCD`).  A silent wrong value.  `var x float32 =
-  0.1` works on the VM (the assignment inserts a narrowing cast); a direct const
-  read does not.
-- **Fix is written but BLOCKED**: `common.F64BitsToF32Bits` (round-to-nearest-
-  even f64→f32 narrowing, verified vs Go across 3.5M cases + a unit test) is in
-  `pkg/binate/native/common`.  Wiring it into the VM (`vm/lower_instr.bn`) and
-  the native `emitConstFloat`s is a one-liner each, BUT they can't call this NEW
-  `native/common` symbol until a new BUILDER release bundles it — BUILDER
-  resolves bnc's internal cross-package symbols against its frozen snapshot, so
-  a new exported function is "undefined" at every importer (same blocker as the
-  round-bit dtoa fix and stdlib-via-BUILDER, above).  Wire it up after the
-  BUILDER release.
-- **Test**: `conformance/539_float32_const` (passes on the C/LLVM modes, xfailed
-  on the VM modes).
-- **Discovery**: 2026-06-03, fixing the LLVM compile error surfaced the VM/native
-  value bug.  **Severity**: MAJOR (silent wrong float32 const on the VM/native),
-  narrow (a directly-read float32 const).
+- **VM/native value bug — FIXED**: a float32-typed OP_CONST_FLOAT now narrows
+  through `common.F64BitsToF32Bits` (round-to-nearest-even f64→f32) in the VM
+  (`vm/lower_instr.bn` OP_CONST_FLOAT arm) and both natives' `emitConstFloat`, so
+  `bit_cast(int32, C)` observes the true float32 pattern (`0x3DCCCCCD` for `0.1`,
+  not `0x9999999A`).
+- **The "blocked on a new BUILDER release" diagnosis was WRONG**: the real blocker
+  was that `F64BitsToF32Bits` was defined in `common_float.bn` but never declared
+  in `common.bni`, so no importer could resolve it.  BUILDER recompiles
+  `native/common` from current source when it builds `cmd/bnc`, so a new `.bni`
+  export is honored with no BUILDER bump.  Exporting it unblocked the one-liner
+  wire-ins.
+- **Test**: `conformance/539_float32_const` — now passes on the C/LLVM **and** VM
+  lanes (those xfails dropped).  Native lanes still xfail, but ONLY on the
+  negative const: native leaves the high-bit-set `bit_cast(int32)` result
+  zero-extended (`3184315597`) not sign-extended (`-1110651699`).  That residual
+  is sub-word value correctness — folded into **plan-cr-p2-4 #4.1** (the float32
+  narrowing itself is correct on native too: the four non-negative lines pass).
+- **Discovery**: 2026-06-03 (fixing the LLVM compile error surfaced the value
+  bug).  **Severity**: MAJOR (was a silent wrong float32 const on VM/native).
 
 ### Self-referential interface method (`Unwrap() @Error` — a method whose return type is its own interface) mis-resolves to a managed pointer → in-package ABI mismatch — FIXED 2026-06-03 (binate `77499153`)
 - **Symptom**: an interface with a method that returns its own interface type — e.g. `interface Error { Error() @[]char; Unwrap() @Error }` — miscompiles *in-package* at every dispatch of that method.  The vtable dispatch shim is typed `i8* (i8*)` (return = single pointer), but the method *body* returns a 16-byte `%BnIfaceValue`; the copy-site at the call (`var cause @Error = e.Unwrap()`) RefIncs the result via `extractvalue %BnIfaceValue …, 0`, so LLVM gets `%v6 = extractvalue i8* %v5, 0` → verifier error `extractvalue operand must be aggregate type`.  (Caught here only by that `extractvalue`; a dispatch whose iface-value result is merely stored/forwarded would **silently miscompile** — caller reads 1 word, callee wrote 2.)
