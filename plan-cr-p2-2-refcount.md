@@ -21,7 +21,15 @@
   un-xfail `assign/blank/func-value`, new `discard/stmt` matrix form
   (bare-statement discard, all 5 types), new `601_iface_dispatch_result_discard`,
   3 predicate unit tests. Full builder-comp suite green (775/0).
-- **Steps 3–6**: not started. Confirmed against the current tree (line numbers
+- **Step 3 — defects 1 + 2 (short-var single-bind + for-range bind)**: LANDED
+  (binate `b0eb7299`). Both routed through `emitStoreManagedSlot(isInit)`:
+  single-bind gained the missing `needsStructCopy` acquire (fixes the
+  managed-struct-by-value double-free); for-range now acquires the borrowed
+  element and skips the bind for a blank `_`. Tests: un-xfail
+  `short-var/ident/managed-struct`; new generator form `for-range-value/value`
+  across all 5 types (was a hand-written managed-ptr-only cell), un-xfailed; new
+  `602_for_range_blank_managed`. Full builder-comp green (793/0).
+- **Steps 4–6**: not started. Confirmed against the current tree (line numbers
   drifted; see below). Note: the slice-INDEX arm has the same §3.4 release-before-
   acquire defect as array/pointer (plan title scoped to array/pointer only) — fold
   it into step 4. Defect 2.5's mangler fix must NOT revert the `MethodParamsFlat`
