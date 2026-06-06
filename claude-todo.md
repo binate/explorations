@@ -6,6 +6,35 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### aa64-native: every program fails to LINK — `bootstrap.Write` undefined, referenced from `rt.RawAlloc` / `rt.BoundsFail` — REGRESSION (whole native-aa64 lane red)
+- **Symptom**: ANY program compiled via the native-aa64 backend
+  (`builder-comp_native_aa64-comp_native_aa64`) fails at link with
+  `Undefined symbols for architecture arm64: "_bn_pkg__bootstrap__Write",
+  referenced from: _bn_pkg__builtins__rt__RawAlloc` (and `…__BoundsFail`). A
+  trivial managed-struct cell fails identically — it is NOT program-specific.
+- **Scope**: **aa64-native only.** The LLVM/`comp` path links fine (provides
+  `bootstrap.Write`), the bytecode VM is unaffected, and **x64-native links and
+  runs fine** (`funcval/return-as-arg` passes on
+  `builder-comp_native_x64_darwin-…`). So it is the **arm64** native link/runtime
+  manifest specifically that no longer provides/links `bootstrap.Write`.
+- **Regression**: earlier THIS SESSION (2026-06-05) aa64-native compiled+linked+
+  ran fine — the matrices reported real passes (e.g. ABI matrix "24 passed" on
+  `native_aa64`). It broke since. Likely culprit area: the recent `rt`/`libc`/
+  `bootstrap` reorganization — `e56e4d0c` (pkg/libc deleted; rt calls libc via
+  `__c_call`), `f3327891` (rt DivCheck/DivFail), `e8f52e21`/`87965b70` — one of
+  which left the arm64 native link without `bootstrap.Write` (the rt
+  RawAlloc/BoundsFail/DivFail print path). Needs confirmation by bisect.
+- **Impact**: the entire `native_aa64` CI lane (in the `all` modeset) is red on
+  `main`; every aa64-native matrix/conformance cell fails to link. NOT a
+  per-test bug — do not xfail individual cells around it.
+- **Discovery**: 2026-06-05, un-xfailing `regressions/funcval/return-as-arg`
+  after the VM nil-vtable fix — the test (correctly green on comp/VM/x64-native)
+  surfaced the aa64-native link break.
+- **Fix**: restore `bootstrap.Write` on the arm64 native link — ensure
+  `pkg/bootstrap` (the `Write` primitive) is compiled+linked for arm64-native,
+  or route rt's write path the same way x64-native does (whatever provides
+  `bootstrap.Write` there). Confirm against the bisected culprit.
+
 ### bnc front-end / IR-gen memory blows up (>8.5 GB, OOM) compiling a ~1370-line program — super-linear, NOT raw size — PRIMARY FIX LANDED on main
 - **Status (2026-06-05)**: fix **(1)** below LANDED on main (binate
   `7804c287`) — `registerPendingStructDtor`/
