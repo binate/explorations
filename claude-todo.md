@@ -837,46 +837,6 @@ Discovery Protocol) — most don't have one yet.
   XPASS). The remaining VM `float32` *conversion* xfails (`int-to-float` /
   `float-to-int` / `float-cast`) stand — that gap is separate from compare.
 
-### ~~Short-var single-bind `x := s` of a managed struct-by-value skips the copy~~ — FIXED + LANDED 2026-06-05 (binate `b0eb7299`, plan-cr-p2-2 step 3; routed through `emitStoreManagedSlot`; matrix short-var/ident/managed-struct un-xfailed)
-- **Symptom**: `x := src` where `src` is a struct with a managed field copies the
-  struct WITHOUT `__copy_` — the copy's managed field is not RefInc'd, so when
-  both `src` and `x` leave scope the field is RefDec'd twice (double-free).
-  `var x T = src` and `x = src` (var-init / assign) copy correctly; only short-var
-  `:=` under-copies.
-- **Root cause (CONFIRMED)**: `genShortVar`'s single-bind arm
-  (`gen_short_var.bn:83-117`) has `isManagedPtrType` / `isManagedSliceType` /
-  `isManagedFuncValueType` / `isManagedIfaceValueType` cases but NO
-  `needsStructCopy` arm — a managed struct/array aggregate RHS is stored raw.
-  var-init and the short-var MULTI-bind arm (`:41`) both `emitStructCopy`; the
-  single-bind arm is the gap.
-- **Test**: `conformance/matrix/short-var/ident/managed-struct.bn` (xfailed all 6
-  default modes) — observable refcount stays 1 after `tgt := src` vs the balanced 2.
-- **Discovery**: 2026-06-05, P1 matrix generator (the managed-struct cell across
-  forms — var-init/assign pass, short-var fails).
-- **Fix**: add a `needsStructCopy(typ) { emitStructCopy(...) }` arm to
-  genShortVar's single-bind path, mirroring var-init.
-
-### ~~`for v in coll` over a managed-element collection over-releases the bound value~~ — FIXED + LANDED 2026-06-05 (binate `b0eb7299`, plan-cr-p2-2 step 3; the bind acquires via `emitStoreManagedSlot`, blank `_` skips the bind; matrix for-range-value cells + `602`)
-- **Symptom**: `for v in s` where `s @[]@T` (or `[N]@T`) loads each element as a
-  borrow (no RefInc) but `defineVar` registers `v` as a managed scope var, so
-  scope cleanup RefDec's `v` — an unbalanced release. Per iteration the bound
-  element is over-released by one; at the collection's destruction it
-  double-frees. Latent because the over-release lands at v's SCOPE END (after a
-  mid-function refcount read), so it surfaces only once that scope closes.
-- **Root cause (CONFIRMED)**: `genForIn` (`gen_flow.bn:137-149`) emits the
-  element load (a borrow) then a raw `OP_STORE` into v's slot + `defineVar` —
-  no RefInc of the new value, yet v joins `ctx.Vars` and is RefDec'd at cleanup.
-  The bind must acquire (RefInc / `__copy_`, the isFresh/RefInc-borrowed hybrid
-  the assignment arms use) before defining v, OR v must be a non-owning borrow
-  not registered for RefDec. Also covers `for i, v`, array collections, and the
-  blank `_` value (a phantom scope var today).
-- **Test**: `conformance/matrix/for-range-value/value/managed-ptr.bn` (xfailed in
-  all 6 default modes) — `loopOnce(s)` ranges + returns, then `rt.Refcount`
-  reads 1 instead of the balanced 2. Confirmed comp / int / int-int /
-  comp-comp-comp.
-- **Discovery**: 2026-06-05, P1 conformance-matrix authoring. Pre-existing;
-  flagged suspected in plan-code-red.md §3.2/§3.4, now confirmed with a repro.
-
 ### Returning a by-value struct through interface-method dispatch was miscompiled — FIXED + LANDED 2026-06-04 (binate `9baa579d`)
 - **Was**: an interface method returning a by-value struct (small
   aggregate, NOT a managed handle like `@T`/`@[]T`) came back through
@@ -1248,24 +1208,6 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   x64_darwin/Rosetta), while enabling x64 in the `all` modeset.
 - **Root cause**: unknown — the x64 native backend's aggregate handling in the
   multi-assign / multi-bind element-store path. Needs investigation.
-
-### ~~Discarded `@func`-returning call result leaks~~ — FIXED + LANDED 2026-06-05 (binate `f5410fcf`, plan-cr-p2-2 step 2; `registerManagedCallResult` at all 4 call sites + the missing `@func` arm in `emitTempCleanupBody`/`Since` + `OP_CALL_FUNC_VALUE`/`OP_CALL_IFACE_METHOD` in the isFresh predicates; matrix assign/blank/func-value + discard/stmt + `601`)
-- **Symptom**: a managed `@func` returned by a call and discarded (`_ = f()`,
-  or an unused call result) is never released — its closure record (and any
-  captured managed values) leaks. `@T` / `@[]T` / `@Iface` / struct call results
-  are registered as cleanup temps and freed; only `@func` is missing.
-- **Root cause (CONFIRMED)**: `genFuncDirectCall` (`gen_call.bn:268-288`) /
-  `genFuncValueCall` (`gen_call.bn:366-382`) / `gen_method.bn` register
-  `@T`/`@[]T`/`@Iface`/struct results as end-of-statement cleanup temps but have
-  no `isManagedFuncValueType` arm; `emitTempCleanupBody` likewise lacks the
-  func-value RefDec arm, and `isFreshManagedFuncValue` omits the call ops.
-- **Test**: `conformance/matrix/assign/blank/func-value.bn` (xfailed all 6
-  default modes) — `_ = wrap(src)` leaves the @func record at 2 instead of 1.
-- **Discovery**: 2026-06-05, P1 matrix blank-discard form. Pre-existing; flagged
-  suspected in plan-code-red.md §3.4 / §8 #16, now confirmed with a repro.
-- **Fix**: add the `isManagedFuncValueType` arm to the call-result temp
-  registration (gen_call / gen_method) + the func-value RefDec arm in
-  `emitTempCleanupBody`; add the call ops to `isFreshManagedFuncValue`.
 
 ### Interface dispatch drops the trailing scalar after a multi-word by-value arg (LLVM/native codegen) — xfail'd
 - **Symptom**: an interface method whose params include a multi-word BY-VALUE
