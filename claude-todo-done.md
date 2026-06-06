@@ -10,6 +10,34 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~Divide-by-zero / mod-by-zero must panic (DEFINED) + `unsafe_div`/`unsafe_rem`~~ — DONE 2026-06-05 (binate `f3327891`, `efeb0f94`, `6852902a`)
+- **What landed**: integer `/` and `%` (all widths) are now CHECKED like
+  array subscripting — a zero divisor OR the signed `MIN/-1` overflow is a
+  DEFINED runtime panic on every backend (was accidental: LLVM `sdiv`/`udiv`
+  UB, native SIGFPE, VM host trap). Floats unaffected (IEEE).
+  - `rt.DivCheck` / `rt.DivFail` runtime guards, design B —
+    `DivCheck(dividend int64, divisor int64, signedMin int64, isSigned int)`,
+    all compare logic in the runtime (both libc + baremetal impls) — `f3327891`.
+  - `OP_DIV_CHECK` emitted before integer `OP_DIV`/`OP_REM`, lowered on all
+    four backends (LLVM / aarch64 / x64 / VM `BC_DIV_CHECK`). IR-gen widens
+    the operands to 64-bit once (shared, target-aware) so each backend just
+    marshals two operands + the per-width MIN via `types.SignedMinForWidth` —
+    `efeb0f94`.
+  - Compound divide-assign (`/=`, `%=`) routed through the same shared
+    `emitDivCheckGuard` (it had bypassed `genBinary`), and the
+    `unsafe_div` / `unsafe_rem` opt-out builtins (truncated, NOT
+    `unsafe_mod`) — `6852902a`.
+- **Tests**: conformance cells (`608`/`609`/`611`–`616` after concurrent
+  number clashes): `/0`, `%0`, signed `MIN/-1` at int32 & int64, `%`
+  `MIN/-1`, unsigned `/0`, compound `/= 0`, and the `unsafe_div`/`unsafe_rem`
+  value cell; unit tests across types/ir/codegen/vm. Verified green on LLVM
+  and VM.
+- **Known narrow gap** (tracked MINOR, not part of this work): a NAMED
+  *signed sub-word* type's `MIN/-1` divide escapes detection because
+  IR-gen's `widenType` collapses named ints to plain `int` before the guard
+  — see the MINOR entry in `claude-todo.md`.
+- Plan: `plan-divide-by-zero.md`. Ratified contract was `plan-code-red.md` §8 #14.
+
 ### ~~VM clobbers ≥2 distinct global addresses in one instruction (shared `globalReg`)~~ — RESOLVED 2026-06-03 (binate `d5d31b13`)
 - **Was**: silent wrong-code in the bytecode VM when ONE instruction took
   two (or more) distinct global addresses as args — `return &G, &H`,

@@ -28,9 +28,20 @@
   plan's 602-605 numbers were taken by concurrent work, so they moved up.
   Verified green on builder-comp (LLVM) and builder-comp-int (VM); full
   builder-comp suite 810/0 with the guard on every divide.
-- **Sequencing step 4 (`unsafe_div` / `unsafe_rem`)** — not started (next).
-- **Sequencing step 5 (docs: move ratified entry to `claude-todo-done.md`)** —
-  pending step 4.
+- **Sequencing step 4 (`unsafe_div` / `unsafe_rem`)** — **LANDED** (binate
+  `6852902a`). Token / parser / checker / IR-gen (bare `EmitBinop`, no guard);
+  value cell `613`. Same commit also fixed a gap the coverage review found:
+  compound divide-assign (`/=`, `%=`) bypassed `genBinary` and so emitted no
+  guard — now both routes share `emitDivCheckGuard` (cell `614`).
+- **Sequencing step 5 (docs)** — **DONE**. Ratified entry moved to
+  `claude-todo-done.md`; the narrow named signed-sub-word MIN/-1 gap surfaced
+  by the review is tracked as MINOR in `claude-todo.md`.
+- **Extra coverage** (binate `7986fa2a`): cells `615` (`%` MIN/-1) and `616`
+  (unsigned `/0`) pin two ratified behaviors the original cells missed.
+
+**All sequencing steps complete.** The guard is live on every backend with the
+`unsafe_div`/`unsafe_rem` opt-out; the only open item is the tracked MINOR
+named-signed-sub-word corner.
 
 ## Summary
 
