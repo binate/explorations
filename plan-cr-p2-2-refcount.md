@@ -91,10 +91,14 @@ pre-processing. The `isFreshManagedPtr/Slice` non-broadening is balance-neutral
   for-range-value → N=3 (all 5 kinds); `617` (continue/break/array). NOTE:
   break/continue still leak BODY-LOCAL managed vars (gen_stmt.bn:34, a separate
   pre-existing limitation, not touched).
-- **② iv/fv ↔ user-struct-named-iv/fv collision** (regression, step 6): pending.
-  dtorTypeSuffix's bare `iv`/`fv` tokens equal a legal struct name; a struct
-  named iv/fv as a managed-slice element collides on __dtor_ms_iv (leak/SIGSEGV).
-  Fix: collision-proof tokens.
+- **② iv/fv ↔ user-struct-named-iv/fv collision** (regression, step 6): LANDED
+  (binate `48464501`). dtorTypeSuffix's bare `iv`/`fv` tokens equalled a legal
+  struct name (the struct arm emits names verbatim); a struct named iv/fv as a
+  managed-slice element collided on __dtor_ms_iv / __copy_ms_iv (leak / SIGSEGV).
+  Fixed by encoding @Iface/@func as the reserved keywords `interface`/`func`
+  (keywords can't be struct names → collision-proof). Tests: `618` (iv+fv structs
+  alongside @[]@Iface/@[]@func, balanced + no crash) + a dtorNameForType unit
+  test. Full builder-comp green (848/0).
 - **③ cross-pkg top-level array-by-value copy → undefined symbol** (pre-existing):
   pending. emitStructCopy still qualifies a top-level [N]@pkg.T array copy; fix:
   route through elemCopyName.
