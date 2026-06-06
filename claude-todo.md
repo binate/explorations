@@ -6,8 +6,15 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
-### Integer shift by a count >= bit width is hardware-masked (mod width), NOT the spec's defined 0 / sign-extend — silent wrong code
-- **Symptom**: a shift whose count is >= the operand's bit width returns a
+### Integer shift by a count >= bit width is hardware-masked (mod width), NOT the spec's defined 0 / sign-extend — FIXED 2026-06-06 (binate `32fde83d`)
+- **Fix**: a branchless overshift guard in IR-gen (`gen_binary.bn`,
+  `emitGuardedShift`), so a non-constant (or out-of-range constant) shift count
+  yields 0 (logical) / sign-fill (arithmetic `>>`) per the spec, on every
+  backend with no per-backend logic. An in-range constant count stays a plain
+  shift (the common case is unchanged). `math.RoundToEven`'s temporary IsInf/
+  IsNaN workaround was removed. Pinned by `conformance/631_shift_overshift`
+  (LLVM/VM/native-aa64/gen2) + IR-gen unit tests; full builder-comp 854/0.
+- **Symptom (was)**: a shift whose count is >= the operand's bit width returns a
   hardware-masked result instead of the documented value. Confirmed (LLVM, both
   const-folded and runtime counts): `full >> 64 == full` and `1 << 64 == 1`
   (both should be `0`); `full >> 70 == full >> 6` (count masked to `70 mod 64`).
