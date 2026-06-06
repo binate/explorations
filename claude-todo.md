@@ -104,7 +104,7 @@ Discovery Protocol) — most don't have one yet.
 - **Root cause**: IR-gen has no function-local const table; lookupConst is module-only. (1.3a fixed array-dim for PACKAGE consts; locals were not covered.)
 - **Fix**: give IR-gen access to local const values for resolveTypeExpr (a function-scoped const table), or restrict array dims to package consts at the checker. **Test**: conformance xfail (local const array dim).
 
-#### C4 — &s[i] on a readonly-wrapped slice mis-strides (CRITICAL, from &slice[i] fix)
+#### C4 — &s[i] on a readonly-wrapped slice mis-strides — ✅ FIXED+LANDED (binate `f4769aac`, 2026-06-06)
 - **Symptom**: `var s readonly @[]uint8 = "AB"; var p *uint8 = &s[1]; println(cast(int,*p))` → **0** (verified; expect 66). Dropping the TYP_STRUCT guard (binate 937ae78e) exposed it: for `readonly @[]uint8`, arrTyp.Kind==TYP_READONLY; isSliceType peels readonly (true) but arrTyp.Elem is then the INNER managed-slice, not uint8, so EmitSliceElemPtr GEPs with a ~32-byte stride. Pre-fix this crashed (guard failed → wild-pointer fall-through); now silently wrong.
 - **Root cause**: genIndexPtr (gen_access.bn) uses arrTyp.Elem / collTyp.Elem without peeling TYP_READONLY.
 - **Fix**: peel readonly (resolve to the underlying slice type) before reading .Elem in both slice arms. **Test**: conformance xfail (&readonly-slice[i]).
