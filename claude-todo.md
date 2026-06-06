@@ -109,12 +109,12 @@ Discovery Protocol) — most don't have one yet.
 - **Root cause**: genIndexPtr (gen_access.bn) uses arrTyp.Elem / collTyp.Elem without peeling TYP_READONLY.
 - **Fix**: peel readonly (resolve to the underlying slice type) before reading .Elem in both slice arms. **Test**: conformance xfail (&readonly-slice[i]).
 
-#### C5 — cross-package float const-EXPRESSION reads int 0 (CRITICAL, from float-binary fix)
+#### C5 — cross-package float const-EXPRESSION reads int 0 — ✅ FIXED+LANDED (binate `3dfc4b4a`, 2026-06-06)
 - **Symptom**: a `.bni`-exported `const C float64 = 1.5 + 2.5`, read package-qualified, lowers to `add i64 0, 0` (reviewer). The CONST_EXPR family (binate 9ef5db58) was wired into gen_expr.bn's EXPR_IDENT read but NOT into gen_selector.bn's qualified read (no CONST_EXPR arm → falls to EmitConstInt(Val=0)), and the importer (gen_import.bn single + registerImportConstGroup) never registers a float const-expr at all.
 - **Root cause**: const-folding fixes scoped to in-package producers/readers; the cross-package read (gen_selector) + import producers were not updated.
 - **Fix**: add a CONST_EXPR arm to gen_selector read + route import producers through the shared classifiers (see M1/M4 — a unifying shared const-classifier is the real fix). **Test**: cross-pkg conformance xfail.
 
-#### M1 — cross-package bool/float-comparison + bool-logic consts → silent int 0 (MAJOR)
+#### M1 — cross-package bool/float-comparison + bool-logic consts → silent int 0 — ✅ FIXED+LANDED (binate `3dfc4b4a`, 2026-06-06)
 - **Symptom**: `.bni`-exported `const CMP bool = 1 < 2` / `(1<2)&&(3>2)` / `1.5 < 2.5` read cross-package lower to `add i64 0,0` → 0 (reviewer). gen_import single-const handles only EXPR_BOOL_LIT + float-literal; registerImportConstGroup calls only classifyConstLit; neither calls classifyConstBoolExpr/classifyConstFloatExpr.
 - **Fix**: route both import producers (and gen_repl GenConstMember) through the same classifier chain genConst/genConstGroup use. **Test**: cross-pkg conformance xfail (bool-cmp, bool-logic, float-cmp).
 
