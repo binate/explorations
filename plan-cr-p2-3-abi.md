@@ -10,7 +10,9 @@
 - **3.3b** x64 non-8-multiple param — **LANDED** (binate 6bbea800; shared ArgWords ceil fix)
 - **3.1 / 3.7** >16-byte aggregate args through indirect calls (iface-method +
   func-value shim) — **LANDED** (binate 3892e7d1)
-- **3.3a, 3.4, 3.5, 3.6, 3.8** — open (see Sequencing).
+- **3.3a / 3.4** x64 multi-return eightbyte coalescing (sub-word + aggregate
+  component) — **LANDED** (binate b5616b32)
+- **3.5, 3.6, 3.8** — open (see Sequencing).
 
 ## Summary
 
@@ -59,23 +61,32 @@ Two structural fixes cover the majority. STRUCTURAL FIX 1 (native word-count): r
 - **Files**: `pkg/binate/native/common/common_call.bn (ArgWords — the shared root)`; `pkg/binate/native/aarch64/aarch64_call.bn (emitCall aggregate-arg load + return collect)`; `pkg/binate/native/aarch64/aarch64_iface.bn (mirror)`; `pkg/binate/native/common/common_callconv.bn (argRegWordsStackWords consumes ArgWords)`
 - **Tests**: covered: conformance/matrix/abi/struct-{param,return}/{three-u32,five-u8} (xfailed builder-comp_native_aa64-comp_native_aa64). struct-return/three-u32 + five-u8 xfail aa64-only; struct-param both xfail aa64+x64. Pass on LLVM/VM. GAP: a 24-byte/alignment-padded aggregate (§8 #1) and a {u16,int} padded shape cross-checked aa64-vs-LLVM.
 
-### 3.3 x64 native backend mis-packs sub-word multi-return + non-8-multiple struct params — PARTIAL
+### 3.3 x64 native backend mis-packs sub-word multi-return + non-8-multiple struct params — LANDED 2026-06-05 (binate 6bbea800 + b5616b32)
 
-**MAJOR · CONFIRMED · PARTIALLY FIXED**
+**MAJOR · CONFIRMED · FIXED**
 
-> (b) Non-8-multiple struct PARAM: **LANDED** 2026-06-05 (binate 6bbea800)
-> via the shared ArgWords ceil fix and the x64 callee param-receive
-> (x64_emit_func.bn) — see 3.2. (a) Sub-word multi-return n=2 cap +
-> eightbyte coalescing: still open — see Sequencing #4 / defect 3.4.
+> (b) Non-8-multiple struct PARAM: LANDED via the shared ArgWords ceil fix
+> and the x64 callee param-receive (x64_emit_func.bn, binate 6bbea800) —
+> see 3.2. (a) Sub-word multi-return: LANDED (binate b5616b32) — the n=2
+> cap is gone; the callee builds the tuple's byte image in the SysV red
+> zone (sized stores coalesce sub-word fields into their eightbyte) and
+> loads RAX/RDX, the caller stores RAX/RDX raw. The same change fixes the
+> aggregate-component case (defect 3.4).
 
 - **Root cause**: Two distinct x64 gaps. (a) Sub-word multi-return at arity >=3: emitMultiReturnPack (x64_return.bn:145-162) caps at `n=2` (line 147) AND packs one full word per field (RAX, then RDX), dropping field 2+ entirely and never coalescing sub-word fields into a single eightbyte. The collect side (x64_call.bn:230-247) mirrors the same n=2 cap (line 235) and reads each field at its FieldOffset from RAX/RDX. For (u16,u16,u16) SysV coalesces all three into the low 48 bits of one eightbyte (RAX), but native splits field0->RAX, field1->RDX, drops field2 -> wrong values + disagrees with LLVM at the native<->LLVM boundary. (b) Non-8-multiple struct PARAM: emitAggregateArg (x64_call.bn:49-92) loads `nWords := common.ArgWords` (line 71) which is the `sz/8` truncation -> a 12-byte three-u32 loads 1 word, drops the 3rd u32; five-u8 loads 0 words. x64 struct-RETURN works (uses sz>8 check in emitAggregateReturnPack, not ArgWords).
 - **Fix shape**: (a) Multi-return: remove the n=2 caps (x64_return.bn:147, x64_call.bn:235) and implement true SysV eightbyte coalescing — pack the tuple into eightbytes by FieldOffset/SizeOf (multiple sub-word fields per RAX/RDX eightbyte; for <=16B that is at most RAX+RDX), matching what LLVM legalizes for the equivalent {...} struct, and collect symmetrically. This MUST agree with the callee pack scheme (both ends derive from the same eightbyte layout). (b) Param: same ArgWords ceil fix as the aa64 defect resolves the truncation (shared common.ArgWords). Coordinate the pack/collect coalescing as one change so def and call stay in lockstep.
 - **Files**: `pkg/binate/native/x64/x64_return.bn (emitMultiReturnPack)`; `pkg/binate/native/x64/x64_call.bn (emitCall multi-return collect + emitAggregateArg)`; `pkg/binate/native/common/common_call.bn (ArgWords — shared with aa64 fix)`
 - **Tests**: covered: conformance/matrix/abi/multi-return/u16/{3,4,5} (xfailed both x64 modes) + struct-param/{three-u32,five-u8} (xfailed x64). multi-return/int/{2..5} pass (the all-int n=2-cap is already fixed). Pass on LLVM/VM and aa64 multi-return. GAP: a (struct{p @T},bool) aggregate-component multi-return (ptr-not-bytes, §3.1 CRITICAL) — not yet a cell.
 
-### 3.4 Managed-struct under multi-assign / multi-short-var miscompiled on the x64 native backend
+### 3.4 Managed-struct under multi-assign / multi-short-var miscompiled on the x64 native backend — LANDED 2026-06-05 (binate b5616b32)
 
-**MAJOR · CONFIRMED (root cause suspected — needs x64 codegen investigation)**
+**MAJOR · CONFIRMED · FIXED**
+
+> Confirmed as the predicted shared root: emitMultiReturnPack had no
+> aggregate-component branch, so a managed-struct tuple field's pointer
+> landed where its bytes belong. The eightbyte-coalescing rewrite (3.3a)
+> memcpies aggregate components into the byte image; the 6 managed-struct
+> multi-assign/multi-short-var cells — and 574 — now pass on x64.
 
 - **Root cause**: A by-value managed-struct destructured into a target via multi-assign (s.f,_=pair(); arr[i],_=pair()) or multi-short-var (a,_:=pair()) is miscompiled by x64 native only — refcount-balance cell reads a wrong value. Passes on aa64-native and LLVM/VM, so it is x64-codegen-specific in the aggregate handling of the multi-assign/multi-bind element-store path. The IR-gen refcount discipline (genMultiAssign / emitElemPtrStore / emitStructElemRefcount, gen_assign_multi.bn — landed for all backends) is correct (other backends pass), so the divergence is in how x64 lowers the multi-return tuple's managed-struct COMPONENT into the destructure target — likely the same emitMultiReturnPack/aggregate-component path as the defect above (an aggregate component placed as a pointer-in-reg vs its bytes, or a sub-word/word-count mismatch in the tuple collect). Root cause not yet bisected to a line.
 - **Fix shape**: Investigate the x64 multi-return collect (x64_call.bn:230-247) and emitMultiReturnPack (x64_return.bn) for a managed-struct AGGREGATE component: the §3.1 CRITICAL note 'aggregate component puts the component's pointer into RAX/RDX, not its bytes' (x64_return.bn:148-159 has no IsAggregateTyp branch in emitMultiReturnPack — it assumes scalar fields) is the prime suspect. A managed-struct tuple field reaching emitMultiReturnPack would mis-place a pointer where bytes are expected; the destructure then copies a dangling pointer and the save-copy-destroy RefIncs the wrong leaves. Likely fixed by the same multi-return coalescing/aggregate-component work as the defect above. Confirm with a probe isolating a managed-struct tuple component vs a scalar.
