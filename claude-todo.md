@@ -190,7 +190,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   package-const path), or reject local `const` at type-check if intentionally
   unsupported.
 
-### Non-integer const-EXPRESSIONS (binary float, bool comparison) and const-as-array-dimension are dropped → read as int 0 — CONFIRMED, all backends
+### Non-integer const-EXPRESSIONS (binary float, bool comparison) and const-as-array-dimension are dropped → read as int 0 — FIXED+LANDED (binate `52a9eabf` and predecessors, 2026-06-05)
 - **Scope**: this is the const-*expression* tail of the non-int-const family
   (the literal cases — `const C float64 = 0.1`, `const B bool = true` — were
   fixed in Phase A; see the "top-level consts of non-int types" MAJOR entry).
