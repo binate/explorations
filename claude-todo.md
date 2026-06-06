@@ -6,6 +6,34 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### `~` (bitwise complement) IR-gen hardcodes the result type to `int` — invalid IR for sub-word, wrong-signed shift on uint64 — CONFIRMED wrong-code, default LLVM mode (`bitnot-result-type`)
+- **Symptom (two facets, one root)**:
+  - **A (invalid IR)**: `~x` for any sub-word int (`uint/int 8/16/32`) emits
+    `xor i64 %x, -1` with a hardcoded i64 — clang rejects it
+    (`'%x' defined with type 'i8' but expected 'i64'`). `~` simply does not
+    compile for sub-word ints on the LLVM backend.
+  - **B (wrong value)**: `(~v) >> k` consumed DIRECTLY (no intervening store)
+    on `uint64` does an ARITHMETIC shift, not logical: `(~0) >> 32` is
+    `2^64-1`, not the spec `2^32-1`. Storing `~v` into a `uint64` var first
+    masks it (the store re-types to unsigned), and `(a+b) >> k` for unsigned is
+    fine — so it is specific to `~`-results.
+- **Root cause (CONFIRMED)**: `pkg/binate/ir/gen_expr.bn:247` lowers `~` as
+  `b.EmitUnary(OP_BITNOT, arg, types.TypInt())` — the result type is hardcoded
+  to `int` (signed, target-width i64) instead of the OPERAND's type. So the
+  BITNOT instr is mis-typed: i64 width (→ facet A, mismatched `xor` width for a
+  sub-word arg) and signed (→ facet B, a directly-consumed `>>` lowers to
+  `ashr` not `lshr` per `emit_ops.bn:48-52`, which keys on `instr.Typ.Signed`).
+  This is the SHARED IR layer, so it likely affects the VM/native backends too
+  (facet B at least; the full `all` sweep is pending this decision).
+- **Test**: `conformance/matrix/scalar-diff/bitwise/not/*` — 7 cells fail on
+  `builder-comp` (the sub-word ones COMPILE_ERROR; `64/unsigned` value-diverges;
+  `64/signed` passes — i64 + signed happen to match the hardcoded type).
+- **Discovery**: 2026-06-06, differential-harness v2 (bitwise cells).
+- **Fix**: type the `OP_BITNOT` result as the operand's type, mirroring the
+  adjacent `OP_NEG` path's `negTyp` derivation (`gen_expr.bn:223-241`) — for
+  `~`, the result type is always exactly the operand type (no widening). A
+  one-site fix resolving both facets.
+
 ### Whole-array (aggregate) `=` assignment is silently dropped — CONFIRMED wrong-code, default modes
 - **Symptom**: `a = [4]int{10,20,30,40}` (a whole-array assignment via `=`, RHS a
   composite literal) does NOT update `a` — it stays at its prior value. The store
