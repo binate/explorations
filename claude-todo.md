@@ -6,6 +6,45 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### bnc front-end / IR-gen memory blows up (>8.5 GB, OOM) compiling a ~1370-line program — super-linear, NOT raw size
+- **Symptom**: compiling the minbasic example (examples repo, `minbasic/cmd/run`
+  — ~1370 lines of `pkg/basic` plus transitive `strconv`/`buf`/`slices`/`errors`)
+  drives `bnc` to **>8.5 GB RSS** and it is OOM-killed (SIGKILL) after ~15 min on
+  a 24 GB machine. `bni` similarly peaks ~8 GB. M0 (the banner skeleton) compiled
+  in seconds; the jump is the M1 interpreter code.
+- **Localization — front-end / IR-gen, NOT the LLVM backend**: `bnc --emit-llvm`
+  (stops after IR-gen, before the native/LLVM backend) reaches **7.5 GB in 54 s
+  and emits 0 IR lines** before being killed. So the blowup is in `bnc`'s
+  front-end / IR-gen, not LLVM codegen.
+- **NOT raw program size**: `bnc`/`bni` themselves (far larger) build fine.
+  Ruled out by probes (all `bnc --emit-llvm`, peak RSS, on a `main` bundle):
+  trivial `strconv.FormatFloat` user → light (2 s); recursive/nested managed AST
+  types (`Expr{@Expr, @[]@Expr}` + `Stmt`/`Line`) → light; a struct
+  `Value{int,float64,@[]char}` returned BY VALUE, standalone → light;
+  `Value` + nested AST types + `slices.Append[@Line]` + `buf` together,
+  standalone → light; synthetic 10/20/30 functions each building managed
+  `Expr`/`Value` → all light.
+- **Bisected trigger (a super-linear interaction)**: within minbasic's
+  `pkg/basic`, the **parser side alone** (token/ast/lex/parse/parse_expr + the
+  basic.bn loader — ~700 lines; nested-managed AST types, `slices.Append`, `buf`)
+  compiles LIGHT (2 s). **Adding `value.bn`** — 34 lines: a
+  `Value{int,float64,@[]char}` struct + two by-value constructors, *not even
+  referenced by the parser side* — flips it to an **8.56 GB blowup**. Each piece
+  is light in isolation; the combination is not. Cost appears super-linear in
+  (functions × managed-types) within one package, but is NOT reproduced by
+  synthetic isolations — the real parser-side code's structure matters.
+- **Repro**: (full) build `examples/minbasic/cmd/run` against a `main` `bnc`
+  bundle → OOM. (reduced) the same package with the eval-side files
+  (eval/exec/print/format/env) removed and `runProgram` stubbed, leaving the
+  parser side + `value.bn`, still OOMs at ~8.5 GB; removing `value.bn` makes it
+  light (~2 s).
+- **Discovery**: 2026-06-05, building minbasic M1 slice 1 (examples `5b55644`).
+- **Next step**: needs a memory profile of `bnc`'s front-end / IR-gen on the
+  reduced repro to find the pathological pass/structure (no `--time-passes` /
+  profiling flag exists on `bnc`). Suspect: per-function generation/analysis of
+  managed-type copy/dtor handling that is super-linear across a package's
+  functions/types.
+
 ### >16-byte struct passed by value through an indirect call SIGSEGVs on LLVM — CONFIRMED wrong-code, default modes
 - **Symptom**: passing a struct larger than 16 bytes (`three-int` = 24B, all
   `int` fields) **by value** as an **interface-method argument** or through a
