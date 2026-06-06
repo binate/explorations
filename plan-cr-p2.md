@@ -17,10 +17,10 @@ touch, and the exact test coverage vs. gap. The defect-of-record stays in
 
 | Plan | Theme | Subsystems | Defects | Test coverage |
 |---|---|---|---|---|
-| **[1](plan-cr-p2-1-frontend.md)** | Front-end: const materialization & expr-folding, float32 coercion, `&slice[i]` address-of, declaration resolution, int-int loader | `pkg/binate/ir` (gen_const, gen_expr/coerce, gen_util, gen_composite, gen_return, address-of), `pkg/binate/types`, `pkg/binate/loader` | 6 | `matrix/const`, `regressions/const-expr`, `599` — gaps: fwd-ref, iota decision, loader |
+| **[1](plan-cr-p2-1-frontend.md)** | Front-end: const materialization & expr-folding, float32 coercion, `&slice[i]` address-of, declaration resolution, int-int loader | `pkg/binate/ir` (gen_const, gen_expr/coerce, gen_util, gen_composite, gen_return, address-of), `pkg/binate/types`, `pkg/binate/loader` | 6 | `matrix/const`, `regressions/const-expr`, `599` — gaps: fwd-ref, iota-repeat, loader |
 | **[2](plan-cr-p2-2-refcount.md)** | Refcount Axiom-5 discipline & `@Iface`/`@func` lifecycle | `pkg/binate/ir` managed-copy/dtor dispatchers + copy-sites | 6 | `matrix/refcount` — gap: lifecycle matrix (b2) |
 | **[3](plan-cr-p2-3-abi.md)** | Aggregate ABI, calling convention & 2-word value passing | `pkg/binate/codegen` (byval/sret, emit_call/iface/ccall), `native/{aarch64,x64}`, `pkg/binate/vm` (2-word handling) | 8 | `matrix/abi`, `regressions/c-call` — gaps: 2-word-slice + iface-arg-drop tests, Class 2 matrix (b1) |
-| **[4](plan-cr-p2-4-scalar.md)** | Scalar & float-literal value correctness (sub-word, 64-on-32, float) | `pkg/binate/vm` (exec-arith, int→float, const-load), `native/{aarch64,x64}` (sub-word narrow, float const), shared float-literal converter | 6 | `matrix/scalar`, `538/539/541` — gap: divide-by-zero panic cells |
+| **[4](plan-cr-p2-4-scalar.md)** | Scalar & float-literal value correctness (sub-word, 64-on-32, float) | `pkg/binate/vm` (exec-arith, int→float, const-load), `native/{aarch64,x64}` (sub-word narrow, float const), shared float-literal converter | 5 | `matrix/scalar`, `538/539/541` — float64-tie unblocked (via `math/big`); div-by-zero → `plan-divide-by-zero.md` |
 
 26 confirmed defects across the four plans.
 
@@ -56,17 +56,22 @@ address-aggregate** items went to **Plan 3** (they are 2-word value-passing
 defects), and the **int-int loader `rt`-not-found** went to **Plan 1** (it is a
 declaration/import-resolution concern).
 
-## Open decisions (owned by the user, not the plans)
+## Resolved decisions (2026-06-05)
 
-1. **`iota` group-member semantics** (Plan 1) — a bare `const`-group member
-   currently takes **plain `iota`**, not the Go-style repeat-previous-expression,
-   so `const ( B0 int = 1 << iota; B1; B2; B3 )` yields plain-iota values, not
-   the `1,2,4,8` bit-flag idiom. Whether to implement repeat-previous is a spec
-   decision; until it's made, the group-member const-expr cell stays out and
-   Plan 1 must not assert either behavior. (Filed in `claude-todo.md`.)
-2. **Divide-by-zero panic** (Plan 4) — the defined-panic behavior + the
-   `unsafe_div` / `unsafe_rem` opt-out intrinsics are **ratified**; the
-   implementation and its conformance cells are pending and scoped into Plan 4.
+1. **`iota` group-member semantics** (→ Plan 1) — **RESOLVED: Go-style
+   repeat-previous-expression.** A bare `const`-group member repeats the most
+   recent explicit initializer with its own `iota`, so
+   `const ( B0 int = 1 << iota; B1; B2; B3 )` must give `1,2,4,8`. Today it takes
+   plain `iota` (`1,1,2,3`) — now a Plan-1 defect, pinned by
+   `regressions/const-expr/iota-repeat`.
+2. **Divide-by-zero panic** — **moved to its own plan, `plan-divide-by-zero.md`**
+   (at the user's direction; a separate work item, no longer part of Plan 4). The
+   defined-panic behavior + `unsafe_div` / `unsafe_rem` opt-out intrinsics are
+   ratified; the standalone plan covers the implementation.
+3. **float64-tie round-bit** (Plan 4) — **UNBLOCKED**: verified the current
+   BUILDER (`bnc-0.0.7`) compiles `pkg/std/math/big`, so the proper exact-rounding
+   fix is actionable now (route `ParseFloatLitToBits` through `math/big`, not
+   `strconv`). Was previously deferred as "blocked on stdlib-via-BUILDER".
 
 ## Coverage posture
 

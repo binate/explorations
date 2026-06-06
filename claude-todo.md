@@ -128,13 +128,16 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   (`int-arith`, `int-bitwise`, `int-paren`, `int-of-const`, `float-neg-literal`,
   `bool-literal`) confirm the integer/literal paths fold; xfailed
   (`float-binary-{add,div,mul}`, `bool-comparison`, `array-dim`) pin the gaps.
-- **Open language question (NOT a bug until decided)**: a **bare** const-group
-  member takes **plain iota**, not the Go-style repeat-previous-expression — so
-  `const ( K0 int = iota + 100; K1; K2 )` gives `K1=1, K2=2` (not 101/102), and
-  `const ( B0 int = 1 << iota; B1; B2; B3 )` gives `1,1,2,3`-shaped plain-iota
-  values, not the `1<<iota` bit-flag idiom (`1,2,4,8`). If Go-style repeat is
-  intended, the bit-flag idiom is broken; if plain-iota is intended, it's fine.
-  Needs a spec decision before a cell can assert it (`gen_const.bn:293-299`).
+- **RESOLVED — now a Plan-1 defect (2026-06-05, user decision)**: a **bare**
+  const-group member must **repeat the previous initializer expression**
+  (Go-style), not take plain iota. Today it takes plain iota
+  (`gen_const.bn:293-299`), so `const ( B0 int = 1 << iota; B1; B2; B3 )` gives
+  `1,1,2,3` instead of the correct `1,2,4,8` bit-flag idiom, and
+  `const ( K0 int = iota + 100; K1; K2 )` gives `1,2` instead of `101,102`. This
+  is now a CONFIRMED bug to fix in Plan 1: a bare member re-evaluates the most
+  recent explicit initializer expression with its own `iota`. Test:
+  `conformance/regressions/const-expr/iota-repeat` (the `1<<iota` bit-flag form,
+  xfailed until implemented).
 - **Discovery**: 2026-06-05, P1 const-expr loose-axis (design fan-out + probes).
 - **Fix**: evaluate non-int const *expressions* at the right type — fold float
   const-exprs at float precision and bool const-comparisons to a bool, and
@@ -851,7 +854,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   (emit_refcount_test.bn) pins the GEP index; `conformance/144_multi_return_bool_iface`
   covers it end-to-end (green on LLVM + VM).
 
-### Float-literal converter 1 ULP low for ~38+ sig-digit literals just above a tie (round-bit loss) — DEFERRED, blocked on stdlib-via-BUILDER
+### Float-literal converter 1 ULP low for ~38+ sig-digit literals just above a tie (round-bit loss) — UNBLOCKED 2026-06-05 (BUILDER compiles `math/big`); proper fix actionable
 - **Symptom**: a float64 literal with ~38+ significant digits sitting JUST
   ABOVE a binary rounding tie (e.g. `1.0000000000000001110223024625156540424`)
   converts 1 ULP LOW.  `common.ParseFloatLitToBits` holds the significand in a
@@ -867,10 +870,18 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   on the VM modes).
 - **Proper fix**: exact rounding via `pkg/std/math/big` (mantInt*10^exp as a
   Nat, extract 53 bits + round-to-even from the exact remainder — Go's
-  slow-path).  BLOCKED: the converter is in cmd/bnc's BUILDER tree, which can't
-  yet import stdlib `big`; unblocks once stdlib is bundled with BUILDER (below).
-  Interim alternative: widen the fixed window (256-bit → correct to ~76 digits)
-  — covers all realistic literals but not adversarially complete.
+  slow-path).  **No longer blocked**: the earlier "cmd/bnc's BUILDER tree can't
+  import stdlib `big`" caveat is STALE — verified 2026-06-05 that the current
+  BUILDER (`bnc-0.0.7`) compiles and runs a `pkg/std/math/big`-importing program
+  correctly (`Nat.Mul` → 3000000). `math/big` is float-free integer big-num (no
+  floats / generics / closures / interfaces), so it is BUILDER-compilable; only
+  `strconv`-as-a-whole stays blocked (its `ftoa.bn` is float-using), and the fix
+  needs `math/big` directly, not `strconv`. So the converter (in
+  `pkg/binate/native/common`) can `import "pkg/std/math/big"` and do the exact
+  mantInt*10^exp rounding. Remaining check before landing: confirm no tier/layer
+  hygiene rule forbids the compiler tree depending on tier-1 stdlib (a layering
+  question, not a BUILDER-compilability one). Interim alternative (no longer
+  needed if the proper fix lands): widen the fixed window (256-bit → ~76 digits).
 - **Severity**: MAJOR (silent 1-ULP-wrong float constant), narrow (38+ digits
   AND just-above-tie).
 
