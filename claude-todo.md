@@ -96,27 +96,78 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   package-const path), or reject local `const` at type-check if intentionally
   unsupported.
 
-### Binary float const expr (`const X float64 = 0.1 + 0.2`) is routed through the integer const-fold path → invalid IR — CONFIRMED
-- **Symptom**: a `const` whose initializer is a **binary** float expression
-  (`0.1 + 0.2`) miscompiles: codegen emits integer arithmetic over float
-  operands — `%v2 = mul i64 %v0, %v1` where `%v0/%v1` are `double` — which clang
-  rejects (`'%v1' defined with type 'double' but expected 'i64'`). A bare or
-  unary-minus float const literal is fine; only a binary float const expr trips.
-- **Root cause (suspected)**: `floatConstText` (gen_const.bn:185-197) only
-  recognizes a bare or unary-minus float literal as a CONST_FLT; a binary float
-  expression falls through to the integer `evalConstExpr` / fold path, which
-  emits integer ops over what are really doubles.
-- **Severity**: MAJOR — a compile error (loud), but on a reasonable construct;
-  and on a backend that does not validate IR it would silently miscompile.
-- **Test**: needs a cell — `const X float64 = 0.1 + 0.2` then assert `X ≈ 0.3`
-  (currently a compile error). Found via a standalone probe, not in the matrix
-  product (const-expr folding is a distinct axis from single-value
-  materialization).
-- **Discovery**: 2026-06-05, P1 const matrix design probes.
-- **Fix**: fold float const binary exprs at float precision (extend the
-  float-const-expr path to handle binary/parenthesized float arithmetic), or
-  reject with a clear "float const expressions unsupported" diagnostic rather
-  than emitting integer ops.
+### Non-integer const-EXPRESSIONS (binary float, bool comparison) and const-as-array-dimension are dropped → read as int 0 — CONFIRMED, all backends
+- **Scope**: this is the const-*expression* tail of the non-int-const family
+  (the literal cases — `const C float64 = 0.1`, `const B bool = true` — were
+  fixed in Phase A; see the "top-level consts of non-int types" MAJOR entry).
+  `classifyConstLit` recognizes only a *bare / unary-minus* float or bool
+  **literal**; any non-int const whose initializer is an **expression** still
+  falls through to the integer-only `evalConstExpr`, which can't evaluate it, so
+  `genConst` drops the const and reads fall to `EmitConstInt(0, TypInt())`.
+- **Confirmed manifestations** (2026-06-05, on LLVM — default mode):
+  - **binary float** — `const X float64 = 1.5 + 2.5` (and `*`, `/`) reads as
+    **0** (silent wrong; in some shapes emits `mul i64` over `double` operands →
+    invalid IR / clang reject).
+  - **bool comparison** — `const B bool = 1 < 2` reads as **0** (false) instead
+    of true; `< == > …` const-comparisons are dropped.
+  - **const-as-array-dimension** — `const N int = 3; var a [N]int` →
+    `len(a)` is wrong (observed 30, not 3): `resolveTypeExpr` (gen_util.bn:354-359)
+    uses `parseIntLit(te.Len.Name)` on the *ident text*, never resolving the
+    const; and `[N+1]int` is rejected outright by the checker's `evalConstInt`
+    ("array length must be a constant integer") even though it is one.
+- **Root cause**: IR-gen's const-expression evaluation is integer-only
+  (`evalConstExpr`, gen_const.bn) and `classifyConstLit` is literal-only; the
+  checker accepts these decls (it does fold ints via `foldIntArith`/
+  `foldIntBitwise` but attaches no value to float/bool exprs). Same root as the
+  non-int-literal family — extended from *literals* to *expressions* and to the
+  array-dimension read path.
+- **Severity**: MAJOR — silent wrong values (bool/float) and a silently wrong
+  array length, on idiomatic const-expressions; the binary-float shape can also
+  emit invalid IR.
+- **Tests**: `conformance/regressions/const-expr/*` — green baselines
+  (`int-arith`, `int-bitwise`, `int-paren`, `int-of-const`, `float-neg-literal`,
+  `bool-literal`) confirm the integer/literal paths fold; xfailed
+  (`float-binary-{add,div,mul}`, `bool-comparison`, `array-dim`) pin the gaps.
+- **Open language question (NOT a bug until decided)**: a **bare** const-group
+  member takes **plain iota**, not the Go-style repeat-previous-expression — so
+  `const ( K0 int = iota + 100; K1; K2 )` gives `K1=1, K2=2` (not 101/102), and
+  `const ( B0 int = 1 << iota; B1; B2; B3 )` gives `1,1,2,3`-shaped plain-iota
+  values, not the `1<<iota` bit-flag idiom (`1,2,4,8`). If Go-style repeat is
+  intended, the bit-flag idiom is broken; if plain-iota is intended, it's fine.
+  Needs a spec decision before a cell can assert it (`gen_const.bn:293-299`).
+- **Discovery**: 2026-06-05, P1 const-expr loose-axis (design fan-out + probes).
+- **Fix**: evaluate non-int const *expressions* at the right type — fold float
+  const-exprs at float precision and bool const-comparisons to a bool, and
+  resolve const idents/exprs in the array-dimension path — or reject
+  unsupported const-exprs with a clear diagnostic rather than dropping to int 0.
+
+### Native backends mis-pass a variadic float `__c_call` argument — CONFIRMED, both native backends
+- **Symptom**: a variadic `double` passed via `__c_call` reaches the callee
+  wrong on the native backends — `__c_call("printf", int32, fmtPtr, ...,
+  cast(float64, 2.0))` with format `"%.0f\n"` prints **0**, not **2**. Correct
+  on LLVM (comp) and the VM is N/A (`__c_call` is compiled-mode-only). Fails on
+  both `native_aa64` and `native_x64`.
+- **Root cause (suspected, §3.9)**: the variadic calling-convention edge — on
+  x86-64 SysV the caller must set `AL` = number of vector (XMM) args so a
+  variadic `double` is read from `XMM0`; on darwin-arm64 every variadic arg is
+  passed on the stack as an 8-byte slot (not in registers). The native backends
+  do neither for the `__c_call` variadic tail, so the float lands in the wrong
+  place and printf reads garbage/0.
+- **Test**: `conformance/regressions/c-call/printf-variadic-float` (xfailed the
+  3 native modes; also xfailed VM + arm32 like all `__c_call` cells).
+- **Discovery**: 2026-06-05, P1 `__c_call` loose-axis.
+- **Fix**: in the native `__c_call` lowering, implement the variadic ABI —
+  set `AL`=vector-count on x64-SysV; stack-pass varargs on darwin-arm64
+  (per-target, since the convention differs).
+
+### `handle` is not a user-expressible call shape — NOT a bug, design note
+- While extending the ABI matrix with call shapes, confirmed there is **no user
+  syntax that emits `OP_CALL_HANDLE` with a value argument**: `OP_CALL_HANDLE`
+  is the compiler-internal dtor/free dispatch (`_call_dtor` / `_call_free_fn`,
+  gen_call.bn:241), always invoked with a single pointer. A user "call through a
+  function value" lowers to `OP_CALL_FUNC_VALUE`, already covered by the ABI
+  matrix's `funcval-param` cells. So the §3.9 "CALL_HANDLE aggregate by-value"
+  concern has no user-level test surface; nothing to add.
 
 ### `&slice[i]` (address-of a slice element) lowers to a wild pointer — CONFIRMED wrong-code, both backends
 - **Symptom**: taking the address of a *slice*-indexed element yields a garbage
