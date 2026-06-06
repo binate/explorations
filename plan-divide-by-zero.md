@@ -7,6 +7,31 @@
 > existing array-bounds-check panic, which is a clean 1:1 template. See the
 > ratified entry in `claude-todo.md`.
 
+## Status (2026-06-05)
+
+- **Sequencing step 1 (runtime)** — **LANDED** (binate `f3327891`). `rt.DivCheck`
+  / `rt.DivFail` in both libc + baremetal impls, `rt.bni` decls, `rt_test.bn`
+  `TestDivCheck`.
+- **Sequencing step 2 (IR op + guard + four lowerings)** — **LANDED** (binate
+  `efeb0f94`). `OP_DIV_CHECK` before every integer `OP_DIV`/`OP_REM`; LLVM
+  (`emit_instr`), aarch64 + x64 (`*_dispatch`), VM (`BC_DIV_CHECK` →
+  `rt.DivCheck`). **Design refinement vs. this plan:** instead of each backend
+  sign/zero-extending operands, IR-gen extends them to 64-bit once
+  (`ensureInt64ForCheck` in `gen_binary.bn`) — a target-aware, backend-agnostic
+  normalization that respects the IR/backend boundary. Backends only marshal two
+  64-bit operands + the type's signed MIN, recovered via the new shared
+  `types.SignedMinForWidth` from the width on `IntVal` and the signedness on
+  `BoolVal`. The VM carries width+isSigned (not a 64-bit MIN immediate), so no
+  immediate has to fit a host-int field. Unit tests across types/ir/codegen/vm.
+- **Sequencing step 3 (panic conformance cells)** — **LANDED** (binate
+  `a1c853d2`). Cells `606`–`609` (div0, rem0, int32 MIN/-1, int64 MIN/-1) — the
+  plan's 602-605 numbers were taken by concurrent work, so they moved up.
+  Verified green on builder-comp (LLVM) and builder-comp-int (VM); full
+  builder-comp suite 810/0 with the guard on every divide.
+- **Sequencing step 4 (`unsafe_div` / `unsafe_rem`)** — not started (next).
+- **Sequencing step 5 (docs: move ratified entry to `claude-todo-done.md`)** —
+  pending step 4.
+
 ## Summary
 
 Binate's integer `/` and `%` currently lower to raw division on every backend
