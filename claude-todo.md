@@ -6,6 +6,41 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### A relational op with an untyped int literal on the LEFT and a signed int on the right uses an UNSIGNED comparison — silent wrong result, ALL backends
+- **Symptom**: `5 < xe` where `var xe int = -1` evaluates to **true** (`5 < -1` is
+  false).  An untyped integer literal on the LEFT of `<` / `<=` / `>` / `>=`,
+  compared against a SIGNED `int` variable, emits an unsigned compare — so a
+  negative signed value is read as a huge unsigned one.  Silent: no error, wrong
+  control flow / result.
+- **Scope confirmed by probing** (builder-comp / LLVM, builder-comp-int / VM, and
+  native-aa64 — so it is a shared IR/type-checker bug, not a backend):
+  - `literal < signedVar` (literal LEFT): UNSIGNED → BUG (`0 < -1`, `5 < -1`,
+    `4096 < -1` all wrongly true).
+  - `signedVar < literal` (literal RIGHT): signed → CORRECT.
+  - `cast(int, literal) < signedVar` (typed literal LEFT): signed → CORRECT.
+  - `var < var` (both `int`): signed → CORRECT.
+  So the defect is operand-order-dependent: an untyped-literal LEFT operand drives
+  the comparison signedness to unsigned.
+- **Discovery**: 2026-06-06, porting `math.Pow` — Go's `1<<12 < xe` overshoot
+  guard (`Othreshold`/exponent check) reads `4096 < xe` for a negative `xe`,
+  making `Pow(0.5, 2)` return a wrong value instead of `0.25`.
+- **Severity**: CRITICAL — silent wrong comparison result for a fundamental
+  operation; any `literal < signedVar` (or `<=`/`>`/`>=`) in the codebase is
+  miscompiled.  Most existing code writes `var OP literal` (literal on the right),
+  which is why it went unnoticed.
+- **Likely root cause (needs confirming)**: the relational lowering picks
+  signed-vs-unsigned from the LEFT operand's type; an untyped int literal defaults
+  to (or is treated as) unsigned, so the whole compare goes unsigned even though
+  the other operand is a signed `int`.  The fix is in the type-checker / IR: when
+  one operand is untyped and the other a typed integer, the untyped operand must
+  take the typed operand's type (incl. signedness), and the compare's signedness
+  must come from the unified type regardless of operand order.
+- **Test (TODO when fixing)**: `conformance/matrix/scalar` (or a regression) — a
+  comparison cell with the literal on the LEFT against a negative signed var, all
+  four relationals, all signed widths; this is the "comparisons — signed vs
+  unsigned at width boundaries" axis already named in `plan-differential-testing.md`
+  (v2).  xfail until fixed.
+
 ### Compound assignment (`+=`, `-=`, …) to a non-IDENT lvalue silently drops the operator (`compound-assign-nonident`)
 - **Symptom**: `a[i] += x`, `s[i] += x`, `a[i][j] += x`, `p.field += x`, and `*p += x` all store the BARE RHS (`x`), discarding the operator and the old value — a silent miscompile (no error, wrong result). Only the plain-variable form `v += x` is correct. Repro (each prints `5`, should print `15`):
   ```
