@@ -6,6 +6,33 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### Integer shift by a count >= bit width is hardware-masked (mod width), NOT the spec's defined 0 / sign-extend — silent wrong code
+- **Symptom**: a shift whose count is >= the operand's bit width returns a
+  hardware-masked result instead of the documented value. Confirmed (LLVM, both
+  const-folded and runtime counts): `full >> 64 == full` and `1 << 64 == 1`
+  (both should be `0`); `full >> 70 == full >> 6` (count masked to `70 mod 64`).
+  The native backends (aarch64 `LSL`/`LSR`, x64 `SHL`/`SHR` mask the count to 5/6
+  bits) and the VM (host shift) almost certainly do the same — needs confirming
+  per backend.
+- **Spec violated**: `claude-notes.md` Operators — "Shift by >= bit width:
+  defined behavior (zero for `<<` and logical `>>`, sign-extended for arithmetic
+  `>>`)". Matches Go (which guarantees shift-away-to-0). The implementation does
+  C/hardware masking instead.
+- **Impact**: any shift by a *runtime* count that can reach/exceed the width is
+  silently wrong. Breaks ported code that assumes Go's shift semantics — e.g.
+  `math.RoundToEven` (its `e >= bias` branch shifts by huge counts for ±Inf/NaN
+  and relies on `>> n == 0`; worked around with an IsInf/IsNaN guard, removable
+  once this is fixed), and likely upcoming fdlibm ports. Discovered 2026-06-06
+  porting `math.RoundToEven` (the ±Inf/NaN case produced a non-NaN).
+- **Root cause**: codegen emits the raw hardware shift. LLVM `shl`/`lshr`/`ashr`
+  by >= width is poison, lowered to a masking hardware shift; the native shifts
+  mask the count register directly.
+- **Fix (in progress, honor the spec)**: make codegen guard each variable-count
+  shift so a count >= width yields 0 (logical `<<` / `>>`) or sign-fill
+  (arithmetic `>>`), on every backend + the VM. The alternative — changing the
+  spec to hardware-masked / UB-on-overshift (cheaper, matches C/hardware) — was
+  considered and rejected in favour of keeping the documented Go-style guarantee.
+
 ### Managed struct destructor: `func_value_dtor on nil` for `@func` fields in a complex session struct — CONFIRMED crash, both backends
 - **Symptom**: a managed struct holding managed function-value (`@func`) fields
   alongside other managed members crashes on destruction — compiled SIGTRAPs
@@ -905,34 +932,6 @@ Discovery Protocol) — most don't have one yet.
 ---
 
 ## MAJOR
-
-### Integer shift by a count >= bit width is hardware-masked (mod width), NOT the spec's defined 0 / sign-extend — silent wrong code
-- **Symptom**: a shift whose count is >= the operand's bit width returns a
-  hardware-masked result instead of the documented value. Confirmed (LLVM, both
-  const-folded and runtime counts): `full >> 64 == full` and `1 << 64 == 1`
-  (both should be `0`); `full >> 70 == full >> 6` (count masked to `70 mod 64`).
-  The native backends (aarch64 `LSL`/`LSR`, x64 `SHL`/`SHR` mask the count to 5/6
-  bits) and the VM (host shift) almost certainly do the same — needs confirming
-  per backend.
-- **Spec violated**: `claude-notes.md` Operators — "Shift by >= bit width:
-  defined behavior (zero for `<<` and logical `>>`, sign-extended for arithmetic
-  `>>`)". Matches Go (which guarantees shift-away-to-0). The implementation does
-  C/hardware masking instead.
-- **Impact**: any shift by a *runtime* count that can reach/exceed the width is
-  silently wrong. Breaks ported code that assumes Go's shift semantics — e.g.
-  `math.RoundToEven` (its `e >= bias` branch shifts by huge counts for ±Inf/NaN
-  and relies on `>> n == 0`), and likely upcoming fdlibm ports. Discovered
-  2026-06-06 porting `math.RoundToEven` (the ±Inf/NaN case produced a non-NaN).
-- **Root cause**: codegen emits the raw hardware shift. LLVM `shl`/`lshr`/`ashr`
-  by >= width is poison, lowered to a masking hardware shift; the native shifts
-  mask the count register directly.
-- **Fix options (user decision)**: (a) make codegen honor the spec — guard each
-  variable-count shift so count >= width yields 0 (logical) / sign-fill
-  (arithmetic), at a per-shift cost on every backend + the VM; or (b) change the
-  spec to hardware-masked / UB-on-overshift (cheaper, matches C/hardware) and
-  audit the ported code (write shifts defensively). Until resolved, math code
-  that needs the guarantee must special-case it (e.g. an `IsInf/IsNaN` guard in
-  `RoundToEven`).
 
 ### Float `!=` is ORDERED (`NaN != NaN` is false) — diverges from IEEE/Go/C; `==` and `!=` not complementary for NaN — FIXED 2026-06-06 (binate `8f78575f`)
 - **Symptom**: `var n float64 = NaN; n != n` evaluates to **false** (and `n == n`
