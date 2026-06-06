@@ -73,6 +73,37 @@
   still has the bug — follow-up for the next BUILDER bump). Full builder-comp
   green (818/0, then 819/0).
 
+## Post-landing adversarial review (2026-06-05)
+
+A 6-reviewer adversarial sweep of the landed work found 5 real issues (2 are
+regressions THIS plan introduced; 2 are pre-existing compile-error bugs adjacent
+to the fixes; 1 is a weak test). Refuted as sound: the move-model equivalence,
+emitStoreManagedSlot acquire-before-release, the iv/fv body type-independence
+(only the NAME collides), elemDtorName routing where applied, and no dropped
+pre-processing. The `isFreshManagedPtr/Slice` non-broadening is balance-neutral
+(not a bug). Fixes (each its own landable commit + test):
+
+- **① for-range N>1 leak** (regression, this plan's step 3): LANDED (binate
+  `c960c568`). `for v in s` copy-OWNS its element (RefInc per iteration) but
+  released only once at the enclosing scope → leaked N-1 refs for N>1. Fix:
+  per-iteration release at postBlk (normal + continue) + a forin.break block
+  (break), loop var dropped from the enclosing scope. Tests: matrix
+  for-range-value → N=3 (all 5 kinds); `617` (continue/break/array). NOTE:
+  break/continue still leak BODY-LOCAL managed vars (gen_stmt.bn:34, a separate
+  pre-existing limitation, not touched).
+- **② iv/fv ↔ user-struct-named-iv/fv collision** (regression, step 6): pending.
+  dtorTypeSuffix's bare `iv`/`fv` tokens equal a legal struct name; a struct
+  named iv/fv as a managed-slice element collides on __dtor_ms_iv (leak/SIGSEGV).
+  Fix: collision-proof tokens.
+- **③ cross-pkg top-level array-by-value copy → undefined symbol** (pre-existing):
+  pending. emitStructCopy still qualifies a top-level [N]@pkg.T array copy; fix:
+  route through elemCopyName.
+- **④ @[]([N]@T) ms-of-array dtor → undefined symbol** (pre-existing): pending.
+  ensureMsDtor never recurses into ARRAY elements; fix: mirror ensureArrayDtor.
+- **⑤ 603 self-alias UAF reads freed-but-pristine memory** (weak test): pending.
+  Strengthen with forced freed-block reuse + an allocator-independent
+  IR-ordering unit test for the slice-element arm.
+
 ## Summary
 
 All six defects are the SAME shape (plan-code-red.md §3.4): the Axiom-5 managed-value acquire/release invariant is hand-authored arm-by-arm at each copy/store/call-result site in pkg/binate/ir, so each new site is born missing a managed-kind arm (or the whole acquire) — silent leak/double-free/UAF that only surfaces when a mortal @T/@func/@Iface/aggregate flows through that exact untouched cell. The shared dispatchers emitManagedValueCopyRefInc / emitManagedValueRefDec already exist and are correct (gen_util_refcount.bn:18,35); the bugs are at the SITES that fail to call them (or hand-roll a partial four-way switch). Two defects are construction-side acquire gaps (short-var single-bind, for-range), one is call-result-temp registration (@func discard, plus the iface-method-dispatch leak), and two are name-collision/dtor-selection defects in the dtor-name builder (@[]@I → __dtor_ms_unknown; nested cross-package ms-of-ms element dtor undefined). The unifying fix is to introduce ONE emitStoreManagedSlot dispatcher + ONE registerManagedCallResult helper and route every site through them.
