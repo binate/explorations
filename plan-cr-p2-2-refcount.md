@@ -44,9 +44,14 @@
   unconditional-RefInc; observably equivalent at statement boundaries, matrix +
   808/0 suite-guarded; strictly safer for @func/@Iface). `gen_access_test`
   TestManagedSliceLitNonFreshElemRefIncs updated (fresh var-decl now moved →
-  count 3→1). **b2 lifecycle matrix still TODO** (next commit): focused coverage
-  for the genuine gaps — cast-from-impl @Iface and the captured-@func native↔VM
-  trampoline (the existing matrix already covers the form × type grid).
+  count 3→1). b2 lifecycle coverage LANDED (binate `e3727d05`): `604`
+  (captured-@func) and `605` (@Iface cast-from-impl) chain a value through many
+  consolidated copy-sites (param/store/pass/return/bind/invoke) and assert
+  refcount balance, green in builder-comp / -int / -comp / native-aa64.  Post-
+  consolidation the existing matrix already covers the form × type grid, so b2 is
+  focused depth tests rather than a full new matrix; the one genuine gap — a
+  single-program captured-@func native↔VM trampoline (Class 7) — is NOT
+  expressible in the single-mode conformance harness (noted for follow-up).
 - **Step 6 — defects 4+5 (dtor-name injectivity)**: not started. Defect 2.5's
   mangler fix must NOT revert the `MethodParamsFlat` `@[]@types.Type` workaround
   in the same commit (the running BUILDER still has the bug; only a rebuilt bnc
