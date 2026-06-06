@@ -42,6 +42,28 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Discovery**: 2026-06-05, un-xfailing `regressions/funcval/return-as-arg`
   after the VM nil-vtable fix surfaced the aa64-native link break; root-caused by
   the gen1-native-vs-BNC_NATIVE isolation above.
+- **Reproduce** (whole aa64-native lane — any program fails):
+
+  ```sh
+  sh conformance/run.sh builder-comp_native_aa64-comp_native_aa64 \
+    "matrix/refcount/var-init/ident/managed-struct"
+  # → 0 passed, 1 failed: COMPILE_ERROR: Undefined symbols ... "_bn_pkg__bootstrap__Write"
+  ```
+
+- **Isolate** (proves it is `BNC_NATIVE`, not the native backend on the test —
+  run from the binate worktree):
+
+  ```sh
+  . scripts/lib/build-compilers.sh; build_gen1            # gen1 = LLVM-compiled bnc
+  B="$PWD"
+  "$GEN1_COMPILER" --backend native \
+    -I "$B:$B/ifaces/core:$B/ifaces/stdlib" \
+    -L "$B:$B/impls/core/common:$B/impls/core/libc:$B/impls/stdlib/common" \
+    --build-dir "$(mktemp -d)" -o /tmp/x \
+    conformance/matrix/refcount/var-init/ident/managed-struct.bn && /tmp/x
+  # → links + runs, prints "1 2 7".  Same native backend on the test, but the
+  #   LLVM-compiled driver is correct → only the native-compiled BNC_NATIVE is broken.
+  ```
 - **Fix**: find the sub-word op in the aa64 backend that the narrowing change
   miscompiles (bisect to `ee671b6c`; then a unit/conformance repro of the exact
   uint8/char pattern from `findRuntime`/path handling), and fix the native
