@@ -13,13 +13,14 @@
   MOVE model (consumeTemp-if-fresh, else RefInc) uniformly across the four scalar
   kinds; observably refcount-equivalent at statement boundaries (where the matrix
   asserts), and matches what short-var single-bind and the INDEX arms already do.
-- **Step 2 — defect 3 (call-result registration)**: in progress. Also found and
-  fixed a cleanup-side counterpart the plan omitted: `emitTempCleanupBody` /
-  `emitTempCleanupSince` lacked the `@func` arm, so registering a `@func` call
-  result did nothing without it. Predicate fix broadened to `OP_CALL_FUNC_VALUE`
-  too (not just `OP_CALL_IFACE_METHOD`). Tests: un-xfail `assign/blank/func-value`,
-  new `discard/stmt` matrix form (bare-statement discard, all 5 types), new
-  `601_iface_dispatch_result_discard`, 3 predicate unit tests.
+- **Step 2 — defect 3 (call-result registration)**: LANDED (binate `f5410fcf`).
+  Also found and fixed a cleanup-side counterpart the plan omitted:
+  `emitTempCleanupBody` / `emitTempCleanupSince` lacked the `@func` arm, so
+  registering a `@func` call result did nothing without it. Predicate fix
+  broadened to `OP_CALL_FUNC_VALUE` too (not just `OP_CALL_IFACE_METHOD`). Tests:
+  un-xfail `assign/blank/func-value`, new `discard/stmt` matrix form
+  (bare-statement discard, all 5 types), new `601_iface_dispatch_result_discard`,
+  3 predicate unit tests. Full builder-comp suite green (775/0).
 - **Steps 3–6**: not started. Confirmed against the current tree (line numbers
   drifted; see below). Note: the slice-INDEX arm has the same §3.4 release-before-
   acquire defect as array/pointer (plan title scoped to array/pointer only) — fold
