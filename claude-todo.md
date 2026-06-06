@@ -391,7 +391,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   path), mirroring the cmp/div/shift signedness selection. Same for float→int
   and the native backends.
 
-### Short-var single-bind `x := s` of a managed struct-by-value skips the copy — CONFIRMED double-free, LATENT
+### ~~Short-var single-bind `x := s` of a managed struct-by-value skips the copy~~ — FIXED + LANDED 2026-06-05 (binate `b0eb7299`, plan-cr-p2-2 step 3; routed through `emitStoreManagedSlot`; matrix short-var/ident/managed-struct un-xfailed)
 - **Symptom**: `x := src` where `src` is a struct with a managed field copies the
   struct WITHOUT `__copy_` — the copy's managed field is not RefInc'd, so when
   both `src` and `x` leave scope the field is RefDec'd twice (double-free).
@@ -410,7 +410,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Fix**: add a `needsStructCopy(typ) { emitStructCopy(...) }` arm to
   genShortVar's single-bind path, mirroring var-init.
 
-### `for v in coll` over a managed-element collection over-releases the bound value — CONFIRMED double-free, LATENT
+### ~~`for v in coll` over a managed-element collection over-releases the bound value~~ — FIXED + LANDED 2026-06-05 (binate `b0eb7299`, plan-cr-p2-2 step 3; the bind acquires via `emitStoreManagedSlot`, blank `_` skips the bind; matrix for-range-value cells + `602`)
 - **Symptom**: `for v in s` where `s @[]@T` (or `[N]@T`) loads each element as a
   borrow (no RefInc) but `defineVar` registers `v` as a managed scope var, so
   scope cleanup RefDec's `v` — an unbalanced release. Per iteration the bound
@@ -885,7 +885,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Root cause**: unknown — the x64 native backend's aggregate handling in the
   multi-assign / multi-bind element-store path. Needs investigation.
 
-### Discarded `@func`-returning call result leaks — CONFIRMED leak
+### ~~Discarded `@func`-returning call result leaks~~ — FIXED + LANDED 2026-06-05 (binate `f5410fcf`, plan-cr-p2-2 step 2; `registerManagedCallResult` at all 4 call sites + the missing `@func` arm in `emitTempCleanupBody`/`Since` + `OP_CALL_FUNC_VALUE`/`OP_CALL_IFACE_METHOD` in the isFresh predicates; matrix assign/blank/func-value + discard/stmt + `601`)
 - **Symptom**: a managed `@func` returned by a call and discarded (`_ = f()`,
   or an unused call result) is never released — its closure record (and any
   captured managed values) leaks. `@T` / `@[]T` / `@Iface` / struct call results
@@ -937,7 +937,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   managed-slice RETURN through dispatch, iface-wrap/upcast args, and a multi-
   return-iface-dispatch deferral-lock (`.error`).
 
-### A `@[]@[]@T` (managed-slice-of-managed-slice) STRUCT FIELD emits a reference to an undefined nested cross-package element dtor — LATENT
+### ~~A `@[]@[]@T` (managed-slice-of-managed-slice) STRUCT FIELD emits a reference to an undefined nested cross-package element dtor~~ — FIXED + LANDED 2026-06-05 (binate `1cb4490c`, plan-cr-p2-2 step 6; `elemDtorName`/`elemCopyName` call ms/array element dtor/copy by their LOCAL weak_odr name; `607`). NOTE: the `MethodParamsFlat` `@[]@types.Type` workaround is NOT yet reverted — gated on a BUILDER bump (a bnc rebuilt from this fix accepts the natural nested encoding).
 - **Symptom**: adding a struct field of type `@[]@[]@types.Type` to a struct in
   `pkg/binate/ir` made clang fail building `pkg__binate__ir.ll` with `use of
   undefined value '@bn_pkg__binate__types____dtor_ms_mp_pkg__binate__types__Type'`.
@@ -1174,7 +1174,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Tests**: `579_multi_return_func_value` (empty + capturing `@func` component, reassignment, invocation) — green in all six default modes.  Single-return `@func` stays pinned by 534/542/555.
 - **Discovery**: 2026-06-03, while fixing the `@Iface` multi-return VM bug for `plan-std-errors.md` (the `(T, @Error)` error-return pattern).  Was pre-existing.
 
-### A managed-slice-of-interface-value (`@[]@I`) constructed via a slice LITERAL leaks its elements
+### ~~A managed-slice-of-interface-value (`@[]@I`) constructed via a slice LITERAL leaks its elements~~ — FIXED + LANDED 2026-06-05 (binate `fddf8676`, plan-cr-p2-2 step 6; root cause was the `__dtor_ms_unknown` name collision when a module has both `@[]@I` and `@[]@func` — dtorTypeSuffix now emits injective `iv`/`fv` suffixes; `606`)
 - **Symptom**: `var s @[]@Foo = @[]@Foo{makeFoo(i)}` (a slice literal of interface values), dropped at scope exit, never RefDec's its `@Foo` elements — the receiver (and its managed fields) leak (rc 1→2, never back to 1).  The element-ASSIGN form (`var s @[]@Foo = make_slice(@Foo, n); s[0] = makeFoo(i)`) is balanced; only the literal leaks.
 - **Root cause (from `--emit-llvm`)**: both forms call the slice's `__dtor_ms_unknown`, which RefDec's the slice backing with a NULL dtor and does not walk the interface-valued elements (no per-element iface dtor).  So the element-type isn't propagated into the managed-slice dtor selection for the literal shape.  This is the `@[]@I` feature area already flagged as incomplete by `440_iv_in_slice_mgd` ("compiles, but writes into the iv slot segfault").
 - **Discovery**: 2026-06-03 adversarial coverage audit of the `@Iface` refcount lifecycle.  Likely **pre-existing** / part of the known-incomplete `@[]@I` support — NOT a regression in the core refcount wiring (the common copy-sites — return / var-init / assign / field / array-element / managed-slice-element-assign / composite / struct-copy / param / deref — are all rc-balanced, pinned by 553/554/556/560/567).
@@ -1201,7 +1201,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Severity**: MAJOR — a default conformance mode is red, masking real
   coverage on those tests.
 
-### Managed-interface-value refcount lifecycle is unwired — FAMILY of leaks + 1 UAF — IN PROGRESS / NEEDS DECISION
+### ~~Managed-interface-value refcount lifecycle is unwired — FAMILY of leaks + 1 UAF~~ — FIXED + LANDED (core wired 2026-06-03; residual closed 2026-06-05 plan-cr-p2-2 steps 2+5: the iface-method-DISPATCH result leak — `genInterfaceMethodCall` registered nothing — via `registerManagedCallResult` (binate `f5410fcf`), and the per-arm `@Iface`/`@func` copy switches consolidated onto `emitStoreManagedSlot` (binate `ce2c8175`); b2 depth coverage `605`)
 - **Root cause (CONFIRMED)**: managed interface values (`@Iface`) were added to the language, but the refcount *lifecycle* machinery in `pkg/binate/ir` was only ever wired for managed-ptr / managed-slice / struct — **never iface**.  Three distinct sites are missing the `isManagedIfaceValueType` case, producing three bugs:
   1. **UAF — return a named-local `@Iface`** (`func f() @I { var s @I = q; return s }` → `f().m()` reads freed data).  `gen_return.bn`'s Axiom-3 retain loop has no iface case, so a *borrowed* (loaded) iface return is never retained for the caller; the source local's scope-exit RefDec frees it.  (The original target bug; found 2026-06-03 building `plan-std-errors.md` Part 1, where `errors.New`/`Wrap` return `@Error`.)
   2. **LEAK — discarded / non-moved iface temp** (`makeFoo(inner)` as a bare statement → inner rc 1→2, dtor never runs).  `emitTempCleanupBody` (gen_util_refcount.bn:292) RefDec's managed-ptr/slice/struct temps but **skips iface temps**, even though they are registered in `ctx.Temps` (gen_call.bn:252).  **Pre-existing**, independent of the return path (reproduces on Part-0 `bnc`).
@@ -3894,7 +3894,15 @@ candidates for after the loose-axis finish (const-expr folding + ABI
   through iface vtable" and the VM "func value returned-then-passed nil vtable"
   — a matrix here would systematize that neighborhood.
 
-### (b2) Lifecycle matrix — Class 6 (`@Iface` / `@[]@I`) + Class 7 (captured-`@func` over-release)
+### (b2) Lifecycle matrix — Class 6 (`@Iface` / `@[]@I`) + Class 7 (captured-`@func` over-release) — PARTLY ADDRESSED 2026-06-05 (plan-cr-p2-2 step 5)
+- **Status**: the existing `conformance/matrix/refcount` form × type grid already
+  covers Class 6's construction/consumption shapes (the copy-sites are now uniform
+  after the `emitStoreManagedSlot` consolidation), and `604`/`605` add lifecycle-
+  DEPTH balance (a value chained through param/store/pass/return/bind/invoke) for
+  captured-`@func` and cast-from-impl `@Iface`, green in builder-comp/-int/-comp/
+  native-aa64. REMAINING: a true single-program **Class 7 native↔VM trampoline**
+  balance test is not expressible in the single-mode conformance harness (each
+  test runs in one mode) — needs a cross-mode harness; left as a follow-up.
 - **Why a matrix**: Class 6 (`@Iface`/`@[]@I` first-class lifecycle) and Class 7
   (native call-a-captured-`@func` over-release via the VM trampoline) are
   lifecycle-completeness classes. Axes would be `managed-kind (@Iface / @[]@I /
