@@ -896,6 +896,15 @@ Conformance modes are chains of `builder` (prebuilt BUILDER bnc), `comp`
 **Comparison**: `==`, `!=`, `<`, `>`, `<=`, `>=`
 - No chaining (`a < b < c` is a compile error, like Go)
 - Pointer comparison with `==`/`!=` (address equality only)
+- **Float comparison is IEEE 754 (matches Go/C/Rust)**: `==` and the four
+  relationals (`<`, `<=`, `>`, `>=`) are *ordered* — they are `false` when
+  either operand is NaN (so `NaN == NaN` is `false`, `NaN < x` is `false`,
+  etc.). `!=` is *unordered* — `true` when either operand is NaN (so
+  `NaN != NaN` is `true`), keeping it the exact complement of `==`
+  (`(a == b) == !(a != b)` always holds). `+0.0 == -0.0` is `true`. The
+  idiomatic NaN test is `x != x`. (Lowering: LLVM `oeq`/`une`/`olt`/`ole`/
+  `ogt`/`oge`; the native backends mirror it via FCMP/UCOMISD condition
+  codes. Earlier builds made `!=` ordered too — corrected 2026-06-06.)
 
 **Logical**: `&&`, `||`, `!` — short-circuit. Operands must be `bool` (no truthy/falsy).
 
