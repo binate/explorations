@@ -121,43 +121,44 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   spec to hardware-masked / UB-on-overshift (cheaper, matches C/hardware) — was
   considered and rejected in favour of keeping the documented Go-style guarantee.
 
-### Managed struct destructor: `func_value_dtor on nil` for `@func` fields in a complex session struct — CONFIRMED crash, both backends
-- **Symptom**: a managed struct holding managed function-value (`@func`) fields
-  alongside other managed members crashes on destruction — compiled SIGTRAPs
-  (rc 133, no output), interpreted aborts with `vm: func_value_dtor on nil fv
-  address`. The per-type destructor calls `func_value_dtor` on a nil/garbage func
-  value (it walks to a wrong field/offset).
-- **Confirmed against binate main**: minbasic's `basicSession`
-  (`examples/minbasic/pkg/basic/session.bn`):
-  `{prog @progStore; env @env; col int; io ReplIO{WriteOut, WriteErr
-  @func(*[]readonly char) int}; out @io.ConsoleOut; turns int; poll @func()
-  PollResult}`. Spelling the sink/poll fields `@func` (the `pkg/binate/repl`
-  contract) crashes `cmd/basic` at session teardown in BOTH modes against a
-  `main`-built bundle. Spelling them raw `*func` (no managed dtor) avoids it —
-  minbasic ships `*func` as a marked temporary (examples `2c553d8`,
-  `examples/TODO.md`). Re-confirmed 2026-06-06 against `975db032`: the `@func`
-  flip → rc 133 compiled / `vm: func_value_dtor on nil` interpreted; reverting
-  to `*func` is clean.
-- **Could NOT minimize to a small standalone repro** — these all WORK (no crash,
-  both modes, main bundle): a struct of two `@func` fields; `@func` + a managed
-  pointer (either order); a nested `IO{2 @func}` + a sibling `@func` (± a managed
-  pointer); a faithful mirror of `basicSession`'s field types+order with shallow
-  `@Store{int}`/`@Iface`; and the same with `@Store{@[]char}` (managed pointers
-  to structs that themselves hold managed fields). So the trigger is more
-  specific to the real session (the actual `progStore`/`env`/`ConsoleOut` types,
-  the by-value `ReplIO` copies through `NewSession`, or the funcs being invoked
-  through the struct). Needs a bisect against the real type to pin a minimal case
-  — toggling minbasic's sink/poll between `@func` and `*func` is the repro switch.
-- **Discovery**: 2026-06-06, building minbasic's M3 embeddable REPL; the
-  duplicated `@func` `ReplIO` in the session struct crashed `cmd/basic` at
-  startup.
-- **Note**: `pkg/binate/repl.ReplIO` is itself a 2-`@func` struct and the binate
-  REPL works (a standalone 2-`@func` struct destructs fine), so this is
-  layout/composition-specific, not "any `@func` struct".
-- **Fix**: correct the per-type destructor's managed-field walk so a `@func`
-  (2-word {vtable,data}) member is dtor'd at the right offset within a struct that
-  mixes it with other (possibly deep) managed members; today it dtors a
-  wrong/nil func value.
+### Managed struct `@func` fields: stale `ctx.CurBlock` after a block split → malformed IR — ROOT-CAUSED + FIX READY (binate work-3 `42702d19`, pending land)
+- **Symptom**: a managed struct holding `@func` fields crashes — compiled SIGTRAPs
+  (rc 133, no output), interpreted aborts `vm: func_value_dtor on nil fv address`
+  (the `fvAddr == 0` "IR-gen bug — fatal" branch in `vm_exec_iface.bn`). NOTE: this
+  is NOT the destructor walking a wrong field offset (the original guess, now
+  disproven) — it is malformed IR produced during *construction*.
+- **Root cause (confirmed)**: `genExprOrFuncRef` (`pkg/binate/ir/gen_util.bn`) had a
+  function-reference early-return that emitted into block `b` and returned WITHOUT
+  `ctx.CurBlock = b` — unlike every other return path in that function (the typed-int
+  returns and `genExpr`'s pre-amble all sync it; the function's own comment documents
+  why). Assigning a function reference to an `@func` field emits an old-value RefDec
+  whose null-guard SPLITS the block; the split leaves `ctx.CurBlock` pointing at the
+  now-terminated block, and the next statement's `b = ctx.CurBlock` reverts `b` to it.
+  So two consecutive func-ref `@func` assignments emit statement 2 into the already-
+  terminated block → two terminators + an orphaned `unreachable` continuation, i.e.
+  malformed IR. It is built before backend selection, so BOTH native and the VM crash.
+  Raw `*func` has no managed dtor → no split → no desync, which is why `*func` is clean.
+- **Minimal repro (cross-package was incidental — the real discriminator is func-ref
+  vs param RHS)**: single package, two function-reference assignments to `@func` fields
+  in sequence — `io.W = sinkW; io.E = sinkE` → malformed `newIO` (two `br` in `entry.0`;
+  `fv_refdec_cont.2` → `unreachable`; rc 133 / vm-fatal). The param form `io.W = w;
+  io.E = e` is well-formed (params route through `genExpr`, which syncs). Verified:
+  old bnc rc 133 / fixed bnc rc 0; param control rc 0 both. Every prior single-package
+  minimization used params or a single assignment, which dodged it.
+- **Discovery**: 2026-06-06, building minbasic's M3 embeddable REPL; basicSession's
+  duplicated `@func` `ReplIO` crashed `cmd/basic`. minbasic's `newIO` / session setup
+  assigns function references, which is what tripped it.
+- **Fix**: add `ctx.CurBlock = b` before the func-ref `return fv` in `genExprOrFuncRef`.
+  Covered by `conformance/634_funcref_managed_field_seq` (basicSession-shaped: inline
+  `@func`-bearing struct field + sibling `@func`, all assigned from function
+  references; prints `1 2 1 2 7 42`, crashed rc 133 / vm-fatal before the fix).
+  Committed binate work-3 `42702d19` (fix + test); pending cherry-pick to main.
+- **Follow-up (broader gap, not yet addressed)**: this whole class — a `ctx.CurBlock`
+  desync in *any* codegen path after a block split — is invisible to output/refcount
+  conformance tests (they only see the end result, if the program survives at all). An
+  IR verifier pass (one terminator per block, no orphaned/unreachable blocks, SSA uses
+  dominated by defs) run in CI would catch the class at the source. See the test-matrix
+  gap note for this bug.
 
 ### Native backend leaks native stack per loop iteration for a default-initialized managed local — CONFIRMED stack-overflow crash, native-only (compiled); VM unaffected
 - **Symptom**: a compiled program that declares a *default-initialized* managed
