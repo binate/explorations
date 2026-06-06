@@ -725,6 +725,29 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## MINOR
 
+### A NAMED distinct *signed sub-word* integer's MIN/-1 divide escapes the divide-fault guard
+- **Symptom**: `type I8 int8; var a I8 = <I8 MIN>; var b I8 = -1; a / b` does NOT
+  panic with "integer overflow" (the ratified signed-MIN/-1 behavior); it
+  silently wraps (the int64 divide `-128 / -1 = 128` truncates back to `-128`
+  in the I8 result). Divide-by-zero on the same type IS still caught, and
+  unsigned named types / named full-width signed types (`type Count int`) are
+  fine — only a named *signed sub-word* type at exactly MIN/-1 is affected.
+- **Root cause**: IR-gen's `widenType` (gen_binary.bn) collapses a distinct
+  NAMED integer type to plain `int` (signed, host width) — the named/sized-ness
+  is lost before the `OP_DIV_CHECK` guard sees the result type, so the guard
+  uses INT64_MIN instead of the type's true (e.g. int8) MIN. This is a
+  pre-existing `widenType` behavior, not a defect in the divide-fault guard
+  itself (plain, non-named `int8`/`int16`/`int32` MIN/-1 ARE detected — they
+  keep their TYP_INT width through widenType).
+- **Discovered**: 2026-06-05 by the adversarial coverage review of the
+  divide-fault guard (plan-divide-by-zero.md). The guard itself is correct;
+  this is the one width-dependent corner it can't reach because the type info
+  is already gone.
+- **Proper fix**: make `widenType` preserve a named integer type (or at least
+  its underlying width/signedness) for same-named operands, so `I8 / I8` keeps
+  width 8. Out of scope for the divide-by-zero work (touches general arithmetic
+  typing). A reproducer xfail cell can be added when this is picked up.
+
 ### Bare func literal in assignment position doesn't infer its managed/raw flavour from the LHS
 - `existing = func(){...}` where `existing @func(...)...` fails type checking
   with `cannot assign <unknown> to <unknown>`: a bare func literal in
