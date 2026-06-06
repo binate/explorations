@@ -219,59 +219,58 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   dominated by defs) run in CI would catch the class at the source. See the test-matrix
   gap note for this bug.
 
-### Native backend leaks native stack per loop iteration for a default-initialized managed local — CONFIRMED stack-overflow crash, native-only (compiled); VM unaffected
-- **Symptom**: a compiled program that declares a *default-initialized* managed
-  local (e.g. `var m @[]char` with no initializer) inside a loop body SIGSEGVs
-  (exit 139) once the loop runs enough iterations — the local need not even be
-  used. The bytecode VM (`bni`) runs the identical program fine.
-- **Minimal repro** (crashes compiled after ~130k iterations on an 8 MiB stack;
-  completes under the VM):
+### ~~Compiled program leaks native stack per loop iteration for a default-init managed local~~ — FIXED + LANDED 2026-06-06 (binate `2411295c`)
+- **Was**: a *compiled* program declaring a default-init managed local
+  (`var m @[]char`) inside a loop body SIGSEGV'd once the loop ran enough
+  iterations (~130k at an 8 MiB stack; threshold scaled linearly with
+  `ulimit -s`, RSS flat — a native-stack leak, ~32 B/iter). The VM ran it fine.
+- **Attribution correction**: this was the **LLVM codegen** (the `comp` /
+  compiled modes), NOT the native-aa64 backend the old title named. The native
+  aa64/x64 backends use a fixed frame (PlanFrame) and don't leak; the VM doesn't
+  touch the native C stack. "native stack" = the C stack of the *LLVM-compiled*
+  binary. (Verified: `var m @[]char` in a 3 M-iter loop completes on
+  `--backend native`, crashes via `comp`.)
+- **Root cause**: codegen hoists every alloca to the function entry block (an
+  alloca in a non-entry block isn't freed until return, so a loop body alloca
+  leaks per iteration), but the hoist pre-pass was missing three alloca-emitting
+  ops, leaving their allocas in the loop body:
+  - `OP_CONST_NIL` — the `.a` zero-fill slot of a default-init managed aggregate
+    (the reported case).
+  - `OP_RODATA_ARRAY` — the `.tmp` `[N x i8]` slot of `var a [N]char = "..."`.
+  - `OP_BOX` — the `.tmp` spill slot of `box(<scalar register>)`.
+  The latter two were **found by the new static checker** below, not the
+  original repro.
+- **Fix**: each op now splits its alloca into a hoistable decl emitter (run by
+  the entry-block pre-pass) plus the in-place fill/store/load, matching
+  OP_ALLOC. The pre-pass dispatch lives in `pkg/binate/codegen/emit_alloca_hoist.bn`.
+  This also resolves the compiled-minbasic `runProgramInto` `var errMsg @[]char`
+  crash without the doc's suggested side-step.
+- **Detection (3 legs)** — the "detect this class in general" ask:
+  - `conformance/check-alloca-hoist.py` + `scripts/check-alloca-hoist.sh` — a
+    static checker asserting every alloca lives in its function's entry block,
+    swept over the corpus (734 cells, 0 violations post-fix; it found the
+    rodata-array + box siblings). The construct-agnostic, compile-time detector.
+  - `conformance/gen-loop-leak-matrix.py` → `matrix/loop-leak/` — runtime cells
+    that loop a construct enough to overflow an 8 MiB stack if it leaks, then
+    print 42 (leak-prone cells crash pre-fix, pass post-fix on LLVM/VM/native).
+  - `pkg/binate/codegen/emit_alloca_hoist_test.bn` — unit tests asserting each
+    construct's alloca precedes the loop body in the emitted IR.
 
-      package "main"
-      func main() {
-          for i := 0; i < 3000000; i++ {
-              var m @[]char
-          }
-      }
-
-- **Proven native-stack growth, not a heap leak**: peak RSS is flat
-  (~10 MiB ≈ stack limit + heap) regardless of iteration count, and the crash
-  threshold scales linearly with `ulimit -s` — 8 MiB → ~130k iters, 64 MiB →
-  ~1 M iters; the *same* N=800 000 program crashes at 8 MiB but completes at
-  64 MiB. So each iteration leaks a fixed ~64 bytes of native stack that is never
-  reclaimed.
-- **Trigger axis = default-init vs expression-init** (matrix, 3 M iters,
-  native-aa64): `var m @[]char` (no initializer) → CRASH, whether the local is
-  unused / passed by value / has its address taken; `var m @[]char =
-  make_slice(char, 0)` → OK in all the same shapes; a default-init *raw* local
-  (`var x int; &x`) → OK. So the leak is specific to a managed local that is
-  *implicitly zero-initialized*; an explicit managed initializer takes a
-  different (correct) code path.
-- **Root-cause hypothesis** (for the backend owner): the implicit zero-init /
-  cleanup-slot setup for a default-valued managed aggregate local is emitted at
-  the declaration site *inside the loop body* via a stack allocation that is not
-  hoisted to the function entry block (or a cleanup registration that pushes a
-  per-iteration frame), so it accumulates across iterations. Expression-init
-  managed locals reuse a hoisted slot and don't leak. The VM is unaffected (it
-  doesn't use the native C stack for these).
-- **Impact**: any compiled loop with a default-init managed local that iterates
-  more than ~130k times crashes — a common idiom. Concretely it crashes the
-  compiled minbasic interpreter (`examples`): `runProgramInto`'s step loop has
-  `var errMsg @[]char` (default-init), so any BASIC program exceeding ~130k
-  statement-steps SIGSEGVs the compiled `minbasic` binary while the interpreted
-  one completes. (minbasic could side-step it by hoisting `errMsg` out of the
-  loop / giving it an initializer, but that masks the backend defect — left as-is
-  pending this fix.)
-- **Discovery**: 2026-06-06, characterizing a "FOR/NEXT crash" flagged during
-  minbasic M5 conformance; reduced from BASIC FOR/GOTO loops to the 6-line repro
-  above.
-- **Test**: needs a conformance test — a default-init managed local in a
-  ~200k-iteration loop, expected to complete; xfail the compiled/native modes
-  (VM passes). NOT yet added (would land in the binate repo).
-- **Fix**: hoist the implicit-zero-init/cleanup stack slot for a default-valued
-  managed local to the function entry block (allocate once), so it is reused
-  across loop iterations exactly as expression-initialized managed locals already
-  are.
+### `box(<scalar>)` is unimplemented on the native backend — silent no-emit → garbage result (MINOR wrong-code)
+- **Symptom**: `box(i)` where the operand is a scalar register (not an OP_ALLOC
+  or aggregate) compiles fine on the LLVM backend but the native backends'
+  `emitBox` hits the `else { ... return }` scalar arm (aarch64_emit.bn /
+  x64_managed.bn) and emits **nothing** — no `rt.Box` call — so the OP_BOX
+  result is undefined; the managed pointer then carries garbage.
+- **Discovery**: 2026-06-06, building the loop-leak matrix (a `box(i)`-in-a-loop
+  cell crashed on native while the LLVM build leaked-then-was-fixed). Not a leak.
+- **Scope**: native aa64 + x64 only; LLVM/VM compile+run `box(scalar)` correctly.
+  `box(struct-literal)` (OP_ALLOC source) and `box(iface-value)` (aggregate
+  source) ARE handled — only the bare-scalar source is dropped.
+- **Fix**: emit the scalar-source spill + `rt.Box` call in the native `emitBox`
+  else arm (store the scalar into a frame slot, pass its address), OR reject
+  `box(scalar)` in the checker if it isn't meant to be supported. **Test**: a
+  conformance cell `box(i)` returning the boxed value; currently no coverage.
 
 ### Plan-1 adversarial review (2026-06-06) — regressions + completeness gaps from the const/slice fixes
 
