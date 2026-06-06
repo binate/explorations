@@ -117,6 +117,36 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `@func` and static paths already do), in BOTH codegen (`emit_iface_call.bn`
   signature reconstruction) and the VM's vtable-thunk arg marshalling.
 
+### VM: a function value RETURNED from a call and PASSED DIRECTLY as an argument has a nil vtable — CONFIRMED, VM-only
+- **Symptom**: `use(mk())`, where `mk() @func(...)` returns a (non-capturing)
+  function value and `use(w @func(...))` invokes it, aborts in the bytecode VM
+  with `vm: function value has nil vtable`. Compiled (native) is correct.
+- **Scope**: bytecode VM ONLY (LLVM/native correct). Triggered specifically by
+  passing a freshly-RETURNED function value DIRECTLY as a call argument. The two
+  halves work in isolation: returning a function value then calling it directly
+  (`var w = mk(); w(x)`) is fine, and passing a LOCAL/param function value as an
+  arg (`use(w)` with `w` a local) is fine — only the un-materialized
+  return-value-as-arg combination loses the vtable word. Workaround: bind to a
+  local first (`var w @func(...) = mk(); use(w)`).
+- **Test**: NEEDS a conformance test — `use(mk())` returning/passing a non-
+  capturing `@func(int) int`, asserting the invoked result. Xfail the 3 VM-final
+  default modes (`builder-comp-int`, `builder-comp-int-int`,
+  `builder-comp-comp-int`); the compiled-final modes pass. Staged at
+  `/tmp/minbasic-staging/funcval_return_as_arg.bn`; pending approval to land on
+  main.
+- **Discovery**: 2026-06-05, wiring minbasic's injected `@func` writer
+  (`basic.Run(host.NewWriter())`): the VM aborted with nil vtable. Isolated to
+  the return-value-as-arg pattern; `bnc-0.0.7`.
+- **Why it matters**: blocks injecting a `@func` writer/sink built by a factory
+  (`Run(host.NewWriter())`) — a natural DI shape. Together with the iface-vtable
+  2-word-slice-arg bug, it leaves only static/direct calls reliable for I/O
+  injection on `bnc-0.0.7`, so minbasic uses a clearly-marked static temp
+  meanwhile.
+- **Fix**: in the VM, marshal a function-value (2-word {vtable,data}) call
+  argument that is an un-spilled call result the same way a local/param function
+  value is marshalled — the vtable word is being dropped for the return-value-as-
+  arg case.
+
 ### Sub-word arithmetic results not narrowed in the VM (and natives) — dirty upper bits → wrong values — CONFIRMED
 - **Symptom**: a sub-word integer op (`uint8/16/32` add/mul/…) whose true result
   overflows the width leaves the un-narrowed value in the host register; a
