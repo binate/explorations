@@ -728,7 +728,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `e3dc0d07`): repl's SetPoll takes a VM-free `@func() PollResult`, so
   the ReplSession interface no longer mentions pkg/binate/vm.
 
-### `136_grouped_imports` / `383_cross_pkg_iface_dtor` — `package "pkg/builtins/rt" not found` under int-int (pre-existing loader bug)
+### `136_grouped_imports` / `383_cross_pkg_iface_dtor` — `package "pkg/builtins/rt" not found` under int-int — FIXED+LANDED (binate `db18f26b`, 2026-06-05; harness wiring, not the loader)
 - **Symptom**: both fail ONLY in `builder-comp-int-int` with
   `package "pkg/builtins/rt" not found` (a loader error, before execution);
   green in all other modes.  Confirmed pre-existing on a clean tree
@@ -1221,7 +1221,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Part B — interface-value receiver dtor crashed on RefDec-to-zero** (binate `5de3d09d`, the direct analogue of the `@func` capture-record dtor `0a0d00af`).  `BC_IFACE_DTOR` produced the receiver dtor's 1-based func index, but `BC_REFDEC_INLINE_FAST` consumes its dtor input as a func-value HANDLE — so an interface value that was the *last* holder of a managed-field receiver bit_cast the small index to a pointer and crashed (520; the dtor arms of 554 / 556).  473 hid it because its iv lives in a nested block the receiver outlives, so its RefDec never reached zero.  Fix: `BC_IFACE_DTOR` hands `BC_REFDEC` the dtor func's handle via `ensureHandle` (the same `{Vtable, ClosureRec{VM_CLOSURE_REC, FnIdx}}` the `@func` path uses); the existing iterative-push arm runs the receiver dtor and frees it via `freeOnPop`.
 - **Result**: `520_iface_dtor_callee_sole_ref` (a standing `-int` red) is green; `554_iface_refcount_balance` and `556_iface_struct_field_balance` un-xfailed in all VM modes; `-int` suite 478/0.  Both were `pkg/vm`-only (codegen always emitted correct IR; LLVM + native were already correct).
 
-### Conformance int-int mode: `136_grouped_imports` + `383_cross_pkg_iface_dtor` fail with "pkg/builtins/rt not found"
+### Conformance int-int mode: `136_grouped_imports` + `383_cross_pkg_iface_dtor` fail with "pkg/builtins/rt not found" — FIXED+LANDED (binate `db18f26b`, 2026-06-05)
 - **Symptom**: on `builder-comp-int-int` (the double-VM default mode),
   `136_grouped_imports` and `383_cross_pkg_iface_dtor` fail at compile time
   with `package "pkg/builtins/rt" not found`.  Both PASS on `builder-comp-int`
