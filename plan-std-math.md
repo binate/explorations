@@ -19,19 +19,20 @@ outputs **bit-for-bit**, reusing Go's test vectors.
   bug (shift by count >= width was hardware-masked, not the spec's 0/sign-fill)
   — fixed in IR-gen `gen_binary.bn` (binate `32fde83d`), all backends. Surfaced
   by porting `math.RoundToEven`.
-- **Phase 3 — transcendentals** — IN PROGRESS. `Exp` LANDED (binate `4311098c`):
-  Go's fdlibm port; the FP-contraction bit-identity risk is **retired** —
-  `Exp(1)` equals the `E` constant bit-for-bit on LLVM, VM, and native-aa64
-  (plain fmul/fadd at -O2 don't fuse, so transcendentals stay bit-identical
-  across backends). The remaining ports — `Log` (the other foundational one),
-  then `Log2`/`Log10`/`Log1p`, `Exp2`/`Expm1`/`Pow10`, and `Pow` — follow the
-  same proven pattern: package-level `<fn>`-prefixed magic-constant consts,
-  fully-parenthesized shift-vs-add expressions (Binate shift binds looser than
-  `+`), and a bit-exact pin in the test to guard cross-backend identity.
-- **Next on resume**: `Log` (`math/log.go`), then the derived exp/log functions
-  and `Pow`. Workflow note: a porting workflow works well (see the Tier-0 fan-out)
-  BUT constrain agents to structured output only — one agent wrote scratch files
-  into the main checkout, which had to be cleaned up.
+- **Phase 3 — transcendentals** — IN PROGRESS. `Exp` LANDED (binate `4311098c`)
+  and `Log` LANDED (binate `696b1b5a`): both are Go fdlibm ports, and the
+  FP-contraction bit-identity risk is **retired** — `Exp(1)` equals `E`, and
+  `Log(e)`/`Log(2)`/`Log(10)` equal `1`/`Ln2`/`Ln10`, bit-for-bit on LLVM, VM,
+  gen2, and native-aa64 (plain fmul/fadd at -O2 don't fuse, so transcendentals
+  stay bit-identical across backends). The remaining ports — `Log2`/`Log10`/
+  `Log1p`, `Exp2`/`Expm1`/`Pow10`, and `Pow` — follow the same proven pattern:
+  package-level `<fn>`-prefixed magic-constant consts, fully-parenthesized
+  shift-vs-add expressions (Binate shift binds looser than `+`), Go-derived
+  bit-pattern test vectors, and a bit-exact pin to guard cross-backend identity.
+- **Next on resume**: the derived log functions (`Log2`/`Log10`/`Log1p`), then
+  `Exp2`/`Expm1`/`Pow10`, then `Pow`. Workflow note: a porting workflow works
+  well (see the Tier-0 fan-out) BUT constrain agents to structured output only —
+  one agent wrote scratch files into the main checkout, which had to be cleaned up.
 
 ## Ratified decisions (user, 2026-06-06)
 
