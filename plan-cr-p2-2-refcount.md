@@ -36,13 +36,21 @@
   `emitAcquireManagedScalar`. Collapsed ~110 lines of hand-rolled switches
   (gen_control.bn 485→376). Test: `603_self_alias_index_assign` (all 3 container
   kinds). Full builder-comp green (807/0).
-- **Steps 5–6**: not started. Step 5 consolidates the remaining hand-rolled
-  IDENT/deref/SELECTOR/composite/array-lit/mslice-lit/var-decl copy arms onto
-  `emitStoreManagedSlot` (pure refactor, matrix-guarded; switches ptr/slice assign
-  arms from always-RefInc to the move model — observably equivalent at statement
-  boundaries) + builds the b2 lifecycle matrix. Defect 2.5's mangler fix must NOT
-  revert the `MethodParamsFlat` `@[]@types.Type` workaround in the same commit (the
-  running BUILDER still has the bug; only a rebuilt bnc has the fix).
+- **Step 5 — defect 6 consolidation**: LANDED (binate `ce2c8175`). Routed the
+  remaining hand-rolled copy arms (assign IDENT/`*p`/`p.x`, var-decl, struct /
+  array / managed-slice literal element init) through `emitStoreManagedSlot` /
+  `emitAcquireManagedScalar` — the Axiom-5 discipline now lives in one place
+  (net −235 lines). Unifies ptr/slice assign+var-decl on the move model (was
+  unconditional-RefInc; observably equivalent at statement boundaries, matrix +
+  808/0 suite-guarded; strictly safer for @func/@Iface). `gen_access_test`
+  TestManagedSliceLitNonFreshElemRefIncs updated (fresh var-decl now moved →
+  count 3→1). **b2 lifecycle matrix still TODO** (next commit): focused coverage
+  for the genuine gaps — cast-from-impl @Iface and the captured-@func native↔VM
+  trampoline (the existing matrix already covers the form × type grid).
+- **Step 6 — defects 4+5 (dtor-name injectivity)**: not started. Defect 2.5's
+  mangler fix must NOT revert the `MethodParamsFlat` `@[]@types.Type` workaround
+  in the same commit (the running BUILDER still has the bug; only a rebuilt bnc
+  has the fix).
 
 ## Summary
 
