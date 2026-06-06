@@ -17,7 +17,13 @@
 - **§3.10** PlanFrame iface-method outgoing-args (isCallOp +
   callDispatchArgTypesAnyOp arm) — **LANDED** (binate 31c63c72; the
   frame-sizing bug is latent/layout-dependent, pinned at the unit level)
-- **3.5, 3.8** — open (see Sequencing).
+- **3.8** VM func-value single-return nil-vtable — **LANDED** (binate e337e413)
+- **3.5** cross-pkg @Iface multi-return (aa64) — **DEFERRED to Plan 2**: the
+  fix is the cross-package @Iface-resolves-to-2-word type resolution
+  (gen_util.bn qualified-name arm), which Plan 3 must not touch. Still
+  fails on native_aa64 (confirmed not stale); covered by the xfailed
+  526_strconv_parse_cross_pkg. Plan 3 owns only the aa64 tuple-layout
+  confirmation once resolution is correct.
 
 ## Summary
 
@@ -98,9 +104,18 @@ Two structural fixes cover the majority. STRUCTURAL FIX 1 (native word-count): r
 - **Files**: `pkg/binate/native/x64/x64_return.bn (emitMultiReturnPack — no aggregate-component branch)`; `pkg/binate/native/x64/x64_call.bn (multi-return collect)`
 - **Tests**: covered: conformance/matrix/refcount/multi-assign/{ident,index-array,index-rawptr,index-slice,selector}/managed-struct + multi-short-var/ident/managed-struct (6 cells, xfailed both x64 modes). Passes aa64/LLVM/VM.
 
-### 3.5 Native aa64 miscompiles a cross-package multi-return whose component is a managed interface value (@Iface)
+### 3.5 Native aa64 miscompiles a cross-package multi-return whose component is a managed interface value (@Iface) — DEFERRED to Plan 2
 
-**MAJOR · CONFIRMED (bisected; exact aa64 line not yet pinned)**
+**MAJOR · CONFIRMED · DEFERRED (Plan 2 owns the type-resolution fix)**
+
+> Confirmed still failing on native_aa64 (not a stale xfail). The root is
+> the importer resolving a cross-package @Iface tuple component to a
+> 1-word managed pointer instead of the 2-word TYP_INTERFACE_VALUE_MANAGED
+> (gen_util.bn qualified-name arm) — a Plan-2 cross-package type-resolution
+> fix that Plan 3 must NOT touch. Covered by the xfailed
+> 526_strconv_parse_cross_pkg. Plan 3 owns only the aa64 tuple-layout
+> confirmation once resolution is correct; the minimal multi-package repro
+> cell is left to land with the Plan-2 fix.
 
 - **Root cause**: Bisected to cross-package + multi-return + @Iface-component specifically: same-pkg (int64,@Error) passes; cross-pkg single @Error passes; cross-pkg (int,int) passes; cross-pkg (int,@errors.Error) FAILS (returned @Iface comes back non-nil garbage, scalar component corrupted). The importer mis-sizes the @Iface tuple component — resolves it to a 1-word managed pointer instead of a 2-word interface-value within the return tuple, so the caller's sret/tuple layout disagrees with the callee's. This is the native-aa64 analogue of the LLVM cross-pkg @Iface ABI fix (cb8c0f1a, single-return case) but in the MULTI-RETURN-tuple case. The aa64 multi-return collect/spread (aarch64_call.bn:225-251 walks ins.Typ.Fields by FieldOffset; if the @Iface field type resolved to a 1-word managed-ptr, FieldOffset/word-count for that component is wrong) is where the mis-sized component lands.
 - **Fix shape**: Trace the importer's tuple-component type resolution: when a cross-package function returns (T, @Iface), the @Iface component's type as seen by the consumer's IR-gen must be the 2-word TYP_INTERFACE_VALUE_MANAGED, not a degraded managed pointer (the Class-3 i8*/managed-ptr fallback in qualified type resolution — gen_util.bn qualified TEXPR_NAMED arm). With the component correctly 2-word, the aa64 multi-return tuple FieldOffset/SizeOf and the X0..X7 field-spread (aarch64_call.bn:230-251) and the callee's OP_RETURN pack will agree. Verify the MultiReturnType built by the consumer matches the producer's (makeMultiReturnStructType over the correctly-resolved component types). This may be primarily a Plan-2 (cross-package type resolution) fix surfacing in the aa64 ABI; coordinate so the type-resolution fix lands first, then confirm the aa64 tuple layout is correct.
@@ -140,9 +155,19 @@ Two structural fixes cover the majority. STRUCTURAL FIX 1 (native word-count): r
 - **Files**: `pkg/binate/codegen/emit_iface_call.bn (emitCallIfaceMethod — signature + arg list reconstruction)`; `pkg/binate/codegen/emit_util.bn (byval/param-type helpers to reuse)`
 - **Tests**: covered: conformance/598_iface_dispatch_multiword_arg (struct-by-value + @[]int param each drop the trailing scalar: 4 instead of 9/5; xfailed builder-comp, builder-comp-comp, builder-comp-comp-comp; passes -int modes). GAP: the iface-method >16-byte struct arg byval case (§8 #3) overlaps the CRITICAL; a multi-return-iface-dispatch and iface-value-arg (move vs RefInc) are listed follow-ups, not yet cells.
 
-### 3.8 VM: a function value RETURNED from a call and PASSED DIRECTLY as an argument has a nil vtable
+### 3.8 VM: a function value RETURNED from a call and PASSED DIRECTLY as an argument has a nil vtable — LANDED 2026-06-05 (binate e337e413)
 
-**CRITICAL · CONFIRMED (root cause confirmed via two reinforcing VM gaps)**
+**CRITICAL · CONFIRMED · FIXED**
+
+> Gap 1 (the single-return copy-back) sufficed: lowerReturn now copies a
+> func-value single-return back to stable caller space via
+> isVMAddressAggregate (the same arm that already handled iface values),
+> so the result register no longer holds a dangling address into the
+> reclaimed callee frame. conformance/regressions/funcval-return-as-arg
+> authored + green on all 3 VM-final modes (baseline reproduces the nil
+> vtable); + a lowerReturn unit test. The arg-marshal half (gap 2) was not
+> needed for the symptom and is left as the documented address-vs-value
+> follow-up.
 
 - **Root cause**: VM-only. Two reinforcing Class-2 (16-byte address-aggregate) gaps. (1) The arg-marshal pre-pass (lower_func.bn:333-356) packs each call arg with a single BC_MOV/BC_MOV64 advancing by argSlots(typ). argSlots (lower_slots.bn:86-91) returns 1 for a func value (it is NOT is64BitScalar), so a func-value arg copies only ONE word — the register holding the 16-byte slot ADDRESS — not the 16-byte value. (2) The func-value single-return copy-back is omitted: lowerReturn's single-arg branch (lower_instr_helpers.bn:38-52) sets the copy-back Aux=SizeOf for is64BitScalar, isMultiWordField (struct/slice/array), and TYP_INTERFACE_VALUE/_MANAGED, but has NO arm for TYP_FUNC_VALUE/TYP_MANAGED_FUNC_VALUE (covered by isVMAddressAggregate, lower_instr_helpers.bn:104-114, which the single-return path does NOT consult). So mk()'s returned func value is built in mk's frame and never copied back to stable caller space -> the result register holds an address into the reclaimed mk frame; passing it directly as an arg copies that dangling address; by dispatch time fv[0] (the vtable word) reads 0 -> dispatchCompiledFuncValue aborts at vm_exec_funcref.bn:300-303 'function value has nil vtable'. Binding to a local first works because the var-decl copy materializes a stable 16-byte slot.
 - **Fix shape**: Route both the arg-marshal pass and the single-return copy-back through isVMAddressAggregate (which already enumerates BOTH func and iface), matching how iface values are already handled. (a) lower_instr_helpers.bn: in the single-return branch, add `|| isVMAddressAggregate(argTyp)` (or replace the iface-only TYP_INTERFACE_VALUE check with isVMAddressAggregate) so a func-value single-return gets Aux=SizeOf copy-back into stable caller space — this materializes a stable slot. (b) lower_func.bn arg-packing (lines 342-355): when an arg isVMAddressAggregate, marshal the 16-byte value (memcpy both words / materialize a stable slot whose address is passed) exactly as a local/param func value is, instead of a single BC_MOV of the address word. Either fix alone may suffice for the immediate symptom; both close the Class-2 func-value 2-word handling gap and remove the address-vs-value confusion. Coordinate with isVMAddressAggregate as the single classifier.
