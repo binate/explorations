@@ -6,6 +6,42 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### Managed struct destructor: `func_value_dtor on nil` for `@func` fields in a complex session struct — CONFIRMED crash, both backends
+- **Symptom**: a managed struct holding managed function-value (`@func`) fields
+  alongside other managed members crashes on destruction — compiled SIGTRAPs
+  (rc 133, no output), interpreted aborts with `vm: func_value_dtor on nil fv
+  address`. The per-type destructor calls `func_value_dtor` on a nil/garbage func
+  value (it walks to a wrong field/offset).
+- **Confirmed against binate main**: minbasic's `basicSession`
+  (`examples/minbasic/pkg/basic/session.bn`):
+  `{prog @progStore; env @env; col int; io ReplIO{WriteOut, WriteErr
+  @func(*[]readonly char) int}; out @io.ConsoleOut; turns int; poll @func()
+  PollResult}`. Spelling the sink/poll fields `@func` (the `pkg/binate/repl`
+  contract) crashes `cmd/basic` at session teardown in BOTH modes against a
+  `main`-built bundle. Spelling them raw `*func` (no managed dtor) avoids it —
+  minbasic ships `*func` as a marked temporary (examples `2c553d8`,
+  `examples/TODO.md`).
+- **Could NOT minimize to a small standalone repro** — these all WORK (no crash,
+  both modes, main bundle): a struct of two `@func` fields; `@func` + a managed
+  pointer (either order); a nested `IO{2 @func}` + a sibling `@func` (± a managed
+  pointer); a faithful mirror of `basicSession`'s field types+order with shallow
+  `@Store{int}`/`@Iface`; and the same with `@Store{@[]char}` (managed pointers
+  to structs that themselves hold managed fields). So the trigger is more
+  specific to the real session (the actual `progStore`/`env`/`ConsoleOut` types,
+  the by-value `ReplIO` copies through `NewSession`, or the funcs being invoked
+  through the struct). Needs a bisect against the real type to pin a minimal case
+  — toggling minbasic's sink/poll between `@func` and `*func` is the repro switch.
+- **Discovery**: 2026-06-06, building minbasic's M3 embeddable REPL; the
+  duplicated `@func` `ReplIO` in the session struct crashed `cmd/basic` at
+  startup.
+- **Note**: `pkg/binate/repl.ReplIO` is itself a 2-`@func` struct and the binate
+  REPL works (a standalone 2-`@func` struct destructs fine), so this is
+  layout/composition-specific, not "any `@func` struct".
+- **Fix**: correct the per-type destructor's managed-field walk so a `@func`
+  (2-word {vtable,data}) member is dtor'd at the right offset within a struct that
+  mixes it with other (possibly deep) managed members; today it dtors a
+  wrong/nil func value.
+
 ### Plan-1 adversarial review (2026-06-06) — regressions + completeness gaps from the const/slice fixes
 
 The Plan-1 fixes (binate 1.1-1.6, landed 2026-06-05) were adversarially
