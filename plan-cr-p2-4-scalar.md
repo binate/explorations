@@ -50,19 +50,26 @@ Route every coercion through a small set of type-driven classifiers, one per con
 
 ### 4.2 Unsigned int→float uses a SIGNED conversion in the VM and both native backends — negative result for high-bit-set unsigned
 
-**CRITICAL · CONFIRMED · VM LANDED 2026-06-05 (binate 70a1e587); aa64/x64 pending**
+**CRITICAL · CONFIRMED · VM + aa64 int→float LANDED 2026-06-05 (binate 70a1e587, db4f2b59); x64 pending**
 
-- **Progress**: **VM int→float LANDED** — new `BC_UITOF` opcode (reinterprets the
-  host-int register as uint64 before the conversion); `lowerCast` selects it when
-  the source is a concrete unsigned `TYP_INT`. Gotcha caught: an untyped int
-  literal has `Signed` unset, so the gate must key on `TYP_INT && !Signed` (not
-  `IsInteger()+!Signed`) or it misclassifies `cast(float64, 5)` as unsigned.
-  Dropped the VM-lane int-to-float/64/unsigned xfails; full VM lane green (789/0).
-  REMAINING: (a) aarch64 emitFloatCast — add `Ucvtf`/`Fcvtzu` asm encoders + gate
-  on signedness; (b) x64 emitFloatCast — uint64→double add-back idiom + gate;
-  then drop the 3 native int-to-float xfails. (c) The symmetric **float→int
-  unsigned** direction (BC_FTOSI / Fcvtzs / Cvttsd2si are signed-only) has NO
-  conformance cell yet — add a float-to-uint64 cell and fix all backends.
+- **Progress**: int→float unsigned-conversion fix.
+  - **VM** (70a1e587): new `BC_UITOF` opcode (reinterprets the host-int register
+    as uint64 before the conversion); `lowerCast` selects it for a concrete
+    unsigned `TYP_INT` source. Dropped the VM-lane xfails; full VM lane 789/0.
+  - **aarch64** (db4f2b59): `Ucvtf` encoder + `emitFloatCast` gate, via a new
+    shared `common.IsUnsignedIntType` predicate. Gotcha (now in one shared
+    place): an untyped int literal has `Signed` unset, so the gate keys on
+    `TYP_INT && !Signed` (not `IsInteger()+!Signed`) or `cast(float64, 5)` is
+    misclassified. The aa64 int-to-float xfail is HELD (not dropped): the
+    aa64-native conformance lane is broken by a tracked CRITICAL regression, so
+    the cell can't be verified yet — drop it when that lane recovers. Verified:
+    Ucvtf golden-encoding + IsUnsignedIntType unit tests pass; bnc builds.
+  REMAINING: (a) x64 emitFloatCast — uint64→double add-back idiom + gate (verify
+  on x64_darwin, drop the x64 int-to-float xfails); (b) circle back to verify +
+  drop the aa64 int-to-float xfail once the aa64-native lane recovers; (c) the
+  symmetric **float→int unsigned** direction (BC_FTOSI / Fcvtzs / Cvttsd2si are
+  signed-only) has NO conformance cell yet — add a float-to-uint64 cell + fix all
+  backends.
 - **Root cause**: VM: lower_cast.bn:38-43 emits BC_SITOF for EVERY int→float cast regardless of srcTyp.Signed; vm_exec_helpers.bn:195-210 BC_SITOF does cast(float64, i) where i is host int (signed), so a uint64 with bit 63 set converts negative. Confirmed: cast(float64,<uint64 0xC000000000000000>)>0.0 is true on LLVM, false on VM. aarch64: aarch64_float.bn:207-217 emitFloatCast always emits Scvtf (signed); no Ucvtf. x64: x64_float.bn:248-258 always emits Cvtsi2sd (signed); x86 has no direct unsigned int64→double. The asm libs lack the unsigned encoders entirely (grep found Scvtf/Fcvtzs in aarch64_fp.bn:114,123 but no Ucvtf/Fcvtzu; Cvtsi2sd/Cvttsd2si in x64_fp.bn:96,102 but no unsigned form). The checker permits the cast. The float→int direction (BC_FTOSI / Fcvtzs / Cvttsd2si) is signed-only too. A uint32 is zero-extended (positive in a 64-bit reg) so only uint64 triggers on the LP64 host.
 - **Fix shape**: Dispatch int↔float on srcTyp.Signed, mirroring the existing isUnsigned gate in lowerBinOp/emitBinop. VM: add a BC_UITOF opcode (vm.bni) doing cast(float64, cast(uint64, ...)); lower_cast.bn selects it when srcTyp.IsInteger()&&!srcTyp.Signed. aarch64: add Ucvtf (encoding 0x9E630000, sibling of Scvtf 0x9E620000) and Fcvtzu (0x9E790000, sibling of Fcvtzs 0x9E780000) to asm/aarch64/aarch64_fp.bn, then gate emitFloatCast on signedness. x64: add the uint64→double add-back idiom (no native instr) — test sign bit, if set: shr+or, Cvtsi2sd, addsd self; else plain Cvtsi2sd — plus Cvttsd2usi (the saturating-unsigned float→int idiom) for the reverse; gate on signedness. Add a shared signedness predicate so VM and natives can't diverge. Also fix the symmetric float→int unsigned path (same gate).
 - **Files**: `pkg/binate/vm/lower_cast.bn (int→float arm:38-43; float→int:44-49)`; `pkg/binate/vm/vm_exec_helpers.bn (BC_SITOF:195-210; BC_FTOSI:211-223)`; `pkg/binate/vm.bni (add BC_UITOF / BC_FTOUI opcodes)`; `pkg/binate/native/aarch64/aarch64_float.bn (emitFloatCast:179-227)`; `pkg/binate/asm/aarch64/aarch64_fp.bn (add Ucvtf, Fcvtzu)`; `pkg/binate/native/x64/x64_float.bn (emitFloatCast:220-270)`; `pkg/binate/asm/x64/x64_fp.bn (add unsigned cvt support)`
