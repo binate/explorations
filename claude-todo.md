@@ -99,7 +99,7 @@ Discovery Protocol) — most don't have one yet.
 - **Root cause**: gen_stmt.bn genDecl untyped-inference covers only string literals; float/bool/char untyped local consts fall to TypInt default.
 - **Fix**: infer the type from the initializer literal kind (float→float64, bool, char) for an untyped local const (mirror checker default-type), or reject untyped non-int local const. **Test**: conformance xfail (float32/float64 untyped local const).
 
-#### C3 — local const as array dimension → IR-gen wrong size (CRITICAL, from local-const fix)
+#### C3 — local const as array dimension → IR-gen wrong size — ✅ FIXED+LANDED (binate `c97d7acc`, 2026-06-06)
 - **Symptom**: `const N int = 3; var a [N]int; println(len(a))` → **30** (verified); package-scope const gives 3. Checker sees the local const via c.Scope.Lookup (correct length 3), but IR-gen resolveTypeExpr→evalConstExpr→lookupConst (gen.bn ~386) walks only moduleConsts (module scope) and falls back to parseIntLit("N")=garbage. Checker/IR-gen layout disagreement.
 - **Root cause**: IR-gen has no function-local const table; lookupConst is module-only. (1.3a fixed array-dim for PACKAGE consts; locals were not covered.)
 - **Fix**: give IR-gen access to local const values for resolveTypeExpr (a function-scoped const table), or restrict array dims to package consts at the checker. **Test**: conformance xfail (local const array dim).
