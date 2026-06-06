@@ -41,7 +41,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   unsigned at width boundaries" axis already named in `plan-differential-testing.md`
   (v2).  xfail until fixed.
 
-### Compound assignment (`+=`, `-=`, …) to a non-IDENT lvalue silently drops the operator (`compound-assign-nonident`)
+### ~~Compound assignment (`+=`, `-=`, …) to a non-IDENT lvalue silently drops the operator~~ — FIXED+LANDED (binate `45b9e767`, 2026-06-06) (`compound-assign-nonident`)
 - **Symptom**: `a[i] += x`, `s[i] += x`, `a[i][j] += x`, `p.field += x`, and `*p += x` all store the BARE RHS (`x`), discarding the operator and the old value — a silent miscompile (no error, wrong result). Only the plain-variable form `v += x` is correct. Repro (each prints `5`, should print `15`):
   ```
   func main() { var a [3]int; a[1] = 10; a[1] += 5; println(a[1]) }          // array elem
@@ -50,7 +50,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   func main() { var v int = 10; var p *int = &v; *p += 5; println(v) }        // deref
   ```
 - **Root cause**: `genAssign` (gen_control.bn) applies the compound op (`cur = load; rhs = cur OP rhs`, incl. the `/=` `%=` div-check guard) ONLY in the IDENT arm. The EXPR_INSTANTIATE_OR_INDEX (array/slice), EXPR_SELECTOR, and `*p` deref arms ignore `stmt.Op` and store `rhs` directly. Pre-existing; unnoticed because the whole codebase writes these longhand (`x.f = x.f + 1`) — 0 occurrences of compound-assign-to-lvalue in non-test source. Found during M7/M8 coverage review.
-- **Fix**: factor the compound step (load current lvalue → `cur OP rhs` with div-check guard) so every lvalue arm runs it before the store. For the pointer-bearing arms (array/field/deref/nested-array) load through the elem/field/deref pointer; for the slice arm load via EmitSliceGet. **Test**: conformance (array/slice/field/deref/nested `+=`, and a `/=`/`%=` for the guard) — currently xfail / to add.
+- **Fix (landed)**: the compound step (load current lvalue → `cur OP rhs` with the `/=` `%=` div-check guard) is factored into `emitCompoundBinop` + `isCompoundAssign`; every lvalue arm (IDENT, array, slice, pointer, struct-field, deref, nested-array) runs it before its store — a slot load through the elem/field/deref pointer, or EmitSliceGet for a slice element. **Test**: conformance 640 (variable, array elem, slice elem, nested array, field, deref; `+= -= *= /=`), green on LLVM + VM.
 
 ### ~~`~` (bitwise complement) IR-gen hardcodes the result type to `int` — invalid IR for sub-word, wrong-signed shift on uint64~~ — FIXED + LANDED (binate `42ad4fa0`, 2026-06-06) (`bitnot-result-type`)
 - **FIXED**: `gen_expr.bn:247` now types `OP_BITNOT` as the operand's type
