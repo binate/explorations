@@ -77,7 +77,7 @@ Repros marked (verified) were reproduced directly; (reviewer) were proven by a
 review subagent via --emit-llvm / gen1. Each needs an xfail test added (Bug
 Discovery Protocol) — most don't have one yet.
 
-#### C1 — inc/dec on a local const mutates it (CRITICAL, from local-const fix)
+#### C1 — inc/dec on a local const mutates it — ✅ FIXED+LANDED (binate `2e8fbb33`, 2026-06-06)
 - **Symptom**: `func main(){ const C int = 5; C++; println(C) }` prints **6** (verified). Pre-fix C++ was a silent no-op (const not in ctx.Vars → lookupVar nil); local-const materialization (binate 273d7e4a) put the slot in ctx.Vars, and the checker's STMT_INC_DEC arm (check_stmt.bn ~39-45) only checks IsInteger(), never const-ness, so genIncDec now load/add/store-s into the const slot.
 - **Root cause**: checker STMT_INC_DEC doesn't reject a SYM_CONST target (assign / compound-assign / &C ARE rejected; only ++/-- slip through).
 - **Fix**: reject ++/-- on a const in the checker. **Test**: conformance .error or a checker unit test (expectError), currently xfail/known-gap.
