@@ -3607,3 +3607,49 @@ Binate is NOT Go. The two types of slice are intentionally different:
         `-Wl,-Bstatic`; macOS `ld` has neither), so it may need
         per-platform lowering in the driver or a full-path escape
         hatch.
+
+---
+
+## TEST COVERAGE — conformance matrix follow-ups
+
+The code-red conformance-matrix family (`conformance/matrix/`, see
+`plan-code-red.md` §7) has four members realized: `refcount` (Class 1),
+`scalar` (Class 5), `abi` (Class 4), `const` (named-constant invariant). These
+are the remaining matrix-shaped classes not yet built as their own matrix —
+candidates for after the loose-axis finish (const-expr folding + ABI
+`handle`/`__c_call` shapes).
+
+### (b1) Class 2 matrix — VM 16-byte address-aggregate (iface / func value) handling
+- **Why a matrix**: Class 2 (plan-code-red.md §2) is the VM's handling of
+  16-byte address-aggregates — interface values `{data, vtable}` and function
+  values `{vtable, data}` — where the VM's EXTRACT/word-order/copy handling can
+  diverge from codegen. Axes would be `aggregate-kind (@Iface / @func) ×
+  operation (construct / extract-field / copy / pass-as-arg / return / store-in-
+  struct) × backend`. Assertion: both words survive with correct order/values.
+- **Status**: partly touched by the refcount matrix's `@Iface`/`@func` value-
+  type axis (lifecycle/balance), but NOT the word-order / extract / 2-word-ABI
+  value-correctness angle. Needs new cells.
+- **Note**: overlaps the CONFIRMED CRITICAL "2-word raw-slice param's len dropped
+  through iface vtable" and the VM "func value returned-then-passed nil vtable"
+  — a matrix here would systematize that neighborhood.
+
+### (b2) Lifecycle matrix — Class 6 (`@Iface` / `@[]@I`) + Class 7 (captured-`@func` over-release)
+- **Why a matrix**: Class 6 (`@Iface`/`@[]@I` first-class lifecycle) and Class 7
+  (native call-a-captured-`@func` over-release via the VM trampoline) are
+  lifecycle-completeness classes. Axes would be `managed-kind (@Iface / @[]@I /
+  captured-@func) × construction (make / literal / cast-from-impl / capture) ×
+  consumption (call-method / index / range / pass / return / discard) ×
+  backend`, with a refcount-balance assertion (mortal source).
+- **Status**: the refcount matrix already covers `@Iface`/`@func` as value-types
+  across assignment-forms, so this would EXTEND rather than start fresh — the
+  new axis is construction × consumption depth (esp. the native↔VM trampoline
+  path for Class 7, which the refcount matrix does not exercise).
+- **Note**: several `@Iface` lifecycle bugs are already filed (leaks/UAF family,
+  `@[]@I` literal element leak); a matrix would close the long tail.
+
+### (b3) Class 3 / Class 8 — point-bugs, NOT matrices
+- Class 3 (cross-package / interface-name type-resolution ordering → `i8*`
+  fallback) and Class 8 (multi-package loader resolution at int-int depth) are
+  one-off ordering/loader bugs, not systematic products. Track them as
+  individual regression tests under `conformance/regressions/` + filed bugs, not
+  as a matrix.
