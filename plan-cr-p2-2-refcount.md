@@ -29,12 +29,20 @@
   `short-var/ident/managed-struct`; new generator form `for-range-value/value`
   across all 5 types (was a hand-written managed-ptr-only cell), un-xfailed; new
   `602_for_range_blank_managed`. Full builder-comp green (793/0).
-- **Steps 4–6**: not started. Confirmed against the current tree (line numbers
-  drifted; see below). Note: the slice-INDEX arm has the same §3.4 release-before-
-  acquire defect as array/pointer (plan title scoped to array/pointer only) — fold
-  it into step 4. Defect 2.5's mangler fix must NOT revert the `MethodParamsFlat`
-  `@[]@types.Type` workaround in the same commit (the running BUILDER still has the
-  bug; only a rebuilt bnc has the fix).
+- **Step 4 — §3.4 INDEX-arm ordering**: LANDED (binate `086b3508`). The array,
+  raw-pointer, and slice element-store arms released the old element before
+  acquiring the new value (self-alias `a[i]=a[i]` UAF). Array/pointer now route
+  through `emitStoreManagedSlot`; the slice arm (no slot pointer) reorders via
+  `emitAcquireManagedScalar`. Collapsed ~110 lines of hand-rolled switches
+  (gen_control.bn 485→376). Test: `603_self_alias_index_assign` (all 3 container
+  kinds). Full builder-comp green (807/0).
+- **Steps 5–6**: not started. Step 5 consolidates the remaining hand-rolled
+  IDENT/deref/SELECTOR/composite/array-lit/mslice-lit/var-decl copy arms onto
+  `emitStoreManagedSlot` (pure refactor, matrix-guarded; switches ptr/slice assign
+  arms from always-RefInc to the move model — observably equivalent at statement
+  boundaries) + builds the b2 lifecycle matrix. Defect 2.5's mangler fix must NOT
+  revert the `MethodParamsFlat` `@[]@types.Type` workaround in the same commit (the
+  running BUILDER still has the bug; only a rebuilt bnc has the fix).
 
 ## Summary
 
