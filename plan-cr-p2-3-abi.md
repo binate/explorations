@@ -14,6 +14,9 @@
   component) — **LANDED** (binate b5616b32)
 - **3.6** variadic-float __c_call placement (x64 AL=nsrn; aa64 darwin
   stack-pass) — **LANDED** (binate 56f09bc6)
+- **§3.10** PlanFrame iface-method outgoing-args (isCallOp +
+  callDispatchArgTypesAnyOp arm) — **LANDED** (binate 31c63c72; the
+  frame-sizing bug is latent/layout-dependent, pinned at the unit level)
 - **3.5, 3.8** — open (see Sequencing).
 
 ## Summary
