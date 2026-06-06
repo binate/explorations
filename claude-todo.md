@@ -6,7 +6,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
-### A relational op with an untyped int literal on the LEFT and a signed int on the right uses an UNSIGNED comparison — silent wrong result, ALL backends
+### A relational op with an untyped int literal on the LEFT and a signed int on the right uses an UNSIGNED comparison — silent wrong result, ALL backends — IN PROGRESS (fix underway 2026-06-06)
 - **Symptom**: `5 < xe` where `var xe int = -1` evaluates to **true** (`5 < -1` is
   false).  An untyped integer literal on the LEFT of `<` / `<=` / `>` / `>=`,
   compared against a SIGNED `int` variable, emits an unsigned compare — so a
