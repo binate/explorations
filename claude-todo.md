@@ -17,7 +17,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Root cause**: `genAssign` (gen_control.bn) applies the compound op (`cur = load; rhs = cur OP rhs`, incl. the `/=` `%=` div-check guard) ONLY in the IDENT arm. The EXPR_INSTANTIATE_OR_INDEX (array/slice), EXPR_SELECTOR, and `*p` deref arms ignore `stmt.Op` and store `rhs` directly. Pre-existing; unnoticed because the whole codebase writes these longhand (`x.f = x.f + 1`) — 0 occurrences of compound-assign-to-lvalue in non-test source. Found during M7/M8 coverage review.
 - **Fix**: factor the compound step (load current lvalue → `cur OP rhs` with div-check guard) so every lvalue arm runs it before the store. For the pointer-bearing arms (array/field/deref/nested-array) load through the elem/field/deref pointer; for the slice arm load via EmitSliceGet. **Test**: conformance (array/slice/field/deref/nested `+=`, and a `/=`/`%=` for the guard) — currently xfail / to add.
 
-### ~~`~` (bitwise complement) IR-gen hardcodes the result type to `int` — invalid IR for sub-word, wrong-signed shift on uint64~~ — FIXED (binate `ee7c05ac`, 2026-06-06; pending landing) (`bitnot-result-type`)
+### ~~`~` (bitwise complement) IR-gen hardcodes the result type to `int` — invalid IR for sub-word, wrong-signed shift on uint64~~ — FIXED + LANDED (binate `42ad4fa0`, 2026-06-06) (`bitnot-result-type`)
 - **FIXED**: `gen_expr.bn:247` now types `OP_BITNOT` as the operand's type
   (nil-fallback to `int`), mirroring `OP_NEG`. All `bitwise/not` cells pass on
   LLVM (123/123); unit tests `TestGenBitnotOn{Uint16PreservesWidth,
@@ -789,16 +789,18 @@ Discovery Protocol) — most don't have one yet.
   needs `qemu-arm` (skipped). Re-check on an x64 host: the aa64 sub-word defect
   very likely has an x64 analog needing its own xfails.
 - **Discovery**: 2026-06-06, differential-harness v1 (plan-differential-testing.md).
-- **v2 (arith/cmp/bitwise) — 2026-06-06**: 123 cells / 5415 tuples total. v2
-  found+fixed the LLVM `~` bug (`bitnot-result-type`, above). New backend
-  divergences, all xfailed (`--check-xpass`-clean) and in the known classes:
-  VM `bitwise/not/{8,16,32}/unsigned` (sub-word `~` dirty bits) + `fcmp/32`;
-  native-aa64 sub-word *signed* `arith/{add,sub,mul}/8`,
-  `bitwise/{and,or,xor}/{8,16}`, `cmp/{8,16,32}`, `bitwise/not/*/unsigned`, and
-  `fcmp/32`. Float compares incl. NaN/Inf/-0 pin the ordered/unordered `==`/`!=`
-  semantics (corrected 2026-06-06). VM float32 work is in flight — the VM
-  `fcmp/32` + `int-to-float`/`float-to-int`/`float-cast` xfails should be
-  re-checked/un-xfailed when it lands.
+- **v2 (arith/cmp/bitwise) — LANDED 2026-06-06** (binate `42ad4fa0` fix +
+  `e71de1e0` harness): 123 cells / 5415 tuples total. v2 found+fixed the LLVM
+  `~` bug (`bitnot-result-type`, above). Remaining divergences, all xfailed
+  (`--check-xpass`-clean) and in the known classes: VM
+  `bitwise/not/{8,16,32}/unsigned` (sub-word `~` dirty bits); native-aa64
+  sub-word *signed* `arith/{add,sub,mul}/8`, `bitwise/{and,or,xor}/{8,16}`,
+  `cmp/{8,16,32}`, `bitwise/not/*/unsigned`. Float compares incl. NaN/Inf/-0 pin
+  the ordered/unordered `==`/`!=` semantics (corrected 2026-06-06). `fcmp/32`
+  was xfailed at first but the float32-compare fix (binate `fc11d862`) landed
+  concurrently, so it un-xfailed at land time (`--check-xpass` flagged the
+  XPASS). The remaining VM `float32` *conversion* xfails (`int-to-float` /
+  `float-to-int` / `float-cast`) stand — that gap is separate from compare.
 
 ### ~~Short-var single-bind `x := s` of a managed struct-by-value skips the copy~~ — FIXED + LANDED 2026-06-05 (binate `b0eb7299`, plan-cr-p2-2 step 3; routed through `emitStoreManagedSlot`; matrix short-var/ident/managed-struct un-xfailed)
 - **Symptom**: `x := src` where `src` is a struct with a managed field copies the
