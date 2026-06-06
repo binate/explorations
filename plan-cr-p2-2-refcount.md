@@ -107,8 +107,12 @@ pre-processing. The `isFreshManagedPtr/Slice` non-broadening is balance-neutral
   qualified) + emitStructDtor through elemDtorName (symmetric, behavior-
   preserving). Test: `619` (`var b [2]@store.Node = a`). Full builder-comp green
   (849/0).
-- **④ @[]([N]@T) ms-of-array dtor → undefined symbol** (pre-existing): pending.
-  ensureMsDtor never recurses into ARRAY elements; fix: mirror ensureArrayDtor.
+- **④ @[]([N]@T) ms-of-array dtor → undefined symbol** (pre-existing): LANDED
+  (binate `ca63b89a`). ensureMsDtor recursed into managed-slice elements but not
+  ARRAY elements, so @[]([N]@T) named a local array dtor it never emitted. Fixed
+  by mirroring ensureArrayDtor's array-element recursion. (Copy side needs no
+  change — no managed-slice copy fn exists; @[]T copies its backing inline.)
+  Test: `621_ms_of_array_dtor`. Full builder-comp green (852/0).
 - **⑤ 603 self-alias UAF reads freed-but-pristine memory** (weak test): pending.
   Strengthen with forced freed-block reuse + an allocator-independent
   IR-ordering unit test for the slice-element arm.
