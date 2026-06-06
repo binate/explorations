@@ -6,70 +6,36 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
-### aa64 native backend MISCOMPILES cmd/bnc (the link logic) — self-hosted `BNC_NATIVE` drops `binate_runtime.c`, so every aa64-native program fails to link — CRITICAL self-hosting regression
-- **Symptom**: ANY program built by the native-aa64 conformance lane
-  (`builder-comp_native_aa64-comp_native_aa64`) fails at link with
-  `Undefined symbols for architecture arm64: "_bn_pkg__bootstrap__Write",
-  referenced from: _bn_pkg__builtins__rt__RawAlloc` (and `…__BoundsFail`).
-  `bootstrap.Write` is the C I/O sink in `runtime/binate_runtime.c:139` (it
-  compiles for arm64 and DEFINES `_bn_pkg__bootstrap__Write` — verified); the
-  symbol is simply not in the link because `binate_runtime.c` was dropped.
-- **ROOT CAUSE (isolated 2026-06-05) — NOT a driver/runtime/rt bug**: the
-  failing compiler is **`BNC_NATIVE`** — cmd/bnc compiled *by the aa64 native
-  backend* (`build_bnc_native_aa64`). Decisive isolation: **`gen1 --backend
-  native`** (cmd/bnc compiled by LLVM, running the *same* native backend on the
-  test) compiles, links, and RUNS the exact failing managed-struct cell fine
-  (prints `1 2 7`); the *only* variable is whether the driver is the
-  LLVM-compiled bnc (correct) or the native-compiled bnc (broken). So the aa64
-  native backend **miscompiles cmd/bnc's own runtime-link logic** — the
-  `findRuntime` / `runtimePath` path handling (`cmd/bnc/main.bn:82-84,210`),
-  which is char/sub-word (uint8) arithmetic — so `BNC_NATIVE` computes an empty
-  or wrong `runtimePath` and the `if len(runtimePath) > 0` gate skips adding
-  `binate_runtime.c`. A native test program itself is compiled correctly; only
-  the *self-hosted bnc* is miscompiled.
-- **Prime suspect**: `ee671b6c` "native/aarch64: narrow sub-word integer
-  arithmetic results to their type width" (a recent aa64-backend change to how
-  sub-word/uint8 arithmetic is emitted — exactly what char/path handling uses).
-  Needs a confirming bisect (build `BNC_NATIVE` at `ee671b6c^` and re-test).
-- **Scope**: **aa64-native only.** LLVM/`comp` + the VM are unaffected (different
-  backend), and **x64-native links and runs fine** (so the analogous x64
-  sub-word change `57e72d9e` is either correct or the bug is aa64-specific).
-- **Impact**: the entire `native_aa64` CI lane (in the `all` modeset) is red on
-  `main` — every aa64-native cell fails to link. This is a **self-hosting
-  miscompilation** (the native backend can't correctly compile its own
-  compiler), strictly worse than a single wrong-code cell. NOT a per-test bug —
-  do not xfail individual cells around it.
-- **Discovery**: 2026-06-05, un-xfailing `regressions/funcval/return-as-arg`
-  after the VM nil-vtable fix surfaced the aa64-native link break; root-caused by
-  the gen1-native-vs-BNC_NATIVE isolation above.
-- **Reproduce** (whole aa64-native lane — any program fails):
-
-  ```sh
-  sh conformance/run.sh builder-comp_native_aa64-comp_native_aa64 \
-    "matrix/refcount/var-init/ident/managed-struct"
-  # → 0 passed, 1 failed: COMPILE_ERROR: Undefined symbols ... "_bn_pkg__bootstrap__Write"
-  ```
-
-- **Isolate** (proves it is `BNC_NATIVE`, not the native backend on the test —
-  run from the binate worktree):
-
-  ```sh
-  . scripts/lib/build-compilers.sh; build_gen1            # gen1 = LLVM-compiled bnc
-  B="$PWD"
-  "$GEN1_COMPILER" --backend native \
-    -I "$B:$B/ifaces/core:$B/ifaces/stdlib" \
-    -L "$B:$B/impls/core/common:$B/impls/core/libc:$B/impls/stdlib/common" \
-    --build-dir "$(mktemp -d)" -o /tmp/x \
-    conformance/matrix/refcount/var-init/ident/managed-struct.bn && /tmp/x
-  # → links + runs, prints "1 2 7".  Same native backend on the test, but the
-  #   LLVM-compiled driver is correct → only the native-compiled BNC_NATIVE is broken.
-  ```
-- **Fix**: find the sub-word op in the aa64 backend that the narrowing change
-  miscompiles (bisect to `ee671b6c`; then a unit/conformance repro of the exact
-  uint8/char pattern from `findRuntime`/path handling), and fix the native
-  codegen. A self-hosting smoke (build `BNC_NATIVE`, compile a managed cell with
-  IT) should be added to guard the native-compiled-bnc path, since the matrices
-  run via `gen1`-native and did NOT catch this.
+### ~~Native backends drop `binate_runtime.c` — every native program fails to link~~ — FIXED + LANDED 2026-06-05 (binate `1285683e`)
+- **Was**: every `builder-comp_native_aa64-comp_native_aa64` cell failed at link
+  with `Undefined symbols for architecture arm64: "_bn_pkg__bootstrap__Write"`.
+  Self-hosted `BNC_NATIVE` computed an empty `runtimePath` (findRuntime ends in
+  `return suffixes[i]`) so the `if len(runtimePath) > 0` gate dropped
+  `binate_runtime.c` from the link.
+- **Actual root cause** — a **shared native-backend** wrong-code bug, NOT what
+  this entry first guessed: both native backends (aa64 AND x64 — not aa64-only)
+  lowered an aggregate `OP_LOAD` as a bare *pointer into the source object*
+  instead of materializing a copy. `return container[i]` then copied the
+  element header into the sret buffer only AFTER the function's cleanup RefDec'd
+  (and freed) the local container's backing → read freed/zeroed memory, so the
+  return came back empty/garbage. LLVM and the VM were always correct (LLVM loads
+  the aggregate into an SSA value at the load site).
+- **`ee671b6c` (sub-word narrowing) was REFUTED by bisect** — rebuilding gen1
+  with `emitSubWordNarrow` neutralized left the repro broken. It was never the
+  cause; the bug is not char/sub-word arithmetic and predates `ee671b6c`. The
+  earlier "aa64-only / findRuntime char handling / prime-suspect ee671b6c"
+  framing in this entry was all wrong (recorded here so the mistake isn't
+  repeated).
+- **Fix**: `PlanFrame` now reserves an own data region for an aggregate
+  `OP_LOAD` (as `OP_MAKE_SLICE` / aggregate calls already do); `emitLoad` copies
+  the loaded bytes into it and points the result there, so the load owns its
+  bytes and can't alias a freed source. Fixed in both the aa64 and x64
+  `emitLoad`. aa64-native lane: 0 passed (all COMPILE_ERROR) → 811 passed, 0
+  failed.
+- **Tests**: `conformance/regressions/return-aggregate-element-of-local`
+  (managed-slice element + struct array element returned directly — caught in
+  the existing gen1-native lane, which is why a bespoke BNC_NATIVE smoke wasn't
+  needed) + `TestPlanFrameReservesAggregateLoadDataRegion` (native/common).
 
 ### bnc front-end / IR-gen memory blows up (>8.5 GB, OOM) compiling a ~1370-line program — super-linear, NOT raw size — PRIMARY FIX LANDED on main
 - **Status (2026-06-05)**: fix **(1)** below LANDED on main (binate
