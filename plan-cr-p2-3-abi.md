@@ -12,7 +12,9 @@
   func-value shim) — **LANDED** (binate 3892e7d1)
 - **3.3a / 3.4** x64 multi-return eightbyte coalescing (sub-word + aggregate
   component) — **LANDED** (binate b5616b32)
-- **3.5, 3.6, 3.8** — open (see Sequencing).
+- **3.6** variadic-float __c_call placement (x64 AL=nsrn; aa64 darwin
+  stack-pass) — **LANDED** (binate 56f09bc6)
+- **3.5, 3.8** — open (see Sequencing).
 
 ## Summary
 
@@ -102,9 +104,18 @@ Two structural fixes cover the majority. STRUCTURAL FIX 1 (native word-count): r
 - **Files**: `pkg/binate/ir cross-package tuple-component type resolution (overlaps Plan 2 — qualified-name @Iface resolution)`; `pkg/binate/native/aarch64/aarch64_call.bn (emitCall multi-return collect/spread — consumes the resolved component type)`
 - **Tests**: covered: conformance/526_strconv_parse_cross_pkg (xfailed builder-comp_native_aa64-comp_native_aa64). Green on LLVM/VM. GAP: the minimal repro (helper pkg func Maybe(x int) (int,@errors.Error) returning x,nil; main does n,err=Maybe(7), present(err) reads true) is not yet a checked-in cell — add as a regressions/ test.
 
-### 3.6 Native backends mis-pass a variadic float __c_call argument
+### 3.6 Native backends mis-pass a variadic float __c_call argument — LANDED 2026-06-05 (binate 56f09bc6)
 
-**CRITICAL · CONFIRMED**
+**CRITICAL · CONFIRMED · FIXED**
+
+> x64: AL now = nsrn (the XMM-arg count) instead of 0. aa64: a new
+> variadic-aware classifier argRegWordsStackWordsV forces a variadic
+> float to a stack word under VariadicStackOnly (so PlanFrame reserves
+> it), and the emitCall float branch stores variadic floats to the
+> outgoing-args slot instead of D(NSRN). Un-xfailed
+> regressions/c-call/printf-variadic-float on the 3 native modes; VM +
+> arm32 stay (__c_call deferred there). >8 float args (NSRN exhaustion)
+> remains the open MINOR follow-up.
 
 - **Root cause**: Both natives mis-place a variadic double in __c_call. (x64) emitCall (x64_call.bn:213-215) ALWAYS sets AL=0 for a variadic OP_C_CALL; SysV requires AL = number of vector (XMM) args, so a variadic double passed in XMM is read as 0 by printf. The float-arg loop (x64_call.bn:134-145) places floats in XMM0+nsrn but never counts them into AL. (aa64) emitCall float-arg path (aarch64_call.bn:49-60) places EVERY float arg in D0+nsrn unconditionally — it does NOT apply the darwin VariadicStackOnly rule (CallArgRegStartV/fixedCount is consulted for the int/aggregate path at :61-62 but NOT for the float path), so a variadic double lands in a D-register instead of on the stack where darwin-arm64 expects it -> printf reads garbage/0.
 - **Fix shape**: (x64) In emitCall, count XMM args used by the variadic tail and set AL to that count (not 0) before the CALL for a variadic OP_C_CALL — replace the `x64.Mov(AL, 0)` at :213-215 with the actual vector-arg count. (aa64) Apply the darwin VariadicStackOnly rule to FLOAT args too: for a float arg at value-index >= ins.CFixedArgs under VariadicStackOnly, place it on the stack (8-byte slot in the outgoing-args area) instead of D0+nsrn — thread fixedCount into the float branch the same way the int/aggregate branch already uses CallArgRegStartV/CallArgStackOffV. Per-target since the convention differs.
@@ -133,7 +144,7 @@ Two structural fixes cover the majority. STRUCTURAL FIX 1 (native word-count): r
 - **Root cause**: VM-only. Two reinforcing Class-2 (16-byte address-aggregate) gaps. (1) The arg-marshal pre-pass (lower_func.bn:333-356) packs each call arg with a single BC_MOV/BC_MOV64 advancing by argSlots(typ). argSlots (lower_slots.bn:86-91) returns 1 for a func value (it is NOT is64BitScalar), so a func-value arg copies only ONE word — the register holding the 16-byte slot ADDRESS — not the 16-byte value. (2) The func-value single-return copy-back is omitted: lowerReturn's single-arg branch (lower_instr_helpers.bn:38-52) sets the copy-back Aux=SizeOf for is64BitScalar, isMultiWordField (struct/slice/array), and TYP_INTERFACE_VALUE/_MANAGED, but has NO arm for TYP_FUNC_VALUE/TYP_MANAGED_FUNC_VALUE (covered by isVMAddressAggregate, lower_instr_helpers.bn:104-114, which the single-return path does NOT consult). So mk()'s returned func value is built in mk's frame and never copied back to stable caller space -> the result register holds an address into the reclaimed mk frame; passing it directly as an arg copies that dangling address; by dispatch time fv[0] (the vtable word) reads 0 -> dispatchCompiledFuncValue aborts at vm_exec_funcref.bn:300-303 'function value has nil vtable'. Binding to a local first works because the var-decl copy materializes a stable 16-byte slot.
 - **Fix shape**: Route both the arg-marshal pass and the single-return copy-back through isVMAddressAggregate (which already enumerates BOTH func and iface), matching how iface values are already handled. (a) lower_instr_helpers.bn: in the single-return branch, add `|| isVMAddressAggregate(argTyp)` (or replace the iface-only TYP_INTERFACE_VALUE check with isVMAddressAggregate) so a func-value single-return gets Aux=SizeOf copy-back into stable caller space — this materializes a stable slot. (b) lower_func.bn arg-packing (lines 342-355): when an arg isVMAddressAggregate, marshal the 16-byte value (memcpy both words / materialize a stable slot whose address is passed) exactly as a local/param func value is, instead of a single BC_MOV of the address word. Either fix alone may suffice for the immediate symptom; both close the Class-2 func-value 2-word handling gap and remove the address-vs-value confusion. Coordinate with isVMAddressAggregate as the single classifier.
 - **Files**: `pkg/binate/vm/lower_instr_helpers.bn (lowerReturn single-return copy-back; isVMAddressAggregate)`; `pkg/binate/vm/lower_func.bn (arg-marshal pre-pass, lines 333-356)`; `pkg/binate/vm/lower_slots.bn (argSlots — does not classify the 16-byte aggregate)`; `pkg/binate/vm/vm_exec_funcref.bn (dispatchCompiledFuncValue — where the nil vtable aborts)`
-- **Tests**: GAP: NO conformance test checked in yet. A test (use(mk()) returning/passing a non-capturing @func(int)int, asserting the invoked result) is staged at /tmp/minbasic-staging/funcval_return_as_arg.bn, pending land; xfail the 3 VM-final modes (builder-comp-int, builder-comp-int-int, builder-comp-comp-int), compiled-final modes pass. MUST be authored and committed.
+- **Tests**: ✅ AUTHORED — `conformance/regressions/funcval/return-as-arg` (binate `d493b25b`, on the worktree; pending cherry-pick to main). `use(mk())` with a non-capturing `@func(int)int`, asserts the invoked result `42`. Verified: compiled-final + native pass `42`; the 3 VM-final modes (`builder-comp-int`, `builder-comp-int-int`, `builder-comp-comp-int`) abort `vm: function value has nil vtable` and are xfailed. The FIX (the lowerReturn func-value copy-back + arg-marshal aggregate slots) is still pending — this cell will un-xfail when it lands.
 
 ## Sequencing
 
