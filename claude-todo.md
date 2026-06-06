@@ -82,7 +82,7 @@ Discovery Protocol) — most don't have one yet.
 - **Root cause**: checker STMT_INC_DEC doesn't reject a SYM_CONST target (assign / compound-assign / &C ARE rejected; only ++/-- slip through).
 - **Fix**: reject ++/-- on a const in the checker. **Test**: conformance .error or a checker unit test (expectError), currently xfail/known-gap.
 
-#### C2 — untyped non-int local const mistyped as int (CRITICAL, from local-const fix)
+#### C2 — untyped non-int local const mistyped as int — ✅ FIXED+LANDED (binate `912718e6`, 2026-06-06)
 - **Symptom**: `const C = 0.5; var y float32 = C` → high lane **24191** (garbage; verified); `const C = 0.5; var x float64 = C + 0.5` → invalid `add i64 …, double`, clang rejects. genDecl's no-TypeRef inference defaults typ=TypInt() (only special-cases EXPR_STRING_LIT), so an untyped float/bool/char local const gets an i64 slot and a `sitofp`/int op. The checker accepts it (untyped const stays assignable to float32), so it miscompiles silently. The var-init sibling `var C = 0.5` is checker-rejected for the float32 assign, so this divergence is specific to routing DECL_CONST through the int-defaulting path.
 - **Root cause**: gen_stmt.bn genDecl untyped-inference covers only string literals; float/bool/char untyped local consts fall to TypInt default.
 - **Fix**: infer the type from the initializer literal kind (float→float64, bool, char) for an untyped local const (mirror checker default-type), or reject untyped non-int local const. **Test**: conformance xfail (float32/float64 untyped local const).
