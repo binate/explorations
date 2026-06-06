@@ -6,6 +6,76 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### Plan-1 adversarial review (2026-06-06) — regressions + completeness gaps from the const/slice fixes
+
+The Plan-1 fixes (binate 1.1-1.6, landed 2026-06-05) were adversarially
+reviewed. Real defects found, several wrong-code on main. Listed worst-first.
+Repros marked (verified) were reproduced directly; (reviewer) were proven by a
+review subagent via --emit-llvm / gen1. Each needs an xfail test added (Bug
+Discovery Protocol) — most don't have one yet.
+
+#### C1 — inc/dec on a local const mutates it (CRITICAL, from local-const fix)
+- **Symptom**: `func main(){ const C int = 5; C++; println(C) }` prints **6** (verified). Pre-fix C++ was a silent no-op (const not in ctx.Vars → lookupVar nil); local-const materialization (binate 273d7e4a) put the slot in ctx.Vars, and the checker's STMT_INC_DEC arm (check_stmt.bn ~39-45) only checks IsInteger(), never const-ness, so genIncDec now load/add/store-s into the const slot.
+- **Root cause**: checker STMT_INC_DEC doesn't reject a SYM_CONST target (assign / compound-assign / &C ARE rejected; only ++/-- slip through).
+- **Fix**: reject ++/-- on a const in the checker. **Test**: conformance .error or a checker unit test (expectError), currently xfail/known-gap.
+
+#### C2 — untyped non-int local const mistyped as int (CRITICAL, from local-const fix)
+- **Symptom**: `const C = 0.5; var y float32 = C` → high lane **24191** (garbage; verified); `const C = 0.5; var x float64 = C + 0.5` → invalid `add i64 …, double`, clang rejects. genDecl's no-TypeRef inference defaults typ=TypInt() (only special-cases EXPR_STRING_LIT), so an untyped float/bool/char local const gets an i64 slot and a `sitofp`/int op. The checker accepts it (untyped const stays assignable to float32), so it miscompiles silently. The var-init sibling `var C = 0.5` is checker-rejected for the float32 assign, so this divergence is specific to routing DECL_CONST through the int-defaulting path.
+- **Root cause**: gen_stmt.bn genDecl untyped-inference covers only string literals; float/bool/char untyped local consts fall to TypInt default.
+- **Fix**: infer the type from the initializer literal kind (float→float64, bool, char) for an untyped local const (mirror checker default-type), or reject untyped non-int local const. **Test**: conformance xfail (float32/float64 untyped local const).
+
+#### C3 — local const as array dimension → IR-gen wrong size (CRITICAL, from local-const fix)
+- **Symptom**: `const N int = 3; var a [N]int; println(len(a))` → **30** (verified); package-scope const gives 3. Checker sees the local const via c.Scope.Lookup (correct length 3), but IR-gen resolveTypeExpr→evalConstExpr→lookupConst (gen.bn ~386) walks only moduleConsts (module scope) and falls back to parseIntLit("N")=garbage. Checker/IR-gen layout disagreement.
+- **Root cause**: IR-gen has no function-local const table; lookupConst is module-only. (1.3a fixed array-dim for PACKAGE consts; locals were not covered.)
+- **Fix**: give IR-gen access to local const values for resolveTypeExpr (a function-scoped const table), or restrict array dims to package consts at the checker. **Test**: conformance xfail (local const array dim).
+
+#### C4 — &s[i] on a readonly-wrapped slice mis-strides (CRITICAL, from &slice[i] fix)
+- **Symptom**: `var s readonly @[]uint8 = "AB"; var p *uint8 = &s[1]; println(cast(int,*p))` → **0** (verified; expect 66). Dropping the TYP_STRUCT guard (binate 937ae78e) exposed it: for `readonly @[]uint8`, arrTyp.Kind==TYP_READONLY; isSliceType peels readonly (true) but arrTyp.Elem is then the INNER managed-slice, not uint8, so EmitSliceElemPtr GEPs with a ~32-byte stride. Pre-fix this crashed (guard failed → wild-pointer fall-through); now silently wrong.
+- **Root cause**: genIndexPtr (gen_access.bn) uses arrTyp.Elem / collTyp.Elem without peeling TYP_READONLY.
+- **Fix**: peel readonly (resolve to the underlying slice type) before reading .Elem in both slice arms. **Test**: conformance xfail (&readonly-slice[i]).
+
+#### C5 — cross-package float const-EXPRESSION reads int 0 (CRITICAL, from float-binary fix)
+- **Symptom**: a `.bni`-exported `const C float64 = 1.5 + 2.5`, read package-qualified, lowers to `add i64 0, 0` (reviewer). The CONST_EXPR family (binate 9ef5db58) was wired into gen_expr.bn's EXPR_IDENT read but NOT into gen_selector.bn's qualified read (no CONST_EXPR arm → falls to EmitConstInt(Val=0)), and the importer (gen_import.bn single + registerImportConstGroup) never registers a float const-expr at all.
+- **Root cause**: const-folding fixes scoped to in-package producers/readers; the cross-package read (gen_selector) + import producers were not updated.
+- **Fix**: add a CONST_EXPR arm to gen_selector read + route import producers through the shared classifiers (see M1/M4 — a unifying shared const-classifier is the real fix). **Test**: cross-pkg conformance xfail.
+
+#### M1 — cross-package bool/float-comparison + bool-logic consts → silent int 0 (MAJOR)
+- **Symptom**: `.bni`-exported `const CMP bool = 1 < 2` / `(1<2)&&(3>2)` / `1.5 < 2.5` read cross-package lower to `add i64 0,0` → 0 (reviewer). gen_import single-const handles only EXPR_BOOL_LIT + float-literal; registerImportConstGroup calls only classifyConstLit; neither calls classifyConstBoolExpr/classifyConstFloatExpr.
+- **Fix**: route both import producers (and gen_repl GenConstMember) through the same classifier chain genConst/genConstGroup use. **Test**: cross-pkg conformance xfail (bool-cmp, bool-logic, float-cmp).
+
+#### M2 — composite-LITERAL element float32 store → memory corruption (MAJOR, from float32-coerce fix)
+- **Symptom**: `var a [2]float32 = [2]float32{0.5, 0.5}` emits `store double %v, float* %slot` — an 8-byte store through a 4-byte slot (reviewer). The 1.1 coerceScalarWidth was wired into call-arg/field/return but NOT the three composite-literal element-store loops (genArrayLit, genManagedSliceLit, genRawSliceLit). Worse than the contained-field case (clobbers adjacent memory).
+- **Fix**: call coerceScalarWidth before the element store in all three composite-literal loops. **Test**: conformance xfail (array/mslice/rawslice float32 literal).
+
+#### M3 — const array dim in a struct field → spurious type-check rejection (MAJOR, from array-dim fix)
+- **Symptom**: `const N int = 3; type S struct { arr [N]int }; … s.arr passed to a [3]int param` is REJECTED `cannot assign [..] to [..]` (reviewer). Struct types resolve once in pass 1 (collectTypeDecl), where no const has HasConstVal yet, so evalConstInt's leniency returns 0 and [0]int sticks on Field.Type; the var path re-resolves in pass 2, struct fields don't. Codegen is fine (resolves independently) → false-positive rejection, not a miscompile.
+- **Fix**: resolve const values before struct-field layout (or re-resolve struct field array dims in pass 2). **Test**: checker unit + conformance.
+
+#### M4 — float const referencing only float consts → int 0 (MAJOR, from float-binary fix)
+- **Symptom**: `const C float64 = A + B` (A,B float consts, no float literal) → isFloatExpr false (literal-only) → integer evalConstExpr → lookupConst returns Val=0 for CONST_FLT entries → C registers CONST_INT 0 (reviewer). Checker accepts.
+- **Fix**: isFloatExpr should also recognize a const-ident operand whose const is float; or the shared classifier should consult the operand const kinds. **Test**: conformance xfail.
+
+#### M5 — iota inside a float CONST_EXPR re-lowers to 0 (MAJOR, narrow)
+- **Symptom**: `const ( C float64 = 1.5*cast(float64,iota); D; E )` → 0.0,0.0,0.0 (reviewer). CONST_EXPR stashes only the AST, not the iotaVal; the read-site genExpr has no iota in scope → `iota` ident → EmitConstInt(0). Affects bare iota-repeat float members too.
+- **Fix**: capture iotaVal with the CONST_EXPR and bind it at the read site, or fold float-with-iota at gen time. **Test**: conformance xfail.
+
+#### M6 — forward-ref non-literal untyped const → silent false-accept (MAJOR, from untyped-single-const fix)
+- **Symptom**: `var x int = A; const A = B; const B = 1.5` is accepted with NO error (reviewer-verified probe); reversed order correctly errors. The pass-1 placeholder for a NON-literal initializer is a value-less untyped-int (untypedConstPlaceholder fall-through), which AssignableTo treats as assignable to any int with the fit-check skipped — so a forward use sees int, not the const's real (float/out-of-range) type. Trades a loud `undefined` for a silent missed type error.
+- **Root cause**: untypedConstPlaceholder returns value-less untyped-int for non-literal initializers; AssignableTo skips the fit-check for value-less untyped-int.
+- **Fix**: for a non-literal untyped single const, either defer registration (don't forward-register at all, restoring the loud error) or carry a placeholder that AssignableTo won't silently accept. Also: int-literal placeholder uses parseIntLiteral (host-int, no overflow guard) vs pass-2 bignum — a >host-int literal gets a wrapped placeholder magnitude. **Test**: checker unit (expectError, known-gap).
+
+#### M7 — &f()[i] / &a[i][j] still wild-pointer SIGSEGV (MAJOR, pre-existing, &slice[i] incompleteness)
+- **Symptom**: `&get()[1]` (call base) and `&a[i][j]` (nested-index base) compile then SIGSEGV (reviewer). genIndexPtr only handles e.X.Kind IDENT/SELECTOR; other bases return nil → genUnary falls through to the r-value wild-pointer path (gen_expr.bn:177). Pre-existing (not a regression), untracked.
+- **Fix**: handle call/nested-index bases in genIndexPtr (materialize the base slice to a temp, GEP), or reject &<non-addressable-base>[i]. **Test**: conformance xfail.
+
+#### Minor follow-ups (adversarial review 2026-06-06)
+- bool-logic (`&&`/`||`/`!`) const-folding has no test (only `<`/`>` covered).
+- REPL parked-member + iota-repeat: a bare member after a PARKED explicit member gets plain iota (prevExpr not updated across the parked `continue`); GenConstMember has no iota-repeat. REPL-only.
+- coerceScalarWidth / ensureWidth emit an OP_CAST to a TYP_NAMED float target that codegen's float-float cast doesn't match (named-float type mis-lowering). Pre-existing, shared with var-init.
+- negative (`const N int = -2`) and div-by-zero (`[A/B]int`, B=0) array dims are silently length-0 / `alloca [-2 x …]` with no clean diagnostic.
+- bare iota-repeat member type uses the GROUP type, not the preceding explicit member's type (mixed-type groups).
+- stale comments: aarch64_fp.bn says D-regs at "offset 100" (actually 32); iota-repeat.bn says "Currently … PLAIN iota" (now fixed).
+
 ### ~~Native backends drop `binate_runtime.c` — every native program fails to link~~ — FIXED + LANDED 2026-06-05 (binate `1285683e`)
 - **Was**: every `builder-comp_native_aa64-comp_native_aa64` cell failed at link
   with `Undefined symbols for architecture arm64: "_bn_pkg__bootstrap__Write"`.
