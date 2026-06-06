@@ -182,11 +182,11 @@ Discovery Protocol) — most don't have one yet.
 - **Symptom**: `const N int = 3; type S struct { arr [N]int }; … s.arr passed to a [3]int param` is REJECTED `cannot assign [..] to [..]` (reviewer). Struct types resolve once in pass 1 (collectTypeDecl), where no const has HasConstVal yet, so evalConstInt's leniency returns 0 and [0]int sticks on Field.Type; the var path re-resolves in pass 2, struct fields don't. Codegen is fine (resolves independently) → false-positive rejection, not a miscompile.
 - **Fix**: resolve const values before struct-field layout (or re-resolve struct field array dims in pass 2). **Test**: checker unit + conformance.
 
-#### M4 — float const referencing only float consts → int 0 (MAJOR, from float-binary fix)
+#### M4 — float const referencing only float consts → int 0 — ✅ FIXED+LANDED (binate `c716ea0c`, 2026-06-06)
 - **Symptom**: `const C float64 = A + B` (A,B float consts, no float literal) → isFloatExpr false (literal-only) → integer evalConstExpr → lookupConst returns Val=0 for CONST_FLT entries → C registers CONST_INT 0 (reviewer). Checker accepts.
 - **Fix**: isFloatExpr should also recognize a const-ident operand whose const is float; or the shared classifier should consult the operand const kinds. **Test**: conformance xfail.
 
-#### M5 — iota inside a float CONST_EXPR re-lowers to 0 (MAJOR, narrow)
+#### M5 — iota inside a float CONST_EXPR re-lowers to 0 — ✅ FIXED+LANDED (binate `c716ea0c`, 2026-06-06)
 - **Symptom**: `const ( C float64 = 1.5*cast(float64,iota); D; E )` → 0.0,0.0,0.0 (reviewer). CONST_EXPR stashes only the AST, not the iotaVal; the read-site genExpr has no iota in scope → `iota` ident → EmitConstInt(0). Affects bare iota-repeat float members too.
 - **Fix**: capture iotaVal with the CONST_EXPR and bind it at the read site, or fold float-with-iota at gen time. **Test**: conformance xfail.
 
