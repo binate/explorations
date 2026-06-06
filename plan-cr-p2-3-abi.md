@@ -9,9 +9,7 @@
 - **3.2** aa64 non-8-multiple param/return — **LANDED** (binate 6bbea800)
 - **3.3b** x64 non-8-multiple param — **LANDED** (binate 6bbea800; shared ArgWords ceil fix)
 - **3.1 / 3.7** >16-byte aggregate args through indirect calls (iface-method +
-  func-value shim) — fix implemented, verified XPASS on builder-comp /
-  builder-comp-comp / builder-comp-comp-comp + full builder-comp 0-fail;
-  awaiting landing approval (binate worktree 265ed067).
+  func-value shim) — **LANDED** (binate 3892e7d1)
 - **3.3a, 3.4, 3.5, 3.6, 3.8** — open (see Sequencing).
 
 ## Summary
@@ -24,9 +22,18 @@ Two structural fixes cover the majority. STRUCTURAL FIX 1 (native word-count): r
 
 ## Defects
 
-### 3.1 >16-byte struct passed by value through an indirect call SIGSEGVs on LLVM (iface-method + func-value)
+### 3.1 >16-byte struct passed by value through an indirect call SIGSEGVs on LLVM (iface-method + func-value) — LANDED 2026-06-05 (binate 3892e7d1)
 
-**CRITICAL · CONFIRMED**
+**CRITICAL · CONFIRMED · FIXED**
+
+> Both indirect paths (emitCallIfaceMethod, the func-value shim's underlying
+> call) now reconstruct the call through writeParamTypeLLVM /
+> writeByvalArgPreamble so a >16-byte aggregate arg is passed as `ptr`,
+> matching the callee's byval declaration; emit_debug.bn hoists the
+> iface-method `.bv<i>` allocas. Un-xfailed funcval-param/three-int and
+> iface-param/three-int on the 3 LLVM-final modes (arm32 stays — 3 int
+> fields are 12 bytes at ILP32, below the >16 threshold). emit_call_handle.bn
+> left as-is (no user-expressible aggregate-arg surface).
 
 - **Root cause**: The indirect-call dispatch shapes reconstruct the call/underlying signature with bare llvmType(argInstr.Typ), never applying the byval/ptr aggregate convention the direct path AND the callee declare. (1) emitCallIfaceMethod (pkg/binate/codegen/emit_iface_call.bn:96-101 signature bitcast, :136-142 call args) passes a >16B struct arg by-value as `%StructType`, while the thunk param is emitted by writeParamTypeLLVM (emit_util.bn:316-335) as plain `ptr` — caller passes a value where callee reads a pointer -> wild deref -> SIGSEGV. (2) The func-value shim's underlying call (emit_funcvals_shim.bn:77-81 and :215-219) loads the i8* arg back to a value and passes it by-value as `llvmType(pt) %a_v`, while the underlying @<mangled> declares that param as plain `ptr` via writeParamTypeLLVM — same value-vs-pointer mismatch. The direct path is correct because emitCall routes through writeByvalArgPreamble/writeByvalArgLLVM (emit_call.bn:49,94; emit_util.bn:367-449) which spill to an entry alloca and pass plain `ptr`. Threshold isByvalParam>16 (emit_util.bn:290-306) matches needsSret/AggregateInRegMax.
 - **Fix shape**: Make the iface-method signature/arg emission and the func-value shim's underlying-call emission reuse the SAME aggregate-arg decision as the direct path. For emitCallIfaceMethod: where it writes the bitcast signature arg types (lines 96-101) and the actual call args (136-142), branch on isByvalParam(argInstr.Typ): emit `ptr` in the signature and spill+pass `ptr %slot` (mirror writeByvalArgPreamble/writeByvalArgLLVM; allocas hoisted by the emitFuncDbg pre-pass like emitIfaceMethodSretAllocDecl already does for the sret buffer). For emit_funcvals_shim.bn underlying-call arg list (lines 77-81, 215-219): when the underlying param isByvalParam, pass the already-loaded aggregate via a `ptr` to the spill slot (or pass the incoming i8* through directly) instead of `llvmType(pt) %a_v` by-value — match writeParamTypeLLVM's `ptr` for the underlying. emit_call_handle.bn:89,116 has the same structural bare-llvmType pattern but per the todo `handle` has no user-expressible aggregate-arg surface (OP_CALL_HANDLE is internal single-pointer dtor/free dispatch) — fix it for consistency or leave with a note; do NOT treat it as a confirmed live defect.
@@ -93,9 +100,15 @@ Two structural fixes cover the majority. STRUCTURAL FIX 1 (native word-count): r
 - **Files**: `pkg/binate/native/x64/x64_call.bn (emitCall — AL=vector-count)`; `pkg/binate/native/aarch64/aarch64_call.bn (emitCall — variadic float stack-pass under VariadicStackOnly)`; `pkg/binate/native/common/common_callconv.bn (V-variant helpers — may need a float-aware variant)`
 - **Tests**: covered: conformance/regressions/c-call/printf-variadic-float (xfailed builder-comp_native_aa64, both x64 modes, plus VM + arm32 like all __c_call cells; correct on LLVM comp). printf-variadic-int passes the natives (isolates it to float). GAP: >8 float args (NSRN exhaustion, both natives, §3.9 MINOR) not covered.
 
-### 3.7 Interface dispatch drops the trailing scalar after a multi-word by-value arg (== the '2-word raw-slice param's len dropped through iface vtable' CRITICAL)
+### 3.7 Interface dispatch drops the trailing scalar after a multi-word by-value arg (== the '2-word raw-slice param's len dropped through iface vtable' CRITICAL) — LANDED 2026-06-05 (binate 3892e7d1)
 
-**MAJOR · CONFIRMED**
+**MAJOR · CONFIRMED · FIXED**
+
+> Same structural fix as 3.1: emitCallIfaceMethod routes the byval arg
+> through writeByvalArgPreamble so a >16-byte by-value arg occupies one
+> `ptr` slot instead of spilling across registers and shifting the trailing
+> scalar. 598_iface_dispatch_multiword_arg un-xfailed on the 3 LLVM-final
+> modes.
 
 - **Root cause**: An interface method whose params include a multi-word BY-VALUE arg (a struct with managed fields, or a @[]T managed-slice narrowed to a 2-word *[]T) followed by a scalar drops the scalar through vtable dispatch on LLVM/native (VM correct). emitCallIfaceMethod (emit_iface_call.bn) reconstructs the call signature and arg list from the arg INSTRUCTIONS' LLVM types (bare llvmType(argInstr.Typ), lines 96-101 and 136-142) rather than from the interface method's DECLARED param types. coerceArg narrows @[]T->*[]T (2-word) correctly, but a struct-by-value or any natively >=2-word by-value arg occupies more LLVM register slots than the thunk expects, SHIFTING the trailing scalar -> read as 0. The todo's '2-word raw-slice param len dropped through iface vtable' CRITICAL is the same defect filed under this 598 title (the @[]int/raw-slice-param half); the 'len word' framing = the second word of a 2-word slice shifting subsequent args. NOTE: this is distinct from but related to the CRITICAL >16B SIGSEGV — same emitter, same bare-llvmType root; the >16B case crashes (value vs pointer), this case silently shifts (multi-word value vs the thunk's ABI).
 - **Fix shape**: Same structural fix as the CRITICAL SIGSEGV: emitCallIfaceMethod must reconstruct the thunk signature and pass each arg with the SAME ABI the impl method declares — route aggregate/multi-word by-value args through the byval/ptr (or correct multi-register) convention writeParamTypeLLVM/writeByvalArgLLVM use, matching what the VM already does. Fixing the >16B SIGSEGV via the shared byval path should also fix the <=16B multi-word-shift case if the arg-slot accounting is derived from the declared param ABI rather than the arg instruction's incidental LLVM type. Verify the <=16B struct-with-managed-field and the 4-word @[]T-param cases specifically (they don't cross the >16B byval threshold but still shift).
