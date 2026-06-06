@@ -3,6 +3,14 @@
 > One of four disjoint code-red P2 work plans (partition in `plan-code-red-p2.md`).
 > Source-confirmed: each defect cites root cause, fix shape, files, and test status.
 > Defect details are tracked in `claude-todo.md`; this plan is the execution view.
+>
+> **COMPLETE (binate `1cb4490c`).** All six defects + the §3.4 INDEX-ordering
+> defect landed across steps 1–6 below. One follow-up remains, gated on a BUILDER
+> bump: revert the `MethodParamsFlat` `@[]@types.Type` workaround now that the
+> defect-2.5 mangler fix is in (a bnc rebuilt from this fix accepts the natural
+> nested encoding). The captured-@func native↔VM trampoline (Class 7) refcount
+> balance is not expressible in the single-mode conformance harness — also a
+> follow-up.
 
 ## Status (execution progress)
 
@@ -52,10 +60,18 @@
   focused depth tests rather than a full new matrix; the one genuine gap — a
   single-program captured-@func native↔VM trampoline (Class 7) — is NOT
   expressible in the single-mode conformance harness (noted for follow-up).
-- **Step 6 — defects 4+5 (dtor-name injectivity)**: not started. Defect 2.5's
-  mangler fix must NOT revert the `MethodParamsFlat` `@[]@types.Type` workaround
-  in the same commit (the running BUILDER still has the bug; only a rebuilt bnc
-  has the fix).
+- **Step 6 — defects 4+5 (dtor-name injectivity)**: LANDED (binate `fddf8676`
+  + `1cb4490c`). Defect 4: injective `iv` / `fv` dtor/copy suffixes in
+  dtorTypeSuffix (the @Iface / @func element bodies are type-independent, so one
+  constant suffix each suffices) — fixes the `__dtor_ms_unknown` collision when a
+  module has both @[]@I and @[]@func (`606`). Defect 5: `elemDtorName` /
+  `elemCopyName` — a managed-slice / array element dtor/copy is called by its
+  LOCAL weak_odr name (matching ensureMsDtor/ensureArrayDtor), only struct-by-
+  value elements stay package-qualified — fixes the cross-package @[]@[]@T
+  nested-element "use of undefined value" (`607`). Mangler fix only; the
+  `MethodParamsFlat` `@[]@types.Type` workaround is NOT reverted (running BUILDER
+  still has the bug — follow-up for the next BUILDER bump). Full builder-comp
+  green (818/0, then 819/0).
 
 ## Summary
 
