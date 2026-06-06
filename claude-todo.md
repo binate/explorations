@@ -70,6 +70,53 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   arrays support it and raw pointers are the documented hot-path escape, so
   emitting the address is the intended fix.)
 
+### A 2-word raw-slice (`*[]readonly T`) param's `len` word is dropped through an interface vtable call — CONFIRMED wrong-code, BOTH backends
+- **Symptom**: an interface method taking a 2-word raw slice by value
+  (`Put(s *[]readonly char) int`), called through an interface value
+  (`snk.Put("HELLO")`), receives the slice with its DATA pointer intact but its
+  **`len` word corrupted**: `len(s)` inside the method reads **garbage (a stale
+  register, e.g. 397) compiled / `0` interpreted** instead of the true length. A
+  downstream `bootstrap.Write(fd, s)` then over-writes adjacent static memory
+  (compiled) or writes nothing (interpreted). Only the trailing (len) word is
+  lost; the data pointer survives.
+- **Scope**: BOTH backends — native LLVM (garbage len) AND the bytecode VM (len
+  0). A `@func(*[]readonly char) int` value with the IDENTICAL signature passes
+  the same 2-word slice **correctly in both modes** (verified), and a
+  direct/static call is correct — so it is specifically the **interface vtable
+  thunk** arg path for a 2-word raw-slice param.
+- **Distinct from the two sibling dispatch-ABI bugs**:
+  - vs `598` ("trailing scalar dropped after a multi-word by-value arg"): `598`
+    is native-only, needs a ≥3-word arg FOLLOWED by a scalar, and explicitly
+    states a 2-word raw slice "the ABI passes correctly" and the VM is correct.
+    This case is a single 2-word slice param (no following scalar), loses the
+    slice's OWN trailing word, and fails in the VM too — so `598`'s "2-word raw
+    slice / VM unaffected" scope note is INCOMPLETE.
+  - vs ">16-byte struct through an indirect call SIGSEGVs (LLVM)": that is a
+    >16-byte memory-class aggregate, affects BOTH the iface AND function-value
+    paths, and is LLVM-only. This case is a 16-byte (2-word) slice, affects the
+    iface vtable ONLY (func-value is clean), and hits BOTH backends.
+  All three may share a root (vtable/indirect-call arg marshalling reconstructing
+  the wrong param layout) or be siblings; the fixer should reconcile them.
+- **Test**: NEEDS a conformance test — an interface method
+  `Put(s *[]readonly char) int { return len(s) }` invoked through the interface
+  for known literals, asserting the returned length. Both backends fail → xfail
+  all 6 default modes. Staged at `/tmp/minbasic-staging/iface_slice_len.bn`;
+  pending approval to land on main.
+- **Discovery**: 2026-06-05, building the minbasic example's injected
+  `io.ConsoleOut.Write(s *[]readonly char)` (M0): output over-wrote (compiled) /
+  was empty (interpreted). Minimal-probe-isolated to the iface-vtable slice-arg
+  path; `@func`/direct calls are clean. Confirmed against `bnc-0.0.7`.
+- **Why CRITICAL**: a 2-word slice (a string!) param is the single most common
+  interface-method shape; this silently corrupts it in BOTH backends. It blocks
+  the minbasic example's dependency-injected I/O (the correct design) and any
+  interface method that takes a slice/string. (minbasic advances meanwhile via a
+  clearly-marked `@func`-writer temp; the `io.ConsoleOut` interface is the
+  documented target, swapped in once this is fixed + released.)
+- **Fix**: pass a 2-word raw-slice by-value param through the interface vtable
+  thunk as the full {data,len} pair the impl method's ABI expects (match what the
+  `@func` and static paths already do), in BOTH codegen (`emit_iface_call.bn`
+  signature reconstruction) and the VM's vtable-thunk arg marshalling.
+
 ### Sub-word arithmetic results not narrowed in the VM (and natives) — dirty upper bits → wrong values — CONFIRMED
 - **Symptom**: a sub-word integer op (`uint8/16/32` add/mul/…) whose true result
   overflows the width leaves the un-narrowed value in the host register; a
@@ -579,6 +626,11 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   further dispatch coverage the review listed: iface-value arg (move vs RefInc),
   managed-slice RETURN through dispatch, iface-wrap/upcast args, and a multi-
   return-iface-dispatch deferral-lock (`.error`).
+- **Scope note (2026-06-05)**: the "2-word raw slice passes correctly / VM
+  correct" claim above is INCOMPLETE — a `*[]readonly T` param's `len` word IS
+  dropped through the vtable in BOTH backends (the VM too). See the separate
+  CRITICAL entry "A 2-word raw-slice (`*[]readonly T`) param's `len` word is
+  dropped through an interface vtable call".
 
 ### A `@[]@[]@T` (managed-slice-of-managed-slice) STRUCT FIELD emits a reference to an undefined nested cross-package element dtor — LATENT
 - **Symptom**: adding a struct field of type `@[]@[]@types.Type` to a struct in
