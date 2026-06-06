@@ -1323,8 +1323,9 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 ### Divide-by-zero / mod-by-zero must panic (DEFINED) + `unsafe_div`/`unsafe_rem` — RATIFIED, impl pending
 - **Implementation plan**: `plan-divide-by-zero.md` (standalone P2 work item,
   pulled out of Plan 4 — 2026-06-05). Source-confirmed against the
-  `OP_BOUNDS_CHECK` template; one open decision for the user (the `rt.DivCheck`
-  signature — design A vs B for the width-dependent `MIN/-1` check).
+  `OP_BOUNDS_CHECK` template. The one open decision is settled: `rt.DivCheck`
+  uses **design B** (user, 2026-06-05) — `DivCheck(dividend int64, divisor
+  int64, signedMin int64, isSigned int)`, all compare logic in the runtime.
 - **Decision (2026-06-04)**: integer `/` and `%` are CHECKED like array
   subscripting — a zero divisor OR the signed `MIN/-1` overflow is a
   DEFINED runtime panic on all four backends (today it is accidental:

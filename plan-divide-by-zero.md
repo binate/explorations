@@ -75,7 +75,7 @@ runtime check therefore only ever fires for **non-constant** operands.
 **Concern 1 — `OP_DIV_CHECK` + guard emission.**
 `ir.bni`: add `OP_DIV_CHECK` near `OP_BOUNDS_CHECK` (:143), documented `panic if Args[1]==0 || (signed && Args[0]==MIN && Args[1]==-1)`; drop the "not yet implemented" note on `OP_DIV`/`OP_REM`. `ir_ops.bn`: add `EmitDivCheck(dividend, divisor, typ)` mirroring `EmitBoundsCheck` (set `instr.Typ=typ` so backends read `Typ.Signed`/`Typ.Width`) + op-name string. `gen_binary.bn:90`: before the final `EmitBinop`, when `op` is `OP_DIV`/`OP_REM` and `resultTyp` is integer, emit `EmitDivCheck(lhs, rhs, resultTyp)` — one site covers `/`, `%`, `/=`, `%=`.
 
-**Concern 2 — runtime `rt.DivCheck`.** In both `impls/core/{libc,baremetal}/pkg/builtins/rt/rt.bn`, add `DivCheck` + `DivFail` mirroring `BoundsCheck`/`BoundsFail`. The MIN value is type-dependent (`int8` MIN ≠ `int64` MIN), so a width-agnostic `int` runtime can't hold a fixed MIN. **Recommended design (B)**: `DivCheck(dividend int64, divisor int64, signedMin int64, isSigned int)` — backend passes sign/zero-extended operands + the type's `MIN` constant (from `Typ.Width`) + a signed flag; runtime does `if divisor==0 { DivFail(0) }; if isSigned!=0 && dividend==signedMin && divisor==-1 { DivFail(1) }`. Keeps all compare logic in one place (the bounds-check shape). `DivFail(0)` prints `runtime error: integer divide by zero`; `DivFail(1)` prints `runtime error: integer overflow (MIN / -1)`; both `Exit(1)`.
+**Concern 2 — runtime `rt.DivCheck`.** In both `impls/core/{libc,baremetal}/pkg/builtins/rt/rt.bn`, add `DivCheck` + `DivFail` mirroring `BoundsCheck`/`BoundsFail`. The MIN value is type-dependent (`int8` MIN ≠ `int64` MIN), so a width-agnostic `int` runtime can't hold a fixed MIN. **Design B — DECIDED (user, 2026-06-05)**: `DivCheck(dividend int64, divisor int64, signedMin int64, isSigned int)` — backend passes sign/zero-extended operands + the type's `MIN` constant (from `Typ.Width`) + a signed flag; runtime does `if divisor==0 { DivFail(0) }; if isSigned!=0 && dividend==signedMin && divisor==-1 { DivFail(1) }`. Keeps all compare logic in one place (the bounds-check shape). `DivFail(0)` prints `runtime error: integer divide by zero`; `DivFail(1)` prints `runtime error: integer overflow (MIN / -1)`; both `Exit(1)`.
 
 **Concern 3 — backend lowering of `OP_DIV_CHECK` (one call each).** Each backend reads `ins.Typ`, computes the signed-`MIN` immediate, sign/zero-extends operands to 64-bit, emits a 4-arg call:
 - **LLVM** `emit_instr.bn` (next to :397): `call void @bn_pkg__builtins__rt__DivCheck(i64, i64, i64, i32)` with `sext`/`zext` to `i64`; extern auto-declared from imports like `BoundsCheck` (`emit.bn:176-181`).
@@ -103,13 +103,13 @@ runtime check therefore only ever fires for **non-constant** operands.
 
 ## Risks / open questions
 
-1. **MIN/-1 detection design — the one real decision (needs user confirm).**
-   Design **B** (parameterize `rt.DivCheck` by type-`MIN` + signed flag; 4-arg
-   call; all compare logic in the runtime — the bounds-check shape) is
-   recommended. Design **A** (compute predicates inline in each of 4 backends,
-   thinner runtime) spreads compare logic across backends. **B** is the
-   structural twin of `BoundsCheck`; confirm before the worker commits to
-   `rt.DivCheck`'s signature (it's a new runtime ABI).
+1. **MIN/-1 detection design — DECIDED (user, 2026-06-05): design B.**
+   `rt.DivCheck` is parameterized by the type-`MIN` + signed flag (4-arg call;
+   all compare logic in the runtime — the structural twin of `rt.BoundsCheck`).
+   The rejected design A (compute predicates inline in each of 4 backends,
+   thinner runtime) spread compare logic across backends. The worker implements
+   the signature `rt.DivCheck(dividend int64, divisor int64, signedMin int64,
+   isSigned int)`.
 2. **Per-type MIN** is `-2^(Width-1)`; IR-gen has `resultTyp.Width`/`.Signed` at
    `gen_binary.bn:90`, so the constant is computed at lowering time. Unsigned
    types get only the zero-check (`isSigned` suppresses the overflow test).
