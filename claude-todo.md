@@ -232,7 +232,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   spec to hardware-masked / UB-on-overshift (cheaper, matches C/hardware) — was
   considered and rejected in favour of keeping the documented Go-style guarantee.
 
-### Managed struct `@func` fields: stale `ctx.CurBlock` after a block split → malformed IR — ROOT-CAUSED + FIX READY (binate work-3 `42702d19`, pending land)
+### Managed struct `@func` fields: stale `ctx.CurBlock` after a block split → malformed IR — FIXED + LANDED 2026-06-06 (binate `47d05c81`)
 - **Symptom**: a managed struct holding `@func` fields crashes — compiled SIGTRAPs
   (rc 133, no output), interpreted aborts `vm: func_value_dtor on nil fv address`
   (the `fvAddr == 0` "IR-gen bug — fatal" branch in `vm_exec_iface.bn`). NOTE: this
@@ -263,13 +263,22 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   Covered by `conformance/634_funcref_managed_field_seq` (basicSession-shaped: inline
   `@func`-bearing struct field + sibling `@func`, all assigned from function
   references; prints `1 2 1 2 7 42`, crashed rc 133 / vm-fatal before the fix).
-  Committed binate work-3 `42702d19` (fix + test); pending cherry-pick to main.
-- **Follow-up (broader gap, not yet addressed)**: this whole class — a `ctx.CurBlock`
-  desync in *any* codegen path after a block split — is invisible to output/refcount
-  conformance tests (they only see the end result, if the program survives at all). An
-  IR verifier pass (one terminator per block, no orphaned/unreachable blocks, SSA uses
-  dominated by defs) run in CI would catch the class at the source. See the test-matrix
-  gap note for this bug.
+  Landed binate `47d05c81` (fix + test).
+- **Sibling instance (found by adversarial review, also FIXED + LANDED)**: the same
+  `ctx.CurBlock`-desync class was live in `genMultiAssign`'s SELECTOR arm
+  (`gen_assign_multi.bn`) — a multi-assign whose earlier target is a managed
+  `@func`/`@Iface` IDENT (block-splitting old-value RefDec) and a later target is a
+  selector silently DROPPED the selector store and every statement after the
+  multi-assign (`f, h.n = twoFI()` printed nothing pre-fix; `11`/`5` after). Root
+  cause: `genSelectorPtr` (unlike `genExpr`) does not sync `ctx.CurBlock`, so the
+  arm's `b = ctx.CurBlock` reverted to the stale block. Fixed by re-syncing
+  `ctx.CurBlock = b` per target. Landed binate `2f507f26` + `conformance/641`.
+- **Follow-up (broader gap)**: this whole class — a `ctx.CurBlock` desync in *any*
+  codegen path after a block split — is invisible to output/refcount conformance
+  tests (they only see the end result, if the program survives at all). An IR verifier
+  pass (one terminator per block, no orphaned/unreachable blocks, SSA uses dominated
+  by defs) would catch the class at the source. **IN PROGRESS** (design + critique
+  underway, 2026-06-06) — motivated directly by the genMultiAssign sibling above.
 
 ### ~~Compiled program leaks native stack per loop iteration for a default-init managed local~~ — FIXED + LANDED 2026-06-06 (binate `2411295c`)
 - **Was**: a *compiled* program declaring a default-init managed local
