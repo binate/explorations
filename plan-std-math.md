@@ -60,10 +60,15 @@ outputs **bit-for-bit**, reusing Go's test vectors.
   `conformance/regressions/cmp-literal-left-signedness`. Also surfaced and filed
   in `claude-todo.md` (separate, pre-existing): nested arrays `[N][M]T`
   mis-compiled, and a cross-module global-struct-type decl gap.
-- **Next**: Phase 4 (trig: `Sin`/`Cos`/`Tan`, `Asin`/`Acos`/`Atan`/`Atan2`,
-  `Sinh`/`Cosh`/`Tanh` + inverse hyperbolic), then Phase 5 tail (`Gamma`/
-  `Lgamma`, `Erf`, Bessel, `FMA`, `Nextafter`, `Ilogb`/`Logb`). The proven
-  porting pattern above carries over. Workflow note: a porting workflow works
+- **Phase 4 — trig + inverse + hyperbolic** — COMPLETE (all LANDED). `Sin`/`Cos`
+  (`9704f510`, with the Payne-Hanek `trigReduce` + `mul64`/`add64`/
+  `leadingZeros64` + the `mPi4` table for `|x|>=2**29`), `Tan` (`e756781f`),
+  `Atan`/`Atan2`/`Asin`/`Acos` (`0aec152e`), `Sinh`/`Cosh`/`Tanh` (`0aec152e`),
+  `Asinh`/`Acosh`/`Atanh` (`382577fa`). Small args bit-exact to Go; the
+  FMA-prone large-argument trig path asserts `<=1 ULP` (`nearULP`).
+- **Next**: Phase 5 tail (`Gamma`/`Lgamma`, `Erf`/`Erfc`, Bessel `J0`/`J1`/`Jn`/
+  `Y0`/`Y1`/`Yn`, `FMA`, `Nextafter`, `Ilogb`/`Logb`, etc.). The proven porting
+  pattern above carries over. Workflow note: a porting workflow works
   well (see the Tier-0 fan-out) BUT constrain agents to structured output only —
   one agent wrote scratch files into the main checkout, which had to be cleaned up.
 
