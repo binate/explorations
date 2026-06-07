@@ -19,7 +19,7 @@ outputs **bit-for-bit**, reusing Go's test vectors.
   bug (shift by count >= width was hardware-masked, not the spec's 0/sign-fill)
   — fixed in IR-gen `gen_binary.bn` (binate `32fde83d`), all backends. Surfaced
   by porting `math.RoundToEven`.
-- **Phase 3 — transcendentals** — IN PROGRESS. The exp/log core is LANDED:
+- **Phase 3 — transcendentals** — COMPLETE (all LANDED). The exp/log core:
   `Exp` (`4311098c`), `Log` (`696b1b5a`), and `Log2`/`Log10`/`Log1p` (`f0b9558a`)
   — all Go fdlibm ports. The FP-contraction bit-identity risk is **retired**:
   `Exp(1)==E`; `Log(e)`/`Log(2)`/`Log(10)`==`1`/`Ln2`/`Ln10`; powers of two/ten
@@ -45,13 +45,20 @@ outputs **bit-for-bit**, reusing Go's test vectors.
   aggregate, matching the selector arm; float globals emit `0.0`). A new
   `conformance/matrix/aggregate/` value-movement matrix (`bf185391`,
   `gen-aggregate-matrix.py`, 46 cells) is the systematic prevention — it fails 13
-  cells on the pre-fix compiler. Also surfaced (filed in `claude-todo.md`):
-  nested arrays `[N][M]T` mis-compiled, and a cross-module global-struct-type
-  decl gap.
-- **Next on resume**: `Exp2`/`Expm1`, then `Pow`. Workflow note: a porting
-  workflow works well (see the Tier-0 fan-out) BUT constrain agents to structured
-  output only — one agent wrote scratch files into the main checkout, which had
-  to be cleaned up.
+  cells on the pre-fix compiler. Porting `Pow` then surfaced a THIRD codegen
+  bug: a relational op with an untyped int literal on the LEFT against a signed
+  int lowered to an UNSIGNED compare (`5 < xe`, `xe==-1` → wrongly true), all
+  backends — fixed in binate `b54c9fdf` (IR-gen stamps the resolved concrete
+  type onto an untyped-int operand), pinned by
+  `conformance/regressions/cmp-literal-left-signedness`. Also surfaced and filed
+  in `claude-todo.md` (separate, pre-existing): nested arrays `[N][M]T`
+  mis-compiled, and a cross-module global-struct-type decl gap.
+- **Next**: Phase 4 (trig: `Sin`/`Cos`/`Tan`, `Asin`/`Acos`/`Atan`/`Atan2`,
+  `Sinh`/`Cosh`/`Tanh` + inverse hyperbolic), then Phase 5 tail (`Gamma`/
+  `Lgamma`, `Erf`, Bessel, `FMA`, `Nextafter`, `Ilogb`/`Logb`). The proven
+  porting pattern above carries over. Workflow note: a porting workflow works
+  well (see the Tier-0 fan-out) BUT constrain agents to structured output only —
+  one agent wrote scratch files into the main checkout, which had to be cleaned up.
 
 ## Ratified decisions (user, 2026-06-06)
 
