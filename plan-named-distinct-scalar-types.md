@@ -6,11 +6,13 @@ LLVM + shared type/IR-gen), `5b64b44a` (Phase 2: VM), `0ca49975`
 conformance green on every locally-runnable mode (builder-comp,
 builder-comp-int, native aa64, native x64-darwin) plus named_scalar
 green on the gen2/gen3 LLVM and VM-variant modes; e2e --verify-ir
-clean.  Conformance 646-652 are the permanent positive tests.  Two
-follow-ups remain: split aarch64_ops.bn / aarch64_emit.bn (pushed over
-the 500-line soft limit by the peels), and the named-scalar coverage on
-arm32 / x64-linux modes is unverified locally (no qemu / Linux
-toolchain) but shares the verified LLVM / x64 backends.
+clean.  Conformance 646-652 are the permanent positive tests.  The
+file-length follow-up is also done (binate `873d4720` split
+aarch64_ops.bn / aarch64_emit.bn — which the peels pushed over the
+soft limit — into aarch64_refcount.bn / aarch64_rodata.bn).  Remaining:
+named-scalar coverage on the arm32 / x64-linux modes is unverified
+locally (no qemu / Linux toolchain) but shares the verified LLVM / x64
+backends, so CI covers it.
 
 ## Problem
 
