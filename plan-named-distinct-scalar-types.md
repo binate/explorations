@@ -170,20 +170,105 @@ with a distinct Kind is unambiguous.
   (no closures/generics-in-new-code beyond what's already used; basic
   if/var/struct/for). The peels are trivial and BUILDER-safe.
 
-## Tests
+## Testing plan
 
-Add conformance (LLVM + VM + native where runnable) and unit tests:
-- named-float value: `type F32 float32; var x F32 = 1.5; cast(int, x)` → 1.
-- named-float arithmetic: `var a F32 = 1.5; var b F32 = 2.0; cast(int, a +
-  b)` → 3 (confirms float ops, not int).
-- named-scalar method call (int): `type Celsius int; (c Celsius)
-  Doubled()` → works (the currently-broken case).
-- named-scalar method call (float): `type Temp float32; (t Temp) Whole()`.
-- named-int regression: keep `044_distinct_type` green.
-- struct field / slice of a named scalar; cross-package named distinct
-  type with a method.
-- Run the FULL conformance matrix (all default modes + native) — this is a
-  central type-resolution change.
+The whole reason this gap went unnoticed: the only positive test for
+named distinct types, `044_distinct_type.bn`, exercises the **degenerate**
+case — a named-**int** *value*, no methods — which passes by luck because
+IR-gen's fallback for an unresolved named type IS `int`. The feature was
+never tested on a non-`int` underlying or beyond plain value use, so two
+whole capabilities (named-float layout, method dispatch) silently didn't
+work.
+
+The fix MUST ship with **positive conformance tests in the regular suite**
+(compile-run-compare-stdout, NOT xfail/regression markers once green) that
+cover the feature as a matrix of *underlying kind* × *operation*. The
+guiding principle: **never let a named-distinct test rest on the `int`
+underlying alone** — `int`-over-`int` is the one case that works without
+the feature. Every test should use at least one underlying that is NOT the
+default `int` (float32, float64, a sized/unsigned int, bool, char) so a
+regression to the fallback is caught.
+
+### Coverage matrix
+
+Underlying kinds to cover (the columns): `float32`, `float64`, `int8` /
+`uint8` (width + sign), `bool`, `char`. (`int` and `int64` are the
+"works-by-luck" baseline — include them only as a control, not as the sole
+coverage of any operation.)
+
+Operations on a named distinct scalar (the rows), each asserting correct
+runtime output:
+1. declare + initialize (`var x F = lit`), read back via `cast`.
+2. cast to and from the underlying (`cast(int, x)`, `cast(F, n)`); for
+   float, cast that actually loses precision (1.5 → int 1) so an
+   int-mislowering is visible.
+3. arithmetic (`+ - * /`) — the result must compute at the underlying's
+   kind/width, not int (e.g. named-float division `7.0/2.0` → 3.5, not 3).
+4. comparison (`< == >`).
+5. assignment and compound assignment (`x = y`, `x += y`).
+6. as a function parameter and return (incl. multi-return).
+7. as a struct field — read and write.
+8. as an array element and a managed-slice element — index read and write.
+9. `const` of the named type (`const C F = 1.5`).
+10. **methods** — value receiver AND pointer receiver, on a named-int and
+    a named-float type; plain `x.M()` calls. (This is the dispatch case
+    that is wholly broken today.)
+11. a named scalar satisfying an interface (named-scalar method set used
+    through an iface value), if that composition is supported.
+12. cross-package: an exported named distinct type used (value + method)
+    from an importing package.
+
+### Concrete conformance tests to add (numbers chosen at impl time)
+
+Group the matrix into a handful of focused programs (one concern each, so
+a failure points somewhere):
+- `NNN_named_scalar_float` — float32 + float64: decl/init, cast (with
+  precision loss), `+ - * /`, comparison. Would have caught symptom #1.
+- `NNN_named_scalar_methods` — value- and pointer-receiver methods on a
+  named-int AND a named-float type; direct calls. Would have caught
+  symptom #2 (and the latent named-int method breakage).
+- `NNN_named_scalar_aggregate` — named scalar as struct field, array
+  element, and managed-slice element (read + write each).
+- `NNN_named_scalar_func` — named scalar as param, single return, and
+  multi-return; pass through a chain.
+- `NNN_named_scalar_sized_int` — `type B uint8` / `type S int8`: width and
+  sign behavior (e.g. wrap / sign-extend on cast), distinct from `int`.
+- `NNN_named_scalar_const` — `const C F = 1.5` (named-float const) used in
+  an expression.
+- `NNN_named_scalar_xpkg/` (multi-pkg) — imported named distinct type:
+  value use + method call across the package boundary.
+- Keep `044_distinct_type` as the named-int-value control.
+
+These run automatically in **every conformance mode** (builder-comp,
+…-int, …-comp, native aa64 / x64-darwin, arm32) — which is exactly the
+multi-backend coverage the step-4 audit needs: a named-float method that
+works on LLVM but not the VM or aa64 will fail its cell.
+
+### Workflow (Bug Discovery Protocol)
+
+Add the positive tests FIRST, before the fix. They will fail on the
+unfixed compiler, so mark each with `.xfail.<mode>` for the modes where it
+fails (likely all). Implement the fix, then DELETE the xfail markers so
+they become permanent positive tests in the regular suite. The end state
+is positive coverage, not regression markers — the xfail is only the
+during-development bookkeeping that keeps the suite green mid-fix.
+
+### Unit tests (faster, pin the mechanism)
+
+- `pkg/binate/ir`: `resolveTypeExpr` on a registered named distinct scalar
+  returns `TYP_NAMED` with `.Underlying` set to the right scalar (not
+  `TypInt()`); an alias still returns the bare underlying.
+- `pkg/binate/codegen`: `llvmType` / `typeBits` on a `TYP_NAMED(float32)`
+  yield `"float"` / `32` (peel), and `emitCast` classifies a named-float
+  src/dst as float.
+- `pkg/binate/types`: confirm `SizeOf`/`AlignOf` already peel `TYP_NAMED`
+  (add a guard test if not).
+
+### Regression sweep
+
+Because this is a central type-resolution change, run the FULL conformance
+matrix (all default modes + native) and all unit-test packages before
+landing each phase — not just the new tests.
 
 ## Phasing (suggested commits)
 
