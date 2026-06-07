@@ -74,16 +74,24 @@ ops only. Place it as a sibling subtree (`conformance/matrix/<op>-diff/` or a
 
 ## Phasing
 
-1. **v1: shifts + conversions** — LANDED 2026-06-06 (binate `d89d14ba`,
+1. **v1: shifts + conversions** — LANDED 2026-06-06 (binate `0c43e0f3`,
    `conformance/gen-diff-scalar.py`, 41 cells / 1707 tuples, flavor A,
    self-checking). Oracle adversarially validated (5 spec-readers, all agree).
    Green on LLVM + arm32 baremetal; found two backend defects, xfailed + filed:
    VM `int→float32` (`vm-int-to-float32`) and native-aa64 sub-word narrowing
    (`aa64-subword`). int↔int casts and all shifts pass everywhere (the shift
    family is no longer red — `32fde83d` landed). See `claude-todo.md`.
-2. **v2: arithmetic + comparisons + bitwise**, same generator.
+2. **v2: arithmetic + comparisons + bitwise** — LANDED 2026-06-06 (binate
+   `42ad4fa0` fix + `e71de1e0` harness; now 123 cells / 5415 tuples). v2 itself
+   *found and fixed* a CRITICAL LLVM `~` (bitwise-complement) codegen bug
+   (`bitnot-result-type` — result type was hardcoded to `int`). `fcmp` pins the
+   ordered/unordered `==`/`!=` NaN semantics (built via `bit_cast`). Remaining
+   xfails are known-class: VM `bitwise/not` sub-word-unsigned; native-aa64
+   sub-word-signed `arith`/`bitwise`/`cmp`/`not` (`aa64-subword`). `fcmp/32`
+   un-xfailed at land time (the concurrent float32-compare fix `fc11d862`). See
+   `claude-todo.md`.
 3. **v3: port the generator to Binate** (dogfood) + consider flavor B for the
-   highest-volume ops; wire a fixed sample-size knob.
+   highest-volume ops; wire a fixed sample-size knob. — NOT STARTED.
 
 ## The broader net (context — this is one of four complementary layers)
 
