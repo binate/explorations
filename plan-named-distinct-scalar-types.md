@@ -1,8 +1,16 @@
 # Plan: Named distinct scalar types in IR-gen (`type F float32`)
 
-Status: PLANNED (2026-06-07). Tracked in claude-todo as the "named-float
-mis-lowering" minor-follow-up, which turned out to be a real IR-gen
-feature gap. Implement in a binate worktree; land through local main.
+Status: IMPLEMENTED + LANDED (2026-06-07) — binate `b43a0057` (Phase 1:
+LLVM + shared type/IR-gen), `5b64b44a` (Phase 2: VM), `0ca49975`
+(Phase 3: native aa64/x64).  All phases landed together on main; full
+conformance green on every locally-runnable mode (builder-comp,
+builder-comp-int, native aa64, native x64-darwin) plus named_scalar
+green on the gen2/gen3 LLVM and VM-variant modes; e2e --verify-ir
+clean.  Conformance 646-652 are the permanent positive tests.  Two
+follow-ups remain: split aarch64_ops.bn / aarch64_emit.bn (pushed over
+the 500-line soft limit by the peels), and the named-scalar coverage on
+arm32 / x64-linux modes is unverified locally (no qemu / Linux
+toolchain) but shares the verified LLVM / x64 backends.
 
 ## Problem
 
