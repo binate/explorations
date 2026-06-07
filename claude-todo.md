@@ -301,9 +301,13 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   positives. On its first run it caught a real pre-existing bug — `panic(...)` emitted
   a dead `OP_CONST_NIL` into the block `EmitPanic` had terminated, so the finalizer
   added a redundant `unreachable` (a two-terminator block on every panic-terminated
-  func); fixed in binate `b03d1f07` (return a detached const-nil). Remaining options
-  (user's call, not done): enable the assertion in CI / add a `--verify-ir` bnc flag;
-  add reachability (needs IR-gen to prune benign orphans first) / SSA-dominance.
+  func); fixed in binate `b03d1f07` (return a detached const-nil). **Enabled in CI**:
+  `cmd/bnc --verify-ir` (binate `b4312c0e`) flips `SetVerifyIR(true)`; a `verify-ir`
+  conformance-workflow job (binate `64fb2c19`) compiles the whole corpus with
+  `BINATE_FLAGS=--verify-ir` on builder-comp, so a malformed-IR regression fails CI at
+  IR-gen. Remaining (optional, user's call): the corpus job covers test-program IR but
+  not the compiler's own self-compiled IR (BINATE_FLAGS reaches only the test-compile
+  leg); add reachability (needs IR-gen to prune benign orphans first) / SSA-dominance.
 
 ### ~~Compiled program leaks native stack per loop iteration for a default-init managed local~~ — FIXED + LANDED 2026-06-06 (binate `2411295c`)
 - **Was**: a *compiled* program declaring a default-init managed local
