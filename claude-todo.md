@@ -302,12 +302,14 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   a dead `OP_CONST_NIL` into the block `EmitPanic` had terminated, so the finalizer
   added a redundant `unreachable` (a two-terminator block on every panic-terminated
   func); fixed in binate `b03d1f07` (return a detached const-nil). **Enabled in CI**:
-  `cmd/bnc --verify-ir` (binate `b4312c0e`) flips `SetVerifyIR(true)`; a `verify-ir`
-  conformance-workflow job (binate `64fb2c19`) compiles the whole corpus with
-  `BINATE_FLAGS=--verify-ir` on builder-comp, so a malformed-IR regression fails CI at
-  IR-gen. Remaining (optional, user's call): the corpus job covers test-program IR but
-  not the compiler's own self-compiled IR (BINATE_FLAGS reaches only the test-compile
-  leg); add reachability (needs IR-gen to prune benign orphans first) / SSA-dominance.
+  `cmd/bnc --verify-ir` (binate `b4312c0e`) flips `SetVerifyIR(true)`; the
+  `e2e/verify-ir.sh` test (binate `ff42d9ec`) builds gen1, then compiles the whole
+  toolchain — `cmd/{bnc,bni,bnas,bnlint}` + full dep closure (≈ the entire codebase,
+  incl. the compiler's own self-compiled IR) — with `--verify-ir`, so a malformed-IR
+  regression fails CI at IR-gen.  (An earlier conformance `verify-ir` job, `64fb2c19`,
+  covered only test-program IR via a redundant full-suite re-run and was dropped in
+  favor of the e2e test, `e6fdb3f8`.)  Remaining (optional): add reachability (needs
+  IR-gen to prune benign orphans first) / SSA-dominance to the verifier itself.
 
 ### ~~Compiled program leaks native stack per loop iteration for a default-init managed local~~ — FIXED + LANDED 2026-06-06 (binate `2411295c`)
 - **Was**: a *compiled* program declaring a default-init managed local
