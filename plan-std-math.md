@@ -66,11 +66,21 @@ outputs **bit-for-bit**, reusing Go's test vectors.
   `Atan`/`Atan2`/`Asin`/`Acos` (`0aec152e`), `Sinh`/`Cosh`/`Tanh` (`0aec152e`),
   `Asinh`/`Acosh`/`Atanh` (`382577fa`). Small args bit-exact to Go; the
   FMA-prone large-argument trig path asserts `<=1 ULP` (`nearULP`).
-- **Next**: Phase 5 tail (`Gamma`/`Lgamma`, `Erf`/`Erfc`, Bessel `J0`/`J1`/`Jn`/
-  `Y0`/`Y1`/`Yn`, `FMA`, `Nextafter`, `Ilogb`/`Logb`, etc.). The proven porting
-  pattern above carries over. Workflow note: a porting workflow works
-  well (see the Tier-0 fan-out) BUT constrain agents to structured output only —
-  one agent wrote scratch files into the main checkout, which had to be cleaned up.
+- **Phase 5 — tail** — COMPLETE (all LANDED): `Nextafter`/`Logb`/`Ilogb`
+  (`32af74f6`), `FMA` (`0b2e0ad9`, a software single-rounding fused multiply-add
+  built on `mul64`/`add64`/`leadingZeros64`), `Erf`/`Erfc` (`d7675ece`), `Gamma`
+  (`c54d4ffd`), `Lgamma` (`6471c6bb`), `J0`/`Y0`/`J1`/`Y1` (`64230724`), `Jn`/`Yn`
+  (`3f69e8b4`). The polynomial-heavy `Lgamma`/Bessel functions are the first to
+  exercise the `<=1 ULP` FMA policy (`nearULP`); the rest are bit-exact to Go.
+- **DONE**: the float64 Go `math` package is fully ported (115 tests in
+  `pkg/std/math`, green on LLVM gen1/gen2, the VM, and native aa64). Phase 5 was
+  built via a parallel research workflow (one agent per group returning Go source
+  + machine-generated bit-exact reference vectors + an idiom-aware draft +
+  Binate-gotcha notes; agents return structured data only — no file writes — and
+  I implemented/tested/landed each group sequentially).
+- **Possible follow-ups** (not started): a hardware `Sqrt`/`FMA` intrinsic; using
+  `math.FMA` to match Go's compiler fusion exactly where desired (the `<=1 ULP`
+  cases); `Erfinv`/`Erfcinv`; the float32 `Float32bits`/`Float32frombits` helpers.
 
 ## Ratified decisions (user, 2026-06-06)
 
