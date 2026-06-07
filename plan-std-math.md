@@ -21,11 +21,18 @@ outputs **bit-for-bit**, reusing Go's test vectors.
   by porting `math.RoundToEven`.
 - **Phase 3 — transcendentals** — COMPLETE (all LANDED). The exp/log core:
   `Exp` (`4311098c`), `Log` (`696b1b5a`), and `Log2`/`Log10`/`Log1p` (`f0b9558a`)
-  — all Go fdlibm ports. The FP-contraction bit-identity risk is **retired**:
-  `Exp(1)==E`; `Log(e)`/`Log(2)`/`Log(10)`==`1`/`Ln2`/`Ln10`; powers of two/ten
-  are exact under `Log2`/`Log10`; `Log1p(tiny)==tiny` — all bit-for-bit on LLVM
-  (gen1/gen2), the VM, and native-aa64 (plain fmul/fadd at -O2 don't fuse, even
-  the FMA-prone `Log(frac)*Log2E+exp`). `Log2E`/`Log10E` are bit-identical to
+  — all Go fdlibm ports. **Cross-backend** bit-identity holds (LLVM gen1/gen2,
+  VM, native-aa64 all agree — none of Binate's backends fuse): `Exp(1)==E`;
+  `Log(e)`/`Log(2)`/`Log(10)`==`1`/`Ln2`/`Ln10`; powers of two/ten exact under
+  `Log2`/`Log10`; `Log1p(tiny)==tiny`. **Binate-vs-Go bit-identity does NOT fully
+  hold**, though: the Go compiler fuses `a*b+c` into an FMA on amd64/arm64 while
+  Binate is non-fused IEEE (no FMA intrinsic — Phase 5), so a handful of inputs
+  differ by ONE ULP (first caught by `Tan(1e15)`/`Tan(1e20)`; the earlier
+  "FP-contraction retired" claim was luck — those test values happened to round
+  the same). Ratified policy (2026-06-06): FMA-sensitive value tests assert
+  `<=1 ULP` vs Go (`nearULP`), not a bit-exact pin — FMA is typically the more
+  accurate/faster, and this leaves room to adopt FMA later. `Log2E`/`Log10E` are
+  bit-identical to
   Go's full-precision `1/Ln2`/`1/Ln10`, so the reciprocals are precomputed
   consts, never runtime division of the rounded `Ln2`/`Ln10`. The proven pattern:
   package-level `<fn>`-prefixed magic-constant consts (reuse shared fdlibm
