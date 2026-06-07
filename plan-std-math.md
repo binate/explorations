@@ -78,9 +78,31 @@ outputs **bit-for-bit**, reusing Go's test vectors.
   + machine-generated bit-exact reference vectors + an idiom-aware draft +
   Binate-gotcha notes; agents return structured data only — no file writes — and
   I implemented/tested/landed each group sequentially).
+- **Adversarial correctness review (2026-06-07) — NO bugs found.** Two prongs:
+  (1) a parallel code audit (workflow, 14 agents over 13 function-groups, each
+  finding adversarially verified) found ZERO structural bugs — coefficients,
+  polynomial association, shift-precedence sites, special-case ladders, and
+  branch thresholds all matched Go (the one finding, a `Modf` signaling-NaN
+  payload, was refuted: neither Go's spec/test nor Binate pins the NaN payload;
+  clean over 2M random bit patterns). (2) a differential numerical sweep (251
+  random + boundary + edge inputs × 34 functions) vs Go and an
+  arbitrary-precision (mpmath) oracle: 29/34 functions agree with Go to `<=1 ULP`
+  everywhere; the other 5 (`Tan`, `Gamma`, `J0`, `Y0`, `Y1`) exceed 1 ULP ONLY
+  on ill-conditioned inputs (near a zero/pole or via a long Horner chain), max
+  ~30-42 ULP (`Y0(0.9)`, beside its zero at 0.894). The mpmath check confirms
+  these are NOT bugs but the FMA accuracy gap amplified by cancellation — the
+  fdlibm algorithm isn't correctly-rounded there even in Go (Go is 12 ULP off
+  the true `Y0(0.9)`; Binate 42). **Accuracy caveat**: with no FMA, Binate's gap
+  vs fused-Go can exceed 1 ULP near zeros/poles, so the ratified `<=1 ULP` policy
+  holds for the (well-conditioned) curated test inputs but is NOT universal;
+  closing it would mean using `math.FMA` in the hot polynomials of those
+  functions. (Debugging note: the conformance runner truncates the "actual"
+  output on a mismatch display — it briefly looked like a `Gamma` crash; built
+  and run directly, every program exits 0.)
 - **Possible follow-ups** (not started): a hardware `Sqrt`/`FMA` intrinsic; using
   `math.FMA` to match Go's compiler fusion exactly where desired (the `<=1 ULP`
-  cases); `Erfinv`/`Erfcinv`; the float32 `Float32bits`/`Float32frombits` helpers.
+  cases, and the ill-conditioned `Tan`/`Gamma`/Bessel inputs above);
+  `Erfinv`/`Erfcinv`; the float32 `Float32bits`/`Float32frombits` helpers.
 
 ## Ratified decisions (user, 2026-06-06)
 
