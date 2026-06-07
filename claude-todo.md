@@ -6,8 +6,21 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
-### A relational op with an untyped int literal on the LEFT and a signed int on the right uses an UNSIGNED comparison — silent wrong result, ALL backends — IN PROGRESS (fix underway 2026-06-06)
-- **Symptom**: `5 < xe` where `var xe int = -1` evaluates to **true** (`5 < -1` is
+### A relational op with an untyped int literal on the LEFT and a signed int on the right uses an UNSIGNED comparison — silent wrong result, ALL backends — FIXED 2026-06-06 (binate `b54c9fdf`)
+- **Fix**: `gen_binary.bn` (`genBinary`) now stamps the resolved concrete type
+  onto an untyped-int operand after `widenType`+`ensureWidth`.  `widenType`
+  already resolves an untyped operand to the other's concrete type, but
+  `ensureWidth` returns it unchanged at equal width, leaving it
+  `TYP_UNTYPED_INT` (Signed=false) — so every backend's relational lowering read
+  it as unsigned.  Stamping the concrete type fixes signed/unsigned selection on
+  all backends at once (and makes div/rem/shift with an untyped-literal operand
+  use the resolved signedness consistently).  Pinned by
+  `conformance/regressions/cmp-literal-left-signedness` (operand order ×
+  relational × signedness × width) across LLVM/VM/gen2/native; full builder-comp
+  conformance 1069/0.  `math.Pow` reverted to Go's faithful `4096 < xe`
+  (binate `f7d6446b`).  The systematic home for this class is the scalar
+  matrix's named-but-unbuilt "comparisons" axis (plan-differential-testing.md v2).
+- **Symptom (was)**: `5 < xe` where `var xe int = -1` evaluated to **true** (`5 < -1` is
   false).  An untyped integer literal on the LEFT of `<` / `<=` / `>` / `>=`,
   compared against a SIGNED `int` variable, emits an unsigned compare — so a
   negative signed value is read as a huge unsigned one.  Silent: no error, wrong
