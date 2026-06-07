@@ -286,12 +286,24 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   cause: `genSelectorPtr` (unlike `genExpr`) does not sync `ctx.CurBlock`, so the
   arm's `b = ctx.CurBlock` reverted to the stale block. Fixed by re-syncing
   `ctx.CurBlock = b` per target. Landed binate `2f507f26` + `conformance/641`.
-- **Follow-up (broader gap)**: this whole class — a `ctx.CurBlock` desync in *any*
-  codegen path after a block split — is invisible to output/refcount conformance
-  tests (they only see the end result, if the program survives at all). An IR verifier
-  pass (one terminator per block, no orphaned/unreachable blocks, SSA uses dominated
-  by defs) would catch the class at the source. **IN PROGRESS** (design + critique
-  underway, 2026-06-06) — motivated directly by the genMultiAssign sibling above.
+- **Follow-up (broader gap) — DONE + LANDED 2026-06-06**: this whole class — a
+  `ctx.CurBlock` desync in *any* codegen path after a block split — is invisible to
+  output/refcount conformance tests (they only see the end result, if the program
+  survives at all). A structural IR verifier now catches it at the source:
+  `VerifyFunc`/`VerifyModule` (binate `c899e33b`, `pkg/binate/ir/verify.bn`) check
+  per-block single-terminator-last + valid successors (the exact malformed shapes the
+  desync produces); wired into `genFunc` behind `SetVerifyIR` (off by default; binate
+  `4e78e28d`). Designed + adversarially critiqued (the critique excluded reachability
+  — IR-gen legitimately leaves benign orphaned `switch.exit`/`if.merge` blocks when
+  all arms return — and SSA dominance, as false-positive-prone / redundant for this
+  class). Shadow-validated with the assertion forced on over the whole conformance
+  corpus + gen2 self-compile in all three modes (1069/0, 1039/0, 1069/0): zero false
+  positives. On its first run it caught a real pre-existing bug — `panic(...)` emitted
+  a dead `OP_CONST_NIL` into the block `EmitPanic` had terminated, so the finalizer
+  added a redundant `unreachable` (a two-terminator block on every panic-terminated
+  func); fixed in binate `b03d1f07` (return a detached const-nil). Remaining options
+  (user's call, not done): enable the assertion in CI / add a `--verify-ir` bnc flag;
+  add reachability (needs IR-gen to prune benign orphans first) / SSA-dominance.
 
 ### ~~Compiled program leaks native stack per loop iteration for a default-init managed local~~ — FIXED + LANDED 2026-06-06 (binate `2411295c`)
 - **Was**: a *compiled* program declaring a default-init managed local
