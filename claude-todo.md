@@ -2176,46 +2176,40 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
     needed yet).
   - **Still open:** deleting `bootstrap.Itoa` itself.  Remaining caller is
     `cmd/bnc/gen_test_runner.bn` (emits a runner that formats pass/fail
-    counts) — **blocked on [A] below**: once `myInt.String()` works without
-    importing `lang`, the runner formats via `passed.String()`.  Then
+    counts) — **now unblocked** ([A] is done across all modes): the runner
+    can format via `passed.String()`, which resolves+links without the
+    runner importing `lang`, in both the compiled and VM test paths.  Then
     retire the extern plumbing (`vm/extern_register_std.bn`,
     `cmd/bni/externs.bn`), drop the definitions/declaration
     (`pkg/bootstrap.bni`, `pkg/bootstrap/bootstrap.bn`, the baremetal
     duplicate), and retire `conformance/064_bootstrap_funcs.bn` (exists
     only to test `bootstrap.Itoa`).  `conformance/321_struct_return_loop.bn`
     is already migrated — it uses `total.String()` (landed 2026-06-07).
-    (Interim `print(passed)` — formatting via the print builtin's
-    `bootstrap.formatInt` path — works today but was set aside in favor of
-    doing [A] so the runner uses the real formatter.)
   - **Done since:** the ad-hoc `intToChars` helpers — the package-scoped
     one in `pkg/binate/ir/gen_func_lit.bn` (3 call sites: `__closure_local_`,
     `__funclit_`, `__mv_local_`) and a duplicate in
     `pkg/binate/vm/func_index_test.bn` — now use `strconv.Itoa` and are
     deleted (2026-06-07).
 - **[A] Primitive `.String()` without importing `pkg/builtins/lang` —
-  DONE for `cmd/bnc` (`b731a0a5`); `cmd/bni` is the remaining follow-up.**
-  `myInt.String()` now resolves AND links with no import; naming the
-  `lang.Stringer` interface *type* still requires the import (gated by the
-  type checker).  Mechanism (reverses the "No auto-import" decision in
+  DONE across all execution modes (compiled `37b2ffcc`, VM `487c2d08`).**
+  `myInt.String()` resolves AND links/executes with no import in both the
+  compiled backends and the bytecode VM; naming the `lang.Stringer`
+  interface *type* still requires the import (gated by the type checker).
+  Mechanism (reverses the "No auto-import" decision in
   `plan-primitives-impl-interfaces.md`, for methods only): `ensureLangLoaded`
   force-loads lang so its carve-out impls attach `String()`/`Compare()` to
   the global primitive singletons (resolution); `appendLangImport` (a clone
-  of `appendBootstrapImport` in `cmd/bnc/compile_imports.bn`, added at every
-  `RegisterImports` site with the same self-import guard) registers lang's
-  signatures as module externs so codegen emits the cross-package `declare`
-  (linking).  The DCE/baremetal worry is moot — unused impls are stripped
-  by `--gc-sections` / `-dead_strip`, and full conformance (builder-comp)
-  is green with lang force-loaded into every compile.  Covered by
-  conformance `654`–`656` (per-type positives) + `658` (negative).
-  - **Follow-up — apply the same to `cmd/bni`** (the bytecode-VM compile
-    path): it has its own `ensureBootstrapLoaded` (`cmd/bni/main.bn`,
-    `cmd/bni/util.bn`) and `appendRtImport`/`appendBootstrapImport`
-    (`cmd/bni/irgen.bn`) — add the lang equivalents there so `myInt.String()`
-    works under the VM and in the repl.  Until then the `-int` conformance
-    modes for `654`–`656` are xfailed (`.xfail.builder-comp-int`,
-    `.builder-comp-int-int`, `.builder-comp-comp-int`); the follow-up
-    removes those xfails.  This also unblocks finishing the `bootstrap.Itoa`
-    removal (the test runner can then format via `.String()`).
+  of `appendBootstrapImport`, added at every `RegisterImports` site with the
+  same self-import guard, in BOTH `cmd/bnc/compile_imports.bn` and
+  `cmd/bni/irgen.bn`) registers lang's signatures so the cross-package call
+  resolves/links.  DCE/baremetal worry is moot (unused impls stripped by
+  `--gc-sections`/`-dead_strip`).  Full conformance green in both
+  builder-comp (1085) and builder-comp-int (1072).  Covered by conformance
+  `654`–`656` (per-type positives) + `658` (negative).
+  - **Remaining follow-up — the repl.** The repl has its own import setup
+    (`pkg/binate/repl/{ir_imports,session,util}.bn`) not covered by the
+    `cmd/bni` change; add `ensureLangLoaded` + `appendLangImport` there so
+    `.String()` works at the repl too.  Small, same pattern.
 - **[B] Test runners must be able to depend on the stdlib** (surfaced
   2026-06-07; **a prereq for many later migrations**).  The `cmd/bnc
   --test` generated runner (`cmd/bnc/gen_test_runner.bn`, compiled by
