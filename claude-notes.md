@@ -427,12 +427,12 @@ Same principle for struct/type redefinition: existing instances retain the old l
 **Untyped literals**: literals have no inherent type and coerce to any compatible type from context. Unlike Go, this does NOT extend to named constants — only literals.
 - `123` → `int`, `uint`, `i32`, `byte`, etc.
 - `3.14` → `f32`, `f64`, etc.
-- `"abc"` → `[3]char` (natural type), `*[]char` / `*[]readonly char` (slice, len=3)
+- `"abc"` → `[3]readonly char` (natural type), `@[]readonly char` / `*[]readonly char` (slice, len=3)
 
 **Default types** (when context is ambiguous, e.g., `x := 123`):
 - Integer literals: `int`
 - Float literals: `float64`
-- String literals: `*[]readonly char` (default type — a slice view of the static data)
+- String literals: `@[]readonly char` (default type — a managed-slice view of the static data; verified against the implementation, `pkg/binate/types` `defaultStringLitType`). `*[]readonly char` is also an allowed (raw borrow) target.
 - Bool literals: `bool`
 
 **Literal overflow**: assigning a literal to an explicit type that can't hold it is a compile error (`var x uint8 = 256` → error). Literals are checked at compile time for fit.
