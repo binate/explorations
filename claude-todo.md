@@ -164,6 +164,13 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Test (TODO when fixing)**: codegen unit test asserting a `double`/`float`
   global emits a float zero, plus a conformance cell reading back a global float.
 
+### Global `var` of an interface-value or func-value type emits invalid LLVM (`global %BnIfaceValue 0`) — fix verified in worktree, pending landing
+- **Symptom**: any package-level `var x @Iface` / `var x @errors.Error` / `var f *func()` / `@func` (with or without an initializer) makes the LLVM backend emit `@<mangled> = global %BnIfaceValue 0` (or `%BnFuncValue 0`), which clang rejects: `error: integer constant must have integer type` — the whole package fails to compile. Blocks a `pkg/std/io` `var EOF @errors.Error = errors.New("EOF")` sentinel (and any iface/func-value package global).
+- **Root cause**: `pkg/binate/codegen/emit.bn` global-var static-zero emission — the SAME dispatch as the float-global sibling above — picks the zero by type kind: `null` for pointers, `zeroinitializer` for slice/managed-slice/struct/array, ` 0.0` for float, and ` 0` otherwise. The two 16-byte address-aggregate kinds (`TYP_INTERFACE_VALUE` / `TYP_INTERFACE_VALUE_MANAGED` → `%BnIfaceValue`; `TYP_FUNC_VALUE` / `TYP_MANAGED_FUNC_VALUE` → `%BnFuncValue`) fall through to the ` 0` branch, but they are LLVM struct types and need `zeroinitializer`. Same shape as the float `global double 0` bug and the code-red "missing iface/func-value arm" pattern, here in the global emitter.
+- **Fix (verified in worktree `temp-binate-4`, NOT yet landed)**: add the four kinds to the `zeroinitializer` branch. Rebuilt gen1 + verified end-to-end on LLVM: `var EOF @errors.Error = errors.New("EOF")` (single-package AND cross-package extern-var) compiles, the synthetic `__init` runtime initializer runs before main, and a consumer reads it back and renders `.Error()` correctly.
+- **Severity**: MAJOR — hard compile error (not silent), blocks any package-level interface-value / func-value global. Discovered 2026-06-07 implementing `pkg/std/io`'s `io.EOF`.
+- **Tests (TODO with the fix)**: extend `conformance/regressions/global-aggregate-init` with an `@Iface` (and `@func`) global read-back + a codegen unit test asserting the `zeroinitializer` emission. VM + native modes still to be checked — the VM materializes globals separately (`vm/lower_data.bn`), so confirm it handles the address-aggregate kinds too before relying on `io.EOF` in `-int`.
+
 ### Nested arrays (`[N][M]T`) are mis-compiled — CONFIRMED wrong-code / invalid IR, LLVM backend
 - **Symptom**: a 2-D array literal stores POINTERS to inner-array allocas into the
   flat outer storage instead of copying the inner values, and element reads
