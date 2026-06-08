@@ -451,7 +451,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
   `box(scalar)` in the checker if it isn't meant to be supported. **Test**: a
   conformance cell `box(i)` returning the boxed value; currently no coverage.
 
-### Plan-1 adversarial review (2026-06-06) — regressions + completeness gaps from the const/slice fixes
+### Plan-1 adversarial review (2026-06-06) — regressions + completeness gaps from the const/slice fixes — ✅ ALL FIXED+LANDED except ONE REPL-only leftover (parked-member iota-repeat — see "Minor follow-ups" below; tracked in plan-cr2-followup.md Plan B)
 
 The Plan-1 fixes (binate 1.1-1.6, landed 2026-06-05) were adversarially
 reviewed. Real defects found, several wrong-code on main. Listed worst-first.
