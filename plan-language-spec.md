@@ -42,8 +42,26 @@ landed incrementally while the language still changes.
   toolchain, and interpreter embedding API are each separate. `pkg/bootstrap`
   is temporary and is **not** part of the language.
 
-Still open: **D4** (grammar-annex generation) and **D5** (named-distinct
-field access) — see §9.
+- **D4 — grammar source: a canonical `.ebnf` in the spec repo, generated
+  from.** The spec's grammar becomes canonical: a `.ebnf` lives in
+  `docs/spec/`, and the Markdown grammar annex + the per-section inline
+  productions are **generated** from it. `explorations/grammar.ebnf` is
+  reconciled (Phase 0), used to seed the canonical copy, then **retired**
+  (it is already stale; the CLAUDE.md pointer is updated when it goes).
+- **D5 — named-distinct field access: start RESTRICTIVE.** v1 rejects
+  field access / method dispatch through any named-distinct type
+  (`type X <underlying>`), matching the current implementation. This is
+  the safe, forward-compatible direction (opening up later breaks no code;
+  tightening later would). §7.3 records both the v1 rule and the intended
+  **target = Go's actual rule** (verified empirically, go1.26.3): a
+  named-distinct type exposes the underlying's *fields* — read and write,
+  including auto-deref when the underlying is a pointer (`type P *A` →
+  `p.X` works in Go) — but never auto-inherits its *methods* (those need
+  an explicit conversion to the underlying type). The earlier "struct
+  value yes / pointer no" framing in `claude-todo.md` was based on a
+  mistaken reading of Go and has been corrected.
+
+All five decisions resolved; ready for Phase 0 on go-ahead.
 
 ---
 
@@ -94,8 +112,10 @@ freestanding** conformance.
   and a shared `conventions.md`. Not a single monolithic `spec.md` (a
   huge file invites cross-worker clobbering, and the per-chapter split
   maps one-to-one onto the phased authoring plan).
-- **Grammar:** the normative grammar (Annex A) is kept in **lockstep with
-  `explorations/grammar.ebnf`** (see D4) after the Phase-0 reconciliation.
+- **Grammar:** the **canonical grammar is a `.ebnf` in `docs/spec/`** (D4);
+  the Markdown grammar annex (Annex A) and the per-section inline
+  productions are **generated** from it. `explorations/grammar.ebnf` is
+  reconciled in Phase 0, used to seed the canonical copy, then retired.
 - **Cross-references use stable rule/anchor IDs** (e.g.
   `mem.ownership.transfer`, `type.slice.layout`, `exec.dualmode.thunk`),
   not section/page numbers, so references and conformance-test citations
@@ -106,6 +126,7 @@ Proposed files:
 ```
 docs/spec/00-index.md            ToC, status legend, reading-order map (links by stable ID)
 docs/spec/conventions.md         status legend, requirement vocabulary, per-construct rubric, rule-ID scheme
+docs/spec/binate.ebnf            canonical grammar (source of truth; annex-a + inline productions generated from it)
 docs/spec/01-scope-introduction.md
 docs/spec/02-conformance.md
 docs/spec/03-terms-and-definitions.md
@@ -242,8 +263,9 @@ function value, monomorphization, Self, thunk, TargetInfo, readonly). ·
 (already in `grammar.ebnf`); the per-construct rubric; the
 normative/informative discipline; the four-value status legend; the
 stable rule-ID scheme; a light operational-rule notation for the
-trickiest dynamic semantics. · *Records that Annex A must drop
-`[BOOTSTRAP]`/`[DEFERRED]` and needs the Phase-0 reconciliation.*
+trickiest dynamic semantics. · *Records that the canonical grammar moves
+into the spec as a `.ebnf` (D4) and must drop `[BOOTSTRAP]`/`[DEFERRED]`
+in the Phase-0 reconciliation.*
 
 **5. Lexical Elements** *(normative)* — Source representation (ASCII);
 identifiers; reserved keywords (incl. `readonly`) and builtin-operation
@@ -276,7 +298,9 @@ for the cross-mode ABI contract, parameterized by `TargetInfo`. ·
 interface-value byte layout, length-0 enforcement (rule Stable, backends
 still violate). **Impl-conformance:** nested arrays mis-compiled
 (claude-todo MAJOR); named-distinct field access through underlying type
-rejected by the checker (D5).*
+restricted in v1 (D5: §7.3 states the v1 rejection plus the Go-faithful
+relaxation target — fields accessible incl. auto-deref through a pointer
+underlying, methods never auto-inherited).*
 
 **8. Conversions** *(normative)* — The closed set of implicit conversions
 (untyped-literal coercion, readonly-adding widenings, the managed→raw
@@ -459,10 +483,11 @@ borrowed raw slice/pointer outliving its backing, dangling `*T` deref,
 breaking refcount invariants through raw aliasing, `bit_cast`/`unsafe_*`
 out of contract, mode-dependence beyond the one-indirection cost.
 
-**Annex A. Grammar Summary** *(normative)* — The complete EBNF, in
-lockstep with `grammar.ebnf`, metalanguage per §4, productions also
-inlined per feature chapter; D1–D11 as a consolidated table. · *BLOCKED
-on the Phase-0 reconciliation; until then prose clauses govern.*
+**Annex A. Grammar Summary** *(normative)* — The complete EBNF,
+**generated from the canonical `docs/spec/binate.ebnf`** (D4), metalanguage
+per §4, productions also inlined per feature chapter; D1–D11 as a
+consolidated table. · *BLOCKED on the Phase-0 reconciliation that produces
+the canonical .ebnf; until then prose clauses govern.*
 
 **Annex B. Implementation Model and Impl-defined Index** *(mixed)* —
 *(Informative)* the runtime/ABI contracts observable in consequence but
@@ -526,12 +551,14 @@ highest-design-risk cross-cutting and least-mature material last.
 - **Phase 0 — Apparatus + prerequisites (before normative writing).**
   §4 Notation (metalanguage, rubric, status legend, rule-ID scheme); seed
   §3 Terms; skeletons of §1/§2. **In parallel, two verified-necessary
-  prerequisites:** (a) the `grammar.ebnf` **reconciliation pass** — strip
+  prerequisites:** (a) the grammar **reconciliation + move into the spec
+  (D4)** — reconcile `explorations/grammar.ebnf` (strip
   `[BOOTSTRAP]`/`[DEFERRED]`; `const`→`readonly`; complete the
   keyword/builtin list; de-defer floats; `FuncType` → `*func`/`@func`;
-  drop stale `enum`/"3-word" text; reconcile D5-of-grammar; (b) the
-  **`pkg/rt` review** (classify each member stay/move/make-internal) which
-  gates §20.2.
+  drop stale `enum`/"3-word" text), seed the canonical
+  `docs/spec/binate.ebnf` from it, then retire the explorations copy; (b)
+  the **`pkg/rt` review** (classify each member stay/move/make-internal)
+  which gates §20.2.
 - **Phase 1 — Stable lexical/type/conversion/declaration core.** §5, §6
   (D1 recorded), §7 (incl. §7.13 layout, target-parameterized), §8, §9.
 - **Phase 2 — Behavioral/type-system superstructure.** §10, §11, §12,
@@ -555,8 +582,11 @@ highest-design-risk cross-cutting and least-mature material last.
 
 ## 8. Prerequisites and gating (explicit)
 
-1. **`grammar.ebnf` reconciliation** — required before Annex A is
-   authoritative. Pure apparatus, no language-design risk.
+1. **Grammar reconciliation + move into the spec (D4)** — reconcile
+   `explorations/grammar.ebnf`, seed the canonical `docs/spec/binate.ebnf`,
+   generate Annex A from it, then retire the explorations copy (updating
+   the CLAUDE.md pointer). Required before Annex A is authoritative. Pure
+   apparatus, no language-design risk.
 2. **`pkg/rt` review** — the project's own stated prerequisite; gates
    §20.2 (rt runtime contract). The classification (not the cleanup)
    unblocks.
@@ -570,44 +600,23 @@ highest-design-risk cross-cutting and least-mature material last.
 
 ## 9. Open decisions for the user
 
-(D1–D3 are resolved — see "Decisions to date".)
+D1–D5 are all resolved — see "Decisions to date". No structural decisions
+remain open.
 
-- **D4 — grammar annex: generated or hand-maintained?** The spec's
-  grammar annex (Annex A) must mirror the canonical `explorations/grammar.ebnf`.
-  The question is *how the two are kept in sync*: (a) **generate** Annex A
-  (and the inlined per-section productions) from `grammar.ebnf` via a
-  small tool — one source of truth, sync is mechanical; (b)
-  **hand-maintain** a Markdown copy kept in sync by review discipline —
-  no tooling, but drift is likely (the grammar is *already* materially
-  stale vs the notes); (c) make `grammar.ebnf` itself the published
-  artifact and have Annex A embed/link it. This is a tooling/process
-  choice, not language design. **Recommendation:** (a), after the Phase-0
-  reconciliation; fall back to (b) + a hygiene check that the two agree.
-- **D5 — named-distinct field access (SPEC ISSUE, claude-todo line 75).**
-  Should a named-distinct type (`type X <underlying>`) inherit field
-  access / non-mutating method dispatch from its underlying type? Today
-  Binate rejects **all** cases. Go's precedent: a named *struct* type
-  allows selectors on its fields, but a named *pointer* type
-  (`type P *T`) does **not** allow automatic field access through `P`. A
-  defensible Binate rule: named-distinct over a struct **value** → field
-  access allowed (peel the name for the lookup); named-distinct over a
-  **pointer** (`@T`/`*T`) → not allowed (convert to the underlying
-  pointer first). The current behavior is at least over-strict for the
-  struct-value case. This is a deliberate language-semantics decision that
-  must be ratified before implementing (the checker must not silently peel
-  named-distinct); §7.3 records whatever is decided. Can be decided now or
-  deferred — but the spec needs an answer to state §7.3 precisely.
-
-(Also gaps the spec must *fill* but that aren't choices: byte
-order/endianness — almost certainly implementation-defined; import cycles
-— permitted or diagnosed.)
+Gaps the spec must *fill* during authoring (not user choices, but flagged
+so they aren't missed): **byte order / endianness** (almost certainly
+implementation-defined; §21); **import cycles** (permitted or diagnosed;
+§16); the standard **annotation name/arg schemas** (§17, not enumerated in
+the sources). And the standing prerequisites in §8 (grammar reconciliation
++ move; the `pkg/rt` review) before their dependent chapters/annex can be
+finalized.
 
 ---
 
 ## 10. Proposed next step
 
-Await sign-off on the structure (and ideally D4–D5). If approved, the
-natural first action is **Phase 0**: scaffold `docs/spec/` (index +
+Await sign-off on the structure. If approved, the natural first action is
+**Phase 0**: scaffold `docs/spec/` (index +
 `conventions.md` + chapter stubs carrying their status badges and source
 maps), and — as separate, individually-approved pieces — the
 `grammar.ebnf` reconciliation pass and the `pkg/rt` classification. I will
