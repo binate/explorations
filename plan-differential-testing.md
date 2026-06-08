@@ -90,6 +90,11 @@ ops only. Place it as a sibling subtree (`conformance/matrix/<op>-diff/` or a
    sub-word-signed `arith`/`bitwise`/`cmp`/`not` (`aa64-subword`). `fcmp/32`
    un-xfailed at land time (the concurrent float32-compare fix `fc11d862`). See
    `claude-todo.md`.
+2b. **neg family** — LANDED 2026-06-08 (binate `d64b76d0`; harness now 131
+   cells / 5511 tuples). Added a `neg/{8,16,32,64}/{signed,unsigned}` family
+   (unary minus, mirroring `bitwise/not`: direct value + `>>`-consume dirty-bit
+   check) as the plan-cr2-1 Defect-9 follow-up. Green on every backend — the
+   IR-gen unary-minus-result-type fix (binate `fce07ccd`) makes them correct.
 3. **v3: port the generator to Binate** (dogfood) + consider flavor B for the
    highest-volume ops; wire a fixed sample-size knob. — NOT STARTED.
 
