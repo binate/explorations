@@ -1176,6 +1176,13 @@ Discovery Protocol) — most don't have one yet.
 
 ## MAJOR
 
+### Field read through a nested-array managed-POINTER element (`a[i][j].field` where `a` is `[N][M]@Struct`) returns literal 0 — silent wrong value, ALL backends — CONFIRMED 2026-06-08
+- **Symptom**: `var a [1][2]@Box; a[0][0] = p; println(a[0][0].v)` prints `0`, not `p.v`. Independent of how the element got there (element-assign OR a nested literal both read 0), so it is the FIELD-ACCESS path, not the store. A managed-SLICE element read by INDEX works (`[1][2]@[]int`, `a[0][0][0]` is correct — conformance `regressions/nested-array-literal-store` part 3), and a single-level `[N]@Box` element field read works (637-adjacent); only the nested-array (`a[i][j]`) base feeding a `.field` selector is wrong.
+- **Root cause (suspected, not yet pinned)**: `pkg/binate/ir/gen_selector.bn` index-selector path — for a nested-array index base `a[i][j]`, `genIndexPtr` likely returns nil (nested array elements have no standalone backing pointer), so the read falls to the `genExpr(e.X)` fallback, and the managed-ptr-to-struct arm there doesn't recover the element correctly → the const-0 fallback. Same literal-0 CLASS as plan-cr2-1 Defect 1 (now fixed), but a different access path the Defect-1 fix didn't cover.
+- **Severity**: MAJOR — silent wrong-code (narrow: field access through a nested-array managed-pointer element).
+- **Discovery**: 2026-06-08, building the plan-cr2-1 Defect 6 managed inner-element test variant (the Defect-6 fix itself — inner-array value store — is correct; this is a separate confound found alongside it). The Defect-6 cell uses a managed-SLICE index-read variant to exercise refcount cleanly and avoid this bug.
+- **Test (TODO with fix)**: a `regressions/nested-array-managed-ptr-field` cell (`a[0][0].v` read-back), xfailed until fixed.
+
 ### Unary minus on a SUB-WORD int (`-uint8`/`-int16`/…) is mis-typed in IR-gen — invalid LLVM / silent wrong value — CONFIRMED 2026-06-08 (the exact analog of the fixed `~` `bitnot-result-type` bug)
 - **Symptom (two facets, one root, like `bitnot-result-type`)**:
   - **A (invalid IR / compile error)**: `-x` for any sub-word int (`uint/int 8/16/32`) emits `sub i64 0, %x` with a hardcoded i64 zero while `%x` is i8/i16/i32 → clang rejects it (`'%x' defined with type 'i8' but expected 'i64'`). Unary minus simply does not compile for sub-word ints on the LLVM backend (all `comp`/`comp-comp`/`comp-comp-comp` + arm32 LLVM modes).
