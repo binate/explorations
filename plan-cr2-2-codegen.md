@@ -1,0 +1,108 @@
+# Code-Red P2 — Plan 2: LLVM codegen emission (global static-zero tokens, cross-module struct-type discovery, indirect-call multi-return result lowering)
+
+> One of three disjoint Code-Red-2 fix plans (the seam with Plan 1 is the read-only IR field `ModuleInterface.MethodResultsFlat`/`MethodResultCounts`).
+> Source-confirmed against `temp-binate-4/pkg/binate/codegen` on 2026-06-07; line numbers are what I found in-tree.
+> Owns `pkg/binate/codegen` exclusively. Touches NO `ir`/`types`/`native`/`vm` file. Consumes Plan 1's `MethodResultsFlat` read-only.
+
+## Theme
+
+Every defect here is a wrapper-transparency or path-parity violation in the LLVM *emitter* layer: a Kind-dispatch that peels one wrapper but not its sibling (`TYP_NAMED` vs `TYP_READONLY`), a type-discovery walk that visits one container of types (`m.Funcs`) but not its parallel sibling (`m.Globals`), and an indirect-call result lowering that already carries the byval/ptr arg convention but waits on the front end to hand it a well-formed multi-return tuple type. Two of the four cited defects turn out to be already-fixed-on-LLVM or front-end-blocked (so Plan 2's job there is verify-after-Plan-1, not re-fix); the two genuinely-live codegen gaps (Defects 1 and 2) are small, disjoint, and each fills an empty test-matrix cell.
+
+## Defects
+
+### Defect 1: Package-level global of a NAMED-over-aggregate/iface/func/managed-ptr type emits an invalid zero token
+
+**Symptom.** A global whose type is `TYP_NAMED` over a non-integer underlying (`type Celsius float64; var C Celsius`, `type MyErr @errors.Error; var X MyErr`, named-over-struct/array/func/managed-ptr) emits the right *printed* LLVM type (because `llvmType` peels the name) but the wrong *init token*: `double 0` / `[3 x i64] 0` / `%BnIfaceValue 0` / `i8* 0` instead of `0.0` / `zeroinitializer` / `null`. clang rejects the non-integer cases (`integer constant must have integer type`).
+
+**Root cause (confirmed).** `emit.bn:173-176` — the static-zero dispatch peels only `TYP_READONLY`:
+
+```
+var gt @types.Type = g.Typ
+for gt != nil && gt.Kind == types.TYP_READONLY {
+    gt = gt.Elem
+}
+```
+
+then branches on `gt.Kind` (`emit.bn:177-196`). It never peels `TYP_NAMED`. Meanwhile `llvmType` (`emit_types.bn:53`) peels BOTH `TYP_READONLY` (`:59`) and `TYP_NAMED`→`.Underlying` (`:61-62`), so the type printed at `emit.bn:157` (`llvmType(g.Typ)`) is the underlying's, but the token chosen from `gt.Kind` is the wrapper's (`TYP_NAMED`), which matches no branch and falls through to the bare ` 0` at `emit.bn:195`. This is the exact READONLY-token bug that was already fixed here for the readonly wrapper (todo "Global var of an interface-value / func-value (or readonly-wrapped aggregate) type", binate `5dddef7d`, present in this tree at `emit.bn:167-191`) — the NAMED sibling of the same wrapper-transparency defect was left.
+
+**Dependency / reachability caveat (must flag, do not silently route around).** The defect-of-record entry (claude-todo.md, "Package-level global of a NAMED type miscompiles", confirmed latent) locates the *reachability* root one layer up: IR-gen `resolveTypeExpr` (`gen_util.bn:294`) currently falls back to `types.TypInt()` for a `TEXPR_NAMED` that isn't a primitive/module-struct/registered-alias, so today the global's recorded `Typ` for a named-over-aggregate is plain int and codegen never even sees a `TYP_NAMED` here. That `resolveTypeExpr` fix is **Plan 1's** (front-end type resolution), not Plan 2's. So this codegen NAMED-peel is a real wrapper-transparency gap that becomes *load-bearing* only once Plan 1 makes named globals carry their true type. The two are complementary and disjoint by file; land the codegen peel regardless (it is correct and pins the invariant), and note the cross-plan ordering so the end-to-end conformance cell isn't expected green until both land. The named-scalar `i64`-by-luck case (`type Byte8 int8` → `i64`) is also a width bug fixed by the same peel.
+
+**Fix shape.** Peel `TYP_NAMED` (recursively) alongside the `TYP_READONLY` loop before the branch selection, so the token is chosen from the same kind set `llvmType` uses. Cleanest: replace the inline READONLY-only loop at `emit.bn:173-176` with a single call to a helper that peels both wrappers — reuse the existing `unwrapNamed` (`emit_types.bn:45-50`) composed with a readonly-peel, or add one small `stripWrappers(t)` helper in `emit_types.bn` that loops `TYP_READONLY`→`.Elem` and `TYP_NAMED`→`.Underlying` to a fixpoint (mirroring how `llvmType`/`typeBits`/`isUnsigned`/`isFloatScalarParam` all peel both). Route the init-token choice through that one helper so a future wrapper can't reopen the gap at this site while `llvmType` keeps peeling it. Behavior must be byte-identical to today for the unwrapped cases (null / zeroinitializer / 0.0 / 0); only the wrapped inputs change.
+
+**Files/functions.** `pkg/binate/codegen/emit.bn` (the global-var static-zero dispatch, `EmitModule`, the loop+branch at ~:173-196 — the only edit). Optionally `pkg/binate/codegen/emit_types.bn` (add/extend a `stripWrappers`/`unwrapNamed` helper to share with `llvmType`). No other file.
+
+**Test coverage.** GAP — the matrix cell is empty. `emit_global_test.bn` currently covers func-value, iface-value, readonly-aggregate, and float zero-init (`TestEmitGlobalFuncValueZeroInit`/`...IfaceValueZeroInit`/`...ReadonlyAggregateZeroInit`/`...FloatZeroInit`) but has **no NAMED-over-aggregate / named-scalar case**. Add codegen unit tests: `type Celsius float64; var g Celsius` → ` double 0.0` (not ` 0` / ` i64 0`); `type MyErr @errors.Error; var g MyErr` → `%BnIfaceValue zeroinitializer`; a `type Bytes3 [3]int8; var g Bytes3` → `zeroinitializer`. These are mode-independent and guard the codegen fix below the conformance layer (the same pattern the readonly sibling test uses). The end-to-end conformance readback (`type Temp float64; var g Temp = 3.5`) depends on Plan 1's `resolveTypeExpr` fix to be reachable — author it but keep it xfailed/pending until both land.
+
+### Defect 2: Cross-module by-value struct/array global emits `external global %Struct` / `global %Struct zeroinitializer` without ever declaring `%Struct = type {...}`
+
+**Symptom.** A module that references a struct-typed package-level global (its own definition, or an imported `var g StructType` reached as `external global`) emits `@<mangled> = [external] global %bn_<pkg>__Struct …` but never emits the matching `%bn_<pkg>__Struct = type <{ … }>` → clang `use of undefined type named '...'`. Same for `[N]Struct` arrays and named-over-struct globals.
+
+**Root cause (confirmed).** Two adjacent gaps in `emit_types.bn`:
+
+1. `collectStructTypes` (`emit_types.bn:128-160`) iterates ONLY `m.Funcs` (params at `:135`, results at `:141`, every instruction/arg type at `:149-154`). It never iterates `m.Globals`. Struct-type defs are accumulated into `moduleStructDefs` and emitted (`emit.bn:95-124`) *before* globals are emitted (`emit.bn:142+`), so a struct reachable only through a global var is never discovered → never declared. This is the same path-parity miss the defect-of-record entry ("Cross-module global of struct type emits `external global %Struct`…", claude-todo.md) predicts: "moduleStructDefs doesn't include types reachable only through an imported global."
+2. `discoverStructFromType` (`emit_types.bn:162-183`) has recursion arms for `TYP_READONLY` (`:167`), `TYP_STRUCT` (`:171`), `TYP_MANAGED_PTR`/`TYP_POINTER` (`:175`), `TYP_SLICE`/`TYP_MANAGED_SLICE` (`:179`) — but **no `TYP_NAMED` arm** (so a named-over-struct global's struct is missed even via a function) and **no `TYP_ARRAY` arm** (so `[N]Struct` never recurses to its element). Wrapper-transparency + container-recursion both incomplete.
+
+Confirmed today only by the unit-test harness module (no conformance test references a cross-package `var g StructType` — `548_cross_pkg_extern_var` exercises only a scalar int and a raw-slice/string global, `548/main.bn`), but the gap is real for any genuine cross-package struct-global import.
+
+**Fix shape.** (a) In `collectStructTypes`, after the `m.Funcs` loop, scan `m.Globals`: `for i … len(m.Globals) { discoverStructFromType(m.Globals[i].Typ) }` (this covers both the defining-package `global` and the consuming-package `external global` paths, since both record `g.Typ`). (b) In `discoverStructFromType`, add a `TYP_NAMED` arm that recurses into `.Underlying`, and a `TYP_ARRAY` arm that recurses into `.Elem` — mirroring the existing READONLY/pointer/slice arms (register-then-recurse is not needed here since these wrappers carry no own struct def; just recurse). Keep the existing infinite-recursion guard (`addStructDef` registers before recursing, `:196-201`).
+
+**Files/functions.** `pkg/binate/codegen/emit_types.bn` (`collectStructTypes` ~:128, `discoverStructFromType` ~:162). No other file (`emit.bn`'s emit loop already iterates `moduleStructDefs`, so once discovery populates it the type-def is printed before the globals).
+
+**Test coverage.** GAP. Add (a) a codegen unit test asserting that a module with a struct-typed global emits `%bn_main__Pt = type` before the `@…__g = global %bn_main__Pt …` line (and an `external global` variant), and a `[2]Pt`-typed global variant for the `TYP_ARRAY` arm; (b) a conformance test: a 2-package program where pkg A defines `var g StructType` and pkg B imports + reads `g.field`, xfailed until the fix (mirrors `548` but with a struct type). The unit test pins the type-decl emission directly; the conformance test pins the end-to-end clang-compiles-and-runs.
+
+### Defect 3: >16-byte byval struct arg + trailing-scalar drop through an INDIRECT (iface) call, and multi-return result through iface dispatch
+
+**Status: the byval-arg / trailing-scalar halves are ALREADY FIXED in this tree; the live remainder is a Plan-1 (IR-gen) fix, not codegen.**
+
+**Symptom (historical, per the probe in the prompt).** (a) A >16-byte struct passed by value through `iface.M(...)` SIGSEGV'd (value-as-pointer). (b) A multi-word byval arg followed by a scalar dropped the trailing scalar through vtable dispatch (598). (c) A multi-return iface method (`M() (int,int)` / `(T,@Error)`) emits `extractvalue void %vN, 0` → clang `void type only allowed for function results`.
+
+**Root cause (confirmed — and what's already done).** `emit_iface_call.bn` `emitCallIfaceMethod` already carries the byval/sret aggregate convention: it emits `writeParamTypeLLVM(out, argInstr.Typ)` for the bitcast signature (`:100`), `writeByvalArgPreamble(out, instr)` to spill each >16-byte by-value aggregate into its hoisted `.bv<i>` slot (`:108`, with the explicit comment at `:103-107` naming 598 and the >16-byte SIGSEGV), and passes `ptr %v<id>.bv<i+1>` for `isByvalParam` args at the call (`:145-152`). The sret-result path is correct (`:42` `useSret = needsSret(instr.Typ)`, alloca hoisted by `emitIfaceMethodSretAllocDecl` `:181-193`, call-through-and-load `:110-169`). This matches Plan 3's "LANDED (binate `3892e7d1`)" for §3.1/§3.7. So the >16-byte byval-arg + trailing-scalar cases are **not live** here.
+
+The remaining live failure is the **multi-return result type** (claude-todo.md CRITICAL, "Interface-method dispatch drops the result type for any method with ≠1 results"): `gen_iface_registry.bn:180` populates only the singular `MethodResults @[]@types.Type` (one type per method, `nil` for 0 or ≥2 results); `findInterfaceMethod` (`gen_iface.bn:128-180`) returns that single `rt` (nil for multi-return); `genInterfaceMethodCall` (`gen_iface.bn:63`) then builds the dispatch instr with a nil/void result type, so `instr.Typ` reaching `emitCallIfaceMethod` is void and the multi-assign's `extractvalue` is on `void`. **This entire result-type construction is in `pkg/binate/ir` — it is Plan 1's defect** (Plan 1 adds `MethodResultsFlat`/`MethodResultCounts`, generalizes `findInterfaceMethod`, and has `genInterfaceMethodCall` build the multi-return tuple type via `makeMultiReturnStructType`).
+
+**Fix shape (Plan 2's part: verify-only, expected zero codegen change).** Once Plan 1 makes `instr.Typ` for a multi-return iface dispatch the proper multi-return tuple struct type, `emitCallIfaceMethod` already lowers it correctly: `useSret = needsSret(instr.Typ)` selects sret for >16-byte tuples (the existing alloca-hoist + load path), and small tuples (≤16B, register-returned) flow through the `else` arm at `:132-141` (`call {…} %fn(...)` + the caller's `extractvalue`). Plan 2's job is to **confirm** this on the LLVM modes after Plan 1 lands — specifically the small-tuple register-return arm (`iface-multi-return/int/2`, a 16-byte `{i64,i64}`) and a >16-byte tuple (`/int/3..5`, sret). Only if a real LLVM gap surfaces (e.g. the register-returned tuple needs an explicit `multiReturnType`-style type rather than `llvmType(instr.Typ)`, or the `extractvalue` element types disagree) does Plan 2 touch `emit_iface_call.bn`. Do not pre-emptively edit it — the byval arg side is correct and the result side is gated on Plan 1.
+
+**Files/functions.** Verification target: `pkg/binate/codegen/emit_iface_call.bn` (`emitCallIfaceMethod`, `emitIfaceMethodSretAllocDecl`). Reuses `needsSret` (`emit_types.bn:29`), `writeParamTypeLLVM`/`isByvalParam`/`writeByvalArgPreamble` (`emit_util.bn:316/:290/:367`). No codegen edit expected.
+
+**Test coverage.** `conformance/matrix/abi/iface-multi-return/{int,u16}/{2,3,4,5}` exist. The `int/*` cells are xfailed on the 3 LLVM modes (`builder-comp`, `-comp-comp`, `-comp-comp-comp`) + native — these flip to green on LLVM once Plan 1's result-type fix lands (Plan 2 verifies). The `u16/*` cells are *additionally* xfailed on the 3 VM modes (sub-word VM mis-pack, claude-todo.md "VM mis-unpacks a SUB-WORD (uint16) multi-return…") — that VM half is NOT Plan 2's. `598_iface_dispatch_multiword_arg` and the `iface-param/three-int` (24B byval) cells are already green on LLVM (the byval fix). GAP to consider once green: a managed-component-through-dispatch `(int,@Error)` cell exercising refcount discipline (belongs to the refcount-matrix dispatch shapes, not the value-correctness cells — flag, don't author here).
+
+### Defect 4: func-value result-shim sub-word/non-8-multiple struct return mis-pack, and multi-return func-value calls
+
+**Status: NOT a live LLVM codegen defect. The five-u8 mis-pack is native-only (Plan 3); the multi-return funcval is front-end-blocked (Plan 1). LLVM result-shim path is structurally complete — verify-only.**
+
+**Symptom (per the probe/todo).** (a) `funcval-return/five-u8` (a `@func() S` returning a 5×uint8 struct) prints garbage on native aa64/x64. (b) `a,b := fv()` where `fv @func() (T,U)` is rejected at type-check.
+
+**Root cause (confirmed).** (a) The five-u8 mis-pack is **native-backend only**: `funcval-return/five-u8` is xfailed ONLY on `builder-comp_arm32_baremetal`, `builder-comp_arm32_linux`, `builder-comp_native_aa64-comp_native_aa64`, `builder-comp_native_x64-comp_native_x64` — and is GREEN on all 3 LLVM modes and all VM modes. So on LLVM the func-value sub-word struct return is correct. The defect-of-record ("Native (aa64/x64) mis-packs a SUB-WORD struct-return `five-u8` returned through a FUNCTION-VALUE call", claude-todo.md) is explicitly aa64+x64 — that is **Plan 3's** native non-8-multiple packing family, not codegen. (b) The multi-return destructure rejection is a front-end (`checkShortVarDecl`/multi-assign gates on `TYP_FUNC`, missing `TYP_FUNC_VALUE`/`TYP_MANAGED_FUNC_VALUE`) — `pkg/binate/types`, **Plan 1's** territory.
+
+The LLVM result-shim path itself is structurally present and consistent: `writeFuncResultsLLVM` (`emit_funcvals.bn:178-191`) builds `{T0,T1,…}` for a multi-return; `isAggregateReturn` (`:33-37`) routes any `len(Results)>1` (or >8-byte single) through the retbuf shape; `emitFuncValueShimAggregate` (`emit_funcvals_shim.bn:189-243`) either passes retbuf as sret to the callee or stores the by-value `%r` through retbuf; the caller (`emit_call.bn:281-311`) allocates+loads the retbuf. This is the same machinery `funcval-return/three-int` (24B, GREEN on LLVM) exercises, so a multi-return funcval should ride it correctly once the front end stops rejecting the call.
+
+**Fix shape (Plan 2's part: verify-only).** After Plan 1 unblocks the front-end destructure, run `conformance/matrix/abi/funcval-multi-return/{int,u16}/{2,3,4,5}` on the 3 LLVM modes and confirm green; only if a genuine LLVM gap surfaces (e.g. `writeFuncResultsLLVM`'s element-wise `{T0,T1}` struct disagrees with how the retbuf is loaded for a sub-word tuple) does Plan 2 touch `emit_funcvals.bn`/`emit_funcvals_shim.bn`/`emit_call.bn`. No codegen change is anticipated. Do NOT touch native packing (Plan 3) or the front-end gate (Plan 1).
+
+**Files/functions.** Verification target: `pkg/binate/codegen/emit_call.bn` (`emitCallFuncValue`, `writeFuncResultsLLVM` retbuf path at ~:281-311), `emit_funcvals.bn` (`writeFuncResultsLLVM`, `isAggregateReturn`), `emit_funcvals_shim.bn` (`emitFuncValueShimAggregate`). No codegen edit expected.
+
+**Test coverage.** `funcval-multi-return/{int,u16}/*` are xfailed on ALL modes (front-end rejection blocks every backend). They flip on the LLVM modes once Plan 1 lands the front-end fix — Plan 2 verifies LLVM, Plan 3 owns native, the VM/sub-word stays xfailed per its own todo entry. `funcval-return/five-u8` xfails are native-only and OWNED by Plan 3.
+
+## Landing order
+
+Two small, independent, cherry-pickable codegen commits, then two verify-only checkpoints gated on Plan 1. Each stays green on its own and close to main:
+
+1. **Defect 2 — cross-module struct-type discovery** (`emit_types.bn`: scan `m.Globals` in `collectStructTypes`; add `TYP_NAMED`/`TYP_ARRAY` arms to `discoverStructFromType`). Fully self-contained, no cross-plan dependency, fills a real `use of undefined type` failure. Land first with its unit + conformance cells. Smallest blast radius.
+2. **Defect 1 — NAMED-peel in the global static-zero dispatch** (`emit.bn`, optional `emit_types.bn` helper). Self-contained codegen correctness fix + unit tests. Note in the commit message that the end-to-end named-aggregate-global conformance readback is reachable only after Plan 1's `resolveTypeExpr` fix (the codegen peel is correct and pins the invariant regardless).
+3. **Defect 3 — verify** the LLVM `iface-multi-return/int/*` cells go green after Plan 1's `MethodResultsFlat` result-type fix lands; flip those LLVM xfails. Touch `emit_iface_call.bn` only if a register-returned-tuple gap surfaces.
+4. **Defect 4 — verify** the LLVM `funcval-multi-return/*` cells go green after Plan 1's front-end destructure fix; flip the LLVM xfails. Touch the func-value emitters only if a real LLVM gap surfaces.
+
+Steps 1–2 can land before any Plan 1 work; steps 3–4 are checkpoints that sequence after the corresponding Plan 1 commit.
+
+## Disjointness
+
+**Plan 2 OWNS, and edits only, files under `pkg/binate/codegen`** — concretely the two live-fix sites:
+- `emit.bn` — the global-var static-zero token dispatch (Defect 1).
+- `emit_types.bn` — `collectStructTypes` + `discoverStructFromType` (Defect 2), and optionally a shared wrapper-peel helper.
+
+…plus two **verify-only** (no edit expected) codegen surfaces it watches: `emit_iface_call.bn` (Defect 3) and `emit_call.bn`/`emit_funcvals.bn`/`emit_funcvals_shim.bn` (Defect 4).
+
+**Why it cannot collide with the other two plans:**
+- **No `ir`/`types` edit.** Defect 3's live remainder (multi-return iface result type: `gen_iface_registry.bn`, `gen_iface.bn` `findInterfaceMethod`/`genInterfaceMethodCall`, `MethodResultsFlat`/`MethodResultCounts`) and Defect 4's front-end destructure gate (`check_stmt.bn`/`check_expr.bn`) and Defect 1's reachability root (`gen_util.bn` `resolveTypeExpr`) all live in `ir`/`types` — those are **Plan 1's**. Plan 2 reads the seam field `ModuleInterface.MethodResultsFlat` only transitively (through `instr.Typ` already being a tuple by the time codegen runs); it never reads or writes that IR struct directly.
+- **No `native`/`vm` edit.** Defect 4's five-u8 mis-pack (`native/aarch64`, `native/x64`, `native/common` ArgWords) and the VM sub-word multi-return (`vm/lower_*`) are **Plan 3's**. Plan 2's LLVM emitters are a separate backend; the matrix xfail markers it flips are per-test files (no code conflict), and Plan 2 only flips the *LLVM-mode* markers, leaving native/VM markers to Plan 3.
+- **The byval/sret helpers are REUSED, not owned.** `isByvalParam`/`writeParamTypeLLVM`/`writeByvalArgPreamble`/`writeByvalArgLLVM` (`emit_util.bn`) and `needsSret` (`emit_types.bn:29`) are called read-only by Defect 1's helper and watched by Defect 3's verify; Plan 2 does not rewrite them. Plan 3's iface-arg byval work already landed (`3892e7d1`) and is upstream of Plan 2's verify, not concurrent with it.
+- **The seam.** `MethodResultsFlat`/`MethodResultCounts` are DEFINED by Plan 1; Plan 2 consumes them only as the already-resolved `instr.Typ` tuple at the codegen boundary — a strictly downstream, read-only dependency, satisfied by Plan 1 landing first for Defects 3 and 4. Plan 2's two *own* commits (Defects 1 and 2) have no dependency on the seam at all and can land independently.
