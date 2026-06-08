@@ -8,6 +8,13 @@
 
 Every defect here is a wrapper-transparency or path-parity violation in the LLVM *emitter* layer: a Kind-dispatch that peels one wrapper but not its sibling (`TYP_NAMED` vs `TYP_READONLY`), a type-discovery walk that visits one container of types (`m.Funcs`) but not its parallel sibling (`m.Globals`), and an indirect-call result lowering that already carries the byval/ptr arg convention but waits on the front end to hand it a well-formed multi-return tuple type. Two of the four cited defects turn out to be already-fixed-on-LLVM or front-end-blocked (so Plan 2's job there is verify-after-Plan-1, not re-fix); the two genuinely-live codegen gaps (Defects 1 and 2) are small, disjoint, and each fills an empty test-matrix cell.
 
+## Status (2026-06-08)
+
+- **Defect 2 — cross-module / global-only struct-type discovery: LANDED** (binate `b0402d04`). `collectStructTypes` now scans `m.Globals` (not only `m.Funcs`); `discoverStructFromType` gained `TYP_NAMED`→`.Underlying` and `TYP_ARRAY`→`.Elem` arms. Tests: `emit_types_test.bn` (global-only struct / array-of-struct / named-over-struct discovery) + `conformance/657_cross_pkg_struct_global` (cross-package end-to-end).
+- **Defect 1 — NAMED-peel in the global static-zero token dispatch: LANDED** (binate `f2ebaca1`). New `stripWrappers` helper peels `TYP_READONLY`+`TYP_NAMED` to a fixpoint; the four `conformance/matrix/globals/noinit/named-{iface,func,managed-ptr,managed-slice}` cells flip green on the LLVM modes (their stale xfails removed). Tests: `emit_global_test.bn`.
+  - **Correction to the Defect-1 reachability caveat below (it was stale).** The end-to-end fix is NOT gated on any Plan-1 `resolveTypeExpr` change. Named-over-aggregate globals already reach codegen as `TYP_NAMED` — IR-gen registers a named-distinct non-struct type as a `TYP_NAMED` alias (landed independently as binate `b43a0057`, the named-distinct-scalar work), so `resolveTypeExpr` no longer falls back to `TypInt()` for them. This codegen peel alone fixes the cells; verified by reverting it (cells red) and re-applying (green on gen1+gen2).
+- **Defects 3 & 4 — verify-only, still GATED on Plan 1** (`MethodResultsFlat` iface multi-return result type / func-value multi-return destructure), which has not landed as of this writing (Plan 1's D1/D7 have landed; D3/D4 have not). Not yet actionable.
+
 ## Defects
 
 ### Defect 1: Package-level global of a NAMED-over-aggregate/iface/func/managed-ptr type emits an invalid zero token

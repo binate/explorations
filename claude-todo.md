@@ -216,12 +216,11 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Severity**: MAJOR — hard compile error (not silent), blocked any package-level interface-value / func-value (or readonly-aggregate) global. Discovered 2026-06-07 implementing `pkg/std/io`'s `io.EOF`.
 - **Test-gap analysis (the "why wasn't this caught / how to prevent" ask) + FOLLOW-UP**: the defect lived in a structurally-EMPTY matrix intersection — `conformance/matrix/aggregate/global` sweeps the `global` op over {scalar,array,struct}×{int,float} but NOT iface/func kinds; `conformance/matrix/addr-aggregate/{func-value,iface-value}` sweeps those kinds over {direct,copy,return,arg,return-arg,field,array-elem} but has NO `global` op. Neither product's coordinates included "a package-level global of a 2-word address-aggregate", and there was ZERO codegen unit coverage of the module-global path. PREVENTIVE FOLLOW-UP (deferred per the user): add a `global` operation to `conformance/gen-addr-aggregate-matrix.py` (OPERATIONS) → `addr-aggregate/{func-value,iface-value}/global.bn` + a no-initializer companion (sweeping the with/without-runtime-initializer axis), update its README, run hygiene. ALSO unverified: VM (`-int`) + native modes — the VM materializes globals separately (`vm/lower_data.bn`); confirm it handles iface/func-value globals before relying on `io.EOF` in `-int`/native (xfail per mode if not). The unit test is mode-independent and already guards the codegen fix.
 
-### Package-level global of a NAMED type miscompiles — named scalar emits `global i64 0` (wrong LLVM type/width), named-over-aggregate emits `i64` for a 16-byte type — CONFIRMED latent wrong-IR, LLVM backend
-- **Symptom**: `type Celsius float64; var C Celsius = 3.5` emits `@C = global i64 0` (should be `double 0.0`); `__init` then does `store double %v, double* @C` against the i64-declared global. Same for `type F32 float32` (→ `i64`, should be `float`) and `type Byte8 int8` (→ `i64`, wrong type AND width). A named type whose underlying is an ADDRESS-AGGREGATE (`type MyErr @errors.Error; var X MyErr`) emits `@X = global i64 0` — an 8-byte i64 global for a 16-byte managed-iface-value type. All RUN correctly today only because LLVM opaque pointers tolerate the i64-vs-real-type mismatch; under typed pointers, the native AArch64 backend, or any layout/ABI/debug-info consumer it is real wrong-IR / wrong-layout.
-- **Root cause (a DIFFERENT layer from the global-init emit.bn fix above)**: IR-gen `resolveTypeExpr` (`pkg/binate/ir/gen_util.bn:294`) falls back to `return types.TypInt()` for any `TEXPR_NAMED` that isn't a primitive / module-struct / registered type-alias — so the global's recorded `Typ` is plain int and codegen never sees the named (or underlying) type. Named structs work (→ TYP_STRUCT); named ints work by luck (int 0 is right).
-- **Severity**: MAJOR — latent wrong-IR/wrong-layout (not a hard failure today, masked by opaque pointers). Same CLASS as the iface/func-value global-init bug but a different root cause (IR-gen type resolution, not the emit.bn dispatch). Discovered 2026-06-07 by the adversarial review of the global-init fix.
-- **Fix direction**: resolve a named type to its true underlying type in IR-gen so the global carries the real type to codegen; emit.bn's existing IsFloat()/aggregate/width handling then produces the correct `double`/`float`/`iN`/aggregate. Note: named-over-iface is half-supported anyway (`present(X)` and `var X MyErr = errors.New(...)` are rejected today), so only the no-init named-aggregate global is currently reachable.
-- **Tests (TODO with fix)**: conformance regression `type Temp float64; var g Temp = 3.5` read back; an IR-gen unit test that a named-scalar global carries its underlying type.
+### Package-level global of a NAMED type miscompiles — named scalar emitted `global i64 0`, named-over-aggregate emitted an invalid zero token — FIXED (binate `b43a0057` IR-gen + `f2ebaca1` codegen, plan-cr2-2 Defect 1)
+- **Fix (two layers, both landed)**: (1) IR-gen now registers a named-distinct non-struct type as a `TYP_NAMED` alias (binate `b43a0057`, the named-distinct-scalar work), so `resolveTypeExpr` returns the real `TYP_NAMED` (carrying `.Underlying`) instead of the old `TypInt()` fallback — named-scalar/float globals get `double 0.0` / `float` / `iN`, and named-over-aggregate globals reach codegen as `TYP_NAMED`. (2) The `emit.bn` global static-zero token dispatch now peels `TYP_NAMED` as well as `TYP_READONLY` (via the new `stripWrappers` helper, binate `f2ebaca1`), so a named-over-aggregate global emits `zeroinitializer` / `null` instead of the invalid bare ` 0`. Pinned by `emit_global_test.bn` (TestEmitGlobalNamed{IfaceValue,FuncValue,ManagedSlice,ManagedPtr}ZeroInit) + the four `conformance/matrix/globals/noinit/named-{iface,func,managed-ptr,managed-slice}` cells (now green on the LLVM modes; xfails removed). Verified by reverting `f2ebaca1` (cells red) and re-applying (green on gen1+gen2).
+- **Symptom (was)**: `type Celsius float64; var C Celsius = 3.5` emitted `@C = global i64 0` (should be `double 0.0`); a named-over-address-aggregate (`type MyErr @errors.Error; var X MyErr`) emitted `@X = global %BnIfaceValue 0` — an invalid LLVM token clang rejects (`integer constant must have integer type`).
+- **Note on the prior root-cause text (now corrected)**: an earlier version blamed `resolveTypeExpr`'s `gen_util.bn:294` `TypInt()` fallback as still-live; that was made stale by `b43a0057`, which registers the `TYP_NAMED` alias so the fallback is no longer reached for these. The remaining live gap was purely the `emit.bn` token peel, fixed by `f2ebaca1`.
+- **Severity**: MAJOR (was an invalid-LLVM hard failure for named-over-aggregate; latent wrong-type/width for named-scalar). Discovered 2026-06-07 by the adversarial review of the global-init fix.
 
 ### Nested arrays (`[N][M]T`) are mis-compiled — CONFIRMED wrong-code / invalid IR, LLVM backend
 - **Symptom**: a 2-D array literal stores POINTERS to inner-array allocas into the
@@ -246,24 +245,25 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Test (TODO when fixing)**: conformance cell for `[N][M]T` literal init +
   element read + `aa[i] = [M]T{...}`, xfailed until fixed.
 
-### Cross-module global of struct type emits `external global %Struct` without declaring the type — CONFIRMED compile failure, LLVM backend
-- **Symptom**: a module that references another package's package-level `var g
-  StructType` emits `@<mangled> = external global %bn_<pkg>__Struct` but never
-  emits `%bn_<pkg>__Struct = type {...}` in that module → clang "use of undefined
-  type named '...'".  Observed via the unit-test harness module (`test_main.ll`)
-  referencing a `var gStruct Pt` in the package under test.
-- **Discovery**: 2026-06-06, testing a global struct var readback alongside the
-  aggregate-assignment fix.  (Scalar and array-of-scalar globals are fine; only
-  the named-struct type def is missing.)
-- **Severity**: MAJOR — blocks any cross-module reference to a global of struct
-  type.  Needs confirming whether it also bites a normal cross-package import (not
-  just the test harness), but the `external global` type-decl gap is real either way.
-- **Likely root cause**: `emit.bn`'s extern-global path emits `= external global
-  llvmType(g.Typ)` for the named struct, but the consuming module's struct-type-def
-  collection (`moduleStructDefs`) doesn't include types reachable only through an
-  imported global, so the named type is never declared.
-- **Test (TODO when fixing)**: a cross-package program with `var g StructType`,
-  xfailed until fixed.
+### Cross-module global of struct type emits `external global %Struct` without declaring the type — FIXED 2026-06-08 (binate `b0402d04`, plan-cr2-2 Defect 2)
+- **Fix**: `collectStructTypes` (`pkg/binate/codegen/emit_types.bn`) now scans
+  `m.Globals` after `m.Funcs`, so a struct reachable only through a package-level
+  global (the defining `global` or a consuming `external global` — both record
+  `g.Typ`) is discovered and its `%bn_<pkg>__Struct = type {...}` def emitted
+  before the global that references it. `discoverStructFromType` also gained
+  `TYP_NAMED`→`.Underlying` and `TYP_ARRAY`→`.Elem` recursion arms (a named-over-
+  struct or `[N]Struct` global's struct was missed even via a function). Purely
+  additive (discovery can only find more structs; `addStructDef` dedups). Pinned
+  by `emit_types_test.bn` (TestStructTypeDiscoveredViaGlobal / ...ArrayOfStruct...
+  / ...NamedStruct...) and `conformance/657_cross_pkg_struct_global`.
+- **Symptom (was)**: a module that references another package's package-level `var
+  g StructType` emitted `@<mangled> = external global %bn_<pkg>__Struct` but never
+  `%bn_<pkg>__Struct = type {...}` in that module → clang "use of undefined type".
+  Confirmed to bite a normal cross-package import (not just the test harness); also
+  the defining package of a zero-init struct global (no function references the
+  struct).
+- **Discovery**: 2026-06-06; root cause was `collectStructTypes` scanning only
+  `m.Funcs`. **Severity**: MAJOR (was a hard compile failure).
 
 ### Integer shift by a count >= bit width is hardware-masked (mod width), NOT the spec's defined 0 / sign-extend — FIXED 2026-06-06 (binate `32fde83d`)
 - **Fix**: a branchless overshift guard in IR-gen (`gen_binary.bn`,
