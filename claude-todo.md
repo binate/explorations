@@ -1156,6 +1156,13 @@ Discovery Protocol) — most don't have one yet.
 
 ## MAJOR
 
+### Compound shift-assign (`<<=` / `>>=`) bypasses the overshift guard — a shift count ≥ bit-width is hardware-masked instead of the spec's defined 0 — SILENT wrong-code, LLVM (CONFIRMED 2026-06-07)
+- **Symptom**: `var y uint32 = 1; y <<= 40; println(cast(int, y))` prints `256` (= `1 << (40 & 31)`) on `builder-comp`, not the spec's `0` (count 40 ≥ width 32). The expression form `y = y << 40` correctly gives `0` (fixed at the CRITICAL "shift by ≥ bit width" entry, binate `32fde83d`). Native aa64 gives the correct `0` — so this is an LLVM-path divergence. `uint8 x <<= 9` happens to read `0` (the `1<<9=512` result is narrowed to `uint8` → 0, masking the bug); only a width where the masked count stays in range (`uint32 <<= 40` → `<<8`) exposes it.
+- **Root cause (path-parity)**: the overshift guard (`emitGuardedShift`) is applied on the expression-shift path but NOT on the compound-assign path — `emitCompoundBinop` (`pkg/binate/ir/gen_control.bn`) lowers `<<=`/`>>=` without routing through `emitGuardedShift`. Classic Code-Red-2 path-parity gap: a guard added to one of N sibling lowerings (expr-shift) was never mirrored into the others (compound-assign). See `plan-code-red-2.md`.
+- **Severity**: MAJOR — silent wrong-code, but narrow (requires a compile-time shift count ≥ width in a compound-assign). Fix is small; it is **Plan-1 defect (7)** in `plan-cr2-1-frontend.md`.
+- **Test**: a `conformance/matrix/operator` cell (compound-assign × shift × overshift) — pending the operator matrix; meanwhile a `conformance/regressions/compound-shift-assign-overshift` point-test pins it.
+- **Discovery**: 2026-06-07, Code-Red-2 probing of path-parity predictions (the operator pattern).
+
 ### `==` / `!=` on ANY aggregate type (slices, func values, interface values, structs) is accepted by the checker but emits invalid LLVM (`icmp` on a non-integer) — CONFIRMED codegen bug; the SEMANTICS are an open spec gap
 - **Symptom**: `a == b` (or `!=`) where the operands are a non-scalar/non-pointer type type-checks, then codegen unconditionally emits an `icmp` on the aggregate → clang: `error: icmp requires integer operands`; the whole package fails to compile. CONFIRMED for all of: raw slice `*[]int`, managed-slice `@[]int`, raw func value `*func()int`, managed func value `@func()int`, interface value `@Iface`/`@errors.Error`, and struct `Pt`. (`icmp` is only valid for integer/pointer operands, so anything wider than one word breaks.)
 - **Two distinct issues, do not conflate**:
