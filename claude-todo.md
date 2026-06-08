@@ -2123,9 +2123,10 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   callers; need a real Binate allocator to retire) and Exit (needs a
   process-exit syscall, gated on the C-free syscall story).
   `pkg/bootstrap` — the larger I/O surface — is the next target.
-- **Migrate `bootstrap.Itoa` callers to `strconv.Itoa` — package callers
-  DONE (2026-06-07); Tier-0 formatter + `bootstrap.Itoa` retirement
-  remain**: now that `pkg/std/strconv` has `Itoa(v int)`
+- **`bootstrap.Itoa` — FULLY RETIRED (2026-06-08, `f7966135`).**  Every
+  caller migrated, then the function, declaration, tests, baremetal
+  duplicate, and VM extern registration all removed.  Now that
+  `pkg/std/strconv` has `Itoa(v int)`
   (base 10), `FormatInt(v int64, base)`, and `FormatUint(v uint64, base)`,
   they are the canonical replacement for `bootstrap.Itoa`.  Goal: every
   Tier-1/Tier-2/Tier-3 caller uses strconv instead of bootstrap (a
@@ -2174,17 +2175,15 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
     (test-only), `cmd/bnlint`, `cmd/bni`.  Every arg was a bare `int`, so
     all sites used `strconv.Itoa` directly (no `FormatInt`/`FormatUint`
     needed yet).
-  - **Still open:** deleting `bootstrap.Itoa` itself.  Remaining caller is
-    `cmd/bnc/gen_test_runner.bn` (emits a runner that formats pass/fail
-    counts) — **now unblocked** ([A] is done across all modes): the runner
-    can format via `passed.String()`, which resolves+links without the
-    runner importing `lang`, in both the compiled and VM test paths.  Then
-    retire the extern plumbing (`vm/extern_register_std.bn`,
-    `cmd/bni/externs.bn`), drop the definitions/declaration
-    (`pkg/bootstrap.bni`, `pkg/bootstrap/bootstrap.bn`, the baremetal
-    duplicate), and retire `conformance/064_bootstrap_funcs.bn` (exists
-    only to test `bootstrap.Itoa`).  `conformance/321_struct_return_loop.bn`
-    is already migrated — it uses `total.String()` (landed 2026-06-07).
+  - **Retirement — DONE** (landed in order, each its own commit):
+    `gen_test_runner.bn` formats counts via `passed.String()` (`c2aaaabf`,
+    relying on [A]); `321` migrated to `total.String()` (`9ba85eec`);
+    `conformance/064` retired (`0d7c0501`); the VM extern registration
+    dropped from both drivers (`6d2384de`); and finally the definition,
+    `.bni` declaration, unit tests, and baremetal duplicate removed
+    (`f7966135`).  The bootstrap int-formatting surface used by
+    print/println (`formatInt`/`Int64`/`Uint`/`Bool`/`Float`) deliberately
+    STAYS — only the standalone allocating `Itoa` is gone.
   - **Done since:** the ad-hoc `intToChars` helpers — the package-scoped
     one in `pkg/binate/ir/gen_func_lit.bn` (3 call sites: `__closure_local_`,
     `__funclit_`, `__mv_local_`) and a duplicate in
