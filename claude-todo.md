@@ -6,6 +6,14 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ## CRITICAL
 
+### `readonly` / `const` type modifier is broken for managed values — field reads return WRONG VALUES (silent) AND no method can be called (compile error) — CONFIRMED on LLVM/compiled; other modes unverified
+- **Symptom 1 (SILENT wrong-code — highest priority)**: reading a field through a `readonly @T` managed pointer returns the wrong value. `var p @Box = make(Box); p.v = 7; var rp readonly @Box = p; println(rp.v)` prints `0`, not `7` — while a direct `p.v` correctly prints `7`. A `readonly` view of a managed struct silently mis-reads its fields (wrong base/offset for the readonly-wrapped managed pointer, or the `rp = p` handle copy is wrong). Silent data corruption.
+- **Symptom 2 (compile error)**: NO method can be called on a `readonly` managed value. `readonly @Iface` → `cannot access field on this type`; `readonly @Box` → `cannot call method Get: receiver type readonly @Box not assignable to @Box`. Root: there is no readonly-receiver method form, and `readonly T` is (correctly) not assignable to a `@T` receiver, so method resolution rejects every call on a readonly value — including ALL interface use (interface use IS method dispatch).
+- **Impact**: `readonly`/`const` is effectively unusable on any managed value — interfaces (`@Iface`) and managed structs/ptrs with methods can't be called at all, and `readonly @struct` field reads silently corrupt. Directly blocks a *readonly* `io.EOF` sentinel.
+- **Discovery**: 2026-06-07, designing `pkg/std/io`'s `io.EOF` (wanted a readonly managed-value global).
+- **Root cause direction (needs investigation)**: (1) field-access lowering mis-bases / doesn't see through the `readonly` modifier on a managed pointer (the silent one — fix first); (2) method resolution needs a non-mutating-receiver path so a `readonly` receiver can call methods that don't mutate (cf. Rust `&self`, C++ const methods) — partly a language-design call (does Binate want const-correct receivers, or does `readonly` implicitly permit non-mutating method calls?).
+- **Tests (TODO with fix)**: conformance cells — readonly-managed field read (value-correct), readonly-iface method call, readonly-struct method call, across all modes; a checker unit test.
+
 ### A relational op with an untyped int literal on the LEFT and a signed int on the right uses an UNSIGNED comparison — silent wrong result, ALL backends — FIXED 2026-06-06 (binate `b54c9fdf`)
 - **Fix**: `gen_binary.bn` (`genBinary`) now stamps the resolved concrete type
   onto an untyped-int operand after `widenType`+`ensureWidth`.  `widenType`
@@ -1110,6 +1118,21 @@ Discovery Protocol) — most don't have one yet.
 ---
 
 ## MAJOR
+
+### Interface-value `==` / `!=` is accepted by the type-checker but emits invalid LLVM (`icmp` on a 2-word aggregate) — CONFIRMED, should be rejected at type-check
+- **Symptom**: `a == b` for interface values (`@errors.Error`, any `@Iface`) type-checks, then codegen emits `icmp` on the 16-byte `%BnIfaceValue` aggregate → clang: `error: icmp requires integer operands`; the package fails to compile. Reproduced for aliased values, distinct allocations, and vs an empty `@Error`.
+- **Design**: per claude-notes.md, `==`/`!=` is defined for pointers (address equality), scalars, and bool — NOT for interface values; interface comparison goes through `Comparable`/`Equatable`, and you "can't directly call Compare through" an interface-value variable (claude-notes.md:667). So interface-value `==` is NOT a supported operation; the checker should REJECT it with a clear diagnostic instead of handing codegen an aggregate it lowers as `icmp`.
+- **Root cause**: the `==`/`!=` type-check rule permits operands it shouldn't (interface values — and likely func-values, the other 2-word aggregate); codegen's equality lowering assumes an integer/pointer operand. Same "aggregate treated as a scalar in codegen" family as the iface/func-value global-init bug.
+- **Fix direction**: reject interface-value (and func-value) operands in the `==`/`!=` checker rule with a clear error. (Identity comparison of interface values, if ever wanted, is a separate language-design decision + a proper 2-word lowering — out of scope.)
+- **Discovery**: 2026-06-07, verifying whether `==` works for interface values (it does not).
+- **Tests (TODO with fix)**: a checker negative test that `@Iface == @Iface` is rejected with a clear error (not invalid IR).
+
+### `pkg/std/io`: add `io.EOF` sentinel — DEFERRED, blocked on three items
+- The `pkg/std/io` interfaces (Reader/Writer/Closer/ReaderAt/WriterAt) are designed and approved; `io.EOF` (end-of-input sentinel) is deferred because it needs a package-level managed-value global (`var EOF @errors.Error = errors.New("EOF")`), which surfaced three blockers:
+  1. **Codegen (fixed, pending landing)**: iface/func-value package globals emitted invalid IR — see the global-init MAJOR entry. Fix verified; once landed, a *plain* `var EOF @errors.Error = errors.New("EOF")` works end-to-end (compiles, `__init` runs it before main, cross-package read + `.Error()` correct).
+  2. **Readonly (CRITICAL, open)**: a *readonly* `io.EOF` is wanted so consumers can't reassign the sentinel, but `readonly` is broken for managed values (see the readonly CRITICAL). Until fixed, `io.EOF` would be a plain (reassignable) `var` — which matches Go (its `io.EOF` is a plain var) but isn't the immutability wanted.
+  3. **Detection mechanism (open)**: `err == io.EOF` does not work — interface-value `==` is unsupported (see the `==` MAJOR). How a consumer tests for EOF (an `io.IsEOF(e) bool` helper? an error identity/code scheme? adding interface identity-equality?) is an open design question, best settled when the first real `Reader` lands.
+- **Plan**: land the codegen fix + the interface-only `io.bni` first; add `io.EOF` once (2)/(3) are resolved (or accept a plain-var Go-style EOF if shipping it sooner is preferred).
 
 ### float32 ops (arithmetic, negate, comparison) were computed in double precision on the f32 bit pattern — FIXED/LANDED 2026-06-06 (binate df7a5ec1, 12a24e74, fc11d862)
 The VM and both native backends computed float32 `+ - * /`, unary negate, and all six comparisons as float64 on the raw f32 bit pattern (the low-4-byte f32 bits reinterpreted as a double), producing garbage — a silent miscompile (LLVM was always correct). All three now compute at single precision:
