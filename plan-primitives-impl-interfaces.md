@@ -378,6 +378,23 @@ etc.  The import naturally pulls in the universe-type impls
 `pkg/std` to use `Stringer` ALSO makes `int.String()`
 available.  No magic.
 
+> **Revised 2026-06-07 — primitive *methods* are now auto-available
+> (the interface *type* is not).**  Requiring the import just to call
+> `myInt.String()` proved a usability wart, so the method-call case was
+> decoupled from the import: the compiler force-loads `pkg/builtins/lang`
+> (`ensureLangLoaded`) so the carve-out impls attach `String()` /
+> `Compare()` to the global primitive singletons (method resolves with no
+> import), and registers lang in every module's import set
+> (`appendLangImport`, mirroring `appendBootstrapImport`) so the
+> cross-package `declare` is emitted (the call links).  This reverses the
+> "No auto-import" decision **for method calls only** — naming the
+> `lang.Stringer` interface *type* still requires `import
+> "pkg/builtins/lang"` (gated by the type checker, a separate, earlier
+> check).  Implemented in `cmd/bnc` (commit `b731a0a5`); the `cmd/bni` VM
+> compile path is a tracked follow-up (see `claude-todo.md`).  Covered by
+> conformance `654`–`656` (per-type positives) and `658` (negative: the
+> interface type still needs the import).
+
 **Interfaces and primitive impls live in the same package.**
 Splitting the interface declarations into a thinner
 `pkg/iface` would require either auto-import (rejected
