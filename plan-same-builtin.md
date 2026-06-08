@@ -1,9 +1,9 @@
 # Plan: `same` builtin — reference identity
 
-Status: DESIGN SETTLED (discussion 2026-06-07/08). Implementation in
-progress. Follow-ups: `errors.Is` (on `same`), then `io.IsEOF` (on
-`errors.Is`); `present()`-for-all-types is a separate, later pass (to be
-discussed in detail first).
+Status: IMPLEMENTED + LANDED (binate `e7c1b7fc`; conformance `661_same_ref`,
+green in builder-comp / -int / -comp). Follow-ups: `errors.Is` (on `same`)
+— IN PROGRESS next; then `io.IsEOF` (on `errors.Is`); `present()`-for-all-
+types is a separate, later pass (to be discussed in detail first).
 
 ## Why
 
