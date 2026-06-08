@@ -2010,8 +2010,9 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   callers; need a real Binate allocator to retire) and Exit (needs a
   process-exit syscall, gated on the C-free syscall story).
   `pkg/bootstrap` — the larger I/O surface — is the next target.
-- **IN PROGRESS — migrate `bootstrap.Itoa` callers to `strconv.Itoa` /
-  `strconv.FormatInt`**: now that `pkg/std/strconv` has `Itoa(v int)`
+- **Migrate `bootstrap.Itoa` callers to `strconv.Itoa` — package callers
+  DONE (2026-06-07); Tier-0 formatter + `bootstrap.Itoa` retirement
+  remain**: now that `pkg/std/strconv` has `Itoa(v int)`
   (base 10), `FormatInt(v int64, base)`, and `FormatUint(v uint64, base)`,
   they are the canonical replacement for `bootstrap.Itoa`.  Goal: every
   Tier-1/Tier-2/Tier-3 caller uses strconv instead of bootstrap (a
@@ -2048,12 +2049,24 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
     in `cmd/bnc/gen_test_runner.bn` (emits source that calls
     `bootstrap.Itoa`); and `conformance/064_bootstrap_funcs.bn` (tests
     `bootstrap.Itoa` itself).
-  - **Progress:** `pkg/binate/token` ✅, `pkg/binate/repl` ✅.  Remaining
-    (one package at a time, prod + test uses, drop the bootstrap import
-    where Itoa was its only use): `pkg/binate/native/{x64,aarch64}`,
-    `pkg/binate/vm`, `pkg/binate/ir` (test-only), `pkg/binate/lexer`
-    (test-only), `pkg/binate/types` (test-only), `pkg/binate/lint`
-    (test-only), `cmd/bnlint`, `cmd/bni`.
+  - **Progress — all migratable package callers DONE** (2026-06-07; each
+    green across builder-comp / -int / -comp, landed on main, one package
+    per commit): `token`, `repl`, `native/{x64,aarch64}`, `vm`, `ir`
+    (test-only), `lexer` (test-only), `types` (test-only), `lint`
+    (test-only), `cmd/bnlint`, `cmd/bni`.  Every arg was a bare `int`, so
+    all sites used `strconv.Itoa` directly (no `FormatInt`/`FormatUint`
+    needed yet).
+  - **Still open:** (1) the Tier-0 `lang` formatter (above) — the only
+    `bootstrap.Itoa` use that can't move to strconv.  (2) Deleting
+    `bootstrap.Itoa` itself, which additionally requires retiring the
+    extern plumbing (`vm/extern_register_std.bn`, `cmd/bni/externs.bn`),
+    the `cmd/bnc/gen_test_runner.bn` codegen (emits `bootstrap.Itoa`
+    source), and `conformance/321_struct_return_loop.bn` (incidental
+    caller); `conformance/064_bootstrap_funcs.bn` tests `bootstrap.Itoa`
+    directly and would move/retire with it.  (3) `pkg/binate/ir/
+    gen_func_lit.bn`'s ad-hoc `intToChars` helper could now just call
+    `strconv.Itoa` — its comment says bootstrap.Itoa's return type "isn't
+    right", which is likely stale (strconv.Itoa returns `@[]char`).
 - **Why migrate OUT rather than convert in place (do NOT re-attempt the
   in-place shape)**: in-place renames of packages whose surface is
   declared-only and resolved by C symbols (`pkg/libc`, and the I/O side
