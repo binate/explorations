@@ -1,9 +1,11 @@
 # Plan: `same` builtin — reference identity
 
-Status: IMPLEMENTED + LANDED (binate `e7c1b7fc`; conformance `661_same_ref`,
-green in builder-comp / -int / -comp). Follow-ups: `errors.Is` (on `same`)
-— IN PROGRESS next; then `io.IsEOF` (on `errors.Is`); `present()`-for-all-
-types is a separate, later pass (to be discussed in detail first).
+Status: IMPLEMENTED + LANDED — the whole `same → errors.Is → io.IsEOF`
+chain is on main: `same` (binate `e7c1b7fc`, conformance `661_same_ref`),
+`errors.Is` (binate `1f87b905`, `662_errors_is`), `io.IsEOF` (binate
+`5282563b`, `663_io_iseof`) — all green in builder-comp / -int / -comp.
+Remaining: `present()`-for-all-sensible-types is a separate, later pass
+(to be discussed in detail first).
 
 ## Why
 
@@ -99,11 +101,13 @@ cross-type comparison.
 BUILDER note: the new keyword does not burden the pinned BUILDER as long
 as `cmd/bnc`'s own tree does not *use* `same`.
 
-## Follow-ups (separate passes)
+## Follow-ups
 
-- `errors.Is(err, target) bool` — walk the mandatory `Unwrap()` chain,
-  `same(cur, target)` per layer. (plan-std-errors.md deferred `errors.Is`
-  pending exactly this interface-value identity test.)
-- `io.IsEOF(err) bool` = `errors.Is(err, io.EOF)`.
-- `present()` for all sensible types — the emptiness sibling; its own
-  pass, discussed in detail before starting.
+- DONE — `errors.Is(err, target) bool` (binate `1f87b905`): walks the
+  mandatory `Unwrap()` chain, `same(cur, target)` per layer. (This is the
+  `errors.Is` plan-std-errors.md deferred pending interface-value
+  identity.)
+- DONE — `io.IsEOF(err) bool` = `errors.Is(err, io.EOF)` (binate
+  `5282563b`).
+- OPEN — `present()` for all sensible types — the emptiness sibling; its
+  own pass, to be discussed in detail before starting.
