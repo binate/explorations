@@ -2010,27 +2010,50 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   callers; need a real Binate allocator to retire) and Exit (needs a
   process-exit syscall, gated on the C-free syscall story).
   `pkg/bootstrap` — the larger I/O surface — is the next target.
-- **TODO — migrate `bootstrap.Itoa` callers to `strconv.Itoa` /
+- **IN PROGRESS — migrate `bootstrap.Itoa` callers to `strconv.Itoa` /
   `strconv.FormatInt`**: now that `pkg/std/strconv` has `Itoa(v int)`
-  (base 10) and `FormatInt(v int64, base)`, they are the canonical
-  replacement for `bootstrap.Itoa`.  Goal: every Tier-1/Tier-2 caller
-  uses strconv instead of bootstrap (a sub-step of retiring the
-  bootstrap int-format surface).  **Two hard constraints gate which
-  sites can move:**
-  - `cmd/bnc` and its **BUILDER-compilable dependency tree** (incl.
-    `pkg/binate/token`, the `native/*` backends, codegen, ir, …) CANNOT
-    import `pkg/std/strconv`: the package pulls in `pkg/std/math/big` (and
-    floats) via `ftoa.bn`, which is not BUILDER-compilable.  These stay
-    on `bootstrap.Itoa` until either strconv's integer-only path is split
-    into a BUILDER-compilable subpackage or the BUILDER constraint lifts.
-  - `pkg/builtins/lang` (Tier-0 core) CANNOT depend on strconv either —
-    strconv imports the builtins, so it would cycle.  Stays.
-  - **Migratable now** (built by bnc, full language, not in bnc's tree):
-    `cmd/bni/main.bn`, `cmd/bnlint/main.bn`, `pkg/binate/vm/*`,
-    `pkg/binate/repl/*`.  Audit each call site (a `grep -rn '\.Itoa('`
-    sweep currently finds ~10 non-test sites) and route base-10 ones to
-    `strconv.Itoa`, other bases to `strconv.FormatInt`; check each file's
-    BUILDER status before switching.
+  (base 10), `FormatInt(v int64, base)`, and `FormatUint(v uint64, base)`,
+  they are the canonical replacement for `bootstrap.Itoa`.  Goal: every
+  Tier-1/Tier-2/Tier-3 caller uses strconv instead of bootstrap (a
+  sub-step of retiring the bootstrap int-format surface).
+  - **The old "BUILDER tree CANNOT import strconv" constraint was wrong /
+    is now moot.**  `strconv` (whole package, incl. its `pkg/std/math/big`
+    dependency via `ftoa.bn`) is ALREADY in cmd/bnc's BUILDER-compiled
+    tree: `pkg/binate/ir/gen_const_fold.bn` and
+    `pkg/binate/native/common/common_float.bn` import it, and BUILDER
+    compiles them when building gen1.  So BUILDER-surface packages
+    (`token`, `native/*`, codegen, ir, …) CAN migrate — verified by
+    migrating `token` (gen1 rebuilds clean across builder-comp / -int /
+    -comp).  No integer-only strconv subpackage is needed.
+  - **`pkg/builtins/lang` (Tier-0 core) stays on a bootstrap-style
+    primitive** — it is below Tier 1, so it cannot import `strconv`
+    (layering inversion; also a cycle, since strconv's closure reaches the
+    builtins).  Tracked as its own follow-up: give Tier 0 an internal
+    formatter.  **Correctness bug to fix there:** lang.bn's int/uint
+    `String()` impls all funnel through `bootstrap.Itoa(cast(int, x))`,
+    which truncates on 32-bit targets — `(int64).String()`,
+    `(uint32).String()`, and `(uint64).String()` are WRONG on ILP32 for
+    values outside int32 range (and `(uint).String()`/`(uint64).String()`
+    already mis-render values ≥ 2^63 even on 64-bit, per the existing
+    comment).  The Tier-0 formatter must operate at native width
+    (`int64`/`uint64`), not down-cast to `int`.
+  - **Conversion discipline for the migration:** route each site by the
+    *argument's* type, never by a lossy down-cast — bare `int` →
+    `strconv.Itoa`; wider signed → `strconv.FormatInt(cast(int64, x), 10)`;
+    unsigned → `strconv.FormatUint(cast(uint64, x), 10)`.
+  - **Leave (not formatting calls / separate decisions):** the extern
+    registrations that expose `bootstrap.Itoa` to interpreted code
+    (`pkg/binate/vm/extern_register_std.bn`, `cmd/bni/externs.bn`) — those
+    go when `bootstrap.Itoa` is deleted, not now; the test-runner codegen
+    in `cmd/bnc/gen_test_runner.bn` (emits source that calls
+    `bootstrap.Itoa`); and `conformance/064_bootstrap_funcs.bn` (tests
+    `bootstrap.Itoa` itself).
+  - **Progress:** `pkg/binate/token` ✅, `pkg/binate/repl` ✅.  Remaining
+    (one package at a time, prod + test uses, drop the bootstrap import
+    where Itoa was its only use): `pkg/binate/native/{x64,aarch64}`,
+    `pkg/binate/vm`, `pkg/binate/ir` (test-only), `pkg/binate/lexer`
+    (test-only), `pkg/binate/types` (test-only), `pkg/binate/lint`
+    (test-only), `cmd/bnlint`, `cmd/bni`.
 - **Why migrate OUT rather than convert in place (do NOT re-attempt the
   in-place shape)**: in-place renames of packages whose surface is
   declared-only and resolved by C symbols (`pkg/libc`, and the I/O side
