@@ -156,8 +156,18 @@ This falls out naturally from the type system with no extra annotations needed.
 
 The type checker rejects `s == nil`, `s != nil`, and `s = nil` for both
 raw slices (`*[]T`) and managed-slices (`@[]T`). Use `len(s) == 0` to check
-for empty slices. Use introspection functions (e.g., `rt.HasBacking()`) to
-distinguish "no backing" from "empty view" for managed-slices.
+for empty slices.
+
+**Update 2026-06-08 — length-0 ⟹ no backing (reverses the "empty view"
+distinction):** a length-0 slice always has NO backing; its representation
+is the nil-equivalent (`{null, 0}` / `{null, 0, null, 0}`). There is no
+"empty view of live backing" state, and the never-implemented
+`rt.HasBacking()` is dropped. A length-0-with-backing managed slice can
+never be read/re-sliced/appended, so its backing is unreachable — yet it
+would silently pin the allocation alive (observable via a raw alias), a
+footgun. Making empty and "nil" slices identical removes the last
+nil-vs-empty difference. See claude-notes.md "Nil slices" / "Length-0 ⟹ no
+backing".
 
 **Why not allow nil?** The original position disallowed it, then it was
 briefly reconsidered (2026-04-03) to allow nil comparisons with different

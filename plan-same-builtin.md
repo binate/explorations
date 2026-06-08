@@ -43,7 +43,11 @@ on these types, spelled to signal identity instead of value-equality.
 - Slice: `data==data && len==len`. Two slices over equal contents at
   different addresses → not same; two views of the same region → same.
   Same `(data,len)` ⇒ same allocation ⇒ same backing, so the managed
-  slice's bookkeeping words need no separate comparison.
+  slice's bookkeeping words need no separate comparison. Under the
+  length-0 ⟹ no-backing invariant (claude-notes.md, 2026-06-08), every
+  empty slice is the canonical `{null, 0}`, so all empty slices are
+  `same` by construction — they denote the same underlying thing (no
+  backing).
 - Pointer: the single pointer word. Redundant with `==` (which is already
   address-equality on pointers, claude-notes.md:898) — included anyway so
   `same` is the *uniform* "same underlying thing" operator across all
