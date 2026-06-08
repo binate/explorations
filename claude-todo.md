@@ -42,7 +42,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Impact**: `readonly`/`const` is effectively unusable on any managed value — interfaces (`@Iface`) and managed structs/ptrs with methods can't be called at all, and `readonly @struct` field reads silently corrupt. Directly blocks a *readonly* `io.EOF` sentinel.
 - **Discovery**: 2026-06-07, designing `pkg/std/io`'s `io.EOF` (wanted a readonly managed-value global).
 - **Root cause direction (needs investigation)**: (1) field-access lowering mis-bases / doesn't see through the `readonly` modifier on a managed pointer (the silent one — fix first); (2) method resolution needs a non-mutating-receiver path so a `readonly` receiver can call methods that don't mutate (cf. Rust `&self`, C++ const methods) — partly a language-design call (does Binate want const-correct receivers, or does `readonly` implicitly permit non-mutating method calls?).
-- **Tests (TODO with fix)**: conformance cells — readonly-managed field read (value-correct), readonly-iface method call, readonly-struct method call, across all modes; a checker unit test.
+- **Tests**: PINNED by `conformance/matrix/readonly` (Code-Red-2 Class B) — `field-read/{value-struct,managed-ptr,raw-ptr}` + `pass-arg` (silent literal-0, all backends) and `method/{iface,managed-struct}` (compile-error, all modes) are xfailed red; `scalar/*` + `index/array` are green controls. Also surfaced in `conformance/matrix/globals/readonly/struct` (the `io.EOF` shape). Fix = plan-cr2-1 Defects 1 (gen_selector peel) + 2 (check_method resolveAliasAndConst). Add a checker/IR-gen unit test with the fix.
 
 ### A relational op with an untyped int literal on the LEFT and a signed int on the right uses an UNSIGNED comparison — silent wrong result, ALL backends — FIXED 2026-06-06 (binate `b54c9fdf`)
 - **Fix**: `gen_binary.bn` (`genBinary`) now stamps the resolved concrete type
@@ -1155,6 +1155,20 @@ Discovery Protocol) — most don't have one yet.
 ---
 
 ## MAJOR
+
+### A named fixed-array type (`type Row [3]int`) is unparseable — `type X [` is greedily read as generic type-params — CONFIRMED 2026-06-07
+- **Symptom**: `type Row [3]int` → parse error `expected IDENT, got INT` / `expected type`. After `type Row [`, the parser commits to the TypeParams form (`type Row [T U] …`), which requires an identifier, so a fixed-array size (an integer) is rejected. You cannot name a fixed-array type at all; `type Buf @[]int` (managed-slice) and `type S struct{…}` parse fine — only the `[N]T` array form collides with the generic-params `[ident ident]` syntax.
+- **Root cause**: the `[`-after-type-name disambiguation in the parser (grammar `TypeDecl`/`TypeSpec`, the `[` → ArrayType-vs-TypeParams ambiguity noted in grammar.ebnf ~158-164). The parser must look past `[` for an integer/expression (ArrayType) vs two identifiers (TypeParams).
+- **Severity**: MAJOR — a whole type-construction form is unavailable; loud (parse error), workaround is to use the structural type inline.
+- **Test**: the `conformance/matrix/globals` `named-array` cell is omitted for this reason; a `conformance/regressions/named-array-type` point-test would pin it.
+- **Discovery**: 2026-06-07, building the Code-Red-2 globals matrix.
+
+### `len()` on a named-managed-slice (`type Buf @[]int; len(buf)`) is rejected by the checker — named wrapper not peeled — CONFIRMED 2026-06-07
+- **Symptom**: `type Buf @[]int; var b Buf; len(b)` → checker error `len argument must be slice or array`. The `len` builtin's argument check tests the raw `Kind` (`TYP_NAMED`), never peeling to the underlying managed-slice. A wrapper-transparency miss (Code-Red-2 Class B / Invariant A) on the `len` builtin specifically.
+- **Severity**: MAJOR — `len` unusable on any named-slice/array type; loud (compile error).
+- **Root cause direction**: the `len`-arg type check (checker / builtin resolution) must peel `TYP_NAMED` (and `TYP_READONLY`) before testing slice/array-ness. Likely the same fix shape as plan-cr2-1's other peels.
+- **Test**: the `conformance/matrix/globals/noinit/named-managed-slice` cell reads `0` (compile-only) to avoid `len` so it isolates the codegen zero-token defect; a dedicated cell with `len` would pin this.
+- **Discovery**: 2026-06-07, building the Code-Red-2 globals matrix.
 
 ### Compound shift-assign (`<<=` / `>>=`) bypasses the overshift guard — a shift count ≥ bit-width is hardware-masked instead of the spec's defined 0 — SILENT wrong-code, LLVM (CONFIRMED 2026-06-07)
 - **Symptom**: `var y uint32 = 1; y <<= 40; println(cast(int, y))` prints `256` (= `1 << (40 & 31)`) on `builder-comp`, not the spec's `0` (count 40 ≥ width 32). The expression form `y = y << 40` correctly gives `0` (fixed at the CRITICAL "shift by ≥ bit width" entry, binate `32fde83d`). Native aa64 gives the correct `0` — so this is an LLVM-path divergence. `uint8 x <<= 9` happens to read `0` (the `1<<9=512` result is narrowed to `uint8` → 0, masking the bug); only a width where the masked count stays in range (`uint32 <<= 40` → `<<8`) exposes it.
