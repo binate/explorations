@@ -791,7 +791,7 @@ Discovery Protocol) — most don't have one yet.
   resolve const idents/exprs in the array-dimension path — or reject
   unsupported const-exprs with a clear diagnostic rather than dropping to int 0.
 
-### Native backends mis-pass a variadic float `__c_call` argument — CONFIRMED, both native backends
+### Native backends mis-pass a variadic float `__c_call` argument — CONFIRMED, both native backends — ✅ RESOLVED (binate `56f09bc6`, SysV `AL=nsrn` + AAPCS64-darwin variadic-stack rule)
 - **Symptom**: a variadic `double` passed via `__c_call` reaches the callee
   wrong on the native backends — `__c_call("printf", int32, fmtPtr, ...,
   cast(float64, 2.0))` with format `"%.0f\n"` prints **0**, not **2**. Correct
@@ -849,7 +849,7 @@ Discovery Protocol) — most don't have one yet.
   arrays support it and raw pointers are the documented hot-path escape, so
   emitting the address is the intended fix.)
 
-### VM: a function value RETURNED from a call and PASSED DIRECTLY as an argument has a nil vtable — CONFIRMED, VM-only
+### VM: a function value RETURNED from a call and PASSED DIRECTLY as an argument has a nil vtable — CONFIRMED, VM-only — ✅ RESOLVED (binate `e337e413`, `isVMAddressAggregate` single-return copy-back in `lowerReturn`)
 - **Symptom**: `use(mk())`, where `mk() @func(...)` returns a (non-capturing)
   function value and `use(w @func(...))` invokes it, aborts in the bytecode VM
   with `vm: function value has nil vtable`. Compiled (native) is correct.
@@ -1118,7 +1118,7 @@ Discovery Protocol) — most don't have one yet.
 
 ## MINOR
 
-### A NAMED distinct *signed sub-word* integer's MIN/-1 divide escapes the divide-fault guard
+### A NAMED distinct *signed sub-word* integer's MIN/-1 divide escapes the divide-fault guard — ✅ RESOLVED in behavior (binate `b43a0057`, named-distinct landing — `widenType` preserves named width+sign); regression test pending (plan-cr2-followup Plan B)
 - **Symptom**: `type I8 int8; var a I8 = <I8 MIN>; var b I8 = -1; a / b` does NOT
   panic with "integer overflow" (the ratified signed-MIN/-1 behavior); it
   silently wraps (the int64 divide `-128 / -1 = 128` truncates back to `-128`
@@ -1537,7 +1537,7 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   (emit_refcount_test.bn) pins the GEP index; `conformance/144_multi_return_bool_iface`
   covers it end-to-end (green on LLVM + VM).
 
-### Float-literal converter 1 ULP low for ~38+ sig-digit literals just above a tie (round-bit loss) — UNBLOCKED 2026-06-05 (BUILDER compiles `math/big`); proper fix actionable
+### Float-literal converter 1 ULP low for ~38+ sig-digit literals just above a tie (round-bit loss) — ✅ RESOLVED (binate `58570970`, `ParseFloatLitToBits` via `strconv.ParseFloat` — exact round bit)
 - **Symptom**: a float64 literal with ~38+ significant digits sitting JUST
   ABOVE a binary rounding tie (e.g. `1.0000000000000001110223024625156540424`)
   converts 1 ULP LOW.  `common.ParseFloatLitToBits` holds the significand in a
@@ -1888,7 +1888,7 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   flag had been mis-positioned after the mode).  Not caused by the `550`
   work.
 
-### Native backends mis-lower float consts/returns — `541` silently reads 0 (Phase A float-const gap on the native code generators)
+### Native backends mis-lower float consts/returns — `541` silently reads 0 (Phase A float-const gap on the native code generators) — ✅ RESOLVED (binate `5281b138` + `cc6d0e9b` AAPCS64 D0 float-return + `1285683e` runtime link; `541` green on native aa64)
 - **Symptom**: `conformance/541_cross_pkg_const_float` passes on the
   default C/LLVM-backed modes but **fails on the native aarch64 backend**
   (`builder-comp_native_aa64-comp_native_aa64`): expected `7 -3 7 -3 9`,
