@@ -109,6 +109,18 @@ The predicates themselves are non-transparent: `gen_refcount_pred.bn:119-123` `i
 
 **Test coverage**: GAP — no reproducer exists. The first deliverable is the 3-package repro cell; only then the fix.
 
+### Defect 9: unary minus `-x` on a sub-word int is mis-typed → invalid IR / silent wrong value (CONFIRMED 2026-06-08; the exact analog of the fixed `~` `bitnot-result-type` bug)
+
+**Symptom**: `-x` for any sub-word int (`uint/int 8/16/32`). Facet A (invalid IR): emits `sub i64 0, %x` with a hardcoded i64 zero while `%x` is i8/16/32 → clang rejects it (`'%x' defined with type 'i8' but expected 'i64'`); unary minus does not compile for sub-word ints on LLVM. Facet B (silent wrong value): on the VM + native backends it computes a host-width negation, so `-1` as `uint8` reads as host `-1`, not `255` (surfaces when the result is consumed without a re-narrow — a `>> k`, an unsigned compare, a widening read). `int64` and float negation are correct (handled); only sub-word is wrong.
+
+**Root cause (confirmed)**: `pkg/binate/ir/gen_expr.bn:223-241` (`genUnary`, MINUS arm) sets `negTyp` defaulting to host-word `types.TypInt()` and overrides it only for floats or `arg.Typ.Width == 64` (the int64-preserving path). A sub-word operand matches neither, so `EmitUnary(OP_NEG, arg, negTyp)` carries i64 while `arg` is i8/16/32 — the SAME mistake `~` had. The fixed `~` entry (`bitnot-result-type`, binate `42ad4fa0`) typed `OP_BITNOT` as the operand's type "mirroring OP_NEG", not realizing OP_NEG had the identical latent gap for sub-word.
+
+**Fix shape**: type the `OP_NEG` result as the operand's resolved (sub-word) type — accept any concrete `TYP_INT` width from the checker resolution (`e.ResolvedTypeID`) / operand type, not just `Width == 64`, mirroring the `~` fix at `gen_expr.bn:247`. A one-site result-type change. The native/VM `OP_NEG` sub-word re-narrow this also needs is ALREADY landed (binate `68616b20`, plan-cr2-3 Defect 1), so once IR-gen types OP_NEG correctly facet B is correct on every backend and facet A compiles.
+
+**Files/functions**: `pkg/binate/ir/gen_expr.bn` (`genUnary` MINUS arm ~:223-241).
+
+**Test coverage**: a `conformance/regressions/unary-minus-subword` cell (`((-x) >> k) == spec` self-check, xfailed every mode until the fix — the `>> k` consume avoids the re-narrow that would mask facet B on a bare compare/store). When this lands, re-add the full `scalar-diff/neg/{8,16,32,64}/{signed,unsigned}` generator family (drafted + reverted out of the plan-cr2-3 Defect-1 commit) — it goes green across all backends once OP_NEG is typed correctly and Defect 1's narrow applies. (Defect 1's OP_NEG narrow is independently pinned by the new aarch64/x64 `emitUnop` narrow unit tests, which build a correctly-typed sub-word OP_NEG directly.) Discovered 2026-06-08 via the plan-cr2-3 Defect-1 neg-cell probe; filed in `claude-todo.md` (MAJOR).
+
 ## Landing order
 
 Small, independently cherry-pickable, each green-preserving and stay-close-to-main:
@@ -121,6 +133,7 @@ Small, independently cherry-pickable, each green-preserving and stay-close-to-ma
 6. **Defect 3** (iface multi-return — the SEAM definer) — adds `MethodResultsFlat`/`MethodResultCounts`, the larger change; lands AFTER #4 so the two multi-return-destructure pieces are sequenced, and ASAP because Plans 2/3 consume the seam field read-only (coordinate so they rebase onto it). Unxfail the `iface-multi-return/int/*` LLVM+native cells.
 7. **Defect 5** (aggregate `==`/`!=` reject) — checker guard; settle the open struct-semantics question with the user first. Add the reject cells. **NOTE (2026-06-08):** per `claude-todo.md`, this was DECIDED + IMPLEMENTED in `pkg/binate/types` (binate `e0f40c06`, in work-3, pending landing): equality rejects slices/iface/func permanently, structs/arrays "not yet implemented"; relational numeric-only. Before doing anything here, check whether `e0f40c06` has landed and reconcile — this Plan-1 item may reduce to verifying its coverage rather than re-implementing.
 8. **Defect 8** (transitive re-export) — LAST and only IF a reproducer is confirmed; build the 3-package repro before any code change.
+9. **Defect 9** (unary-minus sub-word result type) — one-site `negTyp` fix in `gen_expr.bn`, mirroring the landed `~` fix; add the `regressions/unary-minus-subword` cell + re-add the `scalar-diff/neg` family. Independent of the other defects; the native/VM half is already landed (plan-cr2-3 Defect 1).
 
 Dependencies: #2 and #3 share the readonly CRITICAL (land together). #4 before #6→#3? no — #4 (func-value) and #3 (iface) are independent multi-return paths; #4 first only to keep the destructure-checker changes (#4 touches `check_stmt.bn`, #3 does not) from interleaving. #3 is the seam — land it early enough that Plans 2/3 can build on `MethodResultsFlat`.
 
@@ -128,7 +141,7 @@ Dependencies: #2 and #3 share the readonly CRITICAL (land together). #4 before #
 
 This plan OWNS, exclusively:
 
-- **`pkg/binate/ir`**: `gen_selector.bn` (genSelector/genSelectorPtr), `gen_refcount_pred.bn` (isManagedPtrToStruct/isRawPtrToStruct/isManagedPtrType peels), `gen_iface_registry.bn` (`ModuleInterface` struct incl. the new `MethodResultsFlat`/`MethodResultCounts` fields, and the decl-site population), `gen_generic.bn` (generic-instantiation result population), `gen_iface.bn` (findInterfaceMethod[FromBase], genInterfaceMethodCall result-list construction; and — only if Defect 8 is confirmed — isInterfaceTypeExpr/ifaceTypeForName), `gen_composite.bn` (genArrayLit nested-array arm), `gen_control.bn` (emitCompoundBinop shift routing, emitArrayElemStore nested-array arm), `gen_util.bn` (only if Defect 8 confirmed — resolveTypeExpr alias arm).
+- **`pkg/binate/ir`**: `gen_selector.bn` (genSelector/genSelectorPtr), `gen_refcount_pred.bn` (isManagedPtrToStruct/isRawPtrToStruct/isManagedPtrType peels), `gen_iface_registry.bn` (`ModuleInterface` struct incl. the new `MethodResultsFlat`/`MethodResultCounts` fields, and the decl-site population), `gen_generic.bn` (generic-instantiation result population), `gen_iface.bn` (findInterfaceMethod[FromBase], genInterfaceMethodCall result-list construction; and — only if Defect 8 is confirmed — isInterfaceTypeExpr/ifaceTypeForName), `gen_composite.bn` (genArrayLit nested-array arm), `gen_control.bn` (emitCompoundBinop shift routing, emitArrayElemStore nested-array arm), `gen_util.bn` (only if Defect 8 confirmed — resolveTypeExpr alias arm), `gen_expr.bn` (Defect 9 — genUnary MINUS result type).
 - **`pkg/binate/types`**: `check_method.bn` (tryMethodCall readonly peel), `check_stmt.bn` (the three multi-return-destructure guards), `check_expr.bn` (checkBinaryOp aggregate-comparison reject).
 
 It REUSES (does not modify): `peelReadonly`/`peelNamed` (`gen_refcount_pred.bn`/`gen.bn`), `makeMultiReturnStructType` (`gen_func.bn`), `emitGuardedShift`/`isSafeConstShiftCount`/`typeWidth`/`coerceScalarWidth` (`gen_binary.bn`), `registerManagedCallResult` (`gen_store_slot.bn`), `resolveAliasAndConst`/`IsScalar`/`IsPointer` (`types_const.bn`/`types_query.bn`).
