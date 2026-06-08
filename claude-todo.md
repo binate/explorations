@@ -2066,18 +2066,23 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
     (`token`, `native/*`, codegen, ir, …) CAN migrate — verified by
     migrating `token` (gen1 rebuilds clean across builder-comp / -int /
     -comp).  No integer-only strconv subpackage is needed.
-  - **`pkg/builtins/lang` (Tier-0 core) stays on a bootstrap-style
-    primitive** — it is below Tier 1, so it cannot import `strconv`
-    (layering inversion; also a cycle, since strconv's closure reaches the
-    builtins).  Tracked as its own follow-up: give Tier 0 an internal
-    formatter.  **Correctness bug to fix there:** lang.bn's int/uint
-    `String()` impls all funnel through `bootstrap.Itoa(cast(int, x))`,
-    which truncates on 32-bit targets — `(int64).String()`,
-    `(uint32).String()`, and `(uint64).String()` are WRONG on ILP32 for
-    values outside int32 range (and `(uint).String()`/`(uint64).String()`
-    already mis-render values ≥ 2^63 even on 64-bit, per the existing
-    comment).  The Tier-0 formatter must operate at native width
-    (`int64`/`uint64`), not down-cast to `int`.
+  - **`pkg/builtins/lang` (Tier-0 core) — DONE (2026-06-07):** lang can't
+    import `strconv` (below Tier 1; layering inversion, and a cycle since
+    strconv's closure reaches the builtins), so it got package-internal
+    full-width formatters (`formatUint64` / `formatInt64`, mirroring
+    `bootstrap.Itoa`'s uint64-magnitude approach incl. the two's-complement
+    trick for int64-min).  This also fixed a correctness bug: the impls had
+    funnelled through `bootstrap.Itoa(cast(int, x))`, which on 32-bit
+    targets TRUNCATED the wide types — `(int64/uint32/uint64).String()`
+    were WRONG on ILP32 for values outside int32 range — and mis-signed
+    unsigned values ≥ 2^63 on every target.  Each impl now widens
+    losslessly (signed → `cast(int64, x)`, unsigned → `cast(uint64, x)`);
+    lang keeps `bootstrap` only for `formatFloat`.  Covered by lang_test.bn
+    boundary cases (the unsigned ≥ 2^63 ones fail under the old code on a
+    64-bit host) and `conformance/653_int_string_width` (width-independent
+    output, one .expected for LP64+ILP32; guards the 32-bit truncation
+    under the arm32 modes — green on all 64-bit modes locally, arm32 needs
+    qemu so it runs in CI).
   - **Conversion discipline for the migration:** route each site by the
     *argument's* type, never by a lossy down-cast — bare `int` →
     `strconv.Itoa`; wider signed → `strconv.FormatInt(cast(int64, x), 10)`;
@@ -2096,17 +2101,17 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
     (test-only), `cmd/bnlint`, `cmd/bni`.  Every arg was a bare `int`, so
     all sites used `strconv.Itoa` directly (no `FormatInt`/`FormatUint`
     needed yet).
-  - **Still open:** (1) the Tier-0 `lang` formatter (above) — the only
-    `bootstrap.Itoa` use that can't move to strconv.  (2) Deleting
-    `bootstrap.Itoa` itself, which additionally requires retiring the
-    extern plumbing (`vm/extern_register_std.bn`, `cmd/bni/externs.bn`),
-    the `cmd/bnc/gen_test_runner.bn` codegen (emits `bootstrap.Itoa`
-    source), and `conformance/321_struct_return_loop.bn` (incidental
-    caller); `conformance/064_bootstrap_funcs.bn` tests `bootstrap.Itoa`
-    directly and would move/retire with it.  (3) `pkg/binate/ir/
-    gen_func_lit.bn`'s ad-hoc `intToChars` helper could now just call
-    `strconv.Itoa` — its comment says bootstrap.Itoa's return type "isn't
-    right", which is likely stale (strconv.Itoa returns `@[]char`).
+  - **Still open:** deleting `bootstrap.Itoa` itself.  That requires
+    retiring the extern plumbing (`vm/extern_register_std.bn`,
+    `cmd/bni/externs.bn`), the `cmd/bnc/gen_test_runner.bn` codegen (emits
+    `bootstrap.Itoa` source), and `conformance/321_struct_return_loop.bn`
+    (incidental caller); `conformance/064_bootstrap_funcs.bn` tests
+    `bootstrap.Itoa` directly and would move/retire with it.
+  - **Done since:** the ad-hoc `intToChars` helpers — the package-scoped
+    one in `pkg/binate/ir/gen_func_lit.bn` (3 call sites: `__closure_local_`,
+    `__funclit_`, `__mv_local_`) and a duplicate in
+    `pkg/binate/vm/func_index_test.bn` — now use `strconv.Itoa` and are
+    deleted (2026-06-07).
 - **Why migrate OUT rather than convert in place (do NOT re-attempt the
   in-place shape)**: in-place renames of packages whose surface is
   declared-only and resolved by C symbols (`pkg/libc`, and the I/O side
