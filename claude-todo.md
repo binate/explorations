@@ -2144,17 +2144,60 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
     (test-only), `cmd/bnlint`, `cmd/bni`.  Every arg was a bare `int`, so
     all sites used `strconv.Itoa` directly (no `FormatInt`/`FormatUint`
     needed yet).
-  - **Still open:** deleting `bootstrap.Itoa` itself.  That requires
-    retiring the extern plumbing (`vm/extern_register_std.bn`,
-    `cmd/bni/externs.bn`), the `cmd/bnc/gen_test_runner.bn` codegen (emits
-    `bootstrap.Itoa` source), and `conformance/321_struct_return_loop.bn`
-    (incidental caller); `conformance/064_bootstrap_funcs.bn` tests
-    `bootstrap.Itoa` directly and would move/retire with it.
+  - **Still open:** deleting `bootstrap.Itoa` itself.  Remaining caller is
+    `cmd/bnc/gen_test_runner.bn` (emits a runner that formats pass/fail
+    counts) — **blocked on [A] below**: once `myInt.String()` works without
+    importing `lang`, the runner formats via `passed.String()`.  Then
+    retire the extern plumbing (`vm/extern_register_std.bn`,
+    `cmd/bni/externs.bn`), drop the definitions/declaration
+    (`pkg/bootstrap.bni`, `pkg/bootstrap/bootstrap.bn`, the baremetal
+    duplicate), and retire `conformance/064_bootstrap_funcs.bn` (exists
+    only to test `bootstrap.Itoa`).  `conformance/321_struct_return_loop.bn`
+    is already migrated — it uses `total.String()` (landed 2026-06-07).
+    (Interim `print(passed)` — formatting via the print builtin's
+    `bootstrap.formatInt` path — works today but was set aside in favor of
+    doing [A] so the runner uses the real formatter.)
   - **Done since:** the ad-hoc `intToChars` helpers — the package-scoped
     one in `pkg/binate/ir/gen_func_lit.bn` (3 call sites: `__closure_local_`,
     `__funclit_`, `__mv_local_`) and a duplicate in
     `pkg/binate/vm/func_index_test.bn` — now use `strconv.Itoa` and are
     deleted (2026-06-07).
+- **[A] Primitive `.String()` should work without importing
+  `pkg/builtins/lang`** (surfaced 2026-06-07 by the bootstrap.Itoa work;
+  believed to be a previously-discussed, general issue).  Today calling
+  `myInt.String()` requires `import "pkg/builtins/lang"` for the method to
+  resolve and for lang's impl to link.  **Intended semantics:**
+  `myInt.String()` (a method on a primitive) resolves and links with NO
+  import; only naming the `lang.Stringer` interface *type* still requires
+  importing lang.  Likely mechanism: an `ensureLangLoaded` force-load
+  mirroring `ensureBootstrapLoaded` / `ensureRtLoaded` (`cmd/bnc/util.bn`),
+  plus whatever resolver change lets a primitive-receiver method resolve
+  from a loaded-but-not-file-imported package.  Open sub-question: does an
+  unused `String()` impl get dead-code-eliminated (matters for tiny
+  baremetal binaries)?  This is the immediate unblocker for finishing the
+  `bootstrap.Itoa` removal (so the test runner formats via `.String()`).
+- **[B] Test runners must be able to depend on the stdlib** (surfaced
+  2026-06-07; **a prereq for many later migrations**).  The `cmd/bnc
+  --test` generated runner (`cmd/bnc/gen_test_runner.bn`, compiled by
+  `cmd/bnc/test.bn`) can currently only call symbols *always linked* into
+  the test binary: `pkg/bootstrap` (force-loaded because print/println
+  emit `bootstrap.formatInt`/`Write`) plus whatever the *test package*
+  itself imports.  Imports the *runner* introduces that the test package
+  didn't already pull in do NOT get their impls compiled+linked — making
+  the runner call `passed.String()` (lang) or `strconv.Itoa` link-fails
+  with `undefined value '@bn_pkg__builtins__lang__int__String'` for a
+  package like `token` that doesn't import them.  Root cause (to confirm):
+  `cmd/bnc/test.bn` compiles the runner against the link set resolved from
+  the test package, not the runner's own import closure.  Fix: fold the
+  runner's transitive import closure's impls into the compile+link set
+  (treat the runner like a normal program whose imports get built).  **Why
+  it's a prereq:** bootstrap must go away, including `bootstrap.Args()` → a
+  future `pkg/std/os` `os.Args()`; the runner uses `bootstrap.Args()` for
+  `--run`, so it will need to import `pkg/std/os` and have it linked.  Any
+  migration that wants compiler-generated test code to use stdlib instead
+  of bootstrap is blocked on this.  (Distinct from [A]: [A] force-loads
+  lang specifically and suffices to remove `bootstrap.Itoa`; [B] is the
+  general stdlib-into-runner linking problem.)
 - **Why migrate OUT rather than convert in place (do NOT re-attempt the
   in-place shape)**: in-place renames of packages whose surface is
   declared-only and resolved by C symbols (`pkg/libc`, and the I/O side
