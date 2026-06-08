@@ -7,6 +7,11 @@
 
 Every defect here is one unfilled cell of the FEATURE × MODIFIER × POSITION product, and all six fail the two Code-Red-2 invariants directly. PATH PARITY: the sub-word-narrow re-reduction, the eightbyte-coalescing multi-return pack/collect, and the small-aggregate funcval-return convention each got fixed in ONE lowering path (the binary-op path, the *direct*-call path) but not in the parallel paths (the unary-op path, the iface-method and func-value collect paths, the small-aggregate shim) — so a value of the exact triggering shape silently breaks where its sibling passes. WRAPPER TRANSPARENCY shows up in the VM's BC_EXTRACT, which reads a full host word regardless of the field's sub-word type, and in the global-materialization parity work that must peel the same `TYP_READONLY` / named wrappers codegen's global emitter now peels. The fixes are confined to the backend packing/narrowing/materialization sites; none touches `pkg/binate/ir`, `pkg/binate/types`, or `pkg/binate/codegen`.
 
+## Progress
+
+- **Defect 1 (sub-word unary `NEG`/`BITNOT` narrow)** — ✅ LANDED (binate `68616b20`, 2026-06-08). aa64/x64 `emitUnop` now `emitSubWordNarrow` after `OP_NEG`/`OP_BITNOT`; **the VM leg was folded in** (same path-parity gap, same pinning cells, Plan-3-owned `vm/` files — confirmed disjoint from Plans 1/2): `lower_instr` attaches the narrow via a shared `applySubWordNarrow`, `execUnaryOp` applies it via a shared `applyNarrow`, both now also backing the binop path so the narrow can't drift. `scalar-diff/bitwise/not/{8,16,32}/unsigned` unxfailed on native aa64 + all three VM modes; new aarch64/x64 `emitUnop` narrow unit tests pin it mode-independently (x64-native isn't a default mode). **Spun off (filed, not owned by any CR2 plan):** the `neg`-cell probe surfaced that unary minus on sub-word ints is mis-typed in `gen_expr.bn` (`genUnary` MINUS: `negTyp` defaults to host-word `int`, only overriding for float / `Width==64`) — the exact analog of the fixed `~` `bitnot-result-type` bug. It's an IR/frontend (Plan 1) fix; filed in `claude-todo.md`. Defect 1's OP_NEG narrow is correct + forward-compatible (dormant under the buggy IR — sees i64, no narrow — and pinned by the native unit tests regardless).
+- Defects 2, 3, 5, 6, 4 — pending (see Landing order).
+
 ## Defects
 
 ### Defect: native `emitUnop` (OP_NEG / OP_BITNOT) omits the sub-word re-narrow that `emitBinop` performs (PATH-PARITY gap)
@@ -85,7 +90,7 @@ Every defect here is one unfilled cell of the FEATURE × MODIFIER × POSITION pr
 
 Small, independently cherry-pickable, stay-close-to-main. Each is green-preserving and gated on its pinning test + per-instance landing approval.
 
-1. **`emitUnop` sub-word re-narrow** (Defect 1) — smallest, fully isolated, two two-line additions mirroring `emitBinop`. Land first with its probe cell/unit tests; no dependency on anything else.
+1. ✅ **`emitUnop` sub-word re-narrow** (Defect 1) — LANDED (binate `68616b20`); VM leg folded in. See Progress.
 2. **VM `BC_EXTRACT` sub-word sizing** (Defect 5) — self-contained in `lower_instr.bn` + `vm_exec_helpers.bn`; unxfail the `iface-multi-return/u16/*` VM modes. Independent of the native work.
 3. **x64 indirect multi-return collect parity** (Defect 3) — extract the shared raw-RAX/RDX collect helper, repoint `x64_iface.bn` + `x64_call_indirect.bn` at it; unxfail the x64 `iface-multi-return/u16/*` (and `funcval-multi-return/u16/*` once the front-end accepts them). The helper-extraction is the parity guard so it shouldn't be skipped.
 4. **Small-aggregate funcval-return convention** (Defect 2) — both backends, one change each (caller + shim must move together); unxfail `funcval-return/five-u8`. Slightly larger; land after the smaller native fixes so the matrix is otherwise green.
