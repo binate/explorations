@@ -2262,28 +2262,25 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
     (`pkg/binate/repl/{ir_imports,session,util}.bn`) not covered by the
     `cmd/bni` change; add `ensureLangLoaded` + `appendLangImport` there so
     `.String()` works at the repl too.  Small, same pattern.
-- **[B] Test runners must be able to depend on the stdlib** (surfaced
-  2026-06-07; **a prereq for many later migrations**).  The `cmd/bnc
-  --test` generated runner (`cmd/bnc/gen_test_runner.bn`, compiled by
-  `cmd/bnc/test.bn`) can currently only call symbols *always linked* into
-  the test binary: `pkg/bootstrap` (force-loaded because print/println
-  emit `bootstrap.formatInt`/`Write`) plus whatever the *test package*
-  itself imports.  Imports the *runner* introduces that the test package
-  didn't already pull in do NOT get their impls compiled+linked — making
-  the runner call `passed.String()` (lang) or `strconv.Itoa` link-fails
-  with `undefined value '@bn_pkg__builtins__lang__int__String'` for a
-  package like `token` that doesn't import them.  Root cause (to confirm):
-  `cmd/bnc/test.bn` compiles the runner against the link set resolved from
-  the test package, not the runner's own import closure.  Fix: fold the
-  runner's transitive import closure's impls into the compile+link set
-  (treat the runner like a normal program whose imports get built).  **Why
-  it's a prereq:** bootstrap must go away, including `bootstrap.Args()` → a
-  future `pkg/std/os` `os.Args()`; the runner uses `bootstrap.Args()` for
-  `--run`, so it will need to import `pkg/std/os` and have it linked.  Any
-  migration that wants compiler-generated test code to use stdlib instead
-  of bootstrap is blocked on this.  (Distinct from [A]: [A] force-loads
-  lang specifically and suffices to remove `bootstrap.Itoa`; [B] is the
-  general stdlib-into-runner linking problem.)
+- **[B] Test runners can depend on the stdlib — DONE (2026-06-08,
+  `36e979df`).**  The `cmd/bnc --test` runner (`gen_test_runner.bn`,
+  compiled by `test.bn`) is parsed *after* typecheck, so a stdlib package
+  it imports that no test package pulls in was never loaded → not compiled
+  → wouldn't link.  Fix: `genTestRunner` declares its stdlib deps in
+  `testRunnerStdlibImports()`, and `test.bn` force-loads that list before
+  typecheck (the compile loop already builds every loaded package, so they
+  then link).  Adding the future `pkg/std/os` (for `Args`/`Open` when
+  bootstrap I/O migrates) is a one-line addition to that list plus its use
+  in the runner.  Exercised end-to-end now by a placeholder: the runner
+  imports `pkg/std/errors` and makes one harmless `errors.New` call
+  (TODO-marked for removal once a real dep lands) — proven by
+  `pkg/binate/buf` (closure `{buf, testing}` excludes errors) whose test
+  binary links the errors-importing runner only via the force-load.  The
+  whole unit-test suite now exercises [B].  (The VM `-int` path is
+  unaffected — `cmd/bni` executes tests directly, no generated runner; a
+  future VM stdlib dep would be force-loaded there the same way as
+  bootstrap/lang.)  Distinct from [A], which force-loaded lang to make
+  `bootstrap.Itoa` removable.
 - **Why migrate OUT rather than convert in place (do NOT re-attempt the
   in-place shape)**: in-place renames of packages whose surface is
   declared-only and resolved by C symbols (`pkg/libc`, and the I/O side
