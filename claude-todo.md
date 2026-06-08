@@ -4368,3 +4368,28 @@ candidates for after the loose-axis finish (const-expr folding + ABI
   one-off ordering/loader bugs, not systematic products. Track them as
   individual regression tests under `conformance/regressions/` + filed bugs, not
   as a matrix.
+
+### (b4) Differential harness v3 — port `gen-diff-scalar.py` to Binate (dogfood) + flavor B — NOT STARTED
+- **Context**: the property-based differential value-correctness harness
+  (`conformance/matrix/scalar-diff`, oracle = spec) is realized through v2 —
+  shifts, conversions, arithmetic, comparisons, bitwise; 123 cells / 5415
+  tuples; generator `conformance/gen-diff-scalar.py` (Python). See
+  `plan-differential-testing.md` (phasing item 3) for the full design.
+- **v3 scope** (the remaining phase):
+  1. **Port the generator to Binate** — rewrite `gen-diff-scalar.py` as a `.bn`
+     program so the harness dogfoods the language on a real codegen-shaped task
+     (LCG, two's-complement oracle, bit-pattern formatting). Keep the emitted
+     cells byte-identical so the existing `.expected`/`.xfail` set and
+     `--check` idempotence carry over unchanged.
+  2. **Flavor B (optional, for the highest-volume ops)** — one self-checking
+     `.bn` per op that loops an embedded `(inputs, expected)` table and prints
+     `mismatch i: got… want…`, denser than the current static-cell flavor A and
+     debuggable on failure (flavor A shows *which* tuple, not the wrong value).
+     Decide per op once flavor A shows which need the volume.
+  3. **Sample-size knob** — a fixed, seeded count parameter so coverage can be
+     dialed up without touching the generator logic.
+- **Why**: dogfooding is the highest-leverage *process* check (the OOM, the
+  `@func`-dtor crash, the shift bug all first surfaced by compiling real Binate
+  programs); porting the generator turns the harness itself into one more such
+  program. Not urgent — v1/v2 already give the value coverage; v3 is the
+  dogfood + debuggability upgrade.
