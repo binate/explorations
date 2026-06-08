@@ -69,5 +69,6 @@ inherits that. The violators are:
 
 ## Follow-up
 
-After this lands: extend `present` to slices (`present(s) ⇔ len(s) > 0`)
-and to func values + pointers — see plan-same-builtin.md.
+DONE (binate `29c9dc47`, conformance `667`): `present` extended to slices
+(`present(s) ⇔ len(s) > 0`), func values, and pointers — see
+plan-same-builtin.md.

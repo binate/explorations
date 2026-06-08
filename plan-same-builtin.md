@@ -113,5 +113,8 @@ as `cmd/bnc`'s own tree does not *use* `same`.
   identity.)
 - DONE — `io.IsEOF(err) bool` = `errors.Is(err, io.EOF)` (binate
   `5282563b`).
-- OPEN — `present()` for all sensible types — the emptiness sibling; its
-  own pass, to be discussed in detail before starting.
+- DONE — `present()` for all sensible types (binate `29c9dc47`,
+  conformance `667`): interface values (already), function values
+  (vtable set — no `== nil` for them), pointers (non-null), slices
+  (`len > 0`). Value types rejected. Prerequisite was the length-0 ⟹
+  no-backing invariant (plan-len0-no-backing.md), so empty ⟺ `len 0`.
