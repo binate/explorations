@@ -346,6 +346,20 @@ Value receivers are always readonly (mutating a copy is pointless).
 - managed → readonly managed → readonly raw
 - any pointer → value/readonly value (by copy)
 
+**Method dispatch keys off OBJECT-constness, not handle-constness.** Whether
+a receiver value may call a method depends only on whether the OBJECT it
+denotes is read-only — never on whether the *handle* (pointer) is read-only.
+Per the left-to-right modifier reading above, `readonly @Box` is a read-only
+*handle* to a *mutable* `Box` (the `readonly` binds the pointer), so it
+dispatches to ANY method, including one declared with a mutable `*Box` / `@Box`
+receiver. `@(readonly Box)` — and `*readonly Box`, and a `readonly Box` value —
+denote a read-only *object*, so they may only call a method whose receiver is
+itself const-pointee (`*readonly Box` / `@readonly Box` / `readonly Box`);
+calling a mutable-receiver method (`*Box` / `@Box`) on a read-only object is
+rejected (it could mutate the object). There are deliberately NO const-method
+annotations — the receiver type in the method declaration is the sole statement
+of whether the method needs a mutable or a read-only object.
+
 **`impl` declarations specify receiver type.** The receiver kind
 determines what pointer/value types can satisfy the interface.
 Interfaces themselves say nothing about readonly-ness.
