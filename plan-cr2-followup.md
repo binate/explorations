@@ -31,7 +31,7 @@ Disjoint by subsystem, extending the CR-2 concurrency model:
 | Plan | Owns | Open defects |
 |---|---|---|
 | **A** | `pkg/binate/native` + `pkg/binate/vm` | `box(<scalar>)` native no-emit; dispatch-conflict should be a HARD ERROR (vm) |
-| **B** | `pkg/binate/ir` + `pkg/binate/types` + `pkg/binate/repl` | nested-array mgd-ptr field-read literal-0; `iota`-in-expressions fold; func-literal flavour inference; REPL parked-member iota; + the named-divide regression test |
+| **B** | `pkg/binate/ir` + `pkg/binate/types` + `pkg/binate/repl` | `iota`-in-expressions fold; func-literal flavour inference; REPL parked-member iota; + the named-divide regression test (nested-array field-access moved → plan-cr2-1 Round-2) |
 | **C** | `conformance/` only (test) | cross-package managed refcount-balance sweep (C1–C9) |
 
 > **Reassignment note:** the dispatch-conflict diagnostic was originally scoped to
@@ -64,13 +64,8 @@ Owns `pkg/binate/native/{aarch64,x64,common}` and `pkg/binate/vm` only. The thre
 
 ## Plan B — Front-end tail (`pkg/binate/ir` + `pkg/binate/types` + `pkg/binate/repl` only)
 
-### Defect: field read through a nested-array managed-POINTER element (`a[i][j].field`, `a [N][M]@Struct`) → literal 0 — silent, all backends
-- **Symptom**: `var a [1][2]@Box; a[0][0] = p; println(a[0][0].v)` prints `0`, not `p.v`. It is the FIELD-ACCESS path, not the store (element-assign and nested-literal both read 0). A managed-SLICE element field read works; a single-level `[N]@Box` element field read works; only the nested-ARRAY (`a[i][j]`) base feeding a `.field` selector is wrong. **Same literal-0 CLASS as plan-cr2-1 Defect 1 (landed `27c1ee8b`), but a different access path that fix did not cover.**
-- **Root cause (confirmed)**: `pkg/binate/ir/gen_selector.bn` index-selector path — for a nested-array index base `a[i][j]`, `genIndexPtr` returns nil (nested-array elements have no standalone backing pointer), so the read falls to the `genExpr(e.X)` fallback whose managed-ptr-to-struct arm const-0s. The fix is to compute the element type via `indexExprType` (the by-type resolver M8 added for nested arrays) rather than the pointer-based `getIndexElemType`, at the two selector sites.
-- **Fix shape**: in `genSelector`/`genSelectorPtr`, recover the nested-array element's in-place pointer (route the nested-array base through `genIndexPtr`'s nested arm, as M7/M8 did for `&a[i][j]` and `a[i][j]` read/write) before the field GEP, instead of falling to the const-0 r-value path.
-- **Files**: `ir/gen_selector.bn` (`genSelector`, `genSelectorPtr`); possibly `ir/gen_access.bn` (`genIndexPtr` nested arm reuse).
-- **Test**: a `conformance` cell `a[i][j].field` read for `[N][M]@Box` (value-correct, all backends) + the managed-slice control.
-- **Broadened by the 2026-06-08 review** → see `plan-cr2-1-frontend.md` Round-2 "`[N][M]Struct` value-struct field access reads 0 and writes NOWHERE": the **same root cause** (`getIndexElemType` doesn't recurse a nested-index base, `gen_access.bn`) also breaks the **value-struct** variant and the **write** path (`a[i][j].field = …` stores nowhere). Fix all variants together; this followup item is the managed-ptr *read* facet of that one root.
+### Moved → `plan-cr2-1-frontend.md` Round-2 (nested-array element field access)
+The nested-array managed-POINTER field-read (`a[i][j].field`, `a [N][M]@Struct` → literal 0) is the **managed-ptr-read facet** of the broader Round-2 Plan-1 defect "`[N][M]Struct` value-struct field access reads 0 and writes NOWHERE" — the **same root cause** (`getIndexElemType` doesn't recurse a nested-index base, `gen_access.bn`), which also breaks the value-struct variant and the **write** path. Both are front-end (`ir`) ownership, so the **single fix-of-record lives in plan-cr2-1 Round-2**; fix all variants (managed-ptr read, value-struct read, write) together, and have the test cover the `[N][M]@Box` read as one cell of that sweep. No separate item here.
 
 ### Defect: checker does not fold `iota` in expressions — bit-flag const compile-time values stay plain-iota
 - **Symptom**: `const ( B0 int = 1 << iota; B1; B2 )` — the compile-time *values* of `B1`/`B2` stay plain `iota` (`1,2`) instead of the folded `1<<iota` (`2,4`) when read as compile-time constants (array dims, other const exprs).
