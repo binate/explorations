@@ -4,7 +4,16 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
-## CRITICAL: `builder-comp-int-int` (double-VM) globally broken — every test SIGSEGVs (2026-06-09)
+## CRITICAL
+
+### Capturing closure (`@func` with environment) returning a MULTI-RETURN tuple reads result components from the wrong location — SILENT garbage (managed component → crash) — LLVM-codegen only — CONFIRMED 2026-06-09
+- **Symptom**: `var f @func() (int, int) = func() (int, int) { return n, n+1 }` (capturing `n`); `a, b = f()` yields garbage (`6469215644`, …) on LLVM, not `42, 43`. With a managed component (`@func() (int, @T)`) the garbage pointer crashes (empty output, exit 139). Controls: a NON-capturing func-value multi-return (a named func assigned to `@func() (T,U)`) WORKS; a capturing closure with a SINGLE return WORKS. Only {capturing closure} × {multi-return} breaks. VM + native are CORRECT — LLVM-codegen-only.
+- **Where (suspected)**: the LLVM codegen of a func-value call whose callee carries a closure environment computes the multi-return result location wrong — likely the sret/result-buffer pointer collides with / is offset by the environment pointer in the indirect-call result handling (`pkg/binate/codegen` emit_call funcval result-shim / retbuf path). Root cause unconfirmed.
+- **Severity**: CRITICAL — silent wrong-code (garbage) / crash, for a natural shape (a closure returning `(value, @Error)`).
+- **Test**: `conformance/regressions/capturing-closure-multi-return` (xfailed on the 3 LLVM modes; passes VM + native).
+- **Discovery**: 2026-06-09, building the `conformance/matrix/dispatch-refcount` funcval producer.
+
+### `builder-comp-int-int` (double-VM) globally broken — every test SIGSEGVs (2026-06-09)
 
 - **Symptom**: EVERY `builder-comp-int-int` conformance test produces empty output and exits 139 (SIGSEGV) — including the most trivial: `001_hello` (`println("hello world")`), `002_arithmetic`, `003_variables`, bare `println(42)`. The whole int-int lane is dead, not a per-test issue.
 - **Where it crashes**: the compiled `bni` (gen1-compiled `cmd/bni`) **SIGSEGVs while interpreting `cmd/bni`** — the bni-under-bni (double-VM) path. The inner VM dies at startup/load, before any test output. Reproduced manually outside the harness:
