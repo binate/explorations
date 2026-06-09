@@ -106,6 +106,14 @@ extra RefInc/RefDec would slip through. This is a coverage sweep — like the CR
 matrices, it is expected to *surface* latent refcount bugs, not just add green
 cells. Pattern: `rt.Refcount(p)` before/after, mirroring `586`/`592`/`130`.
 
+**Status (2026-06-09): C1–C6 BUILT + GREEN** (conformance `672`–`677`, directory
+form, balance-invariant assertion), passing on LLVM/VM/native aa64+x64 — the
+cross-pkg refcount discipline is **sound** for arg / return / struct-field /
+managed-slice-element / iface-construct / iface-return; no latent bug surfaced, so
+these are a regression net closing the `2083` gap for those scenarios. **Remaining:**
+C7 (generic type-arg — the likeliest to still harbor a bug), C8/C9 (extern-var
+functional; C9 blocked by `551`).
+
 | Cell | Asserts (refcount returns to baseline crossing a package boundary) | Functional precedent |
 |---|---|---|
 | **C1** `cross_pkg_managed_slice_elem_store_balance` | `store.S[i] = @v` (extern `@[]@Node`) — element store balances AND the overwritten element is RefDec'd | `558` |
