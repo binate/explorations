@@ -147,6 +147,8 @@ This is the SAME wrapper-transparency class as the already-landed pieces but in 
 
 ### Defect R2-2: `&G`-as-rvalue STILL dropped at `OP_CAST` and at the iface-method arg site (the two LLVM value-operand sites the `emitValRef` migration missed)
 
+**Status (2026-06-09): LANDED — binate `d086ccac`.** `emitCast` now precomputes the source via `emitValRef(buf.New(), Args[0])` (mirroring `emitBitCast`) and writes it at all 11 arms (`writeBuf` is non-destructive, so the same-size aggregate identity arm that emits the source twice stays correct); `emit_iface_call.bn:156` switched `emitRef`→`emitValRef`. Tests: conformance `669_cast_global_addr` + `670_iface_method_global_addr`, green on all LLVM modes + VM. Native halves are Plan 3 (claude-todo): `669` xfails all 3 native modes (native OP_CAST drop); `670` xfails aa64 only (native x64 iface-arg already fixed in `0c707e1f` — verified: 670 passes on x64-darwin).
+
 **Symptom.** Two value-operand positions still render the `IsGlobalRef` pseudo (ID -1) via bare `emitRef` → `%v-1`, which has no SSA definition. (a) `var addr int = cast(int, &G)` → clang `error: use of undefined value '%v-1'` (the `ptrtoint i8* %v-1 to i64` line). (b) `i.m(&G)` (a global address passed to an interface method) → clang error on `... i8* %v-1` in the dispatched call. VM is correct (it materializes `IsGlobalRef` op-agnostically up front). These are idiomatic, type-valid programs.
 
 **Root cause (confirmed).**
