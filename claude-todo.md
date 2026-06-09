@@ -4,6 +4,20 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## CRITICAL: `builder-comp-int-int` (double-VM) globally broken — every test SIGSEGVs (2026-06-09)
+
+- **Symptom**: EVERY `builder-comp-int-int` conformance test produces empty output and exits 139 (SIGSEGV) — including the most trivial: `001_hello` (`println("hello world")`), `002_arithmetic`, `003_variables`, bare `println(42)`. The whole int-int lane is dead, not a per-test issue.
+- **Where it crashes**: the compiled `bni` (gen1-compiled `cmd/bni`) **SIGSEGVs while interpreting `cmd/bni`** — the bni-under-bni (double-VM) path. The inner VM dies at startup/load, before any test output. Reproduced manually outside the harness:
+  `COMPILED_INTERP -I … cmd/bni -- -I … conformance/001_hello.bn` → exit 139, no output.
+- **Not a stack limit**: a 64 MB stack (`ulimit -s 65532`) changes nothing; the crash is immediate, not a gradual overflow.
+- **Single-VM is fine**: `builder-comp-int` and `builder-comp-comp-int` (one VM layer) pass normally — only the double-VM (`int-int`) crashes.
+- **Scope**: `builder-comp-int-int` is in the `all` CI modeset (comprehensive lane red across ~1150 tests), NOT in `basic` (basic smoke = `builder-comp` + `builder-comp-int`, both green). So basic smoke is green; the comprehensive lane is red.
+- **Pre-existing / not from Round-2 work**: crashes on field-access-free `001_hello`, which no front-end fix touches. The earlier Defect-8 note (at `a869e8e7`) characterized int-int crashing only for MULTI-package tests; it is now GLOBAL. The worsening happened somewhere in `a869e8e7..0c707e1f` (unbisected), or int-int single-package was already broken then and only the multi-package case was checked.
+- **Root cause**: UNKNOWN — needs a bisect of `a869e8e7..0c707e1f`. Candidate vm/bni-touching commits near HEAD: `68616b20` (re-narrow sub-word NEG/BITNOT), plus any ir/codegen/rt change that alters how `cmd/bni` behaves when itself interpreted. The crash being load/startup-time (no output even for hello-world) points at an init/loader or opcode-dispatch fault in bni-interpreting-bni, not test logic.
+- **Discovered**: 2026-06-09 while validating CR-2 Plan-1 Round-2 (R2-D1). Per the user (2026-06-09): FILE this; do NOT add per-cell `.xfail.builder-comp-int-int` to new Round-2/Plan-A cells (the whole lane is down — per-cell xfails would be noise that falsely reads as a known per-cell issue). Validate Round-2/Plan-A fixes on the other 6 runnable modes; the cells are mode-agnostic and pass int-int once this is fixed. Owner: TBD (vm / Plan-A-adjacent).
+
+---
+
 ## CR-2 Plan-1 Adversarial Review — pre-existing sibling miscompiles (2026-06-08)
 
 An adversarial multi-agent review (53 agents) + hand-verification of the CR-2
