@@ -107,8 +107,9 @@ extra RefInc/RefDec would slip through. This is a coverage sweep — like the CR
 matrices, it is expected to *surface* latent refcount bugs, not just add green
 cells. Pattern: `rt.Refcount(p)` before/after, mirroring `586`/`592`/`130`.
 
-**Status (2026-06-09): C1–C7 BUILT + GREEN** (conformance `673`–`679`; the arg cell
-is `678` after a landing-rebase renumber — `672` was taken by another worker;
+**Status (2026-06-09): C1–C7 BUILT + GREEN** (conformance `673`–`678` + `682`; the
+arg cell is `678` and the generic cell is `682` after landing-rebase renumbers —
+`672`/`679` were taken by other workers; find them by name `cross_pkg_*_balance`;
 directory form, balance-invariant assertion), passing on LLVM/VM/native aa64+x64 —
 the cross-pkg refcount discipline is **sound** for arg / return / struct-field /
 managed-slice-element / iface-construct / iface-return / **generic type-arg**; no
