@@ -70,6 +70,7 @@ Owns `pkg/binate/native/{aarch64,x64,common}` and `pkg/binate/vm` only. The thre
 - **Fix shape**: in `genSelector`/`genSelectorPtr`, recover the nested-array element's in-place pointer (route the nested-array base through `genIndexPtr`'s nested arm, as M7/M8 did for `&a[i][j]` and `a[i][j]` read/write) before the field GEP, instead of falling to the const-0 r-value path.
 - **Files**: `ir/gen_selector.bn` (`genSelector`, `genSelectorPtr`); possibly `ir/gen_access.bn` (`genIndexPtr` nested arm reuse).
 - **Test**: a `conformance` cell `a[i][j].field` read for `[N][M]@Box` (value-correct, all backends) + the managed-slice control.
+- **Broadened by the 2026-06-08 review** → see `plan-cr2-1-frontend.md` Round-2 "`[N][M]Struct` value-struct field access reads 0 and writes NOWHERE": the **same root cause** (`getIndexElemType` doesn't recurse a nested-index base, `gen_access.bn`) also breaks the **value-struct** variant and the **write** path (`a[i][j].field = …` stores nowhere). Fix all variants together; this followup item is the managed-ptr *read* facet of that one root.
 
 ### Defect: checker does not fold `iota` in expressions — bit-flag const compile-time values stay plain-iota
 - **Symptom**: `const ( B0 int = 1 << iota; B1; B2 )` — the compile-time *values* of `B1`/`B2` stay plain `iota` (`1,2`) instead of the folded `1<<iota` (`2,4`) when read as compile-time constants (array dims, other const exprs).

@@ -364,3 +364,36 @@ The forcing function, restated: make the generators sweep **every wrapper over
 every shape in every position through every lowering path**, asserting value +
 refcount + compiles on every backend. The bugs in this audit are precisely the
 cells that sweep would have been red on from the start.
+
+---
+
+## 7. Round-2 validation (2026-06-08) — the reviews found the siblings
+
+Adversarial reviews of the *landed* CR-2 fixes (Plan-1 and Plan-3) filed ~13 new
+defects — and almost every one is a **path-parity / wrapper-transparency
+sibling** of a fix that already landed: the same bug one variant over from the
+cell the fix covered. The meta-pattern (§1) confirming itself: a fix that
+peels/guards at *some* of the sites sharing a root cause leaves the others. Folded
+into the Round-2 sections of `plan-cr2-{1,2,3}.md`. Representative siblings:
+
+- Defect 1 (readonly field-read) peeled the OUTER `readonly @Box`; the
+  **inner-pointee** `@readonly Box` / `*readonly Box` still reads literal-0 (and
+  `&field` SIGSEGVs) — `gen_selector` reads an un-peeled `.Elem`.
+- Defect 1's nested-array sibling covered the managed-ptr *read*; the
+  **value-struct** variant and the **write** path (`a[i][j].field = …` stores
+  nowhere) share the one type-resolver (`getIndexElemType`) never taught the
+  nested-index base.
+- Defect 2 (readonly receiver) peeled `TYP_READONLY` at dispatch; the **alias**
+  receiver (`type AB = @Box`) isn't peeled (`ReceiverBaseNamed` has no `TYP_ALIAS`
+  arm).
+- Defect 9 (unary-minus sub-word) gated on `TYP_INT`; the **named** sub-word
+  (`TYP_NAMED`) variant still emits `sub i64 0, %i8` — strictly weaker than the
+  `~` fix it claimed to mirror.
+- The `emitValRef` global-address migration fixed the return form; the
+  **`OP_CAST`** and **iface-arg** value-operand sites were skipped.
+
+The lesson is Invariant B (path parity): a fix must be driven through ALL N
+sibling sites, and the regression net must sweep every wrapper/position so the
+untested sibling lights up. The `globals`/`readonly` matrices should grow the
+wrapper-ORDER (`@readonly` vs `readonly @`), named-vs-readonly, and read-vs-write
+axes these siblings expose.
