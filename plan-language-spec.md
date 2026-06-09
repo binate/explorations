@@ -65,7 +65,12 @@ landed incrementally while the language still changes.
   shipped bare `type Foo` form is correct (fully opaque); no `type Foo
   struct` variant (`type Foo struct` in discussion was a misspeak).
 
-All decisions (D1–D6) resolved; ready for Phase 0 on go-ahead.
+- **D7 — spec-test placement: `binate/conformance/spec/`.** Spec tests live
+  in the `binate` repo under `conformance/spec/`, organized by chapter,
+  reusing the existing conformance harness; the spec (`docs`) references
+  rule-IDs only; a generated coverage report bridges into Annex C. See §10.
+
+All decisions (D1–D7) resolved. Phase 0 scaffolded; authoring underway.
 
 ---
 
@@ -623,7 +628,7 @@ highest-design-risk cross-cutting and least-mature material last.
 
 ## 9. Open decisions for the user
 
-D1–D6 are all resolved — see "Decisions to date". No structural decisions
+D1–D7 are all resolved — see "Decisions to date". No structural decisions
 remain open.
 
 Gaps the spec must *fill* during authoring (not user choices, but flagged
@@ -683,14 +688,14 @@ have flagged automatically.)
 behavior, its spec test fails → forces a decision: *regression* (fix the
 impl) or *intended change* (update the rule). Neither can silently diverge.
 
-### D7 — where spec tests live (cross-repo placement)
+### D7 — where spec tests live (cross-repo placement) — RESOLVED
 
-The one real decision. Spec tests must run against the toolchain, which lives
-in the **`binate`** repo; the spec lives in **`docs`**. Recommended split:
+Spec tests must run against the toolchain, which lives in the **`binate`**
+repo; the spec lives in **`docs`**. **Decided:**
 
-- **Tests live in `binate`** (with the runner + toolchain) — either tagged
-  within `conformance/`, or in a `conformance/spec/` subtree *organized by
-  chapter* so the layout mirrors the spec.
+- **Tests live in `binate`**, in a **`conformance/spec/`** subtree *organized
+  by chapter* so the layout mirrors the spec (and reuses the existing
+  `conformance/run.sh` harness + modes).
 - **The spec (`docs`) references rule-IDs only** (stable, abstract — never
   file paths), so the two repos don't couple on paths.
 - **A generated coverage report bridges them** (rule-ID → tests + pass/xfail
