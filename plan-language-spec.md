@@ -61,7 +61,9 @@ landed incrementally while the language still changes.
   value yes / pointer no" framing in `claude-todo.md` was based on a
   mistaken reading of Go and has been corrected.
 
-All five decisions resolved; ready for Phase 0 on go-ahead.
+D1–D5 resolved. D6 (opaque-decl syntax — bare `type Foo` vs also
+`type Foo struct`) newly surfaced while verifying the opaque-type feature;
+see §9. Otherwise ready for Phase 0 on go-ahead.
 
 ---
 
@@ -294,13 +296,24 @@ nullability; `*func`/`@func`; interface value types; the `readonly`
 modifier + its assignability lattice; forward-declared opaque types),
 then **§7.13 Type Layout & Representation** — the single normative home
 for the cross-mode ABI contract, parameterized by `TargetInfo`. ·
-*Catalogue largely Stable. Provisional/Draft: opaque .bni types,
-interface-value byte layout, length-0 enforcement (rule Stable, backends
+*Catalogue largely Stable. Opaque (forward-declared) types are
+**shipped/Stable** (verified: `conformance/512_opaque_handle_cross_pkg`
+passes, no xfail): a bare `type Foo` in a `.bni` with the body in a `.bn`
+exports `Foo` opaquely — callers hold only `*Foo`/`@Foo`, and field access
+/ `make` / `sizeof` outside the package are rejected (encapsulation). The
+field-access invariant **unifies §7.3 and §7.12**: access is gated on the
+underlying being **visible/concrete**. An opaque type has a nil underlying
+→ field access permanently rejected; a named-distinct type over a
+*visible* underlying is the D5 case (v1 reject; target = allow, peeling
+only a concrete underlying, so the relaxation never opens opaque field
+access). Rationale: a named type gets a fresh method/impl set (→ structure/
+fields shared, methods/impls not) — Annex D. Provisional/Draft:
+interface-value byte layout; length-0 enforcement (rule Stable, backends
 still violate). **Impl-conformance:** nested arrays mis-compiled
-(claude-todo MAJOR); named-distinct field access through underlying type
-restricted in v1 (D5: §7.3 states the v1 rejection plus the Go-faithful
-relaxation target — fields accessible incl. auto-deref through a pointer
-underlying, methods never auto-inherited).*
+(claude-todo MAJOR). **Open (D6):** opaque-decl syntax — keep bare
+`type Foo` (fully opaque; hides even struct-ness) vs also allow `type Foo
+struct` (asserts struct-ness, still hides fields, à la C `struct foo;`).
+D5: §7.3 states the v1 rejection + the Go-faithful relaxation target.*
 
 **8. Conversions** *(normative)* — The closed set of implicit conversions
 (untyped-literal coercion, readonly-adding widenings, the managed→raw
@@ -510,7 +523,10 @@ sections. The single most-valued fidelity artifact. · *Finalize last.*
 
 **Annex D. Rationale and Design Notes** *(informative)* — Why refcounting
 over GC and over ownership/borrowing; why two pointer kinds and two slice
-kinds; the no-implicit-cost philosophy; the minimal-core-spec /
+kinds; why a named-distinct type shares the underlying's *fields* but not
+its *methods/impls* (each named type gets a fresh method/impl set — the
+basis for the D5 rule, and why opaque forward-decls hide fields entirely);
+the no-implicit-cost philosophy; the minimal-core-spec /
 less-monolithic rationale (no stdlib/printf in core; stdlib usable but
 not required); the v1-without-foreclosing-v2 deferrals (non-nullable
 pointers, tagged unions, atomic refcounts, move-as-guarantee); the
@@ -600,8 +616,20 @@ highest-design-risk cross-cutting and least-mature material last.
 
 ## 9. Open decisions for the user
 
-D1–D5 are all resolved — see "Decisions to date". No structural decisions
-remain open.
+D1–D5 are resolved (see "Decisions to date"). One design choice surfaced
+while verifying the opaque-type interaction:
+
+- **D6 — opaque (forward-decl) syntax.** The opaque-export feature is
+  shipped (§7.12), but its syntax today is a **bare `type Foo`** in the
+  `.bni` (fully opaque — callers don't even learn `Foo` is a struct; the
+  `.bn` body may back it with any type). You wrote `type Foo struct`, which
+  would instead *assert* `Foo` is a struct while still hiding its fields (à
+  la C's `struct foo;`), letting the compiler enforce the `.bn` body is a
+  struct. **Recommendation:** keep bare `type Foo` as the primary form
+  (strictly more flexible, maximal encapsulation), and optionally also
+  accept `type Foo struct` later as an intent-constraining variant if a
+  concrete need arises. Your call whether the spec mandates bare-only or
+  both.
 
 Gaps the spec must *fill* during authoring (not user choices, but flagged
 so they aren't missed): **byte order / endianness** (almost certainly
