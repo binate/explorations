@@ -32,7 +32,8 @@ identifier    = letter { letter | digit } ;
    true     type     var
 
    The following are also keywords (builtin operations with special syntax):
-   make     box      cast     bit_cast   len       unsafe_index
+   make     make_slice  box      cast     bit_cast   len     unsafe_index
+   sizeof   alignof     present  same
 *)
 
 (* --- Predeclared names (not reserved, can be shadowed) --- *)

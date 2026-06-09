@@ -256,7 +256,9 @@ Benefits:
 - **`sizeof(T)`**: size of type T in bytes. Returns `uint`. Compile-time constant. Takes a type, not an expression.
 - **`alignof(T)`**: alignment requirement of type T in bytes. Returns `uint`. Compile-time constant. Takes a type, not an expression.
 - For composite value types: `sizeof(*[]int)` = 2 words (the slice value itself), `sizeof(Stringer)` = 2 words (the interface value itself) — not the data they point to.
-- **Builtins are keywords** (not predeclared names): `make`, `make_slice`, `box`, `cast`, `bit_cast`, `len`, `unsafe_index`, `sizeof`, `alignof`. They take types as arguments, which can't be parsed as regular function calls.
+- **`present(x)`**: "does x hold something / is it set?" — for the nullable reference/view types: interface values (vtable set; honest about typed-nil), function values (vtable set — they have no `== nil`), pointers (non-null), and slices (`len > 0`). Returns `bool`. The sanctioned emptiness test where `== nil` is a footgun or disallowed.
+- **`same(a, b)`**: reference identity — true iff `a` and `b` denote the same underlying thing: pointers (same address), interface values (same `{data, vtable}`), slices (same view `{data, len}`). Operands must have the same static type; function values (no canonical identity) and value types are excluded. Returns `bool`. See `plan-same-builtin.md`.
+- **Builtins are keywords** (not predeclared names): `make`, `make_slice`, `box`, `cast`, `bit_cast`, `len`, `unsafe_index`, `sizeof`, `alignof`, `present`, `same`. The type-taking ones (`make` / `cast` / `sizeof` / …) can't be parsed as regular function calls; the value-taking ones (`len` / `unsafe_index` / `present` / `same`) are keywords so they stay reserved and uniformly lowered.
 
 ### Const-ness — DECIDED (revised 2026-06-01; see `plan-const-readonly.md` for the migration sequence)
 
@@ -909,7 +911,9 @@ Conformance modes are chains of `builder` (prebuilt BUILDER bnc), `comp`
 
 **Comparison**: `==`, `!=`, `<`, `>`, `<=`, `>=`
 - No chaining (`a < b < c` is a compile error, like Go)
-- Pointer comparison with `==`/`!=` (address equality only)
+- Pointer comparison with `==`/`!=` (address equality only); scalars compare directly
+- `==`/`!=` are **not allowed** on slices, interface values, or function values — use `present()` for emptiness and `same()` for identity (DECIDED 2026-06-07). On structs and arrays `==`/`!=` are reserved (fieldwise / elementwise) but **not yet implemented** — the checker emits a clear "not yet implemented" diagnostic.
+- Relational `<`/`>`/`<=`/`>=` require **numeric** operands — ordering is undefined for pointers and for every aggregate.
 - **Float comparison is IEEE 754 (matches Go/C/Rust)**: `==` and the four
   relationals (`<`, `<=`, `>`, `>=`) are *ordered* — they are `false` when
   either operand is NaN (so `NaN == NaN` is `false`, `NaN < x` is `false`,
