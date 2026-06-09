@@ -90,7 +90,8 @@ The nested-array managed-POINTER field-read (`a[i][j].field`, `a [N][M]@Struct` 
 - **Files**: `ir/gen_const.bn`, `ir/gen_repl.bn`, `repl/decl.bn`, `types` (`PendingDecl` fields).
 - **Test**: a REPL/repl-unit test (`repl/decl_test.bn`) — define `fwd` on a later prompt; assert the bare member repeats the parked expression, not plain iota.
 
-### Test-only: named signed-sub-word MIN/-1 divide (RESOLVED in behavior by `b43a0057`)
+### Test-only: named signed-sub-word MIN/-1 divide (RESOLVED in behavior by `b43a0057`) — ✅ COVERAGE ADDED (binate `b4648200`, 2026-06-09)
+- **STATUS 2026-06-09**: regression coverage landed. conformance `679/680/681_err_div_named_int{8,16,32}_min` (MIN/-1 → "integer overflow" panic, operands from functions; green on every mode like plain-int 608/609) + `gen_binary` unit test `TestWidenTypePreservesNamedSubWordWidthAndSign` (pins `typeWidth(widenType(I8,I8))==8`, `typeIsSigned==true` — read via the peeling helpers, since widenType returns the NAMED type, not plain int). Also corrected the now-stale comment on `TestNamedTypeDivideEmitsDivCheck`. (Cells renumbered 673→679 etc. at landing to dodge a Plan-C collision.)
 - Add the missing regression: a `conformance` error-cell `type I8 int8; cast(I8,-128) / cast(I8,-1)` → "integer overflow" panic (cover int8/16/32 named variants), plus a `gen_binary` unit test asserting `widenType(I8,I8)` keeps `typeWidth==8`, `signed==true`. Mark the todo entry RESOLVED with the `b43a0057` cite.
 
 ### Disjointness (B)
