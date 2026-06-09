@@ -1231,6 +1231,31 @@ Discovery Protocol) — most don't have one yet.
 
 ## MINOR
 
+### Lexer issues surfaced while authoring spec Ch.5 (Lexical Elements) — 2026-06-08
+Found writing the docs spec's Lexical Elements chapter (adversarial
+verification of the draft against `pkg/binate/lexer`). All MINOR
+(confusing errors / silent leniency, not silent miscompile). Tests +
+xfails pending a coordinated `binate` worktree. The spec documents these
+as open items (`lex.literal.int.leading-zero`, `lex.escape.unsupported`).
+- **`0123` / `00` split into two integer tokens.** `lexer/scan.bn:84`
+  `scanNumber`'s leading-`0` branch consumes only the `0` then falls to
+  the float-tail **without a digit-consuming loop** (unlike the non-zero
+  `else` branch). So `0123` lexes as `INT("0")` then `INT("123")`, and
+  `00` as two `INT("0")`. A multi-digit numeral with a leading `0` and no
+  base prefix should be a single literal or a diagnostic, not a split.
+  Yields a confusing downstream parse error. UNCOVERED by conformance.
+- **Unknown escapes silently dropped.** `ir/gen_util_literals.bn`
+  `unescapeStr`/`parseCharLit` decode only `\n \r \t \\ \' \" \0 \xHH`;
+  any other `\X` falls through to a verbatim `X` (backslash dropped) with
+  no diagnostic — so `"\a"` decodes to `"a"`. Decide whether unknown
+  escapes should be rejected.
+- **`\uHHHH` documented but unimplemented.** `claude-notes.md` and
+  `grammar.ebnf` list a `\uHHHH` escape, but the decoder has **no `\u`
+  case** (it would emit `u` followed by the hex digits). Either implement
+  `\u` (and decide the >0xFF-into-single-byte-`char` question) or drop it
+  from the notes/grammar. The spec currently omits `\u` to match the
+  implementation.
+
 ### A NAMED distinct *signed sub-word* integer's MIN/-1 divide escapes the divide-fault guard — ✅ RESOLVED in behavior (binate `b43a0057`, named-distinct landing — `widenType` preserves named width+sign); regression test pending (plan-cr2-followup Plan B)
 - **Symptom**: `type I8 int8; var a I8 = <I8 MIN>; var b I8 = -1; a / b` does NOT
   panic with "integer overflow" (the ratified signed-MIN/-1 behavior); it
