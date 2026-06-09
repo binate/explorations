@@ -309,9 +309,10 @@ underlying being **visible/concrete**. An opaque type has a nil underlying
 *visible* underlying is the D5 case (v1 reject; target = allow, peeling
 only a concrete underlying, so the relaxation never opens opaque field
 access). Rationale: a named type gets a fresh method/impl set (→ structure/
-fields shared, methods/impls not) — Annex D. Provisional/Draft:
-interface-value byte layout; length-0 enforcement (rule Stable, backends
-still violate). **Impl-conformance:** nested arrays mis-compiled
+fields shared, methods/impls not) — Annex D. Provisional: interface-value
+byte layout. Length-0-no-backing: rule + enforcement **landed** (binate
+`71ff7489`, conformance 666); an open `builder-comp-int` regression (test
+110) remains. **Impl-conformance:** nested arrays mis-compiled
 (claude-todo MAJOR). Opaque-decl syntax is bare `type Foo`
 (D6; fully opaque — hides even struct-ness; no `type Foo struct` variant).
 D5: §7.3 states the v1 rejection + the Go-faithful relaxation target.*
@@ -365,8 +366,8 @@ monomorphization (no type inference; explicit args; constraint calls
 lower to direct calls); cross-package generic bodies in `.bni`
 (source-text); no first-class enums (named-int + `const(...)`+`iota`;
 tagged unions are a separate future feature). · *Complete 2026-05-21,
-Stable. v1 restrictions are deliberate scope. Generic-path `==`
-comparability gap OPEN (xref §13).*
+Stable. v1 restrictions are deliberate scope. Generic-path `==` is gated by
+the §13 aggregate-`==` rejection (recheck the generic-instantiation path).*
 
 **13. Expressions** *(normative)* — Operands, primaries, operators; **the
 grammar's 11-level Go-style precedence is authoritative** over the
@@ -377,9 +378,13 @@ bitwise/shift; comparison (no chaining; pointer address-equality;
 IEEE-754 incl. unordered-`!=`); short-circuit logical (bool-only);
 selectors (`.` only, auto-deref, no `->`); index/slice + bounds checks;
 composite literals; D1–D11; no operator overloading. · *Core Stable.
-Draft/OPEN: struct/array fieldwise equality + generic-instantiation
-comparability not implemented. **Flag** the MAJOR compiler-DoS: cyclic
-non-struct named types hang the comparability checker.*
+`==`/`!=` on aggregates (struct/array) AND interface values is **disallowed
+by design** — a defined Constraint; rejection **landed** (binate
+`60719e01`/`78af9c23`). Equality for such types goes through explicit
+methods (`Compare`/`Equatable`), `present()`/`same`, or `errors.Is`;
+sentinel identity (e.g. `err == io.EOF`) is `io.IsEOF`/`errors.Is`/`same`,
+not `==`. **Flag** the MAJOR compiler-DoS: cyclic non-struct named types
+hang the comparability checker.*
 
 **14. Statements** *(normative)* — Block-local decls; simple statements;
 assignment (multi-target destructuring; compound); inc/dec
@@ -394,9 +399,10 @@ goto, no fallthrough.*
 → §8; size/layout `sizeof`/`alignof`/`len`; unchecked
 `unsafe_index`/`unsafe_div`/`unsafe_rem`; identity/presence
 `same`/`present`; volatile-access builtins; managed-representation
-introspection). · *Most Stable. `present()` accepts only interface values
-today; OPEN extension — Provisional. `move`/`ispod` are PROPOSED → Annex
-D.*
+introspection). · *Most Stable. `present()` is **extended** to func values
+(vtable field 0), pointers (non-null), and slices (`len > 0`); value types
+rejected — DONE (binate `29c9dc47`, conformance 667). `move`/`ispod` are
+PROPOSED → Annex D.*
 
 **16. Packages and Program Structure** *(mixed)* — `package "path"`;
 `.bn` + at-most-one `.bni`; sibling-directory layout; imports;
@@ -630,7 +636,77 @@ finalized.
 
 ---
 
-## 10. Proposed next step
+## 10. Spec conformance tests (keeping spec ↔ implementation in sync)
+
+To guarantee the spec matches the implementation **and vice versa**, every
+normative, testable rule is tied to executable **spec conformance tests**.
+This is what makes the implementation-conformance axis (§4b, Annex C) real
+and mechanical rather than hand-curated — and it catches drift in both
+directions. (Concrete motivation: while scaffolding, three status claims
+went stale within days — `present()` extended, `==`-on-aggregates rejection
+landed, length-0 enforced — exactly the drift a test-derived ledger would
+have flagged automatically.)
+
+**Almost no new machinery is needed.** The existing conformance harness
+(`conformance/run.sh`) already supports everything:
+
+- **Positive** tests (`NNN_name.bn` + `.expected`) — observable behavior.
+- **Negative / rejection** tests (`NNN_name.bn` + `.error`, each `.error`
+  line a regex that must appear in the failure output) — exactly what the
+  spec's **Constraints** clauses need (must-be-rejected-with-diagnostic).
+- **Multi-package** (`NNN_name/` dir), **per-mode** variants
+  (`.expected.<mode>` / `.error.<mode>`), and **xfail** (`.xfail.<mode>`
+  with a reason).
+- Runs across all execution modes (builder / comp / int), so a rule is
+  "conformant" only if it passes in **every** relevant mode.
+
+**What spec tests add (the thin layer):**
+
+1. **Rule-ID tagging.** Each spec test cites the rule-ID(s) it exercises
+   (the stable IDs from §4 / `conventions.md`, e.g. `iface.dispatch.multireturn`,
+   `type.slice.layout`). Simplest form: a sidecar file parallel to the
+   existing ones (e.g. `NNN_name.rules`, one rule-ID per line). Existing
+   conformance tests get retro-tagged incrementally where they map to a rule.
+2. **Coverage tooling.** A report mapping rule-IDs ↔ tests, flagging
+   **rules with no test** (spec says X, nothing verifies it) and **tests
+   with no rule-ID** (behavior the impl has that no rule covers — a candidate
+   for unspecified-behavior the spec should address). This is the
+   bidirectional guarantee.
+3. **Annex C derivation.** The implementation-conformance column is derived
+   from results: rule-ID → its tests → pass/xfail per mode. An `xfail` (with
+   its reason text, cross-referencing `claude-todo.md`) IS the
+   "non-conformant" marker — so a known defect like interface multi-return
+   dispatch shows up automatically as `iface.dispatch.multireturn:
+   xfail(builder-comp-int, native)` rather than being hand-noted.
+
+**Drift detection (both directions).** If the implementation changes
+behavior, its spec test fails → forces a decision: *regression* (fix the
+impl) or *intended change* (update the rule). Neither can silently diverge.
+
+### D7 — where spec tests live (cross-repo placement)
+
+The one real decision. Spec tests must run against the toolchain, which lives
+in the **`binate`** repo; the spec lives in **`docs`**. Recommended split:
+
+- **Tests live in `binate`** (with the runner + toolchain) — either tagged
+  within `conformance/`, or in a `conformance/spec/` subtree *organized by
+  chapter* so the layout mirrors the spec.
+- **The spec (`docs`) references rule-IDs only** (stable, abstract — never
+  file paths), so the two repos don't couple on paths.
+- **A generated coverage report bridges them** (rule-ID → tests + pass/xfail
+  per mode), surfaced in Annex C. `docs` never depends on the toolchain build.
+
+Sub-questions for when we build it: retrofit existing conformance tests with
+rule-IDs incrementally (recommended) vs only new tests; whether the coverage
+report is committed to `docs` or published by CI; whether Annex C is fully
+generated or a hand-maintained table that *references* the generated report.
+
+**Scope note:** this section is a design; *building* the tagging/coverage
+tooling — and especially wiring it into CI — is separate work, each piece its
+own go-ahead. Spec tests would be authored in `binate`, which (per your note)
+means a coordinated worktree when we get there.
+
+## 11. Proposed next step
 
 Await sign-off on the structure. If approved, the natural first action is
 **Phase 0**: scaffold `docs/spec/` (index +
