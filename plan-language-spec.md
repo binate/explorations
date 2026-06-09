@@ -61,9 +61,11 @@ landed incrementally while the language still changes.
   value yes / pointer no" framing in `claude-todo.md` was based on a
   mistaken reading of Go and has been corrected.
 
-D1–D5 resolved. D6 (opaque-decl syntax — bare `type Foo` vs also
-`type Foo struct`) newly surfaced while verifying the opaque-type feature;
-see §9. Otherwise ready for Phase 0 on go-ahead.
+- **D6 — opaque (forward-decl) syntax: bare `type Foo`.** Confirmed: the
+  shipped bare `type Foo` form is correct (fully opaque); no `type Foo
+  struct` variant (`type Foo struct` in discussion was a misspeak).
+
+All decisions (D1–D6) resolved; ready for Phase 0 on go-ahead.
 
 ---
 
@@ -310,9 +312,8 @@ access). Rationale: a named type gets a fresh method/impl set (→ structure/
 fields shared, methods/impls not) — Annex D. Provisional/Draft:
 interface-value byte layout; length-0 enforcement (rule Stable, backends
 still violate). **Impl-conformance:** nested arrays mis-compiled
-(claude-todo MAJOR). **Open (D6):** opaque-decl syntax — keep bare
-`type Foo` (fully opaque; hides even struct-ness) vs also allow `type Foo
-struct` (asserts struct-ness, still hides fields, à la C `struct foo;`).
+(claude-todo MAJOR). Opaque-decl syntax is bare `type Foo`
+(D6; fully opaque — hides even struct-ness; no `type Foo struct` variant).
 D5: §7.3 states the v1 rejection + the Go-faithful relaxation target.*
 
 **8. Conversions** *(normative)* — The closed set of implicit conversions
@@ -616,20 +617,8 @@ highest-design-risk cross-cutting and least-mature material last.
 
 ## 9. Open decisions for the user
 
-D1–D5 are resolved (see "Decisions to date"). One design choice surfaced
-while verifying the opaque-type interaction:
-
-- **D6 — opaque (forward-decl) syntax.** The opaque-export feature is
-  shipped (§7.12), but its syntax today is a **bare `type Foo`** in the
-  `.bni` (fully opaque — callers don't even learn `Foo` is a struct; the
-  `.bn` body may back it with any type). You wrote `type Foo struct`, which
-  would instead *assert* `Foo` is a struct while still hiding its fields (à
-  la C's `struct foo;`), letting the compiler enforce the `.bn` body is a
-  struct. **Recommendation:** keep bare `type Foo` as the primary form
-  (strictly more flexible, maximal encapsulation), and optionally also
-  accept `type Foo struct` later as an intent-constraining variant if a
-  concrete need arises. Your call whether the spec mandates bare-only or
-  both.
+D1–D6 are all resolved — see "Decisions to date". No structural decisions
+remain open.
 
 Gaps the spec must *fill* during authoring (not user choices, but flagged
 so they aren't missed): **byte order / endianness** (almost certainly
