@@ -167,11 +167,14 @@ only along the *param* axis and only for plain-`int` single results.
 - native funcval/iface tuple packers mis-pack sub-word / non-8-multiple / managed
   components.
 
-**Coverage:** **partially closed** — the `abi` matrix gained a result-side
-call-shape axis this session (`{iface,funcval}-{return,multi-return}`, landed
-`546ad30a`). **Still open:** managed/`@Iface`/managed-slice tuple *components*
-through dispatch (refcount discipline, not just value/packing) and cross-pkg ×
-result-side — to be added as `abi`/`refcount` extensions (§3).
+**Coverage:** the `abi` matrix gained a result-side call-shape axis
+(`{iface,funcval}-{return,multi-return}`, value/packing, landed `546ad30a`); the
+**refcount discipline** for a managed tuple *component* through dispatch is now
+covered by `conformance/matrix/dispatch-refcount` (`@T`/`@func`/`@Iface` via
+iface-dispatch, balance-invariant assertion) — **all green on every backend**, so
+the SEAM-fixed dispatch path refcounts managed components correctly. **Still
+open** (smaller): the `funcval`-producer and `managed-slice`-component cells, and
+cross-pkg × result-side.
 
 ### Class E — Named / cross-package type-resolution recurrence
 
