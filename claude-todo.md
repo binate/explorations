@@ -37,7 +37,7 @@ green because no test exercises the wrapped / nameless / composite-literal /
 named-type variant. Per the user (2026-06-08): FILE all, FIX nothing yet.
 The CRITICAL entries below are also surfaced in `## CRITICAL`-class triage.
 
-### [CR-2 Plan-1 review] `@readonly Box` / `*readonly Box` field read → literal 0 (and `&field` → SIGSEGV) — CONFIRMED 2026-06-08, PRE-EXISTING (not a regression)
+### [CR-2 Plan-1 review] `@readonly Box` / `*readonly Box` field read → literal 0 (and `&field` → SIGSEGV) — ✅ RESOLVED (landed binate `b4d5b37b` + `73bd9081`, 2026-06-09)
 - **Symptom**: reading a field through a pointer whose POINTEE is wrapped (`@readonly Box`, `*readonly Box`, and nested fields of that type) compiles clean and reads literal `0`; taking the address `&p.v` lowers to a const-0 pointer then dereferences → exit 139 (SIGSEGV). Probe: `var p @readonly Box = mk(); println(p.v)` → `0` (expected 55).
 - **Pre-existing (verified)**: built a compiler at fa265629 (parent of Defect 1) — same `0`. Defect 1 (`27c1ee8b`) fixed the OUTER wrapper (`readonly @Box`) and left the inner-pointee family untouched; it is NOT a regression introduced by the fix.
 - **Root cause**: `isManagedPtrToStruct`/`isRawPtrToStruct` now peel and answer TRUE, but the ~19 value-extraction sites in `gen_selector.bn` (genSelector/genSelectorPtr: lines ~31,47,77,90,108,120,151,164,193,228,239,323,335,363,375,390,400,426,438) still read the UN-peeled `t.Elem`, whose `.Name` is "" → `lookupStructIdx == -1` → const-0 fallback.
