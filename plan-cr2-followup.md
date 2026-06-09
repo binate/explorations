@@ -74,7 +74,8 @@ The nested-array managed-POINTER field-read (`a[i][j].field`, `a [N][M]@Struct` 
 - **Files**: `types/check_expr.bn` (+ the const-fold helpers if shared).
 - **Test**: a conformance cell using a bit-flag const as an array dimension / in a const expr.
 
-### Defect: bare func literal in assignment position doesn't infer its managed/raw flavour from the LHS
+### Defect: bare func literal in assignment position doesn't infer its managed/raw flavour from the LHS — ✅ RESOLVED (binate `e15680d7`, 2026-06-09)
+- **STATUS 2026-06-09**: FIXED exactly as the fix shape below — `check_stmt.bn`'s simple-assign equal-count loop now threads `checkExprWithFVHint(rhs, lhsType)`. Tests: conformance `671_assign_func_literal` (green on every mode) + two checker unit tests (managed upgrade + raw default) in `check_func_lit_test.bn` (its `findFuncLitExprInStmt` helper also gained the missing `Exprs2`/`Init`/`Body` walk so it can reach an assign-RHS literal). At this tree the pre-fix symptom is a hard `cannot assign` error (AssignableTo is strict), not a silent lifetime bug.
 - **Symptom**: `var f @func() = func() { ... }` resolves the literal as `*func()` (raw) rather than the LHS `@func()` flavour, so the FV-hint isn't applied at a plain assignment (the call-arg / return positions DO apply it — B.3b of plan-function-values-phase-2).
 - **Root cause**: `pkg/binate/types/check_stmt.bn` `checkAssignStmt` simple-assign loop doesn't install the LHS type as the function-value hint when checking the RHS literal.
 - **Fix shape**: thread `checkExprWithFVHint(rhs, lhsType)` through the simple-assign loop (mirror the call-arg/return sites).
