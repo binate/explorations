@@ -1301,6 +1301,30 @@ Discovery Protocol) — most don't have one yet.
 
 ## MINOR
 
+### pkg/std/os libc impl is macOS-only (portable O_* flags hardcoded-translated to macOS) — 2026-06-09
+The first cut of `pkg/std/os` (libc flavor,
+`impls/stdlib/libc/pkg/std/os/os.bn`) translates Binate's portable `O_*`
+flag bits to the host's native open(2) flags in `nativeOpenFlags`,
+**hardcoded to macOS**. Binate has no compile-time target-OS predicate,
+and "libc" is one impl flavor spanning both Linux and macOS, whose `O_*`
+*modifier* values differ (Linux `O_CREAT`=0x40 / `O_TRUNC`=0x200 /
+`O_APPEND`=0x400 / `O_EXCL`=0x80 / `O_SYNC`=0x101000 vs macOS
+0x200/0x400/0x8/0x800/0x80). The three access modes
+(`O_RDONLY`/`O_WRONLY`/`O_RDWR` = 0/1/2) are POSIX-identical, so bare
+`Open` (read-only) is correct on every target; only `Create` /
+`OpenFile`-with-modifiers are wrong on a Linux libc target.
+- **Fix**: when an OS predicate (a compile-time target-OS constant /
+  build-tag) or runtime `uname` detection lands, branch in
+  `nativeOpenFlags` — it is the single seam. Until then, do NOT add a
+  cross-OS conformance test asserting modifier-flag opens work on Linux.
+- **Related wrinkle (same file)**: `lseek`/`pread`/`pwrite` offsets are
+  passed as `int64` (off_t), correct on the LP64 libc hosts but wrong on
+  a 32-bit (ILP32) libc target where off_t is 32-bit without LFS — same
+  "no target awareness yet" caveat.
+- Decided 2026-06-09 with the user: portable `.bni` `O_*` values +
+  macOS-hardcoded translation now, OS-awareness as a follow-up (option #1
+  of the divergence discussion).
+
 ### Lexer issues surfaced while authoring spec Ch.5 (Lexical Elements) — 2026-06-08
 Found writing the docs spec's Lexical Elements chapter (adversarial
 verification of the draft against `pkg/binate/lexer`). All MINOR
