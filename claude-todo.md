@@ -1454,14 +1454,16 @@ as open items (`lex.literal.int.leading-zero`, `lex.escape.unsupported`).
   and enable that check alongside (fix + enable as separate commits, landed
   together).  Triage, never mass-suppress.
 - **Status**:
-  - ✅ **file-length** — enabled (binate `8153f5c2`); `.bn` keeps 500/600, `.bni`
+  - ✅ **file-length** — enabled (binate `a8c37bdf`); `.bn` keeps 500/600, `.bni`
     gets a higher 1500/1800 cap (interfaces can't be split like impls).  No
     backlog (largest `.bni` is ir.bni ~1159 < 1500).
-  - ⬜ **naming** — 9 lowercase-in-.bni: `bootstrap.format*` (5) + `rt._call_*`
-    (4); both intentional bridges (bootstrap deprecating, rt internal shims) →
-    whitelist + enable.
-  - ⬜ **bni-doc** — 1: `ifaces/core/pkg/builtins/reflect.bni` missing package
-    doc → fix + enable.
+  - ✅ **naming** — enabled (binate `4c79b2d1`+`79ca70f2`).  The 9 lowercase-in-.bni
+    (`bootstrap.format*` 5 + `rt._call_*` 4) were already whitelisted, but under
+    pre-move `pkg/...` paths; repointed to `ifaces/core/...` (latent bug: the
+    whitelist would've silently stopped matching once naming scanned ifaces/).
+  - ✅ **bni-doc** — enabled (binate `a0a82aa4`+`812c9dd1`).  Added the missing
+    package doc to `ifaces/core/pkg/builtins/reflect.bni` (its block documented
+    `type Package`, not the package).
   - ⬜ **line-length** — 128 lines / 20 files (stdlib math + strconv tests); 32
     lines >150 (genuine polynomial tables → LONG-LINE-ALLOWED), 96 lines
     101–150 (wrap) → fix + enable.
