@@ -415,6 +415,14 @@ whose design the owner wants to think through further (2026-06-10)** — the ste
 an interpreted package should get a real `_Package()`, so the sketch below is a direction,
 not a ratified design.
 
+**Why B2 matters beyond this injection use-case (owner, 2026-06-10):** function-injection
+is only the *first* consumer that surfaces the gap. A VM-resolvable, real per-package
+`_Package` is the substrate the broader reflection roadmap rides on — Phase A identity
+RTTI and Phase C type metadata (`notes-package-introspection.md`) both hang off the
+per-package descriptor, and runtime **type assertions** need that descriptor to resolve in
+VM mode. So B2 will eventually be needed for those even where whole-package injection is
+not the driver; its priority is not governed by B1's use-case alone.
+
 Sketch / things to settle:
 - The export set comes from the package's `.bni` (D3b) — the loader already loads
   `bniFile` for bytecode packages, so the exported-func names are available; enumerate
