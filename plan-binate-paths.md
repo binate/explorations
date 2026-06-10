@@ -218,22 +218,38 @@ source core/stdlib and the stdlib hoist), so:
 
 ---
 
-## Phase 2 — regularize `pkg/bootstrap` into `ifaces/`+`impls/` (under core)
+## Phase 2 — regularize `pkg/bootstrap` off the bare root (transitional location)
 
-Goal: remove the *reason* the formula needs a bare-root entry at all, by moving
-`pkg/bootstrap` so it resolves via the ordinary `ifaces/core`+`impls/core`
-entries like every other builtin — **keeping the import path `"pkg/bootstrap"`**
-(so no source-wide `import`/`bootstrap.X` churn and no change to the mangled
-`bn_pkg__bootstrap__*` symbols the print/println IR-gen emits).
+**`pkg/bootstrap` is NOT a builtin and NOT tier 0 proper** (per the user,
+2026-06-09). It is a transitional host-I/O shim **slated for deprecation** (its
+surface migrates to `pkg/std/os` / `pkg/std/io` — the bootstrap-dissolution
+work). So it must **not** land under `ifaces/core`/`impls/core`, which would
+mislabel it as a tier-0 builtin.
+
+Goal: remove the *reason* the formula needs a bare-root entry by moving
+`pkg/bootstrap` into the `ifaces/`+`impls/` structure at a clearly **non-core,
+transitional** location (destination TBD — see D3), **keeping the import path
+`"pkg/bootstrap"`** (so no source-wide `import`/`bootstrap.X` churn and no
+change to the mangled `bn_pkg__bootstrap__*` symbols print/println emits).
+Because bootstrap is being deprecated outright, this is a lightweight
+relocation, not an investment in a permanent home — and the destination choice
+(D3) may be "don't relocate; let the deprecation delete it" instead.
+
+The §2.1/§2.2 mechanics below are written against a placeholder `<compat>` tier
+(e.g. `ifaces/compat`+`impls/compat`, added to the `binate-paths` formula in
+place of the bare-root's bootstrap role); finalize once D3 picks the
+destination.
 
 ### 2.1 The move (source)
 
-- `git mv pkg/bootstrap.bni        ifaces/core/pkg/bootstrap.bni`
-- `git mv pkg/bootstrap/           impls/core/common/pkg/bootstrap/`
-  (`bootstrap.bn`, `bootstrap_test.bn`)
-- The loader resolves `<I-entry>/pkg/bootstrap.bni`, so `ifaces/core` now
-  resolves it; `impls/core/common` resolves the impl. No code references
-  change (the path string `"pkg/bootstrap"` is unchanged).
+- `git mv pkg/bootstrap.bni        ifaces/<compat>/pkg/bootstrap.bni`
+- `git mv pkg/bootstrap/           impls/<compat>/pkg/bootstrap/`
+  (`bootstrap.bn`, `bootstrap_test.bn`), `<compat>` per D3.
+- The loader resolves `<I-entry>/pkg/bootstrap.bni`, so the new `<compat>`
+  search entry resolves it; the matching impl dir resolves the impl. No code
+  references change (the path string `"pkg/bootstrap"` is unchanged). This
+  requires adding `ifaces/<compat>`/`impls/<compat>` to the `binate-paths`
+  standard formula (replacing the bare-root's bootstrap role).
 - **Baremetal:** the target-specific bootstrap impl
   (`runtime/baremetal_arm32/pkg/bootstrap/bootstrap.bn`, prepended via the
   `--target arm32-baremetal` impl-path-front in `cmd/bnc/target.bn`) keeps its
@@ -327,22 +343,26 @@ needed beyond cutting the release.
 
 ---
 
-## 5. Open decisions for the user
+## 5. Decisions (resolved 2026-06-09 unless noted)
 
-- **D1 (source fallback):** keep a source core/stdlib *append* fallback in the
-  gen1 overlay, or drop it (recommend drop; add `--append-base` only if a
-  too-new dep appears).
-- **D2 (overlay timing):** fold the gen1-overlay simplification into Phase 1,
-  or do it as a focused follow-up (recommend follow-up).
-- **D3 (bootstrap path):** keep import path `"pkg/bootstrap"` and only relocate
-  files (recommended, minimal churn), or rename to `pkg/builtins/bootstrap`
-  (more "regular" but large source-wide + compiler-manifest churn).
-- **D4 (bare-root after Phase 2):** keep `B` in the standard formula through the
-  transition (recommended), or drop it immediately for consumers and prepend
-  `$BINATE_DIR` in compiler-self-builds.
-- **D5 (hygiene guard):** add a check forbidding the inline formula outside
-  `binate-paths.sh`? (Separate decision — wiring checks into CI is out of the
-  default scope.)
+- **D1 (source fallback): DROP it.** The gen1 overlay drops the source
+  core/stdlib fallback (unused today); add an `--append-base $BINATE_DIR` only
+  if a too-new dependency later appears.
+- **D2 (overlay timing): FOLLOW-UP.** Phase 1 is a pure refactor; the gen1
+  overlay simplification (§1.4) is a separate, full-matrix-validated commit.
+- **D3 (bootstrap destination): OPEN.** `pkg/bootstrap` is **not** a builtin /
+  tier-0 and is slated for deprecation, so it does *not* go under core. The
+  import path stays `"pkg/bootstrap"` either way. Remaining choice — where it
+  lands (and whether to relocate at all given the pending deletion):
+  - (a) a new transitional tier `ifaces/compat`+`impls/compat` (off the bare
+    root; `binate-paths` formula gains a `compat` entry); or
+  - (b) **don't relocate** — leave it at the bare root and let the
+    bootstrap-dissolution deletion remove it (the bare root persists for
+    `pkg/binate` anyway, per D4). Avoids investing in a home for a dying pkg.
+- **D4 (bare-root through transition): KEEP `B`** in the standard formula for
+  now; revisit dropping it after Phase 3 + BUILDER bump.
+- **D5 (hygiene guard): NO** (for now). Script count is small and `binate-paths`
+  adoption is self-reinforcing; reconsider only if duplication recurs.
 
 ---
 
