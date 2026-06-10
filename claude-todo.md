@@ -67,10 +67,12 @@ Two of the serious findings are regressions in THIS batch's own commits.
   reacts to the SAME checker-accepted upcast with a runtime abort (`iface_upcast:
   target vtable not found`) — a third distinct behavior. Not touched by R2-3.
   Whatever fixes X2 must reconcile all four consumers (LLVM/aa64/x64/VM).
-- **B3 type-divergence (minor).** A bare const member that PARKS (REPL) resolves
-  via `GenConstMember` (reads only `d.TypeRef`=nil → untyped int), whereas the
-  non-parked sibling gets the inherited type via `genConstGroup` — a park-dependent
-  IR-type inconsistency. Same root as B1/X3; observable only in narrow cases.
+- **B3 type-divergence (minor) — ✅ RESOLVED 2026-06-10 (binate `b9d6d807`).** A bare
+  const member that PARKS (REPL) used to resolve via `GenConstMember` (reads only
+  `d.TypeRef`=nil → untyped int), whereas the non-parked sibling got the inherited
+  type via `genConstGroup`. Fixed by the B1/X3 fix: `checkGroupDeclTentative` now
+  threads the inherited type onto the synthesized repeat, so the parked member
+  carries `d.TypeRef`=the inherited type and resolves at that width.
 - **R2-1 arm32 xfail rationale wrong (minor).** `matrix/readonly/pass-arg/value-
   struct-large.xfail.builder-comp_arm32_{linux,baremetal}` blame the native
   classifier, but arm32 is the LLVM/clang path and the struct is 12 B on ILP32
@@ -134,7 +136,8 @@ all functions/tests intact; B4 regression tests are non-vacuous.
 
 ## MAJOR
 
-### Bare const-group member drops its INHERITED narrow type — checker accepts an overflow the explicit form rejects; IR-gen truncates → SILENT wrong value — all backends — REGRESSION from `05901f97`/`5fc5a52f` — RUNTIME-CONFIRMED 2026-06-09
+### Bare const-group member drops its INHERITED narrow type — checker accepts an overflow the explicit form rejects; IR-gen truncates → SILENT wrong value — all backends — REGRESSION from `05901f97`/`5fc5a52f` — ✅ RESOLVED 2026-06-10 (binate `b9d6d807`)
+- **✅ RESOLVED 2026-06-10 (binate `b9d6d807`).** Per the user's semantics decision (**A — typed inheritance, Go-style**): a bare const-group member inherits the preceding member's TYPE, so it is range-checked at the inherited width. Fix threads the effective type (own if present, else the closest preceding member's, mirroring `genConstGroup`'s `prevTyp`) into the synthesized repeat in BOTH `checkGroupDecl` (`check_const.bn`) and `checkGroupDeclTentative` (`check_pending.bn`). Now `const ( B0 uint8 = 1<<iota; …; B8 )` rejects B8 at the declaration; an UNTYPED-base group is unaffected (members stay untyped, narrow at the use site). Also resolves the **B3 type-divergence** minor below (the parked bare member now carries the inherited type). Verified: full builder-comp suite 1328/0; cells 690 (typed-base decl overflow) + 691 (in-range typed bit-flag values) + 672 (reframed to untyped-base use-site overflow) green across all 5 modes; REPL path confirmed via manual bni (`println(B1)`→4). Known minor: the overflow error points at the inherited initializer expression (shared node), message correct. Two existing "Fits" unit tests + 672 reframed (they encoded the old untyped-narrowing behavior).
 - **Symptom**: `const ( B0 uint8 = 1 << iota; B1; …; B8 )` — B8 = 1<<8 = 256 inherits `uint8`. The checker **ACCEPTS** it (compile exit 0); at runtime B7 correctly prints 128 but **B8 prints 0** (IR-gen types the bare member at the inherited width → `add i8 256, 0` → truncates). The explicit equivalents `var x uint8 = 256` AND `const B8 uint8 = 256` are BOTH rejected ("cannot assign untyped int to uint8"). So the bare-member path silently miscompiles an overflow the rest of the language rejects.
 - **Root cause**: when synthesizing the repeat decl for a bare member, `checkGroupDecl` (`pkg/binate/types/check_const.bn:154`) sets `rep.TypeRef = inner.TypeRef` (nil for a bare member) — it never threads the PRECEDING member's TYPE. So `checkConstDecl` stores the member as untyped-int with NO range check. IR-gen's `genConstGroup` (`pkg/binate/ir/gen_const.bn`) DOES track `prevTyp` and types the bare member at the inherited width — hence the checker/IR disagreement + truncation. Same gap in the REPL path (`check_pending.bn:373`, B3).
 - **Severity**: MAJOR — silent wrong-value miscompile from compiler-accepted source, contradicting conformance/645's documented rule and undercutting B1's own overflow-catching goal (B1's 672 cell uses a WIDE `int` base, so the bare-member-narrow path was untested). Held at major (not critical): trigger needs a narrow-typed flag word with an overflowing bare member.
