@@ -40,6 +40,33 @@ The IR already handles this correctly. Basic blocks, phi nodes, branches, jumps 
 
 Reference counting operations (`OP_REFCOUNT_INC`, `OP_REFCOUNT_DEC`), nil checks, destructor calls — these are language semantics. The IR decides *when* to inc/dec; the backend decides *how* (e.g., call a runtime function, inline the operation).
 
+### 2a. Aggregate value vs alloca pointer — load before storing/passing/returning by value
+
+A struct/array composite literal, and a struct/array global, both lower to an
+`OP_ALLOC`-shaped operand (a stack alloca; or an `IsGlobalRef` pseudo, which also
+carries `Op=OP_ALLOC`). That operand is a POINTER to the aggregate's storage, not
+the value. **Wherever an aggregate is consumed BY VALUE — stored into a slot,
+passed as a by-value argument, returned, or bound by `:=` — IR-gen must LOAD the
+value out of the alloca first**, or the backend stores/passes the 8-byte pointer
+bits where the aggregate value belongs → silent garbage (the VM tolerates it by
+carrying aggregates by address; LLVM and the native backends do not).
+
+The load must be **gated on the DESTINATION type**, because the same alloca
+operand is correct as a pointer when the destination is a pointer (e.g. `&x` →
+a `*T` param/slot stores the address as-is). The canonical predicate is
+`isAggregateAllocToLoad(val, destTyp)` in `gen_refcount_pred.bn` — `val` is an
+aggregate alloca AND the (wrapper-peeled) `destTyp` is the matching struct/array
+kind. It peels IR-transparent wrappers (`readonly`/named/alias) on both operands,
+since `readonly S` etc. is still an aggregate-by-value slot.
+
+This invariant recurred as several distinct silent-miscompile bugs (assignment
+arms, `coerceArg` by-value args, `genShortVar`, the `(*p)[i]`/`&aggregateGlobal`
+paths). The dest-type-blind predecessor `isStructOrArrayAlloc(val)` (alloca-shape
+only, no dest gate, no wrapper peel) is the trap: it both over-fires (loads an
+`&aggregateGlobal` address it should store as-is) and under-fires (a wrapper-typed
+dest it fails to recognize). New by-value aggregate sites must use
+`isAggregateAllocToLoad`, not `isStructOrArrayAlloc`.
+
 ### 3. Type Layout
 
 **This is currently partially in the backend but must be shared.** `types.SizeOf`, `types.AlignOf`, and `types.FieldOffset` already exist in `pkg/types`. But:
