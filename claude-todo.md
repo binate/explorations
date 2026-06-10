@@ -1442,18 +1442,37 @@ as open items (`lex.literal.int.leading-zero`, `lex.escape.unsupported`).
   runners' `binate-paths --iface` calls.  See `plan-target-metadata.md` §4.
 - **Discovery**: adversarial verification workflow over the `a3755cb4` change.
 
-### Extend hygiene checks to scan `ifaces/` and `impls/` (not just `pkg/`+`cmd/`)
-- **Goal (user-requested, 2026-06-10)**: `scripts/hygiene/line-length.sh`,
-  `file-length.sh`, and `bni-doc.sh` find-roots are `$BINATE_DIR/pkg` (+`cmd`
-  for the length checks) only, so `.bni`/`.bn` under `ifaces/` and `impls/`
-  aren't linted by them.  Surfaced by `ifaces/targets/**/build.bni`
-  (`a3755cb4`), which those three checks don't see (`file-format.sh` does cover
-  the whole tree, and the new files are clean).  Add `ifaces/` and `impls/` to
-  the find-roots of those three scripts.
-- **Watch for**: pre-existing violations the wider scan newly surfaces under
-  `ifaces/`+`impls/` — triage rather than mass-suppress.
-- **Discovery**: adversarial verification workflow over the `a3755cb4` change;
-  user asked for it as a follow-up.
+### Extend hygiene checks to scan `ifaces/` and `impls/` (not just `pkg/`+`cmd/`) — IN PROGRESS
+- **Goal (user-requested, 2026-06-10)**: `line-length`, `file-length`,
+  `bni-doc`, `bn-doc`, `naming` find-roots were `$BINATE_DIR/pkg` (+`cmd`)
+  only, so source under `ifaces/`+`impls/` wasn't linted (surfaced by
+  `ifaces/targets/**/build.bni`, `a3755cb4`; `file-format` already covers the
+  whole tree).  Extend each to also scan `ifaces/`+`impls/`.
+- **Approach (user, 2026-06-10)**: extending surfaces ~150 PRE-EXISTING
+  violations, almost all in ported stdlib (math/strconv/os, never linted under
+  `impls/`).  Do it **one check at a time**: land the backlog fixes for a check
+  and enable that check alongside (fix + enable as separate commits, landed
+  together).  Triage, never mass-suppress.
+- **Status**:
+  - ✅ **file-length** — enabled (binate `8153f5c2`); `.bn` keeps 500/600, `.bni`
+    gets a higher 1500/1800 cap (interfaces can't be split like impls).  No
+    backlog (largest `.bni` is ir.bni ~1159 < 1500).
+  - ⬜ **naming** — 9 lowercase-in-.bni: `bootstrap.format*` (5) + `rt._call_*`
+    (4); both intentional bridges (bootstrap deprecating, rt internal shims) →
+    whitelist + enable.
+  - ⬜ **bni-doc** — 1: `ifaces/core/pkg/builtins/reflect.bni` missing package
+    doc → fix + enable.
+  - ⬜ **line-length** — 128 lines / 20 files (stdlib math + strconv tests); 32
+    lines >150 (genuine polynomial tables → LONG-LINE-ALLOWED), 96 lines
+    101–150 (wrap) → fix + enable.
+  - ⬜ **bn-doc** — 118 (erf 51, bessel01 28, rest math/strconv/os): 58 const
+    (numeric coeff blocks → const-group w/ shared doc), 37 var (tables), 23
+    func → fix + enable.
+- **Sub-TODO (file-length .bni cap)**: consider lowering the `.bni` cap from
+  1500/1800 toward 1000/1200; `ir.bni` (~1159) would need refactoring (split
+  into sub-interfaces) first.
+- **Discovery**: adversarial verification workflow over `a3755cb4`; user asked
+  for the extension as a follow-up.
 
 ### Wire `--version` into bnc / bni / bnas / bnlint — next-release follow-up
 - **Goal**: each tool accepts `--version` and prints its display version
