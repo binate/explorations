@@ -3398,11 +3398,13 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   `pkg/asm/aarch64` test package alone is slow enough to time
   out its CI shard at the 30-min cap. Other packages in the
   same mode finish comfortably.
-- **Mitigation in tree** (2026-05-22): xfailed via
-  `scripts/unittest/pkg-asm-aarch64.xfail.builder-comp-int-int`.
-  Coverage is preserved by `builder-comp`, `builder-comp-int`,
-  `builder-comp-comp*` and the native_aa64 / arm32 modes —
-  this is purely a double-interp pacing issue.
+- **Mitigation in tree**: skipped via the whole-package skip
+  mechanism `scripts/unittest/pkg-binate-asm-aarch64.skip-pkg.builder-comp-int-int`
+  (2026-06-10 — migrated from the old `.xfail`; slowness is a skip,
+  not an expected failure). Coverage is preserved by `builder-comp`,
+  `builder-comp-int`, `builder-comp-comp*` and the native_aa64 / arm32
+  modes — this is purely a double-interp pacing issue. See the
+  "int-int slow-package skips" entry below.
 - **Hypothesis**: same shape as the codegen `TestEmitDebug*`
   entry above — many small CharBuf / refcount / bounds-check
   operations per emitted instruction, each paying 2× bytecode-
@@ -3414,6 +3416,13 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   the actual hot path before guessing at fixes. See the codegen
   entry above for the lesson on guessing-without-profiling.
 - **Not blocking anything**; mitigation in tree.
+
+### int-int slow-package skips — re-add after optimizing (or decide double-VM coverage isn't worth it) — FILED 2026-06-10
+- **Context**: `builder-comp-int-int` (double-VM, VM-interpreting-VM) was "globally broken — every cell SIGSEGV'd" until `c997cf2e` (2026-06-09) made cells actually run. Now-healthy, the lane runs ~120+ min of work and was timing out its CI shards. Bumping unit sharding 4→8 (binate `e40fe3a0`) helped the light half but **4 of 8 shards still timed out at the 30-min cap, each completing ≤1 package** — i.e. a handful of packages each take **>~24 min (or hang) under double-VM**, which sharding can't fix (a single package can't be split across shards).
+- **New mechanism (not xfail)**: added a whole-package skip — `scripts/unittest/<pkg-key>.skip-pkg.<mode>` (run.sh). Distinct from `.xfail` (asserts the package FAILS; XPASS-errors if it ever passes) and from `.skip` (drops individual tests but still runs the package). `.skip-pkg` omits the whole package from a mode because it's too slow there; it is NOT a failure (the tests pass — they're just not run in this lane). Counted as `pkg-skipped` in the summary.
+- **Skipped under `builder-comp-int-int` (2026-06-10)**: `pkg/binate/codegen` (its `TestEmitDebug` per-test `.skip` was insufficient), `pkg/binate/ir`, `pkg/binate/types`, `pkg/std/math/big`, and `pkg/binate/asm/aarch64` (migrated from `.xfail`). Chosen by the "obvious heavy + never-completes-in-any-CI-run" heuristic — NOT measured per-package (the timed-out shards never log the offender's time), so the set may need refinement once CI re-runs (some may not be the true >24-min offenders; `pkg/binate/vm`, `pkg/binate/native/common`, or `cmd/bnlint` could be).
+- **Re-add work (the "separately" part)**: for each skipped package, either (a) profile + optimize its double-VM runtime so it fits a shard, or (b) make the explicit call that the double-VM lane adds no coverage over single-VM (`-int`) for that package (strong for the compiler-side ones — codegen/ir/types/asm test the COMPILER; `-int` already runs their tests through the VM; double-VM is the same logic + an extra dispatch layer). The lane's unique value is testing `pkg/binate/vm` itself (kept). When re-adding `codegen`, its `TestEmitDebug` per-test `.skip` still applies.
+- **Not a release blocker** (int-int non-blocking per `release-process.md`; was red at `bnc-0.0.7` too). Tracked here so the skips don't become permanent silent coverage loss.
 
 ### Function values — MAJOR PROJECT (interop prerequisite)
 - **Plan docs**: `explorations/plan-function-values.md` (parent;
