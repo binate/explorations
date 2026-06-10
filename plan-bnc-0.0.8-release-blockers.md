@@ -97,6 +97,24 @@ separately-tracked non-link xfails owned by Lane B.
 fixed CI cannot show Lane B's results — but Lane B works **locally** (the
 link error does not reproduce there), so the two lanes run concurrently.
 
+**STATUS 2026-06-10 — FIXED + LANDED (binate `a256c893`).** Root cause was
+H2 (findRuntime / cwd), confirmed decisively: the compiled runners built
+cells with no `--runtime`, so deep cells (`matrix/*`, nested `regressions/*`)
+depended on `findRuntime`'s cwd-relative fallback, which misses in CI (harness
+runs from the workspace root, checkout one dir deeper under `binate/`) →
+runtime dropped from the link → `undefined bootstrap.Write`/`main`. Hard
+evidence: the failing CI job showed 615 flat cells PASS but the whole
+`matrix/` tree FAIL (depth-correlated); `bnc-0.0.7`'s runtime is byte-identical
+and DOES define the symbol (H1 refuted, no self-heal at bump); a one-variable
+(cwd-only) reproduction flipped a deep cell pass→fail and `--runtime` fixed it.
+Fix: the 6 libc-target compiled runners now pass explicit
+`--runtime "$BINATE_DIR/runtime/binate_runtime.c"` (matches `build_gen1` /
+`e2e/*.sh` / `build-*.sh`); VM + baremetal/arm32 runners untouched. Verified
+locally: `builder-comp matrix/scalar/sub/8` from a parent cwd (mirroring CI)
+passes 2/0 (was 0/2). Follow-up filed (claude-todo): *remove `findRuntime`,
+require `--runtime`* — the cleaner end-state now that no caller relies on
+auto-resolution. Full `-comp*` CI confirmation lands with the next push.
+
 ---
 
 ## Lane B — abi multi-return / funcval un-xfail correctness (compiled backends)
