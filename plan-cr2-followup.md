@@ -157,3 +157,19 @@ Plan B (4 fixes + 1 test) are independent and parallel; Plan C is test-only and
 can run alongside both — its red cells, if any, feed back as new defects. First
 housekeeping step: move the five RESOLVED entries above to
 `claude-todo-done.md`.
+
+### Status (2026-06-09)
+
+**Plan A: ✅ COMPLETE.** Both fixes landed: A1 `box(<scalar>)` (binate
+`6235e43a`) — which turned out NOT to be native-only: box(scalar) SIGSEGV'd on
+the VM too (this plan's "runs on the VM" was wrong), so the fix spans native
+aa64/x64 + the VM. A2 dispatch-conflict hard error (binate `e508c841`).
+
+**Housekeeping (the 5-entry move) DEFERRED.** Audit at this date: the five
+RESOLVED entries are scattered across `claude-todo.md` (multiple occurrences
+each, variously phrased; `5281b138`'s native-float entry already appears in
+`claude-todo-done.md`), and are other plans'/workers' native/vm/float items —
+not Plan A's. The existing convention also keeps ✅-marked resolved entries in
+place (44+ of them). Relocating other workers' multi-line blocks in this
+high-contention shared doc is risky and low-value; left for a deliberate
+periodic done-log cleanup rather than done piecemeal here.
