@@ -10,6 +10,11 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~Passing a plain (no-managed-field) struct/array composite literal by value passes the alloca POINTER, not the value~~ — FIXED + LANDED 2026-06-10 (binate `32f2e2e8`)
+- **Was**: `dist(Pt{a:3,b:4})` / `asum([2]int{5,6})` printed garbage on LLVM + every native backend (the callee read the composite's alloca pointer bits as the fields); the VM was correct (carries aggregates by address). Root cause: `coerceArg` (`gen_call.bn`) only loaded the OP_ALLOC aggregate inside the `needsStructCopy` branch, so a plain (no-managed-field) aggregate fell through with the alloca pointer unloaded.
+- **Fix** (`32f2e2e8`): an else-arm in `coerceArg` that loads the value when the arg is an aggregate alloca AND the param takes it by value (reusing the dest-type-aware, wrapper-transparent `isAggregateAllocToLoad`, so a pointer param `f(&x)` doesn't match and still passes the address). No RefInc/copy — no managed fields. Pinned by `conformance/regressions/composite-arg-by-value` (un-xfailed; struct + array; all modes) + a non-vacuous IR unit test. Full LLVM/gen2/VM/native-aa64 suites 0-failed.
+- **Discovered** 2026-06-08 (adversarial review of Plan-1); elevated to CRITICAL + pinned + fixed 2026-06-10.
+
 ### ~~plain `=` destructure of a nameless (iface-method/func-value) multi-return → invalid IR for any non-int field~~ — RESOLVED (binate `f8916b88` + the MethodResultsFlat seam); retired by triage 2026-06-10: `gen_assign_multi.bn` has the `multiReturnFieldTypes` fallback; `matrix/abi/{iface,funcval}-multi-return-assign/*` cells green on LLVM/VM/aa64/gen2.
 
 ### ~~Interface-method dispatch drops the result type for any method with ≠1 results~~ — RESOLVED (MethodResultsFlat/MethodResultCounts seam + native `cc2ddcc4`); retired by triage 2026-06-10: `gen_iface_registry.bn`/`gen_iface.bn` read the per-method result LIST; `matrix/abi/iface-multi-return/*` green on every runnable mode. The residual x64-elf/arm32 xfails are a SEPARATE native tuple-packing item (still open).
