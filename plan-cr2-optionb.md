@@ -29,16 +29,34 @@ tuple structs, which MUST stay bare + per-module).
 
 ## Status — ✅ LANDED 2026-06-10 (binate `59771b8d`..`f5b3b387`, 5 commits)
 
-The full struct-name-qualification migration is on `main`. Killed the
-cross-package struct-name mangler-collision class at its root (reflect.Package
-vs a module's own Package); cross-package struct IDENTITY is now correct
-(`Identical` no longer false-matches same-short-named structs across packages).
-Byte-identical (no ABI/relink break), verified green across builder-comp,
-builder-comp-comp self-host, builder-comp-int (VM), native aa64, native
-x64-darwin (its 3 failures pre-existing); full multi-mode + self-host + units +
-hygiene all green before landing. Remaining FOLLOW-UP (user OK'd earlier): the
-codegen dedup-mismatch guard (abort/panic precondition assert if two struct
-defs with the same mangled symbol disagree in shape).
+The full struct-name-qualification migration (5 commits) is on `main`. Killed
+the cross-package struct-name mangler-collision class at its root
+(reflect.Package vs a module's own Package). Byte-identical (no ABI/relink
+break), verified green across builder-comp, builder-comp-comp self-host,
+builder-comp-int (VM), native aa64, native x64-darwin (its 3 failures
+pre-existing); full multi-mode + self-host + units + hygiene all green.
+
+**IDENTITY correctness — completed by FOLLOW-UP `1e37a637` (2026-06-10).** The
+5-commit migration fixed MANGLING (codegen peels TYP_NAMED to the qualified
+underlying struct), but a post-landing coverage guard found that `Identical`
+still false-matched cross-pkg same-short-named structs: a struct reference
+resolves to a TYP_NAMED WRAPPER whose Name is the bare leaf ("Box"), and
+Identical compared that — so `var m @Box = d` (d a `@otherpkg.Box` of a
+different shape) was wrongly ACCEPTED (codegen/checker disagreement). Fixed by
+keying a TYP_NAMED's identity on its underlying struct's qualified Name
+(`namedIdentityName`). `QualifiedTypeName` deliberately NOT changed — codegen's
+generic-instantiation mangling (`gen_generic.bn:81`) routes through it, so
+peeling there would shift symbols. No over-rejection (builder-comp + self-host
+1335/0). Tests: `conformance/694_cross_pkg_same_name_struct_distinct` +
+`TestIdenticalDistinguishesCrossPkgNamedStructs`.
+
+**Remaining FOLLOW-UPS:**
+- The codegen dedup-mismatch guard (user OK'd earlier): abort/panic precondition
+  assert if two struct defs with the same mangled symbol disagree in shape.
+- Diagnostic nit: the cross-pkg-same-name reject message reads `cannot assign
+  @Box to @Box` (both render with the short name). A clean fix needs a
+  qualified-display helper that peels named structs (separate from
+  `QualifiedTypeName`, which is locked for codegen mangling).
 
 ### Pre-landing status (historical)
 
