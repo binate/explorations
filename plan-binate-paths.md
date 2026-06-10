@@ -9,8 +9,16 @@ the completeness follow-up — the `8cb1e0ec` sweep had inventoried only
 `scripts/` + `conformance/` and missed `e2e/` + `perf/runners/`, now also
 adopted, so a repo-wide grep shows only the intentional remainders:
 `e2e/split-paths.sh` (a split-path test fixture), `fetch-builder.sh` doc
-comments, and `build_gen1`'s overlay). Remaining:
-the D2 BUILDER-overlay follow-up, Phase 2 (`pkg/bootstrap` under core), Phase 3
+comments, and `build_gen1`'s overlay). **D2 LANDED** 2026-06-10 (binate
+`be692ce0`) — the BUILDER overlay across `build_gen1`, the four `build-*.sh`,
+and `e2e/{repl,print-args}.sh` is now `binate-paths --base "$blib" --prepend
+"$BINATE_DIR"` (BUILDER-only builtin+stdlib deps, source only for
+pkg/binate+pkg/bootstrap, **no source fallback** — the bnc source cone may only
+use features the BUILDER has, per the user); kills the duplication behind the
+`e29aaec0` drift bug. Validated locally (gen1/gen2/interp, make-bundle, e2e);
+monitoring CI for arm32 / x64-elf. The outer `-I/-L` is a vestigial
+bootstrap-shape prefix the bnc-* wrapper strips. Remaining:
+Phase 2 (`pkg/bootstrap` under core), Phase 3
 (bnc-0.0.8 release); `examples/_common.sh` adoption deferred to post-release
 (it consumes binate via the release bundle). Owner: TBD. Spans three repos
 (`binate`, `examples`, and the release) plus a BUILDER bump.
