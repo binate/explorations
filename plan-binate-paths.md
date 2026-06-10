@@ -1,7 +1,14 @@
 # Plan: `binate-paths` search-path helper → `pkg/bootstrap` regularization → bnc-0.0.8 release
 
-Status: proposed (2026-06-09). Owner: TBD. Spans three repos (`binate`,
-`examples`, and the release) plus a BUILDER bump.
+Status: **Phase 1 LANDED** 2026-06-10 (binate `5b7f3a6a` the helper + bundle
+ship + BUNDLE-HOWTO; `8cb1e0ec` the in-tree adoption sweep — 29 files, validated
+cross-cutting across all runnable conformance modes + unittest + make-bundle;
+the landing rebase merged a concurrent `--runtime` addition `a256c893` into the
+6 compiled-mode runners, routed through `binate-paths --runtime`). Remaining:
+the D2 BUILDER-overlay follow-up, Phase 2 (`pkg/bootstrap` under core), Phase 3
+(bnc-0.0.8 release); `examples/_common.sh` adoption deferred to post-release
+(it consumes binate via the release bundle). Owner: TBD. Spans three repos
+(`binate`, `examples`, and the release) plus a BUILDER bump.
 
 This plan turns the hand-copied package-search-path formula into one shipped
 helper (`binate-paths`), then removes the last reason that formula needs its
