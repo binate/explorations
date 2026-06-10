@@ -31,7 +31,79 @@ R2-D7: no readonly/alias-wrapped named-int or named-float-minus test. R2-D5: mat
 
 ---
 
+## CR-2 follow-up batch adversarial review (2026-06-09) — post-landing
+
+Adversarial review (find → perspective-diverse cross-examine → synthesize, 56 agents)
+of the 8 landed CR-2 follow-up commits (R2-1 `79ebfa98`, R2-2 `d086ccac`, B2
+`e15680d7`, B1 `05901f97`, B4 `b4648200`, B3 `5fc5a52f`, R2-3 `ca155319`, split
+`2beab6e5`). **Heeding the over-confirmation caution at the top of this file, the
+three critical/major entries below were RUNTIME-verified by hand (gen1/gen2 bnc
+built from the worktree + an A/B against BUILDER bnc-0.0.7), not just statically.**
+Two of the serious findings are regressions in THIS batch's own commits.
+
+- **CRITICAL — X2** (R2-3 `ca155319`): the new negative-offset `panic` false-fires
+  on valid code (iface-value upcast to an unrelated zero-method interface). Full
+  entry under ## CRITICAL. Fix direction is USER-OWNED (semantics).
+- **MAJOR — B1/X3** (`05901f97`/`5fc5a52f`): bare const-group member drops its
+  inherited narrow type → checker accepts an overflow the explicit form rejects,
+  IR truncates (silent wrong value). Full entry under ## MAJOR. Straight bug fix.
+- **MAJOR — B2** (pre-existing, NOT from `e15680d7`): named func-value types
+  (`type Fn @func(...)`) are unconstructible. Full entry under ## MAJOR.
+
+**Lower-severity / follow-up (not yet runtime-triaged unless noted):**
+- **X3-highbit (major, DIRECTION CONTESTED — semantics-owned).** `1<<iota` now
+  folds in the checker (B1), so a flag member hitting the SIGN bit of a signed
+  target (`1<<63` → `int` on 64-bit; `1<<31` on 32-bit) computes positive
+  2^(W-1), which `FitsSigned(W)` rejects — while IR's `evalConstExpr` wraps to the
+  valid two's-complement `INT_MIN`. A real checker-vs-IR divergence, but the
+  RESOLUTION is a spec call: `claude-notes.md` §const decides const values are
+  abstract and must fit the target range (→ the reject may be CORRECT; the
+  canonical idiom uses an UNSIGNED target, unaffected). Do NOT change semantics
+  unilaterally. (The literal `1<<63` form was already rejected pre-B1; B1 only
+  widens that to the iota form without aligning IR.)
+- **X2b (major, derivative/pre-existing).** The VM upcast path (`vm_exec_iface.bn`)
+  reacts to the SAME checker-accepted upcast with a runtime abort (`iface_upcast:
+  target vtable not found`) — a third distinct behavior. Not touched by R2-3.
+  Whatever fixes X2 must reconcile all four consumers (LLVM/aa64/x64/VM).
+- **B3 type-divergence (minor).** A bare const member that PARKS (REPL) resolves
+  via `GenConstMember` (reads only `d.TypeRef`=nil → untyped int), whereas the
+  non-parked sibling gets the inherited type via `genConstGroup` — a park-dependent
+  IR-type inconsistency. Same root as B1/X3; observable only in narrow cases.
+- **R2-1 arm32 xfail rationale wrong (minor).** `matrix/readonly/pass-arg/value-
+  struct-large.xfail.builder-comp_arm32_{linux,baremetal}` blame the native
+  classifier, but arm32 is the LLVM/clang path and the struct is 12 B on ILP32
+  (never byval). Real cause is the shared IR-gen readonly field-read defect (Plan-1
+  Defect 1). Wrong reason = XPASS landmine when Defect 1 is fixed. Cheap to fix.
+- **R2-1 `IsByvalParam` unbounded named-peel loop (minor).** `scope.bn` hand-rolls
+  an unbounded `for t.Underlying` peel; every other named-peeling predicate routes
+  through `peelNamedBounded` (1024-depth defense-in-depth). Not reachable from user
+  source today (cyclic named types are decl-time rejected), but it's a public method.
+- **R2-1 stale comment (nit).** `gen_func.bn:99` references the deleted standalone
+  `isByvalParam` function + the wrong codegen mechanism (codegen keys on the
+  `IsByvalParamRef` flag, not a re-evaluated predicate).
+- **B3 test coverage (nit).** `TestPendingConstGroupBareMemberRepeatsParkedExpr`
+  asserts only park/resolve mechanics, not the repeated value or `IotaIdx==1`;
+  value-correctness is pinned only by a single plain-int e2e transcript.
+- **R2-3 commit message (nit, accept).** Message says conformance 683; landed test
+  is 685 (rebase renumber). Authoritative tracking docs already say 685.
+
+REFUTED by cross-examination (recorded so they aren't re-chased): no other
+`emitRef`/`emitValRef` global-ref drop sites beyond OP_CAST + iface-arg (R2-2 clean);
+B2's `=` change correct for multi-assign/non-func-LHS; the split (`2beab6e5`) moved
+all functions/tests intact; B4 regression tests are non-vacuous.
+
+---
+
 ## CRITICAL
+
+### Iface-value upcast to an unrelated zero-method interface ABORTS the compile (R2-3 negative-offset panic false-fires on valid code) — LLVM + native aa64/x64 — REGRESSION from `ca155319` — RUNTIME-CONFIRMED 2026-06-09
+- **Symptom**: `var e *Empty = s` where `s` is `*Speaker` and `Empty` is a user-declared ZERO-method interface (unrelated to Speaker) — accepted by the checker — aborts the gen1/gen2 compile with **exit 1 and no diagnostic** (OP_PANIC discards its message). Managed variant (`@Speaker -> @Empty`) identical. **A/B proof**: BUILDER bnc-0.0.7 (pre-R2-3) compiles the same program through codegen, emitting a harmless `getelementptr inbounds i8*, i8** %vt, i64 -1` (harmless because `Empty` has no dispatchable methods, so the −1-offset vtable pointer is never dereferenced); gen1/gen2 (post-R2-3) emits NO `.ll` and aborts.
+- **Root cause (two layers)**: (1) PRE-EXISTING checker hole — `canAssignToInterfaceValue` / `canAssignToManagedInterfaceValue` (`pkg/binate/types/types_assignable.bn:185` / `:234`) short-circuit `if len(iface.Methods) == 0 { return true }`, accepting an iface-value upcast to ANY zero-method target, not just `any`/same/ancestor. For such an upcast `IfaceParentSlotOffset` (`pkg/binate/ir/gen_iface_extends.bn:145`) returns −1 (target is not `any`, not same-canonical, not a parent). (2) REGRESSION — `ca155319` added `if offset < 0 { panic(...) }` to all three offset-based upcast lowerings (`emit_iface_upcast.bn:38`, `aarch64_dispatch.bn`, `x64_dispatch.bn`) on the FALSE premise (stated in the comment) that "the checker should never produce a negative offset." It does. R2-3 turned a latent-but-running path into a hard compile abort.
+- **VM divergence (X2b, separate/pre-existing)**: the VM (`vm_exec_iface.bn`) doesn't use IfaceParentSlotOffset; it looks up a `(T, target)` vtable by name (`findIfaceVtable`), never registered → runtime abort `vm: iface_upcast: target vtable not found`. Its only zero-method shortcut matches literal `any`, not a user empty interface. So the SAME accepted upcast now has THREE behaviors: pre-R2-3 LLVM/native = works; post-R2-3 LLVM/native = compile abort; VM = runtime abort.
+- **Severity**: CRITICAL — a newly-added assert aborts the compile of previously-accepted code on all offset-based backends; the exact "panic false-fires on valid code" class this review exists to catch. (Loud abort, not silent miscompile; gated on the checker hole + an unusual shape, so the 140-cell iface suite — no zero-method non-parent cross-iface upcast cell — stayed green, and R2-3's own 685 covers only same-interface decay.)
+- **Fix (USER-OWNED — touches language semantics)**: either **(A)** close the checker hole — restrict the zero-method short-circuit to `any`/same/ancestor so `*Speaker -> *Empty` is REJECTED with a diagnostic (Binate interfaces are nominal; stricter reading); or **(B)** define zero-method-target upcast semantics — make `IfaceParentSlotOffset` return 0 for any empty-method-set target (reuse the source vtable wholesale, like `any`), keeping the program accepted, and broaden the VM's `any` shortcut to match. Either way reconcile LLVM/aa64/x64/VM and add a `*ChildIface -> *UnrelatedEmptyIface` conformance cell (raw + managed). The R2-3 panic STAYS as a precondition assert once the false-fire path is removed.
+- **Test (to add once direction is chosen)**: `conformance/NNN_iface_upcast_unrelated_empty` — `.error` (option A) or `.expected` (option B), raw + managed, all modes.
+- **Discovery**: 2026-06-09 CR-2-batch adversarial review (X2 finder + X1/X2 cross-cutting); runtime A/B confirmed.
 
 ### Capturing closure (`@func` with environment) returning a MULTI-RETURN tuple reads result components from the wrong location — SILENT garbage (managed component → crash) — LLVM-codegen only — CONFIRMED 2026-06-09
 - **Symptom**: `var f @func() (int, int) = func() (int, int) { return n, n+1 }` (capturing `n`); `a, b = f()` yields garbage (`6469215644`, …) on LLVM, not `42, 43`. With a managed component (`@func() (int, @T)`) the garbage pointer crashes (empty output, exit 139). Controls: a NON-capturing func-value multi-return (a named func assigned to `@func() (T,U)`) WORKS; a capturing closure with a SINGLE return WORKS. Only {capturing closure} × {multi-return} breaks. VM + native are CORRECT — LLVM-codegen-only.
@@ -56,6 +128,22 @@ R2-D7: no readonly/alias-wrapped named-int or named-float-minus test. R2-D5: mat
 ---
 
 ## MAJOR
+
+### Bare const-group member drops its INHERITED narrow type — checker accepts an overflow the explicit form rejects; IR-gen truncates → SILENT wrong value — all backends — REGRESSION from `05901f97`/`5fc5a52f` — RUNTIME-CONFIRMED 2026-06-09
+- **Symptom**: `const ( B0 uint8 = 1 << iota; B1; …; B8 )` — B8 = 1<<8 = 256 inherits `uint8`. The checker **ACCEPTS** it (compile exit 0); at runtime B7 correctly prints 128 but **B8 prints 0** (IR-gen types the bare member at the inherited width → `add i8 256, 0` → truncates). The explicit equivalents `var x uint8 = 256` AND `const B8 uint8 = 256` are BOTH rejected ("cannot assign untyped int to uint8"). So the bare-member path silently miscompiles an overflow the rest of the language rejects.
+- **Root cause**: when synthesizing the repeat decl for a bare member, `checkGroupDecl` (`pkg/binate/types/check_const.bn:154`) sets `rep.TypeRef = inner.TypeRef` (nil for a bare member) — it never threads the PRECEDING member's TYPE. So `checkConstDecl` stores the member as untyped-int with NO range check. IR-gen's `genConstGroup` (`pkg/binate/ir/gen_const.bn`) DOES track `prevTyp` and types the bare member at the inherited width — hence the checker/IR disagreement + truncation. Same gap in the REPL path (`check_pending.bn:373`, B3).
+- **Severity**: MAJOR — silent wrong-value miscompile from compiler-accepted source, contradicting conformance/645's documented rule and undercutting B1's own overflow-catching goal (B1's 672 cell uses a WIDE `int` base, so the bare-member-narrow path was untested). Held at major (not critical): trigger needs a narrow-typed flag word with an overflowing bare member.
+- **Fix (NOT a semantics change)**: thread the inherited type into the synthesized rep in both `checkGroupDecl` and `checkGroupDeclTentative` (mirror genConstGroup's `prevTyp`), so the checker range-checks the bare member at the inherited width and rejects 256:uint8 like the explicit form — aligning the checker with itself and with IR. (Companion: the X3-highbit SIGNED sign-bit variant is a related divergence whose DIRECTION is contested/semantics-owned — see the CR-2-review section. Decide separately.)
+- **Test**: `conformance/NNN_err_const_group_bare_overflow` (`.error`, expects the assign-overflow message; currently compiles → fails) + a unit test pinning the inherited type on the synthesized rep.
+- **Discovery**: 2026-06-09 CR-2-batch review (B1 + X3-constfold finders, folded); runtime-confirmed (128 then 0; explicit form rejected).
+
+### Named func-value type (`type Fn @func(...)`) is unconstructible — func-value flavour hint doesn't peel TYP_NAMED — all backends — PRE-EXISTING (NOT from `e15680d7`) — RUNTIME-CONFIRMED 2026-06-09
+- **Symptom**: `type Fn @func(int) int; var f Fn = dbl` → rejected "cannot assign func(...) to Fn"; `var f Fn; f = func(x int) int {…}` → "cannot assign <unknown> to Fn". The anonymous spelling `var f @func(int) int = dbl` WORKS (prints 42). So a named func-value type can be declared but never constructed.
+- **Root cause**: `checkExprWithFVHint` (`pkg/binate/types/check_expr.bn:30-39`) installs the func-value flavour hint only when `hint.Kind` is TYP_FUNC_VALUE / TYP_MANAGED_FUNC_VALUE; it never peels TYP_NAMED/ALIAS/READONLY. A named func-value resolves to TYP_NAMED, so the hint is dropped and the literal defaults to raw `*func`. Broader: AssignableTo's named-func-reference arm (`types_assignable.bn:69-73`) also doesn't peel the named dst, so even `var f Fn = someTopLevelFunc` fails. Shared by ALL func-value hint sites (plain `=`, var-init, return-slot, call-arg); `e15680d7` routed plain `=` through the SAME pre-existing single-peel-short guard, so this is not a regression from it.
+- **Severity**: MAJOR — a whole supported, tested feature (`conformance/matrix/globals/noinit/named-func.bn` declares one) is unusable; spurious compile-time rejection (fail-safe, no miscompile). Workaround: use the anonymous `@func(...)` spelling.
+- **Fix**: peel transparent wrappers in `checkExprWithFVHint` before reading `hint.Kind`, AND peel the dst in AssignableTo's func arms. Touches the shared hint mechanism.
+- **Test**: xfail cells for named func-value at each assignment position + a unit test.
+- **Discovery**: 2026-06-09 CR-2-batch review (B2 finder); runtime-confirmed (named rejected, anon works).
 
 ### Indexing a dereferenced pointer-to-array `(*p)[i]` (p is `*([N]T)`) drops the write / emits invalid IR — SILENT wrong-code — all backends — PRE-EXISTING — CONFIRMED 2026-06-09
 - **Symptom**: `(*p)[i] = v` where `p` is `*([N]T)` silently mutates a loaded COPY of the array — the store is dropped, the array keeps its old value (`var arr [3]int = {10,20,30}; var p *([3]int) = &arr; (*p)[0] = 99; arr[0]` reads `10`, not `99`). The READ form `(*p)[i]` separately emits invalid LLVM (`'%vN' defined with type '[3 x i64]'/'i64' but expected 'ptr'` — the deref'd array value is fed where a pointer is expected); the multi-dim write `(*pm)[i][j] = v` likewise. Reproduced on LLVM / VM / native aa64 / native x64-darwin.
