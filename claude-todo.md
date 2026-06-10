@@ -73,23 +73,19 @@ Two of the serious findings are regressions in THIS batch's own commits.
   type via `genConstGroup`. Fixed by the B1/X3 fix: `checkGroupDeclTentative` now
   threads the inherited type onto the synthesized repeat, so the parked member
   carries `d.TypeRef`=the inherited type and resolves at that width.
-- **R2-1 arm32 xfail rationale wrong (minor).** `matrix/readonly/pass-arg/value-
-  struct-large.xfail.builder-comp_arm32_{linux,baremetal}` blame the native
-  classifier, but arm32 is the LLVM/clang path and the struct is 12 B on ILP32
-  (never byval). Real cause is the shared IR-gen readonly field-read defect (Plan-1
-  Defect 1). Wrong reason = XPASS landmine when Defect 1 is fixed. Cheap to fix.
-- **R2-1 `IsByvalParam` unbounded named-peel loop (minor).** `scope.bn` hand-rolls
-  an unbounded `for t.Underlying` peel; every other named-peeling predicate routes
-  through `peelNamedBounded` (1024-depth defense-in-depth). Not reachable from user
-  source today (cyclic named types are decl-time rejected), but it's a public method.
-- **R2-1 stale comment (nit).** `gen_func.bn:99` references the deleted standalone
-  `isByvalParam` function + the wrong codegen mechanism (codegen keys on the
-  `IsByvalParamRef` flag, not a re-evaluated predicate).
-- **B3 test coverage (nit).** `TestPendingConstGroupBareMemberRepeatsParkedExpr`
-  asserts only park/resolve mechanics, not the repeated value or `IotaIdx==1`;
-  value-correctness is pinned only by a single plain-int e2e transcript.
-- **R2-3 commit message (nit, accept).** Message says conformance 683; landed test
-  is 685 (rebase renumber). Authoritative tracking docs already say 685.
+- **✅ RESOLVED 2026-06-10 (binate `e16d53bc`) — the four cheap CR-2-review minors:**
+  - arm32 xfail rationale (value-struct-large linux+baremetal): corrected to the
+    real cause (shared IR-gen readonly field-read defect / Defect 1), matching the
+    sibling value-struct markers verbatim so both clean up together (was an XPASS
+    landmine).
+  - `IsByvalParam` unbounded peel: routed through `peelNamedBounded` (1024 cap),
+    behaviour-identical for valid types.
+  - stale `gen_func.bn` comment: rewritten to the actual mechanism (`IsByvalParamRef`
+    flag drives `OP_STORE`'s memcpy; `ParamIndex` is debug-info only).
+  - B3 test: added the `IotaIdx == 1` assertion (mirrors the sibling iota test).
+- **R2-3 commit message (nit) — NO ACTION.** Message says conformance 683; landed
+  test is 685 (rebase renumber). Commit messages are immutable and the authoritative
+  tracking docs already say 685, so nothing to change.
 
 REFUTED by cross-examination (recorded so they aren't re-chased): no other
 `emitRef`/`emitValRef` global-ref drop sites beyond OP_CAST + iface-arg (R2-2 clean);
