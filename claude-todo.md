@@ -1331,6 +1331,26 @@ and "libc" is one impl flavor spanning both Linux and macOS, whose `O_*`
   macOS-hardcoded translation now, OS-awareness as a follow-up (option #1
   of the divergence discussion).
 
+### Stdlib conformance tests: relax conformance-imports + add a conformance/stdlib/* suite — 2026-06-10
+`pkg/std/os` (and stdlib packages generally) have unit tests but no
+conformance coverage, because the `conformance-imports` hygiene check
+(`scripts/hygiene/`) restricts what a conformance test may import — it
+keeps the conformance set focused on the *language core*. In Binate the
+stdlib is deliberately SEPARATE from the core language, so stdlib
+conformance belongs in its own suite rather than mixed into the language
+conformance tree.
+- **Relax the check** so a conformance test may import core / builtins
+  (per `pkg-layout-spec.md` — importing the always-bundled core is part
+  of the language contract, not a stdlib dependency). Scope the
+  relaxation precisely to what the spec sanctions; don't open it to
+  arbitrary stdlib imports in the language conformance set.
+- **Add a separate stdlib conformance suite** (e.g. `conformance/stdlib/*`)
+  with its own runner wiring, so stdlib packages (`os` first) get
+  end-to-end coverage across modes without polluting the language
+  conformance set.
+- Follow-up to landing `pkg/std/os` (binate `3ca36c82`), which shipped
+  with libc unit tests only — conformance was deferred here per the user.
+
 ### Lexer issues surfaced while authoring spec Ch.5 (Lexical Elements) — 2026-06-08
 Found writing the docs spec's Lexical Elements chapter (adversarial
 verification of the draft against `pkg/binate/lexer`). All MINOR
