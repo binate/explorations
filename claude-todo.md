@@ -1417,28 +1417,39 @@ as open items (`lex.literal.int.leading-zero`, `lex.escape.unsupported`).
 - Surfaced 2026-06-05 while authoring the conformance matrix func-value cell
   (plan-code-red.md §7 / P1).
 
-### Wire cross-target conformance runners to `binate-paths --target` — un-xfails 692 on arm32
-- **Goal**: the four cross conformance runners pass `--target X` to **bnc**
-  but not to their `binate-paths --iface` call, so a cross compile of
-  `import "pkg/builtins/build"` resolves the *host* `build.bni` tree instead
-  of `ifaces/targets/X/`.  Mirror the bnc `--target` onto the
-  `binate-paths.sh --iface` invocation (one token each) in:
-  `conformance/runners/builder-comp_arm32_linux.sh` (`--target arm32-linux`),
-  `builder-comp_arm32_baremetal.sh` (`--target arm32-baremetal`),
-  `builder-comp_native_x64-comp_native_x64.sh` (`--target x86_64-linux`),
-  `builder-comp_native_x64_darwin-comp_native_x64_darwin.sh`
-  (`--target x86_64-darwin`).
-- **Effect**: `conformance/692_build_target_consts` then sees `build.bni`
-  matching codegen on every mode; remove the two xfails
-  (`692_build_target_consts.xfail.builder-comp_arm32_{linux,baremetal}`).
-  The native x64 modes already pass (host 8/8 matches the 64-bit target), but
-  wiring them makes `build.OS`/`Arch` reflect the cross target, not the host.
-- **Why deferred (scope, 2026-06-10)**: CLAUDE.md "Stay Within the Asked
-  Scope" — wiring conformance *runners* is the user's call, not folded into
-  "add the package + the flag".  Tiny + safe (`build` is new; only 692 imports
-  it, so adding the tree to a mode's `-I` is inert for every other test).
-- **Covers**: `conformance/692_build_target_consts.bn`; see
-  `explorations/plan-target-metadata.md` §4.
+### Wire the parallel `scripts/unittest/runners/` cross runners to `binate-paths --target`
+- **Done part (binate `a3755cb4`)**: the four cross *conformance* runners now
+  mirror their bnc `--target` onto the `binate-paths.sh --iface` call
+  (arm32-linux, arm32-baremetal, x86_64-linux, x86_64-darwin), so a cross
+  compile of `import "pkg/builtins/build"` resolves `ifaces/targets/X/` not the
+  host tree.  692 is green on every mode (no xfails).
+- **Remaining (latent, NOT a bug today)**: the three parallel
+  `scripts/unittest/runners/` cross runners (`builder-comp_arm32_linux`,
+  `builder-comp_arm32_baremetal`,
+  `builder-comp_native_x64_darwin-comp_native_x64_darwin`) have the SAME shape —
+  `--target X` to bnc, no `--target` on their `binate-paths --iface` call.  Safe
+  now: a repo-wide grep shows the only importer of `pkg/builtins/build` is
+  `conformance/692`, and `build` has no `_test`, so no unit-test compile selects
+  a tree.  The moment a unit-tested package specializes on `build` (or `build`
+  gets a test), those runs would silently resolve the host-width tree and
+  miscompile, with no xfail flagging it (the CLAUDE.md "enumerate sweep sites
+  repo-wide" hazard — documented here so it isn't a silent guessed-subset gap).
+- **Fix when needed**: add the matching `--target` to the three unit-test cross
+  runners' `binate-paths --iface` calls.  See `plan-target-metadata.md` §4.
+- **Discovery**: adversarial verification workflow over the `a3755cb4` change.
+
+### Extend hygiene checks to scan `ifaces/` and `impls/` (not just `pkg/`+`cmd/`)
+- **Goal (user-requested, 2026-06-10)**: `scripts/hygiene/line-length.sh`,
+  `file-length.sh`, and `bni-doc.sh` find-roots are `$BINATE_DIR/pkg` (+`cmd`
+  for the length checks) only, so `.bni`/`.bn` under `ifaces/` and `impls/`
+  aren't linted by them.  Surfaced by `ifaces/targets/**/build.bni`
+  (`a3755cb4`), which those three checks don't see (`file-format.sh` does cover
+  the whole tree, and the new files are clean).  Add `ifaces/` and `impls/` to
+  the find-roots of those three scripts.
+- **Watch for**: pre-existing violations the wider scan newly surfaces under
+  `ifaces/`+`impls/` — triage rather than mass-suppress.
+- **Discovery**: adversarial verification workflow over the `a3755cb4` change;
+  user asked for it as a follow-up.
 
 ### Wire `--version` into bnc / bni / bnas / bnlint — next-release follow-up
 - **Goal**: each tool accepts `--version` and prints its display version
