@@ -1322,9 +1322,13 @@ and "libc" is one impl flavor spanning both Linux and macOS, whose `O_*`
   fails on the Linux modes. `pkg/std/os` is therefore xfailed on every
   unit-test mode but `native_aa64` (`scripts/unittest/pkg-std-os.xfail.*`,
   binate `7c2b74c9`); `native_aa64` (aarch64-darwin) is os's one green
-  coverage mode. The `-int`/VM modes are xfailed for a *separate* reason
-  (`__c_call` is compiled-mode only — no VM FFI). Remove the Linux-mode
-  xfails once the compile-time OS mechanism makes the flags correct.
+  coverage mode. The `-int`/VM modes are xfailed for a *separate* reason:
+  the bytecode VM never interprets `__c_call` (by design); such a package
+  runs under the VM only as the injected compiled package (registered
+  native externs, like `pkg/builtins/rt`), not wired up for os. Remove
+  the Linux-mode xfails once the compile-time OS mechanism makes the
+  flags correct; the `-int` xfails additionally need the os-into-VM
+  injection.
 - **Related wrinkle (same file)**: `lseek`/`pread`/`pwrite` offsets are
   passed as `int64` (off_t), correct on the LP64 libc hosts but wrong on
   a 32-bit (ILP32) libc target where off_t is 32-bit without LFS — same
