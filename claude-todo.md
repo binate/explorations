@@ -594,7 +594,7 @@ The CRITICAL entries below are also surfaced in `## CRITICAL`-class triage.
   - `pkg/binate/codegen/emit_alloca_hoist_test.bn` — unit tests asserting each
     construct's alloca precedes the loop body in the emitted IR.
 
-### `box(<scalar>)` is unimplemented on the native backend — silent no-emit → garbage result (MINOR wrong-code)
+### `box(<scalar>)` is unimplemented on the native backend — silent no-emit → garbage result (MINOR wrong-code) — ✅ RESOLVED (landed binate `6235e43a`, 2026-06-09; native AND VM — the "VM works" claim below was wrong, BC_BOX SIGSEGV'd too)
 - **Symptom**: `box(i)` where the operand is a scalar register (not an OP_ALLOC
   or aggregate) compiles fine on the LLVM backend but the native backends'
   `emitBox` hits the `else { ... return }` scalar arm (aarch64_emit.bn /
