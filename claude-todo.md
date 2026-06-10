@@ -1448,12 +1448,17 @@ as open items (`lex.literal.int.leading-zero`, `lex.escape.unsupported`).
   - ✅ **bni-doc** — enabled (binate `a0a82aa4`+`812c9dd1`).  Added the missing
     package doc to `ifaces/core/pkg/builtins/reflect.bni` (its block documented
     `type Package`, not the package).
-  - ⬜ **line-length** — 128 lines / 20 files (stdlib math + strconv tests); 32
-    lines >150 (genuine polynomial tables → LONG-LINE-ALLOWED), 96 lines
-    101–150 (wrap) → fix + enable.
-  - ⬜ **bn-doc** — 118 (erf 51, bessel01 28, rest math/strconv/os): 58 const
-    (numeric coeff blocks → const-group w/ shared doc), 37 var (tables), 23
-    func → fix + enable.
+  - ✅ **line-length** — enabled (binate `beff4c89`+`2281cabd`).  Wrapped 128
+    long lines across 20 stdlib math/strconv files (all wrappable — no
+    LONG-LINE-ALLOWED needed); semantics-preserving (numeric-token multiset
+    identical per file; math+strconv unit tests green).  Follow-up that the
+    wrapping forced: bessel01.bn grew 407→502 (file-length soft-WARN), so its
+    asymptotic machinery (pzero/qzero/pone/qone + tables) was split into
+    `bessel01_asymp.bn` (binate `4c31ba50`); both files now <300 lines.
+  - ⬜ **bn-doc** — 118 (erf 51, bessel01 28 — now spread across bessel01.bn +
+    bessel01_asymp.bn, rest math/strconv/os): 58 const (numeric coeff blocks →
+    const-group w/ shared doc), 37 var (tables), 23 func → fix + enable.  LAST
+    check.
 - **Sub-TODO (file-length .bni cap)**: consider lowering the `.bni` cap from
   1500/1800 toward 1000/1200; `ir.bni` (~1159) would need refactoring (split
   into sub-interfaces) first.
