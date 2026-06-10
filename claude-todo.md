@@ -2152,7 +2152,7 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   handle for a capturing managed closure, null otherwise, null for the
   *func and no-managed-capture forms).
 
-### Native aa64 miscompiles a cross-package multi-return whose component is a managed interface value (`@Iface`) — MAJOR, silent wrong-code (`526` xfailed)
+### Native (aa64 + x64) miscompiles a cross-package multi-return whose component is a managed interface value (`@Iface`) — MAJOR, silent wrong-code / crash (`526` xfailed)
 - **Symptom**: `conformance/526_strconv_parse_cross_pkg` (added with the
   strconv `Parse*` series, `6a91cf5b`) crashes on
   `builder-comp_native_aa64-comp_native_aa64` — empty output.  The
@@ -2178,10 +2178,18 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   analogue of the LLVM ABI mismatch fixed in `cb8c0f1a` (line ~434), but
   in the MULTI-RETURN-tuple case (the single-`@Iface` case is already
   correct on native aa64, hence `errors.New` passes).
-- **Status**: `526` xfailed on native aa64 (binate `49d03616`) + this
-  TODO.  **MAJOR (silent wrong-code) — NOT a
-  workaround; needs a real fix to the native-aa64 importer's tuple-
-  component type resolution for `@Iface` returns.**  Discovery: 2026-06-04
+- **Also fails on native x64 (SysV)** — same root cause (the importer's
+  tuple-component type resolution for `@Iface` returns is backend-shared,
+  not aa64-specific); here it crashes (SIGSEGV) rather than printing
+  garbage.  Surfaced 2026-06-10 running the full x64 (Rosetta) lane.  NOT
+  funcval-related (the big-multi-return-x64 fix `f0747762` doesn't touch
+  it — `526` uses a direct cross-package call).
+- **Status**: `526` xfailed on native aa64 (binate `49d03616`) and now on
+  both x64 native modes (`builder-comp_native_x64` + `…_x64_darwin`,
+  2026-06-10) + this TODO.  **MAJOR (silent wrong-code / crash) — NOT a
+  workaround; needs a real fix to the native importer's tuple-component
+  type resolution for `@Iface` returns (fixes aa64 AND x64 together).**
+  Discovery: 2026-06-04
   full native-aa64 `--check-xpass` lane (first correct end-to-end run; the
   flag had been mis-positioned after the mode).  Not caused by the `550`
   work.
