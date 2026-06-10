@@ -4,29 +4,16 @@ Resume doc (survives context compaction). Worktree: `temp-binate-2` (branch
 `work-2`). Owner: the Plan-2/CR-2 author session (Plan-1 is done, so editing
 `pkg/binate/types` + `pkg/binate/ir` is clear). User chose the **FULL migration**.
 
-## ⚠ FIRST ON RESUME — adversarially review the landed CR-2 batch, BEFORE Option B step 3
+## Adversarial review of the CR-2 batch — DONE (2026-06-10)
 
-The CR-2 follow-up batch (Plan-B + Round-2) landed this session but has **NOT
-had a dedicated adversarial review** — only recon + tests + cross-mode
-conformance + empirical build/run. Adversarial review (the find→cross-examine
-multi-agent workflow) has caught real bugs in this codebase before (the
-`=`-multi-assign bug in the pre-compaction Plan-2 work). Run it FIRST (fresh
-context post-compaction), then pick up step 3 below. Review these landed
-commits on binate `main` (each with its tests):
-
-- `79ebfa98` R2-1 — unify `isByvalParam` into `types` (peel readonly/named/alias)
-- `d086ccac` R2-2 — `&G`-as-rvalue at `OP_CAST` + iface-method arg (`emitValRef`)
-- `e15680d7` B2 — func-literal flavour inferred from LHS at plain `=` assign
-- `05901f97` B1 — fold `iota` in expressions + bare-member repeat (checker)
-- `b4648200` B4 — named sub-word `MIN/-1` divide regression coverage (test-only)
-- `5fc5a52f` B3 — REPL parked-member iota-repeat (checkGroupDeclTentative)
-- `ca155319` R2-3 — same-interface upcast → offset 0 + hard-assert −1 (IR+LLVM+native)
-- `2beab6e5` — split `check_pending.bn` cycle detection (refactor)
-
-Highest-risk to scrutinize: B1 (changes checker accept/reject — the narrow-type
-tightening), R2-1/R2-3 (mangling/ABI + the new `panic` asserts), B3 (REPL
-park/retry object-identity). The adversarial review will then naturally extend
-to Option B's step-3 work once it exists.
+The pre-step-3 adversarial review ran (56-agent find→cross-examine) and is fully
+remediated: it surfaced a CRITICAL (X2 — R2-3's negative-offset panic false-fired
+on an iface-value upcast to an unrelated zero-method interface; root-caused as a
+checker duck-typing hole, fixed via `isUniverseAny` + `@Iface→*Iface` decay, binate
+`4ac123da`) and a MAJOR silent miscompile (B1/X3 — bare const-group member dropped
+its inherited narrow type, binate `b9d6d807`), plus four cheap minors (binate
+`e16d53bc`). All landed. Remaining open items are pre-existing / user-owned
+(X3-highbit signed sign-bit, B2 named func-values) — see `claude-todo.md`.
 
 ## Goal
 Make a struct's `Type.Name` **fully path-qualified at definition**
@@ -40,31 +27,37 @@ byte-identical → **no ABI/relink break**; `modulePkgName` becomes a no-op for
 named structs (still needed for anonymous `__anon_`/`__closure_`/multi-return
 tuple structs, which MUST stay bare + per-module).
 
-## Status
-- **Step 1 DONE** — committed `9d1037b6` on work-2 (NOT landed). Split
-  `Type.TypeName()` (display) vs `Type.QualifiedTypeName()` (mangling/identity),
-  both currently `typeNameImpl(false)` (verbatim) = no-op. Switched the
-  mangling/identity callers to `QualifiedTypeName`: `check_generic`
-  (`mangleInstantiatedName`), `gen_generic.bn:81`, `check_decl.bn:282-283/318`
-  (alias + struct-field identity), `check_decl_func.bn:63/65/92/94` (.bn/.bni
-  sig compare). Added dormant `displayLeafName` (strips before the first `.`).
-- **Step 2 DONE** — committed `dfd9bbad` on work-2 (NOT landed). `TypeName` now
-  `typeNameImpl(true)` (short display). No-op for real programs (names still
-  bare). Unit test `types_query_test.bn TestTypeNameDisplayVsQualified` pins the
-  split on a constructed qualified-name struct.
-- **Steps 3 + 4 REMAINING.**
+## Status — ALL STEPS DONE on `work-2` (NOT yet landed), verified across all modes (2026-06-10)
 
-**Rebased 2026-06-09**: `work-2` was rebased onto current local main (atop
-`c6fe0914`, after the whole CR-2 follow-up batch landed — incl. the R2-1 native
-half `common.IsAggregateTyp` readonly/alias peel). One conflict resolved
-(`types_query_test.bn` — kept all three end-of-file tests: the Option-B
-`TestTypeNameDisplayVsQualified` plus main's `TestIsByvalParamPeelsWrappers` and
-`TestPeelNamedBoundedCyclicTerminates`); `types_query.bn` auto-merged cleanly
-(a duplicate `TypeName` doc line removed). steps 1-2 verified no-op: types + ir
-unit suites green, hygiene green. `work-2` is now 2 ahead / 0 behind main.
+`work-2` carries the full migration as 5 commits atop local main:
+- **Step 1** `e0e0d011` — split `Type.TypeName()` (display) vs `QualifiedTypeName()`
+  (mangling/identity); mangling/identity callers switched to `QualifiedTypeName`.
+- **Step 2** `7fd19e6c` — `TypeName` short-formats (`displayLeafName`); no-op while
+  names are still bare.
+- **Step 3** `dc1e5241` — checker qualifies struct `Type.Name` at definition:
+  `currentPkgPath` + `WithPkgPath`/`RestorePkgPath` + empty-safe `QualifyName` (==
+  IR `buildQualName`/`qualifyForCurrentModule` byte-for-byte); set at all 4 entry
+  points (Check / checkPackageImpl / LoadPackageInterface / `CheckMainPersistent`
+  persistently for the REPL); qualified `check_decl`/`bni_scope`/`check_generic`
+  struct producers; display reads routed through `.TypeName()` in
+  `check_impl`/`check_decl_func`.
+- **Split** `d6b0e3c0` — extracted type-name formatting into `type_name.bn`
+  (`types_query.bn` length cap).
+- **Step 4** `6e15d8bb` — IR own-module struct registration qualified (gen_module /
+  _single / self_types / repl), `lookupStructIdx` qualify-if-bare + bare fallback
+  for synthetic anon/closure/tuple structs, `RegisterSelfTypes` sets its own pkg
+  path (runs before `currentModulePkgPath` is set), `dtorTypeSuffix`/`emit_debug`
+  leaf-name fixes, `qualifiedReflectPackageType` removed (reflect.Package now
+  qualified by the checker).
 
-These commits are on work-2 only; land the whole migration as a batch once 3+4
-are done & green (needs per-instance cherry-pick approval).
+**Byte-identical / green:** builder-comp 1330/0, builder-comp-comp self-host
+1330/0, builder-comp-int 1300/0, native aa64 1299/0; native x64-darwin 1326/3
+(the 3 failures — 526, 569, capturing-closure-multi-return — are pre-existing,
+predate this work). Units mangle/types/ir/codegen/vm green; hygiene green. The
+mangler's dot-awareness keeps symbols identical (`mangle_test
+TestStructNameCrossPkg`). Own-module ALIAS registration left bare (separate
+table, consistent register+lookup; validated by the full suite); closure structs
+left bare (per-package). **Land the 5-commit batch (per-instance approval).**
 
 ## Step 3 — qualify struct .Name at the checker (the functional fix)
 1. `types_query.bn`: add `currentPkgPath @[]char` (full path) global +
