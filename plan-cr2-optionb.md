@@ -27,7 +27,20 @@ byte-identical → **no ABI/relink break**; `modulePkgName` becomes a no-op for
 named structs (still needed for anonymous `__anon_`/`__closure_`/multi-return
 tuple structs, which MUST stay bare + per-module).
 
-## Status — ALL STEPS DONE on `work-2` (NOT yet landed), verified across all modes (2026-06-10)
+## Status — ✅ LANDED 2026-06-10 (binate `59771b8d`..`f5b3b387`, 5 commits)
+
+The full struct-name-qualification migration is on `main`. Killed the
+cross-package struct-name mangler-collision class at its root (reflect.Package
+vs a module's own Package); cross-package struct IDENTITY is now correct
+(`Identical` no longer false-matches same-short-named structs across packages).
+Byte-identical (no ABI/relink break), verified green across builder-comp,
+builder-comp-comp self-host, builder-comp-int (VM), native aa64, native
+x64-darwin (its 3 failures pre-existing); full multi-mode + self-host + units +
+hygiene all green before landing. Remaining FOLLOW-UP (user OK'd earlier): the
+codegen dedup-mismatch guard (abort/panic precondition assert if two struct
+defs with the same mangled symbol disagree in shape).
+
+### Pre-landing status (historical)
 
 `work-2` carries the full migration as 5 commits atop local main:
 - **Step 1** `e0e0d011` — split `Type.TypeName()` (display) vs `QualifiedTypeName()`
