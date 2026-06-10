@@ -30,6 +30,15 @@ tuple structs, which MUST stay bare + per-module).
   split on a constructed qualified-name struct.
 - **Steps 3 + 4 REMAINING.**
 
+**Rebased 2026-06-09**: `work-2` was rebased onto current local main (atop
+`c6fe0914`, after the whole CR-2 follow-up batch landed — incl. the R2-1 native
+half `common.IsAggregateTyp` readonly/alias peel). One conflict resolved
+(`types_query_test.bn` — kept all three end-of-file tests: the Option-B
+`TestTypeNameDisplayVsQualified` plus main's `TestIsByvalParamPeelsWrappers` and
+`TestPeelNamedBoundedCyclicTerminates`); `types_query.bn` auto-merged cleanly
+(a duplicate `TypeName` doc line removed). steps 1-2 verified no-op: types + ir
+unit suites green, hygiene green. `work-2` is now 2 ahead / 0 behind main.
+
 These commits are on work-2 only; land the whole migration as a batch once 3+4
 are done & green (needs per-instance cherry-pick approval).
 
