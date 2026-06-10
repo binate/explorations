@@ -2329,7 +2329,7 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   136/383 int-int rt-loader bug (above) is fixed.
 - **Discovery**: 2026-06-04 coverage-audit workflow.
 
-### Dispatch conflicts (extern registered + Binate body provided) should be a HARD ERROR
+### Dispatch conflicts (extern registered + Binate body provided) should be a HARD ERROR — ✅ RESOLVED (landed binate `e508c841`, 2026-06-09)
 - **What**: today the VM dispatches a `BC_CALL` by name: `LookupFunc`
   → if `>=0`, run the bytecode body; if `-1`, fall through to
   `execExtern` (which consults `vm.Externs`).  Functions registered

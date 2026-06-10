@@ -52,6 +52,7 @@ Disjoint by subsystem, extending the CR-2 concurrency model:
 - **Test**: a `conformance` cell `box(i)` returning the boxed value (currently no coverage); runs all modes.
 
 ### Defect: dispatch conflict (extern registered + Binate body) silently shadows — should be a HARD ERROR
+✅ **LANDED** (binate `e508c841`). `LowerModule` now checks `externNameConflict` (LookupExtern(name) >= 0) before AddFunc-ing each non-extern function and, on a conflict, prints the name + `rt.Exit(1)` (the VM's fatal-error idiom). Coverage: a `lower_test` unit test pins the condition; the firing path (`rt.Exit`) isn't unit-testable and the collision can't be built in a passing test / conformance source program, so no-false-positive is verified by the full builder-comp-int suite (1263/0).
 - **Symptom**: a name with BOTH an extern registration and a Binate body silently uses the Binate body, shadowing the extern with no diagnostic.
 - **Root cause (confirmed)**: `pkg/binate/vm/lower.bn` `LowerModule` (~`:187-194`) lowers each non-extern func and `AddFunc`s it **without** checking `vm.LookupExtern(vmf.Name) >= 0` (`LookupExtern` at `vm.bn:335`).
 - **Fix shape**: before `AddFunc`, `if vm.LookupExtern(vmf.Name) >= 0 { <hard error: dispatch conflict> }`. (Decide whether the same check belongs at the codegen/native registration sites — but those are other plans' files; the VM site is the confirmed one here.)
