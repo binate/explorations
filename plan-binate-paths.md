@@ -17,8 +17,15 @@ pkg/binate+pkg/bootstrap, **no source fallback** — the bnc source cone may onl
 use features the BUILDER has, per the user); kills the duplication behind the
 `e29aaec0` drift bug. Validated locally (gen1/gen2/interp, make-bundle, e2e);
 monitoring CI for arm32 / x64-elf. The outer `-I/-L` is a vestigial
-bootstrap-shape prefix the bnc-* wrapper strips. Remaining:
-Phase 2 (`pkg/bootstrap` under core), Phase 3
+bootstrap-shape prefix the bnc-* wrapper strips. **Phase 2 LANDED** 2026-06-10
+(binate `ecd8f07d`) — `pkg/bootstrap.bni` → `ifaces/core/pkg/bootstrap.bni`,
+host impl → `impls/core/libc/pkg/bootstrap` (parallel to `rt`; import path
+unchanged, so not in the builtins namespace); make-bundle drops its special
+`lib/pkg/bootstrap` copy; the bare lib root now resolves nothing in a bundle.
+Validated locally (conformance compile+VM+multi-pkg, unit, make-bundle+hello,
+e2e); monitoring CI for arm32. Follow-up: consolidate the baremetal bootstrap
+(`runtime/baremetal_arm32/pkg/bootstrap` → `impls/core/baremetal/pkg/bootstrap`,
+parallel to `rt`). Remaining: Phase 3
 (bnc-0.0.8 release); `examples/_common.sh` adoption deferred to post-release
 (it consumes binate via the release bundle). Owner: TBD. Spans three repos
 (`binate`, `examples`, and the release) plus a BUILDER bump.
