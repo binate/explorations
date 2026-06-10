@@ -139,6 +139,30 @@ on compiled backends is currently **unverified**.
 compiled backends OR carries an accurate `.xfail` + tracked todo; no silent
 premature un-xfails remain.
 
+**STATUS 2026-06-10 — verified, no code change needed.** Ran all
+`conformance/matrix/abi` cells (multi-return / iface-multi-return /
+funcval-multi-return / funcval-param + `-assign` variants, int/u16/f64 — 108
+cells) on the three locally-runnable compiled backends: **`builder-comp`
+(LLVM-aa64) 108/0, `native_aa64` 108/0, `native_x64_darwin` 108/0.** Findings:
+- The `2a77188c` funcval-multi-return un-xfail (front-end-only fix, backend
+  untested) is **SOUND** — every `funcval-multi-return{,-assign}/{int,u16,f64}/{2..5}`
+  cell passes on all three compiled backends.
+- `funcval-param` (SIGSEGV history) passes on all three; `684_cross_pkg_mr_f32`
+  float32 is **accurately** xfailed on `native_x64_darwin` + `native_x64`
+  (still fails under `--check-xpass`; tracked = the x64-float32 todo).
+- No silent premature un-xfails on the locally-runnable compiled backends.
+- **One follow-up (stale xfail, not a premature un-xfail):** the 16
+  `iface-multi-return{,-assign}/{int,u16}/{2..5}.xfail.builder-comp_native_x64-comp_native_x64`
+  markers blame "native tuple-packing not yet implemented", but that packing
+  IS implemented (`x64_iface.bn` `collectMultiReturnTuple`) and the
+  identical-codegen `native_x64_darwin` (Mach-O) PASSES every one of these
+  cells. They are almost certainly stale; not removable from here because the
+  ELF mode isn't locally runnable (no qemu). Confirm with
+  `conformance/run.sh --check-xpass builder-comp_native_x64-comp_native_x64`
+  on an x86-64-linux host (or in CI once Lane A's link break clears) → expect
+  XPASS → remove. Tracked in `claude-todo.md`. (arm32 iface-multi-return
+  xfails left untouched — different, less-complete backend.)
+
 ---
 
 ## Lane C — Release execution: `same` skew, E2E scripts, bundle verification, docs
