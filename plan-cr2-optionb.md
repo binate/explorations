@@ -4,6 +4,30 @@ Resume doc (survives context compaction). Worktree: `temp-binate-2` (branch
 `work-2`). Owner: the Plan-2/CR-2 author session (Plan-1 is done, so editing
 `pkg/binate/types` + `pkg/binate/ir` is clear). User chose the **FULL migration**.
 
+## ⚠ FIRST ON RESUME — adversarially review the landed CR-2 batch, BEFORE Option B step 3
+
+The CR-2 follow-up batch (Plan-B + Round-2) landed this session but has **NOT
+had a dedicated adversarial review** — only recon + tests + cross-mode
+conformance + empirical build/run. Adversarial review (the find→cross-examine
+multi-agent workflow) has caught real bugs in this codebase before (the
+`=`-multi-assign bug in the pre-compaction Plan-2 work). Run it FIRST (fresh
+context post-compaction), then pick up step 3 below. Review these landed
+commits on binate `main` (each with its tests):
+
+- `79ebfa98` R2-1 — unify `isByvalParam` into `types` (peel readonly/named/alias)
+- `d086ccac` R2-2 — `&G`-as-rvalue at `OP_CAST` + iface-method arg (`emitValRef`)
+- `e15680d7` B2 — func-literal flavour inferred from LHS at plain `=` assign
+- `05901f97` B1 — fold `iota` in expressions + bare-member repeat (checker)
+- `b4648200` B4 — named sub-word `MIN/-1` divide regression coverage (test-only)
+- `5fc5a52f` B3 — REPL parked-member iota-repeat (checkGroupDeclTentative)
+- `ca155319` R2-3 — same-interface upcast → offset 0 + hard-assert −1 (IR+LLVM+native)
+- `2beab6e5` — split `check_pending.bn` cycle detection (refactor)
+
+Highest-risk to scrutinize: B1 (changes checker accept/reject — the narrow-type
+tightening), R2-1/R2-3 (mangling/ABI + the new `panic` asserts), B3 (REPL
+park/retry object-identity). The adversarial review will then naturally extend
+to Option B's step-3 work once it exists.
+
 ## Goal
 Make a struct's `Type.Name` **fully path-qualified at definition**
 (`pkg/binate/loader.Package`) so codegen mangling is unambiguous regardless of
