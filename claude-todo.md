@@ -108,14 +108,6 @@ all functions/tests intact; B4 regression tests are non-vacuous.
 - **Test (to add)**: `conformance/NNN_err_iface_assign_unrelated_empty` (`.error`) covering concrete + iface-value sources; plus the 685 decision (A: drop/rewrite, B: extend to non-empty) per the fork.
 - **Discovery**: 2026-06-09 CR-2-batch adversarial review (X2 finder); runtime A/B confirmed; root-cause + fork confirmed with the user.
 
-### Capturing closure (`@func` with environment) returning a SINGLE >16-byte AGGREGATE (sret) SIGSEGVs — NATIVE backend only — CONFIRMED 2026-06-10
-- **Symptom**: `var h @func() P3 = func() P3 { return P3{a: n, b: n+1, c: n+2} }; var p P3 = h()` where `P3` is a 24-byte struct and the literal captures `n` → **SIGSEGV** (exit 139, no output) when compiled with `--backend native`. LLVM (post-`3540118c`) and the VM are CORRECT.
-- **Scope (sharp)**: native backend ONLY, and ONLY the {capturing closure} × {single >register-width aggregate return / sret} combination. A NON-capturing func-value returning the same struct works on native (`1/2/3` ✓). A capturing MULTI-RETURN (register-path) closure works on native (`conformance/regressions/capturing-closure-multi-return` is green there). So it is specifically closure-data-ptr-present **and** sret-result.
-- **Crash site**: the lifted closure body (`bn_main____funclit_0`) writes its struct result through a NULL sret pointer (`str x11, [x10]` with `x10 = 0`, aa64). The native funcval/closure call lowering does not thread the caller's result buffer into the lifted body's sret argument — the sret pointer arrives null.
-- **Where (suspected)**: `pkg/binate/native` funcval/closure call lowering (the native analogue of the LLVM retbuf shim added in `3540118c`). When the func value is a closure (non-null data) AND returns via sret, the result-buffer pointer isn't allocated / passed as the callee's sret arg. Likely needs the native closure-dispatch path to set up the retbuf the way `3540118c` did for the LLVM shim.
-- **Severity**: CRITICAL — silent SIGSEGV for a natural shape (a closure returning a struct by value).
-- **Test (to add)**: a dedicated `conformance/regressions/capturing-closure-sret-return` (capturing closure → 24-byte struct), green on LLVM + VM, xfailed on the native mode(s) that run it (aa64 confirmed crashing; `builder-comp_native_x64` is a compile-error stub; `arm32` runs under qemu in CI — determine exact xfail set when landing the test).
-- **Discovery**: 2026-06-10, building the comprehensive `capturing-closure-multi-return` regression while fixing the LLVM sibling (binate `3540118c`). This is the native counterpart of that LLVM-only bug — the same {closure × aggregate-result} gap in a different backend.
 
 ### `builder-comp-int-int` (double-VM) globally broken — every test SIGSEGVs — ✅ RESOLVED 2026-06-09 (binate `c997cf2e`; root cause `71ff7489`)
 
