@@ -1298,44 +1298,28 @@ Discovery Protocol) — most don't have one yet.
 
 ## MINOR
 
-### pkg/std/os libc impl is macOS-only (portable O_* flags hardcoded-translated to macOS) — 2026-06-09
-The first cut of `pkg/std/os` (libc flavor,
-`impls/stdlib/libc/pkg/std/os/os.bn`) translates Binate's portable `O_*`
-flag bits to the host's native open(2) flags in `nativeOpenFlags`,
-**hardcoded to macOS**. Binate has no compile-time target-OS predicate,
-and "libc" is one impl flavor spanning both Linux and macOS, whose `O_*`
-*modifier* values differ (Linux `O_CREAT`=0x40 / `O_TRUNC`=0x200 /
-`O_APPEND`=0x400 / `O_EXCL`=0x80 / `O_SYNC`=0x101000 vs macOS
-0x200/0x400/0x8/0x800/0x80). The three access modes
-(`O_RDONLY`/`O_WRONLY`/`O_RDWR` = 0/1/2) are POSIX-identical, so bare
-`Open` (read-only) is correct on every target; only `Create` /
-`OpenFile`-with-modifiers are wrong on a Linux libc target.
-- **Fix (compile-time only)**: a compile-time target-OS mechanism (a
-  target-OS constant / build-tag) that lets `nativeOpenFlags` branch per
-  target — it is the single seam. Runtime `uname` detection is explicitly
-  NOT acceptable (user, 2026-06-10: a runtime OS-sniff runs counter to
-  Binate's compile-time-determinism goals). Until the compile-time
-  mechanism lands, do NOT add a cross-OS conformance test asserting
-  modifier-flag opens work on Linux.
-- **CI consequence (2026-06-10)**: `unit-tests.yml` runs every mode on
-  ubuntu EXCEPT `native_aa64` (macos-latest), so the macOS-only impl
-  fails on the Linux modes. `pkg/std/os` is therefore xfailed on every
-  unit-test mode but `native_aa64` (`scripts/unittest/pkg-std-os.xfail.*`,
-  binate `7c2b74c9`); `native_aa64` (aarch64-darwin) is os's one green
-  coverage mode. The `-int`/VM modes are xfailed for a *separate* reason:
-  the bytecode VM never interprets `__c_call` (by design); such a package
+### pkg/std/os O_* flags now compile-time-correct via build.OS — ✅ RESOLVED 2026-06-10 (binate 590906c8); arm32 off_t + VM residuals remain
+`nativeOpenFlags` (`impls/stdlib/libc/pkg/std/os/os.bn`) branches on
+`build.OS` — a per-target compile-time constant from `pkg/builtins/build`
+(`ifaces/targets/<key>/pkg/builtins/build.bni`) that the compiler folds —
+to emit the correct native open(2) modifier bits for Linux (asm-generic:
+`O_CREAT`=0x40 / `O_TRUNC`=0x200 / `O_APPEND`=0x400 / `O_EXCL`=0x80 /
+`O_SYNC`=0x101000) vs macOS (0x200/0x400/0x8/0x800/0x80); access modes
+(0/1/2) are POSIX-identical and pass through. No runtime `uname` (the
+user ruled that out as counter to Binate's compile-time-determinism
+goals). The four Linux/host xfails were removed in the same commit, so os
+is now green on every unit-test mode except the residuals below.
+- **Residual — arm32-linux off_t (still xfailed,
+  `pkg-std-os.xfail.builder-comp_arm32_linux`)**: Seek/ReadAt/WriteAt
+  pass `int64` offsets, but on ILP32 arm32-linux `off_t` is 32-bit — a
+  64-bit arg shifts the `lseek`/`pread`/`pwrite` register-pair arg layout
+  and corrupts the call. Fix: use the `*64` variants or a target-width
+  off_t (key off `build.Arch`/`build.PtrSize`), then drop that xfail.
+- **Residual — os under the bytecode VM (still xfailed: the three
+  `-int`/VM modes)**: the VM never interprets `__c_call` (by design); os
   runs under the VM only as the injected compiled package (registered
-  native externs, like `pkg/builtins/rt`), not wired up for os. Remove
-  the Linux-mode xfails once the compile-time OS mechanism makes the
-  flags correct; the `-int` xfails additionally need the os-into-VM
-  injection.
-- **Related wrinkle (same file)**: `lseek`/`pread`/`pwrite` offsets are
-  passed as `int64` (off_t), correct on the LP64 libc hosts but wrong on
-  a 32-bit (ILP32) libc target where off_t is 32-bit without LFS — same
-  "no target awareness yet" caveat.
-- Decided 2026-06-09 with the user: portable `.bni` `O_*` values +
-  macOS-hardcoded translation now, OS-awareness as a follow-up (option #1
-  of the divergence discussion).
+  native externs, like `pkg/builtins/rt`) — not wired up. Tracked
+  separately. `arm32_baremetal` (no filesystem) stays xfailed too.
 
 ### Stdlib conformance tests: relax conformance-imports + add a conformance/stdlib/* suite — 2026-06-10
 `pkg/std/os` (and stdlib packages generally) have unit tests but no
