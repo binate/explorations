@@ -1417,6 +1417,29 @@ as open items (`lex.literal.int.leading-zero`, `lex.escape.unsupported`).
 - Surfaced 2026-06-05 while authoring the conformance matrix func-value cell
   (plan-code-red.md §7 / P1).
 
+### Wire cross-target conformance runners to `binate-paths --target` — un-xfails 692 on arm32
+- **Goal**: the four cross conformance runners pass `--target X` to **bnc**
+  but not to their `binate-paths --iface` call, so a cross compile of
+  `import "pkg/builtins/build"` resolves the *host* `build.bni` tree instead
+  of `ifaces/targets/X/`.  Mirror the bnc `--target` onto the
+  `binate-paths.sh --iface` invocation (one token each) in:
+  `conformance/runners/builder-comp_arm32_linux.sh` (`--target arm32-linux`),
+  `builder-comp_arm32_baremetal.sh` (`--target arm32-baremetal`),
+  `builder-comp_native_x64-comp_native_x64.sh` (`--target x86_64-linux`),
+  `builder-comp_native_x64_darwin-comp_native_x64_darwin.sh`
+  (`--target x86_64-darwin`).
+- **Effect**: `conformance/692_build_target_consts` then sees `build.bni`
+  matching codegen on every mode; remove the two xfails
+  (`692_build_target_consts.xfail.builder-comp_arm32_{linux,baremetal}`).
+  The native x64 modes already pass (host 8/8 matches the 64-bit target), but
+  wiring them makes `build.OS`/`Arch` reflect the cross target, not the host.
+- **Why deferred (scope, 2026-06-10)**: CLAUDE.md "Stay Within the Asked
+  Scope" — wiring conformance *runners* is the user's call, not folded into
+  "add the package + the flag".  Tiny + safe (`build` is new; only 692 imports
+  it, so adding the tree to a mode's `-I` is inert for every other test).
+- **Covers**: `conformance/692_build_target_consts.bn`; see
+  `explorations/plan-target-metadata.md` §4.
+
 ### Wire `--version` into bnc / bni / bnas / bnlint — next-release follow-up
 - **Goal**: each tool accepts `--version` and prints its display version
   (`<tool>-` + `version.Version`, e.g. `bnc-0.0.7-pre`) to stdout, then
