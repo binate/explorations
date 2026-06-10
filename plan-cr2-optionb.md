@@ -50,13 +50,23 @@ peeling there would shift symbols. No over-rejection (builder-comp + self-host
 1335/0). Tests: `conformance/694_cross_pkg_same_name_struct_distinct` +
 `TestIdenticalDistinguishesCrossPkgNamedStructs`.
 
-**Remaining FOLLOW-UPS:**
-- The codegen dedup-mismatch guard (user OK'd earlier): abort/panic precondition
-  assert if two struct defs with the same mangled symbol disagree in shape.
-- Diagnostic nit: the cross-pkg-same-name reject message reads `cannot assign
-  @Box to @Box` (both render with the short name). A clean fix needs a
-  qualified-display helper that peels named structs (separate from
+**FOLLOW-UPS:**
+- ✅ **Codegen dedup-mismatch guard — LANDED `15f1fae2` (2026-06-10).**
+  `addStructDef` (LLVM codegen) deduped struct type defs by mangled symbol and
+  silently kept the first on a match (the exact first-wins behavior the
+  reflect.Package-vs-Package collision exploited). Now aborts as a codegen
+  precondition when a symbol match has disagreeing SHAPE (`structShapesMatch`:
+  field count + each field's LLVM repr). Never fires post-qualification
+  (builder-comp + self-host 1335/0); a regression backstop. Test
+  `TestStructShapesMatch`. (LLVM-only, where the collision lived.)
+- ⏳ **Diagnostic nit (open):** the cross-pkg-same-name reject message reads
+  `cannot assign @Box to @Box` (both render with the short name). A clean fix
+  needs a qualified-display helper that peels named structs (separate from
   `QualifiedTypeName`, which is locked for codegen mangling).
+
+**Option B is COMPLETE** — root-cause mangling fix (5 commits) + identity
+correctness (`1e37a637`) + collision-regression guard (`15f1fae2`). Only the
+minor reject-message diagnostic remains.
 
 ### Pre-landing status (historical)
 
