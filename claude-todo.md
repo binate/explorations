@@ -42,8 +42,10 @@ built from the worktree + an A/B against BUILDER bnc-0.0.7), not just statically
 Two of the serious findings are regressions in THIS batch's own commits.
 
 - **CRITICAL — X2** (R2-3 `ca155319`): the new negative-offset `panic` false-fires
-  on valid code (iface-value upcast to an unrelated zero-method interface). Full
-  entry under ## CRITICAL. Fix direction is USER-OWNED (semantics).
+  on valid code (iface-value upcast to an unrelated zero-method interface).
+  **✅ RESOLVED 2026-06-10 (binate `4ac123da`)** — root-caused as a checker
+  duck-typing hole; fixed via `isUniverseAny` + supported `@Iface -> *Iface`
+  decay (fork B). Full entry under ## CRITICAL.
 - **MAJOR — B1/X3** (`05901f97`/`5fc5a52f`): bare const-group member drops its
   inherited narrow type → checker accepts an overflow the explicit form rejects,
   IR truncates (silent wrong value). Full entry under ## MAJOR. Straight bug fix.
@@ -96,7 +98,8 @@ all functions/tests intact; B4 regression tests are non-vacuous.
 
 ## CRITICAL
 
-### Iface-value upcast to an unrelated zero-method interface ABORTS the compile (R2-3 negative-offset panic false-fires on valid code) — LLVM + native aa64/x64 — REGRESSION from `ca155319` — RUNTIME-CONFIRMED 2026-06-09
+### Iface-value upcast to an unrelated zero-method interface ABORTS the compile (R2-3 negative-offset panic false-fires on valid code) — LLVM + native aa64/x64 — REGRESSION from `ca155319` — ✅ RESOLVED 2026-06-10 (binate `4ac123da`)
+- **✅ RESOLVED 2026-06-10 (binate `4ac123da`).** Fixed at the ROOT (the checker duck-typing hole), per the user's choice of the secondary fork **(B)**. The four assignability arms now gate universal satisfiability on a new checker `isUniverseAny` (mirrors IR-gen's predicate) instead of `len(Methods)==0`, and managed→raw same-interface decay rides an explicit `sameInterface` check so `@Iface -> *Iface` works for EVERY interface (not just empty by accident). Now `*Speaker -> *Empty` / `*T -> *Empty` (no impl) are rejected; `*any`/`@any` and real upcasts (incl. to an empty PARENT via extends) unchanged; the R2-3 panic is now unreachable on valid code (kept as defense-in-depth); R2-3's same-canonical→0 stays and is now correctly exercised for non-empty decay. conformance/685 extended to non-empty decay + conformance/689 nominal-rejection guard (both green across builder-comp / -int / -comp / native aa64 / native x64-darwin; full builder-comp suite 1318/0); unit tests in `check_iface_empty_marker_test.bn`. Fork (B) chosen over (A) because decay should mirror `@T -> *T`.
 - **Symptom**: `var e *Empty = s` where `s` is `*Speaker` and `Empty` is a user-declared ZERO-method interface (unrelated to Speaker) — accepted by the checker — aborts the gen1/gen2 compile with **exit 1 and no diagnostic** (OP_PANIC discards its message). Managed variant (`@Speaker -> @Empty`) identical. **A/B proof**: BUILDER bnc-0.0.7 (pre-R2-3) compiles the same program through codegen, emitting a harmless `getelementptr inbounds i8*, i8** %vt, i64 -1` (harmless because `Empty` has no dispatchable methods, so the −1-offset vtable pointer is never dereferenced); gen1/gen2 (post-R2-3) emits NO `.ll` and aborts.
 - **Root cause (two layers)**: (1) PRE-EXISTING checker hole — `canAssignToInterfaceValue` / `canAssignToManagedInterfaceValue` (`pkg/binate/types/types_assignable.bn:185` / `:234`) short-circuit `if len(iface.Methods) == 0 { return true }`, accepting an iface-value upcast to ANY zero-method target, not just `any`/same/ancestor. For such an upcast `IfaceParentSlotOffset` (`pkg/binate/ir/gen_iface_extends.bn:145`) returns −1 (target is not `any`, not same-canonical, not a parent). (2) REGRESSION — `ca155319` added `if offset < 0 { panic(...) }` to all three offset-based upcast lowerings (`emit_iface_upcast.bn:38`, `aarch64_dispatch.bn`, `x64_dispatch.bn`) on the FALSE premise (stated in the comment) that "the checker should never produce a negative offset." It does. R2-3 turned a latent-but-running path into a hard compile abort.
 - **VM divergence (X2b, separate/pre-existing)**: the VM (`vm_exec_iface.bn`) doesn't use IfaceParentSlotOffset; it looks up a `(T, target)` vtable by name (`findIfaceVtable`), never registered → runtime abort `vm: iface_upcast: target vtable not found`. Its only zero-method shortcut matches literal `any`, not a user empty interface. So the SAME accepted upcast now has THREE behaviors: pre-R2-3 LLVM/native = works; post-R2-3 LLVM/native = compile abort; VM = runtime abort.
