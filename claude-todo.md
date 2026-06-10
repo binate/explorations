@@ -4,6 +4,29 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## CR-2 Plan-1 Round-2 + Plan-A — closing adversarial review (2026-06-09): SIBLING gaps in the just-landed fixes
+
+A 28-agent adversarial review of the 9 landed CR-2 Round-2 + Plan-A fixes (the same review style that found the Round-1 siblings) — verdicts triaged below against the code + (where noted) runtime probes. **Headline: the recurring pattern recurred — several of THIS round's fixes peeled/guarded SOME sites sharing a root cause and left siblings broken.** All are PRE-EXISTING/latent (variants the landed fixes didn't cover; none is a regression from the fixes — they're the *un*covered cousins). Filed per the bug-discovery protocol; **fix decisions are the user's.**
+
+### [closing-review] CONFIRMED real sibling gaps
+
+- **CRITICAL — `getSelectorType` un-peeled pointee** (`pkg/binate/ir/gen_selector_type.bn:56,63`): `lookupStructIdx(baseTyp.Elem.Name)` for a managed/raw ptr-to-struct reads the UN-peeled `.Elem` — for `@readonly Box` / alias / named pointee, `.Name` is `""` → -1 → returns nil type. The **exact sibling of R2-D1** (`b4d5b37b`) in a function R2-D1 didn't touch. `getSelectorType` feeds genCall/genIface type resolution + nested-selector/`&`-lvalue paths. **Confirmed by reading.** Fix: `lookupStructIdx(peelTransparent(baseTyp.Elem).Name)` at :56 and :63.
+- **CRITICAL — R2-D6 misses ALIAS cycles** (`type A = B; type B = A`): R2-D6 (`68a62f8c`) rejects only named-DISTINCT cycles (`type A B`) at decl time; the alias arm of `collectTypeDecl` has no cycle check, AND `resolveAliasAndConst` (`pkg/binate/types/types_const.bn`) walks the `TYP_ALIAS` `.Target` chain **unguarded** → an alias cycle hangs the checker (resolveAliasAndConst is called pervasively, incl. inside `peelNamedBounded`). Fix: bound/guard the alias loop in `resolveAliasAndConst` + a decl-time alias-cycle check.
+- **MAJOR — method-VALUE path unpeeled alias receiver** (`pkg/binate/types/check_expr_access.bn:249`): uses `origXt.ReceiverBaseNamed()` (un-alias-peeled) while the alias-peeled `xt` is in scope — the **sibling of R2-D5** (`b24978b6`) for the method-*value* (not -call) path. Fix: use `xt` (or `resolveAliasAndConst`).
+- **MAJOR — impl-decl unpeeled alias receiver** (`pkg/binate/types/check_impl.bn:90`): `recv.ReceiverBaseNamed()` on a `resolveTypeExpr` result that can be `TYP_ALIAS` → `impl AliasReceiver : Iface` fails. Sibling of R2-D5. Fix: `resolveAliasAndConst(recv).ReceiverBaseNamed()`.
+- **MAJOR — R2-D2 used `peelReadonly`, not `peelTransparent`** (`pkg/binate/ir/gen_access.bn` `getIndexElemType` nested-index arm): a NAMED inner-array type (`type Arr [N]S; var a [M]Arr; a[i][j].field`) has `.Elem == nil` (named uses `.Underlying`) → returns nil → the R2-D2 const-0/drop-write bug for the named-array variant. **NOTE: the review's broader "the fix doesn't work for plain structs" claim is FALSE — runtime-verified that plain `[N][M]S` works (the base type is the inner ARRAY, which has `.Elem`); only the NAMED-array variant is the gap.** Fix: `peelReadonly` → `peelTransparent`.
+- **MAJOR — R2-D6 defense-in-depth not applied to all `Underlying`-walkers**: `NeedsDestruction` (`types_query.bn:431`), `SizeOf`/`AlignOf` (`scope.bn:152,252`), `discoverStructFromType` (`codegen/emit_types.bn:220`) recurse on `.Underlying` UNbounded. Protected against named-distinct cycles by the decl-time reject, but reachable via the alias-cycle gap above. Fix: bound them too (or fix the alias-cycle entry point, which is the real exposure).
+
+### [closing-review] REFUTED / moot (do NOT act)
+
+- **gen_stmt.bn:259 genDecl iface boxing** (flagged CRITICAL R2-D4 sibling) — **REFUTED**: runtime-verified `var iv readonly @Getter = im; iv.get()` → 7 (no crash). `genExprOrFuncRef` boxes before the unpeeled `typ.Kind` check, so the skipped re-box at :259 is harmless for the var-decl-init path.
+- **LowerOneFunc / LowerOneFuncShadow missing externNameConflict** (flagged CRITICAL A2 sibling) — **MOOT**: A2 itself was reverted as a misdiagnosis (see the A2 entry below); the guard no longer exists.
+
+### [closing-review] Coverage gaps (lower priority — add tests)
+R2-D7: no readonly/alias-wrapped named-int or named-float-minus test. R2-D5: matrix covers only `type AB = @Box` (not alias-over-readonly / value-receiver alias). R2-D4: only managed `readonly @Iface` construct un-xfailed (no `readonly *Iface`, no return/arg-pass position). A1: no float-scalar / named-sub-word / box-in-loop box test.
+
+---
+
 ## CRITICAL
 
 ### Storing `&<aggregate-global>` (address of a struct/array global) into a pointer writes NULL — SILENT wrong-code — all backends — REGRESSION from the whole-aggregate-assign fix — CONFIRMED 2026-06-09
@@ -2330,7 +2353,8 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   136/383 int-int rt-loader bug (above) is fixed.
 - **Discovery**: 2026-06-04 coverage-audit workflow.
 
-### Dispatch conflicts (extern registered + Binate body provided) should be a HARD ERROR — ✅ RESOLVED (landed binate `e508c841`, 2026-06-09)
+### Dispatch conflicts (extern registered + Binate body provided) should be a HARD ERROR — ❌ REVERTED, NOT A REAL BUG (landed `e508c841`, reverted `71bf2b2a`, 2026-06-09)
+- **Misdiagnosis**: extern + Binate body is a LEGITIMATE pattern — VM trampolines (`pkg/binate/vm.TrampolineScalar`) are intentionally both. The hard-error guard false-positived when the inner VM lowers `cmd/bni` (int-int only), breaking the whole int-int lane. The single-VM 1263/0 check missed it (it lowers the test module, not `cmd/bni`; int-int was dead then). No real bug to fix; do not re-implement without proving an accidental collision actually occurs.
 - **What**: today the VM dispatches a `BC_CALL` by name: `LookupFunc`
   → if `>=0`, run the bytecode body; if `-1`, fall through to
   `execExtern` (which consults `vm.Externs`).  Functions registered
