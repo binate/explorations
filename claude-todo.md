@@ -62,7 +62,7 @@ R2-D7: no readonly/alias-wrapped named-int or named-float-minus test. R2-D5: mat
 - **Scoped to element-indexing-through-the-deref**: the whole-array store `*p = [N]T{...}` and the address-of (`p = &arr`, incl. `&<aggregate-global>` after `38a552e7`) are correct; only `(*p)[i]` element access is broken. A LOCAL and a GLOBAL array behave identically — not global-specific.
 - **Root cause (suspected, needs confirming)**: the index access/assign lowering handles `(*p)[i]` by `genExpr`'ing `*p`, which LOADS the whole array as a value (no backing storage), then GEP/stores into that temp. It should recover the element POINTER through `p` directly (GEP `p + i*sizeof(elem)`), mirroring the nested-array `a[i][j]` handling (`isNestedArrayBase` / `genIndexPtr`, `gen_control.bn` ~237). Sites: the read path in `gen_access.bn` and the index-assign arm in `gen_control.bn` (EXPR_INSTANTIATE_OR_INDEX whose base is an `*p` deref).
 - **Severity**: MAJOR — silent wrong-code (dropped write) + invalid IR, but confined to the relatively rare pointer-to-fixed-array element-access construct (`*([N]T)`; the common slices `*[]T` / `@[]T` are unaffected).
-- **Test**: `conformance/regressions/deref-ptr-to-array-index` (xfailed all modes; the write-drop facet, binate `94e41006`).
+- **Test**: `conformance/regressions/deref-ptr-to-array-index` (xfailed all modes; the write-drop facet, binate `88816f83`).
 - **Discovery**: 2026-06-09, by the adversarial review of the `&<aggregate-global>` fix (`38a552e7`) — a probe's pointer-to-array repro surfaced it; confirmed pre-existing (fails at `38a552e7~1`).
 
 ---
