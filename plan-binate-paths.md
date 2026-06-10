@@ -23,9 +23,15 @@ host impl → `impls/core/libc/pkg/bootstrap` (parallel to `rt`; import path
 unchanged, so not in the builtins namespace); make-bundle drops its special
 `lib/pkg/bootstrap` copy; the bare lib root now resolves nothing in a bundle.
 Validated locally (conformance compile+VM+multi-pkg, unit, make-bundle+hello,
-e2e); monitoring CI for arm32. Follow-up: consolidate the baremetal bootstrap
-(`runtime/baremetal_arm32/pkg/bootstrap` → `impls/core/baremetal/pkg/bootstrap`,
-parallel to `rt`). Remaining: Phase 3
+e2e). Baremetal consolidation LANDED 2026-06-10 (binate `5744ff23`):
+`runtime/baremetal_arm32/pkg/bootstrap` → `impls/core/baremetal/pkg/bootstrap`
+(parallel to `rt`; `runtime/baremetal_arm32` keeps only `pkg/semihost` + the
+runtime files); validated by a local `--target arm32-baremetal -c` compile-check
+(qemu run is CI's). NB: D2/Phase2/baremetal added **no** CI regression — the
+`all`-modeset cross/native lanes (`arm32_linux`, `native_x64-elf`,
+`arm32_baremetal`, `native_aa64`) were already red (`undefined reference to
+main`, a cross-link issue) on the parent `e16d53bc` and ~10 commits back;
+separate pre-existing issue, being investigated. Remaining: Phase 3
 (bnc-0.0.8 release); `examples/_common.sh` adoption deferred to post-release
 (it consumes binate via the release bundle). Owner: TBD. Spans three repos
 (`binate`, `examples`, and the release) plus a BUILDER bump.
