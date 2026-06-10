@@ -156,7 +156,7 @@ cells) on the three locally-runnable compiled backends: **`builder-comp`
   markers blamed "native tuple-packing not yet implemented", but that packing
   IS implemented (`x64_iface.bn` `collectMultiReturnTuple`) and the
   identical-codegen `native_x64_darwin` (Mach-O) PASSES every one of these
-  cells — **removed** (binate work-3 `6330f30f`, pending landing). The ELF mode
+  cells — **removed** (binate `10798d42`). The ELF mode
   isn't locally runnable here (no qemu), so **CI is the confirmation point**: it
   runs ELF natively on the x86-64 ubuntu runner and will exercise these cells
   once Lane A's `-comp*` link break clears — expect green (treat any failure as
