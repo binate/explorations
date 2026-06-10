@@ -226,7 +226,7 @@ ordering decided); fresh-bundle carveout passes; bundle-completeness
 audited; docs corrected.
 
 **STATUS 2026-06-10 — tasks 1–4 done; task 5 surfaced a pre-existing Unit red.**
-1. **e2e BUILDER-first**: FIXED (binate `e29aaec0`, pending landing) — gen1 build
+1. **e2e BUILDER-first**: FIXED + LANDED (binate `c44ab9b7`) — gen1 build
    now resolves stdlib BUILDER-first (matching `build_gen1`). `e2e/repl.sh`
    54/54, `e2e/print-args.sh` 2/2 on the **pre-bump** tree.
 2. **Fresh-bundle carveout**: PASS. Built a from-scratch `make-bundle.sh` bundle
