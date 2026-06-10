@@ -1319,10 +1319,21 @@ and "libc" is one impl flavor spanning both Linux and macOS, whose `O_*`
 (`O_RDONLY`/`O_WRONLY`/`O_RDWR` = 0/1/2) are POSIX-identical, so bare
 `Open` (read-only) is correct on every target; only `Create` /
 `OpenFile`-with-modifiers are wrong on a Linux libc target.
-- **Fix**: when an OS predicate (a compile-time target-OS constant /
-  build-tag) or runtime `uname` detection lands, branch in
-  `nativeOpenFlags` — it is the single seam. Until then, do NOT add a
-  cross-OS conformance test asserting modifier-flag opens work on Linux.
+- **Fix (compile-time only)**: a compile-time target-OS mechanism (a
+  target-OS constant / build-tag) that lets `nativeOpenFlags` branch per
+  target — it is the single seam. Runtime `uname` detection is explicitly
+  NOT acceptable (user, 2026-06-10: a runtime OS-sniff runs counter to
+  Binate's compile-time-determinism goals). Until the compile-time
+  mechanism lands, do NOT add a cross-OS conformance test asserting
+  modifier-flag opens work on Linux.
+- **CI consequence (2026-06-10)**: `unit-tests.yml` runs every mode on
+  ubuntu EXCEPT `native_aa64` (macos-latest), so the macOS-only impl
+  fails on the Linux modes. `pkg/std/os` is therefore xfailed on every
+  unit-test mode but `native_aa64` (`scripts/unittest/pkg-std-os.xfail.*`,
+  binate `7c2b74c9`); `native_aa64` (aarch64-darwin) is os's one green
+  coverage mode. The `-int`/VM modes are xfailed for a *separate* reason
+  (`__c_call` is compiled-mode only — no VM FFI). Remove the Linux-mode
+  xfails once the compile-time OS mechanism makes the flags correct.
 - **Related wrinkle (same file)**: `lseek`/`pread`/`pwrite` offsets are
   passed as `int64` (off_t), correct on the LP64 libc hosts but wrong on
   a 32-bit (ILP32) libc target where off_t is 32-bit without LFS — same
