@@ -1,10 +1,12 @@
 # Plan: Package introspection — Phase B (function-value table + auto-injection)
 
-**Status: NOT STARTED** — design ratified, awaiting the owner's-call items in
-"Open questions" below before slice B0 starts. This plan supersedes the Phase-B
-sections of [`notes-package-introspection.md`](notes-package-introspection.md)
-(the design notes) and refines the `claude-todo.md` entry "Package descriptors
-(Phase B) — general Functions-table still future".
+**Status: NOT STARTED** — design ratified; the owner resolved the key B0 calls on
+2026-06-10 (see "Owner decisions" below), so the B0 `FunctionInfo` ABI is locked.
+One design question stays open — whether/how an interpreted package gets a real
+`_Package()` (see B2). This plan supersedes the Phase-B sections of
+[`notes-package-introspection.md`](notes-package-introspection.md) (the design notes)
+and refines the `claude-todo.md` entry "Package descriptors (Phase B) — general
+Functions-table still future".
 
 ## Why
 
@@ -73,8 +75,8 @@ critical reflection consumer in Binate. RTTI / structured type metadata (Phase A
 
 - A `Functions` field on `reflect.Package` + a `FunctionInfo` type (B0).
 - Force-emission of the func-value triple (`@__shim`/`@__vt`/`@__handle`) for
-  every *exported* function of each module, so the table's entries have a defined
-  handle to point at (B0).
+  every *exported* function (the `.bni` surface, D3b) of each module, so the
+  table's entries have a defined handle to point at (B0).
 - Static emission of the per-package `Functions` table (B0).
 - A VM auto-enumerator that walks the builtin packages' tables and replaces the
   `registerRtExterns` / `registerBootstrapExterns` /
@@ -134,9 +136,9 @@ Rationale (verified against the binding path):
   registration loop *and* require shipping structured type info purely to recompute
   a number we already had — the exact Phase-A coupling we want to avoid.
 - `ParamSlots` is the same story (`lower_func.bn:49-53` already sums
-  `argSlots(param.Typ)`); it future-proofs the 7-int arg-packing fast path. If the
-  owner deems it speculative it can be dropped (`ResultSize` alone unblocks every
-  current binding) — but see D1-ABI below.
+  `argSlots(param.Typ)`); it future-proofs the 7-int arg-packing fast path.
+  **Ratified included** (owner, 2026-06-10) — all five payload fields land together
+  per D1-ABI, so there is no second ABI bump to add it later.
 - `Sig` is **opaque** to Phase B (the VM never parses it). It is a single string
   symref (same shape as the existing `_pkgname` rodata) and exists for
   signature-equality, debug, and a Phase-C / `.bni`-replacement hook. There is **no**
@@ -149,9 +151,9 @@ Rationale (verified against the binding path):
 (the compiled descriptor is consumed by a separately-built VM — notes Q5). The
 layout is hand-encoded in three places (`reflect.bni`, the LLVM literal in
 `emit_pkg_descriptor.bn`, the native `common_pkg_descriptor.bn`), so growing it
-later is a lockstep three-site edit + ABI bump. **Land all payload fields at once**
-rather than growing the struct twice. If `Sig`/`ParamSlots` are deferred, *reserve
-their slots now*.
+later is a lockstep three-site edit + ABI bump. **Ratified (owner, 2026-06-10): land
+all five payload fields at once** (`Pkg`, `Name`, `Value`, `ResultSize`, `ParamSlots`,
+`Sig`) — no reserve-and-defer, no second bump.
 
 Alternatives rejected for Phase B: (a)-pure mangled-string-only (forces a string
 parser + `SizeOf`-equivalent into the registration loop to recover `ResultSize` —
@@ -178,10 +180,10 @@ relocation form.
 for funcs referenced by `OP_FUNC_VALUE`/`OP_FUNC_HANDLE` in the module — plus a
 pre-pass (`addImplDtorsToSeen`, `:256`) that force-emits triples for `IsLinkOnce`
 funcs and impl-receiver-dtors even when unreferenced. Phase B **extends this
-pre-pass** with "all exported, non-`IsExtern`, in-`mod.Funcs` funcs", so each
-`@__handle.<exported fn>` is a defined symbol the local table can symref.
+pre-pass** with "all `.bni`-exported (see D3b), non-`IsExtern`, in-`mod.Funcs` funcs",
+so each `@__handle.<exported fn>` is a defined symbol the local table can symref.
 
-The filter must be `exported AND non-IsExtern AND in mod.Funcs`. The native
+The filter must be `.bni-exported AND non-IsExtern AND in mod.Funcs`. The native
 emitters deliberately *skip* cross-module references (`x64_funcvalue.bn:collectFuncValueRefs`,
 `emit_funcvals.bn:lookupFuncValueType` exclude `IsExtern` / not-in-`mod.Funcs`)
 precisely to avoid duplicate `__vt`/`__handle` symbols breaking Mach-O strict-symbol
@@ -189,6 +191,28 @@ linking — the same class as the native-`_Package` link bug fixed in `f7d116f3`
 Getting the force-emit filter wrong re-introduces that bug class. Each local table
 references **local** `@__handle` symbols only; cross-package access is a *runtime*
 walk via each package's own `_Package()` accessor.
+
+### D3b. The exported surface is the package's `.bni` — NOT capitalization
+
+**Exports in Binate are controlled by the `.bni` interface file, not by identifier
+capitalization** (correcting an earlier Go-style assumption that was baked into this
+plan). `bootstrap.bni` declares lowercase `formatInt` / `formatInt64` / `formatUint` /
+`formatBool` / `formatFloat` — they are *exported* precisely because they appear in the
+`.bni`. There is no capitalization-based export check anywhere in the compiler.
+
+The exported set is already available at compile time: the loader parses each package's
+own `.bni` into `bniFile` and merges it (`loader.bn:175-300`). But the merge only
+*prepends* `.bni` decls for externs/generics — a normally-exported function (declared in
+the `.bni` AND implemented in the `.bn`, the common case) survives as its `.bn`
+`DECL_FUNC` carrying **no exported marker** (`loader.bn:273-288`, the `hasImpl` skip). So
+there is no per-function "exported" signal threaded to codegen today.
+
+Phase B adds one: during the loader merge, record the set of `DECL_FUNC` names from
+`bniFile.Decls` and set an `Exported` flag on the matching merged `DECL_FUNC` (carried
+onto the lowered `ir.Func`), or attach the exported-name set to the module. The
+descriptor/table emission and the D3 force-emit pre-pass both filter on that flag. The
+same `.bni`-derived set is what an interpreted package uses for its own table (B2) — the
+loader loads `bniFile` for every package, builtin or bytecode.
 
 ### D4. Registry / cross-package enumeration is the import-graph dispatcher — NOT a linker section
 
@@ -220,35 +244,43 @@ already lower identically — zero new section/object/format plumbing — and ex
 naturally to the VM. It also makes opt-in stripping (notes Q1) trivial later (filter
 the driver's package list) where a passive section cannot.
 
-### D5. Builtins and VM user packages are different mechanisms that converge only at the binding API
+### D5. Builtins and bytecode packages reach the table by different *emission* paths — but an interpreted package should still get a real `_Package` (owner steer)
 
 - **Builtins** (rt, bootstrap, reflect): real native symbol, **no `VMFunc`** (skipped
   from VM lowering, `cmd/bni/main.bn:92,96,196,200`). Reached via `execExtern → vm.Externs`.
   Their table is the *compiled* `__pkg_info` symbol, bound as an extern. **This is B1.**
 - **User bytecode packages**: lowered to `VMFunc` (`vm/lower.bn:187-192`), resolvable
-  by mangled name (`func_index.bn`/`LookupFunc`), but **no native symbol and no
-  `_Package` body at all** (`_Package` is backend-only emission — `gen_import.bn:322-343`
+  by mangled name (`func_index.bn`/`LookupFunc`), but today have **no native symbol and no
+  `_Package` body at all** — `_Package` is backend-only emission (`gen_import.bn:322-343`
   registers it as an imported-extern *declaration*; it is never an `ir.Func`, never
-  VM-lowered). Their table must be **built at `vm.LowerModule` time** from the lowered
-  module, with function-values manufactured by the existing BC_FUNC_VALUE/BC_FUNC_HANDLE
-  Path-B machinery (`vm_exec_funcref.bn`, `TrampolineScalar`/`Aggregate`). **This is B2.**
+  VM-lowered). So `pkg._Package()` resolves today **only** for the three host-compiled
+  builtins.
 
-A design that assumes `pkg._Package()` resolves uniformly in the VM is **wrong** —
-it only works for the three hand-bound builtins today. The two classes converge only
-at `vm.RegisterExtern(name, &value, resultSize, raw)` (or a sibling registry).
+**Owner steer (2026-06-10): an interpreted package really should get a `_Package` too.**
+That makes uniform `pkg._Package()` resolution the *design goal*, not a thing to declare
+impossible — but it is a genuine gap to close, because a bytecode package emits no
+descriptor. The VM would **synthesize** the descriptor + Functions table at
+`vm.LowerModule` time from the package's `.bni`-derived export set (D3b), manufacturing
+each entry's function-value via the existing BC_FUNC_VALUE/BC_FUNC_HANDLE Path-B
+machinery (`vm_exec_funcref.bn`, `TrampolineScalar`/`Aggregate`). The two paths still
+converge at the binding API (`vm.RegisterExtern`, or a sibling trampoline-shaped
+registry), but the *semantic* surface (`pkg._Package().Functions`) becomes uniform.
+**The "how" is still being designed — see B2; it is the one open call in this plan.**
 
-### D6. The trampolines and the unexported format helpers stay hand-registered
+### D6. The trampolines and the cmd/bni host overrides stay hand-registered
 
 - `registerVmTrampolines` (`TrampolineScalar`/`Aggregate`): `vtable.call` must be the
   **raw** fn addr, not `__shim`, because their `data` IS the closure record
   (`isUniversalTrampoline`, `emit_funcvals.bn:326`). They live in `pkg/binate/vm`,
   not a builtin package's normal exported surface. A generic table sweep must NOT
   absorb them.
-- `bootstrap.formatInt/Int64/Uint/Bool/Float` are **lowercase/unexported** yet
-  registered today (load-bearing for every VM `print`). An exported-only table (notes
-  Q6 / line 99: "Phase B initially only covers exported functions") would drop them.
-  B1 keeps a residual hand-list for them (or the owner widens the predicate — see
-  open questions); this is a concrete gap, not hypothetical.
+- The `cmd/bni` host overrides (`registerPureCExterns`, `progArgsAfterDash` overriding
+  `bootstrap.Args`) stay hand-applied, and must run **after** auto-inject so they win
+  (re-registration overwrites by name).
+- **`bootstrap.format*` are NOT special** — they are declared in `bootstrap.bni` (D3b),
+  so they are exported and the table auto-injects them. The earlier "lowercase ⇒
+  unexported ⇒ must hand-register" claim was wrong; there is no residual format-helper
+  hand-list.
 
 ### D7. `ir.DataGlobal` does NOT gate Phase B; Phase B becomes a DataGlobal client later
 
@@ -270,6 +302,11 @@ seam, not throwaway-twice. Building the table now also gives DataGlobal a *secon
 harder* client (N symrefs to handles + N name strings) to validate its `Init`/relocation
 model against before the refactor commits — strictly better design input.
 
+**Ratified (owner, 2026-06-10): per-backend-now, behind the shared seam.** The owner
+explicitly noted this *increases tech debt* (three hand-maintained layout copies until
+the `ir.DataGlobal` migration pays it down — see Risk 6). That debt is accepted to avoid
+gating the interop payoff on the unstarted DataGlobal refactor.
+
 ## Slices (ordered, each independently landable, each keeps all backends + 6 modes green)
 
 ### B0 — Grow `reflect.Package` with `Functions`; emit the table for host-compiled packages, behind a shared seam
@@ -287,16 +324,19 @@ Work:
    (`x64.bn:62`, `aarch64.bn:54`) take **no** function list (verified). Change all three
    signatures to take the module (or a pre-filtered exported-func list); the list is in
    scope at every call site (`m` / `mod`).
-3. **Define `isExported(name)` once.** No central predicate exists (only the
-   capitalized-first check at `lexer/scan.bn:209`). Add one helper (capitalized first
-   letter, the Go-style convention the codebase already assumes) and use it at the
-   emission filter.
+3. **Thread the `.bni`-exported set (D3b), NOT a capitalization check.** Exports are the
+   `.bni` surface. In the loader merge (`loader.bn:256-300`) capture the `DECL_FUNC` names
+   from `bniFile.Decls` and set an `Exported` flag on the matching merged `DECL_FUNC`
+   (carried onto the lowered `ir.Func`), or attach the exported-name set to the module.
+   The emission filter and the D3 force-emit pre-pass read that flag. (There is **no**
+   capitalization-based export check to reuse — `scan.bn:209` is the `isLetter` char
+   classifier, unrelated.)
 4. **Force-emit the func-value triple for every exported func (D3).** Extend the
    `seen`/`sigs` pre-pass in `emit_funcvals.bn:emitFuncValueVtables` (template:
    `addImplDtorsToSeen`, `:256`) and the native mirrors
    (`native/x64/x64_funcvalue.bn:collectFuncValueRefs` + aarch64 sibling) to add every
-   `exported AND non-IsExtern AND in-mod.Funcs` function. **Must land in all three
-   backends in lockstep** or `@__handle` references dangle on the un-updated backend.
+   `.bni-exported (D3b) AND non-IsExtern AND in-mod.Funcs` function. **Must land in all
+   three backends in lockstep** or `@__handle` references dangle on the un-updated backend.
 5. **Emit the table as static data behind ONE shared layout function.** Add a shared
    layout function (mirroring `common.EmitPackageDescriptorData`) that, given the
    exported-func list, lays the `FunctionInfo` array + the `Functions` slice header
@@ -308,8 +348,9 @@ Work:
 6. **Compute `ResultSize`/`ParamSlots` at emit time** via the same
    `isMultiWordField`/`types.SizeOf`/`argSlots` logic `lower_func.bn:49-86` uses.
 7. **Write the `Sig` serializer** (new, small) over `types.Type` (Kind-tagged, walk
-   Params/Results), reading the `FuncSig`/`ir.Func` the compiler already holds. (May be
-   deferred to a follow-up *iff* the `Sig` slot is reserved per D1-ABI — owner's call.)
+   Params/Results), reading the `FuncSig`/`ir.Func` the compiler already holds. In-scope
+   for B0 (owner ratified including `Sig` now — D1-ABI); the VM never parses it, so the
+   format only has to be deterministic and stable.
 
 Tests:
 - Extend `conformance/532_reflect_package_accessor` to read `rt._Package().Functions`
@@ -341,11 +382,12 @@ Work:
 - The enumerator walks the statically-known imported-builtins set (the import-graph
   approach, D4); no new dispatcher is needed yet because these packages are directly
   imported by the host.
-- **Keep hand-registered (D6):** `registerVmTrampolines`, the unexported
-  `bootstrap.format*` helpers (residual hand-list), and the
+- **Keep hand-registered (D6):** `registerVmTrampolines` and the
   `cmd/bni/externs.bn:registerPureCExterns` host overrides (`progArgsAfterDash`
   overriding `bootstrap.Args`) — which must run **after** auto-inject (re-registration
   overwrites by name, so ordering auto-first/override-second is the only requirement).
+  `bootstrap.format*` are auto-injected (they are `.bni`-exported, D3b) — no residual
+  hand-list.
 
 Tests: the existing `pkg/binate/vm` unit tests + `conformance/532` are the regression
 net; the auto-bound entries produce byte-identical `ExternBinding`s (same name, same
@@ -366,27 +408,31 @@ Auto-inject grows N toward hundreds. Migrate `Externs` to the open-addressing ha
 already used for `VM.Funcs` (`IndexBuckets`/`IndexMask`, `vm.bni:544`) **only if
 profiling shows it matters** — do not pre-optimize. Independently landable, gates nothing.
 
-### B2 — Functions table for VM-lowered user/bytecode packages
+### B2 — An interpreted package gets a real `_Package` + Functions table (OPEN design)
 
-A **different mechanism** (D5), not an extension of B1.
+A **different emission mechanism** (D5), not an extension of B1. **This is the one slice
+whose design the owner wants to think through further (2026-06-10)** — the steer is that
+an interpreted package should get a real `_Package()`, so the sketch below is a direction,
+not a ratified design.
 
-Work:
-- After `vm.LowerModule(mod)` (`vm/lower.bn:152`), enumerate the module's exported
-  funcs from the AST (`pkg.Merged.Decls`, the same `DECL_FUNC`/capitalized-name walk
-  `cmd/bni/main.bn:runTests` uses for `Test*` discovery, ~`:249`).
-- Per entry, manufacture a function-value via the existing BC_FUNC_VALUE/BC_FUNC_HANDLE
-  Path-B machinery (`vm_exec_funcref.bn`): `@VMFuncHandle`/`@VMFuncVtable` with
-  `Call=TrampolineScalar/Aggregate`, `data=VMClosureRec`.
-- Register name → handle. **Decide whether user entries reuse `vm.Externs` or a sibling
-  registry** keyed by mangled qualified name — `Externs` is shaped for
-  native-symbol-via-shim bindings whereas user entries dispatch through trampolines, so
-  a sibling may be cleaner (see open questions).
-- The VM must **synthesize** both the descriptor and the table for bytecode packages
-  (they have neither). Whether `pkg._Package()` resolves to a VM-built descriptor in
-  bytecode mode is a B2 scope call.
+Sketch / things to settle:
+- The export set comes from the package's `.bni` (D3b) — the loader already loads
+  `bniFile` for bytecode packages, so the exported-func names are available; enumerate
+  from that set, **not** from a capitalization or `Test*`-style name walk.
+- For each exported func, manufacture a function-value via the existing
+  BC_FUNC_VALUE/BC_FUNC_HANDLE Path-B machinery (`vm_exec_funcref.bn`):
+  `@VMFuncHandle`/`@VMFuncVtable` with `Call=TrampolineScalar/Aggregate`,
+  `data=VMClosureRec`.
+- The VM **synthesizes** the descriptor + table at `vm.LowerModule` time
+  (`vm/lower.bn:152`) — a bytecode package emits neither today. Settle whether
+  `pkg._Package()` in bytecode mode dispatches to this VM-built descriptor (the
+  uniformity goal) and how the static-managed sentinel is modeled when the node lives in
+  VM heap rather than a data section.
+- **Open:** do bytecode entries reuse `vm.Externs` (native-symbol/shim-shaped) or a
+  sibling registry keyed by mangled qualified name (trampoline-shaped)? See "Still open".
 
-Tests: a conformance/unit test that defines an exported func in a user package and binds
-+ calls it by name through the VM-built table.
+Tests: a conformance/unit test that defines an exported func in a user package, then reads
+`pkg._Package().Functions` and binds + calls an entry by name through the VM-built table.
 
 Keeps green: additive — covers a case B1 structurally cannot.
 
@@ -418,45 +464,36 @@ Gates: B2.
 
 ## Open questions / owner's calls
 
-These are the genuine decisions the owner owns. None should be silently resolved.
+### Owner decisions (2026-06-10)
 
-1. **Include `ParamSlots`/`Sig` now, or reserve-and-defer?** (D1-ABI.) Recommendation:
-   include all five payload fields at once to avoid a second ABI bump. If `Sig` is
-   deferred, the slot **must** be reserved now (three-site lockstep edit + ABI bump to
-   add it later). The owner picks include-now vs reserve-and-defer.
+Resolved; folded into the ratified decisions above.
 
-2. **Do the unexported, load-bearing `bootstrap.format*` helpers go in the table, or
-   stay hand-registered?** (D6.) They are required for VM `print` but are *unexported*,
-   so an exported-only table drops them. Cleanest near-term: keep them hand-registered in
-   B1 and separately revisit whether they should be exported. The owner decides whether to
-   widen the export predicate for `bootstrap` specifically vs keep the residual hand-list.
+1. **Include `ParamSlots` and `Sig` now** — land all five `FunctionInfo` payload fields
+   at once (no reserve-and-defer). (D1, D1-ABI.)
+2. **`bootstrap.format*` are exported** (they are in `bootstrap.bni`) — they auto-inject;
+   there is no "unexported helper" special case. The whole export model is `.bni`-driven,
+   not capitalization. (D3b, D6.)
+3. **An interpreted package should get a real `_Package` too** — uniform `pkg._Package()`
+   is the goal. The *how* still needs design → B2 is left OPEN.
+4. **`ir.DataGlobal` ordering: per-backend-now** behind the shared seam; DataGlobal
+   absorbs it later. Accepted as added tech debt. (D7.)
 
-3. **Does the first slice cover only builtins (recommended), or attempt builtins +
-   bytecode user packages together?** (D5.) Recommendation: B1 = builtins only (the actual
-   ask, reachable today); B2 = user packages as a separate slice with its own design. The
-   alternative (unified up front) blocks the builtins payoff behind B2's VM-side table
-   construction and risks baking in the false "`_Package` resolves uniformly" assumption.
+### Still open
 
-4. **`ir.DataGlobal` ordering** (D7; `claude-todo.md:1511-1518`). Recommendation:
-   per-backend-now behind the shared seam, DataGlobal absorbs it later. The alternative
-   (DataGlobal-first) is cleaner long-run but gates the interop payoff on an unstarted
-   IR + dual-backend refactor of currently-working code. This is the owner's
-   scope/sequencing call; the slicing in this plan holds under either choice.
-
-5. **Whole-program registry (B3) vs imported-packages-only.** Full `AllPackages` /
+1. **B2 design — how an interpreted package gets its `_Package`** (decision #3 above). The
+   sub-questions: a VM-synthesized descriptor at `LowerModule` time; how the static-managed
+   sentinel is modeled for a VM-heap node; and whether bytecode entries reuse `vm.Externs`
+   or a sibling trampoline-shaped registry keyed by mangled qualified name. The owner wants
+   to think this through before B2 starts; B0/B1 do not depend on it.
+2. **Whole-program registry (B3) vs imported-packages-only.** Full `AllPackages` /
    `PackageByName` via the dispatcher fully replaces `RegisterStandardExterns`; the
    imported-only cut (no registry, caller walks its own imports) is cheaper but only
-   reaches directly-imported packages. B1 already delivers the builtins; B3 is needed
-   only if transitive/dynamic discovery is wanted. The owner sets the scope.
-
-6. **For B2: reuse `vm.Externs` or a sibling registry** keyed by mangled qualified name?
-   (`Externs` is native-symbol-shaped; user entries dispatch via trampolines.)
-
-7. **Generics** (notes Q7). An exported generic is a family, not one symbol, and is
-   stashed as AST (`gen_import.bn:262:genericDecls`), not a single `FuncSig`. The table
-   covers only non-generic exported funcs unless specializations are enumerated. Out of
-   scope for B0-B1; flagged so the export filter explicitly skips generics rather than
-   crashing on them.
+   reaches directly-imported packages. B1 already delivers the builtins; B3 is needed only
+   if transitive/dynamic discovery is wanted. The owner sets the scope.
+3. **Generics** (notes Q7). An exported generic is a family, not one symbol, and is stashed
+   as AST (`gen_import.bn:262:genericDecls`), not a single `FuncSig`. The table covers only
+   non-generic exported funcs unless specializations are enumerated. Out of scope for
+   B0-B1; the export filter must explicitly skip generics rather than crash on them.
 
 ## Risks
 
