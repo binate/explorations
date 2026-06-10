@@ -225,6 +225,31 @@ whitelist, possibly `scripts/hygiene/`. **Disjoint from A and B.**
 ordering decided); fresh-bundle carveout passes; bundle-completeness
 audited; docs corrected.
 
+**STATUS 2026-06-10 — tasks 1–4 done; task 5 surfaced a pre-existing Unit red.**
+1. **e2e BUILDER-first**: FIXED (binate `e29aaec0`, pending landing) — gen1 build
+   now resolves stdlib BUILDER-first (matching `build_gen1`). `e2e/repl.sh`
+   54/54, `e2e/print-args.sh` 2/2 on the **pre-bump** tree.
+2. **Fresh-bundle carveout**: PASS. Built a from-scratch `make-bundle.sh` bundle
+   off current main; hello ✓, carveout → `42` ✓ (the landed `84818a77` lang
+   carve-out works from a real bundle), bounds-check ✓.
+3. **Bundle-completeness audit**: CLEAN. No non-test bundled package imports
+   outside the bundled set; `lang → pkg/binate/buf` was the only true violation
+   (already fixed). Recorded as the tier-dependency check's first sweep
+   (`claude-todo.md`), incl. the `pkg/semihost` (ships under `runtime/`) and
+   `pkg/builtins/testing` (test-only, bundled `.bni`) caveats.
+4. **Doc fixes**: corrected the "four binaries don't import `std/errors`" note
+   (they do); release-process.md had no echo of it.
+5. **Perf/Unit/hygiene confirm**: hygiene GREEN (13/13). **Unit RED**, but
+   pre-existing and NOT from any release lane: `pkg/binate/{vm,repl}` + `cmd/bni`
+   fail to link on `builder-comp_native_aa64` unit mode (undefined
+   `_bn_pkg__*___Package` from `RegisterStandardExterns` — the Phase-B `_Package`
+   VM-extern feature; reproduces locally; not xfailed), plus a
+   `builder-comp-int-int` unit timeout. Perf RED only on `native_x64` (ELF —
+   Lane A compiled-link family; native_aa64 Perf passes). Filed in
+   `claude-todo.md` with fix direction. **Not a shipped-artifact blocker** (the
+   four binaries + bundle build green), but a red CI category for the
+   Convergence coordinator to resolve or consciously accept before the tag.
+
 ---
 
 ## Convergence — cut the release
