@@ -196,13 +196,6 @@ The CRITICAL entries below are also surfaced in `## CRITICAL`-class triage.
 - **Severity**: CRITICAL — silent data loss (write to nowhere). **Owner: Plan-1 (`pkg/binate/ir` — root the field GEP at the in-place element pointer the inner index produces, for both gen_assign field-write lvalue and gen_selector index-selector read).** Add `[N][M]ValueStruct` field read+write conformance coverage (xfail per failing mode).
 - **Discovery**: 2026-06-08 adversarial review of Plan-1 (probe-confirmed).
 
-### [CR-2 Plan-1 review] plain `=` destructure of a nameless (iface-method / func-value) multi-return → invalid IR for any non-int field — CONFIRMED 2026-06-08, PRE-EXISTING
-- **Symptom**: `x, y = m.two()` (iface) or `x, y = f()` (func-value) where a result field is sub-word or `@T` → clang hard error `'%vN' defined with type 'i16'/'ptr' but expected 'i64'`. Probe: `=`-destructure of a func-value `(uint16,uint16)` → `'%v6' defined with type 'i16' but expected 'i64'`. The IDENTICAL shapes via `:=` compile and run; a DIRECT (OP_CALL) `=` call also works.
-- **Root cause**: `genMultiAssign` (`pkg/binate/ir/gen_assign_multi.bn:98-101`) recovers result types only `if val.Op == OP_CALL`; iface dispatch is `OP_CALL_IFACE_METHOD` and func-value is not OP_CALL → `retTypes` empty → `elemTyp` defaults to `TypInt()`. Defect 4 (`2a77188c`) added the `multiReturnFieldTypes` struct-field fallback to `genShortVar` (`:=`) but NOT to `genMultiAssign` (`=`).
-- **Distinctness**: front-end `=`-lowering defect — distinct from the filed iface multi-return BACKEND gaps (LLVM >16B sret, native sub-word). Ships green because every multi-return conformance cell destructures with `:=`.
-- **Severity**: MAJOR (hard clang error, not silent — but on valid code). **Owner: Plan-1 (`pkg/binate/ir/gen_assign_multi.bn`).** Fix: mirror `gen_short_var.bn:35-38` — after the OP_CALL block, `if len(retTypes)==0 && val.Typ != nil && val.Typ.Kind == TYP_STRUCT { retTypes = multiReturnFieldTypes(val.Typ) }`. Add conformance: `=`-destructure of iface AND func-value multi-return with a sub-word field and an `@T` field (exercises RefInc/RefDec).
-- **Discovery**: 2026-06-08 adversarial review of Plan-1 (probe-confirmed).
-
 ### [CR-2 Plan-1 review] whole-inner-array composite-literal store via slice/pointer element or struct field-init stores the alloca POINTER (managed-inner variant CORRUPTS) — ✅ RESOLVED (landed binate `cac7a2e0`, 2026-06-09)
 - **Symptom**: `s[i] = [M]T{...}` (raw `*[][M]T` or managed `@[][M]T`) and `S{ [M]T{...} }` struct field-init store the inner alloca pointer instead of the array value → garbage (exit 0); the managed-inner variant `@[][N]@[]int` CORRUPTS (`index out of bounds: 0 (len 0)`, exit 1 — the misplaced pointer is read as a managed-slice header). Probe: raw-slice `s[0] = [2]int{5,6}; s[0][0]+s[0][1]` → `6102280160` (expected 11).
 - **Root cause**: three sibling store arms keep the struct-only guard `... .Kind == TYP_STRUCT` instead of `isAggregateAllocToLoad`: `pkg/binate/ir/gen_composite.bn:97` (struct field init), `gen_control.bn:288` (TYP_POINTER/raw-slice arm), `gen_control.bn:324-330` (managed/generic slice-set arm). Defect 6 (`7583b669`) migrated only `genArrayLit` (gen_composite.bn:155) and `emitArrayElemStore` (gen_control.bn:23).
@@ -304,25 +297,6 @@ The CRITICAL entries below are also surfaced in `## CRITICAL`-class triage.
 - **Found by the Plan-2 adversarial review.** `genMultiAssign` (`pkg/binate/ir/gen_assign_multi.bn`, the `a, b = …` form) derived per-component result types only from `lookupFuncResults(val.StrVal)` for a DIRECT call (`OP_CALL`). An interface dispatch (`OP_CALL_IFACE_METHOD`) and a func-value call (`OP_CALL_FUNC_VALUE`) have no callee name, so retTypes stayed empty and every component defaulted to `int`: a sub-word component was stored as i64 (invalid IR → clang reject) and a managed component skipped its Axiom-3 copy-RefInc (latent UAF if it had compiled). `a, b = iv.m()` / `a, b = fv()` with any non-int component thus failed to compile; the `:=` form (`genShortVar`) already had the `multiReturnFieldTypes` fallback, so the asymmetry hid it. Became reachable once iface/func-value multi-return dispatch started working (the CR-2 SEAM `6c39d460` + iface-dispatch-by-value `43cb195d` + func-value destructure `2a77188c`); no test caught it because the whole abi multi-return matrix binds with `:=` and uses only int/u16.
 - **Fix**: mirror genShortVar's fallback in genMultiAssign (derive component types from the multi-return tuple struct when retTypes is empty). Additive. Pinned by `gen_assign_multi_test.bn` TestMultiAssignFuncValueCallCopyRefInc (verified red without the fix); end-to-end (uint16,int) and (int,@[]int) `=`-form iface + func-value repros compile/run, 200k-iter managed loop balances.
 - **OPEN follow-ups (from the same review)**: (a) **coverage** — extend `conformance/gen-abi-matrix.py` with an `=`-form (assignment) binding axis + a managed-component type for the multi-return-through-dispatch cells (the surface that hid this bug; today all cells use `:=` and int/u16 only). (b) **stale xfail comment** — the surviving native `iface-multi-return/int/{3,4,5}` xfails (`builder-comp_native_x64`, arm32) blame the already-fixed SEAM ("drops multi-return result type"), not Plan-3's open native tuple-packing gap; rewrite the markers.
-
-### Interface-method dispatch drops the result type for any method with ≠1 results — a multi-return interface method (the idiomatic `(T, @Error)`) emits invalid IR / can't be dispatched — CONFIRMED, latent (no existing interface had a multi-return method)
-- **Symptom**: dispatching an interface method with a multi-value return through the interface (`var i @I = x; a, b = i.M()` where `M() (int, int)`) emits `extractvalue void %vN, 0` → clang `error: void type only allowed for function results`; hard compile failure. CONFIRMED for `(int, int)` AND `(int, @Iface)` — NOT @Iface- or cross-package-specific. Controls: single-return iface dispatch WORKS; a DIRECT (non-dispatch) multi-return method call WORKS. So the defect is specifically `{interface dispatch} × {multi-value return}`.
-- **Root cause**: `pkg/binate/ir/gen_iface_registry.bn:176-181` populates `ModuleInterface.MethodResults @[]@types.Type` (exactly ONE result type per method) with `var resultTyp = nil; if len(m.Results) == 1 { resultTyp = resolveTypeExpr(m.Results[0]) }` — so a method with 0 OR ≥2 results stores `nil`. `findInterfaceMethod` (`gen_iface.bn:179-180`) returns that single `rt` (nil for a multi-return), and `genInterfaceMethodCall` builds the dispatch call with a nil/void result type → the multi-assign's `extractvalue` is invalid IR. The PARAMS side was already generalized to N-per-method (`MethodParamsFlat` + `MethodParamCounts`, code-red `d6bb3b2f`); the RESULTS side never got the same treatment.
-- **Why latent**: NO existing interface has a multi-return method — `Stringer.String`, `Comparable.Compare`, `Hashable.Hash`, `errors.Error`/`Unwrap` are all single-return. `pkg/std/io` is the first (Read/Write/ReadAt/WriteAt all return `(int, @errors.Error)`), so io's core methods cannot be dispatched today.
-- **Severity**: CRITICAL — interface methods returning the idiomatic `(value, @Error)` tuple (the language's core errors-as-values shape) cannot be dispatched AT ALL. Blocks `pkg/std/io` being usable for its entire purpose (polymorphic Reader/Writer dispatch).
-- **Backend breakdown (abi result-side matrix sweep, 2026-06-07)** — the SAME multi-return-through-dispatch fails DIFFERENTLY per backend, and only one failure is loud: **LLVM** (builder-comp / -comp-comp / -comp-comp-comp) → hard compile error `extractvalue void`; **native aa64/x64** → **SILENT WRONG-CODE** (`mr() (int,int)→(10,20)` prints `3,3`-style duplicates / garbage / empty output — NOT a compile error; this native silent miscompile was previously UNDOCUMENTED, the entry only knew the LLVM symptom); **VM** with `int` components → CORRECT (but `uint16` components are wrong on the VM too — see the sub-word entry below). So a compile-only OR a VM-only check would have sailed straight past the native silent miscompile — the regression guard MUST assert VALUE CORRECTNESS across the FULL backend set.
-- **HUGE TESTING MISS** — this is a core-feature × core-feature intersection ({interface dispatch} × {multi-value return}) that NO conformance or unit test ever exercised, despite multi-return being THE idiomatic pattern (errors-as-values: `func f() (T, @Error)`) and an interface method returning `(T, @Error)` being extremely natural. Same shape as the global-of-aggregate gap (an empty matrix intersection). Root of the gap: the abi matrix's **call-shape axis** (`{iface,funcval}-param`) was applied ONLY to the PARAM side; the result side (`multi-return`, `struct-return`) used DIRECT free-function calls exclusively — so {indirect call} × {multi-value result} was an empty region. PREVENTIVE — **partially CLOSED 2026-06-07**: the abi matrix gained a result-side call-shape axis (`conformance/matrix/abi/{iface,funcval}-{return,multi-return}`, 28 cells), mirroring the param side; the `iface-multi-return/*` cells fail pre-fix, pass post-fix. STILL OPEN: managed-component-through-dispatch (`(int, @Error)` / managed-slice components — refcount discipline, not just value/packing) is NOT covered by the abi value-correctness cells; it belongs in the refcount matrix's dispatch shapes (follow-up). (Broader pattern this session: feature-COMBINATION coverage is the recurring blind spot — cf. the global-of-aggregate intersection.)
-- **Fix direction**: mirror the params-flat treatment for results — add `MethodResultsFlat @[]@types.Type` + `MethodResultCounts @[]int` to `ModuleInterface`; populate at the decl site (`gen_iface_registry.bn`) AND the generic-instantiation site (`gen_generic.bn:362`); have `findInterfaceMethod` return the result LIST; and `genInterfaceMethodCall` construct the proper multi-return tuple type for the dispatch call. Also make the 0-result/void case explicit (nil may happen to be correct for void, but confirm).
-- **Backend follow-on — ✅ RESOLVED (binate `cc2ddcc4`, plan-cr2-3)**: the front-end SEAM was necessary but NOT sufficient — `pkg/binate/native/common/common.bn` `IsMultiReturnCall` gated on `OP_CALL`/`OP_CALL_FUNC_VALUE` only, so even with valid IR an `OP_CALL_IFACE_METHOD` multi-return fell into the aggregate-single-return path (on aa64 dropping fields past the first eightbyte). The `OP_CALL_IFACE_METHOD` arm was added to `IsMultiReturnCall` (every downstream native site — PlanFrame spill split, the per-arch collect, `SpillHoldsAggregatePointer`, `CallReturnsBigMultiReturn` — keys on it). The x64 iface collect (pre-routed through `collectMultiReturnTuple`, binate `cb27f510`) became reachable and correct; aa64 runs its per-field collect. See the "mis-packs the result tuple on two backends" entry above for the full resolution. (`OP_CALL_INDIRECT`/`OP_CALL_HANDLE` are excluded — the IR never attaches a multi-return struct to them.)
-- **Discovery**: 2026-06-07, validating `pkg/std/io` end-to-end before landing — an `io.Writer` impl dispatched via `@io.Writer` produced invalid IR.
-
-### Destructuring a multi-return FUNCTION-VALUE call is rejected at type-check — `a, b := fv()` where `fv @func() (T, U)` errors "assignment count mismatch" — CONFIRMED, all modes (front-end)
-- **Symptom**: `var fv @func() (int, int) = mr; a, b := fv()` (or `a, b = fv()`) → `assignment count mismatch` at the assignment. Declaring/assigning the func-value type is fine; only the multi-value DESTRUCTURE of its call fails. Single-result func-value calls work; multi-result *free-function* calls work; the defect is specifically `{function-value call} × {multi-value result}`. Fails on EVERY mode — it's a front-end rejection, nothing reaches a backend.
-- **Root cause**: `checkCallExpr` (`pkg/binate/types/check_expr.bn:452-453`) returns the callee's whole func type for a multi-result call so the assignment can expand it — but the expansion sites, `checkShortVarDecl` (`check_stmt.bn:243`) and the multi-assign path (`check_stmt.bn` ~161), only fire when `rhsType.Kind == TYP_FUNC`, NOT for `TYP_FUNC_VALUE` / `TYP_MANAGED_FUNC_VALUE`. A func-value call's result type is one of the latter, so its multi-result is never expanded → count mismatch.
-- **Fix direction**: accept the func-value kinds wherever the multi-assign / short-var expansion tests `Kind == TYP_FUNC` (they carry `.Results` identically). Then verify IR-gen + each backend lower the multi-return func-value call correctly — the front-end currently blocks reaching them, so the downstream is UNTESTED (add backend cells as part of the fix; the matrix cells below will flip from front-end-fail to exercising codegen).
-- **Severity**: MAJOR — a whole idiomatic combination (calling a stored `@func() (T, @Error)` and destructuring it) is unusable; loud (compile error), not silent.
-- **Test**: `conformance/matrix/abi/funcval-multi-return/{int,u16}/{2,3,4,5}` (xfail ALL modes until fixed).
-- **Discovery**: 2026-06-07, building the abi result-side call-shape matrix to close the iface-multi-return gap; the sibling funcval cells surfaced this independent front-end defect.
 
 ### VM mis-unpacks a SUB-WORD (uint16) multi-return returned through interface dispatch — SILENT wrong values — ✅ RESOLVED by the CR-2 SEAM (`6c39d460`)
 - **STATUS 2026-06-08 — RESOLVED.** This was the symptom pre-SEAM, when the front-end dropped the iface multi-return result type (void-typed dispatch) so the VM's tuple lowering operated on a malformed shape; the symptom presented AS a sub-word `BC_EXTRACT` width bug (`13107300 = (200<<16)|100` for `(u16,u16)→(100,200)`). Once the SEAM typed the dispatch as a proper tuple struct, the VM lowers it correctly — `iface-multi-return/u16/{2,3,4,5}` pass on all three `-int` modes (verified 0-failed under `--check-xpass`; the SEAM removed the VM xfails). So the separately-planned VM `BC_EXTRACT` sub-word fix (plan-cr2-3 "Defect 5") is MOOT — the VM's value-mode `BC_EXTRACT` already does a sized sub-word read; the bug was upstream typing, not VM extract.
@@ -521,29 +495,6 @@ The CRITICAL entries below are also surfaced in `## CRITICAL`-class triage.
 - **Symptom (was)**: `type Celsius float64; var C Celsius = 3.5` emitted `@C = global i64 0` (should be `double 0.0`); a named-over-address-aggregate (`type MyErr @errors.Error; var X MyErr`) emitted `@X = global %BnIfaceValue 0` — an invalid LLVM token clang rejects (`integer constant must have integer type`).
 - **Note on the prior root-cause text (now corrected)**: an earlier version blamed `resolveTypeExpr`'s `gen_util.bn:294` `TypInt()` fallback as still-live; that was made stale by `b43a0057`, which registers the `TYP_NAMED` alias so the fallback is no longer reached for these. The remaining live gap was purely the `emit.bn` token peel, fixed by `f2ebaca1`.
 - **Severity**: MAJOR (was an invalid-LLVM hard failure for named-over-aggregate; latent wrong-type/width for named-scalar). Discovered 2026-06-07 by the adversarial review of the global-init fix.
-
-### Nested arrays (`[N][M]T`) are mis-compiled — CONFIRMED wrong-code / invalid IR, LLVM backend
-- **Symptom**: a 2-D array literal stores POINTERS to inner-array allocas into the
-  flat outer storage instead of copying the inner values, and element reads
-  pointer-chase, producing invalid LLVM.  `var aa [2][2]int = {...}; aa[0][0]`
-  does not compile (`bitcast i8* %v to i64*` where `%v` is an `i64` extracted from
-  the element → "i64 but expected ptr"). Even pure read (no assignment) is broken.
-- **IR evidence** (gen1, `[2][2]int`): outer storage is `[2 x [2 x i64]]`, but the
-  literal emits `store i8* %inner, i8** %elem` (inner alloca pointer into the
-  element slot), and the read does `extractvalue [2 x i64] %row, 0` → `bitcast i8*
-  %that to i64*` → load.  Layout (flat) and init/read codegen (pointer-indirected)
-  disagree.
-- **Discovery**: 2026-06-06, probing the whole-array-assignment fix with
-  `aa[i] = [M]T{...}`; the array-index assignment arm's struct-only load was a red
-  herring — nested arrays are broken at construction, independent of assignment.
-- **Severity**: MAJOR — nested arrays are non-functional (don't compile). Distinct
-  from, and pre-existing relative to, the whole-array-`=` fix above.
-- **Likely root cause**: composite-literal lowering for an array whose element is
-  itself an array treats the element as a pointer-to-subarray rather than an
-  inline sub-array; the read path mirrors that wrong shape.  Needs investigation
-  in the array-literal / element-store codegen (gen_composite / gen_access).
-- **Test (TODO when fixing)**: conformance cell for `[N][M]T` literal init +
-  element read + `aa[i] = [M]T{...}`, xfailed until fixed.
 
 ### Cross-module global of struct type emits `external global %Struct` without declaring the type — FIXED 2026-06-08 (binate `b0402d04`, plan-cr2-2 Defect 2)
 - **Fix**: `collectStructTypes` (`pkg/binate/codegen/emit_types.bn`) now scans
@@ -925,40 +876,6 @@ Discovery Protocol) — most don't have one yet.
   to confirm the O(N×M) curve, then re-run the reduced minbasic repro after fix
   (1). No `bnc` profiling flag exists; a temporary counter is the cheapest probe.
 
-### >16-byte struct passed by value through an indirect call SIGSEGVs on LLVM — CONFIRMED wrong-code, default modes
-- **Symptom**: passing a struct larger than 16 bytes (`three-int` = 24B, all
-  `int` fields) **by value** as an **interface-method argument** or through a
-  **function-value call** segfaults (exit 139) on the LLVM backend, before any
-  output. The *direct* call `takeS(s)` with the identical 24B struct is correct,
-  so it is the indirect-call path specifically. Crashes on every LLVM execution
-  mode: `builder-comp`, `builder-comp-comp`, `builder-comp-comp-comp` (verified),
-  and — by reasoning, since arm32 is LLVM-codegen — `builder-comp_arm32_linux` /
-  `builder-comp_arm32_baremetal` (CI to confirm). The bytecode VM passes, and the
-  native aa64/x64 backends pass `three-int` (they have their own non-8-multiple /
-  sub-word packing defects on other shapes, but not this).
-- **Root cause (suspected — needs codegen confirmation)**: the >16-byte
-  "memory class" aggregate is lowered with a `byval`-pointer parameter on the
-  *direct* call signature but the **indirect** call site (the iface vtable slot
-  type, or the function-value's function-pointer type) is emitted without the
-  matching `byval` attribute / pointer indirection — caller passes the aggregate
-  by-value-in-registers while the callee reads it through a pointer (or vice
-  versa), so the callee dereferences a non-pointer field → wild load → SIGSEGV.
-  This is the §3.9 "byval/sret threshold disagreement," now confirmed as a hard
-  crash rather than a value error. The boundary is bracketed to (16, 24]; a
-  17-byte shape would pin it.
-- **Test**: `conformance/matrix/abi/iface-param/three-int` and
-  `.../funcval-param/three-int` (value-correctness; both SIGSEGV). Xfailed on the
-  5 LLVM modes above; `struct-param/three-int` (direct) is the passing control.
-- **Discovery**: 2026-06-05, extending the ABI matrix with the call-shape axis
-  (iface-method / func-value param passing) — the direct-call cells were all
-  green, so the indirect path was the first thing the new axis exercised.
-- **Fix**: make the indirect-call signature (iface vtable slot type and
-  function-value pointer type) carry the *same* aggregate-passing convention
-  (`byval` ptr for memory-class structs) as the direct call. Likely in codegen's
-  function-type construction for vtable slots / function-value pointers — it must
-  reuse the same param-lowering decision the direct path uses, not a default
-  by-value lowering.
-
 ### A float literal narrowed to `float32` is NOT coerced at call-arg / composite-field / return positions — FIXED+LANDED (binate `d37cc7ba`, 2026-06-05)
 - **Symptom**: an untyped float literal flowing into a `float32` slot via a
   function **argument** (`f(0.1)` where `f(x float32)`), a **composite-literal
@@ -1151,7 +1068,8 @@ Discovery Protocol) — most don't have one yet.
   value is marshalled — the vtable word is being dropped for the return-value-as-
   arg case.
 
-### Sub-word arithmetic results not narrowed in the VM (and natives) — dirty upper bits → wrong values — CONFIRMED — UPDATE 2026-06-06: the scalar-diff differential confirms the native-aa64 variant extends beyond arithmetic to sub-word **signed shifts, all int-casts, and signed sub-word conversions**; see `aa64-subword` below
+### Sub-word arithmetic results not narrowed in the VM (and natives) — dirty upper bits → wrong values — PRIMARY (add/mul narrowing, VM + natives) RESOLVED; aa64-subword EXTENSION still OPEN
+- **STATUS 2026-06-10 (triage)**: the PRIMARY facet — sub-word add/mul narrowing in the VM and natives — is FIXED+LANDED (`435b6cdd` VM, `ee671b6c` aa64, `57e72d9e` x64; `matrix/scalar/{add,mul}/{8,16,32}/unsigned` have no xfails; the VM's `vm_exec_pure.bn` has `applyNarrow`/`narrowToWidth`). What REMAINS OPEN is the **aa64-subword extension** below — native-aa64 sub-word **signed shifts, all int-casts, signed sub-word conversions, signed cmp, float↔int** still leave dirty upper bits (≈29 `matrix/scalar*` native_aa64 xfails, `--check-xpass`-confirmed genuinely-failing). Keep this entry for that extension; the original add/mul-narrowing symptom below is historical.
 - **Symptom**: a sub-word integer op (`uint8/16/32` add/mul/…) whose true result
   overflows the width leaves the un-narrowed value in the host register; a
   width-sensitive consumer reached DIRECTLY (no intervening sized store/cast) —
@@ -1558,13 +1476,6 @@ as open items (`lex.literal.int.leading-zero`, `lex.escape.unsupported`).
 - **Discovery**: 2026-06-08, plan-cr2-3 follow-up — investigating the x64-darwin-only 551/573 failures per user direction; built bnc, compiled 551 `--target x86_64-darwin`, ran under Rosetta (SIGBUS), disassembled (`getG` empty; only 4 of ~8 `&G/&H` LEAs present).
 - **Fix**: mirror aa64 — add `emitValOperand(a, pkgName, m, ins)` to x64 (`isGlobalRef` → `emitGlobalAddr` into a scratch reg, else `getOperand`), thread `pkgName` into `emitReturn`/`emitBinop`/cmp (+ their `x64_dispatch.bn` callers), and route every value-operand fetch (return value, binop lhs/rhs, cmp operands, call/dispatch args) through it. Breadth fix across `x64_{return,ops,call,call_indirect,iface,dispatch,regmap}.bn` + signature changes. Pin with 551/573 flipping green on x64-darwin + a unit test that `emitReturn`/`emitBinop` materialize an `IsGlobalRef` operand.
 
-### Field read through a nested-array managed-POINTER element (`a[i][j].field` where `a` is `[N][M]@Struct`) returns literal 0 — silent wrong value, ALL backends — CONFIRMED 2026-06-08
-- **Symptom**: `var a [1][2]@Box; a[0][0] = p; println(a[0][0].v)` prints `0`, not `p.v`. Independent of how the element got there (element-assign OR a nested literal both read 0), so it is the FIELD-ACCESS path, not the store. A managed-SLICE element read by INDEX works (`[1][2]@[]int`, `a[0][0][0]` is correct — conformance `regressions/nested-array-literal-store` part 3), and a single-level `[N]@Box` element field read works (637-adjacent); only the nested-array (`a[i][j]`) base feeding a `.field` selector is wrong.
-- **Root cause (suspected, not yet pinned)**: `pkg/binate/ir/gen_selector.bn` index-selector path — for a nested-array index base `a[i][j]`, `genIndexPtr` likely returns nil (nested array elements have no standalone backing pointer), so the read falls to the `genExpr(e.X)` fallback, and the managed-ptr-to-struct arm there doesn't recover the element correctly → the const-0 fallback. Same literal-0 CLASS as plan-cr2-1 Defect 1 (now fixed), but a different access path the Defect-1 fix didn't cover.
-- **Severity**: MAJOR — silent wrong-code (narrow: field access through a nested-array managed-pointer element).
-- **Discovery**: 2026-06-08, building the plan-cr2-1 Defect 6 managed inner-element test variant (the Defect-6 fix itself — inner-array value store — is correct; this is a separate confound found alongside it). The Defect-6 cell uses a managed-SLICE index-read variant to exercise refcount cleanly and avoid this bug.
-- **Test (TODO with fix)**: a `regressions/nested-array-managed-ptr-field` cell (`a[0][0].v` read-back), xfailed until fixed.
-
 ### Unary minus on a SUB-WORD int (`-uint8`/`-int16`/…) is mis-typed in IR-gen — FIXED + LANDED 2026-06-08 (binate `fce07ccd`, plan-cr2-1 Defect 9; the exact analog of the fixed `~` `bitnot-result-type` bug)
 - **FIX (landed `fce07ccd`)**: `genUnary` MINUS arm now types OP_NEG at the operand's exact integer width (any concrete `TYP_INT`, or the checker-resolved type for an untyped literal), not just float/Width==64.  The native/VM sub-word re-narrow (`68616b20`) was already landed, so facet B is correct on every backend and facet A compiles.  Pinned by `conformance/regressions/unary-minus-subword` + a gen_expr OP_NEG sub-word width unit test, plus the exhaustive `scalar-diff/neg/{8,16,32,64}/{signed,unsigned}` differential family (binate `d64b76d0`, green on every backend).
 - **Symptom (two facets, one root, like `bitnot-result-type`)**:
@@ -1747,18 +1658,6 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   regression cell would harden it further.
 - **Severity**: was MAJOR (silent wrong value, native-only). Resolved.
 
-### aa64 native backend mis-packs non-8-multiple / sub-word-packed structs (param + return) — CONFIRMED
-- **Symptom**: a struct whose size is not a multiple of 8 (`3×uint32` = 12B) or
-  whose fields pack sub-word (`5×uint8` = 5B), passed OR returned by value,
-  loses/corrupts its trailing field on the aa64 native backend — e.g.
-  struct-return of `{uint32,uint32,uint32}` reads the third field wrong.
-- **Test**: `conformance/matrix/abi/struct-{param,return}/{three-u32,five-u8}`
-  (4 cells, xfailed aa64-native). Pass on LLVM + VM (and x64-return).
-- **Discovery**: 2026-06-05, P1 ABI matrix. §3.9 (the aa64 non-8-multiple
-  tail-drop / sub-word packing).
-- **Root cause**: the aa64 aggregate param/return regWords-vs-stack split
-  drops or mis-sizes the trailing sub-8-byte chunk. Needs investigation.
-
 ### x64 native backend mis-packs sub-word multi-return + non-8-multiple struct params — CONFIRMED
 - **Symptom**: (a) a sub-word (`uint16`) multi-return at arity ≥ 3 mis-packs the
   3rd+ component; (b) a `3×uint32` (12B) or `5×uint8` (5B) struct passed by value
@@ -1770,54 +1669,6 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   n=2-cap from §3.1 is **FIXED** (arity ≤ 5 all-int passes everywhere).
 - **Root cause**: x64 aggregate-arg + sub-word multi-return packing. Needs
   investigation.
-
-### Managed-struct under multi-assign / multi-short-var miscompiled on the x64 native backend — CONFIRMED, x64-specific
-- **Symptom**: a by-value managed-struct destructured into a target via
-  multi-assign (`s.f, _ = pair()`, `arr[i], _ = pair()`, …) or multi-short-var
-  (`a, _ := pair()`) is miscompiled by the x64 native backend — the
-  refcount-balance cell reads a wrong value. PASSES on aa64-native and the
-  LLVM / VM modes, so it is x64-codegen-specific.
-- **Test**: `conformance/matrix/refcount/multi-assign/{ident,index-array,
-  index-rawptr,index-slice,selector}/managed-struct` +
-  `multi-short-var/ident/managed-struct` (6 cells, xfailed both x64 modes).
-- **Discovery**: 2026-06-05, triaging the matrix on the x64 native lane (via
-  x64_darwin/Rosetta), while enabling x64 in the `all` modeset.
-- **Root cause**: unknown — the x64 native backend's aggregate handling in the
-  multi-assign / multi-bind element-store path. Needs investigation.
-
-### Interface dispatch drops the trailing scalar after a multi-word by-value arg (LLVM/native codegen) — xfail'd
-- **Symptom**: an interface method whose params include a multi-word BY-VALUE
-  arg (a struct with managed fields, or a `@[]T` managed-slice param — both 4
-  words) followed by a scalar drops the scalar through vtable dispatch — the
-  multi-word arg shifts it.  E.g. `Take(b Box, tag int)` (Box has a `@[]int`
-  field) reads `tag` as 0; `Hold(xs @[]int, n int)` reads `n` as 0.  Same
-  failure mode as the (fixed) repl arg-coercion bug, but for params that are
-  INHERENTLY multi-word: `coerceArg` cannot help — it only NARROWS a managed
-  slice to a 2-word raw slice (which the ABI passes correctly), so a natively
-  ≥3-word by-value arg still shifts.
-- **Scope**: LLVM/native codegen ONLY — the bytecode **VM is correct** (the
-  `-int` conformance modes pass `598`; the `-comp`-final modes fail).  So the
-  fix is the LLVM iface-call emission / vtable-thunk arg ABI (`pkg/binate/
-  codegen`, `emit_iface_call.bn` — it reconstructs the call signature from the
-  arg instructions' LLVM types, which mis-passes a multi-word by-value param
-  vs the impl method's actual ABI).
-- **Test**: `conformance/598_iface_dispatch_multiword_arg` (struct-by-value +
-  `@[]int` param each drop the trailing scalar — 4 instead of 9 / 5).  Xfail'd
-  on `builder-comp`, `builder-comp-comp`, `builder-comp-comp-comp`; passes in
-  the `-int` modes.  The cross/native comp conformance jobs (already red) may
-  also show it.
-- **Discovery**: 2026-06-04 exhaustive iface-dispatch coverage review (workflow)
-  after the arg-coercion fix (`d6bb3b2f`) — the new coverage tests surfaced this
-  deeper ABI bug.
-- **Why MAJOR**: a silent dropped scalar arg in any *compiled* iface method
-  with a multi-word by-value arg before a scalar.  Latent (no current caller
-  has that exact shape), but a real miscompile.
-- **Fix direction**: pass a multi-word by-value arg through the vtable thunk
-  with the ABI the impl method expects (by-ref/sret-style or correct
-  multi-register layout — match what the VM already does).  Once fixed, add the
-  further dispatch coverage the review listed: iface-value arg (move vs RefInc),
-  managed-slice RETURN through dispatch, iface-wrap/upcast args, and a multi-
-  return-iface-dispatch deferral-lock (`.error`).
 
 ### ~~Interface method dispatch drops args after a width-mismatched managed-slice arg (codegen)~~ — FIXED + LANDED 2026-06-04 (binate `d6bb3b2f`)
 - **Fixed**: factored the per-arg coercion loop out of `genCall` into a shared

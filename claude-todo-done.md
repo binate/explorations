@@ -10,6 +10,25 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~plain `=` destructure of a nameless (iface-method/func-value) multi-return → invalid IR for any non-int field~~ — RESOLVED (binate `f8916b88` + the MethodResultsFlat seam); retired by triage 2026-06-10: `gen_assign_multi.bn` has the `multiReturnFieldTypes` fallback; `matrix/abi/{iface,funcval}-multi-return-assign/*` cells green on LLVM/VM/aa64/gen2.
+
+### ~~Interface-method dispatch drops the result type for any method with ≠1 results~~ — RESOLVED (MethodResultsFlat/MethodResultCounts seam + native `cc2ddcc4`); retired by triage 2026-06-10: `gen_iface_registry.bn`/`gen_iface.bn` read the per-method result LIST; `matrix/abi/iface-multi-return/*` green on every runnable mode. The residual x64-elf/arm32 xfails are a SEPARATE native tuple-packing item (still open).
+
+### ~~Destructuring a multi-return FUNCTION-VALUE call is rejected at type-check~~ — RESOLVED (`hasExpandableResults` in `check_stmt.bn`); retired by triage 2026-06-10: used at both the `=` and `:=` sites; `matrix/abi/funcval-multi-return/*` cells green with no xfails.
+
+### ~~Nested arrays (`[N][M]T`) are mis-compiled — wrong-code / invalid IR, LLVM~~ — RESOLVED (binate `7583b669` inner-array value load + `fdc92562` `a[i][j]` addressing); retired by triage 2026-06-10: `regressions/nested-array-literal-store` + `637`/`638` green, no LLVM xfails.
+
+### ~~>16-byte struct passed by value through an indirect call SIGSEGVs on LLVM~~ — RESOLVED (binate `3892e7d1`, pass >16B aggregate args by pointer); retired by triage 2026-06-10: `matrix/abi/{iface,funcval,struct}-param` 24B cells green on LLVM/VM/gen2, no SIGSEGV. Only the arm32 `three-int` xfails remain (separately tracked, not host-runnable).
+
+### ~~Field read through a nested-array managed-POINTER element (`a[i][j].field`, `[N][M]@Struct`) → literal 0~~ — RESOLVED (`gen_access.bn` `getIndexElemType` recursion + `genIndexPtr` inner-element handling); retired by triage 2026-06-10: `matrix/nested-index/field/nested-managed-ptr` green on every runnable backend; its `builder-comp-int-int` xfail was XPASS-stale (removed). The x64-elf/arm32 xfails are likely stale too but were not host-runnable — left pending a run in those modes.
+
+### ~~aa64 native backend mis-packs non-8-multiple / sub-word-packed structs (param + return)~~ — RESOLVED (aa64 regWords-vs-stack tail-drop fix); retired by triage 2026-06-10: `matrix/abi/struct-{param,return}/{three-u32,five-u8}` green on native aa64, xfail markers gone.
+
+### ~~Managed-struct under multi-assign / multi-short-var miscompiled on x64 native~~ — RESOLVED (binate `b5616b32`, coalesce multi-return tuples into SysV eightbytes); retired by triage 2026-06-10: `matrix/refcount/multi-{assign,short-var}/.../managed-struct` green on x64-darwin, xfails gone.
+
+### ~~Interface dispatch drops the trailing scalar after a multi-word by-value arg~~ — RESOLVED (binate `3892e7d1`); retired by triage 2026-06-10: `598_iface_dispatch_multiword_arg` green on LLVM modes + VM, un-xfailed.
+
+
 ### ~~Indexing a dereferenced pointer-to-array `(*p)[i]` (p is `*([N]T)`) drops the write / emits invalid IR~~ — FIXED + LANDED 2026-06-09 (binate `2a15d102`)
 - **Was**: `(*p)[i] = v` where p is `*([N]T)` silently mutated a loaded COPY of the array (store dropped — `arr[0]` stayed 10, not 99); the read `(*p)[i]` emitted invalid IR; `(*pm)[i][j]` likewise. The whole-array store `*p = {...}` and `p = &arr` always worked — only element-indexing-through-the-deref was broken. Pre-existing on all backends (confirmed at `38a552e7~1`); scoped to the rare pointer-to-fixed-array construct.
 - **Root cause**: the index access/assign lowering `genExpr`'d the `*p` base, loading the whole array as a value (no backing storage), so the array arm couldn't recover an element pointer.
