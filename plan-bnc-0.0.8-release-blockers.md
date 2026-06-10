@@ -113,7 +113,19 @@ Fix: the 6 libc-target compiled runners now pass explicit
 locally: `builder-comp matrix/scalar/sub/8` from a parent cwd (mirroring CI)
 passes 2/0 (was 0/2). Follow-up filed (claude-todo): *remove `findRuntime`,
 require `--runtime`* — the cleaner end-state now that no caller relies on
-auto-resolution. Full `-comp*` CI confirmation lands with the next push.
+auto-resolution.
+
+**CI CONFIRMED 2026-06-10 — Lane A DONE** (conformance run `27261348482` on
+`a256c893`): `builder-comp`, `builder-comp-comp`, `builder-comp-comp-comp`,
+and `builder-comp_native_aa64` are all **green** — the link break is cleared
+on every mode it affected (these were all broadly red with the
+`bootstrap.Write`/`main` link error). The residual `-comp*` reds are
+unrelated, pre-existing, never-green gaps, NOT this bug and NOT regressions
+from the `--runtime` change: `builder-comp_native_x64` now **links and runs**
+(`001_hello` prints `hello world`, then the WIP x64-native backend's codegen
+crashes — a separate backend-completeness issue), and
+`builder-comp_arm32_{baremetal,linux}` are separately tracked. (`-int-int` was
+cancelled — a VM mode, unaffected by this fix.)
 
 ---
 
