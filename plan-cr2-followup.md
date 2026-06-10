@@ -110,15 +110,24 @@ extra RefInc/RefDec would slip through. This is a coverage sweep — like the CR
 matrices, it is expected to *surface* latent refcount bugs, not just add green
 cells. Pattern: `rt.Refcount(p)` before/after, mirroring `586`/`592`/`130`.
 
-**Status (2026-06-09): C1–C7 BUILT + GREEN** (conformance `673`–`678` + `682`; the
-arg cell is `678` and the generic cell is `682` after landing-rebase renumbers —
-`672`/`679` were taken by other workers; find them by name `cross_pkg_*_balance`;
-directory form, balance-invariant assertion), passing on LLVM/VM/native aa64+x64 —
-the cross-pkg refcount discipline is **sound** for arg / return / struct-field /
-managed-slice-element / iface-construct / iface-return / **generic type-arg**; no
-latent bug surfaced, so these are a regression net closing the `2083`
-refcount-balance gap. **Remaining (lower value):** C8/C9 — extern-var *functional*
-cells (not balance); C9 blocked by `551`. The balance-bearing sweep is DONE.
+**Status (2026-06-09): C1–C9 ALL BUILT + GREEN — Plan C COMPLETE.** C1–C7 (the
+balance-bearing sweep, conformance `673`–`678` + `682`; the arg cell is `678` and
+the generic cell is `682` after landing-rebase renumbers — `672`/`679` were taken
+by other workers; find them by name `cross_pkg_*_balance`; directory form,
+balance-invariant assertion) passed on LLVM/VM/native aa64+x64 with no latent bug,
+so the cross-pkg refcount discipline is **sound** for arg / return / struct-field /
+managed-slice-element / iface-construct / iface-return / generic type-arg — a
+regression net closing the `2083` refcount-balance gap. C8/C9 (the extern-var
+*functional* cells) landed as `686_cross_pkg_extern_field_write` /
+`687_cross_pkg_extern_addr_rvalue` (binate `fc29128c`), green on all four
+host-runnable backends. **C9 was never actually blocked** (`551` was already
+fixed); **C8 *did* surface a CRITICAL bug** — its raw-ptr facet needs
+`var RP *T = &VS`, and `&<aggregate-global>` stored into a pointer wrote NULL on
+every backend (silent miscompile, a regression from the whole-aggregate-assign
+fix). That is now fixed (binate `38a552e7`, dest-type-aware `isAggregateAllocToLoad`
++ `genShortVar` IsGlobalRef exclusion + wrapper peeling; see `claude-todo-done.md`),
+and C8's clean `&VS`-aliasing design works against the fixed compiler. So the sweep
+*did* pay off with a real defect, exactly as predicted.
 
 | Cell | Asserts (refcount returns to baseline crossing a package boundary) | Functional precedent |
 |---|---|---|
@@ -129,8 +138,8 @@ cells (not balance); C9 blocked by `551`. The balance-bearing sweep is DONE.
 | **C5** `cross_pkg_iface_construct_balance` | `var iv @shape.Shape = h` (imported impl) — box RefIncs receiver, box-drop RefDecs | `382`/`585`, `554`/`567` |
 | **C6** `cross_pkg_iface_return_balance` | `shape.Make() @Shape` — iface return arrives rc==1 | `576` |
 | **C7** `cross_pkg_generic_typearg_balance` | `genlib.Append[@pkg.T](…)` — managed type-arg lifecycle balances | `497`/`464` |
-| **C8** `cross_pkg_extern_field_write` (functional) | field write through an imported value-struct / raw-ptr var (the `561` analogue) | `561` |
-| **C9** `cross_pkg_extern_addr_rvalue` (functional) | `&pkg.X` (imported scalar var) — the `551` analogue for imports (**blocked by `551`**) | — |
+| **C8** `cross_pkg_extern_field_write` (functional, `686`) ✅ | field write through an imported value-struct / raw-ptr var (the `561` analogue); RP aliases VS via `var RP *Node = &VS` — surfaced the `&<aggregate-global>` null miscompile | `561` |
+| **C9** `cross_pkg_extern_addr_rvalue` (functional, `687`) ✅ | `&pkg.X` (imported scalar var) in every value-operand position — the cross-package `551` analogue; all positions green | `551` |
 
 **Mechanics**: all use the directory form (`main.bn` + `expected` + `pkg/…`),
 mirroring `586`/`592`. Pick the next free contiguous numbers **at landing time**
