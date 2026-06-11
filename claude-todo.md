@@ -1421,25 +1421,18 @@ as open items (`lex.literal.int.leading-zero`, `lex.escape.unsupported`).
 - Surfaced 2026-06-05 while authoring the conformance matrix func-value cell
   (plan-code-red.md §7 / P1).
 
-### Wire the parallel `scripts/unittest/runners/` cross runners to `binate-paths --target`
-- **Done part (binate `a3755cb4`)**: the four cross *conformance* runners now
+### Wire the cross runners to `binate-paths --target` — ✅ RESOLVED 2026-06-10
+- **Conformance (binate `a3755cb4`)**: the four cross *conformance* runners
   mirror their bnc `--target` onto the `binate-paths.sh --iface` call
-  (arm32-linux, arm32-baremetal, x86_64-linux, x86_64-darwin), so a cross
-  compile of `import "pkg/builtins/build"` resolves `ifaces/targets/X/` not the
-  host tree.  692 is green on every mode (no xfails).
-- **Remaining (latent, NOT a bug today)**: the three parallel
-  `scripts/unittest/runners/` cross runners (`builder-comp_arm32_linux`,
-  `builder-comp_arm32_baremetal`,
-  `builder-comp_native_x64_darwin-comp_native_x64_darwin`) have the SAME shape —
-  `--target X` to bnc, no `--target` on their `binate-paths --iface` call.  Safe
-  now: a repo-wide grep shows the only importer of `pkg/builtins/build` is
-  `conformance/692`, and `build` has no `_test`, so no unit-test compile selects
-  a tree.  The moment a unit-tested package specializes on `build` (or `build`
-  gets a test), those runs would silently resolve the host-width tree and
-  miscompile, with no xfail flagging it (the CLAUDE.md "enumerate sweep sites
-  repo-wide" hazard — documented here so it isn't a silent guessed-subset gap).
-- **Fix when needed**: add the matching `--target` to the three unit-test cross
-  runners' `binate-paths --iface` calls.  See `plan-target-metadata.md` §4.
+  (arm32-linux, arm32-baremetal, x86_64-linux, x86_64-darwin); 692 green on
+  every mode, no xfails.
+- **Unittest (binate `ac738936`)**: the three parallel
+  `scripts/unittest/runners/` cross runners (arm32_linux, arm32_baremetal,
+  native_x64_darwin) now mirror `--target` too.  Inert today (no unit-test
+  package imports `build`), but it closes the latent silent-miscompile gap.
+- **Sweep complete**: a repo-wide grep confirms every `.sh` that passes
+  `--target` to a compiler AND calls `binate-paths` now carries `--target` on
+  its `--iface` call (7 sites: 4 conformance + 3 unittest).
 - **Discovery**: adversarial verification workflow over the `a3755cb4` change.
 
 ### Extend hygiene checks to scan `ifaces/` and `impls/` (not just `pkg/`+`cmd/`) — ✅ DONE (sub-todo: .bni cap)
