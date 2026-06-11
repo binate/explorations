@@ -272,6 +272,19 @@ Owned by one coordinator after the lanes report. Execute
 1. **Gate:** Lane A green (CI `-comp*` link clean) *or* confirmed-to-
    self-heal at the bump (Lane A H1); Lane B has no silent un-xfails; Lane C
    bundle/e2e clean.
+   - **OPEN at gate-check 2026-06-11 (main `ac738936`):** hygiene GREEN;
+     conformance in-progress (Lane A landed — expect `-comp*` green, arm32 /
+     native_x64 are non-blocking WIP); **E2E RED on `split-paths`** with
+     `use of undefined value '@bn_pkg__bootstrap__Write'` — a BUILDER-skew
+     (the exact symptom in "BUILDER-skew traps" below). `e2e/split-paths.sh`
+     compiles **directly via the BUILDER with current-first stdlib
+     resolution** (line ~97) and did NOT get the BUILDER-first fix `c44ab9b7`
+     applied to print-args/repl; the bootstrap relocation `ecd8f07d` surfaced
+     it. Same class as the `same` skew → **expected to self-heal at the
+     BUILDER bump (step 5)**; OR give `split-paths.sh` BUILDER-first stdlib
+     resolution to make it green pre-bump. Does NOT block the `release.yml`
+     *build* (make-bundle uses BUILDER-first). Characterize/decide before
+     tagging — don't tag with an *unexplained* E2E red.
 2. **Step 2:** `VERSION` + `version.bn` `bnc-0.0.8-pre` → `bnc-0.0.8`
    (needs explicit approval to land on main).
 3. **Steps 3-4:** tag `bnc-0.0.8`, push, watch `release.yml`; smoke the
