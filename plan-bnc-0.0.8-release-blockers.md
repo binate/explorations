@@ -1,5 +1,31 @@
 # Plan: bnc-0.0.8 Release Blockers
 
+> ## ✅ RELEASED 2026-06-11 — `bnc-0.0.8` is cut.
+> Tag `bnc-0.0.8` → commit `31c3c2cf`; bundle (linux-x64 + macos-arm64)
+> published, SHA-verified, and smoke-tested (hello + tier-0 carveout +
+> `int64 << int` shift all green on the shipped compiler). Post-release
+> bump landed (`626d14a2`): `BUILDER_VERSION`→`bnc-0.0.8`,
+> `VERSION`→`bnc-0.0.9-pre`. Post-bump CI green (hygiene, host-int
+> conformance/unit, native_aa64, E2E).
+>
+> **The real blocker turned out NOT to be in these lanes.** The release
+> gate (2026-06-10) surfaced a fresh in-window regression: `int64 << int`
+> rejected in 32-bit-int modes broke arm32 compile (efeb0f94's
+> `SignedMinForWidth`). Root-caused + fixed as a shift-semantics change
+> (count may be any integer type; result type is the value's) — binate
+> `fd3cb7ac`, with a `check_expr_binop.bn` split (`a57496e6`) and a
+> comprehensive `shift-typepair` matrix (`93d6ecd4`). Other gate findings
+> (all handled, none blocking the cut): arm32-baremetal runtime-path
+> regression (fixed `1d95923e`, off the gate per user); native-aa64
+> signed-sub-word spill corruption exposed by the new matrix (xfailed
+> `e2bb1717` + filed MAJOR); native_x64 CI mode-name config bug; and two
+> stale-path TEST-HARNESS scripts the bootstrap relocation + new bundle
+> layout broke — `e2e/split-paths.sh` bnc leg (`cb7c8762`) and the
+> `fetch-builder` hygiene smoke (`66ad95c8`), both fixed via binate-paths.
+> The E2E split-paths red did NOT self-heal at the BUILDER bump (that
+> prediction was wrong; it was a stale-path bug, now fixed). See
+> `claude-todo.md` for the open follow-up (native-aa64 spill bug).
+
 Investigate and clear the blockers preventing a `bnc-0.0.8` release, then
 cut it. Structured as **three disjoint lanes (A, B, C)** that touch
 non-overlapping file sets and can be assigned to separate workers
