@@ -20,8 +20,13 @@ core of Google's `absl::Status`; the RPC-historical parts
   distinction — every one of these means the requested operation did not
   *fully* succeed. End-of-input is a failure (the read didn't get the bytes)
   exactly like "file not found" is; nothing here is special-cased as benign.
-- **Every stdlib `errors.Error` roots in exactly one base failure.** Hard
-  rule. (Caveat: `errors.New` currently roots in *nothing* — §8.B.)
+- **Every error the stdlib *returns* roots in exactly one base failure.**
+  Hard rule. It constrains the stdlib's own error production, NOT the
+  `errors.New` primitive: `New(msg)` deliberately roots in *nothing* (it's
+  the root-maker — §8.B), and apps use it to seed their own hierarchies. The
+  rule is enforced by a hygiene check that flags `errors.New(` in the stdlib
+  outside a whitelist (the base-singleton definitions + package roots like
+  `io.EOF`).
 
 ## 2. The hierarchy
 
@@ -225,17 +230,25 @@ the linear chain picks one. `ENOSPC` is `ResourceExhausted`/`Retryable`
 `Retryable` — but record the dual cases (chosen branch + why the other lost)
 rather than leaving the pick silent.
 
-**B. Reclassify-while-preserving-cause + `errors.New`.** With single `Unwrap`,
-a high-level op can't both re-classify *and* keep the low-level cause. And
-`errors.New(msg)` roots in *nothing*, so it (and today's `io.EOF`) violates
-the §1 hard rule. Pick a policy: reclassification drops the lower cause, or a
-sibling link; and either give `New` a base parameter or carve it out of the
-hard rule (a hygiene check would otherwise flag `New` itself).
+**B. Reclassify-while-preserving-cause + `errors.New`. ✅ RESOLVED.** (B1) With
+single `Unwrap`, a wrapper inherits its cause's classification; to re-classify
+you mint a *fresh* error rooted in the new base (the original cause survives
+only in the message). An app that needs reclassify-*and*-keep-the-structured-
+cause defines its own concrete `Error` type with extra links — `Error` is an
+interface, so single-`Unwrap` is only the *stdlib's* contract. (No second link
+in the stdlib.) (B2) `errors.New(msg)` stays the unconstrained **root-maker**
+(empty `Unwrap`); the §1 hard rule applies to errors the stdlib *returns*,
+enforced by a hygiene check whitelisting `New` to base/root definitions.
 
-**C. A defect notion?** `EBADF`/`EFAULT` are programmer bugs, not recoverable
-conditions; lumping them into `InvalidArgument` lets recovery handlers
-swallow what should abort. Add a defect node, route them to `Unknown`
-(report/abort), or rely on panic for true defects.
+**C. Defects (`EBADF`/`EFAULT`). ✅ RESOLVED.** No defect node (one would
+invite recovery handlers to swallow bugs). True defects **panic** — consistent
+with Binate aborting on bounds / div-by-zero. The `os` impl routes every
+syscall failure through one `failErrno(errno, op, path)` helper that panics on
+`EBADF`/`EFAULT` (and other defect errnos) *before* calling a pure, total
+`errnoToError(errno) → @Error` mapper for the rest — centralizing the panic
+(can't forget it at a syscall site) while keeping the mapper side-effect-free
+and testable. A defect surfaced rather than aborted is `Unknown`, never
+`InvalidArgument`.
 
 **D. `Cancelled`/`Timeout` (deferred until deadlines/cancellation exist).**
 `Cancelled` is **not** `Retryable` — a cancelled op won't un-cancel on retry;
@@ -255,10 +268,18 @@ not treat `NotFound` as proof of access.
 - `io`: re-root `io.EOF` as the base-type object (NOT a one-line edit; NOT
   `Wrap` — §4).
 - `os` (libc): construct errno-derived errors rooted in bases (§7), replacing
-  the `errors.New("os: …")` strings; read errno per-platform via `build.OS`.
+  the `errors.New("os: …")` strings; read errno per-platform via `build.OS`,
+  through one `failErrno(errno, op, path)` helper (panics on defect errnos;
+  else wraps a pure `errnoToError` mapper — §8.C).
 - `strconv`: split syntax (`BadData`) vs overflow (`OutOfRange`).
-- Hygiene/review check: every stdlib error constructor bottoms out in a base
-  (§1), once §8.B is settled.
+- Hygiene check: `errors.New(` only at whitelisted base/root sites (§1), which
+  is how "every returned stdlib error roots in a base" is enforced.
+- **Separate, independent code change (read-only messages):** `errors.New` /
+  `errors.Wrap` should take `@[]readonly char` and `Error()` should return
+  `@[]readonly char` — a message is immutable to its consumer. Ripples through
+  `withContext` / `leafError` / `wrappedError`, `io.EOF` / `io.IsEOF`, and
+  every caller that binds a message as `@[]char`. Not coupled to this
+  hierarchy; land on its own.
 
 ## 10. Provenance
 
