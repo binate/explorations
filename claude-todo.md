@@ -126,13 +126,37 @@ all functions/tests intact; B4 regression tests are non-vacuous.
 
 ## MAJOR
 
-### arm32-baremetal runtime files (`crt0.s`/`semihost.s`) resolve against the target-iface OVERLAY, not the repo root → link fails → arm32 unit + conformance red — REGRESSION (in-window) — 🔴 OPEN (NOT a bnc-0.0.8 blocker — arm32-baremetal excluded from the release gate per user 2026-06-10)
+### arm32-baremetal runtime files (`crt0.s`/`semihost.s`) resolve against the target-iface OVERLAY, not the repo root → link fails → arm32 unit + conformance red — REGRESSION (in-window) — ✅ RESOLVED 2026-06-10 (binate `1d95923e`; baremetal LINK CI-pending)
 - **Symptom**: on `fd3cb7ac` (after the shift fix unmasked it), arm32-baremetal unit + conformance fail at LINK, not compile: `clang: error: no such file or directory: '.../ifaces/targets/arm32-baremetal/runtime/baremetal_arm32/crt0.s'` (and `semihost.s`). The files exist at the **repo root** `runtime/baremetal_arm32/`, not under the `ifaces/targets/arm32-baremetal/` overlay.
 - **Root cause**: `appendTargetRuntime` (`cmd/bnc/target.bn:308`) joins the relative `targetRuntimeFiles` (`runtime/baremetal_arm32/crt0.s`, …) against `root`, where `root = primaryRoot(cli)` (`cmd/bnc/args.bn:58`) = `cli.BniPaths[0]` — the FIRST `-I` path. The per-target `ifaces/targets/` overlay work (build.bni metadata, in-window) makes `binate-paths --iface --target arm32-baremetal` **prepend** `ifaces/targets/arm32-baremetal` as the first `-I` entry (confirmed; the unittest-runner change `ac738936` mirrors `--target` onto `--iface` for cross modes). So `BniPaths[0]` is the overlay dir, not the repo root, and the runtime files resolve to a non-existent path. (Harmless on host: host `targetRuntimeFiles` is empty, so `appendTargetRuntime` is a no-op — which is why host modes stayed green and this hid behind the `int64 << int` compile error until that was fixed.)
 - **Baseline**: `builder-comp_arm32_baremetal` Unit was green at bnc-0.0.7 (before both the `ifaces/targets/` overlay and the types compile error). In-window regression; the SECOND arm32 regression masked behind the first (the `int64 << int` one, now resolved `fd3cb7ac`).
 - **Severity**: MAJOR — breaks all arm32-baremetal linking on a previously-green mode — but **NOT a bnc-0.0.8 release blocker**: per the user (2026-06-10), arm32-baremetal is excluded from the release gate. Fix tracked for after.
 - **Fix (direction, per user)**: the runtime files + linker script belong on the existing **`--runtime` flag** mechanism — the runner should pass the concrete `crt0.s`/`semihost.s`/`.ld` paths explicitly (as it already does for `libgcc.a` via `--link-after-objs`), NOT have bnc infer a `root` from `-I[0]` (`primaryRoot` = `BniPaths[0]`, which is wrong now that the iface overlay is prepended). i.e. retire the `appendTargetRuntime`/`primaryRoot`-based path inference for these in favor of `--runtime`. (My initial `primaryRoot`-skip-overlay idea was wrong — recorded so it isn't retried.)
 - **Discovery**: 2026-06-10, watching CI on the shift fix `fd3cb7ac` — the arm32 error changed from `mismatched types int64 and int` (compile) to the missing-`crt0.s` link error.
+- **✅ RESOLVED 2026-06-10 (binate `1d95923e`)**: rooted out `primaryRoot`/`root`
+  from bnc entirely — per the user's "full root-out" decision, which SUPERSEDED
+  the earlier "runner passes the link files explicitly" direction above. The
+  loader is now seeded from `discoverBinateRoot(--runtime)`; `appendTargetRuntime`
+  resolves `targetRuntimeFiles`+linker relative to `dirOf(--runtime)`; baremetal's
+  `targetRuntimeFiles = {"semihost.s"}`, `targetLinkerScript = "baremetal.ld"`, and
+  `crt0.s` is the `--runtime` (linked via a split link-gate: link the `--runtime`
+  file whenever present, stubs only when `!suppressHostRuntime`). `binate-paths
+  --target arm32-baremetal` now supplies `impls/core/baremetal` +
+  `runtime/baremetal_arm32` on `-I`/`-L` (replacing the deleted
+  `targetImplPathSuffixes`); the two baremetal runners pass `--runtime
+  .../crt0.s` + `--target arm32-baremetal` on their `--impl` call.  Verified host
+  (gen1 builds, conformance 001+692, bnc-unit 114) + baremetal package-resolution
+  via `gen1 --target arm32-baremetal -c`; the LINK itself is CI-verified (no local
+  arm-none-eabi toolchain).
+- **Bonus finding → follow-up — dead `Builtin` machinery**: `root` was threaded
+  through the registration call-graph ONLY to feed `collectPkgFile`'s
+  `if depPkg.Builtin { read <root>/<pkg>.bni }` branch, but `RegisterBuiltin` has
+  NO production caller (only `loader_test.bn`), so `pkg.Builtin` is never true in a
+  real build → that branch was DEAD (and pointed at a path that no longer exists
+  post-regularization).  Removed the dead branch + vestigial `root`.  The REST of
+  the Builtin machinery (`loader.RegisterBuiltin`, `loader.Package.Builtin`, the
+  `pkg.Builtin` guards in cmd/bnc compile/main/test) is now fully dead-but-harmless
+  → optional cleanup to remove it entirely.
 
 ### `int64 << int` rejected in 32-bit-int modes → breaks ALL 32-bit-int compilation — REGRESSION from `efeb0f94` — ✅ RESOLVED 2026-06-10 (binate `fd3cb7ac`)
 - **✅ RESOLVED 2026-06-10 (binate `fd3cb7ac`).** Root-caused as a TYPE-CHECKER + IR-gen defect, NOT the missing source cast of the initial diagnosis. Per the user's semantics decision: a shift `x << y` / `x >> y` takes its result type from the LEFT (value) operand, and the count `y` may be ANY integer type, independent of the value (Go semantics). Fix: (1) checker `check_expr.bn` — shifts get their own arm instead of being lumped with the symmetric bitwise ops `& | ^` (which unified the operands via commonType → "mismatched types"); untyped-operand cases still defer to foldIntBitwise (byte-identical to before — this matters, see below), a typed-vs-typed pair returns the left operand's type; (2) IR-gen `gen_binary.bn` — a shift's result type is the value (left) type, not the symmetric widenType (which would narrow the result to `int` for `int64 << int` in 32-bit-int, silently truncating). `cast(int64, 1) << (width - 1)` (`types_query.bn:168`) now compiles as-written. Verified: native conformance 1337/0, VM 1307/0, gen2; unit ir/types/codegen/vm/native 8/8; cell `regressions/shift-count-any-int-type`. **arm32 unit/conformance confirmation pending CI on `fd3cb7ac`.**
