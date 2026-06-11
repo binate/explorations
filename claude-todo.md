@@ -1426,7 +1426,7 @@ as open items (`lex.literal.int.leading-zero`, `lex.escape.unsupported`).
   runners' `binate-paths --iface` calls.  See `plan-target-metadata.md` §4.
 - **Discovery**: adversarial verification workflow over the `a3755cb4` change.
 
-### Extend hygiene checks to scan `ifaces/` and `impls/` (not just `pkg/`+`cmd/`) — IN PROGRESS
+### Extend hygiene checks to scan `ifaces/` and `impls/` (not just `pkg/`+`cmd/`) — ✅ DONE (sub-todo: .bni cap)
 - **Goal (user-requested, 2026-06-10)**: `line-length`, `file-length`,
   `bni-doc`, `bn-doc`, `naming` find-roots were `$BINATE_DIR/pkg` (+`cmd`)
   only, so source under `ifaces/`+`impls/` wasn't linted (surfaced by
@@ -1455,10 +1455,15 @@ as open items (`lex.literal.int.leading-zero`, `lex.escape.unsupported`).
     wrapping forced: bessel01.bn grew 407→502 (file-length soft-WARN), so its
     asymptotic machinery (pzero/qzero/pone/qone + tables) was split into
     `bessel01_asymp.bn` (binate `4c31ba50`); both files now <300 lines.
-  - ⬜ **bn-doc** — 118 (erf 51, bessel01 28 — now spread across bessel01.bn +
-    bessel01_asymp.bn, rest math/strconv/os): 58 const (numeric coeff blocks →
-    const-group w/ shared doc), 37 var (tables), 23 func → fix + enable.  LAST
-    check.
+  - ✅ **bn-doc** — enabled (binate `56784a86`+`705f4928`).  Fixed all 118: erf
+    (4) + gamma (1) coefficient blocks const-grouped (existing section comment →
+    group doc); 37 lookup-table vars (bessel01_asymp R/S tables, cosTab,
+    Stdout/Stderr, …) + 23 funcs (@Nat methods, os Read/Write/…, Shl/Shr, …)
+    documented individually.  Semantics-preserving (numeric-token sequence
+    byte-identical per file; math+strconv tests green; os/rt edits comment-only).
+- **DONE** 2026-06-10: all five file checks (file-length, bni-doc, naming,
+  line-length, bn-doc) now scan `ifaces/`+`impls/`.  ~150 pre-existing stdlib
+  violations were triaged + fixed (not suppressed), one check at a time.
 - **Sub-TODO (file-length .bni cap)**: consider lowering the `.bni` cap from
   1500/1800 toward 1000/1200; `ir.bni` (~1159) would need refactoring (split
   into sub-interfaces) first.
