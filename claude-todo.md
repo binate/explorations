@@ -132,6 +132,8 @@ all functions/tests intact; B4 regression tests are non-vacuous.
 - **Severity**: MAJOR — silent wrong values for signed sub-word arithmetic under register pressure on the native-aa64 backend; any user code with enough int8/int16 locals could hit it. **NOT a bnc-0.0.8 release blocker**: the release bundle's bnc is built by the BUILDER (bnc-0.0.7, LLVM backend), not the native-aa64 backend; native-aa64 is a separate codegen path exercised only by the `*_native_aa64` conformance mode.
 - **Handling**: the 4 cells are xfailed on `builder-comp_native_aa64-comp_native_aa64` (so the mode is green-modulo-xfails and the matrix still covers host-int/VM/gen2). Un-xfail when the aa64 spill bug is fixed.
 - **Discovery**: 2026-06-10, bnc-0.0.8 release-gate recheck — the new shift-typepair matrix (binate `93d6ecd4`) exposed it (its many sub-word locals create the register pressure prior shift tests didn't).
+
+### arm32-baremetal runtime files (`crt0.s`/`semihost.s`) resolved against the target-iface OVERLAY, not the repo root → link failed → arm32 unit + conformance red — REGRESSION (in-window) — ✅ RESOLVED 2026-06-10 (binate `1d95923e`; CI-CONFIRMED: baremetal link fixed — conformance 1304✓/8✗, the 8 are pre-existing arm32 codegen residuals)
 - **Symptom**: on `fd3cb7ac` (after the shift fix unmasked it), arm32-baremetal unit + conformance fail at LINK, not compile: `clang: error: no such file or directory: '.../ifaces/targets/arm32-baremetal/runtime/baremetal_arm32/crt0.s'` (and `semihost.s`). The files exist at the **repo root** `runtime/baremetal_arm32/`, not under the `ifaces/targets/arm32-baremetal/` overlay.
 - **Root cause**: `appendTargetRuntime` (`cmd/bnc/target.bn:308`) joins the relative `targetRuntimeFiles` (`runtime/baremetal_arm32/crt0.s`, …) against `root`, where `root = primaryRoot(cli)` (`cmd/bnc/args.bn:58`) = `cli.BniPaths[0]` — the FIRST `-I` path. The per-target `ifaces/targets/` overlay work (build.bni metadata, in-window) makes `binate-paths --iface --target arm32-baremetal` **prepend** `ifaces/targets/arm32-baremetal` as the first `-I` entry (confirmed; the unittest-runner change `ac738936` mirrors `--target` onto `--iface` for cross modes). So `BniPaths[0]` is the overlay dir, not the repo root, and the runtime files resolve to a non-existent path. (Harmless on host: host `targetRuntimeFiles` is empty, so `appendTargetRuntime` is a no-op — which is why host modes stayed green and this hid behind the `int64 << int` compile error until that was fixed.)
 - **Baseline**: `builder-comp_arm32_baremetal` Unit was green at bnc-0.0.7 (before both the `ifaces/targets/` overlay and the types compile error). In-window regression; the SECOND arm32 regression masked behind the first (the `int64 << int` one, now resolved `fd3cb7ac`).
@@ -151,8 +153,13 @@ all functions/tests intact; B4 regression tests are non-vacuous.
   `targetImplPathSuffixes`); the two baremetal runners pass `--runtime
   .../crt0.s` + `--target arm32-baremetal` on their `--impl` call.  Verified host
   (gen1 builds, conformance 001+692, bnc-unit 114) + baremetal package-resolution
-  via `gen1 --target arm32-baremetal -c`; the LINK itself is CI-verified (no local
-  arm-none-eabi toolchain).
+  via `gen1 --target arm32-baremetal -c`.  CI on `1d95923e` CONFIRMS the fix: the
+  `crt0.s` link error is gone; arm32-baremetal conformance is 1304 passed / 8
+  failed (the 8 = pre-existing arm32 codegen residuals: `uint32` bitnot/neg +
+  `int64` add/div/sub, shared with arm32_linux), unit 25 passed / 2 failed
+  (pre-existing arm32 float precision: Sin/Cos/Tan LargeArg) — was broken at link
+  for everything before.  Host green; no new regression (the parent `93d6ecd4`
+  had the identical cross-lane failures).
 - **Bonus finding → follow-up — dead `Builtin` machinery**: `root` was threaded
   through the registration call-graph ONLY to feed `collectPkgFile`'s
   `if depPkg.Builtin { read <root>/<pkg>.bni }` branch, but `RegisterBuiltin` has
