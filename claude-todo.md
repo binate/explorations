@@ -273,7 +273,17 @@ The CRITICAL entries below are also surfaced in `## CRITICAL`-class triage.
 
 ### Cross-package struct-name mangler collision (`reflect.Package` vs a module's own `type Package`) broke the `bni` build — FIXED 2026-06-08 (`7ebafc51` mangler fix + `aa8d6828` Defect-2 re-land)
 - **STATUS 2026-06-08 — FIXED & LANDED.** Fixed at its source: the synthetic `_Package()` descriptor's `reflect.Package` result type now carries its path-qualified name `pkg/builtins/reflect.Package` (`7ebafc51`, `pkg/binate/ir/gen_import.bn` `qualifiedReflectPackageType`), so the mangler folds it to the reflect package's own symbol and it can never collide with the compiling module's structs. Defect 2 (the `m.Globals` scan + `TYP_NAMED`/`TYP_ARRAY` discovery arms) was then re-landed (`aa8d6828`) — safe now — with `conformance/657_cross_pkg_struct_global` and the `globals/noinit/named-struct` cell. Verified on `builder-comp` + **`builder-comp-int`** (the VM build that broke). History: the original Defect-2 commit `b0402d04` was REVERTED (`1ae18289`) to un-break main, then re-landed on top of the mangler fix; Defect 1 (`f2ebaca1`, global static-zero NAMED-peel) was never reverted (independent, correct).
-- **FOLLOW-UPS (open):** (a) **Class-level fix (Option B)** — the type checker stores BARE struct names (`check_decl.bn:242`, `bni_scope.bn:238`) and `resolveNamedTypeExpr` propagates them, so cross-package qualification is re-derived per-reference rather than carried on the type. `_Package` was the only struct-leak into codegen (now fixed), but the latent class remains (e.g. `genMethodValue` with a cross-package VALUE receiver, `gen_method_value.bn` — narrower, currently unexercised). The robust class-killer is to make struct types carry their fully-qualified name at definition (or thread the package path so the checker qualifies); touches `pkg/binate/types` + `pkg/binate/ir` (Plan-1 area) and a fan-out of `.Name` consumers — coordinate with that owner. (b) **Dedup-mismatch guard** — turn `addStructDef`'s silent first-wins struct-def dedup (`pkg/binate/codegen/emit_types.bn`) into a HARD ERROR when the same mangled name is registered with a different field layout, so any future occurrence of this class fails loudly instead of silently miscompiling.
+- **FOLLOW-UPS — ✅ BOTH DONE 2026-06-10 (Option B).** (a) **Class-level fix
+  (Option B) — LANDED `59771b8d`..`f5b3b387` + identity fix `1e37a637`.** Struct
+  types now carry their fully-qualified name at definition (checker qualifies via
+  `currentPkgPath`/`QualifyName`; IR registers qualified; lookups qualify-if-bare),
+  killing the cross-package collision class at the root; `Identical` distinguishes
+  cross-pkg same-name structs (was still comparing the bare TYP_NAMED wrapper); the
+  latent `genMethodValue` cross-package value-receiver leak is fixed too.
+  Byte-identical, green across all modes + self-host. (b) **Dedup-mismatch guard —
+  LANDED `15f1fae2`.** `addStructDef` now aborts as a codegen precondition when a
+  mangled-name match has a disagreeing field layout (`structShapesMatch`), instead
+  of silently keeping the first. See `plan-cr2-optionb.md`.
 - **Symptom**: building `cmd/bni` via gen1 (any `-int` mode: `builder-comp-int` / `builder-comp-int-int` / `builder-comp-comp-int`) fails — `clang … pkg__binate__loader.ll: error: invalid getelementptr indices` on `getelementptr %bn_pkg__binate__loader__Package, …Package* %v.sc, i32 0, i32 4`. The emitted `Package` LLVM struct type has fewer fields than the field-4 GEP expects. Deterministic (reproduced 3×, fresh build dirs).
 - **Bisected**: builds `bni` cleanly at `27c1ee8b` (b0402d04's parent); FAILS at `b0402d04`. So `b0402d04` ("codegen: discover struct types reachable only through globals", plan-cr2-2 Defect 2) is the culprit. NOT caused by the plan-cr2-3 Defect-1 commit (`68616b20`, native/VM only) — the regression reproduces at `b0402d04` without it.
 - **Root cause (direction — needs confirmation)**: `b0402d04` added an `m.Globals` scan to `collectStructTypes` plus `TYP_NAMED→.Underlying` / `TYP_ARRAY→.Elem` recursion arms to `discoverStructFromType`. Claimed "purely additive," but in **cmd/bni's** module (which has globals cmd/bnc lacks — `builder-comp-comp`/gen2 appeared to still build, so the trigger is bni-module-specific) the new discovery emits the `Package` struct type with a wrong/truncated body (likely the `TYP_NAMED` arm registering the underlying struct under a name that collides via `addStructDef` dedup, OR an `m.Globals`-discovered path emitting a partial def), so a later field-read GEP into field 4 is out of range. Inspect the emitted `loader.ll` `%bn_pkg__binate__loader__Package = type {…}` def vs the GEP.
@@ -1389,7 +1399,13 @@ as open items (`lex.literal.int.leading-zero`, `lex.escape.unsupported`).
   width 8. Out of scope for the divide-by-zero work (touches general arithmetic
   typing). A reproducer xfail cell can be added when this is picked up.
 
-### Bare func literal in assignment position doesn't infer its managed/raw flavour from the LHS
+### Bare func literal in assignment position doesn't infer its managed/raw flavour from the LHS — ✅ RESOLVED 2026-06-10 (binate `e15680d7`)
+- **✅ RESOLVED `e15680d7`** — the simple-assign RHS is checked via
+  `checkExprWithFVHint(c, rhs, lhsType)`, so a bare func-literal `existing =
+  func(){…}` (where `existing @func(...)`) now picks up the managed/raw flavour
+  from the LHS, like var-init already did. NOTE: the NAMED func-value spelling
+  (`type Fn @func(...)`) is still broken — the hint doesn't peel `TYP_NAMED` —
+  tracked separately as the B2 MAJOR entry above.
 - `existing = func(){...}` where `existing @func(...)...` fails type checking
   with `cannot assign <unknown> to <unknown>`: a bare func literal in
   **assignment** (non-var-init) position does not pick up its managed
