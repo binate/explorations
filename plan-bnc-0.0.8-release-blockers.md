@@ -17,14 +17,18 @@
 > comprehensive `shift-typepair` matrix (`93d6ecd4`). Other gate findings
 > (all handled, none blocking the cut): arm32-baremetal runtime-path
 > regression (fixed `1d95923e`, off the gate per user); native-aa64
-> signed-sub-word spill corruption exposed by the new matrix (xfailed
-> `e2bb1717` + filed MAJOR); native_x64 CI mode-name config bug; and two
+> signed-sub-word load corruption exposed by the new matrix (xfailed
+> `e2bb1717` + filed MAJOR; since RESOLVED 2026-06-11 — binate `4dc78d2e`
+> fix + `446c68bd` boundary tests, all 4 cells un-xfailed); native_x64 CI
+> mode-name config bug; and two
 > stale-path TEST-HARNESS scripts the bootstrap relocation + new bundle
 > layout broke — `e2e/split-paths.sh` bnc leg (`cb7c8762`) and the
 > `fetch-builder` hygiene smoke (`66ad95c8`), both fixed via binate-paths.
 > The E2E split-paths red did NOT self-heal at the BUILDER bump (that
-> prediction was wrong; it was a stale-path bug, now fixed). See
-> `claude-todo.md` for the open follow-up (native-aa64 spill bug).
+> prediction was wrong; it was a stale-path bug, now fixed). The
+> native-aa64 sub-word load follow-up is now RESOLVED (binate `4dc78d2e`);
+> see `claude-todo.md` for the root cause and the arm32 sibling raised
+> during its review.
 
 Investigate and clear the blockers preventing a `bnc-0.0.8` release, then
 cut it. Structured as **three disjoint lanes (A, B, C)** that touch

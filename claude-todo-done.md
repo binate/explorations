@@ -2386,6 +2386,13 @@ no longer resolve in the tree, though git history retains them.
   base+off into X17 when the offset doesn't fit
   (`LdrStrImmFitsUnsigned`). Clean sweep: 29/29 unit-test packages,
   285/285 conformance.
+  - This sweep covered only the six encoders in `aarch64_arith.bn`
+    (`Str`/`Ldr`/`Strb`/`Strh`/`Ldrb`/`Ldrh`); the three sign-extending
+    loads `Ldrsb`/`Ldrsh`/`Ldrsw` in `aarch64_branch.bn` had the
+    identical imm12-wrap bug and were MISSED here, surfacing later as the
+    native-aa64 signed-sub-word miscompile (fixed binate `4dc78d2e`,
+    2026-06-11). A repo-wide grep for the `& 0xfff` offset mask, rather
+    than a per-file pass, would have caught all nine at once.
 - Full inventory + plan of action in `explorations/native-aa64-bugs.md`.
 - CI hookup for `boot-comp_native_aa64`: DONE — added to the `all`
   modeset and the unit/conformance/perf workflows now split the
