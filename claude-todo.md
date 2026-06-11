@@ -13,24 +13,28 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Tests to land with the fix**: conformance cases for (1) `errors.Wrap`-class wide funcval (managed-slice + iface args), (2) indirect-large arg NOT in last position, (3) the 9-scalar-arg funcval (the confirmed aa64 repro). All must pass on LLVM / VM / native aa64 / native x64.
 - **Map**: full subsystem map in the workflow output (dispatch caller already spills; VM dispatch caps at `a0..a6` = 7 words via `rt._call_shim_*`, so a >7-word funcval would ALSO need the VM helpers widened — `errors.Wrap` at 3 effective words is well under, so not blocking).
 
-### `_Package()` is incomplete: no unqualified form + VM works only for the 4 builtins — 🔴 OPEN
+### `_Package()`: bytecode VM works only for the 4 builtins (Gap 2; unqualified form ✅ FIXED) — 🔴 OPEN
 
 The compiler synthesizes a `_Package() @reflect.Package` accessor per package
 returning the package's immortal static-managed descriptor (Phase B,
 notes-package-introspection.md).  `codegen/emit_pkg_descriptor.bn` (+
 `native/{x64,aarch64}/_pkg_descriptor.bn`) emit it as a NATIVE function; the
-checker synthesizes its signature in the QUALIFIED-access arm only
-(`check_expr_access.bn:171`).  Two gaps, surfaced 2026-06-11 by writing
+checker synthesizes its signature in BOTH the qualified-access arm
+(`check_expr_access.bn`) and the unqualified `checkIdent` arm
+(`check_expr.bn`).  Two gaps, surfaced 2026-06-11 by writing
 `conformance/708_reflect_package_all_kinds` (user-requested "every package has a
 `_Package`" coverage):
 
-- **Gap 1 — no unqualified form (checker; being fixed now per user).** The checker
-  only resolves `_Package` under `pkg._Package` (qualified).  An UNQUALIFIED
-  `_Package()` (the current package's own) is `undefined: _Package`.  Per the
-  user, `_Package()` should behave like a normal exported function in each
-  package — callable unqualified within AND qualified from importers.  Fix: add
-  the unqualified arm in the checker (codegen already emits the function, so it
-  resolves).  Compiled modes get it immediately; VM still hits Gap 2.
+- **Gap 1 — no unqualified form (checker) — ✅ FIXED (binate `1164ef04`).** An
+  UNQUALIFIED `_Package()` (the current package's own accessor) was `undefined:
+  _Package`; now it type-checks and lowers like a normal exported function,
+  callable unqualified within AND qualified from importers.  `checkIdent`
+  (`check_expr.bn`) synthesizes the `() @reflect.Package` type; IR-gen's
+  `registerCurrentModulePackageAccessor` (`gen_import.bn`) registers the current
+  module's `_Package` FuncSig so the bare-ident call path lowers it to the local
+  symbol `emit_pkg_descriptor.bn` emits.  Compiled modes only — VM still hits
+  Gap 2.  Pinned by `conformance/709_reflect_package_unqualified` (compiled PASS,
+  3 VM modes xfailed for Gap 2).
 - **Gap 2 — VM works only for builtins (MAJOR VM-backend project; DEFERRED).**
   `_Package()` is emitted only as a native function; the bytecode VM reaches
   `_Package` ONLY for the four builtin packages, via the HARDCODED externs in
@@ -40,7 +44,11 @@ checker synthesizes its signature in the QUALIFIED-access arm only
   its static-managed descriptor as BYTECODE per package (the VM equivalent of
   `emit_pkg_descriptor`) so the VM runs it directly, dropping the
   hardcoded-builtin extern table.  Major VM-backend work — the user explicitly
-  deferred this.
+  deferred this.  (Subsumes a sibling asymmetry: `cmd/bni` does not force-load
+  reflect the way `cmd/bnc` does — `ensureReflectLoaded` is cmd/bnc-only — so
+  reflect-dependent type-checking under the VM needs an explicit reflect import;
+  709 imports reflect for exactly this reason.  When the VM emits `_Package`, it
+  will force-load reflect too.)
 - **Test**: `708_reflect_package_all_kinds` pins `<pkg>._Package().Name` == import
   path for a user package + all four builtins + a stdlib package.  PASSES on the
   3 compiled modes; **xfailed on the 3 VM modes** (`-int`/`-int-int`/`-comp-int`)
