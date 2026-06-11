@@ -13,6 +13,39 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 - **Tests to land with the fix**: conformance cases for (1) `errors.Wrap`-class wide funcval (managed-slice + iface args), (2) indirect-large arg NOT in last position, (3) the 9-scalar-arg funcval (the confirmed aa64 repro). All must pass on LLVM / VM / native aa64 / native x64.
 - **Map**: full subsystem map in the workflow output (dispatch caller already spills; VM dispatch caps at `a0..a6` = 7 words via `rt._call_shim_*`, so a >7-word funcval would ALSO need the VM helpers widened — `errors.Wrap` at 3 effective words is well under, so not blocking).
 
+### `_Package()` is incomplete: no unqualified form + VM works only for the 4 builtins — 🔴 OPEN
+
+The compiler synthesizes a `_Package() @reflect.Package` accessor per package
+returning the package's immortal static-managed descriptor (Phase B,
+notes-package-introspection.md).  `codegen/emit_pkg_descriptor.bn` (+
+`native/{x64,aarch64}/_pkg_descriptor.bn`) emit it as a NATIVE function; the
+checker synthesizes its signature in the QUALIFIED-access arm only
+(`check_expr_access.bn:171`).  Two gaps, surfaced 2026-06-11 by writing
+`conformance/708_reflect_package_all_kinds` (user-requested "every package has a
+`_Package`" coverage):
+
+- **Gap 1 — no unqualified form (checker; being fixed now per user).** The checker
+  only resolves `_Package` under `pkg._Package` (qualified).  An UNQUALIFIED
+  `_Package()` (the current package's own) is `undefined: _Package`.  Per the
+  user, `_Package()` should behave like a normal exported function in each
+  package — callable unqualified within AND qualified from importers.  Fix: add
+  the unqualified arm in the checker (codegen already emits the function, so it
+  resolves).  Compiled modes get it immediately; VM still hits Gap 2.
+- **Gap 2 — VM works only for builtins (MAJOR VM-backend project; DEFERRED).**
+  `_Package()` is emitted only as a native function; the bytecode VM reaches
+  `_Package` ONLY for the four builtin packages, via the HARDCODED externs in
+  `vm/extern_register_std.bn`.  A user/stdlib package compiled to bytecode has no
+  native `_Package` symbol → `vm: extern not found: <pkg>._Package`.  The extern
+  approach CANNOT work for bytecode-compiled packages.  Fix: emit `_Package()` +
+  its static-managed descriptor as BYTECODE per package (the VM equivalent of
+  `emit_pkg_descriptor`) so the VM runs it directly, dropping the
+  hardcoded-builtin extern table.  Major VM-backend work — the user explicitly
+  deferred this.
+- **Test**: `708_reflect_package_all_kinds` pins `<pkg>._Package().Name` == import
+  path for a user package + all four builtins + a stdlib package.  PASSES on the
+  3 compiled modes; **xfailed on the 3 VM modes** (`-int`/`-int-int`/`-comp-int`)
+  for Gap 2 (int-int also hits the pre-existing multi-package double-VM failure).
+
 ## CR-2 Plan-1 Round-2 + Plan-A — closing adversarial review (2026-06-09): SIBLING gaps in the just-landed fixes
 
 A 28-agent adversarial review of the 9 landed CR-2 Round-2 + Plan-A fixes (the same review style that found the Round-1 siblings) — verdicts triaged below against the code + (where noted) runtime probes. **Headline: the recurring pattern recurred — several of THIS round's fixes peeled/guarded SOME sites sharing a root cause and left siblings broken.** All are PRE-EXISTING/latent (variants the landed fixes didn't cover; none is a regression from the fixes — they're the *un*covered cousins). Filed per the bug-discovery protocol; **fix decisions are the user's.**
