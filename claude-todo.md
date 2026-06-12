@@ -1619,6 +1619,28 @@ conformance tree.
 - Follow-up to landing `pkg/std/os` (binate `3ca36c82`), which shipped
   with libc unit tests only — conformance was deferred here per the user.
 
+### Two generics v1-restrictions not enforced — spec Ch.12 (2026-06-12)
+Found authoring spec Ch.12 (verified via toolchain probes through
+builder-comp). Both MAJOR (the spec implies these are enforced; they
+aren't) but neither miscompiles.
+- **Generic methods accepted at declaration** (`gen.no-generic-methods.unenforced`).
+  `func (b Box) Get[T any](x T) T {...}` compiles clean: `parse_func.bn:34-37`
+  reads the type-param list whether or not a receiver is present, and
+  `check_decl_func.bn:122-127` / `resolve_type.bn:201-242` type-check the body
+  with `T` in scope. It only fails (confusingly: "cannot index this type") at a
+  call site `b.Get[int](42)`, because `b.Get` is a selector so `[int]` is parsed
+  as indexing. Should be rejected at collection time (`DECL_FUNC` with
+  `Recv != nil && len(TypeParams) > 0`). IR-gen even documents the unenforced
+  assumption (`gen_register_import.bn:99-102`).
+- **Constraint satisfaction unchecked for generic struct/interface instantiation**
+  (`gen.satisfy.struct-iface-unchecked`). `typeSatisfiesConstraint`/
+  `reportConstraintMiss` are called ONLY from `instantiateGenericFunc`
+  (`check_generic.bn:259-264`); `buildInstantiatedStruct` (:196-218) and
+  `buildInstantiatedInterface` (:115-138) install the type-param scope but make
+  NO satisfaction call. So `type Box[T lang.Orderable] struct{val T}`
+  instantiated as `Box[NoOrder]` (no `impl NoOrder : Orderable`) compiles clean.
+  Generic-FUNCTION constraint checking works correctly.
+
 ### Zero-parameter functions accept any number of arguments — spec Ch.10 (2026-06-12)
 MINOR (over-permissive arity check; extra args are evaluated then discarded —
 not a miscompile, but should be a diagnostic). `check_expr.bn:369` keys the
