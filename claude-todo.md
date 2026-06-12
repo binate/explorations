@@ -3492,6 +3492,37 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
       `is64BitScalar(instr.Typ) && REG_SLOT < 8`.
     - `769d2e54`: gate test for OP_CONST_FLOAT — confirms 64-bit
       host falls back to `BC_LOAD_IMM` (no spurious pair branch).
+  - **REMAINING GAP — int64 side of int↔float CONVERSION casts is NOT
+    pair-aware (latent; surfaced 2026-06-12 by the int↔float32 VM-fix
+    review).** The "DONE" above covers float *arith/compare* pairs and
+    the *float* side of conversions; it does NOT cover an int64/uint64
+    operand of a `cast` to/from a float:
+    - int→float SOURCE side (`BC_SITOF`/`BC_UITOF`/`BC_SITOF32`/
+      `BC_UITOF32`): the handlers read the int source as a single slot
+      (`regs[instr.Src1]`) and `lowerCast`'s int→float arm has no
+      `is64BitScalar(srcTyp) && REG_SLOT < 8` check, so `cast(float*,
+      <int64>)` on a 32-bit host drops the source's high half. (These
+      handlers ARE dest-pair-aware for the float64 result — the
+      asymmetry is source-only.)
+    - float→int DEST side (`BC_FTOSI`/`BC_FTOUI`/`BC_F32TOSI`/
+      `BC_F32TOUI`): the handlers write a single dest slot via
+      `cast(int, f)` (host int) and `lowerCast`'s float→int arm has no
+      `is64BitScalar(dstTyp)` check, so `cast(<int64/uint64>, <float>)`
+      on a 32-bit host leaves the dest's high slot stale (and truncates
+      through a 32-bit host int). (These handlers ARE source-pair-aware
+      for a float64 source — the asymmetry is dest-only.)
+    Latent, not a live miscompile: no conformance mode runs the bytecode
+    VM on a 32-bit host (the `-int` legs run `bni` natively on the
+    64-bit build host; arm32 modes are comp/native, not VM), and the
+    arm32 `pkg/vm` unit tests don't exercise int64↔float conversion
+    casts. NOT introduced by the int↔float32 fixes (`289420b6`/
+    `3fd7e712`) — the new float32 ops faithfully mirror the existing
+    single-slot float64 ones. Fix (to land before/with any arm32
+    VM-host enablement): add `is64BitScalar` gates in both conversion
+    arms of `lowerCast` and pair-aware source/dest handling
+    (`joinInt64`/`splitInt64`) in the eight handlers, plus direct
+    `execNumericCast` unit tests in `vm_exec64_test.bn` driving a
+    pair-wide int64 source and dest.
   - **End-to-end arm32 coverage status (2026-05-28)**:
     - `pkg/vm` source compiles cleanly on arm32 (since `ba1a798`).
     - Conformance `builder-comp_arm32_linux`: green.
