@@ -1131,7 +1131,7 @@ form); cross-shape smoothing applies:
   unsupported by design, see plan-function-values-phase-2.md). The
   compiler stays silent (errors-only policy); the linter flags it.
   Implemented in `pkg/binate/lint/recursive_closure_capture.bn`
-  (binate `8bb0c4fe`, on the worktree, pending cherry-pick).
+  (binate `b634773d`).
 
 Cross-reference: [plan-function-values-phase-2.md](plan-
 function-values-phase-2.md) for the implementation slices
