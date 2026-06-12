@@ -5036,3 +5036,16 @@ The audit re-verified its own findings at runtime; **note a concurrent worker cl
 - **DECIDED 2026-06-10 (accept the consistency fix) — front-end over-rejection: `@[]T → readonly *[]T` / `@T → readonly *T` rejected**: `var x readonly *[]readonly char = someManagedSlice` is rejected on all four backends ("cannot assign @[]uint8 to readonly *[]readonly uint8"), but the non-readonly `@[]T → *[]T` managed→raw decay IS accepted. Root: `types/types_assignable.bn` `AssignableTo` — the `@[]T→*[]T` and `@T→*T` decay arms test the UNPEELED `dst.Kind` (so `readonly *[]T` whose Kind is the wrapper falls through to `return false`), whereas the interface-value arms just below peel via `resolveAliasAndConst` first. **The user ratified the fix** (the asymmetry is a gap; readonly is strictly more restrictive on capability, so it should decay the same): peel readonly/alias off `dst` before the `TYP_SLICE` / `TYP_POINTER` kind tests (reuse the resolved `d` the iface arms compute), plus `pkg/binate/types` checker unit tests asserting `@[]T` / `@T` assign to `readonly *[]T` / `readonly *T`. NOT YET IMPLEMENTED. Also unblocks `coerceArg`'s managed→raw readonly-peel (binate `487fb95c`).
 - **FALSE POSITIVE (recorded so it isn't re-chased)** — "readonly float binop emits integer add": reported wrong by an audit agent (LLVM 2.0625 / native 0.0) but NOT reproducible — `readonly MyFloat` arithmetic gives correct `4.0` on all four backends in clean re-runs (local-var and param variants). The agent's run was contaminated by the concurrent `/tmp` clobbering noted above. `codegen` `unwrapNamed` not peeling readonly is real in the source, but the binop's IR operand/result types arrive already peeled, so it does not manifest.
 - **RE-CONFIRMATION (already tracked)** — VM `int → float32` cast yields 0 (compiler backends correct). This is the existing `vm-int-to-float32` bug, already xfailed via `conformance/matrix/scalar` int-to-float cells; the audit independently re-confirmed it via a minimal reproducer. No new action.
+
+## P3 — low-priority follow-ups
+
+### `os` errors carry only the op, not the failing path (P3)
+`pkg/std/os` `failErrno(op)` renders e.g. `"open: not found"`, but
+plan-std-error-hierarchy.md §7 specifies context `(path, op)` —
+`"open /etc/foo: not found"`. The path is available in `OpenFile`'s `name`
+param (Create/Open delegate to it); `read`/`write`/`seek` operate on an fd and
+have no path, so op-only is correct there. Add the failing path to the open
+family's error context (e.g. a path-aware wrapper, or `failErrno(op, path)`).
+Deferred 2026-06-11 (user: op-only acceptable for now) — low impact (message
+richness, not classification). Tests: extend the `TestOpen*Classified` cases
+to assert the path appears in the rendered message.

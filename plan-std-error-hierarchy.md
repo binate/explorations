@@ -170,9 +170,17 @@ NOT a `wrappedError` (which renders `"ctx: cause"`).
 ## 7. `os` errno → base mapping
 
 Replaces `os`'s message-only errors. The libc impl reads `errno` via the
-per-platform function selected at compile time by `build.OS` (`__error()` on
-Darwin, `__errno_location()` on Linux), then wraps the right base with
-context (path, op).
+platform's errno-location function — `__error()` on Darwin,
+`__errno_location()` on Linux. That **symbol** can't be picked by a `build.OS`
+branch: a `__c_call` symbol must *link*, and a branch references both, so the
+wrong-OS one fails to link. It is selected per target by a tiny
+`pkg/std/os/internal` package supplied from `impls/targets/<key>/` (the
+errno-location is the only per-OS *symbol*; this is also what motivated
+extending the per-target tree to impls). The errno NUMERIC **values** (a few
+differ per OS) *do* fold under `build.OS`, so they stay a `build.OS` table,
+verified against the real `<errno.h>` on each OS by `e2e/errno-values.sh`. The
+mapped base is wrapped with the op as context (e.g. `"open: <base>"`); adding
+the failing path is a P3 follow-up.
 
 **This is the per-operation *default*, not a global truth.** Several errnos
 are multi-meaning (`ENXIO`, `EBUSY`, `EAGAIN`, `EPERM`, `ENOTDIR`); a
@@ -243,9 +251,9 @@ enforced by a hygiene check whitelisting `New` to base/root definitions.
 **C. Defects (`EBADF`/`EFAULT`). ✅ RESOLVED.** No defect node (one would
 invite recovery handlers to swallow bugs). True defects **panic** — consistent
 with Binate aborting on bounds / div-by-zero. The `os` impl routes every
-syscall failure through one `failErrno(errno, op, path)` helper that panics on
-`EBADF`/`EFAULT` (and other defect errnos) *before* calling a pure, total
-`errnoToError(errno) → @Error` mapper for the rest — centralizing the panic
+syscall failure through one `failErrno(op)` helper that reads errno and panics
+on `EBADF`/`EFAULT` (and other defect errnos) *before* calling a pure, total
+`errnoToBase(errno) → @Error` mapper for the rest — centralizing the panic
 (can't forget it at a syscall site) while keeping the mapper side-effect-free
 and testable. A defect surfaced rather than aborted is `Unknown`, never
 `InvalidArgument`.
@@ -268,9 +276,11 @@ not treat `NotFound` as proof of access.
 - `io`: re-root `io.EOF` as the base-type object (NOT a one-line edit; NOT
   `Wrap` — §4).
 - `os` (libc): construct errno-derived errors rooted in bases (§7), replacing
-  the `errors.New("os: …")` strings; read errno per-platform via `build.OS`,
-  through one `failErrno(errno, op, path)` helper (panics on defect errnos;
-  else wraps a pure `errnoToError` mapper — §8.C).
+  the `errors.New("os: …")` strings; read errno via a per-target
+  `pkg/std/os/internal` (errno-location symbol; §7) and select the per-OS
+  errno *values* with `build.OS`, through one `failErrno(op)` helper (panics
+  on defect errnos; else wraps a pure `errnoToBase` mapper — §8.C). EINTR is
+  auto-retried in the syscall wrappers, not surfaced.
 - `strconv`: split syntax (`BadData`) vs overflow (`OutOfRange`).
 - Hygiene check: `errors.New(` only at whitelisted base/root sites (§1), which
   is how "every returned stdlib error roots in a base" is enforced.
