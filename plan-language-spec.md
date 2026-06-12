@@ -99,6 +99,13 @@ commit):**
 - §10 Functions/Methods (`10-...md` + `10b-function-values.md`), §11 Interfaces/
   impl/Self (CRITICAL dispatch defects found RESOLVED), §12 Generics/Enumerations,
   §13 Expressions (Phase 2, §10–§13 of §10–§15).
+- **Full adversarial review of §3–§13 done** (2026-06-12, docs `f7f1152`):
+  13 reviewers re-read live `pkg/binate` source + cross-chapter consistency;
+  ~30 findings (1 blocker, 7 major, the rest minor/nit) triaged, the load-bearing
+  ones firsthand-verified, corrections applied across all 14 spec files +
+  `conventions.md`. One reviewer finding (a "stale `present` todo") was a verified
+  FALSE POSITIVE (the todo's DONE header already covers it). New ledger item:
+  `expr.unary.addr-literal` (`&5` not diagnosed).
 
 **Remaining:** Phase 2 — §14 Statements, §15 Built-in Operations. Then Phase 3
 (§16 Packages, §17 Program init/exec), Phase 4 (§18 Memory model, §19 Execution/
@@ -112,10 +119,13 @@ indexed array literals silently miscompiled + array over-count out-of-bounds
 writes (Ch.13); generic methods/struct-constraints unenforced (Ch.12); the
 const→readonly and grammar-staleness reconciliations.
 
-**NEXT (per user, 2026-06-12):** run an adversarial review of all authored
-chapters (§3–§13) against current ground truth + cross-chapter consistency
-(extend the Phase-1 review to the Phase-2 chapters), apply corrections, then
-continue authoring §14 → §15.
+**NEXT (per user, 2026-06-12):** the full §3–§13 adversarial review is **done**
+and corrections are landed (docs `f7f1152`). Continue authoring the rest of
+Phase 2: **§14 Statements**, then **§15 Built-in Operations**. (Open follow-ups
+for the user, not blocking authoring: no xfail conformance coverage yet for the
+two MAJOR generics gaps — `gen.no-generic-methods.unenforced`,
+`gen.satisfy.struct-iface-unchecked` — per the Bug Discovery Protocol; needs a
+coordinated `binate` worktree.)
 
 ---
 

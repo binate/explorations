@@ -137,6 +137,17 @@ element `i` at index `i`.
   (`check_expr_composite.bn:73-79` checks keyed but not positional values).
 All referenced from `13-expressions.md`.
 
+### `&` of a literal constant is not diagnosed — spec Ch.13 (2026-06-12) — 🔴 OPEN
+MINOR (missing diagnostic). Found + verified firsthand re-reviewing spec Ch.13.
+`checkUnaryExpr`'s `&` branch (`check_expr.bn:300-321`) rejects address-of only
+for an `EXPR_IDENT` or `EXPR_SELECTOR` resolving to `SYM_CONST` (a *named*
+constant); a bare literal operand (`&5`, `EXPR_INT_LIT`) matches neither gate and
+falls through to `return MakePointerType(xt)`, so `&5` type-checks clean with no
+diagnostic (IR-gen behavior for the resulting non-addressable operand is
+unverified — likely a downstream error). A literal has no storage, so it should
+be rejected like a named constant. Fix: also reject `&` of a literal operand.
+`expr.unary.addr-literal` in `13-expressions.md`. No test.
+
 ### D4 composite-literal-in-condition paren-escape does not work — spec Ch.13 (2026-06-12) — 🔴 OPEN
 MINOR (parser strictness). Grammar D4 (and Go) say a composite literal may be
 used in an `if`/`for`/`switch` condition by parenthesizing it (`if (Point{1,2})
