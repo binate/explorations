@@ -4,6 +4,51 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR — `cast(int, float)` for non-finite / out-of-range floats is platform-dependent (undefined; a hole in the "no UB" promise)
+
+- **Symptom**: converting a float that is `±Inf`, `NaN`, or outside the integer
+  range to an int yields a **different value per target ISA**, with no defined
+  contract:
+  - **arm64** (`FCVTZS`/`FCVTZU`) *saturates*: `+Inf → INT64_MAX`, `-Inf →
+    INT64_MIN`, `NaN → 0`.
+  - **x86-64** (`CVTTSD2SI`) returns the "integer indefinite" `INT64_MIN`
+    (`0x8000…0000`) for ALL out-of-range/non-finite inputs.
+  - **LLVM text backend** emits raw `fptosi`/`fptoui` (not `llvm.fptosi.sat`) →
+    out-of-range/NaN is **poison/undef**.
+- **Discovery trigger (2026-06-12)**: wiring the `binate/examples` minbasic NBS
+  e2e suite to CI. minbasic converts an overflowed BASIC number (machine `+Inf`)
+  to an integer index via `cast(int, roundf(evalNum(...)))` for an array
+  subscript (NBS P168), an `ON…GOTO` index (P180), and a `TAB` column (P174). On
+  arm64 the macOS-frozen fixtures show `9223372036854775807` (= `INT64_MAX`,
+  arm64 saturation); on the x86-64 Linux CI runner the same programs produce
+  `INT64_MIN`. compiled == interpreted on *each* platform, but the two platforms
+  disagree. (minbasic now skips those 3 programs with its own follow-up TODO; the
+  "right integer to print" is moot once this is defined.)
+- **Root cause / confirmation** (source-level audit): every backend emits the
+  bare truncating-convert with no saturation/range/NaN normalization —
+  `pkg/binate/native/aarch64/aarch64_float.bn:275-290` (`FCVTZS`/`FCVTZU`),
+  `pkg/binate/native/x64/x64_float.bn:366-409` (`CVTTSD2SI`),
+  `pkg/binate/codegen/emit_ops.bn:280-294` (`fptosi`/`fptoui`, not `.sat`). The
+  VM does a bare `cast(int, f)` (`pkg/binate/vm/vm_exec_helpers.bn:226-258`), so
+  it inherits the host ISA's behavior too. `conformance/gen-diff-scalar.py:26-33`
+  **deliberately excludes** "out-of-range float→int, and NaN/±Inf → int" as
+  "hardware semantics → target-dependent, so there is no single target-stable
+  expected to assert." The only spec statement is `claude-notes.md:483` ("`cast`
+  … wraps/truncates — hardware semantics, well-defined"), whose examples are all
+  int↔int; float→int out-of-range is **not** in the implementation-defined
+  catalogue (`plan-language-spec.md` §21) — so it is neither pinned nor
+  catalogued, a genuine gap in the otherwise-emphatic "no UB" promise.
+- **Proposed fix (owner decides the contract)**: make it well-defined. Most
+  natural is **saturation + NaN→0** (the arm64 `FCVTZS` contract, so arm64 is
+  already conformant): use `llvm.fptosi.sat`/`fptoui.sat` on the LLVM path, and
+  add a saturation/NaN guard around `CVTTSD2SI` (x64) and the VM's `cast(int,f)`.
+  Alternative: trap. Either way, compiler and VM must agree per-target AND across
+  targets once defined. Then **add the now-excluded conformance coverage**
+  (out-of-range, `±Inf`, `NaN` → every int width, signed + unsigned) and either
+  pin the value or list it in §21.
+
+---
+
 ## MAJOR — native funcval shim marshalling used `ArgWords`, not the CallConv classifier — x64 false-rejected, aa64 SILENTLY MISCOMPILED (✅ NON-CLOSURE shim RESOLVED — Stage A + Stage B + B0 force-emit landed on main `cd417081`, 2026-06-11)
 
 > The NON-closure funcval shim bug is fixed and landed. What remains: the
