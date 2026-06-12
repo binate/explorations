@@ -1533,6 +1533,19 @@ conformance tree.
 - Follow-up to landing `pkg/std/os` (binate `3ca36c82`), which shipped
   with libc unit tests only — conformance was deferred here per the user.
 
+### `cast` is unchecked at the type layer; literal fit-check not enforced — spec Ch.8 (2026-06-12)
+MINOR (a permissiveness / missing-diagnostic question). `claude-notes.md:483`
+says `cast(uint, -1)` is a compile error (literal doesn't fit). The
+type-checker does NOT enforce this: `check_builtin.bn:48-54` resolves the
+target type, checks the argument for well-formedness, and returns the target
+type **unconditionally** — no convertibility check, no constant fit-check
+(`bit_cast` likewise, :56-62). IR-gen (`gen_expr.bn`) only re-widens the
+literal. So `cast(uint, -1)` is accepted. (The fit-check on a plain assignment
+— `var x uint8 = 256` → error — IS enforced, via `untypedIntLitFitsTarget`;
+that path is separate.) Decide: add a fit-check (and/or convertibility check)
+to `cast`, or update `claude-notes.md:483`. Tracked as `conv.cast.literal-fit`
+in the spec (`08-conversions.md`).
+
 ### Type-system issues surfaced while authoring spec Ch.7 (Types) — 2026-06-12
 Found writing the docs spec's Types chapter (grounding + adversarial
 verification against pkg/binate/types). The spec (`07-types.md`)
