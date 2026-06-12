@@ -1592,6 +1592,29 @@ conformance tree.
 - Follow-up to landing `pkg/std/os` (binate `3ca36c82`), which shipped
   with libc unit tests only — conformance was deferred here per the user.
 
+### Zero-parameter functions accept any number of arguments — spec Ch.10 (2026-06-12)
+MINOR (over-permissive arity check; extra args are evaluated then discarded —
+not a miscompile, but should be a diagnostic). `check_expr.bn:369` keys the
+no-arity-check path on `numParams == 0 && numArgs > 0` for the GENERAL call
+path, not just the empty-parameter builtins (print/println/panic). So a user
+`func f()` called as `f(1, 2)` type-checks clean (the args are checked for
+side effects, then ignored; `f` is called with no args). It should be a "too
+many arguments" error. Functions with >=1 parameter correctly require exact
+arity (`check_expr.bn:373`). Rule `func.call.zero-param-arity` in the spec
+(`10-functions-methods-function-values.md`).
+
+### Value-receiver "always readonly" not enforced — spec Ch.10 (2026-06-12)
+MINOR (design-intent vs impl; no correctness bug — by-value copy makes any
+mutation harmless). `claude-notes.md:359` says a value receiver `(r T)` is
+"always readonly". The checker does NOT enforce it: `receiverShape`
+(`check_method.bn:251-285`) classifies a plain `(r T)` as kind 0 with
+`isObjectConst=false`, and no pass rejects `r.field = ...` in the body — the
+mutation just modifies the discarded copy. Decide: enforce read-only on value
+receivers (a checker addition + a diagnostic), or downgrade the design note to
+"the receiver is a copy; mutations are local" (the implemented semantics, which
+the spec `func.method.value-recv` currently describes). Referenced from
+`10-functions-methods-function-values.md`.
+
 ### Layout follow-ups surfaced authoring spec Ch.7.13 (Type Layout) — 2026-06-12
 Both referenced from the spec (`07b-type-layout.md`).
 - **`type.layout.funcval-order-hardening`** (hardening). The function-value
