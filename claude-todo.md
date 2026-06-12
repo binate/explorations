@@ -1359,16 +1359,31 @@ Discovery Protocol) — most don't have one yet.
   baremetal; the two clusters below are xfailed (verified non-stale via
   `--check-xpass`). Idempotent generator; `int↔int` casts and all shifts pass
   on every real backend (broadened regression net for `32fde83d`).
-- **`vm-int-to-float32` — VM `int → float32` is broken (every width/sign)**:
-  every `cast(float32, <int>)` diverges — even `cast(float32, 1) > 0.0` is
-  false on the VM. `float64` conversions, `float32 → int` truncation, and
-  `float32` literals all work; the 17 xfailed VM cells (all `int-to-float` /
-  `float-to-int` / `float-cast`) fail *only* on their `float32` tuples.
-  Distinct from the now-resolved unsigned→float64 signedness bug above. Likely
-  the VM never implemented (or mis-lowered) the 32-bit-float conversion target.
-  Tests: the 17 cells, xfailed on `builder-comp-int` / `-int-int` /
-  `-comp-comp-int`. Fix: implement/repair `int → float32` in the VM's
-  `lower_cast` (both `BC_SITOF`/`BC_UITOF` to a 32-bit float result).
+- **`vm-int-to-float32` — VM `int → float32` is broken (every width/sign) — ✅ RESOLVED 2026-06-12 (binate `289420b6`)**:
+  every `cast(float32, <int>)` diverged — even `cast(float32, 1) > 0.0` was
+  false on the VM. Root cause: `int → float` lowered to `BC_SITOF`/`BC_UITOF`,
+  which land at **float64**; the VM's float32 register form is the float32 IEEE
+  bits in the low 4 bytes, so the float64 pattern's low word (usually zero) read
+  back as ~0. Fix: fused `BC_SITOF32`/`BC_UITOF32` opcodes that write the
+  float32 bit pattern directly, selected in `lower_cast` when the cast dest is
+  float32 (signedness still picks signed/unsigned). Un-xfailed **16 of 17** VM
+  cells across all 3 VM modes; 3 VM unit tests added (lowering decision ×2 +
+  end-to-end round-trip). The 17th cell (`float-to-int/64/unsigned`) uncovered a
+  **distinct sibling bug** — see `vm-float32-to-unsigned` below — and stays
+  xfailed (reason corrected) until that lands.
+- **`vm-float32-to-unsigned` — VM `float32 → unsigned int` uses the SIGNED conversion — 🔧 IN PROGRESS (2026-06-12)**:
+  surfaced while fixing `vm-int-to-float32`. `lower_cast`'s `float → int` arm
+  picks `BC_F32TOSI` (signed) for a float32 source regardless of dest sign
+  (its comment admitted "float32 → unsigned is not yet exercised; it stays on
+  the signed `BC_F32TOSI`"). So `cast(uint64, <float32 ≥ 2^63>)` saturates to
+  `INT64_MAX` instead of the in-range unsigned value — a *defined* (in-range)
+  conversion miscompiled, MINOR (only float32→uint64 of values ≥ 2^63; the
+  8/16/32-bit unsigned high-bit values fit signed int64 so those cells pass).
+  Pinned by `conformance/matrix/scalar-diff/float-to-int/64/unsigned` (tuple 16,
+  the 2^63 float32 round-trip), xfailed on all 3 VM modes. Fix: the exact mirror
+  of the landed float64→unsigned `BC_FTOUI` — add a `BC_F32TOUI` opcode
+  (`cast(int, cast(uint64, <float32>))`) and pick it in `lower_cast` for a
+  float32 source with an unsigned dest; then un-xfail that cell.
 - **`aa64-subword` — native-aa64 doesn't narrow/sign-extend sub-word results**:
   a sub-word op leaves dirty high bits / wrong sign. `int8(-128) << 1` keeps
   bit 8 set (so `== 0` fails); `cast(int8, 128:uint8)` and the other
