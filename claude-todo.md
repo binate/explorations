@@ -138,7 +138,28 @@ Fix: clear `noCompositeLit` for nested sub-expressions of `(`/`[`/call-args
 (matching Go's exprLev), or amend grammar D4 to state no escape exists.
 `expr.disambiguation.d4-paren` in `13-expressions.md`.
 
-### `_Package()`: bytecode VM works only for the 4 builtins (Gap 2; unqualified form ✅ FIXED) — 🔴 OPEN
+### `_Package()`: bytecode VM works only for the 4 builtins (Gap 2; unqualified form ✅ FIXED; builtin auto-injection ✅ LANDED) — 🔴 OPEN (user-package bytecode `_Package` remains)
+
+> **Update 2026-06-12** — two related pieces landed on main:
+> - **VM injection Part A** (binate `a8ba52f2`): `RegisterStandardExterns` now
+>   auto-enumerates `rt._Package().Functions` (+ empty reflect) via
+>   `registerPackageFunctions`, replacing the hand-maintained rt block. bootstrap
+>   stays hand-bound (deprecation path + extern-heavy; table skips `IsExtern`);
+>   the 3 `_Package` accessors + 2 trampolines stay hand-bound. See
+>   `plan-vm-package-injection.md` Part A.
+> - **`_Package` self-listing** (binate `53ea3875`): every package self-lists its
+>   own `_Package` accessor as the last `Functions` entry (closing the reflection
+>   gap), and `--pkg` compilation force-loads reflect (`ensureReflectLoaded`) so
+>   it holds even for packages that don't import reflect — i.e. `cmd/bnc` now
+>   force-loads reflect on ALL paths (main/test already did; `compileSinglePkg`
+>   now too). fv stashed on `ir.Module.PackageAccessorSig` → byte-identical
+>   LLVM/native entry (Name `<pkg>._Package`, ResultSize 8, ParamSlots 0, Sig
+>   `()(@pkg/builtins/reflect.Package)`). Validated: builder-comp 1395/0,
+>   builder-comp-int 1360/0, reflect byte-identical across LLVM/native-aa64/native-x64.
+> - **Still open (the core Gap 2 below)**: user/stdlib packages compiled to
+>   BYTECODE still have no `_Package` body → Part B (§2a of the VM-injection plan).
+>   The `cmd/bni`-doesn't-force-load-reflect asymmetry below is still accurate
+>   (the fix above is `cmd/bnc`-side only).
 
 The compiler synthesizes a `_Package() @reflect.Package` accessor per package
 returning the package's immortal static-managed descriptor (Phase B,

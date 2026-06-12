@@ -1,8 +1,38 @@
 # Plan: package-level injection into the bytecode VM (Gap-2 VM-backend project)
 
-Status: NOT STARTED (kickoff 2026-06-12). This is the motivating use-case for
-the `_Package()` / `reflect.Package.Functions` work — see
-`plan-package-introspection-phase-b.md` and the B0 entries in `claude-todo.md`.
+Status: **Part A (builtin auto-injection) LANDED 2026-06-12** (binate `a8ba52f2`);
+**Part B (Gap-2 bytecode `_Package`, §2a below) PENDING**. This is the
+motivating use-case for the `_Package()` / `reflect.Package.Functions` work —
+see `plan-package-introspection-phase-b.md` and the B0 entries in
+`claude-todo.md`.
+
+## Part A — LANDED (binate `a8ba52f2`)
+
+`RegisterStandardExterns` (`vm/extern_register_std.bn`) now drives **rt** (and
+the empty **reflect**) through `registerPackageFunctions(vmInst, <pkg>._Package())`
+— enumerate `_Package().Functions` and `RegisterExtern` each entry — replacing
+the hand-maintained per-function rt block. The binding path below was verified
+end-to-end (`fi.Value` is the static `@__handle` block; `fvAddr` and `rawFnAddr`
+both point at it). Per owner decision:
+- **bootstrap stays hand-bound** — it is on the deprecation path and its
+  C-shaped surface is mostly **extern**, which the FunctionInfo table excludes
+  (`emit_pkg_functions.bn` skips `IsExtern`). Don't special-case the table for a
+  package being removed; accommodate the oddity temporarily.
+- The 3 `_Package` accessors stay hand-bound (`registerPackageDescriptorExterns`)
+  — they are the bootstrap that makes enumeration reachable, and (until the
+  self-listing below) were not in any table.
+- The 2 universal trampolines stay hand-bound — table-driving them would pull the
+  whole `pkg/binate/vm` API in as externs.
+
+**Related, also landed 2026-06-12 (binate `53ea3875`): `_Package` self-listing.**
+Every package now self-lists its own compiler-synthesized `_Package` accessor as
+the LAST entry of its `_Package().Functions` table (closing the reflection gap
+where the accessor was absent from its own table), and `--pkg` compilation
+force-loads reflect (`ensureReflectLoaded`) so this holds for packages that don't
+import reflect. The fv (`func() @reflect.Package`) is stashed on
+`ir.Module.PackageAccessorSig` so LLVM + native emit a byte-identical entry. With
+this, Part A's enumeration of `rt._Package().Functions` also re-registers
+`rt._Package` from the table (idempotent over the hand-bound bootstrap binding).
 
 ## Goal
 
