@@ -83,6 +83,40 @@ landed incrementally while the language still changes.
 
 All decisions (D1–D7) resolved. Phase 0 scaffolded; authoring underway.
 
+## Authoring progress (updated 2026-06-12)
+
+The spec lives in the **`docs` repo**, `docs/spec/`. `docs/spec/00-index.md` is
+the live ToC + per-chapter status; this section is a durable summary.
+
+**Authored (each: ground via a Workflow → draft → adversarial-verify → correct →
+commit):**
+- Apparatus: `conventions.md`, `00-index.md`, `binate.ebnf` (placeholder).
+- §3 Terms, §4 Notation (Phase 0 / apparatus).
+- §5 Lexical, §6 Constants, §7 Types (`07-types.md` catalogue + `07b-type-layout.md`
+  keystone, verified clean), §8 Conversions, §9 Declarations & Scope (Phase 1).
+- **Phase-1 adversarial review done** (cross-chapter + current-ground-truth);
+  corrections applied.
+- §10 Functions/Methods (`10-...md` + `10b-function-values.md`), §11 Interfaces/
+  impl/Self (CRITICAL dispatch defects found RESOLVED), §12 Generics/Enumerations,
+  §13 Expressions (Phase 2, §10–§13 of §10–§15).
+
+**Remaining:** Phase 2 — §14 Statements, §15 Built-in Operations. Then Phase 3
+(§16 Packages, §17 Program init/exec), Phase 4 (§18 Memory model, §19 Execution/
+dual-mode), Phase 5 (§20 Tier-0 packages, §21 Behavior catalogue, Annexes A–D).
+Prerequisites still pending: the grammar reconciliation (→ `binate.ebnf`/Annex A)
+and the `pkg/rt` review (→ §20.2).
+
+**Spec-as-audit:** authoring has surfaced ~18 real implementation discrepancies/
+defects, all tracked in `claude-todo.md` (search "spec Ch."). Notable MAJOR:
+indexed array literals silently miscompiled + array over-count out-of-bounds
+writes (Ch.13); generic methods/struct-constraints unenforced (Ch.12); the
+const→readonly and grammar-staleness reconciliations.
+
+**NEXT (per user, 2026-06-12):** run an adversarial review of all authored
+chapters (§3–§13) against current ground truth + cross-chapter consistency
+(extend the Phase-1 review to the Phase-2 chapters), apply corrections, then
+continue authoring §14 → §15.
+
 ---
 
 ## 1. Which spec is this? (the multi-spec map)
