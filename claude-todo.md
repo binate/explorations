@@ -2309,12 +2309,18 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   too.  Full native aa64 lane: 498 passed, 0 failed.  Unit tests:
   `aarch64_global_ref_test.bn`.  573's VM (`-int`) xfails are unaffected
   (the separate shared-globalReg bug, another worker's).
-- **x64 parity still OPEN**: the structurally-identical gap exists in
-  `pkg/binate/native/x64` value-operand sites (emitStore value, the call /
-  return / compare emitters) — no x64 native lane in CI catches it, so it
-  is a latent silent-wrong-value-operand bug there.  Fix with the same
-  `emitValOperand`-style helper (a `getValOperand` mirroring the LLVM
-  `emitValRef` fix); the x64 root-cause + site map is already scoped.
+- **x64 parity — ✅ DONE (this bullet was stale; superseded by the x64
+  `emitValOperand` work, RESOLVED & LANDED 2026-06-08, see the "`551`/`573`
+  native-aa64 `&G`-as-rvalue" + "Global address (`&G`) as an rvalue dropped at
+  `OP_CAST`" entries above).** x64 added its own `emitValOperand`
+  (`x64_regmap.bn`) and routes EVERY value-operand site through it — store value
+  (`x64_emit.bn`), direct / indirect / func-value / iface-method call args
+  (`x64_call.bn`, `x64_call_indirect.bn:77/267`, `x64_iface.bn:119`), `OP_RETURN`
+  single / sret-multi (`x64_return.bn:61`), comparison operands (`x64_ops.bn:254`),
+  and the `OP_BIT_CAST` source (`x64_dispatch.bn:306`).  Re-audited 2026-06-11
+  (every value-operand site confirmed on `emitValOperand`); `551`/`573` have no
+  x64 xfail markers and pass on `native_x64_darwin` (and run in CI's native
+  x86_64-linux `builder-comp_native_x64-comp_native_x64` lane).
 
 ### `550` native @func capture-record refcount — FIXED 2026-06-04 (binate `7dab4be7`; split `879fe3a1`) — pending cherry-pick
 - **Symptom**: a capturing `@func`'s captured managed value was not
