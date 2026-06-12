@@ -99,6 +99,45 @@ Retire the bespoke `buf.CharBuf` byte-buffer for the stdlib `strings.Builder`.
   - **Remaining for B0**: nothing in B0 step 3 — done. (Whole-package auto-injection / dropping the VM's hardcoded extern table is the Gap-2 VM-backend project, separately deferred.)
 - **Closure-shim cousins — FOLLOW-UP (not Stage B; user owns)**: the closure shims (`emitClosureShimFast_*` / `emitClosureShimStackSpill_*` / the closure-aggregate shims) (1) still count USER words via raw `ArgWords` (the indirect-large divergence, per line 10), and (2) don't marshal float-scalar USER args GP→FP at all (the non-closure shim does). Both are latent miscompiles for closures with managed-slice/iface or float params. B0's force-emit only emits NON-closure triples (top-level exported funcs aren't closures), so these don't block B0 — Stage B has now landed, so this is a ready-to-pick follow-up (the non-closure spill in `*_funcvalue_spill.bn` is the reference to mirror).
 
+### Array composite-literal defects (indexed silent-miscompile; over-count OOB write) — spec Ch.13 (2026-06-12) — 🔴 OPEN
+Found + verified firsthand authoring spec Ch.13 (read the type-check +
+IR-gen; not run, but the code path is conclusive). Two MAJOR array-literal
+defects; the type checker `checkArrayLit` (`check_expr_composite.bn:84-91`)
+iterates elements positionally, never reading `el.Key`, and never checks
+element count against `ArrayLen`; IR-gen `gen_composite.bn:149-152` stores
+element `i` at index `i`.
+- **Indexed array literals silently MISCOMPILE** (`expr.composite.array.indexed`,
+  MAJOR wrong-code). `[5]int{1: 10, 3: 30}` is DECIDED (claude-notes.md:801) to
+  mean `{0,10,0,30,0}`, but the keys are ignored and values stored positionally
+  → `{10,30,0,0,0}`. Silent wrong values, no diagnostic, no test. Fix: in
+  checkArrayLit/genArrayLit, when an element has a Key, fold it to a const index
+  and place the value there (validate `index < N`, detect duplicates), zero-fill
+  gaps — OR reject indexed-array syntax outright (user's call).
+- **Array over-count not rejected → OUT-OF-BOUNDS stack writes**
+  (`expr.composite.array.overcount`, MAJOR, latent memory-unsafety). `[3]int{1,2,3,4,5}`
+  is accepted; `gen_composite.bn:149-152` emits stores at indices 0..4 into a
+  3-element alloca → 2 out-of-bounds stack writes. Should be "too many elements
+  in array literal". No test. (Struct over-count has a benign analogue: extra
+  positional values silently discarded — should also error.)
+- **Inferred-length `[...]T{...}` NOT IMPLEMENTED** (`expr.composite.array.inferred-len`).
+  DECIDED (claude-notes.md:798) but the checker rejects it ("array length must be
+  a constant integer"). Either wire it (substitute `len(Elems)` for the `...`
+  marker) or mark deferred.
+- **(minor) Positional struct-literal elements are not assignability-checked**
+  (`check_expr_composite.bn:73-79` checks keyed but not positional values).
+All referenced from `13-expressions.md`.
+
+### D4 composite-literal-in-condition paren-escape does not work — spec Ch.13 (2026-06-12) — 🔴 OPEN
+MINOR (parser strictness). Grammar D4 (and Go) say a composite literal may be
+used in an `if`/`for`/`switch` condition by parenthesizing it (`if (Point{1,2})
+== p`). But `noCompositeLit` is a single sticky boolean never cleared on
+entering parentheses/call-args/index brackets/composite-lit bodies
+(`parse_primary.bn:178-183` calls parseExpr without saving/clearing it), so the
+documented escape is suppressed too — the workaround doesn't actually work.
+Fix: clear `noCompositeLit` for nested sub-expressions of `(`/`[`/call-args
+(matching Go's exprLev), or amend grammar D4 to state no escape exists.
+`expr.disambiguation.d4-paren` in `13-expressions.md`.
+
 ### `_Package()`: bytecode VM works only for the 4 builtins (Gap 2; unqualified form ✅ FIXED) — 🔴 OPEN
 
 The compiler synthesizes a `_Package() @reflect.Package` accessor per package
