@@ -24,12 +24,12 @@ libc-vs-freestanding, backend (LLVM / native-aa64 / native-x64), engine
 user-defined tags. Spelled as a `#[build(EXPR)]` annotation on the element:
 
 ```binate
-#[build(arch == "arm32")] func barrier() { /* … */ }
-#[build(arch != "arm32")] func barrier() { /* … */ }
+#[build(is(arch, "arm32"))] func barrier() { /* … */ }
+#[build(!is(arch, "arm32"))] func barrier() { /* … */ }
 
-#[build(os == "linux")] import "pkg/std/os/linux_internal"
+#[build(is(os, "linux"))] import "pkg/std/os/linux_internal"
 
-#[build(ptrsize == 8)] const WORD_MASK uint = 0xFFFFFFFFFFFFFFFF
+#[build(ptrsize >= 8)] const WORD_MASK uint = 0xFFFFFFFFFFFFFFFF
 ```
 
 A file-wide constraint is just the annotation on the `package` clause — the
@@ -56,6 +56,34 @@ per-*field* gating (the attachment model anticipates them — `#[likely] if`,
    consts and target-specific data structures — which relaxes
    `pkg-layout-spec.md` Invariant 1 in that one spot (§4.3).
 5. **Inline asm lives in its own doc** and merely references this substrate.
+6. **A clause is `is(predicate, "tag")`, a membership test — not `==`.** A
+   target sits in an *overlapping set* of descriptors (an aarch64 is also
+   armv8.x, is also—as an alias—arm64), which equality can't model without
+   incoherence (`arch == "aarch64"` and `arch == "arm64"` both true). `is()`
+   reads "is the target's `predicate` (compatible with) `tag`", so simultaneous
+   matches are expected. Clauses combine with `&& || !`. Ordered comparison
+   (`>= <=`) is reserved for genuinely numeric/single-valued predicates
+   (`ptrsize`, `version`, `os.version`); `at_least`/`at_most`-style matchers for
+   versions come later. **Supersedes the `==`/`!=` comparison grammar shown in
+   §5.2 below** (kept there only as the original sketch).
+7. **Arch tags use the assembler's canonical names** (`pkg/binate/asm/parse`'s
+   `.arch` directive): `x64`, `aarch64`, `arm32` — **with aliases** `x86_64`,
+   `arm64`, `arm` resolving to the same arch (matching bnas). `os` tags:
+   `linux`, `darwin`, `baremetal`. (The `ArchType` enum constant was renamed
+   `ARCH_ARM64` → `ARCH_AARCH64` to match.)
+8. **Arch/os are read from `pkg/builtins/build`**, not hardcoded. `binate-paths`
+   already resolves the host (`uname`) or `--target` to the matching
+   `build.bni`; `bnc` reads its `Arch`/`OS` const initializers. This is the
+   single source of truth, correct on every host (incl. Linux), and uniform
+   for host and `--target` — replacing the earlier "hardcode the host default"
+   idea, which would have mis-gated on a non-macOS host.
+
+**Implementation status (2026-06):** landed on `main` — parse `#[...]` on
+declarations + package clause (the `ast.Annotation` node), and the
+`pkg/binate/buildcfg` evaluator (`is(arch/os, "tag")`, alias-aware,
+hard-error on unknown predicate/tag). Next: the loader gate + `bnc` reading
+`build`, then the declaration-level gate. The substrate is unwired until that
+lands (no behavior change yet besides the enum rename).
 
 Still open: §11.
 
@@ -245,19 +273,22 @@ A **closed, typo-checked** built-in set, plus the one **open** `tag.*`
 namespace. Dotted names (`os.version`, `tag.debug`) are ordinary predicates in
 this vocabulary — distinct from the annotation-name namespace of §3.2.
 
-| Predicate | Type | Ops | Domain / operand | Status |
+Categorical predicates use the membership form `is(predicate, "tag")`;
+numeric/version predicates use ordered comparison or `at_least`/`at_most`.
+
+| Predicate | Kind | Clause form | Tags / operand | Status |
 |---|---|---|---|---|
-| `arch` | enum | `== !=` | `"x64" "arm64" "arm32"` | ready |
-| `os` | enum | `== !=` | `"linux" "darwin" "baremetal"` | ready |
-| `triple` | enum | `== !=` | the `--target` keys | ready |
-| `backend` | enum | `== !=` | `"llvm" "native_aa64" "native_x64"` | ready |
-| `libc` | bool flag | (bare) | present / absent | ready (see §5.5) |
-| `ptrsize` | int | `== != < > <= >=` | `4`, `8` (bare int) | ready |
-| `intsize` | int | `== != < > <= >=` | `4`, `8` (bare int) | ready |
-| `version` | semver | `== != < > <= >=` | `"1.2.0"` (quoted) | **deferred** — grammar + a canonical version source |
-| `os.version` | semver | `== != < > <= >=` | `"13.0"` (quoted) | **deferred** — needs a deployment-target knob |
-| `engine` | enum | `== !=` | `"bnc" "bni"` | **deferred** — front-end plumbing (§5.5) |
-| `tag.<name>` | open bool | (bare) | `--tag <name>` | **deferred** — open namespace, unknown ⇒ false |
+| `arch` | categorical | `is(arch, "tag")` | `x64` `aarch64` `arm32` (aliases `x86_64` `arm64` `arm`) | **implemented** |
+| `os` | categorical | `is(os, "tag")` | `linux` `darwin` `baremetal` | **implemented** |
+| `triple` | categorical | `is(triple, "tag")` | the `--target` keys | deferred |
+| `backend` | categorical | `is(backend, "tag")` | `llvm` `native_aa64` `native_x64` | deferred |
+| `libc` | flag | `is(libc)` / `!is(libc)` | present / absent | deferred (see §5.5) |
+| `ptrsize` | numeric | `ptrsize >= N` | `4`, `8` | deferred |
+| `intsize` | numeric | `intsize >= N` | `4`, `8` | deferred |
+| `version` | version | `is(version,"1.2")` / `at_least(version,"1.2")` | `"1.2"` etc. | deferred — + a canonical version source |
+| `os.version` | version | `at_least(os.version,"13")` | `"13"` etc. | deferred — needs a deployment-target knob |
+| `engine` | categorical | `is(engine, "tag")` | `bnc` `bni` | deferred — front-end plumbing (§5.5) |
+| `tag.<name>` | open flag | `is(tag.<name>)` | `--tag <name>` | deferred — open namespace, unknown ⇒ false |
 
 `version` is the **unified language/compiler version** (the implementation is
 ground truth; the in-progress spec tracks it). `os.version` is the **target OS
@@ -284,21 +315,25 @@ BuildExpr  = OrExpr ;
 OrExpr     = AndExpr { "||" AndExpr } ;
 AndExpr    = UnaryExpr { "&&" UnaryExpr } ;
 UnaryExpr  = [ "!" ] Primary ;
-Primary    = Comparison | Flag | "(" BuildExpr ")" ;
-Comparison = Predicate CmpOp Operand ;
+Primary    = Match | Compare | "(" BuildExpr ")" ;
+Match      = Func "(" Predicate [ "," string_literal ] ")" ; (* is / at_least / at_most *)
+Func       = identifier ;            (* "is" implemented; at_least/at_most for versions later *)
+Compare    = Predicate CmpOp integer_literal ;  (* numeric predicates (ptrsize/intsize), later *)
 CmpOp      = "==" | "!=" | "<" | ">" | "<=" | ">=" ;
-Operand    = string_literal | integer_literal ;
-Flag       = Predicate ;                       (* bool predicate, or tag.<name> *)
 Predicate  = identifier { "." identifier } ;
 ```
 
+Each clause is an ordinary call/comparison expression (parsed by the normal
+expression parser); the evaluator accepts only this restricted shape. `is` is
+the implemented matcher; `at_least`/`at_most` and the numeric `Compare` arm
+are deferred.
+
 ```
-arch == "arm32" && libc
-os == "baremetal" || os == "linux"
-!(backend == "llvm") && ptrsize == 4
-version >= "1.4.0"
-os == "darwin" && os.version >= "13.0"
-intsize >= 8 && tag.debug
+is(arch, "arm32") && is(os, "linux")
+is(os, "baremetal") || is(os, "linux")
+!is(backend, "llvm")
+is(arch, "aarch64") || is(arch, "x64")
+at_least(version, "1.4")            (* later *)
 ```
 
 The evaluator **type-checks operand comparability** against the §5.1 table:
@@ -319,10 +354,12 @@ And it stays uniform with the `Expression`-valued annotation facility.
 ### 5.3 Evaluation timing & single authority
 
 Evaluated in the loader/front-end, once per build (config frozen by then), at
-*both* seams (§4.1). Introduce **one** build-config descriptor — proposed
-`BuildCfg` on the `Loader`, populated by `applyTarget` for bnc and by each other
-front-end for itself — holding every predicate's resolved value + the user-tag
-set + each predicate's type/domain (so the evaluator can type-check §5.2). It is
+*both* seams (§4.1). Introduce **one** build-config descriptor — a
+`BuildConfig` on the `Loader`, populated by bnc reading `pkg/builtins/build`'s
+`Arch`/`OS` const initializers (the copy `binate-paths` resolved for the host or
+`--target`; see §2 item 8) — holding every predicate's resolved value + the
+user-tag set + each predicate's type/domain (so the evaluator can type-check
+§5.2). It is
 the single source of "what predicates exist and what they are," and the one
 place bnlint/hygiene read from (they have *zero* build-config context today).
 
@@ -336,8 +373,8 @@ Rules:
 1. **Unknown built-in predicate ⇒ hard error** (`achr == …` → `unknown
    predicate "achr"`). The closed vocabulary makes typos checkable — exactly the
    "unqualified annotations are enforced" decision.
-2. **Unknown enum value / malformed version literal ⇒ hard error**
-   (`arch == "armv7"`, `version >= "1.x"`).
+2. **Unknown tag / malformed version literal ⇒ hard error**
+   (`is(arch, "armv7")`, `at_least(version, "1.x")`).
 3. **Ill-typed comparison ⇒ hard error** (ordered op on an enum; comparison on a
    bare flag; int op on a semver predicate).
 4. **Malformed expression ⇒ hard error** (unbalanced parens, dangling `&&`).
@@ -391,9 +428,12 @@ failing to evaluate aborts the build (safety).**
 - **`.bni` gating.** Apply the same gate to the interface file and (per §4.3) to
   individual `.bni` decls. Keep the evaluator pure since `.bni` is processed
   before the impl loop.
-- **Target threading.** Add `BuildCfg` to `Loader`, populated by `applyTarget`
-  (sourced from the `pkg/builtins/build` metadata so predicate names line up with
-  the runtime constants) and by each front-end for `engine`.
+- **Target threading.** Add `BuildConfig` to `Loader`, populated by bnc reading
+  `pkg/builtins/build`'s `Arch`/`OS` constants (so the predicate values line up
+  with what `import "pkg/builtins/build"` shows, and the host is correct on every
+  platform); each front-end sets `engine` for itself. If `build` can't be
+  resolved, the config stays inactive and an `arch`/`os` constraint then
+  hard-errors rather than mis-gating.
 - **BUILDER constraint.** The loader is inside `cmd/bnc`'s BUILDER-compilable
   tree, so the descriptor + evaluator + gate must stay within the BUILDER subset
   (no interfaces/generics/closures — CLAUDE.md "Builder Compatibility
@@ -415,7 +455,7 @@ Per-declaration gating goes *further* than the original per-file idea: it
 collapses not just per-package but **within-file** variation. Concretely:
 
 - The `os/internal` ×5 per-triple trees → **one** package whose few
-  triple-specific items carry `triple == "…"` (or whose whole files carry a
+  triple-specific items carry `is(triple, "…")` (or whose whole files carry a
   package-clause gate, if they need triple-specific syntax).
 - `pkg/bootstrap`, `pkg/builtins/rt`, `pkg/std/os` (each duplicated across
   `libc`/`baremetal`) → one directory: shared decls unconstrained, the few
