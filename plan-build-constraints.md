@@ -78,12 +78,20 @@ per-*field* gating (the attachment model anticipates them — `#[likely] if`,
    for host and `--target` — replacing the earlier "hardcode the host default"
    idea, which would have mis-gated on a non-macOS host.
 
-**Implementation status (2026-06):** landed on `main` — parse `#[...]` on
-declarations + package clause (the `ast.Annotation` node), and the
-`pkg/binate/buildcfg` evaluator (`is(arch/os, "tag")`, alias-aware,
-hard-error on unknown predicate/tag). Next: the loader gate + `bnc` reading
-`build`, then the declaration-level gate. The substrate is unwired until that
-lands (no behavior change yet besides the enum rename).
+**Implementation status (2026-06): the `arch`/`os` MVP is COMPLETE on `main`.**
+Landed: parse `#[...]` on declarations + the package clause (the
+`ast.Annotation` node); the `pkg/binate/buildcfg` evaluator
+(`is(arch/os, "tag")`, alias-aware, hard-error on unknown predicate/tag); the
+`ARCH_ARM64`→`ARCH_AARCH64` rename; `loader.ResolveBuildConfig` reading arch/os
+from `pkg/builtins/build` (correct on every host, called by both `bnc` and the
+`bni` VM); the **file-level** gate (package clause) and the **declaration-level**
+gate (`gateMergedDecls`). Verified by `conformance/731_build_arch_select`
+(file-level) and `733_build_decl_select` (declaration-level) across all six
+default host modes, plus `buildcfg`/`loader` unit tests; arm32-linux selection
+runs in CI. Deferred follow-ups: more predicates
+(`triple`/`backend`/`libc`/`ptrsize`/`version`/`at_least`…), per-`import` and
+conditional-`.bni` gating, `bnlint --target`, main-module gating, and migrating
+the `impls/` duplicate trees onto constraints (§7, §11).
 
 Still open: §11.
 
