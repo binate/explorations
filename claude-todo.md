@@ -4,6 +4,16 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## IN PROGRESS — deprecate `pkg/binate/buf` in favor of `pkg/std/strings.Builder`
+
+Full plan: [plan-buf-deprecation.md](plan-buf-deprecation.md).
+
+Retire the bespoke `buf.CharBuf` byte-buffer for the stdlib `strings.Builder`.
+- **Landed:** `strings.Builder`; `pkg/binate/stringutils` (binate `04c67dd3`) supplying the Builder-method gap as free functions over `*strings.Builder` (`WriteInt`/`WriteInt64`/`WriteHexByte`/`Freeze`); the `.bni`-impl-registration fix (`3d147369`) that unblocks Builder-through-`io.Writer`.
+- **Main cost:** buf is a VALUE type (`b = b.WriteStr(..)`, chainable); Builder is a managed REFERENCE mutated in place (`b.Write(..)`, void). Migration is a value→reference rewrite, not a rename — it touches the high-count sites (WriteStr 2956, Bytes 718, New 700, WriteInt 423).
+- **Release gate:** in-cone callers can't migrate until the next BUILDER release (importing Builder pulls `stringutils`→`strings` into bnc's cone; current BUILDER `bnc-0.0.8`). Out-of-cone callers migratable now: `cmd/bni`, `cmd/bnlint`, `cmd/bnas`, `pkg/binate/{lint,repl,vm}`.
+- **Open decisions (USER-OWNED):** (1) `buf.CopyStr`/`Concat` (pure slice utils, 168+103 sites, used in-cone) have NO home — can't go in out-of-cone `stringutils`; need a BUILDER-compilable package (`pkg/std/bytes`? shrink buf to a shim?). (2) `Bytes()` is mutable `@[]char` but `String()` is readonly — audit the 718 `Bytes()` sites for mutation. See the plan.
+
 ## MAJOR — `cast(int, float)` for non-finite / out-of-range floats is platform-dependent (undefined; a hole in the "no UB" promise)
 
 - **Symptom**: converting a float that is `±Inf`, `NaN`, or outside the integer
