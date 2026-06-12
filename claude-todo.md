@@ -1527,7 +1527,7 @@ Discovery Protocol) — most don't have one yet.
 - **Struct-aggregate SELECTOR/INDEX — FIXED 2026-06-03 (binate, pending cherry-pick)**: a managed *struct/array AGGREGATE* field/element targeted by a multi-assign SELECTOR/INDEX (`s.structField, n = f()` / `arr[i], n = f()` where the element is a managed struct) was a plain store — no save-copy-destroy — so the new aggregate's managed fields were under-retained (double-free at scope end) and the old element's leaked.  Now save-copy-destroyed: SELECTOR mirrors the IDENT struct case; INDEX array/pointer via a new `emitElemPtrStore` helper, INDEX slice via `emitStructElemRefcount`.  Test `conformance/574_multiassign_struct_aggregate` (captured `@Counter` refcount returns to baseline 2, was 1 pre-fix); green in all 6 modes, verified to fail pre-fix.
 - **Discovery**: 2026-06-03, reviewing the multi-assign path while fixing the `_`-discard leak (`570`).  Pre-existing.
 
-### `@func` copy-RefInc symmetry — FIXED 2026-06-03 (binate `d118a3c4` + `76099018`); `@Iface` analogue + VM-leak still open
+### `@func` copy-RefInc symmetry — FIXED 2026-06-03 (binate `d118a3c4` + `76099018`); `@Iface` analogue FIXED 2026-06-03 (binate `97a767e8`)
 - **Was**: `@func` / `@Iface` values (`TYP_MANAGED_FUNC_VALUE` /
   `TYP_INTERFACE_VALUE_MANAGED`) had `NeedsDestruction() == false`, so the
   struct copy/dtor generators, `emitStructElemRefcount`, and the
@@ -1567,15 +1567,28 @@ Discovery Protocol) — most don't have one yet.
   ir.Func → VMFunc, resolved by `LookupFunc`.  Conformance `550` pins it
   (captured `@Counter` refcount returns to baseline).  @func is now
   leak-clean on every backend + the VM.
-- **REMAINING — `@Iface` analogue still BROKEN** (the symmetric half).
-  `emitManagedIfaceValueRefDec` has the same unguarded vtable[0] load (the
-  shared `emitVtableDtorLoad`) and there is no `@Iface` acquire arm on
-  copy.  `520_iface_dtor_callee_sole_ref` fails in all int modes ("call
-  through nil interface value"); `383_cross_pkg_iface_dtor` is in the same
-  family (and additionally hits the int-int multi-package loader bug
-  below).  Apply the same recipe to `@Iface`
-  (`TYP_INTERFACE_VALUE_MANAGED`): null-safe iface RefDec + flip + acquire
-  arms.  This is the separate "@Iface first-class" follow-up.
+- **`@Iface` analogue — ✅ RESOLVED 2026-06-03 (binate `97a767e8`, "bnc:
+  wire managed interface values through the refcount lifecycle"; verified
+  still-resolved on main 2026-06-12).**  The symmetric half landed the same
+  afternoon this bullet was written (the `@func` fix was 09:05; the iface
+  wiring 14:36), so the "still BROKEN" text above was stale.  The full
+  recipe is in the tree: `emitManagedIfaceValueRefDec` is null-guarded (the
+  iface dtor / `EmitIfaceDtor` vtable[0] load only runs when `data != null`,
+  `gen_util_refcount.bn`); `NeedsDestruction(TYP_INTERFACE_VALUE_MANAGED) =
+  true` (`types_query.bn`); and the `emitManagedIfaceValueRefInc` acquire arm
+  is wired at every copy site via the shared `emitManagedValueCopyRefInc`
+  dispatcher (var-init / the assign paths) plus struct-field copy
+  (`gen_copy_emit.bn`), array/slice element copy, return (`gen_return.bn`),
+  and the borrowed call-arg site (`gen_call.bn`).  Iface PARAMS deliberately
+  use the MOVE model (no entry RefInc) — the caller moves a fresh arg
+  (`consumeTemp`) or RefIncs a borrowed one at the call site, balanced by the
+  param's scope-exit RefDec; an entry RefInc is impossible for a 2-word iface
+  passed on transient `vm.SP` (documented at `gen_func.bn`).  Coverage:
+  `520_iface_dtor_callee_sole_ref` (callee-sole-ref: `inner-rc` 1→1, proving
+  leak-free + no-UAF) is GREEN in all 4 default modes; `383_cross_pkg_iface_
+  dtor` is GREEN in `builder-comp` / `-int` / `-int-int` — so the int-int
+  multi-package loader bug the bullet warned about is also resolved.  No
+  separate `@Iface` VM-leak remains (520's VM-mode rc-balance proves it).
 - **Unblocks the REPL interrupt seam (Stage 5 of `plan-repl-embeddable.md`)
   — DONE.**  `vm.SetPoll(poll @func(@VM) int) { vm.Poll = poll }` is the
   param→field `@func` store; with the acquire arms a CAPTURING poll no
