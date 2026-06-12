@@ -1122,13 +1122,16 @@ form); cross-shape smoothing applies:
   function → lint warning `func-value-escape`.
 - `@func(...)` capturing a raw pointer → lint warning
   `managed-func-raw-capture`.
-- Closure that captures a func-value variable which is `nil` /
-  not-yet-assigned at the literal-evaluation point and calls it in
-  the body → candidate lint rule (the "recursive closure" footgun:
-  capture-by-value snapshots the nil/old value, so the recursion
-  silently misbehaves — recursive lambdas are unsupported by design,
-  see plan-function-values-phase-2.md). Not yet implemented; the
-  compiler stays silent (errors-only policy).
+- A func literal bound to a variable it also CAPTURES (`var g =
+  func(){…g…}` / `g = func(){…g…}` / `g := func(){…g…}`) → lint
+  warning `recursive-closure-capture` (the "recursive closure"
+  footgun: capture-by-value snapshots the variable's pre-assignment
+  value, so the closure closes over a stale value, not itself, and a
+  recursive self-call silently misbehaves — recursive lambdas are
+  unsupported by design, see plan-function-values-phase-2.md). The
+  compiler stays silent (errors-only policy); the linter flags it.
+  Implemented in `pkg/binate/lint/recursive_closure_capture.bn`
+  (binate `8bb0c4fe`, on the worktree, pending cherry-pick).
 
 Cross-reference: [plan-function-values-phase-2.md](plan-
 function-values-phase-2.md) for the implementation slices
