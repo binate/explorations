@@ -246,6 +246,21 @@ Benefits:
 - Trivial across the compiled/interpreted boundary (errors are just return values)
 - Go-style multiple returns provide clean ergonomics: `result, err := doSomething(x)`
 
+### Diagnostics: errors only, no compiler/interpreter warnings — DECIDED
+
+The compiler and the interpreter emit **errors only — never warnings.** A
+construct is either accepted or rejected with a hard error; there is no advisory
+middle tier in the build itself. Rationale: once a compiler has warnings, the
+next demand is `-Werror`, then per-warning enable/disable flags, then the
+fragility of code that builds clean under one warning set and breaks under
+another, plus the CI churn as the warning set evolves — the same reasoning Go
+followed in keeping its build warning-free. Advisory / style / footgun
+diagnostics belong in **bnlint** (the separate linter), which has its own rule
+names and is run, configured, and gated independently of a build. Examples
+already in bnlint: `func-value-escape`, `managed-func-raw-capture`. (So "should
+the compiler warn about X?" is always answered "no — if anything, a bnlint
+rule.")
+
 ### Untyped pointers & casting — DECIDED
 
 - **`*uint8`** is the opaque byte pointer type (equivalent to C's `void*`). Use `bit_cast` to convert to/from typed pointers. This is what `pkg/rt` uses for `Alloc`, `Free`, `RefInc`, `RefDec`, `Box`, etc.
@@ -1107,6 +1122,13 @@ form); cross-shape smoothing applies:
   function → lint warning `func-value-escape`.
 - `@func(...)` capturing a raw pointer → lint warning
   `managed-func-raw-capture`.
+- Closure that captures a func-value variable which is `nil` /
+  not-yet-assigned at the literal-evaluation point and calls it in
+  the body → candidate lint rule (the "recursive closure" footgun:
+  capture-by-value snapshots the nil/old value, so the recursion
+  silently misbehaves — recursive lambdas are unsupported by design,
+  see plan-function-values-phase-2.md). Not yet implemented; the
+  compiler stays silent (errors-only policy).
 
 Cross-reference: [plan-function-values-phase-2.md](plan-
 function-values-phase-2.md) for the implementation slices
