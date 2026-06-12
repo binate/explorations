@@ -11,8 +11,14 @@ two.
   / `Reset` / `String`; implements `io.Writer` + `io.ByteWriter`.
 - `pkg/binate/stringutils` (binate `04c67dd3`, 2026-06-12) — the Builder-method
   gap as free functions over `*strings.Builder`: `WriteInt`, `WriteInt64`,
-  `WriteHexByte`, `Freeze`. Free functions (not Builder methods) keep the
-  stdlib type minimal.
+  `WriteHexByte`. Free functions (not Builder methods) keep the stdlib type
+  minimal. (A `Freeze` helper landed here too but was dropped, `7350bdd1`:
+  it was exactly `buf.CopyStr(b.String())` — an owned copy is `buf.CopyStr`'s
+  job.)
+- `cmd/bnlint` migrated off `buf.CharBuf` (binate `ab076c5d`, 2026-06-12) — the
+  first caller. Established the migration shape: value→reference rewrite,
+  readonly-correct local sinks (zero-copy `String()`), `buf.CopyStr(
+  builder.String())` for the rare owned-`@[]char` handoff.
 - The cross-package `.bni`-impl-registration bug that blocked using a Builder
   *through* `io.Writer` from another package is resolved (binate `3d147369`),
   so the interface route works if a caller needs it. (Most buf callers use the
@@ -30,7 +36,7 @@ two.
 | `b.WriteHexByte(v)` | `stringutils.WriteHexByte(b, v)` | |
 | `b.Len()` / `b.Len` | `b.Len()` | the field `.Len` has no Builder analogue — use the method |
 | `b.Bytes()` → `@[]char` | `b.String()` → `@[]readonly char` | readonly; audited safe — Decision 2 (retype consumers to `readonly char`) |
-| `b.Freeze()` | `stringutils.Freeze(b)` | owned, exactly-sized copy |
+| `b.Freeze()` | `buf.CopyStr(b.String())` | owned copy — only where a sink stays mutable `@[]char` |
 | `buf.CopyStr(s)` | — | **no home yet** — see Open Decision 1 |
 | `buf.Concat(a, b)` | — | **no home yet** — see Open Decision 1 |
 
@@ -111,8 +117,8 @@ got bitten by exactly this).
    iterates, compares, lengths, prints, returns, or stores-then-reads it.
    Checked all indirect paths too: no index-assign through a result, no
    `MemCopy`/raw-pointer-cast write with a result as destination, no
-   field-store-then-element-write. **Decision: `String()` + `stringutils.Freeze`
-   fully cover the migration; do NOT add a mutable Builder accessor** (it would
+   field-store-then-element-write. **Decision: `String()` + `buf.CopyStr(
+   b.String())` fully cover the migration; do NOT add a mutable Builder accessor** (it would
    be dead API and would re-open the aliasing-mutation hazard a readonly
    `String()` closes). The only mechanical residue is **~30 retype-to-readonly
    follow-ups** — params/fields/locals currently typed `@[]char` that only read
@@ -126,16 +132,43 @@ got bitten by exactly this).
 
 ## Proposed sequencing (pending the decisions above)
 
-1. ✅ `stringutils` formatting/Freeze helpers — done (`04c67dd3`).
-2. Decide the `CopyStr`/`Concat` home (Decision 1); land that package/shim.
-3. Migrate **out-of-cone** callers (`cmd/bni`, `cmd/bnlint`, `cmd/bnas`,
-   `lint`, `repl`, `vm`): value→reference rewrite + helper swap, plus the
-   `Bytes()`→`String()` retype-to-readonly per Decision 2 (no mutation to worry
-   about). One package per commit, tree green throughout.
+1. ✅ `stringutils` formatting helpers — done (`04c67dd3`).
+2. Decide the `CopyStr`/`Concat` home (Decision 1) — DEFERRED; leave in `buf`.
+3. Migrate **out-of-cone** callers: value→reference rewrite + helper swap, plus
+   the `Bytes()`→`String()` retype-to-readonly per Decision 2 (no mutation to
+   worry about). One package per commit, tree green throughout.
+   - ✅ `cmd/bnlint` — `ab076c5d`.
+   - ⏳ remaining: `cmd/bnas`, `cmd/bni`, `pkg/binate/{lint,repl,vm}`.
 4. **After the next BUILDER release:** trial cone build with the Builder
    dependency; if green, migrate **in-cone** callers in batches (by package),
    re-grepping each batch.
-5. Remove `pkg/binate/buf` once its call count reaches zero.
+5. Remove `pkg/binate/buf` once its `CharBuf` call count reaches zero (its
+   `CopyStr`/`Concat` may remain until Decision 1).
+
+## Migration conventions (set by the bnlint migration)
+
+- **Readonly-correct by default** (C++ const-correctness style): the built
+  bytes are immutable, so propagate `readonly` outward — retype locally-owned
+  sinks (return types, struct fields, locals) to `readonly char` and consume
+  `String()` zero-copy. `print`/`println` are variadic and accept `readonly`.
+- **Owned copy only when *logically* necessary** — i.e. a sink is a mutable
+  `@[]char` that is foreign or otherwise not being made readonly-correct in
+  this pass. Use `buf.CopyStr(builder.String())`, **not** a `Freeze` helper.
+- **`value→reference`**: `CharBuf` is a value threaded by reassignment
+  (`b = b.WriteStr(..)`); `@Builder` mutates in place (`b.Write(..)`), and its
+  mutators don't chain. Functions that took/returned a `CharBuf` by value to
+  thread it become `*strings.Builder`-taking, mutate-in-place.
+
+## Readonly-correctness follow-ups (surfaced by migrations)
+
+- **`ast.ImportSpec.Path @[]char` → `@[]readonly char`.** An import path is
+  immutable after construction; making the field readonly would let
+  `quotePath` (bnlint/bni/bnc) hand off a zero-copy `String()` view instead of
+  a `buf.CopyStr` owned copy. NOT release-gated, but **in-cone**: it cascades
+  through `loader.unquote` (returns a sub-slice of its arg, so its `@[]char`
+  param + the `@[]char` result locals in `loader`/`cmd/bni`/`cmd/bnc`/`repl`
+  all widen to readonly). A self-contained readonly-correctness change; pairs
+  naturally with the in-cone migration work, not the out-of-cone tools.
 
 Each step keeps the tree green and is independently landable. Steps 3–5 are
 large; do NOT treat any sub-step as "deferred"/"non-goal" without an explicit
