@@ -1418,21 +1418,23 @@ Discovery Protocol) — most don't have one yet.
   float32 (signedness still picks signed/unsigned). Un-xfailed **16 of 17** VM
   cells across all 3 VM modes; 3 VM unit tests added (lowering decision ×2 +
   end-to-end round-trip). The 17th cell (`float-to-int/64/unsigned`) uncovered a
-  **distinct sibling bug** — see `vm-float32-to-unsigned` below — and stays
-  xfailed (reason corrected) until that lands.
-- **`vm-float32-to-unsigned` — VM `float32 → unsigned int` uses the SIGNED conversion — 🔧 IN PROGRESS (2026-06-12)**:
+  **distinct sibling bug** (`vm-float32-to-unsigned`, now also resolved — see
+  below).
+- **`vm-float32-to-unsigned` — VM `float32 → unsigned int` used the SIGNED conversion — ✅ RESOLVED 2026-06-12 (binate `3fd7e712`)**:
   surfaced while fixing `vm-int-to-float32`. `lower_cast`'s `float → int` arm
-  picks `BC_F32TOSI` (signed) for a float32 source regardless of dest sign
+  picked `BC_F32TOSI` (signed) for a float32 source regardless of dest sign
   (its comment admitted "float32 → unsigned is not yet exercised; it stays on
-  the signed `BC_F32TOSI`"). So `cast(uint64, <float32 ≥ 2^63>)` saturates to
+  the signed `BC_F32TOSI`"). So `cast(uint64, <float32 ≥ 2^63>)` saturated to
   `INT64_MAX` instead of the in-range unsigned value — a *defined* (in-range)
   conversion miscompiled, MINOR (only float32→uint64 of values ≥ 2^63; the
-  8/16/32-bit unsigned high-bit values fit signed int64 so those cells pass).
-  Pinned by `conformance/matrix/scalar-diff/float-to-int/64/unsigned` (tuple 16,
-  the 2^63 float32 round-trip), xfailed on all 3 VM modes. Fix: the exact mirror
-  of the landed float64→unsigned `BC_FTOUI` — add a `BC_F32TOUI` opcode
-  (`cast(int, cast(uint64, <float32>))`) and pick it in `lower_cast` for a
-  float32 source with an unsigned dest; then un-xfail that cell.
+  8/16/32-bit unsigned high-bit values fit signed int64 so those cells already
+  passed). Fix: the exact mirror of the float64→unsigned `BC_FTOUI` — added a
+  `BC_F32TOUI` opcode (`cast(int, cast(uint64, <float32>))`), picked in
+  `lower_cast` for a float32 source with an unsigned dest. Un-xfailed the last
+  scalar-diff VM cell (`float-to-int/64/unsigned`, the 2^63 round-trip) across
+  all 3 VM modes; 2 unit tests added (lowering decision + high-bit round-trip).
+  **All scalar-diff conversion cells are now green on every VM mode** — the VM
+  int↔float32 story is complete in both directions.
 - **`aa64-subword` — native-aa64 doesn't narrow/sign-extend sub-word results**:
   a sub-word op leaves dirty high bits / wrong sign. `int8(-128) << 1` keeps
   bit 8 set (so `== 0` fails); `cast(int8, 128:uint8)` and the other
