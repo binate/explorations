@@ -16,7 +16,17 @@ Retire the bespoke `buf.CharBuf` byte-buffer for the stdlib `strings.Builder`.
 - **Convention** (per bnlint): readonly-correct by default (retype local sinks, consume `String()` zero-copy); `buf.CopyStr(builder.String())` only where a sink stays a foreign mutable `@[]char`; no `Freeze`.
 - **Readonly-correctness follow-up:** `ast.ImportSpec.Path @[]char` → `@[]readonly char` would make `quotePath` (bnlint/bni/bnc) zero-copy; in-cone (cascades through `loader.unquote` + callers), not release-gated. See the plan.
 
-## MAJOR — `cast(int, float)` for non-finite / out-of-range floats is platform-dependent (undefined; a hole in the "no UB" promise) — ⏳ CONTRACT RATIFIED 2026-06-12, IMPLEMENTATION IN PROGRESS
+## MAJOR — `cast(int, float)` for non-finite / out-of-range floats is platform-dependent (undefined; a hole in the "no UB" promise) — ✅ CORE LANDED 2026-06-12 (binate `b3a52025`); follow-ups remain
+
+- **✅ LANDED (binate `b3a52025`)**: float→int now SATURATES to the target type's
+  `[MIN, MAX]` + NaN→0, lowered ONCE in shared IR-gen (`emitGuardedFloatToInt`,
+  `pkg/binate/ir/gen_cast_float.bn`) — every backend + the VM inherits it, no
+  per-backend logic. `conformance/732_float_int_saturation` green on builder-comp,
+  builder-comp-int (VM), gen2/gen3, native aa64 + x64; unit tests + spec updated.
+  Plan: `plan-float-int-saturation.md`. **Remaining**: (Commit 2) re-enable the
+  `gen-diff-scalar.py` matrix coverage + any self-review gaps; (follow-up) un-skip
+  the 3 minbasic programs — **handed off to the `binate/examples` repo** (per user
+  2026-06-12, someone else owns the examples work).
 
 - **DECISION (RATIFIED 2026-06-12, user)**: float→int where the value is `±Inf`,
   `NaN`, or outside the target integer type's range is **SATURATE to the target

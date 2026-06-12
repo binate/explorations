@@ -94,27 +94,28 @@ realize the same `cast` semantics.
 Because the lowering is shared, ALL backends + the VM become correct in the
 SAME commit — there is no per-backend xfail staging.
 
-1. **Commit 1 — the lowering + spec.** Add `emitGuardedFloatToInt`, route the
-   float→int cast sites through it. Update `claude-notes.md` (the
-   "`cast` … wraps/truncates" line) and `plan-language-spec.md §21` to state the
-   saturation contract. Add a focused conformance test
-   (`conformance/NNN_float_int_saturation`) covering, for int8/16/32/64 signed +
-   unsigned and both f32/f64 sources: `+Inf`→MAX, `-Inf`→MIN/0, `NaN`→0,
-   just-over-MAX→MAX, just-under-MIN→MIN, in-range→truncate. Verify green on
-   `builder-comp`, `builder-comp-int`, `builder-comp-comp`, and the native
-   modes (the whole point of the shared lowering is they all pass at once).
+1. **Commit 1 — the lowering + spec + conformance + unit tests. ✅ LANDED
+   (binate `b3a52025`).** `emitGuardedFloatToInt` (`pkg/binate/ir/gen_cast_float.bn`)
+   routed in at the `gen_expr.bn` cast site; `claude-notes.md` + `plan-language-spec.md
+   §21` state the saturation contract. `conformance/732_float_int_saturation`
+   (renumbered from 731 at land — collision with a concurrently-landed
+   `731_build_arch_select`) covers int8/16/32/64 signed+unsigned, f32+f64
+   sources, `±Inf`, `NaN`, just-over/under, in-range — green on `builder-comp`,
+   `builder-comp-int` (VM), gen2, gen3, native aa64, native x64. Unit tests
+   (`gen_cast_float_test.bn`) pin the routing predicate, the boundary constants,
+   and that the guard ops are emitted (absent for an int→int cast). Full
+   builder-comp 1398/0; hygiene 13/13.
 2. **Commit 2 — re-enable the generated matrix coverage.** Extend
    `conformance/gen-diff-scalar.py` (it currently *excludes* out-of-range
    float→int at lines ~26-33 / the `float_to_int_cell` generator) to emit the
    saturated expected values, so the `matrix/scalar-diff/float-to-int` cells
    exercise the boundaries on every mode. Python helper mirrors the contract
-   exactly.
-3. **Unit coverage.** An IR-gen unit test pinning the emitted op sequence
-   (mirroring the shift-clamp tests), so a future refactor can't silently drop
-   the guard.
-4. **minbasic follow-up.** Un-skip the 3 minbasic programs (P168/P174/P180)
-   that were skipped pending this contract; their `+Inf → index` now has a
-   defined cross-platform value.
+   exactly. (Plus any coverage gaps the self-review surfaces.)
+3. **minbasic follow-up — HANDOFF to the `binate/examples` repo (per user
+   2026-06-12: someone else should own the examples work).** Un-skip the 3
+   minbasic programs (P168/P174/P180) skipped pending this contract; their
+   `+Inf → index` now has a defined cross-platform value (`INT64_MAX` /
+   target-int MAX). NOT done here — examples-repo task for another worker.
 
 ## Risks / open questions
 
