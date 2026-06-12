@@ -1531,6 +1531,35 @@ conformance tree.
 - Follow-up to landing `pkg/std/os` (binate `3ca36c82`), which shipped
   with libc unit tests only — conformance was deferred here per the user.
 
+### Type-system issues surfaced while authoring spec Ch.7 (Types) — 2026-06-12
+Found writing the docs spec's Types chapter (grounding + adversarial
+verification against pkg/binate/types). The spec (`07-types.md`)
+documents these as open items.
+- **`@[N]T` parser leniency** (`type.ptr.array-parens.at-leniency`, MINOR).
+  The documented rule is that bare `@[`/`*[` followed by a non-`]` is a
+  syntax error (parens required: `@([N]T)` / `*([N]T)`), so the `@[`/`*[`
+  sugar is unambiguously slices. The parser enforces this for `*[N]T`
+  (`parse_type.bn:49-52` emits an error) but **silently accepts `@[N]T`**
+  as `@([N]T)` (`parse_type.bn:98-112`, no error). Asymmetric; likely
+  unintended. Decide: reject bare `@[N]T` too, or relax both. No miscompile.
+- **Opaque `make`/`sizeof`/`alignof` not gated**
+  (`type.opaque.make-sizeof-gap`, MAJOR doc-vs-impl). The ratified design
+  (plan-type-decls.md:42-51, ast.bni:232-233) says `make(Opaque)` /
+  `sizeof(Opaque)` / `alignof(Opaque)` must be rejected outside the
+  defining package (layout unknown). The checker enforces ONLY field
+  access (`check_expr_access.bn:306`); `check_builtin.bn:17-22,144-155`
+  accept make/sizeof/alignof on a nil-Underlying named type with no opaque
+  gate, so the failure (if any) is a downstream layout/codegen error, not a
+  clean diagnostic. Decide: add the opaque gate (per the ratified design),
+  or update the design docs.
+- **Named func-value LITERAL construction unimplemented** (gap). A func
+  *reference* constructs a named `@func` type fine, but a func *literal*
+  into a named func-value type is rejected in ALL modes
+  (`conformance/regressions/named-func-value-construct-literal` xfailed
+  everywhere; checkFuncLit must return the named type when hinted and peel
+  TYP_NAMED at isManagedFuncValueLit). Value-rejection and reference
+  construction both work.
+
 ### Lexer issues surfaced while authoring spec Ch.5 (Lexical Elements) — 2026-06-08
 Found writing the docs spec's Lexical Elements chapter (adversarial
 verification of the draft against `pkg/binate/lexer`). All MINOR
