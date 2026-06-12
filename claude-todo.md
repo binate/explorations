@@ -16,6 +16,46 @@ Retire the bespoke `buf.CharBuf` byte-buffer for the stdlib `strings.Builder`.
 - **Convention** (per bnlint): readonly-correct by default (retype local sinks, consume `String()` zero-copy); `buf.CopyStr(builder.String())` only where a sink stays a foreign mutable `@[]char`; no `Freeze`.
 - **Readonly-correctness follow-up:** `ast.ImportSpec.Path @[]char` → `@[]readonly char` would make `quotePath` (bnlint/bni/bnc) zero-copy; in-cone (cascades through `loader.unquote` + callers), not release-gated. See the plan.
 
+## MAJOR — parallel assignment `a, b = 1, 2` (and the swap `a, b = b, a`) type-checks clean but generates NO code (silent dropped writes) — spec Ch.14 (2026-06-12) — 🔴 OPEN
+
+Found + verified firsthand while grounding spec Ch.14 (Statements) against the
+live impl (read parser/checker/IR; conclusive from the code path, plus the
+conformance gap below). A matched-arity assignment with **more than one expression
+on each side** — `a, b = 1, 2`, or the swap idiom `a, b = b, a` — is accepted by
+the type-checker but **silently lowered to nothing**: both stores are dropped, no
+diagnostic, no IR.
+
+- **Checker accepts it.** `checkAssignStmt` (`check_stmt.bn:225-267`) takes the
+  matched-arity path when `len(Exprs) == len(Exprs2)` and loops over each index,
+  checking each LHS/RHS pair assignable — so `a, b = 1, 2` (2 == 2) passes clean.
+- **IR-gen drops it.** `genAssign` (`gen_control.bn:89-411`) has exactly two
+  branches: `len(Exprs) > 1 && len(Exprs2) == 1` → `genMultiAssign` (call
+  destructure), and `len(Exprs) == 1 && len(Exprs2) == 1` → single assign. The
+  `len(Exprs) > 1 && len(Exprs2) > 1` case matches **neither** and falls straight
+  to `return b` (line 411) — no store IR emitted. So `a, b = 1, 2` and
+  `a, b = b, a` compile to a **no-op**.
+- **No conformance coverage.** Every multi-`=` conformance site has a single
+  multi-return *call* on the RHS (`q, r = divmod(...)`); there is NO `a, b = b, a`
+  / multi-expr-RHS test, so this has never been exercised (conformance grounding
+  confirmed: "parallel-assignment swap semantics are UNVERIFIED").
+- **Severity**: MAJOR silent wrong-code — arguably CRITICAL, because the swap
+  idiom `a, b = b, a` is exactly what a Go-familiar user reaches for and it
+  silently does nothing. Not memory-unsafety (no OOB); blast radius is limited
+  because idiomatic Binate uses multi-RETURN (one call), which works.
+- **Decision needed (user owns)** — the design notes frame multiple assignment
+  around multi-RETURN (`x, err = foo()`), not first-class tuples, but the grammar
+  production is `ExpressionList "=" ExpressionList` (permissive):
+  - **(A) Support parallel assignment** (Go-like): IR-gen must handle the
+    matched-arity multi-expr case — evaluate ALL RHS exprs, then store ALL LHS (so
+    `a, b = b, a` swaps correctly). Add conformance for swap + multi-expr RHS.
+  - **(B) Reject it** at the checker: a multi-`=` requires a single multi-return
+    call on the RHS; `a, b = 1, 2` becomes a diagnostic ("multiple assignment
+    requires a single multi-valued call" or similar). Cheaper; matches the
+    multi-return-only design intent. The swap idiom would then be unavailable.
+  Either way the current accept-then-drop is a bug. This decision also determines
+  what spec §14 (Statements) says about parallel assignment, so §14 authoring is
+  paused on it.
+
 ## MAJOR — `cast(int, float)` for non-finite / out-of-range floats is platform-dependent (undefined; a hole in the "no UB" promise) — ✅ CORE LANDED 2026-06-12 (binate `b3a52025`); follow-ups remain
 
 - **✅ LANDED (binate `b3a52025`)**: float→int now SATURATES to the target type's
