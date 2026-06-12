@@ -4215,6 +4215,7 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   for the user.
 
 ### Per-file build constraints — conditional file inclusion/exclusion by target — DESIGN
+- **Concrete proposals**: see [`plan-per-file-build-constraints.md`](plan-per-file-build-constraints.md) — predicate model + expression semantics, two syntax candidates (`//bn:build` pragma vs first-class `#[build(...)]` annotation; recommends the annotation, since the `#[...]` grammar + namespacing are already reserved/decided), loader/merge integration, the impls/-tree relationship + migration, tooling (bnlint/hygiene + `tool.lint` lint-exempt), and a phased roadmap.
 - **What**: a way for a single file to opt *itself* in or out of
   compilation based on the build configuration — arch, target triple,
   OS, libc-vs-freestanding, backend (LLVM / native-aa64 / native-x64),
