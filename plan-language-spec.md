@@ -554,6 +554,12 @@ escape hatch, fenced as *user error*, not a promised trap): UAF via a
 borrowed raw slice/pointer outliving its backing, dangling `*T` deref,
 breaking refcount invariants through raw aliasing, `bit_cast`/`unsafe_*`
 out of contract, mode-dependence beyond the one-indirection cost.
+**Explicitly WELL-DEFINED (not implementation-defined), closing what would
+otherwise be a hardware-divergence gap:** `cast(<int>, <float>)` for an
+out-of-range / `±Inf` / `NaN` value **saturates** to the target type's
+`[MIN, MAX]` (`NaN` → 0; in-range truncates toward zero) — identical across
+every backend and the VM (ratified 2026-06-12; refines Go's
+"implementation-specific" by pinning a defined value).
 
 **Annex A. Grammar Summary** *(normative)* — The complete EBNF,
 **generated from the canonical `docs/spec/binate.ebnf`** (D4), metalanguage
