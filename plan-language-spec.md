@@ -48,18 +48,29 @@ landed incrementally while the language still changes.
   productions are **generated** from it. `explorations/grammar.ebnf` is
   reconciled (Phase 0), used to seed the canonical copy, then **retired**
   (it is already stale; the CLAUDE.md pointer is updated when it goes).
-- **D5 — named-distinct field access: start RESTRICTIVE.** v1 rejects
-  field access / method dispatch through any named-distinct type
-  (`type X <underlying>`), matching the current implementation. This is
-  the safe, forward-compatible direction (opening up later breaks no code;
-  tightening later would). §7.3 records both the v1 rule and the intended
-  **target = Go's actual rule** (verified empirically, go1.26.3): a
-  named-distinct type exposes the underlying's *fields* — read and write,
-  including auto-deref when the underlying is a pointer (`type P *A` →
-  `p.X` works in Go) — but never auto-inherits its *methods* (those need
-  an explicit conversion to the underlying type). The earlier "struct
-  value yes / pointer no" framing in `claude-todo.md` was based on a
-  mistaken reading of Go and has been corrected.
+- **D5 — named-distinct transparency: ADOPT Go's model (RATIFIED
+  2026-06-11; supersedes the original v1-RESTRICTIVE choice).** A
+  named-distinct type (`type X <underlying>`) is transparent to its
+  underlying type for operators, the built-ins `len` / `present` / `same`,
+  indexing, slicing, and field access (read+write, incl. auto-deref when
+  the underlying is a pointer — `type P *A` → `p.X`) — but never
+  auto-inherits the underlying's *methods* (declare those on the distinct
+  type itself; reach the underlying's methods via an explicit conversion).
+  Assignability follows Go's rule: a value crosses the boundary without a
+  cast iff identical underlying types AND ≥1 side is unnamed (so unnamed
+  composite underlyings like `@[]int` assign freely; scalar/named
+  underlyings and two-named-types need a `cast`). Comparison follows the
+  underlying's comparability, with the Binate deviation that **slices are
+  never comparable, not even to `nil`** — a named-distinct slice type is
+  not comparable at all. The relaxation is forward-compatible (it only
+  *accepts* more code), so adopting the target now breaks nothing. Full
+  model: `claude-notes.md` "Type declarations — DECIDED"; verified
+  empirically (go1.26.3).
+  *Historical: v1 originally REJECTED field access / method dispatch
+  through any named-distinct type as the safe forward-compatible default;
+  §7.3 records that v1 rule alongside this — now adopted — target. (An
+  even earlier "struct value yes / pointer no" framing in `claude-todo.md`
+  was a mistaken reading of Go, since corrected.)*
 
 - **D6 — opaque (forward-decl) syntax: bare `type Foo`.** Confirmed: the
   shipped bare `type Foo` form is correct (fully opaque); no `type Foo
@@ -311,16 +322,18 @@ exports `Foo` opaquely — callers hold only `*Foo`/`@Foo`, and field access
 field-access invariant **unifies §7.3 and §7.12**: access is gated on the
 underlying being **visible/concrete**. An opaque type has a nil underlying
 → field access permanently rejected; a named-distinct type over a
-*visible* underlying is the D5 case (v1 reject; target = allow, peeling
-only a concrete underlying, so the relaxation never opens opaque field
-access). Rationale: a named type gets a fresh method/impl set (→ structure/
+*visible* underlying is the D5 case (NOW ADOPTED 2026-06-11 — allow,
+peeling only a concrete underlying, so the relaxation never opens opaque
+field access). Rationale: a named type gets a fresh method/impl set (→ structure/
 fields shared, methods/impls not) — Annex D. Provisional: interface-value
 byte layout. Length-0-no-backing: rule + enforcement **landed** (binate
 `71ff7489`, conformance 666); an open `builder-comp-int` regression (test
 110) remains. **Impl-conformance:** nested arrays mis-compiled
 (claude-todo MAJOR). Opaque-decl syntax is bare `type Foo`
 (D6; fully opaque — hides even struct-ness; no `type Foo struct` variant).
-D5: §7.3 states the v1 rejection + the Go-faithful relaxation target.*
+D5: §7.3 states the now-adopted (2026-06-11) Go-faithful transparency
+rule — peeling a concrete underlying for ops / len / index / slice /
+field access; opaque (nil-underlying) types stay rejected.*
 
 **8. Conversions** *(normative)* — The closed set of implicit conversions
 (untyped-literal coercion, readonly-adding widenings, the managed→raw
