@@ -29,7 +29,7 @@ two.
 | `b.WriteInt64(n)` | `stringutils.WriteInt64(b, n)` | |
 | `b.WriteHexByte(v)` | `stringutils.WriteHexByte(b, v)` | |
 | `b.Len()` / `b.Len` | `b.Len()` | the field `.Len` has no Builder analogue — use the method |
-| `b.Bytes()` → `@[]char` | `b.String()` → `@[]readonly char` | **readonly** — see Open Decision 2 |
+| `b.Bytes()` → `@[]char` | `b.String()` → `@[]readonly char` | readonly; audited safe — Decision 2 (retype consumers to `readonly char`) |
 | `b.Freeze()` | `stringutils.Freeze(b)` | owned, exactly-sized copy |
 | `buf.CopyStr(s)` | — | **no home yet** — see Open Decision 1 |
 | `buf.Concat(a, b)` | — | **no home yet** — see Open Decision 1 |
@@ -84,9 +84,11 @@ Constraint". **Re-derive the site list from a fresh repo-wide grep before each
 migration batch** — concurrent commits add callers (the `binate-paths` sweep
 got bitten by exactly this).
 
-## Open decisions (USER-OWNED — not pre-resolved here)
+## Open decisions
 
-1. **`CopyStr` / `Concat` have no home.** They are pure byte-slice utilities
+1. **`CopyStr` / `Concat` have no home.** *(DEFERRED 2026-06-12 by the project
+   owner — revisit later; leave them in `buf` for now.)* They are pure
+   byte-slice utilities
    (clone a slice; concatenate two) with NO Builder/strings dependency, used in
    BOTH in-cone and out-of-cone code (168 + 103 sites; in-cone users include
    `asm/*`, `codegen`, `ir`, `lexer`, `native/*`, `token`, `types`, `cmd/bnc`).
@@ -102,21 +104,34 @@ got bitten by exactly this).
    `CopyStr`/`Concat` are gated on this decision (and, like the Builder piece,
    their in-cone callers can only switch after the release).
 
-2. **`Bytes()` is mutable (`@[]char`); `String()` is readonly
-   (`@[]readonly char`).** 718 `Bytes()` sites. If any caller MUTATES the
-   returned slice, `String()` won't substitute — those need
-   `stringutils.Freeze` (an owned mutable copy) or a dedicated accessor. Needs
-   an audit of whether `Bytes()` returns are read-only in practice, and a
-   decision on whether to add a mutable accessor.
+2. **`Bytes()` (mutable `@[]char`) vs `String()` (readonly `@[]readonly char`)
+   — ✅ RESOLVED 2026-06-12 (audited).** A repo-wide audit of all **734**
+   `.Bytes()` sites (the sole definition is `buf.bn:120`, so every site is a
+   `CharBuf.Bytes()`) found **ZERO** that mutate the result — every site reads,
+   iterates, compares, lengths, prints, returns, or stores-then-reads it.
+   Checked all indirect paths too: no index-assign through a result, no
+   `MemCopy`/raw-pointer-cast write with a result as destination, no
+   field-store-then-element-write. **Decision: `String()` + `stringutils.Freeze`
+   fully cover the migration; do NOT add a mutable Builder accessor** (it would
+   be dead API and would re-open the aliasing-mutation hazard a readonly
+   `String()` closes). The only mechanical residue is **~30 retype-to-readonly
+   follow-ups** — params/fields/locals currently typed `@[]char` that only read
+   the result and must be widened to `readonly char` so a `String()` result
+   assigns to them (no behavioral change). Largest clusters:
+   `types.MakeStructType`/`Type.Name` name-chain; `addCheckError`/`CheckError.Msg`
+   (~60 call sites, already called with string literals); `parser.addError`,
+   `lint.addDiag`, `lexer.Token.Lit`, `vm.IfaceVtable.Name`; `asm`
+   `BinBuf.WriteBytes(data)` (macho+elf); a few `native/x64` append helpers.
+   Many `.Bytes()` args already reach readonly params and need no change.
 
 ## Proposed sequencing (pending the decisions above)
 
 1. ✅ `stringutils` formatting/Freeze helpers — done (`04c67dd3`).
 2. Decide the `CopyStr`/`Concat` home (Decision 1); land that package/shim.
 3. Migrate **out-of-cone** callers (`cmd/bni`, `cmd/bnlint`, `cmd/bnas`,
-   `lint`, `repl`, `vm`): value→reference rewrite + helper swap; audit
-   `Bytes()`/mutation per package (Decision 2). One package per commit, tree
-   green throughout.
+   `lint`, `repl`, `vm`): value→reference rewrite + helper swap, plus the
+   `Bytes()`→`String()` retype-to-readonly per Decision 2 (no mutation to worry
+   about). One package per commit, tree green throughout.
 4. **After the next BUILDER release:** trial cone build with the Builder
    dependency; if green, migrate **in-cone** callers in batches (by package),
    re-grepping each batch.
