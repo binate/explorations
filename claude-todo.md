@@ -16,7 +16,17 @@ Retire the bespoke `buf.CharBuf` byte-buffer for the stdlib `strings.Builder`.
 - **Convention** (per bnlint): readonly-correct by default (retype local sinks, consume `String()` zero-copy); `buf.CopyStr(builder.String())` only where a sink stays a foreign mutable `@[]char`; no `Freeze`.
 - **Readonly-correctness follow-up:** `ast.ImportSpec.Path @[]char` → `@[]readonly char` would make `quotePath` (bnlint/bni/bnc) zero-copy; in-cone (cascades through `loader.unquote` + callers), not release-gated. See the plan.
 
-## MAJOR — `cast(int, float)` for non-finite / out-of-range floats is platform-dependent (undefined; a hole in the "no UB" promise)
+## MAJOR — `cast(int, float)` for non-finite / out-of-range floats is platform-dependent (undefined; a hole in the "no UB" promise) — ⏳ CONTRACT RATIFIED 2026-06-12, IMPLEMENTATION IN PROGRESS
+
+- **DECISION (RATIFIED 2026-06-12, user)**: float→int where the value is `±Inf`,
+  `NaN`, or outside the target integer type's range is **SATURATE to the target
+  width's [MIN, MAX] + NaN→0** — well-defined and identical across all targets.
+  Refines (does not contradict) Go, whose spec leaves it "implementation-specific,
+  conversion succeeds (no panic)"; saturation pins a defined value while staying
+  panic-free. Matches Rust `as` (since 1.45) and WASM `trunc_sat`. arm64
+  (`FCVTZS`/`FCVTZU`) already conforms. **Saturation is to the TARGET width**
+  (`cast(int8, 1000.0)` → `127`, NOT `int64`-saturate then modular-narrow). Plan:
+  `plan-float-int-saturation.md`.
 
 - **Symptom**: converting a float that is `±Inf`, `NaN`, or outside the integer
   range to an int yields a **different value per target ISA**, with no defined
