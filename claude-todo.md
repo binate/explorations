@@ -1582,6 +1582,25 @@ conformance tree.
 - Follow-up to landing `pkg/std/os` (binate `3ca36c82`), which shipped
   with libc unit tests only — conformance was deferred here per the user.
 
+### Layout follow-ups surfaced authoring spec Ch.7.13 (Type Layout) — 2026-06-12
+Both referenced from the spec (`07b-type-layout.md`).
+- **`type.layout.funcval-order-hardening`** (hardening). The function-value
+  field order `{vtable, data}` and the interface-value order `{data, vtable}`
+  (the deliberate, verified ABI asymmetry) are encoded as fixed/magic indices
+  in codegen + IR (`emit_instr.bn`, `emit_funcvals.bn`, `emit_iface_call.bn`,
+  `ir_ops_flow.bn`) rather than as shared named-offset helpers in
+  `pkg/binate/types` (unlike `SliceDataOffset`/`MSliceBackingOffset`/
+  `ManagedRefcountOffset`, which ARE shared helpers). The VM and codegen agree
+  by convention, not a single shared definition — a divergence risk for the
+  keystone cross-mode contract. Harden the func/iface field orders into shared
+  named-offset constants in `pkg/binate/types`.
+- **`type.layout.byte-order`** (open decision). `TargetInfo` (`types.bni:374-378`)
+  carries no endianness field, so byte order is target-defined but unconstrained
+  by the layout layer (observable via `bit_cast` and the representation builtins).
+  Decide whether to pin endianness as implementation-defined and add a
+  `TargetInfo` endianness field so layout-dependent constant emission is
+  well-defined. (Also noted in `plan-language-spec.md` §21/§9.)
+
 ### `cast` is unchecked at the type layer; literal fit-check not enforced — spec Ch.8 (2026-06-12)
 MINOR (a permissiveness / missing-diagnostic question). `claude-notes.md:483`
 says `cast(uint, -1)` is a compile error (literal doesn't fit). The
