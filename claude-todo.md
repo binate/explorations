@@ -156,6 +156,11 @@ Fix: clear `noCompositeLit` for nested sub-expressions of `(`/`[`/call-args
 >   LLVM/native entry (Name `<pkg>._Package`, ResultSize 8, ParamSlots 0, Sig
 >   `()(@pkg/builtins/reflect.Package)`). Validated: builder-comp 1395/0,
 >   builder-comp-int 1360/0, reflect byte-identical across LLVM/native-aa64/native-x64.
+>   Follow-ups (binate `2988cda4`, `6d052181`): arm32 (ILP32) per-mode `expected`
+>   overrides for 725/727 — the self-entry's ResultSize is `ptrSize()` (4 on
+>   ILP32, 8 on LP64), breaking target-independence (⚠️ NOT verified locally —
+>   no qemu; needs arm32 CI confirmation); plus native unit tests
+>   (`TestEmitPackageDescriptorSelfListsPackage{AA64,X64}`) for the self-listing.
 > - **Still open (the core Gap 2 below)**: user/stdlib packages compiled to
 >   BYTECODE still have no `_Package` body → Part B (§2a of the VM-injection plan).
 >   The `cmd/bni`-doesn't-force-load-reflect asymmetry below is still accurate
