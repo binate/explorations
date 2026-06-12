@@ -1,178 +1,283 @@
-# Per-File Build Constraints — Design Proposals
+# Build Constraints — Design Proposals
 
-**Status: DESIGN / proposals.** Nothing here is decided; this doc lays out the
-design space, two concrete syntactic proposals, and the implementation shape,
-with tradeoffs, so the user can choose. It is the concrete follow-up to the
-`claude-todo.md` entry "Per-file build constraints — conditional file
-inclusion/exclusion by target — DESIGN". Anchors below were verified against
-the tree (binate `main`, 2026-06) by an adversarial pass; where a mechanism
-does *not* exist yet it is called out as *proposed*, not asserted.
+**Status: DESIGN / proposals.** Lays out the design space, the chosen syntax,
+and the implementation shape for conditional compilation in Binate, with
+tradeoffs, so the user can ratify. Concrete follow-up to the `claude-todo.md`
+entry "Per-file build constraints — conditional file inclusion/exclusion by
+target — DESIGN" — but generalized, per the user's direction, from *per-file* to
+**per-declaration**. Anchors verified against the tree (binate `main`, 2026-06);
+mechanisms that don't exist yet are marked *proposed*.
+
+Inline assembly (`#[asm]`) is a **separate concern with its own doc**; it
+*composes with* the build-constraint substrate here (an asm function variant is
+selected by a `#[build(...)]` constraint) but is not designed in this doc.
 
 ---
 
 ## 1. Problem & goals
 
-Let a single source file (`.bn`/`.bni`) opt **itself** in or out of compilation
-based on the active build configuration — arch, target triple, OS,
+Let any **top-level declaration** — `const`, `type`, `var`, `func`, the
+`package` clause, and `import` — opt **itself** in or out of compilation based on
+the active build configuration: arch, target triple, OS (+ OS version),
 libc-vs-freestanding, backend (LLVM / native-aa64 / native-x64), engine
-(`bnc`-compiled vs `bni`-interpreted), and possibly user-defined tags.
+(`bnc` vs `bni`), pointer/int width, language/compiler version, and (later)
+user-defined tags. Spelled as a `#[build(EXPR)]` annotation on the element:
 
-Goal shape: `arch == "arm32" && !libc` written near the top of a file, so that
-a package can hold a shared core plus a few per-variant files **in one
-directory**, instead of duplicating whole directory trees per platform.
+```binate
+#[build(arch == "arm32")] func barrier() { /* … */ }
+#[build(arch != "arm32")] func barrier() { /* … */ }
 
-Non-goals (this doc): a general expression evaluator for arbitrary const
-folding; per-*declaration* (intra-file) conditionalization; the `.xfail`
-test-mode replacement (a sibling idea, deliberately out of scope here).
+#[build(os == "linux")] import "pkg/std/os/linux_internal"
+
+#[build(ptrsize == 8)] const WORD_MASK uint = 0xFFFFFFFFFFFFFFFF
+```
+
+A file-wide constraint is just the annotation on the `package` clause — the
+former "per-file" feature is now the package-clause special case of one uniform
+mechanism.
+
+**Non-goals (this doc):** a general const-folding evaluator; per-*statement* and
+per-*field* gating (the attachment model anticipates them — `#[likely] if`,
+`#[align] field` — but they're out of scope here); inline assembly itself; the
+`.xfail` test-mode replacement.
 
 ---
 
-## 2. What exists today (grounding)
+## 2. Decisions ratified by the user (this revision)
 
-### 2.1 Three selection axes, all directory-coarse
+1. **Syntax: the first-class `#[build(EXPR)]` annotation** (not a comment
+   pragma) — §4.4 explains why a comment form can't do per-declaration.
+2. **Granularity: per-declaration**, with file-level as the package-clause case.
+3. **`version` unifies language/spec and compiler/interpreter** (the
+   implementation is ground truth, Go-style) — one unqualified, ordered
+   `version` predicate; **OS version is separate and namespaced** as
+   `os.version`.
+4. **Conditional `.bni` declarations are allowed** — valuable for per-target
+   consts and target-specific data structures — which relaxes
+   `pkg-layout-spec.md` Invariant 1 in that one spot (§4.3).
+5. **Inline asm lives in its own doc** and merely references this substrate.
 
-Variant selection today is **whole-directory**, governed by
-`pkg-layout-spec.md` Invariant 5 ("Whole-package selection only … needs the
-symlink workaround until per-file selection is designed"). There are actually
-**three** stacked axes in `impls/`:
+Still open: §11.
 
-1. **tier** — `core/` vs `stdlib/`
-2. **platform variant** — `common/` / `libc/` / `baremetal/`
-3. **per-triple** — `impls/targets/<key>/` (e.g. `x86_64-darwin`,
-   `aarch64-linux`, `arm32-linux`), keyed by the same `--target KEY` string
+---
 
-The actual cross-variant/-triple duplication in the tree right now:
+## 3. What exists today (grounding)
+
+### 3.1 The annotation grammar already reserves a slot on every top-level decl
+
+This is the fact that de-risks the whole per-declaration model. `grammar.ebnf`
+already gives an optional `[ Annotation ]` to **every** top-level declaration
+form:
+
+| Form | Grammar | Annotation slot today |
+|---|---|---|
+| `ImportDecl` | `:134-135` | **yes** (incl. grouped) |
+| `TypeDecl` | `:154-155` | **yes** (incl. grouped) |
+| `VarDecl` | `:196-197` | **yes** (incl. grouped) |
+| `ConstDecl` | `:215-216` | **yes** (incl. grouped) |
+| `FuncDecl` / `MethodDecl` | `:225,228` | **yes** |
+| `StructField` | `:187-188` | yes (future per-field) |
+| `PackageClause` | `:132` | **no — the one gap** |
+
+So the grammar work is essentially: add `[ Annotation ]` to `PackageClause`
+(one line, mirroring the others). Everything else is *already reserved* — the
+annotation system as a whole is `[DEFERRED]` (`grammar.ebnf:305-308`) with no
+parser support yet, but the shape was designed for exactly this.
+
+The annotation **machinery** is fixed too:
+`Annotation = "#" "[" AnnotationList "]"`,
+`AnnotationEntry = AnnotationName [ "(" AnnotationArgs ")" ]`,
+`AnnotationArgs = Expression { "," Expression }` (`grammar.ebnf:310-314`).
+`build`'s single arg is its applicability expression.
+
+**Grouped-decl granularity caveat:** the slot sits on the *group*
+(`const ( … )`, `var ( … )`, `type ( … )`), not on individual specs
+(`ConstSpec`/`VarSpec`/`TypeSpec` have no slot). So a constraint gates a whole
+group or a single ungrouped decl; to gate individual members, split them into
+separate decls. (Consistent with the grammar; worth stating since per-target
+consts are a prime use case.)
+
+### 3.2 The attachment model is DECIDED — and reaches declarations
+
+`claude-notes.md:804-822`: annotations "annotate the immediately following
+element" — before a declaration keyword → annotates the declaration; on fields
+and type definitions too; comma-separated within one block, no stacking. And the
+detailed notes already anticipate pushing it to **statements** (`#[likely] if`,
+`#[cold] for` — "natural extension of the attachment model to statements",
+detailed-notes:2172). So per-declaration build-constraints are the *natural
+reading* of an already-ratified model, not a new mechanism.
+
+**Namespacing is DECIDED** (`claude-notes.md:808-811`): unqualified annotation
+names = language-standard, compiler-**enforced**/typo-checked; `compiler.*` and
+`tool.*` = ignored-if-unknown. `build` is unqualified → compiler-enforced, which
+gives the §5.4 hard-error-on-typo policy *for free*. (Note: this *annotation-name*
+namespace is distinct from the *build-predicate* namespace inside `#[build(…)]`,
+§5.1.)
+
+### 3.3 Comments are not in the AST
+
+The lexer discards comments in `skipWhitespace()` with no token
+(`lexer/scan.bn:5-46`); `ast.File` has no comment field; `ParseFile` goes
+straight to `expect(PACKAGE)`. So a comment-form pragma is invisible to the
+parser/AST and could only ever gate at file granularity — see §4.4.
+
+### 3.4 Three coarse selection axes today, with real duplication
+
+Variant selection is whole-directory (`pkg-layout-spec.md` Invariant 5, "Whole-
+package selection only … needs the symlink workaround until per-file selection
+is designed"), across three stacked axes: tier (`core`/`stdlib`) × platform
+variant (`common`/`libc`/`baremetal`) × per-triple (`impls/targets/<key>/`). The
+live duplication:
 
 | Package | Duplicated as | Copies |
 |---|---|---|
-| `pkg/std/os/internal/internal.bn` | one tree per triple under `impls/targets/<key>/` | **5** |
+| `pkg/std/os/internal/internal.bn` | one tree per triple, `impls/targets/<key>/` | **5** |
 | `pkg/bootstrap/bootstrap.bn` | `impls/core/{libc,baremetal}/` | 2 |
 | `pkg/builtins/rt/rt.bn` | `impls/core/{libc,baremetal}/` | 2 |
 | `pkg/std/os/os.bn` | `impls/stdlib/{libc,baremetal}/` | 2 |
 
-`impls/core/common/` holds the genuinely platform-independent packages
-(`pkg/builtins/lang`, `pkg/builtins/testing`). The `os/internal` ×5 case is the
-most acute: five near-duplicate trees that differ only by triple — exactly what
-a per-file `triple == "..."` constraint would collapse into one package.
+`find impls -type l` is empty — the sanctioned symlink workaround has never been
+used. The `os/internal` ×5 case is the acute one.
 
-`find impls -type l` returns **nothing**: the symlink workaround Invariant 5
-sanctions is documented but has never actually been used. So retiring it as the
-sanctioned mechanism breaks nothing.
+### 3.5 The loader's two seams; source-visible target metadata
 
-### 2.2 The annotation grammar is already reserved, and namespacing is DECIDED
+`loadPackage` (`loader/loader.bn`) enumerates a package dir, filters `.bn` /
+`_test.bn` (each `continue`), reads + `ParseFile`s each file, then `MergeFiles`
+collects every file's decls **and imports**, and **only then** (`:341-358`)
+follows imports recursively and the front-end type-checks. So there are two
+natural gate seams: **(a)** the file-enumeration loop (pre-parse, file-level),
+and **(b)** a pass over the merged decls *after* `MergeFiles` and *before*
+import-following/resolution (post-parse, declaration-level). The `Loader` struct
+has no build-config field yet (`Root, BniPath, ImplPath, Packages, Order,
+Errors, TestPackages`).
 
-This is the single most important grounding fact, and it tilts the syntax
-choice. `grammar.ebnf:305-314` already reserves a first-class annotation
-syntax, marked `[DEFERRED]`:
-
-```ebnf
-(* [DEFERRED] — entire annotation system deferred from bootstrap.
-   Annotations attach to the immediately following element.
-   Multiple annotations are comma-separated within one block.
-   No stacking of separate #[...] blocks. *)
-Annotation     = "#" "[" AnnotationList "]" ;
-AnnotationList = AnnotationEntry { "," AnnotationEntry } ;
-AnnotationEntry = AnnotationName [ "(" AnnotationArgs ")" ] ;
-AnnotationName = identifier { "." identifier } ;   (* packed, compiler.inline, tool.export *)
-AnnotationArgs = Expression { "," Expression } ;
-```
-
-And the **namespacing model is DECIDED** (`claude-notes.md:804-822`):
-
-- **Unqualified** = language-standard. The compiler/interpreter *enforces* these
-  are known/valid — **catches typos**.
-- `compiler.*` = compiler-specific; unknown namespaces are **ignored**.
-- `tool.*` = external tools; the compiler **ignores** them.
-
-The parser has **no** path consuming `#[` yet (`token.HASH` exists,
-`lexer.bn:432-433`; no `parseAnnotation`). So the grammar and the policy exist;
-only the parser implementation is missing.
-
-### 2.3 Comments are discarded — not in the AST
-
-The lexer drops all comments in `skipWhitespace()` with no token emitted
-(`pkg/binate/lexer/scan.bn:5-31`, `skipLineComment` at `:34-46`);
-`ast.File` has no comment field (`ast.bni`); `parser.ParseFile()` goes straight
-to `expect(PACKAGE)` (`parser.bn:128-140`). Consequence: a `//`-comment pragma
-is **invisible to the parser, AST, and therefore to bnlint** — every tool that
-wants to see it must re-scan raw text. A first-class annotation, by contrast,
-survives as real tokens.
-
-### 2.4 The loader file-enumeration hook
-
-`loadPackage` (`pkg/binate/loader/loader.bn`, enumeration loop ~`:196-226`)
-lists a package dir via `bootstrap.ReadDir`, sorts alphabetically, then per
-entry: checks the `.bn` suffix, applies the `_test.bn`/`TestPackages` filter
-(both `continue` on exclusion), forms `filePath`, calls `readFileBytes`, then
-`parser.New(...).ParseFile()`. A parse error appends to `l.Errors` and aborts.
-The natural per-file gate sits **right beside the `_test.bn` filter, before
-`readFileBytes`/`ParseFile`** — a third `continue`-style filter. The
-`_test.bn`/`TestPackages` pair is an exact precedent: a per-file inclusion gate
-driven by a field on the `Loader` struct.
-
-Files that are gated out are simply never appended to the survivors slice, so
-they never reach `MergeFiles` or `Package.Merged` — **no merge-logic change is
-needed**. The `Loader` struct (`loader.bni`) has **no** build-config field
-today (`Root, BniPath, ImplPath, Packages, Order, Errors, TestPackages`).
-
-### 2.5 Target metadata is already source-visible — but scattered in the compiler
-
-The one place target metadata is exposed *into Binate source* is the
-`pkg/builtins/build` package, which has **no implementation — the constants ARE
-the package**, one copy per target under `ifaces/targets/<key>/`, selected by
-`binate-paths --target KEY` prepending that dir to `-I`. It exposes exactly:
-
-```binate
-const OS      OSType   = OS_DARWIN          // OS_LINUX | OS_DARWIN | OS_BAREMETAL
-const Arch    ArchType = ARCH_X64           // ARCH_X64 | ARCH_ARM64 | ARCH_ARM32
-const PtrSize int      = 8
-const IntSize int      = 8
-```
-
-Inside the compiler, target knowledge is split and **not** centralized:
-`cmd/bnc/target.bn`'s `applyTarget` hardcodes the triple keys
-(`host`, `x86_64-linux`, `x86_64-darwin`, `aarch64-linux`, `arm32-linux`,
-`arm32-baremetal`); `nativeArchForTarget` hardcodes arch strings; the layout
-layer (`types.TargetInfo`) carries only `PointerSize`/`IntSize`/`MaxAlign`;
-`suppressHostRuntime` is the only libc-ish flag. `applyTarget` runs once in
-`main()` *before* loading/type-checking, so the full config is frozen and
-knowable by the time the loader enumerates files. There is **no** centralized
-predicate registry — this feature should introduce one.
+The one source-visible target descriptor is `pkg/builtins/build` (no impl — the
+constants *are* the package, one copy per target under `ifaces/targets/<key>/`,
+selected by `binate-paths --target KEY`): `OS` (`OS_LINUX|OS_DARWIN|
+OS_BAREMETAL`), `Arch` (`ARCH_X64|ARCH_ARM64|ARCH_ARM32`), `PtrSize`, `IntSize`.
+Inside the compiler the same knowledge is scattered (`applyTarget` hardcodes
+triple keys; `nativeArchForTarget` hardcodes arch strings; `types.TargetInfo`
+carries only `PointerSize`/`IntSize`/`MaxAlign`; `suppressHostRuntime` is the
+only libc-ish flag). `applyTarget` runs once in `main()` before loading, so the
+config is frozen by enumeration time. There is no centralized predicate
+registry — this feature introduces one.
 
 ---
 
-## 3. The shared substrate: predicate model & expression semantics
+## 4. The mechanism: `#[build(EXPR)]` at two tiers
 
-Both syntax candidates (§4) parse to the **same applicability AST** and run
-through the **same evaluator**. This substrate is independent of the syntax
-choice.
+### 4.1 Where each tier runs in the pipeline
 
-### 3.1 Predicate vocabulary
+- **Package clause** → **whole-file gate, pre-parse** (loader seam *a*). A
+  bounded prescan reads the leading `#[…] package` and, on a false expression,
+  skips the file before it is fully parsed. This is the *only* tier that can
+  hide syntax (the body never parses on a target it doesn't apply to).
+- **Declaration / import** → **per-decl gate, post-parse / pre-resolve** (loader
+  seam *b*). The file parses in full; a filtering pass over the merged top-level
+  decls drops the gated-out ones *before* import-following, name resolution, and
+  type-checking. Gated-out imports are never followed; gated-out funcs/types/
+  consts never reach the checker.
 
-Mirror the existing source-visible model (`pkg/builtins/build`) so there are
-not two competing notions of "the target":
+### 4.2 The central tradeoff: which tier to use
 
-| Predicate | Type | Domain (closed) | Backed by |
-|---|---|---|---|
-| `arch` | enum | `x64`, `arm64`, `arm32` | `build.Arch` / triple→arch |
-| `os` | enum | `linux`, `darwin`, `baremetal` | `build.OS` |
-| `triple` | enum | the `applyTarget` keys | `--target KEY` |
-| `libc` | bool flag | present / absent | derived from `suppressHostRuntime` (see §3.5) |
-| `backend` | enum | `llvm`, `native_aa64`, `native_x64` | `--backend` + `nativeArchForTarget` |
-| `engine` | enum | `bnc`, `bni` | the calling tool (see §3.5) |
-| `ptrsize` | int | `4`, `8` | `build.PtrSize` |
-| `tag.<name>` | bool flag | open, default false | `--tag <name>` (proposed) |
+A per-declaration gated-out item **must still parse** on every target — it is
+spared *resolution and type-checking*, not lexing/parsing. So:
 
-The built-in names form a **closed, typo-checked set**; `tag.<name>` is the one
-**open** namespace (unknown = false is legitimate there, and *only* there). The
-`tag.` prefix is what lets the evaluator distinguish "deliberately-open user
-tag" from "misspelled built-in" — and it directly mirrors the already-decided
-annotation namespacing (unqualified = enforced; namespaced = open).
+- A decl-level gate can hide *semantics* (an `arm32`-only func referencing
+  `arm32`-only types parses, then is dropped before resolution → fine on x64).
+- A decl-level gate **cannot** hide *syntax* (a not-yet-parseable construct, e.g.
+  a future language feature, or syntax only one backend's parser accepts).
 
-### 3.2 Expression grammar — full boolean expression, not a Go tag-list
+When a file needs syntax or a language feature absent on the other target/
+version, use the **file-level** (package-clause) gate — typically paired with a
+`version` or `arch` constraint. When the items are individually parseable
+everywhere and merely differ semantically, use **declaration-level**. This is
+the principled reason to keep both tiers rather than collapse to one.
 
-**Recommendation: a full boolean expression with typed comparisons.** A strict,
-side-effect-free, name-resolution-free subset:
+### 4.3 New semantics (and footguns)
+
+- **Disjoint variant definitions** — the headline. Two `func barrier()` gated to
+  disjoint conditions: exactly one survives, so no duplicate-definition error.
+  The duplicate check must run *after* the gate, on survivors. Overlapping
+  conditions for some config → a duplicate-definition error *for that config*,
+  which is correct; the compiler never has to *prove* disjointness.
+- **No survivor is fine** — every variant of `foo` gated out for a target ⇒
+  `foo` doesn't exist there ⇒ references error "undefined" (the §5.4 hard-error
+  backstop), same as the empty-package case.
+- **Conditional `import`** is the thorny case. A dropped `import "pkg/foo"` means
+  a *surviving* reference to `foo.Bar` fails resolution. Discipline (C `#ifdef`-
+  style): gate the import and its uses on the same condition — usually automatic,
+  since the uses live in decls gated the same way. The undefined-symbol hard
+  error is the backstop. The gate must run *before* import-following (seam *b*
+  precedes `loader.bn:341-358`) so a dropped import isn't loaded.
+- **Conditional `.bni` declarations — ALLOWED** (user decision). Two sub-cases:
+  - *Common:* one **unconditional** `.bni` declaration satisfied by N gated
+    **impl** variants — clean, no Invariant-1 tension.
+  - *New:* a **conditional interface declaration** (a const/type/func that
+    genuinely only exists on some targets — e.g. a per-target const, or a
+    target-specific data structure). This **relaxes Invariant 1** ("`ifaces/` is
+    implementation-independent") in that one spot; the spec text needs an
+    explicit exception. The gate therefore runs on parsed `.bni` decls too, and
+    interface↔impl consistency (a conditional export must have a matching
+    conditionally-defined impl, and vice versa) is the author's responsibility,
+    enforced by the normal undefined/unsatisfied hard errors.
+- **Grouped decls** gate as a unit (§3.1); split to gate members individually.
+
+### 4.4 Why not a comment pragma (rejected alternative)
+
+A `//bn:build …` comment can attach only to the *file* (via leading position) —
+it cannot name "the 4th `const`" or "this `import`". Comments are discarded
+before the AST (§3.3), so per-declaration gating is structurally impossible
+through a comment channel. Per-declaration ⇒ real annotations. The comment form
+also forces every tool into a parallel text-scan and a second expression
+dialect, against Binate's non-magical value. It is therefore dropped, not
+offered as a co-equal candidate. (If the parser work were to be staged, a
+file-level-only comment pragma could be an *interim* before annotations land —
+but the substrate below is identical, so there's little reason to.)
+
+---
+
+## 5. Predicate model & expression semantics
+
+### 5.1 Vocabulary (build-predicate namespace)
+
+A **closed, typo-checked** built-in set, plus the one **open** `tag.*`
+namespace. Dotted names (`os.version`, `tag.debug`) are ordinary predicates in
+this vocabulary — distinct from the annotation-name namespace of §3.2.
+
+| Predicate | Type | Ops | Domain / operand | Status |
+|---|---|---|---|---|
+| `arch` | enum | `== !=` | `"x64" "arm64" "arm32"` | ready |
+| `os` | enum | `== !=` | `"linux" "darwin" "baremetal"` | ready |
+| `triple` | enum | `== !=` | the `--target` keys | ready |
+| `backend` | enum | `== !=` | `"llvm" "native_aa64" "native_x64"` | ready |
+| `libc` | bool flag | (bare) | present / absent | ready (see §5.5) |
+| `ptrsize` | int | `== != < > <= >=` | `4`, `8` (bare int) | ready |
+| `intsize` | int | `== != < > <= >=` | `4`, `8` (bare int) | ready |
+| `version` | semver | `== != < > <= >=` | `"1.2.0"` (quoted) | **deferred** — grammar + a canonical version source |
+| `os.version` | semver | `== != < > <= >=` | `"13.0"` (quoted) | **deferred** — needs a deployment-target knob |
+| `engine` | enum | `== !=` | `"bnc" "bni"` | **deferred** — front-end plumbing (§5.5) |
+| `tag.<name>` | open bool | (bare) | `--tag <name>` | **deferred** — open namespace, unknown ⇒ false |
+
+`version` is the **unified language/compiler version** (the implementation is
+ground truth; the in-progress spec tracks it). `os.version` is the **target OS
+version**, namespaced under `os`. `wordsize` (natural machine word) is
+deliberately **not** exposed: it coincides with `ptrsize` on every current
+target (arm32 4/4, LP64 8/8), so introducing it now would mean inventing a value
+the compiler doesn't track — add it only when a target actually splits it from
+`ptrsize`. `ptrsize`/`intsize` *are* exposed (though arch-derivable today)
+because they read as *intent* (`#[build(ptrsize == 8)]` = "this layout assumes
+64-bit pointers") and survive adding a new 64-bit arch.
+
+Incremental by construction: a new predicate = one descriptor field + one
+evaluator case + a domain entry. Ship `arch/os/triple/backend/libc/ptrsize/
+intsize` first; add `version`, `os.version`, `engine`, `tag.*` as each earns it.
+The §5.4 hard-error rule makes deferral safe.
+
+### 5.2 Expression grammar
+
+A strict, side-effect-free, resolution-free boolean sub-language with ordered
+comparisons restricted to ordered operands:
 
 ```ebnf
 BuildExpr  = OrExpr ;
@@ -180,8 +285,10 @@ OrExpr     = AndExpr { "||" AndExpr } ;
 AndExpr    = UnaryExpr { "&&" UnaryExpr } ;
 UnaryExpr  = [ "!" ] Primary ;
 Primary    = Comparison | Flag | "(" BuildExpr ")" ;
-Comparison = Predicate ( "==" | "!=" ) String ;
-Flag       = Predicate ;                       (* bool predicate or tag.<name> *)
+Comparison = Predicate CmpOp Operand ;
+CmpOp      = "==" | "!=" | "<" | ">" | "<=" | ">=" ;
+Operand    = string_literal | integer_literal ;
+Flag       = Predicate ;                       (* bool predicate, or tag.<name> *)
 Predicate  = identifier { "." identifier } ;
 ```
 
@@ -189,413 +296,242 @@ Predicate  = identifier { "." identifier } ;
 arch == "arm32" && libc
 os == "baremetal" || os == "linux"
 !(backend == "llvm") && ptrsize == 4
-engine == "bnc" && backend == "native_aa64"
-tag.debug && os == "linux"
+version >= "1.4.0"
+os == "darwin" && os.version >= "13.0"
+intsize >= 8 && tag.debug
 ```
 
-Why full-expression beats a Go `//go:build`-style flat tag-list:
+The evaluator **type-checks operand comparability** against the §5.1 table:
+ordered ops (`< > <= >=`) require an *ordered* predicate (`ptrsize`, `intsize`,
+`version`, `os.version`); `arch < "x64"` is a hard error. Enums take `== !=`
+with a string operand from their domain; ints take an int operand; semver
+predicates take a quoted dotted-decimal compared **component-wise** (missing
+components = 0, so `version >= "1.4"` ⟺ `>= "1.4.0"`). This reuses the *shape*
+of the reserved `AnnotationArgs = Expression` production but constrains it to a
+decidable subset that evaluates with zero name resolution.
 
-1. **The config is multi-valued, not boolean soup.** `arch`/`os`/`triple` are
-   3/3/N-valued enums. A tag-list forces each enum value into its own boolean
-   tag (`arch_arm32`, `os_baremetal`, …), reintroducing the typo footgun the
-   closed vocabulary exists to kill, and making `!=` ("any arch but x64")
-   clumsy.
-2. **`!=` and grouped negation are first-class needs** ("everything except
-   baremetal" = `os != "baremetal"`).
-3. **Consistency.** The reserved `AnnotationArgs = Expression` production
-   (§2.2) already says annotation arguments are expressions. A
-   `#[build(arch == "arm32" && libc)]` whose argument is a (restricted) real
-   expression is uniform with `#[align(4)]`, and with the future
-   target-qualified `#[link("m")]` family (`claude-todo.md` C-interop entry),
-   which will want the *same* predicate expression. One predicate grammar,
-   reused — versus a bespoke comma-tag micro-syntax island.
+Why a full expression (not a Go `//go:build` tag-list): the config is
+multi-valued (3 archs, 3 OSes, N triples) and needs `!=`, grouped negation, and
+ordered version/size comparisons — a flat tag-list forces every enum value into
+its own boolean tag (reintroducing the typo footgun) and can't express `>=`.
+And it stays uniform with the `Expression`-valued annotation facility.
 
-Cost is bounded: a ~5-production recursive-descent walk over tokens the lexer
-already emits (`==`, `!=`, `&&`, `||`, `!`, `(`, `)`, identifier, string).
+### 5.3 Evaluation timing & single authority
 
-### 3.3 Evaluation timing & single authority
+Evaluated in the loader/front-end, once per build (config frozen by then), at
+*both* seams (§4.1). Introduce **one** build-config descriptor — proposed
+`BuildCfg` on the `Loader`, populated by `applyTarget` for bnc and by each other
+front-end for itself — holding every predicate's resolved value + the user-tag
+set + each predicate's type/domain (so the evaluator can type-check §5.2). It is
+the single source of "what predicates exist and what they are," and the one
+place bnlint/hygiene read from (they have *zero* build-config context today).
 
-Evaluated **in the loader, during file enumeration** (§2.4), once per build —
-the config is frozen by then. Introduce **one** build-config descriptor
-(proposed: a `BuildCfg` field on the `Loader` struct, populated by `applyTarget`
-for bnc and by each other front-end for itself), holding the resolved value of
-every predicate plus the user-tag set. The evaluator queries only this
-descriptor; it becomes the single source of "what predicates exist and what
-they currently are," and the place bnlint/hygiene read from too (they have
-*zero* build-config context today). Adding a predicate = one descriptor field +
-one evaluator case + a domain entry.
+### 5.4 Error semantics — unknown/malformed is a HARD ERROR
 
-### 3.4 Error semantics — unknown/malformed is a HARD ERROR (the safety property)
-
-This is load-bearing. Filtering a file out changes which decls reach
-`Package.Merged`; a **silently-false** predicate ⇒ silent file drop ⇒ the
-dropped file's symbols vanish ⇒ a *different* file fails later with "undefined
-symbol"/link error far from the cause. That is precisely the silent-file-drop
-class this project treats as a critical footgun.
-
+The safety property. A **silently-false** predicate ⇒ silent decl/file drop ⇒
+vanished symbols ⇒ a *different* site fails later with "undefined symbol" far
+from the cause — the silent-drop footgun class this project treats as critical.
 Rules:
 
-1. **Unknown built-in predicate ⇒ hard error.** `achr == "arm32"` (typo) is
-   *not* silently false; it is `build constraint: unknown predicate "achr"`.
-   The closed vocabulary makes this checkable, mirroring the
-   already-decided "unqualified annotations are enforced/typo-checked."
-2. **Unknown enum value ⇒ hard error** (`arch == "armv7"` →
-   `not a valid arch (expected x64|arm64|arm32)`).
-3. **Malformed expression ⇒ hard error** (unbalanced parens, dangling `&&`,
-   `==` against a bare flag, …). The evaluator never "recovers" to a default.
-4. **`tag.<name>` is the only thing that may be false-because-absent** — and
-   only because its namespace is explicitly open. A bare unknown word is a
-   typo'd built-in (rule 1), never an implicit tag.
-5. **Errors abort the build, not the file.** They route through the loader's
-   existing error channel (`append to l.Errors` then `return`), exactly like a
-   syntax error in the file. They must **not** take the skip (`continue`) path —
-   skipping *is* the silent-drop failure mode.
+1. **Unknown built-in predicate ⇒ hard error** (`achr == …` → `unknown
+   predicate "achr"`). The closed vocabulary makes typos checkable — exactly the
+   "unqualified annotations are enforced" decision.
+2. **Unknown enum value / malformed version literal ⇒ hard error**
+   (`arch == "armv7"`, `version >= "1.x"`).
+3. **Ill-typed comparison ⇒ hard error** (ordered op on an enum; comparison on a
+   bare flag; int op on a semver predicate).
+4. **Malformed expression ⇒ hard error** (unbalanced parens, dangling `&&`).
+   The evaluator never recovers into a default.
+5. **`tag.<name>` is the only false-because-absent case**, and only because its
+   namespace is explicitly open. A bare unknown word is a typo'd built-in
+   (rule 1), never an implicit tag.
+6. **A not-yet-wired predicate** (`engine`, `os.version`, `tag.*` before its
+   plumbing/flag exists) ⇒ hard error "predicate not available in this build
+   configuration" — never silently false.
+7. **Errors abort the build, not the file** — routed through the loader's
+   existing error channel (`append l.Errors; return`), like a syntax error; they
+   must **not** take the skip (`continue`) path, which *is* the silent-drop mode.
 
-The asymmetry is the whole point: **evaluating to false skips the file
-(intended); failing to evaluate aborts the build (safety).**
+The asymmetry is the design: **evaluating to false skips the element (intended);
+failing to evaluate aborts the build (safety).**
 
-### 3.5 Two honest caveats (flagged, not silently resolved)
+### 5.5 Caveats (flagged, not silently resolved)
 
-- **`libc` is not first-class today.** No `libc`/`Hosted` constant exists in
-  any `build.bni`; freestanding is currently *implied* by `OS_BAREMETAL`. That
-  conflation is wrong in general (`arm32-linux` and host both have libc; a
-  future hosted-no-libc target breaks it). Proposal: treat `libc` as a distinct
-  flag sourced from the same authority as `suppressHostRuntime`, and —
-  **separately, user's call** — add a matching `Hosted`/`Libc` constant to
-  `pkg/builtins/build` so source-level `import "pkg/builtins/build"` and
-  build-constraints agree. Flagged rather than silently derived from `os`.
-- **`engine` (bnc vs bni) is not loader-knowable today.** Both bnc and bni use
-  identical `NewLoader`/`LoadImports`; the loader is engine-agnostic. An
-  `engine` predicate therefore requires each front-end to *inject* its identity
-  into `BuildCfg` — real plumbing, not a loader-internal lookup. Until that
-  lands, an `engine`-mentioning constraint must **hard-error** ("predicate not
-  available in this build configuration"), never silently false (same invariant
-  as §3.4). Whether `engine` is in v1 scope is an open decision (§10).
-
----
-
-## 4. Syntax candidates
-
-### 4.1 Candidate A — comment-form pragma (`//bn:build …`)
-
-```
-//bn:build arch == "arm32" && libc
-
-package "pkg/builtins/atomic"
-```
-
-Go's `//go:build` model. The pragma is an ordinary `//` comment to the lexer
-(so it leaves no token/AST trace); recognition is a **textual prefix scan** done
-by each tool. Placement: the contiguous leading comment block before `package`,
-blank-line-terminated; multiple lines AND-combine; a `//bn:build` after
-`package` is just a comment and **must not** be honored (no spooky line-400
-file-drop).
-
-Scan strategy (no parse): a few lines of byte-level text processing over the
-file prefix — does **not** use the lexer at all (the lexer discards exactly the
-bytes we care about). In the loader it runs over `src` between `readFileBytes`
-and `parser.New`, `continue`ing on a false result.
-
-Honest tradeoffs:
-- **+ Cheapest to scan** — pure byte-prefix loop; trivially reusable by the
-  non-parsing hygiene shell scripts (their one genuine ergonomic win).
-- **+ Fully backward compatible** — lexer/parser/AST untouched.
-- **− Out-of-grammar / "magical."** Invisible to parser and AST. Binate
-  explicitly values transparent, source-determined, non-magical surfaces and
-  *already reserves* a first-class `#[…]` facility meant to unify
-  build-constraints, lint-control, and C-interop. A comment pragma is a
-  parallel, special-cased channel — exactly the magic the language avoids.
-- **− Every tool re-implements it.** loader, bnlint (via loader), each hygiene
-  script, any future formatter/IDE must each re-scan and re-parse the
-  expression. The annotation form is parsed once into the AST.
-- **− Silent-typo footgun.** `//bn:buildd`, `// bn:build` (leading space) →
-  silently a plain comment, file unconditionally included, no diagnostic.
-  Inherent to comment-channel directives; needs a compensating hygiene
-  near-miss check.
-- **− Second expression dialect.** Being scanned (not parsed), the condition
-  either hand-rolls a second parser for Binate's `Expression` or invents a tiny
-  ad-hoc grammar — a divergent dialect either way.
-
-### 4.2 Candidate B — first-class `#[build(...)]` annotation (recommended)
-
-```binate
-#[build(arch == "arm32" && libc)] package "pkg/foo"
-#[build(!libc)] package "pkg/foo"                    // freestanding-only
-#[build(triple == "x86_64-darwin")] package "pkg/foo"
-```
-
-Instantiate the **already-reserved** annotation facility (§2.2), attaching an
-optional annotation to the package clause — mirroring how `ImportDecl` already
-carries an optional `[ Annotation ]`:
-
-```ebnf
-PackageClause = [ Annotation ] "package" string_literal ;
-```
-
-`build` is a standard (unqualified) annotation name → compiler-enforced /
-typo-checked, which is exactly the §3.4 hard-error policy *for free* from the
-decided namespacing. A future combined form is one block:
-`#[build(libc), link("m")] package "pkg/foo"` (comma-separated, never stacked).
-
-**Parse-before-decide** (the one real wrinkle): the loader must read the
-annotation *before* committing to a full parse. Because `#[` lexes as real
-tokens (`token.HASH`/`token.LBRACKET`), a *proposed* `prescanBuildConstraint`
-runs the **real lexer** over the in-memory `src`, pulls the bounded token run
-`HASH LBRACKET … RBRACKET PACKAGE`, slices out `build(...)`'s argument tokens by
-paren-balancing, and hands them to the §3 evaluator; on false, `continue`. No
-divergent scanner: the *same* tokens then feed the full parser if the file is
-accepted. (Contrast A, which needs a separate comment-aware text scan that the
-real parser can never share.)
-
-When accepted, preserve the annotation on the AST so later tooling needn't
-re-scan: add a general `ast.Annotation` node (`Name`, `Args @[]@ast.Expr`,
-`Pos`) — the reusable node for the whole deferred facility — and an
-`ast.File.BuildConstraint` field; in `ParseFile`, before `expect(PACKAGE)`,
-consume a leading annotation block.
-
-Honest tradeoffs:
-- **+ First-class / parseable / non-magical** — visible syntax, survives as
-  tokens, one scan feeds both the gate and the full parse.
-- **+ Reusable** — directly instantiates the reserved general facility; build,
-  `#[link(...)]`, and lint-control share one surface and one AST node, instead
-  of a parallel pragma channel.
-- **− More work than a comment** — needs the `ast.Annotation` node, a
-  `parseAnnotation` path, the `ast.File` field. The facility has *zero* parser
-  implementation today (but the grammar + policy are already designed).
-- **− The parse-before-decide prescan** must paren-balance the `build` argument
-  without the full expression grammar — modest, bounded.
-
-### 4.3 Comparison & recommendation
-
-| | A: `//bn:build` comment | B: `#[build(...)]` annotation |
-|---|---|---|
-| Scan cost | lowest (byte loop) | low (bounded real-lexer run) |
-| In AST / parser-visible | no | yes |
-| Reuses reserved facility | no (parallel channel) | **yes** |
-| Tools re-implement scan | each one | parser once; tools read AST |
-| Typo of the directive name | silent → file included | hard error (enforced name) |
-| Expression dialect | second, hand-rolled | the real `Expression` |
-| Hygiene-shell ergonomics | **best** (plain grep) | needs a head-scan helper |
-| Implementation cost | lower now | higher now, lower long-run |
-
-**Recommendation: Candidate B.** The decisive factors are not effort but
-*coherence*: the `#[…]` grammar and its namespacing (incl. the typo-enforcement
-that gives §3.4 for free) are already decided; comments are deliberately not in
-the AST, so A forces every tool into a parallel text-scanning channel and a
-second expression dialect — the exact "magic" the language design rejects. B
-makes build-constraints the **first concrete instance** of the general
-annotation facility the project already intends to build, shared with
-`#[link(...)]` and `tool.lint` (§7). A's only real edge is hygiene-shell
-ergonomics, addressed by one shared head-scan helper either way.
-
-(If the user prefers to defer the parser work, a viable middle path is to ship
-the §3 substrate + loader gate now behind A's cheap scan, then migrate the
-*surface* to B when the annotation parser lands — the evaluator and `BuildCfg`
-are unchanged. Called out so the choice is eyes-open, not baked in.)
+- **`libc` is not first-class today** — no `libc`/`Hosted` constant in
+  `build.bni`; freestanding is implied by `OS_BAREMETAL`, which is wrong in
+  general (`arm32-linux` and host both have libc). Proposal: source `libc` from
+  the same authority as `suppressHostRuntime`, and — separately, user's call —
+  add a `Hosted`/`Libc` constant to `pkg/builtins/build` so source-level imports
+  and constraints agree. Flagged, not derived from `os`.
+- **`engine` (bnc vs bni) is not loader-knowable today** — both share
+  `NewLoader`/`LoadImports`; an `engine` predicate needs each front-end to inject
+  its identity into `BuildCfg`. Real plumbing; deferred; hard-errors until wired.
+- **`os.version` needs a deployment-target knob** (e.g. `--os-version`); the
+  current target model carries no OS version. Deferred; hard-errors until wired.
 
 ---
 
-## 5. Loader / merge integration
+## 6. Loader / merge / front-end integration
 
-- **Where the gate runs.** A third filter in the enumeration loop, beside the
-  `_test.bn` filter, before `readFileBytes`/`parser.New` — so an inapplicable
-  file with constructs this toolchain can't handle never parses and never
-  contributes a spurious `ParseError`. This is *why* the gate must precede
-  parse, not merely precede merge.
-- **Prefix-read vs reuse-the-buffer (sub-decision).** Option (i): `open` + read
-  ~512–1KB before `readFileBytes`, saving the full read of rejected files, but
-  forcing a second I/O path and a partial lexer that could disagree with the
-  real one (e.g. a constraint split across the read boundary). Option (ii): gate
-  *after* `readFileBytes`, running the bounded real-lexer scan over the
-  in-memory `src`. **Recommend (ii)** — build-constrained files are small and
-  few; the saved read isn't worth a divergent scanner.
-- **Drop semantics.** A gated-out file is `continue`d, never appended to the
-  survivors, so `MergeFiles`/`Package.Merged` need **no change**; sorted merge
-  order among survivors is preserved.
-- **Empty-package handling.** The existing `package "<path>" not found` guard
-  (`bniFile == nil && len(files) == 0`) already gives the right answer in both
-  directions, with no change: (a) `.bni` present + all `.bn` gated out → guard
-  doesn't fire, package registers interface-only (already supported for extern
-  packages) — correct; (b) no `.bni` + all `.bn` gated out → guard fires —
-  **also correct**, a package with no interface and no applicable impl is
-  genuinely unimportable on that target, and silent acceptance would hide
-  misconfiguration. So **keep** the guard; do **not** add a separate
-  ">=1 surviving file" rule.
-- **Gate the `.bni` too.** The interface file is discovered on a separate path;
-  apply the *same* `fileAppliesToTarget` there so the two trees can't diverge
-  on "applies." Build-constrained `.bni`s should be rare (Invariant 1:
-  `ifaces/` is implementation-independent), but the gate must be uniform. Keep
-  the evaluator **pure** (no state between files) since `.bni` is evaluated
+- **File-level gate (seam a).** A bounded run of the *real* lexer over the
+  in-memory `src` reads the leading `#[…] package`, slices the `build(...)`
+  argument tokens by paren-balancing, evaluates; on false, `continue`. Reusing
+  the real lexer (not a divergent prefix-lexer) avoids boundary-split bugs;
+  build-constrained files are small, so reading the whole file first is fine.
+- **Declaration-level gate (seam b).** After `MergeFiles`, a pass over the merged
+  top-level decls (and imports, and `.bni` decls) drops any whose `#[build]`
+  evaluates false, *before* the import-follow loop (`loader.bn:341-358`) and
+  type-checking. Pure (no cross-decl state). The **duplicate-definition check
+  runs on the survivors**, enabling §4.3 disjoint variants.
+- **Empty-package handling — unchanged.** The existing `package "<path>" not
+  found` guard (`bniFile == nil && len(files) == 0`) is correct in both
+  directions: `.bni` present + all impls gated out → interface-only package (no
+  error); nothing left + no `.bni` → genuinely unimportable for this target →
+  error. Keep it; do not add a ">=1 surviving file" rule.
+- **`.bni` gating.** Apply the same gate to the interface file and (per §4.3) to
+  individual `.bni` decls. Keep the evaluator pure since `.bni` is processed
   before the impl loop.
-- **Target threading.** Add `BuildCfg` to the `Loader` struct, populated by
-  `applyTarget` for bnc (sourced from the `pkg/builtins/build` metadata so names
-  line up with the runtime constants) and by each other front-end for itself
-  (the `engine` plumbing, §3.5).
-- **BUILDER constraint.** The loader is inside `cmd/bnc`'s
-  BUILDER-compilable tree, so the scanner + evaluator added there **must stay
-  within the BUILDER-accepted subset** (no interfaces/generics/closures — see
-  CLAUDE.md "Builder Compatibility Constraint"). This rules out a fancy
-  expression-object hierarchy; a flat token-walk evaluator fits.
+- **Target threading.** Add `BuildCfg` to `Loader`, populated by `applyTarget`
+  (sourced from the `pkg/builtins/build` metadata so predicate names line up with
+  the runtime constants) and by each front-end for `engine`.
+- **BUILDER constraint.** The loader is inside `cmd/bnc`'s BUILDER-compilable
+  tree, so the descriptor + evaluator + gate must stay within the BUILDER subset
+  (no interfaces/generics/closures — CLAUDE.md "Builder Compatibility
+  Constraint"). A flat token-walk evaluator over a tagged-union expr node fits;
+  no fancy hierarchy.
 
 ---
 
-## 6. Relationship to the `impls/` trees + migration
+## 7. Relationship to the `impls/` trees + migration
 
-**Recommendation: COMPLEMENT, don't replace — and retire the symlink workaround
-immediately.**
+**Recommendation: COMPLEMENT the directory axes, don't replace them — and retire
+the (unused) symlink workaround.** The `common`/`libc`/`baremetal` and
+`targets/<key>/` directories do legible work: `binate-paths` selects a whole
+sub-tree with one `-I`/`-L` prepend, and "what's in the baremetal build" stays
+answerable by `ls`, not by grepping headers. So **coarse axis = directories;
+fine axis = per-declaration (or package-clause) constraints.**
 
-The directory axes (`common`/`libc`/`baremetal`, and `targets/<key>/`) do real,
-legible work: `binate-paths` selects a whole sub-tree with one `-L`/`-I`
-prepend, and "what's in the bare-metal build" stays answerable by `ls`, not by
-grepping file headers. Collapsing everything into one flat tree where every file
-self-selects would (a) force the loader to read+scan *every* file to find the
-few that apply, and (b) make the platform boundary invisible in the filesystem —
-contrary to the transparent/source-determined value. So: **coarse axis stays
-directories; fine axis becomes per-file constraints.**
+Per-declaration gating goes *further* than the original per-file idea: it
+collapses not just per-package but **within-file** variation. Concretely:
 
-What per-file constraints buy:
+- The `os/internal` ×5 per-triple trees → **one** package whose few
+  triple-specific items carry `triple == "…"` (or whose whole files carry a
+  package-clause gate, if they need triple-specific syntax).
+- `pkg/bootstrap`, `pkg/builtins/rt`, `pkg/std/os` (each duplicated across
+  `libc`/`baremetal`) → one directory: shared decls unconstrained, the few
+  platform-specific decls gated `libc` / `!libc`.
+- **Per-target consts** (the user's prime case) → one `const` group per target
+  gated by `arch`/`triple`/`ptrsize`, side by side in one file, instead of a
+  per-target file or tree.
 
-- **Eliminate the symlink workaround** (never actually used) as Invariant 5's
-  escape hatch; the spec text "needs the symlink workaround until per-file
-  selection is designed" should be re-pointed at this facility.
-- **Collapse within-package and per-triple duplication.** The `os/internal` ×5
-  per-triple trees (§2.1) become one package whose files carry
-  `triple == "..."` constraints. `pkg/bootstrap`, `pkg/builtins/rt`,
-  `pkg/std/os` (each duplicated across `libc`/`baremetal`) become one
-  directory: shared declarations unconstrained, the libc-only / baremetal-only
-  files carrying `libc` / `!libc` constraints.
-
-Migration is **opt-in, incremental, no flag day** (the loader change is a no-op
-for unannotated files):
-
-1. **Land the gate as a no-op** — add `BuildCfg`, add `fileAppliesToTarget`
-   returning `true` when no constraint is present. Byte-identical behavior; the
-   tree split keeps working; everything stays green. Safe first commit.
-2. **Thread `BuildCfg`** from the front-ends (bnc in `applyTarget`; bni driver
-   and bnlint set at least `arch`/`os`/`engine`).
-3. **Pilot one package** — start with the smallest duplicate (`pkg/builtins/rt`
-   or the `os/internal` per-triple set). Move the variant files into one dir,
-   split shared vs platform-specific, tag the platform-specific ones, delete the
-   now-empty variant copies, adjust `binate-paths` so the package resolves under
-   the collapsed dir.
-4. **Verify** against the existing target matrix (`builder-comp_arm32_baremetal`,
-   `builder-comp_arm32_linux`, host modes) — a mis-gated file shows up
-   instantly as a missing-symbol/not-found error.
-5. **Repeat per package**, deciding case-by-case whether full-tree separation or
-   constraint-collapse reads better. Platform-independent packages need no
-   change.
+Migration is **opt-in, incremental, no flag day** (the gate is a no-op for
+unannotated decls): land the gate as a no-op → thread `BuildCfg` → pilot the
+smallest duplicate (or `os/internal`) → verify on the existing target matrix
+(`builder-comp_arm32_baremetal`, `…_arm32_linux`, host) → repeat per package.
+Update Invariant 5's text to point at this facility instead of the symlink
+workaround, and add the Invariant-1 exception for conditional `.bni` decls
+(§4.3).
 
 ---
 
-## 7. Tooling: bnlint, hygiene, and the lint-exempt corollary
+## 8. Tooling: bnlint, hygiene, lint-exempt
 
-Two independent file-discovery paths must both become config-aware:
+**bnlint must take `--target` — and per-declaration gating makes it *necessary*,
+not optional.** bnlint walks the parsed/merged AST; if it walks *all* decls it
+will try to resolve the `arm32`-only function on a host run and emit false
+"undefined" errors. So:
 
-- **bnlint discovers files *through the loader*** (`lintPackages` →
-  `NewLoader` → `LoadImports`), then walks the parsed/merged AST (`LintFile`).
-  It has **no `--target`/`--config` flag** today. Add one, thread it into
-  `NewLoader.BuildCfg`; then bnlint inherits the §5 filtering for free —
-  inapplicable files are simply **absent** from `Package.Merged`, so they're
-  neither type-checked nor linted → no false flags. (This is the whole reason
-  the gate lives in the loader, not in bnlint.)
-- **Hygiene scripts use raw `find` + text scanning, never parse.** Split them:
-  - **Config-blind checks stay blind.** Trailing-whitespace, import-order,
-    **line-length** — a file's constraint doesn't excuse bad formatting. Do
-    **not** wire `--target` into these. (Explicitly narrower than "add
-    `--target` everywhere.")
-  - **Config-relative checks get config-awareness** — chiefly the global
-    unique-`conformance` numbering and any future "every package has an impl for
-    target X." A *single* shared shell helper (`bn-applicable-for`, sourced once,
-    not re-implemented per script — avoids the sweep-incompleteness trap) reads a
-    file's constraint head and filters the `find` *result*.
+- bnlint takes **`--target`/`--config`** (default host), threaded into
+  `NewLoader.BuildCfg`; it then inherits the §6 gate, and **resolution/type-
+  dependent** rules run only on the **active** decl set.
+- **Purely syntactic/lexical** rules (formatting, naming, AST-shape) may still
+  run on *all* parsed decls, including inactive variants — mirroring the
+  config-blind vs config-relative hygiene split.
+- **Full coverage** of inactive variants comes from a **per-config cover-set**: a
+  decl gated `arch=="arm32"` is resolution-linted under an arm32 config in the
+  matrix. This generalizes `lint.sh`'s existing `LINT_SKIP` (whole-package skip)
+  from "skip everywhere" to "lint under the configs where this applies."
 
-**Linting each file under all its applicable configs.** One bnlint run pins one
-config, so a file constrained to `arch=="arm32" && !libc` is skipped (clean, but
-unchecked) under a host run. To actually check it, bnlint runs **once per config
-in a cover set**. The precedent is already in `lint.sh`'s `LINT_SKIP`
-(whole-package skips for what the BUILDER bnlint can't typecheck); the matrix
-generalizes it from "skip everywhere" to "lint under the configs where this
-applies." Cover-set definition + CI cost (|cover set| × |packages|) is an open
-decision (§10).
+**Hygiene scripts** (raw `find` + text, no parse): config-**blind** checks
+(trailing whitespace, import order, **line length**) stay blind — a constraint
+doesn't excuse bad formatting. Only inherently config-**relative** checks (the
+global `conformance` numbering; a future "every package has an impl for target
+X") get a shared `bn-applicable-for` head-scan helper (sourced once, not
+re-implemented per script — the sweep-completeness rule).
 
-**The lint-exempt corollary (unified vocabulary).** The TODO's idea — a
-"lint-exempt this file/region" directive sharing the *same* annotation
-vocabulary — falls out cleanly from the decided `tool.*` namespace (compiler
-ignores it):
-
-- **File-level:** `#[tool.lint(off("raw-slice-return"))]` on the package clause
-  — same attachment point and same prescan path as `#[build(…)]`; bnlint's
-  head-scan extracts it in the same pass and consults a suppression set before
-  emitting a diagnostic.
-- **Region-level:** once the parser carries annotations (Phase 4), a
-  `#[tool.lint(off(...))]` attached to a declaration; pre-parser, a recognized
-  line-range comment the linter scans for.
-- **Hygiene whitelists migrate onto it over time.** Today's three `.whitelist`
-  files (`naming`, `test-coverage`, `conformance-imports`) and the existing
-  `// LONG-LINE ALLOWED` trailing marker in `line-length.sh` are the legacy
-  forms. Long-term, in-source `tool.lint`/`tool.hygiene` annotations replace
-  external whitelists (the exemption lives next to the code it excuses and
-  survives file moves — consistent with the "comments stand alone / no
-  breadcrumbs" discipline). Coexist until then; unified vocabulary is the
-  target, not a day-one migration.
-
-The unifying rule: **one head-scan per file yields both `#[build(…)]` and
-`#[tool.lint(…)]`**, comma-separated in one block.
+**Lint-exempt corollary (unified vocabulary).** Riding the decided `tool.*`
+namespace (compiler ignores it), lint control is a sibling annotation:
+`#[tool.lint(off("raw-slice-return"))]` on any declaration — **same attachment
+model and same parser path** as `#[build]`. File-level on the package clause;
+declaration-/region-level on a decl once the annotation parser lands. Today's
+three `.whitelist` files and the `// LONG-LINE ALLOWED` marker are the legacy
+forms, migrating onto in-source `tool.lint`/`tool.hygiene` over time (the
+exemption lives next to the code it excuses and survives file moves). One scan
+per element yields both `#[build(…)]` and `#[tool.lint(…)]`.
 
 ---
 
-## 8. Phased implementation roadmap
+## 9. Phased implementation roadmap
+
+Per-declaration ⇒ real annotation parsing is **foundational**, not deferrable
+(there's no comment-pragma shortcut). But that parser is shared with the whole
+annotation facility (`asm`, `packed`, `align`, `link`, `likely`), so it isn't
+build-constraint-specific cost.
 
 | Phase | Scope | Complexity |
 |---|---|---|
-| **0 — Substrate** | Predicate `BuildCfg` descriptor + the §3 expression evaluator (flat token-walk, BUILDER-subset) + hard-error vocab. No tool wired up; unit-tested standalone. | **Low–Med** |
-| **1 — Loader/bnc gate (MVP)** | `BuildCfg` on `Loader`; `fileAppliesToTarget` gate beside the `_test.bn` filter; populate from `applyTarget`/`--backend`/`build.bni`. Per-file IN/OUT in bnc; symlink workaround retired. Needs merge-resolution tests (a dropped decl breaking a dependent). Stays BUILDER-compilable. | **Med** |
-| **2 — bnlint config awareness** | `--target`/`--config` → `parseArgs`/`CLIArgs` → `NewLoader`; bnlint inherits Phase-1 filtering. Add file-level `tool.lint(off …)` suppression. | **Low–Med** |
-| **3 — Hygiene config matrix** | `--target` on `run.sh`; `bn-applicable-for` helper; wire **only** config-relative checks; generalize `LINT_SKIP` into a config cover-set. Enumerate `find … *.bn` sites repo-wide (sweep rule), not a guessed subset. | **Med** |
-| **4 — First-class annotation parsing** | Implement the reserved `#[…]` in the parser (real `ast.Annotation`), so `#[build(…)]`/`#[tool.lint(…)]` are AST nodes; enables region-level exempt and folds the prescan into normal parse for non-package uses; migrate `.whitelist` files. Coordinate with the C-interop `#[link(…)]` family so the surface is designed once. | **High** |
+| **0 — Substrate** | `BuildCfg` predicate descriptor + the §5.2 evaluator (flat token-walk, type-checked, BUILDER-subset) + hard-error vocab. Standalone-testable. | **Low–Med** |
+| **1 — Annotation parsing** | Implement the reserved `#[…]` in the parser → real `ast.Annotation` nodes; add `[ Annotation ]` to `PackageClause`; consume the already-reserved slots on import/const/type/var/func. Shared with the whole annotation facility. | **High (shared)** |
+| **2 — Gates in bnc** | File-level prescan (seam a) + declaration-level filter pass (seam b, after `MergeFiles`, before import-follow); duplicate-check on survivors; `.bni` + per-`.bni`-decl gating; keep the empty-package guard. Retire the symlink workaround. Needs merge-resolution tests (a dropped decl/import breaking a dependent). | **Med** |
+| **3 — bnlint config** | `--target`/`--config` → `parseArgs`/`CLIArgs` → `NewLoader`; inherits the gate; resolution rules on active set, syntactic on all; `tool.lint(off …)` suppression; per-config cover-set (generalize `LINT_SKIP`). | **Med** |
+| **4 — Hygiene matrix** | `--target` on `run.sh`; `bn-applicable-for` helper; wire only config-relative checks. Enumerate `find … *.bn` sites repo-wide (sweep rule). | **Med** |
+| **5 — Vocabulary expansion** | Wire `version` (+ the version source), `os.version` (+ deployment-target knob), `engine` (front-end plumbing), `libc` first-class (`build.bni` constant), `tag.*` (`--tag`). Each is independent and hard-errors until wired. | **Low each** |
 
-MVP = **Phases 0→2** (per-file compilation + a config-aware linter that never
-false-flags), reusing the `--target` vocabulary and `build.bni` constants that
-already exist. Note: under syntax Candidate **A**, Phase 4 is unnecessary for
-build-constraints (but the general annotation facility is still wanted for
-C-interop, so it happens anyway); under **B**, Phase 4 (or at least a minimal
-package-clause-annotation parser) is what makes B first-class rather than a
-prescan-only hack — it can be pulled earlier and merged with Phase 1.
+MVP = **Phases 0–3** with the `arch/os/triple/backend/libc/ptrsize/intsize`
+vocabulary: per-declaration conditional compilation + a config-aware linter.
+Phases 1–2 can co-land (the parser is what makes the gate possible).
 
 ---
 
-## 9. Recommendation summary
+## 10. Recommendation summary
 
-1. **Syntax: Candidate B** (`#[build(EXPR)]`) — first concrete use of the
-   already-reserved, namespacing-decided annotation facility; non-magical;
-   shared with `#[link]` and `tool.lint`. (A is the fallback if parser work is
-   deferred; the substrate is identical.)
-2. **Expression: full boolean** over a **closed, typo-checked** built-in
-   vocabulary + an open `tag.*` namespace.
-3. **Errors: hard-fail** on unknown/malformed (evaluate-false skips; fail-to-
-   evaluate aborts).
-4. **Loader: gate beside `_test.bn`**, before parse; reuse the in-memory buffer;
-   keep the empty-package guard; gate `.bni` too; thread a `BuildCfg`
-   descriptor; stay BUILDER-compilable.
-5. **impls/: complement**, not replace; retire the (unused) symlink workaround;
-   collapse the `os/internal` ×5 and the libc/baremetal duplicates incrementally.
-6. **Tooling: config-aware bnlint via the loader**; config-blind formatting
-   checks stay blind; unify lint-exempt under `tool.lint`.
+1. **`#[build(EXPR)]` annotation, per-declaration**, file-level as the
+   package-clause case. (Comment pragma dropped — can't do per-decl.)
+2. **Full boolean expression** with ordered comparisons restricted to ordered
+   operands, over a **closed, typo-checked** vocabulary + open `tag.*`.
+3. **Hard-fail** on unknown/malformed/ill-typed/not-yet-wired (evaluate-false
+   skips; fail-to-evaluate aborts).
+4. **Two gate seams** (pre-parse file; post-merge/pre-resolve decl); duplicate-
+   check on survivors; keep the empty-package guard; gate `.bni` too;
+   BUILDER-subset evaluator.
+5. **Complement** the `impls/` directories; retire the symlink workaround;
+   collapse the `os/internal` ×5, the libc/baremetal duplicates, and per-target
+   consts incrementally.
+6. **bnlint `--target` is necessary**; config-blind formatting stays blind;
+   unify lint-exempt under `tool.lint`.
+7. **`version` = unified language/compiler**; **`os.version`** namespaced;
+   `wordsize` deferred; ship a minimal vocabulary first.
 
 ---
 
-## 10. Open decisions for the user
+## 11. Open decisions for the user
 
-1. **Syntax: B (annotation) or A (comment), or A-now-migrate-to-B?**
-2. **Expression form: full boolean (recommended) or a simpler tag-list?**
-3. **`libc` first-class?** Add a `Hosted`/`Libc` constant to
-   `pkg/builtins/build` (so source and constraints share one authority), or
-   keep deriving from `os`/`suppressHostRuntime`?
-4. **`engine` predicate in v1?** It needs front-end plumbing; until then,
-   `engine`-constraints hard-error. In or out for the MVP?
-5. **`ptrsize` predicate at all?** Fully determined by `arch` — include for
-   parity with `build.PtrSize`, or drop to keep the vocabulary minimal?
-6. **`tag.*` CLI surface** (`--tag <name>`) and which tools accept it.
-7. **Are build-constrained `.bni`s allowed** (vs `.bn`-only), given Invariant 1?
-8. **Per-config lint cover-set:** where declared (checked-in matrix vs derived
-   from `ifaces/targets/*`), and the acceptable CI cost.
+1. **Canonical `version` source** — exactly which value `version` reads (the
+   `bnc`/spec version string), and where it's defined so the evaluator and a
+   future `import "pkg/builtins/build"`-style exposure agree.
+2. **`os.version` knob** — confirm a `--os-version`/deployment-target flag is the
+   intended source, and its default (unset ⇒ `os.version` hard-errors).
+3. **`libc` first-class** — add a `Hosted`/`Libc` constant to
+   `pkg/builtins/build`, or keep deriving from `suppressHostRuntime`?
+4. **`engine` in the MVP** — wire the front-end plumbing now, or defer (hard-error
+   until then)?
+5. **Invariant-1 amendment** — confirm the spec exception for conditional `.bni`
+   declarations, and whether to constrain it (e.g. consts/types only, not funcs).
+6. **Per-member group gating** — accept the "split a group to gate members"
+   limitation, or add an `[ Annotation ]` slot to `ConstSpec`/`VarSpec`/
+   `TypeSpec` (grammar change) for finer granularity?
+7. **Phase 1/2 sequencing** — co-land the annotation parser with the gate, or
+   land a minimal package-clause-only annotation parser first and add the other
+   slots in 2?
+8. **Per-config lint cover-set** — where declared (checked-in matrix vs derived
+   from `ifaces/targets/*`) and the acceptable CI cost.
