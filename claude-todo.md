@@ -84,7 +84,17 @@ diagnostic, no IR.
   what spec §14 (Statements) says about parallel assignment, so §14 authoring is
   paused on it.
 
-## MAJOR — `++`/`--` on a non-identifier lvalue (`a[i]++`, `p.f++`, `*p++`) type-checks clean but generates NO code (silent no-op) — spec Ch.14 (2026-06-12) — 🔴 OPEN
+## MAJOR — `++`/`--` on a non-identifier lvalue (`a[i]++`, `p.f++`, `*p++`) type-checks clean but generates NO code (silent no-op) — spec Ch.14 (2026-06-12) — ✅ FIXED+LANDED (binate `6a2f551f`, coverage `124a0b40`)
+
+`genIncDec` (`gen_flow.bn`) now lowers every integer lvalue kind — ident,
+selector (`p.f++`, incl. value-struct field), index (`a[i]++` / `s[i]++` /
+nested `m[i][j]++`), and deref (`(*p)++`) — by computing the storage address
+(via `genSelectorPtr` / `genIndexPtr` / the deref'd pointer, the same helpers
+`genAssign` uses) and read-modify-writing. The integer-lvalue restriction
+means no managed/slice/struct handling is needed. `conformance/739` covers
+array / named-array / slice elements, value + managed-ptr struct fields,
+nested-array, deref, and sub-word two's-complement wrap; green builder-comp /
+VM / gen2.
 
 Found + verified firsthand while grounding spec Ch.14 (Statements). The SAME
 class as the parallel-assignment drop above (checker accepts a general lvalue;
