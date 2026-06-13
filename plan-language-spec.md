@@ -118,11 +118,16 @@ commit):**
   `21d4901`): grounded (4 readers) → drafted → verified → corrected. No NEW
   untracked defects (aliased-imports-broken, _Package VM gap, int-int multi-pkg
   crash all already tracked).
+- §17 Program Initialization and Execution (`17-program-initialization-and-execution.md`),
+  authored 2026-06-12 (docs `03a0bb6`): grounded (5 readers) → drafted → verified
+  → corrected. **Phase 3 complete.** Consolidated the closed-panic catalogue;
+  flagged `prog.main.unchecked` (main existence/signature) + extended the panic
+  entry (compiled also discards the message).
 
-**Remaining:** Phase 3 — **§17 Program init/exec** (next). Then Phase 4 (§18
-Memory model, §19 Execution/dual-mode), Phase 5 (§20 Tier-0 packages, §21 Behavior
-catalogue, Annexes A–D). Prerequisites still pending: the grammar reconciliation
-(→ `binate.ebnf`/Annex A) and the `pkg/rt` review (→ §20.2).
+**Remaining:** Phase 4 — **§18 Memory model** (reference counting + object
+lifetime; next), then **§19 Execution/dual-mode**. Then Phase 5 (§20 Tier-0
+packages, §21 Behavior catalogue, Annexes A–D). Prerequisites still pending: the
+grammar reconciliation (→ `binate.ebnf`/Annex A) and the `pkg/rt` review (→ §20.2).
 
 **Spec-as-audit:** authoring has surfaced ~21 real implementation discrepancies/
 defects, all tracked in `claude-todo.md` (search "spec Ch."). Notable MAJOR:
@@ -134,13 +139,15 @@ indexed array literals silently miscompiled + array over-count out-of-bounds
 writes (Ch.13); generic methods/struct-constraints unenforced (Ch.12); the
 const→readonly and grammar-staleness reconciliations.
 
-**NEXT (per user, 2026-06-12):** §16 is authored. Next is **§17 Program
-Initialization and Execution** (package init order, no `init()`, package-level var
-init, the `main` entry + signature, termination, the retained-vs-immediate
-validation-before-execution model). Open follow-ups for the user, not blocking
-authoring: (1) the three Ch.14/Ch.15 MAJOR gaps (parallel-assignment drop,
-inc/dec-lvalue drop, panic VM no-op) need a fix decision + a coordinated `binate`
-worktree; (2) no xfail conformance coverage yet for the two MAJOR generics gaps
+**NEXT (per user, 2026-06-12):** Phase 3 (§16–§17) is authored. Phase 4 is next:
+**§18 Memory Model** (reference counting + object lifetime — the keystone
+dynamic-semantics chapter: ownership, RefInc/RefDec, the copy-then-destroy/
+acquire-before-release axioms, scope-exit + temporary cleanup, the no-leak
+contract, raw-borrow UAF as user error), then **§19 Execution/dual-mode**. Open
+follow-ups for the user, not blocking authoring: (1) the three Ch.14/Ch.15 MAJOR
+gaps (parallel-assignment drop, inc/dec-lvalue drop, panic VM no-op) need a fix
+decision + a coordinated `binate` worktree; (2) no xfail conformance coverage yet
+for the two MAJOR generics gaps
 (`gen.no-generic-methods.unenforced`, `gen.satisfy.struct-iface-unchecked`).
 
 ---
