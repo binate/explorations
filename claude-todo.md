@@ -56,6 +56,31 @@ diagnostic, no IR.
   what spec §14 (Statements) says about parallel assignment, so §14 authoring is
   paused on it.
 
+## MAJOR — `++`/`--` on a non-identifier lvalue (`a[i]++`, `p.f++`, `*p++`) type-checks clean but generates NO code (silent no-op) — spec Ch.14 (2026-06-12) — 🔴 OPEN
+
+Found + verified firsthand while grounding spec Ch.14 (Statements). The SAME
+class as the parallel-assignment drop above (checker accepts a general lvalue;
+IR-gen only lowers the identifier case), but a distinct code path.
+
+- **Checker accepts any integer lvalue.** `checkStmt`'s `STMT_INC_DEC` arm
+  (`check_stmt.bn:39-65`) checks only `s.X.IsInteger()` and rejects const
+  identifiers/qualified-consts; it imposes **no** identifier restriction, so
+  `a[i]++` / `p.f++` (element/field of integer type) pass clean.
+- **IR-gen drops non-idents.** `genIncDec` (`gen_flow.bn:214-231`) is gated
+  entirely on `if stmt.X.Kind == ast.EXPR_IDENT { ... }`; for any other lvalue
+  the `if` never fires and the function `return b`s with **no IR**. So
+  `counts[i]++`, `node.count++`, `(*p)++` compile to a no-op — no diagnostic.
+- **No conformance coverage.** Inc/dec tests only exercise identifier operands
+  (`x++`, `count++`, `i++`); no `a[i]++` / `p.f++` test exists.
+- **Severity**: MAJOR silent wrong-code — `counts[i]++` (histogram) and
+  `node.count++` (field bump) are common idioms that silently do nothing.
+- **Fix**: implement the non-identifier lvalue arms in `genIncDec` (mirror the
+  index / selector / deref lvalue arms `genAssign` already has — load through the
+  element/field/deref pointer, `± 1`, store back). Reject-instead (option B) is
+  worse here: `a[i]++` is a legitimate lvalue mutation, not a thing to forbid.
+  Either way the current accept-then-drop is the bug. Add conformance for
+  `a[i]++` / `p.f++` / `(*p)++` with the fix.
+
 ## MAJOR — `cast(int, float)` for non-finite / out-of-range floats is platform-dependent (undefined; a hole in the "no UB" promise) — ✅ CORE LANDED 2026-06-12 (binate `b3a52025`); follow-ups remain
 
 - **✅ LANDED (binate `b3a52025`)**: float→int now SATURATES to the target type's
