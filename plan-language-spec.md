@@ -106,26 +106,34 @@ commit):**
   `conventions.md`. One reviewer finding (a "stale `present` todo") was a verified
   FALSE POSITIVE (the todo's DONE header already covers it). New ledger item:
   `expr.unary.addr-literal` (`&5` not diagnosed).
+- §14 Statements (`14-statements.md` simple statements + `14b-control-flow.md`
+  control flow), authored 2026-06-12 (docs `e7c6252`): grounded (5 readers) →
+  drafted → adversarially verified → corrected. Two MAJOR silent-miscompiles
+  surfaced + flagged open (see below).
 
-**Remaining:** Phase 2 — §14 Statements, §15 Built-in Operations. Then Phase 3
-(§16 Packages, §17 Program init/exec), Phase 4 (§18 Memory model, §19 Execution/
-dual-mode), Phase 5 (§20 Tier-0 packages, §21 Behavior catalogue, Annexes A–D).
+**Remaining:** Phase 2 — §15 Built-in Operations. Then Phase 3 (§16 Packages,
+§17 Program init/exec), Phase 4 (§18 Memory model, §19 Execution/dual-mode),
+Phase 5 (§20 Tier-0 packages, §21 Behavior catalogue, Annexes A–D).
 Prerequisites still pending: the grammar reconciliation (→ `binate.ebnf`/Annex A)
 and the `pkg/rt` review (→ §20.2).
 
-**Spec-as-audit:** authoring has surfaced ~18 real implementation discrepancies/
+**Spec-as-audit:** authoring has surfaced ~20 real implementation discrepancies/
 defects, all tracked in `claude-todo.md` (search "spec Ch."). Notable MAJOR:
+parallel assignment `a,b=1,2` / swap `a,b=b,a` and inc/dec on a non-identifier
+lvalue (`a[i]++`, `p.f++`) both type-check clean but emit NO code — silent
+dropped writes (Ch.14, two MAJOR — user decision pending: implement vs reject);
 indexed array literals silently miscompiled + array over-count out-of-bounds
 writes (Ch.13); generic methods/struct-constraints unenforced (Ch.12); the
 const→readonly and grammar-staleness reconciliations.
 
-**NEXT (per user, 2026-06-12):** the full §3–§13 adversarial review is **done**
-and corrections are landed (docs `f7f1152`). Continue authoring the rest of
-Phase 2: **§14 Statements**, then **§15 Built-in Operations**. (Open follow-ups
-for the user, not blocking authoring: no xfail conformance coverage yet for the
-two MAJOR generics gaps — `gen.no-generic-methods.unenforced`,
-`gen.satisfy.struct-iface-unchecked` — per the Bug Discovery Protocol; needs a
-coordinated `binate` worktree.)
+**NEXT (per user, 2026-06-12):** §14 is authored. Continue authoring the last
+Phase-2 chapter, **§15 Built-in Operations** (the keyword-builtins: `make`,
+`make_slice`, `box`, `cast`, `bit_cast`, `len`, `unsafe_index`, `sizeof`,
+`alignof`, `present`, `same`, `panic`/`print`/`println`). Open follow-ups for the
+user, not blocking authoring: (1) the two Ch.14 MAJOR silent-miscompiles need a
+fix decision + a coordinated `binate` worktree; (2) no xfail conformance coverage
+yet for the two MAJOR generics gaps (`gen.no-generic-methods.unenforced`,
+`gen.satisfy.struct-iface-unchecked`).
 
 ---
 
