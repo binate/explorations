@@ -190,12 +190,42 @@ TODO), but untracked here.
   non-recoverable behaviors that the dual-mode contract requires to be identical
   across compiled and interpreted execution (spec §19). A `panic("unreachable")`
   guard that aborts compiled silently continues under the VM.
+- **Compiled mode ALSO discards the message** (surfaced grounding spec Ch.17):
+  `OP_PANIC` lowers to a bare `rt.Exit(1)` + `unreachable`
+  (`codegen/emit_instr.bn:217-221`) — the `msg` operand is evaluated (`gen_call.bn:124`)
+  then thrown away, never printed. So even in the "working" compiled mode,
+  `panic("reason")` aborts (exit 1) but shows nothing. Contrast the runtime traps
+  (BoundsFail/DivFail/MakeManagedSlice-negative), which DO print a `runtime error:
+  …` diagnostic. So the message-printing is unimplemented on BOTH paths, not just
+  the VM.
+- **Output stream**: every realized trap diagnostic currently goes to **stdout**
+  (via `print`/`println` → `bootstrap.Write(STDOUT=1, …)`, `gen_print.bn:195`), not
+  stderr. The "print to stderr" in the fix below would be INCONSISTENT with the
+  other five panics — pin the stream (current reality = stdout for all).
 - **No conformance coverage** of a firing `panic("msg")` + message (the one
   panic-terminator test, `289`, only exercises the non-panic return path).
-- **Fix**: implement `BC_PANIC` in the VM (print the message to stderr + exit
-  non-zero, mirroring the compiled abort). Add a conformance test that fires
-  `panic("x")` with a `.error` regex. Referenced as `builtin.panic.vm-noop` from
-  spec `15-builtin-operations.md`.
+- **Fix**: (1) make `panic(msg)` print its message + exit non-zero in BOTH
+  compiled mode (emit the message before `rt.Exit(1)`) and the VM (implement
+  `BC_PANIC`, replacing the `BC_NOP`); keep the stream consistent with the other
+  traps (stdout today). (2) Add a conformance test that fires `panic("x")` with a
+  `.error` regex. Referenced as `builtin.panic.vm-noop` from spec
+  `15-builtin-operations.md` and §17.5 of `17-program-initialization-and-execution.md`.
+
+### `main` existence + signature are not checked (link-time-only failure) — spec Ch.17 (2026-06-12) — 🔴 OPEN
+MINOR (missing diagnostic). Found grounding spec Ch.17. The synthetic entry
+hard-codes `entry.EmitCall("main.main", emptyArgs, types.TypVoid())`
+(`pkg/binate/ir/gen_init.bn:181`), so the de-facto entry signature is
+`func main()` (no params, no results). But nothing in `pkg/binate/types`
+(`check_decl_func.bn` treats `main` as an ordinary free function) or the drivers
+enforces that the `main` package HAS a `main`, or that `main` has that signature.
+- A **missing** `main` fails at link time as `undefined reference to bn_main__main`,
+  not with a clean compiler diagnostic.
+- A **wrong-shaped** `main` (`func main() int`, `func main(args @[]@[]char)`) is
+  neither rejected nor honored — the entry calls it as no-arg/void regardless.
+Fix: add a checker rule for the `main` package — require a `main` with signature
+`func main()` (no params, no results) and emit a clean diagnostic otherwise. Add
+a negative conformance test (missing main; wrong-shaped main). Referenced as
+`prog.main.unchecked` from `17-program-initialization-and-execution.md` §17.3.
 
 ## MAJOR — `cast(int, float)` for non-finite / out-of-range floats is platform-dependent (undefined; a hole in the "no UB" promise) — ✅ CORE LANDED 2026-06-12 (binate `b3a52025`); follow-ups remain
 
