@@ -138,11 +138,21 @@ commit):**
   axioms, lifecycle, acquire-before-release, ownership transfer, move-as-
   optimization, no-leak contract + cycle/raw-UAF user-error escape hatches; with
   operational rules. No new defects (built on already-tracked items).
+- §19 Execution Model: Abstract Machine + Dual-Mode Interop
+  (`19-execution-model-dual-mode.md`), authored 2026-06-12 (docs `ed8f954`):
+  grounded (4 readers: VM / dual-mode interop / design+D2 / conformance modes) →
+  drafted → verified → corrected. **Phase 4 complete.** The dual-mode contract
+  (Stable) vs in-process embedding (GOAL per D2); abstract machine; function-value
+  interop; enumerated divergences. Verify-the-verifier fix: nil-iface dispatch is
+  a DEFINED panic (form mode-dependent), not UB — §19.5 corrected to match
+  §11.11/§17.5.
 
-**Remaining:** Phase 4 — **§19 Execution/dual-mode** (next). Then Phase 5 (§20
-Tier-0 packages, §21 Behavior catalogue, Annexes A–D). Prerequisites still
-pending: the grammar reconciliation (→ `binate.ebnf`/Annex A) and the `pkg/rt`
-review (→ §20.2).
+**Remaining:** **Phase 4 done.** Phase 5 — **§20 Tier-0 packages** (next; gated
+on the `pkg/rt` review for §20.2), **§21 Behavior catalogue** (implementation-
+defined / unspecified / undefined), and **Annexes A–D** (A grammar — gated on the
+grammar reconciliation; B impl-model/IDB index; C status table; D rationale).
+Prerequisites still pending: the grammar reconciliation (→ `binate.ebnf`/Annex A)
+and the `pkg/rt` review (→ §20.2).
 
 **Spec-as-audit:** authoring has surfaced ~21 real implementation discrepancies/
 defects, all tracked in `claude-todo.md` (search "spec Ch."). Notable MAJOR:
@@ -154,12 +164,14 @@ indexed array literals silently miscompiled + array over-count out-of-bounds
 writes (Ch.13); generic methods/struct-constraints unenforced (Ch.12); the
 const→readonly and grammar-staleness reconciliations.
 
-**NEXT (per user, 2026-06-12):** §18 is authored. Authoring **§19 Execution
-Model: the Abstract Machine and Dual-Mode Interop** now (the dual-mode contract —
-same type system/heap/refcounting/layout across compiled + interpreted, function-
-value interop; the bytecode VM as the abstract machine; in-process embedding as a
-GOAL per D2, not yet realized; hosted vs freestanding). Then Phase 5. Open
-follow-ups for the user, not blocking authoring: (1) the three Ch.14/Ch.15 MAJOR
+**NEXT (per user, 2026-06-12):** Phase 4 (§18–§19) is authored. Phase 5 remains:
+**§20 Tier-0 packages** (lang / rt / reflect / testing — §20.2 gated on the
+`pkg/rt` review), **§21 Behavior catalogue** (the consolidated implementation-
+defined / unspecified / undefined-behavior index — much of its content is already
+flagged across §8/§13/§15/§17/§19), and **Annexes A–D** (A grammar — blocked on
+the grammar reconciliation that produces `binate.ebnf`). A Phase-4 adversarial
+review (§18–§19) is also available if wanted before Phase 5. Open follow-ups for
+the user, not blocking authoring: (1) the three Ch.14/Ch.15 MAJOR
 gaps (parallel-assignment drop, inc/dec-lvalue drop, panic VM no-op) need a fix
 decision + a coordinated `binate` worktree; (2) no xfail conformance coverage yet
 for the two MAJOR generics gaps
