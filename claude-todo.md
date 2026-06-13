@@ -16,6 +16,34 @@ Retire the bespoke `buf.CharBuf` byte-buffer for the stdlib `strings.Builder`.
 - **Convention** (per bnlint): readonly-correct by default (retype local sinks, consume `String()` zero-copy); `buf.CopyStr(builder.String())` only where a sink stays a foreign mutable `@[]char`; no `Freeze`.
 - **Readonly-correctness follow-up:** `ast.ImportSpec.Path @[]char` → `@[]readonly char` would make `quotePath` (bnlint/bni/bnc) zero-copy; in-cone (cascades through `loader.unquote` + callers), not release-gated. See the plan.
 
+## MAJOR — aliased import `import a "pkg/x"` + cross-package call `a.Fn()` mangles the callee with the ALIAS, not the package path → undefined symbol (2026-06-12) — 🔴 OPEN
+
+Discovered while adding per-import build-constraint gating — the conformance
+test happened to use an aliased import and surfaced this latent bug.  There
+are **zero** aliased imports (`import <ident> "..."`) anywhere in `pkg/` or
+`cmd/`, so the aliased-import code path has never been exercised.
+
+- **Symptom.** `import a "pkg/aliastgt"` then `a.Code()` compiles a call to
+  `@bn_a__Code` — the import ALIAS (`a`) is used as the package qualifier in
+  the mangled callee — instead of the package path (`bn_…aliastgt__Code`).
+  The symbol is undefined → LLVM `use of undefined value '@bn_a__Code'` (and
+  the equivalent on the VM).  Fails in **all six default modes** (compiled +
+  VM), so the root cause is in the shared front-end (selector resolution /
+  IR-gen / mangle), not a backend.
+- **Root cause (direction; needs confirmation).** The cross-package CALL path
+  mangles using the alias as the package name rather than resolving the import
+  alias → its path first.  The const path already resolves it — see
+  `pkg/binate/ir/gen_const_fold.bn:58-59,218-219` (`currentImportAlias` +
+  `buildQualName`) — so the func/call selector resolution (likely
+  `pkg/binate/ir/gen_call.bn` / whatever feeds `mangle.FuncName`) needs the
+  same alias→path resolution.
+- **Repro / tracking.** `conformance/738_aliased_import_call` (xfailed in the
+  six default modes): `import a "pkg/aliastgt"` + `println(a.Code())`, expects
+  `7`.  Un-xfail when fixed.
+- **Proposed fix.** Resolve the import alias to its import path at the
+  cross-package call site before building the mangled symbol (mirror the const
+  path's `currentImportAlias`/`buildQualName` handling), then un-xfail 738.
+
 ## MAJOR — parallel assignment `a, b = 1, 2` (and the swap `a, b = b, a`) type-checks clean but generates NO code (silent dropped writes) — spec Ch.14 (2026-06-12) — 🔴 OPEN
 
 Found + verified firsthand while grounding spec Ch.14 (Statements) against the
