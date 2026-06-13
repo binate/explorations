@@ -108,4 +108,8 @@ the collapse with no behaviour change.
 
 - Build-constraint mechanism (arch/os, file/decl/import/`.bni`): **landed**
   (see [`plan-build-constraints.md`](plan-build-constraints.md)).
-- This migration: **Stage A in progress.**
+- This migration: **Stage A landed** (binate `c0710a78` ConfigForTargetKey,
+  `aaa7dc3e` bnlint `--target`, `ace53953` config activation in
+  `--pkg`/`--test`/repl, `2d45916d` resolveLintConfig coverage). Config
+  activation is now universal across all package-loading entry points, and
+  `bnlint --target` gates correctly (verified end-to-end). **Stage B next.**
