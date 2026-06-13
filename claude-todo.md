@@ -85,7 +85,7 @@ Retire the bespoke `buf.CharBuf` byte-buffer for the stdlib `strings.Builder`.
 - **Convention** (per bnlint): readonly-correct by default (retype local sinks, consume `String()` zero-copy); `buf.CopyStr(builder.String())` only where a sink stays a foreign mutable `@[]char`; no `Freeze`.
 - **Readonly-correctness follow-up:** `ast.ImportSpec.Path @[]char` → `@[]readonly char` would make `quotePath` (bnlint/bni/bnc) zero-copy; in-cone (cascades through `loader.unquote` + callers), not release-gated. See the plan.
 
-## MAJOR — VM cannot capture 9–16-byte by-value returns (X0:X1) from a raw compiled fn ptr; `_call_shim_aggregate` is sret-only → garbage → crash (2026-06-12) — ✅ FIXED on `os-inject-wip` (binate `12a359dd`), pending landing
+## MAJOR — VM cannot capture 9–16-byte by-value returns (X0:X1) from a raw compiled fn ptr; `_call_shim_aggregate` is sret-only → garbage → crash (2026-06-12) — ✅ LANDED on main (binate `75049ff9`, 2026-06-13)
 
 **Fix (2026-06-12):** added `_call_shim_pair(fn, data, a0..a6) ShimPair`
 (`rt.bni` + recognized in `gen_call.bn`) — declared to return a 16-byte

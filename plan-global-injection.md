@@ -1,6 +1,20 @@
 # Plan: Global injection (cross-mode sentinel identity)
 
-## Status — ✅ PROVEN (binate `d3896776` on `os-inject-wip`, pending landing)
+## Status — ✅ LANDED on main (2026-06-13)
+
+binate `cf647086` (inject __c_call stdlib packages), `75049ff9` (iface
+dispatch + `_call_shim_pair`), `01e58c2f` (global injection).  All 12
+`pkg/std/os` tests pass in `builder-comp-int`; the `pkg-std-os.xfail.builder-
+comp-int` marker is removed.  Landed via rebase onto the buf.Builder-migration
+HEAD (mechanical `mangle.GlobalName(...).Bytes()` → `…` adaptation).
+
+**Next (per user sequencing, each commit/land needs permission):** extend the
+GlobalInfo emitter to the NATIVE backend (Chunk 4b — `common_pkg_globals.bn`
++ per-arch drivers; native descriptor still emits empty Globals); then
+generalize the inject list to all `pkg/std/**` + factor it into a file + a
+hygiene check.  See the remaining-work list below.
+
+(was: ✅ PROVEN on `os-inject-wip`, pending landing)
 
 All 12 `pkg/std/os` tests pass in `builder-comp-int` — `errors.Is` classification
 AND `io.IsEOF` cross-mode identity. `errors`/`io` made native-only + injected
