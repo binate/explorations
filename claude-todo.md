@@ -4,61 +4,10 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
-## MAJOR — generic function with a generic-struct (instantiated with its OWN type param) in its signature doesn't substitute the type param → `cannot assign Vec[T] to Vec[int]` (2026-06-12) — 🔴 OPEN
-
-Discovered building the examples-repo `generics/` example (a generic `Vec[T]`
-container). A generic function whose parameter or result type names a *user
-generic struct instantiated with the function's own type parameter* — `Vec[T]`
-or `@Vec[T]` — fails to substitute the type arg at the instantiation site: the
-instantiated signature keeps `Vec[T]` rather than becoming `Vec[int]`.
-
-- **Minimal repro** (no library, no `.bni`; rejected by bnc-0.0.8):
-  ```
-  type Vec[T any] struct { n int }
-  func newVal[T any]() Vec[T] { var v Vec[T]; v.n = 7; return v }
-  func main() { var a Vec[int] = newVal[int]() }
-  ```
-  → `cannot assign Vec[T] to Vec[int]`. Both the value form (`Vec[T]`) and the
-  managed form (`@Vec[T]`) fail, in both result position and parameter position
-  (e.g. `func len[T any](v @Vec[T]) int`).
-
-- **What works (so the gap is narrow).** Generic funcs over bare `T`, `@[]T`,
-  `*[]T` (conformance 431/433/492/497); constraint-method dispatch
-  (`s[j].Compare(b)`, 434); a NON-generic func over a concrete `Pair[int,int]`
-  (437); `var b Box[int]` in non-generic code (436). The unexercised — and
-  broken — shape is a type parameter appearing as the type-ARGUMENT of a
-  generic-struct instantiation *inside a generic function's signature*:
-  `func f[T any](v Vec[T])` / `func f[T any]() Vec[T]`.
-
-- **Why it matters.** This is the headline use case for generics —
-  `plan-generics.md` states "Without this, `Vec[int]` is dead on arrival" and
-  lists `func f[T any]` + `type Vec[T any] struct{...}` as intended. With this
-  bug you cannot write `func Push[T any](v @Vec[T], x T)`, so generic STRUCT
-  containers (Vec, Map, Set, List) cannot be operated on by free functions —
-  which, given "no generic methods on types", is the only available shape.
-  Blocks the `vec` and `hashmap` examples. (The `sort` example is generic only
-  over `@[]T`, so it is unaffected and ships now.)
-
-- **Root-cause hypothesis.** Generic-function instantiation substitutes `T` in
-  bare-`T` / `@[]T` / `*[]T` signature types but does not recurse into a nested
-  `TEXPR_INSTANTIATE` type argument when building the instantiated signature, so
-  `Vec[T]` is left unsubstituted. Likely `check_generic.bn`'s
-  `instantiateGenericFunc` signature-resolution (the path that already substitutes
-  `@[]T`). Distinct from the tracked "constraint satisfaction unchecked for
-  generic struct/interface instantiation" item — that is a missing CHECK; this is
-  a missing SUBSTITUTION.
-
-- **Bug-discovery protocol.** Add a conformance test
-  `generic_struct_param_in_generic_func` (the repro above + a `@Vec[T]` result
-  variant + a `Push`-style `@Vec[T]` parameter), marked xfail in every mode until
-  fixed. In the examples repo, `examples/generics/` ships `sort` only; `vec` /
-  `hashmap` are held with a pointer to this entry (`examples/TODO.md`).
-
----
-
 ## MAJOR — a constrained type parameter forwarded as a type ARGUMENT isn't recognized as satisfying the same constraint → `type argument T does not satisfy constraint Orderable` (2026-06-12) — 🔴 OPEN
 
-Sibling of the entry above, found in the same `generics/` work (factoring a
+Sibling of the generic-struct-substitution bug (now resolved — see
+claude-todo-done.md), found in the same `generics/` work (factoring a
 generic quicksort into helpers). A constrained generic function that calls
 ANOTHER generic function, forwarding its own type parameter as the type
 argument, fails the callee's constraint check — the checker doesn't consult the
@@ -102,7 +51,8 @@ Retire the bespoke `buf.CharBuf` byte-buffer for the stdlib `strings.Builder`.
 - **Landed:** `strings.Builder`; `pkg/binate/stringutils` (binate `04c67dd3`) supplying the Builder-method gap as free functions over `*strings.Builder` (`WriteInt`/`WriteInt64`/`WriteHexByte`); the `.bni`-impl-registration fix (`3d147369`) that unblocks Builder-through-`io.Writer`. `stringutils.Freeze` was dropped (`7350bdd1`) — it equals `buf.CopyStr(b.String())`. **ALL out-of-cone callers migrated 2026-06-12** (the complete out-of-cone `CharBuf` set, verified `CharBuf`-free after): `cmd/bnlint` `ab076c5d`, `cmd/bnas` `e10472da`, `cmd/bni` `fd8ccefc`, `pkg/binate/repl` `dc50ef48`, `pkg/binate/vm` `27efd23a`, `pkg/binate/lint` `f7ce3d89`.
 - **Main cost:** buf is a VALUE type (`b = b.WriteStr(..)`, chainable); Builder is a managed REFERENCE mutated in place (`b.Write(..)`, void). Migration is a value→reference rewrite, not a rename — it touches the high-count sites (WriteStr 2956, Bytes 718, New 700, WriteInt 423).
 - **In-cone strategy — `buf.Builder` (lets in-cone migrate NOW, no release needed):** the cone can't import `pkg/std/strings` until the next BUILDER release (interface machinery the current BUILDER can't carry), so `pkg/binate/buf` now has **`buf.Builder`** (binate `26c224c0`) — a BUILDER-compilable copy of `strings.Builder` (same struct/methods; `Write`/`WriteByte` return void, no `io.Writer` impl) + free fns `buf.WriteInt`/`WriteInt64`/`WriteHexByte` mirroring `stringutils`. In-cone callers migrate `CharBuf`→`buf.Builder` now; **post-release the swap to `strings.Builder` (`buf.Builder`→`strings.Builder`, `buf.WriteInt`→`stringutils.WriteInt`) is a mechanical import-and-rename** (call sites discard returns, so the void/error mismatch is invisible).
-- **In-cone migration progress:** DONE — `lexer` `97b3af36`, `parser` `80bf8687`, `loader` `1bc59c7b`, `buildcfg`+`asm/parse` (`9e5a6a3d`), `asm/macho`+`asm/elf` (`9d500c1d`), `cmd/bnc` `69679440`, **`mangle` `880efb22`** (2026-06-12, dependency root — see below). (`native/common`, `debug` already CharBuf-free.) **REMAINING in-cone:** `ir`, `types`, `codegen`, `native/{x64,aarch64}` — plus stray test-file builds in `token`/`stringutils`.
+- **In-cone migration progress:** DONE — `lexer` `97b3af36`, `parser` `80bf8687`, `loader` `1bc59c7b`, `buildcfg`+`asm/parse` (`9e5a6a3d`), `asm/macho`+`asm/elf` (`9d500c1d`), `cmd/bnc` `69679440`, **`mangle` `880efb22`** (dependency root — see below), **`native/{x64,aarch64}` `69fcbca0`** (all 2026-06-12). (`native/common`, `debug` already CharBuf-free.) **REMAINING in-cone:** `types`, `ir`, `codegen` — plus stray test-file builds in `token`/`stringutils`.
+  - **Remaining shape / order:** `types` (1061 sites, 33 files) is ALL clean local builders (0 threaded `buf.CharBuf` params) — low-risk mechanical sweep, do next. `ir` (873 sites, 41 files) is mostly local builders (only 4 threaded-param funcs). `codegen` (2819 sites, 53 files) is the hard one — 103 funcs take a `buf.CharBuf` param + 65 return one: the pervasive value→reference rewrite (`out = emitX(out,...)` threading). Split codegen into several commits (by emit-file cluster), don't land as one blob. Pattern for local builders (validated on native): `buf.New()`→`buf.NewBuilder()`, `x = x.WriteStr(s)`→`x.Write(s)`, `x = x.WriteInt(n)`→`buf.WriteInt(x, n)`, `return x.Bytes()`→`return buf.CopyStr(x.String())`.
   - **`mangle` — DONE `880efb22`** (the dependency ROOT): `mangle.{FuncName,GlobalName,StructName}` now RETURN `@[]char` (built internally with `buf.Builder` → `buf.CopyStr(b.String())`; `writePathIdent` takes `*buf.Builder`). All ~30 caller sites in `native/x64`, `native/aarch64`, `codegen` dropped `.Bytes()`, retyped held `var x buf.CharBuf = mangle.X(...)` locals to `@[]char`, and switched `writeBuf(out, mangle.X(...))` → `out.WriteStr(...)` (those packages still build with `buf.CharBuf` internally — only the mangle call sites adapted; `@[]char` coerces to `*[]readonly char`, bytes unchanged). `ir`'s `mangle.{F,G,S}` references were comments only. Mapped with a 6-agent analysis-fan-out before editing. Verified host + gen2 self-compile (symbols byte-identical) + VM. **This unblocked the internal CharBuf→buf.Builder migration of `native/x64`, `native/aarch64`, `codegen`.**
   - **`codegen` is heaviest** (~400 `WriteInt` → `buf.WriteInt`); `types` is large but mangle-independent (error/type-name builders).
   - **Patterns** (validated through gen2 self-compile each package): `buf.New()`→`buf.NewBuilder()`; `cb = cb.WriteStr(x)`→`cb.Write(x)`; `cb = cb.WriteInt(n)`→`buf.WriteInt(cb, n)`; `cb.Bytes()`/`cb.Freeze()`→`buf.CopyStr(cb.String())` for a foreign-mutable `@[]char` sink, or retype the sink to `@[]readonly char`+`cb.String()` when it's a local read-only consumer; a single `WriteStr(slice)`+`Bytes` collapses to `buf.CopyStr(slice)`; consecutive `WriteStr` of string literals collapse to one adjacent-literal arg; a `CharBuf` struct field → `@buf.Builder` (drop value-threading reassignments). No import change (packages already import `buf`). `BinBuf` (asm) is a DIFFERENT type — leave it.
