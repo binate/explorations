@@ -257,7 +257,7 @@ element `i` at index `i`.
   checkArrayLit/genArrayLit, when an element has a Key, fold it to a const index
   and place the value there (validate `index < N`, detect duplicates), zero-fill
   gaps — OR reject indexed-array syntax outright (user's call).
-- **Array over-count not rejected → OUT-OF-BOUNDS stack writes**
+- **Array over-count not rejected → OUT-OF-BOUNDS stack writes** — 🔧 IN PROGRESS (work-2, 2026-06-12; over-count reject only — indexed-literal + `[...]T` sub-items remain open)
   (`expr.composite.array.overcount`, MAJOR, latent memory-unsafety). `[3]int{1,2,3,4,5}`
   is accepted; `gen_composite.bn:149-152` emits stores at indices 0..4 into a
   3-element alloca → 2 out-of-bounds stack writes. Should be "too many elements
@@ -1876,7 +1876,7 @@ aren't) but neither miscompiles.
   instantiated as `Box[NoOrder]` (no `impl NoOrder : Orderable`) compiles clean.
   Generic-FUNCTION constraint checking works correctly.
 
-### Zero-parameter functions accept any number of arguments — spec Ch.10 (2026-06-12)
+### Zero-parameter functions accept any number of arguments — spec Ch.10 (2026-06-12) — 🔧 IN PROGRESS (work-2, 2026-06-12)
 MINOR (over-permissive arity check; extra args are evaluated then discarded —
 not a miscompile, but should be a diagnostic). `check_expr.bn:369` keys the
 no-arity-check path on `numParams == 0 && numArgs > 0` for the GENERAL call
@@ -1966,7 +1966,7 @@ verification of the draft against `pkg/binate/lexer`). All MINOR
 (confusing errors / silent leniency, not silent miscompile). Tests +
 xfails pending a coordinated `binate` worktree. The spec documents these
 as open items (`lex.literal.int.leading-zero`, `lex.escape.unsupported`).
-- **`0123` / `00` split into two integer tokens.** `lexer/scan.bn:84`
+- **`0123` / `00` split into two integer tokens.** — 🔧 IN PROGRESS (work-2, 2026-06-12; will reject as a clean ILLEGAL per grammar `decimal_lit = "1".."9" {digit} | "0"`) `lexer/scan.bn:84`
   `scanNumber`'s leading-`0` branch consumes only the `0` then falls to
   the float-tail **without a digit-consuming loop** (unlike the non-zero
   `else` branch). So `0123` lexes as `INT("0")` then `INT("123")`, and
