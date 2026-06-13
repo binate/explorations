@@ -123,6 +123,14 @@ commit):**
   → corrected. **Phase 3 complete.** Consolidated the closed-panic catalogue;
   flagged `prog.main.unchecked` (main existence/signature) + extended the panic
   entry (compiled also discards the message).
+- **Phase-3 adversarial review done** (2026-06-12, docs `ac7982a`): 4 reviewers
+  re-read live source + cross-chapter. Key catch — aliased imports were FIXED
+  (binate `52d1c832`) AFTER §16 was authored, so the "broken" flag was stale;
+  removed it (badge + §16.3 + index). Also corrected: the file-level build gate
+  runs AFTER parse (can't hide syntax); unknown-unqualified-annotation error only
+  fires when a build config is resolved; `__c_call` void/struct returns
+  unsupported; added an `iface.dispatch.nil` rule to §11.11 so §17.5's cross-ref
+  resolves. All firsthand-verified.
 
 **Remaining:** Phase 4 — **§18 Memory model** (reference counting + object
 lifetime; next), then **§19 Execution/dual-mode**. Then Phase 5 (§20 Tier-0
