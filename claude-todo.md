@@ -81,6 +81,31 @@ IR-gen only lowers the identifier case), but a distinct code path.
   Either way the current accept-then-drop is the bug. Add conformance for
   `a[i]++` / `p.f++` / `(*p)++` with the fix.
 
+## MAJOR — `panic(msg)` is a NO-OP in the bytecode VM (does not abort; control falls through) — spec Ch.15 (2026-06-12) — 🔴 OPEN
+
+Found while grounding spec Ch.15 (Built-in Operations). `panic(msg)` lowers to
+`OP_PANIC` (a block terminator) which the compiled backends turn into an abort,
+but the bytecode VM lowers it to **`BC_NOP`**:
+`vm/lower_instr.bn:429-433` — `if instr.Op == ir.OP_PANIC { bc.Op = BC_NOP //
+TODO: implement panic; bc.Dst = -1; return bc }`. Known-unimplemented (explicit
+TODO), but untracked here.
+
+- **Effect**: under the VM, `panic(msg)` does NOT abort and does NOT emit the
+  message — it's a no-op. Worse, `OP_PANIC` is a terminator, so the message
+  operand is computed then discarded and **control falls through** into whatever
+  bytecode follows the (now non-terminated) panic block — undefined continuation,
+  not a clean stop.
+- **Why it matters**: `panic` is part of the closed set of defined
+  non-recoverable behaviors that the dual-mode contract requires to be identical
+  across compiled and interpreted execution (spec §19). A `panic("unreachable")`
+  guard that aborts compiled silently continues under the VM.
+- **No conformance coverage** of a firing `panic("msg")` + message (the one
+  panic-terminator test, `289`, only exercises the non-panic return path).
+- **Fix**: implement `BC_PANIC` in the VM (print the message to stderr + exit
+  non-zero, mirroring the compiled abort). Add a conformance test that fires
+  `panic("x")` with a `.error` regex. Referenced as `builtin.panic.vm-noop` from
+  spec `15-builtin-operations.md`.
+
 ## MAJOR — `cast(int, float)` for non-finite / out-of-range floats is platform-dependent (undefined; a hole in the "no UB" promise) — ✅ CORE LANDED 2026-06-12 (binate `b3a52025`); follow-ups remain
 
 - **✅ LANDED (binate `b3a52025`)**: float→int now SATURATES to the target type's
