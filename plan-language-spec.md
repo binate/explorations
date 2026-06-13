@@ -110,30 +110,32 @@ commit):**
   control flow), authored 2026-06-12 (docs `e7c6252`): grounded (5 readers) →
   drafted → adversarially verified → corrected. Two MAJOR silent-miscompiles
   surfaced + flagged open (see below).
+- §15 Built-in Operations (`15-builtin-operations.md`), authored 2026-06-12 (docs
+  `f01f8ce`): grounded (4 readers) → drafted → verified → corrected. **Phase 2
+  complete.** One MAJOR dual-mode gap surfaced + flagged (panic VM no-op).
 
-**Remaining:** Phase 2 — §15 Built-in Operations. Then Phase 3 (§16 Packages,
-§17 Program init/exec), Phase 4 (§18 Memory model, §19 Execution/dual-mode),
-Phase 5 (§20 Tier-0 packages, §21 Behavior catalogue, Annexes A–D).
-Prerequisites still pending: the grammar reconciliation (→ `binate.ebnf`/Annex A)
-and the `pkg/rt` review (→ §20.2).
+**Remaining:** **Phase 2 done.** Phase 3 (§16 Packages, §17 Program init/exec),
+Phase 4 (§18 Memory model, §19 Execution/dual-mode), Phase 5 (§20 Tier-0
+packages, §21 Behavior catalogue, Annexes A–D). Prerequisites still pending: the
+grammar reconciliation (→ `binate.ebnf`/Annex A) and the `pkg/rt` review (→ §20.2).
 
-**Spec-as-audit:** authoring has surfaced ~20 real implementation discrepancies/
+**Spec-as-audit:** authoring has surfaced ~21 real implementation discrepancies/
 defects, all tracked in `claude-todo.md` (search "spec Ch."). Notable MAJOR:
 parallel assignment `a,b=1,2` / swap `a,b=b,a` and inc/dec on a non-identifier
 lvalue (`a[i]++`, `p.f++`) both type-check clean but emit NO code — silent
 dropped writes (Ch.14, two MAJOR — user decision pending: implement vs reject);
+`panic(msg)` is a no-op in the bytecode VM (Ch.15, MAJOR dual-mode gap);
 indexed array literals silently miscompiled + array over-count out-of-bounds
 writes (Ch.13); generic methods/struct-constraints unenforced (Ch.12); the
 const→readonly and grammar-staleness reconciliations.
 
-**NEXT (per user, 2026-06-12):** §14 is authored. Continue authoring the last
-Phase-2 chapter, **§15 Built-in Operations** (the keyword-builtins: `make`,
-`make_slice`, `box`, `cast`, `bit_cast`, `len`, `unsafe_index`, `sizeof`,
-`alignof`, `present`, `same`, `panic`/`print`/`println`). Open follow-ups for the
-user, not blocking authoring: (1) the two Ch.14 MAJOR silent-miscompiles need a
-fix decision + a coordinated `binate` worktree; (2) no xfail conformance coverage
-yet for the two MAJOR generics gaps (`gen.no-generic-methods.unenforced`,
-`gen.satisfy.struct-iface-unchecked`).
+**NEXT (per user, 2026-06-12):** Phase 2 (§3–§15) is authored. Phase 3 is next:
+**§16 Packages and Program Structure**, then **§17 Program Initialization and
+Execution**. Open follow-ups for the user, not blocking authoring: (1) the three
+Ch.14/Ch.15 MAJOR gaps (parallel-assignment drop, inc/dec-lvalue drop, panic VM
+no-op) need a fix decision + a coordinated `binate` worktree; (2) no xfail
+conformance coverage yet for the two MAJOR generics gaps
+(`gen.no-generic-methods.unenforced`, `gen.satisfy.struct-iface-unchecked`).
 
 ---
 
