@@ -104,6 +104,42 @@ the collapse with no behaviour change.
 - Gated `.bni` decl overlaying a real `.bn` impl (combined package).
 - Malformed-constraint-in-`.bni` negative test.
 
+## BLOCKER discovered (2026-06-12): the frozen BUILDER can't parse `#[build]`
+
+The prebuilt BUILDER (`bnc-0.0.8`) **predates `#[build(...)]` annotation
+parsing** — both its `bnc` and its `bnlint` fail with `expected ;, got [` /
+`expected package, got #` on any annotated file. Two independent consequences:
+
+1. **BUILDER bnc.** `pkg/bootstrap` is in **cmd/bnc's BUILDER-compiled
+   dependency tree** (the Builder Compatibility Constraint in CLAUDE.md).
+   Annotating bootstrap means BUILDER must parse `#[build]` when it compiles
+   cmd/bnc → it can't → the whole `builder-comp` toolchain build breaks. Same
+   for any other package in cmd/bnc's tree (ast, buf, codegen, ir, lexer,
+   loader, mangle, native, parser, token, types, asm, …).
+2. **Bundled bnlint.** The hygiene `lint` check runs the *bundled* `bnc-0.0.8`
+   bnlint over all of `pkg/`+`cmd/`, loading their import closure. Any
+   annotated package in that closure → parse error → hygiene fails.
+
+So a duplicated package is **collapsible now** only if it is reached by
+*neither* the BUILDER bnc (cmd/bnc tree) *nor* the bundled bnlint (pkg/+cmd
+import closure):
+
+| Package | In cmd/bnc tree? | In lint closure? | Collapsible now? |
+|---|---|---|---|
+| `pkg/builtins/rt` | no (auto-linked, not imported) | no | **YES** — B1 landed-ready |
+| `pkg/std/os` | no | no (nothing in pkg/cmd imports it) | **YES** |
+| `pkg/std/os/internal` (targets) | no | no (only via std/os) | **YES** (verify) |
+| `pkg/bootstrap` | **YES** | **YES** | **NO — blocked** |
+
+**Proper fix:** bump `BUILDER_VERSION` to a `bnc` that parses + gates
+`#[build]` and activates the config in bnlint (i.e. includes the
+build-constraint increments + Stage A). That's a release step (publish a new
+BUILDER tarball). Until then bootstrap stays path-selected.
+
+(Recon gap on my part: I verified config-activation across loaders but did not
+check that the BUILDER itself parses `#[build]` before planning the bootstrap
+collapse. The micro-task attempt surfaced it.)
+
 ## Status
 
 - Build-constraint mechanism (arch/os, file/decl/import/`.bni`): **landed**
@@ -112,4 +148,9 @@ the collapse with no behaviour change.
   `aaa7dc3e` bnlint `--target`, `ace53953` config activation in
   `--pkg`/`--test`/repl, `2d45916d` resolveLintConfig coverage). Config
   activation is now universal across all package-loading entry points, and
-  `bnlint --target` gates correctly (verified end-to-end). **Stage B next.**
+  `bnlint --target` gates correctly (verified end-to-end).
+- **Stage B in progress, partially blocked.** `pkg/builtins/rt` collapsed
+  (binate `f9c07843`, full regression 1415/0, ready to land). `pkg/bootstrap`
+  collapse attempted and **reverted** — blocked by the BUILDER issue above.
+  `pkg/std/os` + the `os/internal` targets are still collapsible now. Awaiting
+  a user decision on the BUILDER bump vs. deferring bootstrap.
