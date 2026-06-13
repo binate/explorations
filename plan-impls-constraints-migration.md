@@ -131,10 +131,13 @@ import closure):
 | `pkg/std/os/internal` (targets) | no | no (only via std/os) | **YES** (verify) |
 | `pkg/bootstrap` | **YES** | **YES** | **NO — blocked** |
 
-**Proper fix:** bump `BUILDER_VERSION` to a `bnc` that parses + gates
-`#[build]` and activates the config in bnlint (i.e. includes the
-build-constraint increments + Stage A). That's a release step (publish a new
-BUILDER tarball). Until then bootstrap stays path-selected.
+**Resolution (user decision):** leave `pkg/bootstrap` permanently
+path-selected — it is special and slated for eventual deprecation/removal, so
+collapsing it isn't worth a BUILDER bump. The `impls/core/{libc,baremetal}`
+dirs and the arm32-baremetal `TARGET_EXTRA` prepend in `binate-paths` are
+retained solely for it. (Were a future BUILDER-tree package to need
+`#[build]`, bumping `BUILDER_VERSION` to a `bnc` that parses+gates it would be
+the prerequisite — a release step.)
 
 (Recon gap on my part: I verified config-activation across loaders but did not
 check that the BUILDER itself parses `#[build]` before planning the bootstrap
@@ -149,8 +152,14 @@ collapse. The micro-task attempt surfaced it.)
   `--pkg`/`--test`/repl, `2d45916d` resolveLintConfig coverage). Config
   activation is now universal across all package-loading entry points, and
   `bnlint --target` gates correctly (verified end-to-end).
-- **Stage B in progress, partially blocked.** `pkg/builtins/rt` collapsed
-  (binate `f9c07843`, full regression 1415/0, ready to land). `pkg/bootstrap`
-  collapse attempted and **reverted** — blocked by the BUILDER issue above.
-  `pkg/std/os` + the `os/internal` targets are still collapsible now. Awaiting
-  a user decision on the BUILDER bump vs. deferring bootstrap.
+- **Stage B done (modulo bootstrap), ready to land.** Collapsed
+  `pkg/builtins/rt`, `pkg/std/os`, and `os/internal` (5 per-triple files → 2
+  OS-gated; `impls/targets` removed entirely); fixed the moved-path references
+  (`e2e/errno-values.sh` + stale comments); and simplified `binate-paths`
+  (dropped the `impls/targets` mechanism + empty `impls/stdlib/libc`).
+  `pkg/bootstrap` left path-selected per the resolution above.
+  Validated: full `builder-comp` regression 1419/0, hygiene 13/13, host unit
+  tests + `bnlint --target` both arches per package. `pkg-layout-spec.md`
+  updated. Awaiting per-instance approval to land the 5-commit batch.
+- **Stage C (build.bni collapse)** and **Stage D (.bni coverage)** still
+  pending.
