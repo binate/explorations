@@ -4,6 +4,69 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR — instantiated generic interface never records `.Parents`, so its inheritance is invisible → valid descendant/upcast wrongly rejected (2026-06-13) — 🔴 OPEN
+
+`buildInstantiatedInterface` (`pkg/binate/types/check_generic.bn`) constructs the
+instantiated `TYP_INTERFACE` via `MakeInterfaceType` and populates methods +
+`InstDecl`/`InstArgs`, but **never sets `iface.Parents`** (the non-generic
+collection path does). So an instantiated generic interface looks like it
+extends nothing: `isDescendantInterface(WideBox[int], Box[int])` returns false
+even though `interface WideBox[T] : Box[T]`. Every consumer of interface
+inheritance over a generic-interface instantiation is affected.
+
+- **Repro A (pure iface-value upcast, no generics-func involved)** — rejected:
+  ```
+  interface Box[T any] { get() T }
+  interface WideBox[T any] : Box[T] { extra() int }
+  type Impl struct { v int }
+  impl @Impl : WideBox[int]
+  func (i @Impl) get() int { return i.v }
+  func (i @Impl) extra() int { return 0 }
+  func main() { var im @Impl = make(Impl); var w @WideBox[int] = im; var b @Box[int] = w; _ = b }
+  ```
+  → `cannot assign @WideBox[int] to @Box[int]`. Non-generic `Wide : Cmp` upcast
+  works, confirming the gap is specific to *instantiated generic* interfaces.
+- **Repro B (constraint forwarding)**: `func inner[U Box[int]](a U) int{...}` /
+  `func outer[U WideBox[int]](a U) int { return inner[U](a) }` → wrongly rejected
+  (`type argument U does not satisfy constraint Box[int]`). Newly exercised by the
+  constrained-type-param-forwarding fix (binate `614e6eea`), but the root cause is
+  pre-existing and independent (Repro A needs no generic function).
+- **Root cause**: `buildInstantiatedInterface` omits a substituted `.Parents`.
+  **Proposed fix**: when building the instantiation, resolve each parent of the
+  generic decl with the type-param scope active (so `Box[T]` → `Box[int]`) and
+  record them on `iface.Parents`, mirroring how the non-generic interface
+  collection path populates Parents.
+- **Discovery**: adversarial review of `614e6eea` (2026-06-13). Pre-existing.
+- **Bug-discovery protocol**: add a conformance test (upcast + descendant
+  forwarding) marked xfail until fixed.
+
+## MAJOR — generic-interface constraint parameterized by another type param isn't substituted before the satisfaction check → valid instantiation wrongly rejected (2026-06-13) — 🔴 OPEN
+
+When a generic function's type parameter is bounded by a generic-interface
+instantiation that names ANOTHER of the function's type params — `func use[X any,
+T Container[X]]` — the constraint `Container[X]` is checked against the supplied
+type argument WITHOUT first substituting `X`. So `use[int, @IntBox]` (where
+`impl @IntBox : Container[int]`) is rejected with `type argument @IntBox does not
+satisfy constraint Container[X]` (note the unsubstituted `X`).
+
+- **Repro** (rejected):
+  ```
+  interface Container[T any] { get() T }
+  type IntBox struct { v int }
+  impl @IntBox : Container[int]
+  func (b @IntBox) get() int { return b.v }
+  func use[X any, T Container[X]](a T) int { return 0 }
+  func main() { var b @IntBox = make(IntBox); println(use[int, @IntBox](b)) }
+  ```
+- **Root cause**: in `instantiateGenericFunc` (`check_generic.bn`) the per-arg
+  constraint check uses `ft.TypeParams[i].TpConstraint` directly; when that
+  constraint mentions earlier type params it must be run through
+  `substituteTypeParams` (with the already-resolved args) before
+  `typeSatisfiesConstraint`. Adjacent to the generic-struct-substitution fix
+  (`0a62d3f4`) but on the constraint, not the param/result types.
+- **Discovery**: adversarial review of `614e6eea` (2026-06-13). Pre-existing.
+- **Bug-discovery protocol**: add a conformance test marked xfail until fixed.
+
 ## IN PROGRESS — deprecate `pkg/binate/buf` in favor of `pkg/std/strings.Builder`
 
 Full plan: [plan-buf-deprecation.md](plan-buf-deprecation.md).
