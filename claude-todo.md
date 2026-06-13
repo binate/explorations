@@ -363,7 +363,14 @@ element `i` at index `i`.
   (`check_expr_composite.bn:73-79` checks keyed but not positional values).
 All referenced from `13-expressions.md`.
 
-### `&` of a literal constant is not diagnosed — spec Ch.13 (2026-06-12) — 🔴 OPEN
+### `&` of a literal constant is not diagnosed — spec Ch.13 (2026-06-12) — ✅ FIXED+LANDED (binate `807c8ff0`)
+
+`checkUnaryExpr`'s `&` arm now rejects a literal operand
+(`isLiteralExprKind`: int/float/bool/char/string/nil; func literals excluded)
+with "cannot take the address of a literal", alongside the existing named-const
+rejection. `conformance/748_addr_of_literal_rejected` covers all six kinds;
+full suite 1412/0. (Original investigation below.)
+
 MINOR (missing diagnostic). Found + verified firsthand re-reviewing spec Ch.13.
 `checkUnaryExpr`'s `&` branch (`check_expr.bn:300-321`) rejects address-of only
 for an `EXPR_IDENT` or `EXPR_SELECTOR` resolving to `SYM_CONST` (a *named*
