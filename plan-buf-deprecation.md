@@ -136,9 +136,16 @@ got bitten by exactly this).
 2. Decide the `CopyStr`/`Concat` home (Decision 1) — DEFERRED; leave in `buf`.
 3. Migrate **out-of-cone** callers: value→reference rewrite + helper swap, plus
    the `Bytes()`→`String()` retype-to-readonly per Decision 2 (no mutation to
-   worry about). One package per commit, tree green throughout.
-   - ✅ `cmd/bnlint` — `ab076c5d`.
-   - ⏳ remaining: `cmd/bnas`, `cmd/bni`, `pkg/binate/{lint,repl,vm}`.
+   worry about). One package per commit, tree green throughout. ✅ **ALL DONE**
+   2026-06-12 — `cmd/bnlint` `ab076c5d`, `cmd/bnas` `e10472da`, `cmd/bni`
+   `fd8ccefc`, `pkg/binate/repl` `dc50ef48`, `pkg/binate/vm` `27efd23a`,
+   `pkg/binate/lint` `f7ce3d89`. (These six were the complete out-of-cone
+   `CharBuf` set; verified `CharBuf`-free afterward. All remaining `buf.CharBuf`
+   usage is in-cone.) Notes that emerged: single-`WriteStr`-then-`Bytes` builds
+   are just slice copies → `buf.CopyStr(slice)` (no Builder); a shared test
+   helper whose result is held in many `@[]char` locals (vm's `concatStr`)
+   stays `@[]char` via `buf.CopyStr` rather than cascade `readonly`
+   suite-wide.
 4. **After the next BUILDER release:** trial cone build with the Builder
    dependency; if green, migrate **in-cone** callers in batches (by package),
    re-grepping each batch.
