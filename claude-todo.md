@@ -4720,6 +4720,23 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   for the user.
 
 ### Per-file build constraints — conditional file inclusion/exclusion by target — DESIGN
+- **STATUS — arch/os MVP IMPLEMENTED + LANDED.** The `#[build(EXPR)]`
+  mechanism is live with the minimal `is(arch, …)` / `is(os, …)` vocabulary
+  (membership form, bnas-aliased), gating at all four granularities: file
+  (package clause), declaration, import, and `.bni` interface decls. The
+  active config defaults to the host (read from `pkg/builtins/build` via
+  `loader.ResolveBuildConfig`), overridable per `--target`. Landed across
+  binate increments through `c7249552` (`.bni` gating + the `loader.bn` /
+  `MergeFiles` split + conformance 746/747; the aliased-import fix `52d1c832`
+  + coverage 738/745 was a detour surfaced en route). Conformance:
+  731 (file), 733/735/736 (decl: const/var/type/func), 737 (import), 746
+  (`.bni` decl), 747 (whole-`.bni` drop, negative). See
+  [`plan-build-constraints.md`](plan-build-constraints.md) for the full
+  status. **Still deferred** (each its own follow-up, none started):
+  vocabulary beyond arch/os (`triple`/`backend`/`libc`/`ptrsize`/`version`
+  with `is`/`at_least`/`at_most`), `bnlint --target`, main-module gating,
+  migrating the `impls/` duplicate trees onto constraints, and the separate
+  inline-asm (`#[asm]`) doc.
 - **Concrete proposals**: see [`plan-build-constraints.md`](plan-build-constraints.md) — generalized per the user from *per-file* to **per-declaration** conditional compilation via a first-class `#[build(EXPR)]` annotation on any top-level decl (`const`/`type`/`var`/`func`/`package`/`import`); the `#[...]` grammar already reserves an `[ Annotation ]` slot on every top-level form (only `PackageClause` lacks it) and the attachment + `compiler.*`/`tool.*` namespacing are decided. Covers the predicate model + expression semantics (closed typo-checked vocab; ordered comparisons for `ptrsize`/`intsize`/`version`/`os.version`; hard-error on unknown/malformed/not-yet-wired), two gate seams (pre-parse file-level + post-merge/pre-resolve decl-level), disjoint variant definitions / conditional imports / conditional `.bni` decls (relaxing Invariant 1), the impls/-tree relationship + migration, tooling (bnlint `--target` now necessary; `tool.lint` lint-exempt), and a phased roadmap. Inline asm (`#[asm]`) is deferred to its own sibling doc that composes with this substrate.
 - **What**: a way for a single file to opt *itself* in or out of
   compilation based on the build configuration — arch, target triple,
