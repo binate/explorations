@@ -160,6 +160,7 @@ collapse. The micro-task attempt surfaced it.)
   `pkg/bootstrap` left path-selected per the resolution above.
   Validated: full `builder-comp` regression 1419/0, hygiene 13/13, host unit
   tests + `bnlint --target` both arches per package. `pkg-layout-spec.md`
-  updated. Awaiting per-instance approval to land the 5-commit batch.
+  updated. **Landed** on binate `main` as `644fc7f5` (rt) `ef32d27e` (os)
+  `f2b54d27` (os/internal) `8ec82c73` (ref fixes) `bca36989` (binate-paths).
 - **Stage C (build.bni collapse)** and **Stage D (.bni coverage)** still
   pending.
