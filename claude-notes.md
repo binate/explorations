@@ -721,7 +721,12 @@ C-family, leaning toward Go's direction (clean, minimal, familiar).
 **Pointer syntax — DECIDED**:
 - `*T` = raw pointer to T (C-like)
 - `@T` = managed pointer to T
-- `&x` = take raw address of x
+- `&x` = take raw address of x. Operand must be **addressable** (have storage):
+  a variable, a slice/array element, a struct field, a dereference, a composite
+  literal (`&Point{1,2}` — it has a backing alloca). **NOT addressable** (a
+  compile error): a named constant, or a bare LITERAL — `&5` / `&3.14` / `&true`
+  / `&'a'` / `&"s"` / `&nil`, and a **func literal** `&func(){}` (rejected like
+  Go; a func value is taken by naming the literal, not by addressing it).
 - `make(T)` = allocate managed T (zero-init), returns `@T` (any type T, no size arg)
 - `make_slice(T, n)` = allocate runtime-sized managed-slice, returns `@[]T`
 - `box(expr)` = allocate managed copy of value, returns `@T` (e.g., `box(Point{x: 1})`, `box(42)`)
