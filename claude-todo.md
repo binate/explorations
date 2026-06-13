@@ -65,7 +65,7 @@ result while `TestReadAtWriteAt` fails gracefully on the SAME first dispatch.
 - **Covered by.** `scripts/unittest/pkg-std-os.xfail.builder-comp-int`
   (`TestReadAtWriteAt` / `TestReadEOF`), currently xfailed.
 
-## MAJOR — aliased import `import a "pkg/x"` + cross-package call `a.Fn()` mangles the callee with the ALIAS, not the package path → undefined symbol (2026-06-12) — 🚧 IN PROGRESS (work-3)
+## MAJOR — aliased import `import a "pkg/x"` + cross-package call `a.Fn()` mangles the callee with the ALIAS, not the package path → undefined symbol (2026-06-12) — ✅ RESOLVED (binate `52d1c832`)
 
 Discovered while adding per-import build-constraint gating — the conformance
 test happened to use an aliased import and surfaced this latent bug.  There
@@ -89,9 +89,13 @@ are **zero** aliased imports (`import <ident> "..."`) anywhere in `pkg/` or
 - **Repro / tracking.** `conformance/738_aliased_import_call` (xfailed in the
   six default modes): `import a "pkg/aliastgt"` + `println(a.Code())`, expects
   `7`.  Un-xfail when fixed.
-- **Proposed fix.** Resolve the import alias to its import path at the
-  cross-package call site before building the mangled symbol (mirror the const
-  path's `currentImportAlias`/`buildQualName` handling), then un-xfail 738.
+- **Fixed** (binate `52d1c832`): `pushFileImports` (`gen_import.bn`) now uses
+  the explicit `ImportSpec.Alias` when present (was always `lastPathSegment`),
+  and `GeneratePackage`/`GenModule` overlay the module file's own imports
+  (push/pop) so a module's own aliased refs resolve — not just imported
+  packages' internal refs.  No-op for non-aliased imports.  Verified across
+  reference kinds (738 = aliased func call, 6 modes; 742 = aliased type +
+  const + func).  Full builder-comp suite 1405/0.
 
 ## MAJOR — parallel assignment `a, b = 1, 2` (and the swap `a, b = b, a`) type-checks clean but generates NO code (silent dropped writes) — spec Ch.14 (2026-06-12) — 🔴 OPEN
 
