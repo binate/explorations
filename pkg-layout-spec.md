@@ -132,7 +132,14 @@ impls/
 
 1. **`ifaces/` is implementation-independent.** One interface tree
    regardless of which `impls/` variant is selected. The interface
-   files never change shape based on platform.
+   files never change shape based on platform — **except** where a
+   declaration carries an explicit `#[build(...)]` constraint: the loader
+   gates such interface declarations per target (a genuinely per-target
+   exported const/type/func), so the *effective* exported surface of a
+   `.bni` may vary by target. This is opt-in per declaration; un-annotated
+   interface declarations remain implementation-independent. See
+   [`plan-build-constraints.md`](plan-build-constraints.md) (landed in binate
+   `0b713fa9`).
 2. **`ifaces/` is tier-organized; `impls/` is tier-then-platform.**
    The `core` / `stdlib` split exists in both trees; the
    `common` / `libc` / `baremetal` axis is impl-side only.
