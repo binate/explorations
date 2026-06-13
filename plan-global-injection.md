@@ -1,5 +1,36 @@
 # Plan: Global injection (cross-mode sentinel identity)
 
+## Status — ✅ PROVEN (binate `d3896776` on `os-inject-wip`, pending landing)
+
+All 12 `pkg/std/os` tests pass in `builder-comp-int` — `errors.Is` classification
+AND `io.IsEOF` cross-mode identity. `errors`/`io` made native-only + injected
+(functions + globals). vm/ir/loader/codegen unit tests + conformance
+`builder-comp` 1404/0 + hygiene 13/13 green.
+
+Two bugs found building it:
+- **FQ-name mismatch.** A package's OWN global has a BARE `ir.Global.Name`
+  (`"ConditionsUnmet"`), but bytecode cross-package reads key on the qualified
+  `"pkg/std/errors.ConditionsUnmet"` — the emitter must qualify (matching
+  `materializeGlobals`'s `qualifyCallName`). The bare name null-resolved →
+  segfault in `vm.execMemoryOp` reading a 16-byte iface from address 0.
+- **Native-only test target.** `runTests` skips native-only packages in its
+  lowering loop — including the package UNDER test. Fix: a test-target exemption
+  (`pkgIsTestTarget`) so a native-only package is injected only as a DEPENDENCY,
+  but lowered to bytecode when it IS the `--test` target (so its own `Test*`
+  run). Symmetric in the lowering skip + `injectStdlibExterns`.
+  (`errors.Rooted` round-trips fine through function injection — no arg gap.)
+
+**Remaining before landing / generalizing:**
+- Native globals emitter (Chunk 4b): the native descriptor encoder still emits
+  empty `Globals` (`common_pkg_descriptor.bn`); the LLVM backend — which the VM
+  uses — is complete, so this is native-mode descriptor consistency only.
+- Other-mode `os` xfails (`builder-comp-comp-int`, `builder-comp-int-int`): test
+  whether injection works there; remove the xfails if it does.
+- Generalize the inject list to all `pkg/std/**` + factor it into a file + a
+  hygiene check that every `pkg/std/**` package is covered.
+- Split `loader.bn` (now 501, just over the soft limit — `markBniExportedVars`).
+- Full conformance (`builder-comp-int`, native modes).
+
 ## Problem
 
 The bytecode VM injects compiled stdlib packages as native externs. When a
