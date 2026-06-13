@@ -4,45 +4,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
-## MAJOR — a constrained type parameter forwarded as a type ARGUMENT isn't recognized as satisfying the same constraint → `type argument T does not satisfy constraint Orderable` (2026-06-12) — 🔴 OPEN
-
-Sibling of the generic-struct-substitution bug (now resolved — see
-claude-todo-done.md), found in the same `generics/` work (factoring a
-generic quicksort into helpers). A constrained generic function that calls
-ANOTHER generic function, forwarding its own type parameter as the type
-argument, fails the callee's constraint check — the checker doesn't consult the
-parameter's declared bound.
-
-- **Minimal repro** (rejected by bnc-0.0.8):
-  ```
-  func inner[T lang.Orderable](a T, b T) int { return a.Compare(b) }
-  func outer[T lang.Orderable](a T, b T) int { return inner[T](a, b) }
-  func main() { println(outer[int](3, 5)) }
-  ```
-  → `type argument T does not satisfy constraint Orderable` at the `inner[T]`
-  call. Forwarding T to an `any`-constrained callee (`swap[T any]`) works, so
-  only a NON-trivial constraint match for a type-param argument is broken.
-
-- **What works.** A single self-contained constrained generic that inlines
-  everything (no call to another constrained generic) — e.g. `bubble[T
-  lang.Orderable]` doing its own compares/swaps — compiles and runs.
-
-- **Why it matters.** You cannot factor a constrained generic algorithm into
-  helpers: `Sort[T Orderable]` → `quicksort[T]` → `partition[T]` is rejected,
-  forcing every constrained generic into one monolithic function.
-
-- **Root-cause hypothesis.** The type-argument constraint check
-  (`typeSatisfiesConstraint`, reached from `instantiateGenericFunc`) only
-  handles a CONCRETE type argument; when the argument is itself a type
-  PARAMETER it doesn't accept "the parameter's declared bound satisfies /
-  interface-extends the required constraint." Fix: when the arg is a type param,
-  succeed if its bound is (or extends) the required constraint.
-
-- **Workaround in examples.** `examples/generics/pkg/sort` is a single
-  self-contained insertion sort (no generic helper calls) until this is fixed.
-
----
-
 ## IN PROGRESS — deprecate `pkg/binate/buf` in favor of `pkg/std/strings.Builder`
 
 Full plan: [plan-buf-deprecation.md](plan-buf-deprecation.md).
