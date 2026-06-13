@@ -16,7 +16,7 @@ Retire the bespoke `buf.CharBuf` byte-buffer for the stdlib `strings.Builder`.
 - **Convention** (per bnlint): readonly-correct by default (retype local sinks, consume `String()` zero-copy); `buf.CopyStr(builder.String())` only where a sink stays a foreign mutable `@[]char`; no `Freeze`.
 - **Readonly-correctness follow-up:** `ast.ImportSpec.Path @[]char` → `@[]readonly char` would make `quotePath` (bnlint/bni/bnc) zero-copy; in-cone (cascades through `loader.unquote` + callers), not release-gated. See the plan.
 
-## MAJOR — aliased import `import a "pkg/x"` + cross-package call `a.Fn()` mangles the callee with the ALIAS, not the package path → undefined symbol (2026-06-12) — 🔴 OPEN
+## MAJOR — aliased import `import a "pkg/x"` + cross-package call `a.Fn()` mangles the callee with the ALIAS, not the package path → undefined symbol (2026-06-12) — 🚧 IN PROGRESS (work-3)
 
 Discovered while adding per-import build-constraint gating — the conformance
 test happened to use an aliased import and surfaced this latent bug.  There
