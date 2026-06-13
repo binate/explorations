@@ -132,10 +132,17 @@ commit):**
   unsupported; added an `iface.dispatch.nil` rule to §11.11 so §17.5's cross-ref
   resolves. All firsthand-verified.
 
-**Remaining:** Phase 4 — **§18 Memory model** (reference counting + object
-lifetime; next), then **§19 Execution/dual-mode**. Then Phase 5 (§20 Tier-0
-packages, §21 Behavior catalogue, Annexes A–D). Prerequisites still pending: the
-grammar reconciliation (→ `binate.ebnf`/Annex A) and the `pkg/rt` review (→ §20.2).
+- §18 Memory Model (`18-memory-model-reference-counting.md`), authored 2026-06-12
+  (docs `7d95de2`): grounded (4 readers: rt contract / IR refcount discipline /
+  design axioms / refcount matrix) → drafted → verified → corrected. The five
+  axioms, lifecycle, acquire-before-release, ownership transfer, move-as-
+  optimization, no-leak contract + cycle/raw-UAF user-error escape hatches; with
+  operational rules. No new defects (built on already-tracked items).
+
+**Remaining:** Phase 4 — **§19 Execution/dual-mode** (next). Then Phase 5 (§20
+Tier-0 packages, §21 Behavior catalogue, Annexes A–D). Prerequisites still
+pending: the grammar reconciliation (→ `binate.ebnf`/Annex A) and the `pkg/rt`
+review (→ §20.2).
 
 **Spec-as-audit:** authoring has surfaced ~21 real implementation discrepancies/
 defects, all tracked in `claude-todo.md` (search "spec Ch."). Notable MAJOR:
@@ -147,11 +154,11 @@ indexed array literals silently miscompiled + array over-count out-of-bounds
 writes (Ch.13); generic methods/struct-constraints unenforced (Ch.12); the
 const→readonly and grammar-staleness reconciliations.
 
-**NEXT (per user, 2026-06-12):** Phase 3 (§16–§17) is authored. Phase 4 is next:
-**§18 Memory Model** (reference counting + object lifetime — the keystone
-dynamic-semantics chapter: ownership, RefInc/RefDec, the copy-then-destroy/
-acquire-before-release axioms, scope-exit + temporary cleanup, the no-leak
-contract, raw-borrow UAF as user error), then **§19 Execution/dual-mode**. Open
+**NEXT (per user, 2026-06-12):** §18 is authored. Authoring **§19 Execution
+Model: the Abstract Machine and Dual-Mode Interop** now (the dual-mode contract —
+same type system/heap/refcounting/layout across compiled + interpreted, function-
+value interop; the bytecode VM as the abstract machine; in-process embedding as a
+GOAL per D2, not yet realized; hosted vs freestanding). Then Phase 5. Open
 follow-ups for the user, not blocking authoring: (1) the three Ch.14/Ch.15 MAJOR
 gaps (parallel-assignment drop, inc/dec-lvalue drop, panic VM no-op) need a fix
 decision + a coordinated `binate` worktree; (2) no xfail conformance coverage yet
