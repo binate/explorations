@@ -16,6 +16,55 @@ Retire the bespoke `buf.CharBuf` byte-buffer for the stdlib `strings.Builder`.
 - **Convention** (per bnlint): readonly-correct by default (retype local sinks, consume `String()` zero-copy); `buf.CopyStr(builder.String())` only where a sink stays a foreign mutable `@[]char`; no `Freeze`.
 - **Readonly-correctness follow-up:** `ast.ImportSpec.Path @[]char` → `@[]readonly char` would make `quotePath` (bnlint/bni/bnc) zero-copy; in-cone (cascades through `loader.unquote` + callers), not release-gated. See the plan.
 
+## MAJOR — VM cannot capture 9–16-byte by-value returns (X0:X1) from a raw compiled fn ptr; `_call_shim_aggregate` is sret-only → garbage → crash (2026-06-12)
+
+Discovered building VM↔compiled interface interop (calling methods on an
+`@errors.Error` returned by an injected compiled `pkg/std/os`).  The os unit
+tests in `builder-comp-int` crash nondeterministically inside `errors.Is`
+(`io.IsEOF` → `errors.Is` → `cur.Unwrap()`), e.g. `TestReadEOF` aborts with no
+result while `TestReadAtWriteAt` fails gracefully on the SAME first dispatch.
+
+- **Symptom.** `dispatchCompiledIfaceMethod` (VM, the new compiled-vtable iface
+  path) calls the raw method fn ptr from the `@__ivt` slot via
+  `rt._call_shim_aggregate(fn, retbuf, data, …)` for any result >8 bytes.  For
+  a **9–16-byte by-value return** (an iface `@Error` is 16 bytes; a raw slice
+  `[]T` is 16; a 2-word struct) the callee returns in **X0:X1**, not via the
+  X8 sret retbuf — so `retbuf` is left **unwritten**.  The bytecode then reads
+  an uninitialized 16-byte iface `{data, vtable_word}` off the VM stack; its
+  garbage vtable word makes `present(cur)` and the next `cur.Unwrap()`
+  nondeterministic → dispatch into a garbage fn ptr → crash.  The
+  nondeterminism is the tell: dispatch #1 is byte-identical across two tests,
+  but the divergent control flow comes from whatever stack garbage the retbuf
+  aliases.
+- **Root cause.** AArch64 (and the Binate ABI, `aarch64_call.bn:153`) uses
+  sret (X8) **only for returns >16 bytes**; ≤16-byte aggregates come back in
+  X0:X1 (`aarch64_call.bn:105`).  `@__ivt` method slots hold **raw fn ptrs**
+  (`aarch64_iface.bn:221-249`), NOT retbuf-normalizing shims.
+  `_call_shim_aggregate` is defined as the **shim/retbuf convention**
+  (`rt.bni:72-85`) — it only works when `fn` is a per-function shim that writes
+  through X8 for every aggregate size.  `dispatchExternBinding` is safe because
+  it calls `vtable[1]` = that shim; the new raw-fn iface path is not.  So the
+  VM currently has **no primitive that captures X0:X1** — scalar grabs only
+  X0, aggregate assumes X8 sret.  ≤8-byte (X0) and >16-byte (X8 sret) raw-fn
+  returns are fine; only the 9–16-byte middle is broken.
+- **Proposed fix.** Add a pair-capture primitive (e.g. `_call_shim_pair(fn,
+  retbuf, data, …)` that calls the raw fn and stores X0→retbuf[0],
+  X1→retbuf[8]); IR-gen recognizes it like the other `_call_shim_*` and the
+  backends emit the X0:X1 store.  Then `dispatchCompiledIfaceMethod` picks
+  scalar (≤8) / pair (9–16) / aggregate-sret (>16) by `resultSize`.
+  Alternative: route iface-method dispatch through the method's registered
+  **shim** (build a raw-fn-ptr→shim map in `RegisterPackageFunctions`) so the
+  uniform shim ABI handles every size — avoids a new ABI primitive but needs
+  the map + reflect exposure of both ptrs.
+- **Note.** Independent of this, the os tests' `io.IsEOF` would STILL fail on
+  the cross-mode sentinel-identity issue (compiled `io.EOF` ≠ bytecode
+  `io.EOF`) until `io`/`errors` are injected **native-only** (one instance).
+  Native-only injection also makes `errors.Is` run native→native, sidestepping
+  this X0:X1 path for stdlib internals — but the gap is still a real VM-interop
+  defect for user bytecode that calls a method on a compiled iface value.
+- **Covered by.** `scripts/unittest/pkg-std-os.xfail.builder-comp-int`
+  (`TestReadAtWriteAt` / `TestReadEOF`), currently xfailed.
+
 ## MAJOR — aliased import `import a "pkg/x"` + cross-package call `a.Fn()` mangles the callee with the ALIAS, not the package path → undefined symbol (2026-06-12) — 🚧 IN PROGRESS (work-3)
 
 Discovered while adding per-import build-constraint gating — the conformance
