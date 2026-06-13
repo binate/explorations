@@ -146,6 +146,14 @@ commit):**
   interop; enumerated divergences. Verify-the-verifier fix: nil-iface dispatch is
   a DEFINED panic (form mode-dependent), not UB — §19.5 corrected to match
   §11.11/§17.5.
+- **Phase-4 adversarial review done** (2026-06-13, docs `44a1a4b`): 3 reviewers
+  re-read live source + cross-chapter; the nil-iface defined-not-UB consistency
+  across §19.5/§11.11/§17.5 confirmed clean. Two majors fixed: §18.5 mem.return's
+  "fresh = move, no acquire" was wrong for @T/@[]T (gen_return.bn:145-154 RefIncs
+  unconditionally — only @func/@Iface move); §19.5 understated the panic defect
+  (compiled ALSO discards the message, not just the VM no-op) and carried a STALE
+  "cross-mode call dispatch" limit (trampolines + float-closure shim landed,
+  binate `085065d9`). Plus minor/nit polish. All firsthand-verified.
 
 **Remaining:** **Phase 4 done.** Phase 5 — **§20 Tier-0 packages** (next; gated
 on the `pkg/rt` review for §20.2), **§21 Behavior catalogue** (implementation-
