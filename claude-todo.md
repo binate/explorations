@@ -4,6 +4,58 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR — generic function with a generic-struct (instantiated with its OWN type param) in its signature doesn't substitute the type param → `cannot assign Vec[T] to Vec[int]` (2026-06-12) — 🔴 OPEN
+
+Discovered building the examples-repo `generics/` example (a generic `Vec[T]`
+container). A generic function whose parameter or result type names a *user
+generic struct instantiated with the function's own type parameter* — `Vec[T]`
+or `@Vec[T]` — fails to substitute the type arg at the instantiation site: the
+instantiated signature keeps `Vec[T]` rather than becoming `Vec[int]`.
+
+- **Minimal repro** (no library, no `.bni`; rejected by bnc-0.0.8):
+  ```
+  type Vec[T any] struct { n int }
+  func newVal[T any]() Vec[T] { var v Vec[T]; v.n = 7; return v }
+  func main() { var a Vec[int] = newVal[int]() }
+  ```
+  → `cannot assign Vec[T] to Vec[int]`. Both the value form (`Vec[T]`) and the
+  managed form (`@Vec[T]`) fail, in both result position and parameter position
+  (e.g. `func len[T any](v @Vec[T]) int`).
+
+- **What works (so the gap is narrow).** Generic funcs over bare `T`, `@[]T`,
+  `*[]T` (conformance 431/433/492/497); constraint-method dispatch
+  (`s[j].Compare(b)`, 434); a NON-generic func over a concrete `Pair[int,int]`
+  (437); `var b Box[int]` in non-generic code (436). The unexercised — and
+  broken — shape is a type parameter appearing as the type-ARGUMENT of a
+  generic-struct instantiation *inside a generic function's signature*:
+  `func f[T any](v Vec[T])` / `func f[T any]() Vec[T]`.
+
+- **Why it matters.** This is the headline use case for generics —
+  `plan-generics.md` states "Without this, `Vec[int]` is dead on arrival" and
+  lists `func f[T any]` + `type Vec[T any] struct{...}` as intended. With this
+  bug you cannot write `func Push[T any](v @Vec[T], x T)`, so generic STRUCT
+  containers (Vec, Map, Set, List) cannot be operated on by free functions —
+  which, given "no generic methods on types", is the only available shape.
+  Blocks the `vec` and `hashmap` examples. (The `sort` example is generic only
+  over `@[]T`, so it is unaffected and ships now.)
+
+- **Root-cause hypothesis.** Generic-function instantiation substitutes `T` in
+  bare-`T` / `@[]T` / `*[]T` signature types but does not recurse into a nested
+  `TEXPR_INSTANTIATE` type argument when building the instantiated signature, so
+  `Vec[T]` is left unsubstituted. Likely `check_generic.bn`'s
+  `instantiateGenericFunc` signature-resolution (the path that already substitutes
+  `@[]T`). Distinct from the tracked "constraint satisfaction unchecked for
+  generic struct/interface instantiation" item — that is a missing CHECK; this is
+  a missing SUBSTITUTION.
+
+- **Bug-discovery protocol.** Add a conformance test
+  `generic_struct_param_in_generic_func` (the repro above + a `@Vec[T]` result
+  variant + a `Push`-style `@Vec[T]` parameter), marked xfail in every mode until
+  fixed. In the examples repo, `examples/generics/` ships `sort` only; `vec` /
+  `hashmap` are held with a pointer to this entry (`examples/TODO.md`).
+
+---
+
 ## IN PROGRESS — deprecate `pkg/binate/buf` in favor of `pkg/std/strings.Builder`
 
 Full plan: [plan-buf-deprecation.md](plan-buf-deprecation.md).
