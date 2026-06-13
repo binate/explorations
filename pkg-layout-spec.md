@@ -24,8 +24,8 @@ migration sequence.
 
 - The package manager's manifest format, dependency-resolution model,
   or registry/distribution mechanism — separate spec, TBD.
-- Per-file selection within a package (today: whole-package only;
-  symlinks workaround "common + per-variant file" cases).
+- Per-file platform selection within a package — now done via
+  `#[build(...)]` constraints (Invariant 5), not symlinks.
 - Status — most of the structure described here is aspirational.
 
 ## Tiers
@@ -113,20 +113,28 @@ ifaces/
 
 impls/
   core/                      tier 0 + 0b implementations
-    common/                  ... platform-independent
-      pkg/builtins/lang/...
-    libc/                    ... libc-using
-      pkg/builtins/rt/...
-    baremetal/               ... bare-metal
-      pkg/builtins/rt/...
+    common/                  ... the impl tree; platform variants are
+                               #[build(...)]-gated FILES within a package
+      pkg/builtins/rt/         rt.bn (!baremetal) + rt_baremetal.bn (baremetal)
+      pkg/builtins/lang/...    (platform-independent)
+    libc/                    ... retained only for packages still path-
+      pkg/bootstrap/...        selected, currently just pkg/bootstrap (see
+    baremetal/                 Invariant 5); slated for removal with bootstrap
+      pkg/bootstrap/...
   stdlib/                    tier 1 + 1x implementations
     common/
+      pkg/std/os/              os.bn (!baremetal) + os_baremetal.bn (baremetal)
+      pkg/std/os/internal/     internal_darwin.bn + internal_linux.bn (os-gated)
       pkg/std/containers/vector/...
-    libc/
-      pkg/std/os/...
-    baremetal/
-      pkg/std/os/...
 ```
+
+Platform selection now happens via `#[build(...)]` constraints on the files
+*inside* `common/` (see [`plan-build-constraints.md`](plan-build-constraints.md)
+and [`plan-impls-constraints-migration.md`](plan-impls-constraints-migration.md)),
+not by choosing a `libc/` vs `baremetal/` directory. The `libc/` and
+`baremetal/` platform dirs survive only for `pkg/bootstrap`, which is still
+path-selected. The former per-triple `impls/targets/<key>/` tree has been
+removed — per-target impls are arch/os-gated files in `common/` instead.
 
 ### Invariants
 
@@ -141,17 +149,30 @@ impls/
    [`plan-build-constraints.md`](plan-build-constraints.md) (landed in binate
    `0b713fa9`).
 2. **`ifaces/` is tier-organized; `impls/` is tier-then-platform.**
-   The `core` / `stdlib` split exists in both trees; the
-   `common` / `libc` / `baremetal` axis is impl-side only.
+   The `core` / `stdlib` split exists in both trees. The
+   `common` / `libc` / `baremetal` axis is impl-side only, and is now
+   mostly vestigial: platform selection happens via `#[build(...)]`
+   gating within `common/`, so `libc/` and `baremetal/` only hold the
+   remaining path-selected package (`pkg/bootstrap`).
 3. **`common/` is always a valid platform.** Packages with no
-   environment-dependent variants live entirely under `common/`.
+   environment-dependent variants live entirely under `common/` — as do
+   packages whose per-platform variants are `#[build(...)]`-gated files
+   (the normal case now).
 4. **Tier 1x ships with tier 1.** Both `pkg/std/...` and `pkg/stdx/...`
    sit under the `stdlib` root, so they bundle and select as one unit.
    The stability difference is per-package, not per-tree.
-5. **Whole-package selection only.** A given package's files come
-   from one impl variant (`common`, `libc`, …). Mixing — "shared
-   core code + per-platform file in the same package" — needs the
-   symlink workaround until per-file selection is designed.
+5. **Per-file platform selection via `#[build(...)]`.** A package keeps
+   all its files in one directory (under `common/`); each file's
+   package-clause `#[build(...)]` constraint decides whether it applies
+   to the target. "Shared core code + per-platform file in the same
+   package" is expressed directly this way — no symlink workaround.
+   (This relaxes the former "whole-package selection only" rule, which
+   required a package's files to come from a single `libc`/`baremetal`
+   directory. The lone remaining whole-directory-selected package is
+   `pkg/bootstrap`, kept in `libc/`+`baremetal/` because the current
+   prebuilt BUILDER predates `#[build(...)]` parsing and bootstrap is in
+   its compiled tree — see
+   [`plan-impls-constraints-migration.md`](plan-impls-constraints-migration.md).)
 
 ### Search-root configuration
 
@@ -163,12 +184,16 @@ typical "tier 0 + tier 1, libc target" configuration:
 -I ifaces/core/
 -I ifaces/stdlib/                 # if stdlib included
 -L impls/core/common/
--L impls/core/libc/               # for libc target
+-L impls/core/libc/               # only for pkg/bootstrap (path-selected)
 -L impls/stdlib/common/           # if stdlib included
--L impls/stdlib/libc/             # if stdlib included
 ```
 
-`common/` is always included alongside the chosen platform variant.
+`common/` is always included; platform selection within it is by
+`#[build(...)]` gating, not by a separate `-L`. The only platform `-L`
+still needed is `impls/core/libc` (and, for a bare-metal target,
+`impls/core/baremetal`, prepended) — solely for `pkg/bootstrap`.
+`binate-paths` emits these; `impls/stdlib/libc` and the
+`impls/targets/<key>` per-target impl dir are gone.
 
 ## Tier 2 / 3 collocation
 
