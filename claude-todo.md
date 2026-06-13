@@ -63,10 +63,16 @@ diagnostic, no IR.
   `pkg/binate/ir/gen_cast_float.bn`) — every backend + the VM inherits it, no
   per-backend logic. `conformance/732_float_int_saturation` green on builder-comp,
   builder-comp-int (VM), gen2/gen3, native aa64 + x64; unit tests + spec updated.
-  Plan: `plan-float-int-saturation.md`. **Remaining**: (Commit 2) re-enable the
-  `gen-diff-scalar.py` matrix coverage + any self-review gaps; (follow-up) un-skip
-  the 3 minbasic programs — **handed off to the `binate/examples` repo** (per user
-  2026-06-12, someone else owns the examples work).
+  Plan: `plan-float-int-saturation.md`.
+- **✅ Commit 2 LANDED (binate `068749c8`)**: `gen-diff-scalar.py` float→int matrix
+  re-enabled with a `saturate_to_int` oracle — sweeps the 2^(N-1)/2^N thresholds,
+  doubles, negations, and exact ±Inf/NaN bit patterns across every width int8…int64
+  signed+unsigned × f32/f64. Green builder-comp/VM/gen2; 2 pre-existing native-aa64
+  signed-narrow xfails stay (orthogonal `aa64-subword`). Closed the self-review's
+  coverage observations.
+- **Only remaining**: un-skip the 3 minbasic programs (P168/P174/P180) — **handed
+  off to the `binate/examples` repo** (per user 2026-06-12, someone else owns the
+  examples work); their `+Inf → index` now has a defined cross-platform value.
 
 - **DECISION (RATIFIED 2026-06-12, user)**: float→int where the value is `±Inf`,
   `NaN`, or outside the target integer type's range is **SATURATE to the target

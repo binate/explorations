@@ -105,12 +105,16 @@ SAME commit — there is no per-backend xfail staging.
    (`gen_cast_float_test.bn`) pin the routing predicate, the boundary constants,
    and that the guard ops are emitted (absent for an int→int cast). Full
    builder-comp 1398/0; hygiene 13/13.
-2. **Commit 2 — re-enable the generated matrix coverage.** Extend
-   `conformance/gen-diff-scalar.py` (it currently *excludes* out-of-range
-   float→int at lines ~26-33 / the `float_to_int_cell` generator) to emit the
-   saturated expected values, so the `matrix/scalar-diff/float-to-int` cells
-   exercise the boundaries on every mode. Python helper mirrors the contract
-   exactly. (Plus any coverage gaps the self-review surfaces.)
+2. **Commit 2 — re-enable the generated matrix coverage. ✅ LANDED (binate
+   `068749c8`).** `gen-diff-scalar.py` no longer excludes out-of-range float→int:
+   `saturate_to_int()` is the spec oracle and `float_to_int_cell` sweeps the
+   `2^(N-1)`/`2^N` thresholds (exact powers of two → identical in f32/f64), their
+   doubles + negations, and exact ±Inf/NaN bit patterns, for every width
+   int8…int64 signed+unsigned × both float precisions. Green on builder-comp,
+   builder-comp-int (VM), gen2. The 2 pre-existing native-aa64 signed int8/int16
+   xfails stay (orthogonal `aa64-subword` sign-extend miscompile, not saturation).
+   This closed the self-review's coverage observations (exact boundaries, all
+   widths, both precisions, Inf/NaN per width).
 3. **minbasic follow-up — HANDOFF to the `binate/examples` repo (per user
    2026-06-12: someone else should own the examples work).** Un-skip the 3
    minbasic programs (P168/P174/P180) skipped pending this contract; their
