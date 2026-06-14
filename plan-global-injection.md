@@ -8,11 +8,17 @@ dispatch + `_call_shim_pair`), `01e58c2f` (global injection).  All 12
 comp-int` marker is removed.  Landed via rebase onto the buf.Builder-migration
 HEAD (mechanical `mangle.GlobalName(...).Bytes()` → `…` adaptation).
 
-**Next (per user sequencing, each commit/land needs permission):** extend the
-GlobalInfo emitter to the NATIVE backend (Chunk 4b — `common_pkg_globals.bn`
-+ per-arch drivers; native descriptor still emits empty Globals); then
-generalize the inject list to all `pkg/std/**` + factor it into a file + a
-hygiene check.  See the remaining-work list below.
+**Native backend extension LANDED** (binate `a640f393`, 2026-06-13):
+`common.EmitGlobalInfoNode` / `EmitGlobalsArray` + the x64/aarch64 descriptor
+emitters now populate `reflect.Package.Globals` natively too (was empty).  Also
+fixed `common_pkg_descriptor_test.bn`, which `01e58c2f` left asserting the old
+48/56-byte node — that test wasn't in `01e58c2f`'s validation (codegen +
+conformance, NOT `pkg/binate/native/common`).  Native conformance 1386/1 (the 1
+the pre-existing `719_named_slice_transparency`).
+
+**Next (per user sequencing, commit/land needs permission):** generalize the
+inject list to all `pkg/std/**` + factor it into a file + a hygiene check that
+every `pkg/std/**` package is covered.  See the remaining-work list below.
 
 (was: ✅ PROVEN on `os-inject-wip`, pending landing)
 
