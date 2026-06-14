@@ -4,6 +4,40 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR (regression) — recursive/cyclic generic interface extension crashes the compiler (SIGSEGV) — introduced by the `.Parents` fix `298ef806` (2026-06-13) — 🔴 OPEN
+
+A self- or mutually-recursive generic interface, once instantiated, sends the
+compiler into unbounded recursion → stack overflow (exit 139). The non-generic
+equivalent produces a clean diagnostic, so this is specific to instantiated
+generic interfaces.
+
+- **Repro** (exit 139, SIGSEGV):
+  ```
+  interface N[T any] : N[T] { get() T }
+  func main() { var x *N[int]; _ = x }
+  ```
+  Mutual cycle `interface P[T] : Q[T]` / `interface Q[T] : P[T]` (+ `var x
+  *P[int]`) also crashes. Non-generic `interface N : N` → `interface `N` cannot
+  extend itself` (clean, exit 1).
+- **Root cause**: the `.Parents` fix (`298ef806`) added a
+  `resolveInterfaceExtension(c, d, iface)` call inside `buildInstantiatedInterface`.
+  For a recursive parent it resolves `N[int]` → `instantiateGenericDeclWithArgs(N,
+  [int])` → `buildInstantiatedInterface(N, [int])` again. The cache entry for
+  `N[int]` is installed by the CALLER (`instantiateGenericDeclWithArgs`) only
+  AFTER `buildInstantiatedInterface` returns, so the recursive call always misses
+  the cache; the self-extension name guard in resolveInterfaceExtension never
+  fires because the recursion happens during parent *resolution*, before the
+  guard. Infinitely-growing chains (`Box[T] : Box[Wrap[T]]`) need a depth bound
+  too. Pre-`298ef806` this path left `.Parents` empty (buggy but non-crashing).
+- **Proposed fix**: pre-install an in-progress cache sentinel for `(decl, args)`
+  in `buildInstantiatedInterface` BEFORE resolving the extension clause (so the
+  recursive resolution hits the cache and the cycle/self-extension guard can
+  fire), plus a depth/identity bound for unbounded-growth chains. (Mirror the
+  pre-registration `ensureInstantiatedStruct` already does in IR-gen.)
+- **Discovery**: adversarial review of `298ef806` (2026-06-13).
+- **Bug-discovery protocol**: add conformance tests (self + mutual cycle, each
+  forced to instantiate) asserting a clean diagnostic and exit ≠ 139.
+
 ## CRITICAL — `Identical` treats ALL type parameters as equal → generic-instantiation cache aliases `Foo[A]` and `Foo[B]` → wrong types + UNSOUND constraint accepts (miscompile) (2026-06-13) — 🔴 OPEN
 
 `(@Type) Identical` (`pkg/binate/types/types_query.bn`) has no `TYP_TYPE_PARAM`
