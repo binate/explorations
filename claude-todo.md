@@ -460,7 +460,7 @@ element `i` at index `i`.
   (`check_expr_composite.bn:73-79` checks keyed but not positional values).
 All referenced from `13-expressions.md`.
 
-### `&` of a non-addressable operand is not diagnosed — spec Ch.13 (2026-06-12) — ✅ SERIES LANDED (literals + functions + method values); 🔵 general lvalue check IN PROGRESS
+### `&` of a non-addressable operand is not diagnosed — spec Ch.13 (2026-06-12) — ✅ FULLY LANDED (general `isAddressable` gate, binate `7f8d0b9c`)
 
 `checkUnaryExpr`'s `&` arm grew a series of rejections for non-addressable
 operands (each found by self-review of the prior one):
@@ -478,13 +478,16 @@ operands (each found by self-review of the prior one):
   reads the receiver's cached type so capture analysis isn't re-run). `751`.
 - Spec: `claude-notes.md` "Pointer syntax" — `&` addressability rule.
 
-🔵 **REMAINING / general fix (IN PROGRESS)**: the above is a kind-by-kind
-WHITELIST; the *general* rvalue case still slips through — `&f()` (call result),
-`&T.m` (method EXPRESSION), `&(a+b)`, `&-x`. The principled fix is a single
-`isAddressable(operand)` lvalue predicate in the `&` arm that rejects ANY
-non-lvalue (subsuming const / func / literal / func-literal / method-value /
-method-expression / call-result), replacing the piecemeal checks. (Original
-investigation below.)
+✅ **General fix LANDED (binate `7f8d0b9c`)**: replaced the kind-by-kind
+whitelist with a single `isAddressable(operand)` gate in the `&` arm —
+addressable = variable / struct field / imported variable / index / `*p` deref
+/ composite literal; everything else (call result, method expression `&T.m`,
+arithmetic `&(a+b)`, slice/make/cast result) is rejected. `reportCannotAddr`
+keeps the specific literal/const/function/method-value messages and gives a
+generic "cannot take the address of a non-addressable value" for the rest.
+`conformance/756_err_addr_rvalue` (rvalue rejects) + `755_addr_lvalue_ok`
+(lvalues write through). Surfaced the orthogonal `&(*p)` IR-gen defect (its own
+MAJOR entry at the top). (Original investigation below.)
 
 MINOR (missing diagnostic). Found + verified firsthand re-reviewing spec Ch.13.
 `checkUnaryExpr`'s `&` branch (`check_expr.bn:300-321`) rejects address-of only
