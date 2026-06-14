@@ -37,8 +37,47 @@ inheritance over a generic-interface instantiation is affected.
   record them on `iface.Parents`, mirroring how the non-generic interface
   collection path populates Parents.
 - **Discovery**: adversarial review of `614e6eea` (2026-06-13). Pre-existing.
-- **Bug-discovery protocol**: add a conformance test (upcast + descendant
-  forwarding) marked xfail until fixed.
+- **CHECKER FIX READY** (worktree `b4ca39c2`, pending landing approval):
+  `buildInstantiatedInterface` now resolves the extension clause with the
+  type-param scope active and records substituted `.Parents`. Both *descendant
+  satisfaction* paths (concrete-impl and forwarded-type-param) work end-to-end
+  (`conformance/754_generic_iface_extends_constraint` → 42) + 2 checker unit
+  tests. **BUT** this surfaced a separate codegen gap (entry below): the
+  generic-interface-VALUE *upcast* now type-checks then fails in codegen.
+
+## MAJOR — generic-interface-VALUE upcast (`@WideBox[int]` → `@Box[int]`) type-checks then fails silently in codegen (2026-06-13) — 🔴 OPEN
+
+Assigning an instantiated generic interface value to one of its (instantiated)
+parent interface values — a parent-interface upcast — completes type-checking
+and IR generation, then the LLVM/codegen emission exits 1 with **no diagnostic**.
+The non-generic equivalent (`@Wide` → `@Cmp`) compiles and runs correctly, so
+this is specific to *instantiated generic* interface values (Slice 6c
+generic-iface-value support is partial — dispatch works, conformance 451–455;
+this upcast does not).
+
+- **Repro** (type-checks, then silent codegen exit 1):
+  ```
+  interface Box[T any] { get() T }
+  interface WideBox[T any] : Box[T] { extra() int }
+  type Impl struct { v int }
+  impl @Impl : WideBox[int]
+  func (i @Impl) get() int { return i.v }
+  func (i @Impl) extra() int { return 0 }
+  func main() { var im @Impl = make(Impl); var w @WideBox[int] = im; var b @Box[int] = w; _ = b }
+  ```
+- **Was masked**: before the `.Parents` checker fix (entry above), this same
+  program was rejected at the checker (`cannot assign @WideBox[int] to
+  @Box[int]`). Recording the parents makes the upcast type-check, exposing the
+  codegen gap. So fixing the checker turned a clean rejection into a silent
+  codegen failure for *this specific value-upcast pattern* (the
+  constraint/forwarding paths — the actual reported bug — are now fully correct).
+- **Two sub-issues**: (1) the silent exit emits NO diagnostic — codegen should at
+  least report which construct it can't lower; (2) the generic-iface-value upcast
+  itself needs codegen support (re-wrap with the parent vtable, or confirm the
+  layout is uniform as for non-generic upcasts).
+- **Discovery**: surfaced while landing the `.Parents` checker fix (2026-06-13).
+- **Bug-discovery protocol**: add a conformance test for the upcast marked xfail
+  until codegen lands.
 
 ## MAJOR — generic-interface constraint parameterized by another type param isn't substituted before the satisfaction check → valid instantiation wrongly rejected (2026-06-13) — 🔴 OPEN
 
