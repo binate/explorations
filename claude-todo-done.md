@@ -10,6 +10,186 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~Compound assignment (`+=`, `-=`, …) to a non-IDENT lvalue silently drops the operator~~ — FIXED+LANDED (binate `45b9e767`, 2026-06-06) (`compound-assign-nonident`)
+- **Symptom**: `a[i] += x`, `s[i] += x`, `a[i][j] += x`, `p.field += x`, and `*p += x` all store the BARE RHS (`x`), discarding the operator and the old value — a silent miscompile (no error, wrong result). Only the plain-variable form `v += x` is correct. Repro (each prints `5`, should print `15`):
+  ```
+  func main() { var a [3]int; a[1] = 10; a[1] += 5; println(a[1]) }          // array elem
+  func main() { var a @[]int = make_slice(int,3); a[1]=10; a[1]+=5; println(a[1]) } // slice elem
+  type P struct { x int }; func main() { var p P; p.x = 10; p.x += 5; println(p.x) } // field
+  func main() { var v int = 10; var p *int = &v; *p += 5; println(v) }        // deref
+  ```
+- **Root cause**: `genAssign` (gen_control.bn) applies the compound op (`cur = load; rhs = cur OP rhs`, incl. the `/=` `%=` div-check guard) ONLY in the IDENT arm. The EXPR_INSTANTIATE_OR_INDEX (array/slice), EXPR_SELECTOR, and `*p` deref arms ignore `stmt.Op` and store `rhs` directly. Pre-existing; unnoticed because the whole codebase writes these longhand (`x.f = x.f + 1`) — 0 occurrences of compound-assign-to-lvalue in non-test source. Found during M7/M8 coverage review.
+- **Fix (landed)**: the compound step (load current lvalue → `cur OP rhs` with the `/=` `%=` div-check guard) is factored into `emitCompoundBinop` + `isCompoundAssign`; every lvalue arm (IDENT, array, slice, pointer, struct-field, deref, nested-array) runs it before its store — a slot load through the elem/field/deref pointer, or EmitSliceGet for a slice element. **Test**: conformance 640 (variable, array elem, slice elem, nested array, field, deref; `+= -= *= /=`), green on LLVM + VM.
+
+### ~~`~` (bitwise complement) IR-gen hardcodes the result type to `int` — invalid IR for sub-word, wrong-signed shift on uint64~~ — FIXED + LANDED (binate `42ad4fa0`, 2026-06-06) (`bitnot-result-type`)
+- **FIXED**: `gen_expr.bn:247` now types `OP_BITNOT` as the operand's type
+  (nil-fallback to `int`), mirroring `OP_NEG`. All `bitwise/not` cells pass on
+  LLVM (123/123); unit tests `TestGenBitnotOn{Uint16PreservesWidth,
+  Uint64IsUnsigned}` added. NOTE: the *native* backends keep a separate
+  sub-word `~` gap — aa64's `Mvn` / x64's `not` ignore the operand width (part
+  of `aa64-subword`); not addressed by this IR-gen fix.
+- **Symptom (two facets, one root)**:
+  - **A (invalid IR)**: `~x` for any sub-word int (`uint/int 8/16/32`) emits
+    `xor i64 %x, -1` with a hardcoded i64 — clang rejects it
+    (`'%x' defined with type 'i8' but expected 'i64'`). `~` simply does not
+    compile for sub-word ints on the LLVM backend.
+  - **B (wrong value)**: `(~v) >> k` consumed DIRECTLY (no intervening store)
+    on `uint64` does an ARITHMETIC shift, not logical: `(~0) >> 32` is
+    `2^64-1`, not the spec `2^32-1`. Storing `~v` into a `uint64` var first
+    masks it (the store re-types to unsigned), and `(a+b) >> k` for unsigned is
+    fine — so it is specific to `~`-results.
+- **Root cause (CONFIRMED)**: `pkg/binate/ir/gen_expr.bn:247` lowers `~` as
+  `b.EmitUnary(OP_BITNOT, arg, types.TypInt())` — the result type is hardcoded
+  to `int` (signed, target-width i64) instead of the OPERAND's type. So the
+  BITNOT instr is mis-typed: i64 width (→ facet A, mismatched `xor` width for a
+  sub-word arg) and signed (→ facet B, a directly-consumed `>>` lowers to
+  `ashr` not `lshr` per `emit_ops.bn:48-52`, which keys on `instr.Typ.Signed`).
+  This is the SHARED IR layer, so it likely affects the VM/native backends too
+  (facet B at least; the full `all` sweep is pending this decision).
+- **Test**: `conformance/matrix/scalar-diff/bitwise/not/*` — 7 cells fail on
+  `builder-comp` (the sub-word ones COMPILE_ERROR; `64/unsigned` value-diverges;
+  `64/signed` passes — i64 + signed happen to match the hardcoded type).
+- **Discovery**: 2026-06-06, differential-harness v2 (bitwise cells).
+- **Fix**: type the `OP_BITNOT` result as the operand's type, mirroring the
+  adjacent `OP_NEG` path's `negTyp` derivation (`gen_expr.bn:223-241`) — for
+  `~`, the result type is always exactly the operand type (no widening). A
+  one-site fix resolving both facets.
+
+### ~~Compiled program leaks native stack per loop iteration for a default-init managed local~~ — FIXED + LANDED 2026-06-06 (binate `2411295c`)
+- **Was**: a *compiled* program declaring a default-init managed local
+  (`var m @[]char`) inside a loop body SIGSEGV'd once the loop ran enough
+  iterations (~130k at an 8 MiB stack; threshold scaled linearly with
+  `ulimit -s`, RSS flat — a native-stack leak, ~32 B/iter). The VM ran it fine.
+- **Attribution correction**: this was the **LLVM codegen** (the `comp` /
+  compiled modes), NOT the native-aa64 backend the old title named. The native
+  aa64/x64 backends use a fixed frame (PlanFrame) and don't leak; the VM doesn't
+  touch the native C stack. "native stack" = the C stack of the *LLVM-compiled*
+  binary. (Verified: `var m @[]char` in a 3 M-iter loop completes on
+  `--backend native`, crashes via `comp`.)
+- **Root cause**: codegen hoists every alloca to the function entry block (an
+  alloca in a non-entry block isn't freed until return, so a loop body alloca
+  leaks per iteration), but the hoist pre-pass was missing three alloca-emitting
+  ops, leaving their allocas in the loop body:
+  - `OP_CONST_NIL` — the `.a` zero-fill slot of a default-init managed aggregate
+    (the reported case).
+  - `OP_RODATA_ARRAY` — the `.tmp` `[N x i8]` slot of `var a [N]char = "..."`.
+  - `OP_BOX` — the `.tmp` spill slot of `box(<scalar register>)`.
+  The latter two were **found by the new static checker** below, not the
+  original repro.
+- **Fix**: each op now splits its alloca into a hoistable decl emitter (run by
+  the entry-block pre-pass) plus the in-place fill/store/load, matching
+  OP_ALLOC. The pre-pass dispatch lives in `pkg/binate/codegen/emit_alloca_hoist.bn`.
+  This also resolves the compiled-minbasic `runProgramInto` `var errMsg @[]char`
+  crash without the doc's suggested side-step.
+- **Detection (3 legs)** — the "detect this class in general" ask:
+  - `conformance/check-alloca-hoist.py` + `scripts/check-alloca-hoist.sh` — a
+    static checker asserting every alloca lives in its function's entry block,
+    swept over the corpus (734 cells, 0 violations post-fix; it found the
+    rodata-array + box siblings). The construct-agnostic, compile-time detector.
+  - `conformance/gen-loop-leak-matrix.py` → `matrix/loop-leak/` — runtime cells
+    that loop a construct enough to overflow an 8 MiB stack if it leaks, then
+    print 42 (leak-prone cells crash pre-fix, pass post-fix on LLVM/VM/native).
+  - `pkg/binate/codegen/emit_alloca_hoist_test.bn` — unit tests asserting each
+    construct's alloca precedes the loop body in the emitted IR.
+
+### ~~Native backends drop `binate_runtime.c` — every native program fails to link~~ — FIXED + LANDED 2026-06-05 (binate `1285683e`)
+- **Was**: every `builder-comp_native_aa64-comp_native_aa64` cell failed at link
+  with `Undefined symbols for architecture arm64: "_bn_pkg__bootstrap__Write"`.
+  Self-hosted `BNC_NATIVE` computed an empty `runtimePath` (findRuntime ends in
+  `return suffixes[i]`) so the `if len(runtimePath) > 0` gate dropped
+  `binate_runtime.c` from the link.
+- **Actual root cause** — a **shared native-backend** wrong-code bug, NOT what
+  this entry first guessed: both native backends (aa64 AND x64 — not aa64-only)
+  lowered an aggregate `OP_LOAD` as a bare *pointer into the source object*
+  instead of materializing a copy. `return container[i]` then copied the
+  element header into the sret buffer only AFTER the function's cleanup RefDec'd
+  (and freed) the local container's backing → read freed/zeroed memory, so the
+  return came back empty/garbage. LLVM and the VM were always correct (LLVM loads
+  the aggregate into an SSA value at the load site).
+- **`ee671b6c` (sub-word narrowing) was REFUTED by bisect** — rebuilding gen1
+  with `emitSubWordNarrow` neutralized left the repro broken. It was never the
+  cause; the bug is not char/sub-word arithmetic and predates `ee671b6c`. The
+  earlier "aa64-only / findRuntime char handling / prime-suspect ee671b6c"
+  framing in this entry was all wrong (recorded here so the mistake isn't
+  repeated).
+- **Fix**: `PlanFrame` now reserves an own data region for an aggregate
+  `OP_LOAD` (as `OP_MAKE_SLICE` / aggregate calls already do); `emitLoad` copies
+  the loaded bytes into it and points the result there, so the load owns its
+  bytes and can't alias a freed source. Fixed in both the aa64 and x64
+  `emitLoad`. aa64-native lane: 0 passed (all COMPILE_ERROR) → 811 passed, 0
+  failed.
+- **Tests**: `conformance/regressions/return-aggregate-element-of-local`
+  (managed-slice element + struct array element returned directly — caught in
+  the existing gen1-native lane, which is why a bespoke BNC_NATIVE smoke wasn't
+  needed) + `TestPlanFrameReservesAggregateLoadDataRegion` (native/common).
+
+### ~~`present(...)` is interface-value-only~~ — DONE 2026-06-08 (binate `29c9dc47`, conformance `667`): extended to func values (vtable field 0), pointers (non-null), slices (`len > 0`); value types rejected. Prerequisite length-0 ⟹ no-backing invariant landed (`71ff7489`, conformance `666`). Original investigation note kept below for context.
+- **Current state**: the checker (`pkg/binate/types/check_builtin.bn:78-92`) accepts `present(x)` ONLY when `x` is a raw or managed interface value (`TYP_INTERFACE_VALUE` / `TYP_INTERFACE_VALUE_MANAGED`); everything else is rejected with "present argument must be an interface value". Lowering (`pkg/binate/ir/ir_ops.bn` `EmitIfacePresent`) extracts the vtable word (field 1) and compares it non-null (honest about typed-nil: boxing a nil `*T` still fills the vtable, so `present` is true).
+- **Why this matters**: `present()` is the language's *sanctioned* "does this hold something / is it set" test for types where a direct `== nil` is a footgun or outright disallowed. We deliberately disallow `slice == nil` (a nil slice acts like an empty slice but is not the same) and steer interface values to `present(iv)` rather than `iv == nil` (typed-nil). For that story to be complete, `present()` must cover every type that has a meaningful "set / unset" (nullable) notion — otherwise disallowing `== nil` leaves users with no sanctioned test.
+- **Investigate — which types are "sensible", and what does `present` mean for each**:
+  - Interface values (`*Iface`/`@Iface`) — DONE (vtable non-null).
+  - Managed pointers (`@T`) — if `@T` is nillable, `present(@T)` is the natural replacement for `@T == nil` (test the pointer word non-null). Confirm nillability, then define.
+  - Func values (`*func`/`@func`) — `present(fv)` = code-pointer non-null (is the func value set?); replaces `fv == nil`. Ties into the `==`-on-func-values disallow above.
+  - Raw pointers (`*T`) — already comparable to nil via `==` (spec: address equality). Decide whether `present(*T)` is ALSO accepted for uniformity, or left out as redundant.
+  - Slices (`*[]T`/`@[]T`) — the footgun case. `present(slice)` testing data-ptr-non-null would re-introduce the exact nil-vs-empty footgun that disallowing `slice == nil` exists to avoid. Likely EXCLUDE (or define very deliberately) — specify explicitly either way.
+  - Scalars / value structs / arrays — no presence notion; keep rejecting.
+- **Then implement**: extend the checker rule (per-type accept/reject), add lowerings (each is the same "extract the relevant word, compare to null" shape as `EmitIfacePresent`, so every backend lowers it for free), and keep a clear diagnostic for the rejected types.
+- **Tests (with the work)**: checker accept/reject per type; a runtime conformance cell per accepted type (set vs unset).
+- **Relation to the `==` spec gap (above)**: the decision to DISALLOW `==`/`!=` on aggregates (incl. interface values) leans on `present()` covering all the nullability tests — land this so disallowing `== nil` does not leave a gap. NOTE: `present()` answers "is there anything here", NOT sentinel identity — `err == io.EOF` ("is this THE EOF error") is a separate, still-open question (see io.EOF entry).
+- **Requested**: 2026-06-07, by user.
+
+### ~~Interface method dispatch drops args after a width-mismatched managed-slice arg (codegen)~~ — FIXED + LANDED 2026-06-04 (binate `d6bb3b2f`)
+- **Fixed**: factored the per-arg coercion loop out of `genCall` into a shared
+  `coerceArg` helper (used by `genCall` + `genMethodCall`); `genInterfaceMethodCall`
+  now evaluates args via `genExprOrFuncRef(...paramTyp)` + `coerceArg` like the
+  regular path.  Interface method param types are carried via
+  `ModuleInterface.MethodParamsFlat` + `MethodParamCounts` (flat encoding —
+  `@[]@[]@types.Type` as a struct field trips a missing nested cross-package
+  element dtor in the BUILDER, tracked separately below), populated at the decl
+  AND generic-instantiation sites; `findInterfaceMethod` returns the param list
+  from the inheritance level that owns the method (so embedded methods coerce
+  too).  Pinned by `conformance/593` (own + inherited + func-value arg;
+  negative-verified 3/3/3 without the fix vs 700/3/700 with) and `e2e/repl.sh`
+  (now 53/53; `basic-call` was the hang).  Full conformance 522/0 + unit 39/39.
+  Adversarial-reviewed before implementing (C1 inherited / C2 whole coercion
+  machinery / M2 generic site / M3 self-ref timing / V2 flat encoding).
+  Follow-up: a dedicated generic-interface-method slice-arg regression test
+  (the generic-site population is code-identical to the verified decl path).
+- **Root cause (CONFIRMED)**: `genInterfaceMethodCall` (`pkg/binate/ir/gen_iface.bn:89-94`)
+  builds its call args with a bare `genExpr` per arg — it **omits the argument
+  coercions** the regular call path applies (`gen_call.bn:140-202`), notably the
+  `@[]T → *[]T` managed→raw slice conversion (`EmitManagedToRaw`).  When an iface
+  method param is a raw slice (`*[]readonly uint8`, 2 words) and the arg is a
+  managed slice (`@[]uint8`, 4 words), the unconverted 4-word value is passed
+  where 2 words are expected, **shifting every following argument** — the next
+  scalar arg is read from the wrong slot.  General MAJOR codegen bug; latent in
+  conformance (no iface method has a managed-slice→raw-slice param).  The other
+  omitted coercions (string-lit→chars, nil→slice, by-value struct-copy RefInc,
+  iface-value move/RefInc) are each their own latent iface-arg bug.
+- **How it surfaces (repl)**: the host loop calls `s.Step(line, eof)` where
+  `line` is `@[]uint8` and `Step(line *[]readonly uint8, eof bool)`; with the
+  conversion missing, `eof` is read as garbage/false, so an EOF turn never
+  returns `STEP_EOF_CLEAN`.  The loop spins forever printing `> ` (NOT a clean
+  segfault — it exhausts and dies; CI's captured output shows `> 14` then the
+  crash).  `b9ca1acc` (ReplSession→interface) exposed it by routing `Step`
+  through iface dispatch; green through `16:47`, first red `16:52`.  Not from
+  the stdlib / bnc-0.0.7 work.
+- **Minimal repro**: an iface method `M(line *[]readonly uint8, b bool) Res`
+  (struct return) called via the interface with a `@[]uint8` arg returns the
+  `b=false` branch even when `b=true` is passed.  Controls: `(int,bool)→int`,
+  `(int,bool)→struct`, and `(@[]uint8,bool)→struct` (matched width) all pass —
+  isolating it to the width mismatch, not sret / multi-word args in general.
+- **Fix (planned)**: add `MethodParams` to `ModuleInterface` (populate alongside
+  `MethodResults` during registration); factor the per-arg coercion loop out of
+  `gen_call.bn` into a shared helper and call it from `genInterfaceMethodCall`
+  too, so both paths stay in sync.
+- **Why MAJOR**: silent wrong-arg in iface dispatch (not just repl).  Also E2E is
+  red on *every* main commit, masking new E2E regressions; and `bnc-0.0.7` ships
+  a `bni` whose interactive REPL hangs (accepted — REPL is a Tier-1 PoC, not
+  build-critical; fix to land in 0.0.8-pre).
+- **Test**: `e2e/repl.sh` `basic-call` (covers it end-to-end) + a new unit/
+  conformance test from the minimal repro above.
+
 ### ~~MAJOR — generic-interface constraint parameterized by another type param isn't substituted before the satisfaction check → valid instantiation wrongly rejected~~ — FIXED + LANDED 2026-06-13 (binate `aef4422e`)
 - **Was**: when a generic function's type parameter is bounded by a generic-interface instantiation that names ANOTHER of the function's type params — `func use[X any, T Container[X]]` — the constraint `Container[X]` was checked against the supplied type argument WITHOUT substituting `X`. So `use[int, @IntBox]` (where `impl @IntBox : Container[int]`) was rejected with `type argument @IntBox does not satisfy constraint Container[X]` (unsubstituted `X`).
 - **Root cause**: `instantiateGenericFunc` (`check_generic.bn`) resolved each arg and checked its constraint in one pass, using `ft.TypeParams[i].TpConstraint` verbatim.
