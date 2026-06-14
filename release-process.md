@@ -116,18 +116,24 @@ flag, so we have to confirm-by-behavior instead of confirm-by-banner):
 
 1. Download one of the platform tarballs + `SHA256SUMS`.
 2. Verify the SHA matches what `SHA256SUMS` claims.
-3. Extract; confirm `lib/` contains everything build scripts consume
-   — at minimum `pkg/`, `runtime/`, `ifaces/core/`,
-   `impls/core/common/`, and `impls/core/libc/` (the last three come
-   from the spec's split tree).  `pkg/builtins/rt`'s impl lives under
-   `impls/core/libc/`, so a `-L` that omits it links fine for the
-   compile but fails at the link stage with undefined
-   `bn_pkg__builtins__rt__*` symbols.
+3. Extract; confirm `lib/` contains everything build scripts consume:
+   `ifaces/`, `impls/`, and `runtime/`.  There is **no** top-level
+   `lib/pkg/` — packages live under `ifaces/{core,stdlib}/pkg/` (the
+   `.bni` interfaces) and `impls/{core,stdlib}/.../pkg/` (the `.bn`
+   implementations), per the spec's split tree.  In particular
+   `pkg/builtins/rt`'s impl lives under `impls/core/libc/`, so a `-L`
+   that omits it links fine for the compile but fails at the link stage
+   with undefined `bn_pkg__builtins__rt__*` symbols.
 4. Compile + run a small program through the extracted `bin/bnc`
-   against the bundled `lib/`.  A reasonable shape:
+   against the bundled `lib/`.  The bundle ships `bin/binate-paths` —
+   the single source of truth for the `-I` / `-L` / `--runtime` formula
+   — so use it rather than hand-coding the layout:
 
        BNC=./<bundle>/bin/bnc
        LIB=./<bundle>/lib
+       I=$("./<bundle>/bin/binate-paths" --iface   --base "$LIB")
+       L=$("./<bundle>/bin/binate-paths" --impl    --base "$LIB")
+       RT=$("./<bundle>/bin/binate-paths" --runtime --base "$LIB")
        cat > hello.bn <<EOF
        package "main"
        import "pkg/bootstrap"
@@ -136,11 +142,7 @@ flag, so we have to confirm-by-behavior instead of confirm-by-banner):
            bootstrap.Exit(0)
        }
        EOF
-       "$BNC" \
-           -I "$LIB:$LIB/ifaces/core:$LIB/ifaces/stdlib" \
-           -L "$LIB:$LIB/impls/core/common:$LIB/impls/core/libc:$LIB/impls/stdlib/common" \
-           --runtime "$LIB/runtime/binate_runtime.c" \
-           -o hello hello.bn
+       "$BNC" -I "$I" -L "$L" --runtime "$RT" -o hello hello.bn
        ./hello
 
 5. Also exercise the tier-0 carve-out so you confirm
