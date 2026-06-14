@@ -4,6 +4,63 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## CRITICAL — `Identical` treats ALL type parameters as equal → generic-instantiation cache aliases `Foo[A]` and `Foo[B]` → wrong types + UNSOUND constraint accepts (miscompile) (2026-06-13) — 🔴 OPEN
+
+`(@Type) Identical` (`pkg/binate/types/types_query.bn`) has no `TYP_TYPE_PARAM`
+arm: two type params hit `a.Kind == b.Kind` then fall through to the catchall
+`return true`, so ANY two type params compare Identical — ignoring the
+documented `(TpOwner, TpIndex)` identity rule (types.bni). `lookupCachedInstantiation`
+(`check_generic.bn`) keys the instantiation cache on `entry.TypeArgs[j].Identical(args[j])`,
+so building `Foo[B]` after `Foo[A]` (distinct type params, indices 0 and 1)
+returns the CACHED `Foo[A]`. The two instantiations alias to one @Type whose
+`InstArgs` carry the FIRST type param's index.
+
+- **Blast radius**: any generic decl with ≥2 type parameters each used as a
+  type ARGUMENT to a generic struct / interface / constraint instantiation.
+  Reached via both substituteTypeParams (signature/struct types) and the
+  constraint-satisfaction check.
+- **Repro A — wrong reject (struct/param types)**:
+  ```
+  type Vec[T any] struct { v T }
+  func mk[T any](x T) Vec[T] { var r Vec[T]; r.v = x; return r }
+  func pair[A any, B any](x Vec[A], y Vec[B]) int { return 0 }
+  func main() {
+      var vi Vec[int] = mk[int](1); var vb Vec[bool] = mk[bool](true)
+      println(pair[int, bool](vi, vb))   // REJECTED: "cannot assign Vec[bool] to Vec[int]"
+  }                                       // (y is typed Vec[int] — Vec[B] aliased to Vec[A])
+  ```
+- **Repro B — UNSOUND ACCEPT (miscompile risk)**:
+  ```
+  type Vec[T any] struct { v T }
+  func mk[T any](x T) Vec[T] { var r Vec[T]; r.v = x; return r }
+  func pair[A any, B any](x Vec[A], y Vec[B]) int { return 0 }
+  func main() { var vi Vec[int] = mk[int](1); println(pair[int, bool](vi, vi)) }
+  // ACCEPTED — a Vec[int] is fed into the Vec[bool] (B) slot.  The body is then
+  // monomorphized with the wrong type for y -> wrong-code.
+  ```
+  Same shape with constraints: `func use2[X any, Y any, T Container[X], U Container[Y]]`;
+  `use2[int, bool, @IB, @IB]` (where `impl @IB : Container[int]`) is wrongly
+  ACCEPTED (`@IB` slotted into the `Container[bool]` constraint).
+- **Root cause**: `Identical` missing the `TYP_TYPE_PARAM` case. The documented
+  rule (types.bni TpOwner/TpIndex comment) is identity = (TpOwner, TpIndex).
+  **Proposed fix**: add `if a.Kind == TYP_TYPE_PARAM { return a.TpOwner ==
+  b.TpOwner && a.TpIndex == b.TpIndex }` to `Identical` (before the catchall).
+  Core change — verify against the full suite; may affect other Identical
+  callers (intended: they currently mis-treat distinct type params as equal).
+- **Pre-existing root cause, newly EXPOSED by my generics fixes**: the
+  `Identical` catchall + the cache predate this work, but before the
+  generic-struct-substitution (`0a62d3f4`) and constraint-substitution
+  (`aef4422e`) fixes, signatures with generic instantiations weren't
+  substituted at all (so multi-type-param cases just didn't work — not
+  unsound). Those fixes made the path reachable, turning a latent aliasing bug
+  into an unsound accept on main. **This is the higher-priority follow-up to
+  that generics work.**
+- **Discovery**: adversarial review of the .Parents (`298ef806`) +
+  constraint-substitution (`aef4422e`) fixes (2026-06-13).
+- **Bug-discovery protocol**: add conformance tests (Repro A wrong-reject +
+  Repro B unsound-accept) — the accept case is a `.error`-style negative;
+  mark xfail until fixed.
+
 ## MAJOR — `&(*p)` (address-of-dereference) mis-lowers → SIGSEGV on write-through (2026-06-13) — ✅ FIXED+LANDED (binate `465b44b5`)
 
 `genUnary`'s `&` arm now lowers a deref operand `&(*p)` to `genExpr(e.X.X)` (the
