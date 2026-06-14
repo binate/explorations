@@ -55,17 +55,44 @@ underneath is what's unmet.)
 - Will NOT self-heal at a BUILDER bump (current-source native object writer, not
   BUILDER skew) — persists in post-release CI until fixed.
 
-**Fix:** in `pkg/binate/asm/macho/macho.bn`, partition the emitted symbol table
-into local → external-defined → undefined order (updating any relocation
-symbol-index references accordingly) and emit an `LC_DYSYMTAB` load command with
-correct `ilocalsym/nlocalsym/iextdefsym/nextdefsym/iundefsym/nundefsym` (bump
-`ncmds`/`sizeofcmds` at `macho.bn:190-191`). Object-format-local; matches what
-clang/the LLVM path already produce; no codegen/IR change. (Confirm
-experimentally whether the weak symbols ALSO need a coalesced section
-(`S_COALESCED`) or whether `LC_DYSYMTAB` + partitioning alone suffices — the
-`ld -r` evidence points to the latter.) Needs a native-aa64 unit/link regression
-once fixed. Discovered 2026-06-14 during the bnc-0.0.9 release-readiness gate
-(unit run `27488837411`).
+**Fix — empirically narrowed (2026-06-14); the object-writer route is a DEAD END,
+the real fix is codegen-side owner-only emission.** Findings from a worktree
+experiment (preserved on binate branch `wip-macho-coalesce-experiment`,
+`ea164d48`):
+- `LC_DYSYMTAB` + symbol-table partitioning (local/extdef/undef ranges) is
+  **necessary but INSUFFICIENT.** Implemented it; the emitted `buf.o` has a
+  correct `LC_DYSYMTAB` (`nlocalsym 48 / iextdefsym 48 / nextdefsym 118 /
+  iundefsym 166 / nundefsym 5`) and the `__dtor_Builder__vt` symbol is correctly
+  `weak external` in the extdef range — yet ld **still** reports duplicate
+  symbol. So the missing-`LC_DYSYMTAB` theory (and the earlier `ld -r` evidence)
+  was wrong about the discriminator.
+- The actual discriminator vs clang is the **`MH_SUBSECTIONS_VIA_SYMBOLS`** mach-
+  header flag (0x2000): clang sets it, the native writer hard-codes flags=0. A
+  controlled test (clang weak global in `__DATA,__data`/`S_REGULAR`, same
+  `N_WEAK_DEF`) coalesces *only* because clang sets this flag — it tells ld the
+  sections split into per-symbol atoms, which is what lets ld keep one weak def
+  and drop duplicates.
+- **BUT setting `MH_SUBSECTIONS_VIA_SYMBOLS` breaks the native backend:** with the
+  flag, the dup-symbol link error disappears, but the resulting native binaries
+  **SIGILL** (e.g. a freshly native-built `bnc` crashes, exit 132, on any
+  compile). The native codegen's layout relies on atom **adjacency** (data/code
+  referenced by offset across what would become separate atoms), which the flag
+  lets ld reorder/coalesce/dead-strip — so the flag is unsafe without first
+  making native layout fully atom-independent (every inter-atom reference a
+  reloc-to-symbol). That is a large codegen project, not an object-writer tweak.
+
+**Recommended real fix: owner-only dtor-vtable emission (native codegen).** Have
+a CONSUMER reference another package's `__dtor_<T>__vt` / `__dtor_<T>__shim` /
+`___handle` as **external/undefined** symbols instead of emitting its own weak
+copy (so there is a single definition in the owner — no coalescing, no
+subsections needed). The owner is always linked when a consumer RefDecs the type
+(you can't use `@buf.Builder` without importing `buf`). This diverges native from
+the LLVM strategy (LLVM *can* coalesce, so it emits weak in consumers — see
+`d0b6fc78` / `aarch64_funcvalue.bn` `lookupFuncValueTypeAA64`), which is a
+deliberate design call for the author. Touches `pkg/binate/native/{aarch64,x64}`
+funcvalue ref-collection/emission. Needs a native-aa64 unit/link regression once
+fixed. Discovered 2026-06-14 during the bnc-0.0.9 release-readiness gate (unit run
+`27488837411`).
 
 ## MAJOR — `&(*p)` (address-of-dereference) mis-lowers → SIGSEGV on write-through (2026-06-13) — ✅ FIXED+LANDED (binate `465b44b5`)
 
