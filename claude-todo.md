@@ -4,6 +4,25 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR — `&(*p)` (address-of-dereference) mis-lowers → SIGSEGV on write-through (2026-06-13) — 🔴 OPEN
+
+`&(*p)` is checker-addressable (a dereference is a valid lvalue; `&*p == p`),
+but IR-gen mis-lowers it.  `genUnary`'s `&` arm (`pkg/binate/ir/gen_expr.bn:152-178`)
+handles `&ident` / `&index` / `&selector` and FALLS THROUGH to
+`return genExpr(ctx, b, e.X)` for any other operand — so for `&(*p)` it returns
+the LOADED VALUE of `*p` (e.g. `11`) as if it were a pointer.  Writing through
+it crashes: `var p *int = &v; var pd *int = &(*p); *pd = 12` stores to address
+`11` → SIGSEGV on otherwise-valid code (read-only `var pd = &(*p)` "works" — the
+bad pointer just isn't dereferenced).  **Discovered** 2026-06-13 building the
+addressability positive test `conformance/755_addr_lvalue_ok` (the `&*p` case
+was dropped from it pending this fix).  **Fix**: add a case in genUnary's AMP
+arm for `e.X.Kind == ast.EXPR_UNARY && e.X.Op == token.STAR` →
+`return genExpr(ctx, b, e.X.X)` (the pointer `p`), since `&*p == p`.  Niche
+(you'd just write `p`), but a loud crash on valid code.  Surfaced by the general
+`&` addressability check (which correctly accepts `&*p`); the old kind-whitelist
+also accepted it, so the IR-gen defect is PRE-EXISTING.  Needs a conformance
+test (xfail until fixed, or passing if fixed).
+
 ## MAJOR — instantiated generic interface never records `.Parents`, so its inheritance is invisible → valid descendant/upcast wrongly rejected (2026-06-13) — 🔴 OPEN
 
 `buildInstantiatedInterface` (`pkg/binate/types/check_generic.bn`) constructs the
