@@ -162,5 +162,37 @@ collapse. The micro-task attempt surfaced it.)
   tests + `bnlint --target` both arches per package. `pkg-layout-spec.md`
   updated. **Landed** on binate `main` as `644fc7f5` (rt) `ef32d27e` (os)
   `f2b54d27` (os/internal) `8ec82c73` (ref fixes) `bca36989` (binate-paths).
-- **Stage C (build.bni collapse)** and **Stage D (.bni coverage)** still
-  pending.
+- **Stage D done — landed** (binate `55d5278c`): conformance 757/758 cover the
+  combined-package `.bni` gate + the malformed-constraint negative.
+- **Stage C done — landed** (binate `5a8714d8` baked-in config, `b64b21fd`
+  config-from-target everywhere, `b0bd1096` the 6→1 collapse). `pkg/builtins/build`
+  is now ONE `#[build]`-gated file in `ifaces/core`; nothing reads it to learn
+  the config — bnc/bni carry their build host from when they were compiled
+  (`buildcfg` imports `build`), and the config comes from the active `--target`
+  (`buildcfg.ConfigForTarget`/`HostConfig`); `ResolveBuildConfig`/`ConfigFromBuild`
+  removed; the per-triple `ifaces/targets/<key>/build.bni` tree deleted. Full
+  `builder-comp` 1425/0, hygiene 13/13.
+
+## Status: migration COMPLETE (modulo bootstrap + a BUILDER bump)
+
+All four stages (A bnlint+config, B impls collapse, C build.bni collapse,
+D coverage) are landed. The `impls/` platform-variant duplication and the
+`ifaces/targets` + `impls/targets` per-triple trees are gone; platform/target
+selection is `#[build(...)]`-gated in the common trees. **`pkg/bootstrap`
+remains the one path-selected package** (special, slated for removal; in
+BUILDER's compiled tree, which can't parse `#[build]`).
+
+### Follow-up: bump `BUILDER_VERSION`, then drop the temporary workarounds
+
+Stage C added three workarounds, all because the pinned BUILDER (`bnc-0.0.8`)
+predates both the `ARCH_ARM64 → ARCH_AARCH64` rename and `#[build]` parsing.
+After publishing a BUILDER built from a post-Stage-C snapshot and bumping
+`BUILDER_VERSION`, remove all three (each is comment-flagged in-tree):
+1. the `ARCH_ARM64` alias in `ifaces/core/pkg/builtins/build.bni` (and switch
+   `buildcfg.HostConfig` back to `ARCH_AARCH64`);
+2. the ungated-`build.bni` shim in `scripts/hygiene/lint.sh` (restore the
+   bundled-bnlint fast path with no shim);
+3. the `[ -d ]`-guarded `ifaces/targets` lookup in `scripts/binate-paths.sh`
+   (the bumped bundle will ship `build` in `ifaces/core`).
+
+A bump would also unblock collapsing `pkg/bootstrap` if ever desired.
