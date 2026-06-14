@@ -4,6 +4,31 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR (VM) — compiled iface method returning >16 bytes has no sret path → cross-mode call aborts (2026-06-14) — 🔴 OPEN
+
+A compiled interface method whose return is >16 bytes (e.g. a 4-word
+`@[]readonly char` managed-slice) cannot be called from the interpreted
+VM: `pkg/binate/vm/vm_exec_iface.bn` aborts with `vm: compiled iface
+method returns >16 bytes (sret path unimplemented)`.
+
+- **Symptom**: `577_std_errors` aborts under `builder-comp-int`
+  (`errors.Error.Error()` returns `@[]readonly char`; the test compiles
+  `pkg/std/errors` via builder-comp while interpreting `main`, so the
+  call crosses the compiled→interpreted boundary).  Now marked
+  `conformance/577_std_errors.xfail.builder-comp-int`.  LLVM, gen2, and
+  native all pass.
+- **Root cause**: the VM's cross-mode iface-method dispatch implements
+  the ≤16-byte (register-pair) return ABI but not the sret
+  (caller-allocated return slot) path for >16-byte aggregate returns.
+- **Fix**: implement the sret path in the VM's compiled-iface-method
+  call — allocate the return slot, pass it per the compiled ABI, and
+  marshal the result back (mirror any existing compiled-call sret
+  handling for direct, non-iface calls).
+- **Discovery**: full `builder-comp-int` sweep during the D4/D3/D5
+  generics arc (2026-06-14).  Previously an *untracked* pre-existing
+  failure — only mentioned in passing under the `@func`-default-inference
+  DONE entry below ("lone `577_std_errors` pre-existing").
+
 ## MAJOR — native Mach-O writer emits no `LC_DYSYMTAB` / unpartitioned symtab → linker won't coalesce cross-object weak defs → `duplicate symbol` link failure (2026-06-14) — 🔴 OPEN
 
 `builder-comp_native_aa64` **unit** mode fails to link 11 package test binaries
