@@ -10,6 +10,71 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### `&slice[i]` (address-of a slice element) lowers to a wild pointer — FIXED+LANDED (binate `937ae78e`, 2026-06-05)
+- **Symptom**: taking the address of a *slice*-indexed element yields a garbage
+  pointer instead of the element address. `var p *uint8 = &s[0]; *p = 66`
+  SIGSEGVs (the store writes through `(i8*)0x41`). Affects both `@[]T`
+  managed-slices and `*[]T` raw slices; **fixed arrays `[N]T` are correct**
+  (`&a[0]` works). Crashes identically compiled (bnc) and interpreted (bni), so
+  the defect is in the shared IR address-of lowering, not a backend.
+- **Root cause (CONFIRMED)**: the address-of path for a slice-indexed l-value
+  computes the correct element address via GEP, then wrongly falls through to the
+  *r-value* path — it loads the element and `inttoptr`s the byte:
+  `%a = getelementptr i8, i8* %data, i64 %idx` (element address — correct) →
+  `%v = load i8, i8* %a` (BUG: loads the VALUE) →
+  `%p = inttoptr i8 %v to i8*` (BUG: byte → pointer). Fixed arrays take the
+  proper address path (yield the GEP), which is why `&a[0]` works; slice-indexed
+  operands share the load path instead. Likely in IR-gen's address-of handling
+  for a SliceIndex operand (gen_expr l-value path).
+- **Test**: `conformance/599_addr_of_slice_elem.bn` — `&slice[i]` write-through +
+  read-back on `@[]T` and `*[]T` (mutation must be visible; currently SIGSEGVs).
+  Xfailed in all 6 default modes.
+- **Discovery**: 2026-06-05, while probing bundle I/O for the minbasic example —
+  `__c_call("write", …, &buf[0], …)` silently wrote nothing; chasing it exposed
+  the address-of miscompile. Confirmed firsthand against `bnc-0.0.7` with
+  `--emit-llvm`, and **confirmed still present in local main HEAD** (2026-06-05)
+  via `conformance/run.sh builder-comp` + `builder-comp-int`.
+- **Fix**: the slice-indexed l-value address-of must yield the GEP'd element
+  address, not load+inttoptr — mirror the fixed-array address path. (If
+  `&slice[i]` were intentionally unsupported, reject at type-check instead — but
+  arrays support it and raw pointers are the documented hot-path escape, so
+  emitting the address is the intended fix.)
+
+### VM drops a returned aggregate / managed-slice element of a local (`return container[i]`) — wrong-result, VM-only — FIXED + LANDED 2026-06-06 (binate `61488b48`)
+- **Symptom**: under `builder-comp-int` (bytecode VM), a function that returns an
+  aggregate element loaded directly from a local container — e.g.
+  `func f() @[]char { var s @[]@[]char = @[]@[]char{"hello","world"}; return s[0] }`
+  — returns an EMPTY/garbage value (the managed-slice element comes back empty; a
+  struct array element reads garbage). The compiled backends (LLVM + native) are
+  correct; only the VM is wrong.
+- **Confirmed**: `conformance/regressions/return-aggregate-element-of-local` —
+  expected `hello\n1\n2\n3`, VM prints an EMPTY first line then `1 2 3`. PASSES in
+  `builder-comp` and `builder-comp-comp` (922/0), FAILS only in `builder-comp-int`
+  (untracked — NOT xfail'd, so the default VM conformance lane is live-red on it).
+- **This is the VM analog of the native aggregate-`OP_LOAD` aliasing bug** fixed in
+  binate `1285683e` (PlanFrame/emitLoad now reserve an own data region so the load
+  owns its bytes instead of aliasing the source, which gets RefDec'd/freed at
+  function cleanup BEFORE the copy into the sret/result). That entry asserts "LLVM
+  and the VM were always correct" — STALE: the VM mishandles this exact case.
+- **Root cause (confirmed)**: `pkg/binate/vm/lower_memory.bn` `lowerLoad` emitted
+  `BC_MOV` for a multi-word (aggregate) load — the loaded register just ALIASED the
+  source pointer ("the consumer handles the bytes"). For `return container[i]` that
+  alias pointed into the local's backing, which the function's cleanup RefDec'd
+  (freed/zeroed) before the sret copy ran, so the return read freed memory.
+- **Fix (binate `30f21816`, work-3)**: the VM frame planner (`lower_func.bn`) now
+  reserves an own region for every aggregate `OP_LOAD` (`isAggregateLoadTyp`,
+  matching native `common.IsAggregateTyp`); a new `BC_LOAD_AGGREGATE` bytecode copies
+  the loaded bytes into that region and points the result there, so the load owns its
+  bytes — mirroring the LLVM/native aggregate load (and native fix `1285683e`).
+- **Severity**: MAJOR — silent wrong-result (data loss) on a routine
+  `return container[i]` under the VM; VM-only (the compile path is correct).
+- **Discovery**: 2026-06-06, regression-testing the `genExprOrFuncRef` CurBlock fix
+  (binate `47d05c81`); unrelated to that fix (the test has no function-value types —
+  same IR passes natively, failed only in the VM).
+- **Tests**: `conformance/regressions/return-aggregate-element-of-local` now passes
+  `builder-comp-int` (full lane 895/0, was 894/1); `TestAggregateElementLoadMaterializesCopy`
+  (`lower_memory_test.bn`) pins aggregate `OP_LOAD` → `BC_LOAD_AGGREGATE`.
+
 ### ~~CRITICAL — `Identical` treats ALL type parameters as equal → generic-instantiation cache aliases `Foo[A]` and `Foo[B]` → wrong types + UNSOUND constraint accepts (miscompile)~~ — FIXED + LANDED 2026-06-13 (binate `588f6f7f`)
 - **Was**: `(@Type) Identical` (`types_query.bn`) had no `TYP_TYPE_PARAM` arm; two type params hit `a.Kind == b.Kind` then fell through to the catchall `return true`, so ANY two type params compared identical. `lookupCachedInstantiation` keys the instantiation cache on `Identical`, so building `Foo[B]` after `Foo[A]` (distinct params, indices 0/1) returned the cached `Foo[A]` — the two aliased to one @Type carrying the first param's index. For any generic decl with ≥2 type params each used as a type ARG to a generic struct/interface/constraint: wrong reject (`pair[A,B](Vec[A],Vec[B])` called with `(Vec[int],Vec[bool])`) AND unsound accept (a Vec[int]/Container[int] impl accepted into the Vec[bool]/Container[bool] slot → body monomorphized with the wrong type → miscompile).
 - **Fix** (`588f6f7f`): add the `TYP_TYPE_PARAM` arm — two type params identical iff same `TpOwner` (owning generic decl) and `TpIndex` (the documented (Owner, Index) identity, types.bni). Same defect class the `TYP_FUNC_VALUE` arm already fixed.
