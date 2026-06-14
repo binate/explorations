@@ -10,6 +10,80 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### `builder-comp-int-int` (double-VM) globally broken — every test SIGSEGVs — ✅ RESOLVED 2026-06-09 (binate `c997cf2e`; root cause `71ff7489`)
+
+- **Symptom**: EVERY `builder-comp-int-int` conformance test produces empty output and exits 139 (SIGSEGV) — including the most trivial: `001_hello` (`println("hello world")`), `002_arithmetic`, `003_variables`, bare `println(42)`. The whole int-int lane is dead, not a per-test issue.
+- **Where it crashes**: the compiled `bni` (gen1-compiled `cmd/bni`) **SIGSEGVs while interpreting `cmd/bni`** — the bni-under-bni (double-VM) path. The inner VM dies at startup/load, before any test output. Reproduced manually outside the harness:
+  `COMPILED_INTERP -I … cmd/bni -- -I … conformance/001_hello.bn` → exit 139, no output.
+- **Not a stack limit**: a 64 MB stack (`ulimit -s 65532`) changes nothing; the crash is immediate, not a gradual overflow.
+- **Single-VM is fine**: `builder-comp-int` and `builder-comp-comp-int` (one VM layer) pass normally — only the double-VM (`int-int`) crashes.
+- **Scope**: `builder-comp-int-int` is in the `all` CI modeset (comprehensive lane red across ~1150 tests), NOT in `basic` (basic smoke = `builder-comp` + `builder-comp-int`, both green). So basic smoke is green; the comprehensive lane is red.
+- **Pre-existing / not from Round-2 work**: crashes on field-access-free `001_hello`, which no front-end fix touches. The earlier Defect-8 note (at `a869e8e7`) characterized int-int crashing only for MULTI-package tests; it is now GLOBAL. The worsening happened somewhere in `a869e8e7..0c707e1f` (unbisected), or int-int single-package was already broken then and only the multi-package case was checked.
+- **Root cause (CONFIRMED)**: `71ff7489` (the "length-0 ⟹ no backing" rep change) made the bytecode VM lower an *aggregate* `OP_CONST_NIL` — an empty string literal, an empty raw composite, `make_slice(_,0)` — to a scalar `0`, i.e. a NULL address. The VM carries every aggregate value (slice / struct / iface- / func-value) by the ADDRESS of its in-memory image, so any by-address consumer (a call argument, an `OP_EXTRACT` such as `len()`) read through null. Single-VM only tripped on test programs that actually hit that path (e.g. `110_cross_pkg_type_alias`); under double-VM the inner program *is* `cmd/bni`, which uses empty literals by-address during load → universal null-deref at startup (hence even `001_hello` SIGSEGV'd, before any test output). The suspected `a869e8e7..0c707e1f` range and the `68616b20` candidate were red herrings — the culprit `71ff7489` predates that range, so "int-int single-package was already broken then" (per the bullet above) was the correct read.
+- **Discovered**: 2026-06-09 while validating CR-2 Plan-1 Round-2 (R2-D1). Per the user (2026-06-09): FILE this; do NOT add per-cell `.xfail.builder-comp-int-int` to new Round-2/Plan-A cells (the whole lane is down — per-cell xfails would be noise that falsely reads as a known per-cell issue). Validate Round-2/Plan-A fixes on the other 6 runnable modes; the cells are mode-agnostic and pass int-int once this is fixed.
+- **RESOLVED 2026-06-09 (binate `c997cf2e`)**: the VM now reserves a dedicated zeroed frame region for each aggregate `OP_CONST_NIL` (mirroring native's dedicated data region and LLVM's alloca + zero-fill), so the value's register is a valid address of a `{0,…}` image. This is the SAME commit recorded elsewhere in this file as fixing the single-VM `110_cross_pkg_type_alias` regression — the int-int entry just wasn't connected to it. Bisect-verified: int-int `001_hello` SIGSEGVs at `c997cf2e^` (`b4d5b37b`) and passes at HEAD; the full int-int sweep is green at HEAD (1245 passed, 0 failed, 48 xfail-skipped).
+
+### `71ff7489` (length-0 slices → nil-equivalent rep) regressed the bytecode VM — `110_cross_pkg_type_alias` fails on `builder-comp-int` (a default CI mode) — RESOLVED 2026-06-09 (plan-cr2-3 Round-2, binate `c997cf2e`)
+- **Symptom**: `conformance/110_cross_pkg_type_alias` fails on `builder-comp-int`: the final `if mylib.IsEmpty(MakeResult("")) { println("empty ok") }` does NOT print, so the output is missing the `empty ok` line. `IsEmpty(r)` is `len(r) == 0` over an empty `@[]char` produced by `make_slice(char, len(""))` — the VM reads `len != 0` for the empty managed-slice. Green on `builder-comp` (LLVM); fails ONLY on the VM. No xfail marker (was passing).
+- **Bisect (CONFIRMED)**: `110` PASSES on `builder-comp-int` at `43cb195d` (71ff7489's parent) and FAILS at `71ff7489` / `cc2ddcc4`. So `71ff7489` ("ir: enforce length-0 slices have no backing (nil-equivalent rep)") is the cause.
+- **Mechanism (direction)**: `71ff7489` made empty string/byte literals emit `EmitConstNil`, and normalized `lo==hi` subslices / empty raw composite literals to the `{null,0}` nil-equivalent. The VM (`pkg/binate/vm`) was not updated to AGREE with the new length-0 rep, so either `len("")` (empty-literal-as-nil) or `len(make_slice(char,0))` reads non-zero on the VM and the emptiness check inverts. LLVM/codegen handle the new rep; the VM lowering/runtime does not.
+- **Severity**: MAJOR — breaks a default CI mode (`builder-comp-int`) with wrong output on the idiomatic `len()==0` empty-slice test through the VM. Narrow blast radius: the full-suite VM sweep showed ONLY `110` failing.
+- **Discovery**: 2026-06-08, plan-cr2-3 post-landing full-suite `--check-xpass` sweep on both arches + LLVM + VM (the only VM failure in the full suite).
+- **Root cause (confirmed)**: the bytecode VM carries every aggregate value (slice / struct / iface- / func-value) by the ADDRESS of its in-memory image, but lowered EVERY `OP_CONST_NIL` — scalar AND aggregate — to `BC_LOAD_IMM 0`. For an aggregate const-nil that 0 is a null address; a by-address consumer (a call argument, an `OP_EXTRACT` such as `len()`) reads through null. The var-decl form (`666`) was masked because `OP_STORE` of a const-nil memsets the destination directly and never reads the source register; `MakeResult("")`'s direct call-argument form was not. The codegen + native backends already give an aggregate `OP_CONST_NIL` a dedicated zero-filled data region; the VM was the lone backend that didn't.
+- **Fix (binate `c997cf2e`)**: the VM planner (`lower_func.bn`) reserves a dedicated frame region for each aggregate `OP_CONST_NIL` — zeroed at frame entry by `pushFrame`, never written — and the lowering (`lower_instr.bn`) points `BC_STACK_ALLOC` at it, so the nil value's register is a valid address of a `{0,...}` image. Scalar nils stay the immediate 0. `110` green on `builder-comp-int`; new `conformance/668_empty_slice_byaddr` isolates the mechanism (direct `len()`, call-argument, empty composite literal, `make_slice(_,0)` by argument) green on LLVM + all three `-int` modes and fails pre-fix; full `builder-comp-int` sweep 1165/0; VM unit tests pass.
+
+### VM mis-unpacks a SUB-WORD (uint16) multi-return returned through interface dispatch — SILENT wrong values — ✅ RESOLVED by the CR-2 SEAM (`6c39d460`)
+- **STATUS 2026-06-08 — RESOLVED.** This was the symptom pre-SEAM, when the front-end dropped the iface multi-return result type (void-typed dispatch) so the VM's tuple lowering operated on a malformed shape; the symptom presented AS a sub-word `BC_EXTRACT` width bug (`13107300 = (200<<16)|100` for `(u16,u16)→(100,200)`). Once the SEAM typed the dispatch as a proper tuple struct, the VM lowers it correctly — `iface-multi-return/u16/{2,3,4,5}` pass on all three `-int` modes (verified 0-failed under `--check-xpass`; the SEAM removed the VM xfails). So the separately-planned VM `BC_EXTRACT` sub-word fix (plan-cr2-3 "Defect 5") is MOOT — the VM's value-mode `BC_EXTRACT` already does a sized sub-word read; the bug was upstream typing, not VM extract.
+- **Original symptom (historical)**: `iface-multi-return/u16/2` printed `13107300, 1` on the VM instead of `100, 200`. The `int` variant was correct, which is why it read as sub-word-specific.
+- **Discovery**: 2026-06-07, abi result-side matrix sweep. **Resolution confirmed**: 2026-06-08, post-SEAM `--check-xpass` sweep of the abi subtree on the three `-int` modes (0 failed).
+
+### Native widening int casts don't sign/zero-extend from the SOURCE width — silent wrong value for a non-canonical source — FIXED 2026-06-05 (binate 445d846a)
+- **Symptom**: a widening integer cast (`cast(int, <int32 x>)`, sub-word →
+  host-word) on both native backends does NOT re-extend the value from the
+  source width; it just MOVs, assuming the source register is already
+  sign/zero-canonical. The VM (`BC_SEXT`/`BC_ZEXT`) and LLVM (`sext`/`zext`)
+  extend per the source type, so this is a native-only divergence — a silent
+  wrong value whenever the source register is non-canonical.
+- **Root cause**: `emitCast` (aa64 `aarch64_ops.bn:476`, x64 mirror) keys ONLY
+  on the TARGET width: for `target.Width == 0 || >= 64` it emits a plain MOV
+  (no extension); the sub-word LSL+ASR/LSR path only runs for a *narrowing*
+  target. It never receives the source type, so it cannot extend-from-source on
+  a widening cast.
+- **Why it surfaced now**: post-4.1 (sub-word arith narrowing), arith results
+  ARE canonical, so `cast(int, arithResult)` is correct via the MOV. But a
+  `bit_cast(int32, <float32 const>)` result is left ZERO-extended (bit_cast is a
+  plain reinterpret MOV), so `cast(int, bit_cast(int32, Neg))` keeps the
+  zero-extended bits → `println` prints `3184315597` instead of `-1110651699`.
+  This is the residual on **conformance/539_float32_const** (xfailed on all 3
+  native lanes; the 4 non-negative lines pass; passes on VM + LLVM).
+- **Fix (LANDED 445d846a)**: thread the source type into `emitCast` on both
+  natives; on a widening cast (target host-word), sign/zero-extend from the
+  SOURCE width per the source's signedness — mirroring the VM's `BC_SEXT`/
+  `BC_ZEXT`. Narrowing casts keep the target-width behavior. No-op for canonical
+  sources (scalar-matrix cells unaffected). The fix at the CAST is the right
+  layer — do NOT narrow at OP_BIT_CAST instead (that would also touch the
+  compiler's internal pointer bit_casts; the cast site is where the widening
+  semantics belong).
+- **CORRECTION — the earlier "blocked by a self-compilation break" conclusion
+  was WRONG**: I had attributed a ~267/796 aa64 conformance wipeout (`bnc` link
+  error `_bn_pkg__bootstrap__Write` undefined) to this fix. That breakage is the
+  **separate, already-tracked CRITICAL aa64-native lane regression** (from the
+  divide-fault guard series) — my experiments were rebased onto a base that
+  already had it. There is NO hidden cmd/bnc cast/bit_cast dependency. Proof: the
+  fix on the **clean x64_darwin lane** gives 807 passed / 4 failed (only the 4
+  unrelated pre-existing failures, NOT 267), and 539 passes. The aa64 lane can't
+  confirm until its CRITICAL issue is resolved, but 539 passed there too and the
+  aa64 emitCast uses identical logic.
+- **Test**: `conformance/539_float32_const` — now green on all modes (native
+  xfails dropped). A direct `cast(int, bit_cast(int32, <high-bit u32>))`
+  regression cell would harden it further.
+- **Severity**: was MAJOR (silent wrong value, native-only). Resolved.
+
+### Bytecode VM `@Iface` (interface) value handling — two VM bugs — FIXED 2026-06-03
+- **Part A — single interface-value return not copied back → "call through nil interface value"** (binate `511e1395`).  Interface values are 16-byte address-based VM stack slots.  `lowerReturn` set BC_RETURN's copy-back size only for `isMultiWordField` types (struct / slice / array) — it omitted interface values, so a single `@Iface` return dangled in the reclaimed callee frame and the next call clobbered it; `consume(makeFoo(i))` (an iv call result passed directly as an arg) then panicked `vm: call through nil interface value` in `-int` only (LLVM + native don't use this lowering).  Fix: set the copy-back size for `TYP_INTERFACE_VALUE` / `_MANAGED` single returns too.  Pinned by `560_iface_return_call_arg` (green all modes).
+- **Part B — interface-value receiver dtor crashed on RefDec-to-zero** (binate `5de3d09d`, the direct analogue of the `@func` capture-record dtor `0a0d00af`).  `BC_IFACE_DTOR` produced the receiver dtor's 1-based func index, but `BC_REFDEC_INLINE_FAST` consumes its dtor input as a func-value HANDLE — so an interface value that was the *last* holder of a managed-field receiver bit_cast the small index to a pointer and crashed (520; the dtor arms of 554 / 556).  473 hid it because its iv lives in a nested block the receiver outlives, so its RefDec never reached zero.  Fix: `BC_IFACE_DTOR` hands `BC_REFDEC` the dtor func's handle via `ensureHandle` (the same `{Vtable, ClosureRec{VM_CLOSURE_REC, FnIdx}}` the `@func` path uses); the existing iterative-push arm runs the receiver dtor and frees it via `freeOnPop`.
+- **Result**: `520_iface_dtor_callee_sole_ref` (a standing `-int` red) is green; `554_iface_refcount_balance` and `556_iface_struct_field_balance` un-xfailed in all VM modes; `-int` suite 478/0.  Both were `pkg/vm`-only (codegen always emitted correct IR; LLVM + native were already correct).
+
 ### MAJOR — `++`/`--` on a non-identifier lvalue (`a[i]++`, `p.f++`, `*p++`) type-checks clean but generates NO code (silent no-op) — spec Ch.14 (2026-06-12) — ✅ FIXED+LANDED (binate `6a2f551f`, coverage `124a0b40`)
 
 `genIncDec` (`gen_flow.bn`) now lowers every integer lvalue kind — ident,
