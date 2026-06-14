@@ -10,6 +10,41 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### MAJOR — `++`/`--` on a non-identifier lvalue (`a[i]++`, `p.f++`, `*p++`) type-checks clean but generates NO code (silent no-op) — spec Ch.14 (2026-06-12) — ✅ FIXED+LANDED (binate `6a2f551f`, coverage `124a0b40`)
+
+`genIncDec` (`gen_flow.bn`) now lowers every integer lvalue kind — ident,
+selector (`p.f++`, incl. value-struct field), index (`a[i]++` / `s[i]++` /
+nested `m[i][j]++`), and deref (`(*p)++`) — by computing the storage address
+(via `genSelectorPtr` / `genIndexPtr` / the deref'd pointer, the same helpers
+`genAssign` uses) and read-modify-writing. The integer-lvalue restriction
+means no managed/slice/struct handling is needed. `conformance/739` covers
+array / named-array / slice elements, value + managed-ptr struct fields,
+nested-array, deref, and sub-word two's-complement wrap; green builder-comp /
+VM / gen2.
+
+Found + verified firsthand while grounding spec Ch.14 (Statements). The SAME
+class as the parallel-assignment drop above (checker accepts a general lvalue;
+IR-gen only lowers the identifier case), but a distinct code path.
+
+- **Checker accepts any integer lvalue.** `checkStmt`'s `STMT_INC_DEC` arm
+  (`check_stmt.bn:39-65`) checks only `s.X.IsInteger()` and rejects const
+  identifiers/qualified-consts; it imposes **no** identifier restriction, so
+  `a[i]++` / `p.f++` (element/field of integer type) pass clean.
+- **IR-gen drops non-idents.** `genIncDec` (`gen_flow.bn:214-231`) is gated
+  entirely on `if stmt.X.Kind == ast.EXPR_IDENT { ... }`; for any other lvalue
+  the `if` never fires and the function `return b`s with **no IR**. So
+  `counts[i]++`, `node.count++`, `(*p)++` compile to a no-op — no diagnostic.
+- **No conformance coverage.** Inc/dec tests only exercise identifier operands
+  (`x++`, `count++`, `i++`); no `a[i]++` / `p.f++` test exists.
+- **Severity**: MAJOR silent wrong-code — `counts[i]++` (histogram) and
+  `node.count++` (field bump) are common idioms that silently do nothing.
+- **Fix**: implement the non-identifier lvalue arms in `genIncDec` (mirror the
+  index / selector / deref lvalue arms `genAssign` already has — load through the
+  element/field/deref pointer, `± 1`, store back). Reject-instead (option B) is
+  worse here: `a[i]++` is a legitimate lvalue mutation, not a thing to forbid.
+  Either way the current accept-then-drop is the bug. Add conformance for
+  `a[i]++` / `p.f++` / `(*p)++` with the fix.
+
 ### Zero-parameter functions accept any number of arguments — spec Ch.10 (2026-06-12) — ✅ RESOLVED 2026-06-12 (binate `29fdc4c0`)
 RESOLUTION: restricted the no-arity-check branch (`check_expr.bn`, numParams==0 && numArgs>0) to the variadic builtins via a new `isVariadicBuiltinCall` (callee name print/println/panic, mirroring `isPanicCall`); any other zero-param call with args is now "too many arguments". conformance/741_zero_param_arity_rejected; print/println/panic still accept args (covered by the whole existing suite). Original report below.
 MINOR (over-permissive arity check; extra args are evaluated then discarded —
