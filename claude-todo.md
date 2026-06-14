@@ -4,7 +4,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
-## MAJOR — native backend emits managed-struct dtor VTABLE (`__dtor_<T>__vt`) STRONG in consumer objects → `duplicate symbol` link failure (2026-06-14) — 🔴 OPEN
+## MAJOR — native Mach-O writer emits no `LC_DYSYMTAB` / unpartitioned symtab → linker won't coalesce cross-object weak defs → `duplicate symbol` link failure (2026-06-14) — 🔴 OPEN
 
 `builder-comp_native_aa64` **unit** mode fails to link 11 package test binaries
 (native, native/common, native/aarch64, native/x64, ir, codegen, vm, repl,
@@ -14,35 +14,58 @@ mangle, cmd/bnc, cmd/bni) with:
         ...pkg__binate__buf.o      (owner of buf.Builder)
         ...pkg__binate__mangle.o   (a consumer of buf.Builder)
 
-i.e. a managed struct's dtor **vtable** symbol `__dtor_<T>__vt` is emitted as a
-STRONG definition in EVERY object that uses the struct, not just the owning
-package — so any link pulling in two such objects (owner + consumer, or two
-consumers) collides. Reappearance of the previously-fixed dtor-vtable-duplicate
-class (claude-todo-done.md ~L1796/L1833), reintroduced when `buf.Builder` (a
-user-defined managed struct, binate `26c224c0`, 2026-06-12) met `7acda3a4`
-("codegen: inject managed-struct dtors for native-only packages", 2026-06-13):
-its `isInjectableStructDtor` predicate only excludes `__`-prefixed synthesized
-bases, so a normal managed struct's dtor (and its `__vt`) gets injected into
-consumers.
+**Root cause (corrected after investigation — NOT a strong-symbol or codegen
+bug).** The dtor vtable `__dtor_<T>__vt` IS emitted **weak** (`N_WEAK_DEF`) in
+both owner and consumer objects, by design, mirroring the LLVM backend — confirmed
+`a.SetWeak(vtLabel)` at `pkg/binate/native/aarch64/aarch64_funcvalue.bn:202` and
+both objects parsed as `n_desc=0x0080 [N_WEAK_DEF]`. A correct linker coalesces
+these. The defect is in the **native Mach-O object writer**
+(`pkg/binate/asm/macho/macho.bn`): it emits only `LC_SEGMENT_64 + LC_SYMTAB +
+LC_BUILD_VERSION` (`macho.bn:190`, `ncmds=3`) and an **unpartitioned** symbol
+table (insertion order, locals/extdefs/undefs interleaved). It never emits
+`LC_DYSYMTAB` (the constant is defined-but-unused at `macho_const.bn:19`).
+Without `LC_DYSYMTAB` + a partitioned symtab (local → external-defined →
+undefined ranges), the current toolchain linker (`ld-1266.8`, Mar 2026) cannot
+identify external-defined weak symbols as coalescing candidates and treats two
+weak `__vt` defs as a hard collision. clang objects carry `LC_DYSYMTAB` and
+coalesce fine; `ld -r` on a native object (which rewrites it WITH `LC_DYSYMTAB`)
+makes the duplicate vanish — isolating the missing load command as the cause.
+
+**Not** caused by `7acda3a4` ("inject managed-struct dtors", 2026-06-13): the
+failure reproduces identically at its parent `2654d858`. The trigger is
+`buf.Builder` (a user-defined managed struct owned by `pkg/binate/buf`, added
+`26c224c0` 2026-06-12, RefDec'd in consumers like `mangle`) — the first
+cross-package managed-struct dtor-vtable weak-symbol pair linked into a single
+native unit-test binary. The latent Mach-O-writer defect was dormant until that
+pair existed. (Related to the prior dtor-mangling fix `94b75294` /
+claude-todo-done.md ~L1832, which made owner+consumer both emit *weak* and relied
+on the linker coalescing — that mechanism is intact; the linker requirement
+underneath is what's unmet.)
 
 **Scope / impact:**
-- **native-aa64 ONLY.** The LLVM backend emits these symbols weak/ODR and
-  dedupes, so builder-comp / -comp-comp / -comp-comp-comp unit + conformance
-  are GREEN (confirmed: 0 dup-symbol on those modes in unit run `27488837411`).
+- Affects the **native Mach-O backends** (native-aa64 AND native-x64-darwin —
+  shared writer). The LLVM backend dedupes (clang objects have `LC_DYSYMTAB`), so
+  builder-comp / -comp-comp / -comp-comp-comp unit + conformance are GREEN
+  (0 dup-symbol on those modes in unit run `27488837411`).
 - **Does NOT affect the shipped release bundle** — bnc/bni/bnas/bnlint are
   LLVM-built (`scripts/build-*.sh` → clang), not native-aa64.
-- native-aa64 **conformance** passes (cells rarely link buf+mangle together);
-  only the **unit** test binaries (package + all deps) collide.
-- Will NOT self-heal at a BUILDER bump (current-source native codegen, not
+- native-aa64 **conformance** passes (single-program cells rarely link an
+  owner+consumer of the same managed struct); only the **unit** test binaries
+  (package + all deps) hit a colliding pair.
+- Will NOT self-heal at a BUILDER bump (current-source native object writer, not
   BUILDER skew) — persists in post-release CI until fixed.
 
-**Fix direction:** emit a managed struct's dtor vtable (and dtor fn) only in the
-struct's OWNER package, OR mark `__dtor_<T>__vt` weak/coalesced on the native
-backend (mirroring the LLVM weak_odr treatment and the prior Assembler fix).
-Discovered 2026-06-14 during the bnc-0.0.9 release-readiness gate (unit run
-`27488837411`); repro = that CI job (deterministic across the last 3 runs).
-Needs a regression test once fixed (a native-aa64 unit/link that links buf +
-a consumer).
+**Fix:** in `pkg/binate/asm/macho/macho.bn`, partition the emitted symbol table
+into local → external-defined → undefined order (updating any relocation
+symbol-index references accordingly) and emit an `LC_DYSYMTAB` load command with
+correct `ilocalsym/nlocalsym/iextdefsym/nextdefsym/iundefsym/nundefsym` (bump
+`ncmds`/`sizeofcmds` at `macho.bn:190-191`). Object-format-local; matches what
+clang/the LLVM path already produce; no codegen/IR change. (Confirm
+experimentally whether the weak symbols ALSO need a coalesced section
+(`S_COALESCED`) or whether `LC_DYSYMTAB` + partitioning alone suffices — the
+`ld -r` evidence points to the latter.) Needs a native-aa64 unit/link regression
+once fixed. Discovered 2026-06-14 during the bnc-0.0.9 release-readiness gate
+(unit run `27488837411`).
 
 ## MAJOR — `&(*p)` (address-of-dereference) mis-lowers → SIGSEGV on write-through (2026-06-13) — ✅ FIXED+LANDED (binate `465b44b5`)
 
