@@ -10,6 +10,211 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### `&` of a non-addressable operand is not diagnosed — spec Ch.13 (2026-06-12) — ✅ FULLY LANDED (general `isAddressable` gate, binate `7f8d0b9c`)
+
+`checkUnaryExpr`'s `&` arm grew a series of rejections for non-addressable
+operands (each found by self-review of the prior one):
+- **Literals** (binate `807c8ff0`): `isLiteralExprKind` rejects `&5` / `&3.14`
+  / `&true` / `&'a'` / `&"s"` / `&nil` — "cannot take the address of a literal".
+  `conformance/748_addr_of_literal_rejected`.
+- **Func literals** (binate `3964ca24`): `&func(){}` added to `isLiteralExprKind`
+  (matches Go; it produced a no-storage func value). Also in `748`.
+- **Named functions** (binate `05b6bd5c`): `&g` / `&pkg.f` (SYM_FUNC in the IDENT
+  + SELECTOR arms, `errCannotAddrFunc`) — `&g` previously yielded a malformed
+  `*func(...)` type that every use rejected with "cannot assign … to <unknown>".
+  `conformance/751_err_addr_func` (test-local `pkg/x` fixture).
+- **Bound method values** (binate `f6982a7e`): `&obj.m` (`selectorIsMethodValue`,
+  distinguishing it from an addressable func-typed FIELD `&obj.f` — fields win;
+  reads the receiver's cached type so capture analysis isn't re-run). `751`.
+- Spec: `claude-notes.md` "Pointer syntax" — `&` addressability rule.
+
+✅ **General fix LANDED (binate `7f8d0b9c`)**: replaced the kind-by-kind
+whitelist with a single `isAddressable(operand)` gate in the `&` arm —
+addressable = variable / struct field / imported variable / index / `*p` deref
+/ composite literal; everything else (call result, method expression `&T.m`,
+arithmetic `&(a+b)`, slice/make/cast result) is rejected. `reportCannotAddr`
+keeps the specific literal/const/function/method-value messages and gives a
+generic "cannot take the address of a non-addressable value" for the rest.
+`conformance/756_err_addr_rvalue` (rvalue rejects) + `755_addr_lvalue_ok`
+(lvalues write through). Surfaced the orthogonal `&(*p)` IR-gen defect (its own
+MAJOR entry at the top). (Original investigation below.)
+
+MINOR (missing diagnostic). Found + verified firsthand re-reviewing spec Ch.13.
+`checkUnaryExpr`'s `&` branch (`check_expr.bn:300-321`) rejects address-of only
+for an `EXPR_IDENT` or `EXPR_SELECTOR` resolving to `SYM_CONST` (a *named*
+constant); a bare literal operand (`&5`, `EXPR_INT_LIT`) matches neither gate and
+falls through to `return MakePointerType(xt)`, so `&5` type-checks clean with no
+diagnostic (IR-gen behavior for the resulting non-addressable operand is
+unverified — likely a downstream error). A literal has no storage, so it should
+be rejected like a named constant. Fix: also reject `&` of a literal operand.
+`expr.unary.addr-literal` in `13-expressions.md`. No test.
+
+### `impl` declared in a `.bni` is NEVER registered → cross-package interface impls dead — ✅ RESOLVED 2026-06-12 (`3d147369`)
+- **✅ RESOLVED 2026-06-12 (`3d147369`).** Root cause was BROADER than the original diagnosis below (which framed it as a checker-only gap in the `.bni` loader `LoadPackageInterface`): the type checker (`CheckPackage`), IR-gen's vtable generation (`GeneratePackage` → `m.Impls`), AND the importer's imported-impl collection (`collectPkgFile` returns the package's MERGED file) ALL read the loader's merged `.bni`+`.bn` file — and the merge filter (`loader.bn`) prepended `.bni` type/const/group/interface/func decls but NOT `DECL_IMPL`.  So a `.bni`-only impl was invisible to assignability, to vtable generation, and to cross-package use.  The checker-only fix was implemented first and REJECTED: it made `var w @io.Writer = b` type-check but the package then failed CODEGEN (`extractvalue operand must be aggregate type`) because IR-gen still had no vtable.  **Fix = fold `DECL_IMPL` into the loader's `.bni`→`.bn` merge filter** — one change feeding all three consumers through the channel they already read.  Moved `strings.Builder`'s `impl *Builder : io.Writer, io.ByteWriter` from `strings.bn` (the workaround) back to `strings.bni`; `os.File`'s `.bni` impl is unblocked by the same change.  Both real `.bni` impls are `.bni`-only (verified `os.bn`/`strings.bn` declare no impl), so each registers exactly once.  `conformance/726_cross_pkg_iface_impl` (a different package uses `@strings.Builder` through `@io.Writer` + `@io.ByteWriter`) green on LLVM/VM/native-aa64/native-x64-darwin; strings' `TestBuilderSatisfies{Writer,ByteWriter}` pass with the impl in the `.bni`; full unit 43/0 + full builder-comp conformance 1388/0 (no regressions).
+- **Post-landing review (adversarial multi-agent, 14 findings) — no correctness bugs; one coverage gap closed (`e3e6b425`).** The merge change was confirmed sound (impl-source axis `.bni`-vs-`.bn` and iface-shape axis raw-vs-managed are orthogonal in the lowering — `findImplVtableName`/`m.ImportedImpls` are shared). One real gap: `726` covered only MANAGED iface values; the RAW-iface quadrant over a `.bni`-folded impl was untested (`376`/`377` pair raw with a `.bn` impl). Extended `726` to also box a raw `*strings.Builder` into a raw `*io.Writer` — green on all four lanes. Judged mechanism-covered (not separately tested): `os.File`'s `.bni` impl (same merge+vtable path; a dedicated cell needs heavy file I/O), and a latent (non-active) VM note that cross-package vtables aren't sourced from `m.ImportedImpls` (726 passes on the VM lane, raw + managed). Cosmetic: commit `3d147369`'s message says `723` but the test is `726` (renumbered during the landing rebase; tree/whitelist correct).
+- **Symptom (historical)**: an `impl *T : Iface` declared in a `.bni` interface file type-checks and the package compiles, but the type CANNOT be assigned to the interface — `var w @Iface = t` (and `*Iface`) fails with `cannot assign @T to @Iface`. Moving the SAME impl into the `.bn` implementation file fixes it. Found building `pkg/std/strings.Builder`: `impl *Builder : io.Writer, io.ByteWriter` in `strings.bni` → `var w @io.Writer = b` failed; moving the impl to `strings.bn` made all 8 unit tests (incl. interface dispatch) pass.
+- **Root cause (CONFIRMED)**: the `.bni` loader `bni_scope.bn` (reached via `LoadPackageInterface`, `pkg/binate/types/checker.bn:101`) registers `DECL_TYPE` / `DECL_INTERFACE` / `DECL_FUNC` from a `.bni` into the package scope but has NO `DECL_IMPL` handling — it never calls `collectImplDecl`. So a `.bni`-declared impl is parsed but never added to `c.Impls`, the registry `types_assignable.bn` (`:242`, `:291`) scans for interface-value assignability. The `.bn` path works because `check_decl.bn:177` routes `DECL_IMPL` → `collectImplDecl` (`check_impl.bn:19`) → `c.Impls`.
+- **Severity — CRITICAL**: the `.bni` is the cross-package contract; a consumer in another package sees ONLY the `.bni`. For a public type to be usable as an interface by OTHER packages, the impl MUST register from the `.bni`. Because `.bni` impls never register, **no public type can be used as an interface across package boundaries** — the explicit-interface feature is non-functional cross-package. Concretely, `ifaces/stdlib/pkg/std/os.bni`'s `impl *File : io.Reader, io.Writer, io.Closer, io.ReaderAt, io.WriterAt` is dead: no other package can pass a `@File` where an `@io.Reader`/`@io.Writer` is wanted. LATENT only because nothing consumes the io interfaces as values yet — `io.Reader/Writer/Closer/...` are declared + implemented but never used as a value or parameter anywhere (`strings.Builder` is the first would-be consumer; it works only because its test is same-package AND the impl was moved into the `.bn`).
+- **Proposed fix**: have the `.bni` loader (`bni_scope.bn` / `LoadPackageInterface`) route `DECL_IMPL` declarations through `collectImplDecl` (same registration the `.bn` path uses), adding them to `c.Impls` — so a `.bni` impl is visible for interface-value assignment both same-package and cross-package. Then move `impl *Builder : io.Writer, io.ByteWriter` back from `strings.bn` to `strings.bni`. Watch for double-registration if a package's own `.bni` impl is collected while compiling its `.bn` (dedup, or only collect `.bni` impls for IMPORTED packages).
+- **Workaround in place**: `pkg/std/strings.Builder`'s impl lives in `strings.bn`, not `strings.bni`, so it works SAME-package; cross-package interface use of Builder stays blocked until this lands. Builder's primary use is direct (Write/WriteByte/String), so it is useful meanwhile.
+- **Test/repro + coverage gap**: move `impl *Builder` from `strings.bn` back to `strings.bni` → `pkg/std/strings` unit tests `TestBuilderSatisfiesWriter` / `...ByteWriter` fail (`cannot assign @Builder to @Writer`). A CROSS-package conformance cell — package A imports strings (or os) and assigns `@Builder`/`@File` to a `@io.Writer` — is still wanted; none exercises an io interface as a value today, which is exactly why this stayed latent.
+- **Discovery**: 2026-06-11, building `pkg/std/strings.Builder` (the eventual stdlib replacement for `pkg/binate/buf`'s CharBuf).
+
+### Iface-value upcast to an unrelated zero-method interface ABORTS the compile (R2-3 negative-offset panic false-fires on valid code) — LLVM + native aa64/x64 — REGRESSION from `ca155319` — ✅ RESOLVED 2026-06-10 (binate `4ac123da`)
+- **✅ RESOLVED 2026-06-10 (binate `4ac123da`).** Fixed at the ROOT (the checker duck-typing hole), per the user's choice of the secondary fork **(B)**. The four assignability arms now gate universal satisfiability on a new checker `isUniverseAny` (mirrors IR-gen's predicate) instead of `len(Methods)==0`, and managed→raw same-interface decay rides an explicit `sameInterface` check so `@Iface -> *Iface` works for EVERY interface (not just empty by accident). Now `*Speaker -> *Empty` / `*T -> *Empty` (no impl) are rejected; `*any`/`@any` and real upcasts (incl. to an empty PARENT via extends) unchanged; the R2-3 panic is now unreachable on valid code (kept as defense-in-depth); R2-3's same-canonical→0 stays and is now correctly exercised for non-empty decay. conformance/685 extended to non-empty decay + conformance/689 nominal-rejection guard (both green across builder-comp / -int / -comp / native aa64 / native x64-darwin; full builder-comp suite 1318/0); unit tests in `check_iface_empty_marker_test.bn`. Fork (B) chosen over (A) because decay should mirror `@T -> *T`.
+- **Symptom**: `var e *Empty = s` where `s` is `*Speaker` and `Empty` is a user-declared ZERO-method interface (unrelated to Speaker) — accepted by the checker — aborts the gen1/gen2 compile with **exit 1 and no diagnostic** (OP_PANIC discards its message). Managed variant (`@Speaker -> @Empty`) identical. **A/B proof**: BUILDER bnc-0.0.7 (pre-R2-3) compiles the same program through codegen, emitting a harmless `getelementptr inbounds i8*, i8** %vt, i64 -1` (harmless because `Empty` has no dispatchable methods, so the −1-offset vtable pointer is never dereferenced); gen1/gen2 (post-R2-3) emits NO `.ll` and aborts.
+- **Root cause (two layers)**: (1) PRE-EXISTING checker hole — `canAssignToInterfaceValue` / `canAssignToManagedInterfaceValue` (`pkg/binate/types/types_assignable.bn:185` / `:234`) short-circuit `if len(iface.Methods) == 0 { return true }`, accepting an iface-value upcast to ANY zero-method target, not just `any`/same/ancestor. For such an upcast `IfaceParentSlotOffset` (`pkg/binate/ir/gen_iface_extends.bn:145`) returns −1 (target is not `any`, not same-canonical, not a parent). (2) REGRESSION — `ca155319` added `if offset < 0 { panic(...) }` to all three offset-based upcast lowerings (`emit_iface_upcast.bn:38`, `aarch64_dispatch.bn`, `x64_dispatch.bn`) on the FALSE premise (stated in the comment) that "the checker should never produce a negative offset." It does. R2-3 turned a latent-but-running path into a hard compile abort.
+- **VM divergence (X2b, separate/pre-existing)**: the VM (`vm_exec_iface.bn`) doesn't use IfaceParentSlotOffset; it looks up a `(T, target)` vtable by name (`findIfaceVtable`), never registered → runtime abort `vm: iface_upcast: target vtable not found`. Its only zero-method shortcut matches literal `any`, not a user empty interface. So the SAME accepted upcast now has THREE behaviors: pre-R2-3 LLVM/native = works; post-R2-3 LLVM/native = compile abort; VM = runtime abort.
+- **Severity**: CRITICAL — a newly-added assert aborts the compile of previously-accepted code on all offset-based backends; the exact "panic false-fires on valid code" class this review exists to catch. (Loud abort, not silent miscompile; gated on the checker hole + an unusual shape, so the 140-cell iface suite stayed green, and R2-3's own 685 covers only the empty-interface decay.)
+- **ROOT CAUSE is a DUCK-TYPING checker hole (confirmed 2026-06-09 with the user — Binate is nominal, no structural typing).** Design docs are unambiguous: `any` is THE single built-in/universe universal interface (`claude-notes.md:575` "a small, closed, language-defined set… `any` is the primary one"; `plan-interface-syntax-revision.md §6`); a USER-declared `interface Empty {}` is a NOMINAL marker interface requiring an explicit `impl`. The four `len(iface.Methods)==0 { return true }` sites (`types_assignable.bn:185/194/234/240`) are a too-broad proxy for "is `any`". IR already has the correct predicate `isUniverseAny()` (`gen_iface.bn:446`: `Kind==TYP_INTERFACE && len(Pkg)==0 && Name=="any"`). The hole is SYSTEMATIC, not upcast-only: a CONCRETE `*T -> *Empty` with NO `impl *T : Empty` ALSO compiles today (runtime-verified). Correct fix core = gate those 4 sites on a checker `isUniverseAny` instead of `len(Methods)==0`; then `*Speaker -> *Empty` and `*T -> *Empty` are rejected, `*any`/`@any` still work, and the −1/panic path is unreachable on valid code (panic stays as defense-in-depth). The earlier "(B) make any zero-method target universal" idea is REFUTED by the docs — do not do it.
+- **SECONDARY DESIGN FORK this surfaces (USER-OWNED) — managed→raw iface-value decay.** Tightening also rejects `@E -> *E` (the empty decay conformance 685 exercises). Turns out `@Iface -> *Iface` decay is ALREADY rejected for NON-empty interfaces (`@Speaker -> *Speaker` → "cannot assign @Speaker to *Speaker", runtime-verified); the empty case only ever worked via this same hole, so 685 tests buggy behavior. Decide: **(A)** decay stays unsupported for all interfaces — rewrite/drop 685, and R2-3's same-canonical→0 machinery (`gen_iface_extends.bn:160-165`) becomes dead → remove; minimal + consistent. **(B)** make `@Iface -> *Iface` decay a real supported op for all interfaces (mirroring `@T -> *T` at `types_assignable.bn:77`) via a reflexive same-interface acceptance — keep+extend 685 to non-empty; R2-3's same-canonical→0 stays. (`isDescendantInterface` is NOT reflexive today — `types_assignable.bn:259`.)
+- **All four upcast consumers** (LLVM/aa64/x64/VM) auto-resolve once the checker rejects the bad upcast (IR/codegen/VM never see it). Add reject cells for both concrete `*T -> *Empty` (no impl) and iface-value `*Speaker -> *Empty` (raw + managed).
+- **Test (to add)**: `conformance/NNN_err_iface_assign_unrelated_empty` (`.error`) covering concrete + iface-value sources; plus the 685 decision (A: drop/rewrite, B: extend to non-empty) per the fork.
+- **Discovery**: 2026-06-09 CR-2-batch adversarial review (X2 finder); runtime A/B confirmed; root-cause + fork confirmed with the user.
+
+
+### [CR-2 Plan-1 review] `@readonly Box` / `*readonly Box` field read → literal 0 (and `&field` → SIGSEGV) — ✅ RESOLVED (landed binate `b4d5b37b` + `73bd9081`, 2026-06-09)
+- **Symptom**: reading a field through a pointer whose POINTEE is wrapped (`@readonly Box`, `*readonly Box`, and nested fields of that type) compiles clean and reads literal `0`; taking the address `&p.v` lowers to a const-0 pointer then dereferences → exit 139 (SIGSEGV). Probe: `var p @readonly Box = mk(); println(p.v)` → `0` (expected 55).
+- **Pre-existing (verified)**: built a compiler at fa265629 (parent of Defect 1) — same `0`. Defect 1 (`27c1ee8b`) fixed the OUTER wrapper (`readonly @Box`) and left the inner-pointee family untouched; it is NOT a regression introduced by the fix.
+- **Root cause**: `isManagedPtrToStruct`/`isRawPtrToStruct` now peel and answer TRUE, but the ~19 value-extraction sites in `gen_selector.bn` (genSelector/genSelectorPtr: lines ~31,47,77,90,108,120,151,164,193,228,239,323,335,363,375,390,400,426,438) still read the UN-peeled `t.Elem`, whose `.Name` is "" → `lookupStructIdx == -1` → const-0 fallback.
+- **Severity**: CRITICAL — silent miscompile (wrong value) + SIGSEGV on the lvalue form, on valid documented code. **Owner: Plan-1 (`pkg/binate/ir/gen_selector.bn`).** Fix: peel the pointee (`peelTransparent(varTyp.Elem)`) at each extraction site, mirroring `gen_access.bn`'s indexing path. Add conformance + IR-gen coverage for `@readonly Box`/`*readonly Box` read AND `&field` (assert GET_FIELD_PTR, not const-0). The green suite (conformance 660, `TestGenReadonlyManagedPtrFieldRead`) only exercises the OUTER wrapper — the inner-pointee family is uncovered → false confidence.
+- **Discovery**: 2026-06-08 adversarial review of Plan-1 (probe-confirmed; pre-existence confirmed via pre-fix build).
+
+### [CR-2 Plan-1 review] concrete value cannot be iface-wrapped into a `readonly @Iface` / `readonly *Iface` target (reject-only) — ✅ RESOLVED (landed binate `5d9cdeb1`, 2026-06-09; NOT reject-only — needed a companion IR-gen boxing peel in coerceExprToType, else compile→SIGSEGV)
+- **Symptom**: `var rr readonly @Getter = im` (concrete `@Impl`) → `cannot assign @Impl to readonly @Getter`; same for `return im` from a `readonly @Getter` func and arg-pass; the raw arm `readonly *Getter = &im` is symmetric. Dropping the outer `readonly` compiles.
+- **Root cause**: `AssignableTo` (`pkg/binate/types/types_assignable.bn:110,120`) gates the two iface-wrap arms on `dst.Kind == TYP_INTERFACE_VALUE[_MANAGED]` with NO peel → a `TYP_READONLY` dst misses both and falls to `return false`. Same transparent-wrapper principle as Defect 2's DISPATCH-site fix, left unapplied at the CONSTRUCTION site.
+- **Severity**: MAJOR (reject-only — soundness intact; blocks factory functions returning `readonly @Iface` and readonly-iface params). **Owner: Plan-1 (`pkg/binate/types/types_assignable.bn`).** Fix: peel an outer `TYP_READONLY` (`resolveAliasAndConst(dst)`) before both iface-value Kind checks (raw + managed). Add conformance for concrete→readonly-iface construction across var-init/return/arg-pass.
+- **Discovery**: 2026-06-08 adversarial review of Plan-1 (probe-confirmed by the review; reject-only).
+
+### [CR-2 Plan-1 review] method call through an alias-typed receiver (`type AB = @Box`) rejected "cannot call non-function" (reject-only) — ✅ RESOLVED (landed binate `b24978b6`, 2026-06-09)
+- **Symptom**: `type AB = @Box; func (b *Box) m(); var r AB = p; r.m()` → "cannot call non-function"; `type RB = readonly Box; ... r.peek()` likewise. Direct (un-aliased) forms compile; FIELD access through the same alias works.
+- **Root cause**: `ReceiverBaseNamed` (`pkg/binate/types/types.bn:458`) peels POINTER/MANAGED_PTR/READONLY but NOT ALIAS; `check_method.bn:77` calls it on the raw `recvType`. Attributed by `git` to 05fb3216 (readonly migration), NOT 408cc533 — pre-existing.
+- **Severity**: MAJOR (reject-only). **Owner: Plan-1 (`pkg/binate/types`).** Fix: use the already-resolved `resolved.ReceiverBaseNamed()` for method lookup (keep raw `recvType` for the object-const classification), or make `ReceiverBaseNamed` peel `TYP_ALIAS`. Add method-call-through-alias conformance + a `ReceiverBaseNamed` unit test.
+- **Discovery**: 2026-06-08 adversarial review of Plan-1.
+
+### [CR-2 Plan-1 review] cyclic named type + the new `==`/`<` operand checks → infinite hang (`==`) / SIGSEGV (`<`) — ✅ RESOLVED (landed binate `68a62f8c`, 2026-06-09; def-time reject + bounded operand-predicate guards)
+- **Symptom**: `type A B; type B A; func f(a A, b A) bool { return a == b }` → exit 124 (hang in `comparabilityKind`'s unguarded Underlying-loop, `pkg/binate/types/types_query.bn:235`); self-cycle `type A A` + `==` → 124; relational `a < b` → exit 139 (stack overflow in `IsNumeric`→`IsInteger`/`IsFloat`). The same cyclic type WITHOUT a comparison compiles through the front-end → the new `checkEqOperands`/`relationalOperandOK` entry points (commit `60719e01`, Defect 5) are the specific trigger.
+- **Relationship to filed**: the underlying cyclic-type bug is filed, but a "neither introduces nor worsens" note there is WRONG — 60719e01's operand checks genuinely introduce the hang/SIGSEGV on the comparison path. The reviewer also refuted the filed claim that the old path already SIGSEGV'd via AssignableTo (`Identical`'s name-based TYP_NAMED branch short-circuits, no recursion). Amend that entry's attribution.
+- **Severity**: MAJOR (compiler DoS — hang/crash on pathological but valid-to-parse input). **Owner: Plan-1 (`pkg/binate/types`).** Fix direction: cycle detection at type-definition time + a shared visited/depth guard on the Underlying-walking helpers (`comparabilityKind`, `IsNumeric`/`IsInteger`/`IsFloat`).
+- **Discovery**: 2026-06-08 adversarial review of Plan-1.
+
+### [CR-2 Plan-1 review] unary minus on a NAMED sub-word/non-host-width int → invalid IR (`sub i64 0, %i8`) — Defect-9 fix incomplete for `TYP_NAMED` — ✅ RESOLVED (landed binate `3c609caf`, 2026-06-09; conformance-pinned — the unit-test harness can't resolve named-type underlyings)
+- **Symptom**: `-x` on a named integer type (`type Small uint8`, `type Tiny int8`, `type Mid int16`, `type W int64`) emits `sub <host-i64> 0, %i8/%i16` → clang hard error `'%vN' defined with type 'i8' but expected 'i64'` (no binary). Probe: `type Small uint8; var ns Small = -s` → `error: '%v3' defined with type 'i8' but expected 'i64'`. Plain (non-named) sub-word `-x` works (prints 251). The named-`int64` case only links on this 64-bit host (host int==i64); on the 32-bit primary target it emits `sub i32 0, %i64` → silent truncation (the conformance-423 class).
+- **Root cause**: `genUnary`'s MINUS arm (`pkg/binate/ir/gen_expr.bn:225-236`) selects `negTyp = arg.Typ` only when `arg.Typ.Kind == TYP_INT` (or float, or checker-resolved `TYP_INT`); a `TYP_NAMED` operand misses BOTH guards → falls through to host `types.TypInt()`. The commit (`fce07ccd`) claims to be "the exact analog of the `~` fix", but the TILDE arm (`gen_expr.bn:~249`) sets `bnTyp = arg.Typ` UNCONDITIONALLY (passes TYP_NAMED through; `llvmType` unwraps it to the underlying width), so `~` is correct for named sub-word ints while `-` is a build break — the MINUS fix is strictly weaker than the `~` fix it mirrors.
+- **Severity**: MAJOR (hard build break on named sub-word negation; silent truncation for named int64 on 32-bit). **Owner: Plan-1 (`pkg/binate/ir/gen_expr.bn`).** Fix: type OP_NEG at `arg.Typ` for any non-float concrete operand (mirroring TILDE), letting `llvmType` unwrap TYP_NAMED — do NOT gate on `Kind == TYP_INT`. Add a regression mirroring `conformance/regressions/unary-minus-subword.bn` with `type` over int8/16/32/64 operands (fails the build today), plus a named-type unit test; correct the commit message's "exact analog" claim. The added tests use only PLAIN sub-word ints, so the TYP_NAMED hole is invisible to CI.
+- **Discovery**: 2026-06-08 adversarial review of Plan-1 (probe-confirmed by me).
+
+### Cross-module global of struct type emits `external global %Struct` without declaring the type — FIXED 2026-06-08 (binate `b0402d04`, plan-cr2-2 Defect 2)
+- **Fix**: `collectStructTypes` (`pkg/binate/codegen/emit_types.bn`) now scans
+  `m.Globals` after `m.Funcs`, so a struct reachable only through a package-level
+  global (the defining `global` or a consuming `external global` — both record
+  `g.Typ`) is discovered and its `%bn_<pkg>__Struct = type {...}` def emitted
+  before the global that references it. `discoverStructFromType` also gained
+  `TYP_NAMED`→`.Underlying` and `TYP_ARRAY`→`.Elem` recursion arms (a named-over-
+  struct or `[N]Struct` global's struct was missed even via a function). Purely
+  additive (discovery can only find more structs; `addStructDef` dedups). Pinned
+  by `emit_types_test.bn` (TestStructTypeDiscoveredViaGlobal / ...ArrayOfStruct...
+  / ...NamedStruct...) and `conformance/657_cross_pkg_struct_global`.
+- **Symptom (was)**: a module that references another package's package-level `var
+  g StructType` emitted `@<mangled> = external global %bn_<pkg>__Struct` but never
+  `%bn_<pkg>__Struct = type {...}` in that module → clang "use of undefined type".
+  Confirmed to bite a normal cross-package import (not just the test harness); also
+  the defining package of a zero-init struct global (no function references the
+  struct).
+- **Discovery**: 2026-06-06; root cause was `collectStructTypes` scanning only
+  `m.Funcs`. **Severity**: MAJOR (was a hard compile failure).
+
+### `box(<scalar>)` is unimplemented on the native backend — silent no-emit → garbage result (MINOR wrong-code) — ✅ RESOLVED (landed binate `6235e43a`, 2026-06-09; native AND VM — the "VM works" claim below was wrong, BC_BOX SIGSEGV'd too)
+- **Symptom**: `box(i)` where the operand is a scalar register (not an OP_ALLOC
+  or aggregate) compiles fine on the LLVM backend but the native backends'
+  `emitBox` hits the `else { ... return }` scalar arm (aarch64_emit.bn /
+  x64_managed.bn) and emits **nothing** — no `rt.Box` call — so the OP_BOX
+  result is undefined; the managed pointer then carries garbage.
+- **Discovery**: 2026-06-06, building the loop-leak matrix (a `box(i)`-in-a-loop
+  cell crashed on native while the LLVM build leaked-then-was-fixed). Not a leak.
+- **Scope**: native aa64 + x64 only; LLVM/VM compile+run `box(scalar)` correctly.
+  `box(struct-literal)` (OP_ALLOC source) and `box(iface-value)` (aggregate
+  source) ARE handled — only the bare-scalar source is dropped.
+- **Fix**: emit the scalar-source spill + `rt.Box` call in the native `emitBox`
+  else arm (store the scalar into a frame slot, pass its address), OR reject
+  `box(scalar)` in the checker if it isn't meant to be supported. **Test**: a
+  conformance cell `box(i)` returning the boxed value; currently no coverage.
+
+### Local `const` declarations silently materialize 0 — FIXED+LANDED (binate `273d7e4a`, 2026-06-05)
+- **Symptom**: a `const` declared inside a function body (`func main() { const C
+  T = V; var x T = C }`) reads as **0** (the zero value), for EVERY type
+  (int/uint of all widths, float32, float64). The value `V` is dropped entirely.
+  Fails on every backend (LLVM/VM/native). Package-level `const`, const-group
+  members, and inline literals all work — only the **local** const form is
+  broken. Local `const` is currently used nowhere in the compiler tree or
+  conformance suite, so real-world impact is nil today, but it is a silent-wrong-
+  value landmine.
+- **Root cause (unknown — needs investigation)**: a local const declaration
+  appears to register the name but never bind its value at the IR-gen read site
+  (the read resolves to a zero-initialized slot rather than the const's
+  materialized value). Either local consts must materialize like package consts,
+  or the type-checker should reject local `const` until supported — silently
+  emitting 0 is the wrong outcome.
+- **Test**: `conformance/matrix/const/local-const/*` (12 cells, all types). To
+  land: see the matrix-vs-regressions decision (one representative cell likely
+  suffices — the bug is type-independent).
+- **Discovery**: 2026-06-05, P1 const matrix (read-form axis).
+- **Fix**: bind a local const's materialized value at its read site (mirror the
+  package-const path), or reject local `const` at type-check if intentionally
+  unsupported.
+
+### Returning a by-value struct through interface-method dispatch was miscompiled — FIXED + LANDED 2026-06-04 (binate `9baa579d`)
+- **Was**: an interface method returning a by-value struct (small
+  aggregate, NOT a managed handle like `@T`/`@[]T`) came back through
+  vtable dispatch with only its FIRST field correct, later fields garbage,
+  in BOTH the LLVM backend and the bytecode VM.  Direct (concrete-receiver)
+  calls were fine.
+- **Root cause**: the interface method's result type was resolved during
+  interface collection (GeneratePackage / GenModule first pass), which ran
+  interleaved with struct-name registration in declaration order.  An
+  interface method whose result is a struct declared LATER in the file
+  (`interface B { get() Pair }` before `type Pair struct {...}`) resolved
+  the struct via resolveTypeExpr's unresolved-name path, which silently
+  falls back to `int`.  OP_CALL_IFACE_METHOD's result type (`instr.Typ`)
+  thus degraded to a single word; both backends read `instr.Typ`, so both
+  miscompiled identically (llvmType -> `i64`; the VM mis-sized the result).
+  Latent because conformance/553 only returned a scalar / a managed-slice
+  through an interface, never a plain struct.
+- **Fix** (`9baa579d`): a struct-name pre-pass registers every struct name
+  before the first pass, so interface method result types resolve to the
+  real struct type.  Interface collection stays interleaved in the first
+  pass (order vs globals / type-aliases -- which may be interface-typed;
+  isInterfaceTypeExpr consults moduleInterfaces -- is unchanged).
+  conformance/581 covers 2- and 3-field structs through managed- and
+  raw-receiver dispatch, interfaces declared before the structs.  Full
+  conformance green (505 comp / 499 int); no other
+  by-value-struct-returning interface exists in-tree (Backend returns
+  bool / @[]char).
+- **Unblocked + LANDED 2026-06-04** (binate `b9ca1acc`): the repl ReplSession->interface conversion.
+
+### A closure that captures a `@func` under-retained the captured value — FIXED + LANDED 2026-06-04 (binate `388c48d3`)
+- **Was**: a closure that captures a `@func` value did not acquire a ref
+  to the captured @func's record, but the closure struct's dtor RefDec'd
+  it (NeedsDestruction(@func) = true).  The captured @func was
+  under-retained: its record freed when the source @func's scope ended,
+  then the closure called / dtor'd freed memory (use-after-free).  Native
+  only; a flaky crash in __dtor_closure_* (deterministic under
+  guard-malloc).  First seen as a wrapper poll (capturing a host @func)
+  installed via vm.SetPoll — the shape an embedder needs for a VM-free
+  poll — but the root cause is general (any closure capturing a @func).
+- **Root cause**: gen_func_lit.bn emitCaptureRefInc handled
+  TYP_MANAGED_PTR / TYP_MANAGED_SLICE but had no TYP_MANAGED_FUNC_VALUE
+  branch — the capture-side acquire counterpart of the @func copy-RefInc
+  symmetry work (d118a3c4 / 76099018), missing for closure captures.
+- **Fix** (`388c48d3`): add the TYP_MANAGED_FUNC_VALUE branch calling
+  emitManagedFuncValueRefInc (the acquire helper every other @func copy
+  site uses).  conformance/586 pins it deterministically via refcounts;
+  pkg/binate/vm TestWrappedCapturingPollSuspends covers the wrapper-poll
+  shape.  Full conformance green (513 comp / 507 int).
+- **Unblocked + the VM-free poll is now LANDED 2026-06-04** (binate
+  `e3dc0d07`): repl's SetPoll takes a VM-free `@func() PollResult`, so
+  the ReplSession interface no longer mentions pkg/binate/vm.
+
 ### ~~Compound assignment (`+=`, `-=`, …) to a non-IDENT lvalue silently drops the operator~~ — FIXED+LANDED (binate `45b9e767`, 2026-06-06) (`compound-assign-nonident`)
 - **Symptom**: `a[i] += x`, `s[i] += x`, `a[i][j] += x`, `p.field += x`, and `*p += x` all store the BARE RHS (`x`), discarding the operator and the old value — a silent miscompile (no error, wrong result). Only the plain-variable form `v += x` is correct. Repro (each prints `5`, should print `15`):
   ```
