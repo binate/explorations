@@ -482,13 +482,31 @@ element `i` at index `i`.
   (`check_expr_composite.bn:73-79` checks keyed but not positional values).
 All referenced from `13-expressions.md`.
 
-### `&` of a literal constant is not diagnosed — spec Ch.13 (2026-06-12) — ✅ FIXED+LANDED (binate `807c8ff0`)
+### `&` of a non-addressable operand is not diagnosed — spec Ch.13 (2026-06-12) — ✅ SERIES LANDED (literals + functions + method values); 🔵 general lvalue check IN PROGRESS
 
-`checkUnaryExpr`'s `&` arm now rejects a literal operand
-(`isLiteralExprKind`: int/float/bool/char/string/nil; func literals excluded)
-with "cannot take the address of a literal", alongside the existing named-const
-rejection. `conformance/748_addr_of_literal_rejected` covers all six kinds;
-full suite 1412/0. (Original investigation below.)
+`checkUnaryExpr`'s `&` arm grew a series of rejections for non-addressable
+operands (each found by self-review of the prior one):
+- **Literals** (binate `807c8ff0`): `isLiteralExprKind` rejects `&5` / `&3.14`
+  / `&true` / `&'a'` / `&"s"` / `&nil` — "cannot take the address of a literal".
+  `conformance/748_addr_of_literal_rejected`.
+- **Func literals** (binate `3964ca24`): `&func(){}` added to `isLiteralExprKind`
+  (matches Go; it produced a no-storage func value). Also in `748`.
+- **Named functions** (binate `05b6bd5c`): `&g` / `&pkg.f` (SYM_FUNC in the IDENT
+  + SELECTOR arms, `errCannotAddrFunc`) — `&g` previously yielded a malformed
+  `*func(...)` type that every use rejected with "cannot assign … to <unknown>".
+  `conformance/751_err_addr_func` (test-local `pkg/x` fixture).
+- **Bound method values** (binate `f6982a7e`): `&obj.m` (`selectorIsMethodValue`,
+  distinguishing it from an addressable func-typed FIELD `&obj.f` — fields win;
+  reads the receiver's cached type so capture analysis isn't re-run). `751`.
+- Spec: `claude-notes.md` "Pointer syntax" — `&` addressability rule.
+
+🔵 **REMAINING / general fix (IN PROGRESS)**: the above is a kind-by-kind
+WHITELIST; the *general* rvalue case still slips through — `&f()` (call result),
+`&T.m` (method EXPRESSION), `&(a+b)`, `&-x`. The principled fix is a single
+`isAddressable(operand)` lvalue predicate in the `&` arm that rejects ANY
+non-lvalue (subsuming const / func / literal / func-literal / method-value /
+method-expression / call-result), replacing the piecemeal checks. (Original
+investigation below.)
 
 MINOR (missing diagnostic). Found + verified firsthand re-reviewing spec Ch.13.
 `checkUnaryExpr`'s `&` branch (`check_expr.bn:300-321`) rejects address-of only
