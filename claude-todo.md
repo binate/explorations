@@ -4,6 +4,46 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR — native backend emits managed-struct dtor VTABLE (`__dtor_<T>__vt`) STRONG in consumer objects → `duplicate symbol` link failure (2026-06-14) — 🔴 OPEN
+
+`builder-comp_native_aa64` **unit** mode fails to link 11 package test binaries
+(native, native/common, native/aarch64, native/x64, ir, codegen, vm, repl,
+mangle, cmd/bnc, cmd/bni) with:
+
+    ld: duplicate symbol '_bn_pkg__binate__buf____dtor_Builder__vt' in:
+        ...pkg__binate__buf.o      (owner of buf.Builder)
+        ...pkg__binate__mangle.o   (a consumer of buf.Builder)
+
+i.e. a managed struct's dtor **vtable** symbol `__dtor_<T>__vt` is emitted as a
+STRONG definition in EVERY object that uses the struct, not just the owning
+package — so any link pulling in two such objects (owner + consumer, or two
+consumers) collides. Reappearance of the previously-fixed dtor-vtable-duplicate
+class (claude-todo-done.md ~L1796/L1833), reintroduced when `buf.Builder` (a
+user-defined managed struct, binate `26c224c0`, 2026-06-12) met `7acda3a4`
+("codegen: inject managed-struct dtors for native-only packages", 2026-06-13):
+its `isInjectableStructDtor` predicate only excludes `__`-prefixed synthesized
+bases, so a normal managed struct's dtor (and its `__vt`) gets injected into
+consumers.
+
+**Scope / impact:**
+- **native-aa64 ONLY.** The LLVM backend emits these symbols weak/ODR and
+  dedupes, so builder-comp / -comp-comp / -comp-comp-comp unit + conformance
+  are GREEN (confirmed: 0 dup-symbol on those modes in unit run `27488837411`).
+- **Does NOT affect the shipped release bundle** — bnc/bni/bnas/bnlint are
+  LLVM-built (`scripts/build-*.sh` → clang), not native-aa64.
+- native-aa64 **conformance** passes (cells rarely link buf+mangle together);
+  only the **unit** test binaries (package + all deps) collide.
+- Will NOT self-heal at a BUILDER bump (current-source native codegen, not
+  BUILDER skew) — persists in post-release CI until fixed.
+
+**Fix direction:** emit a managed struct's dtor vtable (and dtor fn) only in the
+struct's OWNER package, OR mark `__dtor_<T>__vt` weak/coalesced on the native
+backend (mirroring the LLVM weak_odr treatment and the prior Assembler fix).
+Discovered 2026-06-14 during the bnc-0.0.9 release-readiness gate (unit run
+`27488837411`); repro = that CI job (deterministic across the last 3 runs).
+Needs a regression test once fixed (a native-aa64 unit/link that links buf +
+a consumer).
+
 ## MAJOR — `&(*p)` (address-of-dereference) mis-lowers → SIGSEGV on write-through (2026-06-13) — ✅ FIXED+LANDED (binate `465b44b5`)
 
 `genUnary`'s `&` arm now lowers a deref operand `&(*p)` to `genExpr(e.X.X)` (the
