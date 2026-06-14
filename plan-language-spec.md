@@ -155,12 +155,30 @@ commit):**
   "cross-mode call dispatch" limit (trampolines + float-closure shim landed,
   binate `085065d9`). Plus minor/nit polish. All firsthand-verified.
 
-**Remaining:** **Phase 4 done.** Phase 5 — **§20 Tier-0 packages** (next; gated
-on the `pkg/rt` review for §20.2), **§21 Behavior catalogue** (implementation-
-defined / unspecified / undefined), and **Annexes A–D** (A grammar — gated on the
-grammar reconciliation; B impl-model/IDB index; C status table; D rationale).
-Prerequisites still pending: the grammar reconciliation (→ `binate.ebnf`/Annex A)
-and the `pkg/rt` review (→ §20.2).
+- §20 Intrinsic (Tier-0) Packages (`20-intrinsic-tier0-packages.md`) + §21
+  Behavior catalogue (`21-implementation-defined-and-undefined-behavior.md`),
+  authored 2026-06-13 (docs `889d359`): grounded (5 readers: lang / reflect /
+  testing / behavior-catalogue / design-intent) → drafted → adversarially verified
+  (3 reviewers) → corrected. §20 covers lang/reflect/testing; **§20.2 rt left a
+  GATED placeholder** per scope. §21 is the consolidated Annex-J-style index with
+  back-references. Verify-the-verifier corrections: §21's array/struct over-count
+  defect was STALE (both now rejected, binate `910e08cb` / `e185c9c4`) — narrowed
+  §21.9 + the §13.10 home; the "optional int64/float types" impl-defined row had
+  **no authored home** (§7.2 lists them unconditionally) → reframed as a Draft
+  reconciliation gap; tagless-switch cited §14.8 (corrected to §14.10
+  `stmt.switch.tagless-bool`); §7.13 subsection anchors tightened; float-`Compare`
+  total-order date misattribution dropped. Consistency fix: §8.5 float→int
+  saturation has LANDED (binate `b3a52025`, test 732 green all modes), so its "not
+  yet realized" Open note became a settled rule. **§20/§21 chapter authoring done.**
+
+**Remaining:** **Chapter authoring done through §21** (§20.2 rt still a gated
+placeholder). Remaining: **§20.2** (gated on the `pkg/rt` review) and **Annexes
+A–D** (A grammar — gated on the grammar reconciliation; B impl-model/IDB index;
+C status table; D rationale). Two §21 reconciliation GAPs are flagged for a user
+decision: **byte order/endianness** (`behavior.impl-defined.endianness`) and
+**optional int64/float scalar availability** (`behavior.impl-defined.optional-scalars`
+— §7.2 currently lists them unconditionally). Prerequisites still pending: the
+grammar reconciliation (→ `binate.ebnf`/Annex A) and the `pkg/rt` review (→ §20.2).
 
 **Spec-as-audit:** authoring has surfaced ~21 real implementation discrepancies/
 defects, all tracked in `claude-todo.md` (search "spec Ch."). Notable MAJOR:
@@ -168,21 +186,20 @@ parallel assignment `a,b=1,2` / swap `a,b=b,a` and inc/dec on a non-identifier
 lvalue (`a[i]++`, `p.f++`) both type-check clean but emit NO code — silent
 dropped writes (Ch.14, two MAJOR — user decision pending: implement vs reject);
 `panic(msg)` is a no-op in the bytecode VM (Ch.15, MAJOR dual-mode gap);
-indexed array literals silently miscompiled + array over-count out-of-bounds
-writes (Ch.13); generic methods/struct-constraints unenforced (Ch.12); the
-const→readonly and grammar-staleness reconciliations.
+indexed array literals silently miscompiled (Ch.13; the array/struct over-count
+OOB writes are now RESOLVED — `910e08cb` / `e185c9c4`); generic methods/struct-
+constraints unenforced (Ch.12); the const→readonly and grammar-staleness
+reconciliations.
 
-**NEXT (per user, 2026-06-12):** Phase 4 (§18–§19) is authored. Phase 5 remains:
-**§20 Tier-0 packages** (lang / rt / reflect / testing — §20.2 gated on the
-`pkg/rt` review), **§21 Behavior catalogue** (the consolidated implementation-
-defined / unspecified / undefined-behavior index — much of its content is already
-flagged across §8/§13/§15/§17/§19), and **Annexes A–D** (A grammar — blocked on
-the grammar reconciliation that produces `binate.ebnf`). A Phase-4 adversarial
-review (§18–§19) is also available if wanted before Phase 5. Open follow-ups for
-the user, not blocking authoring: (1) the three Ch.14/Ch.15 MAJOR
-gaps (parallel-assignment drop, inc/dec-lvalue drop, panic VM no-op) need a fix
-decision + a coordinated `binate` worktree; (2) no xfail conformance coverage yet
-for the two MAJOR generics gaps
+**NEXT (updated 2026-06-13):** §20 + §21 are authored (docs `889d359`). Remaining
+authoring: **§20.2 rt** (gated on the `pkg/rt` review) and **Annexes A–D** (A
+grammar — blocked on the grammar reconciliation that produces `binate.ebnf`; B
+impl-model/IDB index; C status table — derive last; D rationale). Open follow-ups
+for the user, not blocking: (1) two **§21 reconciliation gaps** need ratification —
+byte order/endianness and optional int64/float scalar availability; (2) the three
+Ch.14/Ch.15 MAJOR gaps (parallel-assignment drop, inc/dec-lvalue drop, panic VM
+no-op) need a fix decision + a coordinated `binate` worktree; (3) no xfail
+conformance coverage yet for the two MAJOR generics gaps
 (`gen.no-generic-methods.unenforced`, `gen.satisfy.struct-iface-unchecked`).
 
 ---
