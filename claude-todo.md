@@ -55,8 +55,9 @@ underneath is what's unmet.)
 - Will NOT self-heal at a BUILDER bump (current-source native object writer, not
   BUILDER skew) — persists in post-release CI until fixed.
 
-**Fix — empirically narrowed (2026-06-14); the object-writer route is a DEAD END,
-the real fix is codegen-side owner-only emission.** Findings from a worktree
+**Fix — empirically narrowed (2026-06-14); the simple object-writer flag flip is a
+DEAD END. The real fix is to make native layout atom-independent so weak
+coalescing works (NOT owner-only — see below).** Findings from a worktree
 experiment (preserved on binate branch `wip-macho-coalesce-experiment`,
 `ea164d48`):
 - `LC_DYSYMTAB` + symbol-table partitioning (local/extdef/undef ranges) is
@@ -81,16 +82,25 @@ experiment (preserved on binate branch `wip-macho-coalesce-experiment`,
   making native layout fully atom-independent (every inter-atom reference a
   reloc-to-symbol). That is a large codegen project, not an object-writer tweak.
 
-**Recommended real fix: owner-only dtor-vtable emission (native codegen).** Have
-a CONSUMER reference another package's `__dtor_<T>__vt` / `__dtor_<T>__shim` /
-`___handle` as **external/undefined** symbols instead of emitting its own weak
-copy (so there is a single definition in the owner — no coalescing, no
-subsections needed). The owner is always linked when a consumer RefDecs the type
-(you can't use `@buf.Builder` without importing `buf`). This diverges native from
-the LLVM strategy (LLVM *can* coalesce, so it emits weak in consumers — see
-`d0b6fc78` / `aarch64_funcvalue.bn` `lookupFuncValueTypeAA64`), which is a
-deliberate design call for the author. Touches `pkg/binate/native/{aarch64,x64}`
-funcvalue ref-collection/emission. Needs a native-aa64 unit/link regression once
+**Owner-only emission is NOT the fix — generics require coalescing (author
+decision, 2026-06-14).** Having a consumer reference the owner's `__dtor_<T>__vt`
+external would work for a package-owned struct like `buf.Builder`, but with
+**monomorphized generics** the same instantiated type's dtor/vtable (`Foo[int]`)
+is emitted by EVERY package that instantiates it — there is no single owner
+package to reference — so cross-object **weak coalescing is genuinely required**
+(this is exactly why the LLVM path emits weak-in-consumers and relies on ld
+coalescing). The native backend must therefore support the SAME coalescing, which
+means making `MH_SUBSECTIONS_VIA_SYMBOLS` safe.
+
+**Real fix: make the native object layout atom-independent, then set
+`MH_SUBSECTIONS_VIA_SYMBOLS`.** Every inter-atom reference (code→code, code→data,
+data→data) must be a relocation to a *symbol*, with no reliance on adjacency /
+section-relative offsets that cross a defined-symbol boundary — so ld can split,
+reorder, and coalesce atoms without breaking the program. Once that holds, the
+flag (plus the `LC_DYSYMTAB` partitioning from the experiment) lets ld coalesce
+the weak dtor/vtable defs exactly like clang. This is a native-codegen project in
+`pkg/binate/native/{aarch64,x64}` (instruction/data emission + the macho writer),
+not an object-writer tweak. Needs a native-aa64 unit/link regression once
 fixed. Discovered 2026-06-14 during the bnc-0.0.9 release-readiness gate (unit run
 `27488837411`).
 
