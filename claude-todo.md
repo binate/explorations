@@ -1753,6 +1753,25 @@ Discovery Protocol) — most don't have one yet.
 
 ## MINOR
 
+### Comparison chaining is wrongly accepted on the `for`-clause path (`for a < b < c {}`) — spec §13.6 (2026-06-13) — 🔴 OPEN
+The language forbids comparison chaining: `a < b < c` is a syntax error
+(`expr.compare`, non-chaining; `CompareExpr = BitOrExpr [ compare_op BitOrExpr ]`
+in `binate.ebnf`). The main expression path enforces this — `parseCompareExpr`
+(`pkg/binate/parser/parse_expr.bn`) takes at most one comparison operator. But
+the `for`-statement has a SECOND expression engine: an identifier-leading clause
+feeds its leading operand to the Pratt parser `continueBinaryExpr`
+(`parse_for.bn:113`, impl ~185–211), whose `binaryPrec` table (~213–228) gives
+every comparison level 3 and is left-associative (`nextPrec <= prec` breaks), so
+`for a < b < c { }` parses as `(a < b) < c` instead of erroring. Non-ident-leading
+clauses stay non-chaining (`for (a) < b < c {}` is rejected) — so it is also
+internally inconsistent. Surfaced by the binate.ebnf adversarial review
+(2026-06-13). Grammar is correct; the parser over-accepts (usually caught later
+by typing, since `bool < c` is ill-typed, but the *syntax* should be rejected up
+front). Fix: route the for-clause's identifier-leading expression through the
+same non-chaining compare logic as `parseCompareExpr`, or have `continueBinaryExpr`
+reject a second comparison at the same level. Needs a conformance/parse test
+(`for a < b < c {}` → parse error) + a coordinated binate worktree.
+
 ### pkg/std/os O_* flags now compile-time-correct via build.OS — ✅ RESOLVED 2026-06-10 (binate 590906c8); arm32 off_t + VM residuals remain
 `nativeOpenFlags` (`impls/stdlib/libc/pkg/std/os/os.bn`) branches on
 `build.OS` — a per-target compile-time constant from `pkg/builtins/build`
