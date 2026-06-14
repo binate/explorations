@@ -1660,6 +1660,40 @@ Discovery Protocol) — most don't have one yet.
 
 ## MINOR
 
+### `const X T` (typed, no initializer) is accepted by the parser though §9 + the grammar + Go all reject it — spec §9 (2026-06-13) — 🔴 OPEN
+A constant with a declared type must have a value: §9's `ConstSpec = identifier
+[ Type ] "=" Expression | identifier` makes the `=` mandatory when a `Type` is
+present (the only value-less form is the bare-identifier repeat inside a grouped
+`const ( … )` block). `binate.ebnf` agrees, and so does Go (its grammar puts the
+type inside the `"=" ExpressionList` group, so `const x int` is a syntax error).
+But `parseConstSpec` (`pkg/binate/parser/parse_decl.bn` ~394–415) makes the `=`
+OPTIONAL when a type is present: after the name, if the next token is not
+`=`/`;`/`)` it parses a `Type` and then `if p.got(token.ASSIGN)` — so
+`const Foo int` (single, or grouped `const ( x int )`) parses into a
+`DECL_CONST` with `TypeRef` set and no `Value`. A value-less const is
+semantically wrong, so the fix is to **tighten the parser** to reject it (match
+§9 / the grammar / Go), not to loosen the grammar. Surfaced by the binate.ebnf
+adversarial review (2026-06-13). Needs a negative parse/`.error` test
+(`const Foo int` → error) + a coordinated binate worktree.
+
+### Generic-instantiated composite-literal head `Foo[T]{…}` is specified but not built by the parser — spec §13.10 `expr.composite.generic` (2026-06-13) — 🔴 OPEN
+Generic composite literals (`List[int]{1,2,3}`, `Pair[int, S]{first: …}`) are a
+language feature (user decision 2026-06-13; matches Go) — specified in §13.10
+`expr.composite.generic` and in `binate.ebnf` (the composite-literal head is a
+`TypeName`, optionally generic-instantiated). The parser does NOT build them:
+`parseIdentOrCompositeLit` (`pkg/binate/parser/parse_primary.bn` ~196–242) after
+the head identifier checks only for `DOT` (qualified name) or `LBRACE`
+(composite literal) — it never consumes a `[ TypeArgList ]` before `{`. So
+`Foo[int]{…}` parses `Foo` as an ident, the postfix loop eats `[int]` as
+`EXPR_INSTANTIATE_OR_INDEX`, sees `{` (not a postfix op) and stops, leaving the
+`{…}` to the statement layer (a parse error / mis-parse). Fix: in
+`parseIdentOrCompositeLit` (and/or the postfix path), after `Ident "[" TypeArgList
+"]"` look ahead for `{` and, when present (and not `noCompositeLit`), parse a
+composite literal with a generic-instantiated head — the D5/D11-style
+disambiguation. Tracked as `expr.composite.generic-unparsed`. Needs a conformance
+test (`var x @List[int] = List[int]{1,2,3}` or similar) + a coordinated binate
+worktree.
+
 ### Comparison chaining is wrongly accepted on the `for`-clause path (`for a < b < c {}`) — spec §13.6 (2026-06-13) — 🔴 OPEN
 The language forbids comparison chaining: `a < b < c` is a syntax error
 (`expr.compare`, non-chaining; `CompareExpr = BitOrExpr [ compare_op BitOrExpr ]`
