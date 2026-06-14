@@ -2272,6 +2272,37 @@ question).
 - **Marker**: the skip block carries a `TODO(remove after next release)`
   pointing here.
 
+### Remove the build.bni-dedup workarounds after a BUILDER bump
+- **What**: the build-constraint migration collapsed `pkg/builtins/build` to one
+  `#[build(...)]`-gated `ifaces/core/pkg/builtins/build.bni` and re-sourced the
+  build config from the active target (binate `5a8714d8` / `b64b21fd` /
+  `b0bd1096`).  Because the pinned BUILDER (`bnc-0.0.8`) predates BOTH the
+  `ARCH_ARM64 → ARCH_AARCH64` rename AND `#[build]` parsing, three TEMPORARY
+  workarounds were needed:
+  1. an `ARCH_ARM64` alias (`= ARCH_AARCH64`) in `build.bni`, referenced by
+     `buildcfg.HostConfig`, so `cmd/bnc` (which now imports `build`) compiles
+     under the bundle's pre-rename `build.bni`;
+  2. a throwaway ungated-`build.bni` shim in `scripts/hygiene/lint.sh` (prepended
+     to `-I`) so the bundled bnlint — which can't parse `#[build]` and now loads
+     `build` transitively via `buildcfg` — typechecks against the shim, not the
+     gated file (keeps the fast bundled-bnlint path);
+  3. a `[ -d ]`-guarded `ifaces/targets/<key>` lookup in `scripts/binate-paths.sh`
+     so a bundle's old per-target `build.bni` (the bundle still ships
+     `ifaces/targets/`) is still found when compiling cmd/bnc, while being a
+     no-op against the current tree (`build` lives in `ifaces/core`).
+- **Removal condition**: bump `BUILDER_VERSION` to a snapshot built AFTER this
+  migration (its `build.bni` has `ARCH_AARCH64` and lives in `ifaces/core`, and
+  its bnc/bnlint parse `#[build]`).  Then: drop the alias + switch
+  `buildcfg.HostConfig` to `ARCH_AARCH64`; remove the lint shim (restore the
+  plain bundled-bnlint invocation); drop the guarded `ifaces/targets` lookup +
+  `TARGET_DIR` from binate-paths.  Each is comment-flagged in-tree
+  (`TEMPORARY`/`Remove once BUILDER`).  Full plan +
+  workaround list in
+  [`plan-impls-constraints-migration.md`](plan-impls-constraints-migration.md).
+- **Bonus**: the same bump would also let `pkg/bootstrap` be collapsed onto
+  `#[build]` (it's in cmd/bnc's BUILDER-compiled tree, currently left
+  path-selected — see that plan doc).
+
 ### Native aa64 self-host lane failed to BUILD — `duplicate symbol` (62 dups) — FIXED 2026-06-03 (binate, pending cherry-pick)
 - **Was**: `builder-comp_native_aa64-comp_native_aa64` failed at
   compiler-build (link) time, `ld: 62 duplicate symbols` (e.g.
