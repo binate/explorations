@@ -63,6 +63,30 @@ this upcast does not).
 - **Bug-discovery protocol**: add a conformance test for the upcast marked xfail
   until codegen lands.
 
+## MINOR — a broken generic-interface extension clause is re-reported once per instantiation (2026-06-13) — 🔴 OPEN
+
+Generic interface decls resolve their extension clause at instantiation
+(`buildInstantiatedInterface` → now `populateInstantiatedInterface`), not at decl
+time, so a decl-level error in that clause is emitted once per DISTINCT
+instantiation. Repro: `interface Bad[T any] : NotAnIface { f() T }` instantiated
+as `Bad[int]` and `Bad[bool]` emits `interface extension target must be an
+interface` twice (count == number of distinct instantiations). Should be one
+diagnostic per decl. Diagnostic-quality only (no miscompile). Possible fix:
+validate the generic interface's extension clause once at collection time (with
+type-params opaque), or dedupe decl-site diagnostics by (pos, message).
+- **Discovery**: adversarial review of `298ef806`/`aef4422e` (2026-06-13).
+
+## MINOR — diagnostic name formatter drops a bracket on nested package-qualified generic args (2026-06-13) — 🔴 OPEN
+
+`displayLeafName` (`pkg/binate/types/type_name.bn`) splits a mangled name on the
+FIRST `.`, which can land INSIDE a bracketed type argument, so a nested
+package-qualified generic arg renders with a dangling/again-missing bracket —
+e.g. `reportConstraintMiss` shows `Pair[bool,bool]]` instead of
+`Box[@Pair[bool,bool]]`. Display-string only — accept/reject uses (Pkg, Name),
+not the rendered string, so NO soundness impact. Pre-existing in the shared
+formatter; surfaced (not caused) by the generics constraint work.
+- **Discovery**: adversarial review of `298ef806`/`aef4422e` (2026-06-13).
+
 ## DONE (2026-06-13) — deprecated `pkg/binate/buf.CharBuf` in favor of `buf.Builder`
 
 The bespoke value-typed `buf.CharBuf` is fully retired: every caller (out-of-cone
