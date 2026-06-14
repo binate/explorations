@@ -1819,18 +1819,6 @@ aren't) but neither miscompiles.
   instantiated as `Box[NoOrder]` (no `impl NoOrder : Orderable`) compiles clean.
   Generic-FUNCTION constraint checking works correctly.
 
-### Zero-parameter functions accept any number of arguments — spec Ch.10 (2026-06-12) — ✅ RESOLVED 2026-06-12 (binate `29fdc4c0`)
-RESOLUTION: restricted the no-arity-check branch (`check_expr.bn`, numParams==0 && numArgs>0) to the variadic builtins via a new `isVariadicBuiltinCall` (callee name print/println/panic, mirroring `isPanicCall`); any other zero-param call with args is now "too many arguments". conformance/741_zero_param_arity_rejected; print/println/panic still accept args (covered by the whole existing suite). Original report below.
-MINOR (over-permissive arity check; extra args are evaluated then discarded —
-not a miscompile, but should be a diagnostic). `check_expr.bn:369` keys the
-no-arity-check path on `numParams == 0 && numArgs > 0` for the GENERAL call
-path, not just the empty-parameter builtins (print/println/panic). So a user
-`func f()` called as `f(1, 2)` type-checks clean (the args are checked for
-side effects, then ignored; `f` is called with no args). It should be a "too
-many arguments" error. Functions with >=1 parameter correctly require exact
-arity (`check_expr.bn:373`). Rule `func.call.zero-param-arity` in the spec
-(`10-functions-methods-function-values.md`).
-
 ### Value-receiver "always readonly" not enforced — spec Ch.10 (2026-06-12)
 MINOR (design-intent vs impl; no correctness bug — by-value copy makes any
 mutation harmless). `claude-notes.md:359` says a value receiver `(r T)` is
@@ -1976,28 +1964,6 @@ question).
   its underlying width/signedness) for same-named operands, so `I8 / I8` keeps
   width 8. Out of scope for the divide-by-zero work (touches general arithmetic
   typing). A reproducer xfail cell can be added when this is picked up.
-
-### Bare func literal in assignment position doesn't infer its managed/raw flavour from the LHS — ✅ RESOLVED 2026-06-10 (binate `e15680d7`)
-- **✅ RESOLVED `e15680d7`** — the simple-assign RHS is checked via
-  `checkExprWithFVHint(c, rhs, lhsType)`, so a bare func-literal `existing =
-  func(){…}` (where `existing @func(...)`) now picks up the managed/raw flavour
-  from the LHS, like var-init already did. NOTE: the NAMED func-value spelling
-  (`type Fn @func(...)`) is still broken — the hint doesn't peel `TYP_NAMED` —
-  tracked separately as the B2 MAJOR entry above.
-- `existing = func(){...}` where `existing @func(...)...` fails type checking
-  with `cannot assign <unknown> to <unknown>`: a bare func literal in
-  **assignment** (non-var-init) position does not pick up its managed
-  (`@func`) vs raw (`*func`) flavour from the assignment target's type.
-  Var-init works (`var x @func(...)... = func(){...}` — the declared type
-  hints the flavour).
-- **Workaround in use**: assign through a typed var
-  (`var drop @func(...)... = func(){...}; existing = drop`) — see
-  `conformance/587_closure_captures_func_value.bn` and
-  `conformance/matrix/assign/ident/func-value.bn`.
-- **Fix**: in the assignment type-checker, flow the LHS func type's flavour
-  to a bare func-literal RHS — the same hinting var-init already applies.
-- Surfaced 2026-06-05 while authoring the conformance matrix func-value cell
-  (plan-code-red.md §7 / P1).
 
 ### Wire the cross runners to `binate-paths --target` — ✅ RESOLVED 2026-06-10
 - **Conformance (binate `a3755cb4`)**: the four cross *conformance* runners
@@ -2149,8 +2115,6 @@ question).
 - **Discovery**: 2026-06-10, Lane A root-cause (`plan-bnc-0.0.8-release-blockers.md`): the depth-correlated CI failure (615 flat cells PASS, whole `matrix/` tree FAIL) traced to `findRuntime`'s CWD-relative fallback.
 - **RESOLVED 2026-06-10 (binate `aa757361`; the `arm32_linux` runner --runtime fix `328582d7` is what surfaced it)**: `findRuntime` deleted; `main.bn` + `test.bn` error if `--runtime` is absent when linking, exempting `--emit-llvm` / `-c` and bare-metal (`suppressHostRuntime`). **The "Why" claim above that "no caller relies on auto-resolution" was WRONG** — ~13 in-tree LINKING sites silently depended on `findRuntime` and had to be given explicit `--runtime` (via `binate-paths --runtime`): `build-compilers.sh` gen2/native/interp, `build-{bnc,bni,bnas,bnlint}.sh` Stage-2 (both branches), the 5 native unittest runners, the 4 compiling perf runners, e2e repl/print-args/verify-ir, and the `arm32_linux` conformance+unit runners. Validated across every locally-runnable compile mode (conformance/unittest/perf comp+native, e2e, make-bundle, check-alloca) + the error/baremetal paths; arm32 confirmed on CI.
 
-### Float-component multi-return mis-packed on the native backends — packed into INTEGER regs, not D0/XMM0 — native↔LLVM ABI divergence — ✅ RESOLVED 2026-06-10 (float64 `b5911fbe`; x64 field-per-register rework `47ebdbac`; verified on main — `(int,f64)`, `(f64,f64)` HFA, `(f32,f32)` HFA, and iface-dispatch `(f64,f64)` all pass on builder-comp + native aa64 + native x64-darwin). Residual aa64/x87 ≥3-float-component gaps tracked in the RESIDUAL GAPS bullet below.
-- **STATUS 2026-06-09 — float64 RESOLVED & LANDED (binate `b5911fbe`).** Native pack + collect now assign each leaf to the next register of its CLASS: aa64 `emitReturn` (FP counter D0.. alongside GP X0..) + a shared `collectMultiReturnFields` routed from all four collect sites (direct/iface/funcval/call-indirect, which were four copies of the integer-only loop); x64 `emitMultiReturnPack` builds the full byte image then loads each eightbyte by class (new `multiReturnEightbyteIsSSE`, SysV two-eightbyte rule) with `collectMultiReturnTuple` the symmetric mirror. `conformance/683_cross_pkg_mr_float` ((int,float64)+(float64,float64) collected by native main from an LLVM pkg) fails pre-fix / passes post-fix on both native arches; green LLVM+VM. `gen-abi-matrix.py` gained an `f64` axis; full abi matrix green native aa64 + x64-darwin.
 ### Stale `native_x64` (ELF) iface-multi-return xfails — REMOVED (binate `10798d42`) — 2026-06-10 (Lane B)
 - **What**: the 16 markers `conformance/matrix/abi/iface-multi-return{,-assign}/{int,u16}/{2,3,4,5}.xfail.builder-comp_native_x64-comp_native_x64` blamed "iface dispatch multi-return: native tuple-packing not yet implemented". That packing **IS implemented** (`pkg/binate/native/x64/x64_iface.bn` routes `OP_CALL_IFACE_METHOD` multi-returns through `collectMultiReturnTuple`), and the **identical-codegen** `builder-comp_native_x64_darwin` (Mach-O; same `pkg/binate/native/x64` backend, only object format differs) **PASSES all of these cells** (Lane B run 2026-06-10, and already noted in `03b80566`). ELF also passes the un-xfailed `multi-return` / `funcval-multi-return` / iface `f64` / `iface-param` / `iface-return` cells, so iface dispatch and multi-return both work there — these int/u16 markers were the lone stale holdouts.
 - **Removed** on the x64-darwin evidence (user-authorized 2026-06-10). The ELF mode isn't locally runnable on macOS/arm64 (no `qemu-x86_64`), so **CI is the confirmation point**: it runs ELF natively on the x86-64 ubuntu runner and will exercise these 16 cells once Lane A's `-comp*` link break clears. Expected green; **treat any ELF failure as a real x64-ELF-specific bug to fix (not a re-xfail).** (arm32 iface-multi-return xfails left in place — different, less-complete backend.)
@@ -2187,14 +2151,6 @@ question).
 - **Severity**: MAJOR — a basic operation (negate a sized int) is broken: loud (compile error) on LLVM, silent (wrong value) on VM + native.
 - **Test**: a `conformance/regressions/unary-minus-subword` cell (xfailed every mode until the IR fix) pins it. The full `scalar-diff/neg/{8,16,32}/{signed,unsigned}` generator family (reverted out of the Defect-1 commit) should be re-added when the fix lands — it goes green across all backends once IR-gen types OP_NEG correctly and Defect 1's narrow applies. (Defect 1's OP_NEG narrow is itself already pinned by the new aarch64/x64 `emitUnop` narrow unit tests, which construct a correctly-typed sub-word OP_NEG directly and so don't depend on this fix.)
 - **Discovery**: 2026-06-08, adding `neg` cells to the scalar-diff differential harness as Defect-1 (sub-word unary narrow) coverage; the cells compile-errored on LLVM, exposing the upstream IR mis-typing.
-
-### A named fixed-array type (`type Row [3]int`) — ✅ FIXED & LANDED 2026-06-11 (parser `722b804f` + IR-gen `68d24423`)
-- **FIXED 2026-06-11** (part of the named-distinct transparency work above): the parser implements grammar D11's two-token lookahead in `parseTypeSpec` (`722b804f`), so `type Row [3]int` parses as an array distinct type (not generic type-params). That surfaced a sibling MAJOR codegen bug — IR-gen's array index/len/slice/store path didn't peel `TYP_NAMED` — fixed in `68d24423` (`peelTransparent` at every array site). `conformance/723_named_array_type` (index write/read, `len`, by-value param, array slice) green on builder-comp + builder-comp-int. Original investigation note kept below for context.
-- **Symptom**: `type Row [3]int` → parse error `expected IDENT, got INT` / `expected type`. After `type Row [`, the parser commits to the TypeParams form (`type Row [T U] …`), which requires an identifier, so a fixed-array size (an integer) is rejected. You cannot name a fixed-array type at all; `type Buf @[]int` (managed-slice) and `type S struct{…}` parse fine — only the `[N]T` array form collides with the generic-params `[ident ident]` syntax.
-- **Root cause**: the `[`-after-type-name disambiguation in the parser (grammar `TypeDecl`/`TypeSpec`, the `[` → ArrayType-vs-TypeParams ambiguity noted in grammar.ebnf ~158-164). The parser must look past `[` for an integer/expression (ArrayType) vs two identifiers (TypeParams).
-- **Severity**: MAJOR — a whole type-construction form is unavailable; loud (parse error), workaround is to use the structural type inline.
-- **Test**: the `conformance/matrix/globals` `named-array` cell is omitted for this reason; a `conformance/regressions/named-array-type` point-test would pin it.
-- **Discovery**: 2026-06-07, building the Code-Red-2 globals matrix.
 
 ### `len()` on a named-managed-slice (`type Buf @[]int; len(buf)`) — ✅ FIXED & LANDED 2026-06-11 (binate `88e13633`, increment 1)
 - **FIXED 2026-06-11** (named-distinct transparency increment 1, `88e13633`): `IsSlice`/`IsPointer` now peel `TYP_NAMED` (via `peelNamedBounded`), so `len(b)` works on a named slice; `conformance/regressions/len-named-managed-slice` un-xfailed (all modes). See the named-distinct transparency entry above. Original note kept below for context.
@@ -2237,14 +2193,6 @@ question).
 - **LANDED**: `var EOF @errors.Error` declared in `io.bni` (extern), defined in `impls/.../io/io.bn` as `errors.New("EOF")`; the synthetic `pkg/std/io.__init` constructs it before main; a consumer reads `io.EOF` + `.Error()` correctly. Plain (non-readonly) var, matching Go's `io.EOF`. (Needed the iface-value global-init codegen fix, landed `91ef4fc4`.)
 - **Refinement, NOT a blocker — readonly**: making `io.EOF` immutable to consumers (`readonly`) is wanted eventually but does NOT gate the sentinel; it's a plain reassignable var for now (as Go's is). Gated on the readonly-for-managed-values CRITICAL.
 - **Refinement — ergonomic detection: RESOLVED 2026-06-08.** `err == io.EOF` is (correctly) NOT the mechanism — `==` on interface values is disallowed. Detection is `io.IsEOF(err)` = `errors.Is(err, io.EOF)` (binate `5282563b`), built on `errors.Is` (`1f87b905`) walking the `Unwrap()` chain via the `same` reference-identity builtin (`e7c1b7fc`). Robust to wrapping; identity (not message) is the test.
-
-### float32 ops (arithmetic, negate, comparison) were computed in double precision on the f32 bit pattern — FIXED/LANDED 2026-06-06 (binate df7a5ec1, 12a24e74, fc11d862)
-The VM and both native backends computed float32 `+ - * /`, unary negate, and all six comparisons as float64 on the raw f32 bit pattern (the low-4-byte f32 bits reinterpreted as a double), producing garbage — a silent miscompile (LLVM was always correct). All three now compute at single precision:
-- **arithmetic** (df7a5ec1): native single-precision ops (aa64 FADD/FSUB/FMUL/FDIV `_s` ty=00 encoders; x64 ADDSS/SUBSS/MULSS/DIVSS) and VM `BC_F32ADD/SUB/MUL/DIV`.
-- **negate** (12a24e74): aa64 FNEG `_s`; VM `BC_F32NEG` (sign-bit XOR); x64 already XOR'd the f32 sign bit.
-- **comparison** (fc11d862): aa64 FCMP `_s`; x64 UCOMISS; VM `BC_F32EQ/NE/LT/LE/GT/GE` — NaN-unordered semantics preserved via the shared condition logic.
-- **Tests**: `conformance/635_float32_arith` (4 binops + negate + bit-exact `1.0f/3.0f` rounding) and `639_float32_compare` (negative operand exposes the order-flip + runtime NaN unordered/ordered checks); green on every lane.  Golden-encoding tests for all new native encoders.  The `builder-comp_native_x64` x86_64-linux 635 marker is retained (unverifiable without qemu-user on this arm64 host; same x64 codegen as the passing x64_darwin lane).
-- **NOT broken / unchanged**: float32 CONST materialization (539), float32 RETURN bits (636), and float32 CASTS (`BC_F32TOSI` / `emitFloatCast` carry width) were already correct.  Discovered by the Plan-4 + float32-arithmetic adversarial reviews.
 
 ### VM drops a returned aggregate / managed-slice element of a local (`return container[i]`) — wrong-result, VM-only — FIXED + LANDED 2026-06-06 (binate `61488b48`)
 - **Symptom**: under `builder-comp-int` (bytecode VM), a function that returns an
@@ -2357,40 +2305,6 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
 - **Root cause**: x64 aggregate-arg + sub-word multi-return packing. Needs
   investigation.
 
-### Field access into an anonymous (multi-return tuple) struct miscomputes the LLVM GEP index when a field has alignment padding before it — FIXED 2026-06-03 (binate `5f4a8eaf`)
-- **What**: `emitGetFieldPtr` (`pkg/binate/codegen/emit_helpers.bn:118`) maps the
-  Binate field index to the LLVM field index via `structLLVMIndex` (which counts
-  inserted `[N x i8]` padding fields) **unconditionally**.  But anonymous
-  multi-return tuple structs are emitted by `llvmType()` in the non-packed
-  `{...}` form **without** explicit padding fields — so for them the Binate index
-  already IS the LLVM index.  When such a tuple has a field with
-  `PaddingBefore > 0` (a pointer/aligned field following a sub-word field like
-  `bool`/`i1`), the mapping overshoots by the number of preceding padding gaps.
-- **Symptom**: a `(bool, @errors.Error)` multi-return (e.g. `strconv.ParseBool`)
-  generates its anon-tuple destructor `__dtor_anon_bool_unknown` with
-  `getelementptr inbounds {i1, %BnIfaceValue}, ... i32 0, i32 2` — index 2 into a
-  2-field struct → `error: invalid getelementptr indices`, clang fails.  If the
-  overshoot had landed in-bounds it would be a SILENT wrong-field access instead.
-- **Root cause**: `emitGetFieldPtr` is the lone `structLLVMIndex` caller missing
-  the named-vs-anonymous guard.  The SSA copy paths already do it right:
-  `emit_copy_ssa.bn:103` and `emit_copy_ssa_load.bn:85` apply `structLLVMIndex`
-  only `if named` (`named = len(t.Name) > 0`) and otherwise use the raw index.
-- **Fix**: `emitGetFieldPtr` now gates the `structLLVMIndex` remap on
-  `len(baseTyp.ResolveAlias().Name) > 0` — named structs remap past padding
-  fields; anonymous tuples use `instr.Index` directly.  Mirrors the
-  named-vs-anonymous split already in `emitStoreSSARec`.  `pkg/codegen`
-  function-body change (BUILDER-safe).
-- **Affects**: LLVM backend (the GEP-index path).  VM uses byte offsets and was
-  unaffected (conformance 144 passes on `builder-comp-int` as well as
-  `builder-comp`).
-- **Discovery**: 2026-06-03, implementing `strconv.ParseBool` (first
-  `(bool, @errors.Error)` multi-return).  Had blocked `ParseBool`; the rest of
-  the Parse series (`int64`/`uint64`/`float64` first elements — pointer-aligned,
-  no padding) was unaffected.
-- **Tests**: codegen unit test `TestAnonTupleDtorFieldGepIndex`
-  (emit_refcount_test.bn) pins the GEP index; `conformance/144_multi_return_bool_iface`
-  covers it end-to-end (green on LLVM + VM).
-
 ### Float-literal converter 1 ULP low for ~38+ sig-digit literals just above a tie (round-bit loss) — ✅ RESOLVED (binate `58570970`, `ParseFloatLitToBits` via `strconv.ParseFloat` — exact round bit)
 - **Symptom**: a float64 literal with ~38+ significant digits sitting JUST
   ABOVE a binary rounding tie (e.g. `1.0000000000000001110223024625156540424`)
@@ -2500,14 +2414,6 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
 - **Fix (landed `77499153`)**: two layers.  `types/check_interface.bn` defines the interface symbol BEFORE resolving its method/parent signatures (matching the `.bni` bni_scope pre-registration, for in-`.bn` decls).  `ir/gen_iface_registry.bn` appends an identity stub to `moduleInterfaces` and points `currentImportAlias` at the interface's package before resolving method results (so a self-ref resolves even in the cross-package `RegisterAllInterfaces` pre-pass), then overwrites the stub.  Defining the interface early would let `interface A : A` resolve A as its own parent, so `resolveInterfaceExtension` now rejects self-extension explicitly.  Tests: `575_self_ref_iface_method` + `TestInterfaceSelfReferentialMethod`.
 - **Discovery**: 2026-06-03, implementing `plan-std-errors.md` Part 1 — `pkg/std/errors`'s in-package unit tests (`TestNewUnwrapEmpty`/`TestWrapUnwrapCause`/`TestChainWalk` all call `.Unwrap()`).  Pre-existing latent bug.  Distinct from (but same managed-ptr-fallback symptom as) the cross-package entry below.
 
-### Cross-package function returning `@Iface` resolves the return type to a managed pointer (`i8*`) in the consumer → ABI mismatch — FIXED 2026-06-03 (binate `cb8c0f1a`)
-- **Symptom**: a consumer that imports a package and calls a function declared (in the `.bni`) to return a managed interface value — e.g. `errors.New(msg) @Error` / `errors.Wrap(...) @Error` — fails to compile with LLVM verifier error `extractvalue operand must be aggregate type` on `%v6 = extractvalue i8* %v5, 0`, because the consumer lowers the call as `call i8* @bn_pkg__std__errors__New(...)` (single pointer) while the callee's real ABI returns a 16-byte `%BnIfaceValue` (register pair).  The consumer's own refcount/copy machinery *correctly* treats the OP_CALL result as an interface value (hence the `extractvalue …, 0` to RefInc the data field), so the call-return-type and the copy machinery disagree inside one module.
-- **Root cause (CONFIRMED)**: `isInterfaceTypeExpr` / `ifaceTypeForName` (`pkg/binate/ir/gen_iface.bn`) resolve a **bare** interface name (`te.Pkg` empty) by looking it up in `moduleInterfaces` only under `currentModulePkgPath` (the *consumer's* package) — never under `currentImportAlias` (the package whose `.bni` decls are currently being registered, `gen_import.bn:registerImportFieldsAndFuncs`, which sets `currentImportAlias = alias`).  The imported interface is registered (by `collectInterfaceFromDecl`) under its full path (`resolveImportPkg(alias)` = `pkg/std/errors`).  So while registering `errors.bni`'s `func New(...) @Error`, `resolveTypeExpr(@Error)` calls `isInterfaceTypeExpr(Error)` → lookup `("main","Error")` MISS → falls through to `MakeManagedPtrType` (`gen_util.bn:349`) → `llvmType` = `i8*`.  The struct / `TEXPR_NAMED` path already consults `currentImportAlias` (`gen_util.bn:271–283`, mirrored in `gen_const.bn:85`); the interface path does **not** — that asymmetry is the entire bug.
-- **Why never caught**: errors is the FIRST cross-package function whose return type is an interface value.  The mis-resolution is INVISIBLE for managed-pointer (`@T`) and managed-slice (`@[]T`) returns — those lower to `i8*` / `%BnManagedSlice` whether resolved correctly or as the managed-ptr fallback — and strconv/big return exactly those.  An interface value is the first return type where correct (`%BnIfaceValue`, 2-word) and fallback (`i8*`, 1-word) diverge.  In-package compilation is fine (there the interface is under `currentModulePkgPath`), so `pkg/std/errors` itself builds; only the consumer mis-resolves.
-- **Severity**: MAJOR — a cross-package ABI mismatch.  Here the LLVM verifier happens to reject it (the copy machinery's `extractvalue` on an `i8*`); on any codegen path that does NOT extractvalue the result (e.g. a `@Iface`-returning function whose result is only stored/passed, not retained at the call site) it would be a **silent miscompile** — caller reads a 1-word return, callee wrote a 2-word value.  Also affects `*Iface` returns by the same path.  (Almost certainly also `@func` / `*func` returns from a cross-package function whose signature spells the func-value type via a NAMED alias — not the structural `@func(...)` form, which resolves context-free — though unconfirmed.)
-- **Fix (landed `cb8c0f1a`)**: in `isInterfaceTypeExpr` and `ifaceTypeForName` (`gen_iface.bn`), a bare name that misses under `currentModulePkgPath` now also tries `currentImportAlias` (keying the produced `TYP_INTERFACE` on the resolved full path), mirroring `gen_util.bn`'s `TEXPR_NAMED` arm.  Test: `576_cross_pkg_iface_return` (and the `577_std_errors` cross-package suite).
-- **Discovery**: 2026-06-03, implementing `plan-std-errors.md` Part 1 (`pkg/std/errors`).  Pre-existing latent bug, exposed by the first cross-package interface-value return.
-
 ### Multi-return of a `@func` component was miscompiled — capture lost (LLVM) + invalid closure-data kind (VM) — FIXED 2026-06-03
 - **Was**: a function returning a tuple with a function-value component — `func two(...) (int, @func(int) int)` — was wrong-coded for the `@func` slot.  `two(false)` returns `(0, adder(10))` (a capturing `func(x){ return x + n }`, n=10); `f(5)` then gave `5` not `15` in LLVM (capture `n` read as 0) and crashed `vm: unsupported function-value data kind: 0` in the VM.
 - **Fix — two independent halves**:
@@ -2520,22 +2426,6 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
 - **Part A — single interface-value return not copied back → "call through nil interface value"** (binate `511e1395`).  Interface values are 16-byte address-based VM stack slots.  `lowerReturn` set BC_RETURN's copy-back size only for `isMultiWordField` types (struct / slice / array) — it omitted interface values, so a single `@Iface` return dangled in the reclaimed callee frame and the next call clobbered it; `consume(makeFoo(i))` (an iv call result passed directly as an arg) then panicked `vm: call through nil interface value` in `-int` only (LLVM + native don't use this lowering).  Fix: set the copy-back size for `TYP_INTERFACE_VALUE` / `_MANAGED` single returns too.  Pinned by `560_iface_return_call_arg` (green all modes).
 - **Part B — interface-value receiver dtor crashed on RefDec-to-zero** (binate `5de3d09d`, the direct analogue of the `@func` capture-record dtor `0a0d00af`).  `BC_IFACE_DTOR` produced the receiver dtor's 1-based func index, but `BC_REFDEC_INLINE_FAST` consumes its dtor input as a func-value HANDLE — so an interface value that was the *last* holder of a managed-field receiver bit_cast the small index to a pointer and crashed (520; the dtor arms of 554 / 556).  473 hid it because its iv lives in a nested block the receiver outlives, so its RefDec never reached zero.  Fix: `BC_IFACE_DTOR` hands `BC_REFDEC` the dtor func's handle via `ensureHandle` (the same `{Vtable, ClosureRec{VM_CLOSURE_REC, FnIdx}}` the `@func` path uses); the existing iterative-push arm runs the receiver dtor and frees it via `freeOnPop`.
 - **Result**: `520_iface_dtor_callee_sole_ref` (a standing `-int` red) is green; `554_iface_refcount_balance` and `556_iface_struct_field_balance` un-xfailed in all VM modes; `-int` suite 478/0.  Both were `pkg/vm`-only (codegen always emitted correct IR; LLVM + native were already correct).
-
-### Conformance int-int mode: `136_grouped_imports` + `383_cross_pkg_iface_dtor` fail with "pkg/builtins/rt not found" — FIXED+LANDED (binate `db18f26b`, 2026-06-05)
-- **Symptom**: on `builder-comp-int-int` (the double-VM default mode),
-  `136_grouped_imports` and `383_cross_pkg_iface_dtor` fail at compile time
-  with `package "pkg/builtins/rt" not found`.  Both PASS on `builder-comp-int`
-  and `builder-comp-comp-int`; the other ~468 int-int tests pass.
-- **Pre-existing**: confirmed on clean `17c722d1` (reproduced with the
-  pre-float-fix VM tree), so NOT caused by the float-constant work; it is a
-  recent main regression in the int-int package-resolution path.
-- **Root cause (unknown)**: only certain multi-package tests can't resolve
-  `rt` in the int-int pipeline; needs investigation of how that mode locates
-  the `rt` package (vs the single-int / comp-int modes that succeed).
-- **Discovery**: 2026-06-03, full-suite regression sweep while landing the
-  float-constant fix (536).
-- **Severity**: MAJOR — a default conformance mode is red, masking real
-  coverage on those tests.
 
 ### Multi-value return assignment to `_` leaks the discarded managed component(s) — FIXED 2026-06-03 (binate, pending cherry-pick)
 - **Was**: `_, n = f()` where `f` returns `(@T, int)` (or `@Iface`, `@[]T` — any managed type) never RefDec'd the `_`-discarded managed result → +1 leak per execution.  Root cause: the multi-assign loop (`genAssign`, `gen_control.bn`) ran the Axiom-3 copy-RefInc for the `_` component unconditionally, but a blank target stores nothing (`lookupVar("_") == nil`), so that RefInc had no matching RefDec.  (The single-value `_ = g()` path doesn't leak because its RefInc is *inside* the `ptr != nil` guard.)
@@ -3226,47 +3116,6 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
   reference in *linted* source, which the BUILDER-bundled bnlint can't yet
   typecheck — `scripts/hygiene/lint.sh` temporarily skips pkg/binate/vm +
   pkg/binate/repl + cmd/bni until the next BUILDER bump.
-
-### Checker does not fold `iota` in expressions — bit-flag const COMPILE-TIME values stay plain-iota — ✅ RESOLVED (binate `05901f97`, 2026-06-09)
-- **STATUS 2026-06-09**: FIXED exactly per the fix sketch below (both parts). `checkIdent` returns `makeUntypedIntWithLit(c.Iota)` for `iota`; `checkGroupDecl` repeats the previous explicit member's initializer (re-folded at the current iota) for bare members. The pre-flagged tightening is now in effect (`var x uint8 = B8` with `B8 = 1<<8 = 256` is correctly rejected). No existing unit/conformance cell changed (151 const/iota/enum cells green). Tests: conformance `672_err_iota_bitflag_overflow` + two unit tests in `check_expr_constfold_test.bn` (CR-2 Plan-B).
-- **Symptom**: iota-repeat (binate `52a9eabf`) gives correct RUNTIME values for bit-flag consts (`const ( B0 int = 1 << iota; B1; B2 )` -> 1,2,4 at runtime). But `checkIdent` returns a plain `TYP_UNTYPED_INT` for `iota` (no `HasLitVal`), so the checker never folds an iota expression to a value: a bare member is given the plain-iota value via `makeUntypedIntWithLit(c.Iota)`; an explicit `1 << iota` member gets no value. So a bit-flag const's COMPILE-TIME value (array dimensions, assignability/overflow checks) is wrong/absent -- e.g. `var x uint8 = B10` with `B10 = 1 << 10 = 1024` is wrongly accepted because the checker thinks `B10 = 10`.
-- **Scope**: compile-time only; runtime values are correct (IR-gen). The dominant `= iota` enum idiom is unaffected (plain-iota == iota-repeat there). Affects only bit-flag-style consts used as array dims or in narrow-type checks -- rare.
-- **Fix sketch**: fold `iota` in `checkExpr` (return `makeUntypedIntWithLit(c.Iota)` from `checkIdent`), and have `checkGroupDecl` re-check a bare member's repeated previous expression with the current iota so its symbol value matches IR-gen. Watch for new overflow errors on large iota enums assigned to narrow types.
-- **Discovery**: 2026-06-05, while implementing iota-repeat (Plan 1 / 1.3d).
-
-### Untyped single const (`const X = 5`) is not forward-referenceable — FIXED+LANDED (binate `99057185`, 2026-06-05)
-- **Symptom**: a top-level untyped single const with no explicit type
-  (`const X = 5`) reports `undefined` when referenced from a decl
-  checked BEFORE it — a forward reference within a file, or a sibling
-  file ordered ahead of it (package files are merged).  `const X int = 5`
-  (typed) does NOT have this problem.
-- **Relationship**: the sibling of the const-GROUP bare-iota-member bug
-  fixed in binate `88c9c0b7` — same root cause, `collectDecls`
-  (`pkg/binate/types/check_decl.bn`) only forward-registers consts whose
-  `TypeRef != nil`.  The group fix handled bare iota members (always
-  untyped int → trivial untyped-int placeholder); this single-const case
-  was left because it is **harder**: an untyped single const's type
-  depends on its VALUE, and naively `checkExpr`-ing the value during the
-  collection pass would emit spurious `undefined` errors for
-  reference-valued consts (`const X = Y; const Y = 5`, where Y is checked
-  after X).
-- **Discovery**: 2026-06-02, characterizing the completeness of the
-  group fix (a probe test, `TestForwardRefUntypedSingleConstKnownGap` in
-  `pkg/binate/types/check_decl_test.bn`, asserts the current buggy
-  behavior so the suite stays green).
-- **Why MAJOR (loud, not silent)**: compile-time `undefined`, not a
-  silent miscompile.  Lower-priority than the group case in practice —
-  untyped single consts forward-referenced are uncommon (most code
-  writes `const X int = …` or uses a group).
-- **Proposed fix direction**: in `collectDecls`, for an untyped single
-  const, forward-register the name when the value is a simple LITERAL
-  (int / string / float / bool / char) whose type is unambiguous and
-  dependency-free; leave reference / expression values for a later pass
-  (or a two-phase const resolution).  Avoids the spurious-error trap.
-- **Tests covering it**: `TestForwardRefUntypedSingleConstKnownGap`
-  (flip to `expectNoErrors` when fixed); add a conformance test mirroring
-  `526_forward_ref_iota_const` for the single-const case as part of the
-  fix.
 
 ### Static-managed sentinel refcount — IN PROGRESS (prerequisite for package descriptors)
 - **Status**: IN PROGRESS — worktree `temp-binate-6` / branch `work-6`,
@@ -5357,21 +5206,6 @@ are the remaining matrix-shaped classes not yet built as their own matrix —
 candidates for after the loose-axis finish (const-expr folding + ABI
 `handle`/`__c_call` shapes).
 
-### (b1) Class 2 matrix — VM 16-byte address-aggregate (iface / func value) handling — ✅ REALIZED 2026-06-05 (binate `12d6782f`)
-- **Realized**: `conformance/matrix/addr-aggregate` (generator
-  `gen-addr-aggregate-matrix.py`). Axes `kind (@func / @Iface) × operation
-  (direct / copy / return / arg / return-arg / field / array-elem)`; assertion:
-  both words of the 16-byte value survive the boundary, observed by invoking it
-  (→ 42); a dropped/swapped word faults or returns wrong. 14 cells.
-- **Result**: all 14 green on `comp` (LLVM), `int` (VM), and x64-native — the
-  Class-2 fixes that landed in P2 (the VM func-value nil-vtable `e337e413`, the
-  2-word-slice-len-drop) hold across the grid; this is regression coverage, no
-  new defects. aa64-native is collateral-red on the self-hosting `BNC_NATIVE`
-  miscompile (separate CRITICAL), not these cells.
-- **Note**: the `field`/`array-elem` cells store an already-typed value (a bare
-  func literal in those positions trips the separate filed bare-func-literal
-  flavour-inference MINOR, not 2-word survival).
-
 ### (b2) Lifecycle matrix — Class 6 (`@Iface` / `@[]@I`) + Class 7 (captured-`@func` over-release) — PARTLY ADDRESSED 2026-06-05 (plan-cr-p2-2 step 5)
 - **Status**: the existing `conformance/matrix/refcount` form × type grid already
   covers Class 6's construction/consumption shapes (the copy-sites are now uniform
@@ -5425,13 +5259,6 @@ candidates for after the loose-axis finish (const-expr folding + ABI
   programs); porting the generator turns the harness itself into one more such
   program. Not urgent — v1/v2 already give the value coverage; v3 is the
   dogfood + debuggability upgrade.
-
-### `readonly`-wrapped slice argument mis-classified → SIGSEGV/garbage on clean code — ✅ LANDED binate `487fb95c` 2026-06-10 — was MAJOR
-- **Symptom**: passing a string/managed-slice value through a `readonly`-wrapped slice parameter mis-classifies it as a non-slice scalar. `func lenMro(s readonly @[]readonly char) int { return len(s) }; lenMro("cde")` COMPILES CLEANLY but SIGSEGVs on native (aarch64 / x86-64) **and** LLVM, and returns a wrong length on the bytecode VM.
-- **CORRECTED diagnosis** (the original reading-review entry above was WRONG; empirical reproduction reclassified it): this is NOT primarily an `OP_CONST_NIL` defect, and the VM const-nil path was actually fine. The real bug is a family of **un-peeled `readonly` at coercion / shape-classification points** (`readonly` is IR-transparent — same representation — so every aggregate-vs-scalar decision must peel it). The const-nil only appears for the *empty* string sub-case; the dominant trigger is the bare-pointer-passed-as-aggregate at `coerceArg`. The earlier "native const-nil region predicate" claim was stale — `common.IsAggregateTyp` already peels (R2-D4 `c6fe0914`) and the native region+lowering both consult it, so native const-nil was already correct.
-- **Fix (4 sites, all in `7f53b9ce`)**: (1) `coerceArg` (`ir/gen_call.bn`) string→chars / nil→slice gates use `isSliceType` (peels readonly), managed→raw gate peels readonly — gating on bare `paramTyp.Kind` skipped the conversion, passing the bare string-literal pointer where the callee reads a 4-word aggregate by address. (2) VM `isAggregateLoadTyp` (`vm/lower_instr_helpers.bn`) → new `vmPeelTransparent` (alias+readonly+named), mirroring native `common.peelTransparent`. (3) VM `lowerStore` (`vm/lower_memory.bn`) value-type classification peels transparent — a readonly managed-slice param copied into a local was storing one scalar word. (4) LLVM `constNilLLVMTypeName` (`codegen/emit_const_nil.bn`) peels outer readonly/alias — an empty `readonly @[]readonly char` was emitting scalar `inttoptr 0`, mismatching the `%BnManagedSlice` consumer.
-- **Tests**: `conformance/688_readonly_slice_param` (empty+non-empty string literals at `readonly @[]char` / `readonly @[]readonly char` / `readonly *[]readonly char` params + readonly-typed locals), green on LLVM / native-aa64 / native-x64-darwin / VM; unit tests pin `isAggregateLoadTyp` + `constNilLLVMTypeName` peeling. Full conformance: LLVM 1317/0, VM 1295/0, native-aa64 1294/0.
-- **Note**: `coerceArg`'s managed→raw readonly-peel is currently unreachable from source (the `@[]T → readonly *[]T` assignment is FE-rejected — see the assignability over-rejection finding below); the peel is correct and forward-looking.
 
 ### Adversarial audit of `7f53b9ce` (2026-06-09, find→verify workflow) — sibling findings
 The audit re-verified its own findings at runtime; **note a concurrent worker clobbered shared `/tmp` test files mid-run**, producing one false positive (below) — all findings here were re-reproduced by hand with unique paths.
