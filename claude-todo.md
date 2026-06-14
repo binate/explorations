@@ -63,33 +63,6 @@ this upcast does not).
 - **Bug-discovery protocol**: add a conformance test for the upcast marked xfail
   until codegen lands.
 
-## MAJOR — generic-interface constraint parameterized by another type param isn't substituted before the satisfaction check → valid instantiation wrongly rejected (2026-06-13) — 🔴 OPEN
-
-When a generic function's type parameter is bounded by a generic-interface
-instantiation that names ANOTHER of the function's type params — `func use[X any,
-T Container[X]]` — the constraint `Container[X]` is checked against the supplied
-type argument WITHOUT first substituting `X`. So `use[int, @IntBox]` (where
-`impl @IntBox : Container[int]`) is rejected with `type argument @IntBox does not
-satisfy constraint Container[X]` (note the unsubstituted `X`).
-
-- **Repro** (rejected):
-  ```
-  interface Container[T any] { get() T }
-  type IntBox struct { v int }
-  impl @IntBox : Container[int]
-  func (b @IntBox) get() int { return b.v }
-  func use[X any, T Container[X]](a T) int { return 0 }
-  func main() { var b @IntBox = make(IntBox); println(use[int, @IntBox](b)) }
-  ```
-- **Root cause**: in `instantiateGenericFunc` (`check_generic.bn`) the per-arg
-  constraint check uses `ft.TypeParams[i].TpConstraint` directly; when that
-  constraint mentions earlier type params it must be run through
-  `substituteTypeParams` (with the already-resolved args) before
-  `typeSatisfiesConstraint`. Adjacent to the generic-struct-substitution fix
-  (`0a62d3f4`) but on the constraint, not the param/result types.
-- **Discovery**: adversarial review of `614e6eea` (2026-06-13). Pre-existing.
-- **Bug-discovery protocol**: add a conformance test marked xfail until fixed.
-
 ## IN PROGRESS — deprecate `pkg/binate/buf` in favor of `pkg/std/strings.Builder`
 
 Full plan: [plan-buf-deprecation.md](plan-buf-deprecation.md).
