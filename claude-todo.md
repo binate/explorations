@@ -23,47 +23,6 @@ arm for `e.X.Kind == ast.EXPR_UNARY && e.X.Op == token.STAR` →
 also accepted it, so the IR-gen defect is PRE-EXISTING.  Needs a conformance
 test (xfail until fixed, or passing if fixed).
 
-## MAJOR — instantiated generic interface never records `.Parents`, so its inheritance is invisible → valid descendant/upcast wrongly rejected (2026-06-13) — 🔴 OPEN
-
-`buildInstantiatedInterface` (`pkg/binate/types/check_generic.bn`) constructs the
-instantiated `TYP_INTERFACE` via `MakeInterfaceType` and populates methods +
-`InstDecl`/`InstArgs`, but **never sets `iface.Parents`** (the non-generic
-collection path does). So an instantiated generic interface looks like it
-extends nothing: `isDescendantInterface(WideBox[int], Box[int])` returns false
-even though `interface WideBox[T] : Box[T]`. Every consumer of interface
-inheritance over a generic-interface instantiation is affected.
-
-- **Repro A (pure iface-value upcast, no generics-func involved)** — rejected:
-  ```
-  interface Box[T any] { get() T }
-  interface WideBox[T any] : Box[T] { extra() int }
-  type Impl struct { v int }
-  impl @Impl : WideBox[int]
-  func (i @Impl) get() int { return i.v }
-  func (i @Impl) extra() int { return 0 }
-  func main() { var im @Impl = make(Impl); var w @WideBox[int] = im; var b @Box[int] = w; _ = b }
-  ```
-  → `cannot assign @WideBox[int] to @Box[int]`. Non-generic `Wide : Cmp` upcast
-  works, confirming the gap is specific to *instantiated generic* interfaces.
-- **Repro B (constraint forwarding)**: `func inner[U Box[int]](a U) int{...}` /
-  `func outer[U WideBox[int]](a U) int { return inner[U](a) }` → wrongly rejected
-  (`type argument U does not satisfy constraint Box[int]`). Newly exercised by the
-  constrained-type-param-forwarding fix (binate `614e6eea`), but the root cause is
-  pre-existing and independent (Repro A needs no generic function).
-- **Root cause**: `buildInstantiatedInterface` omits a substituted `.Parents`.
-  **Proposed fix**: when building the instantiation, resolve each parent of the
-  generic decl with the type-param scope active (so `Box[T]` → `Box[int]`) and
-  record them on `iface.Parents`, mirroring how the non-generic interface
-  collection path populates Parents.
-- **Discovery**: adversarial review of `614e6eea` (2026-06-13). Pre-existing.
-- **CHECKER FIX READY** (worktree `b4ca39c2`, pending landing approval):
-  `buildInstantiatedInterface` now resolves the extension clause with the
-  type-param scope active and records substituted `.Parents`. Both *descendant
-  satisfaction* paths (concrete-impl and forwarded-type-param) work end-to-end
-  (`conformance/754_generic_iface_extends_constraint` → 42) + 2 checker unit
-  tests. **BUT** this surfaced a separate codegen gap (entry below): the
-  generic-interface-VALUE *upcast* now type-checks then fails in codegen.
-
 ## MAJOR — generic-interface-VALUE upcast (`@WideBox[int]` → `@Box[int]`) type-checks then fails silently in codegen (2026-06-13) — 🔴 OPEN
 
 Assigning an instantiated generic interface value to one of its (instantiated)
