@@ -4,7 +4,13 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
-## MAJOR — `&(*p)` (address-of-dereference) mis-lowers → SIGSEGV on write-through (2026-06-13) — 🔴 OPEN
+## MAJOR — `&(*p)` (address-of-dereference) mis-lowers → SIGSEGV on write-through (2026-06-13) — ✅ FIXED+LANDED (binate `465b44b5`)
+
+`genUnary`'s `&` arm now lowers a deref operand `&(*p)` to `genExpr(e.X.X)` (the
+pointer `p`, since `&*p == p`), instead of falling through to `genExpr(e.X)`
+which returned the loaded VALUE of `*p` as a pointer (write-through SIGSEGV'd).
+`conformance/759_addr_deref` pins write-through + aliasing (builder-comp / VM /
+gen2). Original investigation below.
 
 `&(*p)` is checker-addressable (a dereference is a valid lvalue; `&*p == p`),
 but IR-gen mis-lowers it.  `genUnary`'s `&` arm (`pkg/binate/ir/gen_expr.bn:152-178`)
