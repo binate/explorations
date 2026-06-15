@@ -4,9 +4,13 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
-## MAJOR (types, REGRESSION) — `x << ~0` no longer rejected: the negative-shift-count gate's `LitSign` skip mishandles `~`-complemented literals (2026-06-15) — 🔴 OPEN
+## MAJOR (types, REGRESSION) — `x << ~0` no longer rejected: the negative-shift-count gate's `LitSign` skip mishandles `~`-complemented literals (2026-06-15) — ✅ DONE (binate `46204267`)
 
-**Symptom (REPRODUCED on builder-comp).** `var x int = 1; println(x << ~0)` compiles (no `negative shift count` error) and produces garbage (`int64`-min) instead of being rejected — `~0 == -1`, a negative constant shift count. Pre-`393eaa0b` it was correctly rejected.
+Fixed: the gate now skips only a BARE `EXPR_INT_LIT` count (always non-negative) and routes everything else — `~0`, `-1`, idents, exprs — through `evalConstIntValue` (which folds `~x` to -x-1 correctly), instead of trusting `LitSign` (which `~` doesn't update). `x << ~0` / `x <<= ~0` reject tests added; named-unsigned/huge-literal allow-cases and `-1` reject-cases unchanged. The coverage follow-ups (binate `fc3c496d`): `conformance/793` strengthened to a wider-than-lvalue negative count (`int8 <<= int16(-256)` — now fails on the un-fixed compiler), honest comments on the same-width IR smoke-test and the 788 untyped self-comparison. `guardInt64`'s 32-bit pair branch remains host-gated (untestable on the 64-bit CI host; documented).
+
+**Spun off:** fixing the `~0` rejection exposed a pre-existing IR-gen edge — `x << 0x8000000000000000` now compiles (correct, a positive count) but runs as `1` not the spec'd overshift `0` (`emitConstOvershiftOrNil` keys on the *signed* `IntVal`, negative for 2^63, missing the overshift). Ultra-contrived (a 2^63 shift count); left as a tracked note, not fixed (no explicit go-ahead). Fix would be: detect the overshift from the count's unsigned magnitude.
+
+**Symptom (REPRODUCED on builder-comp).** `var x int = 1; println(x << ~0)` compiled (no `negative shift count` error) and produced garbage (`int64`-min) instead of being rejected — `~0 == -1`, a negative constant shift count. Pre-`393eaa0b` it was correctly rejected.
 
 **Root cause.** The gate fix (`393eaa0b`) added `if countType.HasLitVal { if LitSign && LitMag != 0 { error }; return }`, trusting `LitSign` for the count's sign. But `checkUnaryExpr`'s TILDE branch (`check_expr.bn`) returns the operand's type UNCHANGED — it does NOT complement `LitMag`/`LitSign` (unlike MINUS, which flips `LitSign`). So `~0` carries `LitMag=0, LitSign=false` (the operand `0`'s metadata), the gate's early-return fires with `LitSign` false → no error, and it never reaches `evalConstIntValue` (whose TILDE case `-x-1` correctly folds -1). Affects both the expression and compound-assign sites.
 
