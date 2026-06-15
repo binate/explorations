@@ -10,6 +10,56 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~native_x64 (ELF) was NOT "WIP" — one reloc bug masked a 99%-working backend~~ — ✅ FIXED+LANDED incl. the C-call/variadic gap (verified 2026-06-15)
+Core fixed by the PC32 reloc-addend fix (binate `dd74c91e`) + `.note.GNU-stack`
+(`c097a381`). The remaining C-call/variadic gap is also closed (`0d0f35b7`,
+`62ae438f`): SysV variadic `AL = #vector-regs` is implemented in `x64_call.bn`
+(`if OP_C_CALL && CFixedArgs < len(Args) { Mov AL, nsrn }`), and all native_x64
+xfails on the c-call conformance tests (498/500/527/530 + regressions/c-call/*)
+are gone. `builder-comp_native_x64-comp_native_x64` is in `scripts/modesets/all`
+→ CI runs it on a real x86_64 host (not the Rosetta-darwin path that hid the
+bug). Remaining native_x64 xfails belong to separate entries (float-closure
+shim; static-data @T addend; named-func-value literal).
+
+### ~~MAJOR — native Mach-O writer emitted no LC_DYSYMTAB / unpartitioned symtab → cross-object weak defs wouldn't coalesce → `duplicate symbol`~~ — ✅ RESOLVED (binate `3fb0e805`, 2026-06-15)
+`3fb0e805` ("make objects atom-safe so weak symbols coalesce") sets
+MH_SUBSECTIONS_VIA_SYMBOLS, emits LC_DYSYMTAB (ncmds 3→4) with a
+local/extdef/undef-partitioned symtab (`partitionSymbols` + `macho_dysymtab.bn`),
+drops unreferenced L-temps, relocates every inter-atom ref (incl. x64 RIP-LEA,
+aa64 ADRP+ADD), and adds `macho_dysymtab_test.bn`. The 8 dup-symbol xfails this
+caused were removed; the 3 remaining (cmd-bni/repl/vm) were re-attributed to the
+separately-resolved static-data @T-addend entry.
+
+### ~~[CR-2 Plan-1 review] AMEND CRITICAL "iface-upcast −1-offset footgun" with two new reproducer details~~ — ✅ DONE (parent resolved binate `ca155319`; verified 2026-06-15)
+Both sub-fixes landed in `ca155319` (the parent CRITICAL is already in this log):
+`IfaceParentSlotOffset(X,X)→0` for the same canonical interface
+(`gen_iface_extends.bn`), and a hard negative-offset panic in all three lowerings
+(`emit_iface_upcast.bn`, native aa64/x64 `*_dispatch.bn`). The follow-on
+false-fire regression was fixed in `4ac123da`. Conformance 685/689 cover it.
+
+### ~~Sub-word arithmetic results not narrowed in the VM (and natives) — dirty upper bits → wrong values~~ — ✅ DONE incl. aa64-subword extension (verified 2026-06-15)
+Primary add/mul narrowing landed earlier (VM `435b6cdd`, aa64 `ee671b6c`, x64
+`57e72d9e`; `applyNarrow`/`narrowToWidth` in `vm_exec_pure.bn`). The aa64-subword
+extension is also resolved: per-backend sign-extend/re-narrow fixes (`d186b73d`,
+`f627e815`, `0ca49975`, `68616b20`) let `5f94558b` drop 29 stale native_aa64
+scalar-diff xfails (29/29 re-verified XPASS on a real aarch64 host); 0
+native_aa64 xfails remain in conformance/matrix.
+
+### ~~Verify anonymous struct equivalence — edge cases~~ — ✅ DONE (verified 2026-06-15)
+All three requested edge cases are covered by landed, passing, non-xfail'd
+conformance tests on main: nested (`490_nested_anon_struct_equiv`), managed field
+(`491_anon_struct_managed_field_equiv`), and cross-package
+(`402_cross_pkg_anon_struct`, a real pkg dep) — commits `3af592d9` / `5e29c9d3`.
+
+### ~~REPL refactor: embeddable component for non-CLI hosts~~ — ✅ DONE (v1 Stages 1–5; the "DESIGN RATIFIED, not started" header was stale; verified 2026-06-15)
+The embeddable engine landed as `pkg/binate/repl` (interface in
+`pkg/binate/repl.bni`): `replSession`/`NewReplSession` (errors-as-values),
+`ReplIO` sink, `Init()`/`Step()→StepResult`, an inert v1 interrupt seam
+(`SetPoll`). `cmd/bni` is rewired to drive it (`cmd/bni/repl.bn` imports
+`pkg/binate/repl`, calls `NewReplSession`/`Init`/`Step`). Plan doc
+`plan-repl-embeddable.md`: "Stages 1–5 DONE (2026-06-02)". Stages 6/7 are
+FUTURE/out-of-v1-scope, tracked there.
+
 ### ~~Unknown escapes silently dropped (spec Ch.5)~~ — ✅ REJECTED+LANDED (binate `be30129e`; conformance 791; 2026-06-15)
 
 `unescapeStr`/`parseCharLit` decoded only `\n \r \t \\ \' \" \0 \xHH \uHHHH`;

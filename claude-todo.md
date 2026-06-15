@@ -183,54 +183,6 @@ which has no alias shortcut).
 
 ---
 
-## native_x64 (ELF) was NOT "WIP" — one reloc bug masked a 99%-working backend — ✅ core FIXED+LANDED, C-call gap OPEN (2026-06-14)
-
-**Fixed + landed:** `dd74c91e` (PC32 addend) + `c097a381` (`.note.GNU-stack`).
-
-Native x64-linux/ELF produced binaries that printed correct output then SIGSEGV'd
-on exit — on EVERY program with a cross-package call (nearly all of them). It was
-repeatedly mislabeled "WIP / non-blocking" in CI triage and the bnc-0.0.8 release
-plan. **That label was wrong** — the codegen was fine; the CI log literally showed
-`actual: hello world` before the crash.
-
-**Root cause:** the ELF writer emitted `R_X86_64_PC32` relocations (cross-object
-CALL/JMP/Jcc rel32 and RIP-relative LEA disp32) with `r_addend = 0`, but x86-64
-RELA requires `-4` (the rel32/disp32 is measured from the END of the
-instruction). So every cross-object call resolved to `symbol + 4`, skipping the
-callee's 4-byte `push %rbp; mov %rsp,%rbp` prologue → frame corruption → SIGSEGV
-on return. Intra-object calls were fine (the in-section `patchRel32` bakes the -4
-in); Mach-O was fine (its branch reloc carries -4 implicitly) — so
-`native_x64_darwin` under Rosetta ran clean and hid the bug from ALL local
-testing (the only real-x86 x64 signal is the ELF CI job). Fix: `elfRelocAddend()`
-applies -4 for EM_X86_64 PC32 (+ `TestElfRelocAddendPC32`). Separately, the ELF
-writer omitted `.note.GNU-stack` (→ ld marked the stack RWX); now emits an empty
-`.note.GNU-stack` so the linked stack is non-executable.
-
-**NOT a regression vs bnc-0.0.8:** the released bnc-0.0.8 binary builds an
-identically-crashing `001_hello` (verified by building+running it under docker
-linux/amd64). The bug predates 0.0.8; it was just never root-caused.
-
-**Result on real x86 CI (with the PC32 fix):** native_x64 conformance went from
-~0 passing to **1423 passed / 12 failed / 4 skipped** (CI run 27520866068).
-
-**Remaining native_x64 gap — 🔴 OPEN (the 12 failures):**
-- **C-call / variadic ABI** (the bulk): `498_c_call_basic`, `500_c_call_variadic`,
-  `527_c_call_variadic_multi`, `530_c_call_variadic_stack`,
-  `regressions/c-call/{abs-negative,abs-positive-zero,labs,printf-variadic-float,
-  printf-variadic-int,strlen}`. Likely the x86-64 SysV variadic rule (AL = number
-  of vector registers used) and/or stack alignment for variadic C calls — a real
-  native_x64 codegen gap; investigate `pkg/binate/native/x64` C-call lowering.
-- **xfail candidates** (already xfailed on other native modes): `386_iface_nil_
-  dispatch_vm_panic` (compiled-mode SEGV vs VM message), `719_named_slice_
-  transparency` (native named-slice codegen gap, also fails native_aa64).
-
-Follow-ups: (1) fix the C-call/variadic gap; (2) treat native_x64 conformance as
-expected-mostly-green (stop dismissing it as WIP) so a regression of THIS bug is
-caught.  (DONE: 386 + 719 now xfailed on native_x64; the x64.bn / x64_call.bn
-PLT32 comments are corrected to PC32.)
-
-**WATCH — possible flaky `matrix/readonly/pass-arg/value-struct-large` on native_x64 (2026-06-14):** this cell is NOT in the 12 failures above and PASSES in normal native_x64 conformance CI (it has no native_x64 xfail), but it produced a **one-off empty-output crash** (expected `7\n9`, got nothing) when pulled into a `conformance-xpass` sweep run via the (now-fixed) substring-filter collision with `value-struct` (`run.sh --exact` stops that now). Same test, same mode, two different outcomes → likely a flaky / marginal native_x64 codegen issue for a >16-byte `readonly` aggregate passed by value, or a one-off artifact of that poisoned sweep run. Not reproduced since; no marker added. If it recurs in normal CI, investigate the native_x64 byval path for `readonly`-wrapped >16-byte aggregates (`pkg/binate/native/x64`).
-
 ## MINOR — cross-mode interface dispatch: test-coverage gaps + LP64 assumption (2026-06-14) — 🟡 OPEN
 
 The shim-route that dispatches a native-only package's interface methods from
@@ -286,128 +238,6 @@ directly, so `$blib/impls/stdlib` resolves):
 Until then the symlink is load-bearing — don't remove it without the
 binate-paths change, and don't make the binate-paths change without a flattened
 BUILDER.
-
-## MAJOR — native Mach-O writer emits no `LC_DYSYMTAB` / unpartitioned symtab → linker won't coalesce cross-object weak defs → `duplicate symbol` link failure (2026-06-14) — ✅ RESOLVED (2026-06-15, `3fb0e805`)
-
-**Resolution.** Made native Mach-O objects atom-safe and turned on
-`MH_SUBSECTIONS_VIA_SYMBOLS` (the flag ld-1266 requires to coalesce weak
-defs). Landed as `3fb0e805` ("native (Mach-O): make objects atom-safe so weak
-symbols coalesce"). Four parts: (1) set the subsections flag + emit
-`LC_DYSYMTAB` + partition the symbol table (local/extdef/undef); (2) DROP
-unreferenced `L`-prefixed temporaries from the symtab — emitting block labels
-made ld split each function into atoms at its own internal labels and reorder
-the pieces, corrupting in-section conditional branches (clang never emits
-them); (3) aarch64/x64: every inter-atom reference relocates (B/BL/CALL to a
-non-`L` symbol, and ALL data references — x64 RIP-relative LEA and aarch64
-ADRP+ADD), only intra-function branches to `L` block labels stay in-section.
-The x64 LEA case was the subtle one: resolving an `Lstr_*` LEA in-section
-baked a stale displacement once ld moved the string's atom, corrupting every
-string under subsections (caught by native_x64_darwin conformance, 296→1431).
-Validated: native_aa64 unit GREEN (8 dup xfails removed), native_aa64
-conformance GREEN, native_x64_darwin recovered. ELF unaffected (no
-subsections) — verified by inspection, CI-gated. Exposed a separate
-pre-existing bug — see the CRITICAL static-data managed-pointer addend entry —
-which still xfails repl/vm/cmd-bni on native_aa64 (reason updated).
-
-Original investigation (historical record) follows.
-
-`builder-comp_native_aa64` **unit** mode fails to link 11 package test binaries
-(native, native/common, native/aarch64, native/x64, ir, codegen, vm, repl,
-mangle, cmd/bnc, cmd/bni) with:
-
-    ld: duplicate symbol '_bn_pkg__binate__buf____dtor_Builder__vt' in:
-        ...pkg__binate__buf.o      (owner of buf.Builder)
-        ...pkg__binate__mangle.o   (a consumer of buf.Builder)
-
-**Root cause (corrected after investigation — NOT a strong-symbol or codegen
-bug).** The dtor vtable `__dtor_<T>__vt` IS emitted **weak** (`N_WEAK_DEF`) in
-both owner and consumer objects, by design, mirroring the LLVM backend — confirmed
-`a.SetWeak(vtLabel)` at `pkg/binate/native/aarch64/aarch64_funcvalue.bn:202` and
-both objects parsed as `n_desc=0x0080 [N_WEAK_DEF]`. A correct linker coalesces
-these. The defect is in the **native Mach-O object writer**
-(`pkg/binate/asm/macho/macho.bn`): it emits only `LC_SEGMENT_64 + LC_SYMTAB +
-LC_BUILD_VERSION` (`macho.bn:190`, `ncmds=3`) and an **unpartitioned** symbol
-table (insertion order, locals/extdefs/undefs interleaved). It never emits
-`LC_DYSYMTAB` (the constant is defined-but-unused at `macho_const.bn:19`).
-Without `LC_DYSYMTAB` + a partitioned symtab (local → external-defined →
-undefined ranges), the current toolchain linker (`ld-1266.8`, Mar 2026) cannot
-identify external-defined weak symbols as coalescing candidates and treats two
-weak `__vt` defs as a hard collision. clang objects carry `LC_DYSYMTAB` and
-coalesce fine; `ld -r` on a native object (which rewrites it WITH `LC_DYSYMTAB`)
-makes the duplicate vanish — isolating the missing load command as the cause.
-
-**Not** caused by `7acda3a4` ("inject managed-struct dtors", 2026-06-13): the
-failure reproduces identically at its parent `2654d858`. The trigger is
-`buf.Builder` (a user-defined managed struct owned by `pkg/binate/buf`, added
-`26c224c0` 2026-06-12, RefDec'd in consumers like `mangle`) — the first
-cross-package managed-struct dtor-vtable weak-symbol pair linked into a single
-native unit-test binary. The latent Mach-O-writer defect was dormant until that
-pair existed. (Related to the prior dtor-mangling fix `94b75294` /
-claude-todo-done.md ~L1832, which made owner+consumer both emit *weak* and relied
-on the linker coalescing — that mechanism is intact; the linker requirement
-underneath is what's unmet.)
-
-**Scope / impact:**
-- Affects the **native Mach-O backends** (native-aa64 AND native-x64-darwin —
-  shared writer). The LLVM backend dedupes (clang objects have `LC_DYSYMTAB`), so
-  builder-comp / -comp-comp / -comp-comp-comp unit + conformance are GREEN
-  (0 dup-symbol on those modes in unit run `27488837411`).
-- **Does NOT affect the shipped release bundle** — bnc/bni/bnas/bnlint are
-  LLVM-built (`scripts/build-*.sh` → clang), not native-aa64.
-- native-aa64 **conformance** passes (single-program cells rarely link an
-  owner+consumer of the same managed struct); only the **unit** test binaries
-  (package + all deps) hit a colliding pair.
-- Will NOT self-heal at a BUILDER bump (current-source native object writer, not
-  BUILDER skew) — persists in post-release CI until fixed.
-
-**Fix — empirically narrowed (2026-06-14); the simple object-writer flag flip is a
-DEAD END. The real fix is to make native layout atom-independent so weak
-coalescing works (NOT owner-only — see below).** Findings from a worktree
-experiment (preserved on binate branch `wip-macho-coalesce-experiment`,
-`ea164d48`):
-- `LC_DYSYMTAB` + symbol-table partitioning (local/extdef/undef ranges) is
-  **necessary but INSUFFICIENT.** Implemented it; the emitted `buf.o` has a
-  correct `LC_DYSYMTAB` (`nlocalsym 48 / iextdefsym 48 / nextdefsym 118 /
-  iundefsym 166 / nundefsym 5`) and the `__dtor_Builder__vt` symbol is correctly
-  `weak external` in the extdef range — yet ld **still** reports duplicate
-  symbol. So the missing-`LC_DYSYMTAB` theory (and the earlier `ld -r` evidence)
-  was wrong about the discriminator.
-- The actual discriminator vs clang is the **`MH_SUBSECTIONS_VIA_SYMBOLS`** mach-
-  header flag (0x2000): clang sets it, the native writer hard-codes flags=0. A
-  controlled test (clang weak global in `__DATA,__data`/`S_REGULAR`, same
-  `N_WEAK_DEF`) coalesces *only* because clang sets this flag — it tells ld the
-  sections split into per-symbol atoms, which is what lets ld keep one weak def
-  and drop duplicates.
-- **BUT setting `MH_SUBSECTIONS_VIA_SYMBOLS` breaks the native backend:** with the
-  flag, the dup-symbol link error disappears, but the resulting native binaries
-  **SIGILL** (e.g. a freshly native-built `bnc` crashes, exit 132, on any
-  compile). The native codegen's layout relies on atom **adjacency** (data/code
-  referenced by offset across what would become separate atoms), which the flag
-  lets ld reorder/coalesce/dead-strip — so the flag is unsafe without first
-  making native layout fully atom-independent (every inter-atom reference a
-  reloc-to-symbol). That is a large codegen project, not an object-writer tweak.
-
-**Owner-only emission is NOT the fix — generics require coalescing (author
-decision, 2026-06-14).** Having a consumer reference the owner's `__dtor_<T>__vt`
-external would work for a package-owned struct like `buf.Builder`, but with
-**monomorphized generics** the same instantiated type's dtor/vtable (`Foo[int]`)
-is emitted by EVERY package that instantiates it — there is no single owner
-package to reference — so cross-object **weak coalescing is genuinely required**
-(this is exactly why the LLVM path emits weak-in-consumers and relies on ld
-coalescing). The native backend must therefore support the SAME coalescing, which
-means making `MH_SUBSECTIONS_VIA_SYMBOLS` safe.
-
-**Real fix: make the native object layout atom-independent, then set
-`MH_SUBSECTIONS_VIA_SYMBOLS`.** Every inter-atom reference (code→code, code→data,
-data→data) must be a relocation to a *symbol*, with no reliance on adjacency /
-section-relative offsets that cross a defined-symbol boundary — so ld can split,
-reorder, and coalesce atoms without breaking the program. Once that holds, the
-flag (plus the `LC_DYSYMTAB` partitioning from the experiment) lets ld coalesce
-the weak dtor/vtable defs exactly like clang. This is a native-codegen project in
-`pkg/binate/native/{aarch64,x64}` (instruction/data emission + the macho writer),
-not an object-writer tweak. Needs a native-aa64 unit/link regression once
-fixed. Discovered 2026-06-14 during the bnc-0.0.9 release-readiness gate (unit run
-`27488837411`).
 
 ## MAJOR — closure-shim cousins still use raw `ArgWords` for user words (latent funcval miscompile) — 🟡 OPEN
 
@@ -676,10 +506,6 @@ green because no test exercises the wrapped / nameless / composite-literal /
 named-type variant. Per the user (2026-06-08): FILE all, FIX nothing yet.
 The CRITICAL entries below are also surfaced in `## CRITICAL`-class triage.
 
-### [CR-2 Plan-1 review] AMEND existing CRITICAL "iface-upcast −1-offset footgun" (filed `866b935`) with two new reproducer details
-- **(a) Concrete trigger via the Kind axis**: `ifaceValueTypesAgree` (`gen_util.bn:225`) keeps `if a.Kind != b.Kind { return false }`, so a managed↔raw decay of the SAME canonical interface (`@Empty → *Empty`) still takes the upcast path → `IfaceParentSlotOffset(X,X) = −1` → `getelementptr inbounds i8*, i8** %vt, i64 −1` (UB). **Probe-confirmed** the −1 GEP is emitted. **Reachability is bounded and currently HARMLESS**: the type checker rejects `@Iface → *Iface` for any NON-empty interface (`isDescendantInterface(X,X)=false`), and `@Iface → *any` uses the offset-0 `any` special case — so −1 fires only for zero-method interfaces, which never dereference the vtable. Latent wrong-code, not a reachable crash. Targeted fix when the footgun is addressed: in `ifaceValueTypesAgree`, when canonical `(Pkg,Name)` AGREE return true regardless of Kind (same-interface managed↔raw relabel needs offset 0); a blanket Kind-ignore would be WRONG (a genuine `@Child → *Parent` upcast must keep its real positive offset — probe shows +1).
-- **(b) Cross-backend divergence on the −1**: the LLVM lowering (`emit_iface_upcast.bn:57-60`) writes the offset verbatim (`i64 −1`), while BOTH native backends guard with `if byteOff > 0` (`aarch64_dispatch.bn:166`, `x64_dispatch.bn:242`) and so leave the vtable pointer unchanged (accidentally offset 0). So the same IR yields base−1 on LLVM vs base on native. The fix should make −1 a hard assert in all three lowerings (not a silent GEP) and have `IfaceParentSlotOffset(X,X)` return 0 like the `any` case.
-
 ### [CR-2 Plan-1 review] MINOR / doc-comment & xfail-hygiene corrections (2026-06-08)
 - **N2 / N3 / N10 / N11 — ✅ DONE**: N2 (dead `peelTransparent` comment in `gen_iface.bn`) and N10/N11 (stale iface/funcval-multi-return xfail markers) were resolved in-tree by later work (verified absent); N3 (the false "deferred to the concrete instantiation" comparability comments + an xfail `eq[@[]int]` cell, `conformance/772`) landed binate `15946a55`. See claude-todo-done.md.
 - **N1 (narrow, pre-existing) — ✅ RESOLVED 2026-06-12 (`11f99ed9`)**: an out-of-range CONSTANT shift count was wrapped into [0,width) by `ensureWidth` BEFORE the overshift guard (`v << 256` on uint8 → 1 not 0; signed `int8 >> 256` stays -64 not sign-filled; same in `<<=`/`>>=`). New `emitConstOvershiftOrNil` (`gen_binary.bn`) detects a constant count `>= width` from its ORIGINAL (pre-`ensureWidth`) `IntVal` and emits the spec result directly — 0 (logical `<<`/unsigned `>>`) or sign-fill `lhs >> (W-1)` (signed `>>`), the SAME result `emitGuardedShift` already produces for a runtime overshift (VM-consistent — the path the reverted "widen the value" attempt regressed). Wired into BOTH `genBinaryExpr` and `emitCompoundBinop`, before each truncates the count. Keying on `IntVal` also covers a wider-TYPED constant count (uint16 const 256 shifting a uint8). `conformance/729_const_shift_overshift` green on LLVM / both VM lanes / native aa64 / native x64-darwin; the 48 existing runtime-count shift/overshift cases + ir unit tests unaffected. (The **runtime** count-wider corner (c) is now also ✅ RESOLVED — binate `0db709a1` reads the UNTRUNCATED count so a runtime count wider than the value is detected. Related shift hardening landed alongside: a runtime **negative** shift count now panics — `6bf1efab`, `runtime error: negative shift count` — and a constant negative count is a compile error — `f6b9ebce`; plus the guard-free `unsafe_shl`/`unsafe_shr` intrinsics — `c9a6ed36`. Spec updated: §13.5 `expr.shift.overshift`/`expr.shift.negative`, §15.8, §17.5, §21.)
@@ -712,26 +538,6 @@ node + module-global accumulators scanned/re-mangled linearly):
   per-function list instead.
 - Minor: `resolveTypeExpr` allocates a fresh `@Type` per occurrence (no
   interning); `lookupFuncParams`/`collectFuncStrings` do O(n) linear scans.
-
-### Sub-word arithmetic results not narrowed in the VM (and natives) — dirty upper bits → wrong values — PRIMARY (add/mul narrowing, VM + natives) RESOLVED; aa64-subword EXTENSION still OPEN
-- **STATUS 2026-06-10 (triage)**: the PRIMARY facet — sub-word add/mul narrowing in the VM and natives — is FIXED+LANDED (`435b6cdd` VM, `ee671b6c` aa64, `57e72d9e` x64; `matrix/scalar/{add,mul}/{8,16,32}/unsigned` have no xfails; the VM's `vm_exec_pure.bn` has `applyNarrow`/`narrowToWidth`). What REMAINS OPEN is the **aa64-subword extension** below — native-aa64 sub-word **signed shifts, all int-casts, signed sub-word conversions, signed cmp, float↔int** still leave dirty upper bits (≈29 `matrix/scalar*` native_aa64 xfails, `--check-xpass`-confirmed genuinely-failing). Keep this entry for that extension; the original add/mul-narrowing symptom below is historical.
-- **Symptom**: a sub-word integer op (`uint8/16/32` add/mul/…) whose true result
-  overflows the width leaves the un-narrowed value in the host register; a
-  width-sensitive consumer reached DIRECTLY (no intervening sized store/cast) —
-  shift, unsigned compare, divide, widen — reads the dirty upper bits → wrong
-  value. E.g. `(a*b) >> 8` for `uint16 a=b=60000`: **164 on LLVM, 37796 on the VM**.
-- **Root cause (CONFIRMED)**: the bytecode VM's `execArithOp`
-  (`vm_exec_pure.bn`) computes at the host word width with no post-op narrowing
-  to the result type's width; the native backends (x64/aa64) carry the same gap
-  (§3.8). LLVM is correct (true-width SSA). Storing the result into a sized var
-  re-narrows it, so the bug is latent until the op result is consumed directly.
-- **Test**: `conformance/matrix/scalar/{add,mul}/{8,16,32}/unsigned` (xfailed the
-  3 VM default modes; pass on LLVM). The scalar matrix's first members.
-- **Discovery**: 2026-06-05, P1 scalar matrix. Flagged in plan-code-red.md §3.8 /
-  §8; now confirmed + systematically covered.
-- **Fix**: narrow sub-word op results to their width — a post-op narrow in the
-  VM/native arith handlers, or an IR-gen narrow after each sub-word value-
-  producing op (a P3 design call). Also covers the native variants.
 
 ### Differential scalar harness (`matrix/scalar-diff`) landed — two backend defects found: `vm-int-to-float32` and `aa64-subword` — CONFIRMED
 - **What landed**: `conformance/gen-diff-scalar.py` + 41 cells / 1707 tuples
@@ -2166,11 +1972,6 @@ question).
   to extend `checkBniSignatureMatch` to methods; whether `.bni` method
   decls are mandatory or just allowed.
 
-### Verify anonymous struct equivalence — edge cases
-- Both type checkers now implement structural equivalence for anonymous structs (field names + types in order)
-- Needs edge case testing: nested anonymous structs, anonymous struct with managed fields, cross-package anonymous struct equivalence
-- See claude-discussion-detailed-notes.md section 22
-
 ### Continue backfilling negative conformance tests
 - 31 negative tests exist (112, 200-210, 214-221, 235-236, 238-246), covering type mismatches, undeclared vars, wrong args, nil semantics, operators, comparisons, field access, indexing, non-function calls, managed pointer misuse, multi-return, undefined types, .bni/.bn mismatch, visibility, imports, type conversion, const/break/continue/param, package mismatch, missing return, var redeclaration
 - `.error` files use `grep -E` regex matching
@@ -2764,40 +2565,6 @@ question).
   descriptor name/layout, walks through one concrete cross-mode call end-to-
   end on each side, and identifies the first concrete code change to make.
   Don't start implementation until the design is reviewed.
-
-### REPL refactor: embeddable component for non-CLI hosts — DESIGN RATIFIED, not started
-- **Status (2026-06-02)**: design decided; see
-  [`plan-repl-embeddable.md`](plan-repl-embeddable.md) for the full
-  staged plan, API, and ratified decisions. The old open "which shape
-  (a/b/c)" question is resolved: **push session** (host owns the read,
-  engine exposes `Init`/`Step(line,eof) → StepResult`), with the
-  interrupt **seam designed-in but unimplemented** in v1 and
-  suspend/break staged behind it.
-- **Why**: today the REPL is welded to stdin/stdout via
-  `bootstrap.{Read,Write}` and a blocking `for{}` loop — can't embed
-  into a wasm worker (I/O over message ports; must yield to the event
-  loop while awaiting input), nor into test harnesses / IDE hosts.
-- **Decided shape** (full rationale in the plan doc): push, not pull
-  (wasm can't block on inbound `postMessage`); `ReplIO` is a struct of
-  `@func` fields, not an interface; user-program output (category B) is
-  redirected by **rebinding the `bootstrap.Write/Read/Exit` externs**
-  (no user-code recompile); REPL-framing output (category A) routes
-  through the host `ReplIO`; engine extracted to **`pkg/binate/repl`**
-  (tier-2); **single live session per process** in v1 (multi-session is
-  a tracked blocker — next entry); interrupt layer is **seam-only** in
-  v1.
-- **Staged v1** (each independently landable, green): (1) session struct
-  + re-entrancy; (2) `NewReplSession` constructor (errors as values, no
-  `Exit`); (3) `ReplIO` sink + extern rebind; (4) push `Init`/`Step` +
-  extract `pkg/binate/repl`; (5) inert interrupt seam.
-- **Future, gated**: continuable-suspend (Stage 6; partially gated on
-  `plan-bni-heap-frames.md`) and break/unwind (Stage 7; needs new IR-gen
-  cleanup landing pads — a frame-discard break LEAKS, so it is
-  forbidden without them).
-- **Out of scope** (raised, not deferred silently): running the
-  type-checker + IR-gen + VM under wasm32 in-worker — necessary for B1
-  but separate from this I/O-shape refactor; its own open scope question
-  for `plan-wasm-browser.md`.
 
 ### REPL: remove process-global session state (multi-session blocker)
 - **What**: the REPL engine keeps per-session state in PROCESS-GLOBAL
