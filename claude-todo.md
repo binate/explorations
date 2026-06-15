@@ -1827,34 +1827,6 @@ question).
 - **Future direction (TODO, not started): allow `const` of transitively *purely value* types.**  A type is *purely value* iff it carries no storage reference: scalars (int-family / bool / char / float) are purely value; `[N]T` is purely value iff `T` is; a struct is purely value iff every field type is.  Pointers, slices, and managed pointers/slices are NOT (they hold a pointer to storage) and stay rejected.  (Strings are a slice of rodata, already handled as a separate immutable-rodata case in Phase A.)  A purely-value const's whole value is known at compile time, so it should be **const-folded at read sites as an immediate** — the scalar-const model (per-use `EmitConst…`), NOT Phase B's canceled initialized-global lowering.  This subsumes `const P Point = Point{1,2}` and `const M [3]int = …` as real constants.  When picked up: define an `isPurelyValueType` predicate, widen `checkConstDecl`'s accept boundary from "scalar" to "purely value", and extend the const producer + read-site dispatch to fold value-struct / value-array literals.
 
 ### Demote raw-slice escape check from type error to linter rule
-- **Final diagnosis**: an unqualified EXPR_IDENT inside a
-  `.bni`-declared const initializer (e.g. `WORDS` in
-  `const SIZE int = WORDS * cast(int, sizeof(int))`) wasn't
-  resolving during import processing — pkg/ir's evalConstExpr
-  looked the name up only in unqualified form, but the sibling
-  const had been registered under the import-qualified name
-  (`pkg/x.WORDS`).  The EXPR_IDENT arm returned (0, false), the
-  binary expression silently became 0, and the resulting const
-  was registered with value 0.
-- **Fix (binate `8fd4f378`)**: retry the lookup with
-  `buildQualName(currentImportAlias, e.Name)` when the
-  unqualified one misses.  Pinned by conformance
-  `504_bni_const_sibling_ref`.
-- **Boundary-enforcement aside**: my first writeup of this also
-  speculated that bnc was accepting unexported cross-package
-  references.  Re-tested with a focused repro: bnc DOES correctly
-  reject `pkg.NAME` references when NAME isn't in the package's
-  `.bni`.  Pinned positively by conformance
-  `502_err_unexported_const_rejected`.  That part was always fine
-  — the only bug was the sibling-ident lookup above.
-- **Discovery**: managed-allocation-header refactor (binate
-  `c7323fb2`).  Replacing pkg/vm's hardcoded `-16` managed-header
-  offset with `ptr - rt.HEADER_SIZE` (declared as
-  `HEADER_WORDS * cast(int, sizeof(int))`) built cleanly but
-  produced `ptr - 0`, silently corrupting the payload's first
-  word.  TestExecRefIncRefDecInline (pkg/vm) caught it on amd64.
-
-### Demote raw-slice escape check from type error to linter rule
 - **Today**: returning a raw slice (`*[]T`) into a local array
   (`return arr[:]`) is a hard type-check error.  The check catches
   the obvious pattern but **misses the real escape paths** the
@@ -2393,33 +2365,6 @@ question).
 - Spec recorded in `claude-notes.md` ("Tail-call return for
   multi-return functions"). `bootstrap-subset.md` notes the
   bootstrap-only rejection.
-
-### Mirror `return f(...)` acceptance in the Go bootstrap — LOW PRIORITY
-- Self-hosted accepts the shape (commits `b88918e` /
-  `d11e4f2` / `d3fc0db` / `96572fb` on main; conformance
-  `347_return_multi_call`). Bootstrap still rejects it.
-- **What's needed**:
-  1. **Type-checker** (`bootstrap/types/checker.go:checkReturnStmt`,
-     ~lines 963-978): when `len(s.Results) == 1` and
-     `len(c.funcRet) > 1`, allow it iff the single expression is
-     a `CallExpr` whose function type returns a matching tuple
-     and each per-result type is `AssignableTo` the
-     corresponding `c.funcRet[i]`. Mirrors the existing
-     multi-return shape in `checkShortVarDecl` (~lines
-     937-955) — same `(len(s.RHS) == 1 && rhsType is FuncType
-     with matching Results)` predicate.
-  2. **Bootstrap interpreter STMT_RETURN execution path**:
-     extend it to handle the single-expression-multi-return
-     shape, mirroring how `q, r := f()` is already executed
-     (single call eval + per-result destructure).
-  3. **Conformance**: drop `347_return_multi_call.xfail.boot`
-     once both impls handle it. Drop the bootstrap-only
-     rejection note from `bootstrap-subset.md`.
-- **Why low priority**: the bootstrap subset is intentionally
-  restrictive; the self-hosted toolchain doesn't need this to
-  compile, and no in-flight work depends on it. Pick up when
-  there's a concrete user (e.g., a self-hosted source file that
-  wants the form, or a broader bootstrap-subset widening pass).
 
 ### pkg/codegen `TestEmitDebug*` dominates `boot-comp-int-int` runtime (perf)
 - **Symptom**: pkg/codegen unit tests take ~1084s in CI under

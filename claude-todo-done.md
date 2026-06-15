@@ -10,6 +10,61 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~`.bni` const initializer's unqualified sibling-ident ref silently resolved to 0~~ — ✅ FIXED (binate `8fd4f378`; conformance 504/502) [entry had a stray duplicate header]
+- **Final diagnosis**: an unqualified EXPR_IDENT inside a
+  `.bni`-declared const initializer (e.g. `WORDS` in
+  `const SIZE int = WORDS * cast(int, sizeof(int))`) wasn't
+  resolving during import processing — pkg/ir's evalConstExpr
+  looked the name up only in unqualified form, but the sibling
+  const had been registered under the import-qualified name
+  (`pkg/x.WORDS`).  The EXPR_IDENT arm returned (0, false), the
+  binary expression silently became 0, and the resulting const
+  was registered with value 0.
+- **Fix (binate `8fd4f378`)**: retry the lookup with
+  `buildQualName(currentImportAlias, e.Name)` when the
+  unqualified one misses.  Pinned by conformance
+  `504_bni_const_sibling_ref`.
+- **Boundary-enforcement aside**: my first writeup of this also
+  speculated that bnc was accepting unexported cross-package
+  references.  Re-tested with a focused repro: bnc DOES correctly
+  reject `pkg.NAME` references when NAME isn't in the package's
+  `.bni`.  Pinned positively by conformance
+  `502_err_unexported_const_rejected`.  That part was always fine
+  — the only bug was the sibling-ident lookup above.
+- **Discovery**: managed-allocation-header refactor (binate
+  `c7323fb2`).  Replacing pkg/vm's hardcoded `-16` managed-header
+  offset with `ptr - rt.HEADER_SIZE` (declared as
+  `HEADER_WORDS * cast(int, sizeof(int))`) built cleanly but
+  produced `ptr - 0`, silently corrupting the payload's first
+  word.  TestExecRefIncRefDecInline (pkg/vm) caught it on amd64.
+
+### ~~Mirror `return f(...)` acceptance in the Go bootstrap~~ — LOW PRIORITY
+- Self-hosted accepts the shape (commits `b88918e` /
+  `d11e4f2` / `d3fc0db` / `96572fb` on main; conformance
+  `347_return_multi_call`). Bootstrap still rejects it.
+- **What's needed**:
+  1. **Type-checker** (`bootstrap/types/checker.go:checkReturnStmt`,
+     ~lines 963-978): when `len(s.Results) == 1` and
+     `len(c.funcRet) > 1`, allow it iff the single expression is
+     a `CallExpr` whose function type returns a matching tuple
+     and each per-result type is `AssignableTo` the
+     corresponding `c.funcRet[i]`. Mirrors the existing
+     multi-return shape in `checkShortVarDecl` (~lines
+     937-955) — same `(len(s.RHS) == 1 && rhsType is FuncType
+     with matching Results)` predicate.
+  2. **Bootstrap interpreter STMT_RETURN execution path**:
+     extend it to handle the single-expression-multi-return
+     shape, mirroring how `q, r := f()` is already executed
+     (single call eval + per-result destructure).
+  3. **Conformance**: drop `347_return_multi_call.xfail.boot`
+     once both impls handle it. Drop the bootstrap-only
+     rejection note from `bootstrap-subset.md`.
+- **Why low priority**: the bootstrap subset is intentionally
+  restrictive; the self-hosted toolchain doesn't need this to
+  compile, and no in-flight work depends on it. Pick up when
+  there's a concrete user (e.g., a self-hosted source file that
+  wants the form, or a broader bootstrap-subset widening pass).
+
 ### ~~[CR-2 Plan-1 review] Memory-safety / refcount audit~~ — CLEAN on the probed Plan-1 paths (2026-06-08)
 - The dedicated memory-safety finder failed to emit output twice; I audited the highest-risk Plan-1 refcount changes by hand with `rt.Refcount`-balance probes. **All balanced — no leak / UAF / double-free found:** (a) Defect-1 `peelTransparent` on `readonly @Box` (the managed/raw-classification flip risk): `var p readonly @Box = b` RefIncs 1→2, stays 2 while alive, scope-end RefDec balances — the peel makes the readonly-wrapped managed ptr counted (correct). (b) Defect-6 managed array element (`a[0] = b` on `[1]@Box`): 1→2→2 balanced. (c) Defect-3/4 multi-return managed field (`x, n := wrap(b)` returning `@Box`): 1→2→2 balanced. NOT exhaustive (the `=`-destructure path M1 fails to compile, and the un-migrated store arms M2 can't be reached with managed inner without crashing), but the directly-attributable Plan-1 refcount changes are sound.
 
