@@ -10,6 +10,17 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~MAJOR — field access on a struct composite-literal rvalue read 0 (`Foo{...}.field`) — silent miscompile~~ — ✅ FIXED (binate `00a3f937`; conformance 794; 2026-06-15)
+IR-gen's `genSelector` dispatched on the base kind (IDENT / INDEX / SELECTOR /
+CALL-BUILTIN / deref-UNARY) but had no `EXPR_COMPOSITE` case, so `Foo{...}.field`
+(and the paren form `(Foo{...}).field`) fell through to the `EmitConstInt(0)`
+fallback and produced 0 on all modes. Construction and method calls on a
+composite rvalue already worked; only the immediate field read was wrong.
+`00a3f937` adds the arm: `genCompositeLit` returns an OP_ALLOC holding the
+materialized struct, so GEP+load the field directly off it (same shape as the
+CALL/deref arms). Conformance 794 (no-paren / paren / positional / managed
+field), green on builder-comp / builder-comp-int (VM) / builder-comp-comp (gen2).
+
 ### ~~CRITICAL (native codegen) — static-data `@T` managed-pointers omitted the +headerSize addend → pointed at the object header, not the payload~~ — ✅ RESOLVED (binate `f78a4951`, 2026-06-15)
 The Mach-O writer dropped relocation addends (a `relocation_info` has no addend
 field), so a static initializer storing a `@T` to another static managed object
