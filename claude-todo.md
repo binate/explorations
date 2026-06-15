@@ -2049,26 +2049,6 @@ question).
 - **Method values** (`x.M`, `T.M`) and **closures** are folded
   under this plan rather than tracked separately.
 
-### Interface-value nil comparison (`iv == nil`) — 🟡 OPEN
-- `iv == nil` for a general interface-value type (not just `*any`) is
-  currently rejected. `IsNillable`
-  (`pkg/binate/types/types_query.bn:268-274`) returns true only for
-  pointer types and `TYP_FUNC_VALUE` / `TYP_MANAGED_FUNC_VALUE`;
-  `TYP_INTERFACE_VALUE` / `TYP_INTERFACE_VALUE_MANAGED` are not in the
-  positive set.
-- A nil interface value IS a meaningful runtime state (both data and
-  vtable slots zero, mirroring `*func(...)`'s convention). Natural
-  extension: add the two interface-value kinds to `IsNillable`'s
-  positive set and check both slots zero at the comparison site
-  (codegen + VM lowering for `iv == nil`).
-- Not a regression; pre-existed plan §6 — surfaced while writing a
-  nil-propagation test for the iv→any upcast. This is a real
-  language-semantics extension that should be confirmed with the user
-  before implementing.
-- (Full resolved diagnosis of the Interface-syntax-revision project,
-  incl. §1–§6 `any` end-to-end landing and the now-closed
-  `type X = BareIface` test gap, archived in claude-todo-done.md.)
-
 ### Cross-package method visibility in `.bni`
 - Methods defined on a public type in package `foo` need to be declared
   in `foo.bni` for callers in other packages to see them — analogous to

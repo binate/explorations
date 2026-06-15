@@ -42,7 +42,6 @@ no longer resolve in the tree, though git history retains them.
 - `scanNumber` now consumes the digit run after a leading `0` (the `leadingZeroInt` branch, `pkg/binate/lexer/scan.bn`), emitting ONE token that upgrades to FLOAT on a `.`/`eE` tail (`0123.5`) else a single ILLEGAL.  Non-xfailed unit tests (`pkg/binate/lexer/scan_test.bn`) assert `0123`→ILLEGAL, `00`→ILLEGAL, `0123.5`→FLOAT.  (Split from the lexer-Ch.5 entry; the two escape-decoding gaps remain open in claude-todo.md.)
 
 ### Named func-value type (`type Fn @func(...)`) is unconstructible — all backends — PRE-EXISTING — REF-HALF ✅ RESOLVED (binate `e1dcd14e` 2026-06-11); literal-half 🔴 OPEN (tracked follow-up)
-**Split 2026-06-14**: resolved bulk archived here; the open residual is tracked as a slim follow-up entry in claude-todo.md.
 - **DESIGN (decided 2026-06-11)**: named func-value types are **constructible from func REFERENCES / literals but NOMINAL for func VALUES** (parallel to named scalars — untyped-literal construction, nominal typed values). So `var f Fn = dbl` (ref) and `var f Fn = func(...){}` (literal) should work; `var f Fn = g` (a `@func` value) stays rejected.
 - **REF-HALF ✅ RESOLVED (`e1dcd14e`)**: `var f Fn = dbl` (+ raw `*func` named types + reassignment) now construct and call correctly on all modes. The originally-proposed `checkExprWithFVHint`-peel was the LITERAL half; the REF half was actually two checker peels (`AssignableTo`'s func-ref arm + `checkCallExpr`) **plus the real root fix in IR-gen**: `typeDeclEntryType` (moved to `gen_typedecl.bn`) now represents a named func-value type transparently as its underlying `@func`, because func values carry no IR-level nominal identity and every consumer (construction / call dispatch / copy / dtor / refcount) keys off the func-value kind — a TYP_NAMED wrapper made each mis-handle it (call → direct global ref to a nonexistent symbol; dtor skipped). Stripping once at the source routes the value through all existing `@func` machinery (no missed-site UAF/leak risk). Cells: `named-func-value-construct` (un-xfailed), `named-func-value-reject-value` (locks the value-rejection); unit `gen_typedecl_test.bn`.
 - **LITERAL-HALF 🔴 OPEN**: `var f Fn = func(...){}` still rejected (`conformance/regressions/named-func-value-construct-literal`, xfailed all modes). Needs `checkFuncLit` to RETURN the named type when hinted by one (so the literal is `Identical` to `Fn` — a `@func` value isn't assignable to the nominal `Fn`) AND `isManagedFuncValueLit` (`gen_func_lit.bn:192`) to peel TYP_NAMED. This is the **memory-sensitive** piece: a func literal can CAPTURE, so the stack-vs-heap-alloc + refcount classification must be right (validate under guard-malloc). `checkExprWithFVHint` (`check_expr.bn:30`) must also peel the hint so the literal gets the `@func` flavour.
@@ -55,7 +54,7 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
-### Interface syntax revision — *Stringer / @Stringer + top-level decl — MOSTLY DONE
+### Interface syntax revision — *Stringer / @Stringer + top-level decl — ✅ DONE (`iv == nil` is intentionally REJECTED by design — use `present(iv)`; not a gap)
 **Split 2026-06-14**: resolved bulk archived here; the open residual is tracked as a slim follow-up entry in claude-todo.md.
 - **Plan doc**: `explorations/plan-interface-syntax-revision.md`
   (RATIFIED 2026-05-01).
