@@ -10,6 +10,60 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~MAJOR — cross-package generic functions over struct types: `.bni` signature can't resolve a same-`.bni` generic struct (`undefined: Box` / `@void`), AND consumer-side monomorphization silently passes struct args as zero (2026-06-14)~~ — ✅ LANDED on main (binate `02fa92d7` types, `1c3618c2` ir, 2026-06-14)
+
+Two distinct root causes, found together: fixing the resolution bug
+(originally filed in claude-todo.md, explorations `c828f766`; repro
+`pkg/boxlib.bni` with `Box[T]` + `GetMan[T](@Box[T])`) unblocked
+compilation but exposed a silent miscompile — the cross-package call
+returned `0` instead of the boxed value.
+
+**Bug 1 — `.bni` resolution (types, `02fa92d7`).** `buildScopeFromFile`
+keys a package's generic type/iface decls under its short name (so
+importers' qualified `pkg.Box[…]` refs resolve), but a same-file function
+signature references them UNQUALIFIED (empty pkg key);
+`lookupGenericTypeDeclPkg` / `lookupGenericIfaceDeclPkg` matched only the
+exact key, so the unqualified head missed → `undefined` → parameter
+recorded `@void` → mismatch vs the body's `@Box[T]`. Affects generic AND
+non-generic funcs, concrete (`@Box[int]`) or type-param (`@Box[T]`) args,
+and the generic-interface analog. Fix: same-package fallback — an
+unqualified lookup that misses the empty key retries under
+`currentPkgShort` (only after the exact-key miss, so already-resolving
+lookups are unchanged). Unit test in `bni_scope_test.bn`.
+
+**Bug 2 — consumer-side monomorphization (ir, `1c3618c2`).**
+`ensureInstantiated` emits the specialized body into the CONSUMER's
+module, but the body was written in the DEFINING package's namespace and
+refers to its types / consts / sibling functions UNQUALIFIED. The IR-gen
+resolved those bare names against the consumer: `resolveTypeExpr`
+`TEXPR_NAMED` (`@Pair`) fell to the `TypInt` fallback (imported structs
+are keyed qualified) and `TEXPR_INSTANTIATE` (`@Box[T]`) keyed on
+`currentModulePkgPath` — both collapsing a struct parameter to `int`, so
+the ABI passed one word and field reads emitted `0`; bare calls / consts
+in the body targeted the consumer too. Fix: thread the defining-package
+alias (the call-site `pkg.` qualifier; empty for same-package) into
+`ensureInstantiated` and install it as `currentImportAlias` while
+emitting the body, so every bare-name resolver (`resolveTypeExpr`,
+`funcRefName`, the `gen_expr` const lookup, the `TEXPR_INSTANTIATE`
+generic-decl lookup) keys on the defining package; nested same-package
+generic calls inside an instantiated body propagate the alias (arbitrary
+depth).
+
+**Coverage / verification.** Conformance
+`770_cross_pkg_generic_struct_arg` (the headline vec/hashmap case —
+exercises both bugs) and `771_cross_pkg_generic_body_refs` (body
+references the defining pkg's non-generic struct, a const, a sibling free
+function, a nested generic); green across `builder-comp`,
+`builder-comp-int` (VM), `builder-comp-comp`. Full conformance 1435/0;
+`types` / `ir` / `codegen` / `vm` unit tests green; hygiene clean. Full
+matrix verified (by-value / managed struct params, struct
+construction+return, interface param + method dispatch); generic
+*methods* remain unsupported (clean parse error, not silent-wrong).
+`examples/generics/` `vec` / `hashmap` are now unblocked. **Follow-up:**
+`gen_util.bn` is at 503 lines (soft-limit warning) — split the
+TypeExpr→Type resolution cluster (`resolveTypeExpr` +
+`ifaceValueTypesAgree` + `findAnonStruct`) into a new `gen_type_resolve.bn`.
+
 ### ~~MAJOR — VM cannot capture 9–16-byte by-value returns (X0:X1) from a raw compiled fn ptr; `_call_shim_aggregate` is sret-only → garbage → crash (2026-06-12)~~ — ✅ LANDED on main (binate `75049ff9`, 2026-06-13)
 
 **Fix (2026-06-12):** added `_call_shim_pair(fn, data, a0..a6) ShimPair`
