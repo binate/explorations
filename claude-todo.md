@@ -4,43 +4,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
-## MAJOR (types, REGRESSION) — `x << ~0` no longer rejected: the negative-shift-count gate's `LitSign` skip mishandles `~`-complemented literals (2026-06-15) — ✅ DONE (binate `46204267`)
-
-Fixed: the gate now skips only a BARE `EXPR_INT_LIT` count (always non-negative) and routes everything else — `~0`, `-1`, idents, exprs — through `evalConstIntValue` (which folds `~x` to -x-1 correctly), instead of trusting `LitSign` (which `~` doesn't update). `x << ~0` / `x <<= ~0` reject tests added; named-unsigned/huge-literal allow-cases and `-1` reject-cases unchanged. The coverage follow-ups (binate `fc3c496d`): `conformance/793` strengthened to a wider-than-lvalue negative count (`int8 <<= int16(-256)` — now fails on the un-fixed compiler), honest comments on the same-width IR smoke-test and the 788 untyped self-comparison. `guardInt64`'s 32-bit pair branch remains host-gated (untestable on the 64-bit CI host; documented).
-
-**Spun off — two `2^63`-magnitude const-shift-count signed-overflow edges — ✅ DONE (binate `9a6af307`):**
-- **IR-gen (bare literal):** `x << 0x8000000000000000` ran as `1` not the spec'd overshift `0` (`emitConstOvershiftOrNil` keyed on the signed `IntVal`). Fixed: compare the count magnitude UNSIGNED — a >= W count (incl. a 2^63 stored as signed-negative) is the spec'd overshift; a genuinely negative count is rejected at compile time so it never reaches here.
-- **Checker (computed expr):** `x << (1 << 63)` was spuriously rejected as `negative shift count`. Fixed: the gate now reads the folder's bignum-correct `LitSign` instead of re-folding through the overflow-prone signed `evalConstIntValue`; and `checkUnaryExpr`'s TILDE branch now propagates the COMPLEMENTED literal (`~x = -x-1`) so `LitSign` is reliable for `~` too — which also corrects the AssignableTo fit-check (`var x uint8 = ~0` now rejects, like Go; `~127` == -128 fits int8). `conformance/798` (bare + computed huge counts, LLVM/VM/native) + checker tests for the computed allow-case and the `~` fit-check. The TILDE addition crossed the file-length cap, so `checkUnaryExpr` was extracted to `check_expr_unary.bn` (+ test). Full conformance green: LLVM 1464/0, gen2 self-compile 1464/0.
-
-The brief review also added the `>>=` wide-negative compound test (`conformance/796`→landed as `797`) and fixed a stale comment — binate `51a9a2e6`/`bed4f5a6`.
-
-**Symptom (REPRODUCED on builder-comp).** `var x int = 1; println(x << ~0)` compiled (no `negative shift count` error) and produced garbage (`int64`-min) instead of being rejected — `~0 == -1`, a negative constant shift count. Pre-`393eaa0b` it was correctly rejected.
-
-**Root cause.** The gate fix (`393eaa0b`) added `if countType.HasLitVal { if LitSign && LitMag != 0 { error }; return }`, trusting `LitSign` for the count's sign. But `checkUnaryExpr`'s TILDE branch (`check_expr.bn`) returns the operand's type UNCHANGED — it does NOT complement `LitMag`/`LitSign` (unlike MINUS, which flips `LitSign`). So `~0` carries `LitMag=0, LitSign=false` (the operand `0`'s metadata), the gate's early-return fires with `LitSign` false → no error, and it never reaches `evalConstIntValue` (whose TILDE case `-x-1` correctly folds -1). Affects both the expression and compound-assign sites.
-
-**How discovered.** Second adversarial review of the shift FIXES (2026-06-15); reproduced.
-
-**Proposed fix.** Drop the `LitSign`-trusting branch; instead skip only a BARE integer literal (`countExpr.Kind == EXPR_INT_LIT` — always non-negative, which is the only `evalConstIntValue` signed-overflow false-positive worth dodging) and let everything else (`~0`, `-1`, idents, binary exprs) flow through `evalConstIntValue`, which signs them correctly. Add `x << ~0` / `x <<= ~0` reject tests (the whole `~`-count form is untested). [Other second-review findings — 793/IR-unit-test toothlessness for the wide-NEGATIVE compound case, 788 untyped-value self-comparison, guardInt64 pair-path host-gated — tracked together with this fix.]
-
-## Shift-work adversarial review — other confirmed findings (2026-06-15) — ✅ DONE
-
-All addressed (the CRITICAL above landed `11f0b413`):
-- MAJOR named-unsigned + MINOR huge-untyped-literal gate holes → binate `393eaa0b` (`checkShiftCountNonNegative` peels `TYP_NAMED` for the unsigned skip and uses the literal's `LitSign` instead of the overflow-prone signed fold; tests for named-unsigned / high-bit concrete-unsigned / huge-literal counts).
-- MAJOR VM register-pair (`BC_SHIFT_CHECK` + `BC_DIV_CHECK`) → binate `75d279a9` (new `guardInt64` reads `joinInt64(lo, hi)` when `REG_SLOT < 8`; reconstruction covered by the existing `joinInt64` int64-min round-trip; pair *integration* still awaits a 32-bit-host VM lane — noted).
-- MINOR arity-test honesty + coverage gaps (untyped-value unsafe-shift, >4 GiB Seek) → binate `e44e2c28`.
-- COVERAGE (a)/(e) compound shift-assign overshift + negative-panic → landed with the CRITICAL fix (`conformance/regressions/shift-runtime-wide-overshift` `<<=`/`>>=` cases + `conformance/793`).
-- DISMISSED (3) — no action.
-
-The original finding detail (for reference):
-- **MAJOR — `checkShiftCountNonNegative` unsigned gate misses NAMED unsigned types** (`check_expr_binop.bn:31`). `if countType.Kind == TYP_INT && !countType.Signed` skips only predeclared `uintN`; a `type C uint64; const m C = 0x8000000000000000; x << m` is `TYP_NAMED`, slips the gate, folds negative through the signed `evalConstIntValue`, and gets a SPURIOUS `negative shift count` compile error on valid code (more reachable on 32-bit, threshold 0x80000000). Fix: peel `TYP_NAMED` (peelNamedBounded) before the signedness test. (Introduced by `f6b9ebce`.)
-- **MAJOR (latent, shared with div-check) — VM `BC_SHIFT_CHECK` reads only the low slot of a register-pair int64 count on a 32-bit host** (`vm_exec_helpers.bn:223`). A negative int64 count whose low 32 bits are non-negative (e.g. `int64 -4294967296`) is NOT trapped. Latent: no 32-bit-host VM runs in CI yet (the `int` lanes build the VM 64-bit). It's a faithful clone of the SAME pre-existing defect in `BC_DIV_CHECK` (single-slot read of an `ensureInt64ForCheck`-widened operand) — fix both together with a register-pair read when `REG_SLOT < 8` (`joinInt64`).
-- **MINOR — huge untyped-int literal count slips the gate too** (`x << 0x8000000000000000` → spurious `negative shift count`). Same gate hole for `TYP_UNTYPED_INT`; contrived (2^63 count) but a real wrong-rejection. Fix with the gate fix above (fold the count as an unsigned magnitude / consult the bignum LitMag).
-- **MINOR — `unsafe_shl`/`unsafe_shr` checker arity branch is dead code; its unit test passes for the wrong reason** (`check_builtin.bn:303`, `TestCheckUnsafeShiftRejectsArity`). `parseUnsafeBinaryCall` always yields exactly 2 args, so `len(e.Args) != 2` is unreachable; the test's error actually comes from the bad second operand. Drop the dead branch (parser guarantees arity, like unsafe_div/rem) or assert the parser error.
-- **COVERAGE GAPS** (each would have caught a bug above): (a) compound shift-assign of the wide-overshift AND negative-count fixes — expression-only today (would have caught the CRITICAL); (b) a negative `int64`-typed count (the 32-bit pair gap); (c) a named-unsigned / huge-untyped-literal count (the gate holes); (d) the unsigned-const gate itself; (e) runtime negative panic via `x <<= n`; (f) `unsafe_shl`/`shr` on an untyped value literal (benign — equivalence to `<<`/`>>` statically verified); (g) a >4 GiB `off_t` Seek round-trip (low value — arm32 is structurally always `*64`).
-- **DISMISSED (no action)**: the x64 `if scCount < 0 { return }` getOperand bail (defensive, fine); the `!is(arch,"arm32")` future-arch footgun; native-x64 panic being CI-host-dependent.
-
----
-
 ## MAJOR (import resolution) — a package directly importing TWO packages with the same final path segment double-emits one's `_Package` declaration → `invalid redefinition of bn_pkg__…___Package` (2026-06-14) — ✅ FIXED & LANDED `e201f448` (approach B); same-segment GENERICS deferred (2026-06-15)
 
 Found converting minbasic to `pkg/std/os`: `pkg/host` already imports

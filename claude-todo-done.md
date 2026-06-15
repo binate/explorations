@@ -10,6 +10,12 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~MAJOR (types, REGRESSION) — `x << ~0` no longer rejected; the negative-shift-count gate mis-trusted `~`'s stale LitSign~~ — ✅ DONE (binate `46204267` + `fc3c496d` + `9a6af307`, 2026-06-15)
+The gate (added by `393eaa0b`) keyed on the type's `LitSign`, but `checkUnaryExpr`'s `~` branch left it stale (the operand's), so `~0` (== -1) slipped through and `x << ~0` compiled to garbage. Fix: the gate skips only a BARE `EXPR_INT_LIT` and routes everything else through the folder's bignum-correct `LitSign` / `evalConstIntValue`; `checkUnaryExpr`'s `~` now propagates the COMPLEMENTED literal (`~x = -x-1`), which also corrects the AssignableTo fit-check (`var x uint8 = ~0` rejects like Go). The same `LitSign`/magnitude approach fixed the two `2^63`-magnitude const-shift edges: IR-gen `emitConstOvershiftOrNil` compares the count magnitude UNSIGNED (so `x << 0x8000000000000000` overshifts to 0), and a COMPUTED huge count (`x << (1 << 63)`) is accepted. Tests: `conformance/793` (wide-negative `<<=`), `797` (`>>=`), `798` (2^63 overshift), checker tests for the computed allow-case + `~` fit-check. `checkUnaryExpr` extracted to `check_expr_unary.bn` (file-length cap). Full conformance green: LLVM 1464/0, gen2 self-compile 1464/0.
+
+### ~~Shift-work adversarial review — confirmed follow-up findings (gate holes, VM register-pair, coverage)~~ — ✅ DONE (binate `393eaa0b` / `75d279a9` / `e44e2c28`, 2026-06-15)
+From the first shift-work adversarial review (13 confirmed / 3 dismissed; the CRITICAL IDENT-compound sibling is its own done entry). Fixed: the named-unsigned + huge-literal gate holes (peel `TYP_NAMED` + use `LitSign`, `393eaa0b`); the VM `BC_SHIFT_CHECK` / `BC_DIV_CHECK` single-slot read of a register-pair int64 on a 32-bit host (`guardInt64` reads `joinInt64(lo,hi)` when `REG_SLOT < 8`, `75d279a9`; pair *integration* still awaits a 32-bit-host VM lane); arity-test honesty + coverage gaps — untyped-value unsafe-shift, >4 GiB Seek (`e44e2c28`). Dismissed 3 (no action): the x64 getOperand bail, the `!is(arch,"arm32")` future-arch footgun, native-x64 panic being CI-host-dependent.
+
 ### ~~Remove the `pkg/binate/vm` lint skip after the next release~~ — ✅ DONE (binate `eab1ca5a`, 2026-06-15)
 The bnlint skip for pkg/binate/vm (+ importers repl, cmd/bni) existed because the
 BUILDER-bundled bnlint predated `_Package()` / `_func_handle(rt._Package)` /
