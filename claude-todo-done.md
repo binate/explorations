@@ -10,6 +10,53 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~CRITICAL (IR-gen) — IDENT compound shift-assign (`v <<= c`) pre-truncated the count, defeating both the wide-overshift fix and the negative-count guard~~ — ✅ DONE (binate `11f0b413`, 2026-06-15)
+The IDENT lvalue arm pre-`ensureWidth`'d the shift count before
+`emitCompoundBinop`, so the wide-overshift fix and the negative-count guard read
+a truncated count. `11f0b413` gates the pre-truncation
+`if varTyp != nil && !isCompoundAssign(stmt)` (gen_control.bn:151). Conformance
+793 (negative-count compound) + regressions/shift-runtime-wide-overshift + unit
+`TestCompoundSignedShiftEmitsGuards`.
+
+### ~~Bundle tier-1 stdlib (pkg/std, pkg/stdx) with the BUILDER; cut a new BUILDER release~~ — ✅ DONE (bnc-0.0.9, 2026-06-15)
+`make-bundle.sh` ships ifaces/ + impls/ wholesale; `fetch-builder.sh --lib`
+resolves stdlib (cmd/bnc imports pkg/stdx/slices, pkg/std/strings). math/big +
+strconv.ParseFloat present and reachable (impl closures stay within bundled
+tiers). BUILDER_VERSION=bnc-0.0.9 (release `cea0cb6e`); float-const BUILDER gap
+cleared (`27ba1f7e`).
+
+### ~~Static-managed sentinel refcount (prerequisite for package descriptors)~~ — ✅ DONE (binate `04ff8cf0` / `f78a4951`, 2026-06-15)
+Negative-as-immortal (`h[0] < 0`) sentinel landed across all five refcount paths
+(rt library, baremetal, LLVM-inline, native aarch64 TBNZ, VM); the static-node
+emitter is consumed by package descriptors (`emit_pkg_descriptor.bn`). Tests:
+`TestRefIncDecImmortal`, `TestVMRefIncImmortal`, conformance 525/532 + reflect
+708/709/725. ("IN PROGRESS" header was stale; descriptor work continues
+separately. Deferred optimization follow-ups re-filed as a standalone active
+entry.)
+
+### ~~bnc: top-level consts of non-int types silently emitted `EmitConstInt(0)` at read sites~~ — ✅ DONE (Phase A landed; Phases B/C canceled — const is scalar-only) (2026-06-15)
+Phase A (string/bool/float scalar consts): `classifyConstLit` + `ModuleConst.Kind`
+read-site dispatch (gen_const.bn / gen_expr.bn) emit the right constant; the
+`EmitConstInt(0)` mis-emit is gone. Conformance 539/540/541/642/645/651/691 +
+gen_const unit tests. Phases B (composite) / C (pointer) **canceled**:
+`checkConstDecl` now rejects non-scalar const types via `errNonScalarConst`
+("use `var readonly`"). (The "purely-value const extension" future idea is
+re-filed as a standalone active entry.)
+
+### ~~arm32 unit-test cleanup: 5 remaining int64-boundary tests~~ — ✅ DONE (2026-06-15)
+Zero `builder-comp_arm32_linux` unittest xfails remain; the 5 Bucket-3 int64-min
+boundary tests are present and host-pass.
+
+### ~~Multi-return tail-call return (`return f(...)`)~~ — ✅ DONE self-hosted; bootstrap clause moot (2026-06-15)
+Self-hosted (landed 2026-05-01): the type-checker (`check_stmt.bn` checkReturnStmt)
+and IR-gen (`gen_return.bn`, split from gen_stmt.bn) accept `return f(...)` for a
+matching tuple (per-result AssignableTo; lowers to OP_CALL + per-result
+OP_EXTRACT; `@[]T → *[]T` coercion preserved on extracted values). Tests:
+check_stmt_test.bn, `TestGenReturnMultiCallEmitsExtracts`, conformance 347 (no
+xfails, all default modes). The "Bootstrap (pending decision)" clause is **moot**
+— the Go bootstrap was retired 2026-05-21 (`bootstrap/` gone). Spec in
+claude-notes.md.
+
 ### ~~MAJOR — field access on a struct composite-literal rvalue read 0 (`Foo{...}.field`) — silent miscompile~~ — ✅ FIXED (binate `ff291fc6`; conformance 795; 2026-06-15)
 IR-gen's `genSelector` dispatched on the base kind (IDENT / INDEX / SELECTOR /
 CALL-BUILTIN / deref-UNARY) but had no `EXPR_COMPOSITE` case, so `Foo{...}.field`

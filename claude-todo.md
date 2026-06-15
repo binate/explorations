@@ -14,18 +14,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 **Proposed fix.** Drop the `LitSign`-trusting branch; instead skip only a BARE integer literal (`countExpr.Kind == EXPR_INT_LIT` — always non-negative, which is the only `evalConstIntValue` signed-overflow false-positive worth dodging) and let everything else (`~0`, `-1`, idents, binary exprs) flow through `evalConstIntValue`, which signs them correctly. Add `x << ~0` / `x <<= ~0` reject tests (the whole `~`-count form is untested). [Other second-review findings — 793/IR-unit-test toothlessness for the wide-NEGATIVE compound case, 788 untyped-value self-comparison, guardInt64 pair-path host-gated — tracked together with this fix.]
 
-## CRITICAL (IR-gen) — IDENT compound shift-assign (`v <<= c`) pre-truncates the count, defeating BOTH the wide-overshift fix and the negative-count guard (2026-06-15) — ✅ DONE (binate `11f0b413`)
-
-Fixed: `genAssign`'s IDENT arm now skips the pre-`ensureWidth` for a compound assignment (`emitCompoundBinop` reconciles the operand width AFTER the shift guards read the count's true width). `conformance/regressions/shift-runtime-wide-overshift` gained `<<=`/`>>=` cases; `conformance/793_err_shift_negative_count_compound` covers the compound runtime negative-count panic; IR-gen unit test asserts the compound path emits the guards. Green on LLVM / both VM lanes / native aarch64.
-
-**Symptom (REPRODUCED on builder-comp).** `var v uint8 = 1; var c uint16 = opaque16(261); v <<= c; println(cast(int, v))` prints **32**, but the spec result is **0** (overshift: count 261 >= width 8 → 0). The expression form `v = v << c` correctly yields 0 — so `<<=` and `= <<` give different answers for identical semantics. Likewise a wide NEGATIVE count fails to trap: `var x int8 = 1; var n int16 = opaque16(-256); x <<= n` truncates int16 → int8 (0xFF00 → 0x00) so `emitShiftCheckGuard` sees a non-negative count and emits no `OP_SHIFT_CHECK` — no `runtime error: negative shift count`.
-
-**Root cause.** `genAssign`'s IDENT lvalue arm (`gen_control.bn` ~line 141) runs `rhs = ensureWidth(ctx, b, rhs, varTyp)` — truncating the count to the value width — BEFORE calling `emitCompoundBinop`. That function then computes the overshift predicate (`emitShiftInrangeOrNil`) and the negative guard (`emitShiftCheckGuard`) from the ALREADY-TRUNCATED `rhs`, which is exactly the truncation `0db709a1` introduced `emitShiftInrangeOrNil` to read AROUND. The expression path (`gen_binary`) and EVERY OTHER compound lvalue arm (deref/field/array/pointer/slice) pass the RAW count to `emitCompoundBinop` and width-coerce only after — so the bug is **IDENT-compound-specific**. `emitCompoundBinop`'s own post-guard `ensureWidth` is a no-op (widths already equal) and can't undo it.
-
-**How discovered.** Adversarial multi-agent review of the shift work (2026-06-15); reproduced directly.
-
-**Proposed fix.** In `genAssign`'s IDENT arm, do NOT pre-truncate the count for a compound SHIFT — pass the original-width `rhs` into `emitCompoundBinop` (which already width-coerces after the guards), as the other lvalue arms do. (Skip the pre-`ensureWidth` when `isCompoundAssign(stmt) && op is a shift`, or move the guard computation ahead of any width-coercion.) Add a conformance test for the wide-overshift AND wide-negative-count IDENT compound forms (the regression tests are expression-only).
-
 ## Shift-work adversarial review — other confirmed findings (2026-06-15) — ✅ DONE
 
 All addressed (the CRITICAL above landed `11f0b413`):
@@ -724,18 +712,6 @@ question).
   2. **Generic path NOT covered** — `==`/relational on a type parameter later INSTANTIATED with an aggregate is not caught: the body is checked once with `T` opaque (deferred), and instantiation does not re-check it (`check_generic.bn`), so it can reach IR-gen → the same invalid-IR class, via generics. PRE-EXISTING (before this change all aggregate `==` was permissive); this change does not worsen it. Needs instantiation-time re-checking OR a `comparable`-style constraint decision. Separate follow-up.
   3. **Sentinel detection (`err == io.EOF`)** — disallowing interface-value `==` means this is NOT the mechanism; needs `identical`/`same` + `errors.Is` (under discussion / see io.EOF TODO). Resolve before the first real `Reader` lands.
 
-### Bundle tier-1 stdlib (pkg/std, pkg/stdx) with the BUILDER; cut a new BUILDER release
-- **What**: the BUILDER bnc tarball should ship the tier-1 stdlib so cmd/bnc's
-  tree (and any BUILDER-compiled code) can import `pkg/std/...` / `pkg/stdx/...`
-  — including `pkg/std/math/big` and a future `strconv.ParseFloat`.  The "BUILDER
-  tree can't use stdlib" constraint is purely an artifact of stdlib not being
-  bundled (plus a few BUILDER float gaps — we're well past bnc-0.0.1; a release
-  is overdue).
-- **Unblocks**: the exact-rounding fix above; lets the float-literal converter
-  use `big` / `strconv.ParseFloat` directly.
-- **Also**: clear the remaining BUILDER float gaps so floats are fully
-  BUILDER-compilable, then cut the release and bump BUILDER_VERSION.
-
 ### Remove the `pkg/binate/vm` lint skip after the next release
 - **What**: `scripts/hygiene/lint.sh` temporarily skips `pkg/binate/vm`,
   `pkg/binate/repl`, and `cmd/bni` (`LINT_SKIP`).  The BUILDER-bundled bnlint
@@ -1095,100 +1071,34 @@ question).
   typecheck — `scripts/hygiene/lint.sh` temporarily skips pkg/binate/vm +
   pkg/binate/repl + cmd/bni until the next BUILDER bump.
 
-### Static-managed sentinel refcount — IN PROGRESS (prerequisite for package descriptors)
-- **Status**: IN PROGRESS — worktree `temp-binate-6` / branch `work-6`,
-  started 2026-06-01.  Plan:
-  [`plan-static-managed-sentinel.md`](plan-static-managed-sentinel.md).
-- **What**: implement the long-designed sentinel refcount for immortal
-  static **managed objects** (`claude-notes.md:909`,
-  `detailed-notes:1427`), so the package descriptor's
-  `@reflect.Package` / `@TypeInfo` / `@FunctionInfo` nodes can be static,
-  never-freed `@` values.  Designed but unimplemented in **all ~5 refcount
-  paths** (library rt.bn ×2, LLVM-inline `emit_refcount.bn`, native aarch64
-  inline, native x64 (library CALL), VM `vm_exec_helpers.bn`).
-- **Root context**: immortality today rides entirely on the nil-pointer
-  skip; there is no sentinel check anywhere.  The only static-managed data
-  is string-literal managed-*slices* (immortal via `backing_refptr = null`,
-  `emit.bn:382`).  There is no managed-pointer-to-static-struct in the
-  language yet — the descriptor nodes are the first such case.
-- **Design**: negative-as-immortal (`h[0] < 0`, cheap sign test); static
-  nodes emitted with `h[0] = STATIC_REFCOUNT` (INT_MIN); `rt.RefDec`'s
-  `<= 0` abort becomes `== 0`.  Add the short-circuit to all five paths +
-  a static-node emitter (header `-16`/`-8` before payload).
-- **Investigation rider** (per user): can the string-literal null-backing
-  trick be retired / unified under the sentinel?  Representation can plausibly
-  unify; the nil-check itself can't be dropped (guards genuinely-nil `@`
-  values).  Deferred — sentinel lands first; string-literal lowering is
-  untouched in the initial landing.
-- **Tests**: conformance — immortal `@T` inc/dec'd + dropped, asserted never
-  freed (poisoned free-fn / alloc counter), pinned across modes incl. arm32;
-  unit — per-path no-op-on-sentinel + static-node IR shape.
-- **Candidate user of the sentinel** (added 2026-06-02): the VM's per-callee
-  shared non-capturing-`@func` `ClosureRec` (`ensureHandle` in
-  `pkg/binate/vm/vm_exec_funcref.bn` — `callee.ClosureRec`, a
-  `@VMClosureRec` shared by all instances of that func value) is exactly a
-  static, never-freed managed object.  It was being prematurely freed by
-  instance RefDecs (the `@func`-RefInc/RefDec-asymmetry CRITICAL bug,
-  fixed symmetrically in binate `<commit>` — see `conformance/528`).  The
-  symmetric-RefInc fix works, but making the shared `ClosureRec` an
-  immortal sentinel object would be the cleaner long-term representation
-  (no per-instance refcount churn on a shared singleton).  Consider
-  folding it in when the sentinel lands.
+### Static-managed sentinel — deferred follow-ups (optimizations, not correctness) — 🟢 LOW
+Follow-ups split out of the (now-done) static-managed sentinel landing:
+- **String-literal null-backing unification**: can the string-literal
+  `backing_refptr = null` immortality trick (`emit.bn`) be unified under the
+  negative-refcount sentinel? Representation can plausibly unify; the nil-check
+  itself can't be dropped (it guards genuinely-nil `@` values). Repr cleanup.
+- **ClosureRec-as-sentinel**: the VM's shared per-callee non-capturing-`@func`
+  `ClosureRec` (`vm_exec_funcref.bn`) is a static, never-freed managed object.
+  The premature-free CRITICAL was already fixed symmetrically (conformance 528);
+  making the shared `ClosureRec` an immortal sentinel would remove per-instance
+  refcount churn on a shared singleton. Optimization, not a correctness gap.
 
-### bnc: top-level consts of non-int types silently emit `EmitConstInt(0)` at read sites (Phase A — string/bool/float — DONE; composite/pointer remain)
-- **Symptom — general**: declare a top-level `const X T = <expr>` where T is anything other than an integer-family type (or the iota-fed untyped int), and reads of X from any function — in-package OR cross-package qualified `pkg.X` — fall through to `EmitConstInt(0, TypInt())` in IR-gen.  Downstream effects depend on T's expected LLVM shape:
-  - **Loud** (clang rejects the .ll with shape mismatch): types whose read sites perform an aggregate operation on what should be a slice / struct / array — get `extractvalue i64 %v, N` (extractvalue on a scalar).  Boolean reads hit `'%v' defined with type 'i64' but expected 'i1'` at branch sites.
-  - **Silent wrong** (compiles cleanly, runs with zero values): scalar non-int types (float, char[fixed via lit-fold], pointer) read back as 0 / 0.0 / nil; struct reads return all-zeros.
-- **Per-type characterization** (probed 2026-06-01):
-  - `int` / all sized int+uint types / `char` / `iota` const groups — work (evalConstExpr handles INT_LIT, CHAR_LIT, arithmetic, references to prior int consts).
-  - `*[]const char` (string) — **FIXED** in binate `a5acfc45`.  Producer (`genConst` in pkg/binate/ir/gen_const.bn + the importer's `registerImportFile` in gen_import.bn) recognizes EXPR_STRING_LIT initializers and populates a new `StrVal @[]char` + `IsStr bool` on ModuleConst.  Read sites (EXPR_IDENT in gen_expr.bn, qualified EXPR_SELECTOR in gen_selector.bn) walk moduleConsts and emit `EmitConstString` + `EmitStringToChars` for IsStr entries — producing the same OP_CONST_STRING + OP_RODATA_SLICE shape literal `*[]const char` values already use.
-  - `bool` — broken loud (i64 vs i1 mismatch at branch).  Same-shape fix as string: add `BoolVal`/`IsBool` to ModuleConst, recognize EXPR_BOOL_LIT, emit EmitConstBool.
-  - `float32` / `float64` — broken silent (read as 0).  Add `FltText @[]char` + `IsFlt bool`, recognize EXPR_FLOAT_LIT, emit EmitConstFloat (which takes raw text + a type — needs the const's declared type carried through).
-  - `[N]T` (array literal) — broken loud (extractvalue on i64).
-  - `struct T{...}` (struct literal) — broken silent (all-zero struct).
-  - `*[]const T` / `@[]const T` (composite-literal slice / managed-slice) — broken loud.
-  - `*T` / `@T` (pointer to value) — not yet probed.  Three sub-cases worth keeping straight when designing the fix:
-    1. const-pointer to a static global (`const P *T = &G`) — needs the pointee's address to be known at compile time;
-    2. const-pointer to a string literal address (`const P *const T = &SomeStringLitContent`?) — niche;
-    3. const-pointer where `T` is itself const (`const P *const T = ...`) — orthogonal const-of-const.
-- **Discovery**: 2026-06-01, while trying to land Phase 1 of plan-version-info.md.  The string case tripped first; subsequent probing across other types showed the common root cause.
-- **Root cause**: `moduleConsts` only carried `Val int`; producers (`genConst`, `registerImportFile`) call `evalConstExpr` which is integer-only and discards non-int initializers entirely; read sites (EXPR_IDENT in gen_expr.bn, qualified EXPR_SELECTOR in gen_selector.bn) called `lookupConst` (also int-only), missed the discarded consts, and emitted a zero-int placeholder via `EmitConstInt(0, TypInt())`.  The type-checker correctly accepts these declarations — `const X T = expr` in Binate marks `X` as an immutable variable (`claude-notes.md` "Compile-time constants" / "Const on variable declarations"), not a compile-time-foldable literal — so the bug is squarely in IR-gen's const-handling.
-- **Why MAJOR**: any production package that exposes a non-int top-level const silently mis-emits.  Currently latent only because the project has no such consts yet; the version-package draft (now landed for string only) was the first encounter.  Composite-typed consts are particularly dangerous — both loud-on-aggregate-access and silent-on-zero-default-read modes occur.
-- **Tests covering it**: pkg/binate/version's tests pin the string case end-to-end through both in-package and cross-package reads; `conformance/522_cross_pkg_const_string` and the new `TestGenConstStringLit*` unit tests in `pkg/binate/ir/gen_const_test.bn` (binate `a000855a`) add coverage at the IR-gen producer + read sites.  No coverage for bool / float / composite / pointer cases yet — Phase A adds focused unit + conformance suites for each.
-- **Status**: **Phase A DONE** (2026-06-02).  Every *scalar* non-int top-level const now lowers correctly — string (binate `7b0f77a3`), bool (`c3ff33f7`, conformance 540), float incl. untyped + float32 (`82c985f5`, conformance 541), negative float literals (`054629fd`), and non-int members of `const ( … )` **groups** (`a6fef840`).  Single + group producers, in-package + imported, all route through the shared `classifyConstLit` (string/bool/(unary-negated-)float) helper in `pkg/binate/ir/gen_const.bn`; read sites dispatch on `ModuleConst.Kind` (CONST_INT/STR/BOOL/FLT).  Unit tests in `gen_const_test.bn` + conformance 540/541 (cross-package EXPR_SELECTOR + in-package EXPR_IDENT, incl. a branch-condition bool and a group member).
-  - **Coverage note** (probed): `GenConstMember` (REPL forward-ref retry) needs no non-int handling — it only ever sees *parkable* (undefined-name-referencing) consts, i.e. int/iota expressions, never literals.  `RegisterImport` (singular, `gen_register_import.bn`) is still int-only but is **test-only** (no production caller; production imports use the fixed `registerImportFieldsAndFuncs`) — a minor consistency follow-up, not a production gap.
-- **Decision (2026-06-02): Phase B (composite-typed consts) is CANCELED.**  `const` stays **scalar-only** (per `claude-notes.md:267-283`); immutable composite data is expressed with `var readonly` (`plan-const-readonly.md`), not `const`.
-  - **RESOLVED (2026-06-03, plan-const-readonly step 6)**: `checkConstDecl` now rejects a non-scalar const type via the new `Type.IsScalar` predicate (`errNonScalarConst`).  Unit tests: `check_decl_test.bn` (string + struct rejected; int/bool/char/float accepted) + `TestIsScalar` in `types_test.bn`.  The string-const IR-gen workaround (the `EmitConstInt(0)`-path CONST_STR family) was then removed in step 7, so the latent mis-emit bug this entry tracked is gone.
-  - **Scouting handoff (if a `const`→composite extension is ever revisited)** — it is a real language extension, NOT the plan's lighter estimate: (a) composite consts would route through `moduleGlobals` + the synthetic `__init` allocate/store path (`gen_init.bn`), reusing the var-as-initialized-global lowering — **not** static rodata, which is byte/i8-only; (b) **cross-package global reads do not exist yet** — no imported-`var` registration in `gen_import.bn`, no qualified global read-site in `gen_selector.bn` (it searches only `moduleConsts`), no extern-global decl in codegen — so the plan's "reuse existing global machinery" is **false**; that plumbing must be built; (c) immutability needs **real checker work** (make a composite const read as a `TYP_READONLY` value + fix `checkIndexExpr` to re-wrap readonly on the element type so `X[i]=v` is caught), not "just tests" — `X[i]=`/`X.F=` on a composite const are silently accepted today because `SYM_CONST` (binding) and `TYP_READONLY` (type) are disjoint.
-- **Phase C (pointer consts) is also CANCELED** — a pointer isn't scalar, and more fundamentally it *refers to storage*, so it can't be a pure compile-time value.  const-pointer / const-slice / const-managed forms stay rejected (storage-referring types), alongside the composite forms above.
-- **Future direction (TODO, not started): allow `const` of transitively *purely value* types.**  A type is *purely value* iff it carries no storage reference: scalars (int-family / bool / char / float) are purely value; `[N]T` is purely value iff `T` is; a struct is purely value iff every field type is.  Pointers, slices, and managed pointers/slices are NOT (they hold a pointer to storage) and stay rejected.  (Strings are a slice of rodata, already handled as a separate immutable-rodata case in Phase A.)  A purely-value const's whole value is known at compile time, so it should be **const-folded at read sites as an immediate** — the scalar-const model (per-use `EmitConst…`), NOT Phase B's canceled initialized-global lowering.  This subsumes `const P Point = Point{1,2}` and `const M [3]int = …` as real constants.  When picked up: define an `isPurelyValueType` predicate, widen `checkConstDecl`'s accept boundary from "scalar" to "purely value", and extend the const producer + read-site dispatch to fold value-struct / value-array literals.
+### Purely-value const extension (future language direction) — DESIGN, not started
+Future direction split out of the (now-resolved) non-int-const mis-emit bug:
+allow `const` of certain non-scalar but purely-value types (no storage, no
+managed fields). Currently `const` is scalar-only (non-scalar → `errNonScalarConst`,
+"use `var readonly`"); no `isPurelyValueType` predicate exists yet. A genuine
+language extension, not a bug fix.
 
-### Demote raw-slice escape check from type error to linter rule
-- **Today**: returning a raw slice (`*[]T`) into a local array
-  (`return arr[:]`) is a hard type-check error.  The check catches
-  the obvious pattern but **misses the real escape paths** the
-  type system can't see (escape via out-param, via mutating
-  callee, via interface, etc.), so it's a false-confidence trap:
-  the user assumes "if it type-checks, my raw slice doesn't
-  escape", which isn't what the check actually proves.
-- **Why now**: while designing Phase 2 of function values
-  (`plan-function-values-phase-2.md`), the same escape question
-  came up for capturing `*func(...)`.  Decision: no type-check
-  rejection; raw is the opt-in escape hatch, linter warns on
-  obvious patterns.  That makes the raw-slice rule the
-  inconsistent one — slices are the only raw type with a hard
-  escape check in the type system.
-- **Fix direction**: demote the raw-slice escape rejection to a
-  linter rule in `cmd/bnlint` (best-effort detection of return,
-  store-to-outliving-field, assign-to-global, etc.).  Type
-  checker stops rejecting; existing tests that exercise the
-  reject become linter-positive cases.
-- **Scope cost**: small.  One rule to remove from the type
-  checker, one to add to bnlint, conformance test updates for
-  the affected patterns, doc updates.
-- **Coordination**: ideally lands alongside or just after Phase
-  2 of function values (where the analogous capturing-`*func`
-  linter rule is added — B.5 of `plan-function-values-phase-2`).
+### Raw-slice escape: decide whether a BROADER best-effort escape lint is wanted — 🟡 NEEDS DECISION
+The original framing ("demote the raw-slice escape TYPE ERROR to a linter rule")
+is obsolete: there is NO type-check rejection for raw-slice escape (the checker
+never rejected it), and a `raw-slice-return` LINT rule already exists (`lint.bn`,
+landed `10d19369`) — but it only covers the `@[]T → *[]T` "drops the managed
+wrapper" return case. **Open decision (user):** is a broader best-effort escape
+lint wanted (return / store-to-outliving-field / assign-to-global of a raw slice
+borrowing a local), or is the current narrow rule + "raw is an opt-in escape
+hatch" sufficient (close this out)?
 
 ### IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 + 2 (INT64 + FLOAT64) DONE
 - **Symptom**: under `builder-comp_arm32_linux` unit tests, `pkg/ir`
@@ -1390,60 +1300,6 @@ question).
       boundary cluster in pkg/{bootstrap,buf,ir} — see the
       "arm32 unit-test cleanup" entry for the bucket.  Unrelated
       to this work.
-
-### arm32 unit-test cleanup: 5 remaining int64-boundary tests
-- **Context (2026-05-28)**: `builder-comp_arm32_linux` unit tests
-  are now down to **5 failures across 3 packages** — every other
-  cascade of arm32 issues that surfaced through May 27–28 has
-  been root-caused and fixed.  The remaining 5 share one shape:
-  int64-min literal handling on a host whose `int` is 32-bit.
-- **Resolved (commit trail)**:
-  - `aee0260` — `cmd/bni` test runner lookup keyed on full
-    pkgPath (fixed the entire `-int` unit-test lane that was
-    silently broken since `7f989ad`'s mangler full-path flip).
-  - `73651c28` — int↔int width-cast lowering: BC_TRUNC32 + emit
-    BC_SEXT / BC_ZEXT for narrowings / widenings between
-    int8/int16/int32/int64 (was unconditionally BC_MOV — wrong
-    for any non-8-bit width change).
-  - `a2588c54` — `pkg/types` `initTarget()` defaults host-detect
-    via `sizeof` (was hardcoded LP64).  Fixes the root cause that
-    made `is64BitScalar(TypInt())` true on arm32 and triggered
-    pair-branch emission for plain-int ops.
-  - `11ff9864` + `2d13838d` — LP64-baked test assertions across
-    pkg/{vm,types,codegen,native/{common,aarch64,x64}} replaced
-    with host-aware checks or explicit `setTarget64()` + a
-    `TypInt → TypInt64` substitution where the test's intent was
-    "an 8-byte int field on LP64 ABI".  Also fixed two real bugs
-    the cascade exposed: BC_FTOSI / BC_SITOF / BC_F64_TO_F32 /
-    BC_F32_TO_F64 pair-aware, and `is64BitScalar` accepting
-    TYP_UNTYPED_FLOAT.
-  - `81d31b7c` — managed-allocation header offset host-aware
-    (`MANAGED_HDR` const = `2 * sizeof(int)`, was hardcoded 16),
-    cleared the `TestRepro_StructWithManagedSliceFieldAppend`
-    qemu segfault.
-- **Status of previously-listed buckets**:
-  - **Bucket 1 (LP64-baked tests)**: pkg/vm, pkg/codegen, pkg/native/*
-    are GREEN.  pkg/asm/{x64,aarch64,macho} weren't in the
-    cascade-revealed set and remain native-host-arch dependent
-    (likely still need xfails, but separate workstream — host
-    arch != target arch).
-  - **Bucket 1b (pkg/vm TypInt width)**: ROOT-CAUSED.  Fixed by
-    `a2588c54` (initTarget host-detect — the LP64-default was
-    the deeper-than-suspected cause; not a test-scaffolding
-    SetTarget ordering issue).
-  - **Bucket 2 (genuine test-level)**: Still open as listed —
-    `TestBinBufWriteU64LittleEndian` (pkg/asm/elf),
-    `TestOrrImm` (pkg/asm/arm32).
-- **Still open — Bucket 3 (int64-min boundary)**:
-  - `pkg/bootstrap.TestFormatInt64Boundaries`
-  - `pkg/buf.TestWriteInt` — "expected int64-min round-trip"
-  - `pkg/ir.TestBignumToIntInt64Min`
-  - `pkg/ir.TestGenUnaryMinusOnInt64Preserves`
-  - `pkg/ir.TestNeedsHintNarrowing`
-  All five share the int64-min literal pattern.  Likely one
-  underlying fix: bignum / parseIntLit handling for values that
-  overflow int32 on the host but fit int64 at the target.  Not
-  blanket-xfail — investigate and fix.
 
 ### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
 - **Problem**: with the current rules, `int` (and other predeclared
@@ -1669,38 +1525,6 @@ question).
   body), since fixed (`4306197`) — see the FIXED entry above.
   Remaining candidates are smaller / lower-value (assorted
   if-chains in cmd/* and pkg/* tools).
-
-- **Self-hosted (LANDED, 2026-05-01)**: type-checker
-  (`pkg/types/check_stmt.bn:checkReturnStmt`) and IR-gen
-  (`pkg/ir/gen_stmt.bn` STMT_RETURN branch) accept
-  `return f(...)` when `f` returns the matching tuple. Each
-  per-result type must be `AssignableTo` the outer's declared
-  result. IR-gen lowers to one OP_CALL + one OP_EXTRACT per
-  result; the existing return-RefInc/copy + temp-cleanup
-  machinery handles ownership transfer. The literal-shape
-  coercions in the per-expr return path (OP_CONST_NIL retyping,
-  OP_CONST_STRING → string_to_chars, untyped-int width) all
-  fire only on literals, which can't be call results — so the
-  multi-return path skips them. The one non-literal coercion,
-  `@[]T → *[]T` when the outer expects raw, is preserved on
-  extracted values, mirroring the per-expr path.
-  - Tests: `pkg/types/check_stmt_test.bn` (positive, arity-
-    mismatch, type-mismatch); `pkg/ir/gen_stmt_test.bn`
-    (`TestGenReturnMultiCallEmitsExtracts` pins
-    1×OP_CALL + 2×OP_EXTRACT); conformance
-    `347_return_multi_call` (all-scalar + mixed scalar/managed
-    end-to-end; was 345 originally, renumbered after collision
-    with `345_interface_decl`). xfail.boot. boot-comp /
-    boot-comp-int / boot-comp_native_aa64 all green.
-- **Bootstrap (pending decision)**:
-  `bootstrap/types/checker.go:checkReturnStmt` (~963-978) still
-  rejects this shape. Bootstrap acceptance is a separate
-  question — the bootstrap subset is intentionally restrictive,
-  and the self-hosted toolchain doesn't need this to compile.
-  Defer until there's a concrete reason to widen the subset.
-- Spec recorded in `claude-notes.md` ("Tail-call return for
-  multi-return functions"). `bootstrap-subset.md` notes the
-  bootstrap-only rejection.
 
 ### pkg/codegen `TestEmitDebug*` dominates `boot-comp-int-int` runtime (perf)
 - **Symptom**: pkg/codegen unit tests take ~1084s in CI under
