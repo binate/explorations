@@ -16,9 +16,16 @@ Fixed: `genAssign`'s IDENT arm now skips the pre-`ensureWidth` for a compound as
 
 **Proposed fix.** In `genAssign`'s IDENT arm, do NOT pre-truncate the count for a compound SHIFT — pass the original-width `rhs` into `emitCompoundBinop` (which already width-coerces after the guards), as the other lvalue arms do. (Skip the pre-`ensureWidth` when `isCompoundAssign(stmt) && op is a shift`, or move the guard computation ahead of any width-coercion.) Add a conformance test for the wide-overshift AND wide-negative-count IDENT compound forms (the regression tests are expression-only).
 
-## Shift-work adversarial review — other confirmed findings (2026-06-15) — 🟡 OPEN
+## Shift-work adversarial review — other confirmed findings (2026-06-15) — ✅ DONE
 
-From the same review (13 confirmed / 3 dismissed). The CRITICAL above is the headline; these are the rest:
+All addressed (the CRITICAL above landed `11f0b413`):
+- MAJOR named-unsigned + MINOR huge-untyped-literal gate holes → binate `393eaa0b` (`checkShiftCountNonNegative` peels `TYP_NAMED` for the unsigned skip and uses the literal's `LitSign` instead of the overflow-prone signed fold; tests for named-unsigned / high-bit concrete-unsigned / huge-literal counts).
+- MAJOR VM register-pair (`BC_SHIFT_CHECK` + `BC_DIV_CHECK`) → binate `75d279a9` (new `guardInt64` reads `joinInt64(lo, hi)` when `REG_SLOT < 8`; reconstruction covered by the existing `joinInt64` int64-min round-trip; pair *integration* still awaits a 32-bit-host VM lane — noted).
+- MINOR arity-test honesty + coverage gaps (untyped-value unsafe-shift, >4 GiB Seek) → binate `e44e2c28`.
+- COVERAGE (a)/(e) compound shift-assign overshift + negative-panic → landed with the CRITICAL fix (`conformance/regressions/shift-runtime-wide-overshift` `<<=`/`>>=` cases + `conformance/793`).
+- DISMISSED (3) — no action.
+
+The original finding detail (for reference):
 - **MAJOR — `checkShiftCountNonNegative` unsigned gate misses NAMED unsigned types** (`check_expr_binop.bn:31`). `if countType.Kind == TYP_INT && !countType.Signed` skips only predeclared `uintN`; a `type C uint64; const m C = 0x8000000000000000; x << m` is `TYP_NAMED`, slips the gate, folds negative through the signed `evalConstIntValue`, and gets a SPURIOUS `negative shift count` compile error on valid code (more reachable on 32-bit, threshold 0x80000000). Fix: peel `TYP_NAMED` (peelNamedBounded) before the signedness test. (Introduced by `f6b9ebce`.)
 - **MAJOR (latent, shared with div-check) — VM `BC_SHIFT_CHECK` reads only the low slot of a register-pair int64 count on a 32-bit host** (`vm_exec_helpers.bn:223`). A negative int64 count whose low 32 bits are non-negative (e.g. `int64 -4294967296`) is NOT trapped. Latent: no 32-bit-host VM runs in CI yet (the `int` lanes build the VM 64-bit). It's a faithful clone of the SAME pre-existing defect in `BC_DIV_CHECK` (single-slot read of an `ensureInt64ForCheck`-widened operand) — fix both together with a register-pair read when `REG_SLOT < 8` (`joinInt64`).
 - **MINOR — huge untyped-int literal count slips the gate too** (`x << 0x8000000000000000` → spurious `negative shift count`). Same gate hole for `TYP_UNTYPED_INT`; contrived (2^63 count) but a real wrong-rejection. Fix with the gate fix above (fold the count as an unsigned magnitude / consult the bignum LitMag).
