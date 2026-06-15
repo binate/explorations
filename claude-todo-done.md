@@ -29,7 +29,7 @@ no longer resolve in the tree, though git history retains them.
      made to route through the same converter).  The native aa64 *lane* can't
      confirm end-to-end because it no longer links (the duplicate-symbol entry
      above), but the converter is the shared piece and native's emit path was
-     already correct for positive consts.  Case 2 below is still open.
+     already correct for positive consts.  Case 2 below was subsequently FIXED (`cc6d0e9b`, AAPCS64 D0 float-return).
   2. **Float function return** — `cfg.Scale()` (returns `Ratio` via an
      in-package `EXPR_IDENT` read) reads as `0.0` (line 3), ditto
      `cfg.NegScaled()` (line 4).  Either the native float-return ABI (value
@@ -47,15 +47,10 @@ no longer resolve in the tree, though git history retains them.
   IR-gen Phase A fix (above, line ~462) is correct at the IR level; the gap
   is in the **native code generators** (`pkg/binate/native/{aarch64,x64}`),
   which Phase A never validated (it was checked on the C/LLVM modes only).
-- **Unverified / TODO**: (a) confirm whether `native_x64*` modes fail the
-  same way (likely — same native-float codegen path; not run here, no x64
-  host) and add their xfails too; (b) disambiguate case 2 (float-return ABI
-  vs in-package float-const read) with a minimal probe; (c) `534` (the
-  `@func` bug) also fails unmarked on the aa64 lane — its xfails cover only
-  the 6 default modes, so the cross-compile lanes need 534 xfails for an
-  honest suite.
-- **Tracking**: proposed xfail `541_cross_pkg_const_float.xfail.builder-comp_native_aa64-comp_native_aa64`
-  (one-line: native aa64 mis-lowers negative float const + float return → 0).
+- **All residuals (a)/(b)/(c) closed — verified 2026-06-14**: `541` and `534`
+  pass on every mode including native aa64 (both 0 xfail markers; native_aa64
+  CI green).  (a) native_x64 does NOT fail (541 not in its failure set); (b)
+  case 2 was disambiguated + fixed (`cc6d0e9b`); (c) 534 needs no xfails.
 
 ### ~~Wire `--version` into bnc / bni / bnas / bnlint~~ — ✅ LANDED on main (binate `8ff87399`, 2026-06-14)
 
