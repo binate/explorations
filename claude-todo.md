@@ -4,6 +4,50 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR (mangler) — a package directly importing TWO packages with the same final path segment double-emits one's `_Package` declaration → `invalid redefinition of bn_pkg__…___Package` (2026-06-14) — 🔴 OPEN
+
+Found converting minbasic to `pkg/std/os`: `pkg/host` already imports
+`pkg/basic/io`, and classifying end-of-input with `io.IsEOF` needs `pkg/std/io`
+too — both final segment `io`.
+
+- **Minimal repro** (one package importing two same-final-segment packages):
+  ```
+  import "pkg/basic/io"          // minbasic-local; has ConsoleOut
+  import "pkg/std/errors"
+  import stdio "pkg/std/io"
+  func main() {
+  	var c @io.ConsoleOut
+  	var e @errors.Error = stdio.EOF
+  	if present(c) { println("c") }
+  	if present(e) { println("e") }
+  }
+  ```
+  → clang: `invalid redefinition of function 'bn_pkg__basic__io___Package'`
+  (`declare i8* @bn_pkg__basic__io___Package()` emitted twice). Note the two
+  imports have DIFFERENT names (`io` vs alias `stdio`) yet still collide — so the
+  trigger is the shared final segment, not the import name.
+
+- **Scope / what works.** Only a DIRECT dual-import of two same-final-segment
+  packages collides. A transitive second "io" is fine (`pkg/host` importing
+  `pkg/basic/io` while `pkg/std/os` pulls `pkg/std/io` transitively compiles
+  clean). Distinct final segments are fine (`pkg/basic/io` + `pkg/std/os`). An
+  import alias does NOT help; splitting the two imports into separate files of the
+  same package does NOT help — it is package-level.
+
+- **Root-cause hypothesis.** The per-imported-package `_Package` declaration is
+  deduplicated/keyed by the package's FINAL path segment (`io`), not its full
+  import path, so two packages ending in the same segment collapse and one's
+  `_Package` declaration is emitted twice. The mangled symbol itself
+  (`bn_pkg__basic__io`) is full-path-correct; only the emission dedup is keyed
+  too coarsely.
+
+- **Workaround (examples).** minbasic's `pkg/host` does NOT import `pkg/std/io`;
+  `ReadFile` sizes the file with `os.Seek(0, os.SeekEnd)` and reads exactly that
+  many bytes (a short read = failure) instead of using `io.IsEOF` to classify the
+  end — so `pkg/host` directly imports only one "io" (`pkg/basic/io`).
+
+---
+
 ## MAJOR (native codegen) — `bit_cast` of a SLICE value emits invalid IR (`add %BnSlice %v, 0`) → clang error; the VM accepts it (2026-06-14) — 🔴 OPEN
 
 Found converting minbasic to `pkg/std/os`: feeding char text to `os.File.Write`
