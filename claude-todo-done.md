@@ -10,6 +10,159 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~MAJOR — generic-interface-VALUE upcast (`@WideBox[int]` → `@Box[int]`) type-checks then fails silently in codegen (2026-06-13)~~ — ✅ RESOLVED 2026-06-14
+
+**✅ RESOLVED 2026-06-14.** Both sub-issues fixed:
+- **Sub-issue (2) — the upcast itself (binate `52f322fb`)**: the root cause was
+  `ensureInstantiatedInterface` leaving an instantiated generic interface's
+  `ParentPkgs`/`ParentNames` empty, so `collectImplsFromDecl`'s ancestor walk
+  never emitted the inherited `(Impl, Box[int])` vtable and
+  `IfaceParentSlotOffset` returned −1 (the VM name-swap found no target vtable).
+  The non-generic path already recorded parents (incl. the `TEXPR_INSTANTIATE`
+  parent case, conformance 455); extracted `collectInterfaceParents`, now called
+  from both paths (the generic one under the type-param substitution context so
+  `Box[T]`→`Box[int]`), with a self-stub to keep self-reaching parent chains from
+  recursing. `conformance/768_generic_iface_value_upcast` (inherited dispatch +
+  upcast-view dispatch) green on builder-comp / -int / -comp / native-aa64.
+- **Sub-issue (1) — the silent exit (binate `a4946ebe`)**: root cause was that
+  `panic()` discarded its message and aborted backend-dependently (LLVM dropped
+  it, the **VM treated `OP_PANIC` as a NO-OP so panic didn't even abort**, native
+  had no arm). `panic(args...)` now lowers to print `"panic: " + args + "\n"`
+  then `bootstrap.Exit(1)` + unreachable — proven ops on every backend — so the
+  message prints and the process aborts on LLVM/VM/native. Dead `OP_PANIC`/
+  `EmitPanic` removed. `conformance/767_panic_message`.
+
+Original report below.
+
+Assigning an instantiated generic interface value to one of its (instantiated)
+parent interface values — a parent-interface upcast — completes type-checking
+and IR generation, then the LLVM/codegen emission exits 1 with **no diagnostic**.
+The non-generic equivalent (`@Wide` → `@Cmp`) compiles and runs correctly, so
+this is specific to *instantiated generic* interface values (Slice 6c
+generic-iface-value support is partial — dispatch works, conformance 451–455;
+this upcast does not).
+
+- **Repro** (type-checks, then silent codegen exit 1):
+  ```
+  interface Box[T any] { get() T }
+  interface WideBox[T any] : Box[T] { extra() int }
+  type Impl struct { v int }
+  impl @Impl : WideBox[int]
+  func (i @Impl) get() int { return i.v }
+  func (i @Impl) extra() int { return 0 }
+  func main() { var im @Impl = make(Impl); var w @WideBox[int] = im; var b @Box[int] = w; _ = b }
+  ```
+- **Was masked**: before the `.Parents` checker fix (entry above), this same
+  program was rejected at the checker (`cannot assign @WideBox[int] to
+  @Box[int]`). Recording the parents makes the upcast type-check, exposing the
+  codegen gap. So fixing the checker turned a clean rejection into a silent
+  codegen failure for *this specific value-upcast pattern* (the
+  constraint/forwarding paths — the actual reported bug — are now fully correct).
+- **Two sub-issues**: (1) the silent exit emits NO diagnostic — codegen should at
+  least report which construct it can't lower; (2) the generic-iface-value upcast
+  itself needs codegen support (re-wrap with the parent vtable, or confirm the
+  layout is uniform as for non-generic upcasts).
+- **Discovery**: surfaced while landing the `.Parents` checker fix (2026-06-13).
+- **Bug-discovery protocol**: add a conformance test for the upcast marked xfail
+  until codegen lands.
+
+### ~~MINOR — a broken generic-interface extension clause is re-reported once per instantiation (2026-06-13)~~ — ✅ RESOLVED 2026-06-14
+
+**✅ RESOLVED 2026-06-14 (binate `e8713878`).** `addCheckError` now suppresses an
+exact duplicate (same position and message) before appending to `c.Errors` — a
+decl-level diagnostic resolved per instantiation collapses to one, and an
+identical `(pos, message)` is never worth showing twice in general. Tentative
+errors are untouched (they migrate/discard wholesale). Tests:
+`checker_errors_test` (dedup mechanism) + `check_generic_type_test`
+(generic-iface-extension scenario reports exactly once). Original report below.
+
+Generic interface decls resolve their extension clause at instantiation
+(`buildInstantiatedInterface` → now `populateInstantiatedInterface`), not at decl
+time, so a decl-level error in that clause is emitted once per DISTINCT
+instantiation. Repro: `interface Bad[T any] : NotAnIface { f() T }` instantiated
+as `Bad[int]` and `Bad[bool]` emits `interface extension target must be an
+interface` twice (count == number of distinct instantiations). Should be one
+diagnostic per decl. Diagnostic-quality only (no miscompile). Possible fix:
+validate the generic interface's extension clause once at collection time (with
+type-params opaque), or dedupe decl-site diagnostics by (pos, message).
+- **Discovery**: adversarial review of `298ef806`/`aef4422e` (2026-06-13).
+
+### ~~MINOR — diagnostic name formatter drops a bracket on nested package-qualified generic args (2026-06-13)~~ — ✅ RESOLVED 2026-06-14
+
+**✅ RESOLVED 2026-06-14 (binate `aa617f84`).** `displayLeafName` now strips the
+package-path prefix of every `.`-separated segment, respecting bracket nesting:
+a `.` is a package/name separator only when it follows a path segment and
+precedes an identifier start (so a `[...]`/`func(...)` placeholder's dots
+survive), and the type-syntax delimiters (`[ ] , @ * ( )` and the `readonly `
+space) end a segment. `main.Box[@pkg/foo.Pair[bool,bool]]` now displays
+`Box[@Pair[bool,bool]]`. Unit test in `type_name_test`. Original report below.
+
+`displayLeafName` (`pkg/binate/types/type_name.bn`) splits a mangled name on the
+FIRST `.`, which can land INSIDE a bracketed type argument, so a nested
+package-qualified generic arg renders with a dangling/again-missing bracket —
+e.g. `reportConstraintMiss` shows `Pair[bool,bool]]` instead of
+`Box[@Pair[bool,bool]]`. Display-string only — accept/reject uses (Pkg, Name),
+not the rendered string, so NO soundness impact. Pre-existing in the shared
+formatter; surfaced (not caused) by the generics constraint work.
+- **Discovery**: adversarial review of `298ef806`/`aef4422e` (2026-06-13).
+
+### ~~MAJOR — `&(*p)` (address-of-dereference) mis-lowers → SIGSEGV on write-through (2026-06-13)~~ — ✅ FIXED+LANDED (binate `465b44b5`)
+
+`genUnary`'s `&` arm now lowers a deref operand `&(*p)` to `genExpr(e.X.X)` (the
+pointer `p`, since `&*p == p`), instead of falling through to `genExpr(e.X)`
+which returned the loaded VALUE of `*p` as a pointer (write-through SIGSEGV'd).
+`conformance/759_addr_deref` pins write-through + aliasing (builder-comp / VM /
+gen2). Original investigation below.
+
+`&(*p)` is checker-addressable (a dereference is a valid lvalue; `&*p == p`),
+but IR-gen mis-lowers it.  `genUnary`'s `&` arm (`pkg/binate/ir/gen_expr.bn:152-178`)
+handles `&ident` / `&index` / `&selector` and FALLS THROUGH to
+`return genExpr(ctx, b, e.X)` for any other operand — so for `&(*p)` it returns
+the LOADED VALUE of `*p` (e.g. `11`) as if it were a pointer.  Writing through
+it crashes: `var p *int = &v; var pd *int = &(*p); *pd = 12` stores to address
+`11` → SIGSEGV on otherwise-valid code (read-only `var pd = &(*p)` "works" — the
+bad pointer just isn't dereferenced).  **Discovered** 2026-06-13 building the
+addressability positive test `conformance/755_addr_lvalue_ok` (the `&*p` case
+was dropped from it pending this fix).  **Fix**: add a case in genUnary's AMP
+arm for `e.X.Kind == ast.EXPR_UNARY && e.X.Op == token.STAR` →
+`return genExpr(ctx, b, e.X.X)` (the pointer `p`), since `&*p == p`.  Niche
+(you'd just write `p`), but a loud crash on valid code.  Surfaced by the general
+`&` addressability check (which correctly accepts `&*p`); the old kind-whitelist
+also accepted it, so the IR-gen defect is PRE-EXISTING.  Needs a conformance
+test (xfail until fixed, or passing if fixed).
+
+### ~~MAJOR — aliased import `import a "pkg/x"` + cross-package call `a.Fn()` mangles the callee with the ALIAS, not the package path → undefined symbol (2026-06-12)~~ — ✅ RESOLVED (binate `52d1c832`)
+
+Discovered while adding per-import build-constraint gating — the conformance
+test happened to use an aliased import and surfaced this latent bug.  There
+are **zero** aliased imports (`import <ident> "..."`) anywhere in `pkg/` or
+`cmd/`, so the aliased-import code path has never been exercised.
+
+- **Symptom.** `import a "pkg/aliastgt"` then `a.Code()` compiles a call to
+  `@bn_a__Code` — the import ALIAS (`a`) is used as the package qualifier in
+  the mangled callee — instead of the package path (`bn_…aliastgt__Code`).
+  The symbol is undefined → LLVM `use of undefined value '@bn_a__Code'` (and
+  the equivalent on the VM).  Fails in **all six default modes** (compiled +
+  VM), so the root cause is in the shared front-end (selector resolution /
+  IR-gen / mangle), not a backend.
+- **Root cause (direction; needs confirmation).** The cross-package CALL path
+  mangles using the alias as the package name rather than resolving the import
+  alias → its path first.  The const path already resolves it — see
+  `pkg/binate/ir/gen_const_fold.bn:58-59,218-219` (`currentImportAlias` +
+  `buildQualName`) — so the func/call selector resolution (likely
+  `pkg/binate/ir/gen_call.bn` / whatever feeds `mangle.FuncName`) needs the
+  same alias→path resolution.
+- **Repro / tracking.** `conformance/738_aliased_import_call` (xfailed in the
+  six default modes): `import a "pkg/aliastgt"` + `println(a.Code())`, expects
+  `7`.  Un-xfail when fixed.
+- **Fixed** (binate `52d1c832`): `pushFileImports` (`gen_import.bn`) now uses
+  the explicit `ImportSpec.Alias` when present (was always `lastPathSegment`),
+  and `GeneratePackage`/`GenModule` overlay the module file's own imports
+  (push/pop) so a module's own aliased refs resolve — not just imported
+  packages' internal refs.  No-op for non-aliased imports.  Verified across
+  reference kinds (738 = aliased func call, 6 modes; 742 = aliased type +
+  const + func).  Full builder-comp suite 1405/0.
+
 ### ~~MAJOR — generic-instantiation recursion overflows the stack (SIGSEGV): recursive generic interfaces (introduced by `.Parents` `298ef806`) AND recursive generic structs (pre-existing) AND unbounded-growth chains~~ — FIXED + LANDED 2026-06-13 (binate `0880f663`, split `c6576ef2`)
 - **Was**: `instantiateGenericDeclWithArgs` installed the (decl, args) cache entry AFTER `buildInstantiated{Struct,Interface}` returned, so any recursive reference during body/parent resolution missed the cache, re-entered instantiation, and overflowed the stack at type-check (exit 139). Manifestations: a **legitimate recursive generic struct** `Node[T]{ next @Node[T] }` (a linked list — pre-existing, crashes even on the pre-generics-work baseline); a **self-cyclic generic interface** `N[T] : N[T]` (introduced by `298ef806`, which started resolving the extension clause at instantiation); **mutually-cyclic generic interfaces** `P[T]:Q[T]` / `Q[T]:P[T]`; an **infinitely-growing chain** `Box[T]{ @Box[Wrap[T]] }`.
 - **Fix** (`0880f663`), all at the instantiation chokepoint: `instantiateGenericDeclWithArgs` now creates the result shell (final mangled name + InstDecl/InstArgs) and registers it in the cache BEFORE populating; `buildInstantiated*` became `populateInstantiated*` helpers that fill the pre-created shell. So a legit recursive struct terminates and **builds & runs**, and a self-cyclic interface's parent resolves to the placeholder and hits the existing self-extension guard (clean reject). `resolveInterfaceExtension` consults a new `Checker.GenericIfacePopulating` stack to detect inheritance cycles across distinct instantiations (drops the back-edge, keeping Parents acyclic so the unguarded ancestor-closure walks can't loop). A `GenericInstDepth` bound (128) rejects unbounded-growth chains cleanly.
