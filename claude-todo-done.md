@@ -10,6 +10,31 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~`\uHHHH` documented but unimplemented (spec Ch.5)~~ — ✅ IMPLEMENTED+LANDED (binate `1c43ef79`; conformance 789/790; 2026-06-15)
+
+`claude-notes.md` and `grammar.ebnf` listed a `\uHHHH` escape but neither
+decoder had a `\u` case (it would emit `u` followed by the hex digits).
+
+- **Resolution — implement, UTF-8 expansion** (user decision, 2026-06-15):
+  `\uHHHH` denotes Unicode code point U+HHHH and expands at compile time to
+  its UTF-8 encoding (1-3 bytes).  Pure source sugar — strings stay byte
+  sequences, no runtime Unicode machinery (no `rune`, no Unicode-aware
+  `string`).  In a char literal (one byte) only U+0000..U+007F is allowed.
+  The user clarified that "not fully supporting UTF-8" only means no `rune`
+  and no Unicode-aware `string` type; it does not bar compile-time `\u`
+  expansion.
+- **Implementation**: `types.Utf8Bytes` (exported, `types/escape.bn`) is the
+  single encoder, shared by `unescapedStrLen` (natural-type length) and the
+  IR decoders (`unescapeStr`/`parseCharLit`).  `validateEscapes` (run from
+  `checkExpr`) rejects malformed `\u` (fewer than four hex digits, a UTF-16
+  surrogate, or a multi-byte code point in a char literal) and incomplete
+  `\x`.  Lexer `scanChar` now scans to the closing quote (fixing a latent
+  mis-scan of `'\xHH'` too).  The >0xFF-into-`char` question is answered:
+  rejected (only single-byte code points fit a char).
+- **Follow-up**: rejecting *unknown* escapes (`\a` etc., still silently
+  dropped) is a separate one-branch extension of `validateEscapes`; tracked
+  under the Ch.5 entry in claude-todo.md.
+
 ### Shift: RUNTIME count-wider OVERSHIFT corner mis-detected — ✅ DONE (binate `0db709a1`)
 - **Symptom**: a shift `value << count` / `value >> count` whose `count` was a RUNTIME value of a TYPE wider than `value`, with `count >= 2^valueBitWidth` but `count mod 2^valueBitWidth` a small residue (e.g. a runtime `uint16` count of 261 shifting a `uint8`), silently yielded the wrong (non-overshift) result instead of the spec'd 0 (logical) / sign-fill (arithmetic `>>`).
 - **Root cause**: `genBinaryExpr` / `emitCompoundBinop` truncated the runtime count to the value width via `ensureWidth` BEFORE `emitGuardedShift`'s `count < width` guard ran, so the guard saw the truncated residue (5), not 261. `emitConstOvershiftOrNil` (untruncated `count.IntVal`) covered only the CONSTANT case; there was no runtime equivalent.

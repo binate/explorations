@@ -834,9 +834,8 @@ documents these as open items.
   construction both work.
 
 ### Escape-decoding gaps surfaced while authoring spec Ch.5 (Lexical Elements) — 🟡 OPEN
-Found writing the docs spec's Lexical Elements chapter (adversarial verification against `pkg/binate/ir/gen_util_literals.bn`). Both MINOR (silent leniency, not miscompile); no tests/xfails yet. The leading-zero-int split bullet from this entry is RESOLVED — full diagnosis archived in claude-todo-done.md.
-- **Unknown escapes silently dropped.** `unescapeStr`/`parseCharLit` decode only `\n \r \t \\ \' \" \0 \xHH`; any other `\X` falls through to a verbatim `X` (backslash dropped) with no diagnostic — so `"\a"` decodes to `"a"` (catch-all `gen_util_literals.bn:300`, `:267`). Decide whether unknown escapes should be rejected.
-- **`\uHHHH` documented but unimplemented.** `claude-notes.md` and `grammar.ebnf` list a `\uHHHH` escape, but neither decoder has a `\u` case (it would emit `u` followed by the hex digits). Either implement `\u` (and decide the >0xFF-into-single-byte-`char` question) or drop it from the notes/grammar.
+Found writing the docs spec's Lexical Elements chapter (adversarial verification against `pkg/binate/ir/gen_util_literals.bn`). MINOR (silent leniency, not miscompile). The leading-zero-int split bullet and the `\uHHHH` bullet from this entry are RESOLVED — diagnoses archived in claude-todo-done.md (`\u` landed binate `1c43ef79`, conformance 789/790). Remaining:
+- **Unknown escapes silently dropped.** `unescapeStr`/`parseCharLit` decode only `\n \r \t \\ \' \" \0 \xHH \uHHHH`; any other `\X` falls through to a verbatim `X` (backslash dropped) with no diagnostic — so `"\a"` decodes to `"a"` (catch-all `gen_util_literals.bn`). Decide whether unknown escapes should be rejected. (The `\u` work added `validateEscapes` in `types/escape.bn`, run from `checkExpr`; rejecting unknown escapes is a one-branch extension there.)
 
 ### Untyped `const` coercion: implementation diverges from a DECIDED note — surfaced authoring spec Ch.6 (2026-06-11)
 Needs a decision (MINOR — no miscompile; a type-system permissiveness
