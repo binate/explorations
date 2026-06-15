@@ -120,10 +120,11 @@ was never exercised.
   struct-field + managed-struct-value swap, deref targets, owned-temp RHS) —
   green on builder-comp / builder-comp-int (VM) / builder-comp-comp (gen2);
   unit `gen_assign_parallel_test.bn` pins the IR shape.
-- **Follow-up (separate item)**: spec §14 (Statements) authoring is now
-  UNBLOCKED — document parallel assignment per decision (A): all RHS evaluated
-  before any store; swap works; matched-arity multi-expression form is legal
-  (not multi-return only).
+- **Follow-up (separate item)**: ✅ DONE (2026-06-15) — spec §14.4
+  `stmt.assign.parallel` documents decision (A): all RHS evaluated before any
+  store, the swap works, and the matched-arity multi-expression form is legal
+  (not multi-return only). The §14 badge and the index no longer flag parallel
+  assignment as a defect.
 
 ---
 
