@@ -10,6 +10,23 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~Comparability "deferred to instantiation" comments were false; `eq[@[]int]` emits invalid icmp (CR-2 N3) — 2026-06-08~~ — ✅ LANDED on main (binate `15946a55`, 2026-06-14)
+
+`checkEqOperands` (`checker_errors.bn`) and `relationalOperandOK`
+(`types_query.bn`) claimed a non-comparable type argument is "deferred
+to the concrete instantiation" — implying the instantiation re-checks
+it. It doesn't: operand comparability is checked only on the generic
+DEFINITION (T opaque → skipped), so `eq[@[]int]` reaches codegen and
+emits an invalid `icmp` on a `%BnManagedSlice` (a clang failure), where
+the non-generic path cleanly rejects ("slices cannot be compared").
+Reworded both comments to describe the actual gap + point at the todo,
+and added `conformance/772_generic_eq_managed_slice` (xfail all default
+modes): a `.error` cell expecting the desired clean rejection, so when
+generic instantiation re-runs operand checks it XPASSes (fix-detector).
+The same-entry siblings N2 (dead `peelTransparent` comment in
+`gen_iface.bn`) and N10/N11 (stale iface/funcval-multi-return xfail
+markers) were already resolved in-tree by later work (verified absent).
+
 ### ~~`@[N]T` parser leniency: bare `@[N]T` silently accepted (`*[N]T` rejected) — spec Ch.7 (2026-06-12)~~ — ✅ LANDED on main (binate `7ccd13e1`, 2026-06-14)
 
 `@[` is managed-slice sugar (`@[]T`) and `*[` is raw-slice sugar
