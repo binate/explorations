@@ -10,6 +10,23 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~Generic-instantiated composite-literal head `Foo[T]{…}` not built by the parser — spec §13.10 (2026-06-13)~~ — ✅ LANDED on main (binate `d005a11e`, 2026-06-14)
+
+`Foo[int]{...}` mis-parsed: `parseIdentOrCompositeLit` recognized only
+`Type{` / `pkg.Type{`, so the postfix `[int]` became an
+`EXPR_INSTANTIATE_OR_INDEX` and the trailing `{...}` was orphaned (a
+parse error). `continuePostfix` now reinterprets a bracket head followed
+by `{` (outside a no-composite context) as a `TEXPR_INSTANTIATE`
+composite type and parses the body; new `exprToCompositeTypeExpr`
+converts the head + type args (ident / pkg-qualified / `@T` EXPR_TYPE /
+`*T` / nested generic), returning nil for a non-type head so a real
+value index is left alone. Downstream already handled a
+`TEXPR_INSTANTIATE` composite head (`checkCompositeLit` /
+`genCompositeLit` resolve via `resolveTypeExpr`). Tests:
+`TestParseGenericCompositeLit` + `TestParseIndexNotGenericComposite`;
+conformance `776_generic_composite_lit` (keyed + nested) green on
+builder-comp / -int / -comp.
+
 ### Native backends mis-lower float consts/returns — `541` silently reads 0 (Phase A float-const gap on the native code generators) — ✅ RESOLVED (binate `5281b138` + `cc6d0e9b` AAPCS64 D0 float-return + `1285683e` runtime link; `541` green on native aa64)
 - **Symptom**: `conformance/541_cross_pkg_const_float` passes on the
   default C/LLVM-backed modes but **fails on the native aarch64 backend**

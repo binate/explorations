@@ -741,24 +741,6 @@ The CRITICAL entries below are also surfaced in `## CRITICAL`-class triage.
 
 ## MINOR
 
-### Generic-instantiated composite-literal head `Foo[T]{…}` is specified but not built by the parser — spec §13.10 `expr.composite.generic` (2026-06-13) — 🔴 OPEN
-Generic composite literals (`List[int]{1,2,3}`, `Pair[int, S]{first: …}`) are a
-language feature (user decision 2026-06-13; matches Go) — specified in §13.10
-`expr.composite.generic` and in `binate.ebnf` (the composite-literal head is a
-`TypeName`, optionally generic-instantiated). The parser does NOT build them:
-`parseIdentOrCompositeLit` (`pkg/binate/parser/parse_primary.bn` ~196–242) after
-the head identifier checks only for `DOT` (qualified name) or `LBRACE`
-(composite literal) — it never consumes a `[ TypeArgList ]` before `{`. So
-`Foo[int]{…}` parses `Foo` as an ident, the postfix loop eats `[int]` as
-`EXPR_INSTANTIATE_OR_INDEX`, sees `{` (not a postfix op) and stops, leaving the
-`{…}` to the statement layer (a parse error / mis-parse). Fix: in
-`parseIdentOrCompositeLit` (and/or the postfix path), after `Ident "[" TypeArgList
-"]"` look ahead for `{` and, when present (and not `noCompositeLit`), parse a
-composite literal with a generic-instantiated head — the D5/D11-style
-disambiguation. Tracked as `expr.composite.generic-unparsed`. Needs a conformance
-test (`var x @List[int] = List[int]{1,2,3}` or similar) + a coordinated binate
-worktree.
-
 ### pkg/std/os O_* flags now compile-time-correct via build.OS — ✅ RESOLVED 2026-06-10 (binate 590906c8); arm32 off_t + VM residuals remain
 `nativeOpenFlags` (`impls/stdlib/libc/pkg/std/os/os.bn`) branches on
 `build.OS` — a per-target compile-time constant from `pkg/builtins/build`
