@@ -10,6 +10,27 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~Remove the `pkg/binate/vm` lint skip after the next release~~ — ✅ DONE (binate `eab1ca5a`, 2026-06-15)
+The bnlint skip for pkg/binate/vm (+ importers repl, cmd/bni) existed because the
+BUILDER-bundled bnlint predated `_Package()` / `_func_handle(rt._Package)` /
+`@reflect.Package` typecheck support. BUILDER_VERSION reached bnc-0.0.9 whose
+bundled bnlint handles them (verified: lints all three cleanly, EXIT 0), so the
+skip was retired (`LINT_SKIP=""`) and all three are style-linted again; full
+hygiene green. (The separate `#[build]` build.bni shim is a distinct workaround,
+left in place.)
+
+### ~~Cross-package managed refcount-safety + extern-var coverage gaps (2026-06-04 audit)~~ — ✅ DONE (2026-06-15)
+The 2026-06-04 audit's 17 cross-package gaps are all closed:
+- **rc-balance**: managed-slice extern-var value-copy (592); a managed value
+  crossing a package boundary as a slice-element assign / function arg / return /
+  struct-field store / interface construct / interface return / generic type arg
+  — conformance 673/674/675/676/677/678/682 (`8741c552` also cleared their
+  int-int xfails).
+- **extern-var functional**: `&pkg.X` scalar addr-of (687); field write through
+  an imported raw-ptr / value-struct var (686); raw-slice element write through a
+  `*[]T` extern var (796, binate `e45a8cca` — the final residual, green incl.
+  native aa64).
+
 ### ~~CRITICAL (IR-gen) — IDENT compound shift-assign (`v <<= c`) pre-truncated the count, defeating both the wide-overshift fix and the negative-count guard~~ — ✅ DONE (binate `11f0b413`, 2026-06-15)
 The IDENT lvalue arm pre-`ensureWidth`'d the shift count before
 `emitCompoundBinop`, so the wide-overshift fix and the negative-count guard read

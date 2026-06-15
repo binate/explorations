@@ -716,23 +716,6 @@ question).
   2. **Generic path NOT covered** — `==`/relational on a type parameter later INSTANTIATED with an aggregate is not caught: the body is checked once with `T` opaque (deferred), and instantiation does not re-check it (`check_generic.bn`), so it can reach IR-gen → the same invalid-IR class, via generics. PRE-EXISTING (before this change all aggregate `==` was permissive); this change does not worsen it. Needs instantiation-time re-checking OR a `comparable`-style constraint decision. Separate follow-up.
   3. **Sentinel detection (`err == io.EOF`)** — disallowing interface-value `==` means this is NOT the mechanism; needs `identical`/`same` + `errors.Is` (under discussion / see io.EOF TODO). Resolve before the first real `Reader` lands.
 
-### Remove the `pkg/binate/vm` lint skip after the next release
-- **What**: `scripts/hygiene/lint.sh` temporarily skips `pkg/binate/vm`,
-  `pkg/binate/repl`, and `cmd/bni` (`LINT_SKIP`).  The BUILDER-bundled bnlint
-  (bnc-0.0.6) predates the `_Package` selector + `_func_handle` typecheck
-  support, so it aborts at the typecheck pass on `_func_handle(rt._Package)`
-  / `@reflect.Package` in `vm/extern_register_std.bn`; repl + bni cascade in
-  because bnlint typechecks dependency bodies (entry above).
-- **Removal condition**: drop the whole `LINT_SKIP` block once
-  `BUILDER_VERSION` is bumped to a snapshot that includes BOTH (a) the
-  `_Package` selector + `_func_handle(pkg._Package)` typecheck support
-  (binate `feadde2c` and predecessors), and (b) the bnlint dep-body fix
-  (entry above — landed in source as binate `3fcfdf8c`, awaiting only the
-  BUILDER bump).  With (a), `vm` lints; with (b), the repl/bni cascade is
-  gone.  A from-source bnlint already lints all three cleanly today.
-- **Marker**: the skip block carries a `TODO(remove after next release)`
-  pointing here.
-
 ### Remove the build.bni-dedup workarounds after a BUILDER bump
 - **What**: the build-constraint migration collapsed `pkg/builtins/build` to one
   `#[build(...)]`-gated `ifaces/core/pkg/builtins/build.bni` and re-sourced the
@@ -834,39 +817,6 @@ question).
   let `__c_call` tests declare "compiled-only" honestly instead of a
   fan of per-mode xfail files.
 - Surfaced 2026-06-03 by the drop-libc / native-only-rt work.
-
-### Cross-package managed refcount-safety + extern-var coverage gaps (2026-06-04 audit)
-- A coverage audit (multi-agent workflow) of cross-package extern-var
-  and managed-ptr/value test coverage — run after the 551/559/561
-  deferrals + 586 — found that most cross-package MANAGED scenarios are
-  tested only FUNCTIONALLY (output is right), not for REFCOUNT BALANCE,
-  so a leak (rc stays elevated) or an extra RefInc/RefDec would slip
-  through.  17 gaps confirmed (adversarially verified vs existing tests).
-- **Addressed**: managed-slice extern-var value-copy rc-balance is now
-  `conformance/592_cross_pkg_managed_slice_copy_balance` (the 586
-  companion; balanced in 5 default modes + native aa64, int-int xfailed
-  for the rt-loader bug; binate `efe989e6`).  (Landed as 592 — 587/588
-  then 589/590/591 were taken by concurrent landings as the number kept
-  moving.)
-- **Remaining rc-balance gaps** (functional coverage exists; no
-  `rt.Refcount` before/after — add it, pattern: 586/592/130) — a managed
-  value crossing a package boundary as:
-  - a managed-slice ELEMENT assignment of a managed value
-    (`pkg.S[i] = @v`; also exercises RefDec of the overwritten element);
-  - a function ARGUMENT (`pkg.f(@T)`) / RETURN (`pkg.New() @T`);
-  - a STRUCT FIELD store (`root.X = child`, X a cross-pkg `@Node`);
-  - an INTERFACE construction (`var iv @pkg.I = h`) / interface RETURN
-    (`pkg.Make() @Shape`);
-  - a GENERIC type argument (`genlib.Append[@pkg.T](...)`).
-  These are pre-existing and NOT extern-var-specific — a broader
-  cross-package-managed refcount-safety test initiative.
-- **Extern-var FUNCTIONAL gaps** (the paths work; just untested):
-  `&pkg.X` (address-of an imported SCALAR var — the 551 analogue for
-  imports); field write through an imported RAW-ptr / value-STRUCT var
-  (the 561 analogue); raw-slice element write through a `*[]T` extern var.
-- **Blocked**: 586/592's `builder-comp-int-int` xfails clear once the
-  136/383 int-int rt-loader bug (above) is fixed.
-- **Discovery**: 2026-06-04 coverage-audit workflow.
 
 ### Slim `pkg/bootstrap` and `pkg/libc` by migrating callers OUT
 - **What**: rather than converting bootstrap's I/O surface
