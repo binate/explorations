@@ -10,6 +10,196 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### `main` existence/signature not checked at compile time — ❌ NOT A BUG — BY DESIGN (closed 2026-06-14)
+Previously filed (2026-06-12) as a missing-diagnostic defect
+(`prog.main.unchecked`). That was WRONG — it is **by design**, per the user.
+Under **separate (per-package) compilation** the compiler never sees the whole
+program, so a valid `func main()` entry point cannot be resolved when a package
+is compiled (not without a weird hack). Moreover, **requiring `main` to exist
+runs counter to the dual-mode interop story**: any package may be compiled or
+loaded independently and have its functions called across the
+compiled/interpreted boundary (Ch.19), so a package is never obligated to furnish
+an entry point. The entry is resolved at **link / program-assembly** time; a
+missing or wrong-shaped `main` surfaces as a link error, which is intrinsic to
+the model — NOT a missing diagnostic. **Do NOT re-file this and do NOT add a
+checker rule for `main`.** Spec corrected (docs `4af9c72`): §17.3 now carries a
+"_Note (by design)_" (the `prog.main.unchecked` ID is retired) and §21.9 no longer
+lists it as a non-conformance.
+
+### Global `var` of an interface-value / func-value (or readonly-wrapped aggregate) type emits invalid LLVM (`global %BnIfaceValue 0`) — ✅ RESOLVED — LANDED `91ef4fc4` (verified on main 2026-06-10)
+- **Symptom**: any package-level `var x @Iface` / `@errors.Error` / `*func()` / `@func` (with or without an initializer), AND any `readonly`-qualified aggregate/iface/func/struct/array/slice global, made the LLVM backend emit `@<mangled> = global %BnIfaceValue 0` (or `%BnFuncValue 0`, `%bn_main__Pt 0`, …), which clang rejects: `error: integer constant must have integer type` — the whole package fails to compile. Blocked a `pkg/std/io` `var EOF @errors.Error = errors.New("EOF")` sentinel (and any iface/func-value package global).
+- **Root cause**: `pkg/binate/codegen/emit.bn` global-var static-zero dispatch — the SAME dispatch as the float-global sibling above — picks the zero by type kind (`null` ptr, `zeroinitializer` slice/struct/array, ` 0.0` float, ` 0` otherwise). Two gaps: (1) the 16-byte address-aggregate kinds (`TYP_INTERFACE_VALUE[_MANAGED]` → `%BnIfaceValue`; `TYP_[MANAGED_]FUNC_VALUE` → `%BnFuncValue`) fell through to ` 0` but are LLVM struct types needing `zeroinitializer`; (2) the dispatch tested `g.Typ.Kind` DIRECTLY while `llvmType`/`IsFloat` unwrap `TYP_READONLY` first, so a `readonly`-wrapped aggregate global got the right printed type but the wrong ` 0` init token. Same code-red "missing iface/func-value arm" + "aggregate-as-scalar" shape, in the global emitter.
+- **Fix — LANDED `91ef4fc4` (the orphaned worktree commit `5dddef7d` on `temp-binate-4` was superseded by this functionally-identical landed commit; `f2ebaca1` later extended the dispatch to also peel `TYP_NAMED`)**: add the four address-aggregate kinds to the `zeroinitializer` branch AND unwrap `TYP_READONLY` at the top of the dispatch (mirroring `llvmType`). Verified on main 2026-06-10: `--emit-llvm` emits `@bn_main__g = global %BnIfaceValue zeroinitializer`, `@bn_main__f = global %BnFuncValue zeroinitializer`, `@bn_main__ro = global %bn_main__Big zeroinitializer` (valid, not the invalid ` 0`); full clang compile exit 0. Adversarially reviewed (4-agent workflow): correctness + refcount confirmed (the `__init` store MOVES the fresh value in via consumeTemp; the zeroinitializer prior-occupant RefDec is a verified null-data no-op; immortal sentinel by design, like Go's io.EOF); the readonly variant was the review's blocker finding; no regression to int/bool/char/ptr/float/struct globals. Unit test `pkg/binate/codegen/emit_global_test.bn` (func/iface/readonly → zeroinitializer, not ` 0`; + the float sibling). End-to-end: cross-package `var EOF @errors.Error = errors.New("EOF")` compiles, `__init` runs it, consumer reads it + `.Error()` correct; 1000-iter stress clean.
+- **Severity**: MAJOR — hard compile error (not silent), blocked any package-level interface-value / func-value (or readonly-aggregate) global. Discovered 2026-06-07 implementing `pkg/std/io`'s `io.EOF`.
+- **Test-gap analysis (the "why wasn't this caught / how to prevent" ask) + FOLLOW-UP**: the defect lived in a structurally-EMPTY matrix intersection — `conformance/matrix/aggregate/global` sweeps the `global` op over {scalar,array,struct}×{int,float} but NOT iface/func kinds; `conformance/matrix/addr-aggregate/{func-value,iface-value}` sweeps those kinds over {direct,copy,return,arg,return-arg,field,array-elem} but has NO `global` op. Neither product's coordinates included "a package-level global of a 2-word address-aggregate", and there was ZERO codegen unit coverage of the module-global path. PREVENTIVE FOLLOW-UP (deferred per the user): add a `global` operation to `conformance/gen-addr-aggregate-matrix.py` (OPERATIONS) → `addr-aggregate/{func-value,iface-value}/global.bn` + a no-initializer companion (sweeping the with/without-runtime-initializer axis), update its README, run hygiene. ALSO unverified: VM (`-int`) + native modes — the VM materializes globals separately (`vm/lower_data.bn`); confirm it handles iface/func-value globals before relying on `io.EOF` in `-int`/native (xfail per mode if not). The unit test is mode-independent and already guards the codegen fix.
+
+### VM: a function value RETURNED from a call and PASSED DIRECTLY as an argument has a nil vtable — CONFIRMED, VM-only — ✅ RESOLVED (binate `e337e413`, `isVMAddressAggregate` single-return copy-back in `lowerReturn`)
+- **Symptom**: `use(mk())`, where `mk() @func(...)` returns a (non-capturing)
+  function value and `use(w @func(...))` invokes it, aborts in the bytecode VM
+  with `vm: function value has nil vtable`. Compiled (native) is correct.
+- **Scope**: bytecode VM ONLY (LLVM/native correct). Triggered specifically by
+  passing a freshly-RETURNED function value DIRECTLY as a call argument. The two
+  halves work in isolation: returning a function value then calling it directly
+  via an EXPLICITLY-typed local (`var w @func(...) = mk(); w(x)`) is fine, and
+  passing a LOCAL/param function value as an
+  arg (`use(w)` with `w` a local) is fine — only the un-materialized
+  return-value-as-arg combination loses the vtable word here.  (The
+  INFERRED-type spelling `var w = mk(); w(x)` — no `@func` annotation — is
+  separately broken on ALL backends; see the `## MAJOR` entry "Inferred-type
+  func-value local call mis-lowers to a direct symbol".)  Specifically, only the un-materialized
+  return-value-as-arg combination loses the vtable word. Workaround: bind to a
+  local first (`var w @func(...) = mk(); use(w)`).
+- **Test**: ✅ `conformance/regressions/funcval/return-as-arg` (binate
+  `d493b25b`, on the worktree, pending cherry-pick). `use(mk())` returning/
+  passing a non-capturing `@func(int) int`, asserts `42`. Verified: compiled-
+  final + native pass; the 3 VM-final modes (`builder-comp-int`,
+  `builder-comp-int-int`, `builder-comp-comp-int`) abort `nil vtable` and are
+  xfailed — un-xfail when the fix lands.
+- **Discovery**: 2026-06-05, wiring minbasic's injected `@func` writer
+  (`basic.Run(host.NewWriter())`): the VM aborted with nil vtable. Isolated to
+  the return-value-as-arg pattern; `bnc-0.0.7`.
+- **Why it matters**: blocks injecting a `@func` writer/sink built by a factory
+  (`Run(host.NewWriter())`) — a natural DI shape. Together with the iface-vtable
+  2-word-slice-arg bug, it leaves only static/direct calls reliable for I/O
+  injection on `bnc-0.0.7`, so minbasic uses a clearly-marked static temp
+  meanwhile.
+- **Fix**: in the VM, marshal a function-value (2-word {vtable,data}) call
+  argument that is an un-spilled call result the same way a local/param function
+  value is marshalled — the vtable word is being dropped for the return-value-as-
+  arg case.
+
+### Unsigned int→float uses a SIGNED conversion in the VM — wrong value — CONFIRMED — UPDATE 2026-06-06: the scalar-diff differential shows the unsigned→**float64** path now PASSES on the VM (so this specific signedness bug appears resolved); a *distinct* int→float32 defect remains — see `vm-int-to-float32` below
+- **Symptom**: `cast(float64, y)` for an unsigned int whose top register bit is
+  set (on the 64-bit host, only `uint64` with bit 63) yields a NEGATIVE float —
+  the VM converts as signed. E.g. `cast(float64, <uint64 bit-63>) > 0.0` is
+  true on LLVM, false on the VM.
+- **Root cause (CONFIRMED)**: the VM's int→float lowering uses `BC_SITOF`
+  (signed) regardless of the operand's signedness; LLVM uses `uitofp` for
+  unsigned. The native backends carry the same gap (§3.8). A `uint32` is
+  zero-extended (positive in the 64-bit register), so only `uint64` triggers
+  it on the host.
+- **Test**: `conformance/matrix/scalar/int-to-float/64/unsigned` (xfailed the 3
+  VM modes; `/32` passes as a baseline).
+- **Discovery**: 2026-06-05, P1 scalar matrix int-to-float cells. Flagged §3.8.
+- **Fix**: dispatch int→float on operand signedness (a `BC_UITOF` / unsigned
+  path), mirroring the cmp/div/shift signedness selection. Same for float→int
+  and the native backends.
+
+### Float-literal converter 1 ULP low for ~38+ sig-digit literals just above a tie (round-bit loss) — ✅ RESOLVED (binate `58570970`, `ParseFloatLitToBits` via `strconv.ParseFloat` — exact round bit)
+- **Symptom**: a float64 literal with ~38+ significant digits sitting JUST
+  ABOVE a binary rounding tie (e.g. `1.0000000000000001110223024625156540424`)
+  converts 1 ULP LOW.  `common.ParseFloatLitToBits` holds the significand in a
+  128-bit window and collapses everything below the kept 53 bits into a single
+  sticky flag, losing the exact round bit.  LLVM (its own strtod) is correct;
+  the VM and native backends share the converter, so they are wrong.
+- **Discovery**: 2026-06-03 completeness review of the 128-bit-accumulation
+  rewrite; reproduced vs strconv + a big.Float reference (~50% of constructed
+  just-above-tie inputs diverge, all +1 ULP in strconv's favor).  Realistic
+  literals (≤~37 sig digits) are correct — this is the table-maker's-dilemma
+  tail.
+- **Test**: `conformance/538_float_lit_tie_roundbit` (passes on LLVM, xfailed
+  on the VM modes).
+- **Proper fix**: exact rounding via `pkg/std/math/big` (mantInt*10^exp as a
+  Nat, extract 53 bits + round-to-even from the exact remainder — Go's
+  slow-path).  **No longer blocked**: the earlier "cmd/bnc's BUILDER tree can't
+  import stdlib `big`" caveat is STALE — verified 2026-06-05 that the current
+  BUILDER (`bnc-0.0.7`) compiles and runs a `pkg/std/math/big`-importing program
+  correctly (`Nat.Mul` → 3000000). `math/big` is float-free integer big-num (no
+  floats / generics / closures / interfaces), so it is BUILDER-compilable; only
+  `strconv`-as-a-whole stays blocked (its `ftoa.bn` is float-using), and the fix
+  needs `math/big` directly, not `strconv`. So the converter (in
+  `pkg/binate/native/common`) can `import "pkg/std/math/big"` and do the exact
+  mantInt*10^exp rounding. Remaining check before landing: confirm no tier/layer
+  hygiene rule forbids the compiler tree depending on tier-1 stdlib (a layering
+  question, not a BUILDER-compilability one). Interim alternative (no longer
+  needed if the proper fix lands): widen the fixed window (256-bit → ~76 digits).
+- **Severity**: MAJOR (silent 1-ULP-wrong float constant), narrow (38+ digits
+  AND just-above-tie).
+
+### Multi-value return assignment to `_` leaks the discarded managed component(s) — FIXED 2026-06-03 (binate; LANDED — `570_blank_discard_managed_balance` green, 0 xfails)
+- **Was**: `_, n = f()` where `f` returns `(@T, int)` (or `@Iface`, `@[]T` — any managed type) never RefDec'd the `_`-discarded managed result → +1 leak per execution.  Root cause: the multi-assign loop (`genAssign`, `gen_control.bn`) ran the Axiom-3 copy-RefInc for the `_` component unconditionally, but a blank target stores nothing (`lookupVar("_") == nil`), so that RefInc had no matching RefDec.  (The single-value `_ = g()` path doesn't leak because its RefInc is *inside* the `ptr != nil` guard.)
+- **Fix**: skip a blank-identifier target entirely in the multi-assign loop (`if lhs.Kind == EXPR_IDENT && isBlank(lhs.Name) { continue }`) — no copy-RefInc, no store; the call-result temp's dtor RefDec's the owned ref at end of statement.
+- **Test**: `conformance/570_blank_discard_managed_balance` (loop of 100 discards; b's refcount returns to baseline 1, was 101 pre-fix).  Verified to fail on the unfixed compiler.
+- **NOTE — the BOTH-bound form `a, n = f()` is NOT balanced** (the old entry wrongly claimed it was — it had only been checked for `@T` bound to a fresh-nil var).  See the two multi-assign defects in the CRITICAL section.
+
+### Native aa64 self-host lane failed to BUILD — `duplicate symbol` (62 dups) — FIXED 2026-06-03 (binate; LANDED — the native_aa64 lane builds in CI)
+- **Was**: `builder-comp_native_aa64-comp_native_aa64` failed at
+  compiler-build (link) time, `ld: 62 duplicate symbols` (e.g.
+  `_bn_pkg__binate__types__predeclaredNil`,
+  `_bn_pkg__binate__ir__moduleGlobals`, …) — each a top-level package var
+  defined in BOTH `main.o` and its owning package's `.o`.  The lane never
+  reached running a test.
+- **Root cause (the static-managed-sentinel hypothesis was WRONG)**:
+  `ir.Global` carries `IsExtern` (an imported `.bni` extern var, defined by
+  its owner's TU).  The LLVM backend honors it — emits `external global`
+  (declaration only).  The NATIVE backends' `emitGlobals`
+  (`pkg/binate/native/{aarch64,x64}`) did NOT check `IsExtern`: they emitted
+  a strong definition for EVERY global, so every importing TU carrying an
+  IsExtern entry re-defined the owner's symbol → duplicate-symbol link
+  failure.  The recent cross-package extern-var feature (binate `be49c0a9`
+  etc.) populated modules with IsExtern globals, tipping the latent native
+  gap into a build break.
+- **Fix**: native `emitGlobals` (both backends) now `continue`s on
+  `g.IsExtern` (no definition — the reference resolves to the owner
+  cross-object, exactly like LLVM's `external global`).  Also open the data
+  section LAZILY (only once a real non-extern global is emitted): a module
+  whose globals are ALL extern was otherwise leaving an empty data section
+  that the Mach-O writer turned into a malformed load command (the
+  `548/552/558` cross-pkg link failures).  Unit tests:
+  `TestEmitGlobalsSkipsExtern` in both backends.
+- **Result**: the aa64 self-host lane BUILDS and runs — `491 passed, 0
+  failed` (xfails skipped).  `534` (the `@func` fix) passes on native aa64;
+  `541` stays xfailed (native float gap).
+- **Newly-exposed native-aa64 gaps (xfailed + tracked; NOT regressions —
+  these tests never ran before the lane built)**: `550` (@func
+  capture-record refcount wrong on native), `569` (float captured in a
+  closure reads 0 — native float gap, 541-family), `559`/`561` (cross-package
+  MANAGED extern var — already xfailed on every mode; needs the imported
+  type's dtor).  `550`/`569` are the genuinely native-specific ones worth a
+  follow-up.  (`551` `&G`-as-rvalue is now FIXED — see entry below.)
+
+### `550` native @func capture-record refcount — FIXED 2026-06-04 (binate `7dab4be7`; split `879fe3a1`) — LANDED (`550_func_value_capture_released` green, 0 xfails)
+- **Symptom**: a capturing `@func`'s captured managed value was not
+  released when the closure died on native aa64; `conformance/550` read
+  rt.Refcount 2 instead of 1.  Green on every other mode (VM via
+  `0a0d00af`; LLVM via the func-value vtable dtor slot).
+- **Root cause**: native `emitFuncValueVtables` always wrote the
+  vtable's slot-0 (dtor) as 8 zero bytes, even for a capturing managed
+  closure whose struct needs destruction.  `fv.vtable[0]` null ->
+  OP_FUNC_VALUE_DTOR yields null -> rt.ZeroRefDestroy skips the dtor ->
+  the captured value's ref leaks.  The OP_FUNC_VALUE_DTOR load and
+  emitRefDecInline forwarding were already correct; only slot-0 wiring
+  was missing.
+- **Fix**: new `emitFuncValueVtableDtorSlot` (aarch64) /
+  `emitFuncValueVtableDtorSlot_x64` emit slot 0 as a pointer to the
+  closure-struct dtor's HANDLE (`___handle.<dtor>`) when
+  `lookupClosureFuncAA64(mod, seen[i])` returns a func that is
+  `IsManagedFuncValue && ClosureStruct != nil &&
+  ClosureStruct.NeedsDestruction() && len(ClosureStructDtorName) > 0`;
+  else 8 zero bytes (unchanged).  Mirrors `emitFuncValueVtableDtor` in
+  pkg/binate/codegen.
+- **Symbol-convergence note (the part the pre-fix plan got slightly
+  wrong)**: `f.ClosureStructDtorName` is the UNqualified dtor name
+  (`__dtor_<closure>`), NOT the dtor func's qualified `Name`
+  (`<pkg>.__dtor_<closure>`).  They still resolve to ONE symbol because
+  `handleSymFor` routes through `mangle.FuncName(pkgName, ...)`, which
+  folds a same-package qualifier prefix and a pkgName-prefixed
+  unqualified name to the identical `bn_<pkg>__<dtor>` — so slot 0
+  references exactly the `___handle.<dtor>` triple that
+  collectFuncValueRefs' IsLinkOnce pre-pass already emits.  No new
+  global, no dangling reference.  (Used the EXISTING `lookupClosureFuncAA64`,
+  which returns the closure func directly — the planned
+  `lookupModuleFuncAA64` was unnecessary.)
+- **x64 parity**: same fix in `pkg/binate/native/x64/x64_funcvalue.bn`
+  (no CI lane, but had the identical latent capture-leak).
+- **Hygiene**: the +45-line fix pushed `aarch64.bn` over the 500-line
+  cap, so the func-value emission was first extracted to
+  `aarch64_funcvalue.bn` (mirrors `x64_funcvalue.bn`) in `879fe3a1`.
+- **Tests**: 550 un-xfailed on native aa64 (verified fail pre-fix /
+  pass post-fix); `aarch64_funcvalue_test.bn` pins slot-0 shape (dtor
+  handle for a capturing managed closure, null otherwise, null for the
+  *func and no-managed-capture forms).
+
 ### ~~Comparability "deferred to instantiation" comments were false; `eq[@[]int]` emits invalid icmp (CR-2 N3) — 2026-06-08~~ — ✅ LANDED on main (binate `15946a55`, 2026-06-14)
 
 `checkEqOperands` (`checker_errors.bn`) and `relationalOperandOK`
