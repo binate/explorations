@@ -948,13 +948,6 @@ in the spec (`08-conversions.md`).
 Found writing the docs spec's Types chapter (grounding + adversarial
 verification against pkg/binate/types). The spec (`07-types.md`)
 documents these as open items.
-- **`@[N]T` parser leniency** (`type.ptr.array-parens.at-leniency`, MINOR).
-  The documented rule is that bare `@[`/`*[` followed by a non-`]` is a
-  syntax error (parens required: `@([N]T)` / `*([N]T)`), so the `@[`/`*[`
-  sugar is unambiguously slices. The parser enforces this for `*[N]T`
-  (`parse_type.bn:49-52` emits an error) but **silently accepts `@[N]T`**
-  as `@([N]T)` (`parse_type.bn:98-112`, no error). Asymmetric; likely
-  unintended. Decide: reject bare `@[N]T` too, or relax both. No miscompile.
 - **Opaque `make`/`sizeof`/`alignof` not gated**
   (`type.opaque.make-sizeof-gap`, MAJOR doc-vs-impl). The ratified design
   (plan-type-decls.md:42-51, ast.bni:232-233) says `make(Opaque)` /

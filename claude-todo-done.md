@@ -10,6 +10,17 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~`@[N]T` parser leniency: bare `@[N]T` silently accepted (`*[N]T` rejected) — spec Ch.7 (2026-06-12)~~ — ✅ LANDED on main (binate `7ccd13e1`, 2026-06-14)
+
+`@[` is managed-slice sugar (`@[]T`) and `*[` is raw-slice sugar
+(`*[]T`); a (managed-)pointer to an array needs parens (`@([N]T)` /
+`*([N]T)`). The parser rejected bare `*[N]T` but silently accepted
+`@[N]T` as `@([N]T)` — asymmetric. Now mirrors the `*[` rejection in the
+`@[` branch (error + recover as managed-pointer-to-array). Tests:
+`TestParseBareManagedArrayRejected` + `TestParseParenManagedArrayAccepted`.
+(The other two Ch.7-types sub-items — opaque make/sizeof gating, named
+func-value LITERAL construction — stay open in claude-todo.md.)
+
 ### ~~Generic methods accepted at declaration (`func (b Box) Get[T any](…)`) — spec Ch.12 (2026-06-12)~~ — ✅ LANDED on main (binate `a7e0beb2`, 2026-06-14)
 
 Generics v1 has no generic methods (only generic free functions and
