@@ -1,7 +1,13 @@
 # Plan: reject type redeclaration across `.bni`/`.bn`
 
-Status: PLANNED (2026-06-15). Sweep done; design ratified (tag-decls-at-load +
-checker rule); implementation pending.
+Status: IMPLEMENTED on worktree (2026-06-15), pending land. Three commits:
+`rt` baremetal cleanup, conformance fixture migration, and the enforcement
+(a dedicated `checkTypeRedeclaration` pass — see the Design correction below;
+the approved in-`collectTypeDecl` placement was the wrong layer). Full unit
+suite 45/0; conformance builder-comp 1460/0, builder-comp-int 1445/0,
+builder-comp-comp 1460/0; hygiene 14/14. The grammar doc fix (§"Doc fix") is
+moot — `explorations/grammar.ebnf` was retired the same day and the canonical
+`docs/spec/binate.ebnf` already carries the forward-decl `TypeDef` alternative.
 
 ## Goal
 
