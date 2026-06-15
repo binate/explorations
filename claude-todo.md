@@ -4,6 +4,41 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR (native codegen) — `bit_cast` of a SLICE value emits invalid IR (`add %BnSlice %v, 0`) → clang error; the VM accepts it (2026-06-14) — 🔴 OPEN
+
+Found converting minbasic to `pkg/std/os`: feeding char text to `os.File.Write`
+(which is `*[]readonly uint8`) wanted a zero-copy `*[]readonly char` →
+`*[]readonly uint8` reinterpret, the natural job for `bit_cast`.
+
+- **Minimal repro** (5 lines, no imports):
+  ```
+  func main() {
+  	var s *[]readonly char = "hi"
+  	var u *[]readonly uint8 = bit_cast(*[]readonly uint8, s)
+  	println(len(u))
+  }
+  ```
+  - Compiled (native): clang fails — `integer constant must have integer type`
+    on `%v4 = add %BnSlice %v3, 0`.
+  - Interpreted (VM): prints `2` (works). Mode divergence.
+
+- **Root-cause hypothesis.** The native `bit_cast` lowering reinterprets via the
+  scalar no-op pattern `add <val>, 0`, valid only for an integer/scalar operand;
+  for a slice (a `%BnSlice` aggregate, ptr+len) it emits `add %BnSlice, 0` —
+  invalid IR. bit_cast of an aggregate (slice, presumably struct too) isn't
+  handled in the backend, while the VM's bit_cast is.
+
+- **Decision needed.** Either lower bit_cast of a same-layout aggregate correctly
+  in native (an SSA reinterpret, not an `add`), OR reject bit_cast on aggregate
+  types at type-check in BOTH modes. The motivating case is the zero-copy
+  char↔uint8 slice reinterpret (text↔bytes); if that's intentionally
+  unsupported the diagnostic should say so rather than emitting bad IR.
+
+- **Workaround (examples).** minbasic's os conversion copies element-wise
+  (char→uint8) instead of bit_cast — works in both modes.
+
+---
+
 ## native_x64 (ELF) was NOT "WIP" — one reloc bug masked a 99%-working backend — ✅ core FIXED+LANDED, C-call gap OPEN (2026-06-14)
 
 **Fixed + landed:** `dd74c91e` (PC32 addend) + `c097a381` (`.note.GNU-stack`).
