@@ -82,7 +82,31 @@ native backend; the LLVM side relies on LLVM to classify HFAs).
 
 ---
 
----
+## MINOR — remove the `impls/stdlib/common` compat symlink at the next BUILDER bump (2026-06-14) — 🟡 OPEN
+
+`impls/stdlib/` was flattened (`impls/stdlib/common/pkg` → `impls/stdlib/pkg`,
+`5ae15031`), but `scripts/binate-paths.sh` still emits `$BASE/impls/stdlib/common`
+as the stdlib impl search root, and a `common -> .` symlink makes that resolve
+against the flattened tree. The symlink exists ONLY because the pinned BUILDER
+bundle (`bnc-0.0.9`) still ships a real `impls/stdlib/common/` dir, and
+binate-paths uses one formula for both the current tree and the bundle base —
+so emitting `$BASE/impls/stdlib` now would break gen1's resolution of the
+bundle's stdlib.
+
+**Do this once `BUILDER_VERSION` is bumped to a bnc cut from a tree at/after the
+flatten** (any BUILDER built from main ≥ `5ae15031` ships `impls/stdlib/pkg`
+directly, so `$blib/impls/stdlib` resolves):
+1. Change `scripts/binate-paths.sh` (the `build_list impl` branch, ~line 169)
+   from `$BASE/impls/stdlib/common` to `$BASE/impls/stdlib`.
+2. `git rm impls/stdlib/common` (the symlink).
+3. Sweep remaining `impls/stdlib/common` references: `scripts/fetch-builder.sh`
+   (comment examples), `BUNDLE-HOWTO.md`, and the `pkg-layout-spec.md` /
+   `impls/stdlib/README.md` notes that describe the symlink as transitional.
+4. Verify: full `builder-comp` (gen1 from the new BUILDER + compile) green.
+
+Until then the symlink is load-bearing — don't remove it without the
+binate-paths change, and don't make the binate-paths change without a flattened
+BUILDER.
 
 ## MAJOR — native Mach-O writer emits no `LC_DYSYMTAB` / unpartitioned symtab → linker won't coalesce cross-object weak defs → `duplicate symbol` link failure (2026-06-14) — 🔴 OPEN
 
