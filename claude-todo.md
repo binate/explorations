@@ -4,69 +4,56 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
-## 🔴 CRITICAL: managed-slice composite literals of struct elements miscompile / crash (`@[]T{ T{...} }`) — 🔴 OPEN (2026-06-14)
+## CRITICAL: managed-slice composite literals with INLINE struct-literal elements miscompile (`@[]T{ T{...} }`) — ✅ FIX READY, pending land (2026-06-14)
 
-Two distinct latent defects in the **same untested construct**: a managed-slice
-composite literal whose element type is a (value) struct, e.g.
+**ONE** IR-gen defect (an earlier draft of this entry mis-split it into "two
+defects" — corrected below). The construct: a managed-slice composite literal
+whose elements are **inline struct literals**, e.g.
 `var a @[]Pt = @[]Pt{ Pt{x:1, y:2}, Pt{x:3, y:4} }`. No conformance test or
-codebase site exercises this at runtime today (grep found zero runtime
-`@[]Struct{...}` literals), so it's been silently broken. The existing IR-gen
+codebase site exercised this at runtime (grep found zero runtime
+`@[]Struct{...}` literals), so it was silently broken. The existing IR-gen
 tests (`TestManagedSliceLitAggregateAcquires` in `gen_composite_test.bn`) only
-assert `__copy_` is *emitted* — they never RUN the program, so neither defect is caught.
+assert `__copy_` is *emitted* — they never RUN the program, so the defect slipped through.
 
 **Discovery (2026-06-14):** while factoring cmd/bni's native-only inject list
 (`nativeOnlyStdPkgs()` was written as `@[]nativeOnlyStdPkg{ nativeOnlyStdPkg{...}, ... }`
 — inline struct-literal elements). cmd/bni produced **empty output for every
-program** because its own startup table read back garbage. Bisected down to a
-3-line repro.
+program** because its own startup table read back garbage. Bisected to a 3-line repro.
 
-**Defect 1 — compiled (IR-gen `genManagedSliceLit`): inline struct-literal
-elements store the temp's ADDRESS, not a value copy → garbage data (silent
-wrong-code).** Ground truth (pure `builder-comp`, no VM): `@[]Pt{ Pt{x:1,y:2},
-Pt{x:3,y:4} }` then printing the four fields → `6162933664, 0, 6162933648, 0`
-(the two garbage values differ by 16 = `sizeof(Pt)` — they are the *stack
-addresses* of the two inline temps). Exit 0, wrong data.
-- **Root cause:** `pkg/binate/ir/gen_composite.bn:280-314` (`genManagedSliceLit`)
-  does `val = genExpr(elem)`; `EmitStore(copySlot, val)`; `EmitSliceSet(slice,
-  idx, val, elemTyp)`. For an inline struct literal, `genExpr` returns a
-  *pointer to the constructed temp* (aggregates are pointer-represented in this
-  IR), and this path stores that 8-byte pointer into word 0 of the struct slot
-  instead of memcpy-ing the aggregate. `genArrayLit` (same file, ~L169-179)
-  DOES handle the pointer-to-aggregate element case; `genManagedSliceLit` is
-  missing the equivalent aggregate-element handling.
-- **Why variable elements work compiled:** `@[]Pt{ p0, p1 }` (pre-built locals)
-  prints `21,22,23,24` correctly — that path produces a copyable aggregate value.
-  Only the INLINE-composite element form trips defect 1.
+**Root cause:** `genManagedSliceLit` (`pkg/binate/ir/gen_composite.bn`) was
+missing the `isAggregateAllocToLoad` load guard that `genArrayLit` and
+`genCompositeLit` (the struct path) already have. For an inline struct literal,
+`genExpr` returns the temp's **alloca pointer** (OP_ALLOC; `genExpr`'s
+`EXPR_IDENT` path loads variables to a VALUE, but a composite literal returns
+its alloca). Without the guard, the per-element struct-copy slot and
+`EmitSliceSet` stored that 8-byte pointer into the struct-sized slot instead of
+the aggregate value. Symptom split by backend (same defect):
+- **Compiled** (`builder-comp`): `@[]Pt{ Pt{1,2}, Pt{3,4} }` → fields read back
+  `6162933664, 0, 6162933648, 0` — the two garbage values differ by 16 =
+  `sizeof(Pt)`, i.e. the *stack addresses* of the two inline temps. Exit 0, wrong data.
+- **Bytecode VM** (`builder-comp-int`): the VM dereferences that bad pointer →
+  **SIGSEGV** (exit 139). NOT a separate VM-lowering bug — the VM shares this IR-gen.
 
-**Defect 2 — bytecode VM lowering: any `@[]Struct{...}` literal SIGSEGVs.**
-Ground truth (`builder-comp-int`, bni interpreting the program): BOTH the
-inline-element AND the variable-element forms crash with exit 139 (SIGSEGV).
-Isolation: a trivial program runs fine in the VM, and `make_slice(Pt,2)` +
-field assignment runs fine in the VM (`1,4`) — so the trigger is specifically
-the managed-slice *literal* lowering for struct elements (the
-`EmitMakeSlice`/`EmitSliceSet`/struct-copy path in `pkg/binate/vm/lower_*`),
-not Pt-in-VM generally. Needs separate investigation from defect 1 (the VM
-lowers IR independently of the LLVM/native backend).
+**Variable elements were ALWAYS fine** (compiled AND VM): `@[]Pt{ p0, p1 }`
+(pre-built locals) → `genExpr` returns an OP_LOAD value, the guard is a no-op,
+and the value stores correctly. Verified pre-fix: `zz_var` passes in
+`builder-comp-int`, only `zz_inline` fails. (An earlier mis-measurement claimed
+variable elements also crashed the VM — that was a confounded direct-binary run;
+the conformance harness disproved it.) `make_slice(T,n)` + field assignment is
+also fine everywhere.
 
-**Safe constructs (both compiled AND VM):** `make_slice(T, n)` + per-field
-assignment works everywhere; `@[]T{ p0, p1 }` with pre-built variable elements
-works *compiled* (but still crashes the *VM*). For cmd/bni's own code (which is
-compiled, never interpreted), variable-element or make_slice forms sidestep
-defect 1.
+**Fix (implemented):** `genManagedSliceLit` now applies
+`if isAggregateAllocToLoad(val, elemTyp) { val = b.EmitLoad(val, val.TypeArg) }`
+before the struct-copy / `EmitSliceSet`, mirroring `genArrayLit`. The guard
+fires ONLY for OP_ALLOC struct/array element values (the inline-composite case);
+OP_LOAD (variable) and managed-slice/scalar elements are untouched.
 
-**Proposed fix:**
-1. `genManagedSliceLit` — mirror `genArrayLit`'s aggregate-element handling:
-   when the element value is a pointer-to-aggregate, copy the aggregate into the
-   slice slot (don't store the pointer).
-2. VM managed-slice-literal-of-struct lowering — find why `EmitSliceSet` with a
-   struct element segfaults; likely the struct-copy/slice-set lowering for
-   managed-slice elements is unimplemented or mishandles the aggregate.
-
-**Tests to add (pending fix-now-vs-defer decision):** a conformance test that
-builds `@[]Struct{ Struct{...}, ... }`, reads back all fields, and prints them;
-currently fails in EVERY mode (compiled = wrong values, VM = SIGSEGV), so it
-needs xfail markers across all default modes until fixed — or lands green if the
-fix is done first.
+**Tests added:** `conformance/743_managed_slice_struct_lit` (inline + variable
+value-struct elements) and `conformance/744_managed_slice_struct_lit_managed_field`
+(inline struct with a managed `@[]char` field — exercises load + per-element
+`emitStructCopy` RefInc / refcount). Both pass across all six default modes
+(compiled, int, int-int, comp-comp, comp-comp-int, comp-comp-comp). Unit tests
+(ir/codegen/vm) green; full `builder-comp` regression sweep green.
 
 ## native_x64 (ELF) was NOT "WIP" — one reloc bug masked a 99%-working backend — ✅ core FIXED+LANDED, C-call gap OPEN (2026-06-14)
 
