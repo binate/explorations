@@ -50,11 +50,15 @@ too — both final segment `io`.
 
 ## MAJOR (native codegen) — `bit_cast` of a SLICE value emits invalid IR (`add %BnSlice %v, 0`) → clang error; the VM accepts it (2026-06-14) — 🔴 OPEN
 
-Found converting minbasic to `pkg/std/os`: feeding char text to `os.File.Write`
-(which is `*[]readonly uint8`) wanted a zero-copy `*[]readonly char` →
-`*[]readonly uint8` reinterpret, the natural job for `bit_cast`.
+Found while exploring the minbasic → `pkg/std/os` conversion (I wrongly thought a
+`char`→`uint8` slice reinterpret was needed). `char` IS `uint8` (an alias), so
+that conversion is a plain assignment needing no `bit_cast` — but `bit_cast` of a
+*slice* mis-lowers in the native backend regardless, which would bite any
+genuinely-distinct same-layout slice reinterpret (e.g. `*[]int32` ↔ `*[]uint32`,
+which has no alias shortcut).
 
-- **Minimal repro** (5 lines, no imports):
+- **Minimal repro** (5 lines, no imports; the cast here is char→uint8, i.e. the
+  same type, and it STILL fails):
   ```
   func main() {
   	var s *[]readonly char = "hi"
@@ -74,12 +78,11 @@ Found converting minbasic to `pkg/std/os`: feeding char text to `os.File.Write`
 
 - **Decision needed.** Either lower bit_cast of a same-layout aggregate correctly
   in native (an SSA reinterpret, not an `add`), OR reject bit_cast on aggregate
-  types at type-check in BOTH modes. The motivating case is the zero-copy
-  char↔uint8 slice reinterpret (text↔bytes); if that's intentionally
-  unsupported the diagnostic should say so rather than emitting bad IR.
+  types at type-check in BOTH modes, so it fails the same way everywhere rather
+  than emitting bad IR only in native.
 
-- **Workaround (examples).** minbasic's os conversion copies element-wise
-  (char→uint8) instead of bit_cast — works in both modes.
+- **No current consumer.** minbasic does NOT need this (char==uint8 → write the
+  char slice straight to os.File.Write); filed as a standalone codegen gap.
 
 ---
 
