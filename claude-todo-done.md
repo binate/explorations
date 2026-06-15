@@ -10,6 +10,20 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~Wire `--version` into bnc / bni / bnas / bnlint~~ — ✅ LANDED on main (binate `8ff87399`, 2026-06-14)
+
+Each tool now detects `--version` before the rest of arg parsing and
+prints `<tool>-` + `version.Version` (e.g. `bnc-0.0.10-pre`) to stdout,
+then exits 0. Single source of truth is `pkg/binate/version.Version`.
+The 2026-06-03 deferral was gated on BUILDER being able to compile
+`cmd/bnc` reading the version extern var cross-package; verified the
+current BUILDER (`bnc-0.0.9`) handles it (tested a `version.Version`
+read directly), so all four landed together. bnc uses a `hasVersionFlag`
+helper (+ `TestHasVersionFlag`); bni/bnas/bnlint inline the scan (bnas
+compares with `charsEqual`, the others `streq`); bni stops at `--` so a
+program's own `--version` isn't intercepted. `release-process.md`
+step-4 smoke + the VERSION-manifest note updated to confirm-by-banner.
+
 ### ~~pkg/std VM inject-all: inject + factor + hygiene check~~ — ✅ LANDED on main (2026-06-14)
 
 Every `pkg/std` package is injected into the bytecode VM (backed by the single

@@ -17,8 +17,8 @@ how the moving parts fit together so you don't have to reverse-engineer
     `var Version = "..."` holds the same identifier **minus the `bnc-`
     builder prefix** — e.g. `VERSION` = `bnc-X.Y.Z`, `version.bn` =
     `X.Y.Z`.  A calling tool prepends its own name to `version.Version`
-    for a `--version` banner (no tool wires this yet — see the
-    `--version` follow-up in `claude-todo.md`).  Every edit to `VERSION`
+    for its `--version` banner (e.g. `bnc-X.Y.Z`; all four tools wire
+    this).  Every edit to `VERSION`
     below (steps 2 and 6) must make the corresponding edit to
     `version.bn` (dropping `bnc-`), or the `version-sync` hygiene check
     fails.
@@ -111,8 +111,9 @@ jobs (linux-x64, macos-arm64) finish and the `Publish release`
 job succeeds, the GitHub release exists at
 `https://github.com/binate/binate/releases/tag/bnc-X.Y.Z`.
 
-Smoke test the bundle (note: `bin/bnc` doesn't accept a `--version`
-flag, so we have to confirm-by-behavior instead of confirm-by-banner):
+Smoke test the bundle (each bundled tool accepts `--version`, printing
+`<tool>-X.Y.Z`, so confirm-by-banner works; the behavior check below
+still exercises the real pipeline):
 
 1. Download one of the platform tarballs + `SHA256SUMS`.
 2. Verify the SHA matches what `SHA256SUMS` claims.
@@ -243,11 +244,12 @@ if the release already exists from a prior failed run).
 ## Why two `VERSION` bumps
 
 The `-pre` ↔ release-shape dance keeps the in-tree `VERSION` manifest
-honest with what each commit represents.  (At time of writing
-`cmd/bnc` doesn't actually expose a `--version` flag and no build
-script reads the `VERSION` file — it's a written-down convention
-that the release-cut workflow and human readers rely on, not
-machine-enforced.)
+honest with what each commit represents.  (`cmd/bnc` — and
+bni/bnas/bnlint — now expose `--version`, reporting `<tool>-` +
+`version.Version`, kept in sync with `VERSION` by the `version-sync`
+hygiene check.  The `VERSION` file itself is still a written-down
+convention the release-cut workflow and human readers rely on, not read
+by any build script.)
 
 - Anything built from a commit whose `VERSION` says `bnc-X.Y.Z-pre`
   is "in-progress toward X.Y.Z" — clearly **not** a tagged release.
