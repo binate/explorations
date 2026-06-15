@@ -10,6 +10,39 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### pkg/std/os arm32-linux off_t width (Seek/ReadAt/WriteAt) — ✅ DONE (binate `d33d7819`)
+`Seek`/`ReadAt`/`WriteAt` (`impls/stdlib/pkg/std/os/os.bn`) passed `int64`
+offsets straight to `lseek`/`pread`/`pwrite` via `__c_call`. On ILP32
+arm32-linux glibc `off_t` is 32-bit, so the 64-bit arg shifted the AAPCS
+register-pair arg layout (an `int64` goes in an even-aligned register pair;
+a 32-bit `off_t` expects a single register) and corrupted the call — even
+small offsets, since `whence` then read the offset's low word and lseek saw
+an invalid whence.
+- **Fix (binate `d33d7819`)**: the three offset `__c_call`s are factored into
+  `cLseek`/`cPread`/`cPwrite` wrappers with per-declaration `#[build]`
+  variants (the function-impl-level gate, like `build.bni`'s per-`const`
+  variants — the `.bni` surface is unchanged). `#[build(is(arch, "arm32"))]`
+  routes to the LFS `*64` entry points (`lseek64`/`pread64`/`pwrite64`,
+  64-bit `off64_t` on every Linux arch); `#[build(!is(arch, "arm32"))]` keeps
+  the plain names for every LP64 hosted target (x64/aarch64 linux + darwin;
+  Darwin has no `*64` symbols). Per-decl variants — not a runtime
+  `build.OS`/`build.Arch` branch — because `__c_call` needs a literal symbol
+  that must LINK (same reasoning as the per-OS `errno()` accessor).
+- Dropped `scripts/unittest/pkg-std-os.xfail.builder-comp_arm32_linux`; the
+  existing `TestSeek`/`TestReadAtWriteAt` (non-zero offsets) now exercise the
+  arm32 path. **Validated only on CI** (no local qemu/cross-toolchain) — watch
+  the unit-tests `builder-comp_arm32_linux` job on the push.
+- Same commit teaches `bn-doc` to treat `#[...]` annotation lines as neutral
+  (these are the tree's first `#[build]`-on-`func` decls in a `.bn` file, and
+  the checker had been resetting the doc context on the annotation line).
+- The `arm32_baremetal` xfail stays (no filesystem) and was never part of this
+  item. *Untested (impractical in a unit test):* a >2 GiB offset, which would
+  additionally confirm the full 64-bit range — the ABI fix is already
+  validated by the small-offset tests.
+(The O_* compile-time-flags diagnosis and the now-resolved VM-mode residual
+are archived in claude-todo-done.md; the O_* fix landed in binate 590906c8,
+and os now passes under the VM modes via native injection — commit 55229591.)
+
 ### ~~D4: composite literal in a condition wasn't usable via the documented paren-escape — spec §13.13 (2026-06-12)~~ — ✅ LANDED on main (binate `23f41e22`, 2026-06-14)
 
 `noCompositeLit` was a sticky bool never cleared on descending into

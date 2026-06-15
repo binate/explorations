@@ -753,19 +753,6 @@ node + module-global accumulators scanned/re-mangled linearly):
 
 ## MINOR
 
-### pkg/std/os arm32-linux off_t width (Seek/ReadAt/WriteAt) — 🟡 OPEN
-`Seek`/`ReadAt`/`WriteAt` (`impls/stdlib/pkg/std/os/os.bn`) pass `int64`
-offsets straight to `lseek`/`pread`/`pwrite` via `__c_call`. On ILP32
-arm32-linux `off_t` is 32-bit, so the 64-bit arg shifts the register-pair
-arg layout and corrupts the call. Still xfailed:
-`scripts/unittest/pkg-std-os.xfail.builder-comp_arm32_linux`. Fix: use the
-`*64` syscall variants or a target-width `off_t` (key off
-`build.Arch`/`build.PtrSize`), then drop that xfail. The `arm32_baremetal`
-xfail stays (no filesystem) and is not part of this work item.
-(The O_* compile-time-flags diagnosis and the now-resolved VM-mode residual
-are archived in claude-todo-done.md; the O_* fix landed in binate 590906c8,
-and os now passes under the VM modes via native injection — commit 55229591.)
-
 ### Stdlib conformance tests: relax conformance-imports + add a conformance/stdlib/* suite — 2026-06-10
 `pkg/std/os` (and stdlib packages generally) have unit tests but no
 conformance coverage, because the `conformance-imports` hygiene check
