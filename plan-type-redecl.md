@@ -80,7 +80,21 @@ So the fix is to close the same-shape escape hatch **only for genuine `.bn`
 redecls**, while keeping the benign `.bni`-reprocessing path silent. That
 requires knowing each decl's source file.
 
-## Design — tag decls at load, decide in `collectTypeDecl`
+## Design — tag decls at load, enforce in a dedicated decl-list pass
+
+> **Design correction (implementation).** The original plan put the check
+> *inside* `collectTypeDecl`, gating the same-shape silent-return on `FromBNI`.
+> That is the **wrong layer** and was abandoned: the same-shape escape hatch
+> absorbs *several* benign re-processings of the **same** decl object, not just
+> the `.bni` merge-prepend. In particular `resolveBuiltinScalarTypeDecls`
+> pre-fills a distinct-scalar placeholder (`type Celsius int`) *before*
+> `collectTypeDecl` runs, so a **single** `.bn` decl is re-seen with its
+> underlying already set — and a `FromBNI`-gated error then false-fires on a
+> lone, legitimate declaration. `collectTypeDecl` is resolution machinery, not
+> policy. The rule instead lives in a **dedicated pass that counts source decl
+> objects** (one `ast.Decl` per `type T`), which no amount of re-processing can
+> fool. `FromBNI` is still set at load (the approved tag) and still used — but
+> only to phrase the diagnostic and point at the `.bn` decl, not for detection.
 
 ### 1. AST: source origin on `ast.Decl`
 
@@ -89,51 +103,40 @@ Add `FromBNI bool` to `ast.Decl` (`ast.bni`). Default `false` = came from a
 
 ### 2. Loader: set the tag
 
-Right after the `.bni` is parsed (in `loadPackage`), set `FromBNI = true` on
-every `bniFile.Decls[i]`. (Tagging the whole `.bni` decl list — not just the
-prepended subset — keeps `buildScopeFromFile` and the merge prepend consistent.)
-`.bn` decls keep the default `false`.
+Tag `FromBNI = true` on every `bniFile.Decls[i]` right after the `.bni` is
+gated in `loadPackage` — *before* the merge block, so it covers **both** the
+with-impl path (the prepend carries the same decl pointers into `merged.Decls`)
+**and** the `.bni`-only fallback (`merged = bniFile`, no `.bn` files). `.bn`
+decls keep the default `false`. (Placing it only inside the merge block — which
+requires `merged != nil` — misses `.bni`-only packages like `pkg/builtins/reflect`
+and false-fires; this bit during bring-up.)
 
-### 3. Checker: close the escape hatch for `.bn` redecls
+### 3. Checker: a dedicated `checkTypeRedeclaration` pass
 
-In `collectTypeDecl`, the three "already-full symbol" branches currently do
-`if shapesMatch { return } else { error }`. Change each to consult the incoming
-decl's origin:
+`collectDecls` (the pass-1 entry routed through by every package-check entry —
+loader-merged `checkPackageImpl`, the single-file `Check`, and the REPL) calls
+`checkTypeRedeclaration(c, decls)` *before* `preRegisterTypeNames`. It walks the
+decl list and, for each full type decl, reports an error if an earlier full
+decl of the same name exists:
 
-```
-// incoming full decl d collides with an existing FULL symbol:
-if d.FromBNI {
-    // the .bni decl reprocessed via the merge prepend after
-    // buildScopeFromFile already registered it — benign.
-    if shapesMatch { return }
-    addCheckError(d.Pos, dupTypeMsg(d.Name))   // corrupt/contradictory .bni
-    return
-}
-// d.FromBNI == false: a .bn full decl duplicating an already-full type.
-// Banned: full-in-both (existing came from .bni) or .bn-dup (existing
-// came from an earlier .bn). Error regardless of shape.
-addCheckError(d.Pos, dupTypeMsg(d.Name))
-return
-```
+- A **full** type decl = `DECL_TYPE`, `!IsForward`, non-generic (`TypeParams`
+  empty). Forward decls never count (so `forward .bni + full .bn` = one full →
+  OK); generic type decls are out of scope (their monomorphization keys aren't
+  path-qualified yet — deferred, conformance/792).
+- The merged decl list holds each *source* decl exactly once (the prepend adds
+  each `.bni` decl once; `.bn` decls are distinct files). So **transparent** = 1
+  full decl → OK; **full-in-both** = 2 full (one `.bni`-prepended + one `.bn`) →
+  error; **`.bn`-dup** = 2 full `.bn` → error; **opaque/private** = 1 full → OK.
+- `FromBNI` (plus a propagated group flag, for the `type (...)` grouped form,
+  though none exist today) selects the message and points the error at the `.bn`
+  decl (the one to remove) rather than the authoritative `.bni`.
 
-The fill-in-forward branches (`Underlying == nil` → fill, lines 279-282 /
-309-317) are **unchanged** — they implement the legal opaque pattern (a `.bn`
-full decl filling a `.bni` forward decl), and a forward symbol is not "already
-full" so the new error never fires there.
-
-Walked through the four shapes (processing order: prepended `.bni` decls first,
-then `.bn` decls; scope pre-seeded by `buildScopeFromFile`):
-
-| Shape | `.bni` decl seen | `.bn` decl seen | Result |
-|---|---|---|---|
-| transparent | full, FromBNI → benign return | (none) | ✅ |
-| opaque | forward, FromBNI → idempotent | full fills forward (`Underlying==nil`) | ✅ |
-| private | (none) | full, symbol absent → define | ✅ |
-| full-in-both | full, FromBNI → benign return | full, FromBNI=false, symbol full → **error** | ❌ rejected |
-| `.bn`-dup | (none) | 1st defines; 2nd FromBNI=false, full → **error** | ❌ rejected |
+`collectTypeDecl` is left as-is (its existing same-shape silent-return /
+mismatch-error behavior is unchanged): it stays pure resolution, and the
+mismatch-error is harmless defense-in-depth alongside the new pass.
 
 Build-gated variants don't false-trigger: only the active variant's `.bn` is in
-the merged compilation, so `collectTypeDecl` sees at most one variant's decl.
+the merged compilation, so the pass sees at most one variant's decl.
 
 ### 4. (Secondary, separable) dangling forward
 
