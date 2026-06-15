@@ -4,6 +4,53 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## native_x64 (ELF) was NOT "WIP" — one reloc bug masked a 99%-working backend — ✅ core FIXED+LANDED, C-call gap OPEN (2026-06-14)
+
+**Fixed + landed:** `dd74c91e` (PC32 addend) + `c097a381` (`.note.GNU-stack`).
+
+Native x64-linux/ELF produced binaries that printed correct output then SIGSEGV'd
+on exit — on EVERY program with a cross-package call (nearly all of them). It was
+repeatedly mislabeled "WIP / non-blocking" in CI triage and the bnc-0.0.8 release
+plan. **That label was wrong** — the codegen was fine; the CI log literally showed
+`actual: hello world` before the crash.
+
+**Root cause:** the ELF writer emitted `R_X86_64_PC32` relocations (cross-object
+CALL/JMP/Jcc rel32 and RIP-relative LEA disp32) with `r_addend = 0`, but x86-64
+RELA requires `-4` (the rel32/disp32 is measured from the END of the
+instruction). So every cross-object call resolved to `symbol + 4`, skipping the
+callee's 4-byte `push %rbp; mov %rsp,%rbp` prologue → frame corruption → SIGSEGV
+on return. Intra-object calls were fine (the in-section `patchRel32` bakes the -4
+in); Mach-O was fine (its branch reloc carries -4 implicitly) — so
+`native_x64_darwin` under Rosetta ran clean and hid the bug from ALL local
+testing (the only real-x86 x64 signal is the ELF CI job). Fix: `elfRelocAddend()`
+applies -4 for EM_X86_64 PC32 (+ `TestElfRelocAddendPC32`). Separately, the ELF
+writer omitted `.note.GNU-stack` (→ ld marked the stack RWX); now emits an empty
+`.note.GNU-stack` so the linked stack is non-executable.
+
+**NOT a regression vs bnc-0.0.8:** the released bnc-0.0.8 binary builds an
+identically-crashing `001_hello` (verified by building+running it under docker
+linux/amd64). The bug predates 0.0.8; it was just never root-caused.
+
+**Result on real x86 CI (with the PC32 fix):** native_x64 conformance went from
+~0 passing to **1423 passed / 12 failed / 4 skipped** (CI run 27520866068).
+
+**Remaining native_x64 gap — 🔴 OPEN (the 12 failures):**
+- **C-call / variadic ABI** (the bulk): `498_c_call_basic`, `500_c_call_variadic`,
+  `527_c_call_variadic_multi`, `530_c_call_variadic_stack`,
+  `regressions/c-call/{abs-negative,abs-positive-zero,labs,printf-variadic-float,
+  printf-variadic-int,strlen}`. Likely the x86-64 SysV variadic rule (AL = number
+  of vector registers used) and/or stack alignment for variadic C calls — a real
+  native_x64 codegen gap; investigate `pkg/binate/native/x64` C-call lowering.
+- **xfail candidates** (already xfailed on other native modes): `386_iface_nil_
+  dispatch_vm_panic` (compiled-mode SEGV vs VM message), `719_named_slice_
+  transparency` (native named-slice codegen gap, also fails native_aa64).
+
+Follow-ups: (1) fix the C-call/variadic gap; (2) xfail 386 + 719 on native_x64;
+(3) treat native_x64 conformance as expected-mostly-green (stop dismissing it as
+WIP) so a regression of THIS bug is caught; (4) stale comments at
+`pkg/binate/native/x64/x64.bn:26` + `x64_call.bn:171` say "PLT32" where the code
+emits PC32 — correct them.
+
 ## MINOR — cross-mode interface dispatch: test-coverage gaps + LP64 assumption (2026-06-14) — 🟡 OPEN
 
 The shim-route that dispatches a native-only package's interface methods from
@@ -2537,7 +2584,7 @@ question).
 - **Re-add work (the "separately" part)**: for each skipped package, either (a) profile + optimize its double-VM runtime so it fits a shard, or (b) make the explicit call that the double-VM lane adds no coverage over single-VM (`-int`) for that package (strong for the compiler-side ones — codegen/ir/types/asm test the COMPILER; `-int` already runs their tests through the VM; double-VM is the same logic + an extra dispatch layer). `pkg/binate/vm` is the one whose lost double-VM coverage is most arguable — its logic is still covered by `builder-comp-int` / `-comp-int` (single VM), and the lane's unique value is exercised by every OTHER package; re-adding it likely wants per-test `.skip` of its slowest tests rather than the whole package. When re-adding `codegen`, its `TestEmitDebug` per-test `.skip` still applies.
 - **Separately unmasked**: `pkg/std/os` (landed `3ca36c82`) fails `vm/lower: unhandled IR opcode c_call` on ALL three VM-leg unit modes — libc-backed (native-only), same category as the `rt`/`bootstrap` xfails. NOT a slow-skip case (it genuinely FAILS in the VM), so it's `.xfail`'d (not `.skip-pkg`'d) for `builder-comp-int` / `-comp-int` / `-int-int`, matching that convention. My skips merely unmasked it (the shard used to time out before reaching it); it was already reding `builder-comp-int` independently.
 - **Not a release blocker** (int-int non-blocking per `release-process.md`; was red at `bnc-0.0.7` too). Tracked here so the skips don't become permanent silent coverage loss.
-- **STATUS 2026-06-10 — GREEN** (unit run on `3342460e`): all 8 `builder-comp-int-int` shards pass (2.5–26.7 min) and `builder-comp-int` / `-comp-int` pass. **Margin note**: shard 4/8 ran 26.7 min — ~89% of the 30-min cap; the 8-shard + skip set is sufficient but thin, so if the int-int suite grows it may need a 9th–10th shard or one more skip before it times out again. (The remaining unit reds — `arm32_{linux,baremetal}`, `native_x64` — are separate WIP/never-green modes, not this.)
+- **STATUS 2026-06-10 — GREEN** (unit run on `3342460e`): all 8 `builder-comp-int-int` shards pass (2.5–26.7 min) and `builder-comp-int` / `-comp-int` pass. **Margin note**: shard 4/8 ran 26.7 min — ~89% of the 30-min cap; the 8-shard + skip set is sufficient but thin, so if the int-int suite grows it may need a 9th–10th shard or one more skip before it times out again. (The remaining unit reds — `arm32_{linux,baremetal}`, `native_x64` — are separate modes, not this. NOTE: `native_x64` was NOT "WIP" — it was broken by an ELF PC32 reloc bug, fixed 2026-06-14 `dd74c91e`; see the top-of-file native_x64 entry.)
 
 ### Function values — MAJOR PROJECT (interop prerequisite)
 - **Plan docs**: `explorations/plan-function-values.md` (parent;
