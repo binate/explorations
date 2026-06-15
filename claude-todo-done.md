@@ -10,16 +10,31 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
-### ~~MAJOR — field access on a struct composite-literal rvalue read 0 (`Foo{...}.field`) — silent miscompile~~ — ✅ FIXED (binate `00a3f937`; conformance 794; 2026-06-15)
+### ~~MAJOR — field access on a struct composite-literal rvalue read 0 (`Foo{...}.field`) — silent miscompile~~ — ✅ FIXED (binate `ff291fc6`; conformance 795; 2026-06-15)
 IR-gen's `genSelector` dispatched on the base kind (IDENT / INDEX / SELECTOR /
 CALL-BUILTIN / deref-UNARY) but had no `EXPR_COMPOSITE` case, so `Foo{...}.field`
 (and the paren form `(Foo{...}).field`) fell through to the `EmitConstInt(0)`
-fallback and produced 0 on all modes. Construction and method calls on a
+fallback and produced 0 on all modes — and never even evaluated the composite,
+so its side effects were silently dropped. Construction and method calls on a
 composite rvalue already worked; only the immediate field read was wrong.
-`00a3f937` adds the arm: `genCompositeLit` returns an OP_ALLOC holding the
-materialized struct, so GEP+load the field directly off it (same shape as the
-CALL/deref arms). Conformance 794 (no-paren / paren / positional / managed
-field), green on builder-comp / builder-comp-int (VM) / builder-comp-comp (gen2).
+
+A first minimal fix (`00a3f937`, conformance 794) added the arm to `genSelector`
+only; it was **reverted** (`c93a6388`) in favor of `ff291fc6`, which is complete:
+- **Three sibling sites** all lacked the `EXPR_COMPOSITE` base case and are fixed
+  together: `genSelector` (value read), `genSelectorPtr` (field pointer — used by
+  a nested read like `Line{...}.p.x`, which the minimal fix left reading 0), and
+  `getSelectorType` (so the nested selector resolves `.p`'s struct type).
+- **Managed-field cleanup**: because the composite is now actually evaluated, a
+  composite with managed fields is an anonymous rvalue temp that would leak.
+  `genCompositeBasePtr` registers it for end-of-statement cleanup (mirroring a
+  struct-returning call result via `registerManagedCallResult`) when the struct
+  `NeedsDestruction`; scalar structs add no cleanup. Verified via LLVM IR that the
+  managed case now emits the struct dtor in the caller (matching `var b = Foo{...}`)
+  and the scalar case is unchanged.
+- `genSelectorPtr` moved to `gen_selector_ptr.bn` (file-length) with its own tests.
+- Conformance 795 (scalar / struct-typed / nested / in-expression / managed-field),
+  green on builder-comp / -int (VM) / -comp (gen2) / -int-int / -comp-comp; plus IR
+  unit tests for both selector arms.
 
 ### ~~CRITICAL (native codegen) — static-data `@T` managed-pointers omitted the +headerSize addend → pointed at the object header, not the payload~~ — ✅ RESOLVED (binate `f78a4951`, 2026-06-15)
 The Mach-O writer dropped relocation addends (a `relocation_info` has no addend
