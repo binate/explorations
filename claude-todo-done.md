@@ -218,10 +218,11 @@ function, a nested generic); green across `builder-comp`,
 matrix verified (by-value / managed struct params, struct
 construction+return, interface param + method dispatch); generic
 *methods* remain unsupported (clean parse error, not silent-wrong).
-`examples/generics/` `vec` / `hashmap` are now unblocked. **Follow-up:**
-`gen_util.bn` is at 503 lines (soft-limit warning) — split the
-TypeExpr→Type resolution cluster (`resolveTypeExpr` +
-`ifaceValueTypesAgree` + `findAnonStruct`) into a new `gen_type_resolve.bn`.
+`examples/generics/` `vec` / `hashmap` are now unblocked. The
+`gen_util.bn` soft-limit overflow this introduced was resolved by
+splitting the TypeExpr→Type resolution cluster (`resolveTypeExpr` +
+`ifaceValueTypesAgree` + `findAnonStruct`) and its tests into
+`gen_type_resolve.bn` (binate `a77bb248`).
 
 ### ~~MAJOR — VM cannot capture 9–16-byte by-value returns (X0:X1) from a raw compiled fn ptr; `_call_shim_aggregate` is sret-only → garbage → crash (2026-06-12)~~ — ✅ LANDED on main (binate `75049ff9`, 2026-06-13)
 
