@@ -4,6 +4,42 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## CRITICAL (native codegen) — static-data `@T` managed-pointers omit the +headerSize addend → point at the object header, not the payload (2026-06-15) — 🔴 OPEN
+
+**Symptom.** Under native_aa64, a host that walks a static managed-object
+graph SIGSEGVs. Concretely `RegisterStandardExterns` →
+`RegisterPackageFunctions(rt._Package())` derefs `Functions[0]` (the
+`@FunctionInfo` for `rt.Exit`) and reads `FunctionInfo.Name.ptr == 0`
+(`ldrb [x9]`, x9=0) → null deref. Hits repl / vm / cmd/bni (the packages
+that instantiate a VM and bind externs).
+
+**Root cause.** A static initializer that stores a `@T` managed pointer to
+another static managed object emits the reloc with **addend 0**, so it
+resolves to the object's 16-byte managed header (the static refcount
+sentinel `0xffffffffc0000000`) instead of the payload. The *runtime*
+managed-pointer accessor adds the header offset correctly (`rt._Package()`
+returns `_pkg_info + 16`); only the **static-data** path is wrong. So
+walking rt's reflective `Functions` table reads each field 16 bytes low
+→ `Name.ptr == 0`. Verified in `pkg__builtins__rt.o`: the inline addend is
+`0` at both `Functions[0]->Exit__fninfo` and `FunctionInfo.Pkg->_pkg_info`.
+
+**How discovered.** The weak-dtor coalescing fix (atom-safe Mach-O,
+`MH_SUBSECTIONS_VIA_SYMBOLS`) let repl/vm/cmd-bni link natively for the
+first time; this bug was latent because the reflective-metadata graph is
+only walked in the native VM-host path, which was xfail'd for the
+dup-symbol issue until now. NOT caused by the coalescing change (the
+addend-0 resolves to the header with or without subsections; the asm-layer
+commit touches no static-data emission). Independent of subsections.
+
+**Proposed fix.** Static-data `@T`-pointer relocs must use addend =
+headerSize (the same offset the runtime accessor adds). Audit the
+native/codegen path that emits managed-pointer initializers (descriptor /
+global / reflective-table emission). NOT yet a unit/conformance test:
+covered by the re-instated repl/vm/cmd-bni `.xfail.builder-comp_native_aa64-comp_native_aa64`
+markers (reason updated to this bug). Replace with a focused test when fixed.
+
+---
+
 ## MAJOR (mangler) — a package directly importing TWO packages with the same final path segment double-emits one's `_Package` declaration → `invalid redefinition of bn_pkg__…___Package` (2026-06-14) — 🔴 OPEN
 
 Found converting minbasic to `pkg/std/os`: `pkg/host` already imports
