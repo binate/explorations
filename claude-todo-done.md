@@ -10,6 +10,37 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~CRITICAL: managed-slice composite literals with INLINE struct-literal elements miscompile (`@[]T{ T{...} }`)~~ — ✅ LANDED on main (binate `326b3a60` fix + `b5baf317` coverage, 2026-06-14)
+
+ONE IR-gen defect: a managed-slice composite literal whose elements are **inline
+struct literals**, e.g. `@[]Pt{ Pt{x:1,y:2}, Pt{x:3,y:4} }`, miscompiled. No
+conformance test or codebase site exercised it at runtime (the IR-gen test
+`TestManagedSliceLitAggregateAcquires` only asserts `__copy_` is *emitted*, never
+runs the program), so it was silently broken.
+
+**Discovery:** while factoring cmd/bni's native-only inject list — `nativeOnlyStdPkgs()`
+used inline struct-literal elements (each with a `*func` field), and cmd/bni produced
+**empty output for every program** because its startup table read back garbage.
+
+**Root cause:** `genManagedSliceLit` (`pkg/binate/ir/gen_composite.bn`) was missing
+the `isAggregateAllocToLoad` load guard that `genArrayLit` and the struct-field path
+already have. For an inline struct literal, `genExpr` returns the temp's alloca
+POINTER (OP_ALLOC); without the guard, the per-element struct-copy slot and
+`EmitSliceSet` stored that 8-byte pointer into the struct-sized slot instead of the
+aggregate value. Symptom split by backend (same defect): compiled → garbage data
+(the stored values were the temps' stack addresses, 16 apart = `sizeof(Pt)`);
+bytecode VM → SIGSEGV (dereferences the bad pointer). **Variable elements were always
+fine** — `genExpr` returns an OP_LOAD value, so the guard is a no-op for them.
+
+**Fix:** `genManagedSliceLit` now loads the aggregate value before the struct-copy /
+`EmitSliceSet`, mirroring `genArrayLit`. The guard fires only for OP_ALLOC
+struct/array element values; OP_LOAD (variable) and managed-slice/scalar elements are
+untouched. Tests: conformance 773 (value struct, inline + variable), 774 (struct with
+a managed `@[]char` field — exercises load + `emitStructCopy` RefInc / refcount), 775
+(array-element branch `@[][N]int{...}`). All pass across the six default modes; full
+`builder-comp` sweep green (1439/0). The cmd/bni inject-list factoring that surfaced
+it landed as `8e45cc7e`.
+
 ### ~~Comparison chaining wrongly accepted on the `for`-clause path (`for a < b < c {}`) — spec §13.6 (2026-06-13)~~ — ✅ LANDED on main (binate `55360652`, 2026-06-14)
 
 The main `parseCompareExpr` path takes at most one comparison operator,

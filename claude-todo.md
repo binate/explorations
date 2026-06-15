@@ -4,61 +4,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
-## CRITICAL: managed-slice composite literals with INLINE struct-literal elements miscompile (`@[]T{ T{...} }`) — ✅ FIX READY, pending land (2026-06-14)
-
-**ONE** IR-gen defect (an earlier draft of this entry mis-split it into "two
-defects" — corrected below). The construct: a managed-slice composite literal
-whose elements are **inline struct literals**, e.g.
-`var a @[]Pt = @[]Pt{ Pt{x:1, y:2}, Pt{x:3, y:4} }`. No conformance test or
-codebase site exercised this at runtime (grep found zero runtime
-`@[]Struct{...}` literals), so it was silently broken. The existing IR-gen
-tests (`TestManagedSliceLitAggregateAcquires` in `gen_composite_test.bn`) only
-assert `__copy_` is *emitted* — they never RUN the program, so the defect slipped through.
-
-**Discovery (2026-06-14):** while factoring cmd/bni's native-only inject list
-(`nativeOnlyStdPkgs()` was written as `@[]nativeOnlyStdPkg{ nativeOnlyStdPkg{...}, ... }`
-— inline struct-literal elements). cmd/bni produced **empty output for every
-program** because its own startup table read back garbage. Bisected to a 3-line repro.
-
-**Root cause:** `genManagedSliceLit` (`pkg/binate/ir/gen_composite.bn`) was
-missing the `isAggregateAllocToLoad` load guard that `genArrayLit` and
-`genCompositeLit` (the struct path) already have. For an inline struct literal,
-`genExpr` returns the temp's **alloca pointer** (OP_ALLOC; `genExpr`'s
-`EXPR_IDENT` path loads variables to a VALUE, but a composite literal returns
-its alloca). Without the guard, the per-element struct-copy slot and
-`EmitSliceSet` stored that 8-byte pointer into the struct-sized slot instead of
-the aggregate value. Symptom split by backend (same defect):
-- **Compiled** (`builder-comp`): `@[]Pt{ Pt{1,2}, Pt{3,4} }` → fields read back
-  `6162933664, 0, 6162933648, 0` — the two garbage values differ by 16 =
-  `sizeof(Pt)`, i.e. the *stack addresses* of the two inline temps. Exit 0, wrong data.
-- **Bytecode VM** (`builder-comp-int`): the VM dereferences that bad pointer →
-  **SIGSEGV** (exit 139). NOT a separate VM-lowering bug — the VM shares this IR-gen.
-
-**Variable elements were ALWAYS fine** (compiled AND VM): `@[]Pt{ p0, p1 }`
-(pre-built locals) → `genExpr` returns an OP_LOAD value, the guard is a no-op,
-and the value stores correctly. Verified pre-fix: `zz_var` passes in
-`builder-comp-int`, only `zz_inline` fails. (An earlier mis-measurement claimed
-variable elements also crashed the VM — that was a confounded direct-binary run;
-the conformance harness disproved it.) `make_slice(T,n)` + field assignment is
-also fine everywhere.
-
-**Fix (implemented):** `genManagedSliceLit` now applies
-`if isAggregateAllocToLoad(val, elemTyp) { val = b.EmitLoad(val, val.TypeArg) }`
-before the struct-copy / `EmitSliceSet`, mirroring `genArrayLit`. The guard
-fires ONLY for OP_ALLOC struct/array element values (the inline-composite case);
-OP_LOAD (variable) and managed-slice/scalar elements are untouched.
-
-**Tests added:** `conformance/770_managed_slice_struct_lit` (inline + variable
-value-struct elements) and `conformance/771_managed_slice_struct_lit_managed_field`
-(inline struct with a managed `@[]char` field — exercises load + per-element
-`emitStructCopy` RefInc / refcount). Both pass across all six default modes
-(compiled, int, int-int, comp-comp, comp-comp-int, comp-comp-comp). Unit tests
-(ir/codegen/vm) green; full `builder-comp` regression sweep green (1439/0).
-
-**Landed on worktree (pending cherry-pick to main):** fix `01ae0fe6`
-(`genManagedSliceLit` guard + conformance 770/771); the cmd/bni inject-list
-factoring that surfaced it is `51537221`.
-
 ## native_x64 (ELF) was NOT "WIP" — one reloc bug masked a 99%-working backend — ✅ core FIXED+LANDED, C-call gap OPEN (2026-06-14)
 
 **Fixed + landed:** `dd74c91e` (PC32 addend) + `c097a381` (`.note.GNU-stack`).
@@ -138,30 +83,30 @@ native backend; the LLVM side relies on LLVM to classify HFAs).
 
 ---
 
-## MINOR — finish pkg/std native-only inject-all: factor the list + add a coverage hygiene check (2026-06-14) — 🟡 OPEN
+## MINOR — pkg/std native-only inject-all: add a coverage hygiene check (2026-06-14) — 🟡 OPEN
 
-**Status: the inject-all itself is DONE.** Every `pkg/std` package is now
-native-only in the bytecode VM — `errors`, `io`, `strconv`, `math`, `math/big`,
-`strings` — except `os` (lowered + injected for its `__c_call` funcs) and
-`os/internal` (reached only from native `os`). Landed through `7c3b17a2`.
-Cross-mode injection covers functions, globals, managed-struct dtors, AND
-interface-impl vtables (the shim-route, `93f75f27`). All in `cmd/bni/externs.bn`.
+**Status: the inject-all AND the list-factoring are DONE.** Every `pkg/std`
+package is native-only in the bytecode VM — `errors`, `io`, `strconv`, `math`,
+`math/big`, `strings` — except `os` (lowered + injected for its `__c_call`
+funcs) and `os/internal` (reached only from native `os`). Cross-mode injection
+covers functions, globals, managed-struct dtors, AND interface-impl vtables (the
+shim-route, `93f75f27`). The native-only set was factored into one source of
+truth — `nativeOnlyStdPkgs()`, a table pairing each import path with a thunk to
+its `_Package()` descriptor, iterated by both `isNativeOnlyInVM` and
+`injectStdlibExterns` (`8e45cc7e`). (`rt`/`bootstrap` stay named explicitly —
+native-only but not `pkg/std`; `os` stays explicit — lowered + always injected.)
+All in `cmd/bni/externs.bn`.
 
-Remaining infra (the only open part):
-1. **Factor the native-only list to one source of truth.** `isNativeOnlyInVM`
-   (a `streq` chain) and the `injectStdlibExterns` `injectPure(...)` calls both
-   hardcode the same `pkg/std` set. Consolidate. Caveat: the `injectPure` calls
-   can't be a pure loop over a string list — each needs its package's
-   compile-time `<pkg>._Package()` symbol — so factor the PATH list (for
-   `isNativeOnlyInVM` + the check below) and keep the per-package `injectPure`
-   calls explicit, or find a cleaner split.
-2. **Coverage hygiene check.** A check (wired into `scripts/hygiene/run.sh`) that
-   every `pkg/std/**` package is either in the native-only list or explicitly
-   exempted (`os`/`os/internal`), so a newly-added stdlib package can't be
-   silently left lowered (which would re-open the cross-mode-identity hazards
-   this whole effort closed).
+Remaining (the only open part):
+- **Coverage hygiene check.** A check (a `*.sh` in `scripts/hygiene/`, which
+  `run.sh` auto-discovers) that every `pkg/std/**` package is either in
+  `nativeOnlyStdPkgs()` or explicitly exempted (`os`/`os/internal`), so a
+  newly-added stdlib package can't be silently left lowered (which would re-open
+  the cross-mode-identity hazards this whole effort closed). The check must read
+  the native-only set from `externs.bn` (e.g. grep the `nativeOnlyStdPkg{ path:
+  "..." }` lines) so it stays in sync with the one source of truth.
 
-Worktree note: do this on a fresh worktree synced to `main` ≥ `7c3b17a2`.
+Worktree note: do this on a fresh worktree synced to current `main`.
 
 ---
 
