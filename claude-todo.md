@@ -243,7 +243,7 @@ not an object-writer tweak. Needs a native-aa64 unit/link regression once
 fixed. Discovered 2026-06-14 during the bnc-0.0.9 release-readiness gate (unit run
 `27488837411`).
 
-## MAJOR — parallel assignment `a, b = 1, 2` (and the swap `a, b = b, a`) type-checks clean but generates NO code (silent dropped writes) — spec Ch.14 (2026-06-12) — 🔴 OPEN
+## MAJOR — parallel assignment `a, b = 1, 2` (and the swap `a, b = b, a`) type-checks clean but generates NO code (silent dropped writes) — spec Ch.14 (2026-06-12) — 🚧 IN PROGRESS (2026-06-14)
 
 Found + verified firsthand while grounding spec Ch.14 (Statements) against the
 live impl (read parser/checker/IR; conclusive from the code path, plus the
@@ -516,27 +516,21 @@ all functions/tests intact; B4 regression tests are non-vacuous.
 
 ## MAJOR
 
-### `int64 << int` rejected in 32-bit-int modes → breaks ALL 32-bit-int compilation — REGRESSION from `efeb0f94` — ✅ RESOLVED 2026-06-10 (binate `fd3cb7ac`)
-- **✅ RESOLVED 2026-06-10 (binate `fd3cb7ac`).** Root-caused as a TYPE-CHECKER + IR-gen defect, NOT the missing source cast of the initial diagnosis. Per the user's semantics decision: a shift `x << y` / `x >> y` takes its result type from the LEFT (value) operand, and the count `y` may be ANY integer type, independent of the value (Go semantics). Fix: (1) checker `check_expr.bn` — shifts get their own arm instead of being lumped with the symmetric bitwise ops `& | ^` (which unified the operands via commonType → "mismatched types"); untyped-operand cases still defer to foldIntBitwise (byte-identical to before — this matters, see below), a typed-vs-typed pair returns the left operand's type; (2) IR-gen `gen_binary.bn` — a shift's result type is the value (left) type, not the symmetric widenType (which would narrow the result to `int` for `int64 << int` in 32-bit-int, silently truncating). `cast(int64, 1) << (width - 1)` (`types_query.bn:168`) now compiles as-written. Verified: native conformance 1337/0, VM 1307/0, gen2; unit ir/types/codegen/vm/native 8/8; cell `regressions/shift-count-any-int-type`. **arm32 unit/conformance confirmation pending CI on `fd3cb7ac`.**
-- **A dead-end worth recording**: a first, larger rewrite (a dedicated `emitShift` that also fixed the count-wider OVERSHIFT corner by widening the value) was correct on native but **regressed signed sub-word shifts on the bytecode VM** — identical-looking IR, different VM result (`int8(1) << 2` → -64). Reverted for the minimal change above. Separately, the checker's `return lt` for an UNTYPED count (vs deferring to foldIntBitwise's commonType) also broke signed sub-word `>>` on the VM (`(-i8v) >> 4` → 0 not -1); hence the minimal checker only short-circuits the typed-vs-typed case. The VM-fragility of these paths is real but was avoided, not fixed.
-- **Symptom**: `pkg/binate/types/types_query.bn:168` is `var shifted int64 = cast(int64, 1) << (width - 1)`. In 32-bit-int target modes the shift count `(width - 1)` is `int` (32-bit) while the shifted operand is `int64`, so the checker rejected it: `mismatched types int64 and int`. Because `types_query.bn` sits in nearly every package's transitive dependency, the single error cascaded — arm32 unit + conformance failed to compile. Compiles fine in 64-bit-int host modes (where `int`'s width == `int64`), which is why every `-comp*` mode stayed green and the break was invisible to the green legs.
-- **Baseline / regression proof**: `builder-comp_arm32_baremetal` Unit was **green at bnc-0.0.7** (commit `ee06ec87`, job `success`); it was **red at `ac738936`**. The offending line landed in `efeb0f94` (2026-06-05, the integer divide/remainder fault-guard work), after the 0.0.7 tag (2026-06-04) → in-window regression.
-- **Follow-ups**: (a) ✅ split `pkg/binate/types/check_expr.bn` (binate `a57496e6`) — back under the soft limit; binary-op checking + tests in `check_expr_binop{,_test}.bn`. (b) ✅ comprehensive shift type-pair MATRIX (binate `93d6ecd4`) — `conformance/matrix/shift-typepair/` covers the full (value-type, count-type) product for `<<`/`>>`, asserting permitted + result-type-is-the-value's + value correctness; green on native/VM/gen2. (c) 🟡 OPEN (narrowed) — RUNTIME count-wider OVERSHIFT corner: when the count is a RUNTIME value whose TYPE is wider than the value AND whose VALUE ≡ a small residue mod 2^valueBitWidth (e.g. a runtime `uint16` count of 256 shifting a `uint8`), the count truncates to the value width and overshift is mis-detected (silent wrong value). The CONSTANT case of this (a literal/const count `>= width`, any count type) is now handled — `emitConstOvershiftOrNil` keys on the untruncated `IntVal` (see N1 RESOLVED `11f99ed9`); only the runtime sub-case remains. Reachable only with an absurd RUNTIME count (≥ 2^width); proper fix = do the overshift comparison at the wider (count's) width (VM-safe, not sub-word) before truncating. The matrix deliberately uses count = valueWidth (≤ 64, fits every count type) so it does NOT exercise this corner.
-- **Coverage gap (origin)**: `SignedMinForWidth`'s tests ran only in 64-bit-int host mode, so the 32-bit-int break was invisible to the green legs — the recurring "tests only exercise host-int" trap.
-- **Discovery**: 2026-06-10 bnc-0.0.8 release-gate verification.
+### Shift: RUNTIME count-wider OVERSHIFT corner mis-detected — 🟡 OPEN
+- **Symptom**: a shift `value << count` / `value >> count` whose `count` is a RUNTIME value of a TYPE wider than `value`, with `count >= 2^valueBitWidth` but `count mod 2^valueBitWidth` a small residue (e.g. a runtime `uint16` count of 256 shifting a `uint8`), silently yields the wrong (non-overshift) result instead of the spec'd 0 (logical) / sign-fill (arithmetic `>>`).
+- **Root cause**: `gen_binary.bn` truncates the runtime count to the value width via `ensureWidth(ctx, b, rhs, resultTyp)` BEFORE `emitGuardedShift` runs, so the guard's `count < width` test sees the truncated residue, not the original. `emitConstOvershiftOrNil` (which keys on the untruncated `count.IntVal`) only fires for compile-time `OP_CONST_INT` counts — the CONSTANT case is handled; there is no runtime equivalent.
+- **Proposed fix**: do the overshift comparison at the wider (count's) width — VM-safe, not sub-word — before truncating the count to the value width.
+- **Coverage**: NOT exercised by `conformance/matrix/shift-typepair/` (it uses constant count = valueWidth <= 64) nor by `conformance/regressions/shift-count-any-int-type.bn` (its overshift cases use constant counts). A new conformance cell with a runtime count >= 2^width is wanted.
+- **Reachable only** with an absurd runtime count (>= 2^width). Fail-safe direction is a silent wrong value, so still worth fixing.
+- (Full resolved diagnosis of the `int64 << int` regression that spawned this — checker/IR-gen fix in `fd3cb7ac`, the matrix, the const-overshift handling — is archived in claude-todo-done.md.)
 
-### Named func-value type (`type Fn @func(...)`) is unconstructible — all backends — PRE-EXISTING — REF-HALF ✅ RESOLVED (binate `e1dcd14e` 2026-06-11); literal-half 🔴 OPEN (tracked follow-up)
-- **DESIGN (decided 2026-06-11)**: named func-value types are **constructible from func REFERENCES / literals but NOMINAL for func VALUES** (parallel to named scalars — untyped-literal construction, nominal typed values). So `var f Fn = dbl` (ref) and `var f Fn = func(...){}` (literal) should work; `var f Fn = g` (a `@func` value) stays rejected.
-- **REF-HALF ✅ RESOLVED (`e1dcd14e`)**: `var f Fn = dbl` (+ raw `*func` named types + reassignment) now construct and call correctly on all modes. The originally-proposed `checkExprWithFVHint`-peel was the LITERAL half; the REF half was actually two checker peels (`AssignableTo`'s func-ref arm + `checkCallExpr`) **plus the real root fix in IR-gen**: `typeDeclEntryType` (moved to `gen_typedecl.bn`) now represents a named func-value type transparently as its underlying `@func`, because func values carry no IR-level nominal identity and every consumer (construction / call dispatch / copy / dtor / refcount) keys off the func-value kind — a TYP_NAMED wrapper made each mis-handle it (call → direct global ref to a nonexistent symbol; dtor skipped). Stripping once at the source routes the value through all existing `@func` machinery (no missed-site UAF/leak risk). Cells: `named-func-value-construct` (un-xfailed), `named-func-value-reject-value` (locks the value-rejection); unit `gen_typedecl_test.bn`.
-- **LITERAL-HALF 🔴 OPEN**: `var f Fn = func(...){}` still rejected (`conformance/regressions/named-func-value-construct-literal`, xfailed all modes). Needs `checkFuncLit` to RETURN the named type when hinted by one (so the literal is `Identical` to `Fn` — a `@func` value isn't assignable to the nominal `Fn`) AND `isManagedFuncValueLit` (`gen_func_lit.bn:192`) to peel TYP_NAMED. This is the **memory-sensitive** piece: a func literal can CAPTURE, so the stack-vs-heap-alloc + refcount classification must be right (validate under guard-malloc). `checkExprWithFVHint` (`check_expr.bn:30`) must also peel the hint so the literal gets the `@func` flavour.
-- **Symptom**: `type Fn @func(int) int; var f Fn = dbl` → rejected "cannot assign func(...) to Fn"; `var f Fn; f = func(x int) int {…}` → "cannot assign <unknown> to Fn". The anonymous spelling `var f @func(int) int = dbl` WORKS (prints 42). So a named func-value type can be declared but never constructed.
-- **Root cause**: `checkExprWithFVHint` (`pkg/binate/types/check_expr.bn:30-39`) installs the func-value flavour hint only when `hint.Kind` is TYP_FUNC_VALUE / TYP_MANAGED_FUNC_VALUE; it never peels TYP_NAMED/ALIAS/READONLY. A named func-value resolves to TYP_NAMED, so the hint is dropped and the literal defaults to raw `*func`. Broader: AssignableTo's named-func-reference arm (`types_assignable.bn:69-73`) also doesn't peel the named dst, so even `var f Fn = someTopLevelFunc` fails. Shared by ALL func-value hint sites (plain `=`, var-init, return-slot, call-arg); `e15680d7` routed plain `=` through the SAME pre-existing single-peel-short guard, so this is not a regression from it.
-- **Severity**: MAJOR — a whole supported, tested feature (`conformance/matrix/globals/noinit/named-func.bn` declares one) is unusable; spurious compile-time rejection (fail-safe, no miscompile). Workaround: use the anonymous `@func(...)` spelling.
-- **Fix**: peel transparent wrappers in `checkExprWithFVHint` before reading `hint.Kind`, AND peel the dst in AssignableTo's func arms. Touches the shared hint mechanism.
-- **Test**: `conformance/regressions/named-func-value-construct` (xfailed all modes, binate `a77591e0`). Cells at each assignment position + a unit test still wanted.
-- **Discovery**: 2026-06-09 CR-2-batch review (B2 finder); runtime-confirmed (named rejected, anon works).
-
----
+### Named func-value type (`type Fn @func(...)`) — func-LITERAL construction still rejected — literal-half follow-up 🟡 OPEN
+- **Symptom**: `type Fn @func(int) int; var f Fn = func(x int) int {...}` is rejected (a bare `@func` literal isn't `Identical`/assignable to the nominal `Fn`). The func-REFERENCE half (`var f Fn = dbl`) and value-rejection (`var f Fn = g`) already work — see archived diagnosis.
+- **Test**: `conformance/regressions/named-func-value-construct-literal` (xfailed all 11 modes).
+- **Fix (3 sites, none peel TYP_NAMED yet)**: `checkFuncLit` (`check_func_lit.bn:83`) must RETURN the named type when hinted by one (gates on `ExpectedFVType.Kind == TYP_FUNC_VALUE` only); `checkExprWithFVHint` (`check_expr.bn:32`) must peel TYP_NAMED before installing the FV hint (currently ignores non-FUNC_VALUE/MANAGED_FUNC_VALUE hints, so a `Fn`=TYP_NAMED hint is dropped); `isManagedFuncValueLit` (`gen_func_lit.bn:188-194`) must peel TYP_NAMED (keys on `TYP_MANAGED_FUNC_VALUE`).
+- **Memory-sensitive**: a func literal can CAPTURE, so the stack-vs-heap-alloc + refcount classification must be right — validate under guard-malloc.
+- **Severity**: MAJOR (spurious compile-time rejection, fail-safe, no miscompile). Workaround: anonymous `@func(...)` spelling.
+- (Full resolved REF-half diagnosis — design decision, root cause, IR-gen `gen_typedecl.bn` fix — archived in claude-todo-done.md.)
 
 ## CR-2 Plan-1 Adversarial Review — pre-existing sibling miscompiles (2026-06-08)
 
@@ -568,10 +562,10 @@ The CRITICAL entries below are also surfaced in `## CRITICAL`-class triage.
 
 ## CRITICAL
 
-### `=` (assignment) multi-bind from an interface dispatch / func-value call mistyped every component as int — FIXED 2026-06-08 (`f8916b88`)
-- **Found by the Plan-2 adversarial review.** `genMultiAssign` (`pkg/binate/ir/gen_assign_multi.bn`, the `a, b = …` form) derived per-component result types only from `lookupFuncResults(val.StrVal)` for a DIRECT call (`OP_CALL`). An interface dispatch (`OP_CALL_IFACE_METHOD`) and a func-value call (`OP_CALL_FUNC_VALUE`) have no callee name, so retTypes stayed empty and every component defaulted to `int`: a sub-word component was stored as i64 (invalid IR → clang reject) and a managed component skipped its Axiom-3 copy-RefInc (latent UAF if it had compiled). `a, b = iv.m()` / `a, b = fv()` with any non-int component thus failed to compile; the `:=` form (`genShortVar`) already had the `multiReturnFieldTypes` fallback, so the asymmetry hid it. Became reachable once iface/func-value multi-return dispatch started working (the CR-2 SEAM `6c39d460` + iface-dispatch-by-value `43cb195d` + func-value destructure `2a77188c`); no test caught it because the whole abi multi-return matrix binds with `:=` and uses only int/u16.
-- **Fix**: mirror genShortVar's fallback in genMultiAssign (derive component types from the multi-return tuple struct when retTypes is empty). Additive. Pinned by `gen_assign_multi_test.bn` TestMultiAssignFuncValueCallCopyRefInc (verified red without the fix); end-to-end (uint16,int) and (int,@[]int) `=`-form iface + func-value repros compile/run, 200k-iter managed loop balances.
-- **OPEN follow-ups (from the same review)**: (a) **coverage** — extend `conformance/gen-abi-matrix.py` with an `=`-form (assignment) binding axis + a managed-component type for the multi-return-through-dispatch cells (the surface that hid this bug; today all cells use `:=` and int/u16 only).
+### abi-matrix multi-return-through-dispatch cells lack a managed-component type — 🟡 OPEN
+- **Coverage gap (residual of the `=`-multibind fix, full diagnosis archived in claude-todo-done.md).** The `=`/`:=` × {direct, iface-dispatch, func-value} multi-return abi-matrix cells (`conformance/matrix/abi/*multi-return*`) all use value-only component types — `MR_TYPES = {"int","u16","f64"}` in `conformance/gen-abi-matrix.py`. None binds a managed component (`@[]T` / `@T`), which is exactly the surface that hid the original mistyping bug (a managed component skipped its Axiom-3 copy-RefInc). 
+- The managed-through-dispatch path is currently covered only at the IR-unit level (`gen_assign_multi_test.bn` TestMultiAssignFuncValueCallCopyRefInc), not end-to-end in conformance.
+- **TODO**: extend `gen-abi-matrix.py` with a managed-component type for the multi-return-through-dispatch cells (both `:=` and `=` forms), regenerate the matrix, and confirm the 200k-iter-style refcount balance holds end-to-end.
 
 ### bnc IR-gen — remaining super-linear factors (perf, for very large programs) — 🟡 OPEN
 The minbasic OOM that motivated this is FIXED (fix (1) — O(1) dtor-dedup, binate
@@ -703,28 +697,18 @@ node + module-global accumulators scanned/re-mangled linearly):
 
 ## MINOR
 
-### pkg/std/os O_* flags now compile-time-correct via build.OS — ✅ RESOLVED 2026-06-10 (binate 590906c8); arm32 off_t + VM residuals remain
-`nativeOpenFlags` (`impls/stdlib/libc/pkg/std/os/os.bn`) branches on
-`build.OS` — a per-target compile-time constant from `pkg/builtins/build`
-(`ifaces/targets/<key>/pkg/builtins/build.bni`) that the compiler folds —
-to emit the correct native open(2) modifier bits for Linux (asm-generic:
-`O_CREAT`=0x40 / `O_TRUNC`=0x200 / `O_APPEND`=0x400 / `O_EXCL`=0x80 /
-`O_SYNC`=0x101000) vs macOS (0x200/0x400/0x8/0x800/0x80); access modes
-(0/1/2) are POSIX-identical and pass through. No runtime `uname` (the
-user ruled that out as counter to Binate's compile-time-determinism
-goals). The four Linux/host xfails were removed in the same commit, so os
-is now green on every unit-test mode except the residuals below.
-- **Residual — arm32-linux off_t (still xfailed,
-  `pkg-std-os.xfail.builder-comp_arm32_linux`)**: Seek/ReadAt/WriteAt
-  pass `int64` offsets, but on ILP32 arm32-linux `off_t` is 32-bit — a
-  64-bit arg shifts the `lseek`/`pread`/`pwrite` register-pair arg layout
-  and corrupts the call. Fix: use the `*64` variants or a target-width
-  off_t (key off `build.Arch`/`build.PtrSize`), then drop that xfail.
-- **Residual — os under the bytecode VM (still xfailed: the three
-  `-int`/VM modes)**: the VM never interprets `__c_call` (by design); os
-  runs under the VM only as the injected compiled package (registered
-  native externs, like `pkg/builtins/rt`) — not wired up. Tracked
-  separately. `arm32_baremetal` (no filesystem) stays xfailed too.
+### pkg/std/os arm32-linux off_t width (Seek/ReadAt/WriteAt) — 🟡 OPEN
+`Seek`/`ReadAt`/`WriteAt` (`impls/stdlib/pkg/std/os/os.bn`) pass `int64`
+offsets straight to `lseek`/`pread`/`pwrite` via `__c_call`. On ILP32
+arm32-linux `off_t` is 32-bit, so the 64-bit arg shifts the register-pair
+arg layout and corrupts the call. Still xfailed:
+`scripts/unittest/pkg-std-os.xfail.builder-comp_arm32_linux`. Fix: use the
+`*64` syscall variants or a target-width `off_t` (key off
+`build.Arch`/`build.PtrSize`), then drop that xfail. The `arm32_baremetal`
+xfail stays (no filesystem) and is not part of this work item.
+(The O_* compile-time-flags diagnosis and the now-resolved VM-mode residual
+are archived in claude-todo-done.md; the O_* fix landed in binate 590906c8,
+and os now passes under the VM modes via native injection — commit 55229591.)
 
 ### Stdlib conformance tests: relax conformance-imports + add a conformance/stdlib/* suite — 2026-06-10
 `pkg/std/os` (and stdlib packages generally) have unit tests but no
@@ -877,51 +861,10 @@ question).
   `const.untyped.coercion`) currently describes the **implemented**
   behavior and flags this as an open item.
 
-### Extend hygiene checks to scan `ifaces/` and `impls/` (not just `pkg/`+`cmd/`) — ✅ DONE (sub-todo: .bni cap)
-- **Goal (user-requested, 2026-06-10)**: `line-length`, `file-length`,
-  `bni-doc`, `bn-doc`, `naming` find-roots were `$BINATE_DIR/pkg` (+`cmd`)
-  only, so source under `ifaces/`+`impls/` wasn't linted (surfaced by
-  `ifaces/targets/**/build.bni`, `a3755cb4`; `file-format` already covers the
-  whole tree).  Extend each to also scan `ifaces/`+`impls/`.
-- **Approach (user, 2026-06-10)**: extending surfaces ~150 PRE-EXISTING
-  violations, almost all in ported stdlib (math/strconv/os, never linted under
-  `impls/`).  Do it **one check at a time**: land the backlog fixes for a check
-  and enable that check alongside (fix + enable as separate commits, landed
-  together).  Triage, never mass-suppress.
-- **Status**:
-  - ✅ **file-length** — enabled (binate `a8c37bdf`); `.bn` keeps 500/600, `.bni`
-    gets a higher 1500/1800 cap (interfaces can't be split like impls).  No
-    backlog (largest `.bni` is ir.bni ~1159 < 1500).
-  - ✅ **naming** — enabled (binate `4c79b2d1`+`79ca70f2`).  The 9 lowercase-in-.bni
-    (`bootstrap.format*` 5 + `rt._call_*` 4) were already whitelisted, but under
-    pre-move `pkg/...` paths; repointed to `ifaces/core/...` (latent bug: the
-    whitelist would've silently stopped matching once naming scanned ifaces/).
-  - ✅ **bni-doc** — enabled (binate `a0a82aa4`+`812c9dd1`).  Added the missing
-    package doc to `ifaces/core/pkg/builtins/reflect.bni` (its block documented
-    `type Package`, not the package).
-  - ✅ **line-length** — enabled (binate `beff4c89`+`2281cabd`).  Wrapped 128
-    long lines across 20 stdlib math/strconv files (all wrappable — no
-    LONG-LINE-ALLOWED needed); semantics-preserving (numeric-token multiset
-    identical per file; math+strconv unit tests green).  Follow-up that the
-    wrapping forced: bessel01.bn grew 407→502 (file-length soft-WARN), so its
-    asymptotic machinery (pzero/qzero/pone/qone + tables) was split into
-    `bessel01_asymp.bn` (binate `4c31ba50`); both files now <300 lines.
-  - ✅ **bn-doc** — enabled (binate `56784a86`+`705f4928`).  Fixed all 118: erf
-    (4) + gamma (1) coefficient blocks const-grouped (existing section comment →
-    group doc); 37 lookup-table vars (bessel01_asymp R/S tables, cosTab,
-    Stdout/Stderr, …) + 23 funcs (@Nat methods, os Read/Write/…, Shl/Shr, …)
-    documented individually.  Semantics-preserving (numeric-token sequence
-    byte-identical per file; math+strconv tests green; os/rt edits comment-only).
-- **DONE** 2026-06-10: all five file checks (file-length, bni-doc, naming,
-  line-length, bn-doc) now scan `ifaces/`+`impls/`.  ~150 pre-existing stdlib
-  violations were triaged + fixed (not suppressed), one check at a time.
-- **Sub-TODO (file-length .bni cap)**: consider lowering the `.bni` cap from
-  1500/1800 toward 1000/1200; `ir.bni` (~1159) would need refactoring (split
-  into sub-interfaces) first.
-- **Discovery**: adversarial verification workflow over `a3755cb4`; user asked
-  for the extension as a follow-up.
-
----
+### Lower the file-length `.bni` cap toward 1000/1200 — 🟡 OPEN
+- **Residual** of the (now-archived) "Extend hygiene checks to scan `ifaces/`+`impls/`" work. The `.bni` file-length cap is currently 1500/1800 (warn/error); consider lowering toward 1000/1200.
+- **Blocker**: `pkg/binate/ir.bni` (~1183 lines) exceeds the proposed lower cap and would need refactoring (split into sub-interfaces) first. A live `TODO` in `scripts/hygiene/file-length.sh` tracks this.
+- (Full resolved diagnosis of the ifaces/impls hygiene-scan extension archived in claude-todo-done.md.)
 
 ## MAJOR
 
@@ -2131,53 +2074,25 @@ question).
 - **Method values** (`x.M`, `T.M`) and **closures** are folded
   under this plan rather than tracked separately.
 
-### Interface syntax revision — *Stringer / @Stringer + top-level decl — MOSTLY DONE
-- **Plan doc**: `explorations/plan-interface-syntax-revision.md`
-  (RATIFIED 2026-05-01).
-- **Implementation status (audited 2026-05-22 / 2026-05-23)**:
-  Plan §1–§5 all landed.  §6 (`any` universal interface) landed
-  end-to-end across type-checker (`e5f2f8a`) and IR-gen + codegen
-  (`61eb6cd`): universe `any` is a real empty-method-set
-  TYP_INTERFACE registered in both `pkg/types` (via
-  `defineInterface`) and `pkg/ir` (via `registerUniverseAny` at
-  `InitModule` time). `wrapAsIfaceValue` synthesizes a per-(T, any)
-  ImplInfo on demand so codegen emits
-  `__ivt.bn_<T_pkg>__<T>__any` as `[1 x i8*]` with T's dtor in
-  slot 0 (or null if T has no dtor).  `@any` of a managed-field-
-  bearing pointee now RefDec's the pointee's managed fields at
-  scope exit via the synthesized vtable's dtor slot — the
-  previously-silent leak is closed.
-  Verified working: top-level `interface X { ... }` decl
-  (`pkg/parser/parse_decl.bn:35`), `*Iface` / `@Iface` syntax
-  (`pkg/types/resolve_type.bn:38-50`), bare-name rejection
-  (`resolve_type.bn:30-35`, test 348), interface alias
-  `interface X = Y` (test 369), construction-site explicit-only
-  conversions (`types_assignable.bn:149-189`, tests 379/380/381),
-  five receiver kinds + `impl T : Iface` (tests 357–410), per-
-  (impl, interface) vtable codegen (`pkg/codegen/emit_impls.bn:24-40`),
-  cross-package `.bni` interface visibility (tests 373–388, 464),
-  universe `any` (tests 470–474, plus
-  `pkg/ir/gen_iface_vtable_test.bn` for vtable-name mangling
-  including the empty-pkg form).
-- **Remaining (small) gaps**:
-  1. **`type X = BareIface` explicit negative test** — the code
-     flow should reject via `resolveTypeExpr`'s bare-interface
-     error path, but it isn't separately covered. One-line
-     negative test.
-  2. **Interface-value nil comparison** — `iv == nil` (for any
-     iv type, not just `*any`) is currently rejected:
-     `IsNillable` in `pkg/types/types_query.bn:196` returns true
-     only for pointer types and function-value types.  A nil iv
-     IS a meaningful runtime state (both data and vtable slots
-     zero, mirroring `*func(...)`'s convention), so the natural
-     extension is to add `TYP_INTERFACE_VALUE` /
-     `TYP_INTERFACE_VALUE_MANAGED` to `IsNillable`'s positive
-     set and check both slots zero at the comparison site
-     (codegen + VM lowering for `iv == nil`).  Not a regression;
-     pre-existed plan §6 — surfaced while writing a nil-
-     propagation test for the iv→any upcast.  This is a real
-     language-semantics extension that should be confirmed
-     before implementing.
+### Interface-value nil comparison (`iv == nil`) — 🟡 OPEN
+- `iv == nil` for a general interface-value type (not just `*any`) is
+  currently rejected. `IsNillable`
+  (`pkg/binate/types/types_query.bn:268-274`) returns true only for
+  pointer types and `TYP_FUNC_VALUE` / `TYP_MANAGED_FUNC_VALUE`;
+  `TYP_INTERFACE_VALUE` / `TYP_INTERFACE_VALUE_MANAGED` are not in the
+  positive set.
+- A nil interface value IS a meaningful runtime state (both data and
+  vtable slots zero, mirroring `*func(...)`'s convention). Natural
+  extension: add the two interface-value kinds to `IsNillable`'s
+  positive set and check both slots zero at the comparison site
+  (codegen + VM lowering for `iv == nil`).
+- Not a regression; pre-existed plan §6 — surfaced while writing a
+  nil-propagation test for the iv→any upcast. This is a real
+  language-semantics extension that should be confirmed with the user
+  before implementing.
+- (Full resolved diagnosis of the Interface-syntax-revision project,
+  incl. §1–§6 `any` end-to-end landing and the now-closed
+  `type X = BareIface` test gap, archived in claude-todo-done.md.)
 
 ### Cross-package method visibility in `.bni`
 - Methods defined on a public type in package `foo` need to be declared
