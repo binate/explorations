@@ -250,21 +250,21 @@ diagnostic, no IR.
   what spec §14 (Statements) says about parallel assignment, so §14 authoring is
   paused on it.
 
-### `main` existence + signature are not checked (link-time-only failure) — spec Ch.17 (2026-06-12) — 🔴 OPEN
-MINOR (missing diagnostic). Found grounding spec Ch.17. The synthetic entry
-hard-codes `entry.EmitCall("main.main", emptyArgs, types.TypVoid())`
-(`pkg/binate/ir/gen_init.bn:181`), so the de-facto entry signature is
-`func main()` (no params, no results). But nothing in `pkg/binate/types`
-(`check_decl_func.bn` treats `main` as an ordinary free function) or the drivers
-enforces that the `main` package HAS a `main`, or that `main` has that signature.
-- A **missing** `main` fails at link time as `undefined reference to bn_main__main`,
-  not with a clean compiler diagnostic.
-- A **wrong-shaped** `main` (`func main() int`, `func main(args @[]@[]char)`) is
-  neither rejected nor honored — the entry calls it as no-arg/void regardless.
-Fix: add a checker rule for the `main` package — require a `main` with signature
-`func main()` (no params, no results) and emit a clean diagnostic otherwise. Add
-a negative conformance test (missing main; wrong-shaped main). Referenced as
-`prog.main.unchecked` from `17-program-initialization-and-execution.md` §17.3.
+### `main` existence/signature not checked at compile time — ❌ NOT A BUG — BY DESIGN (closed 2026-06-14)
+Previously filed (2026-06-12) as a missing-diagnostic defect
+(`prog.main.unchecked`). That was WRONG — it is **by design**, per the user.
+Under **separate (per-package) compilation** the compiler never sees the whole
+program, so a valid `func main()` entry point cannot be resolved when a package
+is compiled (not without a weird hack). Moreover, **requiring `main` to exist
+runs counter to the dual-mode interop story**: any package may be compiled or
+loaded independently and have its functions called across the
+compiled/interpreted boundary (Ch.19), so a package is never obligated to furnish
+an entry point. The entry is resolved at **link / program-assembly** time; a
+missing or wrong-shaped `main` surfaces as a link error, which is intrinsic to
+the model — NOT a missing diagnostic. **Do NOT re-file this and do NOT add a
+checker rule for `main`.** Spec corrected (docs `4af9c72`): §17.3 now carries a
+"_Note (by design)_" (the `prog.main.unchecked` ID is retired) and §21.9 no longer
+lists it as a non-conformance.
 
 ---
 

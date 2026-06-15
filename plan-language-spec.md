@@ -121,8 +121,10 @@ commit):**
 - §17 Program Initialization and Execution (`17-program-initialization-and-execution.md`),
   authored 2026-06-12 (docs `03a0bb6`): grounded (5 readers) → drafted → verified
   → corrected. **Phase 3 complete.** Consolidated the closed-panic catalogue;
-  flagged `prog.main.unchecked` (main existence/signature) + extended the panic
-  entry (compiled also discards the message).
+  extended the panic entry (compiled also discards the message). (A
+  `prog.main.unchecked` "defect" flagged here was later RETRACTED as BY DESIGN —
+  entry resolution is link-time under per-package compilation + interop; docs
+  `4af9c72`.)
 - **Phase-3 adversarial review done** (2026-06-12, docs `ac7982a`): 4 reviewers
   re-read live source + cross-chapter. Key catch — aliased imports were FIXED
   (binate `52d1c832`) AFTER §16 was authored, so the "broken" flag was stale;
