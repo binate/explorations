@@ -384,16 +384,30 @@ element `i` at index `i`.
   (`check_expr_composite.bn:73-79` checks keyed but not positional values).
 All referenced from `13-expressions.md`.
 
-### D4 composite-literal-in-condition paren-escape does not work — spec Ch.13 (2026-06-12) — 🔴 OPEN
-MINOR (parser strictness). Grammar D4 (and Go) say a composite literal may be
-used in an `if`/`for`/`switch` condition by parenthesizing it (`if (Point{1,2})
-== p`). But `noCompositeLit` is a single sticky boolean never cleared on
-entering parentheses/call-args/index brackets/composite-lit bodies
-(`parse_primary.bn:178-183` calls parseExpr without saving/clearing it), so the
-documented escape is suppressed too — the workaround doesn't actually work.
-Fix: clear `noCompositeLit` for nested sub-expressions of `(`/`[`/call-args
-(matching Go's exprLev), or amend grammar D4 to state no escape exists.
-`expr.disambiguation.d4-paren` in `13-expressions.md`.
+### MAJOR — field access on a struct composite-literal rvalue reads 0 (`Foo{...}.field`) — silent miscompile (2026-06-14) — 🔴 OPEN
+Reading a field directly off a struct composite literal in one
+expression yields **0**, not the field value, on all modes (no error).
+- **Repro.** `type P struct { a int; b int }` → `println(P{a: 3, b: 4}.a)`
+  prints `0` (and `.b` → `0`); `(P{a:3,b:4}).a` → `0` too.
+- **What works (narrows it).** A field access on a *variable* is fine
+  (`var p P = P{a:3,b:4}; (p).a` → 3). A *method* call on the composite
+  rvalue is fine (`(Counter{n:7}).get()` → 7). So construction is OK and
+  method-receiver materialization is OK; only the immediate **field
+  read** off the composite rvalue is wrong.
+- **Hypothesis.** IR-gen `genSelector` on an `EXPR_COMPOSITE` base
+  doesn't materialize the composite into a temp (alloca) before the
+  field GEP, so the field is read from unallocated/zero memory. Likely
+  `pkg/binate/ir/gen_expr.bn` (selector) / `gen_composite.bn`: lower the
+  composite to an alloca first, then GEP+load the field.
+- **Discovery.** 2026-06-14 while testing the D4 paren-escape fix
+  (binate `23f41e22`): `(Point{...}).field` hit it, and the no-paren
+  form `P{...}.a` (which never touches `noCompositeLit`) fails
+  identically — so it is NOT a D4 artifact; pre-existing.
+- **Severity.** MAJOR — silent wrong value (0) for a common idiom
+  (`Foo{...}.field`). Conformance 777 deliberately reads its composite
+  via a method to dodge this.
+- **Bug-discovery protocol.** Add a conformance test
+  `composite_rvalue_field` (xfail until fixed) when investigated.
 
 ### `_Package()`: bytecode VM works only for the 4 builtins (Gap 2; unqualified form ✅ FIXED; builtin auto-injection ✅ LANDED) — 🔴 OPEN (user-package bytecode `_Package` remains)
 

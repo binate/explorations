@@ -10,6 +10,20 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~D4: composite literal in a condition wasn't usable via the documented paren-escape — spec §13.13 (2026-06-12)~~ — ✅ LANDED on main (binate `23f41e22`, 2026-06-14)
+
+`noCompositeLit` was a sticky bool never cleared on descending into
+`(` / `[` / call-args, so the documented paren-escape — `if (Point{1,2})
+== p {}` — was suppressed too (the `{` mis-read). New
+`parseExprAllowComposite` clears/restores `noCompositeLit` for
+parenthesized, call-argument, and index/slice-operand sub-expressions
+(Go's `exprLev`); a bare composite in a condition still stays suppressed.
+Tests: `TestParseParenCompositeEscapesNoCompositeCtx` +
+`TestParseBareCompositeStaysSuppressed`; conformance
+`777_composite_lit_paren_in_cond` (paren-escape exercised via a method
+call — direct field access on a composite rvalue is the separate MAJOR
+bug now tracked in claude-todo.md). Green on builder-comp / -int / -comp.
+
 ## MAJOR — native funcval shim marshalling used `ArgWords`, not the CallConv classifier — x64 false-rejected, aa64 SILENTLY MISCOMPILED (✅ NON-CLOSURE shim RESOLVED — Stage A + Stage B + B0 force-emit landed on main `cd417081`, 2026-06-11)
 **Split 2026-06-14**: resolved bulk (non-closure shim Stage A/B + B0 Functions-table) archived here; the open closure-shim-cousins follow-up is a slim ## entry in claude-todo.md.
 
