@@ -10,6 +10,33 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~`cast` is unchecked at the type layer; literal fit-check not enforced — spec Ch.8~~ — ✅ FIXED+LANDED, decision: reject (binate `042d2fe6`; conformance 650; 2026-06-15)
+
+`claude-notes.md` said `cast(uint, -1)` is a compile error (literal doesn't
+fit), but the type-checker did NOT enforce it: `check_builtin.bn`'s CAST arm
+resolved the target type and returned it **unconditionally** — no constant
+fit-check (whereas a plain assignment `var x uint8 = 256` IS rejected via
+`untypedIntLitFitsTarget`). So `cast(uint, -1)` / `cast(uint8, 256)` were
+silently accepted.
+
+- **Resolution — reject** (user choice, 2026-06-15): `castTargetIsInteger`
+  helper + a fit-check in `checkBuiltinCall`'s CAST arm — if the argument is a
+  constant (`HasLitVal`), the target resolves to an integer type, and the value
+  doesn't fit (`!untypedIntLitFitsTarget`), it's a compile error: "constant does
+  not fit the cast target type (use bit_cast to reinterpret)". `bit_cast`
+  untouched.
+- **Escape for intentional wrap**: launder the constant through a runtime value
+  — `cast(T, cast(int, N))`. The inner `cast(int, …)` strips `HasLitVal`,
+  yielding a non-constant int, so the outer cast wraps/truncates at runtime
+  (`cast(uint8, cast(int, 300))` → 44). A deliberate Binate-vs-Go divergence:
+  in Go `int(N)` of a constant stays a typed constant; in Binate a `cast` always
+  produces a runtime value. `bit_cast` is NOT the escape — it's a *same-size*
+  reinterpret, so `bit_cast(uint8, 300)` is a size-mismatch error.
+- **Tests**: `check_builtin_test.bn` (`TestCheckCastConstantOverflowRejected`,
+  `TestCheckCastConstantInRangeAccepted`); conformance 650 updated to launder
+  its intentional out-of-range casts through `cast(int, …)`. `claude-notes.md`
+  §8 cast semantics paragraph updated with the laundering/`bit_cast` clarifics.
+
 ### ~~parallel assignment `a, b = 1, 2` / swap `a, b = b, a` type-checked clean but generated NO code (silent dropped writes)~~ — ✅ FIXED+LANDED, decision (A) Support (binate `d2a3b8f1`; conformance 778-784; spec Ch.14, 2026-06-15)
 
 A matched-arity multi-expression assignment (>1 expr on each side) type-checked
