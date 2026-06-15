@@ -40,7 +40,7 @@ markers (reason updated to this bug). Replace with a focused test when fixed.
 
 ---
 
-## MAJOR (mangler) — a package directly importing TWO packages with the same final path segment double-emits one's `_Package` declaration → `invalid redefinition of bn_pkg__…___Package` (2026-06-14) — 🔴 OPEN
+## MAJOR (import resolution) — a package directly importing TWO packages with the same final path segment double-emits one's `_Package` declaration → `invalid redefinition of bn_pkg__…___Package` (2026-06-14) — ✅ FIXED (approach B), pending land; same-segment GENERICS deferred (2026-06-15)
 
 Found converting minbasic to `pkg/std/os`: `pkg/host` already imports
 `pkg/basic/io`, and classifying end-of-input with `io.IsEOF` needs `pkg/std/io`
@@ -81,6 +81,35 @@ too — both final segment `io`.
   `ReadFile` sizes the file with `os.Seek(0, os.SeekEnd)` and reads exactly that
   many bytes (a short read = failure) instead of using `io.IsEOF` to classify the
   end — so `pkg/host` directly imports only one "io" (`pkg/basic/io`).
+
+- **ACTUAL root cause** (the hypothesis above was close but not the dedup): the
+  IR-gen import-alias map is keyed by the **short name** (last path segment).
+  The loader (`cmd/bnc/compile_imports.bn`, `cmd/bni/irgen.bn`) passed
+  `shortName(path)` as the registration "alias", and `RecordImportPath`
+  first-wins-dedups by alias — so `pkg/basic/io` and `pkg/std/io` both key as
+  `io`, the second collapses onto the first, and `resolveImportPkg("io")` returns
+  the FIRST's path for both. EVERY symbol of the second package (not just
+  `_Package`) mangles with the first's path; `_Package` is just where it becomes
+  a hard clang error, because it's registered unconditionally for every import
+  under the same name → duplicate declaration.
+
+- **FIX (approach B, committed on worktree, pending cherry-pick):** the loader now
+  passes the **full import path** as the registration key (`alias == path`), so
+  same-final-segment packages never collide. The `streq(alias, "rt"/"bootstrap"
+  /"lang")` short-name checks became full paths, and the 6 generic/interface
+  call-site lookups that used raw source-aliases now `resolveImportPkg(...)` to
+  match the path-keyed stash (`gen_type_resolve`, `gen_call`, `gen_iface` ×3,
+  `gen_impl`, `gen_iface_registry`). Verified: full `builder-comp` (1451/0) +
+  `builder-comp-int` (1437/0) conformance, full unit suite (45/0).
+  conformance/785 covers the same-segment case comprehensively (free funcs,
+  extern vars, structs, unqualified local-type fields, methods, interface, impl).
+
+- **DEFERRED — same-final-segment GENERICS** (conformance/786, xfail): generic
+  decls still collide, because the generic-decl stash (`genericDeclPkgs` etc.) and
+  the per-(decl,args) monomorphized symbol aren't qualified by the full path —
+  so `bb.Pick[int]` resolves to `aa.Pick[int]` (`100 100` not `100 200`). Fix:
+  carry the full path through the generic stash key + the monomorphization
+  naming, mirroring what B did for the non-generic registration.
 
 ---
 
