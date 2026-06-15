@@ -10,6 +10,19 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~Comparison chaining wrongly accepted on the `for`-clause path (`for a < b < c {}`) — spec §13.6 (2026-06-13)~~ — ✅ LANDED on main (binate `55360652`, 2026-06-14)
+
+The main `parseCompareExpr` path takes at most one comparison operator,
+but the for-clause's identifier-leading expression runs a separate Pratt
+engine (`continueBinaryExpr`) whose left-associative loop parsed
+`for a < b < c {}` as `(a < b) < c` instead of erroring (and
+`for (a) < b < c {}` was already rejected — internally inconsistent).
+Fix adds an `isCompareOp` non-chaining check: report "comparison
+operators do not chain" when a comparison op would apply to a left
+operand that is itself a comparison, then keep parsing so the clause
+resyncs (one clean error, no cascade). Tests:
+`TestParseForCompareChainingRejected` + `TestParseForSingleCompareAccepted`.
+
 ### ~~`const X T` (typed, no initializer) wrongly accepted by the parser — spec §9 (2026-06-13)~~ — ✅ LANDED on main (binate `29ae5bc6`, 2026-06-14)
 
 `parseConstSpec` made the `=` optional once a type was present, so
