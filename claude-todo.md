@@ -568,9 +568,6 @@ green because no test exercises the wrapped / nameless / composite-literal /
 named-type variant. Per the user (2026-06-08): FILE all, FIX nothing yet.
 The CRITICAL entries below are also surfaced in `## CRITICAL`-class triage.
 
-### [CR-2 Plan-1 review] Memory-safety / refcount audit — CLEAN on the probed Plan-1 paths (2026-06-08)
-- The dedicated memory-safety finder failed to emit output twice; I audited the highest-risk Plan-1 refcount changes by hand with `rt.Refcount`-balance probes. **All balanced — no leak / UAF / double-free found:** (a) Defect-1 `peelTransparent` on `readonly @Box` (the managed/raw-classification flip risk): `var p readonly @Box = b` RefIncs 1→2, stays 2 while alive, scope-end RefDec balances — the peel makes the readonly-wrapped managed ptr counted (correct). (b) Defect-6 managed array element (`a[0] = b` on `[1]@Box`): 1→2→2 balanced. (c) Defect-3/4 multi-return managed field (`x, n := wrap(b)` returning `@Box`): 1→2→2 balanced. NOT exhaustive (the `=`-destructure path M1 fails to compile, and the un-migrated store arms M2 can't be reached with managed inner without crashing), but the directly-attributable Plan-1 refcount changes are sound.
-
 ### [CR-2 Plan-1 review] AMEND existing CRITICAL "iface-upcast −1-offset footgun" (filed `866b935`) with two new reproducer details
 - **(a) Concrete trigger via the Kind axis**: `ifaceValueTypesAgree` (`gen_util.bn:225`) keeps `if a.Kind != b.Kind { return false }`, so a managed↔raw decay of the SAME canonical interface (`@Empty → *Empty`) still takes the upcast path → `IfaceParentSlotOffset(X,X) = −1` → `getelementptr inbounds i8*, i8** %vt, i64 −1` (UB). **Probe-confirmed** the −1 GEP is emitted. **Reachability is bounded and currently HARMLESS**: the type checker rejects `@Iface → *Iface` for any NON-empty interface (`isDescendantInterface(X,X)=false`), and `@Iface → *any` uses the offset-0 `any` special case — so −1 fires only for zero-method interfaces, which never dereference the vtable. Latent wrong-code, not a reachable crash. Targeted fix when the footgun is addressed: in `ifaceValueTypesAgree`, when canonical `(Pkg,Name)` AGREE return true regardless of Kind (same-interface managed↔raw relabel needs offset 0); a blanket Kind-ignore would be WRONG (a genuine `@Child → *Parent` upcast must keep its real positive offset — probe shows +1).
 - **(b) Cross-backend divergence on the −1**: the LLVM lowering (`emit_iface_upcast.bn:57-60`) writes the offset verbatim (`i64 −1`), while BOTH native backends guard with `if byteOff > 0` (`aarch64_dispatch.bn:166`, `x64_dispatch.bn:242`) and so leave the vtable pointer unchanged (accidentally offset 0). So the same IR yields base−1 on LLVM vs base on native. The fix should make −1 a hard assert in all three lowerings (not a silent GEP) and have `IfaceParentSlotOffset(X,X)` return 0 like the `any` case.
@@ -1178,21 +1175,6 @@ question).
 - **Suggested migration order**: introduce `ir.DataGlobal` + one `emitDataGlobal` per backend → migrate `_Package` onto it FIRST (the proving case; also retires the interim native emitter below) → then impl + func-value vtables → then strings → then globals (front-end-coupled, last). Each step keeps all backends green.
 - **Interim DONE**: the short-term native `emitPackageDescriptor` is LANDED (binate `f7d116f3`) — `common.EmitPackageDescriptorData` (shared static-managed-node layout) + a per-arch accessor. Explicitly throwaway: the `_Package` migration step of this project deletes it (and `codegen/emit_pkg_descriptor.bn`) once the descriptor is an `ir.DataGlobal`.
 - **Low-priority hardening surfaced by the interim's adversarial review (not reachable today)**: the native interim `SetGlobal`s `_pkg_info` + `_pkgname` as STRONG symbols, vs LLVM's `weak_odr` (`_pkg_info`) / `private` (`_pkgname`). NOT a current bug — in `--backend native` only `main` is native and all deps go via LLVM (disjoint package names), so the same package's strong native `_pkg_info` never lands in two objects; conformance/532 + the native vm/repl/bni unit links are clean. It WOULD bite a future native-library-packaging path (a precompiled native `.o` for a package linked beside a from-source native recompile of it → duplicate strong symbol where `weak_odr` dedupes). Cheap fix when that lands (or sooner): `a.SetWeak` on `_pkg_info` (matches `weak_odr`); `_pkgname` only needs same-object visibility (sole consumer is the same-object `Name.data` fixup) so it can be local/weak. The `ir.DataGlobal` unification should carry a linkage field so this is expressed once. (`_pkg_info` must stay a defined symbol the accessor's cross-section reloc can target — the native Adrp/Lea fixup resolves to it like `emitGlobalAddr` — so not an unnamed local.)
-
-### Unit tests RED on compiled-native modes — `pkg/binate/vm` / `repl` / `cmd/bni` test binaries don't link the std `_Package` objects — ✅ FIXED binate `f7d116f3` 2026-06-10 — was MAJOR
-- **FIX**: the native backend now emits the per-package `_Package` descriptor + accessor (binate `f7d116f3`, `native: emit the per-package _Package descriptor`), so the `_bn_pkg__*___Package` symbols resolve. After it: `pkg/binate/repl` + `cmd/bni` are GREEN on native_aa64; `pkg/binate/vm` LINKS and runs (168 pass). conformance/532 now green on native aarch64 + x64-darwin (was LLVM/VM only). **Remaining native_aa64 `pkg/binate/vm` red is NOT this bug**: the 2 surviving failures are `TestExternFloat{,32}ArgViaRegistry` — the separately-tracked float-arg-shim bug (see below; it was MASKED by this link failure, now visible). Root-cause direction below was correct (native never emitted `_Package`); the original "make the link include the objects / xfail" framing is superseded by the real fix.
-- **Symptom**: in `builder-comp_native_aa64-comp_native_aa64` unit mode, `pkg/binate/vm`, `pkg/binate/repl`, and `cmd/bni` FAIL to link: `Undefined symbols: _bn_pkg__bootstrap___Package, _bn_pkg__builtins__reflect___Package, _bn_pkg__builtins__rt___Package, referenced from _bn_pkg__binate__vm__RegisterStandardExterns`. **Reproduces LOCALLY** (`scripts/unittest/run.sh builder-comp_native_aa64-comp_native_aa64 pkg/binate/vm` → 0 passed, 1 failed). Pre-existing across many commits (Plan-C, getSelectorType, lang-bool, #113, …). NOT introduced by any bnc-0.0.8 release-prep lane; NOT xfailed (so it reads as a hard CI fail, not a tracked xfail).
-- **Root cause (direction)**: `RegisterStandardExterns` (`pkg/binate/vm/extern_register_std.bn`, the Phase-B `_Package()` VM-extern feature, binate `feadde2c`) takes `*func() @reflect.Package` handles to `rt._Package` / `bootstrap._Package` / `reflect._Package`. Those `_Package` accessors are codegen-only (no `.bn` body — bnc synthesizes the def per *module*). The native unit-test link of the vm/repl/bni binaries references them but doesn't link any object that DEFINES them (no module in the test link emits the builtin packages' `_Package`), so they're undefined. The `builder-comp` (LLVM) unit mode passes — so this is specific to the native-backend unit-test link step.
-- **Distinct from**: (a) Lane A's conformance `-comp*` `bn_pkg__bootstrap__Write` break (CI-only, doesn't reproduce locally; this one DOES reproduce locally and is the `_Package` symbol class); (b) the `loader` struct-mangler collision (different symptom). 
-- **Also red (separate)**: `builder-comp-int-int` unit shards time out (~30m) in CI; `builder-comp_native_x64` (ELF) Perf fails (Lane A compiled-link family — native_aa64 Perf passes). 
-- **Fix direction (owner's call)**: either make the native unit-test link include the builtin packages' `_Package`-defining objects (the harness/link step), or xfail `pkg/binate/{vm,repl}` + `cmd/bni` on `builder-comp_native_aa64`/`_x64` unit modes with a tracked reason until the `_Package` extern registration is link-complete for test binaries. **Not a shipped-artifact blocker** (the four release binaries build fine — `make-bundle.sh` green), but a red CI category to resolve or consciously accept before the bnc-0.0.8 tag.
-
-### e2e/repl.sh + print-args.sh build broken — gen1 build resolved stdlib current-first, so the BUILDER hit current `std/errors` (`same`) — ✅ FIXED binate `c44ab9b7` 2026-06-10 (Lane C)
-- **Symptom**: `e2e/repl.sh` (and `e2e/print-args.sh`) fail at their BUILDER-stage gen1 build: `impls/stdlib/common/pkg/std/errors/errors.bn:104:6: undefined: same` (+ `cannot call non-function` / `non-bool condition`). The e2e never runs because the toolchain build aborts.
-- **Root cause (CORRECTED)**: the e2e scripts' two-stage gen1 build listed the checkout's stdlib roots AHEAD of the `$BUILDER_LIB` bundle (current-first), unlike the canonical `scripts/lib/build-compilers.sh` `build_gen1`, which lists the BUILDER's stdlib first. `cmd/bnc`'s import closure reaches `pkg/std/errors` (bnc → `native/common` → `std/strconv` → `std/errors`; `std/strconv` → `std/errors` also gives bni/bnlint the same closure), and `std/errors` uses the `same` builtin (binate `1f87b905`), which BUILDER `bnc-0.0.7` predates — so the BUILDER compiled CURRENT `std/errors` and choked on `same`. NOT a current-bnc bug (`same` works in gen1; conformance `661_same_ref` is green). The conformance/unit runners were unaffected precisely because `build_gen1` resolves stdlib BUILDER-first; the e2e scripts had drifted from that ordering.
-- **Fix**: reorder the e2e scripts' gen1-stage `-I`/`-L` to put the `$BUILDER_LIB` stdlib roots ahead of the checkout's (core stays current-first), matching `build_gen1` (binate `c44ab9b7`). e2e/repl.sh now builds + passes 54/54 and print-args.sh 2/2 on the **pre-bump** tree. (The `same` skew also self-heals at the Convergence BUILDER bump, but the script fix makes e2e green without waiting for it.)
-- **Correction to the prior note**: the earlier claim that "the four binaries don't import `std/errors`" is WRONG — bnc (via `native/common` → `std/strconv`), bni, and bnlint all transitively import it. The release **bundle** build (`make-bundle.sh`) was never blocked because its build scripts already resolve stdlib BUILDER-first, NOT because the binaries avoid the import.
-- **Discovery**: 2026-06-09, building the CR-2 Plan-B B3 e2e value test (REPL parked-member iota-repeat). B3's e2e case (`tier3-pending-const-group-bare-iota-repeat`) now runs and passes.
 
 ### Add a hygiene check enforcing package-tier dependency rules (`pkg-layout-spec.md`) — bundled tiers must not import non-bundled tiers — FILED 2026-06-10
 - **What**: a `scripts/hygiene/` check that statically validates every package's import closure against the tier ordering in `pkg-layout-spec.md` ("Tiers"). A package must not import a *less-bundled* (higher-numbered) tier. Concretely — tier 0/0b/1/1x packages (always- or by-default-bundled: `pkg/builtins/*`, `pkg/std/*`, `pkg/stdx/*`) must NOT import a tier-2/3 package (project-pulled / not bundled: `pkg/binate/*` and any other `pkg/<org>/*`). Also enforce the tier-2 transitive-closure rule (`pkg-layout-spec.md` "Tiers": tier 2's dependency closure must itself be tier 2). Tier is derivable from the import-path prefix (`pkg/builtins/`→0/0b, `pkg/std/`→1, `pkg/stdx/`→1x, `pkg/binate/` & other `pkg/<org>/`→2); `pkg/bootstrap` is a bundled runtime primitive (treat as tier-0-equivalent). EXEMPT `*_test.bn` — tests aren't bundled (e.g. `lang_test.bn` legitimately imports `pkg/binate/buf`).
@@ -2281,72 +2263,6 @@ question).
   selectively-opportunistic, not blanket.
 - **How to land**: TBD; needs concrete site survey.
 
-### Generics in cmd/bnc's tree — UNBLOCKED 2026-05-26 (BUILDER → bnc-0.0.2)
-- **Status**: BUILDER is now bnc-0.0.2 (binate `5414bab`), which
-  was cut from a tree that has generics (slices 4–7).  Verified the
-  builder compiles generic decls + explicit instantiation
-  `f[T](...)`; cross-package monomorphization works too.  So
-  cmd/bnc-tree code may now use generics.
-- **No type inference** (claude-notes.md:537, 1000): always spell
-  the type arg, e.g. `slices.Append[@ast.Decl](xs, d)`.  The
-  builder's "generic function requires type arguments" diagnostic
-  on a bare `f(...)` call is intended behavior, not a gap.
-- **First consumer — `pkg/slices`** (IN PROGRESS): `Append[T]`
-  collapses the dozens of per-type `appendXxx` / `appendXxxPtr`
-  helpers scattered across cmd/bnc + pkg/*.  Migration is staged
-  one package at a time (see below).
-  - **Generic packaging pattern**: a generic's body must live in
-    the `.bni` (body-included) so cross-package consumers can
-    monomorphize at the call site.  For an all-generic package the
-    `.bn` needs **no** copy of the body — just the `package` decl
-    (the package's own compile + tests resolve the generic from the
-    merged `.bni`).  Keeping a second body in the `.bn` is a
-    needless sync hazard; don't.
-- **Mechanical migration DONE 2026-05-28**: ~62 per-type append
-  helpers across pkg/{ast,types,ir,parser,loader,codegen,vm,
-  native/aarch64} + cmd/bnc collapsed into ~378 call sites of
-  `slices.Append[T]`, one commit per package boundary
-  (binate `2714e67` loader → `ed727f8` parser → `bbb7fab5` ir →
-  `60f385ff` cmd/bnc → `12f20a06` types → `79c11465` ir literals →
-  `efbac9db` codegen → `d43185bb` vm → `1a45bb9b` aarch64 →
-  `d226b237` ir scattered → `13477619` types capture → `a66b287c`
-  cmd/bnc test).  Four `pkg/{loader,parser,ir,cmd-bnc}/slices.bn`
-  files deleted.  Net ~-750 lines.
-
-### Review remaining non-standard `appendXxx` helpers — opportunistic
-- 13 helpers were kept past the `slices.Append[T]` migration because
-  their bodies aren't a pure slice-of-T append (per the commit
-  messages around 2026-05-28).  Worth reviewing whether any could be
-  refactored to use `slices.Append` plus a small adapter:
-  - ~~**Char-concat into a `@[]char` buffer** (not slice-of-T):
-    `pkg/native/x64/x64_iface.bn`'s `appendPkgIdent_x64`,
-    `appendStrIface`; `pkg/native/aarch64/aarch64_iface.bn`'s
-    `appendPkgIdentNative`, `appendStrLocal`.  These four could
-    probably share a single `buf.WriteStr`-style helper.~~ — DONE
-    2026-05-28 (binate `fd1e931c` + `1b762f16`): pulled the two
-    distinct shapes into `pkg/native/common.AppendStr` /
-    `AppendPkgIdent`, x64/aarch64 callers rewritten, 4 duplicate
-    helpers deleted, direct unit coverage in common_test.bn.
-  - **Dedup / diagnostic-emitting**:
-    `pkg/types/check_iface_extends.bn`'s
-    `appendIfaceMethodWithConflictCheck` (emits a `CheckError` on
-    signature mismatch) and `appendUniqueMethods` (dedup by method
-    name).  These stay non-standard.
-  - **Parallel two-slice append**:
-    `pkg/ir/gen_iface_extends.bn`'s `appendAncestors(pkgs, names,
-    pkg, name)` — could split into two `slices.Append` calls but
-    the paired-update pattern is the helper's value; debatable.
-  - **Conditional multi-arg append**: `cmd/bnc/target.bn`'s
-    `appendTargetFlags`, `appendTargetRuntime` — fine as-is.
-  - **Loader-level Imports**: `cmd/bnc/compile_imports.bn`'s
-    `appendRtImport`, `appendLibcImport`, `appendBootstrapImport` —
-    not slice append; fine as-is.
-  - **Raw-slice wrap-and-append**: `cmd/bnc/util.bn`'s
-    `appendRawCharSlice(s, *[]const char) → @[]@[]char` (CopyStr +
-    append).  Could inline the 47 call sites as
-    `slices.Append[@[]char](s, buf.CopyStr(v))` but the named
-    helper documents the wrap-and-append idiom; debatable.
-
 ### Expand `pkg/slices` beyond `Append` — opportunistic
 - `pkg/slices.Append[T]` is the only generic helper today.  Natural
   additions when call sites demand them (don't add speculatively):
@@ -3139,18 +3055,6 @@ question).
 - Candidates: growable collections (Vec[T], Map[K,V] post-generics), I/O abstractions, string utilities, formatting
 - CharBuf is implemented (pkg/buf); broader stdlib design should inform future collection APIs
 
-### Slice ownership model — design notes
-Binate is NOT Go. The two types of slice are intentionally different:
-
-**Raw slices (`*[]T`)** — two words: (data ptr, length)
-- Value types, no refcounting, no GC. Caller manages lifetime (like C).
-- Cannot be compared to `nil` — check `len(s) == 0` for empty.
-
-**Managed-slices (`@[]T`)** — four words: (data ptr, length, backing_refptr, backing_len)
-- Prefix-compatible with `*[]T`. Refcounted via backing_refptr.
-- backing_len stores total element count for destructor cleanup.
-- `make_slice(T, n)` returns `@[]T`. `@[]T → *[]T` conversion: extractvalue fields 0,1.
-
 ### Test runner improvements
 - ~~**Better docs/help**~~: DONE. Both runners show description, examples, flag docs, test format/convention docs, xfail mechanism. READMEs added for conformance/ and scripts/unittest/.
 - ~~**Better output**~~: DONE. `-v` (verbose: all test names), `-q` (quiet: failures+summary only), default (dots for passes, detail for failures).
@@ -3935,14 +3839,6 @@ candidates for after the loose-axis finish (const-expr folding + ABI
   programs); porting the generator turns the harness itself into one more such
   program. Not urgent — v1/v2 already give the value coverage; v3 is the
   dogfood + debuggability upgrade.
-
-### Adversarial audit of `7f53b9ce` (2026-06-09, find→verify workflow) — sibling findings
-The audit re-verified its own findings at runtime; **note a concurrent worker clobbered shared `/tmp` test files mid-run**, producing one false positive (below) — all findings here were re-reproduced by hand with unique paths.
-
-- **MAJOR — `readonly` aggregate multi-return component → LLVM SIGBUS — ✅ RESOLVED 2026-06-10 (binate `c63a7e3f`)**. Root was the FE check gap (the "Also suspicious" note below), NOT primarily the zero-init: the multi-return destructure path skipped the const-location check the simple-assign path applies, so `x, n = makeSlice()` to a `readonly @T` (a const LOCATION — distinct from `@(readonly T)` whose pointer is rebindable; confirmed with the user) compiled an illegal assignment → the multi-assign RefDec'd the uninitialized slot → SIGBUS. FIX: extracted `checkAssignTargetConst` (const-symbol + qualified-const + readonly-location) and applied it per target in the destructure loop (`pkg/binate/types/check_stmt.bn`); `695_err_const_loc_multi_return` pins the compile error; 185 const/assign/multi-return conformance + `pkg/binate/types` unit green; mode-agnostic (rejected at type-check, before codegen). The zero-init-skip below is the crash MECHANISM but now UNREACHABLE (the illegal program no longer compiles); the readonly-not-peeled zero-init classifier (VM `isMultiWordField`/`isVMAddressAggregate`, `resolveToStruct`) stays a separate latent-consistency follow-up (#113 family). ORIGINAL ANALYSIS (root framing was off; kept for the mechanism): `func makeSlice() (readonly @[]int, int) {...}; func main() { var x readonly @[]int; var n int; x, n = makeSlice(); println(len(x)) }` compiled cleanly but CRASHED on LLVM (exit 138 / SIGBUS); native-aa64, native-x64-darwin, VM all correct. Non-readonly control (`@[]int` component) is green everywhere — the `readonly` wrapper is the precise trigger. **Root (LLVM, separate path from the `7f53b9ce` fixes)**: the multi-assign `x, n = makeSlice()` RefDec's `x`'s *old* value (loaded from its slot) before storing the new one, but `var x readonly @[]int` (no initializer) does not get its slot zero-initialized — a readonly-not-peeled classification skips the nil-init — so the RefDec reads a garbage refptr and `(garbage-16)` as a refcount header → fault. Sibling un-peeled classifiers in the same family: VM `isMultiWordField` / `isVMAddressAggregate` (`vm/lower_instr_helpers.bn:90,116`) and `resolveToStruct` peel alias+named but NOT readonly (latent; not the LLVM crash root but should also peel for consistency). **Also suspicious**: a multi-assign into a `readonly` local compiled at all (a direct `x = ...` to a readonly location is FE-rejected) — possible separate readonly-assign-check gap in the multi-assign path. Repro: the makeSlice program above.
-- **DECIDED 2026-06-10 (accept the consistency fix) — front-end over-rejection: `@[]T → readonly *[]T` / `@T → readonly *T` rejected**: `var x readonly *[]readonly char = someManagedSlice` is rejected on all four backends ("cannot assign @[]uint8 to readonly *[]readonly uint8"), but the non-readonly `@[]T → *[]T` managed→raw decay IS accepted. Root: `types/types_assignable.bn` `AssignableTo` — the `@[]T→*[]T` and `@T→*T` decay arms test the UNPEELED `dst.Kind` (so `readonly *[]T` whose Kind is the wrapper falls through to `return false`), whereas the interface-value arms just below peel via `resolveAliasAndConst` first. **The user ratified the fix** (the asymmetry is a gap; readonly is strictly more restrictive on capability, so it should decay the same): peel readonly/alias off `dst` before the `TYP_SLICE` / `TYP_POINTER` kind tests (reuse the resolved `d` the iface arms compute), plus `pkg/binate/types` checker unit tests asserting `@[]T` / `@T` assign to `readonly *[]T` / `readonly *T`. **✅ RESOLVED 2026-06-12 (binate `81e2a3d3`)**: hoisted the `resolveAliasAndConst(dst)` peel above the two managed→raw decay arms (the iface arms now reuse the same hoisted `d`); the element-level const check (`dropsConst`) is unchanged, so dropping const BEHIND the reference is still rejected. Coverage: checker unit tests (the two ratified forms) + conformance `734_managed_to_readonly_raw_decay` (end-to-end borrow + read, green on native / VM / gen2 / gen2-VM / double-VM); full unit 45/0 + full conformance 1397/0 on builder-comp. Makes `coerceArg`'s managed→raw readonly-peel (`487fb95c`) reachable from source (the "Note" above is now stale — the assignment is no longer FE-rejected). The `@func → *func` decay arm also tested the unpeeled `dst.Kind` — **consistency follow-up ✅ LANDED 2026-06-12 (binate `d86757ff`)**: peeled it too. That follow-up surfaced a **latent IR-gen miscompile**: `genCall` classified a call through the callee by `Kind == TYP_FUNC_VALUE` WITHOUT peeling readonly, so a call through a `readonly *func` local/field lowered to a DIRECT call on an undefined symbol named after the variable (compile error; a silent miscompile had it resolved). Fixed by `peelReadonly` at both func-value-call classification sites (Ident local + selector/index) in `gen_call.bn`; checker+codegen land together (the checker peel alone is a miscompile). 734 extended with a `readonly *func` call-through (all 5 modes). Alias-wrapped decay targets (`type RP = *int` / `= *[]int` / `= *func`) were verified to work end to end too (aliases are resolved before IR-gen, so only the `readonly` wrapper needed an explicit peel).
-- **FALSE POSITIVE (recorded so it isn't re-chased)** — "readonly float binop emits integer add": reported wrong by an audit agent (LLVM 2.0625 / native 0.0) but NOT reproducible — `readonly MyFloat` arithmetic gives correct `4.0` on all four backends in clean re-runs (local-var and param variants). The agent's run was contaminated by the concurrent `/tmp` clobbering noted above. `codegen` `unwrapNamed` not peeling readonly is real in the source, but the binop's IR operand/result types arrive already peeled, so it does not manifest.
-- **RE-CONFIRMATION (already tracked)** — VM `int → float32` cast yields 0 (compiler backends correct). This is the existing `vm-int-to-float32` bug, already xfailed via `conformance/matrix/scalar` int-to-float cells; the audit independently re-confirmed it via a minimal reproducer. No new action.
 
 ## P3 — low-priority follow-ups
 
