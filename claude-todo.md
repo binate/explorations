@@ -4,6 +4,63 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR — generic function in a `.bni` can't resolve a generic struct declared in the SAME `.bni` → `undefined: Box`, signature recorded as `void` (2026-06-14) — 🔴 OPEN
+
+Third sibling of the two generic-instantiation bugs fixed in bnc-0.0.9
+(`0a62d3f4` substitution, `614e6eea` constraint-forwarding — both in
+claude-todo-done.md). Those were found via single-file repros; this one only
+shows up when the generic function's body lives in a `.bni` (the required home
+for generic bodies), which the earlier repros didn't exercise. It re-blocks the
+`examples/generics/` `vec` and `hashmap` packages.
+
+- **Minimal repro.** A library `.bni` with a generic struct and a generic
+  function over it (body-included, as generics require):
+  ```
+  // pkg/boxlib.bni
+  type Box[T any] struct { v T }
+  func GetMan[T any](b @Box[T]) T { return b.v }
+  ```
+  Compiling the package (or any consumer) reports:
+  ```
+  pkg/boxlib.bni:3:23: undefined: Box
+  pkg/boxlib.bni:3:1: GetMan: parameter 0 type mismatch: .bni has @void but .bn has @Box[T]
+  ```
+  The signature pass can't resolve `Box` (declared two lines above), so the
+  parameter type is recorded as `void`; the body pass resolves it as `@Box[T]`;
+  the two disagree. Value (`Box[T]`), managed (`@Box[T]`) and raw (`*Box[T]`)
+  params all fail identically. Declaration order does not matter (struct is
+  already first).
+
+- **What works.** The SAME code in a single `.bn`/cmd file compiles and runs
+  (`func get[T any](v @Vec[T]) int` over a local `Vec[T]` → prints fine) — so
+  call-site substitution (the 0.0.9 fix) is good; this is purely the `.bni`
+  interface-signature *resolution* of a same-package generic struct. Generic
+  funcs over `@[]T` in a `.bni` also work (e.g. `examples/generics/pkg/sort`),
+  since they reference no user generic struct.
+
+- **Why it matters.** Generic bodies must live in the `.bni` (template-in-header,
+  plan-generics.md Slice 7), so a generic CONTAINER package — `func Push[T
+  any](v @Vec[T], x T)` in `vec.bni` — cannot be written: `Vec` is `undefined`
+  in its own interface file. This blocks reusable generic struct containers as
+  packages, which is the headline generics use case. (Single-file works, but a
+  container you can't put in a package isn't a library.)
+
+- **Root-cause hypothesis.** The `.bni` signature-resolution pass resolves type
+  names against a scope that doesn't yet include the file's own generic struct
+  decls (or doesn't treat `Name[...]` as a type when `Name` is a local generic
+  type), so `Box[T]` → `undefined` → `void`. Distinct from the fixed
+  `substituteTypeParams` gap (that was *substitution* once resolved; this is
+  *resolution* failing up front). Likely the type-name resolver / two-pass
+  ordering for `.bni` files, near the loader's interface-signature checking.
+
+- **Bug-discovery protocol.** Add a conformance test
+  `generic_struct_param_in_bni` (a lib `.bni` with `Box[T]` + `func Get[T
+  any](b @Box[T]) T`, consumed by `main`), xfail until fixed. In examples,
+  `generics/` ships `sort` only; `vec`/`hashmap` stay held on THIS bug now (the
+  two prior blockers are fixed).
+
+---
+
 ## MAJOR (VM) — compiled iface method returning >16 bytes has no sret path → cross-mode call aborts (2026-06-14) — 🔴 OPEN
 
 A compiled interface method whose return is >16 bytes (e.g. a 4-word
