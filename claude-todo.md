@@ -4,6 +4,36 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MINOR — cross-mode interface dispatch: test-coverage gaps + LP64 assumption (2026-06-14) — 🟡 OPEN
+
+The shim-route that dispatches a native-only package's interface methods from
+bytecode (landed `93f75f27` + the math/big extension `7c3b17a2`) is exercised by
+726 (`strings.Builder` via `io.Writer`: a raw-slice arg, a scalar arg, a no-arg
+method; scalar + multi-return) and 577 (`errors.Error`: no-arg, multi-return).
+An adversarial review found these shapes UNTESTED — each needs a SYNTHETIC
+native-only test package, since no current stdlib impl hits them:
+
+- A VALUE-receiver iface method (`@__ivtshim` slot holds the thunk's handle, and
+  `a0` = the iv-data ptr the thunk derefs). 410 covers native-to-native only.
+- A method with MULTIPLE aggregate args (the `a1/a2/...` slot accounting).
+- A FLOAT arg / float-containing aggregate (the shim's int-slot bitcast path).
+- The `n>6` user-arg overflow guard (a negative test).
+
+Latent, LP64-host-only (NOT active — default VM modes run a 64-bit host):
+- `dispatchCompiledIfaceMethod`'s `resultSize > 8` aggregate-vs-scalar threshold
+  (and `dispatchExternBinding`'s identical one) must track `isAggregateReturn`'s
+  `> target.PointerSize`; on an ILP32 VM host a 5–8-byte aggregate return would
+  pick the wrong shim shape. (Now commented in `vm_exec_iface.bn`.)
+- 64-bit-scalar args pack as 2 slots on a 32-bit host (`argSlots`); the dispatch
+  reads them as positional shim args.
+
+Separately (PRE-EXISTING, independent of the VM): the COMPILED native iface-call
+path (`emitCallIfaceMethod`) has no HFA classification — a struct-of-floats arg
+is mis-seen as a GP aggregate (no `IsFloatScalarTyp`-style struct handling in the
+native backend; the LLVM side relies on LLVM to classify HFAs).
+
+---
+
 ## MAJOR — generic function in a `.bni` can't resolve a generic struct declared in the SAME `.bni` → `undefined: Box`, signature recorded as `void` (2026-06-14) — 🔴 OPEN
 
 Third sibling of the two generic-instantiation bugs fixed in bnc-0.0.9
