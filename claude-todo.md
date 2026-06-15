@@ -4,6 +4,16 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR (types, REGRESSION) — `x << ~0` no longer rejected: the negative-shift-count gate's `LitSign` skip mishandles `~`-complemented literals (2026-06-15) — 🔴 OPEN
+
+**Symptom (REPRODUCED on builder-comp).** `var x int = 1; println(x << ~0)` compiles (no `negative shift count` error) and produces garbage (`int64`-min) instead of being rejected — `~0 == -1`, a negative constant shift count. Pre-`393eaa0b` it was correctly rejected.
+
+**Root cause.** The gate fix (`393eaa0b`) added `if countType.HasLitVal { if LitSign && LitMag != 0 { error }; return }`, trusting `LitSign` for the count's sign. But `checkUnaryExpr`'s TILDE branch (`check_expr.bn`) returns the operand's type UNCHANGED — it does NOT complement `LitMag`/`LitSign` (unlike MINUS, which flips `LitSign`). So `~0` carries `LitMag=0, LitSign=false` (the operand `0`'s metadata), the gate's early-return fires with `LitSign` false → no error, and it never reaches `evalConstIntValue` (whose TILDE case `-x-1` correctly folds -1). Affects both the expression and compound-assign sites.
+
+**How discovered.** Second adversarial review of the shift FIXES (2026-06-15); reproduced.
+
+**Proposed fix.** Drop the `LitSign`-trusting branch; instead skip only a BARE integer literal (`countExpr.Kind == EXPR_INT_LIT` — always non-negative, which is the only `evalConstIntValue` signed-overflow false-positive worth dodging) and let everything else (`~0`, `-1`, idents, binary exprs) flow through `evalConstIntValue`, which signs them correctly. Add `x << ~0` / `x <<= ~0` reject tests (the whole `~`-count form is untested). [Other second-review findings — 793/IR-unit-test toothlessness for the wide-NEGATIVE compound case, 788 untyped-value self-comparison, guardInt64 pair-path host-gated — tracked together with this fix.]
+
 ## CRITICAL (IR-gen) — IDENT compound shift-assign (`v <<= c`) pre-truncates the count, defeating BOTH the wide-overshift fix and the negative-count guard (2026-06-15) — ✅ DONE (binate `11f0b413`)
 
 Fixed: `genAssign`'s IDENT arm now skips the pre-`ensureWidth` for a compound assignment (`emitCompoundBinop` reconciles the operand width AFTER the shift guards read the count's true width). `conformance/regressions/shift-runtime-wide-overshift` gained `<<=`/`>>=` cases; `conformance/793_err_shift_negative_count_compound` covers the compound runtime negative-count panic; IR-gen unit test asserts the compound path emits the guards. Green on LLVM / both VM lanes / native aarch64.
