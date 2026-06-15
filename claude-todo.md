@@ -290,7 +290,7 @@ not an object-writer tweak. Needs a native-aa64 unit/link regression once
 fixed. Discovered 2026-06-14 during the bnc-0.0.9 release-readiness gate (unit run
 `27488837411`).
 
-## MAJOR — parallel assignment `a, b = 1, 2` (and the swap `a, b = b, a`) type-checks clean but generates NO code (silent dropped writes) — spec Ch.14 (2026-06-12) — 🚧 IN PROGRESS (2026-06-14)
+## MAJOR — parallel assignment `a, b = 1, 2` (and the swap `a, b = b, a`) type-checks clean but generates NO code (silent dropped writes) — spec Ch.14 (2026-06-12) — ✅ FIXED — decision (A) Support, work-2 `8290eefa`, PENDING LAND (2026-06-15)
 
 Found + verified firsthand while grounding spec Ch.14 (Statements) against the
 live impl (read parser/checker/IR; conclusive from the code path, plus the
@@ -316,19 +316,29 @@ diagnostic, no IR.
   idiom `a, b = b, a` is exactly what a Go-familiar user reaches for and it
   silently does nothing. Not memory-unsafety (no OOB); blast radius is limited
   because idiomatic Binate uses multi-RETURN (one call), which works.
-- **Decision needed (user owns)** — the design notes frame multiple assignment
-  around multi-RETURN (`x, err = foo()`), not first-class tuples, but the grammar
-  production is `ExpressionList "=" ExpressionList` (permissive):
-  - **(A) Support parallel assignment** (Go-like): IR-gen must handle the
-    matched-arity multi-expr case — evaluate ALL RHS exprs, then store ALL LHS (so
-    `a, b = b, a` swaps correctly). Add conformance for swap + multi-expr RHS.
-  - **(B) Reject it** at the checker: a multi-`=` requires a single multi-return
-    call on the RHS; `a, b = 1, 2` becomes a diagnostic ("multiple assignment
-    requires a single multi-valued call" or similar). Cheaper; matches the
-    multi-return-only design intent. The swap idiom would then be unavailable.
-  Either way the current accept-then-drop is a bug. This decision also determines
-  what spec §14 (Statements) says about parallel assignment, so §14 authoring is
-  paused on it.
+- **RESOLUTION — decision (A) Support parallel assignment** (user choice,
+  2026-06-15). Implemented in `pkg/binate/ir/gen_assign_parallel.bn`
+  (`genParallelAssign`), wired as a third `genAssign` arm
+  (`len(Exprs) > 1 && len(Exprs2) == len(Exprs)`). Go-style two-phase
+  lowering: phase 1 resolves each LHS target and evaluates+ACQUIRES its RHS
+  value; phase 2 stores each into its slot, releasing the old occupant
+  (Axiom 5) WITHOUT re-acquiring. The up-front acquire is what avoids the swap
+  UAF (storing b's value into a would otherwise RefDec a's old value to zero —
+  freeing it — before the second store reads it); a managed struct VALUE is
+  snapshot-copied into a temp and MOVED into its slot, so the discipline holds
+  for aggregates too. Covers ident / `*p` / `p.f` / array+pointer+slice index
+  targets, with the single-assign coercions (string→chars, nil→slice,
+  `@[]T`→`*[]T`, aggregate composite-literal load) and sub-word width.
+  - **Tests**: conformance 777–783 (basic/rotation/old-value, `@T` swap
+    refcount, array+slice index swap, string+width coercion + managed-slice
+    swap, struct-field + managed-struct-value swap, deref targets, owned-temp
+    RHS) — green on builder-comp / builder-comp-int (VM) / builder-comp-comp
+    (gen2). Unit: `gen_assign_parallel_test.bn` pins the IR shape.
+  - **Spec**: §14 (Statements) authoring is UNBLOCKED — document parallel
+    assignment per decision (A): all RHS evaluated before any store; swap
+    works; matched-arity multi-expression form is legal (not multi-return only).
+  - **Note**: the checker already accepted matched-arity (per-element checks),
+    so no checker change was needed; only IR-gen was missing.
 
 ---
 
