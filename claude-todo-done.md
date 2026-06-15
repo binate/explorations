@@ -10,6 +10,17 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~CRITICAL (native codegen) — static-data `@T` managed-pointers omitted the +headerSize addend → pointed at the object header, not the payload~~ — ✅ RESOLVED (binate `f78a4951`, 2026-06-15)
+The Mach-O writer dropped relocation addends (a `relocation_info` has no addend
+field), so a static initializer storing a `@T` to another static managed object
+resolved to the object's 16-byte header (the static-refcount sentinel) instead
+of the payload — walking rt's reflective `Functions` table read each field 16
+bytes low (`Name.ptr == 0` → SIGSEGV in repl/vm/cmd-bni native VM-host).
+`f78a4951` bakes each absolute (UNSIGNED) reloc's non-zero addend INLINE into the
+section data (`macho_reloc.bn` `bakeAddend`); PC-relative kinds keep their 0
+placeholder. ELF was already correct via `r_addend`. repl/vm/cmd-bni native_aa64
+xfails removed; unit suite green there.
+
 ### ~~native_x64 (ELF) was NOT "WIP" — one reloc bug masked a 99%-working backend~~ — ✅ FIXED+LANDED incl. the C-call/variadic gap (verified 2026-06-15)
 Core fixed by the PC32 reloc-addend fix (binate `dd74c91e`) + `.note.GNU-stack`
 (`c097a381`). The remaining C-call/variadic gap is also closed (`0d0f35b7`,
