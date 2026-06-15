@@ -285,32 +285,27 @@ diagnostic, no IR.
 
 ---
 
-## MAJOR — native funcval shim marshalling used `ArgWords`, not the CallConv classifier — x64 false-rejected, aa64 SILENTLY MISCOMPILED (✅ NON-CLOSURE shim RESOLVED — Stage A + Stage B + B0 force-emit landed on main `cd417081`, 2026-06-11)
+## MAJOR — closure-shim cousins still use raw `ArgWords` for user words (latent funcval miscompile) — 🟡 OPEN
 
-> The NON-closure funcval shim bug is fixed and landed. What remains: the
-> CLOSURE-shim cousins (the FOLLOW-UP bullet below — still latent) and B0
-> step 3 (the Functions table — separate from this bug). Kept here rather
-> than moved to done because both reference this context.
+FOLLOW-UP to the now-resolved non-closure funcval-shim marshalling fix (full
+diagnosis + Stage A/B + B0 Functions-table archived in claude-todo-done.md).
+The non-closure shims were switched to `cc.EffectiveArgWords`, but the CLOSURE
+shims were NOT:
+- **(1) raw `ArgWords` for USER words** — `x64_closure_shim.bn:330` /
+  `aarch64_closure_shim.bn:306` do `var nUw int = common.ArgWords(ut)` (no
+  `EffectiveArgWords` exists in ANY closure-shim file). For an indirect-large
+  user arg (managed-slice = 4 words, iface = 2) this over-counts vs. the
+  dispatch caller's single-pointer placement, mis-shifting `inRegBase` /
+  outgoing regs — latent wrong-code for closures with managed-slice/iface
+  params.
+- **(2) no float-scalar user-arg GP→FP marshalling** — the non-closure shim
+  does this; the closure shims don't, so float closure params are mismarshalled.
 
-- **Confirmed silent miscompile (native aa64)**: a function VALUE with > 8 user-arg words (e.g. a `*func(int×9) int`) is **silently miscompiled** — `aarch64_funcvalue.bn:283` does `if nUserWords > 8 { nUserWords = 8 }` (a clamp the comment calls "accept the truncation"), so the 9th+ arg is dropped/garbled. **Runtime-verified: a 9-int-arg funcval returns `43` instead of `45`** (correct on LLVM + VM; wrong only on native aa64). x64 has the loud analogue (`x64_funcvalue.bn:324` `a.SetError(... "unimplemented stack-spill path ...")` → build fails).
-- **Root cause**: the per-function shim counts/shifts arg WORDS via raw `common.ArgWords` (managed-slice = 4 words, iface = 2), but the dispatch caller (`emitCallFuncValue`) and the underlying ABI use the `CallConv` classifier where a >16B aggregate is **IndirectLargeAggregates = 1 pointer word**. The two only "agree" by a contiguous-block-shift coincidence (real words land right; over-counted extras spill into unread high regs). Consequences: (a) **x64 false over-budget** — `pkg/std/errors.Wrap(cause @Error, msg @[]char) @Error` is 3 real classifier-words but `ArgWords` counts 6 > the 4-word pack budget → spurious `SetError`; (b) **aa64 silent truncation** for genuinely-wide funcvals; (c) **latent**: an indirect-large arg followed by another arg misplaces the trailing arg (the `ArgWords` shift over-advances ngrn) — affects the closure shims' user-arg path too (`emitClosureShimFast_*` / the spill paths use `ArgWords` for users, `effectiveCapWords` only for captures).
-- **Discovery trigger**: B0 of `plan-package-introspection-phase-b.md` force-emits a func-value triple for every exported func; `errors.Wrap` is the first wide funcval emitted, hitting the x64 `SetError`. (Before force-emit, only a handful of narrow-signature funcvals existed, so the gap was masked.)
-- **Fix (the proper one — `B`, no workaround)**: switch the shim counting AND marshalling to **effective words** (indirect-large = 1, via the classifier / an `effectiveArgWords` helper) on both incoming and outgoing sides, for the non-closure funcval shims AND the closure shims, on x64 + aa64; add a genuine-overflow **stack-spill** path (mirroring the already-correct `emitClosureShimStackSpill_x64`/`AA64` scalar reference) for funcs whose effective words truly exceed the GP reg file; replace aa64's silent clamp with the spill (loud-or-correct, never silent). The dispatch caller + `common_callconv.bn` classifier need **no** change. Then re-apply the B0 native force-emit.
-- **Tests to land with the fix**: conformance cases for (1) `errors.Wrap`-class wide funcval (managed-slice + iface args), (2) indirect-large arg NOT in last position, (3) the 9-scalar-arg funcval (the confirmed aa64 repro). All must pass on LLVM / VM / native aa64 / native x64.
-- **Map**: full subsystem map in the workflow output (dispatch caller already spills; VM dispatch caps at `a0..a6` = 7 words via `rt._call_shim_*`, so a >7-word funcval would ALSO need the VM helpers widened — `errors.Wrap` at 3 effective words is well under, so not blocking).
-
-#### Status (2026-06-11)
-- **Stage A — DONE, landed `9ceab3be`**: non-closure funcval shims count/marshal by EFFECTIVE words (`cc.EffectiveArgWords`) on both backends; aa64's silent clamp replaced with a loud over-budget `SetError`. Verified: 696 green on all 4 modes; x64/aa64 funcval regression 237/0; the 9-arg aa64 miscompile is gone (now fails loud, pending Stage B). `conformance/696_funcval_indirect_large_args` pins the effective-words cases.
-- **Stage B — DONE, LANDED `cd417081` (rebased SHAs `f4fe9f76` split / `e599d2fc` ir.bni / `43573a33` spill / `4d7f7fe0` SPLIT-arg coverage / `cd417081` test renumber)**: replaced the loud `SetError` over-budget guards with a real genuine-overflow **stack-spill** for the NON-closure funcval shims on both backends. (Pre-rebase worktree SHAs were `d56c5fa2`/`bde64614`/`5e4d0899`.) Conformance tests renumbered to **716/717/718** at land time (696/697/698 were taken by concurrently-landed tests). Design (mirrors `emitClosureShimStackSpill_*`): when `nUserWords > userBudget`, `SUB rsp/sp` an outgoing-args frame (x64 ≡8 mod 16 for the return-addr push; aa64 STP FP,LR to preserve LR), marshal user args with spill (incoming overflow read from the dispatch caller's stack; outgoing overflow placed via the CallConv classifier with AAPCS SPLIT honored; floats peel to FP regs), `CALL/BL` (not tail-jump), post-process (pack: store result through stashed retbuf; sret: retbuf in RDI / X8; float-ret: fmov FP→GP), `ADD`, `RET`. Verified: 697 green on all 8 modes (x64 scalar/sret/pack + aa64 sret/pack spill, within the VM 7-word cap); 698 green on the 5 native lanes (aa64 scalar spill = the 9-int repro now returns 45; float-scalar return + arg spill), xfailed on the 3 VM modes (VM dispatch cap — line 14); unit `*_funcvalue_spill_test.bn` pin no-SetError.
-- **B0 step 2b (native force-emit) — DONE, LANDED `cd417081` (rebased SHA `df496851`)**: `collectFuncValueRefs` (both backends) now also adds every `.bni`-exported non-extern func, mirroring codegen's `addExportedFuncsToSeen` (LLVM half, rebased SHA `e80c49b8`). Unblocked by Stage B. (B0 step 1 = rebased `d6d60b00`, Stage A = `a7c462a5`.) Verified: `ir`/`types`/`mangle` native unit tests pass on both backends (the exact packages that previously failed); gen1→gen2 self-compile builds; full `builder-comp` conformance green (1360 passed, 0 failed). Pre-existing-and-unrelated: `pkg/binate/native/aarch64`'s link-and-run tests (`TestEmitEmptyMainLinksAndRuns` / `TestEmitCallExitsWithCode`) fail under the `builder-comp_native_x64_darwin` CROSS mode (cross-linking aa64 code from an x64 harness) — confirmed failing WITHOUT 2b too; not a funcval issue.
-- **B0 step 3 (the Functions table) — IN PROGRESS**:
-  - **3a `Sig` serializer — DONE, LANDED `d277c7d3`**: `types.Type.SigString` renders a func-value type as `(params)(results)` via `QualifiedTypeName` (deterministic, BUILDER-compatible); 3 unit tests. (Limitation: array/func PARAM types use QualifiedTypeName's placeholder — fine while Sig is opaque in Phase B.)
-  - **3b-i ABI layout bump (empty table) — DONE, committed `211be04f` (worktree, NOT landed; 3b-i is a valid/landable ABI on its own)**: `reflect.Package` grew `{Name}` → `{Name, Functions *[]@FunctionInfo}` + the full `FunctionInfo` struct (all 5 payload fields per D1, one ABI bump) in lockstep across `reflect.bni` + the LLVM emitter (`emit_pkg_descriptor.bn`) + the shared-native emitter (`common_pkg_descriptor.bn`). `Functions` emitted EMPTY `{null,0}`. Node grows native 32→48 B, LLVM payload `{ptr,int}`→`{ptr,int,ptr,int}`. Verified: descriptor unit tests (codegen + native/common) green; existing `_Package` conformance 532/708/709 green on native + VM; gen1 builds; VM + hygiene green.
-  - **3b-ii populate the table — DONE, LANDED on main (`aa698e5d`)**: per `.bni`-exported non-extern func, emit a static-managed `FunctionInfo` node (header + 8-word payload) + a `*[]@FunctionInfo` pointer array, wire `Functions.{data,len}`. `Pkg @Package` (immortal back-ref — managed, per the immortal-refcount design; NOT `*Package`); `Name` = `f.Name` verbatim (already fully-qualified via NewFunc/QualifyName); `Value` = `&@__handle.<mangled>`; `ResultSize` = `SizeOf(result)`; `ParamSlots` = `len(params)`; `Sig` = `SigString`. Landed SHAs: `bfa1ed89` (LLVM half, `emit_pkg_functions.bn` + `emitPackageDescriptor(m)`), `aa698e5d` (native half, `common/common_pkg_functions.bn` + per-arch). Test is **conformance/725** (renumbered from 720 at land — collision). Verified: 725 green on LLVM host + both native cross modes + gen1→gen2; xfailed on 3 VM modes (Gap 2); full conformance green on `builder-comp` (1385) + both all-native modes (no duplicate symbols).
-  - **The `@Package` dtor-handle gap — ROOT-CAUSED + FIXED, LANDED `d0b6fc78`**: `FunctionInfo.Pkg @Package` makes `FunctionInfo` need a dtor. A managed type declared in an INTERFACE-ONLY package (reflect) generates its dtor LOCAL in the defining package, but its dtor HANDLE was never emitted: the defining pkg doesn't reference its own dtor as `OP_FUNC_HANDLE`, and the native CONSUMER *skipped* cross-package `OP_FUNC_HANDLE` refs (the `lookupFuncValueType` extern gate). LLVM never hit it (consumer-side `EmitFuncHandle` emits the weak triple unconditionally). Fix: native `lookupFuncValueType_{x64,AA64}` now synthesize a sig for extern handle targets, so the consumer emits the WEAK `(shim,vt,handle)` triple (deduped via `N_WEAK_DEF`), matching LLVM. (Earlier I wrongly proposed `Pkg *Package` to dodge the dtor — REJECTED by owner: `*Package` breaks assignability to anything taking `@Package`; immortal refcounts exist exactly so `@Package` works on an immortal node. Reverted.)
-  - **Post-land adversarial review (8 agents) — DONE; 0 correctness/ABI bugs, 5 coverage gaps, addressed + LANDED**: review confirmed LLVM↔native byte-identical node layout, correct field targets/offsets, the weak-triple dtor fix, and the multi-return tuple ResultSize (LLVM `functionResultSize` == native `FuncResultSize`). Coverage filled: `8bfceb41` (aa64 `lookupFuncValueType` extern-synthesis unit test — was x64-only; multi-return ResultSize unit tests), `0458f71a` (**conformance/727** — table across multi-return tuple [ResultSize 16], wide 7-param [ParamSlots 7], and float). One gap NOT added (noted, owner's call): a USER interface-only package with *real* (non-static) destruction — 725 already exercises the fix's purpose (handle resolution; links+runs+correct output) and real destruction isn't observable without `rt.Refcount` plumbing, so marginal value.
-  - **Remaining for B0**: nothing in B0 step 3 — done. (Whole-package auto-injection / dropping the VM's hardcoded extern table is the Gap-2 VM-backend project, separately deferred.)
-- **Closure-shim cousins — FOLLOW-UP (not Stage B; user owns)**: the closure shims (`emitClosureShimFast_*` / `emitClosureShimStackSpill_*` / the closure-aggregate shims) (1) still count USER words via raw `ArgWords` (the indirect-large divergence, per line 10), and (2) don't marshal float-scalar USER args GP→FP at all (the non-closure shim does). Both are latent miscompiles for closures with managed-slice/iface or float params. B0's force-emit only emits NON-closure triples (top-level exported funcs aren't closures), so these don't block B0 — Stage B has now landed, so this is a ready-to-pick follow-up (the non-closure spill in `*_funcvalue_spill.bn` is the reference to mirror).
+Reference to mirror: the landed non-closure spill in
+`pkg/binate/native/{x64,aarch64}/*_funcvalue_spill.bn` (uses
+`cc.EffectiveArgWords`). No closure-spill/wide-closure conformance test exists
+yet. B0's force-emit only emits NON-closure triples, so this doesn't block B0 —
+ready-to-pick follow-up. (User owns.)
 
 ### Array composite-literal defects (indexed silent-miscompile; over-count OOB write) — spec Ch.13 (2026-06-12) — 🔴 OPEN
 Found + verified firsthand authoring spec Ch.13 (read the type-check +
@@ -811,30 +806,10 @@ documents these as open items.
   TYP_NAMED at isManagedFuncValueLit). Value-rejection and reference
   construction both work.
 
-### Lexer issues surfaced while authoring spec Ch.5 (Lexical Elements) — 2026-06-08
-Found writing the docs spec's Lexical Elements chapter (adversarial
-verification of the draft against `pkg/binate/lexer`). All MINOR
-(confusing errors / silent leniency, not silent miscompile). Tests +
-xfails pending a coordinated `binate` worktree. The spec documents these
-as open items (`lex.literal.int.leading-zero`, `lex.escape.unsupported`).
-- **`0123` / `00` split into two integer tokens.** — ✅ RESOLVED 2026-06-12 (binate `82e86216`; reject as a clean single ILLEGAL token per grammar `decimal_lit = "1".."9" {digit} | "0"` — no C-style leading-zero octal/decimal). `scanNumber` now consumes the digit run after a leading `0` so the numeral is ONE token, upgrading to FLOAT if `.`/`eE` follows (`0123.5` stays valid) else reporting ILLEGAL; `0` and `0.5` unaffected. Unit tests in `scan_test.bn`. `lexer/scan.bn:84`
-  `scanNumber`'s leading-`0` branch consumes only the `0` then falls to
-  the float-tail **without a digit-consuming loop** (unlike the non-zero
-  `else` branch). So `0123` lexes as `INT("0")` then `INT("123")`, and
-  `00` as two `INT("0")`. A multi-digit numeral with a leading `0` and no
-  base prefix should be a single literal or a diagnostic, not a split.
-  Yields a confusing downstream parse error. UNCOVERED by conformance.
-- **Unknown escapes silently dropped.** `ir/gen_util_literals.bn`
-  `unescapeStr`/`parseCharLit` decode only `\n \r \t \\ \' \" \0 \xHH`;
-  any other `\X` falls through to a verbatim `X` (backslash dropped) with
-  no diagnostic — so `"\a"` decodes to `"a"`. Decide whether unknown
-  escapes should be rejected.
-- **`\uHHHH` documented but unimplemented.** `claude-notes.md` and
-  `grammar.ebnf` list a `\uHHHH` escape, but the decoder has **no `\u`
-  case** (it would emit `u` followed by the hex digits). Either implement
-  `\u` (and decide the >0xFF-into-single-byte-`char` question) or drop it
-  from the notes/grammar. The spec currently omits `\u` to match the
-  implementation.
+### Escape-decoding gaps surfaced while authoring spec Ch.5 (Lexical Elements) — 🟡 OPEN
+Found writing the docs spec's Lexical Elements chapter (adversarial verification against `pkg/binate/ir/gen_util_literals.bn`). Both MINOR (silent leniency, not miscompile); no tests/xfails yet. The leading-zero-int split bullet from this entry is RESOLVED — full diagnosis archived in claude-todo-done.md.
+- **Unknown escapes silently dropped.** `unescapeStr`/`parseCharLit` decode only `\n \r \t \\ \' \" \0 \xHH`; any other `\X` falls through to a verbatim `X` (backslash dropped) with no diagnostic — so `"\a"` decodes to `"a"` (catch-all `gen_util_literals.bn:300`, `:267`). Decide whether unknown escapes should be rejected.
+- **`\uHHHH` documented but unimplemented.** `claude-notes.md` and `grammar.ebnf` list a `\uHHHH` escape, but neither decoder has a `\u` case (it would emit `u` followed by the hex digits). Either implement `\u` (and decide the >0xFF-into-single-byte-`char` question) or drop it from the notes/grammar.
 
 ### Untyped `const` coercion: implementation diverges from a DECIDED note — surfaced authoring spec Ch.6 (2026-06-11)
 Needs a decision (MINOR — no miscompile; a type-system permissiveness
