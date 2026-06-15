@@ -885,19 +885,12 @@ conformance tree.
 - Follow-up to landing `pkg/std/os` (binate `3ca36c82`), which shipped
   with libc unit tests only — conformance was deferred here per the user.
 
-### Two generics v1-restrictions not enforced — spec Ch.12 (2026-06-12)
+### Generic struct/interface instantiation skips constraint satisfaction — spec Ch.12 (2026-06-12) — 🔴 OPEN
 Found authoring spec Ch.12 (verified via toolchain probes through
-builder-comp). Both MAJOR (the spec implies these are enforced; they
-aren't) but neither miscompiles.
-- **Generic methods accepted at declaration** (`gen.no-generic-methods.unenforced`).
-  `func (b Box) Get[T any](x T) T {...}` compiles clean: `parse_func.bn:34-37`
-  reads the type-param list whether or not a receiver is present, and
-  `check_decl_func.bn:122-127` / `resolve_type.bn:201-242` type-check the body
-  with `T` in scope. It only fails (confusingly: "cannot index this type") at a
-  call site `b.Get[int](42)`, because `b.Get` is a selector so `[int]` is parsed
-  as indexing. Should be rejected at collection time (`DECL_FUNC` with
-  `Recv != nil && len(TypeParams) > 0`). IR-gen even documents the unenforced
-  assumption (`gen_register_import.bn:99-102`).
+builder-comp). MAJOR (the spec implies it's enforced; it isn't) but it
+doesn't miscompile. (The sibling "generic methods accepted at
+declaration" defect is ✅ FIXED — rejected at collection time, binate
+`a7e0beb2`; see claude-todo-done.md.)
 - **Constraint satisfaction unchecked for generic struct/interface instantiation**
   (`gen.satisfy.struct-iface-unchecked`). `typeSatisfiesConstraint`/
   `reportConstraintMiss` are called ONLY from `instantiateGenericFunc`

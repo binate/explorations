@@ -10,6 +10,19 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~Generic methods accepted at declaration (`func (b Box) Get[T any](…)`) — spec Ch.12 (2026-06-12)~~ — ✅ LANDED on main (binate `a7e0beb2`, 2026-06-14)
+
+Generics v1 has no generic methods (only generic free functions and
+generic types), but the parser reads a `[T any]` list after a receiver,
+so a generic method type-checked clean and failed only at a call site
+with a confusing "cannot index this type" (`b.Get[int](…)` parses
+`[int]` as indexing on the `b.Get` selector). Now rejected at collection
+time (`collectMethodDecl`, `len(d.TypeParams) > 0`) with "methods cannot
+have type parameters", for every receiver kind. Tests:
+`TestCheckGenericMethodRejected` + `TestCheckNonGenericMethodAccepted`.
+(Sibling Ch.12 defect — constraint satisfaction unchecked for generic
+struct/interface instantiation — stays open in claude-todo.md.)
+
 ### ~~CRITICAL: managed-slice composite literals with INLINE struct-literal elements miscompile (`@[]T{ T{...} }`)~~ — ✅ LANDED on main (binate `326b3a60` fix + `b5baf317` coverage, 2026-06-14)
 
 ONE IR-gen defect: a managed-slice composite literal whose elements are **inline
