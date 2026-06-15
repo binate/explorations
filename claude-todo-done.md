@@ -10,6 +10,53 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### Native backends mis-lower float consts/returns — `541` silently reads 0 (Phase A float-const gap on the native code generators) — ✅ RESOLVED (binate `5281b138` + `cc6d0e9b` AAPCS64 D0 float-return + `1285683e` runtime link; `541` green on native aa64)
+- **Symptom**: `conformance/541_cross_pkg_const_float` passes on the
+  default C/LLVM-backed modes but **fails on the native aarch64 backend**
+  (`builder-comp_native_aa64-comp_native_aa64`): expected `7 -3 7 -3 9`,
+  actual `7 0 0 …`.  Two distinct silently-wrong cases (both → `0.0`):
+  1. **Negative float const** — `cfg.NegHalf` (`= -1.5`) read cross-package
+     reads as `0.0` (line 2).  The positive sibling `cfg.Ratio` (`= 3.5`)
+     read the same way (cross-pkg `EXPR_SELECTOR`) is **correct** (line 1 → 7),
+     so positive `EmitConstFloat` + float-mul + `cast(int, float)` all work
+     on the native backend; only the **negative/unary-minus-folded** float
+     literal mis-lowers.
+     **FIXED 2026-06-03 (binate `5281b138`)**: the root cause was
+     `common.ParseFloatLitToBits` (the shared text→bits converter used by
+     every native backend) silently dropping a leading `-` in the folded
+     literal text and returning 0; it now honors the sign.  Verified at unit
+     level (`TestParseFloatSigned`) and via `541` on the VM modes (the VM was
+     made to route through the same converter).  The native aa64 *lane* can't
+     confirm end-to-end because it no longer links (the duplicate-symbol entry
+     above), but the converter is the shared piece and native's emit path was
+     already correct for positive consts.  Case 2 below is still open.
+  2. **Float function return** — `cfg.Scale()` (returns `Ratio` via an
+     in-package `EXPR_IDENT` read) reads as `0.0` (line 3), ditto
+     `cfg.NegScaled()` (line 4).  Either the native float-return ABI (value
+     should arrive in `d0`, caller reads 0) or the in-package `EXPR_IDENT`
+     float-const read is broken — 541 alone can't disambiguate (need a
+     direct-return-vs-direct-read probe).
+- **Discovery**: 2026-06-03, running `./conformance/run.sh
+  builder-comp_native_aa64-comp_native_aa64` (the aa64 lane the user
+  watches).  `541` has **no xfail markers** and its own header explicitly
+  intends cross-backend stability ("cast-to-int keeps the expected output
+  stable across backends"), so this is a genuine native-backend correctness
+  hole, not an intended skip.
+- **Why MAJOR**: silent wrong float values (reads 0 instead of the real
+  value) on a shipping backend — the exact silent-miscompile class.  The
+  IR-gen Phase A fix (above, line ~462) is correct at the IR level; the gap
+  is in the **native code generators** (`pkg/binate/native/{aarch64,x64}`),
+  which Phase A never validated (it was checked on the C/LLVM modes only).
+- **Unverified / TODO**: (a) confirm whether `native_x64*` modes fail the
+  same way (likely — same native-float codegen path; not run here, no x64
+  host) and add their xfails too; (b) disambiguate case 2 (float-return ABI
+  vs in-package float-const read) with a minimal probe; (c) `534` (the
+  `@func` bug) also fails unmarked on the aa64 lane — its xfails cover only
+  the 6 default modes, so the cross-compile lanes need 534 xfails for an
+  honest suite.
+- **Tracking**: proposed xfail `541_cross_pkg_const_float.xfail.builder-comp_native_aa64-comp_native_aa64`
+  (one-line: native aa64 mis-lowers negative float const + float return → 0).
+
 ### ~~Wire `--version` into bnc / bni / bnas / bnlint~~ — ✅ LANDED on main (binate `8ff87399`, 2026-06-14)
 
 Each tool now detects `--version` before the rest of arg parsing and
