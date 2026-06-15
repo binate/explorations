@@ -879,22 +879,6 @@ The CRITICAL entries below are also surfaced in `## CRITICAL`-class triage.
 
 ## MINOR
 
-### `const X T` (typed, no initializer) is accepted by the parser though §9 + the grammar + Go all reject it — spec §9 (2026-06-13) — 🔴 OPEN
-A constant with a declared type must have a value: §9's `ConstSpec = identifier
-[ Type ] "=" Expression | identifier` makes the `=` mandatory when a `Type` is
-present (the only value-less form is the bare-identifier repeat inside a grouped
-`const ( … )` block). `binate.ebnf` agrees, and so does Go (its grammar puts the
-type inside the `"=" ExpressionList` group, so `const x int` is a syntax error).
-But `parseConstSpec` (`pkg/binate/parser/parse_decl.bn` ~394–415) makes the `=`
-OPTIONAL when a type is present: after the name, if the next token is not
-`=`/`;`/`)` it parses a `Type` and then `if p.got(token.ASSIGN)` — so
-`const Foo int` (single, or grouped `const ( x int )`) parses into a
-`DECL_CONST` with `TypeRef` set and no `Value`. A value-less const is
-semantically wrong, so the fix is to **tighten the parser** to reject it (match
-§9 / the grammar / Go), not to loosen the grammar. Surfaced by the binate.ebnf
-adversarial review (2026-06-13). Needs a negative parse/`.error` test
-(`const Foo int` → error) + a coordinated binate worktree.
-
 ### Generic-instantiated composite-literal head `Foo[T]{…}` is specified but not built by the parser — spec §13.10 `expr.composite.generic` (2026-06-13) — 🔴 OPEN
 Generic composite literals (`List[int]{1,2,3}`, `Pair[int, S]{first: …}`) are a
 language feature (user decision 2026-06-13; matches Go) — specified in §13.10

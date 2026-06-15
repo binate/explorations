@@ -10,6 +10,20 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~`const X T` (typed, no initializer) wrongly accepted by the parser — spec §9 (2026-06-13)~~ — ✅ LANDED on main (binate `29ae5bc6`, 2026-06-14)
+
+`parseConstSpec` made the `=` optional once a type was present, so
+`const Foo int` parsed into a value-less `DECL_CONST` that then failed
+downstream with a confusing `undefined: Foo`. §9 makes the `=`
+mandatory when a `Type` is present (the only value-less form is a bare
+identifier — no type — repeating the previous value inside a grouped
+`const ( … )`). Fix tightens `parseConstSpec` to require the `=` and
+emit a clear parse error ("const declaration with a type requires a
+value"); the bare-repeat exception is preserved (its current token is
+`;`/`)`, not a type). Tests: `TestParseConstTypedNoValueRejected`
+(typed-no-value, single + grouped) + `TestParseGroupedConstBareRepeat`
+(the value-less bare repeat still parses, no type / no value).
+
 ### DONE (2026-06-13..14) — `buf.CharBuf` → `buf.Builder` → stdlib `strings.Builder` (swap landed `9e69617f`, BUILDER bnc-0.0.9)
 
 The bespoke value-typed `buf.CharBuf` is fully retired: every caller (out-of-cone
