@@ -4,6 +4,20 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR (IR-gen, REGRESSION) — a CAST-hidden negative constant shift count is silently treated as an overshift (was a runtime trap) (2026-06-15) — 🔴 OPEN
+
+**Symptom (REPRODUCED on builder-comp).** `const N int8 = cast(int8, 0) - cast(int8, 3)` (== -3); `x << N` prints **0** instead of trapping `runtime error: negative shift count`. A negative shift count converted from a DETECTABLE runtime trap into SILENT WRONG CODE — strictly worse per detectable-crash-over-silent-wrongness. Other triggers: `const N int = bit_cast(int, cast(int8,0)-cast(int8,5))`; `const N int = cast(int, ~5)`. (Directly-typed forms — `const N int8 = -3`, `x << -3`, `x << ~5`, `x << (3-10)`, `x <<= -3` — are all still correctly rejected; only negativity hidden behind a `cast`/`bit_cast` slips through.)
+
+**Root cause.** Introduced by `9a6af307` (the 2^63 const-shift fix), whose `emitConstOvershiftOrNil` now compares the count magnitude UNSIGNED, asserting "a genuinely negative count is rejected at compile time, so a negative IntVal here is always a huge positive overshift." FALSE: the checker's `checkShiftCountNonNegative` uses `evalConstIntValue` (`checker_util.bn`), which has NO `cast`/`bit_cast` case, so a cast-based const initializer folds to nothing on the checker side — the const is registered with no value and the gate does NOT reject. But IR-gen's `evalConstExpr` (`gen_const_fold.bn`) DOES fold `cast`/`bit_cast`, so the count materializes as `OP_CONST_INT` IntVal=-3 and `cast(uint64,-3) < cast(uint64,w)` is false → classified as an overshift → 0. The deeper issue is the checker-vs-IR-gen const-fold ASYMMETRY (IR-gen folds cast/bit_cast; the checker's evalConstIntValue does not).
+
+**How discovered.** Brief adversarial review of `9a6af307` (2026-06-15); reproduced + verified against the parent commit (which trapped).
+
+**Fix options (user's call):**
+- **(A) interim** — revert ONLY the `emitConstOvershiftOrNil` unsigned-magnitude change (keep the checker LitSign-gate + TILDE fold). Restores the detectable trap for cast-hidden negatives; re-opens the ultra-contrived `x << 0x8000000000000000` → runs-as-`1` edge (back to a tracked note). Net: detectable-over-silent.
+- **(B) proper** — close the checker/IR-gen asymmetry: teach the checker (evalConstIntValue / const-decl folding) to fold `cast`/`bit_cast` so a cast-hidden negative count is REJECTED at compile time; keep the IR-gen 2^63 fix. Both `x << 0x8000…` (→0) and the cast-hidden negative (→compile error) then behave. Bigger change (evalConstIntValue is broadly used; cast folding must respect truncation/reinterpretation).
+
+Add a `.error` conformance test for the cast-hidden negative count once fixed. Also two MINOR doc fixes from the same review: (1) `check_expr_binop_test.bn` TestCheckRejectTildeNegativeShiftCount's comment still says "the gate must NOT trust LitSign" (now inverted — the gate DOES trust the folder's LitSign); (2) the `check_expr_unary.bn` TILDE-fold comment claims `~`-of-uint64-max is "rejected downstream" but it wrong-ACCEPTS `var x uint64 = ~0xFFFFFFFFFFFFFFFF` (pre-existing, not from this commit; no test).
+
 ## MAJOR (import resolution) — a package directly importing TWO packages with the same final path segment double-emits one's `_Package` declaration → `invalid redefinition of bn_pkg__…___Package` (2026-06-14) — ✅ FIXED & LANDED `e201f448` (approach B); same-segment GENERICS deferred (2026-06-15)
 
 Found converting minbasic to `pkg/std/os`: `pkg/host` already imports
