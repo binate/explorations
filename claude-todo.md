@@ -48,12 +48,16 @@ before the struct-copy / `EmitSliceSet`, mirroring `genArrayLit`. The guard
 fires ONLY for OP_ALLOC struct/array element values (the inline-composite case);
 OP_LOAD (variable) and managed-slice/scalar elements are untouched.
 
-**Tests added:** `conformance/743_managed_slice_struct_lit` (inline + variable
-value-struct elements) and `conformance/744_managed_slice_struct_lit_managed_field`
+**Tests added:** `conformance/770_managed_slice_struct_lit` (inline + variable
+value-struct elements) and `conformance/771_managed_slice_struct_lit_managed_field`
 (inline struct with a managed `@[]char` field — exercises load + per-element
 `emitStructCopy` RefInc / refcount). Both pass across all six default modes
 (compiled, int, int-int, comp-comp, comp-comp-int, comp-comp-comp). Unit tests
-(ir/codegen/vm) green; full `builder-comp` regression sweep green.
+(ir/codegen/vm) green; full `builder-comp` regression sweep green (1439/0).
+
+**Landed on worktree (pending cherry-pick to main):** fix `01ae0fe6`
+(`genManagedSliceLit` guard + conformance 770/771); the cmd/bni inject-list
+factoring that surfaced it is `51537221`.
 
 ## native_x64 (ELF) was NOT "WIP" — one reloc bug masked a 99%-working backend — ✅ core FIXED+LANDED, C-call gap OPEN (2026-06-14)
 
