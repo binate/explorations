@@ -10,6 +10,12 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### Shift: RUNTIME count-wider OVERSHIFT corner mis-detected — ✅ DONE (binate `0db709a1`)
+- **Symptom**: a shift `value << count` / `value >> count` whose `count` was a RUNTIME value of a TYPE wider than `value`, with `count >= 2^valueBitWidth` but `count mod 2^valueBitWidth` a small residue (e.g. a runtime `uint16` count of 261 shifting a `uint8`), silently yielded the wrong (non-overshift) result instead of the spec'd 0 (logical) / sign-fill (arithmetic `>>`).
+- **Root cause**: `genBinaryExpr` / `emitCompoundBinop` truncated the runtime count to the value width via `ensureWidth` BEFORE `emitGuardedShift`'s `count < width` guard ran, so the guard saw the truncated residue (5), not 261. `emitConstOvershiftOrNil` (untruncated `count.IntVal`) covered only the CONSTANT case; there was no runtime equivalent.
+- **Fix (binate `0db709a1`)**: new `emitShiftInrangeOrNil` computes the `count < width` predicate from the ORIGINAL, pre-`ensureWidth` count, reading it in its OWN type — so a wider count keeps the high bits that reveal the overshift, and the count's signedness is honored (a `uint8` count of 200 is 200 → overshift, not −56 → in range; the same-width-other-signedness corner is fixed too). `emitGuardedShift` takes the precomputed predicate; its mask + shift still use the width-reconciled count. Both shift paths (`gen_binary` expr, `gen_control` compound-assign) fixed. New `conformance/regressions/shift-runtime-wide-overshift` (opaque-fn runtime counts) green on LLVM / both VM lanes / native aarch64.
+- (Full resolved diagnosis of the `int64 << int` regression that spawned this — checker/IR-gen fix in `fd3cb7ac` — is archived in claude-todo-done.md.)
+
 ### ~~`cast` is unchecked at the type layer; literal fit-check not enforced — spec Ch.8~~ — ✅ FIXED+LANDED, decision: reject (binate `042d2fe6`; conformance 650; 2026-06-15)
 
 `claude-notes.md` said `cast(uint, -1)` is a compile error (literal doesn't
