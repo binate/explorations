@@ -10,6 +10,101 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### bnc front-end / IR-gen memory blows up (>8.5 GB, OOM) compiling a ~1370-line program — ✅ RESOLVED (fix 1, binate `7804c287`; minbasic OOM gone) — perf follow-ups (2)-(4) SPLIT to an open entry
+**Split 2026-06-14**: primary fix (1) is done (minbasic compiles fine); the remaining super-linear factors (2)-(4) are tracked as an open follow-up entry in claude-todo.md.
+- **Status (2026-06-05)**: fix **(1)** below LANDED on main (binate
+  `7804c287`) — `registerPendingStructDtor`/
+  `registerPendingMsDtor` now dedup via a precomputed-name list (`hasName`) with
+  the incoming name built once, instead of re-spelling every existing entry per
+  call. **Validated**: minbasic `bnc cmd/run` now compiles to a working 270 KB
+  binary in **~1 s at 27 MB peak RSS** (was >8.5 GB / OOM-killed after ~15 min);
+  `--emit-llvm` 27 MB / 2 s (was 7.5 GB / 54 s / 0 IR lines). `refcount` matrix
+  105/0 and the `pkg/binate/ir` unit tests stay green. Fixes (2)-(4) below remain
+  as follow-ups — they remove the *other* super-linear factors (unmemoized Type
+  queries, O(n) `slices.Append`, `ctx.Vars` rescan) for even larger programs, but
+  (1) alone brought minbasic back to tractable.
+- **Symptom**: compiling the minbasic example (examples repo, `minbasic/cmd/run`
+  — ~1370 lines of `pkg/basic` plus transitive `strconv`/`buf`/`slices`/`errors`)
+  drives `bnc` to **>8.5 GB RSS** and it is OOM-killed (SIGKILL) after ~15 min on
+  a 24 GB machine. `bni` similarly peaks ~8 GB. M0 (the banner skeleton) compiled
+  in seconds; the jump is the M1 interpreter code.
+- **Localization — front-end / IR-gen, NOT the LLVM backend**: `bnc --emit-llvm`
+  (stops after IR-gen, before the native/LLVM backend) reaches **7.5 GB in 54 s
+  and emits 0 IR lines** before being killed. So the blowup is in `bnc`'s
+  front-end / IR-gen, not LLVM codegen.
+- **NOT raw program size**: `bnc`/`bni` themselves (far larger) build fine.
+  Ruled out by probes (all `bnc --emit-llvm`, peak RSS, on a `main` bundle):
+  trivial `strconv.FormatFloat` user → light (2 s); recursive/nested managed AST
+  types (`Expr{@Expr, @[]@Expr}` + `Stmt`/`Line`) → light; a struct
+  `Value{int,float64,@[]char}` returned BY VALUE, standalone → light;
+  `Value` + nested AST types + `slices.Append[@Line]` + `buf` together,
+  standalone → light; synthetic 10/20/30 functions each building managed
+  `Expr`/`Value` → all light.
+- **Bisected trigger (a super-linear interaction)**: within minbasic's
+  `pkg/basic`, the **parser side alone** (token/ast/lex/parse/parse_expr + the
+  basic.bn loader — ~700 lines; nested-managed AST types, `slices.Append`, `buf`)
+  compiles LIGHT (2 s). **Adding `value.bn`** — 34 lines: a
+  `Value{int,float64,@[]char}` struct + two by-value constructors, *not even
+  referenced by the parser side* — flips it to an **8.56 GB blowup**. Each piece
+  is light in isolation; the combination is not. Cost appears super-linear in
+  (functions × managed-types) within one package, but is NOT reproduced by
+  synthetic isolations — the real parser-side code's structure matters.
+- **Repro**: (full) build `examples/minbasic/cmd/run` against a `main` `bnc`
+  bundle → OOM. (reduced) the same package with the eval-side files
+  (eval/exec/print/format/env) removed and `runProgram` stubbed, leaving the
+  parser side + `value.bn`, still OOMs at ~8.5 GB; removing `value.bn` makes it
+  light (~2 s).
+- **Discovery**: 2026-06-05, building minbasic M1 slice 1 (examples `5b55644`).
+- **Root cause (triaged 2026-06-05, 5-agent static analysis — strong
+  cross-corroboration; all five independently fingered the same site)**: the
+  dominant term is **`registerPendingStructDtor` / `registerPendingMsDtor`**
+  (`pkg/binate/ir/gen_util_refcount.bn:96-102` / `:143-149`). Each call does a
+  linear dedup scan of the **module-global** `pendingStructDtors` list AND, for
+  **every** existing entry, *recomputes* `dtorNameForType(entry)` — a `buf.New()`
+  managed-slice allocation + a recursive type-spelling walk + `Bytes()`. It is
+  invoked from `emitStructCopy`/`emitStructDtor`, which fire at every
+  managed-AGGREGATE copy/dtor/scope-cleanup site (var-init, assignment,
+  composite-literal field/element, return, and every scope-exit cleanup for every
+  managed-aggregate local) across **all** functions; the list grows monotonically
+  for the whole package. Net **O(functions × managed-aggregate-types)** with a
+  throwaway name-buffer allocation per existing entry per call → both the 54 s
+  time and the multi-GB transient/persistent RSS, all before a single IR line.
+- **Why `value.bn` is the trigger**: before it, the parser side holds its AST via
+  `@Expr` / `@[]@Expr` — managed **pointers/slices**, which take the *scalar*
+  refcount arms (`EmitRefInc`/`emitManagedSliceRefDec`), NOT
+  `emitStructCopy`/`emitStructDtor`, so `pendingStructDtors` stays ~empty.
+  `Value{int,float64,@[]char}` is a managed-**aggregate** (`needsStructCopy` via
+  the `@[]char` field), so the moment any `Value` is copied/dtor'd/cleaned-up the
+  *aggregate* arms fire across the package's many functions — flipping the
+  dominant term from ~0 to `functions × aggregate-sites`.
+- **Amplifiers (corroborated, secondary)**: (a) `slices.Append` (stdx) is **O(n)
+  per append** — `make_slice(n+1)` + copy-all, no capacity doubling — so every
+  hot IR-gen accumulator (`pendingStructDtors`, `ctx.Temps`, `ctx.Vars`, return
+  `vals`) is O(n²); (b) `NeedsDestruction` (`types_query.bn:377`) and
+  `SizeOf`/`AlignOf`/`FieldOffset` (`scope.bn:112/160/207`) are **unmemoized**
+  (no cache slot on `@types.Type`, `types.bni:71`), recomputed at every emit-site;
+  (c) `emitDecForManagedLocals` re-scans **all** `ctx.Vars` at each scope-exit;
+  (d) `resolveTypeExpr` allocates a fresh `@Type` per type-expr occurrence (no
+  interning); (e) `lookupFuncParams`/`collectFuncStrings` do O(n) linear scans.
+  The unifying disease: **no memoization on the `@types.Type` node + module-global
+  accumulators scanned/re-mangled linearly.**
+- **Fix (ranked, layered)**: **(1) PRIMARY** — make the
+  `registerPendingStructDtor`/`registerPendingMsDtor` dedup O(1): compute the
+  dtor name once for the incoming type, look it up in a set (or hang a
+  `DtorRegistered` flag / cached name on `@types.Type`); never recompute
+  `dtorNameForType(existing)` in the loop. This alone removes the dominant
+  O(functions × types) + per-entry-allocation term. **(2)** add cache slots to
+  `@types.Type` and memoize `NeedsDestruction` + `SizeOf`/`AlignOf`/`FieldOffset`
+  + the dtor/copy name (layout is fixed within a compile). **(3)** give `slices`
+  a capacity-doubling amortized-O(1) append (or use growable buffers for the hot
+  accumulators). **(4)** track managed-cleanup slots in a compact per-function
+  list instead of re-scanning `ctx.Vars`. (1) is the high-leverage fix; (2)-(4)
+  remove the remaining super-linear factors.
+- **Validation suggested**: instrument `registerPendingStructDtor`'s call-count ×
+  list-length (or a knob-scaled repro: N managed-aggregate types × M functions)
+  to confirm the O(N×M) curve, then re-run the reduced minbasic repro after fix
+  (1). No `bnc` profiling flag exists; a temporary counter is the cheapest probe.
+
 ### ~~Generic-instantiated composite-literal head `Foo[T]{…}` not built by the parser — spec §13.10 (2026-06-13)~~ — ✅ LANDED on main (binate `d005a11e`, 2026-06-14)
 
 `Foo[int]{...}` mis-parsed: `parseIdentOrCompositeLit` recognized only
