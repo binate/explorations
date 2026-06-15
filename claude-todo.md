@@ -154,7 +154,29 @@ arm for `e.X.Kind == ast.EXPR_UNARY && e.X.Op == token.STAR` →
 also accepted it, so the IR-gen defect is PRE-EXISTING.  Needs a conformance
 test (xfail until fixed, or passing if fixed).
 
-## MAJOR — generic-interface-VALUE upcast (`@WideBox[int]` → `@Box[int]`) type-checks then fails silently in codegen (2026-06-13) — 🔴 OPEN
+## MAJOR — generic-interface-VALUE upcast (`@WideBox[int]` → `@Box[int]`) type-checks then fails silently in codegen (2026-06-13) — ✅ RESOLVED 2026-06-14
+
+**✅ RESOLVED 2026-06-14.** Both sub-issues fixed:
+- **Sub-issue (2) — the upcast itself (binate `52f322fb`)**: the root cause was
+  `ensureInstantiatedInterface` leaving an instantiated generic interface's
+  `ParentPkgs`/`ParentNames` empty, so `collectImplsFromDecl`'s ancestor walk
+  never emitted the inherited `(Impl, Box[int])` vtable and
+  `IfaceParentSlotOffset` returned −1 (the VM name-swap found no target vtable).
+  The non-generic path already recorded parents (incl. the `TEXPR_INSTANTIATE`
+  parent case, conformance 455); extracted `collectInterfaceParents`, now called
+  from both paths (the generic one under the type-param substitution context so
+  `Box[T]`→`Box[int]`), with a self-stub to keep self-reaching parent chains from
+  recursing. `conformance/768_generic_iface_value_upcast` (inherited dispatch +
+  upcast-view dispatch) green on builder-comp / -int / -comp / native-aa64.
+- **Sub-issue (1) — the silent exit (binate `a4946ebe`)**: root cause was that
+  `panic()` discarded its message and aborted backend-dependently (LLVM dropped
+  it, the **VM treated `OP_PANIC` as a NO-OP so panic didn't even abort**, native
+  had no arm). `panic(args...)` now lowers to print `"panic: " + args + "\n"`
+  then `bootstrap.Exit(1)` + unreachable — proven ops on every backend — so the
+  message prints and the process aborts on LLVM/VM/native. Dead `OP_PANIC`/
+  `EmitPanic` removed. `conformance/767_panic_message`.
+
+Original report below.
 
 Assigning an instantiated generic interface value to one of its (instantiated)
 parent interface values — a parent-interface upcast — completes type-checking
@@ -188,7 +210,15 @@ this upcast does not).
 - **Bug-discovery protocol**: add a conformance test for the upcast marked xfail
   until codegen lands.
 
-## MINOR — a broken generic-interface extension clause is re-reported once per instantiation (2026-06-13) — 🔴 OPEN
+## MINOR — a broken generic-interface extension clause is re-reported once per instantiation (2026-06-13) — ✅ RESOLVED 2026-06-14
+
+**✅ RESOLVED 2026-06-14 (binate `e8713878`).** `addCheckError` now suppresses an
+exact duplicate (same position and message) before appending to `c.Errors` — a
+decl-level diagnostic resolved per instantiation collapses to one, and an
+identical `(pos, message)` is never worth showing twice in general. Tentative
+errors are untouched (they migrate/discard wholesale). Tests:
+`checker_errors_test` (dedup mechanism) + `check_generic_type_test`
+(generic-iface-extension scenario reports exactly once). Original report below.
 
 Generic interface decls resolve their extension clause at instantiation
 (`buildInstantiatedInterface` → now `populateInstantiatedInterface`), not at decl
@@ -201,7 +231,15 @@ validate the generic interface's extension clause once at collection time (with
 type-params opaque), or dedupe decl-site diagnostics by (pos, message).
 - **Discovery**: adversarial review of `298ef806`/`aef4422e` (2026-06-13).
 
-## MINOR — diagnostic name formatter drops a bracket on nested package-qualified generic args (2026-06-13) — 🔴 OPEN
+## MINOR — diagnostic name formatter drops a bracket on nested package-qualified generic args (2026-06-13) — ✅ RESOLVED 2026-06-14
+
+**✅ RESOLVED 2026-06-14 (binate `aa617f84`).** `displayLeafName` now strips the
+package-path prefix of every `.`-separated segment, respecting bracket nesting:
+a `.` is a package/name separator only when it follows a path segment and
+precedes an identifier start (so a `[...]`/`func(...)` placeholder's dots
+survive), and the type-syntax delimiters (`[ ] , @ * ( )` and the `readonly `
+space) end a segment. `main.Box[@pkg/foo.Pair[bool,bool]]` now displays
+`Box[@Pair[bool,bool]]`. Unit test in `type_name_test`. Original report below.
 
 `displayLeafName` (`pkg/binate/types/type_name.bn`) splits a mangled name on the
 FIRST `.`, which can land INSIDE a bracketed type argument, so a nested
