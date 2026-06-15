@@ -226,7 +226,29 @@ Until then the symlink is load-bearing — don't remove it without the
 binate-paths change, and don't make the binate-paths change without a flattened
 BUILDER.
 
-## MAJOR — native Mach-O writer emits no `LC_DYSYMTAB` / unpartitioned symtab → linker won't coalesce cross-object weak defs → `duplicate symbol` link failure (2026-06-14) — 🔴 OPEN
+## MAJOR — native Mach-O writer emits no `LC_DYSYMTAB` / unpartitioned symtab → linker won't coalesce cross-object weak defs → `duplicate symbol` link failure (2026-06-14) — ✅ RESOLVED (2026-06-15, `3fb0e805`)
+
+**Resolution.** Made native Mach-O objects atom-safe and turned on
+`MH_SUBSECTIONS_VIA_SYMBOLS` (the flag ld-1266 requires to coalesce weak
+defs). Landed as `3fb0e805` ("native (Mach-O): make objects atom-safe so weak
+symbols coalesce"). Four parts: (1) set the subsections flag + emit
+`LC_DYSYMTAB` + partition the symbol table (local/extdef/undef); (2) DROP
+unreferenced `L`-prefixed temporaries from the symtab — emitting block labels
+made ld split each function into atoms at its own internal labels and reorder
+the pieces, corrupting in-section conditional branches (clang never emits
+them); (3) aarch64/x64: every inter-atom reference relocates (B/BL/CALL to a
+non-`L` symbol, and ALL data references — x64 RIP-relative LEA and aarch64
+ADRP+ADD), only intra-function branches to `L` block labels stay in-section.
+The x64 LEA case was the subtle one: resolving an `Lstr_*` LEA in-section
+baked a stale displacement once ld moved the string's atom, corrupting every
+string under subsections (caught by native_x64_darwin conformance, 296→1431).
+Validated: native_aa64 unit GREEN (8 dup xfails removed), native_aa64
+conformance GREEN, native_x64_darwin recovered. ELF unaffected (no
+subsections) — verified by inspection, CI-gated. Exposed a separate
+pre-existing bug — see the CRITICAL static-data managed-pointer addend entry —
+which still xfails repl/vm/cmd-bni on native_aa64 (reason updated).
+
+Original investigation (historical record) follows.
 
 `builder-comp_native_aa64` **unit** mode fails to link 11 package test binaries
 (native, native/common, native/aarch64, native/x64, ir, codegen, vm, repl,
