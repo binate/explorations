@@ -643,23 +643,6 @@ all functions/tests intact; B4 regression tests are non-vacuous.
 
 ## MAJOR
 
-### Inferred-type func-value local call mis-lowers to a direct symbol — `var f = <func value>; f(x)` → undefined `main.f` on ALL backends — PRE-EXISTING — ✅ FIXED+LANDED (binate `148650ef`) 2026-06-11
-- **Symptom**: binding a func value to a local with an INFERRED type and then calling it fails to compile/link on every backend. `func mk(c int) @func(int) int {…}; var f = mk(5); f(3)` → LLVM `use of undefined value '@bn_main__f'`, VM `vm: extern not found: main.f`, native aa64 `Undefined symbols … main.f`. Same failure for a closure LITERAL bound to an inferred local (`var f = func(x int) int {…}; f(3)`). The EXPLICITLY-typed spelling `var f @func(int) int = mk(5); f(3)` (and `var f @func(int) int = func(x int) int {…}`) WORKS on all backends. Float vs int is irrelevant — int reproduces identically.
-- **Root cause** (FOUND): IR-gen's local var-decl handler (`pkg/binate/ir/gen_stmt.bn` `genDecl`) derived the storage-slot type for an INFERRED `var x = <expr>` only from a few literal special-cases (string→@[]readonly char, char, untyped-float→float64, untyped-bool→bool) and otherwise left it at the `TypInt()` default.  For any non-literal initializer (call result, closure literal, composite), the slot stayed int.  Then the func-value-call dispatch in `gen_call.bn` (the Ident-callee branch, ~line 203) gates on `lookupVarType(name).Kind == TYP_FUNC_VALUE/TYP_MANAGED_FUNC_VALUE`; with the slot mis-typed int it falls through to the direct-call path, mangling the callee Ident `f` as the function symbol `main.f`.  The checker is fine — it infers `f` correctly (that's why `f(3)` type-checks); only IR-gen's slot type was wrong.  (Confirmed broader than func-values: an inferred struct/slice var hit `extractvalue operand must be aggregate type` from the same int-slot mis-typing.)
-- **Severity**: MAJOR — a normal-looking pattern (`var f = factory(); f(args)`) is unusable; spurious compile/link failure on valid-looking code (fail-LOUD, not a silent miscompile). Easy workaround: annotate the local `@func(...)`/`*func(...)`. Also **corrects a stale claim**: the VM return-value-as-arg entry above asserted `var w = mk(); w(x)` "is fine" — it is NOT for the inferred spelling; that prose elided the required explicit type.
-- **Discovery**: 2026-06-11, during the claude-todo #121 closure-float review — the failed verify agent's edge tests all used the inferred spelling and failed for THIS reason (not a #121 bug). Isolated with int/float × literal/returned-value repros across LLVM/VM/native.
-- **Fix** (`gen_stmt.bn`, binate `148650ef`): for an inferred decl, after lowering the initializer, set the slot type to the lowered value's own type (`typ = val.Typ`) in the general case, keeping the literal pre-sets (a `typFromLiteral` flag protects the string case — its lowered value is a string constant, not the @[]readonly char slot) and mapping untyped int/float/bool to their defaults.  Now the inferred func-value local is registered as a func value and `f(...)` lowers indirectly; an inferred struct/slice/iface var gets a correctly-sized slot.
-- **Test**: `conformance/710_var_infer_func_value` (inferred func value: returned / closure-literal / float closure) + `711_var_infer_aggregate` (inferred struct + slice).  Green on LLVM, VM, native aa64, native x64-darwin.  Full conformance sweeps green on all four (1373 / 1343 / 1337 / 1365, 0 failed) + `ir` unit tests green → no regressions from the shared var-decl path change.
-- **FOLLOW-UP — `@func` as the inferred default + bare func-ref `var f = add` — ✅ DONE+LANDED (binate `9eda6028`) 2026-06-11**: implemented as designed — `@func→*func` borrow rule (`types_assignable.bn`; refcount-neutral, identical 2-word layout so no IR-gen op / backend change), `checkFuncLit` no-hint default flipped `*func`→`@func` (a `*func` hint still downgrades to a stack closure), `defaultType(TYP_FUNC)`→`@func`, and IR-gen `@func` synthesis for an inferred bare ref in BOTH `var f = add` (`gen_stmt.bn`) and `f := add` (`gen_short_var.bn`), guarded by a `lookupVarType==nil` scope check (a same-named local var still shadows the function).  Conformance `712`/`713`/`714`; 0-regression on all four full sweeps (lone `577_std_errors` pre-existing: concurrent std/errors readonly-types × #115).  Adversarial review found+fixed the `:=` gap and a shadowing bug, and surfaced the pre-existing recursive-closure-self-reassignment MAJOR bug (own entry above) + `var p,q = a,b` multi-decl-inference unsupported (by-design).  **ORIGINAL plan (historical):** the bare top-level func reference still mis-lowers after this fix (the checker infers it as `TYP_FUNC`, not a func-value — `defaultType(TYP_FUNC)` returns it unchanged — and `gen_stmt.bn` excludes `TYP_FUNC` from the general inference, so the call still resolves to a direct `main.f` symbol).  **Decision: make `@func` the inferred default for func values** (was `*func`), mirroring `@[]T`-by-default: `@func` borrows down to `*func`, so a materialized `var f = func(){…}; foo(f)` then works whether `foo` takes `*func` OR `@func` (today the `*func` default only works for `*func` params — a surprising inline-vs-named asymmetry).  Cost is confined: the inline `foo(func(){…})` case is hint-driven (call-arg supplies `foo`'s param type via `checkExprWithFVHint`, `check_expr.bn:371`) so it still resolves to `*func`/stack when borrowed — the only extra heap closure is the un-hinted `var f = func(){…capture…}` case, opt-out-able with explicit `*func`.  **Scope** (the default is only *felt* in no-hint contexts = inferred vars): invert `checkFuncLit`'s no-hint default (`*func`→`@func`, a `*func` hint still downgrades to stack); `defaultType(TYP_FUNC)`→`@func`; wire IR-gen to emit an `@func` OP_FUNC_VALUE for an inferred bare func-ref.  Then `var f = add` works as `@func` as a uniform consequence.  Verify the full func-value suite + refcount/leak checks (non-capturing `@func` should be ~free {vtable,nil}; confirm).  NOTE adjacent concurrent work `e1dcd14e` ("named func-value types constructible from func references") — reconcile.
-
-### arm32 asm-lib SIBLING: immediate-offset memory encoders silently WRAPPED an out-of-range offset — ✅ RESOLVED 2026-06-11 (`62c2ea79`)
-- **✅ RESOLVED 2026-06-11 (`62c2ea79`).** Per the fix-direction bullet below (the recommended assembler behavior): the two arm32 memory encoders now `a.SetError` on an over-range immediate offset instead of silently masking it.  `ldrstrEnc`'s three immediate op-kinds (OP_MEM_IMM/PRE/POST) route through a new `imm12Offset(a, offset)` (errors at magnitude > 4095); `ldrstrHalfEnc`'s immediate path through `imm8SplitOffset(a, offset)` (errors at > 255).  In-range encodings are byte-identical; the public `Ldr`/`Str`/`Ldrh`/… signatures are unchanged (only the private encoders gained the assembler handle), so bnas/asm-parse are unaffected.  Tests: boundary (4095/255 OK) + overflow (4096/256 → `HasError`), positive and negative, across LDR/STR/LDRH/STRH/LDRSB/LDRSH (`arm32_mem_test.bn`).  Repo-wide swept `pkg/binate/asm/arm32` for the memory-offset-wrap pattern — only these two encoders had it (both fixed).  `MOVW`/`MOVT`'s `& 0xffff` is a 16-bit VALUE immediate (load-low-half), a different/plausibly-intentional case, left as-is.  Still latent (no native arm32 backend); a future native arm32 backend will need a materialize path like aa64's `ldrStrSubWordEmit` for its own compiler-generated stack access, on top of this assembler-level error.
-- **Symptom / bug (historical)**: the same bug class as the aa64 one above (`4dc78d2e`), but pervasive in the arm32 asm lib (`pkg/binate/asm/arm32/arm32_mem.bn`): `ldrstrEnc` (word/byte LDR/STR/LDRB/STRB) masks the immediate with `offset & 0xfff` (wraps at 4096); `ldrstrHalfEnc` (LDRH/STRH/LDRSB/LDRSH — the ARM32 8-bit *split* imm4H:imm4L form) masks with `(offset>>4)&0xf : offset&0xf` (wraps at **256**). An out-of-range offset is silently truncated mod 4096 (or mod 256) → wrong slot, instead of materializing the address or raising an assembler error.
-- **Reachability — LATENT, NOT a compiler miscompile**: there is **no native arm32 backend** (`pkg/binate/native/arm32` does not exist); the arm32 conformance modes (`builder-comp_arm32_*`) compile via the **LLVM** path, which emits its own arm32 machine code and never touches `pkg/binate/asm/arm32`. That library is exercised ONLY by `bnas`/the assembler-parser (`pkg/binate/asm/parse/arm32*.bn`) and its own unit tests. So the bug bites only hand-written arm32 assembly with a large immediate offset assembled through bnas — not any compiler output.
-- **Severity**: MINOR while latent (no compiler path; arm32 is not release-gated). Would escalate to MAJOR the moment a native arm32 backend lands — it would inherit this for stack-frame access and reproduce the exact aa64 sub-word miscompile (a function with ≥32 sub-word locals already crosses the 256 halfword limit). File this so the future arm32 backend work picks it up.
-- **Fix direction (decision deferred to user)**: for an **assembler**, the correct behavior on an unencodable immediate is to **error** (`a.SetError(...)`), NOT to silently materialize via a scratch register — the programmer wrote a specific instruction and the assembler must not invent ADDs or clobber a register. (This differs from the aa64 *compiler* helper `ldrStrSubWordEmit`, which materializes via X17 — correct for compiler-generated code where X17 is a known scratch, but note that same helper ALSO materializes when reached through bnas, which is arguably wrong for the assembler use; pre-existing, separate question.) Minimum fix: make the arm32 encoders error on overflow; a future native arm32 backend then needs a materialize path like aa64's.
-- **Discovery**: 2026-06-11, cross-arch sweep during the adversarial review of the aa64 fix `4dc78d2e`. x64 was also swept and is NOT susceptible (disp32 addressing); aa64's other memory encoders are clean (LDP/STP only save FP/LR at small offsets; floats spill through the overflow-safe integer X-LDR/STR path).
-
 ### arm32-baremetal runtime files (`crt0.s`/`semihost.s`) resolved against the target-iface OVERLAY, not the repo root → link failed → arm32 unit + conformance red — REGRESSION (in-window) — ✅ RESOLVED 2026-06-10 (binate `1d95923e`; CI-CONFIRMED: baremetal link fixed — conformance 1304✓/8✗, the 8 are pre-existing arm32 codegen residuals)
 - **Symptom**: on `fd3cb7ac` (after the shift fix unmasked it), arm32-baremetal unit + conformance fail at LINK, not compile: `clang: error: no such file or directory: '.../ifaces/targets/arm32-baremetal/runtime/baremetal_arm32/crt0.s'` (and `semihost.s`). The files exist at the **repo root** `runtime/baremetal_arm32/`, not under the `ifaces/targets/arm32-baremetal/` overlay.
 - **Root cause**: `appendTargetRuntime` (`cmd/bnc/target.bn:308`) joins the relative `targetRuntimeFiles` (`runtime/baremetal_arm32/crt0.s`, …) against `root`, where `root = primaryRoot(cli)` (`cmd/bnc/args.bn:58`) = `cli.BniPaths[0]` — the FIRST `-I` path. The per-target `ifaces/targets/` overlay work (build.bni metadata, in-window) makes `binate-paths --iface --target arm32-baremetal` **prepend** `ifaces/targets/arm32-baremetal` as the first `-I` entry (confirmed; the unittest-runner change `ac738936` mirrors `--target` onto `--iface` for cross modes). So `BniPaths[0]` is the overlay dir, not the repo root, and the runtime files resolve to a non-existent path. (Harmless on host: host `targetRuntimeFiles` is empty, so `appendTargetRuntime` is a no-op — which is why host modes stayed green and this hid behind the `int64 << int` compile error until that was fixed.)
@@ -1099,39 +1082,6 @@ Discovery Protocol) — most don't have one yet.
   list-length (or a knob-scaled repro: N managed-aggregate types × M functions)
   to confirm the O(N×M) curve, then re-run the reduced minbasic repro after fix
   (1). No `bnc` profiling flag exists; a temporary counter is the cheapest probe.
-
-### A float literal narrowed to `float32` is NOT coerced at call-arg / composite-field / return positions — FIXED+LANDED (binate `d37cc7ba`, 2026-06-05)
-- **Symptom**: an untyped float literal flowing into a `float32` slot via a
-  function **argument** (`f(0.1)` where `f(x float32)`), a **composite-literal
-  field** (`S{f: 0.1}`, field `f float32`), or a **return** (`func g() float32 {
-  return 0.1 }`) is NOT narrowed double→float32. Arg and field SILENTLY produce
-  the wrong value: `bit_cast(int32, x)` reads `0x9999999A` (low 32 bits of
-  `double(0.1)`) instead of `0x3DCCCCCD` (`float32(0.1)`). Return emits invalid
-  LLVM (`value doesn't match function result type 'float'`) → clang rejects.
-  Fails on **every** backend (LLVM, VM, native) — it is a front-end gap, not a
-  backend issue. The control cases `var x float32 = 0.1`, `const C float32 = 0.1`,
-  and a const-group member all narrow correctly (so the coercion exists; it is
-  just not applied at these three positions).
-- **Root cause (suspected)**: the front-end inserts the float-narrowing
-  `OP_CAST` (→ `fptrunc` / `BC_F64_TO_F32`) only on var-init / typed-const decls
-  via `ensureWidth`; the call-arg path (`genExprOrFuncRef` / `coerceArg`),
-  composite-field store (`gen_composite.bn` `EmitStore`, no `ensureWidth`), and
-  the `return` path do INT narrowing only — an untyped-float literal at a
-  `float32` slot keeps its `double` type. Cite: gen_composite.bn:50-59,140;
-  gen_expr.bn:37-39 (untyped-float born `double`).
-- **Severity**: CRITICAL — passing a float literal to a `float32` parameter or
-  initializing a `float32` struct field with one are idiomatic, and the value is
-  silently wrong (no diagnostic). Distinct from the DEFERRED §844 (which is the
-  *backend* float32-const bug on VM/native); this is a front-end coercion gap
-  that hits LLVM too.
-- **Test**: `conformance/matrix/const/{call-arg,field,return}/float32/*` (9 cells;
-  arg/field = wrong value, return = compile error). To land: see the
-  matrix-vs-regressions decision below — likely a few representative
-  `regressions/` cells (the bug is position-dependent, not type-dependent).
-- **Discovery**: 2026-06-05, P1 const matrix (read-form axis).
-- **Fix**: apply the float-width coercion (`ensureWidth`/equivalent) for
-  untyped-float literals at call-arg, composite-literal-field, and return
-  positions — the same narrowing the var-init path already performs.
 
 ### `handle` is not a user-expressible call shape — NOT a bug, design note
 - While extending the ABI matrix with call shapes, confirmed there is **no user
@@ -1617,29 +1567,6 @@ question).
   `const.untyped.coercion`) currently describes the **implemented**
   behavior and flags this as an open item.
 
-### A NAMED distinct *signed sub-word* integer's MIN/-1 divide escapes the divide-fault guard — ✅ RESOLVED in behavior (binate `b43a0057`, named-distinct landing — `widenType` preserves named width+sign); regression test pending (plan-cr2-followup Plan B)
-- **Symptom**: `type I8 int8; var a I8 = <I8 MIN>; var b I8 = -1; a / b` does NOT
-  panic with "integer overflow" (the ratified signed-MIN/-1 behavior); it
-  silently wraps (the int64 divide `-128 / -1 = 128` truncates back to `-128`
-  in the I8 result). Divide-by-zero on the same type IS still caught, and
-  unsigned named types / named full-width signed types (`type Count int`) are
-  fine — only a named *signed sub-word* type at exactly MIN/-1 is affected.
-- **Root cause**: IR-gen's `widenType` (gen_binary.bn) collapses a distinct
-  NAMED integer type to plain `int` (signed, host width) — the named/sized-ness
-  is lost before the `OP_DIV_CHECK` guard sees the result type, so the guard
-  uses INT64_MIN instead of the type's true (e.g. int8) MIN. This is a
-  pre-existing `widenType` behavior, not a defect in the divide-fault guard
-  itself (plain, non-named `int8`/`int16`/`int32` MIN/-1 ARE detected — they
-  keep their TYP_INT width through widenType).
-- **Discovered**: 2026-06-05 by the adversarial coverage review of the
-  divide-fault guard (plan-divide-by-zero.md). The guard itself is correct;
-  this is the one width-dependent corner it can't reach because the type info
-  is already gone.
-- **Proper fix**: make `widenType` preserve a named integer type (or at least
-  its underlying width/signedness) for same-named operands, so `I8 / I8` keeps
-  width 8. Out of scope for the divide-by-zero work (touches general arithmetic
-  typing). A reproducer xfail cell can be added when this is picked up.
-
 ### Extend hygiene checks to scan `ifaces/` and `impls/` (not just `pkg/`+`cmd/`) — ✅ DONE (sub-todo: .bni cap)
 - **Goal (user-requested, 2026-06-10)**: `line-length`, `file-length`,
   `bni-doc`, `bn-doc`, `naming` find-roots were `$BINATE_DIR/pkg` (+`cmd`)
@@ -1765,23 +1692,6 @@ question).
 - **Fix direction**: add `IsFloatScalarTyp` handling (and HFA/SSE eightbyte classification) to the native multi-return callee pack + caller collect on both arches, matching AAPCS64 / SysV-AMD64 + the LLVM legalization. Extend `gen-abi-matrix.py`'s type axis with `f64` for multi-return / iface-multi-return / funcval-multi-return — decisive shapes `(f64,f64)` (HFA on aa64) and `(int,f64)` (mixed INTEGER+SSE eightbytes on x64).
 - **Discovery**: 2026-06-08, adversarial review of plan-cr2-3 — the iface-classifier (`cc2ddcc4`) made a float-component iface multi-return reachable; the underlying native multi-return pack was never float-aware. Filed (not fixed) per user decision.
 
-### x64 native backend drops a global address (`&G`) used as an RVALUE — `return &G` emits an empty body → SIGBUS — ✅ RESOLVED (binate `0c707e1f`, 2026-06-08)
-- **STATUS 2026-06-08 — RESOLVED & LANDED.** Mirrored aa64: added `emitValOperand(a, pkgName, m, ins)` to `x64_regmap.bn` (`isGlobalRef` → `emitGlobalAddr` into a scratch reg, else `getOperand`), threaded `pkgName` into `emitReturn`/`emitSretReturn`/`emitMultiReturnPack`/`emitCompare`/`emitCallIndirect`/`emitCallFuncValue`/`emitCallIfaceMethod`, and routed every x64 value-operand fetch through it — scalar + multi-return return values, comparison operands, store value, call/dispatch args, and the `OP_BIT_CAST` source. `conformance/551,573` flip green on x64-darwin (full suite 1166 passed / 4 pre-existing-unrelated failures, no regressions); aa64/LLVM/VM unchanged (x64-only); new `x64_global_ref_test.bn` pins `emitReturn`/`emitValOperand`/`emitCompare` materializing an `IsGlobalRef` via a RIP-relative LEA.
-- **Symptom (historical)**: `conformance/551_addr_of_global_scalar` and `573_addr_of_two_globals_one_instr` crash (SIGBUS, exit 138) on `builder-comp_native_x64_darwin`. Disassembly: `func getG() *int { return &G }` compiles to an EMPTY body (prologue/epilogue only, RAX never set) — `return &G` emits nothing — so the caller dereferences garbage. Green on native aa64 (also Mach-O) and on LLVM/VM, so **NOT Mach-O-specific** despite the surface framing: it is an x64-codegen gap exposed only because x64-darwin is the one runnable x64 mode on the dev host (x64-linux/ELF needs qemu; likely wrong there too at runtime, unverified).
-- **Root cause (CONFIRMED)**: the IR emits a global reference as an `IsGlobalRef` pseudo-Instr with ID -1 (no SSA register). x64's value-operand sites fetch operands with the bare `getOperand(a, rm, id)` (`pkg/binate/native/x64/x64_regmap.bn`), which receives only an `id` (no `ins`) and so cannot test `isGlobalRef` — for ID -1 it returns -1 and the site DROPS the operand: `emitReturn` scalar arm (`x64_return.bn` — `getOperand(ins.Args[0].ID)` → RAX never set), `emitBinop`/cmp (`x64_ops.bn` — `getOperand(Args[i].ID)` → `lhs<0||rhs<0` → not emitted, e.g. `&G==&H`), and the call-arg / dispatch-arg sites. aa64 handles this via `emitValOperand(a, pkgName, m, ins)` (`aarch64_regmap.bn`): `if isGlobalRef(ins) { emitGlobalAddr(...) } else getOperand(ins.ID)`, used at all 11 of its value-operand sites. **x64 has NO `emitValOperand`**, and its `emitReturn`/`emitBinop` emitters don't even thread `pkgName` (which `emitGlobalAddr` needs). x64 handles `isGlobalRef` only piecemeal at address-position sites (load/store/refcount/dispatch-data in `x64_emit.bn`/`x64_managed.bn`), never the generic value positions.
-- **Severity**: MAJOR — silent wrong-code / crash on an idiomatic, common pattern (`return &global`, `f(&global)`, `&a == &b`) in the x64 native backend. Confined to x64-native (aa64/LLVM/VM are correct). x64-native is still being built out (Phase 3), so this is a completeness gap, not a regression of a once-working path.
-- **Tests**: `conformance/551_addr_of_global_scalar` (8 rvalue positions), `573_addr_of_two_globals_one_instr` (multi-return + comparison) — currently UNxfailed (fail on x64-darwin, pass elsewhere).
-- **Discovery**: 2026-06-08, plan-cr2-3 follow-up — investigating the x64-darwin-only 551/573 failures per user direction; built bnc, compiled 551 `--target x86_64-darwin`, ran under Rosetta (SIGBUS), disassembled (`getG` empty; only 4 of ~8 `&G/&H` LEAs present).
-- **Fix**: mirror aa64 — add `emitValOperand(a, pkgName, m, ins)` to x64 (`isGlobalRef` → `emitGlobalAddr` into a scratch reg, else `getOperand`), thread `pkgName` into `emitReturn`/`emitBinop`/cmp (+ their `x64_dispatch.bn` callers), and route every value-operand fetch (return value, binop lhs/rhs, cmp operands, call/dispatch args) through it. Breadth fix across `x64_{return,ops,call,call_indirect,iface,dispatch,regmap}.bn` + signature changes. Pin with 551/573 flipping green on x64-darwin + a unit test that `emitReturn`/`emitBinop` materialize an `IsGlobalRef` operand.
-
-### Compound shift-assign (`<<=` / `>>=`) bypasses the overshift guard — FIXED + LANDED (binate `fa265629`)
-- **Symptom**: `var y uint32 = 1; y <<= 40; println(cast(int, y))` printed `256` (= `1 << (40 & 31)`) on `builder-comp`, not the spec's `0` (count 40 ≥ width 32). The expression form `y = y << 40` correctly gives `0` (fixed at the CRITICAL "shift by ≥ bit width" entry, binate `32fde83d`). Native aa64 gave the correct `0` — so this was an LLVM-path divergence. `uint8 x <<= 9` happened to read `0` (the `1<<9=512` result is narrowed to `uint8` → 0, masking the bug); only a width where the masked count stays in range (`uint32 <<= 40` → `<<8`) exposed it.
-- **Root cause (path-parity)**: the overshift guard (`emitGuardedShift`) was applied on the expression-shift path but NOT on the compound-assign path — `emitCompoundBinop` (`pkg/binate/ir/gen_control.bn`) lowered `<<=`/`>>=` without routing through `emitGuardedShift`. Classic Code-Red-2 path-parity gap: a guard added to one of N sibling lowerings (expr-shift) was never mirrored into the others (compound-assign). See `plan-code-red-2.md`.
-- **Fix (landed, binate `fa265629`)**: route compound `OP_SHL`/`OP_SHR` through `emitGuardedShift` in `emitCompoundBinop`, mirroring `genBinaryExpr`, keeping the in-range-const fast path. **Companion fix in the same commit**: `emitCompoundBinop` now width-coerces both operands to the lvalue type internally (only the IDENT arm did so before), so a sub-word element/field/deref compound assign no longer keeps an untyped-int count/operand at int64 and emits width-mismatched IR — latent for sub-word non-IDENT compound assigns generally (a `uint32` `a[0] += 5` would have emitted `add i32, i64`), previously unexercised.
-- **Severity**: MAJOR — was silent wrong-code, but narrow (a compile-time shift count ≥ width in a compound-assign).  Plan-1 defect (7) in `plan-cr2-1-frontend.md`.
-- **Test**: `conformance/659_compound_shift_overshift` — `<<=`/`>>=` overshift across variable / array-elem / slice-elem / nested-array-elem / field / deref lvalues at uint32 & int32, runtime + out-of-range-const counts, self-checking (target-stable 0/1).  Green on builder-comp{,-comp,-comp-comp}, builder-comp-int{,-int}, -comp-comp-int, native aa64.  (Exhaustive `op × lvalue-form` compound-assign coverage — incl. sub-word non-shift arith that the companion width fix also repairs — is the `conformance/matrix/operator` follow-up, §3.3.)
-- **Discovery**: 2026-06-07, Code-Red-2 probing of path-parity predictions (the operator pattern).
-
 ### `==` / `!=` (and relational) on aggregates: checker now rejects — no more invalid LLVM. DECIDED + LANDED at the checker (binate `60719e01`, coverage `78af9c23`); struct/array impl + generic path remain OPEN
 - **What it was**: the comparison type-check rule only checked mutual assignability and returned bool, so `==`/`!=`/`<`/`>`/`<=`/`>=` were accepted on *any* same-typed operands. For aggregates (raw/managed slice, raw/managed func value, interface value, struct, array) codegen then emitted `icmp` on a multi-word value → invalid LLVM (`error: icmp requires integer operands`), hard package compile failure.
 - **DECIDED (user, 2026-06-07)** and **LANDED** in `pkg/binate/types` (binate `60719e01`; coverage `78af9c23`):
@@ -1793,15 +1703,6 @@ question).
   1. **Struct/array equality implementation** — currently a clean "not yet implemented" checker error. When implemented: a recursive "comparable iff all fields/elements comparable" check (a struct with a slice/iface/func field → permanent reject; all-comparable struct → fieldwise compare); add a runtime equality conformance cell then.
   2. **Generic path NOT covered** — `==`/relational on a type parameter later INSTANTIATED with an aggregate is not caught: the body is checked once with `T` opaque (deferred), and instantiation does not re-check it (`check_generic.bn`), so it can reach IR-gen → the same invalid-IR class, via generics. PRE-EXISTING (before this change all aggregate `==` was permissive); this change does not worsen it. Needs instantiation-time re-checking OR a `comparable`-style constraint decision. Separate follow-up.
   3. **Sentinel detection (`err == io.EOF`)** — disallowing interface-value `==` means this is NOT the mechanism; needs `identical`/`same` + `errors.Is` (under discussion / see io.EOF TODO). Resolve before the first real `Reader` lands.
-
-### Cyclic non-struct named-type definitions (`type A B; type B A`, `type A A`) accepted with no diagnostic → every `Underlying`-walking helper hangs/crashes the compiler — ✅ RESOLVED (landed binate `68a62f8c`, 2026-06-09)
-- **Resolution**: `collectTypeDecl` now rejects the cyclic definition (`cyclic type definition involving X`) and breaks the cycle (`Underlying = nil`), so NO `Underlying`-walker — `IsInteger`/`IsFloat`/`IsBool`/`NeedsDestruction`/`AssignableTo`/`comparabilityKind` — ever encounters a cycle. The four operand-comparability predicates additionally carry a bounded named-peel (`peelNamedBounded`) as defense-in-depth; `NeedsDestruction`/`AssignableTo` are protected transitively (the cycle can't exist) rather than independently bounded. See the CR-2 Plan-1 review entry above for coverage. (Original report retained below for context.)
-- **Symptom**: a cyclic named-distinct-type definition that is NOT struct-field-mediated — `type A B` + `type B A`, or the self-cycle `type A A` — is accepted by the checker with ZERO errors. The cyclic `TYP_NAMED.Underlying` chain then makes every helper that walks `Underlying` unsafe: `IsInteger`/`IsFloat`/`IsBool`/`NeedsDestruction`/`AssignableTo` recurse unboundedly → SIGSEGV; the new `comparabilityKind` (types_query.bn, loop-based) → infinite hang. Any expression touching such a type (e.g. `var a A; var b A; a == b`, or merely `AssignableTo(A, A)`) takes down the compiler.
-- **Root cause**: no cycle detection for non-struct named-type `Underlying` chains. `FindFreshCycles` (check_pending.bn) catches only SIZED-use (struct-field) cycles; const-cycle detection exists too; bare `type A B; type B A` is unguarded.
-- **Severity**: MAJOR — compiler DoS (hang/crash) on invalid source that should be rejected with a diagnostic; NOT silent wrong-code. PRE-EXISTING (the old `==` path already SIGSEGV'd here via `AssignableTo`); surfaced while adversarially reviewing the `==`-comparability change (binate `e0f40c06`), which converts the crash into a hang on its one path but neither introduces nor worsens the root defect.
-- **Fix direction**: detect named-type underlying cycles at definition time (in `collectTypeDecl`, mirroring struct-field-cycle and const-cycle detection) and emit a `type cycle: A -> B -> A` diagnostic so the cyclic type never reaches IR-gen or the predicates. Defense-in-depth: a shared visited/depth guard for the `Underlying`-walking helpers. Do NOT band-aid `comparabilityKind` alone — that leaves IsInteger/AssignableTo crashing.
-- **Test**: add WITH the fix — a checker test for `type A B; type B A` and `type A A` expecting a cycle diagnostic. (Cannot add now as an xfail: the defect is a hang/crash, so the test would hang/crash the suite rather than fail cleanly.)
-- **Discovery**: 2026-06-07, adversarial review of the `==`-comparability change.
 
 ### ~~`pkg/std/io`: add `io.EOF` sentinel~~ — LANDED (binate `4fdbd1f9`, plain non-readonly var) — two NON-blocking refinements remain
 - **LANDED**: `var EOF @errors.Error` declared in `io.bni` (extern), defined in `impls/.../io/io.bn` as `errors.New("EOF")`; the synthetic `pkg/std/io.__init` constructs it before main; a consumer reads `io.EOF` + `.Error()` correctly. Plain (non-readonly) var, matching Go's `io.EOF`. (Needed the iface-value global-init codegen fix, landed `91ef4fc4`.)
@@ -1862,38 +1763,6 @@ question).
   use `big` / `strconv.ParseFloat` directly.
 - **Also**: clear the remaining BUILDER float gaps so floats are fully
   BUILDER-compilable, then cut the release and bump BUILDER_VERSION.
-
-### Implement the strconv `Parse...` series (ParseInt / ParseUint / ParseBool / ParseFloat) — LANDED (complete)
-- **What**: strconv has only the `Format.../Append...`/`Itoa` (number→string)
-  direction; add the parse direction.  `ParseFloat` is the correct,
-  fully-rounded decimal→double, built over `pkg/std/math/big` (exact
-  mantInt*10^exp, round-to-even from the remainder) — the canonical home for
-  what `common.ParseFloatLitToBits` approximates.  Once stdlib is
-  BUILDER-bundled, the compiler's float-literal converter can route through it
-  (or share its core), fixing the round-bit bug above.
-- **Plan**: `explorations/plan-strconv-parse.md` (errors via the now-landed
-  `@errors.Error`; input `*[]readonly uint8`).
-- **Landed (binate)**: full series —
-  `ParseBool` + unexported `numError` (`@errors.Error` impl) (`b4bfe843`;
-  surfaced + fixed a MAJOR anon-tuple field-GEP codegen bug, `5f4a8eaf`);
-  integer core `ParseInt`/`ParseUint`/`Atoi` (`6a91cf5b`); `ParseFloat`
-  over `big` — exact, correctly-rounded decimal→binary for f64 and f32
-  (`eb4a7aee`); `_` digit separators across all of them (`ea706e43`).
-  Verified by Go differentials of the algorithms (integers 9.6M; floats
-  2.59M incl. underscores + the over/underflow error kind; 0 divergences),
-  exact-bit unit goldens, a Format↔Parse round-trip, and the
-  `526_strconv_parse_cross_pkg` cross-package consumer (LLVM/VM/gen2;
-  arm32/native via CI — the code is ILP32-safe, all math in uint64).
-- **Hex floats — DONE both directions**: `ParseFloat` reads `0x1.8p3`
-  (`15b6ce90`, pure-binary path sharing the rational rounding core; Go
-  differential ~2M) and `FormatFloat`/`AppendFloat` emit `'x'`/`'X'`
-  (`e85eb129`, exact nibble rendering, no big.Nat; Go differential ~4M).
-  `_` separators accepted in hex too.
-- **No remaining strconv follow-up** for parse/format parity.  (The only Go
-  float format not implemented is `'b'` — decimal mantissa, binary exponent —
-  which nothing needs yet.)  Once stdlib is BUILDER-bundled, route the
-  compiler's float-literal converter through `ParseFloat`'s core to retire the
-  round-bit dtoa bug + the duplicate converter (tracked above).
 
 ### float32 const literal: VM/native loaded the float64 pattern (wrong value) — FIXED 2026-06-05 (binate, plan-cr-p2 Plan 4 step 1)
 - **LLVM compile error — FIXED 2026-06-03 (binate `4fd196d0`)**: a float32-typed
@@ -2091,49 +1960,6 @@ question).
   pass post-fix); `aarch64_funcvalue_test.bn` pins slot-0 shape (dtor
   handle for a capturing managed closure, null otherwise, null for the
   *func and no-managed-capture forms).
-
-### Native (aa64 + x64) miscompiles a cross-package multi-return whose component is a managed interface value (`@Iface`) — MAJOR, silent wrong-code / crash — ✅ RESOLVED (x64 `47ebdbac` 2026-06-10; aa64 `d206635d` 2026-06-11)
-- **✅ RESOLVED — and the original "importer mis-sizes" root cause below was WRONG (empirically refuted 2026-06-11).** The `@errors.Error` tuple component resolves CORRECTLY to a 16-byte `TYP_INTERFACE_VALUE_MANAGED` in the consumer (type resolution is backend-shared — if it mis-sized, LLVM/VM would fail too, but they pass). The REAL cause is a native↔LLVM multi-return **sret-threshold** disagreement: our codegen emits a multi-return as a by-value first-class IR aggregate (no sret attr), which LLVM lowers FIELD-PER-REGISTER (aa64 X0..X7 / D0..D7; x64 RAX,RDX,RCX / XMM0,XMM1), sret'ing only on register-class overflow. The native backends used the 16-byte single-aggregate rule (`SizeOf > 16 → sret`), so a 24-byte `(int64, @errors.Error)` tuple (3 GP words) was sret'd by the native caller while the LLVM-compiled callee register-returned it in X0,X1,X2 — the caller read its never-written sret buffer (garbage err + corrupt scalar). Proven by disassembling the actual `Atoi` (returns X0,X1,X2, no x8/sret) + the fix making 526 pass. x64 was fixed by the field-per-register rework (`47ebdbac`, register-count threshold 3 GP / 2 FP); aa64 by the same register-count rule (`d206635d`, 8 GP / 8 FP — `MultiReturnTupleNeedsSret` now uses per-target `NumGpRetRegs`/`NumFpRetRegs`, not SizeOf). 526 un-xfailed on aa64 (full suite 1323✓); new `conformance/696_cross_pkg_mr_wide_gp` (3- and 4-GP-word) + `TestAapcs64MultiReturnRegisterCountThreshold`.
-- **Symptom**: `conformance/526_strconv_parse_cross_pkg` (added with the
-  strconv `Parse*` series, `6a91cf5b`) crashes on
-  `builder-comp_native_aa64-comp_native_aa64` — empty output.  The
-  `Parse*` functions return `(T, @errors.Error)`; the cross-package
-  multi-return of a managed-interface-value component is miscompiled:
-  the returned `@Iface` comes back as **non-nil garbage** and the scalar
-  component is **corrupted**, then the program crashes when the garbage
-  `@Iface` is used.  Green on the default C/LLVM and VM modes.
-- **Root cause (BISECTED 2026-06-04 with minimal native-aa64 repros)** —
-  the break is exactly *cross-package* + *multi-return* + *managed-
-  interface-value component*:
-  - same-package `(int64, @errors.Error)` multi-return → **passes**
-  - cross-package *single* `@errors.Error` return (`errors.New`) → **passes**
-  - cross-package `(int, int)` multi-return → **passes**
-  - cross-package `(int, @errors.Error)` multi-return → **FAILS**
-    (returned `@Iface` non-nil, scalar corrupted)
-  Minimal repro: a helper pkg `func Maybe(x int) (int, @errors.Error)`
-  returning `x, <nil>`, with `main` doing `n, err = helper.Maybe(7)` — on
-  native aa64 `present(err)` reads true (should be false) and `n` is
-  wrong.  The importer mis-sizes the `@Iface` tuple component (resolves
-  it to a managed pointer / wrong word-count within the return tuple), so
-  the caller's sret layout disagrees with the callee's — the native-aa64
-  analogue of the LLVM ABI mismatch fixed in `cb8c0f1a` (line ~434), but
-  in the MULTI-RETURN-tuple case (the single-`@Iface` case is already
-  correct on native aa64, hence `errors.New` passes).
-- **Also fails on native x64 (SysV)** — same root cause (the importer's
-  tuple-component type resolution for `@Iface` returns is backend-shared,
-  not aa64-specific); here it crashes (SIGSEGV) rather than printing
-  garbage.  Surfaced 2026-06-10 running the full x64 (Rosetta) lane.  NOT
-  funcval-related (the big-multi-return-x64 fix `f0747762` doesn't touch
-  it — `526` uses a direct cross-package call).
-- **Status**: `526` xfailed on native aa64 (binate `49d03616`) and now on
-  both x64 native modes (`builder-comp_native_x64` + `…_x64_darwin`,
-  2026-06-10) + this TODO.  **MAJOR (silent wrong-code / crash) — NOT a
-  workaround; needs a real fix to the native importer's tuple-component
-  type resolution for `@Iface` returns (fixes aa64 AND x64 together).**
-  Discovery: 2026-06-04
-  full native-aa64 `--check-xpass` lane (first correct end-to-end run; the
-  flag had been mis-positioned after the mode).  Not caused by the `550`
-  work.
 
 ### Native backends mis-lower float consts/returns — `541` silently reads 0 (Phase A float-const gap on the native code generators) — ✅ RESOLVED (binate `5281b138` + `cc6d0e9b` AAPCS64 D0 float-return + `1285683e` runtime link; `541` green on native aa64)
 - **Symptom**: `conformance/541_cross_pkg_const_float` passes on the
