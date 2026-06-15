@@ -82,30 +82,30 @@ native backend; the LLVM side relies on LLVM to classify HFAs).
 
 ---
 
-## MINOR — pkg/std native-only inject-all: add a coverage hygiene check (2026-06-14) — 🟡 OPEN
+## pkg/std VM inject-all: inject + factor + hygiene check (2026-06-14) — ✅ effectively DONE (hygiene check committed, pending land)
 
-**Status: the inject-all AND the list-factoring are DONE.** Every `pkg/std`
-package is native-only in the bytecode VM — `errors`, `io`, `strconv`, `math`,
-`math/big`, `strings` — except `os` (lowered + injected for its `__c_call`
-funcs) and `os/internal` (reached only from native `os`). Cross-mode injection
-covers functions, globals, managed-struct dtors, AND interface-impl vtables (the
-shim-route, `93f75f27`). The native-only set was factored into one source of
-truth — `nativeOnlyStdPkgs()`, a table pairing each import path with a thunk to
-its `_Package()` descriptor, iterated by both `isNativeOnlyInVM` and
-`injectStdlibExterns` (`8e45cc7e`). (`rt`/`bootstrap` stay named explicitly —
-native-only but not `pkg/std`; `os` stays explicit — lowered + always injected.)
-All in `cmd/bni/externs.bn`.
+Every `pkg/std` package is injected into the bytecode VM (backed by the single
+compiled instance): `errors`, `io`, `strconv`, `math`, `math/big`, `strings`
+are native-only (lowered-skipped + fully injected — functions, globals,
+managed-struct dtors, AND interface-impl vtables via the shim-route `93f75f27`);
+`os` is lowered + injected (its `__c_call` funcs dispatch to native even while
+its pure funcs run as bytecode). **`os/internal` is gone** — folded into `os` as
+an unexported `#[build]`-gated `errno()` (`55b3b044`), so it is no longer a
+non-injected package, and the invariant is now simply "every pkg/std package is
+injected" with no exemptions.
 
-Remaining (the only open part):
-- **Coverage hygiene check.** A check (a `*.sh` in `scripts/hygiene/`, which
-  `run.sh` auto-discovers) that every `pkg/std/**` package is either in
-  `nativeOnlyStdPkgs()` or explicitly exempted (`os`/`os/internal`), so a
-  newly-added stdlib package can't be silently left lowered (which would re-open
-  the cross-mode-identity hazards this whole effort closed). The check must read
-  the native-only set from `externs.bn` (e.g. grep the `nativeOnlyStdPkg{ path:
-  "..." }` lines) so it stays in sync with the one source of truth.
+- **List-factoring DONE** (`8e45cc7e`): the native-only set lives in one source
+  of truth — `nativeOnlyStdPkgs()`, a table pairing each import path with a thunk
+  to its `_Package()` descriptor, iterated by both `isNativeOnlyInVM` and
+  `injectStdlibExterns`. (`rt`/`bootstrap` stay named explicitly — native-only
+  but not `pkg/std`.)
+- **Hygiene check BUILT + committed** (`2d7a9566`, pending cherry-pick):
+  `scripts/hygiene/stdlib-injected.sh` (auto-discovered by `run.sh`) enumerates
+  `ifaces/stdlib/pkg/std/*.bni` and fails if any package isn't injected via one
+  of externs.bn's two mechanisms — `nativeOnlyStdPkgs()` or an explicit
+  `RegisterPackageFunctions(vmInst, <pkg>._Package())` call. No exemption list.
 
-Worktree note: do this on a fresh worktree synced to current `main`.
+Move to done once the hygiene check lands.
 
 ---
 
