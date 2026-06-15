@@ -10,6 +10,28 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~pkg/std VM inject-all: inject + factor + hygiene check~~ — ✅ LANDED on main (2026-06-14)
+
+Every `pkg/std` package is injected into the bytecode VM (backed by the single
+compiled instance): `errors`/`io`/`strconv`/`math`/`math/big`/`strings` are
+native-only (lowered-skipped + fully injected — functions, globals, managed-struct
+dtors, and interface-impl vtables via the shim-route `93f75f27`); `os` is lowered
++ injected (its `__c_call` funcs dispatch to native while its pure funcs run as
+bytecode). `os/internal` was folded into `os` as an unexported `#[build]`-gated
+`errno()` (`55b3b044`), so the invariant is simply "every pkg/std package is
+injected" — no exemptions.
+
+- **List-factoring** (`8e45cc7e`): the native-only set lives in one source of
+  truth — `nativeOnlyStdPkgs()`, a path↔`_Package()`-thunk table iterated by both
+  `isNativeOnlyInVM` and `injectStdlibExterns`.
+- **Hygiene check** (`452bc970`): `scripts/hygiene/stdlib-injected.sh`
+  (auto-discovered by `run.sh`) enumerates `ifaces/stdlib/pkg/std/*.bni` and fails
+  if any package isn't injected via `nativeOnlyStdPkgs()` or an explicit
+  `RegisterPackageFunctions(vmInst, <pkg>._Package())` call. No exemption list.
+- Related cleanup: `impls/stdlib` flattened (`5ae15031`; `common -> .` compat
+  symlink) since stdlib needs no per-platform dirs (all `#[build]`-gated), and the
+  layout spec updated to match.
+
 ### Stale `native_x64` (ELF) iface-multi-return xfails — REMOVED (binate `10798d42`) — 2026-06-10 (Lane B)
 - **What**: the 16 markers `conformance/matrix/abi/iface-multi-return{,-assign}/{int,u16}/{2,3,4,5}.xfail.builder-comp_native_x64-comp_native_x64` blamed "iface dispatch multi-return: native tuple-packing not yet implemented". That packing **IS implemented** (`pkg/binate/native/x64/x64_iface.bn` routes `OP_CALL_IFACE_METHOD` multi-returns through `collectMultiReturnTuple`), and the **identical-codegen** `builder-comp_native_x64_darwin` (Mach-O; same `pkg/binate/native/x64` backend, only object format differs) **PASSES all of these cells** (Lane B run 2026-06-10, and already noted in `03b80566`). ELF also passes the un-xfailed `multi-return` / `funcval-multi-return` / iface `f64` / `iface-param` / `iface-return` cells, so iface dispatch and multi-return both work there — these int/u16 markers were the lone stale holdouts.
 - **Removed** on the x64-darwin evidence (user-authorized 2026-06-10). The ELF mode isn't locally runnable on macOS/arm64 (no `qemu-x86_64`), so **CI is the confirmation point**: it runs ELF natively on the x86-64 ubuntu runner and will exercise these 16 cells once Lane A's `-comp*` link break clears. Expected green; **treat any ELF failure as a real x64-ELF-specific bug to fix (not a re-xfail).** (arm32 iface-multi-return xfails left in place — different, less-complete backend.)

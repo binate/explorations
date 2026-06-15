@@ -82,31 +82,6 @@ native backend; the LLVM side relies on LLVM to classify HFAs).
 
 ---
 
-## pkg/std VM inject-all: inject + factor + hygiene check (2026-06-14) — ✅ effectively DONE (hygiene check committed, pending land)
-
-Every `pkg/std` package is injected into the bytecode VM (backed by the single
-compiled instance): `errors`, `io`, `strconv`, `math`, `math/big`, `strings`
-are native-only (lowered-skipped + fully injected — functions, globals,
-managed-struct dtors, AND interface-impl vtables via the shim-route `93f75f27`);
-`os` is lowered + injected (its `__c_call` funcs dispatch to native even while
-its pure funcs run as bytecode). **`os/internal` is gone** — folded into `os` as
-an unexported `#[build]`-gated `errno()` (`55b3b044`), so it is no longer a
-non-injected package, and the invariant is now simply "every pkg/std package is
-injected" with no exemptions.
-
-- **List-factoring DONE** (`8e45cc7e`): the native-only set lives in one source
-  of truth — `nativeOnlyStdPkgs()`, a table pairing each import path with a thunk
-  to its `_Package()` descriptor, iterated by both `isNativeOnlyInVM` and
-  `injectStdlibExterns`. (`rt`/`bootstrap` stay named explicitly — native-only
-  but not `pkg/std`.)
-- **Hygiene check BUILT + committed** (`2d7a9566`, pending cherry-pick):
-  `scripts/hygiene/stdlib-injected.sh` (auto-discovered by `run.sh`) enumerates
-  `ifaces/stdlib/pkg/std/*.bni` and fails if any package isn't injected via one
-  of externs.bn's two mechanisms — `nativeOnlyStdPkgs()` or an explicit
-  `RegisterPackageFunctions(vmInst, <pkg>._Package())` call. No exemption list.
-
-Move to done once the hygiene check lands.
-
 ---
 
 ## MAJOR — native Mach-O writer emits no `LC_DYSYMTAB` / unpartitioned symtab → linker won't coalesce cross-object weak defs → `duplicate symbol` link failure (2026-06-14) — 🔴 OPEN
