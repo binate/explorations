@@ -90,7 +90,8 @@ the live ToC + per-chapter status; this section is a durable summary.
 
 **Authored (each: ground via a Workflow → draft → adversarial-verify → correct →
 commit):**
-- Apparatus: `conventions.md`, `00-index.md`, `binate.ebnf` (placeholder).
+- Apparatus: `conventions.md`, `00-index.md`, `binate.ebnf` (canonical grammar;
+  Annex A generated from it).
 - §3 Terms, §4 Notation (Phase 0 / apparatus).
 - §5 Lexical, §6 Constants, §7 Types (`07-types.md` catalogue + `07b-type-layout.md`
   keystone, verified clean), §8 Conversions, §9 Declarations & Scope (Phase 1).
@@ -173,34 +174,49 @@ commit):**
   saturation has LANDED (binate `b3a52025`, test 732 green all modes), so its "not
   yet realized" Open note became a settled rule. **§20/§21 chapter authoring done.**
 
-**Remaining:** **Chapter authoring done through §21** (§20.2 rt still a gated
-placeholder). Remaining: **§20.2** (gated on the `pkg/rt` review) and **Annexes
-A–D** (A grammar — gated on the grammar reconciliation; B impl-model/IDB index;
-C status table; D rationale). Two §21 reconciliation GAPs are flagged for a user
-decision: **byte order/endianness** (`behavior.impl-defined.endianness`) and
-**optional int64/float scalar availability** (`behavior.impl-defined.optional-scalars`
-— §7.2 currently lists them unconditionally). Prerequisites still pending: the
-grammar reconciliation (→ `binate.ebnf`/Annex A) and the `pkg/rt` review (→ §20.2).
+- Canonical grammar + Annex A (docs `335cc9f`/`e8a04da`/`052f414`/`a1f20b9`/`d242c95`),
+  2026-06-13…15: reconciled `explorations/grammar.ebnf` against the parser + the
+  inlined chapter productions into the canonical `docs/spec/binate.ebnf` (Phase-0,
+  Decision D4) → adversarially reviewed (4 reviewers) → corrected (added slice
+  composite literals, removed the left-recursive BuildExpr / `\u` escape, fixed
+  string-concat + annotation granularity + ForInClause cap, restored the
+  generic-literal head per user decision, …) → reconciled the recent shift /
+  parallel-assignment landings (guard-free `unsafe_shl`/`unsafe_shr`; negative
+  shift count now panics; parallel `a,b=b,a`) into §13/§14/§15/§17/§21 + the
+  grammar. **Annex A is now GENERATED** from `binate.ebnf` by
+  `docs/scripts/gen-annex-a.py` (with a `--check` staleness mode). Retracted
+  `prog.main.unchecked` as BY DESIGN (per-package compilation + interop). Three
+  parser bugs filed (const-`X T`, generic-literal-unparsed, for-clause chaining).
+
+**Remaining:** **Chapter authoring done through §21; Annex A generated.**
+Remaining: **§20.2** (gated on the `pkg/rt` review) and **Annexes B–D** (B
+impl-model/IDB index; C status table; D rationale). Two §21 reconciliation GAPs
+are flagged for a user decision: **byte order/endianness**
+(`behavior.impl-defined.endianness`) and **optional int64/float scalar
+availability** (`behavior.impl-defined.optional-scalars` — §7.2 currently lists
+them unconditionally). Prerequisite still pending: the `pkg/rt` review (→ §20.2).
+The grammar reconciliation is **done**.
 
 **Spec-as-audit:** authoring has surfaced ~21 real implementation discrepancies/
 defects, all tracked in `claude-todo.md` (search "spec Ch."). Notable MAJOR:
-parallel assignment `a,b=1,2` / swap `a,b=b,a` and inc/dec on a non-identifier
-lvalue (`a[i]++`, `p.f++`) both type-check clean but emit NO code — silent
-dropped writes (Ch.14, two MAJOR — user decision pending: implement vs reject);
+parallel assignment `a,b=1,2` / swap `a,b=b,a` was a silent dropped-write but is
+now **RESOLVED** (decision (A) Support, binate `d2a3b8f1`); inc/dec on a
+non-identifier lvalue (`a[i]++`, `p.f++`) still type-checks clean but emits NO
+code (Ch.14, MAJOR — open);
 `panic(msg)` is a no-op in the bytecode VM (Ch.15, MAJOR dual-mode gap);
 indexed array literals silently miscompiled (Ch.13; the array/struct over-count
 OOB writes are now RESOLVED — `910e08cb` / `e185c9c4`); generic methods/struct-
 constraints unenforced (Ch.12); the const→readonly and grammar-staleness
 reconciliations.
 
-**NEXT (updated 2026-06-13):** §20 + §21 are authored (docs `889d359`). Remaining
-authoring: **§20.2 rt** (gated on the `pkg/rt` review) and **Annexes A–D** (A
-grammar — blocked on the grammar reconciliation that produces `binate.ebnf`; B
-impl-model/IDB index; C status table — derive last; D rationale). Open follow-ups
-for the user, not blocking: (1) two **§21 reconciliation gaps** need ratification —
-byte order/endianness and optional int64/float scalar availability; (2) the three
-Ch.14/Ch.15 MAJOR gaps (parallel-assignment drop, inc/dec-lvalue drop, panic VM
-no-op) need a fix decision + a coordinated `binate` worktree; (3) no xfail
+**NEXT (updated 2026-06-15):** §20 + §21 authored; the **canonical `binate.ebnf`
+and Annex A are done** (Annex A generated via `docs/scripts/gen-annex-a.py`).
+Remaining authoring: **§20.2 rt** (gated on the `pkg/rt` review) and **Annexes
+B–D** (B impl-model/IDB index; C status table — derive last; D rationale). Open
+follow-ups for the user, not blocking: (1) two **§21 reconciliation gaps** need
+ratification — byte order/endianness and optional int64/float scalar
+availability; (2) the remaining Ch.14/Ch.15 MAJOR gaps (inc/dec-lvalue drop,
+panic VM no-op) need a fix decision + a coordinated `binate` worktree; (3) no xfail
 conformance coverage yet for the two MAJOR generics gaps
 (`gen.no-generic-methods.unenforced`, `gen.satisfy.struct-iface-unchecked`).
 
