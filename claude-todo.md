@@ -60,7 +60,7 @@ markers (reason updated to this bug). Replace with a focused test when fixed.
 
 ---
 
-## MAJOR (import resolution) — a package directly importing TWO packages with the same final path segment double-emits one's `_Package` declaration → `invalid redefinition of bn_pkg__…___Package` (2026-06-14) — ✅ FIXED (approach B), pending land; same-segment GENERICS deferred (2026-06-15)
+## MAJOR (import resolution) — a package directly importing TWO packages with the same final path segment double-emits one's `_Package` declaration → `invalid redefinition of bn_pkg__…___Package` (2026-06-14) — ✅ FIXED & LANDED `e201f448` (approach B); same-segment GENERICS deferred (2026-06-15)
 
 Found converting minbasic to `pkg/std/os`: `pkg/host` already imports
 `pkg/basic/io`, and classifying end-of-input with `io.IsEOF` needs `pkg/std/io`
@@ -113,7 +113,7 @@ too — both final segment `io`.
   a hard clang error, because it's registered unconditionally for every import
   under the same name → duplicate declaration.
 
-- **FIX (approach B, committed on worktree, pending cherry-pick):** the loader now
+- **FIX (approach B, landed `e201f448`):** the loader now
   passes the **full import path** as the registration key (`alias == path`), so
   same-final-segment packages never collide. The `streq(alias, "rt"/"bootstrap"
   /"lang")` short-name checks became full paths, and the 6 generic/interface
@@ -124,7 +124,7 @@ too — both final segment `io`.
   conformance/785 covers the same-segment case comprehensively (free funcs,
   extern vars, structs, unqualified local-type fields, methods, interface, impl).
 
-- **DEFERRED — same-final-segment GENERICS** (conformance/786, xfail): generic
+- **DEFERRED — same-final-segment GENERICS** (conformance/792, xfail): generic
   decls still collide, because the generic-decl stash (`genericDeclPkgs` etc.) and
   the per-(decl,args) monomorphized symbol aren't qualified by the full path —
   so `bb.Pick[int]` resolves to `aa.Pick[int]` (`100 100` not `100 200`). Fix:
