@@ -4,7 +4,9 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
-## CRITICAL (IR-gen) — IDENT compound shift-assign (`v <<= c`) pre-truncates the count, defeating BOTH the wide-overshift fix and the negative-count guard (2026-06-15) — 🔴 OPEN
+## CRITICAL (IR-gen) — IDENT compound shift-assign (`v <<= c`) pre-truncates the count, defeating BOTH the wide-overshift fix and the negative-count guard (2026-06-15) — ✅ DONE (binate `11f0b413`)
+
+Fixed: `genAssign`'s IDENT arm now skips the pre-`ensureWidth` for a compound assignment (`emitCompoundBinop` reconciles the operand width AFTER the shift guards read the count's true width). `conformance/regressions/shift-runtime-wide-overshift` gained `<<=`/`>>=` cases; `conformance/793_err_shift_negative_count_compound` covers the compound runtime negative-count panic; IR-gen unit test asserts the compound path emits the guards. Green on LLVM / both VM lanes / native aarch64.
 
 **Symptom (REPRODUCED on builder-comp).** `var v uint8 = 1; var c uint16 = opaque16(261); v <<= c; println(cast(int, v))` prints **32**, but the spec result is **0** (overshift: count 261 >= width 8 → 0). The expression form `v = v << c` correctly yields 0 — so `<<=` and `= <<` give different answers for identical semantics. Likewise a wide NEGATIVE count fails to trap: `var x int8 = 1; var n int16 = opaque16(-256); x <<= n` truncates int16 → int8 (0xFF00 → 0x00) so `emitShiftCheckGuard` sees a non-negative count and emits no `OP_SHIFT_CHECK` — no `runtime error: negative shift count`.
 
