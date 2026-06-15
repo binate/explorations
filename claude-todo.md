@@ -61,30 +61,28 @@ for generic bodies), which the earlier repros didn't exercise. It re-blocks the
 
 ---
 
-## MAJOR (VM) — compiled iface method returning >16 bytes has no sret path → cross-mode call aborts (2026-06-14) — 🔴 OPEN
+## MAJOR (VM) — compiled iface method returning >16 bytes had no sret path → cross-mode call aborted (2026-06-14) — ✅ RESOLVED (binate `2654d858`)
 
-A compiled interface method whose return is >16 bytes (e.g. a 4-word
-`@[]readonly char` managed-slice) cannot be called from the interpreted
-VM: `pkg/binate/vm/vm_exec_iface.bn` aborts with `vm: compiled iface
-method returns >16 bytes (sret path unimplemented)`.
+**✅ RESOLVED (binate `2654d858` "vm/codegen: support >16-byte compiled
+iface method returns").**  A compiled interface method whose return is
+>16 bytes (e.g. a 4-word `@[]readonly char` managed-slice) used to abort
+the interpreted VM (`vm: compiled iface method returns >16 bytes (sret
+path unimplemented)`).  `2654d858` added the 17–32-byte path
+(`rt._call_shim_quad` → a 4-word VM-stack retbuf) in
+`pkg/binate/vm/vm_exec_iface.bn`, covering `errors.Error.Error()`'s
+32-byte managed-slice.  `577_std_errors` now passes under
+`builder-comp-int`.
 
-- **Symptom**: `577_std_errors` aborts under `builder-comp-int`
-  (`errors.Error.Error()` returns `@[]readonly char`; the test compiles
-  `pkg/std/errors` via builder-comp while interpreting `main`, so the
-  call crosses the compiled→interpreted boundary).  Now marked
-  `conformance/577_std_errors.xfail.builder-comp-int`.  LLVM, gen2, and
-  native all pass.
-- **Root cause**: the VM's cross-mode iface-method dispatch implements
-  the ≤16-byte (register-pair) return ABI but not the sret
-  (caller-allocated return slot) path for >16-byte aggregate returns.
-- **Fix**: implement the sret path in the VM's compiled-iface-method
-  call — allocate the return slot, pass it per the compiled ABI, and
-  marshal the result back (mirror any existing compiled-call sret
-  handling for direct, non-iface calls).
-- **Discovery**: full `builder-comp-int` sweep during the D4/D3/D5
-  generics arc (2026-06-14).  Previously an *untracked* pre-existing
-  failure — only mentioned in passing under the `@func`-default-inference
-  DONE entry below ("lone `577_std_errors` pre-existing").
+- **My note**: I briefly mis-tracked this and landed a *stale*
+  `577_std_errors.xfail.builder-comp-int` (binate `6e8415df`) — the fix
+  was already on main when I landed; the marker was removed in binate
+  `c3e57d9c`.  The discovery (an untracked failure on the pre-fix base
+  `c94e2f74`) was real, but the fix landed concurrently before mine.
+- **Residual (loud-fail, no test hits them — NOT silent)**: a compiled
+  iface method returning **>32 bytes**, or taking **>7 arg slots**, still
+  `rt.Exit(1)`s with a clear message (`vm_exec_iface.bn`).  Widen with
+  another fixed-size shim / a true sret primitive (and wider arg shims)
+  if such a method ever appears.
 
 ## MAJOR — native Mach-O writer emits no `LC_DYSYMTAB` / unpartitioned symtab → linker won't coalesce cross-object weak defs → `duplicate symbol` link failure (2026-06-14) — 🔴 OPEN
 
