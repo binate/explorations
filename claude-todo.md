@@ -51,6 +51,8 @@ WIP) so a regression of THIS bug is caught; (4) stale comments at
 `pkg/binate/native/x64/x64.bn:26` + `x64_call.bn:171` say "PLT32" where the code
 emits PC32 — correct them.
 
+**WATCH — possible flaky `matrix/readonly/pass-arg/value-struct-large` on native_x64 (2026-06-14):** this cell is NOT in the 12 failures above and PASSES in normal native_x64 conformance CI (it has no native_x64 xfail), but it produced a **one-off empty-output crash** (expected `7\n9`, got nothing) when pulled into a `conformance-xpass` sweep run via the (now-fixed) substring-filter collision with `value-struct` (`run.sh --exact` stops that now). Same test, same mode, two different outcomes → likely a flaky / marginal native_x64 codegen issue for a >16-byte `readonly` aggregate passed by value, or a one-off artifact of that poisoned sweep run. Not reproduced since; no marker added. If it recurs in normal CI, investigate the native_x64 byval path for `readonly`-wrapped >16-byte aggregates (`pkg/binate/native/x64`).
+
 ## MINOR — cross-mode interface dispatch: test-coverage gaps + LP64 assumption (2026-06-14) — 🟡 OPEN
 
 The shim-route that dispatches a native-only package's interface methods from
