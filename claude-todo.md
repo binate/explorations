@@ -4,6 +4,70 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## 🔴 CRITICAL: managed-slice composite literals of struct elements miscompile / crash (`@[]T{ T{...} }`) — 🔴 OPEN (2026-06-14)
+
+Two distinct latent defects in the **same untested construct**: a managed-slice
+composite literal whose element type is a (value) struct, e.g.
+`var a @[]Pt = @[]Pt{ Pt{x:1, y:2}, Pt{x:3, y:4} }`. No conformance test or
+codebase site exercises this at runtime today (grep found zero runtime
+`@[]Struct{...}` literals), so it's been silently broken. The existing IR-gen
+tests (`TestManagedSliceLitAggregateAcquires` in `gen_composite_test.bn`) only
+assert `__copy_` is *emitted* — they never RUN the program, so neither defect is caught.
+
+**Discovery (2026-06-14):** while factoring cmd/bni's native-only inject list
+(`nativeOnlyStdPkgs()` was written as `@[]nativeOnlyStdPkg{ nativeOnlyStdPkg{...}, ... }`
+— inline struct-literal elements). cmd/bni produced **empty output for every
+program** because its own startup table read back garbage. Bisected down to a
+3-line repro.
+
+**Defect 1 — compiled (IR-gen `genManagedSliceLit`): inline struct-literal
+elements store the temp's ADDRESS, not a value copy → garbage data (silent
+wrong-code).** Ground truth (pure `builder-comp`, no VM): `@[]Pt{ Pt{x:1,y:2},
+Pt{x:3,y:4} }` then printing the four fields → `6162933664, 0, 6162933648, 0`
+(the two garbage values differ by 16 = `sizeof(Pt)` — they are the *stack
+addresses* of the two inline temps). Exit 0, wrong data.
+- **Root cause:** `pkg/binate/ir/gen_composite.bn:280-314` (`genManagedSliceLit`)
+  does `val = genExpr(elem)`; `EmitStore(copySlot, val)`; `EmitSliceSet(slice,
+  idx, val, elemTyp)`. For an inline struct literal, `genExpr` returns a
+  *pointer to the constructed temp* (aggregates are pointer-represented in this
+  IR), and this path stores that 8-byte pointer into word 0 of the struct slot
+  instead of memcpy-ing the aggregate. `genArrayLit` (same file, ~L169-179)
+  DOES handle the pointer-to-aggregate element case; `genManagedSliceLit` is
+  missing the equivalent aggregate-element handling.
+- **Why variable elements work compiled:** `@[]Pt{ p0, p1 }` (pre-built locals)
+  prints `21,22,23,24` correctly — that path produces a copyable aggregate value.
+  Only the INLINE-composite element form trips defect 1.
+
+**Defect 2 — bytecode VM lowering: any `@[]Struct{...}` literal SIGSEGVs.**
+Ground truth (`builder-comp-int`, bni interpreting the program): BOTH the
+inline-element AND the variable-element forms crash with exit 139 (SIGSEGV).
+Isolation: a trivial program runs fine in the VM, and `make_slice(Pt,2)` +
+field assignment runs fine in the VM (`1,4`) — so the trigger is specifically
+the managed-slice *literal* lowering for struct elements (the
+`EmitMakeSlice`/`EmitSliceSet`/struct-copy path in `pkg/binate/vm/lower_*`),
+not Pt-in-VM generally. Needs separate investigation from defect 1 (the VM
+lowers IR independently of the LLVM/native backend).
+
+**Safe constructs (both compiled AND VM):** `make_slice(T, n)` + per-field
+assignment works everywhere; `@[]T{ p0, p1 }` with pre-built variable elements
+works *compiled* (but still crashes the *VM*). For cmd/bni's own code (which is
+compiled, never interpreted), variable-element or make_slice forms sidestep
+defect 1.
+
+**Proposed fix:**
+1. `genManagedSliceLit` — mirror `genArrayLit`'s aggregate-element handling:
+   when the element value is a pointer-to-aggregate, copy the aggregate into the
+   slice slot (don't store the pointer).
+2. VM managed-slice-literal-of-struct lowering — find why `EmitSliceSet` with a
+   struct element segfaults; likely the struct-copy/slice-set lowering for
+   managed-slice elements is unimplemented or mishandles the aggregate.
+
+**Tests to add (pending fix-now-vs-defer decision):** a conformance test that
+builds `@[]Struct{ Struct{...}, ... }`, reads back all fields, and prints them;
+currently fails in EVERY mode (compiled = wrong values, VM = SIGSEGV), so it
+needs xfail markers across all default modes until fixed — or lands green if the
+fix is done first.
+
 ## native_x64 (ELF) was NOT "WIP" — one reloc bug masked a 99%-working backend — ✅ core FIXED+LANDED, C-call gap OPEN (2026-06-14)
 
 **Fixed + landed:** `dd74c91e` (PC32 addend) + `c097a381` (`.note.GNU-stack`).
