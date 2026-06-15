@@ -931,7 +931,10 @@ Conformance modes are chains of `builder` (prebuilt BUILDER bnc), `comp`
 
 **Bitwise**: `&`, `|`, `^`, `~`, `<<`, `>>`
 - `>>` is arithmetic for signed types, logical for unsigned (C/Go/Rust behavior). No separate `>>>`.
-- Shift by >= bit width: defined behavior (zero for `<<` and logical `>>`, sign-extended for arithmetic `>>`)
+- A shift's result type is the LEFT (value) operand's; the count may be ANY integer type, independent of the value (Go semantics — a shift is not a symmetric binop).
+- Shift by >= bit width: defined behavior (zero for `<<` and logical `>>`, sign-extended for arithmetic `>>`). This holds for a count of any width: the overshift is detected from the count's true value before it is reconciled to the value width (so a wide runtime count >= 2^valueWidth still yields the spec'd result, not a truncated residue).
+- **Negative shift count: a programmer error (DECIDED 2026-06-15, matching Go).** A *constant* negative count is a **compile error** ("negative shift count"); a *runtime* negative count **panics** ("runtime error: negative shift count"). An unsigned-typed count can never be negative, so it is never checked.
+- `unsafe_shl(v, n)` / `unsafe_shr(v, n)` are the guard-free counterparts (the shift analogue of `unsafe_div`/`unsafe_rem`): a bare hardware shift with NEITHER the overshift handling NOR the negative-count check. The caller asserts `n` is in `[0, bitwidth)`; otherwise the result is target-defined.
 
 **Comparison**: `==`, `!=`, `<`, `>`, `<=`, `>=`
 - No chaining (`a < b < c` is a compile error, like Go)
