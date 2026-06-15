@@ -10,6 +10,24 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~Unknown escapes silently dropped (spec Ch.5)~~ — ✅ REJECTED+LANDED (binate `be30129e`; conformance 791; 2026-06-15)
+
+`unescapeStr`/`parseCharLit` decoded only `\n \r \t \\ \' \" \0 \xHH \uHHHH`;
+any other `\X` fell through to a verbatim `X` (backslash dropped) with no
+diagnostic — so `"\a"` decoded to `"a"`.
+
+- **Resolution — reject** (completes the §5 escape batch alongside the `\u`
+  work): `validateEscapes` (`types/escape.bn`, run from `checkExpr`) now
+  reports any backslash not starting a recognized escape as
+  `unknown escape sequence '\X'`, naming the offending char.  The IR decoder
+  catch-alls became unreachable for valid input (the checker gates them) and
+  carry a note marking them defensive fallbacks.
+- **No existing code broken**: a repo-wide sweep of every `.bn`/`.bni` in the
+  binate repo + the examples repo (2468 files, adversarially verified for
+  completeness) found zero literal using an unknown escape.
+- **Tests**: conformance 791 (negative: `"\a"` rejected); unit test in
+  `escape_test.bn`.
+
 ### Shift count: negative → panic (Go semantics) + unchecked-shift intrinsic — ✅ DONE (2026-06-15)
 Decided 2026-06-15 (after the runtime-overshift fix above): a shift count is non-negative; a NEGATIVE count is a programmer error, matching Go. All three sub-items landed:
 - **(2a) Runtime negative-count panic via a dedicated check op — ✅ DONE (binate `6bf1efab`)**: new `OP_SHIFT_CHECK` → `rt.ShiftCheck` (panics via `rt.ShiftFail`, "runtime error: negative shift count"), parallel to `OP_DIV_CHECK`/`rt.DivCheck`. `EmitShiftCheck` (ir_ops) emitted by `emitShiftCheckGuard` (gen_shift) only for a SIGNED count on the guarded path, from the original (pre-width-reconciliation) count sign-extended to int64. Lowered on every backend: LLVM (`emit_instr`), x64 + aarch64 dispatch, VM (`BC_SHIFT_CHECK` → `rt.ShiftCheck`). Runtime decls/impls in `rt.bni`/`rt.bn`/`rt_baremetal.bn`. Conformance `787_err_shift_negative_count` (panics on LLVM/VM/native); IR-gen + per-backend lowering unit tests. Full conformance green on LLVM gen1 (1454/0) and gen2 self-compile (1454/0). The shift-codegen cluster was extracted into `gen_shift.bn` (+ `gen_shift_test.bn`) to keep `gen_binary.bn` under the file cap.

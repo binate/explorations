@@ -849,10 +849,6 @@ documents these as open items.
   TYP_NAMED at isManagedFuncValueLit). Value-rejection and reference
   construction both work.
 
-### Escape-decoding gaps surfaced while authoring spec Ch.5 (Lexical Elements) — 🟡 OPEN
-Found writing the docs spec's Lexical Elements chapter (adversarial verification against `pkg/binate/ir/gen_util_literals.bn`). MINOR (silent leniency, not miscompile). The leading-zero-int split bullet and the `\uHHHH` bullet from this entry are RESOLVED — diagnoses archived in claude-todo-done.md (`\u` landed binate `1c43ef79`, conformance 789/790). Remaining:
-- **Unknown escapes silently dropped.** `unescapeStr`/`parseCharLit` decode only `\n \r \t \\ \' \" \0 \xHH \uHHHH`; any other `\X` falls through to a verbatim `X` (backslash dropped) with no diagnostic — so `"\a"` decodes to `"a"` (catch-all `gen_util_literals.bn`). Decide whether unknown escapes should be rejected. (The `\u` work added `validateEscapes` in `types/escape.bn`, run from `checkExpr`; rejecting unknown escapes is a one-branch extension there.)
-
 ### Untyped `const` coercion: implementation diverges from a DECIDED note — surfaced authoring spec Ch.6 (2026-06-11)
 Needs a decision (MINOR — no miscompile; a type-system permissiveness
 question).
