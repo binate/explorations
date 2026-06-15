@@ -34,6 +34,33 @@ native backend; the LLVM side relies on LLVM to classify HFAs).
 
 ---
 
+## MINOR — finish pkg/std native-only inject-all: factor the list + add a coverage hygiene check (2026-06-14) — 🟡 OPEN
+
+**Status: the inject-all itself is DONE.** Every `pkg/std` package is now
+native-only in the bytecode VM — `errors`, `io`, `strconv`, `math`, `math/big`,
+`strings` — except `os` (lowered + injected for its `__c_call` funcs) and
+`os/internal` (reached only from native `os`). Landed through `7c3b17a2`.
+Cross-mode injection covers functions, globals, managed-struct dtors, AND
+interface-impl vtables (the shim-route, `93f75f27`). All in `cmd/bni/externs.bn`.
+
+Remaining infra (the only open part):
+1. **Factor the native-only list to one source of truth.** `isNativeOnlyInVM`
+   (a `streq` chain) and the `injectStdlibExterns` `injectPure(...)` calls both
+   hardcode the same `pkg/std` set. Consolidate. Caveat: the `injectPure` calls
+   can't be a pure loop over a string list — each needs its package's
+   compile-time `<pkg>._Package()` symbol — so factor the PATH list (for
+   `isNativeOnlyInVM` + the check below) and keep the per-package `injectPure`
+   calls explicit, or find a cleaner split.
+2. **Coverage hygiene check.** A check (wired into `scripts/hygiene/run.sh`) that
+   every `pkg/std/**` package is either in the native-only list or explicitly
+   exempted (`os`/`os/internal`), so a newly-added stdlib package can't be
+   silently left lowered (which would re-open the cross-mode-identity hazards
+   this whole effort closed).
+
+Worktree note: do this on a fresh worktree synced to `main` ≥ `7c3b17a2`.
+
+---
+
 ## MAJOR — generic function in a `.bni` can't resolve a generic struct declared in the SAME `.bni` → `undefined: Box`, signature recorded as `void` (2026-06-14) — 🔴 OPEN
 
 Third sibling of the two generic-instantiation bugs fixed in bnc-0.0.9
