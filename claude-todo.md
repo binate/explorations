@@ -76,7 +76,7 @@ path unimplemented)`).  `2654d858` added the 17–32-byte path
 - **My note**: I briefly mis-tracked this and landed a *stale*
   `577_std_errors.xfail.builder-comp-int` (binate `6e8415df`) — the fix
   was already on main when I landed; the marker was removed in binate
-  `c3e57d9c`.  The discovery (an untracked failure on the pre-fix base
+  `e83d5f42`.  The discovery (an untracked failure on the pre-fix base
   `c94e2f74`) was real, but the fix landed concurrently before mine.
 - **Residual (loud-fail, no test hits them — NOT silent)**: a compiled
   iface method returning **>32 bytes**, or taking **>7 arg slots**, still
