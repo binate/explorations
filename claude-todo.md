@@ -290,58 +290,6 @@ not an object-writer tweak. Needs a native-aa64 unit/link regression once
 fixed. Discovered 2026-06-14 during the bnc-0.0.9 release-readiness gate (unit run
 `27488837411`).
 
-## MAJOR — parallel assignment `a, b = 1, 2` (and the swap `a, b = b, a`) type-checks clean but generates NO code (silent dropped writes) — spec Ch.14 (2026-06-12) — ✅ FIXED — decision (A) Support, work-2 `8290eefa`, PENDING LAND (2026-06-15)
-
-Found + verified firsthand while grounding spec Ch.14 (Statements) against the
-live impl (read parser/checker/IR; conclusive from the code path, plus the
-conformance gap below). A matched-arity assignment with **more than one expression
-on each side** — `a, b = 1, 2`, or the swap idiom `a, b = b, a` — is accepted by
-the type-checker but **silently lowered to nothing**: both stores are dropped, no
-diagnostic, no IR.
-
-- **Checker accepts it.** `checkAssignStmt` (`check_stmt.bn:225-267`) takes the
-  matched-arity path when `len(Exprs) == len(Exprs2)` and loops over each index,
-  checking each LHS/RHS pair assignable — so `a, b = 1, 2` (2 == 2) passes clean.
-- **IR-gen drops it.** `genAssign` (`gen_control.bn:89-411`) has exactly two
-  branches: `len(Exprs) > 1 && len(Exprs2) == 1` → `genMultiAssign` (call
-  destructure), and `len(Exprs) == 1 && len(Exprs2) == 1` → single assign. The
-  `len(Exprs) > 1 && len(Exprs2) > 1` case matches **neither** and falls straight
-  to `return b` (line 411) — no store IR emitted. So `a, b = 1, 2` and
-  `a, b = b, a` compile to a **no-op**.
-- **No conformance coverage.** Every multi-`=` conformance site has a single
-  multi-return *call* on the RHS (`q, r = divmod(...)`); there is NO `a, b = b, a`
-  / multi-expr-RHS test, so this has never been exercised (conformance grounding
-  confirmed: "parallel-assignment swap semantics are UNVERIFIED").
-- **Severity**: MAJOR silent wrong-code — arguably CRITICAL, because the swap
-  idiom `a, b = b, a` is exactly what a Go-familiar user reaches for and it
-  silently does nothing. Not memory-unsafety (no OOB); blast radius is limited
-  because idiomatic Binate uses multi-RETURN (one call), which works.
-- **RESOLUTION — decision (A) Support parallel assignment** (user choice,
-  2026-06-15). Implemented in `pkg/binate/ir/gen_assign_parallel.bn`
-  (`genParallelAssign`), wired as a third `genAssign` arm
-  (`len(Exprs) > 1 && len(Exprs2) == len(Exprs)`). Go-style two-phase
-  lowering: phase 1 resolves each LHS target and evaluates+ACQUIRES its RHS
-  value; phase 2 stores each into its slot, releasing the old occupant
-  (Axiom 5) WITHOUT re-acquiring. The up-front acquire is what avoids the swap
-  UAF (storing b's value into a would otherwise RefDec a's old value to zero —
-  freeing it — before the second store reads it); a managed struct VALUE is
-  snapshot-copied into a temp and MOVED into its slot, so the discipline holds
-  for aggregates too. Covers ident / `*p` / `p.f` / array+pointer+slice index
-  targets, with the single-assign coercions (string→chars, nil→slice,
-  `@[]T`→`*[]T`, aggregate composite-literal load) and sub-word width.
-  - **Tests**: conformance 777–783 (basic/rotation/old-value, `@T` swap
-    refcount, array+slice index swap, string+width coercion + managed-slice
-    swap, struct-field + managed-struct-value swap, deref targets, owned-temp
-    RHS) — green on builder-comp / builder-comp-int (VM) / builder-comp-comp
-    (gen2). Unit: `gen_assign_parallel_test.bn` pins the IR shape.
-  - **Spec**: §14 (Statements) authoring is UNBLOCKED — document parallel
-    assignment per decision (A): all RHS evaluated before any store; swap
-    works; matched-arity multi-expression form is legal (not multi-return only).
-  - **Note**: the checker already accepted matched-arity (per-element checks),
-    so no checker change was needed; only IR-gen was missing.
-
----
-
 ## MAJOR — closure-shim cousins still use raw `ArgWords` for user words (latent funcval miscompile) — 🟡 OPEN
 
 FOLLOW-UP to the now-resolved non-closure funcval-shim marshalling fix (full
@@ -1874,7 +1822,6 @@ question).
   body), since fixed (`4306197`) — see the FIXED entry above.
   Remaining candidates are smaller / lower-value (assorted
   if-chains in cmd/* and pkg/* tools).
-
 
 - **Self-hosted (LANDED, 2026-05-01)**: type-checker
   (`pkg/types/check_stmt.bn:checkReturnStmt`) and IR-gen

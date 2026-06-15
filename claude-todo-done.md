@@ -10,6 +10,40 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~parallel assignment `a, b = 1, 2` / swap `a, b = b, a` type-checked clean but generated NO code (silent dropped writes)~~ — ✅ FIXED+LANDED, decision (A) Support (binate `d2a3b8f1`; conformance 778-784; spec Ch.14, 2026-06-15)
+
+A matched-arity multi-expression assignment (>1 expr on each side) type-checked
+clean (per-element checks in `checkAssignStmt`) but `genAssign` matched NEITHER
+lowering arm — `genMultiAssign` needs `len(Exprs2)==1`, single-assign needs
+`len(Exprs)==1` — so it fell straight to `return b`, emitting NO store IR. Both
+writes silently dropped: `a, b = 1, 2` and the swap `a, b = b, a` compiled to a
+no-op. Only multi-RETURN forms (`q, r = f()`) ever reached codegen, so the gap
+was never exercised.
+
+- **Resolution — decision (A) Support** (user choice, 2026-06-15): new
+  `genParallelAssign` (`pkg/binate/ir/gen_assign_parallel.bn`), wired as a third
+  `genAssign` arm (`len(Exprs) > 1 && len(Exprs2) == len(Exprs)`). Go-style
+  two-phase lowering: phase 1 resolves each LHS target and evaluates+ACQUIRES
+  its RHS value; phase 2 stores each into its slot, releasing the old occupant
+  (Axiom 5) WITHOUT re-acquiring. The up-front acquire avoids the swap UAF
+  (storing b into a would otherwise RefDec a's old value to zero — freeing it —
+  before the second store reads it). A managed struct VALUE is snapshot-copied
+  into a temp and MOVED into its slot, so the discipline holds for aggregates.
+  Covers ident / `*p` / `p.f` / array+pointer+slice index targets with the
+  single-assign coercions (string→chars, `@[]T`→`*[]T`, aggregate load) and
+  sub-word width. No checker change (it already accepted matched-arity).
+- **Tests**: conformance 778-784 (basic/rotation/old-value, `@T` swap refcount,
+  array+slice index swap, string+width coercion + managed-slice swap,
+  struct-field + managed-struct-value swap, deref targets, owned-temp RHS) —
+  green on builder-comp / builder-comp-int (VM) / builder-comp-comp (gen2);
+  unit `gen_assign_parallel_test.bn` pins the IR shape.
+- **Follow-up (separate item)**: spec §14 (Statements) authoring is now
+  UNBLOCKED — document parallel assignment per decision (A): all RHS evaluated
+  before any store; swap works; matched-arity multi-expression form is legal
+  (not multi-return only).
+
+---
+
 ### pkg/std/os arm32-linux off_t width (Seek/ReadAt/WriteAt) — ✅ DONE (binate `d33d7819`)
 `Seek`/`ReadAt`/`WriteAt` (`impls/stdlib/pkg/std/os/os.bn`) passed `int64`
 offsets straight to `lseek`/`pread`/`pwrite` via `__c_call`. On ILP32
