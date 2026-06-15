@@ -24,7 +24,19 @@ From the same review (13 confirmed / 3 dismissed). The CRITICAL above is the hea
 - **COVERAGE GAPS** (each would have caught a bug above): (a) compound shift-assign of the wide-overshift AND negative-count fixes — expression-only today (would have caught the CRITICAL); (b) a negative `int64`-typed count (the 32-bit pair gap); (c) a named-unsigned / huge-untyped-literal count (the gate holes); (d) the unsigned-const gate itself; (e) runtime negative panic via `x <<= n`; (f) `unsafe_shl`/`shr` on an untyped value literal (benign — equivalence to `<<`/`>>` statically verified); (g) a >4 GiB `off_t` Seek round-trip (low value — arm32 is structurally always `*64`).
 - **DISMISSED (no action)**: the x64 `if scCount < 0 { return }` getOperand bail (defensive, fine); the `!is(arch,"arm32")` future-arch footgun; native-x64 panic being CI-host-dependent.
 
-## CRITICAL (native codegen) — static-data `@T` managed-pointers omit the +headerSize addend → point at the object header, not the payload (2026-06-15) — 🔴 OPEN
+## CRITICAL (native codegen) — static-data `@T` managed-pointers omit the +headerSize addend → point at the object header, not the payload (2026-06-15) — ✅ RESOLVED (2026-06-15, `f78a4951`)
+
+**Resolution.** The encoder was already correct (passes the +16 payload addend
+to `AddFixup`) and ELF honored it via `r_addend` — the bug was in the **Mach-O
+writer**: a `relocation_info` has no addend field, so the addend must be baked
+INLINE into the patched slot (the linker computes `symbol_address + the inline
+value`), but the writer emitted the `Fill(0)` placeholder unchanged, dropping
+it. Landed `f78a4951` ("native (Mach-O): bake relocation addends inline …"):
+bake each absolute (UNSIGNED, kind 0) relocation's non-zero addend into the
+section data before writing it; PC-relative kinds keep their 0 placeholder.
+repl / vm / cmd/bni now pass under native_aa64 (their xfails removed) — the
+unit suite is fully green there. (macho.bn's reloc-encoding helpers moved to
+macho_reloc.bn to stay under the length limit.) Original analysis below.
 
 **Symptom.** Under native_aa64, a host that walks a static managed-object
 graph SIGSEGVs. Concretely `RegisterStandardExterns` →
