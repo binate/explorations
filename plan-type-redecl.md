@@ -1,11 +1,11 @@
 # Plan: reject type redeclaration across `.bni`/`.bn`
 
-Status: IMPLEMENTED on worktree (2026-06-15), pending land. Three commits:
-`rt` baremetal cleanup, conformance fixture migration, and the enforcement
-(a dedicated `checkTypeRedeclaration` pass — see the Design correction below;
-the approved in-`collectTypeDecl` placement was the wrong layer). Full unit
-suite 45/0; conformance builder-comp 1461/0, builder-comp-comp 1461/0; hygiene
-14/14. The grammar doc fix (§"Doc fix") is moot — `explorations/grammar.ebnf`
+Status: LANDED on main (2026-06-15). Three commits: `rt` baremetal cleanup
+(`4855c7fc`), conformance fixture migration (`3c522d1b`), and the enforcement
+(`8f5cc319`) — a dedicated `checkTypeRedeclaration` pass (see the Design
+correction below; the approved in-`collectTypeDecl` placement was the wrong
+layer). Full unit suite 45/0; conformance builder-comp 1461/0, builder-comp-comp
+1461/0; hygiene 14/14. The grammar doc fix (§"Doc fix") is moot — `explorations/grammar.ebnf`
 was retired the same day and the canonical `docs/spec/binate.ebnf` already
 carries the forward-decl `TypeDef` alternative.
 
@@ -16,7 +16,7 @@ deferral), so the would-be silent-miscompile of a generic full-in-both is now
 rejected (conformance/794, flipped from xfail to a passing rejection test);
 (2) `collectTypeDecl`'s now-redundant mismatch-error paths (and the dead
 `dupTypeMsg`/`structFieldsMatch` helpers) were removed, so a mismatched-shape
-redeclaration emits one diagnostic, not two; (3) conformance/793's error file
+redeclaration emits one diagnostic, not two; (3) conformance/801's error file
 was tightened to the full-in-both-specific message so it can't pass via the
 plain-dup branch; (4) unit tests now exercise the `FromBNI=true` discrimination
 directly (which `checkSrc` can't set) plus the generic redecl case.
