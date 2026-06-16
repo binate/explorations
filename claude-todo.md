@@ -91,44 +91,6 @@ too — both final segment `io`.
 
 ---
 
-## MAJOR (native codegen) — `bit_cast` of a SLICE value emits invalid IR (`add %BnSlice %v, 0`) → clang error; the VM accepts it (2026-06-14) — 🔴 OPEN
-
-Found while exploring the minbasic → `pkg/std/os` conversion (I wrongly thought a
-`char`→`uint8` slice reinterpret was needed). `char` IS `uint8` (an alias), so
-that conversion is a plain assignment needing no `bit_cast` — but `bit_cast` of a
-*slice* mis-lowers in the native backend regardless, which would bite any
-genuinely-distinct same-layout slice reinterpret (e.g. `*[]int32` ↔ `*[]uint32`,
-which has no alias shortcut).
-
-- **Minimal repro** (5 lines, no imports; the cast here is char→uint8, i.e. the
-  same type, and it STILL fails):
-  ```
-  func main() {
-  	var s *[]readonly char = "hi"
-  	var u *[]readonly uint8 = bit_cast(*[]readonly uint8, s)
-  	println(len(u))
-  }
-  ```
-  - Compiled (native): clang fails — `integer constant must have integer type`
-    on `%v4 = add %BnSlice %v3, 0`.
-  - Interpreted (VM): prints `2` (works). Mode divergence.
-
-- **Root-cause hypothesis.** The native `bit_cast` lowering reinterprets via the
-  scalar no-op pattern `add <val>, 0`, valid only for an integer/scalar operand;
-  for a slice (a `%BnSlice` aggregate, ptr+len) it emits `add %BnSlice, 0` —
-  invalid IR. bit_cast of an aggregate (slice, presumably struct too) isn't
-  handled in the backend, while the VM's bit_cast is.
-
-- **Decision needed.** Either lower bit_cast of a same-layout aggregate correctly
-  in native (an SSA reinterpret, not an `add`), OR reject bit_cast on aggregate
-  types at type-check in BOTH modes, so it fails the same way everywhere rather
-  than emitting bad IR only in native.
-
-- **No current consumer.** minbasic does NOT need this (char==uint8 → write the
-  char slice straight to os.File.Write); filed as a standalone codegen gap.
-
----
-
 ## MINOR — cross-mode interface dispatch: test-coverage gaps + LP64 assumption (2026-06-14) — 🟡 OPEN
 
 The shim-route that dispatches a native-only package's interface methods from

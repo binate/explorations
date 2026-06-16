@@ -10,6 +10,36 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~MAJOR (native codegen) — `bit_cast` of a SLICE value emits invalid IR (`add %BnSlice, 0`) → clang error; the VM accepts it~~ — ✅ FIXED+LANDED, decision: raw-slices-only (binate `cc0d86a8` + tests `40c5c544`; conformance 799/800; 2026-06-15)
+
+`bit_cast` was type-unchecked ("the unchecked escape"); a slice operand fell
+to `emitBitCast`'s scalar `add %BnSlice, 0` fallback — invalid LLVM IR (clang
+error) while the VM passed it through. A native↔VM divergence.
+
+- **Decision — bit_cast supports raw slices only** (user, 2026-06-15): `bit_cast`
+  is a same-size reinterpret. Allowed: scalar/pointer (incl. `@T` managed
+  pointer) on both sides, and a RAW slice `*[]T` ↔ raw slice `*[]U` when the
+  element types are the same size and both non-managed — a `{ptr,len}`-identical
+  element retype (e.g. `*[]uint8` ↔ `*[]int8`), a runtime no-op. Rejected:
+  managed slices (would need refcount-ownership semantics — reinterpret a raw
+  view instead), structs, arrays, func/iface values, slice-vs-non-slice, and
+  mismatched element sizes (which would break `len`). The element retype is the
+  one aggregate case that's meaningful because a slice's element type isn't in
+  its runtime representation.
+- **Fix**: `checkBitCastShapes` (`types/check_builtin.bn`, both modes) enforces
+  the rule; `emitBitCast` (`codegen/emit_ops.bn`) lowers the raw-slice case as an
+  identity `select` (valid for `%BnSlice`) instead of `add`. The x64/aarch64
+  NATIVE backends already handled it correctly (they MOV the aggregate pointer,
+  never a scalar) — verified by running 799/800 on `builder-comp_native_aa64`.
+- **No code broken**: a repo-wide sweep (adversarially verified) found zero
+  existing `bit_cast` used an aggregate operand.
+- **Tests**: conformance 799 (raw-slice retype incl. signedness — native / VM /
+  gen2 / native-aa64), 800 (managed-slice / struct / array rejected); unit tests
+  in `check_builtin_test.bn` (accept raw-slice retype + managed pointer; reject
+  managed-slice, struct, array, raw-slice-with-managed-elements, size mismatch,
+  slice-vs-scalar). An adversarial review (correctness / cross-backend /
+  coverage) found no code defects.
+
 ### ~~MAJOR (types, REGRESSION) — `x << ~0` no longer rejected; the negative-shift-count gate mis-trusted `~`'s stale LitSign~~ — ✅ DONE (binate `46204267` + `fc3c496d` + `9a6af307`, 2026-06-15)
 The gate (added by `393eaa0b`) keyed on the type's `LitSign`, but `checkUnaryExpr`'s `~` branch left it stale (the operand's), so `~0` (== -1) slipped through and `x << ~0` compiled to garbage. Fix: the gate skips only a BARE `EXPR_INT_LIT` and routes everything else through the folder's bignum-correct `LitSign` / `evalConstIntValue`; `checkUnaryExpr`'s `~` now propagates the COMPLEMENTED literal (`~x = -x-1`), which also corrects the AssignableTo fit-check (`var x uint8 = ~0` rejects like Go). The same `LitSign`/magnitude approach fixed the two `2^63`-magnitude const-shift edges: IR-gen `emitConstOvershiftOrNil` compares the count magnitude UNSIGNED (so `x << 0x8000000000000000` overshifts to 0), and a COMPUTED huge count (`x << (1 << 63)`) is accepted. Tests: `conformance/793` (wide-negative `<<=`), `797` (`>>=`), `798` (2^63 overshift), checker tests for the computed allow-case + `~` fit-check. `checkUnaryExpr` extracted to `check_expr_unary.bn` (file-length cap). Full conformance green: LLVM 1464/0, gen2 self-compile 1464/0.
 
