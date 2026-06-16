@@ -1,8 +1,10 @@
 # Plan: Embeddable / reentrant VM — eliminate per-run global state
 
-Status: **SCOPED** (2026-06-16). Not started. v1 = increments 1–5 below
+Status: **IN PROGRESS** (2026-06-16). v1 = increments 1–5 below
 (reentrancy-only, single-target, interpreter-only, `@GenCtx`/`@Module`
 split). Scope decisions ratified by the user 2026-06-16.
+**Landed:** increment 1 (loader `loadingStack` → `@Loader`, binate
+`bd18a73e`).
 
 This is the larger change that
 [`plan-repl-embeddable.md`](plan-repl-embeddable.md) explicitly deferred:
@@ -218,6 +220,9 @@ becomes `NewGenCtx`.
 
 1. **Loader: `loadingStack` → `@Loader` field. (S, ~½ day)** Fixes the
    confirmed sequential circular-import false-positive. Lowest risk.
+   **LANDED** binate `bd18a73e` — unexported `@Loader` field +
+   `isLoading`/`pushLoading`/`popLoading` as methods; reentrancy unit
+   test `TestLoaderLoadingStackIsolation`.
 2. **VM-lowering: 9 globals → `@VM` (+ optional `@LowerCtx`). (M, ~2–3 days)**
    Closes the interpreter-unique corruption; deletes the test-file manual
    resets. After this, two sequential VM sessions are isolated.
