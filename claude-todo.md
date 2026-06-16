@@ -2242,6 +2242,11 @@ hatch" sufficient (close this out)?
   Don't start implementation until the design is reviewed.
 
 ### REPL: remove process-global session state (multi-session blocker)
+- **Now owned by [`plan-embeddable-vm.md`](plan-embeddable-vm.md)** (scoped
+  2026-06-16): the `ir` half below is increments 4–5 of that plan, which
+  covers the full compiler/VM global inventory, not just the REPL's two.
+  This entry's `ir/gen.bn` line numbers are stale as of 2026-06-02; see the
+  plan for verified ones.
 - **What**: the REPL engine keeps per-session state in PROCESS-GLOBAL
   package vars instead of threading it through the session. v1 of the
   embeddable refactor (above) lifts the cmd/bni-local ones into
