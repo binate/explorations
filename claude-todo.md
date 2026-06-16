@@ -4,7 +4,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
-## MAJOR (checker, REGRESSION) — a CAST-hidden negative constant shift count was silently treated as an overshift (was a runtime trap) (2026-06-15) — ✅ FIXED in worktree (option B), pending land; residual same-class gaps tracked below
+## MAJOR (checker, REGRESSION) — a CAST-hidden negative constant shift count was silently treated as an overshift (was a runtime trap) (2026-06-15) — ✅ cast case FIXED & LANDED `c9cce5ef` (option B); residual SAME-CLASS gaps (a–e) below are OPEN follow-ups (land one-by-one)
 
 **Symptom (was REPRODUCED on builder-comp).** `const N int8 = cast(int8, 0) - cast(int8, 3)` (== -3); `x << N` printed **0** instead of a `negative shift count` compile error. A negative shift count converted from a DETECTABLE trap into SILENT WRONG CODE.
 
