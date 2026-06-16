@@ -5,7 +5,9 @@ Status: **IN PROGRESS** (2026-06-16). v1 = increments 1–5 below
 split). Scope decisions ratified by the user 2026-06-16.
 **Landed:** increment 1 (loader `loadingStack` → `@Loader`, binate
 `bd18a73e`); increment 2 (vm-lowering 9 globals → `@VM`, binate
-`b1b19ce1`).
+`b1b19ce1`); increment 3 (types ambient pointers → `@Checker`, **both**
+Part A pkg-context fields and Part B `currentChecker` elimination, binate
+`dd4b71e0`).
 
 This is the larger change that
 [`plan-repl-embeddable.md`](plan-repl-embeddable.md) explicitly deferred:
@@ -235,6 +237,18 @@ becomes `NewGenCtx`.
    paths 8/0.
 3. **Types ambient pointers → `@Checker`. (S–M, ~1–2 days)** Removes the
    package-scope hazard; preps 4–5.
+   **LANDED** binate `dd4b71e0` — did BOTH parts (user chose "both now"):
+   Part A `currentPkgShort`/`currentPkgPath` → `@Checker` fields
+   `curPkgShort`/`curPkgPath` (all 7 readers already had `c`); Part B
+   eliminated `currentChecker` by threading `@Checker` through
+   `AssignableTo` + its two interface-value helpers. Part B turned out
+   bounded (not L): all 19 `AssignableTo` callers were in-checker (no
+   cascade) and the 59 standalone unit-test calls pass `nil` (= today's
+   `currentChecker == nil`). `WithChecker`/`RestoreChecker`/`WithPkgShort`/
+   `RestorePkgShort` removed. Net −71 lines; behavior-preserving. Verified:
+   full `builder-comp` 1474/0, gen2 iface smoke 6/0, types units green.
+   **Group C is now fully eliminated — `pkg/binate/types` has no per-run
+   ambient globals.**
 4. **IR-gen checker threading: kill `ir.SetChecker`/`ir.currentChecker`.
    (M, ~2–3 days)** Isolated API-surface churn (`cmd/bnc`/`cmd/bni`/REPL/
    codegen tests in lockstep).
