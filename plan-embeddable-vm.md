@@ -4,7 +4,8 @@ Status: **IN PROGRESS** (2026-06-16). v1 = increments 1–5 below
 (reentrancy-only, single-target, interpreter-only, `@GenCtx`/`@Module`
 split). Scope decisions ratified by the user 2026-06-16.
 **Landed:** increment 1 (loader `loadingStack` → `@Loader`, binate
-`bd18a73e`).
+`bd18a73e`); increment 2 (vm-lowering 9 globals → `@VM`, binate
+`b1b19ce1`).
 
 This is the larger change that
 [`plan-repl-embeddable.md`](plan-repl-embeddable.md) explicitly deferred:
@@ -226,6 +227,12 @@ becomes `NewGenCtx`.
 2. **VM-lowering: 9 globals → `@VM` (+ optional `@LowerCtx`). (M, ~2–3 days)**
    Closes the interpreter-unique corruption; deletes the test-file manual
    resets. After this, two sequential VM sessions are isolated.
+   **LANDED** binate `b1b19ce1` — all 9 on `@VM` (no `@LowerCtx` needed;
+   `vm` was already threaded through the lowering helpers), per-instance
+   isolation unit tests (`TestGlobalAddrPerInstanceIsolation`,
+   `TestVtableInjectPerInstanceIsolation`). Verified: full
+   `builder-comp-int` conformance 1457/0, int-int smoke over the touched
+   paths 8/0.
 3. **Types ambient pointers → `@Checker`. (S–M, ~1–2 days)** Removes the
    package-scope hazard; preps 4–5.
 4. **IR-gen checker threading: kill `ir.SetChecker`/`ir.currentChecker`.
