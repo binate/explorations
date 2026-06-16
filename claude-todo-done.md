@@ -10,6 +10,22 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~Type-system (opaque) — `make`/`make_slice`/`sizeof`/`alignof` on an opaque type not gated~~ — ✅ FIXED+LANDED `fe9e131e` (2026-06-16)
+
+The ratified design (plan-type-decls.md) says make / sizeof / alignof on an
+opaque type (a forward decl whose layout isn't visible — a pure opaque type
+defined in C/asm, or a cross-package opaque export seen only through the
+exporter's .bni) must be rejected; the checker enforced only field access, so
+these failed only as a downstream layout/codegen error (or silently).
+`isOpaqueType` (TYP_NAMED with nil Underlying, peeling alias/const) now gates
+make / make_slice / sizeof / alignof in check_builtin.bn — a clean use-site
+diagnostic. Generic type params are TYP_TYPE_PARAM, so make(T)/sizeof(T) in
+generic bodies are NOT gated; inside the defining package the forward decl's
+body is filled, so the gate doesn't fire there. conformance/809 + unit
+coverage. (Note: cross-package opacity isn't exercised by the whole-program
+conformance build — it loads every dependency's .bn, filling layouts — so the
+testable target is pure opaque types; the gate's code path covers both.)
+
 ### ~~MAJOR (import resolution) — same-final-segment imports double-emit one package's `_Package` → `invalid redefinition`~~ — ✅ FIXED+LANDED `e201f448` (approach B; 2026-06-15)
 
 A package directly importing two packages with the same final path segment

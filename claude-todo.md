@@ -547,16 +547,6 @@ Both referenced from the spec (`07b-type-layout.md`).
 Found writing the docs spec's Types chapter (grounding + adversarial
 verification against pkg/binate/types). The spec (`07-types.md`)
 documents these as open items.
-- **Opaque `make`/`sizeof`/`alignof` not gated**
-  (`type.opaque.make-sizeof-gap`, MAJOR doc-vs-impl). The ratified design
-  (plan-type-decls.md:42-51, ast.bni:232-233) says `make(Opaque)` /
-  `sizeof(Opaque)` / `alignof(Opaque)` must be rejected outside the
-  defining package (layout unknown). The checker enforces ONLY field
-  access (`check_expr_access.bn:306`); `check_builtin.bn:17-22,144-155`
-  accept make/sizeof/alignof on a nil-Underlying named type with no opaque
-  gate, so the failure (if any) is a downstream layout/codegen error, not a
-  clean diagnostic. Decide: add the opaque gate (per the ratified design),
-  or update the design docs.
 - **Named func-value LITERAL construction unimplemented** (gap). A func
   *reference* constructs a named `@func` type fine, but a func *literal*
   into a named func-value type is rejected in ALL modes
