@@ -616,6 +616,10 @@ Receiver-kind preference (informational, not a hard rule): `*T` and `*readonly T
 
 **Forward struct declarations**: A `.bni` can declare `type Foo` (no body), meaning "Foo exists but the full definition is in the `.bn` files" — analogous to C's `struct foo;` forward declaration. The type stays opaque to importers (they hold pointers/handles but can't read fields or take its size).
 
+**No full redeclaration across `.bni`/`.bn` — DECIDED, enforced**: a type may be declared *full* at most once per package. The legal shapes are: full in the `.bni` only (transparent); a forward `type T` in the `.bni` + a full definition in one `.bn` (opaque export); or a full definition in one `.bn` with no `.bni` (package-private). A full definition in *both* the `.bni` and a `.bn`, or two full definitions across `.bn` files, is rejected by the checker (`checkTypeRedeclaration`); generics included.
+
+**Lone forward declarations are legal**: a `type T` forward decl with NO full definition anywhere in the package is a *pure opaque type* whose layout is defined outside Binate (C, assembly, or the runtime). Callers hold `*T`/`@T` only (as above). There is deliberately **no "dangling forward" check** requiring a forward decl to be paired with a full definition — it would be unsound: Binate compiles a package at a time and sees a *dependency* only through its `.bni`, so a dependency's forward decl always looks unpaired; and pure opaque types are a legitimate pattern. See `plan-type-redecl.md`.
+
 **Impl syntax — DECIDED**: `impl ReceiverType : Interface, Interface2, ...`
 - Receiver-type-first, colon separator, comma-separated interfaces.
 - Receiver kind is specified on the receiver type:

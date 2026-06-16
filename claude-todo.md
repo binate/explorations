@@ -38,76 +38,18 @@ Add a 3-package conformance regression test (`[b.SZ]int` + `x << b.SZ`) once fix
 
 `const USE int = BASE + 1; const BASE int = 7` declared AFTER `func main()`, used as `[USE]int`, deterministically emits `alloca [4071 x i64]` instead of `[8 x i64]`; the cast variant emits `[30 x i64]` instead of `[5 x i64]`. Reproduces IDENTICALLY on BUILDER `bnc-0.0.9` (predates the cast-shift fix), so it is pre-existing. The CHECKER computes the dim correctly (M6 dependency-ordered const resolution + `collectConstDeps` into `EXPR_BUILTIN` args); IR-gen's use-site array-dim resolution reads `moduleConsts` BEFORE the forward-declared consts are registered there → stale/garbage value. Silent wrong-size stack alloca (memory-safety). No conformance test covers forward-ref-const-as-array-dim. Fix: IR-gen must resolve all module consts (dependency-ordered, like the checker) before lowering use-site array dims, or defer dim resolution until consts are registered.
 
-## MAJOR (import resolution) — a package directly importing TWO packages with the same final path segment double-emits one's `_Package` declaration → `invalid redefinition of bn_pkg__…___Package` (2026-06-14) — ✅ FIXED & LANDED `e201f448` (approach B); same-segment GENERICS deferred (2026-06-15)
+## DEFERRED (import resolution) — same-final-segment GENERICS collide (conformance/792, xfail) (2026-06-15)
 
-Found converting minbasic to `pkg/std/os`: `pkg/host` already imports
-`pkg/basic/io`, and classifying end-of-input with `io.IsEOF` needs `pkg/std/io`
-too — both final segment `io`.
-
-- **Minimal repro** (one package importing two same-final-segment packages):
-  ```
-  import "pkg/basic/io"          // minbasic-local; has ConsoleOut
-  import "pkg/std/errors"
-  import stdio "pkg/std/io"
-  func main() {
-  	var c @io.ConsoleOut
-  	var e @errors.Error = stdio.EOF
-  	if present(c) { println("c") }
-  	if present(e) { println("e") }
-  }
-  ```
-  → clang: `invalid redefinition of function 'bn_pkg__basic__io___Package'`
-  (`declare i8* @bn_pkg__basic__io___Package()` emitted twice). Note the two
-  imports have DIFFERENT names (`io` vs alias `stdio`) yet still collide — so the
-  trigger is the shared final segment, not the import name.
-
-- **Scope / what works.** Only a DIRECT dual-import of two same-final-segment
-  packages collides. A transitive second "io" is fine (`pkg/host` importing
-  `pkg/basic/io` while `pkg/std/os` pulls `pkg/std/io` transitively compiles
-  clean). Distinct final segments are fine (`pkg/basic/io` + `pkg/std/os`). An
-  import alias does NOT help; splitting the two imports into separate files of the
-  same package does NOT help — it is package-level.
-
-- **Root-cause hypothesis.** The per-imported-package `_Package` declaration is
-  deduplicated/keyed by the package's FINAL path segment (`io`), not its full
-  import path, so two packages ending in the same segment collapse and one's
-  `_Package` declaration is emitted twice. The mangled symbol itself
-  (`bn_pkg__basic__io`) is full-path-correct; only the emission dedup is keyed
-  too coarsely.
-
-- **Workaround (examples).** minbasic's `pkg/host` does NOT import `pkg/std/io`;
-  `ReadFile` sizes the file with `os.Seek(0, os.SeekEnd)` and reads exactly that
-  many bytes (a short read = failure) instead of using `io.IsEOF` to classify the
-  end — so `pkg/host` directly imports only one "io" (`pkg/basic/io`).
-
-- **ACTUAL root cause** (the hypothesis above was close but not the dedup): the
-  IR-gen import-alias map is keyed by the **short name** (last path segment).
-  The loader (`cmd/bnc/compile_imports.bn`, `cmd/bni/irgen.bn`) passed
-  `shortName(path)` as the registration "alias", and `RecordImportPath`
-  first-wins-dedups by alias — so `pkg/basic/io` and `pkg/std/io` both key as
-  `io`, the second collapses onto the first, and `resolveImportPkg("io")` returns
-  the FIRST's path for both. EVERY symbol of the second package (not just
-  `_Package`) mangles with the first's path; `_Package` is just where it becomes
-  a hard clang error, because it's registered unconditionally for every import
-  under the same name → duplicate declaration.
-
-- **FIX (approach B, landed `e201f448`):** the loader now
-  passes the **full import path** as the registration key (`alias == path`), so
-  same-final-segment packages never collide. The `streq(alias, "rt"/"bootstrap"
-  /"lang")` short-name checks became full paths, and the 6 generic/interface
-  call-site lookups that used raw source-aliases now `resolveImportPkg(...)` to
-  match the path-keyed stash (`gen_type_resolve`, `gen_call`, `gen_iface` ×3,
-  `gen_impl`, `gen_iface_registry`). Verified: full `builder-comp` (1451/0) +
-  `builder-comp-int` (1437/0) conformance, full unit suite (45/0).
-  conformance/785 covers the same-segment case comprehensively (free funcs,
-  extern vars, structs, unqualified local-type fields, methods, interface, impl).
-
-- **DEFERRED — same-final-segment GENERICS** (conformance/792, xfail): generic
-  decls still collide, because the generic-decl stash (`genericDeclPkgs` etc.) and
-  the per-(decl,args) monomorphized symbol aren't qualified by the full path —
-  so `bb.Pick[int]` resolves to `aa.Pick[int]` (`100 100` not `100 200`). Fix:
-  carry the full path through the generic stash key + the monomorphization
-  naming, mirroring what B did for the non-generic registration.
+The non-generic form of this bug — a package directly importing two packages
+with the same final path segment double-emitting one's `_Package` declaration
+(`invalid redefinition`) — was FIXED & LANDED (`e201f448`, approach B: the
+loader keys import resolution on the full path, not the short name; full
+investigation in claude-todo-done.md). The GENERIC form still collides:
+`bb.Pick[int]` resolves to `aa.Pick[int]` (`100 100` not `100 200`), because the
+generic-decl stash (`genericDeclPkgs` etc.) and the per-(decl,args)
+monomorphized symbol aren't qualified by the full path. Fix: carry the full path
+through the generic stash key + the monomorphization naming, mirroring what B
+did for the non-generic registration. Tracked by conformance/792 (xfail).
 
 ---
 

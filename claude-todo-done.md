@@ -10,6 +10,25 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~MAJOR (import resolution) — same-final-segment imports double-emit one package's `_Package` → `invalid redefinition`~~ — ✅ FIXED+LANDED `e201f448` (approach B; 2026-06-15)
+
+A package directly importing two packages with the same final path segment
+(e.g. `pkg/basic/io` + `pkg/std/io`, even under different import names) collided:
+the IR-gen import-alias map was keyed by the **short name** (last path segment),
+and the loader (`cmd/bnc/compile_imports.bn`, `cmd/bni/irgen.bn`) passed
+`shortName(path)` as the registration key, so `RecordImportPath` first-wins-
+deduped — every symbol of the second package mangled with the FIRST's path, and
+`_Package` (registered unconditionally per import) became a hard clang duplicate
+(`invalid redefinition of bn_pkg__basic__io___Package`). Fix (approach B): the
+loader keys on the **full import path** (`alias == path`); the `rt`/`bootstrap`/
+`lang` short-name checks and the 6 generic/interface call-site lookups
+(`gen_type_resolve`, `gen_call`, `gen_iface` ×3, `gen_impl`, `gen_iface_registry`)
+were made path-based via `resolveImportPkg`. Verified full builder-comp (1451/0)
++ builder-comp-int (1437/0) + unit (45/0); conformance/785 covers it
+comprehensively (funcs, extern vars, structs, unqualified local-type fields,
+methods, interface, impl). Same-segment GENERICS remain DEFERRED — see
+claude-todo.md / conformance/792.
+
 ### ~~MAJOR (native codegen) — `bit_cast` of a SLICE value emits invalid IR (`add %BnSlice, 0`) → clang error; the VM accepts it~~ — ✅ FIXED+LANDED, decision: raw-slices-only (binate `cc0d86a8` + tests `40c5c544`; conformance 799/800; 2026-06-15)
 
 `bit_cast` was type-unchecked ("the unchecked escape"); a slice operand fell

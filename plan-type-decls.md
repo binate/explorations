@@ -53,6 +53,14 @@ Type-checker semantics for the forward-decl form:
   is a hard error" below).
 - If `.bni` has forward-decl + `.bn` has full definition: the `.bn`
   body provides the layout; callers see opaque type.
+- If `.bni` has forward-decl + NO full definition anywhere in the
+  package: LEGAL — a *pure opaque type* whose layout is defined
+  outside Binate (C, assembly, the runtime).  Callers see the opaque
+  type (pointers/handles only).  A "dangling forward" check that
+  would require a paired full definition was considered and REJECTED
+  as unsound under package-at-a-time compilation (a dependency is
+  seen only through its `.bni`, so its forward decl always looks
+  unpaired).  See `plan-type-redecl.md` §4.
 - Symmetric rule for named-type (non-struct) declarations.
 
 `ast.Decl.IsForward bool` distinguishes forward-decl from full
