@@ -16,6 +16,50 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 Add a 3-package conformance regression test (`[b.SZ]int` + `x << b.SZ`) once fixed. **MUST keep the checker and IR-gen in lockstep** — the lesson of this regression is that making the checker fold MORE than IR-gen can creates silent disagreements.
 
+## MAJOR (type-system / wrong-code) — opaque types with no layout silently miscompile via a fabricated pointer-size; the make/sizeof/alignof gate (`fe9e131e`) covers only the bare/direct case (2026-06-16) — 🔴 OPEN
+
+**Root cause.** `Type.SizeOf()` (`scope.bn:151-155`) and `AlignOf()`
+(`scope.bn:245-248`) fall through to `ptrSize()` / `maxAlign()` for a
+nil-`Underlying` `TYP_NAMED` (an opaque / forward-declared type with no full
+definition) instead of signaling "layout unknown". So anywhere a pure opaque
+type's layout is needed, the compiler silently fabricates 8 bytes (ptrSize) — a
+wrong-code / silent-miscompile defect whenever the real (external C/asm) layout
+differs. Pre-existing; the checker gate added in `fe9e131e` is a partial
+front-end (it intercepts the four builtins only when the *immediate* type is
+nil-`Underlying`).
+
+Two unaddressed entry points, both empirically confirmed via emitted LLVM on a
+pure opaque `type Opaque` (no body):
+
+1. **Named-distinct over opaque slips the gate.** `type A Opaque; sizeof(A)` /
+   `alignof(A)` / `make(A)` / `make_slice(A,3)` are NOT gated (emit size/stride
+   8) because `isOpaqueType` (`check_builtin.bn`) tests `TYP_NAMED &&
+   Underlying==nil` but `A.Underlying` points at the opaque base (non-nil).
+   Field access on the SAME `A` IS correctly rejected (`peelFieldAccessBase`
+   peels to the bottom) — an internal inconsistency. **Fix (small):** peel
+   named-distinct chains to the bottom in `isOpaqueType` like
+   `peelFieldAccessBase` (`check_expr_access.bn:162-179`), rejecting only when
+   the chain terminates at a nil-`Underlying` `TYP_NAMED` (so `type A Concrete`
+   stays fine).
+
+2. **Value-embedding of opaque is entirely ungated** — the design's
+   "zero-initialize the type" prohibition (`plan-type-decls.md:42`),
+   unimplemented: `var x Opaque` → `alloca i64`; `[5]Opaque` → `[5 x i64]`;
+   `struct { o Opaque }` → `o` laid out as i64; `func f(o Opaque) Opaque` →
+   passed/returned by value as i64. All compile clean with a fabricated 8-byte
+   layout. `box(o)` is a downstream symptom (`Box(...,i64 8)`). **Fix
+   (bigger):** a checker gate rejecting value-typed opaque in var/local decls,
+   array element types, struct value fields, and by-value params/returns.
+
+Discovered by an adversarial review of `fe9e131e` (gen1 + emitted LLVM).
+Legal cases stay correct: `*Opaque`/`@Opaque` handles (pointer layout known),
+`@Opaque` handle struct fields, and generic `make(T)`/`sizeof(T)`
+(`TYP_TYPE_PARAM`, not gated). Need xfail conformance + unit coverage for both
+gaps (`type A Opaque` chain; `var x Opaque` / `[N]Opaque` / struct value field
+/ by-value param+return). Whether to land the small peel-fix now and defer
+value-embedding, or do the deeper `SizeOf`/`AlignOf`-signals-unknown-layout
+fix, is a design call.
+
 ## MAJOR (checker, REGRESSION) — a CAST-hidden negative constant shift count was silently treated as an overshift (was a runtime trap) (2026-06-15) — ✅ cast case FIXED & LANDED `c9cce5ef` (option B); residual SAME-CLASS gaps (a–g) below are OPEN follow-ups (land one-by-one)
 
 **Symptom (was REPRODUCED on builder-comp).** `const N int8 = cast(int8, 0) - cast(int8, 3)` (== -3); `x << N` printed **0** instead of a `negative shift count` compile error. A negative shift count converted from a DETECTABLE trap into SILENT WRONG CODE.
