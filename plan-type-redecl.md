@@ -4,10 +4,22 @@ Status: IMPLEMENTED on worktree (2026-06-15), pending land. Three commits:
 `rt` baremetal cleanup, conformance fixture migration, and the enforcement
 (a dedicated `checkTypeRedeclaration` pass — see the Design correction below;
 the approved in-`collectTypeDecl` placement was the wrong layer). Full unit
-suite 45/0; conformance builder-comp 1460/0, builder-comp-int 1445/0,
-builder-comp-comp 1460/0; hygiene 14/14. The grammar doc fix (§"Doc fix") is
-moot — `explorations/grammar.ebnf` was retired the same day and the canonical
-`docs/spec/binate.ebnf` already carries the forward-decl `TypeDef` alternative.
+suite 45/0; conformance builder-comp 1461/0, builder-comp-comp 1461/0; hygiene
+14/14. The grammar doc fix (§"Doc fix") is moot — `explorations/grammar.ebnf`
+was retired the same day and the canonical `docs/spec/binate.ebnf` already
+carries the forward-decl `TypeDef` alternative.
+
+An adversarial review then drove four fixes folded into the enforcement commit:
+(1) **generics are now covered** rather than skipped — the skip was unnecessary
+(redecl detection counts decl objects, independent of the 792 monomorphization
+deferral), so the would-be silent-miscompile of a generic full-in-both is now
+rejected (conformance/794, flipped from xfail to a passing rejection test);
+(2) `collectTypeDecl`'s now-redundant mismatch-error paths (and the dead
+`dupTypeMsg`/`structFieldsMatch` helpers) were removed, so a mismatched-shape
+redeclaration emits one diagnostic, not two; (3) conformance/793's error file
+was tightened to the full-in-both-specific message so it can't pass via the
+plain-dup branch; (4) unit tests now exercise the `FromBNI=true` discrimination
+directly (which `checkSrc` can't set) plus the generic redecl case.
 
 ## Goal
 
@@ -125,10 +137,13 @@ loader-merged `checkPackageImpl`, the single-file `Check`, and the REPL) calls
 decl list and, for each full type decl, reports an error if an earlier full
 decl of the same name exists:
 
-- A **full** type decl = `DECL_TYPE`, `!IsForward`, non-generic (`TypeParams`
-  empty). Forward decls never count (so `forward .bni + full .bn` = one full →
-  OK); generic type decls are out of scope (their monomorphization keys aren't
-  path-qualified yet — deferred, conformance/792).
+- A **full** type decl = `DECL_TYPE`, `!IsForward`. Forward decls never count
+  (so `forward .bni + full .bn` = one full → OK). **Generics are covered** —
+  counting decl objects works for them too (a transparent generic appears once
+  in the merged list; a full-in-both appears twice), so a generic redeclaration
+  is rejected just like a non-generic one (conformance/794). This is distinct
+  from the same-segment generic *mangling* deferral (conformance/792); redecl
+  detection doesn't depend on monomorphization keys.
 - The merged decl list holds each *source* decl exactly once (the prepend adds
   each `.bni` decl once; `.bn` decls are distinct files). So **transparent** = 1
   full decl → OK; **full-in-both** = 2 full (one `.bni`-prepended + one `.bn`) →
