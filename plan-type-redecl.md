@@ -159,19 +159,34 @@ mismatch-error is harmless defense-in-depth alongside the new pass.
 Build-gated variants don't false-trigger: only the active variant's `.bn` is in
 the merged compilation, so the pass sees at most one variant's decl.
 
-### 4. Dangling forward — IMPLEMENTED as a follow-up (commit pending land)
+### 4. Dangling forward — PROTOTYPED, then REJECTED (do not implement)
 
-A `.bni` forward decl (`type T`, no body) that no `.bn` ever fills is an opaque
-type with no backing — it can never be constructed or sized, so it is now
-**rejected**. `checkDanglingForward` runs alongside `checkTypeRedeclaration` in
-`collectDecls`: for each forward decl it searches the whole package's merged
-decl list for a matching full decl (`hasFullTypeDecl`) and errors if none
-exists. The sweep found **0** such decls, so nothing in the tree needed
-migration. This is a deliberate **language-semantics change**: a lone `type T`
-forward decl previously compiled (accepted as an opaque reference — the old
-`TestCheckForwardDeclAccepted`); it now errors. The legal opaque pattern
-(forward in `.bni` + full in `.bn`, conformance/512) is unaffected. Covered by
-conformance/802 + unit tests; full suite green (builder-comp / -comp 1469/0).
+A "dangling forward" check (reject a forward decl `type T` with no full
+definition in the package) was implemented and verified green, then **axed** as
+conceptually wrong for Binate's compilation model. Two reasons, both decisive:
+
+1. **Package-at-a-time compilation.** `bnc` compiles one package → one `.o`. For
+   the *subject* package it sees the `.bn` files; for *dependencies* it sees
+   **only the `.bni`**. So a dependency's forward decl *always* looks dangling —
+   its full decl lives in the dependency's separately-compiled `.bn`, which the
+   consumer's build never sees. The check fired in `collectDecls`, which also
+   runs for dependency packages (`CheckPackageDecls`), so it would false-positive
+   on **every legitimate opaque export**. At best the check could apply only to
+   the subject package, never dependencies.
+2. **Pure opaque types are legitimate.** A forward-declared type whose layout is
+   defined in C, assembly, or otherwise outside Binate (held only by `*T`/`@T`)
+   is a valid, intended pattern — exactly the "accepted as an opaque reference"
+   behavior the old `TestCheckForwardDeclAccepted` documented. Rejecting it would
+   forbid that use case even in the subject package.
+
+Lesson worth keeping: the prototype passed the **full conformance suite**
+(builder-comp / -comp 1469/0) because the conformance runner's loading model
+makes all packages' `.bn` visible in one build — so the dependency-`.bni`-only
+false-positive never surfaced. **Conformance-green ≠ correct under real
+package-at-a-time builds**; a checker that depends on seeing a dependency's `.bn`
+is unsound regardless of what conformance reports.
+
+So: no dangling-forward check. A lone `type T` forward decl stays legal.
 
 ## Migration
 
