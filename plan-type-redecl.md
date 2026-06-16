@@ -159,12 +159,19 @@ mismatch-error is harmless defense-in-depth alongside the new pass.
 Build-gated variants don't false-trigger: only the active variant's `.bn` is in
 the merged compilation, so the pass sees at most one variant's decl.
 
-### 4. (Secondary, separable) dangling forward
+### 4. Dangling forward — IMPLEMENTED as a follow-up (commit pending land)
 
-A `.bni` forward decl that no `.bn` ever fills (`TYP_NAMED`, `Underlying==nil`
-after all decls collected) is an opaque type with no backing — uninstantiable.
-The sweep found **0**. Adding a post-`collectDecls` pass to reject it is
-optional and separable from the main rule; flagged for a decision, not bundled.
+A `.bni` forward decl (`type T`, no body) that no `.bn` ever fills is an opaque
+type with no backing — it can never be constructed or sized, so it is now
+**rejected**. `checkDanglingForward` runs alongside `checkTypeRedeclaration` in
+`collectDecls`: for each forward decl it searches the whole package's merged
+decl list for a matching full decl (`hasFullTypeDecl`) and errors if none
+exists. The sweep found **0** such decls, so nothing in the tree needed
+migration. This is a deliberate **language-semantics change**: a lone `type T`
+forward decl previously compiled (accepted as an opaque reference — the old
+`TestCheckForwardDeclAccepted`); it now errors. The legal opaque pattern
+(forward in `.bni` + full in `.bn`, conformance/512) is unaffected. Covered by
+conformance/802 + unit tests; full suite green (builder-comp / -comp 1469/0).
 
 ## Migration
 
