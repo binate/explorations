@@ -16,7 +16,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 Add a 3-package conformance regression test (`[b.SZ]int` + `x << b.SZ`) once fixed. **MUST keep the checker and IR-gen in lockstep** — the lesson of this regression is that making the checker fold MORE than IR-gen can creates silent disagreements.
 
-## MAJOR (type-system / wrong-code) — opaque types with no layout silently miscompile via a fabricated pointer-size; the make/sizeof/alignof gate (`fe9e131e`) covers only the bare/direct case (2026-06-16) — 🔴 OPEN
+## MAJOR (type-system / wrong-code) — opaque types with no layout silently miscompile via a fabricated pointer-size (2026-06-16) — named-distinct gap ✅ FIXED & LANDED `ffc56b36`; VALUE-EMBEDDING gap 🔴 OPEN (doing approach B: checker gates + make SizeOf/AlignOf stop fabricating)
 
 **Root cause.** `Type.SizeOf()` (`scope.bn:151-155`) and `AlignOf()`
 (`scope.bn:245-248`) fall through to `ptrSize()` / `maxAlign()` for a
@@ -31,16 +31,13 @@ nil-`Underlying`).
 Two unaddressed entry points, both empirically confirmed via emitted LLVM on a
 pure opaque `type Opaque` (no body):
 
-1. **Named-distinct over opaque slips the gate.** `type A Opaque; sizeof(A)` /
-   `alignof(A)` / `make(A)` / `make_slice(A,3)` are NOT gated (emit size/stride
-   8) because `isOpaqueType` (`check_builtin.bn`) tests `TYP_NAMED &&
-   Underlying==nil` but `A.Underlying` points at the opaque base (non-nil).
-   Field access on the SAME `A` IS correctly rejected (`peelFieldAccessBase`
-   peels to the bottom) — an internal inconsistency. **Fix (small):** peel
-   named-distinct chains to the bottom in `isOpaqueType` like
-   `peelFieldAccessBase` (`check_expr_access.bn:162-179`), rejecting only when
-   the chain terminates at a nil-`Underlying` `TYP_NAMED` (so `type A Concrete`
-   stays fine).
+1. **Named-distinct over opaque slipped the gate.** ✅ FIXED & LANDED
+   `ffc56b36`: `isOpaqueType` (`check_builtin.bn`) now peels alias / readonly /
+   named-distinct via `peelFieldAccessBase`, so `type A Opaque; make(A)` /
+   `sizeof(A)` etc. bottom out at the opaque type and are rejected (matching the
+   field-access gate); a distinct type over a CONCRETE base stays allowed.
+   Tests hardened (message-specific asserts, independent alignof, named-distinct
+   / alias / pointer-allowed / generic-not-gated; conformance/809).
 
 2. **Value-embedding of opaque is entirely ungated** — the design's
    "zero-initialize the type" prohibition (`plan-type-decls.md:42`),
@@ -54,11 +51,20 @@ pure opaque `type Opaque` (no body):
 Discovered by an adversarial review of `fe9e131e` (gen1 + emitted LLVM).
 Legal cases stay correct: `*Opaque`/`@Opaque` handles (pointer layout known),
 `@Opaque` handle struct fields, and generic `make(T)`/`sizeof(T)`
-(`TYP_TYPE_PARAM`, not gated). Need xfail conformance + unit coverage for both
-gaps (`type A Opaque` chain; `var x Opaque` / `[N]Opaque` / struct value field
-/ by-value param+return). Whether to land the small peel-fix now and defer
-value-embedding, or do the deeper `SizeOf`/`AlignOf`-signals-unknown-layout
-fix, is a design call.
+(`TYP_TYPE_PARAM`, not gated).
+
+**Chosen direction for gap 2 (approach B, user-decided 2026-06-17):** a checker
+gate rejecting value-typed opaque in var/local decls, array element types,
+struct value fields, and by-value params/returns (clean use-site diagnostics),
+PLUS make `SizeOf`/`AlignOf` stop fabricating `ptrSize`/`maxAlign` for an
+opaque (nil-`Underlying` `TYP_NAMED`) — hard-fail/poison instead — so any site
+the checker misses fails LOUDLY (compiler error) rather than silently
+miscompiling. Requires auditing `SizeOf`/`AlignOf` callers to confirm the
+hard-fail can't trip on a legitimately pointer-sized use (pointers/handles
+don't recurse into the pointee, so `*Opaque`/`@Opaque` are safe). Investigate
+whether `capturePendingIfSized` is a usable single choke point for the checker
+gate. Need conformance + unit coverage for `var x Opaque` / `[N]Opaque` /
+struct value field / by-value param+return.
 
 ## MAJOR (checker, REGRESSION) — a CAST-hidden negative constant shift count was silently treated as an overshift (was a runtime trap) (2026-06-15) — ✅ cast case FIXED & LANDED `c9cce5ef` (option B); residual SAME-CLASS gaps (a–g) below are OPEN follow-ups (land one-by-one)
 
