@@ -283,14 +283,16 @@ becomes `NewGenCtx`.
    up front, so setting it only inside `GeneratePackage` was too late (caught
    via a `_Package` link error in the vm/repl unit build). Verified:
    builder-comp 1482/0, builder-comp-int 1467/0, gen2 self-host smoke 8/0.
+   **Adversarial review follow-up (binate `631af5f0`):** the review found one
+   more instance of the same ordering bug — the cmd/bnc *test runner* called
+   `registerTestRunnerImports` (a 3rd import-registration entry the original
+   fix missed) before setting `mainMod.Checker`, silently skipping imported
+   `_Package` accessors. Fixed + added `TestImportPackageAccessorRequiresChecker`
+   pinning the BEFORE/AFTER contract, + refreshed 4 stale `currentChecker`/
+   `SetChecker` comments. (Two-independent-checker test → inc 5's 5a;
+   end-to-end two-session test → inc 5's 5d.)
 5. **IR-gen bulk: registries → `@Module`, transient context → `@GenCtx`.
-   (XL, ~1–2 wk)** Sub-split:
-   - **5a** Introduce `@GenCtx`; thread it carrying the existing globals as
-     fields behind a shim (no behavior change).
-   - **5b** Migrate the Module-content registries onto `@Module`.
-   - **5c** Migrate generic-instantiation registries + import-alias maps +
-     counters onto `@GenCtx`.
-   - **5d** Delete the now-dead globals; `InitModule` → `NewGenCtx`.
+   (XL)** Detailed scope below (2026-06-17).
 
 **Deferred (eyes open):**
 
@@ -301,6 +303,93 @@ becomes `NewGenCtx`.
 7. **(AOT compiler) `codegen` `@EmitContext` + native `@EmitterContext`.
    (L / M)** ~100+ codegen call sites; native is single-entry (`EmitObject`)
    so cheaper. Only if a *compiler* embedder is wanted.
+
+---
+
+## Increment 5 — detailed sub-split (scoped 2026-06-17)
+
+**The last v1 piece.** 28 ir-gen package-globals remain. Sizing: they're
+touched by a *bounded* set of functions — **3–29 distinct functions each,
+~50–70 unioned** — concentrated in registry helpers (`lookupConst`,
+`lookupStructIdx`, `generateDtors`, `ensureInstantiated`, the `Iface*`
+queries), NOT the ~800 raw token sites. So the cost is threading a carrier
+through ~50–70 functions + callers (≈3–4× inc 4): XL but tractable, same
+shape as inc 4 (which built the `@Module`/`@GenContext` threading scaffold
+this reuses).
+
+**Carrier** (per the v1 `@GenCtx`/`@Module` split decision):
+- New **`@GenCtx`** (one per `GeneratePackage`/`GenModule`/REPL session):
+  transient gen context — `Mod @Module` (replaces `currentModule`),
+  `PkgPath` (`currentModulePkgPath`), the import-alias map, the generic-
+  instantiation registries, the counters.
+- **`@Module` fields** for module-content registries: `Consts`, `Funcs`,
+  `Structs`, `Globals`, `TypeAliases`, `Interfaces`, the pending-dtor lists,
+  `methodValueWrappers`.
+- **Threading** reuses inc 4's scaffold: add `Gc @GenCtx` to `@GenContext`
+  (set at `make(GenContext)`, like `.Checker`). Per-function gen reads
+  `ctx.Gc.X` / `ctx.Gc.Mod.X`; module-level functions take a `@GenCtx`/
+  `@Module` param.
+
+**Classification of the 28** (read/write counts in parens):
+- → `@Module` content fields: moduleConsts(125), moduleStructs(95),
+  moduleFuncs(69), moduleInterfaces(54 ⚠️), moduleGlobals(47),
+  moduleTypeAliases(33), pendingStructDtors(25)/pendingMsDtors(25) (+Names),
+  methodValueWrappers(7).
+- → `@GenCtx` transient fields: currentModule(18, →`Gc.Mod`),
+  currentModulePkgPath(76), currentImportAlias(47), importAliasNames(16)/
+  Paths(12), genericDecls(17)/Pkgs + genericType/IfaceDecls(+Pkgs),
+  currentTypeParamNames(15)/Types(14), emittedInstantiations(12),
+  anonStructCounter(5), funcLitCounter(11).
+- Leave / decide-at-end: `verifyIR` (a `SetVerifyIR` debug/CI process-global,
+  3 fns) — like `debug.verbose`; move to `@GenCtx` or leave.
+
+**Sub-steps (each green, cherry-pickable):**
+
+- **5a — `@GenCtx` scaffold + `currentModule`/`currentModulePkgPath`.** Define
+  `@GenCtx{Mod, PkgPath}`, create it in the gen entry points, add
+  `@GenContext.Gc`, thread `@GenCtx` through the module-level functions, and
+  migrate `currentModule`→`Gc.Mod` (10 fns) + `currentModulePkgPath`→
+  `Gc.PkgPath` (29 fns). Foundational threading pass — once landed, 5b–5d
+  just move more state onto `gc`/`gc.Mod` without re-threading. Add a
+  **two-independent-checker IR-gen unit test** here (inc-4 review follow-up:
+  `genFromSourceWithChecker` ×2, distinct non-nil checkers, assert each
+  module's resolved types track its own checker). **M–L.**
+- **5b — module-content registries → `@Module`.** moduleConsts/Structs/Funcs/
+  Globals/TypeAliases (the high-count five, concentrated in `lookup*`/`add*`
+  helpers). The bulk; may internally split (5b1 consts+structs, 5b2 funcs+
+  globals+aliases). **L.**
+- **5c — transient context → `@GenCtx`.** import-alias map (incl. the REPL's
+  `Save/RestoreAliasMapState` — move intact), generic registries + type-param
+  bindings, the two counters. **M.**
+- **5d — `moduleInterfaces` + pending-dtors + `methodValueWrappers` →
+  `@Module`; delete the globals; `verifyIR` decision; land the end-to-end
+  two-session reentrancy test** (the plan-mandated test — see Verification —
+  which couldn't pass until ir state went per-instance). **M** + the
+  cross-package piece below.
+
+**Wrinkles / risks (flagged):**
+1. **`moduleInterfaces` is cross-package & lifetime-subtle (the main risk).**
+   vm's `lowerImplVtables` queries it by `(pkg,name)` via exported
+   `ir.IfaceFullVtableSize`/`IfaceParentPkgs`/`IfaceParentNames`/
+   `IfaceOwnMethodNames`/`LookupVtableSlotName` (verified — vm/lower.bn:263-305),
+   *after* all modules are gen'd; yet `InitModule` resets it per-module, so it
+   behaves as a **per-compilation accumulating registry** (imports register
+   into it too), not clean per-`@Module` content. Migrating it means deciding
+   its true home (likely a compilation-level registry on `@GenCtx`, not
+   `@Module`) and threading the carrier through the exported `Iface*` queries
+   → **rippling into vm's call sites** (the only part of inc 5 that escapes
+   `pkg/binate/ir`). **Do a focused mini-recon at the start of 5d before
+   committing to a home.**
+2. **REPL alias-map save/restore** (`Save/RestoreAliasMapState`, used by
+   `evalReplImport`) must move onto `@GenCtx` intact.
+3. **BUILDER constraint** — `pkg/ir` is in `cmd/bnc`'s tree; `@GenCtx` +
+   threading must stay BUILDER-compilable (structs/fields/params only — fine).
+4. **`genFromSourcePkg`'s manual global-reset** (ir_test.bn) disappears once
+   the registries are per-`@Module`.
+
+**Open question (defer to 5d mini-recon):** `moduleInterfaces`' home —
+`@Module` (and thread it through the exported `Iface*` queries into vm) vs a
+compilation-level registry on `@GenCtx`.
 
 ---
 
