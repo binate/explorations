@@ -283,7 +283,7 @@ becomes `NewGenCtx`.
    up front, so setting it only inside `GeneratePackage` was too late (caught
    via a `_Package` link error in the vm/repl unit build). Verified:
    builder-comp 1482/0, builder-comp-int 1467/0, gen2 self-host smoke 8/0.
-   **Adversarial review follow-up (binate `631af5f0`):** the review found one
+   **Adversarial review follow-up (binate `95b3592b`):** the review found one
    more instance of the same ordering bug — the cmd/bnc *test runner* called
    `registerTestRunnerImports` (a 3rd import-registration entry the original
    fix missed) before setting `mainMod.Checker`, silently skipping imported
