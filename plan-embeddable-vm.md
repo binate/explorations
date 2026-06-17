@@ -7,7 +7,10 @@ split). Scope decisions ratified by the user 2026-06-16.
 `bd18a73e`); increment 2 (vm-lowering 9 globals → `@VM`, binate
 `b1b19ce1`); increment 3 (types ambient pointers → `@Checker`, **both**
 Part A pkg-context fields and Part B `currentChecker` elimination, binate
-`dd4b71e0`).
+`dd4b71e0`); increment 4 (IR-gen checker threading → `@Module.Checker` +
+`@GenContext.Checker`, kill `ir.SetChecker`/`ir.currentChecker`, binate
+`3ef73b24`). **Only inc 5 (the ~25 ir-gen registries/counters) remains for
+v1.**
 
 **Inc 1–3 adversarial review (2026-06-16):** verdict — the three are
 correct, complete, behavior-preserving refactors (no regressions). It
@@ -268,6 +271,18 @@ becomes `NewGenCtx`.
 4. **IR-gen checker threading: kill `ir.SetChecker`/`ir.currentChecker`.
    (M, ~2–3 days)** Isolated API-surface churn (`cmd/bnc`/`cmd/bni`/REPL/
    codegen tests in lockstep).
+   **LANDED** binate `3ef73b24`. Carrier (user choice): a `Checker` field on
+   `@Module` (set by the gen drivers right after `InitModule`, before import
+   registration) + `@GenContext.Checker` (copied at each `make(GenContext)`);
+   module-level/leaf helpers take a `@types.Checker` param. Bigger than the
+   "M" estimate — 44 files (ripples through exported IR-gen API:
+   `GeneratePackage`/`GenModule`/`RegisterSelfTypes`/`GenSyntheticFunc`),
+   net-zero logic. **Subtlety:** `m.Checker` must be set *before*
+   `registerPkgImports` — import registration emits imported pkgs' `_Package`
+   accessors via `reflectPackageStructType(m.Checker)`; the old global was set
+   up front, so setting it only inside `GeneratePackage` was too late (caught
+   via a `_Package` link error in the vm/repl unit build). Verified:
+   builder-comp 1482/0, builder-comp-int 1467/0, gen2 self-host smoke 8/0.
 5. **IR-gen bulk: registries → `@Module`, transient context → `@GenCtx`.
    (XL, ~1–2 wk)** Sub-split:
    - **5a** Introduce `@GenCtx`; thread it carrying the existing globals as
