@@ -588,12 +588,15 @@ Both referenced from the spec (`07b-type-layout.md`).
   by convention, not a single shared definition — a divergence risk for the
   keystone cross-mode contract. Harden the func/iface field orders into shared
   named-offset constants in `pkg/binate/types`.
-- **`type.layout.byte-order`** (open decision). `TargetInfo` (`types.bni:374-378`)
-  carries no endianness field, so byte order is target-defined but unconstrained
-  by the layout layer (observable via `bit_cast` and the representation builtins).
-  Decide whether to pin endianness as implementation-defined and add a
-  `TargetInfo` endianness field so layout-dependent constant emission is
-  well-defined. (Also noted in `plan-language-spec.md` §21/§9.)
+- **`type.layout.byte-order`** (DECIDED 2026-06-17; impl follow-up open). Byte
+  order is **implementation-defined**: fixed and documented per target, identical
+  across modes (observable via `bit_cast` and the representation builtins). Spec
+  ratified — §7.13.12 `type.layout.byte-order`, §21.4
+  `behavior.impl-defined.endianness` (docs `9a0e2b9`); claude-notes recorded.
+  The current implementation is **little-endian only**, and `TargetInfo`
+  (`types.bni:400-405`) carries no endianness field. **Impl follow-up (not
+  done):** add a `TargetInfo` endianness field + big-endian support, the path to
+  big-endian/cross-endian targets.
 
 ### Type-system issues surfaced while authoring spec Ch.7 (Types) — 2026-06-12
 Found writing the docs spec's Types chapter (grounding + adversarial

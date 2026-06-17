@@ -1240,6 +1240,8 @@ The compiler's backend layer needs to support multiple targets. The current LLVM
 
 **Target parameterization**: `types.SizeOf`/`AlignOf`/`FieldOffset` must be parameterized by a `TargetInfo` (pointer size, int size, max alignment) rather than assuming 64-bit. This is in place (it was a prerequisite for the arm32 backend).
 
+**Byte order (endianness) — DECIDED 2026-06-17**: implementation-defined — an implementation fixes and documents a single byte order per target, and (where both modes exist) the compiled and interpreted modes must agree on it. It is observable through `bit_cast` and the representation-introspection builtins. The current implementation is **little-endian only**, and `TargetInfo` carries no endianness field yet; a complete target-parameterized layout description (to describe a big-endian / cross-endian target) needs an endianness field in `TargetInfo` — adding that field + big-endian support is a tracked impl follow-up, not done. Spec: §7.13.12 `type.layout.byte-order`, §21.4 `behavior.impl-defined.endianness`.
+
 **Testing strategy**: 32-bit ARM binaries are tested via QEMU user-mode emulation (`qemu-arm`) on the development Mac. Binaries target Linux/ARM ELF format (minimal syscall usage: `write`, `exit_group`, `mmap2`). The conformance runner has `builder-comp_arm32_linux` / `builder-comp_arm32_baremetal` modes.
 
 See `ir-backend-guidelines.md` for the full guidelines.
