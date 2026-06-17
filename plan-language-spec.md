@@ -188,14 +188,27 @@ commit):**
   `prog.main.unchecked` as BY DESIGN (per-package compilation + interop). Three
   parser bugs filed (const-`X T`, generic-literal-unparsed, for-clause chaining).
 
-**Remaining:** **Chapter authoring done through §21; Annex A generated.**
-Remaining: **§20.2** (gated on the `pkg/rt` review) and **Annexes B–D** (B
-impl-model/IDB index; C status table; D rationale). Two §21 reconciliation GAPs
-are flagged for a user decision: **byte order/endianness**
-(`behavior.impl-defined.endianness`) and **optional int64/float scalar
-availability** (`behavior.impl-defined.optional-scalars` — §7.2 currently lists
-them unconditionally). Prerequisite still pending: the `pkg/rt` review (→ §20.2).
-The grammar reconciliation is **done**.
+- Ch.1–2 + reconciliation pass (docs `9a0e2b9`/`bffea71`/`51af44c`), 2026-06-17:
+  reconciled recent landings into the spec — `&` addressability tightened (§13.8;
+  landed `7f8d0b9c`), opaque-builtin gate landed (§7.12/§15.2; resolved in §21.9;
+  `fe9e131e`/`ffc56b36`), no-type-redeclaration across `.bni`/`.bn` (§7.12;
+  `8f5cc319`), and **endianness ratified implementation-defined** (§7.13.12/§21.4/
+  §3 terms; current little-endian, a `TargetInfo` endianness field is a tracked
+  impl follow-up). Ch.5 cleanup (decimal_lit / int_literal / float_literal names
+  matched to `binate.ebnf`; leading-zero numeral is a settled lexical error).
+  **Ch.1 (Scope) + Ch.2 (Conformance) authored** — all chapters 1–21 now done.
+  Held: the cast-does-not-launder-constants §8 edit (DECIDED 2026-06-17 but its
+  enforcement is in a dev worktree, NOT on main) — pending the user's
+  apply-now-vs-wait call.
+
+**Remaining:** **All chapters 1–21 authored; Annex A generated.** Remaining:
+**§20.2** (gated on the `pkg/rt` review) and **Annexes B–D** (B impl-model/IDB
+index; C status table — derive last; D rationale). Open user decisions: the
+**optional int64/float availability** reconciliation gap
+(`behavior.impl-defined.optional-scalars`, §7.2/§21.4), and the **cast §8**
+apply-now-vs-wait (held, see above). Prerequisite still pending: the `pkg/rt`
+review (→ §20.2). The grammar reconciliation and the endianness decision are
+**done**.
 
 **Spec-as-audit:** authoring has surfaced ~21 real implementation discrepancies/
 defects, all tracked in `claude-todo.md` (search "spec Ch."). Notable MAJOR:
@@ -209,16 +222,17 @@ OOB writes are now RESOLVED — `910e08cb` / `e185c9c4`); generic methods/struct
 constraints unenforced (Ch.12); the const→readonly and grammar-staleness
 reconciliations.
 
-**NEXT (updated 2026-06-15):** §20 + §21 authored; the **canonical `binate.ebnf`
-and Annex A are done** (Annex A generated via `docs/scripts/gen-annex-a.py`).
-Remaining authoring: **§20.2 rt** (gated on the `pkg/rt` review) and **Annexes
-B–D** (B impl-model/IDB index; C status table — derive last; D rationale). Open
-follow-ups for the user, not blocking: (1) two **§21 reconciliation gaps** need
-ratification — byte order/endianness and optional int64/float scalar
-availability; (2) the remaining Ch.14/Ch.15 MAJOR gaps (inc/dec-lvalue drop,
-panic VM no-op) need a fix decision + a coordinated `binate` worktree; (3) no xfail
-conformance coverage yet for the two MAJOR generics gaps
-(`gen.no-generic-methods.unenforced`, `gen.satisfy.struct-iface-unchecked`).
+**NEXT (updated 2026-06-17):** **all chapters 1–21 are authored**, Annex A is
+generated from the canonical `binate.ebnf`, and the endianness decision is
+ratified. Remaining authoring: **§20.2 rt** (gated on the `pkg/rt` review) and
+**Annexes B–D** (B impl-model/IDB index; C status table — derive last; D
+rationale). Open follow-ups for the user, not blocking: (1) the **cast §8** edit
+is held (DECIDED but enforcement not yet on main) — apply-now-vs-wait; (2) the
+**optional int64/float availability** reconciliation gap needs ratification; (3)
+the remaining Ch.14/Ch.15 MAJOR gaps (inc/dec-lvalue drop, panic VM no-op) need a
+fix decision + a coordinated `binate` worktree; (4) no xfail conformance coverage
+yet for the two MAJOR generics gaps (`gen.no-generic-methods.unenforced`,
+`gen.satisfy.struct-iface-unchecked`).
 
 ---
 
