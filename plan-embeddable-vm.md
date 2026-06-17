@@ -9,6 +9,22 @@ split). Scope decisions ratified by the user 2026-06-16.
 Part A pkg-context fields and Part B `currentChecker` elimination, binate
 `dd4b71e0`).
 
+**Inc 1–3 adversarial review (2026-06-16):** verdict — the three are
+correct, complete, behavior-preserving refactors (no regressions). It
+surfaced two **pre-existing** latent bugs (not introduced by 1–3), now fixed:
+- vm `LowerOneFunc`/`LowerOneFuncShadow` didn't re-establish `modulePkgName`,
+  so a REPL mid-session import (`LowerModule(importedPkg)` then
+  `LowerOneFunc(mainMod)`) mis-qualified the prompt function's bare
+  same-package call targets — binate `dee61e09`.
+- types `CheckMainPersistent` didn't set `curPkgShort`, so REPL-defined
+  interfaces got an empty `Pkg` — binate `142d150f`.
+The review also confirmed the headline "reentrant" claim is correctly
+scoped to **after inc 5**: `ir.currentChecker` (inc 4) and the ~26 ir-gen
+globals (inc 5) are still shared, so a second full compile-and-run in one
+process still cross-talks until those land. The plan-mandated end-to-end
+two-session reentrancy test cannot pass until inc 4/5 are done, so it
+**ships with inc 5** (see Verification below).
+
 This is the larger change that
 [`plan-repl-embeddable.md`](plan-repl-embeddable.md) explicitly deferred:
 its decision #6 ("single live session per process; the `ir`
@@ -328,7 +344,14 @@ becomes `NewGenCtx`.
 - Conformance: full default modes green (`builder-comp`, `…-int`,
   `…-int-int`, `…-comp`, `…-comp-int`, `…-comp-comp`); the int modes are the
   ones that exercise the VM-lowering and reentrancy paths.
-- A new reentrancy regression test (once increment 2 lands): run two VM
-  sessions in one process over programs that import the same package and
-  define globals/vtables; assert the second is not contaminated by the first
-  (the failure mode this whole plan exists to fix).
+- **End-to-end two-session reentrancy test — ships with increment 5.** Run a
+  full compile→check→ir-gen→vm-lower→execute cycle twice in one process over
+  programs that import the same package and define globals/vtables/interfaces;
+  assert the second session is not contaminated by the first (the failure mode
+  this whole plan exists to fix). It **cannot pass before inc 4/5** (ir-gen +
+  `ir.currentChecker` are still shared), which is itself the signal that inc
+  1–3 alone don't deliver full-pipeline reentrancy — so it lands together with
+  inc 5, not earlier. The per-subsystem isolation already has unit coverage:
+  `loader_test.TestLoaderLoadingStackIsolation`,
+  `vm/lower_data_test.TestGlobalAddrPerInstanceIsolation`,
+  `vm/vtable_inject_test.TestVtableInjectPerInstanceIsolation`.
