@@ -1014,8 +1014,10 @@ markers) were already resolved in-tree by later work (verified absent).
 `@[N]T` as `@([N]T)` — asymmetric. Now mirrors the `*[` rejection in the
 `@[` branch (error + recover as managed-pointer-to-array). Tests:
 `TestParseBareManagedArrayRejected` + `TestParseParenManagedArrayAccepted`.
-(The other two Ch.7-types sub-items — opaque make/sizeof gating, named
-func-value LITERAL construction — stay open in claude-todo.md.)
+(The other Ch.7-types sub-item — named func-value LITERAL construction —
+stays open in claude-todo.md; opaque make/sizeof/alignof gating landed
+`fe9e131e`, though it covers only the direct/bare case — named-distinct and
+value-embedding gaps are tracked as a new MAJOR in claude-todo.md.)
 
 ### ~~Generic methods accepted at declaration (`func (b Box) Get[T any](…)`) — spec Ch.12 (2026-06-12)~~ — ✅ LANDED on main (binate `a7e0beb2`, 2026-06-14)
 
