@@ -11,8 +11,11 @@ Part A pkg-context fields and Part B `currentChecker` elimination, binate
 `@GenContext.Checker`, kill `ir.SetChecker`/`ir.currentChecker`, binate
 `3ef73b24`); increment **5a-1** (IR-gen `@GenCtx{Mod}` scaffold +
 `@GenContext.Gc`; `currentModule` global → `gc.Mod`; internal to
-`pkg/binate/ir`, no API change, binate `4f203611`). **Inc 5's remaining
-ir-gen registries/counters (5a-2 onward) are what's left for v1.**
+`pkg/binate/ir`, no API change, binate `4f203611`); increment **5a-2a**
+(`@Func.ModulePkgPath` + `@Module.PkgPath` carriers; emit/init qualify
+sites stop reading the `currentModulePkgPath` global, binate `820ea94d`).
+**Inc 5's remaining ir-gen registries/counters (5a-2b onward) are what's
+left for v1.**
 
 **Inc 1–3 adversarial review (2026-06-16):** verdict — the three are
 correct, complete, behavior-preserving refactors (no regressions). It
@@ -369,13 +372,33 @@ this reuses).
   func-lits + Checkers separate). Behavior-preserving (`gc.Mod` is the same
   `@Module` the global held). Verified: gen1 builds (BUILDER-compilable),
   554 `ir` tests + `vm`/`codegen`/`repl` smoke green, hygiene 14/14. **M–L.**
-- **5a-2 — `currentModulePkgPath`→`@Module.PkgPath` + `@Func.ModulePkgPath`.**
-  Park the path on `@Func` (set at `NewFunc`, +`pkgPath` param → 16 callers) so
-  the emit methods read `b.Func.ModulePkgPath` with **zero call-site ripple**,
-  plus `@Module.PkgPath`; the `qualifyForCurrentModule`/`lookup*` family and the
-  module-level qualify sites take `gc` / read `gc.Mod.PkgPath`. Cycle-free (no
-  `@Module`↔`gc` back-ref). The L-sized threading pass — once it lands, 5b–5d
-  are cheap field migrations. **L.**
+  5a-2 itself splits into 5a-2a / 5a-2b — recon found `resolveTypeExpr` (the
+  central, **recursive** type-expr→`Type` resolver) is called from ~60 sites
+  across ~26 functions, most lacking `ctx`/`gc` (`evalConstExpr`, `methodSig`,
+  `collectInterfaceFromDecl`, `ensureInstantiated{Struct,Interface}`,
+  `register*Import*`, `typeDeclEntryType`, …); since it calls `lookupStructIdx`
+  (which qualifies with the path), eliminating the global is an XL recursive
+  threading pass through it + the `lookup*` family. So the carrier introduction
+  (decoupling the emit/init sites that already hold a `@Func`/`@Module`) lands
+  first, then the XL `gc`-threading pass.
+
+- **5a-2a — carrier fields + retire global from emit/init sites. LANDED binate
+  `820ea94d`.** `@Func.ModulePkgPath` (cached at `NewFunc`/`NewExternFunc` from
+  the global) so the four `@Block` emit methods (`EmitCall`/`EmitFuncValue`/
+  `EmitFuncValueWithData`/`EmitFuncHandle`) qualify via `b.Func.ModulePkgPath` —
+  **zero call-site ripple** to the hundreds of emit sites; `@Module.PkgPath`
+  (set by `GeneratePackage`/`GenModule`) so the `@Module` init helpers
+  (`EmitInitDispatcher`/`EmitMainEntry`/`HasPackageInit`) qualify via `m.PkgPath`
+  (also more correct — can't drift like the ambient global). `qualifyForPkgPath`
+  is the package-path-parameterized core. Behavior-preserving; `NewFunc` still
+  reads the global for `f.Name`. Verified: gen1 builds, `ir`+`vm`+`codegen`+
+  `repl` units green, hygiene 14/14, **builder-comp 1490/0 + builder-comp-int
+  1475/0**. **M.**
+- **5a-2b — thread `gc` through `resolveTypeExpr` + the `lookup*` family +
+  ~26 callers; `NewFunc` takes `pkgPath`; delete `currentModulePkgPath`.** The
+  XL recursive pass; once it lands, 5b–5d are cheap field migrations (lookup*
+  already carry `gc`). Add the carrier-focused unit test here (NewFunc sets
+  ModulePkgPath; no global). **XL.**
 - **5b — module-content registries → `@Module`.** moduleConsts/Structs/Funcs/
   Globals/TypeAliases (the high-count five, concentrated in `lookup*`/`add*`
   helpers). The bulk; may internally split (5b1 consts+structs, 5b2 funcs+
