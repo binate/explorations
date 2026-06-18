@@ -9,8 +9,10 @@ split). Scope decisions ratified by the user 2026-06-16.
 Part A pkg-context fields and Part B `currentChecker` elimination, binate
 `dd4b71e0`); increment 4 (IR-gen checker threading → `@Module.Checker` +
 `@GenContext.Checker`, kill `ir.SetChecker`/`ir.currentChecker`, binate
-`3ef73b24`). **Only inc 5 (the ~25 ir-gen registries/counters) remains for
-v1.**
+`3ef73b24`); increment **5a-1** (IR-gen `@GenCtx{Mod}` scaffold +
+`@GenContext.Gc`; `currentModule` global → `gc.Mod`; internal to
+`pkg/binate/ir`, no API change, binate `4f203611`). **Inc 5's remaining
+ir-gen registries/counters (5a-2 onward) are what's left for v1.**
 
 **Inc 1–3 adversarial review (2026-06-16):** verdict — the three are
 correct, complete, behavior-preserving refactors (no regressions). It
@@ -345,15 +347,35 @@ this reuses).
 
 **Sub-steps (each green, cherry-pickable):**
 
-- **5a — `@GenCtx` scaffold + `currentModule`/`currentModulePkgPath`.** Define
-  `@GenCtx{Mod, PkgPath}`, create it in the gen entry points, add
-  `@GenContext.Gc`, thread `@GenCtx` through the module-level functions, and
-  migrate `currentModule`→`Gc.Mod` (10 fns) + `currentModulePkgPath`→
-  `Gc.PkgPath` (29 fns). Foundational threading pass — once landed, 5b–5d
-  just move more state onto `gc`/`gc.Mod` without re-threading. Add a
-  **two-independent-checker IR-gen unit test** here (inc-4 review follow-up:
-  `genFromSourceWithChecker` ×2, distinct non-nil checkers, assert each
-  module's resolved types track its own checker). **M–L.**
+  5a splits into 5a-1 / 5a-2 — implementation found `currentModulePkgPath`'s
+  blast radius is much larger than `currentModule`'s: it is read by
+  `qualifyForCurrentModule` *and* `NewFunc`/`NewExternFunc`, and
+  `qualifyForCurrentModule` is itself called inside the hot `@Block` emit
+  methods (`EmitCall`/`EmitFuncValue`/`EmitFuncValueWithData`/`EmitFuncHandle`),
+  whose hundreds of call sites would explode a naive "thread `gc` everywhere"
+  diff. So the two globals land separately.
+
+- **5a-1 — `@GenCtx{Mod}` scaffold + `currentModule`→`gc.Mod`. LANDED binate
+  `4f203611`.** Defines `@GenCtx` (transient per-compilation context) +
+  `@GenContext.Gc` back-ref; `NewGenCtx(m)` is created internally by
+  `GeneratePackage`/`GenModule` and the REPL's `GenDecl`/`GenSyntheticFunc`, so
+  **no public-API / driver / REPL signature changes** — the whole change is
+  internal to `pkg/binate/ir`. `genFunc`/`genMethod`/`genFuncWithPrependedParams`/
+  `ensureInstantiated`/`synthMethodValueWrapper`/`registerCurrentModulePackageAccessor`
+  take `gc`; context-light helpers (`genFuncLit`, `genCallInstantiate`,
+  `wrapAsIfaceValue`) read `ctx.Gc.Mod`. `setCurrentModule`/`resetImplState`
+  removed; `resetFuncLitState` dropped its module-capture. Added
+  `TestGenCtxPerCompilationModuleIsolation` (two compilations keep their lifted
+  func-lits + Checkers separate). Behavior-preserving (`gc.Mod` is the same
+  `@Module` the global held). Verified: gen1 builds (BUILDER-compilable),
+  554 `ir` tests + `vm`/`codegen`/`repl` smoke green, hygiene 14/14. **M–L.**
+- **5a-2 — `currentModulePkgPath`→`@Module.PkgPath` + `@Func.ModulePkgPath`.**
+  Park the path on `@Func` (set at `NewFunc`, +`pkgPath` param → 16 callers) so
+  the emit methods read `b.Func.ModulePkgPath` with **zero call-site ripple**,
+  plus `@Module.PkgPath`; the `qualifyForCurrentModule`/`lookup*` family and the
+  module-level qualify sites take `gc` / read `gc.Mod.PkgPath`. Cycle-free (no
+  `@Module`↔`gc` back-ref). The L-sized threading pass — once it lands, 5b–5d
+  are cheap field migrations. **L.**
 - **5b — module-content registries → `@Module`.** moduleConsts/Structs/Funcs/
   Globals/TypeAliases (the high-count five, concentrated in `lookup*`/`add*`
   helpers). The bulk; may internally split (5b1 consts+structs, 5b2 funcs+
