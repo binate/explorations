@@ -16,7 +16,7 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 Add a 3-package conformance regression test (`[b.SZ]int` + `x << b.SZ`) once fixed. **MUST keep the checker and IR-gen in lockstep** — the lesson of this regression is that making the checker fold MORE than IR-gen can creates silent disagreements.
 
-## MAJOR (type-system / wrong-code) — opaque types with no layout silently miscompile via a fabricated pointer-size (2026-06-16) — named-distinct gap ✅ FIXED & LANDED `ffc56b36`; VALUE-EMBEDDING gap 🔴 OPEN (doing approach B: checker gates + make SizeOf/AlignOf stop fabricating)
+## MAJOR (type-system / wrong-code) — opaque types with no layout silently miscompile via a fabricated pointer-size (2026-06-16) — ✅ FIXED & LANDED: named-distinct `ffc56b36`; value-embedding + SizeOf/AlignOf panic `26f6e5b3`. Residual: a concrete-opaque field in a GENERIC decl is caught loudly by the SizeOf/AlignOf panic, not a clean checker diagnostic (checkValueEmbedding skips generics) — minor follow-up
 
 **Root cause.** `Type.SizeOf()` (`scope.bn:151-155`) and `AlignOf()`
 (`scope.bn:245-248`) fall through to `ptrSize()` / `maxAlign()` for a
@@ -70,7 +70,7 @@ struct value field / by-value param+return.
 
 The cast-hidden negative-shift-count → silent-0 class (and the cast-semantics decision it surfaced) is fully closed and landed across `c9cce5ef`..`77d7cc38` — full detail in the done file. Remaining OPEN residuals:
 
-- **(h-arith) const-ARITHMETIC operand ≥ 2^63 fit-check** — `checkCastConstFits` folds a non-bare operand (`cast(int64, A*B)`) through a host int, so a result magnitude ≥ 2^63 is wrongly ACCEPTED (and in array-dim position yields a wrong array length). Tracked by xfail conformance `822_err_cast_const_arith_overflow`. Proper fix: fold const arithmetic in bignum. **← being done now.**
+- **(h-bitwise) const-BITWISE/shift operand ≥ 2^63 fit-check** — `checkCastConstFits` now folds a const operand exactly in `bignum.Num` (`foldConstNum`), so const *arithmetic* (`cast(int64, A*B)`, overflow past 2^64-1, the prior false-reject of in-range 2^63+1) is judged correctly. `bignum.Num` has no bitwise ops, so a const *bitwise/shift* operand (`cast(int64, A<<1)`) still routes through the host-int fold and a magnitude ≥ 2^63 is wrongly ACCEPTED. Tracked by xfail conformance `826_err_cast_const_bitwise_overflow`. Proper fix: add bitwise ops to `bignum.Num` and fold them in `foldConstNum`. Narrow. (Arithmetic case `822` is now a normal reject test; `825` guards the in-range accept.)
 - **iota-grouped `.bni` consts stay value-less** — `defineBniConst` doesn't fold an iota-group member, so a negative iota-grouped imported const used as a shift count would slip; needs iota substitution ported into `bni_scope`. Narrow.
 - **`parseCharLiteral` (types) / `parseCharLit` (ir) duplicated** with no tie test — drift risk; factor into one shared decoder.
 - **raw multi-byte char literal** (`'é'`) accepted as its first UTF-8 byte — front-end leniency (pre-existing).
