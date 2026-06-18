@@ -80,7 +80,14 @@ Findings (all reproduced on a gen1 bnc built from `26f6e5b3`):
   form gets a clean diagnostic; `dimFullyKnown` treats an opaque sizeof as
   not-known so the array-dim case no longer emits a spurious "division by
   zero". Covered by conformance/828 + unit tests. Per the governing principle:
-  no panic on a source-reachable path.
+  no panic on a source-reachable path. Follow-up `e887543e` (from an adversarial
+  review): the bignum cast-fit folder `foldConstNum` (`check_cast_fits.bn`) also
+  fabricated `sizeof(Opaque)=8`, adding a spurious "constant does not fit"
+  cascade on `cast(int8, sizeof(Opaque) * 100)` — now `FOLD_UNKNOWN` for opaque;
+  plus coverage for the duplicated ALIGNOF arms and the bit_cast opaque-SOURCE
+  side. (The review's suspected forward-ref false positive — `[sizeof(Fwd)]int`
+  — was verified clean on gen1: the park machinery resolves the placeholder
+  first.)
 - **SILENT miscompiles still present (BLOCKER), the panic does NOT catch them**
   (IR-gen int-fallback pre-empts): (a) generic instantiation `var b Box[Opaque]`
   → monomorphized as `Box[int]` `<{ i64 }>` AND collides on the same mangled
