@@ -1,6 +1,6 @@
 # Plan: file-scoped imports (fix the CRITICAL package-scoped-imports bug)
 
-Status: **IMPLEMENTED — awaiting landing approval** (2026-06-17). Direction 1 /
+Status: **LANDED** `cf0d1cad` (2026-06-18). Direction 1 /
 option A from the CRITICAL "imports are package-scoped" entry in
 `claude-todo.md`. Owner: this session (the other worker is on the spec).
 
