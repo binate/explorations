@@ -10,6 +10,27 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+### ~~Cast/shift const-fold silent-miscompile class — checker/IR-gen const-fold asymmetry~~ — ✅ FIXED+LANDED (2026-06-15 .. 2026-06-17)
+
+Started from a CAST-hidden negative constant shift count silently treated as an overshift (`const N int8 = cast(int8, 0) - cast(int8, 3); x << N` printed `0` instead of a `negative shift count` error). Root cause: the checker's `evalConstIntValue` diverged from IR-gen's `evalConstExpr` on which const forms it folds. Closed the whole asymmetry, form by form, plus the cast-semantics decision it surfaced. Each step verified full builder-comp + gen2 (conformance + unit).
+
+- **cast case** — ✅ `c9cce5ef` (option B: `evalConstIntValue` folds cast/bit_cast passthrough; new `constIntFor` records cast-const values). Test 799.
+- **(a) char-literal arithmetic** — ✅ `81d2655b`. New `parseCharLiteral` + EXPR_CHAR_LIT arm; `['A']int` dims now fold. Test 803.
+- **(b) selector-qualified cross-package const** — ✅ `2e783acd`. EXPR_SELECTOR arm + new `defineBniConst` folds every imported `.bni` const. Tests 804/805.
+- **(c) bit_cast sign-reinterpret** — ✅ `83abb2cb`. Shared `types.ReinterpretBitCast` (truncate+sign-extend) used by BOTH evaluators. Test 807.
+- **(d) doc comment parity** — ✅ rewritten across the above.
+- **(e) positive end-to-end tests** — ✅ `e27008fe`. Tests 810/811.
+- **(f) negated sizeof/alignof shift count** — ✅ `767ca300`. `evalConstIntValue` folds sizeof/alignof. Test 808.
+- **(g) malformed char-escape in array-dim** — ✅ `200b8989`. New `validateDimCharLitEscapes`. Test 812.
+- **(i) sizeof/alignof in isConstShaped/dimFullyKnown** — ✅ `d6978201`. Tests 813-815.
+- **(j) alignof coverage** — ✅ `d6978201` (incl. `[alignof([4]int32)]int`→4, a SizeOf/AlignOf-swap discriminator).
+- **CRITICAL transitive-`.bni`-const regression** (introduced by b) — conservative guard ✅ `8dd35667` (`exprRefsSelector`); the PROPER IR-gen `RegisterImport` fix is still open in the active todo.
+- **(h) strict cast — a cast does NOT launder constants** — ✅ `a393c89c` (option S). New `checkCastConstFits` (value position) + `validateDimCasts` (array-dim); `cast(int8, cast(int, 200))` and `const M int = 257; cast(uint8, M)` now rejected. Fallout (4 `STATIC_MANAGED_REFCOUNT` sites, a vm test, conformance 650) → `bit_cast` / masking. Decision recorded in `claude-notes.md`. Tests 816-818.
+  - **h-precision (bare const-ident / qualified const ≥ 2^63)** — ✅ `afe0254b`. New `castConstExactFits` reconstructs the exact value from the symbol's host-int bit pattern + signedness (no Symbol struct change). Test 819.
+  - **dim-literal ≥ 2^63 exactness + xfail for the const-arithmetic residual** — ✅ `77d7cc38`. `validateDimCasts` checks literal operands; tests 820/821/823, plus 822 (`.xfail.all`) tracking the const-arithmetic residual.
+
+Remaining open residuals tracked in the active todo: the const-arithmetic ≥ 2^63 fit-check residual (h-arith, xfail 822 — being closed via bignum const folding), iota-grouped `.bni` consts, `parseCharLiteral`/`parseCharLit` dedup, multi-byte char-literal leniency, and the proper IR-gen transitive-`.bni`-const fix.
+
 ### ~~Type-system (opaque) — `make`/`make_slice`/`sizeof`/`alignof` on an opaque type not gated~~ — ✅ FIXED+LANDED `fe9e131e` (2026-06-16)
 
 The ratified design (plan-type-decls.md) says make / sizeof / alignof on an
