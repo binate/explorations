@@ -13,9 +13,15 @@ Part A pkg-context fields and Part B `currentChecker` elimination, binate
 `@GenContext.Gc`; `currentModule` global → `gc.Mod`; internal to
 `pkg/binate/ir`, no API change, binate `4f203611`); increment **5a-2a**
 (`@Func.ModulePkgPath` + `@Module.PkgPath` carriers; emit/init qualify
-sites stop reading the `currentModulePkgPath` global, binate `820ea94d`).
-**Inc 5's remaining ir-gen registries/counters (5a-2b onward) are what's
-left for v1.**
+sites stop reading the `currentModulePkgPath` global, binate `820ea94d`);
+increment **5a-2b** (thread `gc.PkgPath` through `resolveTypeExpr`/`lookup*`/
+the registration entry points; delete `currentModulePkgPath`; `NewFunc`/
+`NewExternFunc` take `pkgPath`; behavior-preserving, both backends green,
+binate `3fd61d56`). **`pkg/binate/ir` now has no per-run module/path
+package-global.** What's left for v1: the ir-gen *registries* (5b
+module-content → `@Module`), *transient context* (5c import-alias map +
+generic registries + counters → `@GenCtx`), and *interfaces/dtors* (5d) —
+all now cheap field migrations since `gc` is threaded everywhere.
 
 **Inc 1–3 adversarial review (2026-06-16):** verdict — the three are
 correct, complete, behavior-preserving refactors (no regressions). It
@@ -394,11 +400,24 @@ this reuses).
   reads the global for `f.Name`. Verified: gen1 builds, `ir`+`vm`+`codegen`+
   `repl` units green, hygiene 14/14, **builder-comp 1490/0 + builder-comp-int
   1475/0**. **M.**
-- **5a-2b — thread `gc` through `resolveTypeExpr` + the `lookup*` family +
-  ~26 callers; `NewFunc` takes `pkgPath`; delete `currentModulePkgPath`.** The
-  XL recursive pass; once it lands, 5b–5d are cheap field migrations (lookup*
-  already carry `gc`). Add the carrier-focused unit test here (NewFunc sets
-  ModulePkgPath; no global). **XL.**
+- **5a-2b — thread `gc.PkgPath` through `resolveTypeExpr` + the `lookup*`
+  family + ~26 callers; `NewFunc`/`NewExternFunc` take `pkgPath`; delete
+  `currentModulePkgPath`. LANDED binate `3fd61d56`.** Added a `PkgPath` field
+  to `@GenCtx` (phase-scoped, NOT always `gc.Mod.PkgPath`: GeneratePackage/
+  GenModule seed from the module path, RegisterSelfTypes from the .bni path,
+  the import pre-passes leave it empty) — each entry point creates its own gc
+  internally, so **no driver/REPL API change**. The dtor/copy/thunk emitters
+  thread the module path so their bodies' bare `dtorNameForType` callees still
+  qualify. `NewFunc`/`NewExternFunc`'s only non-test callers are in `ir`; the
+  `ir.NewFunc` callers in `codegen`/`vm`/`native` are test-only (pass `""`).
+  Behavior-preserving (gc.PkgPath == the global's value at every site).
+  Surfaced + fixed 4 test failures (lookups that must match a *qualified*
+  registration needed a real `gc.PkgPath`). 89 files. Verified: gen1 builds,
+  `ir`+`vm`+`codegen`+`repl`+`native` units 8/0, hygiene 14/14, **builder-comp
+  1492/0 + builder-comp-int 1477/0**. **XL.**
+  **`pkg/binate/ir` now has no per-run module/path package-global** —
+  `currentModule` (5a-1) and `currentModulePkgPath` are both gone; only the
+  registries (5b) + transient context (5c) + interfaces/dtors (5d) remain.
 - **5b — module-content registries → `@Module`.** moduleConsts/Structs/Funcs/
   Globals/TypeAliases (the high-count five, concentrated in `lookup*`/`add*`
   helpers). The bulk; may internally split (5b1 consts+structs, 5b2 funcs+
