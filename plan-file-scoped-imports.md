@@ -12,7 +12,7 @@ option A from the CRITICAL "imports are package-scoped" entry in
 
 **Validation (all green):** builder-comp conformance **1495/0**, builder-comp-comp
 (gen2 self-host) **1495/0**, builder-comp unit **45/0**; new conformance tests
-827 (same-alias → 1,2, was 1,1), 828 (cross-file leak → clean reject), 829
+830 (same-alias → 1,2, was 1,1), 831 (cross-file leak → clean reject), 832
 (implicit same-last-segment → 100,200) pass under builder-comp, gen2, VM, and
 native-aarch64. Fixes facets **A, B, C** of the CRITICAL entry. Facets **D**
 (alias-vs-decl redeclaration) and **H** (import-cycle detection) are separate
