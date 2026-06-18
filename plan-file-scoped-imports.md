@@ -1,8 +1,28 @@
 # Plan: file-scoped imports (fix the CRITICAL package-scoped-imports bug)
 
-Status: **IN PROGRESS** (2026-06-17). Implements direction 1 / option A from the
-CRITICAL "imports are package-scoped" entry in `claude-todo.md`. Owner: this
-session (the user confirmed it's mine; the other worker is on the spec).
+Status: **IMPLEMENTED — awaiting landing approval** (2026-06-17). Direction 1 /
+option A from the CRITICAL "imports are package-scoped" entry in
+`claude-todo.md`. Owner: this session (the other worker is on the spec).
+
+**Done (worktree `work-2`, 3 commits on top of main):**
+- Checker file-scoped imports + `loader.Package.Files` + the 12-file in-tree
+  leak cleanup + a REPL pending-receiver fix.
+- IR-gen file-scoped imports for the current module (per-decl alias overlay).
+- `.bni`-prepended decls resolve imports via the merged set (`declImportFile`).
+
+**Validation (all green):** builder-comp conformance **1495/0**, builder-comp-comp
+(gen2 self-host) **1495/0**, builder-comp unit **45/0**; new conformance tests
+827 (same-alias → 1,2, was 1,1), 828 (cross-file leak → clean reject), 829
+(implicit same-last-segment → 100,200) pass under builder-comp, gen2, VM, and
+native-aarch64. Fixes facets **A, B, C** of the CRITICAL entry. Facets **D**
+(alias-vs-decl redeclaration) and **H** (import-cycle detection) are separate
+follow-ups, NOT addressed here. KNOWN RESIDUAL: a same-alias collision in a
+package-level `var x = dep.Foo()` across files (package-init lowers under the
+merged overlay) — narrow; noted in §Steps/3.
+
+---
+
+(Original plan below.)
 
 Goal: a qualifier `pkg.X` in file F resolves against **only F's imports**, in
 both the type checker and IR-gen (they must agree — opposite-winner split). Fixes
