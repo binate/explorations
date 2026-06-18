@@ -58,7 +58,7 @@ bnlint today has exactly one "unused" rule (`unused-import`, `pkg/binate/lint/un
 
 Add a 3-package conformance regression test (`[b.SZ]int` + `x << b.SZ`) once fixed. **MUST keep the checker and IR-gen in lockstep** — the lesson of this regression is that making the checker fold MORE than IR-gen can creates silent disagreements.
 
-## MAJOR (type-system / wrong-code) — opaque types with no layout silently miscompile via a fabricated pointer-size (2026-06-16) — ⚠️ PARTIALLY FIXED, NOT CLOSED: named-distinct `ffc56b36` ✅; value-embedding checker gates + SizeOf/AlignOf panic `26f6e5b3` — but an adversarial review (gen1 + emitted LLVM, 2026-06-17) found the panic "backstop" is FICTIONAL and the panic CRASHES on valid code. REOPENED.
+## MAJOR (type-system / wrong-code) — opaque types with no layout silently miscompile via a fabricated pointer-size (2026-06-16) — ⚠️ PARTIALLY FIXED, NOT CLOSED: named-distinct `ffc56b36` ✅; value-embedding checker gates `26f6e5b3` ✅; SizeOf/AlignOf panic REMOVED + const-fold/bit_cast checker gates + clean diagnostics `f3807ed2` ✅ (the `26f6e5b3` panic was a crash-regression — now gone; the 3 crashing forms give clean errors). **STILL OPEN (step 2):** an opaque VALUE can still be FORMED → silent i64 miscompile via generic instantiation, anonymous structs, inferred-type composite literals, deref/assignment, and slices; plus the REPL path. The real fix is "an opaque value can never be formed in the checker" (+ IR-gen failing loudly instead of fabricating int). See below.
 
 **The `26f6e5b3` panic backstop does not work, and regresses.** Root: IR-gen's
 `resolveTypeExpr` (`gen_type_resolve.bn:119`) resolves any named type with no
@@ -70,16 +70,17 @@ code instead of giving a clean diagnostic.
 
 Findings (all reproduced on a gen1 bnc built from `26f6e5b3`):
 
-- **PANIC-on-checker-code (regression, BLOCKER).** `cast(int, sizeof(Opaque))`
-  (common — `sizeof` returns uint), `[sizeof(Opaque)]int`, and a struct field
-  `[sizeof(Opaque)]int` CRASH the compiler: `evalConstIntValue`
-  (`checker_util.bn:227-239`) folds sizeof/alignof by calling `t.SizeOf()`
-  directly, bypassing the clean builtin gate (`check_builtin.bn`), and hits the
-  new panic. `bit_cast(*[]Opaque, x)` likewise crashes via
-  `checkBitCastShapes`'s `s.Elem.SizeOf()` (`check_builtin.bn:545`). Pre-commit
-  these returned `ptrSize()=8` (compiled). Fix: gate `isOpaqueType` in
-  `evalConstIntValue`'s SIZEOF/ALIGNOF arms + in `checkBitCastShapes` so the
-  clean diagnostic wins before the panic.
+- **PANIC-on-checker-code (regression, BLOCKER) — FIXED `f3807ed2`.**
+  `cast(int, sizeof(Opaque))`, `[sizeof(Opaque)]int`, and `bit_cast(*[]Opaque,
+  x)` used to CRASH the compiler (the `26f6e5b3` panic, reached via
+  `evalConstIntValue`'s sizeof/alignof fold and `checkBitCastShapes`'s
+  `Elem.SizeOf()`). Fix: the panic was removed (SizeOf/AlignOf fall through to
+  the non-crashing `ptrSize()`/`maxAlign()` again), and `evalConstIntValue`
+  (now `eval_const_int.bn`) + `checkBitCastShapes` gate `isOpaqueType` so each
+  form gets a clean diagnostic; `dimFullyKnown` treats an opaque sizeof as
+  not-known so the array-dim case no longer emits a spurious "division by
+  zero". Covered by conformance/828 + unit tests. Per the governing principle:
+  no panic on a source-reachable path.
 - **SILENT miscompiles still present (BLOCKER), the panic does NOT catch them**
   (IR-gen int-fallback pre-empts): (a) generic instantiation `var b Box[Opaque]`
   → monomorphized as `Box[int]` `<{ i64 }>` AND collides on the same mangled
@@ -105,12 +106,19 @@ type var, by-value param/return on batch paths, transitive named-struct (inner
 decl rejected), named-distinct/alias-over-opaque, and slice-of-opaque-by-
 reference (`*[]Opaque`/`@[]Opaque` correctly compile).
 
-**Likely real fix** (root cause): make IR-gen's `gen_type_resolve.bn:119`
-TypInt() fallback for an unresolved named type a hard error (so opaque CANNOT
-silently become int) — then the checker gates give clean errors for the common
-cases and IR-gen fails loudly for anything missed, instead of the current
-fabricate-8. Plus gate the checker-phase SizeOf callers (const-fold, bit_cast)
-for clean diagnostics. Direction is a design call — see the discussion.
+**Remaining fix (step 2).** The checker-phase SizeOf callers (const-fold,
+bit_cast) are now gated for clean diagnostics (`f3807ed2`). What remains: (a)
+enforce in the checker that an opaque VALUE can never be FORMED — extend the
+gates to generic instantiation, anonymous structs, inferred-type composite
+literals (`var x = Opaque{}`), deref/assignment, and slices, and hook the REPL
+`CheckDeclInScope` path (`embedsOpaqueByValue` must also recurse TYP_STRUCT /
+TYP_SLICE, not just TYP_ARRAY); (b) make IR-gen's `gen_type_resolve.bn:119`
+TypInt() fallback fail loudly for an unresolved named type, so anything the
+checker misses can't silently lower to i64 instead of the current fabricate-8.
+NOTE: (b) must not panic on a source-reachable path — it has to be a path only
+reachable after the checker has rejected every opaque-value form (else it
+becomes the same crash-regression the `26f6e5b3` panic was). Direction on (b)
+is a design call — see the discussion.
 
 **Root cause.** `Type.SizeOf()` (`scope.bn:151-155`) and `AlignOf()`
 (`scope.bn:245-248`) fall through to `ptrSize()` / `maxAlign()` for a
