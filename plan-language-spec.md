@@ -813,6 +813,11 @@ finalized.
 
 ## 10. Spec conformance tests (keeping spec ↔ implementation in sync)
 
+> **Detailed plan: [`plan-spec-tests.md`](plan-spec-tests.md)** — the triage of
+> the ~480 rule-IDs, the `.rules` tag + coverage tooling, Annex C derivation, the
+> authoring discipline, and the phasing (Phase A: seed the ledger with
+> defect-xfails + the load-bearing invariants). This section is the summary.
+
 To guarantee the spec matches the implementation **and vice versa**, every
 normative, testable rule is tied to executable **spec conformance tests**.
 This is what makes the implementation-conformance axis (§4b, Annex C) real
