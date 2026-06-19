@@ -6,9 +6,10 @@ Progress: Slice 1 (struct recursion) landed `2e979554`; Slice 1b
 make/sizeof/etc. gates to embedsOpaqueByValue — the dedicated generic gate was
 found redundant) landed `b7cbedaa`; Slice 3 (generic func/iface instantiation
 gates, forward-ref-safe) landed `40924b14`; Slice 4 (composite-literal +
-inferred-var gates) landed `6d541973`. Next: 4b (deref-as-rvalue gate — the
-`_ = *p` / `*dst = *src` residual, user chose to close it), 5 (REPL), 6 (Part B
-IR-gen guard, now load-bearing).
+inferred-var gates) landed `6d541973`; Slice 4b (deref-as-rvalue assignment
+gate — `_ = *p` / `*dst = *src` / `x := *p`) landed `fe048395`. The checker now
+fully enforces "an opaque value can never be formed" on the whole-program path.
+Next: 5 (REPL hook), 6 (Part B IR-gen guard for the pointer-escapee residual).
 Prereq: step 1 landed (`f3807ed2` panic removal + checker gates; `e887543e`
 foldConstNum gate). See the opaque-layout MAJOR in `claude-todo.md`.
 
