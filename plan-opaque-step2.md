@@ -9,9 +9,16 @@ gates, forward-ref-safe) landed `40924b14`; Slice 4 (composite-literal +
 inferred-var gates) landed `6d541973`; Slice 4b (deref-as-rvalue assignment
 gate — `_ = *p` / `*dst = *src` / `x := *p`) landed `fe048395`. The checker now
 fully enforces "an opaque value can never be formed" on the whole-program path.
-Slice 5 (REPL CheckDeclInScope hook) landed `5968e1e2` — the checker now
-enforces "no opaque value formed" on BOTH the batch and REPL paths. Next: 6
-(Part B IR-gen guard for the `*Box[Opaque]` pointer-escapee residual).
+Slice 5 (REPL CheckDeclInScope hook) landed `5968e1e2`. Slice 6 (reject a
+pointer/handle to an opaque-embedding non-bare type, e.g. `*Box[Opaque]`) landed
+`d00fcd81` — done CHECKER-SIDE (not the IR-gen guard the design floated: IR-gen's
+precondition is valid input, so the fix belongs in the checker). **STEP 2
+COMPLETE**: the checker fully prevents an opaque value from being formed (batch +
+REPL), and IR-gen never receives an opaque instantiation. Tiny benign residual:
+a pointer nested under further pointers (`**Box[Opaque]`, `@(*Box[Opaque])`) —
+the one-level pointee check doesn't reach it; closing it needs the
+cycle-detection a recursive peel would require for `type P *P`. Tracked in
+claude-todo.md.
 Prereq: step 1 landed (`f3807ed2` panic removal + checker gates; `e887543e`
 foldConstNum gate). See the opaque-layout MAJOR in `claude-todo.md`.
 
