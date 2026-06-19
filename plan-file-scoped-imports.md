@@ -14,11 +14,14 @@ option A from the CRITICAL "imports are package-scoped" entry in
 (gen2 self-host) **1495/0**, builder-comp unit **45/0**; new conformance tests
 830 (same-alias → 1,2, was 1,1), 831 (cross-file leak → clean reject), 832
 (implicit same-last-segment → 100,200) pass under builder-comp, gen2, VM, and
-native-aarch64. Fixes facets **A, B, C** of the CRITICAL entry. Facets **D**
-(alias-vs-decl redeclaration) and **H** (import-cycle detection) are separate
-follow-ups, NOT addressed here. KNOWN RESIDUAL: a same-alias collision in a
-package-level `var x = dep.Foo()` across files (package-init lowers under the
-merged overlay) — narrow; noted in §Steps/3.
+native-aarch64. Fixes facets **A, B, C** for NON-GENERIC decls. Facets **D**
+(alias-vs-decl redeclaration, `973e82f7`) and **H** (import-cycle detection,
+`a4d8a907`) LANDED. **GENERIC instantiation is NOT fixed** — a generic body's
+package-qualified references still resolve at the USE-SITE, not the generic's
+defining file (separate CRITICAL in `claude-todo.md`; conformance 837 xfail);
+this was the "Generics" risk area flagged below that the original work missed.
+KNOWN RESIDUAL: a same-alias collision in a package-level `var x = dep.Foo()`
+across files (package-init lowers under the merged overlay) — narrow; §Steps/3.
 
 ---
 
