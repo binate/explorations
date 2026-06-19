@@ -104,13 +104,7 @@ bnlint today has exactly one "unused" rule (`unused-import`, `pkg/binate/lint/un
 
 Add a 3-package conformance regression test (`[b.SZ]int` + `x << b.SZ`) once fixed. **MUST keep the checker and IR-gen in lockstep** — the lesson of this regression is that making the checker fold MORE than IR-gen can creates silent disagreements.
 
-## opaque-layout (type-system / wrong-code) — ✅ RESOLVED (step 1 + step 2, Slices 1–6); summary moved to [claude-todo-done.md](claude-todo-done.md) (2026-06-19)
-
-Tiny benign residual still OPEN: a pointer nested under further pointers
-(`**Box[Opaque]` / `@(*Box[Opaque])`) isn't caught by `requireSizedType`'s
-one-level pointee check (Slice 6). Closing it needs the cycle-detection a
-recursive peel would require for `type P *P`. Benign (the same never-used
-fabrication, and a pointer is sized); follow-up only.
+## opaque-layout (type-system / wrong-code) — ✅ RESOLVED & CLOSED (step 1 + step 2, Slices 1–6 + nested-pointer closure `13943373`); summary in [claude-todo-done.md](claude-todo-done.md) (2026-06-19)
 
 ## Cast/shift const-fold class — ✅ DONE & LANDED (moved to [claude-todo-done.md](claude-todo-done.md)); open residuals below (2026-06-17)
 

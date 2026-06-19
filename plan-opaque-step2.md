@@ -14,11 +14,10 @@ pointer/handle to an opaque-embedding non-bare type, e.g. `*Box[Opaque]`) landed
 `d00fcd81` — done CHECKER-SIDE (not the IR-gen guard the design floated: IR-gen's
 precondition is valid input, so the fix belongs in the checker). **STEP 2
 COMPLETE**: the checker fully prevents an opaque value from being formed (batch +
-REPL), and IR-gen never receives an opaque instantiation. Tiny benign residual:
-a pointer nested under further pointers (`**Box[Opaque]`, `@(*Box[Opaque])`) —
-the one-level pointee check doesn't reach it; closing it needs the
-cycle-detection a recursive peel would require for `type P *P`. Tracked in
-claude-todo.md.
+REPL), and IR-gen never receives an opaque instantiation. No residuals: the
+nested-pointer case (`**Box[Opaque]`, `@(*Box[Opaque])`) is now closed too —
+`pointeeEmbedsOpaque` peels through every pointer level with a visited-name set
+so `type P *P` terminates (`13943373`).
 Prereq: step 1 landed (`f3807ed2` panic removal + checker gates; `e887543e`
 foldConstNum gate). See the opaque-layout MAJOR in `claude-todo.md`.
 
