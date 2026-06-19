@@ -36,8 +36,11 @@ guard). Slices:
   - 6  `d00fcd81` reject `*Box[Opaque]` / `@Box[Opaque]` (a pointer to an
        opaque-embedding non-bare type) — the last path reaching IR-gen with an
        opaque arg; closing it means IR-gen never instantiates `Box[Opaque]`.
+  - nested-pointer closure `13943373` — pointeeEmbedsOpaque peels through
+       every pointer level (`**Box[Opaque]` / `@(*Box[Opaque])`), with a
+       visited-name set so `type P *P` terminates.
 conformance/{809,824,827,828,838,839,842,846,851} + extensive unit coverage.
-Plan: plan-opaque-step2.md. Tiny benign residual: nested `**Box[Opaque]`.
+Plan: plan-opaque-step2.md. No residuals.
 
 ### ~~Cast/shift const-fold silent-miscompile class — checker/IR-gen const-fold asymmetry~~ — ✅ FIXED+LANDED (2026-06-15 .. 2026-06-17)
 
