@@ -539,12 +539,43 @@ this reuses).
         move must thread ONE shared gc across any register-then-lookup test
         sequence (done for 5c-2b via `genFromSourcePkgGc`); the alias-map move
         will need the same for its tests.
-- **5d (now also subsumes 5c-2a's alias map) — `moduleInterfaces` +
-  alias map + pending-dtors + `methodValueWrappers` → carriers; delete the
-  globals; `verifyIR` decision; land the end-to-end
-  two-session reentrancy test** (the plan-mandated test — see Verification —
-  which couldn't pass until ir state went per-instance). **M** + the
-  cross-package piece below.
+- **5d (now also subsumes 5c-2a's alias map) — alias map + `moduleInterfaces`
+  + pending-dtors + `methodValueWrappers` → carriers; delete the globals;
+  `verifyIR` decision; land the end-to-end two-session reentrancy test.**
+  **Carrier decided (user, 2026-06-19): both the alias map AND
+  `moduleInterfaces` go on `@Module`, threading `@Module` (NOT `gc`) through
+  the shared chain.**  Recon settled it: `resolveImportPkg` (alias map) is on
+  the BACKEND call path — `Iface*` exported queries → `resolveModuleInterface`
+  → `lookupModuleInterfaceIndex` → `resolveImportPkg` — and the VM / codegen /
+  native backends hold `@Module`, not `gc` (at backend time the pkg args are
+  full paths so the resolve is a no-op, but the call still happens).  Gen-time
+  callers reach `@Module` via `gc.Mod` / `ctx.Gc.Mod`; `moduleInterfaces` is
+  per-package (cleared each `InitModule`) and consumed by `vm.LowerModule(mod)`
+  within that package's scope.  So `@Module` is the coherent home for both;
+  threading `gc` would force the backends to synthesize a gc.  (This overrides
+  the earlier "@GenCtx for the alias map" note above.)
+  - **5d-1 — plumb-once (behavior-neutral).** Add `m @Module` to the whole
+    chain: `buildQualName`, `resolveImportPkg`, `lookupModuleInterfaceIndex`,
+    `resolveModuleInterface`, `canonicalIfacePkg`/`Name`, `findInterfaceMethod*`,
+    the `Iface*` exported queries (`IfaceFullVtableSize`/`IfaceParentPkgs`/
+    `IfaceParentNames`/`IfaceOwnMethodNames` + ancestor/`appendAncestors`/
+    `parentSlotOffsetFromBase`), `pushFileImports`/`popFileImports`/
+    `SaveAliasMapState`/`RestoreAliasMapState`/`RecordImportPath`,
+    `overlayFileImports`.  Update ALL callers (gen → `gc.Mod`/`ctx.Gc.Mod`/`m`;
+    backends → `mod`; FIX `codegen/emit_impls.bn:vtableSlotCountForInfo` which
+    lacks `mod` — thread it from its caller).  Globals untouched → identical
+    behavior.  ~150 sites, ~18 files (ir + ir.bni + vm + codegen + native/x64 +
+    native/aarch64 + repl).  `LookupVtableSlotName` already takes `@Module`.
+  - **5d-2 — move both states.** Add `@Module` fields for the alias map
+    (`ImportAliasNames`/`Paths` + `CurrentImportAlias`) and `Interfaces`
+    (`@[]ModuleInterface`); flip every read/write from the globals to `m.<field>`;
+    move the `InitModule`/`registerUniverseAny` resets onto `NewModule`; delete
+    the globals.  REPL `Save/Restore/RecordImportPath` pass `s.MainMod` (the
+    persistent session module — its map survives the per-package `InitModule`
+    wipes).  The reentrancy gain.
+  - **5d-3 — remainder.** pending-dtors (`pendingMsDtors`/`StructDtors`+`Names`)
+    + `methodValueWrappers` → `@Module`; delete remaining globals; `verifyIR`
+    decision; land the end-to-end two-session reentrancy test.
 
 **Wrinkles / risks (flagged):**
 1. **`moduleInterfaces` is cross-package & lifetime-subtle (the main risk).**
