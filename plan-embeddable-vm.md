@@ -17,11 +17,18 @@ sites stop reading the `currentModulePkgPath` global, binate `820ea94d`);
 increment **5a-2b** (thread `gc.PkgPath` through `resolveTypeExpr`/`lookup*`/
 the registration entry points; delete `currentModulePkgPath`; `NewFunc`/
 `NewExternFunc` take `pkgPath`; behavior-preserving, both backends green,
-binate `3fd61d56`). **`pkg/binate/ir` now has no per-run module/path
-package-global.** What's left for v1: the ir-gen *registries* (5b
-module-content → `@Module`), *transient context* (5c import-alias map +
-generic registries + counters → `@GenCtx`), and *interfaces/dtors* (5d) —
-all now cheap field migrations since `gc` is threaded everywhere.
+binate `3fd61d56`); increment **5b** (module-content registries
+moduleConsts/Structs/Funcs/Globals/TypeAliases → `@Module` fields;
+element types moved to `ir.bni`; the cross-package pre-passes gained a
+`mod @Module` param, threaded through `cmd/bnc`/`cmd/bni`/`repl`, binate
+`8a4ddb6a`). **`pkg/binate/ir` now has no per-run module/path package-global
+AND no per-run content registry.** What's left for v1: the ir-gen *transient
+context* (5c import-alias map + generic registries + counters → `@GenCtx`)
+and *interfaces/dtors* (5d). These are mostly field migrations since `gc` is
+threaded everywhere — but note 5b proved NOT a "cheap" migration: moving a
+registry that the cross-package pre-passes write means threading `@Module`
+into those exported entry points and their cmd/repl callers; expect 5c/5d to
+carry similar (smaller) ripple where a moved global is written by a pre-pass.
 
 **Inc 1–3 adversarial review (2026-06-16):** verdict — the three are
 correct, complete, behavior-preserving refactors (no regressions). It
@@ -418,10 +425,29 @@ this reuses).
   **`pkg/binate/ir` now has no per-run module/path package-global** —
   `currentModule` (5a-1) and `currentModulePkgPath` are both gone; only the
   registries (5b) + transient context (5c) + interfaces/dtors (5d) remain.
-- **5b — module-content registries → `@Module`.** moduleConsts/Structs/Funcs/
-  Globals/TypeAliases (the high-count five, concentrated in `lookup*`/`add*`
-  helpers). The bulk; may internally split (5b1 consts+structs, 5b2 funcs+
-  globals+aliases). **L.**
+- **5b — module-content registries → `@Module`. LANDED binate `8a4ddb6a`.**
+  moduleConsts/Structs/Funcs/Globals/TypeAliases → `@Module.Consts`/`Structs`/
+  `FuncSigs`/`GlobalVars`/`TypeAliases` (distinct from the IR-output Funcs/
+  Globals/Types). Element types (ModuleConst/FuncSig/ModuleStruct/ModuleGlobal/
+  ModuleTypeAlias) moved to `ir.bni` (now field types of the exported
+  `@Module`). Done as ONE landing (did not split 5b1/5b2 — the registries are
+  co-registered in shared functions, so a split would double-edit them).
+  **Bigger than the "cheap field migration" the status para implied:** the
+  cross-package pre-passes (`RegisterStructTypes`, `RegisterAllInterfaces`,
+  `RegisterSelfTypes`) had no `@Module` in hand but WRITE the now-per-module
+  tables (and their `resolveTypeExpr` reads `gc.Mod.Structs`, which nil-derefs
+  on a bare `NewGenCtx(nil)`), so all three gained a `mod @Module` param and
+  their ~12 call sites across `cmd/bnc`/`cmd/bni`/`repl` thread it through
+  (`registerAllStructTypes` gained a `mod` param). `InitModule` no longer
+  clears the five tables (a fresh module is born empty). No qualification
+  logic changed — only storage moved — so the 5a-2b qualified-lookup failure
+  class can't recur; test breakage was all nil-`Mod` derefs from
+  `NewGenCtx(nil)`/bare `make(GenContext)` reaching newly-per-module reads.
+  Landing hit a substantial rebase conflict with the concurrent file-scoped-
+  imports change (`cf0d1cad`, which added a `files @[]@ast.File` 4th param to
+  `GeneratePackage`); resolved by keeping both sides, re-verified, re-approved.
+  Verified: gen1 self-hosts; ir+codegen+vm+native+native/common+repl units;
+  hygiene 14/14; conformance builder-comp 1498/0, builder-comp-int 1483/0.
 - **5c — transient context → `@GenCtx`.** import-alias map (incl. the REPL's
   `Save/RestoreAliasMapState` — move intact), generic registries + type-param
   bindings, the two counters. **M.**
