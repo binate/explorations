@@ -727,14 +727,17 @@ documents these as open items.
 ### Issues surfaced authoring spec Ch.13 conformance tests — 2026-06-18
 Found writing the `conformance/spec/13-expressions/` rule tests (plan-spec-
 tests.md Phase B). Each has a reproducing test cited by `.rules`.
-- **`expr.composite.generic-unparsed`** (spec-referenced but previously
-  UNTRACKED here — 🔴 OPEN). A generic-instantiated composite-literal head
-  `Box[int]{…}` is not built by the parser: after the head, `[…]` is consumed
-  as instantiation/index and the trailing `{…}` is left to the statement layer,
-  so the literal does not parse. Covered by `spec/13-expressions/
-  032_composite_generic` (.xfail.all). Fix: in the expression parser, after a
-  generic-instantiation head recognize a following `{` as a composite-literal
-  body (honoring the D4 control-flow suppression).
+- **`expr.composite.generic-unparsed` — ✅ NOT A DEFECT; the spec note is
+  STALE.** The spec (`13-expressions.md`) flags generic-instantiated
+  composite-literal heads `Box[int]{…}` as "not yet built by the parser." That
+  is no longer true: verified working in var-decl, short-var (`:=`), call-arg,
+  and multi-type-arg (`Pair[int, int]{…}`) contexts (`spec/13-expressions/
+  032_composite_generic`, a passing positive test — an xfail here would be
+  born-stale, caught via `--check-xpass`). The ONLY failing context is a bare
+  composite literal in an `if`/`for`/`switch` condition, which is the separate
+  **D4** issue (`expr.disambiguation.d4-paren`) and rejects a *non-generic*
+  literal (`if Point{…}.x …`) identically. **Action: correct the stale spec
+  note** (drop the generic-unparsed open-defect bullet; keep d4-paren).
 - **(minor) `expr.composite.struct` bad-key diagnostic.** A keyed struct
   literal whose key names no field reports the generic `undefined: <key>` (the
   key is resolved as an identifier) rather than a field-specific "no field
