@@ -9,7 +9,9 @@ gates, forward-ref-safe) landed `40924b14`; Slice 4 (composite-literal +
 inferred-var gates) landed `6d541973`; Slice 4b (deref-as-rvalue assignment
 gate — `_ = *p` / `*dst = *src` / `x := *p`) landed `fe048395`. The checker now
 fully enforces "an opaque value can never be formed" on the whole-program path.
-Next: 5 (REPL hook), 6 (Part B IR-gen guard for the pointer-escapee residual).
+Slice 5 (REPL CheckDeclInScope hook) landed `5968e1e2` — the checker now
+enforces "no opaque value formed" on BOTH the batch and REPL paths. Next: 6
+(Part B IR-gen guard for the `*Box[Opaque]` pointer-escapee residual).
 Prereq: step 1 landed (`f3807ed2` panic removal + checker gates; `e887543e`
 foldConstNum gate). See the opaque-layout MAJOR in `claude-todo.md`.
 
