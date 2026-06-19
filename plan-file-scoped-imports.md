@@ -16,10 +16,13 @@ option A from the CRITICAL "imports are package-scoped" entry in
 (implicit same-last-segment → 100,200) pass under builder-comp, gen2, VM, and
 native-aarch64. Fixes facets **A, B, C** for NON-GENERIC decls. Facets **D**
 (alias-vs-decl redeclaration, `973e82f7`) and **H** (import-cycle detection,
-`a4d8a907`) LANDED. **GENERIC instantiation is NOT fixed** — a generic body's
-package-qualified references still resolve at the USE-SITE, not the generic's
-defining file (separate CRITICAL in `claude-todo.md`; conformance 837 xfail);
-this was the "Generics" risk area flagged below that the original work missed.
+`a4d8a907`) LANDED. **GENERIC instantiation: qualified-TYPE facet FIXED**
+(`d2a9ff20`) — a generic body's package-qualified field/method TYPES now resolve
+against the generic's defining-file imports (conformance 841); the only remaining
+piece is the transitive-extern declaration for cross-package func CALLS in a
+generic body (part c; conformance 837 is now a NATIVE-only xfail — VM passes).
+See the CRITICAL entry in `claude-todo.md`.  This was the "Generics" risk area
+flagged below that the original file-scoped work missed.
 KNOWN RESIDUAL: a same-alias collision in a package-level `var x = dep.Foo()`
 across files (package-init lowers under the merged overlay) — narrow; §Steps/3.
 
