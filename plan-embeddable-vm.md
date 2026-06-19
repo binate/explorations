@@ -596,19 +596,18 @@ this reuses).
         callers gen_stmt.bn:323, gen_util.bn:219 + 3 in gen_type_resolve_test.bn);
         `vtableSlotCountForInfo` (codegen/emit_impls; 5 callers in that file,
         which have `m`); `collectImportedImplsFromDecl` already has `mod`.
-      - **⚠ NATIVE WRINKLE (the part that makes 5d-1 NOT pure plumbing).** The
-        per-instruction native emitter `emitInstr` (x64_dispatch.bn:229,
-        aarch64_dispatch.bn:153) calls `ir.IfaceParentSlotOffset(...)` for
-        OP_IFACE_UPCAST and has **no `@Module` in scope**.  Threading `@Module`
-        down to `emitInstr` ripples through the whole native instruction-dispatch
-        chain (every instruction).  Decide at 5d-1a start: (a) thread `@Module`
-        through the native emit chain to `emitInstr`, or (b) precompute the
-        parent-slot offset when `@Module` IS available (e.g. stash it on the
-        OP_IFACE_UPCAST instr at lower time) so `emitInstr` doesn't need the
-        registry.  (b) is a small refactor but removes the hot-path threading;
-        worth a quick look before committing to (a).  codegen's equivalent
-        (`vtableSlotCountForInfo` lacking `m`) is milder — its 5 callers are all
-        in emit_impls.bn which has `m`.
+      - **NATIVE WRINKLE — RESOLVED (prep landed: main `4ee0a07a`, 2026-06-19,
+        option (b)).** `EmitIfaceUpcast` now precomputes the parent-slot offset
+        (`@Instr.IfaceUpcastSlotOffset`) at IR-gen time; the three compiled
+        backends read the field, so `IfaceParentSlotOffset` is no longer called
+        from any backend — it's now invoked ONLY from `EmitIfaceUpcast` (inside
+        ir, which has the registry).  Net for 5d-1a: drop `IfaceParentSlotOffset`
+        and `parentSlotOffsetFromBase` from the BACKEND-threading list — they
+        stay internal to ir and thread normally with the chain via `gc.Mod`.
+        The native `emitInstr` hot-path no longer touches the registry, so no
+        `@Module` threading through the native instruction-dispatch chain.
+        (codegen's `vtableSlotCountForInfo` was always milder — its 5 callers
+        are all in emit_impls.bn which has `m`.)
   - **5d-2 — move both states.** Add `@Module` fields for the alias map
     (`ImportAliasNames`/`Paths` + `CurrentImportAlias`) and `Interfaces`
     (`@[]ModuleInterface`); flip every read/write from the globals to `m.<field>`;
