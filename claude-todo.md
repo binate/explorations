@@ -655,6 +655,39 @@ documents these as open items.
   TYP_NAMED at isManagedFuncValueLit). Value-rejection and reference
   construction both work.
 
+### Issues surfaced authoring spec Ch.8 conformance tests — 2026-06-19
+Found writing the `conformance/spec/08-conversions/` rule tests (plan-spec-
+tests.md Phase B). Ch.8 itself is clean (11 tests, 100%, green on compiler /
+VM / gen1 / gen2 / native_aa64 / arm32_baremetal). Three findings:
+- **`bit_cast` to a sub-word type isn't narrowed in the VM AND the native
+  backends — 🔴 OPEN (new facet of `aa64-subword`).** `bit_cast(uint8, <int8 -1>)`
+  used directly (no intervening typed store) should be `255`, but stays
+  sign-extended on the bytecode VM (all 3 `-int` modes) and on native_aa64 (the
+  LLVM compiler narrows correctly; a `var r uint8 = bit_cast(...)` store also
+  narrows). This is the **`bit_cast` facet** of the sub-word-narrowing gap
+  (claude-todo `aa64-subword`, line ~526); the existing `matrix/scalar-diff`
+  differential harness covers `cast` (now green on the VM) but **not** `bit_cast`,
+  so it's uncaught. Right home: add a `bit_cast`-to-sub-word row to
+  `matrix/scalar-diff` (it already does per-mode xfails for this class) rather
+  than a spec test needing ~6 per-mode markers. The conv.bit-cast *rule* itself
+  is satisfied (covered by `spec/08-conversions/010_bit_cast`).
+- **`int ↔ int64` implicitly converts on a 64-bit target — ❓ NEEDS A DECISION.**
+  `var y int64 = x` (and the reverse) is **accepted** with `x int`, though
+  `conv.no-implicit-numeric` (§8.2) explicitly lists "int ↔ int64" as requiring a
+  `cast`. `int → uint` and `int → float64` reject correctly. Either `int` is
+  intended to be *identical* to the target-width fixed type (so on 64-bit `int`
+  IS `int64`, case-1 assignable — then §8.2's "int ↔ int64" example is wrong) or
+  this is a `conv.no-implicit-numeric` conformance gap on 64-bit. Target-
+  dependent (32-bit would differ on width), so no spec test added pending the
+  decision. (The Ch.8 test uses `int → uint` for the no-implicit-numeric reject.)
+- **§8.5 "Open (precision residual)" note appears STALE.** The note says a
+  constant ≥ 2^63 reached through a bitwise/shift op "is not yet rejected":
+  `cast(int64, 0x4000000000000000 << 1)`. That exact example — and `cast(int64,
+  1 << 63)` — now **reject** ("constant does not fit the cast target type"). The
+  bitwise-const fold may have been fixed; verify (other patterns?) and, if so,
+  drop the §8.5 residual note (like the Ch.13 generic-unparsed/d4-paren stale
+  notes). No born-stale xfail added (rejection is the correct behavior).
+
 ### Issues surfaced authoring spec Ch.13 conformance tests — 2026-06-18
 Found writing the `conformance/spec/13-expressions/` rule tests (plan-spec-
 tests.md Phase B). Each has a reproducing test cited by `.rules`.
