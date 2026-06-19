@@ -501,22 +501,47 @@ this reuses).
       (One test-fixture gap surfaced + fixed: `setupReplState` built a session
       without `MainGc`, which `GenDecl(d, s.MainGc)` nil-deref'd; now threads
       one gc like production.)
-    - **5c-2**: move the 14 globals → `@GenCtx` fields (`AliasNames`/`Paths`,
-      the 6 generic-registry slices, `EmittedInstantiations`,
-      `AnonStructCounter`, `FuncLitCounter`, `CurrentImportAlias`,
-      `CurrentTypeParamNames`/`Types`); `Save/RestoreAliasMapState` snapshot
-      gc's map. The reentrancy gain. **Test-rework note (discovered in 5c-1):**
-      the ir/repl/vm unit tests pervasively pass a *fresh* `NewGenCtx(m)` inline
-      at each entry-point call AND at each `lookup*` (they only work today
-      because the state is global — a fresh-gc lookup still sees what a
-      different fresh-gc `RegisterImport` wrote). Once that state moves onto
-      `gc`, those tests must thread ONE shared gc across the
-      register-then-lookup sequence, or the moved state won't be visible. So
-      5c-2 includes a sweep of those test call sites (gen_register_import_test,
-      gen_import_test, gen_module_test, gen_self_types_test, gen_repl_test, etc.)
-      to share a per-test gc.
-- **5d — `moduleInterfaces` + pending-dtors + `methodValueWrappers` →
-  `@Module`; delete the globals; `verifyIR` decision; land the end-to-end
+    - **5c-2**: move the 14 globals → `@GenCtx` fields.  Split by independent
+      state-group (each green + landable); the alias-map group turned out far
+      larger than the others (see the cascade note below).
+      - **5c-2c — LANDED (main `8e2c3259`, 2026-06-19).** Counters
+        `AnonStructCounter` + `FuncLitCounter`.  All 6 access sites already had
+        gc / ctx.Gc (resolveTypeExpr, genFuncLit, genMethodValue);
+        resetFuncLitState takes gc; InitModule's anonStructCounter reset
+        dropped (fresh NewGenCtx zero-inits).  Verified gen1 + ir/repl/vm units
+        + hygiene + conformance LLVM 1502/0 + VM 1487/0 (with 5c-2b).
+      - **5c-2b — LANDED (main `69e70593`, 2026-06-19).** Generic registries
+        (`GenericDecls`/`Pkgs` ×3), `EmittedInstantiations`, and the type-param
+        substitution ctx `CurrentTypeParamNames`/`Types`.  Threaded gc into the
+        4 read helpers (`instantiationAlreadyEmitted`,
+        `lookupGenericDeclPkg`/`TypeDeclPkg`/`IfaceDeclPkg`) + their callers
+        (genCall via ctx.Gc).  Test: `genFromSourcePkgGc` exposes the gen gc so
+        registry-inspecting tests read the same context the gen wrote into
+        (the test-rework note below, realized for this group).
+      - **5c-2a — alias map (`AliasNames`/`Paths` + `CurrentImportAlias` +
+        `Save/RestoreAliasMapState`).  NOT a quick "move intact" — RESHAPED &
+        MERGED WITH 5d.**  Recon (2026-06-19) found `resolveImportPkg` (reads
+        the alias map) is called by **`buildQualName`** (31 sites) and the
+        **interface-dispatch helper chain** `lookupModuleInterfaceIndex` (14) →
+        `resolveModuleInterface` (9) → `canonicalIfacePkg`/`Name`, which ALSO
+        read `moduleInterfaces` (5d's global, 51 refs).  So de-globalizing the
+        alias map threads gc through the same ~100+-site chain 5d needs.
+        **Decision (user, 2026-06-19): "plumb once, move both"** — one
+        behavior-neutral commit threads gc through the shared chain
+        (`buildQualName`, `resolveImportPkg`, `lookupModuleInterfaceIndex`,
+        `resolveModuleInterface`, `canonicalIface*`, push/pop/Save/Restore/
+        Record + the REPL ripple via the exported API), then move the alias map
+        AND `moduleInterfaces` onto carriers on that foundation.  Folded into 5d
+        below (needs its own recon + scoping before starting).
+      - **Test-rework note (general):** the ir/repl/vm unit tests pervasively
+        pass a *fresh* `NewGenCtx(m)` inline at each entry-point call AND each
+        `lookup*` (they worked only because the state was global).  Each group's
+        move must thread ONE shared gc across any register-then-lookup test
+        sequence (done for 5c-2b via `genFromSourcePkgGc`); the alias-map move
+        will need the same for its tests.
+- **5d (now also subsumes 5c-2a's alias map) — `moduleInterfaces` +
+  alias map + pending-dtors + `methodValueWrappers` → carriers; delete the
+  globals; `verifyIR` decision; land the end-to-end
   two-session reentrancy test** (the plan-mandated test — see Verification —
   which couldn't pass until ir state went per-instance). **M** + the
   cross-package piece below.
