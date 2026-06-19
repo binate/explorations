@@ -33,14 +33,16 @@ choice **reversible**: ship one mechanism, swap to the other by editing only
 
 | Stage | What | Depends on | Hard questions |
 |---|---|---|---|
-| **1. `pkg/std/time` (bare-bones)** | a `Time` value type (Unix sec + nsec) + ctor + accessors + comparisons. NO clock read (`Now()` is a separate syscall — deferred), no formatting/zones/Duration. | — | none (pure value type) — **design under discussion** |
+| **1. `pkg/std/time`** | `time.Point` (clock-less universal-timeline point) + `time.Delta` (signed difference). The `Clock`/`Reading[C]` half is designed but built later with `Now()`. See **`plan-time.md`**. | — | none (pure value math) |
 | **2. `FileMode` extension** | Go's file-type bits (Dir/Symlink/Device/NamedPipe/Socket/CharDevice [+ setuid/gid/sticky?]) + `IsDir`/`IsRegular`/`Perm`/`Type` (+ `String()`?). | — | none (pure bit logic) |
 | **3. `FileInfo`** | struct + `Name`/`Size`/`Mode`/`ModTime`/`IsDir`. | 1, 2 | none (testable with synthetic data) |
 | **4. boundary + `os.Stat`/`File.Stat`** | the `statbuf` boundary signature, the shared `st_mode -> FileMode` map, the entry points wiring it to `FileInfo`. | 3 | none above the boundary |
 | **5. implement the boundary** | A or B (below) + an `e2e/stat-values.sh` C cross-check. | 4 | **the A-vs-B decision lives only here** |
 
 Stages 1–4 also dispose of the *other* hard questions: Stage 1 settles "how is
-ModTime represented" (a `time.Time`) and sidesteps the clock-reading syscall.
+ModTime represented" (a `time.Point` — a file's mtime is a foreign,
+clock-less universal-timeline point; see `plan-time.md`) and sidesteps the
+clock-reading syscall.
 
 ## The per-OS mechanism context (changed since the errno work)
 
@@ -105,6 +107,6 @@ covers Darwin). Option A's e2e additionally checks `offsetof`/`sizeof`.
 
 ## Status
 
-- Stage 1 (`time`) — **design under discussion** (next).
+- Stage 1 (`time`) — designed (`plan-time.md`); building `time.Point` + `time.Delta` next.
 - Stages 2–4 — pending.
 - Stage 5 (mechanism) — **deferred**; lean A; reversible via the boundary.
