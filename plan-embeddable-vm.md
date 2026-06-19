@@ -566,6 +566,49 @@ this reuses).
     lacks `mod` — thread it from its caller).  Globals untouched → identical
     behavior.  ~150 sites, ~18 files (ir + ir.bni + vm + codegen + native/x64 +
     native/aarch64 + repl).  `LookupVtableSlotName` already takes `@Module`.
+    - **Cascade map (build-fix recon 2026-06-19; def-changes attempted then
+      reverted to keep the tree clean — redo from this map).**  Two coupled
+      sub-cascades (decoupled by the 5d-1a interface-chain / 5d-1b alias-chain
+      split: 5d-1a does NOT touch `resolveImportPkg`, so the interface chain
+      only needs `m` for `moduleInterfaces`):
+      - **5d-1a interface-chain reader funcs to thread `m @Module` (17, not 16
+        — `IfaceMethodCount` was missed first pass):** `findInterfaceMethod`,
+        `findInterfaceMethodFromBase`, `resolveModuleInterface`,
+        `canonicalIfaceName`, `canonicalIfacePkg`, `lookupModuleInterfaceIndex`,
+        `lookupModuleInterface`, `IfaceMethodCount`, `IfaceOwnMethodNames`,
+        `IfaceParentPkgs`, `IfaceParentNames`, `IfaceFullVtableSize`,
+        `IfaceAncestorClosure`, `IfaceAncestorClosurePkgs`, `appendAncestors`,
+        `IfaceParentSlotOffset`, `parentSlotOffsetFromBase`.  ir.bni exports to
+        update: `IfaceMethodCount`, `IfaceOwnMethodNames`, `IfaceParentPkgs`,
+        `IfaceParentNames`, `IfaceFullVtableSize`, `IfaceAncestorClosure`,
+        `IfaceAncestorClosurePkgs`, `IfaceParentSlotOffset` (8).  Threading the
+        17 defs surfaced **76 caller errors** via the gen1 build (which covers
+        ir + codegen + native, NOT vm/repl — those need separate builds to
+        surface their callers).  Per-context arg: gen funcs → `gc.Mod` (gen_iface,
+        gen_impl, gen_generic, gen_module:RegisterAllInterfaces) / `ctx.Gc.Mod`
+        (gen_iface_dispatch:99) / `m` (internal cross-calls among the 17 in
+        gen_iface_extends, gen_iface_registry, gen_iface_dispatch, gen_iface_vtable);
+        backends → `mod` (codegen/emit_impls, emit_funcvals_dtor, emit_iface_upcast,
+        native/x64 x64_iface+x64_funcvalue+x64_dispatch, native/aarch64 likewise).
+      - **Deeper-cascade funcs that lack any module param (thread `m`, then fix
+        THEIR callers):** `makeOwnMethodsImplInfo` (gen_impl; 1 caller
+        `collectImplsFromDecl`→`gc.Mod`); `ifaceValueTypesAgree` (gen_type_resolve;
+        callers gen_stmt.bn:323, gen_util.bn:219 + 3 in gen_type_resolve_test.bn);
+        `vtableSlotCountForInfo` (codegen/emit_impls; 5 callers in that file,
+        which have `m`); `collectImportedImplsFromDecl` already has `mod`.
+      - **⚠ NATIVE WRINKLE (the part that makes 5d-1 NOT pure plumbing).** The
+        per-instruction native emitter `emitInstr` (x64_dispatch.bn:229,
+        aarch64_dispatch.bn:153) calls `ir.IfaceParentSlotOffset(...)` for
+        OP_IFACE_UPCAST and has **no `@Module` in scope**.  Threading `@Module`
+        down to `emitInstr` ripples through the whole native instruction-dispatch
+        chain (every instruction).  Decide at 5d-1a start: (a) thread `@Module`
+        through the native emit chain to `emitInstr`, or (b) precompute the
+        parent-slot offset when `@Module` IS available (e.g. stash it on the
+        OP_IFACE_UPCAST instr at lower time) so `emitInstr` doesn't need the
+        registry.  (b) is a small refactor but removes the hot-path threading;
+        worth a quick look before committing to (a).  codegen's equivalent
+        (`vtableSlotCountForInfo` lacking `m`) is milder — its 5 callers are all
+        in emit_impls.bn which has `m`.
   - **5d-2 — move both states.** Add `@Module` fields for the alias map
     (`ImportAliasNames`/`Paths` + `CurrentImportAlias`) and `Interfaces`
     (`@[]ModuleInterface`); flip every read/write from the globals to `m.<field>`;
