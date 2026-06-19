@@ -461,7 +461,44 @@ this reuses).
   currentModulePkgPath/moduleX comments incl. NewFunc's doc.
 - **5c — transient context → `@GenCtx`.** import-alias map (incl. the REPL's
   `Save/RestoreAliasMapState` — move intact), generic registries + type-param
-  bindings, the two counters. **M.**
+  bindings, the two counters. **L** (scoped 2026-06-18; user chose the
+  per-compilation-`@GenCtx` route — option A below).
+  - **Recon finding (settles the home).** `@GenCtx` is currently created
+    fresh per entry-point call (11 `NewGenCtx` sites) and its `PkgPath` is
+    phase-scoped (5a-2b). Most "transient" globals are written in one pass
+    and read in another: the import-alias map (`importAliasNames/Paths`) is
+    written by `RecordImportPath` in `RegisterImports`/`RegisterImport` and
+    read by `resolveImportPkg` during `GeneratePackage` body-gen (and the
+    REPL mutates+snapshots it across prompts); `genericDecls`/`TypeDecls`/
+    `IfaceDecls`(+`Pkgs`) are written in `RegisterImport` AND `GeneratePackage`
+    and read at instantiation; `anonStructCounter`/`funcLitCounter`/
+    `emittedInstantiations` accumulate across the whole compilation. Only
+    `currentImportAlias` + `currentTypeParamNames/Types` are truly per-pass
+    (set+restored within one `gc`). So a per-CALL `@GenCtx` can't hold the
+    per-compilation state.
+  - **Decision: option A — make `@GenCtx` per-COMPILATION (thread one gc).**
+    The caller (cmd/bnc, cmd/bni, repl) creates one `gc` per compilation and
+    threads it through `RegisterImports`/`RegisterImport`/`RegisterStructTypes`/
+    `RegisterAllInterfaces`/`RegisterSelfTypes`/`GeneratePackage` (and the REPL
+    keeps a persistent `s.MainGc` for `GenDecl`/`GenConstMember`/
+    `GenSyntheticFunc`). All 14 globals → `@GenCtx` fields; `@Module` stays
+    output-focused. Matches the documented "per-compilation" intent of
+    `@GenCtx` and keeps gen-scratch off `@Module`.
+  - **Sub-split (each green + landable):**
+    - **5c-1**: make `@GenCtx` per-compilation — export `NewGenCtx`; change the
+      entry points to take `gc @GenCtx` instead of `mod @Module` (use `gc.Mod`
+      internally; `GenModule` stays self-contained); thread one gc per
+      compilation through cmd/bnc, cmd/bni, repl (per-package in the build
+      loops; persistent `s.MainGc` in the REPL session). Globals UNCHANGED →
+      behavior-neutral plumbing. Per-phase `PkgPath` is set by each pass on
+      the shared gc (registration passes leave it empty as today, since
+      `m.PkgPath` is unset pre-`GeneratePackage`; `RegisterSelfTypes` sets the
+      .bni path = the module path that `GeneratePackage` then sets anyway).
+    - **5c-2**: move the 14 globals → `@GenCtx` fields (`AliasNames`/`Paths`,
+      the 6 generic-registry slices, `EmittedInstantiations`,
+      `AnonStructCounter`, `FuncLitCounter`, `CurrentImportAlias`,
+      `CurrentTypeParamNames`/`Types`); `Save/RestoreAliasMapState` snapshot
+      gc's map. The reentrancy gain.
 - **5d — `moduleInterfaces` + pending-dtors + `methodValueWrappers` →
   `@Module`; delete the globals; `verifyIR` decision; land the end-to-end
   two-session reentrancy test** (the plan-mandated test — see Verification —
