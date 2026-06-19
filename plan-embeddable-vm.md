@@ -618,6 +618,18 @@ this reuses).
   - **5d-3 — remainder.** pending-dtors (`pendingMsDtors`/`StructDtors`+`Names`)
     + `methodValueWrappers` → `@Module`; delete remaining globals; `verifyIR`
     decision; land the end-to-end two-session reentrancy test.
+  - **Review follow-ups (adversarial review 2026-06-19; fold into 5d):**
+    (a) The 5c-2c counter move was a latent-bug FIX in the REPL, not strictly
+    neutral: with the old globals a mid-session `import` reset the shared
+    `anonStructCounter`/`funcLitCounter`, so a later prompt's anon-struct /
+    funclit could re-issue `__anon_0` / `main.__funclit_0` and collide in the
+    persistent `s.MainMod`; per-`s.MainGc` counters can't.  Add a REPL
+    regression test (mid-session import, then a prompt using a funclit or anon
+    struct — assert no duplicate name) — fits the 5d REPL alias-path rework.
+    (b) `resetFuncLitState` still wipes the package-global `methodValueWrappers`
+    on every `GeneratePackage` incl. a mid-session import's `pkgGc` — clobbers
+    session-synthesized wrappers; resolved when 5d-3 moves `methodValueWrappers`
+    onto `@Module` (then `resetFuncLitState`'s doc-comment becomes fully true).
 
 **Wrinkles / risks (flagged):**
 1. **`moduleInterfaces` is cross-package & lifetime-subtle (the main risk).**
