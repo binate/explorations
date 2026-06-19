@@ -4,6 +4,18 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR (IR-gen / cross-pkg generics, ALL modes) — a cross-package generic body that INSTANTIATES another package's generic fails when the consumer imports neither: transitive generic DECLS aren't registered for monomorphization (2026-06-19) — 🔴 OPEN
+
+**Symptom (REPRODUCED, builder-comp + builder-comp-int).** `main` imports only `genlib`; `genlib.Sum[T]` (generic) calls `mid.F[T]` (mid's generic), which calls `deep.G()`.  `main` cannot monomorphize `mid.F[int]` because `mid`'s generic decl is not registered in the consumer (`mid` is a TRANSITIVE, not direct, import), so the inner instantiation resolves to an EMPTY mangled name: native `use of undefined value '@bn_main__'`, VM `extern not found: main.`.  Conformance `858_generic_cross_pkg_generic_chain` (`.xfail.all`).
+
+**Root cause / relationship to part (c) (`fcb0dcbc`).** Part (c) registered transitive func EXTERNS so a generic body's call to a NON-generic transitive func links (`ir.RegisterFuncExterns` for generic-bearing direct imports' imports).  But generic DECLS are stashed only for DIRECT imports (`RegisterImports`); `RegisterFuncExterns` skips generic decls.  So when a generic body instantiates ANOTHER package's generic that the consumer doesn't import, the consumer has no decl to monomorphize → empty instantiation name.  This is a deeper, distinct gap (transitive generic-DECL availability) on top of the transitive-extern (func-call) fix — both are Slice 7 (cross-package instantiation) completeness.
+
+**Discovery.** Investigating the part-(c) one-level-transitivity limitation (the consumer registers the imports of generic-bearing DIRECT imports, but not transitively).  Confirmed real via the 3-package chain above.
+
+**Proposed fix (needs investigation).** Register the transitive closure of generic-bearing packages' generic decls (+ their defining files, for the defining-file import overlay d2a9ff20 added) in the consumer, so a generic body can monomorphize a generic it reaches through another package.  Likely an extension of `registerGenericBodyExternDeps` (walk generic-bearing imports transitively) plus a transitive generic-decl stash entry point in `ir` paralleling the generic-decl stashing `RegisterImports` does for direct imports.
+
+---
+
 ## MAJOR (IR-gen / cross-pkg generic interfaces, ALL modes) — a cross-package generic interface with a LIBRARY-SIDE impl cannot be upcast at the consumer → nil interface value (raw) / `extractvalue` compile error (managed) (2026-06-19) — 🔴 OPEN
 
 **Symptom (REPRODUCED, builder-comp + builder-comp-int).** `pkg/iflib` declares `interface Box[T any] { wrap(v T) ... }`, a struct `IntImpl`, and `impl IntImpl : Box[int]` (the impl lives in iflib, the interface's own package). A consumer `main` (importing only iflib) does `var bx *iflib.Box[int] = &m` (m an `iflib.IntImpl`) and dispatches → VM: `call through nil interface value`; native: no output (nil dispatch). The `@Box[int]` (managed) form instead fails to compile: `extractvalue operand must be aggregate type` (the upcast does `extractvalue i8* <ptr>, 0`, treating the receiver pointer as an aggregate). Conformance `853_generic_cross_pkg_iface_qualified_method` (`.xfail.all`).
