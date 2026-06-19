@@ -566,6 +566,22 @@ this reuses).
     lacks `mod` — thread it from its caller).  Globals untouched → identical
     behavior.  ~150 sites, ~18 files (ir + ir.bni + vm + codegen + native/x64 +
     native/aarch64 + repl).  `LookupVtableSlotName` already takes `@Module`.
+    - **5d-1a — LANDED (main `1f761d11`, 2026-06-19).** Threaded `m @Module`
+      through the 17 interface-chain readers + the 3 deeper-cascade funcs
+      (`makeOwnMethodsImplInfo`, `ifaceValueTypesAgree`, `vtableSlotCountForInfo`);
+      globals untouched (`m` unused until 5d-2).  Two corrections to the map
+      below: (1) **9** ir.bni exports, not 8 — `EmitIfaceUpcast` (a `@Block`
+      method, the sole remaining `IfaceParentSlotOffset` caller after the native
+      precompute) also took `m`, threaded from its two gen callers via
+      `ctx.Gc.Mod`.  (2) The "`vtableSlotCountForInfo`'s callers all have `m`"
+      claim was WRONG: the LLVM `emitInstr` dispatcher has no module but sizes an
+      OP_IFACE_VALUE vtable via `vtableSlotCount`→`vtableSlotCountForInfo`→
+      `ir.IfaceFullVtableSize`, so `m` threads `emit.bn`→`emitFuncDbg`→
+      `emitInstr`→`vtableSlotCount` (codegen must know which module it emits;
+      behavior-neutral).  28 files, +171/−162.  Verified: gen1 self-host; units
+      ir 558 / codegen 236 / vm 186 / native x64 228 · common 133 · aarch64 136 /
+      repl 65, 0 failed; hygiene 14/14; conformance iface smoke 14/14 in
+      builder-comp + builder-comp-int.  Next: 5d-1b (alias chain).
     - **Cascade map (build-fix recon 2026-06-19; def-changes attempted then
       reverted to keep the tree clean — redo from this map).**  Two coupled
       sub-cascades (decoupled by the 5d-1a interface-chain / 5d-1b alias-chain
