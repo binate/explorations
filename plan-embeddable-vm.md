@@ -642,13 +642,38 @@ this reuses).
         `@Module` threading through the native instruction-dispatch chain.
         (codegen's `vtableSlotCountForInfo` was always milder — its 5 callers
         are all in emit_impls.bn which has `m`.)
-  - **5d-2 — move both states.** Add `@Module` fields for the alias map
-    (`ImportAliasNames`/`Paths` + `CurrentImportAlias`) and `Interfaces`
-    (`@[]ModuleInterface`); flip every read/write from the globals to `m.<field>`;
-    move the `InitModule`/`registerUniverseAny` resets onto `NewModule`; delete
-    the globals.  REPL `Save/Restore/RecordImportPath` pass `s.MainMod` (the
-    persistent session module — its map survives the per-package `InitModule`
-    wipes).  The reentrancy gain.
+  - **5d-2 — move both states.** Split into 5d-2a (alias map) + 5d-2b
+    (interfaces) to keep each behavior-changing landing small and isolate the
+    `moduleInterfaces` lifetime risk.
+    - **5d-2a — LANDED (main `098a8504`, 2026-06-19).** Moved the import-alias
+      map (`ImportAliasNames`/`ImportAliasPaths`) + `CurrentImportAlias` off the
+      package-globals onto `@Module` fields; flipped the 8 alias-map funcs to
+      `m.ImportAlias*` and the ~20 `currentImportAlias` sites to
+      `gc.Mod`/`ctx.Gc.Mod.CurrentImportAlias` (all callers held `gc`/`ctx` from
+      5d-1b); dropped `InitModule`'s alias reset (a fresh `NewModule` is born
+      empty); deleted the 3 globals.  Behavior-preserving single-session.  14
+      files, +108/−107.  Verified: gen1 self-host; units ir 558 / codegen 236 /
+      vm 186 / native x64 228 · common 133 · aarch64 136 / repl 65, 0 failed;
+      hygiene 14/14 (15 post-rebase); conformance cross-pkg/alias/generic 15/15
+      in builder-comp + builder-comp-int.  **Finding:** with the global gone, the
+      REPL `mid_session_import.bn` `Save`/`RestoreAliasMapState` bracket is now
+      vestigial (it snapshots `s.MainMod`'s OWN map around a loop that builds
+      separate per-package modules — a no-op; `RecordImportPath(s.MainMod,…)` is
+      what matters).  Kept as-is in 5d-2a (only the stale "InitModule wipes the
+      global" comments corrected); **removal folded into 5d-2b** (user, 2026-06-19).
+    - **5d-2b — TODO.** Move `moduleInterfaces` → `@Module.Interfaces`: move the
+      `ModuleInterface` struct to `ir.bni` (field of exported `@Module`, like 5b
+      did for ModuleConst/etc.); flip the ~47 refs (readers have `m` from 5d-1a;
+      writers `collectInterfaceFromDecl`/`ensureInstantiatedInterface`/
+      `collectInterfaceParents` have `gc`, `registerUniverseAny` needs `m`); seed
+      universe `any` per-module by calling `registerUniverseAny(m)` from
+      `NewModule` (so every module is born with `any`); drop `InitModule`'s
+      `moduleInterfaces` reset + `registerUniverseAny()` call; delete the global.
+      Lifetime: each `@Module.Interfaces` accumulates its imports' + own
+      interfaces during that package's compile; the VM lowers module M via M's
+      `@Module` (passes `m`), so it sees M's set — per-package isolation becomes
+      automatic.  ALSO remove the now-vestigial REPL Save/Restore bracket (keep
+      only `RecordImportPath`).  The reentrancy gain for interfaces.
   - **5d-3 — remainder.** pending-dtors (`pendingMsDtors`/`StructDtors`+`Names`)
     + `methodValueWrappers` → `@Module`; delete remaining globals; `verifyIR`
     decision; land the end-to-end two-session reentrancy test.
