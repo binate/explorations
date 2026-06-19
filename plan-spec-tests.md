@@ -145,10 +145,61 @@ coverage tool surfaces the untagged ones.
 ## 9. Open sub-questions (decide when building)
 
 - Rule-ID source: exported `rule-ids.txt` (recommended — decouples) vs reading
-  `docs` directly.
-- Coverage report: committed generated file in `docs` vs CI-published.
-- Annex C: generated table + preface (recommended) vs fully hand-maintained.
-- Retrofit: incremental tag-as-you-go on existing tests (recommended) vs new-only.
+  `docs` directly. **→ DECIDED: export** (see §11).
+- Coverage report: committed generated file in `docs` vs CI-published. *(open)*
+- Annex C: generated table + preface (recommended) vs fully hand-maintained. *(open)*
+- Retrofit: incremental tag-as-you-go on existing tests (recommended) vs new-only. *(open)*
+
+## 11. Build kickoff — decisions & recon (Phase B start)
+
+Phase B chosen as the first work. Two forks settled:
+
+- **Thin tooling first** — build the rule-ID export + a minimal coverage reader
+  before authoring, so Phase B is measurable (coverage %, validated `.rules`
+  citations) from test #1.
+- **First chapter end-to-end: Ch.13 Expressions** (the template) — densest mix
+  of positive + negative + boundary cases (divzero, MIN/−1, shift
+  overshift/negative, comparability).
+
+Insight: **Phase B subsumes A1.** A thorough chapter yields that chapter's
+known-defect xfails for free; only **A2** (cross-cutting invariants — §7.13
+layout, §17.5 panic set, §18 refcount, §2.4 cross-mode) stays a separate pass.
+
+### Recon findings that shape the extract script
+
+- **Rule-ID declaration detector:** a declaration is a **column-0** line
+  `` `<prefix>.<area>.<name>` `` followed by ` — ` (em-dash lede). Verified
+  repo-wide: **490** such declarations; **zero** hide in lists/tables/blockquotes,
+  so the col-0 detector is complete. References (mid-prose backtick mentions) are
+  *not* declarations and are ignored.
+- **Bucketing is not a single clean marker.** Only **6** rules carry an explicit
+  `` _(Constraint)_ `` marker; the per-construct "Constraints" rubric from
+  `conventions.md` is *not* mechanically marked in the spec body. So the extract
+  script tags: `constraint` (explicit `_(Constraint)_`), `constraint-candidate`
+  (body matches a reject-signal regex — "is rejected"/"is an error"/"compile(-)time
+  error"/"shall be rejected"/"must reject" — needs human confirmation),
+  `framework` (prefixes `term`/`notation`/`behavior`, + Ch.1), and an
+  `untestable` allowlist (mem.move.optimization, scope-exit release order,
+  padding contents, …). Default bucket = `positive`.
+- No per-rule status legend markers inline (Stable/Provisional/etc. are
+  per-section, not per-rule) — not used for bucketing.
+
+### Build steps (this session)
+
+1. `docs/scripts/extract-rule-ids.py` → `docs/spec/rule-ids.txt` (committed
+   generated file, like Annex A): one `<rule-id>\t<bucket>\t<chapter-file>` per
+   line. **Not** wired into docs CI / the Annex-A regen check (scope: add the
+   script + output only).
+2. `binate/scripts/spec-coverage` (minimal): read `rule-ids.txt`, walk
+   `conformance/spec/**/*.rules`, emit the four bidirectional findings (§5.4) +
+   JSON. **Not** wired into binate CI.
+3. `conformance/spec/13-expressions/` — author Ch.13 tests (positive + negative
+   + boundary), each with a `.rules` sidecar; xfail known defects with a reason →
+   claude-todo. Run all modes.
+4. Report Ch.13 coverage %.
+
+Scope guard (CLAUDE.md "Stay Within the Asked Scope"): adding the scripts/tests
+only — **no CI/hook/scheduler wiring**; that is a separate, user-owned decision.
 
 ## 10. Appendix — example spec tests
 
