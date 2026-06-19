@@ -485,20 +485,36 @@ this reuses).
     output-focused. Matches the documented "per-compilation" intent of
     `@GenCtx` and keeps gen-scratch off `@Module`.
   - **Sub-split (each green + landable):**
-    - **5c-1**: make `@GenCtx` per-compilation — export `NewGenCtx`; change the
-      entry points to take `gc @GenCtx` instead of `mod @Module` (use `gc.Mod`
-      internally; `GenModule` stays self-contained); thread one gc per
-      compilation through cmd/bnc, cmd/bni, repl (per-package in the build
-      loops; persistent `s.MainGc` in the REPL session). Globals UNCHANGED →
-      behavior-neutral plumbing. Per-phase `PkgPath` is set by each pass on
-      the shared gc (registration passes leave it empty as today, since
-      `m.PkgPath` is unset pre-`GeneratePackage`; `RegisterSelfTypes` sets the
-      .bni path = the module path that `GeneratePackage` then sets anyway).
+    - **5c-1 — DONE (work-3 `5ad3db59`, 2026-06-18; awaiting land).** Made
+      `@GenCtx` per-compilation — exported `GenCtx` + `NewGenCtx` from `ir.bni`;
+      changed the 9 entry points to take `gc @GenCtx` instead of `mod @Module`
+      (use `gc.Mod` internally; `GenModule` stays self-contained); threaded one
+      gc per compilation through cmd/bnc, cmd/bni, repl (per-package in the
+      build loops; persistent `replSession.MainGc` for the prompt path).
+      Globals UNCHANGED → behavior-neutral plumbing. Per-phase `PkgPath`:
+      registration passes leave it empty (since `m.PkgPath` is unset
+      pre-`GeneratePackage`); `RegisterSelfTypes` sets the .bni path with an
+      explicit save/restore (the shared gc must not retain it); `GeneratePackage`
+      sets `gc.PkgPath = m.PkgPath` after resolving the module path. Verified:
+      gen1 self-host build, units (ir 558 / repl 65 / vm 186 / codegen 236 /
+      native×3 / loader 53), hygiene 14/14, conformance LLVM 1501/0 + VM 1486/0.
+      (One test-fixture gap surfaced + fixed: `setupReplState` built a session
+      without `MainGc`, which `GenDecl(d, s.MainGc)` nil-deref'd; now threads
+      one gc like production.)
     - **5c-2**: move the 14 globals → `@GenCtx` fields (`AliasNames`/`Paths`,
       the 6 generic-registry slices, `EmittedInstantiations`,
       `AnonStructCounter`, `FuncLitCounter`, `CurrentImportAlias`,
       `CurrentTypeParamNames`/`Types`); `Save/RestoreAliasMapState` snapshot
-      gc's map. The reentrancy gain.
+      gc's map. The reentrancy gain. **Test-rework note (discovered in 5c-1):**
+      the ir/repl/vm unit tests pervasively pass a *fresh* `NewGenCtx(m)` inline
+      at each entry-point call AND at each `lookup*` (they only work today
+      because the state is global — a fresh-gc lookup still sees what a
+      different fresh-gc `RegisterImport` wrote). Once that state moves onto
+      `gc`, those tests must thread ONE shared gc across the
+      register-then-lookup sequence, or the moved state won't be visible. So
+      5c-2 includes a sweep of those test call sites (gen_register_import_test,
+      gen_import_test, gen_module_test, gen_self_types_test, gen_repl_test, etc.)
+      to share a per-test gc.
 - **5d — `moduleInterfaces` + pending-dtors + `methodValueWrappers` →
   `@Module`; delete the globals; `verifyIR` decision; land the end-to-end
   two-session reentrancy test** (the plan-mandated test — see Verification —
