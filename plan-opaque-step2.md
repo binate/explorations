@@ -2,7 +2,10 @@
 
 Status: design agreed 2026-06-18; implementation in landable slices.
 Progress: Slice 1 (struct recursion) landed `2e979554`; Slice 1b
-(slice-of-opaque, cycle-aware) landed `1c40ba52`. Next: Slice 2 (generic gate).
+(slice-of-opaque, cycle-aware) landed `1c40ba52`; Slice 2 (strengthen
+make/sizeof/etc. gates to embedsOpaqueByValue — the dedicated generic gate was
+found redundant) landed `b7cbedaa`. Next: Slice 3 (generic func/iface), then 4
+(composite/inferred), 5 (REPL), 6 (Part B IR-gen guard, now load-bearing).
 Prereq: step 1 landed (`f3807ed2` panic removal + checker gates; `e887543e`
 foldConstNum gate). See the opaque-layout MAJOR in `claude-todo.md`.
 
@@ -81,14 +84,21 @@ back-edge to a name already on the branch is a cycle that adds no new opaque.
 Slice-of-pointer (`@[]@Opaque` / `*[]*Opaque`) stays legal. The opaque helpers
 moved to `check_opaque.bn` (kept `check_builtin.bn` under the soft limit).
 
-**Slice 2 — Generic struct instantiation gate (PRIORITY — kills the collision)**
-(`check_generic_type.bn:313-317`). After `resolveStructType` populates the
-instantiated `underlying`, loop its fields and `requireSizedType(c,
-underlying.Fields[j].Type, d.Pos)`. Runs inside the live type-param scope, after
-fields resolved, with the cache shell registered (recursion terminates).
-`Box[Opaque]`→clean error; `Box[int]`/`Box[*Opaque]` pass. Conformance err test
-+ a positive companion (`Box[int]`/`Box[*Opaque]` compile). Independently
-meaningful even before Slice 1 (the common `v T` field is caught by `isOpaqueType`).
+**Slice 2 — strengthen make/make_slice/sizeof/alignof gates** (LANDED `b7cbedaa`).
+DISCOVERY: a dedicated generic-struct gate (the original plan) is REDUNDANT and
+double-errors — Slice 1's `embedsOpaqueByValue` struct recursion ALREADY rejects
+`Box[Opaque]` as a var / field / param / return (the instantiated struct's
+opaque field is reached through `requireSizedType`). The real gap was the
+builtin gates: `make`/`make_slice`/`sizeof`/`alignof` (and the const-fold /
+bit_cast variants in `eval_const_int.bn`, `check_cast_fits.bn`) checked
+`isOpaqueType` (bare opaque only), so `make(Box[Opaque])`, `make(struct{o
+Opaque})`, `sizeof(Box[Opaque])` silently fabricated `i64`. Fix: switch all of
+them to `embedsOpaqueByValue`. With Slice 1 + Slice 2, a `Box[Opaque]` VALUE can
+never be formed → the collision is closed for value forms. The pointer-only
+escapee `*Box[Opaque]` (a pointer is sized, so the checker can't reject it) still
+reaches IR-gen and fabricates the colliding `i64` Box — left for Part B (Slice 6,
+now confirmed LOAD-BEARING, not just defense-in-depth). conformance/838 +
+unit lock-in.
 
 **Slice 3 — Generic function + interface instantiation gates.**
 - Function: `instantiateGenericFunc` (`check_generic.bn:62,68`) — after
