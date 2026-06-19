@@ -202,12 +202,17 @@ layout, §17.5 panic set, §18 refcount, §2.4 cross-mode) stays a separate pass
    (cross-mode agreement, §2.4). Findings filed to claude-todo (Ch.13, 2026-06-18).
 
 **Landed on main 2026-06-19:** binate `21aba0b6` (spec-coverage), `74b8362f`
-(Ch.13 + opt-in runner), `6cdbfedf` (review refinements); docs `a7a88d9`
-(extract-rule-ids), `2389676` (drop the stale generic-literal-head note, §4 below).
+(Ch.13 + opt-in runner), `6cdbfedf` (review refinements), `595b0eee` (sub-rule
+citations + inferred-len/d4-paren tests); docs `a7a88d9` (extract-rule-ids),
+`2389676` (drop stale generic-literal note), `2f95afc` (declare 3 sub-rule-IDs).
+Ch.13 is now **42 tests, 32/32 denominator (100%)**, 3 xfails (aggregate `==`,
+indexed array, inferred-len).
 
 User decisions on the follow-ons (2026-06-19): (4) ✅ correct stale spec note —
-DONE (docs `2389676`). (5) ✅ declare the sub-rule-IDs — IN PROGRESS. (2) promote
-`conformance/spec/` to the default suite + CI — APPROVED, follow-up after (5).
+DONE. (5) ✅ declare the sub-rule-IDs — DONE (also found d4-paren already works;
+the genuine remaining gap is inferred-len). (2) promote `conformance/spec/` to
+the default suite + CI — APPROVED, IN PROGRESS (validating Ch.13 across the full
+`all` modeset incl. cross-compile/native lanes before removing the opt-in gate).
 (3) wire `extract-rule-ids.py`/`spec-coverage` into CI — deferred (discuss).
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
