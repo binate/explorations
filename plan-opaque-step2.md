@@ -4,8 +4,9 @@ Status: design agreed 2026-06-18; implementation in landable slices.
 Progress: Slice 1 (struct recursion) landed `2e979554`; Slice 1b
 (slice-of-opaque, cycle-aware) landed `1c40ba52`; Slice 2 (strengthen
 make/sizeof/etc. gates to embedsOpaqueByValue — the dedicated generic gate was
-found redundant) landed `b7cbedaa`. Next: Slice 3 (generic func/iface), then 4
-(composite/inferred), 5 (REPL), 6 (Part B IR-gen guard, now load-bearing).
+found redundant) landed `b7cbedaa`; Slice 3 (generic func/iface instantiation
+gates, forward-ref-safe) landed `40924b14`. Next: 4 (composite/inferred), 5
+(REPL), 6 (Part B IR-gen guard, now load-bearing).
 Prereq: step 1 landed (`f3807ed2` panic removal + checker gates; `e887543e`
 foldConstNum gate). See the opaque-layout MAJOR in `claude-todo.md`.
 
@@ -100,7 +101,10 @@ reaches IR-gen and fabricates the colliding `i64` Box — left for Part B (Slice
 now confirmed LOAD-BEARING, not just defense-in-depth). conformance/838 +
 unit lock-in.
 
-**Slice 3 — Generic function + interface instantiation gates.**
+**Slice 3 — Generic function + interface instantiation gates.** (LANDED `40924b14`.)
+The discard form `_ = mk[Opaque]()` was the key gap (no var to catch it; silently
+monomorphized to an i64-returning `mk__bn_inst__int`). Both gates verified
+forward-ref-safe.
 - Function: `instantiateGenericFunc` (`check_generic.bn:62,68`) — after
   `substituteTypeParams` builds `newParams`/`newResults`, `requireSizedType` each.
   `id[Opaque]` (`x T`, returns `T`) → rejected; `f[Opaque]` with `x *T` → fine.
