@@ -1,6 +1,8 @@
 # Plan: Opaque step 2 — "an opaque value can never be formed"
 
 Status: design agreed 2026-06-18; implementation in landable slices.
+Progress: Slice 1 (struct recursion) landed `2e979554`; Slice 1b
+(slice-of-opaque, cycle-aware) landed `1c40ba52`. Next: Slice 2 (generic gate).
 Prereq: step 1 landed (`f3807ed2` panic removal + checker gates; `e887543e`
 foldConstNum gate). See the opaque-layout MAJOR in `claude-todo.md`.
 
@@ -64,13 +66,20 @@ IR-gen (Part B) is defense-in-depth.
 
 ## Part A — checker gates (landable slices, each green)
 
-**Slice 1 — `embedsOpaqueByValue` recursion** (`check_builtin.bn:40-50`).
-Today recurses `TYP_ARRAY` only; add `TYP_STRUCT` (walk resolved `.Fields[i].Type`)
-and `TYP_SLICE`/`TYP_MANAGED_SLICE` (walk `.Elem`). Recurse over resolved
-`@Type` fields/elems (NOT AST). Pointers need no special case — `isOpaqueType(*Opaque)`
-is already false and `TYP_POINTER` matches no arm. Unit tests: `struct{o Opaque}`→true,
-`struct{p *Opaque}`→false, `*[]Opaque`→true, `@[]@Opaque`→false, `[3]struct{o Opaque}`→true.
-Prerequisite for the struct/slice cases below; green standalone (array behavior unchanged).
+**Slice 1 — `embedsOpaqueByValue` struct recursion** (LANDED `2e979554`).
+Added `TYP_STRUCT` (walk resolved `.Fields[i].Type`) to the existing `TYP_ARRAY`
+recursion. Array/struct value-containment is acyclic, so it terminates. Closes
+the anon-struct-value-field gap.
+
+**Slice 1b — slice-of-opaque, cycle-aware** (LANDED `1c40ba52`, decision A).
+DISCOVERY: naively recursing into slice elements does NOT terminate — a
+recursive managed type (`struct { kids @[]Node }`, very common) loops
+`Node → @[]Node → Node → …` and hung the checker (broke conformance 252/253).
+Fix: recurse `TYP_SLICE`/`TYP_MANAGED_SLICE` elements WITH a per-branch visited
+set of named types (mirrors `dfsCycleSearch` in `check_pending_cycles.bn`); a
+back-edge to a name already on the branch is a cycle that adds no new opaque.
+Slice-of-pointer (`@[]@Opaque` / `*[]*Opaque`) stays legal. The opaque helpers
+moved to `check_opaque.bn` (kept `check_builtin.bn` under the soft limit).
 
 **Slice 2 — Generic struct instantiation gate (PRIORITY — kills the collision)**
 (`check_generic_type.bn:313-317`). After `resolveStructType` populates the
