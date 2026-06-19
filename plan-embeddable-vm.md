@@ -448,6 +448,17 @@ this reuses).
   `GeneratePackage`); resolved by keeping both sides, re-verified, re-approved.
   Verified: gen1 self-hosts; ir+codegen+vm+native+native/common+repl units;
   hygiene 14/14; conformance builder-comp 1498/0, builder-comp-int 1483/0.
+  **Adversarially reviewed** (4-lens workflow: correctness / completeness /
+  coverage / API+BUILDER-compat) — found 5a+5b correct and complete (no code
+  defect; acyclic refcount graph; no external field-aliasing; BUILDER-compat
+  preserved). One real test-coverage gap + cosmetic debt fixed in a review
+  follow-up (binate `f1b58f90`): `TestGenCtxRegistryIsolation` (two modules'
+  five tables are independent — pins what cmd/bnc's multi-package loop
+  relies on now that InitModule no longer clears a shared global),
+  `TestRegisterStructTypesPopulatesImportingModule`,
+  `TestNewFuncCachesModulePkgPath`; dropped the dead `if gc.Mod != nil`
+  guards in genFuncLit/synthMethodValueWrapper; swept stale
+  currentModulePkgPath/moduleX comments incl. NewFunc's doc.
 - **5c — transient context → `@GenCtx`.** import-alias map (incl. the REPL's
   `Save/RestoreAliasMapState` — move intact), generic registries + type-param
   bindings, the two counters. **M.**
