@@ -582,6 +582,24 @@ this reuses).
       ir 558 / codegen 236 / vm 186 / native x64 228 · common 133 · aarch64 136 /
       repl 65, 0 failed; hygiene 14/14; conformance iface smoke 14/14 in
       builder-comp + builder-comp-int.  Next: 5d-1b (alias chain).
+    - **5d-1b — LANDED (main `a76cc579`, 2026-06-19).** Threaded `m @Module`
+      through the 8 alias-map functions (`resolveImportPkg`, `buildQualName`,
+      `pushFileImports`, `popFileImports`, `SaveAliasMapState`,
+      `RestoreAliasMapState`, `RecordImportPath`, `overlayFileImports`) + their
+      77 ir call sites (gen → `gc.Mod`/`ctx.Gc.Mod`; the 8 funcs' internal
+      cross-calls → `m`).  Flat cascade — every caller already held `gc`/`ctx`/`m`
+      (no deeper threading); fanned the 77 edits across a 16-agent workflow
+      (one per ir file, disjoint), verified centrally.  REPL ripple: the 3
+      exported funcs (`Save`/`Restore`/`RecordImportPath`) are called only from
+      `repl/mid_session_import.bn`, now passing `s.MainMod` (the persistent
+      session module whose alias map outlives the per-package `InitModule`
+      wipes).  `currentImportAlias` stays a global here (5d-2 moves it; readers
+      hold `gc`).  Globals untouched (`m` unused until 5d-2).  ir.bni: 3 exports
+      updated.  21 files, +105/−98.  Verified: gen1 self-host; units ir 558 /
+      codegen 236 / vm 186 / native x64 228 · common 133 · aarch64 136 / repl 65,
+      0 failed; hygiene 14/14; conformance cross-pkg/alias/generic smoke 15/15 in
+      builder-comp + builder-comp-int.  Next: 5d-2 (move alias map +
+      `moduleInterfaces` + `currentImportAlias` onto `@Module`; the reentrancy gain).
     - **Cascade map (build-fix recon 2026-06-19; def-changes attempted then
       reverted to keep the tree clean — redo from this map).**  Two coupled
       sub-cascades (decoupled by the 5d-1a interface-chain / 5d-1b alias-chain
