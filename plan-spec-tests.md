@@ -186,20 +186,26 @@ layout, §17.5 panic set, §18 refcount, §2.4 cross-mode) stays a separate pass
 
 ### Build steps (this session)
 
-1. `docs/scripts/extract-rule-ids.py` → `docs/spec/rule-ids.txt` (committed
-   generated file, like Annex A): one `<rule-id>\t<bucket>\t<chapter-file>` per
-   line. **Not** wired into docs CI / the Annex-A regen check (scope: add the
-   script + output only).
-2. `binate/scripts/spec-coverage` (minimal): read `rule-ids.txt`, walk
-   `conformance/spec/**/*.rules`, emit the four bidirectional findings (§5.4) +
-   JSON. **Not** wired into binate CI.
-3. `conformance/spec/13-expressions/` — author Ch.13 tests (positive + negative
-   + boundary), each with a `.rules` sidecar; xfail known defects with a reason →
-   claude-todo. Run all modes.
-4. Report Ch.13 coverage %.
+1. ✅ `docs/scripts/extract-rule-ids.py` → `docs/spec/rule-ids.txt` (docs
+   `a7a88d9`): 483 declared rule-IDs, bucket-tagged; col-0 declaration detector
+   verified complete repo-wide. **Not** wired into docs CI.
+2. ✅ `binate/scripts/spec-coverage/run.sh` + vendored `rule-ids.txt` (binate
+   `05b2bf56`): static coverage (per-chapter %, GAPS / DANGLING / UNTAGGED) + JSON.
+   `--run` (per-mode pass/xfail) is a later increment. **Not** wired into binate CI.
+3. ✅ `conformance/spec/13-expressions/` — 33 tests, all 29 denominator rules
+   cited (100%), 3 `.xfail.all` for known defects (aggregate `==`, indexed array
+   literal, generic-literal head). `conformance/run.sh` registers `spec/` as an
+   **opt-in** subtree (runs only when filtered, e.g. `run.sh <mode> spec`) — NOT
+   in the default suite/CI.
+4. ✅ Ch.13 green on builder-comp, builder-comp-int (VM), builder-comp-comp
+   (gen1), builder-comp-comp-comp (gen2) — 30 pass / 0 fail / 3 xfail each
+   (cross-mode agreement, §2.4). Findings filed to claude-todo (Ch.13, 2026-06-18).
 
-Scope guard (CLAUDE.md "Stay Within the Asked Scope"): adding the scripts/tests
-only — **no CI/hook/scheduler wiring**; that is a separate, user-owned decision.
+Two user-owned follow-on decisions (NOT done — scope guard, CLAUDE.md "Stay
+Within the Asked Scope"): (a) promote `conformance/spec/` to the default
+conformance suite + CI; (b) wire `extract-rule-ids.py` / `spec-coverage` into CI.
+Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
+worked template.
 
 ## 10. Appendix — example spec tests
 

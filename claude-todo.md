@@ -724,6 +724,31 @@ documents these as open items.
   TYP_NAMED at isManagedFuncValueLit). Value-rejection and reference
   construction both work.
 
+### Issues surfaced authoring spec Ch.13 conformance tests — 2026-06-18
+Found writing the `conformance/spec/13-expressions/` rule tests (plan-spec-
+tests.md Phase B). Each has a reproducing test cited by `.rules`.
+- **`expr.composite.generic-unparsed`** (spec-referenced but previously
+  UNTRACKED here — 🔴 OPEN). A generic-instantiated composite-literal head
+  `Box[int]{…}` is not built by the parser: after the head, `[…]` is consumed
+  as instantiation/index and the trailing `{…}` is left to the statement layer,
+  so the literal does not parse. Covered by `spec/13-expressions/
+  032_composite_generic` (.xfail.all). Fix: in the expression parser, after a
+  generic-instantiation head recognize a following `{` as a composite-literal
+  body (honoring the D4 control-flow suppression).
+- **(minor) `expr.composite.struct` bad-key diagnostic.** A keyed struct
+  literal whose key names no field reports the generic `undefined: <key>` (the
+  key is resolved as an identifier) rather than a field-specific "no field
+  <key> in <T>". NOT a correctness bug — a key that shadows an in-scope
+  variable still errors (not silently accepted). Covered by `spec/13-
+  expressions/027_err_composite_struct_badkey`. Fix: emit a field-not-found
+  diagnostic naming the struct + key in the keyed-literal checker.
+- **(note, non-defect) `expr.compare.relational` chain diagnostic reach.**
+  `a < b < c` is correctly rejected in every context, but the dedicated
+  "comparison operators do not chain" message fires only for the
+  identifier-leading for-clause Pratt path (`parse_for.bn:199`); `if`/`var`/
+  literal-leading contexts reject via generic parse errors. Conformant
+  (rejection holds) — a diagnostic-consistency nicety only.
+
 ### Untyped `const` coercion: implementation diverges from a DECIDED note — surfaced authoring spec Ch.6 (2026-06-11)
 Needs a decision (MINOR — no miscompile; a type-system permissiveness
 question).
