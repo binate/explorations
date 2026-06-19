@@ -485,7 +485,7 @@ this reuses).
     output-focused. Matches the documented "per-compilation" intent of
     `@GenCtx` and keeps gen-scratch off `@Module`.
   - **Sub-split (each green + landable):**
-    - **5c-1 — DONE (work-3 `5ad3db59`, 2026-06-18; awaiting land).** Made
+    - **5c-1 — LANDED (main `2f67127c`, 2026-06-18).** Made
       `@GenCtx` per-compilation — exported `GenCtx` + `NewGenCtx` from `ir.bni`;
       changed the 9 entry points to take `gc @GenCtx` instead of `mod @Module`
       (use `gc.Mod` internally; `GenModule` stays self-contained); threaded one
