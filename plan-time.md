@@ -93,23 +93,30 @@ the caveated compare. Exact API is finalized when this half is built.
   `Point`/`Delta` compose with them, and *built* alongside `Now()` when the
   clock-reading mechanism lands.
 - **Monotonic durations / benchmarking** — arrive with monotonic `Reading`s.
+- **`lang.Stringer` (`String()`) for `Point` and `Delta`** — should be added,
+  with *sensible* formatting. `Delta.String()` is integer-formattable on its own
+  (e.g. `1h2m3s` plus a nanosecond remainder — no floats). `Point.String()`
+  needs the civil calendar/formatting layer above, so it lands with that.
 
 ## Conventions
 
 - **Value receivers + value args** for `Point` and `Delta` (small immutable
   values; matches `Celsius`/`Box`). `Reading[C]` likewise.
-- Representations are exposed in the `.bni` — Binate has no field hiding yet
-  (opaque forward-declared structs are unimplemented), and a by-value type must
-  publish its layout. Fields are lowercase by convention ("use the methods"),
-  not enforced-private.
+- Representations are exposed in the `.bni`: opaque forward-declared structs
+  exist, but are usable only by handle/pointer (importers don't get the size),
+  so a *by-value* type like `Point`/`Delta` must publish its layout. The fields
+  are therefore public; lowercase is a "use the methods" convention, not
+  enforced — so the nsec invariant is doc-stated and the accessors
+  (`ToUnix`/`SecondsSinceEpoch`/`Nanosecond`) are the sanctioned read path.
 - No floats anywhere; no errors (construction/accessors don't fail).
 
 ## Build scope
 
 - **Now:** `time.Point` + `time.Delta`, in `impls/stdlib/common/pkg/std/time/`
-  (pure value math — no syscalls, no build constraints). These are the *correct*
-  types for what `stat` hands back (a foreign `Point`) and for differences
-  (e.g. which of two files on one FS is newer, by how much) — not stubs.
+  (pure value math — no syscalls, no build constraints): `FromUnix`/`ToUnix`,
+  `SecondsSinceEpoch`, `Nanosecond`, `Before`/`After`/`Equal`/`Sub`, and
+  `Delta.Nanoseconds`. These are the *correct* types for what `stat` hands back
+  (a foreign `Point`) and for differences — not stubs.
 - **Later, with `Now()`/clock-reading:** `time.Clock`, `time.Reading[C]`, the
   concrete clock types, and the ordering-guarantee constraints.
 
@@ -123,6 +130,7 @@ syscall results.)
 
 ## Status
 
-- `Point` + `Delta` — to build (this is Stage 1 of `plan-os-stat.md`).
+- `Point` + `Delta` — built (Stage 1 of `plan-os-stat.md`), with a cross-mode
+  conformance test (`conformance/853_std_time.bn`); landing.
 - `Clock` + `Reading[C]` + ordering guarantees — designed here; built with
   `Now()`/clock-reading later.
