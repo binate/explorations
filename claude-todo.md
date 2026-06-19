@@ -749,17 +749,22 @@ documents these as open items.
 ### Issues surfaced authoring spec Ch.13 conformance tests — 2026-06-18
 Found writing the `conformance/spec/13-expressions/` rule tests (plan-spec-
 tests.md Phase B). Each has a reproducing test cited by `.rules`.
-- **`expr.composite.generic-unparsed` — ✅ NOT A DEFECT; the spec note is
-  STALE.** The spec (`13-expressions.md`) flags generic-instantiated
-  composite-literal heads `Box[int]{…}` as "not yet built by the parser." That
-  is no longer true: verified working in var-decl, short-var (`:=`), call-arg,
-  and multi-type-arg (`Pair[int, int]{…}`) contexts (`spec/13-expressions/
-  032_composite_generic`, a passing positive test — an xfail here would be
-  born-stale, caught via `--check-xpass`). The ONLY failing context is a bare
-  composite literal in an `if`/`for`/`switch` condition, which is the separate
-  **D4** issue (`expr.disambiguation.d4-paren`) and rejects a *non-generic*
-  literal (`if Point{…}.x …`) identically. **Action: correct the stale spec
-  note** (drop the generic-unparsed open-defect bullet; keep d4-paren).
+- **Two stale composite-literal "known defect" notes — both ✅ CORRECTED in the
+  spec (docs `2389676`, `2f95afc`).** `--check-xpass` flagged the first as a
+  born-stale xfail; probing then showed the second is also fixed.
+  - `expr.composite.generic-unparsed`: generic-instantiated literal heads
+    `Box[int]{…}` ARE built + instantiated (var-decl, `:=`, call-arg,
+    multi-type-arg) — `spec/13-expressions/032`, a passing positive test.
+  - `expr.disambiguation.d4-paren`: the parenthesized escape WORKS —
+    `(Point{…}).x` in an `if`/`for` condition (`spec/13-expressions/042`). The
+    base D4 rule (an UN-parenthesized literal in a condition is not recognized,
+    so `if Point{…}.x` fails) is correct/intended, not a defect.
+  Both, plus `expr.composite.array.indexed` and `…inferred-len`, are now
+  declared col-0 rule-IDs (tests cite them precisely; Ch.13 denominator 29→32).
+- **`expr.composite.array.inferred-len` — 🔴 OPEN (genuine gap).** `[...]T{…}`
+  is rejected at parse ("expected expression"), though now declared. Covered by
+  `spec/13-expressions/041` (.xfail.all). Fix: infer the length from the
+  element count.
 - **(minor) `expr.composite.struct` bad-key diagnostic.** A keyed struct
   literal whose key names no field reports the generic `undefined: <key>` (the
   key is resolved as an identifier) rather than a field-specific "no field
