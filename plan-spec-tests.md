@@ -208,6 +208,15 @@ citations + inferred-len/d4-paren tests); docs `a7a88d9` (extract-rule-ids),
 Ch.13 is now **42 tests, 32/32 denominator (100%)**, 3 xfails (aggregate `==`,
 indexed array, inferred-len).
 
+**Ch.8 Conversions landed 2026-06-19:** binate `98b8012e` (spec-coverage hygiene
+check), `0807f4f0` + `eaeb9d26` (Ch.8: **15 tests, 11/11 (100%)**, green on
+compiler/VM/gen1/gen2/native_aa64/arm32_baremetal). spec/ now runs in the default
+suite (`d6a0bfc3`). Findings filed (claude-todo, Ch.8 2026-06-19): bit_cast
+sub-word narrowing (VM + native; → scalar-diff harness); `int↔int64` implicit on
+64-bit (NEEDS A DECISION); stale §8.5 residual note. Phase B chapter order from
+the triage: **Ch.16 Packages** next (highest defect-pinning), then **Ch.11
+Interfaces** — both via the authoring fan-out.
+
 User decisions on the follow-ons (2026-06-19): (4) ✅ correct stale spec note —
 DONE. (5) ✅ declare the sub-rule-IDs — DONE (also found d4-paren already works;
 the genuine remaining gap is inferred-len). (2) ✅ promote `conformance/spec/`
