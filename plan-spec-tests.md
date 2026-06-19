@@ -201,9 +201,14 @@ layout, §17.5 panic set, §18 refcount, §2.4 cross-mode) stays a separate pass
    (gen1), builder-comp-comp-comp (gen2) — 30 pass / 0 fail / 3 xfail each
    (cross-mode agreement, §2.4). Findings filed to claude-todo (Ch.13, 2026-06-18).
 
-Two user-owned follow-on decisions (NOT done — scope guard, CLAUDE.md "Stay
-Within the Asked Scope"): (a) promote `conformance/spec/` to the default
-conformance suite + CI; (b) wire `extract-rule-ids.py` / `spec-coverage` into CI.
+**Landed on main 2026-06-19:** binate `21aba0b6` (spec-coverage), `74b8362f`
+(Ch.13 + opt-in runner), `6cdbfedf` (review refinements); docs `a7a88d9`
+(extract-rule-ids), `2389676` (drop the stale generic-literal-head note, §4 below).
+
+User decisions on the follow-ons (2026-06-19): (4) ✅ correct stale spec note —
+DONE (docs `2389676`). (5) ✅ declare the sub-rule-IDs — IN PROGRESS. (2) promote
+`conformance/spec/` to the default suite + CI — APPROVED, follow-up after (5).
+(3) wire `extract-rule-ids.py`/`spec-coverage` into CI — deferred (discuss).
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
 
