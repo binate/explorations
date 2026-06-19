@@ -210,10 +210,12 @@ indexed array, inferred-len).
 
 User decisions on the follow-ons (2026-06-19): (4) ✅ correct stale spec note —
 DONE. (5) ✅ declare the sub-rule-IDs — DONE (also found d4-paren already works;
-the genuine remaining gap is inferred-len). (2) promote `conformance/spec/` to
-the default suite + CI — APPROVED, IN PROGRESS (validating Ch.13 across the full
-`all` modeset incl. cross-compile/native lanes before removing the opt-in gate).
-(3) wire `extract-rule-ids.py`/`spec-coverage` into CI — deferred (discuss).
+the genuine remaining gap is inferred-len). (2) ✅ promote `conformance/spec/`
+to the default suite + CI — DONE (binate `d6a0bfc3` removed the opt-in gate).
+Validated green on 8 of 10 `all` modes (incl. `native_aa64` + `arm32_baremetal`);
+`native_x64` (chronically red pre-existing, claude-todo #203) and `arm32_linux`
+were not validatable on the darwin/arm64 host — the next CI run on `main`
+confirms them. (3) wire `extract-rule-ids.py`/`spec-coverage` into CI — DISCUSS.
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
 
