@@ -92,122 +92,13 @@ bnlint today has exactly one "unused" rule (`unused-import`, `pkg/binate/lint/un
 
 Add a 3-package conformance regression test (`[b.SZ]int` + `x << b.SZ`) once fixed. **MUST keep the checker and IR-gen in lockstep** — the lesson of this regression is that making the checker fold MORE than IR-gen can creates silent disagreements.
 
-## MAJOR (type-system / wrong-code) — opaque types with no layout silently miscompile via a fabricated pointer-size (2026-06-16) — ⚠️ PARTIALLY FIXED, NOT CLOSED: named-distinct `ffc56b36` ✅; value-embedding checker gates `26f6e5b3` ✅; SizeOf/AlignOf panic REMOVED + const-fold/bit_cast checker gates + clean diagnostics `f3807ed2` ✅ (the `26f6e5b3` panic was a crash-regression — now gone; the 3 crashing forms give clean errors). **STILL OPEN (step 2):** an opaque VALUE can still be FORMED → silent i64 miscompile via generic instantiation, anonymous structs, inferred-type composite literals, deref/assignment, and slices; plus the REPL path. The real fix is "an opaque value can never be formed in the checker" (+ IR-gen failing loudly instead of fabricating int). See below.
+## opaque-layout (type-system / wrong-code) — ✅ RESOLVED (step 1 + step 2, Slices 1–6); summary moved to [claude-todo-done.md](claude-todo-done.md) (2026-06-19)
 
-**The `26f6e5b3` panic backstop does not work, and regresses.** Root: IR-gen's
-`resolveTypeExpr` (`gen_type_resolve.bn:119`) resolves any named type with no
-registered struct/alias (= exactly an opaque type) to `types.TypInt()` (8
-bytes) BEFORE `types.SizeOf` is ever called — so the codegen path the panic was
-meant to guard is never taken; opaque silently lowers to i64. The panic only
-fires from the CHECKER, where it crashes the compiler on legal/error-but-common
-code instead of giving a clean diagnostic.
-
-Findings (all reproduced on a gen1 bnc built from `26f6e5b3`):
-
-- **PANIC-on-checker-code (regression, BLOCKER) — FIXED `f3807ed2`.**
-  `cast(int, sizeof(Opaque))`, `[sizeof(Opaque)]int`, and `bit_cast(*[]Opaque,
-  x)` used to CRASH the compiler (the `26f6e5b3` panic, reached via
-  `evalConstIntValue`'s sizeof/alignof fold and `checkBitCastShapes`'s
-  `Elem.SizeOf()`). Fix: the panic was removed (SizeOf/AlignOf fall through to
-  the non-crashing `ptrSize()`/`maxAlign()` again), and `evalConstIntValue`
-  (now `eval_const_int.bn`) + `checkBitCastShapes` gate `isOpaqueType` so each
-  form gets a clean diagnostic; `dimFullyKnown` treats an opaque sizeof as
-  not-known so the array-dim case no longer emits a spurious "division by
-  zero". Covered by conformance/828 + unit tests. Per the governing principle:
-  no panic on a source-reachable path. Follow-up `e887543e` (from an adversarial
-  review): the bignum cast-fit folder `foldConstNum` (`check_cast_fits.bn`) also
-  fabricated `sizeof(Opaque)=8`, adding a spurious "constant does not fit"
-  cascade on `cast(int8, sizeof(Opaque) * 100)` — now `FOLD_UNKNOWN` for opaque;
-  plus coverage for the duplicated ALIGNOF arms and the bit_cast opaque-SOURCE
-  side. (The review's suspected forward-ref false positive — `[sizeof(Fwd)]int`
-  — was verified clean on gen1: the park machinery resolves the placeholder
-  first.)
-- **SILENT miscompiles still present (BLOCKER), the panic does NOT catch them**
-  (IR-gen int-fallback pre-empts): (a) generic instantiation `var b Box[Opaque]`
-  → monomorphized as `Box[int]` `<{ i64 }>` AND collides on the same mangled
-  `%bn..Box__bn_inst__int` type as a real `Box[int]` (symbol collision + wrong
-  layout); the doc's "concrete-opaque field in a generic decl caught by the
-  panic" is provably false. (b) anonymous struct opaque field `func f(s struct {
-  o Opaque })` → `<{ i64 }>`. (c) inferred-type composite literal `var x =
-  Opaque{}` (nil TypeRef, checkVarDecl skips it). (d) deref/assignment of
-  `*Opaque`: `var x = *g()`, `*dst = *src` → 8-byte i64 copy (OOB if real size ≠
-  8). `embedsOpaqueByValue` recurses only into TYP_ARRAY, never TYP_STRUCT or
-  TYP_SLICE.
-- **REPL hole (MAJOR).** `checkValueEmbedding` is hooked into the 3 batch
-  `collectDecls` callers but NOT `CheckDeclInScope` (`checker.bn:352`, the REPL
-  per-decl path) — opaque-by-value func params/returns are silently accepted at
-  the REPL (var still caught by checkVarDecl).
-- Follow-ups/nits: diagnostics point at `d.Pos` (decl header), not the
-  field/param TypeExpr Pos; the "side-effect-free re-resolution" comment is
-  inaccurate (relies on addCheckError dedup); missing tests for every panicking
-  / miscompiling form (all current tests use the bare `sizeof(Opaque)`).
-
-**What `26f6e5b3` DOES get right** (keep): named-struct value field, explicit-
-type var, by-value param/return on batch paths, transitive named-struct (inner
-decl rejected), named-distinct/alias-over-opaque, and slice-of-opaque-by-
-reference (`*[]Opaque`/`@[]Opaque` correctly compile).
-
-**Remaining fix (step 2).** The checker-phase SizeOf callers (const-fold,
-bit_cast) are now gated for clean diagnostics (`f3807ed2`). What remains: (a)
-enforce in the checker that an opaque VALUE can never be FORMED — extend the
-gates to generic instantiation, anonymous structs, inferred-type composite
-literals (`var x = Opaque{}`), deref/assignment, and slices, and hook the REPL
-`CheckDeclInScope` path (`embedsOpaqueByValue` must also recurse TYP_STRUCT /
-TYP_SLICE, not just TYP_ARRAY); (b) make IR-gen's `gen_type_resolve.bn:119`
-TypInt() fallback fail loudly for an unresolved named type, so anything the
-checker misses can't silently lower to i64 instead of the current fabricate-8.
-NOTE: (b) must not panic on a source-reachable path — it has to be a path only
-reachable after the checker has rejected every opaque-value form (else it
-becomes the same crash-regression the `26f6e5b3` panic was). Direction on (b)
-is a design call — see the discussion.
-
-**Root cause.** `Type.SizeOf()` (`scope.bn:151-155`) and `AlignOf()`
-(`scope.bn:245-248`) fall through to `ptrSize()` / `maxAlign()` for a
-nil-`Underlying` `TYP_NAMED` (an opaque / forward-declared type with no full
-definition) instead of signaling "layout unknown". So anywhere a pure opaque
-type's layout is needed, the compiler silently fabricates 8 bytes (ptrSize) — a
-wrong-code / silent-miscompile defect whenever the real (external C/asm) layout
-differs. Pre-existing; the checker gate added in `fe9e131e` is a partial
-front-end (it intercepts the four builtins only when the *immediate* type is
-nil-`Underlying`).
-
-Two unaddressed entry points, both empirically confirmed via emitted LLVM on a
-pure opaque `type Opaque` (no body):
-
-1. **Named-distinct over opaque slipped the gate.** ✅ FIXED & LANDED
-   `ffc56b36`: `isOpaqueType` (`check_builtin.bn`) now peels alias / readonly /
-   named-distinct via `peelFieldAccessBase`, so `type A Opaque; make(A)` /
-   `sizeof(A)` etc. bottom out at the opaque type and are rejected (matching the
-   field-access gate); a distinct type over a CONCRETE base stays allowed.
-   Tests hardened (message-specific asserts, independent alignof, named-distinct
-   / alias / pointer-allowed / generic-not-gated; conformance/809).
-
-2. **Value-embedding of opaque is entirely ungated** — the design's
-   "zero-initialize the type" prohibition (`plan-type-decls.md:42`),
-   unimplemented: `var x Opaque` → `alloca i64`; `[5]Opaque` → `[5 x i64]`;
-   `struct { o Opaque }` → `o` laid out as i64; `func f(o Opaque) Opaque` →
-   passed/returned by value as i64. All compile clean with a fabricated 8-byte
-   layout. `box(o)` is a downstream symptom (`Box(...,i64 8)`). **Fix
-   (bigger):** a checker gate rejecting value-typed opaque in var/local decls,
-   array element types, struct value fields, and by-value params/returns.
-
-Discovered by an adversarial review of `fe9e131e` (gen1 + emitted LLVM).
-Legal cases stay correct: `*Opaque`/`@Opaque` handles (pointer layout known),
-`@Opaque` handle struct fields, and generic `make(T)`/`sizeof(T)`
-(`TYP_TYPE_PARAM`, not gated).
-
-**Chosen direction for gap 2 (approach B, user-decided 2026-06-17):** a checker
-gate rejecting value-typed opaque in var/local decls, array element types,
-struct value fields, and by-value params/returns (clean use-site diagnostics),
-PLUS make `SizeOf`/`AlignOf` stop fabricating `ptrSize`/`maxAlign` for an
-opaque (nil-`Underlying` `TYP_NAMED`) — hard-fail/poison instead — so any site
-the checker misses fails LOUDLY (compiler error) rather than silently
-miscompiling. Requires auditing `SizeOf`/`AlignOf` callers to confirm the
-hard-fail can't trip on a legitimately pointer-sized use (pointers/handles
-don't recurse into the pointee, so `*Opaque`/`@Opaque` are safe). Investigate
-whether `capturePendingIfSized` is a usable single choke point for the checker
-gate. Need conformance + unit coverage for `var x Opaque` / `[N]Opaque` /
-struct value field / by-value param+return.
+Tiny benign residual still OPEN: a pointer nested under further pointers
+(`**Box[Opaque]` / `@(*Box[Opaque])`) isn't caught by `requireSizedType`'s
+one-level pointee check (Slice 6). Closing it needs the cycle-detection a
+recursive peel would require for `type P *P`. Benign (the same never-used
+fabrication, and a pointer is sized); follow-up only.
 
 ## Cast/shift const-fold class — ✅ DONE & LANDED (moved to [claude-todo-done.md](claude-todo-done.md)); open residuals below (2026-06-17)
 

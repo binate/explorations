@@ -10,6 +10,35 @@ no longer resolve in the tree, though git history retains them.
 
 ## Done
 
+## opaque-layout — opaque types with no layout (forward decl, no body) — ✅ DONE & LANDED (2026-06-16 → 2026-06-19)
+
+An opaque type's SizeOf/AlignOf fabricated ptrSize, so anywhere its layout was
+needed the compiler silently emitted i64 — wrong code, and for generics a
+mangled-symbol collision (`Box[Opaque]` shared `Box__bn_inst__int` with a real
+`Box[int]`).
+
+Step 1 — removed the (source-reachable, crash-regression) SizeOf/AlignOf panic;
+const-fold / bit_cast checker callers give clean diagnostics; named-distinct
+peel + value-embedding gates. Commits: ffc56b36, 26f6e5b3, f3807ed2, e887543e.
+
+Step 2 — "an opaque value can never be FORMED", enforced ENTIRELY in the checker
+(IR-gen's precondition is valid input, so the fix belongs there — not an IR-gen
+guard). Slices:
+  - 1  `2e979554` embedsOpaqueByValue recurses struct fields.
+  - 1b `1c40ba52` slice-of-opaque, cycle-aware (per-branch visited set; a naive
+       recursion hung on a recursive managed type `struct { kids @[]Node }`).
+  - 2  `b7cbedaa` make/make_slice/sizeof/alignof gates use embedsOpaqueByValue
+       (the dedicated generic gate was found redundant + double-erroring).
+  - 3  `40924b14` generic function / interface instantiation gates.
+  - 4  `6d541973` composite-literal + inferred-var gates.
+  - 4b `fe048395` deref-as-rvalue assignment gate (`_ = *p`, `*dst = *src`).
+  - 5  `5968e1e2` REPL CheckDeclInScope hook (batch + REPL both enforced).
+  - 6  `d00fcd81` reject `*Box[Opaque]` / `@Box[Opaque]` (a pointer to an
+       opaque-embedding non-bare type) — the last path reaching IR-gen with an
+       opaque arg; closing it means IR-gen never instantiates `Box[Opaque]`.
+conformance/{809,824,827,828,838,839,842,846,851} + extensive unit coverage.
+Plan: plan-opaque-step2.md. Tiny benign residual: nested `**Box[Opaque]`.
+
 ### ~~Cast/shift const-fold silent-miscompile class — checker/IR-gen const-fold asymmetry~~ — ✅ FIXED+LANDED (2026-06-15 .. 2026-06-17)
 
 Started from a CAST-hidden negative constant shift count silently treated as an overshift (`const N int8 = cast(int8, 0) - cast(int8, 3); x << N` printed `0` instead of a `negative shift count` error). Root cause: the checker's `evalConstIntValue` diverged from IR-gen's `evalConstExpr` on which const forms it folds. Closed the whole asymmetry, form by form, plus the cast-semantics decision it surfaced. Each step verified full builder-comp + gen2 (conformance + unit).
