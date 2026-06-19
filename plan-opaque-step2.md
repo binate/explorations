@@ -5,8 +5,10 @@ Progress: Slice 1 (struct recursion) landed `2e979554`; Slice 1b
 (slice-of-opaque, cycle-aware) landed `1c40ba52`; Slice 2 (strengthen
 make/sizeof/etc. gates to embedsOpaqueByValue — the dedicated generic gate was
 found redundant) landed `b7cbedaa`; Slice 3 (generic func/iface instantiation
-gates, forward-ref-safe) landed `40924b14`. Next: 4 (composite/inferred), 5
-(REPL), 6 (Part B IR-gen guard, now load-bearing).
+gates, forward-ref-safe) landed `40924b14`; Slice 4 (composite-literal +
+inferred-var gates) landed `6d541973`. Next: 4b (deref-as-rvalue gate — the
+`_ = *p` / `*dst = *src` residual, user chose to close it), 5 (REPL), 6 (Part B
+IR-gen guard, now load-bearing).
 Prereq: step 1 landed (`f3807ed2` panic removal + checker gates; `e887543e`
 foldConstNum gate). See the opaque-layout MAJOR in `claude-todo.md`.
 
