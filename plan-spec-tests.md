@@ -278,8 +278,8 @@ primitive-impl carve-out is enforced only in the method-declaration pass, so a
 non-lang `impl <primitive> : <empty interface>` is wrongly accepted. Pinned by
 `085` (xfail). Needs a fix decision (low priority).
 
-**Ch.10 Functions/methods/function-values — DONE on the worktree 2026-06-20**
-(NOT yet landed; `conformance/spec/10-functions/`). Authored via an 8-cluster
+**Ch.10 Functions/methods/function-values — landed on main 2026-06-20** (binate
+`9e2aa365`; `conformance/spec/10-functions/`). Authored via an 8-cluster
 design fan-out + central empirical probing + an 8-cluster adversarial review +
 fixes. **77 tests**; coverage **10 → 21/21 (100%)**, **10b → 19/20 (95%)** — the
 lone gap is `func.closure.escape-lint`, a bnlint WARNING the bnc-based conformance
