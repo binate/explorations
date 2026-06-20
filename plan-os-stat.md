@@ -111,5 +111,7 @@ covers Darwin). Option A's e2e additionally checks `offsetof`/`sizeof`.
 - Stage 1 (`time.Point` / `time.Delta`) — **landed**; see `plan-time.md`.
 - Stage 2 (`FileMode` type bits + `IsDir`/`IsRegular`/`Perm`/`Type`) — **landed**
   (full Go layout; `String()` deferred).
-- Stage 3 (`FileInfo`) — next.
-- Stages 4–5 — pending; Stage 5 (mechanism) **deferred**, lean A, reversible.
+- Stage 3 (`FileInfo`) — **landed** (managed `@FileInfo`, `*readonly` accessors).
+- Stages 4–5 — **next, and coupled**: `os.Stat`/`File.Stat` can't run without a
+  boundary impl, so the deferred **A-vs-B mechanism decision is now due** (lean
+  A; the build-constraint rework makes A's per-(os,arch) file gating clean).
