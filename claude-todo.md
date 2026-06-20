@@ -4,68 +4,35 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
-## MAJOR (VM interop / injection) — `os.Seek`/`ReadAt`/`WriteAt` abort under int even from a REAL program importing injected os: they're LOWERED (indirect `__c_call`) and shadow the injected native impl (2026-06-19) — 🔴 OPEN — PROVEN
+## Stdlib conformance suite — broaden coverage / convert stdlib unit tests over — 🟡 IN PROGRESS (2026-06-19)
 
-**PROVEN (conformance/stdlib/os/002_seek, xfail on the int modes).** A standalone
-`main` that imports os and calls `g.Seek(...)` aborts under `builder-comp-int`
-with `vm: extern not found: pkg/std/os.cLseek`. This is NOT a unit-test artifact
-(an earlier note claimed that — it was wrong): the conformance test is a real
-program with os injected, and it still aborts. `builder-comp` (all-native) passes.
+The `conformance/stdlib/*` suite is LANDED (`d05464ce` / `565dc3c8` / `c8aa8f01`
+/ `53abd110`): discovered by `run.sh` (added to the matrix/regressions/spec find
+roots), with a path-scoped `conformance-imports` relaxation allowing `pkg/std/*`
+imports under `stdlib/` only. It exercises the stdlib as it SHIPS — INJECTED —
+from real `main` programs across every mode, the gap the (lowered-to-bytecode)
+stdlib unit tests cannot cover. Stdlib unit tests no longer run under the
+interpreter modes (`scripts/unittest/run.sh` skips `pkg/std/*` under `*int*`);
+their cross-mode coverage is this suite. (This — together with the os
+wholesale-injection fix — is what closed the `os.Seek`-under-int bug; see
+claude-todo-done.md.) Landed tests: `os/001_file_roundtrip`, `os/002_seek`,
+`errors/001_cross_mode_iface_upcast`.
 
-**Root cause.** `os.Seek`/`ReadAt`/`WriteAt` have no DIRECT `__c_call` — they
-route through the unexported wrappers `cLseek`/`cPread`/`cPwrite` (the arm32
-`off64_t` variants `lseek64`/…, `os.bn:186-215`). So `funcHasCCall` (DIRECT-only)
-returns false → `LowerModule` LOWERS those methods to bytecode. The lowered
-bytecode `Seek` is registered in the VM funcIndex and SHADOWS the injected native
-`Seek` (`os._Package()` registered it, but funcIndex is checked first), then calls
-`cLseek` — which has a `__c_call` (not lowered) and is unexported (absent from the
-exported-only `_Package()` descriptor → not injected) → "extern not found".
-Contrast `Read`/`Write`/`Open`/`Close`: they `__c_call` DIRECTLY → `funcHasCCall`
-true → skipped from lowering → injected → dispatch native (so they pass under int).
-
-**This is a REAL bug, distinct from `092_ccall_basic`'s permanent xfail.** That
-test is raw `__c_call` in USER code (no injection available → VM-FFI non-goal,
-permanent). os SUPPLIES injection, so `Seek` SHOULD be served by it — the bug is
-that `Seek` is lowered instead of injected. The user's intent: `Seek` injected,
-`cLseek` NOT injected (it stays a private native helper that only native `Seek`
-calls).
-
-**Fix (pending user decision — fix now vs accept the xfail):** make the
-lowering-skip TRANSITIVE — a function that (transitively, within its package)
-reaches a `__c_call` must be skipped from lowering and served by injection. Then
-`Seek`/`ReadAt`/`WriteAt` are injected (native), `cLseek` stays uninjected, and
-`002_seek` un-xfails on every int mode. (Alternative: inline the `off_t` `#[build]`
-branch back into the three methods so they `__c_call` directly — smaller but loses
-the wrapper sharing.) Do NOT inject `cLseek`.
-
-Discovered building the conformance/stdlib suite (the entry below): the suite's
-first os test caught it immediately — exactly the cross-mode coverage the lowered
-stdlib unit tests cannot give.
-
-### Stdlib conformance suite + stop stdlib unit tests under int modes — 🟡 IN PROGRESS (2026-06-19)
-
-Test strategy (per the user): stdlib is ALWAYS injected in production, so
-unit-testing it under interpreter modes (where it's lowered to bytecode) tests a
-configuration that never ships. Replace that with a separate `conformance/stdlib/*`
-suite where the stdlib is INJECTED and exercised end-to-end by real `main`
-programs across modes.
-
-- **conformance/stdlib/\* suite — STARTED.** Discovered by `run.sh` (added to the
-  matrix/regressions/spec find roots); `conformance-imports` relaxed (path-scoped)
-  to allow `pkg/std/*` under `stdlib/` only. First tests: `os/001_file_roundtrip`,
-  `errors/001_cross_mode_iface_upcast` (the #94 cross-mode upcast's new home),
-  `os/002_seek` (xfail — the bug above). Green on builder-comp + builder-comp-int.
-  Remaining: broaden coverage (more os ops, errors/io/strconv/strings/time), and
-  decide whether to fold the ~8 ad-hoc stdlib tests in the MAIN set
-  (`577_std_errors`, `855_std_time`, `662_errors_is`, `526/528/535_strconv`,
-  `663_io_iseof`, `726_cross_pkg_iface_impl`) into the suite.
-- **Stop running stdlib unit tests under interpreter modes — PENDING (decision).**
-  Mechanism: a runner-level rule in `scripts/unittest/run.sh` (skip `pkg/std/*`
-  under int modes) vs per-package `.skip-pkg.<mode>` markers (9 pkgs × 3 int
-  modes); and SCOPE: all `pkg/std/*` vs only the `__c_call`-routing ones. The
-  cross-mode coverage moves to the conformance suite. Move the #94 e2e assertion
-  out of `os_test.bn` once the suite covers it. (Supersedes the old "relax
-  conformance-imports + add a conformance/stdlib/* suite" entry below, now done.)
+Remaining:
+- **Convert more stdlib unit tests into conformance/stdlib tests.** The injected
+  stdlib (errors / io / strconv / strings / time / math / math/big / os) has rich
+  unit tests that now run only under `builder-comp` (native); port the
+  cross-mode-relevant ones into `conformance/stdlib/<pkg>/*` so they run INJECTED
+  across all modes (the configuration that actually ships). `pkg/stdx/slices` is a
+  non-injected generic library — its unit tests still run under int, so it does
+  NOT need converting.
+- Decide whether to fold the ~8 ad-hoc stdlib-importing tests in the MAIN
+  conformance set (`577_std_errors`, `855_std_time`, `662_errors_is`,
+  `526/528/535_strconv`, `663_io_iseof`, `726_cross_pkg_iface_impl`) into the
+  suite (and drop their `conformance-imports.whitelist` entries).
+- Optional cleanup: `os_test.bn`'s `TestErrorIfaceUpcast` is now redundant with
+  `conformance/stdlib/errors/001` (it only runs under `builder-comp` since stdlib
+  unit tests are skipped under int) — remove it, or keep as a native-only smoke.
 
 ---
 
@@ -465,26 +432,6 @@ x64 analog needing its own xfails.
 ---
 
 ## MINOR
-
-### Stdlib conformance tests: relax conformance-imports + add a conformance/stdlib/* suite — 2026-06-10
-`pkg/std/os` (and stdlib packages generally) have unit tests but no
-conformance coverage, because the `conformance-imports` hygiene check
-(`scripts/hygiene/`) restricts what a conformance test may import — it
-keeps the conformance set focused on the *language core*. In Binate the
-stdlib is deliberately SEPARATE from the core language, so stdlib
-conformance belongs in its own suite rather than mixed into the language
-conformance tree.
-- **Relax the check** so a conformance test may import core / builtins
-  (per `pkg-layout-spec.md` — importing the always-bundled core is part
-  of the language contract, not a stdlib dependency). Scope the
-  relaxation precisely to what the spec sanctions; don't open it to
-  arbitrary stdlib imports in the language conformance set.
-- **Add a separate stdlib conformance suite** (e.g. `conformance/stdlib/*`)
-  with its own runner wiring, so stdlib packages (`os` first) get
-  end-to-end coverage across modes without polluting the language
-  conformance set.
-- Follow-up to landing `pkg/std/os` (binate `3ca36c82`), which shipped
-  with libc unit tests only — conformance was deferred here per the user.
 
 ### Generic struct/interface instantiation skips constraint satisfaction — spec Ch.12 (2026-06-12) — 🔴 OPEN
 Found authoring spec Ch.12 (verified via toolchain probes through

@@ -8,6 +8,47 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## MAJOR (VM interop / injection) — `os.Seek`/`ReadAt`/`WriteAt` abort under int even from a REAL program importing injected os (2026-06-19) — ✅ FIXED (`53abd110`, 2026-06-19)
+
+**Symptom (PROVEN).** A standalone `main` importing os and calling `g.Seek(...)`
+aborted under the int modes with `vm: extern not found: pkg/std/os.cLseek` —
+NOT a unit-test artifact (an earlier note wrongly claimed that): the conformance
+test `conformance/stdlib/os/002_seek` is a real program with os injected and it
+still aborted. `builder-comp` (all-native) passed.
+
+**Root cause.** os was special-cased OUT of the injected-stdlib set
+(`cmd/bni/externs.bn`'s `nativeOnlyStdPkgs`): every other pkg/std package was
+injected WHOLESALE (lowered-skipped), but os was LOWERED with a per-function
+`__c_call` skip so its pure-Binate funcs (and Test*) ran as bytecode. Then
+`os.Seek`/`ReadAt`/`WriteAt` — which have no DIRECT `__c_call` (they route
+through the unexported off64_t wrappers `cLseek`/`cPread`/`cPwrite`) — were
+lowered (`funcHasCCall` is DIRECT-only), and the lowered bytecode `Seek` SHADOWS
+the injected native `Seek` in the VM funcIndex, then can't reach `cLseek` (a
+`__c_call`, not lowered; unexported, so absent from the exported-only
+`_Package()` descriptor → not injected). The `stdlib-injected.sh` hygiene check
+had a mechanism-2 carve-out that BLESSED exactly this lowered+injected hybrid, so
+it enforced "registered" rather than "actually injected / un-shadowed" and passed
+os while os.Seek was broken.
+
+**Fix.** Treat os like every other native-only stdlib package: add it to the set
+(renamed `nativeOnlyStdPkgs` → `stdPkgs`, since with os it is simply every
+pkg/std package), drop the special-case `os._Package()` injection, and drop the
+hygiene check's mechanism-2 carve-out (now one rule: every pkg/std package must
+be in `stdPkgs` — strictly stronger). os is now injected wholesale and never
+lowered as a dependency, so `os.Seek` dispatches to the linked native impl, which
+calls `cLseek` internally (no VM boundary); `cLseek` needs no injection. Paired
+with stopping stdlib unit tests under the interpreter modes
+(`scripts/unittest/run.sh` skips `pkg/std/*` under `*int*`) — os-as-test-target
+would now be lowered-not-injected under int — with cross-mode coverage moving to
+the new `conformance/stdlib/*` suite that caught this. `os/002_seek` un-xfailed.
+
+**Landed** (`d05464ce` suite + import relaxation; `565dc3c8` os/002 xfail;
+`c8aa8f01` stop stdlib unit tests under int; `53abd110` os wholesale injection +
+un-xfail). **Validation**: conformance/stdlib green on all 6 default modes; full
+conformance `builder-comp-int` 1595/0; os unit tests pass under `builder-comp`
+and are skipped under int; cmd/bni unit tests pass both modes; hygiene 15/15
+(`stdlib-injected` now enforces os ∈ `stdPkgs`).
+
 ## MAJOR (type-checker / .bni loader) — a free function and a same-named METHOD in one package collide: the .bni→scope loader registers methods as package-scope func symbols, so `func Stat(...)` + `func (f *File) Stat()` fails ".bn has 1 parameters but .bni declares 0" (2026-06-19) — ✅ FIXED (`796effc7`, 2026-06-19)
 
 **✅ FIX LANDED (`796effc7`).** Adversarial review found the receiver-blind name-match was a FAMILY of three sites, all fixed together: (1) `bni_scope.bn` `buildScopeFromFile` now guards `defineFunc` with `if d.Recv == nil` (methods live in the receiver type's method set, like the sibling `collectDeclNames` already does); (2) `loader/loader_util.bn` `markBniExportedFuncs` and (3) `loader/loader.bn`'s `.bni`-extern merge `hasImpl` gate now use a shared receiver-aware `sameFuncDecl` matcher (free↔free, method↔method-with-same-receiver). Site (2) had been marking only the FIRST name-matching merged decl `Exported`, silently dropping the other of `os.Stat`/`File.Stat` from the reflect Functions table (→ broken in VM/int modes). Six regression tests, each confirmed fail-without/pass-with: `bni_scope_test.bn` (method-not-in-scope, free+method-coexist, method-doesn't-shadow-const), `checker_test.bn` (end-to-end CheckPackage reproducing the verbatim error), `loader_util_test.bn` (sameFuncDecl matrix, free+method export, methods-different-receivers export). Full unit suite 46/0, hygiene 15/15.
