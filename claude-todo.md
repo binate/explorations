@@ -732,6 +732,24 @@ Once `BUILDER_VERSION` is bumped past those, drop the rt+vm/repl/bni and os entr
 `LINT_SKIP` (restoring full lint coverage) — verify the bundled bnlint parses both directly first.
 
 
+### Reorganize stdlib tests to meet the per-file test-coverage bar — 🟡 OPEN
+`scripts/hygiene/test-coverage.sh` now enforces "every non-test `.bn` has a sibling `_test.bn`" on
+`impls/` too (landed `54a15fc6`); **24** stdlib files are TEMPORARILY whitelisted in
+`scripts/hygiene/test-coverage.whitelist`.  The bar is per-file tests with very few genuine
+exceptions — whittle the whitelist down:
+- **Math per-function files** (`acosh.bn`, `asin.bn`, `atanh.bn`, `bessel01_asymp.bn`, `logb.bn`,
+  `modf.bn`, `tanh.bn`, `trig_reduce.bn`, `big/nat.bn`): add a focused `_test.bn` per file
+  (`const.bn` is just constants — likely a genuine exception).
+- **OS per-platform files** (`os_errno{,_darwin,_linux}.bn`, `stat_{darwin,linux_aarch64,linux_arm32,
+  linux_x64}.bn`, `os_baremetal.bn`, `fileinfo.bn`, `mode.bn`): amalgamate via `#[build(...)]` into
+  fewer files (e.g. one `os_errno.bn` + one `stat.bn` gated by os/arch), each with a test — better
+  than per-platform sprawl.
+- **strconv `atof_lex.bn`/`atof_convert.bn`**: split from `atof.bn`, covered by `atof_test.bn` — add
+  per-file tests or keep as a genuine exception.
+- **Baremetal `bootstrap.bn`/`rt_baremetal.bn` variants**: share the existing bootstrap exception
+  (the synthetic test runner can't run them as packages — see the whitelist note).
+Goal: the whitelist holds only genuine exceptions.
+
 ### `rt.Exit` paradigm: `exit` vs `abort`/`panic` — DISCUSS
 - `rt.Exit` (→ libc `exit`) is the wrong model in general: process exit
   is meaningless in an embedded/freestanding environment, and the
