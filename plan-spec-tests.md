@@ -250,26 +250,33 @@ root) is accepted by the checker but its (R,I) vtable is not wired → null-vtab
 crash. Pinned by `062` (xfail). Same `collectImportedImplsFromDecl` machinery as
 the ancestor-walk MAJOR. **Needs a user prioritization decision.**
 
-**Ch.11 review-driven coverage-gap follow-ups (deeper per-rule sub-clauses, NOT
-yet authored — for a decision on do-now vs follow-up):**
-- `iface.decl` negatives: duplicate method name; `type X interface {…}` form
-  rejected; receiver/body in a `MethodSig` rejected.
-- `iface.impl.coverage` receiver-kind-reachability negative; `@readonly` receiver
-  shape positive (020 covers the other four).
-- `iface.extend` "harmless diamond" (same-name same-sig via common ancestor)
-  positive; a transitive (A:B, B:A) cycle negative.
-- `iface.any` `void*`-distinction / generic-constraint-position sub-clauses.
-- `iface.crosspkg.no-orphan` duplicate-impl/weak_odr-dedup positive.
-- `iface.self` forbidden-positions negative (Self in receiver / extension parent /
-  outside an interface); object-safety POSITIVE companion (non-Self method of a
-  Self-using interface dispatches through an iv).
-- `iface.alias` negative (`type X = SomeInterface` rejected — only `interface
-  X = Y` aliases an interface).
-- `iface.canonical.carveout` negative (a non-`pkg/builtins/lang` package declaring
-  a method/impl on a primitive); broaden to the sized-int / float primitives.
-- `iface.value.repr` clean same-kind positive without decay/alias; `iface.value.
-  no-readonly-slot` inner-vs-outer readonly distinguisher.
-- `048` managed (`@R`) direct-ancestor half (mirror the raw xfail).
+**Ch.11 coverage-gap expansion — DONE on the worktree 2026-06-20** (binate
+`48e93ec8`, NOT yet landed; chapter now **63 tests**, still 25/25 rules, green on
+7 modes). Authored via a 2nd design fan-out + empirical probing of every edge.
+The review's deeper sub-clause gaps are now covered:
+- ✅ `iface.decl`: 016 dup method, 017 no `type X interface{}`, 018 no method body.
+- ✅ `iface.impl.coverage`: 028 receiver-kind unreachable; 027 `@readonly` receiver.
+- ✅ `iface.extend`: 049 harmless diamond; 038 transitive (A:B,B:A) cycle (surfaces
+  as `undefined: B` / `extension target must be an interface` — forward-ref, not a
+  dedicated cycle message, but correctly rejected).
+- ✅ `iface.any`: 053 `*any` ≠ `*uint8`; 054 `any` generic-constraint position.
+- ✅ `iface.crosspkg.no-orphan`: 084 duplicate-impl weak_odr dedup (multi-package).
+- ✅ `iface.self`: 065 Self in struct field, 066 Self in extension-parent list;
+  068 object-safety positive companion.
+- ✅ `iface.alias`: 056 `type X = Interface` rejected.
+- ✅ `iface.canonical.carveout`: 057 method-on-primitive; 083 sized-int + float;
+  085 (xfail) the NEW MINOR impl-pass carve-out gap (see below).
+- ✅ `iface.extend.transitive` managed half: 039 (xfail, companion to 048's raw).
+- `iface.value.repr` clean same-kind positive: done in the review fix (012 rewrite).
+  `iface.value.no-readonly-slot` inner-vs-outer: adequately covered by 014 (outer
+  `readonly @Iface` dispatches) + 015 (inner `*readonly Iface` rejected); the inner
+  rejection is not separately observable from the bare-name error, so no dedicated
+  test (the only intentionally-skipped item).
+
+**NEW MINOR bug surfaced by the expansion** (claude-todo, 2026-06-20): the §11.10
+primitive-impl carve-out is enforced only in the method-declaration pass, so a
+non-lang `impl <primitive> : <empty interface>` is wrongly accepted. Pinned by
+`085` (xfail). Needs a fix decision (low priority).
 
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
