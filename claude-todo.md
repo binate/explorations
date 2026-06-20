@@ -4,6 +4,33 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR (codegen / invalid IR) — chaining a method onto the by-value struct result of a CROSS-PACKAGE method emits `extractvalue` on a scalar i64 → C backend rejects it (2026-06-20) — 🔴 OPEN — REPRODUCED
+
+**Symptom (REPRODUCED, builder-comp; it's a compile error).** `fi.ModTime().ToUnix()` where `fi` is `@os.FileInfo` and `ModTime()` returns `time.Point` (a cross-package struct, by value): IR-gen emits `%vN = extractvalue i64 %vM, 0` — `extractvalue` on a scalar `i64`, not an aggregate — and clang rejects it (`extractvalue operand must be aggregate type`). Repro: `conformance/stdlib/os/004_modtime_chain` (xfail.all).
+
+**Narrowing (all checked with a fixed gen1).** The trigger is specifically chaining a method onto the by-value struct result of an *imported (cross-package) method*:
+- `fi.ModTime().ToUnix()` — cross-pkg method → struct → **FAILS**.
+- `b.Get().ToUnix()`, `Get` a SAME-package method returning `time.Point` — compiles.
+- `time.FromUnix(...).ToUnix()` — cross-pkg FREE function → struct — compiles.
+- `w.Mode().IsDir()` — cross-pkg method → SCALAR `FileMode` — compiles.
+- `var mt time.Point = fi.ModTime(); mt.ToUnix()` (intermediate var) — compiles.
+
+So: cross-package METHOD + aggregate (struct) by-value return + immediately used as a receiver ⟹ the temporary is lowered as the scalar underlying (`i64`) instead of the `{i64,i32}` aggregate.
+
+**Discovery.** Writing the os.Stat `e2e/stat-values.sh` probe / conformance test (printed mtime via `fi.ModTime().ToUnix()`). os.Stat's impl never uses the pattern; its tests use the intermediate-var form (idiomatic).
+
+**Severity.** MAJOR — rejects valid code. Loud (clang error / COMPILE_ERROR), NOT a silent miscompile; workaround is idiomatic, so not blocking. Real codegen defect.
+
+**Proposed fix (needs investigation).** Find where a cross-package method's by-value aggregate return loses its aggregate type when it feeds a subsequent method-receiver (the same-package path is correct — diff the two). Remove `004_modtime_chain.xfail.all` when fixed.
+
+---
+
+## MINOR (e2e / BUILDER-lag cleanup) — drop the gen1 build in e2e/stat-values.sh after the next BUILDER bump (2026-06-20) — 🔴 OPEN
+
+`e2e/stat-values.sh` builds gen1 from the tree (`scripts/build-bnc.sh`) and compiles its os.Stat probe through gen1, instead of the simpler `$BUILDER … cmd/bnc -- …` form the other e2e scripts use. Reason: os.Stat depends on the `.bni` free-func/method fix (`796effc7`) and the wholesale-os-injection work, which postdate `BUILDER_VERSION` (bnc-0.0.9) — the pinned BUILDER can't compile os yet. Once BUILDER is bumped past those, revert `e2e/stat-values.sh` to the plain `$BUILDER … cmd/bnc -- …` pattern (drops the ~1-min gen1 build per e2e run).
+
+---
+
 ## Stdlib conformance suite — broaden coverage / convert stdlib unit tests over — 🟡 IN PROGRESS (2026-06-19)
 
 The `conformance/stdlib/*` suite is LANDED (`d05464ce` / `565dc3c8` / `c8aa8f01`
