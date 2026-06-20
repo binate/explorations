@@ -715,18 +715,21 @@ was. See [`plan-impls-constraints-migration.md`](plan-impls-constraints-migratio
 the "bonus" of the build.bni-dedup workaround removal, now landed — binate `9c2ac789`, archived in
 [claude-todo-done.md](claude-todo-done.md).)
 
-### Remove the void-`__c_call` lint skip after a BUILDER bump — 🟡 OPEN (gated on BUILDER)
-`__c_call` now accepts a `"void"` return spelling — `__c_call("free", "void", ptr)` lowers to a
-result-less C call (LLVM `call void @free`, no SSA result; the native backends skip result
-collection for the ID-(-1) form); parser/checker/IR-gen/codegen, conformance
-`865_c_call_void_return` (xfail in the VM modes — the VM does no FFI, by design).
-`pkg/builtins/rt`'s `Exit`/`RawFree` were converted to it (dropping the dummy-`int`-return
-placeholders).  Because the BUILDER-bundled bnlint (`bnc-0.0.9`) predates the `"void"` parser
-feature and aborts at its typecheck pass, `scripts/hygiene/lint.sh`'s `LINT_SKIP` temporarily
-excludes `pkg/binate/vm` + its importers (`pkg/binate/repl`, `cmd/bni`) — the chain that imports
-`rt`, so bnlint typechecks `rt.bn`'s body.  Remove the `LINT_SKIP` (restoring full lint coverage
-of vm/repl/bni) once `BUILDER_VERSION` ships a bnlint that parses the `"void"` `__c_call` return
-spelling — verify the bundled bnlint directly first.
+### Remove the BUILDER-lag lint skips after a BUILDER bump — 🟡 OPEN (gated on BUILDER)
+`scripts/hygiene/lint.sh` now lints the stdlib/runtime tier (`pkg/std/*`, `pkg/stdx/*`,
+`pkg/builtins/*`, `pkg/bootstrap` — under `impls/`+`ifaces/`, landed `3f2fdf4a`), and that
+extension surfaced two packages the BUILDER-bundled bnlint (`bnc-0.0.9`) can't typecheck because
+they use a feature/fix newer than the bundle.  Both are in `LINT_SKIP` and clear at the next
+BUILDER bump:
+- **`pkg/builtins/rt`** + its importer chain (`pkg/binate/vm` → `pkg/binate/repl`, `cmd/bni`, whose
+  bodies bnlint typechecks): rt's `Exit`/`RawFree` use the `"void"` `__c_call` spelling
+  (`__c_call("free", "void", ptr)` → a result-less C call; conformance `866_c_call_void_return`),
+  a parser feature newer than bnc-0.0.9.
+- **`pkg/std/os`**: depends on the `.bni` free-function-vs-same-named-method fix (`796effc7`, the
+  `os.Stat`/`File.Stat` case) which postdates bnc-0.0.9 — the same BUILDER-lag that makes
+  `e2e/stat-values.sh` build gen1 from the tree.
+Once `BUILDER_VERSION` is bumped past those, drop the rt+vm/repl/bni and os entries from
+`LINT_SKIP` (restoring full lint coverage) — verify the bundled bnlint parses both directly first.
 
 
 ### `rt.Exit` paradigm: `exit` vs `abort`/`panic` — DISCUSS
