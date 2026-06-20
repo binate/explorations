@@ -20,12 +20,30 @@ claude-todo-done.md.) Landed tests: `os/001_file_roundtrip`, `os/002_seek`,
 
 Remaining:
 - **Convert more stdlib unit tests into conformance/stdlib tests.** The injected
-  stdlib (errors / io / strconv / strings / time / math / math/big / os) has rich
-  unit tests that now run only under `builder-comp` (native); port the
-  cross-mode-relevant ones into `conformance/stdlib/<pkg>/*` so they run INJECTED
-  across all modes (the configuration that actually ships). `pkg/stdx/slices` is a
-  non-injected generic library — its unit tests still run under int, so it does
-  NOT need converting.
+  stdlib has rich unit tests that now run only under `builder-comp` (native); port
+  the cross-mode-relevant ones into `conformance/stdlib/<pkg>/*` so they run
+  INJECTED across all modes. NOT 1:1 with the unit tests — a representative,
+  deterministic subset per package that stresses the injection boundary (float
+  args/returns, aggregate/multi-returns through the marshaling shim, iface
+  dispatch, error sentinel identity); per-function correctness stays in the unit
+  tests. `pkg/stdx/slices` is a non-injected generic library — stays under int,
+  does NOT need converting. Per-package checklist (focused-test target in parens):
+  - [ ] `errors` (~3) — New/Wrap message format, Unwrap chain, Is (identity +
+    chain walk), base-error hierarchy. (`errors/001` upcast already done.)
+  - [ ] `strconv` (~5) — Itoa/Atoi, ParseInt/Uint bases+errors, ParseBool,
+    FormatFloat (the big cross-mode float stressor: g/e/f/hex, specials, f32).
+  - [ ] `strings` (~3) — Builder Write/WriteByte/Len/Reset, *Builder via io.Writer
+    / io.ByteWriter (iface dispatch), 256-byte fidelity.
+  - [ ] `io` (~2) — EOF/IsEOF identity, IsEOF through a Wrap chain, errors.Is(EOF,
+    ConditionsUnmet).
+  - [ ] `time` (~3) — FromUnix/ToUnix round-trip, Sub (sec+nsec, epoch-crossing),
+    Before/After/Equal ordering. (Pure int64 — no clock.)
+  - [ ] `math` (~5) — Float64bits round-trip, Abs/Signbit/Copysign, Floor/Ceil/
+    Trunc/Round, Sqrt/Pow bit-exact, a trig sampler + constants (bit-exact).
+  - [ ] `math/big` (~6) — Nat Add/Sub/Mul/Shl/Shr/DivMod over multi-limb values
+    (ToUint64/BitLen/Cmp outputs; multi-return DivMod).
+  - [ ] `os` (~4 more) — ReadAt/WriteAt offsets, ReadByte/WriteByte (io.Byte*),
+    Read→io.EOF at EOF, OpenFile flags / O_EXCL. (`os/001`,`002` done.)
 - Decide whether to fold the ~8 ad-hoc stdlib-importing tests in the MAIN
   conformance set (`577_std_errors`, `855_std_time`, `662_errors_is`,
   `526/528/535_strconv`, `663_io_iseof`, `726_cross_pkg_iface_impl`) into the
