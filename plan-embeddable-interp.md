@@ -1,8 +1,24 @@
 # Plan: Embeddable whole-program interpreter API (`pkg/binate/interp`)
 
-Status: **SCOPED** (2026-06-19) — increments below not started. Builds directly
-on `plan-embeddable-vm.md` (increment 5 + 5d-4 landed: the loader / types /
-ir-gen / vm-lowering layers are reentrant, no per-run process-globals).
+Status: **Inc 1 LANDED** (2026-06-20) — the `@Interp` whole-program embedder
+API exists on main (1a `5bdd76b6`: machinery → `pkg/binate/interp`, errors as
+values; 1b `596fb872`: the `@Interp` facade, cmd/bni's `runProgram` collapsed
+onto it).  Incs 2–4 (host-IO sink / typed results / build-config + in-memory
+sources) not started.  Builds on `plan-embeddable-vm.md` (increment 5 + 5d-4
+landed: the loader / types / ir-gen / vm-lowering layers are reentrant, no
+per-run process-globals).
+
+Notes from implementing Inc 1 (refinements vs the scope below):
+- **`runTests` was re-qualified too**, not "untouched" — it shares the machinery
+  1a moved, so it now calls `interp.X` (mechanical; user-ratified 2026-06-20).
+- **`@Interp` is opaque** (forward-decl in `interp.bni`, full struct in
+  `interp.bn`): cmd/bni drives it through methods; same-package tests use fields.
+- **Loader root:** `New` seeds `NewLoader(".")`; the CLI shell adds the real
+  root via `AddRoot` + the `-I`/`-L` flags.  The leading `"."` is benign
+  (conformance VM modes unchanged: `builder-comp-int` 1646/0).
+- **Two-instance reentrancy test** is the path-free isolation form (distinct VM
+  + loader, independent search paths); the full run-a-program-twice path needs
+  real search paths and stays covered in-process by `vm/vm_reentrancy_test`.
 
 ## Goal
 
