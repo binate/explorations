@@ -278,6 +278,48 @@ primitive-impl carve-out is enforced only in the method-declaration pass, so a
 non-lang `impl <primitive> : <empty interface>` is wrongly accepted. Pinned by
 `085` (xfail). Needs a fix decision (low priority).
 
+**Ch.10 Functions/methods/function-values — DONE on the worktree 2026-06-20**
+(NOT yet landed; `conformance/spec/10-functions/`). Authored via an 8-cluster
+design fan-out + central empirical probing + an 8-cluster adversarial review +
+fixes. **77 tests**; coverage **10 → 21/21 (100%)**, **10b → 19/20 (95%)** — the
+lone gap is `func.closure.escape-lint`, a bnlint WARNING the bnc-based conformance
+harness fundamentally cannot test (could be reclassified `untestable` to make it
+19/19 — a denominator-changing extract-rule-ids tweak, flagged not done). Green on
+7 modes (builder-comp, VM int, int-int, gen1, gen2, native_aa64, arm32_baremetal);
+DANGLING=0, UNTAGGED=0, hygiene 15/15. 3 xfails.
+
+**Bugs / stale notes surfaced (all tracked):**
+- **MAJOR (NEW, claude-todo 2026-06-20):** a method EXPRESSION over a named SCALAR
+  type (`Celsius.M`) miscompiles — direct call emits undefined symbol `@bn_T__M`;
+  the `*func` form compiles but SIGSEGVs. Fails on compiled AND VM. Pinned by
+  `132` (xfail.all).
+- **Stale spec note §10.3** (empty-param arity "known defect"): FIXED (conformance
+  /741; restricted to the variadic builtins). `032` is green; the doc note should
+  be corrected (FLAGGED — not yet edited).
+- **Stale spec note §10.12** (value-receiver method value "fails on 32-bit ARM"):
+  `138` XPASSes on arm32_baremetal — the arm32 codegen handles it now; born-stale
+  xfail markers removed (the review re-flagged this purely from the stale note).
+- **Diagnostic-quality (minor):** function-value types render as `<unknown>` in
+  assignability errors (086/089/094 patterns can only anchor `cannot assign ... to
+  Fn`, not the raw/managed KIND). Worth a fix; not blocking.
+- Known gaps pinned by xfail: `068` (value-receiver bodies not checked read-only,
+  §10.6 known gap), `102` (named func-value type from a literal rejected, §10.9).
+
+**Ch.10 review-driven coverage-gap follow-ups (deeper sub-clauses, NOT authored):**
+func.return.missing positive (the 6 terminator forms accepted); func.return.stmt
+result-assignability negative; func.destructure into `s[i]`/`s.field` targets +
+target/result-count negative; func.return.tail negative (mismatched tuple);
+func.method.smoothing accepted `*T->*readonly T` + the mutable->readonly object-
+const "adding" direction; func.method.receiver-base anonymous-type + lang-carveout
+cases; func.method.auto-deref through-alias/readonly; func.dispatch.vtable managed
+`@Iface`; func.dispatch.routing pkg-alias-head; func.value.identity cross-signature
+rejection; func.ref.decay into alias/readonly dests; func.value.named-nominal from
+a method-expression (negative); func.closure inner-write isolation + no-auto-promote;
+method-EXPRESSION over a `@T` receiver + multi-param signatures; func.value.dual-mode
+genuine single-run mixed compiled<->interpreted (harness can't pin per-fn modes —
+currently covered only by cross-mode agreement); func.value.equality on `@func` /
+non-nil non-func operand.
+
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
 
