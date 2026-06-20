@@ -607,6 +607,28 @@ documents these as open items.
   TYP_NAMED at isManagedFuncValueLit). Value-rejection and reference
   construction both work.
 
+### Spec Ch.16 (Packages) — adversarial-review follow-ups (test-quality, non-blocking) — 2026-06-19
+The Ch.16 review found 0 blockers, 7 should-fix (landed tests work; these
+improve rigor). 015 mis-cite already FIXED (re-cited pkg.resolve→pkg.identity).
+Remaining, for a focused follow-up (with the build-constraint rework below):
+- **Harness limit (root cause of 2 findings):** the runner gives a test ONE
+  search root, so `pkg.resolve.public` (013, public-vs-local under DIFFERENT
+  roots) and `pkg.resolve`'s independent-.bni/impl-roots facet (012) can't be
+  exercised — both tests only show "resolves under one root". Soften their
+  comments to not overclaim; the multi-root facets need a harness extension (a
+  second `--prepend` root) — note in Annex C as untested.
+- **Vacuity to tighten:** 050 (`pkg.identity`) asserts values, not type-
+  distinctness — the distinctness is actually pinned by 051's cross-pkg-assign
+  reject; re-scope 050's comment. 091 (`pkg.extern` var) only reads once — make
+  var-ness load-bearing (mutate via a setter, observe). 090 extern-func is the
+  same shape as a normal exported func (inherent).
+- **Missing coverage:** `pkg.bni.consistency` only tests return/var-type
+  mismatch (033/034) — add param-type + param-count + result-count mismatch.
+  `pkg.bni` (032) omits the opaque-type and interface/impl .bni decl kinds.
+  `pkg.ccall` (092) has no C-ABI-passability reject test (§16.9). `pkg.clause`
+  (010) and `pkg.import` (001) lack negative tests (package-must-be-a-string-
+  literal; no block-scoped import).
+
 ### Spec Ch.16 (Packages) — build-constraint group needs rework + a possible gap — 2026-06-19
 Ch.16 landed at **21/22 rules** (`spec/16-packages/`, binate `f7ed4eb4`):
 imports / bni / identity / extern groups are green (compiler/VM/gen1/gen2/
