@@ -69,24 +69,6 @@ programs across modes.
 
 ---
 
-## MAJOR (type-checker / .bni loader) — a free function and a same-named METHOD in one package collide: the .bni→scope loader registers methods as package-scope func symbols, so `func Stat(...)` + `func (f *File) Stat()` fails ".bn has 1 parameters but .bni declares 0" (2026-06-19) — ✅ FIXED (`796effc7`, 2026-06-19)
-
-**✅ FIX LANDED (`796effc7`).** Adversarial review found the receiver-blind name-match was a FAMILY of three sites, all fixed together: (1) `bni_scope.bn` `buildScopeFromFile` now guards `defineFunc` with `if d.Recv == nil` (methods live in the receiver type's method set, like the sibling `collectDeclNames` already does); (2) `loader/loader_util.bn` `markBniExportedFuncs` and (3) `loader/loader.bn`'s `.bni`-extern merge `hasImpl` gate now use a shared receiver-aware `sameFuncDecl` matcher (free↔free, method↔method-with-same-receiver). Site (2) had been marking only the FIRST name-matching merged decl `Exported`, silently dropping the other of `os.Stat`/`File.Stat` from the reflect Functions table (→ broken in VM/int modes). Six regression tests, each confirmed fail-without/pass-with: `bni_scope_test.bn` (method-not-in-scope, free+method-coexist, method-doesn't-shadow-const), `checker_test.bn` (end-to-end CheckPackage reproducing the verbatim error), `loader_util_test.bn` (sameFuncDecl matrix, free+method export, methods-different-receivers export). Full unit suite 46/0, hygiene 15/15.
-
-**Symptom (REPRODUCED, builder-comp).** Declaring both a free function and a method of the SAME name in one package — e.g. `func Stat(name *[]readonly char) (@FileInfo, @errors.Error)` and `func (f *File) Stat() (@FileInfo, @errors.Error)` (the standard Go `os.Stat` + `File.Stat` pattern) — fails type-checking at the free function: `stat.bn:85:1: Stat: .bn has 1 parameters but .bni declares 0`. The free `Stat` (.bn, 1 param) is matched against the METHOD's signature (0 params), not its own `.bni` declaration. Renaming the method makes it compile (confirmed).
-
-**Root cause.** `buildScopeFromFile` (pkg/binate/types/bni_scope.bn:210-213) loads a `.bni`'s declarations into the package scope and registers EVERY `DECL_FUNC` via `defineFunc(s, d.Name, ft)` with no `d.Recv != nil` skip. So a `.bni` method `(f *File) Stat()` is registered as a package-scope function symbol `Stat` (0 params — the receiver isn't in `Params`), colliding with the free `Stat`. The checker's own pass-1 (check_decl.bn:201-208) correctly routes methods to `collectMethodDecl` vs free funcs to `defineFunc`, and the sibling `collectDeclNames` (bni_scope.bn:510) correctly skips methods (`if d.Kind == ast.DECL_FUNC && d.Recv != nil { continue }`) — `buildScopeFromFile` is just missing that same guard. Methods are registered on their receiver type's method set elsewhere, so the `defineFunc`-on-method at :212 is a spurious, wrong extra registration.
-
-**Latent risk (why MAJOR).** Beyond the loud blocking error, this pollutes the package value-namespace with method names from every loaded/imported `.bni`. A method name colliding with an imported free function, const, or type could shadow it and silently resolve the WRONG symbol. The `os.Stat` case surfaces it loudly; other shapes might not.
-
-**Discovery.** Implementing `os.Stat` (free) + `File.Stat` (method) for plan-os-stat Stage 4 — the Go-parity pattern the user explicitly requested.
-
-**Proposed fix.** Add `if d.Recv != nil { continue }` to the `DECL_FUNC` branch at bni_scope.bn:210-213 (mirroring collectDeclNames:510). Add a types unit test: a package whose `.bni` has both a free func and a same-named method type-checks clean. Verify gen2 self-host + conformance stay green (touches the compiler's own `.bni` loading).
-
-**Blocks.** plan-os-stat Stage 4 (`os.Stat` + `File.Stat`). The only workaround is renaming one entry point (deviates from the requested Go parity) — NOT taken, pending this fix.
-
----
-
 ## MINOR/MAJOR (type-checker / assignability) — an impl of a SUB-interface is not assignable to its SUPER-interface: `impl R : Sub` where `interface Sub : Base`, then `var b *Base = &r` is rejected "cannot assign *R to *Base" (2026-06-19) — 🔴 OPEN
 
 **Symptom (REPRODUCED, same-package, no generics).** `interface Base { foo() int }`, `interface Sub : Base { bar() int }`, `type R struct{...}`, `impl R : Sub`.  `var b *Base = &r` (r an R) fails the type-checker: `cannot assign *R to *Base`.  R satisfies Sub, and Sub extends Base, so R should satisfy Base transitively — the assignability / impl-satisfaction check does not walk the implemented interface's ANCESTORS.
