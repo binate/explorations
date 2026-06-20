@@ -4,6 +4,31 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## `rt.Abort()` / `rt.Panic()` + simplify `panic()`; unify the abort idioms — 🟡 PLAN (2026-06-20)
+
+Plan doc: [`plan-rt-abort-panic.md`](plan-rt-abort-panic.md).
+
+**Plan 1 (ready, pending 3 decisions):** introduce `rt.Abort()` (bare terminate)
++ `rt.Panic(msg)` (writes `panic: <msg>` to stderr → `rt.Abort()`); cut the
+builtin `panic()` to a single string (variadic is unused — 11 sites, all string
+literals) lowering to `call rt.Panic` + `OP_UNREACHABLE`; migrate the VM's
+internal-invariant `println("vm: …") + rt.Exit(1)` aborts to `rt.Panic`. Also
+removes the panic path's `bootstrap.format*` dependency. Decisions: `rt.Abort` =
+`abort()` (rec.) vs `exit(1)`; prefix `panic:` (rec.) vs `PANIC:`; stderr in
+scope (rec.).
+
+**Plan 2 — SCOPE REQUIRED (follow-up, detailed in the doc):** user-code runtime
+faults (bounds / divide / shift / nil-deref / stack-overflow / call-through-nil)
+should be RECOVERABLE in the VM (host survives) while staying fatal in compiled
+code. Approach (per user): rt is already injected into the VM, so a faulting user
+op already calls the *injected* `rt.Panic`/`rt.Abort`; inject a VM-specific
+variant that unwinds the VM's DATA-stack frames back to `CallFunc` instead of
+killing the host (no longjmp needed — the user call stack is `vm.Stack`, not the
+host stack). Open: the exec-loop unwind mechanism + refcount-correct frame
+teardown.
+
+---
+
 ## MAJOR (codegen / invalid IR) — chaining a method onto the by-value struct result of a CROSS-PACKAGE method emits `extractvalue` on a scalar i64 → C backend rejects it (2026-06-20) — 🔴 OPEN — REPRODUCED
 
 **Symptom (REPRODUCED, builder-comp; it's a compile error).** `fi.ModTime().ToUnix()` where `fi` is `@os.FileInfo` and `ModTime()` returns `time.Point` (a cross-package struct, by value): IR-gen emits `%vN = extractvalue i64 %vM, 0` — `extractvalue` on a scalar `i64`, not an aggregate — and clang rejects it (`extractvalue operand must be aggregate type`). Repro: `conformance/stdlib/os/004_modtime_chain` (xfail.all).
