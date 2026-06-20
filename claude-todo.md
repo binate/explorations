@@ -4,28 +4,28 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
-## `rt.Abort()` / `rt.Panic()` + simplify `panic()`; unify the abort idioms — 🟡 PLAN (2026-06-20)
+## rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟡 SCOPE REQUIRED (2026-06-20)
 
-Plan doc: [`plan-rt-abort-panic.md`](plan-rt-abort-panic.md).
+Plan doc: [`plan-rt-abort-panic.md`](plan-rt-abort-panic.md). **Plan 1 (the
+`rt.Abort`/`rt.Panic` primitives, the `panic()` single-string + lowering change,
+and the VM internal-abort migration through `panic()`) is DONE & LANDED** — see
+claude-todo-done.md.
 
-**Plan 1 (ready, pending 3 decisions):** introduce `rt.Abort()` (bare terminate)
-+ `rt.Panic(msg)` (writes `panic: <msg>` to stderr → `rt.Abort()`); cut the
-builtin `panic()` to a single string (variadic is unused — 11 sites, all string
-literals) lowering to `call rt.Panic` + `OP_UNREACHABLE`; migrate the VM's
-internal-invariant `println("vm: …") + rt.Exit(1)` aborts to `rt.Panic`. Also
-removes the panic path's `bootstrap.format*` dependency. Decisions: `rt.Abort` =
-`abort()` (rec.) vs `exit(1)`; prefix `panic:` (rec.) vs `PANIC:`; stderr in
-scope (rec.).
-
-**Plan 2 — SCOPE REQUIRED (follow-up, detailed in the doc):** user-code runtime
-faults (bounds / divide / shift / nil-deref / stack-overflow / call-through-nil)
-should be RECOVERABLE in the VM (host survives) while staying fatal in compiled
-code. Approach (per user): rt is already injected into the VM, so a faulting user
+User-code runtime faults (bounds / divide / shift / nil-deref / stack-overflow /
+call-through-nil) should be RECOVERABLE in the VM (the host REPL / test-runner /
+embedder survives a bad interpreted program) while staying fatal in compiled
+code. The 6 VM user-fault sites are deliberately still on `rt.Exit(1)` pending
+this. Approach (per user): rt is already injected into the VM, so a faulting user
 op already calls the *injected* `rt.Panic`/`rt.Abort`; inject a VM-specific
-variant that unwinds the VM's DATA-stack frames back to `CallFunc` instead of
-killing the host (no longjmp needed — the user call stack is `vm.Stack`, not the
+variant that unwinds the VM's DATA-stack frames (`vm.Stack`) back to `CallFunc`
+instead of killing the host (no longjmp — the user call stack is data, not the
 host stack). Open: the exec-loop unwind mechanism + refcount-correct frame
 teardown.
+
+Related smaller follow-up: route panic / `runtime error:` / VM diagnostics to
+**stderr** (fd 2) — deferred out of Plan 1 (infra exists: `bootstrap.Write(fd)`,
+`bootstrap.STDERR = 2`); a real behavior change for anything scraping them off
+stdout.
 
 ---
 

@@ -8,6 +8,30 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## rt.Abort() / rt.Panic() + simplify panic(); unify the VM abort idioms (Plan 1) (2026-06-20) — ✅ DONE
+
+Plan doc: explorations/plan-rt-abort-panic.md (Plan 1). Plan 2 (recoverable VM
+user-faults) stays open in claude-todo.md.
+
+- `rt.Abort()` (C `abort()`/SIGABRT; baremetal nonzero semihost exit) +
+  `rt.Panic(msg *[]readonly char)` ("panic: <msg>" then Abort) added to
+  pkg/builtins/rt — `6718d41f`.
+- The builtin `panic()` reduced to a single string argument (its variadic
+  value-formatting form was unused — 11 sites, all string literals), now lowering
+  to `call rt.Panic` + `OP_UNREACHABLE`; the checker rejects `panic` with != 1
+  arg (`ccbb5e04`; negative test conformance/868 `fa70f788`). This drops the
+  panic path's `bootstrap.format*` dependency.
+- The VM's 47 internal-invariant aborts now route through the `panic()` builtin
+  via `vmPanic`/`vmPanicName` helpers (→ rt.Panic → rt.Abort), centralizing every
+  VM fatal diagnostic on one output sink (`e824f6dd`). Output is now
+  `panic: vm: …`. The 6 USER-FAULT sites (nil-deref via BC_NIL_CHECK, stack
+  overflow, call-through-nil ×3) stay `rt.Exit(1)` for Plan 2.
+
+Decisions (user): `rt.Abort` = C `abort()`; prefix `panic:`; **stderr routing
+DEFERRED** (Plan 1 keeps diagnostics on stdout). Validated: gen1/gen2 self-host;
+panic conformance (289/767/868) green on all 6 default modes; full conformance
+`builder-comp-int` 1675/0; hygiene 15/15.
+
 ## same-final-segment generic FUNCS collide at monomorphization (conformance/792) (2026-06-15) — ✅ FIXED (`330c42fe`, 2026-06-20)
 
 **✅ FIX LANDED (`330c42fe`).** The non-generic form was fixed earlier (`e201f448`,

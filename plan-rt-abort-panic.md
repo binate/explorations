@@ -1,7 +1,12 @@
 # Plan: `rt.Abort()` / `rt.Panic(msg)` + simplify `panic()`, unify internal aborts
 
-Status: **PLAN (2026-06-20)** — decisions settled (see below); Plan 1 ready to
-implement. Plan 2 is a **scope-required follow-up** (see the end).
+Status: **Plan 1 DONE & LANDED** (2026-06-20) — `rt.Abort`/`rt.Panic` (`6718d41f`),
+`panic()` single-string + lowering + arity (`ccbb5e04`, `fa70f788`), VM
+internal-abort migration through `panic()` (`e824f6dd`). See claude-todo-done.md.
+**Plan 2** (recoverable VM user-faults) is the **scope-required follow-up** (see
+the end). One deviation from the wording below: the VM migration uses the
+`panic()` builtin via `vmPanic`/`vmPanicName` helpers (not direct `rt.Panic`),
+per the user — same output sink, one less concept at the call sites.
 
 **Decisions (settled 2026-06-20):** `rt.Abort()` = C `abort()`; prefix `panic:`
 (lowercase); **stderr deferred** — Plan 1 keeps panic/diagnostics on **stdout**
