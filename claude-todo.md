@@ -1750,87 +1750,14 @@ The one remaining, open-ended piece:
   only; wiring it into `scripts/hygiene/run.sh` and CI is a separate decision
   for the user.
 
-### Per-file build constraints — conditional file inclusion/exclusion by target — DESIGN
-- **STATUS — arch/os MVP IMPLEMENTED + LANDED.** The `#[build(EXPR)]`
-  mechanism is live with the minimal `is(arch, …)` / `is(os, …)` vocabulary
-  (membership form, bnas-aliased), gating at all four granularities: file
-  (package clause), declaration, import, and `.bni` interface decls. The
-  active config defaults to the host (read from `pkg/builtins/build` via
-  `loader.ResolveBuildConfig`), overridable per `--target`. Landed across
-  binate increments through `c7249552` (`.bni` gating + the `loader.bn` /
-  `MergeFiles` split + conformance 746/747; the aliased-import fix `52d1c832`
-  + coverage 738/745 was a detour surfaced en route). Conformance:
-  731 (file), 733/735/736 (decl: const/var/type/func), 737 (import), 746
-  (`.bni` decl), 747 (whole-`.bni` drop, negative). See
-  [`plan-build-constraints.md`](plan-build-constraints.md) for the full
-  status. **Still deferred** (each its own follow-up, none started):
-  vocabulary beyond arch/os (`triple`/`backend`/`libc`/`ptrsize`/`version`
-  with `is`/`at_least`/`at_most`), `bnlint --target`, main-module gating,
-  migrating the `impls/` duplicate trees onto constraints, and the separate
-  inline-asm (`#[asm]`) doc.
-- **Concrete proposals**: see [`plan-build-constraints.md`](plan-build-constraints.md) — generalized per the user from *per-file* to **per-declaration** conditional compilation via a first-class `#[build(EXPR)]` annotation on any top-level decl (`const`/`type`/`var`/`func`/`package`/`import`); the `#[...]` grammar already reserves an `[ Annotation ]` slot on every top-level form (only `PackageClause` lacks it) and the attachment + `compiler.*`/`tool.*` namespacing are decided. Covers the predicate model + expression semantics (closed typo-checked vocab; ordered comparisons for `ptrsize`/`intsize`/`version`/`os.version`; hard-error on unknown/malformed/not-yet-wired), two gate seams (pre-parse file-level + post-merge/pre-resolve decl-level), disjoint variant definitions / conditional imports / conditional `.bni` decls (relaxing Invariant 1), the impls/-tree relationship + migration, tooling (bnlint `--target` now necessary; `tool.lint` lint-exempt), and a phased roadmap. Inline asm (`#[asm]`) is deferred to its own sibling doc that composes with this substrate.
-- **What**: a way for a single file to opt *itself* in or out of
-  compilation based on the build configuration — arch, target triple,
-  OS, libc-vs-freestanding, backend (LLVM / native-aa64 / native-x64),
-  engine (`bnc` compiled vs `bni` interpreted), etc.
-- **Why the current mechanisms are inadequate**:
-  - **Separate trees + symlinks** (what we have now —
-    `impls/{common,libc,baremetal}/…`, per
-    [`pkg-layout-spec.md`](pkg-layout-spec.md) invariant 5 "Whole-package
-    selection only"): too **coarse** (selection is whole-package /
-    whole-variant-dir; "shared core + one per-variant file in the same
-    package" is unrepresentable) and too **annoying** (symlinks to share
-    the common files across variant dirs; a new axis means a new tree).
-  - **Go-style filename suffixes** (`foo_posix.bn`, `foo_arm32.bn`): too
-    **magical** (the constraint is invisible *inside* the file, smuggled
-    in via the name) and too **coarse** (only a fixed suffix vocabulary;
-    can't express conjunctions/disjunctions like "arm32 AND libc", or
-    "any of {x64,aa64} but not baremetal").
-- **Proposed shape**: an **annotation (writ large) near the top of the
-  file** declaring the file's applicability condition as an *expression*
-  over target predicates (`arch == "arm32"`, `libc`, `engine == "bni"`,
-  with `&&` / `||` / `!`).  Two candidate syntactic forms to weigh:
-  - a real **annotation on the `package` clause** (e.g.
-    `#[build(arch == "arm32" && libc)] package foo`) — first-class,
-    grammar-integrated, parseable; but the file must parse far enough to
-    read it before we know whether to compile it, so the condition has to
-    be evaluable from a cheap leading-prefix scan (read annotation →
-    decide → continue or drop the file);
-  - a **comment-form pragma** (a recognized leading comment, e.g.
-    `//bn:build arch == "arm32" && libc` — Go-`//go:build`-shaped but
-    expression-based, not suffix-based) — even cheaper to scan, but
-    out-of-grammar / more "magical".
-- **Design questions**:
-  - **Predicate vocabulary + authority**: arch, triple, OS,
-    libc-vs-freestanding, backend, engine, possibly user-defined build
-    tags.  Where is the canonical list defined?  How extensible?
-  - **Relationship to the `impls/` trees**: does this *replace* the
-    `{common,libc,baremetal}` split (collapse back toward one tree, files
-    self-select) or *complement* it (trees for the coarse axis,
-    annotations for the fine)?  At minimum it should retire the symlink
-    workaround; possibly the per-variant impl dirs too.  Decide
-    explicitly — interacts with `pkg-layout-spec.md`.
-  - **Loader/merge interaction**: excluded files simply don't join the
-    merged package; ensure a package can still be legitimately empty (or
-    require ≥1 surviving file) for a given target without spurious errors.
-- **Tooling interaction (the bnlint question)**:
-  - bnlint + the hygiene scripts must **understand** the annotation, so a
-    file inapplicable to the current config isn't false-flagged (and so
-    they can choose to lint each file under its applicable config(s)).
-  - **Corollary worth designing in**: the same annotation surface could
-    carry a directive telling bnlint / hygiene checks to **skip or ignore**
-    a file (or regions of it) — a first-class "lint-exempt this file"
-    mechanism, unifying build-constraints and lint-control under one
-    annotation vocabulary.
-- **Related entries to unify with**: the MAJOR "Better test-mode/target
-  annotation than `.xfail`" entry above wants exactly this shape for
-  *tests* (declare applicable modes/targets); and "Annotations and C
-  function interop" below is the general annotation-syntax design.  This
-  is the *source-file* instance of the same idea — design them together.
-- **Prior art to consult**: Go build constraints (the `//go:build`
-  expression form that replaced the `_GOOS` suffix era), Rust
-  `#[cfg(...)]` / `cfg_if!`, Zig comptime target switches.  The
-  expression form is the model.
+### Build constraints (`#[build(EXPR)]`) — deferred follow-ups (arch/os MVP landed) — 🟡 OPEN
+The `#[build(EXPR)]` arch/os MVP is landed at all four granularities (file / decl / import / `.bni`),
+host-default config overridable per `--target`, through `c7249552` (conformance 731/733/735/736/737/746/747);
+full design in [`plan-build-constraints.md`](plan-build-constraints.md), archived in
+[claude-todo-done.md](claude-todo-done.md). Still deferred (none started):
+- Vocabulary beyond arch/os: `triple` / `backend` / `libc` / `ptrsize` / `version` with `is` / `at_least` / `at_most`.
+- `bnlint --target`; main-module gating; migrating the `impls/` duplicate trees onto constraints.
+- The separate inline-asm (`#[asm]`) doc that composes with this substrate.
 
 ### Conformance tests: consider a separate repo
 - Running conformance tests in CI creates a circular dependency: the bootstrap repo needs the binate repo (which contains the test cases), and the binate repo needs the bootstrap binary (to run the tests)
