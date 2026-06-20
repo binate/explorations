@@ -235,7 +235,7 @@ Validated green on 8 of 10 `all` modes (incl. `native_aa64` + `arm32_baremetal`)
 were not validatable on the darwin/arm64 host — the next CI run on `main`
 confirms them. (3) wire `extract-rule-ids.py`/`spec-coverage` into CI — DISCUSS.
 
-**Ch.11 Interfaces — committed on the worktree 2026-06-19** (NOT yet landed).
+**Ch.11 Interfaces — landed on main 2026-06-19** (binate `34ae6eb3`).
 Authored via the design fan-out (6 clusters) + central validation + a 6-cluster
 adversarial review. **45 tests, 25/25 rules (100%)**, green across 7 modes
 (builder-comp, VM int, int-int, gen1, gen2, native_aa64, arm32_baremetal); 4
