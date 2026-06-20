@@ -1,6 +1,6 @@
 # Plan: Embeddable whole-program interpreter API (`pkg/binate/interp`)
 
-Status: **Inc 1 + Inc 2-Layer-1 LANDED** (2026-06-20).  Inc 1: the `@Interp`
+Status: **Inc 1 + Inc 2 (Layers 1 & 2) LANDED** (2026-06-20).  Inc 1: the `@Interp`
 whole-program embedder API on main (1a `5bdd76b6`: machinery →
 `pkg/binate/interp`, errors as values; 1b `596fb872`: the `@Interp` facade,
 cmd/bni's `runProgram` collapsed onto it).  Inc 2 was **reframed** — the
@@ -8,9 +8,12 @@ original "host-IO sink" was misguided (see Inc 2 below): an interpreter, like a
 compiler, has no I/O of its own; all program I/O flows through the standard
 library / `pkg/bootstrap` externs, so redirecting I/O means supplying a
 different stdlib, not adding an I/O knob to the engine.  Inc 2 is now an
-**extern-registration cleanup**, Layer 1 landed (`71748fa4`): the standard-set
-POLICY moved out of `pkg/binate/vm` into the host (`pkg/binate/interp`); the VM
-keeps only the mechanism.  Builds on `plan-embeddable-vm.md` (increment 5 + 5d-4
+**extern-registration cleanup**: Layer 1 (`71748fa4`) moved the standard-set
+POLICY out of `pkg/binate/vm` into the host (`pkg/binate/interp`), the VM
+keeping only the mechanism; Layer 2 (`c843eab7`) made `New(stackSize, pkgs)`
+take the swappable library inject-set (`StandardPackages()` default).  Layer 2b
+(a `@reflect.Package` wrapping helper, the ergonomic override path) is the open
+follow-up.  Builds on `plan-embeddable-vm.md` (increment 5 + 5d-4
 landed: the loader / types / ir-gen / vm-lowering layers are reentrant, no
 per-run process-globals).
 
@@ -160,12 +163,24 @@ sole one, preserving the `progArgsAfterDash` Args override.  vm's own tests
 (can't import interp — cycle) got a test-local `registerTestExterns`; repl's
 test support routes through interp.
 
-**Layer 2 — PENDING.** `New(pkgs…)` takes the inject-set, defaulting to a
-`stdPkgs()`-style standard set exposed as a host-side function.  An embedder
-targeting wasm passes a set whose I/O package routes to a message port (the
-"swap the stdlib" path).  Optional sub-step: auto-enumerate bootstrap's exported
-format helpers via `RegisterPackageFunctions` (they qualify — exported,
-non-extern), leaving only the 9 extern C-I/O entries hand-bound.
+**Layer 2 — LANDED `c843eab7`.** `New(stackSize, pkgs @[]@reflect.Package)`
+takes the inject-set; empty/nil → `StandardPackages()` (newly exported = the
+pkg/std set).  The engine substrate (rt + reflect + the `_Package` accessors +
+the bootstrap C surface + the VM trampolines) is always installed, not
+swappable.  `injectPackageSet` does the per-package binding; `cmd/bni` passes
+`StandardPackages()`.  An embedder targeting wasm passes a set whose I/O package
+routes to a message port (the "swap the stdlib" path).
+
+**Layer 2b — PENDING (the ergonomic override path).** A `@reflect.Package`
+wrapping helper: build a modified descriptor from an existing one with selected
+`FunctionInfo` values replaced, so an embedder overrides e.g. `os.Args()`
+without hand-constructing a descriptor.  This is what makes the per-function
+override usable; it also resolves the deferred Args-shim home (the embedder
+supplies its own `os.Args` binding; `progArgsAfterDash` becomes a cmd/bni-built
+wrapped-os concern rather than baked into interp's bootstrap registration).
+Optional sub-step: auto-enumerate bootstrap's exported format helpers via
+`RegisterPackageFunctions` (they qualify — exported, non-extern), leaving only
+the 9 extern C-I/O entries hand-bound.
 
 **The Args / per-function-override question (raised 2026-06-20, deferred).** The
 `progArgsAfterDash` shim is really a cmd/bni concern, not general interp policy,
