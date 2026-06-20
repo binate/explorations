@@ -4,27 +4,37 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
-## MAJOR (VM interop / native-only injection) — offset-bearing `os` methods (`Seek`/`ReadAt`/`WriteAt`) abort under `builder-comp-int`: they route `__c_call` through UNEXPORTED wrappers (`cLseek`/`cPread`/`cPwrite`) that are neither lowered nor injected (2026-06-19) — 🔴 OPEN
+## DECISION (test strategy) — don't run stdlib unit tests under interpreter modes; cover stdlib via the separate conformance suite instead (2026-06-19)
 
-**Symptom (REPRODUCED, builder-comp-int).** `pkg/std/os` unit test `TestSeek` aborts: `vm: extern not found: pkg/std/os.cLseek`. Reproduces on a clean tree (no local changes); `builder-comp` (all-native) is fine.
+NOT a bug. Running a stdlib unit test under an interpreter mode (`*-int`)
+lowers the stdlib package ITSELF to bytecode, which is the wrong configuration:
+in production the stdlib is ALWAYS injected (native), never interpreted. The
+artifact this produces: `pkg/std/os`'s `TestSeek` aborts under
+`builder-comp-int` with `vm: extern not found: pkg/std/os.cLseek`, because
+`os.Seek`/`ReadAt`/`WriteAt` route their `__c_call` through the unexported
+native-only wrappers `cLseek`/`cPread`/`cPwrite` (the arm32 `off64_t` variants,
+`os.bn:186-215`). Those wrappers can't be bytecode (they `__c_call`) and must
+NOT be injected (they're private — the `_Package()` descriptor is exported-only
+by design). In a real program `os.Seek` is injected and runs native, with
+`cLseek` running inside the compiled binary — no abort. So the lowered-stdlib
+unit test exercises a configuration that never exists in production. Do NOT
+"fix" by injecting `cLseek` — explicitly not wanted.
 
-**Root cause.** `os.Seek`/`ReadAt`/`WriteAt` don't `__c_call` directly — they call the unexported wrappers `cLseek`/`cPread`/`cPwrite` (`impls/stdlib/pkg/std/os/os.bn:186-215`), which exist to select the arm32 64-bit-`off_t` variants (`lseek64`/`pread64`/`pwrite64`) via `#[build]`. In `int` mode that routing falls into a gap:
-- `Seek`/`ReadAt`/`WriteAt` have NO direct `__c_call` → `funcHasCCall` false → `LowerModule` LOWERS them to bytecode.
-- The bytecode calls the wrapper. The wrapper HAS a `__c_call` → not lowered; and is UNEXPORTED → absent from the `_Package()` descriptor (exported-only, `emit_pkg_functions.bn:60` skips `!f.Exported`) → not injected.
-- So the bytecode reaches a function with neither a VM body nor an injected extern → "extern not found".
+Resolution (per the user, 2026-06-19):
+1. **Stop running stdlib unit tests under interpreter modes.** The mechanism
+   exists — `scripts/unittest/<pkg>.skip-pkg.<mode>` markers (cf.
+   `pkg-std-math-big.skip-pkg.builder-comp-int-int`). Decide the precise int
+   mode set to exclude and add markers for the stdlib packages.
+2. **Cover stdlib end-to-end via the separate conformance suite** (stdlib
+   INJECTED, exercised by separate `main` programs across modes) — the
+   planned-but-not-built `conformance/stdlib/*` set, tracked below ("Stdlib
+   conformance tests: relax conformance-imports + add a conformance/stdlib/*
+   suite"). Still NOT done: only ~8 ad-hoc stdlib-importing tests live in the
+   MAIN conformance set (`577_std_errors`, `855_std_time`, `662_errors_is`,
+   `526/528/535_strconv`, `663_io_iseof`, `726_cross_pkg_iface_impl`) — not
+   the separate suite.
 
-Contrast (why the other os tests pass under `builder-comp-int`): `Read`/`Write`/`Open`/`Close` `__c_call` DIRECTLY → `funcHasCCall` true → skipped from lowering → injected as native (they're exported) → a bytecode caller dispatches into the native impl and the `__c_call` runs inside the compiled binary, never crossing the VM boundary.
-
-**Scope.** Not test-specific: ANY bytecode caller of `Seek`/`ReadAt`/`WriteAt` with `os` injected hits it. Generalizes to any injected native-only package whose EXPORTED entry points route a `__c_call` through an unexported wrapper.
-
-**Discovery.** Adding the cross-mode native-source iface-upcast test (task #94) to `os_test.bn`; running `pkg/std/os` under `builder-comp-int` surfaced the pre-existing `TestSeek` abort. (First check whether CI even runs `os` under `builder-comp-int` — if not, this has been silently red/untracked; if so, it's a tracked-as-of-now failure.)
-
-**Fix options (pick one):**
-1. Inline the `off_t` `#[build]` branch into `Seek`/`ReadAt`/`WriteAt` so they `__c_call` directly → native-injected like `Read`/`Write` (smallest change; loses the wrapper sharing).
-2. Inject unexported `__c_call` wrappers via a SIDE registration, NOT the public exported-only descriptor.
-3. Have injection pull in the transitive `__c_call`-wrapper closure of injected exported functions.
-
-Track with a conformance `os`-under-`int` cell or a `scripts/unittest/pkg-std-os.xfail.builder-comp-int` marker until fixed (a CI-expectation change — leave that call to the maintainer).
+Surfaced while adding the cross-mode iface-upcast test (#94) to `os_test.bn`.
 
 ---
 
