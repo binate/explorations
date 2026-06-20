@@ -662,6 +662,26 @@ documents these as open items.
   TYP_NAMED at isManagedFuncValueLit). Value-rejection and reference
   construction both work.
 
+### Spec Ch.16 (Packages) — build-constraint group needs rework + a possible gap — 2026-06-19
+Ch.16 landed at **21/22 rules** (`spec/16-packages/`, binate `f7ed4eb4`):
+imports / bni / identity / extern groups are green (compiler/VM/gen1/gen2/
+native_aa64). The **build-constraint group** (the `#[build(EXPR)]` rules) was
+authored by a fan-out agent on a wrong "gating-active by default + decl-level
+gating + predicate-validation-errors" assumption; 8 of its tests failed and were
+removed. The real mechanism (per `conformance/737_build_import_select`,
+`747_err_build_bni_dropped`) gates whole FILES (via the package clause) and
+IMPORTS by arch with `#[build(is(arch, …))]`, not individual decls. **Follow-up
+(focused):** re-author the build-constraint tests on the real mechanism, which
+restores the lone GAP **`pkg.build.errors`** (the Constraint: a false constraint
+on a *required* element is an error). Surviving build tests: `070_annotation_
+namespace`, `071_annotation_degenerate`, `072_err_annotation_no_stack`.
+  - **Possible real gap to confirm during that rework:** the agent's
+    `#[build(<unknown-predicate>)]` and `#[build]` with an unknown annotation
+    name **compiled and ran** (printed `0`) instead of erroring — `pkg.build.errors`
+    / `pkg.annotation.namespace` say these should be rejected. Either the tests
+    were malformed (wrong gating context, so the annotation was never validated)
+    or build-constraint validation doesn't fire — determine which.
+
 ### Issues surfaced authoring spec Ch.8 conformance tests — 2026-06-19
 Found writing the `conformance/spec/08-conversions/` rule tests (plan-spec-
 tests.md Phase B). Ch.8 itself is clean (11 tests, 100%, green on compiler /

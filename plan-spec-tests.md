@@ -217,6 +217,15 @@ sub-word narrowing (VM + native; → scalar-diff harness); `int↔int64` implici
 the triage: **Ch.16 Packages** next (highest defect-pinning), then **Ch.11
 Interfaces** — both via the authoring fan-out.
 
+**Ch.16 Packages — PARTIAL, committed 2026-06-19** (binate `5c4c226c` nested
+multi-package harness + `f7ed4eb4` tests). Authored via a 5-way fan-out; **28
+tests, 21/22 rules (95%)**, green on compiler/VM/gen1/gen2/native_aa64 (VM: 3
+xfails — user-package `_Package` + C-call FFI, both VM non-goals). The
+build-constraint group (`#[build(...)]`) needs real-mechanism rework — the lone
+GAP is `pkg.build.errors` (claude-todo, Ch.16 2026-06-19). Harness gain: run.sh
+now discovers nested multi-package tests under spec/. NOT yet landed on main
+(committed on the worktree). **Ch.11 Interfaces** is next.
+
 User decisions on the follow-ons (2026-06-19): (4) ✅ correct stale spec note —
 DONE. (5) ✅ declare the sub-rule-IDs — DONE (also found d4-paren already works;
 the genuine remaining gap is inferred-len). (2) ✅ promote `conformance/spec/`
