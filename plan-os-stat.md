@@ -83,14 +83,15 @@ out-param (`&out`) — confirm against `plan-c-call.md` before Stage 5 lands.
 ## Deferred / open questions
 
 - **Mechanism A vs B** — decided at Stage 5 (lean A, per above; reversible).
-- **`ModTime` representation** — `time.Time` (Stage 1); shape of that type is
-  the Stage-1 discussion.
+- **`ModTime` representation** — *resolved:* a `time.Point` (Stage 1, landed;
+  see `plan-time.md`).
 - **`FileInfo`: concrete struct vs interface.** `os` *can* use interfaces (it
   already does, `impl *File : io.Reader, …`), so this is a simplicity call, not
   forced. Leaning concrete struct for the first cut.
-- **`FileMode` type-bit set** — Go's full set vs just the producible file-type
-  bits.
-- **`FileMode.String()`** — include or defer (pure int/char work).
+- **`FileMode` type-bit set** — *resolved:* full Go set (identical layout; the
+  three Plan9 bits are reserved).
+- **`FileMode.String()` + its `Stringer` impl** — *deferred,* lands with the
+  formatting layer (same as `time`'s `Stringer`). Pure int/char work.
 - **`Lstat`** (doesn't follow symlinks; needed to *detect* `ModeSymlink`) —
   this cut or a follow-up.
 - **`Sys()`** — omit from the first cut (would leak a per-target ABI detail).
@@ -107,6 +108,8 @@ covers Darwin). Option A's e2e additionally checks `offsetof`/`sizeof`.
 
 ## Status
 
-- Stage 1 (`time`) — designed (`plan-time.md`); building `time.Point` + `time.Delta` next.
-- Stages 2–4 — pending.
-- Stage 5 (mechanism) — **deferred**; lean A; reversible via the boundary.
+- Stage 1 (`time.Point` / `time.Delta`) — **landed**; see `plan-time.md`.
+- Stage 2 (`FileMode` type bits + `IsDir`/`IsRegular`/`Perm`/`Type`) — **landed**
+  (full Go layout; `String()` deferred).
+- Stage 3 (`FileInfo`) — next.
+- Stages 4–5 — pending; Stage 5 (mechanism) **deferred**, lean A, reversible.
