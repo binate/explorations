@@ -7431,3 +7431,29 @@ collapse (the "bonus" below) is carried forward to claude-todo.md as its own ent
 - **Bonus**: the same bump would also let `pkg/bootstrap` be collapsed onto
   `#[build]` (it's in cmd/bnc's BUILDER-compiled tree, currently left
   path-selected — see that plan doc).
+
+### ~~`__c_call` should support void returns~~ — ✅ DONE & LANDED `5e23923f` (2026-06-20)
+
+`__c_call` now accepts a `"void"` return spelling — `__c_call("free", "void", ptr)` /
+`__c_call("exit", "void", code)` — for a void C call with no result, replacing the
+dummy-scalar-return-then-discard placeholders.  The string `"void"` sits in the return-type slot
+(no `pkg/c` marker-types package; the string mechanism is extensible to other Binate-less C type
+names later; only `"void"` is accepted today).  Parser: `"void"` → nil `TypeRef`; checker: nil
+`TypeRef` ⇒ void; IR-gen + `EmitCCall`: the result-less `newVoidInstr` form (ID -1); LLVM lowering:
+`call void @sym(...)`; the native backends already skip result collection for a result-less instr.
+`rt.Exit`/`rt.RawFree` converted (the placeholders below).  Conformance `866_c_call_void_return`
+(xfail in the VM modes — the VM does no FFI, by design); parser unit tests (void→nil TypeRef; a
+non-`"void"` string rejected).  Verified: gen1 self-host build, hygiene 15/15, refcount matrix
+105/0 on LLVM + VM + native aa64.  Follow-up: the rt.bn conversion needed a temporary `LINT_SKIP`
+(the BUILDER-bundled bnlint predates the syntax) — removal tracked in active "Remove the
+void-`__c_call` lint skip after a BUILDER bump".
+
+- Today `__c_call` "requires a return type" and `checkCCall` rejects
+  void ("void and struct returns not yet supported"). So calling a void
+  C function (`free`, `exit`) means declaring a dummy scalar return
+  (e.g. `int`) and discarding it as a bare statement — see the
+  placeholders in `impls/core/libc/pkg/builtins/rt/rt.bn`
+  (`__c_call("free", int, ptr)` / `__c_call("exit", int, code)`).
+- **Fix**: accept a void return spelling for `__c_call` (and a bare-
+  statement form), so void C calls don't carry a misleading return type.
+- Surfaced 2026-06-03 by the drop-libc work.

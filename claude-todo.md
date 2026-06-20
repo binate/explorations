@@ -775,17 +775,6 @@ spelling — verify the bundled bnlint directly first.
   change preserves `Exit`→`exit` behavior, so this is a clean,
   independent follow-up. Needs a design discussion before any change.
 
-### `__c_call` should support void returns
-- Today `__c_call` "requires a return type" and `checkCCall` rejects
-  void ("void and struct returns not yet supported"). So calling a void
-  C function (`free`, `exit`) means declaring a dummy scalar return
-  (e.g. `int`) and discarding it as a bare statement — see the
-  placeholders in `impls/core/libc/pkg/builtins/rt/rt.bn`
-  (`__c_call("free", int, ptr)` / `__c_call("exit", int, code)`).
-- **Fix**: accept a void return spelling for `__c_call` (and a bare-
-  statement form), so void C calls don't carry a misleading return type.
-- Surfaced 2026-06-03 by the drop-libc work.
-
 ### Inject `pkg/bootstrap` into the VM + convert I/O to `__c_call` — Phase 1 DONE; Phase 2 DEFERRED (BUILDER-runtime coupling)
 - **Phase 1 LANDED** on main (`a7fabc7a`, 2026-06-03): bootstrap is now
   native-only in the VM — cmd/bni skips lowering it, the format helpers
