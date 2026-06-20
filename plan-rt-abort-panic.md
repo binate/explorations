@@ -1,8 +1,11 @@
 # Plan: `rt.Abort()` / `rt.Panic(msg)` + simplify `panic()`, unify internal aborts
 
-Status: **PLAN (2026-06-20)** — Plan 1 below is ready to implement pending the
-three decisions in [§ Decisions](#decisions-for-the-user). Plan 2 is a
-**scope-required follow-up** (see the end).
+Status: **PLAN (2026-06-20)** — decisions settled (see below); Plan 1 ready to
+implement. Plan 2 is a **scope-required follow-up** (see the end).
+
+**Decisions (settled 2026-06-20):** `rt.Abort()` = C `abort()`; prefix `panic:`
+(lowercase); **stderr deferred** — Plan 1 keeps panic/diagnostics on **stdout**
+(unchanged), routing them to stderr is its own follow-up (see § stderr).
 
 ## Motivation
 
@@ -48,18 +51,18 @@ invariant violations that are genuinely unrecoverable. User-code runtime faults
 **out of scope** — they belong to Plan 2.
 
 ### `rt.Abort()`
-- No args. The bare unrecoverable terminate.
-- **DECISION:** C `abort()` (SIGABRT → core dump + debugger break — best for
-  shouldn't-happen post-mortem) **vs** `exit(1)` (clean, no core dump). Default
-  recommendation: `abort()`.
+- No args. The bare unrecoverable terminate. **= C `abort()`** (SIGABRT → core
+  dump + debugger break — best for shouldn't-happen post-mortem).
 - Lives in `pkg/builtins/rt` (per-target impl, like `rt.Exit`: hosted →
-  `__c_call("abort")` or `__c_call("exit", 1)`; baremetal → semihost exit).
+  `__c_call("abort", "void")`; baremetal → semihost exit with a nonzero code /
+  trap).
 
-### `rt.Panic(msg @[]readonly char)`
-- Writes `"panic: " + msg + "\n"` to **STDERR** (fd 2), then `rt.Abort()`.
-- **Single string. No variadic formatting → no `bootstrap.format*` dependency.**
-- Implemented as a raw `Write(STDERR, …)` (via `bootstrap.Write(STDERR, …)` or an
-  rt-level write) + `rt.Abort()`.
+### `rt.Panic(msg *[]readonly char)`
+- Writes `"panic: " + msg + "\n"` to **stdout** (stderr deferred — see § stderr),
+  then `rt.Abort()`.
+- **Single string. No variadic formatting → no `bootstrap.format*` dependency**
+  (string writes go straight to `bootstrap.Write`; only int/float/bool args would
+  pull in the formatters, and `rt.Panic` takes none).
 
 ### builtin `panic(msg)`
 - Reduced to a **single string** argument (variadic dropped — unused).
@@ -86,18 +89,13 @@ invariant violations that are genuinely unrecoverable. User-code runtime faults
 - codegen / native `panic("…")` sites need no change — they already route
   through the builtin, which now flows through `rt.Panic`.
 
-### stderr
-- Panic/diagnostic output moves to **STDERR (fd 2)**. **DECISION:** in scope here
-  or kept separate? It's a real behavior change — anything currently scraping
-  these messages off *stdout* shifts to stderr. Recommendation: do it (it's
-  correct), but call it out so test harnesses that capture VM diagnostics are
-  updated.
-
-### Decisions for the user
-1. **`rt.Abort` = `abort()` (rec.) or `exit(1)`?**
-2. **Prefix `"panic: "` (rec., Go-like, matches the existing builtin) or
-   `"PANIC: "`?**
-3. **stderr for panic/diagnostics: in scope (rec.) or separate?**
+### stderr — DEFERRED (follow-up)
+Routing panic / `runtime error:` / VM diagnostics to **STDERR (fd 2)** is its own
+follow-up, kept out of Plan 1 to reduce scope. Plan 1 leaves all of it on stdout
+(unchanged). When done it's a real behavior change — anything scraping these off
+*stdout* (test harnesses, conformance `.expected` capture) shifts to stderr, so
+those consumers need updating in lockstep. Infra already exists
+(`bootstrap.Write(fd)`, `bootstrap.STDERR = 2`).
 
 ### Implementation order (each step green)
 1. Add `rt.Abort()` + `rt.Panic(msg)` to `pkg/builtins/rt` (all target variants:
