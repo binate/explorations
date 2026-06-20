@@ -4,6 +4,30 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR (VM interop / native-only injection) — offset-bearing `os` methods (`Seek`/`ReadAt`/`WriteAt`) abort under `builder-comp-int`: they route `__c_call` through UNEXPORTED wrappers (`cLseek`/`cPread`/`cPwrite`) that are neither lowered nor injected (2026-06-19) — 🔴 OPEN
+
+**Symptom (REPRODUCED, builder-comp-int).** `pkg/std/os` unit test `TestSeek` aborts: `vm: extern not found: pkg/std/os.cLseek`. Reproduces on a clean tree (no local changes); `builder-comp` (all-native) is fine.
+
+**Root cause.** `os.Seek`/`ReadAt`/`WriteAt` don't `__c_call` directly — they call the unexported wrappers `cLseek`/`cPread`/`cPwrite` (`impls/stdlib/pkg/std/os/os.bn:186-215`), which exist to select the arm32 64-bit-`off_t` variants (`lseek64`/`pread64`/`pwrite64`) via `#[build]`. In `int` mode that routing falls into a gap:
+- `Seek`/`ReadAt`/`WriteAt` have NO direct `__c_call` → `funcHasCCall` false → `LowerModule` LOWERS them to bytecode.
+- The bytecode calls the wrapper. The wrapper HAS a `__c_call` → not lowered; and is UNEXPORTED → absent from the `_Package()` descriptor (exported-only, `emit_pkg_functions.bn:60` skips `!f.Exported`) → not injected.
+- So the bytecode reaches a function with neither a VM body nor an injected extern → "extern not found".
+
+Contrast (why the other os tests pass under `builder-comp-int`): `Read`/`Write`/`Open`/`Close` `__c_call` DIRECTLY → `funcHasCCall` true → skipped from lowering → injected as native (they're exported) → a bytecode caller dispatches into the native impl and the `__c_call` runs inside the compiled binary, never crossing the VM boundary.
+
+**Scope.** Not test-specific: ANY bytecode caller of `Seek`/`ReadAt`/`WriteAt` with `os` injected hits it. Generalizes to any injected native-only package whose EXPORTED entry points route a `__c_call` through an unexported wrapper.
+
+**Discovery.** Adding the cross-mode native-source iface-upcast test (task #94) to `os_test.bn`; running `pkg/std/os` under `builder-comp-int` surfaced the pre-existing `TestSeek` abort. (First check whether CI even runs `os` under `builder-comp-int` — if not, this has been silently red/untracked; if so, it's a tracked-as-of-now failure.)
+
+**Fix options (pick one):**
+1. Inline the `off_t` `#[build]` branch into `Seek`/`ReadAt`/`WriteAt` so they `__c_call` directly → native-injected like `Read`/`Write` (smallest change; loses the wrapper sharing).
+2. Inject unexported `__c_call` wrappers via a SIDE registration, NOT the public exported-only descriptor.
+3. Have injection pull in the transitive `__c_call`-wrapper closure of injected exported functions.
+
+Track with a conformance `os`-under-`int` cell or a `scripts/unittest/pkg-std-os.xfail.builder-comp-int` marker until fixed (a CI-expectation change — leave that call to the maintainer).
+
+---
+
 ## MAJOR (type-checker / .bni loader) — a free function and a same-named METHOD in one package collide: the .bni→scope loader registers methods as package-scope func symbols, so `func Stat(...)` + `func (f *File) Stat()` fails ".bn has 1 parameters but .bni declares 0" (2026-06-19) — 🔴 OPEN
 
 **Symptom (REPRODUCED, builder-comp).** Declaring both a free function and a method of the SAME name in one package — e.g. `func Stat(name *[]readonly char) (@FileInfo, @errors.Error)` and `func (f *File) Stat() (@FileInfo, @errors.Error)` (the standard Go `os.Stat` + `File.Stat` pattern) — fails type-checking at the free function: `stat.bn:85:1: Stat: .bn has 1 parameters but .bni declares 0`. The free `Stat` (.bn, 1 param) is matched against the METHOD's signature (0 params), not its own `.bni` declaration. Renaming the method makes it compile (confirmed).
@@ -159,6 +183,23 @@ Separately (PRE-EXISTING, independent of the VM): the COMPILED native iface-call
 path (`emitCallIfaceMethod`) has no HFA classification — a struct-of-floats arg
 is mis-seen as a GP aggregate (no `IsFloatScalarTyp`-style struct handling in the
 native backend; the LLVM side relies on LLVM to classify HFAs).
+
+**Native-source iface UPCAST (task #94, 2026-06-19): only offset-0 dispatch is
+reachable.** The VM's `BC_IFACE_UPCAST` native-source branch (`vm_exec_iface.bn`)
+advances the native vtable word by `offset*8`, mirroring `emit_iface_upcast.bn`.
+Offset 0 (`@X→@any`, `@X→*X` managed↔raw decay) passes the registered base
+through unchanged, so a later native method dispatch still resolves via
+`lookupShimVtable`. A REAL-parent upcast (offset>0) forms the result value
+correctly, but a method call ON the result would do `lookupShimVtable(base +
+offset*8)` — an exact-match MISS on the unregistered adjusted address → loud
+"no shim vtable" abort (NOT silent corruption). Unreachable today: no stdlib
+runtime interface `extends` another (`Orderable`/`Hashable : Comparable` are
+generic constraints, not upcast as iface values). To support offset>0 dispatch,
+`lookupShimVtable` needs a RANGE lookup — register each injected vtable's SIZE,
+find the base `B` with `B ≤ addr < B + size*8`, and map to `shim_base(B) +
+(addr − B)` so the parent sub-block's shim resolves. Covered as-is by
+`pkg/binate/vm` unit tests (the offset arithmetic, incl. offset>0 value
+formation) + `os` `TestErrorIfaceUpcast` (offset-0 end-to-end, both modes).
 
 ---
 
