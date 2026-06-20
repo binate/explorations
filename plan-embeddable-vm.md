@@ -1,12 +1,14 @@
 # Plan: Embeddable / reentrant VM — eliminate per-run global state
 
 Status: **v1 COMPLETE** (increments 1–5 landed, 2026-06-19) — the
-interpreter is **sequentially reentrant** for a single target: loader,
-types, ir-gen, and vm-lowering no longer cross-talk through per-run package
-globals.  The one remaining `ir` per-run global — the pending-dtor lists — is
-**deferred with eyes open** (sequential-safe: `InitModule` resets it per
-compilation; only an *interleaved*-compilation concern, out of v1 scope; see
-5d-3 below).  Headline deliverable landed: `vm/vm_reentrancy_test.bn`.
+interpreter is **reentrant** for a single target: loader, types, ir-gen, and
+vm-lowering no longer cross-talk through per-run package globals.  The ir-gen
+layer now carries **no** per-run package-globals at all — the last ones, the
+pending-dtor lists, moved to `@Module` in 5d-4 (main `ab41b6c5`; with a
+preliminary `pkg/binate/iropcode` opcode-package extraction in `6e917330` to
+keep `ir.bni` under the file-length cap), so reentrancy holds even under
+*interleaved* compilation, not just sequential.  Headline deliverable landed:
+`vm/vm_reentrancy_test.bn`.
 Deferred increments 6 (cross-target) and 7 (AOT compiler) remain (see below).
 v1 = increments 1–5 below (reentrancy-only, single-target, interpreter-only,
 `@GenCtx`/`@Module` split). Scope decisions ratified by the user 2026-06-16.
@@ -710,24 +712,38 @@ this reuses).
     - **`verifyIR` — LEFT a process-global** (a `SetVerifyIR` debug/CI flag that
       gates a structural assertion; does not affect generated code, like
       `debug.verbose` — not a per-run data hazard).  Plan permitted "leave."
-    - **pending-dtors (`pendingMsDtors`/`StructDtors`+`Names`, 4 globals) —
-      DEFERRED (user, 2026-06-19), documented.** They are the ONE remaining
-      `pkg/binate/ir` per-run package-global.  **Sequential-safe:** `InitModule`
-      resets them per compilation and they're drained within each compilation, so
-      v1 sequential reentrancy holds without moving them — they'd only corrupt
-      under *interleaved* compilation (out of v1 scope).  Moving them is
-      materially harder than the other 5d items: the writers
-      (`registerPendingMsDtor`/`StructDtor`) sit deep in refcount emission
-      (`emitStructCopy`/`emitStructDtor`/`emitManagedSliceRefDec`, which carry
-      `f @Func` but no `@Module`/`gc`), and the dtor-body generators
-      (`genStructDtorWithName`/`genManagedSliceDtor`/`genArrayDtor`/
-      `genIvRecvThunk`) that create those funcs also lack a module — and dtor
-      bodies register *more* pending dtors (nested), so threading `m` (or a raw
-      `@Func.Mod` back-ref à la `@Block.Func`, set at the 10 prod `NewFunc` sites)
-      cascades through the refcount-emission + dtor-generator machinery.  Changing
-      `NewFunc`'s signature instead would hit 181 test callers.  **Follow-up:** a
-      dedicated "interleaving-safety: pending-dtors → `@Module`" pass if/when
-      interleaved compilation is needed (increment 6+ territory).
+    - **pending-dtors (`pendingMsDtors`/`StructDtors`+`Names`, 4 globals) — DONE
+      as 5d-4 (main `ab41b6c5`, 2026-06-19).** The last `pkg/binate/ir` per-run
+      package-globals now live on `@Module` (`Pending{Ms,Struct}Dtors` + `*Names`),
+      reached from the registrars via a new RAW `@Func.Mod *Module` back-ref
+      (mirrors `@Block.Func *Func`; raw to break the Module⇄Func refcount cycle the
+      module's `Funcs @[]@Func` ownership would otherwise form).  Two recon
+      findings made it far cheaper than this section feared: (1) the dtor / copy /
+      thunk *body* generators do NOT register pending dtors — they recurse via
+      `ensure*` and emit direct `__dtor_`/`__copy_` calls — so only ONE
+      func-creation path (`genFuncWithPrependedParams`: genFunc / genMethod /
+      genFuncLit / GenSyntheticFunc) ever registers, and `f.Mod` is set just there
+      (NOT at all 10 `NewFunc` sites; `NewFunc`'s signature is untouched, so the
+      181 test callers are unaffected); (2) a nil `f.Mod` at registration is
+      therefore an IR-gen bug, so the registrar ABORTS rather than silently
+      dropping a registration (→ leak).  `InitModule` no longer resets globals (a
+      fresh `NewModule` starts empty).  Coverage: new
+      `TestPendingDtorListsPerModuleIsolation` (two modules' lists don't
+      cross-talk — would have failed on the shared global) + the dedup / REPL-drain
+      tests flipped to per-`@Module`.  With this the ir-gen layer carries **no**
+      per-run package-globals; the interpreter is reentrant even under
+      *interleaved* compilation, not just sequential.  (Write-through-raw-managed-
+      field — `f.Mod.PendingX = append(...)` — was validated by a throwaway probe
+      on compiled / VM / gen2 before being relied on.)
+      - **Preliminary refactor (main `6e917330`):** `ir.bni` was 1475 lines and
+        5d-4's +30 would cross the 1500 file-length cap, so first the `OP_*`
+        opcode enum + `OpName` (a 424-line pure leaf) were extracted into a new
+        package `pkg/binate/iropcode` (`ir.bni` → 1051), decoupling the instruction
+        set from the IR data model and gen logic.  ~3000 mechanical
+        `OP_X` → `iropcode.OP_X` requalifications across ir / codegen / vm /
+        native / asm; behavior-identical (full conformance unchanged: comp 1577/0,
+        int 1562/0).  `iropcode` is pure consts + one switch → trivially
+        BUILDER-compilable inside cmd/bnc's tree.
   - **Review follow-ups (adversarial review 2026-06-19):**
     (a) **RESOLVED (main `7cc2311f`).** Added
     `repl/funclit_counter_test.bn:TestReplFuncLitCounterSurvivesForeignGen` — a
