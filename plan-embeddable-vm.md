@@ -729,17 +729,27 @@ this reuses).
       dedicated "interleaving-safety: pending-dtors → `@Module`" pass if/when
       interleaved compilation is needed (increment 6+ territory).
   - **Review follow-ups (adversarial review 2026-06-19):**
-    (a) **STILL OPEN (small).** The 5c-2c counter move was a latent-bug FIX in
-    the REPL: with the old globals a mid-session `import` reset the shared
-    `anonStructCounter`/`funcLitCounter`, so a later prompt's anon-struct /
-    funclit could re-issue `__anon_0` / `main.__funclit_0` and collide in the
-    persistent `s.MainMod`; per-`s.MainGc` counters can't.  Add a REPL
-    regression test (mid-session import, then a prompt using a funclit or anon
-    struct — assert no duplicate name).
+    (a) **RESOLVED (main `7cc2311f`).** Added
+    `repl/funclit_counter_test.bn:TestReplFuncLitCounterSurvivesForeignGen` — a
+    funclit lifts at prompt 1 (`main.__funclit_0`), a foreign `GeneratePackage`
+    on a separate gc (the mid-session-import trigger -> `resetFuncLitState`)
+    runs, then prompt 2's funclit must lift to `main.__funclit_1` (no collision).
+    (setupReplState has no loader, so the test reproduces the reset trigger
+    directly via `ir.GeneratePackage` on a fresh foreign gc.)
     (b) **RESOLVED (5d-3a, main `49669f83`).** `resetFuncLitState` no longer
     wipes a package-global `methodValueWrappers` — it's per-`@Module` now, so a
     mid-session import's `pkgGc` reset can't clobber the session module's
     synthesized wrappers.
+  - **Second adversarial review of the whole 5d migration (2026-06-19, 3-lens +
+    verify): 0 correctness defects** — carrier flips all correct, all four global
+    groups deleted, every caller threaded, `ModuleInterface` moved with zero
+    field changes, pending-dtors consistently deferred.  Follow-up commits (main
+    `7cc2311f` + `7a4c8314`): added `TestReplMethodValueCacheSurvivesForeignGen`
+    (the missing regression test for the 5d-3a methodValueWrappers fix — Bug
+    Discovery Protocol), corrected the stale `Save/RestoreAliasMapState` /
+    `AliasMapSnapshot` docs (they no longer claim the removed REPL bracket as the
+    user), and dropped 4 stale test comments naming the deleted `moduleInterfaces`
+    global.
 
 **Wrinkles / risks (flagged):**
 1. **`moduleInterfaces` is cross-package & lifetime-subtle (the main risk).**
