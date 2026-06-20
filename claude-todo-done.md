@@ -8,6 +8,29 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## same-final-segment generic FUNCS collide at monomorphization (conformance/792) (2026-06-15) — ✅ FIXED (`330c42fe`, 2026-06-20)
+
+**✅ FIX LANDED (`330c42fe`).** The non-generic form was fixed earlier (`e201f448`,
+approach B: loader keys import resolution on the full path). The generic-FUNC form
+(`bb.Pick[int]` resolving to `aa.Pick[int]` → `100 100` not `100 200` — silent
+miscompile) is now fixed: `instantiationMangledName` (gen_generic_mangle.bn)
+qualifies the per-(decl,args) symbol by the DEFINING package, not the consumer;
+`ensureInstantiated` emits the instantiation `IsLinkOnce` so each consumer TU's
+copy MERGES to one (LLVM weak_odr / native SetWeak / VM funcIndex-replace) — the
+per-type dtor/copy-helper pattern. Also dedups widely-instantiated generics
+(`slices.Append[T]` across ~97 TUs). The checker was already correct (full-path
+package resolution; the bug was purely IR-gen mangling). Adversarial review
+confirmed ODR-identity (monomorphized bodies are consumer-independent — verified
+by cross-consumer byte-diff with conflicting alias maps), name-consistency across
+all 5 backends, and no regressions. conformance/792 un-xfailed + renamed (drops
+`_xfail`); conformance/867 added (2-consumer ODR-merge guard: two sibling
+consumers instantiating the same library generic must merge to one weak symbol).
+gen_generic.bn split → gen_generic_mangle.bn (+ sibling test) for length.
+builder-comp 1675/0, gen2 (builder-comp-comp) 1675/0, ir unit 558/0, hygiene
+15/15. Follow-ups tracked as separate OPEN entries in claude-todo.md: generic-
+STRUCT same-segment collision (struct re-key cascades into dtor/copy-helper
+naming), and `mangleTypeArg` non-injectivity for func/array/readonly type args.
+
 ## Stdlib conformance suite + convert stdlib unit tests to cross-mode conformance tests (2026-06-19/20) — ✅ DONE
 
 The `conformance/stdlib/*` suite is built and EVERY injected stdlib package now

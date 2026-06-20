@@ -186,18 +186,48 @@ The cast-hidden negative-shift-count → silent-0 class (and the cast-semantics 
 - **raw multi-byte char literal** (`'é'`) accepted as its first UTF-8 byte — front-end leniency (pre-existing).
 - (The proper IR-gen transitive-`.bni`-const fix is tracked under the CRITICAL entry above. The forward-ref-const array-dim garbage bug and the named-array zero-init bug are ✅ DONE — see [claude-todo-done.md](claude-todo-done.md).)
 
-## DEFERRED (import resolution) — same-final-segment GENERICS collide (conformance/792, xfail) (2026-06-15)
+## MAJOR (latent mangler) — `mangleTypeArg` is non-injective for func / func-value / array / readonly / iface-value type args (all → `<unknown>`): distinct generic instantiations share one symbol (2026-06-20) — 🔴 OPEN
 
-The non-generic form of this bug — a package directly importing two packages
-with the same final path segment double-emitting one's `_Package` declaration
-(`invalid redefinition`) — was FIXED & LANDED (`e201f448`, approach B: the
-loader keys import resolution on the full path, not the short name; full
-investigation in claude-todo-done.md). The GENERIC form still collides:
-`bb.Pick[int]` resolves to `aa.Pick[int]` (`100 100` not `100 200`), because the
-generic-decl stash (`genericDeclPkgs` etc.) and the per-(decl,args)
-monomorphized symbol aren't qualified by the full path. Fix: carry the full path
-through the generic stash key + the monomorphization naming, mirroring what B
-did for the non-generic registration. Tracked by conformance/792 (xfail).
+`mangleTypeArg` (`pkg/binate/ir/gen_generic_mangle.bn`) falls through to
+`types.QualifiedTypeName()` for kinds `typeNameImpl` doesn't render — `TYP_FUNC`,
+`TYP_FUNC_VALUE`, `TYP_MANAGED_FUNC_VALUE`, `TYP_ARRAY` (and the `readonly `/`@`/`*`
+iface-value spellings) — which returns the literal `<unknown>` (`type_name.bn`).
+So `Apply[@func() int]` and `Apply[@func() bool]` both mangle to
+`...Apply__bn_inst__<unknown>` and SHARE one monomorphized symbol — the same
+distinct-instantiations-collapse-to-one-symbol class conformance/792 fixed on the
+consumer axis, now on the TYPE-ARG axis. PRE-EXISTING (predates the 792 fix;
+surfaced by its adversarial review). On LLVM the `<` makes clang hard-error
+(loud); on VM/native it's silently accepted, and today these type args are only
+pure value carriers in `[T any]` generics so the colliding instantiations are
+ABI-identical — but the 792 weak_odr change WIDENS the blast radius from
+within-TU to cross-TU (a future divergent body could be silently merged). Fix:
+make `mangleTypeArg` total + injective over ALL kinds (recurse on func
+params/results, array len+elem, readonly, iface-value) and error rather than emit
+an identifier-invalid `<unknown>`. Add a unit test (two distinct func/array type
+args → distinct tokens).
+
+## MINOR (latent) — same-final-segment generic STRUCTS collide at monomorphization (the struct analog of 792) (2026-06-20) — 🔴 OPEN
+
+The generic-FUNC same-segment collision (conformance/792) was fixed (`330c42fe`)
+by keying the instantiation symbol on the DEFINING package + `IsLinkOnce`. The
+generic-STRUCT path (`ensureInstantiatedStruct`) was deliberately NOT re-keyed:
+it stays consumer-qualified, so two same-final-segment packages each declaring a
+generic struct of the same decl name register under one
+`<consumer>.Box__bn_inst__<args>` entry (`lookupStructIdx`) — the second collides
+with the first. Mostly BENIGN within a TU (everything there uses the
+first-registered type consistently); harmful only where the two layouts differ in
+field SET and the second package accesses a field the first lacks (checker-vs-IR
+disagreement → OOB). Re-keying it like the func path CASCADES: the struct's
+dtor/copy-helper symbol names derive from the struct name, so they'd also need
+defining-pkg qualification AND `IsLinkOnce`, or a managed-field instantiation's
+dtor is referenced-but-never-defined (undefined symbol at link — exactly what
+broke conformance/853 when the re-key was attempted). Fix: thread `definingPkg`
+through `ensureInstantiatedStruct` AND the per-instantiated-struct
+dtor/copy-helper emission (`gen_dtor_emit_bodies.bn` / `gen_copy_emit.bn`),
+emitting those `IsLinkOnce` too; validate 853 (managed field) + a new
+same-segment-struct test. No conformance test yet (a clean repro needs the
+field-set-disagreement shape; `sizeof(pkg.Box[int])` hits an unrelated
+"undefined: Box" limitation). In-code NOTE at `ensureInstantiatedStruct`.
 
 ---
 
