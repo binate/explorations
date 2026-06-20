@@ -6579,3 +6579,123 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
 ### Remove null termination — DONE
 ### 4-word managed-slice layout — DONE
 ### Unit test backfill (two passes) — DONE
+
+## Archived adversarial-review records — CR-2 Plan-1 / Round-2 / follow-up batch (2026-06-08/09)
+
+Completed adversarial-review writeups moved from [claude-todo.md](claude-todo.md). Each
+RESOLVED finding referenced here also has its own dedicated entry elsewhere in this file;
+these records additionally preserve the REFUTED / do-not-re-chase verdicts (which have no
+other home). The still-open residues (alias-receiver known-limitations, the X3-highbit
+contested-semantics decision, and the CR-2 coverage gaps) were carried forward to
+claude-todo.md under "## CR-2 review — carried-forward open residues".
+
+## CR-2 Plan-1 Round-2 + Plan-A — closing adversarial review (2026-06-09): SIBLING gaps in the just-landed fixes
+
+A 28-agent adversarial review of the 9 landed CR-2 Round-2 + Plan-A fixes (the same review style that found the Round-1 siblings) — verdicts triaged below against the code + (where noted) runtime probes. **Headline: the recurring pattern recurred — several of THIS round's fixes peeled/guarded SOME sites sharing a root cause and left siblings broken.** All are PRE-EXISTING/latent (variants the landed fixes didn't cover; none is a regression from the fixes — they're the *un*covered cousins). Filed per the bug-discovery protocol; **fix decisions are the user's.**
+
+> ⚠️ **The two reviews MASSIVELY over-confirmed via static reasoning — runtime-verify before acting on ANY finding here.** (1) The 28-agent closing review's 6 "confirmed" gaps reduced under runtime probing to: 1 real (S1, fixed `5c9b00e1`) + 2 niche real-rejections (S3/S4, filed) + 3 false positives (S2/S5/S6). (2) A follow-up 32-agent sweep (verifying S1 + hunting more un-peel siblings) flagged **21 further candidate sites** in `gen_selector` fallback arms / `gen_access` (readonly/named/alias slice+array+ptr indexing) / `gen_iface` ptr-to-readonly-iface — **ALL runtime-refuted**: one probe per distinct category (`mk().v`, `(*p).v`, slice-of-`@readonly Box` field, `readonly @[]int` index, `[2]readonly int` struct field, `*readonly @Getter` dispatch) returns the CORRECT value; named-array variants don't even parse. The static agents flag `.Elem` reads without tracing that the type arrives ALREADY-unwrapped (return-coercion strips readonly; predicate guards peel before the arm). The sweep DID verify the S1 fix + the A2 revert are correct/clean. **Net real bugs from BOTH reviews: S1 (fixed) + S3/S4 (filed niche). Do not chase the 21 phantoms.**
+
+### [closing-review] Triaged verdicts — RUNTIME-verified (the review's static verify phase over-confirmed: of 6 "confirmed", 1 was a clean real fix, 3 are false positives, 2 are real rejections whose type-only fix is a compile→SIGSEGV regression)
+
+**✅ RESOLVED**
+- **CRITICAL — `getSelectorType` un-peeled pointee** (`gen_selector_type.bn:56,63`) — ✅ landed `5c9b00e1`. Read the un-peeled `.Elem.Name` of a managed/raw ptr-to-struct base; `@readonly Box`/alias base → `""` → nil; `rp.inr.x` folded to const-0. R2-D1 sibling. Fixed with `peelTransparent(peelTransparent(baseTyp).Elem).Name` (peel the base's own alias wrapper too — an alias base has nil `.Elem`). Cell `regressions/nested-selector-readonly-pointee`, 7 modes.
+
+**⚠️ REAL reject, but the type-only fix is a compile→SIGSEGV safety regression (needs an IR-gen companion) — per the user (2026-06-09): FILE as a known limitation, do NOT pursue the IR-gen work now. Type fixes were prototyped + REVERTED.**
+- **MAJOR — alias receiver unsupported for METHOD VALUES** (`pkg/binate/types/check_expr_access.bn:249` + IR-gen): `type AB = @Box; var mv = ab.getV` is rejected ("undefined: getV") because the method-value path calls `ReceiverBaseNamed()` on the un-alias-peeled `origXt`. Peeling it (`resolveAliasAndConst(origXt).ReceiverBaseNamed()`) makes it type-check, but the method-value CLOSURE layout (`gen_method_value.bn`) doesn't peel the alias → runtime **SIGSEGV**. A DIRECT method value (`p.getV`) works; only the alias receiver is broken. Niche (method values × alias receiver). To fix properly: type peel + peel the alias in the closure-capture IR-gen.
+- **MAJOR — alias receiver unsupported for IMPL declarations** (`pkg/binate/types/check_impl.bn:90` + dispatch): `type AB = *Box; impl AB : Getter` is rejected ("impl receiver must be (a wrapper around) a named type") because `checkImplSatisfaction` calls `ReceiverBaseNamed()` on the possibly-`TYP_ALIAS` `recv`. Peeling it accepts the impl, but dispatch through the alias-impl iface value → runtime **SIGSEGV**. Niche (impl on alias receiver). To fix properly: type peel + alias handling in impl/vtable dispatch.
+
+**❌ REFUTED / non-exploitable — RUNTIME-verified; do NOT act**
+- **R2-D6 ALIAS cycles** (flagged CRITICAL) — **REFUTED**: `type A = B; type B = A` does NOT hang (3 variants tested; compiles + runs). `type A = B` with `B` forward sets `A.Target` to a `TYP_NAMED` forward (not a `TYP_ALIAS`), so `resolveAliasAndConst`'s loop terminates at the named type — the cycle the review imagined isn't formed. The static "unguarded loop" claim missed the forward-decl resolution.
+- **R2-D2 named-array `peelReadonly`** (flagged MAJOR) — **REFUTED**: named-distinct array types (`type Arr [N]S`) don't PARSE (syntax error), and alias arrays (`type Arr = [N]S`) resolve via `indexExprType` and work (`a[i][j].x` → 9). The `peelReadonly`-vs-`peelTransparent` gap doesn't manifest for arrays.
+- **R2-D6 unbounded `Underlying`-walkers** (`NeedsDestruction`/`SizeOf`/`AlignOf`/`discoverStructFromType`) (flagged MAJOR) — **non-exploitable**: only reachable via a cycle; named cycles are decl-time-rejected + broken (`Underlying=nil`), and alias cycles don't form (above). No reachable hang; `peelNamedBounded` on the 4 comparison predicates is sufficient. (Bounding them anyway is harmless defense-in-depth if ever wanted, but defends an unreachable state.)
+- **gen_stmt.bn:259 genDecl iface boxing** (flagged CRITICAL R2-D4 sibling) — **REFUTED**: runtime-verified `var iv readonly @Getter = im; iv.get()` → 7. `genExprOrFuncRef` boxes before the unpeeled `typ.Kind` check, so the skipped re-box at :259 is harmless.
+- **LowerOneFunc / LowerOneFuncShadow missing externNameConflict** (flagged CRITICAL A2 sibling) — **MOOT**: A2 was reverted as a misdiagnosis; the guard no longer exists.
+
+### [closing-review] Coverage gaps (lower priority — add tests)
+R2-D7: no readonly/alias-wrapped named-int or named-float-minus test. R2-D5: matrix covers only `type AB = @Box` (not alias-over-readonly / value-receiver alias). R2-D4: only managed `readonly @Iface` construct un-xfailed (no `readonly *Iface`, no return/arg-pass position). A1: no float-scalar / named-sub-word / box-in-loop box test.
+
+---
+
+## CR-2 follow-up batch adversarial review (2026-06-09) — post-landing
+
+Adversarial review (find → perspective-diverse cross-examine → synthesize, 56 agents)
+of the 8 landed CR-2 follow-up commits (R2-1 `79ebfa98`, R2-2 `d086ccac`, B2
+`e15680d7`, B1 `05901f97`, B4 `b4648200`, B3 `5fc5a52f`, R2-3 `ca155319`, split
+`2beab6e5`). **Heeding the over-confirmation caution at the top of this file, the
+three critical/major entries below were RUNTIME-verified by hand (gen1/gen2 bnc
+built from the worktree + an A/B against BUILDER bnc-0.0.7), not just statically.**
+Two of the serious findings are regressions in THIS batch's own commits.
+
+- **CRITICAL — X2** (R2-3 `ca155319`): the new negative-offset `panic` false-fires
+  on valid code (iface-value upcast to an unrelated zero-method interface).
+  **✅ RESOLVED 2026-06-10 (binate `4ac123da`)** — root-caused as a checker
+  duck-typing hole; fixed via `isUniverseAny` + supported `@Iface -> *Iface`
+  decay (fork B). Full entry under ## CRITICAL.
+- **MAJOR — B1/X3** (`05901f97`/`5fc5a52f`): bare const-group member drops its
+  inherited narrow type → checker accepts an overflow the explicit form rejects,
+  IR truncates (silent wrong value). Full entry under ## MAJOR. Straight bug fix.
+- **MAJOR — B2** (pre-existing, NOT from `e15680d7`): named func-value types
+  (`type Fn @func(...)`) are unconstructible. Full entry under ## MAJOR.
+
+**Lower-severity / follow-up (not yet runtime-triaged unless noted):**
+- **X3-highbit (major, DIRECTION CONTESTED — semantics-owned).** `1<<iota` now
+  folds in the checker (B1), so a flag member hitting the SIGN bit of a signed
+  target (`1<<63` → `int` on 64-bit; `1<<31` on 32-bit) computes positive
+  2^(W-1), which `FitsSigned(W)` rejects — while IR's `evalConstExpr` wraps to the
+  valid two's-complement `INT_MIN`. A real checker-vs-IR divergence, but the
+  RESOLUTION is a spec call: `claude-notes.md` §const decides const values are
+  abstract and must fit the target range (→ the reject may be CORRECT; the
+  canonical idiom uses an UNSIGNED target, unaffected). Do NOT change semantics
+  unilaterally. (The literal `1<<63` form was already rejected pre-B1; B1 only
+  widens that to the iota form without aligning IR.)
+- **X2b (major, derivative/pre-existing).** The VM upcast path (`vm_exec_iface.bn`)
+  reacts to the SAME checker-accepted upcast with a runtime abort (`iface_upcast:
+  target vtable not found`) — a third distinct behavior. Not touched by R2-3.
+  Whatever fixes X2 must reconcile all four consumers (LLVM/aa64/x64/VM).
+- **B3 type-divergence (minor) — ✅ RESOLVED 2026-06-10 (binate `b9d6d807`).** A bare
+  const member that PARKS (REPL) used to resolve via `GenConstMember` (reads only
+  `d.TypeRef`=nil → untyped int), whereas the non-parked sibling got the inherited
+  type via `genConstGroup`. Fixed by the B1/X3 fix: `checkGroupDeclTentative` now
+  threads the inherited type onto the synthesized repeat, so the parked member
+  carries `d.TypeRef`=the inherited type and resolves at that width.
+- **✅ RESOLVED 2026-06-10 (binate `e16d53bc`) — the four cheap CR-2-review minors:**
+  - arm32 xfail rationale (value-struct-large linux+baremetal): corrected to the
+    real cause (shared IR-gen readonly field-read defect / Defect 1), matching the
+    sibling value-struct markers verbatim so both clean up together (was an XPASS
+    landmine).
+  - `IsByvalParam` unbounded peel: routed through `peelNamedBounded` (1024 cap),
+    behaviour-identical for valid types.
+  - stale `gen_func.bn` comment: rewritten to the actual mechanism (`IsByvalParamRef`
+    flag drives `OP_STORE`'s memcpy; `ParamIndex` is debug-info only).
+  - B3 test: added the `IotaIdx == 1` assertion (mirrors the sibling iota test).
+
+REFUTED by cross-examination (recorded so they aren't re-chased): no other
+`emitRef`/`emitValRef` global-ref drop sites beyond OP_CAST + iface-arg (R2-2 clean);
+B2's `=` change correct for multi-assign/non-func-LHS; the split (`2beab6e5`) moved
+all functions/tests intact; B4 regression tests are non-vacuous.
+
+---
+
+## CR-2 Plan-1 Adversarial Review — pre-existing sibling miscompiles (2026-06-08)
+
+An adversarial multi-agent review (53 agents) + hand-verification of the CR-2
+Plan-1 defect fixes (Defects 1–9). **Headline: the landed fixes are correct
+for exactly what they claimed, but INCOMPLETE — each peeled/migrated at SOME of
+the sites sharing its root cause and left the siblings broken.** These siblings
+are PRE-EXISTING miscompiles (no Plan-1 fix touched them; C1's pre-existence
+was confirmed by building a pre-fix compiler) — **none is a regression
+introduced by the fixes**, and no green test went red. The recurring root
+causes: (R1) wrapper-transparency peeled in predicates but not at the consuming
+extraction / call-convention / construction sites; (R2) `isAggregateAllocToLoad`
+migrated to only 2 of ≥6 aggregate-store/arg arms; (R3) the multi-return
+slot-typing fallback landed in `:=` but not `=`; plus the Defect-9 `-` fix
+gating on `TYP_INT` (not peeling `TYP_NAMED`). Each fix is a peel-at-the-
+consuming-site / swap-the-guard one-liner + xfail-then-fix coverage; all ship
+green because no test exercises the wrapped / nameless / composite-literal /
+named-type variant. Per the user (2026-06-08): FILE all, FIX nothing yet.
+The CRITICAL entries below are also surfaced in `## CRITICAL`-class triage.
+
+### [CR-2 Plan-1 review] MINOR / doc-comment & xfail-hygiene corrections (2026-06-08)
+- **N2 / N3 / N10 / N11 — ✅ DONE**: N2 (dead `peelTransparent` comment in `gen_iface.bn`) and N10/N11 (stale iface/funcval-multi-return xfail markers) were resolved in-tree by later work (verified absent); N3 (the false "deferred to the concrete instantiation" comparability comments + an xfail `eq[@[]int]` cell, `conformance/772`) landed binate `15946a55`. See claude-todo-done.md.
+- **N1 (narrow, pre-existing) — ✅ RESOLVED 2026-06-12 (`11f99ed9`)**: an out-of-range CONSTANT shift count was wrapped into [0,width) by `ensureWidth` BEFORE the overshift guard (`v << 256` on uint8 → 1 not 0; signed `int8 >> 256` stays -64 not sign-filled; same in `<<=`/`>>=`). New `emitConstOvershiftOrNil` (`gen_binary.bn`) detects a constant count `>= width` from its ORIGINAL (pre-`ensureWidth`) `IntVal` and emits the spec result directly — 0 (logical `<<`/unsigned `>>`) or sign-fill `lhs >> (W-1)` (signed `>>`), the SAME result `emitGuardedShift` already produces for a runtime overshift (VM-consistent — the path the reverted "widen the value" attempt regressed). Wired into BOTH `genBinaryExpr` and `emitCompoundBinop`, before each truncates the count. Keying on `IntVal` also covers a wider-TYPED constant count (uint16 const 256 shifting a uint8). `conformance/729_const_shift_overshift` green on LLVM / both VM lanes / native aa64 / native x64-darwin; the 48 existing runtime-count shift/overshift cases + ir unit tests unaffected. (The **runtime** count-wider corner (c) is now also ✅ RESOLVED — binate `0db709a1` reads the UNTRUNCATED count so a runtime count wider than the value is detected. Related shift hardening landed alongside: a runtime **negative** shift count now panics — `6bf1efab`, `runtime error: negative shift count` — and a constant negative count is a compile error — `f6b9ebce`; plus the guard-free `unsafe_shl`/`unsafe_shr` intrinsics — `c9a6ed36`. Spec updated: §13.5 `expr.shift.overshift`/`expr.shift.negative`, §15.8, §17.5, §21.)
+- **Coverage-only (verified-correct paths)**: 659 omits raw-pointer-index compound-shift (`p[i] <<=`) and signed `>>=` overshift on non-IDENT lvalues; the genShortVar nameless `multiReturnFieldTypes` fallback has no IR-gen unit test / no managed-component func-value `:=` cell; Defect-2b raw-pointer & value receiver rows have no conformance/unit coverage (the reject paths are soundness-critical and the TYP_POINTER/TYP_MANAGED_PTR arms are duplicated).
