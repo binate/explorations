@@ -1,8 +1,15 @@
 # Plan: Embeddable / reentrant VM — eliminate per-run global state
 
-Status: **IN PROGRESS** (2026-06-16). v1 = increments 1–5 below
-(reentrancy-only, single-target, interpreter-only, `@GenCtx`/`@Module`
-split). Scope decisions ratified by the user 2026-06-16.
+Status: **v1 COMPLETE** (increments 1–5 landed, 2026-06-19) — the
+interpreter is **sequentially reentrant** for a single target: loader,
+types, ir-gen, and vm-lowering no longer cross-talk through per-run package
+globals.  The one remaining `ir` per-run global — the pending-dtor lists — is
+**deferred with eyes open** (sequential-safe: `InitModule` resets it per
+compilation; only an *interleaved*-compilation concern, out of v1 scope; see
+5d-3 below).  Headline deliverable landed: `vm/vm_reentrancy_test.bn`.
+Deferred increments 6 (cross-target) and 7 (AOT compiler) remain (see below).
+v1 = increments 1–5 below (reentrancy-only, single-target, interpreter-only,
+`@GenCtx`/`@Module` split). Scope decisions ratified by the user 2026-06-16.
 **Landed:** increment 1 (loader `loadingStack` → `@Loader`, binate
 `bd18a73e`); increment 2 (vm-lowering 9 globals → `@VM`, binate
 `b1b19ce1`); increment 3 (types ambient pointers → `@Checker`, **both**
@@ -680,21 +687,59 @@ this reuses).
       15/15 in builder-comp + builder-comp-int.  **5d-2 COMPLETE — alias map,
       CurrentImportAlias, and the interface registry are all per-`@Module` now;
       the IR-gen layer is reentrant for them.  Next: 5d-3.**
-  - **5d-3 — remainder.** pending-dtors (`pendingMsDtors`/`StructDtors`+`Names`)
-    + `methodValueWrappers` → `@Module`; delete remaining globals; `verifyIR`
-    decision; land the end-to-end two-session reentrancy test.
-  - **Review follow-ups (adversarial review 2026-06-19; fold into 5d):**
-    (a) The 5c-2c counter move was a latent-bug FIX in the REPL, not strictly
-    neutral: with the old globals a mid-session `import` reset the shared
+  - **5d-3 — remainder. LARGELY LANDED (2026-06-19); increment 5 closed for v1.**
+    - **5d-3a — `methodValueWrappers` → `@Module`. LANDED (main `49669f83`).**
+      Flattened to `@Module.MethodValueWrappers @[]@[]char` (the trivial 1-field
+      `methodValueWrapper` struct + `appendMVWrapper` dropped).  Fixes the
+      review-follow-up (b) REPL bug: `resetFuncLitState` wiped the *global* on
+      every `GeneratePackage` incl. a mid-session import's `pkgGc`, clobbering
+      the session module's wrappers; per-module it clears only `gc.Mod`'s cache.
+      3 files, +20/−35; units ir 558 / vm 186 / repl 65 etc. 0 failed; hygiene 15.
+    - **End-to-end two-session reentrancy test — LANDED (main `36f45f39`).**
+      `vm/vm_reentrancy_test.bn:TestVMTwoSessionReentrancy` runs the full
+      parse→check→ir-gen→vm-lower→execute pipeline 4× interleaved (via
+      `compileAndRun`, fresh `@Checker`/`@Module`/`@VM` each call) over two
+      programs that declare a same-named but different-shaped `interface Speaker`
+      — a leaked per-run registry would mis-dispatch the second program's vtable.
+      The increment-5 headline deliverable.  (Note: `compileAndRun`'s `GenModule`
+      path goes through `InitModule`, so the *sequential* run also reset the old
+      globals — the test is the integration proof; per-subsystem isolation that
+      does NOT rely on the reset is unit-tested directly: loader
+      `TestLoaderLoadingStackIsolation`, vm `TestGlobalAddrPerInstanceIsolation`
+      / `TestVtableInjectPerInstanceIsolation`, ir `TestGenCtxRegistryIsolation`.)
+    - **`verifyIR` — LEFT a process-global** (a `SetVerifyIR` debug/CI flag that
+      gates a structural assertion; does not affect generated code, like
+      `debug.verbose` — not a per-run data hazard).  Plan permitted "leave."
+    - **pending-dtors (`pendingMsDtors`/`StructDtors`+`Names`, 4 globals) —
+      DEFERRED (user, 2026-06-19), documented.** They are the ONE remaining
+      `pkg/binate/ir` per-run package-global.  **Sequential-safe:** `InitModule`
+      resets them per compilation and they're drained within each compilation, so
+      v1 sequential reentrancy holds without moving them — they'd only corrupt
+      under *interleaved* compilation (out of v1 scope).  Moving them is
+      materially harder than the other 5d items: the writers
+      (`registerPendingMsDtor`/`StructDtor`) sit deep in refcount emission
+      (`emitStructCopy`/`emitStructDtor`/`emitManagedSliceRefDec`, which carry
+      `f @Func` but no `@Module`/`gc`), and the dtor-body generators
+      (`genStructDtorWithName`/`genManagedSliceDtor`/`genArrayDtor`/
+      `genIvRecvThunk`) that create those funcs also lack a module — and dtor
+      bodies register *more* pending dtors (nested), so threading `m` (or a raw
+      `@Func.Mod` back-ref à la `@Block.Func`, set at the 10 prod `NewFunc` sites)
+      cascades through the refcount-emission + dtor-generator machinery.  Changing
+      `NewFunc`'s signature instead would hit 181 test callers.  **Follow-up:** a
+      dedicated "interleaving-safety: pending-dtors → `@Module`" pass if/when
+      interleaved compilation is needed (increment 6+ territory).
+  - **Review follow-ups (adversarial review 2026-06-19):**
+    (a) **STILL OPEN (small).** The 5c-2c counter move was a latent-bug FIX in
+    the REPL: with the old globals a mid-session `import` reset the shared
     `anonStructCounter`/`funcLitCounter`, so a later prompt's anon-struct /
     funclit could re-issue `__anon_0` / `main.__funclit_0` and collide in the
     persistent `s.MainMod`; per-`s.MainGc` counters can't.  Add a REPL
     regression test (mid-session import, then a prompt using a funclit or anon
-    struct — assert no duplicate name) — fits the 5d REPL alias-path rework.
-    (b) `resetFuncLitState` still wipes the package-global `methodValueWrappers`
-    on every `GeneratePackage` incl. a mid-session import's `pkgGc` — clobbers
-    session-synthesized wrappers; resolved when 5d-3 moves `methodValueWrappers`
-    onto `@Module` (then `resetFuncLitState`'s doc-comment becomes fully true).
+    struct — assert no duplicate name).
+    (b) **RESOLVED (5d-3a, main `49669f83`).** `resetFuncLitState` no longer
+    wipes a package-global `methodValueWrappers` — it's per-`@Module` now, so a
+    mid-session import's `pkgGc` reset can't clobber the session module's
+    synthesized wrappers.
 
 **Wrinkles / risks (flagged):**
 1. **`moduleInterfaces` is cross-package & lifetime-subtle (the main risk).**
