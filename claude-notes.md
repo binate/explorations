@@ -243,6 +243,8 @@ A language whose primary spec embeds I/O assumptions (a `string` type, an output
 
 No language-level error handling. No exceptions, no panic/recover. Errors are just values — return them as part of a tuple, check them, handle them. Convention, not language machinery.
 
+**`panic(msg *[]readonly char)` — DECIDED 2026-06-20 (impl being reworked)**: the `panic` builtin (the *unrecoverable* abort — distinct from the rejected recoverable panic/recover above) takes a **single** argument, the diagnostic message, of type **`*[]readonly char`** (a read-only raw char slice — a string literal borrows its static storage, so no allocation on the abort path). NOT variadic. The current impl treats `panic` as variadic (the print/println machinery) and is being reworked to this signature. Spec: §15.7 `builtin.panic`. (Separately, panic is still a no-op in the bytecode VM — a tracked MAJOR.)
+
 Benefits:
 - No hidden control flow, no stack unwinding
 - Trivial across the compiled/interpreted boundary (errors are just return values)
