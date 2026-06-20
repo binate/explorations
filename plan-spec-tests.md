@@ -250,9 +250,9 @@ root) is accepted by the checker but its (R,I) vtable is not wired → null-vtab
 crash. Pinned by `062` (xfail). Same `collectImportedImplsFromDecl` machinery as
 the ancestor-walk MAJOR. **Needs a user prioritization decision.**
 
-**Ch.11 coverage-gap expansion — DONE on the worktree 2026-06-20** (binate
-`48e93ec8`, NOT yet landed; chapter now **63 tests**, still 25/25 rules, green on
-7 modes). Authored via a 2nd design fan-out + empirical probing of every edge.
+**Ch.11 coverage-gap expansion — landed on main 2026-06-20** (binate `1fa326ef`;
+chapter now **63 tests**, still 25/25 rules, green on 7 modes). Authored via a 2nd
+design fan-out + empirical probing of every edge.
 The review's deeper sub-clause gaps are now covered:
 - ✅ `iface.decl`: 016 dup method, 017 no `type X interface{}`, 018 no method body.
 - ✅ `iface.impl.coverage`: 028 receiver-kind unreachable; 027 `@readonly` receiver.
