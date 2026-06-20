@@ -1755,14 +1755,6 @@ hatch" sufficient (close this out)?
   to extend `checkBniSignatureMatch` to methods; whether `.bni` method
   decls are mandatory or just allowed.
 
-### Continue backfilling negative conformance tests
-- 31 negative tests exist (112, 200-210, 214-221, 235-236, 238-246), covering type mismatches, undeclared vars, wrong args, nil semantics, operators, comparisons, field access, indexing, non-function calls, managed pointer misuse, multi-return, undefined types, .bni/.bn mismatch, visibility, imports, type conversion, const/break/continue/param, package mismatch, missing return, var redeclaration
-- `.error` files use `grep -E` regex matching
-- **Fixed diagnostics**: assign to const (238), break/continue outside loop (239, 242), duplicate param names (243), var redeclaration in same scope (246)
-- **Remaining xfail'd**: missing return (245) — needs control flow analysis
-- Bootstrap-only: package name mismatch not detected in single-file mode (244 xfail on boot)
-- Still needed: const expression errors, more shadowing edge cases
-
 ### Readonly method receivers — deferred (gated on methods/interfaces)
 - A method's receiver kind (`*readonly T` / `@readonly T`, plus value
   receivers — which are always readonly) determines which pointer kinds

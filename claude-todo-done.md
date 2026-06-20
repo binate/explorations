@@ -6821,3 +6821,13 @@ Foundation and full type coverage landed (details below). The one remaining piec
    shape), `TestEmitDebugSubroutineTypeVoidNullary` (`!{null}`),
    `TestEmitDebugSubroutineTypeVoidWithParam` (`!{null, !5}`).
    Full conformance under -g: 327/0 (1 unrelated xfail).
+
+### ~~Continue backfilling negative conformance tests~~ — ✅ DONE (superseded) — backfilling is now standard practice
+
+The early snapshot (31 negative tests, numbers 200–246) is long superseded: ~137 negative
+`.error` conformance tests now exist, and every item it tracked is resolved or moot —
+missing-return detection (245) landed (no longer xfail'd; control-flow analysis implemented),
+the "fixed diagnostics" (assign-to-const 238, break/continue-outside-loop 239/242, duplicate
+params 243, var-redeclaration 246) shipped long ago, and the `boot`-mode caveat (244 xfail on
+boot) is dead since the Go bootstrap interpreter was retired. Adding negative tests for new
+diagnostics is now standard practice under the Bug Discovery Protocol, not a standalone TODO.
