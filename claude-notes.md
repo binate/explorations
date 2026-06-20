@@ -202,6 +202,8 @@ The C runtime (`binate_runtime.c`) should shrink over time, not grow. The goal i
 
 **End state**: declare external C library functions via compiler annotations (or a natural FFI mechanism) and remove the C runtime entirely. Pure Binate systems — where everything is written in Binate — should be possible. The C dependency exists only insofar as it's the practical way to talk to the OS; it's not a permanent architectural choice.
 
+**`__c_call` void return — DECIDED 2026-06-19 (in progress)**: a void-returning C function is written with the **string literal `"void"`** in `__c_call`'s return-type position (`__c_call("sym", "void", args…)`), where a Binate type would otherwise go. Struct returns remain unsupported (pass a pointer to an out-parameter). Until it lands, a void C function still uses the throwaway-scalar-return-and-discard workaround. Spec: §16.9 `pkg.ccall`, `binate.ebnf` `CCallRet`.
+
 ### Language specification — primary spec is minimal — DECIDED
 
 Binate will have **multiple specs**, not one monolith. The split:
