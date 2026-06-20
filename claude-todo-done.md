@@ -8,6 +8,20 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## MAJOR (IR-gen / cross-pkg generics, ALL modes) — a cross-package generic body that INSTANTIATES another package's generic fails when the consumer imports neither: transitive generic DECLS aren't registered for monomorphization (2026-06-19) — ✅ FIXED (`dfe60903`, 2026-06-19)
+
+**✅ FIX LANDED (`dfe60903`, 2026-06-19).** Three pieces, all driven over the transitive closure of generic-bearing loaded packages (in both cmd/bnc and cmd/bni): (1) `ir.RegisterGenericDecls` stashes every loaded package's generic func/struct/interface decls (full-path keyed, deduped) — in-memory only, so broad is cheap — so the consumer can monomorphize a generic it reaches through another package; (2) `registerGenericBodyExternDeps` broadened from the consumer's DIRECT generic-bearing imports to ALL generic-bearing loaded packages (with a selfPath skip), so a call ≥2 levels down (deep.G) gets its extern; (3) `ir.RegisterImportedImpls` collects the transitive packages' impls into `m.ImportedImpls` (deduped via `moduleHasImportedImpl`), so a generic body that UPCASTS to a transitive-package interface gets the impl's vtable wired. Piece (3) was added after an adversarial review found that pieces (1)+(2) alone turned the transitive-iface-upcast case from a compile-error into a NIL-VTABLE SIGSEGV (silent miscompile) — the review caught it before landing, and (3) closes it. Conformance `858` (func chain), `860` (transitive interface upcast — was the SIGSEGV), `861` (transitive generic struct) all pass; all modes green incl. gen2 self-host (1578/0).
+
+**Symptom (REPRODUCED, builder-comp + builder-comp-int).** `main` imports only `genlib`; `genlib.Sum[T]` (generic) calls `mid.F[T]` (mid's generic), which calls `deep.G()`.  `main` cannot monomorphize `mid.F[int]` because `mid`'s generic decl is not registered in the consumer (`mid` is a TRANSITIVE, not direct, import), so the inner instantiation resolves to an EMPTY mangled name: native `use of undefined value '@bn_main__'`, VM `extern not found: main.`.  Conformance `858_generic_cross_pkg_generic_chain` (now PASSING).
+
+**Root cause / relationship to part (c) (`fcb0dcbc`).** Part (c) registered transitive func EXTERNS so a generic body's call to a NON-generic transitive func links (`ir.RegisterFuncExterns` for generic-bearing direct imports' imports).  But generic DECLS are stashed only for DIRECT imports (`RegisterImports`); `RegisterFuncExterns` skips generic decls.  So when a generic body instantiates ANOTHER package's generic that the consumer doesn't import, the consumer has no decl to monomorphize → empty instantiation name.  This is a deeper, distinct gap (transitive generic-DECL availability) on top of the transitive-extern (func-call) fix — both are Slice 7 (cross-package instantiation) completeness.
+
+**Discovery.** Investigating the part-(c) one-level-transitivity limitation (the consumer registers the imports of generic-bearing DIRECT imports, but not transitively).  Confirmed real via the 3-package chain above.
+
+**Fix status.** FIXED — see the ✅ FIX LANDED block above (`dfe60903`).
+
+---
+
 ## Done
 
 ## MAJOR (LLVM codegen) — a default-init SCALAR local was not zero-initialized → STACK GARBAGE — ✅ DONE & LANDED `2d856a0f` (2026-06-19)
