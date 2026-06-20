@@ -441,71 +441,13 @@ node + module-global accumulators scanned/re-mangled linearly):
 - Minor: `resolveTypeExpr` allocates a fresh `@Type` per occurrence (no
   interning); `lookupFuncParams`/`collectFuncStrings` do O(n) linear scans.
 
-### Differential scalar harness (`matrix/scalar-diff`) landed — two backend defects found: `vm-int-to-float32` and `aa64-subword` — CONFIRMED
-- **What landed**: `conformance/gen-diff-scalar.py` + 41 cells / 1707 tuples
-  under `conformance/matrix/scalar-diff/` — a property-based **differential**
-  value-correctness harness for scalar shifts & conversions. Oracle is the
-  **spec** (computed at full precision, independently validated by a 5-reader
-  adversarial pass), not a backend, so spec-divergences (the shift-bug class)
-  are caught too. Self-checking cells (`println(cast(int, computed == spec))`)
-  for target-stability across 32/64-bit. Green on all LLVM modes + arm32
-  baremetal; the two clusters below are xfailed (verified non-stale via
-  `--check-xpass`). Idempotent generator; `int↔int` casts and all shifts pass
-  on every real backend (broadened regression net for `32fde83d`).
-- **`vm-int-to-float32` — VM `int → float32` is broken (every width/sign) — ✅ RESOLVED 2026-06-12 (binate `289420b6`)**:
-  every `cast(float32, <int>)` diverged — even `cast(float32, 1) > 0.0` was
-  false on the VM. Root cause: `int → float` lowered to `BC_SITOF`/`BC_UITOF`,
-  which land at **float64**; the VM's float32 register form is the float32 IEEE
-  bits in the low 4 bytes, so the float64 pattern's low word (usually zero) read
-  back as ~0. Fix: fused `BC_SITOF32`/`BC_UITOF32` opcodes that write the
-  float32 bit pattern directly, selected in `lower_cast` when the cast dest is
-  float32 (signedness still picks signed/unsigned). Un-xfailed **16 of 17** VM
-  cells across all 3 VM modes; 3 VM unit tests added (lowering decision ×2 +
-  end-to-end round-trip). The 17th cell (`float-to-int/64/unsigned`) uncovered a
-  **distinct sibling bug** (`vm-float32-to-unsigned`, now also resolved — see
-  below).
-- **`vm-float32-to-unsigned` — VM `float32 → unsigned int` used the SIGNED conversion — ✅ RESOLVED 2026-06-12 (binate `3fd7e712`)**:
-  surfaced while fixing `vm-int-to-float32`. `lower_cast`'s `float → int` arm
-  picked `BC_F32TOSI` (signed) for a float32 source regardless of dest sign
-  (its comment admitted "float32 → unsigned is not yet exercised; it stays on
-  the signed `BC_F32TOSI`"). So `cast(uint64, <float32 ≥ 2^63>)` saturated to
-  `INT64_MAX` instead of the in-range unsigned value — a *defined* (in-range)
-  conversion miscompiled, MINOR (only float32→uint64 of values ≥ 2^63; the
-  8/16/32-bit unsigned high-bit values fit signed int64 so those cells already
-  passed). Fix: the exact mirror of the float64→unsigned `BC_FTOUI` — added a
-  `BC_F32TOUI` opcode (`cast(int, cast(uint64, <float32>))`), picked in
-  `lower_cast` for a float32 source with an unsigned dest. Un-xfailed the last
-  scalar-diff VM cell (`float-to-int/64/unsigned`, the 2^63 round-trip) across
-  all 3 VM modes; 2 unit tests added (lowering decision + high-bit round-trip).
-  **All scalar-diff conversion cells are now green on every VM mode** — the VM
-  int↔float32 story is complete in both directions.
-- **`aa64-subword` — native-aa64 doesn't narrow/sign-extend sub-word results**:
-  a sub-word op leaves dirty high bits / wrong sign. `int8(-128) << 1` keeps
-  bit 8 set (so `== 0` fails); `cast(int8, 128:uint8)` and the other
-  `uint8 → int{8,16}` casts are wrong. 17 xfailed cells: `shl`/`shr` 8/16/32
-  **signed**, all 8 `int-cast`, signed sub-word `float-to-int`/`int-to-float`.
-  64-bit and most unsigned paths are fine. The native sibling of the VM/native
-  sub-word-narrowing gap above, here confirmed across shifts/casts/conversions
-  (not just arithmetic). Fix: post-op narrow + sign-extend sub-word results in
-  the aa64 backend (or an IR-gen narrow — the shared P3 design call).
-- **native-x64 / arm32-linux not evaluated**: the host lacks x86_64 C runtime
-  headers (`stdio.h` → every native-x64 cell `COMPILE_ERROR`s uniformly, an env
-  limitation, *not* a backend result — no x64 xfails placed), and `arm32-linux`
-  needs `qemu-arm` (skipped). Re-check on an x64 host: the aa64 sub-word defect
-  very likely has an x64 analog needing its own xfails.
-- **Discovery**: 2026-06-06, differential-harness v1 (plan-differential-testing.md).
-- **v2 (arith/cmp/bitwise) — LANDED 2026-06-06** (binate `42ad4fa0` fix +
-  `e71de1e0` harness): 123 cells / 5415 tuples total. v2 found+fixed the LLVM
-  `~` bug (`bitnot-result-type`, above). Remaining divergences, all xfailed
-  (`--check-xpass`-clean) and in the known classes: VM
-  `bitwise/not/{8,16,32}/unsigned` (sub-word `~` dirty bits); native-aa64
-  sub-word *signed* `arith/{add,sub,mul}/8`, `bitwise/{and,or,xor}/{8,16}`,
-  `cmp/{8,16,32}`, `bitwise/not/*/unsigned`. Float compares incl. NaN/Inf/-0 pin
-  the ordered/unordered `==`/`!=` semantics (corrected 2026-06-06). `fcmp/32`
-  was xfailed at first but the float32-compare fix (binate `fc11d862`) landed
-  concurrently, so it un-xfailed at land time (`--check-xpass` flagged the
-  XPASS). The remaining VM `float32` *conversion* xfails (`int-to-float` /
-  `float-to-int` / `float-cast`) stand — that gap is separate from compare.
+### Differential scalar harness (`matrix/scalar-diff`) — re-evaluate native-x64 / arm32-linux on an x64 host — 🟡 OPEN (low priority)
+The harness (v1 + v2) and every backend defect it found are done (archived in
+[claude-todo-done.md](claude-todo-done.md): `vm-int-to-float32` `289420b6`, `vm-float32-to-unsigned`
+`3fd7e712`, `aa64-subword` `5f94558b`; scalar-diff has 0 xfails now). Remaining: native-x64 and
+arm32-linux were never evaluated on this host (no x86_64 C runtime headers → uniform COMPILE_ERROR;
+arm32-linux needs `qemu-arm`). Re-check on an x64 host — the aa64 sub-word defect very likely has an
+x64 analog needing its own xfails.
 
 ### Audit the home of generic low-level helpers shared by cmd/bni + the REPL engine (low priority / code-org)
 - **Context**: extracting the REPL engine to `pkg/binate/repl` (Stage 4c
