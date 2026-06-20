@@ -50,6 +50,18 @@ So: cross-package METHOD + aggregate (struct) by-value return + immediately used
 
 ---
 
+## MAJOR (IR-gen / wrong-code) — a method EXPRESSION over a named SCALAR type (`type Celsius int`; `Celsius.M`) miscompiles: direct call emits an undefined symbol `@bn_T__M`; the *func form compiles but null/garbage call-shim → SIGSEGV. Fails on BOTH compiled and VM backends (2026-06-20) — 🔴 OPEN — REPRODUCED
+
+**Symptom (REPRODUCED).** `type Celsius int` with method `func (t Celsius) Plus(d Celsius) Celsius`. (a) Direct: `Celsius.Plus(a, b)` → LLVM "use of undefined value '@bn_Celsius__Plus'" (the method-expr target symbol is never emitted/named for a scalar receiver). (b) Via a function value: `var f *func(Celsius,Celsius) Celsius = Celsius.Plus; f(a,b)` → COMPILES (rc=0) but SIGSEGVs at the indirect call (null/garbage call-shim). The SAME pattern over a STRUCT type works, and a scalar method VALUE (`c.Plus`, bound) works — so the defect is specifically the (named-scalar type × method EXPRESSION) combination. Fails on builder-comp AND builder-comp-int (the VM), so it is a shared front-end/IR-gen defect, not LLVM-only.
+
+**Discovery.** Authoring Ch.10 spec test `132_method_expr_named_scalar_noncapturing` (the spec, `func.method-expr`, explicitly allows `T` to be "a named-distinct scalar such as type Celsius int"). The test passes the method expression through a `*func` param and calls it → SIGSEGV.
+
+**Proposed fix (needs investigation).** Find where the method-expression trampoline/target for a named scalar receiver is mangled/emitted; the scalar receiver path likely fails to emit (or mis-names) the `@bn_T__M` shim that the struct path emits correctly. Compare the scalar vs struct method-expr lowering. Remove `132_method_expr_named_scalar_noncapturing.xfail.all` when fixed.
+
+**Test.** `conformance/spec/10-functions/132_method_expr_named_scalar_noncapturing` (positive, `.xfail.all`).
+
+---
+
 ## MINOR (e2e / BUILDER-lag cleanup) — drop the gen1 build in e2e/stat-values.sh after the next BUILDER bump (2026-06-20) — 🔴 OPEN
 
 `e2e/stat-values.sh` builds gen1 from the tree (`scripts/build-bnc.sh`) and compiles its os.Stat probe through gen1, instead of the simpler `$BUILDER … cmd/bnc -- …` form the other e2e scripts use. Reason: os.Stat depends on the `.bni` free-func/method fix (`796effc7`) and the wholesale-os-injection work, which postdate `BUILDER_VERSION` (bnc-0.0.9) — the pinned BUILDER can't compile os yet. Once BUILDER is bumped past those, revert `e2e/stat-values.sh` to the plain `$BUILDER … cmd/bnc -- …` pattern (drops the ~1-min gen1 build per e2e run).
