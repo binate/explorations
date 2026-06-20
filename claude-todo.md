@@ -1595,121 +1595,17 @@ hatch" sufficient (close this out)?
 - **Not a release blocker** (int-int non-blocking per `release-process.md`; was red at `bnc-0.0.7` too). Tracked here so the skips don't become permanent silent coverage loss.
 - **STATUS 2026-06-10 — GREEN** (unit run on `3342460e`): all 8 `builder-comp-int-int` shards pass (2.5–26.7 min) and `builder-comp-int` / `-comp-int` pass. **Margin note**: shard 4/8 ran 26.7 min — ~89% of the 30-min cap; the 8-shard + skip set is sufficient but thin, so if the int-int suite grows it may need a 9th–10th shard or one more skip before it times out again. (The remaining unit reds — `arm32_{linux,baremetal}`, `native_x64` — are separate modes, not this. NOTE: `native_x64` was NOT "WIP" — it was broken by an ELF PC32 reloc bug, fixed 2026-06-14 `dd74c91e`; see the top-of-file native_x64 entry.)
 
-### Function values — MAJOR PROJECT (interop prerequisite)
-- **Plan docs**: `explorations/plan-function-values.md` (parent;
-  Phase 1 COMPLETE) + `explorations/plan-function-values-phase-3.md`
-  (cross-mode trampolines; Slices 3.1, 3.1.5, 3.2, 3.3, 3.4 all
-  LANDED).
-- **Phase 1 COMPLETE (2026-05-01)**: A.1–A.7 all landed. Type
-  syntax, nil + zero-init, function-reference-as-value, calling
-  through a function value, flow through args/returns/fields,
-  method expressions `T.M`, and non-capturing function literals
-  (lifted to synthetic `__funclit_<n>` top-level Funcs).
-  Conformance tests 338–342 + 344 cover each slice; pkg/ir + pkg/types
-  unit tests cover each coercion site, AssignableTo predicate,
-  and capture-rejection. `pkg/ir/gen_call.bn` and
-  `pkg/ir/gen_func_lit.bn` extracted to keep file-length hygiene
-  clean.
-- **Phase 3 LANDED (per plan-function-values-phase-3.md)**:
-  cross-mode trampolines bridge compiled ↔ VM through a uniform
-  always-shim convention `<ret>(*uint8 data, <args>)`. Compiled
-  side: per-function `__shim.<mangled>` set in each `__vt.<mangled>`'s
-  `call` slot (Slice 3.1). Common kind-tag at the start of `data`
-  (Slice 3.1.5) discriminates `DATA_KIND_VM_CLOSURE_REC` vs
-  `DATA_KIND_COMPILED_CLOSURE` (Phase 2). Compiled→VM goes through
-  `vm.TrampolineScalar`, a fixed 7-int-arg trampoline that reads
-  VM handle + vm_func_idx from the closure rec and dispatches via
-  `execFunc` (Slice 3.2). Bytecode→compiled goes through
-  `dispatchCompiledFuncValue` (`pkg/vm/vm_exec_helpers.bn:247`),
-  which routes via `rt._call_shim_scalar` — a new IR-magic helper
-  alongside `_call_dtor` / `_call_free_fn`, lowered to
-  OP_CALL_INDIRECT (Slice 3.3). The earlier `5f4333f` cross-mode
-  hack for `func(*uint8)` is now reframed as `dispatchNativeIndirect`
-  — the BC_CALL_INDIRECT counterpart of BC_CALL_FUNC_VALUE's
-  data==null branch (Slice 3.4). VM handle lives in the
-  VMClosureRec (not a global), so multi-VM works without ordering
-  concerns. Bootstrap-subset constraint: scalars + pointers ≤7,
-  no floats, no aggregates — broader signatures need additional
-  trampoline shapes when they actually reach this path.
-- **Phase 2 DEFERRABLE**: closures + capturing function literals;
-  capture design (by-value vs by-ref, mutability, lifetime) is
-  its own pass. The bytecode dispatcher (`BC_CALL_FUNC_VALUE`)
-  already has a `DATA_KIND_COMPILED_CLOSURE` arm (clear-error
-  guard) ready to fill in.
-- **Downstream**: Phase 3's machinery is what the
-  compiler/interpreter interop project needs. With per-signature
-  shims + the `(data, args)` convention, a "package descriptor"
-  of function-value pointers is enough to dispatch arbitrary
-  cross-mode calls — no per-function hand-coding required. This
-  also opens the door to retiring `pkg/vm/vm_extern.bn`'s
-  hand-written extern arms (~30 of them, including the
-  `rt.RefInc` / `rt.RefDec` arms flagged for retirement above);
-  see the Compiler/interpreter interop entry below.
-- **Reframed scope**: function values were originally framed as
-  "blocked on / a piece of interop." Inverted: data interops fine
-  via shared `.bni` layout; what crosses the compiled/interpreted
-  boundary at runtime are *exported functions and methods passed
-  as values*. The package descriptor the interop work needs is just
-  a struct of function values per export. So function values are
-  the **upstream prerequisite** for the broader interop project,
-  not a sub-item of it.
-- **Representation**: 2-word `{vtable, data}`, identical to
-  interface values. The vtable type is per-signature; the vtable
-  *instance* is per-(function, capture-shape). Vtable layout has
-  `dtor` first (matching all other vtables — common destruction
-  sequence) and `call` second. Function types are structural —
-  `*func(...)` / `@func(...)` — with no user-visible "function
-  interface" declaration; the compiler synthesizes the impls at
-  function-literal and method-value sites.
-- **Frontend syntax**: `*func(int) int` raw / `@func(int) int`
-  managed, mirroring the slice migration (`*[]T` / `@[]T`) and the
-  proposed interface revision. Bare `func(...)` is not a usable
-  type.
-- **Upstream prerequisite**: `plan-call-indirect.md` — LANDED.
-  The `OP_CALL_INDIRECT` IR op (LLVM + VM + native arm64
-  lowerings) is what Phase 1's vtable-indirect call sequence is
-  built on. Already exercised end-to-end by RefDec's dtor
-  dispatch; this plan's Phase 1 doesn't need to re-invent
-  indirect dispatch.
-- **Phasing** (per the plan doc):
-  - **Phase 1 — backend vtable machinery + non-capturing function
-    values.** This is primarily about *building the shared
-    interface/vtable backend* (vtable type/instance generation,
-    `call`-shim mechanism, vtable indirect-call sequence in
-    compiler + VM). Non-capturing function values are the
-    smallest user-visible thing the backend can deliver. The same
-    machinery is what user-declared interfaces will need at the
-    runtime layer. Non-capturing call sites use a check-data-nil
-    short-circuit (consistent with other nil-checks in the
-    codebase) rather than always going through the shim.
-  - **Phase 2 — closures + method values (DEFERRABLE).** Capture
-    analysis, closure-struct generation, receiver-capture for
-    method values. **Capture design is open** (by-value vs. by-
-    reference, mutability semantics, lifetime extension) and is
-    its own design pass before implementation. Most current goals
-    do *not* need Phase 2; the compiler and self-hosted runtime
-    don't write closures, CallDtor retirement doesn't need it
-    (see Path B above), and the interop descriptor exposes only
-    non-capturing function values. Defer until there's a concrete
-    user-facing need.
-  - **Phase 3 — cross-mode trampolines.** LANDED. Per-signature
-    (currently per-return-shape: TrampolineScalar) trampolines
-    bridge compiled ↔ VM through the always-shim convention.
-    See plan-function-values-phase-3.md for slice-by-slice detail
-    and the "Phase 3 LANDED" bullet above for the LANDED summary.
-    Unlocks the broader interop work; doesn't require Phase 2.
-- **Recursive lambdas — explicit non-goal for Phase 1.** Go-style
-  recursive closures (`var f = func(x) { ... f(...) ... }`) are
-  NOT supported. Top-level named recursive functions work as
-  always. Y-combinator pattern is the workaround if needed.
-  Revisit when Phase 2 capture design is settled.
-- **Backend dependency**: function values share the vtable layout
-  and dispatch path with interfaces, but **not** the frontend
-  interface syntax. They depend on the runtime/codegen vtable
-  machinery, not on `plan-interface-syntax-revision.md`. Either
-  plan can land first; both share the backend.
-- **Method values** (`x.M`, `T.M`) and **closures** are folded
-  under this plan rather than tracked separately.
+### Function values — residual follow-ups (the MAJOR PROJECT landed) — 🟡 OPEN (low priority)
+Function values are done across all three phases (archived in [claude-todo-done.md](claude-todo-done.md):
+Phase 1 non-capturing + type/vtable machinery, Phase 2 closures/capture — `plan-function-values-phase-2.md`
+is "COMPLETE (shipped)", conformance 338–344 + 501/508–510/513…, Phase 3 cross-mode trampolines).
+Residual:
+- Broader cross-mode trampoline signature shapes beyond `TrampolineScalar` (floats, aggregates, >7 args) —
+  add when a path actually reaches them.
+- Recursive lambdas (`var f = func(x){ … f(…) … }`) — non-goal during Phase 1; revisit now that Phase 2
+  capture is settled (Y-combinator is the current workaround).
+- Downstream interop hand-off (package descriptor; retiring ~30 hand-written `vm_extern` arms) is tracked
+  under "Compiler/interpreter interop — MAJOR PROJECT".
 
 ### Cross-package method visibility in `.bni`
 - Methods defined on a public type in package `foo` need to be declared
