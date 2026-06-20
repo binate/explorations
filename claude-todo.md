@@ -55,13 +55,13 @@ Remaining:
   dispatch, error sentinel identity); per-function correctness stays in the unit
   tests. `pkg/stdx/slices` is a non-injected generic library — stays under int,
   does NOT need converting. Per-package checklist (focused-test target in parens):
-  - [ ] `errors` (~3) — New/Wrap message format, Unwrap chain, Is (identity +
+  - [x] `errors` — `002_is_and_chain`, `003_base_hierarchy` (landed `99f0b385`). Is (identity +
     chain walk), base-error hierarchy. (`errors/001` upcast already done.)
-  - [ ] `strconv` (~5) — Itoa/Atoi, ParseInt/Uint bases+errors, ParseBool,
+  - [x] `strconv` — `001`/`002`/`003` (landed `970b8a77`). Itoa/Atoi, ParseInt/Uint bases+errors, ParseBool,
     FormatFloat (the big cross-mode float stressor: g/e/f/hex, specials, f32).
-  - [ ] `strings` (~3) — Builder Write/WriteByte/Len/Reset, *Builder via io.Writer
+  - [x] `strings` — `001_builder`, `002_byte_fidelity` (landed `c51d2a2d`). Builder API; *Builder via io.Writer
     / io.ByteWriter (iface dispatch), 256-byte fidelity.
-  - [ ] `io` (~2) — EOF/IsEOF identity, IsEOF through a Wrap chain, errors.Is(EOF,
+  - [x] `io` — already covered cross-mode by `663_io_iseof` (fold into suite later). EOF/IsEOF identity, IsEOF through a Wrap chain, errors.Is(EOF,
     ConditionsUnmet).
   - [ ] `time` (~3) — FromUnix/ToUnix round-trip, Sub (sec+nsec, epoch-crossing),
     Before/After/Equal ordering. (Pure int64 — no clock.)
@@ -100,6 +100,20 @@ Remaining:
 **Proposed fix.** IR-gen: when a construction site needs the (R, I) vtable, ensure the imported-impl path (`gen_impl.bn` `collectImportedImplsFromDecl`) records and emits/links the (R, I) vtable for an impl declared in ANY imported package (not just R's home package / the root), mirroring how a same-package or root impl is wired.  Likely the same code path the ancestor-walk fix touches; fix together and keep checker (already accepts) and IR-gen in lockstep.
 
 **Test.** `conformance/spec/11-interfaces/062_noorphan_imported_third_pkg` (positive, `.xfail.all` — checker accepts, runtime null-vtable crash in every execution mode).  The green companion `055_noorphan_third_pkg` covers the working "impl in main (root third package)" case; `061_err_construct_no_visible_impl` covers the not-imported rejection.  Flip 062 to a normal positive (drop the xfail) when this lands.
+
+---
+
+## MINOR (type-checker / under-enforcement) — the primitive-impl carve-out (§11.10) is NOT enforced in the IMPL pass: a non-`pkg/builtins/lang` package may `impl <primitive> : <empty interface>` and it is wrongly ACCEPTED (2026-06-20) — 🔴 OPEN
+
+**Symptom (REPRODUCED).** In package `main` (non-lang): `interface Empty {}` + `impl int : Empty` compiles and runs (`var iv *Empty = &x` works).  Spec `iface.canonical.carveout` (§11.10): "Exactly one package, pkg/builtins/lang … may declare methods **and impls** on the universe primitives … no other package may."  So this should be rejected.
+
+**Root cause.** The carve-out gate (`AllowUniverseRecv`, set only for pkg/builtins/lang) is enforced in the METHOD-declaration pass (`resolveMethodReceiver`, check_decl_func.bn) — so `func (x int) m()` IS caught ("method receiver int is not a type defined in this package").  But an `impl <primitive> : I` where `I` has NO methods reaches no method-declaration check, and the IMPL-collection pass has no equivalent universe-receiver gate, so it slips through.  (A non-empty interface is still indirectly blocked because you cannot declare the methods to satisfy it.)
+
+**Severity.** MINOR: an under-enforcement (accepts spec-forbidden code), not wrong-code or a crash.  Harmless in practice but a real spec-vs-impl divergence.
+
+**Proposed fix.** Add the universe-receiver carve-out gate to the impl-collection pass (reject `impl R : I` when R reduces to a universe primitive and the current package is not pkg/builtins/lang), mirroring `resolveMethodReceiver`'s `AllowUniverseRecv` check.
+
+**Test.** `conformance/spec/11-interfaces/085_err_impl_primitive_carveout` (negative, `.xfail.all` — currently accepted; flip to a normal reject when the gate lands; its `.error` pattern `primitive` is a best-guess at the eventual diagnostic).
 
 ---
 
