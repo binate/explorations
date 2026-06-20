@@ -1814,95 +1814,17 @@ hatch" sufficient (close this out)?
 - `arr[:]` works in compiled mode; conformance tests using `make_slice` + indexed assignment for static data could use `[N]T{...}` + `arr[:]` instead
 - Consider adding slice literal syntax (`*[]T{...}`) as sugar
 
-### DWARF debug info — foundation in place, type coverage missing
-**Done** (via `56ea542`, `a15ef50`, `2cd2c25`):
-- `-g` flag in `cmd/bnc`, `SetDebugInfo` in `pkg/codegen`; off by default.
-- Module-level: `source_filename`, `DICompileUnit` (FullDebug), `DIFile`, `DISubroutineType`, per-function `DISubprogram`.
-- Line-level: `Line int` field on `ir.Instr` (`pkg/ir.bni:170`). `genExpr` sets `.Line` from `e.Pos.Line` (`pkg/ir/gen_expr.bn:16`). `annotateBlockInstrs` backfills zero-line instrs to statement line (`pkg/ir/gen_stmt.bn:11-14`). Per-instruction inline `!DILocation(line: N, scope: !M)` in emitted LLVM (`pkg/codegen/emit_debug.bn:99-114`).
-- Variables: `llvm.dbg.declare` + `DILocalVariable` for named allocas (`emit_debug.bn:139-162`). Names propagated via `StrVal` on `OP_ALLOC`.
-- lldb/gdb now show Binate function names, file, line numbers, and local variable names.
+### DWARF debug info — finer-grained source positions (open-ended, low priority) — 🟡 OPEN
 
-**Gaps**:
-- ~~Type coverage is basically just `i64`.~~ FIXED for scalars,
-  pointers, structs, slices, interface-values, function-values,
-  arrays, and named typedefs (2026-05-07/08).
-- ~~Parameters don't get `DILocalVariable`~~ — FIXED (2026-05-07).
-  Param allocas were already named so the existing dbg.declare
-  fired; step 3 added `arg: <N>` so lldb shows them as function
-  arguments rather than mixed in with locals.
-- ~~`DISubprogram` has `line: 0` and `scopeLine: 0`~~ — FIXED
-  (2026-05-07). `ir.Func` carries a `Line` field; gen_func.bn
-  populates it from the AST decl's `Pos.Line`; emit_debug.bn
-  threads it into both the `line:` and `scopeLine:` fields.
-  Synthetic helpers (init dispatcher / entry wrapper / dtor /
-  copy stubs) keep `line: 0`.
-- ~~`DISubroutineType` is a single shared generic~~ — FIXED
-  (2026-05-09). Per-function DISubroutineType + types tuple
-  emitted; void/nullary funcs get `!{null}`, parameterised funcs
-  get `!{<ret-or-null>, <param1>, ...}` referencing the type
-  registry. See step 7 below.
+The DWARF foundation + full type coverage are done (archived in [claude-todo-done.md](claude-todo-done.md):
+`-g`, DICompileUnit/DIFile/DISubprogram, per-function DISubroutineType, DILocalVariable for
+locals + params, and DIBasicType/DICompositeType/DIDerivedType covering scalars, pointers,
+structs, slices, managed-slices, interface-values, function-values, arrays, named typedefs).
+The one remaining, open-ended piece:
+- Thread source positions through more IR-gen sites (statements, assignments, calls) for
+  finer-grained `DILocation` — today only `genExpr` threads `.Line`; most emission sites rely
+  on coarse statement-line backfill. No columns.
 - No `llvm.dbg.value` (only `dbg.declare` for allocas).
-- Line positions: only `genExpr` explicitly threads `.Line`; most IR-emission sites rely on statement-line backfill (coarse). No columns.
-
-**Reasonable next steps** (roughly ordered by effort/payoff):
-1. ~~Emit `DIBasicType` for each scalar kind~~ — DONE (2026-05-07).
-   Unit tests in `pkg/codegen/emit_debug_test.bn` pin the slot
-   layout (`TestDbgTypeIDScalars`), the emitted DIBasicType nodes
-   (`TestEmitDebugBasicTypesEmitted`), and the `dbg.declare` →
-   slot wiring (`TestEmitDebugDeclareReferencesScalarType`). Full
-   conformance (boot-comp, 317/0) compiled with `BINATE_FLAGS=-g`.
-2. ~~Capture function definition lines into `DISubprogram`~~ —
-   DONE (2026-05-07). `TestEmitDebugSubprogramLine` pins
-   `line:` / `scopeLine:` for two functions on different source
-   lines; `TestSyntheticFuncDefaultLineZero` pins the synthetic
-   `Line == 0` invariant.
-3. ~~Emit `DILocalVariable` for parameters~~ — DONE (2026-05-07).
-   Step actually emitted `arg: <N>` on the existing DILocalVariable
-   for params (vs. the gap entry's premise of "no dbg.declare for
-   params" — the dbg.declare was already firing once defineVarParam
-   tagged the alloca). Tests:
-   `TestEmitDebugDeclareParamsCarryArgIndex`,
-   `TestEmitDebugMethodReceiverIsArgOne`,
-   `TestParamAllocaParamIndex`.
-4. ~~Emit `DICompositeType` for structs / `DIDerivedType` for
-   pointers~~ — DONE (2026-05-08). `pkg/codegen/emit_debug_types.bn`
-   carries a per-module type registry keyed by structural string
-   (raw vs managed pointers distinguished); ids allocate past the
-   per-function metadata block. Recursive interning means a
-   `*Counter` local pulls in Counter's struct nodes; field types
-   route back through `dbgTypeID` so scalar fields wire to !5..!15.
-   Tests in `emit_debug_types_test.bn` cover pointer + struct
-   emission, the pointer-to-struct chain, the dedup invariant, and
-   the structural-key helper. Full conformance under -g: 327/0.
-5. ~~Wire slices, managed-slices, interface-values, function-values,
-   arrays, and named typedefs into the registry~~ — DONE
-   (2026-05-08). New `pkg/codegen/emit_debug_aggr.bn` carries
-   intern + emit functions for each kind. Slices map to
-   DICompositeType DW_TAG_structure_type with the runtime layout
-   (2-word for raw, 4-word for managed); iface and func values
-   map to 2-word DICompositeType; arrays map to DICompositeType
-   DW_TAG_array_type with DISubrange(count:); named typedefs map
-   to DIDerivedType DW_TAG_typedef. Tests in
-   `emit_debug_aggr_test.bn`. Full conformance under -g: 327/0
-   (1 unrelated xfail). NOTE: TYP_NAMED rarely surfaces in
-   today's IR-gen because `type Pos int` is currently treated
-   as an alias and unwrapped before reaching the alloca's
-   TypeArg; the typedef path is in place for when distinct-
-   named-type semantics land.
-6. Thread positions through more IR-gen sites (statements, assignments, calls) for finer-grained `DILocation`.
-7. ~~Per-function `DISubroutineType` with real parameter + return
-   types~~ — DONE (2026-05-09). `setupDbgFuncSubroutineTypes`
-   allocates a (typesList, subrType) id pair per non-extern Func
-   and eagerly interns each function's param + return types so the
-   tuple resolves; `emitDbgFuncSubroutineTypes` writes both nodes
-   after the per-function metadata block. DISubprogram now
-   references the per-func DISubroutineType instead of `!4` (the
-   legacy shared empty placeholder remains for backwards compat).
-   Tests in `emit_debug_test.bn`:
-   `TestEmitDebugSubroutineTypePerFunc` (non-!4 + `!{!5, !5...}`
-   shape), `TestEmitDebugSubroutineTypeVoidNullary` (`!{null}`),
-   `TestEmitDebugSubroutineTypeVoidWithParam` (`!{null, !5}`).
-   Full conformance under -g: 327/0 (1 unrelated xfail).
 
 ### Package manager — sketch a design
 - We don't have one yet. The current model is "everything lives under a
