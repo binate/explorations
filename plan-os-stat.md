@@ -112,6 +112,22 @@ covers Darwin). Option A's e2e additionally checks `offsetof`/`sizeof`.
 - Stage 2 (`FileMode` type bits + `IsDir`/`IsRegular`/`Perm`/`Type`) — **landed**
   (full Go layout; `String()` deferred).
 - Stage 3 (`FileInfo`) — **landed** (managed `@FileInfo`, `*readonly` accessors).
-- Stages 4–5 — **next, and coupled**: `os.Stat`/`File.Stat` can't run without a
-  boundary impl, so the deferred **A-vs-B mechanism decision is now due** (lean
-  A; the build-constraint rework makes A's per-(os,arch) file gating clean).
+- Stages 4–5 (`os.Stat`/`Lstat`/`File.Stat` + the `statbuf` boundary + per-OS
+  mechanism) — **landed** (`643edb3a`). Mechanism: **A, the ambitious form** —
+  a faithful per-(os,arch) Binate `struct stat` replica, read by field NAME
+  (darwin 144B both arches; linux x86_64 144B / aarch64 128B / arm32
+  `struct stat64` 104B via the `*64` LFS syscalls), all layouts C-verified
+  (Docker `offsetof` + the darwin proof). Verified across **every mode** — the
+  int-mode abort (`os.Stat` has no direct `__c_call`) was resolved upstream by
+  injecting os wholesale (`53abd110`), so **no xfail**. Tests: stdlib
+  conformance `stdlib/os/003_stat`, unit tests (`stat_test.bn`), and
+  `e2e/stat-values.sh` (C-authoritative cross-check). The `.bni` free-func +
+  same-named-method pattern (`os.Stat` free + `File.Stat` method) required a
+  compiler fix first (`796effc7`, separate landing).
+
+**Open follow-ups (tracked in claude-todo.md):** the cross-package
+method-struct-chain codegen bug (xfail repro `stdlib/os/004_modtime_chain`);
+removing `e2e/stat-values.sh`'s gen1 build after the next BUILDER bump;
+`FileMode.String()` + `time` Stringers; `Lstat`-on-an-actual-symlink isn't
+exercised end-to-end (no `os.Symlink` to create one portably — the
+`S_IFLNK → ModeSymlink` mapping is unit-tested).
