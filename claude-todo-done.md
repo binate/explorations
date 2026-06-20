@@ -8,6 +8,39 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## Stdlib conformance suite + convert stdlib unit tests to cross-mode conformance tests (2026-06-19/20) — ✅ DONE
+
+The `conformance/stdlib/*` suite is built and EVERY injected stdlib package now
+has cross-mode conformance coverage: real `main` programs exercising the stdlib
+as it ships — INJECTED (native) — across all modes, the gap the
+lowered-to-bytecode unit tests cannot cover. Stdlib unit tests no longer run
+under the interpreter modes (`scripts/unittest/run.sh` skips `pkg/std/*` under
+`*int*`); their cross-mode coverage is this suite.
+
+Infrastructure: `d05464ce` (discovery — `conformance/stdlib` added to run.sh's
+find roots + a path-scoped `conformance-imports` relaxation for `pkg/std/*` under
+`stdlib/`), `c8aa8f01` (stop stdlib unit tests under int), `53abd110` (os
+wholesale injection — see the os.Seek done entry).
+
+Per-package conformance tests (representative, deterministic subsets stressing
+the injection boundary — floats/aggregate-returns through the marshaling shim,
+iface dispatch, error sentinel identity; per-function correctness stays in the
+unit tests):
+- errors — `001` upcast, `002_is_and_chain`, `003_base_hierarchy` (`99f0b385`)
+- strconv — int format / parse / FormatFloat g/e/f/specials/f32 (`970b8a77`)
+- strings — Builder API + 256-byte fidelity (`c51d2a2d`)
+- io — covered by `663_io_iseof` (no new test needed)
+- time — negative / pre-epoch (`bf0dcd63`; 855 covers the positive cases)
+- math — classify/round + roots/pow/trig + Pi/E/Sqrt2 constants (`1a001c50`)
+- math/big — Nat arith / shifts / divmod, multi-return DivMod (`9db20d89`)
+- os — file roundtrip, Seek, ReadAt/WriteAt, ReadByte/WriteByte (`d05464ce`,
+  `565dc3c8`, `fc10987f`)
+
+`pkg/stdx/slices` is a non-injected generic library — its unit tests still run
+under int as real VM coverage; not converted. Optional follow-ups (fold the ~8
+ad-hoc stdlib tests; drop the redundant `os_test.bn` `TestErrorIfaceUpcast`)
+remain tracked in claude-todo.md.
+
 ## MAJOR (native x64 codegen) — C-extern calls emit a non-PIC relocation → PIE link failure on `builder-comp_native_x64-comp_native_x64` (2026-06-18) — ✅ FIXED reloc-level (`7976cb8f`, 2026-06-19); 🟡 CI to confirm the native_x64 link+run
 
 **✅ FIX LANDED (`7976cb8f`).** `pkg/binate/asm/elf` now emits `R_X86_64_PLT32` (=4) for a `FIX_REL32` CALL/JMP against an UNDEFINED symbol (`asm.Symbol.Section < 0`), keeping `R_X86_64_PC32` for a DEFINED (same-object) target; PLT32 shares PC32's end-of-field semantics so `elfRelocAddend` applies the same −4. `elfRelocType` gained a `symUndefined` param, passed from the single `elf.bn` reloc-loop call site. This fixes not just the libc externs but ALL cross-object calls (e.g. `bootstrap.Write`), which were equally PC32-against-undefined. Scope: `FIX_REL32_LEA` (RIP-relative data) targets only local defined labels → stays PC32, no GOTPCRELX needed (no extern data referenced). AArch64 (ELF JUMP26 / Mach-O BRANCH26) already PLT-veneers undefined calls → unaffected; Mach-O / LLVM / non-PIE static links untouched (`ld` relaxes PLT32→direct for non-PIE). **Validated locally (darwin):** regenerated `498` object flips the libc `abs` + cross-object bootstrap calls PC32→PLT32 while same-object calls + the string LEA stay PC32; `elf` unit tests +4 (PLT-vs-PC for undefined/defined, LEA-stays-PC32, AArch64-unchanged, PLT32 addend −4); gen1/gen2 self-host green; hygiene 15/15. **🟡 NOT yet verified end-to-end:** the full PIE link+run of the 10 c-call tests is Linux-only (dev box is darwin), so CI confirms the native_x64 mode actually goes green. The fix is self-contained at the object level (the linker synthesizes the PLT entry — no backend GOT setup), so the residual risk is low. The 10 c-call tests carry NO native_x64 xfail (so they'll surface green/red directly in CI — no marker to flip). Original diagnosis below.

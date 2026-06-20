@@ -31,54 +31,17 @@ So: cross-package METHOD + aggregate (struct) by-value return + immediately used
 
 ---
 
-## Stdlib conformance suite — broaden coverage / convert stdlib unit tests over — 🟡 IN PROGRESS (2026-06-19)
+## Stdlib conformance suite — optional follow-ups — 🟢 LOW (2026-06-20)
 
-The `conformance/stdlib/*` suite is LANDED (`d05464ce` / `565dc3c8` / `c8aa8f01`
-/ `53abd110`): discovered by `run.sh` (added to the matrix/regressions/spec find
-roots), with a path-scoped `conformance-imports` relaxation allowing `pkg/std/*`
-imports under `stdlib/` only. It exercises the stdlib as it SHIPS — INJECTED —
-from real `main` programs across every mode, the gap the (lowered-to-bytecode)
-stdlib unit tests cannot cover. Stdlib unit tests no longer run under the
-interpreter modes (`scripts/unittest/run.sh` skips `pkg/std/*` under `*int*`);
-their cross-mode coverage is this suite. (This — together with the os
-wholesale-injection fix — is what closed the `os.Seek`-under-int bug; see
-claude-todo-done.md.) Landed tests: `os/001_file_roundtrip`, `os/002_seek`,
-`errors/001_cross_mode_iface_upcast`.
-
-Remaining:
-- **Convert more stdlib unit tests into conformance/stdlib tests.** The injected
-  stdlib has rich unit tests that now run only under `builder-comp` (native); port
-  the cross-mode-relevant ones into `conformance/stdlib/<pkg>/*` so they run
-  INJECTED across all modes. NOT 1:1 with the unit tests — a representative,
-  deterministic subset per package that stresses the injection boundary (float
-  args/returns, aggregate/multi-returns through the marshaling shim, iface
-  dispatch, error sentinel identity); per-function correctness stays in the unit
-  tests. `pkg/stdx/slices` is a non-injected generic library — stays under int,
-  does NOT need converting. Per-package checklist (focused-test target in parens):
-  - [x] `errors` — `002_is_and_chain`, `003_base_hierarchy` (landed `99f0b385`). Is (identity +
-    chain walk), base-error hierarchy. (`errors/001` upcast already done.)
-  - [x] `strconv` — `001`/`002`/`003` (landed `970b8a77`). Itoa/Atoi, ParseInt/Uint bases+errors, ParseBool,
-    FormatFloat (the big cross-mode float stressor: g/e/f/hex, specials, f32).
-  - [x] `strings` — `001_builder`, `002_byte_fidelity` (landed `c51d2a2d`). Builder API; *Builder via io.Writer
-    / io.ByteWriter (iface dispatch), 256-byte fidelity.
-  - [x] `io` — already covered cross-mode by `663_io_iseof` (fold into suite later). EOF/IsEOF identity, IsEOF through a Wrap chain, errors.Is(EOF,
-    ConditionsUnmet).
-  - [ ] `time` (~3) — FromUnix/ToUnix round-trip, Sub (sec+nsec, epoch-crossing),
-    Before/After/Equal ordering. (Pure int64 — no clock.)
-  - [ ] `math` (~5) — Float64bits round-trip, Abs/Signbit/Copysign, Floor/Ceil/
-    Trunc/Round, Sqrt/Pow bit-exact, a trig sampler + constants (bit-exact).
-  - [ ] `math/big` (~6) — Nat Add/Sub/Mul/Shl/Shr/DivMod over multi-limb values
-    (ToUint64/BitLen/Cmp outputs; multi-return DivMod).
-  - [ ] `os` (~4 more) — ReadAt/WriteAt offsets, ReadByte/WriteByte (io.Byte*),
-    Read→io.EOF at EOF, OpenFile flags / O_EXCL. (`os/001`,`002` done.)
-- Decide whether to fold the ~8 ad-hoc stdlib-importing tests in the MAIN
-  conformance set (`577_std_errors`, `855_std_time`, `662_errors_is`,
-  `526/528/535_strconv`, `663_io_iseof`, `726_cross_pkg_iface_impl`) into the
-  suite (and drop their `conformance-imports.whitelist` entries).
-- Optional cleanup: `os_test.bn`'s `TestErrorIfaceUpcast` is now redundant with
-  `conformance/stdlib/errors/001` (it only runs under `builder-comp` since stdlib
-  unit tests are skipped under int) — remove it, or keep as a native-only smoke.
-
+The suite is built and every injected stdlib package has cross-mode coverage
+(moved to claude-todo-done.md). Two optional cleanups remain:
+- Fold the ~8 ad-hoc stdlib-importing tests in the MAIN conformance set
+  (`577_std_errors`, `855_std_time`, `662_errors_is`, `526/528/535_strconv`,
+  `663_io_iseof`, `726_cross_pkg_iface_impl`) into `conformance/stdlib/*` (and
+  drop their `conformance-imports.whitelist` entries).
+- Remove the now-redundant `os_test.bn` `TestErrorIfaceUpcast` (covered by
+  `conformance/stdlib/errors/001`; only runs under `builder-comp` now), or keep
+  it as a native-only smoke.
 ---
 
 ## MINOR/MAJOR (type-checker / assignability) — an impl of a SUB-interface is not assignable to its SUPER-interface: `impl R : Sub` where `interface Sub : Base`, then `var b *Base = &r` is rejected "cannot assign *R to *Base" (2026-06-19) — 🔴 OPEN
