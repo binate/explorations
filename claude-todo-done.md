@@ -6713,3 +6713,18 @@ The CRITICAL entries below are also surfaced in `## CRITICAL`-class triage.
 - **N2 / N3 / N10 / N11 — ✅ DONE**: N2 (dead `peelTransparent` comment in `gen_iface.bn`) and N10/N11 (stale iface/funcval-multi-return xfail markers) were resolved in-tree by later work (verified absent); N3 (the false "deferred to the concrete instantiation" comparability comments + an xfail `eq[@[]int]` cell, `conformance/772`) landed binate `15946a55`. See claude-todo-done.md.
 - **N1 (narrow, pre-existing) — ✅ RESOLVED 2026-06-12 (`11f99ed9`)**: an out-of-range CONSTANT shift count was wrapped into [0,width) by `ensureWidth` BEFORE the overshift guard (`v << 256` on uint8 → 1 not 0; signed `int8 >> 256` stays -64 not sign-filled; same in `<<=`/`>>=`). New `emitConstOvershiftOrNil` (`gen_binary.bn`) detects a constant count `>= width` from its ORIGINAL (pre-`ensureWidth`) `IntVal` and emits the spec result directly — 0 (logical `<<`/unsigned `>>`) or sign-fill `lhs >> (W-1)` (signed `>>`), the SAME result `emitGuardedShift` already produces for a runtime overshift (VM-consistent — the path the reverted "widen the value" attempt regressed). Wired into BOTH `genBinaryExpr` and `emitCompoundBinop`, before each truncates the count. Keying on `IntVal` also covers a wider-TYPED constant count (uint16 const 256 shifting a uint8). `conformance/729_const_shift_overshift` green on LLVM / both VM lanes / native aa64 / native x64-darwin; the 48 existing runtime-count shift/overshift cases + ir unit tests unaffected. (The **runtime** count-wider corner (c) is now also ✅ RESOLVED — binate `0db709a1` reads the UNTRUNCATED count so a runtime count wider than the value is detected. Related shift hardening landed alongside: a runtime **negative** shift count now panics — `6bf1efab`, `runtime error: negative shift count` — and a constant negative count is a compile error — `f6b9ebce`; plus the guard-free `unsafe_shl`/`unsafe_shr` intrinsics — `c9a6ed36`. Spec updated: §13.5 `expr.shift.overshift`/`expr.shift.negative`, §15.8, §17.5, §21.)
 - **Coverage-only (verified-correct paths)**: 659 omits raw-pointer-index compound-shift (`p[i] <<=`) and signed `>>=` overshift on non-IDENT lvalues; the genShortVar nameless `multiReturnFieldTypes` fallback has no IR-gen unit test / no managed-component func-value `:=` cell; Defect-2b raw-pointer & value receiver rows have no conformance/unit coverage (the reject paths are soundness-critical and the TYP_POINTER/TYP_MANAGED_PTR arms are duplicated).
+
+### ~~Package name/path conventions — decide and possibly reorganize~~ — ✅ DONE — decided + realized as `pkg-layout-spec.md`
+
+Decided and ratified in [`pkg-layout-spec.md`](pkg-layout-spec.md): the tier scheme
+(0/0b `pkg/builtins/*` < 1 `pkg/std/*` < 1x `pkg/stdx/*` < 2 `pkg/<org>/*` e.g.
+`pkg/binate/*` < 3 app-specific), in-`pkg/`-tree naming, namespace-contention rules,
+the `ifaces/`/`impls/` parallel-tree layout (realized in-tree: `ifaces/{core,stdlib}/pkg/…`,
+`impls/{core,stdlib}/pkg/…`), and the mangling story (no scheme change — the mangler already
+uses the full package path; hard-coded mangled-name strings update mechanically when packages
+move). The reorg is realized: toolchain internals under `pkg/binate/*`, stdlib under
+`pkg/std/*` / `pkg/stdx/*`, runtime/builtins under `pkg/builtins/*`. The package-manager
+naming interaction (URL vs registry vs short alias) is sketched in the spec's "Package manager
+interaction" section and folded into the package-manager sketch entry in claude-todo.md.
+Tier dependency-direction enforcement is tracked separately ("Tier + dependency-direction
+hygiene checks").

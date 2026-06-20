@@ -1912,7 +1912,7 @@ hatch" sufficient (close this out)?
 - Questions a sketch should answer:
   - Naming: are packages identified by URL (`github.com/...` Go-style),
     by a registry name, by a flat namespace? Interacts heavily with the
-    package-name/path conventions item below.
+    package path conventions, decided in [`pkg-layout-spec.md`](pkg-layout-spec.md).
   - Manifest file format and location (`binate.toml` / `bn.mod` / TBD).
     What does a minimal valid manifest look like?
   - Dependency resolution: version constraints, lockfile, MVS vs SAT,
@@ -1932,38 +1932,9 @@ hatch" sufficient (close this out)?
   - Out-of-tree builds: where do build artifacts go? How does the
     package manager interact with `--build-dir`?
 - Output: a plan doc in `explorations/` (e.g. `plan-package-manager.md`),
-  not implementation. Decisions are interleaved with the name/path
-  conventions item below — sketch and conventions probably ratify
-  together.
-
-### Package name/path conventions — decide and possibly reorganize
-- Current `pkg/` layout mixes toolchain internals (`pkg/parser`,
-  `pkg/types`, `pkg/codegen`, …) with runtime (`pkg/rt`), bootstrap
-  support (`pkg/bootstrap`), libc bridges (`pkg/libc`), and small
-  utilities (`pkg/buf`, `pkg/mangle`, …). Future stdlib packages would
-  pile in alongside them with no organizing principle.
-- Questions to answer:
-  - Should toolchain internals live under a distinct prefix
-    (`compiler/parser`, `compiler/types`, …) so that "what's stdlib"
-    vs. "what's compiler implementation" is visible at the import
-    path? Same question for runtime / bootstrap support.
-  - What does a Binate package path *look* like? Is `pkg/` a real
-    prefix or just a directory convention? Are external (third-party)
-    packages spelled differently?
-  - How do package paths interact with the package manager's naming
-    scheme (URL? registry name? short alias)?
-  - Mangling: short package names (`mangle.PkgShortNameFromModule`)
-    currently derive from the path's last segment. If conventions
-    change, mangled symbol names change, which affects ABI. Plan a
-    migration story.
-  - Are there packages that should move? `pkg/bootstrap` is arguably a
-    stdlib piece; `pkg/rt` is closer to runtime-internal; toolchain
-    internals could become `compiler/...`. Each move is a real refactor.
-- Heavily entangled with the package-manager sketch — they should
-  probably ratify together, since the manager design depends on what
-  paths look like.
-- Output: a plan / decision doc in `explorations/`. Reorganization is
-  a follow-up project.
+  not implementation. The path conventions are already ratified in
+  [`pkg-layout-spec.md`](pkg-layout-spec.md); this sketch builds on them
+  (esp. its "Package manager interaction" section).
 
 ### Tier + dependency-direction hygiene checks (enforce `pkg-layout-spec.md`)
 - **What**: a hygiene check (new script under `scripts/hygiene/`, alongside
