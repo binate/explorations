@@ -752,6 +752,20 @@ was. See [`plan-impls-constraints-migration.md`](plan-impls-constraints-migratio
 the "bonus" of the build.bni-dedup workaround removal, now landed — binate `9c2ac789`, archived in
 [claude-todo-done.md](claude-todo-done.md).)
 
+### Remove the void-`__c_call` lint skip after a BUILDER bump — 🟡 OPEN (gated on BUILDER)
+`__c_call` now accepts a `"void"` return spelling — `__c_call("free", "void", ptr)` lowers to a
+result-less C call (LLVM `call void @free`, no SSA result; the native backends skip result
+collection for the ID-(-1) form); parser/checker/IR-gen/codegen, conformance
+`865_c_call_void_return` (xfail in the VM modes — the VM does no FFI, by design).
+`pkg/builtins/rt`'s `Exit`/`RawFree` were converted to it (dropping the dummy-`int`-return
+placeholders).  Because the BUILDER-bundled bnlint (`bnc-0.0.9`) predates the `"void"` parser
+feature and aborts at its typecheck pass, `scripts/hygiene/lint.sh`'s `LINT_SKIP` temporarily
+excludes `pkg/binate/vm` + its importers (`pkg/binate/repl`, `cmd/bni`) — the chain that imports
+`rt`, so bnlint typechecks `rt.bn`'s body.  Remove the `LINT_SKIP` (restoring full lint coverage
+of vm/repl/bni) once `BUILDER_VERSION` ships a bnlint that parses the `"void"` `__c_call` return
+spelling — verify the bundled bnlint directly first.
+
+
 ### `rt.Exit` paradigm: `exit` vs `abort`/`panic` — DISCUSS
 - `rt.Exit` (→ libc `exit`) is the wrong model in general: process exit
   is meaningless in an embedded/freestanding environment, and the
