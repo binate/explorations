@@ -799,27 +799,6 @@ Once `BUILDER_VERSION` is bumped past those, drop the rt+vm/repl/bni and os entr
 `LINT_SKIP` (restoring full lint coverage) — verify the bundled bnlint parses both directly first.
 
 
-### Reorganize stdlib tests to meet the per-file test-coverage bar — 🟡 OPEN (math done; os + strconv remain)
-`scripts/hygiene/test-coverage.sh` now enforces "every non-test `.bn` has a sibling `_test.bn`" on
-`impls/` too (landed `54a15fc6`); the TEMPORARY whitelist in
-`scripts/hygiene/test-coverage.whitelist` is down to **18** (was 24).  The bar is per-file tests
-with very few genuine exceptions — remaining work to whittle it down:
-- **Math — ✅ DONE (landed `e5ed6574`)**: the 6 per-function files got their own `_test.bn`
-  (acosh/atanh/tanh/modf relocated out of family-named files; asin/acos + logb/ilogb newly tested).
-  The 4 still-whitelisted math entries are genuine exceptions: internal helpers
-  (`bessel01_asymp.bn`, `trig_reduce.bn`), constants (`const.bn`), and `big/nat.bn` (a type tested
-  across `nat_arith/div/shift_test.bn`).
-- **OS per-platform files** (`os_errno{,_darwin,_linux}.bn`, `stat_{darwin,linux_aarch64,linux_arm32,
-  linux_x64}.bn`, `os_baremetal.bn`, `fileinfo.bn`, `mode.bn`): amalgamate via `#[build(...)]` into
-  fewer files (e.g. one `os_errno.bn` + one `stat.bn` gated by os/arch), each with a test — better
-  than per-platform sprawl.  A real refactor (build structure + multi-platform verify) — scope with
-  the user first.
-- **strconv `atof_lex.bn`/`atof_convert.bn`**: split from `atof.bn`, covered by `atof_test.bn` — add
-  per-file tests or keep as a genuine exception.
-- **Baremetal `bootstrap.bn`/`rt_baremetal.bn` variants**: share the existing bootstrap exception
-  (the synthetic test runner can't run them as packages — see the whitelist note).
-Goal: the whitelist holds only genuine exceptions.
-
 ### `rt.Exit` paradigm: `exit` vs `abort`/`panic` — DISCUSS
 - `rt.Exit` (→ libc `exit`) is the wrong model in general: process exit
   is meaningless in an embedded/freestanding environment, and the

@@ -7513,3 +7513,42 @@ void-`__c_call` lint skip after a BUILDER bump".
 - **Fix**: accept a void return spelling for `__c_call` (and a bare-
   statement form), so void C calls don't carry a misleading return type.
 - Surfaced 2026-06-03 by the drop-libc work.
+
+### ~~Reorganize stdlib tests to meet the per-file test-coverage bar~~ — ✅ DONE (landed `e5ed6574` / `a0f6d86b` / `072fccdf`, 2026-06-20)
+
+`scripts/hygiene/test-coverage.sh` now enforces "every non-test `.bn` has a sibling `_test.bn`" on
+`impls/` (extended `d7c6b323`), and the temporary whitelist was whittled from 24 to 14 — now holding
+ONLY genuine exceptions (no "TEMPORARY, add a test later" entries):
+- **Math (`e5ed6574`)**: 6 per-function files got their own `_test.bn` — `acosh`/`atanh`/`tanh`/`modf`
+  relocated out of family-named files; `asin`/`acos` + `logb`/`ilogb` newly tested.
+- **OS (`a0f6d86b`)**: `mode`/`fileinfo` got per-file tests (relocated out of the catch-all
+  `os_test.bn`); the per-platform `stat_*` / `os_errno_*` / `os_baremetal` files were classified as
+  documented genuine exceptions (each `stat_*` is a distinct kernel struct-stat ABI; the errno split
+  is a `__c_call` link-symbol constraint) — tested via `stat_test.bn`/`os_test.bn` + `e2e/stat-values.sh`.
+- **strconv (`072fccdf`)**: white-box tests for the all-internal `atof_lex.bn`/`atof_convert.bn` (the
+  lexer byte-class/underscore validators + `lexInfo` fields; `pow10`/shifts/`floorBits`/the
+  round-half-to-even `roundedSig` + `convert`/`convertHex` bit patterns).
+The 14 remaining whitelist entries are genuine exceptions: math internal helpers (`bessel01_asymp`,
+`trig_reduce`), constants (`const`), the `big/nat` type (tested across operation files), the os
+per-platform ABI files, and the baremetal `bootstrap`/`rt_baremetal` variants (the synthetic test
+runner can't run them as packages).
+
+`scripts/hygiene/test-coverage.sh` now enforces "every non-test `.bn` has a sibling `_test.bn`" on
+`impls/` too (landed `54a15fc6`); the TEMPORARY whitelist in
+`scripts/hygiene/test-coverage.whitelist` is down to **18** (was 24).  The bar is per-file tests
+with very few genuine exceptions — remaining work to whittle it down:
+- **Math — ✅ DONE (landed `e5ed6574`)**: the 6 per-function files got their own `_test.bn`
+  (acosh/atanh/tanh/modf relocated out of family-named files; asin/acos + logb/ilogb newly tested).
+  The 4 still-whitelisted math entries are genuine exceptions: internal helpers
+  (`bessel01_asymp.bn`, `trig_reduce.bn`), constants (`const.bn`), and `big/nat.bn` (a type tested
+  across `nat_arith/div/shift_test.bn`).
+- **OS per-platform files** (`os_errno{,_darwin,_linux}.bn`, `stat_{darwin,linux_aarch64,linux_arm32,
+  linux_x64}.bn`, `os_baremetal.bn`, `fileinfo.bn`, `mode.bn`): amalgamate via `#[build(...)]` into
+  fewer files (e.g. one `os_errno.bn` + one `stat.bn` gated by os/arch), each with a test — better
+  than per-platform sprawl.  A real refactor (build structure + multi-platform verify) — scope with
+  the user first.
+- **strconv `atof_lex.bn`/`atof_convert.bn`**: split from `atof.bn`, covered by `atof_test.bn` — add
+  per-file tests or keep as a genuine exception.
+- **Baremetal `bootstrap.bn`/`rt_baremetal.bn` variants**: share the existing bootstrap exception
+  (the synthetic test runner can't run them as packages — see the whitelist note).
+Goal: the whitelist holds only genuine exceptions.
