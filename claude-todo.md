@@ -730,36 +730,13 @@ question).
   2. **Generic path NOT covered** — `==`/relational on a type parameter later INSTANTIATED with an aggregate is not caught: the body is checked once with `T` opaque (deferred), and instantiation does not re-check it (`check_generic.bn`), so it can reach IR-gen → the same invalid-IR class, via generics. PRE-EXISTING (before this change all aggregate `==` was permissive); this change does not worsen it. Needs instantiation-time re-checking OR a `comparable`-style constraint decision. Separate follow-up.
   3. **Sentinel detection (`err == io.EOF`)** — disallowing interface-value `==` means this is NOT the mechanism; needs `identical`/`same` + `errors.Is` (under discussion / see io.EOF TODO). Resolve before the first real `Reader` lands.
 
-### Remove the build.bni-dedup workarounds after a BUILDER bump
-- **What**: the build-constraint migration collapsed `pkg/builtins/build` to one
-  `#[build(...)]`-gated `ifaces/core/pkg/builtins/build.bni` and re-sourced the
-  build config from the active target (binate `5a8714d8` / `b64b21fd` /
-  `b0bd1096`).  Because the pinned BUILDER (`bnc-0.0.8`) predates BOTH the
-  `ARCH_ARM64 → ARCH_AARCH64` rename AND `#[build]` parsing, three TEMPORARY
-  workarounds were needed:
-  1. an `ARCH_ARM64` alias (`= ARCH_AARCH64`) in `build.bni`, referenced by
-     `buildcfg.HostConfig`, so `cmd/bnc` (which now imports `build`) compiles
-     under the bundle's pre-rename `build.bni`;
-  2. a throwaway ungated-`build.bni` shim in `scripts/hygiene/lint.sh` (prepended
-     to `-I`) so the bundled bnlint — which can't parse `#[build]` and now loads
-     `build` transitively via `buildcfg` — typechecks against the shim, not the
-     gated file (keeps the fast bundled-bnlint path);
-  3. a `[ -d ]`-guarded `ifaces/targets/<key>` lookup in `scripts/binate-paths.sh`
-     so a bundle's old per-target `build.bni` (the bundle still ships
-     `ifaces/targets/`) is still found when compiling cmd/bnc, while being a
-     no-op against the current tree (`build` lives in `ifaces/core`).
-- **Removal condition**: bump `BUILDER_VERSION` to a snapshot built AFTER this
-  migration (its `build.bni` has `ARCH_AARCH64` and lives in `ifaces/core`, and
-  its bnc/bnlint parse `#[build]`).  Then: drop the alias + switch
-  `buildcfg.HostConfig` to `ARCH_AARCH64`; remove the lint shim (restore the
-  plain bundled-bnlint invocation); drop the guarded `ifaces/targets` lookup +
-  `TARGET_DIR` from binate-paths.  Each is comment-flagged in-tree
-  (`TEMPORARY`/`Remove once BUILDER`).  Full plan +
-  workaround list in
-  [`plan-impls-constraints-migration.md`](plan-impls-constraints-migration.md).
-- **Bonus**: the same bump would also let `pkg/bootstrap` be collapsed onto
-  `#[build]` (it's in cmd/bnc's BUILDER-compiled tree, currently left
-  path-selected — see that plan doc).
+### Collapse `pkg/bootstrap` onto `#[build]` — 🟡 OPEN (next, per user 2026-06-19)
+With BUILDER at `bnc-0.0.9` (both `bnc` and `bnlint` parse `#[build]`), `pkg/bootstrap` — whose
+per-target variants are currently PATH-selected and which lives in cmd/bnc's BUILDER-compiled
+tree — can be collapsed onto `#[build(...)]`-gated declarations, the same way `pkg/builtins/build`
+was. See [`plan-impls-constraints-migration.md`](plan-impls-constraints-migration.md). (This was
+the "bonus" of the build.bni-dedup workaround removal, now landed — binate `9c2ac789`, archived in
+[claude-todo-done.md](claude-todo-done.md).)
 
 ### `rt.Exit` paradigm: `exit` vs `abort`/`panic` — DISCUSS
 - `rt.Exit` (→ libc `exit`) is the wrong model in general: process exit
