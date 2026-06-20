@@ -7116,3 +7116,210 @@ doc) are carried forward to claude-todo.md. Body kept as the design record.
   expression form that replaced the `_GOOS` suffix era), Rust
   `#[cfg(...)]` / `cfg_if!`, Zig comptime target switches.  The
   expression form is the model.
+
+### ~~REPL — All five tiers LANDED (2026-05-29)~~ — ✅ DONE — all five tiers landed (Tier-4 follow-ups + pretty-printer carried forward)
+
+All five REPL tiers landed (Tier 5 mid-session imports `78685ac3`, 2026-05-29; Tier 3 forward refs all
+stages 2026-05-28/29; Tier 4 replace + shadow). The body's Tier-3 "pending types/vars/consts … deferred"
+note is superseded by the "ALL STAGES LANDED" line right below it. Residual — the Tier-4 refcount-aware
+shadow warning + forced-shadow escape hatch, and the interfaces-gated pretty-printer — carried forward
+to claude-todo.md.
+
+- **Status**: `bni --repl <file.bn|dir>` ships.  `plan-repl.md` is
+  the live source of truth for per-step state — commit tables,
+  verified behaviors, deviations from the original plan, and the
+  per-tier remaining-follow-ups list.  Briefly:
+  - **Tier 1 (load-then-poke)** LANDED.
+  - **Tier 2 (top-level decls at the prompt)** LANDED in full,
+    including the body-introduced dtor-regen follow-up landed
+    2026-05-28 (`EnsureReplBodyHelpers`).  Every top-level decl
+    kind supported by the language works at the prompt: `func`
+    (incl. methods, redefinition replace + shadow), `const`
+    (single, untyped, grouped), `var` (typed,
+    untyped-with-literal-init, with init), `type` (aliases,
+    named non-struct, structs incl. managed-field).  Bodies that
+    introduce a fresh managed-aggregate shape with a destructible
+    element (e.g. `@[]@Bag`) have their helper emitted before the
+    body lowers.
+  - **Tier 3 (forward refs)** LANDED for `func` decls.  Pending
+    types / vars / consts (need a structural treatment of
+    "unsized" type symbols) are deferred.
+  - **Tier 4 (redefinition)** LANDED for both replace and shadow
+    paths, free funcs and methods.
+  - **Tier 5 (mid-session imports)** LANDED 2026-05-29 via
+    `78685ac3`.  `import "pkg/foo"` at the prompt loads pkg/foo
+    transitively, type-checks, IR-gens, lowers, and defines the
+    package symbol in the session scope.
+- **Remaining REPL work**, per plan-repl.md:
+  - ~~**Tier 3**: pending types / vars / consts; cycle
+    detection.~~  **ALL STAGES LANDED** 2026-05-28 → 2026-05-29
+    via 9 commits on main; see
+    [`plan-repl-tier3-pending-types.md`](plan-repl-tier3-pending-types.md)
+    for the per-stage commit table.  Every top-level decl
+    kind parks on forward-referenced dependencies; use-site
+    propagation works through sized contexts (struct field,
+    var decl, func sig, composite literal, impl recv, method
+    receiver); per-caller sized-vs-reference distinction
+    preserves recursive types via pointers; cycle detection
+    catches genuine cycles through sized fields with a clean
+    `pending cycle: A -> B -> A` diagnostic.
+  - **Tier 4**: refcount-aware shadow warning (today fires
+    unconditionally); forced-shadow escape hatch (syntax TBD per
+    `claude-notes.md`).
+  - ~~**Tier 5**: loader entry point for "load this one package
+    now."~~  LANDED 2026-05-29 — `evalReplImport` in
+    `cmd/bni/repl_import.bn` drives it via the session loader's
+    existing LoadImports (plus a SaveAliasMapState /
+    RestoreAliasMapState bracket around the per-package InitModule
+    loop so the main alias map survives the wipes).
+  - **Pretty-printer** (`pkg/replprint`) — **deferred** until
+    interfaces land.  `bootstrap.println` is a temporary hack;
+    building features on top of it would entrench it.
+- **Why this matters now**: the REPL is an explicit core goal in
+  `claude-notes.md` (see "Forward references & REPL model — DECIDED"
+  and the dual-mode rationale in
+  `claude-discussion-detailed-notes.md` § 11 / § 23). Its semantics
+  are largely *already decided*; what's not decided is the
+  toolchain shape. Writing it down now so that adjacent decisions
+  (function values, interop descriptors, layout extraction, IR
+  cleanup) get checked against REPL feasibility before they land
+  — and so that interpreter-only REPL work can start in parallel,
+  since most of it overlaps with the audit work the interop story
+  already needs.
+- **Already-decided semantics** (do NOT relitigate here — see
+  `claude-notes.md`):
+  - **Retained mode** (definitions) — parsed and stored, validation
+    deferred until dependencies are met. Source files are entirely
+    retained mode.
+  - **Immediate mode** (bare expressions / statements at the prompt)
+    — fully checked at entry, can reference validated retained defs.
+    Top-level scope in source files is declarative-only; bare exprs
+    are REPL-only.
+  - **No forward declarations.** Deferred validation handles forward
+    references. Errors surface at use, not at definition.
+  - **Redefinition**: *compatible* (same sig) → replace; *incompatible*
+    (different sig) → shadow with refcounted old-def retention; warn
+    on outstanding refs at shadow time. Forced-shadow escape hatch.
+  - **Hot-swap of interpreted functions while a compiled binary runs**
+    — fall-out of the thunk model.
+- **What the VM is/isn't rigid about** (corrects an earlier overstatement
+  in this entry):
+  - **`BC_CALL` is name-resolved per call, not idx-baked.** Bytecode
+    stores a per-VMFunc strings index for the callee's qualified name;
+    `LookupFunc` walks `vm.Funcs` by name on every call
+    (`pkg/vm/vm_exec.bn:418-421`). That makes replace-redefinition an
+    in-place body swap and shadow-redefinition an append-then-shadow,
+    both nearly free given `@VMFunc` already being managed.
+  - **`vm.Funcs` is already incremental.** `LowerModule` is called
+    per-module and appends; multiple modules already coexist in one
+    VM with their own preserved string pools (`pkg/vm/lower.bn:42`).
+    Globals are also append-only via `materializeGlobals`.
+  - **The frontend pipeline is module-shaped, not declaration-shaped.**
+    Loader, parser, type checker, and IR-gen are entered per-package;
+    there's no "type-check this single decl against an existing scope"
+    entry point. Forward refs work today only because the whole module
+    is parsed before checking.
+  - **Type checker has no concept of pending.** Errors fire immediately
+    on undefined names. Deferred validation (the "retained" half of
+    the model) is real new infrastructure.  *(Now: Tier 3 added a
+    pending queue (`check_pending.bn`) for `func` decls; types / vars
+    / consts still fire immediately.)*
+  - **No pretty-printer for arbitrary values.** `println` covers char
+    slices and primitives only.  *(Still true; deferred — see above.)*
+  - **`LookupFunc` is a linear scan.** Fine today; will matter if REPL
+    workloads run real volumes of calls. Easy to fix (name → idx hash)
+    and worth doing before Tier 1 ships, since the alternative
+    (bake-idx-into-bytecode) would close off the redefinition story.
+    *(Now: Tier 4 substrate (`9af2d56`) added the funcIndex hash;
+    `LookupFunc` is O(1).  Eager CallCache fill keeps shadow
+    semantics correct.)*
+- **Tiered plan** (each tier shippable on its own; see
+  `plan-repl.md` for entry-point names, per-step commit tables,
+  and the live follow-up state):
+  1. ~~**Load-then-poke.**~~ **LANDED (2026-04-30).** Load a `.bn`
+     module the normal way; prompt accepts immediate-mode entries.
+     Multi-line input via paren-aware accumulator.  Auto-`println`
+     wrap of bare exprs deferred (gated on interfaces).
+  2. ~~**Add new top-level decls at the prompt.**~~ **FULLY LANDED
+     (2026-04-30 → 2026-05-28).**  All decl kinds: `func` (incl.
+     methods), `const`, `var` (typed + untyped-with-literal-init +
+     var-initializer evaluation), `type` (aliases, named
+     non-struct, structs incl. managed-field).  Body-introduced
+     new-managed-aggregate dtor regen also landed (2026-05-28,
+     `EnsureReplBodyHelpers`).
+  3. ~~**Forward references.**~~ **LANDED for `func` decls
+     (2026-05-05).**  Pending-validation queue in the type checker;
+     parked decls retry on every newly-resolved name.  Pending
+     types / vars / consts remain (see follow-ups above).
+  4. ~~**Redefinition.**~~ **LANDED in full (2026-05-01 →
+     2026-05-05).**  Compatible-sig: in-place rebind keeps
+     CallCache valid.  Incompatible-sig: `LowerOneFuncShadow`
+     appends + re-points funcIndex; old callers retain old VMFunc
+     via eager-filled CallCache.  Methods follow the same rules,
+     keyed on qualified `<pkg>.<TypeName>.<Method>`.  Substrate
+     `9af2d56`; shadow `63cc49b`; method redef `026ad22`.
+     Refcount-aware shadow warning + forced-shadow escape hatch
+     are remaining follow-ups.
+  5. ~~**Mid-session imports.**~~  **LANDED** 2026-05-29 via
+     `78685ac3`.  evalReplImport in cmd/bni/repl_import.bn
+     drives the existing loader's LoadImports for incremental
+     transitive loads, brackets the per-package InitModule
+     loop with SaveAliasMapState/RestoreAliasMapState so the
+     session's main alias map survives, and routes through
+     c.RegisterReplImport to make `foo.X` resolvable from
+     subsequent prompt entries.
+- **What's free / "should-do-now-anyway"**:
+  - ~~The audit itself~~ — done; `plan-repl.md` is the live doc.
+  - ~~Per-decl entry points exposed opportunistically when the
+    relevant code is touched for unrelated reasons.~~  Done as part
+    of Tier 1 + Tier 2 (parser ParseExpr / ParseStmtList /
+    ParseTopLevelDecl / IsAtTopLevelDecl; types CheckExprInScope /
+    CheckStmtListInScope / CheckDeclInScope / CheckMainPersistent;
+    ir GenSyntheticFunc / GenDecl; vm LowerOneFunc / CallByVMFunc).
+  - ~~Name → idx hash in `LookupFunc`.~~  Solved differently:
+    per-VMFunc CallCache (commit `6c8e0c0`) memoizes the lookup
+    result per call site, removing the per-dispatch scan; lazy fill
+    on first call; explicitly designed for REPL invalidation.
+  - A minimal pretty-printer (probably `pkg/replprint`, leaning on
+    `pkg/buf.CharBuf`). Useful well beyond REPL.  **Deferred until
+    interfaces land** — `bootstrap.println` is a temporary hack
+    scheduled for removal; building features on top of it would
+    entrench the hack.  See "Pretty-printer" in plan-repl.md and
+    the auto-`println` deferral note.
+- **Decisions / non-decisions in adjacent work to pressure-test**:
+  - **Function values** (`plan-function-values.md`): a function value
+    must be a *stable identity for what it refers to*, not for the
+    bytes of the underlying body. Re-binding the body of an
+    interpreted function does not invalidate function values pointing
+    at it. Add this clause to that plan when it moves out of DRAFT.
+  - **Compiler/interpreter interop** (above): the package descriptor
+    is shaped right for REPL — interpreted-package descriptors are
+    mutable, compiled ones are read-only. Sorted-by-mangled-name
+    layout interacts with "add a new exported function mid-session"
+    (positions move when a new export sorts in); confirm that's the
+    intended behavior.
+  - **Layout extraction** (archived — see `historical-notes.md`): expose a
+    runtime-extensible type universe, not a closed-at-startup one.
+  - **IR/backend cleanup**: no closed-world assumptions in the shared
+    layer.
+- **What this entry is NOT**:
+  - A REPL implementation plan — that lives in `plan-repl.md`.
+  - A relitigation of REPL semantics — those are decided; if they
+    change, update `claude-notes.md` first.
+- **Open design questions worth pinning before Tier 1 starts** —
+  resolved as part of the Tier 1 work:
+  - ~~Top-level prompt grammar.~~  Settled as bare statement list;
+    auto-`println` wrap deferred until interfaces (above).  `func`
+    decls are dispatched to the decl path via
+    `parser.IsAtTopLevelDecl`.
+  - ~~Error recovery.~~  Implemented exactly as proposed: parse /
+    type / IR-gen / lower / runtime errors in immediate mode print
+    and return to prompt; loaded state unaffected.  Verified by
+    `e2e/repl.sh` cases.
+  - ~~Where pretty-printing lives.~~  Deferred (see above).
+  - ~~Sentinel for "no result".~~  Nothing — empty stmt lists are
+    skipped by `evalReplStmtList` before reaching IR-gen.
+  - ~~Whether REPL is a separate `cmd/bnrepl` or a `--repl` flag on
+    `cmd/bni`.~~  Settled as `--repl` flag on `cmd/bni`.
+    `scripts/build-bni.sh` (commit `22ea525`) is a convenience
+    wrapper for casual use.
