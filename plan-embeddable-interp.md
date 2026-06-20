@@ -1,10 +1,16 @@
 # Plan: Embeddable whole-program interpreter API (`pkg/binate/interp`)
 
-Status: **Inc 1 LANDED** (2026-06-20) — the `@Interp` whole-program embedder
-API exists on main (1a `5bdd76b6`: machinery → `pkg/binate/interp`, errors as
-values; 1b `596fb872`: the `@Interp` facade, cmd/bni's `runProgram` collapsed
-onto it).  Incs 2–4 (host-IO sink / typed results / build-config + in-memory
-sources) not started.  Builds on `plan-embeddable-vm.md` (increment 5 + 5d-4
+Status: **Inc 1 + Inc 2-Layer-1 LANDED** (2026-06-20).  Inc 1: the `@Interp`
+whole-program embedder API on main (1a `5bdd76b6`: machinery →
+`pkg/binate/interp`, errors as values; 1b `596fb872`: the `@Interp` facade,
+cmd/bni's `runProgram` collapsed onto it).  Inc 2 was **reframed** — the
+original "host-IO sink" was misguided (see Inc 2 below): an interpreter, like a
+compiler, has no I/O of its own; all program I/O flows through the standard
+library / `pkg/bootstrap` externs, so redirecting I/O means supplying a
+different stdlib, not adding an I/O knob to the engine.  Inc 2 is now an
+**extern-registration cleanup**, Layer 1 landed (`71748fa4`): the standard-set
+POLICY moved out of `pkg/binate/vm` into the host (`pkg/binate/interp`); the VM
+keeps only the mechanism.  Builds on `plan-embeddable-vm.md` (increment 5 + 5d-4
 landed: the loader / types / ir-gen / vm-lowering layers are reentrant, no
 per-run process-globals).
 
@@ -67,9 +73,13 @@ rc, errs := it.RunFunc("pkg.Func", args)          // …or a particular function
 
 - **Errors as values, never `os.Exit` inside the library.** The CLI shell
   decides exit codes; `interp` returns `@[]@[]char` error bundles.
-- **Output goes through an injectable sink** (Category-A), not hardcoded fd-1
-  writes — required for the wasm consumer (escaping to a message port is a bug).
-  Inc 1 keeps stdout as the default; Inc 2 makes it injectable.
+- **Output is a stdlib concern, not an engine concern.** The interpreter has no
+  I/O of its own (modulo panic/abort diagnostics — its runtime-fault handler);
+  `print`/`println` dispatch to the registered `pkg/bootstrap.Write` extern,
+  exactly as a compiler emits a call to the linked runtime.  So redirecting
+  output (e.g. a wasm message port) is done by supplying a different
+  stdlib/extern set, NOT by an `@Interp` I/O knob.  (This supersedes the
+  "injectable Category-A sink" framing inherited from `plan-repl-embeddable.md`.)
 - **No new process-globals.** All `@Interp` state lives on the struct.
 - **Host drives I/O.** The embedder supplies sources (and later, host functions
   / file-IO); the library never blocks on stdin or opens files itself.
@@ -85,7 +95,7 @@ func (it @Interp) AddImplPath(dir @[]char)
 func (it @Interp) LoadProgram(files @[]@ast.File) @[]@[]char     // errs ([] = ok)
 func (it @Interp) RunMain() (int, @[]@[]char)                     // init_all + main.main
 func (it @Interp) RunFunc(qualName @[]char, args @[]int) (int, @[]@[]char)
-// later increments: SetIO(sink), SetBuildConfig(cfg), typed-result helpers
+// later increments: New(pkgs…) inject-set, SetBuildConfig(cfg), typed-result helpers
 ```
 
 ## Increments (each independently green, cherry-pickable)
@@ -132,10 +142,49 @@ registered internally; entry-point parameterized to `main.main` + named funcs.
   (`builder-comp-int`, `builder-comp-int-int`) — these run programs through
   `cmd/bni`, so they exercise the extracted pipeline end-to-end; hygiene.
 
-### Inc 2 — host-IO sink (serves wasm; no stdout hardwire)
-Add `SetIO(sink)` (ReplIO-style `@func` channels). Route Category-A output
-through it; default = stdout. Audit the program-run path for stray
-`print`/`println`/`Write(1,…)` that bypass the sink (the wasm fd-1-escape risk).
+### Inc 2 — extern-registration cleanup (host owns stdlib policy)
+**Reframed** from the original "host-IO sink", which was misguided: an
+interpreter has no interesting I/O of its own (only panic/abort diagnostics);
+program I/O flows through the stdlib / `pkg/bootstrap` externs.  Redirecting I/O
+= swapping the stdlib, so the embeddability work is "let the host choose the
+extern/stdlib set", not "add an I/O knob".
+
+**Layer 1 — LANDED `71748fa4`.** Moved the standard-set POLICY (which packages:
+the rt/reflect/bootstrap `_Package` descriptors, rt/reflect auto-enumeration,
+the `pkg/bootstrap` C surface) out of `pkg/binate/vm` into the host
+(`pkg/binate/interp`).  The VM keeps only the MECHANISM
+(`RegisterPackageFunctions/Globals/Vtables` + `RegisterVmTrampolines`).  This
+also killed the double `pkg/bootstrap` registration (vm + interp each bound it,
+via two drift-prone copies of `registerBootstrapExterns`); interp's is now the
+sole one, preserving the `progArgsAfterDash` Args override.  vm's own tests
+(can't import interp — cycle) got a test-local `registerTestExterns`; repl's
+test support routes through interp.
+
+**Layer 2 — PENDING.** `New(pkgs…)` takes the inject-set, defaulting to a
+`stdPkgs()`-style standard set exposed as a host-side function.  An embedder
+targeting wasm passes a set whose I/O package routes to a message port (the
+"swap the stdlib" path).  Optional sub-step: auto-enumerate bootstrap's exported
+format helpers via `RegisterPackageFunctions` (they qualify — exported,
+non-extern), leaving only the 9 extern C-I/O entries hand-bound.
+
+**The Args / per-function-override question (raised 2026-06-20, deferred).** The
+`progArgsAfterDash` shim is really a cmd/bni concern, not general interp policy,
+so it needs a real home.  A naïve `SetArgs` does NOT work: `pkg/std/os` is
+*shared* with the embedder (one native instance, injected wholesale), so setting
+its args would change them for the embedder itself and for every other embedded
+interpreter.  The coherent capability is letting the embedder
+**inject/override/shadow arbitrary already-imported functions** — so the
+embedder just provides its own `os.Args()` binding without touching the shared
+package.  The constructive (heavyweight) alternative is forcing the embedder to
+build/wrap all of `os._Package`, selectively replacing the functions it wants to
+modify.  This is the natural Layer-2+ generalization of "host chooses the
+externs": per-symbol override on top of the package inject-set.
+
+**Related direction (raised 2026-06-20).** `repl` should probably become an
+*extension of* interp — a `@ReplSession` that *starts* with an embedded
+`@Interp` and then adds incremental eval — rather than a sibling that
+re-implements the load/lower wiring.  (Today repl is vm-only in production; its
+tests already route through interp after Layer 1.)
 
 ### Inc 3 — typed / aggregate results + string args
 `RunFunc` variants that pass `@[]@[]char` argv and unpack multi-return /
