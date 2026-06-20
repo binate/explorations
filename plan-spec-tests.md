@@ -234,6 +234,43 @@ Validated green on 8 of 10 `all` modes (incl. `native_aa64` + `arm32_baremetal`)
 `native_x64` (chronically red pre-existing, claude-todo #203) and `arm32_linux`
 were not validatable on the darwin/arm64 host — the next CI run on `main`
 confirms them. (3) wire `extract-rule-ids.py`/`spec-coverage` into CI — DISCUSS.
+
+**Ch.11 Interfaces — committed on the worktree 2026-06-19** (NOT yet landed).
+Authored via the design fan-out (6 clusters) + central validation + a 6-cluster
+adversarial review. **45 tests, 25/25 rules (100%)**, green across 7 modes
+(builder-comp, VM int, int-int, gen1, gen2, native_aa64, arm32_baremetal); 4
+xfails: `048_transitive_direct_ancestor` (.xfail.all — known ancestor-walk
+checker gap), `062_noorphan_imported_third_pkg` (.xfail.all — NEW MAJOR bug, see
+below), and the `081`/`082` nil-abort pair (per-mode, re-homing root 385/386 with
+rule-IDs). DANGLING=0, UNTAGGED=0, hygiene green (15/15).
+
+**MAJOR bug surfaced by the review** (claude-todo, 2026-06-19): a cross-package
+`impl R : I` declared ONLY in an imported THIRD package (not R's package, not the
+root) is accepted by the checker but its (R,I) vtable is not wired → null-vtable
+crash. Pinned by `062` (xfail). Same `collectImportedImplsFromDecl` machinery as
+the ancestor-walk MAJOR. **Needs a user prioritization decision.**
+
+**Ch.11 review-driven coverage-gap follow-ups (deeper per-rule sub-clauses, NOT
+yet authored — for a decision on do-now vs follow-up):**
+- `iface.decl` negatives: duplicate method name; `type X interface {…}` form
+  rejected; receiver/body in a `MethodSig` rejected.
+- `iface.impl.coverage` receiver-kind-reachability negative; `@readonly` receiver
+  shape positive (020 covers the other four).
+- `iface.extend` "harmless diamond" (same-name same-sig via common ancestor)
+  positive; a transitive (A:B, B:A) cycle negative.
+- `iface.any` `void*`-distinction / generic-constraint-position sub-clauses.
+- `iface.crosspkg.no-orphan` duplicate-impl/weak_odr-dedup positive.
+- `iface.self` forbidden-positions negative (Self in receiver / extension parent /
+  outside an interface); object-safety POSITIVE companion (non-Self method of a
+  Self-using interface dispatches through an iv).
+- `iface.alias` negative (`type X = SomeInterface` rejected — only `interface
+  X = Y` aliases an interface).
+- `iface.canonical.carveout` negative (a non-`pkg/builtins/lang` package declaring
+  a method/impl on a primitive); broaden to the sized-int / float primitives.
+- `iface.value.repr` clean same-kind positive without decay/alias; `iface.value.
+  no-readonly-slot` inner-vs-outer readonly distinguisher.
+- `048` managed (`@R`) direct-ancestor half (mirror the raw xfail).
+
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
 
