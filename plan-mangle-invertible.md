@@ -256,6 +256,39 @@ Note (implementation): the instantiation type-args ride as the existing
 tokens); FuncName splits `decl|tokens` to emit `bn_I` with the tokens passed
 through (they are already the self-delimiting type-arg sub-language).
 
+### 4b execution order (one atomic commit — the build is red until ALL of it is done)
+
+Integration decisions:
+- **Export the lp encoders** from `mangle.bni` so `ir`'s `mangleTypeArg`/
+  `instantiationMangledName` build the new type-arg tokens via the SAME encoders
+  the demangler inverts (one source, no divergence). Promote `mangle_lp.bn`'s
+  `lp*` type-arg encoders + `Ident`/`PkgPath` helpers to exported names; add a
+  raw-`pkgPath`-string entry that splits + delegates to `lpWritePkgPathSegs`
+  (the one canonical split site 4b needs — re-adds what 4a removed, now USED + tested).
+- **`Demangle` becomes exported** (vm needs it for `swapIfaceSuffix` +
+  `recvTypeIsGenericInst`).
+- Only these hand-written externals need lockstep (rt.*/bootstrap.* etc. that go
+  through the compiler are auto-consistent): **`binate_runtime.c`** (the ~9
+  `bn_pkg__bootstrap__*` defs), **`native_test_stubs.c`** (`rt.RawFree`),
+  **`crt0.s`+`semihost.s`** (arm32 `bn_pkg__semihost__*`). `bn_entry` stays literal.
+
+Order:
+1. `mangle.bn`: rewire `FuncName`/`GlobalName`/`StructName`/`ImplVtableName`/
+   `ImplVtableShimName` to the lp encoders (FuncName parses pkg + `.`-members,
+   infers F/M/I from member-count + `__bn_inst__`); keep `bn_entry`; drop the now-
+   unused `WritePkgIdent`/`WriteFoldedName` (+ from `.bni`). Update `mangle_test.bn`.
+2. `ir/gen_generic_mangle.bn`: `mangleTypeArg`/`mangleFuncSig` → exported lp
+   type-arg encoders; `instantiationMangledName` unchanged in shape (tokens now lp).
+   Update `gen_generic_mangle_test.bn`.
+3. Runtime lockstep: regenerate the hand-written `bn_*` symbols above to the new
+   scheme (compute each via the new `FuncName`).
+4. `vm`: `swapIfaceSuffix` → read the trailing `PkgPath Ident` of `bn_V` (via
+   `Demangle`); `recvTypeIsGenericInst` → `Demangle` + `__bn_inst__` marker.
+5. Sweep the remaining ~43 exact-mangled-string test assertions to the new form
+   (build a small "old→new" computor; replace; do NOT hand-guess).
+6. Validate: gen1 build, full unit suite, native (aa64) + VM conformance, hygiene.
+   Re-verify the arm32 asm path compiles (crt0/semihost symbols).
+
 Post: update claude-todo (close Finding A + the writeBnDotted general-symbol
 fold); land the deferred named-axis injectivity guard from the coverage commit.
 
