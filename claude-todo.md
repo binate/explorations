@@ -107,13 +107,13 @@ a managed-slice (4-word) return value out of the callee frame, or drops it durin
 frame teardown. Compare against the direct-call return path, which is correct.
 
 **Trigger / discovery.** Surfaced while fixing the composite-literal func-ref
-element bug (binate `62bc8aeb`): conformance 872 originally used
-`@[]*func(int)@[]char{strconv.Itoa}` and the `strconv.Itoa` element call returned
-empty in the VM only. The composite-literal lowering itself is correct in every
-backend — the empty output is this VM-return defect, independent of how the func
-value was constructed (a plain `var f = strconv.Itoa` reproduces it too).
+element bug (binate `91061e04`): a `@[]*func(int)@[]char{strconv.Itoa}` literal
+whose element call returned empty in the VM only (conformance 876). The
+composite-literal lowering itself is correct in every backend — the empty output
+is this VM-return defect, independent of how the func value was constructed (a
+plain `var f = strconv.Itoa` reproduces it too).
 
-**Pinned.** `873_funcval_composite_lit_elem_pkg_mslice_ret`
+**Pinned.** `876_funcval_composite_lit_elem_pkg_mslice_ret`
 (`.xfail.builder-comp-int`, `.xfail.builder-comp-int-int`,
 `.xfail.builder-comp-comp-int`). When fixed, drop the three xfail markers (the
 `--check-xpass` sweep will flag them) and this entry.

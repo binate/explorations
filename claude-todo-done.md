@@ -7701,6 +7701,20 @@ claude-todo.md.  Original diagnosis below.
 
 ## ~~MAJOR (IR-gen / latent silent-0) — `genSelector` reads an UNRESOLVED package-qualified const as 0~~ — ✅ DONE & LANDED `136cc95f` (2026-06-20)
 
+**⚠️ CORRECTION (binate `91061e04`, 2026-06-20).** The "Verified UNREACHABLE in
+valid code" claim below was FALSE — the verification was incomplete (the suite
+had no test of a function reference used as an array / slice / managed-slice
+literal ELEMENT). Such an element fell through to this fallback in valid code:
+pre-`136cc95f` it returned a silent const-0 (a func value over a null code
+pointer → SIGSEGV when called); `136cc95f` made it a loud abort, which then
+fired at runtime for those programs. The genuine fix is `91061e04` — route
+composite-literal element values through `genExprOrFuncRef` so the func
+reference lowers to `OP_FUNC_VALUE` (it never reaches this fallback). The
+fallback IS still the correct internal-error catch-all (a genuinely-unresolved
+selector means an IR-gen bug); the panic-vs-silent-0 hardening stands. Pinned by
+conformance 875 (all modes) / 876. The comments in `gen_selector.bn` and the
+unit test were corrected to drop the "unreachable" wording.
+
 **✅ DONE & LANDED `136cc95f`.** `genSelector`'s catch-all fallback (no selector arm matched —
 an unresolved `pkg.Name` at a value site, an unregistered-struct field read, etc.) returned a SILENT
 `EmitConstInt(0)`, masking any IR-gen resolution gap as a wrong VALUE.  Replaced with a loud runtime
