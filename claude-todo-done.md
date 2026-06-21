@@ -8,6 +8,25 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## non-injective generic-instantiation mangling — `mangleTypeArg` total + injective over func/func-value/array/readonly/iface-value type args (2026-06-20) — ✅ FIXED (`14270695`)
+
+**✅ FIX LANDED (`14270695`).** `mangleTypeArg` (gen_generic_mangle.bn) fell
+through to `QualifiedTypeName` for TYP_FUNC / FUNC_VALUE / MANAGED_FUNC_VALUE /
+ARRAY / READONLY / interface-value, yielding identifier-INVALID, NON-injective
+tokens (`<unknown>`, `func(...)`, `[...]`, unfolded `@`/`*`/space): distinct
+instantiations shared one symbol (the type-arg analog of #792's package-axis
+collision) and a generic over such a type arg hard-errored on LLVM. Added
+explicit recursive branches — `ro_`/`iv_`/`miv_`/`arr<len>_` and
+`fn_`/`fv_`/`mfv_` (the last three via a new `mangleFuncSig` over param+result
+counts + tokens); existing primitive/named/pointer/slice tokens are
+byte-identical (no ABI churn). Enables `Id[@func(int) int]` end-to-end
+(conformance/870, native + VM + gen2). +4 unit tests incl. a managed-slice
+regression guard (a botched edit during this fix dropped the `mslc_` branch →
+the invalid `@[]uint8` token, caught by the ir unit test compiling types.ll; the
+guard pins it). native 1769/0, gen2 1769/0, ir unit 562, hygiene 15/15.
+Surfaced by the #792 adversarial review. (The sibling generic-STRUCT
+same-segment collision remains a separate OPEN follow-up in claude-todo.md.)
+
 ## rt.Abort() / rt.Panic() + simplify panic(); unify the VM abort idioms (Plan 1) (2026-06-20) — ✅ DONE
 
 Plan doc: explorations/plan-rt-abort-panic.md (Plan 1). Plan 2 (recoverable VM

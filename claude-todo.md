@@ -245,26 +245,6 @@ The cast-hidden negative-shift-count → silent-0 class (and the cast-semantics 
 - **raw multi-byte char literal** (`'é'`) accepted as its first UTF-8 byte — front-end leniency (pre-existing).
 - (The proper IR-gen transitive-`.bni`-const fix is tracked under the CRITICAL entry above. The forward-ref-const array-dim garbage bug and the named-array zero-init bug are ✅ DONE — see [claude-todo-done.md](claude-todo-done.md).)
 
-## MAJOR (latent mangler) — `mangleTypeArg` is non-injective for func / func-value / array / readonly / iface-value type args (all → `<unknown>`): distinct generic instantiations share one symbol (2026-06-20) — 🔴 OPEN
-
-`mangleTypeArg` (`pkg/binate/ir/gen_generic_mangle.bn`) falls through to
-`types.QualifiedTypeName()` for kinds `typeNameImpl` doesn't render — `TYP_FUNC`,
-`TYP_FUNC_VALUE`, `TYP_MANAGED_FUNC_VALUE`, `TYP_ARRAY` (and the `readonly `/`@`/`*`
-iface-value spellings) — which returns the literal `<unknown>` (`type_name.bn`).
-So `Apply[@func() int]` and `Apply[@func() bool]` both mangle to
-`...Apply__bn_inst__<unknown>` and SHARE one monomorphized symbol — the same
-distinct-instantiations-collapse-to-one-symbol class conformance/792 fixed on the
-consumer axis, now on the TYPE-ARG axis. PRE-EXISTING (predates the 792 fix;
-surfaced by its adversarial review). On LLVM the `<` makes clang hard-error
-(loud); on VM/native it's silently accepted, and today these type args are only
-pure value carriers in `[T any]` generics so the colliding instantiations are
-ABI-identical — but the 792 weak_odr change WIDENS the blast radius from
-within-TU to cross-TU (a future divergent body could be silently merged). Fix:
-make `mangleTypeArg` total + injective over ALL kinds (recurse on func
-params/results, array len+elem, readonly, iface-value) and error rather than emit
-an identifier-invalid `<unknown>`. Add a unit test (two distinct func/array type
-args → distinct tokens).
-
 ## MINOR (latent) — same-final-segment generic STRUCTS collide at monomorphization (the struct analog of 792) (2026-06-20) — 🔴 OPEN
 
 The generic-FUNC same-segment collision (conformance/792) was fixed (`330c42fe`)
