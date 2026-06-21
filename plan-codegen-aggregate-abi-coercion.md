@@ -1,9 +1,13 @@
 # Plan: codegen `[N x i64]` ABI coercion for in-register aggregates
 
-Status: **READY TO IMPLEMENT (2026-06-20)**. Root cause confirmed by disassembly
-+ emitted LLVM IR (see claude-todo.md MAJOR entry). Fixes the native↔LLVM
-struct-by-value miscompile on BOTH native backends. Codegen-only; the native
-backends and `pkg/types` layout are correct and stay untouched.
+Status: **✅ DONE & LANDED (`b9081931`, 2026-06-20)**. Codegen-only `[N x i64]`
+coercion; new module `pkg/binate/codegen/emit_agg_coerce.bn`. The implementation
+cascaded beyond the 6 touch points below to the func-value shims / closure shims /
+iface dispatch (a function has one signature, so coercing the def cascades to
+every caller — ~940 lines, 13 files). Test `conformance/877_aggregate_abi_xpkg`.
+Validated: native-aa64 1902/0, builder-comp 1908/0, VM/gen2/units green, hygiene
+15/15. Resolution recorded in claude-todo-done.md. (The design below is retained
+as the implementation record.)
 
 ## The bug (one paragraph)
 

@@ -8,6 +8,54 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## MAJOR (codegen / SILENT wrong-code, BOTH native backends) — cross-package struct-by-value call corrupted on the native backends; codegen passed ≤16-byte aggregates as first-class LLVM struct values (2026-06-20) — ✅ FIXED & LANDED (`b9081931`, 2026-06-20)
+
+**Symptom.** A cross-package call passing a struct ≤16 bytes BY VALUE
+(receiver/arg/return) was silently corrupted under `…native_aa64…` /
+`…native_x64…` (LLVM + VM correct). `cmd/bnc` compiles only the MAIN module
+natively; deps go through LLVM/clang, so a cross-package call is a native↔LLVM
+boundary. Surfaced by `855_std_time` + `stdlib/time/001_negative_pre_epoch`
+failing only on native aa64 (main was RED in CI).
+
+**Root cause (IR + asm proof).** The native caller is correct — it packs the
+aggregate `[N x i64]` (the AAPCS form `common_callconv.bn:24-27` assumes). But
+`pkg/binate/codegen` emitted the LLVM callee with a **first-class struct-value**
+param/return and a struct type carrying explicit padding leaves
+(`<{ i64, i32, [4 x i8] }>`). LLVM's backend expands a first-class struct param
+field-per-register (i64→x0, i32→x1, `[4 x i8]`→x2..x5 ⇒ 6 regs), so the 2nd
+struct arg started at x6 not x2 → garbage. `common_callconv.bn:25` asserted
+"clang emits `[2 x i64]`" — true of clang's *C frontend*, but codegen never
+performed that coercion.
+
+**Fix (`b9081931`).** Codegen-only `[N x i64]` ABI coercion for in-register
+aggregate params/returns (named structs + arrays; anonymous multi-return tuples
+and word-sized slices/func-values/iface-values excluded). New module
+`pkg/binate/codegen/emit_agg_coerce.bn` (+ `_test`); the alloca/store/load
+coercion is local to param entry / return / call site, body untouched. Because a
+function has one signature, the change CASCADED to the func-value shims,
+capturing-closure shims, and OP_CALL_IFACE_METHOD dispatch (~940 lines, 13 files
+— larger than the plan's 6 touch points; implemented in full since a partial fix
+leaves builder-comp red). The native backends and `pkg/types` are unchanged
+(already `[N x i64]`); the C-extern ABI is untouched. Test:
+`conformance/877_aggregate_abi_xpkg` (cross-pkg by-value `{i64,i32}` trailing-pad,
+`{i32,i32}` sub-word, `{i8,i64}` leading-pad). Plan doc:
+`plan-codegen-aggregate-abi-coercion.md`.
+
+**Validation.** Full native-aa64 sweep **1902/0**, full builder-comp **1908/0**,
+VM + gen2 self-host + codegen unit tests green, hygiene 15/15; the time tests
+pass natively with no xfail; disassembly confirms the 2nd struct arg now lands in
+x2/x3.
+
+**FOLLOW-UP (still open in claude-todo.md):** the sibling `extractvalue`-on-
+scalar-i64 cross-pkg-struct-chaining MAJOR may be fixed or affected by this
+coercion — re-check `conformance/stdlib/os/004_modtime_chain` and that entry.
+
+**Related infra (`383bf6a6`).** The full-sweep "compiler vanished mid-run"
+failures were concurrent-worker `/tmp` clobbering, not the fix: test scripts used
+`$$`-named temps and hardcoded `/tmp` (ignoring each session's `$TMPDIR`). Fixed
+to mktemp + `${TMPDIR:-/tmp}` across the conformance runners, perf, and two
+hygiene scripts, isolating each session's temp.
+
 ## same-final-segment generic STRUCTS collide at monomorphization (the struct analog of 792) (2026-06-20) — ✅ FIXED (`5ae791d2`, 2026-06-20)
 
 **✅ FIX LANDED (`5ae791d2`).** A multi-layer fix (the collision was dominated by
