@@ -227,7 +227,13 @@ Prep (behavior-preserving — byte-identical output, land incrementally):
 
 Flip — split into 4a (de-risk, landable) then 4b (atomic):
 
-4a. **New encoders + demangler + round-trip, UNWIRED.** Add the Option-L encoders
+4a. ✅ **DONE (`5f8fa2e8`, worktree — pending land).** New encoders + demangler +
+    round-trip/injectivity tests, UNWIRED (`mangle_lp.bn`, `mangle_lp_demangle.bn`
+    + tests). Adversarial review caught + fixed a CRITICAL (Demangle integer-
+    overflow crash → unsound bounds check; now `lpReadCount` caps indexing counts
+    at `len(c.s)`, array length skipped via `lpSkipCount`) plus oversize-count,
+    negative-array-length-doc, and dead-`lpWritePkgPath` items.
+    ORIGINAL: Add the Option-L encoders
     (`encodeIdent`/`encodePkgPath`/the kind bodies/the type-arg sub-language) and
     the full `Demangle` as NEW functions in `mangle` (not yet called by
     FuncName/etc.), plus a `demangle(mangle(x))==x` round-trip + injectivity test
