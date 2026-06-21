@@ -29,16 +29,13 @@ stdout.
 
 ---
 
-## Embeddable-interp Inc 2 — deferred follow-ups (extern cleanup; host owns stdlib policy) — 🟢 CORE LANDED, follow-ups open (2026-06-20)
+## Embeddable-interp — open follow-ups (Inc 2 extern cleanup core landed) — 🟡 OPEN (2026-06-20)
 
-Inc 2 (extern-registration cleanup) is landed: Layer 1 (`71748fa4` — host owns
-the stdlib policy, the VM owns only the registration mechanism), Layer 2
-(`c843eab7` — `New(stackSize, pkgs)` inject-set + exported `StandardPackages()`),
-and the review-driven (b)-fix + tests + doc-staleness fixes (`14bf3f43` —
-`@Interp.isCompiled` derives the lowering skip from the actual inject-set, so
-"what is injected" and "what is lowered" can't diverge). Plan:
-[`plan-embeddable-interp.md`](plan-embeddable-interp.md). Open follow-ups
-(deferred with user sign-off):
+The embeddable-interp core (Inc 1, Inc 2 Layers 1/2 + the review (b)-fix, and the
+loader de-rooting) is **✅ DONE & LANDED** — full detail in
+[claude-todo-done.md](claude-todo-done.md). Plan:
+[`plan-embeddable-interp.md`](plan-embeddable-interp.md). Remaining open
+follow-ups (deferred with user sign-off):
 
 - **runTests / global `IsNativeOnlyInVM` unification.** The `--test` runner
   (`cmd/bni/main.bn`) still keys the lowering skip on the hardcoded
