@@ -364,6 +364,28 @@ generic-method gap is FIXED (`a7e0beb2`); `014` pins the rejection. (Docs
 type-arg arity mismatch; full method-set satisfaction; generic-interface .bni
 body; enum→other-int conversion) noted in the review output `wd4ivz2ob`.
 
+**Ch.5 Lexical Elements — landed on main 2026-06-21** (binate `dcdc6b82`;
+`conformance/spec/05-lexical/`). 7-cluster design fan-out (every test probed
+against the live compiler) + a 7-cluster adversarial review (1 major + 18
+minor/nit, all resolved: 4 redundant tests dropped, 4 `.rules` re-homed, 151
+strengthened to byte-level, comments softened). **115 tests**, all **29 `lex.*`
+rules → 29/29 (100%)**; DANGLING=0, UNTAGGED=0, hygiene 15/15. Green on all 7
+modes (builder-comp, VM int/int-int, gen1, gen2, native_aa64, arm32_baremetal);
+lexical behavior is backend-independent and floats work everywhere, so no
+mode-specific xfails. Byte-level tests (NUL=EOF `180`, form-feed-not-whitespace
+`181`, non-ASCII-byte-illegal `182`) authored via exact source bytes.
+
+5 xfails. **Two NEW spec/impl DIVERGENCES → new file `explorations/spec-todo.md`**
+(decide spec-vs-impl): `055` — `\uHHHH` Unicode escape IS implemented (UTF-8
+encodes the codepoint) though §5.11 says it doesn't exist; `035` — `1.foo` lexes
+as a trailing-dot float, not the §5.8 selector tokens `1 . foo` (greedy lex, Go
+agrees with the impl). The other 3 are settled-intent impl gaps: `056`/`057` pin
+the `lex.literal.char.one` open items (`''`→0x00, `'ab'`→truncated, undiagnosed);
+`122` reuses the inferred-length-array gap (same as 13-expr/041). **Stale §5.11
+note corrected** — unsupported escapes ARE rejected (`unknown escape sequence`),
+not silently accepted (docs `ac62326`); negatives `047`–`054` pin it green. Minor
+unary-`+`-rejected question also in spec-todo.
+
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
 
