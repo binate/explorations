@@ -117,6 +117,79 @@ so the `%S` access stays in-bounds.
 - BUILDER constraint: codegen is in cmd/bnc's BUILDER tree — keep all new code
   BUILDER-compilable (no closures/generics/etc. beyond what BUILDER accepts).
 
+## Implementation grounding (2026-06-20 — verified against the tree, ready to execute)
+
+Recon confirmed every touch point against current `pkg/binate/codegen`; the
+existing **byval-spill machinery is the exact template** to mirror
+(`writeByvalArgPreamble` + `emitByvalAllocDecls` + the `emitEntryAllocaDecls`
+Op-dispatch hoist + `writeByvalArgLLVM`). Concrete recipe:
+
+**Predicate + helpers (`emit_util.bn`).** No new `types` method needed — reuse
+the existing `isAggregateForStore(t)` (emit_copy_ssa.bn:261, the 8 aggregate
+kinds) and `IsByvalParam` (>16 ⇒ indirect):
+```
+func isInRegAggregate(t @types.Type) bool { return isAggregateForStore(t) && !t.IsByvalParam() }
+func aggCoerceNWords(t @types.Type) int   { return (t.SizeOf() + 7) / 8 }
+func writeAggCoerceLLTy(out *strings.Builder, t @types.Type) { out.Write("["); stringutils.WriteInt(out, aggCoerceNWords(t)); out.Write(" x i64]") }
+func aggCoerceLLTy(t @types.Type) @[]char { var b @strings.Builder = strings.NewBuilder(); writeAggCoerceLLTy(b, t); return buf.CopyStr(b.String()) }
+```
+(emit_util already imports buf/stringutils/strings/types; codegen is
+BUILDER-compiled, so this stays within the subset — fine.) **Scope note:** this
+covers ALL in-register aggregates, not just structs; a clean `{ptr,i64}` (raw
+slice / func-value / iface-value) already expands to exactly N=2 regs so the
+coercion is a safe round-trip no-op there, while struct/array with sub-i64
+fields or explicit `[K x i8]` padding is where LLVM's first-class expansion
+desyncs from native `[N x i64]`.
+
+**Param sites — ONE edit covers both.** `writeParamTypeLLVM` (emit_util:286) is
+called by BOTH the `define` (emit_debug:83) and `declare` (emit.bn:255). Add a
+branch after the `IsByvalParam→ptr` branch: `if isInRegAggregate(t) {
+writeAggCoerceLLTy(out,t); return }`.
+
+**Param reconstruction (emit_debug `emitFuncDbg`).** The body references a param
+as `%v<ID>` (emitRef of `f.Params[i].ID`). With the signature param now
+`[N x i64]`, rename the SIGNATURE ref to `%v<ID>.ag` and, at the TOP of the entry
+block (after `emitEntryAllocaDecls`, before block instrs — new prologue loop over
+in-reg-agg params): `store [N x i64] %v<ID>.ag, ptr %v<ID>.agp` then `%v<ID> =
+load <%S>, ptr %v<ID>.agp`. The `%v<ID>.agp = alloca [N x i64]` must be hoisted —
+add a per-param pass in `emitEntryAllocaDecls` (it currently scans instr Ops; the
+param allocas are function-level, so emit them once up front from `f.Params`).
+
+**Return type.** `emit_debug:51` (`retTyp`) and `emit.bn:236` (declare) and
+`emit.bn:290` (`funcRetTypes[].RetType`) all do `llvmType(f.Results[0])` for the
+single-result case — coerce each to `aggCoerceLLTy` when
+`isInRegAggregate(f.Results[0]) && !needsSret(...)`. Coercing `funcRetTypes`
+makes the call site's `lookupRetType` return `[N x i64]` for free.
+
+**OP_RETURN (emit_instr:229 + emit.bn `emitReturn` router :33).** When the func
+returns an in-reg aggregate (NOT sret): `store <%S> %r, ptr %r.agp`; `%r.ag =
+load [N x i64], ptr %r.agp`; `ret [N x i64] %r.ag` (hoist `%r.agp`).
+
+**Call site — THE WRINKLE (do this carefully).** `writeByvalArgPreamble` /
+`writeByvalArgLLVM` (emit_util) are shared by emit_call, emit_call_handle,
+emit_call_indirect, emit_impls. The DIRECT path (emit_call, emit_impls thunks)
+needs the coercion; the FUNC-VALUE / indirect path (emit_call_funcvalue and the
+`*_handle`/`*_indirect` shim ABI) uses a SEPARATE i8*-pointer convention that is
+internally consistent and must stay untouched — so do NOT blanket-add in-reg-agg
+coercion to the shared writeByvalArg* helpers without confirming each caller is a
+direct (mangled-symbol) call vs a shim call. For the direct path:
+- arg `i` (in-reg-agg): preamble `store <%S> %v<argID>, ptr %v<callID>.agarg<i>`;
+  `%v<callID>.agarg<i>.ld = load [N x i64], ptr %v<callID>.agarg<i>`; pass
+  `[N x i64] %v<callID>.agarg<i>.ld`.
+- result (in-reg-agg): the call already returns `[N x i64]` (via funcRetTypes) —
+  bind it to `%v<ID>.agret`, then `store [N x i64] %v<ID>.agret, ptr %v<ID>.agp`;
+  `%v<ID> = load <%S>, ptr %v<ID>.agp`. Hoist `%v<callID>.agarg<i>` + `%v<ID>.agp`
+  via the OP_CALL branch in `emitEntryAllocaDecls`.
+
+**Allocas are `[N x i64]`-typed** (N*8 ≥ SizeOf) and accessed as both `[N x i64]`
+and `<%S>` through the one opaque `ptr` — neither access over-runs.
+
+**Validation order (cheap→expensive):** codegen unit pkgs → `builder-comp` +
+`builder-comp-int` conformance (lockstep ⇒ must stay GREEN; proves IR valid + no
+pure-LLVM regression) → `builder-comp_native_aa64-comp_native_aa64` (the two time
+tests RED→GREEN, no xfail) → gen1/gen2 self-host → x64 native via CI. Add the
+`{i64,i32}` / `{i32,i32}` / `{i8,i64}` cross-package conformance repros.
+
 ## Follow-up
 
 - Re-check the sibling MAJOR `extractvalue`-on-scalar-i64 entry — likely the same
