@@ -150,6 +150,27 @@ The items below are settled-intent impl gaps already pinned by xfails.
 
 ---
 
+## Ch.15 spec-conformance findings (2026-06-21, authoring `conformance/spec/15-builtins`) — 🔴 OPEN
+
+Authoring + reviewing the Ch.15 built-in tests surfaced one impl gap now pinned and
+TWO stale spec notes (both flagged defects are actually FIXED). No new bugs.
+
+1. **bit_cast to a SUB-WORD type, used DIRECTLY, is not narrowed in the VM / native-aa64 — now pinned.** `bit_cast(uint32, int32 -1)` read directly (not stored into a typed local first) leaks the high bits → reads as full-width −1, not 4294967295, on `builder-comp-int`, `builder-comp-int-int`, and `builder-comp_native_aa64-comp_native_aa64`. Correct on the LLVM backends and arm32; a *stored* `bit_cast` (`var u uint32 = …`) narrows and is fine. This is the bit_cast facet of the existing sub-word-narrowing gap (claude-todo ~line 814). Pinned: `conformance/spec/15-builtins/040_bit_cast_int_reinterpret` (per-mode xfail on the three failing modes).
+
+2. **Stale §15.3 note — cast-to-sub-word on native-aa64 is FIXED.** The §15.3 implementation note still describes `cast` to a sub-word integer as miscompiled on native aarch64; that defect was resolved (`5f94558b` per claude-todo-done; 0 native_aa64 xfails remain in the suite). `034_cast_sub_word` passes on all modes incl. native_aa64 — NO xfail added. → drop the §15.3 note.
+
+3. **Stale §15.7 note — `panic` VM no-op is FIXED.** The §15.7 "Open (MAJOR — dual-mode divergence)" note says `panic` is a no-op in the bytecode VM; that was resolved (`a4946ebe` per claude-todo-done). `131_panic_abort` aborts and PASSES on the VM (int / int-int). → drop the §15.7 vm-noop note. (The single-arg `*[]readonly char` signature "in progress" note is still accurate — leave.)
+
+> _Side observation (not pinned)._ The `builtin.opaque-gate` constraint (`make`/`sizeof`
+> of an opaque type rejected) is enforced when the layout is genuinely unavailable — a
+> PURE `.bni` forward declaration with NO body compiled (`150`/`151` are green this way).
+> It does NOT fire when the body `.bn` is compiled in the same tree (the layout leaks). The
+> sibling `07-types/222` opaque-field-access xfail uses the body-compiled setup, so its
+> xfail may be a test-setup artifact rather than a real impl gap — worth re-checking with a
+> pure-.bni setup as a 222 follow-up.
+
+---
+
 
 ## MAJOR (codegen / invalid IR) — chaining a method onto the by-value struct result of a CROSS-PACKAGE method emits `extractvalue` on a scalar i64 → C backend rejects it (2026-06-20) — 🔴 OPEN — REPRODUCED
 
