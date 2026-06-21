@@ -150,8 +150,10 @@ check), the VM `__ivt` matcher.
 
 Prep (behavior-preserving — byte-identical output, land incrementally):
 
-1. **Consolidate the six fold sites** into one shared `mangle` encoder; switch
-   `ir`/`codegen`/`vm`/`mangleTypeArg` to call it. No output change.
+1. ✅ **LANDED (`e8637018`)** — **Consolidate the six fold sites** into two
+   shared `mangle` encoders (`WritePkgIdent` `/`-fold, `WriteFoldedName`
+   `.`+`/`-fold); `ir`/`codegen`/`vm`/`mangleTypeArg` route through them. Byte-
+   identical.
 2. **Consolidate the four `__ivt` builders** + the VM matcher onto one shared
    `mangle` vtable-name encoder/decoder. No output change.
 3. **Route the three rt-literal manifests** (LLVM/x64/aarch64) and the
