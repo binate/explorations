@@ -80,6 +80,46 @@ Four findings surfaced while authoring the Ch.7 type spec tests; each is pinned 
 
 ---
 
+## MAJOR (VM / SILENT wrong-output) — calling a function VALUE whose function returns a MANAGED SLICE (`@[]T`) yields EMPTY output in the bytecode VM (2026-06-20) — 🔴 OPEN — REPRODUCED
+
+**Symptom (REPRODUCED, silent — wrong/missing output, no diagnostic).** In the
+bytecode VM, calling a func value `f` whose underlying function returns a managed
+slice produces empty output instead of the slice. Minimal repro:
+
+```
+import "pkg/std/strconv"
+func main() {
+    var f *func(int) @[]char = strconv.Itoa
+    println(f(42))   // VM prints nothing; native prints "42"
+}
+```
+
+The same call works on every NATIVE backend (`builder-comp`, gen2
+`builder-comp-comp`, gen3 `builder-comp-comp-comp`). A func value returning an
+`int` works in the VM (it's the managed return that breaks); a func value
+returning a by-value aggregate STRUCT also works in the VM (conformance 363 has
+no int-mode xfail) — so the defect is specific to a **managed (refcounted)
+return value** flowing back through the VM's func-value call shim.
+
+**Root cause: unknown — needs investigation.** Likely the VM's func-value
+call/return path (the analog of native's `emitCallFuncValue`) doesn't propagate
+a managed-slice (4-word) return value out of the callee frame, or drops it during
+frame teardown. Compare against the direct-call return path, which is correct.
+
+**Trigger / discovery.** Surfaced while fixing the composite-literal func-ref
+element bug (binate `62bc8aeb`): conformance 872 originally used
+`@[]*func(int)@[]char{strconv.Itoa}` and the `strconv.Itoa` element call returned
+empty in the VM only. The composite-literal lowering itself is correct in every
+backend — the empty output is this VM-return defect, independent of how the func
+value was constructed (a plain `var f = strconv.Itoa` reproduces it too).
+
+**Pinned.** `873_funcval_composite_lit_elem_pkg_mslice_ret`
+(`.xfail.builder-comp-int`, `.xfail.builder-comp-int-int`,
+`.xfail.builder-comp-comp-int`). When fixed, drop the three xfail markers (the
+`--check-xpass` sweep will flag them) and this entry.
+
+---
+
 ## MAJOR (codegen / SILENT wrong-code, BOTH native backends) — codegen passes a ≤16-byte aggregate BY VALUE as a first-class LLVM struct value; LLVM's backend expands it field-per-register (padding leaves included) while the native backends pack it `[N x i64]`, so a CROSS-PACKAGE (native↔LLVM) struct-by-value call corrupts the struct → **main is RED in CI on `builder-comp_native_aa64-comp_native_aa64` (and almost certainly `…native_x64…`)** (2026-06-20) — 🔴 OPEN — ROOT-CAUSED (IR + asm proof)
 
 **Symptom (REPRODUCED, silent miscompile — wrong values, no diagnostic).** Calling
