@@ -78,7 +78,27 @@ confirmed: x64 is fixed too (`builder-comp_native_x64_darwin` via Rosetta — re
 failures were concurrent-worker `/tmp` clobbering, not the fix: test scripts used
 `$$`-named temps and hardcoded `/tmp` (ignoring each session's `$TMPDIR`). Fixed
 to mktemp + `${TMPDIR:-/tmp}` across the conformance runners, perf, and two
-hygiene scripts, isolating each session's temp.
+hygiene scripts, isolating each session's temp. **`49cc5723`** finished that sweep
+repo-wide (the first pass missed `scripts/unittest/runners/*.sh`, `perf/runners/*.sh`,
+`scripts/build-*.sh`, `e2e/*.sh` — found by a proper `grep -rl 'mktemp.*-d /tmp'`).
+
+**REVIEW FOLLOW-UP — func-value/closure shim edge (`3e10831f`), pre-existing,
+found by adversarial review of b9081931.** The DIRECT + iface-dispatch cascade
+above was complete, but the func-value/capturing-closure SHIM ABI was NOT: it
+passed an in-register named struct/array arg as first-class `%S` (≤8B) or `i8*`
+(9–16B), both mismatching the native func-value dispatch (which packs it into
+`EffectiveArgWords = ceil(SizeOf/8)` GP registers — a VALUE `[N x i64]`). So a
+func-value or capturing closure whose shim is LLVM-compiled (e.g. a dep returns
+it) and is called from a natively-compiled caller corrupted the struct at the
+native↔LLVM boundary (an 8B `{i32,i32}` returned garbage). The matrix/abi
+func-value tests missed it — they build the func-value in `main`, so the shim is
+native-compiled (native↔native agree). Fix: route every in-register aggregate
+(≤16B) through the coerced `[N x i64]` value ABI at the shim boundary
+(`shimParamType`/`emitShimArgLoads`/`writeShimArgRef` + the func-value caller),
+checking `aggParamCoerced` before the `i8*` path; closures share these helpers.
+Test `conformance/889_funcval_small_aggregate` (cross-pkg func-value + capturing
+closure + `[3]int32` array, 8B/12B, by value). Validated native aa64 + builder-comp
++ VM.
 
 ## same-final-segment generic STRUCTS collide at monomorphization (the struct analog of 792) (2026-06-20) — ✅ FIXED (`5ae791d2`, 2026-06-20)
 
