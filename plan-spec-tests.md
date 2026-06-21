@@ -320,6 +320,37 @@ genuine single-run mixed compiled<->interpreted (harness can't pin per-fn modes 
 currently covered only by cross-mode agreement); func.value.equality on `@func` /
 non-nil non-func operand.
 
+**Ch.7 Types — DONE on the worktree 2026-06-20** (NOT yet landed; the LARGEST
+chapter, `conformance/spec/07-types/`). 10-cluster design fan-out + extensive
+empirical probing + 10-cluster adversarial review + fixes. **136 tests**; coverage
+**07-types 61/61 (100%)** + **07b-type-layout 14/14 (100%)**; DANGLING=0, UNTAGGED=0,
+hygiene 15/15. Green on all modes: 3 xfails on builder-comp/VM/int-int/gen1/gen2/
+arm32_baremetal, 5 on native_aa64. Layout tests are TARGET-INVARIANT (relationships
++ fixed sizes, single .expected; no per-arch files).
+
+**4 bugs filed (claude-todo 2026-06-20), each xfail-pinned:** (1) MAJOR cross-pkg
+distinct named SCALAR types wrongly inter-assign (`049`); (2) MAJOR `type Buf @[]int`
+miscompiles on native-aarch64 ONLY (`033`/`036`); (3) MINOR opaque field-access not
+rejected cross-pkg (`222`); (4) MINOR `@([N]T)` managed-ptr-to-array indexing broken
+(noted, not pinned). Plus a stale §7.8 note — the `@[N]T` parser leniency is FIXED
+(binate `7ccd13e1`); `150` pins the green rejection — FLAGGED for doc correction.
+
+**Adversarial review applied** (6 critical, 10 major fixed). The critical class was
+VACUOUS NEGATIVES whose `.error` pattern leaked via the test's own FILENAME in the
+diagnostic path (e.g. `bool` matched `…/021_err_arith_on_bool.bn`) or matched only a
+cascade — a systematic scan caught all of them (021/022/031 filename-leak; 024/043/
+044/085/096/165/196 loose/cascade), now pinned to the real rule-relevant diagnostics;
+124 managed-iface nil line added; comments fixed where they contradicted the files
+(096/224); mis-cites re-homed (273/251/175); 275 differentiated to int64 byte-order.
+
+**Ch.7 review-driven follow-ups (NOT done — 17 minor + 21 nit + 54 coverage-gap
+notes in the review output `w06h0q1xu`):** notably — no-implicit-mix bitwise/relational
+forms; bool required-operand-of-&&/||/! negatives; type.scalar.universe "true/false/nil
+are constants not types"; copy-semantics recursion through array/named/readonly; the
+`<unknown>` func-value-type rendering in assignability diagnostics (diagnostic-quality,
+also seen in Ch.10); 088 slice-ownership best-effort UAF detection; 251 header is
+informative/unobservable; plus per-rule sub-clause breadth across every cluster.
+
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
 
