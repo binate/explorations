@@ -11,9 +11,12 @@ different stdlib, not adding an I/O knob to the engine.  Inc 2 is now an
 **extern-registration cleanup**: Layer 1 (`71748fa4`) moved the standard-set
 POLICY out of `pkg/binate/vm` into the host (`pkg/binate/interp`), the VM
 keeping only the mechanism; Layer 2 (`c843eab7`) made `New(stackSize, pkgs)`
-take the swappable library inject-set (`StandardPackages()` default).  Layer 2b
-(a `@reflect.Package` wrapping helper, the ergonomic override path) is the open
-follow-up.  Builds on `plan-embeddable-vm.md` (increment 5 + 5d-4
+take the swappable library inject-set (`StandardPackages()` default); a
+review-driven (b)-fix (`14bf3f43`) made `@Interp.isCompiled` derive the lowering
+skip from the actual inject-set (so injected-vs-lowered can't diverge), plus the
+`RegisterPureCExterns` test + doc-staleness fixes.  Layer 2b (a `@reflect.Package`
+wrapping helper, the ergonomic override path) + the other deferred follow-ups
+are tracked in `claude-todo.md`.  Builds on `plan-embeddable-vm.md` (increment 5 + 5d-4
 landed: the loader / types / ir-gen / vm-lowering layers are reentrant, no
 per-run process-globals).
 

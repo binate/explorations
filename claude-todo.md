@@ -29,6 +29,43 @@ stdout.
 
 ---
 
+## Embeddable-interp Inc 2 — deferred follow-ups (extern cleanup; host owns stdlib policy) — 🟢 CORE LANDED, follow-ups open (2026-06-20)
+
+Inc 2 (extern-registration cleanup) is landed: Layer 1 (`71748fa4` — host owns
+the stdlib policy, the VM owns only the registration mechanism), Layer 2
+(`c843eab7` — `New(stackSize, pkgs)` inject-set + exported `StandardPackages()`),
+and the review-driven (b)-fix + tests + doc-staleness fixes (`14bf3f43` —
+`@Interp.isCompiled` derives the lowering skip from the actual inject-set, so
+"what is injected" and "what is lowered" can't diverge). Plan:
+[`plan-embeddable-interp.md`](plan-embeddable-interp.md). Open follow-ups
+(deferred with user sign-off):
+
+- **runTests / global `IsNativeOnlyInVM` unification.** The `--test` runner
+  (`cmd/bni/main.bn`) still keys the lowering skip on the hardcoded
+  `IsNativeOnlyInVM` (fixed stdPkgs config); only the `@Interp` run path derives
+  it from the inject-set. Unify so there is one mechanism.
+- **Lower-time "this impl can't be interpreted" guard.** Dropping a package
+  whose only impl needs native facilities (today's `os`/`__c_call`) and letting
+  it lower yields silently-broken bytecode (can't reach `cLseek`). The
+  principled guard is a lower-time check on the impl (does it use `__c_call` /
+  native-only facilities?) that errors clearly instead.
+- **Globals/vtables-sensitive inject-set test.** `TestNewCustomPkgsRespected`
+  proxies on `len(Externs)` (function registration only); add a test that a
+  custom set's globals + impl vtables are honored (the `errors.Is`
+  sentinel-identity path).
+- **Layer 2b — `@reflect.Package` wrapping helper.** Build a modified descriptor
+  from an existing one with selected `FunctionInfo` values replaced, so an
+  embedder overrides e.g. `os.Args()` without hand-constructing a descriptor.
+  This is the ergonomic per-function override path; it also rehomes the
+  `progArgsAfterDash` Args shim (becomes a cmd/bni-built wrapped-`os` concern
+  rather than baked into interp's bootstrap registration). Land with an
+  end-to-end test proving a wrapped package changes observed runtime behavior.
+- Optional: auto-enumerate bootstrap's exported format helpers via
+  `RegisterPackageFunctions` (they qualify — exported, non-extern), leaving only
+  the 9 extern C-I/O entries hand-bound.
+
+---
+
 ## Ch.7 spec-conformance findings (2026-06-20, authoring `conformance/spec/07-types`) — 🔴 OPEN
 
 Four findings surfaced while authoring the Ch.7 type spec tests; each is pinned by an xfail.
