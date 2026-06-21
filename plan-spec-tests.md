@@ -384,7 +384,10 @@ the `lex.literal.char.one` open items (`''`→0x00, `'ab'`→truncated, undiagno
 `122` reuses the inferred-length-array gap (same as 13-expr/041). **Stale §5.11
 note corrected** — unsupported escapes ARE rejected (`unknown escape sequence`),
 not silently accepted (docs `ac62326`); negatives `047`–`054` pin it green. Minor
-unary-`+`-rejected question also in spec-todo.
+unary-`+`-rejected question also in spec-todo. **Review-driven follow-up landed**
+(binate `5f228cda`; chapter now **120 tests**): `183`–`185` `true`/`false`/`nil`-
+as-keyword negatives (vs the shadowable predeclared names), `186` carriage-return
+(0x0D) is whitespace, `187` `return` triggers ASI.
 
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
