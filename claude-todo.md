@@ -154,11 +154,15 @@ the test ships WITH the fix. Discovered by the 2026-06-21 adversarial review of
 `58c05dee` (findings B1/C1, two independent traces).
 
 **Related smaller follow-ups discovered in the same review (lower severity):**
-- `dispatchCompiledFuncValue` silently TRUNCATES a cross-mode func value with
-  >7 arg slots (no upper-bound guard, unlike `dispatchCompiledIfaceMethod`'s
-  `n > 6` panic); `dispatchExternBinding` is unguarded the same way. Add an
-  `if nArgs > 7 { vmPanic(...) }` to convert a future silent-miscompile into a
-  loud panic. Latent (nothing reaches >7 slots today).
+- `dispatchCompiledFuncValue`'s >7-arg-slot silent truncation: ✅ FIXED
+  (binate `2874fa31`) — it now `vmPanic`s on `instr.Imm > 7` (the packed slot
+  count), matching `dispatchCompiledIfaceMethod`'s `n > 6` guard. STILL OPEN:
+  `dispatchExternBinding` has the same gap but CANNOT reuse that guard — its
+  `args` is the fixed 64-capacity reused buffer from execLoop, so `len(args)`
+  is the buffer size, NOT the arg count (a `len(args) > 7` guard fires on every
+  extern call, incl. `println` — caught in review). A correct guard there needs
+  the real arg count threaded in (execExtern has `instr.Imm`; pass it through to
+  dispatchExternBinding). Latent (nothing reaches >7 slots today).
 - No conformance coverage for a cross-mode func value returning a RAW slice
   (16B) or a multi-word STRUCT, nor a leak-balance assertion for the managed
   return (879/876 check only printed output); add when convenient.
