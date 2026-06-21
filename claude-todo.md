@@ -93,6 +93,78 @@ The items below are settled-intent impl gaps already pinned by xfails.
 
 ---
 
+## MAJOR (VM / cross-mode ABI / LATENT wrong-code) — the VM's scalar-vs-aggregate cross-mode dispatch threshold (`ResultSize > 8`) diverges from the native shim's `isAggregateReturn`; a cross-mode func value / extern / iface method returning a ≤8-byte NAMED struct/array OR a ≤8-byte MULTI-return would scalar-dispatch a retbuf-shaped shim → corruption/SIGSEGV (2026-06-21) — 🔴 OPEN — LATENT (no injected stdlib fn triggers it today)
+
+**Symptom (latent — would be SILENT wrong-code / SIGSEGV).** In the VM, a
+cross-mode call (a func value of a native-injected function, an extern, or a
+native iface method) picks the marshaling-shim shape by RESULT SIZE: scalar
+shim if `ResultSize ≤ 8`, retbuf (`_call_shim_aggregate`) if `> 8`. But codegen
+decides the SHIM's actual shape with `isAggregateReturn` (`emit_funcvals_sig.bn:38`),
+which is `len(Results) > 1  ||  aggRetCoerced(Results[0])  ||  SizeOf > PointerSize`.
+`aggRetCoerced` is true for ANY named struct/array that fits in registers —
+**explicitly including a ≤8-byte one** (the underlying returns `[N x i64]`, so the
+shim uses the retbuf shape; `emit_funcvals_sig.bn:41-47`, `emit_agg_coerce.bn:85`,
+`needsSret` threshold 16 on LP64). So for a callee returning e.g.
+`type Pair struct{a uint8; b uint8}` (SizeOf 2) or a ≤8-byte multi-return tuple:
+the shim is the void/retbuf shape `void(retbuf, data, a0..)`, but the VM sees
+`ResultSize ≤ 8` and calls the SCALAR shim `_call_shim_scalar(fn, data, a0..)`.
+The arg layout shifts by one slot (the shim reads `data`=null as its retbuf,
+`a0` as data, …), writing the result through a null/garbage retbuf and reading
+`X0` (which the void shim never sets) → corrupt result or SIGSEGV.
+
+**Root cause.** The size→shim-shape encoding is LOSSY: a bare `SizeOf` can't
+distinguish an 8-byte coerced named struct (or an 8-byte multi-return) from an
+8-byte scalar. The `> 8` discriminator should mirror `isAggregateReturn`
+exactly (multi-return ∨ aggRetCoerced ∨ SizeOf>PointerSize), but every site
+re-derives a bare `> 8` instead.
+
+**Affected sites (the bug is pre-existing and shared, NOT introduced by the
+func-value fix `58c05dee` — that commit propagated the existing convention to a
+third dispatch site and added a comment mischaracterizing it):**
+- Dispatch (3): `dispatchCompiledFuncValue` (`vm_exec_funcref.bn`),
+  `dispatchCompiledIfaceMethod` (`vm_exec_iface.bn`), `dispatchExternBinding`
+  (`vm_extern.bn`) — all branch on `> 8`.
+- Size encoders (2): `lower_call.bn` (`bc.Aux = instr.Typ.SizeOf()` for
+  func-value/handle + the iface `ifaceResultSize`), and codegen
+  `functionResultSize` (`emit_pkg_functions.bn:181`) / native `FuncResultSize`
+  (`common_pkg_functions.bn:94`) feeding `FunctionInfo.ResultSize`.
+- Misleading comments to correct alongside: `vm_exec_funcref.bn:338-339` and
+  `vm_exec_iface.bn:87-90` assert the threshold "tracks isAggregateReturn's
+  `> PointerSize`", silently omitting the multi-return ∧ aggRetCoerced disjuncts.
+
+**Why latent (verified against the injected stdlib surface).** No injected
+function returns a 1..8-byte named struct or a ≤8-byte multi-return as a
+cross-mode value today: `time.Point{int64,int32}` = 16B (>8, agree); every
+multi-return is ≥12B (smallest `big.Nat.DivModUint32 → (@Nat, uint32)` = 12B);
+named scalars (`Delta`=int64, `FileMode`=uint32) and managed pointers are
+correctly EXCLUDED by `aggRetCoerced` (not `TYP_STRUCT`). User-defined func
+values take the VM-side push/`BC_RETURN` path (not cross-mode). So nothing
+triggers it now — but the next injected stdlib function returning a ≤8-byte
+named struct or ≤8-byte tuple silently miscompiles in the VM while every native
+backend stays correct.
+
+**Proposed fix.** One shared aggregate-vs-scalar predicate (mirroring
+`isAggregateReturn`), fed from the result TYPE, applied at all three dispatch
+sites AND both size encoders — ideally by carrying an explicit aggregate FLAG
+(computed once at lowering from the same predicate codegen uses) rather than
+re-deriving `> 8` in the VM. Bug Discovery Protocol caveat: a triggering test
+needs a FIXTURE (a native-injected function returning a ≤8-byte named struct /
+≤8-byte tuple) — no standalone conformance xfail is addable without that, so
+the test ships WITH the fix. Discovered by the 2026-06-21 adversarial review of
+`58c05dee` (findings B1/C1, two independent traces).
+
+**Related smaller follow-ups discovered in the same review (lower severity):**
+- `dispatchCompiledFuncValue` silently TRUNCATES a cross-mode func value with
+  >7 arg slots (no upper-bound guard, unlike `dispatchCompiledIfaceMethod`'s
+  `n > 6` panic); `dispatchExternBinding` is unguarded the same way. Add an
+  `if nArgs > 7 { vmPanic(...) }` to convert a future silent-miscompile into a
+  loud panic. Latent (nothing reaches >7 slots today).
+- No conformance coverage for a cross-mode func value returning a RAW slice
+  (16B) or a multi-word STRUCT, nor a leak-balance assertion for the managed
+  return (879/876 check only printed output); add when convenient.
+
+---
+
 ## MAJOR (codegen / invalid IR) — chaining a method onto the by-value struct result of a CROSS-PACKAGE method emits `extractvalue` on a scalar i64 → C backend rejects it (2026-06-20) — 🔴 OPEN — REPRODUCED
 
 **Symptom (REPRODUCED, builder-comp; it's a compile error).** `fi.ModTime().ToUnix()` where `fi` is `@os.FileInfo` and `ModTime()` returns `time.Point` (a cross-package struct, by value): IR-gen emits `%vN = extractvalue i64 %vM, 0` — `extractvalue` on a scalar `i64`, not an aggregate — and clang rejects it (`extractvalue operand must be aggregate type`). Repro: `conformance/stdlib/os/004_modtime_chain` (xfail.all).
