@@ -178,12 +178,39 @@ backend stays correct.
 **Proposed fix.** One shared aggregate-vs-scalar predicate (mirroring
 `isAggregateReturn`), fed from the result TYPE, applied at all three dispatch
 sites AND both size encoders — ideally by carrying an explicit aggregate FLAG
-(computed once at lowering from the same predicate codegen uses) rather than
-re-deriving `> 8` in the VM. Bug Discovery Protocol caveat: a triggering test
-needs a FIXTURE (a native-injected function returning a ≤8-byte named struct /
-≤8-byte tuple) — no standalone conformance xfail is addable without that, so
-the test ships WITH the fix. Discovered by the 2026-06-21 adversarial review of
-`58c05dee` (findings B1/C1, two independent traces).
+(computed once from the same predicate codegen uses) rather than re-deriving
+`> 8` in the VM. Discovered by the 2026-06-21 adversarial review of `58c05dee`
+(findings B1/C1, two independent traces).
+
+**Plan refined by a 2026-06-21 adversarial PLAN review (NOT YET STARTED — pending
+a user scope decision):**
+- Host `isAggregateReturn` + chain (`aggRetCoerced`/`aggInRegCoercedKind`/
+  `needsSret`/`stripWrappers`) in `pkg/types` (verified clean, BUILDER-safe, no
+  import cycle; ~26–47 codegen call-sites get rewired to `types.*`).
+- STAMP the aggregate flag / retbuf-size on the `Instr` at IR-GEN time
+  (`gen_call.bn` for the func value — `Args[0].Typ` is the func-value type with
+  `.Results`; `gen_iface_dispatch.bn` for iface — the result-list is in hand
+  there but DISCARDED before lowering, and the lowered `instr.Typ` is an
+  ANONYMOUS tuple struct that `aggRetCoerced` excludes → recovering it at lower
+  time is impossible). Do NOT repurpose `ResultSize`/`Aux` from "byte size" to
+  "agg-or-0": that breaks `scalarResult = 8` + dozens of literal-`8`
+  `RegisterExtern` scalar producers AND the public `reflect.FunctionInfo.Result-
+  Size` contract — use a SEPARATE flag, leaving `ResultSize` as the true size.
+- The retbuf size MUST round up to `((SizeOf+7)/8)*8` (the shim writes
+  `[N x i64]`); today's retbuf is sized raw `SizeOf` → a pre-existing latent
+  4-byte overrun for a 12-byte aggregate (fix it here too).
+- `OP_CALL_HANDLE` → explicitly scalar (its `Args[0]` is a `*uint8` handle, not
+  a func-value type).
+- SCOPE DECISION (open): native uses a DIFFERENT predicate (`common.IsAggregate-
+  Typ`) and keeps small MULTI-return scalar (already xfailed native — 705),
+  while LLVM routes it through the retbuf. The ≤8-byte NAMED-STRUCT case (the
+  primary trigger) — both backends agree → fixed everywhere. Only ≤8-byte
+  multi-return diverges. (a) Scope the VM to the LLVM/`isAggregateReturn`
+  convention (multi-return stays the 705 gap on a native-built VM) — recommended;
+  or (b) also unify the native funcvalue shim (closes 705, bigger).
+- Test via a REAL test-local native fn returning a ≤8-byte named struct (the
+  `TestExternRtMakeManagedSliceViaRegistry` harness — light) + a ≤8-byte
+  multi-return + pure `types` unit tests; keep 879/881/882/876 as >8 no-regression.
 
 **Related smaller follow-ups discovered in the same review (lower severity):**
 - `dispatchCompiledFuncValue`'s >7-arg-slot silent truncation: ✅ FIXED
@@ -195,9 +222,12 @@ the test ships WITH the fix. Discovered by the 2026-06-21 adversarial review of
   extern call, incl. `println` — caught in review). A correct guard there needs
   the real arg count threaded in (execExtern has `instr.Imm`; pass it through to
   dispatchExternBinding). Latent (nothing reaches >7 slots today).
-- No conformance coverage for a cross-mode func value returning a RAW slice
-  (16B) or a multi-word STRUCT, nor a leak-balance assertion for the managed
-  return (879/876 check only printed output); add when convenient.
+- Coverage (mostly ✅ binate `522ede25`): 881 now covers a cross-mode func
+  value returning a multi-word STRUCT (time.Point 16B); 882 asserts the
+  managed-slice return's backing refcount is exactly 1 (no over-acquire); 880
+  covers an `@func` element built from a func reference (the acquire path).
+  STILL UNCOVERED: a cross-mode func value returning a RAW slice (`*[]T`, 16B)
+  — no stdlib fixture returns one, so it needs a test-local native helper.
 
 ---
 
