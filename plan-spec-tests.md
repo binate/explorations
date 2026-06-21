@@ -414,7 +414,10 @@ individually with `--check-xpass`).
   `5e2d8ce`).
 
 Open-item behaviors documented as positives: tagless-switch `break` targets the
-enclosing loop (`133`), a bare effect-free `x + 1` is accepted (`036`).
+enclosing loop (`133`), a bare effect-free `x + 1` is accepted (`036`). **Review-driven
+follow-up landed** (binate `430a46b1`; chapter now **84 tests**): `046` string-literal
+`:=` default type, `047` `s[i]++` managed-slice incdec, `097` non-bool for-condition
+rejected, `098` raw-slice range, `165` block-last-terminates, `166` no `select` absence.
 
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
