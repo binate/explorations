@@ -370,7 +370,7 @@ Both reproduce on a SINGLE package and predate the struct-collision fix
   — an unconstrained `[T any]` T isn't numeric, but the diagnostic/handling for
   a struct-field-of-T in an arithmetic position is the rough edge.
 
-## MAJOR (IR-gen / latent wrong-code) — `mangleTypeArg` is NOT actually injective despite `14270695`'s title; a named type can collide with a composite prefix, and the `.`/`/` fold is 2-to-1 (2026-06-20) — 🔴 OPEN — 🟡 SCOPE/DESIGN REQUIRED
+## MAJOR (IR-gen / latent wrong-code) — `mangleTypeArg` is NOT actually injective despite `14270695`'s title; a named type can collide with a composite prefix, and the `.`/`/` fold is 2-to-1 (2026-06-20) — 🟢 PLAN APPROVED, IMPLEMENTING (`plan-mangle-invertible.md`, Option L)
 
 Surfaced by the 2026-06-20 adversarial review of `14270695` ("make mangleTypeArg
 total + injective …").  `mangleTypeArg` (`pkg/binate/ir/gen_generic_mangle.bn`)
@@ -396,11 +396,20 @@ args previously all collapsed to one `<unknown>` token) but its "injective" clai
 is overstated and it WIDENED the prefix set.  **Fix:** make leaf tokens
 self-delimiting — length-count the named-type token, or use distinct escapes for
 `.` vs `/` vs literal `_`.  The same 2-to-1 fold lives in `mangle.bn`'s
-`writeBnDotted`, so the robust fix likely belongs in the SHARED mangle pipeline,
-not only here — an encoding/design decision (SCOPE REQUIRED).  No test yet; the
-unit test only spot-checks individual tokens (see the MINOR coverage entry below).
+`writeBnDotted`, so the robust fix belongs in the SHARED mangle pipeline, not
+only here.  **Approved plan: `plan-mangle-invertible.md`** — length-prefixed
+(Itanium-style) invertible encoding across the whole mangle pipeline, a full
+structured demangler, and a `demangle(mangle(x))==x` round-trip + injectivity
+test suite (the real injectivity verifier).  Not BUILDER-gated.  The named-axis
+injectivity guard test rides with that migration.
 
-## MAJOR (native backend / latent linkage divergence) — the native backend emits an instantiation dtor's reflect-descriptor data symbols (`__fninfo`/`__fnname`/`__fnsig`) as STRONG external, while LLVM makes them private/`weak_odr` → duplicate-symbol once two native TUs share an instantiation (2026-06-20) — 🔴 OPEN — REPRODUCED (symbol-table proof)
+## MAJOR (native backend / latent linkage divergence) — the native backend emits an instantiation dtor's reflect-descriptor data symbols (`__fninfo`/`__fnname`/`__fnsig`) as STRONG external, while LLVM makes them private/`weak_odr` → duplicate-symbol once two native TUs share an instantiation (2026-06-20) — ✅ FIXED & LANDED (`558b93d5`)
+
+**Resolved (`558b93d5`):** `common.EmitFunctionInfoNode` now emits `nameSym`/
+`sigSym` LOCAL (= LLVM `private`) and `nodeSym` WEAK (= LLVM `weak_odr`),
+uniformly — confirmed via `nm --format=darwin` (node → weak external, name/sig →
+non-external). Guarded by a binding assertion in `TestEmitFunctionInfoNode`
+(end-to-end can't fail until native-deps lands). Detail retained below.
 
 Surfaced by the 2026-06-20 adversarial review of the generic same-segment work
 (`5ae791d2`), then REPRODUCED by dumping a native `main.o`.  An instantiated
@@ -432,21 +441,19 @@ emission for `IsLinkOnce` defining-pkg-qualified funcs (one canonical owner).
 Backends MUST agree on linkage for these shared symbols (`ir-backend-guidelines`).
 No conformance test possible until native-deps lands (it can't fail today).
 
-## MINOR (test-coverage) — gaps from the 2026-06-20 adversarial review of the session's generic/reloc work — 🔴 OPEN
+## MINOR (test-coverage) — gaps from the 2026-06-20 adversarial review of the session's generic/reloc work — 🟢 MOSTLY DONE & LANDED (`dc04f824`); 1 item rides with the mangle migration
 
-- `mangleTypeArg`'s `ro_`/`iv_`/`miv_` branches (added in `14270695`) have ZERO
-  unit coverage.
-- `gen_generic_mangle_test.bn` spot-checks individual tokens but never asserts
-  INJECTIVITY across the named-type axis (the actual collision surface — see the
-  MAJOR mangle entry above); func arity-collision (`func(int)` vs `func(int,int)`)
-  isn't directly asserted either.
-- `TestWriteElfX64RelocPltVsPc` (`pkg/binate/asm/elf/elf_test.bn`) asserts the
-  reloc TYPE (PLT32 vs PC32) but not the `r_addend` (−4); the addend is pinned
-  only in the isolated `elf_util` test, not paired with the type in the emitted
-  object.
-- Func-value type-arg instantiation injectivity is unit-only (conformance/870 is
-  a single `@func` instantiation); no cross-mode test of two distinct func-value
-  instantiations coexisting.
+- ✅ `mangleTypeArg`'s `ro_`/`iv_`/`miv_` branches now have unit coverage.
+- ✅ func arity-collision (`func(int)` vs `func(int,int)`, `func() bool` vs
+  `func(bool)`) is now directly asserted (`TestMangleFuncSigArity`).
+- ✅ `TestWriteElfX64RelocPltVsPc` now asserts the `r_addend` (−4) alongside the
+  reloc type in the emitted object.
+- ✅ Func-value cross-mode injectivity: `conformance/878` (two distinct func-value
+  instantiations coexisting across modes).
+- ⏳ Named-type-axis INJECTIVITY assertion (the actual collision surface) — would
+  FAIL today (it IS the Finding-A bug), so it rides with the
+  `plan-mangle-invertible.md` migration as the `demangle(mangle(x))==x`
+  round-trip + injectivity suite.
 
 ---
 
