@@ -9,6 +9,70 @@ Decisions (locked 2026-06-20):
   decoded type-args); migrate `recvTypeIsGenericInst` + the VM `__ivt` matcher
   onto it.
 
+## Grammar (Option L — synthesized from the 3-design panel, 2026-06-21) — PENDING SIGN-OFF
+
+Every mangled symbol is `bn_<kind><body>` (the object-format leading `_` is still
+added outside, by `symPrefixed`). `bn_entry` stays a reserved literal (special-
+cased first in FuncName, demangle-exempt). All output is `[A-Za-z0-9_]`; counts
+are decimal (no leading zero).
+
+Core productions — length-prefix makes every boundary self-delimiting, so literal
+`_`/`.`/digits inside a name are never confused with structure:
+
+    Ident   = <len> "_" <bytes:len>            # parseExpr -> 9_parseExpr ; __entry -> 7___entry
+    PkgPath = <segcount> "_" Ident{segcount}   # pkg/binate/parser -> 3_3_pkg6_binate6_parser
+
+Kind bodies:
+
+    bn_F PkgPath Ident                 free function
+    bn_G PkgPath Ident                 global var
+    bn_S PkgPath Ident                 struct type
+    bn_M PkgPath Ident Ident           method   (pkg, recvType, method)
+    bn_I PkgPath Ident ArgList         generic-inst function (decl + type args)
+    bn_T PkgPath Ident ArgList         generic-inst struct
+    bn_V PkgPath Ident PkgPath Ident   __ivt    (recvPkg, recvType, ifacePkg, ifaceName)
+    bn_W ...(same shape as V)          __ivtshim
+    ArgList = <argcount> TypeArg{argcount}
+
+Type-arg sub-language — **resolves Finding A**: a NAMED type is introduced ONLY by
+the `N` leaf tag, so a type named `ptr`/`slc`/`arr` can never be read as a
+constructor (the old prefix collision is impossible):
+
+    TypeArg = "p" TypeArg              # *T            "m" TypeArg   # @T
+            | "s" TypeArg              # *[]T          "M" TypeArg   # @[]T (managed-slice)
+            | "r" TypeArg              # readonly T
+            | "i" TypeArg | "j" TypeArg# *Iface / @Iface
+            | "a" <len> TypeArg        # [len]T
+            | "f" Sig | "F" Sig | "g" Sig            # func / *func / @func value
+            | "N" PkgPath Ident        # named/primitive leaf (primitive: empty PkgPath = `0_`)
+    Sig     = "p" <pc> TypeArg{pc} "r" <rc> TypeArg{rc}
+
+(Kind letters appear only right after `bn_`; type-arg constructors only inside
+ArgList/Sig — so `M`-method vs `M`-managed-slice never collide; context decides.)
+
+Decorations (wrappers the demangler peels): `Dvt_<core>` (was `__vt.`),
+`Dhd_<core>` (`___handle.`), `Dsh_<core>` (`__shim`). Reflect symbols stay as
+recognizable suffixes on a core: `<core>__fnname`/`__fnsig`/`__fninfo`, per-package
+`___Package`.
+
+Demangler: strip object prefix → `bn_entry`? reserved → peel decoration tag → read
+kind letter → parse the length-prefixed body → `DemangledName{kind, pkg[], name,
+recv, args[]}`. No side table. `__c_call` C symbols are never mangled.
+
+Injectivity: every variable-length field is length-counted, so no concatenation of
+distinct components can realign into a different parse → distinct inputs give
+distinct strings. Verified by the `demangle(mangle(x))==x` round-trip suite.
+
+Open sub-decisions (recorded; defaults chosen unless you object): **(P)** prefix
+`bn_`+kind (continuity) vs `_B`+kind (clean old/new separation) — default `bn_`;
+**(D)** dtor/copy helpers ride the func/ident path (their `__dtor_<suffix>` name is
+just a length-prefixed Ident) rather than a dedicated `bn_D TypeArg` kind — default
+ride-along (less invasive; the dtor-type-suffix mini-language's own injectivity is
+tracked separately). **Riskiest implementation point (not a grammar choice):** the
+VM's runtime `__ivt` iface-suffix rewrite (`swapIfaceSuffix`) must change from
+byte-scanning `__<ifacePkg>__<ifaceName>` to reading the trailing `PkgPath Ident`
+of the `bn_V` body — the cross-mode contract.
+
 ## Motivation
 
 The compiler's symbol mangler is **non-injective**: `mangle.writeBnDotted` /
