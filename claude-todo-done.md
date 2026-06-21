@@ -8,6 +8,24 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED (15f52c07, 2026-06-21) — `.bni` iota implicit-repeat const exported as the bare iota ordinal cross-package
+
+A `.bni` const-group member omitting its initializer (Go's `1 << iota` idiom)
+exported to importing packages as the bare iota ordinal (`os.ModeSymlink`=4)
+instead of the repeated expression (1<<27).  Correct *within* the defining
+package; only CROSS-PACKAGE references were wrong — a silent miscompile of any
+external `mode & os.ModeSymlink`-style use.  Two paths both missed the
+prevExpr-repeat-at-iota that `checkGroupDecl` does in-package:
+`types/bni_scope.bn` (defineBniConst / the DECL_GROUP loop: bind `iota` in the
+temp build scope per member + repeat prevExpr for bare members, suppressing the
+shared-node restamp) and `ir/gen_import.bn` (registerImportConstGroup: re-fold
+prevExpr at iotaVal).  Discovered via `e2e/readdir-values.sh`.  Tests:
+`conformance/stdlib/os/007_mode_const`,
+`gen_import_test.TestRegisterImportsShiftIotaConsts`.  Adversarially reviewed;
+full conformance builder-comp (1931) + 48-package unit suite green.
+
+---
+
 ## MAJOR (codegen / SILENT wrong-code, BOTH native backends) — cross-package struct-by-value call corrupted on the native backends; codegen passed ≤16-byte aggregates as first-class LLVM struct values (2026-06-20) — ✅ FIXED & LANDED (`b9081931`, 2026-06-20)
 
 **Symptom.** A cross-package call passing a struct ≤16 bytes BY VALUE

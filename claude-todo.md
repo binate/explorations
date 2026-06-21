@@ -198,59 +198,6 @@ So: cross-package METHOD + aggregate (struct) by-value return + immediately used
 
 ---
 
-## MAJOR (type-checker / SILENT wrong-code) — a `.bni` const-group member that OMITS its initializer (the Go iota implicit-repeat idiom) is EXPORTED to importing packages as the bare `iota` ordinal, not the repeated-expression value (2026-06-20) — 🔴 OPEN — ROOT-CAUSED
-
-**Symptom.** An exported const declared by implicit-repeat in a `.bni` —
-
-    const (
-        ModeDir  FileMode = 1 << (32 - 1 - iota)  // explicit expr, iota=0
-        ModeAppend                                 // implicit-repeat, iota=1
-        ...
-        ModeSymlink                                // implicit-repeat, iota=4
-    )
-
-has the WRONG value when read from ANOTHER package: the importer sees the bare
-`iota` ordinal (`os.ModeAppend`=1, `os.ModeSymlink`=4, `os.ModeDevice`=5,
-`os.ModeCharDevice`=10, `os.ModeIrregular`=12), NOT the repeated expression
-(1<<30, 1<<27, 1<<26, 1<<21, 1<<19). The FIRST member (explicit expr,
-`os.ModeDir`=2147483648) and any const with an explicit expression
-(`os.ModePerm`=511) export CORRECTLY. The values are CORRECT *within* the
-defining package — `impls/stdlib/pkg/std/os/mode_test.bn` asserts
-`ModeIrregular == 1<<19` and passes; only CROSS-PACKAGE references are wrong.
-
-**Discovery.** `e2e/readdir-values.sh`'s probe computed `dirEntry.Type() &
-os.ModeSymlink` from `package main` and got 0 — because `os.ModeSymlink` read as
-4, not 1<<27 (os.ReadDir's own DirEntry.Type() is the correct 1<<27, produced
-inside the os package). A direct dump from main confirmed the table above.
-
-**Root cause.** `pkg/binate/types/bni_scope.bn` `defineBniConst`: it folds each
-`.bni` const's initializer (foldConstIntValue / evalConstIntValue) and an
-initializer it "can't reduce — e.g. iota" falls back to VALUE-LESS (its own
-comment, ~line 30). A bare implicit-repeat member is not given the group's
-repeated expression evaluated at the member's iota — unlike the IN-PACKAGE path
-(`check_const.bn`; see `check_const_test.bn:222` "the bare B repeats
-`128 << iota`"). So the export path folds wrong/value-less and the importer ends
-up with the ordinal. The `.bni`-export path does not mirror the in-package
-implicit-repeat + iota handling.
-
-**Impact.** MAJOR — SILENT wrong-value miscompile across every package boundary,
-for any package exporting implicit-repeat iota consts (`os.Mode*` and any similar
-idiom elsewhere). External `mode & os.ModeSymlink` etc. is silently wrong.
-os.ReadDir / os.Stat THEMSELVES are correct (internal const use); the landed
-ReadDir work (28d21908) and `conformance/stdlib/os/006_readdir` are unaffected.
-
-**Proposed fix.** In `defineBniConst` (or the `.bni` const-block parse/scope
-path), materialize each bare implicit-repeat member's initializer as the group's
-repeated expression and evaluate it at the member's iota — i.e. share the
-in-package `check_const` iota/implicit-repeat handling — then fold so the
-exported value equals the in-package value.
-
-**Test.** [pending] a conformance test importing os and asserting
-`os.ModeSymlink == 1<<27` etc. (would be `.xfail.all` until fixed). Currently
-blocks `e2e/readdir-values.sh`'s symlink (DT_LNK) check.
-
----
-
 ## MINOR (e2e / BUILDER-lag cleanup) — drop the gen1 build in e2e/stat-values.sh after the next BUILDER bump (2026-06-20) — 🔴 OPEN
 
 `e2e/stat-values.sh` builds gen1 from the tree (`scripts/build-bnc.sh`) and compiles its os.Stat probe through gen1, instead of the simpler `$BUILDER … cmd/bnc -- …` form the other e2e scripts use. Reason: os.Stat depends on the `.bni` free-func/method fix (`796effc7`) and the wholesale-os-injection work, which postdate `BUILDER_VERSION` (bnc-0.0.9) — the pinned BUILDER can't compile os yet. Once BUILDER is bumped past those, revert `e2e/stat-values.sh` to the plain `$BUILDER … cmd/bnc -- …` pattern (drops the ~1-min gen1 build per e2e run).
