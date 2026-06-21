@@ -29,6 +29,71 @@ stdout.
 
 ---
 
+## MAJOR (native aarch64 backend / SILENT wrong-code) — a CROSS-PACKAGE call that passes a struct BY VALUE (as receiver and/or by-value arg) corrupts the struct on `comp_native_aa64`; LLVM + VM correct → **main is RED in CI on `builder-comp_native_aa64-comp_native_aa64`** (2026-06-20) — 🔴 OPEN — REPRODUCED (minimal, standalone)
+
+**Symptom (REPRODUCED, silent miscompile — wrong values, no diagnostic).** Calling
+a method of a *separately-compiled* package, where a struct containing an `int64`
+is passed by value (as the receiver and/or a by-value parameter), produces
+garbage on the native aarch64 backend. The two stdlib time conformance tests
+fail ONLY under `builder-comp_native_aa64-comp_native_aa64`:
+- `855_std_time` — `1 1 1 1 1 1 1 1 1` expected; got `1 1 1 1 0 …` (`a.Sub(b).Nanoseconds()==7e9` → wrong; `b.Before(a)` → wrong).
+- `stdlib/time/001_negative_pre_epoch` — `1 1 1 1 1` expected; got `1 1 1 1 0` (`d.Nanoseconds()==-7e9` → wrong).
+Both **PASS on `builder-comp` (LLVM/C) and `builder-comp-int` (VM)**.
+
+**Minimal standalone repro (NOT entangled with `pkg/std/time`)** — saved at
+`/tmp/aa64_xpkg_saved/` (a 2-package directory test): package `pkg/tt` exports
+`type S struct { sec int64; nsec int32 }` with methods `Mk`, `Sec`, `Less(q S)`,
+`SubNanos(q S)`; `main` imports it and calls `p.Less(q)` / `q.SubNanos(p)` across
+the package boundary. aa64 prints `0 0 6795364523871345152 …` (garbage int64,
+then the program stops — likely a fault) where LLVM prints the correct
+`1 1 7000000000 …`.
+
+**Narrowing (each checked aa64 vs LLVM).** Reproduces ONLY across a (non-inlined)
+package boundary with struct-by-value passing:
+- 64-bit const / literal load (incl. `62135596800`, `-7e9`), 64-bit add / sub /
+  `*` (incl. `7*1e9`, `-7*1e9`) / `<` / `==`, `const int64`, a struct `int64`
+  field, struct-by-value method receiver+arg, a named-`int64` type, all **inline
+  in `main` → PASS** on aa64.
+- The SAME operations as cross-package method calls (`pkg/tt`) → **FAIL** on aa64.
+So single-file passes only because the calls **inline**, hiding the broken ABI;
+the real cross-unit call exposes it. The corruption is in the **native-aarch64
+calling convention for passing a (≤16-byte) struct by value** (AAPCS64: such a
+struct goes in x0/x1) — caller and callee disagree, so `S{int64,int32}` args
+arrive garbled.
+
+**This is distinct from the `extractvalue`-on-scalar-i64 entry below** (which is
+an IR-gen defect the LLVM/C backend REJECTS loudly, for method *chaining on a
+cross-pkg struct result* — and which explicitly compiles for the intermediate-var
+form). This one is the NATIVE backend SILENTLY emitting wrong code for the
+struct-by-value *argument* ABI; LLVM is fine. They may share a root (malformed
+by-value-struct handling that LLVM validates-and-rejects while the native backend
+blindly emits) — worth checking together — but they are different code paths and
+different severities.
+
+**x64 unknown (could not test on this arm64 host — cross-target C runtime needs
+x64 `stdio.h`).** If the defect is in shared `pkg/native/common` ABI
+classification rather than aa64-specific register assignment, the
+`builder-comp_native_x64-comp_native_x64` CI job is likely ALSO red. CI will
+show it; needs checking.
+
+**Severity / urgency.** MAJOR — SILENT wrong-code (worse than a loud reject), and
+`builder-comp_native_aa64-comp_native_aa64` is in `scripts/modesets/all` (the CI
+matrix), so **main is currently failing that CI job** and has been since the time
+conformance tests landed (`c220b3d8` / `bf0dcd63`) without an aa64 run or xfail
+markers — a landing-discipline gap (mine).
+
+**Proposed next steps (USER DECISION — do not work around).**
+1. To make CI tracking-green immediately: add `.xfail.builder-comp_native_aa64-comp_native_aa64`
+   markers to `855_std_time` + `stdlib/time/001_negative_pre_epoch`, and land the
+   minimal `pkg/tt` repro as a tracked conformance test with the same xfail (and an
+   x64 xfail if it repros there). (Needs a cherry-pick → approval.)
+2. The real fix: native-aarch64 struct-by-value parameter ABI. Find where the
+   aa64 backend classifies/loads a ≤16-byte struct argument (caller side packs
+   x0/x1; callee side reads them) and reconcile caller vs callee; check whether
+   the classification lives in shared `pkg/native/common` (→ x64 affected too).
+
+---
+
 ## MAJOR (codegen / invalid IR) — chaining a method onto the by-value struct result of a CROSS-PACKAGE method emits `extractvalue` on a scalar i64 → C backend rejects it (2026-06-20) — 🔴 OPEN — REPRODUCED
 
 **Symptom (REPRODUCED, builder-comp; it's a compile error).** `fi.ModTime().ToUnix()` where `fi` is `@os.FileInfo` and `ModTime()` returns `time.Point` (a cross-package struct, by value): IR-gen emits `%vN = extractvalue i64 %vM, 0` — `extractvalue` on a scalar `i64`, not an aggregate — and clang rejects it (`extractvalue operand must be aggregate type`). Repro: `conformance/stdlib/os/004_modtime_chain` (xfail.all).
