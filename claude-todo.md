@@ -29,7 +29,7 @@ stdout.
 
 ---
 
-## MAJOR (native aarch64 backend / SILENT wrong-code) — a CROSS-PACKAGE call that passes a struct BY VALUE (as receiver and/or by-value arg) corrupts the struct on `comp_native_aa64`; LLVM + VM correct → **main is RED in CI on `builder-comp_native_aa64-comp_native_aa64`** (2026-06-20) — 🔴 OPEN — REPRODUCED (minimal, standalone)
+## MAJOR (codegen / SILENT wrong-code, BOTH native backends) — codegen passes a ≤16-byte aggregate BY VALUE as a first-class LLVM struct value; LLVM's backend expands it field-per-register (padding leaves included) while the native backends pack it `[N x i64]`, so a CROSS-PACKAGE (native↔LLVM) struct-by-value call corrupts the struct → **main is RED in CI on `builder-comp_native_aa64-comp_native_aa64` (and almost certainly `…native_x64…`)** (2026-06-20) — 🔴 OPEN — ROOT-CAUSED (IR + asm proof)
 
 **Symptom (REPRODUCED, silent miscompile — wrong values, no diagnostic).** Calling
 a method of a *separately-compiled* package, where a struct containing an `int64`
@@ -55,26 +55,53 @@ package boundary with struct-by-value passing:
   field, struct-by-value method receiver+arg, a named-`int64` type, all **inline
   in `main` → PASS** on aa64.
 - The SAME operations as cross-package method calls (`pkg/tt`) → **FAIL** on aa64.
-So single-file passes only because the calls **inline**, hiding the broken ABI;
-the real cross-unit call exposes it. The corruption is in the **native-aarch64
-calling convention for passing a (≤16-byte) struct by value** (AAPCS64: such a
-struct goes in x0/x1) — caller and callee disagree, so `S{int64,int32}` args
-arrive garbled.
+So single-file passes only because main is the only natively-compiled module and
+its same-module calls never cross the native↔LLVM boundary; the cross-package
+call exposes the broken ABI. `cmd/bnc` compiles only the MAIN module natively;
+dep packages (`pkg/tt`, `pkg/std/time`, …) go through LLVM/clang (cmd/bnc/main.bn
+~L205, common_callconv.bn header). So a cross-package call is a NATIVE-caller →
+LLVM-callee boundary, and the two sides must agree on the struct ABI.
 
-**This is distinct from the `extractvalue`-on-scalar-i64 entry below** (which is
-an IR-gen defect the LLVM/C backend REJECTS loudly, for method *chaining on a
-cross-pkg struct result* — and which explicitly compiles for the intermediate-var
-form). This one is the NATIVE backend SILENTLY emitting wrong code for the
-struct-by-value *argument* ABI; LLVM is fine. They may share a root (malformed
-by-value-struct handling that LLVM validates-and-rejects while the native backend
-blindly emits) — worth checking together — but they are different code paths and
-different severities.
+**ROOT CAUSE — CONFIRMED by disassembly + emitted LLVM IR (NOT the native side —
+codegen).** The native caller is *correct*: it packs `S` as `[2 x i64]` (p→x0,x1;
+q→x2,x3) and collects the 16-byte return from x0,x1 — exactly clang's documented
+AAPCS-C `[2 x i64]` lowering (common_callconv.bn:24-27, 145, 157; verified by
+disassembling the native `main.o`). The LLVM CALLEE is the diverging side.
+`pkg/binate/codegen` (`writeParamTypeLLVM`, emit_util.bn:286; `IsByvalParam` =
+`SizeOf>16`, types/scope.bn:217) emits a ≤16-byte aggregate param/return as a
+**first-class LLVM struct value**, and emits the struct TYPE with explicit padding
+leaves:
+```
+%bn_pkg__tt__S = type <{ i64, i32, [4 x i8] }>
+declare i1  @…S__Less(%bn_pkg__tt__S, %bn_pkg__tt__S)   ; first-class, by value
+declare %bn_pkg__tt__S @…Mk(i64, i32)
+```
+LLVM's AArch64 backend lowers a first-class struct param by EXPANDING it
+field-per-register — i64→x0, i32→x1, `[4 x i8]`→x2,x3,x4,x5 — so `S` eats **6**
+registers and the 2nd struct arg `q` starts at **x6** (the LLVM `tt.Less` body
+reads `q.sec` from x6, the shim reads the 4 padding bytes from offsets 12-15 into
+separate regs). Native put `q` in x2,x3 → x6 is garbage → corruption.
 
-**x64 unknown (could not test on this arm64 host — cross-target C runtime needs
-x64 `stdio.h`).** If the defect is in shared `pkg/native/common` ABI
-classification rather than aa64-specific register assignment, the
-`builder-comp_native_x64-comp_native_x64` CI job is likely ALSO red. CI will
-show it; needs checking.
+The trap: common_callconv.bn:25 ASSERTS "clang emits `[2 x i64]` for the 16-byte
+case" and the native backend was built to match that — but that is clang's *C
+frontend* behavior; codegen emits *raw LLVM IR with a first-class struct param*,
+which LLVM's *backend* lowers by field-expansion instead. codegen never performs
+the `[2 x i64]` ABI COERCION the comment assumes. Two failure shapes, both from
+the same first-class emission: (a) explicit padding leaves add spurious registers
+(breaks `{i64,i32}`, our S); (b) sub-word fields native coalesces into one word
+but LLVM expands to separate registers (breaks `{i32,i32}` and similar even with
+no padding leaf). General fix = coerce to `[N x i64]`.
+
+**Possibly the same root as the `extractvalue`-on-scalar-i64 entry below** (also
+cross-package by-value struct, also the time package) — that one is codegen
+mis-lowering a by-value struct RESULT; worth fixing/auditing together.
+
+**x64 almost certainly ALSO broken (shared codegen).** The defect is in
+backend-INDEPENDENT `pkg/binate/codegen` (the LLVM-text emitter is identical for
+aa64 and x64; only clang's target lowering differs later). So
+`builder-comp_native_x64-comp_native_x64` is very likely red on the same tests.
+(Could not run x64 locally — cross-target C runtime needs x64 `stdio.h` on this
+arm64 host; CI will confirm.) The fix below is codegen-only and fixes BOTH.
 
 **Severity / urgency.** MAJOR — SILENT wrong-code (worse than a loud reject), and
 `builder-comp_native_aa64-comp_native_aa64` is in `scripts/modesets/all` (the CI
@@ -82,15 +109,27 @@ matrix), so **main is currently failing that CI job** and has been since the tim
 conformance tests landed (`c220b3d8` / `bf0dcd63`) without an aa64 run or xfail
 markers — a landing-discipline gap (mine).
 
-**Proposed next steps (USER DECISION — do not work around).**
-1. To make CI tracking-green immediately: add `.xfail.builder-comp_native_aa64-comp_native_aa64`
-   markers to `855_std_time` + `stdlib/time/001_negative_pre_epoch`, and land the
-   minimal `pkg/tt` repro as a tracked conformance test with the same xfail (and an
-   x64 xfail if it repros there). (Needs a cherry-pick → approval.)
-2. The real fix: native-aarch64 struct-by-value parameter ABI. Find where the
-   aa64 backend classifies/loads a ≤16-byte struct argument (caller side packs
-   x0/x1; callee side reads them) and reconcile caller vs callee; check whether
-   the classification lives in shared `pkg/native/common` (→ x64 affected too).
+**FIX — codegen-only ABI coercion (the native backends and `pkg/types` are
+correct and stay untouched).** Make codegen pass/return an in-register aggregate
+(`1 ≤ SizeOf ≤ 16`, i.e. NOT `IsByvalParam`) using the `[N x i64]` coerced ABI
+type (N = ⌈SizeOf/8⌉) instead of the first-class struct — matching what the
+native backends already do and what common_callconv.bn:25 assumes clang does.
+Surface (all in `pkg/binate/codegen`):
+1. Param type in `define`/`declare` (writeParamTypeLLVM): emit `[N x i64]` for an
+   in-register aggregate.
+2. Function prologue: store the `[N x i64]` param into the param's struct alloca
+   (same 16-byte memory; body GEPs the struct from there).
+3. Return type: emit `[N x i64]`; at OP_RETURN, load the struct's memory as
+   `[N x i64]` and `ret` it.
+4. Call-site arg: coerce the struct value → `[N x i64]` (load from its memory)
+   and pass; collect an `[N x i64]` return → store into the result struct memory.
+Care: a struct smaller than N*8 must coerce via an N*8-sized temp (avoid
+over-read/over-write); keep it BUILDER-compilable (codegen is in cmd/bnc's BUILDER
+tree). Verify on BOTH `…native_aa64…` and `…native_x64…` (and that builder-comp /
+VM stay green — both sides change in lockstep so pure-LLVM still agrees). Add the
+minimal `pkg/tt` repro (saved `/tmp/aa64_xpkg_saved/`) as a conformance test;
+once fixed, the time tests + repro pass natively with no xfail. Plan doc:
+`explorations/plan-codegen-aggregate-abi-coercion.md` (to be written).
 
 ---
 
