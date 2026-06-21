@@ -1,6 +1,13 @@
 # Plan: invertible (demanglable) name mangling
 
-Status: 🟡 PLAN — encoding choice pending user sign-off (2026-06-20)
+Status: 🟢 PLAN APPROVED — implementing (2026-06-20)
+
+Decisions (locked 2026-06-20):
+- **Encoding: Option L** (length-prefixed components, Itanium-style).
+- **Prep consolidations land incrementally** as each is ready.
+- **Demangler: full structured `DemangledName`** (kind + pkg path + name/recv +
+  decoded type-args); migrate `recvTypeIsGenericInst` + the VM `__ivt` matcher
+  onto it.
 
 ## Motivation
 
@@ -174,10 +181,8 @@ and de-risk it. Bug fixed is latent, but the consolidation (one fold encoder,
 one rt manifest, one vtable-name codec) and the demangler are durable structural
 wins beyond the bug.
 
-## Open decisions for the user
+## Open decisions for the user — RESOLVED 2026-06-20
 
-1. **Encoding: Option L (length-prefix, recommended) or Option E (escape)?**
-2. Land the prep consolidations incrementally as they're ready (recommended), or
-   batch?
-3. Demangler scope: full structured `DemangledName`, or minimal (enough for the
-   round-trip + replacing the two substring-scan consumers)?
+1. Encoding: **Option L (length-prefix)**.
+2. Prep consolidations: **land incrementally**.
+3. Demangler: **full structured `DemangledName`**.
