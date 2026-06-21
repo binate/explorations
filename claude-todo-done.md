@@ -46,9 +46,15 @@ VM + gen2 self-host + codegen unit tests green, hygiene 15/15; the time tests
 pass natively with no xfail; disassembly confirms the 2nd struct arg now lands in
 x2/x3.
 
-**FOLLOW-UP (still open in claude-todo.md):** the sibling `extractvalue`-on-
-scalar-i64 cross-pkg-struct-chaining MAJOR may be fixed or affected by this
-coercion — re-check `conformance/stdlib/os/004_modtime_chain` and that entry.
+**Sibling bug — CHECKED, NOT fixed by this coercion (2026-06-20).**
+`conformance/stdlib/os/004_modtime_chain` still fails with the IDENTICAL
+`error: extractvalue operand must be aggregate type` (`%vN = extractvalue i64
+%vM, 0`) — not regressed, unchanged. It's a distinct IR-gen defect: the
+cross-package struct RESULT is lowered as a scalar `i64` temporary UPSTREAM of
+codegen (before any LLVM-text ABI emission), so the codegen coercion never sees
+it. Its `.xfail.all` stays; the entry remains OPEN in claude-todo.md. Also
+confirmed: x64 is fixed too (`builder-comp_native_x64_darwin` via Rosetta — repro
+877 + time tests pass), as expected for a shared-codegen fix.
 
 **Related infra (`383bf6a6`).** The full-sweep "compiler vanished mid-run"
 failures were concurrent-worker `/tmp` clobbering, not the fix: test scripts used
