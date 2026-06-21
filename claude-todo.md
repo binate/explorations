@@ -29,6 +29,20 @@ stdout.
 
 ---
 
+## Ch.7 spec-conformance findings (2026-06-20, authoring `conformance/spec/07-types`) — 🔴 OPEN
+
+Four findings surfaced while authoring the Ch.7 type spec tests; each is pinned by an xfail.
+
+1. **MAJOR (type-checker / wrong-code) — cross-package distinct named SCALAR types wrongly inter-assign.** Same-package `type A int; type B int; var b B = a` correctly rejects ("cannot assign A to B"), but cross-package `red.T -> blue.T` (each `type T int`) **compiles** without a cast — cross-pkg named-type identity is not enforced for scalar underlyings (type.named.identity, type.named.assignability). Possibly related to the int↔int64 identity-by-width bug, but distinct (that one is same-package width; this is cross-pkg). Pinned: `conformance/spec/07-types/049_named_identity_cross_pkg` (xfail.all).
+
+2. **MAJOR (native-aa64 codegen) — a distinct named type over a managed-slice (`type Buf @[]int`) miscompiles on the native AARCH64 backend.** Index/len/slice/assignment of the named managed-slice produce wrong output or crash on `builder-comp_native_aa64`, but are correct on LLVM, the VM, gen1, gen2, AND the 32-bit ARM native backend (arm32_baremetal passes). So it is native-aa64-specific (the named-managed-slice transparency landed for LLVM/VM via `88e13633`/`b43a0057`; native-aa64 has a gap). Pinned: `033_named_transparency`, `036_named_assignability_composite` (xfail.builder-comp_native_aa64-comp_native_aa64).
+
+3. **MINOR (type-checker / opaque encapsulation) — direct field access on an OPAQUE cross-package type is not rejected.** `b.v` on an `@bx.Box` (Box forward-declared in the .bni, full body in the .bn) **compiles** instead of "cannot access field on this type" (type.opaque.field-rejection). The build enforces .bni surfaces for symbols (16-packages/031) but not for opaque-type field access. Needs investigation: real gap vs build-model artifact. Pinned: `222_err_opaque_field_access` (xfail.all).
+
+4. **MINOR (codegen) — managed pointer-to-array `@([N]T)` indexing is broken.** `(*m)[i]` on an `@([3]int)` (the spec's heap-managed-array form, type.value.managed-arise / type.ptr.array-parens) emits an "invalid getelementptr indices" codegen error; `m[i]` gives "cannot index this type". The raw `*([N]T)` form works (`(*p)[i]`). Not pinned by a dedicated test (146 avoids indexing the managed form); noted for follow-up.
+
+---
+
 ## MAJOR (codegen / SILENT wrong-code, BOTH native backends) — codegen passes a ≤16-byte aggregate BY VALUE as a first-class LLVM struct value; LLVM's backend expands it field-per-register (padding leaves included) while the native backends pack it `[N x i64]`, so a CROSS-PACKAGE (native↔LLVM) struct-by-value call corrupts the struct → **main is RED in CI on `builder-comp_native_aa64-comp_native_aa64` (and almost certainly `…native_x64…`)** (2026-06-20) — 🔴 OPEN — ROOT-CAUSED (IR + asm proof)
 
 **Symptom (REPRODUCED, silent miscompile — wrong values, no diagnostic).** Calling
