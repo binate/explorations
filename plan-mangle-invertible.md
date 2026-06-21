@@ -9,7 +9,7 @@ Decisions (locked 2026-06-20):
   decoded type-args); migrate `recvTypeIsGenericInst` + the VM `__ivt` matcher
   onto it.
 
-## Grammar (Option L — synthesized from the 3-design panel, 2026-06-21) — PENDING SIGN-OFF
+## Grammar (Option L — synthesized from the 3-design panel, 2026-06-21) — ✅ SIGNED OFF (prefix `bn_`+kind)
 
 Every mangled symbol is `bn_<kind><body>` (the object-format leading `_` is still
 added outside, by `symPrefixed`). `bn_entry` stays a reserved literal (special-
@@ -225,16 +225,30 @@ Prep (behavior-preserving — byte-identical output, land incrementally):
    (LLVM/x64/aarch64) + `vm.Trampoline*` through `mangle.FuncName` (LLVM via a
    `rtSym()` helper). Byte-identical.
 
-Flip (necessarily atomic — but prep shrank its surface to the encoder + runtime
-+ tests):
+Flip — split into 4a (de-risk, landable) then 4b (atomic):
 
-4. **Switch the shared encoder** to Option L (incl. `mangleTypeArg` leaf) +
-   lockstep-edit the checkout runtime C/asm (`binate_runtime.c`, `crt0.s`,
-   `semihost.s`, `native_test_stubs.c`) + update the VM `__ivt` decoder + the
-   `__bn_inst__` check + update the ~43 exact-string test assertions.
-5. **Add `Demangle` + round-trip + injectivity tests** (the collision cases the
-   old scheme failed: literal-`__` vs `.` vs `/`, named-type vs prefix). Can ride
-   with (4) or immediately follow.
+4a. **New encoders + demangler + round-trip, UNWIRED.** Add the Option-L encoders
+    (`encodeIdent`/`encodePkgPath`/the kind bodies/the type-arg sub-language) and
+    the full `Demangle` as NEW functions in `mangle` (not yet called by
+    FuncName/etc.), plus a `demangle(mangle(x))==x` round-trip + injectivity test
+    suite over every name class (incl. the collision cases the old scheme fails:
+    literal-`__` vs `.` vs `/`, named-type vs prefix). Pure new code, no behavior
+    change → lands incrementally. Validates the grammar+demangler in isolation
+    before the disruptive rewire.
+
+4b. **The atomic flip.** Rewire `FuncName`/`GlobalName`/`StructName`/
+    `ImplVtableName`/`mangleTypeArg`/`mangleFuncSig` to the new encoders (FuncName
+    infers kind F/M/I and StructName S/T from the name shape: `.`-member count +
+    `__bn_inst__` marker) + lockstep-edit the checkout runtime C/asm
+    (`binate_runtime.c`, `crt0.s`, `semihost.s`, `native_test_stubs.c`) + switch
+    the VM `swapIfaceSuffix` to read the trailing `PkgPath Ident` of `bn_V` +
+    `recvTypeIsGenericInst` to the demangler/marker + update the ~43 exact-string
+    test assertions. Necessarily one commit (every symbol changes at once).
+
+Note (implementation): the instantiation type-args ride as the existing
+`__bn_inst__`-suffixed IR name (now built from the injective new `mangleTypeArg`
+tokens); FuncName splits `decl|tokens` to emit `bn_I` with the tokens passed
+through (they are already the self-delimiting type-arg sub-language).
 
 Post: update claude-todo (close Finding A + the writeBnDotted general-symbol
 fold); land the deferred named-axis injectivity guard from the coverage commit.
