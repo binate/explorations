@@ -157,9 +157,9 @@ Prep (behavior-preserving — byte-identical output, land incrementally):
 2. ✅ **LANDED (`2837438e`)** — **Consolidate the four `__ivt` builders** into
    `mangle.ImplVtableName`/`ImplVtableShimName`. Byte-identical. (The VM runtime
    *matcher*/decoder is folded into the flip step, where the format changes.)
-3. **Route the three rt-literal manifests** (LLVM/x64/aarch64) and the
-   `vm.Trampoline*` literals through `mangle.FuncName` (one runtime manifest). No
-   output change.
+3. ✅ **LANDED (`a754c6a8`)** — **Route the three rt-literal manifests**
+   (LLVM/x64/aarch64) + `vm.Trampoline*` through `mangle.FuncName` (LLVM via a
+   `rtSym()` helper). Byte-identical.
 
 Flip (necessarily atomic — but prep shrank its surface to the encoder + runtime
 + tests):
