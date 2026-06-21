@@ -662,6 +662,10 @@ declaration" defect is ✅ FIXED — rejected at collection time, binate
   NO satisfaction call. So `type Box[T lang.Orderable] struct{val T}`
   instantiated as `Box[NoOrder]` (no `impl NoOrder : Orderable`) compiles clean.
   Generic-FUNCTION constraint checking works correctly.
+- **Pinned (2026-06-20):** `conformance/spec/12-generics/034_err_satisfy_struct_unchecked_xfail`
+  (xfail.all) regresses this — flip it to a normal reject when the satisfaction
+  check is added to `buildInstantiatedStruct`/`buildInstantiatedInterface`. The
+  green generic-FUNCTION case is `033_err_satisfy_func_no_impl`.
 
 ### Value-receiver "always readonly" not enforced — spec Ch.10 (2026-06-12)
 MINOR (design-intent vs impl; no correctness bug — by-value copy makes any
