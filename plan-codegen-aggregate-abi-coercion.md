@@ -85,41 +85,12 @@ so the `%S` access stays in-bounds.
    loop at :48); (b) result: when the callee returns an in-register aggregate,
    the call yields `[N x i64]`; store→`load %S` to bind the result ref. The
    sret path (>16) is unchanged.
-6. **CORRECTION (2026-06-20, verified against tree): the indirect-dispatch
-   paths do NOT all "need NO change" — three of them call the real coerced
-   `define` BY VALUE and must coerce in lockstep, or they silently desync.** The
-   original audit hypothesis (a uniform i8*-shim ABI shields them) is only half
-   right:
-   - **`emit_call_funcvalue.bn` / `emit_call_handle.bn` (caller → shim): NO
-     change.** These genuinely use the shim's i8*-pointer ABI — aggregate args go
-     through memory (`shimParamType` → `i8*`), return via retbuf. Safe.
-   - **`emit_iface_call.bn` (vtable dispatch → real method): MUST coerce.** It
-     loads the real method pointer and calls it directly, passing ≤16B aggregate
-     args **first-class by value** (the call arg list, not a shim). Under opaque
-     pointers the `bitcast …to <sig>*` is a no-op, so a coerced `define` + an
-     uncoerced dispatch produces **no verifier error** — the indirect `call`
-     keeps stating `%S` while the callee now takes `[N x i64]`: a SILENT
-     miscompile. Coerce the dispatched arg values + the return reconstruction.
-   - **`emit_funcvals_shim.bn` (shim → underlying): MUST coerce.** The shim's
-     EXTERNAL ABI is i8*-pointer (safe), but its INTERNAL call to the underlying
-     real function passes the loaded aggregate **by value** via
-     `writeParamTypeLLVM` + `writeShimArgRef`. Coerce that internal call's args +
-     return.
-   - **`emit_funcvals_closure.bn` (closure shim → underlying): MUST coerce.**
-     Same as the shim — `writeClosureUnderlyingArgs` passes captures + user args
-     by value to the underlying lifted function.
-   - `emit_impls.bn :405 writeFuncPtrType` (vtable-slot bitcast TYPE): cosmetic
-     under opaque pointers (the constant `bitcast @method to i8*` ignores the
-     fptr type), so no ABI effect — optionally coerce for readability.
-
-   Consequence: the 4-direct-site version is not merely incomplete, it is
-   **actively regressive** — iface/funcval/closure calls passing in-reg STRUCT
-   args work today in pure-LLVM (both sides first-class), and coercing only the
-   `define` would silently break them. The fix is the **uniform `[N x i64]` ABI
-   for every LLVM in-reg aggregate, applied in lockstep at all by-value
-   sites.** Test coverage must add iface-method / func-value / closure
-   small-struct-arg repros under `builder-comp`, not just the direct cross-pkg
-   cases — those are what catch the regression class.
+6. Audit the parallel signature emitters that also call writeParamTypeLLVM /
+   emit a callee signature: `emit_impls.bn :405` (impl thunks), `emit_iface_call.bn`,
+   `emit_funcvals_*` (these use the i8*-pointer shim ABI for aggregates — a
+   SEPARATE, internally-consistent convention; confirm they still agree with the
+   native func-value path and need NO change). Iface method calls (`emit_iface_call.bn`)
+   go through a uniform shim too — verify.
 
 ## What does NOT change
 
