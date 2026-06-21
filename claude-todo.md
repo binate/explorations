@@ -77,6 +77,30 @@ Four findings surfaced while authoring the Ch.7 type spec tests; each is pinned 
 
 ---
 
+## Ch.5 spec-conformance findings (2026-06-20, authoring `conformance/spec/05-lexical`) — 🔴 OPEN
+
+Surfaced while authoring the Ch.5 lexical spec tests. Two are NEW spec/impl
+**divergences** (need a reconcile decision — fix the spec or the lexer); the rest
+are open items now pinned by xfails, plus stale-spec-note corrections proposed
+separately in `docs/spec/05-lexical-elements.md`.
+
+1. **DIVERGENCE (lexer feature undocumented) — `\uHHHH` Unicode escape is implemented but spec §5.11 says it does not exist.** `'A'` decodes to `0x41` and `"é"`/`"中"` UTF-8-encode the codepoint (len 2 / 3). But `lex.escape.unsupported` says "there is **no** `\uHHHH` (Unicode) escape", and `lex.source.bytes` says the language is ASCII-only with "no Unicode decoding". Short `\u` errors `\u escape requires four hex digits`; `\U` (8-digit) is correctly rejected. **NEEDS DECISION:** document `\uHHHH` as a real escape (and reconcile the ASCII-only wording) **or** remove it from the lexer. Pinned: `conformance/spec/05-lexical/055_escape_unicode_divergence_xfail` (xfail.all, asserts the spec's rejection; flips green if `\u` is removed, delete if it is documented).
+
+2. **DIVERGENCE (greedy lex vs selector) — `1.foo` is lexed as a trailing-dot float, not the selector tokens `1 . foo`.** Spec §5.8 `lex.literal.float.range-carveout` says "a `.` followed by a non-digit is the selector operator, so `1.field` is `1` then `.` then `field`" — which would make `1.foo` a field access on `int` 1 and reject it with `cannot access field on this type` (as `x.foo` does). The lexer instead takes `1.` greedily as a valid trailing-dot float (§5.8 also permits `1.`), so `1.foo` fails with `expected ; or }`. The two §5.8 clauses (trailing-dot-float permitted AND `1.field` is selector) are in tension; the lexer resolved it greedily. **NEEDS DECISION:** which behavior is intended; reconcile spec §5.8 or the lexer. Pinned: `035_err_float_digit_dot_selector_xfail` (xfail.all, asserts the selector diagnostic).
+
+3. **Open item now pinned — single-byte character-literal constraint (`lex.literal.char.one`) is not enforced.** Empty `''` silently decodes to `0x00`; multi-byte `'ab'` silently truncates to its first byte (`'a'`=97); neither is diagnosed. Already acknowledged as an open item in spec §5.10/§5.14. Pinned: `056_char_empty_xfail`, `057_char_multibyte_xfail` (xfail.all). (No new decision; the xfails make it reproducible so Annex C flips when a diagnostic is added.)
+
+4. **Reused existing gap — `[...]T{}` inferred-length array literals unimplemented.** `var a [...]int = [...]int{...}` is rejected `expected expression` (same gap as `conformance/spec/13-expressions/041`). The `...` token itself lexes as one token. Pinned for Ch.5's `lex.punctuation.set` `...` coverage by `122_punct_ellipsis_xfail` (xfail.all).
+
+5. **Minor / Ch.13-adjacent question — unary `+` on a literal is rejected.** `var x int = +5` fails with `expected expression` (unary `-` is accepted). The Ch.5 rule `lex.literal.int.no-sign` only says the sign is a *separate operator* (lexically correct here — `+` and `5` are distinct tokens); whether unary `+` is a valid *operator* is Ch.13 semantics. Not pinned (out of Ch.5 scope). **Question for the user:** is unary `+` intended to be supported? If so this is a Ch.13/parser gap.
+
+**Proposed stale-note corrections in `docs/spec/05-lexical-elements.md` (await user OK, like prior chapters):**
+- §5.11 note claiming unknown escapes are "silently decoded … backslash dropped … no diagnostic" is **stale** — they are rejected with `unknown escape sequence` (and bad `\x` with `\x escape requires two hex digits`). The Ch.5 negatives `047`–`054` pin the rejection (green).
+- §5.11 `lex.escape.unsupported` and §5.1 `lex.source.bytes` need reconciling with the `\uHHHH` reality (finding 1) once the decision is made.
+- §5.8 `lex.literal.float.range-carveout` `1.field`-is-selector clause needs reconciling with the greedy trailing-dot-float behavior (finding 2) once the decision is made.
+
+---
+
 ## MAJOR (VM / SILENT wrong-output) — calling a function VALUE whose function returns a MANAGED SLICE (`@[]T`) yields EMPTY output in the bytecode VM (2026-06-20) — 🔴 OPEN — REPRODUCED
 
 **Symptom (REPRODUCED, silent — wrong/missing output, no diagnostic).** In the
