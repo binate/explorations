@@ -8,6 +8,38 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## same-final-segment generic STRUCTS collide at monomorphization (the struct analog of 792) (2026-06-20) — ✅ FIXED (`5ae791d2`, 2026-06-20)
+
+**✅ FIX LANDED (`5ae791d2`).** A multi-layer fix (the collision was dominated by
+the type checker, not just IR-gen):
+- **Checker:** generic STRUCT decls keyed by the FULL package path (not short
+  name/empty) — `preRegisterTypeNames` (check_decl.bn) + `buildScopeFromFile`
+  (bni_scope.bn); `lookupGenericTypeDeclPkg` same-package fallback → curPkgPath.
+  `resolveTypeInstantiation` resolves an aliased head to its full path for the
+  struct lookup (so `aa.Box[int]` type heads resolve — was `undefined: Box`
+  under a non-final-segment alias).  Instantiated name qualified by the DEFINING
+  package (`genericTypeDeclPkg`); `populateInstantiatedStruct` also sets
+  `c.curPkgPath` to the defining package while resolving the body (so an
+  IMPORTED self-recursive `@Node[T]` / `@Pair[T]` field resolves against the
+  generic's own package — the regression the adversarial review caught).
+  Generic INTERFACES deliberately left on short-name keying (separate latent
+  bug — see below).
+- **IR:** `ensureInstantiatedStruct` keys the struct on the defining package
+  (`instantiationMangledName` + `ModuleStruct.IsInstantiation`); the dtor/copy
+  drivers (gen_dtor_emit.bn / gen_copy_emit.bn) DEFINE an instantiated struct's
+  helpers locally as `IsLinkOnce` (merged across consumers) instead of the
+  extern declaration that left 853's dtor undefined on the naive re-key.
+
+Severity was bounded (fail-safe: the checker unified the decls → spurious error
+or correct values, never a silent miscompile).  Adversarial review (3 lenses):
+memory-safe (consumer-independent dtor/copy bodies, exactly-once RefDec/RefInc,
+0 leaks under `leaks`), checker migration regression-free, and caught the
+imported-self-recursive regression (fixed).  Tests: conformance/874
+(two same-segment Box[T], different layouts → 42,30), 872 (imported
+self-recursive `@Node[T]`, guards the regression 762 masked), 873 (two
+same-segment + managed `@dep.Tag` field — collision × dtor-cascade).  Full
+builder-comp 1773/0, gen2 1773/0, types+ir unit, hygiene 15/15.
+
 ## non-injective generic-instantiation mangling — `mangleTypeArg` total + injective over func/func-value/array/readonly/iface-value type args (2026-06-20) — ✅ FIXED (`14270695`)
 
 **✅ FIX LANDED (`14270695`).** `mangleTypeArg` (gen_generic_mangle.bn) fell

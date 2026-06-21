@@ -318,28 +318,46 @@ The cast-hidden negative-shift-count → silent-0 class (and the cast-semantics 
 - **raw multi-byte char literal** (`'é'`) accepted as its first UTF-8 byte — front-end leniency (pre-existing).
 - (The proper IR-gen transitive-`.bni`-const fix is tracked under the CRITICAL entry above. The forward-ref-const array-dim garbage bug and the named-array zero-init bug are ✅ DONE — see [claude-todo-done.md](claude-todo-done.md).)
 
-## MINOR (latent) — same-final-segment generic STRUCTS collide at monomorphization (the struct analog of 792) (2026-06-20) — 🔴 OPEN
+## MINOR (latent) — same-final-segment generic INTERFACES collide (the iface analog of the now-fixed struct/func same-segment collisions) (2026-06-20) — 🔴 OPEN
 
-The generic-FUNC same-segment collision (conformance/792) was fixed (`330c42fe`)
-by keying the instantiation symbol on the DEFINING package + `IsLinkOnce`. The
-generic-STRUCT path (`ensureInstantiatedStruct`) was deliberately NOT re-keyed:
-it stays consumer-qualified, so two same-final-segment packages each declaring a
-generic struct of the same decl name register under one
-`<consumer>.Box__bn_inst__<args>` entry (`lookupStructIdx`) — the second collides
-with the first. Mostly BENIGN within a TU (everything there uses the
-first-registered type consistently); harmful only where the two layouts differ in
-field SET and the second package accesses a field the first lacks (checker-vs-IR
-disagreement → OOB). Re-keying it like the func path CASCADES: the struct's
-dtor/copy-helper symbol names derive from the struct name, so they'd also need
-defining-pkg qualification AND `IsLinkOnce`, or a managed-field instantiation's
-dtor is referenced-but-never-defined (undefined symbol at link — exactly what
-broke conformance/853 when the re-key was attempted). Fix: thread `definingPkg`
-through `ensureInstantiatedStruct` AND the per-instantiated-struct
-dtor/copy-helper emission (`gen_dtor_emit_bodies.bn` / `gen_copy_emit.bn`),
-emitting those `IsLinkOnce` too; validate 853 (managed field) + a new
-same-segment-struct test. No conformance test yet (a clean repro needs the
-field-set-disagreement shape; `sizeof(pkg.Box[int])` hits an unrelated
-"undefined: Box" limitation). In-code NOTE at `ensureInstantiatedStruct`.
+The generic-FUNC (`330c42fe`) and generic-STRUCT (`5ae791d2`) same-final-segment
+collisions are fixed by keying on the DEFINING package.  Generic INTERFACES were
+deliberately left on SHORT-name keying (to bound the struct fix and avoid the
+interface-identity tangle — `MakeInterfaceType` uses the short name, and #130
+keys instantiated ifaces on `mi.Pkg`).  So two same-final-segment packages each
+declaring a generic interface of the same decl name still collide: the generic
+iface decl stash (`GenericIfaceDeclPkgs`, keyed `curPkgShort` in bni_scope.bn /
+check_interface.bn) and `resolveTypeInstantiation`'s iface lookup (raw
+`head.Pkg`) both use the short name.  Fix mirrors the struct change: stash
+generic iface decls under the full path, resolve the aliased head to a full path
+for the iface lookup, and reconcile with the `mi.Pkg`/`MakeInterfaceType`
+short-name identity (the part that needs care).  Same bounded/fail-safe severity
+as the struct case.  No conformance test yet.
+
+## MINOR (checker) — duplicate same-short-name imports are accepted silently; `pkg.X` resolves first-wins (2026-06-20) — 🔴 OPEN
+
+Importing two same-final-segment packages BOTH unaliased (`import "pkg/aa/gen"`
++ `import "pkg/bb/gen"`, both default short name `gen`) is accepted with NO
+diagnostic, and `gen.X` silently resolves to the first-imported one (import
+order decides).  Surfaced by the generic-struct collision investigation
+(2026-06-20).  Should be a duplicate-import error (or require an alias), like
+the same-alias-different-path facet already handled for explicit aliases.  The
+realistic workaround (alias the imports) now works for generic structs after
+`5ae791d2`.
+
+## MINOR (parser/checker, pre-existing) — two generic-body limitations surfaced during the struct-collision work (2026-06-20) — 🔴 OPEN
+
+Both reproduce on a SINGLE package and predate the struct-collision fix
+(independent of it):
+- A concrete-instantiation PARAMETER type written in a `.bni` body
+  (`func Sum(x @Box[int]) int { ... }`) fails to PARSE (`expected ;, got {`).
+  The generic-reader idiom (`func Sum[T any](x @Box[T]) T`) is the working form
+  (it's what 853/874 use).
+- A generic-body expression combining a type-param field / slice-index with
+  arithmetic (`return x.items[0] + x.items[1]`, `return b.hi + b.p.y`) fails
+  with `arithmetic op requires numeric operands` / `cannot assign void to int`
+  — an unconstrained `[T any]` T isn't numeric, but the diagnostic/handling for
+  a struct-field-of-T in an arithmetic position is the rough edge.
 
 ---
 
