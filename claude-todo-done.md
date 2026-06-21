@@ -7875,3 +7875,50 @@ correct LOCAL func-value path appear to crash — a Heisenbug that briefly
 mis-pointed the diagnosis. Clean (uninstrumented) bisection is what isolated the
 cross-mode-only scope. Avoid in-loop `println` instrumentation in the VM stack
 machinery; prefer out-of-band probes.
+
+---
+
+## ~~MAJOR (VM / cross-mode ABI) — the VM's scalar-vs-aggregate cross-mode dispatch diverged from codegen's isAggregateReturn (≤8-byte coerced struct / ≤8-byte multi-return mis-dispatched)~~ — ✅ DONE & LANDED `ba6eb99b` + `6c34de49` (2026-06-21)
+
+**✅ DONE & LANDED (binate `ba6eb99b` piece 1, `6c34de49` piece 2).** The VM keyed
+its three cross-mode shim-dispatch sites (dispatchCompiledFuncValue,
+dispatchCompiledIfaceMethod, dispatchExternBinding) on a raw `ResultSize > 8`,
+which does NOT match codegen's `isAggregateReturn` — that ALSO routes a
+multi-return and an `aggRetCoerced` (≤16-byte NAMED struct/array, INCLUDING
+≤8-byte) through the retbuf shim. So a cross-mode callee returning a ≤8-byte
+named struct or a ≤8-byte multi-return scalar-dispatched a retbuf-shaped shim →
+arg-shift corruption. Latent (no injected stdlib fn returns such a type), but a
+real silent-miscompile class. Discovered by the 2026-06-21 adversarial review of
+`58c05dee`; the FIX approach was itself adversarially reviewed (the plan review
+caught two blockers — the iface op carries no func-value type, and repurposing
+ResultSize blast-radiuses every scalar producer).
+
+**Fix (per the reviewed plan).** Piece 1: host the aggregate-return predicate
+(`IsAggregateReturn` + `AggRetCoerced` / `AggInRegCoercedKind` / `NeedsSret` /
+`StripWrappers`) in `pkg/types`; codegen delegates (behavior-preserving). Add
+`types.AggregateReturnSize(results)` = retbuf bytes rounded up to N*8 (0 if
+scalar) — the round-up also fixes a pre-existing under-allocation for a
+non-multiple-of-8 aggregate retbuf. Piece 2: STAMP the retbuf size on the Instr
+at IR-gen (`EmitCallFuncValue` from the func value's result list, wrappers
+peeled; `gen_iface_dispatch` from the method's result list — the lowered iface
+type collapses a multi-return into an anonymous tuple that can't be recovered at
+lower time); `OP_CALL_HANDLE` stays 0. `lower_call` carries it in `bc.Aux`; the
+three VM dispatch sites branch on `> 0`. The extern encoders (codegen
+`functionResultSize` / native `FuncResultSize`) now return `AggregateReturnSize`,
+so `ExternBinding.ResultSize` is the retbuf size (0 = scalar) and the scalar
+constants (`scalarResult` / interp's `scalar`) became 0. Verified: native 443/0,
+gen2 378/0, VM 725/0, all unit suites; `TestExternSmallStructAggregateDispatch`
+round-trips an 8-byte named struct cross-mode (would corrupt under the old `> 8`).
+
+**Related follow-ups (all DONE, earlier):** `dispatchCompiledFuncValue`'s
+>7-arg-slot silent truncation → loud panic (`98bb2c7d`); coverage 880/881/882
+(`522ede25`); the stale-comment/D1 fixes (`9edad524`).
+
+**Investigation outcome on "option (b) — unify the native funcvalue shim / close
+705":** found to be a MISFRAMING. The native funcvalue shim has NO harmful
+predicate divergence (for single results `common.IsAggregateTyp` agrees with
+`isAggregateReturn`; multi-return uses the shim's own tuple/sret machinery, which
+already works on native for int AND plain-float multi-return), and the native
+convention is orthogonal to the VM (no native-built VM mode). 705/706/707 are a
+SEPARATE native **closure-float** marshaling gap (claude-todo #121), not a
+predicate problem — tracked and tackled on its own, not part of this fix.
