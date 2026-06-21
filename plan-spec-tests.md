@@ -320,7 +320,7 @@ genuine single-run mixed compiled<->interpreted (harness can't pin per-fn modes 
 currently covered only by cross-mode agreement); func.value.equality on `@func` /
 non-nil non-func operand.
 
-**Ch.7 Types — DONE on the worktree 2026-06-20** (NOT yet landed; the LARGEST
+**Ch.7 Types — landed on main 2026-06-20** (binate `f5fa834b`; the LARGEST
 chapter, `conformance/spec/07-types/`). 10-cluster design fan-out + extensive
 empirical probing + 10-cluster adversarial review + fixes. **136 tests**; coverage
 **07-types 61/61 (100%)** + **07b-type-layout 14/14 (100%)**; DANGLING=0, UNTAGGED=0,
