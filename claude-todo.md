@@ -359,6 +359,84 @@ Both reproduce on a SINGLE package and predate the struct-collision fix
   — an unconstrained `[T any]` T isn't numeric, but the diagnostic/handling for
   a struct-field-of-T in an arithmetic position is the rough edge.
 
+## MAJOR (IR-gen / latent wrong-code) — `mangleTypeArg` is NOT actually injective despite `14270695`'s title; a named type can collide with a composite prefix, and the `.`/`/` fold is 2-to-1 (2026-06-20) — 🔴 OPEN — 🟡 SCOPE/DESIGN REQUIRED
+
+Surfaced by the 2026-06-20 adversarial review of `14270695` ("make mangleTypeArg
+total + injective …").  `mangleTypeArg` (`pkg/binate/ir/gen_generic_mangle.bn`)
+renders a named type via its default branch: `QualifiedTypeName()` with only
+`.`/`/` folded to `__`, everything else verbatim — **no length-prefix or
+escaping**.  Two distinct types can therefore map to ONE token (= two
+instantiations share one IR symbol = silent wrong-code):
+- **Prefix collision:** a named type whose folded path begins with a synthetic
+  prefix collides with the composite.  E.g. type `Bar` in package `ptr_q` →
+  `ptr_q__Bar`, and `*q.Bar` → `ptr_` + `q__Bar` = `ptr_q__Bar`.  Same class hits
+  every prefix: `slc_`/`mslc_`/`mptr_`/`ro_`/`iv_`/`miv_`/`arr<n>_`/`fn_`/`fv_`/`mfv_`.
+- **2-to-1 fold:** `.` and `/` both → `__`, so type `C` in pkg `a/b` and type
+  `b__C` in pkg `a` both → `a__b__C`.
+- `mangleFuncSig`'s `p<n>…_r<n>…` arity prefixes are actually safe in isolation
+  (tokens are never re-parsed, only compared; no token can start with a digit),
+  so it only INHERITS the leaf non-injectivity above — not a separate hole.
+
+**Exploitability:** requires an unusual-but-legal PACKAGE path (one beginning
+with a reserved prefix); won't fire on normal code — hence *latent*, not live.
+**Partly pre-existing:** `ptr_`/`slc_`/`mptr_`/`mslc_` and the `.`/`/` fold predate
+this session; `14270695` genuinely FIXED the worse bug it targeted (func/array
+args previously all collapsed to one `<unknown>` token) but its "injective" claim
+is overstated and it WIDENED the prefix set.  **Fix:** make leaf tokens
+self-delimiting — length-count the named-type token, or use distinct escapes for
+`.` vs `/` vs literal `_`.  The same 2-to-1 fold lives in `mangle.bn`'s
+`writeBnDotted`, so the robust fix likely belongs in the SHARED mangle pipeline,
+not only here — an encoding/design decision (SCOPE REQUIRED).  No test yet; the
+unit test only spot-checks individual tokens (see the MINOR coverage entry below).
+
+## MAJOR (native backend / latent linkage divergence) — the native backend emits an instantiation dtor's reflect-descriptor data symbols (`__fninfo`/`__fnname`/`__fnsig`) as STRONG external, while LLVM makes them private/`weak_odr` → duplicate-symbol once two native TUs share an instantiation (2026-06-20) — 🔴 OPEN — REPRODUCED (symbol-table proof)
+
+Surfaced by the 2026-06-20 adversarial review of the generic same-segment work
+(`5ae791d2`), then REPRODUCED by dumping a native `main.o`.  An instantiated
+managed generic struct's dtor is `IsLinkOnce` + defining-pkg-qualified.  The
+native backend correctly WEAKENS the instantiation's code/vtable/shim/handle
+(`llvm-readobj` shows `WeakDef` set on `_bn_pkg__g__gen____dtor_Box__bn_inst__int`,
+`__shim`, `__vt`, `__handle`), BUT emits its three reflect-descriptor data
+symbols `__fninfo`/`__fnname`/`__fnsig` as **strong external** (`WeakDef=False`).
+Root cause: the native reflect-descriptor loop
+(`pkg/binate/native/{aarch64,x64}_pkg_descriptor.bn`) includes `IsStructDtor`
+funcs and `common.EmitFunctionInfoNode`
+(`pkg/binate/native/common/common_pkg_functions.bn`) marks `nameSym`/`sigSym`/
+`nodeSym` via `a.SetGlobal` (strong) without checking `IsLinkOnce`.  LLVM is safe:
+`__fnname`/`__fnsig` are `private`, `__fninfo` is `weak_odr`
+(`pkg/binate/codegen/emit_pkg_functions.bn` / `emit_static_managed.bn`).
+
+**Latent, not live:** `cmd/bnc/compile.bn:222-225` — *"Dependency packages always
+go through llvmBackend; only the main module honors `--backend native`"* — so
+there is never a second NATIVE TU emitting the same strong symbols.  A
+two-consumer repro (both consumers instantiating the same `@Box[int]` with a
+managed field) PASSES under `builder-comp_native_aa64-comp_native_aa64` because
+the consumers are dependency packages → LLVM.  **When it fires:** as soon as the
+native backend graduates to lowering dependency packages natively (separate
+native objects linked together) — two native consumers of the same managed
+instantiation → duplicate strong `__fninfo`/`__fnname`/`__fnsig` at link.
+**Fix:** in `common.EmitFunctionInfoNode`, make `nameSym`/`sigSym` private and
+`nodeSym` weak when the func `IsLinkOnce`, mirroring LLVM — or skip descriptor
+emission for `IsLinkOnce` defining-pkg-qualified funcs (one canonical owner).
+Backends MUST agree on linkage for these shared symbols (`ir-backend-guidelines`).
+No conformance test possible until native-deps lands (it can't fail today).
+
+## MINOR (test-coverage) — gaps from the 2026-06-20 adversarial review of the session's generic/reloc work — 🔴 OPEN
+
+- `mangleTypeArg`'s `ro_`/`iv_`/`miv_` branches (added in `14270695`) have ZERO
+  unit coverage.
+- `gen_generic_mangle_test.bn` spot-checks individual tokens but never asserts
+  INJECTIVITY across the named-type axis (the actual collision surface — see the
+  MAJOR mangle entry above); func arity-collision (`func(int)` vs `func(int,int)`)
+  isn't directly asserted either.
+- `TestWriteElfX64RelocPltVsPc` (`pkg/binate/asm/elf/elf_test.bn`) asserts the
+  reloc TYPE (PLT32 vs PC32) but not the `r_addend` (−4); the addend is pinned
+  only in the isolated `elf_util` test, not paired with the type in the emitted
+  object.
+- Func-value type-arg instantiation injectivity is unit-only (conformance/870 is
+  a single `@func` instantiation); no cross-mode test of two distinct func-value
+  instantiations coexisting.
+
 ---
 
 ## MINOR — cross-mode interface dispatch: test-coverage gaps + LP64 assumption (2026-06-14) — 🟡 OPEN
