@@ -227,7 +227,7 @@ Prep (behavior-preserving — byte-identical output, land incrementally):
 
 Flip — split into 4a (de-risk, landable) then 4b (atomic):
 
-4a. ✅ **DONE (`5f8fa2e8`, worktree — pending land).** New encoders + demangler +
+4a. ✅ **LANDED (`a0a0ea80`).** New encoders + demangler +
     round-trip/injectivity tests, UNWIRED (`mangle_lp.bn`, `mangle_lp_demangle.bn`
     + tests). Adversarial review caught + fixed a CRITICAL (Demangle integer-
     overflow crash → unsound bounds check; now `lpReadCount` caps indexing counts
