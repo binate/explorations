@@ -351,6 +351,19 @@ are constants not types"; copy-semantics recursion through array/named/readonly;
 also seen in Ch.10); 088 slice-ownership best-effort UAF detection; 251 header is
 informative/unobservable; plus per-rule sub-clause breadth across every cluster.
 
+**Ch.12 Generics + Enumerations — landed on main 2026-06-20** (binate `b8a5100a`;
+`conformance/spec/12-generics/`). 3-cluster design fan-out + empirical probing +
+adversarial review. **20 tests, 12/12 rules (100%)**, green on all 7 modes;
+DANGLING=0, UNTAGGED=0, hygiene 15/15. The cleanest run yet (18/19 first-try). 1
+xfail (`034`) pins the open §12.4 gap: generic struct/interface constraint
+satisfaction unchecked (`gen.satisfy.struct-iface-unchecked`; generic-function
+case `033` is green). Review added `037` (the no-conditional-impls prohibition —
+`impl[T] Box[T] : Show` parse-errors). Stale §12.1 note corrected — the
+generic-method gap is FIXED (`a7e0beb2`); `014` pins the rejection. (Docs
+`123bffa`.) Coverage-gap follow-ups (user-named-interface constraint positive;
+type-arg arity mismatch; full method-set satisfaction; generic-interface .bni
+body; enum→other-int conversion) noted in the review output `wd4ivz2ob`.
+
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
 
