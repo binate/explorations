@@ -7798,3 +7798,42 @@ The `@interp.Interp` embeddable whole-program API and the extern-registration cl
 - **Loader de-rooting** — `fd4322f5` (review-fix `c1817817`): removed the "root" notion entirely — dead `@Loader.Root`, `NewLoader(root)`→`NewLoader()`, and `AddRoot` (loader method + interp facade); all callers seed via `AddBniPath`/`AddImplPath`; `New` no longer seeds `"."`.
 
 Reframed mid-stream: the original "host-IO sink" Inc 2 was misguided (an interpreter, like a compiler, has no I/O of its own — program I/O flows through the stdlib / `pkg/bootstrap` externs, so redirecting I/O = swapping the stdlib, captured as the corrected model in code + docs). Two adversarial 3-lens reviews (extern cleanup + de-rooting) found no critical/major; their minors were addressed. Open follow-ups (Layer 2b `@reflect.Package` wrapping helper + 3 smaller items) remain tracked in [claude-todo.md](claude-todo.md).
+
+---
+
+## ~~MAJOR (VM / SILENT wrong-output) — a func value returning a managed slice yields EMPTY output in the bytecode VM~~ — ✅ DONE & LANDED `58c05dee` (2026-06-20)
+
+**✅ DONE & LANDED `58c05dee`.** Root cause was narrower than the original
+"any func value returning a managed slice" framing: it is the **cross-mode**
+case only. In the VM, a func value of a **native-injected** function (a stdlib
+fn like `strconv.Itoa`) has no bytecode body, so `BC_FUNC_VALUE` builds a
+data-less `{vtable, 0}` value from the extern binding and `BC_CALL_FUNC_VALUE`
+routes it to `dispatchCompiledFuncValue` (no VM frame). That path ALWAYS used
+`rt._call_shim_scalar`, which carries only one word back — so an AGGREGATE
+return (managed slice, raw slice, multi-word struct) was lost (empty / corrupt
+output). A func value of a **local bytecode** function was never affected — it
+takes the VM-side push/`BC_RETURN` path, which copies aggregates back
+correctly; and a func value returning an `int` or a by-value struct ≤ word
+worked. Native backends were always correct.
+
+**Fix.** Mirror `dispatchExternBinding` / `dispatchCompiledIfaceMethod`'s
+existing cross-mode aggregate handling: when the result exceeds the host word,
+allocate a retbuf on `vm.Stack` and dispatch through `rt._call_shim_aggregate`,
+landing the retbuf address in `regs[Dst]`. `lowerCallOp` now encodes the result
+byte size in the (previously-unused) `Aux` field of `BC_CALL_FUNC_VALUE` for
+`OP_CALL_FUNC_VALUE` / `OP_CALL_HANDLE`; the VM-side push path ignores `Aux`.
+An audit confirmed `dispatchCompiledFuncValue` was the only one of five
+cross-mode dispatch sites missing the aggregate path (the others either handle
+it or are void/scalar by construction — `refDecCrossModeDispatch` is a dtor).
+
+**Tests.** Conformance 879 (`var f = strconv.Itoa; println(f(42))`) is the
+focused guard; 876 (the same path via a composite-literal element) was
+un-xfailed for its three VM modes. Both pass in every VM mode
+(`builder-comp-int`, `-int-int`, `-comp-int`) and native.
+
+**Investigation note (lesson).** A first instrumentation pass added `println`
+calls inside the hot `BC_RETURN` path; those perturbed `vm.SP` and made even the
+correct LOCAL func-value path appear to crash — a Heisenbug that briefly
+mis-pointed the diagnosis. Clean (uninstrumented) bisection is what isolated the
+cross-mode-only scope. Avoid in-loop `println` instrumentation in the VM stack
+machinery; prefer out-of-band probes.

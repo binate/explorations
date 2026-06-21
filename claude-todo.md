@@ -101,47 +101,6 @@ separately in `docs/spec/05-lexical-elements.md`.
 
 ---
 
-## MAJOR (VM / SILENT wrong-output) — calling a function VALUE whose function returns a MANAGED SLICE (`@[]T`) yields EMPTY output in the bytecode VM (2026-06-20) — 🔴 OPEN — REPRODUCED
-
-**Symptom (REPRODUCED, silent — wrong/missing output, no diagnostic).** In the
-bytecode VM, calling a func value `f` whose underlying function returns a managed
-slice produces empty output instead of the slice. Minimal repro:
-
-```
-import "pkg/std/strconv"
-func main() {
-    var f *func(int) @[]char = strconv.Itoa
-    println(f(42))   // VM prints nothing; native prints "42"
-}
-```
-
-The same call works on every NATIVE backend (`builder-comp`, gen2
-`builder-comp-comp`, gen3 `builder-comp-comp-comp`). A func value returning an
-`int` works in the VM (it's the managed return that breaks); a func value
-returning a by-value aggregate STRUCT also works in the VM (conformance 363 has
-no int-mode xfail) — so the defect is specific to a **managed (refcounted)
-return value** flowing back through the VM's func-value call shim.
-
-**Root cause: unknown — needs investigation.** Likely the VM's func-value
-call/return path (the analog of native's `emitCallFuncValue`) doesn't propagate
-a managed-slice (4-word) return value out of the callee frame, or drops it during
-frame teardown. Compare against the direct-call return path, which is correct.
-
-**Trigger / discovery.** Surfaced while fixing the composite-literal func-ref
-element bug (binate `91061e04`): a `@[]*func(int)@[]char{strconv.Itoa}` literal
-whose element call returned empty in the VM only (conformance 876). The
-composite-literal lowering itself is correct in every backend — the empty output
-is this VM-return defect, independent of how the func value was constructed (a
-plain `var f = strconv.Itoa` reproduces it too).
-
-**Pinned.** `876_funcval_composite_lit_elem_pkg_mslice_ret`
-(`.xfail.builder-comp-int`, `.xfail.builder-comp-int-int`,
-`.xfail.builder-comp-comp-int`). When fixed, drop the three xfail markers (the
-`--check-xpass` sweep will flag them) and this entry.
-
----
-
-
 ## MAJOR (codegen / invalid IR) — chaining a method onto the by-value struct result of a CROSS-PACKAGE method emits `extractvalue` on a scalar i64 → C backend rejects it (2026-06-20) — 🔴 OPEN — REPRODUCED
 
 **Symptom (REPRODUCED, builder-comp; it's a compile error).** `fi.ModTime().ToUnix()` where `fi` is `@os.FileInfo` and `ModTime()` returns `time.Point` (a cross-package struct, by value): IR-gen emits `%vN = extractvalue i64 %vM, 0` — `extractvalue` on a scalar `i64`, not an aggregate — and clang rejects it (`extractvalue operand must be aggregate type`). Repro: `conformance/stdlib/os/004_modtime_chain` (xfail.all).
