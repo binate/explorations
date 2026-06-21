@@ -7666,3 +7666,23 @@ claude-todo.md.  Original diagnosis below.
 - **Build-confirmation still wanted:** the incompatible-signature escalation of (A)/(B) — make the colliding members have incompatible signatures (`func V() *uint8` vs `func V() int`) to show ABI/result-type confusion (a pointer treated as an int = a soundness hole), and the exact symptoms of (D)/(G)/(H).
 
 **Fix implication.** Option 1 (real per-file imports) resolves A/B/C/E if applied to BOTH the checker and IR-gen (IR-gen already has `pushFileImports`/`popFileImports`, used per-file when registering each *imported* package — the gap is the *current* module: `loader.Package` keeps only `Merged`, so the fix must retain per-file ASTs or group `merged.Decls` by `Pos.File`). Option 2 (validation pass) must ALSO touch both layers (the opposite-winner split). D needs a separate alias-vs-decl check either way. G/H are independent.
+
+## ~~MAJOR (IR-gen / latent silent-0) — `genSelector` reads an UNRESOLVED package-qualified const as 0~~ — ✅ DONE & LANDED `136cc95f` (2026-06-20)
+
+**✅ DONE & LANDED `136cc95f`.** `genSelector`'s catch-all fallback (no selector arm matched —
+an unresolved `pkg.Name` at a value site, an unregistered-struct field read, etc.) returned a SILENT
+`EmitConstInt(0)`, masking any IR-gen resolution gap as a wrong VALUE.  Replaced with a loud runtime
+`rt.Panic`.  Verified UNREACHABLE in valid code first (the requested precondition): with the fallback
+turned into an abort, the full builder-comp conformance suite (1771/0) AND gen2 self-host (the
+compiler compiling itself) never hit it — the checker rejects undefined `pkg.Name`, so valid code
+can't reach it.  The feared value-less-const-at-a-value-site case turned out NOT to reach the
+fallback either: an iota-grouped `.bni` const used as a value actually RESOLVES (IR-gen's
+`registerImportConstGroup` registers it — e.g. `iv.C` → `2`).  So the fallback is an internal-error
+catch-all only, and the runtime panic is the appropriate hardening (a compile-time checker rejection
+was considered but is moot — there is no reachable user-facing case to reject).  Unit test
+`TestGenSelectorUnresolvedAborts` drives `genSelector` directly with a hand-built unresolved selector
+(the checker would otherwise reject it end-to-end) and asserts the `rt.Panic` abort, locking the
+hardening against a regression to silent-0.  Surfaced during the transitive-`.bni`-const fix
+(`505d7069`).
+
+`genSelector` (`pkg/binate/ir/gen_selector.bn:337`) ends with `return b.EmitConstInt(0, types.TypInt())` — for a `pkg.Name` value site where `Name` is neither a local var, an imported global, nor a registered const, it silently emits `0`.  Surfaced during the transitive-`.bni`-const fix (now landed `505d7069`): that fix registers the common foldable transitive const so it no longer hits this fallback, and it introduces NO new path here (a non-foldable selector const was value-less before and after).  But the fallback is a pre-existing latent silent-miscompile: a value-less qualified const used as a value (e.g. the still-open **iota-grouped `.bni` const** residual used as a shift count) reads 0 instead of being rejected.  **Fix**: replace the silent `EmitConstInt(0)` with a hard error / panic for an unresolved qualified const at a value site — but first verify the fallback isn't legitimately reachable in valid code where 0 is correct (audit the callers; the checker should already reject an undefined `pkg.Name`, so the only reachable case is a value-less-but-defined const).  Pairs with closing the iota-grouped-`.bni`-const gap.
