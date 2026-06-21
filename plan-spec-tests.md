@@ -389,6 +389,33 @@ unary-`+`-rejected question also in spec-todo. **Review-driven follow-up landed*
 as-keyword negatives (vs the shadowable predeclared names), `186` carriage-return
 (0x0D) is whitespace, `187` `return` triggers ASI.
 
+**Ch.14 + 14b Statements & Control Flow — landed on main 2026-06-21** (binate
+`84b0b4a4`; `conformance/spec/14-statements/`). 5-cluster design fan-out (every test
+probed) + 5-cluster adversarial review (1 major-class new-defect found + 17 minor/nit;
+fixes: 2 redundant tests dropped, `092` strengthened with an iteration counter,
+`121` re-cited, `122`/`130` differentiated, `153` comment reworded; the
+const-target/expr.unused sub-ID "miscites" correctly REJECTED as undeclared — citing
+them would DANGLE). **78 tests**, all **34 `stmt.*` rules → 34/34 (100%)** (17/17 +
+17/17); DANGLING=0, UNTAGGED=0, hygiene 15/15. Green on all 7 modes (each verified
+individually with `--check-xpass`).
+
+**Bugs surfaced (filed in claude-todo, pinned):**
+- **CRITICAL** — a **tagless** `switch { … }` SIGSEGVs the compiler (null-deref in
+  `ir.genExprInner` on the absent tag); the documented if/else-if replacement, with
+  ZERO prior coverage. Pinned `121_switch_tagless_xfail` (xfail.all — the crash is in
+  the IR-gen shared by the compiler AND the VM). User: pin + fix as a follow-up.
+- **MAJOR** — a `switch` on a **sub-64-bit integer tag** (char/int8/16/32, uint8) with
+  an **untyped-int-literal case** emits invalid IR (literal stays `i64` vs `icmp eq iN`)
+  → LLVM/clang and arm32 fail; the bytecode VM, native aarch64, and int/int64 tags
+  handle it. Pinned `134_..._xfail` (per-mode xfail: builder-comp, -comp-comp,
+  -comp-comp-comp, arm32_baremetal — verified each mode).
+- **Stale §14.5 note corrected** — `a[i]++`/`p.f++`/`(*p)++` (old MAJOR no-op defect)
+  were FIXED+LANDED (`6a2f551f`); dropped the §14.5 open-note + status flag (docs
+  `5e2d8ce`).
+
+Open-item behaviors documented as positives: tagless-switch `break` targets the
+enclosing loop (`133`), a bare effect-free `x + 1` is accepted (`036`).
+
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
 
