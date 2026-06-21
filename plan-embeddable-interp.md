@@ -25,9 +25,10 @@ Notes from implementing Inc 1 (refinements vs the scope below):
   1a moved, so it now calls `interp.X` (mechanical; user-ratified 2026-06-20).
 - **`@Interp` is opaque** (forward-decl in `interp.bni`, full struct in
   `interp.bn`): cmd/bni drives it through methods; same-package tests use fields.
-- **Loader root:** `New` seeds `NewLoader(".")`; the CLI shell adds the real
-  root via `AddRoot` + the `-I`/`-L` flags.  The leading `"."` is benign
-  (conformance VM modes unchanged: `builder-comp-int` 1646/0).
+- **Loader paths:** `New` creates an empty `NewLoader()` (no seeded paths); the
+  CLI shell seeds the project root via `AddBniPath` + `AddImplPath` and adds the
+  `-I`/`-L` flags.  (The "root" notion was removed from the loader entirely —
+  `fd4322f5`; `New` no longer seeds `"."`.)
 - **Two-instance reentrancy test** is the path-free isolation form (distinct VM
   + loader, independent search paths); the full run-a-program-twice path needs
   real search paths and stays covered in-process by `vm/vm_reentrancy_test`.
@@ -136,9 +137,10 @@ registered internally; entry-point parameterized to `main.main` + named funcs.
   `bootstrap.Exit`). `runTests` / `runRepl` are untouched in Inc 1 (a later
   increment can route `runTests` through `interp` too).
 - **Open design points to settle during impl** (flagged, not pre-decided):
-  loader-root seeding (`New` default `"."` + `AddBniPath`, vs an explicit
-  `AddRoot`); whether `RunFunc` auto-runs `__init_all` once and guards
-  re-entry; whether `New` or `LoadProgram` constructs the VM.
+  whether `RunFunc` auto-runs `__init_all` once and guards re-entry; whether
+  `New` or `LoadProgram` constructs the VM.  (Loader-path seeding was resolved by
+  the de-rooting — `New` creates an empty loader, the host seeds via
+  `AddBniPath`/`AddImplPath`.)
 - **Tests:** `interp/interp_test.bn` — in-process `New → AddBniPath →
   LoadProgram(parsed source) → RunMain()` returns the expected exit code; a
   `RunFunc` path; an error case (bad program → non-empty errs, no process
