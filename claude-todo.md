@@ -8,26 +8,23 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 The review confirmed the core work correct (no critical/major; reflect 725/727
 values all re-derive from AggregateReturnSize incl. arm32; the rename is
-behavior-neutral). Remaining items:
-- **MINOR (docs/spec out of sync):** the RetbufSize rename updated
-  `ifaces/core/pkg/builtins/reflect.bni` but NOT the canonical spec
-  `docs/spec/20-intrinsic-tier0-packages.md:176,187` (still says `ResultSize`).
-  docs/spec is authoritative — update it (in the `docs` submodule) to `RetbufSize`
-  + the AggregateReturnSize-discriminator wording.
-- **MINOR (test-coverage):** `swapIfaceSuffix` (vm_exec_iface.bn:354 — the most-
-  rewired 4b consumer, now Demangle→re-encode) has NO direct unit test; the two
-  upcast unit tests take the native-source branch that short-circuits before it.
-  Only conformance (VM mode) exercises it. Add a unit test: build a `bn_V` via
-  `mangle.ImplVtableName`, swap to a target iface, assert the rewritten symbol.
-- **NIT (comments stand alone):** ~30+ non-test comments still illustrate the OLD
-  scheme (`bn_pkg__X__Y`, `__ivt.bn_main__T__I`, `___handle.bn_<pkg>__<fn>`), and
-  3 (emit_funcvals.bn:170, x64_funcvalue.bn:120, aarch64_funcvalue.bn:127)
-  reference the DELETED `writeBnDotted`. The flip swept test assertions but not
-  these doc comments. Sweep them to the new `bn_<kind>` scheme.
-- **NIT:** test fn `TestRegisterPackageFunctionsCarriesResultSize`
-  (extern_test_helpers_test.bn:173) — body/messages renamed to RetbufSize but the
-  function name still says ResultSize.
-- **OBSERVATION (latent, PRE-EXISTING — not a flip regression):** `__bn_inst__`
+behavior-neutral). Status:
+- ✅ **DONE (docs `63f4120`):** docs/spec/20-intrinsic-tier0-packages.md synced
+  `ResultSize` → `RetbufSize` (struct shape + prose).
+- ✅ **DONE (binate `3ae6cc9b`):** the 3 deleted-`writeBnDotted` comment refs
+  fixed; the `…CarriesResultSize` test fn renamed; a first batch of old-scheme
+  illustration comments rewritten.
+- 🔴 **REMAINING (NIT, ~47 lines):** old-scheme symbol illustrations in non-test
+  comments (`bn_pkg__X__Y`, `__ivt.bn_main__T__I`, `___handle.bn_<pkg>__<fn>`,
+  `%bn_pkg__Name`) still need rewriting to abstract/scheme-accurate phrasing.
+  Contextual prose (not safely scriptable) — best swept fresh. Pure nit, no
+  functional impact.
+- 🔴 **REMAINING (MINOR, test-coverage):** `swapIfaceSuffix` (vm_exec_iface.bn:354
+  — the most-rewired 4b consumer, now Demangle→re-encode) has NO direct unit
+  test; the two upcast unit tests take the native-source branch that short-
+  circuits before it. Add a unit test: build a `bn_V` via `mangle.ImplVtableName`,
+  swap to a target iface, assert the rewritten symbol.
+- 🔴 **REMAINING — OBSERVATION (latent, PRE-EXISTING — not a flip regression):** `__bn_inst__`
   is not a reserved identifier substring, so a user free function literally named
   e.g. `foo__bn_inst__bar` is misinferred as a generic instantiation
   (mangle.bn:173-181) and mangles to a malformed `bn_I` symbol. Predates the flip
