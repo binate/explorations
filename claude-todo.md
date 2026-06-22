@@ -266,26 +266,6 @@ method, or `time.Point`'s value flowing through the VM. Needs a narrower probe
 (e.g. inject a method returning a known-nonzero `time.Point` and read it on the
 VM side).
 
-## MAJOR (codegen / invalid IR) — chaining a method onto the by-value struct result of a CROSS-PACKAGE method emits `extractvalue` on a scalar i64 → C backend rejects it (2026-06-20) — ✅ FIXED (`b19d69ef`, 2026-06-21) — pending land/move-to-done
-
-**Symptom (REPRODUCED, builder-comp; it's a compile error).** `fi.ModTime().ToUnix()` where `fi` is `@os.FileInfo` and `ModTime()` returns `time.Point` (a cross-package struct, by value): IR-gen emits `%vN = extractvalue i64 %vM, 0` — `extractvalue` on a scalar `i64`, not an aggregate — and clang rejects it (`extractvalue operand must be aggregate type`). Repro: `conformance/stdlib/os/004_modtime_chain` (xfail.all).
-
-**Narrowing (all checked with a fixed gen1).** The trigger is specifically chaining a method onto the by-value struct result of an *imported (cross-package) method*:
-- `fi.ModTime().ToUnix()` — cross-pkg method → struct → **FAILS**.
-- `b.Get().ToUnix()`, `Get` a SAME-package method returning `time.Point` — compiles.
-- `time.FromUnix(...).ToUnix()` — cross-pkg FREE function → struct — compiles.
-- `w.Mode().IsDir()` — cross-pkg method → SCALAR `FileMode` — compiles.
-- `var mt time.Point = fi.ModTime(); mt.ToUnix()` (intermediate var) — compiles.
-
-So: cross-package METHOD + aggregate (struct) by-value return + immediately used as a receiver ⟹ the temporary is lowered as the scalar underlying (`i64`) instead of the `{i64,i32}` aggregate.
-
-**Discovery.** Writing the os.Stat `e2e/stat-values.sh` probe / conformance test (printed mtime via `fi.ModTime().ToUnix()`). os.Stat's impl never uses the pattern; its tests use the intermediate-var form (idiomatic).
-
-**Severity.** MAJOR — rejects valid code. Loud (clang error / COMPILE_ERROR), NOT a silent miscompile; workaround is idiomatic, so not blocking. Real codegen defect.
-
-**Proposed fix (needs investigation).** Find where a cross-package method's by-value aggregate return loses its aggregate type when it feeds a subsequent method-receiver (the same-package path is correct — diff the two). Remove `004_modtime_chain.xfail.all` when fixed.
-
----
 
 ## MAJOR (IR-gen / wrong-code) — a method EXPRESSION over a named SCALAR type (`type Celsius int`; `Celsius.M`) miscompiles: direct call emits an undefined symbol `@bn_T__M`; the *func form compiles but null/garbage call-shim → SIGSEGV. Fails on BOTH compiled and VM backends (2026-06-20) — 🔴 OPEN — REPRODUCED
 

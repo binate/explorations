@@ -8,6 +8,29 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED (`c163720a`, 2026-06-21) — chaining a method on the by-value struct RESULT of a cross-package method (`extractvalue` on scalar i64)
+
+Chaining a method onto a cross-package method's by-value struct result, where the
+result struct's type lives in a THIRD package reached only TRANSITIVELY (main
+imports bb; `bb.Box.Get()` returns `tt.T`; chain `tt.T.Split()`; or the original
+`os.FileInfo.ModTime() -> time.Point`, then `.ToUnix()`), emitted `call i64
+@...Split` + an invalid `extractvalue i64` (and an undefined `@...Split` symbol).
+Root: `genMethodCall`'s result type came from `lookupFuncResults`, which searches
+only DIRECT-import FuncSigs, so the transitively-reached method was missing →
+`resultTyp` defaulted to `TypInt()` (i64); and the method got no `declare`. Fix
+(`genMethodCall`): on a `lookupFunc*` miss, take the result type from the checker's
+already-resolved expr type (`ctx.Checker.ExprType` — handles the multi-return
+marker, which `checkCall` returns as the callee FuncType) AND register the method
+as an extern (FuncSig + `NewExternFunc`, params from the generated args) so codegen
+emits its `declare` and later calls take the normal path. Fires only for
+genuinely-unregistered (transitive) methods, so direct/same-package calls are
+unaffected. Test `conformance/890_chained_method_transitive_struct` (minimal,
+dependency-free, 3-package; passes builder-comp / builder-comp-int / native aa64).
+`stdlib/os/004_modtime_chain`: `xfail.all` removed (extractvalue fixed; passes
+LLVM + native), replaced with a VM-only xfail for a SEPARATE newly-surfaced issue
+(`os.Stat(...).ModTime()` returns sec ≤ 0 under the VM — own OPEN entry in
+claude-todo.md).
+
 ## ✅ FIXED (15f52c07, 2026-06-21) — `.bni` iota implicit-repeat const exported as the bare iota ordinal cross-package
 
 A `.bni` const-group member omitting its initializer (Go's `1 << iota` idiom)
