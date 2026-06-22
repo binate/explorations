@@ -25,6 +25,25 @@ return type textually; no structured `TypeInfo` yet, deferred to a later phase).
 If true-size/structured-return reflection is wanted, add a distinct field or land
 the deferred `TypeInfo`.
 
+## MAJOR (types / cross-compile layout) — `SetTarget` never re-set the word-sized `int`/`uint` singletons → `TypInt().SizeOf()` stayed host-width after a target switch (2026-06-21) — ✅ FIXED & LANDED (`c7b5115c`)
+
+**Root cause.** `predeclaredInt`/`predeclaredUint` carry their width on the
+singleton (`Type.Width`), locked once at `ensureInit` to the *host* word size
+(`intSize()*8`). `SetTarget(info)` updated `target` but never re-set those two
+singletons' `Width`, so after switching to a 32-bit target `TypInt().SizeOf()`
+still returned 8 while `sizeof(int)` (which reads `target.IntSize`) correctly
+returned 4 — a runtime divergence on arm32 (wrong struct/array layout, the
+`SizeOf`/`AlignOf`/`Target32`/`StructLayout` unit-test failures). gen1 itself is
+unaffected (its `applyTarget` runs before `ensureInit`, so the singletons are
+born at the target width); the bug only bites a target switch *after* init.
+
+**Fix (`c7b5115c`).** `SetTarget` now re-sets `predeclaredInt.Width` /
+`predeclaredUint.Width = info.IntSize*8` when types are already initialized.
+`scope_test.bn` reconciled: layout tests call an explicit `setTarget64()` /
+`setTarget32()` and assert against the target width (not host `sizeof(int)`);
+stale "host-dependent"/"locked singleton" comments removed. Verified: full
+`pkg/binate/types` unit suite green on darwin; hygiene 15/15.
+
 ## CRITICAL (compiler crash / SIGSEGV) — a **tagless** `switch { … }` null-derefs the compiler in IR-gen (2026-06-21) — 🔴 OPEN — REPRODUCED
 
 **Symptom.** ANY tagless switch crashes `bnc` with SIGSEGV (no diagnostic). Minimal
