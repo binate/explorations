@@ -443,7 +443,7 @@ to `var u uint = len(...)` → "cannot assign int to uint"; miscite (`101` → b
 
 Review-noted coverage-gap follow-ups (all verified testable, to fold in): `present`==FALSE for
 an unset func-value / null managed-ptr / unset iface-value; `same` on RAW slices; `box` of a
-TYPED non-default value.
+TYPED non-default value. **Follow-up landed** (binate `5e71a053`; now **83 tests**): `088` present==FALSE (unset func/ptr/iface), `099` `same` on raw slices, `017` box of a typed value.
 
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
