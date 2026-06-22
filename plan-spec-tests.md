@@ -466,6 +466,20 @@ int64 = -42; n == 0 - 42` is miscompiled to false on the 32-bit ARM backend (an 
 untyped negative const-expr is not widened to 64 bits before the int64 compare; correct
 on every 64-bit mode); 033 restructured to stay green. Both filed in claude-todo.
 
+**Ch.18 Memory Model & Reference Counting — landed on main 2026-06-22** (binate
+`2828ad85`; `conformance/spec/18-memory/`). 5-cluster design fan-out + adversarial review.
+**43 tests**, all **20 testable `mem.*` rules -> 20/20 (100%)** (the 2 allowlisted-untestable
+rules mem.move.optimization + mem.scope-exit correctly excluded); DANGLING=0, UNTAGGED=0,
+hygiene 15/15. Green on all 7 modes -- refcount values are backend-stable, so NO bugs and NO
+xfails (the reference-counting contract holds on every backend). The whole chapter is observed
+via rt.Refcount(bit_cast(*uint8, managedPtr)) (the runtime refcount primitive) + shared-inner
+indirection: rc=1 after make, copy->+1, scope-exit->-1, destructor cascade + shared-backing-once,
+ownership transfer (return-global-raises / return-fresh-neutral / param-owns / borrow-arg),
+managed-vs-raw, cycle-leaks-positive, raw-uaf release-not-suppressed, immortal sentinel, no-leak,
+determinism, move observable-identical. Review caught 3 CRITICAL broken negatives (unescaped `*`
+in .error under grep -qE -> escaped to `\*`) + 5 minor strengthenings, and cleaned up agent
+workspace pollution (a duplicate dir + 6 stray top-level conformance files).
+
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
 
