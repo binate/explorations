@@ -2713,7 +2713,7 @@ Deferred 2026-06-11 (user: op-only acceptable for now) — low impact (message
 richness, not classification). Tests: extend the `TestOpen*Classified` cases
 to assert the path appears in the rendered message.
 
-## MAJOR (codegen / arm32 ABI regression) — `MaxAlign=8` (`f4b934ce`) broke float closures on arm32: 891/697 (8-aligned float64 in closure capture / >8th-float stack spill) (2026-06-22) — 🔴 OPEN — REGRESSION (mine)
+## MAJOR (codegen / closure capture-pad) — closure thunk read captures at the raw capture index, not the padded LLVM field index → dropped/shifted captures past an alignment pad; first exposed on arm32 by `MaxAlign=8` (891/697 float closures) (2026-06-22) — ✅ FIXED & LANDED (`2e279fb9`)
 
 **Symptom.** `conformance/891_func_value_closure_mixed_float_overflow` (a closure
 capturing 1 int + 9 float64; the 9th float64 arg overflows the AAPCS VFP regs onto
@@ -2724,14 +2724,25 @@ FAIL at `9254f848` → regressed exactly at the MaxAlign fix. arm32-only (native
 / aa64 green); `1ad9e00f` (which added these tests) is an ancestor of 6f8a2b23, so
 they genuinely passed before.
 
-**Root cause (to confirm).** `f4b934ce` raised arm32 `MaxAlign` 4→8, so `float64`
-is now 8-aligned (correct AAPCS for `double`). That exposed a latent float-closure
-ABI bug: some path (the closure-capture struct layout, the >8th-float stack-spill
-slot, or the agg-coerce of the capture) still assumes 4-aligned float64, so the
-stack-spilled 9th float64 is read at the wrong offset. NOT a reason to revert
-MaxAlign (8-align is correct + required for the stat fix) — the float-closure path
-must be made consistent with 8-aligned float64.
+**Root cause (CONFIRMED).** `emitClosureCaptureLoads` (emit_funcvals_closure.bn)
+GEP'd each capture at its raw capture index `i`, but the packed closure-capture
+struct has explicit alignment-pad fields — a capture whose 8-byte type (int64 /
+uint64 / float64) follows a narrower one gets a `[N x i8]` pad field before it. The
+capture WRITER already maps through `structLLVMIndex` (pad-aware, like all
+struct-field access); the thunk's load did not, so it read a pad field as a capture
+and shifted every later capture down by one (dropping the last). NOT MaxAlign's
+fault (8-align is correct AAPCS + required for the stat fix); `f4b934ce` just
+exposed it on arm32 by making float64 8-aligned. Latent on ALL targets too (any
+int32-then-int64 capture pads on LP64 — `gen1cur` yielded garbage for 898 on the
+host).
 
-**Status.** Found via CI on `9254f848`. Needs root-cause with a PINNED gen1
-(diagnosing with `ls -dt | head -1` mixed stale MaxAlign-4/8 compilers earlier —
-do not repeat). Then fix-forward.
+**Fix (`2e279fb9`).** Thunk GEPs `structLLVMIndex(f.ClosureStruct, i)` (returns `i`
+when no pads, so the common case is unchanged). 891/697 PASS on arm32 (qemu); 68
+LP64 closure tests + codegen unit pass. New `898_closure_capture_pad` pins it
+cross-target (int32/int64 interleaved capture → 1112; garbage without the fix).
+
+**Diagnostic lesson (recorded).** Earlier 004/closure probing used `ls -dt |
+head -1` to pick the gen1, which silently mixed two stale compilers (MaxAlign 4
+vs 8) in /tmp and produced phantom "cross-module divergence" conclusions. ALWAYS
+pin the exact gen1 path for diagnostics; never `ls -dt | head -1` when multiple
+compilers can coexist.
