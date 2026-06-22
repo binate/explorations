@@ -39,15 +39,30 @@ expressivity `ir.Global.Init` (an int-only `@Instr`) lacks.
    the native descriptor code is arch-agnostic, arm32 is the builder-comp LLVM
    path.)
 
-2. **⬜ Inc 2 — `_Package` info-node tables + backing arrays.** Migrate the
-   FunctionInfo/GlobalInfo/VtableInfo nodes + the `_pkg_funcs/globals/vtables`
-   arrays onto `DataGlobal`; then **delete** `emit_pkg_{functions,globals,
-   vtables}.bn`, `common_pkg_{functions,globals,vtables}.bn`, and the descriptor
-   remnants (`emit_static_managed.bn`'s node wrapper, the thin
-   `EmitPackageDescriptorData`/`emit_pkg_descriptor.bn` wrappers) — fully
-   retiring the interim native `_Package` emitter (binate `f7d116f3`). The
-   info-node Pkg back-pointer GEP (currently nested-type via
-   `staticManagedPayloadPtr`) folds into a `symref(_pkg_info, +16)`.
+2. **✅ DONE & LANDED — `_Package` info-node tables + backing arrays** (binate
+   `b2667902`, 2026-06-22). One shared builder `ir.BuildPackageDescriptors`
+   lays the FunctionInfo/GlobalInfo/VtableInfo nodes + their name/sig rodata +
+   the `_pkg_funcs/globals/vtables` backing arrays (per-kind builders in
+   `ir/data_pkg_{funcs,globals,vtables,descriptor}.bn`); both backends gather
+   row metadata + lower via `emitDataGlobal`. Deleted `emit_pkg_{functions,
+   globals,vtables}.bn`, `common_pkg_{functions,globals,vtables}.bn`,
+   `EmitPackageDescriptorData`, and `emit_static_managed.bn`'s
+   `emitStaticManagedGlobal` — the interim native `_Package` emitter
+   (`f7d116f3`) is fully retired (net −529 lines). The info-node PAYLOAD
+   pointer (FunctionInfo.Pkg + every backing-array entry) carries addend
+   `2*IntSize` (the managed-header size), not a hardcoded 16, so it is correct
+   on ILP32 (the old LLVM typed field-2 GEP was target-portable; the old native
+   hardcoded 16). Native GlobalInfo/VtableInfo nodes + all arrays unified to
+   weak/local linkage (matching LLVM). Reflect output byte-identical to before
+   across both backends. Verified: gen1+gen2 build, ir/codegen/native units,
+   hygiene 15/15, full builder-comp conformance (2219/0), full native-aa64
+   (2212/0 after re-running 2 load-flakes), reflect 525/532/708/709/725/727/726
+   green both backends; adversarial review clean (no critical/major).
+   **Concurrency note:** while in flight, `043318b1` independently refreshed the
+   stale 725/727 `ResultSize` goldens (to the `AggregateReturnSize` semantics)
+   and `d47d1a2e` renamed the misleading `ResultSize` → `RetbufSize`; Inc 2 was
+   rebased onto both (adopting `RetbufSize` throughout) and the planned
+   golden-fix commit was dropped as redundant.
 
 3. **⬜ Vtables** — impl vtables (`@__ivt.*`) + func-value vtables (`@__vt.*` /
    handles). Carry per-arch layout + `weak_odr`/`linkonce` linkage. (Func-value
