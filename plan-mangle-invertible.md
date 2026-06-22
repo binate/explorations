@@ -1,6 +1,16 @@
 # Plan: invertible (demanglable) name mangling
 
-Status: 🟢 PLAN APPROVED — implementing (2026-06-20)
+Status: ✅ COMPLETE — all steps landed (2026-06-21)
+
+Landed: prep1 `e8637018`, prep2 `2837438e`, prep3 `a754c6a8`, 4a `a0a0ea80`,
+4b (the atomic flip) `dd276e0a`. The symbol scheme is now the invertible
+length-prefix `bn_<kind>` form; Finding A is closed; symbols are demanglable
+(`mangle.Demangle`), and the `demangle(mangle(x))==x` round-trip + injectivity
+suite (incl. the named-vs-prefix / `.`-vs-`/` collision cases the old scheme
+failed) is the standing verifier. The VM `__ivt` matcher + `recvTypeIsGenericInst`
+now use the demangler. Only main-red item in the area is the PRE-EXISTING reflect
+725/727 (ResultSize=0), a separate concurrent-ABI regression (filed in claude-todo),
+NOT caused by this migration.
 
 Decisions (locked 2026-06-20):
 - **Encoding: Option L** (length-prefixed components, Itanium-style).

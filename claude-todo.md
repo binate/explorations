@@ -441,7 +441,14 @@ Both reproduce on a SINGLE package and predate the struct-collision fix
   — an unconstrained `[T any]` T isn't numeric, but the diagnostic/handling for
   a struct-field-of-T in an arithmetic position is the rough edge.
 
-## MAJOR (IR-gen / latent wrong-code) — `mangleTypeArg` is NOT actually injective despite `14270695`'s title; a named type can collide with a composite prefix, and the `.`/`/` fold is 2-to-1 (2026-06-20) — 🟢 PLAN APPROVED, IMPLEMENTING (`plan-mangle-invertible.md`, Option L)
+## MAJOR (IR-gen / latent wrong-code) — `mangleTypeArg` is NOT actually injective despite `14270695`'s title; a named type can collide with a composite prefix, and the `.`/`/` fold is 2-to-1 (2026-06-20) — ✅ FIXED & LANDED (mangling migration: prep1-3 + 4a `a0a0ea80` + 4b atomic flip `dd276e0a`)
+
+**Resolved:** the whole symbol mangler is now the invertible length-prefix
+`bn_<kind>` scheme — a named type is introduced only by the `N` leaf (can't be
+read as a `ptr_`/`slc_`/etc. prefix), and `.`/`/` are length-prefixed segments
+(no 2-to-1 fold). `mangle.Demangle` + a `demangle(mangle(x))==x` round-trip +
+injectivity suite (covering the named-vs-prefix and `.`-vs-`/` collisions this
+entry describes) is the standing verifier. Original detail below.
 
 Surfaced by the 2026-06-20 adversarial review of `14270695` ("make mangleTypeArg
 total + injective …").  `mangleTypeArg` (`pkg/binate/ir/gen_generic_mangle.bn`)
@@ -521,10 +528,10 @@ No conformance test possible until native-deps lands (it can't fail today).
   reloc type in the emitted object.
 - ✅ Func-value cross-mode injectivity: `conformance/878` (two distinct func-value
   instantiations coexisting across modes).
-- ⏳ Named-type-axis INJECTIVITY assertion (the actual collision surface) — would
-  FAIL today (it IS the Finding-A bug), so it rides with the
-  `plan-mangle-invertible.md` migration as the `demangle(mangle(x))==x`
-  round-trip + injectivity suite.
+- ✅ Named-type-axis INJECTIVITY assertion — delivered by the mangling migration
+  (`mangle_lp_test.bn` / `mangle_lp_demangle_test.bn` round-trip + injectivity
+  suite, landed with 4a `a0a0ea80`; the Finding-A bug it guarded is fixed by 4b
+  `dd276e0a`).
 
 ---
 
