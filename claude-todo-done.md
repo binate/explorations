@@ -8,6 +8,44 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ DONE & LANDED — follow-ups from the 2026-06-21 adversarial review of the mangling flip / reflect fix / RetbufSize rename (2026-06-22)
+
+The review confirmed the core work correct (no critical/major; reflect 725/727
+values all re-derive from AggregateReturnSize incl. arm32; the rename is
+behavior-neutral). All follow-ups now landed:
+- ✅ **docs `63f4120`:** docs/spec/20-intrinsic-tier0-packages.md synced
+  `ResultSize` → `RetbufSize` (struct shape + prose).
+- ✅ **binate `3ae6cc9b`:** the 3 deleted-`writeBnDotted` comment refs
+  fixed; the `…CarriesResultSize` test fn renamed; a first batch of old-scheme
+  illustration comments rewritten.
+- ✅ **binate `c5747cf4`:** `swapIfaceSuffix` (vm_exec_iface.bn) now has
+  eight direct unit tests covering every return path (managed-vtable V swap,
+  shim W swap with `__ivtshim.` re-decoration, cross-package target, and the
+  five rejection branches); break-verified they genuinely execute.
+- ✅ **binate `cc1171e7`, docs `b323d41`, re-vendor `b2d38eb3`:** the
+  `__bn_inst__` observation was confirmed a *real symbol collision*, not just a
+  malformed symbol — `foo__bn_inst__1_N0_3_int` mangles to exactly the `bn_I`
+  symbol the real instantiation `foo[int]` produces; the class generalizes to
+  `__entry` (→ reserved `bn_entry`) and the whole `__`-prefix synthesized-helper
+  namespace (`__closure_*`, `__copy_*`, `__bn_thunk_*`). Fixed in the front-end
+  (chosen over escape/guard): `mangle.IsReservedIdentifier` (SSOT) + a checker
+  rejection at declaration sites (`checkReservedDeclNames`). References
+  (`__c_call`) and single-underscore names (`_Package`) are unaffected; gen2
+  self-host confirms the compiler's own source has no reserved decls. Tests:
+  mangle + checker units, conformance `893` (.error) across comp/int/comp-comp.
+  Spec: new `lex.ident.reserved` Constraint rule in spec/05; rule-ids re-vendored.
+- ✅ **binate `3c1e3da6`:** swept the remaining old-scheme symbol illustrations
+  in non-test comments to abstract/new-scheme-accurate phrasing (~75 comment
+  lines, 34 files). Enumerated repo-wide in two passes — the initial `bn_[a-z]`
+  grep undercounted because old-scheme PLACEHOLDER forms start `bn_<` (e.g.
+  `bn_<pkg>__<name>`, `___vt.bn_<pkg>__<fn>`); a comprehensive re-grep closed the
+  gap. Intentional keeps: `bn_<kind>` scheme descriptions, already-abstract
+  `bn_<...>` / `__handle.<mangled>` placeholders, the `__bn_inst__` / `__bn_thunk_`
+  IR markers, and cmd/bnc/util.bn's `bn_pkg__libc__*` (accurately names the
+  prebuilt BUILDER's old symbols — a correct transitional note).
+
+---
+
 ## ✅ FIXED (`c163720a`, 2026-06-21) — chaining a method on the by-value struct RESULT of a cross-package method (`extractvalue` on scalar i64)
 
 Chaining a method onto a cross-package method's by-value struct result, where the
