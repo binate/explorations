@@ -2769,3 +2769,38 @@ head -1` to pick the gen1, which silently mixed two stale compilers (MaxAlign 4
 vs 8) in /tmp and produced phantom "cross-module divergence" conclusions. ALWAYS
 pin the exact gen1 path for diagnostics; never `ls -dt | head -1` when multiple
 compilers can coexist.
+
+## MAJOR (runtime C / sweep gap) — `bootstrap.ReadDir` (runtime/binate_runtime.c) still uses 32-bit `readdir()` → same EOVERFLOW listing-truncation as os.ReadDir, on a live bnc compile path (2026-06-22) — 🔴 OPEN
+
+**Symptom (latent, silent).** `runtime/binate_runtime.c` `bn_F2_3_pkg9_bootstrap1_7_ReadDir`
+calls plain `readdir()` (lines 167 count-pass + 181 fill-pass) over a 32-bit
+`struct dirent`. The runtime C has NO `#define _FILE_OFFSET_BITS 64` (grep:
+none in runtime/), and the arm32-linux clang flags add no `-D` for it
+(`cmd/bnc/target.bn` sets only `-march=armv7-a`). So on a 32-bit-Linux host the
+runtime gets the 32-bit `readdir` + struct dirent, which returns `EOVERFLOW`→NULL
+for a directory entry whose `d_ino` exceeds 2^32 — and `bootstrap.ReadDir` treats
+NULL as end-of-stream, silently TRUNCATING the listing. This is the IDENTICAL bug
+class fixed for `os.ReadDir` in `1686aac9` (readdir64), left unswept on the
+sibling runtime-C path.
+
+**Why it matters (not cosmetic).** `bootstrap.ReadDir` is load-bearing on the
+compile path: `pkg/binate/loader/loader.bn:152` enumerates an impl-package
+directory's `.bn` files through it; `cmd/bnc/util.bn:321` expands directory args
+through it. A truncated listing drops source files → missing funcs/types →
+**silent miscompilation**. It bites when `bnc` runs NATIVELY on a 32-bit-Linux
+host with a large-inode filesystem. Masked in current CI because
+`builder-comp_arm32_linux` cross-compiles bnc on x64 (readdir==readdir64) and
+runs only the produced test binary under qemu — bnc itself never runs at 32-bit.
+
+**Root cause (process).** The `os.ReadDir` readdir64 fix did not follow the
+"Enumerate Sweep Sites Repo-Wide" rule: a `grep -rn readdir` across the runtime C
+would have surfaced this immediately. Found by the adversarial review of the
+landed fixes.
+
+**Fix.** Compile `runtime/binate_runtime.c` with `-D_FILE_OFFSET_BITS=64` for
+hosted-Linux targets — the standard glibc transparent-LFS remap (readdir→readdir64,
+struct dirent→64-bit, AND stat→stat64 / off_t→64-bit, no source change). This also
+covers the runtime's `stat()`/`off_t` use, which has the same 32-bit-Linux LFS
+exposure. Alternative: switch the two `readdir()` calls to `readdir64()` + a 64-bit
+struct dirent (narrower fix, misses the stat/off_t adjacency). Verify the runtime C
+still compiles for darwin (where `_FILE_OFFSET_BITS` is a no-op) + 64-bit Linux.
