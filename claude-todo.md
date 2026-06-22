@@ -84,7 +84,7 @@ test in `cmd/bnc/target_test.bn` (it currently checks PointerSize/IntSize only).
 the local full arm32_linux suite is slow under triple-emulation (qemu-user hangs
 on guest segfaults so each crash-intended test costs the 10s timeout).
 
-## TEST GAP (not a compiler bug) — matrix/generic conformance cells pin LP64-only `.expected`; the compiler is correct under ILP32 (arm32) (2026-06-21) — 🟡 OPEN
+## TEST GAP (not a compiler bug) — matrix/generic conformance cells pin LP64-only `.expected`; the compiler is correct under ILP32 (arm32) (2026-06-21) — ✅ FIXED & LANDED (`9254f848`)
 
 **Symptom.** 10 `builder-comp_arm32_linux` conformance failures where the actual
 output is the CORRECT ILP32 value but `.expected` holds the LP64 value:
@@ -105,11 +105,12 @@ as an arbitrary-precision Python value and never simulate the final `cast(int,�
 authored for "64-on-32 / sub-word VALUE correctness" but only validated on a
 64-bit host.
 
-**Fix (test-side, needs decision).** Emit per-target expected
-(`expected.builder-comp_arm32_linux`; `run.sh` already supports per-mode expected)
-computed with `cast(int,…)` simulated at the target int width — OR restructure the
-generated print to be genuinely width-independent. NOT a compiler bug (verified
-correct via IR + qemu); NOT an xfail candidate.
+**Fix (`9254f848`).** Parameterized both generators' `cast(int,…)` simulation by
+target int width; they now emit `.expected.builder-comp_arm32_{linux,baremetal}`
+only where the 32-bit result differs (LP64 `.expected`/`.bn` untouched; stale
+overrides auto-removed; both idempotent). 850/864 (hand-written) got the same
+overrides (=12). All 10 cells verified PASS under qemu. NOT a compiler bug
+(verified correct via IR + qemu).
 
 ## CRITICAL (compiler crash / SIGSEGV) — a **tagless** `switch { … }` null-derefs the compiler in IR-gen (2026-06-21) — 🔴 OPEN — REPRODUCED
 
