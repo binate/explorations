@@ -4,30 +4,6 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
-## MAJOR (reflect conformance, PRE-EXISTING main-red) — `reflect.FunctionInfo.ResultSize` reports 0 for a scalar return; 725/727 asserted the old SizeOf values (2026-06-21) — ✅ FIXED & LANDED (`043318b1`)
-
-**Root cause (NOT the mangling flip — reproduced identically on clean base):**
-`6c34de49` ("fix the cross-mode scalar-vs-aggregate dispatch divergence")
-DELIBERATELY redefined `reflect.FunctionInfo.ResultSize` from "true result
-`SizeOf`" to the VM-dispatch retbuf discriminator `types.AggregateReturnSize`
-(0 for a scalar/void return, else N*8) — and updated the `reflect.bni` doc — but
-never ran the reflect CONFORMANCE tests, so 725/727 kept asserting the old SizeOf
-values (8 for int64) → `builder-comp` + `native_aa64` red. (`Sig` is fine; only
-`ResultSize` changed.) **Fixed (`043318b1`, test-only):** updated 725/727
-expectations + comments to the new (target-DEPENDENT) `AggregateReturnSize`
-semantics — LP64 scalars → 0, ILP32 int64/float64 aggregate → 8, multi-return →
-16, `@Package` (pointer-sized) → 0. Verified green on builder-comp + native_aa64.
-
-Follow-ups:
-- ✅ DONE (`d47d1a2e`): renamed the misleading `ResultSize` → `RetbufSize`
-  (reflect.FunctionInfo + vm.ExternBinding + the compute helpers), since it's the
-  dispatch retbuf size (0 for scalar), not a result size.
-- 🔵 DEFERRED (user: not now): structured return/param TYPE reflection. Today a
-  reflection user gets only the opaque `Sig` string (return type as text) — no
-  structured type. True result size is explicitly NOT needed; the eventual home
-  for typed reflection is the deferred `TypeInfo` phase (plan-package-
-  introspection-phase-b.md).
-
 ## MAJOR (codegen / ABI / memory-unsafe) — arm32 `MaxAlign=4` wrongly caps `int64`/`uint64`/`float64` alignment to 4 (AAPCS wants 8) → undersized C-interop structs → SIGSEGV in `os.Stat` (2026-06-21) — 🟢 ROOT-CAUSED + FIX VERIFIED (layout); pending land
 
 **Symptom.** `conformance/stdlib/os/003_stat` SIGSEGVs under `builder-comp_arm32_linux`
@@ -84,25 +60,6 @@ authored for "64-on-32 / sub-word VALUE correctness" but only validated on a
 computed with `cast(int,…)` simulated at the target int width — OR restructure the
 generated print to be genuinely width-independent. NOT a compiler bug (verified
 correct via IR + qemu); NOT an xfail candidate.
-
-## MAJOR (types / cross-compile layout) — `SetTarget` never re-set the word-sized `int`/`uint` singletons → `TypInt().SizeOf()` stayed host-width after a target switch (2026-06-21) — ✅ FIXED & LANDED (`c7b5115c`)
-
-**Root cause.** `predeclaredInt`/`predeclaredUint` carry their width on the
-singleton (`Type.Width`), locked once at `ensureInit` to the *host* word size
-(`intSize()*8`). `SetTarget(info)` updated `target` but never re-set those two
-singletons' `Width`, so after switching to a 32-bit target `TypInt().SizeOf()`
-still returned 8 while `sizeof(int)` (which reads `target.IntSize`) correctly
-returned 4 — a runtime divergence on arm32 (wrong struct/array layout, the
-`SizeOf`/`AlignOf`/`Target32`/`StructLayout` unit-test failures). gen1 itself is
-unaffected (its `applyTarget` runs before `ensureInit`, so the singletons are
-born at the target width); the bug only bites a target switch *after* init.
-
-**Fix (`c7b5115c`).** `SetTarget` now re-sets `predeclaredInt.Width` /
-`predeclaredUint.Width = info.IntSize*8` when types are already initialized.
-`scope_test.bn` reconciled: layout tests call an explicit `setTarget64()` /
-`setTarget32()` and assert against the target width (not host `sizeof(int)`);
-stale "host-dependent"/"locked singleton" comments removed. Verified: full
-`pkg/binate/types` unit suite green on darwin; hygiene 15/15.
 
 ## CRITICAL (compiler crash / SIGSEGV) — a **tagless** `switch { … }` null-derefs the compiler in IR-gen (2026-06-21) — 🔴 OPEN — REPRODUCED
 
@@ -188,8 +145,6 @@ both backends agree.
 **Pinned.** `conformance/spec/09-declarations-and-scope/045_zero_init_raw_ptr_xfail`
 (per-mode xfail: builder-comp, -comp-comp, -comp-comp-comp, native_aa64).
 
-
-
 ## rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟡 SCOPE REQUIRED (2026-06-20)
 
 Plan doc: [`plan-rt-abort-panic.md`](plan-rt-abort-panic.md). **Plan 1 (the
@@ -239,7 +194,6 @@ literal/const-expr against its chosen default type (the same check the explicit
 
 **Pinned.** `conformance/spec/06-constants/007_err_default_int_width_exceeds` (xfail.all,
 asserts the `cannot assign untyped int to int` rejection the explicit path gives).
-
 
 ## Embeddable-interp — open follow-ups (Inc 2 extern cleanup core landed) — 🟡 OPEN (2026-06-20)
 
@@ -294,7 +248,6 @@ is being materialized as a 32-bit value with no high word).
 **Pinned.** `conformance/spec/06-constants/034_int_sign_negation_int64_xfail`
 (xfail.builder-comp_arm32_baremetal). 033 was restructured to avoid the form so it
 stays green on arm32.
-
 
 ## Ch.7 spec-conformance findings (2026-06-20, authoring `conformance/spec/07-types`) — 🔴 OPEN
 
@@ -372,7 +325,6 @@ above) plus two MINOR items.
 
 ---
 
-
 ## MAJOR (VM / wrong-output) — `os.Stat(...).ModTime()` returns sec ≤ 0 under the bytecode VM (`builder-comp-int`); LLVM + native correct (2026-06-21) — 🔴 OPEN — REPRODUCED
 
 **Symptom.** `conformance/stdlib/os/004_modtime_chain` (`fi.ModTime().ToUnix()`
@@ -396,7 +348,6 @@ cross-mode marshaling of a 16-byte struct RETURN (`{i64,i32}`) from an injected
 method, or `time.Point`'s value flowing through the VM. Needs a narrower probe
 (e.g. inject a method returning a known-nonzero `time.Point` and read it on the
 VM side).
-
 
 ## MAJOR (IR-gen / wrong-code) — a method EXPRESSION over a named SCALAR type (`type Celsius int`; `Celsius.M`) miscompiles: direct call emits an undefined symbol `@bn_T__M`; the *func form compiles but null/garbage call-shim → SIGSEGV. Fails on BOTH compiled and VM backends (2026-06-20) — 🔴 OPEN — REPRODUCED
 
@@ -551,100 +502,6 @@ Both reproduce on a SINGLE package and predate the struct-collision fix
   with `arithmetic op requires numeric operands` / `cannot assign void to int`
   — an unconstrained `[T any]` T isn't numeric, but the diagnostic/handling for
   a struct-field-of-T in an arithmetic position is the rough edge.
-
-## MAJOR (IR-gen / latent wrong-code) — `mangleTypeArg` is NOT actually injective despite `14270695`'s title; a named type can collide with a composite prefix, and the `.`/`/` fold is 2-to-1 (2026-06-20) — ✅ FIXED & LANDED (mangling migration: prep1-3 + 4a `a0a0ea80` + 4b atomic flip `dd276e0a`)
-
-**Resolved:** the whole symbol mangler is now the invertible length-prefix
-`bn_<kind>` scheme — a named type is introduced only by the `N` leaf (can't be
-read as a `ptr_`/`slc_`/etc. prefix), and `.`/`/` are length-prefixed segments
-(no 2-to-1 fold). `mangle.Demangle` + a `demangle(mangle(x))==x` round-trip +
-injectivity suite (covering the named-vs-prefix and `.`-vs-`/` collisions this
-entry describes) is the standing verifier. Original detail below.
-
-Surfaced by the 2026-06-20 adversarial review of `14270695` ("make mangleTypeArg
-total + injective …").  `mangleTypeArg` (`pkg/binate/ir/gen_generic_mangle.bn`)
-renders a named type via its default branch: `QualifiedTypeName()` with only
-`.`/`/` folded to `__`, everything else verbatim — **no length-prefix or
-escaping**.  Two distinct types can therefore map to ONE token (= two
-instantiations share one IR symbol = silent wrong-code):
-- **Prefix collision:** a named type whose folded path begins with a synthetic
-  prefix collides with the composite.  E.g. type `Bar` in package `ptr_q` →
-  `ptr_q__Bar`, and `*q.Bar` → `ptr_` + `q__Bar` = `ptr_q__Bar`.  Same class hits
-  every prefix: `slc_`/`mslc_`/`mptr_`/`ro_`/`iv_`/`miv_`/`arr<n>_`/`fn_`/`fv_`/`mfv_`.
-- **2-to-1 fold:** `.` and `/` both → `__`, so type `C` in pkg `a/b` and type
-  `b__C` in pkg `a` both → `a__b__C`.
-- `mangleFuncSig`'s `p<n>…_r<n>…` arity prefixes are actually safe in isolation
-  (tokens are never re-parsed, only compared; no token can start with a digit),
-  so it only INHERITS the leaf non-injectivity above — not a separate hole.
-
-**Exploitability:** requires an unusual-but-legal PACKAGE path (one beginning
-with a reserved prefix); won't fire on normal code — hence *latent*, not live.
-**Partly pre-existing:** `ptr_`/`slc_`/`mptr_`/`mslc_` and the `.`/`/` fold predate
-this session; `14270695` genuinely FIXED the worse bug it targeted (func/array
-args previously all collapsed to one `<unknown>` token) but its "injective" claim
-is overstated and it WIDENED the prefix set.  **Fix:** make leaf tokens
-self-delimiting — length-count the named-type token, or use distinct escapes for
-`.` vs `/` vs literal `_`.  The same 2-to-1 fold lives in `mangle.bn`'s
-`writeBnDotted`, so the robust fix belongs in the SHARED mangle pipeline, not
-only here.  **Approved plan: `plan-mangle-invertible.md`** — length-prefixed
-(Itanium-style) invertible encoding across the whole mangle pipeline, a full
-structured demangler, and a `demangle(mangle(x))==x` round-trip + injectivity
-test suite (the real injectivity verifier).  Not BUILDER-gated.  The named-axis
-injectivity guard test rides with that migration.
-
-## MAJOR (native backend / latent linkage divergence) — the native backend emits an instantiation dtor's reflect-descriptor data symbols (`__fninfo`/`__fnname`/`__fnsig`) as STRONG external, while LLVM makes them private/`weak_odr` → duplicate-symbol once two native TUs share an instantiation (2026-06-20) — ✅ FIXED & LANDED (`558b93d5`)
-
-**Resolved (`558b93d5`):** `common.EmitFunctionInfoNode` now emits `nameSym`/
-`sigSym` LOCAL (= LLVM `private`) and `nodeSym` WEAK (= LLVM `weak_odr`),
-uniformly — confirmed via `nm --format=darwin` (node → weak external, name/sig →
-non-external). Guarded by a binding assertion in `TestEmitFunctionInfoNode`
-(end-to-end can't fail until native-deps lands). Detail retained below.
-
-Surfaced by the 2026-06-20 adversarial review of the generic same-segment work
-(`5ae791d2`), then REPRODUCED by dumping a native `main.o`.  An instantiated
-managed generic struct's dtor is `IsLinkOnce` + defining-pkg-qualified.  The
-native backend correctly WEAKENS the instantiation's code/vtable/shim/handle
-(`llvm-readobj` shows `WeakDef` set on `_bn_pkg__g__gen____dtor_Box__bn_inst__int`,
-`__shim`, `__vt`, `__handle`), BUT emits its three reflect-descriptor data
-symbols `__fninfo`/`__fnname`/`__fnsig` as **strong external** (`WeakDef=False`).
-Root cause: the native reflect-descriptor loop
-(`pkg/binate/native/{aarch64,x64}_pkg_descriptor.bn`) includes `IsStructDtor`
-funcs and `common.EmitFunctionInfoNode`
-(`pkg/binate/native/common/common_pkg_functions.bn`) marks `nameSym`/`sigSym`/
-`nodeSym` via `a.SetGlobal` (strong) without checking `IsLinkOnce`.  LLVM is safe:
-`__fnname`/`__fnsig` are `private`, `__fninfo` is `weak_odr`
-(`pkg/binate/codegen/emit_pkg_functions.bn` / `emit_static_managed.bn`).
-
-**Latent, not live:** `cmd/bnc/compile.bn:222-225` — *"Dependency packages always
-go through llvmBackend; only the main module honors `--backend native`"* — so
-there is never a second NATIVE TU emitting the same strong symbols.  A
-two-consumer repro (both consumers instantiating the same `@Box[int]` with a
-managed field) PASSES under `builder-comp_native_aa64-comp_native_aa64` because
-the consumers are dependency packages → LLVM.  **When it fires:** as soon as the
-native backend graduates to lowering dependency packages natively (separate
-native objects linked together) — two native consumers of the same managed
-instantiation → duplicate strong `__fninfo`/`__fnname`/`__fnsig` at link.
-**Fix:** in `common.EmitFunctionInfoNode`, make `nameSym`/`sigSym` private and
-`nodeSym` weak when the func `IsLinkOnce`, mirroring LLVM — or skip descriptor
-emission for `IsLinkOnce` defining-pkg-qualified funcs (one canonical owner).
-Backends MUST agree on linkage for these shared symbols (`ir-backend-guidelines`).
-No conformance test possible until native-deps lands (it can't fail today).
-
-## MINOR (test-coverage) — gaps from the 2026-06-20 adversarial review of the session's generic/reloc work — 🟢 MOSTLY DONE & LANDED (`dc04f824`); 1 item rides with the mangle migration
-
-- ✅ `mangleTypeArg`'s `ro_`/`iv_`/`miv_` branches now have unit coverage.
-- ✅ func arity-collision (`func(int)` vs `func(int,int)`, `func() bool` vs
-  `func(bool)`) is now directly asserted (`TestMangleFuncSigArity`).
-- ✅ `TestWriteElfX64RelocPltVsPc` now asserts the `r_addend` (−4) alongside the
-  reloc type in the emitted object.
-- ✅ Func-value cross-mode injectivity: `conformance/878` (two distinct func-value
-  instantiations coexisting across modes).
-- ✅ Named-type-axis INJECTIVITY assertion — delivered by the mangling migration
-  (`mangle_lp_test.bn` / `mangle_lp_demangle_test.bn` round-trip + injectivity
-  suite, landed with 4a `a0a0ea80`; the Finding-A bug it guarded is fixed by 4b
-  `dd276e0a`).
-
----
 
 ## MINOR — cross-mode interface dispatch: test-coverage gaps + LP64 assumption (2026-06-14) — 🟡 OPEN
 
@@ -1233,7 +1090,6 @@ BUILDER bump:
   `e2e/stat-values.sh` build gen1 from the tree.
 Once `BUILDER_VERSION` is bumped past those, drop the rt+vm/repl/bni and os entries from
 `LINT_SKIP` (restoring full lint coverage) — verify the bundled bnlint parses both directly first.
-
 
 ### `rt.Exit` paradigm: `exit` vs `abort`/`panic` — DISCUSS
 - `rt.Exit` (→ libc `exit`) is the wrong model in general: process exit
