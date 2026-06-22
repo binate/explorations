@@ -4,6 +4,20 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MINOR (entry / under-enforcement) — the `main` entry-point signature is not enforced (2026-06-22) — 🔴 OPEN
+
+`func main(x int)` and `func main() int` compile, LINK, and RUN (the extra
+parameter is ignored; a value-returning main's result is discarded) instead of
+being rejected. Spec `prog.main.signature` (§17.3) says the entry is `func main()`
+with no parameters and no results, and §17.3.1 says a wrong-shaped main is a
+link-time failure -- but the entry synthesis accepts any `main`. Found authoring
+`conformance/spec/17-program`. Pinned: `009_err_main_wrong_signature_xfail`
+(xfail.all). Low priority (a wrong-shaped main is unusual), but it is silent
+acceptance of an ill-formed entry point.
+
+---
+
+
 ## MINOR/NIT — follow-ups from the 2026-06-21 adversarial review of the mangling flip / reflect fix / RetbufSize rename (2026-06-22) — 🔴 OPEN
 
 The review confirmed the core work correct (no critical/major; reflect 725/727

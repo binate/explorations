@@ -83,23 +83,3 @@ e.g. `-5`, is accepted). So unary `+` is not a usable operator. This is a Ch.13
 gap to fix (and worth a positive conformance test). If no, the §5.7/Ch.13 prose
 mentioning `+` as a unary operator should be qualified. Not currently pinned (no
 working use site to assert).
-
-## §9.8 — package-level VAR initialization order: declaration-order or dependency-order? — 🟡 NEEDS DECISION (2026-06-21)
-
-**Spec.** `decl.order.forward` (§9.8): declarations may appear in any order and a
-declaration may refer to a name declared later (forward NAME references resolve).
-`decl.order.init` covers PACKAGE-level init order (dependency order across packages)
-and "no `init()` hook" — but neither pins the order in which a single package's
-**package-level variables** are initialized.
-
-**Impl.** Package-level vars initialize in **declaration order**, not dependency
-order: `var A int = B + 1; var B int = 10` makes `A == 1` (B is still 0 when A
-initializes), NOT 11. It compiles (the forward name B resolves), but the value is
-declaration-order. Go initializes package vars in dependency order (A would be 11).
-
-**Found.** Authoring `conformance/spec/09-declarations-and-scope` (decl.order.forward).
-
-**Question.** Is declaration-order the intended Binate semantics (simpler, but a
-footgun for `A = B+1; B = …`), or should package-var init be dependency-ordered like
-Go? Either way §9.8 should state it explicitly. Not pinned by a conformance test (the
-forward-ref test uses a function, which is order-independent).
