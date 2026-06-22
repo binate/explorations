@@ -90,8 +90,8 @@ CORRECT for: scalars (int/bool/float — fixed in `2d856a0f`), named arrays
 (`77bdd64c`), structs (zero-filled fieldwise, incl. a `*T` field), managed pointers
 `@T`, raw slices `*[]T` (2-word, zero-filled), and function values `*func(...)`. So
 this is the raw-pointer facet that the earlier scalar/array zero-init fixes missed.
-Spec `decl.var.zero-init` (§9.2): "pointers ... to nil". Almost certainly LLVM-only
-(the bytecode VM zeroes locals); central validation will confirm per-mode.
+Spec `decl.var.zero-init` (§9.2): "pointers ... to nil". Confirmed (conformance/spec/09 045): manifests on the LLVM backends
+(builder-comp/-comp-comp/-comp-comp-comp) AND native aarch64; the bytecode VM and arm32 happen to read nil.
 
 **Root cause (likely).** The IR-gen default-init path (the one `2d856a0f` made emit a
 typed zero-store for SCALAR locals via EmitConstBool/Float/Int) does not classify a
@@ -101,8 +101,8 @@ Fix: emit a null-pointer zero-store for a bare raw-pointer local (extend the sca
 default-init path to cover `*T`, or aggregate-zero it), putting the store in the IR so
 both backends agree.
 
-**Pinned.** `conformance/spec/09-declarations-and-scope/<NNN>_var_zero_init_raw_ptr_xfail`
-(to be added with the chapter; per-mode xfail on the failing backend(s)).
+**Pinned.** `conformance/spec/09-declarations-and-scope/045_zero_init_raw_ptr_xfail`
+(per-mode xfail: builder-comp, -comp-comp, -comp-comp-comp, native_aa64).
 
 
 
@@ -213,6 +213,31 @@ TWO stale spec notes (both flagged defects are actually FIXED). No new bugs.
 > sibling `07-types/222` opaque-field-access xfail uses the body-compiled setup, so its
 > xfail may be a test-setup artifact rather than a real impl gap — worth re-checking with a
 > pure-.bni setup as a 222 follow-up.
+
+---
+
+## Ch.9 spec-conformance findings (2026-06-21, authoring `conformance/spec/09-declarations-and-scope`) — 🔴 OPEN
+
+Authoring the Ch.9 tests surfaced the MAJOR raw-pointer zero-init bug (filed separately,
+above) plus two MINOR items.
+
+1. **MINOR (parser/checker) — `iota` is not resolved in a SINGLE-member grouped const block.**
+   The spec §9.1 `decl.const.iota` says iota "is recognized only inside a grouped const block."
+   The impl is stricter: `const ( X int = iota )` (one member) is rejected with `undefined: iota`
+   — identical to the non-grouped case — and iota only resolves once the block has 2+ members
+   (`const ( A int = iota; B )` → 0, 1). So iota availability is tied to multi-member grouped
+   blocks, not merely the grouped form. The Ch.9 tests sidestep it (004 uses ≥2 members, 005 uses
+   the non-grouped form), so nothing is pinned against the corner. Either the impl should resolve
+   iota in a single-member grouped block, or §9.1 should say "a grouped block with two or more
+   members." Not pinned (avoided in the tests).
+
+2. **MINOR (underspecified) — package-level VAR initialization is declaration-order, not
+   dependency-order; the spec doesn't pin it.** `var A int = B + 1; var B int = 10` makes `A == 1`
+   (B is still 0 when A initializes), NOT 11. `decl.order.forward` guarantees the forward NAME
+   reference resolves (it compiles), but the VALUE at init time follows declaration order. Go
+   initializes package vars in dependency order; Binate does not, and §9.8 is silent on var-init
+   order. → a spec-vs-impl decision (declaration-order vs dependency-order) for `spec-todo.md`.
+   The Ch.9 tests do not assert any var-init-order value (forward-ref is tested via a function).
 
 ---
 
