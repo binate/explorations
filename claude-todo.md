@@ -172,7 +172,31 @@ TWO stale spec notes (both flagged defects are actually FIXED). No new bugs.
 ---
 
 
-## MAJOR (codegen / invalid IR) — chaining a method onto the by-value struct result of a CROSS-PACKAGE method emits `extractvalue` on a scalar i64 → C backend rejects it (2026-06-20) — 🔴 OPEN — REPRODUCED
+## MAJOR (VM / wrong-output) — `os.Stat(...).ModTime()` returns sec ≤ 0 under the bytecode VM (`builder-comp-int`); LLVM + native correct (2026-06-21) — 🔴 OPEN — REPRODUCED
+
+**Symptom.** `conformance/stdlib/os/004_modtime_chain` (`fi.ModTime().ToUnix()`
+then `yn(sec > 0)`) prints `0` on `builder-comp-int` (expected `1`) — `ModTime`'s
+seconds come back ≤ 0. PASSES on `builder-comp` and `builder-comp_native_aa64`.
+xfail: `004_modtime_chain.xfail.builder-comp-int`.
+
+**Discovery / scope.** Surfaced when the chained-method `extractvalue`-on-scalar
+codegen bug was fixed (`b19d69ef`) — that fix un-masked 004 (it now COMPILES
+everywhere), exposing this separate VM-only wrong-value. NOT the codegen fix: the
+minimal dependency-free repro for that fix, `890_chained_method_transitive_struct`
+(same chained multi-return shape, no `os`), passes on ALL modes incl. the VM.
+`003_stat` (plain `os.Stat` → `Size`/`Mode`, no `ModTime`) also passes on the VM,
+so generic `os.Stat` marshaling works — it's `ModTime` specifically.
+
+**Likely root (needs investigation).** `os` is INJECTED (native) in the VM, so
+`os.Stat` returns a native `@FileInfo`; calling its `ModTime() time.Point` (a
+by-value struct return) across the VM↔native injection boundary, or the
+`time.Point`→`ToUnix` marshaling, drops the `int64` seconds. Candidates: the
+cross-mode marshaling of a 16-byte struct RETURN (`{i64,i32}`) from an injected
+method, or `time.Point`'s value flowing through the VM. Needs a narrower probe
+(e.g. inject a method returning a known-nonzero `time.Point` and read it on the
+VM side).
+
+## MAJOR (codegen / invalid IR) — chaining a method onto the by-value struct result of a CROSS-PACKAGE method emits `extractvalue` on a scalar i64 → C backend rejects it (2026-06-20) — ✅ FIXED (`b19d69ef`, 2026-06-21) — pending land/move-to-done
 
 **Symptom (REPRODUCED, builder-comp; it's a compile error).** `fi.ModTime().ToUnix()` where `fi` is `@os.FileInfo` and `ModTime()` returns `time.Point` (a cross-package struct, by value): IR-gen emits `%vN = extractvalue i64 %vM, 0` — `extractvalue` on a scalar `i64`, not an aggregate — and clang rejects it (`extractvalue operand must be aggregate type`). Repro: `conformance/stdlib/os/004_modtime_chain` (xfail.all).
 
