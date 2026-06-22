@@ -4,6 +4,22 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR (reflect / native-LLVM, PRE-EXISTING main-red) — `reflect.FunctionInfo.ResultSize` (and the `Sig` string) come back 0/empty for an LLVM-emitted package descriptor (2026-06-21) — 🔴 OPEN — REPRODUCED on clean `a0a0ea80`
+
+Discovered while validating the mangling flip (it is NOT caused by the flip — it
+reproduces identically on the clean base with NO flip changes). `conformance/725`
+and `727` FAIL under `builder-comp` (native LLVM; the dep package is LLVM-emitted):
+`725` expects the `pkg/fns.Add` FunctionInfo `ResultSize` = 8 (int64) but gets 0;
+`727` similarly gets 0 for the signature sizes. The `Name` field is correct, so
+the descriptor is emitted but the size/sig computation returns 0. Native
+(`builder-comp_native_aa64`) PASSED these earlier this session, so it appears
+**LLVM-codegen-specific** — most likely fallout from a recent concurrent landing
+touching the LLVM aggregate-return / scalar-vs-aggregate ABI (`b9081931`
+"coerce in-register aggregates to [N x i64]", `6c34de49`, `58c05dee`). Root cause
+not yet pinned; likely `codegen` `functionResultSize` / the descriptor's func-type
+lookup in `emit_pkg_functions.bn`. **main is currently red on `builder-comp` for
+these 2 tests.** Needs a separate investigation (independent of the mangling work).
+
 ## CRITICAL (compiler crash / SIGSEGV) — a **tagless** `switch { … }` null-derefs the compiler in IR-gen (2026-06-21) — 🔴 OPEN — REPRODUCED
 
 **Symptom.** ANY tagless switch crashes `bnc` with SIGSEGV (no diagnostic). Minimal
