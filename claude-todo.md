@@ -60,6 +60,35 @@ emitting the untyped literal at its default `i64` width.
 
 ---
 
+## MAJOR (codegen / memory-unsafe) — a bare raw-pointer local `var p *T` (no initializer) is NOT zero-initialized → reads STACK GARBAGE (non-nil) (2026-06-21) — 🔴 OPEN — REPRODUCED
+
+**Symptom (silent, memory-unsafe).** `var p *T` with no initializer is not zeroed
+when its stack slot was previously dirtied: `present(p)` returns **true** (garbage
+non-nil) instead of false. Repro: `func main() { var a int; var b int; var p *int;
+_=a;_=b; if !present(p) { println("nil-ok") } else { println("GARBAGE") } }` prints
+`GARBAGE`. A bare `var p *int` as the FIRST/only local happens to read nil (fresh
+stack), masking it. An explicit `var p *int = cast(*int, 0)` is correct.
+
+**Scope (probed).** ONLY the single-word RAW POINTER `*T` is affected. Zero-init is
+CORRECT for: scalars (int/bool/float — fixed in `2d856a0f`), named arrays
+(`77bdd64c`), structs (zero-filled fieldwise, incl. a `*T` field), managed pointers
+`@T`, raw slices `*[]T` (2-word, zero-filled), and function values `*func(...)`. So
+this is the raw-pointer facet that the earlier scalar/array zero-init fixes missed.
+Spec `decl.var.zero-init` (§9.2): "pointers ... to nil". Almost certainly LLVM-only
+(the bytecode VM zeroes locals); central validation will confirm per-mode.
+
+**Root cause (likely).** The IR-gen default-init path (the one `2d856a0f` made emit a
+typed zero-store for SCALAR locals via EmitConstBool/Float/Int) does not classify a
+raw pointer `*T` as a scalar, and unlike struct/array/slice locals a `*T` is not
+aggregate-zero-filled by `emitAlloc` — so a bare `*T` local gets no zero-store at all.
+Fix: emit a null-pointer zero-store for a bare raw-pointer local (extend the scalar
+default-init path to cover `*T`, or aggregate-zero it), putting the store in the IR so
+both backends agree.
+
+**Pinned.** `conformance/spec/09-declarations-and-scope/<NNN>_var_zero_init_raw_ptr_xfail`
+(to be added with the chapter; per-mode xfail on the failing backend(s)).
+
+
 
 ## rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟡 SCOPE REQUIRED (2026-06-20)
 
