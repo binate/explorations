@@ -389,21 +389,17 @@ then `yn(sec > 0)`) prints `0` on `builder-comp-int` (expected `1`) — `ModTime
 seconds come back ≤ 0. PASSES on `builder-comp` and `builder-comp_native_aa64`.
 xfail: `004_modtime_chain.xfail.builder-comp-int`.
 
-**SECOND, DISTINCT facet — arm32 SIGSEGV (`builder-comp_arm32_linux`) — 🔴 OPEN.**
-004 also **crashes** (uncaught signal 11 under qemu) on arm32 LLVM — NOT the VM
-wrong-value above, and NOT the `os.Stat` MaxAlign SIGSEGV (`f4b934ce` fixed that;
-`003_stat`/`006`/`TestStatIoArm32` pass; a minimal `os.Stat("/tmp")` no longer
-crashes). The fault is in the chained `fi.ModTime().ToUnix()` itself: `ModTime()`
-returns `time.Point` ({`sec int64`, `nsec int32`} = 16 bytes) by value, then
-`.ToUnix()` is called on that temporary and returns `(int64, int32)`. So this is
-arm32-specific aggregate ABI on the chained-method-on-by-value-struct-return +
-multi-return path (passes on x64/aa64 LLVM; crashes only on arm32 LLVM). Not
-MaxAlign-caused (predates `f4b934ce` and survives it). Candidates: the
-`[N x i64]` agg-coerce of the 16-byte `Point` return (`emit_agg_coerce.bn`) on
-ILP32, or the chained-method temporary's storage/reload on arm32. Needs a
-narrower probe (call `ModTime()` into a `var` then `.ToUnix()` un-chained;
-isolate `Point`-by-value return vs the chain vs the multi-return). No arm32 xfail
-added — leave it red (we don't xfail to cover up bugs).
+**arm32 facet — RESOLVED by `f4b934ce` (was the `os.Stat` osStat-overflow, NOT a
+distinct bug).** 004 crashed on `builder-comp_arm32_linux` only because `os.Stat`
+itself SIGSEGV'd (the `MaxAlign=4` osStat-undersize overrun) before `ModTime` was
+reached. With the MaxAlign fix, a clean MaxAlign=8 gen1 runs `004_modtime_chain`
+→ **PASS** (verified under qemu alongside `290_sizeof_alignof`). An earlier
+"distinct chained-`ModTime().ToUnix()` aggregate-ABI" theory here was WRONG: it
+came from probing with a non-deterministically-picked STALE `MaxAlign=4` gen1
+(two compilers coexisted in /tmp; `ls -dt | head -1` mixed them), so the probes
+hit the already-fixed `os.Stat` crash and a phantom os/main layout "divergence"
+(a MaxAlign-4 disassembly vs a MaxAlign-8 main IR). So arm32_linux is green for
+004; the only remaining 004 issue is the VM wrong-value below (xfail.builder-comp-int).
 
 **Discovery / scope.** Surfaced when the chained-method `extractvalue`-on-scalar
 codegen bug was fixed (`b19d69ef`) — that fix un-masked 004 (it now COMPILES
