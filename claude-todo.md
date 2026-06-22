@@ -28,22 +28,28 @@ behavior-neutral). Status:
 - ✅ **DONE (binate `3ae6cc9b`):** the 3 deleted-`writeBnDotted` comment refs
   fixed; the `…CarriesResultSize` test fn renamed; a first batch of old-scheme
   illustration comments rewritten.
+- ✅ **DONE (binate `c5747cf4`):** `swapIfaceSuffix` (vm_exec_iface.bn) now has
+  eight direct unit tests covering every return path (managed-vtable V swap,
+  shim W swap with `__ivtshim.` re-decoration, cross-package target, and the
+  five rejection branches); break-verified they genuinely execute.
+- ✅ **DONE (binate `cc1171e7`, docs `b323d41`):** the `__bn_inst__` observation
+  was confirmed to be a *real symbol collision*, not just a malformed symbol —
+  `foo__bn_inst__1_N0_3_int` mangles to exactly the `bn_I` symbol the real
+  instantiation `foo[int]` produces; the class generalizes to `__entry`
+  (→ reserved `bn_entry`) and the whole `__`-prefix synthesized-helper namespace
+  (`__closure_*`, `__copy_*`, `__bn_thunk_*`). Fixed in the front-end (chosen
+  over escape/guard): `mangle.IsReservedIdentifier` (SSOT) + a checker rejection
+  at declaration sites (`checkReservedDeclNames`). References (`__c_call`) and
+  single-underscore names (`_Package`) are unaffected; gen2 self-host confirms
+  the compiler's own source has no reserved decls. Tests: mangle + checker units,
+  conformance `893` (.error) across comp/int/comp-comp. Spec: new
+  `lex.ident.reserved` Constraint rule in spec/05; rule-ids re-vendored
+  (binate `464acf4d`, **pending land**).
 - 🔴 **REMAINING (NIT, ~47 lines):** old-scheme symbol illustrations in non-test
   comments (`bn_pkg__X__Y`, `__ivt.bn_main__T__I`, `___handle.bn_<pkg>__<fn>`,
   `%bn_pkg__Name`) still need rewriting to abstract/scheme-accurate phrasing.
   Contextual prose (not safely scriptable) — best swept fresh. Pure nit, no
   functional impact.
-- 🔴 **REMAINING (MINOR, test-coverage):** `swapIfaceSuffix` (vm_exec_iface.bn:354
-  — the most-rewired 4b consumer, now Demangle→re-encode) has NO direct unit
-  test; the two upcast unit tests take the native-source branch that short-
-  circuits before it. Add a unit test: build a `bn_V` via `mangle.ImplVtableName`,
-  swap to a target iface, assert the rewritten symbol.
-- 🔴 **REMAINING — OBSERVATION (latent, PRE-EXISTING — not a flip regression):** `__bn_inst__`
-  is not a reserved identifier substring, so a user free function literally named
-  e.g. `foo__bn_inst__bar` is misinferred as a generic instantiation
-  (mangle.bn:173-181) and mangles to a malformed `bn_I` symbol. Predates the flip
-  (the marker convention is old). Reserve/escape the `__bn_inst__` marker, or
-  guard the inference.
 
 ## MAJOR (codegen / ABI / memory-unsafe) — arm32 `MaxAlign=4` wrongly caps `int64`/`uint64`/`float64` alignment to 4 (AAPCS wants 8) → undersized C-interop structs → SIGSEGV in `os.Stat` (2026-06-21) — ✅ FIXED & LANDED (`f4b934ce`)
 
