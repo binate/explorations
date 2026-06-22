@@ -94,19 +94,19 @@ exists; reuse it.
   do-not-relax-without-reserving-a-frame warning). Adversarial review
   (wf_902997e9): 0 critical/major; minors (stale 707 comment, marshaller/guard
   coupling, overflow unit test) addressed.
-- **Commit 3 (darwin narrow-stack ABI) — IMPLEMENTED (binate `ad3f6f8a`),
-  pending landing (user chose land-core-+-track 2026-06-22):** a FIXED narrow
-  scalar (int32 / float32) stack arg now packs at its natural 4-byte size +
-  alignment on AAPCS64_Darwin (`NaturalSizeStackArgs` flag + `stackArgFootprint`
-  in the offset walkers). The direct-call caller AND the iface call site store a
-  narrow stack arg at natural width; the scalar closure float shim places its
-  overflow floats at the matching natural offset/width (now uses
-  AAPCS64_Darwin). conformance/893 (cross-pkg direct call) un-broken, 895 (iface
-  narrow stack — a CRASH the review caught), convention natural-size unit tests;
-  full native aa64 2300/0; x64/LLVM/VM unaffected. Adversarial review
-  (wf_eebd46ad): caught a CRITICAL iface-store crash regression (fixed) + the
-  int8/int16 gap below; 2 "callee over-read" findings were verified false
-  positives (the 8-byte read is harmless).
+- **Commit 3 (darwin narrow-stack ABI) — ✅ LANDED (binate `e9474185`,
+  2026-06-22; user chose land-core-+-track):** a FIXED narrow scalar (int32 /
+  float32) stack arg now packs at its natural 4-byte size + alignment on
+  AAPCS64_Darwin (`NaturalSizeStackArgs` flag + `stackArgFootprint` in the offset
+  walkers). The direct-call caller AND the iface call site store a narrow stack
+  arg at natural width; the scalar closure float shim places its overflow floats
+  at the matching natural offset/width (now uses AAPCS64_Darwin).
+  conformance/897 (cross-pkg direct call) un-broken, 895 (iface narrow stack — a
+  CRASH the review caught), convention natural-size unit tests; full native aa64
+  2301/0; x64/LLVM/VM unaffected. Adversarial review (wf_eebd46ad): caught a
+  CRITICAL iface-store crash regression (fixed) + the int8/int16 gap below; 2
+  "callee over-read" findings were verified false positives (the 8-byte read is
+  harmless).
   - **GAP A — func-value-narrow (`894`, xfail aa64):** a `@func(>8 narrow args)`
     value still marshals through the func-value dispatch + spill shim in 8-byte
     words, inconsistent with the natural-size underlying (int32 mis-offsets,
