@@ -64,9 +64,30 @@ expressivity `ir.Global.Init` (an int-only `@Instr`) lacks.
    rebased onto both (adopting `RetbufSize` throughout) and the planned
    golden-fix commit was dropped as redundant.
 
-3. **⬜ Vtables** — impl vtables (`@__ivt.*`) + func-value vtables (`@__vt.*` /
-   handles). Carry per-arch layout + `weak_odr`/`linkonce` linkage. (Func-value
-   `__shim`s are CODE → stay in `mod.Funcs`; only the symref *table* is data.)
+3. **Vtables** — split into 3a (func-value) + 3b (impl):
+   - **✅ 3a DONE & LANDED — func-value vtables + handles** (binate `30aca2d7`,
+     2026-06-22). `@__vt` (vtable `{ dtor, call }`) + `@__handle`
+     (function-value `{ vtable, data=null }`) now route through one shared
+     `ir.BuildFuncValue` (`ir/data_funcval.bn`), lowered by both backends via
+     `emitDataGlobal`.  Each backend's gather still resolves its own symbol
+     names + call target (shim, or the function itself for a universal
+     trampoline on LLVM) + closure-dtor handle, and keeps the SetGlobal
+     bookkeeping on the referenced shim / dtor-handle; only the byte layout
+     moved.  LLVM globals became anonymous `{ ptr, ptr }` (was named
+     %BnVtable / %BnFuncValue) — the typed-pointer references elsewhere
+     auto-upgrade to `ptr` under opaque pointers (clang-verified in review).
+     The LLVM closure-dtor triple (`emitClosureDtorTriple`) was also routed
+     through `ir.BuildFuncValue` so no hand-rolled func-value emitter remains.
+     Deleted the per-backend vtable/handle emitters (codegen
+     emitFuncValueVtable/Dtor/Handle, native emitFuncValueVtableDtorSlot{,_x64}
+     + dead emitQuadLabelFV).  Verified: full builder-comp 2300/0 + native-aa64
+     2296/0, func-value/closure/handle conformance both backends, adversarial
+     review clean.
+   - **⬜ 3b — impl vtables** (`@__ivt.*` + `@__ivtshim.*`): the variable-length,
+     recursively-computed layout (dtor + parent vtables + own methods; raw vs
+     shim differ only in method slots).  Carries per-arch layout; unify the
+     native strong (`SetGlobal`) binding to weak/local to match LLVM (the Inc
+     1/2 hardening — confirm with the user when we get there).
 
 4. **⬜ Strings** — string constants. **Preserve `FinalizeStrings`
    interning/dedup** (must not regress to one-global-per-occurrence). Natural
