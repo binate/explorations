@@ -45,7 +45,7 @@ behavior-neutral). Status:
   (the marker convention is old). Reserve/escape the `__bn_inst__` marker, or
   guard the inference.
 
-## MAJOR (codegen / ABI / memory-unsafe) — arm32 `MaxAlign=4` wrongly caps `int64`/`uint64`/`float64` alignment to 4 (AAPCS wants 8) → undersized C-interop structs → SIGSEGV in `os.Stat` (2026-06-21) — 🟢 ROOT-CAUSED + FIX VERIFIED (layout); pending land
+## MAJOR (codegen / ABI / memory-unsafe) — arm32 `MaxAlign=4` wrongly caps `int64`/`uint64`/`float64` alignment to 4 (AAPCS wants 8) → undersized C-interop structs → SIGSEGV in `os.Stat` (2026-06-21) — ✅ FIXED & LANDED (`f4b934ce`)
 
 **Symptom.** `conformance/stdlib/os/003_stat` SIGSEGVs under `builder-comp_arm32_linux`
 (uncaught target signal 11 in qemu). A minimal `os.Stat("/tmp")` that prints nothing
@@ -65,15 +65,24 @@ layout (`stat`, future `dirent`/`timespec`/etc.).
 
 **Verified.** Host arm32 IR probe `struct{uint64;uint32;uint64}`: `sizeof` = 20
 under `MaxAlign=4` (2nd uint64 at offset 12, 4-aligned); = **24** under
-`MaxAlign=8` (offset 16, 8-aligned), matching AAPCS. Container 003_stat crash
-retest with the fix in progress.
+`MaxAlign=8` (offset 16, 8-aligned), matching AAPCS. Under qemu (Docker
+linux/amd64 + qemu-arm): `003_stat` and `006_readdir` PASS with the fix;
+`290_sizeof_alignof`'s arm32 expected (linux + baremetal) corrected
+`alignof(int64)`/`alignof(float64)` 4→8, verified against a clean run. 385's
+arm32 IR is byte-identical under MaxAlign 4 vs 8 (the change touches only
+8-byte-member layouts; 290 was the sole arm32-expected test asserting such).
 
-**Fix.** `t.MaxAlign = 8` in `setArm32Layout` (one line + comment). Raises the cap
-so 8-byte types get 8-align; 4-byte types (int/pointer) are unaffected (natural
-align ≤ 4). Self-consistent for pure-Binate code AND correct for C interop.
-Severity MAJOR (memory-unsafe wrong-code + pervasive arm32 ABI mismatch). Changing
-a target layout constant affects all arm32 struct layouts → confirm full
-arm32_linux conformance is net-green before landing.
+**Fix (`f4b934ce`).** `t.MaxAlign = 8` in `setArm32Layout` + the two 290 expected
+corrections. Raises the cap so 8-byte types get 8-align; 4-byte types
+(int/pointer) are unaffected (natural align ≤ 4). Self-consistent for
+pure-Binate code AND correct for C interop. Also fixes the `TestStatIoArm32`
+unit test (same `osStat`/`stat64` path).
+
+**Follow-ups.** (1) coverage — add a `MaxAlign==8` assertion to the arm32 layout
+test in `cmd/bnc/target_test.bn` (it currently checks PointerSize/IntSize only).
+(2) CI is the full-matrix gate (arm32_linux + arm32_baremetal conformance + unit);
+the local full arm32_linux suite is slow under triple-emulation (qemu-user hangs
+on guest segfaults so each crash-intended test costs the 10s timeout).
 
 ## TEST GAP (not a compiler bug) — matrix/generic conformance cells pin LP64-only `.expected`; the compiler is correct under ILP32 (arm32) (2026-06-21) — 🟡 OPEN
 
