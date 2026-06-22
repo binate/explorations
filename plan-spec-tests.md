@@ -445,6 +445,17 @@ Review-noted coverage-gap follow-ups (all verified testable, to fold in): `prese
 an unset func-value / null managed-ptr / unset iface-value; `same` on RAW slices; `box` of a
 TYPED non-default value. **Follow-up landed** (binate `5e71a053`; now **83 tests**): `088` present==FALSE (unset func/ptr/iface), `099` `same` on raw slices, `017` box of a typed value.
 
+**Ch.9 Declarations & Scope — landed on main 2026-06-21** (binate `46130f4e`;
+`conformance/spec/09-declarations-and-scope/`). 5-cluster design fan-out + adversarial
+review. **35 tests**, all **19 `decl.*` rules -> 19/19 (100%)**; DANGLING=0, UNTAGGED=0,
+hygiene 15/15. Green on all 7 modes. `decl.var.extern` (`170`) is a multi-package
+exported-var test. **MAJOR bug pinned** (`045`, per-mode xfail on the 3 LLVM modes +
+native-aa64): a bare no-init raw pointer `var p *T` is NOT zero-initialized to nil when
+its stack slot was dirtied (the raw-pointer facet the scalar/array zero-init fixes
+missed; VM and arm32 happen to read nil); memory-unsafe, claude-todo MAJOR. Two minor
+items filed: iota not resolved in a single-member grouped const block (claude-todo);
+package-level var init is declaration-order not dependency-order (spec-todo).
+
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
 
