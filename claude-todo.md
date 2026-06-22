@@ -18,12 +18,15 @@ expectations + comments to the new (target-DEPENDENT) `AggregateReturnSize`
 semantics — LP64 scalars → 0, ILP32 int64/float64 aggregate → 8, multi-return →
 16, `@Package` (pointer-sized) → 0. Verified green on builder-comp + native_aa64.
 
-Follow-up (separate, optional): reflection now exposes the dispatch retbuf size,
-NOT the true result size — a reflection user can't read the real return size/type
-(see the "type info in reflect" note: only the opaque `Sig` string carries the
-return type textually; no structured `TypeInfo` yet, deferred to a later phase).
-If true-size/structured-return reflection is wanted, add a distinct field or land
-the deferred `TypeInfo`.
+Follow-ups:
+- ✅ DONE (`d47d1a2e`): renamed the misleading `ResultSize` → `RetbufSize`
+  (reflect.FunctionInfo + vm.ExternBinding + the compute helpers), since it's the
+  dispatch retbuf size (0 for scalar), not a result size.
+- 🔵 DEFERRED (user: not now): structured return/param TYPE reflection. Today a
+  reflection user gets only the opaque `Sig` string (return type as text) — no
+  structured type. True result size is explicitly NOT needed; the eventual home
+  for typed reflection is the deferred `TypeInfo` phase (plan-package-
+  introspection-phase-b.md).
 
 ## MAJOR (codegen / ABI / memory-unsafe) — arm32 `MaxAlign=4` wrongly caps `int64`/`uint64`/`float64` alignment to 4 (AAPCS wants 8) → undersized C-interop structs → SIGSEGV in `os.Stat` (2026-06-21) — 🟢 ROOT-CAUSED + FIX VERIFIED (layout); pending land
 
