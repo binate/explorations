@@ -136,6 +136,32 @@ stdout.
 
 ---
 
+## MAJOR (checker / silent integer-wrap) — `:=` (short-var default type) does NOT fit-check a literal exceeding the target int → silent wrap (2026-06-21) — 🔴 OPEN — REPRODUCED
+
+**Symptom (silent wrong value).** `x := 0xFFFFFFFFFFFFFFFF` compiles clean (rc=0, no
+diagnostic) and binds `x` to int **-1** — the literal (2^64-1, a valid union-range
+literal but NOT in int64) is silently WRAPPED to the default `int` instead of being
+rejected. The explicit-type path is correct: `var x int = 0xFFFFFFFFFFFFFFFF` →
+`cannot assign untyped int to int`. So the `:=` default-type path omits the
+range/fit-check that `var x T = …` performs.
+
+**Spec.** `const.default.int-width` (§6.2): a literal whose value does not fit the
+target's `int` "cannot use the default and shall be given an explicit type." So
+`x := 0xFFFFFFFFFFFFFFFF` must be rejected, not wrapped.
+
+**Discovery.** Authoring `conformance/spec/06-constants` (const.default.int-width).
+**Scope.** Front-end (checker/const-fold), so the wrong value is target-invariant
+(all modes). Likely the `:=` path infers the default type and stores the literal
+without re-fit-checking against it.
+
+**Fix (likely).** In the short-var (`:=`) default-typing path, fit-check the
+literal/const-expr against its chosen default type (the same check the explicit
+`var x T = e` assignment does), and reject on overflow.
+
+**Pinned.** `conformance/spec/06-constants/007_err_default_int_width_exceeds` (xfail.all,
+asserts the `cannot assign untyped int to int` rejection the explicit path gives).
+
+
 ## Embeddable-interp — open follow-ups (Inc 2 extern cleanup core landed) — 🟡 OPEN (2026-06-20)
 
 The embeddable-interp core (Inc 1, Inc 2 Layers 1/2 + the review (b)-fix, and the
