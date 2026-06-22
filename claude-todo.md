@@ -4,21 +4,26 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
-## MAJOR (reflect / native-LLVM, PRE-EXISTING main-red) — `reflect.FunctionInfo.ResultSize` (and the `Sig` string) come back 0/empty for an LLVM-emitted package descriptor (2026-06-21) — 🔴 OPEN — REPRODUCED on clean `a0a0ea80`
+## MAJOR (reflect conformance, PRE-EXISTING main-red) — `reflect.FunctionInfo.ResultSize` reports 0 for a scalar return; 725/727 asserted the old SizeOf values (2026-06-21) — ✅ FIXED & LANDED (`043318b1`)
 
-Discovered while validating the mangling flip (it is NOT caused by the flip — it
-reproduces identically on the clean base with NO flip changes). `conformance/725`
-and `727` FAIL under `builder-comp` (native LLVM; the dep package is LLVM-emitted):
-`725` expects the `pkg/fns.Add` FunctionInfo `ResultSize` = 8 (int64) but gets 0;
-`727` similarly gets 0 for the signature sizes. The `Name` field is correct, so
-the descriptor is emitted but the size/sig computation returns 0. Native
-(`builder-comp_native_aa64`) PASSED these earlier this session, so it appears
-**LLVM-codegen-specific** — most likely fallout from a recent concurrent landing
-touching the LLVM aggregate-return / scalar-vs-aggregate ABI (`b9081931`
-"coerce in-register aggregates to [N x i64]", `6c34de49`, `58c05dee`). Root cause
-not yet pinned; likely `codegen` `functionResultSize` / the descriptor's func-type
-lookup in `emit_pkg_functions.bn`. **main is currently red on `builder-comp` for
-these 2 tests.** Needs a separate investigation (independent of the mangling work).
+**Root cause (NOT the mangling flip — reproduced identically on clean base):**
+`6c34de49` ("fix the cross-mode scalar-vs-aggregate dispatch divergence")
+DELIBERATELY redefined `reflect.FunctionInfo.ResultSize` from "true result
+`SizeOf`" to the VM-dispatch retbuf discriminator `types.AggregateReturnSize`
+(0 for a scalar/void return, else N*8) — and updated the `reflect.bni` doc — but
+never ran the reflect CONFORMANCE tests, so 725/727 kept asserting the old SizeOf
+values (8 for int64) → `builder-comp` + `native_aa64` red. (`Sig` is fine; only
+`ResultSize` changed.) **Fixed (`043318b1`, test-only):** updated 725/727
+expectations + comments to the new (target-DEPENDENT) `AggregateReturnSize`
+semantics — LP64 scalars → 0, ILP32 int64/float64 aggregate → 8, multi-return →
+16, `@Package` (pointer-sized) → 0. Verified green on builder-comp + native_aa64.
+
+Follow-up (separate, optional): reflection now exposes the dispatch retbuf size,
+NOT the true result size — a reflection user can't read the real return size/type
+(see the "type info in reflect" note: only the opaque `Sig` string carries the
+return type textually; no structured `TypeInfo` yet, deferred to a later phase).
+If true-size/structured-return reflection is wanted, add a distinct field or land
+the deferred `TypeInfo`.
 
 ## CRITICAL (compiler crash / SIGSEGV) — a **tagless** `switch { … }` null-derefs the compiler in IR-gen (2026-06-21) — 🔴 OPEN — REPRODUCED
 
