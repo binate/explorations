@@ -480,6 +480,15 @@ determinism, move observable-identical. Review caught 3 CRITICAL broken negative
 in .error under grep -qE -> escaped to `\*`) + 5 minor strengthenings, and cleaned up agent
 workspace pollution (a duplicate dir + 6 stray top-level conformance files).
 
+**Ch.17 Program Initialization & Execution — landed on main 2026-06-22** (binate
+`6f8a2b23`; `conformance/spec/17-program/`). Authored DIRECTLY (small overlap-heavy chapter,
+context-conserving). **15 tests**, all **14 `prog.*` rules -> 14/14 (100%)**; DANGLING=0,
+UNTAGGED=0, hygiene 15/15. Green on all 7 modes. 1 under-enforcement pinned (`009`, xfail.all):
+the main entry-point signature is NOT enforced (func main(x int) runs) -- claude-todo. Stale
+§17.5 panic-vm-noop note corrected (panic now aborts in both modes; same fixed defect as §15.7;
+docs `86a36bb`). Also removed a mistaken spec-todo var-init-order "divergence": §17.2 prog.init.order
+pins source-declaration order and the impl matches it. Many rules re-cite Ch.9/13/14/15 behavior.
+
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
 
