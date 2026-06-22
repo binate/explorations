@@ -25,6 +25,63 @@ return type textually; no structured `TypeInfo` yet, deferred to a later phase).
 If true-size/structured-return reflection is wanted, add a distinct field or land
 the deferred `TypeInfo`.
 
+## MAJOR (codegen / ABI / memory-unsafe) — arm32 `MaxAlign=4` wrongly caps `int64`/`uint64`/`float64` alignment to 4 (AAPCS wants 8) → undersized C-interop structs → SIGSEGV in `os.Stat` (2026-06-21) — 🟢 ROOT-CAUSED + FIX VERIFIED (layout); pending land
+
+**Symptom.** `conformance/stdlib/os/003_stat` SIGSEGVs under `builder-comp_arm32_linux`
+(uncaught target signal 11 in qemu). A minimal `os.Stat("/tmp")` that prints nothing
+about the result also crashes — the fault is *inside* `os.Stat`, not a field accessor.
+
+**Root cause.** `cmd/bnc/target.bn:setArm32Layout` set `t.MaxAlign = 4`. `MaxAlign`
+caps every type's alignment, so on arm32 the 8-byte fundamental types (`int64` /
+`uint64` / `float64`) align to 4, not 8. AAPCS — the ARM EABI used by BOTH
+arm-linux-gnueabihf and bare-metal arm-none-eabi — aligns `long long` / `double`
+to 8 even though pointers and `int` are 4. So `os`'s `osStat` (glibc `struct
+stat64`, 104 bytes *with* the 8-align pads at the `st_size` / `st_blocks`
+boundaries) lays out as **96 bytes** under the 4-cap; the kernel's `stat64`
+syscall writes 104 bytes into the 96-byte buffer → 8-byte overrun → corruption →
+crash. More broadly, EVERY arm32 struct with an 8-byte member is mislaid vs the
+platform ABI — latent, manifesting wherever a Binate struct must match C/kernel
+layout (`stat`, future `dirent`/`timespec`/etc.).
+
+**Verified.** Host arm32 IR probe `struct{uint64;uint32;uint64}`: `sizeof` = 20
+under `MaxAlign=4` (2nd uint64 at offset 12, 4-aligned); = **24** under
+`MaxAlign=8` (offset 16, 8-aligned), matching AAPCS. Container 003_stat crash
+retest with the fix in progress.
+
+**Fix.** `t.MaxAlign = 8` in `setArm32Layout` (one line + comment). Raises the cap
+so 8-byte types get 8-align; 4-byte types (int/pointer) are unaffected (natural
+align ≤ 4). Self-consistent for pure-Binate code AND correct for C interop.
+Severity MAJOR (memory-unsafe wrong-code + pervasive arm32 ABI mismatch). Changing
+a target layout constant affects all arm32 struct layouts → confirm full
+arm32_linux conformance is net-green before landing.
+
+## TEST GAP (not a compiler bug) — matrix/generic conformance cells pin LP64-only `.expected`; the compiler is correct under ILP32 (arm32) (2026-06-21) — 🟡 OPEN
+
+**Symptom.** 10 `builder-comp_arm32_linux` conformance failures where the actual
+output is the CORRECT ILP32 value but `.expected` holds the LP64 value:
+- `matrix/scalar/{add,sub}/64/unsigned`, `matrix/scalar/div/64/{signed,unsigned}`:
+  `println(cast(int, <wide value>))`. On arm32 `int` is 32-bit, so `cast(int,…)`
+  truncates/sign-reinterprets. E.g. add/64 → `-1` (`0xFFFFFFFF` as int32); expected
+  `4294967295` (the int64 value).
+- `matrix/operator/{neg,bitnot}/{named,plain}/uint32`: `cast(int, uint32)` → signed
+  int32 on arm32 vs zero-extended int64 on LP64. neg → `-5`; expected `4294967291`.
+- `850_generic_cross_pkg_alias_collision`, `864_..._implicit_segment_collision`:
+  `sizeof(genlib.Box[int])` — `tag(int) + dep.Pair(2×int)` = 12 on arm32 (int=4),
+  24 on LP64 (int=8). The cross-pkg collision is correctly AVOIDED on arm32 too;
+  12 is the right ILP32 size.
+
+**Root cause.** `gen-scalar-matrix.py` / `gen-operator-matrix.py` compute `.expected`
+as an arbitrary-precision Python value and never simulate the final `cast(int,…)`
+(or the `sizeof`) at the TARGET int width — implicitly LP64. The cells were
+authored for "64-on-32 / sub-word VALUE correctness" but only validated on a
+64-bit host.
+
+**Fix (test-side, needs decision).** Emit per-target expected
+(`expected.builder-comp_arm32_linux`; `run.sh` already supports per-mode expected)
+computed with `cast(int,…)` simulated at the target int width — OR restructure the
+generated print to be genuinely width-independent. NOT a compiler bug (verified
+correct via IR + qemu); NOT an xfail candidate.
+
 ## MAJOR (types / cross-compile layout) — `SetTarget` never re-set the word-sized `int`/`uint` singletons → `TypInt().SizeOf()` stayed host-width after a target switch (2026-06-21) — ✅ FIXED & LANDED (`c7b5115c`)
 
 **Root cause.** `predeclaredInt`/`predeclaredUint` carry their width on the
