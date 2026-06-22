@@ -122,9 +122,9 @@ exists; reuse it.
     packing — the SAME wrong-offset miscompile class as 897, for narrower widths
     (the asm has Strb/Strh; the fix generalizes `stackArgFootprint` to SizeOf<8
     + a store-width dispatch at the caller/iface sites). Still open.
-  - **GAP C — GP-only capturing-closure stack-spill shim — ✅ FIX READY (binate
-    `1a19fd11` on worktree `fwdref-const-array-dim`, pending land; reproduced 306
-    vs 310 native aa64, review wf_d7ec7f92):** `emitClosureShimStackSpillAA64`
+  - **GAP C — GP-only capturing-closure stack-spill shim — ✅ RESOLVED (binate
+    `cb58ece5`, 2026-06-22; reproduced 306 vs 310 native aa64, review
+    wf_d7ec7f92):** `emitClosureShimStackSpillAA64`
     (`aarch64_closure_shim.bn`) marshalled a capturing closure's `>8` GP
     args/captures to the lifted body via plain `AAPCS64()` + 64-bit stores, but
     the body reads a narrow int32 overflow arg at natural-4 → silent wrong-code.
