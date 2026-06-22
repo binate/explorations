@@ -78,12 +78,23 @@ exists; reuse it.
   `common.IsFloatScalarTyp` (the agreement is now load-bearing). Adversarial
   review (binate worktree, wf_d6a0cf7f): 0 in-scope critical/major; it surfaced
   the darwin narrow-stack gap below (separate, pre-existing).
-- **Commit 2 (707 proper) — NEXT:** lift the FP-overflow `SetError` in the
-  func-value spill shims + the closure float shims; place/read overflow floats
-  there too. Un-xfail 707 + add closure/funcval overflow conformance tests. (The
-  non-capturing spill shim is small now that CallStackBytes reserves the slot;
-  the closure float shims need an outgoing-args frame for the overflow floats.)
-- **Commit 3 (darwin narrow-stack ABI) — AFTER 707 (user chose fix-now-after-707
+- **Commit 2a — ✅ LANDED (binate `5b7a1335`, 2026-06-21):** the non-capturing
+  func-value spill shim places the 9th+ float on the underlying's outgoing-args
+  stack (`emitSpillMarshal*` overflow else; the slot is reserved because
+  CallStackBytes now counts overflow floats). conformance/888.
+- **Commit 2b (707 proper) — ✅ LANDED (binate `1ad9e00f`, 2026-06-22):** the
+  SCALAR closure float shim handles FP overflow — it reserves an outgoing-args
+  area below the user-arg spill (the overflow floats are the only stack args,
+  since GP captures/params stay in regs per the guard → sequential 8-byte
+  slots) and the shared marshaller routes the 9th+ float there. On aarch64 the
+  FP/LR save moved to a top 16-byte frame so the outgoing-args area sits at
+  [SP+0]. conformance/707 un-xfailed; new 891 (GP + 9-float-capture), 892
+  (float32). The float-AGGREGATE-return overflow and combined GP+FP overflow
+  stay loud SetErrors (rarer follow-ups; the aggregate guard carries a
+  do-not-relax-without-reserving-a-frame warning). Adversarial review
+  (wf_902997e9): 0 critical/major; minors (stale 707 comment, marshaller/guard
+  coupling, overflow unit test) addressed.
+- **Commit 3 (darwin narrow-stack ABI) — NEXT (user chose fix-now-after-707
   2026-06-21):** see the MAJOR below.
 
 ## Tests
