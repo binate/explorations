@@ -107,16 +107,30 @@ exists; reuse it.
   CRITICAL iface-store crash regression (fixed) + the int8/int16 gap below; 2
   "callee over-read" findings were verified false positives (the 8-byte read is
   harmless).
-  - **GAP A — func-value-narrow (`894`, xfail aa64):** a `@func(>8 narrow args)`
-    value still marshals through the func-value dispatch + spill shim in 8-byte
-    words, inconsistent with the natural-size underlying (int32 mis-offsets,
-    float32 crashes). Follow-up: the func-value path adopts natural-size narrow
-    stack args.
+  - **GAP A — func-value-narrow (`894`) — ✅ RESOLVED (binate `885633f9`,
+    2026-06-22):** the func-value path now agrees on natural-size narrow stack
+    args (the dispatch substitutes a narrow scalar to a uniform 8-byte *uint8
+    INCOMING word — which also fixed an X17-clobber SIGSEGV: a 64-bit Str of a
+    narrow int32 at a 4-misaligned offset materialized `add x17, sp, #imm` over
+    the BLR target; the spill shim uses AAPCS64_Darwin + a 32-bit OUTGOING store).
+    894 un-xfailed, new 901 pins the 9-int32 / 9-/10-float32 boundaries. A
+    1171-line objdump-confirmed investigation (wf_cf874a3e) + implementation
+    review (wf_d7ec7f92) drove it; the review's PlanFrame-under-reserve finding
+    was verified a false positive (the frameDelta coupling is correct).
   - **GAP B — int8/int16 (`896`, xfail aa64):** `StackArgNarrow4` handles only
     4-byte scalars; int8/int16 keep the 8-byte slot and mismatch LLVM's 1/2-byte
-    packing — the SAME wrong-offset miscompile class as 893, for narrower widths
+    packing — the SAME wrong-offset miscompile class as 897, for narrower widths
     (the asm has Strb/Strh; the fix generalizes `stackArgFootprint` to SizeOf<8
-    + a store-width dispatch at the caller/iface sites).
+    + a store-width dispatch at the caller/iface sites). Still open.
+  - **GAP C — GP-only capturing-closure stack-spill shim — 🔴 CONFIRMED CRITICAL
+    (review wf_d7ec7f92, reproduced 306 vs 310 native aa64; LLVM correct):**
+    `emitClosureShimStackSpillAA64` (`aarch64_closure_shim.bn`) marshals a
+    capturing closure's `>8` GP args/captures to the lifted body via plain
+    `AAPCS64()` + 64-bit stores (`emitUserArgWordMoveAA64` :414/419), but the body
+    reads a narrow int32 overflow arg at natural-4 → silent wrong-code.
+    commit-3-introduced (the float-closure shim was fixed, this GP sibling missed;
+    no narrow-int32 capturing-closure test existed — 523/524 use 8-byte `int`).
+    Fix mirrors the others: `→ AAPCS64_Darwin()` + narrow4-aware stores. NEXT.
 
 ## Tests
 
