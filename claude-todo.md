@@ -84,6 +84,28 @@ overrides auto-removed; both idempotent). 850/864 (hand-written) got the same
 overrides (=12). All 10 cells verified PASS under qemu. NOT a compiler bug
 (verified correct via IR + qemu).
 
+## MAJOR (stdlib / os ReadDir) — `os.ReadDir` used the 32-bit C `readdir`, which `EOVERFLOW`s on >2^32 inodes (silent listing truncation); arm32 also assumed the 32-bit dirent layout (2026-06-22) — ✅ FIXED & LANDED (`1686aac9`)
+
+**Symptom.** `conformance/stdlib/os/006_readdir` failed `builder-comp_arm32_linux`
+in CI (`foundMarker=0`) but PASSED locally. Cause: `ReadDir` called the 32-bit C
+`readdir`, which returns `EOVERFLOW`→NULL for a directory entry whose `d_ino`
+exceeds 2^32; `ReadDir` can't distinguish that from end-of-stream, so it silently
+truncates the listing. CI's `/tmp` has large inodes (marker missed); a host with
+small inodes (the Docker repro container) works — explaining the discrepancy.
+Also `readdir_linux_arm32.bn` assumed a 32-bit `struct dirent` (`d_name@11`); the
+real layout on modern-glibc Linux (cross-libc C-probe: `offsetof(d_name)==19`) is
+the 64-bit one, identical to x86_64/aarch64.
+
+**Fix (`1686aac9`).** Linux `ReadDir` now calls `readdir64` (64-bit `d_ino`, no
+`EOVERFLOW`) with the `@19` layout, unified into one `readdir_linux.bn` for all
+Linux arches (on 64-bit `readdir64`≡`readdir`). `readDirEnt` moved per-platform
+(the symbol differs: Linux `readdir64` vs macOS `readdir`); macOS keeps `readdir`
++`@21`. New `readdir_{linux,darwin}_test.bn`. Pre-existing (predates the MaxAlign
+work; the readdir e2e only runs on the host, so the arm32 layout/symbol was never
+validated). Verified: 006 + os unit pass on arm32 (qemu) + darwin; hygiene green.
+The large-inode `EOVERFLOW` case can't be reproduced where inodes are small, but
+`readdir64`'s 64-bit `d_ino` eliminates that failure class by construction.
+
 ## CRITICAL (compiler crash / SIGSEGV) — a **tagless** `switch { … }` null-derefs the compiler in IR-gen (2026-06-21) — 🔴 OPEN — REPRODUCED
 
 **Symptom.** ANY tagless switch crashes `bnc` with SIGSEGV (no diagnostic). Minimal
