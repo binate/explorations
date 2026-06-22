@@ -370,6 +370,29 @@ above) plus two MINOR items.
 
 ---
 
+## Ch.20 spec-conformance findings (2026-06-22, authoring `conformance/spec/20-tier0`) — 🔴 OPEN
+
+1. **MINOR/Provisional (lang / float-NaN total order + Hash) — the shipped `float32`/`float64`
+   `Compare`/`Hash` do not realize the ratified IEEE total order at NaN.** The current `Compare`
+   is `a<b ? -1 : a>b ? 1 : 0`, so any NaN comparison returns **0** (NaN compares "equal" to every
+   value, incl. other NaNs and finites) — not a total order (breaks antisymmetry/transitivity), so
+   `impl float64 : Orderable`'s promise is unmet at NaN. And `Hash` reinterprets the bit pattern, so
+   distinct NaN bit patterns Hash **differently** while `Compare` calls them equal — violating
+   `pkg0.lang.hashable` consistency. Ratified intent (§20.1 `pkg0.lang.float-nan`): IEEE total
+   ordering (NaN sorts after +Inf) with a matching Hash. This is a known Provisional non-conformance,
+   to revise when NaN-correctness is load-bearing. Pinned: current behavior is GREEN in
+   `017_float_nan_compare_current` + `018_float_nan_hash_inconsistent`; the ratified intent is
+   `019_float_nan_total_order_intent` (**xfail.all** — flips green when the IEEE total order lands).
+
+2. **GAP (harness limitation, not a defect) — `pkg0.testing.testfunc` + `pkg0.testing.run` are not
+   conformance-testable.** Both require the `--test` discovery/execution runner (`cmd/bnc --test` /
+   `cmd/bni --test`); `conformance/run.sh` only runs ordinary programs (no `--test` plumbing). They
+   are exercised by the unit-test suite, not conformance. Closing them would need a test-runner mode
+   added to the harness. Left as documented coverage gaps (Ch.20 is 18/20). Candidate for an
+   `untestable`/`framework` reclassification in `extract-rule-ids.py` (a denominator decision).
+
+---
+
 ## MAJOR (VM / wrong-output) — `os.Stat(...).ModTime()` returns sec ≤ 0 under the bytecode VM (`builder-comp-int`); LLVM + native correct (2026-06-21) — 🔴 OPEN — REPRODUCED
 
 **Symptom.** `conformance/stdlib/os/004_modtime_chain` (`fi.ModTime().ToUnix()`
