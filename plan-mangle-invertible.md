@@ -242,7 +242,13 @@ Flip — split into 4a (de-risk, landable) then 4b (atomic):
     change → lands incrementally. Validates the grammar+demangler in isolation
     before the disruptive rewire.
 
-4b. **The atomic flip.** Rewire `FuncName`/`GlobalName`/`StructName`/
+4b. ✅ **DONE (`ceff78ec`, worktree — pending land).** Validated: gen1 builds;
+    full unit suite green; conformance green on builder-comp / builder-comp-int
+    (VM 2109/0) / native-aarch64 / gen2 self-host — only failures anywhere are
+    the PRE-EXISTING reflect 725/727 (ResultSize=0), which fail identically on
+    the clean base (a concurrent ABI regression, filed). Runtime lockstep + all
+    diffs hand-verified; test sweep not weakened. ORIGINAL:
+    **The atomic flip.** Rewire `FuncName`/`GlobalName`/`StructName`/
     `ImplVtableName`/`mangleTypeArg`/`mangleFuncSig` to the new encoders (FuncName
     infers kind F/M/I and StructName S/T from the name shape: `.`-member count +
     `__bn_inst__` marker) + lockstep-edit the checkout runtime C/asm
