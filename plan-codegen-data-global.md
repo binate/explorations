@@ -69,8 +69,14 @@ Each step keeps all backends green.
   `_pkgname` strong, vs LLVM weak_odr/private): the `DataGlobal` linkage field
   now drives both backends → native node `weak_odr`, name `local`. Closed.
 
-## Known minor follow-up
-- `emit_data_global` null-symref (`ptr null` / native zeros) is exercised
-  end-to-end by the descriptor tests but has no *dedicated* unit case in
-  `emit_data_global_test.bn` / `common_data_global_test.bn`; a focused test is
-  a nice-to-have when Inc 2 touches these files.
+## Adversarial review (binate `0b365dd8`, follow-up to Phase 1)
+Verdict SOUND (byte-correct host + ILP32, no active miscompile). Fixed:
+- **Native `EmitDataGlobal` now aligns the blob's OWN start** (before
+  `DefineLabel`), not only what follows — it previously relied on every prior
+  emitter leaving the section aligned, diverging from LLVM's `align N`. Safe for
+  the descriptor today, but would misalign a word-bearing blob after an
+  odd-length string/vtable in a later phase. Descriptor stays byte-identical.
+- Documented the `PointerSize == IntSize` assumption in `BuildPackageDescriptor`
+  (slice data field pointer-sized, len field IntSize-sized).
+- Added the missing coverage: native start-alignment, null-symref
+  (`ptr null` / zero word, no reloc) on both backends, DG_GLOBAL binding.
