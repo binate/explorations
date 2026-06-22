@@ -83,11 +83,26 @@ expressivity `ir.Global.Init` (an int-only `@Instr`) lacks.
      + dead emitQuadLabelFV).  Verified: full builder-comp 2300/0 + native-aa64
      2296/0, func-value/closure/handle conformance both backends, adversarial
      review clean.
-   - **⬜ 3b — impl vtables** (`@__ivt.*` + `@__ivtshim.*`): the variable-length,
-     recursively-computed layout (dtor + parent vtables + own methods; raw vs
-     shim differ only in method slots).  Carries per-arch layout; unify the
-     native strong (`SetGlobal`) binding to weak/local to match LLVM (the Inc
-     1/2 hardening — confirm with the user when we get there).
+   - **✅ 3b DONE & LANDED — impl vtables** (`@__ivt.*` + `@__ivtshim.*`)
+     (binate `787ed644`, 2026-06-22).  The variable-length, recursively-computed
+     layout (per iface level: dtor HANDLE slot, then each parent's FULL
+     sub-vtable INLINE so `*Child→*Parent` upcast is a fixed offset, then own
+     methods; raw `@__ivt` uses fn symbols, shim `@__ivtshim` uses
+     `@__handle.<m>`) now routes through one shared `ir.BuildImplVtable`
+     (`ir/data_impl_vtable.bn`).  Each backend's gather only collects the ordered
+     slot symbols (`collectImplVtableSlots` / `…_x64` / `…Native`, recursive) and
+     keeps the SetGlobal bookkeeping on referenced method/dtor-handle symbols;
+     only the byte layout moved.  LLVM globals became anonymous
+     `{ ptr, ptr, … }` (was `[N x i8*]`); dtor slot became `ptr @__handle…` (was
+     `i8* bitcast (%BnFuncValue* … to i8*)`) — typed-pointer refs elsewhere
+     auto-upgrade under opaque pointers.  Native impl/shim vtables unified from
+     strong `SetGlobal` to **weak** (`DG_WEAK`) to match LLVM (the Inc 1/2
+     hardening, user-approved).  Deleted the per-backend impl-vtable emitters
+     (codegen emitImplVtable/emitImplShimVtable/emitImplVtableLayout/…Slot +
+     dead writeFuncPtrType/writeFuncResultLLVM; native
+     emitOneImpl{,Shim}Vtable bodies + dead emitQuad{Label,Zero}{,Iface}).
+     Verified: full builder-comp 2359/0 + native-aa64 2356/0, gen1+gen2 green,
+     units ir/codegen/native 7/0, hygiene 15/15, adversarial review clean.
 
 4. **⬜ Strings** — string constants. **Preserve `FinalizeStrings`
    interning/dedup** (must not regress to one-global-per-occurrence). Natural
