@@ -419,6 +419,32 @@ follow-up landed** (binate `430a46b1`; chapter now **84 tests**): `046` string-l
 `:=` default type, `047` `s[i]++` managed-slice incdec, `097` non-bool for-condition
 rejected, `098` raw-slice range, `165` block-last-terminates, `166` no `select` absence.
 
+**Ch.15 Built-in Operations — landed on main 2026-06-21** (binate `76ce93bd`;
+`conformance/spec/15-builtins/`). 5-cluster design fan-out (every test probed) +
+5-cluster adversarial review. **80 tests**, all **19 `builtin.*` rules → 19/19 (100%)**;
+DANGLING=0, UNTAGGED=0, hygiene 15/15. Green on all 7 modes. The `builtin.opaque-gate`
+constraint (`150`/`151`) is a multi-package test using a PURE `.bni` forward-declaration
+(no body compiled) so the layout is genuinely unavailable and the gate fires (it does NOT
+fire when the body `.bn` is compiled in-tree — the layout leaks; this is why `07-types/222`'s
+opaque-field xfail may be a test-setup artifact worth re-checking).
+
+**Review fixes:** target-variant `alignof(int64)==8` in `060`/`063`/`100` (would fail on
+arm32, MaxAlign 4) → made target-invariant; vacuous `len`-signed negative (`143`) → rewritten
+to `var u uint = len(...)` → "cannot assign int to uint"; miscite (`101` → builtin.reserved).
+
+**Findings (claude-todo `ad886584`):**
+- **1 gap pinned (per-mode xfail, `040`):** `bit_cast` to a sub-word type (uint32) used
+  DIRECTLY isn't narrowed on the VM + native-aa64 (a stored bit_cast narrows; LLVM/arm32 fine).
+  The bit_cast facet of the known sub-word-narrowing gap. xfail on builder-comp-int/-int-int,
+  native_aa64.
+- **2 stale spec notes corrected (both defects FIXED):** cast-to-sub-word on native-aa64 (§15.3,
+  fixed `5f94558b`) and the panic VM no-op (§15.7, fixed `a4946ebe`) — `034`/`131` pass on all
+  modes, no xfail (docs `32d22ee`).
+
+Review-noted coverage-gap follow-ups (all verified testable, to fold in): `present`==FALSE for
+an unset func-value / null managed-ptr / unset iface-value; `same` on RAW slices; `box` of a
+TYPED non-default value.
+
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
 
