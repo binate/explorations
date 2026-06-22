@@ -489,6 +489,41 @@ the main entry-point signature is NOT enforced (func main(x int) runs) -- claude
 docs `86a36bb`). Also removed a mistaken spec-todo var-init-order "divergence": §17.2 prog.init.order
 pins source-declaration order and the impl matches it. Many rules re-cite Ch.9/13/14/15 behavior.
 
+**Ch.19 Execution Model & Dual-Mode Interop — landed on main 2026-06-22** (binate
+`0ee60cff` tests + `5a79eacb` re-vendor; `conformance/spec/19-execution/`). Authored DIRECTLY
+(small, heavily META chapter -- most exec.* rules are facets of the single cross-mode-agreement
+property, exercised by each positive test running identically in compiled + interpreted modes) +
+a 5-lens adversarial review fan-out. **14 tests**, **14/14 testable `exec.*` rules -> 100%**
+(after reclassifying the 2 non-observable rules, below); DANGLING=0, UNTAGGED=0, hygiene 15/15.
+Green on all 8 mode-configs (builder-comp, -int, -int-int, -comp, -comp-int, -comp-comp,
+native_aa64, arm32_baremetal); --check-xpass clean. Each test foregrounds a distinct facet:
+shared-heap refcount (001), one-IR identical meaning (002), init-then-main both modes (003),
+native runtime floor under the VM (004), keystone layout+behavior agreement (005), type-rejection
+identical every mode (006, negative), layout across all type kinds as target-invariant
+relationships (007), errors-as-values (008), defined-wrap agreement (009), function-value seam
+(011), self-describing free/dispatch/present (012, safe -- no UAF). **exec.divergence pinned for
+3 of its 4 cross-mode-difference kinds:** the mode-dependent abort FORM (010, nil-iface
+compiled-form, per-mode xfail like 11-interfaces/081), the permanent __c_call carve-out (013,
+compiled-only/xfail-VM), and the now-resolved panic-vm-noop tracked defect (014, panic agrees in
+every mode incl. the VM); the 4th kind (UB) is not positively testable.
+
+**Adversarial review (5 lenses) applied:** moved a padding `exec.interop.call` cite from 011 (raw
+*func, no destructor/refcount) to 012 (genuinely exercises the cross-function destructor cascade,
+refcount 2->1 not elided); strengthened 009 to pin the wrap directly; added `exec.modes` incidental
+to 006; added 013/014 to close the exec.divergence kind-coverage gap; comment caveats on 010/007/005.
+
+**Two follow-ups (user-approved):** (1) **Stale §19.5 corrected** -- the exec.divergence "Tracked
+defects" bullet still framed panic(msg) as a current VM-no-op/message-discarding defect; converted
+to past-tense (resolved), matching §15.7/§17.5 (docs `0032328`). (2) **Reclassified `exec.hosted` +
+`exec.embedding.api` as untestable** (a target-conformance-class statement and an out-of-scope
+embedding-API pointer -- neither has a per-program observable) in extract-rule-ids.py, regenerated
+rule-ids.txt (docs `be9f25c`), and re-vendored into binate -- so Ch.19 is 14/14 not 14/16. The
+verbatim re-vendor also swept in `lex.ident.reserved` from a concurrent docs commit (`b323d41`,
+no test yet) -- surfaces as a new Ch.5 gap (29/30) belonging to that change, not Ch.19.
+
+**14 chapters now cover 05-19 contiguous** (05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 16, 17, 18,
+19). The only remaining uncovered chapter is **Ch.20 (intrinsic tier-0 packages)**.
+
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
 
