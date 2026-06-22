@@ -70,12 +70,21 @@ exists; reuse it.
 
 ## Staging
 
-- **Commit 1 (this one):** convention NSRN threading + caller + callee, BOTH
-  backends + a plain `>8`-float conformance test (both native arches). Fixes the
-  broad miscompile.
-- **Commit 2 (707 proper):** lift the FP-overflow `SetError` in the func-value
-  spill shims + the closure float shims; place/read overflow floats there too.
-  Un-xfail 707 + add closure/funcval overflow conformance tests.
+- **Commit 1 — ✅ LANDED (binate `dba4d287`, 2026-06-21):** convention NSRN
+  threading + caller + callee, BOTH backends. conformance/885 (>8 float64), 886
+  (mixed GP+FP overflow, interleaved), 887 (float32, all-native single overflow)
+  green on native aa64/x64-darwin, LLVM, VM, gen2 + convention overflow unit
+  tests. Also aligned the aarch64 caller's float predicate to
+  `common.IsFloatScalarTyp` (the agreement is now load-bearing). Adversarial
+  review (binate worktree, wf_d6a0cf7f): 0 in-scope critical/major; it surfaced
+  the darwin narrow-stack gap below (separate, pre-existing).
+- **Commit 2 (707 proper) — NEXT:** lift the FP-overflow `SetError` in the
+  func-value spill shims + the closure float shims; place/read overflow floats
+  there too. Un-xfail 707 + add closure/funcval overflow conformance tests. (The
+  non-capturing spill shim is small now that CallStackBytes reserves the slot;
+  the closure float shims need an outgoing-args frame for the overflow floats.)
+- **Commit 3 (darwin narrow-stack ABI) — AFTER 707 (user chose fix-now-after-707
+  2026-06-21):** see the MAJOR below.
 
 ## Tests
 
@@ -85,11 +94,34 @@ exists; reuse it.
   interleave (commit 1).
 - 707: `>8`-float-capture closure (commit 2).
 
+## MAJOR — narrow (float32 / int32) stack-overflow args miscompile across the native↔LLVM boundary on darwin (CONFIRMED, pre-existing) — 🟢 fix planned AFTER 707
+
+CONFIRMED by the commit-1 adversarial review (verified against Apple clang 21,
+`-target arm64-apple-darwin`): the native convention uses a fixed **8-byte
+stride** for EVERY stack-overflow arg (`argRegWordsStackWords` returns
+`(-1,0,1)` for an overflow float and every walker does `soff += sw*8`; ArgWords
+floors at 1 word = 8 bytes for narrow ints too). But Apple-AArch64 LLVM packs
+**narrow** stack args at their **natural size**: a float32 / int32 stack arg
+takes 4 bytes. clang on darwin: an 11-float32 callee reads `ldr s,[sp]; ldp
+s,s,[sp,#4]` (offsets 0,4,8), an 11-int32 callee reads `ldr w,[sp]; ldp
+w,w,[sp,#4]`. So the 2nd+ narrow stack-overflow arg sits at the wrong offset
+across a native-main / LLVM-dep boundary → silent wrong values.
+
+- **NOT a commit-1 regression.** The 8-byte stride pre-existed in the
+  GP-overflow machinery (already mis-handles int32 on darwin); commit 1's float32
+  path merely stays consistent with it. **Latent** — nothing in the tree hits
+  it; float64 (8-byte both sides) and x86-64 SysV (clang pads float32 stack args
+  to 8) are fine. Darwin-AArch64 (the primary native target) + narrow-arg only.
+- **Fix (commit 3, after 707):** model sub-8-byte stack-arg packing for darwin —
+  the stack-word stride should be the arg's natural size, not a fixed 8 — in the
+  convention `soff` accumulation AND the caller stores / callee reads, for narrow
+  GP **and** FP stack args. Broader than the FP-overflow work; its own commit.
+- **Test (with the fix):** a cross-package (dir-style, like 337) function with
+  ≥10 float32 params returning their sum, asserted on
+  `builder-comp_native_aa64-comp_native_aa64` (fails today: 55 vs 66); a float64
+  twin documenting float64 is fine; an int32 sibling for the GP side.
+
 ## Open questions / risks
 
-- **float32 stack-slot width.** Plan: 8-byte slots (matches the existing
-  GP-overflow + variadic-float-stack code, and SysV/AAPCS round stack args up to
-  8). Verify with a float32 `>8`-arg test and, ideally, a cross-package
-  native↔LLVM case (a `>8`-float function defined in a dep).
 - **Return-value FP overflow** is a separate concern (`>8` float RETURN values);
   out of scope here (rare; the multi-return collector caps at NumFpRetRegs).
