@@ -456,6 +456,16 @@ missed; VM and arm32 happen to read nil); memory-unsafe, claude-todo MAJOR. Two 
 items filed: iota not resolved in a single-member grouped const block (claude-todo);
 package-level var init is declaration-order not dependency-order (spec-todo).
 
+**Ch.6 Constants — landed on main 2026-06-21** (binate `f714c9ba`;
+`conformance/spec/06-constants/`). 5-cluster design fan-out + adversarial review.
+**42 tests**, all **14 `const.*` rules -> 14/14 (100%)**; DANGLING=0, UNTAGGED=0,
+hygiene 15/15. Green on all 7 modes. **Two MAJOR bugs pinned:** `007` (xfail.all) --
+`x := 0xFFFFFFFFFFFFFFFF` silently WRAPS to int -1 (the := short-var default-type path
+skips the fit-check that `var x int = ...` performs); `034` (xfail.arm32) -- `var n
+int64 = -42; n == 0 - 42` is miscompiled to false on the 32-bit ARM backend (an inline
+untyped negative const-expr is not widened to 64 bits before the int64 compare; correct
+on every 64-bit mode); 033 restructured to stay green. Both filed in claude-todo.
+
 Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
 worked template.
 
