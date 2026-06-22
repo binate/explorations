@@ -123,14 +123,41 @@ across a native-main / LLVM-dep boundary → silent wrong values.
   path merely stays consistent with it. **Latent** — nothing in the tree hits
   it; float64 (8-byte both sides) and x86-64 SysV (clang pads float32 stack args
   to 8) are fine. Darwin-AArch64 (the primary native target) + narrow-arg only.
-- **Fix (commit 3, after 707):** model sub-8-byte stack-arg packing for darwin —
-  the stack-word stride should be the arg's natural size, not a fixed 8 — in the
-  convention `soff` accumulation AND the caller stores / callee reads, for narrow
-  GP **and** FP stack args. Broader than the FP-overflow work; its own commit.
-- **Test (with the fix):** a cross-package (dir-style, like 337) function with
-  ≥10 float32 params returning their sum, asserted on
-  `builder-comp_native_aa64-comp_native_aa64` (fails today: 55 vs 66); a float64
-  twin documenting float64 is fine; an int32 sibling for the GP side.
+### Precise rules (confirmed via Apple clang, 2026-06-22)
+
+- **Darwin AArch64 FIXED stack args** pack at NATURAL size + alignment: int32 /
+  float32 → 4 bytes (4-aligned); int64 / float64 → 8 bytes (8-aligned, so a
+  narrow arg before an 8-byte one leaves a gap — `gmix(...,int32,int64,int32)`
+  reads `[sp+0], [sp+8], [sp+16]`). int16/int8 → 2/1 bytes.
+- **Darwin VARIADIC stack args stay 8-byte** (`stp x9,x8,[sp]` for variadic ints
+  — printf is UNAFFECTED, do NOT touch the VariadicStackOnly path).
+- **x86-64 SysV** pads narrow stack args to 8 (clang) — UNCHANGED. So this is
+  **AArch64-Darwin-only**, FIXED-args-only, narrow-scalar-only. The backend's CC
+  is `AAPCS64_Darwin()` (aarch64_emit_func.bn:40); add a `NaturalSizeStackArgs`
+  flag set there (NOT on plain AAPCS64() / SysV).
+
+### Fix (commit 3) — sites (AArch64 only)
+
+1. **Convention** (`common_callconv.bn`): the stack-offset walkers
+   (CallArgStackOff{,V} / CallStackBytes{,V}) accumulate a narrow FIXED scalar's
+   stack footprint at natural size+align (when `NaturalSizeStackArgs` && the arg
+   is a non-aggregate scalar with SizeOf<8 && not variadic) instead of `sw*8`.
+   8-byte args / aggregates / in-reg args / variadic / SysV are unchanged
+   (surgical — the common case is untouched, so low regression risk).
+2. **Caller** (`aarch64_call.bn`): store a narrow fixed stack arg at its natural
+   width (Str false for int32/float32, etc.), not Str true (8 bytes). Covers GP
+   narrow overflow AND the FP-overflow float store from commit 1/2.
+3. **Callee** (`aarch64_emit_func.bn`): read a narrow fixed stack arg at natural
+   width.
+4. **Shims** (`aarch64_funcvalue_spill.bn`, `aarch64_closure_shim_float.bn`):
+   the narrow-overflow-float store (emitFloatToOverflowStackAA64 etc.) at natural
+   width. (Audit whether the funcval shim's local `AAPCS64()` should be
+   `AAPCS64_Darwin()` — a separate inconsistency.)
+
+- **Test:** cross-package (dir-style, like 337) functions with ≥10 narrow params
+  (float32 + int32 siblings) returning their sum, on
+  `builder-comp_native_aa64-comp_native_aa64` (fails today: 55 vs 66 for float32);
+  a float64 twin documenting float64 stays fine.
 
 ## Open questions / risks
 
