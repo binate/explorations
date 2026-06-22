@@ -2746,3 +2746,26 @@ family's error context (e.g. a path-aware wrapper, or `failErrno(op, path)`).
 Deferred 2026-06-11 (user: op-only acceptable for now) — low impact (message
 richness, not classification). Tests: extend the `TestOpen*Classified` cases
 to assert the path appears in the rendered message.
+
+## MAJOR (codegen / arm32 ABI regression) — `MaxAlign=8` (`f4b934ce`) broke float closures on arm32: 891/697 (8-aligned float64 in closure capture / >8th-float stack spill) (2026-06-22) — 🔴 OPEN — REGRESSION (mine)
+
+**Symptom.** `conformance/891_func_value_closure_mixed_float_overflow` (a closure
+capturing 1 int + 9 float64; the 9th float64 arg overflows the AAPCS VFP regs onto
+the stack) prints **136** on `builder-comp_arm32_linux`, expected **145** (=100+1+..+9):
+the 9th float64 (9.0) is dropped → 145−9=136. `697_func_value_closure_float_mixed`
+similarly wrong (3 vs 33). PASSED at `6f8a2b23` (the commit before `f4b934ce`),
+FAIL at `9254f848` → regressed exactly at the MaxAlign fix. arm32-only (native_x64
+/ aa64 green); `1ad9e00f` (which added these tests) is an ancestor of 6f8a2b23, so
+they genuinely passed before.
+
+**Root cause (to confirm).** `f4b934ce` raised arm32 `MaxAlign` 4→8, so `float64`
+is now 8-aligned (correct AAPCS for `double`). That exposed a latent float-closure
+ABI bug: some path (the closure-capture struct layout, the >8th-float stack-spill
+slot, or the agg-coerce of the capture) still assumes 4-aligned float64, so the
+stack-spilled 9th float64 is read at the wrong offset. NOT a reason to revert
+MaxAlign (8-align is correct + required for the stat fix) — the float-closure path
+must be made consistent with 8-aligned float64.
+
+**Status.** Found via CI on `9254f848`. Needs root-cause with a PINNED gen1
+(diagnosing with `ls -dt | head -1` mixed stale MaxAlign-4/8 compilers earlier —
+do not repeat). Then fix-forward.
