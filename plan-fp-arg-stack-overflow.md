@@ -122,15 +122,33 @@ exists; reuse it.
     packing — the SAME wrong-offset miscompile class as 897, for narrower widths
     (the asm has Strb/Strh; the fix generalizes `stackArgFootprint` to SizeOf<8
     + a store-width dispatch at the caller/iface sites). Still open.
-  - **GAP C — GP-only capturing-closure stack-spill shim — 🔴 CONFIRMED CRITICAL
-    (review wf_d7ec7f92, reproduced 306 vs 310 native aa64; LLVM correct):**
-    `emitClosureShimStackSpillAA64` (`aarch64_closure_shim.bn`) marshals a
-    capturing closure's `>8` GP args/captures to the lifted body via plain
-    `AAPCS64()` + 64-bit stores (`emitUserArgWordMoveAA64` :414/419), but the body
-    reads a narrow int32 overflow arg at natural-4 → silent wrong-code.
-    commit-3-introduced (the float-closure shim was fixed, this GP sibling missed;
-    no narrow-int32 capturing-closure test existed — 523/524 use 8-byte `int`).
-    Fix mirrors the others: `→ AAPCS64_Darwin()` + narrow4-aware stores. NEXT.
+  - **GAP C — GP-only capturing-closure stack-spill shim — ✅ FIX READY (binate
+    `1a19fd11` on worktree `fwdref-const-array-dim`, pending land; reproduced 306
+    vs 310 native aa64, review wf_d7ec7f92):** `emitClosureShimStackSpillAA64`
+    (`aarch64_closure_shim.bn`) marshalled a capturing closure's `>8` GP
+    args/captures to the lifted body via plain `AAPCS64()` + 64-bit stores, but
+    the body reads a narrow int32 overflow arg at natural-4 → silent wrong-code.
+    Fix mirrors the others: `emitClosureShim` + the inert fast path →
+    `AAPCS64_Darwin()`; `StackArgNarrow4`-aware 32-bit stores in BOTH the Step-1
+    capture spill and the Step-2 user-arg moves (`emitUserArgWordMoveAA64`). New
+    `899_closure_narrow_stack_arg` pins both paths (6 int caps + 4 int32 args →
+    121 was 81; 8 int caps + 3 int32 caps → 736 was 536; the 3rd narrow capture
+    is needed — 2 adjacent narrow captures come out right by accident via an
+    8-byte struct over-read carrying the next field into the +4 slot). Verified
+    correct+complete by adversarial review wf_0fa6908a (fix-correctness clean; a
+    sweep-flagged `emitCallIndirect` "critical" was a sound false positive —
+    `OP_CALL_INDIRECT` only carries uniform 8-byte dispatch words from
+    `rt._call_shim_scalar/_aggregate`, never narrow scalars).
+  - **GAP D — aggregate / float-aggregate closure stack-spill shims (LATENT,
+    SetError-guarded — NOT a silent miscompile):** `emitClosureShimAggregateAA64`
+    (`aarch64_closure_shim_aggregate.bn` :50) and `emitClosureShimFloatAggregateAA64`
+    (`aarch64_closure_shim_float.bn` :301) still build their CallConv with
+    `AAPCS64()`, but neither has a stack-spill path yet — both `a.SetError(...)`
+    loudly the moment captures+user-args exceed the register budget, so no narrow
+    stack store is ever emitted today. When the unimplemented stack-spill
+    aggregate path is added, it MUST adopt `AAPCS64_Darwin()` + `StackArgNarrow4`
+    narrow stores (same as GAP C) or it reintroduces the bug. Surfaced by review
+    wf_0fa6908a; tracked, not yet scheduled.
 
 ## Tests
 
