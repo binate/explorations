@@ -117,11 +117,23 @@ exists; reuse it.
     1171-line objdump-confirmed investigation (wf_cf874a3e) + implementation
     review (wf_d7ec7f92) drove it; the review's PlanFrame-under-reserve finding
     was verified a false positive (the frameDelta coupling is correct).
-  - **GAP B — int8/int16 (`896`, xfail aa64):** `StackArgNarrow4` handles only
-    4-byte scalars; int8/int16 keep the 8-byte slot and mismatch LLVM's 1/2-byte
-    packing — the SAME wrong-offset miscompile class as 897, for narrower widths
-    (the asm has Strb/Strh; the fix generalizes `stackArgFootprint` to SizeOf<8
-    + a store-width dispatch at the caller/iface sites). Still open.
+  - **GAP B — int8/int16 — ✅ RESOLVED (binate `dd354aac`, 2026-06-22):**
+    `StackArgNarrow4` handled only 4-byte scalars; int8/int16 kept the 8-byte
+    slot and mismatched LLVM's 1/2-byte packing — the SAME wrong-offset
+    miscompile class as 897, for narrower widths.  Generalized the convention:
+    `StackArgNaturalSize` (1/2/4) → `stackArgFootprint` packs at `(n, n)` (so
+    every offset walker goes natural) + `StackArgStoreSize` gives the matching
+    store width; new `aarch64.StrSized` dispatches STRB/STRH/STR.  Natural-size
+    slots are naturally aligned, so the scaled-imm store always fits (no X17
+    materialization).  Adopted at all 6 marshalling sites (direct caller, iface,
+    func-value spill, GP + float closure shims) and the func-value dispatch
+    substitution widened to `SizeOf()<8`.  896 un-xfailed; 902 (mixed
+    int8/int16/int32 cross-pkg, offsets 0/2/4/8/10/12, self-validating vs LLVM)
+    and 903 (native shim paths) added; unit test `TestStackArgNaturalSizeSubWord`.
+    Full aa64 conformance green; x64 byte-identical (NaturalSizeStackArgs off).
+    Verified correct+complete by adversarial review wf_759b0e85 (the recurring
+    `emitCallIndirect:103` flag is a refuted false positive — uniform-8 dispatch
+    words only).
   - **GAP C — GP-only capturing-closure stack-spill shim — ✅ RESOLVED (binate
     `cb58ece5`, 2026-06-22; reproduced 306 vs 310 native aa64, review
     wf_d7ec7f92):** `emitClosureShimStackSpillAA64`
