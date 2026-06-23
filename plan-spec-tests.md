@@ -521,11 +521,44 @@ rule-ids.txt (docs `be9f25c`), and re-vendored into binate -- so Ch.19 is 14/14 
 verbatim re-vendor also swept in `lex.ident.reserved` from a concurrent docs commit (`b323d41`,
 no test yet) -- surfaces as a new Ch.5 gap (29/30) belonging to that change, not Ch.19.
 
-**14 chapters now cover 05-19 contiguous** (05, 06, 07, 08, 09, 10, 11, 12, 13, 14, 15, 16, 17, 18,
-19). The only remaining uncovered chapter is **Ch.20 (intrinsic tier-0 packages)**.
+**Ch.20 Intrinsic Tier-0 Packages — landed on main 2026-06-22** (binate `22dd862c`
+tests + `017353c7` re-vendor; `conformance/spec/20-tier0/`). The hardest chapter (mixed
+maturity: lang Stable, rt Draft/gated, reflect Draft, testing Provisional). 5-cluster design
+fan-out (each cluster probing the live bnc) + direct authoring of the reflect cluster (its fan-out
+result dropped) + a 5-lens adversarial review. **28 tests**, **18/18 testable `pkg0.*` rules ->
+100%** (after reclassifying the 2 runner-only rules, below); DANGLING=0, UNTAGGED=0, hygiene 15/15.
+Green on all 8 mode-configs; --check-xpass clean. Compiled: 27 pass + 1 xfail; VM: 24 (also minus
+the 3 reflect user-package VM-xfails).
 
-Next chapter (bulk Phase B) is the workflow-fan-out target, using Ch.13 as the
-worked template.
+Coverage: **lang** -- the 4 canonical interfaces + primitive impls (String/Compare/Hash across a
+spread of the 13 types); carve-out (negative: primitive-receiver method outside lang rejected);
+force-load (no-import calls + iface-type-needs-import negative); self-safety (Compare-through-iface-
+value rejected / Hash-through-*Hashable accepted / Compare-via-generic-constraint accepted); the
+**float-NaN corner** -- current behavior pinned (NaN.Compare==0 for all pairs; distinct-NaN-bit-
+patterns Hash differently while Compare says equal) + the ratified IEEE-total-order intent pinned
+**xfail.all**. **reflect** -- interface-only surface; the synthesized immortal _Package() accessor
+(STATIC_REFCOUNT sentinel, Name==import path, force-loaded unqualified); the Functions/Globals
+binding tables (decl order, _Package last, unexported excluded, the scalar-vs-aggregate RetbufSize
+discriminator, GlobalInfo.Addr as storage); the **vm-gap** (user-package _Package() unavailable
+under the VM -> positive-compiled + xfail on the 3 VM modes; built-in packages need no xfail).
+**rt** (gated placeholder) -- reachability of the observable runtime surface + immortal sentinel.
+**testing** -- TestResult=@[]char alias transparency; *_test.bn excluded from a normal build.
+
+**Adversarial review applied:** added the float-NaN Hash-inconsistency test (a MAJOR coverage gap);
+strengthened the reflect RetbufSize discriminator (scalar side 020 + aggregate side 022) + Addr-deref
++ unexported-exclusion; dropped padding cites (017 hashable, 020 tier0); fixed 008/007/005 comments.
+
+**Two follow-ups (user-approved):** (1) the float-NaN total-order/Hash non-conformance filed to
+claude-todo (the spec's referenced tracking entry, now real); (2) **reclassified `pkg0.testing.testfunc`
++ `pkg0.testing.run` as untestable** -- they need the `--test` discovery/execution runner the
+conformance harness lacks (no `--test` plumbing in run.sh) -- in extract-rule-ids.py, regenerated
+rule-ids.txt (docs `0a910fb`), re-vendored into binate -> Ch.20 is 18/18 not 18/20.
+
+**Phase B per-chapter coverage is COMPLETE: chapters 05-20 contiguous** (05, 06, 07, 08, 09, 10, 11,
+12, 13, 14, 15, 16, 17, 18, 19, 20), plus the 07b/10b/14b/16b sub-chapters and Ch.02 conf.* via §2.4
+cross-mode agreement. Every testable normative rule-ID is now tied to executable spec tests, with
+known defects pinned by xfail. Remaining: Phase C (retrofit existing `conformance/` tests with
+`.rules` tags) and wiring extract-rule-ids/spec-coverage into CI (both separate go-aheads).
 
 ## 10. Appendix — example spec tests
 
