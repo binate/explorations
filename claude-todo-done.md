@@ -8,6 +8,38 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (`962fdb19`, 2026-06-23) — nondeterministic gen2/gen3 miscompile of a NAMED managed-slice subslice (`033_named_transparency`)
+
+**Symptom.** `conformance/spec/07-types/033_named_transparency` (`type Buf @[]int`, named
+managed-slice) intermittently printed a wrong value on the gen2/gen3 LLVM self-compile modes
+(`builder-comp-comp` / `-comp-comp-comp`) on x86-64, while passing on gen1, the VM,
+native_aa64, and arm64. Surfaced gating the `bnc-0.0.10` release (the release-prep version
+bump perturbed the self-compiled compiler's memory layout and exposed it); the release was
+reverted to `bnc-0.0.10-pre` (`742c44d7`) to fix this first.
+
+**Root cause.** `EmitSliceExpr` (`pkg/binate/ir/ir_ops.bn`) gated the result managed-slice
+header's `backing_refptr`/`backing_len` stores on `typ.Kind == TYP_MANAGED_SLICE`, but for
+`buf[0:2]` where `buf` is a NAMED managed-slice the type arrives un-peeled as `TYP_NAMED`,
+so fields 2/3 were never stored. The header was loaded whole with those words uninitialized:
+the subslice never pinned its backing (use-after-free once the original left scope), and at
+cleanup its garbage `backing_refptr` was RefInc/RefDec'd — touching a refcount at
+`garbage - 16`. The LLVM backend does not zero-fill the slice alloca (native backends do),
+so the words were `undef`: benign-zero on arm64/most runs, arbitrary heap corruption on
+x86-64 — hence the nondeterminism. Confirmed in the emitted IR and via a deterministic repro
+(returning a named-managed-slice subslice -> SIGSEGV before, correct after).
+
+**Fix (`962fdb19`).** Peel transparent wrappers (`peelTransparent` -- named/readonly/alias)
+before the header-field and element-stride decisions in `EmitSliceExpr`. Regression test
+`conformance/904_named_slice_backing_pin` (SIGSEGV -> `5/6`). Verified: subslice IR stores
+all 4 header words; full builder-comp conformance 2412/0; `pkg/binate/ir` units 577/0;
+hygiene 15/15. Also corrects the "correct on gen2" claim that had been in the native-aa64
+named-managed-slice entry.
+
+**Follow-ups (not done; pursue separately):** (1) the LLVM `emitAlloc` (`emit_helpers.bn`)
+does not zero-fill managed-slice allocas -- defense-in-depth against this whole undef-on-LLVM
+class (perf-vs-safety call). (2) audit other un-peeled `Kind == TYP_MANAGED_SLICE` checks in
+IR-gen for the same named-type hazard.
+
 ## ✅ FIXED & LANDED (`4a5aa3dc`, 2026-06-22) — e2e `split-paths` bnc leg linked the checkout runtime against a BUILDER-compiled fixture
 
 E2E `split-paths` went green→red at the mangle atomic-flip `dd276e0a`: its `bnc`
