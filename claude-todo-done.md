@@ -8,6 +8,141 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (`4a5aa3dc`, 2026-06-22) — e2e `split-paths` bnc leg linked the checkout runtime against a BUILDER-compiled fixture
+
+E2E `split-paths` went green→red at the mangle atomic-flip `dd276e0a`: its `bnc`
+leg compiles the fixture with the pinned BUILDER (old scheme) directly but linked
+`--runtime` at the checkout `runtime/binate_runtime.c`, which after the flip
+defines `bootstrap.Write` only under the new-scheme name → `undefined reference to
+bn_pkg__bootstrap__Write`. Fix: link the BUILDER's OWN bundled runtime
+(`fetch-builder.sh --lib`/runtime) so the BUILDER-scheme compile meets a
+BUILDER-scheme runtime — robust to every future mangle flip, and preserves the
+leg's intent (exercise the released BUILDER through split -I/-L). Surfaced during
+the bnc-0.0.10 release CI triage.
+
+## MAJOR (codegen / ABI / memory-unsafe) — arm32 `MaxAlign=4` wrongly caps `int64`/`uint64`/`float64` alignment to 4 (AAPCS wants 8) → undersized C-interop structs → SIGSEGV in `os.Stat` (2026-06-21) — ✅ FIXED & LANDED (`f4b934ce`)
+
+**Symptom.** `conformance/stdlib/os/003_stat` SIGSEGVs under `builder-comp_arm32_linux`
+(uncaught target signal 11 in qemu). A minimal `os.Stat("/tmp")` that prints nothing
+about the result also crashes — the fault is *inside* `os.Stat`, not a field accessor.
+
+**Root cause.** `cmd/bnc/target.bn:setArm32Layout` set `t.MaxAlign = 4`. `MaxAlign`
+caps every type's alignment, so on arm32 the 8-byte fundamental types (`int64` /
+`uint64` / `float64`) align to 4, not 8. AAPCS — the ARM EABI used by BOTH
+arm-linux-gnueabihf and bare-metal arm-none-eabi — aligns `long long` / `double`
+to 8 even though pointers and `int` are 4. So `os`'s `osStat` (glibc `struct
+stat64`, 104 bytes *with* the 8-align pads at the `st_size` / `st_blocks`
+boundaries) lays out as **96 bytes** under the 4-cap; the kernel's `stat64`
+syscall writes 104 bytes into the 96-byte buffer → 8-byte overrun → corruption →
+crash. More broadly, EVERY arm32 struct with an 8-byte member is mislaid vs the
+platform ABI — latent, manifesting wherever a Binate struct must match C/kernel
+layout (`stat`, future `dirent`/`timespec`/etc.).
+
+**Verified.** Host arm32 IR probe `struct{uint64;uint32;uint64}`: `sizeof` = 20
+under `MaxAlign=4` (2nd uint64 at offset 12, 4-aligned); = **24** under
+`MaxAlign=8` (offset 16, 8-aligned), matching AAPCS. Under qemu (Docker
+linux/amd64 + qemu-arm): `003_stat` and `006_readdir` PASS with the fix;
+`290_sizeof_alignof`'s arm32 expected (linux + baremetal) corrected
+`alignof(int64)`/`alignof(float64)` 4→8, verified against a clean run. 385's
+arm32 IR is byte-identical under MaxAlign 4 vs 8 (the change touches only
+8-byte-member layouts; 290 was the sole arm32-expected test asserting such).
+
+**Fix (`f4b934ce`).** `t.MaxAlign = 8` in `setArm32Layout` + the two 290 expected
+corrections. Raises the cap so 8-byte types get 8-align; 4-byte types
+(int/pointer) are unaffected (natural align ≤ 4). Self-consistent for
+pure-Binate code AND correct for C interop. Also fixes the `TestStatIoArm32`
+unit test (same `osStat`/`stat64` path).
+
+**Follow-ups.** (1) coverage — add a `MaxAlign==8` assertion to the arm32 layout
+test in `cmd/bnc/target_test.bn` (it currently checks PointerSize/IntSize only).
+(2) CI is the full-matrix gate (arm32_linux + arm32_baremetal conformance + unit);
+the local full arm32_linux suite is slow under triple-emulation (qemu-user hangs
+on guest segfaults so each crash-intended test costs the 10s timeout).
+
+## TEST GAP (not a compiler bug) — matrix/generic conformance cells pin LP64-only `.expected`; the compiler is correct under ILP32 (arm32) (2026-06-21) — ✅ FIXED & LANDED (`9254f848`)
+
+**Symptom.** 10 `builder-comp_arm32_linux` conformance failures where the actual
+output is the CORRECT ILP32 value but `.expected` holds the LP64 value:
+- `matrix/scalar/{add,sub}/64/unsigned`, `matrix/scalar/div/64/{signed,unsigned}`:
+  `println(cast(int, <wide value>))`. On arm32 `int` is 32-bit, so `cast(int,…)`
+  truncates/sign-reinterprets. E.g. add/64 → `-1` (`0xFFFFFFFF` as int32); expected
+  `4294967295` (the int64 value).
+- `matrix/operator/{neg,bitnot}/{named,plain}/uint32`: `cast(int, uint32)` → signed
+  int32 on arm32 vs zero-extended int64 on LP64. neg → `-5`; expected `4294967291`.
+- `850_generic_cross_pkg_alias_collision`, `864_..._implicit_segment_collision`:
+  `sizeof(genlib.Box[int])` — `tag(int) + dep.Pair(2×int)` = 12 on arm32 (int=4),
+  24 on LP64 (int=8). The cross-pkg collision is correctly AVOIDED on arm32 too;
+  12 is the right ILP32 size.
+
+**Root cause.** `gen-scalar-matrix.py` / `gen-operator-matrix.py` compute `.expected`
+as an arbitrary-precision Python value and never simulate the final `cast(int,…)`
+(or the `sizeof`) at the TARGET int width — implicitly LP64. The cells were
+authored for "64-on-32 / sub-word VALUE correctness" but only validated on a
+64-bit host.
+
+**Fix (`9254f848`).** Parameterized both generators' `cast(int,…)` simulation by
+target int width; they now emit `.expected.builder-comp_arm32_{linux,baremetal}`
+only where the 32-bit result differs (LP64 `.expected`/`.bn` untouched; stale
+overrides auto-removed; both idempotent). 850/864 (hand-written) got the same
+overrides (=12). All 10 cells verified PASS under qemu. NOT a compiler bug
+(verified correct via IR + qemu).
+
+## MAJOR (stdlib / os ReadDir) — `os.ReadDir` used the 32-bit C `readdir`, which `EOVERFLOW`s on >2^32 inodes (silent listing truncation); arm32 also assumed the 32-bit dirent layout (2026-06-22) — ✅ FIXED & LANDED (`1686aac9`)
+
+**Symptom.** `conformance/stdlib/os/006_readdir` failed `builder-comp_arm32_linux`
+in CI (`foundMarker=0`) but PASSED locally. Cause: `ReadDir` called the 32-bit C
+`readdir`, which returns `EOVERFLOW`→NULL for a directory entry whose `d_ino`
+exceeds 2^32; `ReadDir` can't distinguish that from end-of-stream, so it silently
+truncates the listing. CI's `/tmp` has large inodes (marker missed); a host with
+small inodes (the Docker repro container) works — explaining the discrepancy.
+Also `readdir_linux_arm32.bn` assumed a 32-bit `struct dirent` (`d_name@11`); the
+real layout on modern-glibc Linux (cross-libc C-probe: `offsetof(d_name)==19`) is
+the 64-bit one, identical to x86_64/aarch64.
+
+**Fix (`1686aac9`).** Linux `ReadDir` now calls `readdir64` (64-bit `d_ino`, no
+`EOVERFLOW`) with the `@19` layout, unified into one `readdir_linux.bn` for all
+Linux arches (on 64-bit `readdir64`≡`readdir`). `readDirEnt` moved per-platform
+(the symbol differs: Linux `readdir64` vs macOS `readdir`); macOS keeps `readdir`
++`@21`. New `readdir_{linux,darwin}_test.bn`. Pre-existing (predates the MaxAlign
+work; the readdir e2e only runs on the host, so the arm32 layout/symbol was never
+validated). Verified: 006 + os unit pass on arm32 (qemu) + darwin; hygiene green.
+The large-inode `EOVERFLOW` case can't be reproduced where inodes are small, but
+`readdir64`'s 64-bit `d_ino` eliminates that failure class by construction.
+
+## MAJOR (codegen / closure capture-pad) — closure thunk read captures at the raw capture index, not the padded LLVM field index → dropped/shifted captures past an alignment pad; first exposed on arm32 by `MaxAlign=8` (891/697 float closures) (2026-06-22) — ✅ FIXED & LANDED (`2e279fb9`)
+
+**Symptom.** `conformance/891_func_value_closure_mixed_float_overflow` (a closure
+capturing 1 int + 9 float64; the 9th float64 arg overflows the AAPCS VFP regs onto
+the stack) prints **136** on `builder-comp_arm32_linux`, expected **145** (=100+1+..+9):
+the 9th float64 (9.0) is dropped → 145−9=136. `697_func_value_closure_float_mixed`
+similarly wrong (3 vs 33). PASSED at `6f8a2b23` (the commit before `f4b934ce`),
+FAIL at `9254f848` → regressed exactly at the MaxAlign fix. arm32-only (native_x64
+/ aa64 green); `1ad9e00f` (which added these tests) is an ancestor of 6f8a2b23, so
+they genuinely passed before.
+
+**Root cause (CONFIRMED).** `emitClosureCaptureLoads` (emit_funcvals_closure.bn)
+GEP'd each capture at its raw capture index `i`, but the packed closure-capture
+struct has explicit alignment-pad fields — a capture whose 8-byte type (int64 /
+uint64 / float64) follows a narrower one gets a `[N x i8]` pad field before it. The
+capture WRITER already maps through `structLLVMIndex` (pad-aware, like all
+struct-field access); the thunk's load did not, so it read a pad field as a capture
+and shifted every later capture down by one (dropping the last). NOT MaxAlign's
+fault (8-align is correct AAPCS + required for the stat fix); `f4b934ce` just
+exposed it on arm32 by making float64 8-aligned. Latent on ALL targets too (any
+int32-then-int64 capture pads on LP64 — `gen1cur` yielded garbage for 898 on the
+host).
+
+**Fix (`2e279fb9`).** Thunk GEPs `structLLVMIndex(f.ClosureStruct, i)` (returns `i`
+when no pads, so the common case is unchanged). 891/697 PASS on arm32 (qemu); 68
+LP64 closure tests + codegen unit pass. New `898_closure_capture_pad` pins it
+cross-target (int32/int64 interleaved capture → 1112; garbage without the fix).
+
+**Diagnostic lesson (recorded).** Earlier 004/closure probing used `ls -dt |
+head -1` to pick the gen1, which silently mixed two stale compilers (MaxAlign 4
+vs 8) in /tmp and produced phantom "cross-module divergence" conclusions. ALWAYS
+pin the exact gen1 path for diagnostics; never `ls -dt | head -1` when multiple
+compilers can coexist.
+
 ## ✅ DONE & LANDED — follow-ups from the 2026-06-21 adversarial review of the mangling flip / reflect fix / RetbufSize rename (2026-06-22)
 
 The review confirmed the core work correct (no critical/major; reflect 725/727
