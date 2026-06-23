@@ -104,10 +104,65 @@ expressivity `ir.Global.Init` (an int-only `@Instr`) lacks.
      Verified: full builder-comp 2359/0 + native-aa64 2356/0, gen1+gen2 green,
      units ir/codegen/native 7/0, hygiene 15/15, adversarial review clean.
 
-4. **⬜ Strings** — string constants. **Preserve `FinalizeStrings`
-   interning/dedup** (must not regress to one-global-per-occurrence). Natural
-   place to introduce the native rodata-section split (with reloc-free string
-   blobs, so the object-emitter concern above doesn't apply).
+4. **🔜 Strings (IN PROGRESS)** — string constants + the `OP_RODATA_*`
+   composite-literal blobs.  Each distinct byte sequence is one `StringConst`
+   (deduped by `strEq` in `CollectStrings`, UPSTREAM of emission), emitted as a
+   byte blob + a `%BnManagedSlice` `.ms` header.  **Strings are NOT byte-symmetric
+   across backends today** (unlike the vtables) — the recon (2026-06-22) found:
+   LLVM emits `@.str.<id>` = bare `[N x i8]` (exactly N bytes, `private
+   unnamed_addr constant`, align 1) **plus** a static `@.str.<id>.ms`
+   `%BnManagedSlice` header; native emits `Lstr_<id>` + `EmitAsciz`
+   (**NUL-terminated**, N+1 bytes) in the **`text`** section and builds the 4-word
+   header **on the stack at each use-site** (`emitRodataSliceHeader`).
+   **User-ratified decisions (2026-06-22):**
+   - **Drop the native NUL** — not load-bearing (length carried explicitly; no
+     consumer scans for it; LLVM has always been NUL-free).  Blob unifies on
+     exactly N bytes via `DataBytes`.
+   - **Honor `ReadOnly` → rodata on native.**  `common.EmitDataGlobal` currently
+     hardcodes the writable `data` section and IGNORES `ReadOnly`, so EVERY blob
+     already migrated (descriptor, info-nodes, func-value + impl vtables — all
+     `ReadOnly=true`) sits in `data` today.  Teaching it to honor `ReadOnly` moves
+     all of them PLUS strings to a real rodata section (ELF `.rodata` SHF_ALLOC;
+     Mach-O `__TEXT,__const`).  This is the FIRST read-only-section relocation
+     (vtables + the `.ms` header hold symrefs FROM rodata) — so it gets its own
+     gated increment verifying relocations on ELF + Mach-O + arm32 before any
+     string lands on it.  aarch64 drops its post-table `Align(4)` (only needed
+     because code followed in `text`).
+   - **Bare-array form + `unnamed_addr`.**  `emitDataGlobal` currently struct-wraps
+     every blob (`{ [N x i8] }`); a single-`DT_BYTES` DataGlobal emits a bare
+     top-level `[N x i8]`, and a new `UnnamedAddr` field preserves the blob's
+     `unnamed_addr` — so LLVM string text stays byte-identical.
+   - **Unify the `.ms` header as a static DataGlobal on BOTH backends.**  Native
+     gains the static `.ms` global; `OP_RODATA_MSLICE`/`OP_RODATA_SLICE` use-sites
+     LEA/ADRP it instead of writing 4 stack words.  One header layout in one
+     `ir.BuildStringMSHeader` (ILP32-correct: `DataInt(IntSize, …)` + pointer-sized
+     symrefs).
+   **Increment breakdown (each independently landable + green):**
+   - **4a — LLVM primitive:** bare-array form for a single `DT_BYTES` +
+     `UnnamedAddr` field honored by `emitDataGlobal`.  No callers; proven by
+     `emit_data_global` unit tests.
+   - **4b — native primitive (gated):** `EmitDataGlobal` honors `ReadOnly` →
+     rodata; descriptor + all vtables relocate `data`→rodata.  Verify
+     read-only-section relocations via full native conformance (ELF + Mach-O +
+     arm32).  Byte-layout-identical; only the section changes.
+   - **4c — byte blob (both backends):** `ir.BuildStringBlob`; route both
+     `emitStringGlobal` (blob half) and both `emitStringTable`s through it.  Drops
+     the NUL, lands native strings in rodata, aarch64 drops `Align(4)`.
+     Byte-identical LLVM blob; fixes the stale `aarch64_dispatch.bn` `__cstring`
+     comment.
+   - **4d — `.ms` header unify (both backends):** `ir.BuildStringMSHeader`; LLVM
+     `.ms` routes through it (becomes anonymous `{ptr,iN,ptr,iN}`,
+     opaque-pointer-equivalent — typed `load %BnManagedSlice` consumers still
+     resolve); native emits the static `.ms` and rewrites both arches'
+     `emitRodataSliceHeader` to reference it.
+   **Dedup preserved for free** (emission only iterates `m.Strings`).  The **VM**
+   re-derives strings into heap allocations and never touches `DataGlobal` —
+   untouched.
+   **Open follow-up (NOT in this phase, flagged for a separate decision):**
+   `OP_RODATA_ARRAY` / `OP_RODATA_MSLICE_COPY` bake their bytes inline yet are
+   still collected onto `m.Strings`, emitting an UNUSED blob (+ unused `.ms`) each
+   — a pre-existing inefficiency to clean up separately (it perturbs IDs / golden
+   output, so not bundled into the layout migration).
 
 5. **⬜ Globals** — `mod.Globals`, last (front-end-coupled: extern vars,
    qualified-name resolution, `IsExtern` external-decl emission map *onto*
