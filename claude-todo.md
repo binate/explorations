@@ -2793,7 +2793,7 @@ vs 8) in /tmp and produced phantom "cross-module divergence" conclusions. ALWAYS
 pin the exact gen1 path for diagnostics; never `ls -dt | head -1` when multiple
 compilers can coexist.
 
-## MAJOR (runtime C / sweep gap) — `bootstrap.ReadDir` (runtime/binate_runtime.c) still uses 32-bit `readdir()` → same EOVERFLOW listing-truncation as os.ReadDir, on a live bnc compile path (2026-06-22) — 🔴 OPEN
+## MAJOR (runtime C / sweep gap) — `bootstrap.ReadDir` (runtime/binate_runtime.c) still uses 32-bit `readdir()` → same EOVERFLOW listing-truncation as os.ReadDir, on a live bnc compile path (2026-06-22) — 🟠 DEFERRED (latent; user decision 2026-06-22)
 
 **Symptom (latent, silent).** `runtime/binate_runtime.c` `bn_F2_3_pkg9_bootstrap1_7_ReadDir`
 calls plain `readdir()` (lines 167 count-pass + 181 fill-pass) over a 32-bit
@@ -2820,10 +2820,26 @@ runs only the produced test binary under qemu — bnc itself never runs at 32-bi
 would have surfaced this immediately. Found by the adversarial review of the
 landed fixes.
 
-**Fix.** Compile `runtime/binate_runtime.c` with `-D_FILE_OFFSET_BITS=64` for
-hosted-Linux targets — the standard glibc transparent-LFS remap (readdir→readdir64,
-struct dirent→64-bit, AND stat→stat64 / off_t→64-bit, no source change). This also
-covers the runtime's `stat()`/`off_t` use, which has the same 32-bit-Linux LFS
-exposure. Alternative: switch the two `readdir()` calls to `readdir64()` + a 64-bit
-struct dirent (narrower fix, misses the stat/off_t adjacency). Verify the runtime C
-still compiles for darwin (where `_FILE_OFFSET_BITS` is a no-op) + 64-bit Linux.
+**DECISION (2026-06-22): DEFER (option C).** Fully latent — it can only trigger
+when `bnc` runs NATIVELY on a 32-bit-Linux host with large inodes, which NO current
+config does (CI cross-compiles bnc on x64; arm32-linux is a v0 derisking target, not
+a native host). So nothing breaks today. Fix it before `bnc`-native-on-32-bit-Linux
+becomes real, or fold it into the eventual `bootstrap.ReadDir` elimination.
+
+**Why not eliminate the path now (the cleaner fix).** `bootstrap.ReadDir` is slated
+for removal (subsumed by `os.ReadDir`), but that is BLOCKED in the pinned-BUILDER
+tree: its `cmd/bnc` callers (`loader.bn:152`, `util.bn:321`) are BUILDER-compiled and
+CANNOT call `os.ReadDir` — the BUILDER (`bnc-0.0.9`) cannot compile `os.ReadDir`
+(tested: it returns the managed-slice aggregate `@[]@DirEntry` the BUILDER can't
+handle), and `cmd/bnc` does not import `pkg/std/os` at all. Converting
+`bootstrap.ReadDir`'s own runtime-C impl off `readdir` is itself a runtime-ABI change
+needing a BUILDER bump (see claude-todo ~line 1187). A third caller exists too:
+`pkg/binate/interp/externs.bn:284` registers it as a VM extern.
+
+**Fix when addressed (user prefers NO compiler-flag macros).** Change the two
+`readdir()` calls (runtime/binate_runtime.c:167,181) to `readdir64()` over `struct
+dirent64`, guarded `#ifdef __linux__` (macOS has neither — keep `readdir`/`struct
+dirent`). NOT `-D_FILE_OFFSET_BITS=64` (rejected: it sets a global LFS macro via a
+flag). The narrower explicit change does NOT cover the runtime's `stat()`/`off_t`
+32-bit-Linux LFS exposure — that needs its own explicit `stat64`/64-bit-`off_t`
+treatment (same `#ifdef` shape), tracked here as the adjacent item.
