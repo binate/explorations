@@ -8,6 +8,21 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (`6d932add`, 2026-06-23) — native rodata managed-slice `backing_len = 0` vs LLVM `len` (native↔LLVM divergence)
+
+A readonly string-literal managed-slice (`var s @[]readonly char = "hello"`, an
+`OP_RODATA_MSLICE`) materialized its 4-word header `{ data, len, backing_refptr,
+backing_len }` with **`backing_len = 0`** on BOTH native backends, but `len` on
+LLVM. The runtime's own `rt.MakeManagedSlice` sets `BackingLen = length`, and the
+LLVM `.ms` header writes word 3 = `len`, so a 0 was wrong: a reslice of such a
+slice reads a wrong backing length (backing_len is preserved across subslicing,
+cf. `conformance/129`). Latent — no test resliced a *string-literal-derived*
+managed-slice and read word 3 (129 uses the `make_slice` heap path, correct on
+both). Fix: native `emitRodataSliceHeader` (x64 + aarch64) stores `len` (the live
+`lenReg`) in word 3, keeping the refptr null. Discovered while planning DataGlobal
+Inc 4d. Test `conformance/905` reslices a readonly string-literal managed-slice
+and reads word 3 (`5/0` native vs `5/5` LLVM before; `5/5` everywhere now).
+
 ## ✅ FIXED & LANDED (`962fdb19`, 2026-06-23) — nondeterministic gen2/gen3 miscompile of a NAMED managed-slice subslice (`033_named_transparency`)
 
 **Symptom.** `conformance/spec/07-types/033_named_transparency` (`type Buf @[]int`, named

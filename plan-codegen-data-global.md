@@ -138,19 +138,33 @@ expressivity `ir.Global.Init` (an int-only `@Instr`) lacks.
      `ir.BuildStringMSHeader` (ILP32-correct: `DataInt(IntSize, …)` + pointer-sized
      symrefs).
    **Increment breakdown (each independently landable + green):**
-   - **4a — LLVM primitive:** bare-array form for a single `DT_BYTES` +
-     `UnnamedAddr` field honored by `emitDataGlobal`.  No callers; proven by
-     `emit_data_global` unit tests.
-   - **4b — native primitive (gated):** `EmitDataGlobal` honors `ReadOnly` →
-     rodata; descriptor + all vtables relocate `data`→rodata.  Verify
-     read-only-section relocations via full native conformance (ELF + Mach-O +
-     arm32).  Byte-layout-identical; only the section changes.
-   - **4c — byte blob (both backends):** `ir.BuildStringBlob`; route both
-     `emitStringGlobal` (blob half) and both `emitStringTable`s through it.  Drops
-     the NUL, lands native strings in rodata, aarch64 drops `Align(4)`.
-     Byte-identical LLVM blob; fixes the stale `aarch64_dispatch.bn` `__cstring`
-     comment.
-   - **4d — `.ms` header unify (both backends):** `ir.BuildStringMSHeader`; LLVM
+   - **✅ 4a LANDED (binate `74374199`, 2026-06-23):** bare-array form for a single
+     `DT_BYTES` + `UnnamedAddr` field honored by `emitDataGlobal`.  LLVM-text-only
+     (native emits terms contiguously, no struct-wrap/`unnamed_addr` concept);
+     descriptor name/sig blobs flip to bare arrays (semantically identical —
+     symref consumers are opaque-pointer).
+   - **✅ 4b LANDED (binate `fb7ab0f4`, 2026-06-23):** `EmitDataGlobal` routes a
+     read-only blob to rodata ONLY if it is RELOC-FREE.  The full "everything
+     read-only → rodata" was NOT possible: Mach-O rejects relocations from
+     `__TEXT,__const` ("illegal text-relocation"), surfaced by routing the
+     symref-bearing `_pkg_info` node there.  So relocatable read-only blobs
+     (descriptor node, arrays, info nodes, vtables, the `.ms` header) stay in
+     `data`; only pure-byte blobs (string bytes, `_pkgname`, name/sig) reach
+     rodata.  Making the relocatable ones read-only too needs a relro section —
+     filed as the relro project (claude-todo).  Verified aa64 2374/0 + x64 link +
+     arm32 ELF + asm units.
+   - **✅ 4c LANDED (binate `5e110c39`, 2026-06-23):** `ir.BuildStringBlob`; both
+     `emitStringGlobal` (blob half) and both `emitStringTable`s route through it.
+     Drops the native NUL, lands native strings in rodata, aarch64 drops
+     `Align(4)`, fixes the stale `aarch64_dispatch.bn` `__cstring` comment.
+     Byte-identical LLVM blob; full LLVM 2379/0 + full aa64 2374/0.
+   - **✅ MAJOR fix LANDED (binate `6d932add`, 2026-06-23, between 4c and 4d):**
+     native `emitRodataSliceHeader` wrote a readonly string managed-slice's
+     `backing_len` (word 3) = 0 vs LLVM's `len` — a silent native↔LLVM divergence
+     (the runtime's `MakeManagedSlice` sets `BackingLen = length`).  Now writes
+     `len`; conformance `905` reslices a readonly string-literal managed-slice and
+     reads word 3.  Discovered while planning 4d.
+   - **⬜ 4d — `.ms` header unify (both backends):** `ir.BuildStringMSHeader`; LLVM
      `.ms` routes through it (becomes anonymous `{ptr,iN,ptr,iN}`,
      opaque-pointer-equivalent — typed `load %BnManagedSlice` consumers still
      resolve); native emits the static `.ms` and rewrites both arches'
