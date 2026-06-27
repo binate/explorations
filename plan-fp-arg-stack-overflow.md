@@ -177,10 +177,20 @@ exists; reuse it.
       were.  Pinned by `908_closure_scalar_indirect_large_arg`; reviews
       wf_474bbc47 (no other LR-in-scratch site) + wf_82e18923; full aa64
       conformance 2412/0.
-    - **Float-aggregate — OPEN (the "float next" follow-up):**
-      `emitClosureShimFloatAggregateAA64` (`aarch64_closure_shim_float.bn`)
-      still `AAPCS64()` + `SetError` on overflow; must adopt `AAPCS64_Darwin()`
-      + natural-size stores when its stack-spill path is built.
+    - **Float closure shims (scalar + aggregate) — ✅ RESOLVED (binate
+      `ba9555b9` + `69c6984e`, 2026-06-27):** both `emitClosureShimFloatAA64`
+      and `emitClosureShimFloatAggregateAA64` (`aarch64_closure_shim_float.bn`)
+      now handle GP / FP / incoming-stack overflow instead of `SetError`.  The
+      shared marshaller `loadClosureFloatCallArgsAA64` was rewritten
+      classifier-driven (float→D/FP-overflow, GP→reg/stack-overflow at
+      `CallArgStackOff`, natural-size, SPLIT-aware, `EffectiveArgWords` — which
+      also closes the closure-shim `ArgWords` facet for the aarch64 float
+      shims, see claude-todo); both shims reserve the outgoing-args area at
+      `[SP+0..]`, spill incoming args from the regs + the caller stack, on
+      `AAPCS64_Darwin()`.  Tests 912-916 (scalar) + 919/920 (aggregate).
+      Reviews wf_bb2f5df3 (marshaller + scalar) + wf_8940fb46 (aggregate),
+      both clean.  x64's float shims still `SetError` (the x64 analogue —
+      claude-todo:702 / the x64 aggregate-shim follow-up).
 
 ## Tests
 
