@@ -8,6 +8,26 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (`1b6335b1`, 2026-06-26) — scalar closure stack-spill shim preserved LR in caller-clobbered X16 across the BL → SIGSEGV (native aa64)
+
+`emitClosureShimStackSpillAA64` (`pkg/binate/native/aarch64/aarch64_closure_shim.bn`)
+was a LEAF shim that stashed the caller's LR in **X16** (AAPCS64 IP0, caller-
+clobbered) across the `BL` to the lifted body.  An **indirect-large aggregate**
+user arg (managed-slice / >16B struct, passed by pointer) made the lifted body
+deref that pointer through X16, trashing the saved LR → the shim's `ret` jumped
+to a stack address (SIGSEGV).  Latent for most shapes; surfaced by the GAP D
+round-2 review once the `EffectiveArgWords` fix let the indirect-large case run
+far enough to hit the return path.  Pre-existing (the X16-LR stash predated GAP D).
+
+**Fix:** converted the scalar shim to a framed `STP FP,LR / LDP` prologue (like
+the aggregate/float closure shims already used), so LR lives on the stack and
+survives any X16-clobbering body; `frameDelta` bumped `stkBytes` → `16 + stkBytes`.
+Pinned by `908_closure_scalar_indirect_large_arg` (scalar-return closure, 8 int
+captures + indirect-large Triple user arg: was a crash, now 6036).  Verified by
+reviews wf_474bbc47 (frame-correct; **no other** aarch64 shim stashes LR in a
+caller-clobbered reg across a BL) + wf_82e18923; full native aa64 conformance
+2412/0.
+
 ## ✅ FIXED & LANDED (`6d932add`, 2026-06-23) — native rodata managed-slice `backing_len = 0` vs LLVM `len` (native↔LLVM divergence)
 
 A readonly string-literal managed-slice (`var s @[]readonly char = "hello"`, an

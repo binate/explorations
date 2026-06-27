@@ -80,33 +80,6 @@ but mismatched iface PACKAGE (e.g. `pkg/fmt.Writer|pkg/io.Reader` against a
 `pkg/io.Writer` vtable) to force the line-385 return. Found by the 2026-06-26
 adversarial review.
 
-## CRITICAL (native aa64 / crash) — scalar closure stack-spill shim preserves LR across the BL in X16 (caller-clobbered IP0) → SIGSEGV when the lifted body trashes X16 (e.g. dereferencing an indirect-large user arg) (2026-06-26) — 🔴 OPEN
-
-`emitClosureShimStackSpillAA64` (`pkg/binate/native/aarch64/aarch64_closure_shim.bn`)
-is a LEAF shim: it stashes the caller's LR in **X16** across the `BL` to the lifted
-body (`mov x16,x30; bl; mov x30,x16; ret`). X16 is AAPCS64 IP0 — **caller-clobbered**
-scratch — so the callee may trash it. When a user arg is an **indirect-large
-aggregate** (managed-slice / >16B struct, passed by pointer), the lifted body loads
-that pointer into X16 to dereference it; on return the shim's `mov x30,x16; ret`
-jumps to the (stack) pointer → SIGSEGV. The result value (X0) is correct; only the
-return path is corrupted. **Latent** for most shapes (523/524/899/904 pass — their
-bodies don't clobber X16 in the relevant window); reliably triggered by an
-indirect-large user arg, and in principle by any X16-clobbering body.
-
-**Pre-existing** (the X16-LR stash predates the GAP D work). Surfaced by the GAP D
-round-2 review (wf_59d18ed3): the GAP D `EffectiveArgWords` fix made the
-indirect-large word-counting correct (X0 = 6036), which exposed this independent
-LR defect on the return path (before, that shape crashed via the `ArgWords`
-over-read instead). Confirmed via disassembly + lldb vs the LLVM oracle.
-
-NOT shared by the aggregate / float closure shims, which use a framed
-`STP FP,LR / LDP` prologue (so GAP D's aggregate shim — binate `b8c8371b` — is
-unaffected). **Fix:** convert the scalar shim to the same framed prologue (drop the
-leaf assumption at `aarch64_closure_shim.bn` ~lines 230-231 / 304-314), bumping its
-`frameDelta` from `stkBytes` to `16 + stkBytes`. Add a scalar-return +
-indirect-large-user-arg conformance test (no existing test covers it — 904/905
-return aggregates, so they ride the framed aggregate shim).
-
 ## MAJOR (VM / wrong-output) — `stdlib/math` float64 classification mis-marshals across the VM↔native boundary on an x86-64 host VM (`builder-comp-int` / `builder-comp-comp-int`); aarch64 host VM + all compiled backends correct (2026-06-22) — 🔴 OPEN
 
 `conformance/stdlib/math/001_classify_round` (Float64bits round-trip, Abs/Signbit/

@@ -166,15 +166,17 @@ exists; reuse it.
       over-looped → crash).  Tests 906 (pack+sret, scalar args) / 907 (SPLIT
       Pair + indirect-large Triple).  xfail'd on native x64, whose aggregate
       shim still `SetError`s (the x64 analogue — tracked, claude-todo).
-    - **Pre-existing scalar X16-LR defect (discovered here, NOT GAP D's):** the
-      round-2 review surfaced a separate CRITICAL crash — the SCALAR closure
-      stack-spill shim (`emitClosureShimStackSpillAA64`) is a leaf shim that
-      preserves LR across the BL in X16 (caller-clobbered IP0), which an
-      indirect-large user arg's pointer-deref trashes → SIGSEGV on return.  The
-      GP-aggregate `EffectiveArgWords` fix corrected the word-counting facet
-      (X0 right) but the LR defect remains.  Tracked in claude-todo (fix: framed
-      prologue for the scalar shim); GAP D's aggregate shim is framed, so
-      unaffected.
+    - **Pre-existing scalar X16-LR defect (discovered here, NOT GAP D's) — ✅
+      RESOLVED (binate `1b6335b1`, 2026-06-26):** the round-2 review surfaced a
+      separate CRITICAL crash — the SCALAR closure stack-spill shim
+      (`emitClosureShimStackSpillAA64`) was a leaf shim that preserved LR across
+      the BL in X16 (caller-clobbered IP0), which an indirect-large user arg's
+      pointer-deref trashed → SIGSEGV on return.  Fixed by converting the scalar
+      shim to a framed `STP FP,LR / LDP` prologue (LR on the stack;
+      `frameDelta` → `16 + stkBytes`), like the aggregate/float shims already
+      were.  Pinned by `908_closure_scalar_indirect_large_arg`; reviews
+      wf_474bbc47 (no other LR-in-scratch site) + wf_82e18923; full aa64
+      conformance 2412/0.
     - **Float-aggregate — OPEN (the "float next" follow-up):**
       `emitClosureShimFloatAggregateAA64` (`aarch64_closure_shim_float.bn`)
       still `AAPCS64()` + `SetError` on overflow; must adopt `AAPCS64_Darwin()`
