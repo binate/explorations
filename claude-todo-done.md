@@ -36,6 +36,21 @@ surfaced a reproduced silent miscompilation plus several gaps; all addressed:
 - ✅ **MINOR (binate `f2751c3a`):** added the swapIfaceSuffix iface-PACKAGE-mismatch
   (vm_exec_iface.bn:385) unit test — the one source-match return path left untested.
 
+A follow-on minimal review of the rename itself then caught a CRITICAL
+regression it had SHIPPED: the `_Package` -> `__Package` rename (e12a8a3b) MISSED
+`conformance/spec/20-tier0/`, leaving six reflect tests calling the old
+`_Package()` (`undefined: _Package`) and main RED on the default compiled
+conformance modes — the pre-land check had only re-run the reflect tests it
+edited, and a grep exclusion hid lines carrying both `reflect.Package` and
+`_Package`. Fixed (binate `c5802587`): renamed `_Package` -> `__Package` across
+all of 20-tier0 (6 call sites + 022's `expected` self-listed name + .xfail/comment
+prose), plus two more old-folded sweep survivors (738 `@bn_a__Code`, 837
+`@bn_dep__V`) and strengthened TestReplReservedTypeRejected to assert the
+reserved-identifier diagnostic. Verified: all six pass on builder-comp +
+builder-comp-comp; 001 passes / 021 still xfails on the VM; repo-wide grep clean.
+(The e12a8a3b message's "898" is a typo — the test is 909; left as-is, not worth
+rewriting pushed history.)
+
 Process notes: the review caught the `_Package` case originally scoped OUT as a
 wrong call, and (twice) an enumeration shortfall — first the sweep grep's pattern
 breadth (`bn_[a-z]` missed `bn_<` placeholders), then its file-type breadth
