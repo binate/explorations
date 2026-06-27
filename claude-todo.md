@@ -4,6 +4,36 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR (IR-gen / wrong-code) — `break` inside a `switch` is mis-lowered: dead code after `break` runs; a `break` in a switch with no enclosing loop is a silent no-op; inside a loop it breaks the LOOP, not the switch (2026-06-27) — 🔴 OPEN — REPRODUCED
+
+**Symptom.** `genSwitch` (pkg/binate/ir/gen_flow.bn) never sets `ctx.BreakTo`
+(the for-loops do — gen_flow.bn:71-77/179-184), so `STMT_BREAK` (gen_stmt.bn:110-115,
+which jumps only when `ctx.BreakTo != nil`) is a **no-op inside a switch** with no
+enclosing loop → statements AFTER the break execute. Reproduced (gen1):
+`switch { case n>0: r=1; break; r=999 }` returns **999** (expected 1); a `break`
+nested in an `if` inside a case is likewise ignored. Inside a loop, the switch's
+`break` jumps to the LOOP exit (covered today by 133_switch_break_breaks_loop).
+
+**Pre-existing & not tagless-specific.** A TAGGED switch has the identical bug
+(`switch n { case 5: r=1; break; r=999 }` → 999), so this predates the
+tagless-switch crash fix (323f2669). But that fix made tagless switches compile,
+so the wrong-behavior path is **newly reachable** for tagless (previously any
+tagless switch SIGSEGV'd). Surfaced by the 2026-06-27 adversarial review of the
+tagless fix.
+
+**Two facets.** (a) dead-code-after-`break` runs — unambiguously wrong under any
+semantics (MAJOR wrong-code). (b) whether `break` should exit the SWITCH (Go-like)
+vs the current break-the-enclosing-loop is the deferred open spec item
+`stmt.switch.break` (docs/spec/14b-control-flow.md:116-120) — a **semantics
+decision (user's call)**.
+
+**Fix.** `genSwitch` should save/restore `ctx.BreakTo = exitBlk` around the case
+loop (mirroring the for-loops), so a `break` jumps to the switch exit and
+genCaseBody's terminator detection stops emitting the dead tail. That also
+resolves `stmt.switch.break` to Go-like (break-exits-switch) — hence the decision.
+**Pinned:** to add — an xfail positive under conformance/spec/14-statements/
+(`switch { case true: r=1; break; r=999 }` expecting 1, currently 999).
+
 ## MAJOR (codegen / undefined symbol) — a NAMED managed-slice as a struct FIELD references an undefined `__copy_ms_int` copy helper -> compiled-backend link failure (2026-06-27) — 🔴 OPEN — REPRODUCED
 
 **Symptom.** `type Buf @[]int; type Row struct { data Buf }; var r Row = Row{data: b}`
