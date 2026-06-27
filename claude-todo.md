@@ -2811,9 +2811,23 @@ Deferred 2026-06-11 (user: op-only acceptable for now) — low impact (message
 richness, not classification). Tests: extend the `TestOpen*Classified` cases
 to assert the path appears in the rendered message.
 
-## MAJOR (runtime C / sweep gap) — `bootstrap.ReadDir` (runtime/binate_runtime.c) still uses 32-bit `readdir()` → same EOVERFLOW listing-truncation as os.ReadDir, on a live bnc compile path (2026-06-22) — 🟠 DEFERRED (latent; user decision 2026-06-22)
+## MAJOR (runtime C / sweep gap) — `bootstrap.ReadDir` (runtime/binate_runtime.c) still uses 32-bit `readdir()` → same EOVERFLOW listing-truncation as os.ReadDir (2026-06-22) — 🟢 COMPILE-PATH RESOLVED 2026-06-26 (`2b995f14`); C shim still latent via the VM-extern path only
 
-**Symptom (latent, silent).** `runtime/binate_runtime.c` `bn_F2_3_pkg9_bootstrap1_7_ReadDir`
+**UPDATE (2026-06-26, landed `2b995f14` + `a0a8ea96`).** The *compile-path* exposure
+is GONE. The BUILDER is now `bnc-0.0.10`, which DOES compile `os.ReadDir`'s
+`@[]@DirEntry` aggregate — so the blocker cited under "Why not eliminate the path now"
+below is LIFTED — and the two load-bearing callers were converted to `os.ReadDir`
+(inode-safe `readdir64`): `pkg/binate/loader/loader.bn`'s impl-package dir-walk and
+`cmd/bnc/util.bn`'s directory-arg expansion (both also re-apply the dot-prefixed-name
+filter `bootstrap.ReadDir` had). So `bnc` running NATIVELY on a 32-bit-Linux large-inode
+host no longer truncates source listings → the silent-miscompilation risk is resolved.
+The buggy C shim `bn_F2_3_pkg9_bootstrap1_7_ReadDir` itself REMAINS (still 32-bit
+`readdir`), now reachable ONLY via the VM extern registration (`pkg/binate/interp`/`vm`
+bind it) — a far narrower, still-latent path. Closing it fully means either fixing the
+shim (`readdir64`, per "Fix when addressed" below) or removing `bootstrap.ReadDir`
+entirely (now unblocked). The original analysis below is HISTORICAL.
+
+**Symptom (latent, silent; HISTORICAL — see UPDATE above).** `runtime/binate_runtime.c` `bn_F2_3_pkg9_bootstrap1_7_ReadDir`
 calls plain `readdir()` (lines 167 count-pass + 181 fill-pass) over a 32-bit
 `struct dirent`. The runtime C has NO `#define _FILE_OFFSET_BITS 64` (grep:
 none in runtime/), and the arm32-linux clang flags add no `-D` for it
