@@ -8,6 +8,31 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `323f2669`, docs `5ed744d`, 2026-06-26) — tagless `switch { … }` SIGSEGV in IR-gen; tagless cases now required to be bool
+
+**Crash.** A tagless switch (`switch { case n>0: … default: … }`, the `switch
+true` / if-else-if form, §14.10) crashed bnc with a SIGSEGV: genSwitch
+(gen_flow.bn) ran genExpr on the tag, but a tagless switch has no tag
+(stmt.X == nil), so genExprInner null-deref'd. ANY tagless switch crashed; no
+conformance test exercised the form, so it was never caught.
+
+**Fix.** genSwitch now lowers a tagless switch as `switch true` — it skips the
+(nil) tag and drives each case's branch off the case expr directly (tagged
+switches unchanged). That is only sound if tagless case exprs are bool, but
+checkSwitchStmt only type-checked case exprs when a tag was present — so a
+non-bool tagless case (`switch { case 3: }`) was silently accepted (the §14.10
+under-enforcement). checkSwitchStmt now requires each tagless case expr to be
+bool, and `stmt.switch.tagless-bool` was promoted from a spec _Open._ note to a
+declared Constraint rule (docs `5ed744d`).
+
+**Tests.** De-xfailed + renamed `121_switch_tagless` (was `121_switch_tagless_xfail`,
+xfail.all) — the tagless positive now passes on builder-comp / -comp-int /
+-comp-comp; new `127_err_switch_tagless_non_bool` (.error) pins the non-bool
+rejection; two checker unit tests (TestCheckSwitchTagless{Bool,NonBool}). Tagged
+switches (120/122/124/125) regression-clean; hygiene 15/15. The entry's
+"await OK" §14.5 incdec stale-note correction was already done concurrently
+(docs `5e2d8ce`), so nothing was needed there.
+
 ## ✅ DONE & LANDED — 2026-06-26 adversarial review of the mangling/reserved-name/reflect follow-ups: CRITICAL _Package collision + REPL gap + sweep-completeness + swapIfaceSuffix test
 
 A post-landing adversarial review (18 confirmed findings) of the #1/#2/#3 work

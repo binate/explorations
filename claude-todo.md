@@ -46,38 +46,6 @@ acceptance of an ill-formed entry point.
 
 ---
 
-## CRITICAL (compiler crash / SIGSEGV) — a **tagless** `switch { … }` null-derefs the compiler in IR-gen (2026-06-21) — 🔴 OPEN — REPRODUCED
-
-**Symptom.** ANY tagless switch crashes `bnc` with SIGSEGV (no diagnostic). Minimal
-repro: `func main() { switch { default: println("d") } }` → `EXC_BAD_ACCESS
-(address=0x0)` in `bn_pkg__binate__ir__genExprInner`. Also crashes `switch { case
-n > 2: … }` and `switch { case 3: … }`. A **tagged** switch is fine (`switch b {
-case true: … }` and `switch n { case 1: … }` compile+run correctly).
-
-**Root cause (likely).** The tagless form (`SwitchStmt` with no tag Expression,
-§14.10 — the idiomatic if/else-if replacement, equivalent to `switch true`) lowers
-by generating the tag expression, but the tag is **absent (nil)** — `genExprInner`
-is called on the nil tag and dereferences it. The tagged path supplies a real tag,
-so it is unaffected. Fix: in the switch lowering, synthesize a `true` tag (or take
-the tagless branch that compares each case as a bool condition) instead of gen-ing
-the nil tag expression.
-
-**Discovery.** Authoring `conformance/spec/14-statements` (probing `stmt.switch.tag`).
-**No existing conformance test uses a tagless `switch {`** (grep: 0 files), so this
-was never caught. The spec §14.10 open item `stmt.switch.tagless-bool` notes only
-that tagless **non-bool** cases are wrongly *accepted* — it predates / misses this
-crash (the crash hits bool cases too).
-
-**Pinned.** `conformance/spec/14-statements/<NNN>_switch_tagless*` (xfail.all, to be
-added with the chapter) — a tagless-switch positive that currently crashes.
-
-**Proposed stale-note correction (separate, await OK):** spec §14.5's
-`stmt.incdec.lvalue` "MAJOR implementation defect" note is **stale** — `a[i]++`,
-`p.f++`, `(*p)++` were FIXED+LANDED (`6a2f551f`, claude-todo-done) and all increment
-correctly now; the §14.5 status line + open-note should be dropped.
-
----
-
 ## MAJOR (codegen / invalid IR) — a `switch` on a SUB-64-bit integer tag with an UNTYPED integer-literal case emits invalid IR (`i64` vs `iN`) (2026-06-21) — 🔴 OPEN — REPRODUCED
 
 **Symptom.** `switch t { case 1: … }` where `t` has a sub-64-bit integer type
