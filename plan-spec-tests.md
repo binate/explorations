@@ -557,8 +557,28 @@ rule-ids.txt (docs `0a910fb`), re-vendored into binate -> Ch.20 is 18/18 not 18/
 **Phase B per-chapter coverage is COMPLETE: chapters 05-20 contiguous** (05, 06, 07, 08, 09, 10, 11,
 12, 13, 14, 15, 16, 17, 18, 19, 20), plus the 07b/10b/14b/16b sub-chapters and Ch.02 conf.* via §2.4
 cross-mode agreement. Every testable normative rule-ID is now tied to executable spec tests, with
-known defects pinned by xfail. Remaining: Phase C (retrofit existing `conformance/` tests with
-`.rules` tags) and wiring extract-rule-ids/spec-coverage into CI (both separate go-aheads).
+known defects pinned by xfail.
+
+**CI wiring — DONE (2026-06-26).** The spec-coverage tooling now gates CI in both repos:
+- **binate `hygiene.yml`** (`676d83ad`): the `hygiene` job had drifted from `scripts/hygiene/run.sh`
+  (it lists checks as individual steps); four lightweight self-contained checks ran locally but were
+  absent from CI. Wired all four as steps — `spec-coverage` (the `.rules` citation-integrity gate:
+  DANGLING/UNTAGGED), `version-sync`, `stdlib-injected`, `strip-signal-msgs`. (`fetch-builder` stays
+  out — heavyweight.) The spec tests themselves already run in `conformance-tests.yml` /
+  `conformance-xpass.yml`.
+- **docs `spec-sync.yml`** (docs `7160cfa`, the docs repo's FIRST CI workflow): gates the two
+  generated artifacts against their sources via the read-only `--check` modes — `rule-ids.txt`
+  (`extract-rule-ids.py --check`) and `annex-a-grammar-summary.md` (`gen-annex-a.py --check`). Both
+  CI runs verified green.
+
+Remaining: Phase C (retrofit existing `conformance/` tests with `.rules` tags — a coverage windfall
+the tool already surfaces as UNTAGGED); and the spec-coverage `--run` increment (per-mode
+pass/xfail in the report, currently static-only). Both are separate go-aheads.
+
+> _Coordination note (2026-06-26)._ A concurrent docs commit renamed the synthesized reflection
+> accessor `_Package` → `__Package` in the SPEC, but the binate IMPL still emits `_Package` (no impl
+> commit yet). The Ch.20 reflect tests (`conformance/spec/20-tier0/020`–`023`) hard-code `_Package`
+> and pass on current main; when the impl rename lands, those tests must be updated in lockstep.
 
 ## 10. Appendix — example spec tests
 
