@@ -1,27 +1,29 @@
 # Plan: deprecate the `pkg/bootstrap` file-IO surface — conformance-test classification
 
-Status: **toolchain migrated off bootstrap file-IO** (landed 2026-06-26,
-`2b995f14` + `f84c4884` + `a0a8ea96`): `cmd/bnc`, `pkg/binate/loader`,
-`pkg/binate/asm/{elf,macho,parse}`, `pkg/binate/debug`, and the asm/native
-object-file test harnesses now use `pkg/std/os` (`Open`/`OpenFile`/`Read`/
-`Write`/`Close`/`Stat`/`ReadDir`) instead of `bootstrap.{Open,Read,Write,
-Close,Stat,ReadDir}`. The BUILDER (`bnc-0.0.10`) compiles `pkg/std/os`, so the
-old BUILDER-subset blocker is gone.
+Status: **COMPLETE — the bootstrap file-IO surface is retired** (landed
+`826d665e`, 2026-06-26).  `bootstrap.{Open,Read,Close,Stat,ReadDir}` and their
+`O_*`/`STD*` constants are gone from the `.bni`, the baremetal impl, the
+runtime-C shims, and the VM extern registrations; conformance `081`/`277` are
+deleted.  Kept on purpose: `Write` (the print/println lowering's I/O sink),
+`Exit`/`Args`/`Exec` (process control, no `os` equivalent), and the format
+helpers.  Retiring `Write` would require migrating the print/println lowering's
+sink off `bootstrap` — a separate codegen task (the long-standing `println`
+temporary-hack item), out of this plan's scope.
 
-This doc classifies the **remaining** consumers of the bootstrap file-IO
-*surface* — specifically the conformance tests — so the eventual removal of
-`bootstrap.{Open,Read,Write,Close,Stat,ReadDir}` (the C shims in
-`runtime/binate_runtime.c` + their VM-extern registrations) has a clear path.
+The landing arc (all 2026-06-26):
+- `2b995f14` + `f84c4884` + `a0a8ea96` — toolchain (cmd/bnc, loader,
+  asm/{elf,macho,parse}, debug, asm/native test harnesses) migrated to
+  `pkg/std/os`, unblocked by the `bnc-0.0.10` BUILDER (which compiles
+  `pkg/std/os`).
+- `f5137f0a` — bucket-2 tests (142, 343) moved to a VM unit test
+  (`pkg/binate/vm/vm_extern_mechanism_test.bn`).
+- `826d665e` — the surface itself retired (this plan's removal checklist).
 
-**UPDATE (2026-06-26, landed `f5137f0a`).** The bucket-2 tests (142, 343) are
-DONE — moved to a self-contained VM unit test
-(`pkg/binate/vm/vm_extern_mechanism_test.bn`) that registers purpose-built test
-externs and drives `execExtern` through the real bytecode pipeline; the
-conformance files are deleted. Verified in both comp and `builder-comp-int`
-(the test-local externs dispatch correctly through the VM's cross-mode
-trampoline — the new path the `pkg/builtins`-vs-runner-only analysis below was
-weighing). Remaining: bucket-1 deletions (081, 277) and the shim removal, both
-gated on the surface deprecation itself.
+This doc's original classification (which conformance tests consumed the
+surface, and how to handle each) is below as the record.
+
+Related: [`plan-bootstrap-ccall.md`](plan-bootstrap-ccall.md) (convert the C
+I/O impls to `.bn` + `__c_call`, a separate axis).
 
 Related: [`plan-bootstrap-ccall.md`](plan-bootstrap-ccall.md) (convert the C
 I/O impls to `.bn` + `__c_call`, a separate axis).
@@ -47,7 +49,7 @@ a **comment-only** false positive (it is just `println(7)` and does not import
 bootstrap — the `formatInt`/`Write` mention is in a comment describing the
 println *lowering*). The four real ones:
 
-### Bucket 1 — tests *of* bootstrap file-IO → DELETE when the surface is removed
+### Bucket 1 — tests *of* bootstrap file-IO → DELETED with the surface (`826d665e`)
 
 - **`081_file_write_read.bn`** — regression guard for `bootstrap.Open`'s
   *combined-flag bitmask* handling (`O_WRONLY|O_CREATE|O_TRUNC`). That logic is
@@ -127,16 +129,20 @@ just runs `close(-1)` a million times with no leak path, and 142's native
 slice-write is covered by the `os` tests. Their real value is the `int` (VM)
 modes, which a VM unit test covers directly.
 
-## Removal checklist (when the surface is deprecated)
+## Removal checklist — ALL DONE (`826d665e`, except #2 in `f5137f0a`)
 
-1. Delete conformance `081`, `277` (bucket 1).
+1. ~~Delete conformance `081`, `277` (bucket 1).~~ DONE (`826d665e`).
 2. ~~Move 343/142 coverage to `pkg/binate/vm` unit tests with a self-registered
    test extern (bucket 2); delete the conformance files.~~ DONE (`f5137f0a`):
    `pkg/binate/vm/vm_extern_mechanism_test.bn`.
-3. Remove the bootstrap file-IO extern registrations from
-   `pkg/binate/interp/externs.bn` + `extern_test_helpers_test.bn`.
-4. Delete the `bn_F2_3_pkg9_bootstrap1_{Open,Read,Write,Close,Stat,ReadDir}` C
+3. ~~Remove the bootstrap file-IO extern registrations from
+   `pkg/binate/interp/externs.bn` + `extern_test_helpers_test.bn`.~~ DONE
+   (`826d665e`).
+4. ~~Delete the `bn_F2_3_pkg9_bootstrap1_{Open,Read,Close,Stat,ReadDir}` C
    shims from `runtime/binate_runtime.c` and the `ifaces/core/pkg/bootstrap.bni`
-   declarations. (This also retires the latent `bootstrap.ReadDir` EOVERFLOW
-   bug — see the entry in `claude-todo.md`.)
-5. `conformance-imports.sh` needs no change (no `pkg/std/os` carve-out).
+   declarations.~~ DONE (`826d665e`) — also dropped the now-dead
+   `<fcntl.h>`/`<sys/stat.h>`/`<dirent.h>` includes and the baremetal stubs.
+   This retired the latent `bootstrap.ReadDir` EOVERFLOW bug (now in
+   `claude-todo-done.md`).  Note: `Write` was NOT removed (print/println sink).
+5. `conformance-imports.sh` needed no change (no `pkg/std/os` carve-out) — as
+   predicted, no conformance test essentially required `os` file-IO.

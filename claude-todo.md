@@ -639,22 +639,22 @@ element `i` at index `i`.
   (`check_expr_composite.bn:73-79` checks keyed but not positional values).
 All referenced from `13-expressions.md`.
 
-### `_Package()`: bytecode VM works only for the 4 builtins (Gap 2; unqualified form ✅ FIXED; builtin auto-injection ✅ LANDED) — 🔴 OPEN (user-package bytecode `_Package` remains)
+### `__Package()`: bytecode VM works only for the 4 builtins (Gap 2; unqualified form ✅ FIXED; builtin auto-injection ✅ LANDED) — 🔴 OPEN (user-package bytecode `__Package` remains)
 
 > **Update 2026-06-12** — two related pieces landed on main:
 > - **VM injection Part A** (binate `a8ba52f2`): `RegisterStandardExterns` now
->   auto-enumerates `rt._Package().Functions` (+ empty reflect) via
+>   auto-enumerates `rt.__Package().Functions` (+ empty reflect) via
 >   `registerPackageFunctions`, replacing the hand-maintained rt block. bootstrap
 >   stays hand-bound (deprecation path + extern-heavy; table skips `IsExtern`);
->   the 3 `_Package` accessors + 2 trampolines stay hand-bound. See
+>   the 3 `__Package` accessors + 2 trampolines stay hand-bound. See
 >   `plan-vm-package-injection.md` Part A.
-> - **`_Package` self-listing** (binate `53ea3875`): every package self-lists its
->   own `_Package` accessor as the last `Functions` entry (closing the reflection
+> - **`__Package` self-listing** (binate `53ea3875`): every package self-lists its
+>   own `__Package` accessor as the last `Functions` entry (closing the reflection
 >   gap), and `--pkg` compilation force-loads reflect (`ensureReflectLoaded`) so
 >   it holds even for packages that don't import reflect — i.e. `cmd/bnc` now
 >   force-loads reflect on ALL paths (main/test already did; `compileSinglePkg`
 >   now too). fv stashed on `ir.Module.PackageAccessorSig` → byte-identical
->   LLVM/native entry (Name `<pkg>._Package`, ResultSize 8, ParamSlots 0, Sig
+>   LLVM/native entry (Name `<pkg>.__Package`, ResultSize 8, ParamSlots 0, Sig
 >   `()(@pkg/builtins/reflect.Package)`). Validated: builder-comp 1395/0,
 >   builder-comp-int 1360/0, reflect byte-identical across LLVM/native-aa64/native-x64.
 >   Follow-ups (binate `2988cda4`, `6d052181`): arm32 (ILP32) per-mode `expected`
@@ -663,11 +663,11 @@ All referenced from `13-expressions.md`.
 >   no qemu; needs arm32 CI confirmation); plus native unit tests
 >   (`TestEmitPackageDescriptorSelfListsPackage{AA64,X64}`) for the self-listing.
 > - **Still open (the core Gap 2 below)**: user/stdlib packages compiled to
->   BYTECODE still have no `_Package` body → Part B (§2a of the VM-injection plan).
+>   BYTECODE still have no `__Package` body → Part B (§2a of the VM-injection plan).
 >   The `cmd/bni`-doesn't-force-load-reflect asymmetry below is still accurate
 >   (the fix above is `cmd/bnc`-side only).
 
-The compiler synthesizes a `_Package() @reflect.Package` accessor per package
+The compiler synthesizes a `__Package() @reflect.Package` accessor per package
 returning the package's immortal static-managed descriptor (Phase B,
 notes-package-introspection.md).  `codegen/emit_pkg_descriptor.bn` (+
 `native/{x64,aarch64}/_pkg_descriptor.bn`) emit it as a NATIVE function; the
@@ -675,33 +675,33 @@ checker synthesizes its signature in BOTH the qualified-access arm
 (`check_expr_access.bn`) and the unqualified `checkIdent` arm
 (`check_expr.bn`).  Two gaps, surfaced 2026-06-11 by writing
 `conformance/708_reflect_package_all_kinds` (user-requested "every package has a
-`_Package`" coverage):
+`__Package`" coverage):
 
 - **Gap 1 — no unqualified form (checker) — ✅ FIXED (binate `1164ef04`).** An
-  UNQUALIFIED `_Package()` (the current package's own accessor) was `undefined:
-  _Package`; now it type-checks and lowers like a normal exported function,
+  UNQUALIFIED `__Package()` (the current package's own accessor) was `undefined:
+  __Package`; now it type-checks and lowers like a normal exported function,
   callable unqualified within AND qualified from importers.  `checkIdent`
   (`check_expr.bn`) synthesizes the `() @reflect.Package` type; IR-gen's
   `registerCurrentModulePackageAccessor` (`gen_import.bn`) registers the current
-  module's `_Package` FuncSig so the bare-ident call path lowers it to the local
+  module's `__Package` FuncSig so the bare-ident call path lowers it to the local
   symbol `emit_pkg_descriptor.bn` emits.  Compiled modes only — VM still hits
   Gap 2.  Pinned by `conformance/709_reflect_package_unqualified` (compiled PASS,
   3 VM modes xfailed for Gap 2).
 - **Gap 2 — VM works only for builtins (MAJOR VM-backend project; DEFERRED).**
-  `_Package()` is emitted only as a native function; the bytecode VM reaches
-  `_Package` ONLY for the four builtin packages, via the HARDCODED externs in
+  `__Package()` is emitted only as a native function; the bytecode VM reaches
+  `__Package` ONLY for the four builtin packages, via the HARDCODED externs in
   `vm/extern_register_std.bn`.  A user/stdlib package compiled to bytecode has no
-  native `_Package` symbol → `vm: extern not found: <pkg>._Package`.  The extern
-  approach CANNOT work for bytecode-compiled packages.  Fix: emit `_Package()` +
+  native `__Package` symbol → `vm: extern not found: <pkg>.__Package`.  The extern
+  approach CANNOT work for bytecode-compiled packages.  Fix: emit `__Package()` +
   its static-managed descriptor as BYTECODE per package (the VM equivalent of
   `emit_pkg_descriptor`) so the VM runs it directly, dropping the
   hardcoded-builtin extern table.  Major VM-backend work — the user explicitly
   deferred this.  (Subsumes a sibling asymmetry: `cmd/bni` does not force-load
   reflect the way `cmd/bnc` does — `ensureReflectLoaded` is cmd/bnc-only — so
   reflect-dependent type-checking under the VM needs an explicit reflect import;
-  709 imports reflect for exactly this reason.  When the VM emits `_Package`, it
+  709 imports reflect for exactly this reason.  When the VM emits `__Package`, it
   will force-load reflect too.)
-- **Test**: `708_reflect_package_all_kinds` pins `<pkg>._Package().Name` == import
+- **Test**: `708_reflect_package_all_kinds` pins `<pkg>.__Package().Name` == import
   path for a user package + all four builtins + a stdlib package.  PASSES on the
   3 compiled modes; **xfailed on the 3 VM modes** (`-int`/`-int-int`/`-comp-int`)
   for Gap 2 (int-int also hits the pre-existing multi-package double-VM failure).
@@ -1031,18 +1031,18 @@ question).
 ## MAJOR
 
 ### MAJOR PROJECT — unify module-level static data into one IR representation (`ir.DataGlobal`) + one per-backend emitter — FILED 2026-06-10 (🟢 PHASE 1 + INC 2 + INC 3a/3b + STRINGS 4a–4d LANDED; phase 5 = Globals remaining)
-- **🟢 PHASE 1 LANDED (binate `1ae1b52b`, 2026-06-21)**: `ir.DataGlobal` + `emitDataGlobal` (both backends) + `ir.BuildPackageDescriptor`; the `_Package` descriptor NODE+name now flow through `DataGlobal` (the hand-rolled node layout is gone from both backends). Also unified the native node/name to weak_odr/local, **closing the strong-symbol hardening item below**. Living plan + remaining increments in [`plan-codegen-data-global.md`](plan-codegen-data-global.md). The bullets below are the original design notes (still accurate for the unlanded phases).
+- **🟢 PHASE 1 LANDED (binate `1ae1b52b`, 2026-06-21)**: `ir.DataGlobal` + `emitDataGlobal` (both backends) + `ir.BuildPackageDescriptor`; the `__Package` descriptor NODE+name now flow through `DataGlobal` (the hand-rolled node layout is gone from both backends). Also unified the native node/name to weak_odr/local, **closing the strong-symbol hardening item below**. Living plan + remaining increments in [`plan-codegen-data-global.md`](plan-codegen-data-global.md). The bullets below are the original design notes (still accurate for the unlanded phases).
 - **🟢 INC 2 LANDED (binate `b2667902`, 2026-06-22)**: the FunctionInfo/GlobalInfo/VtableInfo info-node tables + their name/sig rodata + the `_pkg_funcs/globals/vtables` backing arrays now flow through one shared `ir.BuildPackageDescriptors` (per-kind builders in `ir/data_pkg_{funcs,globals,vtables,descriptor}.bn`); both backends gather row metadata + lower via `emitDataGlobal`. Deleted the per-kind byte emitters (`emit_pkg_{functions,globals,vtables}.bn`, `common_pkg_{functions,globals,vtables}.bn`), `EmitPackageDescriptorData`, and `emit_static_managed.bn`'s `emitStaticManagedGlobal` — the interim native emitter (`f7d116f3`) is fully retired (net −529 lines). Info-node PAYLOAD-pointer addend uses `2*IntSize` (header size), correct on ILP32. Native Global/Vtable nodes + arrays unified to weak/local (matching LLVM). Reflect output byte-identical; full builder-comp 2219/0 + native-aa64 2212/0, reflect 525/532/708/709/725/727/726 green both backends, adversarial review clean. Rebased onto concurrent `043318b1` (725/727 golden refresh) + `d47d1a2e` (`ResultSize`→`RetbufSize` rename, adopted throughout).
 - **🟢 INC 3a LANDED (binate `30aca2d7`, 2026-06-22)**: func-value vtables + handles. `@__vt` (`{ dtor, call }`) + `@__handle` (`{ vtable, data=null }`) now flow through one shared `ir.BuildFuncValue` (`ir/data_funcval.bn`); both backends lower via `emitDataGlobal`. The LLVM closure-dtor triple (`emitClosureDtorTriple`) also routes through it, so NO hand-rolled func-value vt/handle emitter remains. Deleted codegen emitFuncValueVtable/Dtor/Handle + native emitFuncValueVtableDtorSlot{,_x64} + dead emitQuadLabelFV. LLVM globals became anonymous `{ ptr, ptr }` (was named %BnVtable/%BnFuncValue); the typed-pointer refs elsewhere auto-upgrade to `ptr` under opaque pointers (clang-verified). Full builder-comp 2300/0 + native-aa64 2296/0, func-value/closure/handle conformance both backends, adversarial review clean.
 - **🟢 INC 3b LANDED (binate `787ed644`, 2026-06-22)**: impl vtables (`@__ivt.*` raw + `@__ivtshim.*` shim). The variable-length, recursively-computed layout (per iface level: dtor HANDLE slot, then each parent's FULL sub-vtable INLINE so `*Child→*Parent` upcast is a fixed offset, then own methods; raw uses fn symbols, shim uses `@__handle.<m>`) now flows through one shared `ir.BuildImplVtable` (`ir/data_impl_vtable.bn`). Each backend's gather only collects the ordered slot symbols (`collectImplVtableSlots`/`…_x64`/`…Native`, recursive) + keeps SetGlobal bookkeeping on referenced method/dtor-handle symbols; only the byte layout moved. LLVM globals became anonymous `{ ptr, ptr, … }` (was `[N x i8*]`); dtor slot became `ptr @__handle…` (was `i8* bitcast (%BnFuncValue* … to i8*)`). Native impl/shim vtables unified from strong `SetGlobal` to **weak** (`DG_WEAK`) to match LLVM (user-approved). Deleted codegen emitImplVtable/emitImplShimVtable/emitImplVtableLayout/…Slot + dead writeFuncPtrType/writeFuncResultLLVM; native emitOneImpl{,Shim}Vtable bodies + dead emitQuad{Label,Zero}{,Iface} (net −62 lines). Full builder-comp 2359/0 + native-aa64 2356/0, gen1+gen2 green, units ir/codegen/native 7/0, hygiene 15/15, adversarial review clean.
 - **🟢 STRINGS PHASE — INC 4a/4b/4c + a MAJOR fix LANDED (binate `74374199`/`fb7ab0f4`/`5e110c39`/`6d932add`, 2026-06-23)**: the per-string byte BLOB now flows through one shared `ir.BuildStringBlob` (`ir/data_strings.bn`) — a bare `[N x i8]`, private `unnamed_addr`, align 1, reloc-free — lowered by both backends via `emitDataGlobal`. **4a**: `emitDataGlobal` emits a bare top-level `[N x i8]` for a single `DT_BYTES` (not `{ [N x i8] }`) + a new `UnnamedAddr` field (LLVM-text-only). **4b**: `EmitDataGlobal` routes a read-only blob to rodata ONLY if RELOC-FREE — Mach-O rejects relocations from `__TEXT,__const` (text-relocs), so relocatable read-only blobs (descriptor node, arrays, info nodes, all vtables, the `.ms` header) stay in `data`; only pure-byte blobs (string bytes, `_pkgname`, name/sig) reach rodata (relro project filed below for the rest). **4c**: both `emitStringGlobal` (blob half) + both `emitStringTable`s route through `BuildStringBlob` — drops the native NUL (`EmitAsciz` → exactly N bytes), lands native strings in rodata (was `text`), aarch64 drops `Align(4)`; byte-identical LLVM blob. **MAJOR fix (`6d932add`)**: native `emitRodataSliceHeader` wrote a readonly string managed-slice's `backing_len` (word 3) = 0 vs LLVM's `len` (a silent native↔LLVM divergence — `rt.MakeManagedSlice` sets `BackingLen = length`); now writes `len`, conformance `905`. Full LLVM 2379/0 + full native-aa64 2374/0, arm32 ELF smoke, units 7/0, hygiene 15/15. The LLVM `.ms` header stays as-is for now.
 - **🟢 STRINGS PHASE COMPLETE — INC 4d LANDED (binate `4b8807c6`, 2026-06-26)**: the static `.ms` managed-slice header { data, len, null refptr, backing_len=len } now flows through one shared `ir.BuildStringMSHeader`, lowered by both backends — so BOTH the byte blob (4c) and the header (4d) are single-source. LLVM `.ms` = private anonymous `{ptr,iN,ptr,iN}` (was named %BnManagedSlice; typed `load` consumers resolve under opaque pointers, clang-verified). Native: `emitStringTable` also emits a static `.ms` per string and `emitRodataMSliceOrSlice` LEAs/ADRPs it instead of building the 4-word header on the stack per use. Two native subtleties caught ONLY by the native self-host (units + smokes passed at every wrong step): (1) the `.ms` is relocatable → in `data`, and a `data` symbol reached from text must be a symbol-table entry → it's a module-qualified **WEAK** symbol (like impl vtables), via `SetGlobal` + ADRP/LEA, not a local label; (2) `OP_RODATA_MSLICE/SLICE` no longer reserve a stack data slot (removed from the `native/common` aggregate-alloca list) — their result is the `.ms` pointer in a register, and aggregate consumers resolve via `LookupAlloc` FIRST so a reserved-but-unwritten slot would shadow it. `BuildStringMSHeader` takes a linkage param (LLVM DG_LOCAL / native DG_WEAK). Full LLVM gen1+gen2 2413/0, native-aa64 self-host 2409/0, arm32 ILP32 smoke, units 7/0, hygiene 15/15, adversarial review (5 dims) zero real defects + hardening tests added. **Next: phase 5 — Globals (`mod.Globals`, front-end-coupled: extern vars, qualified-name resolution, `IsExtern` external decls map onto `DataGlobal`, last).**
-- **The smell**: module-level constant data is currently modeled and emitted **per kind**, each with its own IR rep + its own LLVM emitter + its own native emitter: `mod.Strings` (string consts), `mod.Globals` (`var` storage), `mod.Impls` (impl vtables), func-value vtables/handles (derived from `mod.Funcs`), and the package descriptor `_Package` (worst case: LLVM-text-only, no IR rep, no native emitter). That's ~5 kinds × 2 backends ≈ 10 emitters for ONE concept — *a named, module-level constant blob the backend lays into a data section.* The proliferation is what let `_Package` ship with only its LLVM half written (see the native-`_Package` link bug below) — the LLVM-only-divergence bug class is structural to this design.
-- **The unification**: one IR concept `ir.DataGlobal { Name; Linkage (private|weak_odr|linkonce_odr|external); Align; Init }` where `Init` is a sequence of terms: `bytes` | `int(width)` | **`symref(symbol, +offset)`** (pointer to another symbol). The `symref` term is the one expressive thing today's `ir.Global.Init` (a single int-only `@Instr`) lacks, and it's what every interesting blob needs. Then ONE `emitDataGlobal` per backend (lay bytes + apply relocations + linkage/align) replaces all the per-kind emitters. Mappings: string → `bytes`; var → `int/zero`; `_Package` → `int(RC),int(0),symref(_pkgname),int(len)` (the static-managed node, no special primitive); impl/func-value vtable → `[symref(dtor),symref(m0),…]`. Both backends walk one path → LLVM-only divergence becomes impossible. Consonant with `ir-backend-guidelines.md` ("string constant collection belongs in a shared layer") — this is the shared *static-data manifest* backends lower.
+- **The smell**: module-level constant data is currently modeled and emitted **per kind**, each with its own IR rep + its own LLVM emitter + its own native emitter: `mod.Strings` (string consts), `mod.Globals` (`var` storage), `mod.Impls` (impl vtables), func-value vtables/handles (derived from `mod.Funcs`), and the package descriptor `__Package` (worst case: LLVM-text-only, no IR rep, no native emitter). That's ~5 kinds × 2 backends ≈ 10 emitters for ONE concept — *a named, module-level constant blob the backend lays into a data section.* The proliferation is what let `__Package` ship with only its LLVM half written (see the native-`__Package` link bug below) — the LLVM-only-divergence bug class is structural to this design.
+- **The unification**: one IR concept `ir.DataGlobal { Name; Linkage (private|weak_odr|linkonce_odr|external); Align; Init }` where `Init` is a sequence of terms: `bytes` | `int(width)` | **`symref(symbol, +offset)`** (pointer to another symbol). The `symref` term is the one expressive thing today's `ir.Global.Init` (a single int-only `@Instr`) lacks, and it's what every interesting blob needs. Then ONE `emitDataGlobal` per backend (lay bytes + apply relocations + linkage/align) replaces all the per-kind emitters. Mappings: string → `bytes`; var → `int/zero`; `__Package` → `int(RC),int(0),symref(_pkgname),int(len)` (the static-managed node, no special primitive); impl/func-value vtable → `[symref(dtor),symref(m0),…]`. Both backends walk one path → LLVM-only divergence becomes impossible. Consonant with `ir-backend-guidelines.md` ("string constant collection belongs in a shared layer") — this is the shared *static-data manifest* backends lower.
 - **What stays / what resists (design must handle)**: (1) func-value `__shim`s are CODE → stay in `mod.Funcs`; only the symref *table* is data. (2) impl vtables carry **per-arch layout** + `weak_odr`/`linkonce` linkage + alignment — the model must carry linkage/align and backends keep arch layout knowledge. (3) **string interning/dedup** (`FinalizeStrings`) is a real optimization to preserve, not regress to one-global-per-occurrence. (4) `mod.Globals` carries **front-end semantics** (extern vars, qualified-name resolution, `IsExtern` external-decl emission) — the front-end layer maps onto `DataGlobal`, isn't replaced by it.
 - **Payoff**: kills the LLVM-only-divergence bug class structurally; ~10 emitters → ~2; new static-data needs get both backends for free. **Cost/risk**: real IR + dual-backend refactor of *currently-working* code; non-trivial regression surface; per-kind quirks above. This is a project, not a bug fix — needs a `plan-*.md` (design the `Init`/relocation model + linkage/align + interning; phased migration).
-- **Suggested migration order**: introduce `ir.DataGlobal` + one `emitDataGlobal` per backend → migrate `_Package` onto it FIRST (the proving case; also retires the interim native emitter below) → then impl + func-value vtables → then strings → then globals (front-end-coupled, last). Each step keeps all backends green.
-- **Interim DONE**: the short-term native `emitPackageDescriptor` is LANDED (binate `f7d116f3`) — `common.EmitPackageDescriptorData` (shared static-managed-node layout) + a per-arch accessor. Explicitly throwaway: the `_Package` migration step of this project deletes it (and `codegen/emit_pkg_descriptor.bn`) once the descriptor is an `ir.DataGlobal`.
+- **Suggested migration order**: introduce `ir.DataGlobal` + one `emitDataGlobal` per backend → migrate `__Package` onto it FIRST (the proving case; also retires the interim native emitter below) → then impl + func-value vtables → then strings → then globals (front-end-coupled, last). Each step keeps all backends green.
+- **Interim DONE**: the short-term native `emitPackageDescriptor` is LANDED (binate `f7d116f3`) — `common.EmitPackageDescriptorData` (shared static-managed-node layout) + a per-arch accessor. Explicitly throwaway: the `__Package` migration step of this project deletes it (and `codegen/emit_pkg_descriptor.bn`) once the descriptor is an `ir.DataGlobal`.
 - **Low-priority hardening surfaced by the interim's adversarial review (not reachable today)**: the native interim `SetGlobal`s `_pkg_info` + `_pkgname` as STRONG symbols, vs LLVM's `weak_odr` (`_pkg_info`) / `private` (`_pkgname`). NOT a current bug — in `--backend native` only `main` is native and all deps go via LLVM (disjoint package names), so the same package's strong native `_pkg_info` never lands in two objects; conformance/532 + the native vm/repl/bni unit links are clean. It WOULD bite a future native-library-packaging path (a precompiled native `.o` for a package linked beside a from-source native recompile of it → duplicate strong symbol where `weak_odr` dedupes). Cheap fix when that lands (or sooner): `a.SetWeak` on `_pkg_info` (matches `weak_odr`); `_pkgname` only needs same-object visibility (sole consumer is the same-object `Name.data` fixup) so it can be local/weak. The `ir.DataGlobal` unification should carry a linkage field so this is expressed once. (`_pkg_info` must stay a defined symbol the accessor's cross-section reloc can target — the native Adrp/Lea fixup resolves to it like `emitGlobalAddr` — so not an unnamed local.)
 
 ### PROJECT — relro section infra (Mach-O `__DATA_CONST,__const` / ELF `.data.rel.ro`) for relocatable read-only data — FILED 2026-06-22
@@ -1312,41 +1312,41 @@ Once `BUILDER_VERSION` is bumped past those, drop the rt+vm/repl/bni and os entr
   side-steps the whole tangle.
 - **Status**: in progress.
 
-### Package descriptors (Phase B) — `_Package()` works in compiled + VM modes (builtins); general Functions-table still future
-- **Status**: compiled-mode AND VM-mode `_Package()` landed (binate
+### Package descriptors (Phase B) — `__Package()` works in compiled + VM modes (builtins); general Functions-table still future
+- **Status**: compiled-mode AND VM-mode `__Package()` landed (binate
   `feadde2c`, VM-mode for the builtin packages).  The general interop
   Functions-table (user packages, auto-enumeration) remains future work.
 - **What works (compiled mode)**: every package emits an immortal
   static-managed `reflect.Package` descriptor node + a generated
-  `_Package() @reflect.Package` accessor (codegen `emit_pkg_descriptor.bn`,
+  `__Package() @reflect.Package` accessor (codegen `emit_pkg_descriptor.bn`,
   via the static-managed emitter).  The type checker synthesizes the
-  `_Package` signature at selector resolution (`check_expr_access.bn`
+  `__Package` signature at selector resolution (`check_expr_access.bn`
   `packageAccessorType`), IR-gen registers it as an imported extern so calls
   resolve + a `declare` emits (`gen_import.bn`), and `reflect` is force-loaded
   (`ensureReflectLoaded`).  Drives a real immortal node through the compiled
   RefInc/RefDec sentinel end-to-end (see [`plan-static-managed-sentinel.md`]).
 - **What works (VM mode, binate `feadde2c`)**: the earlier "Functions-table
-  is genuinely required" finding was too pessimistic.  `_Package` is already
+  is genuinely required" finding was too pessimistic.  `__Package` is already
   a real exported per-module symbol, and the IR/func-value path already
-  mangles a qualified `pkg._Package` reference to call it — so the only
-  blocker was the type checker rejecting `_func_handle(pkg._Package)` (it's
+  mangles a qualified `pkg.__Package` reference to call it — so the only
+  blocker was the type checker rejecting `_func_handle(pkg.__Package)` (it's
   compiler-synthesized, not a `SYM_FUNC` in scope).  Two small changes wired
-  it: (1) `types/check_builtin.bn` accepts `pkg._Package` as a `_func_handle`
+  it: (1) `types/check_builtin.bn` accepts `pkg.__Package` as a `_func_handle`
   argument by name; (2) `vm/extern_register_std.bn`
-  `registerPackageDescriptorExterns` binds the builtin packages' `_Package`
-  (rt, libc, bootstrap, reflect) as VM externs.  Interpreted `pkg._Package()`
+  `registerPackageDescriptorExterns` binds the builtin packages' `__Package`
+  (rt, libc, bootstrap, reflect) as VM externs.  Interpreted `pkg.__Package()`
   now dispatches through the func-value shim to the real accessor, and the
   returned `@reflect.Package` is RefDec-safe via the static-managed sentinel —
   exercising the sentinel end-to-end in interpreted mode too.
 - **Coverage**: `conformance/532_reflect_package_accessor`
-  (`rt._Package().Name` → "pkg/builtins/rt") now green in ALL 6 default modes
+  (`rt.__Package().Name` → "pkg/builtins/rt") now green in ALL 6 default modes
   (the 3 VM-mode xfails removed).
 - **Still future — the general Functions-table**
   ([`notes-package-introspection.md`](notes-package-introspection.md) Phase B):
   `registerPackageDescriptorExterns` is a hand-maintained precursor covering
-  only the builtins compiled INTO the host binary (their `_Package` is a real
+  only the builtins compiled INTO the host binary (their `__Package` is a real
   symbol the shim can call).  USER packages run as interpreted bytecode and
-  have no `_Package` body — those need the real table: codegen emits a
+  have no `__Package` body — those need the real table: codegen emits a
   per-package `Functions` table (name + signature + function-value per
   exported func), and the VM auto-enumerates all packages' tables (the
   cross-package registry, open Q4 in the notes — likely a linker section with
@@ -1354,7 +1354,7 @@ Once `BUILDER_VERSION` is bumped past those, drop the rt+vm/repl/bni and os entr
   maintained `RegisterStandardExterns` entirely.  Then richer type metadata
   (Phase C) for reflection/printing + RTTI for type assertions.
 - **Linter caveat (see "bnlint typechecks dependency bodies" + lint-skip
-  entries)**: `registerPackageDescriptorExterns` is the first `_Package`
+  entries)**: `registerPackageDescriptorExterns` is the first `__Package`
   reference in *linted* source, which the BUILDER-bundled bnlint can't yet
   typecheck — `scripts/hygiene/lint.sh` temporarily skips pkg/binate/vm +
   pkg/binate/repl + cmd/bni until the next BUILDER bump.
@@ -2676,68 +2676,3 @@ family's error context (e.g. a path-aware wrapper, or `failErrno(op, path)`).
 Deferred 2026-06-11 (user: op-only acceptable for now) — low impact (message
 richness, not classification). Tests: extend the `TestOpen*Classified` cases
 to assert the path appears in the rendered message.
-
-## MAJOR (runtime C / sweep gap) — `bootstrap.ReadDir` (runtime/binate_runtime.c) still uses 32-bit `readdir()` → same EOVERFLOW listing-truncation as os.ReadDir (2026-06-22) — 🟢 COMPILE-PATH RESOLVED 2026-06-26 (`2b995f14`); C shim still latent via the VM-extern path only
-
-**UPDATE (2026-06-26, landed `2b995f14` + `a0a8ea96`).** The *compile-path* exposure
-is GONE. The BUILDER is now `bnc-0.0.10`, which DOES compile `os.ReadDir`'s
-`@[]@DirEntry` aggregate — so the blocker cited under "Why not eliminate the path now"
-below is LIFTED — and the two load-bearing callers were converted to `os.ReadDir`
-(inode-safe `readdir64`): `pkg/binate/loader/loader.bn`'s impl-package dir-walk and
-`cmd/bnc/util.bn`'s directory-arg expansion (both also re-apply the dot-prefixed-name
-filter `bootstrap.ReadDir` had). So `bnc` running NATIVELY on a 32-bit-Linux large-inode
-host no longer truncates source listings → the silent-miscompilation risk is resolved.
-The buggy C shim `bn_F2_3_pkg9_bootstrap1_7_ReadDir` itself REMAINS (still 32-bit
-`readdir`), now reachable ONLY via the VM extern registration (`pkg/binate/interp`/`vm`
-bind it) — a far narrower, still-latent path. Closing it fully means either fixing the
-shim (`readdir64`, per "Fix when addressed" below) or removing `bootstrap.ReadDir`
-entirely (now unblocked). The original analysis below is HISTORICAL.
-
-**Symptom (latent, silent; HISTORICAL — see UPDATE above).** `runtime/binate_runtime.c` `bn_F2_3_pkg9_bootstrap1_7_ReadDir`
-calls plain `readdir()` (lines 167 count-pass + 181 fill-pass) over a 32-bit
-`struct dirent`. The runtime C has NO `#define _FILE_OFFSET_BITS 64` (grep:
-none in runtime/), and the arm32-linux clang flags add no `-D` for it
-(`cmd/bnc/target.bn` sets only `-march=armv7-a`). So on a 32-bit-Linux host the
-runtime gets the 32-bit `readdir` + struct dirent, which returns `EOVERFLOW`→NULL
-for a directory entry whose `d_ino` exceeds 2^32 — and `bootstrap.ReadDir` treats
-NULL as end-of-stream, silently TRUNCATING the listing. This is the IDENTICAL bug
-class fixed for `os.ReadDir` in `1686aac9` (readdir64), left unswept on the
-sibling runtime-C path.
-
-**Why it matters (not cosmetic).** `bootstrap.ReadDir` is load-bearing on the
-compile path: `pkg/binate/loader/loader.bn:152` enumerates an impl-package
-directory's `.bn` files through it; `cmd/bnc/util.bn:321` expands directory args
-through it. A truncated listing drops source files → missing funcs/types →
-**silent miscompilation**. It bites when `bnc` runs NATIVELY on a 32-bit-Linux
-host with a large-inode filesystem. Masked in current CI because
-`builder-comp_arm32_linux` cross-compiles bnc on x64 (readdir==readdir64) and
-runs only the produced test binary under qemu — bnc itself never runs at 32-bit.
-
-**Root cause (process).** The `os.ReadDir` readdir64 fix did not follow the
-"Enumerate Sweep Sites Repo-Wide" rule: a `grep -rn readdir` across the runtime C
-would have surfaced this immediately. Found by the adversarial review of the
-landed fixes.
-
-**DECISION (2026-06-22): DEFER (option C).** Fully latent — it can only trigger
-when `bnc` runs NATIVELY on a 32-bit-Linux host with large inodes, which NO current
-config does (CI cross-compiles bnc on x64; arm32-linux is a v0 derisking target, not
-a native host). So nothing breaks today. Fix it before `bnc`-native-on-32-bit-Linux
-becomes real, or fold it into the eventual `bootstrap.ReadDir` elimination.
-
-**Why not eliminate the path now (the cleaner fix).** `bootstrap.ReadDir` is slated
-for removal (subsumed by `os.ReadDir`), but that is BLOCKED in the pinned-BUILDER
-tree: its `cmd/bnc` callers (`loader.bn:152`, `util.bn:321`) are BUILDER-compiled and
-CANNOT call `os.ReadDir` — the BUILDER (`bnc-0.0.9`) cannot compile `os.ReadDir`
-(tested: it returns the managed-slice aggregate `@[]@DirEntry` the BUILDER can't
-handle), and `cmd/bnc` does not import `pkg/std/os` at all. Converting
-`bootstrap.ReadDir`'s own runtime-C impl off `readdir` is itself a runtime-ABI change
-needing a BUILDER bump (see claude-todo ~line 1187). A third caller exists too:
-`pkg/binate/interp/externs.bn:284` registers it as a VM extern.
-
-**Fix when addressed (user prefers NO compiler-flag macros).** Change the two
-`readdir()` calls (runtime/binate_runtime.c:167,181) to `readdir64()` over `struct
-dirent64`, guarded `#ifdef __linux__` (macOS has neither — keep `readdir`/`struct
-dirent`). NOT `-D_FILE_OFFSET_BITS=64` (rejected: it sets a global LFS macro via a
-flag). The narrower explicit change does NOT cover the runtime's `stat()`/`off_t`
-32-bit-Linux LFS exposure — that needs its own explicit `stat64`/64-bit-`off_t`
-treatment (same `#ifdef` shape), tracked here as the adjacent item.

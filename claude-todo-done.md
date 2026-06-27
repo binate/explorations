@@ -8406,3 +8406,34 @@ No conformance test possible until native-deps lands (it can't fail today).
   (`mangle_lp_test.bn` / `mangle_lp_demangle_test.bn` round-trip + injectivity
   suite, landed with 4a `a0a0ea80`; the Finding-A bug it guarded is fixed by 4b
   `dd276e0a`).
+
+## RESOLVED (2026-06-26, landed `826d665e`) — `bootstrap.ReadDir` 32-bit `readdir()` EOVERFLOW listing-truncation (runtime/binate_runtime.c)
+
+**RESOLVED.** The entire `bootstrap` file-IO surface — `Open` / `Read` / `Close` /
+`Stat` / `ReadDir` and their C shims (incl. `bn_F2_3_pkg9_bootstrap1_7_ReadDir`)
+— was retired in `826d665e` (`bootstrap: retire the file-IO surface`).  The
+toolchain had already moved its directory reads to `os.ReadDir` (inode-safe
+`readdir64`) in `2b995f14`; deleting the shim removes the last
+(VM-extern-reachable) path, so the EOVERFLOW truncation is gone entirely.  The
+runtime's old `stat()` exposure went with the `bootstrap.Stat` shim in the same
+commit (the live `os.Stat` path is a separate concern, tracked elsewhere).
+Original analysis (historical) follows.
+
+**Symptom (latent, silent; HISTORICAL).** `runtime/binate_runtime.c`
+`bn_F2_3_pkg9_bootstrap1_7_ReadDir` called plain `readdir()` over a 32-bit
+`struct dirent` with no `_FILE_OFFSET_BITS=64`, so on a 32-bit-Linux host a
+directory entry whose `d_ino` exceeded 2^32 returned `EOVERFLOW`→NULL, which
+`bootstrap.ReadDir` treated as end-of-stream — silently TRUNCATING the listing.
+Same bug class fixed for `os.ReadDir` in `1686aac9` (readdir64), originally left
+unswept on the sibling runtime-C path (found by adversarial review).
+
+**Why it mattered.** `bootstrap.ReadDir` was load-bearing on the compile path
+(`loader.bn` impl-package dir-walk; `cmd/bnc/util.bn` directory-arg expansion):
+a truncated listing drops source files → missing funcs/types → silent
+miscompilation, on a native 32-bit-Linux large-inode host.  Masked in CI
+(`builder-comp_arm32_linux` cross-compiles bnc on x64).
+
+**Resolution arc.** Deferred 2026-06-22 (latent; no native-32-bit-Linux config
+exists).  Compile-path exposure removed 2026-06-26 by the os-migration
+(`2b995f14`, after the `bnc-0.0.10` BUILDER bump made `os.ReadDir` compilable in
+cmd/bnc's tree).  Fully retired 2026-06-26 (`826d665e`) by deleting the shim.
