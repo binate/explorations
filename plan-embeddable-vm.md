@@ -305,16 +305,16 @@ becomes `NewGenCtx`.
    "M" estimate — 44 files (ripples through exported IR-gen API:
    `GeneratePackage`/`GenModule`/`RegisterSelfTypes`/`GenSyntheticFunc`),
    net-zero logic. **Subtlety:** `m.Checker` must be set *before*
-   `registerPkgImports` — import registration emits imported pkgs' `_Package`
+   `registerPkgImports` — import registration emits imported pkgs' `__Package`
    accessors via `reflectPackageStructType(m.Checker)`; the old global was set
    up front, so setting it only inside `GeneratePackage` was too late (caught
-   via a `_Package` link error in the vm/repl unit build). Verified:
+   via a `__Package` link error in the vm/repl unit build). Verified:
    builder-comp 1482/0, builder-comp-int 1467/0, gen2 self-host smoke 8/0.
    **Adversarial review follow-up (binate `95b3592b`):** the review found one
    more instance of the same ordering bug — the cmd/bnc *test runner* called
    `registerTestRunnerImports` (a 3rd import-registration entry the original
    fix missed) before setting `mainMod.Checker`, silently skipping imported
-   `_Package` accessors. Fixed + added `TestImportPackageAccessorRequiresChecker`
+   `__Package` accessors. Fixed + added `TestImportPackageAccessorRequiresChecker`
    pinning the BEFORE/AFTER contract, + refreshed 4 stale `currentChecker`/
    `SetChecker` comments. (Two-independent-checker test → inc 5's 5a;
    end-to-end two-session test → inc 5's 5d.)

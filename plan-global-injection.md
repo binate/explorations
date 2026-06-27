@@ -80,7 +80,7 @@ register {FQ-name → native address} into those tables and the read resolves �
 no name transformation, no double-alloc.
 
 - `reflect.bni`: add `GlobalInfo{Name, Addr}` + `Package.Globals *[]@GlobalInfo`.
-- `_Package()` synthesis: emit `&<global>` per exported global — same
+- `__Package()` synthesis: emit `&<global>` per exported global — same
   relocation shape as `FunctionInfo.Value`, but addend **0** (a `var` cell has
   no static-managed 2-word header, unlike function-value handles).
 - VM `RegisterPackageGlobals(vmInst, p)` mirrors `RegisterPackageFunctions`,

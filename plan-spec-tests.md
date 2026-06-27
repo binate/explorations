@@ -220,7 +220,7 @@ Interfaces** — both via the authoring fan-out.
 **Ch.16 Packages — PARTIAL, committed 2026-06-19** (binate `5c4c226c` nested
 multi-package harness + `f7ed4eb4` tests). Authored via a 5-way fan-out; **28
 tests, 21/22 rules (95%)**, green on compiler/VM/gen1/gen2/native_aa64 (VM: 3
-xfails — user-package `_Package` + C-call FFI, both VM non-goals). The
+xfails — user-package `__Package` + C-call FFI, both VM non-goals). The
 build-constraint group (`#[build(...)]`) needs real-mechanism rework — the lone
 GAP is `pkg.build.errors` (claude-todo, Ch.16 2026-06-19). Harness gain: run.sh
 now discovers nested multi-package tests under spec/. NOT yet landed on main
@@ -536,10 +536,10 @@ force-load (no-import calls + iface-type-needs-import negative); self-safety (Co
 value rejected / Hash-through-*Hashable accepted / Compare-via-generic-constraint accepted); the
 **float-NaN corner** -- current behavior pinned (NaN.Compare==0 for all pairs; distinct-NaN-bit-
 patterns Hash differently while Compare says equal) + the ratified IEEE-total-order intent pinned
-**xfail.all**. **reflect** -- interface-only surface; the synthesized immortal _Package() accessor
+**xfail.all**. **reflect** -- interface-only surface; the synthesized immortal __Package() accessor
 (STATIC_REFCOUNT sentinel, Name==import path, force-loaded unqualified); the Functions/Globals
-binding tables (decl order, _Package last, unexported excluded, the scalar-vs-aggregate RetbufSize
-discriminator, GlobalInfo.Addr as storage); the **vm-gap** (user-package _Package() unavailable
+binding tables (decl order, __Package last, unexported excluded, the scalar-vs-aggregate RetbufSize
+discriminator, GlobalInfo.Addr as storage); the **vm-gap** (user-package __Package() unavailable
 under the VM -> positive-compiled + xfail on the 3 VM modes; built-in packages need no xfail).
 **rt** (gated placeholder) -- reachability of the observable runtime surface + immortal sentinel.
 **testing** -- TestResult=@[]char alias transparency; *_test.bn excluded from a normal build.
@@ -575,10 +575,9 @@ Remaining: Phase C (retrofit existing `conformance/` tests with `.rules` tags �
 the tool already surfaces as UNTAGGED); and the spec-coverage `--run` increment (per-mode
 pass/xfail in the report, currently static-only). Both are separate go-aheads.
 
-> _Coordination note (2026-06-26)._ A concurrent docs commit renamed the synthesized reflection
-> accessor `_Package` → `__Package` in the SPEC, but the binate IMPL still emits `_Package` (no impl
-> commit yet). The Ch.20 reflect tests (`conformance/spec/20-tier0/020`–`023`) hard-code `_Package`
-> and pass on current main; when the impl rename lands, those tests must be updated in lockstep.
+> _Coordination note (2026-06-26, resolved)._ The synthesized reflection accessor rename to
+> `__Package` has landed across the spec, the binate impl (now emits `__Package`), and the Ch.20
+> reflect tests (`conformance/spec/20-tier0/020`–`023`), which are green on current main.
 
 ## 10. Appendix — example spec tests
 

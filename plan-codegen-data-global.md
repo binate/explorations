@@ -1,7 +1,7 @@
 # `ir.DataGlobal` unification (todo #119)
 
 Unify module-level **static data** (string constants, package globals, impl /
-func-value vtables, the per-package `_Package` reflect descriptor) onto one
+func-value vtables, the per-package `__Package` reflect descriptor) onto one
 backend-neutral IR representation — `ir.DataGlobal` — that the LLVM and native
 backends each lower through **one `emitDataGlobal`**, so byte layout is
 described ONCE and cannot drift between backends.
@@ -25,7 +25,7 @@ expressivity `ir.Global.Init` (an int-only `@Instr`) lacks.
 
 ## Migration order + status
 
-1. **✅ DONE & LANDED — foundation + `_Package` descriptor NODE+name** (binate
+1. **✅ DONE & LANDED — foundation + `__Package` descriptor NODE+name** (binate
    `1ae1b52b`, 2026-06-21). `ir.DataGlobal` + `emitDataGlobal` (both backends) +
    `ir.BuildPackageDescriptor` (the descriptor node + name-bytes layout, one
    source of truth); both backends' descriptor emitters call it instead of
@@ -39,7 +39,7 @@ expressivity `ir.Global.Init` (an int-only `@Instr`) lacks.
    the native descriptor code is arch-agnostic, arm32 is the builder-comp LLVM
    path.)
 
-2. **✅ DONE & LANDED — `_Package` info-node tables + backing arrays** (binate
+2. **✅ DONE & LANDED — `__Package` info-node tables + backing arrays** (binate
    `b2667902`, 2026-06-22). One shared builder `ir.BuildPackageDescriptors`
    lays the FunctionInfo/GlobalInfo/VtableInfo nodes + their name/sig rodata +
    the `_pkg_funcs/globals/vtables` backing arrays (per-kind builders in
@@ -47,7 +47,7 @@ expressivity `ir.Global.Init` (an int-only `@Instr`) lacks.
    row metadata + lower via `emitDataGlobal`. Deleted `emit_pkg_{functions,
    globals,vtables}.bn`, `common_pkg_{functions,globals,vtables}.bn`,
    `EmitPackageDescriptorData`, and `emit_static_managed.bn`'s
-   `emitStaticManagedGlobal` — the interim native `_Package` emitter
+   `emitStaticManagedGlobal` — the interim native `__Package` emitter
    (`f7d116f3`) is fully retired (net −529 lines). The info-node PAYLOAD
    pointer (FunctionInfo.Pkg + every backing-array entry) carries addend
    `2*IntSize` (the managed-header size), not a hardcoded 16, so it is correct

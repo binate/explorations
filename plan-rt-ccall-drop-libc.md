@@ -114,7 +114,7 @@ A, with this rationale, which supersedes my recommendation:)
 > B forces you to register specific C functions, and then to *know which
 > C functions you need* — a standing maintenance/knowledge burden. The
 > long-term direction is to register arbitrary native implementations at
-> the **package level** (the `_Package` infra being built now), and for
+> the **package level** (the `__Package` infra being built now), and for
 > perf we'd want the entire standard library registered as native. `rt`
 > is fundamental enough that "rt **must** be native" is a clean,
 > acceptable invariant.

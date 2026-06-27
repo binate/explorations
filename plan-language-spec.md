@@ -117,7 +117,7 @@ commit):**
 - §16 Packages and Program Structure (`16-packages-and-program-structure.md` core
   + `16b-build-constraints.md` annotations/build/FFI), authored 2026-06-12 (docs
   `21d4901`): grounded (4 readers) → drafted → verified → corrected. No NEW
-  untracked defects (aliased-imports-broken, _Package VM gap, int-int multi-pkg
+  untracked defects (aliased-imports-broken, __Package VM gap, int-int multi-pkg
   crash all already tracked).
 - §17 Program Initialization and Execution (`17-program-initialization-and-execution.md`),
   authored 2026-06-12 (docs `03a0bb6`): grounded (5 readers) → drafted → verified

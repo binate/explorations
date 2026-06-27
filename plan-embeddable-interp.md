@@ -158,7 +158,7 @@ program I/O flows through the stdlib / `pkg/bootstrap` externs.  Redirecting I/O
 extern/stdlib set", not "add an I/O knob".
 
 **Layer 1 — LANDED `71748fa4`.** Moved the standard-set POLICY (which packages:
-the rt/reflect/bootstrap `_Package` descriptors, rt/reflect auto-enumeration,
+the rt/reflect/bootstrap `__Package` descriptors, rt/reflect auto-enumeration,
 the `pkg/bootstrap` C surface) out of `pkg/binate/vm` into the host
 (`pkg/binate/interp`).  The VM keeps only the MECHANISM
 (`RegisterPackageFunctions/Globals/Vtables` + `RegisterVmTrampolines`).  This
@@ -170,7 +170,7 @@ test support routes through interp.
 
 **Layer 2 — LANDED `c843eab7`.** `New(stackSize, pkgs @[]@reflect.Package)`
 takes the inject-set; empty/nil → `StandardPackages()` (newly exported = the
-pkg/std set).  The engine substrate (rt + reflect + the `_Package` accessors +
+pkg/std set).  The engine substrate (rt + reflect + the `__Package` accessors +
 the bootstrap C surface + the VM trampolines) is always installed, not
 swappable.  `injectPackageSet` does the per-package binding; `cmd/bni` passes
 `StandardPackages()`.  An embedder targeting wasm passes a set whose I/O package
@@ -196,7 +196,7 @@ interpreter.  The coherent capability is letting the embedder
 **inject/override/shadow arbitrary already-imported functions** — so the
 embedder just provides its own `os.Args()` binding without touching the shared
 package.  The constructive (heavyweight) alternative is forcing the embedder to
-build/wrap all of `os._Package`, selectively replacing the functions it wants to
+build/wrap all of `os.__Package`, selectively replacing the functions it wants to
 modify.  This is the natural Layer-2+ generalization of "host chooses the
 externs": per-symbol override on top of the package inject-set.
 

@@ -140,7 +140,7 @@ opposite handling: compiled → terminate; interp → recoverable.
 
 ### Approach (per the user — simpler than a source split)
 rt is **injected into the VM** (`RegisterStandardExterns` →
-`RegisterPackageFunctions(vmInst, rt._Package())`), exactly like the stdlib. So
+`RegisterPackageFunctions(vmInst, rt.__Package())`), exactly like the stdlib. So
 user-bytecode `rt.*` already dispatches to the *injected* rt. A user div-by-zero
 runs `rt.DivCheck → rt.Panic/Abort`, which dispatches to **whatever the VM
 injected**. So the VM can inject a **VM-specific** `rt.Abort`/`rt.Panic` — no

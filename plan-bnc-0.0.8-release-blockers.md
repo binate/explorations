@@ -284,7 +284,7 @@ audited; docs corrected.
 5. **Perf/Unit/hygiene confirm**: hygiene GREEN (13/13). **Unit RED**, but
    pre-existing and NOT from any release lane: `pkg/binate/{vm,repl}` + `cmd/bni`
    fail to link on `builder-comp_native_aa64` unit mode (undefined
-   `_bn_pkg__*___Package` from `RegisterStandardExterns` — the Phase-B `_Package`
+   `_bn_pkg__*___Package` from `RegisterStandardExterns` — the Phase-B `__Package`
    VM-extern feature; reproduces locally; not xfailed), plus a
    `builder-comp-int-int` unit timeout. Perf RED only on `native_x64` (ELF —
    Lane A compiled-link family; native_aa64 Perf passes). Filed in

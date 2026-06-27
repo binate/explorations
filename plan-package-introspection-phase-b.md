@@ -3,7 +3,7 @@
 **Status: NOT STARTED** — design ratified; the owner resolved the key B0 calls on
 2026-06-10 (see "Owner decisions" below), so the B0 `FunctionInfo` ABI is locked.
 One design question stays open — whether/how an interpreted package gets a real
-`_Package()` (see B2). This plan supersedes the Phase-B sections of
+`__Package()` (see B2). This plan supersedes the Phase-B sections of
 [`notes-package-introspection.md`](notes-package-introspection.md) (the design notes)
 and refines the `claude-todo.md` entry "Package descriptors (Phase B) — general
 Functions-table still future".
@@ -47,7 +47,7 @@ critical reflection consumer in Binate. RTTI / structured type metadata (Phase A
 - Every compiled module emits, keyed off its package path, three symbols:
   - name rodata: `mangle.GlobalName(pkg, "_pkgname")` → `bn_<pkg>___pkgname`
   - descriptor node: `mangle.GlobalName(pkg, "_pkg_info")` → `bn_<pkg>___pkg_info`
-  - accessor: `mangle.FuncName(pkg, "_Package")` → `bn_<pkg>___Package`
+  - accessor: `mangle.FuncName(pkg, "__Package")` → `bn_F...`
 - The node is an **immortal static-managed** `reflect.Package` riding the
   `rt.STATIC_REFCOUNT` sentinel (see
   [`plan-static-managed-sentinel.md`](plan-static-managed-sentinel.md)): a 2-word
@@ -62,13 +62,13 @@ critical reflection consumer in Binate. RTTI / structured type metadata (Phase A
   `native/{aarch64,x64}/*_pkg_descriptor.bn` (called from `aarch64.bn:54` /
   `x64.bn:62`).
 - Type-check / IR wiring: `types/check_expr_access.bn:packageAccessorType`
-  synthesizes `func() @reflect.Package` at the `pkg._Package` selector;
-  `ir/gen_import.bn:322-343` registers `_Package` as an imported extern;
+  synthesizes `func() @reflect.Package` at the `pkg.__Package` selector;
+  `ir/gen_import.bn:322-343` registers `__Package` as an imported extern;
   `gen_import.bn:181:qualifiedReflectPackageType` rebuilds the struct with the
   path-dotted name so the mangler folds to the defining package's symbol.
 - VM precursor: `vm/extern_register_std.bn:registerPackageDescriptorExterns`
-  hand-binds the builtin packages' `_Package` accessors as externs.
-- `conformance/532_reflect_package_accessor` (`rt._Package().Name` →
+  hand-binds the builtin packages' `__Package` accessors as externs.
+- `conformance/532_reflect_package_accessor` (`rt.__Package().Name` →
   `"pkg/builtins/rt"`) green in all 6 default modes.
 
 **Phase B ADDS:**
@@ -187,10 +187,10 @@ The filter must be `.bni-exported AND non-IsExtern AND in mod.Funcs`. The native
 emitters deliberately *skip* cross-module references (`x64_funcvalue.bn:collectFuncValueRefs`,
 `emit_funcvals.bn:lookupFuncValueType` exclude `IsExtern` / not-in-`mod.Funcs`)
 precisely to avoid duplicate `__vt`/`__handle` symbols breaking Mach-O strict-symbol
-linking — the same class as the native-`_Package` link bug fixed in `f7d116f3`.
+linking — the same class as the native-`__Package` link bug fixed in `f7d116f3`.
 Getting the force-emit filter wrong re-introduces that bug class. Each local table
 references **local** `@__handle` symbols only; cross-package access is a *runtime*
-walk via each package's own `_Package()` accessor.
+walk via each package's own `__Package()` accessor.
 
 ### D3b. The exported surface is the package's `.bni` — NOT capitalization
 
@@ -244,27 +244,27 @@ already lower identically — zero new section/object/format plumbing — and ex
 naturally to the VM. It also makes opt-in stripping (notes Q1) trivial later (filter
 the driver's package list) where a passive section cannot.
 
-### D5. Builtins and bytecode packages reach the table by different *emission* paths — but an interpreted package should still get a real `_Package` (owner steer)
+### D5. Builtins and bytecode packages reach the table by different *emission* paths — but an interpreted package should still get a real `__Package` (owner steer)
 
 - **Builtins** (rt, bootstrap, reflect): real native symbol, **no `VMFunc`** (skipped
   from VM lowering, `cmd/bni/main.bn:92,96,196,200`). Reached via `execExtern → vm.Externs`.
   Their table is the *compiled* `__pkg_info` symbol, bound as an extern. **This is B1.**
 - **User bytecode packages**: lowered to `VMFunc` (`vm/lower.bn:187-192`), resolvable
   by mangled name (`func_index.bn`/`LookupFunc`), but today have **no native symbol and no
-  `_Package` body at all** — `_Package` is backend-only emission (`gen_import.bn:322-343`
+  `__Package` body at all** — `__Package` is backend-only emission (`gen_import.bn:322-343`
   registers it as an imported-extern *declaration*; it is never an `ir.Func`, never
-  VM-lowered). So `pkg._Package()` resolves today **only** for the three host-compiled
+  VM-lowered). So `pkg.__Package()` resolves today **only** for the three host-compiled
   builtins.
 
-**Owner steer (2026-06-10): an interpreted package really should get a `_Package` too.**
-That makes uniform `pkg._Package()` resolution the *design goal*, not a thing to declare
+**Owner steer (2026-06-10): an interpreted package really should get a `__Package` too.**
+That makes uniform `pkg.__Package()` resolution the *design goal*, not a thing to declare
 impossible — but it is a genuine gap to close, because a bytecode package emits no
 descriptor. The VM would **synthesize** the descriptor + Functions table at
 `vm.LowerModule` time from the package's `.bni`-derived export set (D3b), manufacturing
 each entry's function-value via the existing BC_FUNC_VALUE/BC_FUNC_HANDLE Path-B
 machinery (`vm_exec_funcref.bn`, `TrampolineScalar`/`Aggregate`). The two paths still
 converge at the binding API (`vm.RegisterExtern`, or a sibling trampoline-shaped
-registry), but the *semantic* surface (`pkg._Package().Functions`) becomes uniform.
+registry), but the *semantic* surface (`pkg.__Package().Functions`) becomes uniform.
 **The "how" is still being designed — see B2; it is the one open call in this plan.**
 
 ### D6. The trampolines and the cmd/bni host overrides stay hand-registered
@@ -295,7 +295,7 @@ So: Phase B builds the table on the **current** per-backend emitters, behind a t
 **shared layout seam** (one function laying the table given the exported-func list,
 called by each backend — exactly as `common.EmitPackageDescriptorData` already bounds
 the Name-only descriptor). The `.bni` is the authoritative offset contract. When
-DataGlobal lands, its `_Package` migration step (which `claude-todo.md:1517` already
+DataGlobal lands, its `__Package` migration step (which `claude-todo.md:1517` already
 marks as deleting `emit_pkg_descriptor.bn` + `common_pkg_descriptor.bn`) re-expresses
 that **one shared layout function** as DataGlobal terms — throwaway-once, bounded by the
 seam, not throwaway-twice. Building the table now also gives DataGlobal a *second,
@@ -353,7 +353,7 @@ Work:
    format only has to be deterministic and stable.
 
 Tests:
-- Extend `conformance/532_reflect_package_accessor` to read `rt._Package().Functions`
+- Extend `conformance/532_reflect_package_accessor` to read `rt.__Package().Functions`
   (assert `len` and a known entry's `Name`, e.g. `"pkg/builtins/rt.Alloc"`, and its
   `ResultSize`).
 - Update the pinned LLVM unit tests `codegen/emit_pkg_descriptor_test.bn` — **both the
@@ -374,7 +374,7 @@ Work:
 - In `vm/extern_register_std.bn`, replace `registerRtExterns` /
   `registerBootstrapExterns` / `registerPackageDescriptorExterns` with an enumerator
   that, for each host-compiled builtin package (rt, bootstrap, reflect), calls
-  `pkg._Package().Functions` and, per `FunctionInfo`, calls
+  `pkg.__Package().Functions` and, per `FunctionInfo`, calls
   `vmInst.RegisterExtern(fi.Name, &fi.Value, fi.ResultSize, bit_cast(int, fi.Value))`.
   `RegisterExtern` (`vm.bn:277`) is **unchanged** — it already derives the 5-field
   `ExternBinding` from exactly `(name, fvAddr, resultSize, rawFnAddr)`, which the entry
@@ -408,16 +408,16 @@ Auto-inject grows N toward hundreds. Migrate `Externs` to the open-addressing ha
 already used for `VM.Funcs` (`IndexBuckets`/`IndexMask`, `vm.bni:544`) **only if
 profiling shows it matters** — do not pre-optimize. Independently landable, gates nothing.
 
-### B2 — An interpreted package gets a real `_Package` + Functions table (OPEN design)
+### B2 — An interpreted package gets a real `__Package` + Functions table (OPEN design)
 
 A **different emission mechanism** (D5), not an extension of B1. **This is the one slice
 whose design the owner wants to think through further (2026-06-10)** — the steer is that
-an interpreted package should get a real `_Package()`, so the sketch below is a direction,
+an interpreted package should get a real `__Package()`, so the sketch below is a direction,
 not a ratified design.
 
 **Why B2 matters beyond this injection use-case (owner, 2026-06-10):** function-injection
 is only the *first* consumer that surfaces the gap. A VM-resolvable, real per-package
-`_Package` is the substrate the broader reflection roadmap rides on — Phase A identity
+`__Package` is the substrate the broader reflection roadmap rides on — Phase A identity
 RTTI and Phase C type metadata (`notes-package-introspection.md`) both hang off the
 per-package descriptor, and runtime **type assertions** need that descriptor to resolve in
 VM mode. So B2 will eventually be needed for those even where whole-package injection is
@@ -433,14 +433,14 @@ Sketch / things to settle:
   `data=VMClosureRec`.
 - The VM **synthesizes** the descriptor + table at `vm.LowerModule` time
   (`vm/lower.bn:152`) — a bytecode package emits neither today. Settle whether
-  `pkg._Package()` in bytecode mode dispatches to this VM-built descriptor (the
+  `pkg.__Package()` in bytecode mode dispatches to this VM-built descriptor (the
   uniformity goal) and how the static-managed sentinel is modeled when the node lives in
   VM heap rather than a data section.
 - **Open:** do bytecode entries reuse `vm.Externs` (native-symbol/shim-shaped) or a
   sibling registry keyed by mangled qualified name (trampoline-shaped)? See "Still open".
 
 Tests: a conformance/unit test that defines an exported func in a user package, then reads
-`pkg._Package().Functions` and binds + calls an entry by name through the VM-built table.
+`pkg.__Package().Functions` and binds + calls an entry by name through the VM-built table.
 
 Keeps green: additive — covers a case B1 structurally cannot.
 
@@ -481,14 +481,14 @@ Resolved; folded into the ratified decisions above.
 2. **`bootstrap.format*` are exported** (they are in `bootstrap.bni`) — they auto-inject;
    there is no "unexported helper" special case. The whole export model is `.bni`-driven,
    not capitalization. (D3b, D6.)
-3. **An interpreted package should get a real `_Package` too** — uniform `pkg._Package()`
+3. **An interpreted package should get a real `__Package` too** — uniform `pkg.__Package()`
    is the goal. The *how* still needs design → B2 is left OPEN.
 4. **`ir.DataGlobal` ordering: per-backend-now** behind the shared seam; DataGlobal
    absorbs it later. Accepted as added tech debt. (D7.)
 
 ### Still open
 
-1. **B2 design — how an interpreted package gets its `_Package`** (decision #3 above). The
+1. **B2 design — how an interpreted package gets its `__Package`** (decision #3 above). The
    sub-questions: a VM-synthesized descriptor at `LowerModule` time; how the static-managed
    sentinel is modeled for a VM-heap node; and whether bytecode entries reuse `vm.Externs`
    or a sibling trampoline-shaped registry keyed by mangled qualified name. The owner wants
@@ -505,7 +505,7 @@ Resolved; folded into the ratified decisions above.
 
 ## Risks
 
-1. **Three-backend lockstep.** The proven failure: native `_Package` shipped late →
+1. **Three-backend lockstep.** The proven failure: native `__Package` shipped late →
    MAJOR link bug (`f7d116f3`). B0's force-emit change touches `emit_funcvals.bn` +
    `x64_funcvalue.bn` + `aarch64_funcvalue.bn` and **must land together** or `@__handle`
    references dangle on the un-updated backend. Mitigation: the shared layout seam (D7) +
