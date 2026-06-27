@@ -4,6 +4,45 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR (codegen / undefined symbol) — a NAMED managed-slice as a struct FIELD references an undefined `__copy_ms_int` copy helper -> compiled-backend link failure (2026-06-27) — 🔴 OPEN — REPRODUCED
+
+**Symptom.** `type Buf @[]int; type Row struct { data Buf }; var r Row = Row{data: b}`
+compiles to a call to `@bn_..._13___copy_ms_int(...)` that is never declared or
+defined, so clang fails to link (`use of undefined value '@...__copy_ms_int'`) on
+every compiled backend (LLVM + native).  A plain unnamed `@[]int` field works; the
+bytecode VM is unaffected (prints the right value).  So the per-element copy helper
+for a NAMED managed-slice struct field is referenced but never emitted — the named
+wrapper diverges from the plain `@[]T` field's copy path.
+
+**Discovery.** Surfaced by an adversarial review of the no-init / emitAlloc zero-fill
+work (`97cd239c` / `48ed3393`).  Pre-existing (reproduces on the parent), NOT from
+that work.  Distinct from the native-aa64 named-managed-slice index/len gap behind
+`904`'s xfail (this one fails at LINK on LLVM too).
+
+**Test.** `conformance/913_named_slice_struct_field` (xfail on every compiled mode;
+the VM modes run it and pass).
+
+**Root cause.** Unknown — needs investigation.  Likely the struct-copy / helper-
+manifest emission keys off the un-peeled field Kind (TYP_NAMED), emitting the call
+but skipping the `__copy_ms_<elem>` helper declare/define for a named managed-slice
+field — the same un-peeled-Kind family as the 033 subslice and 910 no-init bugs.
+
+## MINOR (c-call / latent ABI) — `__c_call` with a binate `int` return for a C function returning C `int` (32-bit) is UB on x86-64 (2026-06-27) — 🟡 OPEN
+
+A C function returning C `int` is 32-bit, but binate `int` is 64-bit on a 64-bit
+target.  Annotating the `__c_call` return as `int` emits `call i64 @fn`, reading the
+full return register; the upper bits are unspecified for a sub-word C return, and on
+x86-64 `mov eax,-1` zeroes the upper half of RAX, so -1 reads back as 4294967295.
+This is exactly the os.Stat-missed-ENOENT bug that broke all Linux compiled CI
+(fixed `3111375e` / `a3384975` by switching the stat-family + closedir to `int32`).
+A repo-wide audit found only those sites; the rest correctly use `int` for C
+`ssize_t`/`long` (pointer-width) or explicit `int32` for C `int`.  **Prevention
+(recommended):** have the type-checker reject a binate `int` for a `__c_call` return
+whose C type is a fixed-width C `int`, forcing an explicit `int32`; or at minimum a
+binate-coding-guide / plan-c-call.md note "use the C-ABI-matching width for __c_call
+returns — C `int` is `int32`, not `int`."  Low severity (no remaining known
+instances) but a real footgun.
+
 ## MAJOR (VM / wrong-output) — `stdlib/math` float64 classification mis-marshals across the VM↔native boundary on an x86-64 host VM (`builder-comp-int` / `builder-comp-comp-int`); aarch64 host VM + all compiled backends correct (2026-06-22) — 🔴 OPEN
 
 `conformance/stdlib/math/001_classify_round` (Float64bits round-trip, Abs/Signbit/

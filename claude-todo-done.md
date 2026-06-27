@@ -8,6 +8,24 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (`3111375e` + `a3384975`, 2026-06-27) — os.Stat/Lstat/fstat (+ closedir) read a 32-bit C int return as the 64-bit binate int -> missed ENOENT on x86-64 -> broke all Linux compiled CI
+
+The C stat/lstat/fstat/closedir return a 32-bit C `int`, but the os wrappers
+annotated the `__c_call` return as the 64-bit binate `int` (`call i64 @stat`).
+Reading a sub-word C return as i64 is UB: on x86-64 `mov eax,-1` zeroes the upper
+half of RAX, so a -1 failure reads back as 4294967295 (>= 0).  `os.Stat` of a missing
+path then silently "succeeded", which broke `findStubsFile` (it stat-tests for an
+optional `rt_stubs.c` the checkout doesn't ship, then linked the non-existent path)
+-> every Linux compiled CI build failed (clang: no such file rt_stubs.c).
+macOS-arm64 happened to read -1 back correctly, masking it locally.  The os package
+migrated onto `__c_call` (off the bootstrap C shims) in `2b995f14`, which is when the
+toolchain started hitting it.  Fix: annotate the C-int returns as `int32` and
+sign-extend to the `int` result (read/write/pread/pwrite keep `int` — C ssize_t is
+64-bit on LP64).  Test: `conformance/stdlib/os/008_stat_errors` pins the error path
+(003_stat covered only success).  Repo-wide `__c_call` audit: only the stat-family +
+closedir were affected.  Follow-up filed: a type-checker reject / guideline to
+prevent the class (see the MINOR c-call entry in claude-todo.md).
+
 ## ✅ FIXED & LANDED (binate `323f2669`, docs `5ed744d`, 2026-06-26) — tagless `switch { … }` SIGSEGV in IR-gen; tagless cases now required to be bool
 
 **Crash.** A tagless switch (`switch { case n>0: … default: … }`, the `switch
