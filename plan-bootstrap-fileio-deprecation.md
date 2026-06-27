@@ -13,6 +13,16 @@ This doc classifies the **remaining** consumers of the bootstrap file-IO
 `bootstrap.{Open,Read,Write,Close,Stat,ReadDir}` (the C shims in
 `runtime/binate_runtime.c` + their VM-extern registrations) has a clear path.
 
+**UPDATE (2026-06-26, landed `f5137f0a`).** The bucket-2 tests (142, 343) are
+DONE — moved to a self-contained VM unit test
+(`pkg/binate/vm/vm_extern_mechanism_test.bn`) that registers purpose-built test
+externs and drives `execExtern` through the real bytecode pipeline; the
+conformance files are deleted. Verified in both comp and `builder-comp-int`
+(the test-local externs dispatch correctly through the VM's cross-mode
+trampoline — the new path the `pkg/builtins`-vs-runner-only analysis below was
+weighing). Remaining: bucket-1 deletions (081, 277) and the shim removal, both
+gated on the surface deprecation itself.
+
 Related: [`plan-bootstrap-ccall.md`](plan-bootstrap-ccall.md) (convert the C
 I/O impls to `.bn` + `__c_call`, a separate axis).
 
@@ -47,7 +57,7 @@ println *lowering*). The four real ones:
   return + the VM's `Stat`-extern registration. `os.Stat`'s `IsDir()` mapping
   is covered by the `os` tests + the landed migration. Delete with the surface.
 
-### Bucket 2 — incidental file-IO; the real subject is the VM↔native extern mechanism
+### Bucket 2 — incidental file-IO; the real subject is the VM↔native extern mechanism — DONE (`f5137f0a`)
 
 Neither of these is a file-IO test. Each uses a bootstrap file-IO function as a
 convenient **registered native extern** to exercise the VM's `BC_CALL` →
@@ -120,8 +130,9 @@ modes, which a VM unit test covers directly.
 ## Removal checklist (when the surface is deprecated)
 
 1. Delete conformance `081`, `277` (bucket 1).
-2. Move 343/142 coverage to `pkg/binate/vm` unit tests with a self-registered
-   test extern (bucket 2); delete the conformance files.
+2. ~~Move 343/142 coverage to `pkg/binate/vm` unit tests with a self-registered
+   test extern (bucket 2); delete the conformance files.~~ DONE (`f5137f0a`):
+   `pkg/binate/vm/vm_extern_mechanism_test.bn`.
 3. Remove the bootstrap file-IO extern registrations from
    `pkg/binate/interp/externs.bn` + `extern_test_helpers_test.bn`.
 4. Delete the `bn_F2_3_pkg9_bootstrap1_{Open,Read,Write,Close,Stat,ReadDir}` C
