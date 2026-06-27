@@ -164,11 +164,30 @@ expressivity `ir.Global.Init` (an int-only `@Instr`) lacks.
      (the runtime's `MakeManagedSlice` sets `BackingLen = length`).  Now writes
      `len`; conformance `905` reslices a readonly string-literal managed-slice and
      reads word 3.  Discovered while planning 4d.
-   - **⬜ 4d — `.ms` header unify (both backends):** `ir.BuildStringMSHeader`; LLVM
-     `.ms` routes through it (becomes anonymous `{ptr,iN,ptr,iN}`,
-     opaque-pointer-equivalent — typed `load %BnManagedSlice` consumers still
-     resolve); native emits the static `.ms` and rewrites both arches'
-     `emitRodataSliceHeader` to reference it.
+   - **✅ 4d LANDED (binate `4b8807c6`, 2026-06-26):** `.ms` header unify (both
+     backends).  LLVM `.ms` routes through `ir.BuildStringMSHeader` (private,
+     anonymous `{ptr,iN,ptr,iN}` — the typed `load %BnManagedSlice` consumers
+     resolve identically under opaque pointers, clang-verified).  Native:
+     `emitStringTable` now also emits a static `.ms` per string and
+     `emitRodataMSliceOrSlice` LEAs/ADRPs it instead of building the 4-word header
+     on the stack per use.  Two native subtleties (caught ONLY by the native
+     self-host — units + targeted smokes passed at every wrong step):
+     (1) the `.ms` carries a relocation → lives in `data` (4b's Mach-O text-reloc
+     constraint), and a `data` symbol reached from text must be a symbol-table
+     entry, so the `.ms` is a module-qualified **WEAK** symbol (like impl
+     vtables), reached via `SetGlobal` + ADRP/LEA — NOT a local label;
+     (2) `OP_RODATA_MSLICE/SLICE` no longer reserve a stack data slot (removed from
+     the `native/common` aggregate-alloca list) — their result is a pointer to the
+     immortal static `.ms` in the result register, and aggregate consumers resolve
+     an operand via `LookupAlloc` FIRST, so a reserved-but-unwritten slot would
+     shadow the register.  `BuildStringMSHeader` takes a linkage param (LLVM
+     DG_LOCAL / native DG_WEAK).  Full LLVM gen1+gen2 2413/0, native-aa64 self-host
+     2409/0, arm32 ILP32 smoke, units 7/0, hygiene 15/15, adversarial review
+     (5 dims + verify) — zero real correctness defects; hardening tests added
+     (ILP32 `.ms`, native weak-`.ms` emission, LLVM anon-struct `.ms` def).
+   **STRINGS PHASE COMPLETE** (4a/4b/4c/4d + the backing_len MAJOR fix).  Both the
+   byte blob and the `.ms` header are now single-source.  **Next: phase 5 —
+   Globals.**
    **Dedup preserved for free** (emission only iterates `m.Strings`).  The **VM**
    re-derives strings into heap allocations and never touches `DataGlobal` —
    untouched.
