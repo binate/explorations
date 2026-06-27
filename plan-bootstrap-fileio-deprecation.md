@@ -4,11 +4,20 @@ Status: **COMPLETE — the bootstrap file-IO surface is retired** (landed
 `826d665e`, 2026-06-26).  `bootstrap.{Open,Read,Close,Stat,ReadDir}` and their
 `O_*`/`STD*` constants are gone from the `.bni`, the baremetal impl, the
 runtime-C shims, and the VM extern registrations; conformance `081`/`277` are
-deleted.  Kept on purpose: `Write` (the print/println lowering's I/O sink),
-`Exit`/`Args`/`Exec` (process control, no `os` equivalent), and the format
-helpers.  Retiring `Write` would require migrating the print/println lowering's
-sink off `bootstrap` — a separate codegen task (the long-standing `println`
-temporary-hack item), out of this plan's scope.
+deleted.  Kept (at the time): `Write` (the print/println lowering's I/O sink),
+`Exit`/`Args`/`Exec` (process control), and the format helpers.
+
+**Follow-on (landed `1a14b3ef`, 2026-06-27): `bootstrap.Exit` retired too.**
+Once `os.Exit` became BUILDER-compilable (`bnc-0.0.10`), the toolchain's exit
+calls moved to `os.Exit` (`415e7a3a`), conformance de-Exit'd (`db6e05eb`), the
+native exit-code mechanism tests repointed to `EmitCCall("exit")`, and the
+function (`.bni` decl + runtime-C shim + baremetal impl + VM registrations) was
+removed.  The bootstrap surface is now just **`Write`, `Args`, `Exec`, and the
+format helpers**.  Retiring `Write` would still require migrating the print/
+println lowering's sink off `bootstrap` — a separate codegen task (the
+long-standing `println` temporary-hack item; cf. a concurrent
+`plan-print-builtin-runtime-decoupling.md`).  `Args`/`Exec` have no `os`
+equivalent yet.
 
 The landing arc (all 2026-06-26):
 - `2b995f14` + `f84c4884` + `a0a8ea96` — toolchain (cmd/bnc, loader,
@@ -39,8 +48,9 @@ I/O impls to `.bn` + `__c_call`, a separate axis).
    `bn_F2_3_pkg9_bootstrap1_*` (Open/Read/Write/Close/Stat/ReadDir) + the
    `ifaces/core/pkg/bootstrap.bni` declarations.
 
-`bootstrap.{Exec,Args,Exit}` are **process control, not file I/O**, and have
-no `os` equivalent yet — they are out of scope for this deprecation.
+`bootstrap.{Exec,Args}` are **process control, not file I/O**, and have no `os`
+equivalent yet — out of scope for *this* (file-IO) deprecation.  (`Exit` was a
+follow-on retirement once `os.Exit` landed — see the Status note above.)
 
 ## Conformance-test classification
 
