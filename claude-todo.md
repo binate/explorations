@@ -1071,6 +1071,11 @@ question).
 
 ## MAJOR
 
+### MINOR (ILP32-native readiness) — native `_Package` accessor hardcodes the 16-byte managed-header offset (LP64-only) — FILED 2026-06-27
+- **What**: the per-arch native `_Package()` accessor adds a literal `16` to reach the descriptor node's payload past the managed header (`pkg/binate/native/aarch64/aarch64_pkg_descriptor.bn:54` ADRP+add+16; `pkg/binate/native/x64/x64_pkg_descriptor.bn:48` LEA+16). The DATA side already uses `2*IntSize` (the DataGlobal addend, ILP32-correct), so only the accessor is LP64-pinned.
+- **Not a current bug**: there is no 32-bit NATIVE target today — arm32 (ILP32) compiles via the LLVM backend, and the native backends (aarch64/x64) are LP64-only. The hardcoded 16 = `2*IntSize` on LP64, so it's correct everywhere it currently runs.
+- **Fix when a 32-bit native target lands**: replace the literal 16 with `2 * types.GetTarget().IntSize` (8 on ILP32) in both per-arch accessors. Surfaced by the #119 DataGlobal capstone review; outside DataGlobal's own scope (the accessor is code, not a DataGlobal).
+
 ### PROJECT — relro section infra (Mach-O `__DATA_CONST,__const` / ELF `.data.rel.ro`) for relocatable read-only data — FILED 2026-06-22
 - **Surfaced by**: DataGlobal Inc 4b (strings phase). The native `EmitDataGlobal` now routes a read-only blob to the `rodata` section ONLY if it is RELOC-FREE — because `rodata` maps to Mach-O `__TEXT,__const`, and Mach-O's linker rejects any relocation whose patched location is in `__TEXT` ("illegal text-relocation"). Verified the hard way: routing the symref-bearing `_pkg_info` descriptor node into `__TEXT,__const` produced `ld: Found illegal text-relocations … '_pkg_info'+0x10 to '_pkgname'`.
 - **Current state (acceptable, user-ratified)**: relocatable read-only blobs — the `_pkg_info` node + `_pkg_funcs/globals/vtables` backing arrays, every info node, all func-value + impl vtables, and the string `.ms` header — stay in the writable `data` section (exactly as before the rodata split). They are immortal and never written, so this is functionally fine; it's only a defense-in-depth gap (read-only data sitting in a writable section). Only reloc-free blobs (string bytes, `_pkgname`, info-node name/sig) reach true rodata.
