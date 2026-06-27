@@ -67,28 +67,40 @@ resolves `stmt.switch.break` to Go-like (break-exits-switch) — hence the decis
 **Pinned:** to add — an xfail positive under conformance/spec/14-statements/
 (`switch { case true: r=1; break; r=999 }` expecting 1, currently 999).
 
-## MAJOR (codegen / undefined symbol) — a NAMED managed-slice as a struct FIELD references an undefined `__copy_ms_int` copy helper -> compiled-backend link failure (2026-06-27) — 🔴 OPEN — REPRODUCED
+## MAJOR (native codegen) — a NAMED managed-slice struct FIELD emits no output on the native backends (2026-06-27) — 🔴 OPEN — REPRODUCED
 
-**Symptom.** `type Buf @[]int; type Row struct { data Buf }; var r Row = Row{data: b}`
-compiles to a call to `@bn_..._13___copy_ms_int(...)` that is never declared or
-defined, so clang fails to link (`use of undefined value '@...__copy_ms_int'`) on
-every compiled backend (LLVM + native).  A plain unnamed `@[]int` field works; the
-bytecode VM is unaffected (prints the right value).  So the per-element copy helper
-for a NAMED managed-slice struct field is referenced but never emitted — the named
-wrapper diverges from the plain `@[]T` field's copy path.
+**Symptom.** `type Buf @[]int; type Row struct { data Buf }; ... println(r.data[0])`
+prints nothing (empty stdout) on the native backends (x64 / aa64 / arm32); the LLVM
+backend prints `7`.  Deterministic — reproduces under x86_64 emulation, so it is a
+real native-codegen defect, not uninitialized memory.
 
-**Discovery.** Surfaced by an adversarial review of the no-init / emitAlloc zero-fill
-work (`97cd239c` / `48ed3393`).  Pre-existing (reproduces on the parent), NOT from
-that work.  Distinct from the native-aa64 named-managed-slice index/len gap behind
-`904`'s xfail (this one fails at LINK on LLVM too).
+**Discovery.** Surfaced when the IR-gen `__copy_ms_int` mis-route was fixed
+(`214db9bf` — see done file): with that helper no longer referenced, the native build
+LINKS but the program emits no output (likely a crash before `println`, stripped by
+strip_signal_msgs).  Previously masked by the link failure.
 
-**Test.** `conformance/913_named_slice_struct_field` (xfail on every compiled mode;
-the VM modes run it and pass).
+**Test.** `conformance/918_named_slice_struct_field` (xfail on the native modes:
+builder-comp_native_x64, _native_aa64, _arm32_baremetal, _arm32_linux).
 
-**Root cause.** Unknown — needs investigation.  Likely the struct-copy / helper-
-manifest emission keys off the un-peeled field Kind (TYP_NAMED), emitting the call
-but skipping the `__copy_ms_<elem>` helper declare/define for a named managed-slice
-field — the same un-peeled-Kind family as the 033 subslice and 910 no-init bugs.
+**Root cause.** Unknown — needs investigation.  The native backend mis-handles a
+named-managed-slice struct field's construction / field-access / inline copy-dtor (the
+RefInc/RefDec on slot 2, or the 4-word header layout).  Possibly the same family as
+904's native-aa64 named-managed-slice index/len gap.
+
+## MAJOR (VM / uninitialized read) — a NAMED managed-slice struct FIELD over-reads into stdout on real x64 in VM-final modes (2026-06-27) — 🔴 OPEN — REPRODUCED (CI only)
+
+**Symptom.** `conformance/918_named_slice_struct_field` in builder-comp-int /
+builder-comp-comp-int prints `7` plus uninitialized garbage byte(s) appended to stdout
+(so `actual != "7"`) on real x86_64 Linux CI; exit 0, stderr empty.  Clean on arm64
+macOS AND emulated x86_64 (the residue happens to be zero there).  Not a glibc-heap
+over-read (MALLOC_PERTURB_ sweep unchanged) — a binate stack / header word left
+uninitialized, zero except on real x64 hardware.
+
+**Status.** The IR-gen fix `214db9bf` changes the VM's scope-exit dtor routing for this
+case (inline RefDec instead of a mis-routed helper call), so it MAY resolve this too —
+pending the CI verdict on `214db9bf`.  If still red: add `.xfail.builder-comp-int` /
+`.xfail.builder-comp-comp-int` with this reason, and capture the exact real-x64 bytes
+(a one-off CI run that `od -c`s 918's `actual`) to root-cause the slot.
 
 ## MINOR (c-call / latent ABI) — `__c_call` with a binate `int` return for a C function returning C `int` (32-bit) is UB on x86-64 (2026-06-27) — 🟡 OPEN
 

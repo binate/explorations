@@ -8,6 +8,28 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `214db9bf`, 2026-06-27) — NAMED managed-slice struct FIELD referenced undefined `__copy_ms_int` → compiled-backend link failure
+
+**Symptom.** `type Buf @[]int; type Row struct { data Buf }; var r Row = Row{data: b}`
+emitted a call to `@..._copy_ms_int(...)` that no generator ever defines →
+`use of undefined value` at link on every compiled backend.  A plain unnamed `@[]int`
+field worked.  Test: `conformance/918_named_slice_struct_field`.
+
+**Root cause.** The struct copy/dtor generators classified field types with
+`ResolveAlias()` (peels only TYP_ALIAS), so a NAMED managed-slice field stayed
+TYP_NAMED, missed the TYP_MANAGED_SLICE arm, and fell through to the generic-else
+helper call.  No such helper exists or is needed — managed-slice copy is shared-backing
+RefInc.  Same un-peeled-Kind family as the 033 subslice / 910 no-init bugs.
+
+**Fix.** Swap `ResolveAlias` → `peelTransparent` at the six struct-field classification
+sites in `pkg/binate/ir/{gen_copy_emit,gen_dtor_emit,gen_dtor_emit_bodies}.bn`.  The
+field takes the inline RefInc/RefDec arm; the undefined call disappears.  918's LLVM
+xfails (builder-comp{,-comp,-comp-comp}) dropped, verified passing.
+
+**Residuals (separate bugs, still OPEN in claude-todo.md):** the native backends emit
+no output for this case (native-codegen defect); the VM-final modes may have a separate
+real-x64 uninitialized read (pending the CI verdict on the fix).
+
 ## ✅ FIXED & LANDED (binate `d1282dcb`, 2026-06-26) — bare no-init raw-pointer local `var p *T` read stack garbage (memory-unsafe)
 
 `var p *T` with no initializer was not zeroed: the no-init var-decl dispatch
