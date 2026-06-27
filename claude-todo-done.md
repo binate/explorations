@@ -8,6 +8,42 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ DONE & LANDED — 2026-06-26 adversarial review of the mangling/reserved-name/reflect follow-ups: CRITICAL _Package collision + REPL gap + sweep-completeness + swapIfaceSuffix test
+
+A post-landing adversarial review (18 confirmed findings) of the #1/#2/#3 work
+surfaced a reproduced silent miscompilation plus several gaps; all addressed:
+- ✅ **CRITICAL (binate `e12a8a3b`, docs `366b6b9`):** a user `func _Package()`
+  collided with the compiler-synthesized per-package reflection accessor (same
+  public mangler; reproduced as two `@bn_F…__Package` defines, exit 0, no
+  diagnostic — a silent duplicate-symbol miscompilation). Fixed by renaming the
+  accessor `_Package` → `__Package` (into the reserved `__` namespace, so the
+  existing `__`-prefix rule covers it; no IsReservedIdentifier change). 69 files
+  (emit / resolve / extern / reflect / conformance / tests) + spec ch.16/20/21;
+  the public accessor is now `pkg.__Package()`. Conformance 909 pins `func
+  __Package()` rejected; gen1+gen2 + 9 reflect tests (native + gen2) green.
+  Pre-existing (predated cc1171e7, which had mis-documented `_Package` as safe).
+- ✅ **MAJOR (binate `38414fee`):** REPL `type __T` bypassed the reserved-name
+  check (CheckDeclInScope's DECL_TYPE branch returns before collectDecls); added
+  checkReservedDeclNames to that branch (before TentativeMode is set) + a REPL
+  unit test. Other REPL kinds were already covered via collectDecls (no double-report).
+- ✅ **sweep-completeness (binate `2fd29ee7`):** the old-mangling-scheme comment
+  sweep (3c1e3da6) had skipped file types — fixed the survivors in .bni
+  (reflect.bni's fully-spelled `__ivt.bn_pkg__…` symbol, common.bni, x64.bni),
+  conformance/*.bn (408/657/785/867), *_test.bn (emit_copy_ssa_load,
+  emit_impls, asm, the three c_call comments), .py (gen-globals-matrix), .md
+  (ifaces/core/README), plus an accuracy defect the first pass introduced
+  (ir_ops_flow.bn `))`).
+- ✅ **MINOR (binate `f2751c3a`):** added the swapIfaceSuffix iface-PACKAGE-mismatch
+  (vm_exec_iface.bn:385) unit test — the one source-match return path left untested.
+
+Process notes: the review caught the `_Package` case originally scoped OUT as a
+wrong call, and (twice) an enumeration shortfall — first the sweep grep's pattern
+breadth (`bn_[a-z]` missed `bn_<` placeholders), then its file-type breadth
+(missed .bni/conformance/test/.py/.md); both now sharpened in CLAUDE.md.
+Low-priority OBSERVATIONS deliberately left open: the defensible `.bni`-only
+dependency-load bypass (caught when the package is itself compiled), and optional
+extra conformance coverage for a `__`-prefixed global/type end-to-end.
+
 ## ✅ FIXED & LANDED (`1b6335b1`, 2026-06-26) — scalar closure stack-spill shim preserved LR in caller-clobbered X16 across the BL → SIGSEGV (native aa64)
 
 `emitClosureShimStackSpillAA64` (`pkg/binate/native/aarch64/aarch64_closure_shim.bn`)
