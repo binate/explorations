@@ -650,7 +650,7 @@ Until then the symlink is load-bearing — don't remove it without the
 binate-paths change, and don't make the binate-paths change without a flattened
 BUILDER.
 
-## MAJOR — closure-shim cousins still use raw `ArgWords` for user words (latent funcval miscompile) — 🟡 PARTIAL (all aarch64 closure shims fixed; only the x64 shims remain)
+## closure-shim user-word `EffectiveArgWords` + stack-overflow (funcval miscompile) — 🟡 increment C remaining (x64 FLOAT overflow only); EffectiveArgWords ✅ both backends, GP-aggregate stack-spill ✅ both backends
 
 FOLLOW-UP to the now-resolved non-closure funcval-shim marshalling fix (full
 diagnosis + Stage A/B + B0 Functions-table archived in claude-todo-done.md).
@@ -676,14 +676,34 @@ shims were NOT:
     marshaller both handle SPLIT.  `EffectiveArgWords`==1 + the classifier's
     single-slot placement subsume an explicit `isIndirectLargeCap` user-arg
     branch.  Covered by conformance 907 (GP) + 915 (float).
-  - **STILL OPEN:** the **x64** GP-only (`x64_closure_shim.bn`), GP-aggregate
-    (`x64_closure_shim_aggregate.bn`), and float (`x64_closure_shim_float.bn`,
-    `loadClosureFloatCallArgs_x64`) shims — these user-arg loops still use raw
-    `ArgWords` with no `isIndirectLargeCap` handling.  Fix: switch their
-    user-word counts to `cc.EffectiveArgWords` (mirroring the landed aarch64
-    fix), and add an `isIndirectLargeCap` branch where the loop can't rely on a
-    1-word move.  (This overlaps the broader "x64 closure shims still SetError
-    on stack overflow" follow-up — the x64 analogue of GAP D + the float work.)
+  - **✅ FIXED for ALL x64 closure shims** (binate `1603b542`, x64-mirror
+    increment A, review wf_8bc32446): the GP-only (`x64_closure_shim.bn`),
+    GP-aggregate (`x64_closure_shim_aggregate.bn`), and float
+    (`x64_closure_shim_float.bn`, `loadClosureFloatCallArgs_x64`) shims switched
+    their user-word counts to `cc.EffectiveArgWords`.  SysV doesn't SPLIT, so the
+    classifier's single-pointer slot subsumes an explicit `isIndirectLargeCap`
+    user-arg branch.  Un-xfail'd 915 (was a spurious x64 SetError).
+
+So the `EffectiveArgWords` miscount (1) is RESOLVED on both backends.  The
+broader **"closure shims SetError on stack OVERFLOW"** follow-up (the GP analogue
+of GAP D) is also mostly landed:
+  - ✅ **x64 GP-aggregate stack-spill** (binate `20c1d9be`, increment B, review
+    wf_e5367900): `emitClosureShimAggregateStackSpill_x64` (pack/sret, retbuf via
+    a prepended marshal-arg for sret, data in R11).  The review caught a CRITICAL
+    pre-land downward-shift miscompile — unconditional high-first user-arg moves
+    corrupt the pack + single-capture-word case; fixed with a two-branch
+    direction selector (low-first when `capBaseSlot + captureWords < 2`).  Chasing
+    it exposed the SAME defect in the *landed* aarch64 GP-aggregate shim → fixed
+    (binate `a187d60b`, conformance 925, review wf_dbd6d6fa; `emitAggUserArgAA64`
+    gained a `lowFirst` flag).  Both FLOAT aggregate shims audited clean — their
+    memory-spill design has no register-to-register aliasing.  Flipped x64 xfails
+    906/907; added 921–924.
+  - 🟡 **x64 FLOAT overflow (increment C)** — `emitClosureShimFloat_x64` /
+    `emitClosureShimFloatAggregate_x64` still SetError on FP/GP/incoming overflow
+    and `loadClosureFloatCallArgs_x64` is register-only.  Mirror the landed
+    aarch64 float overflow restructure (reserve outgoing-args area, spill incoming
+    from regs+caller-stack, marshal from memory by class).  Will flip x64 xfails
+    912/913/914/919/920.
 - **(2) no float-scalar user-arg GP→FP marshalling** — ✅ RESOLVED by the
   closure-float shims (claude-todo #121: 569/705/706, binate `085065d9` …
   `0c54d69d`). `emitClosureShimFloat*` / `emitClosureShimFloatAggregate*` now
