@@ -61,7 +61,7 @@ claude-todo.md — would let the relocatable read-only blobs (descriptor node,
 arrays, info nodes, vtables, `.ms` header) become read-only-after-load instead
 of staying in writable `data`.
 
-## ✅ FIXED & LANDED (`3111375e` + `a3384975`, 2026-06-27) — os.Stat/Lstat/fstat (+ closedir) read a 32-bit C int return as the 64-bit binate int -> missed ENOENT on x86-64 -> broke all Linux compiled CI
+## ✅ FIXED & LANDED (`3111375e` + `a3384975` + `62aeba8d`, 2026-06-27) — os.Stat read a 32-bit C int return as the 64-bit binate int -> missed ENOENT on x86-64 -> broke all Linux compiled CI (a BUILDER-skew; the unblock is the os.Open probe, NOT the in-tree os.Stat fix)
 
 The C stat/lstat/fstat/closedir return a 32-bit C `int`, but the os wrappers
 annotated the `__c_call` return as the 64-bit binate `int` (`call i64 @stat`).
@@ -78,6 +78,18 @@ sign-extend to the `int` result (read/write/pread/pwrite keep `int` — C ssize_
 (003_stat covered only success).  Repo-wide `__c_call` audit: only the stat-family +
 closedir were affected.  Follow-up filed: a type-checker reject / guideline to
 prevent the class (see the MINOR c-call entry in claude-todo.md).
+
+**The in-tree os.Stat fix did NOT unblock CI by itself** — `build_gen1` resolves
+`pkg/std/os` from the FROZEN `bnc-0.0.10` bundle (only `pkg/binate`/`pkg/bootstrap`
+come from source), and that bundle ships the buggy `os.Stat`, so the fix could not
+reach gen1.  This is a BUILDER-skew (the os-migration `2b995f14` flipped the
+toolchain to os.Stat against a BUILDER whose bundled os.Stat is buggy).  The actual
+unblock (`62aeba8d`): `findStubsFile` lives in `cmd/bnc` (current source -> reaches
+gen1), so it probes existence with `os.Open` — whose fd return the bundle reads as
+`int32` (reliable) — instead of the bundled-buggy `os.Stat`.  CI-confirmed green
+across E2E + Perf + Conformance on the Linux compiled jobs.  The in-tree os.Stat
+fix remains correct and matters once `BUILDER_VERSION` advances past it (the
+`os.Open` probe could then revert to `os.Stat`).
 
 ## ✅ FIXED & LANDED (binate `323f2669`, docs `5ed744d`, 2026-06-26) — tagless `switch { … }` SIGSEGV in IR-gen; tagless cases now required to be bool
 
