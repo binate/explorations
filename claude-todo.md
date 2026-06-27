@@ -699,13 +699,13 @@ Until then the symlink is load-bearing — don't remove it without the
 binate-paths change, and don't make the binate-paths change without a flattened
 BUILDER.
 
-## MAJOR — closure-shim cousins still use raw `ArgWords` for user words (latent funcval miscompile) — 🟡 OPEN
+## MAJOR — closure-shim cousins still use raw `ArgWords` for user words (latent funcval miscompile) — 🟡 PARTIAL (aarch64 GP-only + aggregate fixed binate `b78819a1`; x64 shims + the float shims remain)
 
 FOLLOW-UP to the now-resolved non-closure funcval-shim marshalling fix (full
 diagnosis + Stage A/B + B0 Functions-table archived in claude-todo-done.md).
 The non-closure shims were switched to `cc.EffectiveArgWords`, but the CLOSURE
 shims were NOT:
-- **(1) raw `ArgWords` for USER words** — every closure shim does `common.ArgWords(ut)`
+- **(1) raw `ArgWords` for USER words** — a closure shim does `common.ArgWords(ut)`
   for user words instead of `cc.EffectiveArgWords`. For an indirect-large user
   arg (managed-slice = 4 words, iface = 2, `>16B` struct ≥ 3) this over-counts
   vs. the dispatch caller's single-pointer placement, mis-shifting `inRegBase` /
@@ -714,18 +714,22 @@ shims were NOT:
   capturing a `float64` passes the budget gate (`nUserWords = ArgWords(@[]int) =
   4`, not `> 4`), spills 4 incoming GP words when the dispatcher set only 1 (the
   slice pointer), and reloads garbage — silent miscompile / memory corruption.
-  The defect spans ALL closure-shim families: the GP-only fast/spill
-  (`x64_closure_shim.bn` / `aarch64_closure_shim.bn`), the GP-only aggregate
-  (`*_closure_shim_aggregate.bn`, `loadClosureAggCallArgs_*`), AND the float
-  shims' shared marshaller `loadClosureFloatCallArgs_{x64,AA64}`
-  (`*_closure_shim_float.bn`) — the user-arg loop has no `isIndirectLargeCap`
-  branch (the CAPTURE loop does). The 706 float-aggregate work (landed binate
-  `0c54d69d`) deliberately landed CONSISTENT with its siblings (user decision
-  2026-06-21: "land 706 as-is"), so the fix is this one cross-cutting sweep, not
-  a per-path patch. Fix: switch the user-word counts to `cc.EffectiveArgWords`
-  and add an `isIndirectLargeCap` branch to each user-arg loop (forward the one
-  spilled pointer word into one GP reg), mirroring the capture branch and the
-  non-closure `emitShimArgMarshal_*` (which already get this right).
+  - **✅ FIXED for the aarch64 GP-only (`aarch64_closure_shim.bn`) and
+    GP-aggregate (`aarch64_closure_shim_aggregate.bn`) shims (binate
+    `b78819a1`, GAP D round-2 review wf_25bd5ddf):** user-word counts now use
+    `cc.EffectiveArgWords` (the `userWordsAA64` helper + per-arg `nUw` + the
+    `inRegBase` accumulation), so an indirect-large user arg is one pointer word
+    in/out; `emitUserArgWordMoveAA64` also gained a SPLIT branch.  No explicit
+    `isIndirectLargeCap` user-arg branch was needed — `EffectiveArgWords`==1 +
+    the classifier's single-slot placement subsume it.  Covered by conformance
+    907 (indirect-large Triple user arg, was a crash, now 6036).
+  - **STILL OPEN:** the **x64** GP-only (`x64_closure_shim.bn`) and GP-aggregate
+    (`x64_closure_shim_aggregate.bn`) shims, and BOTH arches' **float** shims'
+    shared marshaller `loadClosureFloatCallArgs_{x64,AA64}`
+    (`*_closure_shim_float.bn`) — these user-arg loops still use raw `ArgWords`
+    with no `isIndirectLargeCap` handling.  Fix: switch their user-word counts
+    to `cc.EffectiveArgWords` (mirroring the landed aarch64 GP fix), and add an
+    `isIndirectLargeCap` branch where the loop can't rely on a 1-word move.
 - **(2) no float-scalar user-arg GP→FP marshalling** — ✅ RESOLVED by the
   closure-float shims (claude-todo #121: 569/705/706, binate `085065d9` …
   `0c54d69d`). `emitClosureShimFloat*` / `emitClosureShimFloatAggregate*` now
