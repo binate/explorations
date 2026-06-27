@@ -8,6 +8,23 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `d1282dcb`, 2026-06-26) — bare no-init raw-pointer local `var p *T` read stack garbage (memory-unsafe)
+
+`var p *T` with no initializer was not zeroed: the no-init var-decl dispatch
+(gen_stmt.bn) handled slices / func-values / iface-values / managed-ptrs and
+scalars, but a RAW pointer (TYP_POINTER) is none of those and `IsScalar()` is
+false for pointers, so it fell through with NO zero-store. On the LLVM backends +
+native aarch64 the local read the stale stack slot, so `present(p)` returned a
+garbage non-nil (the VM + arm32 happen to zero it). Fixed by adding a TYP_POINTER
+branch (mirrors TYP_MANAGED_PTR) storing EmitConstNil into the alloca, so every
+backend agrees. De-xfail + rename 045_zero_init_raw_ptr; added 046 (named distinct
+`type P *int`, which takes the LLVM aggregate-nil path) + 047 (`*readonly int`).
+Pass on builder-comp / -comp-int / native_aa64; the adversarial review confirmed
+correctness on all four backends (x64 statically — its C cross-target lacks
+stdio.h in this env, so x64 conformance is pending a working sysroot). Found
+2026-06-21 authoring conformance/spec/09; surfaced by the recent zero-init work
+that fixed the adjacent scalar / slice / func-value / managed-ptr facets.
+
 ## ✅ PROJECT COMPLETE (2026-06-10 → 2026-06-27) — `ir.DataGlobal` unification: all module-level static data through ONE per-backend emitter
 
 Unified every module-level static-data blob onto one backend-neutral
