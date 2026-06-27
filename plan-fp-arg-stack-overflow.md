@@ -151,16 +151,34 @@ exists; reuse it.
     sweep-flagged `emitCallIndirect` "critical" was a sound false positive —
     `OP_CALL_INDIRECT` only carries uniform 8-byte dispatch words from
     `rt._call_shim_scalar/_aggregate`, never narrow scalars).
-  - **GAP D — aggregate / float-aggregate closure stack-spill shims (LATENT,
-    SetError-guarded — NOT a silent miscompile):** `emitClosureShimAggregateAA64`
-    (`aarch64_closure_shim_aggregate.bn` :50) and `emitClosureShimFloatAggregateAA64`
-    (`aarch64_closure_shim_float.bn` :301) still build their CallConv with
-    `AAPCS64()`, but neither has a stack-spill path yet — both `a.SetError(...)`
-    loudly the moment captures+user-args exceed the register budget, so no narrow
-    stack store is ever emitted today. When the unimplemented stack-spill
-    aggregate path is added, it MUST adopt `AAPCS64_Darwin()` + `StackArgNarrow4`
-    narrow stores (same as GAP C) or it reintroduces the bug. Surfaced by review
-    wf_0fa6908a; tracked, not yet scheduled.
+  - **GAP D — aggregate / float-aggregate closure stack-spill shims:**
+    - **GP-aggregate — ✅ RESOLVED (binate `b78819a1`, 2026-06-26):**
+      `emitClosureShimAggregateAA64` (`aarch64_closure_shim_aggregate.bn`) now
+      has a real stack-spill path (`emitClosureShimAggregateStackSpillAA64`) on
+      `AAPCS64_Darwin()` + natural-size stores, instead of `a.SetError`.  Frames
+      an FP/LR prologue (+ pack retbuf slot), stashes retbuf→X8 (sret)/slot
+      (pack) + data→X9, marshals captures + user args (shared
+      `emitClosureCaptureSpill/RegLoadAA64` helpers; `emitUserArgWordMoveAA64`
+      generalized with prefixRegs+frameDelta), BLs, routes the result through
+      the retbuf.  Aggregate USER args handled too: a SPLIT branch +
+      `EffectiveArgWords` (round-2 review wf_25bd5ddf caught both as critical
+      pre-land bugs — the SPLIT arg emitted nothing; an indirect-large arg
+      over-looped → crash).  Tests 906 (pack+sret, scalar args) / 907 (SPLIT
+      Pair + indirect-large Triple).  xfail'd on native x64, whose aggregate
+      shim still `SetError`s (the x64 analogue — tracked, claude-todo).
+    - **Pre-existing scalar X16-LR defect (discovered here, NOT GAP D's):** the
+      round-2 review surfaced a separate CRITICAL crash — the SCALAR closure
+      stack-spill shim (`emitClosureShimStackSpillAA64`) is a leaf shim that
+      preserves LR across the BL in X16 (caller-clobbered IP0), which an
+      indirect-large user arg's pointer-deref trashes → SIGSEGV on return.  The
+      GP-aggregate `EffectiveArgWords` fix corrected the word-counting facet
+      (X0 right) but the LR defect remains.  Tracked in claude-todo (fix: framed
+      prologue for the scalar shim); GAP D's aggregate shim is framed, so
+      unaffected.
+    - **Float-aggregate — OPEN (the "float next" follow-up):**
+      `emitClosureShimFloatAggregateAA64` (`aarch64_closure_shim_float.bn`)
+      still `AAPCS64()` + `SetError` on overflow; must adopt `AAPCS64_Darwin()`
+      + natural-size stores when its stack-spill path is built.
 
 ## Tests
 
