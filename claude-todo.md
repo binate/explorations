@@ -4,7 +4,40 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
-## MAJOR (IR-gen / wrong-code) — `break` inside a `switch` is mis-lowered: dead code after `break` runs; a `break` in a switch with no enclosing loop is a silent no-op; inside a loop it breaks the LOOP, not the switch (2026-06-27) — 🔴 OPEN — REPRODUCED
+## CRITICAL (IR-gen / memory leak) — `break`/`continue` do not RefDec managed locals declared before them (switch case + C-style `for` body); violates the never-leak contract (2026-06-27) — 🔴 OPEN — REPRODUCED
+
+**Symptom.** A managed local declared in a switch case body (or a C-style `for`
+loop body) BEFORE a `break`/`continue` is never released — a guaranteed leak.
+`STMT_BREAK`/`STMT_CONTINUE` (gen_stmt.bn:110-122) emit ONLY a bare
+`EmitJump(ctx.BreakTo/ContinueTo)` with no scope cleanup; `genBlock`'s terminator
+branch and `genCaseBody`'s (gen_flow.bn:354-358) drop the scope vars
+(`ctx.Vars = ctx.Vars[:savedVarLen]`) WITHOUT RefDec, on the premise (genBlock's
+comment) that "break/continue jump to blocks that will handle cleanup." That holds
+ONLY for `genForIn`, whose targets are cleanup blocks (`emitDecForScopeVars` at
+gen_flow.bn:194/204). `genFor` (C-style) sets `ctx.BreakTo = exitBlk` /
+`ctx.ContinueTo = postBlk` RAW, and `genSwitch` sets `ctx.BreakTo = exitBlk` raw —
+so break/continue there leak. Reproduced (adversarial review, gen1 IR): a switch
+case with `var b @Box = make(Box); … break` shows the Alloc and ZERO cleanup ops.
+
+**Scope.** Confirmed: switch-case break/continue (empirically) + C-style `for`
+break/continue (code-evident). `for-in` is clean. Backend-independent (IR-level).
+
+**Interaction with the break-in-switch fix.** The break-in-switch fix (binate
+`b318897f`, committed, **NOT landed — HELD**) makes a no-loop switch `break`
+actually jump to the switch exit; pre-fix it was a no-op that fell through and
+RefDec'd, so the fix NEWLY ACTIVATES this leak for the no-loop switch case. The
+fix must not land until the leak is fixed (land together).
+
+**Proposed fix (root-cause).** Make `break`/`continue` emit the cleanup before
+jumping: track `ctx.BreakVarLen`/`ctx.ContinueVarLen` (= `len(ctx.Vars)` when
+`BreakTo`/`ContinueTo` are set, in genFor/genForIn/genSwitch), and in
+`STMT_BREAK`/`STMT_CONTINUE` emit `emitDecForScopeVars(ctx, b, ctx.BreakVarLen)`
+before the jump. Fixes switch + C-style for uniformly (and lets genForIn drop its
+special cleanup blocks). Highest-value test: a managed local + break in a
+repeatedly-called fn asserting release (model: 096_for_in_ownership_managed).
+Found by the 2026-06-27 adversarial review of the break-in-switch fix.
+
+## MAJOR (IR-gen / wrong-code) — `break` inside a `switch` is mis-lowered: dead code after `break` runs; a `break` in a switch with no enclosing loop is a silent no-op; inside a loop it breaks the LOOP, not the switch (2026-06-27) — 🔴 OPEN — REPRODUCED — FIX COMMITTED (binate `b318897f`), HELD pending the CRITICAL break/continue leak above (land together)
 
 **Symptom.** `genSwitch` (pkg/binate/ir/gen_flow.bn) never sets `ctx.BreakTo`
 (the for-loops do — gen_flow.bn:71-77/179-184), so `STMT_BREAK` (gen_stmt.bn:110-115,
