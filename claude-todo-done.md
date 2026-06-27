@@ -8,6 +8,46 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `161e3d53`, 2026-06-27) — `break`/`continue` did not RefDec managed locals declared before them (C-style `for` body / switch case); a leak violating the never-leak contract
+
+`STMT_BREAK`/`STMT_CONTINUE` emitted a bare `EmitJump` with no scope cleanup, and
+`genBlock`/`genCaseBody` drop scope vars on a terminator WITHOUT dec'ing (on the
+premise the target block cleans up — true only for `genForIn`'s cleanup blocks,
+false for `genFor`'s raw `exitBlk`/`postBlk` and `genSwitch`'s raw `exitBlk`), so a
+managed local declared in a loop body before a break/continue leaked.
+
+Fix: track `ctx.BreakVarLen`/`ctx.ContinueVarLen` (= `len(ctx.Vars)` when
+`BreakTo`/`ContinueTo` are set, in genFor/genForIn) and have `STMT_BREAK`/
+`STMT_CONTINUE` `emitDecForScopeVars(ctx, b, ctx.BreakVarLen)` before the jump. In
+genForIn the var-len is taken AFTER the value/key vars bind, so the break-path dec
+is disjoint from genForIn's per-iteration value-var cleanup (no double-release).
+Regression guards: conformance 137 (break) / 138 (for-in break) / 139 (continue)
+alias a shared `@Box` into a body-managed-local then break/continue and assert
+`rt.Refcount` returns to baseline — these OBSERVE the leak directly (break-verified:
+without the dec, 137/138 read 2 and 139 reads 51) and trip on a double-release;
+plus ir-gen unit tests (incl. a two-managed-local case). Found by the 2026-06-27
+adversarial review of the break-in-switch fix.
+
+## ✅ FIXED & LANDED (binate `0f84163b`, 2026-06-27) — `break` inside a `switch` was mis-lowered: dead code after `break` ran; a no-loop switch `break` was a silent no-op; inside a loop it broke the LOOP, not the switch
+
+`genSwitch` never set `ctx.BreakTo`, so `STMT_BREAK` (which jumps only when
+`BreakTo != nil`) was a no-op in a switch with no enclosing loop (statements after
+the break ran — wrong code), and broke the ENCLOSING LOOP when there was one
+(reverse of Go). Pre-existing for tagged switches; newly reachable for tagless
+after the crash fix (323f2669).
+
+Fix: `genSwitch` saves/sets/restores `ctx.BreakTo = exitBlk` (and
+`ctx.BreakVarLen = len(ctx.Vars)` — required since the leak fix above, else a
+break-in-switch double-frees: a stale BreakVarLen would RefDec every function
+local with no enclosing loop, or loop-body locals the break does not exit) around
+the case bodies, on every return path; `ctx.ContinueTo` left untouched so
+`continue` still targets the loop. Resolves spec `stmt.switch.break` to Go-like
+(docs `64d2447`). Tests: 136 de-xfail'd, 133 rewritten (control flow) + 140/141
+`rt.Refcount` memory-safety guards (break-verified: without the genSwitch
+BreakVarLen set, 140 reads a corrupted 6 and 141 crashes). Pass on builder-comp /
+-comp-int / -comp-comp. Found by the 2026-06-27 adversarial reviews of the
+tagless + leak fixes.
+
 ## ✅ FIXED & LANDED (binate `214db9bf`, 2026-06-27) — NAMED managed-slice struct FIELD referenced undefined `__copy_ms_int` → compiled-backend link failure
 
 **Symptom.** `type Buf @[]int; type Row struct { data Buf }; var r Row = Row{data: b}`
