@@ -106,10 +106,18 @@ all 4 header words; full builder-comp conformance 2412/0; `pkg/binate/ir` units 
 hygiene 15/15. Also corrects the "correct on gen2" claim that had been in the native-aa64
 named-managed-slice entry.
 
-**Follow-ups (not done; pursue separately):** (1) the LLVM `emitAlloc` (`emit_helpers.bn`)
-does not zero-fill managed-slice allocas -- defense-in-depth against this whole undef-on-LLVM
-class (perf-vs-safety call). (2) audit other un-peeled `Kind == TYP_MANAGED_SLICE` checks in
-IR-gen for the same named-type hazard.
+**Follow-ups — both DONE (2026-06-26):** (1) the LLVM `emitAlloc` (`emit_helpers.bn`) now
+zero-fills the full aggregate set (slice / managed-slice / func-value / iface-value), matching
+native's `IsAggregateTyp` + the VM, so the three backends agree — `48ed3393`. It turned out to
+be a real backend-consistency fix, not just defense-in-depth (see (2)). (2) the audit of other
+un-peeled `Kind == TYP_MANAGED_SLICE` checks surfaced a second LLVM-only garbage bug: a
+no-initializer local of a NAMED managed-slice / func-value / iface-value / managed-ptr type
+(`var b Buf` for `type Buf @[]int`) skipped its nil-store (un-peeled Kind in `gen_stmt.bn`) and
+read stack garbage on LLVM, while native + the VM zero-fill the alloca and were correct. Fixed by
+peeling the no-init dispatch — `97cd239c`, regression `conformance/910_named_slice_noinit_zero`
+(passes on all three backends). Composite-literal construction and the struct-with-named-slice-field
+dtor were audited and are clean. This continues the named-array (`852`) / scalar (`863`) zero-init
+line; `emitAlloc`'s aggregate zero-fill set was the lone remaining gap.
 
 ## ✅ FIXED & LANDED (`4a5aa3dc`, 2026-06-22) — e2e `split-paths` bnc leg linked the checkout runtime against a BUILDER-compiled fixture
 
