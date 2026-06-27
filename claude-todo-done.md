@@ -8,6 +8,42 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ PROJECT COMPLETE (2026-06-10 → 2026-06-27) — `ir.DataGlobal` unification: all module-level static data through ONE per-backend emitter
+
+Unified every module-level static-data blob onto one backend-neutral
+`ir.DataGlobal { Name; Linkage; Align; ReadOnly; Init: []DataTerm }` (terms:
+`DT_BYTES | DT_INT(w) | DT_SYMREF(sym,+addend) | DT_ZERO`) that the LLVM and
+native backends each lower through ONE `emitDataGlobal` — so byte layout is
+described once and cannot drift between backends. This killed the
+LLVM-only-divergence bug class structurally (~10 per-kind emitters → ~2). Full
+blow-by-blow in [`plan-codegen-data-global.md`](plan-codegen-data-global.md).
+
+Phases (all LANDED, each green on full LLVM gen1+gen2 + native-aa64 self-host +
+adversarial review):
+- **Phase 1** (`1ae1b52b`): `ir.DataGlobal` + `emitDataGlobal` ×2 + the `_Package`
+  descriptor node/name.
+- **Inc 2** (`b2667902`): `_Package` info-node tables + backing arrays (retired
+  the interim native emitter, −529 lines).
+- **Inc 3a/3b** (`30aca2d7`, `787ed644`): func-value vtables/handles + impl
+  vtables (`ir.BuildFuncValue` / `ir.BuildImplVtable`); LLVM globals went
+  anonymous, native vtables unified to weak.
+- **Strings 4a–4d + a MAJOR fix** (`74374199`/`fb7ab0f4`/`5e110c39`/`6d932add`
+  + `4b8807c6`): string byte blob (`ir.BuildStringBlob`) + the static `.ms`
+  managed-slice header (`ir.BuildStringMSHeader`). Surfaced + fixed the Mach-O
+  text-reloc constraint (reloc-free RO → rodata; relocatable RO stays data via a
+  weak module-qualified symbol), a value-model alloca subtlety, and a MAJOR
+  native↔LLVM `backing_len`=0 divergence (now `len`, conformance 905).
+- **Globals 5a/5b** (`68dddb11`/`2e7bff72` + `246814b8`): `mod.Globals` storage
+  (`ir.BuildGlobalVar`); LLVM globals detyped to byte blobs (opaque-pointer
+  equivalent), native unified to exact `SizeOf`/`AlignOf` (fixing a latent
+  round-to-8 size drift); `IsExtern` stays a declaration.
+
+**Outstanding follow-up (separate, optional, does NOT gate this project):** the
+relro-section project (Mach-O `__DATA_CONST` / ELF `.data.rel.ro`) — see
+claude-todo.md — would let the relocatable read-only blobs (descriptor node,
+arrays, info nodes, vtables, `.ms` header) become read-only-after-load instead
+of staying in writable `data`.
+
 ## ✅ FIXED & LANDED (`3111375e` + `a3384975`, 2026-06-27) — os.Stat/Lstat/fstat (+ closedir) read a 32-bit C int return as the 64-bit binate int -> missed ENOENT on x86-64 -> broke all Linux compiled CI
 
 The C stat/lstat/fstat/closedir return a 32-bit C `int`, but the os wrappers

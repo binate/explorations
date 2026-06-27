@@ -197,11 +197,36 @@ expressivity `ir.Global.Init` (an int-only `@Instr`) lacks.
    — a pre-existing inefficiency to clean up separately (it perturbs IDs / golden
    output, so not bundled into the layout migration).
 
-5. **⬜ Globals** — `mod.Globals`, last (front-end-coupled: extern vars,
-   qualified-name resolution, `IsExtern` external-decl emission map *onto*
-   `DataGlobal`, not replaced by it).
+5. **✅ Globals DONE & LANDED — `mod.Globals` storage** (binate `68dddb11` 5a +
+   `2e7bff72` 5b + `246814b8` review nits, 2026-06-27).  A package-level `var X T`
+   now lowers through one shared `ir.BuildGlobalVar(sym, SizeOf, AlignOf)` =
+   `{ DT_ZERO(SizeOf), DG_GLOBAL, AlignOf, mutable }`, lowered by `emitDataGlobal`
+   (LLVM) / `common.EmitDataGlobal` (native).  **5a (LLVM):** the global went
+   from typed (`@x = global double 0.0` / `%BnFuncValue zeroinitializer` / `i8*
+   null` / `i64 0`, with a readonly/named wrapper-peeling zero ladder) to a
+   byte-blob `@x = global { [N x i8] } { [N x i8] zeroinitializer }, align A` —
+   an all-zero blob is every type's zero bit pattern, so one `DT_ZERO(SizeOf)`
+   subsumes the per-kind token; consumers reference globals as opaque `ptr @<sym>`
+   and the real initializer still runs in `__init`, so detyping is
+   behavior-preserving under opaque pointers.  **5b (native):** both arches'
+   `emitGlobals` route through `BuildGlobalVar` — this also fixes a latent
+   native↔LLVM size drift (the old hand-rolled native path rounded storage up to
+   a multiple of 8; both now emit exactly `SizeOf` bytes, `AlignOf`-aligned).
+   `IsExtern` globals are NOT migrated — a declaration of the owner's symbol
+   (`external global <ty>` / no native storage), not a definition.  Deleted the
+   dead `codegen.stripWrappers` (5a orphaned it).  Full LLVM gen1+gen2 2419/0,
+   native-aa64 self-host 2415/0, global-using conformance 33/0 each backend,
+   units 7/0, hygiene 15/15, adversarial review (3 dims) zero correctness defects
+   + native exact-size/align unit tests added.
 
-Each step keeps all backends green.
+**🎉 PROJECT COMPLETE.** Every module-level static blob — the `__Package`
+descriptor + info-node tables, func-value + impl vtables, string blobs + `.ms`
+headers, and global-var storage — now flows through ONE `emitDataGlobal` per
+backend; no hand-rolled per-kind emitters remain.  (The relro-section project —
+Mach-O `__DATA_CONST` / ELF `.data.rel.ro` for relocatable read-only data — is a
+separate, optional follow-up; it does not gate this project.)
+
+Each step kept all backends green.
 
 ## Resolved by Phase 1
 - **Native strong-symbol hardening** (was: native `SetGlobal`s `_pkg_info` +
