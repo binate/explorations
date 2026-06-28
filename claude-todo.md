@@ -7,35 +7,54 @@ VM), see [`bug-bash-2026-06-27.md`](bug-bash-2026-06-27.md).
 
 ---
 
-## MAJOR (native x64 codegen) — caller's outgoing stack-args overlap a local (inline-capture clobber) (2026-06-27) — 🔴 OPEN — ROOT-CAUSED
+## MAJOR (native codegen) — func-value dispatch UNDER-COUNTS outgoing-args when float args spill (clobbers a caller local) (2026-06-27) — 🔴 OPEN — ROOT-CAUSED + FIX PROVEN
 
-**Symptom.** A capturing closure with a SMALL (inline, stack-resident) capture,
-called with enough arguments that some spill to the caller's stack, returns a
-corrupted capture: a stack-passed argument overwrites the inline capture data.
-x64-only; aarch64 passes (its 8 GP arg regs / 6 user-arg slots under prefix-2
-don't spill far enough to reach the local).
+**Symptom.** A func-value / closure call whose signature has float-scalar args,
+where enough of them spill to the caller's stack, overruns the reserved
+outgoing-args region and overwrites a caller LOCAL (e.g. an inline closure
+capture — but any local in the way).  Silent data corruption.  Manifests on x64;
+aarch64 is latently affected but passes by register-count luck (see Scope).
 
-**Root cause (verified by hand-disassembly).** In `main`'s native-x64 frame, the
-closure's inline capture struct is allocated a stack slot (`[rsp+0x20]` in the
-repro) that lies WITHIN the outgoing-stack-args region `[rsp+0..]`.  The call's
-5th stack arg is written to `[rsp+0x20]`, clobbering the capture; the closure
-shim then correctly loads `cap0 = [data+0]` and gets the arg's bits.  So the
-defect is the native-x64 frame/stack-slot allocator placing a local in the
-outgoing-args area — NOT in the closure shims (whose asm and tests 912–920 are
-verified correct).
+**Root cause (verified by hand-disassembly + a proven patch).** It is NOT a
+frame-allocator bug — `PlanFrame` correctly starts locals at `offset = outgoing`.
+The defect is that `outgoing` is UNDER-COUNTED for this dispatch:
+- The func-value call EMITTER (`emitCallFuncValue`, `x64_call_indirect.bn` ~245–247;
+  aarch64 analog in `aarch64_call_indirect.bn`) substitutes float-scalar → pointer:
+  every float arg rides a GP slot (the all-int shim ABI; the shim re-marshals
+  GP→XMM).  So N float args can spill many GP stack words.
+- But the SIZER `callDispatchArgTypesAnyOp` (`common_call.bn` ~117–119, func-value
+  branch) feeds the RAW float types to `CallStackBytes`/`CallStackBytesV`, which
+  classify floats as FP-passed (XMM, ~0–1 stack words).  → it reserves too little.
+- The two MUST agree (an `x64_call.bn` comment says so); they disagree only for
+  float args in func-value/handle dispatch, so the emitter's stack-arg stores
+  overrun onto the local at the under-counted boundary.
 
-**Discovery.** Exposed by conformance 926 (`closure_float_aggregate_fp_overflow`)
-once the x64 float-overflow shim landed (`2c5e3c04`, increment C); before that the
-shim SetError'd, so such programs never compiled on x64 and the frame bug was
-unreachable.  Passes on aarch64; xfail'd on both x64 modes.
+**Scope.** Triggers whenever a float func-value/closure spills ANY float arg to the
+stack — e.g. on x64 even 8 floats clobber (not just the "9th overflows XMM0..7"
+shape of test 926).  Clobbers any local, not only an inline capture.  aarch64
+shares the identical under-count but has 8 GP arg regs (vs x64's 6), so it spills 2
+fewer words and doesn't reach the (also-shifted) local for the counts tested — it
+passes by luck, not correctness, and should be fixed too.  The iface-METHOD
+dispatch path is NOT affected (its emitter passes floats in XMM, matching PlanFrame).
 
-**Fix (proposed).** The frame allocator must reserve the max outgoing-args size
-below the locals (or place locals above the outgoing-args high-water mark).
-Likely in the native-x64 backend's per-function frame layout.  Narrow in practice
-(full x64 conformance is otherwise green), but a silent data-corruption defect.
+**Attribution.** Predates the closure shims: the float→ptr substitution was added by
+the all-int float-scalar func-value ABI (`34533cf8` / `31c63c72`) without mirroring
+it into `callDispatchArgTypesAnyOp`.  Latent on x64 until increment C (`2c5e3c04`)
+replaced the float-overflow shim's `SetError` with a working path, so such programs
+now compile + run.  The closure shims themselves are sound (asm verified; 912–925
+green).
+
+**Fix (PROVEN, then reverted by the reviewer).** Mirror the emitter's substitution
+in the sizer: substitute `TypInt()` (a GP/pointer slot) for each float-scalar USER
+arg in `callDispatchArgTypesAnyOp`'s func-value branch.  Verified: 926 prints
+145/1045, main's frame grows 0x460→0x480, and 519/523/912–925 + all probes stay
+green.  Apply on BOTH backends (the under-count is shared).
 
 **Test.** `conformance/926_closure_float_aggregate_fp_overflow` — xfail on
-builder-comp_native_x64 / _native_x64_darwin; un-xfail when fixed.
+builder-comp_native_x64 / _native_x64_darwin; un-xfail when fixed.  Coverage to add
+alongside the fix: a closure/func-value with a float arg that spills WITHOUT FP
+overflow (e.g. 8 float args).  (Minor, separate: no scalar-return float64
+FP-overflow conformance test — 916 is float32 only.)
 
 ---
 
