@@ -333,6 +333,33 @@ shim codegen and/or the VM arg setup. Deep cross-mode-ABI work — not a quick b
 `extractvalue`-on-scalar codegen bug (fixed `b19d69ef`); it should be rewritten to
 describe this injected-aggregate VM marshaling bug.
 
+**FIX PLAN (feasible, localized to the VM lowering — no descriptor plumbing).**
+The shim, for a COERCED (`aggParamCoerced`, ≤16B) aggregate param, expects the
+`[N×i64]` value in N consecutive shim arg slots (`a0,a1,…`), exactly as the native
+caller `emitCallFuncValue` lays it out (store struct → load `[N×i64]` → pass). The
+VM packing instead places ONE by-address slot (the struct pointer). The runtime
+cross-mode dispatch (`dispatchExternBinding`, and the iface/funcvalue paths) maps
+`args[i]→a_i` POSITIONALLY and needs NO change — fix is purely in lowering:
+1. Cross-mode is statically detectable: externs are registered (RegisterStandardExterns
+   / InjectStdlibExterns in cmd/bni `main.bn`) BEFORE `LowerModule`, so
+   `vm.LookupExtern(calleeName) >= 0` is valid at lowering time.
+2. Add a coerced-word-count helper (VM-side, matching `aggParamCoerced`: an
+   `isAggregateArg` type with `SizeOf() <= 16` → `ceil(size/8)` words; else its
+   current `argSlots`).
+3. In the `OP_CALL` arg-packing (`lower_func.bn` ~317) AND the `findMaxCallArgs`
+   sizing AND `lowerCallOp`'s `slots`/`Imm` count: for a CROSS-MODE call only,
+   expand each coerced-aggregate arg into its N words — emit N word-loads from the
+   struct pointer (offsets 0,8,…) into the N consecutive arg slots — instead of one
+   `BC_MOV` of the pointer. Pure-VM calls keep the 1-slot by-address convention
+   (a generic same-package `{int64,int32}` round-trips today, so must NOT change).
+   The receiver of a concrete value-receiver method is `Args[0]`, so it is covered.
+Scope caveat: this fixes the CONCRETE `OP_CALL`-to-extern case (the ModTime/ToUnix
+path). The iface-method cross-mode case (`OP_CALL_IFACE_METHOD` dispatched to an
+injected impl) with a by-value aggregate arg is RUNTIME-determined, so it needs
+either per-arg coercion metadata on the binding or the same expansion guarded at
+the iface dispatch — a follow-up. Gate any land on FULL `builder-comp-int` +
+`-int-int` + `-comp-int` (all injected calls are affected).
+
 ---
 
 ## MINOR (e2e / BUILDER-lag cleanup) — drop the gen1 build in e2e/stat-values.sh after the next BUILDER bump (2026-06-20) — 🔴 OPEN
