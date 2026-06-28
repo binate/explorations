@@ -44,21 +44,6 @@ x64-host specificity; a `--check-xpass` run on an aarch64 host will XPASS them �
 expected). Root cause: unknown — needs investigation of how float64 results cross
 the injected-package boundary under the VM on x64 vs aarch64.
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 3] MAJOR (VM / wrong-code under double-interp) — `os.Stat(file).IsDir()` wrongly reports a regular file as a directory under VM-on-VM (`builder-comp-int-int`), breaking `cmd/bni`'s `expandDirArgs` (2026-06-22) — 🔴 OPEN
-
-Perf `builder-comp-int-int` regressed (was green at `bnc-0.0.9`) the moment
-`87a3544a` ("cmd/bni/args.bn: convert bootstrap.ReadDir to os.ReadDir") landed:
-`perf/{000_noop,001_fib,002_many_funcs}` now hard-fail with `error: cannot read
-directory .../perf/NNN.bn`. Under double-interp (the compiled interpreter
-interpreting `cmd/bni` source, which then stats the test file), `cmd/bni`'s
-`expandDirArgs` calls `os.Stat(file).IsDir()` and gets `true` for a regular `.bn`
-file, then `os.ReadDir`s it and errors. Single-int (`builder-comp-int`) is fine —
-specific to the VM-on-VM `os.Stat` path. Distinct from the time.Point / math
-marshaling bugs. Perf is non-gating so it did not block bnc-0.0.10, but it is a
-real wrong-result defect. Root cause: unknown — likely the os.Stat result
-(mode / IsDir bit) mis-marshaled under double-interp. Covered by the perf int-int
-runner; no conformance repro yet.
-
 ## 🏷[BUG-BASH 2026-06-27 → LANE 3, NEEDS TRIAGE] MAJOR (VM / wrong-compare) — two DIRECT-USE sub-word integer expressions of different producers compare unequal though both equal the literal (VM neither canonicalizes sub-word values nor width-masks comparisons) (2026-06-27) — 🔴 OPEN — REPRODUCED
 
 **Symptom.** On the bytecode VM, `bit_cast(int32, u) == cast(int32, -1)` (with

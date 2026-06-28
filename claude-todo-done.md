@@ -8,6 +8,21 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ VERIFIED FIXED (2026-06-28, BUG-BASH LANE 3) — `os.Stat(file).IsDir()` wrongly reported a regular file as a directory under VM-on-VM (`builder-comp-int-int`), breaking `cmd/bni`'s `expandDirArgs`
+
+No longer reproduces. `perf/000_noop` runs green end-to-end through the
+builder-comp-int-int harness (the compiled interp interprets `cmd/bni`, whose
+`expandDirArgs` does `os.Stat(arg).IsDir()`), and a direct probe — `os.Stat` a
+regular file then `IsDir()` — returns `false` (0) on both `builder-comp-int` and
+`builder-comp-int-int`. 001_fib / 002_many_funcs share the identical
+expandDirArgs/stat path (the original failure was file-vs-dir resolution, not the
+test body); the full perf int-int suite is environment-slow to run to completion
+here. NOT fixed by the coerced-aggregate-arg work (a61f68dd) — `FileMode` is a
+scalar (`type FileMode uint32`), so the IsDir path has no coerced-aggregate arg;
+resolved by one of the os stat/readdir marshaling fixes landed since 2026-06-22
+(e.g. `3111375e` stat C-int→int32, `1686aac9` readdir64/dirent layout, `e5457e09`
+closedir int32). Was non-gating (perf only); closed after BUG-BASH verification.
+
 ## ✅ FIXED & LANDED (binate `a61f68dd`, 2026-06-28, BUG-BASH LANE 3) — a by-value COERCED-AGGREGATE argument was passed by ADDRESS (not value) across the VM↔native injection boundary (the os.Stat ModTime / time.Point bug)
 
 A by-value aggregate argument the C ABI coerces into registers (a named struct or
