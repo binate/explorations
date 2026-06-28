@@ -14,57 +14,6 @@ coverage / doc) or already-resolved residuals.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 2] MAJOR (native codegen) — func-value dispatch UNDER-COUNTS outgoing-args when float args spill (clobbers a caller local) (2026-06-27) — 🔴 OPEN — ROOT-CAUSED + FIX PROVEN
-
-**Symptom.** A func-value / closure call whose signature has float-scalar args,
-where enough of them spill to the caller's stack, overruns the reserved
-outgoing-args region and overwrites a caller LOCAL (e.g. an inline closure
-capture — but any local in the way).  Silent data corruption.  Manifests on x64;
-aarch64 is latently affected but passes by register-count luck (see Scope).
-
-**Root cause (verified by hand-disassembly + a proven patch).** It is NOT a
-frame-allocator bug — `PlanFrame` correctly starts locals at `offset = outgoing`.
-The defect is that `outgoing` is UNDER-COUNTED for this dispatch:
-- The func-value call EMITTER (`emitCallFuncValue`, `x64_call_indirect.bn` ~245–247;
-  aarch64 analog in `aarch64_call_indirect.bn`) substitutes float-scalar → pointer:
-  every float arg rides a GP slot (the all-int shim ABI; the shim re-marshals
-  GP→XMM).  So N float args can spill many GP stack words.
-- But the SIZER `callDispatchArgTypesAnyOp` (`common_call.bn` ~117–119, func-value
-  branch) feeds the RAW float types to `CallStackBytes`/`CallStackBytesV`, which
-  classify floats as FP-passed (XMM, ~0–1 stack words).  → it reserves too little.
-- The two MUST agree (an `x64_call.bn` comment says so); they disagree only for
-  float args in func-value/handle dispatch, so the emitter's stack-arg stores
-  overrun onto the local at the under-counted boundary.
-
-**Scope.** Triggers whenever a float func-value/closure spills ANY float arg to the
-stack — e.g. on x64 even 8 floats clobber (not just the "9th overflows XMM0..7"
-shape of test 926).  Clobbers any local, not only an inline capture.  aarch64
-shares the identical under-count but has 8 GP arg regs (vs x64's 6), so it spills 2
-fewer words and doesn't reach the (also-shifted) local for the counts tested — it
-passes by luck, not correctness, and should be fixed too.  The iface-METHOD
-dispatch path is NOT affected (its emitter passes floats in XMM, matching PlanFrame).
-
-**Attribution.** Predates the closure shims: the float→ptr substitution was added by
-the all-int float-scalar func-value ABI (`34533cf8` / `31c63c72`) without mirroring
-it into `callDispatchArgTypesAnyOp`.  Latent on x64 until increment C (`2c5e3c04`)
-replaced the float-overflow shim's `SetError` with a working path, so such programs
-now compile + run.  The closure shims themselves are sound (asm verified; 912–925
-green).
-
-**Fix (PROVEN, then reverted by the reviewer).** Mirror the emitter's substitution
-in the sizer: substitute `TypInt()` (a GP/pointer slot) for each float-scalar USER
-arg in `callDispatchArgTypesAnyOp`'s func-value branch.  Verified: 926 prints
-145/1045, main's frame grows 0x460→0x480, and 519/523/912–925 + all probes stay
-green.  Apply on BOTH backends (the under-count is shared).
-
-**Test.** `conformance/926_closure_float_aggregate_fp_overflow` — xfail on
-builder-comp_native_x64 / _native_x64_darwin; un-xfail when fixed.  Coverage to add
-alongside the fix: a closure/func-value with a float arg that spills WITHOUT FP
-overflow (e.g. 8 float args).  (Minor, separate: no scalar-return float64
-FP-overflow conformance test — 916 is float32 only.)
-
----
-
 ## 🏷[BUG-BASH 2026-06-27 → LANE 3 ⚠] MINOR (c-call / latent ABI) — `__c_call` with a binate `int` return for a C function returning C `int` (32-bit) is UB on x86-64 (2026-06-27) — 🟡 OPEN
 
 A C function returning C `int` is 32-bit, but binate `int` is 64-bit on a 64-bit
@@ -613,7 +562,7 @@ Until then the symlink is load-bearing — don't remove it without the
 binate-paths change, and don't make the binate-paths change without a flattened
 BUILDER.
 
-## closure-shim user-word `EffectiveArgWords` + stack-overflow (funcval miscompile) — 🟡 increment C remaining (x64 FLOAT overflow only); EffectiveArgWords ✅ both backends, GP-aggregate stack-spill ✅ both backends
+## closure-shim user-word `EffectiveArgWords` + stack-overflow (funcval miscompile) — 🟢 COMPLETE both backends (EffectiveArgWords + GP/float scalar/aggregate overflow, register + spill); only the big multi-return-WITH-floats SetError follow-up remains (see end of entry)
 
 FOLLOW-UP to the now-resolved non-closure funcval-shim marshalling fix (full
 diagnosis + Stage A/B + B0 Functions-table archived in claude-todo-done.md).

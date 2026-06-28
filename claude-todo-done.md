@@ -8,6 +8,35 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED [BUG-BASH 2026-06-27 → LANE 2] (binate `c81908d7`, 2026-06-27) — func-value dispatch sizer UNDER-COUNTED outgoing-args for spilling float args, clobbering a caller local
+
+MAJOR silent data-corruption: a func-value / closure call whose float-scalar args
+spill to the caller stack overran the reserved outgoing-args region and overwrote
+a caller LOCAL (e.g. an inline closure capture).
+
+Root cause (NOT a frame-allocator bug — `PlanFrame` correctly starts locals at
+`offset = outgoing`): the SIZER `callDispatchArgTypesAnyOp` (`common_call.bn`) fed
+RAW float types to `CallStackBytes` (classified FP-passed, ~0–1 stack words), but
+the EMITTER `emitCallFuncValue` substitutes float→pointer (all-int shim ABI:
+floats ride GP slots, the shim re-marshals GP→XMM), spilling many GP stack words.
+They disagreed only for float args in func-value/handle dispatch → under-count.
+
+Fix: mirror the emitter's substitution in the sizer — substitute a 1-word pointer
+for each float-scalar user arg, and (on a `NaturalSizeStackArgs` CC = Apple
+aarch64) a narrow <8-byte non-aggregate scalar too.  Both only GROW the reserved
+area, so they repair overruns but never introduce one; this also closed the latent
+aarch64 narrow-scalar variant.  The iface-method path was already correct
+(passes floats in XMM).
+
+Predated the closure shims (the float→ptr substitution, `34533cf8`/`31c63c72`, was
+never mirrored into the sizer); latent on x64 until increment C (`2c5e3c04`) made
+such programs compile.  Un-xfail'd 926; added 931 (8 float args spill WITHOUT FP
+overflow) — both fail pre-fix / pass post-fix.  Full x64 + aarch64 conformance and
+a 25-test regression green; adversarial reviews wf_aa02b681 (root-cause) +
+wf_443720ed (fix) clean.  The closure shims were verified sound (asm) — NOT the culprit.
+
+---
+
 ## ✅ FIXED & LANDED [BUG-BASH 2026-06-27 → LANE 2] (binate `52078671` + `62b1ccaa`, 2026-06-27) — un-peel sweep: slice/pointer/for-in index arms read the element type/Kind un-peeled, miscompiling named-distinct slices/arrays
 
 Completion of the named-distinct-slice un-peel pattern (the slice-set arm landed
