@@ -263,104 +263,35 @@ above) plus two MINOR items.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 3] MAJOR (VM / wrong-output) — `os.Stat(...).ModTime()` returns sec ≤ 0 under the bytecode VM (`builder-comp-int`); LLVM + native correct (2026-06-21) — 🔴 OPEN — REPRODUCED
+## 🏷[BUG-BASH 2026-06-27 → LANE 3, NEEDS TRIAGE] residuals of the cross-mode coerced-aggregate-ARG fix (binate `a61f68dd`) — iface-dispatch case + a0..a6 silent-drop + coverage (2026-06-28) — 🔴 OPEN
 
-**Symptom.** `conformance/stdlib/os/010_modtime_chain` (`fi.ModTime().ToUnix()`
-then `yn(sec > 0)`) prints `0` on `builder-comp-int` (expected `1`) — `ModTime`'s
-seconds come back ≤ 0. PASSES on `builder-comp` and `builder-comp_native_aa64`.
-xfail: `010_modtime_chain.xfail.builder-comp-int`.
+The VM↔native coerced-aggregate-argument fix (`a61f68dd`, see claude-todo-done.md)
+covers the CONCRETE `OP_CALL`-to-extern path (the os.Stat ModTime / time.Point
+bug). Three residuals remain:
 
-**arm32 facet — RESOLVED by `f4b934ce` (was the `os.Stat` osStat-overflow, NOT a
-distinct bug).** 004 crashed on `builder-comp_arm32_linux` only because `os.Stat`
-itself SIGSEGV'd (the `MaxAlign=4` osStat-undersize overrun) before `ModTime` was
-reached. With the MaxAlign fix, a clean MaxAlign=8 gen1 runs `010_modtime_chain`
-→ **PASS** (verified under qemu alongside `290_sizeof_alignof`). An earlier
-"distinct chained-`ModTime().ToUnix()` aggregate-ABI" theory here was WRONG: it
-came from probing with a non-deterministically-picked STALE `MaxAlign=4` gen1
-(two compilers coexisted in /tmp; `ls -dt | head -1` mixed them), so the probes
-hit the already-fixed `os.Stat` crash and a phantom os/main layout "divergence"
-(a MaxAlign-4 disassembly vs a MaxAlign-8 main IR). So arm32_linux is green for
-004; the only remaining 004 issue is the VM wrong-value below (xfail.builder-comp-int).
+1. **iface / func-value dispatch (MAJOR, same bug class).** A by-value coerced
+   aggregate (named struct/array <=16B) arg passed to an injected method
+   dispatched via `OP_CALL_IFACE_METHOD` (or a cross-mode func value) is still
+   passed by ADDRESS, not its coerced value words — `dispatchCompiledIfaceMethod`
+   / `dispatchCompiledFuncValue` map `args[i]→a_i` positionally and the lowering
+   cannot statically tell those are cross-mode (runtime-determined). No injected
+   stdlib iface method currently takes such an arg, so it is latent. Fix: thread
+   per-arg coercion info onto the binding, or expand at the iface/func-value
+   dispatch.
 
-**Discovery / scope.** Surfaced when the chained-method `extractvalue`-on-scalar
-codegen bug was fixed (`b19d69ef`) — that fix un-masked 004 (it now COMPILES
-everywhere), exposing this separate VM-only wrong-value. NOT the codegen fix: the
-minimal dependency-free repro for that fix, `890_chained_method_transitive_struct`
-(same chained multi-return shape, no `os`), passes on ALL modes incl. the VM.
-`009_stat` (plain `os.Stat` → `Size`/`Mode`, no `ModTime`) also passes on the VM,
-so generic `os.Stat` marshaling works — it's `ModTime` specifically.
+2. **`dispatchExternBinding` silently drops args past `a0..a6` (hardening).** The
+   shim bank is 7 user slots with NO `nArgs > 7` guard (`pkg/binate/vm/vm_extern.bn`);
+   a wider call silently corrupts rather than aborting. Pre-existing, but the
+   coerced-aggregate expansion consumes more slots per arg (a Point = 2 words), so
+   the ceiling is easier to hit. Not currently triggerable (worst injected case
+   ~4 slots). Add a loud guard.
 
-**ROOT CAUSE RE-DIAGNOSED (2026-06-28) — NOT os.Stat; it is injected
-`time.Point {int64,int32}` aggregate marshaling.** The "os.Stat ModTime" framing
-above is misleading. Reproduced with NO os at all: on `builder-comp-int`,
-`time.FromUnix(1500000000, 0).ToUnix()` returns the wrong seconds (and
-`FromUnix(...).SecondsSinceEpoch()` returns a wrong `p.sec`), while LLVM is
-correct. `pkg/std/time` is INJECTED (native) in the VM (`stdPkgs()`,
-`pkg/binate/interp/externs.bn`), so `FromUnix`/`ToUnix`/`SecondsSinceEpoch` run as
-the native impl and the `time.Point` (a 16-byte by-value `{int64, int32}` struct)
-crosses the VM↔native injection boundary, where its `int64` is corrupted. NOT a
-generic struct bug: a GENERIC SAME-PACKAGE `{int64,int32}` by-value struct
-returned from / passed to a VM function round-trips correctly (so pure-VM aggregate
-handling is fine); NOT a generic int64 bug: plain `int64` arithmetic / literals
-`> 2^32` are correct on the VM. It is specifically the INJECTED (cross-mode)
-by-value `{int64,int32}` aggregate. The corrupted `int64` reads as a consistent
-garbage value (~`0x4_d60006xx` across inputs), consistent with the field being
-marshaled at a wrong offset / size, or the struct passed by a pointer the native
-shim reads as the value.
-
-**CONFIRMED root cause — a by-value AGGREGATE ARGUMENT leaks its address across
-the injection shim.** The cross-mode dispatch passes each user arg as ONE
-**by-address** slot (`a1..a6`; see `dispatchCompiledIfaceMethod` /
-`dispatchCompiledFuncValue`, comment "1 by-address slot each; the shim marshals
-each to the native ABI") and the per-function shim is supposed to marshal each to
-the native ABI. For a by-value `{int64,int32}` Point argument that marshaling is
-WRONG: the native side reads the **address** of the Point as `p.sec` rather than
-the value. Proof: the VM's wrong `p.sec` is a stack-address-shaped value
-(`~0x4_d60006xx`) that changes by only ~384 bytes between two probes whose TRUE
-`p.sec` differ by ~280M — i.e. it tracks the Point's stack slot, not its value.
-So `argSlots`=1 is CORRECT (args are 1 by-address slot each); the aggregate RETURN
-path (RetbufSize / retbuf shim) is fine (`strconv.Itoa`'s `@[]char` return works,
-and FromUnix's Point return is recovered once the receiver bug is accounted for).
-The gap is specifically the by-value aggregate ARGUMENT: the shim must read the
-struct from the by-address slot and pass it by value (in registers per the C ABI),
-the symmetric counterpart of the retbuf for returns. Likely in the per-function
-shim codegen and/or the VM arg setup. Deep cross-mode-ABI work — not a quick bash.
-
-**Minimal repro** (pure time, no os; `builder-comp-int`):
-`var p time.Point = time.FromUnix(cast(int64, 1500000000), cast(int32, 0)); var s int64; var n int32; s, n = p.ToUnix();` then check `s == cast(int64, 1500000000)` (VM: false; LLVM: true).
-
-**Test note.** `010_modtime_chain.bn`'s header comment still describes the OLD
-`extractvalue`-on-scalar codegen bug (fixed `b19d69ef`); it should be rewritten to
-describe this injected-aggregate VM marshaling bug.
-
-**FIX PLAN (feasible, localized to the VM lowering — no descriptor plumbing).**
-The shim, for a COERCED (`aggParamCoerced`, ≤16B) aggregate param, expects the
-`[N×i64]` value in N consecutive shim arg slots (`a0,a1,…`), exactly as the native
-caller `emitCallFuncValue` lays it out (store struct → load `[N×i64]` → pass). The
-VM packing instead places ONE by-address slot (the struct pointer). The runtime
-cross-mode dispatch (`dispatchExternBinding`, and the iface/funcvalue paths) maps
-`args[i]→a_i` POSITIONALLY and needs NO change — fix is purely in lowering:
-1. Cross-mode is statically detectable: externs are registered (RegisterStandardExterns
-   / InjectStdlibExterns in cmd/bni `main.bn`) BEFORE `LowerModule`, so
-   `vm.LookupExtern(calleeName) >= 0` is valid at lowering time.
-2. Add a coerced-word-count helper (VM-side, matching `aggParamCoerced`: an
-   `isAggregateArg` type with `SizeOf() <= 16` → `ceil(size/8)` words; else its
-   current `argSlots`).
-3. In the `OP_CALL` arg-packing (`lower_func.bn` ~317) AND the `findMaxCallArgs`
-   sizing AND `lowerCallOp`'s `slots`/`Imm` count: for a CROSS-MODE call only,
-   expand each coerced-aggregate arg into its N words — emit N word-loads from the
-   struct pointer (offsets 0,8,…) into the N consecutive arg slots — instead of one
-   `BC_MOV` of the pointer. Pure-VM calls keep the 1-slot by-address convention
-   (a generic same-package `{int64,int32}` round-trips today, so must NOT change).
-   The receiver of a concrete value-receiver method is `Args[0]`, so it is covered.
-Scope caveat: this fixes the CONCRETE `OP_CALL`-to-extern case (the ModTime/ToUnix
-path). The iface-method cross-mode case (`OP_CALL_IFACE_METHOD` dispatched to an
-injected impl) with a by-value aggregate arg is RUNTIME-determined, so it needs
-either per-arg coercion metadata on the binding or the same expansion guarded at
-the iface dispatch — a follow-up. Gate any land on FULL `builder-comp-int` +
-`-int-int` + `-comp-int` (all injected calls are affected).
-
----
+3. **Coverage gaps.** The injected stdlib only passes `Point` (16B / N=2) by value,
+   so these fix-relevant paths have no real-code exerciser: an N=1 (<=8B named
+   struct) coerced arg, a partial-last-word (e.g. 12B) coerced arg, and a coerced
+   struct INTERLEAVED with scalar args. Reachable only via a test-local
+   injected/native function → wants a `pkg/binate/vm` unit fixture, not a
+   conformance test. Found by the 2026-06-28 minimal adversarial review.
 
 ## MINOR (e2e / BUILDER-lag cleanup) — drop the gen1 build in e2e/stat-values.sh after the next BUILDER bump (2026-06-20) — 🔴 OPEN
 

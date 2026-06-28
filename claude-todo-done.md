@@ -8,6 +8,37 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `a61f68dd`, 2026-06-28, BUG-BASH LANE 3) — a by-value COERCED-AGGREGATE argument was passed by ADDRESS (not value) across the VM↔native injection boundary (the os.Stat ModTime / time.Point bug)
+
+A by-value aggregate argument the C ABI coerces into registers (a named struct or
+array <=16B, e.g. `time.Point {sec int64, nsec int32}`) was mis-passed from the
+bytecode VM to an injected (native) function: the per-function shim expects the
+coerced `[N x i64]` VALUE in N consecutive arg slots, but the VM placed the
+struct's ADDRESS in one slot — so native read the Point's stack address as
+`p.sec`. Surfaced as `os.Stat(...).ModTime().ToUnix()` returning sec <= 0 on the
+VM (010_modtime_chain); reproduced dependency-free as
+`time.FromUnix(...).ToUnix()`. Originally mis-diagnosed as os.Stat marshaling —
+it is general to any injected call taking a coerced-aggregate value arg. A slice
+/ interface / func-value arg was unaffected (i8* shim path); >16B aggregates pass
+by pointer; pure-VM calls are unchanged.
+
+Fix (VM lowering only — `pkg/binate/vm`): for a CROSS-MODE `OP_CALL`
+(`callTargetIsExtern`; externs are registered before `LowerModule`), expand a
+coerced-aggregate arg into its N coerced words (`BC_FIELD_PTR` + `BC_LOAD64` per
+word from the struct's by-address slot) instead of one `BC_MOV` of the pointer;
+`findMaxCallArgs` / `lowerCallOp` Imm / the code-sizing pass all route through
+shared `packSlotWords` / `packInstrCount` so the slot count and emitted-instr
+count stay in lockstep. `coercedAggArgWords` mirrors codegen's `aggParamCoerced`.
+Verified: full builder-comp-int and builder-comp-comp-int both 2434/0; complete
+stdlib surface under builder-comp-int-int 25/0 (the full -int-int suite is
+environment-limited — too slow for the 60-min cap — but its partials had 0
+failures); VM units + hygiene + LLVM smoke green; minimal adversarial review
+confirmed correct. De-xfail'd 010_modtime_chain + 001_negative_pre_epoch (both
+xfail'd for this root cause; 001 also exercises the two-coerced-arg Sub/Before
+path), added the dependency-free stdlib/time/002_point_roundtrip. Residual scope
+(iface-dispatch case, a0..a6 silent-drop hardening, N=1/partial-word coverage)
+tracked in the open LANE-3 follow-up entry.
+
 ## ✅ FIXED & LANDED (main `c333ee14`, 2026-06-27, BUG-BASH LANE 2) — `int64 == <inline untyped negative const-expr>` miscompiled on arm32 (high word zero-extended)
 
 **Symptom (arm32 / 32-bit-int targets).** `var n int64 = -42; n == 0 - 42` was
