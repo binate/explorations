@@ -8,6 +8,30 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED [BUG-BASH 2026-06-27 → LANE 2] (binate `52078671` + `62b1ccaa`, 2026-06-27) — un-peel sweep: slice/pointer/for-in index arms read the element type/Kind un-peeled, miscompiling named-distinct slices/arrays
+
+Completion of the named-distinct-slice un-peel pattern (the slice-set arm landed
+earlier in `c7d9ffca`, below).  The ARRAY arm peeled (`collSt = peelTransparent`),
+but the SLICE and POINTER arms — and for-in — read element type / Kind off the raw
+`collection.Typ`.  A named slice/array is TYP_NAMED with a nil `.Elem`, so the
+un-peeled read defaulted to TypInt: accidentally OK for `@[]int`, but a silent
+wrong-stride / wrong-refcount miscompile for a non-int named element
+(`type B @[]int8`); a named slice also slipped past the un-peeled
+`isSliceType(collection.Typ)` bounds-check guard (UNCHECKED index — memory-unsafe);
+and the type checker rejected for-in over a named collection ("non-iterable").
+
+- `52078671` — pointer/slice arms: gen_control pointer, gen_assign_multi,
+  gen_assign_parallel, gen_access read + emitIndexBoundsCheck.  Tests 928 (named
+  `@[]int8` store/read/multi-assign/parallel-swap), 929 (named-slice OOB now checked).
+- `62b1ccaa` — for-in over a named slice/array: forInElemType (type checker,
+  peelNamedBounded) + genForIn (gen_flow.bn) peel.  Test 930.
+
+Verified LLVM + native; 557-test slice/assign + 100-test for-in/range regressions
+clean.  NOT done (optional defensive hardenings, the peel fixes the actual bug):
+native `emitGetElemPtr` could panic on `elemSize <= 0` instead of silently
+dropping; the LLVM nil-element GEP default (`emit_helpers.bn`) is a latent
+wrong-stride fallback — both now unreachable for the named case.
+
 ## ✅ FIXED & LANDED (binate `c7d9ffca`, 2026-06-27) — native SIGSEGV / VM over-read residuals on a named-managed-slice indexed store + struct field
 
 Two residuals surfaced when the `__copy_ms_int` link failure was fixed (`214db9bf`):

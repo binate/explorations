@@ -65,33 +65,6 @@ FP-overflow conformance test — 916 is float32 only.)
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 2] MAJOR (IR-gen / un-peeled element type) — slice & pointer indexed-assign / for-range arms read `collection.Typ.Elem` un-peeled, miscompiling named-distinct slices (2026-06-27) — 🟡 IN PROGRESS
-
-**The pattern.** Across the indexed-assign / for-range IR-gen, the ARRAY arm classifies
-the collection by the PEELED type (`collSt = peelTransparent(collection.Typ)`), but the
-SLICE and POINTER arms read element type / Kind off the raw `collection.Typ`.  A
-named-distinct slice (`type Buf @[]int`) is TYP_NAMED with a nil `.Elem` (its body hangs
-off `.Underlying`), so the un-peeled read yields a nil element type.
-
-**Impact.** For `@[]int` it is accidentally OK (LLVM defaults a nil-element GEP to i64;
-the runtime-set fallbacks use TypInt) — but for a named non-int slice (`type B @[]int8`,
-`type FooBuf @[]Foo`) it is a SILENT wrong-stride / wrong-refcount miscompile, and on the
-native backends the nil-element GEP is dropped entirely (SIGSEGV — the slice-set arm,
-fixed `c7d9ffca`, see done file).
-
-**Sites** (slice-set arm of `gen_control.bn` is DONE in `c7d9ffca`; remaining):
-- `gen_control.bn:330,337` — the POINTER arm (un-peeled Kind + Elem)
-- `gen_assign_multi.bn:31-32` (pointer), `:39-40` (slice)
-- `gen_assign_parallel.bn:174-175` (pointer), `:185-186` (slice)
-- `gen_flow.bn:110` (for-range, un-peeled ARRAY Kind), `:119-120` (slice Elem)
-- `gen_access.bn:114` (pointer Kind) — read path; check whether already covered by `collSt`
-- Hardening (NOT a substitute for the peel): native `emitGetElemPtr` should panic/assert on
-  `elemSize <= 0` rather than silently drop; the LLVM nil-element GEP default in
-  `emit_helpers.bn` is a latent wrong-stride bug.
-
-**Tests to add:** named non-int slice (`@[]int8`) indexed store + for-range + multi/parallel
-assign (witnessing correct stride), and a named managed-element slice (`@[]@T`) for refcount.
-
 ## 🏷[BUG-BASH 2026-06-27 → LANE 3 ⚠] MINOR (c-call / latent ABI) — `__c_call` with a binate `int` return for a C function returning C `int` (32-bit) is UB on x86-64 (2026-06-27) — 🟡 OPEN
 
 A C function returning C `int` is 32-bit, but binate `int` is 64-bit on a 64-bit
