@@ -8,6 +8,37 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `6b9cc09a`, 2026-06-27, BUG-BASH LANE 2) — a method EXPRESSION over a named-distinct SCALAR receiver (`type Celsius int`; `Celsius.M`) miscompiled
+
+**Symptom.** `Celsius.Plus` (method expression, named-scalar receiver): the
+direct call `Celsius.Plus(a, b)` referenced an undefined symbol
+`@bn_Celsius__Plus`; the `*func` form (`apply(Celsius.Plus, …)`) compiled but
+SIGSEGV'd at the indirect call.  Struct method expressions and bound scalar
+method VALUES (`c.Plus`) both worked — the defect was specifically
+(named-scalar receiver × method EXPRESSION), on both compiled and VM backends.
+
+**Root cause / fix (`pkg/binate/ir/{gen_util.bn,gen_method_value.bn}`).** The
+two IR-gen discriminators that detect a method expression `T.M` —
+`funcRefName` and `isMethodValueSelector` — gated the named-receiver branch on
+`lookupStructIdx(gc, e.X.Name) >= 0`, true only for a STRUCT type.  A named
+scalar is in no IR-gen registry, so `funcRefName` fell through to
+`buildQualName` (mis-naming the target as a package-qualified function →
+undefined symbol) and `isMethodValueSelector` failed to exclude it (mis-routed
+to `genMethodValue` as a bound value → null receiver data → SIGSEGV).  Fix:
+recognize a named-receiver method expression by the method symbol's existence —
+`lookupFuncExists(<pkg>.T.M)` is true for any named type with that method and
+false for a genuine `pkg.Func` (import alias) or a method VALUE `x.M` (variable
+receiver — no `<pkg>.x.M` symbol).
+
+**Tests.** Extended `132_method_expr_named_scalar_noncapturing` with the
+direct-call form (symptom a, previously uncovered) alongside the `*func` form
+(symptom b); un-xfailed — now green on builder-comp / -int (VM) / native_aa64.
+The 239 method/func-value/function tests on LLVM are unchanged (the symbol-
+existence proxy doesn't misclassify existing method values, struct method
+expressions, or package-qualified calls).
+
+---
+
 ## ✅ FIXED & LANDED (main `c458d339`, 2026-06-27, BUG-BASH LANE 2) — a cross-package `impl R : I` declared ONLY in an imported THIRD package was accepted by the checker but its (R, I) vtable was not wired -> null-vtable crash
 
 **Symptom.** `pkg/glue` declares the SOLE impl `impl *widget.Widget : shape.Talker`
