@@ -212,7 +212,7 @@ The items below are settled-intent impl gaps already pinned by xfails.
 Authoring + reviewing the Ch.15 built-in tests surfaced one impl gap now pinned and
 TWO stale spec notes (both flagged defects are actually FIXED). No new bugs.
 
-1. 🏷[BUG-BASH 2026-06-27 → LANE 3 🤝] **bit_cast to a SUB-WORD type, used DIRECTLY, is not narrowed in the VM / native-aa64 — now pinned.** `bit_cast(uint32, int32 -1)` read directly (not stored into a typed local first) leaks the high bits → reads as full-width −1, not 4294967295, on `builder-comp-int`, `builder-comp-int-int`, and `builder-comp_native_aa64-comp_native_aa64`. Correct on the LLVM backends and arm32; a *stored* `bit_cast` (`var u uint32 = …`) narrows and is fine. This is the bit_cast facet of the existing sub-word-narrowing gap (claude-todo ~line 814). Pinned: `conformance/spec/15-builtins/040_bit_cast_int_reinterpret` (per-mode xfail on the three failing modes).
+1. 🏷[BUG-BASH 2026-06-27 → LANE 3 🤝] **bit_cast to a SUB-WORD type, used DIRECTLY, is not narrowed — VM facet ✅ FIXED (binate `8e09e808`); native-aa64 facet 🔴 OPEN (LANE 2).** `bit_cast(uint32, int32 -1)` read directly (not stored into a typed local first) leaks the high bits → reads as full-width −1, not 4294967295. Correct on the LLVM backends and arm32; a *stored* `bit_cast` (`var u uint32 = …`) narrows and is fine. This is the bit_cast facet of the existing sub-word-narrowing gap (claude-todo ~line 814). **VM fix:** OP_BIT_CAST to a sub-word integer now lowers to BC_ZEXT/BC_SEXT (Imm=width) instead of BC_MOV (`pkg/binate/vm/lower_instr.bn`); the `builder-comp-int` / `builder-comp-int-int` / `builder-comp-comp-int` xfails on `conformance/spec/15-builtins/040_bit_cast_int_reinterpret` were removed (full `builder-comp-int` suite 2423/0; new `lower_cast_test.bn` units). **Remaining:** the native aarch64 backend has the same gap — `040`'s `.xfail.builder-comp_native_aa64-comp_native_aa64` is KEPT (verified still failing); that emitter-side fix is LANE 2. (A separate discovered facet — direct-use sub-word expressions of *different producers* compare unequal on the VM — is filed under its own NEEDS-TRIAGE entry above.)
 
 2. **Stale §15.3 note — cast-to-sub-word on native-aa64 is FIXED.** The §15.3 implementation note still describes `cast` to a sub-word integer as miscompiled on native aarch64; that defect was resolved (`5f94558b` per claude-todo-done; 0 native_aa64 xfails remain in the suite). `034_cast_sub_word` passes on all modes incl. native_aa64 — NO xfail added. → drop the §15.3 note.
 
@@ -860,18 +860,17 @@ namespace`, `071_annotation_degenerate`, `072_err_annotation_no_stack`.
 Found writing the `conformance/spec/08-conversions/` rule tests (plan-spec-
 tests.md Phase B). Ch.8 itself is clean (11 tests, 100%, green on compiler /
 VM / gen1 / gen2 / native_aa64 / arm32_baremetal). Three findings:
-- 🏷[BUG-BASH 2026-06-27 → LANE 3 🤝] **`bit_cast` to a sub-word type isn't narrowed in the VM AND the native
-  backends — 🔴 OPEN (new facet of `aa64-subword`).** `bit_cast(uint8, <int8 -1>)`
-  used directly (no intervening typed store) should be `255`, but stays
+- 🏷[BUG-BASH 2026-06-27 → LANE 3 🤝] **`bit_cast` to a sub-word type isn't narrowed — VM facet ✅ FIXED (binate `8e09e808`); native backends 🔴 OPEN (LANE 2).** `bit_cast(uint8, <int8 -1>)`
+  used directly (no intervening typed store) should be `255`, but stayed
   sign-extended on the bytecode VM (all 3 `-int` modes) and on native_aa64 (the
   LLVM compiler narrows correctly; a `var r uint8 = bit_cast(...)` store also
   narrows). This is the **`bit_cast` facet** of the sub-word-narrowing gap
-  (claude-todo `aa64-subword`, line ~526); the existing `matrix/scalar-diff`
-  differential harness covers `cast` (now green on the VM) but **not** `bit_cast`,
-  so it's uncaught. Right home: add a `bit_cast`-to-sub-word row to
-  `matrix/scalar-diff` (it already does per-mode xfails for this class) rather
-  than a spec test needing ~6 per-mode markers. The conv.bit-cast *rule* itself
-  is satisfied (covered by `spec/08-conversions/010_bit_cast`).
+  (claude-todo `aa64-subword`). **VM fixed:** OP_BIT_CAST to a sub-word integer
+  now lowers to BC_ZEXT/BC_SEXT (see the pinned `040_bit_cast_int_reinterpret`
+  entry under the Ch.15 findings above — its `-int` xfails are gone). **Remaining:**
+  the native aarch64 emitter has the same gap (LANE 2; `040`'s native_aa64 xfail
+  kept). The conv.bit-cast *rule* itself is satisfied (covered by
+  `spec/08-conversions/010_bit_cast`).
 - 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] **MAJOR (type-checker / `conv.no-implicit-numeric` strictness) — distinct
   same-width integer types implicitly inter-convert (`int ↔ int64`, `uint ↔
   uint64`, `int ↔ int32` on 32-bit, …) — 🔴 OPEN; CONFIRMED a bug by the user
