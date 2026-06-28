@@ -2,6 +2,9 @@
 
 Tracks open work items. Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
+For a triage of every open **bug** below into 3 parallel-worker lanes (front-end / IR-gen+native /
+VM), see [`bug-bash-2026-06-27.md`](bug-bash-2026-06-27.md).
+
 ---
 
 ## MAJOR (native x64 codegen) — caller's outgoing stack-args overlap a local (inline-capture clobber) (2026-06-27) — 🔴 OPEN — ROOT-CAUSED
