@@ -84,7 +84,7 @@ extend per type) — touches cast/bit_cast/literal/arith paths, removes the whol
 class; or (b) make consuming ops (at least compare) mask each operand to its type
 width — localized. Needs the canonical-form decision before implementing.
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (entry / under-enforcement) — the `main` entry-point signature is not enforced (2026-06-22) — 🔴 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 3] MINOR (entry / under-enforcement) — the `main` entry-point signature is not enforced — must be a LINK-TIME check (2026-06-22) — 🔴 OPEN
 
 `func main(x int)` and `func main() int` compile, LINK, and RUN (the extra
 parameter is ignored; a value-returning main's result is discarded) instead of
@@ -94,6 +94,19 @@ link-time failure -- but the entry synthesis accepts any `main`. Found authoring
 `conformance/spec/17-program`. Pinned: `009_err_main_wrong_signature_xfail`
 (xfail.all). Low priority (a wrong-shaped main is unusual), but it is silent
 acceptance of an ill-formed entry point.
+
+**This is a LINK-TIME check, NOT a compile-time one (per the language designer,
+2026-06-28).** Binate compiles ONE package at a time by design, so a package
+named `main` being type-checked in isolation cannot know whether it is *the
+program's* entry — and whether the program even HAS a main package is itself a
+link/assembly-time question. So both "does a main package with a `main` func
+exist" AND "does that `main` have the right signature" belong to the link /
+program-assembly step, where the whole program is seen. A 2026-06-28 attempt to
+enforce the signature in the type-checker (`checkMainSignature`, gated on
+`curPkgPath=="main"`) was REVERTED as architecturally wrong — it conflated
+compiling a package with assembling a program. Re-tag to the lane that owns the
+link/program-emit step. 017_err_main_returns_value (the value-returning half) was
+authored alongside 009 but not landed; re-add it when the link-time check lands.
 
 ---
 
