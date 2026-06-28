@@ -316,14 +316,42 @@ minimal dependency-free repro for that fix, `890_chained_method_transitive_struc
 `009_stat` (plain `os.Stat` → `Size`/`Mode`, no `ModTime`) also passes on the VM,
 so generic `os.Stat` marshaling works — it's `ModTime` specifically.
 
-**Likely root (needs investigation).** `os` is INJECTED (native) in the VM, so
-`os.Stat` returns a native `@FileInfo`; calling its `ModTime() time.Point` (a
-by-value struct return) across the VM↔native injection boundary, or the
-`time.Point`→`ToUnix` marshaling, drops the `int64` seconds. Candidates: the
-cross-mode marshaling of a 16-byte struct RETURN (`{i64,i32}`) from an injected
-method, or `time.Point`'s value flowing through the VM. Needs a narrower probe
-(e.g. inject a method returning a known-nonzero `time.Point` and read it on the
-VM side).
+**ROOT CAUSE RE-DIAGNOSED (2026-06-28) — NOT os.Stat; it is injected
+`time.Point {int64,int32}` aggregate marshaling.** The "os.Stat ModTime" framing
+above is misleading. Reproduced with NO os at all: on `builder-comp-int`,
+`time.FromUnix(1500000000, 0).ToUnix()` returns the wrong seconds (and
+`FromUnix(...).SecondsSinceEpoch()` returns a wrong `p.sec`), while LLVM is
+correct. `pkg/std/time` is INJECTED (native) in the VM (`stdPkgs()`,
+`pkg/binate/interp/externs.bn`), so `FromUnix`/`ToUnix`/`SecondsSinceEpoch` run as
+the native impl and the `time.Point` (a 16-byte by-value `{int64, int32}` struct)
+crosses the VM↔native injection boundary, where its `int64` is corrupted. NOT a
+generic struct bug: a GENERIC SAME-PACKAGE `{int64,int32}` by-value struct
+returned from / passed to a VM function round-trips correctly (so pure-VM aggregate
+handling is fine); NOT a generic int64 bug: plain `int64` arithmetic / literals
+`> 2^32` are correct on the VM. It is specifically the INJECTED (cross-mode)
+by-value `{int64,int32}` aggregate. The corrupted `int64` reads as a consistent
+garbage value (~`0x4_d60006xx` across inputs), consistent with the field being
+marshaled at a wrong offset / size, or the struct passed by a pointer the native
+shim reads as the value.
+
+**Strong lead.** `argSlots` (`pkg/binate/vm/lower_slots.bn:87`) returns **1 for
+every type that is not a 64-bit scalar on a 32-bit host** — so a 16-byte
+`{int64,int32}` by-value argument is counted as ONE slot. A native injected
+function (e.g. `Point.ToUnix(p Point)` / a Point-receiver method) expects the
+16-byte struct by value (2 registers per the C ABI); if the VM packs it as 1
+slot (or as a pointer) the native side reads garbage for `p.sec`. The aggregate
+RETURN path (RetbufSize / `_call_shim_aggregate`) is separate and may be fine
+(`strconv.Itoa`'s `@[]char` aggregate return works); the suspect is the by-value
+aggregate ARGUMENT marshaling at the injection boundary. Needs careful
+cross-mode-ABI work (and must not regress pure-VM struct calls, which pass
+aggregates differently from what the native shim ABI wants) — not a quick bash.
+
+**Minimal repro** (pure time, no os; `builder-comp-int`):
+`var p time.Point = time.FromUnix(cast(int64, 1500000000), cast(int32, 0)); var s int64; var n int32; s, n = p.ToUnix();` then check `s == cast(int64, 1500000000)` (VM: false; LLVM: true).
+
+**Test note.** `010_modtime_chain.bn`'s header comment still describes the OLD
+`extractvalue`-on-scalar codegen bug (fixed `b19d69ef`); it should be rewritten to
+describe this injected-aggregate VM marshaling bug.
 
 ---
 
