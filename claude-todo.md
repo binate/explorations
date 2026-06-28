@@ -4,6 +4,38 @@ Tracks open work items. Completed items live in [claude-todo-done.md](claude-tod
 
 ---
 
+## MAJOR (native x64 codegen) — caller's outgoing stack-args overlap a local (inline-capture clobber) (2026-06-27) — 🔴 OPEN — ROOT-CAUSED
+
+**Symptom.** A capturing closure with a SMALL (inline, stack-resident) capture,
+called with enough arguments that some spill to the caller's stack, returns a
+corrupted capture: a stack-passed argument overwrites the inline capture data.
+x64-only; aarch64 passes (its 8 GP arg regs / 6 user-arg slots under prefix-2
+don't spill far enough to reach the local).
+
+**Root cause (verified by hand-disassembly).** In `main`'s native-x64 frame, the
+closure's inline capture struct is allocated a stack slot (`[rsp+0x20]` in the
+repro) that lies WITHIN the outgoing-stack-args region `[rsp+0..]`.  The call's
+5th stack arg is written to `[rsp+0x20]`, clobbering the capture; the closure
+shim then correctly loads `cap0 = [data+0]` and gets the arg's bits.  So the
+defect is the native-x64 frame/stack-slot allocator placing a local in the
+outgoing-args area — NOT in the closure shims (whose asm and tests 912–920 are
+verified correct).
+
+**Discovery.** Exposed by conformance 926 (`closure_float_aggregate_fp_overflow`)
+once the x64 float-overflow shim landed (`2c5e3c04`, increment C); before that the
+shim SetError'd, so such programs never compiled on x64 and the frame bug was
+unreachable.  Passes on aarch64; xfail'd on both x64 modes.
+
+**Fix (proposed).** The frame allocator must reserve the max outgoing-args size
+below the locals (or place locals above the outgoing-args high-water mark).
+Likely in the native-x64 backend's per-function frame layout.  Narrow in practice
+(full x64 conformance is otherwise green), but a silent data-corruption defect.
+
+**Test.** `conformance/926_closure_float_aggregate_fp_overflow` — xfail on
+builder-comp_native_x64 / _native_x64_darwin; un-xfail when fixed.
+
+---
+
 ## MAJOR (native codegen) — a NAMED managed-slice struct FIELD emits no output on the native backends (2026-06-27) — 🔴 OPEN — REPRODUCED
 
 **Symptom.** `type Buf @[]int; type Row struct { data Buf }; ... println(r.data[0])`
@@ -635,12 +667,19 @@ of GAP D) is also mostly landed:
     gained a `lowFirst` flag).  Both FLOAT aggregate shims audited clean — their
     memory-spill design has no register-to-register aliasing.  Flipped x64 xfails
     906/907; added 921–924.
-  - 🟡 **x64 FLOAT overflow (increment C)** — `emitClosureShimFloat_x64` /
-    `emitClosureShimFloatAggregate_x64` still SetError on FP/GP/incoming overflow
-    and `loadClosureFloatCallArgs_x64` is register-only.  Mirror the landed
-    aarch64 float overflow restructure (reserve outgoing-args area, spill incoming
-    from regs+caller-stack, marshal from memory by class).  Will flip x64 xfails
-    912/913/914/919/920.
+  - ✅ **x64 FLOAT overflow (increment C)** (binate `2c5e3c04`, review
+    wf_f7212aaf): `emitClosureShimFloat_x64` / `emitClosureShimFloatAggregate_x64`
+    / `loadClosureFloatCallArgs_x64` (+ new `marshalFloatShimArg_x64`) restructured
+    classifier-driven, mirroring the aarch64 float shim (reserve outgoing-args
+    area, spill incoming from regs+caller-stack, marshal from memory by class; sret
+    uses the same prepended-sret-slot trick as the GP-aggregate).  The shim asm was
+    verified correct by hand.  Flipped x64 xfails 912/913/914/919/920.  The big
+    multi-return-with-floats case stays SetError on both backends (separate
+    follow-up).  Added 926 (aggregate FP-overflow), xfail'd on x64 — it exposed the
+    separate native-x64 frame-overlap bug below, NOT a shim defect.
+
+The closure-shim `EffectiveArgWords` + stack-overflow story is now COMPLETE on
+both backends (GP scalar/aggregate + float scalar/aggregate, register + overflow).
 - **(2) no float-scalar user-arg GP→FP marshalling** — ✅ RESOLVED by the
   closure-float shims (claude-todo #121: 569/705/706, binate `085065d9` …
   `0c54d69d`). `emitClosureShimFloat*` / `emitClosureShimFloatAggregate*` now
