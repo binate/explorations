@@ -8,6 +8,22 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `c7d9ffca`, 2026-06-27) — native SIGSEGV / VM over-read residuals on a named-managed-slice indexed store + struct field
+
+Two residuals surfaced when the `__copy_ms_int` link failure was fixed (`214db9bf`):
+
+- **VM-final modes** (builder-comp-int / -comp-comp-int) printed `7`+garbage on real x64.
+  RESOLVED by `214db9bf` itself (the struct-field copy/dtor peel) — CI confirms both modes
+  green.  The "separate uninitialized read" hypothesis was wrong; same copy/dtor mis-route.
+- **Native backends** (x64/aa64/arm32) crashed (SIGSEGV, empty stdout) on `b[0] = 7` where
+  `type Buf @[]int`.  Root cause: `genAssign`'s slice-set arm read the element type off the
+  un-peeled `collection.Typ` (TYP_NAMED, nil `.Elem`), so EmitSliceSet built a nil-element
+  GEP; native `ElemSizeOf` = 0 → `emitGetElemPtr` early-returns without assigning the result
+  register → the store writes through an uninitialized address slot.  Fixed `c7d9ffca` by
+  deriving the element type from the peeled `collSt`.  918's four native xfails dropped;
+  reducer added as `927_named_slice_index_store`.  The broader un-peel sweep across the
+  other assign / for-range arms is tracked IN PROGRESS in claude-todo.md.
+
 ## ✅ FIXED & LANDED (binate `161e3d53`, 2026-06-27) — `break`/`continue` did not RefDec managed locals declared before them (C-style `for` body / switch case); a leak violating the never-leak contract
 
 `STMT_BREAK`/`STMT_CONTINUE` emitted a bare `EmitJump` with no scope cleanup, and

@@ -36,40 +36,32 @@ builder-comp_native_x64 / _native_x64_darwin; un-xfail when fixed.
 
 ---
 
-## MAJOR (native codegen) — a NAMED managed-slice struct FIELD emits no output on the native backends (2026-06-27) — 🔴 OPEN — REPRODUCED
+## MAJOR (IR-gen / un-peeled element type) — slice & pointer indexed-assign / for-range arms read `collection.Typ.Elem` un-peeled, miscompiling named-distinct slices (2026-06-27) — 🟡 IN PROGRESS
 
-**Symptom.** `type Buf @[]int; type Row struct { data Buf }; ... println(r.data[0])`
-prints nothing (empty stdout) on the native backends (x64 / aa64 / arm32); the LLVM
-backend prints `7`.  Deterministic — reproduces under x86_64 emulation, so it is a
-real native-codegen defect, not uninitialized memory.
+**The pattern.** Across the indexed-assign / for-range IR-gen, the ARRAY arm classifies
+the collection by the PEELED type (`collSt = peelTransparent(collection.Typ)`), but the
+SLICE and POINTER arms read element type / Kind off the raw `collection.Typ`.  A
+named-distinct slice (`type Buf @[]int`) is TYP_NAMED with a nil `.Elem` (its body hangs
+off `.Underlying`), so the un-peeled read yields a nil element type.
 
-**Discovery.** Surfaced when the IR-gen `__copy_ms_int` mis-route was fixed
-(`214db9bf` — see done file): with that helper no longer referenced, the native build
-LINKS but the program emits no output (likely a crash before `println`, stripped by
-strip_signal_msgs).  Previously masked by the link failure.
+**Impact.** For `@[]int` it is accidentally OK (LLVM defaults a nil-element GEP to i64;
+the runtime-set fallbacks use TypInt) — but for a named non-int slice (`type B @[]int8`,
+`type FooBuf @[]Foo`) it is a SILENT wrong-stride / wrong-refcount miscompile, and on the
+native backends the nil-element GEP is dropped entirely (SIGSEGV — the slice-set arm,
+fixed `c7d9ffca`, see done file).
 
-**Test.** `conformance/918_named_slice_struct_field` (xfail on the native modes:
-builder-comp_native_x64, _native_aa64, _arm32_baremetal, _arm32_linux).
+**Sites** (slice-set arm of `gen_control.bn` is DONE in `c7d9ffca`; remaining):
+- `gen_control.bn:330,337` — the POINTER arm (un-peeled Kind + Elem)
+- `gen_assign_multi.bn:31-32` (pointer), `:39-40` (slice)
+- `gen_assign_parallel.bn:174-175` (pointer), `:185-186` (slice)
+- `gen_flow.bn:110` (for-range, un-peeled ARRAY Kind), `:119-120` (slice Elem)
+- `gen_access.bn:114` (pointer Kind) — read path; check whether already covered by `collSt`
+- Hardening (NOT a substitute for the peel): native `emitGetElemPtr` should panic/assert on
+  `elemSize <= 0` rather than silently drop; the LLVM nil-element GEP default in
+  `emit_helpers.bn` is a latent wrong-stride bug.
 
-**Root cause.** Unknown — needs investigation.  The native backend mis-handles a
-named-managed-slice struct field's construction / field-access / inline copy-dtor (the
-RefInc/RefDec on slot 2, or the 4-word header layout).  Possibly the same family as
-904's native-aa64 named-managed-slice index/len gap.
-
-## MAJOR (VM / uninitialized read) — a NAMED managed-slice struct FIELD over-reads into stdout on real x64 in VM-final modes (2026-06-27) — 🔴 OPEN — REPRODUCED (CI only)
-
-**Symptom.** `conformance/918_named_slice_struct_field` in builder-comp-int /
-builder-comp-comp-int prints `7` plus uninitialized garbage byte(s) appended to stdout
-(so `actual != "7"`) on real x86_64 Linux CI; exit 0, stderr empty.  Clean on arm64
-macOS AND emulated x86_64 (the residue happens to be zero there).  Not a glibc-heap
-over-read (MALLOC_PERTURB_ sweep unchanged) — a binate stack / header word left
-uninitialized, zero except on real x64 hardware.
-
-**Status.** The IR-gen fix `214db9bf` changes the VM's scope-exit dtor routing for this
-case (inline RefDec instead of a mis-routed helper call), so it MAY resolve this too —
-pending the CI verdict on `214db9bf`.  If still red: add `.xfail.builder-comp-int` /
-`.xfail.builder-comp-comp-int` with this reason, and capture the exact real-x64 bytes
-(a one-off CI run that `od -c`s 918's `actual`) to root-cause the slot.
+**Tests to add:** named non-int slice (`@[]int8`) indexed store + for-range + multi/parallel
+assign (witnessing correct stride), and a named managed-element slice (`@[]@T`) for refcount.
 
 ## MINOR (c-call / latent ABI) — `__c_call` with a binate `int` return for a C function returning C `int` (32-bit) is UB on x86-64 (2026-06-27) — 🟡 OPEN
 
