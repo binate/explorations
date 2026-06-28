@@ -297,17 +297,6 @@ The suite is built and every injected stdlib package has cross-mode coverage
   it as a native-only smoke.
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 1 🤝] MINOR/MAJOR (type-checker / assignability) — an impl of a SUB-interface is not assignable to its SUPER-interface: `impl R : Sub` where `interface Sub : Base`, then `var b *Base = &r` is rejected "cannot assign *R to *Base" (2026-06-19) — 🔴 OPEN
-
-**Symptom (REPRODUCED, same-package, no generics).** `interface Base { foo() int }`, `interface Sub : Base { bar() int }`, `type R struct{...}`, `impl R : Sub`.  `var b *Base = &r` (r an R) fails the type-checker: `cannot assign *R to *Base`.  R satisfies Sub, and Sub extends Base, so R should satisfy Base transitively — the assignability / impl-satisfaction check does not walk the implemented interface's ANCESTORS.
-
-**Discovery.** Adversarial review of the cross-pkg-generic transitive-impl wiring (`dfe60903`): the reviewer noted the imported-impl path records only the listed iface (not its ancestor closure, unlike local `collectImplsFromDecl`).  Investigating, the gap is upstream in the TYPE-CHECKER (assignability), independent of generics / cross-package / `dfe60903` — it fails identically same-package.  So the IR-side imported-impl ancestor-closure asymmetry (gen_impl.bn collectImportedImplsFromDecl vs collectImplsFromDecl) is currently UNREACHABLE behind this checker rejection; both should be fixed together (checker assignability first, then ensure the imported-impl path wires the ancestor (R, Base) vtable so cross-package inherited upcasts don't nil-vtable once the checker allows them).
-
-**Proposed fix.** Type-checker: when checking `*R -> *I` assignability (and impl satisfaction), accept R if R implements I OR any descendant interface of I (walk the implemented interface's parent chain).  Then IR: extend collectImportedImplsFromDecl to record the ancestor closure (mirror collectImplsFromDecl) so the inherited (R, Base) vtable is wired for cross-package/transitive upcasts.
-
----
-
-
 ## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (import hygiene) — two non-wrong-code follow-ups from the file-scoped-imports work — 🟡 OPEN
 The PACKAGE-scoped-imports CRITICAL (all wrong-code facets — visibility leak, same-alias miscompile,
 qualified-TYPE memory-layout corruption, implicit same-last-segment, generic instantiation, the

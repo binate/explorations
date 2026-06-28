@@ -116,6 +116,25 @@ since the fix reads checker metadata).
 
 ---
 
+## ✅ FIXED & LANDED (main `7b79175b`, 2026-06-28, BUG-BASH LANE 1 🤝) — MINOR/MAJOR (checker + ir) — an impl of a SUB-interface was not assignable to its SUPER-interface
+
+`impl R : Sub` where `interface Sub : Base`, then `var b *Base = &r` was rejected
+("cannot assign *R to *Base") — the construction-site assignability check did not
+walk the implemented interface's ancestors. **Fix (both halves the entry called
+for):** (1) CHECKER — canAssignToRawInterfaceValue / canAssignToManagedInterfaceValue
+now use `implSatisfiesInterface` (impl covers iface directly OR lists a descendant
+of it), mirroring typeSatisfiesConstraint; fixes the same-package case. (2) IR —
+collectImportedImplsFromDecl now wires the ANCESTOR closure of each listed
+interface (mirroring local collectImplsFromDecl), so a CROSS-package
+`impl R : Sub` referenced as `*Base = &r` emits the (R, Base) external vtable ref
+instead of nil-vtabling. Tests: 048 (raw) + 039 (managed) same-package un-xfailed;
+063 cross-package (raw + managed); 069 NEGATIVE (a sibling descendant stays
+rejected — the walk never goes sideways); + raw/managed unit tests. The
+adversarial review caught a born-stale 039 xfail twin (fixed before landing) and
+the IR dedup was verified to hold (no duplicate-vtable redefinition). NOTE: the
+DISTINCT cross-package third-package-impl null-vtable facet (062, RecvPkg keying)
+remains separately open.
+
 ## ✅ FIXED & LANDED (main `1cf185dd`, 2026-06-28, BUG-BASH LANE 1) — MINOR (checker) — duplicate same-short-name imports accepted silently
 
 Two same-final-segment packages imported BOTH unaliased (`import "pkg/aa/gen"` +
