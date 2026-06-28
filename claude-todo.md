@@ -371,6 +371,26 @@ for the iface lookup, and reconcile with the `mi.Pkg`/`MakeInterfaceType`
 short-name identity (the part that needs care).  Same bounded/fail-safe severity
 as the struct case.  No conformance test yet.
 
+**BLOCKED behind unimplemented generic-interface-VALUE codegen (Slice 6c)
+— discovered 2026-06-28 (BUG-BASH LANE 1).** Attempting to build a reproducing
+test surfaced that this collision is UNREACHABLE behind a far larger gap: an
+instantiated generic interface used as a VALUE with dispatch (`var h
+@gen.Holder[int] = gen.Make(...); h.get()`) fails in codegen — `error:
+extractvalue operand must be aggregate type` (LLVM) — even in a SINGLE package
+(no collision). This is the pre-existing Slice-6c gap that check_interface.bn's
+own comment flags ("IR-gen for instantiated interfaces (vtable layout, dispatch)
+is Slice 6c territory; until that lands, declaring a value of a
+generic-interface-value type would fail at IR-gen time"). So the same-segment
+COLLISION can't be reproduced or validated until generic-interface-value codegen
+exists. The checker-side decl-resolution mirror (stash by full path, resolve the
+aliased head, fallback on curPkgPath in lookupGenericIfaceDeclPkg) WAS prototyped
+and gets the checker past `undefined: Holder` to reach the codegen gap — but was
+REVERTED (an unvalidatable partial that enables nothing usable on its own).
+**Re-scope:** this is really "implement generic-interface-VALUE codegen (Slice
+6c)" first (a major IR project: vtable layout + dispatch for instantiated generic
+interfaces), THEN the same-segment-collision keying becomes a small mirror of the
+struct fix on top.  Not a quick same-segment-keying bash.
+
 ## 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] MINOR (parser/checker, pre-existing) — two generic-body limitations surfaced during the struct-collision work (2026-06-20) — 🔴 OPEN
 
 Both reproduce on a SINGLE package and predate the struct-collision fix
