@@ -661,14 +661,6 @@ checker synthesizes its signature in BOTH the qualified-access arm
 
 ## MAJOR
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 1] Named func-value type (`type Fn @func(...)`) — func-LITERAL construction still rejected — literal-half follow-up 🟡 OPEN
-- **Symptom**: `type Fn @func(int) int; var f Fn = func(x int) int {...}` is rejected (a bare `@func` literal isn't `Identical`/assignable to the nominal `Fn`). The func-REFERENCE half (`var f Fn = dbl`) and value-rejection (`var f Fn = g`) already work — see archived diagnosis.
-- **Test**: `conformance/regressions/named-func-value-construct-literal` (xfailed all 11 modes).
-- **Fix (3 sites, none peel TYP_NAMED yet)**: `checkFuncLit` (`check_func_lit.bn:83`) must RETURN the named type when hinted by one (gates on `ExpectedFVType.Kind == TYP_FUNC_VALUE` only); `checkExprWithFVHint` (`check_expr.bn:32`) must peel TYP_NAMED before installing the FV hint (currently ignores non-FUNC_VALUE/MANAGED_FUNC_VALUE hints, so a `Fn`=TYP_NAMED hint is dropped); `isManagedFuncValueLit` (`gen_func_lit.bn:188-194`) must peel TYP_NAMED (keys on `TYP_MANAGED_FUNC_VALUE`).
-- **Memory-sensitive**: a func literal can CAPTURE, so the stack-vs-heap-alloc + refcount classification must be right — validate under guard-malloc.
-- **Severity**: MAJOR (spurious compile-time rejection, fail-safe, no miscompile). Workaround: anonymous `@func(...)` spelling.
-- (Full resolved REF-half diagnosis — design decision, root cause, IR-gen `gen_typedecl.bn` fix — archived in claude-todo-done.md.)
-
 ## CR-2 review — carried-forward open residues (2026-06-08/09)
 
 The CR-2 Plan-1 / Round-2 / follow-up-batch adversarial-review records (resolved + refuted
@@ -789,13 +781,12 @@ Both referenced from the spec (`07b-type-layout.md`).
 Found writing the docs spec's Types chapter (grounding + adversarial
 verification against pkg/binate/types). The spec (`07-types.md`)
 documents these as open items.
-- **Named func-value LITERAL construction unimplemented** (gap). A func
-  *reference* constructs a named `@func` type fine, but a func *literal*
-  into a named func-value type is rejected in ALL modes
-  (`conformance/regressions/named-func-value-construct-literal` xfailed
-  everywhere; checkFuncLit must return the named type when hinted and peel
-  TYP_NAMED at isManagedFuncValueLit). Value-rejection and reference
-  construction both work.
+- **Named func-value LITERAL construction** — ✅ FIXED & LANDED (main
+  `8edc418a`, see claude-todo-done.md). A func *literal* into a named
+  func-value type (`var f Fn = func(...){...}`) now resolves as the named type
+  (checkFuncLit returns it when hinted; isManagedFuncValueLit peels the named
+  wrapper) and `conformance/regressions/named-func-value-construct-literal` is
+  un-xfailed (+ a -capture variant).
 
 ### Spec Ch.16 (Packages) — adversarial-review follow-ups (test-quality, non-blocking) — 2026-06-19
 The Ch.16 review found 0 blockers, 7 should-fix (landed tests work; these
@@ -2503,7 +2494,7 @@ Discovered while triaging done-but-residual todo entries: `const-group-bare-inhe
 - **VM modes swept (2026-06-13)** — `builder-comp-int` / `-comp-int` / `-int-int`, via `run.sh --check-xpass <mode> <test-names>` (run only the xfailed tests, not the whole hang-prone suite). **25 stale removed in 2 commits:**
   - `8741c552` (14 top-level): `718_funcval_spill_over_vm_cap` ×3 VM modes (bytecode→bytecode func-value dispatch never hits the 7-arg `_call_shim_*` cap — that cap only bites compiled-target/nested-VM); + 11 `-int-int`-only that all blamed now-fixed double-VM infra (`272_raw_slice_star_sugar`; the `586/592/673/674/675/676/677/678/682` cross-pkg `*_balance` family on the int-int "package pkg/builtins/rt not found" loader bug; `665_transitive_iface_reexport` on the int-int multi-package `rt.MemCopy` NULL-deref). Confirmed fixed: the canaries `136`/`383`/`061`/`373`/`384` are unmarked + green under int-int.
   - `bcb3c362` (11 subdirectory readonly/matrix): `pass-arg/value-struct{,-large}` (int/-comp-int/-int-int) + the `-int-int` Round-2 cells (`nested-index/field/nested-value-struct`, `readonly/alias/method-receiver`, `readonly/construct/readonly-iface`, `readonly/wrapper-order/inner-{managed,raw}-ptr`). These were left xfailed only on VM after the plan-cr2-1 Defect-1/Round-2 fixes landed on LLVM (cf. line ~879 "stay xfailed on VM / native-globals").
-  - **VM xfails KEPT (genuine)**: `regressions/c-call/*` + top-level `498/500/527/530` (VM has no FFI); `matrix/globals/readonly/struct` (Defect-1 `gen_selector` global-readonly path, still open); `regressions/named-func-value-construct-literal` (open B2 follow-up, xfailed in every mode incl. LLVM); `385/386_iface_nil_dispatch*`; `708/709/725/727_reflect_*`.
+  - **VM xfails KEPT (genuine)**: `regressions/c-call/*` + top-level `498/500/527/530` (VM has no FFI); `matrix/globals/readonly/struct` (Defect-1 `gen_selector` global-readonly path, still open); `385/386_iface_nil_dispatch*`; `708/709/725/727_reflect_*`. (`regressions/named-func-value-construct-literal` was un-xfailed when its construct landed, `8edc418a`.)
 - **Unittest comp-comp-int swept (2026-06-13)** — `76fe86cc`: 4 stale (`cmd-bnlint`, `pkg-binate-{codegen,ir,vm}`) that blamed the now-fixed "boot-comp-int VM field-layout bug"; all 4 packages' full suites pass under comp-comp-int. NOTE: `scripts/unittest/run.sh` has NO XPASS detection (it just skips xfailed packages) — sweep by hand (move marker aside → run → restore). The 8 ccall unittest xfails (`pkg-bootstrap`/`pkg-builtins-rt`/`pkg-std-os` in VM modes) are genuine (VM can't interpret `__c_call`).
 - **Native aa64 + x64_darwin swept (2026-06-13)**: 0 stale. `386` (compiled SEGVs with no VM panic msg; mode-correct, pinned by `385`), `705/706/707` (native closure-float shim gaps, claude-todo #121 open) all genuinely fail. gen3 (`builder-comp-comp-comp`) lone xfail is `386` — same mode-correct reason, structurally can't XPASS.
 - **CROSS MODES SWEPT via the CI workflow (2026-06-14) — 99 stale conformance xfails removed.** The on-demand `.github/workflows/conformance-xpass.yml` (Actions → "Conformance XPASS (stale-xfail sweep)" → Run workflow; blank `mode` = all 10 modes, or pass one) re-runs each mode's xfailed tests under `--check-xpass`; a red job lists XPASS = stale markers. Full-matrix run results:

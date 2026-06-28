@@ -116,6 +116,25 @@ since the fix reads checker metadata).
 
 ---
 
+## ✅ FIXED & LANDED (main `8edc418a`, 2026-06-28, BUG-BASH LANE 1) — MAJOR (checker + ir + lint) — a func LITERAL could not be constructed into a named func-value type
+
+`type Fn @func(int) int; var f Fn = func(x int) int {...}` was rejected (a bare
+@func literal isn't Identical/assignable to the nominal Fn); the func-REFERENCE
+half already worked. **Fix (the 3 sites the entry called for + a 4th):**
+checkExprWithFVHint installs a NAMED func-value hint (namedUnderlyingIsFuncValue);
+checkFuncLit returns the NAMED type when hinted + signature matches;
+isManagedFuncValueLit peels the named wrapper so a named-@func literal still
+heap-allocs (named-*func stack-allocs). **+ lint:** func-value-escape /
+managed-func-raw-capture now peel the named wrapper (peelFVNamed) and the
+return / file-scope pre-filters pass TEXPR_NAMED slots — otherwise enabling
+named *func literals would silently drop the dangling-stack-closure escape
+warning (fail-unsafe; the adversarial review caught this). Memory-validated
+(capturing closure into a named @func) across LLVM / VM / gen1 / native-aarch64
+AND guard-malloc. Tests: named-func-value-construct-literal un-xfailed (11
+modes) + -capture variant; checker unit tests (managed/raw accept, sig-mismatch
+reject); lint unit tests (named *func escape warns, named @func safe, named
+@func raw-capture warns).
+
 ## ✅ FIXED & LANDED (main `7b79175b`, 2026-06-28, BUG-BASH LANE 1 🤝) — MINOR/MAJOR (checker + ir) — an impl of a SUB-interface was not assignable to its SUPER-interface
 
 `impl R : Sub` where `interface Sub : Base`, then `var b *Base = &r` was rejected
