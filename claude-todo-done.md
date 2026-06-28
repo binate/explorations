@@ -8,6 +8,40 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `c333ee14`, 2026-06-27, BUG-BASH LANE 2) — `int64 == <inline untyped negative const-expr>` miscompiled on arm32 (high word zero-extended)
+
+**Symptom (arm32 / 32-bit-int targets).** `var n int64 = -42; n == 0 - 42` was
+wrongly **false**.  Correct on every 64-bit mode.  Only the inline
+`int64 == negative-const-expr` form failed; `n == -42`, the via-a-var form, and
+the pure-const form all worked.
+
+**Root cause / fix (`pkg/binate/ir/gen_binary.bn`).** `genBinary` stamped an
+untyped-int const operand with its reconciled concrete type AFTER `ensureWidth`
+had widened it.  On a 32-bit-int target, widening an untyped operand to a wider
+type went through a cast that first materialized it at the untyped (target-int)
+32-bit width and ZERO-extended, dropping the high word of a negative value.  Fix:
+move the untyped→concrete stamp to BEFORE `ensureWidth` — an untyped operand is
+always a freshly-emitted constant, so retagging it in place emits the full-width
+value directly (no cast, no zero-extension).  On 64-bit targets the cast was
+already a no-op at equal width, so the IR is unchanged there; only 32-bit-int
+targets change.  The shift-overshift predicates still read a runtime (typed)
+count in its own type — untyped operands are consts, handled by value — so moving
+the stamp does not disturb them.  (This also subsumes the old late stamp's
+relational-signedness purpose, e.g. `4096 < xe`.)
+
+**Tests.** Renamed `034_int_sign_negation_int64_xfail` → `…int64` (dropped the
+arm32 xfail), extended with the symmetric const-on-left + literal/via-var/
+pure-const forms.  Verified: arm32 034 PASS; full builder-comp suite 0 fails;
+VM + native_aa64 binops 357/357; ir unit tests green.
+
+**Adjacent (NOT fixed here, pre-existing).** `746_build_bni_const` prints `32`
+instead of `64` on arm32 (an un-xfail'd `build_*` arm32 red).  Base-checked: it
+fails identically WITHOUT this change, so it is a separate sibling const-width
+miscompile (likely the `.bni`-const path, cf. the iota-grouped-`.bni` /
+grouped-signedness const residuals), not this bug — left open.
+
+---
+
 ## ✅ FIXED & LANDED (main `63ecc3b8`, 2026-06-27, BUG-BASH LANE 2) — a negative untyped-int const operand of a runtime-count `>>` lowered to a LOGICAL shift (lshr, not ashr)
 
 **Symptom.** `(0 - 16) >> n` (n a runtime var) computed `(2^64-16) >> n` instead

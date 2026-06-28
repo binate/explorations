@@ -164,26 +164,6 @@ follow-ups (deferred with user sign-off):
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 2] MAJOR (arm32 codegen / silent wrong compare) — `int64 == <inline untyped negative const-expr>` is miscompiled on the 32-bit ARM backend (2026-06-21) — 🔴 OPEN — REPRODUCED
-
-**Symptom (silent wrong boolean, arm32 only).** `var n int64 = -42; if n == 0 - 42`
-evaluates to **false** on `builder-comp_arm32_baremetal` (the spec's `-K == 0-K`
-negation identity, §6.3) — it is true on every 64-bit mode (LLVM, VM, native aa64).
-The inline untyped negative const-expression `0 - 42` is not widened to 64 bits
-before the `int64` equality, so the high word mismatches and the compare is wrongly
-false. NARROW: `n == -42` (a literal), `var m int64 = 0 - 42; n == m` (via a var),
-and `(0 - 42) == -42` (pure untyped const) all work on arm32 — only the inline
-`int64 == negative-const-expr` form fails.
-
-**Discovery.** Authoring `conformance/spec/06-constants` (const.int.sign).
-**Likely fix.** Sign-/zero-extend (widen) the untyped const-expr operand to the int64
-operand's width before emitting the 32-bit-pair comparison on arm32 (the const-expr
-is being materialized as a 32-bit value with no high word).
-
-**Pinned.** `conformance/spec/06-constants/034_int_sign_negation_int64_xfail`
-(xfail.builder-comp_arm32_baremetal). 033 was restructured to avoid the form so it
-stays green on arm32.
-
 ## Ch.7 spec-conformance findings (2026-06-20, authoring `conformance/spec/07-types`) — 🔴 OPEN
 
 Four findings surfaced while authoring the Ch.7 type spec tests; each is pinned by an xfail.
