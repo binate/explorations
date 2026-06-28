@@ -334,17 +334,23 @@ garbage value (~`0x4_d60006xx` across inputs), consistent with the field being
 marshaled at a wrong offset / size, or the struct passed by a pointer the native
 shim reads as the value.
 
-**Strong lead.** `argSlots` (`pkg/binate/vm/lower_slots.bn:87`) returns **1 for
-every type that is not a 64-bit scalar on a 32-bit host** — so a 16-byte
-`{int64,int32}` by-value argument is counted as ONE slot. A native injected
-function (e.g. `Point.ToUnix(p Point)` / a Point-receiver method) expects the
-16-byte struct by value (2 registers per the C ABI); if the VM packs it as 1
-slot (or as a pointer) the native side reads garbage for `p.sec`. The aggregate
-RETURN path (RetbufSize / `_call_shim_aggregate`) is separate and may be fine
-(`strconv.Itoa`'s `@[]char` aggregate return works); the suspect is the by-value
-aggregate ARGUMENT marshaling at the injection boundary. Needs careful
-cross-mode-ABI work (and must not regress pure-VM struct calls, which pass
-aggregates differently from what the native shim ABI wants) — not a quick bash.
+**CONFIRMED root cause — a by-value AGGREGATE ARGUMENT leaks its address across
+the injection shim.** The cross-mode dispatch passes each user arg as ONE
+**by-address** slot (`a1..a6`; see `dispatchCompiledIfaceMethod` /
+`dispatchCompiledFuncValue`, comment "1 by-address slot each; the shim marshals
+each to the native ABI") and the per-function shim is supposed to marshal each to
+the native ABI. For a by-value `{int64,int32}` Point argument that marshaling is
+WRONG: the native side reads the **address** of the Point as `p.sec` rather than
+the value. Proof: the VM's wrong `p.sec` is a stack-address-shaped value
+(`~0x4_d60006xx`) that changes by only ~384 bytes between two probes whose TRUE
+`p.sec` differ by ~280M — i.e. it tracks the Point's stack slot, not its value.
+So `argSlots`=1 is CORRECT (args are 1 by-address slot each); the aggregate RETURN
+path (RetbufSize / retbuf shim) is fine (`strconv.Itoa`'s `@[]char` return works,
+and FromUnix's Point return is recovered once the receiver bug is accounted for).
+The gap is specifically the by-value aggregate ARGUMENT: the shim must read the
+struct from the by-address slot and pass it by value (in registers per the C ABI),
+the symmetric counterpart of the retbuf for returns. Likely in the per-function
+shim codegen and/or the VM arg setup. Deep cross-mode-ABI work — not a quick bash.
 
 **Minimal repro** (pure time, no os; `builder-comp-int`):
 `var p time.Point = time.FromUnix(cast(int64, 1500000000), cast(int32, 0)); var s int64; var n int32; s, n = p.ToUnix();` then check `s == cast(int64, 1500000000)` (VM: false; LLVM: true).
