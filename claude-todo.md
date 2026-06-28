@@ -89,7 +89,7 @@ width — localized. Needs the canonical-form decision before implementing.
 The SIGNATURE half of the original entry-point bug — `func main(x int)` /
 `func main() int` / generic `main` in package `main` silently accepted — is **✅
 FIXED at COMPILE time** (LANE 1, `checkMainSignature`; see claude-todo-done.md /
-binate `f3e77a56`-and-successor). Per the language designer (2026-06-28) that is
+binate `c1735910`). Per the language designer (2026-06-28) that is
 the correct phase: compiling the `main` package SEES its own `main`, so its
 *shape* is checkable there.
 
@@ -646,8 +646,7 @@ element `i` at index `i`.
   DECIDED (claude-notes.md:798) but the checker rejects it ("array length must be
   a constant integer"). Either wire it (substitute `len(Elems)` for the `...`
   marker) or mark deferred.
-- 🏷[BUG-BASH 2026-06-27 → LANE 1] **(minor) Positional struct-literal elements are not assignability-checked**
-  (`check_expr_composite.bn:73-79` checks keyed but not positional values).
+- ✅ **FIXED & LANDED (binate `7523b14d`, BUG-BASH LANE 1) — (minor) Positional struct-literal elements are now assignability-checked** (each positional element i checked against field i's type, mirroring the keyed branch). conformance/spec/13-expressions/043.
 All referenced from `13-expressions.md`.
 
 ### 🏷[BUG-BASH 2026-06-27 → LANE 3 🔶] `__Package()`: bytecode VM works only for the 4 builtins (Gap 2; unqualified form ✅ FIXED; builtin auto-injection ✅ LANDED) — 🔴 OPEN (user-package bytecode `__Package` remains)
@@ -975,13 +974,10 @@ tests.md Phase B). Each has a reproducing test cited by `.rules`.
   is rejected at parse ("expected expression"), though now declared. Covered by
   `spec/13-expressions/041` (.xfail.all). Fix: infer the length from the
   element count.
-- 🏷[BUG-BASH 2026-06-27 → LANE 1] **(minor) `expr.composite.struct` bad-key diagnostic.** A keyed struct
-  literal whose key names no field reports the generic `undefined: <key>` (the
-  key is resolved as an identifier) rather than a field-specific "no field
-  <key> in <T>". NOT a correctness bug — a key that shadows an in-scope
-  variable still errors (not silently accepted). Covered by `spec/13-
-  expressions/027_err_composite_struct_badkey`. Fix: emit a field-not-found
-  diagnostic naming the struct + key in the keyed-literal checker.
+- ✅ **FIXED & LANDED (binate `7523b14d`, BUG-BASH LANE 1) — (minor) `expr.composite.struct` bad-key diagnostic.** A keyed struct
+  literal whose key names no field now reports `no field \`<key>\` in <T>`
+  (errNoSuchField) instead of the generic `undefined: <key>`. 027's `.error`
+  tightened to require the field-specific form.
 - **(note, non-defect) `expr.compare.relational` chain diagnostic reach.**
   `a < b < c` is correctly rejected in every context, but the dedicated
   "comparison operators do not chain" message fires only for the
