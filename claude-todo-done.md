@@ -65,11 +65,13 @@ arm32 xfail), extended with the symmetric const-on-left + literal/via-var/
 pure-const forms.  Verified: arm32 034 PASS; full builder-comp suite 0 fails;
 VM + native_aa64 binops 357/357; ir unit tests green.
 
-**Adjacent (NOT fixed here, pre-existing).** `746_build_bni_const` prints `32`
-instead of `64` on arm32 (an un-xfail'd `build_*` arm32 red).  Base-checked: it
-fails identically WITHOUT this change, so it is a separate sibling const-width
-miscompile (likely the `.bni`-const path, cf. the iota-grouped-`.bni` /
-grouped-signedness const residuals), not this bug — left open.
+**Adjacent (pre-existing, since fixed separately — main `0fe7ed16`).** The
+`746_build_bni_const` arm32 red was NOT a miscompile (my first guess was wrong):
+the `#[build(is(arch,...))]`-gated `bcfg.Bits` is correctly `32` on arm32, but
+the test lacked an `expected.builder-comp_arm32_baremetal` override (it had the
+`arm32_linux` one), so baremetal fell back to the LP64 default `64` and
+false-failed.  The whole `build_731-757` arm32_baremetal red set was the same
+missing-override gap; all 7 overrides added.
 
 ---
 
