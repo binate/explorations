@@ -2,12 +2,19 @@
 
 Tracks open work items. Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
-For a triage of every open **bug** below into 3 parallel-worker lanes (front-end / IR-gen+native /
-VM), see [`bug-bash-2026-06-27.md`](bug-bash-2026-06-27.md).
+**BUG BASH 2026-06-27.** Every open *bug* below is triaged into 3 parallel-worker lanes,
+tagged inline `🏷[BUG-BASH 2026-06-27 → LANE N]` at the start of its entry:
+- **LANE 1** — front-end semantics (`pkg/binate/{checker,types,parser}`): wrongly accepts / rejects.
+- **LANE 2** — IR-gen & native codegen (`pkg/binate/{ir,codegen,native/*}`): emits wrong / invalid code.
+- **LANE 3** — VM & cross-mode runtime (`pkg/binate/vm`, `pkg/std`, ABI): cross-mode marshaling / 32-bit-host.
+
+Flags: ⚠ needs a semantics/scope **decision** first · 🔶 large / deferred (not a quick bash) · 🤝 shares
+a file with another lane (coordinate). Untagged open entries are non-bugs (design / planning / perf /
+coverage / doc) or already-resolved residuals.
 
 ---
 
-## MAJOR (native codegen) — func-value dispatch UNDER-COUNTS outgoing-args when float args spill (clobbers a caller local) (2026-06-27) — 🔴 OPEN — ROOT-CAUSED + FIX PROVEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 2] MAJOR (native codegen) — func-value dispatch UNDER-COUNTS outgoing-args when float args spill (clobbers a caller local) (2026-06-27) — 🔴 OPEN — ROOT-CAUSED + FIX PROVEN
 
 **Symptom.** A func-value / closure call whose signature has float-scalar args,
 where enough of them spill to the caller's stack, overruns the reserved
@@ -58,7 +65,7 @@ FP-overflow conformance test — 916 is float32 only.)
 
 ---
 
-## MAJOR (IR-gen / un-peeled element type) — slice & pointer indexed-assign / for-range arms read `collection.Typ.Elem` un-peeled, miscompiling named-distinct slices (2026-06-27) — 🟡 IN PROGRESS
+## 🏷[BUG-BASH 2026-06-27 → LANE 2] MAJOR (IR-gen / un-peeled element type) — slice & pointer indexed-assign / for-range arms read `collection.Typ.Elem` un-peeled, miscompiling named-distinct slices (2026-06-27) — 🟡 IN PROGRESS
 
 **The pattern.** Across the indexed-assign / for-range IR-gen, the ARRAY arm classifies
 the collection by the PEELED type (`collSt = peelTransparent(collection.Typ)`), but the
@@ -85,7 +92,7 @@ fixed `c7d9ffca`, see done file).
 **Tests to add:** named non-int slice (`@[]int8`) indexed store + for-range + multi/parallel
 assign (witnessing correct stride), and a named managed-element slice (`@[]@T`) for refcount.
 
-## MINOR (c-call / latent ABI) — `__c_call` with a binate `int` return for a C function returning C `int` (32-bit) is UB on x86-64 (2026-06-27) — 🟡 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 3 ⚠] MINOR (c-call / latent ABI) — `__c_call` with a binate `int` return for a C function returning C `int` (32-bit) is UB on x86-64 (2026-06-27) — 🟡 OPEN
 
 A C function returning C `int` is 32-bit, but binate `int` is 64-bit on a 64-bit
 target.  Annotating the `__c_call` return as `int` emits `call i64 @fn`, reading the
@@ -101,7 +108,7 @@ binate-coding-guide / plan-c-call.md note "use the C-ABI-matching width for __c_
 returns — C `int` is `int32`, not `int`."  Low severity (no remaining known
 instances) but a real footgun.
 
-## MAJOR (VM / wrong-output) — `stdlib/math` float64 classification mis-marshals across the VM↔native boundary on an x86-64 host VM (`builder-comp-int` / `builder-comp-comp-int`); aarch64 host VM + all compiled backends correct (2026-06-22) — 🔴 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 3] MAJOR (VM / wrong-output) — `stdlib/math` float64 classification mis-marshals across the VM↔native boundary on an x86-64 host VM (`builder-comp-int` / `builder-comp-comp-int`); aarch64 host VM + all compiled backends correct (2026-06-22) — 🔴 OPEN
 
 `conformance/stdlib/math/001_classify_round` (Float64bits round-trip, Abs/Signbit/
 Copysign, IsNaN/IsInf, Floor/Ceil/Trunc/Round through the injected `pkg/std/math`)
@@ -115,7 +122,7 @@ x64-host specificity; a `--check-xpass` run on an aarch64 host will XPASS them �
 expected). Root cause: unknown — needs investigation of how float64 results cross
 the injected-package boundary under the VM on x64 vs aarch64.
 
-## MAJOR (VM / wrong-code under double-interp) — `os.Stat(file).IsDir()` wrongly reports a regular file as a directory under VM-on-VM (`builder-comp-int-int`), breaking `cmd/bni`'s `expandDirArgs` (2026-06-22) — 🔴 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 3] MAJOR (VM / wrong-code under double-interp) — `os.Stat(file).IsDir()` wrongly reports a regular file as a directory under VM-on-VM (`builder-comp-int-int`), breaking `cmd/bni`'s `expandDirArgs` (2026-06-22) — 🔴 OPEN
 
 Perf `builder-comp-int-int` regressed (was green at `bnc-0.0.9`) the moment
 `87a3544a` ("cmd/bni/args.bn: convert bootstrap.ReadDir to os.ReadDir") landed:
@@ -130,7 +137,7 @@ real wrong-result defect. Root cause: unknown — likely the os.Stat result
 (mode / IsDir bit) mis-marshaled under double-interp. Covered by the perf int-int
 runner; no conformance repro yet.
 
-## MINOR (entry / under-enforcement) — the `main` entry-point signature is not enforced (2026-06-22) — 🔴 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (entry / under-enforcement) — the `main` entry-point signature is not enforced (2026-06-22) — 🔴 OPEN
 
 `func main(x int)` and `func main() int` compile, LINK, and RUN (the extra
 parameter is ignored; a value-returning main's result is discarded) instead of
@@ -143,7 +150,7 @@ acceptance of an ill-formed entry point.
 
 ---
 
-## MAJOR (codegen / invalid IR) — a `switch` on a SUB-64-bit integer tag with an UNTYPED integer-literal case emits invalid IR (`i64` vs `iN`) (2026-06-21) — 🔴 OPEN — REPRODUCED
+## 🏷[BUG-BASH 2026-06-27 → LANE 2] MAJOR (codegen / invalid IR) — a `switch` on a SUB-64-bit integer tag with an UNTYPED integer-literal case emits invalid IR (`i64` vs `iN`) (2026-06-21) — 🔴 OPEN — REPRODUCED
 
 **Symptom.** `switch t { case 1: … }` where `t` has a sub-64-bit integer type
 (`char`/`uint8`, `int8`, `int16`, `int32`) and the case value is an UNTYPED integer
@@ -192,7 +199,7 @@ stdout.
 
 ---
 
-## MAJOR (checker / silent integer-wrap) — `:=` (short-var default type) does NOT fit-check a literal exceeding the target int → silent wrap (2026-06-21) — 🔴 OPEN — REPRODUCED
+## 🏷[BUG-BASH 2026-06-27 → LANE 1] MAJOR (checker / silent integer-wrap) — `:=` (short-var default type) does NOT fit-check a literal exceeding the target int → silent wrap (2026-06-21) — 🔴 OPEN — REPRODUCED
 
 **Symptom (silent wrong value).** `x := 0xFFFFFFFFFFFFFFFF` compiles clean (rc=0, no
 diagnostic) and binds `x` to int **-1** — the literal (2^64-1, a valid union-range
@@ -251,7 +258,7 @@ follow-ups (deferred with user sign-off):
 
 ---
 
-## MAJOR (arm32 codegen / silent wrong compare) — `int64 == <inline untyped negative const-expr>` is miscompiled on the 32-bit ARM backend (2026-06-21) — 🔴 OPEN — REPRODUCED
+## 🏷[BUG-BASH 2026-06-27 → LANE 2] MAJOR (arm32 codegen / silent wrong compare) — `int64 == <inline untyped negative const-expr>` is miscompiled on the 32-bit ARM backend (2026-06-21) — 🔴 OPEN — REPRODUCED
 
 **Symptom (silent wrong boolean, arm32 only).** `var n int64 = -42; if n == 0 - 42`
 evaluates to **false** on `builder-comp_arm32_baremetal` (the spec's `-K == 0-K`
@@ -275,17 +282,17 @@ stays green on arm32.
 
 Four findings surfaced while authoring the Ch.7 type spec tests; each is pinned by an xfail.
 
-1. **MAJOR (type-checker / wrong-code) — cross-package distinct named SCALAR types wrongly inter-assign.** Same-package `type A int; type B int; var b B = a` correctly rejects ("cannot assign A to B"), but cross-package `red.T -> blue.T` (each `type T int`) **compiles** without a cast — cross-pkg named-type identity is not enforced for scalar underlyings (type.named.identity, type.named.assignability). Possibly related to the int↔int64 identity-by-width bug, but distinct (that one is same-package width; this is cross-pkg). Pinned: `conformance/spec/07-types/049_named_identity_cross_pkg` (xfail.all).
+1. 🏷[BUG-BASH 2026-06-27 → LANE 1] **MAJOR (type-checker / wrong-code) — cross-package distinct named SCALAR types wrongly inter-assign.** Same-package `type A int; type B int; var b B = a` correctly rejects ("cannot assign A to B"), but cross-package `red.T -> blue.T` (each `type T int`) **compiles** without a cast — cross-pkg named-type identity is not enforced for scalar underlyings (type.named.identity, type.named.assignability). Possibly related to the int↔int64 identity-by-width bug, but distinct (that one is same-package width; this is cross-pkg). Pinned: `conformance/spec/07-types/049_named_identity_cross_pkg` (xfail.all).
 
-2. **MAJOR (native-aa64 codegen) — a distinct named type over a managed-slice (`type Buf @[]int`) miscompiles on the native AARCH64 backend.** Index/len/slice/assignment of the named managed-slice produce wrong output or crash on `builder-comp_native_aa64`, but are correct on LLVM, the VM, gen1, gen2, AND the 32-bit ARM native backend (arm32_baremetal passes). So it is native-aa64-specific (the named-managed-slice transparency landed for LLVM/VM via `88e13633`/`b43a0057`; native-aa64 has a gap). Pinned: `033_named_transparency`, `036_named_assignability_composite` (xfail.builder-comp_native_aa64-comp_native_aa64).
+2. 🏷[BUG-BASH 2026-06-27 → LANE 2] **MAJOR (native-aa64 codegen) — a distinct named type over a managed-slice (`type Buf @[]int`) miscompiles on the native AARCH64 backend.** Index/len/slice/assignment of the named managed-slice produce wrong output or crash on `builder-comp_native_aa64`, but are correct on LLVM, the VM, gen1, gen2, AND the 32-bit ARM native backend (arm32_baremetal passes). So it is native-aa64-specific (the named-managed-slice transparency landed for LLVM/VM via `88e13633`/`b43a0057`; native-aa64 has a gap). Pinned: `033_named_transparency`, `036_named_assignability_composite` (xfail.builder-comp_native_aa64-comp_native_aa64).
 
-3. **MINOR (type-checker / opaque encapsulation) — direct field access on an OPAQUE cross-package type is not rejected.** `b.v` on an `@bx.Box` (Box forward-declared in the .bni, full body in the .bn) **compiles** instead of "cannot access field on this type" (type.opaque.field-rejection). The build enforces .bni surfaces for symbols (16-packages/031) but not for opaque-type field access. Needs investigation: real gap vs build-model artifact. Pinned: `222_err_opaque_field_access` (xfail.all).
+3. 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] **MINOR (type-checker / opaque encapsulation) — direct field access on an OPAQUE cross-package type is not rejected.** `b.v` on an `@bx.Box` (Box forward-declared in the .bni, full body in the .bn) **compiles** instead of "cannot access field on this type" (type.opaque.field-rejection). The build enforces .bni surfaces for symbols (16-packages/031) but not for opaque-type field access. Needs investigation: real gap vs build-model artifact. Pinned: `222_err_opaque_field_access` (xfail.all).
 
-4. **MINOR (codegen) — managed pointer-to-array `@([N]T)` indexing is broken.** `(*m)[i]` on an `@([3]int)` (the spec's heap-managed-array form, type.value.managed-arise / type.ptr.array-parens) emits an "invalid getelementptr indices" codegen error; `m[i]` gives "cannot index this type". The raw `*([N]T)` form works (`(*p)[i]`). Not pinned by a dedicated test (146 avoids indexing the managed form); noted for follow-up.
+4. 🏷[BUG-BASH 2026-06-27 → LANE 2] **MINOR (codegen) — managed pointer-to-array `@([N]T)` indexing is broken.** `(*m)[i]` on an `@([3]int)` (the spec's heap-managed-array form, type.value.managed-arise / type.ptr.array-parens) emits an "invalid getelementptr indices" codegen error; `m[i]` gives "cannot index this type". The raw `*([N]T)` form works (`(*p)[i]`). Not pinned by a dedicated test (146 avoids indexing the managed form); noted for follow-up.
 
 ---
 
-## Ch.5 spec-conformance findings (2026-06-20, authoring `conformance/spec/05-lexical`) — 🔴 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 1] Ch.5 spec-conformance findings (2026-06-20, authoring `conformance/spec/05-lexical`) — 🔴 OPEN
 
 Surfaced while authoring the Ch.5 lexical spec tests. The two spec/impl
 **divergences** (`\uHHHH` escape; `1.foo` greedy-float-vs-selector) moved to
@@ -306,7 +313,7 @@ The items below are settled-intent impl gaps already pinned by xfails.
 Authoring + reviewing the Ch.15 built-in tests surfaced one impl gap now pinned and
 TWO stale spec notes (both flagged defects are actually FIXED). No new bugs.
 
-1. **bit_cast to a SUB-WORD type, used DIRECTLY, is not narrowed in the VM / native-aa64 — now pinned.** `bit_cast(uint32, int32 -1)` read directly (not stored into a typed local first) leaks the high bits → reads as full-width −1, not 4294967295, on `builder-comp-int`, `builder-comp-int-int`, and `builder-comp_native_aa64-comp_native_aa64`. Correct on the LLVM backends and arm32; a *stored* `bit_cast` (`var u uint32 = …`) narrows and is fine. This is the bit_cast facet of the existing sub-word-narrowing gap (claude-todo ~line 814). Pinned: `conformance/spec/15-builtins/040_bit_cast_int_reinterpret` (per-mode xfail on the three failing modes).
+1. 🏷[BUG-BASH 2026-06-27 → LANE 3 🤝] **bit_cast to a SUB-WORD type, used DIRECTLY, is not narrowed in the VM / native-aa64 — now pinned.** `bit_cast(uint32, int32 -1)` read directly (not stored into a typed local first) leaks the high bits → reads as full-width −1, not 4294967295, on `builder-comp-int`, `builder-comp-int-int`, and `builder-comp_native_aa64-comp_native_aa64`. Correct on the LLVM backends and arm32; a *stored* `bit_cast` (`var u uint32 = …`) narrows and is fine. This is the bit_cast facet of the existing sub-word-narrowing gap (claude-todo ~line 814). Pinned: `conformance/spec/15-builtins/040_bit_cast_int_reinterpret` (per-mode xfail on the three failing modes).
 
 2. **Stale §15.3 note — cast-to-sub-word on native-aa64 is FIXED.** The §15.3 implementation note still describes `cast` to a sub-word integer as miscompiled on native aarch64; that defect was resolved (`5f94558b` per claude-todo-done; 0 native_aa64 xfails remain in the suite). `034_cast_sub_word` passes on all modes incl. native_aa64 — NO xfail added. → drop the §15.3 note.
 
@@ -327,7 +334,7 @@ TWO stale spec notes (both flagged defects are actually FIXED). No new bugs.
 Authoring the Ch.9 tests surfaced the MAJOR raw-pointer zero-init bug (filed separately,
 above) plus two MINOR items.
 
-1. **MINOR (parser/checker) — `iota` is not resolved in a SINGLE-member grouped const block.**
+1. 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] **MINOR (parser/checker) — `iota` is not resolved in a SINGLE-member grouped const block.**
    The spec §9.1 `decl.const.iota` says iota "is recognized only inside a grouped const block."
    The impl is stricter: `const ( X int = iota )` (one member) is rejected with `undefined: iota`
    — identical to the non-grouped case — and iota only resolves once the block has 2+ members
@@ -349,7 +356,7 @@ above) plus two MINOR items.
 
 ## Ch.20 spec-conformance findings (2026-06-22, authoring `conformance/spec/20-tier0`) — 🔴 OPEN
 
-1. **MINOR/Provisional (lang / float-NaN total order + Hash) — the shipped `float32`/`float64`
+1. 🏷[BUG-BASH 2026-06-27 → LANE 3] **MINOR/Provisional (lang / float-NaN total order + Hash) — the shipped `float32`/`float64`
    `Compare`/`Hash` do not realize the ratified IEEE total order at NaN.** The current `Compare`
    is `a<b ? -1 : a>b ? 1 : 0`, so any NaN comparison returns **0** (NaN compares "equal" to every
    value, incl. other NaNs and finites) — not a total order (breaks antisymmetry/transitivity), so
@@ -370,7 +377,7 @@ above) plus two MINOR items.
 
 ---
 
-## MAJOR (VM / wrong-output) — `os.Stat(...).ModTime()` returns sec ≤ 0 under the bytecode VM (`builder-comp-int`); LLVM + native correct (2026-06-21) — 🔴 OPEN — REPRODUCED
+## 🏷[BUG-BASH 2026-06-27 → LANE 3] MAJOR (VM / wrong-output) — `os.Stat(...).ModTime()` returns sec ≤ 0 under the bytecode VM (`builder-comp-int`); LLVM + native correct (2026-06-21) — 🔴 OPEN — REPRODUCED
 
 **Symptom.** `conformance/stdlib/os/004_modtime_chain` (`fi.ModTime().ToUnix()`
 then `yn(sec > 0)`) prints `0` on `builder-comp-int` (expected `1`) — `ModTime`'s
@@ -406,7 +413,7 @@ method, or `time.Point`'s value flowing through the VM. Needs a narrower probe
 (e.g. inject a method returning a known-nonzero `time.Point` and read it on the
 VM side).
 
-## MAJOR (IR-gen / wrong-code) — a method EXPRESSION over a named SCALAR type (`type Celsius int`; `Celsius.M`) miscompiles: direct call emits an undefined symbol `@bn_T__M`; the *func form compiles but null/garbage call-shim → SIGSEGV. Fails on BOTH compiled and VM backends (2026-06-20) — 🔴 OPEN — REPRODUCED
+## 🏷[BUG-BASH 2026-06-27 → LANE 2] MAJOR (IR-gen / wrong-code) — a method EXPRESSION over a named SCALAR type (`type Celsius int`; `Celsius.M`) miscompiles: direct call emits an undefined symbol `@bn_T__M`; the *func form compiles but null/garbage call-shim → SIGSEGV. Fails on BOTH compiled and VM backends (2026-06-20) — 🔴 OPEN — REPRODUCED
 
 **Symptom (REPRODUCED).** `type Celsius int` with method `func (t Celsius) Plus(d Celsius) Celsius`. (a) Direct: `Celsius.Plus(a, b)` → LLVM "use of undefined value '@bn_Celsius__Plus'" (the method-expr target symbol is never emitted/named for a scalar receiver). (b) Via a function value: `var f *func(Celsius,Celsius) Celsius = Celsius.Plus; f(a,b)` → COMPILES (rc=0) but SIGSEGVs at the indirect call (null/garbage call-shim). The SAME pattern over a STRUCT type works, and a scalar method VALUE (`c.Plus`, bound) works — so the defect is specifically the (named-scalar type × method EXPRESSION) combination. Fails on builder-comp AND builder-comp-int (the VM), so it is a shared front-end/IR-gen defect, not LLVM-only.
 
@@ -437,7 +444,7 @@ The suite is built and every injected stdlib package has cross-mode coverage
   it as a native-only smoke.
 ---
 
-## MINOR/MAJOR (type-checker / assignability) — an impl of a SUB-interface is not assignable to its SUPER-interface: `impl R : Sub` where `interface Sub : Base`, then `var b *Base = &r` is rejected "cannot assign *R to *Base" (2026-06-19) — 🔴 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 1 🤝] MINOR/MAJOR (type-checker / assignability) — an impl of a SUB-interface is not assignable to its SUPER-interface: `impl R : Sub` where `interface Sub : Base`, then `var b *Base = &r` is rejected "cannot assign *R to *Base" (2026-06-19) — 🔴 OPEN
 
 **Symptom (REPRODUCED, same-package, no generics).** `interface Base { foo() int }`, `interface Sub : Base { bar() int }`, `type R struct{...}`, `impl R : Sub`.  `var b *Base = &r` (r an R) fails the type-checker: `cannot assign *R to *Base`.  R satisfies Sub, and Sub extends Base, so R should satisfy Base transitively — the assignability / impl-satisfaction check does not walk the implemented interface's ANCESTORS.
 
@@ -447,7 +454,7 @@ The suite is built and every injected stdlib package has cross-mode coverage
 
 ---
 
-## MAJOR (IR-gen / wrong-code) — a cross-package `impl R : I` declared ONLY in an IMPORTED third package (not R's package, not the compilation root) is accepted by the checker but its (R, I) vtable is NOT wired at the construction site → null-vtable crash at dispatch (2026-06-19) — 🔴 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 2 🤝] MAJOR (IR-gen / wrong-code) — a cross-package `impl R : I` declared ONLY in an IMPORTED third package (not R's package, not the compilation root) is accepted by the checker but its (R, I) vtable is NOT wired at the construction site → null-vtable crash at dispatch (2026-06-19) — 🔴 OPEN
 
 **Symptom (REPRODUCED, no generics, no inheritance).** `pkg/shape` declares `interface Talker { speak() int }`; `pkg/widget` declares `type Widget` + method `speak` (no impl); `pkg/glue` declares the SOLE impl `impl *widget.Widget : shape.Talker`.  A `main` that imports shape + widget + glue and constructs `var iv *shape.Talker = &w` (w a Widget) **compiles cleanly** (the checker sees the impl via the glue import — even forcing glue to link with a `glue.Touch()` call) but **SIGSEGVs at run time**: the interface value's vtable word is null.  The compiled backend faults on the null-vtable deref; the VM aborts on the null vtable.  Moving the impl into `widget` (R's own package) works, and an impl in `main` (the root, cf. conformance `055`/`spec 11-interfaces`) works — so the gap is specifically **the imported third-package-only impl**.
 
@@ -459,7 +466,7 @@ The suite is built and every injected stdlib package has cross-mode coverage
 
 ---
 
-## MINOR (type-checker / under-enforcement) — the primitive-impl carve-out (§11.10) is NOT enforced in the IMPL pass: a non-`pkg/builtins/lang` package may `impl <primitive> : <empty interface>` and it is wrongly ACCEPTED (2026-06-20) — 🔴 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (type-checker / under-enforcement) — the primitive-impl carve-out (§11.10) is NOT enforced in the IMPL pass: a non-`pkg/builtins/lang` package may `impl <primitive> : <empty interface>` and it is wrongly ACCEPTED (2026-06-20) — 🔴 OPEN
 
 **Symptom (REPRODUCED).** In package `main` (non-lang): `interface Empty {}` + `impl int : Empty` compiles and runs (`var iv *Empty = &x` works).  Spec `iface.canonical.carveout` (§11.10): "Exactly one package, pkg/builtins/lang … may declare methods **and impls** on the universe primitives … no other package may."  So this should be rejected.
 
@@ -473,7 +480,7 @@ The suite is built and every injected stdlib package has cross-mode coverage
 
 ---
 
-## MINOR (import hygiene) — two non-wrong-code follow-ups from the file-scoped-imports work — 🟡 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (import hygiene) — two non-wrong-code follow-ups from the file-scoped-imports work — 🟡 OPEN
 The PACKAGE-scoped-imports CRITICAL (all wrong-code facets — visibility leak, same-alias miscompile,
 qualified-TYPE memory-layout corruption, implicit same-last-segment, generic instantiation, the
 cross-file package-level `var x = dep.Foo()` residual) is ✅ FULLY RESOLVED & LANDED and archived in
@@ -512,14 +519,14 @@ The cast-hidden negative-shift-count → silent-0 class (and the cast-semantics 
 
 - (Const-fold fit-check for arithmetic + non-negative `&`/`|`/`^`/`<<` is ✅ DONE & LANDED — `c699cd78` (h-arith) and `3f57dc3a` (h-bitwise); recorded in [claude-todo-done.md](claude-todo-done.md). Only the `>>` residual below remains.)
 - **(h-shr / signedness-aware const-fold family) — ✅ DONE & LANDED** (single consts `05d08117`; h-cmp `0625521f`, h-inline-shift `865e2e79`, h-group `beffb741`, h-bni `cf549e2f`). Full detail in [claude-todo-done.md](claude-todo-done.md). Two adjacent residuals remain OPEN:
-  - **(runtime-count negative shift)** 🔴 OPEN. `(0 - 16) >> n` (n a runtime var) still lowers to `lshr`: the negative untyped-int const left operand reaches the shift lowering, which picks ashr/lshr from the operand TYPE's `Signed` flag, not the value sign (an untyped `2^63` operand legitimately wants `lshr`, so the fix needs a value-based decision). xfail conformance `859_runtime_count_signed_shift`.
-  - **(grouped signedness const followed by a bare repeat)** 🔴 OPEN (rare). `const ( Q uint64 = U/D; R )` loses Q's stamp to R's shared-node re-check → folds signed; the common iota-group case is correct.
-- **iota-grouped `.bni` consts stay value-less** — `defineBniConst` doesn't fold an iota-group member, so a negative iota-grouped imported const used as a shift count would slip; needs iota substitution ported into `bni_scope`. Narrow.
+  - 🏷[BUG-BASH 2026-06-27 → LANE 2] **(runtime-count negative shift)** 🔴 OPEN. `(0 - 16) >> n` (n a runtime var) still lowers to `lshr`: the negative untyped-int const left operand reaches the shift lowering, which picks ashr/lshr from the operand TYPE's `Signed` flag, not the value sign (an untyped `2^63` operand legitimately wants `lshr`, so the fix needs a value-based decision). xfail conformance `859_runtime_count_signed_shift`.
+  - 🏷[BUG-BASH 2026-06-27 → LANE 2] **(grouped signedness const followed by a bare repeat)** 🔴 OPEN (rare). `const ( Q uint64 = U/D; R )` loses Q's stamp to R's shared-node re-check → folds signed; the common iota-group case is correct.
+- 🏷[BUG-BASH 2026-06-27 → LANE 2] **iota-grouped `.bni` consts stay value-less** — `defineBniConst` doesn't fold an iota-group member, so a negative iota-grouped imported const used as a shift count would slip; needs iota substitution ported into `bni_scope`. Narrow.
 - **`parseCharLiteral` (types) / `parseCharLit` (ir) duplicated** with no tie test — drift risk; factor into one shared decoder.
 - **raw multi-byte char literal** (`'é'`) accepted as its first UTF-8 byte — front-end leniency (pre-existing).
 - (The proper IR-gen transitive-`.bni`-const fix is tracked under the CRITICAL entry above. The forward-ref-const array-dim garbage bug and the named-array zero-init bug are ✅ DONE — see [claude-todo-done.md](claude-todo-done.md).)
 
-## MINOR (latent) — same-final-segment generic INTERFACES collide (the iface analog of the now-fixed struct/func same-segment collisions) (2026-06-20) — 🔴 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (latent) — same-final-segment generic INTERFACES collide (the iface analog of the now-fixed struct/func same-segment collisions) (2026-06-20) — 🔴 OPEN
 
 The generic-FUNC (`330c42fe`) and generic-STRUCT (`5ae791d2`) same-final-segment
 collisions are fixed by keying on the DEFINING package.  Generic INTERFACES were
@@ -535,7 +542,7 @@ for the iface lookup, and reconcile with the `mi.Pkg`/`MakeInterfaceType`
 short-name identity (the part that needs care).  Same bounded/fail-safe severity
 as the struct case.  No conformance test yet.
 
-## MINOR (checker) — duplicate same-short-name imports are accepted silently; `pkg.X` resolves first-wins (2026-06-20) — 🔴 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (checker) — duplicate same-short-name imports are accepted silently; `pkg.X` resolves first-wins (2026-06-20) — 🔴 OPEN
 
 Importing two same-final-segment packages BOTH unaliased (`import "pkg/aa/gen"`
 + `import "pkg/bb/gen"`, both default short name `gen`) is accepted with NO
@@ -546,7 +553,7 @@ the same-alias-different-path facet already handled for explicit aliases.  The
 realistic workaround (alias the imports) now works for generic structs after
 `5ae791d2`.
 
-## MINOR (parser/checker, pre-existing) — two generic-body limitations surfaced during the struct-collision work (2026-06-20) — 🔴 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] MINOR (parser/checker, pre-existing) — two generic-body limitations surfaced during the struct-collision work (2026-06-20) — 🔴 OPEN
 
 Both reproduce on a SINGLE package and predate the struct-collision fix
 (independent of it):
@@ -560,7 +567,7 @@ Both reproduce on a SINGLE package and predate the struct-collision fix
   — an unconstrained `[T any]` T isn't numeric, but the diagnostic/handling for
   a struct-field-of-T in an arithmetic position is the rough edge.
 
-## MINOR — cross-mode interface dispatch: test-coverage gaps + LP64 assumption (2026-06-14) — 🟡 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 3] MINOR — cross-mode interface dispatch: test-coverage gaps + LP64 assumption (2026-06-14) — 🟡 OPEN
 
 The shim-route that dispatches a native-only package's interface methods from
 bytecode (landed `93f75f27` + the math/big extension `7c3b17a2`) is exercised by
@@ -712,7 +719,7 @@ defects; the type checker `checkArrayLit` (`check_expr_composite.bn:84-91`)
 iterates elements positionally, never reading `el.Key`, and never checks
 element count against `ArrayLen`; IR-gen `gen_composite.bn:149-152` stores
 element `i` at index `i`.
-- **Indexed array literals silently MISCOMPILE** (`expr.composite.array.indexed`,
+- 🏷[BUG-BASH 2026-06-27 → LANE 2 ⚠] **Indexed array literals silently MISCOMPILE** (`expr.composite.array.indexed`,
   MAJOR wrong-code). `[5]int{1: 10, 3: 30}` is DECIDED (claude-notes.md:801) to
   mean `{0,10,0,30,0}`, but the keys are ignored and values stored positionally
   → `{10,30,0,0,0}`. Silent wrong values, no diagnostic, no test. Fix: in
@@ -730,15 +737,15 @@ element `i` at index `i`.
   positional literal, "too many values in struct literal"; negative test
   `743_struct_overcount_rejected`. Applies to named structs too via the
   `peelNamedBounded` routing.)
-- **Inferred-length `[...]T{...}` NOT IMPLEMENTED** (`expr.composite.array.inferred-len`).
+- 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] **Inferred-length `[...]T{...}` NOT IMPLEMENTED** (`expr.composite.array.inferred-len`).
   DECIDED (claude-notes.md:798) but the checker rejects it ("array length must be
   a constant integer"). Either wire it (substitute `len(Elems)` for the `...`
   marker) or mark deferred.
-- **(minor) Positional struct-literal elements are not assignability-checked**
+- 🏷[BUG-BASH 2026-06-27 → LANE 1] **(minor) Positional struct-literal elements are not assignability-checked**
   (`check_expr_composite.bn:73-79` checks keyed but not positional values).
 All referenced from `13-expressions.md`.
 
-### `__Package()`: bytecode VM works only for the 4 builtins (Gap 2; unqualified form ✅ FIXED; builtin auto-injection ✅ LANDED) — 🔴 OPEN (user-package bytecode `__Package` remains)
+### 🏷[BUG-BASH 2026-06-27 → LANE 3 🔶] `__Package()`: bytecode VM works only for the 4 builtins (Gap 2; unqualified form ✅ FIXED; builtin auto-injection ✅ LANDED) — 🔴 OPEN (user-package bytecode `__Package` remains)
 
 > **Update 2026-06-12** — two related pieces landed on main:
 > - **VM injection Part A** (binate `a8ba52f2`): `RegisterStandardExterns` now
@@ -807,7 +814,7 @@ checker synthesizes its signature in BOTH the qualified-access arm
 
 ## MAJOR
 
-### Named func-value type (`type Fn @func(...)`) — func-LITERAL construction still rejected — literal-half follow-up 🟡 OPEN
+### 🏷[BUG-BASH 2026-06-27 → LANE 1] Named func-value type (`type Fn @func(...)`) — func-LITERAL construction still rejected — literal-half follow-up 🟡 OPEN
 - **Symptom**: `type Fn @func(int) int; var f Fn = func(x int) int {...}` is rejected (a bare `@func` literal isn't `Identical`/assignable to the nominal `Fn`). The func-REFERENCE half (`var f Fn = dbl`) and value-rejection (`var f Fn = g`) already work — see archived diagnosis.
 - **Test**: `conformance/regressions/named-func-value-construct-literal` (xfailed all 11 modes).
 - **Fix (3 sites, none peel TYP_NAMED yet)**: `checkFuncLit` (`check_func_lit.bn:83`) must RETURN the named type when hinted by one (gates on `ExpectedFVType.Kind == TYP_FUNC_VALUE` only); `checkExprWithFVHint` (`check_expr.bn:32`) must peel TYP_NAMED before installing the FV hint (currently ignores non-FUNC_VALUE/MANAGED_FUNC_VALUE hints, so a `Fn`=TYP_NAMED hint is dropped); `isManagedFuncValueLit` (`gen_func_lit.bn:188-194`) must peel TYP_NAMED (keys on `TYP_MANAGED_FUNC_VALUE`).
@@ -822,12 +829,12 @@ findings) are archived in [claude-todo-done.md](claude-todo-done.md); each resol
 also has its own dedicated RESOLVED entry there, and the records preserve the
 REFUTED-do-not-re-chase verdicts. These are the still-open residues kept here for tracking:
 
-### Alias receivers unsupported for METHOD VALUES and IMPL declarations — filed known limitations, user-deferred 2026-06-09 — 🟡 PARKED
+### 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] Alias receivers unsupported for METHOD VALUES and IMPL declarations — filed known limitations, user-deferred 2026-06-09 — 🟡 PARKED
 - **Method values** (`type AB = @Box; var mv = ab.getV` → "undefined: getV"): the method-value path in `check_expr_access.bn` calls `ReceiverBaseNamed()` on the un-alias-peeled `origXt`. A DIRECT method value (`p.getV`) works; only the alias receiver is broken.
 - **Impl declarations** (`type AB = *Box; impl AB : Getter` → "impl receiver must be (a wrapper around) a named type"): `checkImplSatisfaction` (`check_impl.bn`) calls `ReceiverBaseNamed()` on the possibly-`TYP_ALIAS` `recv`.
 - **Why parked**: the type-only fix (peel the alias) makes both type-check, but the method-value closure layout (`gen_method_value.bn`) and the impl/vtable dispatch don't peel the alias → runtime **SIGSEGV**. A proper fix needs the IR-gen companion (peel the alias in closure-capture / vtable dispatch). Type fixes were prototyped + REVERTED. Per the user (2026-06-09): FILE as a known limitation, do NOT pursue the IR-gen work now. Niche (alias receiver × method-value / impl).
 
-### X3-highbit — signed sign-bit const-fold checker-vs-IR divergence — DIRECTION CONTESTED (semantics-owned) — 🟡 NEEDS DECISION
+### 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] X3-highbit — signed sign-bit const-fold checker-vs-IR divergence — DIRECTION CONTESTED (semantics-owned) — 🟡 NEEDS DECISION
 - `1<<iota` now folds in the checker, so a flag member hitting the SIGN bit of a signed target (`1<<63` → `int` on 64-bit; `1<<31` on 32-bit) computes positive 2^(W-1), which `FitsSigned(W)` rejects — while IR's `evalConstExpr` wraps to the valid two's-complement `INT_MIN`. A real checker-vs-IR divergence.
 - **Resolution is a spec call** (`claude-notes.md` §const: const values are abstract and must fit the target range → the reject may be CORRECT; the canonical idiom uses an UNSIGNED target, unaffected). Do NOT change semantics unilaterally. Companion to the bare-const-group-member inherited-type fix (`b9d6d807`) — decided separately.
 
@@ -840,7 +847,7 @@ REFUTED-do-not-re-chase verdicts. These are the still-open residues kept here fo
 
 ## CRITICAL
 
-### abi-matrix multi-return-through-dispatch cells lack a managed-component type — 🟡 OPEN
+### 🏷[BUG-BASH 2026-06-27 → LANE 3] abi-matrix multi-return-through-dispatch cells lack a managed-component type — 🟡 OPEN
 - **Coverage gap (residual of the `=`-multibind fix, full diagnosis archived in claude-todo-done.md).** The `=`/`:=` × {direct, iface-dispatch, func-value} multi-return abi-matrix cells (`conformance/matrix/abi/*multi-return*`) all use value-only component types — `MR_TYPES = {"int","u16","f64"}` in `conformance/gen-abi-matrix.py`. None binds a managed component (`@[]T` / `@T`), which is exactly the surface that hid the original mistyping bug (a managed component skipped its Axiom-3 copy-RefInc). 
 - The managed-through-dispatch path is currently covered only at the IR-unit level (`gen_assign_multi_test.bn` TestMultiAssignFuncValueCallCopyRefInc), not end-to-end in conformance.
 - **TODO**: extend `gen-abi-matrix.py` with a managed-component type for the multi-return-through-dispatch cells (both `:=` and `=` forms), regenerate the matrix, and confirm the 200k-iter-style refcount balance holds end-to-end.
@@ -897,7 +904,7 @@ x64 analog needing its own xfails.
 
 ## MINOR
 
-### Generic struct/interface instantiation skips constraint satisfaction — spec Ch.12 (2026-06-12) — 🔴 OPEN
+### 🏷[BUG-BASH 2026-06-27 → LANE 1] Generic struct/interface instantiation skips constraint satisfaction — spec Ch.12 (2026-06-12) — 🔴 OPEN
 Found authoring spec Ch.12 (verified via toolchain probes through
 builder-comp). MAJOR (the spec implies it's enforced; it isn't) but it
 doesn't miscompile. (The sibling "generic methods accepted at
@@ -916,7 +923,7 @@ declaration" defect is ✅ FIXED — rejected at collection time, binate
   check is added to `buildInstantiatedStruct`/`buildInstantiatedInterface`. The
   green generic-FUNCTION case is `033_err_satisfy_func_no_impl`.
 
-### Value-receiver "always readonly" not enforced — spec Ch.10 (2026-06-12)
+### 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] Value-receiver "always readonly" not enforced — spec Ch.10 (2026-06-12)
 MINOR (design-intent vs impl; no correctness bug — by-value copy makes any
 mutation harmless). `claude-notes.md:359` says a value receiver `(r T)` is
 "always readonly". The checker does NOT enforce it: `receiverShape`
@@ -928,7 +935,7 @@ receivers (a checker addition + a diagnostic), or downgrade the design note to
 the spec `func.method.value-recv` currently describes). Referenced from
 `10-functions-methods-function-values.md`.
 
-### Layout follow-ups surfaced authoring spec Ch.7.13 (Type Layout) — 2026-06-12
+### 🏷[BUG-BASH 2026-06-27 → LANE 2] Layout follow-ups surfaced authoring spec Ch.7.13 (Type Layout) — 2026-06-12
 Both referenced from the spec (`07b-type-layout.md`).
 - **`type.layout.funcval-order-hardening`** (hardening). The function-value
   field order `{vtable, data}` and the interface-value order `{data, vtable}`
@@ -950,7 +957,7 @@ Both referenced from the spec (`07b-type-layout.md`).
   done):** add a `TargetInfo` endianness field + big-endian support, the path to
   big-endian/cross-endian targets.
 
-### Type-system issues surfaced while authoring spec Ch.7 (Types) — 2026-06-12
+### 🏷[BUG-BASH 2026-06-27 → LANE 1] Type-system issues surfaced while authoring spec Ch.7 (Types) — 2026-06-12
 Found writing the docs spec's Types chapter (grounding + adversarial
 verification against pkg/binate/types). The spec (`07-types.md`)
 documents these as open items.
@@ -1008,7 +1015,7 @@ namespace`, `071_annotation_degenerate`, `072_err_annotation_no_stack`.
 Found writing the `conformance/spec/08-conversions/` rule tests (plan-spec-
 tests.md Phase B). Ch.8 itself is clean (11 tests, 100%, green on compiler /
 VM / gen1 / gen2 / native_aa64 / arm32_baremetal). Three findings:
-- **`bit_cast` to a sub-word type isn't narrowed in the VM AND the native
+- 🏷[BUG-BASH 2026-06-27 → LANE 3 🤝] **`bit_cast` to a sub-word type isn't narrowed in the VM AND the native
   backends — 🔴 OPEN (new facet of `aa64-subword`).** `bit_cast(uint8, <int8 -1>)`
   used directly (no intervening typed store) should be `255`, but stays
   sign-extended on the bytecode VM (all 3 `-int` modes) and on native_aa64 (the
@@ -1020,7 +1027,7 @@ VM / gen1 / gen2 / native_aa64 / arm32_baremetal). Three findings:
   `matrix/scalar-diff` (it already does per-mode xfails for this class) rather
   than a spec test needing ~6 per-mode markers. The conv.bit-cast *rule* itself
   is satisfied (covered by `spec/08-conversions/010_bit_cast`).
-- **MAJOR (type-checker / `conv.no-implicit-numeric` strictness) — distinct
+- 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] **MAJOR (type-checker / `conv.no-implicit-numeric` strictness) — distinct
   same-width integer types implicitly inter-convert (`int ↔ int64`, `uint ↔
   uint64`, `int ↔ int32` on 32-bit, …) — 🔴 OPEN; CONFIRMED a bug by the user
   (2026-06-19).** `var y int64 = x` (and the reverse) is accepted with `x int`,
@@ -1079,11 +1086,11 @@ tests.md Phase B). Each has a reproducing test cited by `.rules`.
     so `if Point{…}.x` fails) is correct/intended, not a defect.
   Both, plus `expr.composite.array.indexed` and `…inferred-len`, are now
   declared col-0 rule-IDs (tests cite them precisely; Ch.13 denominator 29→32).
-- **`expr.composite.array.inferred-len` — 🔴 OPEN (genuine gap).** `[...]T{…}`
+- 🏷[BUG-BASH 2026-06-27 → LANE 1] **`expr.composite.array.inferred-len` — 🔴 OPEN (genuine gap).** `[...]T{…}`
   is rejected at parse ("expected expression"), though now declared. Covered by
   `spec/13-expressions/041` (.xfail.all). Fix: infer the length from the
   element count.
-- **(minor) `expr.composite.struct` bad-key diagnostic.** A keyed struct
+- 🏷[BUG-BASH 2026-06-27 → LANE 1] **(minor) `expr.composite.struct` bad-key diagnostic.** A keyed struct
   literal whose key names no field reports the generic `undefined: <key>` (the
   key is resolved as an identifier) rather than a field-specific "no field
   <key> in <T>". NOT a correctness bug — a key that shadows an in-scope
@@ -1097,7 +1104,7 @@ tests.md Phase B). Each has a reproducing test cited by `.rules`.
   literal-leading contexts reject via generic parse errors. Conformant
   (rejection holds) — a diagnostic-consistency nicety only.
 
-### Untyped `const` coercion: implementation diverges from a DECIDED note — surfaced authoring spec Ch.6 (2026-06-11)
+### 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] Untyped `const` coercion: implementation diverges from a DECIDED note — surfaced authoring spec Ch.6 (2026-06-11)
 Needs a decision (MINOR — no miscompile; a type-system permissiveness
 question).
 - **The note (`claude-notes.md` "Type conversions & literals — DECIDED",
@@ -1129,12 +1136,12 @@ question).
 
 ## MAJOR
 
-### MINOR (ILP32-native readiness) — native `_Package` accessor hardcodes the 16-byte managed-header offset (LP64-only) — FILED 2026-06-27
+### 🏷[BUG-BASH 2026-06-27 → LANE 2] MINOR (ILP32-native readiness) — native `_Package` accessor hardcodes the 16-byte managed-header offset (LP64-only) — FILED 2026-06-27
 - **What**: the per-arch native `_Package()` accessor adds a literal `16` to reach the descriptor node's payload past the managed header (`pkg/binate/native/aarch64/aarch64_pkg_descriptor.bn:54` ADRP+add+16; `pkg/binate/native/x64/x64_pkg_descriptor.bn:48` LEA+16). The DATA side already uses `2*IntSize` (the DataGlobal addend, ILP32-correct), so only the accessor is LP64-pinned.
 - **Not a current bug**: there is no 32-bit NATIVE target today — arm32 (ILP32) compiles via the LLVM backend, and the native backends (aarch64/x64) are LP64-only. The hardcoded 16 = `2*IntSize` on LP64, so it's correct everywhere it currently runs.
 - **Fix when a 32-bit native target lands**: replace the literal 16 with `2 * types.GetTarget().IntSize` (8 on ILP32) in both per-arch accessors. Surfaced by the #119 DataGlobal capstone review; outside DataGlobal's own scope (the accessor is code, not a DataGlobal).
 
-### PROJECT — relro section infra (Mach-O `__DATA_CONST,__const` / ELF `.data.rel.ro`) for relocatable read-only data — FILED 2026-06-22
+### 🏷[BUG-BASH 2026-06-27 → LANE 2 🔶] PROJECT — relro section infra (Mach-O `__DATA_CONST,__const` / ELF `.data.rel.ro`) for relocatable read-only data — FILED 2026-06-22
 - **Surfaced by**: DataGlobal Inc 4b (strings phase). The native `EmitDataGlobal` now routes a read-only blob to the `rodata` section ONLY if it is RELOC-FREE — because `rodata` maps to Mach-O `__TEXT,__const`, and Mach-O's linker rejects any relocation whose patched location is in `__TEXT` ("illegal text-relocation"). Verified the hard way: routing the symref-bearing `_pkg_info` descriptor node into `__TEXT,__const` produced `ld: Found illegal text-relocations … '_pkg_info'+0x10 to '_pkgname'`.
 - **Current state (acceptable, user-ratified)**: relocatable read-only blobs — the `_pkg_info` node + `_pkg_funcs/globals/vtables` backing arrays, every info node, all func-value + impl vtables, and the string `.ms` header — stay in the writable `data` section (exactly as before the rodata split). They are immortal and never written, so this is functionally fine; it's only a defense-in-depth gap (read-only data sitting in a writable section). Only reloc-free blobs (string bytes, `_pkgname`, info-node name/sig) reach true rodata.
 - **The fix (this project)**: add a relro section to BOTH object writers — Mach-O `__DATA_CONST,__const` (a separate read-only-after-dyld-fixups segment that permits relocations) and ELF `.data.rel.ro` (`SHF_ALLOC | SHF_WRITE`, made read-only after relocation by the loader). Route relocatable read-only DataGlobals there instead of `data`, so they become genuinely read-only-after-load. New object-writer feature: segment/section table + load-command emission (Mach-O `__DATA_CONST` segment), section-name mapping, and the section-selection logic in `common.EmitDataGlobal` (reloc-free RO → `rodata`; relocatable RO → `rodata_relro`; mutable → `data`). Verify on Mach-O (aa64 + x64) + ELF (arm32) — the relocations now originate FROM a relro section, the genuinely new path.
@@ -1145,7 +1152,7 @@ question).
 - **Scope note**: adding the check ≠ wiring it into `scripts/hygiene/run.sh` / CI — but a hygiene check belongs in the run.sh master, so do both when implementing. A first audit may surface other pre-existing violations to triage.
 - **First manual sweep (Lane C, 2026-06-10) — CLEAN baseline**: swept every import (incl. aliased) in the bundled trees (`ifaces/{core,stdlib}`, `impls/{core,stdlib}`, `pkg/bootstrap`, `runtime/`). No non-test bundled package imports outside the bundled set. Two non-obvious cases the eventual check must handle: (1) `impls/core/baremetal/pkg/builtins/rt` imports `pkg/semihost`, which is NOT a violation — `pkg/semihost.bni` ships under `runtime/baremetal_arm32/` (a bundled runtime component) and resolves under the arm32-baremetal build's own `-I`/`-L`; the check should treat shipped `runtime/<target>/pkg/*` as bundled, or scope tier rules per build target. (2) all `pkg/builtins/testing` imports are in `*_test.bn` (already EXEMPT) and it has a bundled `.bni` with a harness-provided impl. So `lang → pkg/binate/buf` (binate `84818a77`) was the only true tier-0→tier-2 violation; the baseline is otherwise clean.
 
-### `==` / `!=` (and relational) on aggregates: checker now rejects — no more invalid LLVM. DECIDED + LANDED at the checker (binate `60719e01`, coverage `78af9c23`); struct/array impl + generic path remain OPEN
+### 🏷[BUG-BASH 2026-06-27 → LANE 2 ⚠] `==` / `!=` (and relational) on aggregates: checker now rejects — no more invalid LLVM. DECIDED + LANDED at the checker (binate `60719e01`, coverage `78af9c23`); struct/array impl + generic path remain OPEN
 - **What it was**: the comparison type-check rule only checked mutual assignability and returned bool, so `==`/`!=`/`<`/`>`/`<=`/`>=` were accepted on *any* same-typed operands. For aggregates (raw/managed slice, raw/managed func value, interface value, struct, array) codegen then emitted `icmp` on a multi-word value → invalid LLVM (`error: icmp requires integer operands`), hard package compile failure.
 - **DECIDED (user, 2026-06-07)** and **LANDED** in `pkg/binate/types` (binate `60719e01`; coverage `78af9c23`):
   - **Equality (`==`/`!=`)**: scalars + pointers compare directly. **Slices, interface values, func values → permanently rejected** with a type-specific diagnostic (consistent with `slice == nil` / `iface == nil` already being disallowed footguns; the sanctioned tests are `len()` / `present()` / identity). **Structs and arrays → "not yet implemented"** (comparable in principle; the fieldwise/elementwise lowering is deferred — arrays in the same bucket as structs, per user). `nil` is judged by the other operand (`ptr == nil` OK; `iface == nil` / `func == nil` rejected).
@@ -1477,7 +1484,7 @@ lint wanted (return / store-to-outliving-field / assign-to-global of a raw slice
 borrowing a local), or is the current narrow rule + "raw is an opt-in escape
 hatch" sufficient (close this out)?
 
-### IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 + 2 (INT64 + FLOAT64) DONE
+### 🏷[BUG-BASH 2026-06-27 → LANE 3] IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 + 2 (INT64 + FLOAT64) DONE
 - **Symptom**: under `builder-comp_arm32_linux` unit tests, `pkg/ir`
   and everything downstream of it (`pkg/native{,/amd64,/arm64,/common}`,
   `pkg/codegen`, `pkg/vm`, `cmd/{bnc,bni,bnas}`) fail to compile for
