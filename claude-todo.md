@@ -123,31 +123,6 @@ stdout.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 1] MAJOR (checker / silent integer-wrap) — `:=` (short-var default type) does NOT fit-check a literal exceeding the target int → silent wrap (2026-06-21) — 🔴 OPEN — REPRODUCED
-
-**Symptom (silent wrong value).** `x := 0xFFFFFFFFFFFFFFFF` compiles clean (rc=0, no
-diagnostic) and binds `x` to int **-1** — the literal (2^64-1, a valid union-range
-literal but NOT in int64) is silently WRAPPED to the default `int` instead of being
-rejected. The explicit-type path is correct: `var x int = 0xFFFFFFFFFFFFFFFF` →
-`cannot assign untyped int to int`. So the `:=` default-type path omits the
-range/fit-check that `var x T = …` performs.
-
-**Spec.** `const.default.int-width` (§6.2): a literal whose value does not fit the
-target's `int` "cannot use the default and shall be given an explicit type." So
-`x := 0xFFFFFFFFFFFFFFFF` must be rejected, not wrapped.
-
-**Discovery.** Authoring `conformance/spec/06-constants` (const.default.int-width).
-**Scope.** Front-end (checker/const-fold), so the wrong value is target-invariant
-(all modes). Likely the `:=` path infers the default type and stores the literal
-without re-fit-checking against it.
-
-**Fix (likely).** In the short-var (`:=`) default-typing path, fit-check the
-literal/const-expr against its chosen default type (the same check the explicit
-`var x T = e` assignment does), and reject on overflow.
-
-**Pinned.** `conformance/spec/06-constants/007_err_default_int_width_exceeds` (xfail.all,
-asserts the `cannot assign untyped int to int` rejection the explicit path gives).
-
 ## Embeddable-interp — open follow-ups (Inc 2 extern cleanup core landed) — 🟡 OPEN (2026-06-20)
 
 The embeddable-interp core (Inc 1, Inc 2 Layers 1/2 + the review (b)-fix, and the
@@ -368,20 +343,6 @@ The suite is built and every injected stdlib package has cross-mode coverage
 
 ---
 
-
-## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (type-checker / under-enforcement) — the primitive-impl carve-out (§11.10) is NOT enforced in the IMPL pass: a non-`pkg/builtins/lang` package may `impl <primitive> : <empty interface>` and it is wrongly ACCEPTED (2026-06-20) — 🔴 OPEN
-
-**Symptom (REPRODUCED).** In package `main` (non-lang): `interface Empty {}` + `impl int : Empty` compiles and runs (`var iv *Empty = &x` works).  Spec `iface.canonical.carveout` (§11.10): "Exactly one package, pkg/builtins/lang … may declare methods **and impls** on the universe primitives … no other package may."  So this should be rejected.
-
-**Root cause.** The carve-out gate (`AllowUniverseRecv`, set only for pkg/builtins/lang) is enforced in the METHOD-declaration pass (`resolveMethodReceiver`, check_decl_func.bn) — so `func (x int) m()` IS caught ("method receiver int is not a type defined in this package").  But an `impl <primitive> : I` where `I` has NO methods reaches no method-declaration check, and the IMPL-collection pass has no equivalent universe-receiver gate, so it slips through.  (A non-empty interface is still indirectly blocked because you cannot declare the methods to satisfy it.)
-
-**Severity.** MINOR: an under-enforcement (accepts spec-forbidden code), not wrong-code or a crash.  Harmless in practice but a real spec-vs-impl divergence.
-
-**Proposed fix.** Add the universe-receiver carve-out gate to the impl-collection pass (reject `impl R : I` when R reduces to a universe primitive and the current package is not pkg/builtins/lang), mirroring `resolveMethodReceiver`'s `AllowUniverseRecv` check.
-
-**Test.** `conformance/spec/11-interfaces/085_err_impl_primitive_carveout` (negative, `.xfail.all` — currently accepted; flip to a normal reject when the gate lands; its `.error` pattern `primitive` is a best-guess at the eventual diagnostic).
-
----
 
 ## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (import hygiene) — two non-wrong-code follow-ups from the file-scoped-imports work — 🟡 OPEN
 The PACKAGE-scoped-imports CRITICAL (all wrong-code facets — visibility leak, same-alias miscompile,
@@ -806,25 +767,6 @@ x64 analog needing its own xfails.
 ---
 
 ## MINOR
-
-### 🏷[BUG-BASH 2026-06-27 → LANE 1] Generic struct/interface instantiation skips constraint satisfaction — spec Ch.12 (2026-06-12) — 🔴 OPEN
-Found authoring spec Ch.12 (verified via toolchain probes through
-builder-comp). MAJOR (the spec implies it's enforced; it isn't) but it
-doesn't miscompile. (The sibling "generic methods accepted at
-declaration" defect is ✅ FIXED — rejected at collection time, binate
-`a7e0beb2`; see claude-todo-done.md.)
-- **Constraint satisfaction unchecked for generic struct/interface instantiation**
-  (`gen.satisfy.struct-iface-unchecked`). `typeSatisfiesConstraint`/
-  `reportConstraintMiss` are called ONLY from `instantiateGenericFunc`
-  (`check_generic.bn:259-264`); `buildInstantiatedStruct` (:196-218) and
-  `buildInstantiatedInterface` (:115-138) install the type-param scope but make
-  NO satisfaction call. So `type Box[T lang.Orderable] struct{val T}`
-  instantiated as `Box[NoOrder]` (no `impl NoOrder : Orderable`) compiles clean.
-  Generic-FUNCTION constraint checking works correctly.
-- **Pinned (2026-06-20):** `conformance/spec/12-generics/034_err_satisfy_struct_unchecked_xfail`
-  (xfail.all) regresses this — flip it to a normal reject when the satisfaction
-  check is added to `buildInstantiatedStruct`/`buildInstantiatedInterface`. The
-  green generic-FUNCTION case is `033_err_satisfy_func_no_impl`.
 
 ### 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] Value-receiver "always readonly" not enforced — spec Ch.10 (2026-06-12)
 MINOR (design-intent vs impl; no correctness bug — by-value copy makes any

@@ -8,6 +8,44 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `ddc5df69`, 2026-06-27, BUG-BASH LANE 1) — MAJOR (checker / silent integer-wrap) — `:=` / `var x = e` / `box(e)` did NOT fit-check a literal exceeding the target int → silent wrap
+
+`x := 0xFFFFFFFFFFFFFFFF` (2^64-1, not in int64) compiled clean and bound `x` to
+int −1 — the inference (default-type) paths picked the default `int` via
+`defaultType` but never fit-checked the literal, while the explicit `var x int =
+…` path correctly rejected (`cannot assign untyped int to int`). const.default.int-width
+(§6.2). **Fix:** `checkDefaultIntFits` (mirrors the explicit path's
+`untypedIntLitFitsTarget`) called from all THREE `defaultType(` inference sites a
+repo-wide grep found — `checkShortVarDecl`, `checkVarDecl`'s inferred branch, AND
+the `box` builtin arm (the third site the adversarial review caught my first sweep
+missing). INT_MIN/INT64_MAX still fit. **Tests:** conformance 007 (`:=`) un-xfailed,
+115 (`var x = e`), 116 (`box`); host-side `check_default_int_fit_test.bn` pins the
+reject + the INT_MIN/INT64_MAX boundary-accept (which exceed a 32-bit int).
+
+## ✅ FIXED & LANDED (main `ac05b89e`, 2026-06-27, BUG-BASH LANE 1) — MINOR (type-checker) — the §11.10 universe-impl carve-out was NOT enforced in the IMPL pass
+
+A non-`pkg/builtins/lang` package could `impl int : Empty` (Empty a zero-method
+interface) and it compiled/ran — the carve-out gate (`AllowUniverseRecv`) was
+enforced only in the METHOD-declaration pass, and an impl of an empty interface
+reaches no method check (iface.canonical.carveout §11.10). **Fix:** gate in
+`checkImplSatisfaction`, reading a per-impl `CarveOut` flag stamped at collection
+time from the DEFINING package's `AllowUniverseRecv` (NOT the live flag — `c.Impls`
+accumulates across packages, so lang's own primitive impls reach the loop while a
+non-lang package is checked; the live flag would wrongly reject them). **Test:**
+conformance 085 un-xfailed.
+
+## ✅ FIXED & LANDED (main `2db3e8ed`, 2026-06-27, BUG-BASH LANE 1) — constraint satisfaction unchecked at generic struct/interface instantiation
+
+`type Box[T lang.Orderable]` instantiated as `Box[NoOrder]` (no `impl NoOrder :
+Orderable`) compiled clean — satisfaction was checked only at generic-FUNCTION
+instantiation (gen.satisfy.struct-iface-unchecked, §12.4). **Fix:**
+`checkInstantiationConstraints` in `instantiateGenericDeclWithArgs` (covers the
+direct `Name[args]` path AND the `substituteTypeParams` re-instantiation path);
+constraints resolve under the generic decl's defining scope/package with
+type-params bound to concrete args; diagnostic anchored at the use-site (`usePos`,
+mirroring the function path). **Tests:** conformance 034 un-xfailed (struct), 038
+(multi-param), 039 (interface); 4 host-side unit tests in `check_generic_test.bn`.
+
 ## ✅ FIXED & LANDED (main `6b9cc09a`, 2026-06-27, BUG-BASH LANE 2) — a method EXPRESSION over a named-distinct SCALAR receiver (`type Celsius int`; `Celsius.M`) miscompiled
 
 **Symptom.** `Celsius.Plus` (method expression, named-scalar receiver): the
