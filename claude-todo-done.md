@@ -8,6 +8,32 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `63ecc3b8`, 2026-06-27, BUG-BASH LANE 2) — a negative untyped-int const operand of a runtime-count `>>` lowered to a LOGICAL shift (lshr, not ashr)
+
+**Symptom.** `(0 - 16) >> n` (n a runtime var) computed `(2^64-16) >> n` instead
+of `-4` — a silent wrong value on every backend.  `genBinary` set the shift's
+result type to the (untyped-int) value operand's type, whose Signed flag is
+false, so `gen_shift.bn` (which keys ashr/lshr off `resultTyp.Signed`) picked
+lshr.  The const-COUNT case already folds in the checker (845); this was the
+runtime-count residual.
+
+**Fix (`pkg/binate/ir/gen_binary.bn`).** When the shift's value operand is a
+negative untyped-int const, retag the shift result type to signed `int` so ashr
+is selected.  The genuine value sign comes from the checker's folded-literal
+metadata (`LitSign` on the operand's resolved type, via `bignumToInt`) — NOT the
+two's-complement bit pattern (`lhs.IntVal < 0`), which can't distinguish a
+negative const from a positive one `>= 2^63`.  A positive untyped const
+(LitSign false, including a legitimate `>= 2^63` operand) keeps untyped/lshr,
+which is correct.
+
+**Tests.** Un-xfailed `859_runtime_count_signed_shift` (now green on
+builder-comp / -int (VM) / native_aa64; 94 shift tests on LLVM/VM and 78 on
+native unchanged).  Added IR-gen unit test `TestNegativeUntypedConstShrIsSigned`
+asserting the OP_SHR carries a signed result type (uses `genFromSourceWithChecker`
+since the fix reads checker metadata).
+
+---
+
 ## ✅ FIXED & LANDED (main `ddc5df69`, 2026-06-27, BUG-BASH LANE 1) — MAJOR (checker / silent integer-wrap) — `:=` / `var x = e` / `box(e)` did NOT fit-check a literal exceeding the target int → silent wrap
 
 `x := 0xFFFFFFFFFFFFFFFF` (2^64-1, not in int64) compiled clean and bound `x` to
