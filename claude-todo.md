@@ -301,15 +301,15 @@ above) plus two MINOR items.
 
 ## 🏷[BUG-BASH 2026-06-27 → LANE 3] MAJOR (VM / wrong-output) — `os.Stat(...).ModTime()` returns sec ≤ 0 under the bytecode VM (`builder-comp-int`); LLVM + native correct (2026-06-21) — 🔴 OPEN — REPRODUCED
 
-**Symptom.** `conformance/stdlib/os/004_modtime_chain` (`fi.ModTime().ToUnix()`
+**Symptom.** `conformance/stdlib/os/010_modtime_chain` (`fi.ModTime().ToUnix()`
 then `yn(sec > 0)`) prints `0` on `builder-comp-int` (expected `1`) — `ModTime`'s
 seconds come back ≤ 0. PASSES on `builder-comp` and `builder-comp_native_aa64`.
-xfail: `004_modtime_chain.xfail.builder-comp-int`.
+xfail: `010_modtime_chain.xfail.builder-comp-int`.
 
 **arm32 facet — RESOLVED by `f4b934ce` (was the `os.Stat` osStat-overflow, NOT a
 distinct bug).** 004 crashed on `builder-comp_arm32_linux` only because `os.Stat`
 itself SIGSEGV'd (the `MaxAlign=4` osStat-undersize overrun) before `ModTime` was
-reached. With the MaxAlign fix, a clean MaxAlign=8 gen1 runs `004_modtime_chain`
+reached. With the MaxAlign fix, a clean MaxAlign=8 gen1 runs `010_modtime_chain`
 → **PASS** (verified under qemu alongside `290_sizeof_alignof`). An earlier
 "distinct chained-`ModTime().ToUnix()` aggregate-ABI" theory here was WRONG: it
 came from probing with a non-deterministically-picked STALE `MaxAlign=4` gen1
@@ -323,7 +323,7 @@ codegen bug was fixed (`b19d69ef`) — that fix un-masked 004 (it now COMPILES
 everywhere), exposing this separate VM-only wrong-value. NOT the codegen fix: the
 minimal dependency-free repro for that fix, `890_chained_method_transitive_struct`
 (same chained multi-return shape, no `os`), passes on ALL modes incl. the VM.
-`003_stat` (plain `os.Stat` → `Size`/`Mode`, no `ModTime`) also passes on the VM,
+`009_stat` (plain `os.Stat` → `Size`/`Mode`, no `ModTime`) also passes on the VM,
 so generic `os.Stat` marshaling works — it's `ModTime` specifically.
 
 **Likely root (needs investigation).** `os` is INJECTED (native) in the VM, so

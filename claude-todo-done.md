@@ -8,6 +8,25 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `024c8473` / `6cefe001`, 2026-06-27) — conformance-test-numbers hygiene check did not cover stdlib/ (which had pre-existing duplicate test numbers)
+
+The conformance-test-numbers hygiene check originally scanned only the top-level
+conformance/ directory, missing duplicate test numbers within the per-chapter
+spec/ and stdlib/ subtrees (which restart numbering at 001 and are discovered by
+the runner via the same recursive find). First extended to spec/ (`6cefe001`),
+then — after an adversarial review caught that stdlib/ was still unscanned and
+already held two real dups — generalized to DISCOVER every numbered namespace
+(`024c8473`): scan every directory that directly holds a numbered test, pruning
+multi-file `NNN_<name>/` test directories so their internal files are not mistaken
+for a namespace. Covers spec/, stdlib/, the depth-3 stdlib/math/big chapter, and
+any future numbered subtree; matrix/ and regressions/ use descriptive
+non-numbered names so they correctly need no check.
+
+Fixed the two pre-existing stdlib/os collisions the newly-complete check caught
+(keeping the file-IO sequence at its numbers): **003_stat → 009_stat** and
+**004_modtime_chain → 010_modtime_chain** (the latter's `.xfail.builder-comp-int`
+moved with it; the open os.Stat-ModTime VM bug entry now references the new name).
+
 ## ✅ FIXED & LANDED [BUG-BASH 2026-06-27 → LANE 2] (binate `c81908d7`, 2026-06-27) — func-value dispatch sizer UNDER-COUNTED outgoing-args for spilling float args, clobbering a caller local
 
 MAJOR silent data-corruption: a func-value / closure call whose float-scalar args
@@ -116,6 +135,14 @@ the case bodies, on every return path; `ctx.ContinueTo` left untouched so
 BreakVarLen set, 140 reads a corrupted 6 and 141 crashes). Pass on builder-comp /
 -comp-int / -comp-comp. Found by the 2026-06-27 adversarial reviews of the
 tagless + leak fixes.
+
+Coverage follow-up (binate `4c45f236`): a later adversarial review found 140/141
+only exercise the BreakVarLen ENTRY-SET path, never the save/RESTORE-on-exit paths
+(the default-case early return and the final return) — so dropping either restore
+left the whole suite green while reintroducing a post-switch break that self-loops
+on switch.exit (infinite hang) and leaks the enclosing-loop local. Added 142
+(default-case restore), 143 (final-return restore, expression case) and 144
+(nested switches), each break-verified to HANG (timeout) without its restore.
 
 ## ✅ FIXED & LANDED (binate `214db9bf`, 2026-06-27) — NAMED managed-slice struct FIELD referenced undefined `__copy_ms_int` → compiled-backend link failure
 
