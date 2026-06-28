@@ -8,6 +8,45 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `0e7fd844`, 2026-06-27, BUG-BASH LANE 2) — native (aa64+x64) named-managed-slice subslicing SIGSEGV (`isSliceFieldBase` didn't peel `TYP_NAMED`)
+
+**Symptom.** A subslice of a distinct named managed-slice (`type Buf @[]int`;
+`var sub @[]int = buf[0:2]`) SIGSEGV'd on BOTH native backends (aa64 verified on
+real HW; x64 verified via `native_x64_darwin`). Index (`buf[0]`) and `len(buf)`
+worked — only the slice-expression crashed. LLVM and the bytecode VM were fine.
+
+**Root cause.** `emitGetFieldPtr` (aarch64_emit.bn / x64_emit.bn) classifies a
+field-pointer base as a struct (via `common.StructTypeOf`, which peels) or a
+(managed-)slice (via the backend-local `isSliceFieldBase`, which did NOT peel).
+`EmitSliceExpr` allocates the result slot at the *declared* type — `Buf`
+(`TYP_NAMED`) — whose bare `Kind` is neither `TYP_SLICE` nor `TYP_MANAGED_SLICE`.
+So `isSliceFieldBase` returned false, `emitGetFieldPtr` hit its `else { return }`
+and emitted NO field offset: the field-2/3 stores (backing refptr / backingLen)
+landed at offset 0, clobbering data/len and leaving the backing pointer garbage →
+RefInc/RefDec of a garbage pointer → crash. (`SizeOf(Buf)` already peels via
+`.Underlying`, so the 32-byte alloca was correctly sized; only the field offsets
+were wrong.)
+
+**Fix.** Hoisted `isSliceFieldBase` into `pkg/binate/native/common` as the
+exported `IsSliceFieldBase`, beside its sibling `StructTypeOf`, and peel
+transparent wrappers (`peelTransparent`: named / readonly / alias) before reading
+`Kind` — mirroring `StructTypeOf`. This removes the byte-identical aarch64/x64
+copies (a two-divergent-copies trap) and closes the gap on both native backends
+at one site. A repo-wide grep confirmed this was the ONLY un-peeled slice-Kind
+classification in the native backend (`IsAggregateTyp` already peels).
+
+**Tests.** 4 unit tests in `native/common` (`IsSliceFieldBase` on managed,
+named-managed, named-raw → true; struct → false). Un-xfailed the named-slice
+conformance witnesses, now green on both native backends:
+`033_named_transparency`, `719_named_slice_transparency`,
+`904_named_slice_backing_pin` (033/904 also flip red→green on `native_x64`).
+`036_named_assignability_composite`'s aa64 xfail was already stale (the earlier
+IR-gen un-peel sweep fixed the assignment path, which has no slice-field-ptr) —
+dropped too. Base-measured to attribute: 033/719/904 were XFAIL at base,
+XPASS after the fix; 036 was XPASS at base.
+
+---
+
 ## ✅ FIXED & LANDED (binate `024c8473` / `6cefe001`, 2026-06-27) — conformance-test-numbers hygiene check did not cover stdlib/ (which had pre-existing duplicate test numbers)
 
 The conformance-test-numbers hygiene check originally scanned only the top-level
