@@ -84,29 +84,23 @@ extend per type) — touches cast/bit_cast/literal/arith paths, removes the whol
 class; or (b) make consuming ops (at least compare) mask each operand to its type
 width — localized. Needs the canonical-form decision before implementing.
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 3] MINOR (entry / under-enforcement) — the `main` entry-point signature is not enforced — must be a LINK-TIME check (2026-06-22) — 🔴 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 3] MINOR (entry / link-time) — a program with NO `main` package (no entry) is not rejected at link/assembly time — 🔴 OPEN
 
-`func main(x int)` and `func main() int` compile, LINK, and RUN (the extra
-parameter is ignored; a value-returning main's result is discarded) instead of
-being rejected. Spec `prog.main.signature` (§17.3) says the entry is `func main()`
-with no parameters and no results, and §17.3.1 says a wrong-shaped main is a
-link-time failure -- but the entry synthesis accepts any `main`. Found authoring
-`conformance/spec/17-program`. Pinned: `009_err_main_wrong_signature_xfail`
-(xfail.all). Low priority (a wrong-shaped main is unusual), but it is silent
-acceptance of an ill-formed entry point.
+The SIGNATURE half of the original entry-point bug — `func main(x int)` /
+`func main() int` / generic `main` in package `main` silently accepted — is **✅
+FIXED at COMPILE time** (LANE 1, `checkMainSignature`; see claude-todo-done.md /
+binate `f3e77a56`-and-successor). Per the language designer (2026-06-28) that is
+the correct phase: compiling the `main` package SEES its own `main`, so its
+*shape* is checkable there.
 
-**This is a LINK-TIME check, NOT a compile-time one (per the language designer,
-2026-06-28).** Binate compiles ONE package at a time by design, so a package
-named `main` being type-checked in isolation cannot know whether it is *the
-program's* entry — and whether the program even HAS a main package is itself a
-link/assembly-time question. So both "does a main package with a `main` func
-exist" AND "does that `main` have the right signature" belong to the link /
-program-assembly step, where the whole program is seen. A 2026-06-28 attempt to
-enforce the signature in the type-checker (`checkMainSignature`, gated on
-`curPkgPath=="main"`) was REVERTED as architecturally wrong — it conflated
-compiling a package with assembling a program. Re-tag to the lane that owns the
-link/program-emit step. 017_err_main_returns_value (the value-returning half) was
-authored alongside 009 but not landed; re-add it when the link-time check lands.
+What remains is the **complementary LINK-TIME facet**: whether the assembled
+*program* has a `main` package with a `main` function **at all** cannot be
+determined per-package (Binate compiles one package at a time; any package may be
+compiled/loaded independently), so a missing entry is a link / program-assembly
+failure, not a compile-time check. §17.3.1 (amended 2026-06-28) now states this
+split explicitly. Open: add the existence check to the link/program-emit step
+(reject assembling a program whose `main` package has no `func main`). No
+conformance repro yet (needs a no-main-package program at link time).
 
 ---
 
