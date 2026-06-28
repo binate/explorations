@@ -68,6 +68,20 @@ since the fix reads checker metadata).
 
 ---
 
+## ✅ FIXED & LANDED (main `1cf185dd`, 2026-06-28, BUG-BASH LANE 1) — MINOR (checker) — duplicate same-short-name imports accepted silently
+
+Two same-final-segment packages imported BOTH unaliased (`import "pkg/aa/gen"` +
+`import "pkg/bb/gen"`, both default `gen`) compiled with no diagnostic, and
+`gen.X` silently bound to one of them (import order). **Fix:** registerImportsInto
+(the single choke point for the file-scoped + package-wide paths) now rejects a
+same-named import already registered under a DIFFERENT path (errDuplicateImport,
+"give one of them an explicit alias"). Same-path re-import and blank imports
+(`import _`, side-effect-only, repeatable) are NOT flagged. Cross-file same-segment
+imports stay legal (each file resolves its own — conformance 832). Unit tests in
+import_dup_test.bn (reject unaliased + same-alias collisions; accept aliased,
+same-path, blank). The adversarial review caught a blank-import false-positive,
+fixed before landing.
+
 ## ✅ FIXED & LANDED (main `ddc5df69`, 2026-06-27, BUG-BASH LANE 1) — MAJOR (checker / silent integer-wrap) — `:=` / `var x = e` / `box(e)` did NOT fit-check a literal exceeding the target int → silent wrap
 
 `x := 0xFFFFFFFFFFFFFFFF` (2^64-1, not in int64) compiled clean and bound `x` to

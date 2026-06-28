@@ -454,17 +454,6 @@ for the iface lookup, and reconcile with the `mi.Pkg`/`MakeInterfaceType`
 short-name identity (the part that needs care).  Same bounded/fail-safe severity
 as the struct case.  No conformance test yet.
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (checker) — duplicate same-short-name imports are accepted silently; `pkg.X` resolves first-wins (2026-06-20) — 🔴 OPEN
-
-Importing two same-final-segment packages BOTH unaliased (`import "pkg/aa/gen"`
-+ `import "pkg/bb/gen"`, both default short name `gen`) is accepted with NO
-diagnostic, and `gen.X` silently resolves to the first-imported one (import
-order decides).  Surfaced by the generic-struct collision investigation
-(2026-06-20).  Should be a duplicate-import error (or require an alias), like
-the same-alias-different-path facet already handled for explicit aliases.  The
-realistic workaround (alias the imports) now works for generic structs after
-`5ae791d2`.
-
 ## 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] MINOR (parser/checker, pre-existing) — two generic-body limitations surfaced during the struct-collision work (2026-06-20) — 🔴 OPEN
 
 Both reproduce on a SINGLE package and predate the struct-collision fix
