@@ -14,6 +14,40 @@ coverage / doc) or already-resolved residuals.
 
 ---
 
+## 🏷[BUG-BASH 2026-06-27 → LANE 2, NEEDS TRIAGE] MAJOR (x86-64 codegen) — bnc's x86-64 code is broken: `os.Stat` → `time.FromUnix` panics ("nsec out of range") on x86-64 though the SAME IR works on arm64; blocks the ENTIRE x86-64 toolchain (2026-06-28) — 🔴 OPEN — REPRODUCED (Rosetta)
+
+**Proven via clean isolation (Rosetta).** A correct arm64 `gen1` emits bnc's
+target-agnostic LLVM IR (no triple/datalayout) for a tiny `os.Stat("/tmp")`
+program; compiling that IDENTICAL IR with `clang` (default → arm64) runs fine
+(prints the size), but with `clang -arch x86_64` (run via Rosetta) it PANICS
+`time.FromUnix: nsec out of range [0, 1e9)`. Same IR, only the target arch differs
+→ a real bnc x86-64 codegen/ABI bug, NOT a build artifact. `os.Stat` builds
+`FileInfo.modTime = time.FromUnix(st_mtime_sec, st_mtime_nsec)` from the native
+`struct stat`; on x86-64 the nsec comes back garbage → panic. The macOS `struct
+stat` layout is identical on both arches (one `stat_darwin.bn`), so the fault is in
+the x86-64 c-call / struct-fill / field-read codegen, not the layout. Likely the
+same family as the c-call C-int-return ABI bug below (the stat-family RETURN was
+fixed in `3111375e`, but a field/nsec path remains broken on x86-64).
+
+**Impact — blocks ALL of x86-64.** Any program calling `os.Stat` panics on x86-64,
+including `cmd/bni`'s `expandDirArgs` and the loader's freshness `os.Stat`
+(`pkg/binate/loader/loader.bn`), so an x86-64 `gen1` panics on EVERY compile and an
+x86-64 VM can't even start. This is why the math VM bug (below) cannot be
+reproduced via Rosetta — the x86-64 toolchain can't be built/run far enough.
+
+**Why invisible.** Dev host is arm64; NO published x86-64 BUILDER for bnc-0.0.10
+(`fetch-builder`: "no SHA256SUMS entry for bnc-0.0.10-macos-x64"); x86-64 not in
+CI. bnc's x86-64 codegen is essentially unexercised — the math float64 VM bug
+(below), the c-call int-return UB (next), and this are all facets of that gap.
+
+**Recommendation.** Stand up a real x86-64 build+test path — publish an x64 BUILDER
+(so the standard `-int`/`-comp` bootstrap works under Rosetta) and/or wire x86-64
+(Rosetta) into CI — then root-cause the x86-64 c-call/stat-struct ABI. Fixing
+x86-64 codegen blind on an arm64 host (the cross-build itself panics) is guesswork.
+Repro: clean arm64 gen1; `PATH=<clang shim adding -arch x86_64>:$PATH gen1 -o prog
+os_stat_prog.bn`; run `prog` via Rosetta → panic. (Found during the LANE-3 Rosetta
+repro attempt for the math float64 bug.)
+
 ## 🏷[BUG-BASH 2026-06-27 → LANE 3 ⚠] MINOR (c-call / latent ABI) — `__c_call` with a binate `int` return for a C function returning C `int` (32-bit) is UB on x86-64 (2026-06-27) — 🟡 OPEN
 
 A C function returning C `int` is 32-bit, but binate `int` is 64-bit on a 64-bit
@@ -43,6 +77,14 @@ time.Point int64-seconds VM bug (the os.Stat ModTime entry). Pinned
 x64-host specificity; a `--check-xpass` run on an aarch64 host will XPASS them —
 expected). Root cause: unknown — needs investigation of how float64 results cross
 the injected-package boundary under the VM on x64 vs aarch64.
+
+**Rosetta repro attempt (2026-06-28) — BLOCKED by the deeper x86-64 codegen bug
+above.** Building an x86-64 toolchain to reproduce this (no x64 BUILDER is
+published, so via an arm64 gen1 + a `-arch x86_64` clang shim) does not get far
+enough: an x86-64 `gen1`/VM panics in `os.Stat → time.FromUnix` on startup/compile
+(the x86-64 os.Stat codegen bug), before the math test runs. So this math VM bug
+can't be exercised until x86-64 has a working build+test path (x64 builder /
+x86-64 CI). It is almost certainly part of the same x86-64-untested cluster.
 
 ## 🏷[BUG-BASH 2026-06-27 → LANE 3, NEEDS TRIAGE] MAJOR (VM / wrong-compare) — two DIRECT-USE sub-word integer expressions of different producers compare unequal though both equal the literal (VM neither canonicalizes sub-word values nor width-masks comparisons) (2026-06-27) — 🔴 OPEN — REPRODUCED
 
