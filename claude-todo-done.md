@@ -8,6 +8,40 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `736d4c0f`, 2026-06-27, BUG-BASH LANE 2) — `switch` on a sub-word integer tag with an untyped integer-literal case emitted invalid IR (`i64` vs `iN`)
+
+**Symptom.** `switch t { case 1: … }` where `t` is a sub-64-bit integer
+(`char`/`uint8`, `int8`, `int16`, `int32`) and the case is an UNTYPED integer
+literal emitted the literal at host-int width (i64 on LP64) and compared it
+`icmp eq iN` against the narrower tag → invalid LLVM (`'%v' defined with type
+'i64' but expected 'i8'`). `int`/`int64` tags and a `cast` case value were fine.
+
+**Fix (`pkg/binate/ir/gen_flow.bn` `genSwitch`).** Fold a constant integer case
+(`evalConstExpr`) and emit it as a TYPED const at the tag's type/width
+(`EmitConstInt64`).  This makes the equality well-typed on the LLVM backends.
+
+**The subtle part — why VALUE-based, not a cast.** The obvious fix (mirror
+genBinary: narrow the literal via `ensureWidth`'s `EmitCast`) REGRESSED the
+bytecode VM: narrowing a NEGATIVE case (`case -8`) via a sub-word `OP_CAST` is
+mishandled in that position (the case zero-extends to 248 and the switch
+silently takes the wrong branch).  Base-measured to confirm: negative sub-word
+switch worked on the VM before the change, so the cast-based fix would have been
+a silent VM regression.  Emitting the const by value (compile-time fold →
+`EmitConstInt64`) sidesteps the cast, so it is correct on LLVM, the VM, AND the
+native backends, including negative sub-word cases.  (A self-inflicted
+block-tracking bug surfaced during the rewrite — the const path only appends to
+`curBlk`, so `curBlk` must be resynced from `ctx.CurBlock` only after `genExpr`,
+which can split blocks — and was fixed.)  Confirmed there is NO standalone VM
+sub-word-`cast` bug: `var x int8 = cast(int8,-8); …` stored-then-read is correct.
+
+**Tests.** Renamed `134_switch_subword_tag_untyped_case_xfail` →
+`…_untyped_case` (dropped the 4 xfail markers) and extended it to int8/int16/
+int32 tags with positive AND negative case literals — now green on ALL modes
+(incl. the VM legs).  Added IR-gen unit test `TestGenSwitchSubwordCaseWidth`
+pinning the case operand to the tag width.
+
+---
+
 ## ✅ FIXED & LANDED (main `0e7fd844`, 2026-06-27, BUG-BASH LANE 2) — native (aa64+x64) named-managed-slice subslicing SIGSEGV (`isSliceFieldBase` didn't peel `TYP_NAMED`)
 
 **Symptom.** A subslice of a distinct named managed-slice (`type Buf @[]int`;

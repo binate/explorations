@@ -97,29 +97,6 @@ acceptance of an ill-formed entry point.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 2] MAJOR (codegen / invalid IR) — a `switch` on a SUB-64-bit integer tag with an UNTYPED integer-literal case emits invalid IR (`i64` vs `iN`) (2026-06-21) — 🔴 OPEN — REPRODUCED
-
-**Symptom.** `switch t { case 1: … }` where `t` has a sub-64-bit integer type
-(`char`/`uint8`, `int8`, `int16`, `int32`) and the case value is an UNTYPED integer
-literal makes codegen emit the literal as `i64` and compare it `icmp eq iN` against
-the narrower tag → LLVM verifier/clang error `'%v' defined with type 'i64' but
-expected 'i8'` (or i16/i32). `int`/`int64` tags are fine (literal is already i64),
-and a CAST case value (`case cast(char, 65):`) is fine. So the case literal is not
-narrowed to the tag's type before the equality comparison.
-
-**Discovery.** Adversarial review of `conformance/spec/14-statements` (probing
-`stmt.switch.tag` case-assignable-to-tag with a `char` tag). Per spec §14.10 the
-case value must be *assignable to the tag's type*, and an untyped literal coerces —
-so `case 64:` against a `char` tag is well-formed and should compile.
-
-**Fix (likely).** In the switch lowering, coerce/narrow each case constant to the
-tag's type (as a normal assignment/comparison would) before the `icmp`, rather than
-emitting the untyped literal at its default `i64` width.
-
-**Pinned.** `conformance/spec/14-statements/134_switch_subword_tag_untyped_case_xfail`
-(xfail.all).
-
----
 
 ## rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟡 SCOPE REQUIRED (2026-06-20)
 
