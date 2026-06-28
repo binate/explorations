@@ -8,6 +8,35 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `c458d339`, 2026-06-27, BUG-BASH LANE 2) — a cross-package `impl R : I` declared ONLY in an imported THIRD package was accepted by the checker but its (R, I) vtable was not wired -> null-vtable crash
+
+**Symptom.** `pkg/glue` declares the SOLE impl `impl *widget.Widget : shape.Talker`
+(neither the receiver's nor the interface's home).  A `main` importing shape +
+widget + glue and constructing `var iv *shape.Talker = &w` compiled cleanly but
+SIGSEGV'd at dispatch (VM: null-vtable abort) — the interface value's vtable word
+was null.  An impl in the receiver's own package, or in main (the root), worked.
+
+**Root cause / fix (`pkg/binate/ir/gen_impl.bn` `collectImportedImplsFromDecl`).**
+The imported-impl collector recorded `ImplInfo.RecvPkg` as the package the `impl`
+was WRITTEN in (`pkgShort` = pkg/glue), whereas the construction site looks up the
+(Widget, Talker) vtable by the RECEIVER's package (pkg/widget) — so the entry was
+never matched.  The local-TU `collectImplsFromDecl` already derives RecvPkg from
+the receiver (`recvTypePkg(d.TypeRef)`, resolved to its full path, defaulting to
+the impl's package for an unqualified receiver); the imported path now mirrors it.
+Only the qualified-receiver-in-imported-impl case changes — same-package imported
+impls (e.g. 726 `strings.Builder` / 577 `errors.Error`) keep the default path.
+
+**Tests.** Un-xfailed `062_noorphan_imported_third_pkg` (was xfail.all) — now green
+on builder-comp / -int (VM) / native_aa64.  Companions `055_noorphan_third_pkg`
+(impl-in-root) and `061_err_construct_no_visible_impl` (not-imported reject) stay
+green; the 81 interface+generics tests on LLVM and 60 on the VM are unchanged.
+Noted edge (untested): a consumer and the impl's package aliasing the receiver's
+package differently — the fix resolves to the full path, so reasoned-correct.
+(NOTE: this was the IR-gen facet only; the sibling LANE 1 sub-interface-ancestor
+transitive-impl assignability entry is independent and remains open.)
+
+---
+
 ## ✅ FIXED & LANDED (main `736d4c0f`, 2026-06-27, BUG-BASH LANE 2) — `switch` on a sub-word integer tag with an untyped integer-literal case emitted invalid IR (`i64` vs `iN`)
 
 **Symptom.** `switch t { case 1: … }` where `t` is a sub-64-bit integer

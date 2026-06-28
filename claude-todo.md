@@ -378,17 +378,6 @@ The suite is built and every injected stdlib package has cross-mode coverage
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 2 🤝] MAJOR (IR-gen / wrong-code) — a cross-package `impl R : I` declared ONLY in an IMPORTED third package (not R's package, not the compilation root) is accepted by the checker but its (R, I) vtable is NOT wired at the construction site → null-vtable crash at dispatch (2026-06-19) — 🔴 OPEN
-
-**Symptom (REPRODUCED, no generics, no inheritance).** `pkg/shape` declares `interface Talker { speak() int }`; `pkg/widget` declares `type Widget` + method `speak` (no impl); `pkg/glue` declares the SOLE impl `impl *widget.Widget : shape.Talker`.  A `main` that imports shape + widget + glue and constructs `var iv *shape.Talker = &w` (w a Widget) **compiles cleanly** (the checker sees the impl via the glue import — even forcing glue to link with a `glue.Touch()` call) but **SIGSEGVs at run time**: the interface value's vtable word is null.  The compiled backend faults on the null-vtable deref; the VM aborts on the null vtable.  Moving the impl into `widget` (R's own package) works, and an impl in `main` (the root, cf. conformance `055`/`spec 11-interfaces`) works — so the gap is specifically **the imported third-package-only impl**.
-
-**Discovery.** Adversarial review of the Ch.11 spec tests pushed `iface.construct.visible-impl` to be tested as a genuine visibility scenario (impl exists but is/ isn't imported).  Building the positive companion (impl in a third package, imported → should dispatch) surfaced the crash.  Spec `iface.crosspkg.no-orphan` (§11.8) explicitly permits an impl "in any package … R's package, I's package, **or a third package**", so this is non-conformant.  Same `collectImportedImplsFromDecl` machinery as the ancestor-walk entry above, but a DISTINCT facet: here it's a DIRECT (R, I) impl (no inheritance) and the **checker accepts** (so the rejection-side of that entry does not apply) — IR-gen simply fails to emit/wire the (R, I) vtable reference at the construction site for an impl that lives in an imported package other than R's.
-
-**Proposed fix.** IR-gen: when a construction site needs the (R, I) vtable, ensure the imported-impl path (`gen_impl.bn` `collectImportedImplsFromDecl`) records and emits/links the (R, I) vtable for an impl declared in ANY imported package (not just R's home package / the root), mirroring how a same-package or root impl is wired.  Likely the same code path the ancestor-walk fix touches; fix together and keep checker (already accepts) and IR-gen in lockstep.
-
-**Test.** `conformance/spec/11-interfaces/062_noorphan_imported_third_pkg` (positive, `.xfail.all` — checker accepts, runtime null-vtable crash in every execution mode).  The green companion `055_noorphan_third_pkg` covers the working "impl in main (root third package)" case; `061_err_construct_no_visible_impl` covers the not-imported rejection.  Flip 062 to a normal positive (drop the xfail) when this lands.
-
----
 
 ## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (type-checker / under-enforcement) — the primitive-impl carve-out (§11.10) is NOT enforced in the IMPL pass: a non-`pkg/builtins/lang` package may `impl <primitive> : <empty interface>` and it is wrongly ACCEPTED (2026-06-20) — 🔴 OPEN
 
