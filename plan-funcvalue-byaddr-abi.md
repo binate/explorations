@@ -71,13 +71,36 @@ a shim-shape wrinkle (sub-word returns can't tail-branch → call-then-extend li
 float-ret shape), disproportionate to a VM-only bug. Left as a future cleanup. If the
 user wants it instead, it replaces the VM-narrow above.
 
+## File-length splits + golden fix: DONE (2026-06-29), commit `545be049`
+
+- Split aarch64_closure_shim.bn (601 > 600 hard cap) → moved the stack-spill closure
+  shim + its coerced spill helper to aarch64_closure_shim_spill.bn (+ _test). Now 441.
+  (x64_closure_shim.bn 584 is a soft WARN only — file-length errors only > 600 — not a
+  land blocker; left as a follow-up.)
+- Made the funcvalue-shim incoming staging CONDITIONAL on a coerced aggregate being
+  present (aarch64 + x64). The clobber hazard only exists with a coerced agg; without
+  one the marshal is a constant down-shift (already safe), so skip staging — restoring
+  the 4 TestEmitFuncValueShim* golden byte-count tests AND removing per-arg overhead.
+  (Found by running the native unit suites, which I'd missed after the staging commit.)
+  Native unit: aarch64 143, x64 231; 937/938 still green on both native arches.
+- (Minor follow-up: the SPILL paths still stage unconditionally — rare over-budget
+  path, NoError-tested, no golden impact; could be made conditional too.)
+
 ## Remaining
 
 1. **Cross-mode observable fixture** (item 3/7): a pkg/binate/vm unit test with a
    synthetic injected native package — an iface method / func value taking a
    coerced-agg by value AND returning a sub-word/bool — to directly exercise items 1
    (iface path; the func-value path is covered by 937/938) and 4. Closest existing:
-   TestExternSmallStructAggregateDispatch + vm_exec_iface_test hand-built vtables. LLVM:
+   TestExternSmallStructAggregateDispatch + vm_exec_iface_test hand-built vtables.
+2. **Full mode matrix** + the actual land. Validated so far: builder-comp,
+   builder-comp-int, builder-comp_native_aa64, builder-comp_native_x64_darwin (all
+   937/938/889 + agg/closure/funcval/iface + unit + hygiene). A full-suite regression
+   (all ~2500 tests) in builder-comp + builder-comp-int is the pre-land gate; then the
+   nested-VM / gen2 / arm32 modes. Landing = ~6 worktree commits (the >7-guard
+   3298428b is independent; the by-address ARG+RETURN+clobber+split f841caaf..545be049
+   are atomic — squash or cherry-pick as a group, since each intermediate breaks a
+   backend); per-instance approval per cherry-pick. LLVM:
    shimIntSlotType -> i64 for sub-word; shim sext/zext before ret; caller truncates.
    Native: sext/zext (bool: and #1) before returning in x0/rax (all shapes + spill).
    VM: revert the return-narrow (subWordReturnInfo + post-call BC_ZEXT/BC_SEXT in
