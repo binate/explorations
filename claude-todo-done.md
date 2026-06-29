@@ -8,6 +8,34 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `788289b9`, docs `3230a3e`, 2026-06-28, BUG-BASH LANE 3) — float32/float64 `Compare`/`Hash` realize the IEEE total order at NaN
+
+Was: `Compare` was `a<b ? -1 : a>b ? 1 : 0`, so any NaN comparison returned 0 (NaN
+compared "equal" to every value — not a total order), and the bit-pattern `Hash`
+made distinct NaN payloads hash differently while `Compare` called them equal (a
+`pkg0.lang.hashable` consistency violation); `-0.0`/`+0.0` were likewise
+Compare-equal but Hash-distinct.
+
+Decision (user, after reviewing Java/Rust/Go/C++ precedent): **Option B**
+(NaN-greatest, Java `Double` / Rust `ordered-float` style). Spec §20.1 was
+internally ambiguous (named "IEEE total ordering" but illustrated NaN-at-top); the
+two mainstream precedents that pair a float total order with a consistent Hash both
+chose NaN-greatest, which also matches Binate's float-is-both-Orderable-and-Hashable
+design point. Implemented:
+  - Every NaN (any sign/payload) sorts ABOVE +Inf and all NaN compare EQUAL.
+  - Non-NaN values order by the IEEE-754 totalOrder predicate on the bit pattern
+    (`floatTotalOrderKey32/64`: negative→flip all, non-neg→set sign, compare
+    unsigned), distinguishing `-0.0 < +0.0`.
+  - `Hash` canonicalizes any NaN to the canonical quiet-NaN bits, so all NaN hash
+    identically (consistent with Compare folding them equal); non-NaN hash by bits.
+
+Tests: conformance `017_float_nan_total_order` (rewritten from the old
+`017_float_nan_compare_current`; obsolete `018_float_nan_hash_inconsistent` and
+`019_float_nan_total_order_intent` removed) — green in builder-comp / -int / -comp
+/ -int-int; 5 new unit tests in `pkg/builtins/lang/order_test.bn`. Spec updated:
+§20.1 Provisional→Stable, maturity lines (00-index, §20), §11 note, §21 defect-list
+removal.
+
 ## ✅ DONE & LANDED (binate `84a00283`, 2026-06-28, BUG-BASH LANE 2) — relro section infra: relocatable read-only data → Mach-O `__DATA_CONST,__const` / ELF `.data.rel.ro`
 
 Relocatable read-only DataGlobals (the `_pkg_info` descriptor node + its
