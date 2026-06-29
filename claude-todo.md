@@ -295,23 +295,6 @@ either fix the code or tune the rule, and un-skip those 5 packages.  (The other 
 entries — `pkg/binate/{vm,repl,interp}` — are BUILDER-lag for rt's void `__c_call`, tracked with the
 other BUILDER-lag skips; they clear at the next BUILDER bump.)
 
-## `\u` escape: spec/impl drift — grammar excludes `\uHHHH`, but the lexer/checker/decoders accept it — 🔴 OPEN (needs reconcile decision)
-
-The grammar (`docs/spec/binate.ebnf` §5, `escape_seq`) explicitly EXCLUDES a
-`\u` escape ("There is NO `\u…` Unicode escape"), yet the implementation accepts
-`\uHHHH` everywhere: `types/escape.bn` `validateEscapes` validates it (and
-constrains a char-literal `\u` to a single byte at `escape.bn`), the shared
-`types.ParseCharLit` + `ir`’s `unescapeStr` decode it, and conformance/unit tests
-exercise it (`'\u0041'`, spec/05-lexical/044-046, literal_value_test,
-escape_test). So `var s @[]readonly char = "\u00e9"` / `var c char = '\u0041'`
-compile despite the grammar saying `\u` does not exist.
-
-Surfaced during the cast/shift char-literal-residual work (BUG-BASH LANE 2).
-**Reconcile decision needed (user):** either (a) ADD `\uHHHH` to the grammar’s
-`escape_seq` and drop the "no `\u`" §5 note (the impl + tests already treat it as
-supported sugar — likely the intended direction), or (b) REMOVE `\u` handling from
-the impl and its tests.  Not fixed pending that call.
-
 ## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (latent) — same-final-segment generic INTERFACES collide (the iface analog of the now-fixed struct/func same-segment collisions) (2026-06-20) — 🔴 OPEN
 
 The generic-FUNC (`330c42fe`) and generic-STRUCT (`5ae791d2`) same-final-segment

@@ -8,6 +8,12 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ RESOLVED (docs `3192680` / `d44282f`, 2026-06-28) — `\uHHHH` Unicode escape: grammar/spec reconciled to the implementation
+
+The grammar excluded `\uHHHH` (it was dropped during the EBNF review when it was not yet implemented), but the lexer/checker/decoders have since implemented it, so the spec was stale in the other direction. **Decision (a) taken: document `\uHHHH` as a real escape.** Now reflected across the spec: `binate.ebnf` `escape_seq` restores `"u" hex hex hex hex`; §5.11 adds the `\uHHHH` row to `lex.escape.set` and a new `lex.escape.unicode` rule; §5.11 `lex.escape.unsupported` no longer claims "no `\u`"; §5.1 clarifies that `\uHHHH` is the one Unicode→UTF-8 *encoding* (a literal-decoding step, distinct from source-byte classification); Annex A regenerated. Semantics: exactly four hex digits; a Unicode **scalar value** (surrogates U+D800–U+DFFF rejected); **UTF-8-expanded** (1–3 bytes) in a string literal; restricted to a **single byte** (≤ U+007F) in a char literal. On main: `conformance/789_unicode_escape` (positive) + `790_bad_unicode_escape` (negative). The duplicate spec-todo §5.11 entry is resolved by the same change.
+
+**Follow-up (binate / conformance — needs a worktree, not done here):** the spec-test `conformance/spec/05-lexical/055_escape_unicode_divergence_xfail` asserts the OLD `unknown escape sequence` rejection — now stale; it should be **deleted** (the positive `\u` behavior is the documented contract).
+
 ## ✅ FIXED & LANDED (binate `788289b9`, docs `3230a3e`, 2026-06-28, BUG-BASH LANE 3) — float32/float64 `Compare`/`Hash` realize the IEEE total order at NaN
 
 Was: `Compare` was `a<b ? -1 : a>b ? 1 : 0`, so any NaN comparison returned 0 (NaN
