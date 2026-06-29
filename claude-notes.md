@@ -360,7 +360,14 @@ body," useful for self-documentation, ignored for signature matching.
 4. raw pointer — mutable, no refcount
 5. managed pointer — mutable, with refcount
 
-Value receivers are always readonly (mutating a copy is pointless).
+Value receivers respect their written type: a plain value receiver `(r T)` is a
+mutable COPY — mutating `r` is allowed and stays local (the caller is unaffected,
+like Go) — while a `(r readonly T)` value receiver is const and rejects mutation
+(`b.v = …` → "cannot assign to const-typed location"). (Earlier this note said
+value receivers are "always readonly"; that was wrong — the impl respects the
+type, and lowering a non-mutating value receiver as `*readonly T` to skip the
+copy is a permitted optimization, NOT a readonly contract — see "Value
+receivers — implementation strategy" below.)
 
 **Auto-conversion**: more-permissive → more-restrictive:
 - managed → raw → readonly raw

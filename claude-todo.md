@@ -715,17 +715,18 @@ x64 analog needing its own xfails.
 
 ## MINOR
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] Value-receiver "always readonly" not enforced — spec Ch.10 (2026-06-12)
-MINOR (design-intent vs impl; no correctness bug — by-value copy makes any
-mutation harmless). `claude-notes.md:359` says a value receiver `(r T)` is
-"always readonly". The checker does NOT enforce it: `receiverShape`
-(`check_method.bn:251-285`) classifies a plain `(r T)` as kind 0 with
-`isObjectConst=false`, and no pass rejects `r.field = ...` in the body — the
-mutation just modifies the discarded copy. Decide: enforce read-only on value
-receivers (a checker addition + a diagnostic), or downgrade the design note to
-"the receiver is a copy; mutations are local" (the implemented semantics, which
-the spec `func.method.value-recv` currently describes). Referenced from
-`10-functions-methods-function-values.md`.
+### ✅ RESOLVED (decision 2026-06-28, BUG-BASH LANE 1) — Value-receiver semantics: respect the written type (note-only fix; impl already correct)
+DECISION (the language designer): a value receiver RESPECTS its written type —
+a plain `(r T)` is a mutable COPY (mutations local, like Go), and `(r readonly
+T)` is const. The "always readonly" claude-notes line was the only thing wrong.
+VERIFIED the impl already does this: `func (b readonly Box) m() { b.v = 1 }` is
+REJECTED ("cannot assign to const-typed location"); a plain `func (b Box) m() {
+b.v = 1 }` compiles (mutates the local copy). So no checker change — only
+claude-notes.md:363 was corrected (it now matches the authoritative "Value
+receivers — implementation strategy" note, which already says: pass by value;
+lowering a NON-mutating value receiver as `*readonly T` to skip the copy is a
+permitted optimization, NOT a readonly contract). No conformance change needed
+(readonly-receiver rejection is exercised by the existing const-lvalue checks).
 
 ### 🏷[BUG-BASH 2026-06-27 → LANE 2] Layout follow-ups surfaced authoring spec Ch.7.13 (Type Layout) — 2026-06-12
 Both referenced from the spec (`07b-type-layout.md`).
