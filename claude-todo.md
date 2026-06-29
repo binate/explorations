@@ -356,19 +356,27 @@ REVERTED (an unvalidatable partial that enables nothing usable on its own).
 interfaces), THEN the same-segment-collision keying becomes a small mirror of the
 struct fix on top.  Not a quick same-segment-keying bash.
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] MINOR (parser/checker, pre-existing) — two generic-body limitations surfaced during the struct-collision work (2026-06-20) — 🔴 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (parser/checker, pre-existing) — two generic-body limitations — ✅ DECIDED (2026-06-28): close 478, fix the cascading diagnostic now
 
-Both reproduce on a SINGLE package and predate the struct-collision fix
-(independent of it):
-- A concrete-instantiation PARAMETER type written in a `.bni` body
-  (`func Sum(x @Box[int]) int { ... }`) fails to PARSE (`expected ;, got {`).
-  The generic-reader idiom (`func Sum[T any](x @Box[T]) T`) is the working form
-  (it's what 853/874 use).
-- A generic-body expression combining a type-param field / slice-index with
-  arithmetic (`return x.items[0] + x.items[1]`, `return b.hi + b.p.y`) fails
-  with `arithmetic op requires numeric operands` / `cannot assign void to int`
-  — an unconstrained `[T any]` T isn't numeric, but the diagnostic/handling for
-  a struct-field-of-T in an arithmetic position is the rough edge.
+**RE-PROBED (2026-06-28), both single-package:**
+- (a) The concrete-instantiation PARAMETER type + body
+  (`func Sum(x @Box[int]) int { return x.v }`) **no longer reproduces** — it
+  COMPILES (verified). Either fixed since 2026-06-20 or the original repro was a
+  more specific (.bni-declared / multi-package) shape; not reproducible now.
+- (b) `return x.items[0] + x.items[1]` / `a.x + a.y` on a `[T any]` (or any
+  interface-constrained) T is **CORRECTLY REJECTED**: Binate has no numeric
+  constraint by design (no operator-overloading; `+` works only on built-in
+  numeric primitives), so generic `+` is simply not expressible. The primary
+  diagnostic `arithmetic op requires numeric operands` is correct/clear. The
+  ONLY real residue is a **spurious cascading second error**, `cannot assign
+  void to T`, emitted after the operand already errored.
+
+**DECISION (designer): close 478 (neither facet is a wrong-accept/reject), and
+FIX the cascade now.** In the binary-op path: when either operand's type is
+already the error sentinel, set the result to the error type and RETURN without
+running the follow-on assignability check, so only the root `requires numeric
+operands` prints. Small checker change + a conformance/unit test pinning that no
+`cannot assign void` follow-on is emitted. (Fix pending — fix-now list.)
 
 ## 🏷[BUG-BASH 2026-06-27 → LANE 3] MINOR — cross-mode interface dispatch: test-coverage gaps + LP64 assumption (2026-06-14) — 🟡 OPEN
 
