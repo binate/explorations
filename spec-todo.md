@@ -13,7 +13,7 @@ possible so Annex C flips automatically once the divergence is resolved.
 
 ## §5.11 — `\uHHHH` Unicode escape: implemented, but spec says it does not exist — ✅ RESOLVED (2026-06-28)
 
-**RESOLVED (decision (a); docs `3192680` / `d44282f`).** `\uHHHH` is now documented as a real escape: §5.11 `lex.escape.set` + new `lex.escape.unicode`, `lex.escape.unsupported` no longer claims "no `\u`", §5.1 clarified (the one Unicode→UTF-8 encoding, a literal-decode step), `binate.ebnf` `escape_seq` restored, Annex A regenerated. Full record in `claude-todo-done.md`. **Follow-up:** delete the pinned xfail `055_escape_unicode_divergence_xfail` (it asserts the old rejection) — binate/conformance worktree.
+**RESOLVED (decision (a); docs `3192680` / `d44282f`).** `\uHHHH` is now documented as a real escape: §5.11 `lex.escape.set` + new `lex.escape.unicode`, `lex.escape.unsupported` no longer claims "no `\u`", §5.1 clarified (the one Unicode→UTF-8 encoding, a literal-decode step), `binate.ebnf` `escape_seq` restored, Annex A regenerated. Full record in `claude-todo-done.md`. **Open follow-up** (delete the now-stale pinned xfail `055_escape_unicode_divergence_xfail`) is tracked **active** in [`claude-todo.md`](claude-todo.md).
 
 **Spec.** `lex.escape.unsupported` (§5.11): "There is **no** `\uHHHH` (Unicode)
 escape, and no `\a`, `\b`, `\f`, `\v`, octal (`\NNN`), or eight-digit `\U` escape."
