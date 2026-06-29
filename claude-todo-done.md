@@ -8,6 +8,24 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ DONE & LANDED (binate `31d5d9af`, 2026-06-28) — deleted the now-stale xfail `055_escape_unicode_divergence_xfail`
+
+The `\uHHHH` spec/impl divergence it pinned is resolved (decision (a); `\uHHHH`
+is a documented escape — `lex.escape.set` + new `lex.escape.unicode`,
+`lex.escape.unsupported` no longer claims "no `\u`"; docs `3192680`/`d44282f`,
+spec-todo §5.11). `055` was an `xfail.all` asserting the OLD contract (`\u` →
+`unknown escape sequence`), so it pinned the *wrong* behavior and could never
+flip green. The correct `\uHHHH` behavior is already covered by
+`conformance/789_unicode_escape` (positive) + `790_bad_unicode_escape`
+(negative); `lex.escape.unsupported` remains covered by `047`–`054`, so deleting
+`055` orphaned no rule (DANGLING=0, UNTAGGED=0).
+
+Residual (minor, not blocking): the new `lex.escape.unicode` rule-ID is not yet
+in the vendored `scripts/spec-coverage/rule-ids.txt` (the vendor lags the docs
+resolution), and `789`/`790` are flat `conformance/` tests without `.rules`
+tags — so the behavior is tested but the rule-ID isn't formally cited yet (a
+re-vendor + Phase-C retrofit follow-on).
+
 ## ✅ FIXED & LANDED (binate `e9320591`, 2026-06-28, BUG-BASH LANE 1) — bug 259: `iota` not bound in a single-member grouped const block
 
 Was: `const ( X int = iota )` (a one-member grouped const) was rejected

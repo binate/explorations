@@ -14,21 +14,6 @@ coverage / doc) or already-resolved residuals.
 
 ---
 
-## Delete the now-stale xfail spec-test `055_escape_unicode_divergence_xfail` (`\uHHHH` is now a documented escape) (2026-06-28) — 🔴 OPEN
-
-`conformance/spec/05-lexical/055_escape_unicode_divergence_xfail` (xfail.all)
-asserts the OLD behavior — that `\u` is rejected with `unknown escape sequence`.
-That divergence is resolved: `\uHHHH` is now documented as a real escape
-(spec reconciled, docs `3192680` / `d44282f`; positive coverage is
-`conformance/789_unicode_escape` + negative `790_bad_unicode_escape`, both on
-main). The xfail now pins the *wrong* contract, so **delete it** (don't let it
-flip green — there is nothing to assert; the positive `\u` behavior is the
-contract). Needs a binate/conformance worktree. Background: the resolved
-spec/impl-drift entry in [`claude-todo-done.md`](claude-todo-done.md) and the
-`spec-todo.md` §5.11 entry.
-
----
-
 ## 🏷[BUG-BASH 2026-06-27 → LANE 3, NEEDS TRIAGE] MAJOR (VM / wrong-compare) — two DIRECT-USE sub-word integer expressions of different producers compare unequal though both equal the literal (VM neither canonicalizes sub-word values nor width-masks comparisons) (2026-06-27) — 🔴 OPEN — REPRODUCED
 
 **Symptom.** On the bytecode VM, `bit_cast(int32, u) == cast(int32, -1)` (with
