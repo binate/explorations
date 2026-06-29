@@ -892,30 +892,14 @@ tests.md Phase B). Each has a reproducing test cited by `.rules`.
   literal-leading contexts reject via generic parse errors. Conformant
   (rejection holds) — a diagnostic-consistency nicety only.
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] Untyped `const` coercion: implementation diverges from a DECIDED note — surfaced authoring spec Ch.6 (2026-06-11)
-Needs a decision (MINOR — no miscompile; a type-system permissiveness
-question).
-- **The note (`claude-notes.md` "Type conversions & literals — DECIDED",
-  ~line 444)**: untyped-literal coercion "does NOT extend to named
-  constants — only literals." (A deliberate divergence from Go.)
-- **The implementation does the opposite.** An untyped `const X = <expr>`
-  (no explicit type) carries `TYP_UNTYPED_INT` (with `HasLitVal`) and
-  **coerces / narrows at each use, exactly like a literal**:
-  `check_const.bn:91-102` (no-`TypeRef` branch defines the name with the
-  untyped `valType`), `check_expr.bn:185` (`checkIdent` returns it),
-  fit-checked at the use site like a literal. Tests confirm:
-  `check_const_test.bn:160-167` (`const A = 1+2` → assignable to `int`),
-  `:210-217` (`const A = 200+100` → rejected against `uint8` because 300
-  doesn't fit — pure literal-coercion behavior), and
-  `check_expr_constfold_test.bn:181-204` whose comment says "the bare
-  members stay untyped and **narrow freely at the use site**." Only a
-  `const X <type> = …` (explicit type) gets a definite, non-coercing type.
-- **Decision**: either (a) enforce the note — give an untyped `const` name
-  a definite default type that does not coerce (the Go-divergent design),
-  or (b) accept the implemented Go-like behavior and update
-  `claude-notes.md:444`. The spec (docs `06-constants.md`,
-  `const.untyped.coercion`) currently describes the **implemented**
-  behavior and flags this as an open item.
+### ✅ RESOLVED (decision 2026-06-28, BUG-BASH LANE 1) — Untyped `const` coercion: keep the Go-like behavior (note-only fix)
+DECISION (the language designer): an untyped `const X = expr` (no explicit type)
+stays untyped and COERCES at each use exactly like a literal (the Go-like
+behavior the impl + spec `const.untyped.coercion` already follow) — e.g.
+`const Max = 255` is usable as any int type that fits. The old claude-notes line
+("untyped coercion does NOT extend to named constants — only literals", a
+deliberate Go-divergence) was REVERSED; claude-notes updated to match. No code
+change (impl + spec + Ch.6 tests already correct).
 
 ### Lower the file-length `.bni` cap toward 1000/1200 — 🟡 OPEN
 - **Residual** of the (now-archived) "Extend hygiene checks to scan `ifaces/`+`impls/`" work. The `.bni` file-length cap is currently 1500/1800 (warn/error); consider lowering toward 1000/1200.

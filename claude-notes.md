@@ -452,7 +452,7 @@ Same principle for struct/type redefinition: existing instances retain the old l
 
 **Explicit casts required** between named types (Go-style). No implicit conversions between e.g. `int` and `uint`.
 
-**Untyped literals**: literals have no inherent type and coerce to any compatible type from context. Unlike Go, this does NOT extend to named constants — only literals.
+**Untyped literals & untyped consts**: literals have no inherent type and coerce to any compatible type from context. This DOES extend to an untyped `const X = expr` (no explicit type) — it stays untyped and coerces/narrows at each use exactly like a literal (Go-like, e.g. `const Max = 255` is usable as any int type that fits; `var x uint8 = Max` works, `var y uint8 = 300` rejects). Only a `const X T = …` (explicit type) gets a definite, non-coercing type. (Earlier this note claimed coercion did NOT extend to named constants — that was a decision later reversed: the impl + spec `const.untyped.coercion` follow the Go-like behavior. Decided 2026-06-28.)
 - `123` → `int`, `uint`, `i32`, `byte`, etc.
 - `3.14` → `f32`, `f64`, etc.
 - `"abc"` → `[3]readonly char` (natural type), `@[]readonly char` / `*[]readonly char` (slice, len=3)
