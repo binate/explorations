@@ -700,16 +700,19 @@ permitted optimization, NOT a readonly contract). No conformance change needed
 
 ### 🏷[BUG-BASH 2026-06-27 → LANE 2] Layout follow-ups surfaced authoring spec Ch.7.13 (Type Layout) — 2026-06-12
 Both referenced from the spec (`07b-type-layout.md`).
-- **`type.layout.funcval-order-hardening`** (hardening). The function-value
-  field order `{vtable, data}` and the interface-value order `{data, vtable}`
-  (the deliberate, verified ABI asymmetry) are encoded as fixed/magic indices
-  in codegen + IR (`emit_instr.bn`, `emit_funcvals.bn`, `emit_iface_call.bn`,
-  `ir_ops_flow.bn`) rather than as shared named-offset helpers in
-  `pkg/binate/types` (unlike `SliceDataOffset`/`MSliceBackingOffset`/
-  `ManagedRefcountOffset`, which ARE shared helpers). The VM and codegen agree
-  by convention, not a single shared definition — a divergence risk for the
-  keystone cross-mode contract. Harden the func/iface field orders into shared
-  named-offset constants in `pkg/binate/types`.
+- **`type.layout.funcval-order-hardening`** — ✅ DONE & LANDED (main `aabc2dcd`
+  codegen + shared constants, `fd8bcc22` native, `f5e43e4e` VM). The func-value
+  field order `{vtable, data}` and the iface-value order `{data, vtable}` (the
+  deliberate, verified ABI asymmetry) were encoded as magic 0/1 indices (LLVM),
+  0/8 byte offsets (native), and `[0]/[1]` word slots (VM) across 15 files — a
+  divergence risk for the keystone cross-mode contract. Now routed through a
+  single source of truth in `pkg/binate/types` (`scope.bn` + `types.bni`):
+  `FuncValue{Vtable,Data}` / `IfaceValue{Data,Vtable}` `Index()` + `Offset()`
+  (offsets = index * ptrSize(), so the native field access is ILP32-correct, not
+  a hardcoded LP64 8 — partially advancing the broader ILP32-readiness theme). 81
+  sites; behavior-identical, verified by 267 (LLVM) + 267 (native_aa64) + 266
+  (bytecode VM) iface/func_value conformance tests + unit tests on all three
+  backends.
 - **`type.layout.byte-order`** (DECIDED 2026-06-17; impl follow-up open). Byte
   order is **implementation-defined**: fixed and documented per target, identical
   across modes (observable via `bit_cast` and the representation builtins). Spec
@@ -908,7 +911,7 @@ change (impl + spec + Ch.6 tests already correct).
 - **STILL OPEN — do not lose these**:
   1. **Struct/array equality implementation** — currently a clean "not yet implemented" checker error. When implemented: a recursive "comparable iff all fields/elements comparable" check (a struct with a slice/iface/func field → permanent reject; all-comparable struct → fieldwise compare); add a runtime equality conformance cell then.
   2. **Generic path NOT covered** — `==`/relational on a type parameter later INSTANTIATED with an aggregate is not caught: the body is checked once with `T` opaque (deferred), and instantiation does not re-check it (`check_generic.bn`), so it can reach IR-gen → the same invalid-IR class, via generics. PRE-EXISTING (before this change all aggregate `==` was permissive); this change does not worsen it. Needs instantiation-time re-checking OR a `comparable`-style constraint decision. Separate follow-up.
-  3. **Sentinel detection (`err == io.EOF`)** — disallowing interface-value `==` means this is NOT the mechanism; needs `identical`/`same` + `errors.Is` (under discussion / see io.EOF TODO). Resolve before the first real `Reader` lands.
+  3. **Sentinel comparison (`err == io.EOF`)** — ✅ RESOLVED (not open): interface-value `==` is permanently disallowed by design, and the sanctioned mechanism is `same(...)` (identity) — decided, with `pkg/std/errors` fully implemented. The earlier "under discussion / needs `identical`/`errors.Is`" framing was stale; there is no pending question here. (Items 1 + 2 below remain the real open `==` follow-ups.)
 
 ### Collapse `pkg/bootstrap` onto `#[build]` — 🟡 OPEN (next, per user 2026-06-19)
 With BUILDER at `bnc-0.0.9` (both `bnc` and `bnlint` parse `#[build]`), `pkg/bootstrap` — whose
