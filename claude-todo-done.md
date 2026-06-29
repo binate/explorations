@@ -8,6 +8,39 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ DONE & LANDED (binate `84a00283`, 2026-06-28, BUG-BASH LANE 2) — relro section infra: relocatable read-only data → Mach-O `__DATA_CONST,__const` / ELF `.data.rel.ro`
+
+Relocatable read-only DataGlobals (the `_pkg_info` descriptor node + its
+`_pkg_funcs/globals/vtables` backing arrays, every info node, all func-value +
+impl vtables, the string `.ms` header) previously stayed in the writable `data`
+section, because reloc-free `rodata` maps to Mach-O `__TEXT,__const` / ELF
+`.rodata`, which cannot bear relocations. Added a third section — Mach-O
+`__DATA_CONST,__const` (read-only after dyld fixups, `SG_READ_ONLY`) and ELF
+`.data.rel.ro` (`SHF_ALLOC|SHF_WRITE`, made read-only after relocation via
+`PT_GNU_RELRO`). `common.EmitDataGlobal` now routes three ways: reloc-free RO →
+`rodata`; relocatable RO → `rodata_relro`; mutable (top-level `var`) → `data`.
+This also makes the native backend match the LLVM backend, which already places
+a relocatable `constant` into `__DATA_CONST` / `.data.rel.ro`.
+
+Object-writer support: `machoSegName/machoSectName/machoSectAlign` map
+`rodata_relro` → `__DATA_CONST,__const` at 8-byte alignment; `elfSectName/
+elfSectFlags` → `.data.rel.ro` (PROGBITS, ALLOC|WRITE), with its relocation
+table named `.rela.data.rel.ro` (extracted `relaSectName` helper).
+
+Verified end-to-end: aarch64 + x86_64 Mach-O `.o` each carry
+`__DATA_CONST,__const` bearing the vtable/descriptor relocations and link + run;
+x86_64-linux ELF `.o` carries `.data.rel.ro` + `.rela.data.rel.ro` with the same
+relocations (PROGBITS, ALLOC|WRITE confirmed). native_aa64 conformance subset:
+356 passed, 0 failed. Unit tests added for the section mapping (elf/macho) and
+the three-way routing (native/common); aarch64/x64 vtable tests updated to the
+relro placement.
+
+NOTE on the original "Verify … ELF (arm32)" line: arm32 conformance compiles via
+the LLVM backend (clang `--target=arm-linux`), which does NOT route through this
+ELF writer — clang handles relro itself — so arm32 is unaffected. The genuinely
+new native-ELF relro path is native-x64 → x86_64-linux (verified structurally;
+CI `native_x64` runs it under qemu).
+
 ## ✅ RESOLVED via convention doc (2026-06-28, BUG-BASH LANE 3) — `__c_call` with a binate `int` return for a C function returning C `int` (32-bit) is UB on x86-64
 
 Decision (user): document the convention rather than add a checker rejection. A
