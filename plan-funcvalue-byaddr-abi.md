@@ -36,22 +36,32 @@ ALSO fixed: the shim register/spill ROUTING budget must count OUTGOING gp words
 wide coerced-struct call (incoming 1/coerced) undercounts the n outgoing regs and
 wrongly stays on the register-only path. Done in aarch64_funcvalue_shim.bn.
 
-## Remaining as of 2026-06-29 (precise next steps)
+## ARG side: DONE + validated across ALL backends + VM (2026-06-29)
 
-1. **x64 clobber-safety.** The sweep agents applied the by-address load to the x64
-   shims with per-struct r10/r11 parking, NOT incoming-staging — so x64 almost
-   certainly has the SAME cross-param clobber the pre-staging aarch64 funcvalue path
-   had (untested: x64 is Docker-only). x64 has too few caller-saved scratch regs
-   (r10/r11 + rax) to register-stage <=6 incoming words, so x64 needs STACK staging
-   (reserve a small frame, store the incoming arg regs, marshal reading from the
-   frame) — or push/pop r12-r15. Apply to all x64 shims (funcvalue + spill + 3
-   closures) and validate `937` + `889` via Docker `--platform linux/amd64`.
-2. **Native SPILL clobber-safety.** `937` stays within the register budget, so it does
-   NOT exercise the spill marshalers (aarch64/x64 funcvalue_spill + closure spill
-   paths). Add a wide test (enough coerced-struct args to spill, e.g. 4-5 of them)
-   and confirm the spill marshalers stage incoming before outgoing writes (aarch64
-   spill agent used X16/X9 parking, not full staging — verify or convert).
-3. **Sub-word/bool RETURN, shim-extends** (the second half — not started). LLVM:
+The coerced-aggregate-arg by-address change is complete and clobber-safe everywhere.
+Worktree commits: `f841caaf` (LLVM+VM), `613e4a1f` (native sweep + aarch64 reg-only
+staging), `d2696f35` (x64 + both spill paths stack-staging). Tests `937` (register-
+only: trailing/leading/3-struct + capturing closure) and `938` (wide spill: 4
+structs + scalar) green on builder-comp, builder-comp-int, builder-comp_native_aa64,
+AND builder-comp_native_x64_darwin (Rosetta — note x64 IS testable locally via the
+`_darwin` mode, no Docker needed). `889` green on both native arches. Native
+regression (aggregate/closure/funcval) green on both arches. Key fix: incoming
+by-address cursor (1/coerced) vs outgoing real-ABI cursor (ArgWords/coerced) diverge
+→ stage incoming GP dispatch regs before any outgoing write (aarch64 reg-only:
+X9..X15; x64 + all spill paths: a frame staging area; capturing closures are safe
+via their upward capture-shift, no staging).
+
+## Remaining
+
+1. **Sub-word/bool RETURN, shim-extends** (the second half — not started). NOTE the
+   structural wrinkle: a sub-word-return shim currently TAIL-branches, so it can't
+   post-process the return; extending shim-side means giving it the call-then-extend
+   shape (like the float-return shape). Likely the LLVM shim is the load-bearing one
+   (the VM reads the shim's return as a full i64 via _call_shim_scalar, so garbage
+   upper bits corrupt it — items 4); native callers know the func-value return type
+   and read the right width, so native↔native may already be fine — verify before
+   changing native shapes. Then revert the VM return-narrow (25117a2e:
+   subWordReturnInfo + post-call BC_ZEXT/BC_SEXT) once the shim extends. LLVM:
    shimIntSlotType -> i64 for sub-word; shim sext/zext before ret; caller truncates.
    Native: sext/zext (bool: and #1) before returning in x0/rax (all shapes + spill).
    VM: revert the return-narrow (subWordReturnInfo + post-call BC_ZEXT/BC_SEXT in
