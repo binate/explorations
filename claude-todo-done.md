@@ -8,6 +8,37 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `378aea49`, 2026-06-28, BUG-BASH LANE 1) — bug 478: spurious "cannot assign void" cascade after a binary-op type error
+
+Was: a binary-op type error (e.g. `arithmetic op requires numeric operands` on a
+non-numeric operand — which includes generic `+` on an interface-constrained
+`T`, correctly rejected since Binate has no numeric constraint) returned
+`TYP_VOID`, and the enclosing return/assignment check then re-reported `cannot
+assign void to <T>` — a spurious follow-on. The void couldn't simply be
+suppressed in the assignability check, because a LEGITIMATE void is a real error
+there: `var x int = voidCall()` must still report `cannot assign void to int`.
+
+Fix: a distinct error sentinel `TYP_ERROR` (`TypError()`), separate from
+`TYP_VOID`, given to an expression whose type error was already reported.
+`AssignableTo` treats `TYP_ERROR` as compatible with any type (both directions),
+suppressing the cascade, while `TYP_VOID` stays a real "cannot assign void"
+error (the distinction the sentinel exists to preserve). `checkBinaryOp` returns
+`TypError()` on its reported-error paths (arith/bitwise/shift/%/mix-int-float/
+invalid-operator) and short-circuits to `TypError()` when an operand is already
+`TYP_ERROR`, so a nested error like `(p+p)+(p+p)` reports once per genuinely-bad
+inner op, not a third time on the outer.
+
+`TYP_ERROR` is appended before `NUM_TYPE_KINDS` (no existing kind ordinal
+changes) and, produced only after `addCheckError`, never reaches IR-gen (gated
+off on checker errors); `SizeOf`/`AlignOf` fall through to their existing
+no-layout default, consistent with `TYP_VOID`/`TYP_NIL`. Adversarially verified
+(leakage / completeness / over-suppression / enum-safety lenses). Full
+builder-comp 2485/0; hygiene 15/15. Tests: `types_test` (TypError singleton,
+distinct from void), `types_assignable_test` (error assignable both ways; void
+NOT assignable to a value), `check_expr_binop_test` (single error — no void
+cascade; nested reports twice, not on the outer op). This was the cascade facet
+of the "two generic-body limitations" item; the rest was closed (no defect).
+
 ## ✅ DONE & LANDED (binate `31d5d9af`, 2026-06-28) — deleted the now-stale xfail `055_escape_unicode_divergence_xfail`
 
 The `\uHHHH` spec/impl divergence it pinned is resolved (decision (a); `\uHHHH`
