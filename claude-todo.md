@@ -182,9 +182,29 @@ above) plus two MINOR items.
    the 2+-member requirement is an arbitrary impl quirk. **DECISION (designer): fix the impl** so a
    single-member GROUPED const binds iota (X=0), distinct from a non-grouped `const X = iota` (still
    "undefined: iota"). Small parser/checker fix + a conformance test for the single-member-group
-   case. (Fix pending.)
+   case. **✅ FIXED (pending land), BUG-BASH LANE 1:** the parser collapsed a single-member
+   `const ( … )` (`len(decls)==1`) back to a bare `DECL_CONST`, erasing the grouping that binds iota
+   (`parse_decl.bn` `parseConstDecl`). Now a parenthesized const is ALWAYS `DECL_GROUP`. Verified
+   builder-comp / -int / -comp: `const ( X int = iota )`→0, `1<<iota`→1; non-grouped still rejected;
+   full builder-comp 2479/0 (no regression). Tests: conformance
+   `spec/09-declarations-and-scope/006_const_iota_single_member_group` + parser unit
+   `TestParseSingleMemberConstGroup`; fixed 005's stale "2+-member" comment.
 
-2. **MINOR (underspecified) — package-level VAR initialization is declaration-order, not
+2. 🏷[BUG-BASH 2026-06-27 → LANE 1, NEEDS TRIAGE] **MINOR/MAJOR (type-checker + IR-gen) — func-local
+   grouped const `const ( … )` is ENTIRELY UNSUPPORTED.** Discovered 2026-06-28 while fixing the
+   single-member-group bug above. A grouped const inside a function body fails with
+   `undefined: <member>` even with explicit values (`const ( A int = 1; B int = 2 )`) — independent
+   of iota or member count. **Root cause:** the statement-level decl handling routes only
+   `DECL_CONST` / `DECL_VAR`, never `DECL_GROUP` — in BOTH the checker (`check_stmt.bn` STMT_DECL
+   arm) and IR-gen (`gen_stmt.bn`, handles `DECL_VAR || DECL_CONST` only) — so a func-local group's
+   members are never defined into scope. Go permits func-local const groups and §9.1 doesn't
+   restrict groups to package scope, so this is a real gap. **Fix (cross-layer):** route
+   statement-level `DECL_GROUP` → group-checking in `check_stmt` (reuse `checkGroupDecl`) AND
+   statement-level group IR-gen in `gen_stmt` (statement-scoped `genConstGroup`). Pinned:
+   `spec/09-declarations-and-scope/007_const_group_func_local` (`.xfail.all`, positive test).
+   Cross-layer (front-end + IR) like 754 — self-assigned LANE 1; surface to user re: fix-now vs defer.
+
+3. **MINOR (underspecified) — package-level VAR initialization is declaration-order, not
    dependency-order; the spec doesn't pin it.** `var A int = B + 1; var B int = 10` makes `A == 1`
    (B is still 0 when A initializes), NOT 11. `decl.order.forward` guarantees the forward NAME
    reference resolves (it compiles), but the VALUE at init time follows declaration order. Go
