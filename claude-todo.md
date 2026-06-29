@@ -623,9 +623,21 @@ REFUTED-do-not-re-chase verdicts. These are the still-open residues kept here fo
 - **Impl declarations** (`type AB = *Box; impl AB : Getter` → "impl receiver must be (a wrapper around) a named type"): `checkImplSatisfaction` (`check_impl.bn`) calls `ReceiverBaseNamed()` on the possibly-`TYP_ALIAS` `recv`.
 - **Why parked**: the type-only fix (peel the alias) makes both type-check, but the method-value closure layout (`gen_method_value.bn`) and the impl/vtable dispatch don't peel the alias → runtime **SIGSEGV**. A proper fix needs the IR-gen companion (peel the alias in closure-capture / vtable dispatch). Type fixes were prototyped + REVERTED. Per the user (2026-06-09): FILE as a known limitation, do NOT pursue the IR-gen work now. Niche (alias receiver × method-value / impl).
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] X3-highbit — signed sign-bit const-fold checker-vs-IR divergence — DIRECTION CONTESTED (semantics-owned) — 🟡 NEEDS DECISION
-- `1<<iota` now folds in the checker, so a flag member hitting the SIGN bit of a signed target (`1<<63` → `int` on 64-bit; `1<<31` on 32-bit) computes positive 2^(W-1), which `FitsSigned(W)` rejects — while IR's `evalConstExpr` wraps to the valid two's-complement `INT_MIN`. A real checker-vs-IR divergence.
-- **Resolution is a spec call** (`claude-notes.md` §const: const values are abstract and must fit the target range → the reject may be CORRECT; the canonical idiom uses an UNSIGNED target, unaffected). Do NOT change semantics unilaterally. Companion to the bare-const-group-member inherited-type fix (`b9d6d807`) — decided separately.
+### 🏷[BUG-BASH 2026-06-27 → LANE 1] X3-highbit — signed sign-bit const-fold checker-vs-IR divergence — ✅ DECIDED (2026-06-28): reject is correct + UNREACHABLE; harden IR defensively — 🟡 OPEN (small IR fix pending)
+- `1<<iota` folds in the checker, so a flag member hitting the SIGN bit of a signed target (`1<<63` → `int`; `1<<31` → `int32`) computes positive 2^(W-1), which `FitsSigned(W)` rejects — while IR's `evalConstExpr` wraps to two's-complement `INT_MIN`.
+- **DECISION + FINDING (2026-06-28, BUG-BASH LANE 1):** the checker REJECT is the
+  correct semantics (const values are abstract and must fit the target range; the
+  canonical flag idiom uses an UNSIGNED target where 2^(W-1) fits) AND it is
+  EFFECTIVE — verified the checker rejects `1<<63`/`1<<31` into a signed target in
+  EVERY context: `var x int = …`, `const F int = …`, `cast(int, …)`, and the
+  original iota-group scenario (`const ( A0 int32 = 1<<iota; … A31 )` →
+  "cannot assign untyped int to int32"). So IR's `evalConstExpr` wrap is
+  UNREACHABLE dead behavior behind the checker gate — no observable divergence
+  (array dims etc. don't wrap; they're positive sizes, not signed targets).
+- **TODO (small IR hardening):** make `evalConstExpr` REJECT / assert-unreachable a
+  const that overflows a SIGNED target (instead of silently wrapping), so a future
+  checker-bypass const path can't silently reintroduce the divergence. Defensive
+  only (currently unreachable). + a comment noting the checker is the live gate.
 
 ### CR-2 review coverage gaps (low priority — add tests) — 🟡 OPEN
 - **R2-D7**: no readonly/alias-wrapped named-int or named-float-minus test.
