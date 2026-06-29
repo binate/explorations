@@ -190,22 +190,7 @@ TWO stale spec notes (both flagged defects are actually FIXED). No new bugs.
 Authoring the Ch.9 tests surfaced the MAJOR raw-pointer zero-init bug (filed separately,
 above) plus two MINOR items.
 
-1. 🏷[BUG-BASH 2026-06-27 → LANE 1] **MINOR (parser/checker) — `iota` not resolved in a SINGLE-member grouped const block — ✅ DECIDED (2026-06-28): fix the impl.**
-   `const ( X int = iota )` (one member) is rejected `undefined: iota`; iota only resolves with 2+
-   members (`const ( A int = iota; B )` → 0, 1). §9.1 `decl.const.iota` says iota is "recognized
-   inside a grouped const block" (any group), and Go resolves iota in a single-member group → X=0;
-   the 2+-member requirement is an arbitrary impl quirk. **DECISION (designer): fix the impl** so a
-   single-member GROUPED const binds iota (X=0), distinct from a non-grouped `const X = iota` (still
-   "undefined: iota"). Small parser/checker fix + a conformance test for the single-member-group
-   case. **✅ FIXED (pending land), BUG-BASH LANE 1:** the parser collapsed a single-member
-   `const ( … )` (`len(decls)==1`) back to a bare `DECL_CONST`, erasing the grouping that binds iota
-   (`parse_decl.bn` `parseConstDecl`). Now a parenthesized const is ALWAYS `DECL_GROUP`. Verified
-   builder-comp / -int / -comp: `const ( X int = iota )`→0, `1<<iota`→1; non-grouped still rejected;
-   full builder-comp 2479/0 (no regression). Tests: conformance
-   `spec/09-declarations-and-scope/006_const_iota_single_member_group` + parser unit
-   `TestParseSingleMemberConstGroup`; fixed 005's stale "2+-member" comment.
-
-2. 🏷[BUG-BASH 2026-06-27 → LANE 1, NEEDS TRIAGE] **MINOR/MAJOR (type-checker + IR-gen) — func-local
+1. 🏷[BUG-BASH 2026-06-27 → LANE 1] **MINOR/MAJOR (type-checker + IR-gen) — func-local
    grouped const `const ( … )` is ENTIRELY UNSUPPORTED.** Discovered 2026-06-28 while fixing the
    single-member-group bug above. A grouped const inside a function body fails with
    `undefined: <member>` even with explicit values (`const ( A int = 1; B int = 2 )`) — independent
@@ -217,9 +202,9 @@ above) plus two MINOR items.
    statement-level `DECL_GROUP` → group-checking in `check_stmt` (reuse `checkGroupDecl`) AND
    statement-level group IR-gen in `gen_stmt` (statement-scoped `genConstGroup`). Pinned:
    `spec/09-declarations-and-scope/007_const_group_func_local` (`.xfail.all`, positive test).
-   Cross-layer (front-end + IR) like 754 — self-assigned LANE 1; surface to user re: fix-now vs defer.
+   Cross-layer (front-end + IR) like 754 — self-assigned LANE 1, in the fix-now queue (2026-06-28).
 
-3. **MINOR (underspecified) — package-level VAR initialization is declaration-order, not
+2. **MINOR (underspecified) — package-level VAR initialization is declaration-order, not
    dependency-order; the spec doesn't pin it.** `var A int = B + 1; var B int = 10` makes `A == 1`
    (B is still 0 when A initializes), NOT 11. `decl.order.forward` guarantees the forward NAME
    reference resolves (it compiles), but the VALUE at init time follows declaration order. Go

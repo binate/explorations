@@ -8,6 +8,31 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `e9320591`, 2026-06-28, BUG-BASH LANE 1) — bug 259: `iota` not bound in a single-member grouped const block
+
+Was: `const ( X int = iota )` (a one-member grouped const) was rejected
+`undefined: iota`; iota resolved only once a grouped block had 2+ members
+(`const ( A int = iota; B )` → 0, 1). §9.1 `decl.const.iota` says iota is
+recognized inside a grouped const block (any group), and Go binds iota in a
+single-member group → X=0; the 2+-member requirement was an arbitrary impl quirk.
+
+Root cause: `parseConstDecl` (`pkg/binate/parser/parse_decl.bn`) collapsed a
+single-member parenthesized const (`len(decls)==1`) back to a bare `DECL_CONST` —
+which is the *non-grouped* form, where iota is undefined. Fix: a parenthesized
+const block is ALWAYS `DECL_GROUP` regardless of member count (the grouped form is
+what binds iota), distinct from a non-grouped `const X = iota` (still undefined).
+
+Verified builder-comp / -int / -comp: `const ( X int = iota )`→0, `1<<iota`→1;
+plain single-member group and non-grouped const unaffected; full builder-comp
+2479/0 (no regression); hygiene 15/15. Tests: conformance
+`spec/09-declarations-and-scope/006_const_iota_single_member_group` + parser unit
+`TestParseSingleMemberConstGroup`; 005's stale "2+-member" comment corrected.
+
+Discovered in passing (filed active in [claude-todo.md](claude-todo.md), pinned
+`007_const_group_func_local.xfail.all`): func-local grouped const is entirely
+unsupported — statement-level `DECL_GROUP` is unrouted in both `check_stmt` and
+IR-gen `gen_stmt`, so members are never defined.
+
 ## ✅ RESOLVED (docs `3192680` / `d44282f`, 2026-06-28) — `\uHHHH` Unicode escape: grammar/spec reconciled to the implementation
 
 The grammar excluded `\uHHHH` (it was dropped during the EBNF review when it was not yet implemented), but the lexer/checker/decoders have since implemented it, so the spec was stale in the other direction. **Decision (a) taken: document `\uHHHH` as a real escape.** Now reflected across the spec: `binate.ebnf` `escape_seq` restores `"u" hex hex hex hex`; §5.11 adds the `\uHHHH` row to `lex.escape.set` and a new `lex.escape.unicode` rule; §5.11 `lex.escape.unsupported` no longer claims "no `\u`"; §5.1 clarifies that `\uHHHH` is the one Unicode→UTF-8 *encoding* (a literal-decoding step, distinct from source-byte classification); Annex A regenerated. Semantics: exactly four hex digits; a Unicode **scalar value** (surrogates U+D800–U+DFFF rejected); **UTF-8-expanded** (1–3 bytes) in a string literal; restricted to a **single byte** (≤ U+007F) in a char literal. On main: `conformance/789_unicode_escape` (positive) + `790_bad_unicode_escape` (negative). The duplicate spec-todo §5.11 entry is resolved by the same change.
