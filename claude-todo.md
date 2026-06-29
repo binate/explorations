@@ -530,10 +530,18 @@ element `i` at index `i`.
   positional literal, "too many values in struct literal"; negative test
   `743_struct_overcount_rejected`. Applies to named structs too via the
   `peelNamedBounded` routing.)
-- 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] **Inferred-length `[...]T{...}` NOT IMPLEMENTED** (`expr.composite.array.inferred-len`).
-  DECIDED (claude-notes.md:798) but the checker rejects it ("array length must be
-  a constant integer"). Either wire it (substitute `len(Elems)` for the `...`
-  marker) or mark deferred.
+- 🏷[BUG-BASH 2026-06-27 → LANE 1] **Inferred-length `[...]T{...}` NOT IMPLEMENTED** (`expr.composite.array.inferred-len`) — ✅ DECIDED (2026-06-28): implement now.
+  Spec'd (§expr.composite.array.inferred-len; claude-notes.md:819) and already in
+  the grammar (`ArrayLen = Expression | "..."`), but unimplemented: the `...` is
+  rejected at parse ("expected expression") because parse_type.bn:144 parses the
+  length as `parseExpr`. **DECISION (designer): implement.** AST inferred-len flag
+  on TypeExpr + parser ELLIPSIS branch in the array-type parse + checker resolves
+  the array type's length = `len(Elems)` of the composite literal (IR then sees a
+  concrete `[N]T`, likely no IR change). Un-xfail `041_composite_array_inferred_len`
+  and `122_punct_ellipsis_xfail`. **Sub-decision to resolve during impl:** 041 uses
+  the var-TYPE form `var a [...]int = [...]int{…}`, so decide whether `[...]T` is
+  valid as a var type (length resolved from its initializer) or only as a literal
+  head (then rewrite 041 to `a := [...]int{…}`). (Fix-now list; largest item.)
 - ✅ **FIXED & LANDED (binate `7523b14d`, BUG-BASH LANE 1) — (minor) Positional struct-literal elements are now assignability-checked** (each positional element i checked against field i's type, mirroring the keyed branch). conformance/spec/13-expressions/043.
 All referenced from `13-expressions.md`.
 
@@ -862,10 +870,10 @@ tests.md Phase B). Each has a reproducing test cited by `.rules`.
     so `if Point{…}.x` fails) is correct/intended, not a defect.
   Both, plus `expr.composite.array.indexed` and `…inferred-len`, are now
   declared col-0 rule-IDs (tests cite them precisely; Ch.13 denominator 29→32).
-- 🏷[BUG-BASH 2026-06-27 → LANE 1] **`expr.composite.array.inferred-len` — 🔴 OPEN (genuine gap).** `[...]T{…}`
-  is rejected at parse ("expected expression"), though now declared. Covered by
+- 🏷[BUG-BASH 2026-06-27 → LANE 1] **`expr.composite.array.inferred-len` — ✅ DECIDED (2026-06-28): implement now** (genuine gap; see the detailed entry above). `[...]T{…}`
+  is rejected at parse ("expected expression"), though declared. Covered by
   `spec/13-expressions/041` (.xfail.all). Fix: infer the length from the
-  element count.
+  element count (AST flag + parser ELLIPSIS branch + checker). Fix-now list.
 - ✅ **FIXED & LANDED (binate `7523b14d`, BUG-BASH LANE 1) — (minor) `expr.composite.struct` bad-key diagnostic.** A keyed struct
   literal whose key names no field now reports `no field \`<key>\` in <T>`
   (errNoSuchField) instead of the generic `undefined: <key>`. 027's `.error`
