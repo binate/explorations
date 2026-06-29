@@ -8,6 +8,38 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `81a4566b`, 2026-06-29, BUG-BASH LANE 1) — func-local grouped declarations (DECL_GROUP) entirely unsupported
+
+A grouped `const ( … )` / `var ( … )` / `type ( … )` inside a function body
+parses to `DECL_GROUP`, exactly as at package scope, but the statement-level decl
+handling routed only `DECL_CONST` / `DECL_VAR` / `DECL_TYPE` — never
+`DECL_GROUP` — in BOTH the checker (`check_stmt`'s STMT_DECL arm) and IR-gen
+(`genDecl`). So a func-local group's members were never defined, and every use
+reported `undefined: <member>` — even `const ( A int = 1; B int = 2 )` with
+explicit values, independent of iota. Discovered while fixing single-member
+grouped-const iota binding (bug 259); turned out to break `var` groups too, not
+just const.
+
+Checker: route a statement-level `DECL_GROUP` to `checkGroupDecl`, which defines
+the members into the current scope and runs the const-group iota / bare-repeat
+machinery (and rejects a func-local `type` group via the same package-only gate
+as a single local type decl).
+
+IR-gen: new `genLocalGroupDecl` (`gen_const.bn`) lowers a `DECL_GROUP` per member
+kind (homogeneous — the keyword fixes the kind): a const group → `genConstGroup`
+(members register in `Module.Consts` with their iota / bare-repeat values; reads
+resolve via `emitModuleConstByName`, which `genFunc` truncates per function, so a
+member can use `iota` without a runtime var slot); a var group → materialize each
+member like a single local var, threading the block; a type group never reaches
+IR-gen (the checker rejects it). Extracted to a helper to keep `gen_stmt.bn`
+under the length cap.
+
+Tests (`conformance/spec/09-declarations-and-scope`): 007 un-xfailed (const group
+with iota + bare-repeat + a separate explicit-value group); 008 (var group, a
+member referencing an earlier member); 009 (func-local type group rejected,
+`decl.type.package-only`). Green on builder-comp / -int / -comp; full builder-comp
+2490/0 and builder-comp-int 2465/0 (no regression); hygiene 15/15.
+
 ## ✅ FIXED & LANDED (binate `6b54c6ac`, 2026-06-29, BUG-BASH LANE 1) — bug 759 (X3-highbit): defensively reject a const overflowing a signed target in IR-gen
 
 The type-checker (`untypedIntLitFitsTarget` → `bignum.FitsSigned`) rejects a

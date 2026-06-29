@@ -175,19 +175,16 @@ TWO stale spec notes (both flagged defects are actually FIXED). No new bugs.
 Authoring the Ch.9 tests surfaced the MAJOR raw-pointer zero-init bug (filed separately,
 above) plus two MINOR items.
 
-1. 🏷[BUG-BASH 2026-06-27 → LANE 1] **MINOR/MAJOR (type-checker + IR-gen) — func-local
-   grouped const `const ( … )` is ENTIRELY UNSUPPORTED.** Discovered 2026-06-28 while fixing the
-   single-member-group bug above. A grouped const inside a function body fails with
-   `undefined: <member>` even with explicit values (`const ( A int = 1; B int = 2 )`) — independent
-   of iota or member count. **Root cause:** the statement-level decl handling routes only
-   `DECL_CONST` / `DECL_VAR`, never `DECL_GROUP` — in BOTH the checker (`check_stmt.bn` STMT_DECL
-   arm) and IR-gen (`gen_stmt.bn`, handles `DECL_VAR || DECL_CONST` only) — so a func-local group's
-   members are never defined into scope. Go permits func-local const groups and §9.1 doesn't
-   restrict groups to package scope, so this is a real gap. **Fix (cross-layer):** route
-   statement-level `DECL_GROUP` → group-checking in `check_stmt` (reuse `checkGroupDecl`) AND
-   statement-level group IR-gen in `gen_stmt` (statement-scoped `genConstGroup`). Pinned:
-   `spec/09-declarations-and-scope/007_const_group_func_local` (`.xfail.all`, positive test).
-   Cross-layer (front-end + IR) like 754 — self-assigned LANE 1, in the fix-now queue (2026-06-28).
+1. 🏷[BUG-BASH 2026-06-27 → LANE 1] **func-local grouped declarations — ✅ DONE & LANDED (main `81a4566b`, 2026-06-29).**
+   A grouped `const ( … )` / `var ( … )` inside a function body failed with `undefined: <member>`
+   (even with explicit values, independent of iota): the statement-level decl handling routed only
+   `DECL_CONST` / `DECL_VAR` / `DECL_TYPE`, never `DECL_GROUP`, in BOTH the checker and IR-gen.
+   Fixed broader than originally filed — turned out to break `var` groups too. Checker routes
+   statement-level `DECL_GROUP` → `checkGroupDecl`; IR `genLocalGroupDecl` lowers per member kind
+   (const → `genConstGroup`, reads via `emitModuleConstByName`; var → materialize each; func-local
+   `type` group correctly rejected, decl.type.package-only). 007 un-xfailed; new 008 (var group) /
+   009 (type-group rejection). builder-comp 2490/0, builder-comp-int 2465/0. Full write-up in
+   [claude-todo-done.md](claude-todo-done.md).
 
 2. **MINOR (underspecified) — package-level VAR initialization is declaration-order, not
    dependency-order; the spec doesn't pin it.** `var A int = B + 1; var B int = 10` makes `A == 1`
