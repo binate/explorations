@@ -51,17 +51,33 @@ by-address cursor (1/coerced) vs outgoing real-ABI cursor (ArgWords/coerced) div
 X9..X15; x64 + all spill paths: a frame staging area; capturing closures are safe
 via their upward capture-shift, no staging).
 
+## Sub-word/bool RETURN (item 4): DONE via VM-narrow (2026-06-29), commit `98b634e7`
+
+Chosen the right-sized fix rather than the reviewer's shim-extends design, because
+item 4 is VM-ONLY: native callers read a func-value return at its declared width (no
+garbage); LLVM uses its type system; only the VM's all-int `_call_shim_scalar` read
+(i64) sees undefined upper bits. So extend the EXISTING VM narrow (25117a2e,
+subWordReturnInfo + post-call BC_ZEXT/BC_SEXT) — which the math conformance (5)
+already validates on the direct-extern path — to the runtime-dispatched ops
+(iface/func-value/handle/indirect) UNCONDITIONALLY (idempotent for a VM-impl callee,
+a fix for a native one). Factored into `callReturnNeedsSubWordNarrow` (count+emit
+lockstep). Validated: builder-comp-int regression green (iface 189 / funcval 83 /
+closure 49 / math 5 / aggregate 97 / 937+938); vm unit 207.
+
+DEVIATION from the endorsed shim-extends design — flagged for the user: shim-extends
+(every backend's shim sext/zext's sub-word returns; drop the VM narrow) is the
+cleaner centralization, BUT it is a multi-backend + target-word-dependent change with
+a shim-shape wrinkle (sub-word returns can't tail-branch → call-then-extend like the
+float-ret shape), disproportionate to a VM-only bug. Left as a future cleanup. If the
+user wants it instead, it replaces the VM-narrow above.
+
 ## Remaining
 
-1. **Sub-word/bool RETURN, shim-extends** (the second half — not started). NOTE the
-   structural wrinkle: a sub-word-return shim currently TAIL-branches, so it can't
-   post-process the return; extending shim-side means giving it the call-then-extend
-   shape (like the float-return shape). Likely the LLVM shim is the load-bearing one
-   (the VM reads the shim's return as a full i64 via _call_shim_scalar, so garbage
-   upper bits corrupt it — items 4); native callers know the func-value return type
-   and read the right width, so native↔native may already be fine — verify before
-   changing native shapes. Then revert the VM return-narrow (25117a2e:
-   subWordReturnInfo + post-call BC_ZEXT/BC_SEXT) once the shim extends. LLVM:
+1. **Cross-mode observable fixture** (item 3/7): a pkg/binate/vm unit test with a
+   synthetic injected native package — an iface method / func value taking a
+   coerced-agg by value AND returning a sub-word/bool — to directly exercise items 1
+   (iface path; the func-value path is covered by 937/938) and 4. Closest existing:
+   TestExternSmallStructAggregateDispatch + vm_exec_iface_test hand-built vtables. LLVM:
    shimIntSlotType -> i64 for sub-word; shim sext/zext before ret; caller truncates.
    Native: sext/zext (bool: and #1) before returning in x0/rax (all shapes + spill).
    VM: revert the return-narrow (subWordReturnInfo + post-call BC_ZEXT/BC_SEXT in
