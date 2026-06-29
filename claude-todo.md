@@ -175,15 +175,14 @@ TWO stale spec notes (both flagged defects are actually FIXED). No new bugs.
 Authoring the Ch.9 tests surfaced the MAJOR raw-pointer zero-init bug (filed separately,
 above) plus two MINOR items.
 
-1. 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] **MINOR (parser/checker) — `iota` is not resolved in a SINGLE-member grouped const block.**
-   The spec §9.1 `decl.const.iota` says iota "is recognized only inside a grouped const block."
-   The impl is stricter: `const ( X int = iota )` (one member) is rejected with `undefined: iota`
-   — identical to the non-grouped case — and iota only resolves once the block has 2+ members
-   (`const ( A int = iota; B )` → 0, 1). So iota availability is tied to multi-member grouped
-   blocks, not merely the grouped form. The Ch.9 tests sidestep it (004 uses ≥2 members, 005 uses
-   the non-grouped form), so nothing is pinned against the corner. Either the impl should resolve
-   iota in a single-member grouped block, or §9.1 should say "a grouped block with two or more
-   members." Not pinned (avoided in the tests).
+1. 🏷[BUG-BASH 2026-06-27 → LANE 1] **MINOR (parser/checker) — `iota` not resolved in a SINGLE-member grouped const block — ✅ DECIDED (2026-06-28): fix the impl.**
+   `const ( X int = iota )` (one member) is rejected `undefined: iota`; iota only resolves with 2+
+   members (`const ( A int = iota; B )` → 0, 1). §9.1 `decl.const.iota` says iota is "recognized
+   inside a grouped const block" (any group), and Go resolves iota in a single-member group → X=0;
+   the 2+-member requirement is an arbitrary impl quirk. **DECISION (designer): fix the impl** so a
+   single-member GROUPED const binds iota (X=0), distinct from a non-grouped `const X = iota` (still
+   "undefined: iota"). Small parser/checker fix + a conformance test for the single-member-group
+   case. (Fix pending.)
 
 2. **MINOR (underspecified) — package-level VAR initialization is declaration-order, not
    dependency-order; the spec doesn't pin it.** `var A int = B + 1; var B int = 10` makes `A == 1`
