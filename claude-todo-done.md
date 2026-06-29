@@ -8,6 +8,36 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `6b54c6ac`, 2026-06-29, BUG-BASH LANE 1) — bug 759 (X3-highbit): defensively reject a const overflowing a signed target in IR-gen
+
+The type-checker (`untypedIntLitFitsTarget` → `bignum.FitsSigned`) rejects a
+const whose abstract value overflows a SIGNED target — e.g. a `1 << iota` flag
+hitting the sign bit (`1<<31` → int32 computes 2³¹, which `FitsSigned(32)`
+rejects; `1<<63` → int likewise). IR's `evalConstExpr` folds with the host int
+and would WRAP `1<<31` to INT32_MIN. The checker fires first, so the IR wrap is
+unreachable dead behavior — but a future checker-bypass const path would
+silently miscompile through it.
+
+`genConst` already prefers the checker's bignum-stamped value over its own fold
+(to dodge this class of divergence for unsigned ≥ 2⁶³ div/mod/shift); this adds
+the matching SIGNED-overflow guard. New pure helper `constValueFitsSignedTarget`
+(`pkg/binate/ir/gen_const.bn`) peels alias/readonly/named to the underlying int
+and, for a SIGNED target of width < 64, checks the folded host value is in
+[−2^(W−1), 2^(W−1)−1]; `genConst`/`genConstGroup` `panic` (assert-unreachable,
+the `emit_types` / `emit_iface_upcast` compiler-bug idiom) if it ever returns
+false — failing loud instead of storing a wrapped value.
+
+Placed at the producers (signed target known), not `evalConstExpr` (target-
+agnostic, shared with array-dim / asm const contexts). For a width-64 signed
+target the host int IS that width, so an overflowed 2⁶³ is already an
+indistinguishable wrapped bit pattern — only the checker's bignum can catch it —
+so the guard no-ops there, leaving the checker authoritative (documented).
+Defensive only (currently unreachable): zero false positives across builder-comp
+2487/0 AND builder-comp-comp 2487/0 (gen1 compiling the whole compiler exercises
+the guard on every compiler const); hygiene 15/15. Unit test
+(`gen_const_fold_test.bn`) pins the helper logic (2³¹ does NOT fit int32;
+boundaries fit; width-64 / unsigned / nil are no-ops).
+
 ## ✅ FIXED & LANDED (binate `378aea49`, 2026-06-28, BUG-BASH LANE 1) — bug 478: spurious "cannot assign void" cascade after a binary-op type error
 
 Was: a binary-op type error (e.g. `arithmetic op requires numeric operands` on a
