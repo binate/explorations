@@ -1,10 +1,68 @@
 # Plan: function-value cross-mode ABI → coerced-aggregate args by-address + shim-extended sub-word returns
 
-**Status (2026-06-28, BUG-BASH LANE 3):** core landed-to-worktree + validated; native
-backends + return change + fixtures remaining. Worktree `temp-binate-2` branch
-`work-2`, WIP checkpoint commit `f841caaf` (LLVM + VM ARG side). **Not yet landable**
-— native backends still on the old convention, so cross-backend func-value calls
-with a coerced-agg arg are inconsistent until the whole change lands atomically.
+**Status (2026-06-29, BUG-BASH LANE 3):** ARG side implemented across LLVM + VM +
+native (x64/aarch64); a confirmed clobber bug fixed on the aarch64 register paths
+and validated; x64 + spill rigor + the RETURN change + fixtures remain. Worktree
+`temp-binate-2` branch `work-2`: `f841caaf` (LLVM+VM ARG), `613e4a1f` (native ARG +
+aarch64 clobber-safe staging). **Not yet landable** (atomic cross-backend change;
+see "Remaining" + "Clobber-safety" below). Also `3298428b` (the >7-arg extern guard,
+independent, landable on its own).
+
+## Clobber-safety (CONFIRMED MAJOR bug + the fix) — read this before touching native
+
+By-address makes the INCOMING dispatch cursor (1 pointer word per coerced struct)
+and the OUTGOING real-ABI cursor (ArgWords words) DIVERGE. The native shims do
+hand-written register shuffles; the old "N words" convention was clobber-safe only
+because incoming==outgoing (a constant down-shift, dst<src). With divergence an
+outgoing register write can land in a LATER param's not-yet-read incoming register —
+a silent miscompile. Confirmed by `conformance/937_funcval_multi_coerced_struct`
+(`[S3,S3,int]` etc.): PASSES on LLVM (builder-comp) + VM (builder-comp-int) — they
+don't hand-allocate — but FAILED on native_aa64 before the fix. NEITHER processing
+direction is universally safe (left-to-right clobbers a trailing scalar; right-to-
+left a leading one — it is a register-permutation/parallel-move hazard).
+
+Fix that IS applied + validated (aarch64 funcvalue shim, `emitShimArgMarshalAA64`):
+**stage every incoming user-arg dispatch word to scratch X9..X15** (disjoint from the
+X0..X7 outgoing bank and the X16/X17 assembler temps; nIn<=7 by the shim budget)
+before any outgoing write, then marshal reading from the staged regs — clobber-safe
+in any direction, frame-free. The aarch64 CLOSURE shims do NOT need staging: a
+capturing closure prepends >=1 capture word, forcing a strictly-UPWARD shift, so the
+right-to-left walk the sweep agents wrote is provably clobber-safe. 937 (funcvalue
+trailing/leading/3-struct + capturing closure) is green on builder-comp, -int, AND
+builder-comp_native_aa64; 889 green on native_aa64.
+
+ALSO fixed: the shim register/spill ROUTING budget must count OUTGOING gp words
+(`AggCoercedInReg ? ArgWords : EffectiveArgWords`), not EffectiveArgWords — else a
+wide coerced-struct call (incoming 1/coerced) undercounts the n outgoing regs and
+wrongly stays on the register-only path. Done in aarch64_funcvalue_shim.bn.
+
+## Remaining as of 2026-06-29 (precise next steps)
+
+1. **x64 clobber-safety.** The sweep agents applied the by-address load to the x64
+   shims with per-struct r10/r11 parking, NOT incoming-staging — so x64 almost
+   certainly has the SAME cross-param clobber the pre-staging aarch64 funcvalue path
+   had (untested: x64 is Docker-only). x64 has too few caller-saved scratch regs
+   (r10/r11 + rax) to register-stage <=6 incoming words, so x64 needs STACK staging
+   (reserve a small frame, store the incoming arg regs, marshal reading from the
+   frame) — or push/pop r12-r15. Apply to all x64 shims (funcvalue + spill + 3
+   closures) and validate `937` + `889` via Docker `--platform linux/amd64`.
+2. **Native SPILL clobber-safety.** `937` stays within the register budget, so it does
+   NOT exercise the spill marshalers (aarch64/x64 funcvalue_spill + closure spill
+   paths). Add a wide test (enough coerced-struct args to spill, e.g. 4-5 of them)
+   and confirm the spill marshalers stage incoming before outgoing writes (aarch64
+   spill agent used X16/X9 parking, not full staging — verify or convert).
+3. **Sub-word/bool RETURN, shim-extends** (the second half — not started). LLVM:
+   shimIntSlotType -> i64 for sub-word; shim sext/zext before ret; caller truncates.
+   Native: sext/zext (bool: and #1) before returning in x0/rax (all shapes + spill).
+   VM: revert the return-narrow (subWordReturnInfo + post-call BC_ZEXT/BC_SEXT in
+   lower_func.bn; remove subWordReturnInfo; re-check callTargetIsExtern unused).
+4. **Fixtures** for the original items 1/4 (cross-mode iface/func-value coerced-agg +
+   sub-word return) per the recon, and the cross-backend interchange test.
+5. **File-length splits** (hygiene hard/soft caps): aarch64_closure_shim.bn 601 > 600
+   (hard, BLOCKER), x64_closure_shim.bn 584 > 500 (soft). Split along natural
+   boundaries (do NOT trim docs).
+6. **Full matrix**: builder-comp / -int / -int-int / -comp / -comp-int / -comp-comp;
+   builder-comp_native_aa64; builder-comp_arm32_*; x86-64 Docker; hygiene.
 
 ## Decision
 
