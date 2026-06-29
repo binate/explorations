@@ -14,22 +14,6 @@ coverage / doc) or already-resolved residuals.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 3 ⚠] MINOR (c-call / latent ABI) — `__c_call` with a binate `int` return for a C function returning C `int` (32-bit) is UB on x86-64 (2026-06-27) — 🟡 OPEN
-
-A C function returning C `int` is 32-bit, but binate `int` is 64-bit on a 64-bit
-target.  Annotating the `__c_call` return as `int` emits `call i64 @fn`, reading the
-full return register; the upper bits are unspecified for a sub-word C return, and on
-x86-64 `mov eax,-1` zeroes the upper half of RAX, so -1 reads back as 4294967295.
-This is exactly the os.Stat-missed-ENOENT bug that broke all Linux compiled CI
-(fixed `3111375e` / `a3384975` by switching the stat-family + closedir to `int32`).
-A repo-wide audit found only those sites; the rest correctly use `int` for C
-`ssize_t`/`long` (pointer-width) or explicit `int32` for C `int`.  **Prevention
-(recommended):** have the type-checker reject a binate `int` for a `__c_call` return
-whose C type is a fixed-width C `int`, forcing an explicit `int32`; or at minimum a
-binate-coding-guide / plan-c-call.md note "use the C-ABI-matching width for __c_call
-returns — C `int` is `int32`, not `int`."  Low severity (no remaining known
-instances) but a real footgun.
-
 ## 🏷[BUG-BASH 2026-06-27 → LANE 3, NEEDS TRIAGE] MAJOR (VM / wrong-compare) — two DIRECT-USE sub-word integer expressions of different producers compare unequal though both equal the literal (VM neither canonicalizes sub-word values nor width-masks comparisons) (2026-06-27) — 🔴 OPEN — REPRODUCED
 
 **Symptom.** On the bytecode VM, `bit_cast(int32, u) == cast(int32, -1)` (with

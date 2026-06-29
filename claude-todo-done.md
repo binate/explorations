@@ -8,6 +8,21 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ RESOLVED via convention doc (2026-06-28, BUG-BASH LANE 3) — `__c_call` with a binate `int` return for a C function returning C `int` (32-bit) is UB on x86-64
+
+Decision (user): document the convention rather than add a checker rejection. A
+checker disallow of binate `int` for C-function returns is NOT viable — `int` is
+the only portable target-width type and is the CORRECT choice for C `long`/
+`ssize_t`/`size_t` (read/write/pread/pwrite legitimately return `ssize_t` as
+`int`); the checker can't tell "`int` for ssize_t (correct)" from "`int` for C
+`int` (the footgun)" since `__c_call` carries only the symbol name + return type.
+Documented the width-matching convention in `explorations/binate-coding-guide.md`
+(new "C Interop (`__c_call`)" section): C `int` is fixed 32-bit → `int32`; C
+`long`/`ssize_t`/`size_t`/`intptr_t` are target-width → binate `int`/`uint`;
+`long long`/`int64_t` → `int64`; etc. No live mis-typed instances remain (the
+stat-family + closedir were already fixed to `int32`). A lint is a possible future
+addition but would need the C signature, which `__c_call` does not carry.
+
 ## ✅ FIXED & LANDED (binate `25117a2e`, 2026-06-28, BUG-BASH LANE 3) — `stdlib/math` float64 classification wrong on an x86-64 host VM (a cross-mode sub-word/bool scalar RETURN carried garbage upper bits)
 
 `stdlib/math/001_classify_round` printed `0` for `!math.IsNaN(1.0)` on an x86-64

@@ -127,6 +127,36 @@ For fixed-size allocations where the size is known, use `make_slice(T, n)`.
 
 ---
 
+## C Interop (`__c_call`): match the C type's exact width
+
+A `__c_call("sym", RetType, args...)` reads its result straight out of the C
+return register. Pick `RetType` (and integer arg types) to match the **C
+function's actual ABI width**, because a mismatch silently reads undefined bits
+on the target where the widths differ — there is **no checker enforcement** for
+this (the checker can't know the C function's signature from the symbol name).
+
+- **C `int` is FIXED 32-bit → use `int32`** (not binate `int`). Binate `int` is
+  target-*word*-sized (64-bit on a 64-bit target), so reading a 32-bit C `int`
+  return into a binate `int` leaves the upper 32 bits undefined: on x86-64,
+  `mov eax, -1` zeroes the upper half of `RAX`, so a C `-1` reads back as
+  `4294967295`. This is exactly the bug that made `os.Stat` miss `ENOENT` and
+  reddened all Linux compiled CI (fixed by switching the stat-family + `closedir`
+  to `int32`).
+- **C `long` / `ssize_t` / `size_t` / `intptr_t` / `ptrdiff_t` are TARGET-width →
+  use binate `int` / `uint`** (which is target-word-sized and correctly tracks
+  them on both 32- and 64-bit targets). This is why `read`/`write`/`pread`/
+  `pwrite` (returning `ssize_t`) correctly use `int` — do NOT "fix" these to a
+  fixed width: `int32` is wrong on 64-bit and `int64` is wrong on 32-bit.
+- **C `long long` / `int64_t` → `int64`; C `short` → `int16`; C `char` → `int8` /
+  `uint8` (`char`/`byte`).** Pointers (`*T`) pass through as pointers.
+
+Rule of thumb: if the C type is fixed-width, name a fixed-width binate type
+(`int32`/`int64`/…); only use the target-width `int`/`uint` for genuinely
+target-width C types. (A lint for this is a possible future addition, but it would
+need the C signature, which `__c_call` does not carry.)
+
+---
+
 ## File Organization
 
 - **Source files** (`.bn`): keep to roughly **500 lines maximum** (600 as a hard
