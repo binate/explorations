@@ -30,32 +30,6 @@ binate-coding-guide / plan-c-call.md note "use the C-ABI-matching width for __c_
 returns — C `int` is `int32`, not `int`."  Low severity (no remaining known
 instances) but a real footgun.
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 3] MAJOR (VM / wrong-output) — `stdlib/math` float64 classification mis-marshals across the VM↔native boundary on an x86-64 host VM (`builder-comp-int` / `builder-comp-comp-int`); aarch64 host VM + all compiled backends correct (2026-06-22) — 🔴 OPEN
-
-`conformance/stdlib/math/001_classify_round` (Float64bits round-trip, Abs/Signbit/
-Copysign, IsNaN/IsInf, Floor/Ceil/Trunc/Round through the injected `pkg/std/math`)
-prints a `0` where every classify check should print `1`, but ONLY on an x86-64
-host bytecode VM. It PASSES on an aarch64 host VM and on every compiled backend
-(builder-comp / -comp-comp / native). So this is a host-architecture-specific
-float64 value-marshaling defect in the VM↔native injection path, separate from the
-time.Point int64-seconds VM bug (the os.Stat ModTime entry). Pinned
-`.xfail.builder-comp-int` + `.xfail.builder-comp-comp-int` (the markers note the
-x64-host specificity; a `--check-xpass` run on an aarch64 host will XPASS them —
-expected). Root cause: unknown — needs investigation of how float64 results cross
-the injected-package boundary under the VM on x64 vs aarch64.
-
-**REPRODUCED on real x86-64 Linux (2026-06-28, `docker run --platform
-linux/amd64 ubuntu` + clang, the CI-equivalent path).** `builder-comp-int`
-`stdlib/math/001_classify_round` fails (a classify line prints `0` not `1`) on a
-faithful x86-64 build — confirming this is a genuine x86-64-host VM bug, not
-arch-noise. (An earlier Darwin attempt via an arm64 gen1 + `-arch x86_64` clang
-shim hit an `os.Stat → time.FromUnix` panic; that was an UNSOUND cross-build
-artifact, NOT a real x86-64 bug — real x86-64 Linux `os.Stat` works (the toolchain
-builds), so disregard it. Use a real x86-64 Linux container, not a Darwin
-cross-build, to repro/fix.) Root cause still open: float64 marshaling across the
-VM↔native injection boundary on x86-64 (the shim int-ifies floats / the System V
-SSE-register float ABI vs the VM's GP-register passing) — debug in the container.
-
 ## 🏷[BUG-BASH 2026-06-27 → LANE 3, NEEDS TRIAGE] MAJOR (VM / wrong-compare) — two DIRECT-USE sub-word integer expressions of different producers compare unequal though both equal the literal (VM neither canonicalizes sub-word values nor width-masks comparisons) (2026-06-27) — 🔴 OPEN — REPRODUCED
 
 **Symptom.** On the bytecode VM, `bit_cast(int32, u) == cast(int32, -1)` (with
@@ -289,6 +263,14 @@ bug). Three residuals remain:
    struct INTERLEAVED with scalar args. Reachable only via a test-local
    injected/native function → wants a `pkg/binate/vm` unit fixture, not a
    conformance test. Found by the 2026-06-28 minimal adversarial review.
+
+4. **sub-word/bool RETURN via iface/func-value (sibling of the just-landed return
+   fix, `25117a2e`).** The concrete `OP_CALL`-to-extern path now canonicalizes a
+   cross-mode bool / sub-word-int return (garbage upper bits on x86-64); the
+   iface-dispatch / func-value cross-mode return is still runtime-determined and
+   uncanonicalized — same shape as item 1. Also: the sub-word-INT (not bool) return
+   path of that fix has no dedicated test (no injected stdlib returns a sub-word
+   int; needs a synthetic injected helper, like the coverage gaps above).
 
 ## MINOR (e2e / BUILDER-lag cleanup) — drop the gen1 build in e2e/stat-values.sh after the next BUILDER bump (2026-06-20) — 🔴 OPEN
 

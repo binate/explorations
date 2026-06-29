@@ -8,6 +8,37 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `25117a2e`, 2026-06-28, BUG-BASH LANE 3) — `stdlib/math` float64 classification wrong on an x86-64 host VM (a cross-mode sub-word/bool scalar RETURN carried garbage upper bits)
+
+`stdlib/math/001_classify_round` printed `0` for `!math.IsNaN(1.0)` on an x86-64
+host bytecode VM (`builder-comp-int` / `builder-comp-comp-int`); arm64 host VM and
+all compiled backends were correct. Root cause: a native (injected) function
+returning a bool / sub-word integer leaves the bits ABOVE the value's width
+undefined in the return register — garbage on x86-64 (System V), cleared by arm64.
+The VM reads the per-function shim's return as a full i64 (`rt._call_shim_scalar`),
+so a DIRECT use misread it (`!IsNaN(1.0)` went false though IsNaN(1.0) is false;
+`if b` truthiness happened to work), while a typed store masked it. The float-scalar
+return path already int-ified to a canonical i64 slot; sub-word ints/bools did not.
+
+Fix (VM lowering, `pkg/binate/vm`): after a CROSS-MODE `OP_CALL`
+(`callTargetIsExtern`) whose result is a bool / sub-word int (`subWordReturnInfo`,
+reusing the shared `common.SubWordNarrow` classifier + a bool case), emit a
+canonicalizing `BC_ZEXT`/`BC_SEXT` of the result to its width; the code-sizing
+(count) and emit passes gate on the same predicates so they stay in lockstep.
+Pure-VM calls are untouched; full-word/float/pointer/aggregate/void need no fixup.
+
+Reproduced + fixed on a faithful x86-64 Linux build (`docker run --platform
+linux/amd64 ubuntu` + clang — the CI-equivalent path; an earlier Darwin
+arm64-gen1 + `-arch x86_64` clang-shim attempt was an unsound cross-build and is
+disregarded). Verified: full `builder-comp-int` 2446/0 on x86-64 AND on arm64;
+`-comp-int` x86-64 green; VM units + hygiene green; minimal adversarial review
+found 0 defects. De-xfail'd `001_classify_round` on both VM modes.
+
+Residuals (LANE-3 follow-up): the iface-dispatch / func-value cross-mode case is
+runtime-determined (same family as the coerced-aggregate-arg residual); and the
+sub-word-INT (not bool) return path has no dedicated test — no injected stdlib
+function returns a sub-word int, so reaching it needs a synthetic injected helper.
+
 ## ✅ VERIFIED FIXED (2026-06-28, BUG-BASH LANE 3) — `os.Stat(file).IsDir()` wrongly reported a regular file as a directory under VM-on-VM (`builder-comp-int-int`), breaking `cmd/bni`'s `expandDirArgs`
 
 No longer reproduces. `perf/000_noop` runs green end-to-end through the
