@@ -295,18 +295,22 @@ either fix the code or tune the rule, and un-skip those 5 packages.  (The other 
 entries — `pkg/binate/{vm,repl,interp}` — are BUILDER-lag for rt's void `__c_call`, tracked with the
 other BUILDER-lag skips; they clear at the next BUILDER bump.)
 
-## Cast/shift const-fold class — ✅ DONE & LANDED (moved to [claude-todo-done.md](claude-todo-done.md)); open residuals below (2026-06-17)
+## `\u` escape: spec/impl drift — grammar excludes `\uHHHH`, but the lexer/checker/decoders accept it — 🔴 OPEN (needs reconcile decision)
 
-The cast-hidden negative-shift-count → silent-0 class (and the cast-semantics decision it surfaced) is fully closed and landed across `c9cce5ef`..`77d7cc38` — full detail in the done file. Remaining OPEN residuals:
+The grammar (`docs/spec/binate.ebnf` §5, `escape_seq`) explicitly EXCLUDES a
+`\u` escape ("There is NO `\u…` Unicode escape"), yet the implementation accepts
+`\uHHHH` everywhere: `types/escape.bn` `validateEscapes` validates it (and
+constrains a char-literal `\u` to a single byte at `escape.bn`), the shared
+`types.ParseCharLit` + `ir`’s `unescapeStr` decode it, and conformance/unit tests
+exercise it (`'\u0041'`, spec/05-lexical/044-046, literal_value_test,
+escape_test). So `var s @[]readonly char = "\u00e9"` / `var c char = '\u0041'`
+compile despite the grammar saying `\u` does not exist.
 
-- (Const-fold fit-check for arithmetic + non-negative `&`/`|`/`^`/`<<` is ✅ DONE & LANDED — `c699cd78` (h-arith) and `3f57dc3a` (h-bitwise); recorded in [claude-todo-done.md](claude-todo-done.md). Only the `>>` residual below remains.)
-- **(h-shr / signedness-aware const-fold family) — ✅ DONE & LANDED** (single consts `05d08117`; h-cmp `0625521f`, h-inline-shift `865e2e79`, h-group `beffb741`, h-bni `cf549e2f`). Full detail in [claude-todo-done.md](claude-todo-done.md). Two adjacent residuals remain OPEN:
-  - 🏷[BUG-BASH 2026-06-27 → LANE 2] **(runtime-count negative shift)** ✅ DONE & LANDED (main `63ecc3b8`). `(0 - 16) >> n` (n runtime) lowered to `lshr` because the shift's result type was the negative untyped-const operand's untyped-int type (Signed=false). Fix (gen_binary.bn): recover the operand's genuine value sign from the checker's folded-literal `LitSign` (not the two's-complement bit pattern, which can't tell a negative const from a positive `>= 2^63` one) and retag the shift result type to signed int → ashr; a positive untyped const keeps lshr. Un-xfailed `859_runtime_count_signed_shift` (builder-comp / -int / native_aa64) + IR-gen unit test on the OP_SHR signed result type. See [claude-todo-done.md](claude-todo-done.md).
-  - 🏷[BUG-BASH 2026-06-27 → LANE 2] **(grouped signedness const followed by a bare repeat)** ✅ DONE & LANDED (main `c5381592`). `const ( Q uint64 = U/D; R )` folded BOTH Q and R signed. Two causes fixed: (checker, `checkGroupDecl`) re-checking R's initializer re-registered the shared node, moving its `ResolvedTypeID` to R's signed re-fold slot — Q then read R's value; save/restore the explicit member's stamp + node `ResolvedTypeID` across the bare re-check. (IR-gen, `genConstGroup`) a NON-iota bare member now reuses the explicit member's signedness-aware stamp (new `exprUsesIota` keeps iota repeats re-evaluated per-iota — the `1<<iota` bit-flag idiom is unaffected). Pinned by `conformance/spec/06-constants/009_const_group_bare_repeat_signedness`; 294 const/iota tests + ir/types unit unchanged.
-- 🏷[BUG-BASH 2026-06-27 → LANE 2] **iota-grouped `.bni` consts stay value-less** — ✅ ALREADY FIXED (verified; pinned by tests, main `22065010`). `bni_scope`'s DECL_GROUP loop binds `iota` per member in the temp build scope and `evalConstIntValue` resolves it (and `defineBniConst` stamps the folded value), so iota-grouped `.bni` consts DO fold — including a `0 - iota` group with negative members. Confirmed both facets work: the imported member VALUES fold (`935_bni_iota_const_group`: 0/1/2 + a negative), and a negative member used as a shift count is REJECTED at compile time with "negative shift count" rather than slipping the gate (`936_err_bni_iota_neg_shift_count`). The "needs iota substitution ported into bni_scope" was done in earlier work; this entry was stale. Both tests green on builder-comp / -int / native_aa64.
-- **`parseCharLiteral` (types) / `parseCharLit` (ir) duplicated** with no tie test — drift risk; factor into one shared decoder.
-- **raw multi-byte char literal** (`'é'`) accepted as its first UTF-8 byte — front-end leniency (pre-existing).
-- (The proper IR-gen transitive-`.bni`-const fix is tracked under the CRITICAL entry above. The forward-ref-const array-dim garbage bug and the named-array zero-init bug are ✅ DONE — see [claude-todo-done.md](claude-todo-done.md).)
+Surfaced during the cast/shift char-literal-residual work (BUG-BASH LANE 2).
+**Reconcile decision needed (user):** either (a) ADD `\uHHHH` to the grammar’s
+`escape_seq` and drop the "no `\u`" §5 note (the impl + tests already treat it as
+supported sugar — likely the intended direction), or (b) REMOVE `\u` handling from
+the impl and its tests.  Not fixed pending that call.
 
 ## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (latent) — same-final-segment generic INTERFACES collide (the iface analog of the now-fixed struct/func same-segment collisions) (2026-06-20) — 🔴 OPEN
 
