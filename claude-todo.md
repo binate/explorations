@@ -602,6 +602,35 @@ checker synthesizes its signature in BOTH the qualified-access arm
   3 compiled modes; **xfailed on the 3 VM modes** (`-int`/`-int-int`/`-comp-int`)
   for Gap 2 (int-int also hits the pre-existing multi-package double-VM failure).
 
+### 🏷[BUG-BASH 2026-06-27 → LANE 3] FULL-descriptor follow-up: bytecode `FunctionInfo.Value` is null for an EXPORTED direct-`__c_call` function in a LOWERED package (cross-mode parity vs native) — 🟡 OPEN (latent, MAJOR-class, surfaced by FULL adversarial review)
+- **Symptom**: the VM's bytecode-descriptor gather (`gatherPackageFuncs`,
+  `pkg/binate/vm/lower_pkg_descriptor.bn`) selects exported / struct-dtor
+  functions the same way codegen's `collectPackageFuncs` does (so the table
+  COUNT + Name/RetbufSize/ParamSlots/Sig match native). But the callable-`Value`
+  back-patch (`patchFuncValueHandles`) resolves the handle via `funcIndexLookup`,
+  which fails for a function that wasn't lowered to a VMFunc — i.e. one with a
+  DIRECT `OP_C_CALL` body (`funcHasCCall` skips it in `LowerModule`). Such an
+  entry keeps `Value == null`, where the NATIVE descriptor emits a callable
+  `@__handle`. Cross-mode parity divergence on `Value` (Name/sig/sizes still match).
+- **Reachability (narrow / latent)**: requires an **exported** function with a
+  **direct** `__c_call` in a package that is **lowered** (not injected) — i.e. a
+  native-only package under `--test` — AND something reflecting that entry's
+  `Value`. No current test exercises it (725/727's `pkg/fns`/`pkg/sigs` have no
+  `__c_call` exports; unexported C wrappers like `os.cLseek` aren't in the table;
+  exported wrappers like `os.Seek` call the wrapper rather than `__c_call`
+  directly, so they DO lower and get a handle). Not memory-unsafe — null is a
+  defined "not callable from bytecode" state, never deref'd on the lowering path.
+- **Root cause**: a bytecode package genuinely has no bytecode handle for a
+  `__c_call` function (it can only run natively). Full parity needs the VM to
+  bind the function's NATIVE handle into `Value` — the cross-mode handle
+  resolution that is Part 2b territory (`RegisterPackageFunctions` enumeration).
+- **Options for owner**: (a) accept null `Value` for these (the honest
+  "no-bytecode-handle" state) and document; (b) bind the native extern handle
+  (2b-adjacent); (c) something else. NOTE: do NOT "fix" by skipping `__c_call`
+  funcs in the gather — that makes the table COUNT diverge from native, a worse
+  drift. **Add a covering test** once the direction is chosen (an exported
+  direct-`__c_call` function in a lowered package, reflecting its `Value`).
+
 ## MAJOR
 
 ## CR-2 review — carried-forward open residues (2026-06-08/09)
