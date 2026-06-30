@@ -715,10 +715,16 @@ Both referenced from the spec (`07b-type-layout.md`).
   across modes (observable via `bit_cast` and the representation builtins). Spec
   ratified — §7.13.12 `type.layout.byte-order`, §21.4
   `behavior.impl-defined.endianness` (docs `9a0e2b9`); claude-notes recorded.
-  The current implementation is **little-endian only**, and `TargetInfo`
-  (`types.bni:400-405`) carries no endianness field. **Impl follow-up (not
-  done):** add a `TargetInfo` endianness field + big-endian support, the path to
-  big-endian/cross-endian targets.
+  The current implementation is **little-endian only**. **Field + assert ✅ DONE
+  & LANDED (main `dbc21c28`)**: `TargetInfo.BigEndian` (false = little-endian, the
+  default + only supported order); `SetTarget` rejects a big-endian target with
+  `panic("big-endian target not implemented")` at the single chokepoint every
+  target flows through, rather than silently emitting wrong-endian bytes; LE
+  round-trip unit test (the panic path isn't unit-testable without recover).
+  **Still open (deferred, per user):** actual big-endian CODEGEN (the byte-
+  emission sites — object writers, ir.DataGlobal int terms, bit_cast / the
+  representation builtins) — the path to big-endian/cross-endian targets, to do
+  when such a target is actually needed.
 
 ### 🏷[BUG-BASH 2026-06-27 → LANE 1] Type-system issues surfaced while authoring spec Ch.7 (Types) — 2026-06-12
 Found writing the docs spec's Types chapter (grounding + adversarial
