@@ -808,8 +808,8 @@ bnlint can't typecheck because they use a feature/fix newer than the bundle.
 (the `"void"` `__c_call` spelling) and `pkg/std/os` (the `.bni` free-function-vs-method fix
 `796effc7`), plus their importer chain `pkg/binate/{vm,repl}` + `cmd/{bni,bnas,bnlint}`, all lint
 **clean** under the bnc-0.0.10 bundled bnlint (verified each directly). Dropped from `LINT_SKIP` —
-restoring style-lint coverage on those seven packages, hygiene 15/15 — in a `binate` lint.sh change
-(landing; cite the main commit here once landed).
+restoring style-lint coverage on those seven packages, hygiene 15/15 — in `binate` lint.sh change
+`c5a14146`.
 
 **Still skipped — `pkg/binate/interp`**, but for a *newer* lag (not the rt/os one): its
 embeddable-interp extern-registration enumerates `rt.__Package()` and wraps each entry via
