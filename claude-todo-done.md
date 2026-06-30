@@ -8,6 +8,25 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `02771a3f`, 2026-06-29) — CRITICAL arm32 regression: pkg/builtins/lang did not compile on 32-bit (broke the whole arm32 suite)
+
+`788289b9` ("lang: float Compare/Hash realize the IEEE total order at NaN") added
+`return cast(uint, canonicalQNaN64)` to `float64.Hash`, where `canonicalQNaN64
+int64 = 9221120237041090560`. Casting that 64-bit CONSTANT to `uint` fails the
+compile-time fit-check on a 32-bit target (`uint` is i32): `constant does not fit
+the cast target type`. Because the compiler force-loads `pkg/builtins/lang` for
+every program (`EnsureLangLoaded`), this broke compilation of EVERY arm32 program
+— the entire `arm32_baremetal` / `arm32_linux` conformance + unit suites were red
+on main (e.g. the float-free `045_escape_simple` failed to compile). Discovered
+while authoring `188_escape_unicode_utf8`, which hit it on arm32.
+
+Fix: route the constant through a runtime `int64` so the cast TRUNCATES to the
+target width (mirroring the non-NaN path's `cast(uint, bit_cast(int64, x))`)
+instead of fit-checking. No 64-bit behavior change; on ILP32 the NaN hash
+truncates to its low 32 bits (consistent with the documented non-NaN truncation).
+Verified: arm32 now compiles, 045/040/017_float_nan/188 pass; builder-comp +
+native_aa64 unchanged; lang unit tests pass.
+
 ## ✅ FIXED & LANDED (binate `233cc82d` + `17cfc16b`, 2026-06-29, BUG-BASH LANE 3) — cross-mode coerced-aggregate func-value ABI residuals (items 1, 2, 4)
 
 The VM↔native coerced-aggregate-arg fix (`a61f68dd`) covered only the direct
