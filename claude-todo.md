@@ -811,13 +811,19 @@ bnlint can't typecheck because they use a feature/fix newer than the bundle.
 restoring style-lint coverage on those seven packages, hygiene 15/15 — in `binate` lint.sh change
 `c5a14146`.
 
-**Still skipped — `pkg/binate/interp`**, but for a *newer* lag (not the rt/os one): its
-embeddable-interp extern-registration enumerates `rt.__Package()` and wraps each entry via
-`_func_handle`, a usage newer than bnc-0.0.10 — the bundled bnlint aborts `undefined: __Package` /
-`_func_handle argument must be a named function`. A **current-source** bnlint lints interp clean, so
-this is pure BUILDER-lag: drop `pkg/binate/interp` from `LINT_SKIP` at the next BUILDER bump past the
-embeddable-interp work. (The `asm/*` skips are a separate group (B) — real `[managed-to-raw-assign]`
-findings — not this entry.)
+**Still skipped — `pkg/binate/interp`**, but for a *newer* lag (not the rt/os one). **Root-caused
+(2026-06-30): a synthesized-accessor NAME skew, not a missing bnlint capability — so the next bump
+fixes it and NO linter work is needed.** The compiler-synthesized reflect accessor was renamed
+`_Package` → `__Package` in `e12a8a3b` ("fix CRITICAL … close silent collision", 2026-06-26), which
+postdates the bnc-0.0.10 release (`cdea9b9f`, 2026-06-23). interp's extern-registration references the
+new name as a func value (`rt.__Package`, `reflect.__Package`, `errors.__Package`, …), but the bundled
+bnc-0.0.10 checker still synthesizes/resolves the OLD `_Package` (verified: `emit_pkg_descriptor.bn`
+mangles `"_Package"` at cdea9b9f, `"__Package"` at HEAD), so `<pkg>.__Package` is undefined under the
+bundle — cascading to all four errors (`undefined: __Package` → `cannot call non-function` → `cannot
+assign void to @Package` → `_func_handle argument must be a named function`). A current-source
+(post-rename) bnlint lints interp clean. Action: at the next BUILDER bump (source ≥ `e12a8a3b`), drop
+`pkg/binate/interp` from `LINT_SKIP` and close this entry. (The `asm/*` skips are a separate group (B)
+— real `[managed-to-raw-assign]` findings — not this entry.)
 
 ### `rt.Exit` paradigm: `exit` vs `abort`/`panic` — DISCUSS
 - `rt.Exit` (→ libc `exit`) is the wrong model in general: process exit
