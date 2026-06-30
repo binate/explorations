@@ -8,6 +8,69 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ RESOLVED (2026-06-29, BUG-BASH LANE 2) — Layout follow-ups surfaced authoring spec Ch.7.13 (Type Layout)
+
+Two spec-referenced follow-ups (`07b-type-layout.md`), both landed. (The deferred
+big-endian *codegen* path is split out and stays open in claude-todo.md.)
+
+1. **`type.layout.funcval-order-hardening`** — ✅ DONE & LANDED (main `aabc2dcd`
+   codegen + shared constants, `fd8bcc22` native, `f5e43e4e` VM). The func-value
+   field order `{vtable, data}` and the iface-value order `{data, vtable}` (the
+   deliberate, verified ABI asymmetry) were encoded as magic 0/1 indices (LLVM),
+   0/8 byte offsets (native), and `[0]/[1]` word slots (VM) across 15 files — a
+   divergence risk for the keystone cross-mode contract. Now routed through a
+   single source of truth in `pkg/binate/types` (`scope.bn` + `types.bni`):
+   `FuncValue{Vtable,Data}` / `IfaceValue{Data,Vtable}` `Index()` + `Offset()`
+   (offsets = index * ptrSize(), so native field access is ILP32-correct, not a
+   hardcoded LP64 8). 81 sites; behavior-identical, verified by 267 (LLVM) + 267
+   (native_aa64) + 266 (bytecode VM) iface/func_value conformance + unit tests.
+2. **`type.layout.byte-order`** — DECIDED 2026-06-17; field + assert ✅ DONE &
+   LANDED (main `dbc21c28`). Byte order is **implementation-defined**, fixed per
+   target, identical across modes (spec §7.13.12 `type.layout.byte-order`, §21.4
+   `behavior.impl-defined.endianness`, docs `9a0e2b9`). Current implementation is
+   **little-endian only**: `TargetInfo.BigEndian` (default false); `SetTarget`
+   rejects a big-endian target with `panic("big-endian target not implemented")`
+   at the single chokepoint every target flows through (no silent wrong-endian
+   bytes); LE round-trip unit test. The remaining big-endian CODEGEN work is
+   deferred (no BE target exists) — tracked in claude-todo.md.
+
+## ✅ RESOLVED (2026-06-13/14) — Stale-xfail sweep: cross-mode CONFORMANCE markers (the runner skips xfailed tests, so now-passing ones sit marked-failing forever)
+
+The runner does NOT re-run xfailed tests (it skips them — they show as `x`, never
+`XPASS`), so a fix that makes an xfailed test pass leaves the marker stale and
+invisible. The conformance sweep across all 10 modes is done; two residuals stay
+open in claude-todo.md (17 cross-mode UNITTEST xfails — unittest `--check-xpass`
+not wired into CI, need qemu; and `value-struct-large` on native_x64).
+
+- **builder-comp + builder-comp-comp (gen2) (2026-06-13)**: only ONE stale —
+  `const-group-bare-inherited-overflow` REMOVED (binate `680a4eca`, all 11 markers).
+- **VM modes (2026-06-13)** via `run.sh --check-xpass`: **25 stale removed** —
+  `8741c552` (14: `718_funcval_spill_over_vm_cap` ×3; 11 `-int-int`-only that blamed
+  now-fixed double-VM infra — `272`, the `586/592/673/674/675/676/677/678/682`
+  cross-pkg `*_balance` family, `665_transitive_iface_reexport`); `bcb3c362` (11
+  readonly/matrix cells left xfailed only on VM after plan-cr2-1 fixes landed on
+  LLVM). KEPT (genuine): `regressions/c-call/*`, `498/500/527/530` (VM has no FFI),
+  `matrix/globals/readonly/struct` (Defect-1 open), `385/386`, `708/709/725/727`.
+- **Unittest comp-comp-int (2026-06-13)** `76fe86cc`: 4 stale removed (blamed the
+  now-fixed boot-comp-int VM field-layout bug). 8 ccall unittest xfails stay genuine.
+- **Native aa64 + x64_darwin (2026-06-13)**: 0 stale.
+- **CROSS MODES via the `conformance-xpass.yml` CI workflow (2026-06-14) — 99 stale
+  conformance markers removed**: `native_aa64` 29 (`matrix/scalar-diff/*` signed
+  sub-word, `5f94558b`); `arm32_linux` 40 + `arm32_baremetal` 30 (native arm32 +
+  tuple-packing caught up, `1ce5a6d9`/`56c275b6`); `native_x64` 22 (float round-bit
+  / float32-narrowing + Defect-1/Round-2 cells, `27ba1f7e`) — visible only after a
+  workflow substring-match bug was fixed with `run.sh --exact` (`982727d1`). **All
+  10 modes green under the sweep**; 121 stale conformance markers removed total.
+- **Unittest `--check-xpass`** (binate `ddc624d2`): VM modes swept — **8 stale
+  removed** (bootstrap/rt/os injected as native, so they XPASS; `55229591`). The
+  `native_aa64` 11 (weak-`buf.Builder`-dtor dup-symbol MAJOR) correctly stay XFAIL.
+- **METHODOLOGY**: enumerate with `find conformance -name '*.xfail.*'` (RECURSIVE) —
+  a top-level `ls` misses ~160 subdirectory (`matrix/`, `regressions/`, `abi/`)
+  markers. Run only the xfailed tests as filters (amortizes one toolchain build);
+  `--check-xpass` reports `XPASS` for the stale ones. **Why it matters**: stale
+  xfails hide regressions and inflate the count; each may map to a done-but-not-
+  archived todo entry.
+
 ## ✅ RESOLVED (decision 2026-06-28, BUG-BASH LANE 1) — Value-receiver semantics: respect the written type (note-only fix; impl already correct)
 DECISION (the language designer): a value receiver RESPECTS its written type —
 a plain `(r T)` is a mutable COPY (mutations local, like Go), and `(r readonly
