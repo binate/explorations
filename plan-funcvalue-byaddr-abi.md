@@ -1,12 +1,13 @@
 # Plan: function-value cross-mode ABI → coerced-aggregate args by-address + shim-extended sub-word returns
 
-**Status (2026-06-29, BUG-BASH LANE 3):** ARG side implemented across LLVM + VM +
-native (x64/aarch64); a confirmed clobber bug fixed on the aarch64 register paths
-and validated; x64 + spill rigor + the RETURN change + fixtures remain. Worktree
-`temp-binate-2` branch `work-2`: `f841caaf` (LLVM+VM ARG), `613e4a1f` (native ARG +
-aarch64 clobber-safe staging). **Not yet landable** (atomic cross-backend change;
-see "Remaining" + "Clobber-safety" below). Also `3298428b` (the >7-arg extern guard,
-independent, landable on its own).
+**Status (2026-06-29, BUG-BASH LANE 3): LANDED** on main as `233cc82d` (the squashed
+by-address ARG + clobber-safe staging + sub-word RETURN + file split) and `17cfc16b`
+(the >7-arg extern guard). Validated: full conformance builder-comp (2484) +
+builder-comp-int (2459); native aa64 + x64_darwin (937/938/889 + agg/closure/funcval);
+unit vm 207 / codegen 246 / native aa64 143 / x64 231; hygiene 15/15. Remaining are
+NON-blocking follow-ups (see "Remaining"): the iface-path/sub-word observable unit
+fixture, the optional shim-extends RETURN cleanup, and the x64_closure_shim.bn
+soft-length split. (Historical detail below kept for the implementation record.)
 
 ## Clobber-safety (CONFIRMED MAJOR bug + the fix) — read this before touching native
 
