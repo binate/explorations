@@ -489,6 +489,7 @@ element `i` at index `i`.
   builder-comp-int 2469/0; adversarially reviewed. Full write-up in
   [claude-todo-done.md](claude-todo-done.md).
 - ✅ **FIXED & LANDED (binate `7523b14d`, BUG-BASH LANE 1) — (minor) Positional struct-literal elements are now assignability-checked** (each positional element i checked against field i's type, mirroring the keyed branch). conformance/spec/13-expressions/043.
+- 🏷[NEEDS TRIAGE] **MINOR/MAJOR (latent, pre-existing) — keyed array-literal index: checker and IR-gen fold the index with DIFFERENT folders.** Surfaced 2026-06-29 by the bug-662 adversarial review (NOT introduced by it; shared by ALL `[N]T{k: v}` keyed array literals, not just `[...]`). The checker folds a keyed index via `evalConstIntValue` (`check_expr_composite.bn` checkArrayLit / inferArrayLitLen) and bounds-checks it against N; IR-gen recomputes the per-element index via a DIFFERENT folder, `evalConstExpr` (`gen_composite.bn:161`). If the two folders ever disagree on a constant key, IR could place an element at an index the checker did not bound-check against N → an out-of-bounds store. No known reproducer (the folders agree for normal int-literal/const keys; a key `evalConstExpr` folds but `evalConstIntValue` rejects, e.g. `sizeof`, is caught by the checker's "index must be a constant" first). Same family as the 759 host-int-vs-bignum divergence. **Fix:** make IR-gen reuse the checker's already-validated index (stamp it, like LenVal) instead of re-folding — OR route both through one folder. No test (no reproducer); add an xfail if one is found.
 All referenced from `13-expressions.md`.
 
 ### 🏷[BUG-BASH 2026-06-27 → LANE 3 🔶] `__Package()`: bytecode VM works only for the 4 builtins (Gap 2; unqualified form ✅ FIXED; builtin auto-injection ✅ LANDED) — 🔴 OPEN (user-package bytecode `__Package` remains)
@@ -825,10 +826,9 @@ tests.md Phase B). Each has a reproducing test cited by `.rules`.
     so `if Point{…}.x` fails) is correct/intended, not a defect.
   Both, plus `expr.composite.array.indexed` and `…inferred-len`, are now
   declared col-0 rule-IDs (tests cite them precisely; Ch.13 denominator 29→32).
-- 🏷[BUG-BASH 2026-06-27 → LANE 1] **`expr.composite.array.inferred-len` — ✅ DECIDED (2026-06-28): implement now** (genuine gap; see the detailed entry above). `[...]T{…}`
-  is rejected at parse ("expected expression"), though declared. Covered by
-  `spec/13-expressions/041` (.xfail.all). Fix: infer the length from the
-  element count (AST flag + parser ELLIPSIS branch + checker). Fix-now list.
+- 🏷[BUG-BASH 2026-06-27 → LANE 1] **`expr.composite.array.inferred-len` — ✅ DONE & LANDED (main `135ea813`, 2026-06-29).** `[...]T{…}`
+  inferred-length array literals implemented (literal-head only, Go's rule). See
+  the detailed entry above and [claude-todo-done.md](claude-todo-done.md).
 - ✅ **FIXED & LANDED (binate `7523b14d`, BUG-BASH LANE 1) — (minor) `expr.composite.struct` bad-key diagnostic.** A keyed struct
   literal whose key names no field now reports `no field \`<key>\` in <T>`
   (errNoSuchField) instead of the generic `undefined: <key>`. 027's `.error`

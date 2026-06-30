@@ -8,6 +8,42 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `135ea813`, 2026-06-29, BUG-BASH LANE 1) — bug 662: `[...]T{}` inferred-length array literals
+
+`[...]T{elems}` now infers the array length from the element count
+(`expr.composite.array.inferred-len`; `[...]int{1,2,3}` has type [3]int) — spec'd
+and already in the grammar (`ArrayLen = Expression | "..."`) but unimplemented
+(the parser stored `...` as a placeholder ident nothing inferred from, so `041`
+was xfail'd).
+
+Sub-decision (designer): **literal-head only (Go's rule)** — `[...]T` is valid
+ONLY as a composite-literal head; in any other type position (var / param /
+field / return) there is no element list to infer from, so it is rejected
+("[...] array length is only valid in a composite literal").
+
+- AST: `TypeExpr.LenInferred` flag (Len stays nil for `[...]`).
+- Parser: `[...]T` sets LenInferred in both `parse_type.bn` (type position, for
+  the rejection path) and `parseArrayLit` (the composite-literal head).
+- Checker `resolveTypeExpr`: a LenInferred array used as a type returns the
+  `TYP_ERROR` sentinel (bug 478) after the rejection, so a `var a [...]int =
+  [...]int{…}` whose initializer resolves to a real [N]int does not pile a
+  follow-on "cannot assign" onto the primary diagnostic (collapses to one error).
+- Checker `checkCompositeLit`: a LenInferred head resolves the element type,
+  folds the length via new `inferArrayLitLen` (highest positional / keyed index +
+  1, mirroring `checkArrayLit`'s index walk), builds [N]T, stamps LenVal/LenKnown
+  on the node, validates via `checkArrayLit`.
+- IR-gen: no change — `genCompositeLit` resolves `e.TypeRef` via IR's
+  `resolveTypeExpr`, which already reads the LenKnown/LenVal stamp.
+
+Tests (`conformance/spec/13-expressions`): 041 un-xfailed + rewritten to
+`a := [...]int{…}`; 049 (keyed / mixed / empty length inference); 050 (`[...]T`
+rejected as a var type). `122_punct_ellipsis` un-xfailed + renamed (drop _xfail)
++ rewritten. Green on builder-comp / -int / -comp; full builder-comp 2494/0 and
+builder-comp-int 2469/0 (no regression); hygiene 15/15; adversarially reviewed
+across three lenses (edge cases, TYP_ERROR safety, checker→IR handoff) — all OK.
+Surfaced a separate pre-existing latent risk (keyed-index folder divergence
+checker-vs-IR), filed NEEDS-TRIAGE in [claude-todo.md](claude-todo.md).
+
 ## ✅ RESOLVED (2026-06-29) — Ch.15 spec-conformance findings (2026-06-21, authoring `conformance/spec/15-builtins`)
 
 All three items are resolved (moved from claude-todo.md). The section surfaced one impl gap (item 1)
