@@ -14,28 +14,21 @@ coverage / doc) or already-resolved residuals.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 3, NEEDS TRIAGE] MAJOR (VM / cross-mode layout divergence) — a `@[]readonly char` string LITERAL has an owned refcounted backing under the VM, but a null immortal-rodata backing when compiled (2026-06-29) — 🔴 OPEN — REPRODUCED
+## 🏷[BUG-BASH 2026-06-27 → LANE 3, NEEDS TRIAGE] MAJOR? (VM / intermittent halt) — `rt.Refcount` on an interned `@[]readonly char` literal's backing halts the VM mid-program in some statement sequences (2026-06-29) — 🟡 OPEN — NOT CLEANLY REPRODUCED
 
-`type.layout.slice-managed.backing` (§7.13) states a `@[]readonly char`
-string/char-slice literal is `{data, len, null, len}` — `backing` (word 2) NULL,
-an unowned view of immortal static read-only data. All FIVE compiled backends
-(builder-comp, gen1, gen2, native_aa64, arm32_baremetal) comply. The **bytecode
-VM** instead materializes the literal as a **real OWNED refcounted allocation**:
-`backing != null`, refcount **2** (a normal positive count, NOT the immortal
-`STATIC_REFCOUNT` sentinel). So the literal's backing word — and its
-ownership/lifetime — diverge across modes (`exec.contract.layout`: identical
-memory layout in both modes is the keystone of the shared heap; a divergence is
-"silent data corruption"). The empty `{null,0,null,0}` and owned-`make_slice`
-forms AGREE across all modes — only the read-only-literal form diverges.
-
-Found authoring `conformance/spec/07-types/278_layout_slice_managed_backing_literal`
-(the gap surfaced when re-vendoring `rule-ids.txt` for the `\uHHHH` work). Pinned:
-`278_..._literal` is green on the five compiled backends, **xfail** on
-builder-comp-int / builder-comp-int-int / builder-comp-comp-int; the agreeing
-forms are `279_..._owned_empty` (green everywhere). Proposed fix: the VM should
-emit a `@[]readonly char` literal as a null-backing immortal view of its rodata
-bytes (matching the compiled backends), not a heap-allocated owned slice. NEEDS a
-fix decision (VM literal-materialization) vs accepting the divergence.
+Surfaced while investigating the readonly-char-literal backing model (the
+backing-form divergence itself is **resolved as intended** — environment-lifetime,
+see `claude-todo-done.md`). Reading `rt.Refcount(<backing of an interned VM
+literal>)` **halted execution mid-program** in some shapes: a minimal single read
+works (`var s @[]readonly char = "abc"; rt.Refcount(backing(s))` → 2, full output),
+but (a) a scope holding the literal, exiting, then re-evaluating the same literal,
+and (b) a `println`-separated read of a different string both stopped right at the
+refcount read — no further output, no diagnostic captured. Could be a real VM bug
+(reading an interned-literal allocation's header in certain states) or a probe
+artifact (raw-backing extraction via `bit_cast`). NEEDS a clean repro + root-cause.
+`conformance/spec/07-types/278_..._literal` exercises only the minimal working form
+(one `rt.Refcount(...) >= 2` read) and is green, so this item is the deeper
+fragility, separate from that test.
 
 ---
 

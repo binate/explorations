@@ -8,6 +8,25 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ RESOLVED AS INTENDED (docs `b662e20` + `eb91dc7`, 2026-06-29) — `@[]readonly char` literal backing differs by mode (VM owned/interned vs compiled null/immortal) is NOT a bug, it's environment-lifetime
+
+Was filed as a "MAJOR VM cross-mode layout divergence." Investigation (the VM
+**interns** each readonly-char literal and **holds a reference** to it, so it lives
+at least as long as the VM instance; the observed `rc=2` = VM-ref + the user
+variable's ref, which is correct — the literal isn't re-created per evaluation)
+showed the difference is an **intentional environment-lifetime realization**, not
+corruption: a literal lives ≥ its environment, realized as an immortal null-backing
+rodata view when compiled and a VM-interned owned backing when interpreted; the
+4-word layout and refcount mechanism are identical, and each value is
+self-describing. Spec'd: `type.layout.slice-managed.backing` (spec/07b) revised to
+describe the per-mode backing form, with a companion note in `exec.contract.layout`
+(§19.3) so it doesn't read as contradicting the layout contract. Pinned as
+conformance (not a bug) by `conformance/spec/07-types/278_..._literal` (per-mode
+`.expected`: compiled `backing==null`; VM `backing!=null` + `rc>=2`) and
+`279_..._owned_empty` (landing with the coverage commit). The one residual
+fragility — `rt.Refcount` on an interned literal backing intermittently halting the
+VM — is tracked as a separate OPEN item in `claude-todo.md`.
+
 ## ✅ FIXED & LANDED (binate `2834c57b`, 2026-06-29, BUG-BASH LANE 1) — bug 952: `int` and `int64` are distinct types (no implicit mix)
 
 `Type.Identical`'s integer arm compares only width + signedness, so `int` and
