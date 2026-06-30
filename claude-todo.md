@@ -14,6 +14,31 @@ coverage / doc) or already-resolved residuals.
 
 ---
 
+## 🏷[BUG-BASH 2026-06-27 → LANE 3, NEEDS TRIAGE] MAJOR (VM / cross-mode layout divergence) — a `@[]readonly char` string LITERAL has an owned refcounted backing under the VM, but a null immortal-rodata backing when compiled (2026-06-29) — 🔴 OPEN — REPRODUCED
+
+`type.layout.slice-managed.backing` (§7.13) states a `@[]readonly char`
+string/char-slice literal is `{data, len, null, len}` — `backing` (word 2) NULL,
+an unowned view of immortal static read-only data. All FIVE compiled backends
+(builder-comp, gen1, gen2, native_aa64, arm32_baremetal) comply. The **bytecode
+VM** instead materializes the literal as a **real OWNED refcounted allocation**:
+`backing != null`, refcount **2** (a normal positive count, NOT the immortal
+`STATIC_REFCOUNT` sentinel). So the literal's backing word — and its
+ownership/lifetime — diverge across modes (`exec.contract.layout`: identical
+memory layout in both modes is the keystone of the shared heap; a divergence is
+"silent data corruption"). The empty `{null,0,null,0}` and owned-`make_slice`
+forms AGREE across all modes — only the read-only-literal form diverges.
+
+Found authoring `conformance/spec/07-types/278_layout_slice_managed_backing_literal`
+(the gap surfaced when re-vendoring `rule-ids.txt` for the `\uHHHH` work). Pinned:
+`278_..._literal` is green on the five compiled backends, **xfail** on
+builder-comp-int / builder-comp-int-int / builder-comp-comp-int; the agreeing
+forms are `279_..._owned_empty` (green everywhere). Proposed fix: the VM should
+emit a `@[]readonly char` literal as a null-backing immortal view of its rodata
+bytes (matching the compiled backends), not a heap-allocated owned slice. NEEDS a
+fix decision (VM literal-materialization) vs accepting the divergence.
+
+---
+
 ## 🏷[BUG-BASH 2026-06-27 → LANE 3, NEEDS TRIAGE] MAJOR (VM / wrong-compare) — two DIRECT-USE sub-word integer expressions of different producers compare unequal though both equal the literal (VM neither canonicalizes sub-word values nor width-masks comparisons) (2026-06-27) — 🔴 OPEN — REPRODUCED
 
 **Symptom.** On the bytecode VM, `bit_cast(int32, u) == cast(int32, -1)` (with
