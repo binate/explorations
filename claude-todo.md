@@ -872,21 +872,24 @@ was. See [`plan-impls-constraints-migration.md`](plan-impls-constraints-migratio
 the "bonus" of the build.bni-dedup workaround removal, now landed — binate `9c2ac789`, archived in
 [claude-todo-done.md](claude-todo-done.md).)
 
-### Remove the BUILDER-lag lint skips after a BUILDER bump — 🟡 OPEN (gated on BUILDER)
-`scripts/hygiene/lint.sh` now lints the stdlib/runtime tier (`pkg/std/*`, `pkg/stdx/*`,
-`pkg/builtins/*`, `pkg/bootstrap` — under `impls/`+`ifaces/`, landed `3f2fdf4a`), and that
-extension surfaced two packages the BUILDER-bundled bnlint (`bnc-0.0.9`) can't typecheck because
-they use a feature/fix newer than the bundle.  Both are in `LINT_SKIP` and clear at the next
-BUILDER bump:
-- **`pkg/builtins/rt`** + its importer chain (`pkg/binate/vm` → `pkg/binate/repl`, `cmd/bni`, whose
-  bodies bnlint typechecks): rt's `Exit`/`RawFree` use the `"void"` `__c_call` spelling
-  (`__c_call("free", "void", ptr)` → a result-less C call; conformance `866_c_call_void_return`),
-  a parser feature newer than bnc-0.0.9.
-- **`pkg/std/os`**: depends on the `.bni` free-function-vs-same-named-method fix (`796effc7`, the
-  `os.Stat`/`File.Stat` case) which postdates bnc-0.0.9 — the same BUILDER-lag that makes
-  `e2e/stat-values.sh` build gen1 from the tree.
-Once `BUILDER_VERSION` is bumped past those, drop the rt+vm/repl/bni and os entries from
-`LINT_SKIP` (restoring full lint coverage) — verify the bundled bnlint parses both directly first.
+### Remove the BUILDER-lag lint skips after a BUILDER bump — 🟡 OPEN (narrowed to `pkg/binate/interp`; gated on next BUILDER bump)
+`scripts/hygiene/lint.sh`'s `LINT_SKIP` group (A) is the BUILDER-lag set — packages the bundled
+bnlint can't typecheck because they use a feature/fix newer than the bundle.
+
+**The bnc-0.0.9 lag is CLEARED** (BUILDER is now `bnc-0.0.10`, checked 2026-06-29). `pkg/builtins/rt`
+(the `"void"` `__c_call` spelling) and `pkg/std/os` (the `.bni` free-function-vs-method fix
+`796effc7`), plus their importer chain `pkg/binate/{vm,repl}` + `cmd/{bni,bnas,bnlint}`, all lint
+**clean** under the bnc-0.0.10 bundled bnlint (verified each directly). Dropped from `LINT_SKIP` —
+restoring style-lint coverage on those seven packages, hygiene 15/15 — in a `binate` lint.sh change
+(landing; cite the main commit here once landed).
+
+**Still skipped — `pkg/binate/interp`**, but for a *newer* lag (not the rt/os one): its
+embeddable-interp extern-registration enumerates `rt.__Package()` and wraps each entry via
+`_func_handle`, a usage newer than bnc-0.0.10 — the bundled bnlint aborts `undefined: __Package` /
+`_func_handle argument must be a named function`. A **current-source** bnlint lints interp clean, so
+this is pure BUILDER-lag: drop `pkg/binate/interp` from `LINT_SKIP` at the next BUILDER bump past the
+embeddable-interp work. (The `asm/*` skips are a separate group (B) — real `[managed-to-raw-assign]`
+findings — not this entry.)
 
 ### `rt.Exit` paradigm: `exit` vs `abort`/`panic` — DISCUSS
 - `rt.Exit` (→ libc `exit`) is the wrong model in general: process exit
