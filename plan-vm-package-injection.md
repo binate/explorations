@@ -1,10 +1,27 @@
 # Plan: package-level injection into the bytecode VM (Gap-2 VM-backend project)
 
 Status: **Part A (builtin auto-injection) LANDED 2026-06-12** (binate `a8ba52f2`);
-**Part B (Gap-2 bytecode `__Package`, §2a below) PENDING**. This is the
+**Part B §2a bytecode `__Package` descriptor — MIN LANDED 2026-06-29 (main
+`77c3378d`)**: the VM emits a per-package bytecode `__Package()` accessor + the
+immortal `reflect.Package` descriptor with EMPTY Functions/Globals/Vtables
+tables, so `<pkg>.__Package().Name` resolves (708/709 flipped on all 3 VM
+modes). **§2a FULL PENDING** (populate the tables with callable
+`FunctionInfo.Value` handles — 725/727 acceptance) and **§2b PENDING** (drop
+the hardcoded extern table, enumerate `__Package().Functions`). This is the
 motivating use-case for the `__Package()` / `reflect.Package.Functions` work —
 see `plan-package-introspection-phase-b.md` and the B0 entries in
 `claude-todo.md`.
+
+> **Structural note (post-Part-A, 2026):** the hardcoded extern table this plan
+> originally targeted (`extern_register_std.bn`) is gone. The VM now exposes
+> only injection PRIMITIVES (`RegisterPackageFunctions/Globals/Vtables` in
+> `pkg/binate/vm/extern_register.bn`); the POLICY of which packages to inject
+> moved to the host layer (`pkg/binate/interp/externs.bn`). The MIN landing
+> added the bytecode descriptor emitter `pkg/binate/vm/lower_pkg_descriptor.bn`
+> (gather + the generic two-pass `lowerDataGlobals` relocation lowerer + the
+> synthesized accessor) and `interp.EnsureReflectLoaded` (the VM-driver reflect
+> force-load, mirroring `cmd/bnc`). Read those, not the §-references below to
+> `extern_register_std.bn`, for current file locations.
 
 ## Part A — LANDED (binate `a8ba52f2`)
 
