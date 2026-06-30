@@ -501,99 +501,27 @@ element `i` at index `i`.
 - 🏷[NEEDS TRIAGE] **MINOR/MAJOR (latent, pre-existing) — keyed array-literal index: checker and IR-gen fold the index with DIFFERENT folders.** Surfaced 2026-06-29 by the bug-662 adversarial review (NOT introduced by it; shared by ALL `[N]T{k: v}` keyed array literals, not just `[...]`). The checker folds a keyed index via `evalConstIntValue` (`check_expr_composite.bn` checkArrayLit / inferArrayLitLen) and bounds-checks it against N; IR-gen recomputes the per-element index via a DIFFERENT folder, `evalConstExpr` (`gen_composite.bn:161`). If the two folders ever disagree on a constant key, IR could place an element at an index the checker did not bound-check against N → an out-of-bounds store. No known reproducer (the folders agree for normal int-literal/const keys; a key `evalConstExpr` folds but `evalConstIntValue` rejects, e.g. `sizeof`, is caught by the checker's "index must be a constant" first). Same family as the 759 host-int-vs-bignum divergence. **Fix:** make IR-gen reuse the checker's already-validated index (stamp it, like LenVal) instead of re-folding — OR route both through one folder. No test (no reproducer); add an xfail if one is found.
 All referenced from `13-expressions.md`.
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 3 🔶] `__Package()`: bytecode VM (Gap 2; unqualified ✅; builtin auto-injection ✅; bytecode descriptor **MIN ✅ LANDED `77c3378d`**) — 🔴 OPEN (FULL: populate Functions/Globals/Vtables tables with callable Values)
+### 🏷[BUG-BASH 2026-06-27 → LANE 3] `__Package()` bytecode VM (Gap 2) — ✅ DONE & LANDED (binate `77c3378d` MIN + `d4edd671` FULL, 2026-06-29)
 
-> **Update 2026-06-29 (MIN landed, main `77c3378d`)** — the VM now emits a
-> per-package bytecode `__Package()` accessor + immortal static-managed
-> `reflect.Package` descriptor. A new generic two-pass relocation lowerer
-> (`pkg/binate/vm/lower_pkg_descriptor.bn:lowerDataGlobals`, the VM's missing
-> third `EmitDataGlobal`) lays the `ir.BuildPackageDescriptors` term list into
-> VM runtime memory, resolving `DT_SYMREF` to runtime addresses — so the LLVM,
-> native, and VM backends share the one layout and cannot drift. The accessor
-> is a synthesized 2-instr leaf VMFunc (`BC_LOAD_IMM` payload addr; `BC_RETURN`);
-> immortality comes from the node's negative `STATIC_REFCOUNT` header (RefDec
-> no-op). Reflect is now force-loaded in every VM driver (interp run + test,
-> the REPL) via `interp.EnsureReflectLoaded` / repl `ensureReflectLoaded`,
-> mirroring `cmd/bnc`. **708/709 flipped to PASS on ALL three VM modes**
-> (`builder-comp-int`, `-comp-comp-int`, `-comp-int-int`) — the pre-existing
-> multi-package double-VM issue the int-int xfail cited no longer manifests for
-> these, so int-int was un-xfailed too (not just re-pointed). Unit tests in
-> `lower_pkg_descriptor_test.bn`. Full `builder-comp-int` 2469/0; vm 210 /
-> interp 26 / repl 67; hygiene 15/15.
-> - **MIN scope**: the Functions/Globals/Vtables tables are emitted EMPTY
->   (`{nil,0}`), so `<pkg>.__Package().Name` resolves. **FULL remaining** (see
->   "Still open" below): populate the tables, self-list `__Package`, with
->   callable `FunctionInfo.Value` handles (owner chose callable-now over null —
->   needs a runtime back-patch of each bytecode VMFunc's func-value handle into
->   the descriptor's Value word). 725/727 (which read the Functions table) stay
->   xfailed on the 3 VM modes until FULL lands; they are the FULL acceptance.
->   Callable Values are also the precondition for Part 2b (drop the hardcoded
->   extern table, enumerate `__Package().Functions`).
-
-> **Update 2026-06-12** — two related pieces landed on main:
-> - **VM injection Part A** (binate `a8ba52f2`): `RegisterStandardExterns` now
->   auto-enumerates `rt.__Package().Functions` (+ empty reflect) via
->   `registerPackageFunctions`, replacing the hand-maintained rt block. bootstrap
->   stays hand-bound (deprecation path + extern-heavy; table skips `IsExtern`);
->   the 3 `__Package` accessors + 2 trampolines stay hand-bound. See
->   `plan-vm-package-injection.md` Part A.
-> - **`__Package` self-listing** (binate `53ea3875`): every package self-lists its
->   own `__Package` accessor as the last `Functions` entry (closing the reflection
->   gap), and `--pkg` compilation force-loads reflect (`ensureReflectLoaded`) so
->   it holds even for packages that don't import reflect — i.e. `cmd/bnc` now
->   force-loads reflect on ALL paths (main/test already did; `compileSinglePkg`
->   now too). fv stashed on `ir.Module.PackageAccessorSig` → byte-identical
->   LLVM/native entry (Name `<pkg>.__Package`, ResultSize 8, ParamSlots 0, Sig
->   `()(@pkg/builtins/reflect.Package)`). Validated: builder-comp 1395/0,
->   builder-comp-int 1360/0, reflect byte-identical across LLVM/native-aa64/native-x64.
->   Follow-ups (binate `2988cda4`, `6d052181`): arm32 (ILP32) per-mode `expected`
->   overrides for 725/727 — the self-entry's ResultSize is `ptrSize()` (4 on
->   ILP32, 8 on LP64), breaking target-independence (⚠️ NOT verified locally —
->   no qemu; needs arm32 CI confirmation); plus native unit tests
->   (`TestEmitPackageDescriptorSelfListsPackage{AA64,X64}`) for the self-listing.
-> - **Still open (the core Gap 2 below)**: user/stdlib packages compiled to
->   BYTECODE still have no `__Package` body → Part B (§2a of the VM-injection plan).
->   The `cmd/bni`-doesn't-force-load-reflect asymmetry below is still accurate
->   (the fix above is `cmd/bnc`-side only).
-
-The compiler synthesizes a `__Package() @reflect.Package` accessor per package
-returning the package's immortal static-managed descriptor (Phase B,
-notes-package-introspection.md).  `codegen/emit_pkg_descriptor.bn` (+
-`native/{x64,aarch64}/_pkg_descriptor.bn`) emit it as a NATIVE function; the
-checker synthesizes its signature in BOTH the qualified-access arm
-(`check_expr_access.bn`) and the unqualified `checkIdent` arm
-(`check_expr.bn`).  Two gaps, surfaced 2026-06-11 by writing
-`conformance/708_reflect_package_all_kinds` (user-requested "every package has a
-`__Package`" coverage):
-
-- **Gap 1 — no unqualified form (checker) — ✅ FIXED (binate `1164ef04`).** An
-  UNQUALIFIED `__Package()` (the current package's own accessor) was `undefined:
-  __Package`; now it type-checks and lowers like a normal exported function,
-  callable unqualified within AND qualified from importers.  `checkIdent`
-  (`check_expr.bn`) synthesizes the `() @reflect.Package` type; IR-gen's
-  `registerCurrentModulePackageAccessor` (`gen_import.bn`) registers the current
-  module's `__Package` FuncSig so the bare-ident call path lowers it to the local
-  symbol `emit_pkg_descriptor.bn` emits.  Compiled modes only — VM still hits
-  Gap 2.  Pinned by `conformance/709_reflect_package_unqualified` (compiled PASS,
-  3 VM modes xfailed for Gap 2).
-- **Gap 2 — VM works only for builtins (MAJOR VM-backend project; DEFERRED).**
-  `__Package()` is emitted only as a native function; the bytecode VM reaches
-  `__Package` ONLY for the four builtin packages, via the HARDCODED externs in
-  `vm/extern_register_std.bn`.  A user/stdlib package compiled to bytecode has no
-  native `__Package` symbol → `vm: extern not found: <pkg>.__Package`.  The extern
-  approach CANNOT work for bytecode-compiled packages.  Fix: emit `__Package()` +
-  its static-managed descriptor as BYTECODE per package (the VM equivalent of
-  `emit_pkg_descriptor`) so the VM runs it directly, dropping the
-  hardcoded-builtin extern table.  Major VM-backend work — the user explicitly
-  deferred this.  (Subsumes a sibling asymmetry: `cmd/bni` does not force-load
-  reflect the way `cmd/bnc` does — `ensureReflectLoaded` is cmd/bnc-only — so
-  reflect-dependent type-checking under the VM needs an explicit reflect import;
-  709 imports reflect for exactly this reason.  When the VM emits `__Package`, it
-  will force-load reflect too.)
-- **Test**: `708_reflect_package_all_kinds` pins `<pkg>.__Package().Name` == import
-  path for a user package + all four builtins + a stdlib package.  PASSES on the
-  3 compiled modes; **xfailed on the 3 VM modes** (`-int`/`-int-int`/`-comp-int`)
-  for Gap 2 (int-int also hits the pre-existing multi-package double-VM failure).
+Bytecode-VM `__Package()` + `reflect.Package` descriptor for user/stdlib
+packages: the VM emits the descriptor (name + Functions table with callable
+`FunctionInfo.Value` handles) per lowered package via a synthesized accessor +
+a generic `DataGlobal` relocation lowerer (`pkg/binate/vm/lower_pkg_descriptor.bn`);
+reflect is force-loaded in every VM driver. 708/709/725/727 flipped to PASS on
+all 3 VM modes. (Gap 1 — unqualified `__Package()` in compiled mode — was fixed
+earlier, binate `1164ef04`.) Full writeup + commits +
+validation in [claude-todo-done.md](claude-todo-done.md); design in
+`plan-vm-package-injection.md` (§2a). **Remaining follow-ups (open):**
+- The `__c_call` `FunctionInfo.Value` parity divergence — next entry below.
+- **Globals/Vtables table population** — the bytecode descriptor emits these
+  tables EMPTY. No consumer today (they drive injection of a NATIVE package's
+  surface, not a bytecode package's own reflection), but populating them (globals
+  → runtime `lookupGlobalAddr`; vtables → `vm.IfaceVtables`) would complete
+  cross-mode parity. Needs a runtime back-patch like Value (the addresses aren't
+  static symbols). No test pins it.
+- **Part 2b** — drop the hardcoded builtin extern table, enumerate
+  `__Package().Functions` for cross-mode injection of a native package into the
+  VM. Builds on the callable-`Value` handles FULL just landed.
 
 ### 🏷[BUG-BASH 2026-06-27 → LANE 3] FULL-descriptor follow-up: bytecode `FunctionInfo.Value` is null for an EXPORTED direct-`__c_call` function in a LOWERED package (cross-mode parity vs native) — 🟡 OPEN (latent, MAJOR-class, surfaced by FULL adversarial review)
 - **Symptom**: the VM's bytecode-descriptor gather (`gatherPackageFuncs`,

@@ -8,6 +8,44 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `77c3378d` MIN + `d4edd671` FULL, 2026-06-29, BUG-BASH LANE 3) — Gap 2: bytecode-VM `__Package()` + `reflect.Package` descriptor for user/stdlib packages
+
+The bytecode VM emitted `__Package()` only as a native symbol, so a
+bytecode-compiled package's `<pkg>.__Package()` fell through to the
+native-extern registry and failed (`extern not found: <pkg>.__Package`); only
+the 4 native builtins (rt/bootstrap/reflect via hand-bound externs) reached it.
+Fixed by emitting the descriptor as bytecode per lowered package — the VM
+equivalent of `codegen/emit_pkg_descriptor.bn` / `native/*/_pkg_descriptor.bn`.
+
+- **MIN (`77c3378d`)**: new `pkg/binate/vm/lower_pkg_descriptor.bn` — a generic
+  two-pass relocation lowerer (`lowerDataGlobals`, the VM's missing third
+  `EmitDataGlobal`) lays the `ir.BuildPackageDescriptors` term list into VM
+  runtime memory, resolving `DT_SYMREF` to runtime addresses, so LLVM/native/VM
+  share the one layout and cannot drift. The accessor is a synthesized 2-instr
+  leaf VMFunc (`BC_LOAD_IMM` payload addr; `BC_RETURN`); immortality from the
+  node's negative `STATIC_REFCOUNT` header (RefDec no-op). Reflect force-loaded
+  in every VM driver (`interp.EnsureReflectLoaded` + repl `ensureReflectLoaded`,
+  mirroring `cmd/bnc`). Tables emitted empty → flipped **708/709** on all 3 VM modes.
+- **FULL (`d4edd671`)**: `gatherPackageFuncs` populates the Functions table
+  (mirroring codegen's `collectPackageFuncs` selection/order/metadata + the
+  self-listed `__Package`); `FunctionInfo.Value` is back-patched
+  (`patchFuncValueHandles`) with each function's callable runtime VM func-value
+  handle (`ensureHandle`, kept alive by the VMFunc). Flipped **725/727** on all
+  3 VM modes. Globals/Vtables tables left empty (no consumer for a bytecode
+  package's own — those drive injection of a NATIVE package's surface).
+- The int-int double-VM failure the old xfails cited no longer manifests for
+  these tests, so int-int was un-xfailed too (not re-pointed).
+- **Tests**: `lower_pkg_descriptor_test.bn` (relocation lowerer: all DataTerm
+  kinds, two-pass symref resolution, addend, descriptor layout readback, Value
+  back-patch at offset 5w). Validated: full `builder-comp-int` 2480/0; vm unit
+  211 / interp 26 / repl 67; hygiene 15/15; 708/709/725/727 PASS on
+  builder-comp-int, -comp-comp-int, -comp-int-int.
+- **Follow-ups still OPEN in claude-todo.md**: (1) the `__c_call`
+  `FunctionInfo.Value` parity divergence (latent, MAJOR-class); (2) Globals/
+  Vtables table population (no consumer yet); (3) Part 2b (drop the hardcoded
+  extern table, enumerate `__Package().Functions` cross-mode). Plan:
+  `plan-vm-package-injection.md`.
+
 ## ✅ RESOLVED AS INTENDED (docs `b662e20` + `eb91dc7`, 2026-06-29) — `@[]readonly char` literal backing differs by mode (VM owned/interned vs compiled null/immortal) is NOT a bug, it's environment-lifetime
 
 Was filed as a "MAJOR VM cross-mode layout divergence." Investigation (the VM
