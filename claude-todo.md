@@ -655,19 +655,6 @@ x64 analog needing its own xfails.
 
 ## MINOR
 
-### ✅ RESOLVED (decision 2026-06-28, BUG-BASH LANE 1) — Value-receiver semantics: respect the written type (note-only fix; impl already correct)
-DECISION (the language designer): a value receiver RESPECTS its written type —
-a plain `(r T)` is a mutable COPY (mutations local, like Go), and `(r readonly
-T)` is const. The "always readonly" claude-notes line was the only thing wrong.
-VERIFIED the impl already does this: `func (b readonly Box) m() { b.v = 1 }` is
-REJECTED ("cannot assign to const-typed location"); a plain `func (b Box) m() {
-b.v = 1 }` compiles (mutates the local copy). So no checker change — only
-claude-notes.md:363 was corrected (it now matches the authoritative "Value
-receivers — implementation strategy" note, which already says: pass by value;
-lowering a NON-mutating value receiver as `*readonly T` to skip the copy is a
-permitted optimization, NOT a readonly contract). No conformance change needed
-(readonly-receiver rejection is exercised by the existing const-lvalue checks).
-
 ### 🏷[BUG-BASH 2026-06-27 → LANE 2] Layout follow-ups surfaced authoring spec Ch.7.13 (Type Layout) — 2026-06-12
 Both referenced from the spec (`07b-type-layout.md`).
 - **`type.layout.funcval-order-hardening`** — ✅ DONE & LANDED (main `aabc2dcd`
@@ -698,17 +685,6 @@ Both referenced from the spec (`07b-type-layout.md`).
   emission sites — object writers, ir.DataGlobal int terms, bit_cast / the
   representation builtins) — the path to big-endian/cross-endian targets, to do
   when such a target is actually needed.
-
-### 🏷[BUG-BASH 2026-06-27 → LANE 1] Type-system issues surfaced while authoring spec Ch.7 (Types) — 2026-06-12
-Found writing the docs spec's Types chapter (grounding + adversarial
-verification against pkg/binate/types). The spec (`07-types.md`)
-documents these as open items.
-- **Named func-value LITERAL construction** — ✅ FIXED & LANDED (main
-  `8edc418a`, see claude-todo-done.md). A func *literal* into a named
-  func-value type (`var f Fn = func(...){...}`) now resolves as the named type
-  (checkFuncLit returns it when hinted; isManagedFuncValueLit peels the named
-  wrapper) and `conformance/regressions/named-func-value-construct-literal` is
-  un-xfailed (+ a -capture variant).
 
 ### Spec Ch.16 (Packages) — adversarial-review follow-ups (test-quality, non-blocking) — 2026-06-19
 The Ch.16 review found 0 blockers, 7 should-fix (landed tests work; these
@@ -842,32 +818,12 @@ tests.md Phase B). Each has a reproducing test cited by `.rules`.
   literal-leading contexts reject via generic parse errors. Conformant
   (rejection holds) — a diagnostic-consistency nicety only.
 
-### ✅ RESOLVED (decision 2026-06-28, BUG-BASH LANE 1) — Untyped `const` coercion: keep the Go-like behavior (note-only fix)
-DECISION (the language designer): an untyped `const X = expr` (no explicit type)
-stays untyped and COERCES at each use exactly like a literal (the Go-like
-behavior the impl + spec `const.untyped.coercion` already follow) — e.g.
-`const Max = 255` is usable as any int type that fits. The old claude-notes line
-("untyped coercion does NOT extend to named constants — only literals", a
-deliberate Go-divergence) was REVERSED; claude-notes updated to match. No code
-change (impl + spec + Ch.6 tests already correct).
-
 ### Lower the file-length `.bni` cap toward 1000/1200 — 🟡 OPEN
 - **Residual** of the (now-archived) "Extend hygiene checks to scan `ifaces/`+`impls/`" work. The `.bni` file-length cap is currently 1500/1800 (warn/error); consider lowering toward 1000/1200.
 - **Blocker**: `pkg/binate/ir.bni` (~1183 lines) exceeds the proposed lower cap and would need refactoring (split into sub-interfaces) first. A live `TODO` in `scripts/hygiene/file-length.sh` tracks this.
 - (Full resolved diagnosis of the ifaces/impls hygiene-scan extension archived in claude-todo-done.md.)
 
 ## MAJOR
-
-### 🏷[BUG-BASH 2026-06-27 → LANE 2] MINOR (ILP32-native readiness) — native `__Package` accessor hardcodes the 16-byte managed-header offset (LP64-only) — ✅ DONE & LANDED (main `7ac189fc`)
-- **What**: the per-arch native `_Package()` accessor adds a literal `16` to reach the descriptor node's payload past the managed header (`pkg/binate/native/aarch64/aarch64_pkg_descriptor.bn:54` ADRP+add+16; `pkg/binate/native/x64/x64_pkg_descriptor.bn:48` LEA+16). The DATA side already uses `2*IntSize` (the DataGlobal addend, ILP32-correct), so only the accessor is LP64-pinned.
-- **Not a current bug**: there is no 32-bit NATIVE target today — arm32 (ILP32) compiles via the LLVM backend, and the native backends (aarch64/x64) are LP64-only. The hardcoded 16 = `2*IntSize` on LP64, so it's correct everywhere it currently runs.
-- **✅ DONE & LANDED (main `7ac189fc`)**: both accessors now use `2 * types.GetTarget().IntSize` (matching the data side's `hdr`); a no-op on LP64 (2*8=16), ILP32-correct. Done early (a safe no-op on the shipping targets) rather than waiting for a 32-bit native target. Surfaced by the #119 DataGlobal capstone review. NOTE: the adversarial review of THIS fix found the aarch64 inline refcount fast-path carries the SAME LP64-hardcode class (and broader) — filed as its own entry below.
-
-### 🏷[BUG-BASH 2026-06-27 → LANE 2] aarch64 inline refcount fast-path is LP64-only — ✅ DONE & LANDED (main `94f0268f`)
-- **What**: the aarch64 inline RefInc/RefDec fast-path (`pkg/binate/native/aarch64/aarch64_refcount.bn`) is hardcoded for LP64 in THREE ways: the refcount sits at a literal `±16` (`Ldr ... MemPre(ptrReg, -16)` line 54; `Sub hdrReg, ptrReg, Imm(16)` line 104) — should be `±(2*IntSize)` = ±8 on ILP32; the immortal-static-managed sentinel is tested at bit `63` (`Tbnz ..., 63`) — should be bit 31 on a 32-bit word; and the refcount is loaded/stored 64-bit (`Ldr`/`Str` with the 64-bit flag) — should be 32-bit. On a 32-bit native target these read/write the wrong bytes → **refcount corruption** (use-after-free / leak).
-- **Discovered by**: the adversarial review of the `__Package` accessor ILP32 fix (main `7ac189fc`, entry above) — the same managed-header-offset class but unfixed, and broader (sentinel bit + load width too).
-- **Not a current bug**: aarch64 native is LP64-only today (no 32-bit native target — arm32 compiles via LLVM, which is correct), so the fast-path is correct on every shipping target; like the `__Package` item, there is no ILP32 native target to validate a fix against.
-- **Proposed fix (when an ILP32 native target lands, or now if desired)**: parameterize the offset via `2*types.GetTarget().IntSize`, the sentinel-bit position by the word bit-width, and the load/store width by the target word size. This + the now-fixed `__Package` accessor are two instances of a broader native-backend ILP32-readiness gap; a full audit would likely find more LP64 hardcodes. (x64's refcount delegates the arithmetic to `rt`, so no literal there.)
 
 ### 🏷[BUG-BASH 2026-06-27 → LANE 2] NEEDS-INVESTIGATION — `types.GetTarget().IntSize` reads stale/unset in the native function-lowering emit phase — FILED 2026-06-29
 - **✅ DONE & LANDED (main `94f0268f`)** for the refcount fix itself: parameterized via `types.ManagedHeaderSize()` (= 2*ptrSize) — `hdrBytes`; `wordBytes = hdrBytes/2`; `rcW = wordBytes==8`; `signBit = wordBytes*8-1`. Pointer ops (CBZ, the address SUB) stay 64-bit (a 32-bit pointer is zero-extended); only the refcount VALUE ops track the word width. No-op on LP64; verified by the native refcount unit test + 603 refcount-heavy native_aa64 conformance tests, 0 failures (incl. 489/617, which an initial `GetTarget().IntSize` attempt had broken). The arm64_32 path is correct-by-construction but untestable.
