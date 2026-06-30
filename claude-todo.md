@@ -750,35 +750,21 @@ VM / gen1 / gen2 / native_aa64 / arm32_baremetal). Three findings:
   `040`'s native_aa64 xfail removed, and x64 — which had the identical gap —
   fixed too (verified native_aa64 + native_x64_darwin). The conv.bit-cast *rule* itself is satisfied (covered by
   `spec/08-conversions/010_bit_cast`).
-- 🏷[BUG-BASH 2026-06-27 → LANE 1 ⚠] **MAJOR (type-checker / `conv.no-implicit-numeric` strictness) — distinct
-  same-width integer types implicitly inter-convert (`int ↔ int64`, `uint ↔
-  uint64`, `int ↔ int32` on 32-bit, …) — 🔴 OPEN; CONFIRMED a bug by the user
-  (2026-06-19).** `var y int64 = x` (and the reverse) is accepted with `x int`,
-  contradicting §8.2 (which lists "int ↔ int64" as requiring a `cast`; Go
-  semantics — distinct types). `int → uint` (signedness) and `int → float64`
-  (kind) reject correctly.
-  - **Root cause:** `Type.Identical`'s integer arm (`pkg/binate/types/
-    types_query.bn:376`) returns `a.Width == b.Width && a.Signed == b.Signed`,
-    ignoring the type **name** — so `int` (width 64, signed) tests Identical to
-    `int64` on a 64-bit target, and `AssignableTo` accepts it via the case-1
-    (`Identical`) path. The comment just above (line 375) says "match by kind
-    **and name**" — i.e. the code diverged from the intended name-match.
-  - **Not a miscompile:** the conflation only fires for SAME-width types, which
-    are bit-identical, so `int↔int64` is a runtime no-op. This is over-
-    permissiveness (accepts code §8.2 rejects), not wrong-code or a layout/
-    generics-cache hazard (different widths already test non-Identical).
-  - **Fix shape (decide):** (a) make the INT/FLOAT `Identical` arm compare
-    predeclared scalars **by name** so `int ≠ int64` at any width; or (b) keep
-    `Identical` (layout) loose but add a name-aware gate in `AssignableTo`'s
-    case-1 so distinct-named scalars need a `cast`. Either way the **blast
-    radius is broad** — every implicit `int↔int64` in the tree (incl. the
-    compiler's own source) would start needing a `cast`; a sweep + fixups is
-    part of the fix.
-  - **Test (deferred to the fix):** a unit test on `Identical`/`AssignableTo`
-    (`int` not assignable to `int64`) is the clean pin (single host-side xfail);
-    a conformance `.error` test would need per-mode xfails on every 64-bit mode
-    (target-dependent), so it waits for the fix. The Ch.8 spec test uses `int →
-    uint` for the no-implicit-numeric reject in the meantime.
+- 🏷[BUG-BASH 2026-06-27 → LANE 1] **distinct same-width integer types implicitly inter-convert (`int ↔ int64`, …) — ✅ DONE & LANDED (main `2834c57b`, 2026-06-29).** `var y int64 = x` (`x int`) and the
+  whole int↔int64 family are now rejected (decision (b): keep `Identical` loose
+  for layout, add a name-aware gate). New `distinctNamedInts(a,b)` predicate gates
+  `AssignableTo` (assignment + comparison) AND `commonType` (arithmetic + bitwise,
+  added after the AssignableTo-only gate was found to leave `anInt + anInt64`
+  accepted), so int↔int64 is rejected in every scalar context; untyped constants
+  still coerce. **The predicted "broad blast radius / sweep" did NOT materialize:**
+  the codebase was already int/intN-clean — gen1 recompiled the whole compiler
+  (builder-comp-comp 2503/0) and the VM (builder-comp-int 2478/0) with ZERO new
+  failures, no sweep. Tests: `spec/07-types/026` (reject in arith/comparison/
+  assignment), `027` (casts bridge), `023` comment corrected. **Caveat:** the
+  separate `examples/` repo (6/74 files use sized ints) was NOT verified against
+  the gate (BUILDER-injected build); any breakage there is a separate-repo
+  follow-up, not from this landing. Full write-up in
+  [claude-todo-done.md](claude-todo-done.md).
 - **§8.5 "Open (precision residual)" note appears STALE.** The note says a
   constant ≥ 2^63 reached through a bitwise/shift op "is not yet rejected":
   `cast(int64, 0x4000000000000000 << 1)`. That exact example — and `cast(int64,

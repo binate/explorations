@@ -8,6 +8,45 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `2834c57b`, 2026-06-29, BUG-BASH LANE 1) — bug 952: `int` and `int64` are distinct types (no implicit mix)
+
+`Type.Identical`'s integer arm compares only width + signedness, so `int` and
+`int64` tested identical on a 64-bit target (and `int` / `int32` on a 32-bit
+one), and `AssignableTo` accepted a value of one flowing into the other with no
+cast — contradicting §8.2 and Go (distinct types require an explicit cast).
+
+Decision (designer, after re-deciding mid-fix): **(b) keep `Identical` loose for
+layout, add a name-aware gate** — leaving `Identical` unchanged keeps struct
+identity, func signatures, and generic-instantiation keys on their current
+layout-based equality (avoiding a broad blast radius). New predicate
+`distinctNamedInts(a, b)` (both `TYP_INT`, different names; `pkg/binate/types/
+types_query.bn`) gates two sites:
+- `AssignableTo` (`types_assignable.bn`): distinct named ints don't inter-assign
+  → var init, arg, return, struct-field init, AND comparison (`==`/`<`/… route
+  through `AssignableTo`).
+- `commonType` (`checker_util.bn`): an arithmetic / bitwise op on two distinct
+  named ints is a mismatch → `anInt + anInt64` rejected like `anInt32 + anInt64`
+  already was. (This second gate was added after the AssignableTo-only gate was
+  found to still accept `anInt + anInt64` — a separate `commonType` path — which
+  the user chose to fix in the same commit.)
+Untyped int constants are `TYP_UNTYPED_INT` (not `TYP_INT`) and still coerce.
+
+**The predicted broad blast radius / sweep did NOT materialize.** The recon
+estimated 50–500 cast sites; the real number was ZERO. The codebase already uses
+int/intN consistently (the 3156 existing casts). gen1 recompiled the entire
+compiler with both gates (builder-comp-comp 2503/0) and the bytecode VM
+(builder-comp-int 2478/0) with zero new failures; hygiene 15/15. Validated the
+interaction with the concurrently-landed struct/array `==` (f99f4a4e): same-typed
+struct/array equality with int / int64 fields composes correctly.
+
+Tests (`conformance/spec/07-types`): 026 (int+int64 rejected in arithmetic,
+comparison, AND assignment) + 027 (explicit casts bridge them; untyped coerces);
+023's stale "known checker bug accepts int+int64" comment corrected. **Caveat:**
+the separate `examples/` repo (6/74 `.bn` files use sized ints) was NOT verified
+against the gate — its build is BUILDER-injected and couldn't easily be pointed
+at the gated compiler; any breakage there is a separate-repo follow-up, not from
+this landing.
+
 ## ✅ RESOLVED (2026-06-29, BUG-BASH LANE 2) — Layout follow-ups surfaced authoring spec Ch.7.13 (Type Layout)
 
 Two spec-referenced follow-ups (`07b-type-layout.md`), both landed. (The deferred
