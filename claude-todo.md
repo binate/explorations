@@ -149,29 +149,6 @@ The items below are settled-intent impl gaps already pinned by xfails.
 
 ---
 
-## Ch.15 spec-conformance findings (2026-06-21, authoring `conformance/spec/15-builtins`) — 🔴 OPEN
-
-Authoring + reviewing the Ch.15 built-in tests surfaced one impl gap (item 1 — now
-✅ FULLY FIXED across VM + both native backends) and TWO stale spec notes (both
-flagged defects are actually FIXED). No new bugs. Only the spec-note drops (items 2–3)
-remain open in this section.
-
-1. 🏷[BUG-BASH 2026-06-27 → LANE 3 🤝] **bit_cast to a SUB-WORD type, used DIRECTLY, is not narrowed — ✅ FULLY FIXED (VM: binate `8e09e808`; native aa64+x64: main `b3d451a4`).** `bit_cast(uint32, int32 -1)` read directly (not stored into a typed local first) leaks the high bits → reads as full-width −1, not 4294967295. Correct on the LLVM backends and arm32; a *stored* `bit_cast` (`var u uint32 = …`) narrows and is fine. This is the bit_cast facet of the existing sub-word-narrowing gap (claude-todo ~line 814). **VM fix:** OP_BIT_CAST to a sub-word integer now lowers to BC_ZEXT/BC_SEXT (Imm=width) instead of BC_MOV (`pkg/binate/vm/lower_instr.bn`); the `builder-comp-int` / `builder-comp-int-int` / `builder-comp-comp-int` xfails on `conformance/spec/15-builtins/040_bit_cast_int_reinterpret` were removed (full `builder-comp-int` suite 2423/0; new `lower_cast_test.bn` units). **Native fix (LANE 2, main `b3d451a4`):** both native emitters now call `emitSubWordNarrow` after the bit_cast MOV — `040`'s native_aa64 xfail is removed (no `.xfail.*` remains on 040; verified on native_aa64 real HW + native_x64_darwin); see the duplicate (now-reconciled) MINOR entry under "## Annex-A cross-check" below for the native diagnosis. (A separate discovered facet — direct-use sub-word expressions of *different producers* compare unequal on the VM — is filed under its own NEEDS-TRIAGE entry above.)
-
-2. **Stale §15.3 note — cast-to-sub-word on native-aa64 is FIXED.** The §15.3 implementation note still describes `cast` to a sub-word integer as miscompiled on native aarch64; that defect was resolved (`5f94558b` per claude-todo-done; 0 native_aa64 xfails remain in the suite). `034_cast_sub_word` passes on all modes incl. native_aa64 — NO xfail added. → drop the §15.3 note.
-
-3. **Stale §15.7 note — `panic` VM no-op is FIXED.** The §15.7 "Open (MAJOR — dual-mode divergence)" note says `panic` is a no-op in the bytecode VM; that was resolved (`a4946ebe` per claude-todo-done). `131_panic_abort` aborts and PASSES on the VM (int / int-int). → drop the §15.7 vm-noop note. (The single-arg `*[]readonly char` signature "in progress" note is still accurate — leave.)
-
-> _Side observation (not pinned)._ The `builtin.opaque-gate` constraint (`make`/`sizeof`
-> of an opaque type rejected) is enforced when the layout is genuinely unavailable — a
-> PURE `.bni` forward declaration with NO body compiled (`150`/`151` are green this way).
-> It does NOT fire when the body `.bn` is compiled in the same tree (the layout leaks). The
-> sibling `07-types/222` opaque-field-access xfail uses the body-compiled setup, so its
-> xfail may be a test-setup artifact rather than a real impl gap — worth re-checking with a
-> pure-.bni setup as a 222 follow-up.
-
----
-
 ## Ch.9 spec-conformance findings (2026-06-21, authoring `conformance/spec/09-declarations-and-scope`) — 🔴 OPEN
 
 Authoring the Ch.9 tests surfaced the MAJOR raw-pointer zero-init bug (filed separately,
@@ -498,18 +475,19 @@ element `i` at index `i`.
   positional literal, "too many values in struct literal"; negative test
   `743_struct_overcount_rejected`. Applies to named structs too via the
   `peelNamedBounded` routing.)
-- 🏷[BUG-BASH 2026-06-27 → LANE 1] **Inferred-length `[...]T{...}` NOT IMPLEMENTED** (`expr.composite.array.inferred-len`) — ✅ DECIDED (2026-06-28): implement now.
-  Spec'd (§expr.composite.array.inferred-len; claude-notes.md:819) and already in
-  the grammar (`ArrayLen = Expression | "..."`), but unimplemented: the `...` is
-  rejected at parse ("expected expression") because parse_type.bn:144 parses the
-  length as `parseExpr`. **DECISION (designer): implement.** AST inferred-len flag
-  on TypeExpr + parser ELLIPSIS branch in the array-type parse + checker resolves
-  the array type's length = `len(Elems)` of the composite literal (IR then sees a
-  concrete `[N]T`, likely no IR change). Un-xfail `041_composite_array_inferred_len`
-  and `122_punct_ellipsis_xfail`. **Sub-decision to resolve during impl:** 041 uses
-  the var-TYPE form `var a [...]int = [...]int{…}`, so decide whether `[...]T` is
-  valid as a var type (length resolved from its initializer) or only as a literal
-  head (then rewrite 041 to `a := [...]int{…}`). (Fix-now list; largest item.)
+- 🏷[BUG-BASH 2026-06-27 → LANE 1] **Inferred-length `[...]T{...}` — ✅ DONE & LANDED (main `135ea813`, 2026-06-29).**
+  `[...]T{elems}` now infers the array length from the element count
+  (`expr.composite.array.inferred-len`). **Sub-decision (designer): literal-head
+  only (Go's rule)** — `[...]T` is valid ONLY as a composite-literal head; in any
+  other type position it is rejected ("[...] array length is only valid in a
+  composite literal", returning the TYP_ERROR sentinel to suppress the assignment
+  cascade). AST `LenInferred` flag + parser ELLIPSIS branch (parse_type +
+  parseArrayLit) + checker `inferArrayLitLen` (max positional/keyed index + 1) in
+  checkCompositeLit, stamping LenVal/LenKnown so IR-gen reads the length (no IR
+  change). 041 un-xfailed + rewritten to `a := [...]int{…}`; new 049 (keyed/mixed/
+  empty), 050 (var-type rejection); 122 un-xfailed + renamed. builder-comp 2494/0,
+  builder-comp-int 2469/0; adversarially reviewed. Full write-up in
+  [claude-todo-done.md](claude-todo-done.md).
 - ✅ **FIXED & LANDED (binate `7523b14d`, BUG-BASH LANE 1) — (minor) Positional struct-literal elements are now assignability-checked** (each positional element i checked against field i's type, mirroring the keyed branch). conformance/spec/13-expressions/043.
 All referenced from `13-expressions.md`.
 

@@ -8,6 +8,32 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ RESOLVED (2026-06-29) — Ch.15 spec-conformance findings (2026-06-21, authoring `conformance/spec/15-builtins`)
+
+All three items are resolved (moved from claude-todo.md). The section surfaced one impl gap (item 1)
+and two stale spec notes (items 2-3); no new bugs.
+
+1. **`bit_cast` to a SUB-WORD type, used DIRECTLY, was not narrowed** — ✅ FIXED on the VM (binate
+   `8e09e808`: `OP_BIT_CAST` to a sub-word integer lowers to `BC_ZEXT`/`BC_SEXT` instead of `BC_MOV`,
+   `pkg/binate/vm/lower_instr.bn`, + `lower_cast_test.bn`) and on both native backends (main `b3d451a4`:
+   the emitters call `emitSubWordNarrow` after the bit_cast MOV). `bit_cast(uint32, int32 -1)` read
+   directly now narrows (4294967295, not full-width -1); `conformance/spec/15-builtins/040_bit_cast_int_reinterpret`
+   carries no `.xfail.*` on any mode (verified native_aa64 real HW + native_x64_darwin).
+2. **Stale §15.3 note (cast-to-sub-word on native-aa64 described as miscompiled)** — ✅ DROPPED from the
+   spec (docs `32d22ee`); the defect was fixed by `5f94558b`, and `034_cast_sub_word` is green on all
+   modes incl. native_aa64.
+3. **Stale §15.7 note (`panic` a no-op in the bytecode VM)** — ✅ DROPPED from the spec (docs `32d22ee`);
+   the defect was fixed by `a4946ebe`, and `131_panic_abort` aborts + passes on the VM. (The §15.7
+   single-arg `*[]readonly char` "in progress" note correctly remains.)
+
+The section's "side observation" (the `builtin.opaque-gate` constraint fires only on a pure-`.bni`
+forward declaration, suspecting the `07-types/222` opaque-field-access xfail might be a test-setup
+artifact) was investigated under the 07-types entry: the pure-`.bni` re-check showed opacity IS enforced
+in real separate compilation and leaks only under co-compilation — a real gap, designer-decided
+(2026-06-28) to fix in-tree. That stays open under Ch.7, not here.
+
+---
+
 ## ✅ FIXED & LANDED (binate `02771a3f`, 2026-06-29) — CRITICAL arm32 regression: pkg/builtins/lang did not compile on 32-bit (broke the whole arm32 suite)
 
 `788289b9` ("lang: float Compare/Hash realize the IEEE total order at NaN") added
