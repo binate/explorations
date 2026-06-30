@@ -1,27 +1,54 @@
 # Plan: package-level injection into the bytecode VM (Gap-2 VM-backend project)
 
-Status: **Part A (builtin auto-injection) LANDED 2026-06-12** (binate `a8ba52f2`);
-**Part B §2a bytecode `__Package` descriptor — MIN LANDED 2026-06-29 (main
-`77c3378d`)**: the VM emits a per-package bytecode `__Package()` accessor + the
-immortal `reflect.Package` descriptor with EMPTY Functions/Globals/Vtables
-tables, so `<pkg>.__Package().Name` resolves (708/709 flipped on all 3 VM
-modes). **§2a FULL PENDING** (populate the tables with callable
-`FunctionInfo.Value` handles — 725/727 acceptance) and **§2b PENDING** (drop
-the hardcoded extern table, enumerate `__Package().Functions`). This is the
-motivating use-case for the `__Package()` / `reflect.Package.Functions` work —
-see `plan-package-introspection-phase-b.md` and the B0 entries in
-`claude-todo.md`.
+Status: **✅ COMPLETE (2026-06-30).** Both halves landed and the acceptance
+signal (un-xfail 708/709/725/727 on all 3 VM modes) is met:
+- **§2b — enumeration** (replace the hardcoded per-function extern table with
+  `RegisterPackageFunctions(<pkg>.__Package())`): landed by **Part A** (binate
+  `a8ba52f2`) for rt, and extended to the whole `pkg/std` set via
+  `InjectStdlibExterns`. Arbitrary native-package injection is now a first-class
+  capability (`injectPackageSet` / `StandardPackages`). The only externs still
+  hand-bound are deliberate and NOT droppable: the 3 `__Package` accessors
+  (codegen-only, not `.bni`-exported, and the bootstrap that makes enumeration
+  reachable), the `pkg/bootstrap` surface (deprecation path; its `IsExtern`
+  C-shaped funcs are excluded from the FunctionInfo table by design), and the 2
+  VM trampolines (the VM's own functions).
+- **§2a — bytecode descriptor** (emit `__Package()` + `reflect.Package` as
+  bytecode per lowered package): landed this session — **MIN** (main `77c3378d`,
+  name-only → 708/709) + **FULL** (main `d4edd671`, Functions table with callable
+  `FunctionInfo.Value` handles → 725/727). Emitter
+  `pkg/binate/vm/lower_pkg_descriptor.bn` (gather + the generic two-pass
+  `lowerDataGlobals` relocation lowerer + the synthesized accessor + the callable-
+  Value back-patch) + `interp.EnsureReflectLoaded` (VM-driver reflect force-load,
+  mirroring `cmd/bnc`).
+
+**Why this matters beyond injection (the actual goal — cross-environment
+consistency):** `__Package()` / `reflect.Package` is the substrate for reflection,
+dynamic typing / type assertions, and cross-VM injection (one VM's package into
+another's), not just host→VM stdlib injection. The aim is that a package's
+reflective surface is as complete and identical as possible whether it was
+compiled to native, LLVM, or bytecode — so a complete, parity-correct descriptor
+in EVERY environment is the deliverable, not a feature waiting on one named caller.
+That reframes the remainders below as **consistency/completeness** work, not
+"no consumer."
+
+**Remainders (tracked in `claude-todo.md`, NOT blockers — the project is
+complete):**
+- **Globals/Vtables tables** are emitted empty for a bytecode package's own
+  descriptor. Native emits them; for cross-environment parity the bytecode
+  descriptor should too (globals → runtime `lookupGlobalAddr`; vtables →
+  `vm.IfaceVtables`), via a runtime back-patch like Value (the addresses aren't
+  static symbols).
+- **`__c_call` `FunctionInfo.Value`** is null in the VM descriptor where native
+  emits a callable handle — a latent cross-environment parity gap (no supported
+  config triggers it today; proper fix is native-handle binding).
 
 > **Structural note (post-Part-A, 2026):** the hardcoded extern table this plan
 > originally targeted (`extern_register_std.bn`) is gone. The VM now exposes
 > only injection PRIMITIVES (`RegisterPackageFunctions/Globals/Vtables` in
 > `pkg/binate/vm/extern_register.bn`); the POLICY of which packages to inject
-> moved to the host layer (`pkg/binate/interp/externs.bn`). The MIN landing
-> added the bytecode descriptor emitter `pkg/binate/vm/lower_pkg_descriptor.bn`
-> (gather + the generic two-pass `lowerDataGlobals` relocation lowerer + the
-> synthesized accessor) and `interp.EnsureReflectLoaded` (the VM-driver reflect
-> force-load, mirroring `cmd/bnc`). Read those, not the §-references below to
-> `extern_register_std.bn`, for current file locations.
+> lives in the host layer (`pkg/binate/interp/externs.bn`). Read
+> `pkg/binate/vm/lower_pkg_descriptor.bn` + `interp/externs.bn`, not the
+> §-references below to `extern_register_std.bn`, for current file locations.
 
 ## Part A — LANDED (binate `a8ba52f2`)
 

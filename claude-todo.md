@@ -510,18 +510,22 @@ a generic `DataGlobal` relocation lowerer (`pkg/binate/vm/lower_pkg_descriptor.b
 reflect is force-loaded in every VM driver. 708/709/725/727 flipped to PASS on
 all 3 VM modes. (Gap 1 — unqualified `__Package()` in compiled mode — was fixed
 earlier, binate `1164ef04`.) Full writeup + commits +
-validation in [claude-todo-done.md](claude-todo-done.md); design in
-`plan-vm-package-injection.md` (§2a). **Remaining follow-ups (open):**
+validation in [claude-todo-done.md](claude-todo-done.md). The whole
+**VM-package-injection project is now ✅ COMPLETE** — §2b (enumeration replacing
+the hardcoded extern table) landed back in Part A (binate `a8ba52f2`) + the
+`pkg/std` injection; §2a (bytecode descriptor) landed this session. See
+`plan-vm-package-injection.md` for the closeout. **Remaining follow-ups (open,
+NOT blockers) — framed as cross-ENVIRONMENT consistency, not "no consumer":**
+`__Package()`/`reflect.Package` is the substrate for reflection, dynamic typing /
+type assertions, and cross-VM injection (one VM's package into another's), so a
+package's reflective surface should be as complete + identical as possible across
+native / LLVM / bytecode:
 - The `__c_call` `FunctionInfo.Value` parity divergence — next entry below.
 - **Globals/Vtables table population** — the bytecode descriptor emits these
-  tables EMPTY. No consumer today (they drive injection of a NATIVE package's
-  surface, not a bytecode package's own reflection), but populating them (globals
-  → runtime `lookupGlobalAddr`; vtables → `vm.IfaceVtables`) would complete
-  cross-mode parity. Needs a runtime back-patch like Value (the addresses aren't
-  static symbols). No test pins it.
-- **Part 2b** — drop the hardcoded builtin extern table, enumerate
-  `__Package().Functions` for cross-mode injection of a native package into the
-  VM. Builds on the callable-`Value` handles FULL just landed.
+  tables EMPTY where native populates them. Filling them (globals → runtime
+  `lookupGlobalAddr`; vtables → `vm.IfaceVtables`, via a runtime back-patch like
+  Value, since the addresses aren't static symbols) completes cross-environment
+  descriptor parity. No test pins it yet.
 
 ### 🏷[BUG-BASH 2026-06-27 → LANE 3] FULL-descriptor follow-up: bytecode `FunctionInfo.Value` is null for an EXPORTED direct-`__c_call` function in a LOWERED package (cross-mode parity vs native) — 🟡 OPEN (latent, MAJOR-class, surfaced by FULL adversarial review)
 - **Symptom**: the VM's bytecode-descriptor gather (`gatherPackageFuncs`,
