@@ -215,7 +215,11 @@ builder-comp 2485/0; hygiene 15/15. Tests: `types_test` (TypError singleton,
 distinct from void), `types_assignable_test` (error assignable both ways; void
 NOT assignable to a value), `check_expr_binop_test` (single error — no void
 cascade; nested reports twice, not on the outer op). This was the cascade facet
-of the "two generic-body limitations" item; the rest was closed (no defect).
+of the "two generic-body limitations" item (bug 478); the item's other two
+facets were already closed with no defect — (a) a concrete-instantiation
+`@Box[int]` parameter type in a `.bni` body no longer fails to parse, and (b)
+arithmetic on an interface-constrained `T` is correctly rejected (Binate has no
+numeric constraint by design).
 
 ## ✅ DONE & LANDED (binate `31d5d9af`, 2026-06-28) — deleted the now-stale xfail `055_escape_unicode_divergence_xfail`
 

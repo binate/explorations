@@ -327,15 +327,6 @@ REVERTED (an unvalidatable partial that enables nothing usable on its own).
 interfaces), THEN the same-segment-collision keying becomes a small mirror of the
 struct fix on top.  Not a quick same-segment-keying bash.
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 1] two generic-body limitations (bug 478) — ✅ DONE & LANDED (main `378aea49`, 2026-06-28)
-
-Closed: (a) the concrete-instantiation-param + body parse failure no longer
-reproduces; (b) arith on an interface-constrained `T` is correctly rejected (no
-numeric constraint by design). The only residue — a spurious cascading `cannot
-assign void to T` after the primary `arithmetic op requires numeric operands` —
-was fixed via a distinct `TYP_ERROR` sentinel (separate from `TYP_VOID`). Full
-write-up in [claude-todo-done.md](claude-todo-done.md).
-
 ## 🏷[BUG-BASH 2026-06-27 → LANE 3] MINOR — cross-mode interface dispatch: test-coverage gaps + LP64 assumption (2026-06-14) — 🟡 OPEN
 
 The shim-route that dispatches a native-only package's interface methods from
@@ -597,20 +588,6 @@ REFUTED-do-not-re-chase verdicts. These are the still-open residues kept here fo
 - **Method values** (`type AB = @Box; var mv = ab.getV` → "undefined: getV"): the method-value path in `check_expr_access.bn` calls `ReceiverBaseNamed()` on the un-alias-peeled `origXt`. A DIRECT method value (`p.getV`) works; only the alias receiver is broken.
 - **Impl declarations** (`type AB = *Box; impl AB : Getter` → "impl receiver must be (a wrapper around) a named type"): `checkImplSatisfaction` (`check_impl.bn`) calls `ReceiverBaseNamed()` on the possibly-`TYP_ALIAS` `recv`.
 - **DECISION (2026-06-28, designer): un-park and fix.** The 2026-06-09 parking was explicitly TEMPORARY; ~3 weeks on, do the proper cross-layer fix now. The type-only fix (peel the alias) makes both type-check but SIGSEGVs because `gen_method_value.bn`'s closure layout + impl/vtable dispatch don't peel the alias. Fix = peel `TYP_ALIAS` in BOTH the checker (method-value path + `checkImplSatisfaction`, prototyped earlier) AND IR-gen (closure-capture layout in `gen_method_value.bn` + impl/vtable dispatch), so it type-checks AND runs. + conformance tests: alias-recv method-value runs correctly, alias impl dispatches. Cross-layer (front-end + IR) — riskiest remaining fix-now item.
-
-### 🏷[BUG-BASH 2026-06-27 → LANE 1] X3-highbit — signed sign-bit const-fold checker-vs-IR divergence — ✅ DONE & LANDED (main `6b54c6ac`, 2026-06-29)
-
-The checker REJECT (`1<<63`→int / `1<<31`→int32 overflow a signed target) is the
-correct, effective, live gate; IR's host-int `evalConstExpr` wrap to `INT_MIN`
-was unreachable dead behavior behind it. Hardened defensively: `genConst` /
-`genConstGroup` now panic (assert-unreachable) via the new
-`constValueFitsSignedTarget` helper if a const's folded value ever overflows its
-SIGNED sub-64-bit target, instead of silently wrapping. Placed at the producers
-(target known), not `evalConstExpr` (target-agnostic). The 64-bit-signed top-bit
-case is host-int-bounded (only the checker's bignum sees it) — no-op there,
-checker authoritative. Zero false positives across builder-comp 2487/0 AND
-builder-comp-comp 2487/0 (gen1 compiling the whole compiler). Unit test pins the
-helper logic. Full write-up in [claude-todo-done.md](claude-todo-done.md).
 
 ### CR-2 review coverage gaps (low priority — add tests) — 🟡 OPEN
 - **R2-D7**: no readonly/alias-wrapped named-int or named-float-minus test.
