@@ -8,6 +8,41 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `233cc82d` + `17cfc16b`, 2026-06-29, BUG-BASH LANE 3) — cross-mode coerced-aggregate func-value ABI residuals (items 1, 2, 4)
+
+The VM↔native coerced-aggregate-arg fix (`a61f68dd`) covered only the direct
+OP_CALL-to-extern path. The runtime-dispatched paths (iface method / func value /
+handle) had the same latent MAJOR miscompile (a by-value coerced struct passed by
+ADDRESS into a shim expecting the coerced value words) plus an unguarded >7-arg shim
+bank and an un-canonicalized sub-word/bool return. Resolved by reworking the
+function-value cross-mode convention to **pass every coerced in-register aggregate
+BY-ADDRESS** (one pointer dispatch word; the per-function shim loads + re-coerces it),
+uniformly across LLVM + native x64 + native aarch64 + the VM (architectural review's
+"right" design — marshaling centralized in the shim, matching >16B byval / slices /
+iface-values / float scalars; preserves LLVM↔native interchangeability).
+
+- Item 1 (coerced-agg ARG by-address): `common.EffectiveArgWords`/`AggCoercedInReg`,
+  LLVM shim+caller, native x64/aarch64 callers+shims, VM (OP_CALL passes the address;
+  word-expansion helpers removed). Closed a CONFIRMED MAJOR clobber bug the divergence
+  introduces (incoming 1-word vs outgoing ArgWords cursor → an outgoing reg write hits
+  a later param's unread incoming reg): stage incoming dispatch regs before any
+  outgoing write, but ONLY when a coerced aggregate is present (else the constant
+  down-shift is already safe — no overhead, golden emission unchanged). Tests:
+  conformance 937 (reg-only: trailing/leading/3-struct + capturing closure) + 938
+  (wide spill). Split aarch64_closure_shim.bn (>600 cap) → aarch64_closure_shim_spill.bn.
+- Item 2 (>7-arg extern guard): execLoop aborts an extern call with >7 arg slots
+  (instr.Imm, the real arity) rather than silently dropping past a6.
+- Item 4 (sub-word/bool RETURN, VM-only): the runtime-dispatched ops get the
+  25117a2e post-call narrow (callReturnNeedsSubWordNarrow), unconditional — a no-op
+  for a VM-impl callee, a fix for a native one.
+
+Validated: full conformance builder-comp (2484) + builder-comp-int (2459);
+builder-comp_native_aa64 + builder-comp_native_x64_darwin (937/938/889 + agg/closure/
+funcval); unit vm 207 / codegen 246 / native aa64 143 / x64 231; hygiene 15/15.
+Follow-ups (NOT blocking; see claude-todo.md + plan-funcvalue-byaddr-abi.md): the
+iface-path/sub-word observable unit fixture (item 3), the optional shim-extends RETURN
+cleanup, and the x64_closure_shim.bn soft-length split.
+
 ## ✅ FIXED & LANDED (binate `81a4566b`, 2026-06-29, BUG-BASH LANE 1) — func-local grouped declarations (DECL_GROUP) entirely unsupported
 
 A grouped `const ( … )` / `var ( … )` / `type ( … )` inside a function body

@@ -207,43 +207,33 @@ above) plus two MINOR items.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 3, NEEDS TRIAGE] residuals of the cross-mode coerced-aggregate-ARG fix (binate `a61f68dd`) — iface-dispatch case + a0..a6 silent-drop + coverage (2026-06-28) — 🔴 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 3] cross-mode coerced-agg func-value ABI — follow-ups after the by-address land (binate `233cc82d`) — 🟡 OPEN
 
-The VM↔native coerced-aggregate-argument fix (`a61f68dd`, see claude-todo-done.md)
-covers the CONCRETE `OP_CALL`-to-extern path (the os.Stat ModTime / time.Point
-bug). Three residuals remain:
+The cross-mode coerced-aggregate-ARG residuals — the iface/func-value by-address
+fix (items 1, MAJOR), the >7-arg extern guard (item 2), and the sub-word/bool RETURN
+(item 4) — LANDED via the by-address ABI rework (`233cc82d`) + the >7-arg guard
+(`17cfc16b`); see claude-todo-done.md. Smaller follow-ups remain:
 
-1. **iface / func-value dispatch (MAJOR, same bug class).** A by-value coerced
-   aggregate (named struct/array <=16B) arg passed to an injected method
-   dispatched via `OP_CALL_IFACE_METHOD` (or a cross-mode func value) is still
-   passed by ADDRESS, not its coerced value words — `dispatchCompiledIfaceMethod`
-   / `dispatchCompiledFuncValue` map `args[i]→a_i` positionally and the lowering
-   cannot statically tell those are cross-mode (runtime-determined). No injected
-   stdlib iface method currently takes such an arg, so it is latent. Fix: thread
-   per-arg coercion info onto the binding, or expand at the iface/func-value
-   dispatch.
+1. **Observable fixture (coverage).** Items 1/4 are validated via conformance 937
+   (func-value coerced-agg, all backends + VM) + 938 (wide spill) + the math
+   narrow-mechanism, but the IFACE-method coerced-agg path and the sub-word/bool
+   RETURN have no DIRECT observable test (no injected stdlib exercises them). Wants a
+   pkg/binate/vm unit fixture: a synthetic injected native package with an iface
+   method / func value taking a coerced-agg by value AND returning a sub-word/bool.
+   Closest: TestExternSmallStructAggregateDispatch + vm_exec_iface hand-built vtables.
 
-2. **`dispatchExternBinding` silently drops args past `a0..a6` (hardening).** The
-   shim bank is 7 user slots with NO `nArgs > 7` guard (`pkg/binate/vm/vm_extern.bn`);
-   a wider call silently corrupts rather than aborting. Pre-existing, but the
-   coerced-aggregate expansion consumes more slots per arg (a Point = 2 words), so
-   the ceiling is easier to hit. Not currently triggerable (worst injected case
-   ~4 slots). Add a loud guard.
+2. **shim-extends RETURN (cleanup, optional).** The sub-word RETURN was fixed VM-side
+   (the 25117a2e VM-narrow mechanism extended to iface/func-value), since item 4 is
+   VM-only. The review's cleaner shim-extends design (every backend's shim sext/zext's
+   sub-word returns; drop the VM narrow) is deferred — a multi-backend,
+   target-word-dependent change with a tail-branch→call-shape wrinkle.
 
-3. **Coverage gaps.** The injected stdlib only passes `Point` (16B / N=2) by value,
-   so these fix-relevant paths have no real-code exerciser: an N=1 (<=8B named
-   struct) coerced arg, a partial-last-word (e.g. 12B) coerced arg, and a coerced
-   struct INTERLEAVED with scalar args. Reachable only via a test-local
-   injected/native function → wants a `pkg/binate/vm` unit fixture, not a
-   conformance test. Found by the 2026-06-28 minimal adversarial review.
+3. **x64_closure_shim.bn soft length** (584 > 500 warn; not a hard blocker) — split
+   like aarch64_closure_shim_spill.bn was. The native SPILL paths also still stage
+   incoming unconditionally (rare over-budget path; could be made conditional like the
+   register-only marshalers).
 
-4. **sub-word/bool RETURN via iface/func-value (sibling of the just-landed return
-   fix, `25117a2e`).** The concrete `OP_CALL`-to-extern path now canonicalizes a
-   cross-mode bool / sub-word-int return (garbage upper bits on x86-64); the
-   iface-dispatch / func-value cross-mode return is still runtime-determined and
-   uncanonicalized — same shape as item 1. Also: the sub-word-INT (not bool) return
-   path of that fix has no dedicated test (no injected stdlib returns a sub-word
-   int; needs a synthetic injected helper, like the coverage gaps above).
+See explorations/plan-funcvalue-byaddr-abi.md.
 
 ## MINOR (e2e / BUILDER-lag cleanup) — drop the gen1 build in e2e/stat-values.sh after the next BUILDER bump (2026-06-20) — 🔴 OPEN
 
