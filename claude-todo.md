@@ -14,6 +14,38 @@ coverage / doc) or already-resolved residuals.
 
 ---
 
+## MAJOR (asm/parse — use-after-free) — `name = <expr>` constant definition reads a FREED token buffer (`name` borrows `tok.Text`, then `tok` is reassigned by `LexNext` before `name` is read) (2026-06-30) — 🔴 OPEN — CONFIRMED
+
+`pkg/binate/asm/parse/parse.bn` `ParseLine`, the constant-definition arm (lines 159-169):
+
+    var name *[]readonly char = tok.Text     // 160: RAW borrow of tok's IDENT Text (no refcount)
+    l, tok = LexNext(l2)                       // 161: REASSIGNS tok -> RefDecs the old IDENT Text
+    l, tok, result = ParseExpr(l, tok)         // 163: reassigns tok again
+    defineConst(p, name, result.Val)           // 168: READS name
+
+`LexNext` builds an IDENT token's `Text` as a fresh `buf.CopyStr(l.Src[start:l.Pos])` (`lex.bn:129`)
+— a newly allocated `@[]char`, refcount 1, **solely owned by `tok`** (the `=` peek used a separate
+`tok2`, so nothing else holds it). `name` borrows that backing as a raw `*[]readonly char` (NO
+refcount). `l, tok = LexNext(l2)` on line 161 overwrites `tok`, RefDec'ing the old IDENT Text to zero
+→ **the backing is freed while `name` still points at it**. `defineConst` then reads `name`
+(`charsEqual(p.ConstNames[i], name)` + `buf.CopyStr(name)`, `parse.bn:67-79`) — a use-after-free. The
+intervening `LexNext`/`ParseExpr` allocate, so the freed buffer is likely reused before line 168 →
+the stored constant name is corrupted (or a crash). Affects `bnas` parsing `name = value` assembler
+constants. Latent today: `pkg/binate/asm/parse` is bnlint-`LINT_SKIP`'d AND the UAF is
+nondeterministic.
+
+**How found (2026-06-30):** auditing the `pkg/binate/asm/*` `[managed-to-raw-assign]` LINT_SKIP
+entries (see the hygiene/lint entry below). The rule correctly flagged THIS line — it is the ONE real
+bug among 19 asm findings (17 are safe-borrow over-flags; 1 is an unused-import). The blanket
+package-skip hid a real UAF.
+
+**Fix:** own the name before reassigning `tok` — `var name @[]char = buf.CopyStr(tok.Text)`, then
+`defineConst(p, name, …)` (the managed `@[]char` passes to the `*[]readonly char` param as a borrow
+that stays alive). Mirrors the label path (`parse.bn:135/139` already `CopyStr`s `tok.Text`). Add a
+`bnas` test exercising `name = expr` constants (ideally under guard-malloc) to pin it.
+
+---
+
 ## 🏷[BUG-BASH 2026-06-27 → LANE 3, NEEDS TRIAGE] MAJOR? (VM / intermittent halt) — `rt.Refcount` on an interned `@[]readonly char` literal's backing halts the VM mid-program in some statement sequences (2026-06-29) — 🟡 OPEN — NOT CLEANLY REPRODUCED
 
 Surfaced while investigating the readonly-char-literal backing model (the
@@ -277,12 +309,27 @@ bnlint-RULES check had this gap, since file-length/naming/doc use a recursive `f
 `[unused-import]`s it surfaced (`ir/gen.bn`→ast, `native/aarch64/aarch64_call.bn`→mangle, both
 comment-only) were removed.  **Residual** — 5 asm subpackages are temporarily in `LINT_SKIP`
 (`pkg/binate/asm/{arm32,elf,macho,parse,x64}`) for a `[managed-to-raw-assign]` finding
-(`var data *[]uint8 = sec.Data` — a borrow of a held `@[]uint8`).  Investigate per-site: is it a real
-use-after-free risk (the raw view outliving the managed owner) or a safe borrow the rule
-conservatively over-flags (the `@asm.Section`/`@asm.Assembler` owner outlives the borrow)?  Then
-either fix the code or tune the rule, and un-skip those 5 packages.  (The other `LINT_SKIP` compiler
-entries — `pkg/binate/{vm,repl,interp}` — are BUILDER-lag for rt's void `__c_call`, tracked with the
-other BUILDER-lag skips; they clear at the next BUILDER bump.)
+(`var data *[]uint8 = sec.Data` — a borrow of a held `@[]uint8`).
+
+**Per-site audit DONE (2026-06-30, bnc-0.0.10 bnlint + adversarial workflow + source verification of
+the one real bug).** 19 findings across the 5 packages:
+- **1 REAL use-after-free** — `parse/parse.bn:160` (`name = expr` constant def borrows `tok.Text`,
+  then `LexNext` frees it before the read). Filed as its own MAJOR entry at the top of this file
+  (CONFIRMED from source). The rule was RIGHT here — the skip hid a real UAF.
+- **1 real `[unused-import]`** — `parse/aarch64.bn:3` imports `pkg/binate/asm`, never used (only
+  `aarch64.*` qualifiers appear). Trivial: remove the line.
+- **17 safe-borrow over-flags** — every site in `arm32`/`elf`/`macho`/`x64` (all 9) + 6 of the 8
+  `parse` sites. All borrow a field of a managed owner (`@asm.Section`/`@asm.Assembler`/a `BinBuf`
+  local / a by-value `Token` param / a function-scope buffer) that provably outlives the raw view's
+  synchronous read or in-place patch. The rule conservatively flags `@[]T → *[]T` without lifetime
+  analysis.
+**Un-skip path:** (1) fix the `parse.bn:160` UAF + drop the unused import — then `parse` is clean;
+(2) `arm32`/`elf`/`macho`/`x64` have ONLY over-flags, so they can't be un-skipped until the rule
+stops over-flagging (a lifetime/escape refinement, or a per-borrow suppress annotation) — un-skipping
+as-is would red hygiene. So this is now two decisions: fix the two real `parse` findings, and decide
+how to handle the 17 false positives (refine the rule vs annotate the safe borrows).
+(The BUILDER-lag `LINT_SKIP` entries — rt/os + chain cleared at bnc-0.0.10, only `pkg/binate/interp`
+remains — are tracked in the separate BUILDER-lag-lint-skips entry.)
 
 ## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (latent) — same-final-segment generic INTERFACES collide (the iface analog of the now-fixed struct/func same-segment collisions) (2026-06-20) — 🔴 OPEN
 
