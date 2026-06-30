@@ -508,7 +508,34 @@ element `i` at index `i`.
 - 🏷[NEEDS TRIAGE] **MINOR/MAJOR (latent, pre-existing) — keyed array-literal index: checker and IR-gen fold the index with DIFFERENT folders.** Surfaced 2026-06-29 by the bug-662 adversarial review (NOT introduced by it; shared by ALL `[N]T{k: v}` keyed array literals, not just `[...]`). The checker folds a keyed index via `evalConstIntValue` (`check_expr_composite.bn` checkArrayLit / inferArrayLitLen) and bounds-checks it against N; IR-gen recomputes the per-element index via a DIFFERENT folder, `evalConstExpr` (`gen_composite.bn:161`). If the two folders ever disagree on a constant key, IR could place an element at an index the checker did not bound-check against N → an out-of-bounds store. No known reproducer (the folders agree for normal int-literal/const keys; a key `evalConstExpr` folds but `evalConstIntValue` rejects, e.g. `sizeof`, is caught by the checker's "index must be a constant" first). Same family as the 759 host-int-vs-bignum divergence. **Fix:** make IR-gen reuse the checker's already-validated index (stamp it, like LenVal) instead of re-folding — OR route both through one folder. No test (no reproducer); add an xfail if one is found.
 All referenced from `13-expressions.md`.
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 3 🔶] `__Package()`: bytecode VM works only for the 4 builtins (Gap 2; unqualified form ✅ FIXED; builtin auto-injection ✅ LANDED) — 🔴 OPEN (user-package bytecode `__Package` remains)
+### 🏷[BUG-BASH 2026-06-27 → LANE 3 🔶] `__Package()`: bytecode VM (Gap 2; unqualified ✅; builtin auto-injection ✅; bytecode descriptor **MIN ✅ LANDED `77c3378d`**) — 🔴 OPEN (FULL: populate Functions/Globals/Vtables tables with callable Values)
+
+> **Update 2026-06-29 (MIN landed, main `77c3378d`)** — the VM now emits a
+> per-package bytecode `__Package()` accessor + immortal static-managed
+> `reflect.Package` descriptor. A new generic two-pass relocation lowerer
+> (`pkg/binate/vm/lower_pkg_descriptor.bn:lowerDataGlobals`, the VM's missing
+> third `EmitDataGlobal`) lays the `ir.BuildPackageDescriptors` term list into
+> VM runtime memory, resolving `DT_SYMREF` to runtime addresses — so the LLVM,
+> native, and VM backends share the one layout and cannot drift. The accessor
+> is a synthesized 2-instr leaf VMFunc (`BC_LOAD_IMM` payload addr; `BC_RETURN`);
+> immortality comes from the node's negative `STATIC_REFCOUNT` header (RefDec
+> no-op). Reflect is now force-loaded in every VM driver (interp run + test,
+> the REPL) via `interp.EnsureReflectLoaded` / repl `ensureReflectLoaded`,
+> mirroring `cmd/bnc`. **708/709 flipped to PASS on ALL three VM modes**
+> (`builder-comp-int`, `-comp-comp-int`, `-comp-int-int`) — the pre-existing
+> multi-package double-VM issue the int-int xfail cited no longer manifests for
+> these, so int-int was un-xfailed too (not just re-pointed). Unit tests in
+> `lower_pkg_descriptor_test.bn`. Full `builder-comp-int` 2469/0; vm 210 /
+> interp 26 / repl 67; hygiene 15/15.
+> - **MIN scope**: the Functions/Globals/Vtables tables are emitted EMPTY
+>   (`{nil,0}`), so `<pkg>.__Package().Name` resolves. **FULL remaining** (see
+>   "Still open" below): populate the tables, self-list `__Package`, with
+>   callable `FunctionInfo.Value` handles (owner chose callable-now over null —
+>   needs a runtime back-patch of each bytecode VMFunc's func-value handle into
+>   the descriptor's Value word). 725/727 (which read the Functions table) stay
+>   xfailed on the 3 VM modes until FULL lands; they are the FULL acceptance.
+>   Callable Values are also the precondition for Part 2b (drop the hardcoded
+>   extern table, enumerate `__Package().Functions`).
 
 > **Update 2026-06-12** — two related pieces landed on main:
 > - **VM injection Part A** (binate `a8ba52f2`): `RegisterStandardExterns` now
