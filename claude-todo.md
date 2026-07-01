@@ -294,13 +294,17 @@ the one real bug).** 19 findings across the 5 packages:
   local / a by-value `Token` param / a function-scope buffer) that provably outlives the raw view's
   synchronous read or in-place patch. The rule conservatively flags `@[]T → *[]T` without lifetime
   analysis.
-**Un-skip path:** the two real findings are ✅ FIXED (main `8a883450`), but all 5 packages still carry
-safe-borrow over-flags (`parse` now has 8; `arm32`/`elf`/`macho`/`x64` all their sites), so none can be
-un-skipped yet — un-skipping as-is would red hygiene. **Remaining (OPEN) — decide how to handle the 17
-false positives:** refine the `[managed-to-raw-assign]` rule to do lifetime/escape analysis, or add a
-per-borrow suppress annotation, then drop the 5 packages from `LINT_SKIP`.
-(The BUILDER-lag `LINT_SKIP` entries — rt/os + chain cleared at bnc-0.0.10, only `pkg/binate/interp`
-remains — are tracked in the separate BUILDER-lag-lint-skips entry.)
+**Un-skip path:** the two real findings are ✅ FIXED (main `8a883450`). The 17 safe-borrow over-flags
+are handled by **suppression: the `// bnlint:allow <rule>` directive mechanism is ✅ LANDED (main
+`91286ab8`)** (decision A — keep the rule strict, annotate each safe borrow with a justification;
+generic across all rules). **Remaining (OPEN, BUILDER-gated) — INCREMENT 2:** adopt the directives +
+un-skip. Add a trailing `// bnlint:allow managed-to-raw-assign — <why the owner outlives the borrow>`
+to each of the 17 sites (the per-site reasons are in the workflow audit / the 5 package sections), and
+drop `pkg/binate/asm/{arm32,elf,macho,parse,x64}` from `LINT_SKIP`. **Gated on the next BUILDER bump**
+because hygiene runs the BUNDLED bnlint (`bnc-0.0.10`), which predates `91286ab8` and would ignore the
+directives → red hygiene until the bump. Do it in ONE commit at the next bump, alongside dropping
+`pkg/binate/interp` (see the BUILDER-lag-lint-skips entry) — i.e. that bump clears ALL remaining
+`LINT_SKIP` entries except any still-pending real findings.
 
 ## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (latent) — same-final-segment generic INTERFACES collide (the iface analog of the now-fixed struct/func same-segment collisions) (2026-06-20) — 🔴 OPEN
 
@@ -820,8 +824,13 @@ mangles `"_Package"` at cdea9b9f, `"__Package"` at HEAD), so `<pkg>.__Package` i
 bundle — cascading to all four errors (`undefined: __Package` → `cannot call non-function` → `cannot
 assign void to @Package` → `_func_handle argument must be a named function`). A current-source
 (post-rename) bnlint lints interp clean. Action: at the next BUILDER bump (source ≥ `e12a8a3b`), drop
-`pkg/binate/interp` from `LINT_SKIP` and close this entry. (The `asm/*` skips are a separate group (B)
-— real `[managed-to-raw-assign]` findings — not this entry.)
+`pkg/binate/interp` from `LINT_SKIP` and close this entry.
+
+**Next-bump checklist — the `asm/*` group (B) joins here.** The 5 `pkg/binate/asm/*` skips (real
+safe-borrow over-flags) are un-skipped via the `// bnlint:allow` suppression mechanism (landed main
+`91286ab8`), which is ALSO newer than the bundle — so the same bump that drops `interp` should also
+adopt the 17 asm directives + drop `pkg/binate/asm/{arm32,elf,macho,parse,x64}` (see the asm
+`[managed-to-raw-assign]` audit entry above). One bump clears every remaining `LINT_SKIP` entry.
 
 ### `rt.Exit` paradigm: `exit` vs `abort`/`panic` — DISCUSS
 - `rt.Exit` (→ libc `exit`) is the wrong model in general: process exit
