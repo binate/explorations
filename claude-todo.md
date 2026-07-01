@@ -64,23 +64,18 @@ fragility, separate from that test.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 3] MINOR (entry / link-time) — a program with NO `main` package (no entry) is not rejected at link/assembly time — 🔴 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 3] MINOR (entry) — program-assembly does not ENFORCE the entry package is named `main` — 🔴 OPEN
 
-The SIGNATURE half of the original entry-point bug — `func main(x int)` /
-`func main() int` / generic `main` in package `main` silently accepted — is **✅
-FIXED at COMPILE time** (LANE 1, `checkMainSignature`; see claude-todo-done.md /
-binate `c1735910`). Per the language designer (2026-06-28) that is
-the correct phase: compiling the `main` package SEES its own `main`, so its
-*shape* is checkable there.
-
-What remains is the **complementary LINK-TIME facet**: whether the assembled
-*program* has a `main` package with a `main` function **at all** cannot be
-determined per-package (Binate compiles one package at a time; any package may be
-compiled/loaded independently), so a missing entry is a link / program-assembly
-failure, not a compile-time check. §17.3.1 (amended 2026-06-28) now states this
-split explicitly. Open: add the existence check to the link/program-emit step
-(reject assembling a program whose `main` package has no `func main`). No
-conformance repro yet (needs a no-main-package program at link time).
+Follow-up surfaced by the no-`func main` rejection (✅ done, main `84f95ae8`; see
+claude-todo-done.md). `HasMainFunc` now rejects a program with no `main.main`
+entry, but nothing enforces that the *entry package* is named `main` (§17.3
+`prog.main.package`). A program compiled from `package "myapp"` with a `func
+main` defines `myapp.main` — `EmitMainEntry` still calls the literal `main.main`,
+so it is (now) rejected as `no main function` rather than the precise "program
+entry package must be named `main`". Clean rejection, imprecise message. Open:
+add an entry-package-name check at program assembly (cmd/bnc + interp) emitting a
+message that names the real cause. Small; no repro yet (needs a `package "myapp"`
+program).
 
 ---
 

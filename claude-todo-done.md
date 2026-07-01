@@ -8,6 +8,27 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `84f95ae8`, 2026-06-30, BUG-BASH LANE 3) — MINOR (entry / link-time): a program with no `func main` was not rejected at program assembly
+
+The `__entry` wrapper emitted `call main.main` unconditionally, so a `main`
+package with no `func main` surfaced only as a link-time undefined-symbol error
+(or an obscure VM lookup failure). This is inherently a program-assembly check,
+not per-package compile-time (Binate compiles one package at a time; §17.3.1) —
+the SIGNATURE half was already fixed at compile time (LANE 1 `checkMainSignature`,
+binate `c1735910`).
+
+- `ir.Module.HasMainFunc()` (`pkg/binate/ir/gen_init.bn`) scans `m.Funcs` for the
+  LITERAL `main.main` symbol `EmitMainEntry` calls (not
+  `qualifyForPkgPath(m.PkgPath,"main")`, so a mis-named entry package is rejected
+  cleanly rather than slipping to a raw link error). Called in both
+  program-assembly drivers — `cmd/bnc`'s compiled path + interp's VM
+  `LoadProgram` — before `EmitMainEntry`, rejecting with `no main function`. The
+  `--test` runners synthesize their own `func main` (unaffected); `--pkg`
+  (single-package/library) never assembles a program (untouched).
+- **Test**: `conformance/954_err_no_main` — fails with the message on both
+  compiled + VM modes. Full builder-comp 2525/0; builder-comp-int 2504/0;
+  hygiene 15/15; adversarial review clean.
+
 ## ✅ FIXED & LANDED (main `b469e9f9`, 2026-06-30, BUG-BASH LANE 1) — bug 754: type-alias receivers for method values and impls
 
 An alias is transparent to its target, so an alias-typed receiver
