@@ -77,10 +77,18 @@ Smaller follow-ups remain:
    RETURN concern is VM-only. The review's cleaner shim-extends design (every backend's shim
    sext/zext's sub-word returns; drop the VM narrow) is deferred — a multi-backend,
    target-word-dependent change with a tail-branch→call-shape wrinkle.
-2. **x64_closure_shim.bn soft length** (584 > 500 warn; not a hard blocker) — split
-   like aarch64_closure_shim_spill.bn was. The native SPILL paths also still stage
-   incoming unconditionally (rare over-budget path; could be made conditional like the
-   register-only marshalers).
+2. **x64_closure_shim.bn soft length — ✅ SPLIT DONE & LANDED (main `1510c64e`, 2026-07-01).**
+   The stack-spill path (`emitClosureShimStackSpill_x64` + its spill-only `emitLoadIncomingWord_x64`)
+   moved to a sibling `x64_closure_shim_spill.bn` (mirroring `aarch64_closure_shim_spill.bn`); the
+   main file dropped 584 → 414 lines, `emitUserArgWordMove_x64` (shared with the aggregate shim)
+   stayed put. **Still open — conditional spill staging:** the native FUNC-VALUE spill paths
+   (`emitFuncvalSpillShim_x64` / `emitFuncvalSpillShimAA64`) stage every incoming GP dispatch reg to
+   the frame unconditionally, whereas the register-only marshaler (`emitShimArgMarshal_x64`) already
+   stages only when a coerced aggregate is present (`needStage = any(AggCoercedInReg)`; without one,
+   the monotonic down-shift is clobber-safe from live regs). Mirror that `needStage` discipline into
+   the two spill paths — skips a +NumGpArgRegs*8 frame + N stores on the common no-coerced-agg
+   overflow case. (The CLOSURE spill path already avoids staging via right-to-left + scratch, so it's
+   out of scope.)
 
 See explorations/plan-funcvalue-byaddr-abi.md.
 
