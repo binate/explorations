@@ -8,6 +8,22 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `9cd59132`, 2026-06-30, BUG-BASH LANE 3) — MINOR (entry): enforce the program entry package is named `main`
+
+Follow-up to the no-`func main` rejection (`84f95ae8`).  A program assembled from
+a differently-named entry package (e.g. `package "myapp"` with a `func main`)
+defines `myapp.main`, but EmitMainEntry calls the literal `main.main`, so it was
+rejected as "no main function" — a message that misnames the cause.
+
+- `ir.Module.IsMainPackage()` (`pkg/binate/ir/gen_init.bn`, `streq(m.PkgPath,
+  "main")`) checked before `HasMainFunc` in both program-assembly drivers
+  (cmd/bnc compiled path + interp VM `LoadProgram`), rejecting a mis-named entry
+  package with "a program's entry package must be named main" (§17.3
+  `prog.main.package`).  `--test` / `--pkg` unaffected.
+- **Test**: `conformance/955_err_entry_pkg_name` (`package "myapp"` + `func
+  main`) — rejected with the message on both compiled + VM.  Full
+  builder-comp-int 2508/0; hygiene 15/15.
+
 ## ✅ FIXED & LANDED (main `e9bdd05f`) — Ch.7 (codegen): managed pointer-to-array `@([N]T)` indexing emitted invalid getelementptr
 
 `(*m)[i]` on an `@([3]int)` emitted "invalid getelementptr indices": the LLVM `emitGetElemPtr` gated

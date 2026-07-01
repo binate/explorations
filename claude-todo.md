@@ -67,19 +67,6 @@ fragility, separate from that test.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 3] MINOR (entry) — program-assembly does not ENFORCE the entry package is named `main` — 🔴 OPEN
-
-Follow-up surfaced by the no-`func main` rejection (✅ done, main `84f95ae8`; see
-claude-todo-done.md). `HasMainFunc` now rejects a program with no `main.main`
-entry, but nothing enforces that the *entry package* is named `main` (§17.3
-`prog.main.package`). A program compiled from `package "myapp"` with a `func
-main` defines `myapp.main` — `EmitMainEntry` still calls the literal `main.main`,
-so it is (now) rejected as `no main function` rather than the precise "program
-entry package must be named `main`". Clean rejection, imprecise message. Open:
-add an entry-package-name check at program assembly (cmd/bnc + interp) emitting a
-message that names the real cause. Small; no repro yet (needs a `package "myapp"`
-program).
-
 ---
 
 
