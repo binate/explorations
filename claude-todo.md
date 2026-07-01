@@ -567,14 +567,8 @@ findings) are archived in [claude-todo-done.md](claude-todo-done.md); each resol
 also has its own dedicated RESOLVED entry there, and the records preserve the
 REFUTED-do-not-re-chase verdicts. These are the still-open residues kept here for tracking:
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 1] Alias receivers unsupported for METHOD VALUES and IMPL declarations — ✅ DECIDED (2026-06-28): un-park, fix now (full cross-layer) — 🔴 OPEN (fix-now list)
-- **Method values** (`type AB = @Box; var mv = ab.getV` → "undefined: getV"): the method-value path in `check_expr_access.bn` calls `ReceiverBaseNamed()` on the un-alias-peeled `origXt`. A DIRECT method value (`p.getV`) works; only the alias receiver is broken.
-- **Impl declarations** (`type AB = *Box; impl AB : Getter` → "impl receiver must be (a wrapper around) a named type"): `checkImplSatisfaction` (`check_impl.bn`) calls `ReceiverBaseNamed()` on the possibly-`TYP_ALIAS` `recv`.
-- **DECISION (2026-06-28, designer): un-park and fix.** The 2026-06-09 parking was explicitly TEMPORARY; ~3 weeks on, do the proper cross-layer fix now. The type-only fix (peel the alias) makes both type-check but SIGSEGVs because `gen_method_value.bn`'s closure layout + impl/vtable dispatch don't peel the alias. Fix = peel `TYP_ALIAS` in BOTH the checker (method-value path + `checkImplSatisfaction`, prototyped earlier) AND IR-gen (closure-capture layout in `gen_method_value.bn` + impl/vtable dispatch), so it type-checks AND runs. + conformance tests: alias-recv method-value runs correctly, alias impl dispatches. Cross-layer (front-end + IR) — riskiest remaining fix-now item.
-
 ### CR-2 review coverage gaps (low priority — add tests) — 🟡 OPEN
 - **R2-D7**: no readonly/alias-wrapped named-int or named-float-minus test.
-- **R2-D5**: the method-value/alias matrix covers only `type AB = @Box` (not alias-over-readonly / value-receiver alias).
 - **R2-D4**: only the managed `readonly @Iface` construct is un-xfailed (no `readonly *Iface`, no return/arg-pass position).
 - **A1**: no float-scalar / named-sub-word / box-in-loop `box` test.
 - **CR-2 Plan-1 coverage-only**: 659 omits raw-pointer-index compound-shift (`p[i] <<=`) and signed `>>=` overshift on non-IDENT lvalues; the genShortVar nameless `multiReturnFieldTypes` fallback has no IR-gen unit test / no managed-component func-value `:=` cell; Defect-2b raw-pointer & value-receiver reject rows have no conformance/unit coverage.

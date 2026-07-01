@@ -8,6 +8,52 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `b469e9f9`, 2026-06-30, BUG-BASH LANE 1) — bug 754: type-alias receivers for method values and impls
+
+An alias is transparent to its target, so an alias-typed receiver
+(`type AB = @Box`) has the target's method set and an alias impl receiver
+(`type AB = *Box; impl AB : Getter`) is `impl *Box : Getter`. Both were
+unsupported: a method value through an alias reported "undefined: <method>", and
+an alias impl receiver was rejected ("impl receiver must be a named type")
+because peeling the alias then SIGSEGV'd at dispatch (IR-gen keyed the vtable on
+the alias name → null method slot).
+
+**Checker** (`types.bn`): `ReceiverBaseNamed` peels a leading `TYP_ALIAS` before
+the pointer/managed/readonly unwinding, so method-value resolution
+(`check_expr`/`check_expr_access`) and impl satisfaction (`check_impl`) see the
+target's method set. This flows to the IR-gen method-value path
+(`gen_method_value`), which keys the closure off the same peeled base. Corrected
+a now-stale "does NOT peel alias" comment in `check_method.bn`.
+
+**IR-gen** (`gen_impl_recvname.bn`, new): `recvBaseNameAndPkg` resolves a LOCAL
+alias receiver to its target's SHORT name AND defining package — both read off
+the resolved base's package-qualified registered name — and both `collectImpls`
+sites key the `ImplInfo` on them. The alias gate keeps every non-alias impl a
+strict no-op through `recvTypeName`/`recvTypePkg`.
+
+**Adversarial review caught a would-be regression:** the initial impl fix
+resolved the receiver NAME but not its PACKAGE, so a cross-package alias impl
+(`type AB = *other.Box`) keyed the vtable on the impl's own package → a **silent
+null-vtable SIGSEGV** (the very bug 754 symptom, and worse than the pre-fix clean
+rejection). Root-caused and fixed by deriving name+package together; added the
+cross-package test.
+
+Tests: conformance 939 (alias method values — `@`/raw/value/readonly shapes),
+940 (alias impl dispatch — distinct receiver per shape), 941 (cross-package alias
+impl), `spec/11-interfaces/026` flipped from the err-rejection to a positive
+dispatch test (its `XFAIL-INVERT-WHEN-FIXED` note anticipated exactly this), and
+`gen_impl_recvname_test` (alias-keys-on-target + short/qualifier name split).
+This also closes the R2-D5 coverage gap (the method-value/alias matrix now covers
+the readonly and value-receiver shapes). Full `builder-comp` green (2526/0);
+754 tests pass in builder-comp / -int / -comp.
+
+**Discovered en route (filed separately, NOT 754):** a pre-existing IR-gen bug —
+a cross-package METHOD VALUE mis-mangles the method symbol to the importer's
+package (`genMethodValue` uses `ctx.Gc.PkgPath`, not the receiver's defining
+package), so it fails to link even for a direct non-alias receiver. Pinned by
+`conformance/942_xpkg_method_value` (`.xfail.all`, landed main `005c1814`); open
+in claude-todo.md as BUG-BASH LANE 2, NEEDS TRIAGE.
+
 ## ✅ FIXED & LANDED (main `0184be99`, 2026-06-30, BUG-BASH LANE 3) — MAJOR (VM / wrong-compare): direct-use sub-word integer casts left a non-canonical register form
 
 On the bytecode VM, `bit_cast(int32,u) == cast(int32,y)` read NE and
