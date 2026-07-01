@@ -260,41 +260,25 @@ directives → red hygiene until the bump. Do it in ONE commit at the next bump,
 `pkg/binate/interp` (see the BUILDER-lag-lint-skips entry) — i.e. that bump clears ALL remaining
 `LINT_SKIP` entries except any still-pending real findings.
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (latent) — same-final-segment generic INTERFACES collide (the iface analog of the now-fixed struct/func same-segment collisions) (2026-06-20) — 🔴 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 1] same-final-segment generic INTERFACES collide — ✅ DONE & LANDED (main `f1c128ae`, 2026-07-01), on top of Slice 6c cross-pkg (main `3c862d69`)
 
-The generic-FUNC (`330c42fe`) and generic-STRUCT (`5ae791d2`) same-final-segment
-collisions are fixed by keying on the DEFINING package.  Generic INTERFACES were
-deliberately left on SHORT-name keying (to bound the struct fix and avoid the
-interface-identity tangle — `MakeInterfaceType` uses the short name, and #130
-keys instantiated ifaces on `mi.Pkg`).  So two same-final-segment packages each
-declaring a generic interface of the same decl name still collide: the generic
-iface decl stash (`GenericIfaceDeclPkgs`, keyed `curPkgShort` in bni_scope.bn /
-check_interface.bn) and `resolveTypeInstantiation`'s iface lookup (raw
-`head.Pkg`) both use the short name.  Fix mirrors the struct change: stash
-generic iface decls under the full path, resolve the aliased head to a full path
-for the iface lookup, and reconcile with the `mi.Pkg`/`MakeInterfaceType`
-short-name identity (the part that needs care).  Same bounded/fail-safe severity
-as the struct case.  No conformance test yet.
+Two same-final-segment packages each declaring a generic interface of the same
+name (`pkg/aa/coll.C[T]` / `pkg/bb/coll.C[T]`) collided, and a custom-aliased
+generic interface (`import g "pkg/gen"; g.Holder[int]`) failed outright — both
+because generic INTERFACES keyed identity on the SHORT name while generic structs
+key on the FULL path.  Fixed by mirroring the struct scheme (resolve the aliased
+head to its full path; stash + look up generic-iface decls under curPkgPath;
+instantiated identity via new `genericIfaceDeclPkg` = defining package).
 
-**BLOCKED behind unimplemented generic-interface-VALUE codegen (Slice 6c)
-— discovered 2026-06-28 (BUG-BASH LANE 1).** Attempting to build a reproducing
-test surfaced that this collision is UNREACHABLE behind a far larger gap: an
-instantiated generic interface used as a VALUE with dispatch (`var h
-@gen.Holder[int] = gen.Make(...); h.get()`) fails in codegen — `error:
-extractvalue operand must be aggregate type` (LLVM) — even in a SINGLE package
-(no collision). This is the pre-existing Slice-6c gap that check_interface.bn's
-own comment flags ("IR-gen for instantiated interfaces (vtable layout, dispatch)
-is Slice 6c territory; until that lands, declaring a value of a
-generic-interface-value type would fail at IR-gen time"). So the same-segment
-COLLISION can't be reproduced or validated until generic-interface-value codegen
-exists. The checker-side decl-resolution mirror (stash by full path, resolve the
-aliased head, fallback on curPkgPath in lookupGenericIfaceDeclPkg) WAS prototyped
-and gets the checker past `undefined: Holder` to reach the codegen gap — but was
-REVERTED (an unvalidatable partial that enables nothing usable on its own).
-**Re-scope:** this is really "implement generic-interface-VALUE codegen (Slice
-6c)" first (a major IR project: vtable layout + dispatch for instantiated generic
-interfaces), THEN the same-segment-collision keying becomes a small mirror of the
-struct fix on top.  Not a quick same-segment-keying bash.
+The 2026-06-28 re-scope was RIGHT that this was blocked — but the blocker turned
+out much smaller than "a major IR project": single-package generic-interface-VALUE
+codegen was ALREADY done (Slice 6c-full; tests 451-455/769 pass).  The only gap
+was the CROSS-package interface value (`@gen.Holder[int]`), which degraded to a
+1-word `i8*` and extractvalue-crashed — because two IR-gen helpers didn't consult
+`CurrentImportAlias` for a bare imported-`.bni` head (the generic-struct resolver
+already did).  That was the Slice 6c cross-pkg fix (main `3c862d69`); the
+same-segment identity keying then landed as the small mirror on top.  Full
+write-ups for both in [claude-todo-done.md](claude-todo-done.md).
 
 ## 🏷[BUG-BASH 2026-06-27 → LANE 3] MINOR — cross-mode interface dispatch: test-coverage gaps + LP64 assumption (2026-06-14) — 🟡 OPEN
 

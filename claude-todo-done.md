@@ -8,6 +8,47 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `3c862d69` + `f1c128ae`, 2026-07-01, BUG-BASH LANE 1) — Slice 6c cross-package generic-interface VALUES + bug 451 same-final-segment generic-interface collision
+
+Two dependent fixes closing the last open Lane 1 bug (451).  The 2026-06-28
+re-scope had 451 "BLOCKED behind unimplemented generic-interface-value codegen
+(a major IR project)"; investigation showed single-package generic-interface-value
+codegen was ALREADY done (Slice 6c-full — 451-455/769 pass), and the real gaps
+were much smaller.
+
+**`3c862d69` — Slice 6c cross-package generic-interface VALUES (IR-gen).** A
+generic interface used as a value across a package boundary (`@gen.Holder[int]`,
+declared in pkg/gen, used in main) crashed codegen with "extractvalue operand
+must be aggregate type": the type degraded to a 1-word managed pointer (`i8*`)
+instead of the 2-word {data,vtable} interface value.  `isInterfaceTypeExpr` /
+`ifaceTypeForName` resolved a BARE instantiated head (as written in the imported
+`.bni`'s own `func Make() @Holder[int]`) against the CONSUMER's package, so the
+generic-iface-decl lookup missed.  New shared helper `instantiatedIfaceLookupPkg`
+consults `CurrentImportAlias` — exactly as the generic-struct resolver already
+did.  Adversarial review caught two further defects (both fixed here): a silent
+miscompile the fix newly exposed — `ensureInstantiatedInterface` resolved a
+generic method's package-LOCAL result type (`boxed() Thing`) against the consumer,
+degrading it to int and corrupting the aggregate return — fixed to use
+definingPkg; and an interface-identity Pkg-spelling split (short vs full), now
+normalized via resolveImportPkg.  Tests: 958 (raw+managed+multi-method cross-pkg),
+959 (package-local method result — the miscompile).
+
+**`f1c128ae` — bug 451: generic-interface identity keys on the DEFINING package
+(checker).** Two same-final-segment packages' `C[int]` were the same nominal
+identity (an impl of one wrongly satisfied the other), and a custom import alias
+(`import g "pkg/gen"; g.Holder[int]`) failed with "undefined" — generic
+INTERFACES keyed on the SHORT name while generic STRUCTS use the FULL path.  Fixed
+by mirroring the struct scheme end to end: resolveTypeInstantiation resolves a
+qualified head's alias to its full path and shares the struct lookup; the decl
+stashes (bni_scope imported, check_interface local) key on curPkgPath;
+lookupGenericIfaceDeclPkg's same-package fallback uses curPkgPath; and the
+instantiated interface's identity uses the new `genericIfaceDeclPkg` (defining
+package).  Adversarial review confirmed checker↔IR-gen identity agree, the
+instantiation cache is unaffected (keys on decl pointer), and the fallback is
+unreachable — no soundness defects (one stale-comment nit, fixed).  Test: 957
+(same-segment `C[int]` in two packages + custom aliases; passes builder-comp / VM
+/ gen2).  Full builder-comp 2540/0.
+
 ## ✅ FIXED & LANDED (main `31cbece7` + `b62bbd8c`, 2026-06-30, BUG-BASH LANE 2) — cross-package METHOD VALUE mis-mangled the method symbol to the importer's package
 
 `genMethodValue` computed the underlying method symbol with the IMPORTER's package +
