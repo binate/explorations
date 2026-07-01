@@ -8,6 +8,59 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ RESOLVED (2026-06-07 → 2026-06-30, BUG-BASH LANE 2) — `==` / `!=` (and relational) on aggregates
+
+**What it was.** The comparison type-check only checked mutual assignability and
+returned bool, so `==`/`!=`/`<`/`>`/`<=`/`>=` were accepted on *any* same-typed
+operands. For aggregates (raw/managed slice, raw/managed func value, interface
+value, struct, array) codegen then emitted `icmp` on a multi-word value → invalid
+LLVM (`error: icmp requires integer operands`), a hard package compile failure.
+
+**Design (DECIDED user 2026-06-07).** Equality: scalars + pointers compare directly;
+slices / interface values / func values PERMANENTLY rejected with a type-specific
+diagnostic (sanctioned tests are `len()` / `present()` / identity); structs + arrays
+comparable iff every transitive field/element is. Relational: numeric operands only
+(ordering undefined for pointers and every aggregate). Type parameters / Self:
+deferred at the generic definition, re-checked at instantiation. `nil` judged by the
+other operand (`ptr == nil` OK; `iface`/`func == nil` rejected).
+
+**Landed:**
+- **Checker rejection** (binate `60719e01`, coverage `78af9c23`): aggregate operands
+  rejected instead of reaching codegen; 21 checker unit tests, conformance green.
+- **Item 1 — struct/array equality implementation** (920a, main `f99f4a4e`): a
+  struct/array is comparable iff every transitive field/element is
+  (`aggregateComparable`); comparable aggregates lower field/element-wise
+  (`gen_eq_aggregate.bn`: materialize both operands, walk fields via
+  `EmitGetFieldPtr` / array elements via byte-offset `EmitGetElemPtr`, `OP_EQ` per
+  leaf conjoined with `OP_LAND`, `OP_NOT` for `!=`, recursing for nested aggregates;
+  no refcount traffic — a `@T` field compares by identity). Verified LLVM + VM +
+  native aa64 + native x64. Tests: `spec/13-expressions/015` (un-xfail), `053`
+  (nested), `054`/`051` (reject struct-with-slice / array-of-slice), `052`
+  (managed-`@T` field), `07-types/044` (positive named-array), `12-generics/067`/`068`;
+  matrix `eq-reject/{struct,array}`; `gen_eq_aggregate_test.bn`. Removed the stale
+  `772` xfail. Adversarially reviewed — no defects.
+- **Item 2 — generic FUNCTION path** (920b, main `6b748a24`): instantiation-time
+  re-check as an inferred-comparable constraint — `recordTypeParamComparison` flags a
+  type-param compared in the once-checked-opaque body, `instantiateGenericFunc`
+  re-runs `checkEqOperands` / `relationalOperandOK` on the concrete type-arg. Tests
+  `spec/12-generics/064`/`065`/`066`.
+- **Item 3 — sentinel comparison (`err == io.EOF`)**: RESOLVED by design —
+  interface-value `==` permanently disallowed; the sanctioned mechanism is `same(...)`
+  (identity), `pkg/std/errors` fully implemented.
+- **Item 4 — generic AGGREGATE-FIELD re-check** (main `076eb525`): `Box[T]{ v T }`
+  (or `[N]T` field) compared in a generic function is now re-checked at instantiation
+  — `recordTypeParamComparison` recurses through an aggregate operand's BY-VALUE
+  fields/elements (stopping at pointers/slices, so a type-param behind `@T` is not
+  false-rejected). Closed the gap item 1 newly exposed (invalid `icmp` on LLVM /
+  silent first-word managed-slice compare on the VM). Tests
+  `spec/12-generics/069`/`070`/`071`/`072`. Adversarially reviewed.
+
+**Residual (still OPEN in claude-todo.md — small, documented, not regressions):** the
+generic re-check is (a) ORDER-DEPENDENT (a forward-ref instantiation checked before
+the generic body falls back to the loud IR-gen error — never a miscompile, never a
+false reject) and (b) covers generic FUNCTIONS, not yet generic-TYPE-method
+comparisons.
+
 ## ✅ FIXED & LANDED (binate `f9e915fa`, 2026-06-29, BUG-BASH LANE 1) — bug 211: opaque-type encapsulation leaks under co-compilation
 
 An imported OPAQUE type (forward `type Box` in a `.bni`, full `type Box struct{…}`
