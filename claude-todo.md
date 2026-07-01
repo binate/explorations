@@ -39,6 +39,23 @@ stay the old crash for now (exotic), pinned by `conformance/948_method_value_sre
 **Fix:** an sret-/refcount-aware struct-copy of the receiver into the closure field (reuse
 the sret-copy path `var x T = call()` uses, + `emitStructCopy` for the managed-field RefInc).
 
+## 🏷[BUG-BASH 2026-06-27 → LANE 2] MAJOR (native backend) — a MULTI-RETURN method value crashes on the native backends (works on LLVM + VM) — 🔴 OPEN (pre-existing; pinned by `950`)
+
+A method value whose method returns MULTIPLE values (`c.split` where `split` returns
+`(int, int)`), called through the value, CRASHES on the native backends (native_aa64 +
+native_x64 confirmed; arm32 likely, untested/qemu) while working correctly on LLVM +
+VM. **Pre-existing** and **independent of the receiver-capture work** — it reproduces
+via the OLD ident-receiver path too (a hand-written closure forwarding the same
+multi-return call works, so it is specific to the method-value WRAPPER). Root cause
+(hypothesis): `synthMethodValueWrapper` (`pkg/binate/ir/gen_method_value.bn`) sets up
+the wrapper's multi-return result shape / `MultiReturnType` differently from what
+`genFuncLit` produces, so the native backend's closure-shim mishandles the packed
+multi-return. Discovered 2026-06-30 by the adversarial review of the method-value
+capture fix. **Pinned:** `conformance/950_method_value_multiret` (xfail on the native
+modes; passes on LLVM + VM). **Fix:** align `synthMethodValueWrapper`'s multi-return
+result / `MultiReturnType` setup with `genFuncLit`'s, and/or fix the native closure-shim's
+handling of a wrapper that packs a multi-return — needs a native-backend diagnosis.
+
 ## rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟡 SCOPE REQUIRED (2026-06-20)
 
 **Related robustness gap (filed 2026-06-30):** a bad-pointer deref inside a NATIVE EXTERN
