@@ -8,6 +8,58 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (binate `f9e915fa`, 2026-06-29, BUG-BASH LANE 1) — bug 211: opaque-type encapsulation leaks under co-compilation
+
+An imported OPAQUE type (forward `type Box` in a `.bni`, full `type Box struct{…}`
+in the defining package's `.bn`) must present only its opaque surface to
+importers — even when the `.bn` is CO-COMPILED in the same build, which fills the
+SHARED Type's `Underlying` so the PROVIDER can build it. Previously the importer
+saw that filled layout: `b.v`, `bx.Box{v: 1}`, `make(bx.Box)`, a by-value `var`,
+and every other value formation leaked the private layout.
+
+**Two-view model.** New `Type.OpaqueExportPkg` (owner package), stamped ONLY at
+the `.bni` FORWARD-DECL site (`bni_scope.bn resolveTypeDeclInScope`), NOT at the
+`.bn` fill site — so a genuine opaque export is marked but a plain `.bn`-only type
+(no `.bni`, fully visible cross-package) is NOT. That distinction is essential:
+marking at the fill site over-marked every `.bn`-defined struct and wrongly
+rejected legitimate cross-package by-value use of ordinary exported structs (the
+regressions `157_cross_pkg_struct_multiret` / `331_method_cross_package` — caught
+by conformance, fixed by moving the mark). A type is opaque to THIS package iff
+it is a pure opaque (nil `Underlying`) OR an opaque export owned by a DIFFERENT
+package (`isOpaqueValueType` / `isCrossPkgOpaqueExport`); the provider (same
+package) keeps the full layout. IR-gen / codegen never read `OpaqueExportPkg` —
+the opacity is a CHECKER-only, consumer-only view (empirically confirmed: `221`
+runs, needing the full layout at codegen despite the consumer's opaque view).
+
+**Gated at every importer value-formation route:** field read (`checkSelectorExpr`
+struct-field branches; exported METHODS still resolve — a `.bni` may export them);
+by-value formation via the cross-package-aware `embedsOpaqueByValue` /
+`pointeeEmbedsOpaque` behind `requireSizedType` (var / composite-literal / make /
+sizeof / param / return / struct-field / array / slice / generic); and the
+EXPRESSION value-formation sites — deref `*p`, single + multi-return call result,
+index `s[i]`, `for _, v := range`, and `cast(Box, x)`. A consumer composite
+literal of an opaque type skips element validation so it no longer reveals the
+private field set. Holding / passing `@Box` / `*Box`, exported methods, the
+provider's own use, and transparent (full-`.bni`-struct) exports are unaffected.
+
+**Scope note.** This grew FAR beyond the originally-reported field-read leak. The
+by-value and expression-level formation gaps were partly PRE-EXISTING (the `:=`
+deref gap existed for pure opaque types too — `846` claimed to test it but the
+`:=` line was masked by sibling errors) and only became cross-package-reachable
+via the two-view model (a provider can now export an incoherent by-value
+opaque-export signature like `func MakeBox() Box`). Four adversarial-review passes
+drove the completion: (1) leakage/codegen OK; (2) found the by-value construction
+leak; (3) found the expression-level gaps + the `846` false-confidence; (4) found
+the multi-return + cast residuals. All fixed.
+
+Un-xfailed `222` (field read); new `226` (by-value construction), `227` (by-value
+single call result), `228` (deref-bind in isolation), `229` (multi-return call);
+`846`'s `x := *g()` is now genuinely rejected. Full builder-comp-comp 2517/0 and
+builder-comp-int 2494/0 (no regression — the gates no-op on every sized type);
+hygiene 15/15. **Known benign residual:** `var b Box = *p` emits the "cannot use
+an opaque type by value" line twice (the declaration gate and the deref gate, at
+different positions; the compile fails either way).
+
 ## ✅ FIXED & LANDED (binate `77c3378d` MIN + `d4edd671` FULL, 2026-06-29, BUG-BASH LANE 3) — Gap 2: bytecode-VM `__Package()` + `reflect.Package` descriptor for user/stdlib packages
 
 The bytecode VM emitted `__Package()` only as a native symbol, so a
