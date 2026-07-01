@@ -1,20 +1,17 @@
 # Binate TODO
 
-Tracks open work items. Completed items live in [claude-todo-done.md](claude-todo-done.md).
+Tracks open work items, grouped by the subsystem / root cause they touch.
+Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
-**BUG BASH 2026-06-27.** Every open *bug* below is triaged into 3 parallel-worker lanes,
-tagged inline `🏷[BUG-BASH 2026-06-27 → LANE N]` at the start of its entry:
-- **LANE 1** — front-end semantics (`pkg/binate/{checker,types,parser}`): wrongly accepts / rejects.
-- **LANE 2** — IR-gen & native codegen (`pkg/binate/{ir,codegen,native/*}`): emits wrong / invalid code.
-- **LANE 3** — VM & cross-mode runtime (`pkg/binate/vm`, `pkg/std`, ABI): cross-mode marshaling / 32-bit-host.
-
-Flags: ⚠ needs a semantics/scope **decision** first · 🔶 large / deferred (not a quick bash) · 🤝 shares
-a file with another lane (coordinate). Untagged open entries are non-bugs (design / planning / perf /
-coverage / doc) or already-resolved residuals.
+**BUG BASH 2026-06-27.** Open *bugs* still carry an inline `🏷[BUG-BASH 2026-06-27 → LANE N]`
+tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,types,parser}`;
+2 = IR-gen & native codegen `pkg/binate/{ir,codegen,native/*}`; 3 = VM & cross-mode runtime).
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 2] Method-value CAPTURE gap — pointer-receiver method value on an SRET / managed value receiver from a call/temp — 🟡 OPEN (residual; the common by-value case is ✅ FIXED & LANDED — main `0a8dd492`)
+## Method values & function values (codegen)
+
+### 🏷[BUG-BASH 2026-06-27 → LANE 2] Method-value CAPTURE gap — pointer-receiver method value on an SRET / managed value receiver from a call/temp — 🟡 OPEN (residual; the common by-value case is ✅ FIXED & LANDED — main `0a8dd492`)
 
 The cross-package method-value NAMING is ✅ DONE & LANDED for all receiver shapes
 (ident/selector/index `31cbece7`+`b62bbd8c`, call-result `47cdcfbf`) — see
@@ -39,7 +36,7 @@ stay the old crash for now (exotic), pinned by `conformance/948_method_value_sre
 **Fix:** an sret-/refcount-aware struct-copy of the receiver into the closure field (reuse
 the sret-copy path `var x T = call()` uses, + `emitStructCopy` for the managed-field RefInc).
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 2] MAJOR (native backend) — a MULTI-RETURN method value crashes on the native backends (works on LLVM + VM) — 🔴 OPEN (pre-existing; pinned by `950`)
+### 🏷[BUG-BASH 2026-06-27 → LANE 2] MAJOR (native backend) — a MULTI-RETURN method value crashes on the native backends (works on LLVM + VM) — 🔴 OPEN (pre-existing; pinned by `950`)
 
 A method value whose method returns MULTIPLE values (`c.split` where `split` returns
 `(int, int)`), called through the value, CRASHES on the native backends (native_aa64 +
@@ -56,255 +53,40 @@ modes; passes on LLVM + VM). **Fix:** align `synthMethodValueWrapper`'s multi-re
 result / `MultiReturnType` setup with `genFuncLit`'s, and/or fix the native closure-shim's
 handling of a wrapper that packs a multi-return — needs a native-backend diagnosis.
 
-## rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟡 SCOPE REQUIRED (2026-06-20)
+### Function values — residual follow-ups (the MAJOR PROJECT landed) — 🟡 OPEN (low priority)
+Function values are done across all three phases (archived in [claude-todo-done.md](claude-todo-done.md):
+Phase 1 non-capturing + type/vtable machinery, Phase 2 closures/capture — `plan-function-values-phase-2.md`
+is "COMPLETE (shipped)", conformance 338–344 + 501/508–510/513…, Phase 3 cross-mode trampolines).
+Residual:
+- Broader cross-mode trampoline signature shapes beyond `TrampolineScalar` (floats, aggregates, >7 args) —
+  add when a path actually reaches them.
+- Recursive lambdas (`var f = func(x){ … f(…) … }`) — non-goal during Phase 1; revisit now that Phase 2
+  capture is settled (Y-combinator is the current workaround).
+- Downstream interop hand-off (package descriptor; retiring ~30 hand-written `vm_extern` arms) is tracked
+  under "Compiler/interpreter interop — MAJOR PROJECT".
 
-**Related robustness gap (filed 2026-06-30):** a bad-pointer deref inside a NATIVE EXTERN
-called from the VM (e.g. handing a wild pointer to `rt.Refcount`) SIGSEGVs the VM host with
-NO guard — it is not one of the 6 guarded VM user-fault sites (bounds/divide/shift/nil-deref/
-stack-overflow/call-through-nil), and there is no signal handler in `pkg/binate/vm` / `cmd/bni`
-/ `rt`. Surfaced while resolving the "VM refcount halt" probe-artifact (see done file). If
-this VM-fault-recovery work is picked up, the native-extern boundary should be considered too.
-
-Plan doc: [`plan-rt-abort-panic.md`](plan-rt-abort-panic.md). **Plan 1 (the
-`rt.Abort`/`rt.Panic` primitives, the `panic()` single-string + lowering change,
-and the VM internal-abort migration through `panic()`) is DONE & LANDED** — see
-claude-todo-done.md.
-
-User-code runtime faults (bounds / divide / shift / nil-deref / stack-overflow /
-call-through-nil) should be RECOVERABLE in the VM (the host REPL / test-runner /
-embedder survives a bad interpreted program) while staying fatal in compiled
-code. The 6 VM user-fault sites are deliberately still on `rt.Exit(1)` pending
-this. Approach (per user): rt is already injected into the VM, so a faulting user
-op already calls the *injected* `rt.Panic`/`rt.Abort`; inject a VM-specific
-variant that unwinds the VM's DATA-stack frames (`vm.Stack`) back to `CallFunc`
-instead of killing the host (no longjmp — the user call stack is data, not the
-host stack). Open: the exec-loop unwind mechanism + refcount-correct frame
-teardown.
-
-Related smaller follow-up: route panic / `runtime error:` / VM diagnostics to
-**stderr** (fd 2) — deferred out of Plan 1 (infra exists: `bootstrap.Write(fd)`,
-`bootstrap.STDERR = 2`); a real behavior change for anything scraping them off
-stdout.
-
----
-
-## Embeddable-interp — open follow-ups (Inc 2 extern cleanup core landed) — 🟡 OPEN (2026-06-20)
-
-The embeddable-interp core (Inc 1, Inc 2 Layers 1/2 + the review (b)-fix, and the
-loader de-rooting) is **✅ DONE & LANDED** — full detail in
-[claude-todo-done.md](claude-todo-done.md). Plan:
-[`plan-embeddable-interp.md`](plan-embeddable-interp.md). Remaining open
-follow-ups (deferred with user sign-off):
-
-- **runTests / global `IsNativeOnlyInVM` unification.** The `--test` runner
-  (`cmd/bni/main.bn`) still keys the lowering skip on the hardcoded
-  `IsNativeOnlyInVM` (fixed stdPkgs config); only the `@Interp` run path derives
-  it from the inject-set. Unify so there is one mechanism.
-- **Lower-time "this impl can't be interpreted" guard.** Dropping a package
-  whose only impl needs native facilities (today's `os`/`__c_call`) and letting
-  it lower yields silently-broken bytecode (can't reach `cLseek`). The
-  principled guard is a lower-time check on the impl (does it use `__c_call` /
-  native-only facilities?) that errors clearly instead.
-- **Globals/vtables-sensitive inject-set test.** `TestNewCustomPkgsRespected`
-  proxies on `len(Externs)` (function registration only); add a test that a
-  custom set's globals + impl vtables are honored (the `errors.Is`
-  sentinel-identity path).
-- **Layer 2b — `@reflect.Package` wrapping helper.** Build a modified descriptor
-  from an existing one with selected `FunctionInfo` values replaced, so an
-  embedder overrides e.g. `os.Args()` without hand-constructing a descriptor.
-  This is the ergonomic per-function override path; it also rehomes the
-  `progArgsAfterDash` Args shim (becomes a cmd/bni-built wrapped-`os` concern
-  rather than baked into interp's bootstrap registration). Land with an
-  end-to-end test proving a wrapped package changes observed runtime behavior.
-- Optional: auto-enumerate bootstrap's exported format helpers via
-  `RegisterPackageFunctions` (they qualify — exported, non-extern), leaving only
-  the 9 extern C-I/O entries hand-bound.
-
----
-
-## 🏷[BUG-BASH 2026-06-27 → LANE 1] Ch.5 spec-conformance findings (2026-06-20, authoring `conformance/spec/05-lexical`) — ✅ IMPL GAPS DONE (2 spec DECISIONS remain in spec-todo.md)
-
-Surfaced while authoring the Ch.5 lexical spec tests. The two spec/impl
-**divergences** (`\uHHHH` escape; `1.foo` greedy-float-vs-selector) moved to
-[`spec-todo.md`](spec-todo.md) — they need a "fix spec or fix impl" decision and
-are pinned by `055`/`035`. The minor unary-`+`-rejected question is there too.
-Both settled-intent impl gaps below are now fixed & landed:
-
-1. **single-byte character-literal constraint (`lex.literal.char.one`) — ✅ DONE & LANDED (main `8644e540`).** Empty `''` and multi-byte `'ab'`/`'é'` are now rejected ("character literal must be one byte") rather than silently decoding to `0x00` / truncating to the first byte. `056_char_empty` / `057_char_multibyte` are un-xfailed and green.
-
-2. **`[...]T{}` inferred-length array literals — ✅ DONE (bug 662, main `135ea813`).** `[...]int{…}` now compiles. `122_punct_ellipsis` is un-xfailed and green (the Ch.5 `lex.punctuation.set` `...` pin).
-
-**Stale-note correction (DONE) in `docs/spec/05-lexical-elements.md`:** the §5.11 note claiming unknown escapes are "silently decoded … backslash dropped … no diagnostic" was **stale** — they are rejected with `unknown escape sequence` (and bad `\x` with `\x escape requires two hex digits`). Corrected; the Ch.5 negatives `047`–`054` pin the rejection (green). (The `\uHHHH`/§5.1 and §5.8 reconciliations stay open in [`spec-todo.md`](spec-todo.md).)
-
----
-
-## Ch.9 spec-conformance findings (2026-06-21, authoring `conformance/spec/09-declarations-and-scope`) — 🔴 OPEN
-
-Authoring the Ch.9 tests surfaced the MAJOR raw-pointer zero-init bug (filed separately,
-above) plus two MINOR items.
-
-1. 🏷[BUG-BASH 2026-06-27 → LANE 1] **func-local grouped declarations — ✅ DONE & LANDED (main `81a4566b`, 2026-06-29).**
-   A grouped `const ( … )` / `var ( … )` inside a function body failed with `undefined: <member>`
-   (even with explicit values, independent of iota): the statement-level decl handling routed only
-   `DECL_CONST` / `DECL_VAR` / `DECL_TYPE`, never `DECL_GROUP`, in BOTH the checker and IR-gen.
-   Fixed broader than originally filed — turned out to break `var` groups too. Checker routes
-   statement-level `DECL_GROUP` → `checkGroupDecl`; IR `genLocalGroupDecl` lowers per member kind
-   (const → `genConstGroup`, reads via `emitModuleConstByName`; var → materialize each; func-local
-   `type` group correctly rejected, decl.type.package-only). 007 un-xfailed; new 008 (var group) /
-   009 (type-group rejection). builder-comp 2490/0, builder-comp-int 2465/0. Full write-up in
-   [claude-todo-done.md](claude-todo-done.md).
-
-2. **MINOR (underspecified) — package-level VAR initialization is declaration-order, not
-   dependency-order; the spec doesn't pin it.** `var A int = B + 1; var B int = 10` makes `A == 1`
-   (B is still 0 when A initializes), NOT 11. `decl.order.forward` guarantees the forward NAME
-   reference resolves (it compiles), but the VALUE at init time follows declaration order. Go
-   initializes package vars in dependency order; Binate does not, and §9.8 is silent on var-init
-   order. → a spec-vs-impl decision (declaration-order vs dependency-order) for `spec-todo.md`.
-   The Ch.9 tests do not assert any var-init-order value (forward-ref is tested via a function).
-
----
-
-## Ch.20 spec-conformance findings (2026-06-22, authoring `conformance/spec/20-tier0`) — 🔴 OPEN
-
-1. **GAP (harness limitation, not a defect) — `pkg0.testing.testfunc` + `pkg0.testing.run` are not
-   conformance-testable.** Both require the `--test` discovery/execution runner (`cmd/bnc --test` /
-   `cmd/bni --test`); `conformance/run.sh` only runs ordinary programs (no `--test` plumbing). They
-   are exercised by the unit-test suite, not conformance. Closing them would need a test-runner mode
-   added to the harness. Left as documented coverage gaps (Ch.20 is 18/20). Candidate for an
-   `untestable`/`framework` reclassification in `extract-rule-ids.py` (a denominator decision).
-
----
-
-## 🏷[BUG-BASH 2026-06-27 → LANE 3] cross-mode coerced-agg func-value ABI — follow-ups after the by-address land (binate `233cc82d`) — 🟡 OPEN
-
+### 🏷[BUG-BASH 2026-06-27 → LANE 3] cross-mode coerced-agg func-value ABI — residual native-shim follow-ups
 The cross-mode coerced-aggregate-ARG residuals — the iface/func-value by-address
-fix (items 1, MAJOR), the >7-arg extern guard (item 2), and the sub-word/bool RETURN
-(item 4) — LANDED via the by-address ABI rework (`233cc82d`) + the >7-arg guard
-(`17cfc16b`); see claude-todo-done.md. Smaller follow-ups remain:
+fix, the >7-arg extern guard, and the sub-word/bool RETURN — LANDED via the by-address
+ABI rework (`233cc82d`) + the >7-arg guard (`17cfc16b`); see claude-todo-done.md. An
+observable native-struct-return-into-by-value-extern fixture (`dd3d8b59`) landed too.
+Smaller follow-ups remain:
 
-1. **Observable fixture (coverage) — ✅ DONE & LANDED (main `dd3d8b59`, 2026-07-01).**
-   `pkg/binate/vm/vm_extern_coerced_test.bn`: a native struct-return extern
-   (`mkPair` 8B / `mkWide` 16B) materializes an aggregate in the frame, fed straight
-   into a by-value-arg extern (`pairEq`/`wideEq`) returning `bool` — covering the
-   coerced-agg ARG (1- and 2-register) + sub-word/bool RETURN on BOTH cross-mode
-   dispatchers (`dispatchCompiledFuncValue` via OP_CALL_FUNC_VALUE, and
-   `dispatchExternBinding` via direct OP_CALL). A real guard: a broken arg segfaults
-   (found during dev). **The native-IFACE-method path is intractable to unit-test** —
-   its `@__ivtshim` can't be hand-forged (the shim design forbids replicating its
-   coerced-agg/retbuf ABI) — but all three dispatchers (extern / func-value / iface)
-   pack each arg as one by-address slot + narrow the return through the SAME shared
-   code, so the func-value/direct fixture is its representative unit coverage; the
-   iface path's end-to-end stays in conformance (726). The bool narrow's effect is
-   observable where the native ABI leaves garbage above the low byte (x86-64). Note:
-   `EmitStructLit` is a NOP in the VM (structs build via alloca+stores), so the
-   fixture builds the aggregate through the struct-return extern instead.
-
-2. **shim-extends RETURN (cleanup, optional).** The sub-word RETURN was fixed VM-side
-   (the 25117a2e VM-narrow mechanism extended to iface/func-value), since item 4 is
-   VM-only. The review's cleaner shim-extends design (every backend's shim sext/zext's
-   sub-word returns; drop the VM narrow) is deferred — a multi-backend,
+1. **shim-extends RETURN (cleanup, optional).** The sub-word RETURN was fixed VM-side
+   (the 25117a2e VM-narrow mechanism extended to iface/func-value), since the sub-word/bool
+   RETURN concern is VM-only. The review's cleaner shim-extends design (every backend's shim
+   sext/zext's sub-word returns; drop the VM narrow) is deferred — a multi-backend,
    target-word-dependent change with a tail-branch→call-shape wrinkle.
-
-3. **x64_closure_shim.bn soft length** (584 > 500 warn; not a hard blocker) — split
+2. **x64_closure_shim.bn soft length** (584 > 500 warn; not a hard blocker) — split
    like aarch64_closure_shim_spill.bn was. The native SPILL paths also still stage
    incoming unconditionally (rare over-budget path; could be made conditional like the
    register-only marshalers).
 
 See explorations/plan-funcvalue-byaddr-abi.md.
 
-## MINOR (e2e / BUILDER-lag cleanup) — drop the gen1 build in e2e/stat-values.sh after the next BUILDER bump (2026-06-20) — 🔴 OPEN
+## Cross-mode interface dispatch & compiler/interpreter interop
 
-`e2e/stat-values.sh` builds gen1 from the tree (`scripts/build-bnc.sh`) and compiles its os.Stat probe through gen1, instead of the simpler `$BUILDER … cmd/bnc -- …` form the other e2e scripts use. Reason: os.Stat depends on the `.bni` free-func/method fix (`796effc7`) and the wholesale-os-injection work, which postdate `BUILDER_VERSION` (bnc-0.0.9) — the pinned BUILDER can't compile os yet. Once BUILDER is bumped past those, revert `e2e/stat-values.sh` to the plain `$BUILDER … cmd/bnc -- …` pattern (drops the ~1-min gen1 build per e2e run).
-
----
-
-## Stdlib conformance suite — optional follow-ups — 🟢 LOW (2026-06-20)
-
-The suite is built and every injected stdlib package has cross-mode coverage
-(moved to claude-todo-done.md). Two optional cleanups remain:
-- Fold the ~8 ad-hoc stdlib-importing tests in the MAIN conformance set
-  (`577_std_errors`, `855_std_time`, `662_errors_is`, `526/528/535_strconv`,
-  `663_io_iseof`, `726_cross_pkg_iface_impl`) into `conformance/stdlib/*` (and
-  drop their `conformance-imports.whitelist` entries).
-- Remove the now-redundant `os_test.bn` `TestErrorIfaceUpcast` (covered by
-  `conformance/stdlib/errors/001`; only runs under `builder-comp` now), or keep
-  it as a native-only smoke.
----
-
-## 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (import hygiene) — two non-wrong-code follow-ups from the file-scoped-imports work — 🟡 OPEN
-The PACKAGE-scoped-imports CRITICAL (all wrong-code facets — visibility leak, same-alias miscompile,
-qualified-TYPE memory-layout corruption, implicit same-last-segment, generic instantiation, the
-cross-file package-level `var x = dep.Foo()` residual) is ✅ FULLY RESOLVED & LANDED and archived in
-[claude-todo-done.md](claude-todo-done.md).  Two non-miscompile follow-ups remain:
-- **(F-checker) the checker has ZERO unused-import handling** — the only unused-import check is the
-  opt-in bnlint rule, whose per-file attribution has false-positive (sibling-file use) and
-  false-negative (local var shadowing an alias) corners.  Entangled with / tracked by the
-  "(planning) unused-entity checks" entry below (`plan-unused-checks.md`).
-- **Build-confirmation coverage want**: an incompatible-signature escalation test for the A/B facets
-  (`func V() *uint8` vs `func V() int` colliding members → show ABI/result-type confusion), on top of
-  the existing 830/831/832 conformance coverage.  Low priority — the facets are fixed and tested.
-
-## (planning) unused-entity checks — fix the unused-import `(a)` cross-file gap + add `(b)` unused locals / `(c)` unused private funcs / `(d)` unused private globals / `(e)` unused private types — 🟡 PLAN WRITTEN (`plan-unused-checks.md`)
-
-bnlint today has exactly one "unused" rule (`unused-import`, `pkg/binate/lint/unused_import.bn`); the type checker has no usage tracking at all. **Plan written: `explorations/plan-unused-checks.md`** (phasing, per-rule design, edge cases, tests, open decisions). Foundational dependency: the CRITICAL import-scoping bug above — fix direction **1 (file-scoped imports)** chosen; that is Phase 0 and `(a)` rides on it. `(b)` is checker-side (Used flag + popScope sweep, BUILDER-compatible); `(c)`/`(d)`/`(e)` are lint-side over a shared `refs.bn` reference index. Open decisions (warning-vs-error, reference-vs-reachability, params/write-only/consts, receiver-as-use) are listed in the plan for the user. Two latent bugs surfaced and noted there: `markBniExportedVars` skips `DECL_GROUP`; `DECL_TYPE` carries no `Exported` flag.
-
-## MINOR (hygiene / lint) — investigate the `[managed-to-raw-assign]` findings in `pkg/binate/asm/*` (2026-06-20) — 🟡 OPEN
-The compiler-tree lint-coverage gap is ✅ FIXED & LANDED (`582c1327`): `scripts/hygiene/lint.sh`
-discovery is now recursive over `pkg/`, so all ~23 `pkg/binate/*` compiler packages are bnlint
-targets (the old one-level `pkg/*/` glob matched only `pkg/binate/`, which has no direct `.bn`, after
-the `pkg/parser`→`pkg/binate/parser` reorg — so ZERO compiler packages were linted; only the
-bnlint-RULES check had this gap, since file-length/naming/doc use a recursive `find`).  Two real
-`[unused-import]`s it surfaced (`ir/gen.bn`→ast, `native/aarch64/aarch64_call.bn`→mangle, both
-comment-only) were removed.  **Residual** — 5 asm subpackages are temporarily in `LINT_SKIP`
-(`pkg/binate/asm/{arm32,elf,macho,parse,x64}`) for a `[managed-to-raw-assign]` finding
-(`var data *[]uint8 = sec.Data` — a borrow of a held `@[]uint8`).
-
-**Per-site audit DONE (2026-06-30, bnc-0.0.10 bnlint + adversarial workflow + source verification of
-the one real bug).** 19 findings across the 5 packages:
-- **1 REAL use-after-free** — `parse/parse.bn:160` (`name = expr` constant def borrowed `tok.Text`,
-  then `LexNext` freed it before the read). ✅ **FIXED & LANDED (main `8a883450`)** — own the name
-  first (`buf.CopyStr`) + regression test `TestParseConstNamePreserved` (verified failing pre-fix);
-  write-up in the done file. The rule was RIGHT here — the skip hid a real UAF.
-- **1 real `[unused-import]`** — `parse/aarch64.bn:3` imported `pkg/binate/asm`, never used. ✅ FIXED
-  (main `8a883450`, same commit).
-- **17 safe-borrow over-flags** — every site in `arm32`/`elf`/`macho`/`x64` (all 9) + 6 of the 8
-  `parse` sites. All borrow a field of a managed owner (`@asm.Section`/`@asm.Assembler`/a `BinBuf`
-  local / a by-value `Token` param / a function-scope buffer) that provably outlives the raw view's
-  synchronous read or in-place patch. The rule conservatively flags `@[]T → *[]T` without lifetime
-  analysis.
-**Un-skip path:** the two real findings are ✅ FIXED (main `8a883450`). The 17 safe-borrow over-flags
-are handled by **suppression: the `// bnlint:allow <rule>` directive mechanism is ✅ LANDED (main
-`91286ab8`)** (decision A — keep the rule strict, annotate each safe borrow with a justification;
-generic across all rules). **Remaining (OPEN, BUILDER-gated) — INCREMENT 2:** adopt the directives +
-un-skip. Add a trailing `// bnlint:allow managed-to-raw-assign — <why the owner outlives the borrow>`
-to each of the 17 sites (the per-site reasons are in the workflow audit / the 5 package sections), and
-drop `pkg/binate/asm/{arm32,elf,macho,parse,x64}` from `LINT_SKIP`. **Gated on the next BUILDER bump**
-because hygiene runs the BUNDLED bnlint (`bnc-0.0.10`), which predates `91286ab8` and would ignore the
-directives → red hygiene until the bump. Do it in ONE commit at the next bump, alongside dropping
-`pkg/binate/interp` (see the BUILDER-lag-lint-skips entry) — i.e. that bump clears ALL remaining
-`LINT_SKIP` entries except any still-pending real findings.
-
-## 🏷[BUG-BASH 2026-06-27 → LANE 1] same-final-segment generic INTERFACES collide — ✅ DONE & LANDED (main `f1c128ae`, 2026-07-01), on top of Slice 6c cross-pkg (main `3c862d69`)
-
-Two same-final-segment packages each declaring a generic interface of the same
-name (`pkg/aa/coll.C[T]` / `pkg/bb/coll.C[T]`) collided, and a custom-aliased
-generic interface (`import g "pkg/gen"; g.Holder[int]`) failed outright — both
-because generic INTERFACES keyed identity on the SHORT name while generic structs
-key on the FULL path.  Fixed by mirroring the struct scheme (resolve the aliased
-head to its full path; stash + look up generic-iface decls under curPkgPath;
-instantiated identity via new `genericIfaceDeclPkg` = defining package).
-
-The 2026-06-28 re-scope was RIGHT that this was blocked — but the blocker turned
-out much smaller than "a major IR project": single-package generic-interface-VALUE
-codegen was ALREADY done (Slice 6c-full; tests 451-455/769 pass).  The only gap
-was the CROSS-package interface value (`@gen.Holder[int]`), which degraded to a
-1-word `i8*` and extractvalue-crashed — because two IR-gen helpers didn't consult
-`CurrentImportAlias` for a bare imported-`.bni` head (the generic-struct resolver
-already did).  That was the Slice 6c cross-pkg fix (main `3c862d69`); the
-same-segment identity keying then landed as the small mirror on top.  Full
-write-ups for both in [claude-todo-done.md](claude-todo-done.md).
-
-## 🏷[BUG-BASH 2026-06-27 → LANE 3] MINOR — cross-mode interface dispatch: test-coverage gaps + LP64 assumption (2026-06-14) — 🟡 OPEN
+### 🏷[BUG-BASH 2026-06-27 → LANE 3] MINOR — cross-mode interface dispatch: test-coverage gaps + LP64 assumption (2026-06-14) — 🟡 OPEN
 
 The shim-route that dispatches a native-only package's interface methods from
 bytecode (landed `93f75f27` + the math/big extension `7c3b17a2`) is exercised by
@@ -348,438 +130,6 @@ find the base `B` with `B ≤ addr < B + size*8`, and map to `shim_base(B) +
 (addr − B)` so the parent sub-block's shim resolves. Covered as-is by
 `pkg/binate/vm` unit tests (the offset arithmetic, incl. offset>0 value
 formation) + `os` `TestErrorIfaceUpcast` (offset-0 end-to-end, both modes).
-
----
-
-## MINOR
-
-### 🏷[BUG-BASH 2026-06-27 → LANE 2] Big-endian CODEGEN — deferred (no BE target exists yet) — 🟡 DEFERRED
-The Ch.7.13 layout follow-ups (`type.layout.funcval-order-hardening` + the
-`type.layout.byte-order` decision / `TargetInfo.BigEndian` field + little-endian-only
-assert) are ✅ DONE & LANDED — see [claude-todo-done.md](claude-todo-done.md). What
-remains: actual big-endian byte-EMISSION (object writers, `ir.DataGlobal` int terms,
-`bit_cast` / the representation builtins) for a future big-endian / cross-endian
-target. `SetTarget` currently `panic`s on a big-endian target, so there is no
-silent-wrong-code risk meanwhile; do this when such a target is actually needed.
-
-### Spec Ch.16 (Packages) — adversarial-review follow-ups (test-quality, non-blocking) — 2026-06-19
-The Ch.16 review found 0 blockers, 7 should-fix (landed tests work; these
-improve rigor). 015 mis-cite already FIXED (re-cited pkg.resolve→pkg.identity).
-Remaining, for a focused follow-up (with the build-constraint rework below):
-- **Harness limit (root cause of 2 findings):** the runner gives a test ONE
-  search root, so `pkg.resolve.public` (013, public-vs-local under DIFFERENT
-  roots) and `pkg.resolve`'s independent-.bni/impl-roots facet (012) can't be
-  exercised — both tests only show "resolves under one root". Soften their
-  comments to not overclaim; the multi-root facets need a harness extension (a
-  second `--prepend` root) — note in Annex C as untested.
-- **Vacuity to tighten:** 050 (`pkg.identity`) asserts values, not type-
-  distinctness — the distinctness is actually pinned by 051's cross-pkg-assign
-  reject; re-scope 050's comment. 091 (`pkg.extern` var) only reads once — make
-  var-ness load-bearing (mutate via a setter, observe). 090 extern-func is the
-  same shape as a normal exported func (inherent).
-- **Missing coverage:** `pkg.bni.consistency` only tests return/var-type
-  mismatch (033/034) — add param-type + param-count + result-count mismatch.
-  `pkg.bni` (032) omits the opaque-type and interface/impl .bni decl kinds.
-  `pkg.ccall` (092) has no C-ABI-passability reject test (§16.9). `pkg.clause`
-  (010) and `pkg.import` (001) lack negative tests (package-must-be-a-string-
-  literal; no block-scoped import).
-
-### Spec Ch.16 (Packages) — build-constraint group needs rework + a possible gap — 2026-06-19
-Ch.16 landed at **21/22 rules** (`spec/16-packages/`, binate `f7ed4eb4`):
-imports / bni / identity / extern groups are green (compiler/VM/gen1/gen2/
-native_aa64). The **build-constraint group** (the `#[build(EXPR)]` rules) was
-authored by a fan-out agent on a wrong "gating-active by default + decl-level
-gating + predicate-validation-errors" assumption; 8 of its tests failed and were
-removed. The real mechanism (per `conformance/737_build_import_select`,
-`747_err_build_bni_dropped`) gates whole FILES (via the package clause) and
-IMPORTS by arch with `#[build(is(arch, …))]`, not individual decls. **Follow-up
-(focused):** re-author the build-constraint tests on the real mechanism, which
-restores the lone GAP **`pkg.build.errors`** (the Constraint: a false constraint
-on a *required* element is an error). Surviving build tests: `070_annotation_
-namespace`, `071_annotation_degenerate`, `072_err_annotation_no_stack`.
-  - **Possible real gap to confirm during that rework:** the agent's
-    `#[build(<unknown-predicate>)]` and `#[build]` with an unknown annotation
-    name **compiled and ran** (printed `0`) instead of erroring — `pkg.build.errors`
-    / `pkg.annotation.namespace` say these should be rejected. Either the tests
-    were malformed (wrong gating context, so the annotation was never validated)
-    or build-constraint validation doesn't fire — determine which.
-
-### Issues surfaced authoring spec Ch.8 conformance tests — 2026-06-19
-Found writing the `conformance/spec/08-conversions/` rule tests (plan-spec-
-tests.md Phase B). Ch.8 itself is clean (11 tests, 100%, green on compiler /
-VM / gen1 / gen2 / native_aa64 / arm32_baremetal). Three findings:
-- 🏷[BUG-BASH 2026-06-27 → LANE 3 🤝] **`bit_cast` to a sub-word type isn't narrowed — VM facet ✅ FIXED (binate `8e09e808`); native backends ✅ FIXED (LANE 2, main `b3d451a4`).** `bit_cast(uint8, <int8 -1>)`
-  used directly (no intervening typed store) should be `255`, but stayed
-  sign-extended on the bytecode VM (all 3 `-int` modes) and on native_aa64 (the
-  LLVM compiler narrows correctly; a `var r uint8 = bit_cast(...)` store also
-  narrows). This is the **`bit_cast` facet** of the sub-word-narrowing gap
-  (claude-todo `aa64-subword`). **VM fixed:** OP_BIT_CAST to a sub-word integer
-  now lowers to BC_ZEXT/BC_SEXT (see the pinned `040_bit_cast_int_reinterpret`
-  entry under the Ch.15 findings above — its `-int` xfails are gone). **Native ✅ FIXED (main `b3d451a4`):** both native emitters now call
-  `emitSubWordNarrow` after the bit_cast MOV (the shared `common.SubWordNarrow`
-  classifier the VM uses), so a sub-word target lands in its value range;
-  `040`'s native_aa64 xfail removed, and x64 — which had the identical gap —
-  fixed too (verified native_aa64 + native_x64_darwin). The conv.bit-cast *rule* itself is satisfied (covered by
-  `spec/08-conversions/010_bit_cast`).
-- 🏷[BUG-BASH 2026-06-27 → LANE 1] **distinct same-width integer types implicitly inter-convert (`int ↔ int64`, …) — ✅ DONE & LANDED (main `2834c57b`, 2026-06-29).** `var y int64 = x` (`x int`) and the
-  whole int↔int64 family are now rejected (decision (b): keep `Identical` loose
-  for layout, add a name-aware gate). New `distinctNamedInts(a,b)` predicate gates
-  `AssignableTo` (assignment + comparison) AND `commonType` (arithmetic + bitwise,
-  added after the AssignableTo-only gate was found to leave `anInt + anInt64`
-  accepted), so int↔int64 is rejected in every scalar context; untyped constants
-  still coerce. **The predicted "broad blast radius / sweep" did NOT materialize:**
-  the codebase was already int/intN-clean — gen1 recompiled the whole compiler
-  (builder-comp-comp 2503/0) and the VM (builder-comp-int 2478/0) with ZERO new
-  failures, no sweep. Tests: `spec/07-types/026` (reject in arith/comparison/
-  assignment), `027` (casts bridge), `023` comment corrected. **Caveat:** the
-  separate `examples/` repo (6/74 files use sized ints) was NOT verified against
-  the gate (BUILDER-injected build); any breakage there is a separate-repo
-  follow-up, not from this landing. Full write-up in
-  [claude-todo-done.md](claude-todo-done.md).
-- **§8.5 "Open (precision residual)" note appears STALE.** The note says a
-  constant ≥ 2^63 reached through a bitwise/shift op "is not yet rejected":
-  `cast(int64, 0x4000000000000000 << 1)`. That exact example — and `cast(int64,
-  1 << 63)` — now **reject** ("constant does not fit the cast target type"). The
-  bitwise-const fold may have been fixed; verify (other patterns?) and, if so,
-  drop the §8.5 residual note (like the Ch.13 generic-unparsed/d4-paren stale
-  notes). No born-stale xfail added (rejection is the correct behavior).
-- **§8.5 "Open (precision residual)" note appears STALE.** The note says a
-  constant ≥ 2^63 reached through a bitwise/shift op "is not yet rejected":
-  `cast(int64, 0x4000000000000000 << 1)`. That exact example — and `cast(int64,
-  1 << 63)` — now **reject** ("constant does not fit the cast target type"). The
-  bitwise-const fold may have been fixed; verify (other patterns?) and, if so,
-  drop the §8.5 residual note (like the Ch.13 generic-unparsed/d4-paren stale
-  notes). No born-stale xfail added (rejection is the correct behavior).
-
-### Issues surfaced authoring spec Ch.13 conformance tests — 2026-06-18
-Found writing the `conformance/spec/13-expressions/` rule tests (plan-spec-
-tests.md Phase B). Each has a reproducing test cited by `.rules`.
-- **Two stale composite-literal "known defect" notes — both ✅ CORRECTED in the
-  spec (docs `2389676`, `2f95afc`).** `--check-xpass` flagged the first as a
-  born-stale xfail; probing then showed the second is also fixed.
-  - `expr.composite.generic-unparsed`: generic-instantiated literal heads
-    `Box[int]{…}` ARE built + instantiated (var-decl, `:=`, call-arg,
-    multi-type-arg) — `spec/13-expressions/032`, a passing positive test.
-  - `expr.disambiguation.d4-paren`: the parenthesized escape WORKS —
-    `(Point{…}).x` in an `if`/`for` condition (`spec/13-expressions/042`). The
-    base D4 rule (an UN-parenthesized literal in a condition is not recognized,
-    so `if Point{…}.x` fails) is correct/intended, not a defect.
-  Both, plus `expr.composite.array.indexed` and `…inferred-len`, are now
-  declared col-0 rule-IDs (tests cite them precisely; Ch.13 denominator 29→32).
-- 🏷[BUG-BASH 2026-06-27 → LANE 1] **`expr.composite.array.inferred-len` — ✅ DONE & LANDED (main `135ea813`, 2026-06-29).** `[...]T{…}`
-  inferred-length array literals implemented (literal-head only, Go's rule). See
-  the detailed entry above and [claude-todo-done.md](claude-todo-done.md).
-- ✅ **FIXED & LANDED (binate `7523b14d`, BUG-BASH LANE 1) — (minor) `expr.composite.struct` bad-key diagnostic.** A keyed struct
-  literal whose key names no field now reports `no field \`<key>\` in <T>`
-  (errNoSuchField) instead of the generic `undefined: <key>`. 027's `.error`
-  tightened to require the field-specific form.
-- **(note, non-defect) `expr.compare.relational` chain diagnostic reach.**
-  `a < b < c` is correctly rejected in every context, but the dedicated
-  "comparison operators do not chain" message fires only for the
-  identifier-leading for-clause Pratt path (`parse_for.bn:199`); `if`/`var`/
-  literal-leading contexts reject via generic parse errors. Conformant
-  (rejection holds) — a diagnostic-consistency nicety only.
-
-### Lower the file-length `.bni` cap toward 1000/1200 — 🟡 OPEN
-- **Residual** of the (now-archived) "Extend hygiene checks to scan `ifaces/`+`impls/`" work. The `.bni` file-length cap is currently 1500/1800 (warn/error); consider lowering toward 1000/1200.
-- **Blocker**: `pkg/binate/ir.bni` (~1183 lines) exceeds the proposed lower cap and would need refactoring (split into sub-interfaces) first. A live `TODO` in `scripts/hygiene/file-length.sh` tracks this.
-- (Full resolved diagnosis of the ifaces/impls hygiene-scan extension archived in claude-todo-done.md.)
-
-## MAJOR
-
-### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
-The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
-were switched to `ManagedHeaderSize()` (main `581216d9`) — see [claude-todo-done.md](claude-todo-done.md).
-Residual: `data_pkg_descriptor.bn` (IR-gen phase) still uses one int-sized `w` for BOTH the
-managed-header words (pointer-sized) AND slice lengths (int-sized) — a documented "assumes
-PointerSize==IntSize" conflation, harmless on every shipping ABI. Untangle header (→
-`ManagedHeaderSize`/ptrSize) from slice-length (→ IntSize) only if a wide-int ILP32 ABI is targeted.
-
-### Add a hygiene check enforcing package-tier dependency rules (`pkg-layout-spec.md`) — bundled tiers must not import non-bundled tiers — FILED 2026-06-10
-- **What**: a `scripts/hygiene/` check that statically validates every package's import closure against the tier ordering in `pkg-layout-spec.md` ("Tiers"). A package must not import a *less-bundled* (higher-numbered) tier. Concretely — tier 0/0b/1/1x packages (always- or by-default-bundled: `pkg/builtins/*`, `pkg/std/*`, `pkg/stdx/*`) must NOT import a tier-2/3 package (project-pulled / not bundled: `pkg/binate/*` and any other `pkg/<org>/*`). Also enforce the tier-2 transitive-closure rule (`pkg-layout-spec.md` "Tiers": tier 2's dependency closure must itself be tier 2). Tier is derivable from the import-path prefix (`pkg/builtins/`→0/0b, `pkg/std/`→1, `pkg/stdx/`→1x, `pkg/binate/` & other `pkg/<org>/`→2); `pkg/bootstrap` is a bundled runtime primitive (treat as tier-0-equivalent). EXEMPT `*_test.bn` — tests aren't bundled (e.g. `lang_test.bn` legitimately imports `pkg/binate/buf`).
-- **Why**: a bundled package whose dependency closure escapes the bundled tiers silently breaks the bundle — the dependency's source isn't shipped, so a consumer compiling against the bundle gets `package "<dep>" not found`. NOTHING currently catches this: it only manifests when a consumer compiles the offending package from a real bundle (`make-bundle.sh` output), which no CI / hygiene / conformance step does today.
-- **Motivating bug (discovery 2026-06-10, release-prep for `bnc-0.0.8`)**: `pkg/builtins/lang` (tier 0, always bundled) imported `pkg/binate/buf` (tier 2) for two `buf.CopyStr("true"/"false")` calls in `bool.String()`. The bundle ships only `lib/pkg/bootstrap`, not `pkg/binate/buf`, so the tier-0 `Stringer` carve-out (`var s *lang.Stringer = &x; s.String()`) failed to compile from ANY bundle with `package "pkg/binate/buf" not found` — present since `bnc-0.0.7`, undetected because the carve-out smoke step (`release-process.md` step 5) had never actually been run against a real bundle. Fixed in binate `84818a77` (lang returns bare string literals; `[N]readonly char → @[]char` is a literal-init allocate+copy). This check would have caught it at the `import` line.
-- **Scope note**: adding the check ≠ wiring it into `scripts/hygiene/run.sh` / CI — but a hygiene check belongs in the run.sh master, so do both when implementing. A first audit may surface other pre-existing violations to triage.
-- **First manual sweep (Lane C, 2026-06-10) — CLEAN baseline**: swept every import (incl. aliased) in the bundled trees (`ifaces/{core,stdlib}`, `impls/{core,stdlib}`, `pkg/bootstrap`, `runtime/`). No non-test bundled package imports outside the bundled set. Two non-obvious cases the eventual check must handle: (1) `impls/core/baremetal/pkg/builtins/rt` imports `pkg/semihost`, which is NOT a violation — `pkg/semihost.bni` ships under `runtime/baremetal_arm32/` (a bundled runtime component) and resolves under the arm32-baremetal build's own `-I`/`-L`; the check should treat shipped `runtime/<target>/pkg/*` as bundled, or scope tier rules per build target. (2) all `pkg/builtins/testing` imports are in `*_test.bn` (already EXEMPT) and it has a bundled `.bni` with a harness-provided impl. So `lang → pkg/binate/buf` (binate `84818a77`) was the only true tier-0→tier-2 violation; the baseline is otherwise clean.
-
-### `==` / `!=` (and relational) on aggregates — residual (generic re-check corner cases) — 🟢 LOW (triaged 2026-06-30: NOT actionable now)
-The `==`/`!=`/relational aggregate story is ✅ DONE & LANDED — checker rejection
-(binate `60719e01`), struct/array implementation (920a, main `f99f4a4e`),
-generic-function path (920b, `6b748a24`), the sentinel-comparison decision, and the
-generic-aggregate-field re-check (main `076eb525`); full arc archived in
-[claude-todo-done.md](claude-todo-done.md). Two small residuals in the generic
-instantiation re-check remain — **triaged 2026-06-30, neither actionable now**
-(neither is a live miscompile):
-- **(a) Order-dependent — COSMETIC only.** A forward-ref instantiation checked BEFORE
-  the generic's body is type-checked falls back to the loud IR-gen error instead of a
-  clean checker rejection (never a silent miscompile, never a false reject — just a
-  less-friendly diagnostic in that ordering). A fully order-independent version needs
-  a checker sub-pass or an explicit `comparable` constraint — non-trivial work for a
-  diagnostic-quality-only gain; deferred.
-- **(b) Generic-TYPE methods — UNREACHABLE (blocked on a future feature).** Verified
-  2026-06-30: bnc does NOT support a method on a generic type with a type-param
-  receiver (`func (b Box[T]) eq(...)` → "method receiver must be a named type",
-  "undefined: T"). So the re-check gap for generic-TYPE-method comparisons cannot be
-  triggered — there is no way to define such a method today. This becomes a real
-  follow-up only if/when generic-type methods land; not a live gap.
-
-### Collapse `pkg/bootstrap` onto `#[build]` — 🟡 OPEN (next, per user 2026-06-19)
-With BUILDER at `bnc-0.0.9` (both `bnc` and `bnlint` parse `#[build]`), `pkg/bootstrap` — whose
-per-target variants are currently PATH-selected and which lives in cmd/bnc's BUILDER-compiled
-tree — can be collapsed onto `#[build(...)]`-gated declarations, the same way `pkg/builtins/build`
-was. See [`plan-impls-constraints-migration.md`](plan-impls-constraints-migration.md). (This was
-the "bonus" of the build.bni-dedup workaround removal, now landed — binate `9c2ac789`, archived in
-[claude-todo-done.md](claude-todo-done.md).)
-
-### Remove the BUILDER-lag lint skips after a BUILDER bump — 🟡 OPEN (narrowed to `pkg/binate/interp`; gated on next BUILDER bump)
-`scripts/hygiene/lint.sh`'s `LINT_SKIP` group (A) is the BUILDER-lag set — packages the bundled
-bnlint can't typecheck because they use a feature/fix newer than the bundle.
-
-**The bnc-0.0.9 lag is CLEARED** (BUILDER is now `bnc-0.0.10`, checked 2026-06-29). `pkg/builtins/rt`
-(the `"void"` `__c_call` spelling) and `pkg/std/os` (the `.bni` free-function-vs-method fix
-`796effc7`), plus their importer chain `pkg/binate/{vm,repl}` + `cmd/{bni,bnas,bnlint}`, all lint
-**clean** under the bnc-0.0.10 bundled bnlint (verified each directly). Dropped from `LINT_SKIP` —
-restoring style-lint coverage on those seven packages, hygiene 15/15 — in `binate` lint.sh change
-`c5a14146`.
-
-**Still skipped — `pkg/binate/interp`**, but for a *newer* lag (not the rt/os one). **Root-caused
-(2026-06-30): a synthesized-accessor NAME skew, not a missing bnlint capability — so the next bump
-fixes it and NO linter work is needed.** The compiler-synthesized reflect accessor was renamed
-`_Package` → `__Package` in `e12a8a3b` ("fix CRITICAL … close silent collision", 2026-06-26), which
-postdates the bnc-0.0.10 release (`cdea9b9f`, 2026-06-23). interp's extern-registration references the
-new name as a func value (`rt.__Package`, `reflect.__Package`, `errors.__Package`, …), but the bundled
-bnc-0.0.10 checker still synthesizes/resolves the OLD `_Package` (verified: `emit_pkg_descriptor.bn`
-mangles `"_Package"` at cdea9b9f, `"__Package"` at HEAD), so `<pkg>.__Package` is undefined under the
-bundle — cascading to all four errors (`undefined: __Package` → `cannot call non-function` → `cannot
-assign void to @Package` → `_func_handle argument must be a named function`). A current-source
-(post-rename) bnlint lints interp clean. Action: at the next BUILDER bump (source ≥ `e12a8a3b`), drop
-`pkg/binate/interp` from `LINT_SKIP` and close this entry.
-
-**Next-bump checklist — the `asm/*` group (B) joins here.** The 5 `pkg/binate/asm/*` skips (real
-safe-borrow over-flags) are un-skipped via the `// bnlint:allow` suppression mechanism (landed main
-`91286ab8`), which is ALSO newer than the bundle — so the same bump that drops `interp` should also
-adopt the 17 asm directives + drop `pkg/binate/asm/{arm32,elf,macho,parse,x64}` (see the asm
-`[managed-to-raw-assign]` audit entry above). One bump clears every remaining `LINT_SKIP` entry.
-
-### `rt.Exit` paradigm: `exit` vs `abort`/`panic` — DISCUSS
-- `rt.Exit` (→ libc `exit`) is the wrong model in general: process exit
-  is meaningless in an embedded/freestanding environment, and the
-  runtime mostly invokes it for *abort* conditions (OOM, bounds-fail,
-  refcount corruption). `abort`/`panic` is likely the right paradigm.
-- Surfaced 2026-06-03 alongside the `__c_call`/drop-libc work; that
-  change preserves `Exit`→`exit` behavior, so this is a clean,
-  independent follow-up. Needs a design discussion before any change.
-
-### Inject `pkg/bootstrap` into the VM + convert I/O to `__c_call` — Phase 1 DONE; Phase 2 DEFERRED (BUILDER-runtime coupling)
-- **Phase 1 LANDED** on main (`a7fabc7a`, 2026-06-03): bootstrap is now
-  native-only in the VM — cmd/bni skips lowering it, the format helpers
-  (formatInt/Int64/Uint/Bool/Float, Itoa) are registered as externs in
-  both `registerBootstrapExterns` copies, bootstrap's bytecode unit tests
-  are xfailed in the 3 `-int` modes, and `extern_register_std_test` guards
-  format-helper registration.  `formatFloat` (the first native float
-  extern) dispatches via the all-int shim ABI (`7abc3809`).  Verified:
-  `287_float_println` green in `-int`; full `builder-comp-int` /
-  `-comp-int` / `-int-int` clean but for pre-existing failures.
-- **Plan**: [`plan-bootstrap-ccall.md`](plan-bootstrap-ccall.md). The
-  rt-drop-libc pattern applied to bootstrap: eliminate the hand-written
-  `bn_pkg__bootstrap__*` I/O glue in `binate_runtime.c` by converting it
-  to `.bn` + `__c_call`, and make bootstrap native-only in the VM.
-- **Phase 2 DEFERRED (2026-06-03), possibly indefinitely**: converting
-  the I/O to `.bn` *adds* `bn_pkg__bootstrap__{Open,Read,Write,Close,Exit}`
-  defs that collide with BUILDER's pinned runtime (gen1 links it,
-  `build-compilers.sh:55-62`) → duplicate-symbol link failure building
-  gen1. It's a runtime-ABI change, so it can only be done *during a
-  BUILDER bump/release* (the new BUILDER's runtime omits the I/O), not in
-  the pinned-BUILDER tree. The trivial+moderate `.bn` code was written +
-  reviewed (correct modulo the link blocker) and is preserved in
-  plan-bootstrap-ccall.md's appendix. `Stat` is a further defer (struct
-  stat platform divergence → needs a per-libc-platform impl split). It may
-  be better to *eliminate* these bootstrap I/O functions (subsumed by a
-  real stdlib `io`) than convert them — so this may never be worth doing.
-- **Harder than rt**: `__c_call` is scalar/pointer-only, but bootstrap's
-  I/O takes slices + returns managed-slice aggregates → marshalling
-  (null-term cstr, data-ptr extraction, aggregate construction). `Args`
-  can't be pure `__c_call` (no libc fn returns argv) — a minimal argv
-  hook stays in C. Not C-freedom (still links libc syscall wrappers).
-- **Needs a BUILDER bump** (the deferral reason above; the original
-  "no BUILDER bump" claim was wrong — BUILDER *compiles* `__c_call` fine,
-  but its *runtime* still defines the I/O symbols gen1 links). Baremetal
-  keeps its semihost impl (per-target, like rt). Filed 2026-06-03.
-
-### Better test-mode/target annotation than `.xfail` (unit + conformance)
-- We lean on `.xfail.<mode>` files to mark tests that can't run in a
-  given configuration (e.g. `pkg-builtins-rt.xfail.builder-comp-int*`
-  because rt is native-only in the VM; the `__c_call` conformance tests
-  498/500/527/530 xfailed in every VM-leg mode). But "expected to FAIL"
-  is the wrong semantics for "not APPLICABLE here" — these tests are
-  *bnc-only* / *vm-only* / *target-specific* by nature, not regressions.
-- **Want**: a first-class annotation (in the test source or a manifest)
-  declaring a test's applicable modes/targets — `bnc-only`, `vm-only`,
-  per-backend, per-target — so the runner *skips* inapplicable configs
-  cleanly and reserves `xfail` for genuine known-failures. Would also
-  let `__c_call` tests declare "compiled-only" honestly instead of a
-  fan of per-mode xfail files.
-- Surfaced 2026-06-03 by the drop-libc / native-only-rt work.
-
-### Slim `pkg/bootstrap` and `pkg/libc` by migrating callers OUT
-- **What**: rather than converting bootstrap's I/O surface
-  in place, migrate callers AWAY from `pkg/bootstrap.X` and
-  `pkg/libc.X` toward whatever the long-term replacement is
-  (a new I/O package, a slimmer `pkg/std/os`, etc., TBD).
-  Goal: shrink the surface of both bootstrap and libc until
-  they can either be retired entirely or held as truly minimal
-  bootstrap primitives.
-- **Approach** (sketch — needs design): identify call sites,
-  classify them by what they want (formatted print, file I/O,
-  process control, raw libc memops), and route each class to
-  the canonical replacement.  bootstrap and libc only get
-  what's TRULY platform-essential and inappropriate for any
-  higher-level package.
-- **Progress**:
-  - **libc Memcpy / Memset — DONE 2026-06-02 (binate `87965b70`)**:
-    the libc-host rt's MemCopy / MemZero now do pure-Binate byte loops
-    (matching the baremetal rt, which already did) and Box copies via
-    MemCopy, so both primitives were removed from the whole surface —
-    `pkg/libc.bni`, `runtime/libc_stubs.c`, the cmd/bni + vm extern
-    registries, and the vestigial baremetal `bn_pkg__libc__*` aliases
-    in semihost.s.  No BUILDER bump (gen1 links BUILDER's runtime;
-    gen1's outputs emit no `bn_pkg__libc__*` and link checkout's
-    runtime).  Verified across compiled / VM / self-hosted / baremetal
-    lanes.  Perf footnote: the byte loops are slower than libc
-    memcpy/memset at -O0 (no idiom recognition) — accepted for now,
-    revisit with a word-at-a-time loop if it shows in profiles.  This
-    does NOT touch the C-ABI memcpy/memset LLVM emits for aggregate
-    copies (llvm.memcpy intrinsics), which are independent of pkg/libc.
-- **Remaining libc surface**: Malloc / Calloc / Free (now the only
-  callers; need a real Binate allocator to retire) and Exit (needs a
-  process-exit syscall, gated on the C-free syscall story).
-  `pkg/bootstrap` — the larger I/O surface — is the next target.
-- **`bootstrap.Itoa` — FULLY RETIRED (2026-06-08, `f7966135`).**  Every
-  caller migrated, then the function, declaration, tests, baremetal
-  duplicate, and VM extern registration all removed.  Now that
-  `pkg/std/strconv` has `Itoa(v int)`
-  (base 10), `FormatInt(v int64, base)`, and `FormatUint(v uint64, base)`,
-  they are the canonical replacement for `bootstrap.Itoa`.  Goal: every
-  Tier-1/Tier-2/Tier-3 caller uses strconv instead of bootstrap (a
-  sub-step of retiring the bootstrap int-format surface).
-  - **The old "BUILDER tree CANNOT import strconv" constraint was wrong /
-    is now moot.**  `strconv` (whole package, incl. its `pkg/std/math/big`
-    dependency via `ftoa.bn`) is ALREADY in cmd/bnc's BUILDER-compiled
-    tree: `pkg/binate/ir/gen_const_fold.bn` and
-    `pkg/binate/native/common/common_float.bn` import it, and BUILDER
-    compiles them when building gen1.  So BUILDER-surface packages
-    (`token`, `native/*`, codegen, ir, …) CAN migrate — verified by
-    migrating `token` (gen1 rebuilds clean across builder-comp / -int /
-    -comp).  No integer-only strconv subpackage is needed.
-  - **`pkg/builtins/lang` (Tier-0 core) — DONE (2026-06-07):** lang can't
-    import `strconv` (below Tier 1; layering inversion, and a cycle since
-    strconv's closure reaches the builtins), so it got package-internal
-    full-width formatters (`formatUint64` / `formatInt64`, mirroring
-    `bootstrap.Itoa`'s uint64-magnitude approach incl. the two's-complement
-    trick for int64-min).  This also fixed a correctness bug: the impls had
-    funnelled through `bootstrap.Itoa(cast(int, x))`, which on 32-bit
-    targets TRUNCATED the wide types — `(int64/uint32/uint64).String()`
-    were WRONG on ILP32 for values outside int32 range — and mis-signed
-    unsigned values ≥ 2^63 on every target.  Each impl now widens
-    losslessly (signed → `cast(int64, x)`, unsigned → `cast(uint64, x)`);
-    lang keeps `bootstrap` only for `formatFloat`.  Covered by lang_test.bn
-    boundary cases (the unsigned ≥ 2^63 ones fail under the old code on a
-    64-bit host) and `conformance/653_int_string_width` (width-independent
-    output, one .expected for LP64+ILP32; guards the 32-bit truncation
-    under the arm32 modes — green on all 64-bit modes locally, arm32 needs
-    qemu so it runs in CI).
-  - **Conversion discipline for the migration:** route each site by the
-    *argument's* type, never by a lossy down-cast — bare `int` →
-    `strconv.Itoa`; wider signed → `strconv.FormatInt(cast(int64, x), 10)`;
-    unsigned → `strconv.FormatUint(cast(uint64, x), 10)`.
-  - **Leave (not formatting calls / separate decisions):** the extern
-    registrations that expose `bootstrap.Itoa` to interpreted code
-    (`pkg/binate/vm/extern_register_std.bn`, `cmd/bni/externs.bn`) — those
-    go when `bootstrap.Itoa` is deleted, not now; the test-runner codegen
-    in `cmd/bnc/gen_test_runner.bn` (emits source that calls
-    `bootstrap.Itoa`); and `conformance/064_bootstrap_funcs.bn` (tests
-    `bootstrap.Itoa` itself).
-  - **Progress — all migratable package callers DONE** (2026-06-07; each
-    green across builder-comp / -int / -comp, landed on main, one package
-    per commit): `token`, `repl`, `native/{x64,aarch64}`, `vm`, `ir`
-    (test-only), `lexer` (test-only), `types` (test-only), `lint`
-    (test-only), `cmd/bnlint`, `cmd/bni`.  Every arg was a bare `int`, so
-    all sites used `strconv.Itoa` directly (no `FormatInt`/`FormatUint`
-    needed yet).
-  - **Retirement — DONE** (landed in order, each its own commit):
-    `gen_test_runner.bn` formats counts via `passed.String()` (`c2aaaabf`,
-    relying on [A]); `321` migrated to `total.String()` (`9ba85eec`);
-    `conformance/064` retired (`0d7c0501`); the VM extern registration
-    dropped from both drivers (`6d2384de`); and finally the definition,
-    `.bni` declaration, unit tests, and baremetal duplicate removed
-    (`f7966135`).  The bootstrap int-formatting surface used by
-    print/println (`formatInt`/`Int64`/`Uint`/`Bool`/`Float`) deliberately
-    STAYS — only the standalone allocating `Itoa` is gone.
-  - **Done since:** the ad-hoc `intToChars` helpers — the package-scoped
-    one in `pkg/binate/ir/gen_func_lit.bn` (3 call sites: `__closure_local_`,
-    `__funclit_`, `__mv_local_`) and a duplicate in
-    `pkg/binate/vm/func_index_test.bn` — now use `strconv.Itoa` and are
-    deleted (2026-06-07).
-- **[A] Primitive `.String()` without importing `pkg/builtins/lang` —
-  DONE across all execution modes (compiled `37b2ffcc`, VM `487c2d08`).**
-  `myInt.String()` resolves AND links/executes with no import in both the
-  compiled backends and the bytecode VM; naming the `lang.Stringer`
-  interface *type* still requires the import (gated by the type checker).
-  Mechanism (reverses the "No auto-import" decision in
-  `plan-primitives-impl-interfaces.md`, for methods only): `ensureLangLoaded`
-  force-loads lang so its carve-out impls attach `String()`/`Compare()` to
-  the global primitive singletons (resolution); `appendLangImport` (a clone
-  of `appendBootstrapImport`, added at every `RegisterImports` site with the
-  same self-import guard, in BOTH `cmd/bnc/compile_imports.bn` and
-  `cmd/bni/irgen.bn`) registers lang's signatures so the cross-package call
-  resolves/links.  DCE/baremetal worry is moot (unused impls stripped by
-  `--gc-sections`/`-dead_strip`).  Full conformance green in both
-  builder-comp (1085) and builder-comp-int (1072).  Covered by conformance
-  `654`–`656` (per-type positives) + `658` (negative).
-  - **Remaining follow-up — the repl.** The repl has its own import setup
-    (`pkg/binate/repl/{ir_imports,session,util}.bn`) not covered by the
-    `cmd/bni` change; add `ensureLangLoaded` + `appendLangImport` there so
-    `.String()` works at the repl too.  Small, same pattern.
-- **[B] Test runners can depend on the stdlib — DONE (2026-06-08,
-  `36e979df`).**  The `cmd/bnc --test` runner (`gen_test_runner.bn`,
-  compiled by `test.bn`) is parsed *after* typecheck, so a stdlib package
-  it imports that no test package pulls in was never loaded → not compiled
-  → wouldn't link.  Fix: `genTestRunner` declares its stdlib deps in
-  `testRunnerStdlibImports()`, and `test.bn` force-loads that list before
-  typecheck (the compile loop already builds every loaded package, so they
-  then link).  Adding the future `pkg/std/os` (for `Args`/`Open` when
-  bootstrap I/O migrates) is a one-line addition to that list plus its use
-  in the runner.  Exercised end-to-end now by a placeholder: the runner
-  imports `pkg/std/errors` and makes one harmless `errors.New` call
-  (TODO-marked for removal once a real dep lands) — proven by
-  `pkg/binate/buf` (closure `{buf, testing}` excludes errors) whose test
-  binary links the errors-importing runner only via the force-load.  The
-  whole unit-test suite now exercises [B].  (The VM `-int` path is
-  unaffected — `cmd/bni` executes tests directly, no generated runner; a
-  future VM stdlib dep would be force-loaded there the same way as
-  bootstrap/lang.)  Distinct from [A], which force-loaded lang to make
-  `bootstrap.Itoa` removable.
-- **Why migrate OUT rather than convert in place (do NOT re-attempt the
-  in-place shape)**: in-place renames of packages whose surface is
-  declared-only and resolved by C symbols (`pkg/libc`, and the I/O side
-  of `pkg/bootstrap`) hit a wall that pure-Binate-package renames
-  (pkg/rt → pkg/builtins/rt) do not.  The wall: at Stage 1, gen1 is
-  linked against BUILDER's bundled `libc_stubs.c` (auto-found next to
-  `--runtime`), which only defines symbols under the OLD mangled name
-  (e.g. `bn_pkg__libc__Memset`).  Checkout source — now compiling under
-  the NEW package name — emits calls to `bn_pkg__builtins__libc__Memset`,
-  which is UNRESOLVED at Stage 1's link.  Pure-Binate packages don't hit
-  this because the bnc-compiled package provides the NEW-name symbols as
-  definitions in its own `.o`; declare-only-via-C packages have no such
-  Binate-side definition.  Compat aliases in checkout's `libc_stubs.c`
-  don't help — BUILDER's runtime is what Stage 1 links against, not
-  checkout's.  Resolving would require either (a) pointing Stage 1's
-  `--runtime` at checkout's (build-script surgery), (b) a supplemental
-  compat .o via `--link-after-objs` (build-script surgery + new
-  artifact), or (c) two release cycles with a transitional bridge —
-  none worth the bootstrap migration's payoff.  Migrating callers OUT
-  side-steps the whole tangle.
-- **Status**: in progress.
 
 ### Package descriptors (Phase B) — `__Package()` works in compiled + VM modes (builtins); general Functions-table still future
 - **Status**: compiled-mode AND VM-mode `__Package()` landed (binate
@@ -828,34 +178,176 @@ adopt the 17 asm directives + drop `pkg/binate/asm/{arm32,elf,macho,parse,x64}` 
   typecheck — `scripts/hygiene/lint.sh` temporarily skips pkg/binate/vm +
   pkg/binate/repl + cmd/bni until the next BUILDER bump.
 
-### Static-managed sentinel — deferred follow-ups (optimizations, not correctness) — 🟢 LOW
-Follow-ups split out of the (now-done) static-managed sentinel landing:
-- **String-literal null-backing unification**: can the string-literal
-  `backing_refptr = null` immortality trick (`emit.bn`) be unified under the
-  negative-refcount sentinel? Representation can plausibly unify; the nil-check
-  itself can't be dropped (it guards genuinely-nil `@` values). Repr cleanup.
-- **ClosureRec-as-sentinel**: the VM's shared per-callee non-capturing-`@func`
-  `ClosureRec` (`vm_exec_funcref.bn`) is a static, never-freed managed object.
-  The premature-free CRITICAL was already fixed symmetrically (conformance 528);
-  making the shared `ClosureRec` an immortal sentinel would remove per-instance
-  refcount churn on a shared singleton. Optimization, not a correctness gap.
+### Compiler/interpreter interop — MAJOR PROJECT
+- **Why this is high priority**: dual-mode execution is a core promise of the
+  Binate language. Compiled-and-interpreted code calling each other (in both
+  directions) is what makes "compile some packages, interpret others" actually
+  useful. We should make this real BEFORE pushing on more language features —
+  large language additions risk locking in design choices that close off
+  interop options.
+- **Likely-already-compatible substrate** (verify rather than redesign):
+  - **In-memory layout of types** is supposed to match across modes. Compiler
+    uses `pkg/types`'s SizeOf/AlignOf/FieldOffset; interpreter uses (or should
+    use) the same. Verify with a small cross-mode struct-pass test.
+  - **Refcounting**: managed allocations carry a header with refcount and a
+    pointer to the destructor, populated at allocation site. Compiled and
+    interpreted code use the same `rt.RefInc` / `rt.RefDec` / `rt.Free`. Free
+    paths invoke the per-type dtor through the header, so a managed value
+    allocated on one side and dropped on the other should clean up correctly.
+    Verify with a cross-mode managed-pointer round-trip.
+- **Direction to start with**: interpreted code calling compiled code. Simpler
+  than the reverse (no need for the compiler to plant trampolines into a
+  running interpreter). Once that works, compiled code calling interpreted
+  code falls out roughly symmetrically.
+- **Granularity: package-level.** For interpreted code in package P to call
+  into a compiled package Q, the interpreter needs:
+  - Q's `.bni` (so the interpreter can type-check P against Q's signatures —
+    this already works today via the existing `.bni` loading path).
+  - **Pointers to Q's compiled functions** (the actual interop primitive).
+- **Proposed mechanism: auto-generated package descriptor.** The compiler emits,
+  for each package Q, a synthetic `const` of a synthetic struct type — call it
+  e.g. `foo.Package` (working name; could be `foo.PackageImpl` or another
+  canonical name) — whose fields are pointers to Q's exported functions in some
+  canonical order (e.g., sorted by mangled name). The interpreter, when it
+  loads compiled package Q, reads that descriptor and binds each field as the
+  function value for the corresponding name in Q's scope. Naming and layout
+  must be canonical so an interpreter built against Q's `.bni` can read Q's
+  descriptor without further metadata.
+- **Symmetry**: the interpreter should produce the same shape on its own end —
+  for each interpreted package, expose a `foo.Package` whose function-pointer
+  fields are trampolines into the interpreter (call into the bytecode VM
+  using the trampoline's bound bytecode/closure-env/types/aliases). That way
+  compiled code calling interpreted code is the same mechanism, mirrored.
+- **Prerequisite — DONE**: function values (see
+  `plan-function-values.md` + `plan-function-values-phase-3.md`).
+  The descriptor's fields are pointers to functions — that's
+  exactly what function values are. The 2-word `{vtable, data}`
+  representation, the `(*uint8 data, <args>)` always-shim
+  convention, the per-function `__shim.<mangled>` shims, the
+  bytecode-side `dispatchCompiledFuncValue` (via
+  `rt._call_shim_scalar`), and the compiled-side `TrampolineScalar`
+  are all in place. The remaining work is the descriptor itself
+  (naming, layout, emission, loading) plus the symmetric VM-side
+  emission for interpreted packages — pure plumbing; no new
+  trampoline machinery needed.
+- **Adjacent cleanup, lighter-weight first step**: see the
+  "VM extern dispatch: name → function-value registry" entry
+  above. A per-VM name → function-value registry with manual
+  registration (no descriptor design needed) replaces
+  `pkg/vm/vm_extern.bn`'s hand-coded switch via the same
+  `dispatchCompiledFuncValue` path Phase 3 already provides.
+  Auto-generated descriptors are the more general form of the
+  same idea — the registry stays as the manual-registration
+  escape hatch for host-only externs that have no Binate-side
+  `.bni` package.
+- **Design open questions** (need a writeup before implementation):
+  - Canonical name for the descriptor — `foo.Package` reads naturally but
+    risks conflicting with user names. `foo.PackageImpl` or a reserved-prefix
+    name (`__pkg_foo`)? Reserve a keyword?
+  - Canonical layout — sort by mangled name? By declaration order in `.bni`?
+    Layout must be agreed-upon by the descriptor's emitter and reader.
+  - Interaction with import aliases (`import alt "pkg/foo"`) and blank imports
+    (`import _ "pkg/foo"`) — see the "Import aliases and blank imports" entry.
+  - What does the descriptor look like for the package being compiled itself
+    (the "self" descriptor)?
+  - How are package-level globals exposed? Functions are the obvious starting
+    point; globals are a separate (but related) interop question.
+  - Versioning: if Q's `.bni` and Q's compiled descriptor disagree (different
+    function set, different layout), how do we detect and report it?
+- **Adjacent in-flight work that affects this**:
+  - "Function values — MAJOR PROJECT" (above) and
+    `plan-function-values.md` — direct prerequisite. Phase 3 of
+    that plan delivers the cross-mode trampoline machinery this
+    work consumes.
+  - "Free-function pointer in managed-allocation header — bug"
+    (above, DONE within a single mode) — Free now dispatches through
+    `header[1]`. Cross-mode allocate-on-one-side / free-on-the-
+    other still requires Phase 3's trampolines to translate
+    `header[1]` between the C-pointer and VM-index conventions.
+  - "Lift function-name qualification into IR" (above) — would simplify name
+    resolution at the interop boundary.
+  - "Import aliases and blank imports" (below) — affects how the descriptor
+    is named at the import site.
+- **Suggested next step**: write a design doc (e.g.
+  `explorations/plan-compiler-interp-interop.md`) that nails down the
+  descriptor name/layout, walks through one concrete cross-mode call end-to-
+  end on each side, and identifies the first concrete code change to make.
+  Don't start implementation until the design is reviewed.
 
-### Purely-value const extension (future language direction) — DESIGN, not started
-Future direction split out of the (now-resolved) non-int-const mis-emit bug:
-allow `const` of certain non-scalar but purely-value types (no storage, no
-managed fields). Currently `const` is scalar-only (non-scalar → `errNonScalarConst`,
-"use `var readonly`"); no `isPurelyValueType` predicate exists yet. A genuine
-language extension, not a bug fix.
+### Embeddable-interp — open follow-ups (Inc 2 extern cleanup core landed) — 🟡 OPEN (2026-06-20)
 
-### Raw-slice escape: decide whether a BROADER best-effort escape lint is wanted — 🟡 NEEDS DECISION
-The original framing ("demote the raw-slice escape TYPE ERROR to a linter rule")
-is obsolete: there is NO type-check rejection for raw-slice escape (the checker
-never rejected it), and a `raw-slice-return` LINT rule already exists (`lint.bn`,
-landed `10d19369`) — but it only covers the `@[]T → *[]T` "drops the managed
-wrapper" return case. **Open decision (user):** is a broader best-effort escape
-lint wanted (return / store-to-outliving-field / assign-to-global of a raw slice
-borrowing a local), or is the current narrow rule + "raw is an opt-in escape
-hatch" sufficient (close this out)?
+The embeddable-interp core (Inc 1, Inc 2 Layers 1/2 + the review (b)-fix, and the
+loader de-rooting) is **✅ DONE & LANDED** — full detail in
+[claude-todo-done.md](claude-todo-done.md). Plan:
+[`plan-embeddable-interp.md`](plan-embeddable-interp.md). Remaining open
+follow-ups (deferred with user sign-off):
+
+- **runTests / global `IsNativeOnlyInVM` unification.** The `--test` runner
+  (`cmd/bni/main.bn`) still keys the lowering skip on the hardcoded
+  `IsNativeOnlyInVM` (fixed stdPkgs config); only the `@Interp` run path derives
+  it from the inject-set. Unify so there is one mechanism.
+- **Lower-time "this impl can't be interpreted" guard.** Dropping a package
+  whose only impl needs native facilities (today's `os`/`__c_call`) and letting
+  it lower yields silently-broken bytecode (can't reach `cLseek`). The
+  principled guard is a lower-time check on the impl (does it use `__c_call` /
+  native-only facilities?) that errors clearly instead.
+- **Globals/vtables-sensitive inject-set test.** `TestNewCustomPkgsRespected`
+  proxies on `len(Externs)` (function registration only); add a test that a
+  custom set's globals + impl vtables are honored (the `errors.Is`
+  sentinel-identity path).
+- **Layer 2b — `@reflect.Package` wrapping helper.** Build a modified descriptor
+  from an existing one with selected `FunctionInfo` values replaced, so an
+  embedder overrides e.g. `os.Args()` without hand-constructing a descriptor.
+  This is the ergonomic per-function override path; it also rehomes the
+  `progArgsAfterDash` Args shim (becomes a cmd/bni-built wrapped-`os` concern
+  rather than baked into interp's bootstrap registration). Land with an
+  end-to-end test proving a wrapped package changes observed runtime behavior.
+- Optional: auto-enumerate bootstrap's exported format helpers via
+  `RegisterPackageFunctions` (they qualify — exported, non-extern), leaving only
+  the 9 extern C-I/O entries hand-bound.
+
+## VM runtime faults & the rt.Exit/abort/panic paradigm
+
+### rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟡 SCOPE REQUIRED (2026-06-20)
+
+**Related robustness gap (filed 2026-06-30):** a bad-pointer deref inside a NATIVE EXTERN
+called from the VM (e.g. handing a wild pointer to `rt.Refcount`) SIGSEGVs the VM host with
+NO guard — it is not one of the 6 guarded VM user-fault sites (bounds/divide/shift/nil-deref/
+stack-overflow/call-through-nil), and there is no signal handler in `pkg/binate/vm` / `cmd/bni`
+/ `rt`. Surfaced while resolving the "VM refcount halt" probe-artifact (see done file). If
+this VM-fault-recovery work is picked up, the native-extern boundary should be considered too.
+
+Plan doc: [`plan-rt-abort-panic.md`](plan-rt-abort-panic.md). **Plan 1 (the
+`rt.Abort`/`rt.Panic` primitives, the `panic()` single-string + lowering change,
+and the VM internal-abort migration through `panic()`) is DONE & LANDED** — see
+claude-todo-done.md.
+
+User-code runtime faults (bounds / divide / shift / nil-deref / stack-overflow /
+call-through-nil) should be RECOVERABLE in the VM (the host REPL / test-runner /
+embedder survives a bad interpreted program) while staying fatal in compiled
+code. The 6 VM user-fault sites are deliberately still on `rt.Exit(1)` pending
+this. Approach (per user): rt is already injected into the VM, so a faulting user
+op already calls the *injected* `rt.Panic`/`rt.Abort`; inject a VM-specific
+variant that unwinds the VM's DATA-stack frames (`vm.Stack`) back to `CallFunc`
+instead of killing the host (no longjmp — the user call stack is data, not the
+host stack). Open: the exec-loop unwind mechanism + refcount-correct frame
+teardown.
+
+Related smaller follow-up: route panic / `runtime error:` / VM diagnostics to
+**stderr** (fd 2) — deferred out of Plan 1 (infra exists: `bootstrap.Write(fd)`,
+`bootstrap.STDERR = 2`); a real behavior change for anything scraping them off
+stdout.
+
+### `rt.Exit` paradigm: `exit` vs `abort`/`panic` — DISCUSS
+- `rt.Exit` (→ libc `exit`) is the wrong model in general: process exit
+  is meaningless in an embedded/freestanding environment, and the
+  runtime mostly invokes it for *abort* conditions (OOM, bounds-fail,
+  refcount corruption). `abort`/`panic` is likely the right paradigm.
+- Surfaced 2026-06-03 alongside the `__c_call`/drop-libc work; that
+  change preserves `Exit`→`exit` behavior, so this is a clean,
+  independent follow-up. Needs a design discussion before any change.
+
+## 32-bit-host toolchain: IR constant width & VM machine word
 
 ### 🏷[BUG-BASH 2026-06-27 → LANE 3] IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 + 2 (INT64 + FLOAT64) DONE
 - **Symptom**: under `builder-comp_arm32_linux` unit tests, `pkg/ir`
@@ -1058,6 +550,564 @@ hatch" sufficient (close this out)?
       "arm32 unit-test cleanup" entry for the bucket.  Unrelated
       to this work.
 
+### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
+The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
+were switched to `ManagedHeaderSize()` (main `581216d9`) — see [claude-todo-done.md](claude-todo-done.md).
+Residual: `data_pkg_descriptor.bn` (IR-gen phase) still uses one int-sized `w` for BOTH the
+managed-header words (pointer-sized) AND slice lengths (int-sized) — a documented "assumes
+PointerSize==IntSize" conflation, harmless on every shipping ABI. Untangle header (→
+`ManagedHeaderSize`/ptrSize) from slice-length (→ IntSize) only if a wide-int ILP32 ABI is targeted.
+
+## Slimming pkg/bootstrap & pkg/libc; C interop (`__c_call`)
+
+### Slim `pkg/bootstrap` and `pkg/libc` by migrating callers OUT
+- **What**: rather than converting bootstrap's I/O surface
+  in place, migrate callers AWAY from `pkg/bootstrap.X` and
+  `pkg/libc.X` toward whatever the long-term replacement is
+  (a new I/O package, a slimmer `pkg/std/os`, etc., TBD).
+  Goal: shrink the surface of both bootstrap and libc until
+  they can either be retired entirely or held as truly minimal
+  bootstrap primitives.
+- **Approach** (sketch — needs design): identify call sites,
+  classify them by what they want (formatted print, file I/O,
+  process control, raw libc memops), and route each class to
+  the canonical replacement.  bootstrap and libc only get
+  what's TRULY platform-essential and inappropriate for any
+  higher-level package.
+- **Progress**:
+  - **libc Memcpy / Memset — DONE 2026-06-02 (binate `87965b70`)**:
+    the libc-host rt's MemCopy / MemZero now do pure-Binate byte loops
+    (matching the baremetal rt, which already did) and Box copies via
+    MemCopy, so both primitives were removed from the whole surface —
+    `pkg/libc.bni`, `runtime/libc_stubs.c`, the cmd/bni + vm extern
+    registries, and the vestigial baremetal `bn_pkg__libc__*` aliases
+    in semihost.s.  No BUILDER bump (gen1 links BUILDER's runtime;
+    gen1's outputs emit no `bn_pkg__libc__*` and link checkout's
+    runtime).  Verified across compiled / VM / self-hosted / baremetal
+    lanes.  Perf footnote: the byte loops are slower than libc
+    memcpy/memset at -O0 (no idiom recognition) — accepted for now,
+    revisit with a word-at-a-time loop if it shows in profiles.  This
+    does NOT touch the C-ABI memcpy/memset LLVM emits for aggregate
+    copies (llvm.memcpy intrinsics), which are independent of pkg/libc.
+- **Remaining libc surface**: Malloc / Calloc / Free (now the only
+  callers; need a real Binate allocator to retire) and Exit (needs a
+  process-exit syscall, gated on the C-free syscall story).
+  `pkg/bootstrap` — the larger I/O surface — is the next target.
+- **`bootstrap.Itoa` — FULLY RETIRED (2026-06-08, `f7966135`).**  Every
+  caller migrated, then the function, declaration, tests, baremetal
+  duplicate, and VM extern registration all removed.  Now that
+  `pkg/std/strconv` has `Itoa(v int)`
+  (base 10), `FormatInt(v int64, base)`, and `FormatUint(v uint64, base)`,
+  they are the canonical replacement for `bootstrap.Itoa`.  Goal: every
+  Tier-1/Tier-2/Tier-3 caller uses strconv instead of bootstrap (a
+  sub-step of retiring the bootstrap int-format surface).
+  - **The old "BUILDER tree CANNOT import strconv" constraint was wrong /
+    is now moot.**  `strconv` (whole package, incl. its `pkg/std/math/big`
+    dependency via `ftoa.bn`) is ALREADY in cmd/bnc's BUILDER-compiled
+    tree: `pkg/binate/ir/gen_const_fold.bn` and
+    `pkg/binate/native/common/common_float.bn` import it, and BUILDER
+    compiles them when building gen1.  So BUILDER-surface packages
+    (`token`, `native/*`, codegen, ir, …) CAN migrate — verified by
+    migrating `token` (gen1 rebuilds clean across builder-comp / -int /
+    -comp).  No integer-only strconv subpackage is needed.
+  - **`pkg/builtins/lang` (Tier-0 core) — DONE (2026-06-07):** lang can't
+    import `strconv` (below Tier 1; layering inversion, and a cycle since
+    strconv's closure reaches the builtins), so it got package-internal
+    full-width formatters (`formatUint64` / `formatInt64`, mirroring
+    `bootstrap.Itoa`'s uint64-magnitude approach incl. the two's-complement
+    trick for int64-min).  This also fixed a correctness bug: the impls had
+    funnelled through `bootstrap.Itoa(cast(int, x))`, which on 32-bit
+    targets TRUNCATED the wide types — `(int64/uint32/uint64).String()`
+    were WRONG on ILP32 for values outside int32 range — and mis-signed
+    unsigned values ≥ 2^63 on every target.  Each impl now widens
+    losslessly (signed → `cast(int64, x)`, unsigned → `cast(uint64, x)`);
+    lang keeps `bootstrap` only for `formatFloat`.  Covered by lang_test.bn
+    boundary cases (the unsigned ≥ 2^63 ones fail under the old code on a
+    64-bit host) and `conformance/653_int_string_width` (width-independent
+    output, one .expected for LP64+ILP32; guards the 32-bit truncation
+    under the arm32 modes — green on all 64-bit modes locally, arm32 needs
+    qemu so it runs in CI).
+  - **Conversion discipline for the migration:** route each site by the
+    *argument's* type, never by a lossy down-cast — bare `int` →
+    `strconv.Itoa`; wider signed → `strconv.FormatInt(cast(int64, x), 10)`;
+    unsigned → `strconv.FormatUint(cast(uint64, x), 10)`.
+  - **Leave (not formatting calls / separate decisions):** the extern
+    registrations that expose `bootstrap.Itoa` to interpreted code
+    (`pkg/binate/vm/extern_register_std.bn`, `cmd/bni/externs.bn`) — those
+    go when `bootstrap.Itoa` is deleted, not now; the test-runner codegen
+    in `cmd/bnc/gen_test_runner.bn` (emits source that calls
+    `bootstrap.Itoa`); and `conformance/064_bootstrap_funcs.bn` (tests
+    `bootstrap.Itoa` itself).
+  - **Progress — all migratable package callers DONE** (2026-06-07; each
+    green across builder-comp / -int / -comp, landed on main, one package
+    per commit): `token`, `repl`, `native/{x64,aarch64}`, `vm`, `ir`
+    (test-only), `lexer` (test-only), `types` (test-only), `lint`
+    (test-only), `cmd/bnlint`, `cmd/bni`.  Every arg was a bare `int`, so
+    all sites used `strconv.Itoa` directly (no `FormatInt`/`FormatUint`
+    needed yet).
+  - **Retirement — DONE** (landed in order, each its own commit):
+    `gen_test_runner.bn` formats counts via `passed.String()` (`c2aaaabf`,
+    relying on [A]); `321` migrated to `total.String()` (`9ba85eec`);
+    `conformance/064` retired (`0d7c0501`); the VM extern registration
+    dropped from both drivers (`6d2384de`); and finally the definition,
+    `.bni` declaration, unit tests, and baremetal duplicate removed
+    (`f7966135`).  The bootstrap int-formatting surface used by
+    print/println (`formatInt`/`Int64`/`Uint`/`Bool`/`Float`) deliberately
+    STAYS — only the standalone allocating `Itoa` is gone.
+  - **Done since:** the ad-hoc `intToChars` helpers — the package-scoped
+    one in `pkg/binate/ir/gen_func_lit.bn` (3 call sites: `__closure_local_`,
+    `__funclit_`, `__mv_local_`) and a duplicate in
+    `pkg/binate/vm/func_index_test.bn` — now use `strconv.Itoa` and are
+    deleted (2026-06-07).
+- **[A] Primitive `.String()` without importing `pkg/builtins/lang` —
+  DONE across all execution modes (compiled `37b2ffcc`, VM `487c2d08`).**
+  `myInt.String()` resolves AND links/executes with no import in both the
+  compiled backends and the bytecode VM; naming the `lang.Stringer`
+  interface *type* still requires the import (gated by the type checker).
+  Mechanism (reverses the "No auto-import" decision in
+  `plan-primitives-impl-interfaces.md`, for methods only): `ensureLangLoaded`
+  force-loads lang so its carve-out impls attach `String()`/`Compare()` to
+  the global primitive singletons (resolution); `appendLangImport` (a clone
+  of `appendBootstrapImport`, added at every `RegisterImports` site with the
+  same self-import guard, in BOTH `cmd/bnc/compile_imports.bn` and
+  `cmd/bni/irgen.bn`) registers lang's signatures so the cross-package call
+  resolves/links.  DCE/baremetal worry is moot (unused impls stripped by
+  `--gc-sections`/`-dead_strip`).  Full conformance green in both
+  builder-comp (1085) and builder-comp-int (1072).  Covered by conformance
+  `654`–`656` (per-type positives) + `658` (negative).
+  - **Remaining follow-up — the repl.** The repl has its own import setup
+    (`pkg/binate/repl/{ir_imports,session,util}.bn`) not covered by the
+    `cmd/bni` change; add `ensureLangLoaded` + `appendLangImport` there so
+    `.String()` works at the repl too.  Small, same pattern.
+- **[B] Test runners can depend on the stdlib — DONE (2026-06-08,
+  `36e979df`).**  The `cmd/bnc --test` runner (`gen_test_runner.bn`,
+  compiled by `test.bn`) is parsed *after* typecheck, so a stdlib package
+  it imports that no test package pulls in was never loaded → not compiled
+  → wouldn't link.  Fix: `genTestRunner` declares its stdlib deps in
+  `testRunnerStdlibImports()`, and `test.bn` force-loads that list before
+  typecheck (the compile loop already builds every loaded package, so they
+  then link).  Adding the future `pkg/std/os` (for `Args`/`Open` when
+  bootstrap I/O migrates) is a one-line addition to that list plus its use
+  in the runner.  Exercised end-to-end now by a placeholder: the runner
+  imports `pkg/std/errors` and makes one harmless `errors.New` call
+  (TODO-marked for removal once a real dep lands) — proven by
+  `pkg/binate/buf` (closure `{buf, testing}` excludes errors) whose test
+  binary links the errors-importing runner only via the force-load.  The
+  whole unit-test suite now exercises [B].  (The VM `-int` path is
+  unaffected — `cmd/bni` executes tests directly, no generated runner; a
+  future VM stdlib dep would be force-loaded there the same way as
+  bootstrap/lang.)  Distinct from [A], which force-loaded lang to make
+  `bootstrap.Itoa` removable.
+- **Why migrate OUT rather than convert in place (do NOT re-attempt the
+  in-place shape)**: in-place renames of packages whose surface is
+  declared-only and resolved by C symbols (`pkg/libc`, and the I/O side
+  of `pkg/bootstrap`) hit a wall that pure-Binate-package renames
+  (pkg/rt → pkg/builtins/rt) do not.  The wall: at Stage 1, gen1 is
+  linked against BUILDER's bundled `libc_stubs.c` (auto-found next to
+  `--runtime`), which only defines symbols under the OLD mangled name
+  (e.g. `bn_pkg__libc__Memset`).  Checkout source — now compiling under
+  the NEW package name — emits calls to `bn_pkg__builtins__libc__Memset`,
+  which is UNRESOLVED at Stage 1's link.  Pure-Binate packages don't hit
+  this because the bnc-compiled package provides the NEW-name symbols as
+  definitions in its own `.o`; declare-only-via-C packages have no such
+  Binate-side definition.  Compat aliases in checkout's `libc_stubs.c`
+  don't help — BUILDER's runtime is what Stage 1 links against, not
+  checkout's.  Resolving would require either (a) pointing Stage 1's
+  `--runtime` at checkout's (build-script surgery), (b) a supplemental
+  compat .o via `--link-after-objs` (build-script surgery + new
+  artifact), or (c) two release cycles with a transitional bridge —
+  none worth the bootstrap migration's payoff.  Migrating callers OUT
+  side-steps the whole tangle.
+- **Status**: in progress.
+
+### Inject `pkg/bootstrap` into the VM + convert I/O to `__c_call` — Phase 1 DONE; Phase 2 DEFERRED (BUILDER-runtime coupling)
+- **Phase 1 LANDED** on main (`a7fabc7a`, 2026-06-03): bootstrap is now
+  native-only in the VM — cmd/bni skips lowering it, the format helpers
+  (formatInt/Int64/Uint/Bool/Float, Itoa) are registered as externs in
+  both `registerBootstrapExterns` copies, bootstrap's bytecode unit tests
+  are xfailed in the 3 `-int` modes, and `extern_register_std_test` guards
+  format-helper registration.  `formatFloat` (the first native float
+  extern) dispatches via the all-int shim ABI (`7abc3809`).  Verified:
+  `287_float_println` green in `-int`; full `builder-comp-int` /
+  `-comp-int` / `-int-int` clean but for pre-existing failures.
+- **Plan**: [`plan-bootstrap-ccall.md`](plan-bootstrap-ccall.md). The
+  rt-drop-libc pattern applied to bootstrap: eliminate the hand-written
+  `bn_pkg__bootstrap__*` I/O glue in `binate_runtime.c` by converting it
+  to `.bn` + `__c_call`, and make bootstrap native-only in the VM.
+- **Phase 2 DEFERRED (2026-06-03), possibly indefinitely**: converting
+  the I/O to `.bn` *adds* `bn_pkg__bootstrap__{Open,Read,Write,Close,Exit}`
+  defs that collide with BUILDER's pinned runtime (gen1 links it,
+  `build-compilers.sh:55-62`) → duplicate-symbol link failure building
+  gen1. It's a runtime-ABI change, so it can only be done *during a
+  BUILDER bump/release* (the new BUILDER's runtime omits the I/O), not in
+  the pinned-BUILDER tree. The trivial+moderate `.bn` code was written +
+  reviewed (correct modulo the link blocker) and is preserved in
+  plan-bootstrap-ccall.md's appendix. `Stat` is a further defer (struct
+  stat platform divergence → needs a per-libc-platform impl split). It may
+  be better to *eliminate* these bootstrap I/O functions (subsumed by a
+  real stdlib `io`) than convert them — so this may never be worth doing.
+- **Harder than rt**: `__c_call` is scalar/pointer-only, but bootstrap's
+  I/O takes slices + returns managed-slice aggregates → marshalling
+  (null-term cstr, data-ptr extraction, aggregate construction). `Args`
+  can't be pure `__c_call` (no libc fn returns argv) — a minimal argv
+  hook stays in C. Not C-freedom (still links libc syscall wrappers).
+- **Needs a BUILDER bump** (the deferral reason above; the original
+  "no BUILDER bump" claim was wrong — BUILDER *compiles* `__c_call` fine,
+  but its *runtime* still defines the I/O symbols gen1 links). Baremetal
+  keeps its semihost impl (per-target, like rt). Filed 2026-06-03.
+
+### Annotations and C function interop
+- **Option E (`__c_call` intrinsic) has a detailed implementation plan:
+  [plan-c-call.md](plan-c-call.md).**
+- Consider implementing annotations (decorators/attributes).
+- Specific use case: annotating functions as C functions.
+  - **Option A**: annotation in `.bni` — callers know the name and calling convention, but mixes interface with implementation.
+  - **Option B**: annotation on the definition (with empty body) — `bnc` generates a trampoline. But empty body is weird (missing return values?).
+  - **Option C**: annotation on a call site, indicating it's a C function call. Maybe a "magic" C package so no annotation is needed at all.
+  - **Option D**: manual trampolines, with a magic C package for declarations.
+  - **Option E**: a `__c_call` compiler intrinsic at the call site, no
+    declaration needed.  Two forms were considered:
+    - **E1 (rejected)**: pass a C prototype string —
+      `__c_call("ssize_t write(int, const void*, size_t)", fd, buf, len)`.
+      Reads nicely, but forces the compiler to parse C and resolve C
+      types, which drags in typedefs, macros, and platform builtins
+      (`__size_t` &c.).  Not practical.
+    - **E2 (preferred)**: pass the C symbol name, an explicit return
+      type, then the argument values already in (or cast to) the
+      Binate types that match the C ABI —
+      `result = __c_call("write", int, cast(int, fd), cast(*uint8, buf), cast(uint, len))`
+      (casts are unnecessary when the variables already have the right
+      type).  Supported argument/return types: scalars, struct types,
+      and pointers to these (to any depth: `*T`, `**T`, …).  This
+      reuses the backends' existing platform-C-ABI lowering (struct
+      sret thresholds, register assignment) — no C parsing, no type
+      resolution, no new ABI logic.  The symbol name is emitted
+      verbatim (no `bn_` mangling); the backend emits the matching
+      `extern`/`declare`.
+  - **C-types alias package (decided)**: a package (e.g. `pkg/c`)
+    pins the Binate↔C scalar correspondence in one place so call sites
+    don't open-code it.  `C_int`/`C_uint` = `i32`/`u32` (C `int` is
+    32-bit on both ILP32 and LP64, *not* target-word-width like Binate
+    `int`); `C_long`/`C_ulong` = target-word (LP64 Unix; matches Binate
+    `int`/`uint`); `C_size_t` = `uint` (pointer-width); `C_char` = `i8`
+    (signedness is platform-dependent in C — note the caveat, but it's
+    promoted on pass so rarely matters).  Plus a sentinel `C_void` for
+    the return-type slot of functions that return nothing.  So the
+    example's `fd` is really `C_int` (= `i32`), not `int`.
+  - **Scope decisions (v1)**:
+    - **Compiled-mode-only to start.** The compiler emits a direct
+      call; the VM would need FFI-style dispatch (resolve the symbol
+      via the extern registry + marshal by the supplied types) — punt
+      that.  `__c_call` outside compiled mode is an error for now.
+    - **Include variadics from the start.** The whole point of
+      `__c_call` is to retire `pkg/bootstrap`'s hand-written C
+      wrappers and the special shim machinery — and several of those
+      OS interfaces are variadic in C (`open(const char*, int, ...)`
+      where `mode` is a vararg; `fcntl`, eventually the `printf`
+      family).  Punting variadics would leave bootstrap unable to go
+      away, defeating the purpose.  So v1 supports them.
+      - **Boundary marker (required).** The call site must declare
+        where fixed args end and variadic args begin — it can't be
+        inferred from the values (`open(path, flags, mode)` is
+        indistinguishable from a 3-fixed-arg call).  Proposed: a
+        `C_varargs` sentinel (or a recognized `...` token) in the
+        argument list:
+        `__c_call("open", C_int, path, flags, C_varargs, mode)`.
+        Everything after the marker is an anonymous/variadic arg.
+      - **Backend work is lopsided.** LLVM path: nearly free — emit
+        `declare i32 @open(i8*, i32, ...)` + a varargs call with the
+        right fixed-arg count, and LLVM does the platform-correct
+        lowering (x86-64 `AL` = vararg float count, darwin-arm64
+        stack-passing, 64-bit-vararg alignment) for us.  Native
+        backends (`pkg/native/{arm64,amd64}`): real work — they emit
+        machine code directly and must implement the vararg
+        convention per target (darwin-arm64 stacks all varargs;
+        x86-64 SysV sets `AL`; AArch64-Linux/arm32 mostly match the
+        fixed convention but 64-bit varargs need 8-byte alignment).
+        This extends the existing `CallConv`/register-assignment
+        logic; needs per-target tests.
+  - **Open considerations for E2 (still to resolve)**:
+    - Confirm the full `pkg/c` scalar table against each target
+      (`C_long` on a 32-bit target, `C_char` signedness, the float
+      types if/when floats land).
+    - Final spelling of the variadic boundary marker (`C_varargs`
+      sentinel vs a `...` token vs an explicit fixed-arg count).
+    - VM/dual-mode FFI dispatch (deferred above) when interpreted-mode
+      `__c_call` is eventually wanted.
+  - **Companion idea — link-requirement annotation (sketch)**: Option E
+    makes a C symbol *callable*; a complementary annotation would make
+    it *resolve at link time* by declaring, at the source level, that
+    using a package requires linking some C library — so the driver
+    adds the flag automatically instead of every consumer passing
+    `--cflag -lm` / `--link-after-objs` by hand.  Prior art:
+    Rust `#[link(name = "m", kind = "static")]`, Go cgo
+    `// #cgo LDFLAGS: -lm`, MSVC `#pragma comment(lib, "foo")`.
+    Natural shape: `#[link("m")]` (optionally a `static`/`dynamic`/
+    `framework` kind), most naturally on the `.bni` since the link
+    requirement is part of the package's contract.  This is also the
+    first real payoff of the general annotations feature this item is
+    about — both Option E and this want it.
+    - **Open wrinkles**:
+      - **Transitivity** — the requirement must propagate through the
+        import graph (aggregate + dedup all declared libs for any
+        binary that transitively imports the package).  Hooks into the
+        loader's `ldr.Order` walk + the driver's `clangArgs` assembly.
+      - **Link ordering** — static archives only supply symbols
+        referenced by *earlier* inputs, so aggregated `-l` entries
+        need correct placement vs. the `.o` files and runtime (the
+        driver already does this for `linkAfterObjs`).
+      - **Search paths** — keep the annotation name-only (`-l`); leave
+        `-L<dir>` to driver flags.
+      - **Platform-conditionality** — a `libm` dep is meaningless on
+        bare-metal arm32 and `framework` kind is macOS-only, so the
+        annotation likely needs to be target-qualifiable.  Ties into
+        the C-free principle: this exists only to interface with
+        existing C systems and should evaporate on freestanding
+        targets.
+      - **Static-spec portability** — even with `kind = static`,
+        expressing it portably is messy (GNU ld `-l:libfoo.a` /
+        `-Wl,-Bstatic`; macOS `ld` has neither), so it may need
+        per-platform lowering in the driver or a full-path escape
+        hatch.
+
+## Build constraints (`#[build(EXPR)]`)
+
+### Collapse `pkg/bootstrap` onto `#[build]` — 🟡 OPEN (next, per user 2026-06-19)
+With BUILDER at `bnc-0.0.9` (both `bnc` and `bnlint` parse `#[build]`), `pkg/bootstrap` — whose
+per-target variants are currently PATH-selected and which lives in cmd/bnc's BUILDER-compiled
+tree — can be collapsed onto `#[build(...)]`-gated declarations, the same way `pkg/builtins/build`
+was. See [`plan-impls-constraints-migration.md`](plan-impls-constraints-migration.md). (This was
+the "bonus" of the build.bni-dedup workaround removal, now landed — binate `9c2ac789`, archived in
+[claude-todo-done.md](claude-todo-done.md).)
+
+### Build constraints (`#[build(EXPR)]`) — deferred follow-ups (arch/os MVP landed) — 🟡 OPEN
+The `#[build(EXPR)]` arch/os MVP is landed at all four granularities (file / decl / import / `.bni`),
+host-default config overridable per `--target`, through `c7249552` (conformance 731/733/735/736/737/746/747);
+full design in [`plan-build-constraints.md`](plan-build-constraints.md), archived in
+[claude-todo-done.md](claude-todo-done.md). Still deferred (none started):
+- Vocabulary beyond arch/os: `triple` / `backend` / `libc` / `ptrsize` / `version` with `is` / `at_least` / `at_most`.
+- `bnlint --target`; main-module gating; migrating the `impls/` duplicate trees onto constraints.
+- The separate inline-asm (`#[asm]`) doc that composes with this substrate.
+
+## bnlint rules, unused-entity checks & lint skips
+
+### 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (import hygiene) — two non-wrong-code follow-ups from the file-scoped-imports work — 🟡 OPEN
+The PACKAGE-scoped-imports CRITICAL (all wrong-code facets — visibility leak, same-alias miscompile,
+qualified-TYPE memory-layout corruption, implicit same-last-segment, generic instantiation, the
+cross-file package-level `var x = dep.Foo()` residual) is ✅ FULLY RESOLVED & LANDED and archived in
+[claude-todo-done.md](claude-todo-done.md).  Two non-miscompile follow-ups remain:
+- **(F-checker) the checker has ZERO unused-import handling** — the only unused-import check is the
+  opt-in bnlint rule, whose per-file attribution has false-positive (sibling-file use) and
+  false-negative (local var shadowing an alias) corners.  Entangled with / tracked by the
+  "(planning) unused-entity checks" entry below (`plan-unused-checks.md`).
+- **Build-confirmation coverage want**: an incompatible-signature escalation test for the A/B facets
+  (`func V() *uint8` vs `func V() int` colliding members → show ABI/result-type confusion), on top of
+  the existing 830/831/832 conformance coverage.  Low priority — the facets are fixed and tested.
+
+### (planning) unused-entity checks — fix the unused-import `(a)` cross-file gap + add `(b)` unused locals / `(c)` unused private funcs / `(d)` unused private globals / `(e)` unused private types — 🟡 PLAN WRITTEN (`plan-unused-checks.md`)
+
+bnlint today has exactly one "unused" rule (`unused-import`, `pkg/binate/lint/unused_import.bn`); the type checker has no usage tracking at all. **Plan written: `explorations/plan-unused-checks.md`** (phasing, per-rule design, edge cases, tests, open decisions). Foundational dependency: the CRITICAL import-scoping bug above — fix direction **1 (file-scoped imports)** chosen; that is Phase 0 and `(a)` rides on it. `(b)` is checker-side (Used flag + popScope sweep, BUILDER-compatible); `(c)`/`(d)`/`(e)` are lint-side over a shared `refs.bn` reference index. Open decisions (warning-vs-error, reference-vs-reachability, params/write-only/consts, receiver-as-use) are listed in the plan for the user. Two latent bugs surfaced and noted there: `markBniExportedVars` skips `DECL_GROUP`; `DECL_TYPE` carries no `Exported` flag.
+
+### MINOR (hygiene / lint) — investigate the `[managed-to-raw-assign]` findings in `pkg/binate/asm/*` (2026-06-20) — 🟡 OPEN
+The compiler-tree lint-coverage gap is ✅ FIXED & LANDED (`582c1327`): `scripts/hygiene/lint.sh`
+discovery is now recursive over `pkg/`, so all ~23 `pkg/binate/*` compiler packages are bnlint
+targets (the old one-level `pkg/*/` glob matched only `pkg/binate/`, which has no direct `.bn`, after
+the `pkg/parser`→`pkg/binate/parser` reorg — so ZERO compiler packages were linted; only the
+bnlint-RULES check had this gap, since file-length/naming/doc use a recursive `find`).  Two real
+`[unused-import]`s it surfaced (`ir/gen.bn`→ast, `native/aarch64/aarch64_call.bn`→mangle, both
+comment-only) were removed.  **Residual** — 5 asm subpackages are temporarily in `LINT_SKIP`
+(`pkg/binate/asm/{arm32,elf,macho,parse,x64}`) for a `[managed-to-raw-assign]` finding
+(`var data *[]uint8 = sec.Data` — a borrow of a held `@[]uint8`).
+
+**Per-site audit DONE (2026-06-30, bnc-0.0.10 bnlint + adversarial workflow + source verification of
+the one real bug).** 19 findings across the 5 packages:
+- **1 REAL use-after-free** — `parse/parse.bn:160` (`name = expr` constant def borrowed `tok.Text`,
+  then `LexNext` freed it before the read). ✅ **FIXED & LANDED (main `8a883450`)** — own the name
+  first (`buf.CopyStr`) + regression test `TestParseConstNamePreserved` (verified failing pre-fix);
+  write-up in the done file. The rule was RIGHT here — the skip hid a real UAF.
+- **1 real `[unused-import]`** — `parse/aarch64.bn:3` imported `pkg/binate/asm`, never used. ✅ FIXED
+  (main `8a883450`, same commit).
+- **17 safe-borrow over-flags** — every site in `arm32`/`elf`/`macho`/`x64` (all 9) + 6 of the 8
+  `parse` sites. All borrow a field of a managed owner (`@asm.Section`/`@asm.Assembler`/a `BinBuf`
+  local / a by-value `Token` param / a function-scope buffer) that provably outlives the raw view's
+  synchronous read or in-place patch. The rule conservatively flags `@[]T → *[]T` without lifetime
+  analysis.
+**Un-skip path:** the two real findings are ✅ FIXED (main `8a883450`). The 17 safe-borrow over-flags
+are handled by **suppression: the `// bnlint:allow <rule>` directive mechanism is ✅ LANDED (main
+`91286ab8`)** (decision A — keep the rule strict, annotate each safe borrow with a justification;
+generic across all rules). **Remaining (OPEN, BUILDER-gated) — INCREMENT 2:** adopt the directives +
+un-skip. Add a trailing `// bnlint:allow managed-to-raw-assign — <why the owner outlives the borrow>`
+to each of the 17 sites (the per-site reasons are in the workflow audit / the 5 package sections), and
+drop `pkg/binate/asm/{arm32,elf,macho,parse,x64}` from `LINT_SKIP`. **Gated on the next BUILDER bump**
+because hygiene runs the BUNDLED bnlint (`bnc-0.0.10`), which predates `91286ab8` and would ignore the
+directives → red hygiene until the bump. Do it in ONE commit at the next bump, alongside dropping
+`pkg/binate/interp` (see the BUILDER-lag-lint-skips entry) — i.e. that bump clears ALL remaining
+`LINT_SKIP` entries except any still-pending real findings.
+
+### Remove the BUILDER-lag lint skips after a BUILDER bump — 🟡 OPEN (narrowed to `pkg/binate/interp`; gated on next BUILDER bump)
+`scripts/hygiene/lint.sh`'s `LINT_SKIP` group (A) is the BUILDER-lag set — packages the bundled
+bnlint can't typecheck because they use a feature/fix newer than the bundle.
+
+**The bnc-0.0.9 lag is CLEARED** (BUILDER is now `bnc-0.0.10`, checked 2026-06-29). `pkg/builtins/rt`
+(the `"void"` `__c_call` spelling) and `pkg/std/os` (the `.bni` free-function-vs-method fix
+`796effc7`), plus their importer chain `pkg/binate/{vm,repl}` + `cmd/{bni,bnas,bnlint}`, all lint
+**clean** under the bnc-0.0.10 bundled bnlint (verified each directly). Dropped from `LINT_SKIP` —
+restoring style-lint coverage on those seven packages, hygiene 15/15 — in `binate` lint.sh change
+`c5a14146`.
+
+**Still skipped — `pkg/binate/interp`**, but for a *newer* lag (not the rt/os one). **Root-caused
+(2026-06-30): a synthesized-accessor NAME skew, not a missing bnlint capability — so the next bump
+fixes it and NO linter work is needed.** The compiler-synthesized reflect accessor was renamed
+`_Package` → `__Package` in `e12a8a3b` ("fix CRITICAL … close silent collision", 2026-06-26), which
+postdates the bnc-0.0.10 release (`cdea9b9f`, 2026-06-23). interp's extern-registration references the
+new name as a func value (`rt.__Package`, `reflect.__Package`, `errors.__Package`, …), but the bundled
+bnc-0.0.10 checker still synthesizes/resolves the OLD `_Package` (verified: `emit_pkg_descriptor.bn`
+mangles `"_Package"` at cdea9b9f, `"__Package"` at HEAD), so `<pkg>.__Package` is undefined under the
+bundle — cascading to all four errors (`undefined: __Package` → `cannot call non-function` → `cannot
+assign void to @Package` → `_func_handle argument must be a named function`). A current-source
+(post-rename) bnlint lints interp clean. Action: at the next BUILDER bump (source ≥ `e12a8a3b`), drop
+`pkg/binate/interp` from `LINT_SKIP` and close this entry.
+
+**Next-bump checklist — the `asm/*` group (B) joins here.** The 5 `pkg/binate/asm/*` skips (real
+safe-borrow over-flags) are un-skipped via the `// bnlint:allow` suppression mechanism (landed main
+`91286ab8`), which is ALSO newer than the bundle — so the same bump that drops `interp` should also
+adopt the 17 asm directives + drop `pkg/binate/asm/{arm32,elf,macho,parse,x64}` (see the asm
+`[managed-to-raw-assign]` audit entry above). One bump clears every remaining `LINT_SKIP` entry.
+
+### Raw-slice escape: decide whether a BROADER best-effort escape lint is wanted — 🟡 NEEDS DECISION
+The original framing ("demote the raw-slice escape TYPE ERROR to a linter rule")
+is obsolete: there is NO type-check rejection for raw-slice escape (the checker
+never rejected it), and a `raw-slice-return` LINT rule already exists (`lint.bn`,
+landed `10d19369`) — but it only covers the `@[]T → *[]T` "drops the managed
+wrapper" return case. **Open decision (user):** is a broader best-effort escape
+lint wanted (return / store-to-outliving-field / assign-to-global of a raw slice
+borrowing a local), or is the current narrow rule + "raw is an opt-in escape
+hatch" sufficient (close this out)?
+
+## Hygiene checks: tier dependencies & file length
+
+### Hygiene check: enforce `pkg-layout-spec.md` tier dependency rules
+**What**: a `scripts/hygiene/` check (new script alongside `conformance-imports.sh`) that
+statically validates every package's import closure against the tier ordering in
+[`pkg-layout-spec.md`](pkg-layout-spec.md) ("Tiers"). Two facets of the same rule:
+- **Dependency direction**: a package may import only packages at its own tier or **lower**;
+  importing a strictly-higher tier is a violation. (This is the runtime enforcement of the spec's
+  "Transitive constraint" + tier table.) Tiers low→high: 0 / 0b (`pkg/builtins/*`) < 1
+  (`pkg/std/*`) < 1x (`pkg/stdx/*`) < 2 (`pkg/<org>/*`, e.g. `pkg/binate/*`) < 3 (app-specific).
+  E.g. `pkg/builtins/rt` importing `pkg/std/io` is illegal; `pkg/binate/parser` importing
+  `pkg/std/os` is fine.
+- **Bundled-set closure**: bundled tiers (0/0b/1/1x — always/by-default bundled) must NOT import a
+  not-bundled tier (2/3), and a tier-2 package's dependency closure must itself be tier 2. A
+  bundled package whose closure escapes the bundled tiers silently breaks the bundle — the
+  dependency's source isn't shipped, so a consumer compiling against the bundle gets
+  `package "<dep>" not found`.
+- **`pkg/std` → `pkg/stdx` refinement**: tier 1 (`std`) may depend on tier 1x (`stdx`)
+  **internally** (`.bn` impl files) but **not externally** (`.bni` interface files) — a `.bni`
+  importing `stdx` leaks a no-inter-version-compat (1x) type into `std`'s strict-compat surface.
+  So the check must scan `.bni` imports separately from `.bn`: the std→stdx edge is allowed only
+  from `.bn`. (Generalize if other interface-vs-impl tier asymmetries surface.)
+
+**Why NOTHING currently catches this**: it only manifests when a consumer compiles the
+offending package from a real bundle (`make-bundle.sh` output), which no CI / hygiene /
+conformance step does today.
+
+**Motivating bug (2026-06-10, release-prep for `bnc-0.0.8`)**: `pkg/builtins/lang` (tier 0)
+imported `pkg/binate/buf` (tier 2) for two `buf.CopyStr("true"/"false")` calls in `bool.String()`.
+The bundle ships only `lib/pkg/bootstrap`, not `pkg/binate/buf`, so the tier-0 `Stringer` carve-out
+(`var s *lang.Stringer = &x; s.String()`) failed to compile from ANY bundle with
+`package "pkg/binate/buf" not found` — present since `bnc-0.0.7`, undetected because the carve-out
+smoke step (`release-process.md` step 5) had never actually been run against a real bundle. Fixed
+in binate `84818a77` (lang returns bare string literals; `[N]readonly char → @[]char` is a
+literal-init allocate+copy). This check would have caught it at the `import` line.
+
+**How**: tier is path-derivable (`ifaces/core` + `impls/core/*` → 0/0b; `ifaces/stdlib/pkg/std`
+→ 1, `…/pkg/stdx` → 1x; `pkg/binate/*` & other `pkg/<org>/*` → 2); `pkg/bootstrap` is a bundled
+runtime primitive (treat as tier-0-equivalent). Walk every package's imports (split `.bni` vs
+`.bn`), map importer + imported to tiers, flag any higher-than-self edge, applying the std/stdx
+refinement. A whitelist file (cf. `conformance-imports.whitelist` / `naming.whitelist`) covers
+sanctioned exceptions. EXEMPT `*_test.bn` — tests aren't bundled (e.g. `lang_test.bn` legitimately
+imports `pkg/binate/buf`).
+
+**First manual sweep (2026-06-10) — CLEAN baseline**: swept every import (incl. aliased) in the
+bundled trees (`ifaces/{core,stdlib}`, `impls/{core,stdlib}`, `pkg/bootstrap`, `runtime/`). No
+non-test bundled package imports outside the bundled set. Two non-obvious cases the check must
+handle: (1) `impls/core/baremetal/pkg/builtins/rt` imports `pkg/semihost`, NOT a violation —
+`pkg/semihost.bni` ships under `runtime/baremetal_arm32/` (a bundled runtime component) and
+resolves under the arm32-baremetal build's own `-I`/`-L`; treat shipped `runtime/<target>/pkg/*`
+as bundled, or scope tier rules per build target. (2) all `pkg/builtins/testing` imports are in
+`*_test.bn` (already EXEMPT) and it has a bundled `.bni` with a harness-provided impl. So
+`lang → pkg/binate/buf` (binate `84818a77`) was the only true violation; the baseline is otherwise
+clean.
+
+**Scope** (per CLAUDE.md "Stay Within the Asked Scope"): add the script only; wiring it into
+`scripts/hygiene/run.sh` / CI is a separate decision for the user. (An earlier filing noted that a
+hygiene check ultimately belongs in the run.sh master, so both could be done together — but that
+wiring is still the user's call.) A first audit may surface other pre-existing violations to
+triage.
+
+### Lower the file-length `.bni` cap toward 1000/1200 — 🟡 OPEN
+- **Residual** of the (now-archived) "Extend hygiene checks to scan `ifaces/`+`impls/`" work. The `.bni` file-length cap is currently 1500/1800 (warn/error); consider lowering toward 1000/1200.
+- **Blocker**: `pkg/binate/ir.bni` (~1183 lines) exceeds the proposed lower cap and would need refactoring (split into sub-interfaces) first. A live `TODO` in `scripts/hygiene/file-length.sh` tracks this.
+- (Full resolved diagnosis of the ifaces/impls hygiene-scan extension archived in claude-todo-done.md.)
+
+## Type-system & checker semantics
+
+### Cross-package method visibility in `.bni`
+- Methods defined on a public type in package `foo` need to be declared
+  in `foo.bni` for callers in other packages to see them — analogous to
+  the existing `.bni` rules for free functions and types (covered by
+  conformance tests 235/236, "Verify .bni vs .bn visibility semantics"
+  is DONE).
+- Currently, methods *do* work cross-package (conformance 330/331 cover
+  it via `pkg/buf.CharBuf` methods called from `main`) because IR-gen's
+  `RegisterImport` registers methods from the imported package's `.bn`
+  source via the loader. That's a happy accident of the loader path, not
+  a deliberate visibility design.
+- Open: should `.bni` method declarations be required for cross-package
+  visibility (matching free functions / types), and should the type
+  checker enforce that? Today methods skip the `.bni` requirement.
+- When picking this up, look at: how `pkg/buf.bni` declares its type but
+  not its methods, yet cross-package callers still resolve them; whether
+  to extend `checkBniSignatureMatch` to methods; whether `.bni` method
+  decls are mandatory or just allowed.
+
+### Readonly method receivers — deferred (gated on methods/interfaces)
+- A method's receiver kind (`*readonly T` / `@readonly T`, plus value
+  receivers — which are always readonly) determines which pointer kinds
+  satisfy an `impl` and bounds what the method may mutate.  See
+  `claude-notes.md` (value receivers always readonly; readonly-restricted
+  dispatch expressed at the impl level; `*readonly T` receiver smoothing
+  auto-takes `&t` at the call site).
+- This was "Stage 3" of the old `const` type modifier.  The rest of that
+  work landed and the type-level modifier is now spelled `readonly`
+  (`plan-const-readonly.md`, COMPLETE 2026-06-03 — `const` split into
+  compile-time `const` / `var` storage / `readonly T` modifier; that
+  plan's three listed deferrals — readonly-slice slicing, `.bni`
+  extern-var, `&pkg.Const` — are all since resolved).
+- Deferred, not abandoned — depends on the methods/interfaces feature.
+  Fold into that project's tracking when it firms up.
+
+### `==` / `!=` (and relational) on aggregates — residual (generic re-check corner cases) — 🟢 LOW (triaged 2026-06-30: NOT actionable now)
+The `==`/`!=`/relational aggregate story is ✅ DONE & LANDED — checker rejection
+(binate `60719e01`), struct/array implementation (920a, main `f99f4a4e`),
+generic-function path (920b, `6b748a24`), the sentinel-comparison decision, and the
+generic-aggregate-field re-check (main `076eb525`); full arc archived in
+[claude-todo-done.md](claude-todo-done.md). Two small residuals in the generic
+instantiation re-check remain — **triaged 2026-06-30, neither actionable now**
+(neither is a live miscompile):
+- **(a) Order-dependent — COSMETIC only.** A forward-ref instantiation checked BEFORE
+  the generic's body is type-checked falls back to the loud IR-gen error instead of a
+  clean checker rejection (never a silent miscompile, never a false reject — just a
+  less-friendly diagnostic in that ordering). A fully order-independent version needs
+  a checker sub-pass or an explicit `comparable` constraint — non-trivial work for a
+  diagnostic-quality-only gain; deferred.
+- **(b) Generic-TYPE methods — UNREACHABLE (blocked on a future feature).** Verified
+  2026-06-30: bnc does NOT support a method on a generic type with a type-param
+  receiver (`func (b Box[T]) eq(...)` → "method receiver must be a named type",
+  "undefined: T"). So the re-check gap for generic-TYPE-method comparisons cannot be
+  triggered — there is no way to define such a method today. This becomes a real
+  follow-up only if/when generic-type methods land; not a live gap.
+
 ### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
 - **Problem**: with the current rules, `int` (and other predeclared
   primitives) can't implement interfaces. Methods can only be
@@ -1105,183 +1155,191 @@ hatch" sufficient (close this out)?
   Revisit when generics land or when a user-written `printIt`-
   style function becomes pressing.
 
-### Use interfaces more (opportunistic)
-- **Constraint**: now bounded by `BUILDER_VERSION`-pinned bnc
-  rather than the historical bootstrap subset — cmd/bnc no longer
-  has to be bootstrap-runnable now that boot mode is gone (binate
-  `c1be3cc`, 2026-05-21).  bnc-0.0.1 (the current BUILDER) supports
-  interfaces, so anything in cmd/bnc's dep tree is fair game too.
-  Generics are NOT in bnc-0.0.1, but interfaces are.
-- **Candidates that look natural**: anywhere we currently
-  switch on a kind tag with a dispatch table (e.g. opcode
-  handlers, AST visitors, asm encoders) is the textbook shape
-  where an interface compresses the dispatch.  Print/format
-  helpers that take a kind + value pair are another easy lift.
-  pkg/ast's tagged-union nodes (DECL_*, EXPR_*, STMT_*, TEXPR_*
-  Kind enums + switch-on-Kind in pkg/{parser,types,ir,codegen,
-  loader}) is the biggest single target but also the longest
-  refactor — touches every layer.
-- **How to land**: pick one site per PR, define the interface
-  alongside, methodify the concrete types, drop the dispatch
-  switch.  Keeps each step small enough that conformance +
-  unit-tests stay green.  Mirrors the
-  `migrate-to-method-form-opportunistic` pattern from
-  `claude-todo-done.md` (DONE 2026-05-13).
-- **Recon finding (2026-05-26)**: there is NO clean *small*
-  retrofit target.  The candidates above split into two
-  unappealing buckets: (a) enum→value lookups (reloc maps,
-  opName, the emitInstr op dispatch) where `switch` is genuinely
-  the right tool and an interface would mean manufacturing one
-  empty marker type per enum value — pure ceremony; and (b)
-  monolithic tagged unions (`ast.Stmt`/`Decl`, `ir.Instr`) where
-  a real interface means splitting a struct that touches every
-  layer.  So "use interfaces more" here is a deliberate design
-  choice, not opportunistic cleanup.
-- **Landed (2026-05-26): driver `Backend` interface** (binate
-  `0ee0faa`, `bda81ca`, `6dacb23`).  The genuinely-valuable use
-  found: `cmd/bnc/compile.bn`'s `Backend` interface
-  (`compileModule`) with `llvmBackend` / `nativeBackend` impls,
-  dispatched via `compileModuleVia`.  This collapsed the
-  duplicated driver flow — `compileMainNative` is gone, `main()`
-  picks the backend and the LLVM/native paths are unified.
-  pkg/native also got an internal arch `Backend`
-  (arm64/amd64).  These are the first non-synthetic interface
-  users beyond pkg/std's `Stringer`.  NOTE: interface values
-  must be constructed from locals, not package globals — `&global`
-  iface construction was a codegen bug (now fixed, see
-  conformance/495).
+### Purely-value const extension (future language direction) — DESIGN, not started
+Future direction split out of the (now-resolved) non-int-const mis-emit bug:
+allow `const` of certain non-scalar but purely-value types (no storage, no
+managed fields). Currently `const` is scalar-only (non-scalar → `errNonScalarConst`,
+"use `var readonly`"); no `isPurelyValueType` predicate exists yet. A genuine
+language extension, not a bug fix.
 
-### Use `@[]@[]char{...}` composite literals (opportunistic)
-- **Constraint**: previously forbidden because bootstrap didn't
-  support managed-slice-of-managed-slice composite literals; now
-  unlocked everywhere (bnc-0.0.1 supports them).  Mirrors the
-  unconstraint situation for `cmd/bnlint`'s tests, which already
-  use this shape.
-- **Pattern to replace**: a known-fixed-length run of
-  `args = appendCharSlice(args, "foo"); args = appendCharSlice(args, "bar"); ...`
-  → `var args @[]@[]char = @[]@[]char{"foo", "bar", ...}`.  Same
-  shape for `appendRawCharSlice` (since string literals are
-  already `*[]const char`).  When the run mixes constants with
-  computed values, leave it alone — the literal form only helps
-  for known-static sets.
-- **Candidates**: argv construction in build scripts (e.g.
-  `cmd/bnc/{main,test,compile}.bn` clang-args setup), test
-  scaffolding (anywhere a test builds a known `@[]@[]char`
-  fixture), and short fixed sets of import paths.
-- **Why bother**: cuts line count, removes a runtime O(n²)
-  rebuild pattern (each `appendCharSlice` allocates a new
-  slice + copies), and matches the language's expressive
-  default instead of the bootstrap workaround.
+## Language-feature proposals
 
-### Use function values to collapse explicit dispatch shims (opportunistic)
-- **Constraint**: function values are unlocked now that
-  cmd/bnc is no longer bootstrap-bound; bnc-0.0.1 has the
-  function-value machinery (see plan-function-values-phase-3
-  in `claude-todo-done.md`).
-- **Pattern to look for**: places where we route through a
-  `kind` int + a per-kind dispatch table, when the data flow
-  would be clearer as "the caller hands us the function it
-  wants invoked".  Candidates need a closer look before they're
-  fully scoped — function-value adoption isn't always a win
-  (each call adds an indirect-call overhead), so this is
-  selectively-opportunistic, not blanket.
-- **How to land**: TBD; needs concrete site survey.
+### Switch `fallthrough` — proposal
+- Not in the current grammar (`grammar.ebnf`). Binate switch cases are implicit-break (Go-style), but there's no opt-in for Go's `fallthrough` keyword.
+- Would add one reserved keyword, one AST statement kind (`STMT_FALLTHROUGH`), and one IR lowering (branch to the next case's entry block, skipping its case-value check).
+- Before implementing: decide whether we want it at all. Arguments for: matches reader expectations from Go, lets users avoid duplicated bodies across related cases. Arguments against: rarely needed in practice, adds a new keyword for a small ergonomic win, forces the type checker to recognize terminators beyond `return`/`panic` (termination analysis already inspects case bodies for bare `break`).
+- Likely a decline unless a concrete use case comes up, but worth capturing as a live option.
 
-### Expand `pkg/slices` beyond `Append` — opportunistic
-- `pkg/slices.Append[T]` is the only generic helper today.  Natural
-  additions when call sites demand them (don't add speculatively):
-  - `Concat[T](a, b) @[]T` — for the managed-slice + managed-slice
-    shape.  `bootstrap.Concat` covers the char-slice case but is
-    raw-slice-typed.
-  - `Filter[T, P]` / `Map[T, U]` — block on closures or func-value
-    params; only worth it once those constraints land properly.
-  - `RemoveLast[T](s) @[]T` — `popLoading`-style pattern (rebuild
-    minus last occurrence) repeats per element type.
-  - Don't pre-add a kitchen-sink set — let the first 2-3 call
-    sites pull each helper in.
-- **Survey 2026-05-28** of the BUILDER-compilable tree: none of the
-  above clears the "2-3+ same-shape sites" bar at the moment.
-  Concrete numbers found:
-    * `Concat[T]` over two managed slices: 0 sites; the only
-      `Concat` callers all funnel through char-specialised
-      `bootstrap.Concat`.
-    * `Contains[T]`: 4 candidate sites (`containsTypePtr` /
-      `containsName` / `containsPkgName` / `containsStr`) but each
-      uses a different equality (Identical / charEq / streq), so
-      collapsing them needs func-value comparators or method-based
-      equality — gap.
-    * `Reverse[T]`: 1 site (loader `popLoading`).
-    * `RemoveLast` / `RemoveByValue[T]`: 1 site (also loader
-      `popLoading`, but it's "rebuild minus *streq match*", which
-      is `RemoveWhere` shape — not a pure index/value remove).
-    * `Copy[T]` one-liner: 2 sites; most slice-copies in the tree
-      are inlined in larger functions.
-  So no new helper to add right now without going speculative.
-- **The real next pkg/slices step** the survey surfaced: 168
-  `slices.Append[T]` calls live inside `for` loops, i.e. O(n²)
-  builds.  Folding those into a growable container with amortised
-  O(1) append (a `Vector[T]` / `Builder[T]` shape with capacity
-  tracking) is a substantive design, not a quick add — file it for
-  later when the surface is being intentionally pulled into a
-  proper stdlib effort.
+### Termination analysis — labeled break
+- Missing-return check (test 245) uses Go-style termination analysis simplified: RETURN terminates; `panic(...)` terminates; BLOCK terminates if last stmt does; IF terminates if both branches do; FOR with no condition and no `break` in body terminates; SWITCH with default and all cases terminating (no break) terminates.
+- **Labeled break**: Binate currently has no labels. If/when we add them, termination analysis needs to track labels — a `break L` inside a nested for doesn't break the inner for (contrary to the current "any break disqualifies enclosing for/switch" rule). Revisit when labels are on the table.
 
-### Replace repeated `WriteStr(literal)` runs with adjacent-string concat (opportunistic)
-- **Pattern**: code that builds output via a CharBuf often calls
-  `WriteStr` many times with adjacent string literals — e.g.
-  `cb.WriteStr("foo"); cb.WriteStr("bar"); cb.WriteStr("baz")`.
-  Binate allows adjacent string literals to be concatenated by
-  juxtaposition (`"foo" "bar" "baz"`), so a single
-  `cb.WriteStr("foo" "bar" "baz")` (split across lines for
-  readability) does the same work in one call.
-- **Why it matters**: each `WriteStr` call is a method dispatch
-  plus a CharBuf grow check.  Collapsing the literals into one
-  call cuts both, and is also less code to read.
-- **Most of these are in tests**, which compounds with the
-  slow-tests theme — every saved WriteStr in a test that runs
-  under boot-comp-int-int (or any interpreted mode) saves
-  bytecode-dispatch overhead × test count.
-- **How to land**: opportunistic, file at a time.  Best
-  candidates: `cmd/bnc/test.bn`'s `genTestRunner`, anywhere
-  building LLVM-IR text, and test fixtures that paste source
-  fragments together a chunk at a time.
-- **First pass landed** (binate `07b21ed`, 2026-05-15): 18 files,
-  ~200 runs coalesced (`cmd/bnc/test.bn`, `cmd/bnc/util.bn`,
-  `cmd/bni/main.bn`, plus check_*_test.bn and emit_*_test.bn /
-  gen_*_test.bn in pkg/types, pkg/codegen, pkg/ir).  The
-  cmd/bnc/test.bn growth (524 → 533) prompted a follow-up split
-  to a new `gen_test_runner.bn` — test.bn now 381 lines.
+### Import aliases and blank imports
+- Do we support Go-like `import somethingelse "pkg/foo"` currently? We'll likely need this.
+- Do we support `import _ "pkg/foo"`? Should we? (Side-effect-only imports.)
+- Both interact with the package object naming question above.
 
-### Replace if-return chains with `switch` where applicable (opportunistic)
-- **Pattern**: code that does
-  `if x == A { ... return ... }; if x == B { ... return ... }; ...`
-  over many cases.  Common in op-dispatchers, kind-handlers, and
-  predicates.
-- **Why it matters**: a `switch` makes the structure obvious (all
-  cases over the same scrutinee, mutually exclusive), gives the
-  type-checker a hook for exhaustiveness checking if/when it
-  lands, and reads more naturally.
-- **Watch out for**: chains where the conditions aren't really
-  equality on a single scrutinee — those genuinely are
-  if/else-if and should stay.  Also: the bootstrap subset
-  supports `switch`, so this isn't restricted to non-bootstrap
-  code (unlike the interface TODO above).
-- **How to land**: opportunistic.  Top candidates: the per-op
-  dispatchers in `pkg/native/arm64/arm64_dispatch.bn`,
-  `pkg/codegen/emit_instr.bn`, `pkg/vm/vm_exec*.bn`, and
-  `pkg/ir/ir_ops.bn`'s opName / similar string-form helpers.
-- **Landed (2026-05-25/26)**: the big per-op dispatchers are
-  converted — `pkg/vm/vm_exec_pure.bn` + `vm_exec_helpers.bn`
-  (binate `b4456ab`, `e4e7d29`), `pkg/codegen/emit_instr.bn`
-  (`2d6d0f7`), `pkg/native/arm64/arm64_dispatch.bn` (`3756acc`).
-  Where a chain mixes equality cases with op-RANGE checks
-  (emit_instr's OP_ADD..OP_SHR / OP_EQ..OP_GE; arm64_dispatch's
-  emitCompare/emitBinop/emitUnop delegates), the range arms stay
-  as guards alongside the switch.  `ir_ops.bn`'s opName was
-  already a switch — nothing to do there.  This work flushed out
-  a CRITICAL case-scope miscompile (managed local in a `case`
-  body), since fixed (`4306197`) — see the FIXED entry above.
-  Remaining candidates are smaller / lower-value (assorted
-  if-chains in cmd/* and pkg/* tools).
+## Spec authoring & language-decision residuals
+
+### Package-level var initialization is declaration-order, not dependency-order — spec decision needed
+`var A int = B + 1; var B int = 10` makes `A == 1` (B is still 0 when A initializes),
+NOT 11 — package-level VAR initialization runs in DECLARATION order, not dependency order.
+`decl.order.forward` guarantees the forward NAME reference resolves (it compiles), but the
+VALUE at init time follows declaration order. Go initializes package vars in dependency
+order; Binate does not, and §9.8 is silent on var-init order. → a spec-vs-impl decision
+(declaration-order vs dependency-order) for `spec-todo.md`. The Ch.9 tests do not assert
+any var-init-order value (forward-ref is tested via a function). Surfaced authoring
+`conformance/spec/09-declarations-and-scope`.
+
+### §8.5 spec "precision residual" note appears stale — verify and drop
+The §8.5 "Open (precision residual)" note in the conversions spec chapter says a constant
+≥ 2^63 reached through a bitwise/shift op "is not yet rejected": `cast(int64, 0x4000000000000000 << 1)`. That exact
+example — and `cast(int64, 1 << 63)` — now **reject** ("constant does not fit the cast
+target type"). The bitwise-const fold may have been fixed; verify (other patterns?) and, if
+so, drop the §8.5 residual note (like the Ch.13 generic-unparsed/d4-paren stale notes). No
+born-stale xfail added (rejection is the correct behavior). Surfaced authoring
+`conformance/spec/08-conversions`.
+
+### Relational-comparison chain (`a < b < c`) diagnostic reach — nicety
+The `expr.compare.relational` rule: `a < b < c` is correctly rejected in every context, but the
+dedicated "comparison operators do not chain" message fires only for the identifier-leading
+for-clause Pratt path (`parse_for.bn:199`); `if`/`var`/literal-leading contexts reject via generic
+parse errors. Conformant (rejection holds) — a diagnostic-consistency nicety only. Surfaced
+authoring `conformance/spec/13-expressions`.
+
+### Spec Ch.16 (Packages) — adversarial-review follow-ups (test-quality, non-blocking) — 2026-06-19
+The Ch.16 review found 0 blockers, 7 should-fix (landed tests work; these
+improve rigor). 015 mis-cite already FIXED (re-cited pkg.resolve→pkg.identity).
+Remaining, for a focused follow-up (with the build-constraint rework below):
+- **Harness limit (root cause of 2 findings):** the runner gives a test ONE
+  search root, so `pkg.resolve.public` (013, public-vs-local under DIFFERENT
+  roots) and `pkg.resolve`'s independent-.bni/impl-roots facet (012) can't be
+  exercised — both tests only show "resolves under one root". Soften their
+  comments to not overclaim; the multi-root facets need a harness extension (a
+  second `--prepend` root) — note in Annex C as untested.
+- **Vacuity to tighten:** 050 (`pkg.identity`) asserts values, not type-
+  distinctness — the distinctness is actually pinned by 051's cross-pkg-assign
+  reject; re-scope 050's comment. 091 (`pkg.extern` var) only reads once — make
+  var-ness load-bearing (mutate via a setter, observe). 090 extern-func is the
+  same shape as a normal exported func (inherent).
+- **Missing coverage:** `pkg.bni.consistency` only tests return/var-type
+  mismatch (033/034) — add param-type + param-count + result-count mismatch.
+  `pkg.bni` (032) omits the opaque-type and interface/impl .bni decl kinds.
+  `pkg.ccall` (092) has no C-ABI-passability reject test (§16.9). `pkg.clause`
+  (010) and `pkg.import` (001) lack negative tests (package-must-be-a-string-
+  literal; no block-scoped import).
+
+### Spec Ch.16 (Packages) — build-constraint group needs rework + a possible gap — 2026-06-19
+Ch.16 landed at **21/22 rules** (`spec/16-packages/`, binate `f7ed4eb4`):
+imports / bni / identity / extern groups are green (compiler/VM/gen1/gen2/
+native_aa64). The **build-constraint group** (the `#[build(EXPR)]` rules) was
+authored by a fan-out agent on a wrong "gating-active by default + decl-level
+gating + predicate-validation-errors" assumption; 8 of its tests failed and were
+removed. The real mechanism (per `conformance/737_build_import_select`,
+`747_err_build_bni_dropped`) gates whole FILES (via the package clause) and
+IMPORTS by arch with `#[build(is(arch, …))]`, not individual decls. **Follow-up
+(focused):** re-author the build-constraint tests on the real mechanism, which
+restores the lone GAP **`pkg.build.errors`** (the Constraint: a false constraint
+on a *required* element is an error). Surviving build tests: `070_annotation_
+namespace`, `071_annotation_degenerate`, `072_err_annotation_no_stack`.
+  - **Possible real gap to confirm during that rework:** the agent's
+    `#[build(<unknown-predicate>)]` and `#[build]` with an unknown annotation
+    name **compiled and ran** (printed `0`) instead of erroring — `pkg.build.errors`
+    / `pkg.annotation.namespace` say these should be rejected. Either the tests
+    were malformed (wrong gating context, so the annotation was never validated)
+    or build-constraint validation doesn't fire — determine which.
+
+### Observable optimizations and UB policy — broader question
+- Surfaced while planning const: allowing the compiler to allocate
+  a shared static global for all-const composite literals is an
+  optimization observable via raw-pointer comparison (`&a[0] ==
+  &b[0]` where `a`, `b` are both `"hello"`). The const plan accepts
+  this as UB rather than either blocking the optimization or
+  carving out precise "same-literal-text gives same address"
+  semantics.
+- Same class as the refcounting move optimizations that are already
+  observable via `rt.Refcount(...)` without a nailed-down spec.
+- **Broader question**: do we want a general policy of "these kinds
+  of observations are UB, the compiler may optimize across them",
+  written up somewhere authoritative? Candidates for the same UB
+  bucket: literal address identity, refcount timing, struct padding
+  bytes, uninitialized-memory reads of stack-allocated vars. The
+  alternative (fully specified observable behavior) is probably
+  incompatible with small-target codegen goals.
+- Not urgent — we're already making these trade-offs silently. A
+  short design note ratifying the policy would be useful when a
+  future optimization / feature forces the question.
+
+### Language spec(s) — write the primary spec; later, secondaries
+- See `claude-notes.md` § "Language specification — primary spec is
+  minimal — DECIDED" for the philosophy.
+- **Primary language spec**: syntax, type system, semantics, plus
+  *only* the packages intrinsically tied to the language
+  implementation — `pkg/rt` (after the review below) and a future
+  reflection/introspection package. Includes the one-line note that
+  user files cannot be named `*_test.bn` (reserved).
+- **Minor secondary spec — testing**: `_test.bn` packaging
+  convention + `pkg/builtin/testing`. May fold into primary; TBD.
+- **Major secondary spec(s) — stdlib**: I/O, containers, formatting,
+  string utilities, etc. Probably split across multiple specs by
+  area.
+- **Not started.** Discussion-only at this point. When writing
+  begins, the natural artifact is `explorations/spec-*.md` (or a
+  separate `spec/` directory). The primary spec is gated on the
+  pkg/rt review entry below, since the primary spec describes
+  pkg/rt's normative surface.
+
+### pkg/rt review — decide runtime vs. stdlib vs. internal
+- Today `pkg/rt` is a grab-bag of runtime helpers, refcount
+  primitives, allocator wrappers, bounds-check stubs, etc.
+- For the primary spec to nail down "what the runtime contract
+  is," `pkg/rt`'s surface needs a review: classify each member as
+  **stay** (truly language-runtime, normative in the primary
+  spec), **move** (standard-library-shaped — belongs in a stdlib
+  package, out of `pkg/rt`), or **make-internal** (only used by
+  the language implementation itself, no `.bni` export).
+- Output: a classification of `pkg/rt` members + a follow-up
+  cleanup plan (a `plan-*.md` doc under `explorations/`). The
+  cleanup itself is separate work and can be sequenced
+  independently — what's important first is the *classification*,
+  which unblocks the primary spec writeup.
+
+## Codegen & backend (non-func-value)
+
+### 🏷[BUG-BASH 2026-06-27 → LANE 2] Big-endian CODEGEN — deferred (no BE target exists yet) — 🟡 DEFERRED
+The Ch.7.13 layout follow-ups (`type.layout.funcval-order-hardening` + the
+`type.layout.byte-order` decision / `TargetInfo.BigEndian` field + little-endian-only
+assert) are ✅ DONE & LANDED — see [claude-todo-done.md](claude-todo-done.md). What
+remains: actual big-endian byte-EMISSION (object writers, `ir.DataGlobal` int terms,
+`bit_cast` / the representation builtins) for a future big-endian / cross-endian
+target. `SetTarget` currently `panic`s on a big-endian target, so there is no
+silent-wrong-code risk meanwhile; do this when such a target is actually needed.
+
+### DWARF debug info — finer-grained source positions (open-ended, low priority) — 🟡 OPEN
+
+The DWARF foundation + full type coverage are done (archived in [claude-todo-done.md](claude-todo-done.md):
+`-g`, DICompileUnit/DIFile/DISubprogram, per-function DISubroutineType, DILocalVariable for
+locals + params, and DIBasicType/DICompositeType/DIDerivedType covering scalars, pointers,
+structs, slices, managed-slices, interface-values, function-values, arrays, named typedefs).
+The one remaining, open-ended piece:
+- Thread source positions through more IR-gen sites (statements, assignments, calls) for
+  finer-grained `DILocation` — today only `genExpr` threads `.Line`; most emission sites rely
+  on coarse statement-line backfill. No columns.
+- No `llvm.dbg.value` (only `dbg.declare` for allocas).
+
+### Static-managed sentinel — deferred follow-ups (optimizations, not correctness) — 🟢 LOW
+Follow-ups split out of the (now-done) static-managed sentinel landing:
+- **String-literal null-backing unification**: can the string-literal
+  `backing_refptr = null` immortality trick (`emit.bn`) be unified under the
+  negative-refcount sentinel? Representation can plausibly unify; the nil-check
+  itself can't be dropped (it guards genuinely-nil `@` values). Repr cleanup.
+- **ClosureRec-as-sentinel**: the VM's shared per-callee non-capturing-`@func`
+  `ClosureRec` (`vm_exec_funcref.bn`) is a static, never-freed managed object.
+  The premature-free CRITICAL was already fixed symmetrically (conformance 528);
+  making the shared `ClosureRec` an immortal sentinel would remove per-instance
+  refcount churn on a shared singleton. Optimization, not a correctness gap.
+
+## Performance (double-VM `*-int-int` runtime)
 
 ### pkg/codegen `TestEmitDebug*` dominates `boot-comp-int-int` runtime (perf)
 - **Symptom**: pkg/codegen unit tests take ~1084s in CI under
@@ -1344,7 +1402,7 @@ hatch" sufficient (close this out)?
   not an expected failure). Coverage is preserved by `builder-comp`,
   `builder-comp-int`, `builder-comp-comp*` and the native_aa64 / arm32
   modes — this is purely a double-interp pacing issue. See the
-  "int-int slow-package skips" entry below.
+  "int-int slow-package skips" entry below in this group.
 - **Hypothesis**: same shape as the codegen `TestEmitDebug*`
   entry above — many small CharBuf / refcount / bounds-check
   operations per emitted instruction, each paying 2× bytecode-
@@ -1364,101 +1422,258 @@ hatch" sufficient (close this out)?
 - **Re-add work (the "separately" part)**: for each skipped package, either (a) profile + optimize its double-VM runtime so it fits a shard, or (b) make the explicit call that the double-VM lane adds no coverage over single-VM (`-int`) for that package (strong for the compiler-side ones — codegen/ir/types/asm test the COMPILER; `-int` already runs their tests through the VM; double-VM is the same logic + an extra dispatch layer). `pkg/binate/vm` is the one whose lost double-VM coverage is most arguable — its logic is still covered by `builder-comp-int` / `-comp-int` (single VM), and the lane's unique value is exercised by every OTHER package; re-adding it likely wants per-test `.skip` of its slowest tests rather than the whole package. When re-adding `codegen`, its `TestEmitDebug` per-test `.skip` still applies.
 - **Separately unmasked**: `pkg/std/os` (landed `3ca36c82`) fails `vm/lower: unhandled IR opcode c_call` on ALL three VM-leg unit modes — libc-backed (native-only), same category as the `rt`/`bootstrap` xfails. NOT a slow-skip case (it genuinely FAILS in the VM), so it's `.xfail`'d (not `.skip-pkg`'d) for `builder-comp-int` / `-comp-int` / `-int-int`, matching that convention. My skips merely unmasked it (the shard used to time out before reaching it); it was already reding `builder-comp-int` independently.
 - **Not a release blocker** (int-int non-blocking per `release-process.md`; was red at `bnc-0.0.7` too). Tracked here so the skips don't become permanent silent coverage loss.
-- **STATUS 2026-06-10 — GREEN** (unit run on `3342460e`): all 8 `builder-comp-int-int` shards pass (2.5–26.7 min) and `builder-comp-int` / `-comp-int` pass. **Margin note**: shard 4/8 ran 26.7 min — ~89% of the 30-min cap; the 8-shard + skip set is sufficient but thin, so if the int-int suite grows it may need a 9th–10th shard or one more skip before it times out again. (The remaining unit reds — `arm32_{linux,baremetal}`, `native_x64` — are separate modes, not this. NOTE: `native_x64` was NOT "WIP" — it was broken by an ELF PC32 reloc bug, fixed 2026-06-14 `dd74c91e`; see the top-of-file native_x64 entry.)
+- **STATUS 2026-06-10 — GREEN** (unit run on `3342460e`): all 8 `builder-comp-int-int` shards pass (2.5–26.7 min) and `builder-comp-int` / `-comp-int` pass. **Margin note**: shard 4/8 ran 26.7 min — ~89% of the 30-min cap; the 8-shard + skip set is sufficient but thin, so if the int-int suite grows it may need a 9th–10th shard or one more skip before it times out again. (The remaining unit reds — `arm32_{linux,baremetal}`, `native_x64` — are separate modes, not this. NOTE: `native_x64` was NOT "WIP" — it was broken by an ELF PC32 reloc bug, fixed 2026-06-14 `dd74c91e`; that native_x64 ELF PC32 reloc bug is fixed and archived in claude-todo-done.md.)
 
-### Function values — residual follow-ups (the MAJOR PROJECT landed) — 🟡 OPEN (low priority)
-Function values are done across all three phases (archived in [claude-todo-done.md](claude-todo-done.md):
-Phase 1 non-capturing + type/vtable machinery, Phase 2 closures/capture — `plan-function-values-phase-2.md`
-is "COMPLETE (shipped)", conformance 338–344 + 501/508–510/513…, Phase 3 cross-mode trampolines).
-Residual:
-- Broader cross-mode trampoline signature shapes beyond `TrampolineScalar` (floats, aggregates, >7 args) —
-  add when a path actually reaches them.
-- Recursive lambdas (`var f = func(x){ … f(…) … }`) — non-goal during Phase 1; revisit now that Phase 2
-  capture is settled (Y-combinator is the current workaround).
-- Downstream interop hand-off (package descriptor; retiring ~30 hand-written `vm_extern` arms) is tracked
-  under "Compiler/interpreter interop — MAJOR PROJECT".
+## Testing: harness, runners & conformance coverage
 
-### Cross-package method visibility in `.bni`
-- Methods defined on a public type in package `foo` need to be declared
-  in `foo.bni` for callers in other packages to see them — analogous to
-  the existing `.bni` rules for free functions and types (covered by
-  conformance tests 235/236, "Verify .bni vs .bn visibility semantics"
-  is DONE).
-- Currently, methods *do* work cross-package (conformance 330/331 cover
-  it via `pkg/buf.CharBuf` methods called from `main`) because IR-gen's
-  `RegisterImport` registers methods from the imported package's `.bn`
-  source via the loader. That's a happy accident of the loader path, not
-  a deliberate visibility design.
-- Open: should `.bni` method declarations be required for cross-package
-  visibility (matching free functions / types), and should the type
-  checker enforce that? Today methods skip the `.bni` requirement.
-- When picking this up, look at: how `pkg/buf.bni` declares its type but
-  not its methods, yet cross-package callers still resolve them; whether
-  to extend `checkBniSignatureMatch` to methods; whether `.bni` method
-  decls are mandatory or just allowed.
+### Conformance harness: `pkg0.testing` `--test`-only rules are not conformance-testable
 
-### Readonly method receivers — deferred (gated on methods/interfaces)
-- A method's receiver kind (`*readonly T` / `@readonly T`, plus value
-  receivers — which are always readonly) determines which pointer kinds
-  satisfy an `impl` and bounds what the method may mutate.  See
-  `claude-notes.md` (value receivers always readonly; readonly-restricted
-  dispatch expressed at the impl level; `*readonly T` receiver smoothing
-  auto-takes `&t` at the call site).
-- This was "Stage 3" of the old `const` type modifier.  The rest of that
-  work landed and the type-level modifier is now spelled `readonly`
-  (`plan-const-readonly.md`, COMPLETE 2026-06-03 — `const` split into
-  compile-time `const` / `var` storage / `readonly T` modifier; that
-  plan's three listed deferrals — readonly-slice slicing, `.bni`
-  extern-var, `&pkg.Const` — are all since resolved).
-- Deferred, not abandoned — depends on the methods/interfaces feature.
-  Fold into that project's tracking when it firms up.
+1. **GAP (harness limitation, not a defect) — `pkg0.testing.testfunc` + `pkg0.testing.run` are not
+   conformance-testable.** Both require the `--test` discovery/execution runner (`cmd/bnc --test` /
+   `cmd/bni --test`); `conformance/run.sh` only runs ordinary programs (no `--test` plumbing). They
+   are exercised by the unit-test suite, not conformance. Closing them would need a test-runner mode
+   added to the harness. Left as documented coverage gaps (Ch.20 is 18/20). Candidate for an
+   `untestable`/`framework` reclassification in `extract-rule-ids.py` (a denominator decision).
 
-### Observable optimizations and UB policy — broader question
-- Surfaced while planning const: allowing the compiler to allocate
-  a shared static global for all-const composite literals is an
-  optimization observable via raw-pointer comparison (`&a[0] ==
-  &b[0]` where `a`, `b` are both `"hello"`). The const plan accepts
-  this as UB rather than either blocking the optimization or
-  carving out precise "same-literal-text gives same address"
-  semantics.
-- Same class as the refcounting move optimizations that are already
-  observable via `rt.Refcount(...)` without a nailed-down spec.
-- **Broader question**: do we want a general policy of "these kinds
-  of observations are UB, the compiler may optimize across them",
-  written up somewhere authoritative? Candidates for the same UB
-  bucket: literal address identity, refcount timing, struct padding
-  bytes, uninitialized-memory reads of stack-allocated vars. The
-  alternative (fully specified observable behavior) is probably
-  incompatible with small-target codegen goals.
-- Not urgent — we're already making these trade-offs silently. A
-  short design note ratifying the policy would be useful when a
-  future optimization / feature forces the question.
+### Better test-mode/target annotation than `.xfail` (unit + conformance)
+- We lean on `.xfail.<mode>` files to mark tests that can't run in a
+  given configuration (e.g. `pkg-builtins-rt.xfail.builder-comp-int*`
+  because rt is native-only in the VM; the `__c_call` conformance tests
+  498/500/527/530 xfailed in every VM-leg mode). But "expected to FAIL"
+  is the wrong semantics for "not APPLICABLE here" — these tests are
+  *bnc-only* / *vm-only* / *target-specific* by nature, not regressions.
+- **Want**: a first-class annotation (in the test source or a manifest)
+  declaring a test's applicable modes/targets — `bnc-only`, `vm-only`,
+  per-backend, per-target — so the runner *skips* inapplicable configs
+  cleanly and reserves `xfail` for genuine known-failures. Would also
+  let `__c_call` tests declare "compiled-only" honestly instead of a
+  fan of per-mode xfail files.
+- Surfaced 2026-06-03 by the drop-libc / native-only-rt work.
 
-### Switch `fallthrough` — proposal
-- Not in the current grammar (`grammar.ebnf`). Binate switch cases are implicit-break (Go-style), but there's no opt-in for Go's `fallthrough` keyword.
-- Would add one reserved keyword, one AST statement kind (`STMT_FALLTHROUGH`), and one IR lowering (branch to the next case's entry block, skipping its case-value check).
-- Before implementing: decide whether we want it at all. Arguments for: matches reader expectations from Go, lets users avoid duplicated bodies across related cases. Arguments against: rarely needed in practice, adds a new keyword for a small ergonomic win, forces the type checker to recognize terminators beyond `return`/`panic` (termination analysis already inspects case bodies for bare `break`).
-- Likely a decline unless a concrete use case comes up, but worth capturing as a live option.
+### Test runner improvements
+- ~~**Better docs/help**~~: DONE. Both runners show description, examples, flag docs, test format/convention docs, xfail mechanism. READMEs added for conformance/ and scripts/unittest/.
+- ~~**Better output**~~: DONE. `-v` (verbose: all test names), `-q` (quiet: failures+summary only), default (dots for passes, detail for failures).
+- ~~**Mode sets in files**~~: DONE. `scripts/modesets/` directory with one file per set (basic, all, full). Adding a new mode set is just adding a file. Both runners read from the shared directory. Help output dynamically lists available sets.
+- ~~**Better mode specification**~~: DONE. Comma-separated modes (`boot,boot-comp`) expand into sequential runs. Works alongside mode set files.
+- ~~**Better filtering (unit tests)**~~: DONE. Fixed unit test runner to use substring match (was exact match). `token` now matches `pkg/token`, consistent with conformance runner.
+- **Better filtering (individual test functions)**: ability to specify individual test functions, not just packages (e.g., `run.sh boot-comp pkg/ir TestFoo`).
+- **Timeout/hang handling**: better and/or automatic detection and handling of tests that hang.
+- **Parallelization**: consider running test packages in parallel within a mode.
 
-### Termination analysis — labeled break
-- Missing-return check (test 245) uses Go-style termination analysis simplified: RETURN terminates; `panic(...)` terminates; BLOCK terminates if last stmt does; IF terminates if both branches do; FOR with no condition and no `break` in body terminates; SWITCH with default and all cases terminating (no break) terminates.
-- **Labeled break**: Binate currently has no labels. If/when we add them, termination analysis needs to track labels — a `break L` inside a nested for doesn't break the inner for (contrary to the current "any break disqualifies enclosing for/switch" rule). Revisit when labels are on the table.
+### Build out e2e testing
+- We have unit tests (per package) and conformance tests (language
+  semantics). What we don't have is a place for **end-to-end tool
+  integration tests** — checks that the CLI/loader/runtime wiring
+  works the same way across all four tools that load Binate
+  packages: `bootstrap`, `bnc`, `bni`, `bnlint`.
+- **What's landed (2026-04-30):**
+  - Two scripts: `e2e/split-paths.sh` (the original — `-I`/`-L`
+    cross-tool contract; covers Stage 1–6 of the package-search-paths
+    plan) and `e2e/repl.sh` (9 cases for `bni --repl`: basic call,
+    multi-stmt, error recovery, multi-line for-block, braces in
+    string literal, plus four Tier 2 cases — func persists, cross-
+    decl call, type rejected with diagnostic, bad body recovery).
+  - CI hookup at `.github/workflows/e2e-tests.yml` — matrix-
+    discovery via `ls e2e/*.sh`, one runner per script, `fail-fast:
+    false`.  Standard checkout layout (binate + bootstrap as
+    siblings) matches what the scripts assume.  New e2e scripts are
+    picked up automatically.
+- **Unique challenges this dir still has to solve over time:**
+  - **4 tools, not 1.** A single feature (like `-I`/`-L`) needs to
+    be exercised on each tool independently, since each parses CLI
+    flags separately and threads them into the loader differently.
+  - **Multiple build/run modes for the binate-written tools.** bnc,
+    bni, and bnlint can each be exercised through several pipelines:
+    bnc via boot-comp / boot-comp-comp / boot-comp-comp-comp /
+    boot-comp_native_aa64; bni via boot-comp-int / boot-comp-comp-int;
+    bnlint via the same chains as bnc. Note that bni cannot be
+    interpreted directly by the bootstrap (cmd/bni imports pkg/vm,
+    whose float literals the bootstrap lexer doesn't recognize) —
+    bni really has to be built via boot-comp first.
+    Full e2e coverage of "feature X works" multiplies tools × build
+    modes — easily 10+ runs per feature. We don't necessarily want
+    that today; figuring out which slice is worth the cost is part
+    of building this out.  Today both shipping scripts pick a
+    single mode each (split-paths covers all four tools at their
+    "default" build path; repl uses boot-comp bni).
+  - **Fixture management.** Conformance tests share a single root;
+    e2e tests like split-paths need disjoint fixtures, ad-hoc temp
+    dirs, optional checked-in subtrees. No standard pattern yet —
+    both current scripts use `mktemp -d` + `trap rm -rf` and inline
+    `cat <<EOF` heredocs for fixture files.
+- **Why these scripts are useful motivating examples:**
+  - **split-paths**: the `-I`/`-L` feature is something `bootstrap`,
+    `bnc`, `bni`, and `bnlint` should all support **identically** —
+    a deliberate cross-tool contract.  e2e is the only layer where
+    that contract can be observed directly.
+  - **repl**: the `bni --repl` PoC is a multi-stage user-facing
+    flow (load module → drive prompt via stdin → check banner +
+    prompts + results byte-for-byte).  No unit test could easily
+    exercise the full input-to-output transcript; e2e is the right
+    layer for "the REPL works end-to-end".
+- See [`plan-package-search-paths.md`](plan-package-search-paths.md)
+  for the spec `e2e/split-paths.sh` validates and
+  [`plan-repl.md`](plan-repl.md) for what `e2e/repl.sh` covers.
 
-### Clean up conformance tests to use array literal + `arr[:]` pattern
-- `arr[:]` works in compiled mode; conformance tests using `make_slice` + indexed assignment for static data could use `[N]T{...}` + `arr[:]` instead
-- Consider adding slice literal syntax (`*[]T{...}`) as sugar
+### MINOR (e2e / BUILDER-lag cleanup) — drop the gen1 build in e2e/stat-values.sh after the next BUILDER bump (2026-06-20) — 🔴 OPEN
 
-### DWARF debug info — finer-grained source positions (open-ended, low priority) — 🟡 OPEN
+`e2e/stat-values.sh` builds gen1 from the tree (`scripts/build-bnc.sh`) and compiles its os.Stat probe through gen1, instead of the simpler `$BUILDER … cmd/bnc -- …` form the other e2e scripts use. Reason: os.Stat depends on the `.bni` free-func/method fix (`796effc7`) and the wholesale-os-injection work, which postdate `BUILDER_VERSION` (bnc-0.0.9) — the pinned BUILDER can't compile os yet. Once BUILDER is bumped past those, revert `e2e/stat-values.sh` to the plain `$BUILDER … cmd/bnc -- …` pattern (drops the ~1-min gen1 build per e2e run).
 
-The DWARF foundation + full type coverage are done (archived in [claude-todo-done.md](claude-todo-done.md):
-`-g`, DICompileUnit/DIFile/DISubprogram, per-function DISubroutineType, DILocalVariable for
-locals + params, and DIBasicType/DICompositeType/DIDerivedType covering scalars, pointers,
-structs, slices, managed-slices, interface-values, function-values, arrays, named typedefs).
-The one remaining, open-ended piece:
-- Thread source positions through more IR-gen sites (statements, assignments, calls) for
-  finer-grained `DILocation` — today only `genExpr` threads `.Line`; most emission sites rely
-  on coarse statement-line backfill. No columns.
-- No `llvm.dbg.value` (only `dbg.declare` for allocas).
+### Stdlib conformance suite — optional follow-ups — 🟢 LOW (2026-06-20)
+
+The suite is built and every injected stdlib package has cross-mode coverage
+(moved to claude-todo-done.md). Two optional cleanups remain:
+- Fold the ~8 ad-hoc stdlib-importing tests in the MAIN conformance set
+  (`577_std_errors`, `855_std_time`, `662_errors_is`, `526/528/535_strconv`,
+  `663_io_iseof`, `726_cross_pkg_iface_impl`) into `conformance/stdlib/*` (and
+  drop their `conformance-imports.whitelist` entries).
+- Remove the now-redundant `os_test.bn` `TestErrorIfaceUpcast` (covered by
+  `conformance/stdlib/errors/001`; only runs under `builder-comp` now), or keep
+  it as a native-only smoke.
+
+### Conformance tests: consider a separate repo
+- Running conformance tests in CI creates a circular dependency: the bootstrap repo needs the binate repo (which contains the test cases), and the binate repo needs the bootstrap binary (to run the tests)
+- Consider moving conformance tests to their own repo (e.g., `binate/conformance`) that both repos reference
+- This also gives a natural place for test infrastructure (run.sh, runners, xfail metadata) that doesn't belong to either the bootstrap or self-hosted repo
+- The unit test runner (`binate/scripts/unittest/`) has a similar issue — it's in the binate repo but the `boot` mode runs via Go in the bootstrap repo
+
+### Stale-xfail sweep — residuals (the cross-mode CONFORMANCE sweep is done) — 🟡 OPEN
+The big stale-xfail sweep — all 10 modes via the `conformance-xpass.yml` CI workflow;
+121 stale conformance markers + 8 VM-mode unittest markers removed; per-mode detail +
+methodology — is ✅ DONE; see [claude-todo-done.md](claude-todo-done.md). Two residuals:
+- **Cross-mode UNITTEST xfails (17)** — UNSWEPT. The unittest `--check-xpass` (binate
+  `ddc624d2`) exists but isn't wired into CI, so the XPASS workflow is conformance-only;
+  the 16 arm32-baremetal + 1 arm32-linux unittest xfails need qemu. Sweep by hand, or
+  wire unittest `--check-xpass` into CI.
+- **`value-struct-large` on `native_x64`** — *not* xfailed there yet crashes (empty
+  output) when run; a real missing-xfail or native_x64 bug, surfaced (then masked by a
+  substring collision) during the sweep. Worth a look now that `run.sh --exact` no
+  longer pulls it into the `value-struct` filter.
+
+### Plan-3 adversarial-review follow-ups (test-hygiene + coverage gaps from `cc2ddcc4` / `997c4c04` / `0c707e1f`) — 2026-06-08
+Non-wrong-code items from the adversarial review of the plan-cr2-3 work; each is small. (The live wrong-code findings are the OP_CAST/iface-arg CRITICAL and the float-multi-return MAJOR (both fixed & archived in claude-todo-done.md).)
+- **Weak / over-claimed Defect-6 pin**: the addr-aggregate `global` cells (`997c4c04`) + their generator docstring/README claim to pin "2-word sizing / mis-sized-to-one-word drops a word" — but store+load are width-consistent so the cell is INVARIANT to allocation size (it pins materialization + `__init`-store + read-back wiring, NOT sizing). Fix the docstring (`gen-addr-aggregate-matrix.py:96-104`) / README / commit framing to match. Also Defect 6 closed using only the two shapes that typecheck; readonly-wrapped + named-over-aggregate + raw `*func()` + uninitialized-nil global companions (the Class-A materialization risk in `plan-code-red-2.md`) were left out — record as an explicit deferral (invoking them is blocked upstream at the call typechecker).
+- **Coverage gaps**: aa64 per-field iface-multi-return collect (`aarch64_iface.bn:204-228`, the exact loop that dropped sub-word fields) has NO unit test (only conformance on aa64); x64 `collectMultiReturnTuple`-for-iface has no unit test for the IFACE op; an aggregate-component iface multi-return tuple (`(Pair,int)`) is uncovered; the iface-method-arg-with-global position is covered by neither a unit test nor 551/573 (see the CRITICAL entry).
+- **Latent fragility (nit)**: `pkg/binate/ir/gen_call.bn` computes `resultTyp` generically and hands it to `EmitCallHandle`/`EmitCallIndirect` (magic-name dispatch) with no structural guard that it isn't a multi-return struct — add a cheap assert so the "these ops never carry a multi-return" invariant is enforced in code, not convention.
+- **Discovery**: 2026-06-08, adversarial multi-agent review of plan-cr2-3 work (6 reviewers → adversarial verify → completeness critic; 21/23 findings confirmed).
+
+The code-red conformance-matrix family (`conformance/matrix/`, see
+`plan-code-red.md` §7) has four members realized: `refcount` (Class 1),
+`scalar` (Class 5), `abi` (Class 4), `const` (named-constant invariant). These
+are the remaining matrix-shaped classes not yet built as their own matrix —
+candidates for after the loose-axis finish (const-expr folding + ABI
+`handle`/`__c_call` shapes).
+
+### (b2) Lifecycle matrix — Class 6 (`@Iface` / `@[]@I`) + Class 7 (captured-`@func` over-release) — PARTLY ADDRESSED 2026-06-05 (plan-cr-p2-2 step 5)
+- **Status**: the existing `conformance/matrix/refcount` form × type grid already
+  covers Class 6's construction/consumption shapes (the copy-sites are now uniform
+  after the `emitStoreManagedSlot` consolidation), and `604`/`605` add lifecycle-
+  DEPTH balance (a value chained through param/store/pass/return/bind/invoke) for
+  captured-`@func` and cast-from-impl `@Iface`, green in builder-comp/-int/-comp/
+  native-aa64. REMAINING: a true single-program **Class 7 native↔VM trampoline**
+  balance test is not expressible in the single-mode conformance harness (each
+  test runs in one mode) — needs a cross-mode harness; left as a follow-up.
+- **Why a matrix**: Class 6 (`@Iface`/`@[]@I` first-class lifecycle) and Class 7
+  (native call-a-captured-`@func` over-release via the VM trampoline) are
+  lifecycle-completeness classes. Axes would be `managed-kind (@Iface / @[]@I /
+  captured-@func) × construction (make / literal / cast-from-impl / capture) ×
+  consumption (call-method / index / range / pass / return / discard) ×
+  backend`, with a refcount-balance assertion (mortal source).
+- **Status**: the refcount matrix already covers `@Iface`/`@func` as value-types
+  across assignment-forms, so this would EXTEND rather than start fresh — the
+  new axis is construction × consumption depth (esp. the native↔VM trampoline
+  path for Class 7, which the refcount matrix does not exercise).
+- **Note**: several `@Iface` lifecycle bugs are already filed (leaks/UAF family,
+  `@[]@I` literal element leak); a matrix would close the long tail.
+
+### (b3) Class 3 / Class 8 — point-bugs, NOT matrices
+- Class 3 (cross-package / interface-name type-resolution ordering → `i8*`
+  fallback) and Class 8 (multi-package loader resolution at int-int depth) are
+  one-off ordering/loader bugs, not systematic products. Track them as
+  individual regression tests under `conformance/regressions/` + filed bugs, not
+  as a matrix.
+
+### (b4) Differential harness v3 — port `gen-diff-scalar.py` to Binate (dogfood) + flavor B — NOT STARTED
+- **Context**: the property-based differential value-correctness harness
+  (`conformance/matrix/scalar-diff`, oracle = spec) is realized through v2 —
+  shifts, conversions, arithmetic, comparisons, bitwise; 123 cells / 5415
+  tuples; generator `conformance/gen-diff-scalar.py` (Python). See
+  `plan-differential-testing.md` (phasing item 3) for the full design.
+- **v3 scope** (the remaining phase):
+  1. **Port the generator to Binate** — rewrite `gen-diff-scalar.py` as a `.bn`
+     program so the harness dogfoods the language on a real codegen-shaped task
+     (LCG, two's-complement oracle, bit-pattern formatting). Keep the emitted
+     cells byte-identical so the existing `.expected`/`.xfail` set and
+     `--check` idempotence carry over unchanged.
+  2. **Flavor B (optional, for the highest-volume ops)** — one self-checking
+     `.bn` per op that loops an embedded `(inputs, expected)` table and prints
+     `mismatch i: got… want…`, denser than the current static-cell flavor A and
+     debuggable on failure (flavor A shows *which* tuple, not the wrong value).
+     Decide per op once flavor A shows which need the volume.
+  3. **Sample-size knob** — a fixed, seeded count parameter so coverage can be
+     dialed up without touching the generator logic.
+- **Why**: dogfooding is the highest-leverage *process* check (the OOM, the
+  `@func`-dtor crash, the shift bug all first surfaced by compiling real Binate
+  programs); porting the generator turns the harness itself into one more such
+  program. Not urgent — v1/v2 already give the value coverage; v3 is the
+  dogfood + debuggability upgrade.
+
+## Standard library & libraries
+
+### Standard library design
+- Candidates: growable collections (Vec[T], Map[K,V] post-generics), I/O abstractions, string utilities, formatting
+- CharBuf is implemented (pkg/buf); broader stdlib design should inform future collection APIs
+
+### Expand `pkg/slices` beyond `Append` — opportunistic
+- `pkg/slices.Append[T]` is the only generic helper today.  Natural
+  additions when call sites demand them (don't add speculatively):
+  - `Concat[T](a, b) @[]T` — for the managed-slice + managed-slice
+    shape.  `bootstrap.Concat` covers the char-slice case but is
+    raw-slice-typed.
+  - `Filter[T, P]` / `Map[T, U]` — block on closures or func-value
+    params; only worth it once those constraints land properly.
+  - `RemoveLast[T](s) @[]T` — `popLoading`-style pattern (rebuild
+    minus last occurrence) repeats per element type.
+  - Don't pre-add a kitchen-sink set — let the first 2-3 call
+    sites pull each helper in.
+- **Survey 2026-05-28** of the BUILDER-compilable tree: none of the
+  above clears the "2-3+ same-shape sites" bar at the moment.
+  Concrete numbers found:
+    * `Concat[T]` over two managed slices: 0 sites; the only
+      `Concat` callers all funnel through char-specialised
+      `bootstrap.Concat`.
+    * `Contains[T]`: 4 candidate sites (`containsTypePtr` /
+      `containsName` / `containsPkgName` / `containsStr`) but each
+      uses a different equality (Identical / charEq / streq), so
+      collapsing them needs func-value comparators or method-based
+      equality — gap.
+    * `Reverse[T]`: 1 site (loader `popLoading`).
+    * `RemoveLast` / `RemoveByValue[T]`: 1 site (also loader
+      `popLoading`, but it's "rebuild minus *streq match*", which
+      is `RemoveWhere` shape — not a pure index/value remove).
+    * `Copy[T]` one-liner: 2 sites; most slice-copies in the tree
+      are inlined in larger functions.
+  So no new helper to add right now without going speculative.
+- **The real next pkg/slices step** the survey surfaced: 168
+  `slices.Append[T]` calls live inside `for` loops, i.e. O(n²)
+  builds.  Folding those into a growable container with amortised
+  O(1) append (a `Vector[T]` / `Builder[T]` shape with capacity
+  tracking) is a substantive design, not a quick add — file it for
+  later when the surface is being intentionally pulled into a
+  proper stdlib effort.
+
+### `os` errors carry only the op, not the failing path (P3)
+`pkg/std/os` `failErrno(op)` renders e.g. `"open: not found"`, but
+plan-std-error-hierarchy.md §7 specifies context `(path, op)` —
+`"open /etc/foo: not found"`. The path is available in `OpenFile`'s `name`
+param (Create/Open delegate to it); `read`/`write`/`seek` operate on an fd and
+have no path, so op-only is correct there. Add the failing path to the open
+family's error context (e.g. a path-aware wrapper, or `failErrno(op, path)`).
+Deferred 2026-06-11 (user: op-only acceptable for now) — low impact (message
+richness, not classification). Tests: extend the `TestOpen*Classified` cases
+to assert the path appears in the rendered message.
+
+## Package management & search paths
 
 ### Package manager — sketch a design
 - We don't have one yet. The current model is "everything lives under a
@@ -1492,97 +1707,74 @@ The one remaining, open-ended piece:
   [`pkg-layout-spec.md`](pkg-layout-spec.md); this sketch builds on them
   (esp. its "Package manager interaction" section).
 
-### Tier + dependency-direction hygiene checks (enforce `pkg-layout-spec.md`)
-- **What**: a hygiene check (new script under `scripts/hygiene/`, alongside
-  `conformance-imports.sh`) that enforces the tier dependency-direction rule
-  from [`pkg-layout-spec.md`](pkg-layout-spec.md): a package may import only
-  packages at its own tier or **lower**; importing a strictly-higher tier is
-  a violation.  Tiers, low→high: 0 / 0b (`pkg/builtins/*`) < 1 (`pkg/std/*`)
-  < 1x (`pkg/stdx/*`) < 2 (`pkg/<org>/*`, e.g. `pkg/binate/*`) < 3
-  (app-specific).  E.g. `pkg/builtins/rt` importing `pkg/std/io` is illegal;
-  `pkg/binate/parser` importing `pkg/std/os` is fine.  (This is the runtime
-  enforcement of the spec's "Transitive constraint" + tier table.)
-- **Special case — `pkg/std` → `pkg/stdx`**: tier 1 (`std`) may depend on
-  tier 1x (`stdx`) **internally** (in `.bn` impl files) but **not externally**
-  (in `.bni` interface files).  A `.bni` importing `stdx` would leak a
-  no-inter-version-compat (1x) type into `std`'s strict-compat (tier 1)
-  surface.  So the check must scan `.bni` imports separately from `.bn`
-  imports: the std→stdx edge is allowed only from `.bn`.  (Generalize if
-  other interface-vs-impl tier asymmetries surface.)
-- **How**: derive each package's tier from its path — the realized layout
-  makes tier path-derivable (`ifaces/core` + `impls/core/*` → tier 0/0b;
-  `ifaces/stdlib/pkg/std` → tier 1, `…/pkg/stdx` → tier 1x; `pkg/binate/*`
-  → tier 2).  Walk every package's imports (split by `.bni` vs `.bn`), map
-  importer + imported to tiers, flag any higher-than-self edge, applying the
-  std/stdx interface refinement.  A whitelist file (cf.
-  `conformance-imports.whitelist` / `naming.whitelist`) covers sanctioned
-  exceptions.
-- **Scope** (per CLAUDE.md "Stay Within the Asked Scope"): add the script
-  only; wiring it into `scripts/hygiene/run.sh` and CI is a separate decision
-  for the user.
+### Package path: env-var support (Stage 7)
+- Add `BINATE_PACKAGE_INTERFACE_PATH` / `BINATE_PACKAGE_IMPL_PATH`
+  (long names match `LD_LIBRARY_PATH`/`PYTHONPATH` style; aliases TBD)
+  as the fallback when CLI flags are absent.
+- Gated on adding `bootstrap.Getenv` (a few lines of C + Go-interp
+  glue). Deferred because direct shell invocations of bnc/bni today
+  can construct CLI arguments — the env-var fallback is convenience
+  for users invoking the tools by hand.
+- See [`plan-package-search-paths.md`](plan-package-search-paths.md)
+  § "Env vars".
 
-### Build constraints (`#[build(EXPR)]`) — deferred follow-ups (arch/os MVP landed) — 🟡 OPEN
-The `#[build(EXPR)]` arch/os MVP is landed at all four granularities (file / decl / import / `.bni`),
-host-default config overridable per `--target`, through `c7249552` (conformance 731/733/735/736/737/746/747);
-full design in [`plan-build-constraints.md`](plan-build-constraints.md), archived in
-[claude-todo-done.md](claude-todo-done.md). Still deferred (none started):
-- Vocabulary beyond arch/os: `triple` / `backend` / `libc` / `ptrsize` / `version` with `is` / `at_least` / `at_most`.
-- `bnlint --target`; main-module gating; migrating the `impls/` duplicate trees onto constraints.
-- The separate inline-asm (`#[asm]`) doc that composes with this substrate.
+### Package path: binary artifacts on IMPL_PATH (Stage 8 / Phase 2)
+- Once we have a stable per-package ABI/linker contract: accept
+  `.o`/`.a`/`.so` files on `IMPL_PATH` as alternatives to `.bn`
+  source. `hasImplFiles(dir)` becomes "has at least one of {.bn, .o,
+  .a, .so}". Precedence rule (likely .o/.a/.so wins over .bn, with
+  `--prefer-source` to override) is open.
+- bnc would also gather binary artifacts from `IMPL_PATH` and feed
+  them to the linker automatically (today users supply via
+  `--cflag`).
+- See [`plan-package-search-paths.md`](plan-package-search-paths.md)
+  § "Future: binary impl artifacts".
 
-### Conformance tests: consider a separate repo
-- Running conformance tests in CI creates a circular dependency: the bootstrap repo needs the binate repo (which contains the test cases), and the binate repo needs the bootstrap binary (to run the tests)
-- Consider moving conformance tests to their own repo (e.g., `binate/conformance`) that both repos reference
-- This also gives a natural place for test infrastructure (run.sh, runners, xfail metadata) that doesn't belong to either the bootstrap or self-hosted repo
-- The unit test runner (`binate/scripts/unittest/`) has a similar issue — it's in the binate repo but the `boot` mode runs via Go in the bootstrap repo
+## REPL
 
-### Language spec(s) — write the primary spec; later, secondaries
-- See `claude-notes.md` § "Language specification — primary spec is
-  minimal — DECIDED" for the philosophy.
-- **Primary language spec**: syntax, type system, semantics, plus
-  *only* the packages intrinsically tied to the language
-  implementation — `pkg/rt` (after the review below) and a future
-  reflection/introspection package. Includes the one-line note that
-  user files cannot be named `*_test.bn` (reserved).
-- **Minor secondary spec — testing**: `_test.bn` packaging
-  convention + `pkg/builtin/testing`. May fold into primary; TBD.
-- **Major secondary spec(s) — stdlib**: I/O, containers, formatting,
-  string utilities, etc. Probably split across multiple specs by
-  area.
-- **Not started.** Discussion-only at this point. When writing
-  begins, the natural artifact is `explorations/spec-*.md` (or a
-  separate `spec/` directory). The primary spec is gated on the
-  pkg/rt review entry below, since the primary spec describes
-  pkg/rt's normative surface.
+### REPL: remove process-global session state (multi-session blocker)
+- **Now owned by [`plan-embeddable-vm.md`](plan-embeddable-vm.md)** (scoped
+  2026-06-16): the `ir` half below is increments 4–5 of that plan, which
+  covers the full compiler/VM global inventory, not just the REPL's two.
+  This entry's `ir/gen.bn` line numbers are stale as of 2026-06-02; see the
+  plan for verified ones.
+- **What**: the REPL engine keeps per-session state in PROCESS-GLOBAL
+  package vars instead of threading it through the session. v1 of the
+  embeddable refactor (above) lifts the cmd/bni-local ones into
+  `@ReplSession` but deliberately keeps **single live session per
+  process**, leaving two `pkg/binate/ir` globals in place.
+- **The globals**:
+  - cmd/bni-local (lifted into `@ReplSession` by Stage 1 of the
+    refactor): `replLoader`/`replRoot`/`replBniPaths`/`replProcessedPkgs`
+    (`cmd/bni/repl_import.bn:24-41`) and `replInitCounter`
+    (`cmd/bni/repl_decl.bn:411`).
+  - `pkg/binate/ir` process-globals (NOT lifted in v1, the real
+    multi-session blocker): `currentChecker` (`pkg/binate/ir/gen.bn:148`,
+    set via `ir.SetChecker`) and the import alias map
+    `importAliasNames`/`importAliasPaths` (`gen.bn:107/110`), with
+    `Save`/`RestoreAliasMapState` bracketing in `evalReplImport`
+    (`repl_import.bn:101/146`).
+- **Why it matters**: single re-entrant session is unaffected (the ir
+  globals are set once and save/restored inside import turns as today).
+  But >1 concurrent embedded session in one process needs those globals
+  session-scoped (or save/restored at every `Step` boundary) — a
+  separate, larger change that must land BEFORE `pkg/binate/repl` can
+  honestly claim multi-session support.
+- **Guidance (applies now)**: **do not add any new REPL globals.** New
+  per-session state goes through `@ReplSession`. Adding a global "to keep
+  a signature stable" (the exact shortcut that created the current ones,
+  per `repl_import.bn:18-20`) is what this entry exists to stop.
+- **When**: only if multi-session embedding becomes a goal. Not needed
+  for wasm B1 (one worker = one session).
 
-### pkg/rt review — decide runtime vs. stdlib vs. internal
-- Today `pkg/rt` is a grab-bag of runtime helpers, refcount
-  primitives, allocator wrappers, bounds-check stubs, etc.
-- For the primary spec to nail down "what the runtime contract
-  is," `pkg/rt`'s surface needs a review: classify each member as
-  **stay** (truly language-runtime, normative in the primary
-  spec), **move** (standard-library-shaped — belongs in a stdlib
-  package, out of `pkg/rt`), or **make-internal** (only used by
-  the language implementation itself, no `.bni` export).
-- Output: a classification of `pkg/rt` members + a follow-up
-  cleanup plan (a `plan-*.md` doc under `explorations/`). The
-  cleanup itself is separate work and can be sequenced
-  independently — what's important first is the *classification*,
-  which unblocks the primary spec writeup.
+### REPL — Tier-4 follow-ups + pretty-printer (all five tiers landed) — 🟡 OPEN (low priority)
+All five REPL tiers are landed (archived in [claude-todo-done.md](claude-todo-done.md): Tier 1–2 eval +
+redefinition, Tier 3 forward refs incl. pending types/vars/consts + cycle detection, Tier 4 replace +
+shadow for funcs & methods, Tier 5 mid-session imports `78685ac3`). Residual:
+- **Tier 4**: refcount-aware shadow warning (today fires unconditionally); forced-shadow escape hatch (syntax TBD per `claude-notes.md`).
+- **Pretty-printer** (`pkg/replprint`) — deferred until interfaces land (`bootstrap.println` is a temporary hack; don't entrench it).
 
-### Standard library design
-- Candidates: growable collections (Vec[T], Map[K,V] post-generics), I/O abstractions, string utilities, formatting
-- CharBuf is implemented (pkg/buf); broader stdlib design should inform future collection APIs
-
-### Test runner improvements
-- ~~**Better docs/help**~~: DONE. Both runners show description, examples, flag docs, test format/convention docs, xfail mechanism. READMEs added for conformance/ and scripts/unittest/.
-- ~~**Better output**~~: DONE. `-v` (verbose: all test names), `-q` (quiet: failures+summary only), default (dots for passes, detail for failures).
-- ~~**Mode sets in files**~~: DONE. `scripts/modesets/` directory with one file per set (basic, all, full). Adding a new mode set is just adding a file. Both runners read from the shared directory. Help output dynamically lists available sets.
-- ~~**Better mode specification**~~: DONE. Comma-separated modes (`boot,boot-comp`) expand into sequential runs. Works alongside mode set files.
-- ~~**Better filtering (unit tests)**~~: DONE. Fixed unit test runner to use substring match (was exact match). `token` now matches `pkg/token`, consistent with conformance runner.
-- **Better filtering (individual test functions)**: ability to specify individual test functions, not just packages (e.g., `run.sh boot-comp pkg/ir TestFoo`).
-- **Timeout/hang handling**: better and/or automatic detection and handling of tests that hang.
-- **Parallelization**: consider running test packages in parallel within a mode.
+## ARM32 bare-metal target
 
 ### ARM32 bare-metal target — MAJOR PROJECT
 - **Why**: enable Binate as an OS-development language on ARM32
@@ -1707,435 +1899,148 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
   (the inventory itself is deferred to a follow-up). Needs review
   pass before any implementation begins.
 
-### Compiler/interpreter interop — MAJOR PROJECT
-- **Why this is high priority**: dual-mode execution is a core promise of the
-  Binate language. Compiled-and-interpreted code calling each other (in both
-  directions) is what makes "compile some packages, interpret others" actually
-  useful. We should make this real BEFORE pushing on more language features —
-  large language additions risk locking in design choices that close off
-  interop options.
-- **Likely-already-compatible substrate** (verify rather than redesign):
-  - **In-memory layout of types** is supposed to match across modes. Compiler
-    uses `pkg/types`'s SizeOf/AlignOf/FieldOffset; interpreter uses (or should
-    use) the same. Verify with a small cross-mode struct-pass test.
-  - **Refcounting**: managed allocations carry a header with refcount and a
-    pointer to the destructor, populated at allocation site. Compiled and
-    interpreted code use the same `rt.RefInc` / `rt.RefDec` / `rt.Free`. Free
-    paths invoke the per-type dtor through the header, so a managed value
-    allocated on one side and dropped on the other should clean up correctly.
-    Verify with a cross-mode managed-pointer round-trip.
-- **Direction to start with**: interpreted code calling compiled code. Simpler
-  than the reverse (no need for the compiler to plant trampolines into a
-  running interpreter). Once that works, compiled code calling interpreted
-  code falls out roughly symmetrically.
-- **Granularity: package-level.** For interpreted code in package P to call
-  into a compiled package Q, the interpreter needs:
-  - Q's `.bni` (so the interpreter can type-check P against Q's signatures —
-    this already works today via the existing `.bni` loading path).
-  - **Pointers to Q's compiled functions** (the actual interop primitive).
-- **Proposed mechanism: auto-generated package descriptor.** The compiler emits,
-  for each package Q, a synthetic `const` of a synthetic struct type — call it
-  e.g. `foo.Package` (working name; could be `foo.PackageImpl` or another
-  canonical name) — whose fields are pointers to Q's exported functions in some
-  canonical order (e.g., sorted by mangled name). The interpreter, when it
-  loads compiled package Q, reads that descriptor and binds each field as the
-  function value for the corresponding name in Q's scope. Naming and layout
-  must be canonical so an interpreter built against Q's `.bni` can read Q's
-  descriptor without further metadata.
-- **Symmetry**: the interpreter should produce the same shape on its own end —
-  for each interpreted package, expose a `foo.Package` whose function-pointer
-  fields are trampolines into the interpreter (call into the bytecode VM
-  using the trampoline's bound bytecode/closure-env/types/aliases). That way
-  compiled code calling interpreted code is the same mechanism, mirrored.
-- **Prerequisite — DONE**: function values (see
-  `plan-function-values.md` + `plan-function-values-phase-3.md`).
-  The descriptor's fields are pointers to functions — that's
-  exactly what function values are. The 2-word `{vtable, data}`
-  representation, the `(*uint8 data, <args>)` always-shim
-  convention, the per-function `__shim.<mangled>` shims, the
-  bytecode-side `dispatchCompiledFuncValue` (via
-  `rt._call_shim_scalar`), and the compiled-side `TrampolineScalar`
-  are all in place. The remaining work is the descriptor itself
-  (naming, layout, emission, loading) plus the symmetric VM-side
-  emission for interpreted packages — pure plumbing; no new
-  trampoline machinery needed.
-- **Adjacent cleanup, lighter-weight first step**: see the
-  "VM extern dispatch: name → function-value registry" entry
-  above. A per-VM name → function-value registry with manual
-  registration (no descriptor design needed) replaces
-  `pkg/vm/vm_extern.bn`'s hand-coded switch via the same
-  `dispatchCompiledFuncValue` path Phase 3 already provides.
-  Auto-generated descriptors are the more general form of the
-  same idea — the registry stays as the manual-registration
-  escape hatch for host-only externs that have no Binate-side
-  `.bni` package.
-- **Design open questions** (need a writeup before implementation):
-  - Canonical name for the descriptor — `foo.Package` reads naturally but
-    risks conflicting with user names. `foo.PackageImpl` or a reserved-prefix
-    name (`__pkg_foo`)? Reserve a keyword?
-  - Canonical layout — sort by mangled name? By declaration order in `.bni`?
-    Layout must be agreed-upon by the descriptor's emitter and reader.
-  - Interaction with import aliases (`import alt "pkg/foo"`) and blank imports
-    (`import _ "pkg/foo"`) — see the "Import aliases and blank imports" entry.
-  - What does the descriptor look like for the package being compiled itself
-    (the "self" descriptor)?
-  - How are package-level globals exposed? Functions are the obvious starting
-    point; globals are a separate (but related) interop question.
-  - Versioning: if Q's `.bni` and Q's compiled descriptor disagree (different
-    function set, different layout), how do we detect and report it?
-- **Adjacent in-flight work that affects this**:
-  - "Function values — MAJOR PROJECT" (above) and
-    `plan-function-values.md` — direct prerequisite. Phase 3 of
-    that plan delivers the cross-mode trampoline machinery this
-    work consumes.
-  - "Free-function pointer in managed-allocation header — bug"
-    (above, DONE within a single mode) — Free now dispatches through
-    `header[1]`. Cross-mode allocate-on-one-side / free-on-the-
-    other still requires Phase 3's trampolines to translate
-    `header[1]` between the C-pointer and VM-index conventions.
-  - "Lift function-name qualification into IR" (above) — would simplify name
-    resolution at the interop boundary.
-  - "Import aliases and blank imports" (below) — affects how the descriptor
-    is named at the import site.
-- **Suggested next step**: write a design doc (e.g.
-  `explorations/plan-compiler-interp-interop.md`) that nails down the
-  descriptor name/layout, walks through one concrete cross-mode call end-to-
-  end on each side, and identifies the first concrete code change to make.
-  Don't start implementation until the design is reviewed.
+## Opportunistic code cleanups
 
-### REPL: remove process-global session state (multi-session blocker)
-- **Now owned by [`plan-embeddable-vm.md`](plan-embeddable-vm.md)** (scoped
-  2026-06-16): the `ir` half below is increments 4–5 of that plan, which
-  covers the full compiler/VM global inventory, not just the REPL's two.
-  This entry's `ir/gen.bn` line numbers are stale as of 2026-06-02; see the
-  plan for verified ones.
-- **What**: the REPL engine keeps per-session state in PROCESS-GLOBAL
-  package vars instead of threading it through the session. v1 of the
-  embeddable refactor (above) lifts the cmd/bni-local ones into
-  `@ReplSession` but deliberately keeps **single live session per
-  process**, leaving two `pkg/binate/ir` globals in place.
-- **The globals**:
-  - cmd/bni-local (lifted into `@ReplSession` by Stage 1 of the
-    refactor): `replLoader`/`replRoot`/`replBniPaths`/`replProcessedPkgs`
-    (`cmd/bni/repl_import.bn:24-41`) and `replInitCounter`
-    (`cmd/bni/repl_decl.bn:411`).
-  - `pkg/binate/ir` process-globals (NOT lifted in v1, the real
-    multi-session blocker): `currentChecker` (`pkg/binate/ir/gen.bn:148`,
-    set via `ir.SetChecker`) and the import alias map
-    `importAliasNames`/`importAliasPaths` (`gen.bn:107/110`), with
-    `Save`/`RestoreAliasMapState` bracketing in `evalReplImport`
-    (`repl_import.bn:101/146`).
-- **Why it matters**: single re-entrant session is unaffected (the ir
-  globals are set once and save/restored inside import turns as today).
-  But >1 concurrent embedded session in one process needs those globals
-  session-scoped (or save/restored at every `Step` boundary) — a
-  separate, larger change that must land BEFORE `pkg/binate/repl` can
-  honestly claim multi-session support.
-- **Guidance (applies now)**: **do not add any new REPL globals.** New
-  per-session state goes through `@ReplSession`. Adding a global "to keep
-  a signature stable" (the exact shortcut that created the current ones,
-  per `repl_import.bn:18-20`) is what this entry exists to stop.
-- **When**: only if multi-session embedding becomes a goal. Not needed
-  for wasm B1 (one worker = one session).
+### Use interfaces more (opportunistic)
+- **Constraint**: now bounded by `BUILDER_VERSION`-pinned bnc
+  rather than the historical bootstrap subset — cmd/bnc no longer
+  has to be bootstrap-runnable now that boot mode is gone (binate
+  `c1be3cc`, 2026-05-21).  bnc-0.0.1 (the current BUILDER) supports
+  interfaces, so anything in cmd/bnc's dep tree is fair game too.
+  Generics are NOT in bnc-0.0.1, but interfaces are.
+- **Candidates that look natural**: anywhere we currently
+  switch on a kind tag with a dispatch table (e.g. opcode
+  handlers, AST visitors, asm encoders) is the textbook shape
+  where an interface compresses the dispatch.  Print/format
+  helpers that take a kind + value pair are another easy lift.
+  pkg/ast's tagged-union nodes (DECL_*, EXPR_*, STMT_*, TEXPR_*
+  Kind enums + switch-on-Kind in pkg/{parser,types,ir,codegen,
+  loader}) is the biggest single target but also the longest
+  refactor — touches every layer.
+- **How to land**: pick one site per PR, define the interface
+  alongside, methodify the concrete types, drop the dispatch
+  switch.  Keeps each step small enough that conformance +
+  unit-tests stay green.  Mirrors the
+  `migrate-to-method-form-opportunistic` pattern from
+  `claude-todo-done.md` (DONE 2026-05-13).
+- **Recon finding (2026-05-26)**: there is NO clean *small*
+  retrofit target.  The candidates above split into two
+  unappealing buckets: (a) enum→value lookups (reloc maps,
+  opName, the emitInstr op dispatch) where `switch` is genuinely
+  the right tool and an interface would mean manufacturing one
+  empty marker type per enum value — pure ceremony; and (b)
+  monolithic tagged unions (`ast.Stmt`/`Decl`, `ir.Instr`) where
+  a real interface means splitting a struct that touches every
+  layer.  So "use interfaces more" here is a deliberate design
+  choice, not opportunistic cleanup.
+- **Landed (2026-05-26): driver `Backend` interface** (binate
+  `0ee0faa`, `bda81ca`, `6dacb23`).  The genuinely-valuable use
+  found: `cmd/bnc/compile.bn`'s `Backend` interface
+  (`compileModule`) with `llvmBackend` / `nativeBackend` impls,
+  dispatched via `compileModuleVia`.  This collapsed the
+  duplicated driver flow — `compileMainNative` is gone, `main()`
+  picks the backend and the LLVM/native paths are unified.
+  pkg/native also got an internal arch `Backend`
+  (arm64/amd64).  These are the first non-synthetic interface
+  users beyond pkg/std's `Stringer`.  NOTE: interface values
+  must be constructed from locals, not package globals — `&global`
+  iface construction was a codegen bug (now fixed, see
+  conformance/495).
 
-### REPL — Tier-4 follow-ups + pretty-printer (all five tiers landed) — 🟡 OPEN (low priority)
-All five REPL tiers are landed (archived in [claude-todo-done.md](claude-todo-done.md): Tier 1–2 eval +
-redefinition, Tier 3 forward refs incl. pending types/vars/consts + cycle detection, Tier 4 replace +
-shadow for funcs & methods, Tier 5 mid-session imports `78685ac3`). Residual:
-- **Tier 4**: refcount-aware shadow warning (today fires unconditionally); forced-shadow escape hatch (syntax TBD per `claude-notes.md`).
-- **Pretty-printer** (`pkg/replprint`) — deferred until interfaces land (`bootstrap.println` is a temporary hack; don't entrench it).
+### Use `@[]@[]char{...}` composite literals (opportunistic)
+- **Constraint**: previously forbidden because bootstrap didn't
+  support managed-slice-of-managed-slice composite literals; now
+  unlocked everywhere (bnc-0.0.1 supports them).  Mirrors the
+  unconstraint situation for `cmd/bnlint`'s tests, which already
+  use this shape.
+- **Pattern to replace**: a known-fixed-length run of
+  `args = appendCharSlice(args, "foo"); args = appendCharSlice(args, "bar"); ...`
+  → `var args @[]@[]char = @[]@[]char{"foo", "bar", ...}`.  Same
+  shape for `appendRawCharSlice` (since string literals are
+  already `*[]const char`).  When the run mixes constants with
+  computed values, leave it alone — the literal form only helps
+  for known-static sets.
+- **Candidates**: argv construction in build scripts (e.g.
+  `cmd/bnc/{main,test,compile}.bn` clang-args setup), test
+  scaffolding (anywhere a test builds a known `@[]@[]char`
+  fixture), and short fixed sets of import paths.
+- **Why bother**: cuts line count, removes a runtime O(n²)
+  rebuild pattern (each `appendCharSlice` allocates a new
+  slice + copies), and matches the language's expressive
+  default instead of the bootstrap workaround.
 
-### Import aliases and blank imports
-- Do we support Go-like `import somethingelse "pkg/foo"` currently? We'll likely need this.
-- Do we support `import _ "pkg/foo"`? Should we? (Side-effect-only imports.)
-- Both interact with the package object naming question above.
+### Use function values to collapse explicit dispatch shims (opportunistic)
+- **Constraint**: function values are unlocked now that
+  cmd/bnc is no longer bootstrap-bound; bnc-0.0.1 has the
+  function-value machinery (see plan-function-values-phase-3
+  in `claude-todo-done.md`).
+- **Pattern to look for**: places where we route through a
+  `kind` int + a per-kind dispatch table, when the data flow
+  would be clearer as "the caller hands us the function it
+  wants invoked".  Candidates need a closer look before they're
+  fully scoped — function-value adoption isn't always a win
+  (each call adds an indirect-call overhead), so this is
+  selectively-opportunistic, not blanket.
+- **How to land**: TBD; needs concrete site survey.
 
-### Package path: env-var support (Stage 7)
-- Add `BINATE_PACKAGE_INTERFACE_PATH` / `BINATE_PACKAGE_IMPL_PATH`
-  (long names match `LD_LIBRARY_PATH`/`PYTHONPATH` style; aliases TBD)
-  as the fallback when CLI flags are absent.
-- Gated on adding `bootstrap.Getenv` (a few lines of C + Go-interp
-  glue). Deferred because direct shell invocations of bnc/bni today
-  can construct CLI arguments — the env-var fallback is convenience
-  for users invoking the tools by hand.
-- See [`plan-package-search-paths.md`](plan-package-search-paths.md)
-  § "Env vars".
+### Replace repeated `WriteStr(literal)` runs with adjacent-string concat (opportunistic)
+- **Pattern**: code that builds output via a CharBuf often calls
+  `WriteStr` many times with adjacent string literals — e.g.
+  `cb.WriteStr("foo"); cb.WriteStr("bar"); cb.WriteStr("baz")`.
+  Binate allows adjacent string literals to be concatenated by
+  juxtaposition (`"foo" "bar" "baz"`), so a single
+  `cb.WriteStr("foo" "bar" "baz")` (split across lines for
+  readability) does the same work in one call.
+- **Why it matters**: each `WriteStr` call is a method dispatch
+  plus a CharBuf grow check.  Collapsing the literals into one
+  call cuts both, and is also less code to read.
+- **Most of these are in tests**, which compounds with the
+  slow-tests theme — every saved WriteStr in a test that runs
+  under boot-comp-int-int (or any interpreted mode) saves
+  bytecode-dispatch overhead × test count.
+- **How to land**: opportunistic, file at a time.  Best
+  candidates: `cmd/bnc/test.bn`'s `genTestRunner`, anywhere
+  building LLVM-IR text, and test fixtures that paste source
+  fragments together a chunk at a time.
+- **First pass landed** (binate `07b21ed`, 2026-05-15): 18 files,
+  ~200 runs coalesced (`cmd/bnc/test.bn`, `cmd/bnc/util.bn`,
+  `cmd/bni/main.bn`, plus check_*_test.bn and emit_*_test.bn /
+  gen_*_test.bn in pkg/types, pkg/codegen, pkg/ir).  The
+  cmd/bnc/test.bn growth (524 → 533) prompted a follow-up split
+  to a new `gen_test_runner.bn` — test.bn now 381 lines.
 
-### Package path: binary artifacts on IMPL_PATH (Stage 8 / Phase 2)
-- Once we have a stable per-package ABI/linker contract: accept
-  `.o`/`.a`/`.so` files on `IMPL_PATH` as alternatives to `.bn`
-  source. `hasImplFiles(dir)` becomes "has at least one of {.bn, .o,
-  .a, .so}". Precedence rule (likely .o/.a/.so wins over .bn, with
-  `--prefer-source` to override) is open.
-- bnc would also gather binary artifacts from `IMPL_PATH` and feed
-  them to the linker automatically (today users supply via
-  `--cflag`).
-- See [`plan-package-search-paths.md`](plan-package-search-paths.md)
-  § "Future: binary impl artifacts".
+### Replace if-return chains with `switch` where applicable (opportunistic)
+- **Pattern**: code that does
+  `if x == A { ... return ... }; if x == B { ... return ... }; ...`
+  over many cases.  Common in op-dispatchers, kind-handlers, and
+  predicates.
+- **Why it matters**: a `switch` makes the structure obvious (all
+  cases over the same scrutinee, mutually exclusive), gives the
+  type-checker a hook for exhaustiveness checking if/when it
+  lands, and reads more naturally.
+- **Watch out for**: chains where the conditions aren't really
+  equality on a single scrutinee — those genuinely are
+  if/else-if and should stay.  Also: the bootstrap subset
+  supports `switch`, so this isn't restricted to non-bootstrap
+  code (unlike the interface TODO above).
+- **How to land**: opportunistic.  Top candidates: the per-op
+  dispatchers in `pkg/native/arm64/arm64_dispatch.bn`,
+  `pkg/codegen/emit_instr.bn`, `pkg/vm/vm_exec*.bn`, and
+  `pkg/ir/ir_ops.bn`'s opName / similar string-form helpers.
+- **Landed (2026-05-25/26)**: the big per-op dispatchers are
+  converted — `pkg/vm/vm_exec_pure.bn` + `vm_exec_helpers.bn`
+  (binate `b4456ab`, `e4e7d29`), `pkg/codegen/emit_instr.bn`
+  (`2d6d0f7`), `pkg/native/arm64/arm64_dispatch.bn` (`3756acc`).
+  Where a chain mixes equality cases with op-RANGE checks
+  (emit_instr's OP_ADD..OP_SHR / OP_EQ..OP_GE; arm64_dispatch's
+  emitCompare/emitBinop/emitUnop delegates), the range arms stay
+  as guards alongside the switch.  `ir_ops.bn`'s opName was
+  already a switch — nothing to do there.  This work flushed out
+  a CRITICAL case-scope miscompile (managed local in a `case`
+  body), since fixed (`4306197`; archived in claude-todo-done.md).
+  Remaining candidates are smaller / lower-value (assorted
+  if-chains in cmd/* and pkg/* tools).
 
-### Build out e2e testing
-- We have unit tests (per package) and conformance tests (language
-  semantics). What we don't have is a place for **end-to-end tool
-  integration tests** — checks that the CLI/loader/runtime wiring
-  works the same way across all four tools that load Binate
-  packages: `bootstrap`, `bnc`, `bni`, `bnlint`.
-- **What's landed (2026-04-30):**
-  - Two scripts: `e2e/split-paths.sh` (the original — `-I`/`-L`
-    cross-tool contract; covers Stage 1–6 of the package-search-paths
-    plan) and `e2e/repl.sh` (9 cases for `bni --repl`: basic call,
-    multi-stmt, error recovery, multi-line for-block, braces in
-    string literal, plus four Tier 2 cases — func persists, cross-
-    decl call, type rejected with diagnostic, bad body recovery).
-  - CI hookup at `.github/workflows/e2e-tests.yml` — matrix-
-    discovery via `ls e2e/*.sh`, one runner per script, `fail-fast:
-    false`.  Standard checkout layout (binate + bootstrap as
-    siblings) matches what the scripts assume.  New e2e scripts are
-    picked up automatically.
-- **Unique challenges this dir still has to solve over time:**
-  - **4 tools, not 1.** A single feature (like `-I`/`-L`) needs to
-    be exercised on each tool independently, since each parses CLI
-    flags separately and threads them into the loader differently.
-  - **Multiple build/run modes for the binate-written tools.** bnc,
-    bni, and bnlint can each be exercised through several pipelines:
-    bnc via boot-comp / boot-comp-comp / boot-comp-comp-comp /
-    boot-comp_native_aa64; bni via boot-comp-int / boot-comp-comp-int;
-    bnlint via the same chains as bnc. Note that bni cannot be
-    interpreted directly by the bootstrap (cmd/bni imports pkg/vm,
-    whose float literals the bootstrap lexer doesn't recognize) —
-    bni really has to be built via boot-comp first.
-    Full e2e coverage of "feature X works" multiplies tools × build
-    modes — easily 10+ runs per feature. We don't necessarily want
-    that today; figuring out which slice is worth the cost is part
-    of building this out.  Today both shipping scripts pick a
-    single mode each (split-paths covers all four tools at their
-    "default" build path; repl uses boot-comp bni).
-  - **Fixture management.** Conformance tests share a single root;
-    e2e tests like split-paths need disjoint fixtures, ad-hoc temp
-    dirs, optional checked-in subtrees. No standard pattern yet —
-    both current scripts use `mktemp -d` + `trap rm -rf` and inline
-    `cat <<EOF` heredocs for fixture files.
-- **Why these scripts are useful motivating examples:**
-  - **split-paths**: the `-I`/`-L` feature is something `bootstrap`,
-    `bnc`, `bni`, and `bnlint` should all support **identically** —
-    a deliberate cross-tool contract.  e2e is the only layer where
-    that contract can be observed directly.
-  - **repl**: the `bni --repl` PoC is a multi-stage user-facing
-    flow (load module → drive prompt via stdin → check banner +
-    prompts + results byte-for-byte).  No unit test could easily
-    exercise the full input-to-output transcript; e2e is the right
-    layer for "the REPL works end-to-end".
-- See [`plan-package-search-paths.md`](plan-package-search-paths.md)
-  for the spec `e2e/split-paths.sh` validates and
-  [`plan-repl.md`](plan-repl.md) for what `e2e/repl.sh` covers.
-
-### Annotations and C function interop
-- **Option E (`__c_call` intrinsic) has a detailed implementation plan:
-  [plan-c-call.md](plan-c-call.md).**
-- Consider implementing annotations (decorators/attributes).
-- Specific use case: annotating functions as C functions.
-  - **Option A**: annotation in `.bni` — callers know the name and calling convention, but mixes interface with implementation.
-  - **Option B**: annotation on the definition (with empty body) — `bnc` generates a trampoline. But empty body is weird (missing return values?).
-  - **Option C**: annotation on a call site, indicating it's a C function call. Maybe a "magic" C package so no annotation is needed at all.
-  - **Option D**: manual trampolines, with a magic C package for declarations.
-  - **Option E**: a `__c_call` compiler intrinsic at the call site, no
-    declaration needed.  Two forms were considered:
-    - **E1 (rejected)**: pass a C prototype string —
-      `__c_call("ssize_t write(int, const void*, size_t)", fd, buf, len)`.
-      Reads nicely, but forces the compiler to parse C and resolve C
-      types, which drags in typedefs, macros, and platform builtins
-      (`__size_t` &c.).  Not practical.
-    - **E2 (preferred)**: pass the C symbol name, an explicit return
-      type, then the argument values already in (or cast to) the
-      Binate types that match the C ABI —
-      `result = __c_call("write", int, cast(int, fd), cast(*uint8, buf), cast(uint, len))`
-      (casts are unnecessary when the variables already have the right
-      type).  Supported argument/return types: scalars, struct types,
-      and pointers to these (to any depth: `*T`, `**T`, …).  This
-      reuses the backends' existing platform-C-ABI lowering (struct
-      sret thresholds, register assignment) — no C parsing, no type
-      resolution, no new ABI logic.  The symbol name is emitted
-      verbatim (no `bn_` mangling); the backend emits the matching
-      `extern`/`declare`.
-  - **C-types alias package (decided)**: a package (e.g. `pkg/c`)
-    pins the Binate↔C scalar correspondence in one place so call sites
-    don't open-code it.  `C_int`/`C_uint` = `i32`/`u32` (C `int` is
-    32-bit on both ILP32 and LP64, *not* target-word-width like Binate
-    `int`); `C_long`/`C_ulong` = target-word (LP64 Unix; matches Binate
-    `int`/`uint`); `C_size_t` = `uint` (pointer-width); `C_char` = `i8`
-    (signedness is platform-dependent in C — note the caveat, but it's
-    promoted on pass so rarely matters).  Plus a sentinel `C_void` for
-    the return-type slot of functions that return nothing.  So the
-    example's `fd` is really `C_int` (= `i32`), not `int`.
-  - **Scope decisions (v1)**:
-    - **Compiled-mode-only to start.** The compiler emits a direct
-      call; the VM would need FFI-style dispatch (resolve the symbol
-      via the extern registry + marshal by the supplied types) — punt
-      that.  `__c_call` outside compiled mode is an error for now.
-    - **Include variadics from the start.** The whole point of
-      `__c_call` is to retire `pkg/bootstrap`'s hand-written C
-      wrappers and the special shim machinery — and several of those
-      OS interfaces are variadic in C (`open(const char*, int, ...)`
-      where `mode` is a vararg; `fcntl`, eventually the `printf`
-      family).  Punting variadics would leave bootstrap unable to go
-      away, defeating the purpose.  So v1 supports them.
-      - **Boundary marker (required).** The call site must declare
-        where fixed args end and variadic args begin — it can't be
-        inferred from the values (`open(path, flags, mode)` is
-        indistinguishable from a 3-fixed-arg call).  Proposed: a
-        `C_varargs` sentinel (or a recognized `...` token) in the
-        argument list:
-        `__c_call("open", C_int, path, flags, C_varargs, mode)`.
-        Everything after the marker is an anonymous/variadic arg.
-      - **Backend work is lopsided.** LLVM path: nearly free — emit
-        `declare i32 @open(i8*, i32, ...)` + a varargs call with the
-        right fixed-arg count, and LLVM does the platform-correct
-        lowering (x86-64 `AL` = vararg float count, darwin-arm64
-        stack-passing, 64-bit-vararg alignment) for us.  Native
-        backends (`pkg/native/{arm64,amd64}`): real work — they emit
-        machine code directly and must implement the vararg
-        convention per target (darwin-arm64 stacks all varargs;
-        x86-64 SysV sets `AL`; AArch64-Linux/arm32 mostly match the
-        fixed convention but 64-bit varargs need 8-byte alignment).
-        This extends the existing `CallConv`/register-assignment
-        logic; needs per-target tests.
-  - **Open considerations for E2 (still to resolve)**:
-    - Confirm the full `pkg/c` scalar table against each target
-      (`C_long` on a 32-bit target, `C_char` signedness, the float
-      types if/when floats land).
-    - Final spelling of the variadic boundary marker (`C_varargs`
-      sentinel vs a `...` token vs an explicit fixed-arg count).
-    - VM/dual-mode FFI dispatch (deferred above) when interpreted-mode
-      `__c_call` is eventually wanted.
-  - **Companion idea — link-requirement annotation (sketch)**: Option E
-    makes a C symbol *callable*; a complementary annotation would make
-    it *resolve at link time* by declaring, at the source level, that
-    using a package requires linking some C library — so the driver
-    adds the flag automatically instead of every consumer passing
-    `--cflag -lm` / `--link-after-objs` by hand.  Prior art:
-    Rust `#[link(name = "m", kind = "static")]`, Go cgo
-    `// #cgo LDFLAGS: -lm`, MSVC `#pragma comment(lib, "foo")`.
-    Natural shape: `#[link("m")]` (optionally a `static`/`dynamic`/
-    `framework` kind), most naturally on the `.bni` since the link
-    requirement is part of the package's contract.  This is also the
-    first real payoff of the general annotations feature this item is
-    about — both Option E and this want it.
-    - **Open wrinkles**:
-      - **Transitivity** — the requirement must propagate through the
-        import graph (aggregate + dedup all declared libs for any
-        binary that transitively imports the package).  Hooks into the
-        loader's `ldr.Order` walk + the driver's `clangArgs` assembly.
-      - **Link ordering** — static archives only supply symbols
-        referenced by *earlier* inputs, so aggregated `-l` entries
-        need correct placement vs. the `.o` files and runtime (the
-        driver already does this for `linkAfterObjs`).
-      - **Search paths** — keep the annotation name-only (`-l`); leave
-        `-L<dir>` to driver flags.
-      - **Platform-conditionality** — a `libm` dep is meaningless on
-        bare-metal arm32 and `framework` kind is macOS-only, so the
-        annotation likely needs to be target-qualifiable.  Ties into
-        the C-free principle: this exists only to interface with
-        existing C systems and should evaporate on freestanding
-        targets.
-      - **Static-spec portability** — even with `kind = static`,
-        expressing it portably is messy (GNU ld `-l:libfoo.a` /
-        `-Wl,-Bstatic`; macOS `ld` has neither), so it may need
-        per-platform lowering in the driver or a full-path escape
-        hatch.
-
----
-
-## TEST COVERAGE — conformance matrix follow-ups
-
-### Stale-xfail sweep — residuals (the cross-mode CONFORMANCE sweep is done) — 🟡 OPEN
-The big stale-xfail sweep — all 10 modes via the `conformance-xpass.yml` CI workflow;
-121 stale conformance markers + 8 VM-mode unittest markers removed; per-mode detail +
-methodology — is ✅ DONE; see [claude-todo-done.md](claude-todo-done.md). Two residuals:
-- **Cross-mode UNITTEST xfails (17)** — UNSWEPT. The unittest `--check-xpass` (binate
-  `ddc624d2`) exists but isn't wired into CI, so the XPASS workflow is conformance-only;
-  the 16 arm32-baremetal + 1 arm32-linux unittest xfails need qemu. Sweep by hand, or
-  wire unittest `--check-xpass` into CI.
-- **`value-struct-large` on `native_x64`** — *not* xfailed there yet crashes (empty
-  output) when run; a real missing-xfail or native_x64 bug, surfaced (then masked by a
-  substring collision) during the sweep. Worth a look now that `run.sh --exact` no
-  longer pulls it into the `value-struct` filter.
-
-### Plan-3 adversarial-review follow-ups (test-hygiene + coverage gaps from `cc2ddcc4` / `997c4c04` / `0c707e1f`) — 2026-06-08
-Non-wrong-code items from the adversarial review of the plan-cr2-3 work; each is small. (The live wrong-code findings are the OP_CAST/iface-arg CRITICAL and the float-multi-return MAJOR above.)
-- **Weak / over-claimed Defect-6 pin**: the addr-aggregate `global` cells (`997c4c04`) + their generator docstring/README claim to pin "2-word sizing / mis-sized-to-one-word drops a word" — but store+load are width-consistent so the cell is INVARIANT to allocation size (it pins materialization + `__init`-store + read-back wiring, NOT sizing). Fix the docstring (`gen-addr-aggregate-matrix.py:96-104`) / README / commit framing to match. Also Defect 6 closed using only the two shapes that typecheck; readonly-wrapped + named-over-aggregate + raw `*func()` + uninitialized-nil global companions (the Class-A materialization risk in `plan-code-red-2.md`) were left out — record as an explicit deferral (invoking them is blocked upstream at the call typechecker).
-- **Coverage gaps**: aa64 per-field iface-multi-return collect (`aarch64_iface.bn:204-228`, the exact loop that dropped sub-word fields) has NO unit test (only conformance on aa64); x64 `collectMultiReturnTuple`-for-iface has no unit test for the IFACE op; an aggregate-component iface multi-return tuple (`(Pair,int)`) is uncovered; the iface-method-arg-with-global position is covered by neither a unit test nor 551/573 (see the CRITICAL entry).
-- **Latent fragility (nit)**: `pkg/binate/ir/gen_call.bn` computes `resultTyp` generically and hands it to `EmitCallHandle`/`EmitCallIndirect` (magic-name dispatch) with no structural guard that it isn't a multi-return struct — add a cheap assert so the "these ops never carry a multi-return" invariant is enforced in code, not convention.
-- **Discovery**: 2026-06-08, adversarial multi-agent review of plan-cr2-3 work (6 reviewers → adversarial verify → completeness critic; 21/23 findings confirmed).
-
-The code-red conformance-matrix family (`conformance/matrix/`, see
-`plan-code-red.md` §7) has four members realized: `refcount` (Class 1),
-`scalar` (Class 5), `abi` (Class 4), `const` (named-constant invariant). These
-are the remaining matrix-shaped classes not yet built as their own matrix —
-candidates for after the loose-axis finish (const-expr folding + ABI
-`handle`/`__c_call` shapes).
-
-### (b2) Lifecycle matrix — Class 6 (`@Iface` / `@[]@I`) + Class 7 (captured-`@func` over-release) — PARTLY ADDRESSED 2026-06-05 (plan-cr-p2-2 step 5)
-- **Status**: the existing `conformance/matrix/refcount` form × type grid already
-  covers Class 6's construction/consumption shapes (the copy-sites are now uniform
-  after the `emitStoreManagedSlot` consolidation), and `604`/`605` add lifecycle-
-  DEPTH balance (a value chained through param/store/pass/return/bind/invoke) for
-  captured-`@func` and cast-from-impl `@Iface`, green in builder-comp/-int/-comp/
-  native-aa64. REMAINING: a true single-program **Class 7 native↔VM trampoline**
-  balance test is not expressible in the single-mode conformance harness (each
-  test runs in one mode) — needs a cross-mode harness; left as a follow-up.
-- **Why a matrix**: Class 6 (`@Iface`/`@[]@I` first-class lifecycle) and Class 7
-  (native call-a-captured-`@func` over-release via the VM trampoline) are
-  lifecycle-completeness classes. Axes would be `managed-kind (@Iface / @[]@I /
-  captured-@func) × construction (make / literal / cast-from-impl / capture) ×
-  consumption (call-method / index / range / pass / return / discard) ×
-  backend`, with a refcount-balance assertion (mortal source).
-- **Status**: the refcount matrix already covers `@Iface`/`@func` as value-types
-  across assignment-forms, so this would EXTEND rather than start fresh — the
-  new axis is construction × consumption depth (esp. the native↔VM trampoline
-  path for Class 7, which the refcount matrix does not exercise).
-- **Note**: several `@Iface` lifecycle bugs are already filed (leaks/UAF family,
-  `@[]@I` literal element leak); a matrix would close the long tail.
-
-### (b3) Class 3 / Class 8 — point-bugs, NOT matrices
-- Class 3 (cross-package / interface-name type-resolution ordering → `i8*`
-  fallback) and Class 8 (multi-package loader resolution at int-int depth) are
-  one-off ordering/loader bugs, not systematic products. Track them as
-  individual regression tests under `conformance/regressions/` + filed bugs, not
-  as a matrix.
-
-### (b4) Differential harness v3 — port `gen-diff-scalar.py` to Binate (dogfood) + flavor B — NOT STARTED
-- **Context**: the property-based differential value-correctness harness
-  (`conformance/matrix/scalar-diff`, oracle = spec) is realized through v2 —
-  shifts, conversions, arithmetic, comparisons, bitwise; 123 cells / 5415
-  tuples; generator `conformance/gen-diff-scalar.py` (Python). See
-  `plan-differential-testing.md` (phasing item 3) for the full design.
-- **v3 scope** (the remaining phase):
-  1. **Port the generator to Binate** — rewrite `gen-diff-scalar.py` as a `.bn`
-     program so the harness dogfoods the language on a real codegen-shaped task
-     (LCG, two's-complement oracle, bit-pattern formatting). Keep the emitted
-     cells byte-identical so the existing `.expected`/`.xfail` set and
-     `--check` idempotence carry over unchanged.
-  2. **Flavor B (optional, for the highest-volume ops)** — one self-checking
-     `.bn` per op that loops an embedded `(inputs, expected)` table and prints
-     `mismatch i: got… want…`, denser than the current static-cell flavor A and
-     debuggable on failure (flavor A shows *which* tuple, not the wrong value).
-     Decide per op once flavor A shows which need the volume.
-  3. **Sample-size knob** — a fixed, seeded count parameter so coverage can be
-     dialed up without touching the generator logic.
-- **Why**: dogfooding is the highest-leverage *process* check (the OOM, the
-  `@func`-dtor crash, the shift bug all first surfaced by compiling real Binate
-  programs); porting the generator turns the harness itself into one more such
-  program. Not urgent — v1/v2 already give the value coverage; v3 is the
-  dogfood + debuggability upgrade.
-
-## P3 — low-priority follow-ups
-
-### `os` errors carry only the op, not the failing path (P3)
-`pkg/std/os` `failErrno(op)` renders e.g. `"open: not found"`, but
-plan-std-error-hierarchy.md §7 specifies context `(path, op)` —
-`"open /etc/foo: not found"`. The path is available in `OpenFile`'s `name`
-param (Create/Open delegate to it); `read`/`write`/`seek` operate on an fd and
-have no path, so op-only is correct there. Add the failing path to the open
-family's error context (e.g. a path-aware wrapper, or `failErrno(op, path)`).
-Deferred 2026-06-11 (user: op-only acceptable for now) — low impact (message
-richness, not classification). Tests: extend the `TestOpen*Classified` cases
-to assert the path appears in the rendered message.
+### Clean up conformance tests to use array literal + `arr[:]` pattern
+- `arr[:]` works in compiled mode; conformance tests using `make_slice` + indexed assignment for static data could use `[N]T{...}` + `arr[:]` instead
+- Consider adding slice literal syntax (`*[]T{...}`) as sugar

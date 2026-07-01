@@ -8,6 +8,23 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ DONE & LANDED (main `dd3d8b59`, 2026-07-01, BUG-BASH LANE 3) — cross-mode coerced-agg func-value ABI: observable struct-return-into-by-value-extern fixture
+
+`pkg/binate/vm/vm_extern_coerced_test.bn`: a native struct-return extern (`mkPair` 8B /
+`mkWide` 16B) materializes an aggregate in the frame, fed straight into a by-value-arg extern
+(`pairEq`/`wideEq`) returning `bool` — covering the coerced-agg ARG (1- and 2-register) +
+sub-word/bool RETURN on BOTH cross-mode dispatchers (`dispatchCompiledFuncValue` via
+OP_CALL_FUNC_VALUE, and `dispatchExternBinding` via direct OP_CALL). A real guard: a broken arg
+segfaults (found during dev). The native-IFACE-method path is intractable to unit-test — its
+`@__ivtshim` can't be hand-forged (the shim design forbids replicating its coerced-agg/retbuf
+ABI) — but all three dispatchers (extern / func-value / iface) pack each arg as one by-address
+slot + narrow the return through the SAME shared code, so the func-value/direct fixture is its
+representative unit coverage; the iface path's end-to-end stays in conformance (726). The bool
+narrow's effect is observable where the native ABI leaves garbage above the low byte (x86-64).
+Note: `EmitStructLit` is a NOP in the VM (structs build via alloca+stores), so the fixture builds
+the aggregate through the struct-return extern instead. Split out of the cross-mode coerced-agg
+func-value ABI follow-ups entry.
+
 ## ✅ DONE & LANDED (main `4f91388a`, 2026-07-01, BUG-BASH LANE 3) — abi-matrix: systematic managed-component multi-return refcount coverage
 
 The abi conformance matrix's multi-return-through-dispatch cells used only value
