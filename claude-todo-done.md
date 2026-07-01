@@ -8,6 +8,29 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ DONE & LANDED (main `4f91388a`, 2026-07-01, BUG-BASH LANE 3) — abi-matrix: systematic managed-component multi-return refcount coverage
+
+The abi conformance matrix's multi-return-through-dispatch cells used only value
+component types (`MR_TYPES` = int/u16/f64), so they checked value survival but
+never a MANAGED component's refcount balance — the exact surface where the
+`genMultiAssign` copy-RefInc defect hid (`f8916b88`), previously covered only at
+the IR-unit level (whack-a-mole risk). Systematized in the generator (NOT a
+one-off hand test — the maintainer's call: the generator must cover the cases).
+
+- `conformance/gen-abi-matrix.py`: new `managed_mr_cell` emits a managed axis —
+  thread N persistent `@Node` through an N-return call (direct / interface-method
+  / func-value) in a `thread` helper that binds the returned components (`:=` and
+  `=`) and drops them; `main` asserts each `@Node`'s rc returned to baseline (1)
+  AND each component's value survived. A skipped copy-RefInc → rc wrong (leak) or
+  double-free (crash). Covers {direct, iface, funcval} × {arities 2-5} × {short,
+  assign} = 24 cells (`managed-{,iface-,funcval-}multi-return[-assign]/<arity>`).
+  `render()` auto-adds the `rt` import per cell, so value cells stay byte-unchanged.
+- The matrix runs in the default conformance suite → these run in CI. Validated:
+  all 24 pass on builder-comp / -int / -comp / -int-int / native-x64 / native-aa64
+  (balance holds across every backend + execution mode). Hygiene 15/15;
+  adversarial review confirmed the rc==1 assertion is a REAL guard (traced vs
+  `gen_assign_multi.bn`: catches both too-low → premature free and too-high → leak).
+
 ## ✅ FIXED & LANDED (main `3c862d69` + `f1c128ae`, 2026-07-01, BUG-BASH LANE 1) — Slice 6c cross-package generic-interface VALUES + bug 451 same-final-segment generic-interface collision
 
 Two dependent fixes closing the last open Lane 1 bug (451).  The 2026-06-28
@@ -2910,7 +2933,12 @@ bug now tracked in claude-todo.md). Green on builder-comp / -int / -comp.
 **Split 2026-06-14**: resolved bulk archived here; the open residual is tracked as a slim follow-up entry in claude-todo.md.
 - **Found by the Plan-2 adversarial review.** `genMultiAssign` (`pkg/binate/ir/gen_assign_multi.bn`, the `a, b = …` form) derived per-component result types only from `lookupFuncResults(val.StrVal)` for a DIRECT call (`OP_CALL`). An interface dispatch (`OP_CALL_IFACE_METHOD`) and a func-value call (`OP_CALL_FUNC_VALUE`) have no callee name, so retTypes stayed empty and every component defaulted to `int`: a sub-word component was stored as i64 (invalid IR → clang reject) and a managed component skipped its Axiom-3 copy-RefInc (latent UAF if it had compiled). `a, b = iv.m()` / `a, b = fv()` with any non-int component thus failed to compile; the `:=` form (`genShortVar`) already had the `multiReturnFieldTypes` fallback, so the asymmetry hid it. Became reachable once iface/func-value multi-return dispatch started working (the CR-2 SEAM `6c39d460` + iface-dispatch-by-value `43cb195d` + func-value destructure `2a77188c`); no test caught it because the whole abi multi-return matrix binds with `:=` and uses only int/u16.
 - **Fix**: mirror genShortVar's fallback in genMultiAssign (derive component types from the multi-return tuple struct when retTypes is empty). Additive. Pinned by `gen_assign_multi_test.bn` TestMultiAssignFuncValueCallCopyRefInc (verified red without the fix); end-to-end (uint16,int) and (int,@[]int) `=`-form iface + func-value repros compile/run, 200k-iter managed loop balances.
-- **OPEN follow-ups (from the same review)**: (a) **coverage** — extend `conformance/gen-abi-matrix.py` with an `=`-form (assignment) binding axis + a managed-component type for the multi-return-through-dispatch cells (the surface that hid this bug; today all cells use `:=` and int/u16 only).
+- **Follow-up (a) coverage — ✅ DONE.** The `=`-form (assignment) binding axis
+  landed earlier (the `*-multi-return-assign` value cells), and the
+  managed-component axis landed 2026-07-01 (main `4f91388a`) — see the dedicated
+  entry near the top of this file. `gen-abi-matrix.py` now systematically covers
+  the managed-multi-return-through-dispatch refcount balance across {direct,
+  iface, funcval} × arities × {`:=`, `=`}.
 
 ### `int64 << int` rejected in 32-bit-int modes → breaks ALL 32-bit-int compilation — REGRESSION from `efeb0f94` — ✅ RESOLVED 2026-06-10 (binate `fd3cb7ac`)
 **Split 2026-06-14**: resolved bulk archived here; the open residual is tracked as a slim follow-up entry in claude-todo.md.
