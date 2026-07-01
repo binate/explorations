@@ -8,6 +8,21 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `e9bdd05f`) — Ch.7 (codegen): managed pointer-to-array `@([N]T)` indexing emitted invalid getelementptr
+
+`(*m)[i]` on an `@([3]int)` emitted "invalid getelementptr indices": the LLVM `emitGetElemPtr` gated
+its single-index pointer path (bitcast i8*→ElemT*, one-index GEP) on `TYP_POINTER` only, so a managed
+pointer (also an i8* pointing AT its element buffer) fell to the array-alloca double-index path. Fix
+(`pkg/binate/codegen/emit_helpers.bn`): include `TYP_MANAGED_PTR` in the pointer-value gate (LLVM-
+backend-only — native/VM compute the element address by offset and already handled it). Pinned by new
+`conformance/spec/07-types/147_managed_ptr_array_index` (green on builder-comp / -int / native_aa64).
+(`m[i]` — direct index without an explicit deref — still rejects "cannot index this type"; that matches
+the raw `*([N]T)` form and is not part of this bug.) One of the four Ch.7-type-spec findings; the other
+three (cross-pkg named-scalar identity `186d876d`, native named-managed-slice subslice `0e7fd844`,
+opaque-encapsulation-under-co-compilation `f9e915fa`) have their own done entries.
+
+---
+
 ## ✅ FIXED & LANDED (main `186d876d`, 2026-06-30, BUG-BASH LANE 1) — MAJOR (type-checker / wrong-code): distinct cross-package named SCALAR types wrongly inter-assigned
 
 `red.T` and `blue.T` (each `type T int` in a different package) were assignable
