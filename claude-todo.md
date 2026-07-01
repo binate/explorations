@@ -14,32 +14,30 @@ coverage / doc) or already-resolved residuals.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 2] Method-value CAPTURE gap — pointer-receiver method value on a VALUE-returning call/temp (`mk().get`) SIGSEGVs — 🔴 OPEN (pre-existing; the sibling NAMING residual is ✅ LANDED — main `47cdcfbf`)
+## 🏷[BUG-BASH 2026-06-27 → LANE 2] Method-value CAPTURE gap — pointer-receiver method value on an SRET / managed value receiver from a call/temp — 🟡 OPEN (residual; the common by-value case is ✅ FIXED, commit `27c45833` pending land)
 
-The cross-package method-value **NAMING** is now ✅ FIXED & LANDED / pending-land for
-ALL receiver shapes — ident / selector / index (main `31cbece7` + `b62bbd8c`) and now
-CALL-result (`f().M`, main `47cdcfbf`): `methodValueRecvIRType` gained
-an `EXPR_CALL` case that resolves the callee's registered return type (funcRefName +
-lookupFuncResults) so `buildMethodQualName` targets the RECEIVER's defining package.
-`944` is now a POSITIVE test (a persistent-global `*Box` getter, green on LLVM + VM +
-native aa64). See [claude-todo-done.md](claude-todo-done.md) for the naming arc.
+The cross-package method-value NAMING is ✅ DONE & LANDED for all receiver shapes
+(ident/selector/index `31cbece7`+`b62bbd8c`, call-result `47cdcfbf`) — see
+[claude-todo-done.md](claude-todo-done.md).
 
-**What remains (this item) — a PRE-EXISTING, separate CAPTURE bug (discovered
-2026-06-30, NOT introduced by the naming work):** a method value with a POINTER
-receiver taken on a VALUE-returning call / temporary (`mk().get` where `mk()` returns
-`Box` by value and `get` takes `*Box`) should materialize the temp and address it (Go
-semantics: `mv()` == 5), but `genCapturedRecv`'s `T→*T` smoothing only handles an
-`EXPR_IDENT` receiver (it uses the local's alloca-slot address); for a call-result it
-falls through and stores the `Box` VALUE into the closure's `*Box` slot as a WILD
-POINTER → SIGSEGV at `mv()`. **Crashes identically for LOCAL and cross-package
-receivers** (verified — `mk().get` in one package SIGSEGVs today), so the naming fix
-does not introduce it; it just makes cross-package call-result method values reach the
-same shared capture path. Pinned by `conformance/947_method_value_call_ptr_recv_capture.xfail.all`.
-**Fix:** in `genCapturedRecv`, for a non-ident `T→*T` receiver, materialize the value
-into a stack slot and capture the slot address — but the slot must OUTLIVE the closure,
-so the closure must capture the value BY VALUE (field type `T`, not `*T`) and the
-wrapper must pass `&(closure.recv)` to the pointer-receiver method (Go's approach). A
-method-value-machinery change, distinct from the naming path.
+**The CAPTURE bug — common case ✅ FIXED (commit `27c45833`, pending land):** a method
+value with a POINTER receiver on a NON-IDENT value receiver (`mk().get`, `h.b.get`) had no
+stable address to capture as `*T`, so `genCapturedRecv` stored the value into the closure's
+`*T` slot as a WILD POINTER → SIGSEGV (pre-existing; identical for LOCAL and cross-package).
+Fixed: `genMethodValue` now captures the value BY VALUE (a copy the closure owns) and the
+wrapper `alloca`+addresses it for the synchronous call — matching the method-CALL semantics
+(`mk().get()` already materializes a copy via `applyReceiverConversion`). An IDENT receiver
+keeps the existing `&slot` capture. `947` is now a POSITIVE test (call + field value
+receivers, green on LLVM + VM + native aa64 + x64); 942–946 + 503–519 regression unchanged.
+
+**What remains (this item) — SRET / managed value receivers:** the materialize path is
+gated to a register-returned (`!types.NeedsSret`, ≤16-byte) NON-managed struct. An sret
+(by-address, >16-byte) struct call-result comes back as a POINTER, so storing it into the
+by-value closure field needs a struct COPY, not a scalar store (`store %S %ptr` is invalid
+IR); and a struct with managed fields would need the by-value copy's fields RefInc'd. Both
+stay the old crash for now (exotic), pinned by `conformance/948_method_value_sret_recv_capture.xfail.all`.
+**Fix:** an sret-/refcount-aware struct-copy of the receiver into the closure field (reuse
+the sret-copy path `var x T = call()` uses, + `emitStructCopy` for the managed-field RefInc).
 
 ## rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟡 SCOPE REQUIRED (2026-06-20)
 
