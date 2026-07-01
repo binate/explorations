@@ -51,18 +51,32 @@ path derives `RecvPkg`. Un-xfail 942 when fixed.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 3, NEEDS TRIAGE] MAJOR? (VM / intermittent halt) — `rt.Refcount` on an interned `@[]readonly char` literal's backing halts the VM mid-program in some statement sequences (2026-06-29) — 🟡 OPEN — NOT CLEANLY REPRODUCED
+## 🏷[BUG-BASH 2026-06-27 → LANE 3] "VM intermittent halt" reading `rt.Refcount` of an interned `@[]readonly char` literal backing — ✅ RESOLVED (PROBE ARTIFACT, not a VM bug; pinned by `280`, 2026-06-30)
 
-Surfaced while investigating the readonly-char-literal backing model (the
-backing-form divergence itself is **resolved as intended** — environment-lifetime,
-see `claude-todo-done.md`). Reading `rt.Refcount(<backing of an interned VM
-literal>)` **halted execution mid-program** in some shapes: a minimal single read
-works (`var s @[]readonly char = "abc"; rt.Refcount(backing(s))` → 2, full output),
-but (a) a scope holding the literal, exiting, then re-evaluating the same literal,
-and (b) a `println`-separated read of a different string both stopped right at the
-refcount read — no further output, no diagnostic captured. Could be a real VM bug
-(reading an interned-literal allocation's header in certain states) or a probe
-artifact (raw-backing extraction via `bit_cast`). NEEDS a clean repro + root-cause.
+**Investigation (2026-06-30, reproduce + root-cause):** NOT a VM bug — a probe
+artifact. Every faithful reconstruction of the reported shapes ran to completion on
+the VM (and LLVM): a genuine interned-literal backing is ALWAYS a valid managed
+allocation (`materializeModuleStrings`, `pkg/binate/vm/lower_data.bn`, builds each
+literal via `make_slice`), so reading its refcount header is safe. The only thing
+that reproduces the exact symptom ("stops mid-statement, no output, no diagnostic")
+is reading an UNMAPPED pointer — which SIGSEGVs the host on EVERY backend (LLVM
+binary exits 139 the same way), i.e. NOT VM-specific. The original "intermittent
+halt" was a malformed probe (wrong word / stale header via `bit_cast`), flagged
+"NOT CLEANLY REPRODUCED" at filing. **Pinned:** `conformance/spec/07-types/280_refcount_interned_literal_shapes`
+exercises both suspected shapes — (a) scope-hold→exit→re-eval-same-literal, (b)
+println-separated read of a different literal — reaching `done` cleanly on LLVM +
+VM + native (per-mode `.expected`, mirroring 278's compiled-null-backing vs
+VM-owned-backing).
+
+**Robustness follow-up (filed for later — separate, minor):** `rt.Refcount` (a
+native-only extern in the VM) on an unmapped pointer SIGSEGVs the host with NO
+VM-level guard — there is no signal handler anywhere in `pkg/binate/vm` / `cmd/bni`
+/ `rt`. A bad-pointer deref inside a native extern is NOT one of the 6 guarded VM
+user-fault sites (bounds/divide/shift/nil-deref/stack-overflow/call-through-nil),
+so a program that hands a native extern a wild pointer always silently kills the VM
+host. A robustness gap at the native-extern boundary, distinct from this
+(now-resolved) interned-literal question — track under the `rt.Abort/rt.Panic
+Plan 2` item if/when that VM-fault-recovery work is picked up.
 `conformance/spec/07-types/278_..._literal` exercises only the minimal working form
 (one `rt.Refcount(...) >= 2` read) and is green, so this item is the deeper
 fragility, separate from that test.
