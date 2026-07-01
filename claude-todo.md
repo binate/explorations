@@ -14,14 +14,32 @@ coverage / doc) or already-resolved residuals.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 2] Cross-package method value on a CALL-result receiver `f().M` — 🟡 OPEN (residual; pinned by 944 xfail)
-The cross-package method-value mis-mangling is ✅ FIXED & LANDED for ident / selector /
-index receivers (main `31cbece7` + `b62bbd8c`) — see [claude-todo-done.md](claude-todo-done.md).
-Residual: a CALL-result receiver (`f().M`) still falls back to the checker's unqualified name
-and mis-mangles the symbol to the importer — `methodValueRecvIRType` has no EXPR_CALL case
-(needs the callee's qualified return type via funcRefName + lookupFuncResults) AND, for a
-value-returning callee with a pointer-receiver method, address-of-temp capture. Pinned by
-`conformance/944_xpkg_method_value_call_result.xfail.all`. A rarer, deeper gap.
+## 🏷[BUG-BASH 2026-06-27 → LANE 2] Method-value CAPTURE gap — pointer-receiver method value on a VALUE-returning call/temp (`mk().get`) SIGSEGVs — 🔴 OPEN (pre-existing; commit `9e25c12e` pending land closes the sibling NAMING residual)
+
+The cross-package method-value **NAMING** is now ✅ FIXED & LANDED / pending-land for
+ALL receiver shapes — ident / selector / index (main `31cbece7` + `b62bbd8c`) and now
+CALL-result (`f().M`, commit `9e25c12e`, pending land): `methodValueRecvIRType` gained
+an `EXPR_CALL` case that resolves the callee's registered return type (funcRefName +
+lookupFuncResults) so `buildMethodQualName` targets the RECEIVER's defining package.
+`944` is now a POSITIVE test (a persistent-global `*Box` getter, green on LLVM + VM +
+native aa64). See [claude-todo-done.md](claude-todo-done.md) for the naming arc.
+
+**What remains (this item) — a PRE-EXISTING, separate CAPTURE bug (discovered
+2026-06-30, NOT introduced by the naming work):** a method value with a POINTER
+receiver taken on a VALUE-returning call / temporary (`mk().get` where `mk()` returns
+`Box` by value and `get` takes `*Box`) should materialize the temp and address it (Go
+semantics: `mv()` == 5), but `genCapturedRecv`'s `T→*T` smoothing only handles an
+`EXPR_IDENT` receiver (it uses the local's alloca-slot address); for a call-result it
+falls through and stores the `Box` VALUE into the closure's `*Box` slot as a WILD
+POINTER → SIGSEGV at `mv()`. **Crashes identically for LOCAL and cross-package
+receivers** (verified — `mk().get` in one package SIGSEGVs today), so the naming fix
+does not introduce it; it just makes cross-package call-result method values reach the
+same shared capture path. Pinned by `conformance/947_method_value_call_ptr_recv_capture.xfail.all`.
+**Fix:** in `genCapturedRecv`, for a non-ident `T→*T` receiver, materialize the value
+into a stack slot and capture the slot address — but the slot must OUTLIVE the closure,
+so the closure must capture the value BY VALUE (field type `T`, not `*T`) and the
+wrapper must pass `&(closure.recv)` to the pointer-receiver method (Go's approach). A
+method-value-machinery change, distinct from the naming path.
 
 ## rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟡 SCOPE REQUIRED (2026-06-20)
 
