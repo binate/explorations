@@ -463,11 +463,40 @@ equivalent of `codegen/emit_pkg_descriptor.bn` / `native/*/_pkg_descriptor.bn`.
   back-patch at offset 5w). Validated: full `builder-comp-int` 2480/0; vm unit
   211 / interp 26 / repl 67; hygiene 15/15; 708/709/725/727 PASS on
   builder-comp-int, -comp-comp-int, -comp-int-int.
-- **Follow-ups still OPEN in claude-todo.md**: (1) the `__c_call`
-  `FunctionInfo.Value` parity divergence (latent, MAJOR-class); (2) Globals/
-  Vtables table population (no consumer yet); (3) Part 2b (drop the hardcoded
-  extern table, enumerate `__Package().Functions` cross-mode). Plan:
+- **Follow-ups**: (1) the `__c_call` `FunctionInfo.Value` parity divergence
+  (latent, MAJOR-class) — still OPEN; (2) **Globals/Vtables table population — ✅
+  DONE & LANDED (main `55ebcfce`, 2026-06-30)**, see the dedicated entry below;
+  (3) Part 2b (drop the hardcoded extern table, enumerate `__Package().Functions`
+  cross-mode) — was found to be ALREADY COMPLETE (Part A `a8ba52f2` + stdlib
+  injection); the VM-package-injection project is closed out. Plan:
   `plan-vm-package-injection.md`.
+
+## ✅ FIXED & LANDED (main `55ebcfce`, 2026-06-30, BUG-BASH LANE 3) — bytecode reflect.Package Globals + Vtables tables populated (cross-environment descriptor parity)
+
+Follow-up to the Gap-2 descriptor (`77c3378d`/`d4edd671`): the bytecode
+descriptor emitted Globals/Vtables EMPTY where native populates them, so a
+bytecode package's reflective surface was less complete than the same package
+compiled natively.  `pkg/binate/vm/lower_pkg_descriptor.bn`:
+
+- **Globals**: one `reflect.GlobalInfo` per `.bni`-exported package-level global
+  (mirroring codegen's collectPackageGlobals), with `Addr` back-patched
+  (patchGlobalAddrs, node offset 4w) to the global's RUNTIME storage cell —
+  `lookupGlobalAddr` resolves it (materializeGlobals ran earlier in LowerModule).
+  The VM analog of native's `&<global>`.
+- **Vtables**: one `reflect.VtableInfo` per non-generic impl (mirroring
+  collectPackageVtables), populated by **Name only** — `Addr`/`ShimAddr` left
+  NULL.  A bytecode impl has no native `@__ivt`/`@__ivtshim` array (its
+  interface-value dispatch runs through `vm.IfaceVtables` by name), so there is
+  no environment-equivalent address; the mangled vtable Name is the portable
+  reflective info.  (Design choice; adversarial review confirmed sound —
+  nothing consumes a bytecode package's descriptor Vtables, and pointing `Addr`
+  at a `vm.IfaceVtable` would be format-incompatible with the field's native
+  `@__ivt` contract.)
+- **Tests**: `conformance/956_reflect_package_globals` (reflect a bytecode
+  package's Globals: len, FQ Name, non-null Addr) passes on LLVM + VM (parity);
+  unit tests pin the Globals Addr back-patch at offset 4w and the null Vtable
+  Addr/ShimAddr.  Full builder-comp-int 2510/0; vm unit 214; hygiene 15/15;
+  adversarial review clean.
 
 ## ✅ RESOLVED AS INTENDED (docs `b662e20` + `eb91dc7`, 2026-06-29) — `@[]readonly char` literal backing differs by mode (VM owned/interned vs compiled null/immortal) is NOT a bug, it's environment-lifetime
 
