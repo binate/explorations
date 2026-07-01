@@ -14,11 +14,11 @@ coverage / doc) or already-resolved residuals.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 2] Method-value CAPTURE gap — pointer-receiver method value on a VALUE-returning call/temp (`mk().get`) SIGSEGVs — 🔴 OPEN (pre-existing; commit `9e25c12e` pending land closes the sibling NAMING residual)
+## 🏷[BUG-BASH 2026-06-27 → LANE 2] Method-value CAPTURE gap — pointer-receiver method value on a VALUE-returning call/temp (`mk().get`) SIGSEGVs — 🔴 OPEN (pre-existing; the sibling NAMING residual is ✅ LANDED — main `47cdcfbf`)
 
 The cross-package method-value **NAMING** is now ✅ FIXED & LANDED / pending-land for
 ALL receiver shapes — ident / selector / index (main `31cbece7` + `b62bbd8c`) and now
-CALL-result (`f().M`, commit `9e25c12e`, pending land): `methodValueRecvIRType` gained
+CALL-result (`f().M`, main `47cdcfbf`): `methodValueRecvIRType` gained
 an `EXPR_CALL` case that resolves the callee's registered return type (funcRefName +
 lookupFuncResults) so `buildMethodQualName` targets the RECEIVER's defining package.
 `944` is now a POSITIVE test (a persistent-global `*Box` getter, green on LLVM + VM +
