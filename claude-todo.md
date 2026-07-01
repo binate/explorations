@@ -14,7 +14,10 @@ coverage / doc) or already-resolved residuals.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 2, NEEDS TRIAGE] MAJOR (IR-gen / cross-package link failure) — a cross-package METHOD VALUE mis-mangles the method symbol to the IMPORTER's package (2026-06-30) — 🔴 OPEN — CONFIRMED
+## 🏷[BUG-BASH 2026-06-27 → LANE 2] MAJOR (IR-gen / cross-package link failure) — a cross-package METHOD VALUE mis-mangles the method symbol to the IMPORTER's package (2026-06-30) — ✅ FIXED (commit `508c8d21` on `bugbash-lane2`, pending land)
+
+**FIX (508c8d21):** `genMethodValue` derives the receiver type's qualified name from its IR-gen type (`methodValueRecvIRType`: `lookupVarType` for an ident receiver, `getSelectorType` for a selector), whose Name carries the receiver's full package path — so `buildMethodQualName` targets the method in the RECEIVER's defining package, not `ctx.Gc.PkgPath` (the importer). Second defect the first fix surfaced: `buildMethodValueClosureStruct` folded `.`→`_` but not `/`, so the cross-package wrapperName's package path (`pkg/boxlib`) left a raw `/` in the closure struct type name → malformed LLVM; now folds both. Un-xfailed `conformance/942_xpkg_method_value` (ident); added `943_xpkg_method_value_selector` (selector). Green on LLVM + VM + native aa64 + native x64; 183 method-value/closure conformance + ir/types units unchanged. Extracted the receiver helpers to `gen_method_value_recv.bn` (the fix pushed `gen_method_value.bn` over the 500-line soft limit). **Known residual (documented):** a receiver that is neither an ident nor a selector (call result, index expr) falls back to the checker's unqualified name — still mis-mangled for that rarer cross-package shape; receiver-conversion rules restrict most such receivers, but it's a latent gap.
+
 
 `pkg/binate/ir/gen_method_value.bn` `genMethodValue` computes the underlying
 method symbol via `buildMethodQualName(ctx.Gc.PkgPath, recvBase.Name, e.Name)` —
@@ -487,20 +490,20 @@ Reference to mirror: the landed non-closure spill in
 yet. B0's force-emit only emits NON-closure triples, so this doesn't block B0 —
 ready-to-pick follow-up. (User owns.)
 
-### Keyed array-literal index: checker and IR-gen fold with DIFFERENT folders — 🟡 OPEN (latent, no reproducer)
+### Keyed array-literal index: checker and IR-gen fold with DIFFERENT folders — ✅ FIXED (commit `07f619aa` on `bugbash-lane2`, pending land)
 The Array composite-literal defects (indexed literals, over-count reject + named/struct
 siblings, inferred-length `[...]T`, positional struct-lit assignability) are ✅ DONE &
-LANDED — see [claude-todo-done.md](claude-todo-done.md). One latent residual remains
-(pre-existing; surfaced 2026-06-29 by the bug-662 adversarial review, NOT introduced by it;
-shared by ALL `[N]T{k: v}` keyed array literals): the checker folds a keyed index via
-`evalConstIntValue` (`check_expr_composite.bn` checkArrayLit / inferArrayLitLen) and
-bounds-checks it against N, while IR-gen recomputes the per-element index via a DIFFERENT
-folder, `evalConstExpr` (`gen_composite.bn`). If the two ever disagree on a constant key, IR
-could place an element at an index the checker did not bound-check → an out-of-bounds store.
-No known reproducer (the folders agree for normal int-literal/const keys). Same family as the
-759 host-int-vs-bignum divergence. **Fix:** make IR-gen reuse the checker's already-validated
-index (stamp it, like LenVal) instead of re-folding — OR route both through one folder. No
-test (no reproducer); add an xfail if one is found.
+LANDED — see [claude-todo-done.md](claude-todo-done.md). The last residual — the checker
+folded a keyed index via `evalConstIntValue` (bounds-checked vs N) while IR-gen recomputed it
+via a DIFFERENT folder `evalConstExpr` (`gen_composite.bn`), so a disagreement on a constant
+key could store an element at an un-bound-checked index (OOB; latent, no reproducer — the
+folders agree for normal keys and the checker rejects a key only one folder accepts) — is now
+**FIXED (07f619aa)**: `checkArrayLit` stamps the validated index on `Element.KeyVal`/`KeyKnown`
+(mirroring `TypeExpr.LenVal`), and `genArrayLit` reads it in preference to re-folding, so
+IR-gen and the checker use the SAME index BY CONSTRUCTION (a defensive fallback re-fold covers
+any un-stamped key). Removes the divergence class. Keyed-array conformance (044–048) + types/ir
+units unchanged on LLVM + VM + native aa64; gen1 build confirms the new `ast.Element` fields are
+BUILDER-compatible. No new positive test (the divergence is unreachable, so none can trigger it).
 
 ### 🏷[BUG-BASH 2026-06-27 → LANE 3] `__Package()` bytecode VM (Gap 2) — ✅ DONE & LANDED (binate `77c3378d` MIN + `d4edd671` FULL, 2026-06-29)
 
@@ -765,11 +768,11 @@ tests.md Phase B). Each has a reproducing test cited by `.rules`.
 
 ## MAJOR
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 2] NEEDS-INVESTIGATION — `types.GetTarget().IntSize` reads stale/unset in the native function-lowering emit phase — FILED 2026-06-29
-- **✅ DONE & LANDED (main `94f0268f`)** for the refcount fix itself: parameterized via `types.ManagedHeaderSize()` (= 2*ptrSize) — `hdrBytes`; `wordBytes = hdrBytes/2`; `rcW = wordBytes==8`; `signBit = wordBytes*8-1`. Pointer ops (CBZ, the address SUB) stay 64-bit (a 32-bit pointer is zero-extended); only the refcount VALUE ops track the word width. No-op on LP64; verified by the native refcount unit test + 603 refcount-heavy native_aa64 conformance tests, 0 failures (incl. 489/617, which an initial `GetTarget().IntSize` attempt had broken). The arm64_32 path is correct-by-construction but untestable.
-- **The footgun (NEEDS-INVESTIGATION)**: during that fix, `types.GetTarget().IntSize` read at function-body instruction lowering (`aarch64_refcount.bn`) returned a WRONG value — not the live target's int size — silently mis-emitting the refcount load offset/width. The SAME expression in `*_pkg_descriptor.bn` (DESCRIPTOR phase) IS correct (its reflect tests pass). `ptrSize()` (= `target.PointerSize`) is reliable in BOTH phases. So at function-lowering time `target.PointerSize` is live but `target.IntSize` is not (or GetTarget returns a stale copy).
-- **Why it matters**: a latent footgun — any native function-lowering code reading `GetTarget().IntSize` for layout is silently wrong on a target where it isn't pre-set. Contained today (the only other native `GetTarget().IntSize` uses are the `__Package` accessor, descriptor phase, safe). 
-- **Needs**: root-cause why `target.IntSize` is unset/stale at function-lowering time while `PointerSize` is live (init / `SetTarget` ordering in the native pipeline) — then either make IntSize live there, or adopt the convention: use `ptrSize()`/`ManagedHeaderSize()` (NOT `GetTarget().IntSize`) for layout in that phase. (On all current ABIs int==pointer, so PointerSize is a correct layout substitute.)
+### 🏷[BUG-BASH 2026-06-27 → LANE 2] `types.GetTarget().IntSize` "stale at native function-lowering" — ✅ RESOLVED (MISDIAGNOSIS; cleanup commit `6ea5e1a2` on `bugbash-lane2`, pending land) — FILED 2026-06-29
+- **Investigation (2026-06-30, static trace + no-SetTarget probe):** the filed premise is WRONG — `GetTarget().IntSize` is NOT stale/unset at native function-lowering. There is exactly ONE `target` global (`scope.bn`); `initTarget()` fills `PointerSize`/`IntSize`/`MaxAlign` ATOMICALLY (one block), and every accessor (`GetTarget`/`ptrSize`/`intSize`) calls `initTarget()` first — so a "PointerSize live but IntSize unset" state is unreachable. A direct probe (compiled an unmodified program, native aarch64, no `--target`) reads `GetTarget().IntSize == 8`. Descriptor and function-body lowering are the SAME phase (`EmitObject` calls both). The original 489/617 breakage attributed to a stale IntSize was something ELSE in the (never-committed) throwaway attempt — the attribution was unverified and is almost certainly wrong.
+- **Refcount fix itself:** ✅ DONE & LANDED earlier (main `94f0268f`), using `ManagedHeaderSize()` — correct, and it stays (the header IS pointer-sized; that's the right source regardless of the misdiagnosis).
+- **Cleanup (6ea5e1a2, pending land):** switched the two native-emit-phase `2 * GetTarget().IntSize` header reads (aarch64/x64 `*_pkg_descriptor.bn` accessors) to `ManagedHeaderSize()` — behavior-identical on LP64 (both 16), semantically correct (header is pointer-sized), and it removes the last `IntSize`-for-header-layout reads in the native backend. Corrected the false "IntSize reads stale (unset)" comment in `aarch64_refcount.bn`. Verified: reflect/`__Package`/refcount 137/0 on native_aa64 + native_x64 + native units.
+- **Residual (documented, non-urgent):** `data_pkg_descriptor.bn` (IR-gen phase) still uses one int-sized `w` for BOTH header words AND slice lengths (a documented "assumes PointerSize==IntSize" conflation); untangling header (pointer-sized) from slice-length (int-sized) is a separate cleanup, harmless on every shipping ABI.
 
 ### Add a hygiene check enforcing package-tier dependency rules (`pkg-layout-spec.md`) — bundled tiers must not import non-bundled tiers — FILED 2026-06-10
 - **What**: a `scripts/hygiene/` check that statically validates every package's import closure against the tier ordering in `pkg-layout-spec.md` ("Tiers"). A package must not import a *less-bundled* (higher-numbered) tier. Concretely — tier 0/0b/1/1x packages (always- or by-default-bundled: `pkg/builtins/*`, `pkg/std/*`, `pkg/stdx/*`) must NOT import a tier-2/3 package (project-pulled / not bundled: `pkg/binate/*` and any other `pkg/<org>/*`). Also enforce the tier-2 transitive-closure rule (`pkg-layout-spec.md` "Tiers": tier 2's dependency closure must itself be tier 2). Tier is derivable from the import-path prefix (`pkg/builtins/`→0/0b, `pkg/std/`→1, `pkg/stdx/`→1x, `pkg/binate/` & other `pkg/<org>/`→2); `pkg/bootstrap` is a bundled runtime primitive (treat as tier-0-equivalent). EXEMPT `*_test.bn` — tests aren't bundled (e.g. `lang_test.bn` legitimately imports `pkg/binate/buf`).
