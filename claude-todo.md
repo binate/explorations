@@ -516,21 +516,26 @@ tests.md Phase B). Each has a reproducing test cited by `.rules`.
 - **Scope note**: adding the check ≠ wiring it into `scripts/hygiene/run.sh` / CI — but a hygiene check belongs in the run.sh master, so do both when implementing. A first audit may surface other pre-existing violations to triage.
 - **First manual sweep (Lane C, 2026-06-10) — CLEAN baseline**: swept every import (incl. aliased) in the bundled trees (`ifaces/{core,stdlib}`, `impls/{core,stdlib}`, `pkg/bootstrap`, `runtime/`). No non-test bundled package imports outside the bundled set. Two non-obvious cases the eventual check must handle: (1) `impls/core/baremetal/pkg/builtins/rt` imports `pkg/semihost`, which is NOT a violation — `pkg/semihost.bni` ships under `runtime/baremetal_arm32/` (a bundled runtime component) and resolves under the arm32-baremetal build's own `-I`/`-L`; the check should treat shipped `runtime/<target>/pkg/*` as bundled, or scope tier rules per build target. (2) all `pkg/builtins/testing` imports are in `*_test.bn` (already EXEMPT) and it has a bundled `.bni` with a harness-provided impl. So `lang → pkg/binate/buf` (binate `84818a77`) was the only true tier-0→tier-2 violation; the baseline is otherwise clean.
 
-### `==` / `!=` (and relational) on aggregates — residual (generic re-check corner cases) — 🟢 LOW
+### `==` / `!=` (and relational) on aggregates — residual (generic re-check corner cases) — 🟢 LOW (triaged 2026-06-30: NOT actionable now)
 The `==`/`!=`/relational aggregate story is ✅ DONE & LANDED — checker rejection
 (binate `60719e01`), struct/array implementation (920a, main `f99f4a4e`),
 generic-function path (920b, `6b748a24`), the sentinel-comparison decision, and the
 generic-aggregate-field re-check (main `076eb525`); full arc archived in
-[claude-todo-done.md](claude-todo-done.md). Two small, documented residuals in the
-generic instantiation re-check remain (neither a regression, neither a miscompile):
-- **(a) Order-dependent** — a forward-ref instantiation checked BEFORE the generic's
-  body is type-checked falls back to the loud IR-gen error (never a silent
-  miscompile, never a false reject). A fully order-independent version needs a
-  checker sub-pass or an explicit `comparable` constraint.
-- **(b) Generic-TYPE methods** — the re-check covers generic FUNCTIONS, not yet the
-  rarer generic-TYPE-method comparison sub-case (`checkInstantiationConstraints`
-  iterates AST type-params, not the `@Type` the inferred-comparable flag lives on,
-  and the method-body-check timing differs).
+[claude-todo-done.md](claude-todo-done.md). Two small residuals in the generic
+instantiation re-check remain — **triaged 2026-06-30, neither actionable now**
+(neither is a live miscompile):
+- **(a) Order-dependent — COSMETIC only.** A forward-ref instantiation checked BEFORE
+  the generic's body is type-checked falls back to the loud IR-gen error instead of a
+  clean checker rejection (never a silent miscompile, never a false reject — just a
+  less-friendly diagnostic in that ordering). A fully order-independent version needs
+  a checker sub-pass or an explicit `comparable` constraint — non-trivial work for a
+  diagnostic-quality-only gain; deferred.
+- **(b) Generic-TYPE methods — UNREACHABLE (blocked on a future feature).** Verified
+  2026-06-30: bnc does NOT support a method on a generic type with a type-param
+  receiver (`func (b Box[T]) eq(...)` → "method receiver must be a named type",
+  "undefined: T"). So the re-check gap for generic-TYPE-method comparisons cannot be
+  triggered — there is no way to define such a method today. This becomes a real
+  follow-up only if/when generic-type methods land; not a live gap.
 
 ### Collapse `pkg/bootstrap` onto `#[build]` — 🟡 OPEN (next, per user 2026-06-19)
 With BUILDER at `bnc-0.0.9` (both `bnc` and `bnlint` parse `#[build]`), `pkg/bootstrap` — whose
