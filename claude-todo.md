@@ -14,13 +14,13 @@ coverage / doc) or already-resolved residuals.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 2] Method-value CAPTURE gap — pointer-receiver method value on an SRET / managed value receiver from a call/temp — 🟡 OPEN (residual; the common by-value case is ✅ FIXED, commit `27c45833` pending land)
+## 🏷[BUG-BASH 2026-06-27 → LANE 2] Method-value CAPTURE gap — pointer-receiver method value on an SRET / managed value receiver from a call/temp — 🟡 OPEN (residual; the common by-value case is ✅ FIXED & LANDED — main `0a8dd492`)
 
 The cross-package method-value NAMING is ✅ DONE & LANDED for all receiver shapes
 (ident/selector/index `31cbece7`+`b62bbd8c`, call-result `47cdcfbf`) — see
 [claude-todo-done.md](claude-todo-done.md).
 
-**The CAPTURE bug — common case ✅ FIXED (commit `27c45833`, pending land):** a method
+**The CAPTURE bug — common case ✅ FIXED & LANDED (main `0a8dd492`):** a method
 value with a POINTER receiver on a NON-IDENT value receiver (`mk().get`, `h.b.get`) had no
 stable address to capture as `*T`, so `genCapturedRecv` stored the value into the closure's
 `*T` slot as a WILD POINTER → SIGSEGV (pre-existing; identical for LOCAL and cross-package).
