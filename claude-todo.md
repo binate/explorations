@@ -46,6 +46,38 @@ that stays alive). Mirrors the label path (`parse.bn:135/139` already `CopyStr`s
 
 ---
 
+## 🏷[BUG-BASH 2026-06-27 → LANE 2, NEEDS TRIAGE] MAJOR (IR-gen / cross-package link failure) — a cross-package METHOD VALUE mis-mangles the method symbol to the IMPORTER's package (2026-06-30) — 🔴 OPEN — CONFIRMED
+
+`pkg/binate/ir/gen_method_value.bn` `genMethodValue` computes the underlying
+method symbol via `buildMethodQualName(ctx.Gc.PkgPath, recvBase.Name, e.Name)` —
+using **the importing module's** `ctx.Gc.PkgPath` (e.g. `main`) as the package,
+not the receiver's DEFINING package. So `var mv = p.get` where `p` is
+`*boxlib.Box` emits a reference to `main.Box.get`, a symbol that does not exist
+(the real one is `pkg/boxlib.Box.get`) → the module fails to link
+(`error: use of undefined value '@bn_F…main…Box…get'`).
+
+Independent of aliases: a DIRECT, non-alias cross-package method value triggers
+it. Confirmed on the pre-754 baseline compiler, so it is **pre-existing**, not
+introduced by the 754 alias-receiver fix. (The 754 fix does newly make the
+*alias* variant reach this same IR-gen path — `type AB = *boxlib.Box; var mv =
+ab.get` — where before the checker rejected it earlier for a different reason;
+so alias and direct cross-package method values now fail identically here.)
+
+**How found (2026-06-30):** the bug-754 minimal adversarial review (cross-package
+lens); reproduced with a two-package boxlib test.
+
+**Test:** `conformance/942_xpkg_method_value/` (direct cross-pkg method value,
+`.xfail.all`).
+
+**Proposed fix:** derive the method symbol's package from the RECEIVER's defining
+package rather than `ctx.Gc.PkgPath` — read it off the resolved `recvBase`'s
+package-qualified name (the same technique `ir.recvBaseNameAndPkg` uses for the
+impl-vtable key in the 754 fix: split the qualifier segment out of the base's
+registered name), and pass that to `buildMethodQualName`. Mirrors how the impl
+path derives `RecvPkg`. Un-xfail 942 when fixed.
+
+---
+
 ## 🏷[BUG-BASH 2026-06-27 → LANE 3, NEEDS TRIAGE] MAJOR? (VM / intermittent halt) — `rt.Refcount` on an interned `@[]readonly char` literal's backing halts the VM mid-program in some statement sequences (2026-06-29) — 🟡 OPEN — NOT CLEANLY REPRODUCED
 
 Surfaced while investigating the readonly-char-literal backing model (the
