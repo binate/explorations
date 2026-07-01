@@ -8,6 +8,55 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `31cbece7` + `b62bbd8c`, 2026-06-30, BUG-BASH LANE 2) — cross-package METHOD VALUE mis-mangled the method symbol to the importer's package
+
+`genMethodValue` computed the underlying method symbol with the IMPORTER's package +
+the checker's unqualified type name, so `p.get` where p is `*boxlib.Box` referenced a
+nonexistent `main.Box.get` → link failure (pre-existing, aliases aside). Fix
+(`31cbece7`): derive the receiver's qualified type name from its IR-gen type
+(`methodValueRecvIRType` — ident/selector) so `buildMethodQualName` targets the
+RECEIVER's defining package. Adversarial review then found the first fix had
+REINTRODUCED a symbol collision — the interim `'/'+'.'→'_'` closure-name fold aliases
+distinct cross-package receiver types onto one struct symbol (`pkg/a/b.C` and
+`pkg/a.b_C` → one) → codegen collision; fixed in `b62bbd8c` by naming the closure
+struct from the length-prefix-mangled wrapper symbol (`mangle.FuncName`), plus added
+index-result receivers (`getIndexElemType`). Tests: 942 (ident, un-xfail), 943
+(selector), 945 (index), 946 (collision); green on LLVM + VM + native aa64 + x64;
+receiver helpers extracted to `gen_method_value_recv.bn`. **Residual (open in
+claude-todo.md):** a CALL-result receiver `f().M` still mis-mangles (needs the callee's
+return type + address-of-temp capture) — pinned by `944` (xfail).
+
+## ✅ RESOLVED (main `581216d9`, 2026-06-30, BUG-BASH LANE 2) — `GetTarget().IntSize` "stale at native function-lowering" was a MISDIAGNOSIS
+
+Investigation (static trace + no-SetTarget probe): `GetTarget().IntSize` is NOT stale at
+native function-lowering — one `target` global, `initTarget()` fills
+PointerSize/IntSize/MaxAlign atomically, the probe reads IntSize == 8, and descriptor +
+function-body lowering are the same phase. The original 489/617 attribution was something
+else in a never-committed throwaway attempt. The refcount fix (`94f0268f`, earlier)
+already used `ManagedHeaderSize()` (correct — the header is pointer-sized). Cleanup
+(`581216d9`): switched the two native-emit-phase `2*GetTarget().IntSize` header reads
+(aarch64/x64 `*_pkg_descriptor.bn` accessors) to `ManagedHeaderSize()` (behavior-identical
+on LP64, semantically correct) and corrected the false "IntSize reads stale" comment in
+`aarch64_refcount.bn`. Verified reflect/__Package/refcount 137/0 on native_aa64 +
+native_x64 + native units. **Residual (open in claude-todo.md):** `data_pkg_descriptor.bn`
+(IR-gen) still uses one int-sized `w` for both header words AND slice lengths (a documented
+PointerSize==IntSize conflation) — a separate non-urgent cleanup.
+
+## ✅ RESOLVED (2026-06-30, BUG-BASH LANE 3) — "VM intermittent halt" reading `rt.Refcount` of an interned `@[]readonly char` literal backing was a PROBE ARTIFACT
+
+Reproduce + root-cause: NOT a VM bug. Every faithful reconstruction of the reported shapes
+ran to completion on VM + LLVM — a genuine interned-literal backing is always a valid
+managed allocation (`materializeModuleStrings`, `pkg/binate/vm/lower_data.bn`, uses
+`make_slice`), so reading its refcount header is safe. The only thing that reproduces the
+symptom ("stops mid-statement, no output") is reading an UNMAPPED pointer — which SIGSEGVs
+the host on EVERY backend (LLVM exits 139 too), i.e. not VM-specific; the original
+"intermittent halt" was a malformed `bit_cast` probe (flagged NOT CLEANLY REPRODUCED at
+filing). Pinned by `conformance/spec/07-types/280_refcount_interned_literal_shapes` (both
+suspected shapes — scope-hold→exit→re-eval, and println-separated read — reach `done` on
+LLVM + VM + native; per-mode `.expected` mirrors 278). A separate native-extern-boundary
+robustness gap (a wild pointer into `rt.Refcount` SIGSEGVs the VM host with no guard) is
+noted on the `rt.Abort/rt.Panic Plan 2` item.
+
 ## ✅ DONE & LANDED (main `be7a5d1e`, 2026-06-30) — removed the `impls/stdlib/common` BUILDER-compat symlink
 
 The flatten (`impls/stdlib/common/pkg` → `impls/stdlib/pkg`, `5ae15031`) had shipped a `common -> .`

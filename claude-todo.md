@@ -14,79 +14,23 @@ coverage / doc) or already-resolved residuals.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 2] MAJOR (IR-gen / cross-package link failure) — a cross-package METHOD VALUE mis-mangles the method symbol to the IMPORTER's package (2026-06-30) — ✅ FIXED & LANDED (main `31cbece7` + `b62bbd8c`)
-
-**FIX (508c8d21):** `genMethodValue` derives the receiver type's qualified name from its IR-gen type (`methodValueRecvIRType`: `lookupVarType` for an ident receiver, `getSelectorType` for a selector), whose Name carries the receiver's full package path — so `buildMethodQualName` targets the method in the RECEIVER's defining package, not `ctx.Gc.PkgPath` (the importer). Un-xfailed `942_xpkg_method_value` (ident); added `943_xpkg_method_value_selector` (selector). Extracted the receiver helpers to `gen_method_value_recv.bn` (the fix pushed `gen_method_value.bn` over the 500-line soft limit).
-
-**REVIEW FOLLOW-UP (378f1104) — the first fix had two MAJOR gaps (adversarial review):** (1) a **mangler collision** it introduced — the interim `'/'+'.'→'_'` char fold in `buildMethodValueClosureStruct` is LOSSY, so distinct cross-package receiver types alias onto one closure-struct symbol (`pkg/a/b.C` and `pkg/a.b_C` both → `__closure_pkg_a_b_C_...`) → a differently-shaped-struct codegen collision. Now the closure struct is named from the length-prefix-MANGLED wrapper symbol (`mangle.FuncName`) — flat, dot/slash-free (stays dtor-local-classified), collision-free; pinned by new `946_xpkg_method_value_collision`. (2) **incomplete receiver coverage** — added `EXPR_INSTANTIATE_OR_INDEX` (index-result `arr[i].M`, via `getIndexElemType`), pinned by new `945_xpkg_method_value_index`. All green on LLVM + VM + native aa64 + native x64; 942/943/503–506 regression unchanged. **Residual (pinned by `944_xpkg_method_value_call_result.xfail.all`):** a CALL-result receiver `f().M` still falls back to the unqualified name — the fix needs the callee's qualified return type (funcRefName + lookupFuncResults) AND, for a value-returning callee with a pointer-receiver method, address-of-temp capture; a rarer, deeper gap left as a documented follow-up.
-
-
-`pkg/binate/ir/gen_method_value.bn` `genMethodValue` computes the underlying
-method symbol via `buildMethodQualName(ctx.Gc.PkgPath, recvBase.Name, e.Name)` —
-using **the importing module's** `ctx.Gc.PkgPath` (e.g. `main`) as the package,
-not the receiver's DEFINING package. So `var mv = p.get` where `p` is
-`*boxlib.Box` emits a reference to `main.Box.get`, a symbol that does not exist
-(the real one is `pkg/boxlib.Box.get`) → the module fails to link
-(`error: use of undefined value '@bn_F…main…Box…get'`).
-
-Independent of aliases: a DIRECT, non-alias cross-package method value triggers
-it. Confirmed on the pre-754 baseline compiler, so it is **pre-existing**, not
-introduced by the 754 alias-receiver fix. (The 754 fix does newly make the
-*alias* variant reach this same IR-gen path — `type AB = *boxlib.Box; var mv =
-ab.get` — where before the checker rejected it earlier for a different reason;
-so alias and direct cross-package method values now fail identically here.)
-
-**How found (2026-06-30):** the bug-754 minimal adversarial review (cross-package
-lens); reproduced with a two-package boxlib test.
-
-**Test:** `conformance/942_xpkg_method_value/` (direct cross-pkg method value,
-`.xfail.all`).
-
-**Proposed fix:** derive the method symbol's package from the RECEIVER's defining
-package rather than `ctx.Gc.PkgPath` — read it off the resolved `recvBase`'s
-package-qualified name (the same technique `ir.recvBaseNameAndPkg` uses for the
-impl-vtable key in the 754 fix: split the qualifier segment out of the base's
-registered name), and pass that to `buildMethodQualName`. Mirrors how the impl
-path derives `RecvPkg`. Un-xfail 942 when fixed.
-
----
-
-## 🏷[BUG-BASH 2026-06-27 → LANE 3] "VM intermittent halt" reading `rt.Refcount` of an interned `@[]readonly char` literal backing — ✅ RESOLVED (PROBE ARTIFACT, not a VM bug; pinned by `280`, 2026-06-30)
-
-**Investigation (2026-06-30, reproduce + root-cause):** NOT a VM bug — a probe
-artifact. Every faithful reconstruction of the reported shapes ran to completion on
-the VM (and LLVM): a genuine interned-literal backing is ALWAYS a valid managed
-allocation (`materializeModuleStrings`, `pkg/binate/vm/lower_data.bn`, builds each
-literal via `make_slice`), so reading its refcount header is safe. The only thing
-that reproduces the exact symptom ("stops mid-statement, no output, no diagnostic")
-is reading an UNMAPPED pointer — which SIGSEGVs the host on EVERY backend (LLVM
-binary exits 139 the same way), i.e. NOT VM-specific. The original "intermittent
-halt" was a malformed probe (wrong word / stale header via `bit_cast`), flagged
-"NOT CLEANLY REPRODUCED" at filing. **Pinned:** `conformance/spec/07-types/280_refcount_interned_literal_shapes`
-exercises both suspected shapes — (a) scope-hold→exit→re-eval-same-literal, (b)
-println-separated read of a different literal — reaching `done` cleanly on LLVM +
-VM + native (per-mode `.expected`, mirroring 278's compiled-null-backing vs
-VM-owned-backing).
-
-**Robustness follow-up (filed for later — separate, minor):** `rt.Refcount` (a
-native-only extern in the VM) on an unmapped pointer SIGSEGVs the host with NO
-VM-level guard — there is no signal handler anywhere in `pkg/binate/vm` / `cmd/bni`
-/ `rt`. A bad-pointer deref inside a native extern is NOT one of the 6 guarded VM
-user-fault sites (bounds/divide/shift/nil-deref/stack-overflow/call-through-nil),
-so a program that hands a native extern a wild pointer always silently kills the VM
-host. A robustness gap at the native-extern boundary, distinct from this
-(now-resolved) interned-literal question — track under the `rt.Abort/rt.Panic
-Plan 2` item if/when that VM-fault-recovery work is picked up.
-`conformance/spec/07-types/278_..._literal` exercises only the minimal working form
-(one `rt.Refcount(...) >= 2` read) and is green, so this item is the deeper
-fragility, separate from that test.
-
----
-
----
-
+## 🏷[BUG-BASH 2026-06-27 → LANE 2] Cross-package method value on a CALL-result receiver `f().M` — 🟡 OPEN (residual; pinned by 944 xfail)
+The cross-package method-value mis-mangling is ✅ FIXED & LANDED for ident / selector /
+index receivers (main `31cbece7` + `b62bbd8c`) — see [claude-todo-done.md](claude-todo-done.md).
+Residual: a CALL-result receiver (`f().M`) still falls back to the checker's unqualified name
+and mis-mangles the symbol to the importer — `methodValueRecvIRType` has no EXPR_CALL case
+(needs the callee's qualified return type via funcRefName + lookupFuncResults) AND, for a
+value-returning callee with a pointer-receiver method, address-of-temp capture. Pinned by
+`conformance/944_xpkg_method_value_call_result.xfail.all`. A rarer, deeper gap.
 
 ## rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟡 SCOPE REQUIRED (2026-06-20)
+
+**Related robustness gap (filed 2026-06-30):** a bad-pointer deref inside a NATIVE EXTERN
+called from the VM (e.g. handing a wild pointer to `rt.Refcount`) SIGSEGVs the VM host with
+NO guard — it is not one of the 6 guarded VM user-fault sites (bounds/divide/shift/nil-deref/
+stack-overflow/call-through-nil), and there is no signal handler in `pkg/binate/vm` / `cmd/bni`
+/ `rt`. Surfaced while resolving the "VM refcount halt" probe-artifact (see done file). If
+this VM-fault-recovery work is picked up, the native-extern boundary should be considered too.
 
 Plan doc: [`plan-rt-abort-panic.md`](plan-rt-abort-panic.md). **Plan 1 (the
 `rt.Abort`/`rt.Panic` primitives, the `panic()` single-string + lowering change,
@@ -517,11 +461,13 @@ tests.md Phase B). Each has a reproducing test cited by `.rules`.
 
 ## MAJOR
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 2] `types.GetTarget().IntSize` "stale at native function-lowering" — ✅ RESOLVED (MISDIAGNOSIS; cleanup LANDED main `581216d9`) — FILED 2026-06-29
-- **Investigation (2026-06-30, static trace + no-SetTarget probe):** the filed premise is WRONG — `GetTarget().IntSize` is NOT stale/unset at native function-lowering. There is exactly ONE `target` global (`scope.bn`); `initTarget()` fills `PointerSize`/`IntSize`/`MaxAlign` ATOMICALLY (one block), and every accessor (`GetTarget`/`ptrSize`/`intSize`) calls `initTarget()` first — so a "PointerSize live but IntSize unset" state is unreachable. A direct probe (compiled an unmodified program, native aarch64, no `--target`) reads `GetTarget().IntSize == 8`. Descriptor and function-body lowering are the SAME phase (`EmitObject` calls both). The original 489/617 breakage attributed to a stale IntSize was something ELSE in the (never-committed) throwaway attempt — the attribution was unverified and is almost certainly wrong.
-- **Refcount fix itself:** ✅ DONE & LANDED earlier (main `94f0268f`), using `ManagedHeaderSize()` — correct, and it stays (the header IS pointer-sized; that's the right source regardless of the misdiagnosis).
-- **Cleanup (LANDED main `581216d9`):** switched the two native-emit-phase `2 * GetTarget().IntSize` header reads (aarch64/x64 `*_pkg_descriptor.bn` accessors) to `ManagedHeaderSize()` — behavior-identical on LP64 (both 16), semantically correct (header is pointer-sized), and it removes the last `IntSize`-for-header-layout reads in the native backend. Corrected the false "IntSize reads stale (unset)" comment in `aarch64_refcount.bn`. Verified: reflect/`__Package`/refcount 137/0 on native_aa64 + native_x64 + native units.
-- **Residual (documented, non-urgent):** `data_pkg_descriptor.bn` (IR-gen phase) still uses one int-sized `w` for BOTH header words AND slice lengths (a documented "assumes PointerSize==IntSize" conflation); untangling header (pointer-sized) from slice-length (int-sized) is a separate cleanup, harmless on every shipping ABI.
+### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
+The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
+were switched to `ManagedHeaderSize()` (main `581216d9`) — see [claude-todo-done.md](claude-todo-done.md).
+Residual: `data_pkg_descriptor.bn` (IR-gen phase) still uses one int-sized `w` for BOTH the
+managed-header words (pointer-sized) AND slice lengths (int-sized) — a documented "assumes
+PointerSize==IntSize" conflation, harmless on every shipping ABI. Untangle header (→
+`ManagedHeaderSize`/ptrSize) from slice-length (→ IntSize) only if a wide-int ILP32 ABI is targeted.
 
 ### Add a hygiene check enforcing package-tier dependency rules (`pkg-layout-spec.md`) — bundled tiers must not import non-bundled tiers — FILED 2026-06-10
 - **What**: a `scripts/hygiene/` check that statically validates every package's import closure against the tier ordering in `pkg-layout-spec.md` ("Tiers"). A package must not import a *less-bundled* (higher-numbered) tier. Concretely — tier 0/0b/1/1x packages (always- or by-default-bundled: `pkg/builtins/*`, `pkg/std/*`, `pkg/stdx/*`) must NOT import a tier-2/3 package (project-pulled / not bundled: `pkg/binate/*` and any other `pkg/<org>/*`). Also enforce the tier-2 transitive-closure rule (`pkg-layout-spec.md` "Tiers": tier 2's dependency closure must itself be tier 2). Tier is derivable from the import-path prefix (`pkg/builtins/`→0/0b, `pkg/std/`→1, `pkg/stdx/`→1x, `pkg/binate/` & other `pkg/<org>/`→2); `pkg/bootstrap` is a bundled runtime primitive (treat as tier-0-equivalent). EXEMPT `*_test.bn` — tests aren't bundled (e.g. `lang_test.bn` legitimately imports `pkg/binate/buf`).
