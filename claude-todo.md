@@ -182,13 +182,22 @@ fix (items 1, MAJOR), the >7-arg extern guard (item 2), and the sub-word/bool RE
 (item 4) — LANDED via the by-address ABI rework (`233cc82d`) + the >7-arg guard
 (`17cfc16b`); see claude-todo-done.md. Smaller follow-ups remain:
 
-1. **Observable fixture (coverage).** Items 1/4 are validated via conformance 937
-   (func-value coerced-agg, all backends + VM) + 938 (wide spill) + the math
-   narrow-mechanism, but the IFACE-method coerced-agg path and the sub-word/bool
-   RETURN have no DIRECT observable test (no injected stdlib exercises them). Wants a
-   pkg/binate/vm unit fixture: a synthetic injected native package with an iface
-   method / func value taking a coerced-agg by value AND returning a sub-word/bool.
-   Closest: TestExternSmallStructAggregateDispatch + vm_exec_iface hand-built vtables.
+1. **Observable fixture (coverage) — ✅ DONE & LANDED (main `dd3d8b59`, 2026-07-01).**
+   `pkg/binate/vm/vm_extern_coerced_test.bn`: a native struct-return extern
+   (`mkPair` 8B / `mkWide` 16B) materializes an aggregate in the frame, fed straight
+   into a by-value-arg extern (`pairEq`/`wideEq`) returning `bool` — covering the
+   coerced-agg ARG (1- and 2-register) + sub-word/bool RETURN on BOTH cross-mode
+   dispatchers (`dispatchCompiledFuncValue` via OP_CALL_FUNC_VALUE, and
+   `dispatchExternBinding` via direct OP_CALL). A real guard: a broken arg segfaults
+   (found during dev). **The native-IFACE-method path is intractable to unit-test** —
+   its `@__ivtshim` can't be hand-forged (the shim design forbids replicating its
+   coerced-agg/retbuf ABI) — but all three dispatchers (extern / func-value / iface)
+   pack each arg as one by-address slot + narrow the return through the SAME shared
+   code, so the func-value/direct fixture is its representative unit coverage; the
+   iface path's end-to-end stays in conformance (726). The bool narrow's effect is
+   observable where the native ABI leaves garbage above the low byte (x86-64). Note:
+   `EmitStructLit` is a NOP in the VM (structs build via alloca+stores), so the
+   fixture builds the aggregate through the struct-return extern instead.
 
 2. **shim-extends RETURN (cleanup, optional).** The sub-word RETURN was fixed VM-side
    (the 25117a2e VM-narrow mechanism extended to iface/func-value), since item 4 is
