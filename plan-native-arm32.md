@@ -127,7 +127,21 @@ Each phase keeps the tree green (aarch64/x64 native + host modes unaffected)
 and lands as one or a few self-contained commits, cherry-picked to main with
 approval per the landing procedure.
 
-### P0 — `common` word-size param + AAPCS32 CallConv
+### P0 — `common` word-size param + AAPCS32 CallConv — DONE (worktree `ef587a15`)
+Landed the word-size parameterisation + AAPCS32 in `pkg/binate/native/common`
+(byte-identical for aarch64/x64 — their unit tests stay green; new AAPCS32
+coverage added; hygiene clean). Deviations from the sketch below: PlanFrame's
+internal frame slots were left 8-byte-granular (over-aligned but correct on
+ILP32 — nothing external depends on slot size), so only the ABI-facing
+classifiers needed the `WordBytes` treatment; `common_callconv.bn` was split
+into `common_callconv{,_variadic,_return}.bn` (+ matching tests) to stay under
+the length cap. **Carry-forward:** the AAPCS32 register-count / sret-threshold
+numbers (`NumGpRetRegs=4`, `InternalSretBytes=4`, `AggregateInRegMax=16`,
+`IndirectLargeAggregates=false`) are first-cut and must be pinned against
+`clang -target arm-none-eabi` output before P3 relies on them at the
+native↔LLVM boundary.
+
+Original sketch:
 - Add `CallConv.WordBytes`; set 8 in AAPCS64/AAPCS64_Darwin/SysV_AMD64.
 - Thread it through `ArgWords`, `argRegWordsStackWords` (+V), `PlanFrame`
   (alloca/spill slot rounding, frame align, multi-return N*word, sret slot),
