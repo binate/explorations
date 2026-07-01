@@ -14,38 +14,6 @@ coverage / doc) or already-resolved residuals.
 
 ---
 
-## MAJOR (asm/parse — use-after-free) — `name = <expr>` constant definition reads a FREED token buffer (`name` borrows `tok.Text`, then `tok` is reassigned by `LexNext` before `name` is read) (2026-06-30) — 🔴 OPEN — CONFIRMED
-
-`pkg/binate/asm/parse/parse.bn` `ParseLine`, the constant-definition arm (lines 159-169):
-
-    var name *[]readonly char = tok.Text     // 160: RAW borrow of tok's IDENT Text (no refcount)
-    l, tok = LexNext(l2)                       // 161: REASSIGNS tok -> RefDecs the old IDENT Text
-    l, tok, result = ParseExpr(l, tok)         // 163: reassigns tok again
-    defineConst(p, name, result.Val)           // 168: READS name
-
-`LexNext` builds an IDENT token's `Text` as a fresh `buf.CopyStr(l.Src[start:l.Pos])` (`lex.bn:129`)
-— a newly allocated `@[]char`, refcount 1, **solely owned by `tok`** (the `=` peek used a separate
-`tok2`, so nothing else holds it). `name` borrows that backing as a raw `*[]readonly char` (NO
-refcount). `l, tok = LexNext(l2)` on line 161 overwrites `tok`, RefDec'ing the old IDENT Text to zero
-→ **the backing is freed while `name` still points at it**. `defineConst` then reads `name`
-(`charsEqual(p.ConstNames[i], name)` + `buf.CopyStr(name)`, `parse.bn:67-79`) — a use-after-free. The
-intervening `LexNext`/`ParseExpr` allocate, so the freed buffer is likely reused before line 168 →
-the stored constant name is corrupted (or a crash). Affects `bnas` parsing `name = value` assembler
-constants. Latent today: `pkg/binate/asm/parse` is bnlint-`LINT_SKIP`'d AND the UAF is
-nondeterministic.
-
-**How found (2026-06-30):** auditing the `pkg/binate/asm/*` `[managed-to-raw-assign]` LINT_SKIP
-entries (see the hygiene/lint entry below). The rule correctly flagged THIS line — it is the ONE real
-bug among 19 asm findings (17 are safe-borrow over-flags; 1 is an unused-import). The blanket
-package-skip hid a real UAF.
-
-**Fix:** own the name before reassigning `tok` — `var name @[]char = buf.CopyStr(tok.Text)`, then
-`defineConst(p, name, …)` (the managed `@[]char` passes to the `*[]readonly char` param as a borrow
-that stays alive). Mirrors the label path (`parse.bn:135/139` already `CopyStr`s `tok.Text`). Add a
-`bnas` test exercising `name = expr` constants (ideally under guard-malloc) to pin it.
-
----
-
 ## 🏷[BUG-BASH 2026-06-27 → LANE 2, NEEDS TRIAGE] MAJOR (IR-gen / cross-package link failure) — a cross-package METHOD VALUE mis-mangles the method symbol to the IMPORTER's package (2026-06-30) — 🔴 OPEN — CONFIRMED
 
 `pkg/binate/ir/gen_method_value.bn` `genMethodValue` computes the underlying
@@ -345,21 +313,22 @@ comment-only) were removed.  **Residual** — 5 asm subpackages are temporarily 
 
 **Per-site audit DONE (2026-06-30, bnc-0.0.10 bnlint + adversarial workflow + source verification of
 the one real bug).** 19 findings across the 5 packages:
-- **1 REAL use-after-free** — `parse/parse.bn:160` (`name = expr` constant def borrows `tok.Text`,
-  then `LexNext` frees it before the read). Filed as its own MAJOR entry at the top of this file
-  (CONFIRMED from source). The rule was RIGHT here — the skip hid a real UAF.
-- **1 real `[unused-import]`** — `parse/aarch64.bn:3` imports `pkg/binate/asm`, never used (only
-  `aarch64.*` qualifiers appear). Trivial: remove the line.
+- **1 REAL use-after-free** — `parse/parse.bn:160` (`name = expr` constant def borrowed `tok.Text`,
+  then `LexNext` freed it before the read). ✅ **FIXED & LANDED (main `8a883450`)** — own the name
+  first (`buf.CopyStr`) + regression test `TestParseConstNamePreserved` (verified failing pre-fix);
+  write-up in the done file. The rule was RIGHT here — the skip hid a real UAF.
+- **1 real `[unused-import]`** — `parse/aarch64.bn:3` imported `pkg/binate/asm`, never used. ✅ FIXED
+  (main `8a883450`, same commit).
 - **17 safe-borrow over-flags** — every site in `arm32`/`elf`/`macho`/`x64` (all 9) + 6 of the 8
   `parse` sites. All borrow a field of a managed owner (`@asm.Section`/`@asm.Assembler`/a `BinBuf`
   local / a by-value `Token` param / a function-scope buffer) that provably outlives the raw view's
   synchronous read or in-place patch. The rule conservatively flags `@[]T → *[]T` without lifetime
   analysis.
-**Un-skip path:** (1) fix the `parse.bn:160` UAF + drop the unused import — then `parse` is clean;
-(2) `arm32`/`elf`/`macho`/`x64` have ONLY over-flags, so they can't be un-skipped until the rule
-stops over-flagging (a lifetime/escape refinement, or a per-borrow suppress annotation) — un-skipping
-as-is would red hygiene. So this is now two decisions: fix the two real `parse` findings, and decide
-how to handle the 17 false positives (refine the rule vs annotate the safe borrows).
+**Un-skip path:** the two real findings are ✅ FIXED (main `8a883450`), but all 5 packages still carry
+safe-borrow over-flags (`parse` now has 8; `arm32`/`elf`/`macho`/`x64` all their sites), so none can be
+un-skipped yet — un-skipping as-is would red hygiene. **Remaining (OPEN) — decide how to handle the 17
+false positives:** refine the `[managed-to-raw-assign]` rule to do lifetime/escape analysis, or add a
+per-borrow suppress annotation, then drop the 5 packages from `LINT_SKIP`.
 (The BUILDER-lag `LINT_SKIP` entries — rt/os + chain cleared at bnc-0.0.10, only `pkg/binate/interp`
 remains — are tracked in the separate BUILDER-lag-lint-skips entry.)
 
@@ -544,41 +513,20 @@ Reference to mirror: the landed non-closure spill in
 yet. B0's force-emit only emits NON-closure triples, so this doesn't block B0 —
 ready-to-pick follow-up. (User owns.)
 
-### Array composite-literal defects (indexed silent-miscompile; over-count OOB write) — spec Ch.13 (2026-06-12) — 🔴 OPEN
-Found + verified firsthand authoring spec Ch.13 (read the type-check +
-IR-gen; not run, but the code path is conclusive). Two MAJOR array-literal
-defects; the type checker `checkArrayLit` (`check_expr_composite.bn:84-91`)
-iterates elements positionally, never reading `el.Key`, and never checks
-element count against `ArrayLen`; IR-gen `gen_composite.bn:149-152` stores
-element `i` at index `i`.
-- 🏷[BUG-BASH 2026-06-27 → LANE 2] **Indexed array literals** ✅ DONE & LANDED (main `da8fc0b3`; user chose IMPLEMENT over reject). `[5]int{1: 10, 3: 30}` ignored the keys and stored values positionally → `{10,30,0,0,0}` instead of the decided `{0,10,0,30,0}`. Implemented keyed placement (Go semantics): `checkArrayLit` const-folds each key to its index and rejects a non-integer / non-constant key, an out-of-`[0,N)` index, and a duplicate; an unkeyed element follows the previous index + 1 (the positional over-count "too many elements" check now applies only to a purely positional literal). `genArrayLit` stores each value at its keyed/running index; gaps stay zero (zero-init alloca). Pinned: `spec/13-expressions/044_array_lit_indexed` (keyed + mixed + partial), `045_err_array_lit_index_oob`, `046_err_array_lit_index_dup`; green on builder-comp / -int / native_aa64. (Key error paths now pinned: `spec/13-expressions/047_err_array_lit_index_not_int` + `048_err_array_lit_index_not_const`, main `4dfcc081`.)
-- **Array over-count not rejected → OUT-OF-BOUNDS stack writes** — ✅ RESOLVED 2026-06-12 (binate `910e08cb`; over-count reject only — indexed-literal + `[...]T` sub-items below remain OPEN). `checkArrayLit` now rejects `len(elems) > ArrayLen` with "too many elements in array literal" before IR-gen. conformance/740_array_overcount_rejected; full unit 45/0 + conformance 1407/0 native + 1389/0 VM (no previously-valid code rejected).
-  - **Sibling found in self-review + fixed (binate `e81bfbbe`)**: NAMED array/slice composite literals (`type Row [3]int; Row{...}`) bypassed element validation ENTIRELY — `checkCompositeLit` routed a `TYP_NAMED` underlying to its element checker only for STRUCT underlyings, so named-array over-count (→ OOB) AND wrong-element-type (→ miscompile) were both silently accepted (exposed when named composite literals were enabled, `2eeb71c1`, which fixed IR-gen but not the checker). Fix: peel alias/const/named (`peelNamedBounded`) to the composite shape once up front so all element-check branches handle named + unnamed uniformly. conformance/742_named_array_lit_checked; 723/728 still green; full unit 45/0 + conformance 1408/0 native + 1390/0 VM.
-  (`expr.composite.array.overcount`, MAJOR, latent memory-unsafety). `[3]int{1,2,3,4,5}`
-  is accepted; `gen_composite.bn:149-152` emits stores at indices 0..4 into a
-  3-element alloca → 2 out-of-bounds stack writes. Should be "too many elements
-  in array literal". No test. (Struct over-count — the benign analogue, extra
-  positional values silently discarded — ✅ RESOLVED 2026-06-12 binate
-  `e185c9c4`: `checkStructLit` rejects `len(Elems) > len(Fields)` for a
-  positional literal, "too many values in struct literal"; negative test
-  `743_struct_overcount_rejected`. Applies to named structs too via the
-  `peelNamedBounded` routing.)
-- 🏷[BUG-BASH 2026-06-27 → LANE 1] **Inferred-length `[...]T{...}` — ✅ DONE & LANDED (main `135ea813`, 2026-06-29).**
-  `[...]T{elems}` now infers the array length from the element count
-  (`expr.composite.array.inferred-len`). **Sub-decision (designer): literal-head
-  only (Go's rule)** — `[...]T` is valid ONLY as a composite-literal head; in any
-  other type position it is rejected ("[...] array length is only valid in a
-  composite literal", returning the TYP_ERROR sentinel to suppress the assignment
-  cascade). AST `LenInferred` flag + parser ELLIPSIS branch (parse_type +
-  parseArrayLit) + checker `inferArrayLitLen` (max positional/keyed index + 1) in
-  checkCompositeLit, stamping LenVal/LenKnown so IR-gen reads the length (no IR
-  change). 041 un-xfailed + rewritten to `a := [...]int{…}`; new 049 (keyed/mixed/
-  empty), 050 (var-type rejection); 122 un-xfailed + renamed. builder-comp 2494/0,
-  builder-comp-int 2469/0; adversarially reviewed. Full write-up in
-  [claude-todo-done.md](claude-todo-done.md).
-- ✅ **FIXED & LANDED (binate `7523b14d`, BUG-BASH LANE 1) — (minor) Positional struct-literal elements are now assignability-checked** (each positional element i checked against field i's type, mirroring the keyed branch). conformance/spec/13-expressions/043.
-- 🏷[NEEDS TRIAGE] **MINOR/MAJOR (latent, pre-existing) — keyed array-literal index: checker and IR-gen fold the index with DIFFERENT folders.** Surfaced 2026-06-29 by the bug-662 adversarial review (NOT introduced by it; shared by ALL `[N]T{k: v}` keyed array literals, not just `[...]`). The checker folds a keyed index via `evalConstIntValue` (`check_expr_composite.bn` checkArrayLit / inferArrayLitLen) and bounds-checks it against N; IR-gen recomputes the per-element index via a DIFFERENT folder, `evalConstExpr` (`gen_composite.bn:161`). If the two folders ever disagree on a constant key, IR could place an element at an index the checker did not bound-check against N → an out-of-bounds store. No known reproducer (the folders agree for normal int-literal/const keys; a key `evalConstExpr` folds but `evalConstIntValue` rejects, e.g. `sizeof`, is caught by the checker's "index must be a constant" first). Same family as the 759 host-int-vs-bignum divergence. **Fix:** make IR-gen reuse the checker's already-validated index (stamp it, like LenVal) instead of re-folding — OR route both through one folder. No test (no reproducer); add an xfail if one is found.
-All referenced from `13-expressions.md`.
+### Keyed array-literal index: checker and IR-gen fold with DIFFERENT folders — 🟡 OPEN (latent, no reproducer)
+The Array composite-literal defects (indexed literals, over-count reject + named/struct
+siblings, inferred-length `[...]T`, positional struct-lit assignability) are ✅ DONE &
+LANDED — see [claude-todo-done.md](claude-todo-done.md). One latent residual remains
+(pre-existing; surfaced 2026-06-29 by the bug-662 adversarial review, NOT introduced by it;
+shared by ALL `[N]T{k: v}` keyed array literals): the checker folds a keyed index via
+`evalConstIntValue` (`check_expr_composite.bn` checkArrayLit / inferArrayLitLen) and
+bounds-checks it against N, while IR-gen recomputes the per-element index via a DIFFERENT
+folder, `evalConstExpr` (`gen_composite.bn`). If the two ever disagree on a constant key, IR
+could place an element at an index the checker did not bound-check → an out-of-bounds store.
+No known reproducer (the folders agree for normal int-literal/const keys). Same family as the
+759 host-int-vs-bignum divergence. **Fix:** make IR-gen reuse the checker's already-validated
+index (stamp it, like LenVal) instead of re-folding — OR route both through one folder. No
+test (no reproducer); add an xfail if one is found.
 
 ### 🏷[BUG-BASH 2026-06-27 → LANE 3] `__Package()` bytecode VM (Gap 2) — ✅ DONE & LANDED (binate `77c3378d` MIN + `d4edd671` FULL, 2026-06-29)
 

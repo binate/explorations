@@ -8,6 +8,78 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `8a883450`, 2026-06-30) — MAJOR (asm/parse — use-after-free): `name = <expr>` constant definition read a FREED token buffer
+
+`pkg/binate/asm/parse/parse.bn` `ParseLine`, the constant-definition arm (lines 159-169):
+
+    var name *[]readonly char = tok.Text     // 160: RAW borrow of tok's IDENT Text (no refcount)
+    l, tok = LexNext(l2)                       // 161: REASSIGNS tok -> RefDecs the old IDENT Text
+    l, tok, result = ParseExpr(l, tok)         // 163: reassigns tok again
+    defineConst(p, name, result.Val)           // 168: READS name
+
+`LexNext` builds an IDENT token's `Text` as a fresh `buf.CopyStr(l.Src[start:l.Pos])` (`lex.bn:129`)
+— a newly allocated `@[]char`, refcount 1, **solely owned by `tok`** (the `=` peek used a separate
+`tok2`, so nothing else holds it). `name` borrows that backing as a raw `*[]readonly char` (NO
+refcount). `l, tok = LexNext(l2)` on line 161 overwrites `tok`, RefDec'ing the old IDENT Text to zero
+→ **the backing is freed while `name` still points at it**. `defineConst` then reads `name`
+(`charsEqual(p.ConstNames[i], name)` + `buf.CopyStr(name)`, `parse.bn:67-79`) — a use-after-free. The
+intervening `LexNext`/`ParseExpr` allocate, so the freed buffer is likely reused before line 168 →
+the stored constant name is corrupted (or a crash). Affects `bnas` parsing `name = value` assembler
+constants. Latent today: `pkg/binate/asm/parse` is bnlint-`LINT_SKIP`'d AND the UAF is
+nondeterministic.
+
+**How found (2026-06-30):** auditing the `pkg/binate/asm/*` `[managed-to-raw-assign]` LINT_SKIP
+entries (see the hygiene/lint entry below). The rule correctly flagged THIS line — it is the ONE real
+bug among 19 asm findings (17 are safe-borrow over-flags; 1 is an unused-import). The blanket
+package-skip hid a real UAF.
+
+**Fix:** own the name before reassigning `tok` — `var name @[]char = buf.CopyStr(tok.Text)`, then
+`defineConst(p, name, …)` (the managed `@[]char` passes to the `*[]readonly char` param as a borrow
+that stays alive). Mirrors the label path (`parse.bn:135/139` already `CopyStr`s `tok.Text`). Add a
+`bnas` test exercising `name = expr` constants (ideally under guard-malloc) to pin it.
+
+**Fixed (main `8a883450`):** own the name before `LexNext` reassigns `tok` — `var name @[]char = buf.CopyStr(tok.Text)` (also clears the `[managed-to-raw-assign]` flag on that line), mirroring the label path at `parse.bn:135/139`. Regression test `TestParseConstNamePreserved` (`xy = 0 + 99`, whose second operand reuses the freed slot) — verified FAILING pre-fix (`constant 'xy' missing`) and passing post-fix; parse units green; bnas builds. Found auditing the `pkg/binate/asm/*` `[managed-to-raw-assign]` LINT_SKIP entries — the one real bug among 19 findings; the 17 safe-borrow over-flags remain (suppression decision, tracked in the open hygiene/lint audit entry).
+
+---
+
+## ✅ RESOLVED (2026-06-12 → 2026-06-29, BUG-BASH LANE 1/2) — Array composite-literal defects (spec Ch.13)
+
+Found authoring spec Ch.13: `checkArrayLit` iterated elements positionally (never
+reading `el.Key`, never checking count vs `ArrayLen`) and IR-gen stored element `i` at
+index `i`. Four defects landed; one latent residual (dual-folder keyed-index) stays open
+in claude-todo.md.
+
+- **Indexed array literals** ✅ (main `da8fc0b3`; user chose IMPLEMENT over reject).
+  `[5]int{1: 10, 3: 30}` ignored keys, storing positionally → `{10,30,0,0,0}` instead of
+  `{0,10,0,30,0}`. Keyed placement (Go semantics): `checkArrayLit` const-folds each key,
+  rejecting a non-integer / non-constant key, an out-of-`[0,N)` index, and a duplicate; an
+  unkeyed element follows the previous index + 1. `genArrayLit` stores at the keyed/running
+  index; gaps stay zero. Tests `spec/13-expressions/044` (keyed/mixed/partial), `045`/`046`
+  (OOB / dup reject), `047`/`048` (non-int / non-const key reject, main `4dfcc081`).
+- **Array over-count → OOB stack writes** ✅ (binate `910e08cb`): `checkArrayLit` rejects
+  `len(elems) > ArrayLen` ("too many elements in array literal") before IR-gen
+  (`[3]int{1,2,3,4,5}` had emitted 2 out-of-bounds stores). Test `740`. **Named sibling** ✅
+  (binate `e81bfbbe`): named array/slice composite literals (`type Row [3]int`) bypassed
+  element validation entirely (over-count → OOB, wrong element type → miscompile) because
+  `checkCompositeLit` only routed a `TYP_NAMED` underlying to its element checker for STRUCT
+  underlyings; fix peels alias/const/named (`peelNamedBounded`) once up front. Test `742`.
+  **Struct over-count** ✅ (binate `e185c9c4`): `checkStructLit` rejects `len(Elems) >
+  len(Fields)` for a positional literal; test `743`.
+- **Inferred-length `[...]T{...}`** ✅ (main `135ea813`): infers length from element count
+  (`expr.composite.array.inferred-len`); literal-head only (Go's rule) — `[...]T` in any
+  other type position is rejected. AST `LenInferred` + parser ELLIPSIS branch + checker
+  `inferArrayLitLen` (stamps LenVal/LenKnown so IR-gen reads the length, no IR change).
+  Tests `041` (un-xfail), `049` (keyed/mixed/empty), `050` (var-type reject), `122`
+  (un-xfail).
+- **Positional struct-literal assignability** ✅ (binate `7523b14d`): each positional
+  element i checked against field i's type (mirroring the keyed branch). Test `043`.
+
+**Residual (still OPEN in claude-todo.md — latent, no reproducer):** the checker folds a
+keyed array index via `evalConstIntValue` and bounds-checks it against N; IR-gen recomputes
+the index via a DIFFERENT folder (`evalConstExpr`). If they ever disagree on a constant key,
+IR could place an element at an unchecked index → OOB store. Same family as the 759
+host-int-vs-bignum divergence.
+
 ## ✅ RESOLVED (2026-06-07 → 2026-06-30, BUG-BASH LANE 2) — `==` / `!=` (and relational) on aggregates
 
 **What it was.** The comparison type-check only checked mutual assignability and
