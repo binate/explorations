@@ -8,6 +8,42 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `0184be99`, 2026-06-30, BUG-BASH LANE 3) — MAJOR (VM / wrong-compare): direct-use sub-word integer casts left a non-canonical register form
+
+On the bytecode VM, `bit_cast(int32,u) == cast(int32,y)` read NE and
+`cast(int32,y) < 0` read false though both are int32 -1: a direct-use (unstored)
+sub-word integer cast did not canonicalize its register to the type's form, so
+different producers left different high bits and the compare/order ops (which
+assume canonical operands) disagreed. `cast(int32,…)` narrowed via BC_TRUNC32
+(zero-fills — non-canonical for a signed type); 16-bit narrows fell through to
+BC_MOV (no narrow); a same-width int32→uint32 reinterpret was BC_MOV. VM-only
+(LLVM/native correct).
+
+**Decision (designer): option (a) — canonicalize at PRODUCERS.** The canonical
+register form (value sign-extended for a signed type / zero-extended for an
+unsigned one) was already the contract on loads (a signed sub-word load
+sign-extends), arith re-narrow, and the bit_cast fix; only the cast ops still
+leaked. Fixing the producer closes the whole class (equality, signed ordering,
+16-bit narrow, same-width reinterpret) with ZERO consumer changes. Option (b)
+(mask at consumers) was rejected: it needs re-masking in ~10 compares + div/rem/
+shift/int→float, needs runtime signedness the opcodes don't carry, and would
+leave direct-use values in a different form than loaded/stored ones.
+
+- `pkg/binate/vm/lower_cast.bn`: `pickSingleSlotIntCastOp` + new
+  `pairToSingleNarrowOp` emit `BC_SEXT`/`BC_ZEXT Imm=W` per the DEST signedness
+  (narrowToWidth masks to W then extends — canonicalizes any dirty register in
+  one op) for narrow / same-width reinterpret / widen-to-sub-word; full-word
+  widening extends per source; full-word same-width stays `BC_MOV`. The
+  32-bit-host pair→single narrow is canonicalized too (dead on a 64-bit host).
+- `BC_TRUNC8`/`BC_TRUNC32` became unemitted (`BC_ZEXT Imm=W` subsumes them) —
+  deleted as dead code (opcodes + executor handlers); bytecode isn't persisted,
+  so the iota renumber is safe.
+- **Tests**: `conformance/953_subword_direct_use_canonical` (compare via two
+  producers, signed ordering, unsigned narrow, int16 signed narrow, int32→uint32
+  reinterpret) — passes on LLVM + all 3 VM modes; unit tests pin BC_SEXT/BC_ZEXT
+  Imm for int8/uint8 casts + the widen64Signed idiom. Full builder-comp-int
+  2492/0; vm unit 212; hygiene 15/15; adversarial review clean (LLVM parity).
+
 ## ✅ FIXED & LANDED (main `8a883450`, 2026-06-30) — MAJOR (asm/parse — use-after-free): `name = <expr>` constant definition read a FREED token buffer
 
 `pkg/binate/asm/parse/parse.bn` `ParseLine`, the constant-definition arm (lines 159-169):

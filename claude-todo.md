@@ -64,31 +64,6 @@ fragility, separate from that test.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 3, NEEDS TRIAGE] MAJOR (VM / wrong-compare) — two DIRECT-USE sub-word integer expressions of different producers compare unequal though both equal the literal (VM neither canonicalizes sub-word values nor width-masks comparisons) (2026-06-27) — 🔴 OPEN — REPRODUCED
-
-**Symptom.** On the bytecode VM, `bit_cast(int32, u) == cast(int32, -1)` (with
-`var u uint32 = 4294967295`) evaluates to **NE**, though both sides are `int32 -1`
-and each individually `== -1` (the literal); LLVM gives EQ. Discovered while fixing
-the `bit_cast`-to-sub-word VM facet below (that fix made
-`040_bit_cast_int_reinterpret` green on the `-int` modes via OP_BIT_CAST →
-BC_ZEXT/BC_SEXT narrowing). The root is broader: direct-use (unstored) sub-word
-integer expressions are NOT canonicalized to one register form — a `bit_cast` (now
-sign-extends), a runtime `cast` (masks via BC_TRUNC32), and a literal (sign-
-extended) leave different high bits — and the VM compare ops do NOT mask operands
-to their type width, so two semantically-equal values compare unequal. STORED
-sub-word values ARE consistent (`var a int32 = …; var c int32 = …; a == c` holds),
-so the gap is specific to direct-use expression operands.
-
-**Scope.** VM only (LLVM/native correct). Part of the sub-word-narrowing gap
-family. Not yet pinned by a conformance test (040 compares a direct-use bit_cast
-only against a *literal*, which the bit_cast fix made consistent).
-
-**Decision needed (NEEDS TRIAGE).** Two fixes, a design call which: (a)
-canonicalize every sub-word producer to one register form (mask, or sign/zero-
-extend per type) — touches cast/bit_cast/literal/arith paths, removes the whole
-class; or (b) make consuming ops (at least compare) mask each operand to its type
-width — localized. Needs the canonical-form decision before implementing.
-
 ## 🏷[BUG-BASH 2026-06-27 → LANE 3] MINOR (entry / link-time) — a program with NO `main` package (no entry) is not rejected at link/assembly time — 🔴 OPEN
 
 The SIGNATURE half of the original entry-point bug — `func main(x int)` /
