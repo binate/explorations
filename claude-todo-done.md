@@ -241,8 +241,8 @@ that stays alive). Mirrors the label path (`parse.bn:135/139` already `CopyStr`s
 
 Found authoring spec Ch.13: `checkArrayLit` iterated elements positionally (never
 reading `el.Key`, never checking count vs `ArrayLen`) and IR-gen stored element `i` at
-index `i`. Four defects landed; one latent residual (dual-folder keyed-index) stays open
-in claude-todo.md.
+index `i`. Four defects landed; the last latent residual (the dual-folder keyed-index)
+is since ✅ FIXED & LANDED too (main `b4d7444d`) — see the Residual note at the end.
 
 - **Indexed array literals** ✅ (main `da8fc0b3`; user chose IMPLEMENT over reject).
   `[5]int{1: 10, 3: 30}` ignored keys, storing positionally → `{10,30,0,0,0}` instead of
@@ -269,11 +269,13 @@ in claude-todo.md.
 - **Positional struct-literal assignability** ✅ (binate `7523b14d`): each positional
   element i checked against field i's type (mirroring the keyed branch). Test `043`.
 
-**Residual (still OPEN in claude-todo.md — latent, no reproducer):** the checker folds a
-keyed array index via `evalConstIntValue` and bounds-checks it against N; IR-gen recomputes
-the index via a DIFFERENT folder (`evalConstExpr`). If they ever disagree on a constant key,
-IR could place an element at an unchecked index → OOB store. Same family as the 759
-host-int-vs-bignum divergence.
+**Residual — ✅ SINCE FIXED & LANDED (main `b4d7444d`):** the checker folded a keyed array
+index via `evalConstIntValue` (bounds-checked vs N) while IR-gen recomputed it via a DIFFERENT
+folder (`evalConstExpr`) — a disagreement on a constant key would store an element at an
+unchecked index → OOB (latent, no reproducer; same family as the 759 host-int-vs-bignum
+divergence). Fixed: `checkArrayLit` now stamps the validated index on `Element.KeyVal`/`KeyKnown`
+(mirroring `TypeExpr.LenVal`) and `genArrayLit` reads it instead of re-folding, so both use the
+SAME index by construction. Removes the divergence class.
 
 ## ✅ RESOLVED (2026-06-07 → 2026-06-30, BUG-BASH LANE 2) — `==` / `!=` (and relational) on aggregates
 

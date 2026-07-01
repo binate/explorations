@@ -14,7 +14,7 @@ coverage / doc) or already-resolved residuals.
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 2] MAJOR (IR-gen / cross-package link failure) — a cross-package METHOD VALUE mis-mangles the method symbol to the IMPORTER's package (2026-06-30) — ✅ FIXED (commits `508c8d21` + `378f1104` on `bugbash-lane2`, pending land)
+## 🏷[BUG-BASH 2026-06-27 → LANE 2] MAJOR (IR-gen / cross-package link failure) — a cross-package METHOD VALUE mis-mangles the method symbol to the IMPORTER's package (2026-06-30) — ✅ FIXED & LANDED (main `31cbece7` + `b62bbd8c`)
 
 **FIX (508c8d21):** `genMethodValue` derives the receiver type's qualified name from its IR-gen type (`methodValueRecvIRType`: `lookupVarType` for an ident receiver, `getSelectorType` for a selector), whose Name carries the receiver's full package path — so `buildMethodQualName` targets the method in the RECEIVER's defining package, not `ctx.Gc.PkgPath` (the importer). Un-xfailed `942_xpkg_method_value` (ident); added `943_xpkg_method_value_selector` (selector). Extracted the receiver helpers to `gen_method_value_recv.bn` (the fix pushed `gen_method_value.bn` over the 500-line soft limit).
 
@@ -503,10 +503,10 @@ tests.md Phase B). Each has a reproducing test cited by `.rules`.
 
 ## MAJOR
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 2] `types.GetTarget().IntSize` "stale at native function-lowering" — ✅ RESOLVED (MISDIAGNOSIS; cleanup commit `6ea5e1a2` on `bugbash-lane2`, pending land) — FILED 2026-06-29
+### 🏷[BUG-BASH 2026-06-27 → LANE 2] `types.GetTarget().IntSize` "stale at native function-lowering" — ✅ RESOLVED (MISDIAGNOSIS; cleanup LANDED main `581216d9`) — FILED 2026-06-29
 - **Investigation (2026-06-30, static trace + no-SetTarget probe):** the filed premise is WRONG — `GetTarget().IntSize` is NOT stale/unset at native function-lowering. There is exactly ONE `target` global (`scope.bn`); `initTarget()` fills `PointerSize`/`IntSize`/`MaxAlign` ATOMICALLY (one block), and every accessor (`GetTarget`/`ptrSize`/`intSize`) calls `initTarget()` first — so a "PointerSize live but IntSize unset" state is unreachable. A direct probe (compiled an unmodified program, native aarch64, no `--target`) reads `GetTarget().IntSize == 8`. Descriptor and function-body lowering are the SAME phase (`EmitObject` calls both). The original 489/617 breakage attributed to a stale IntSize was something ELSE in the (never-committed) throwaway attempt — the attribution was unverified and is almost certainly wrong.
 - **Refcount fix itself:** ✅ DONE & LANDED earlier (main `94f0268f`), using `ManagedHeaderSize()` — correct, and it stays (the header IS pointer-sized; that's the right source regardless of the misdiagnosis).
-- **Cleanup (6ea5e1a2, pending land):** switched the two native-emit-phase `2 * GetTarget().IntSize` header reads (aarch64/x64 `*_pkg_descriptor.bn` accessors) to `ManagedHeaderSize()` — behavior-identical on LP64 (both 16), semantically correct (header is pointer-sized), and it removes the last `IntSize`-for-header-layout reads in the native backend. Corrected the false "IntSize reads stale (unset)" comment in `aarch64_refcount.bn`. Verified: reflect/`__Package`/refcount 137/0 on native_aa64 + native_x64 + native units.
+- **Cleanup (LANDED main `581216d9`):** switched the two native-emit-phase `2 * GetTarget().IntSize` header reads (aarch64/x64 `*_pkg_descriptor.bn` accessors) to `ManagedHeaderSize()` — behavior-identical on LP64 (both 16), semantically correct (header is pointer-sized), and it removes the last `IntSize`-for-header-layout reads in the native backend. Corrected the false "IntSize reads stale (unset)" comment in `aarch64_refcount.bn`. Verified: reflect/`__Package`/refcount 137/0 on native_aa64 + native_x64 + native units.
 - **Residual (documented, non-urgent):** `data_pkg_descriptor.bn` (IR-gen phase) still uses one int-sized `w` for BOTH header words AND slice lengths (a documented "assumes PointerSize==IntSize" conflation); untangling header (pointer-sized) from slice-length (int-sized) is a separate cleanup, harmless on every shipping ABI.
 
 ### Add a hygiene check enforcing package-tier dependency rules (`pkg-layout-spec.md`) — bundled tiers must not import non-bundled tiers — FILED 2026-06-10
