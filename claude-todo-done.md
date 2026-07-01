@@ -8,6 +8,22 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ DONE & LANDED (main `be7a5d1e`, 2026-06-30) — removed the `impls/stdlib/common` BUILDER-compat symlink
+
+The flatten (`impls/stdlib/common/pkg` → `impls/stdlib/pkg`, `5ae15031`) had shipped a `common -> .`
+symlink so `binate-paths.sh` could keep emitting `$BASE/impls/stdlib/common` while a pinned BUILDER
+still shipped the old `common/pkg` layout. BUILDER is now `bnc-0.0.10` (cut 2026-06-23, after the
+flatten) — verified its bundle ships the flattened `impls/stdlib/pkg` (with `common` a mere symlink),
+so `$BASE/impls/stdlib` resolves against BOTH the tree and the bundle. Changes: `binate-paths.sh` +
+`e2e/split-paths.sh` emit `$BASE/impls/stdlib`; `git rm impls/stdlib/common`; swept the doc/comment
+refs (`impls/stdlib/README.md` transitional note, `BUNDLE-HOWTO.md`, `fetch-builder.sh` examples).
+Smoke: binate-paths emits `impls/stdlib`; gen1 build OK (bundle compiles `cmd/bnc` + its `pkg/std/*`
+imports through the new path); `builder-comp` `stdlib/strconv` 3/0; hygiene 15/15. (The bnc-0.0.10
+bundle still ships its own `common` symlink — harmless; future bundles cut from a tree without it
+won't.)
+
+---
+
 ## ✅ FIXED & LANDED (main `9cd59132`, 2026-06-30, BUG-BASH LANE 3) — MINOR (entry): enforce the program entry package is named `main`
 
 Follow-up to the no-`func main` rejection (`84f95ae8`).  A program assembled from
