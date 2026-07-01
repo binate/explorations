@@ -142,11 +142,11 @@ follow-ups (deferred with user sign-off):
 
 ---
 
-## Ch.7 spec-conformance findings (2026-06-20, authoring `conformance/spec/07-types`) — 🔴 OPEN
+## Ch.7 spec-conformance findings (2026-06-20, authoring `conformance/spec/07-types`) — ✅ ALL DONE
 
-Four findings surfaced while authoring the Ch.7 type spec tests; each is pinned by an xfail.
+Four findings surfaced while authoring the Ch.7 type spec tests; all four are now fixed & landed.
 
-1. 🏷[BUG-BASH 2026-06-27 → LANE 1] **MAJOR (type-checker / wrong-code) — cross-package distinct named SCALAR types wrongly inter-assign.** Same-package `type A int; type B int; var b B = a` correctly rejects ("cannot assign A to B"), but cross-package `red.T -> blue.T` (each `type T int`) **compiles** without a cast — cross-pkg named-type identity is not enforced for scalar underlyings (type.named.identity, type.named.assignability). Possibly related to the int↔int64 identity-by-width bug, but distinct (that one is same-package width; this is cross-pkg). Pinned: `conformance/spec/07-types/049_named_identity_cross_pkg` (xfail.all).
+1. 🏷[BUG-BASH 2026-06-27 → LANE 1] **cross-package distinct named SCALAR types wrongly inter-assign — ✅ DONE & LANDED (main `186d876d`, 2026-06-30).** `red.T -> blue.T` (each `type T int`) compiled without a cast because a named non-struct wrapper kept only its bare short Name, so `namedIdentityName` returned "T" for both and `Identical` false-matched (a named struct already carried its qualified identity in the underlying's Name). Fixed by stamping the defining package (full path) onto the `TYP_NAMED` wrapper's `.Pkg` at both non-struct finalizers (collectTypeDecl + resolveTypeDeclInScope) and qualifying `namedIdentityName` by it; checker-only (IR-gen never reads `TYP_NAMED.Pkg`; cross-pkg method symbols already disambiguate). Also disambiguates the diagnostic ("cannot assign pkg/red.T to pkg/blue.T", + wrapper-peeled forms) — updated 051/694 accordingly. Un-xfailed 049; new `TestIdenticalDistinguishesCrossPkgNamedScalars`. builder-comp 2528/0. Full write-up in [claude-todo-done.md](claude-todo-done.md).
 
 2. 🏷[BUG-BASH 2026-06-27 → LANE 2] **✅ DONE & LANDED (main `0e7fd844`) — native (aa64+x64) named-managed-slice subslicing.** A distinct named managed-slice (`type Buf @[]int`) SIGSEGV'd at a subslice (`buf[0:2]`) on BOTH native backends: `emitGetFieldPtr`'s slice-base classifier `isSliceFieldBase` did not peel `TYP_NAMED`, so the refptr/backingLen field stores got no offset and corrupted the header (index/len worked; only the slice-expr field stores crashed). Fix: hoisted `isSliceFieldBase` → `native/common.IsSliceFieldBase` beside its peeling sibling `StructTypeOf`, peeling transparent wrappers before the Kind check — one site, both backends, removing the byte-identical aa64/x64 copies (verified it was the only un-peeled native slice-Kind site). Un-xfailed `033_named_transparency` (aa64; also red→green on x64), `719_named_slice_transparency` (aa64+x64), `904_named_slice_backing_pin` (aa64; red→green on x64); `036_named_assignability_composite`'s aa64 xfail was already stale from the earlier IR-gen un-peel sweep. Verified native_aa64 (real HW) + native_x64_darwin (Rosetta). Full diagnosis in [claude-todo-done.md](claude-todo-done.md).
 
@@ -156,17 +156,17 @@ Four findings surfaced while authoring the Ch.7 type spec tests; each is pinned 
 
 ---
 
-## 🏷[BUG-BASH 2026-06-27 → LANE 1] Ch.5 spec-conformance findings (2026-06-20, authoring `conformance/spec/05-lexical`) — 🔴 OPEN
+## 🏷[BUG-BASH 2026-06-27 → LANE 1] Ch.5 spec-conformance findings (2026-06-20, authoring `conformance/spec/05-lexical`) — ✅ IMPL GAPS DONE (2 spec DECISIONS remain in spec-todo.md)
 
 Surfaced while authoring the Ch.5 lexical spec tests. The two spec/impl
 **divergences** (`\uHHHH` escape; `1.foo` greedy-float-vs-selector) moved to
 [`spec-todo.md`](spec-todo.md) — they need a "fix spec or fix impl" decision and
 are pinned by `055`/`035`. The minor unary-`+`-rejected question is there too.
-The items below are settled-intent impl gaps already pinned by xfails.
+Both settled-intent impl gaps below are now fixed & landed:
 
-1. **Open item now pinned — single-byte character-literal constraint (`lex.literal.char.one`) is not enforced.** Empty `''` silently decodes to `0x00`; multi-byte `'ab'` silently truncates to its first byte (`'a'`=97); neither is diagnosed. Already acknowledged as an open item in spec §5.10/§5.14. Pinned: `056_char_empty_xfail`, `057_char_multibyte_xfail` (xfail.all). (No new decision; the xfails make it reproducible so Annex C flips when a diagnostic is added.)
+1. **single-byte character-literal constraint (`lex.literal.char.one`) — ✅ DONE & LANDED (main `8644e540`).** Empty `''` and multi-byte `'ab'`/`'é'` are now rejected ("character literal must be one byte") rather than silently decoding to `0x00` / truncating to the first byte. `056_char_empty` / `057_char_multibyte` are un-xfailed and green.
 
-2. **Reused existing gap — `[...]T{}` inferred-length array literals unimplemented.** `var a [...]int = [...]int{...}` is rejected `expected expression` (same gap as `conformance/spec/13-expressions/041`). The `...` token itself lexes as one token. Pinned for Ch.5's `lex.punctuation.set` `...` coverage by `122_punct_ellipsis_xfail` (xfail.all).
+2. **`[...]T{}` inferred-length array literals — ✅ DONE (bug 662, main `135ea813`).** `[...]int{…}` now compiles. `122_punct_ellipsis` is un-xfailed and green (the Ch.5 `lex.punctuation.set` `...` pin).
 
 **Stale-note correction (DONE) in `docs/spec/05-lexical-elements.md`:** the §5.11 note claiming unknown escapes are "silently decoded … backslash dropped … no diagnostic" was **stale** — they are rejected with `unknown escape sequence` (and bad `\x` with `\x escape requires two hex digits`). Corrected; the Ch.5 negatives `047`–`054` pin the rejection (green). (The `\uHHHH`/§5.1 and §5.8 reconciliations stay open in [`spec-todo.md`](spec-todo.md).)
 

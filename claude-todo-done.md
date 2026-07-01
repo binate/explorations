@@ -8,6 +8,51 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `186d876d`, 2026-06-30, BUG-BASH LANE 1) — MAJOR (type-checker / wrong-code): distinct cross-package named SCALAR types wrongly inter-assigned
+
+`red.T` and `blue.T` (each `type T int` in a different package) were assignable
+without a cast, though same-package `type A int; type B int` correctly rejects.
+Cross-package named STRUCTs already rejected correctly.
+
+**Root cause:** `Identical`'s TYP_NAMED arm compares `namedIdentityName(a)` vs
+`(b)`. For a named STRUCT that is the underlying struct's package-qualified Name
+("pkg/red.S"); for a named NON-struct it was the wrapper's bare short Name
+("T") — so both `red.T` and `blue.T` yielded "T" and false-matched. The wrapper
+carried no package (`MakeNamedType` sets only Kind+Name), and the struct-only
+`QualifyName` at the two finalizers skipped scalars (their `resolved` is the
+SHARED `int` type, which must not be mutated).
+
+**Fix (checker-only):** stamp the defining package (FULL path) onto the
+`TYP_NAMED` wrapper's `.Pkg` at both non-struct finalizers —
+`check_type_redecl.bn` collectTypeDecl (current package, both the
+fill-placeholder and fresh-wrapper sub-paths) and `bni_scope.bn`
+resolveTypeDeclInScope (imported, where `c.curPkgPath` is the DEFINING
+package). `namedIdentityName` then returns `QualifyName(t.Pkg, t.Name)` for a
+non-struct named type, so `red.T`/`blue.T` are distinct while a package's own T
+stays identical to itself (every reference shares the one wrapper). The full
+path (vs the SHORT name TYP_INTERFACE uses for `.Pkg`) avoids the
+same-final-segment collision a short name would allow. Verified IR-gen never
+reads `TYP_NAMED.Pkg` and cross-package method symbols already disambiguate by
+package, so no codegen change.
+
+**Diagnostic improvement (falls out of the fix):** `errCannotAssign` now renders
+operands whose short display names collide with their package-qualified identity
+— "cannot assign pkg/red.T to pkg/blue.T" (and "@pkg/red.T" etc. under
+pointer/slice/readonly wrappers via `disambiguatingTypeName`) instead of the
+baffling "cannot assign T to T". Improved the cross-package struct messages too
+(051, 694).
+
+**Method:** investigation + adversarial-review workflows (ultracode). The review
+confirmed no over/under-rejection (single shared wrapper guarantees
+self-identity; the `.bni`/`.bn` two-view stamps the same defining package on
+both) and surfaced two MINOR issues, both fixed before landing: the `Type.Pkg`
+doc contract (updated to note TYP_NAMED carries the full path) and
+`disambiguatingTypeName` not peeling wrappers (now recursive).
+
+Un-xfailed `conformance/spec/07-types/049_named_identity_cross_pkg`; updated
+`051` and `694` to the qualified message; added
+`TestIdenticalDistinguishesCrossPkgNamedScalars`. Full builder-comp 2528/0.
+
 ## ✅ FIXED & LANDED (main `84f95ae8`, 2026-06-30, BUG-BASH LANE 3) — MINOR (entry / link-time): a program with no `func main` was not rejected at program assembly
 
 The `__entry` wrapper emitted `call main.main` unconditionally, so a `main`
