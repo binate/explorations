@@ -41,7 +41,16 @@ is documented → delete the xfail; if removed → it flips green.
 
 ---
 
-## §5.8 — `1.foo` lexes as a trailing-dot float, not the selector tokens `1 . foo` — 🔴 NEEDS DECISION (2026-06-21)
+## §5.8 — `1.foo` lexes as a trailing-dot float, not the selector tokens `1 . foo` — ✅ RESOLVED (2026-07-01)
+
+**RESOLVED (decision: greedy-float, match impl/Go; docs `94d96f4`, binate
+`3a6f1a50`).** `1.foo` is the trailing-dot float `1.` then `foo` — NOT a selector
+on int `1`.  §5.8 `lex.literal.float.range-carveout` prose corrected to the
+greedy-float behavior (selecting on a numeric literal needs parens, `(1).field`);
+the grammar already permitted the trailing-dot form, so Annex A is unchanged.  The
+pinned xfail `035_err_float_digit_dot_selector_xfail` (asserted the dropped
+selector reading) was deleted; the float range-carveout rule stays covered by the
+other spec/05-lexical float tests.
 
 **Spec.** `lex.literal.float.range-carveout` (§5.8): "A `.` followed by a non-digit
 is the selector operator, so `1.field` is `1` then `.` then `field`." Under that
@@ -68,7 +77,16 @@ selector reading; delete if the spec clause is dropped in favor of greedy-float.
 
 ---
 
-## §5.7 — unary `+` on a literal is rejected (minor) — 🟡 NEEDS DECISION (2026-06-21)
+## §5.7 — unary `+` on a literal is rejected (minor) — ✅ RESOLVED (2026-07-01)
+
+**RESOLVED (decision: support unary `+`; binate `7bd6ce50`).** Unary `+` is now a
+numeric identity — `+5` yields `5`, `+true` is rejected, and the literal value
+carries through the fit-check (`var x int8 = +5` accepts, `+200` does not).  Added
+in the parser (prefix `+`), checker (numeric operand, type unchanged), and IR-gen
+(lowers to the operand); the constant folders already handled `+`.  The pinned
+`036_err_unary_plus` flipped to the positive `036_unary_plus`, and `020_unary`'s
+"there is no unary +" note was corrected.  No spec prose change needed — §5.7/Ch.13
+already call `+` a unary operator.
 
 **Spec.** `lex.literal.int.no-sign` (§5.7): "A leading `-` or `+` is a separate
 unary operator (Ch.13)." This is a lexical statement (the sign is a distinct
