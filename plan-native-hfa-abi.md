@@ -1,8 +1,14 @@
 # Plan: native HFA (struct-of-floats → SIMD) ABI conformance
 
-**Status:** investigation complete (2026-07-02, workflow `wf_8b37b44d-363`); **stage 1
-(aa64 HFA args) LANDED on main (commit `332b4298`, 2026-07-02)**; stages 2–5 remaining.
-See "Current state" below.
+**Status:** ⚠️ **NEEDS REPLAN.** The native-first staging below is WRONG. Stage 1 (aa64
+HFA args) was landed (`332b4298`) then **GATED BACK OFF** (`1a790663`, 2026-07-02) after
+an adversarial review found native-only HFA enablement miscompiles/crashes: HFA passing
+is a **cross-backend ABI contract** and the LLVM backend (all deps route through it) +
+the aa64 dispatch shims + the variadic NSRN walkers all still use GP. See the CRITICAL
+"HFA-in-SIMD is a cross-backend contract" entry in `claude-todo.md` for the full
+findings, repros, and the correct staging (classify HFAs identically in codegen/LLVM +
+shims + variadic walkers + native, flip the flag on only when ALL agree). The
+investigation + native arg path below remain useful reference; the *staging* does not.
 
 ## Why (accurate framing)
 
