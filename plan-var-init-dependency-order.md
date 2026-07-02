@@ -1,7 +1,17 @@
 # Plan: dependency-order package-level variable initialization
 
-**Status:** IMPLEMENTED (2026-07-01, worktree branch `var-init-dep-order`,
-commit `b9f193e8`); pending adversarial review + landing approval.
+**Status:** IMPLEMENTED + REVIEWED (2026-07-01, worktree branch
+`var-init-dep-order`, commit `0a9d86bc`); pending landing approval.
+Full `builder-comp` conformance green (2570 passed, 0 failed); types 858 / ir
+586 unit tests green; hygiene 15/15.
+Adversarial review (independent workflow) found + fixed one real MAJOR
+missed-read: a grouped local `var ( ... )` inside an IIFE body parses to
+`DECL_GROUP` (nil `.Value`, members in `.Decls`), so `collectVarDepsStmt`'s
+`STMT_DECL` arm was dropping the read — fixed via `collectVarDepsDecl`
+(recurses group members, mirroring `registerConstPlaceholders`), pinned by
+`TestVarInitIIFEGroupedLocalReadFormsCycle`. Also updated the stale
+`errors.bn` / `errors_test.bn` init-order comments and filed the pre-existing
+dropped-blank-initializer gap in `claude-todo.md`.
 **Decision (2026-07-01, designer):** switch package-var init from source order to
 Go-style **dependency order**. "Order dependencies are sus; splitting/reordering
 files should be easy."

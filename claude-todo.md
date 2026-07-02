@@ -73,6 +73,22 @@ cycle), so ordering is ready for the day IIFE codegen works.
 Fix: investigate `genFuncLit` / call-of-func-literal lowering in
 `pkg/binate/ir`. Needs an xfail conformance test.
 
+## 🟡 Package-level blank-var initializer side effects are not run at init — 🟡 OPEN (pre-existing)
+
+A top-level `var _ = sideEffect()` never runs its initializer: `buildInitBody`
+(`pkg/binate/ir/gen_init.bn`) and `resolveTopLevelVarOrder` both skip blank
+names, so a blank package var is neither ordered nor emitted into `<pkg>.__init`.
+Pre-existing (the blank skip predates the dependency-order change); surfaced by
+the var-init review (2026-07-01). The language contract evaluates a blank
+initializer for its side effects (`checkVarDecl` accepts it; Go runs
+`var _ = f()` at package init), so this is a latent correctness gap. Not
+triggered today — no current source or conformance test uses a *package-level*
+blank initializer (`conformance/288_blank_ident.bn`'s blank cases are local to
+`main`). Fix: emit blank-var initializers in a source-order tail of
+`buildInitBody` (they can't join the name-keyed dependency order since `_` is
+not a resolvable dependency target); keep `resolveTopLevelVarOrder` excluding
+them from the graph. Needs a conformance test.
+
 ---
 
 ## Method values & function values (codegen)
