@@ -41,43 +41,6 @@ applied to grouped members — a loader/merge concern, not just another recursio
 
 Test: `conformance/regressions/grouped-var-import` (`.xfail.all`).
 
-## 🔴 MAJOR (memory leak) — a by-value struct with a MANAGED field, returned then bound/used, leaks the managed allocation — 🔴 OPEN (pre-existing; found 2026-07-01)
-
-`ir` (`gen_return` / value-struct return convention). A function returning a struct
-that has a managed field, whose result is bound to a local (or used as a bare temp),
-LEAKS one managed allocation per occurrence. **Silent** — value-only conformance tests
-can't catch it (correct output, growing RSS); the suite has NO leak assertion today.
-
-Minimal repro (NO method values — a plain 16-byte register-returned struct):
-
-```
-type BigM struct { a int; p @int }
-func mkBigM() BigM { return BigM{a: 1, p: box(3) } }
-func main() { var v BigM = mkBigM(); println(v.a) }   // box(3) never freed -> 1 leaked alloc
-```
-
-**Root cause (confirmed via `--emit-llvm` refcount trace):** `box(3)` starts rc=1;
-the box then takes TWO `___copy_BigM` RefIncs (mkBigM's RETURN-path copy + main's
-assign copy) but only TWO `___dtor_BigM` RefDecs (main's return-temp dtor + `v`'s
-scope-end dtor). For balance the dtors must exceed the copies by exactly one (to
-release the initial `box(3)` rc); they're equal, so the box ends at rc=1. mkBigM
-copies-on-return but never RELEASES its own local — the return convention over-retains
-by 1. Accumulates unboundedly in a loop (adversarial review measured ~643 MB RSS at
-20M iters vs ~1.3 MB for the equivalent bare `@int` local, which does NOT leak).
-
-**Discovery:** adversarial review of the sret method-value capture fix (`46e7fe4f`);
-independently confirmed by IR refcount count. **Independent of that fix** — reproduces
-with no method values. (It DOES underlie `conformance/952`, whose managed sret receiver
-comes from such a return, but 952's method-value capture itself is balanced; the leak is
-the `mkBigM()` return, bounded/one-shot there so the test still passes.)
-
-**Proposed fix:** MOVE-on-return (transfer the local's ref to the return slot, no
-return-path copy) OR copy-on-return WITH a matching local dtor before return — align
-`gen_return`'s managed-value-struct path with the acquire/release discipline the
-assignment sites use (`emitStoreManagedSlot`). **Also needs:** a leak-assertion
-mechanism in the conformance harness (an allocation-count check) so this class is
-pinnable — none exists today. Needs a real root-cause pass in the return ABI.
-
 ---
 
 ## Method values & function values (codegen)

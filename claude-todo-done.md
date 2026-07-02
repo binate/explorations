@@ -8,6 +8,44 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `799b9ac9`, 2026-07-01) — MAJOR: fresh managed-field composite literal was never cleaned up (leak)
+
+A struct/array composite literal with a managed field, when COPIED for a consumer
+(returned then bound to a local, passed as a by-value arg, returned from a method,
+placed in another struct's field, or assigned), leaked one managed allocation per
+occurrence — unbounded in a loop (~643 MB RSS at 20M iters). **Silent**: value-only
+conformance tests pass (correct output, growing RSS).
+
+**Root cause (IR refcount trace):** the literal was neither a named local
+(`emitDecForManagedLocals`) nor a registered call-result temp
+(`registerManagedCallResult`), so nothing RefDec'd its managed field to balance the
+copy the consumer took for its own ownership — the box ended at rc=1 instead of 0.
+A bare managed scalar (`return box(3)`) did NOT leak: it is a registered fresh
+producer that gets moved. Discovered by the adversarial review of the sret
+method-value capture fix (`46e7fe4f`); root-caused + fixed via a workflow that also
+designed the test-coverage extension.
+
+**Fix (`799b9ac9`):** register the literal alloca as an end-of-statement cleanup
+temp in `genCompositeLit` / `genArrayLit` (mirroring `registerManagedCallResult`);
+`emitTempCleanupBody` gains an OP_ALLOC arm that `emitStructDtor`s such a pointer
+temp in place. The var-init fast paths (`genShortVar` / `genDecl`) that REUSE the
+literal alloca as durable storage `consumeTemp` it (the variable's scope-end dtor
+balances it). `genCompositeBasePtr`'s own composite-temp registration was removed —
+`genCompositeLit` now covers it, and registering twice double-freed the managed
+fields (`conformance/795`).
+
+**Testing-gap closure (the "what class of test / is there a matrix generator"
+question):** the class is a **refcount-baseline assertion** (thread a persistent
+managed value through the operation, drop the intermediate, assert its rc returned
+to baseline — leak → rc high, double-free → crash). The abi-matrix generator
+(`conformance/gen-abi-matrix.py`) already had this for a managed *direct multi-return
+component* (`managed_mr_cell`) but NOT for a managed *struct field*. Extended it with
+a `managed_struct_*` axis: 10 cells (mono/mixed shapes × return-to-local
+{short/typed/assign} + by-value literal arg + interface-dispatch return), green on
+all four backends, that would have caught this leak. **Verified:** full LLVM
+conformance 2591 passed / 0 failed; rc-baseline assertion on all four backends;
+hygiene 15/15; `795` double-free fixed.
+
 ## ✅ DONE & LANDED (main `64489b7a`/`6cbb4fcd`/`80d4ccbb`, 2026-07-01) — var-init follow-ups: IIFE codegen, blank-var init, grouped-var init
 
 Three follow-ups to the var-init dependency-order work (each independently
