@@ -1,8 +1,8 @@
 # Plan: native HFA (struct-of-floats → SIMD) ABI conformance
 
 **Status:** investigation complete (2026-07-02, workflow `wf_8b37b44d-363`); **stage 1
-(aa64 HFA args) DONE + verified on branch `temp-4` (commit `e80d316a`), not yet landed**;
-stages 2–5 remaining. See "Current state" below.
+(aa64 HFA args) LANDED on main (commit `332b4298`, 2026-07-02)**; stages 2–5 remaining.
+See "Current state" below.
 
 ## Why (accurate framing)
 
@@ -106,11 +106,12 @@ clang-link, assert stdout `37`. (Also cover an HFA *return* + a 3×f64 aa64 case
 is a miscompile. Every stage must keep classifier + all 3 walkers + caller + callee
 in lockstep, and the C-driver test (which crosses the ABI boundary) is the gate.
 
-## Current state (2026-07-02) — stage 1 (aa64 HFA ARGS) DONE + verified
+## Current state (2026-07-02) — stage 1 (aa64 HFA ARGS) LANDED
 
-Branch `temp-4`, commit **`e80d316a`** ("native/aa64: enable HFA→SIMD arg passing;
-fix callee data-region store"). `HfaAggregates = true` in `AAPCS64()`; the classifier
-+ walkers + aa64 caller/callee emitters are live.
+Landed on main as commit **`332b4298`** ("native/aa64: pass Homogeneous Floating-point
+Aggregates in SIMD regs (AAPCS64)") — the dormant scaffolding + enable/fix squashed
+into one coherent commit. `HfaAggregates = true` in `AAPCS64()`; the classifier +
+walkers + aa64 caller/callee emitters are live.
 
 - `common.bni`: `HfaAggregates bool` field + `func HfaClassify(t) (int, int)` decl.
 - `common_callconv.bn`: `hfaFold` + `hfaMemberCount` + exported `HfaClassify`
@@ -149,8 +150,13 @@ exactly like the GP aggregate path.
   float32 HFA *value* checks are blocked by a **separate CRITICAL** pre-existing
   float32 expression-typing miscompile (see claude-todo.md) — NOT an HFA bug.
 - `pkg/binate/native/common` (156) + `pkg/binate/native/aarch64` (148) unit tests green.
-- `conformance/961_hfa_struct_args` covers the float64 shapes across all backends.
+- `conformance/963_hfa_struct_args` covers the float64 shapes across all backends
+  (renumbered from 961 at land time — a concurrent worker took 961).
+- Full native-aa64 conformance mode (`builder-comp_native_aa64-comp_native_aa64`) shows
+  no HFA regression: the only failures are pre-existing intermittent `timeout 3`
+  flakes (baseline fails a *different* test; none reproduce in isolation) — see the
+  native-aa64 timeout-flake item in claude-todo.md.
 
-**Remaining before landing stage 1:** run the full native-aa64 conformance mode
-(`builder-comp_native_aa64-comp_native_aa64`) to confirm no regression from flipping
-float-struct passing GP→SIMD, then seek cherry-pick approval. Then stages 2–5.
+**Next: stages 2–5** — aa64 HFA RETURN, x64 HFA args, x64 HFA return, then wire the
+cross-ABI `TestHfaCalleeFromC` unit tests (the strongest gate; a pure-native/all-mode
+conformance test like 963 can't catch a native+LLVM-agree-but-both-wrong case).
