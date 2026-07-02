@@ -227,6 +227,17 @@ args/returns, memory ops, refcount) → **19 conformance tests pass** under
 - Frame-offset silent-#0: `add rd,sp,#imm` past the rotated-imm range silently
   encoded #0; the backend now materializes large SP offsets via IP.
 
+**Adversarial review (increment 1) — fixed in the commit:** removed R12/IP from
+the allocatable register pool (`regPool` is now exactly R4..R10) — it's the
+dedicated frame/div/aggregate-overflow scratch, and being a value register too
+let a helper silently clobber a live value under register pressure (also fixed
+`unsafe_rem`'s divisor clobber and `emitAggregateArg`'s temp aliasing — one
+structural fix); made `emitRefInc/DecInline`'s not-materializable branches
+`a.SetError` (the dtor path defines the skip label first) instead of silently
+dropping a ref-op / leaving a dangling branch; added a `-8` reloc-addend unit
+test. All were latent (the 19 tests don't reach them) but real silent-miscompile
+footguns for later increments.
+
 **Follow-ups tracked from increment 1:**
 - **MAJOR (asm/arm32 hardening):** `encodeOperand2` silently emits `#0` for an
   un-encodable Operand2 immediate instead of `a.SetError` — a latent
