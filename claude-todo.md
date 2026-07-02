@@ -9,6 +9,56 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ---
 
+## CRITICAL
+
+### float32 mixed-type expression miscompile — IR-gen mis-types float ops — 🔴 OPEN (2026-07-02)
+
+**Severity: CRITICAL (silent miscompile in native + malformed IR in LLVM).**
+
+**Symptom.** A float32 expression that mixes a multiply-by-untyped-float-constant
+with a trailing bare-float32 addend produces WRONG results (native: garbage; LLVM:
+clang rejects the emitted IR outright). E.g. with `a,b,c,d` all `float32`,
+`a*1000.0 + b*100.0 + c*10.0 + d` returns garbage (~4.65e18 / `1`) instead of 1234.
+`(a*1000.0 + b*100.0) + (c*10.0 + d)` returns 1230 — the bare `+ d` is silently
+DROPPED. Breaking the expression into intermediate `var`s, or using all-add (no mul)
+float32 chains, or float64 throughout, all work — so it's specific to float32
+expressions that mix a `float32 * <untyped float const>` product with a bare float32
+operand.
+
+**Root cause (IR-gen type resolution, `pkg/binate/ir` / the checker).** Two coupled
+defects visible in the emitted LLVM IR for `chain(a,b,c,d float32) float32 { return
+a*1000.0 + b*100.0 + c*10.0 + d }`:
+  1. The untyped float constant `1000.0` is typed **float64**, not coerced to the
+     float32 context: `%c = fadd double 0.0, 1000.0` + `%ae = fpext float %a to
+     double` + `fmul double` — so `float32 * const` is computed in double.
+  2. The resulting `double + float32` binary op is resolved to an **INTEGER** add:
+     `%di = fptosi float %d to i64` then `%r = add i64 %sum_double_bits, %di`, and
+     the `float`-returning function does `ret i64 %r`. Native lowers this literally
+     (`fcvtzs x, d` + integer `add`); LLVM's verifier/clang rejects the malformed IR.
+
+The float32 addend is float→int truncated and added to the running sum's RAW BIT
+PATTERN. So the binary-op typing picks the wrong result type (int) for a mixed
+float32/float64 operand pair, and untyped-float-constant coercion ignores a float32
+sibling operand.
+
+**Discovery.** Surfaced while verifying float32 HFA passing for the native HFA ABI
+work (`plan-native-hfa-abi.md`) — HFA *passing* is fine (field reads correct); the
+value check failed only because the float32 *arithmetic* used to verify it is itself
+miscompiled. Reproduces with plain float32 locals, zero HFA involvement.
+
+**Repro / test.** `conformance/962_float32_expr_typing` (`.xfail.all` — fails every
+backend). `.expected` holds the correct `1234`, so it flips to passing once fixed.
+
+**Proposed fix.** In IR-gen/checker float binary-op typing: (a) coerce an untyped
+float constant to a float32 sibling operand (don't default it to float64); (b) for a
+genuinely mixed float32/float64 op, resolve the result to the wider FLOAT type (fpext
+the narrower) and never fall into the integer-add path; (c) audit the binary-op
+result-type selection so a float operand pair can never yield an int-typed add /
+`fptosi` coercion. Needs a front-end/IR investigation to find where the result type is
+chosen.
+
+---
+
 ## Language features — specified, not yet implemented
 
 ### Variadic functions & spread (`...T`) — spec'd 2026-07-02, NOT implemented — 🔴 OPEN
@@ -105,9 +155,23 @@ is correct. It is a latent **ABI-NONCONFORMANCE**: native uses GP where the stan
 ABI uses SIMD (v0–v7 / XMM), so a mismatch is reachable only at a cross-ABI boundary
 — a C-extern with an HFA-by-value arg (rare), mixed LLVM/native modules (not a normal
 build), or a VM→native cross-mode dispatch of an HFA-struct arg (the `e2e/xmiface`
-coverage tested only a scalar float, not an HFA struct). **Being fixed** (2026-07-02,
+coverage tested only a scalar float, not an HFA struct). **In progress** (2026-07-02,
 user-requested): classify HFAs → SIMD in the native arg/return classifier on aa64 +
-x64 to match AAPCS64/SysV. See below / claude-todo-done.md once landed.
+x64 to match AAPCS64/SysV. See `plan-native-hfa-abi.md`.
+  - **Stage 1 (aa64 HFA ARGS) DONE + verified — on branch `temp-4`, not yet landed**
+    (commit `e80d316a`). Enabled `cc.HfaAggregates` on aa64; fixed a callee bug (the
+    HFA branch wrote float members into the param's 8-byte pointer *spill* slot instead
+    of the *data region*, so downstream reads dereferenced raw float bits — 0 across a
+    clang boundary, segfault pure-native). Cross-ABI C-driver (clang caller → native
+    `Hfa2` callee) now returns 37 (was 0); pure-native 2/3/4-member float64 HFAs +
+    mixed GP+scalar+HFA correct; float32 HFA passing regression-free; native/common +
+    native/aarch64 unit tests green. `conformance/961_hfa_struct_args` covers the
+    float64 shapes across all backends.
+  - **Stages 2–5 remaining**: aa64 HFA RETURN, x64 HFA args, x64 HFA return, wire the
+    cross-ABI `TestHfaCalleeFromC` unit tests. See `plan-native-hfa-abi.md`.
+  - Note: full float32 HFA *value* verification is blocked by the separate CRITICAL
+    float32 expression-typing miscompile (top of this file) — float32 HFA *passing*
+    itself is correct.
 
 **Native-source iface UPCAST (task #94, 2026-06-19): only offset-0 dispatch is
 reachable.** The VM's `BC_IFACE_UPCAST` native-source branch (`vm_exec_iface.bn`)
