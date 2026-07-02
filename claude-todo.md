@@ -9,6 +9,24 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ---
 
+## Language features — specified, not yet implemented
+
+### Variadic functions & spread (`...T`) — spec'd 2026-07-02, NOT implemented — 🔴 OPEN
+
+Go-style variadics + spread are now **specified** in the spec (§10.3
+`func.variadic.*` / `func.call.apply`, plus identity propagation in §7.9 / §10.8 /
+§10.11 / §10.12 / §11.1) but the toolchain does **not** implement them (only the
+special `print`/`println`/`panic` predeclared forms exist). High-level plan:
+**[plan-variadics.md](plan-variadics.md)** (design settled; a follow-up worker
+expands it into ordered steps). Model: final param `name ...T` → body type raw
+`*[]T` (borrow, stack-backed, **zero heap alloc**); spread `expr...` exclusive
+(Go-style); variadic-ness is part of signature type identity (→ `*func(...T)`,
+variadic interface/impl methods, method values); at indirect boundaries
+variadic-ness is erased to `*[]T` at the ABI. Distinct from the pre-existing
+`__c_call` C-varargs `...` marker (§16.9), which is unaffected.
+
+---
+
 ## Method values & function values (codegen)
 
 ### Function values — residual follow-ups (the MAJOR PROJECT landed) — 🟡 OPEN (low priority)
