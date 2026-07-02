@@ -57,6 +57,47 @@ result-type selection so a float operand pair can never yield an int-typed add /
 `fptosi` coercion. Needs a front-end/IR investigation to find where the result type is
 chosen.
 
+### HFA-in-SIMD is a CROSS-BACKEND contract — native-only enablement miscompiles — 🟠 MITIGATED (gated off `1a790663`), replan OPEN (2026-07-02)
+
+**Severity: CRITICAL wrong-code / SIGSEGV when enabled** (mitigated by gating off).
+`332b4298` enabled Homogeneous Floating-point Aggregate passing in SIMD registers on
+the **native aa64 arg path only**. That path is AAPCS64-correct (a clang caller into a
+native `Hfa2(D2)` callee returns 37), BUT an adversarial review (all reproduced
+native-vs-LLVM on this host) showed enabling it native-only produces reachable
+wrong-code because HFA passing is an **ABI contract shared by every backend + the
+dispatch shims**, and only native args implemented it:
+
+  1. **Cross-module (critical).** bnc's LLVM backend GP-coerces a float struct to
+     `[N x i64]` (x0/x1), not SIMD — `define double @fnS([2 x i64])`
+     (`pkg/binate/codegen/emit_agg_coerce.bn`). Under `-backend native` ONLY the main
+     module is native; every dependency package goes through LLVM. So a native-main HFA
+     call into an LLVM-dep passes SIMD where the callee reads GP → wrong data (≤16B) /
+     SIGSEGV (>16B indirect). Repro: native-main `dep.Sum(D2{5,6})` → 0, LLVM → 56.
+  2. **Arg-after-HFA (critical).** The variadic-family NSRN walkers
+     (`common_callconv_variadic.bn` lines ~38/64/86) inline `if IsFloatScalarTyp{nsrn++}`
+     and never count HFA members, so a fixed FP arg AFTER an HFA is dropped. Repro:
+     `f5(5 scalars, D3 HFA, 42.0)` → native 7, LLVM 42. Fix: use `cc.advanceNsrn(...)`.
+  3. **Dispatch shims (critical).** The aa64 func-value / closure / interface-method
+     shims GP-marshal args (`aarch64_funcvalue_shim.bn` / `aarch64_closure_shim_*`), so
+     an HFA reaching a shim is mismarshalled.
+
+**Mitigation (landed pending):** `1a790663` sets `cc.HfaAggregates = false` — restores
+native==LLVM GP behavior (cross-module Sum 56 on both backends, f5 42, 963/964 still
+pass). The classifier + emitters are kept in-tree, dormant.
+
+**To actually ship HFA (replan — the old native-first staging is wrong):** classify
+HFAs identically in (a) `pkg/binate/codegen` so the LLVM backend emits real HFA/SIMD
+param types (`[N x float]`/`{double,double}` or a form LLVM lowers to v-regs) instead
+of `[N x i64]`; (b) the aa64 dispatch shims; (c) the variadic NSRN walkers; (d) native
+args (done) + returns. Lift `HfaClassify` to a shared location both backends consume.
+Flip `HfaAggregates` on only when all four agree. **Required coverage that would have
+caught this**: a CROSS-MODULE HFA conformance test (native-main importing an HFA-taking
+dep — mirror `337_cross_pkg_struct_arg`'s layout) and an HFA-through-func-value test,
+run in native aa64 mode vs LLVM. Single-program HFA tests (963/964) are self-consistent
+by construction and CANNOT catch this class. **Process lesson**: "native matches clang
+(AAPCS64)" is NOT the correctness bar inside the toolchain — "native matches the Binate
+LLVM backend + shims" is, because deps + dispatch always route through them.
+
 ### native-aa64 self-hosted conformance: intermittent timeout flakiness — 🟡 OPEN (2026-07-02)
 
 **Severity: minor (CI flake, not a miscompile).** The
@@ -176,20 +217,22 @@ build), or a VM→native cross-mode dispatch of an HFA-struct arg (the `e2e/xmif
 coverage tested only a scalar float, not an HFA struct). **In progress** (2026-07-02,
 user-requested): classify HFAs → SIMD in the native arg/return classifier on aa64 +
 x64 to match AAPCS64/SysV. See `plan-native-hfa-abi.md`.
-  - **Stage 1 (aa64 HFA ARGS) LANDED** (commit `332b4298`, 2026-07-02). Enabled
-    `cc.HfaAggregates` on aa64; fixed a callee bug (the HFA branch wrote float members
-    into the param's 8-byte pointer *spill* slot instead of the *data region*, so
-    downstream reads dereferenced raw float bits — 0 across a clang boundary, segfault
-    pure-native). Cross-ABI C-driver (clang caller → native `Hfa2` callee) now returns
-    37 (was 0); pure-native 2/3/4-member float64 HFAs + mixed GP+scalar+HFA correct;
-    float32 HFA passing regression-free; native/common + native/aarch64 unit tests
-    green. `conformance/963_hfa_struct_args` covers the float64 shapes across all
-    backends (renumbered from 961 at land time — a concurrent worker took 961).
-  - **Stages 2–5 remaining**: aa64 HFA RETURN, x64 HFA args, x64 HFA return, wire the
-    cross-ABI `TestHfaCalleeFromC` unit tests. See `plan-native-hfa-abi.md`.
-  - Note: full float32 HFA *value* verification is blocked by the separate CRITICAL
-    float32 expression-typing miscompile (top of this file) — float32 HFA *passing*
-    itself is correct.
+  - **Stage 1 (aa64 HFA ARGS) was landed (`332b4298`) then GATED BACK OFF
+    (`1a790663`, 2026-07-02) — see the CRITICAL "HFA-in-SIMD cross-backend mismatch"
+    entry at the top of this file.** The native aa64 arg path is AAPCS64-correct
+    (verified against a clang caller), but enabling it native-only produced reachable
+    wrong-code / SIGSEGVs: an adversarial review found the LLVM backend GP-coerces
+    float structs to `[N x i64]` (so native-main↔LLVM-dep HFA calls disagree), the aa64
+    dispatch shims GP-marshal, and the variadic NSRN walkers drop a fixed FP arg after
+    an HFA. The classifier + emitters remain in-tree, dormant. `conformance/963` and
+    `964` still pass (both backends GP again). **HFA can only flip on once the LLVM
+    backend + dispatch shims + variadic walkers classify HFAs identically — it is a
+    coordinated CROSS-BACKEND project, not a native-only stage.**
+  - **Replan needed**: the old "stage 1 = native args, stage 2 = native return, …"
+    decomposition is wrong (each piece must land in native + LLVM + shims together, and
+    the flag flips on only at the end). See `plan-native-hfa-abi.md`.
+  - Note: full float32 HFA *value* verification is also blocked by the separate CRITICAL
+    float32 expression-typing miscompile (top of this file).
 
 **Native-source iface UPCAST offset>0 — ✅ FIXED & LANDED (`7f832f64`,
 2026-07-02).** The VM's `BC_IFACE_UPCAST` native-source branch
