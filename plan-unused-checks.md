@@ -35,9 +35,13 @@ unused-import cross-file gap and add four new "unused" checks.
   initializers); dead-code ISLANDS flagged; methods excluded. 6 tests incl. the
   island discriminator; tree-wide: 0 violations. **All four new unused rules
   (a/d/e/b/c) are now landed.**
-- **Remaining follow-ups:**
-  - **REQUIRED — split** `pkg/binate/types/{scope.bn,check_expr.bn}` (over the
-    500-line soft cap; `(b)` grew them). Per user directive: do this FIRST.
+- **File split: ✅ DONE & LANDED** (main `7f2e2c82`, 2026-07-02). `scope.bn`
+  (547) → `scope.bn` + `layout.bn` (Type Layout) + `layout_offsets.bn`
+  (Composite Type Layout); `check_expr.bn` (555) → `check_expr.bn` +
+  `check_addr.bn` (addressability); `scope_test.bn` (591) split to match; new
+  `check_addr_test.bn` (11 branch tests). Pure move (3-lens adversarial review:
+  no blockers/majors), all under the 500-line cap, hygiene green.
+- **Remaining follow-up:**
   - **`(b)` refinement** — write-only-local detection (Go-parity: the
     write-target gating `checkIdent` deliberately omits) + for-in HEADER-binding
     sweeping. Both safe under-counts today; re-measure after.

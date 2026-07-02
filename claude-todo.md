@@ -1051,7 +1051,7 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 
 ## bnlint rules, unused-entity checks & lint skips
 
-### unused-entity checks — all five rules (a/b/c/d/e) DONE & LANDED; split + `(b)`-refinement remain (`plan-unused-checks.md`)
+### unused-entity checks — all five rules (a/b/c/d/e) + file split DONE & LANDED; only `(b)`-refinement remains (`plan-unused-checks.md`)
 
 Add unused-locals `(b)` / unused-private-func `(c)` / -global `(d)` / -type `(e)` checks on top of the existing `unused-import` rule. Full design in **`explorations/plan-unused-checks.md`**.
 
@@ -1066,7 +1066,7 @@ Add unused-locals `(b)` / unused-private-func `(c)` / -global `(d)` / -type `(e)
 - **Remaining:**
   - **`(b)` refinement** — write-only-local detection (Go-parity) + for-in HEADER-binding sweeping (both safe under-counts the conservative form misses; re-measure after).
   - **`(c)` unused-func: ✅ DONE & LANDED** (main `83149f3e`) — reachability from roots; dead-code islands flagged; methods excluded; 6 tests; 0 tree-wide. **All five rules (a/b/c/d/e) landed.**
-  - **REQUIRED (user directive): split** `pkg/binate/types/{scope.bn,check_expr.bn}` — over the 500-line soft cap; `(b)` grew them. Do this FIRST, then the `(b)` refinement (write-only-local + for-in header).
+  - **File split: ✅ DONE & LANDED** (main `7f2e2c82`, 2026-07-02). `scope.bn` (547) → `scope.bn` + `layout.bn` (Type Layout) + `layout_offsets.bn` (Composite Type Layout); `check_expr.bn` (555) → `check_expr.bn` + `check_addr.bn` (addressability); `scope_test.bn` (591) split to match; new `check_addr_test.bn` (11 branch tests). Pure move (3-lens adversarial review: no blockers/majors), all under the 500-line cap, hygiene green.
 
 ### MINOR (hygiene / lint) — investigate the `[managed-to-raw-assign]` findings in `pkg/binate/asm/*` (2026-06-20) — 🟡 OPEN
 The compiler-tree lint-coverage gap is ✅ FIXED & LANDED (`582c1327`): `scripts/hygiene/lint.sh`
