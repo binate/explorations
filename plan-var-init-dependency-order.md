@@ -113,12 +113,13 @@ order in IR-gen. Do NOT restructure the checker's two-pass var checking.
   initializer's callee (`errors.New`/`Rooted`, `os.newFile`) reads no package var,
   and the error hierarchy passes parents as ARGS (captured). Full support needs
   same-package call-graph analysis.
-- **Grouped package vars** `var ( ... )`: a PRE-EXISTING gap — grouped vars are
-  neither registered as ModuleGlobals nor emitted in `__init` today
-  (`buildInitBody`/`gen_module.bn` iterate top-level `DECL_VAR` only, never recurse
-  `DECL_GROUP`). Keep the var graph restricted to that same top-level set so both
-  sides agree; fixing groups is separate (touches registration + emit). **Tackle
-  next.**
+- **Grouped package vars** `var ( ... )`: DEFINING side ✅ DONE (2026-07-01) —
+  `initVarDecls` / `appendPkgVarDecls` flatten grouped members into the init-var
+  set, `registerVarGlobals` gives each a global, and grouped members join the
+  dependency order. The cross-package EXPORT path (grouped vars in a `.bni`) is
+  still open — see `claude-todo.md` "Grouped vars EXPORTED via a `.bni`" (loud
+  error, deferred: naive extern-registration double-registers the defining
+  package's grouped globals, a loader-merge/dedup concern).
 - **Inferred-var FORWARD refs**: `var A = B` where `B = 10` is a later INFERRED var
   fails to compile today (`B` isn't a `SYM_VAR` until pass 2's source-order
   `checkVarDecl`) — a pre-existing "not in scope yet" error, orthogonal to runtime
