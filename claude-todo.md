@@ -80,41 +80,6 @@ them from the graph. Needs a conformance test.
 
 ## Method values & function values (codegen)
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 2] Method-value CAPTURE gap — pointer-receiver method value on an SRET value receiver from a call/temp — 🟡 OPEN (SRET-only residual; register cases ✅ FIXED & LANDED — `0a8dd492` + `92916c19`)
-
-The cross-package method-value NAMING is ✅ DONE & LANDED for all receiver shapes
-(ident/selector/index `31cbece7`+`b62bbd8c`, call-result `47cdcfbf`) — see
-[claude-todo-done.md](claude-todo-done.md).
-
-**The CAPTURE bug — common case ✅ FIXED & LANDED (main `0a8dd492`):** a method
-value with a POINTER receiver on a NON-IDENT value receiver (`mk().get`, `h.b.get`) had no
-stable address to capture as `*T`, so `genCapturedRecv` stored the value into the closure's
-`*T` slot as a WILD POINTER → SIGSEGV (pre-existing; identical for LOCAL and cross-package).
-Fixed: `genMethodValue` now captures the value BY VALUE (a copy the closure owns) and the
-wrapper `alloca`+addresses it for the synchronous call — matching the method-CALL semantics
-(`mk().get()` already materializes a copy via `applyReceiverConversion`). An IDENT receiver
-keeps the existing `&slot` capture. `947` is now a POSITIVE test (call + field value
-receivers, green on LLVM + VM + native aa64 + x64); 942–946 + 503–519 regression unchanged.
-
-**Also ✅ FIXED & LANDED (main `92916c19`):** the register-returned MANAGED-field case
-(`mkMP().num`, `MP{n int; p @int}`, 16 B — `NeedsSret` false, `NeedsDestruction` true) now
-captures by value: store the bytes then `emitStructCopy` the field to RefInc the copy's
-managed field, balanced by the `mkMP()` temp's end-of-statement RefDec and the closure
-dtor's RefDec (pinned by `949`, positive on all four backends). The same commit also fixed
-a latent miscompile of a COMPOSITE-LITERAL value receiver (`Pt{...}.M` — a literal is an
-aggregate alloca, so the old scalar store wrote the alloca POINTER into the value field;
-`isAggregateAllocToLoad` loads it first — pinned by new `951`).
-
-**What remains (this item) — SRET (>16-byte) value receivers only:** the materialize path
-is gated to a register-returned struct (`!types.NeedsSret`). An sret call result is an
-`OP_CALL` backend-represented as a POINTER to the sret buffer (NOT an `OP_ALLOC`), so it can
-be neither load-then-stored (`isAggregateAllocToLoad` needs an `OP_ALLOC`) nor stored
-directly (`store %S %ptr` mistypes the by-value field: `'%v0' type 'ptr' but expected %Big`).
-Stays the old dangling-`*T` crash (exotic), pinned by
-`conformance/948_method_value_sret_recv_capture.xfail.all`.
-**Fix:** sret destination-forwarding (write the receiver call result straight into the
-closure field), or a backend-aware struct-copy from the sret buffer into the field.
-
 ### Function values — residual follow-ups (the MAJOR PROJECT landed) — 🟡 OPEN (low priority)
 Function values are done across all three phases (archived in [claude-todo-done.md](claude-todo-done.md):
 Phase 1 non-capturing + type/vtable machinery, Phase 2 closures/capture — `plan-function-values-phase-2.md`

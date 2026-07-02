@@ -8,6 +8,41 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `0a8dd492` + `92916c19` + `c6a6fdf8`, 2026-06-30..07-01, BUG-BASH LANE 2) — method-value CAPTURE gap (ALL receiver shapes, incl. sret)
+
+A pointer-receiver method value taken on a NON-IDENT value receiver from a call/temp
+had no stable address to capture as `*T`; the old code stored the value into the
+closure's `*T` slot as a WILD POINTER → SIGSEGV. Fixed across every shape by capturing
+BY VALUE (a copy the closure owns) and having the synthesized wrapper alloca+address it:
+
+- **`0a8dd492`** — register call-result / field value receivers (`mk().get`, `h.b.get`);
+  pinned by `947`.
+- **`92916c19`** — register MANAGED-field receiver (`mkMP().num`, `MP{n int; p @int}`):
+  store the bytes then `emitStructCopy` to RefInc the copy's managed field, balanced by
+  the temp's end-of-statement RefDec and the closure dtor (pinned by `949`). Same commit
+  fixed a latent COMPOSITE-LITERAL receiver miscompile (`Pt{...}.M` — a literal is an
+  aggregate alloca, so the old scalar store wrote the alloca POINTER into the value
+  field; `isAggregateAllocToLoad` loads it first — pinned by `951`).
+- **`c6a6fdf8`** — SRET (>16-byte) receivers. **The earlier diagnosis was WRONG** (an
+  investigation had claimed the sret call result "can't be stored into the closure field"
+  and proposed sret dest-forwarding / a backend struct-copy; a workflow synthesis later
+  claimed the opposite — "just delete the gate, it already works"). Empirical IR inspection
+  refuted both: the capture store is fine (LLVM loads the aggregate + stores field-wise;
+  native memcpys). The real defect was in `synthMethodValueWrapper`'s hand-rolled param
+  prologue, which omitted the byval-param handling `genFunc` has — a >16-byte struct param
+  arrives as `ptr byval(<T>)`, so its slot store must memcpy from that pointer; without
+  `pr.IsByvalParamRef` the wrapper emitted `store %Big %v0` where `%v0` is a `ptr` →
+  invalid IR. Fix: set the flag when `params[i].Typ.IsByvalParam()` (mirroring `genFunc`)
+  and drop the `!NeedsSret` gate. The flag covers the whole param loop, so it also fixed a
+  >16-byte struct USER ARG to a method value. Pinned by `948` (sret receiver), `952`
+  (sret AND managed-field — the cross-product), `960` (sret user arg). Adversarial review
+  confirmed correct (refcount balanced, ABI boundary cases, ILP32 `NeedsSret`≠`IsByvalParam`
+  divergence handled, multi-return interaction fine) — and separately surfaced the MAJOR
+  by-value-managed-struct-RETURN leak (see claude-todo.md), which is independent of this fix.
+
+The cross-package method-value NAMING for all receiver shapes (ident/selector/index
+`31cbece7`+`b62bbd8c`, call-result `47cdcfbf`) landed earlier in the same arc.
+
 ## ✅ DONE & LANDED (main `da85b707`, 2026-07-01) — closures read package globals LIVE (no capture)
 
 A function literal referencing a package-level `var` CAPTURED it by value into
