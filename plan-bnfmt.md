@@ -103,9 +103,12 @@ that); collection is flag-gated so the compile path allocates nothing.
 - `ast.File` gains `Comments @[]@token.Comment` (same managed-slice-of-managed-ptr
   shape as the existing `Decls @[]@Decl`, so within the BUILDER subset; empty
   unless collecting).
-- `Expr`/`Stmt`/`Decl`/`TypeExpr` each gain `End token.Pos`. The parser stamps it
-  from the last consumed token (`token.Token.End`) as it finishes each node —
-  mechanical work at each of the ~50 node-producing parse sites.
+- `Stmt`/`Decl`/`TypeExpr` each gain `End token.Pos`. The parser stamps it from
+  the last consumed token (`token.Token.End`) as it finishes each node, via an
+  `endFrom` helper that never yields a backwards span. (As implemented — step 14.1:
+  `Expr.End` is **deferred**, since the expression parser has no single choke point
+  and comment attachment doesn't need it; adding it partially would ship a
+  half-populated field.)
 - `parser` gains a comment-collecting constructor variant that threads the lexer
   flag and, at EOF, stamps the accumulated list onto `File.Comments`.
 
@@ -309,11 +312,20 @@ and a couple of front-end sub-decisions:
 Not an MVP-vs-later split — this is the sequence for building the *complete* tool
 while keeping every commit green and close to main.
 
-1. **Front-end: node `End` positions** (`token.Token.End`; stamp on
-   `Expr`/`Stmt`/`Decl`/`TypeExpr`). Independently useful (diagnostics-ready);
-   land with parser unit tests. Verify against BUILDER.
+1. **Front-end: node `End` positions** — ✅ **LANDED** 2026-07-01
+   (`6a2384c2` `token.Token.End`; `440991c4` `End` on `Stmt`/`Decl`/`TypeExpr`,
+   stamped completely via the `endFrom` helper + a recursive span-invariant test).
+   `Expr.End` is **deferred** — the expression parser is a precedence-climbing
+   cascade with no single choke point, and comment attachment anchors mid-
+   expression comments to the following token (which has `Pos`), so it is not
+   needed yet; it will be added later, completely, to avoid a half-populated
+   field. BUILDER-compat confirmed (the `builder-comp` runs compile the modified
+   `cmd/bnc` tree with the pinned BUILDER). Adversarially reviewed pre-land; the
+   review caught a `{0,0}` nested-node gap that the completeness pass + invariant
+   walker closed.
 2. **Front-end: comment retention** (`token.Comment`; lexer collect-mode +
    `OwnLine`; `File.Comments`; parser variant). Land with lexer/parser tests.
+   ← **next**
 3. **`build-bnfmt.sh`** + an empty `cmd/bnfmt` that reads a file and writes it back
    **byte-for-byte** — proves build/gen1 wiring, I/O, `-w` atomicity, ext branch.
 4. **Type printer** (`print_type.bn`, all `TEXPR_*`) + token-equality harness (§11.1).
