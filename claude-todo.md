@@ -191,22 +191,29 @@ x64 to match AAPCS64/SysV. See `plan-native-hfa-abi.md`.
     float32 expression-typing miscompile (top of this file) — float32 HFA *passing*
     itself is correct.
 
-**Native-source iface UPCAST (task #94, 2026-06-19): only offset-0 dispatch is
-reachable.** The VM's `BC_IFACE_UPCAST` native-source branch (`vm_exec_iface.bn`)
-advances the native vtable word by `offset*8`, mirroring `emit_iface_upcast.bn`.
-Offset 0 (`@X→@any`, `@X→*X` managed↔raw decay) passes the registered base
-through unchanged, so a later native method dispatch still resolves via
-`lookupShimVtable`. A REAL-parent upcast (offset>0) forms the result value
-correctly, but a method call ON the result would do `lookupShimVtable(base +
-offset*8)` — an exact-match MISS on the unregistered adjusted address → loud
-"no shim vtable" abort (NOT silent corruption). Unreachable today: no stdlib
-runtime interface `extends` another (`Orderable`/`Hashable : Comparable` are
-generic constraints, not upcast as iface values). To support offset>0 dispatch,
-`lookupShimVtable` needs a RANGE lookup — register each injected vtable's SIZE,
-find the base `B` with `B ≤ addr < B + size*8`, and map to `shim_base(B) +
-(addr − B)` so the parent sub-block's shim resolves. Covered as-is by
-`pkg/binate/vm` unit tests (the offset arithmetic, incl. offset>0 value
-formation) + `os` `TestErrorIfaceUpcast` (offset-0 end-to-end, both modes).
+**Native-source iface UPCAST offset>0 — ✅ FIXED & LANDED (`7f832f64`,
+2026-07-02).** The VM's `BC_IFACE_UPCAST` native-source branch
+(`vm_exec_iface.bn`) advances the native vtable word by `offset*8`, mirroring
+`emit_iface_upcast.bn`. A REAL-parent upcast (offset>0) advances the word to the
+parent sub-block — INTERIOR to the base `@__ivt` — and a method call on the
+result used to do `lookupShimVtable(base + offset*8)`, an exact-match MISS →
+loud "no shim vtable" abort. The old "unreachable, no stdlib interface extends
+another" claim was WRONG: the embeddable interp (`Interp.New` with a custom
+inject-set) lets an embedder inject a native package whose `interface B : A` is
+dispatched from bytecode — a valid program that aborted (surfaced by the user,
+2026-07-02). Fix: carry each vtable's slot count in `reflect.VtableInfo.SlotCount`
+(threaded through `ir.PkgVtableEntry` + `buildVtableInfoNode` + all four gathers —
+codegen, native x64/arm32/aarch64, and the VM bytecode gather) and make
+`lookupShimVtable` a bounded RANGE lookup: match the vtable whose extent
+`[base, base + SlotCount*8)` contains the word, return `shim + (rawAddr − base)`;
+out-of-extent → 0 (loud abort preserved). Offset 0 (`@X→@any`, `@X→*X` decay)
+resolves to the shim base exactly as before. Coverage: `e2e/xmiface.sh`
+(`cross-mode-iface-parent-upcast`: native-injected `Ext : Base` + a 3-level
+`C1 : B1 : A1` transitive upcast, offset>1) + `pkg/binate/vm` `vtable_inject`
+(interior/boundary/out-of-extent) + descriptor unit tests. Adversarially reviewed
+(no bugs). Remaining latent nit (low risk): a VALUE-receiver parent method AT
+offset>0 has no dedicated cross-mode test (its components — value-receiver at
+offset 0, pointer-receiver parent at offset>0 — are independently covered).
 
 ### Package descriptors (Phase B) — `__Package()` works in compiled + VM modes (builtins); general Functions-table still future
 - **Status**: compiled-mode AND VM-mode `__Package()` landed (binate
