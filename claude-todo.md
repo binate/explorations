@@ -74,10 +74,21 @@ Latent, LP64-host-only (NOT active — default VM modes run a 64-bit host):
 - 64-bit-scalar args pack as 2 slots on a 32-bit host (`argSlots`); the dispatch
   reads them as positional shim args.
 
-Separately (PRE-EXISTING, independent of the VM): the COMPILED native iface-call
-path (`emitCallIfaceMethod`) has no HFA classification — a struct-of-floats arg
-is mis-seen as a GP aggregate (no `IsFloatScalarTyp`-style struct handling in the
-native backend; the LLVM side relies on LLVM to classify HFAs).
+Separately (PRE-EXISTING, independent of the VM): the native backend has no HFA
+classification — a struct of ≤4 same-kind floats (an AAPCS64/SysV Homogeneous
+Floating-point Aggregate) is passed as a GP aggregate, because the arg classifier
+(`common_call.bn:156`) only special-cases SCALAR floats (`IsFloatScalarTyp`), with
+no struct-of-floats → SIMD branch; the LLVM side relies on LLVM to classify HFAs.
+**NOT a reachable native-dispatch miscompile** (verified 2026-07-02: 2-double,
+3-double/24B, 4×float32, and float-struct-return iface dispatch all pass on native
+aa64 + x64) — native is SELF-CONSISTENT (caller + callee both use GP), so pure-native
+is correct. It is a latent **ABI-NONCONFORMANCE**: native uses GP where the standard
+ABI uses SIMD (v0–v7 / XMM), so a mismatch is reachable only at a cross-ABI boundary
+— a C-extern with an HFA-by-value arg (rare), mixed LLVM/native modules (not a normal
+build), or a VM→native cross-mode dispatch of an HFA-struct arg (the `e2e/xmiface`
+coverage tested only a scalar float, not an HFA struct). **Being fixed** (2026-07-02,
+user-requested): classify HFAs → SIMD in the native arg/return classifier on aa64 +
+x64 to match AAPCS64/SysV. See below / claude-todo-done.md once landed.
 
 **Native-source iface UPCAST (task #94, 2026-06-19): only offset-0 dispatch is
 reachable.** The VM's `BC_IFACE_UPCAST` native-source branch (`vm_exec_iface.bn`)
