@@ -8,6 +8,32 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ DONE & LANDED (main `a43c24f7` + `2eba382f`, 2026-07-02) — grouped vars EXPORTED via a .bni (cross-package)
+
+A `.bni` declaring grouped vars (`var ( X int; Y int )`) was invisible to
+importers (`undefined: X`), and the defining-side grouped-var fix (`80d4ccbb`)
+covered only within-package use. Now fully works cross-package (scalar +
+managed).
+
+Root cause of the double-register hazard: the loader unconditionally prepended a
+`.bni` `DECL_GROUP` into the DEFINING package's merged decls, but a `.bni` VAR
+group is a set of EXTERN declarations (storage in the `.bn`) — like a top-level
+`.bni` `var X T`, which is NOT prepended. Fix (`a43c24f7`): exclude a `.bni` var
+group from the prepend (`isVarGroup`); const/type groups still flow through. Then
+recurse `DECL_GROUP` for var members at the three registration sites —
+`bni_scope.bn` (checker resolves `pkg.X`), `gen_import.bn` (extern global per
+member → linkage), `markBniExportedVars` (Exported flag → linkage + reflect
+globals).
+
+`2eba382f` fixes a pre-existing gap the review surfaced: a `.bni`-exported var
+whose `.bn` DEFINITION uses an inferred type (`var X = 11`) aborted IR-gen in an
+importer (`unresolved selector`) — the importer reads the merged `.bn` def (no
+TypeRef), so `registerImportVarExtern` dropped the extern. Recover the declared
+type from the checker's `.bni`-built package scope. Affected top-level exported
+vars too. Tests: `grouped-var-import` (now positive), `inferred-exported-var-
+import`, loader units (isVarGroup, markBniExportedVars over a group). Full
+conformance 2590/0; review clean.
+
 ## ✅ FIXED & LANDED (main `799b9ac9`, 2026-07-01) — MAJOR: fresh managed-field composite literal was never cleaned up (leak)
 
 A struct/array composite literal with a managed field, when COPIED for a consumer

@@ -9,40 +9,6 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ---
 
-## 🟡 Grouped vars EXPORTED via a `.bni` are invisible to importers — 🟡 OPEN (loud error; found 2026-07-01)
-
-A `.bni` that declares grouped vars —
-
-    var ( X int
-          Y int )
-
-— does not register `X` / `Y` for importers: a consumer reading `gv.X` gets a
-`undefined: X` CHECKER error. The DEFINING side (a grouped var used within its
-own package) now works (`444c9c90`-line grouped-var fix, main `<pending>`); only
-the cross-package EXPORT path is unhandled. Loud error, not a silent miscompile.
-
-Sites that still iterate top-level `DECL_VAR` only and must recurse `DECL_GROUP`
-for var members:
-- `pkg/binate/types/bni_scope.bn` `buildScopeFromFile` Pass 2 — the `DECL_GROUP`
-  arm registers const/type members but not var members (so `pkg.X` is undefined).
-- `pkg/binate/ir/gen_import.bn` `registerImportFieldsAndFuncs` — the `DECL_GROUP`
-  arm registers only the const group (no extern global per grouped var member).
-- `markBniExportedVars` (Exported flag) — skips groups, so a grouped exported var
-  never gets `Exported` → also omitted from the reflect package-globals table.
-
-**Hazard found while prototyping the fix (why it's deferred, not trivial):**
-naively adding the extern paths DOUBLE-REGISTERS a grouped var's global in the
-DEFINING package (`redefinition of global @bn_G..._X`). Top-level vars avoid this
-because the loader merges/dedups the `.bni` decl into the `.bn` definition by
-name; grouped members have no top-level name to dedup on, so both the `.bni`
-group and the `.bn` group reach `registerVarGlobals`. The fix needs the same
-`.bni`-vs-`.bn` dedup (or extern-vs-defined distinction) that top-level vars get,
-applied to grouped members — a loader/merge concern, not just another recursion.
-
-Test: `conformance/regressions/grouped-var-import` (`.xfail.all`).
-
----
-
 ## Method values & function values (codegen)
 
 ### Function values — residual follow-ups (the MAJOR PROJECT landed) — 🟡 OPEN (low priority)
