@@ -353,17 +353,19 @@ follow-ups (deferred with user sign-off):
   rejected by the user ("too late — do it at the frontend"). Coverage:
   conformance 961 + `TestCheckCCallInterpretedRejected` + e2e/repl.sh
   `tier5-mid-session-import-ccall-rejected`.
-- **REMAINING follow-up (latent): the `--test` path is not yet frontend-guarded.**
-  `cmd/bni` runTests calls `TypecheckPackages` (which sets neither `Interpreted`
-  nor `InterfaceOnly`), so a `__c_call` package run as a `--test` target in an
-  int mode would hit `lower_instr`'s default-arm panic, not the clean type error.
-  Latent — the only `__c_call` packages (`pkg/std/os`, `pkg/builtins/rt`) are
-  excluded from int-mode unit tests by `scripts/unittest/run.sh`. Fix: set
-  `Interpreted=true` in `TypecheckPackages` + wire `InterfaceOnly` (native-only
-  minus test-targets) into runTests. This ALSO subsumes the older "runTests /
-  global `IsNativeOnlyInVM` unification" follow-up (the `--test` runner still
-  keys its lowering skip on the hardcoded `IsNativeOnlyInVM` rather than deriving
-  it from the inject-set, exactly as the `@Interp` run path already does).
+- **`--test`-path frontend guard — ✅ DONE & LANDED (`1de21404`, 2026-07-02).**
+  `TypecheckPackages` now sets `Checker.Interpreted`, and `cmd/bni` runTests wires
+  `Loader.InterfaceOnly = interp.NativeOnlyInterfacePaths(cli.Filenames)` (the
+  native-only set — rt + bootstrap + every pkg/std package — minus any that are
+  themselves `--test` targets). So the `--test` path now rejects interpreted
+  `__c_call` at the frontend exactly like the run path and REPL: a `__c_call`
+  package run as its own `--test` target gets a clean "cannot be interpreted"
+  type error instead of `lower_instr`'s default-arm abort, and injected
+  dependencies load interface-only. This ALSO closed the older "runTests /
+  `IsNativeOnlyInVM` unification" follow-up — the runner's interface-only set now
+  derives from the same source (`stdPkgs`) as the skip predicate. Coverage: interp
+  unit tests (`NativeOnlyInterfacePaths` × 4 target-set cases +
+  `TypecheckPackages`-sets-`Interpreted`); adversarially reviewed (no bugs).
 - **Globals/vtables-sensitive inject-set test.** `TestNewCustomPkgsRespected`
   proxies on `len(Externs)` (function registration only); add a test that a
   custom set's globals + impl vtables are honored (the `errors.Is`
