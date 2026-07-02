@@ -1271,7 +1271,7 @@ namespace`, `071_annotation_degenerate`, `072_err_annotation_no_stack`.
 
 ## Codegen & backend (non-func-value)
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 2] Big-endian CODEGEN — deferred (no BE target exists yet) — 🟡 DEFERRED
+### Big-endian CODEGEN — deferred (no BE target exists yet) — 🟡 DEFERRED
 The Ch.7.13 layout follow-ups (`type.layout.funcval-order-hardening` + the
 `type.layout.byte-order` decision / `TargetInfo.BigEndian` field + little-endian-only
 assert) are ✅ DONE & LANDED — see [claude-todo-done.md](claude-todo-done.md). What
