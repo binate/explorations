@@ -57,6 +57,24 @@ result-type selection so a float operand pair can never yield an int-typed add /
 `fptosi` coercion. Needs a front-end/IR investigation to find where the result type is
 chosen.
 
+### native-aa64 self-hosted conformance: intermittent timeout flakiness — 🟡 OPEN (2026-07-02)
+
+**Severity: minor (CI flake, not a miscompile).** The
+`builder-comp_native_aa64-comp_native_aa64` conformance mode intermittently reports
+1–2 spurious failures per full 2606-test run: a *correct* compiled test binary that
+occasionally hits the runner's `timeout 3` (`conformance/runners/…native_aa64….sh`)
+and yields empty output. **Non-deterministic** — different tests fail run-to-run and
+none reproduce in isolation. Observed independently on two full runs:
+`iota-repeat` + `shr/16/signed` on one tree, `311_err_index_assign_oob` on another
+(baseline) — so it is **pre-existing**, not tied to any one change (discovered while
+regression-checking the HFA stage-1 landing). The compiled code is byte-identical
+across compiles (only Mach-O metadata differs), so this is a timeout-under-load / rare
+runtime-slowness issue, not a codegen defect. Possible fixes to investigate: raise the
+per-test `timeout` (3s is tight when the full sweep saturates the host), or make the
+runner retry a timed-out test once before reporting failure. Until then a red
+native-aa64 run with a lone `[3s]` timeout failure is very likely this, not a real
+regression — re-run the single test in isolation to confirm.
+
 ---
 
 ## Language features — specified, not yet implemented
@@ -158,15 +176,15 @@ build), or a VM→native cross-mode dispatch of an HFA-struct arg (the `e2e/xmif
 coverage tested only a scalar float, not an HFA struct). **In progress** (2026-07-02,
 user-requested): classify HFAs → SIMD in the native arg/return classifier on aa64 +
 x64 to match AAPCS64/SysV. See `plan-native-hfa-abi.md`.
-  - **Stage 1 (aa64 HFA ARGS) DONE + verified — on branch `temp-4`, not yet landed**
-    (commit `e80d316a`). Enabled `cc.HfaAggregates` on aa64; fixed a callee bug (the
-    HFA branch wrote float members into the param's 8-byte pointer *spill* slot instead
-    of the *data region*, so downstream reads dereferenced raw float bits — 0 across a
-    clang boundary, segfault pure-native). Cross-ABI C-driver (clang caller → native
-    `Hfa2` callee) now returns 37 (was 0); pure-native 2/3/4-member float64 HFAs +
-    mixed GP+scalar+HFA correct; float32 HFA passing regression-free; native/common +
-    native/aarch64 unit tests green. `conformance/961_hfa_struct_args` covers the
-    float64 shapes across all backends.
+  - **Stage 1 (aa64 HFA ARGS) LANDED** (commit `332b4298`, 2026-07-02). Enabled
+    `cc.HfaAggregates` on aa64; fixed a callee bug (the HFA branch wrote float members
+    into the param's 8-byte pointer *spill* slot instead of the *data region*, so
+    downstream reads dereferenced raw float bits — 0 across a clang boundary, segfault
+    pure-native). Cross-ABI C-driver (clang caller → native `Hfa2` callee) now returns
+    37 (was 0); pure-native 2/3/4-member float64 HFAs + mixed GP+scalar+HFA correct;
+    float32 HFA passing regression-free; native/common + native/aarch64 unit tests
+    green. `conformance/963_hfa_struct_args` covers the float64 shapes across all
+    backends (renumbered from 961 at land time — a concurrent worker took 961).
   - **Stages 2–5 remaining**: aa64 HFA RETURN, x64 HFA args, x64 HFA return, wire the
     cross-ABI `TestHfaCalleeFromC` unit tests. See `plan-native-hfa-abi.md`.
   - Note: full float32 HFA *value* verification is blocked by the separate CRITICAL
