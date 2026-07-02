@@ -8,6 +8,46 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ DONE & LANDED (main `da85b707`, 2026-07-01) — closures read package globals LIVE (no capture)
+
+A function literal referencing a package-level `var` CAPTURED it by value into
+the closure record at creation instead of reading the global's live storage, so
+the closure saw a stale snapshot (or, before the global's init ran, zero/garbage)
+and ignored later writes — while an ordinary function read the same global live.
+Silent miscompile on a common pattern; discovered while testing dependency-order
+var-init (independent of it). Repro returned `10, <garbage>, <garbage>` for a
+closure reading a global mutated between calls (should be `10, 20, 33`).
+
+Root cause: `noteCaptureIfNeeded` captured any capturable `SYM_VAR`, but a
+package global is also a `SYM_VAR`. Fix (checker-only, `check_capture.bn`):
+`symIsPackageGlobal` excludes a symbol OWNED by `c.PackageScope` (compared by
+IDENTITY via `same()`, so a local that SHADOWS a global is still captured). No
+IR-gen change: `lookupVar` already falls back to `Module.GlobalVars` for a name
+absent from the capture params, so leaving the global out of `Captures` makes
+the closure body read the live global. Tests: checker units
+(`symIsPackageGlobal` identity/shadow/nil; package-var-not-captured and
+shadowing-local-captured end-to-end) + conformance regressions
+(`closure-reads-global-live`, `closure-in-global-init-reads-live`,
+`closure-reads-managed-global`, `closure-managed-funcval-reads-global-live` —
+covering `*func`/`@func` flavours and a managed global). Full `builder-comp`
+conformance green (2577/0); adversarial review found no critical/major.
+This also confirms the var-init dependency-order decision to NOT create init
+edges for closure-body reads (a closure reads globals live at call time, not
+at init).
+
+## ✅ DONE & LANDED (main `444c9c90`, 2026-07-01) — dependency-order package var initialization
+
+Package `var x = expr` initializers now run in Go-style dependency order (a var
+initializes after every package var its initializer reads) instead of
+filename-then-source order, so cross-file / forward references get correct
+values and the observed value no longer depends on filenames. A self / mutual /
+transitive cycle is rejected with a "variable initialization cycle" error.
+`check_var_resolve.bn` computes a stable source-ordered DFS over syntactic
+dependency edges (mirroring the const-resolve template) stored per-package on
+the Checker; `gen_init.bn` `buildInitBody` emits in that order with a
+source-order fallback. See `plan-var-init-dependency-order.md`. Independent
+review found + fixed a grouped-local-in-IIFE missed-read before landing.
+
 ## ✅ DONE & LANDED (main `7f15b1e9`, 2026-07-01, BUG-BASH LANE 3) — e2e cross-mode iface dispatch coverage (the 4 untested shapes)
 
 `e2e/xmiface.sh` covers the four cross-mode interface-method dispatch shapes with no stdlib
