@@ -8,6 +8,19 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ❌ DISMISSED (2026-07-02) — conformance tests in a separate repo
+
+Considered and **decided against**. The proposal (a standalone `binate/conformance`
+repo referenced by both repos, as a home for the test cases + `run.sh`/runners/xfail
+metadata) existed to break a **circular CI dependency**: the Go bootstrap repo
+needed the binate repo's test cases, and the binate repo needed the bootstrap binary
+to run them. **That premise is gone** — the Go bootstrap interpreter was retired
+(builds use a prebuilt BUILDER `bnc` tarball via `scripts/fetch-builder.sh`), so
+there is no bootstrap↔binate cycle left to break. With the only motivating advantage
+lost, a separate repo would add split-repo overhead for no benefit. Conformance
+tests (and the unittest runner) stay in the binate repo (`conformance/`,
+`scripts/unittest/`).
+
 ## ✅ DONE & LANDED (main `a333b611`, 2026-07-02, BUG-BASH LANE 1) — file-scoped-imports item closed (import-hygiene follow-ups)
 
 The package-scoped-imports CRITICAL (all wrong-code facets) was already resolved

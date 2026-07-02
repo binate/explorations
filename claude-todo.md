@@ -1624,12 +1624,6 @@ The suite is built and every injected stdlib package has cross-mode coverage
   `conformance/stdlib/errors/001`; only runs under `builder-comp` now), or keep
   it as a native-only smoke.
 
-### Conformance tests: consider a separate repo
-- Running conformance tests in CI creates a circular dependency: the bootstrap repo needs the binate repo (which contains the test cases), and the binate repo needs the bootstrap binary (to run the tests)
-- Consider moving conformance tests to their own repo (e.g., `binate/conformance`) that both repos reference
-- This also gives a natural place for test infrastructure (run.sh, runners, xfail metadata) that doesn't belong to either the bootstrap or self-hosted repo
-- The unit test runner (`binate/scripts/unittest/`) has a similar issue — it's in the binate repo but the `boot` mode runs via Go in the bootstrap repo
-
 ### Stale-xfail sweep — residuals (the cross-mode CONFORMANCE sweep is done) — 🟡 OPEN
 The big stale-xfail sweep — all 10 modes via the `conformance-xpass.yml` CI workflow;
 121 stale conformance markers + 8 VM-mode unittest markers removed; per-mode detail +
