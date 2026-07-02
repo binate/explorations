@@ -120,19 +120,36 @@ regression — re-run the single test in isolation to confirm.
 
 ## Language features — specified, not yet implemented
 
-### Variadic functions & spread (`...T`) — spec'd 2026-07-02, NOT implemented — 🔴 OPEN
+### Variadic functions & spread (`...T`) — spec'd 2026-07-02, IN PROGRESS — 🟡
 
-Go-style variadics + spread are now **specified** in the spec (§10.3
+Go-style variadics + spread are **specified** in the spec (§10.3
 `func.variadic.*` / `func.call.apply`, plus identity propagation in §7.9 / §10.8 /
-§10.11 / §10.12 / §11.1) but the toolchain does **not** implement them (only the
-special `print`/`println`/`panic` predeclared forms exist). High-level plan:
-**[plan-variadics.md](plan-variadics.md)** (design settled; a follow-up worker
-expands it into ordered steps). Model: final param `name ...T` → body type raw
-`*[]T` (borrow, stack-backed, **zero heap alloc**); spread `expr...` exclusive
-(Go-style); variadic-ness is part of signature type identity (→ `*func(...T)`,
-variadic interface/impl methods, method values); at indirect boundaries
-variadic-ness is erased to `*[]T` at the ABI. Distinct from the pre-existing
-`__c_call` C-varargs `...` marker (§16.9), which is unaffected.
+§10.11 / §10.12 / §11.1). Detailed, edit-site-level, adversarially-reviewed plan:
+**[plan-variadics-detailed.md](plan-variadics-detailed.md)** (expanded from the
+high-level **[plan-variadics.md](plan-variadics.md)**). Model: final param `name
+...T` → body type raw `*[]T` (borrow, stack-backed, **zero heap alloc**); spread
+`expr...` exclusive (Go-style); variadic-ness is part of signature type identity
+(→ `*func(...T)`, variadic interface/impl methods, method values); at indirect
+boundaries variadic-ness is erased to `*[]T` at the ABI. Distinct from the
+pre-existing `__c_call` C-varargs `...` marker (§16.9), which is unaffected.
+
+**Progress (7 phases; each green):**
+- ✅ **Phase 0** — spec-coverage prep (main `72aa2a09`): re-vendored `rule-ids.txt`
+  for the six variadics rules; re-cited the 3 formerly-`func.variadic.absent`
+  tests (023/030/032) to `func.call.apply`.
+- ✅ **Phase 1** — type-identity foundation, INERT (main `50480f91`):
+  `types.Param.IsVariadic` + `funcIsVariadic`; variadic-ness compared in
+  `Identical`, `funcSignaturesMatch`, `methodSigSatisfies`, `checkBniSignatureMatch`;
+  `sig_string` `...T` encoding; `ir.FuncSig.IsVariadic` +
+  `ModuleInterface.MethodParamVariadic` (all flags default false → no behavior
+  change). BUILDER-compat verified; tests in `types_variadic_test.bn`.
+- ⬜ **Phase 2** — parser + AST + declaration resolve (incl. IR-side `*[]T`
+  derivation per D-G). ⬜ **Phase 3** — direct individual-arg pack. ⬜ **Phase 4**
+  — spread. ⬜ **Phase 5** — managed-element borrow. ⬜ **Phase 6** —
+  indirect/method/generic/method-value. ⬜ **Phase 7** — close-out + status flip.
+
+Open decisions for the user (plan §12): O-1 (test 023 repurpose), O-2/‡
+(mixing-error wording), O-4 (refcount-assertion mechanism).
 
 ---
 
