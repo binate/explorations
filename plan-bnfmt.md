@@ -323,9 +323,18 @@ while keeping every commit green and close to main.
    `cmd/bnc` tree with the pinned BUILDER). Adversarially reviewed pre-land; the
    review caught a `{0,0}` nested-node gap that the completeness pass + invariant
    walker closed.
-2. **Front-end: comment retention** (`token.Comment`; lexer collect-mode +
-   `OwnLine`; `File.Comments`; parser variant). Land with lexer/parser tests.
-   ← **next**
+2. **Front-end: comment retention** — ✅ **LANDED** 2026-07-02 (`b9f6c3ee`).
+   `token.Comment {Pos, End, Text, OwnLine}`; `lexer.NewCollecting` retains every
+   `//` and `/* */` via the same tokenizer (so comment chars inside string/char
+   literals are never mis-captured); `New` unchanged (compiler path zero-cost).
+   `ast.File.Comments` + `parser.NewCollecting`/`NewInterfaceCollecting`;
+   `ParseFile` stamps comments in source order (.bn and .bni). Comment surface is
+   `ParseFile`-level (REPL sub-file paths and `MergeFiles` don't carry comments —
+   noted in-tree). Adversarially reviewed pre-land; the review caught a CRLF
+   fidelity bug (line comments retaining a trailing `\r`), since fixed, and drove
+   the hazard/edge tests (literal-embedded comment chars, unterminated block,
+   header + consecutive own-line, mid-line block, EOF-trailing, `.bni`).
+   (`Expr.End` remains deferred per step 1 — not needed for comment attachment.)
 3. **`build-bnfmt.sh`** + an empty `cmd/bnfmt` that reads a file and writes it back
    **byte-for-byte** — proves build/gen1 wiring, I/O, `-w` atomicity, ext branch.
 4. **Type printer** (`print_type.bn`, all `TEXPR_*`) + token-equality harness (§11.1).
