@@ -8,6 +8,32 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ DONE & LANDED (main `64489b7a`/`6cbb4fcd`/`80d4ccbb`, 2026-07-01) — var-init follow-ups: IIFE codegen, blank-var init, grouped-var init
+
+Three follow-ups to the var-init dependency-order work (each independently
+reviewed):
+
+- **IIFE codegen** (`64489b7a`): `(func(...) R { ... })(args)` failed clang with
+  `undefined value @bn_F..._` — a func-LITERAL callee matched none of genCall's
+  dispatch branches and fell through to the direct-by-name path, which never
+  emitted the lifted function's definition. genCall now routes it to
+  `genImmediateFuncLitCall` (genExpr's the literal → lifts+emits it → OP_CALL_
+  FUNC_VALUE). The review caught a leak this newly enabled: a CAPTURING IIFE
+  heap-allocates a closure record with no owning var, so it's registered for
+  end-of-statement RefDec (pinned by `iife-capturing-no-leak`).
+- **Blank-var init** (`6cbb4fcd`): package `var _ = f()` never ran its
+  initializer. buildInitBody now emits blank inits as bare expression statements
+  in a source-order tail. Two more blank-`_` bugs fixed en route: the checker
+  rejected a second `var _` as "`_` redeclared", and IR-gen gave each blank a
+  global slot (two `_`s collided on one mangled symbol).
+- **Grouped-var init** (`80d4ccbb`): a multi-member `var ( x=5; y=6 )` silently
+  zero-init'd (printed 0,0) — the init machinery iterated top-level DECL_VAR
+  only. Now recurses DECL_GROUP everywhere (initVarDecls / registerVarGlobals /
+  appendPkgVarDecls) so grouped members get storage, run their initializers, and
+  join the dependency order. The cross-package EXPORT path (grouped vars in a
+  `.bni`) stays open (loud error) — see the open todo + `grouped-var-import`
+  xfail.
+
 ## ✅ FIXED & LANDED (main `0a8dd492` + `92916c19` + `c6a6fdf8`, 2026-06-30..07-01, BUG-BASH LANE 2) — method-value CAPTURE gap (ALL receiver shapes, incl. sret)
 
 A pointer-receiver method value taken on a NON-IDENT value receiver from a call/temp
