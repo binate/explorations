@@ -869,9 +869,15 @@ cross-file package-level `var x = dep.Foo()` residual) is ✅ FULLY RESOLVED & L
   (`func V() *uint8` vs `func V() int` colliding members → show ABI/result-type confusion), on top of
   the existing 830/831/832 conformance coverage.  Low priority — the facets are fixed and tested.
 
-### (planning) unused-entity checks — fix the unused-import `(a)` cross-file gap + add `(b)` unused locals / `(c)` unused private funcs / `(d)` unused private globals / `(e)` unused private types — 🟡 PLAN WRITTEN (`plan-unused-checks.md`)
+### unused-entity checks — `(a)` DONE & LANDED; `(b)`–`(e)` IN PROGRESS (`plan-unused-checks.md`)
 
-bnlint today has exactly one "unused" rule (`unused-import`, `pkg/binate/lint/unused_import.bn`); the type checker has no usage tracking at all. **Plan written: `explorations/plan-unused-checks.md`** (phasing, per-rule design, edge cases, tests, open decisions). Foundational dependency: the CRITICAL import-scoping bug above — fix direction **1 (file-scoped imports)** chosen; that is Phase 0 and `(a)` rides on it. `(b)` is checker-side (Used flag + popScope sweep, BUILDER-compatible); `(c)`/`(d)`/`(e)` are lint-side over a shared `refs.bn` reference index. Open decisions (warning-vs-error, reference-vs-reachability, params/write-only/consts, receiver-as-use) are listed in the plan for the user. Two latent bugs surfaced and noted there: `markBniExportedVars` skips `DECL_GROUP`; `DECL_TYPE` carries no `Exported` flag.
+Add unused-locals `(b)` / unused-private-func `(c)` / -global `(d)` / -type `(e)` checks on top of the existing `unused-import` rule. Full design in **`explorations/plan-unused-checks.md`**.
+
+- **Phase 0 (file-scoped imports): ✅ LANDED** (`cf0d1cad` + follow-ons); loader retains `pkg.Files`. This is what unblocked `(a)`.
+- **`(a)` unused-import cross-file gap: ✅ DONE & LANDED (main `51f8e90c`, 2026-07-02).** `LintFile` takes the per-file ASTs and checks each impl file's own imports (was checking the deduped merged list → sibling files' unused imports silently missed, order-dependent). New multi-file tests; tree-wide bnlint run found 0 real dead imports being missed.
+- **Decisions (2026-07-02, user):** `(b)`–`(e)` are **WARNINGS** (no semantics change). Detection: **reachability for `(c)` funcs, reference-presence for `(d)`/`(e)`**. The `(b)` sub-decisions (params / write-only / for-in) are deferred to `(b)`'s implementation.
+- **Next:** shared `refs.bn` refactor → `(d)`/`(e)`/`(c)` → `(b)` (checker-side `Used` flag + `popScope` sweep, BUILDER-compatible).
+- **Latent bugs gating `(d)`/`(e)`:** `markBniExportedVars` skipped `DECL_GROUP` (may now be fixed by `a43c24f7` "grouped vars EXPORTED via a .bni" — verify before `(d)`); `DECL_TYPE` carries no `Exported` flag (`(e)` derives export-ness from a `.bni` same-name peer).
 
 ### MINOR (hygiene / lint) — investigate the `[managed-to-raw-assign]` findings in `pkg/binate/asm/*` (2026-06-20) — 🟡 OPEN
 The compiler-tree lint-coverage gap is ✅ FIXED & LANDED (`582c1327`): `scripts/hygiene/lint.sh`

@@ -1,9 +1,19 @@
 # Plan: unused-entity checks — fix `(a)` and add `(b)`–`(e)`
 
-Status: **PLAN** (2026-06-17). Tracks the work to fix the unused-import cross-file
-gap and add four new "unused" checks. Driven by the question "does bnlint check
-for unused imports / locals / private funcs / globals / types?" — answer today:
-only unused-import exists, and it has a real gap.
+Status: **IN PROGRESS** (updated 2026-07-02). Tracks the work to fix the
+unused-import cross-file gap and add four new "unused" checks.
+
+- **Phase 0 (file-scoped imports): ✅ LANDED** (`cf0d1cad` + follow-ons) — the
+  per-file foundation `(a)` needs is in place (loader retains `pkg.Files`).
+- **`(a)` unused-import cross-file fix: ✅ DONE & LANDED** (main `51f8e90c`,
+  2026-07-02). `LintFile` now takes the per-file ASTs and checks each impl
+  file's own imports; new multi-file tests; tree-wide run found 0 real
+  dead imports being missed.
+- **Decisions made (2026-07-02, user):** `(b)`–`(e)` are **lint/checker
+  WARNINGS**, not hard errors (no semantics change). `(c)`/`(d)`/`(e)`
+  detection: **reachability for `(c)` funcs, reference-presence for
+  `(d)`/`(e)`**.
+- **Next:** the shared `refs.bn` refactor, then `(d)`/`(e)`/`(c)`, then `(b)`.
 
 This plan is grounded in a full read of `pkg/binate/lint/*`, `pkg/binate/types/*`
 (checker/scope), and `pkg/binate/loader/*`, plus empirical repros. File:line
