@@ -176,7 +176,27 @@ Original sketch:
   reloc test (assemble a MOVW/MOVT-addressed symbol, check the ELF rela
   entries).
 
-### P2 — walking skeleton (native baremetal, integer-trivial)
+### P2 — walking skeleton (native baremetal, integer-trivial) — DONE (worktree `a2fc2ed8`, pending land)
+Empty `func main() {}` (`conformance/278_empty_main`) compiles through the new
+`pkg/binate/native/arm32` backend into an ELF32 that links via the existing
+clang/crt0/semihost/baremetal.ld pipeline and **boots under `qemu-system-arm`,
+exiting cleanly** (`builder-comp_native_arm32_baremetal` runner: 1 passed).
+Notable deviations / discoveries from the sketch below:
+- **Fail-loud on unimplemented ops.** Unlike aarch64/x64 (complete backends whose
+  "unhandled op" tail is an unreachable safety net), the skeleton's dispatch
+  `a.SetError`s any op it doesn't implement → `EmitObject` returns false → bnc
+  compile error. A silent no-op would let a program using an unimplemented op
+  compile to a wrong binary (verified: a memory-op test reports COMPILE_ERROR in
+  1s, not a qemu-timeout). P3+ lands ops by adding cases, never by relaxing this.
+- **Func-value + package descriptor are NOT optional** even for an empty main under
+  baremetal: the reflect chain makes `__Package` + its `___handle` live, so a
+  reduced `collectFuncValueRefs` + vtable/handle + scalar/void shim + the package
+  descriptor had to be ported (~11 files, ~2k LOC total, mirroring aarch64).
+- Register model as designed: args R0-R3, scratch R4-R10 + R12/IP, R11=FP,
+  `push {r4-r11,lr}`/`pop {r4-r11,pc}` frame, MOVW/MOVT const + MOVW/MOVT-ABS
+  symbol addressing. `native/arm32` (31 tests) + aarch64 + x64 green; hygiene 15/15.
+
+Original sketch:
 - Create `pkg/binate/native/arm32/{arm32.bni,arm32.bn,arm32_emit_func.bn,
   arm32_dispatch.bn,arm32_regmap.bn,arm32_names.bn}` — enough for a program
   that does `println` of a constant / returns: EmitObject driver (asm.New(4)
