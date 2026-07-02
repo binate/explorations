@@ -341,11 +341,11 @@ codegen, native x64/arm32/aarch64, and the VM bytecode gather) and make
 out-of-extent → 0 (loud abort preserved). Offset 0 (`@X→@any`, `@X→*X` decay)
 resolves to the shim base exactly as before. Coverage: `e2e/xmiface.sh`
 (`cross-mode-iface-parent-upcast`: native-injected `Ext : Base` + a 3-level
-`C1 : B1 : A1` transitive upcast, offset>1) + `pkg/binate/vm` `vtable_inject`
+`C1 : B1 : A1` transitive upcast, offset>1; and a VALUE-receiver parent method AT
+offset>0 — case (g), `80cf34b6` — proving the iv-dispatch thunk resolves through
+the range-lookup-selected shim slot) + `pkg/binate/vm` `vtable_inject`
 (interior/boundary/out-of-extent) + descriptor unit tests. Adversarially reviewed
-(no bugs). Remaining latent nit (low risk): a VALUE-receiver parent method AT
-offset>0 has no dedicated cross-mode test (its components — value-receiver at
-offset 0, pointer-receiver parent at offset>0 — are independently covered).
+(no bugs). No known coverage gaps remain.
 
 ### Package descriptors (Phase B) — `__Package()` works in compiled + VM modes (builtins); general Functions-table still future
 - **Status**: compiled-mode AND VM-mode `__Package()` landed (binate
