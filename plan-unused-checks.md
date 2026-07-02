@@ -23,10 +23,23 @@ unused-import cross-file gap and add four new "unused" checks.
   errors. Detection: reachability for `(c)`, reference-presence for `(d)`/`(e)`.
   `(e)` method receiver does **NOT** count as a use (flipped to match this
   plan's recommendation).
-- **Next: `(b)` unused-locals (checker-side), MEASURE-FIRST** — implement the
-  `Used` flag + `popScope` sweep, run tree-wide to count the REAL in-tree unused
-  locals, and report before committing to any cleanup. `(c)` unused-func
-  (reachability) also remains.
+- **`(b)` unused-locals (checker-side): ✅ DONE & LANDED (conservative)** (main
+  `4cff7259`, 2026-07-02). `Symbol.Used`/`IsParam`/`DeclPos`; `checkIdent` marks
+  a local used on ANY reference; `popScope` sweeps function-local scopes
+  (`LocalDepth`-gated) for never-referenced non-param, non-blank locals →
+  warnings-only, cannot false-positive, suppressed in VM/REPL/tentative.
+  Measure-first found only **5** unused locals tree-wide (4 non-test + 1 test),
+  all cleaned → 0. 10 checker unit tests; full unit suite + conformance green.
+- **Remaining follow-ups:**
+  - **`(b)` refinement** — write-only-local detection (Go-parity: the
+    write-target gating `checkIdent` deliberately omits) + for-in HEADER-binding
+    sweeping (`for _, v := range` — currently a safe under-count). Re-measure
+    after (they will surface more locals to clean).
+  - **`(c)` unused-func** — reachability worklist on the shared `refs.bn` index
+    (the last unimplemented rule).
+  - **Hygiene nit:** `pkg/binate/types/{scope.bn,check_expr.bn}` are over the
+    500-line soft cap (pre-existing; `(b)` grew them slightly) — split when
+    convenient.
 
 This plan is grounded in a full read of `pkg/binate/lint/*`, `pkg/binate/types/*`
 (checker/scope), and `pkg/binate/loader/*`, plus empirical repros. File:line

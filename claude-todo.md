@@ -966,7 +966,7 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 
 ## bnlint rules, unused-entity checks & lint skips
 
-### unused-entity checks — `(a)`/`(d)`/`(e)` DONE & LANDED; `(b)`/`(c)` remain (`plan-unused-checks.md`)
+### unused-entity checks — `(a)`/`(b)`/`(d)`/`(e)` DONE & LANDED; `(c)` + `(b)`-refinement remain (`plan-unused-checks.md`)
 
 Add unused-locals `(b)` / unused-private-func `(c)` / -global `(d)` / -type `(e)` checks on top of the existing `unused-import` rule. Full design in **`explorations/plan-unused-checks.md`**.
 
@@ -977,7 +977,11 @@ Add unused-locals `(b)` / unused-private-func `(c)` / -global `(d)` / -type `(e)
 - **Adversarial review (2026-07-02)** fixed two latent-to-narrow false positives in the shared walk (annotation-arg exprs, bare-ident generic-CALL type args), landed with `(e)`. Tree-wide: 0 unused-import/global/type across all 50 packages.
 - **Decisions (2026-07-02, user):** all are **WARNINGS**. Detection: reachability for `(c)`, reference-presence for `(d)`/`(e)`. `(e)` receiver does NOT count as a use.
 - **Latent bugs:** `markBniExportedVars` DECL_GROUP gap ✅ FIXED (`a43c24f7`); `DECL_TYPE` still carries no `Exported` (`(e)` works around via `.bni` peer — a cleaner loader fix remains optional).
-- **Remaining:** **`(b)` unused-locals (checker-side, MEASURE-FIRST)** — `Used` flag + `popScope` sweep, count real in-tree unused locals before any cleanup; and **`(c)` unused-func** (reachability worklist on the shared index).
+- **`(b)` unused-locals (checker-side): ✅ DONE & LANDED (conservative)** (main `4cff7259`). `Symbol.Used`/`IsParam`/`DeclPos` + a `LocalDepth`-gated `popScope` sweep; `checkIdent` marks a local used on ANY reference → warnings-only, cannot false-positive, suppressed in VM/REPL/tentative. Measure-first found only **5** unused locals tree-wide (4 non-test + 1 test), all cleaned. 10 checker unit tests; full unit suite + conformance green.
+- **Remaining:**
+  - **`(b)` refinement** — write-only-local detection (Go-parity) + for-in HEADER-binding sweeping (both safe under-counts the conservative form misses; re-measure after).
+  - **`(c)` unused-func** — reachability worklist on the shared `refs.bn` index (the last unimplemented rule).
+  - **Hygiene nit:** `pkg/binate/types/{scope.bn,check_expr.bn}` are over the 500-line soft cap (pre-existing; `(b)` grew them slightly) — split when convenient.
 
 ### MINOR (hygiene / lint) — investigate the `[managed-to-raw-assign]` findings in `pkg/binate/asm/*` (2026-06-20) — 🟡 OPEN
 The compiler-tree lint-coverage gap is ✅ FIXED & LANDED (`582c1327`): `scripts/hygiene/lint.sh`
