@@ -783,18 +783,21 @@ func (p *readonly Point) distance() float64 { ... }
 - No named return values (confusing, not best practice)
 - No same-type param shorthand (e.g., no `a, b int`)
 
-**Variadic functions — DECIDED**:
-- Go-style `...T` syntax, packages args as a slice
-- Raw interface variadics (`...Stringer`) are zero-overhead: args packaged as (raw ptr, vtable ptr) pairs on the stack. No boxing, no heap alloc.
-- Managed interface variadics (`...@Stringer`) for functions that retain args.
-- `println`/`printf` likely compiler builtins for practical reasons, but user-defined variadic logging functions work efficiently with raw interface args.
+**Variadic functions — DECIDED (refined 2026-07-02; now specified in §10.3, impl pending)**:
+- Go-style `...T` last parameter — at most one, last position only.
+- The callee sees the variadic parameter as a **raw slice `*[]T`** (2-word borrow), NOT a managed `@[]T`. Individual-arg calls `f(a,b,c)` materialize a caller-side **stack** temp array and pass a raw slice viewing it — **zero heap allocation** (the no-hidden-alloc rule; a managed pack would need a hidden `make_slice`). The element type `T` is exactly as written (may be `@Foo`, `readonly char`, an interface `Stringer`/`@Stringer`, …).
+- **Borrow, not retainable**: the variadic slice is valid only for the call (like any `*[]T` param); the callee must not store/return it. To retain, copy elements into an owned `@[]T` explicitly.
+- Raw interface variadics (`...Stringer`) stay zero-overhead: (raw ptr, vtable ptr) pairs stack-packed, no boxing/heap alloc. `...@Stringer` gives `*[]@Stringer` — the callee can copy individual managed elements out to retain them.
+- **Variadic-ness is part of signature type identity** → `*func(...T)` / `@func(...T)` are valid variadic function-value types; a variadic `func` is assignable to a matching variadic function-value type; calls + spread through such values behave as direct calls.
+- `print`/`println` remain SPECIAL predeclared heterogeneous-variadic forms (each arg may be a different type) — NOT expressible as homogeneous `...T` (no `any` type), so general variadics do not subsume them. `panic` is fixed single-arg (`*[]readonly char`).
 
-### Spread operator — DECIDED
+### Spread operator — DECIDED (refined 2026-07-02; §10.3)
 
-- `...` spread operator for passing slices to variadic functions
-- Syntax: `expr...` where `expr` is a slice — expands the slice into individual arguments
-- Use cases: passing slices to variadic functions (e.g., forwarding args in `printf` calling `sprintf`)
-- Deferred from bootstrap subset — bootstrap uses `Concat` builtin for string concatenation instead
+- `expr...` as the final call argument expands a slice into the variadic parameter; forwards the slice's `{data, len}` directly (no copy, no allocation).
+- The source `expr` is a slice assignable to the parameter's `*[]T` (an `@[]T` decays; element-`readonly` capability rules apply — adding `readonly` OK, dropping needs a `cast`).
+- **Spread is exclusive** (Go-style): it supplies the ENTIRE variadic argument and may not be combined with individual variadic args — `f(fixed, s...)` OK, `f(fixed, a, b, s...)` rejected. Only fixed (non-variadic) args may precede the spread.
+- Use case: forwarding (e.g. `printf` passing its `args...` to `sprintf`).
+- (Historically deferred from the bootstrap subset — bootstrap used the `Concat` builtin for string concatenation instead.)
 
 **Type declarations — DECIDED**:
 - `type Celsius float64` — distinct new type, same representation. Requires `cast()` to convert. Can have methods and impl interfaces.
