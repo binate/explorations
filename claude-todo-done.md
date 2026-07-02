@@ -8,6 +8,42 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ DONE & LANDED (main `1510c64e` + `67c8daa7`, 2026-07-01, BUG-BASH LANE 3) — x64 closure-shim soft-length split + conditional func-value spill staging
+
+Two parts of the native-shim follow-up "x64_closure_shim.bn soft length" item:
+
+**Split (`1510c64e`).** `x64_closure_shim.bn` was 584 lines (over the 500 soft cap). The
+stack-spill path (`emitClosureShimStackSpill_x64` + its spill-only `emitLoadIncomingWord_x64`)
+moved to a sibling `x64_closure_shim_spill.bn` (mirroring `aarch64_closure_shim_spill.bn`), with the
+spill unit test relocated to `x64_closure_shim_spill_test.bn`; the main file dropped to 414 lines.
+`emitUserArgWordMove_x64` (shared with the aggregate shim) stayed in the main file. Pure code move —
+233 native/x64 unit tests + hygiene green.
+
+**Conditional spill staging (`67c8daa7`).** The native FUNC-VALUE spill shims
+(`emitFuncvalSpillShim_x64` / `emitFuncvalSpillShimAA64`) staged every incoming GP dispatch reg to
+the frame unconditionally. Staging only defeats a register-permutation hazard that arises when a
+coerced in-register aggregate (`AggCoercedInReg`) is present (it arrives as ONE by-address dispatch
+word but expands to `ArgWords` outgoing value-words, so the outgoing cursor outruns the incoming
+one). Gated staging on `needStage = shimHasCoercedAgg(userTypes)`, mirroring the register-only
+marshalers (`emitShimArgMarshal_x64` / `...AA64`) which already do this. When false, the
+`NumGpArgRegs*8` staging area is dropped from the frame (rsp/sp stay 16-aligned either way) and the
+marshal reads live registers directly (reg move / direct store / direct fmov) — clobber-safe by the
+monotonic down-shift (the outgoing GP index never exceeds the incoming). The staged path is
+byte-unchanged. Covered by conformance 717/718 across both native lanes (the non-coerced
+scalar/sret/pack/float/slice cases now exercise the non-staged path; `splitArg`'s coerced 16-byte
+named struct still exercises the staged path — x64 all-stack, aa64 split) + new unit tests pinning
+the `shimHasCoercedAgg` needStage predicate and the staged-emit path. A 5-dimension adversarial
+review (clobber-safety on both backends, `needStage` predicate completeness, frame alignment, staged
+byte-preservation) found no defects. Documented the (unreachable-for-non-coerced) defensive
+reg-source→stack branch in `emitSpillSrcToMem` so it is not deleted as dead code. Deliberately not
+added: a non-coerced multi-word SPLIT arg (raw slice) test — its per-word paths are already covered
+(reg word by 718 sum9, stack word by its overflow shuttle) and the split-specific branch is
+unreachable, so it would exercise no new code.
+
+Remaining open in that section: item 1 (shim-extends RETURN cleanup, optional/deferred).
+
+---
+
 ## ✅ DONE & LANDED (main `dd3d8b59`, 2026-07-01, BUG-BASH LANE 3) — cross-mode coerced-agg func-value ABI: observable struct-return-into-by-value-extern fixture
 
 `pkg/binate/vm/vm_extern_coerced_test.bn`: a native struct-return extern (`mkPair` 8B /
