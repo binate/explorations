@@ -125,12 +125,30 @@ CRASHES (empty output — a SIGSEGV, not a wrong value), so caller and/or callee
 disagree. The cross-ABI C-driver (`/tmp/hfad`: `hfa_lib.bn` → `main.o`, `driver.c`
 calling `bn_F1_4_main1_4_Hfa2(struct D2{double,double})`, `clang`-linked) returns
 **0** (should be **37**). To finish: re-enable `HfaAggregates = true` and debug.
-Prime suspects (unverified): (1) the callee's struct-param **spill slot** —
-`rm.LookupSpill(p.ID)` / how a by-value struct param's spill region is allocated
-may not match `hoff + hfaW*m` (the struct may be spilled at a different base or the
-slot may not be sized for the aggregate when the classifier says "no GP/stack"); (2)
-`scratchReg(rm)` + `rm.ResetRegs()` inside the member loop possibly clobbering an
-incoming `D`-reg or the spill base; (3) the caller placing/loading members from the
-wrong struct offset. Debug with the `/tmp/hfad` harness (fails 0→ want 37) AND the
-pure-native `zz_hfa` (307) — BOTH must pass. Recommend: dump `--emit` asm or use a
-1-member HFA first to isolate. Then continue stages 2–5.
+**Two concrete hypotheses (from re-reading the emitter — the pure-native CRASH
+points at the CALLER; the C-driver WRONG-VALUE 0 points at the CALLEE):**
+
+- **CALLER (pure-native SIGSEGV) — X16 collision.** `aarch64_call.bn` HFA branch
+  does `ptr := getOperand(arg.ID)` then loads members with `aarch64.Ldr(a, ..,
+  aarch64.X16, MemImm(ptr, hfaW*m))`. If `getOperand` returned the struct pointer
+  in **X16** (IP0 is a common scratch), the FIRST `Ldr X16, [X16, 0]` OVERWRITES
+  `ptr`, so the 2nd member loads from a garbage base → segfault. FIX: use a load
+  temp guaranteed distinct from `ptr` (allocate via `scratchReg(rm)` and/or assert
+  `!= ptr`, or copy `ptr` to a stable reg first). The existing aggregate GP path
+  (lines ~128-140) only uses X16 for the STACK portion where `ptr` is already
+  consumed into arg regs — my reuse of X16 while `ptr` is still live is the bug.
+
+- **CALLEE (C-driver returns 0, wrong not crash) — the FP-only param has no spill
+  slot.** `hoff := rm.LookupSpill(p.ID)`; the classifier now reports the HFA param
+  as no-GP/no-stack (rides FP), so the pass that ALLOCATES param spill slots may
+  not allocate one for it → `LookupSpill` returns -1 → the `if hoff >= 0` guard
+  skips the store → the method body reads an un-populated struct region (0). FIX:
+  ensure the HFA param gets a spill slot of its struct size (check where param
+  spills are sized — it likely keys off CallArgRegStart/StackOff being ≥0, which is
+  now -1/-1 for an HFA). The store offsets `hoff + hfaW*m` are only right once the
+  slot exists at the struct's base.
+
+Debug with the `/tmp/hfad` harness (fails 0→ want 37) AND the pure-native `zz_hfa`
+(307) — BOTH must pass. Fix the CALLER X16 bug first (unblocks the pure-native
+crash), then the CALLEE spill-slot bug. Use a 1-member HFA + dumped asm to isolate.
+Then continue stages 2–5.
