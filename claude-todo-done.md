@@ -8,6 +8,31 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ DONE & LANDED (main `7f15b1e9`, 2026-07-01, BUG-BASH LANE 3) — e2e cross-mode iface dispatch coverage (the 4 untested shapes)
+
+`e2e/xmiface.sh` covers the four cross-mode interface-method dispatch shapes with no stdlib
+impl, so unreachable from the conformance suite (which reaches `dispatchCompiledIfaceMethod`
+only through `pkg/std/*` impls with pointer receivers / scalar+slice args). `cmd/bni`
+native-injects `pkg/std/*` only, so the test builds a small custom `cmd/bni`-style host that
+adds a fixture package's `__Package()` to the VM inject-set (`StandardPackages()` +
+`xmiface.__Package()`); the run path then skips lowering it (`Interp.isCompiled`) and
+dispatches its interface methods natively, while the dispatching main runs as bytecode. gen1
+compiles the host (it imports `pkg/binate/{interp,vm}`, outside the BUILDER cone). Shapes:
+(a) value-receiver iface method (iv-dispatch thunk deref) → 42; (b) multiple aggregate args
+(the `a1/a2` by-address slots) → 110; (c) float arg (int-slot → FP bitcast) → 20; (d) >6
+user-arg overflow guard → `vmPanic`. The overflow-guard panic is specific to the native
+cross-mode path, so its firing also proves the fixture was genuinely native-injected (a
+bytecode-lowered fixture would print 28, not panic) — the whole test is cross-mode, not a
+false pass. Auto-discovered by the e2e CI matrix (ubuntu + macos); builds gen1 like
+`verify-ir.sh`.
+
+The parent todo item stays OPEN for its residuals — the LP64-host `resultSize>8` threshold +
+64-bit-scalar-as-2-slots (only reachable on a 32-bit VM host, not run by default), the
+pre-existing native `emitCallIfaceMethod` HFA-classification gap, and native-source iface
+UPCAST offset>0 (task #94) — none reachable or affected by this coverage.
+
+---
+
 ## ✅ FIXED & LANDED (main `d623002e`, 2026-07-01, BUG-BASH LANE 2) — MAJOR: a MULTI-RETURN method value crashed on the native backends
 
 A method value whose method returns MULTIPLE values (`c.split` → `(int, int)`), called

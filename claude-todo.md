@@ -160,20 +160,28 @@ See explorations/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 3] MINOR — cross-mode interface dispatch: test-coverage gaps + LP64 assumption (2026-06-14) — 🟡 OPEN
+### 🏷[BUG-BASH 2026-06-27 → LANE 3] MINOR — cross-mode interface dispatch: residual LP64/HFA/upcast gaps (2026-06-14) — 🟡 OPEN
 
 The shim-route that dispatches a native-only package's interface methods from
 bytecode (landed `93f75f27` + the math/big extension `7c3b17a2`) is exercised by
 726 (`strings.Builder` via `io.Writer`: a raw-slice arg, a scalar arg, a no-arg
 method; scalar + multi-return) and 577 (`errors.Error`: no-arg, multi-return).
-An adversarial review found these shapes UNTESTED — each needs a SYNTHETIC
-native-only test package, since no current stdlib impl hits them:
+An adversarial review found four more shapes UNTESTED — each needed a SYNTHETIC
+native-only test package, since no stdlib impl hits them. ✅ NOW COVERED by
+`e2e/xmiface.sh` (main `7f15b1e9`, 2026-07-01): a custom host injects a fixture
+package's `__Package()` into the VM inject-set (`Interp.isCompiled` → its impls
+dispatch natively) while the dispatching main runs as bytecode —
 
-- A VALUE-receiver iface method (`@__ivtshim` slot holds the thunk's handle, and
-  `a0` = the iv-data ptr the thunk derefs). 410 covers native-to-native only.
-- A method with MULTIPLE aggregate args (the `a1/a2/...` slot accounting).
-- A FLOAT arg / float-containing aggregate (the shim's int-slot bitcast path).
-- The `n>6` user-arg overflow guard (a negative test).
+- A VALUE-receiver iface method (the iv-dispatch thunk deref; `a0` = the iv-data
+  ptr the thunk derefs; 410 covered native-to-native only) — `Double()` → 42.
+- A method with MULTIPLE aggregate args (the `a1/a2` by-address slots) —
+  `Combine(Pair,Pair)` → 110.
+- A FLOAT arg (the shim's int-slot → FP bitcast path) — `Scale(2.5)` → 20.
+- The `n>6` user-arg overflow guard (a negative test) — the loud vmPanic, which,
+  being specific to the cross-mode path, also proves the fixture is genuinely
+  native-injected (a bytecode-lowered fixture would print 28, not panic).
+
+Residuals (still open):
 
 Latent, LP64-host-only (NOT active — default VM modes run a 64-bit host):
 - `dispatchCompiledIfaceMethod`'s `resultSize > 8` aggregate-vs-scalar threshold
