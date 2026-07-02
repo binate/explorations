@@ -164,7 +164,7 @@ Original sketch:
   handful of arg/return shapes (int64 pair, small/large struct return) and
   pin the AAPCS32 numbers to match — this is the native↔LLVM-deps boundary.
 
-### P1 — assembler reloc + extend gaps (`asm/arm32`, `asm/elf`) — DONE (worktree `1976278b`, pending land)
+### P1 — assembler reloc + extend gaps (`asm/arm32`, `asm/elf`) — DONE (landed `ca15b219`)
 - Add fixup kinds `FIX_MOVW_ABS_NC`, `FIX_MOVT_ABS` + `MovwLabel`/`MovtLabel`
   encoders (16-bit imm split, hi/lo, label-relocated).
 - Map them in `elf_util.bn` elfRelocType(EM_ARM): →`R_ARM_MOVW_ABS_NC`(43) /
@@ -249,12 +249,12 @@ Original sketch:
 A minimal adversarial review of P0 (landed `98d5bef6`) and P1 (worktree
 `3f1b4d2b`) produced:
 
-**P0 — verified sound; review items resolved in follow-up `8e0b56da`:**
+**P0 — verified sound; review items resolved in follow-up `1e7fdf39`:**
 - LP64 byte-identity for aarch64/x64 rigorously verified (advanceNgrn + cc.ArgWords
   reduce exactly to the old behavior at WordBytes=8 / NumFpArgRegs>0); single-aggregate
   sret thresholds (InternalSretBytes/CExternSretBytes=4) confirmed correct vs
   `types.NeedsSret`. No live defect.
-- RESOLVED (`8e0b56da`): `IndirectLargeAggregates` false→**true** — codegen lowers a
+- RESOLVED (`1e7fdf39`): `IndirectLargeAggregates` false→**true** — codegen lowers a
   >16-byte aggregate param as a plain `ptr` (`writeParamTypeLLVM` / `IsByvalParam`'s
   flat `SizeOf>16`) on *every* target, so it arrives as a pointer-in-register; the
   native side must match. The prior `false` followed textbook AAPCS, irrelevant here.
@@ -263,10 +263,10 @@ A minimal adversarial review of P0 (landed `98d5bef6`) and P1 (worktree
   return fills up to 4 core regs (r0-r3), sret at 5+ words (`{i32 x4}` in-reg / `{i32 x5}`
   sret), mirroring AAPCS64's first-class rule — NOT the C >4-byte sret rule. Added a
   5-word boundary test.
-- RESOLVED (`8e0b56da`): `EffectiveArgWords` now uses `cc.ArgWords` (target-parameterised;
+- RESOLVED (`1e7fdf39`): `EffectiveArgWords` now uses `cc.ArgWords` (target-parameterised;
   byte-identical for LP64) so P4 arm32 shims count an int64 as 2 words / managed-slice
   as 4 on ILP32.
-- RESOLVED (`8e0b56da`): AAPCS32 test gaps filled — >16-byte indirect-pointer, ≤16-byte
+- RESOLVED (`1e7fdf39`): AAPCS32 test gaps filled — >16-byte indirect-pointer, ≤16-byte
   split, 8-byte-aligned *aggregate* even-pair pad, split-aggregate NCRN saturation with a
   trailing arg, `argNeeds8Align` direct, 5-word multi-return sret boundary.
 - **NEW, MAJOR (latent, P3):** codegen coerces a ≤16-byte aggregate param to `[N x i64]`
