@@ -1,6 +1,8 @@
 # Plan: native HFA (struct-of-floats → SIMD) ABI conformance
 
-**Status:** investigation complete (2026-07-02, workflow `wf_8b37b44d-363`); implementation staged, in progress on branch `temp-4`.
+**Status:** investigation complete (2026-07-02, workflow `wf_8b37b44d-363`); **stage 1
+(aa64 HFA args) DONE + verified on branch `temp-4` (commit `e80d316a`), not yet landed**;
+stages 2–5 remaining. See "Current state" below.
 
 ## Why (accurate framing)
 
@@ -104,51 +106,51 @@ clang-link, assert stdout `37`. (Also cover an HFA *return* + a 3×f64 aa64 case
 is a miscompile. Every stage must keep classifier + all 3 walkers + caller + callee
 in lockstep, and the C-driver test (which crosses the ABI boundary) is the gate.
 
-## Current state (2026-07-02) — stage 1 code WRITTEN, DORMANT (has a bug)
+## Current state (2026-07-02) — stage 1 (aa64 HFA ARGS) DONE + verified
 
-Branch `temp-4`, commit **`2257397c`** (WIP): the whole aa64 stage-1 is written but
-gated OFF via `HfaAggregates = false` in `AAPCS64()` (so it's fully dormant = the
-prior self-consistent GP behavior; pure-native HFA tests pass = 307/no regression):
+Branch `temp-4`, commit **`e80d316a`** ("native/aa64: enable HFA→SIMD arg passing;
+fix callee data-region store"). `HfaAggregates = true` in `AAPCS64()`; the classifier
++ walkers + aa64 caller/callee emitters are live.
 
 - `common.bni`: `HfaAggregates bool` field + `func HfaClassify(t) (int, int)` decl.
 - `common_callconv.bn`: `hfaFold` + `hfaMemberCount` + exported `HfaClassify`
   (returns memberCount, memberByteWidth); the HFA branch in `argRegWordsStackWords`;
   `advanceNsrn` helper (nsrn += N, sticky-close on overflow) wired into all 3
   walkers; the HFA exclusion in `advanceNgrn`.
-- `aarch64_call.bn`: caller HFA branch (load member m from struct, `Fmov_gp_to_fp`
-  into `D0+nsrn+m`; overflow → whole struct to stack).
-- `aarch64_emit_func.bn`: callee HFA branch (`Fmov_fp_to_gp` `D0+nsrn+m` → GP →
-  `StrSized(hfaW)` into spill slot `hoff + hfaW*m`; overflow reads incoming stack).
+- `aarch64_call.bn`: caller HFA branch (load member m from struct into a scratch,
+  `Fmov_gp_to_fp` into `D0+nsrn+m`; overflow → whole struct to stack).
+- `aarch64_emit_func.bn`: callee HFA branch — writes each member into the param's
+  **data region** (`LookupAlloc`) at `dataOff + hfaW*m`, then publishes the
+  data-region pointer into the 8-byte spill slot, mirroring the GP-passed aggregate
+  path (overflow reads the incoming stack).
 
-**THE BUG:** with `HfaAggregates = true`, pure-native Binate→Binate HFA dispatch
-CRASHES (empty output — a SIGSEGV, not a wrong value), so caller and/or callee
-disagree. The cross-ABI C-driver (`/tmp/hfad`: `hfa_lib.bn` → `main.o`, `driver.c`
-calling `bn_F1_4_main1_4_Hfa2(struct D2{double,double})`, `clang`-linked) returns
-**0** (should be **37**). To finish: re-enable `HfaAggregates = true` and debug.
-**Two concrete hypotheses (from re-reading the emitter — the pure-native CRASH
-points at the CALLER; the C-driver WRONG-VALUE 0 points at the CALLEE):**
+**THE BUG (root-caused + fixed).** The dormant code's callee branch wrote the incoming
+float members straight into `LookupSpill(p.ID)`. For an *aggregate* param that 8-byte
+slot holds a **pointer** to the data region, not the bytes (PlanFrame reserves a data
+region + a pointer spill slot for every aggregate param; the GP path stores bytes to
+the data region and writes the pointer to the spill slot). So the HFA branch (a)
+overran the 8-byte slot with N members and (b) never set the pointer, so every
+downstream aggregate consumer dereferenced raw float bits — a wrong value (0) across a
+clang→native boundary, a SIGSEGV in pure-native dispatch (dereferencing `3.0`'s bits as
+a pointer). The earlier "two hypotheses" were both off: the CALLER `X16` reuse is safe
+(the per-arg `ResetRegs` keeps the pool below the X16/X17 fallback slots, so `ptr` from
+`getOperand` is X9, never X16), and the param DID have a spill slot — it was the WRONG
+slot to write to. Fix: write members to the data region and publish the pointer,
+exactly like the GP aggregate path.
 
-- **CALLER (pure-native SIGSEGV) — X16 collision.** `aarch64_call.bn` HFA branch
-  does `ptr := getOperand(arg.ID)` then loads members with `aarch64.Ldr(a, ..,
-  aarch64.X16, MemImm(ptr, hfaW*m))`. If `getOperand` returned the struct pointer
-  in **X16** (IP0 is a common scratch), the FIRST `Ldr X16, [X16, 0]` OVERWRITES
-  `ptr`, so the 2nd member loads from a garbage base → segfault. FIX: use a load
-  temp guaranteed distinct from `ptr` (allocate via `scratchReg(rm)` and/or assert
-  `!= ptr`, or copy `ptr` to a stable reg first). The existing aggregate GP path
-  (lines ~128-140) only uses X16 for the STACK portion where `ptr` is already
-  consumed into arg regs — my reuse of X16 while `ptr` is still live is the bug.
+**Verification (all passing).**
+- Cross-ABI C-driver (`/tmp/hfad`: `hfa_lib.bn` → `main.o`; `driver.c` clang-calling
+  `bn_F1_4_main1_4_Hfa2(struct D2{double,double})`, linked as `clang -w driver.c
+  main.o` — `main.o` has no undefined syms so no runtime needed): returns **37** (was
+  **0**).
+- Pure-native: 2/3/4-member float64 HFAs = 37 / 123 / 1234; mixed GP+scalar-float+HFA
+  = 5837 (separate NGRN/NSRN counting correct).
+- float32 HFA *passing* regression-free (field reads on 2×/3×/4×f32 = correct). Full
+  float32 HFA *value* checks are blocked by a **separate CRITICAL** pre-existing
+  float32 expression-typing miscompile (see claude-todo.md) — NOT an HFA bug.
+- `pkg/binate/native/common` (156) + `pkg/binate/native/aarch64` (148) unit tests green.
+- `conformance/961_hfa_struct_args` covers the float64 shapes across all backends.
 
-- **CALLEE (C-driver returns 0, wrong not crash) — the FP-only param has no spill
-  slot.** `hoff := rm.LookupSpill(p.ID)`; the classifier now reports the HFA param
-  as no-GP/no-stack (rides FP), so the pass that ALLOCATES param spill slots may
-  not allocate one for it → `LookupSpill` returns -1 → the `if hoff >= 0` guard
-  skips the store → the method body reads an un-populated struct region (0). FIX:
-  ensure the HFA param gets a spill slot of its struct size (check where param
-  spills are sized — it likely keys off CallArgRegStart/StackOff being ≥0, which is
-  now -1/-1 for an HFA). The store offsets `hoff + hfaW*m` are only right once the
-  slot exists at the struct's base.
-
-Debug with the `/tmp/hfad` harness (fails 0→ want 37) AND the pure-native `zz_hfa`
-(307) — BOTH must pass. Fix the CALLER X16 bug first (unblocks the pure-native
-crash), then the CALLEE spill-slot bug. Use a 1-member HFA + dumped asm to isolate.
-Then continue stages 2–5.
+**Remaining before landing stage 1:** run the full native-aa64 conformance mode
+(`builder-comp_native_aa64-comp_native_aa64`) to confirm no regression from flipping
+float-struct passing GP→SIMD, then seek cherry-pick approval. Then stages 2–5.
