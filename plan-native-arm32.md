@@ -244,6 +244,46 @@ Original sketch:
 - Full conformance + unit-test sweep in the native arm32 modes; drive every
   residual to a fix or a tracked xfail+todo.
 
+## Adversarial review findings (post-P0/P1, 2026-07-01)
+
+A minimal adversarial review of P0 (landed `98d5bef6`) and P1 (worktree
+`3f1b4d2b`) produced:
+
+**P0 — verified sound, two MAJOR latent AAPCS32-number issues to pin before P3:**
+- LP64 byte-identity for aarch64/x64 rigorously verified (advanceNgrn + cc.ArgWords
+  reduce exactly to the old behavior at WordBytes=8 / NumFpArgRegs>0); single-aggregate
+  sret thresholds (InternalSretBytes/CExternSretBytes=4) confirmed correct vs
+  `types.NeedsSret`. No live defect.
+- **MAJOR (latent):** `AAPCS32.IndirectLargeAggregates=false` likely wrong — codegen's
+  `types.IsByvalParam` uses a flat `SizeOf>16` pointer-in-register boundary on *every*
+  arch (`writeParamTypeLLVM` emits plain `ptr`), so LLVM-compiled deps pass >16-byte
+  aggregate params as a pointer-in-reg; native must match → almost certainly
+  `IndirectLargeAggregates=true`. Pin vs `clang -target arm-none-eabi` on a >16-byte
+  struct param.
+- **MAJOR (latent):** `AAPCS32.NumGpRetRegs=4` multi-return likely wrong — base AAPCS32
+  returns composites >4 bytes indirectly, so a multi-return tuple >4 bytes probably
+  sret's (mirroring `NeedsSret`), not returns in up to 4 GP regs. Pin vs clang
+  (`ret {i32,i32}` / `{i32,i32,i32}`).
+- MINOR: `EffectiveArgWords` calls the free LP64 `ArgWords`, not `cc.ArgWords` — a latent
+  undercount trap for P4 arm32 func-value shims (int64→1 not 2). Fix to `cc.ArgWords`
+  (byte-identical for LP64) when P4 lands.
+- MINOR: AAPCS32 test gaps — 8-byte-aligned *aggregate* arg (even-pair pad on a struct),
+  even-pair+split combined, aggregate-overflow NCRN saturation with a trailing arg,
+  `argNeeds8Align` direct, soft-float-gate proof.
+
+**P1 — correct and complete for what it claims:**
+- Extend encodings + MOVW/MOVT-label fixup recording/offset + ResolveFixups deferral +
+  elfRelocType gating all verified bit-exact / correct.
+- RELA-for-ARM (the commit's hedge) empirically refuted as a blocker: both
+  `arm-none-eabi-ld` and `ld.lld` accept + correctly apply RELA
+  R_ARM_MOVW_ABS_NC/MOVT_ABS/ABS32. Not a P2 blocker.
+- MINOR: no end-to-end test drives MOVW/MOVT-ABS through the ELF writer (the two halves
+  are tested in isolation; the e2e semihosting tests use `EmitAddr`/literal pools). Add a
+  composed `MovwLabel;MovtLabel;Finalize;WriteARM32` → read-back-`.rela.text` test
+  (P2 also exercises this path once the skeleton links under QEMU).
+- MINOR (pre-existing): ELF `e_flags=0` (not `EF_ARM_EABI_VER5`) — tolerated by ld/lld in
+  bare-metal tests but may surface when linking EABI5 libgcc/libc in P2/P6; revisit at P2.
+
 ## Open questions / risks
 
 - **AAPCS32 aggregate/sret/return-reg numbers** must match how LLVM lowers
