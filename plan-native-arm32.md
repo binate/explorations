@@ -270,10 +270,22 @@ AEABI, with a 2-reviewer adversarial pass. Two MAJOR bugs found + fixed: the
 runtime guard ops were missing from `common_call.bn`'s `isCallOp` (PlanFrame
 reserved zero outgoing-args for DivCheck's stack args — LP64-inert, AAPCS32
 overlap) and a 64-bit `bit_cast` dropped the high word (no OP_BIT_CAST case in
-emitInstr64 → 32-bit single-word fall-through). Follow-ups (tracked, non-blocking):
-int64-ABI unit tests (conformance-covered today); a bare-return→`a.SetError`
-consistency pass across the arm32 emitters (matches the pre-existing 32-bit
-convention; the flagged returns are unreachable given IR invariants).
+emitInstr64 → 32-bit single-word fall-through).
+
+**Increment-2 follow-ups DONE (landed `7b02e4c5`):** int64-ABI unit tests
+(call-arg even-pair / return / param-spill) + the bare-return→`a.SetError`
+fail-loud consistency pass in the int64 emitters (27 conversions, behavior-neutral
+— identical before/after failure sets; adversarial-reviewed clean).
+
+**Conformance-harness gap FIXED (landed `8c2a3866`):** the native-arm32 modes
+now inherit their LLVM sibling's per-mode `.expected`/`.error`/`.xfail` overrides
+via an `OVERRIDE_MODE` fallback in `conformance/run.sh` (native arm32 has the same
+ILP32 layout + baremetal/linux env as `builder-comp_arm32_baremetal`, whose 63
+overrides it previously ignored — producing false failures like `sub/64/unsigned`
+and the baremetal `bootstrap.Exec` xfail). Non-native modes are provably
+unaffected (guarded on `OVERRIDE_MODE` being non-empty). So the native-arm32
+conformance pass count is now meaningful (harness-gap false failures removed);
+remaining failures are genuine deferred shapes (fail-loud) or real gaps.
 
 Remaining P3 work (original sketch):
 - Port `arm32_ops.bn` (int arith/bitwise/shift/compare/unary/cast/const,
