@@ -253,11 +253,27 @@ footguns for later increments.
   un-encodable Operand2 immediate instead of `a.SetError` — a latent
   silent-miscompile footgun (the backend now pre-checks/materializes, but the
   assembler should fail loud). Flagged in the P1 review too.
-- **Deferred (next increments):** 64-bit (int64/uint64) register-PAIR path — this
-  also gates guarded variable `/`/`%`/shift (rt.DivCheck/ShiftCheck take int64);
+- **Deferred (next increments):** ~~64-bit register-PAIR path~~ (DONE, increment 2);
   the single-aggregate-sret arg-register-shift on AAPCS32 (slice/struct-returning
   functions); then structs/arrays, interfaces, multi-return, closures (P4),
   float (P5).
+
+**Increment 2 DONE (worktree `0d8e04a1`, pending land):** int64/uint64 as ILP32
+register pairs — arithmetic (ADDS/ADC…), compare (SUBS+SBCS, all 6 ops ×
+signed/unsigned, clang-matched), mul/div/rem/shift via `__aeabi_*`, cast
+widen/narrow/identity + 64-bit bit_cast, and the int64 ABI (even-aligned pairs /
+r0:r1 return / param-spill) — which also unblocked guarded variable `/`/`%`/shift.
+**Full native-arm32-baremetal conformance: 1464 passing** (all remaining
+failures are deferred shapes that COMPILE_ERROR — fail-loud verified). No
+register-pair template existed (aa64/x64 are LP64); verified against clang +
+AEABI, with a 2-reviewer adversarial pass. Two MAJOR bugs found + fixed: the
+runtime guard ops were missing from `common_call.bn`'s `isCallOp` (PlanFrame
+reserved zero outgoing-args for DivCheck's stack args — LP64-inert, AAPCS32
+overlap) and a 64-bit `bit_cast` dropped the high word (no OP_BIT_CAST case in
+emitInstr64 → 32-bit single-word fall-through). Follow-ups (tracked, non-blocking):
+int64-ABI unit tests (conformance-covered today); a bare-return→`a.SetError`
+consistency pass across the arm32 emitters (matches the pre-existing 32-bit
+convention; the flagged returns are unreachable given IR invariants).
 
 Remaining P3 work (original sketch):
 - Port `arm32_ops.bn` (int arith/bitwise/shift/compare/unary/cast/const,
