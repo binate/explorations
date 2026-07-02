@@ -103,3 +103,34 @@ clang-link, assert stdout `37`. (Also cover an HFA *return* + a 3×f64 aa64 case
 **Anti-hazard:** getting the classifier and the emitter to DISAGREE (one FP, one GP)
 is a miscompile. Every stage must keep classifier + all 3 walkers + caller + callee
 in lockstep, and the C-driver test (which crosses the ABI boundary) is the gate.
+
+## Current state (2026-07-02) — stage 1 code WRITTEN, DORMANT (has a bug)
+
+Branch `temp-4`, commit **`2257397c`** (WIP): the whole aa64 stage-1 is written but
+gated OFF via `HfaAggregates = false` in `AAPCS64()` (so it's fully dormant = the
+prior self-consistent GP behavior; pure-native HFA tests pass = 307/no regression):
+
+- `common.bni`: `HfaAggregates bool` field + `func HfaClassify(t) (int, int)` decl.
+- `common_callconv.bn`: `hfaFold` + `hfaMemberCount` + exported `HfaClassify`
+  (returns memberCount, memberByteWidth); the HFA branch in `argRegWordsStackWords`;
+  `advanceNsrn` helper (nsrn += N, sticky-close on overflow) wired into all 3
+  walkers; the HFA exclusion in `advanceNgrn`.
+- `aarch64_call.bn`: caller HFA branch (load member m from struct, `Fmov_gp_to_fp`
+  into `D0+nsrn+m`; overflow → whole struct to stack).
+- `aarch64_emit_func.bn`: callee HFA branch (`Fmov_fp_to_gp` `D0+nsrn+m` → GP →
+  `StrSized(hfaW)` into spill slot `hoff + hfaW*m`; overflow reads incoming stack).
+
+**THE BUG:** with `HfaAggregates = true`, pure-native Binate→Binate HFA dispatch
+CRASHES (empty output — a SIGSEGV, not a wrong value), so caller and/or callee
+disagree. The cross-ABI C-driver (`/tmp/hfad`: `hfa_lib.bn` → `main.o`, `driver.c`
+calling `bn_F1_4_main1_4_Hfa2(struct D2{double,double})`, `clang`-linked) returns
+**0** (should be **37**). To finish: re-enable `HfaAggregates = true` and debug.
+Prime suspects (unverified): (1) the callee's struct-param **spill slot** —
+`rm.LookupSpill(p.ID)` / how a by-value struct param's spill region is allocated
+may not match `hoff + hfaW*m` (the struct may be spilled at a different base or the
+slot may not be sized for the aggregate when the classifier says "no GP/stack"); (2)
+`scratchReg(rm)` + `rm.ResetRegs()` inside the member loop possibly clobbering an
+incoming `D`-reg or the spill base; (3) the caller placing/loading members from the
+wrong struct offset. Debug with the `/tmp/hfad` harness (fails 0→ want 37) AND the
+pure-native `zz_hfa` (307) — BOTH must pass. Recommend: dump `--emit` asm or use a
+1-member HFA first to isolate. Then continue stages 2–5.
