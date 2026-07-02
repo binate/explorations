@@ -30,16 +30,17 @@ unused-import cross-file gap and add four new "unused" checks.
   warnings-only, cannot false-positive, suppressed in VM/REPL/tentative.
   Measure-first found only **5** unused locals tree-wide (4 non-test + 1 test),
   all cleaned → 0. 10 checker unit tests; full unit suite + conformance green.
+- **`(c)` unused-func: ✅ DONE & LANDED** (main `83149f3e`, 2026-07-02).
+  Reachability from roots (exported funcs / main / methods / package-level
+  initializers); dead-code ISLANDS flagged; methods excluded. 6 tests incl. the
+  island discriminator; tree-wide: 0 violations. **All four new unused rules
+  (a/d/e/b/c) are now landed.**
 - **Remaining follow-ups:**
+  - **REQUIRED — split** `pkg/binate/types/{scope.bn,check_expr.bn}` (over the
+    500-line soft cap; `(b)` grew them). Per user directive: do this FIRST.
   - **`(b)` refinement** — write-only-local detection (Go-parity: the
     write-target gating `checkIdent` deliberately omits) + for-in HEADER-binding
-    sweeping (`for _, v := range` — currently a safe under-count). Re-measure
-    after (they will surface more locals to clean).
-  - **`(c)` unused-func** — reachability worklist on the shared `refs.bn` index
-    (the last unimplemented rule).
-  - **Hygiene nit:** `pkg/binate/types/{scope.bn,check_expr.bn}` are over the
-    500-line soft cap (pre-existing; `(b)` grew them slightly) — split when
-    convenient.
+    sweeping. Both safe under-counts today; re-measure after.
 
 This plan is grounded in a full read of `pkg/binate/lint/*`, `pkg/binate/types/*`
 (checker/scope), and `pkg/binate/loader/*`, plus empirical repros. File:line

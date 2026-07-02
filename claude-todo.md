@@ -984,7 +984,7 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 
 ## bnlint rules, unused-entity checks & lint skips
 
-### unused-entity checks — `(a)`/`(b)`/`(d)`/`(e)` DONE & LANDED; `(c)` + `(b)`-refinement remain (`plan-unused-checks.md`)
+### unused-entity checks — all five rules (a/b/c/d/e) DONE & LANDED; split + `(b)`-refinement remain (`plan-unused-checks.md`)
 
 Add unused-locals `(b)` / unused-private-func `(c)` / -global `(d)` / -type `(e)` checks on top of the existing `unused-import` rule. Full design in **`explorations/plan-unused-checks.md`**.
 
@@ -998,8 +998,8 @@ Add unused-locals `(b)` / unused-private-func `(c)` / -global `(d)` / -type `(e)
 - **`(b)` unused-locals (checker-side): ✅ DONE & LANDED (conservative)** (main `4cff7259`). `Symbol.Used`/`IsParam`/`DeclPos` + a `LocalDepth`-gated `popScope` sweep; `checkIdent` marks a local used on ANY reference → warnings-only, cannot false-positive, suppressed in VM/REPL/tentative. Measure-first found only **5** unused locals tree-wide (4 non-test + 1 test), all cleaned. 10 checker unit tests; full unit suite + conformance green.
 - **Remaining:**
   - **`(b)` refinement** — write-only-local detection (Go-parity) + for-in HEADER-binding sweeping (both safe under-counts the conservative form misses; re-measure after).
-  - **`(c)` unused-func** — reachability worklist on the shared `refs.bn` index (the last unimplemented rule).
-  - **Hygiene nit:** `pkg/binate/types/{scope.bn,check_expr.bn}` are over the 500-line soft cap (pre-existing; `(b)` grew them slightly) — split when convenient.
+  - **`(c)` unused-func: ✅ DONE & LANDED** (main `83149f3e`) — reachability from roots; dead-code islands flagged; methods excluded; 6 tests; 0 tree-wide. **All five rules (a/b/c/d/e) landed.**
+  - **REQUIRED (user directive): split** `pkg/binate/types/{scope.bn,check_expr.bn}` — over the 500-line soft cap; `(b)` grew them. Do this FIRST, then the `(b)` refinement (write-only-local + for-in header).
 
 ### MINOR (hygiene / lint) — investigate the `[managed-to-raw-assign]` findings in `pkg/binate/asm/*` (2026-06-20) — 🟡 OPEN
 The compiler-tree lint-coverage gap is ✅ FIXED & LANDED (`582c1327`): `scripts/hygiene/lint.sh`
