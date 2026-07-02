@@ -347,7 +347,14 @@ while keeping every commit green and close to main.
    the `os` C boundary, atomic within a filesystem, EXDEV cross-device;
    bare-metal fails). Wire `-w` to write-temp + `os.Rename` once the printer
    makes output diverge from input.
-4. **Type printer** (`print_type.bn`, all `TEXPR_*`) + token-equality harness (§11.1).
+4. **Type printer + token-equality harness** — ✅ **LANDED** 2026-07-02
+   (`d5032cd7`). New library **`pkg/binate/format`** (function-named, like
+   `pkg/binate/lint`, *not* the plan's literal `pkg/binate/bnfmt` — approved).
+   `FormatType` renders every parser-produced `TEXPR_*` kind; complex
+   array-length *expressions* deferred to the expr printer (step 6), leaf lengths
+   (int lit / ident / inferred `...`) print inline. The token-equality gate
+   (§11.1) lives in the test harness (`normTokens` drops semicolons + trailing
+   commas; `assertTokenEq`) and is reused by later printer steps.
 5. **Package clause + canonicalized, sorted imports** (needs no type printer).
 6. **Expr printer** (all `EXPR_*` incl. `EXPR_TYPE`) + `print_builtin.bn` + precedence parens.
 7. **Signatures + `Decl`** (var/const/type, grouped blocks, annotations).
