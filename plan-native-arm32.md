@@ -127,7 +127,7 @@ Each phase keeps the tree green (aarch64/x64 native + host modes unaffected)
 and lands as one or a few self-contained commits, cherry-picked to main with
 approval per the landing procedure.
 
-### P0 — `common` word-size param + AAPCS32 CallConv — DONE (worktree `ef587a15`)
+### P0 — `common` word-size param + AAPCS32 CallConv — DONE (landed `98d5bef6`)
 Landed the word-size parameterisation + AAPCS32 in `pkg/binate/native/common`
 (byte-identical for aarch64/x64 — their unit tests stay green; new AAPCS32
 coverage added; hygiene clean). Deviations from the sketch below: PlanFrame's
