@@ -1,7 +1,8 @@
 # Plan: Implementing Variadic Functions and Spread
 
-**Status:** high-level plan (2026-07-02). A follow-up worker is expected to expand
-each phase into detailed, ordered steps. The **language design is settled** and
+**Status:** high-level plan (2026-07-02). Expanded into an ordered, edit-site-level
+implementation plan in **[plan-variadics-detailed.md](plan-variadics-detailed.md)**
+(grounded in a repo-wide codebase survey). The **language design is settled** and
 **specified** — see spec §10.3 (`func.variadic.*`, `func.call.apply`) and the
 DECIDED notes in `claude-notes.md` ("Variadic functions" / "Spread operator").
 This document is the implementation roadmap; it does **not** re-litigate design.
