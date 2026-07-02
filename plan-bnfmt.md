@@ -340,11 +340,13 @@ while keeping every commit green and close to main.
    `build-bnlint.sh`) + a CLI that reads a file, runs `formatSource` (currently
    the identity), and writes to stdout / `-w` / `--check`. Round-trips
    byte-for-byte; the printer replaces `formatSource` in later steps. Not wired
-   into CI/hygiene (separate decision). **Follow-ups surfaced:** the ext branch
-   (`.bn` vs `.bni` parser selection) lands with parsing (step 4+); `-w` is a
-   direct write for now — atomic rewrite (temp + rename) needs **`os.Rename`**,
-   which is **absent from the stdlib** and is being added next (option (a), a
-   stdlib extension — interface to be reviewed with the user before landing).
+   into CI/hygiene (separate decision). **Follow-ups:** the ext branch (`.bn` vs
+   `.bni` parser selection) lands with parsing (step 4+); `-w` is a direct write
+   for now — atomic rewrite (temp + rename) will use **`os.Rename`**, ✅ **added
+   to the stdlib** 2026-07-02 (`29882ba7`; interface reviewed, `rename(2)` via
+   the `os` C boundary, atomic within a filesystem, EXDEV cross-device;
+   bare-metal fails). Wire `-w` to write-temp + `os.Rename` once the printer
+   makes output diverge from input.
 4. **Type printer** (`print_type.bn`, all `TEXPR_*`) + token-equality harness (§11.1).
 5. **Package clause + canonicalized, sorted imports** (needs no type printer).
 6. **Expr printer** (all `EXPR_*` incl. `EXPR_TYPE`) + `print_builtin.bn` + precedence parens.
