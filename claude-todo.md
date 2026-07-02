@@ -11,6 +11,78 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
+### Struct value-copy does not retain managed fields — use-after-free — 🔴 OPEN (2026-07-02)
+
+**Severity: CRITICAL (silent use-after-free / memory corruption).**
+
+**Symptom.** Copying a struct *value* that contains a managed field (a managed
+slice `@[]T`, and presumably any managed pointer / managed-slice / managed
+interface value) does NOT RefInc that field. The copy shares the source's single
+reference; when the source temporary is RefDec'd at scope exit, the managed
+backing is freed while the copy still points at it. Reads of the copy's managed
+field after any intervening allocation churn return garbage or segfault.
+
+Confirmed for two copy forms:
+  - `box(t)` of a struct-with-managed-field (`var bc @Cell = box(t)`).
+  - struct value assignment into a managed-slice element (`cells[i] = t` where
+    `cells @[]Cell`).
+
+A copy read *immediately* (no intervening allocation) is byte-correct — so the
+copy itself is fine; the missing operation is the per-field **retain (RefInc)**
+on copy. This is why it hid: the codebase almost always builds structs in place
+via `make(T)` + field assignment (each field write RefIncs) and accesses them
+through managed pointers (`@Decl`), rarely copying a value-struct-with-managed-
+fields after construction.
+
+**How discovered.** Building bnfmt step 5 (formatter). The step-4 token-equality
+test harness (`pkg/binate/format` `normTokens`) does `slices.Append[@token.Token](raw, box(t))`
+where `token.Token` has a managed `Lit @[]char` field. On multi-statement inputs
+(more tokens → more allocation churn between the `box` and the later comparison)
+`assertTokenEq(src, src)` — the same string against itself — fails or crashes.
+The step-4 *type* tests passed only by UAF luck (few tokens, tight read → freed
+backing not yet reused).
+
+**Minimal reproducer** (control passes, churn variant crashes):
+
+```
+type Cell struct { s @[]char }
+
+func TestBoxSingleImmediate() testing.TestResult {   // PASSES
+    var t Cell
+    t.s = makeStr(65, 5)          // "AAAAA"
+    var bc @Cell = box(t)
+    // read bc.s immediately == "AAAAA": OK (copy is byte-correct)
+}
+
+func TestBoxSingleChurn() testing.TestResult {        // CRASHES (segfault)
+    var t Cell
+    t.s = makeStr(65, 5)
+    var bc @Cell = box(t)
+    churn()                       // ~200 fresh @[]char allocations
+    // read bc.s == "AAAAA": FAILS — t.s was freed, backing reused
+}
+```
+
+(Full reproducer was staged as `pkg/binate/boxrepro/boxrepro_test.bn` in the
+work-6 worktree; NOT committed, since a segfaulting test would redden CI and the
+unit-test framework can't cleanly xfail a process crash. Recreate from the above
+if needed.)
+
+**Proposed fix.** IR-gen for a struct *copy* (the `box` builtin, and struct-value
+assignment / slice-element store) must deep-retain the value's managed fields —
+i.e. emit a RefInc per managed field of the struct being copied, mirroring what
+per-field assignment already does. Alternatively/additionally the source
+temporary's RefDec must be suppressed when ownership genuinely moves; but the
+uniform fix is retain-on-copy (a copy is a new owner). Needs investigation to
+confirm the exact set of copy sites missing the retain (box, aggregate-element
+store, value return, value param pass-by-copy). Lane 2 (IR-gen & native codegen).
+
+**Impact on bnfmt.** Blocks the token-equality safety-net tests (§11.1) whenever
+the input has multiple statements (they route through `box(token.Token)`). The
+formatter *implementation* is unaffected and its output is fully verified by
+exact-bytes golden + idempotence tests; the token-gate round-trip is deferred
+until this is fixed.
+
 ### float32 mixed-type expression miscompile — IR-gen mis-types float ops — 🔴 OPEN (2026-07-02)
 
 **Severity: CRITICAL (silent miscompile in native + malformed IR in LLVM).**
