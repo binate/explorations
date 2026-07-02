@@ -9,11 +9,24 @@ unused-import cross-file gap and add four new "unused" checks.
   2026-07-02). `LintFile` now takes the per-file ASTs and checks each impl
   file's own imports; new multi-file tests; tree-wide run found 0 real
   dead imports being missed.
-- **Decisions made (2026-07-02, user):** `(b)`–`(e)` are **lint/checker
-  WARNINGS**, not hard errors (no semantics change). `(c)`/`(d)`/`(e)`
-  detection: **reachability for `(c)` funcs, reference-presence for
-  `(d)`/`(e)`**.
-- **Next:** the shared `refs.bn` refactor, then `(d)`/`(e)`/`(c)`, then `(b)`.
+- **Shared `refs.bn` index + `(d)` unused-global: ✅ DONE & LANDED** (main
+  `b57c6b18`, 2026-07-02). Reference-presence; `.bni`-flag export skip; group
+  recursion. Tree-wide: 0 violations.
+- **`(e)` unused-type: ✅ DONE & LANDED** (main `7083b65c`, 2026-07-02).
+  Reference-presence; export via `.bni` same-name peer; self-ref + receiver-ref
+  excluded (receiver does NOT count, per the flipped decision below); generic
+  instantiation heads/args recorded. Tree-wide: 0 violations.
+- **Adversarial review (2026-07-02) fixed two latent-to-narrow FALSE POSITIVES**
+  in the shared walk (now landed with `(e)`): annotation-arg expressions and
+  bare-ident generic-CALL type args were not recorded as references.
+- **Decisions (2026-07-02, user):** `(b)`–`(e)` are **WARNINGS**, not hard
+  errors. Detection: reachability for `(c)`, reference-presence for `(d)`/`(e)`.
+  `(e)` method receiver does **NOT** count as a use (flipped to match this
+  plan's recommendation).
+- **Next: `(b)` unused-locals (checker-side), MEASURE-FIRST** — implement the
+  `Used` flag + `popScope` sweep, run tree-wide to count the REAL in-tree unused
+  locals, and report before committing to any cleanup. `(c)` unused-func
+  (reachability) also remains.
 
 This plan is grounded in a full read of `pkg/binate/lint/*`, `pkg/binate/types/*`
 (checker/scope), and `pkg/binate/loader/*`, plus empirical repros. File:line

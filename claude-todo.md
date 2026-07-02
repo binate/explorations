@@ -882,15 +882,18 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 
 ## bnlint rules, unused-entity checks & lint skips
 
-### unused-entity checks — `(a)` DONE & LANDED; `(b)`–`(e)` IN PROGRESS (`plan-unused-checks.md`)
+### unused-entity checks — `(a)`/`(d)`/`(e)` DONE & LANDED; `(b)`/`(c)` remain (`plan-unused-checks.md`)
 
 Add unused-locals `(b)` / unused-private-func `(c)` / -global `(d)` / -type `(e)` checks on top of the existing `unused-import` rule. Full design in **`explorations/plan-unused-checks.md`**.
 
 - **Phase 0 (file-scoped imports): ✅ LANDED** (`cf0d1cad` + follow-ons); loader retains `pkg.Files`. This is what unblocked `(a)`.
-- **`(a)` unused-import cross-file gap: ✅ DONE & LANDED (main `51f8e90c`, 2026-07-02).** `LintFile` takes the per-file ASTs and checks each impl file's own imports (was checking the deduped merged list → sibling files' unused imports silently missed, order-dependent). New multi-file tests; tree-wide bnlint run found 0 real dead imports being missed.
-- **Decisions (2026-07-02, user):** `(b)`–`(e)` are **WARNINGS** (no semantics change). Detection: **reachability for `(c)` funcs, reference-presence for `(d)`/`(e)`**. The `(b)` sub-decisions (params / write-only / for-in) are deferred to `(b)`'s implementation.
-- **Next:** shared `refs.bn` refactor → `(d)`/`(e)`/`(c)` → `(b)` (checker-side `Used` flag + `popScope` sweep, BUILDER-compatible).
-- **Latent bugs gating `(d)`/`(e)`:** `markBniExportedVars` skipped `DECL_GROUP` (may now be fixed by `a43c24f7` "grouped vars EXPORTED via a .bni" — verify before `(d)`); `DECL_TYPE` carries no `Exported` flag (`(e)` derives export-ness from a `.bni` same-name peer).
+- **`(a)` unused-import cross-file gap: ✅ DONE & LANDED** (main `51f8e90c`). Per-file import attribution via `pkg.Files` (was the deduped merged list → sibling-file unused imports silently missed).
+- **shared `refs.bn` index + `(d)` unused-global: ✅ DONE & LANDED** (main `b57c6b18`). Reference-presence; `.bni` export skip; group recursion.
+- **`(e)` unused-type: ✅ DONE & LANDED** (main `7083b65c`). Reference-presence; export via `.bni` same-name peer; self-ref + receiver-ref excluded (receiver does NOT count); generic instantiation heads/args recorded.
+- **Adversarial review (2026-07-02)** fixed two latent-to-narrow false positives in the shared walk (annotation-arg exprs, bare-ident generic-CALL type args), landed with `(e)`. Tree-wide: 0 unused-import/global/type across all 50 packages.
+- **Decisions (2026-07-02, user):** all are **WARNINGS**. Detection: reachability for `(c)`, reference-presence for `(d)`/`(e)`. `(e)` receiver does NOT count as a use.
+- **Latent bugs:** `markBniExportedVars` DECL_GROUP gap ✅ FIXED (`a43c24f7`); `DECL_TYPE` still carries no `Exported` (`(e)` works around via `.bni` peer — a cleaner loader fix remains optional).
+- **Remaining:** **`(b)` unused-locals (checker-side, MEASURE-FIRST)** — `Used` flag + `popScope` sweep, count real in-tree unused locals before any cleanup; and **`(c)` unused-func** (reachability worklist on the shared index).
 
 ### MINOR (hygiene / lint) — investigate the `[managed-to-raw-assign]` findings in `pkg/binate/asm/*` (2026-06-20) — 🟡 OPEN
 The compiler-tree lint-coverage gap is ✅ FIXED & LANDED (`582c1327`): `scripts/hygiene/lint.sh`
