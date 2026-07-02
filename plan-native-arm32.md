@@ -214,7 +214,7 @@ Original sketch:
   -M virt -semihosting` and prints/exits correctly via the native backend.
 
 ### P3 — integer completeness — IN PROGRESS
-**Increment 1 DONE (worktree `02c0216b`, pending land):** 32-bit integer
+**Increment 1 DONE (landed `5b628849`; follow-up fix `f7bc261e`):** 32-bit integer
 arithmetic/comparison/control-flow + the `println` path (aggregate-slice call
 args/returns, memory ops, refcount) → **19 conformance tests pass** under
 `builder-comp_native_arm32_baremetal` (was 1). Deferred shapes stay fail-loud
@@ -226,6 +226,16 @@ args/returns, memory ops, refcount) → **19 conformance tests pass** under
   works for cross-object BL.
 - Frame-offset silent-#0: `add rd,sp,#imm` past the rotated-imm range silently
   encoded #0; the backend now materializes large SP offsets via IP.
+
+**Post-land fix `f7bc261e`:** the walking-skeleton (P2) over-wired
+`nativeArchForTarget` to return `"arm32"` for BOTH `arm-none-eabi` and
+`arm-linux-gnueabihf`, reddening `TestNativeArchForTargetArm32LinuxNoNative` on
+main. The native backend is soft-float baremetal-only, so arm32-linux
+(hard-float, P6) must stay on LLVM — `nativeArchForTarget` now returns `"arm32"`
+only for `arm-none-eabi`, and a new test pins the baremetal→`"arm32"` mapping.
+Process lesson: the red test escaped because the P2 landing smoke covered the
+`native/` packages but not `cmd/bnc` (whose `target.bn` the change touched) —
+derive the smoke set from `git diff --name-only`, not a delegated agent's report.
 
 **Adversarial review (increment 1) — fixed in the commit:** removed R12/IP from
 the allocatable register pool (`regPool` is now exactly R4..R10) — it's the
