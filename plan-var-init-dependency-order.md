@@ -1,7 +1,6 @@
 # Plan: dependency-order package-level variable initialization
 
-**Status:** IMPLEMENTED + REVIEWED (2026-07-01, worktree branch
-`var-init-dep-order`, commit `0a9d86bc`); pending landing approval.
+**Status:** LANDED on main (2026-07-01, commit `444c9c90`).
 Full `builder-comp` conformance green (2570 passed, 0 failed); types 858 / ir
 586 unit tests green; hygiene 15/15.
 Adversarial review (independent workflow) found + fixed one real MAJOR
