@@ -1,9 +1,48 @@
 # Plan: dependency-order package-level variable initialization
 
-**Status:** designed + adversarially reviewed (2026-07-01); NOT yet implemented.
+**Status:** IMPLEMENTED (2026-07-01, worktree branch `var-init-dep-order`,
+commit `b9f193e8`); pending adversarial review + landing approval.
 **Decision (2026-07-01, designer):** switch package-var init from source order to
 Go-style **dependency order**. "Order dependencies are sus; splitting/reordering
 files should be easy."
+
+## Implementation notes (as landed on the branch)
+
+- `pkg/binate/types/check_var_resolve.bn` (new): `collectVarDeps` /
+  `collectVarDepsStmt` / `collectVarDepsCase` (the syntactic walk),
+  `resolveTopLevelVarOrder` + `visitVarByName` (source-stable DFS + cycle
+  detection), `recordVarInitOrder` + `VarInitOrder` (per-package storage),
+  `errVarCycle`. Composite-literal element KEYS are NOT collected (a struct key
+  is a field name; an array key is a const — Binate has no maps — so a key that
+  matches a package-var name must not create a false edge).
+- `pkg/binate/types.bni`: Checker gains `VarVisiting` / `VarOrdered` (transient
+  DFS marks) + `VarInitOrderPaths` / `VarInitOrders` (per-package result) +
+  the `VarInitOrder` method decl.
+- `pkg/binate/types/check_decl.bn`: `collectDecls` calls
+  `resolveTopLevelVarOrder` after `collectDeclsBody`, gated `!c.ReplDeclMode`.
+- `pkg/binate/ir/gen_init.bn`: `buildInitBody(decls, order)` emits in the
+  checker's order (falling back to source order for an empty order), and
+  defensively appends any init-var the order omits so a set mismatch can't
+  silently drop an initializer.
+- Tests: 7 checker unit tests in `check_var_resolve_test.bn` (forward-ref,
+  self/mutual/transitive cycle, closure-skip = no false cycle, IIFE-walk =
+  cycle caught, composite-key = no false cycle) + 5 conformance tests under
+  `conformance/regressions/var-init-*` (forward-ref → 42, cross-file → 42,
+  hierarchy/diamond → 32/11/21/1, mutual + self cycle → error). Cycle detection
+  is pure checker behavior (mode-independent) so it lives in unit tests; the
+  conformance tests pin the runtime ORDERING that is the actual deliverable.
+- The `< 2` fast path was corrected to `== 0`: a lone `var a = a + 1` is a
+  self-cycle that must still be swept.
+
+## Bugs discovered while testing (raised in claude-todo.md, NOT fixed here)
+
+- **CRITICAL: closures capture package GLOBALS by value** (silent miscompile) —
+  `isCapturableKind` treats a package-scope `SYM_VAR` as capturable. Orthogonal
+  to var-init; my "skip stored-closure bodies for ordering" choice is *correct*
+  for the intended live-global semantics (the fix should make closures read
+  globals live, not snapshot them).
+- **IIFE in a var initializer fails clang codegen** (loud, not silent). The
+  ordering walk handles IIFE bodies; only codegen is missing.
 
 ## Problem
 

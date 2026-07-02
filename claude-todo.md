@@ -9,6 +9,72 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ---
 
+## 🔴 CRITICAL — closure captures a package-level GLOBAL by value (silent miscompile) — 🔴 OPEN
+
+A function literal that references a package-level `var` snapshots the global's
+value into a closure slot at closure-CREATION time instead of reading the
+global's live storage — so the closure sees a stale (or, for a not-yet-init'd
+global, zero/garbage) value and ignores later writes. An ordinary function
+reading the same global reads it correctly, so the two DIVERGE. Discovered
+while testing dependency-order var-init (2026-07-01); INDEPENDENT of that
+change (reproduces with no var-init ordering involved).
+
+Repro (native `builder-comp`):
+
+    var b int = 7
+    func main() {
+        var f *func() int = func() int { return b }
+        println(f())   // prints 7 (ok so far — snapshot of 7)
+        b = 99
+        println(f())   // prints 7 — WRONG, should be 99 (global read live)
+    }
+
+    // and, as a global initializer, the snapshot is of the PRE-init value:
+    var getb *func() int = func() int { return b }
+    var b int = 7
+    // getb() returns 0 (captured b before its init ran) — an ordinary
+    // func readb() { return b } returns 7 in the same program.
+
+Root cause: `isCapturableKind` (`pkg/binate/types/check_capture.bn:94`) returns
+true for EVERY `SYM_VAR`, but a package-level global is also a `SYM_VAR`. So
+`noteCaptureIfNeeded` records the global as a captured closure variable (laid
+into the closure struct, copied at creation) instead of leaving it as a
+by-name link-time-static reference the way `SYM_FUNC` / `SYM_CONST` /
+`SYM_PKG` are. The comment there even conflates the two: it says a locally-
+bound function value "lives in a SYM_VAR ... so it correctly flows through the
+SYM_VAR branch" — but a PACKAGE-level var is the same kind and must NOT be
+captured.
+
+Proposed fix: distinguish a function-LOCAL `SYM_VAR` (captured) from a
+package-scope `SYM_VAR` (not captured — has static/global storage, read live).
+`noteCaptureIfNeeded` already walks scopes via `isBeyondBoundary`; the capture
+should be suppressed when the owning scope is the package scope
+(`c.PackageScope`) rather than an enclosing function/block scope. Needs care:
+the check must be "defined at package scope", not "beyond the closure body"
+(a global is always beyond the body). Add a positive conformance test
+(closure reads + tracks a global; global-initializer closure reads live) once
+fixed; xfail marker tracks it until then.
+
+Severity: CRITICAL — silent wrong-code on a common pattern (a closure that
+reads package state). Not fixed here (out of scope for var-init); raised for
+prioritization.
+
+## 🟠 IIFE in a package-var initializer fails codegen — 🟠 OPEN (loud clang error, not silent)
+
+`var a int = (func() int { return 41 + 1 })()` — an immediately-invoked
+function literal as a global (or local) var initializer — fails at the clang
+step (`error: clang failed compiling main`, bad LLVM emitted). Discovered
+2026-07-01 while testing var-init. LOUD failure (compile error), not a silent
+miscompile, so lower priority than the capture bug above. The checker accepts
+it (it type-checks); IR-gen for the IIFE call produces invalid LLVM. The
+var-init dependency walk already handles IIFE bodies correctly (see
+`collectVarDepsFuncLitBody` — it's exercised by a checker unit test via a
+cycle), so ordering is ready for the day IIFE codegen works.
+Fix: investigate `genFuncLit` / call-of-func-literal lowering in
+`pkg/binate/ir`. Needs an xfail conformance test.
+
+---
+
 ## Method values & function values (codegen)
 
 ### 🏷[BUG-BASH 2026-06-27 → LANE 2] Method-value CAPTURE gap — pointer-receiver method value on an SRET value receiver from a call/temp — 🟡 OPEN (SRET-only residual; register cases ✅ FIXED & LANDED — `0a8dd492` + `92916c19`)
