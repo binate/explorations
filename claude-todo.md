@@ -259,15 +259,29 @@ loader de-rooting) is **✅ DONE & LANDED** — full detail in
 [`plan-embeddable-interp.md`](plan-embeddable-interp.md). Remaining open
 follow-ups (deferred with user sign-off):
 
-- **runTests / global `IsNativeOnlyInVM` unification.** The `--test` runner
-  (`cmd/bni/main.bn`) still keys the lowering skip on the hardcoded
-  `IsNativeOnlyInVM` (fixed stdPkgs config); only the `@Interp` run path derives
-  it from the inject-set. Unify so there is one mechanism.
-- **Lower-time "this impl can't be interpreted" guard.** Dropping a package
-  whose only impl needs native facilities (today's `os`/`__c_call`) and letting
-  it lower yields silently-broken bytecode (can't reach `cLseek`). The
-  principled guard is a lower-time check on the impl (does it use `__c_call` /
-  native-only facilities?) that errors clearly instead.
+- **Interpreted `__c_call` guard — ✅ DONE & LANDED (`da3bd46a`, 2026-07-02),
+  at the FRONTEND (not lower-time).** Interpreted code that uses `__c_call` now
+  errors at type-check (`Checker.Interpreted` → `checkCCall`), and injected /
+  compiled-instance packages load INTERFACE-ONLY (`Loader.InterfaceOnly`), so
+  their native-only `__c_call` impls are never parsed/checked/lowered on the
+  interp path (which also fixes the old `os.Seek`/`cLseek` silently-broken-
+  bytecode problem — the impl isn't lowered at all). Covers the run path
+  (`TypecheckAll`) and the REPL (define + import, both initial-load and
+  mid-session-at-the-prompt). The earlier idea of a *lower-time* impl check was
+  rejected by the user ("too late — do it at the frontend"). Coverage:
+  conformance 961 + `TestCheckCCallInterpretedRejected` + e2e/repl.sh
+  `tier5-mid-session-import-ccall-rejected`.
+- **REMAINING follow-up (latent): the `--test` path is not yet frontend-guarded.**
+  `cmd/bni` runTests calls `TypecheckPackages` (which sets neither `Interpreted`
+  nor `InterfaceOnly`), so a `__c_call` package run as a `--test` target in an
+  int mode would hit `lower_instr`'s default-arm panic, not the clean type error.
+  Latent — the only `__c_call` packages (`pkg/std/os`, `pkg/builtins/rt`) are
+  excluded from int-mode unit tests by `scripts/unittest/run.sh`. Fix: set
+  `Interpreted=true` in `TypecheckPackages` + wire `InterfaceOnly` (native-only
+  minus test-targets) into runTests. This ALSO subsumes the older "runTests /
+  global `IsNativeOnlyInVM` unification" follow-up (the `--test` runner still
+  keys its lowering skip on the hardcoded `IsNativeOnlyInVM` rather than deriving
+  it from the inject-set, exactly as the `@Interp` run path already does).
 - **Globals/vtables-sensitive inject-set test.** `TestNewCustomPkgsRespected`
   proxies on `len(Externs)` (function registration only); add a test that a
   custom set's globals + impl vtables are honored (the `errors.Is`
