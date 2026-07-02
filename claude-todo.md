@@ -856,19 +856,6 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 
 ## bnlint rules, unused-entity checks & lint skips
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 1] MINOR (import hygiene) — two non-wrong-code follow-ups from the file-scoped-imports work — 🟡 OPEN
-The PACKAGE-scoped-imports CRITICAL (all wrong-code facets — visibility leak, same-alias miscompile,
-qualified-TYPE memory-layout corruption, implicit same-last-segment, generic instantiation, the
-cross-file package-level `var x = dep.Foo()` residual) is ✅ FULLY RESOLVED & LANDED and archived in
-[claude-todo-done.md](claude-todo-done.md).  Two non-miscompile follow-ups remain:
-- **(F-checker) the checker has ZERO unused-import handling** — the only unused-import check is the
-  opt-in bnlint rule, whose per-file attribution has false-positive (sibling-file use) and
-  false-negative (local var shadowing an alias) corners.  Entangled with / tracked by the
-  "(planning) unused-entity checks" entry below (`plan-unused-checks.md`).
-- **Build-confirmation coverage want**: an incompatible-signature escalation test for the A/B facets
-  (`func V() *uint8` vs `func V() int` colliding members → show ABI/result-type confusion), on top of
-  the existing 830/831/832 conformance coverage.  Low priority — the facets are fixed and tested.
-
 ### unused-entity checks — `(a)` DONE & LANDED; `(b)`–`(e)` IN PROGRESS (`plan-unused-checks.md`)
 
 Add unused-locals `(b)` / unused-private-func `(c)` / -global `(d)` / -type `(e)` checks on top of the existing `unused-import` rule. Full design in **`explorations/plan-unused-checks.md`**.

@@ -8,6 +8,21 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ DONE & LANDED (main `a333b611`, 2026-07-02, BUG-BASH LANE 1) — file-scoped-imports item closed (import-hygiene follow-ups)
+
+The package-scoped-imports CRITICAL (all wrong-code facets) was already resolved
+& landed. The two non-miscompile follow-ups on that item are now dispositioned:
+- **Build-confirmation coverage want** ✅ — `conformance/regressions/file-scoped-
+  import-incompatible-sig` (`a333b611`): escalates the same-alias file-scoped-
+  import test (830) so the two `dep`-aliased packages export a member `V` with
+  INCOMPATIBLE result types (`*uint8` vs `int`). A broken (package-scoped)
+  resolution wouldn't just swap values — `b.bn`'s `return dep.V()` would resolve
+  to `pa.V()` (`*uint8`) and fail the `int` return with a result-type/ABI
+  mismatch. File-scoped imports keep each file's `dep` distinct → A()=42, B()=7.
+- **Checker unused-import handling** — always delegated to the separate
+  "unused-entity checks" project (`plan-unused-checks.md`), which owns it
+  (in progress); nothing LANE-1-specific remains here.
+
 ## ✅ DONE & LANDED (main `a43c24f7` + `2eba382f`, 2026-07-02) — grouped vars EXPORTED via a .bni (cross-package)
 
 A `.bni` declaring grouped vars (`var ( X int; Y int )`) was invisible to
