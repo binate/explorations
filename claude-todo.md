@@ -34,7 +34,8 @@ Smaller follow-ups remain:
    (the 25117a2e VM-narrow mechanism extended to iface/func-value), since the sub-word/bool
    RETURN concern is VM-only. The review's cleaner shim-extends design (every backend's shim
    sext/zext's sub-word returns; drop the VM narrow) is deferred — a multi-backend,
-   target-word-dependent change with a tail-branch→call-shape wrinkle.
+   target-word-dependent change with a tail-branch→call-shape wrinkle.  Plan +
+   per-backend shim sites + verification: [plan-funcvalue-shim-extend.md](plan-funcvalue-shim-extend.md).
 
 (The x64 closure-shim soft-length split and the conditional func-value spill staging are
 ✅ DONE & LANDED — see claude-todo-done.md.)
