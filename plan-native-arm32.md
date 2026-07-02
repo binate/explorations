@@ -176,7 +176,7 @@ Original sketch:
   reloc test (assemble a MOVW/MOVT-addressed symbol, check the ELF rela
   entries).
 
-### P2 — walking skeleton (native baremetal, integer-trivial) — DONE (worktree `a2fc2ed8`, pending land)
+### P2 — walking skeleton (native baremetal, integer-trivial) — DONE (landed `1592bde7`)
 Empty `func main() {}` (`conformance/278_empty_main`) compiles through the new
 `pkg/binate/native/arm32` backend into an ELF32 that links via the existing
 clang/crt0/semihost/baremetal.ld pipeline and **boots under `qemu-system-arm`,
