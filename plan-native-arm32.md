@@ -258,7 +258,7 @@ footguns for later increments.
   functions); then structs/arrays, interfaces, multi-return, closures (P4),
   float (P5).
 
-**Increment 2 DONE (worktree `0d8e04a1`, pending land):** int64/uint64 as ILP32
+**Increment 2 DONE (landed `1d38e0dd`):** int64/uint64 as ILP32
 register pairs — arithmetic (ADDS/ADC…), compare (SUBS+SBCS, all 6 ops ×
 signed/unsigned, clang-matched), mul/div/rem/shift via `__aeabi_*`, cast
 widen/narrow/identity + 64-bit bit_cast, and the int64 ABI (even-aligned pairs /
