@@ -213,7 +213,32 @@ Original sketch:
 - **Acceptance**: a trivial conformance test boots under `qemu-system-arm
   -M virt -semihosting` and prints/exits correctly via the native backend.
 
-### P3 — integer completeness
+### P3 — integer completeness — IN PROGRESS
+**Increment 1 DONE (worktree `02c0216b`, pending land):** 32-bit integer
+arithmetic/comparison/control-flow + the `println` path (aggregate-slice call
+args/returns, memory ops, refcount) → **19 conformance tests pass** under
+`builder-comp_native_arm32_baremetal` (was 1). Deferred shapes stay fail-loud
+(verified: variable `/`/`%`, multi-return → COMPILE_ERROR). New files
+`arm32_{compare,emit,rodata,refcount}.bn`. Two latent bugs found+fixed:
+- ARM cross-object branch reloc missing the `-8` pipeline addend (`elfRelocAddend`
+  now returns `addend-8` for EM_ARM R_ARM_CALL/JUMP24 RELA; ARM-scoped, aa64/x64
+  untouched). This also empirically settled P1's open question — R_ARM_JUMP24
+  works for cross-object BL.
+- Frame-offset silent-#0: `add rd,sp,#imm` past the rotated-imm range silently
+  encoded #0; the backend now materializes large SP offsets via IP.
+
+**Follow-ups tracked from increment 1:**
+- **MAJOR (asm/arm32 hardening):** `encodeOperand2` silently emits `#0` for an
+  un-encodable Operand2 immediate instead of `a.SetError` — a latent
+  silent-miscompile footgun (the backend now pre-checks/materializes, but the
+  assembler should fail loud). Flagged in the P1 review too.
+- **Deferred (next increments):** 64-bit (int64/uint64) register-PAIR path — this
+  also gates guarded variable `/`/`%`/shift (rt.DivCheck/ShiftCheck take int64);
+  the single-aggregate-sret arg-register-shift on AAPCS32 (slice/struct-returning
+  functions); then structs/arrays, interfaces, multi-return, closures (P4),
+  float (P5).
+
+Remaining P3 work (original sketch):
 - Port `arm32_ops.bn` (int arith/bitwise/shift/compare/unary/cast/const,
   sub-word narrow with wordBits=32), `arm32_emit.bn` (ALLOC/MAKE/BOX/
   MAKE_SLICE/EXTRACT/LOAD/STORE/GET_ELEM_PTR/GET_FIELD_PTR),
