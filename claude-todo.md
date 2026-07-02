@@ -11,7 +11,7 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## Method values & function values (codegen)
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 2] Method-value CAPTURE gap — pointer-receiver method value on an SRET / managed value receiver from a call/temp — 🟡 OPEN (residual; the common by-value case is ✅ FIXED & LANDED — main `0a8dd492`)
+### 🏷[BUG-BASH 2026-06-27 → LANE 2] Method-value CAPTURE gap — pointer-receiver method value on an SRET value receiver from a call/temp — 🟡 OPEN (SRET-only residual; register cases ✅ FIXED & LANDED — `0a8dd492` + `92916c19`)
 
 The cross-package method-value NAMING is ✅ DONE & LANDED for all receiver shapes
 (ident/selector/index `31cbece7`+`b62bbd8c`, call-result `47cdcfbf`) — see
@@ -27,31 +27,24 @@ wrapper `alloca`+addresses it for the synchronous call — matching the method-C
 keeps the existing `&slot` capture. `947` is now a POSITIVE test (call + field value
 receivers, green on LLVM + VM + native aa64 + x64); 942–946 + 503–519 regression unchanged.
 
-**What remains (this item) — SRET / managed value receivers:** the materialize path is
-gated to a register-returned (`!types.NeedsSret`, ≤16-byte) NON-managed struct. An sret
-(by-address, >16-byte) struct call-result comes back as a POINTER, so storing it into the
-by-value closure field needs a struct COPY, not a scalar store (`store %S %ptr` is invalid
-IR); and a struct with managed fields would need the by-value copy's fields RefInc'd. Both
-stay the old crash for now (exotic), pinned by `conformance/948_method_value_sret_recv_capture.xfail.all`.
-**Fix:** an sret-/refcount-aware struct-copy of the receiver into the closure field (reuse
-the sret-copy path `var x T = call()` uses, + `emitStructCopy` for the managed-field RefInc).
+**Also ✅ FIXED & LANDED (main `92916c19`):** the register-returned MANAGED-field case
+(`mkMP().num`, `MP{n int; p @int}`, 16 B — `NeedsSret` false, `NeedsDestruction` true) now
+captures by value: store the bytes then `emitStructCopy` the field to RefInc the copy's
+managed field, balanced by the `mkMP()` temp's end-of-statement RefDec and the closure
+dtor's RefDec (pinned by `949`, positive on all four backends). The same commit also fixed
+a latent miscompile of a COMPOSITE-LITERAL value receiver (`Pt{...}.M` — a literal is an
+aggregate alloca, so the old scalar store wrote the alloca POINTER into the value field;
+`isAggregateAllocToLoad` loads it first — pinned by new `951`).
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 2] MAJOR (native backend) — a MULTI-RETURN method value crashes on the native backends (works on LLVM + VM) — 🔴 OPEN (pre-existing; pinned by `950`)
-
-A method value whose method returns MULTIPLE values (`c.split` where `split` returns
-`(int, int)`), called through the value, CRASHES on the native backends (native_aa64 +
-native_x64 confirmed; arm32 likely, untested/qemu) while working correctly on LLVM +
-VM. **Pre-existing** and **independent of the receiver-capture work** — it reproduces
-via the OLD ident-receiver path too (a hand-written closure forwarding the same
-multi-return call works, so it is specific to the method-value WRAPPER). Root cause
-(hypothesis): `synthMethodValueWrapper` (`pkg/binate/ir/gen_method_value.bn`) sets up
-the wrapper's multi-return result shape / `MultiReturnType` differently from what
-`genFuncLit` produces, so the native backend's closure-shim mishandles the packed
-multi-return. Discovered 2026-06-30 by the adversarial review of the method-value
-capture fix. **Pinned:** `conformance/950_method_value_multiret` (xfail on the native
-modes; passes on LLVM + VM). **Fix:** align `synthMethodValueWrapper`'s multi-return
-result / `MultiReturnType` setup with `genFuncLit`'s, and/or fix the native closure-shim's
-handling of a wrapper that packs a multi-return — needs a native-backend diagnosis.
+**What remains (this item) — SRET (>16-byte) value receivers only:** the materialize path
+is gated to a register-returned struct (`!types.NeedsSret`). An sret call result is an
+`OP_CALL` backend-represented as a POINTER to the sret buffer (NOT an `OP_ALLOC`), so it can
+be neither load-then-stored (`isAggregateAllocToLoad` needs an `OP_ALLOC`) nor stored
+directly (`store %S %ptr` mistypes the by-value field: `'%v0' type 'ptr' but expected %Big`).
+Stays the old dangling-`*T` crash (exotic), pinned by
+`conformance/948_method_value_sret_recv_capture.xfail.all`.
+**Fix:** sret destination-forwarding (write the receiver call result straight into the
+closure field), or a backend-aware struct-copy from the sret buffer into the field.
 
 ### Function values — residual follow-ups (the MAJOR PROJECT landed) — 🟡 OPEN (low priority)
 Function values are done across all three phases (archived in [claude-todo-done.md](claude-todo-done.md):

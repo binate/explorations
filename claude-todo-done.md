@@ -8,6 +8,31 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `d623002e`, 2026-07-01, BUG-BASH LANE 2) — MAJOR: a MULTI-RETURN method value crashed on the native backends
+
+A method value whose method returns MULTIPLE values (`c.split` → `(int, int)`), called
+through the value, SIGSEGV'd on the native backends (native_aa64 + native_x64 confirmed)
+while working on LLVM + VM. **Pre-existing** and independent of the receiver-capture work
+(it reproduced via the old ident-receiver path too; a hand-written closure forwarding the
+same multi-return call worked, so it was specific to the method-value WRAPPER).
+
+**Root cause:** `synthMethodValueWrapper` (`pkg/binate/ir/gen_method_value.bn`) forwarded
+the multi-return call by returning the packed result tuple as ONE aggregate value. On the
+native backends that routes `OP_RETURN` to the single-aggregate handler, which reads its
+operand as a POINTER to the bytes — but a small multi-return call result holds its N words
+DIRECTLY in the spill slot (`common.SpillHoldsAggregatePointer`), so the handler
+dereferenced the first tuple word as an address → crash. (LLVM/VM were unaffected: there the
+result is a first-class struct SSA value.)
+
+**Fix:** forward it the way `genReturnStmt` lowers `return f(...)` — `EmitExtract` each result
+field from the packed call result and re-return the N values via `EmitReturnTyped`. That
+yields `len(args) == N > 1` on `OP_RETURN`, so both native backends route to their
+already-correct multi-return-pack path (each field read at its spill offset). No backend
+change; single-return + void wrappers unchanged. Discovered 2026-06-30 by the adversarial
+review of the method-value capture fix; diagnosed + fixed via a native-backend investigation.
+**Pinned:** `conformance/950_method_value_multiret` (positive on all four backends; the
+native xfail markers were removed).
+
 ## ✅ DONE & LANDED (main `1510c64e` + `67c8daa7`, 2026-07-01, BUG-BASH LANE 3) — x64 closure-shim soft-length split + conditional func-value spill staging
 
 Two parts of the native-shim follow-up "x64_closure_shim.bn soft length" item:
