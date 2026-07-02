@@ -164,7 +164,7 @@ Original sketch:
   handful of arg/return shapes (int64 pair, small/large struct return) and
   pin the AAPCS32 numbers to match — this is the native↔LLVM-deps boundary.
 
-### P1 — assembler reloc + extend gaps (`asm/arm32`, `asm/elf`)
+### P1 — assembler reloc + extend gaps (`asm/arm32`, `asm/elf`) — DONE (worktree `1976278b`, pending land)
 - Add fixup kinds `FIX_MOVW_ABS_NC`, `FIX_MOVT_ABS` + `MovwLabel`/`MovtLabel`
   encoders (16-bit imm split, hi/lo, label-relocated).
 - Map them in `elf_util.bn` elfRelocType(EM_ARM): →`R_ARM_MOVW_ABS_NC`(43) /
@@ -249,27 +249,33 @@ Original sketch:
 A minimal adversarial review of P0 (landed `98d5bef6`) and P1 (worktree
 `3f1b4d2b`) produced:
 
-**P0 — verified sound, two MAJOR latent AAPCS32-number issues to pin before P3:**
+**P0 — verified sound; review items resolved in follow-up `8e0b56da`:**
 - LP64 byte-identity for aarch64/x64 rigorously verified (advanceNgrn + cc.ArgWords
   reduce exactly to the old behavior at WordBytes=8 / NumFpArgRegs>0); single-aggregate
   sret thresholds (InternalSretBytes/CExternSretBytes=4) confirmed correct vs
   `types.NeedsSret`. No live defect.
-- **MAJOR (latent):** `AAPCS32.IndirectLargeAggregates=false` likely wrong — codegen's
-  `types.IsByvalParam` uses a flat `SizeOf>16` pointer-in-register boundary on *every*
-  arch (`writeParamTypeLLVM` emits plain `ptr`), so LLVM-compiled deps pass >16-byte
-  aggregate params as a pointer-in-reg; native must match → almost certainly
-  `IndirectLargeAggregates=true`. Pin vs `clang -target arm-none-eabi` on a >16-byte
-  struct param.
-- **MAJOR (latent):** `AAPCS32.NumGpRetRegs=4` multi-return likely wrong — base AAPCS32
-  returns composites >4 bytes indirectly, so a multi-return tuple >4 bytes probably
-  sret's (mirroring `NeedsSret`), not returns in up to 4 GP regs. Pin vs clang
-  (`ret {i32,i32}` / `{i32,i32,i32}`).
-- MINOR: `EffectiveArgWords` calls the free LP64 `ArgWords`, not `cc.ArgWords` — a latent
-  undercount trap for P4 arm32 func-value shims (int64→1 not 2). Fix to `cc.ArgWords`
-  (byte-identical for LP64) when P4 lands.
-- MINOR: AAPCS32 test gaps — 8-byte-aligned *aggregate* arg (even-pair pad on a struct),
-  even-pair+split combined, aggregate-overflow NCRN saturation with a trailing arg,
-  `argNeeds8Align` direct, soft-float-gate proof.
+- RESOLVED (`8e0b56da`): `IndirectLargeAggregates` false→**true** — codegen lowers a
+  >16-byte aggregate param as a plain `ptr` (`writeParamTypeLLVM` / `IsByvalParam`'s
+  flat `SizeOf>16`) on *every* target, so it arrives as a pointer-in-register; the
+  native side must match. The prior `false` followed textbook AAPCS, irrelevant here.
+- RESOLVED (confirmed correct, no change): `NumGpRetRegs=4` — empirically pinned via
+  `clang -target arm-none-eabi -mfloat-abi=soft`: a first-class-aggregate (multi-return)
+  return fills up to 4 core regs (r0-r3), sret at 5+ words (`{i32 x4}` in-reg / `{i32 x5}`
+  sret), mirroring AAPCS64's first-class rule — NOT the C >4-byte sret rule. Added a
+  5-word boundary test.
+- RESOLVED (`8e0b56da`): `EffectiveArgWords` now uses `cc.ArgWords` (target-parameterised;
+  byte-identical for LP64) so P4 arm32 shims count an int64 as 2 words / managed-slice
+  as 4 on ILP32.
+- RESOLVED (`8e0b56da`): AAPCS32 test gaps filled — >16-byte indirect-pointer, ≤16-byte
+  split, 8-byte-aligned *aggregate* even-pair pad, split-aggregate NCRN saturation with a
+  trailing arg, `argNeeds8Align` direct, 5-word multi-return sret boundary.
+- **NEW, MAJOR (latent, P3):** codegen coerces a ≤16-byte aggregate param to `[N x i64]`
+  (`aggCoerceLLTy` — **hardcoded i64**, not target-aware), which clang lowers as 8-aligned
+  i64 register PAIRS on arm32. The native AAPCS32 word-packing does NOT reproduce that
+  pair-alignment for a 4-aligned struct starting on an odd register → the coerced-in-reg
+  aggregate-arg path must be reconciled (target-aware `[N x i32]` coercion, or i64-pair
+  modeling native-side) before P3/P4 passes such args. Not fixed in P0 (needs end-to-end
+  validation once the backend exists); recorded in the AAPCS32 doc comment.
 
 **P1 — correct and complete for what it claims:**
 - Extend encodings + MOVW/MOVT-label fixup recording/offset + ResolveFixups deferral +
@@ -277,10 +283,10 @@ A minimal adversarial review of P0 (landed `98d5bef6`) and P1 (worktree
 - RELA-for-ARM (the commit's hedge) empirically refuted as a blocker: both
   `arm-none-eabi-ld` and `ld.lld` accept + correctly apply RELA
   R_ARM_MOVW_ABS_NC/MOVT_ABS/ABS32. Not a P2 blocker.
-- MINOR: no end-to-end test drives MOVW/MOVT-ABS through the ELF writer (the two halves
-  are tested in isolation; the e2e semihosting tests use `EmitAddr`/literal pools). Add a
-  composed `MovwLabel;MovtLabel;Finalize;WriteARM32` → read-back-`.rela.text` test
-  (P2 also exercises this path once the skeleton links under QEMU).
+- RESOLVED: the end-to-end gap (no test drove MOVW/MOVT-ABS through the ELF writer) is
+  filled by `TestWriteArm32ElfMovwMovtReloc` (folded into the P1 commit) — it drives
+  `MovwLabel;MovtLabel;Finalize;WriteARM32` and reads back `.rela.text` to pin the emitted
+  reloc types (43/44), offsets, symbol, and addend.
 - MINOR (pre-existing): ELF `e_flags=0` (not `EF_ARM_EABI_VER5`) — tolerated by ld/lld in
   bare-metal tests but may surface when linking EABI5 libgcc/libc in P2/P6; revisit at P2.
 
