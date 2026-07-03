@@ -1245,16 +1245,30 @@ Add unused-locals `(b)` / unused-private-func `(c)` / -global `(d)` / -type `(e)
   - **`(c)` unused-func: ✅ DONE & LANDED** (main `83149f3e`) — reachability from roots; dead-code islands flagged; methods excluded; 6 tests; 0 tree-wide.
   - **File split: ✅ DONE & LANDED** (main `7f2e2c82`, 2026-07-02). `scope.bn` (547) → `scope.bn` + `layout.bn` (Type Layout) + `layout_offsets.bn` (Composite Type Layout); `check_expr.bn` (555) → `check_expr.bn` + `check_addr.bn` (addressability); `scope_test.bn` (591) split to match; new `check_addr_test.bn` (11 branch tests). Pure move (3-lens adversarial review: no blockers/majors), all under the 500-line cap, hygiene green.
 
-### Remove 39 verified-dead PRODUCTION unused-import / unused-func findings — 🟡 OPEN (surfaced 2026-07-03 by the `bnlint --tests` triage)
+### Remove verified-dead PRODUCTION unused-import / unused-func findings — ✅ DONE & LANDED (`cef6fdec` + `717b694d`, 2026-07-03)
 
-Surfaced while triaging `bnlint --tests` findings (test-file sweep). These live in
-**non-test** `.bn` files and show up in a **plain** bnlint run too (not `--tests`
-artifacts). They're real dead code the *current-source* bnlint flags but the
-*bundled* hygiene bnlint (BUILDER `bnc-0.0.10`) does not yet — so they'll redden
-hygiene at the next BUILDER bump. Scoped out of the test-file sweep by user
-decision (2026-07-03): **do these as a distinct follow-up.** All 19 funcs are
-unexported and verified `0` non-definition references; all 20 imports are unused
-in their file. Removal is BUILDER-safe (removing dead symbols nothing references).
+**RESOLUTION.** 19 unused imports + 19 dead unexported funcs removed (the count
+was 20 imports when first noted; one had already been fixed concurrently by
+landing time). Landed in two commits: `cef6fdec` (types/codegen/ir front/mid-end)
++ `717b694d` (native/asm/vm backends). Also removed a cascade global (`lastRawSeq`,
+used only by the removed `emitManagedToRaw`) and refreshed 3 stale comments the
+removals exposed. Verified: per-package `bnlint --tests` = 0 production
+unused-import/func; a 9-package adversarial workflow found 0 dangling refs / 0
+test files touched; gen1 build succeeds (BUILDER tree still compiles); 17-package
+unit suite green; hygiene 15/15.
+
+**Note for the eventual hygiene-wiring:** the authoritative "truly dead" set was
+taken from the `--tests` run, NOT a plain run. A plain (non-`--tests`) bnlint flags
+**31** production unused-func — 12 more than the 19 removed — because those 12 are
+production helpers used ONLY by tests (a plain run can't see the test caller). They
+are NOT dead. So if `bnlint --tests` is ever wired into hygiene, unused-func MUST
+run with `--tests`, or it will false-flag those 12. (They're a separate judgment
+call — "production helper only a test uses": delete-with-test or keep — not
+addressed here.)
+
+Original context: surfaced while triaging `bnlint --tests` findings; real dead
+code the current-source bnlint flags but the bundled hygiene bnlint
+(`bnc-0.0.10`) predates. Removal was BUILDER-safe.
 Do it per-package, verify with a per-package smoke + `scripts/build-bnc.sh` (many
 are in bnc's BUILDER tree).
 
