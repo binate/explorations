@@ -210,6 +210,61 @@ non-variadic `cc("abc"[:])` (no variadics/spread involved).
 
 ---
 
+## Native arm32 backend (AAPCS32 / ILP32) build-out
+
+### Small-aggregate coercion was `[N x i64]` on ILP32 — native↔LLVM ABI mismatch — ✅ FIXED (worktree `temp-5`, awaiting land)
+
+**Severity: MAJOR (silent argument corruption at the native↔LLVM boundary on
+arm32).** `pkg/binate/codegen/emit_agg_coerce.bn` coerced a `<=16-byte`
+by-value aggregate at the LLVM boundary to `[N x i64]` (`aggCoerceLLTy` /
+`aggCoerceWords` = ceil(SizeOf/8)), hardcoded and target-independent. On arm32
+clang coerces such structs to `[N x i32]` (N = ceil(SizeOf/4), 4-aligned) — an
+`i64` element is 8-aligned, so `[N x i64]` triggers LLVM's AAPCS §6.5 C.3
+even-register bump (skips an odd GP register) whereas `[N x i32]` does not. The
+native arm32 backend already packs 4-aligned words (matching clang's
+`[N x i32]`), so the LLVM-side `[N x i64]` was the defect: a native caller
+passing a naturally-4-aligned struct after a leading scalar places it at r1:r2,
+but the LLVM callee with `[N x i64]` reads r2:r3.
+
+- **Fix.** `aggCoerceLLTy` / `aggCoerceWords` are now target-aware via
+  `aggCoerceElemBytes()` (gated on `types.GetTarget().PointerSize == 4`, same
+  predicate as `types.NeedsSret`): `[N x i32]` (ceil(SizeOf/4)) on ILP32,
+  `[N x i64]` (ceil(SizeOf/8)) on LP64. The LP64 path is byte-identical to
+  before (verified: full `--emit-llvm` diff on the host is empty). The
+  `AggregateReturnSize` 8-byte rounding is a safe over-allocation on ILP32
+  (always ≥ SizeOf); the retbuf/by-address slots are `aggCoerceLLTy`-typed on
+  both halves so they stay target-consistent. Native callconv untouched (it was
+  already correct). Comments in `common_callconv_ctors.bn` (the old "KNOWN GAP
+  P3") and the `emit_agg_coerce.bn` header updated.
+- **Test.** `conformance/967_aggregate_abi_odd_reg` (cross-package: LLVM dep
+  `Odd(scalar int32, s P2)` / `OddB5(scalar, B5)` with a naturally-4-aligned
+  struct starting on r1; native `main` calls it). Fail-before/pass-after
+  demonstrated on `builder-comp_native_arm32_baremetal` (without fix:
+  `309000`/`644042` corruption; with fix: correct). Passes on host / LLVM-arm32
+  (self-consistent).
+
+### Cross-package call to an LLVM-compiled `int64`-returning function wedges native-arm32 — 🟠 OPEN (needs investigation)
+
+**Severity: MAJOR (hang / no output).** On
+`builder-comp_native_arm32_baremetal`, a native `main` calling an
+LLVM-compiled dependency function whose result is `int64` (or which does int64
+multiply) hangs QEMU with no output — even with **only scalar args** (no
+aggregates). Discovered 2026-07-03 while writing the small-aggregate ABI
+fixture above: the first int64-returning design of `967` hung, and a minimal
+repro (`Mul(scalar, a, b int32) int64` returning `scalar*1e9 + a*1e6 + b`,
+called cross-package) reproduced it with no structs involved; the same shape
+returning `int32` works, and a native-`main`-only int64 println/multiply works.
+So it is **independent of the aggregate coercion** — likely an int64 return-
+register / `__aeabi_*` libgcc-helper linkage issue at the native↔LLVM boundary.
+`967` sidesteps it by returning `int32`. Root cause: **unknown — needs
+investigation.** No dedicated xfail added (the whole native-arm32 mode is
+experimental/non-blocking with ~832 fail-loud shapes; this is one class of
+them). Related: `conformance/877_aggregate_abi_xpkg` also hangs on this mode,
+and its methods return int64 — plausibly the SAME int64-return defect rather
+than an aggregate-ABI one.
+
+---
+
 ## Language features — specified, not yet implemented
 
 ### Type assertions, type switches & RTTI — spec'd 2026-07-02, NOT implemented — 🔴 OPEN
