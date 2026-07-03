@@ -1197,6 +1197,40 @@ Add unused-locals `(b)` / unused-private-func `(c)` / -global `(d)` / -type `(e)
   - **`(c)` unused-func: ✅ DONE & LANDED** (main `83149f3e`) — reachability from roots; dead-code islands flagged; methods excluded; 6 tests; 0 tree-wide.
   - **File split: ✅ DONE & LANDED** (main `7f2e2c82`, 2026-07-02). `scope.bn` (547) → `scope.bn` + `layout.bn` (Type Layout) + `layout_offsets.bn` (Composite Type Layout); `check_expr.bn` (555) → `check_expr.bn` + `check_addr.bn` (addressability); `scope_test.bn` (591) split to match; new `check_addr_test.bn` (11 branch tests). Pure move (3-lens adversarial review: no blockers/majors), all under the 500-line cap, hygiene green.
 
+### Remove 39 verified-dead PRODUCTION unused-import / unused-func findings — 🟡 OPEN (surfaced 2026-07-03 by the `bnlint --tests` triage)
+
+Surfaced while triaging `bnlint --tests` findings (test-file sweep). These live in
+**non-test** `.bn` files and show up in a **plain** bnlint run too (not `--tests`
+artifacts). They're real dead code the *current-source* bnlint flags but the
+*bundled* hygiene bnlint (BUILDER `bnc-0.0.10`) does not yet — so they'll redden
+hygiene at the next BUILDER bump. Scoped out of the test-file sweep by user
+decision (2026-07-03): **do these as a distinct follow-up.** All 19 funcs are
+unexported and verified `0` non-definition references; all 20 imports are unused
+in their file. Removal is BUILDER-safe (removing dead symbols nothing references).
+Do it per-package, verify with a per-package smoke + `scripts/build-bnc.sh` (many
+are in bnc's BUILDER tree).
+
+**20 unused-import (file → unused import):**
+- `asm/parse/aarch64_instr_helpers.bn` → `pkg/binate/asm`; `asm/parse/parse.bn` → `pkg/binate/asm/aarch64`
+- `codegen/emit_ccall.bn` → `pkg/binate/types`; `codegen/emit_impls.bn` → `pkg/binate/types`
+- `ir/gen_flow.bn` → `pkg/binate/buf`; `ir/gen_generic.bn` → `pkg/std/strings`; `ir/gen_init.bn` → `pkg/binate/buf`; `ir/gen_selector.bn` → `pkg/binate/buf`
+- `native/aarch64/aarch64_ops.bn` → `pkg/binate/buf` + `pkg/binate/mangle`
+- `native/arm32/arm32_emit.bn` → `pkg/binate/iropcode`
+- `native/common/common_callconv.bn` → `pkg/binate/ir` + `pkg/binate/iropcode`
+- `native/x64/x64_funcvalue.bn` → `pkg/binate/asm`
+- `types/check_expr_constfold.bn` → `pkg/binate/ast`; `types/checker.bn` → `pkg/binate/token`; `types/types.bn` → `pkg/binate/ast` + `pkg/binate/buf`
+- `vm/lower_data.bn` → `pkg/binate/types`; `vm/lower_instr.bn` → `pkg/builtins/rt`
+
+**19 unused-func (file → dead func):**
+- `asm/parse/arm32.bn` → `expectArm32CommaLabel`; `asm/parse/lex.bn` → `lexPeek`; `asm/x64/x64_sys.bn` → `readI32`
+- `codegen/emit_util.bn` → `emitSliceRef`, `emitManagedToRaw`, `isCharElem`, `isCharElemFromSlice`, `isStructElem`, `isStructElemFromSlice` (superseded by the DataGlobal migration)
+- `ir/gen_copy_emit.bn` → `genStructCopy`; `ir/gen_func.bn` → `lookupLocalVar`; `ir/gen_generic.bn` → `lookupGenericTypeDecl`; `ir/ir.bn` → `makeArgs3`
+- `native/aarch64/aarch64_closure_shim.bn` → `totalCaptureWordsAA64`; `native/aarch64/aarch64_names.bn` → `vtableSymForLLVM`, `shimSymForLLVM`; `native/x64/x64_closure_shim.bn` → `totalCaptureWords_x64`
+- `types/check_generic_type.bn` → `lookupGenericIfaceDecl`, `lookupGenericTypeDecl`
+
+(The 17 PRODUCTION `[managed-to-raw-assign]` findings in `pkg/binate/asm/*` are a
+DIFFERENT, already-tracked follow-up — see the asm INCREMENT-2 entry below.)
+
 ### MINOR (hygiene / lint) — investigate the `[managed-to-raw-assign]` findings in `pkg/binate/asm/*` (2026-06-20) — 🟡 OPEN
 The compiler-tree lint-coverage gap is ✅ FIXED & LANDED (`582c1327`): `scripts/hygiene/lint.sh`
 discovery is now recursive over `pkg/`, so all ~23 `pkg/binate/*` compiler packages are bnlint
