@@ -2149,18 +2149,18 @@ Per the Bug Discovery Protocol each needs an xfail marker + fix:
 - **`conformance/877_aggregate_abi_xpkg`** — cross-package 64-bit aggregate ABI;
   prints line 1 then hangs.
 
-#### P3 GAP (fail-loud, not silent) — OP_MAKE / OP_BOX unimplemented
+#### P3 GAP (fail-loud, not silent) — OP_MAKE / OP_BOX unimplemented — ✅ FIXED & LANDED (`b33eb9d6`, 2026-07-02)
 
-`arm32_dispatch.bn` has no `OP_MAKE` / `OP_BOX` case (only `OP_MAKE_SLICE`), so
-`make(T)` / `box(v)` hit the generic "unimplemented IR op make" fail-loud tail.
-This is unfinished P3 (the plan's "Remaining P3 work" lists `arm32_emit.bn
-(ALLOC/MAKE/BOX/MAKE_SLICE/...)`), and it is the **dominant** native-arm32 failure
-bucket (~41% of a 195-test sample: make×74, box×6) AND the blocker for measuring
-any P4 progress — most iface/func-value conformance programs allocate a managed
-value, so they fail on `make` before reaching P4 code. Near-verbatim ~50-LOC port
-of aa64 `emitMake` (`aarch64_emit.bn:56`) + `emitBox` (`:81`); arm32 already has
-`mangleRtFunc`/`symPrefixed` + the alloc/spill primitives. Highest-unlock,
-lowest-risk next step.
+`arm32_dispatch.bn` had no `OP_MAKE` / `OP_BOX` case (only `OP_MAKE_SLICE`), so
+`make(T)` / `box(v)` hit the generic "unimplemented IR op make" fail-loud tail —
+the **dominant** native-arm32 failure bucket (~41% of a 195-test sample: make×74,
+box×6) and the blocker for measuring any P4 progress (most iface/func-value tests
+allocate a managed value, so they failed on `make` before reaching P4 code).
+**Resolution:** ported `emitMake` (`rt.Alloc(SizeOf)`) + `emitBox` (`rt.Box`, three
+source shapes) from aa64 with the ILP32 word size. Native-arm32-baremetal
+conformance jumped **1573 → 1754 passed** (+181), no regression, no XPASS.
+Adversarial-reviewed (landable; two minor findings addressed — scalar box boxes
+directly from the spill slot; unit tests for all three box branches).
 
 #### MINOR (cross-backend diagnostics) — `iropcode.OpName` missing `OP_CONST_FLOAT`
 
