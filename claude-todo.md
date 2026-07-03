@@ -1131,7 +1131,7 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 
 ## bnlint rules, unused-entity checks & lint skips
 
-### unused-entity checks — bnlint rules (a/c/d/e) + file split LANDED; `(b)` REVERTED (must be redone as a lint) (`plan-unused-checks.md`)
+### unused-entity checks — all five bnlint rules (a/b/c/d/e) + file split DONE & LANDED (`plan-unused-checks.md`)
 
 Add unused-locals `(b)` / unused-private-func `(c)` / -global `(d)` / -type `(e)` checks on top of the existing `unused-import` rule. Full design in **`explorations/plan-unused-checks.md`**.
 
@@ -1142,9 +1142,7 @@ Add unused-locals `(b)` / unused-private-func `(c)` / -global `(d)` / -type `(e)
 - **Adversarial review (2026-07-02)** fixed two latent-to-narrow false positives in the shared walk (annotation-arg exprs, bare-ident generic-CALL type args), landed with `(e)`. Tree-wide: 0 unused-import/global/type across all 50 packages.
 - **Decisions (2026-07-02, user):** all are **WARNINGS**. Detection: reachability for `(c)`, reference-presence for `(d)`/`(e)`. `(e)` receiver does NOT count as a use.
 - **Latent bugs:** `markBniExportedVars` DECL_GROUP gap ✅ FIXED (`a43c24f7`); `DECL_TYPE` still carries no `Exported` (`(e)` works around via `.bni` peer — a cleaner loader fix remains optional).
-- **`(b)` unused-locals: ❌ REVERTED — WRONG APPROACH** (revert `8d8f7314`, 2026-07-02; reverted impl was `4cff7259`). It was done CHECKER-side (an `addCheckWarning` `bnc` prints on every compile). **Binate does NOT emit compiler errors OR warnings for unused entities — unused-X is a LINT concern, full stop.** A checker warning is an always-on whole-tree hammer (and the unit-test runner fails the build on any compiler warning). `(b)` MUST be a bnlint rule like the others.
-- **Remaining:**
-  - **Reimplement `(b)` unused-locals as a BNLINT rule** (NOT checker-side). Hard part: per-scope local liveness — bnlint's `refIndex` only collects package-level refs today, so a lint `(b)` must walk each function body tracking block scopes and flag a never-referenced non-blank, non-param local. Recon from the reverted attempt (reusable): `range` is NOT a keyword (`for _, v := range xs` is a mis-parsed C-style for, not for-in; real for-in is the `in`-keyword form); a draft write-only variant found ~231 dead-write locals tree-wide (mostly discarded multi-returns that want `_`). As a lint these surface as warnings, never compile failures.
+- **`(b)` unused-local: ✅ DONE & LANDED as a BNLINT rule** (main `11c6bb8e`, 2026-07-02). `pkg/binate/lint/unused_local.bn` — flags a function-local var never referenced in its function; CONSERVATIVE (reads AND writes count → no false positives), FLAT per-function scoping (shadowing under-warns), params/`_`/local-consts excluded, closure bodies walked. 21 tests; tree-wide 0; 2-lens adversarial review. **History:** first (wrongly) done CHECKER-side (compiler warning) and reverted (`8d8f7314`) — Binate emits NO compiler diagnostics for unused-X; it is a LINT concern. Optional future refinements (not scheduled): block-scope precision, write-only detection (~231 dead-write locals, would be lint warnings).
   - **`(c)` unused-func: ✅ DONE & LANDED** (main `83149f3e`) — reachability from roots; dead-code islands flagged; methods excluded; 6 tests; 0 tree-wide.
   - **File split: ✅ DONE & LANDED** (main `7f2e2c82`, 2026-07-02). `scope.bn` (547) → `scope.bn` + `layout.bn` (Type Layout) + `layout_offsets.bn` (Composite Type Layout); `check_expr.bn` (555) → `check_expr.bn` + `check_addr.bn` (addressability); `scope_test.bn` (591) split to match; new `check_addr_test.bn` (11 branch tests). Pure move (3-lens adversarial review: no blockers/majors), all under the 500-line cap, hygiene green.
 

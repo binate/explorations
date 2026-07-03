@@ -23,39 +23,38 @@ unused-import cross-file gap and add four new "unused" checks.
   errors. Detection: reachability for `(c)`, reference-presence for `(d)`/`(e)`.
   `(e)` method receiver does **NOT** count as a use (flipped to match this
   plan's recommendation).
-- **`(b)` unused-locals: ❌ REVERTED — WRONG APPROACH** (revert `8d8f7314`,
-  2026-07-02; the reverted impl was `4cff7259`). It was implemented CHECKER-side
-  (`addCheckWarning` that `bnc` prints on every compile). **Binate does NOT emit
-  compiler errors OR warnings for unused entities — unused-X is a LINT concern,
-  full stop.** A checker warning is an always-on, whole-tree hammer (and the
-  unit-test runner treats any compiler warning as a build failure). `(b)` MUST
-  be a bnlint rule like `(a)`/`(c)`/`(d)`/`(e)`. See "Remaining" below.
+- **`(b)` unused-local: ✅ DONE & LANDED as a BNLINT rule** (main `11c6bb8e`,
+  2026-07-02). `pkg/binate/lint/unused_local.bn` flags a function-local var
+  never referenced in its function. CONSERVATIVE (reads AND writes count →
+  never false-positives), FLAT per-function scoping (shadowing under-warns,
+  never false-flags), params / `_` / local-consts excluded, closure bodies
+  walked for captures. 21 unit tests; tree-wide bnlint: 0; 2-lens adversarial
+  review (no blockers/majors).
+  - **History:** first (wrongly) implemented CHECKER-side (`addCheckWarning`
+    that `bnc` prints on every compile — reverted `8d8f7314`, was `4cff7259`).
+    **Binate emits NO compiler errors OR warnings for unused entities —
+    unused-X is a LINT concern, full stop.** That is why it now lives in bnlint.
 - **`(c)` unused-func: ✅ DONE & LANDED** (main `83149f3e`, 2026-07-02).
   Reachability from roots (exported funcs / main / methods / package-level
   initializers); dead-code ISLANDS flagged; methods excluded. 6 tests incl. the
-  island discriminator; tree-wide: 0 violations. **The bnlint rules (a/c/d/e)
-  are landed; (b) was reverted (see above) and must be redone as a lint.**
+  island discriminator; tree-wide: 0 violations. **All five bnlint rules
+  (a/b/c/d/e) are now landed.**
 - **File split: ✅ DONE & LANDED** (main `7f2e2c82`, 2026-07-02). `scope.bn`
   (547) → `scope.bn` + `layout.bn` (Type Layout) + `layout_offsets.bn`
   (Composite Type Layout); `check_expr.bn` (555) → `check_expr.bn` +
   `check_addr.bn` (addressability); `scope_test.bn` (591) split to match; new
   `check_addr_test.bn` (11 branch tests). Pure move (3-lens adversarial review:
   no blockers/majors), all under the 500-line cap, hygiene green.
-- **Remaining follow-up:**
-  - **Reimplement `(b)` unused-locals as a BNLINT rule** (not checker-side).
-    The hard part is per-scope local liveness — bnlint's `refIndex` today only
-    collects package-level refs, so a lint `(b)` must walk each function body
-    tracking block scopes (push/pop) and flag a never-referenced non-blank,
-    non-param local. That scope-walk is exactly why the first attempt was
-    (wrongly) done checker-side; the fix is to build it in bnlint, NOT to emit
-    checker warnings.
-  - **Reconnaissance from the reverted attempt (2026-07-02), reusable:**
-    `range` is NOT a keyword in Binate — `for _, v := range xs` is a mis-parsed
-    C-style `for`, not a for-in; the real for-in is the `in`-keyword form
-    (`for x in xs` / `for k, v in xs`). A draft "write-only-local" variant
-    (never landed) found ~231 dead-write locals tree-wide, overwhelmingly
-    discarded multi-return values that should be `_`. A lint `(b)` should
-    surface those as warnings, NOT as compile failures.
+- **Optional future refinements (not scheduled):**
+  - **Block-scope precision for `(b)`** — the landed rule is FLAT (per
+    function); a block-scope-aware walk would additionally flag an unused
+    OUTER local shadowed by a used inner one (today a safe under-warn).
+  - **Write-only-local detection** — a draft variant (never landed) found
+    ~231 dead-write locals tree-wide, overwhelmingly discarded multi-return
+    values that should be `_`. As a bnlint warning (not a compile failure)
+    this is now palatable; it's a policy call whether to add it. Note:
+    `range` is NOT a keyword in Binate — `for _, v := range xs` is a
+    mis-parsed C-style `for`; the real for-in is the `in`-keyword form.
 
 This plan is grounded in a full read of `pkg/binate/lint/*`, `pkg/binate/types/*`
 (checker/scope), and `pkg/binate/loader/*`, plus empirical repros. File:line
