@@ -394,9 +394,20 @@ while keeping every commit green and close to main.
    decl groups `const ()` are dropped (keyword unrecoverable from the AST);
    single-paren result `() (int)` → `() int` and empty-paren annotation
    `#[foo()]` → `#[foo]` are golden-pinned canonicalizations.
-8. **Stmt printer** (all `STMT_*`), blocks/indent, ASI trailing-comma, D4 context.
-   Also completes `EXPR_FUNC_LIT` (deferred from step 6 — its body is a block)
-   and function BODIES (deferred from step 7).
+8. **Stmt printer** — ✅ **LANDED** 2026-07-03 (`299acad3`). `printStmt`
+   (`print_stmt.bn`) renders every `STMT_*` with tab-indented blocks: expr /
+   assign (all compound ops) / short-var / inc-dec / return / break / continue /
+   if–else–else-if / for (infinite, while, C-style, for-in val + key/val) /
+   switch (tagged + tagless) / nested block / local decl / empty. **Function
+   bodies** are wired into `printDecl` and **`EXPR_FUNC_LIT`** is completed (body
+   indent recovered from the builder's current line), so **`Format` now
+   round-trips ordinary `.bn` files end-to-end.** **D4**: an `exposed` flag
+   threaded through the expr printer parenthesizes a composite literal whose `{`
+   would reach a control clause's block brace — resetting inside parens/call-
+   args/brackets exactly where the parser re-allows composites. A 3-lens
+   adversarial review caught + fixed a real silent-meaning gap (C-style for
+   init/post are also no-composite contexts). 47 format tests; hygiene 15/15.
+   ASI trailing-commas in multi-line lists remain for the wrapping step (12).
 9. **Comment attachment** (§7) + comment-multiset invariant (§11.3).
 10. **Blank-line handling**; file hygiene; `// LONG-LINE ALLOWED` preservation.
 11. **Column alignment** (tabwriter).
