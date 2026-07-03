@@ -408,7 +408,20 @@ while keeping every commit green and close to main.
    adversarial review caught + fixed a real silent-meaning gap (C-style for
    init/post are also no-composite contexts). 47 format tests; hygiene 15/15.
    ASI trailing-commas in multi-line lists remain for the wrapping step (12).
-9. **Comment attachment** (§7) + comment-multiset invariant (§11.3).
+9. **Comment attachment** — ✅ **LANDED** 2026-07-03 (`de975529`). A
+   `commentCursor` (`print_comments.bn`) threads through the decl/stmt/block
+   layer, interleaving a collecting parse's `File.Comments` by position: own-line
+   leading (doc) comments before a node, trailing comments on a node's end line,
+   dangling comments before a block `}`. A terminal backstop in `Format`
+   guarantees the §11.3 multiset invariant (never drop). A focused adversarial
+   review found no critical issues (swallow-code unreachable, no drops) and one
+   cursor-desync (an interior comment wedging the queue), fixed so passed-over
+   comments land near source rather than at EOF. **Known placement limits**
+   (multiset always preserved): func-literal-body, interior mid-expression, and
+   import/interface-method/grouped-member comments are placed at the enclosing
+   boundary, not exactly inline — perfecting these needs the cursor threaded
+   through the expression + interface/group printers (follow-up). Verified by
+   token-equality + comment-multiset re-parse (59 format tests); hygiene 15/15.
 10. **Blank-line handling**; file hygiene; `// LONG-LINE ALLOWED` preservation.
 11. **Column alignment** (tabwriter).
 12. **Width-aware wrapping** to 100 cols.
