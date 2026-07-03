@@ -49,12 +49,18 @@ unused-import cross-file gap and add four new "unused" checks.
   - **Block-scope precision for `(b)`** — the landed rule is FLAT (per
     function); a block-scope-aware walk would additionally flag an unused
     OUTER local shadowed by a used inner one (today a safe under-warn).
-  - **Write-only-local detection** — a draft variant (never landed) found
-    ~231 dead-write locals tree-wide, overwhelmingly discarded multi-return
-    values that should be `_`. As a bnlint warning (not a compile failure)
-    this is now palatable; it's a policy call whether to add it. Note:
-    `range` is NOT a keyword in Binate — `for _, v := range xs` is a
-    mis-parsed C-style `for`; the real for-in is the `in`-keyword form.
+  - **Write-only dead-locals: compiler-code CLEANED** (main `8c4d6ae2` /
+    `e7ac4306` / `68d0dea3` / `f2fbc528`, 2026-07-02). ~62 discarded-multi-return
+    locals removed from `asm/parse`, `ir`, `types`, `native/arm32` (helper
+    signatures slimmed where ALL callers discarded a return —
+    `expectCommaOperand`/`expectCommaReg`/`expectArm32CommaOp`). A **temporary**
+    write-only bnlint mode drove find+verify; it was NOT landed as a permanent
+    rule. Fresh count was 76 (the "~231" was mode-duplicated). Remaining:
+    ~40–50 write-only locals in `*_test.bn` (bnlint lints only non-test files —
+    lower value, unenforced) and stdlib tests. A permanent write-only lint rule
+    (would surface those as warnings, never compile failures) is still an open
+    policy call. Note: `range` is NOT a keyword in Binate — `for _, v := range
+    xs` is a mis-parsed C-style `for`; the real for-in is the `in`-keyword form.
 
 This plan is grounded in a full read of `pkg/binate/lint/*`, `pkg/binate/types/*`
 (checker/scope), and `pkg/binate/loader/*`, plus empirical repros. File:line
