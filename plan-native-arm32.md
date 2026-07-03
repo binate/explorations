@@ -19,6 +19,38 @@ native backend — proves the per-arch package pattern) and the existing
 `pkg/binate/native/aarch64` (the template this backend mirrors 1:1 in file
 decomposition). ILP32 layout background: [`plan-arm32-bare-metal.md`].
 
+## Pickup notes (for a session resuming after context compaction)
+
+- **Worktree:** all arm32 work happens in `temp-binate-5` (branch `temp-5`), the
+  session's pre-assigned worktree. Do NOT create new worktrees. Resync it against
+  LOCAL main (`git -C temp-binate-5 fetch ~/binate/binate main && … rebase
+  FETCH_HEAD`), never `origin/main`.
+- **Landed so far (all on main):** P0, P0-fu, P1, P2, P3.1, the arm32-linux
+  nativeArch regression fix, P3.2, the int64 follow-ups, and the
+  conformance-harness `OVERRIDE_MODE` fix. Current native-arm32-baremetal
+  conformance: **1499 passed / 1079 failed / 32 skipped** (all failures are
+  fail-loud deferred shapes or real gaps).
+- **Per-increment workflow that's worked every time:** (1) delegate the
+  increment to a background `Agent` working in `temp-binate-5` (no `isolation:
+  worktree`), mirroring the `native/aarch64` handler where a template exists and
+  designing novel code where it doesn't (int64 pairs had none); (2) run a minimal
+  2-reviewer adversarial `Workflow` (structured findings) — it has caught a real
+  bug every phase; (3) fix findings myself; (4) independently re-verify (units for
+  every changed package incl. `cmd/bnc`/`common`, native-arm32 conformance
+  spot-checks, hygiene, and that deferred shapes still COMPILE_ERROR); (5) land
+  via the full procedure with FRESH per-round explicit approval for each
+  cherry-pick; (6) update this doc.
+- **The fail-loud invariant is sacred:** every op/shape the backend doesn't
+  implement must `a.SetError` (→ clean COMPILE_ERROR), NEVER silently miscompile.
+  Verify it holds after each increment (a deferred-shape test must COMPILE_ERROR,
+  not produce wrong output). The dispatch tail + per-emitter guards enforce it.
+- **Verify agent reports; don't trust counts on faith** — independently re-run
+  the acceptance (a P3.1 "19" was a curated batch; P3.2's "1451" needed a full
+  run to confirm; a `002_arithmetic` "deferred but passing" turned out to be
+  constant-folding, not a bug).
+- **Smoke set = `git diff --name-only`,** not the packages an agent's report
+  emphasizes (a `cmd/bnc/target.bn` change once went unsmoked → red main).
+
 ## Architecture recap: the native backend seam
 
 `cmd/bnc` compiles each package to an object. Two backends sit behind a
