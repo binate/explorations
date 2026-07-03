@@ -355,7 +355,18 @@ while keeping every commit green and close to main.
    (int lit / ident / inferred `...`) print inline. The token-equality gate
    (§11.1) lives in the test harness (`normTokens` drops semicolons + trailing
    commas; `assertTokenEq`) and is reused by later printer steps.
-5. **Package clause + canonicalized, sorted imports** (needs no type printer).
+5. **Package clause + canonicalized, sorted imports** — ✅ **LANDED** 2026-07-02
+   (`0093ff8b`). `Format(f)` (`print_file.bn`) emits `package "…"` + the import
+   section: grouped `import (…)` collapsed to one-per-line, sorted within each
+   blank-line-delimited run (boundaries recovered from `ImportSpec.Pos` line
+   gaps; order matches `file-format.sh` check 4); aliases handled. Verified by
+   exact-bytes golden + idempotence + the §11.1 token-equality round-trip on
+   order-preserving inputs. Package/import **annotations** and inter-import
+   **comments** are not yet emitted (steps 7 / 9). Building step 5's token-gate
+   tests surfaced — and got fixed (`16471d71`) — a CRITICAL `box()`
+   use-after-free: `box(structWithManagedFields)` did not RefInc the copied
+   fields (the harness boxes `token.Token`, whose `Lit` is `@[]char`); the fix
+   adds `emitStructCopy` after `EmitBox`. Regression: `conformance/965`.
 6. **Expr printer** (all `EXPR_*` incl. `EXPR_TYPE`) + `print_builtin.bn` + precedence parens.
 7. **Signatures + `Decl`** (var/const/type, grouped blocks, annotations).
 8. **Stmt printer** (all `STMT_*`), blocks/indent, ASI trailing-comma, D4 context.

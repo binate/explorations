@@ -11,9 +11,14 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
-### box() of a struct with managed fields did not retain them — use-after-free — 🟢 FIX READY, pending land (2026-07-02)
+### box() of a struct with managed fields did not retain them — use-after-free — ✅ FIXED & LANDED (`16471d71`, 2026-07-02)
 
 **Severity: CRITICAL (silent use-after-free / memory corruption).**
+
+**RESOLUTION (`16471d71`).** Fix + `conformance/965` landed on main. Verified:
+conf 965 fails (crashes) with the fix disabled and passes under builder-comp /
+-int / -comp; full builder-comp conformance 2604/0; full builder-comp unit suite
+51/0; hygiene 15/15. Unblocks bnfmt step 5's token-equality tests (`0093ff8b`).
 
 **Root cause.** `box(v)` in IR-gen (`pkg/binate/ir/gen_expr.bn`, the `token.BOX`
 arm of `genBuiltin`) bit-copied `v` into the new managed cell via `EmitBox` but
