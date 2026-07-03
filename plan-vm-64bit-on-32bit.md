@@ -95,36 +95,64 @@ CI's `builder-comp_arm32_linux` job (un-runnable on macOS — no qemu-arm).
    `ubuntu-latest` job is the red-signal source.  **NEXT: read the first main-CI
    run's `builder-comp_arm32_linux_int` job log** for (a) whether `cmd/bni`
    cross-compiles to arm32 at all, and (b) the red failure list.
-3. **Phase 3 — triage the red run. RED RUN CAPTURED + DOMINANT BUG DIAGNOSED
-   (2026-07-02); the fix is NOT yet started.**
+3. **Phase 3 — triage the red run. `println` PATH ROOT-CAUSED + FIXED
+   (2026-07-03); THREE distinct ILP32 bugs, not the single one first hypothesized.
+   Fixes staged on `temp-binate-2`/`work-2`, not yet landed.**
    - **Red run** (CI run 28634304798 / job 84924780859, and reproduced locally):
      `509 pass / 2106 fail`. `cmd/bni` cross-compiles to arm32 and runs — Phase 2
      infra fully validated. ~1471 failures are the same `index out of bounds: 0
      (len 0)`.
    - **Local debug env**: a Docker `linux/amd64` container `binate-arm32` (arm
-     cross-toolchain + qemu-user) gives a fast repro — `arm32_bni` prebuilt at
-     `/root/arm32_bni`; loop = edit host VM code → rebuild arm32 bni (~40s) →
-     `qemu-arm-static /root/arm32_bni -I $(cat /root/ifaces) -L $(cat /root/impls)
-     test.bn`. (`docker rm -f binate-arm32` to clean up.)
-   - **ROOT CAUSE (diagnosed, corrected from the symptom)**: NOT the slice
-     representation. On arm32 the VM CORE is correct — `os.Exit`, arithmetic,
-     `make_slice`, slice `len`/index, and even `len("string const")`=11 and
-     `len(runtime @[]char)`=2 all work. The bug is `println`: the **cross-mode
-     (bytecode→native) marshaling of a COERCED-AGGREGATE slice arg/return on
-     ILP32**. `bootstrap.Write(fd, buf *[]readonly uint8)` gets a 2-word `{ptr,len}`
-     slice that arrives with len 0 (→ empty output); `bootstrap.formatInt`'s
-     returned char-slice reads len 0 (→ the bounds abort). This is **bucket B** —
-     the coerced-aggregate arg/return slot marshaling (same machinery as the
-     funcvalue coerced-agg spill work) assumes LP64 word sizes; on ILP32 a 2-word
-     slice (8 bytes) is mis-split across arg slots / mis-read from the retbuf.
-   - **FIX (next session)**: parameterize the coerced-aggregate cross-mode
-     arg-slot packing + retbuf field reads for the target word size, in the
-     func-value / extern dispatch (`vm_exec_funcref.bn` `dispatchCompiledFuncValue`
-     + arg collection; `vm_extern.bn`; the coerced-agg slot logic in
-     `lower_slots.bn`). Then iterate the rebuild→qemu loop over the failure tail.
-     Also fix the separate confirmed ILP32 bug `vm_exec_helpers.bn:91` (`* 32`
-     `@[]char` header stride → `4*REG_SLOT`). As the mode greens, flip it from
-     experimental to blocking in `conformance-tests.yml`.
+     cross-toolchain + qemu-user). NB it is x86-emulated-on-Apple-Silicon, so the
+     arm32 VM runs *triple*-emulated (qemu-arm inside x86-on-ARM) — fine for a
+     single-program repro loop (`docker exec binate-arm32 bash /root/build.sh`
+     rebuilds arm32 bni; then `qemu-arm-static /root/arm32_bni -I $(cat
+     /root/ifaces) -L $(cat /root/impls) test.bn`), but a FULL conformance sweep is
+     impractically slow locally — the definitive numbers come from CI (single
+     qemu layer on native x86). (`docker rm -f binate-arm32` to clean up.)
+   - **ROOT CAUSE — three separate LP64-word hardcodes, all on the `println`
+     path** (disassembly-verified). The initial "coerced-aggregate slot marshaling
+     in the VM dispatchers" hypothesis was WRONG — the VM dispatchers pass args one
+     host-word per slot, which is already correct on ILP32; the by-address slice
+     the VM hands the shim was fine. The real bugs:
+     - **(A) MAJOR — cross-mode / func-value shim ABI.** `codegen`'s
+       `isAggregateArg` was `SizeOf() > 8` (LP64 word). On ILP32 an 8-byte
+       aggregate (2-word slice / func-value / iface-value) is `!(> 8)`, so the
+       per-function `__shim` treated it as a scalar coerced-in-registers, while the
+       VM cross-mode dispatcher AND the native caller (`emit_call_funcvalue`) pass
+       it **by-address** — the shim then read the slice's `len` from a stale
+       register. Smoking gun: the arm32 `__shim.bootstrap.Write` was a pure
+       register-shuffle, whereas the x86-64 one *dereferences* the by-address ptr
+       (`mov (%rdx),%rsi; mov 0x8(%rdx),%rdx`). Fix: new shared
+       `types.IsAggregateArg` — KIND-gated (slice/mslice/struct/array/fv/iface)
+       **and** `SizeOf > PointerSize`; `codegen` delegates. The kind gate is
+       essential: an 8-byte *scalar* (int64/float64) must stay scalar, else the
+       shim's `bitcast i64 %a to double` fails to compile.
+     - **(B) slice field offset.** `vm/lower_memory.bn` `lowerGetFieldPtr` used
+       `instr.Index * 8` for (managed-)slice fields → the `len` field landed at
+       offset 8, past the 8-byte raw slice, so the slice materialized with `len 0`.
+       Fix: `* GetTarget().PointerSize`.
+     - **(C) VM runtime header/slot strides.** `vm_exec_helpers.bn` / `vm.bn`
+       `* 32`/`+ 32` (4-word slice/@[]char headers), `vm_exec_funcref.bn` /
+       `vm_exec_iface.bn` `+ 16` (2-word fv/iface slots), iface-upcast native
+       vtable `offset * 8`, and `rt.Alloc(32)` (4-word closure rec) — all LP64
+       literals. The 2nd+ string literal in a function got a null data ptr (the
+       dropped `println` newline). Fix: `4*REG_SLOT` / `2*REG_SLOT` / `* PointerSize`.
+   - **VALIDATION.** `println` (single/multi-string, int, mixed) + slices +
+     capturing closures all work on arm32-VM. Subset `001` = 17/20 (was ~19%
+     overall). New unit tests `types.TestIsAggregateArgKindGated` and
+     `vm.TestGetFieldPtrSliceOffsetTargetAware` (both LP64+ILP32 via `SetTarget`);
+     types/codegen/vm unit packages green on 64-bit. Bug-A native regression: the
+     `builder-comp_arm32_linux` func-value/print/iface/closure surface = **99
+     passed, 0 failed** (the shim-ABI change is a no-op on LP64 and self-consistent
+     on ILP32). All three fixes are LP64 no-ops (thresholds/strides unchanged at
+     word 8).
+   - **REMAINING TAIL (out of scope for the marshaling fix).** With `println`
+     working, deeper tests now reach new failures — e.g. `133_slice_elem_copy_rc`
+     SEGFAULTs after printing `1 2 3` (a refcount / slice-elem-copy ILP32 bug,
+     previously masked). So A/B/C are large progress but the mode is NOT fully
+     green — it stays experimental/non-blocking until the tail is cleared; only
+     then flip it to blocking in `conformance-tests.yml`.
 
 Rationale: buckets B(hard) and C(hard) are information-gated — speculative until
 the red run says what breaks. Getting the failing signal beats a blind audit
