@@ -95,9 +95,14 @@ CI's `builder-comp_arm32_linux` job (un-runnable on macOS — no qemu-arm).
    `ubuntu-latest` job is the red-signal source.  **NEXT: read the first main-CI
    run's `builder-comp_arm32_linux_int` job log** for (a) whether `cmd/bni`
    cross-compiles to arm32 at all, and (b) the red failure list.
-3. **Phase 3 — triage the red run. `println` PATH ROOT-CAUSED + FIXED
-   (2026-07-03); THREE distinct ILP32 bugs, not the single one first hypothesized.
-   Fixes staged on `temp-binate-2`/`work-2`, not yet landed.**
+3. **Phase 3 — triage the red run. `println` PATH ROOT-CAUSED + FIXED + LANDED
+   (2026-07-03; commits `39388b9f` A, `1057d7d5` B, `2adc1907` C on `main`);
+   THREE distinct ILP32 bugs, not the single one first hypothesized.  A minimal
+   3-dimension adversarial review before landing caught TWO more: an
+   alias-transparency regression (StripWrappers didn't peel TYP_ALIAS, so an
+   alias-over-aggregate func-value param mis-classified as scalar — folded into A)
+   and a missed sweep site (`vtable_inject.bn` native-vtable extent `* 8`, coupled
+   to the iface-upcast slot stride — folded into C).**
    - **Red run** (CI run 28634304798 / job 84924780859, and reproduced locally):
      `509 pass / 2106 fail`. `cmd/bni` cross-compiles to arm32 and runs — Phase 2
      infra fully validated. ~1471 failures are the same `index out of bounds: 0
