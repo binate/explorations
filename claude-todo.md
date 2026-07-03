@@ -298,10 +298,34 @@ pre-existing `__c_call` C-varargs `...` marker (§16.9), which is unaffected.
     and reject a variadic method call with a leaky `cannot assign … to *[]int`
     message (not wrong-code — rejected before IR-gen). Route them through the
     variadic binding in Phase 6.
-- ⬜ **Phase 4** — spread. ⬜ **Phase 5** — managed-element borrow (deeper refcount
-  matrix coverage; the pack path already acquires/borrows correctly per 177).
-  ⬜ **Phase 6** — method/interface/generic/method-value variadic calls.
-  ⬜ **Phase 7** — close-out + status flip.
+- ✅ **Phase 4** — spread (`expr...`) (main `b8a89eb9`): checker
+  `checkSpreadCallBinding` (bind k fixed + require exactly k+1 args + KIND-gate the
+  operand to a slice via `peelNamedBounded` BEFORE `AssignableTo`, so `f("abc"...)`
+  / bare arrays are rejected but a named-distinct slice type is accepted); reject
+  spread into a non-variadic callee, onto `print`/`println`/`panic`, and onto a
+  method (Phase 6). IR `emitVariadicSpread` forwards the operand's `{data,len}`
+  directly (`@[]T` decays via `EmitManagedToRaw`, raw `*[]T` passes through — no
+  copy/alloc, borrow lifetime preserved) through both direct and func-value calls.
+  Conformance 178 (positive: `@[]T`/`*[]T`/`arr[:]`/readonly-elem/empty/after-fixed),
+  179 (refcount: fresh + named-var operand), 180-182 (negatives), 183/184 (mixed +
+  unfilled arity, split so each fires independently), 185 (named-distinct slice),
+  186 (method reject), 187 (func-value spread). Green comp/int/comp-comp.
+  - **Sibling fix** (main `a2abf36e`): a fresh managed-slice composite literal
+    `@[]@T{...}` was never registered as a cleanup temp → the return-path
+    backing-RefInc was unbalanced → the caller's dtor skipped the element walk and
+    the managed elements leaked (the tracked "`@[]@I` literal element leak", general
+    to any managed element kind). Fixed by registering it in `genManagedSliceLit`
+    like a call-result / struct-array literal. Conformance `18-memory/148`.
+  - **Bug surfaced** (main `3bae7806`, filed above): slicing a string literal
+    (`"abc"[:]`) emits invalid LLVM — the plan's `stringLit[:]...` positive case;
+    178 covers the same readonly-element path with a `[N]char` array subslice.
+  - Adversarial review (8 agents, 5 lenses): leak fix verified sound across all 12
+    consumers; two confirmed-minor checker gaps (named-distinct false-negative,
+    method-spread silent-drop) fixed pre-land.
+- ⬜ **Phase 5** — managed-element borrow (deeper refcount matrix coverage; the
+  pack path already acquires/borrows correctly per 177). ⬜ **Phase 6** —
+  method/interface/generic/method-value variadic calls. ⬜ **Phase 7** — close-out
+  + status flip.
 
 Open decisions for the user (plan §12): O-1 (test 023 repurpose), O-2/‡
 (mixing-error wording), O-4 (refcount-assertion mechanism).
