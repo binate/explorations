@@ -2064,6 +2064,56 @@ backend doesn't implement emits a clean COMPILE_ERROR, never silent wrong-code).
 - **soft-float (P5) / VFP hard-float + arm32-linux (P6) / CI wiring (P7)** — see
   the plan doc.
 
+#### MAJOR — three silent runtime miscompiles on native-arm32-baremetal (found by the P4 reconnaissance, 2026-07-02)
+
+These compile CLEAN through the native arm32 backend and then HANG at runtime
+under QEMU (identifiable in a full run by their `[10s]` timeout vs `[0s]/[1s]` for
+fail-loud). They violate the never-silently-miscompile invariant. Scope is
+**native-arm32-only** (that mode is not in CI), so severity is MAJOR not CRITICAL,
+but they are live red on `main` and were UNTRACKED (no xfail, no todo) until now.
+Per the Bug Discovery Protocol each needs an xfail marker + fix:
+
+- **`conformance/matrix/abi/struct-param/five-u8`** — a 5-byte (2-word) by-value
+  struct param hangs; the `two-int`/`three-int`/`three-u32`/`int-u8`/`u16-int`
+  siblings pass. **Root cause is the plan's already-documented MAJOR latent-P3
+  gap** (plan-native-arm32.md "NEW, MAJOR (latent, P3)"): codegen coerces a
+  ≤16-byte aggregate param to `[N x i64]` (`aggCoerceLLTy`, hardcoded i64), which
+  clang lowers as 8-aligned i64 register PAIRS, but the native AAPCS32
+  word-packing (`common_callconv.bn` `argRegWordsStackWords`) doesn't reproduce
+  that pair-alignment for a 4-aligned struct starting on an odd register. The plan
+  said to fix this "before P3/P4 passes such args" — the backend now exists and the
+  hang is that validation failing. Fix: target-aware `[N x i32]` coercion OR native
+  i64-pair even-register modeling — a SHARED codegen/callconv change, so re-verify
+  LP64 byte-identity (x64/aa64) + pin against `clang -target arm-none-eabi
+  -mfloat-abi=soft`. The SAME reconciliation gates any func-value shim / iface
+  dispatch / multi-return in-register path that passes or returns an aggregate.
+- **`conformance/599_addr_of_slice_elem`** — `make_slice` + `&s[i]` hangs; the
+  test's comment references a prior shared-IR address-of miscompile fixed for other
+  backends, which arm32 still mishandles (likely a localized `arm32_emit.bn`
+  `emitGetElemPtr` / address-of bug).
+- **`conformance/877_aggregate_abi_xpkg`** — cross-package 64-bit aggregate ABI;
+  prints line 1 then hangs.
+
+#### P3 GAP (fail-loud, not silent) — OP_MAKE / OP_BOX unimplemented
+
+`arm32_dispatch.bn` has no `OP_MAKE` / `OP_BOX` case (only `OP_MAKE_SLICE`), so
+`make(T)` / `box(v)` hit the generic "unimplemented IR op make" fail-loud tail.
+This is unfinished P3 (the plan's "Remaining P3 work" lists `arm32_emit.bn
+(ALLOC/MAKE/BOX/MAKE_SLICE/...)`), and it is the **dominant** native-arm32 failure
+bucket (~41% of a 195-test sample: make×74, box×6) AND the blocker for measuring
+any P4 progress — most iface/func-value conformance programs allocate a managed
+value, so they fail on `make` before reaching P4 code. Near-verbatim ~50-LOC port
+of aa64 `emitMake` (`aarch64_emit.bn:56`) + `emitBox` (`:81`); arm32 already has
+`mangleRtFunc`/`symPrefixed` + the alloc/spill primitives. Highest-unlock,
+lowest-risk next step.
+
+#### MINOR (cross-backend diagnostics) — `iropcode.OpName` missing `OP_CONST_FLOAT`
+
+`pkg/binate/iropcode/opcodes.bn`'s `OpName` switch lacks an `OP_CONST_FLOAT` case,
+so float-const failures mislabel as "unimplemented IR op unknown" across all
+backends/tools. 1-line fix (`case OP_CONST_FLOAT: return "const_float"`); pure
+diagnostics, no pass/fail change.
+
 ### ARM32 bare-metal target — MAJOR PROJECT
 - **Why**: enable Binate as an OS-development language on ARM32
   bare-metal (Cortex-A and possibly Cortex-M). Bare-metal is the
