@@ -77,23 +77,42 @@ unused-import cross-file gap and add four new "unused" checks.
     `Test…`/`Benchmark…` funcs as reachability ROOTS (invoked by the runner,
     not in-package) — this alone dropped `types --tests` from **1046 → 109**
     findings (890 Test + 49 helpers gone). Unit-tested; hygiene green.
-    - **Remaining before --tests is hygiene-wirable (follow-ups). APPROACH
-      (user, 2026-07-02): do NOT add rule-specific "test files are exempt"
-      policies — instead ANNOTATE the genuinely-intentional findings with the
-      existing `// bnlint:allow <rule>` per-line suppression, and FIX the real
-      ones.** (The `unused-func` Test-root handling is NOT such a policy — it is
-      correct reachability, and annotating 890 test funcs would be absurd; it
-      stays.)
-      - **`managed-to-raw-assign` in tests** — 102 in `types` tests; triage:
-        annotate the intentional raw-view test patterns, fix any real drop.
-      - **`unused-import` in tests** — ~5 in `types`; probably real, clean them.
-      - **Broader sweep** — only `types` measured; run `--tests` per package and
-        triage (annotate / fix).
+    - **Test-file triage: ✅ DONE & LANDED** (main `6882377b` + `5b4814f0`,
+      2026-07-03). Full repo-wide `--tests` sweep → **313 test-file findings
+      resolved to 0** across all packages, per the APPROACH below (user,
+      2026-07-02): do NOT add rule-specific "test files are exempt" policies —
+      ANNOTATE genuinely-intentional findings with `// bnlint:allow <rule>` and
+      FIX the real ones. (The `unused-func` Test-root handling is NOT such a
+      policy — it is correct reachability; it stays.) Resolution:
+      - **`managed-to-raw-assign` (260):** 160 `cb.String()` sites were pure
+        ceremony — a `strings.Builder` fed only string literals, then raw-viewed;
+        since adjacent string-literal concat is a language feature and a literal
+        is already `*[]readonly char`, the Builder was DROPPED (direct literal
+        assignment, byte-identical content). The other 100 are safe borrows the
+        rule can't prove (field of a live `@Assembler`/`@Section`; sub-slice view
+        of an immortal rodata literal via `unquote`/`shortName`; live managed
+        local) — ANNOTATED with a preceding-line `// bnlint:allow
+        managed-to-raw-assign - <why the owner outlives the borrow>`. No real
+        UAFs found.
+      - **`unused-import` (49):** removed. **`unused-func` (4):** dead test
+        helpers removed (elf `semiExit`/`emitExitBlock`/`emitSemiExit` island;
+        x64 `rodataBytes`).
+      - Verified: re-sweep 0 test-file findings; all 74 changed files are
+        `_test.bn` (no production touched); drop-builder content byte-identical;
+        unit tests green (types+codegen 2/0, rest 20/0); hygiene 15/15.
+      - **Discovered + scoped-out (user, 2026-07-03):** the `--tests` sweep also
+        surfaced **39 verified-dead PRODUCTION** findings (20 unused imports, 19
+        dead unexported funcs) the current-source bnlint flags but the bundled
+        hygiene bnlint doesn't yet — tracked as a separate follow-up in
+        `claude-todo.md` (the bnlint section).
+    - **Still open before --tests is hygiene-wirable:**
       - **A bnlint `--tests` integration test** (only the unused-func Test-root
         behavior is unit-tested so far).
+      - **The 39 production dead-code items** (see `claude-todo.md`).
       - **Wiring into hygiene** (`scripts/hygiene/lint.sh` — add `--tests`) is a
-        SEPARATE hook-up decision the user owns; do NOT wire until the noise
-        above is annotated/fixed AND it's requested.
+        SEPARATE hook-up decision the user owns; do NOT wire until the above is
+        done AND it's requested. (Also gated on the BUILDER bump that makes the
+        bundled bnlint recognize `// bnlint:allow` + the newer rules.)
 
 This plan is grounded in a full read of `pkg/binate/lint/*`, `pkg/binate/types/*`
 (checker/scope), and `pkg/binate/loader/*`, plus empirical repros. File:line
