@@ -374,15 +374,32 @@ function, and we add only a *declare-only* test here.
   prepend (it does: `prependRecvParam` reconstructs *only* the receiver at index 0
   and forwards existing params by reference, so the variadic stays last).
 
-**IR-side param resolution (per D-G — REQUIRED here, not deferrable):** add the
-`irResolveParamType(gc, pd)` helper and call it from **at least** the callee
-param loop (`genFuncWithPrependedParams`, `gen_func.bn:72-79`) and the named-func
-FuncSig sites (`gen_module.bn`, `gen_module_single.bn`) so a declared variadic
-function's IR param and FuncSig are `*[]T`, and set `ir.FuncSig.IsVariadic`. Without
-this, the declare-only test below **miscompiles** — IR would resolve `xs` to
-scalar `int` and `len(xs)` is nonsense (Phase-2 would *not* be green). The
-remaining IR call-site edits (pack/spread) come in Phases 3+, but the callee-side
-`*[]T` derivation must land here with the declaration support.
+**IR-side param resolution (per D-G — REQUIRED here, ALL declare-time sites):**
+add the `irResolveParamType(gc, pd)` helper (+ `declIsVariadic(d)`) and apply it at
+**every** IR site that resolves a decl/method param from the AST — enumerate
+repo-wide (`grep -rn 'resolveTypeExpr(gc, .*\.Params\[' pkg/binate/ir`), do **not**
+guess a subset. The parser change accepts variadic *func-literals*, *methods*,
+*interface methods*, and *imported* variadic functions too, and each **materializes
+at declare time** (a func-value shim, an external `declare`, an interface
+descriptor) — **not** only at a call — so all of these must derive `*[]T`, or they
+emit silent wrong-code (a scalar-`i64`-vs-`%BnSlice` ABI mismatch) even with no
+call. The sites (verified 2026-07-02): `genFuncWithPrependedParams`
+(`gen_func.bn`), the named-func FuncSig builds (`gen_module.bn`,
+`gen_module_single.bn`), `methodSig` (`gen_method.bn`), the func-literal FuncSig +
+func-value type (`gen_func_lit.bn` `registerLiftedFuncSigWithCaptures` /
+`funcValueTypeFromDecl`), imported/registered externs (`gen_import.bn`,
+`gen_register_import.bn` ×2), REPL (`gen_repl.bn`), the func-ref decay
+(`managedFuncValueTypeForName` in `gen_stmt.bn`, via a new `lookupFuncIsVariadic`),
+and **both** interface collectors (`gen_iface_registry.bn`, `gen_generic.bn` — also
+populate `ModuleInterface.MethodParamVariadic`). Set `ir.FuncSig.IsVariadic` /
+func-value-type last-param `IsVariadic` at each. Sites that inherit `*[]T` from an
+already-resolved `f.Params` / checker `m.FuncType` (`gen_method_value.bn`, the
+generic instantiation FuncSig) need only the `IsVariadic` flag, deferrable to
+Phase 6 (the ABI is already right). Without the callee-side derivation the
+declare-only test below **miscompiles** (`xs` → scalar `int`, `len(xs)` nonsense);
+without the func-lit/import derivation those forms **silently miscompile at declare
+time** (caught only by LLVM inspection or a Phase-3 call). The call-site pack/spread
+edits come in Phases 3+.
 
 **Tests:**
 - Parser unit tests: positive parses of `name ...T`, `*func(...T)`,
