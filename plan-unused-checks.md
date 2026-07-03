@@ -69,26 +69,31 @@ unused-import cross-file gap and add four new "unused" checks.
     `Checker.Warnings` / `addCheckWarning` / `CheckerWarnings()` /
     `printCheckerWarnings` were dead after the `(b)` revert (nothing produces
     checker warnings; Binate emits none). Whole apparatus deleted.
-  - **bnlint --tests (lint test files): FOUNDATION DONE, not landed** (work-3
-    `0b6b2a4b`, 2026-07-02). `bnlint --tests <pkg>` loads each target's
+  - **bnlint --tests (lint test files): FOUNDATION LANDED** (main `fee33041`,
+    2026-07-02). `bnlint --tests <pkg>` loads each target's
     `_test.bn` via the loader's existing `TestPackages` field so `LintFile`
     runs over them; opt-in (default off → existing behavior unchanged). Test
     files type-check cleanly under bnlint. `unused-func` now treats
     `Test…`/`Benchmark…` funcs as reachability ROOTS (invoked by the runner,
     not in-package) — this alone dropped `types --tests` from **1046 → 109**
     findings (890 Test + 49 helpers gone). Unit-tested; hygiene green.
-    - **Remaining before --tests is hygiene-wirable (follow-ups):**
-      - **`managed-to-raw-assign` in tests** — 102 findings in `types` tests
-        alone. Decide policy: exempt this rule from `_test.bn`, or triage/fix.
-        (Likely intentional raw-view patterns in tests → exempt.)
+    - **Remaining before --tests is hygiene-wirable (follow-ups). APPROACH
+      (user, 2026-07-02): do NOT add rule-specific "test files are exempt"
+      policies — instead ANNOTATE the genuinely-intentional findings with the
+      existing `// bnlint:allow <rule>` per-line suppression, and FIX the real
+      ones.** (The `unused-func` Test-root handling is NOT such a policy — it is
+      correct reachability, and annotating 890 test funcs would be absurd; it
+      stays.)
+      - **`managed-to-raw-assign` in tests** — 102 in `types` tests; triage:
+        annotate the intentional raw-view test patterns, fix any real drop.
       - **`unused-import` in tests** — ~5 in `types`; probably real, clean them.
-      - **Broader sweep** — only `types` was measured; run `--tests` over every
-        package and triage.
-      - **A bnlint `--tests` integration test** (currently only the unused-func
-        Test-root behavior is unit-tested).
-      - **Wiring into hygiene** (`scripts/hygiene/lint.sh`) is a SEPARATE
-        decision (the user owns hook-up); do NOT wire until the noise above is
-        resolved AND requested.
+      - **Broader sweep** — only `types` measured; run `--tests` per package and
+        triage (annotate / fix).
+      - **A bnlint `--tests` integration test** (only the unused-func Test-root
+        behavior is unit-tested so far).
+      - **Wiring into hygiene** (`scripts/hygiene/lint.sh` — add `--tests`) is a
+        SEPARATE hook-up decision the user owns; do NOT wire until the noise
+        above is annotated/fixed AND it's requested.
 
 This plan is grounded in a full read of `pkg/binate/lint/*`, `pkg/binate/types/*`
 (checker/scope), and `pkg/binate/loader/*`, plus empirical repros. File:line
