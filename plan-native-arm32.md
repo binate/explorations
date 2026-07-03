@@ -286,6 +286,13 @@ and the baremetal `bootstrap.Exec` xfail). Non-native modes are provably
 unaffected (guarded on `OVERRIDE_MODE` being non-empty). So the native-arm32
 conformance pass count is now meaningful (harness-gap false failures removed);
 remaining failures are genuine deferred shapes (fail-loud) or real gaps.
+Authoritative post-fix count: **`builder-comp_native_arm32_baremetal` = 1499
+passed / 1079 failed / 32 skipped** (up from 1483 / 1121 / 3 pre-fix: +16 now
+pass via inherited ILP32 `.expected` overrides, +29 now correctly XFAIL-skip via
+inherited arm32 xfails). The 1079 remaining failures are the deferred shapes —
+float, structs/arrays, interfaces, multi-return, closures, aggregate-sret
+arg-shift, impl vtables — which all COMPILE_ERROR (fail-loud), plus a few real
+gaps to triage as later increments land.
 
 Remaining P3 work (original sketch):
 - Port `arm32_ops.bn` (int arith/bitwise/shift/compare/unary/cast/const,
