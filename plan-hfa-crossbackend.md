@@ -148,24 +148,28 @@ single-program AND cross-module.
   - run in `builder-comp_native_aa64-comp_native_aa64` (the native↔LLVM boundary)
     AND `builder-comp` (all-LLVM) AND a VM mode.
 
-**Stage 4 — x64 (SCOPE DECISION REQUIRED, see below):** either Option A (leave x64
-float structs in GP — no work, already LLVM-consistent) or Option B (full x64 SSE
-HFA — new classifier rule + x64_call/emit_func/return + shims + new SSE pack
-opcodes in `asm/x64/x64_fp.bn` + arch-gated x64 LLVM coercion).
+**Stage 4 — x64 SSE HFA (Option B, in scope):** a per-target eightbyte-SSE
+classifier (≤16B all-SSE → XMM, incl. 2×f32-per-XMM and mixed-width `{f32,f64}`;
+>16B → MEM — diverges from aa64 which keeps ≤4-member HFAs); `x64_call.bn` /
+`x64_emit_func.bn` / `x64_return.bn` XMM arg+return placement (generalizing the
+existing scalar-float XMM path); the x64 dispatch shims; new SSE pack/extract
+opcodes in `asm/x64/x64_fp.bn` (2×f32 into one XMM eightbyte — `movlps`/`movhps`/
+`unpcklps`/`insertps`); and arch-gated x64 LLVM coercion in `emit_agg_coerce.bn`
+(`<2 x float>` / `double` / `{double,double}` / split `{double,i64}`). Then extend
+the flag/tests to x64 modes (`builder-comp_native_x64*`).
 
-## Decisions for the user
+## Decisions (settled)
 
-1. **x64 scope (Option A vs B).** A: x64 keeps GP-passing float structs (native +
-   LLVM already agree on `[N x i64]`), stays AAPCS-non-conformant-but-consistent;
-   HFA-in-SIMD ships aa64-only. Cheap, unblocks aa64. B: full textbook SysV SSE HFA
-   on x64 — a large separate effort (4 emitter families + shims + new SSE opcodes +
-   target-aware LLVM coercion). **Recommend A now, B as a later separate plan.** The
-   Arch-gated classifier makes A safe with the shared flag on.
-2. **Land Stage 0 independently?** It's a pure refactor + dormant walker fix and is
-   safely landable on its own, shrinking the risky stages. Recommend yes.
+1. **x64 scope: OPTION B — full x64 SSE HFA is IN SCOPE (user, 2026-07-02).** This
+   effort implements textbook SysV eightbyte-SSE HFA on x64 as well as aa64: the
+   per-target classifier rule + x64 call/emit_func/return + x64 dispatch shims +
+   new SSE pack opcodes in `asm/x64/x64_fp.bn` + arch-gated x64 LLVM coercion. So
+   Stage 4 below is a first-class part of the plan, not a deferred follow-up.
+2. **Land Stage 0 independently: yes.** Pure refactor + dormant walker fix, safely
+   landable on its own, shrinks the risky stages.
 3. **HFA return width.** AAPCS64 allows 4×f64 = 32B HFAs in v0..v3, above the 16B
-   sret threshold — confirm the HFA-return check precedes the size-based sret
-   decision on both func and call sides (open question flagged by the survey).
+   sret threshold — the HFA-return check must precede the size-based sret decision
+   on both func and call sides (confirm during Stage 2 / Stage 4).
 
 ## Verification methodology (non-negotiable)
 
