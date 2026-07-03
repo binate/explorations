@@ -3,9 +3,12 @@
 **Status:** in progress (2026-07-02). Stage 0 landed (`06f9a8ff` classifier lift,
 `d69eded8` variadic NSRN fix). **Stage 1 landed** (dormant): prereqs `7692508e`
 (TargetInfo.Arch + the `HfaInSimd()` master gate), codegen lowering `9ebf4119`
-(LLVM backend passes HFAs in SIMD). Both adversarially reviewed SOUND. **Next:
-Stage 2** (native aa64 returns + all dispatch shims + the HFA-aware
-`IsAggregateReturn`/`AggregateReturnSize`). Supersedes the *staging* of
+(LLVM backend passes HFAs in SIMD). Both adversarially reviewed SOUND. **Stage 2a
+landed** (dormant, `4bc6fa7c`): native aa64 HFA returns in D0..D3 + the
+`ReturnsHfaInRegs` classifier (with the AggInRegCoercedKind guard that closes the
+Stage-1 classifier-agreement carry-forward). **Next: Stage 2b** (dispatch shims +
+`closureHasFloatParts`; NOTE recon revised the `IsAggregateReturn` item — see
+Stage 2b groundwork). Supersedes the *staging* of
 `plan-native-hfa-abi.md` (which is marked NEEDS REPLAN). The native aa64 arg path
 from that effort is in-tree, **dormant** (`cc.HfaAggregates = HfaInSimd()`,
 currently false), and correct — it is reused here.
@@ -268,14 +271,23 @@ Verify (flip on): a native-main program calling (i) a native fn and (ii) an
 LLVM-dep fn each returning D2/D3/D4/F2 HFAs reads them back correctly; matches
 Stage-1 LLVM. Run `builder-comp_native_aa64-comp_native_aa64` + `builder-comp`.
 
-**Chunk 2b — dispatch shims + VM/descriptor retbuf gate:**
-- `types.IsAggregateReturn` (:78) / `AggregateReturnSize` (:94): make HFA-aware
-  (an HFA rides SIMD regs, so it is NOT a retbuf/aggregate-shim return → return
-  false / 0). This is what the VM cross-mode dispatch (`vm_exec_funcref.bn` reads
-  `retbufSize` = `AggregateReturnSize` via `common_pkg_descriptor.bn:22`), the pkg
-  descriptor, and reflect consult. Without it they'd reserve a retbuf for a
-  register-returned HFA → garbage. (Dormant now; the Stage-1 finding that these are
-  currently size-based and unperturbed-while-dormant is exactly this fix.)
+**Chunk 2b — dispatch shims (recon-revised 2026-07-03):**
+- `types.IsAggregateReturn` / `AggregateReturnSize`: **NO CHANGE** (the survey's
+  "make HFA-aware / return 0" was WRONG). The VM cross-mode dispatch
+  (`vm_exec_funcref.bn:345`) uses `retbufSize` (= `AggregateReturnSize`) to pick
+  the aggregate shim (retbuf) vs the scalar shim (one int in X0). An HFA has 2-4
+  members, so it MUST keep the retbuf-dispatch path (`IsAggregateReturn` true);
+  making it 0 would route the HFA to the SCALAR shim and drop members. The fix is
+  entirely in the shim RETURN-PACK: the shim calls the underlying (HFA in D0..D3)
+  and must `FMOV` the members into the retbuf instead of `Str`-ing from X0..
+- Codegen shims (`emit_funcvals_shim.bn` etc.): **likely already correct** — they
+  load/spell aggregate args + returns via `aggParamCoerced`/`aggRetCoerced`/
+  `aggCoerceLLTy`, which Stage 1 already made spell `[N x double]` for HFAs, so the
+  shim body reinterprets the by-pointer bytes as the SIMD type automatically.
+  VERIFY the return-pack under the flip; only the NATIVE shims (which emit asm
+  directly, not via `aggCoerceLLTy`) need explicit HFA branches.
+- Native shim HFA branches reuse the chunk-2a helpers `hfaMemberLoadToFp` (arg,
+  mem→D) / `hfaMemberStoreFromFp` (return, D→retbuf) in `aarch64_hfa.bn`.
 - The shim ROUTER `aarch64_closure_shim.bn:emitClosureShim` needs NO structural
   change IF `closureHasFloatParts` (`aarch64_closure_shim_float.bn:23`) is taught to
   detect HFA captures/params/returns (add `HfaMemberCount>0` beside each
