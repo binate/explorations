@@ -90,6 +90,62 @@ emit the SIMD-lowering LLVM form instead of `[N x i64]` — verified against cla
 for HFAs and reworking the param prologue / return pack so an `[N x float]` param
 binds directly (no `[N x i64]` spill-and-reconstruct).
 
+### Stage 1 groundwork (from the 2026-07-02 code survey) — the exact wiring
+
+The precise edit sites and the two plumbing prerequisites, so the codegen work can
+start cold:
+
+**Codegen edit sites (all must move in lockstep — a param-only change would make
+caller/callee disagree):**
+- `emit_util.bn:writeParamTypeLLVM` (~:286) — the single param-type chokepoint;
+  add an HFA branch above the `[N x i64]` (`aggParamCoerced`) case.
+- `emit_agg_coerce.bn` — `aggParamCoerced`/`aggRetCoerced`/`aggCoerceLLTy` (the
+  `[N x i64]` writer), the param prologue reconstruction, `emitAggReturn` (:197),
+  and the call-site + iface arg/result coercion (`emitAggCallArgPreamble`/
+  `writeAggCallArg` :254/:286; `emitAggIfaceArgPreamble`/`writeAggIfaceArg`).
+- `emit_helpers.bn:emitReturn` (~:260) — the return-shape switch (sret vs
+  `[N x i64]` vs first-class vs scalar); HFA return goes to the SIMD form.
+- `emit.bn` — extern declare param/return types (~:201-233) and the `funcRetTypes`
+  map (~:259-284) that call sites read for the ret spelling; both must spell the
+  HFA form.
+- `emit_iface_call.bn` (iface thunk param typing, :110) and
+  `emit_funcvals_sig.bn` (func-value/closure shim sigs — aggregate args are `i8*`
+  today; an HFA can't ride the all-int shim, ties to native finding #2).
+
+**Prerequisite A — `TargetInfo.Arch` (codegen can't tell aa64 from x64 today).**
+`TargetInfo` = `{PointerSize, IntSize, MaxAlign, BigEndian}` (types.bni:480); both
+aa64 and x64 are LP64 and the LP64 targets in `cmd/bnc/target.bn:applyTarget` skip
+`SetTarget` entirely, so codegen has no arch signal. Add `Arch int` (consts
+`ARCH_AA64`/`ARCH_X64`/`ARCH_ARM32` in `types`). Set it per `--target`, and give
+the HOST default the compiled-in host arch — `initTarget` (`layout.bn:12`) already
+measures host layout from `sizeof`, but there is no arch primitive; the host arch
+is `build.Arch` (used by `buildcfg.HostConfig`, `buildcfg.bn:42`). Cleanest: a
+`types.SetArch(int)` that stamps just the field, called from `applyTarget` for
+EVERY key (host included, from `build.Arch` — cmd/bnc can import build; check
+`types`↔`build` has no cycle before putting arch consts where they cross). Also
+fix `nativeArchForTarget`'s hardcoded `"aarch64"` no-triple fallback to read the
+host arch. On this Apple-Silicon dev host the default must resolve to `ARCH_AA64`
+so all-LLVM verification exercises the aa64 form.
+
+**Prerequisite B — a single master gate consulted by BOTH backends.** Stage 1 makes
+the LLVM backend pass HFAs in SIMD; if that ships while native still passes GP
+(`HfaAggregates=false`), native-main↔LLVM-dep breaks the SAME way (reversed). So
+codegen's HFA emission and native's `HfaAggregates` MUST flip together. Add one
+predicate `types.HfaInSimd()` (initially `return false`; later `GetTarget().Arch ==
+ARCH_AA64` once native+shims are ready, then `|| == ARCH_X64` after Stage 4).
+Rewire native `AAPCS64_Darwin()` from the hardcoded `cc.HfaAggregates = false`
+(common_callconv.bn) to `cc.HfaAggregates = HfaInSimd()`, and gate every codegen
+HFA branch on `types.HfaInSimd()`. One flip enables both halves in lockstep, so
+the tree stays GP-consistent (green) through Stages 1–2 with the codegen change
+landed but DORMANT. Verify by a TEMPORARY flip build: all-LLVM HFA programs
+compute correctly and `--emit-llvm` shows the HFA in v-regs (clang-confirmed),
+then revert the flip and land dormant.
+
+**Sequencing note.** Because the gate keeps it dormant, Stage 1's codegen change is
+landable green, but it should get its OWN adversarial review (cross-module + every
+coercion site + a temporary-flip all-LLVM run) before landing — it is the highest-
+risk change in the effort.
+
 ## Staging (each stage keeps the tree green; flag flips ON only at the end)
 
 The invariant every stage preserves: **for any HFA program, native == LLVM ==
