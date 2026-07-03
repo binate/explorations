@@ -367,9 +367,21 @@ while keeping every commit green and close to main.
    use-after-free: `box(structWithManagedFields)` did not RefInc the copied
    fields (the harness boxes `token.Token`, whose `Lit` is `@[]char`); the fix
    adds `emitStructCopy` after `EmitBox`. Regression: `conformance/965`.
-6. **Expr printer** (all `EXPR_*` incl. `EXPR_TYPE`) + `print_builtin.bn` + precedence parens.
+6. **Expr printer** — ✅ **LANDED** 2026-07-02 (`7d27a27d`). `FormatExpr`
+   (`print_expr.bn`) renders every `EXPR_*` kind **except `EXPR_FUNC_LIT`** —
+   literals, binary (precedence-derived parens; left-assoc: left operand parens
+   when strictly looser, right when looser-or-equal), unary (with a space guard
+   so `- -x`/`+ +x`/`& &x` don't merge into `--`/`++`/`&&`), call (incl. slice
+   spread `f(a...)`), index/instantiate, slice, selector, composite, `EXPR_TYPE`,
+   and the builtin sub-dispatch (`print_builtin.bn`: make/make_slice/cast/
+   bit_cast/box/len/sizeof/alignof/present/same/unsafe_*/`_func_handle` +
+   `__c_call`). `EXPR_FUNC_LIT` is **deferred to step 8** — its body is a
+   statement block, so it needs the statement printer (user-confirmed). An
+   adversarial review caught two pre-land silent-meaning bugs (dropped call
+   spread; `+ +x`/`& &x` collisions), both fixed + tested.
 7. **Signatures + `Decl`** (var/const/type, grouped blocks, annotations).
 8. **Stmt printer** (all `STMT_*`), blocks/indent, ASI trailing-comma, D4 context.
+   Also completes `EXPR_FUNC_LIT` (deferred from step 6 — its body is a block).
 9. **Comment attachment** (§7) + comment-multiset invariant (§11.3).
 10. **Blank-line handling**; file hygiene; `// LONG-LINE ALLOWED` preservation.
 11. **Column alignment** (tabwriter).
