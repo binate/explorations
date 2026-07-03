@@ -185,6 +185,30 @@ runner retry a timed-out test once before reporting failure. Until then a red
 native-aa64 run with a lone `[3s]` timeout failure is very likely this, not a real
 regression — re-run the single test in isolation to confirm.
 
+### Slicing a string literal (`"abc"[:]`) emits invalid LLVM — 🟠 OPEN (2026-07-03)
+
+**Severity: MAJOR (a valid language construct does not compile — hard LLVM
+verifier error, in every mode).** `genSliceExpr` (`pkg/binate/ir/gen_access.bn`,
+the array-to-slice arm) only materializes a `{data, len}` slice when the sliced
+collection's type is `TYP_ARRAY`. A **string literal** `"abc"` has type
+`[N]readonly char` (an array), but its `genExpr` yields a bare `i8*`
+`OP_CONST_STRING` pointer, whose `.Typ` is not `TYP_ARRAY` — so the array-to-slice
+conversion is skipped and the subsequent `EmitSliceLen` emits
+`extractvalue i8* <ptr>, 1`, which fails the LLVM verifier ("extractvalue operand
+must be aggregate type"). **Trigger:** any `"lit"[:]` — e.g. the plain
+non-variadic `cc("abc"[:])` (no variadics/spread involved).
+
+- **Discovered:** 2026-07-03, writing the variadics Phase 4 spread tests — the
+  plan's `stringLit[:]...` positive spread case. No existing test ever sliced a
+  string literal, so the path was untested. Phase 4's test 178 covers the same
+  readonly-element spread with a `[N]char` array subslice instead.
+- **Repro / xfail:** `conformance/regressions/slice-string-literal` (`.xfail.all`).
+- **Proposed fix:** in `genSliceExpr`, detect a string-literal / `OP_CONST_STRING`
+  collection and materialize it into a `{data, len}` char slice (or a `[N]char`
+  rodata array) before the slice bounds/len logic — mirroring how a string literal
+  bound to a `*[]readonly char` var is materialized elsewhere
+  (`EmitStringToChars`). Then drop the xfail.
+
 ---
 
 ## Language features — specified, not yet implemented
