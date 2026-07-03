@@ -224,27 +224,39 @@ pre-existing `__c_call` C-varargs `...` marker (§16.9), which is unaffected.
   - Deferred (non-blocking): `IsVariadic` *flag* on method-value / generic
     instantiation func-value types (ABI already correct; couples with Phase 6);
     Phase-1 F9 receiver-only-method unit test (fix-forward).
-- 🟡 **Phase 3** — direct individual-arg pack (in progress): `checkCallExpr`
-  variadic binding (fixed positional + pack trailing individual args, incl. the
-  empty case) + IR `emitVariadicTail` (stack `[N]T` backing via `OP_ALLOC`, no
-  heap; managed elements via `emitStoreManagedSlot` + backing-array temp
-  registration). Works for **direct named calls** (conformance 171 sum/empty/mixed
-  across comp/int/comp modes; 173 wrong-elem negative).
-  - **Deferred to Phase 6 — variadic calls through a FUNCTION VALUE** (indirect
-    boundary). Attempted here but backed out: `checkCallExpr` binds fine and the
-    pack is correct, but `EmitCallFuncValue` codegen crashes (`index out of
-    bounds: 1 (len 1)` at `codegen/emit_call_funcvalue.bn:193` —
-    `emitFuncValueArgPreamble` indexes `fnTyp.Params[i]` for `i < nArgs` where
-    `nArgs = len(Args)-1`, so a packed `*[]T` arg over-counts vs the 1 erased
-    param). A **direct** variadic call and a **fixed** `*func(*[]int)` call both
-    work — the crash is specific to the packed-slice arg through a func value, an
-    ABI-erasure detail the plan already scopes to Phase 6. For now the checker
-    rejects a variadic func-value call ("calling a variadic function value is not
-    yet supported") rather than mis-lower it. Phase 6 must fix the
-    `emitFuncValueArgPreamble` per-arg-vs-per-word counting and remove the gate.
-- ⬜ **Phase 4** — spread. ⬜ **Phase 5** — managed-element borrow.
-  ⬜ **Phase 6** — indirect/method/generic/method-value (incl. the deferred
-  func-value call above). ⬜ **Phase 7** — close-out + status flip.
+- 🟡 **Phase 3** — individual-arg call pack, DIRECT + FUNC-VALUE (ready to land,
+  work-1 `57efdcf1`): `checkCallExpr` variadic binding (fixed positional + pack
+  trailing individual args, incl. the empty case) + IR `emitVariadicTail` (stack
+  `[N]T` backing via `OP_ALLOC`, **no heap**; managed elements via
+  `emitStoreManagedSlot` acquire + backing-array temp registration).
+  `buildCallArgs` is shared by `genCall` and `genFuncValueCallWithFn`, so a call
+  through a **function value** packs before the indirection (ABI erasure to a plain
+  `*[]T`). Every element type handled — conformance 171 (direct sum/empty/mixed),
+  172 (func-value call), 173 (wrong-elem negative), 174 (string-literal element),
+  175 (by-value struct), 176 (managed-field struct), 177 (managed-pointer element
+  + `rt.Refcount` baseline — acquire/borrow balanced). Verified comp/int/comp;
+  full conformance builder-comp 2618/0.
+  - The func-value "crash" turned out to be a **Phase-2 D-G gap**: IR's
+    `resolveTypeExpr` ignored `VariadicParams` for a `*func(...T)` type (resolved
+    to `*func(T)`, no `IsVariadic`), so the func value's IR type disagreed with the
+    checker's and the pack was skipped → unpacked args over-counted the params.
+    Fixed by deriving `*[]T` + `IsVariadic` there (mirrors the checker's
+    `resolveFuncValueType`). No `emit_call_funcvalue.bn` change was needed.
+  - A minimal impl-review caught **two critical silent miscompiles** in
+    `emitVariadicTail` (a string-literal element lost `EmitStringToChars`; a
+    composite-struct element lost `isAggregateAllocToLoad` → stored the alloca
+    pointer + skipped the managed acquire). Fixed by extracting a shared
+    `coerceCompositeElement` helper used by both `genArrayLit` and
+    `emitVariadicTail` (they can no longer drift), + tests 174-177.
+  - **Deferred to Phase 6:** variadic **method / interface / generic-constraint**
+    calls — the three `check_method.bn` call sites bypass `checkVariadicCallBinding`
+    and reject a variadic method call with a leaky `cannot assign … to *[]int`
+    message (not wrong-code — rejected before IR-gen). Route them through the
+    variadic binding in Phase 6.
+- ⬜ **Phase 4** — spread. ⬜ **Phase 5** — managed-element borrow (deeper refcount
+  matrix coverage; the pack path already acquires/borrows correctly per 177).
+  ⬜ **Phase 6** — method/interface/generic/method-value variadic calls.
+  ⬜ **Phase 7** — close-out + status flip.
 
 Open decisions for the user (plan §12): O-1 (test 023 repurpose), O-2/‡
 (mixing-error wording), O-4 (refcount-assertion mechanism).
