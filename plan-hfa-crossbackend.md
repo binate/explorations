@@ -233,6 +233,78 @@ verification deliberately covers direct calls only.
 Verify: native == LLVM (from stage 1) across args + returns + each dispatch kind,
 single-program AND cross-module.
 
+### Stage 2 groundwork (from the 2026-07-03 native code survey) — the exact wiring
+
+The survey (native return path + full dispatch-shim inventory) fixes the insertion
+points. **Chunk it into 2a (direct-call returns) and 2b (shims + VM/descriptor),
+each landable dormant** — 2a is self-contained and verifiable alone.
+
+**The one genuinely-new primitive:** there is NO FP load/store on aa64 in this
+codebase (floats round-trip through GP: LDR/STR-X + FMOV — see `asm/aarch64/
+aarch64_fp.bn`). An HFA member LOAD (mem→D) already has a helper
+(`emitFloatLoadToFpAA64`, `aarch64_closure_shim_float.bn:143`: LDR→X16→FMOV, f32
+via `Fmov_w_to_s` / f64 via `Fmov_gp_to_fp`). An HFA member STORE (D→mem, needed
+for return packing) has NO helper — write one: per member `Fmov_fp_to_gp`(Xtmp,
+D0+m) then `Str`(Xtmp,[base+m*w]) (f32: `Fmov_s_to_w` + 32-bit Str). Put both in a
+shared aa64 file so return/collect/shims/iface reuse them. Physical regs: `D0..D31`
+are a disjoint namespace at `+32` from `X0..X30` (`asm/aarch64.bni`); HFA members
+ride D0..D3.
+
+**Chunk 2a — direct-call HFA returns (native emitReturn + caller collect):**
+- `common_callconv_return.bn`: `FuncReturnsBigAggregate` (:14) and
+  `CallReturnsBigAggregate` (:25) must EXEMPT an HFA (add `!(cc.HfaAggregates &&
+  types.HfaMemberCount(t)>0)` to the `SizeOf>InternalSretBytes` test) so a 24/32B
+  HFA is NOT sret'd. Add a shared `cc.ReturnsHfaInRegs(t)` predicate for the emit
+  sites to branch on (mirrors the arg path's `cc.HfaAggregates && HfaMemberCount>0`).
+- `aarch64_return.bn:emitReturn` (:22-48, the single-aggregate branch): a new HFA
+  branch BEFORE the `IsAggregateTyp` GP-pack — load member m from `[ptr+m*w]` into
+  `D0+m` (reuse the mem→D helper), no sret. (The ≤16B path currently packs GP
+  X0/X1, so even a 16B HFA needs this.)
+- `aarch64_call.bn` collect (:265-281): a new HFA branch in the single-aggregate
+  collect — members from `D0..D(n-1)` into the data region (mem←D via
+  `Fmov_fp_to_gp` + Str), gated on the same predicate; `bigRet` is already false
+  for HFAs via the exemption above, so it takes the register-collect path.
+Verify (flip on): a native-main program calling (i) a native fn and (ii) an
+LLVM-dep fn each returning D2/D3/D4/F2 HFAs reads them back correctly; matches
+Stage-1 LLVM. Run `builder-comp_native_aa64-comp_native_aa64` + `builder-comp`.
+
+**Chunk 2b — dispatch shims + VM/descriptor retbuf gate:**
+- `types.IsAggregateReturn` (:78) / `AggregateReturnSize` (:94): make HFA-aware
+  (an HFA rides SIMD regs, so it is NOT a retbuf/aggregate-shim return → return
+  false / 0). This is what the VM cross-mode dispatch (`vm_exec_funcref.bn` reads
+  `retbufSize` = `AggregateReturnSize` via `common_pkg_descriptor.bn:22`), the pkg
+  descriptor, and reflect consult. Without it they'd reserve a retbuf for a
+  register-returned HFA → garbage. (Dormant now; the Stage-1 finding that these are
+  currently size-based and unperturbed-while-dormant is exactly this fix.)
+- The shim ROUTER `aarch64_closure_shim.bn:emitClosureShim` needs NO structural
+  change IF `closureHasFloatParts` (`aarch64_closure_shim_float.bn:23`) is taught to
+  detect HFA captures/params/returns (add `HfaMemberCount>0` beside each
+  `IsFloatScalarTyp` at :26/:32/:34) — HFA closures then auto-route to the
+  float-aware shims.
+- HFA-arg branches (member FMOVs, reuse `emitFloatLoadToFpAA64`): `emitShimArgMarshalAA64`
+  (`aarch64_funcvalue_shim.bn`, before the `AggCoercedInReg` at :128),
+  `marshalFloatShimArgAA64` (`aarch64_closure_shim_float.bn`, after :228),
+  `emitCallIfaceMethod` (`aarch64_iface.bn`, after the float-scalar arg at :84),
+  `emitSpillMarshalAA64` (`aarch64_funcvalue_spill.bn`, after :198), each honoring
+  FP-overflow-to-stack.
+- HFA-return branches (member FMOVs D→retbuf, reuse the new mem←D helper; and
+  exempt the local `retSz>16` sret floors): funcvalue-shim pack (`:300-305`, sret
+  floor `:247`), closure-float-aggregate pack (`aarch64_closure_shim_float.bn:350-360`,
+  sret `:326`), iface collect (`aarch64_iface.bn:203-209`), funcvalue-spill pack
+  (`aarch64_funcvalue_spill.bn:117-127`). The non-float closure-aggregate shim
+  (`aarch64_closure_shim_aggregate.bn`) needs no HFA branch once the router diverts
+  HFAs to the float-aware shim, but its two pack loops (:101, :320) are the safety net.
+- **Budget note:** shim GP-word budgeting (`userBudget`, staging) counts HFA args as
+  GP words today; once they FP-pass they must not count against the GP budget — audit
+  the spill-routing thresholds when adding the arg branches.
+- **Classifier agreement (Stage-1 carry-forward):** native gates HFA on bare
+  `cc.HfaAggregates && HfaMemberCount>0`; codegen on `hfaSimdAggregate` (+
+  `AggInRegCoercedKind`). Unify (route native through a shared predicate) before the
+  Stage-3 flip so both halves classify the anonymous-tuple / named-scalar edge cases
+  identically.
+Verify (flip on): HFA through func-value (clone 340), closure, interface (clone 358),
+and a VM mode — native == LLVM, single-program AND cross-module.
+
 **Stage 3 — flip the aa64 switch + comprehensive tests:**
 - `AAPCS64_Darwin(): cc.HfaAggregates = true` (the Arch-gated classifier keeps x64
   GP-consistent, so the shared flag is safe).
