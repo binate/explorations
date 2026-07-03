@@ -376,10 +376,19 @@ pre-existing `__c_call` C-varargs `...` marker (§16.9), which is unaffected.
   - Adversarial review (8 agents, 5 lenses): leak fix verified sound across all 12
     consumers; two confirmed-minor checker gaps (named-distinct false-negative,
     method-spread silent-drop) fixed pre-land.
-- ⬜ **Phase 5** — managed-element borrow (deeper refcount matrix coverage; the
-  pack path already acquires/borrows correctly per 177). ⬜ **Phase 6** —
-  method/interface/generic/method-value variadic calls. ⬜ **Phase 7** — close-out
-  + status flip.
+- ✅ **Phase 5** — managed-element variadics coverage (main `72667a86`):
+  **no code change** (the pack mechanism — `emitStoreManagedSlot` acquire +
+  backing-array temp registration before the loop, callee borrows raw `*[]@T` —
+  landed in Phase 3; the plan predicted "largely already handled"). Verified
+  leak-free / double-free-free across every managed element kind and locked with
+  refcount-observing tests: 188 (`...@[]int` + `...@func` packs — fresh-literal
+  moved / var copied / empty), 189 (`...@Node` copy-out — shared referent returns
+  to baseline; a callee-copied-out element retains past the borrow), 190
+  (`...@Shape` interface element — routed through the same `emitStoreManagedSlot`,
+  not a bespoke coerce arm — pack + per-vtable dispatch + refcount baseline via the
+  underlying `@Square` box + copy-out). Green comp/int/comp-comp. Found no defects.
+- ⬜ **Phase 6** — method/interface/generic/method-value variadic calls. ⬜
+  **Phase 7** — close-out + status flip.
 
 Open decisions for the user (plan §12): O-1 (test 023 repurpose), O-2/‡
 (mixing-error wording), O-4 (refcount-assertion mechanism).
