@@ -606,6 +606,54 @@ Cross-package interfaces are feature-complete (canonical (R, I) mangling, qualif
 
 **Vtable layout for extension** (per `claude-plan-1.md` § 2.3 and `claude-discussion-detailed-notes.md` § "Interface Extension"): the vtable for `(R, X)` where `interface X : I1, I2 { own1; own2 }` is the concatenation `[any-block][full vtable of (R, I1)][full vtable of (R, I2)][R's own1, own2]`. All interfaces implicitly extend `any`, so every interface vtable starts with the `any`-block at offset 0 — holds the destructor pointer and is the natural home for further language-defined slots (e.g., a `*TypeInfo` pointer if RTTI is added). Layout is recursive: each parent's "full vtable" itself starts with its own `any`-block. Conversion `*X → *Parent` is a fixed compile-time pointer offset; no swap, no lookup. Some `any`-block content is duplicated at every nested origin in exchange for uniform fixed-offset conversion.
 
+**Type assertions, type switches, and RTTI — DECIDED 2026-07-02 (spec'd, impl pending)**:
+Downcasting from an interface value back to a concrete type (or a narrower interface).
+Binate stays **open** (Go-style) — no closed sum types, no exhaustiveness calculus.
+
+- **Source:** any interface value — `*I` / `@I`, including `*any` / `@any`. Concrete
+  values cannot be asserted (nothing to downcast).
+- **Targets:** a **concrete** type `T` (matches iff the dynamic type is *exactly* `T` —
+  nominal identity, so `Celsius` ≠ `float64`), an **interface** `J` (matches iff the
+  dynamic type has an explicit `impl … : J`), or `any` (always). Interface match is a
+  satisfaction check, not identity.
+- **Forms** (both, Go-style): `v := x.(K T)` **aborts** on a miss (unrecoverable — Binate
+  has no `recover`; the Go "panic" is a hard abort here); `v, ok := x.(K T)` is comma-ok
+  (no abort, `ok=false` + zero `v` on miss); and a **type switch**
+  `switch v := x.(type) { case K T1: … ; case K J2: … ; default: … }`.
+- **Recovery kind is MANDATORY** (`K` ∈ `@` / `*` / value) and follows this table (it is
+  the managed→raw decay direction — you can borrow from anything but cannot fabricate a
+  refcount from a borrow):
+  - `@I` → `@T` (retain, RefInc) · `*T` (borrow, **no** refcount churn) · `T` (value copy)
+  - `*I` → `*T` (borrow) · `T` (value copy) · **`@T` rejected** (no reference to share)
+  - Same rule for interface targets (`@J` / `*J`). Choosing `*T` from a `@I` to avoid
+    churn is the motivating case for making `K` explicit.
+  - The exact-identity match is on the **base type** (`T`), orthogonal to `K` and to any
+    `readonly` on the recovered handle (the readonly lattice governs that axis, §7.11).
+- **No `case nil`** — interface values are **not** nil-comparable (`present(iv)` is the
+  idiom; §13, §15). An iv has two "empty" states: **unset** (vtable word never filled,
+  `present` = false → **no dynamic type**, matches no arm, falls to `default`) and
+  **typed-nil** (vtable set, boxed pointer nil, `present` = true → **has** a dynamic type,
+  matches *that type's* arm, binds `v` with nil data — Go's typed-nil). So absence is a
+  `present()` concern (guard before/around the switch to catch unset distinctly); the
+  switch is purely dynamic-type dispatch. Assertion forms match: unset → `ok=false` /
+  abort; typed-nil → matches its type.
+- **Mechanism (RTTI — build it now):** the earmarked `*TypeInfo` slot goes into the
+  vtable **`any`-block** (offset-0 block every iface vtable already starts with; see
+  "Vtable layout for extension" above). One static **`TypeInfo` per concrete type**,
+  carrying: unique **identity** (its own address), **destructor**, **size**, **align**,
+  **name**, and the **impl-table** — `(interface-id → vtable(T, I))` for each explicit
+  `impl T : I` (finite/known precisely *because* impls are explicit). Concrete assert =
+  `TypeInfo`-identity compare (the `any`-vtable alone is too thin — dtor-less types share
+  it — so the `*TypeInfo` slot is what makes identity real, esp. for `*any`); interface
+  assert = impl-table lookup → hand back `{data, vtable(T, J)}`.
+- **Dual-mode:** `TypeInfo` is part of the shared layout contract, one record per type
+  **program-wide** (identity must agree across compiled + interpreted — same heap,
+  function-pointer interop). It is also the record the future **reflection** package reads,
+  so it carries size/align/name from the start.
+- Supersedes the deferred idea of downcasting via runtime type checks that panic
+  (rejected for the automatic `Self`-method case above); here the runtime check is
+  **explicit and opt-in**, which is the acceptable form.
+
 **Interface aliases**: `interface X = Y` for nominal-equivalent aliasing of interface names. `MyStringer` and `Stringer` are the same interface; `impl T : MyStringer` is indistinguishable from `impl T : Stringer`. There is *no* newtype-style "make this a distinct interface that happens to share the shape" form. Note: `type X = Y` aliases type expressions, so `type X = @Stringer` / `type X = *Stringer` work as type aliases; `type X = Stringer` (bare) is a type error.
 
 **Five receiver kinds** (per `claude-discussion-detailed-notes.md` § 6.5):
