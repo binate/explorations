@@ -95,11 +95,36 @@ CI's `builder-comp_arm32_linux` job (un-runnable on macOS — no qemu-arm).
    `ubuntu-latest` job is the red-signal source.  **NEXT: read the first main-CI
    run's `builder-comp_arm32_linux_int` job log** for (a) whether `cmd/bni`
    cross-compiles to arm32 at all, and (b) the red failure list.
-3. **Phase 3 (NEXT) — triage the CI red run.** Fix iteratively, data-driven: the
-   easy LP64 `ptrSize` wins, the `32`/`16` push strides, `BC_LOAD64/STORE64`
-   pairing, then the role-3 field audit and the argSlots re-marshal as they
-   actually surface. As the mode goes green, flip it from experimental to
-   blocking in `conformance-tests.yml`.
+3. **Phase 3 — triage the red run. RED RUN CAPTURED + DOMINANT BUG DIAGNOSED
+   (2026-07-02); the fix is NOT yet started.**
+   - **Red run** (CI run 28634304798 / job 84924780859, and reproduced locally):
+     `509 pass / 2106 fail`. `cmd/bni` cross-compiles to arm32 and runs — Phase 2
+     infra fully validated. ~1471 failures are the same `index out of bounds: 0
+     (len 0)`.
+   - **Local debug env**: a Docker `linux/amd64` container `binate-arm32` (arm
+     cross-toolchain + qemu-user) gives a fast repro — `arm32_bni` prebuilt at
+     `/root/arm32_bni`; loop = edit host VM code → rebuild arm32 bni (~40s) →
+     `qemu-arm-static /root/arm32_bni -I $(cat /root/ifaces) -L $(cat /root/impls)
+     test.bn`. (`docker rm -f binate-arm32` to clean up.)
+   - **ROOT CAUSE (diagnosed, corrected from the symptom)**: NOT the slice
+     representation. On arm32 the VM CORE is correct — `os.Exit`, arithmetic,
+     `make_slice`, slice `len`/index, and even `len("string const")`=11 and
+     `len(runtime @[]char)`=2 all work. The bug is `println`: the **cross-mode
+     (bytecode→native) marshaling of a COERCED-AGGREGATE slice arg/return on
+     ILP32**. `bootstrap.Write(fd, buf *[]readonly uint8)` gets a 2-word `{ptr,len}`
+     slice that arrives with len 0 (→ empty output); `bootstrap.formatInt`'s
+     returned char-slice reads len 0 (→ the bounds abort). This is **bucket B** —
+     the coerced-aggregate arg/return slot marshaling (same machinery as the
+     funcvalue coerced-agg spill work) assumes LP64 word sizes; on ILP32 a 2-word
+     slice (8 bytes) is mis-split across arg slots / mis-read from the retbuf.
+   - **FIX (next session)**: parameterize the coerced-aggregate cross-mode
+     arg-slot packing + retbuf field reads for the target word size, in the
+     func-value / extern dispatch (`vm_exec_funcref.bn` `dispatchCompiledFuncValue`
+     + arg collection; `vm_extern.bn`; the coerced-agg slot logic in
+     `lower_slots.bn`). Then iterate the rebuild→qemu loop over the failure tail.
+     Also fix the separate confirmed ILP32 bug `vm_exec_helpers.bn:91` (`* 32`
+     `@[]char` header stride → `4*REG_SLOT`). As the mode greens, flip it from
+     experimental to blocking in `conformance-tests.yml`.
 
 Rationale: buckets B(hard) and C(hard) are information-gated — speculative until
 the red run says what breaks. Getting the failing signal beats a blind audit
