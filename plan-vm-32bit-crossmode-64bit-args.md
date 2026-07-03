@@ -1,9 +1,17 @@
 # Plan: 64-bit scalar arguments across the cross-mode shim on a 32-bit VM host
 
-**Status: design (2026-07-03).** Sub-project of `plan-vm-64bit-on-32bit.md`
-(Phase 3 tail). This is the "hard, separate workstream" that doc flagged:
-64-bit scalar *arguments* mis-marshaled through the func-value / cross-mode
-`__shim` on ILP32. Discovered as the root cause of `conformance/133`'s segfault.
+**Status: design, adversarially reviewed (2026-07-03).** Sub-project of
+`plan-vm-64bit-on-32bit.md` (Phase 3 tail). This is the "hard, separate
+workstream" that doc flagged: 64-bit scalar *arguments* mis-marshaled through the
+func-value / cross-mode `__shim` on ILP32. Discovered as the root cause of
+`conformance/133`'s segfault. A 4-dimension adversarial review confirmed the core
+mechanism (register-for-register agreement, endianness, float64 handling, LP64
+no-op, 7-slot guard, native-sret path) and caught: the completeness miss (SIX
+signature sites incl. the two closure shims, not three; a shared `slotTypesFor`
+helper is now the ratified mechanism), an implementation-location error (the
+native split goes in the arg PREAMBLE, not the arg-list), a corrected root-cause
+register trace, and a confirmed **separate** MAJOR return-side bug (below) — all
+folded in.
 
 ## Symptom
 
@@ -44,12 +52,13 @@ only agree on LP64:
   C.3 even-aligns the `i64 %a0`: after `%data` in r0 (ngrn=1, odd), `%a0` pads to
   **r2:r3**, and `%a1` (buf) goes to the **stack**.
 
-The two disagree: the caller put `{v.lo=r2, v.hi=r3, buf=stack0}`; the shim reads
-`v` from r2:r3 (= `{v.lo, v.hi}` — coincidentally OK here) and `buf` from a
-*different* stack slot (garbage). In the general register skew the halves and
-`buf` land in the wrong places; `formatUint` then dereferences a garbage `buf` →
-**segfault**. (The exact skew depends on arg count/order; the point is the two
-type strings are not forced to match, and on ILP32 they don't.)
+The two disagree. `fn` is the indirect-call *target*, not an ABI arg, so the
+caller's arg registers are `data`→r0, `a0`(v.lo)→r1, `a1`(v.hi)→r2, `a2`(buf)→r3
+(no even-align — there is no `i64` at the call site). The shim, seeing `i64 %a0`,
+even-aligns it to **r2:r3** and reads `buf` from the **stack**. So the shim reads
+`v` = r2:r3 = `{caller's v.hi, caller's buf}` (both halves already wrong) and
+`buf` from a garbage stack slot → `formatUint` dereferences garbage → **segfault**.
+The two type strings are simply not forced to match, and on ILP32 they don't.
 
 **LP64 is invisible to this**: host `int` == `i64`, so a 64-bit scalar is ONE
 slot, the reconstructed call type is `...(i8*, i64, i64, ...)`, and `i64`/`i8*`
@@ -92,8 +101,42 @@ cross-mode path.
 `types.GetTarget().PointerSize == 4`)
 
 The unit is "emit a shim param list / a call arg list from a param-type list,
-where a 64-bit scalar expands to two `i32` slots." Today three places spell that
-list and MUST stay byte-identical (they already share helpers):
+where a 64-bit scalar expands to two `i32` slots." **Adversarial review
+(2026-07-03) established there are SIX signature-emitting sites, not three**, and
+that the native caller's arg-VALUE list is a further independent site — so the
+"stay in lockstep by construction" hope only holds if a single shared helper
+feeds them all. **Decision (resolves former open-questions 1 & 2): introduce one
+`slotTypesFor(param) -> @[]@[]char` helper** (the ordered list of slot LLVM types
+for a param: `["i32","i32"]` for a 64-bit scalar on ILP32, `["i8*"]` for an
+aggregate, `["i32"]` for float32, `[llvmType]` otherwise; on LP64 always one
+entry) and route every site through it. Enumerate before editing (grep
+`shimParamType` / `funcSignatureLLVM` repo-wide). The sites:
+
+- `emitFuncValueShim` (scalar shim def) — `emit_funcvals_shim.bn:54-59`.
+- `emitFuncValueShimAggregate` (retbuf shim def) — `emit_funcvals_shim.bn:230-235`.
+- **`emitClosureShim` (capturing-closure scalar shim def) —
+  `emit_funcvals_closure.bn:64`.**
+- **`emitClosureShimAggregate` (capturing-closure retbuf shim def) —
+  `emit_funcvals_closure.bn:246`.**
+  (Both closure loops call `shimParamType(...)` + `%a<i>` inline and route args
+  through the shared `emitShimArgLoads`/`writeShimArgRef`, so a capturing `@func`
+  with a 64-bit user arg hits the identical ABI — omitting them re-breaks
+  closures on ILP32.)
+- `funcSignatureLLVM` (the bitcast type `emit_call_funcvalue` casts
+  `vtable.call` to) — `emit_funcvals_sig.bn:162-182`.
+- `emitFuncValueArgList` / `emitFuncValueArgPreamble` (the native caller's actual
+  arg-VALUE list — a THIRD, independent path that does NOT call
+  `shimParamType`/`funcSignatureLLVM`; `emit_call_funcvalue.bn:325-363` /
+  `:194-210`). This is why "lockstep by construction" is false without the shared
+  helper.
+
+`shimParamType`'s single-string contract stays (it and `shimIntSlotType` still
+return the natural single-slot type — the LP64/1-slot answer; a unit test pins
+`shimIntSlotType(int64)=="i64"`). The 2-slot EXPANSION lives only in the new
+`slotTypesFor` + the emission loops, so the existing contract is untouched.
+
+The per-param body changes (below) MUST stay byte-identical across all four shim
+defs:
 
 1. **`shimParamType` → per-slot expansion (`emit_funcvals_sig.bn`).** Today it
    returns one LLVM type per source param. It can't return two. Restructure the
@@ -132,18 +175,25 @@ list and MUST stay byte-identical (they already share helpers):
    source arg index `N`; only the positional layout in the signature matters,
    and it's produced by the same loop.)
 
-4. **`funcSignatureLLVM` (the shared bitcast type)** must produce the same
-   slot-expanded signature, since `emit_call_funcvalue` bitcasts `vtable.call` to
-   it. Because the shim def and this bitcast are generated by the *same* helper,
-   they stay in lockstep by construction.
+4. **`funcSignatureLLVM` (the shared bitcast type)** produces the slot-expanded
+   signature via `slotTypesFor`, so the bitcast type and the four shim defs agree
+   *by construction* (they all consume the one helper). This does NOT
+   automatically cover the caller's arg-VALUE list — see #5.
 
-5. **`emit_call_funcvalue.bn` native caller: split 64-bit args on ILP32.** In
-   `emitFuncValueArgList`, for a 64-bit scalar arg on ILP32, emit two `i32` args
-   (`trunc` the low half, `lshr 32`+`trunc` the high half) instead of one `i64`.
-   For `float64`, `bitcast` to `i64` first, then split. This keeps the native
-   caller consistent with the now-slot-based shim (and with the bytecode
-   dispatcher). `builder-comp_arm32_linux` stays green because caller and shim
-   move together.
+5. **`emit_call_funcvalue.bn` native caller: split 64-bit args on ILP32 — in the
+   PREAMBLE.** The arg-VALUE list (`emitFuncValueArgList`) emits args inline into
+   the `call` operand list; it CANNOT define standalone SSA `trunc`/`lshr` there
+   (that would splice instructions into an operand list → malformed LLVM). Follow
+   the existing float pattern: emit the split in `emitFuncValueArgPreamble`
+   (which already defines `%v<id>.fb<i>` for float bitcasts,
+   `emit_call_funcvalue.bn:194-210`) — define `%v<id>.lo<i> = trunc i64 %v to i32`
+   and `%v<id>.hi<i> = trunc i64 (lshr i64 %v, 32) to i32` (for float64, `bitcast`
+   to `i64` first) — and have `emitFuncValueArgList` only *reference* them as two
+   `i32` args. Drive the "how many slots, which types" decision from the SAME
+   `slotTypesFor(param)` so this third site cannot drift from the shim def /
+   bitcast type. `builder-comp_arm32_linux` stays green because caller and shim
+   move together; a drift would be a loud LLVM verifier error (arg count/type
+   mismatch), not a silent miscompile.
 
 6. **Aggregate/retbuf shim variant (`emitFuncValueShimAggregate`)** — apply the
    identical per-slot expansion to its param list + reassembly (it shares
@@ -159,18 +209,31 @@ The 7-slot bank (`a0..a6`) is a real limit; a 64-bit arg now costs 2 slots, so
 silent truncation. The format helpers use ≤3 slots. Widening the bank is a
 separate follow-up if a real signature needs >7 slots.
 
-## Return side (in scope to confirm, likely already handled)
+## Return side — a CONFIRMED separate MAJOR bug (out of scope for this arg fix)
 
-A scalar shim returning a 64-bit value would truncate symmetrically
-(`_call_shim_scalar` returns `int` = `i32` on ILP32). But it never does: a
-64-bit *result* is an aggregate return on ILP32 —
-`IsAggregateReturn([int64])` = `SizeOf(8) > PointerSize(4)` = true — so it routes
-through the **retbuf** (`_call_shim_aggregate`) path, which writes the 8 bytes to
-a target-sized buffer. The format helpers return `int` (1 slot, scalar), so this
-plan's arg fix fully fixes them. **Design task:** add a test that a func value
-returning `int64`/`float64` round-trips through the retbuf shim on ILP32 (verify
-the retbuf read reconstructs the register pair), and note it if it's a separate
-bug — do NOT fold a return-side fix into this arg-side change silently.
+A scalar shim returning a 64-bit value would truncate (`_call_shim_scalar`
+returns `int` = `i32`), but it never does: a 64-bit *result* is an aggregate
+return on ILP32 (`IsAggregateReturn([int64])` = `SizeOf(8) > PointerSize(4)` =
+true, `abi_return.bn:83-89`), so it routes through the **retbuf**
+(`_call_shim_aggregate`) path. **That path is broken on ILP32** (verified, not
+"likely handled"): `dispatchCompiledFuncValue` / `dispatchExternBinding` store
+`regs[Dst] = bit_cast(int, retbuf)` — the retbuf ADDRESS in ONE slot
+(`vm_exec_funcref.bn:356`, `vm_extern.bn:63`) — while `regWidths` flags a
+64-bit-scalar result register **wide** (2 slots) with no retbuf exclusion
+(`lower_slots.bn:170`). So `regs[Dst]` gets the retbuf pointer, `regs[Dst+1]` is
+stale, and the 8 bytes are never loaded from the retbuf into the register pair; a
+downstream wide read gets `{retbuf_addr, garbage}`.
+
+This is **not exercised by conformance/133** (all three format helpers return
+`int` — a 1-slot scalar — `bootstrap.bni`), so this arg-side fix genuinely fully
+fixes `133` and `println` of unsigned/int64/float. But it IS a latent MAJOR bug
+for any cross-mode func value / extern that RETURNS a bare `int64`/`uint64`/
+`float64` on ILP32. **Tracked separately in `claude-todo.md`; do NOT fold a
+return-side fix into this arg-side change.** The user decides fold-in vs
+follow-up. (The fix shape: the aggregate-return dispatch must, when the result
+type is a 64-bit *scalar* — as opposed to a genuine multi-word aggregate — load
+the retbuf's 8 bytes into `regs[Dst]`/`regs[Dst+1]` instead of storing the
+pointer; the wide-flag at `lower_slots.bn:170` and the dispatch must agree.)
 
 ## Alternatives considered (rejected)
 
@@ -188,30 +251,62 @@ bug — do NOT fold a return-side fix into this arg-side change silently.
 
 ## Test plan
 
-- **Conformance (arm32-VM-gated):** `println(uint8/uint16/uint32/uint64)`,
-  `println(int64)` (incl. negative + int64-min), `println(float64)`; multiple
-  64-bit args to one cross-mode call; a 64-bit arg followed by a slice arg
-  (`formatUint` shape). `conformance/133` back to green. All already run by the
-  default suite on every mode — the arm32-VM mode is the ILP32 gate.
-- **Native regression:** `builder-comp_arm32_linux` func-value suite stays 99/0
-  (caller+shim move together).
-- **Unit (host-runnable):** a codegen test pinning the emitted `__shim`
-  signature + reassembly for `formatUint`-shape on a target32 override (like the
-  existing `SetTarget`-based type tests), and for `emit_call_funcvalue`'s split.
-- **LP64 no-op:** every 64-bit modes' suite unchanged (the expansion is gated on
+**Gating caveat (corrected):** the arm32-VM mode `builder-comp_arm32_linux_int`
+is run by the **conformance CI job** (wired directly into
+`.github/workflows/conformance-tests.yml`'s matrix-gen, commit `19ad5047`) but is
+**NON-BLOCKING** (`continue-on-error`) and is **NOT in `scripts/modesets/{all,
+basic}`** (those feed unit/perf/xpass and must not carry a conformance-only mode).
+So the mode SURFACES the fix's tests on CI but does not GATE until it is flipped
+to blocking (which waits until the ILP32 tail is green). Locally it is
+triple-emulated and too slow for a full sweep — use the Docker container for the
+targeted repros. Do NOT claim "the default suite gates this."
+
+- **Conformance (run under the arm32-VM mode explicitly):**
+  `println(uint8/uint16/uint32/uint64)`, `println(int64)` (incl. negative +
+  int64-min), `println(float64)`; multiple 64-bit args to one cross-mode call; a
+  64-bit arg followed by a slice arg (`formatUint` shape); a capturing `@func`
+  closure taking a 64-bit arg (covers the closure-shim sites). `conformance/133`
+  back to green. Named existing tripwires to check: the int64-arg + retbuf
+  interaction and the float64 print tests already in the suite (grep the suite
+  for `int64`/`float64` print/format tests and confirm each greens under the
+  arm32-VM mode).
+- **Native regression:** `builder-comp_arm32_linux` func-value suite stays 99/0,
+  AND spot-check `builder-comp_arm32_baremetal` (another ILP32 target sharing the
+  same codegen shim path, `PointerSize==4`) — arm32-linux alone is insufficient
+  since both ride the changed shim gen.
+- **Unit (host-runnable):** a codegen test pinning the emitted shim signature +
+  reassembly for a `formatUint`-shape (uint64 + slice) AND a float64 shape on a
+  `SetTarget`-32 override (like the existing type tests), covering all four shim
+  defs and `emit_call_funcvalue`'s preamble split; assert LP64 emits one slot.
+- **LP64 no-op:** every 64-bit mode's suite unchanged (expansion gated on
   `PointerSize == 4`).
 
-## Open questions for review
+## Resolved by review (2026-07-03)
 
-1. Is per-slot signature emission cleanest as a rewrite of the shim-signature
-   loop, or as a `slotTypesFor(param) -> []string` helper shared by the shim def,
-   `funcSignatureLLVM`, and `emit_call_funcvalue`? (Prefer one shared helper so
-   the three lists cannot drift — the same discipline that fixed bug A.)
-2. Does any *other* consumer of `funcSignatureLLVM` / `shimParamType` exist that
-   would be affected (closures `emit_funcvals_closure.bn`, dtor shims)? Enumerate
-   before editing.
-3. Endianness: the plan assumes little-endian (arm32-linux). Confirm no
-   big-endian target is in scope (it isn't today).
-4. The `%data`-shifts-registers subtlety (the shim's leading `i8* %data` vs the
-   primitive's `fn, data` prefix): confirm the slot model makes the `%data`
-   prefix irrelevant to the 64-bit split (it's one pointer slot on both sides).
+1. **Shared `slotTypesFor` helper — YES** (resolves former OQ1). One helper feeds
+   all six signature sites + the caller's arg-value preamble; per-slot emission is
+   NOT a per-site loop rewrite. Keeps `shimParamType`/`shimIntSlotType`'s
+   single-string contract intact (pinned by a unit test).
+2. **Other consumers enumerated — the two closure shims + the caller arg-value
+   path** (resolves former OQ2). Folded into the change list above (six sites).
+3. **Endianness** — little-endian only (arm32-linux/baremetal); no big-endian
+   target in scope. `slotTypesFor` order is (lo, hi) matching `joinInt64`.
+4. **`%data` prefix** — one pointer slot on both sides; irrelevant to the split.
+   Verified register-for-register: post-fix `(i8* data, i32 lo, i32 hi, i8* buf)`
+   → data=r0, lo=r1, hi=r2, buf=r3 on both caller and shim. No skew.
+
+## Related scope items (surfaced by review — decide, don't silently defer)
+
+- **Native arm32 assembler backend** (`pkg/binate/native/arm32/arm32_funcvalue.bn`
+  ~:278-296) reportedly leaves a func-value 64-bit-arg case as a loud
+  "unsupported". This LLVM-path fix does not touch the hand-written arm32
+  backend; that backend is reached by `builder-comp_native_arm32_baremetal`, a
+  separate mode. Confirm whether it needs a parallel fix or is genuinely
+  unreachable for the cross-mode shim (the shim is LLVM-emitted, per the
+  ABI map — the arm32 assembler has no `OP_CALL_INDIRECT` case). Likely out of
+  scope, but name it.
+- **Reverse direction** (`TrampolineScalar`/`TrampolineAggregate` in
+  `pkg/binate/vm` — native→bytecode dispatch) and the **cross-mode iface method
+  path** (`dispatchCompiledIfaceMethod`) ride the same 7-int slot bank; confirm a
+  64-bit arg through those is covered by the same shim fix (it should be — same
+  `__shim`), and add a test for each.
