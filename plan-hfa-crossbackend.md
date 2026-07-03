@@ -1,12 +1,14 @@
 # Plan: HFA passing as a cross-backend ABI contract
 
 **Status:** in progress (2026-07-02). Stage 0 landed (`06f9a8ff` classifier lift,
-`d69eded8` variadic NSRN fix). Stage 1 implemented on a worktree (pending land):
-prereqs `8d932168` (TargetInfo.Arch + the `HfaInSimd()` master gate), codegen
-lowering `63c87c6d` (LLVM backend passes HFAs in SIMD, dormant). Supersedes the
-*staging* of `plan-native-hfa-abi.md` (which is marked NEEDS REPLAN). The native
-aa64 arg path from that effort is in-tree, **dormant** (`cc.HfaAggregates =
-HfaInSimd()`, currently false), and correct — it is reused here.
+`d69eded8` variadic NSRN fix). **Stage 1 landed** (dormant): prereqs `7692508e`
+(TargetInfo.Arch + the `HfaInSimd()` master gate), codegen lowering `9ebf4119`
+(LLVM backend passes HFAs in SIMD). Both adversarially reviewed SOUND. **Next:
+Stage 2** (native aa64 returns + all dispatch shims + the HFA-aware
+`IsAggregateReturn`/`AggregateReturnSize`). Supersedes the *staging* of
+`plan-native-hfa-abi.md` (which is marked NEEDS REPLAN). The native aa64 arg path
+from that effort is in-tree, **dormant** (`cc.HfaAggregates = HfaInSimd()`,
+currently false), and correct — it is reused here.
 
 ## Why (the lesson that reshaped this)
 
@@ -165,7 +167,7 @@ original effort lacked.
   non-V ones.
 Verify: full build + conformance unchanged (pure refactor + dormant fix).
 
-**Stage 1 — LLVM codegen HFA args + returns (aa64) — DONE (worktree, pending land):**
+**Stage 1 — LLVM codegen HFA args + returns (aa64) — LANDED (`7692508e`, `9ebf4119`):**
 Implementation was *far* smaller than this bullet anticipated. The existing
 in-register-aggregate coercion is a store-struct / load-coerced-type idiom over a
 shared slot, and an HFA's struct, `[N x i64]`, and `[M x float]`/`[M x double]`
