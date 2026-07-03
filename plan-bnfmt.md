@@ -379,9 +379,24 @@ while keeping every commit green and close to main.
    statement block, so it needs the statement printer (user-confirmed). An
    adversarial review caught two pre-land silent-meaning bugs (dropped call
    spread; `+ +x`/`& &x` collisions), both fixed + tested.
-7. **Signatures + `Decl`** (var/const/type, grouped blocks, annotations).
+7. **Signatures + `Decl`** — ✅ **LANDED** 2026-07-02 (`2513d1b7`). `FormatDecl`
+   (`print_decl.bn`) renders every `DECL_*` kind: var/const specs, type decls
+   (alias/forward/distinct/struct/generic + array distinct), function + method
+   signatures (receiver, type params, variadic params, single/multi results),
+   interface decls (methods, generic, extension, alias), impl decls, grouped
+   var/const/type blocks, and `#[…]` annotation blocks. `Format` now emits
+   package-clause annotations + the top-level declarations after imports.
+   Function **bodies** remain deferred to step 8, so `.bni` files + body-free
+   decls round-trip in full; ordinary `.bn` files not yet. A 3-lens adversarial
+   review caught a real silent-meaning bug in the shared type printer
+   (`printFuncType` dropped a variadic func-value type's `...` — `*func(...int)`
+   → `*func(int)`), fixed + tested. Behavior decisions (user-approved): empty
+   decl groups `const ()` are dropped (keyword unrecoverable from the AST);
+   single-paren result `() (int)` → `() int` and empty-paren annotation
+   `#[foo()]` → `#[foo]` are golden-pinned canonicalizations.
 8. **Stmt printer** (all `STMT_*`), blocks/indent, ASI trailing-comma, D4 context.
-   Also completes `EXPR_FUNC_LIT` (deferred from step 6 — its body is a block).
+   Also completes `EXPR_FUNC_LIT` (deferred from step 6 — its body is a block)
+   and function BODIES (deferred from step 7).
 9. **Comment attachment** (§7) + comment-multiset invariant (§11.3).
 10. **Blank-line handling**; file hygiene; `// LONG-LINE ALLOWED` preservation.
 11. **Column alignment** (tabwriter).
