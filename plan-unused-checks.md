@@ -61,6 +61,19 @@ unused-import cross-file gap and add four new "unused" checks.
     (would surface those as warnings, never compile failures) is still an open
     policy call. Note: `range` is NOT a keyword in Binate — `for _, v := range
     xs` is a mis-parsed C-style `for`; the real for-in is the `in`-keyword form.
+  - **Test-file write-only: ✅ CLEANED** (main `93cfe9c7` stdlib + `0d31eca7`
+    pkg/binate, 2026-07-02) — 47 discarded-multi-return locals in `*_test.bn`
+    across os/strconv/asm-parse/bignum/buildcfg/ir/mangle/native/types/vm tests.
+    (bnlint doesn't lint test files yet — see the feature below.)
+  - **Vestigial checker-warning mechanism REMOVED** (main `44bcd13b`) —
+    `Checker.Warnings` / `addCheckWarning` / `CheckerWarnings()` /
+    `printCheckerWarnings` were dead after the `(b)` revert (nothing produces
+    checker warnings; Binate emits none). Whole apparatus deleted.
+  - **NEXT: make bnlint (optionally) lint test files** — bnlint currently lints
+    only a package's non-test files, so test-file lint rules (unused-local,
+    -import, -func) are unenforced. Load + type-check `*_test.bn` and run the
+    rules over them (behind a flag or always). Enables enforcing the test-file
+    cleanup above going forward.
 
 This plan is grounded in a full read of `pkg/binate/lint/*`, `pkg/binate/types/*`
 (checker/scope), and `pkg/binate/loader/*`, plus empirical repros. File:line
