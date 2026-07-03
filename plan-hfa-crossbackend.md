@@ -193,6 +193,28 @@ the func-value / closure / iface / VM SHIM *marshalling* is not reworked here (o
 the signature spelling follows `aggCoerceLLTy`) — that is Stage 2, and the Stage-1
 verification deliberately covers direct calls only.
 
+*Stage 1 adversarial review (two independent reviewers, both SOUND) carry-forwards:*
+- **[Stage 2] `IsAggregateReturn` / `AggregateReturnSize` are still size-based**, so
+  when the gate flips they'd say "retbuf" for a >16B HFA that codegen now returns
+  by-value in v0..v2. Make them HFA-aware (the "shared HFA-return predicate run
+  BEFORE the size>16 sret decision" already listed in Stage 2) so the VM cross-mode
+  dispatch / pkg-descriptor / reflect agree with the register return.
+- **[Stage 3, before flip] native-vs-codegen HFA classifier agreement is by-
+  happenstance, not by-construction.** Native's arg path gates on bare
+  `cc.HfaAggregates && HfaMemberCount(t)>0`; codegen gates on `hfaSimdAggregate` =
+  `HfaInSimd() && AggInRegCoercedKind(t) && HfaMemberCount>0` (the extra
+  named-struct/array guard excludes the anonymous multi-return tuple + named float
+  scalar, which are unreachable as native ARGS but not excluded by construction).
+  Before flipping, route native through the SAME shared predicate (or add a cross-
+  backend test) so both halves classify identically. (Codegen's own `aggCoerceLLTy`
+  spelling was already tightened to `hfaSimdAggregate`'s exact set, so within the
+  LLVM backend the spelling and the byval/sret exemption agree by construction.)
+- **[Stage 3] flip-on gets its first automated coverage then.** Stage 1 lands with
+  the flip-on path verified only by a manual temporary flip (reverted) + the
+  `TestHfaDormantWhileGateOff` off-state tripwire; once `HfaInSimd()` becomes
+  `GetTarget().Arch == ARCH_AA64`, unit tests can `SetArch(ARCH_AA64)` and assert
+  the `[M x double]`/`[M x float]` emission + exemption/coerce consistency directly.
+
 **Stage 2 — native aa64 returns + all dispatch shims:**
 - Shared HFA-return predicate (in `types`/`common_callconv_return.bn`), run BEFORE
   the size>16 sret decision (an HFA is ≤32B for 4×f64 yet still v0..v3).
