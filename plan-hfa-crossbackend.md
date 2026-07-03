@@ -1,9 +1,12 @@
 # Plan: HFA passing as a cross-backend ABI contract
 
-**Status:** planned (2026-07-02), not started. Supersedes the *staging* of
-`plan-native-hfa-abi.md` (which is marked NEEDS REPLAN). The native aa64 arg path
-from that effort is in-tree, **dormant** (`cc.HfaAggregates=false`), and correct —
-it is reused here.
+**Status:** in progress (2026-07-02). Stage 0 landed (`06f9a8ff` classifier lift,
+`d69eded8` variadic NSRN fix). Stage 1 implemented on a worktree (pending land):
+prereqs `8d932168` (TargetInfo.Arch + the `HfaInSimd()` master gate), codegen
+lowering `63c87c6d` (LLVM backend passes HFAs in SIMD, dormant). Supersedes the
+*staging* of `plan-native-hfa-abi.md` (which is marked NEEDS REPLAN). The native
+aa64 arg path from that effort is in-tree, **dormant** (`cc.HfaAggregates =
+HfaInSimd()`, currently false), and correct — it is reused here.
 
 ## Why (the lesson that reshaped this)
 
@@ -162,15 +165,33 @@ original effort lacked.
   non-V ones.
 Verify: full build + conformance unchanged (pure refactor + dormant fix).
 
-**Stage 1 — LLVM codegen HFA args + returns (aa64), gated by Arch==AA64:**
-- `emit_agg_coerce.bn` / `emit_util.bn` / `emit_helpers.bn`: emit `[N x float]`/
-  `[N x double]` (or `{…}`) for an aa64 HFA param/return/call-arg instead of
-  `[N x i64]`; rework the prologue/return pack; update `funcRetTypes` + extern
-  declares + iface + func-value-sig sites in lockstep.
-- x64 path unchanged (Arch gate) → x64 stays GP-consistent.
-Verify: all-LLVM (`builder-comp`) HFA programs compute correctly and the emitted IR
-places HFAs in v-regs (clang-confirmed). This makes the LLVM backend the
-AAPCS64-correct reference native must match.
+**Stage 1 — LLVM codegen HFA args + returns (aa64) — DONE (worktree, pending land):**
+Implementation was *far* smaller than this bullet anticipated. The existing
+in-register-aggregate coercion is a store-struct / load-coerced-type idiom over a
+shared slot, and an HFA's struct, `[N x i64]`, and `[M x float]`/`[M x double]`
+views all share ONE byte layout — so the whole thing is driven by THREE edits, and
+every coercion site (param define-lines via `writeParamTypeLLVM`, returns via
+`emitReturn`/`funcRetTypes`/declares, call args, iface thunks, func-value sigs)
+routes through them automatically:
+- `types.hfaSimdAggregate(t)` — the exact set codegen SIMD-coerces (an
+  `AggInRegCoercedKind` aggregate folding to a 1-4 float HFA, when `HfaInSimd()`).
+- `types.NeedsSret` + `types.IsByvalParam` exempt that set — so a >16-byte HFA
+  (3x/4x f64 = 24/32 B) reaches the SIMD-coerced path instead of sret / byval,
+  riding v0..v3 regardless of size (settled decision 3, handled here not deferred).
+- `codegen.aggCoerceLLTy(t)` spells `[M x float]` / `[M x double]` for that set.
+The x64 path is untouched (x64's `Arch` gate keeps `HfaInSimd()` off for it until
+Stage 4), so x64 stays GP-consistent.
+Verified by a temporary flip of `HfaInSimd()` → `Arch==AA64` (reverted before
+commit): all-LLVM (`builder-comp`) HFA programs — conformance 963/964 args incl.
+24B/32B, plus an HFA-return program (mkD2/mkD3/mkD4/mkF2) — compute correctly; the
+emitted IR shows `define [3 x double] @mkD3(...)` etc. (no sret, no `[N x i64]`) and
+`llc -O2` places the members in d0..d2 (textbook AAPCS64 HFA passing). Dormant: all
+affected unit tests (types/codegen/native/ir/vm) + conformance 962/963/964 unchanged.
+A `TestHfaDormantWhileGateOff` tripwire pins the Stage-1↔Stage-3 gating invariant.
+This makes the LLVM backend the AAPCS64-correct reference native must match. NOTE:
+the func-value / closure / iface / VM SHIM *marshalling* is not reworked here (only
+the signature spelling follows `aggCoerceLLTy`) — that is Stage 2, and the Stage-1
+verification deliberately covers direct calls only.
 
 **Stage 2 — native aa64 returns + all dispatch shims:**
 - Shared HFA-return predicate (in `types`/`common_callconv_return.bn`), run BEFORE
