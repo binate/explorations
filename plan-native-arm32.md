@@ -401,11 +401,15 @@ Remaining P3 work (original sketch):
 - **Acceptance**: `builder-comp_native_arm32_linux` green.
 
 ### P7 — CI integration + full sweep
-- Propose adding `builder-comp_native_arm32_baremetal` (+ linux) to
-  `scripts/modesets/all` — **CI wiring is a user decision** (per CLAUDE.md
-  "Stay Within the Asked Scope"); do not add unasked.
-- Full conformance + unit-test sweep in the native arm32 modes; drive every
-  residual to a fix or a tracked xfail+todo.
+- **DONE (partial, `0727d0c1`, 2026-07-03):** `builder-comp_native_arm32_baremetal`
+  is wired into `.github/workflows/conformance-tests.yml` as an **experimental**
+  matrix entry (`continue-on-error`, red-signal/non-blocking), mirroring
+  `builder-comp_arm32_linux_int` — user-approved ("add as experimental extra").
+  Deliberately NOT in `scripts/modesets/all` (keeps it out of unit/perf/xpass).
+  Toolchain is auto-covered (mode string contains `arm32_baremetal`).
+- **Remaining:** promote to a blocking `modesets/all` entry once the backend is
+  complete (needs the 832 failures driven to 0 or tracked xfails first); wire the
+  arm32-linux native mode when P6 lands; full unit-test sweep in the native modes.
 
 ## Adversarial review findings (post-P0/P1, 2026-07-01)
 
