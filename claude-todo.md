@@ -189,6 +189,27 @@ regression — re-run the single test in isolation to confirm.
 
 ## Language features — specified, not yet implemented
 
+### Type assertions, type switches & RTTI — spec'd 2026-07-02, NOT implemented — 🔴 OPEN
+
+Go-style downcasting from an interface value to a concrete type or narrower
+interface, plus the `TypeInfo` RTTI substrate. **Specified** in the spec (§11.12
+`iface.assert`/`iface.assert.kind`/`iface.assert.absent`/`iface.typeswitch`/`iface.rtti`;
+§7.13.14 `type.layout.typeinfo` + §7.13.8 any-block `*TypeInfo`; §13.8
+`expr.type-assert`; §14.10 `stmt.type-switch`; §17.5 failed-assertion panic) but
+**not implemented**. High-level plan (adversarially reviewed — 3 criticals + 4
+majors fixed before landing): **[plan-type-assertions.md](plan-type-assertions.md)**
+(a follow-up worker expands it into ordered steps). Model: source `*I`/`@I`
+(incl `*any`); target = nameable type with mandatory `*`/`@`/value recovery kind
+(`@I`→`@T`/`*T`/value, `*I`→`*T`/value, `@T`-from-`*I` rejected); concrete match =
+exact identity, interface match = satisfaction **incl transitive ancestors**; both
+`x.(K T)` (aborts) and `v, ok := x.(K T)`; type switch (no `case nil`, unset→default,
+typed-nil→its type); RTTI via a `*TypeInfo` in the vtable any-block (identity +
+dtor + size + align + name + transitive satisfaction-table), one per type
+program-wide, cross-mode agreement on the *result*. **Highest implementation risk:
+the any-block grows to 2 words, re-basing every vtable method slot** — all backends
++ VM must apply it consistently. Open (no sum types). Seeds the future reflection
+surface (§20.3).
+
 ### Variadic functions & spread (`...T`) — spec'd 2026-07-02, IN PROGRESS — 🟡
 
 Go-style variadics + spread are **specified** in the spec (§10.3
