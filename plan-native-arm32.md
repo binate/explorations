@@ -26,10 +26,11 @@ decomposition). ILP32 layout background: [`plan-arm32-bare-metal.md`].
   LOCAL main (`git -C temp-binate-5 fetch ~/binate/binate main && … rebase
   FETCH_HEAD`), never `origin/main`.
 - **Landed so far (all on main):** P0, P0-fu, P1, P2, P3.1, the arm32-linux
-  nativeArch regression fix, P3.2, the int64 follow-ups, and the
-  conformance-harness `OVERRIDE_MODE` fix. Current native-arm32-baremetal
-  conformance: **1499 passed / 1079 failed / 32 skipped** (all failures are
-  fail-loud deferred shapes or real gaps).
+  nativeArch regression fix, P3.2, the int64 follow-ups, the conformance-harness
+  `OVERRIDE_MODE` fix, and **P3.3 (single-aggregate sret, `d9567498`)**. Current
+  native-arm32-baremetal conformance: **1573 passed / 1013 failed / 32 skipped**
+  (all failures are fail-loud deferred shapes or real gaps; the +count vs the
+  earlier 1499 is P3.3's sret returns plus concurrent corpus growth).
 - **Per-increment workflow that's worked every time:** (1) delegate the
   increment to a background `Agent` working in `temp-binate-5` (no `isolation:
   worktree`), mirroring the `native/aarch64` handler where a template exists and
@@ -286,9 +287,9 @@ footguns for later increments.
   silent-miscompile footgun (the backend now pre-checks/materializes, but the
   assembler should fail loud). Flagged in the P1 review too.
 - **Deferred (next increments):** ~~64-bit register-PAIR path~~ (DONE, increment 2);
-  the single-aggregate-sret arg-register-shift on AAPCS32 (slice/struct-returning
-  functions); then structs/arrays, interfaces, multi-return, closures (P4),
-  float (P5).
+  ~~single-aggregate-sret arg-register-shift on AAPCS32~~ (DONE, increment 3 / P3.3);
+  then the small (≤4-byte) in-register aggregate return/collection, structs/arrays,
+  interfaces, multi-return, closures (P4), float (P5).
 
 **Increment 2 DONE (landed `1d38e0dd`):** int64/uint64 as ILP32
 register pairs — arithmetic (ADDS/ADC…), compare (SUBS+SBCS, all 6 ops ×
@@ -325,6 +326,33 @@ inherited arm32 xfails). The 1079 remaining failures are the deferred shapes —
 float, structs/arrays, interfaces, multi-return, closures, aggregate-sret
 arg-shift, impl vtables — which all COMPILE_ERROR (fail-loud), plus a few real
 gaps to triage as later increments land.
+
+**Increment 3 DONE (P3.3, landed `d9567498`):** AAPCS32 single-aggregate sret —
+a function returning a `>4-byte` aggregate (every slice, most structs) returns it
+via a hidden R0 buffer pointer, shifting real args to R1+; the callee stashes R0,
+shifts params, writes the result through R0 and reloads it. Mirrors the x64 SysV
+sret-in-RDI template with WordBytes=4 (aa64 uses X8, a different model). One
+shared change: `SretInGpArgReg=true` on AAPCS32 (per-CallConv, sizing-only — makes
+PlanFrame count the sret slot in outgoing-args; x64/aa64 byte-identical). **Full
+native-arm32-baremetal conformance: 1573 passed / 1013 failed / 32 skipped**, no
+XPASS. Adversarial review (4 diverse lenses + refute-verify) caught one **critical
+fail-loud regression, fixed in the landed commit**: narrowing the aggregate guards
+to sret-only turned the **small (≤ InternalSretBytes = 4) in-register aggregate
+return/collection** — a distinct non-sret shape — from fail-loud into silent
+wrong-code on both callee and caller; restored to fail-loud (the x64 backend packs
+this class in-register via `emitAggregateReturnPack`; the arm32 in-register pack is
+deferred to P4). Tests: small-aggregate fail-loud (both sides), strengthened
+`emitSretReturn` (exact copy-store count + R0-reload — the prior test passed even
+with the R0 reload dropped), AAPCS32 PlanFrame sizing regression test, caller
+arg-shift-to-R1, and `conformance/966_return_small_struct` (xfail'd for native
+arm32). Two review claims correctly refuted (a harmless `CalleeUsesCSret`
+redundancy matching the template; an odd-size memcpy over-copy provably in-bounds
+since regions are word-rounded).
+
+**Deferred to P4 (fail-loud today):** the small (≤4-byte) in-register aggregate
+return/collection (callee pack into R0 / caller collect from R0 — mirror x64's
+`emitAggregateReturnPack` + `!bigRet` store); plus multi-return (in-register tuple
++ >budget sret). See `claude-todo.md`.
 
 Remaining P3 work (original sketch):
 - Port `arm32_ops.bn` (int arith/bitwise/shift/compare/unary/cast/const,
