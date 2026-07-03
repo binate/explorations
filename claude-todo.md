@@ -2026,6 +2026,32 @@ shadow for funcs & methods, Tier 5 mid-session imports `78685ac3`). Residual:
 
 ## ARM32 bare-metal target
 
+### native arm32 backend — IN PROGRESS (live tracker: [plan-native-arm32.md](plan-native-arm32.md))
+
+The `pkg/binate/native/arm32` backend (P0–P3.3 in progress) is tracked in detail
+in `plan-native-arm32.md`; that doc is authoritative for phase status, landed
+commits, and deferred shapes. Deferrals below are all **fail-loud** (a shape the
+backend doesn't implement emits a clean COMPILE_ERROR, never silent wrong-code).
+
+- **small (SizeOf ≤ InternalSretBytes = 4) in-register aggregate return —
+  deferred (P4).** A struct ≤ 4 bytes (e.g. `struct{x int32}`) is returned BY
+  VALUE in R0 on AAPCS32, not via sret (P3.3's single-aggregate-sret covers only
+  the > 4-byte case). The in-register pack (callee) + collection (caller) are not
+  implemented; both sides fail LOUDLY. The x64 backend packs this size class via
+  `emitAggregateReturnPack` / the `!bigRet` RAX(+RDX) store — the arm32 analogue
+  (LDR/STR the ≤ 1-word value into/out of R0) is the P4 port. Covered by
+  `conformance/966_return_small_struct` (xfail'd for
+  `builder-comp_native_arm32_baremetal`; passes on every backend that implements
+  it) and unit tests `TestReturnSmallAggregateSetsError` /
+  `TestCallSmallAggregateReturnSetsError`. Root cause of the fail-loud: the sret
+  predicates use a strict `SizeOf > InternalSretBytes`, leaving the `≤ 4` class as
+  a non-sret in-register shape that P3.3 doesn't lower.
+- **multi-return (in-register tuple collection AND > register-budget sret) —
+  deferred (P4).** Fail-loud today; not yet xfail'd per-test (they sit among the
+  native-arm32 conformance failures, e.g. `401_return_many_scalars`).
+- **soft-float (P5) / VFP hard-float + arm32-linux (P6) / CI wiring (P7)** — see
+  the plan doc.
+
 ### ARM32 bare-metal target — MAJOR PROJECT
 - **Why**: enable Binate as an OS-development language on ARM32
   bare-metal (Cortex-A and possibly Cortex-M). Bare-metal is the
