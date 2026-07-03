@@ -224,8 +224,8 @@ pre-existing `__c_call` C-varargs `...` marker (§16.9), which is unaffected.
   - Deferred (non-blocking): `IsVariadic` *flag* on method-value / generic
     instantiation func-value types (ABI already correct; couples with Phase 6);
     Phase-1 F9 receiver-only-method unit test (fix-forward).
-- 🟡 **Phase 3** — individual-arg call pack, DIRECT + FUNC-VALUE (ready to land,
-  work-1 `57efdcf1`): `checkCallExpr` variadic binding (fixed positional + pack
+- ✅ **Phase 3** — individual-arg call pack, DIRECT + FUNC-VALUE (main
+  `e56b07ed`): `checkCallExpr` variadic binding (fixed positional + pack
   trailing individual args, incl. the empty case) + IR `emitVariadicTail` (stack
   `[N]T` backing via `OP_ALLOC`, **no heap**; managed elements via
   `emitStoreManagedSlot` acquire + backing-array temp registration).
