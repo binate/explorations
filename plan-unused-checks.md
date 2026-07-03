@@ -69,11 +69,26 @@ unused-import cross-file gap and add four new "unused" checks.
     `Checker.Warnings` / `addCheckWarning` / `CheckerWarnings()` /
     `printCheckerWarnings` were dead after the `(b)` revert (nothing produces
     checker warnings; Binate emits none). Whole apparatus deleted.
-  - **NEXT: make bnlint (optionally) lint test files** — bnlint currently lints
-    only a package's non-test files, so test-file lint rules (unused-local,
-    -import, -func) are unenforced. Load + type-check `*_test.bn` and run the
-    rules over them (behind a flag or always). Enables enforcing the test-file
-    cleanup above going forward.
+  - **bnlint --tests (lint test files): FOUNDATION DONE, not landed** (work-3
+    `0b6b2a4b`, 2026-07-02). `bnlint --tests <pkg>` loads each target's
+    `_test.bn` via the loader's existing `TestPackages` field so `LintFile`
+    runs over them; opt-in (default off → existing behavior unchanged). Test
+    files type-check cleanly under bnlint. `unused-func` now treats
+    `Test…`/`Benchmark…` funcs as reachability ROOTS (invoked by the runner,
+    not in-package) — this alone dropped `types --tests` from **1046 → 109**
+    findings (890 Test + 49 helpers gone). Unit-tested; hygiene green.
+    - **Remaining before --tests is hygiene-wirable (follow-ups):**
+      - **`managed-to-raw-assign` in tests** — 102 findings in `types` tests
+        alone. Decide policy: exempt this rule from `_test.bn`, or triage/fix.
+        (Likely intentional raw-view patterns in tests → exempt.)
+      - **`unused-import` in tests** — ~5 in `types`; probably real, clean them.
+      - **Broader sweep** — only `types` was measured; run `--tests` over every
+        package and triage.
+      - **A bnlint `--tests` integration test** (currently only the unused-func
+        Test-root behavior is unit-tested).
+      - **Wiring into hygiene** (`scripts/hygiene/lint.sh`) is a SEPARATE
+        decision (the user owns hook-up); do NOT wire until the noise above is
+        resolved AND requested.
 
 This plan is grounded in a full read of `pkg/binate/lint/*`, `pkg/binate/types/*`
 (checker/scope), and `pkg/binate/loader/*`, plus empirical repros. File:line
