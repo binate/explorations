@@ -41,27 +41,20 @@ infrastructure to observe them.
 
 ## Remaining work
 
-### A. Known miscompile: int64↔float CONVERSION casts (`vm_exec_cast.bn`)
+### A. int64↔float CONVERSION casts — ✅ DONE & LANDED (`0a8507a1`, 2026-07-02)
 
-The 8 conversion handlers are pair-aware on the **float** operand (`REG_SLOT < 8`
-branches) but **not the int** operand. On ILP32:
-- int→float **source** side (`SITOF`/`UITOF`/`SITOF32`/`UITOF32`): the int64/uint64
-  source is read as a single slot → high half dropped.
-- float→int **dest** side (`FTOSI`/`FTOUI`/`F32TOSI`/`F32TOUI`): the int64/uint64
-  dest is written as a single slot (`cast(int, f)`) → truncated + stale high slot.
-
-`lowerCast`'s int→float and float→int arms have no `is64BitScalar` gate, so they
-emit the single-slot op regardless of int-operand width.
-
-**DESIGN FORK (needs a decision — see below):** how to represent the int64 side.
-1. **Distinct always-pair opcodes** (8 new: the int64 variants), handler always
-   pairs the int side — matches the `execOp64` convention, **host-testable on a
-   64-bit host** via direct handler calls. Doubles the conversion opcode count.
-2. **Reuse the 8 opcodes + `REG_SLOT < 8` branch** on the int side (needs the
-   handler to know the int operand is 64-bit — via a spare-field flag), matching
-   the existing float-side style. Leaner (no new opcodes) but the pair path is
-   `REG_SLOT<8`-dead on a 64-bit host, so **not unit-testable off arm32** — the
-   arm32 VM-host mode (Phase 2) would be its only test.
+The 8 conversion handlers paired the **float** operand (`REG_SLOT < 8`) but not
+the **int** operand, so on ILP32 an int64/uint64 source (int→float) or dest
+(float→int) lost its high 32 bits.  Fixed with the **distinct-opcode** design
+(user-chosen over the leaner `REG_SLOT<8`-branch alternative, for host
+testability): 8 pair-variant opcodes (`BC_SI64TOF`/`UI64TOF`/`SI64TOF32`/
+`UI64TOF32`, `BC_FTOSI64`/`FTOUI64`/`F32TOSI64`/`F32TOUI64`) whose handlers
+(`vm_exec_cast64.bn`) ALWAYS pair the int64 side; `lowerCast` selects them when
+`is64BitScalar(int-operand) && REG_SLOT < 8`.  Coverage: 8 direct handler tests
+(host-testable) + 8 REG_SLOT-aware lowering tests (4 signed + 4 unsigned) that
+assert the pair variant on arm32.  Adversarially reviewed (0 bugs).  Verified on
+the 64-bit host (vm 228, conformance 303); the arm32 selection path is gated by
+CI's `builder-comp_arm32_linux` job (un-runnable on macOS — no qemu-arm).
 
 ### B. LP64 (8-byte) hardcodes in the VM
 
@@ -91,10 +84,8 @@ emit the single-slot op regardless of int-operand width.
 
 ## Chosen sequencing (red-mode-first, per user 2026-07-02)
 
-1. **Phase 1 — land the int64↔float conversion fix (A).** The one known
-   miscompile; must land before/with the mode so the mode doesn't report it as
-   noise. (Design fork above pending.)
-2. **Phase 2 — stand up `builder-comp_arm32_linux_int`** (or similar): a
+1. **Phase 1 — int64↔float conversion fix (A). ✅ DONE & LANDED (`0a8507a1`).**
+2. **Phase 2 (NEXT) — stand up `builder-comp_arm32_linux_int`** (or similar): a
    conformance runner that cross-builds `cmd/bni` to arm32 via LLVM and runs it
    under qemu, feeding each `.bn`. Add the runner; **CI-matrix hookup is a
    separate decision to raise with the user** (adding the mode ≠ wiring it into
@@ -110,10 +101,10 @@ data). Phase 1 lands the one thing we already know is wrong.
 
 ## Open decisions
 
-- **Conversion-fill design fork (A):** distinct host-testable opcodes vs leaner
-  `REG_SLOT<8` branch. (Blocking Phase 1.)
+- **Conversion-fill design fork (A):** ✅ RESOLVED — distinct host-testable
+  opcodes (landed `0a8507a1`).
 - **Phase 2 CI hookup:** add the mode to the CI matrix, or keep it a
-  locally-runnable mode for now.
+  locally-runnable mode for now. (To raise when Phase 2's runner is ready.)
 - **Alt host:** arm32-linux is the cheapest first 32-bit VM host (proven
   toolchain). 32-bit x86 (i386) is a possible alternative if arm32/qemu proves
   fiddly — not yet scoped.
