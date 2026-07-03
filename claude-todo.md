@@ -59,9 +59,25 @@ with a managed `@[]char` field (single + a slice of many), churns ~200
 allocations, reads the fields back. Passes with the fix; without it prints the
 first line then crashes.
 
-### float32 mixed-type expression miscompile — IR-gen mis-types float ops — 🔴 OPEN (2026-07-02)
+### float32 mixed-type expression miscompile — IR-gen mis-types float ops — ✅ FIXED & LANDED (`fef6cd35`, 2026-07-02)
 
 **Severity: CRITICAL (silent miscompile in native + malformed IR in LLVM).**
+
+**RESOLUTION (`fef6cd35`).** Root cause was NOT the checker (it types these correctly)
+— it was purely IR-gen: `pkg/binate/ir/gen_binary.bn`'s `widenType` (which derives a
+binop's result type from its operand types) had no float case, so a float pair fell
+through to the integer-width logic and returned `TypInt()` (e.g. `widenType(untyped-
+float, float32)`), and codegen keys `fadd`-vs-`add` off the node's result type → an
+INTEGER add with the float operand coerced via `fptosi`. Fix: a float branch in
+`widenType` — a concrete typed float wins (plain float32/float64 OR a **named** float
+type, via `IsFloat()` which peels named), an untyped literal peer coerces to it, two
+untyped floats default to untyped-float. Also fixed the adjacent (pre-existing)
+named-float32 double-promotion caught by adversarial review (`type Temp float32`
+op untyped-float computed in double). `conformance/962` flipped from `.xfail.all` to a
+passing regression test (chain, struct-fields, mixed ops, named-float32 precision).
+Verified native==LLVM; ir (587) + codegen (246) unit tests + float conformance green;
+integer arithmetic untouched. Adversarially reviewed (`wf_025b40b1-bde`): no regression,
+`widenType` confirmed the sole float-lowering site. Detailed original diagnosis below.
 
 **Symptom.** A float32 expression that mixes a multiply-by-untyped-float-constant
 with a trailing bare-float32 addend produces WRONG results (native: garbage; LLVM:
