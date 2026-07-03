@@ -191,9 +191,20 @@ pre-existing `__c_call` C-varargs `...` marker (§16.9), which is unaffected.
   `sig_string` `...T` encoding; `ir.FuncSig.IsVariadic` +
   `ModuleInterface.MethodParamVariadic` (all flags default false → no behavior
   change). BUILDER-compat verified; tests in `types_variadic_test.bn`.
-- ⬜ **Phase 2** — parser + AST + declaration resolve (incl. IR-side `*[]T`
-  derivation per D-G). ⬜ **Phase 3** — direct individual-arg pack. ⬜ **Phase 4**
-  — spread. ⬜ **Phase 5** — managed-element borrow. ⬜ **Phase 6** —
+- ✅ **Phase 2** — parser + AST + declaration resolve, declare-only (main
+  `35794507`): AST `ParamDecl.Variadic` / `TypeExpr.VariadicParams` / `Expr.Spread`;
+  parse `name ...T` / `*func(...T)` / `expr...` with parse-level constraints;
+  checker + IR-gen (D-G) derive the `*[]T` body type at **every** declare-time
+  param-resolution site (free func, method, func-literal, imports, REPL,
+  func-ref decay, both interface collectors — an impl-review caught that the
+  func-lit/import ones silently miscompiled a scalar-vs-`%BnSlice` shim; fixed +
+  LLVM-verified). Calls still rejected (Phase 3). Conformance 165-168; full
+  conformance builder-comp 2607/0.
+  - Deferred (non-blocking): `IsVariadic` *flag* on method-value / generic
+    instantiation func-value types (ABI already correct; couples with Phase 6);
+    Phase-1 F9 receiver-only-method unit test (fix-forward).
+- ⬜ **Phase 3** — direct individual-arg pack. ⬜ **Phase 4** — spread.
+  ⬜ **Phase 5** — managed-element borrow. ⬜ **Phase 6** —
   indirect/method/generic/method-value. ⬜ **Phase 7** — close-out + status flip.
 
 Open decisions for the user (plan §12): O-1 (test 023 repurpose), O-2/‡
