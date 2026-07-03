@@ -28,11 +28,15 @@ decomposition). ILP32 layout background: [`plan-arm32-bare-metal.md`].
 - **Landed so far (all on main):** P0, P0-fu, P1, P2, P3.1, the arm32-linux
   nativeArch regression fix, P3.2, the int64 follow-ups, the conformance-harness
   `OVERRIDE_MODE` fix, **P3.3 (single-aggregate sret, `d9567498`)**, the
-  `common_callconv` constructor split (`1fade373`), and **OP_MAKE/OP_BOX (finish
-  P3 emit, `b33eb9d6`)**. Current native-arm32-baremetal conformance: **1754
-  passed / 832 failed / 32 skipped** (all failures are fail-loud deferred shapes
-  or real gaps; make/box was +181 — it also unblocked the iface/func-value tests
-  that allocate).
+  `common_callconv` constructor split (`1fade373`), **OP_MAKE/OP_BOX (finish
+  P3 emit, `b33eb9d6`)**, the experimental CI wiring (`0727d0c1`), and the
+  **`[N x i64]`→`[N x i32]` ILP32 aggregate-coercion ABI fix (`5b65e369`)**.
+  Current native-arm32-baremetal conformance: **1771 passed / 834 failed / 33
+  skipped** (the coercion fix was +17 — `conformance/967` + 16 pre-existing
+  odd-register-aggregate tests the old `[N x i64]` corrupted; remaining failures
+  are fail-loud deferred shapes or real gaps, incl. the int64-xpkg-return hang
+  and five-u8/877). Follow-up (docs-only): repo-wide `[N x i64]`→`[N x iW]`
+  comment sweep.
 - **Per-increment workflow that's worked every time:** (1) delegate the
   increment to a background `Agent` working in `temp-binate-5` (no `isolation:
   worktree`), mirroring the `native/aarch64` handler where a template exists and

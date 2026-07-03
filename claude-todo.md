@@ -212,7 +212,17 @@ non-variadic `cc("abc"[:])` (no variadics/spread involved).
 
 ## Native arm32 backend (AAPCS32 / ILP32) build-out
 
-### Small-aggregate coercion was `[N x i64]` on ILP32 — native↔LLVM ABI mismatch — ✅ FIXED (worktree `temp-5`, awaiting land)
+### Small-aggregate coercion was `[N x i64]` on ILP32 — native↔LLVM ABI mismatch — ✅ FIXED & LANDED (`5b65e369`, 2026-07-03)
+
+**Landed** as `5b65e369`: native-arm32-baremetal conformance 1754 → **1771** (+17;
+`conformance/967` + 16 pre-existing odd-register-aggregate tests the old `[N x
+i64]` was corrupting). LP64 byte-identical (verified: empty `--emit-llvm` diff,
+codegen/types/native-x64/aa64 unit tests green); adversarially reviewed (a
+would-be-critical `[2]int64`-array alloca-under-alignment concern was checked
+against clang and refuted — LLVM uses the pointer's provable align-4, lowering to
+word-granular `ldm`, never `ldrd`). **Follow-up (docs-only):** a repo-wide
+`[N x i64]` → `[N x iW]` comment sweep (~61 stale references across codegen) — the
+landed commit fixed only the justifications adjacent to the code.
 
 **Severity: MAJOR (silent argument corruption at the native↔LLVM boundary on
 arm32).** `pkg/binate/codegen/emit_agg_coerce.bn` coerced a `<=16-byte`
