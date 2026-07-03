@@ -742,6 +742,31 @@ stdout.
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
+### 🏷[LANE 3] MAJOR: cross-mode shim mis-marshals 64-bit scalar ARGS on ILP32 (println of unsigned/int64/float segfaults) — DESIGNED, not yet implemented
+- **Severity: MAJOR.** On the 32-bit VM host (`builder-comp_arm32_linux_int`),
+  `println` of any `uint8`/`uint16`/`uint32`/`uint64`/`int64`/`float64` segfaults
+  (`int`/`bool` are fine). Root cause of `conformance/133`'s crash (the slice
+  indexing was a red herring — `s[0][0]` is a `char` → `formatUint(uint64)`).
+- **Root cause**: a 64-bit scalar shim arg takes 2 VM slots (lo,hi), but the
+  per-function `__shim` declares an `i64` param; `rt._call_shim_scalar` passes
+  all args as `int`(=i32), so the reconstructed indirect-call type has no `i64`
+  to even-align while AAPCS32 even-aligns the shim's `i64` → the following `buf`
+  arg reads garbage → the formatter derefs a bad pointer. LP64-invisible.
+- **Fix (designed + adversarially reviewed)**: `plan-vm-32bit-crossmode-64bit-args.md`.
+  Slot-based shim arg ABI on ILP32 via a shared `slotTypesFor` helper across all
+  six signature sites + the native caller's arg preamble.
+- **Related MAJOR (separate, confirmed): 64-bit scalar RETURNS via retbuf on
+  ILP32 are also broken.** A bare `int64`/`uint64`/`float64` result routes through
+  `_call_shim_aggregate` (IsAggregateReturn true at SizeOf 8 > word 4), but the
+  dispatch stores the retbuf ADDRESS into `regs[Dst]` (one slot,
+  `vm_exec_funcref.bn:356` / `vm_extern.bn:63`) while `regWidths` flags the result
+  register WIDE (2 slots, `lower_slots.bn:170`) — `regs[Dst+1]` stays stale and
+  the 8 bytes are never loaded from the retbuf into the pair. Not exercised by the
+  format helpers (they return `int`), so it does NOT block `133`, but any cross-
+  mode func value / extern returning a bare 64-bit scalar on ILP32 is wrong. Fix
+  shape: aggregate-return dispatch must load the retbuf pair for a 64-bit *scalar*
+  result rather than storing the pointer. Discovered by the design-doc review.
+
 ### 🏷[BUG-BASH 2026-06-27 → LANE 3] IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 + 2 (INT64 + FLOAT64) DONE
 - **Symptom**: under `builder-comp_arm32_linux` unit tests, `pkg/ir`
   and everything downstream of it (`pkg/native{,/amd64,/arm64,/common}`,
