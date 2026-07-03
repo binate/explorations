@@ -126,7 +126,36 @@ result-type selection so a float operand pair can never yield an int-typed add /
 `fptosi` coercion. Needs a front-end/IR investigation to find where the result type is
 chosen.
 
-### HFA-in-SIMD is a CROSS-BACKEND contract — native-only enablement miscompiles — 🟠 MITIGATED (gated off `1a790663`), replan OPEN (2026-07-02)
+### HFA-in-SIMD is a CROSS-BACKEND contract — native-only enablement miscompiles — 🟢 REPLANNED + IN PROGRESS (Stages 0-2 landed/implemented dormant, 2026-07-03)
+
+**STATUS (2026-07-03).** The replan (`explorations/plan-hfa-crossbackend.md`) is
+executing; all work lands DORMANT behind the single gate `types.HfaInSimd()`
+(returns false), flipped ON only at Stage 3.
+- **Stage 0 landed** (`06f9a8ff` classifier lift to `pkg/types`, `d69eded8`
+  variadic NSRN walkers — item 2 above fixed).
+- **Stage 1 landed** (`7692508e` TargetInfo.Arch + gate, `9ebf4119` LLVM codegen
+  emits `[N x float]`/`[N x double]` — item 1's LLVM half fixed; adversarially
+  reviewed SOUND).
+- **Stage 2a landed** (`4bc6fa7c` native aa64 HFA returns in D0..D3 +
+  `ReturnsHfaInRegs`).
+- **Stage 2b implemented** (worktree `cd0d27c6`, pending land): native dispatch
+  shims — func-value / closure / interface (item 3 fixed). Adversarially reviewed;
+  a func-value FP-register-budget defect (multi-f32 HFA overflowing v0..v7) was
+  caught and fixed pre-land.
+- Verified flip-on across all dispatch kinds + CROSS-MODULE (native main → LLVM
+  dep) — the coverage the original effort lacked.
+
+**REMAINING before the Stage-3 flip:**
+1. **Func-value stack-spill shim HFA marshalling** (`aarch64_funcvalue_spill.bn`).
+   Currently a WIDE-arg / FP-overflowing HFA func-value fails LOUD (SetError) rather
+   than miscompiling — safe but incomplete. Must be implemented before flipping.
+2. **Stage 3 flip + comprehensive tests** — incl. automated tests for the
+   multi-HFA-arg FP-overflow (fails loud) and FP-fitting (compiles) routing cases,
+   which are only exercisable once `HfaInSimd()` is arch-gated.
+
+Original problem writeup (what the replan addresses) follows.
+
+### (original) HFA-in-SIMD native-only enablement miscompiles — 🟠 MITIGATED (gated off `1a790663`), replan OPEN (2026-07-02)
 
 **Severity: CRITICAL wrong-code / SIGSEGV when enabled** (mitigated by gating off).
 `332b4298` enabled Homogeneous Floating-point Aggregate passing in SIMD registers on
