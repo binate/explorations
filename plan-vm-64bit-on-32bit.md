@@ -85,14 +85,21 @@ CI's `builder-comp_arm32_linux` job (un-runnable on macOS — no qemu-arm).
 ## Chosen sequencing (red-mode-first, per user 2026-07-02)
 
 1. **Phase 1 — int64↔float conversion fix (A). ✅ DONE & LANDED (`0a8507a1`).**
-2. **Phase 2 (NEXT) — stand up `builder-comp_arm32_linux_int`** (or similar): a
-   conformance runner that cross-builds `cmd/bni` to arm32 via LLVM and runs it
-   under qemu, feeding each `.bn`. Add the runner; **CI-matrix hookup is a
-   separate decision to raise with the user** (adding the mode ≠ wiring it into
-   the CI matrix). Expect the first full run to be RED beyond the conversion cast.
-3. **Phase 3 — triage the red run.** Fix iteratively, data-driven: the easy LP64
-   `ptrSize` wins, the `32`/`16` push strides, `BC_LOAD64/STORE64` pairing, then
-   the role-3 field audit and the argSlots re-marshal as they actually surface.
+2. **Phase 2 — `builder-comp_arm32_linux_int` conformance mode. ✅ DONE & LANDED
+   (`7577e446` runner + `build_interp_arm32`; `19ad5047` CI wiring).** Cross-builds
+   `cmd/bni` to arm32 (`GEN1_COMPILER --target arm32-linux`) and runs it under
+   qemu, feeding each `.bn`; `ConfigForTarget("")` makes it interpret 32-bit-target
+   bytecode.  Wired into the conformance CI matrix as **non-blocking**
+   (`continue-on-error`, kept OUT of the shared `scripts/modesets/all`).
+   UN-runnable on macOS (no arm cross-toolchain / qemu-user) — the CI
+   `ubuntu-latest` job is the red-signal source.  **NEXT: read the first main-CI
+   run's `builder-comp_arm32_linux_int` job log** for (a) whether `cmd/bni`
+   cross-compiles to arm32 at all, and (b) the red failure list.
+3. **Phase 3 (NEXT) — triage the CI red run.** Fix iteratively, data-driven: the
+   easy LP64 `ptrSize` wins, the `32`/`16` push strides, `BC_LOAD64/STORE64`
+   pairing, then the role-3 field audit and the argSlots re-marshal as they
+   actually surface. As the mode goes green, flip it from experimental to
+   blocking in `conformance-tests.yml`.
 
 Rationale: buckets B(hard) and C(hard) are information-gated — speculative until
 the red run says what breaks. Getting the failing signal beats a blind audit
@@ -103,8 +110,9 @@ data). Phase 1 lands the one thing we already know is wrong.
 
 - **Conversion-fill design fork (A):** ✅ RESOLVED — distinct host-testable
   opcodes (landed `0a8507a1`).
-- **Phase 2 CI hookup:** add the mode to the CI matrix, or keep it a
-  locally-runnable mode for now. (To raise when Phase 2's runner is ready.)
+- **Phase 2 CI hookup:** ✅ RESOLVED — wired into conformance CI as a
+  non-blocking (`continue-on-error`) mode (`19ad5047`); flip to blocking once
+  Phase 3 gets it green.
 - **Alt host:** arm32-linux is the cheapest first 32-bit VM host (proven
   toolchain). 32-bit x86 (i386) is a possible alternative if arm32/qemu proves
   fiddly — not yet scoped.
