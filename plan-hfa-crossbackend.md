@@ -6,13 +6,14 @@
 (LLVM backend passes HFAs in SIMD). Both adversarially reviewed SOUND. **Stage 2a
 landed** (dormant, `4bc6fa7c`): native aa64 HFA returns in D0..D3 + the
 `ReturnsHfaInRegs` classifier (with the AggInRegCoercedKind guard that closes the
-Stage-1 classifier-agreement carry-forward). **Stage 2b implemented** (dormant,
-worktree `3e416126`): native dispatch shims (func-value / closure / interface)
-marshal HFAs — verified flip-on across all dispatch kinds + cross-module
-(native main -> LLVM dep). `IsAggregateReturn`/`AggregateReturnSize` correctly
-needed NO change (recon). ONE gap remains, failing LOUD (SetError, never silent):
-the non-capturing WIDE-arg func-value stack-spill shim
-(`aarch64_funcvalue_spill.bn`). **Next: finish the spill shim, then Stage 3 (flip
+Stage-1 classifier-agreement carry-forward). **Stage 2b LANDED** (dormant,
+`576e7bb3`): native dispatch shims (func-value / closure / interface) marshal
+HFAs — verified flip-on across all dispatch kinds + cross-module (native main ->
+LLVM dep); two independent adversarial reviews (one SOUND, one caught+fixed a
+func-value FP-register-budget defect pre-land). `IsAggregateReturn`/
+`AggregateReturnSize` correctly needed NO change (recon). ONE gap remains, failing
+LOUD (SetError, never silent): the func-value stack-spill shim
+(`aarch64_funcvalue_spill.bn`) — an FP-overflowing / wide-arg HFA func-value. **Next: finish the spill shim, then Stage 3 (flip
 + comprehensive tests).** Supersedes the *staging* of
 `plan-native-hfa-abi.md` (which is marked NEEDS REPLAN). The native aa64 arg path
 from that effort is in-tree, **dormant** (`cc.HfaAggregates = HfaInSimd()`,
