@@ -433,7 +433,31 @@ while keeping every commit green and close to main.
     minor asymmetry remains (blank between a comment and its stmt not preserved).
     Verified by idempotence (blanks, comments+blanks, interior) + goldens (65
     format tests); hygiene 15/15.
-11. **Column alignment** (tabwriter).
+11. **Column alignment / layout** — decomposed into sub-commits. Layout policy
+    (decided): single-line-vs-multi-line is **source-preserving** (a construct
+    the source kept on one line stays single-line) **with a 100-col force-expand**
+    folded in now.
+    - **11a** — single-line block preservation + width cap — ✅ **LANDED**
+      2026-07-03 (`7fc16326`). `printBlock` re-emits a source-single-line block
+      as `{ s1; s2 }` when it has no interior comment and fits within
+      MAX_LINE_WIDTH at the current column; else expands. `print_width.bn` adds
+      the byte-count width primitives (tabs = 1 byte, matching line-length.sh).
+      The cap cascades left-to-right so each physical line stays ≤100.
+    - **11b** — multi-line struct field-type alignment — ✅ **LANDED** 2026-07-03
+      (`a7b74e3c`). Multi-line structs print one field per line with types
+      aligned per run (run broken by a blank line or interleaved comment,
+      detected as a source line gap); names space-padded to the run's widest.
+      The comment cursor is threaded into the struct printer (via `printTypeDef`,
+      used by `printTypeSpec`/`printGroupDecl`) so field comments interleave in
+      place rather than falling to the backstop.
+    - **11c** — single-line case bodies + case-body column alignment — *in
+      progress*. Canon (decided): preserve source single-line cases; align bodies
+      to (max label width + 1 space) per run, reset by a blank line, a comment,
+      or an expanded case. This is *not* token.bn's historical gofmt-tabwriter
+      padding (wider, uniform across comment groups) — token.bn is reformatted to
+      this canon under step 13.
+    - **11d** — trailing-comment column alignment — pending (the tree has almost
+      no aligned trailing-comment columns; scope TBD after 11c).
 12. **Width-aware wrapping** to 100 cols.
 13. **CLI polish** (`-w`, `--check`, stdout, `--version`), parse-error/degenerate
     handling (§9), README, `_test.bn` per file, repo-wide fixpoint (§11.2).
