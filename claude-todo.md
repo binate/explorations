@@ -382,8 +382,8 @@ packed into the bytecode). arm32-VM repro fixed (`math.Float64bits(3.7)` →
 `4615514078110652826`, `math.Floor(3.7)` → `3.000000`); LP64 no-op; conformance
 `stdlib/math/003` + host-independent predicate/pack/unpack + lowering + in-bytecode
 dispatch tests. Adversarially reviewed (design ×2 + implementation ×1, no bugs).
-The REVERSE direction (below) — `execFunc`/`TrampolineScalar` truncation — is the
-remaining open half of this work.
+The REVERSE direction (`execFunc`/`TrampolineScalar` truncation) is ALSO now fixed
+& landed (`b648501a`, see below) — both halves of this work are complete.
 
 **Severity: MAJOR.** Cross-mode (bytecode→native) return of a bare
 `int64`/`uint64`/`float64` on the ILP32 VM host loses the high 32 bits. Design
