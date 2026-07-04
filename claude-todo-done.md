@@ -8,6 +8,49 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ DONE & LANDED (2026-07-03) — Variadic functions & spread (`...T` / `expr...`)
+
+Go-style variadics + spread, fully implemented and conformant. Plan:
+[plan-variadics-detailed.md](plan-variadics-detailed.md) (from
+[plan-variadics.md](plan-variadics.md)). **Model:** final param `name ...T` → body
+type raw `*[]T` (borrow, stack-backed, **zero heap alloc**); `expr...` spread
+(exclusive, Go-style); variadic-ness is part of func-type identity (`*func(...T)`,
+variadic interface/impl methods, method values); at every indirect boundary
+variadic-ness is **erased to `*[]T`** at the ABI (a plain 2-word raw slice, so
+compiled↔VM interop is unchanged). Spec §10.3 (`func.call.apply`,
+`func.variadic.decl/identity/pack/spread/borrow`); distinct from the pre-existing
+`__c_call` C-varargs marker (§16.9). Chapter-10 spec-coverage 100%. Landed in
+green, adversarially-reviewed phases:
+
+- **Phase 0** spec-coverage prep (`72aa2a09`); **Phase 1** type-identity foundation
+  (inert) (`50480f91`); **Phase 2** parser + AST + declare-only resolve, incl. the
+  D-G derive-`*[]T`-at-every-IR-param-site sweep (`35794507`).
+- **Phase 3** direct + func-value individual-arg pack — `emitVariadicTail` stack
+  backing, no heap; managed elements via `emitStoreManagedSlot` (`e56b07ed`).
+- **Phase 4** spread (`b8a89eb9`) — `emitVariadicSpread` forwards `{data,len}`
+  (kind-gate before `AssignableTo`; borrow lifetime). Sibling **managed-slice
+  literal element-leak fix** (`a2abf36e`) + **string-literal-slice codegen fix**
+  (`77ae3c54`), both surfaced writing the tests.
+- **Phase 5** managed-element coverage — no code change; the Phase-3 mechanism was
+  already correct for `@T`/`@[]T`/`@func`/`@Iface` (`72667a86`).
+- **Phase 6** indirect/method/interface/generic calls (`63c3db1d`..`406b8f65`, 6
+  commits): checker binders take a param-slice (method passes `ft.Params[1:]`);
+  `genMethodCall`/`genInterfaceMethodCall` (4-tuple + `MethodParamVariadic`) /
+  generic instantiation (`IsVariadic` copy + `genCallInstantiate` spread) all
+  pack/spread; constraint-method binding with Self-substitution. Method values
+  already worked. Adversarial review (5 lenses): 0 critical/major.
+- **Phase 7** close-out (2026-07-03): chapter-10 spec-coverage already 100%; docs
+  §10.3 "Draft; not yet implemented" note removed + §00 index row updated (docs
+  repo `b77334b`).
+
+Conformance: `spec/10-functions/165-200` + refcount cells in `spec/18-memory`.
+**Filed pre-existing bug** (orthogonal, still OPEN in the active list): a `Self`
+nested in a composite iface-method param (`*[]Self` / `...Self`) fails
+impl-satisfaction — repro `conformance/regressions/iface-self-in-composite`
+(xfail); blocks only the obscure `...Self` constraint-method case.
+
+---
+
 ## ❌ DISMISSED (2026-07-02) — conformance tests in a separate repo
 
 Considered and **decided against**. The proposal (a standalone `binate/conformance`
