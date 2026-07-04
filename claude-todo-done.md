@@ -8,6 +8,42 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `0479813a`, 2026-07-03) — cross-package call to an LLVM-compiled `int64`-returning function wedged native-arm32
+
+**RESOLUTION (`0479813a`).** Root cause was NOT libgcc linkage (the guess below)
+but the shared `types.NeedsSret` / `IsAggregateReturn` misclassification: on ILP32
+a bare 64-bit scalar (int64, SizeOf 8 > threshold 4) was classified as
+sret/aggregate — no aggregate-KIND gate, unlike the arg-side `IsByvalParam`. So
+codegen emitted the LLVM dep as `define void @f(ptr sret(i64), i32)` (expecting a
+retbuf pointer in r0), while the native caller — correctly classifying int64 by
+KIND as a register pair — passed no pointer and read r0:r1; the callee stored the
+int64 through r0 (a user value) → wild store → wedge. Fixed by gating both
+predicates on `isAggregateReturnKind` (at the root: native 877 + the func-value /
+VM int64-return path). `conformance/877_aggregate_abi_xpkg` now passes;
+native-arm32 conformance +8; LP64 byte-identical. **Coordination:** this is the
+same shared classification the concurrent ILP32-VM 64-bit-return work references —
+the fix makes a bare int64 no longer route through the retbuf/aggregate path, so
+`plan-vm-32bit-crossmode-64bit-args.md`'s deferred "Return side" VM-dispatch patch
+was NOT made moot by it — the re-check found `0479813a` MOVED that VM-side return bug rather than eliminating it (now the two cross-mode 64-bit-scalar-RETURNS entries in claude-todo.md).
+
+**Severity: MAJOR (hang / no output).** On
+`builder-comp_native_arm32_baremetal`, a native `main` calling an
+LLVM-compiled dependency function whose result is `int64` (or which does int64
+multiply) hangs QEMU with no output — even with **only scalar args** (no
+aggregates). Discovered 2026-07-03 while writing the small-aggregate ABI
+fixture above: the first int64-returning design of `967` hung, and a minimal
+repro (`Mul(scalar, a, b int32) int64` returning `scalar*1e9 + a*1e6 + b`,
+called cross-package) reproduced it with no structs involved; the same shape
+returning `int32` works, and a native-`main`-only int64 println/multiply works.
+So it is **independent of the aggregate coercion** — likely an int64 return-
+register / `__aeabi_*` libgcc-helper linkage issue at the native↔LLVM boundary.
+`967` sidesteps it by returning `int32`. Root cause: **unknown — needs
+investigation.** No dedicated xfail added (the whole native-arm32 mode is
+experimental/non-blocking with ~832 fail-loud shapes; this is one class of
+them). Related: `conformance/877_aggregate_abi_xpkg` also hangs on this mode,
+and its methods return int64 — plausibly the SAME int64-return defect rather
+than an aggregate-ABI one.
+
 ## ✅ FIXED & LANDED (main `b33eb9d6`, 2026-07-02) — native arm32: OP_MAKE / OP_BOX unimplemented (P3 GAP, fail-loud)
 
 `arm32_dispatch.bn` had no `OP_MAKE` / `OP_BOX` case (only `OP_MAKE_SLICE`), so
