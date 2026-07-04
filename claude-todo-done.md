@@ -8,6 +8,39 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `a13c96e3` forward + `b648501a` reverse + `ca56bd9e` arm32-unblock, 2026-07-04) — cross-mode 64-bit scalar RETURNS on ILP32 truncated the high word (both directions)
+
+On the 32-bit VM host a bare `int64`/`uint64`/`float64` cross-mode return lost its
+high 32 bits in BOTH directions. The concurrent `0479813a` (native-arm32 lane) had
+MOVED — not fixed — the forward bug: it KIND-gated `IsAggregateReturn` so a 64-bit
+scalar stopped using the retbuf shim, but the scalar shim declares an `i64` return
+(r0:r1) while `rt._call_shim_scalar` is `int`-typed (i32), so only r0 was read
+(`math.Floor(3.7)` → `0.000000`, `Float64bits(1.0)` → `0`; empirically re-verified,
+correcting its "likely MOOT" claim).
+
+- **Forward (bytecode → native), `a13c96e3`**: new i64-returning IR-magic primitive
+  `rt._call_shim_scalar64`; the four cross-mode dispatch sites
+  (`dispatchCompiledFuncValue`, `dispatchCompiledIfaceMethod`, the BC_CALL extern
+  arm, `dispatchNativeIndirect`) read a 64-bit scalar return back into the register
+  pair via `splitInt64`. Flag derived at lower time from `is64BitScalar(instr.Typ)
+  && REG_SLOT < 8` (same predicate `regWidths` uses), packed into the bytecode
+  (retbuf-field bit 0 / `Imm` bit 20). Helpers in `vm_crossmode_ret64.bn`.
+- **Reverse (native → bytecode), `b648501a`**: widen `execFunc`/`execLoop` to
+  `int64` (top-level BC_RETURN64 joins both slots via `joinInt64`; one-word/
+  aggregate results sign-extend; byte-identical on LP64); narrow the callers wanting
+  one word; add `TrampolineScalar64` (returns `execFunc`'s int64) selected by
+  `ensureHandle` via a new `VMFunc.ResultReg64Scalar` bit (StripWrappers-peeled to
+  agree with `funcSignatureLLVM`), registered + `isUniversalTrampoline`-extended.
+- **arm32-unblock, `ca56bd9e`**: 4 pre-existing test literals made target-width-
+  independent so `builder-comp_arm32_linux vm` compiles (exposed 6 unrelated
+  pre-existing arm32 reds — see the open follow-ups in `claude-todo.md`).
+
+Each direction: design + implementation adversarial reviews (no code bugs), LP64
+(vm + codegen green) AND arm32 (reverse tests + 3 new R1 tests pass), conformance
+`stdlib/math/003` green, hygiene clean. Design record:
+`plan-vm-32bit-crossmode-64bit-returns.md`. (Sibling of the landed 64-bit-ARGS fix,
+`a5511a8d`+`83819d60`.)
+
 ## ✅ DONE & LANDED (BUG-BASH LANE 3, 2026-07-02/03) — IR integer constants were host-width `int` (blocked the 32-bit-hosted toolchain); now host-independent across IR/codegen/native + VM (int64 + float64 + int↔float casts) on ILP32
 
 The IR stored program integer constants in `Instr.IntVal` typed host-width `int`;
