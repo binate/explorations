@@ -373,15 +373,27 @@ self-compile continuing to pass.
 >   which is Phase 5.
 >
 > **Increment breakdown (each self-contained + green; nothing reads the slot yet):**
-> - **2.1** — `TypeInfoDesc` + `Module.TypeInfos`; collect in `GenModule`;
->   `mangle.TypeInfoName`; `BuildTypeInfo` (fields: dtor, size, align, name-ptr,
->   name-len, **sat_len=0, sat_table=null** for now); emit in LLVM/x64/aarch64 +
->   wire slot 1. Verify: unit test (record shape + slot-1 ref) + full conformance
->   on all four modes + hygiene.
-> - **2.2** — populate the satisfaction table: `IfaceId` weak symbols
+> - **2.1 — ✅ LANDED 2026-07-04, main `041a6954`.** Scoped tighter than the
+>   original bullet: emit the fixed 7-word record **all-zero/null** (identity =
+>   the record's address), so it's fully **flat-registry / codegen-side** — no
+>   `TypeInfoDesc`, no `Module.TypeInfos`, no `GenModule`/checker collection yet
+>   (that was unnecessary for an all-zero record and would have risked a
+>   symbol-vs-slot key mismatch; deferred to 2.2 where the checker fields are
+>   filled). Delivered: `mangle.TypeInfoName`; `ir.BuildTypeInfo` +
+>   `ir.CollectTypeInfoSyms` (new `data_typeinfo.bn`); emit + slot-1 wire in
+>   LLVM/x64/aarch64 (native via `symPrefixed`); VM unchanged. Adversarially
+>   reviewed (4 lenses, no defects; NIT + Phase-5 weak-def hazard folded in).
+>   Verified: full unit + full conformance builder-comp/native-aa64 (2650 each) +
+>   iface VM/gen2, hygiene 15/15.
+> - **2.2** — fill the record from the **checker** (`c.Impls` has `RecvType
+>   @Type`): dtor handle, `SizeOf`, `AlignOf`, and the `name` rodata
+>   (`QualifiedTypeName`) — collected in `GenModule` into a `Module`-side desc
+>   keyed to match the slot symbol (**mind the Phase-5 weak-def hazard above:
+>   checker fields must be TU-invariant or emitted from one canonical TU**) —
+>   AND populate the **satisfaction table**: `IfaceId` weak symbols
 >   (`mangle.IfaceIdName`), one `{iface_id, sub-vtable-ptr}` entry per interface in
->   T's transitive set (from the already-flattened `m.Impls`/`c.Impls` grouping;
->   sub-vtable offset via `IfaceParentSlotOffset`). Fill `sat_len`/`sat_table`.
+>   T's transitive set (from the already-flattened `m.Impls` grouping; sub-vtable
+>   offset via `IfaceParentSlotOffset`). Fill `sat_len`/`sat_table`.
 > - **Deferred to Phase 5** (where the VM must *read* TypeInfo): the reflect-
 >   descriptor extension + VM-side per-type identity materialization (revised
 >   §2f).
