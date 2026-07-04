@@ -1,6 +1,16 @@
 # Plan: HFA passing as a cross-backend ABI contract
 
-**Status:** in progress (2026-07-02). Stage 0 landed (`06f9a8ff` classifier lift,
+**Status:** ✅ **AArch64 HFA passing is LIVE** (Stages 0-3 landed, 2026-07-03).
+**Stage 3 landed** (`48e3787b`): flipped `HfaInSimd()` -> `Arch==AA64`, enabling
+HFA SIMD passing across the whole toolchain at once. Validated by full conformance
+in two backends — `builder-comp` 2647/0 and `builder-comp_native_aa64` 2646/0
+(+1 HFA-unrelated int-cast flake, passes isolated) — plus new tests 968
+(cross-module native<->LLVM), 969 (register-path dispatch), 970 (spill-shim
+dispatch), each green in builder-comp / native aa64 / VM; negative controls
+confirmed non-SIMD. **The ONLY remaining item is Stage 4 (x64 SysV eightbyte-SSE
+HFA), an independent per-target effort.** History below.
+
+Stage 0 landed (`06f9a8ff` classifier lift,
 `d69eded8` variadic NSRN fix). **Stage 1 landed** (dormant): prereqs `7692508e`
 (TargetInfo.Arch + the `HfaInSimd()` master gate), codegen lowering `9ebf4119`
 (LLVM backend passes HFAs in SIMD). Both adversarially reviewed SOUND. **Stage 2a
@@ -15,8 +25,7 @@ func-value FP-register-budget defect pre-land). `IsAggregateReturn`/
 (`833576bd`): the func-value stack-spill shim now marshals FP-overflowing /
 wide-arg HFAs (fail-loud guard removed); two independent adversarial reviews
 SOUND (dormancy proven byte-identical; 12 flip programs + disassembly vs the LLVM
-oracle). **ALL NATIVE HFA MARSHALLING IS COMPLETE.** **Next: Stage 3 (flip
-`HfaInSimd()` -> `Arch==AA64` + comprehensive conformance/unit tests).** Supersedes the *staging* of
+oracle). **ALL NATIVE HFA MARSHALLING IS COMPLETE.** Supersedes the *staging* of
 `plan-native-hfa-abi.md` (which is marked NEEDS REPLAN). The native aa64 arg path
 from that effort is in-tree, **dormant** (`cc.HfaAggregates = HfaInSimd()`,
 currently false), and correct — it is reused here.

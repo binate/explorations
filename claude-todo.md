@@ -11,34 +11,26 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
-### HFA-in-SIMD is a CROSS-BACKEND contract — native-only enablement miscompiles — 🟢 REPLANNED + IN PROGRESS (Stages 0-2 landed/implemented dormant, 2026-07-03)
+### HFA-in-SIMD is a CROSS-BACKEND contract — native-only enablement miscompiles — ✅ RESOLVED for AArch64 (Stages 0-3 landed, `48e3787b`, 2026-07-03)
 
-**STATUS (2026-07-03).** The replan (`explorations/plan-hfa-crossbackend.md`) is
-executing; all work lands DORMANT behind the single gate `types.HfaInSimd()`
-(returns false), flipped ON only at Stage 3.
-- **Stage 0 landed** (`06f9a8ff` classifier lift to `pkg/types`, `d69eded8`
-  variadic NSRN walkers — item 2 above fixed).
-- **Stage 1 landed** (`7692508e` TargetInfo.Arch + gate, `9ebf4119` LLVM codegen
-  emits `[N x float]`/`[N x double]` — item 1's LLVM half fixed; adversarially
-  reviewed SOUND).
-- **Stage 2a landed** (`4bc6fa7c` native aa64 HFA returns in D0..D3 +
-  `ReturnsHfaInRegs`).
-- **Stage 2b implemented** (worktree `cd0d27c6`, pending land): native dispatch
-  shims — func-value / closure / interface (item 3 fixed). Adversarially reviewed;
-  a func-value FP-register-budget defect (multi-f32 HFA overflowing v0..v7) was
-  caught and fixed pre-land.
-- Verified flip-on across all dispatch kinds + CROSS-MODULE (native main → LLVM
-  dep) — the coverage the original effort lacked.
+**RESOLUTION.** Executed the cross-backend replan
+(`explorations/plan-hfa-crossbackend.md`): the HFA classifier + LLVM codegen +
+native aa64 (args/returns) + all dispatch shims (func-value / closure / interface,
+incl. the stack-spill path) + the VM cross-mode boundary were all built DORMANT
+behind the single gate `types.HfaInSimd()`, then flipped ON together at Stage 3
+(`48e3787b`: `HfaInSimd()` -> `Arch==AA64`).  Every original defect (cross-module,
+arg-after-HFA, dispatch shims) is fixed and validated by full conformance in two
+backends (`builder-comp` 2647/0, `builder-comp_native_aa64` 2646/0 + 1 unrelated
+flake) plus the cross-module `968` / dispatch `969` / spill `970` tests in
+builder-comp / native aa64 / VM.  Stage 1/2b/spill were each adversarially
+reviewed (one review caught+fixed a func-value FP-register-budget defect).  Landed
+commits: Stage 0 `06f9a8ff`+`d69eded8`; Stage 1 `7692508e`+`9ebf4119`; Stage 2a
+`4bc6fa7c`; Stage 2b `576e7bb3`; spill `833576bd`; Stage 3 flip `48e3787b`.
 
-**REMAINING before the Stage-3 flip:**
-1. **Func-value stack-spill shim HFA marshalling** (`aarch64_funcvalue_spill.bn`).
-   Currently a WIDE-arg / FP-overflowing HFA func-value fails LOUD (SetError) rather
-   than miscompiling — safe but incomplete. Must be implemented before flipping.
-2. **Stage 3 flip + comprehensive tests** — incl. automated tests for the
-   multi-HFA-arg FP-overflow (fails loud) and FP-fitting (compiles) routing cases,
-   which are only exercisable once `HfaInSimd()` is arch-gated.
+**ONLY REMAINING: Stage 4 — x64 SysV eightbyte-SSE HFA** (an independent
+per-target effort; `HfaInSimd()` stays false for x64 until then). See the plan.
 
-Original problem writeup (what the replan addresses) follows.
+Original problem writeup (what the replan addressed) follows.
 
 ### (original) HFA-in-SIMD native-only enablement miscompiles — 🟠 MITIGATED (gated off `1a790663`), replan OPEN (2026-07-02)
 
