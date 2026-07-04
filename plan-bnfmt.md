@@ -476,7 +476,24 @@ while keeping every commit green and close to main.
       an own-line interior comment; the only case is mid-expression, which
       backstops either way, and NOT expanding keeps it closer to source). No
       drops/dups/token-corruption/non-idempotence found.
-12. **Width-aware wrapping** to 100 cols.
+12. **Width-aware wrapping** to 100 cols. Decisions (2026-07-03):
+    - **Trigger = source-preserve + width.** A list (params / call args / composite
+      elements / type args) renders single-line iff the source kept it single-line
+      AND its single-line form fits ≤100; otherwise it wraps.
+    - **Style = fill / continuation.** When wrapped: elements are packed onto
+      continuation lines at +2 indent (relative to the construct's line), breaking
+      before an element that would exceed 100; `)` follows the last element; NO
+      trailing comma.
+    - **Source-wrapped-but-fitting lists stay wrapped** (honor author intent): the
+      opener `(` sits alone on its line and the elements fill continuation lines at
+      +2 (e.g. `emitNilAggregate(` then `\t\tout ..., instr ...,` / `\t\tllvmTyName
+      ...) {`). A source-single-line list that exceeds 100 fills starting on the
+      opener line (`someFunction(arg1, arg2,` / `\t\targ3, arg4)`).
+    - Source-wrap detection is element-position-based (first vs last element line;
+      Expr.End is deferred), imperfect for single-element lists (short → one line,
+      long → width-wrapped, so it rarely matters).
+    - Also in step 12: long boolean/call-chain wrapping and `// LONG-LINE ALLOWED`
+      never-reflow enforcement.
 13. **CLI polish** (`-w`, `--check`, stdout, `--version`), parse-error/degenerate
     handling (§9), README, `_test.bn` per file, repo-wide fixpoint (§11.2).
 
