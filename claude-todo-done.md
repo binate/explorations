@@ -8,6 +8,178 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## box() of a struct with managed fields did not retain them — use-after-free — ✅ FIXED & LANDED (`16471d71`, 2026-07-02)
+
+**Severity: CRITICAL (silent use-after-free / memory corruption).**
+
+**RESOLUTION (`16471d71`).** Fix + `conformance/965` landed on main. Verified:
+conf 965 fails (crashes) with the fix disabled and passes under builder-comp /
+-int / -comp; full builder-comp conformance 2604/0; full builder-comp unit suite
+51/0; hygiene 15/15. Unblocks bnfmt step 5's token-equality tests (`0093ff8b`).
+
+**Root cause.** `box(v)` in IR-gen (`pkg/binate/ir/gen_expr.bn`, the `token.BOX`
+arm of `genBuiltin`) bit-copied `v` into the new managed cell via `EmitBox` but
+never RefInc'd `v`'s managed fields. When `v` is a struct/array with managed
+fields (managed slice / ptr / func / iface), the box shared the source's single
+reference; the source local/temp's scope-exit RefDec then freed the shared
+backing while the box still pointed at it → **use-after-free**. A copy read
+*immediately* (no intervening allocation) is byte-correct — the copy itself is
+fine; the missing operation is the per-field **retain (RefInc)** on copy. It hid
+because the codebase almost always builds structs in place via `make(T)` + field
+assignment (each field write RefIncs) and accesses them through managed pointers
+(`@Decl`), rarely `box`-ing a value-struct-with-managed-fields.
+
+`box` was the **only** copy site missing this — every other site (var-init,
+assignment, slice-element store, call arg, method receiver, return, for-in bind,
+composite element) already routes through `emitStructCopy` / the
+`emitStoreManagedSlot` acquire discipline. (An earlier note here also fingered
+`cells[i] = t` — that was **collateral corruption** from a box in the same test
+process; with the box fix in place `cells[i] = t` + churn reads back correctly,
+so that path was never broken.)
+
+**Fix (applied).** In the `BOX` arm, after `EmitBox`, call
+`emitStructCopy(ctx.Func, b, result, innerTyp)` when `needsStructCopy(innerTyp)`
+— RefInc the boxed copy's managed fields so the box owns its own references,
+balanced by the managed-ptr dtor (which runs the pointee's struct dtor and
+RefDec's them when the box is freed). Managed-*scalar* box inner types are left
+unchanged: the box's managed-ptr dtor does not RefDec a non-struct pointee, so
+retaining a `box(@[]T)` inner would convert the UAF to a *leak* — a separate,
+pre-existing gap (the box dtor doesn't clean up a managed-scalar pointee) not
+exercised by any current code; note it if `box` of a bare managed scalar ever
+lands.
+
+**How discovered.** Building bnfmt step 5. The token-equality harness
+(`pkg/binate/format` `normTokens`) does
+`slices.Append[@token.Token](raw, box(t))` where `token.Token` has a managed
+`Lit @[]char`. On multi-statement inputs (more churn between the `box` and the
+compare) `assertTokenEq(src, src)` — the same string against itself — failed or
+crashed. The step-4 *type* tests passed only by UAF luck (few tokens, tight read
+→ freed backing not yet reused).
+
+**Regression test.** `conformance/965_box_managed_field_retain` — boxes a struct
+with a managed `@[]char` field (single + a slice of many), churns ~200
+allocations, reads the fields back. Passes with the fix; without it prints the
+first line then crashes.
+
+## float32 mixed-type expression miscompile — IR-gen mis-types float ops — ✅ FIXED & LANDED (`fef6cd35`, 2026-07-02)
+
+**Severity: CRITICAL (silent miscompile in native + malformed IR in LLVM).**
+
+**RESOLUTION (`fef6cd35`).** Root cause was NOT the checker (it types these correctly)
+— it was purely IR-gen: `pkg/binate/ir/gen_binary.bn`'s `widenType` (which derives a
+binop's result type from its operand types) had no float case, so a float pair fell
+through to the integer-width logic and returned `TypInt()` (e.g. `widenType(untyped-
+float, float32)`), and codegen keys `fadd`-vs-`add` off the node's result type → an
+INTEGER add with the float operand coerced via `fptosi`. Fix: a float branch in
+`widenType` — a concrete typed float wins (plain float32/float64 OR a **named** float
+type, via `IsFloat()` which peels named), an untyped literal peer coerces to it, two
+untyped floats default to untyped-float. Also fixed the adjacent (pre-existing)
+named-float32 double-promotion caught by adversarial review (`type Temp float32`
+op untyped-float computed in double). `conformance/962` flipped from `.xfail.all` to a
+passing regression test (chain, struct-fields, mixed ops, named-float32 precision).
+Verified native==LLVM; ir (587) + codegen (246) unit tests + float conformance green;
+integer arithmetic untouched. Adversarially reviewed (`wf_025b40b1-bde`): no regression,
+`widenType` confirmed the sole float-lowering site. Detailed original diagnosis below.
+
+**Symptom.** A float32 expression that mixes a multiply-by-untyped-float-constant
+with a trailing bare-float32 addend produces WRONG results (native: garbage; LLVM:
+clang rejects the emitted IR outright). E.g. with `a,b,c,d` all `float32`,
+`a*1000.0 + b*100.0 + c*10.0 + d` returns garbage (~4.65e18 / `1`) instead of 1234.
+`(a*1000.0 + b*100.0) + (c*10.0 + d)` returns 1230 — the bare `+ d` is silently
+DROPPED. Breaking the expression into intermediate `var`s, or using all-add (no mul)
+float32 chains, or float64 throughout, all work — so it's specific to float32
+expressions that mix a `float32 * <untyped float const>` product with a bare float32
+operand.
+
+**Root cause (IR-gen type resolution, `pkg/binate/ir` / the checker).** Two coupled
+defects visible in the emitted LLVM IR for `chain(a,b,c,d float32) float32 { return
+a*1000.0 + b*100.0 + c*10.0 + d }`:
+  1. The untyped float constant `1000.0` is typed **float64**, not coerced to the
+     float32 context: `%c = fadd double 0.0, 1000.0` + `%ae = fpext float %a to
+     double` + `fmul double` — so `float32 * const` is computed in double.
+  2. The resulting `double + float32` binary op is resolved to an **INTEGER** add:
+     `%di = fptosi float %d to i64` then `%r = add i64 %sum_double_bits, %di`, and
+     the `float`-returning function does `ret i64 %r`. Native lowers this literally
+     (`fcvtzs x, d` + integer `add`); LLVM's verifier/clang rejects the malformed IR.
+
+The float32 addend is float→int truncated and added to the running sum's RAW BIT
+PATTERN. So the binary-op typing picks the wrong result type (int) for a mixed
+float32/float64 operand pair, and untyped-float-constant coercion ignores a float32
+sibling operand.
+
+**Discovery.** Surfaced while verifying float32 HFA passing for the native HFA ABI
+work (`plan-native-hfa-abi.md`) — HFA *passing* is fine (field reads correct); the
+value check failed only because the float32 *arithmetic* used to verify it is itself
+miscompiled. Reproduces with plain float32 locals, zero HFA involvement.
+
+**Repro / test.** `conformance/962_float32_expr_typing` (`.xfail.all` — fails every
+backend). `.expected` holds the correct `1234`, so it flips to passing once fixed.
+
+**Proposed fix.** In IR-gen/checker float binary-op typing: (a) coerce an untyped
+float constant to a float32 sibling operand (don't default it to float64); (b) for a
+genuinely mixed float32/float64 op, resolve the result to the wider FLOAT type (fpext
+the narrower) and never fall into the integer-add path; (c) audit the binary-op
+result-type selection so a float operand pair can never yield an int-typed add /
+`fptosi` coercion. Needs a front-end/IR investigation to find where the result type is
+chosen.
+
+## Small-aggregate coercion was `[N x i64]` on ILP32 — native↔LLVM ABI mismatch — ✅ FIXED & LANDED (`5b65e369`, 2026-07-03)
+
+**Landed** as `5b65e369`: native-arm32-baremetal conformance 1754 → **1771** (+17;
+`conformance/967` + 16 pre-existing odd-register-aggregate tests the old `[N x
+i64]` was corrupting). LP64 byte-identical (verified: empty `--emit-llvm` diff,
+codegen/types/native-x64/aa64 unit tests green); adversarially reviewed (a
+would-be-critical `[2]int64`-array alloca-under-alignment concern was checked
+against clang and refuted — LLVM uses the pointer's provable align-4, lowering to
+word-granular `ldm`, never `ldrd`). **Follow-up (docs-only) — ✅ LANDED
+(`9239279a`):** the repo-wide `[N x i64]` → `[N x iW]` comment sweep (93 sites
+triaged; stale coercion-mechanism comments rewritten, LP64-scoped comments +
+LP64-pinned test assertions kept; verified comment-only, no missed ILP32 code
+site).
+
+**Severity: MAJOR (silent argument corruption at the native↔LLVM boundary on
+arm32).** `pkg/binate/codegen/emit_agg_coerce.bn` coerced a `<=16-byte`
+by-value aggregate at the LLVM boundary to `[N x i64]` (`aggCoerceLLTy` /
+`aggCoerceWords` = ceil(SizeOf/8)), hardcoded and target-independent. On arm32
+clang coerces such structs to `[N x i32]` (N = ceil(SizeOf/4), 4-aligned) — an
+`i64` element is 8-aligned, so `[N x i64]` triggers LLVM's AAPCS §6.5 C.3
+even-register bump (skips an odd GP register) whereas `[N x i32]` does not. The
+native arm32 backend already packs 4-aligned words (matching clang's
+`[N x i32]`), so the LLVM-side `[N x i64]` was the defect: a native caller
+passing a naturally-4-aligned struct after a leading scalar places it at r1:r2,
+but the LLVM callee with `[N x i64]` reads r2:r3.
+
+- **Fix.** `aggCoerceLLTy` / `aggCoerceWords` are now target-aware via
+  `aggCoerceElemBytes()` (gated on `types.GetTarget().PointerSize == 4`, same
+  predicate as `types.NeedsSret`): `[N x i32]` (ceil(SizeOf/4)) on ILP32,
+  `[N x i64]` (ceil(SizeOf/8)) on LP64. The LP64 path is byte-identical to
+  before (verified: full `--emit-llvm` diff on the host is empty). The
+  `AggregateReturnSize` 8-byte rounding is a safe over-allocation on ILP32
+  (always ≥ SizeOf); the retbuf/by-address slots are `aggCoerceLLTy`-typed on
+  both halves so they stay target-consistent. Native callconv untouched (it was
+  already correct). Comments in `common_callconv_ctors.bn` (the old "KNOWN GAP
+  P3") and the `emit_agg_coerce.bn` header updated.
+- **Test.** `conformance/967_aggregate_abi_odd_reg` (cross-package: LLVM dep
+  `Odd(scalar int32, s P2)` / `OddB5(scalar, B5)` with a naturally-4-aligned
+  struct starting on r1; native `main` calls it). Fail-before/pass-after
+  demonstrated on `builder-comp_native_arm32_baremetal` (without fix:
+  `309000`/`644042` corruption; with fix: correct). Passes on host / LLVM-arm32
+  (self-consistent).
+
+## 🏷[LANE 3] MAJOR: cross-mode shim mis-marshals 64-bit scalar ARGS on ILP32 (println of unsigned/int64/float segfaults) — ✅ FIXED & LANDED (`a5511a8d` codegen + `83819d60` vm, 2026-07-03)
+- **Severity: MAJOR.** On the 32-bit VM host (`builder-comp_arm32_linux_int`),
+  `println` of any `uint8`/`uint16`/`uint32`/`uint64`/`int64`/`float64` segfaults
+  (`int`/`bool` are fine). Root cause of `conformance/133`'s crash (the slice
+  indexing was a red herring — `s[0][0]` is a `char` → `formatUint(uint64)`).
+- **Root cause**: a 64-bit scalar shim arg takes 2 VM slots (lo,hi), but the
+  per-function `__shim` declares an `i64` param; `rt._call_shim_scalar` passes
+  all args as `int`(=i32), so the reconstructed indirect-call type has no `i64`
+  to even-align while AAPCS32 even-aligns the shim's `i64` → the following `buf`
+  arg reads garbage → the formatter derefs a bad pointer. LP64-invisible.
+- **Fix (designed + adversarially reviewed)**: `plan-vm-32bit-crossmode-64bit-args.md`.
+  Slot-based shim arg ABI on ILP32 via a shared `slotTypesFor` helper across all
+  six signature sites + the native caller's arg preamble.
+
 ## ✅ DONE & LANDED (2026-07-03) — bnlint unused-entity checks (a–e) + file split + `--tests` (lint test files) + testdata convention
 
 The unused-entity lint project (`plan-unused-checks.md`) is complete through the
