@@ -1,6 +1,18 @@
 # Plan: 64-bit scalar arguments across the cross-mode shim on a 32-bit VM host
 
-**Status: design, adversarially reviewed (2026-07-03).** Sub-project of
+**Status: IMPLEMENTED + LANDED (2026-07-03).** Arg-side fix landed on `main`:
+`a5511a8d` (codegen — 64-bit scalar shim args as two i32 slots on ILP32, via a
+shared `is64ScalarShimSplit`/`writeShimParamDecl` across all six sites) and
+`83819d60` (vm — a pair→pair 64-bit cast copies both slots via `BC_MOV64`; that
+truncation was masked by the segfault).  Implementation was adversarially
+reviewed (4 dims, no correctness blockers) and the flagged coverage gaps filled
+(predicate + funcSignatureLLVM + shim-body reassembly codegen tests, the
+pair→pair cast test, and `conformance/152_print_64bit` as the arm32-VM gate).
+Verified: arm32-VM `println` of all 64-bit types correct incl uint64-max,
+`conformance/133` green, native arm32 regression 101/0, LP64 unit no-op, hygiene
+15/15.  The RETURN-side bug below remains a tracked, out-of-scope follow-up.
+
+**Status (original): design, adversarially reviewed (2026-07-03).** Sub-project of
 `plan-vm-64bit-on-32bit.md` (Phase 3 tail). This is the "hard, separate
 workstream" that doc flagged: 64-bit scalar *arguments* mis-marshaled through the
 func-value / cross-mode `__shim` on ILP32. Discovered as the root cause of

@@ -844,7 +844,7 @@ stdout.
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### 🏷[LANE 3] MAJOR: cross-mode shim mis-marshals 64-bit scalar ARGS on ILP32 (println of unsigned/int64/float segfaults) — DESIGNED, not yet implemented
+### 🏷[LANE 3] MAJOR: cross-mode shim mis-marshals 64-bit scalar ARGS on ILP32 (println of unsigned/int64/float segfaults) — ✅ FIXED & LANDED (`a5511a8d` codegen + `83819d60` vm, 2026-07-03)
 - **Severity: MAJOR.** On the 32-bit VM host (`builder-comp_arm32_linux_int`),
   `println` of any `uint8`/`uint16`/`uint32`/`uint64`/`int64`/`float64` segfaults
   (`int`/`bool` are fine). Root cause of `conformance/133`'s crash (the slice
