@@ -828,203 +828,49 @@ managed-header words (pointer-sized) AND slice lengths (int-sized) — a documen
 PointerSize==IntSize" conflation, harmless on every shipping ABI. Untangle header (→
 `ManagedHeaderSize`/ptrSize) from slice-length (→ IntSize) only if a wide-int ILP32 ABI is targeted.
 
-## Slimming pkg/bootstrap & pkg/libc; C interop (`__c_call`)
+## Slimming `pkg/bootstrap`; C interop (`__c_call`)
 
-### Slim `pkg/bootstrap` and `pkg/libc` by migrating callers OUT
-- **What**: rather than converting bootstrap's I/O surface
-  in place, migrate callers AWAY from `pkg/bootstrap.X` and
-  `pkg/libc.X` toward whatever the long-term replacement is
-  (a new I/O package, a slimmer `pkg/std/os`, etc., TBD).
-  Goal: shrink the surface of both bootstrap and libc until
-  they can either be retired entirely or held as truly minimal
-  bootstrap primitives.
-- **Approach** (sketch — needs design): identify call sites,
-  classify them by what they want (formatted print, file I/O,
-  process control, raw libc memops), and route each class to
-  the canonical replacement.  bootstrap and libc only get
-  what's TRULY platform-essential and inappropriate for any
-  higher-level package.
-- **Progress**:
-  - **libc Memcpy / Memset — DONE 2026-06-02 (binate `87965b70`)**:
-    the libc-host rt's MemCopy / MemZero now do pure-Binate byte loops
-    (matching the baremetal rt, which already did) and Box copies via
-    MemCopy, so both primitives were removed from the whole surface —
-    `pkg/libc.bni`, `runtime/libc_stubs.c`, the cmd/bni + vm extern
-    registries, and the vestigial baremetal `bn_pkg__libc__*` aliases
-    in semihost.s.  No BUILDER bump (gen1 links BUILDER's runtime;
-    gen1's outputs emit no `bn_pkg__libc__*` and link checkout's
-    runtime).  Verified across compiled / VM / self-hosted / baremetal
-    lanes.  Perf footnote: the byte loops are slower than libc
-    memcpy/memset at -O0 (no idiom recognition) — accepted for now,
-    revisit with a word-at-a-time loop if it shows in profiles.  This
-    does NOT touch the C-ABI memcpy/memset LLVM emits for aggregate
-    copies (llvm.memcpy intrinsics), which are independent of pkg/libc.
-- **Remaining libc surface**: Malloc / Calloc / Free (now the only
-  callers; need a real Binate allocator to retire) and Exit (needs a
-  process-exit syscall, gated on the C-free syscall story).
-  `pkg/bootstrap` — the larger I/O surface — is the next target.
-- **`bootstrap.Itoa` — FULLY RETIRED (2026-06-08, `f7966135`).**  Every
-  caller migrated, then the function, declaration, tests, baremetal
-  duplicate, and VM extern registration all removed.  Now that
-  `pkg/std/strconv` has `Itoa(v int)`
-  (base 10), `FormatInt(v int64, base)`, and `FormatUint(v uint64, base)`,
-  they are the canonical replacement for `bootstrap.Itoa`.  Goal: every
-  Tier-1/Tier-2/Tier-3 caller uses strconv instead of bootstrap (a
-  sub-step of retiring the bootstrap int-format surface).
-  - **The old "BUILDER tree CANNOT import strconv" constraint was wrong /
-    is now moot.**  `strconv` (whole package, incl. its `pkg/std/math/big`
-    dependency via `ftoa.bn`) is ALREADY in cmd/bnc's BUILDER-compiled
-    tree: `pkg/binate/ir/gen_const_fold.bn` and
-    `pkg/binate/native/common/common_float.bn` import it, and BUILDER
-    compiles them when building gen1.  So BUILDER-surface packages
-    (`token`, `native/*`, codegen, ir, …) CAN migrate — verified by
-    migrating `token` (gen1 rebuilds clean across builder-comp / -int /
-    -comp).  No integer-only strconv subpackage is needed.
-  - **`pkg/builtins/lang` (Tier-0 core) — DONE (2026-06-07):** lang can't
-    import `strconv` (below Tier 1; layering inversion, and a cycle since
-    strconv's closure reaches the builtins), so it got package-internal
-    full-width formatters (`formatUint64` / `formatInt64`, mirroring
-    `bootstrap.Itoa`'s uint64-magnitude approach incl. the two's-complement
-    trick for int64-min).  This also fixed a correctness bug: the impls had
-    funnelled through `bootstrap.Itoa(cast(int, x))`, which on 32-bit
-    targets TRUNCATED the wide types — `(int64/uint32/uint64).String()`
-    were WRONG on ILP32 for values outside int32 range — and mis-signed
-    unsigned values ≥ 2^63 on every target.  Each impl now widens
-    losslessly (signed → `cast(int64, x)`, unsigned → `cast(uint64, x)`);
-    lang keeps `bootstrap` only for `formatFloat`.  Covered by lang_test.bn
-    boundary cases (the unsigned ≥ 2^63 ones fail under the old code on a
-    64-bit host) and `conformance/653_int_string_width` (width-independent
-    output, one .expected for LP64+ILP32; guards the 32-bit truncation
-    under the arm32 modes — green on all 64-bit modes locally, arm32 needs
-    qemu so it runs in CI).
-  - **Conversion discipline for the migration:** route each site by the
-    *argument's* type, never by a lossy down-cast — bare `int` →
-    `strconv.Itoa`; wider signed → `strconv.FormatInt(cast(int64, x), 10)`;
-    unsigned → `strconv.FormatUint(cast(uint64, x), 10)`.
-  - **Leave (not formatting calls / separate decisions):** the extern
-    registrations that expose `bootstrap.Itoa` to interpreted code
-    (`pkg/binate/vm/extern_register_std.bn`, `cmd/bni/externs.bn`) — those
-    go when `bootstrap.Itoa` is deleted, not now; the test-runner codegen
-    in `cmd/bnc/gen_test_runner.bn` (emits source that calls
-    `bootstrap.Itoa`); and `conformance/064_bootstrap_funcs.bn` (tests
-    `bootstrap.Itoa` itself).
-  - **Progress — all migratable package callers DONE** (2026-06-07; each
-    green across builder-comp / -int / -comp, landed on main, one package
-    per commit): `token`, `repl`, `native/{x64,aarch64}`, `vm`, `ir`
-    (test-only), `lexer` (test-only), `types` (test-only), `lint`
-    (test-only), `cmd/bnlint`, `cmd/bni`.  Every arg was a bare `int`, so
-    all sites used `strconv.Itoa` directly (no `FormatInt`/`FormatUint`
-    needed yet).
-  - **Retirement — DONE** (landed in order, each its own commit):
-    `gen_test_runner.bn` formats counts via `passed.String()` (`c2aaaabf`,
-    relying on [A]); `321` migrated to `total.String()` (`9ba85eec`);
-    `conformance/064` retired (`0d7c0501`); the VM extern registration
-    dropped from both drivers (`6d2384de`); and finally the definition,
-    `.bni` declaration, unit tests, and baremetal duplicate removed
-    (`f7966135`).  The bootstrap int-formatting surface used by
-    print/println (`formatInt`/`Int64`/`Uint`/`Bool`/`Float`) deliberately
-    STAYS — only the standalone allocating `Itoa` is gone.
-  - **Done since:** the ad-hoc `intToChars` helpers — the package-scoped
-    one in `pkg/binate/ir/gen_func_lit.bn` (3 call sites: `__closure_local_`,
-    `__funclit_`, `__mv_local_`) and a duplicate in
-    `pkg/binate/vm/func_index_test.bn` — now use `strconv.Itoa` and are
-    deleted (2026-06-07).
-- **[A] Primitive `.String()` without importing `pkg/builtins/lang` —
-  DONE across all execution modes (compiled `37b2ffcc`, VM `487c2d08`).**
-  `myInt.String()` resolves AND links/executes with no import in both the
-  compiled backends and the bytecode VM; naming the `lang.Stringer`
-  interface *type* still requires the import (gated by the type checker).
-  Mechanism (reverses the "No auto-import" decision in
-  `plan-primitives-impl-interfaces.md`, for methods only): `ensureLangLoaded`
-  force-loads lang so its carve-out impls attach `String()`/`Compare()` to
-  the global primitive singletons (resolution); `appendLangImport` (a clone
-  of `appendBootstrapImport`, added at every `RegisterImports` site with the
-  same self-import guard, in BOTH `cmd/bnc/compile_imports.bn` and
-  `cmd/bni/irgen.bn`) registers lang's signatures so the cross-package call
-  resolves/links.  DCE/baremetal worry is moot (unused impls stripped by
-  `--gc-sections`/`-dead_strip`).  Full conformance green in both
-  builder-comp (1085) and builder-comp-int (1072).  Covered by conformance
-  `654`–`656` (per-type positives) + `658` (negative).
-  - **Remaining follow-up — the repl.** The repl has its own import setup
-    (`pkg/binate/repl/{ir_imports,session,util}.bn`) not covered by the
-    `cmd/bni` change; add `ensureLangLoaded` + `appendLangImport` there so
-    `.String()` works at the repl too.  Small, same pattern.
-- **[B] Test runners can depend on the stdlib — DONE (2026-06-08,
-  `36e979df`).**  The `cmd/bnc --test` runner (`gen_test_runner.bn`,
-  compiled by `test.bn`) is parsed *after* typecheck, so a stdlib package
-  it imports that no test package pulls in was never loaded → not compiled
-  → wouldn't link.  Fix: `genTestRunner` declares its stdlib deps in
-  `testRunnerStdlibImports()`, and `test.bn` force-loads that list before
-  typecheck (the compile loop already builds every loaded package, so they
-  then link).  Adding the future `pkg/std/os` (for `Args`/`Open` when
-  bootstrap I/O migrates) is a one-line addition to that list plus its use
-  in the runner.  Exercised end-to-end now by a placeholder: the runner
-  imports `pkg/std/errors` and makes one harmless `errors.New` call
-  (TODO-marked for removal once a real dep lands) — proven by
-  `pkg/binate/buf` (closure `{buf, testing}` excludes errors) whose test
-  binary links the errors-importing runner only via the force-load.  The
-  whole unit-test suite now exercises [B].  (The VM `-int` path is
-  unaffected — `cmd/bni` executes tests directly, no generated runner; a
-  future VM stdlib dep would be force-loaded there the same way as
-  bootstrap/lang.)  Distinct from [A], which force-loaded lang to make
-  `bootstrap.Itoa` removable.
-- **Why migrate OUT rather than convert in place (do NOT re-attempt the
-  in-place shape)**: in-place renames of packages whose surface is
-  declared-only and resolved by C symbols (`pkg/libc`, and the I/O side
-  of `pkg/bootstrap`) hit a wall that pure-Binate-package renames
-  (pkg/rt → pkg/builtins/rt) do not.  The wall: at Stage 1, gen1 is
-  linked against BUILDER's bundled `libc_stubs.c` (auto-found next to
-  `--runtime`), which only defines symbols under the OLD mangled name
-  (e.g. `bn_pkg__libc__Memset`).  Checkout source — now compiling under
-  the NEW package name — emits calls to `bn_pkg__builtins__libc__Memset`,
-  which is UNRESOLVED at Stage 1's link.  Pure-Binate packages don't hit
-  this because the bnc-compiled package provides the NEW-name symbols as
-  definitions in its own `.o`; declare-only-via-C packages have no such
-  Binate-side definition.  Compat aliases in checkout's `libc_stubs.c`
-  don't help — BUILDER's runtime is what Stage 1 links against, not
-  checkout's.  Resolving would require either (a) pointing Stage 1's
-  `--runtime` at checkout's (build-script surgery), (b) a supplemental
-  compat .o via `--link-after-objs` (build-script surgery + new
-  artifact), or (c) two release cycles with a transitional bridge —
-  none worth the bootstrap migration's payoff.  Migrating callers OUT
-  side-steps the whole tangle.
-- **Status**: in progress.
+### Slim `pkg/bootstrap` toward retirement — 🟡 OPEN
 
-### Inject `pkg/bootstrap` into the VM + convert I/O to `__c_call` — Phase 1 DONE; Phase 2 DEFERRED (BUILDER-runtime coupling)
-- **Phase 1 LANDED** on main (`a7fabc7a`, 2026-06-03): bootstrap is now
-  native-only in the VM — cmd/bni skips lowering it, the format helpers
-  (formatInt/Int64/Uint/Bool/Float, Itoa) are registered as externs in
-  both `registerBootstrapExterns` copies, bootstrap's bytecode unit tests
-  are xfailed in the 3 `-int` modes, and `extern_register_std_test` guards
-  format-helper registration.  `formatFloat` (the first native float
-  extern) dispatches via the all-int shim ABI (`7abc3809`).  Verified:
-  `287_float_println` green in `-int`; full `builder-comp-int` /
-  `-comp-int` / `-int-int` clean but for pre-existing failures.
-- **Plan**: [`plan-bootstrap-ccall.md`](plan-bootstrap-ccall.md). The
-  rt-drop-libc pattern applied to bootstrap: eliminate the hand-written
-  `bn_pkg__bootstrap__*` I/O glue in `binate_runtime.c` by converting it
-  to `.bn` + `__c_call`, and make bootstrap native-only in the VM.
-- **Phase 2 DEFERRED (2026-06-03), possibly indefinitely**: converting
-  the I/O to `.bn` *adds* `bn_pkg__bootstrap__{Open,Read,Write,Close,Exit}`
-  defs that collide with BUILDER's pinned runtime (gen1 links it,
-  `build-compilers.sh:55-62`) → duplicate-symbol link failure building
-  gen1. It's a runtime-ABI change, so it can only be done *during a
-  BUILDER bump/release* (the new BUILDER's runtime omits the I/O), not in
-  the pinned-BUILDER tree. The trivial+moderate `.bn` code was written +
-  reviewed (correct modulo the link blocker) and is preserved in
-  plan-bootstrap-ccall.md's appendix. `Stat` is a further defer (struct
-  stat platform divergence → needs a per-libc-platform impl split). It may
-  be better to *eliminate* these bootstrap I/O functions (subsumed by a
-  real stdlib `io`) than convert them — so this may never be worth doing.
-- **Harder than rt**: `__c_call` is scalar/pointer-only, but bootstrap's
-  I/O takes slices + returns managed-slice aggregates → marshalling
-  (null-term cstr, data-ptr extraction, aggregate construction). `Args`
-  can't be pure `__c_call` (no libc fn returns argv) — a minimal argv
-  hook stays in C. Not C-freedom (still links libc syscall wrappers).
-- **Needs a BUILDER bump** (the deferral reason above; the original
-  "no BUILDER bump" claim was wrong — BUILDER *compiles* `__c_call` fine,
-  but its *runtime* still defines the I/O symbols gen1 links). Baremetal
-  keeps its semihost impl (per-target, like rt). Filed 2026-06-03.
+**`pkg/libc` is GONE** (retired: Memcpy/Memset became pure-Binate byte loops;
+Malloc/Calloc/Free, Exit, and the rest all migrated out — see the done log / git
+history). **`pkg/bootstrap` is now seriously slimmed** — only four things remain,
+and they all hang off `print`/`println`:
+
+- **`Write()`** — the raw stdout/stderr sink, called internally by `print`/`println`.
+- **the "private" format helpers** (`formatInt`/`formatInt64`/`formatUint`/
+  `formatBool`/`formatFloat`) — also `print`/`println` internals.
+- **`Args()`** — process argv; not yet replaced (no libc fn returns argv, so a
+  minimal platform hook is unavoidable).
+- **`Exec()`** — subprocess spawn; not yet replaced.
+
+**Actionable plan (what's left to retire bootstrap):**
+1. **Replace `Exec()`** with an equivalent in `pkg/std/os`.
+2. **Support `Args()`** in `pkg/std/os` + `pkg/builtins/rt` (or similar) — decide
+   where the argv hook lives (it can't be pure `__c_call`; a minimal platform hook
+   is required).
+3. **Deprecate `print`/`println`.** They are the *only* remaining users of
+   `Write()` and the private format helpers, so retiring them frees the entire
+   rest of bootstrap's surface.
+
+**Residual (small, separable):** wire `ensureLangLoaded` + `appendLangImport` into
+the repl's import setup (`pkg/binate/repl/{ir_imports,session,util}.bn`) so
+`myInt.String()` works at the repl too — the rest of the "primitive `.String()`
+without importing `lang`" work is done (compiled + VM).
+
+**Constraints (still apply):** migrate callers OUT — never rename bootstrap's
+C-symbol-resolved I/O in place. An in-place rename hits a Stage-1 link wall (gen1
+links BUILDER's *pinned* runtime, which only defines the OLD mangled I/O symbols),
+and any change that adds/removes `bn_pkg__bootstrap__*` runtime defs is a
+runtime-ABI change → **BUILDER-bump-gated**. `__c_call` is scalar/pointer-only, so
+slice-taking / aggregate-returning I/O needs marshalling (cstr, data-ptr,
+aggregate build).
+
+(VM Phase 1 is DONE — bootstrap is native-only in the VM, format helpers
+registered as externs; main `a7fabc7a` + `7abc3809`. The older "convert bootstrap
+I/O to `.bn` + `__c_call`" Phase 2 is superseded by the plan above: `pkg/std/os`
+subsumes the I/O, so there's no reason to convert it in place. Design notes:
+`plan-bootstrap-ccall.md`.)
 
 ### Annotations and C function interop
 - **Option E (`__c_call` intrinsic) has a detailed implementation plan:
