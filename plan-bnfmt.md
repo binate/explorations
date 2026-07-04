@@ -450,14 +450,21 @@ while keeping every commit green and close to main.
       The comment cursor is threaded into the struct printer (via `printTypeDef`,
       used by `printTypeSpec`/`printGroupDecl`) so field comments interleave in
       place rather than falling to the backstop.
-    - **11c** — single-line case bodies + case-body column alignment — *in
-      progress*. Canon (decided): preserve source single-line cases; align bodies
-      to (max label width + 1 space) per run, reset by a blank line, a comment,
-      or an expanded case. This is *not* token.bn's historical gofmt-tabwriter
-      padding (wider, uniform across comment groups) — token.bn is reformatted to
-      this canon under step 13.
-    - **11d** — trailing-comment column alignment — pending (the tree has almost
-      no aligned trailing-comment columns; scope TBD after 11c).
+    - **11c** — single-line case bodies + case-body column alignment — ✅
+      **LANDED** 2026-07-03 (`4976ac96`). Preserve source single-line cases;
+      align bodies to (max label width + 1 space) per run, reset by a blank line,
+      a comment, or an expanded case; width-safe (expand a too-wide case; drop
+      alignment for a run that would overflow). Switch printing moved to
+      print_switch.bn. This is *not* token.bn's historical gofmt-tabwriter padding
+      (wider, uniform across comment groups) — token.bn is reformatted to this
+      canon under step 13.
+    - **11d** — grouped-decl comment interleaving + column alignment — *in
+      progress*. Scope (decided): fix `const`/`var`/`type` group comment
+      interleaving (comments placed in-group, section comments + blank groups
+      preserved) — currently backstopped, mishandling iropcode.bni/vm.bni — AND
+      align member values / trailing comments per run with a clean canon
+      (widest-cell + one space), NOT bit-matching gofmt tabwriter. Those files
+      reformat to our canon under step 13.
 12. **Width-aware wrapping** to 100 cols.
 13. **CLI polish** (`-w`, `--check`, stdout, `--version`), parse-error/degenerate
     handling (§9), README, `_test.bn` per file, repo-wide fixpoint (§11.2).
