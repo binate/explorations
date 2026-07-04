@@ -35,8 +35,8 @@ decomposition). ILP32 layout background: [`plan-arm32-bare-metal.md`].
   skipped** (the coercion fix was +17 — `conformance/967` + 16 pre-existing
   odd-register-aggregate tests the old `[N x i64]` corrupted; remaining failures
   are fail-loud deferred shapes or real gaps, incl. the int64-xpkg-return hang
-  and five-u8/877). Follow-up (docs-only): repo-wide `[N x i64]`→`[N x iW]`
-  comment sweep.
+  and five-u8/877). The docs-only repo-wide `[N x i64]`→`[N x iW]` comment sweep
+  landed as `9239279a`.
 - **Per-increment workflow that's worked every time:** (1) delegate the
   increment to a background `Agent` working in `temp-binate-5` (no `isolation:
   worktree`), mirroring the `native/aarch64` handler where a template exists and

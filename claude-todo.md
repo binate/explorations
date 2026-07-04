@@ -249,9 +249,11 @@ i64]` was corrupting). LP64 byte-identical (verified: empty `--emit-llvm` diff,
 codegen/types/native-x64/aa64 unit tests green); adversarially reviewed (a
 would-be-critical `[2]int64`-array alloca-under-alignment concern was checked
 against clang and refuted — LLVM uses the pointer's provable align-4, lowering to
-word-granular `ldm`, never `ldrd`). **Follow-up (docs-only):** a repo-wide
-`[N x i64]` → `[N x iW]` comment sweep (~61 stale references across codegen) — the
-landed commit fixed only the justifications adjacent to the code.
+word-granular `ldm`, never `ldrd`). **Follow-up (docs-only) — ✅ LANDED
+(`9239279a`):** the repo-wide `[N x i64]` → `[N x iW]` comment sweep (93 sites
+triaged; stale coercion-mechanism comments rewritten, LP64-scoped comments +
+LP64-pinned test assertions kept; verified comment-only, no missed ILP32 code
+site).
 
 **Severity: MAJOR (silent argument corruption at the native↔LLVM boundary on
 arm32).** `pkg/binate/codegen/emit_agg_coerce.bn` coerced a `<=16-byte`
