@@ -1473,27 +1473,38 @@ shadow for funcs & methods, Tier 5 mid-session imports `78685ac3`). Residual:
 
 ### native arm32 backend — IN PROGRESS (live tracker: [plan-native-arm32.md](plan-native-arm32.md))
 
-The `pkg/binate/native/arm32` backend (P0–P3.3 in progress) is tracked in detail
-in `plan-native-arm32.md`; that doc is authoritative for phase status, landed
-commits, and deferred shapes. Deferrals below are all **fail-loud** (a shape the
-backend doesn't implement emits a clean COMPILE_ERROR, never silent wrong-code).
+The `pkg/binate/native/arm32` backend (P0–P4-a done; P4-b/c/d + P5–P7 remaining)
+is tracked in detail in `plan-native-arm32.md`; that doc is authoritative for
+phase status, landed commits, and deferred shapes. Deferrals below are all
+**fail-loud** (a shape the backend doesn't implement emits a clean COMPILE_ERROR,
+never silent wrong-code).
+
+**P4-a DONE (landed `a888e9cd`):** func-value / indirect-call consumer path
+(`arm32_call_indirect.bn`) + the shim's big-aggregate R0-sret return shape + all
+six dispatch cases (OP_CALL_INDIRECT/OP_CALL_FUNC_VALUE/OP_CALL_HANDLE/
+OP_FUNC_HANDLE/OP_FUNC_VALUE/OP_FUNC_VALUE_DTOR). Conformance 1898/727/32 (+118
+pass, 0 `[10s]` hangs); adversarial review found 0 defects. Non-capturing
+func-value construct/call/handle-dispatch run end-to-end under QEMU. See
+plan-native-arm32.md § P4.
 
 - **small (SizeOf ≤ InternalSretBytes = 4) in-register aggregate return —
-  deferred (P4).** A struct ≤ 4 bytes (e.g. `struct{x int32}`) is returned BY
+  deferred (P4-b).** A struct ≤ 4 bytes (e.g. `struct{x int32}`) is returned BY
   VALUE in R0 on AAPCS32, not via sret (P3.3's single-aggregate-sret covers only
   the > 4-byte case). The in-register pack (callee) + collection (caller) are not
-  implemented; both sides fail LOUDLY. The x64 backend packs this size class via
-  `emitAggregateReturnPack` / the `!bigRet` RAX(+RDX) store — the arm32 analogue
-  (LDR/STR the ≤ 1-word value into/out of R0) is the P4 port. Covered by
-  `conformance/966_return_small_struct` (xfail'd for
-  `builder-comp_native_arm32_baremetal`; passes on every backend that implements
-  it) and unit tests `TestReturnSmallAggregateSetsError` /
-  `TestCallSmallAggregateReturnSetsError`. Root cause of the fail-loud: the sret
-  predicates use a strict `SizeOf > InternalSretBytes`, leaving the `≤ 4` class as
-  a non-sret in-register shape that P3.3 doesn't lower.
+  implemented; the direct-call path AND the P4-a func-value/indirect path both
+  fail LOUDLY. The x64 backend packs this size class via `emitAggregateReturnPack`
+  / the `!bigRet` RAX(+RDX) store — the arm32 analogue (LDR/STR the ≤ 1-word value
+  into/out of R0) is the P4-b port. Covered by `conformance/966_return_small_struct`
+  (xfail'd for `builder-comp_native_arm32_baremetal`) and unit tests
+  `TestReturnSmallAggregateSetsError` / `TestCallSmallAggregateReturnSetsError`
+  (direct) plus `TestFuncValueShimSmallAggregateReturnSetsError` /
+  `TestEmitCallFuncValueSmallAggregateReturnSetsError` (func-value). Root cause of
+  the fail-loud: the sret predicates use a strict `SizeOf > InternalSretBytes`,
+  leaving the `≤ 4` class as a non-sret in-register shape not yet lowered.
 - **multi-return (in-register tuple collection AND > register-budget sret) —
-  deferred (P4).** Fail-loud today; not yet xfail'd per-test (they sit among the
-  native-arm32 conformance failures, e.g. `401_return_many_scalars`).
+  deferred (P4-b).** Fail-loud today (direct, func-value, and iface paths); not
+  yet xfail'd per-test (they sit among the native-arm32 conformance failures,
+  e.g. `401_return_many_scalars`).
 - **soft-float (P5) / VFP hard-float + arm32-linux (P6) / CI wiring (P7)** — see
   the plan doc.
 

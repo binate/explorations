@@ -34,9 +34,10 @@ decomposition). ILP32 layout background: [`plan-arm32-bare-metal.md`].
   docs-only comment sweep (`9239279a`), and the **three runtime-hang fixes** —
   five-u8 aggregate-param PlanFrame 8-round (`f3a8bc91`), the shared
   `NeedsSret`/`IsAggregateReturn` 64-bit-scalar kind gate (877, `0479813a`), and
-  the shared-IR deref-store width coercion (599, `ba2a14ec`).
-  Current native-arm32-baremetal conformance: **1780 passed / 841 failed / 32
-  skipped** — **NO `[10s]` runtime hangs remain**; all three silent-miscompile
+  the shared-IR deref-store width coercion (599, `ba2a14ec`), and **P4-a
+  (func-value shim sret return-shape + indirect-call dispatch, `a888e9cd`)**.
+  Current native-arm32-baremetal conformance: **1898 passed / 727 failed / 32
+  skipped** (P4-a: +118 pass, no regressions) — **NO `[10s]` runtime hangs remain**; all three silent-miscompile
   hangs (877 int64-xpkg-return, struct-param/five-u8 aggregate-param, 599
   `&s[i]` deref-store) are fixed. Every remaining failure is a fail-loud deferred
   P4/P5 shape. The 877 kind-gate also repairs the shared int64-return
@@ -384,10 +385,31 @@ Remaining P3 work (original sketch):
   xfail + todo per the Bug Discovery Protocol.
 
 ### P4 — func values, closures, interfaces
-- Port `arm32_funcvalue.bn`, `arm32_funcvalue_shim.bn`,
-  `arm32_funcvalue_spill.bn`, `arm32_closure_shim*.bn` — the all-int
-  dispatch-ABI re-marshaling into AAPCS32 (scalar/void/pack/sret return
-  shapes; over-budget stack spill with the tighter R0–R3 budget).
+
+**P4-a DONE (landed `a888e9cd`):** func-value / indirect-call CONSUMER path +
+the shim's big-aggregate sret return shape + all six dispatch cases
+(OP_CALL_INDIRECT, OP_CALL_FUNC_VALUE, OP_CALL_HANDLE, OP_FUNC_HANDLE,
+OP_FUNC_VALUE, OP_FUNC_VALUE_DTOR). New `arm32_call_indirect.bn` (emitCallIndirect
++ emitCallFuncValue, mirroring x64's SretInGpArgReg model — target reloaded after
+the arg loop into IP before BLX, WordBytes-offset vtable.call load, reusing
+emitCallArg/emitCallReturn). Shim split into emitFuncValueShimBody →
+emitScalarVoidShim / emitSretShim (R0-kept sret, no X8) + emitFuncValue
+construction. NO shared/common changes (PlanFrame/callDispatchArgTypesAnyOp/layout
+offsets already target-parameterized; LP64 byte-identical). Adversarial review
+(4 lenses) found 0 defects. Non-capturing func-value construct/call/handle-dispatch
+now run end-to-end under QEMU; conformance **1898/727/32** (+118 pass, 0 `[10s]`
+hangs). Deferred shapes (below) stay fail-loud (verified COMPILE_ERROR).
+
+**Remaining P4 sub-increments (fail-loud today):**
+- **P4-b:** small (≤4-byte) in-register aggregate return/collection PACK — the
+  callee packs into R0 / caller collects from R0 (mirror x64's
+  `emitAggregateReturnPack` + `!bigRet` store); plus multi-return (in-register
+  tuple + >budget sret). Also unblocks the direct-call `966_return_small_struct`.
+- **P4-c:** interfaces — impl vtables (`arm32_iface.bn` currently PANICs; convert
+  to `a.SetError` when implementing), iface-value construct/upcast/dtor, method
+  dispatch (`arm32_iface.bn`, template `aarch64_iface.bn`). Biggest bucket.
+- **P4-d:** closures — capturing func values (build on the P4-a shim), the
+  over-budget stack-spill shim (tighter R0–R3 budget), non-null dtor slot.
 - **Acceptance**: func-value / closure / interface conformance + unit tests
   pass in native baremetal.
 
