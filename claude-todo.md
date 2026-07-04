@@ -62,7 +62,10 @@ regression — re-run the single test in isolation to confirm.
 - **Phase 2.1 — ✅ LANDED `041a6954`:** one weak `__typeinfo.<T>` record per boxable
   type (fixed 7-word layout, all fields zero/null), vtable slot 1 wired to it — the
   per-type *identity* substrate.
-- **Phase 2.2a — in progress:** fill the record's `size`/`align` (design A below).
+- **Phase 2.2a — ✅ LANDED `8047a72c`:** the record's `size`/`align` filled from the
+  receiver's laid-out type (design A: `ImplInfo.RecvTyp` held, `SizeOf` read at
+  codegen; see below). Adversarially reviewed — byte-identical cross-TU records
+  verified by compiling `378` + nested-import + ILP32.
 - **Remaining:** 2.2b (name + dtor + satisfaction table), then the front-end
   (Phases 3–7: parser/checker/lowering for `x.(K T)`, comma-ok, type switches, the
   §17.5 panic), plus the cross-mode/VM story deferred to Phase 5.

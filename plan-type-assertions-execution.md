@@ -414,10 +414,14 @@ self-compile continuing to pass.
 >   type**. Compute them that way and weak-from-every-TU coalescing stays correct
 >   (no need to switch to one-canonical-TU emission). Verify with a multi-TU test
 >   (e.g. `378_iface_impl_dup`) that the filled records are byte-identical.
-> - **2.2a** = fill words 0–4 (dtor, size, align, name-ptr, name-len) + emit the
->   name rodata; sat table stays 0/null. The record gains a name relocation, so it
->   moves rodata → rodata_relro on native (was reloc-free). Update the 2.1 record
->   goldens (no longer all-zero; size/align are the host int width in the test).
+> - **2.2a — ✅ LANDED `8047a72c`.** Scoped to **size/align only** (words 1–2) —
+>   pure ints, no cross-backend symbol plumbing, the fields most prone to silent
+>   miscompile, done first via design A (`ImplInfo.RecvTyp` held, `SizeOf` read at
+>   codegen — the fix for the size-0 blocker below). dtor/name (words 0, 3–4) ride
+>   with 2.2b (they need cross-backend symbol handling like the name rodata). The
+>   record stays reloc-free (no name/dtor pointers yet) → stays in `rodata`, not
+>   `rodata_relro`. Adversarially reviewed (impl); byte-identical cross-TU verified.
+>   **Remaining for 2.2b:** name rodata (word 3–4) + dtor (word 0) + the sat table.
 >
 > **⚠ 2.2a BLOCKER (2026-07-04) — the flat↔checker bridge is not resolvable by the
 > two obvious routes; needs a design call.** Attempting to fill size/align, BOTH
