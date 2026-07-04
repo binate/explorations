@@ -418,6 +418,35 @@ self-compile continuing to pass.
 >   name rodata; sat table stays 0/null. The record gains a name relocation, so it
 >   moves rodata → rodata_relro on native (was reloc-free). Update the 2.1 record
 >   goldens (no longer all-zero; size/align are the host int width in the test).
+>
+> **⚠ 2.2a BLOCKER (2026-07-04) — the flat↔checker bridge is not resolvable by the
+> two obvious routes; needs a design call.** Attempting to fill size/align, BOTH
+> failed with `size=0` (a silent miscompile — reverted rather than landed):
+> 1. **Compute at IR-gen impl-collection** (`collectImplsFromDecl` via
+>    `resolveTypeExpr(gc, d.TypeRef)`, peel to base): runs during impl collection,
+>    **before struct field layouts are populated**, so `SizeOf` reads an empty
+>    struct → 0.
+> 2. **Compute at codegen via `m.Checker.PackageType(RecvPkg, RecvTypeName)`**:
+>    returns **nil for the current module's own types**. `Check(file)` (single-file
+>    mode, used for `main`) `pushScope`/`popScope`s and **never `registerPackage`s
+>    the current package into `c.Packages`**, so `lookupPackage` misses it.
+>    (Multi-file `CheckPackage` does register — line 206-207 — so this is
+>    inconsistent, and relying on it is fragile.)
+> The tension: the vtable slot + record symbol key on the **flat** IR-gen strings
+> `(RecvPkg = unquoted pkg path, RecvTypeName)`, but the fully-laid-out type lives
+> on the **checker** side (`c.Impls[i].RecvType`, or the popped package scope), and
+> there is no clean, always-available bridge between them at a point where the
+> layout is final.
+> **Candidate resolutions (user's design call — needs the checker's identity
+> model):** (a) compute size/align in the **checker** from `c.Impls[i].RecvType`
+> (native, laid-out) and stash it on the `Impl`/thread it to IR-gen, keyed to match
+> the flat `ImplInfo` — the cleanest if the keying is clear; (b) make the current
+> package resolvable (persist its scope / register it) so `PackageType` works
+> uniformly — a checker change; (c) capture at a resolved IR-gen point that has the
+> flat key (method-gen `genMethod`, or the box site `wrapAsIfaceValue` which has
+> `val.Typ.Elem` resolved) and update the `ImplInfo` — covers boxed/method'd types,
+> not never-boxed-in-module explicit impls. Recommend (a). **2.1 stays landed and
+> correct; 2.2a is parked on this decision.**
 > - **2.2b** = satisfaction table: `IfaceId` weak symbols (`mangle.IfaceIdName`),
 >   one `{iface_id, sub-vtable-ptr}` per interface in T's transitive set (from the
 >   already-flattened `m.Impls` grouping; sub-vtable offset via
