@@ -452,8 +452,36 @@ pre-existing `__c_call` C-varargs `...` marker (§16.9), which is unaffected.
   (`...@Shape` interface element — routed through the same `emitStoreManagedSlot`,
   not a bespoke coerce arm — pack + per-vtable dispatch + refcount baseline via the
   underlying `@Square` box + copy-out). Green comp/int/comp-comp. Found no defects.
-- ⬜ **Phase 6** — method/interface/generic/method-value variadic calls. ⬜
-  **Phase 7** — close-out + status flip.
+- ✅ **Phase 6** — indirect / method / interface / generic variadic calls (main
+  `63c3db1d`..`406b8f65`, 6 commits): all four call kinds now pack/spread.
+  - **6a methods** (`63c3db1d`): the checker's variadic binders
+    (`checkVariadicCallBinding`/`checkSpreadCallBinding`) refactored to take a
+    PARAM SLICE, so a method passes its receiver-dropped user params
+    (`ft.Params[1:]`) to the same binder as free-function/func-value calls; IR
+    `genMethodCall` routes user args through the shared `buildCallArgs`. Spread
+    handling moved from a blanket `checkCallExpr` rejection into the three per-site
+    method binders (variadic binds, non-variadic rejects).
+  - **6b interfaces** (`ae2a005c`): `findInterfaceMethod`/`…FromBase` widened to a
+    4-tuple returning the owning interface's `MethodParamVariadic[j]` (carried up
+    the vtable recursion for inherited methods); `genInterfaceMethodCall` packs via
+    `buildCallArgs` before the vtable indirection (ABI erasure to `*[]T`). The
+    registry already derived flat params as `*[]T` (irResolveParamType) and set
+    `MethodParamVariadic` (declIsVariadic).
+  - **6c generics** (`1769ce97`): `instantiateGenericFunc` now copies `IsVariadic`
+    (the silent-drop rebuild site D-A flagged); the instantiation FuncSig sets it +
+    `genCallInstantiate` forwards `e.Spread`; `tryTypeParamMethodCall` binds a
+    variadic constraint method against the Self-substituted params (monomorphized
+    call reuses the concrete `genMethodCall`).
+  - **6d/6e tests** (`374e9610`, `baf10e9c`): method value + method expression +
+    func-value identity reject; inherited variadic interface; the two per-site
+    spread rejections; 186 comment refresh. Method values already worked (func-value
+    path). Conformance 191-200. Adversarially reviewed (5 lenses): 0 critical/major.
+  - **Surfaced + filed** (`406b8f65` xfail; see the OPEN entry above): a `Self`
+    nested in a composite iface-method param (`*[]Self` / `...Self`) fails
+    impl-satisfaction — pre-existing, not variadic-specific; blocks only the
+    obscure `...Self` constraint-method case.
+- ⬜ **Phase 7** — close-out + status flip (remaining `.rules`-cited spec tests;
+  flip the §10.3 "Draft; not yet implemented" note in the docs repo).
 
 Open decisions for the user (plan §12): O-1 (test 023 repurpose), O-2/‡
 (mixing-error wording), O-4 (refcount-assertion mechanism).
