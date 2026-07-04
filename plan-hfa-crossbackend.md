@@ -440,14 +440,17 @@ single-form `aggCoerceLLTy` can't express the arg-vs-return asymmetry.
    gate, since today's GP-coercion is self-consistent but WRONG vs clang); (6) flip.
    Smoke rule: touches `pkg/types`+`codegen`+`native/common`+`native/x64` — smoke ALL.
 
-**Open design questions (USER):** (Q1) 2×f32 pack: pure-GP (default) / `UNPCKLPS` /
-`MOVLPS`? (Q2) classifier home: separate `abi_sysv.bn` (proposed) vs fold into
-`abi_hfa.bn`? (Q3) CallConv flag: new field (proposed) vs `Arch` branching? (Q4)
-ELF `builder-comp_native_x64` is UNUSABLE locally on Apple Silicon (no qemu / no
-x86_64-linux cross-libc) — rely on darwin/Rosetta locally + ELF in CI, or set up
-qemu? (Q5) confirm no x87 for any ≤16B single-agg SSE return (believed none). (Q6)
-confirm supported field-type set (no `long double`/x87) so the classifier stays a
-simple 2-eightbyte SSE/INTEGER merge.
+**Design decisions (settled, user 2026-07-04):** (Q1) 2×f32 pack = **MOVLPS
+memory-image** — add a new `emitSSEMem` helper + `MOVLPS xmm,m64` (load, `0F 12
+/r` mem-form) + `MOVLPS m64,xmm` (store, `0F 13 /r`); this moves any 8-byte SSE
+eightbyte (2×f32 OR 1×f64) to/from the aggregate's data-region image in one
+instruction, matching how eightbyte args arrive by-address. (Q2) separate
+`pkg/types/abi_sysv.bn`. (Q3) new CallConv flag (the `.bni` reserves it). (Q4)
+verify locally via darwin/Rosetta (`builder-comp_native_x64_darwin`); ELF
+(`builder-comp_native_x64`) in CI only — unusable on this Apple-Silicon host. (Q5)
+assert no x87 for any ≤16B single-aggregate SSE return (≤2 eightbytes → XMM0/XMM1).
+(Q6) classifier is a 2-eightbyte SSE/INTEGER byte-chunk merge over the current
+field-type set (no `long double`/x87 leaf types).
 
 ## Decisions (settled)
 
