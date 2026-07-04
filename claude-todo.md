@@ -1480,13 +1480,39 @@ The `pkg/binate/native/arm32` backend (P0–P4-a done; P4-b/c/d + P5–P7 remain
 is tracked in detail in `plan-native-arm32.md`; that doc is authoritative for
 phase status, landed commits, and deferred shapes. Deferrals below are all
 **fail-loud** (a shape the backend doesn't implement emits a clean COMPILE_ERROR,
-never silent wrong-code).
+never silent wrong-code) — EXCEPT the MAJOR bug just below, which violates that.
+
+**MAJOR (silent miscompile on main; found 2026-07-04 during P4-b; fix confirmed,
+awaiting land): the func-value consumer miscompiles aggregate / 64-bit-pair ARGS
+through CROSS-PACKAGE func values.** `emitCallFuncValue` (arm32_call_indirect.bn)
+marshals user args via `emitCallArg` — the DIRECT-call ABI, which spreads an
+aggregate as its inline words. But the func-value shim ABI passes an aggregate
+arg BY-ADDRESS (one pointer word the shim re-expands). For a SAME-package func
+value the arm32 shim is emitted and `shimUserArgWords` fail-louds aggregate/float/
+pair args; but a CROSS-package func value's shim is LLVM-emitted, so the arm32
+shim's fail-loud never runs and the consumer silently emits the mismatched
+spread-words marshaling → the shim dereferences the first struct word as a pointer
+→ a wild deref / runtime HANG (Data Abort loop) under QEMU. **Present since P4-a
+(`a888e9cd`)**; the func-value CONSUMER was introduced there. Discovered via
+`889_funcval_small_aggregate` (a cross-pkg func value taking an 8-byte struct by
+value), which HANGS ([11s] QEMU timeout). **It was MISSED at P4-a land because the
+hang-detection grep (`\[10s\]`) did not match the actual per-test timeout marker
+on non-verbose output — a process miss: hang audits MUST grep the QEMU
+"terminating on signal" message, not a `[Ns]` bracket.** Fix (confirmed: 889 →
+COMPILE_ERROR): a consumer-side fail-loud on aggregate / 64-bit-pair args in
+emitCallFuncValue (restores the invariant; defers the shape). Alternative: fully
+implement the by-address arg convention (mirror x64/aa64 `AggCoercedInReg` →
+substitute to `*uint8` + pass a pointer) to make aggregate-arg func values WORK.
+Likely affects other cross-pkg func values with aggregate/pair args (e.g. closures
+taking struct args). Not P4-b's small-agg-RETURN scope — separately raised.
 
 **P4-a DONE (landed `a888e9cd`):** func-value / indirect-call consumer path
 (`arm32_call_indirect.bn`) + the shim's big-aggregate R0-sret return shape + all
 six dispatch cases (OP_CALL_INDIRECT/OP_CALL_FUNC_VALUE/OP_CALL_HANDLE/
 OP_FUNC_HANDLE/OP_FUNC_VALUE/OP_FUNC_VALUE_DTOR). Conformance 1898/727/32 (+118
-pass, 0 `[10s]` hangs); adversarial review found 0 defects. Non-capturing
+pass); adversarial review found 0 defects. (The P4-a land claimed "0 `[10s]`
+hangs" — that was WRONG; the hang-detection grep was faulty and missed the
+cross-pkg aggregate-arg hang tracked in the MAJOR entry above.) Non-capturing
 func-value construct/call/handle-dispatch run end-to-end under QEMU. See
 plan-native-arm32.md § P4.
 
