@@ -1,6 +1,16 @@
 # Plan: 32-bit VM host — cross-mode 64-bit SCALAR returns (retbuf read-back)
 
-Status: DESIGN (adversarial review pending)
+Status: DESIGN — **PREMISE UNDER RE-VERIFICATION.** A concurrent commit
+(`0479813a`, native-arm32 lane) landed on `main` after this doc was drafted: it
+gates `IsAggregateReturn`/`NeedsSret` on aggregate KIND, so a bare
+`int64`/`uint64`/`float64` is **no longer** classified as a retbuf/aggregate
+return on ILP32 — it is now a register-PAIR scalar return. That invalidates this
+doc's core "rides the retbuf shim" premise. The forward bug may now manifest via
+the SCALAR shim path instead (`_call_shim_scalar` returns one host word →
+possible high-word loss), or may be fixed — re-verifying empirically on arm32-VM
+against current main before implementing. The reverse-direction MAJOR (below) and
+the review corrections stand regardless. Adversarially reviewed; corrections
+folded in.
 
 Sibling of `plan-vm-32bit-crossmode-64bit-args.md` (the ARG side, landed as
 `a5511a8d` + `83819d60`). This is the RETURN side of the same ILP32 cross-mode
@@ -128,16 +138,43 @@ retbuf size rides the BCInstr:
 BC_CALL (site 3) does NOT carry the retbuf size on the BCInstr — the size lives
 on the `ExternBinding`, and `Aux`/`Src*`/`Dst` are all occupied or remapped
 (`Aux` = name index; `Src1` = callArgBase; both feed `f.Names`/`f.CallCache`/
-register remap). Its only spare capacity is the packed **`Imm` slot count**
-(always < 64, the `callArgs` buffer bound), so the flag rides a high bit there:
+register remap). Its only spare capacity is the packed **`Imm` slot count**, so
+the flag rides a high bit there:
 
 - **Site 3** (BC_CALL, `Imm = slots`): `Imm = slots | BC_CALL_RET_SCALAR64`,
-  with `BC_CALL_RET_SCALAR64 = 1 << 20` (far above any slot count, far below the
-  sign bit even on an ILP32 build host).
+  with `BC_CALL_RET_SCALAR64 = 1 << 20`. Safety is NOT the `callArgs`-buffer
+  bound (that guards only the extern arm; the VM-function-call arm's slot count
+  is bounded by the callee's `NumParamSlots`, not 64). It is that bit 20 sits
+  far above any realistic param-slot count and far below the sign bit even on an
+  ILP32 build host (`int` = 32-bit → `1<<20` positive).
 
-Decode helpers (pure, testable) centralize this so no reader open-codes the
-masks. Encoding is applied uniformly at every retbuf-stamp site in
-`lowerCallOp` (including OP_CALL_HANDLE, whose result is void → flag false).
+### Encoding helpers (centralized)
+
+Because the same encode/decode contract is read at several sites — and the review
+flagged scattered masks as the main fragility — the pack/unpack helpers, the
+`BC_CALL_RET_SCALAR64` const, the pure lower-time predicate
+`is64BitScalarReturn(resultTyp, wordSize)` (= `is64BitScalar(t) && wordSize < 8`),
+and the shared dispatch read-back `storeCrossModeRetbufResult(regs, dst, retbuf,
+scalar64)` all live in ONE focused new file (`vm_crossmode_ret64.bn`) so producer
+and consumer cannot drift and no existing file crosses the 500-line soft cap
+(`vm_exec.bn` is already at 494). Encoding is applied uniformly at every
+retbuf-stamp site in `lowerCallOp` (including OP_CALL_HANDLE, whose result is
+void → flag false).
+
+Two decode subtleties the implementation MUST honor (both flagged by review):
+- The retbuf field's flag is bit 0, but the **byte size** used for `vm.SP`
+  reservation must have it cleared (`retbufBytes(enc) = enc & ~1`). This applies
+  to EVERY size read, not just the branch predicate: `vm_exec_funcref.bn:353`
+  and `vm_exec_iface.bn:95` (SP bumps) currently read the field raw.
+- The per-site **extraction** differs: site 1's field is the whole `Aux`; site
+  2's is `(Aux >> 16) & 65535`. The decode helper is applied to the extracted
+  field, not blindly to raw `Aux`.
+
+Flag derivation is alias/readonly/named-safe: `newInstr` runs `stripConstForIR`
+(`ir.bn:135,164`), which peels TYP_ALIAS + TYP_READONLY before the type reaches
+`instr.Typ`, so only a residual TYP_NAMED can survive — which `is64BitScalar`
+(via `vmUnwrapNamed`) peels. So `type Nanos int64` and `readonly int64` results
+are correctly flagged, matching what `regWidths` did to make the register wide.
 
 ### Dispatch (per site)
 
@@ -181,10 +218,16 @@ if instr.Dst >= 0 {
 }
 ```
 
-`instr.Imm` is also read on the VM-function-call arm of BC_CALL
-(`vm_exec.bn:230`); that arm must use `nSlots` (masked) too. It ignores the flag
-(a VM→VM 64-bit return is handled by the callee's BC_RETURN64 + frame-pop
-`isPair` path), but it must not treat the flag bit as part of the slot count.
+`instr.Imm` has THREE readers inside the BC_CALL handler, ALL of which must use
+the masked `nSlots` (compute it once at the top of the handler, before the
+extern/VM-func split): `vm_exec.bn:208` (the `> 7` extern guard — if left raw,
+`1048576 + slots > 7` panics on EVERY 64-bit-scalar extern call, i.e. the repro
+path), `vm_exec.bn:211` (extern arg-copy loop), and `vm_exec.bn:230` (VM-func
+arg-copy loop). The VM-func arm ignores the flag itself (a VM→VM 64-bit return
+is handled by the callee's BC_RETURN64 + frame-pop `isPair` path) but must not
+treat the flag bit as slot count. The func-value dispatchers'
+own `instr.Imm` readers (`vm_exec_funcref.bn:319,441`) are unaffected — sites 1
+& 2 carry the flag in `Aux`, not `Imm`.
 
 Little-endianness: `w[0]`/`w[1]` are the low/high words in memory order; the VM
 pair convention (`joinInt64`) is low-slot-first little-endian; ARM ILP32 is
@@ -223,31 +266,75 @@ bounded by frame depth). Reclamation is a possible follow-up; flagged for review
 
 ## Tests
 
-- **Conformance** (`conformance/spec/15-builtins/153_return_64bit_crossmode.bn`):
-  call native-injected `math` functions returning 64-bit scalars and print exact
-  values — `math.Floor(3.7)` → `3.000000`, `math.Float64bits(1.0)` →
-  `4607182418800017408`, plus an `int64`-returning case. In
+Placement note (review): the conformance test goes under `conformance/stdlib/math/`
+(where every existing `pkg/std/*`-boundary test lives, e.g.
+`stdlib/math/001_classify_round.bn`), NOT `conformance/spec/15-builtins/`. The
+`spec/` subtree is core-only: a `pkg/std/math` import there would require a
+`conformance-imports.whitelist` entry AND a `.rules` sidecar (`spec-coverage`);
+the `stdlib/` subtree needs neither. This also sidesteps the `153` numbering
+race in `spec/15-builtins/`.
+
+- **Conformance** (`conformance/stdlib/math/NNN_return_64bit_crossmode.bn`): call
+  native-injected `math` functions returning 64-bit scalars and print exact
+  values — `math.Floor(3.7)` → `3.000000` (float64 read-back),
+  `math.Float64bits(1.0)` → `4607182418800017408` (uint64 read-back). (No
+  injected stdlib function returns a bare `int64` — only `uint64`/`float64` — so
+  the int64 read-back, which shares the identical `w[0]/w[1]` path, is covered by
+  the dispatch unit test below with a custom extern.) In
   `builder-comp_arm32_linux_int` this is genuinely cross-mode (bytecode body,
   native math) and exercises the extern path (site 3); in all-native / all-VM
-  modes it is an ordinary call (still valid coverage). Verified to FAIL on
-  arm32-VM before the fix and PASS after (in the `binate-arm32` container).
-- **Unit** (pure predicate, host-independent): a `callRetIsScalar64(resultTyp,
-  wordSize)` helper tested with `wordSize` 4 (flag set for int64/uint64/float64,
-  clear for int32/pointer/slice/struct) and 8 (always clear). Plus encode/decode
-  round-trip tests for the retbuf-field bit-packing and the `Imm` high-bit.
-- **Unit** (lowering, conditional on `REG_SLOT` like `TestLowerCastInt64ToUint64`):
+  modes it is an ordinary call (still valid coverage). Note this conformance mode
+  is currently NON-BLOCKING (experimental / continue-on-error) — the standing CI
+  protection for the read-back comes from the unit tests below, which run
+  BLOCKING under `builder-comp_arm32_linux`. Verified to FAIL on arm32-VM before
+  the fix and PASS after (in the `binate-arm32` container).
+- **Unit — dispatch read-back** (`runEqDispatch`-style, the substantive one): build
+  IR → register a native extern returning `int64`/`float64`/`uint64` → LowerModule
+  → `execFunc`, and assert the FULL 64-bit value comes back (not a truncated word
+  or a pointer). This runs BLOCKING under `builder-comp_arm32_linux` (`REG_SLOT ==
+  4`), where it actually exercises the retbuf-pair read-back (`dispatchExternBinding`
+  → BC_CALL extern arm). Use the direct-extern variant (the func-value variant is
+  skipped in double-VM modes per `vm_extern_coerced_test.bn`). Include a
+  `type Nanos int64` (NAMED) case to pin alias/named transparency.
+- **Unit — pure predicate** (host-independent): `is64BitScalarReturn(resultTyp,
+  wordSize)` tested with `wordSize` 4 (flag set for int64/uint64/float64, clear
+  for int32/pointer/slice/struct) and 8 (always clear). Plus encode/decode
+  round-trip tests for the retbuf-field bit-packing (`packRetbuf`/`retbufBytes`/
+  `retbufScalar64`) and the `Imm` high-bit (`callArgSlots`/`callRetIsScalar64`).
+- **Unit — lowering** (conditional on `REG_SLOT` like `TestLowerCastInt64ToUint64`):
   assert BC_CALL_FUNC_VALUE `Aux`, BC_CALL_IFACE_METHOD `Aux` high field, and
   BC_CALL `Imm` carry the scalar64 bit iff `REG_SLOT < 8` for a 64-bit-scalar
   return, and do not for an int32/slice return. On 64-bit CI this verifies the
-  flag stays clear; the set path is exercised when the VM's own unit tests run
-  on the arm32 host.
+  flag stays clear; the set path runs BLOCKING when the VM's own unit tests run
+  on the arm32 host (`pkg/binate/vm` under `builder-comp_arm32_linux`, `REG_SLOT
+  == 4`).
 
-## Out of scope (but to verify, not silently skip)
+## Related bug — reverse direction (CONFIRMED, raised separately)
 
-The REVERSE direction — a VM function returning a 64-bit scalar to a NATIVE
-caller — goes through `TrampolineAggregate` + retbuf (a VM func with a 64-bit
-scalar result has `ResultMultiWord[0] == true` on ILP32, so `ensureHandle`
-picks the aggregate trampoline). That write path is independent of this
-read-back fix. It should be spot-checked during implementation; if it is also
-broken, raise it separately per the bug-discovery protocol rather than folding
-it in silently.
+The REVERSE direction — a VM function value returning a 64-bit scalar to a
+NATIVE caller — is **also broken on ILP32**, by a DIFFERENT mechanism. (This
+correction supersedes an earlier draft that wrongly claimed the reverse path
+rides `TrampolineAggregate` + retbuf and was therefore fine.)
+
+`ensureHandle` (`vm_exec_funcref.bn:172-174`) picks the aggregate trampoline
+only when `ResultMultiWord[0] == true`. That flag is
+`isMultiWordField(t) || isVMAddressAggregate(t)` (`lower_func.bn:85`), and BOTH
+predicates match only struct / slice / managed-slice / array / iface-value /
+func-value (`lower_instr_helpers.bn:88-128`) — a bare `int64`/`uint64`/`float64`
+matches NEITHER. So `ResultMultiWord[0] == false`, and `ensureHandle` picks
+**`TrampolineScalar`**, whose body returns `execFunc(...)` as a single host
+`int` (`vm.bn:72-95`; its own docstring: "no floats, no aggregates pass
+through"). On ILP32 that is 4 bytes — the high 32 bits of a 64-bit scalar
+result are dropped.
+
+This is the exact mirror of the read-back bug fixed here, and per the
+bug-discovery protocol it is raised as its own tracked MAJOR (`claude-todo.md`)
+rather than folded into this change silently. Whether to fix it in this same
+body of work or as an immediate follow-up is the user's call; the two fixes are
+in different code paths (trampoline selection / `execFunc` return width vs. the
+dispatcher read-back), though they share the same root (a 64-bit scalar does
+not fit one host word on ILP32).
+
+The `dispatchNativeIndirect` Imm==9 arm (`vm_exec_funcref.bn:258`) and
+`refDecCrossModeDispatch` (`vm_exec_helpers.bn`) both dispatch VOID returns and
+are correctly unaffected — noted here so a future reader does not re-flag them.
