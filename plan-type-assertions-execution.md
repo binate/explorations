@@ -12,6 +12,15 @@ spec (record field order, table search structure, symbol names, linkage) is
 Companion: `plan-type-assertions.md` (the high-level phase overview). Read that
 first for the "what" and "why"; this file is the "where" and "in what order."
 
+> **Adversarially reviewed 2026-07-03** (three independent code-grounded
+> reviewers: ABI/dispatch, RTTI/cross-mode, frontend/refcount/spec). The core
+> Phase-1 ABI-shift inventory and the transitive-closure/leaf-TypeInfo reuse
+> **survived** scrutiny. Five MAJOR and several MINOR findings were folded back
+> in and are marked inline with **⚠ Review** and consolidated in **§6** with the
+> updated risk register (R4–R11, §3) and open decisions (§4). Read §6 before
+> starting — two claims the first draft called "zero-cost reuse" (comma-ok
+> wiring; the cross-mode/VM story) are the ones that actually carry the most work.
+
 ---
 
 ## 0. Ground truth from reconnaissance (read this before touching code)
@@ -160,6 +169,20 @@ Notes:
 - **`identity` as a self-pointer** means a concrete assertion is `scrutinee's
   TypeInfo* == target type's TypeInfo*` — a single pointer compare. The target's
   `TypeInfo*` is a static symbol reference known at the assertion site.
+  **⚠ Review-flagged (MINOR):** a self-referential `DataGlobal` (a `DataSymref`
+  to its own symbol) has **no in-tree precedent** — every existing weak
+  DataGlobal (`@__ivt`, dtors, func-value handles, descriptor nodes) references
+  *other* symbols, never itself, so the "coalesces the same as `@__ivt`/dtors"
+  defense is *false by analogy* (those never self-reference). Self-relocation
+  under `weak_odr` (LLVM COMDAT) / `N_WEAK_DEF` (Mach-O, linker-coalesced) is
+  standard and almost certainly benign, but is **untested here**. Two mitigations,
+  pick one: (a) add an explicit Phase-2 link-smoke that a generic type
+  instantiated in two TUs coalesces to one `TypeInfo` **and** both TUs' `identity`
+  self-refs resolve to the survivor; or (b) drop the self-pointer entirely and use
+  the **`TypeInfo` symbol's own address** as the identity (the assertion already
+  references `&bn_TypeInfo.<T>` — comparing the record *addresses* needs no
+  interior `identity` field at all). **(b) is simpler and precedent-free-risk-free
+  — recommend it**, making `identity` an implementation non-field.
 - **`size`/`align`/`name`** are not needed by assertions per se (the concrete
   test is pure identity); they are included because §7.13.14 mandates them and
   reflection (§20.3) will need them. The `name` also feeds the failed-assertion
@@ -182,7 +205,15 @@ be a zero-content 1-byte marker — only its *address* matters. The `sat_table`
 entry for J stores `&IfaceId(J)`; the assertion site references `&IfaceId(J)`
 statically; the scan compares pointers. Cross-mode: the VM injects the native
 `IfaceId` addresses by mangled name (same mechanism as vtable injection, §0.7),
-so pointer-equality agrees.
+so pointer-equality agrees. **⚠ Review-flagged (MAJOR) — there is no injection
+channel today.** `registerVtableAddr` (`vtable_inject.bn`) is fed **exclusively**
+from the reflect package descriptor's `Vtables` table (`p.Vtables`, via
+`RegisterPackageVtables`). To inject `IfaceId`/`TypeInfo` addresses the **reflect
+descriptor itself must gain TypeInfo + IfaceId tables** — a concrete, previously
+unlisted work item spanning `reflect.bni`, all four `*_pkg_descriptor.bn` writers,
+`BuildPackageDescriptor`, and the VM ingestion (`extern_register.bn` /
+`vtable_inject.bn`). This is folded into the revised Phase 2 (§2f) and the risk
+register (R4/R9).
 
 Alternative considered and rejected: keying the table by the interface's mangled
 *name string* and comparing by content — works but adds a strcmp per scan step
@@ -241,9 +272,13 @@ single riskiest change and must be atomic.
    dtorEntry`; add `slots[base+1] = nullEntry`; `cursor := base + 1` → `base + 2`.
 8. **VM guard** `pkg/binate/vm/vm_exec.bn` BC_CALL_IFACE_METHOD: `slot < 1` →
    `slot < 2` (0.4).
-9. `pkg/binate/ir/gen_iface.bn` `ensureAnyImplInfo` / `wrapAsIfaceValue`: the
-   synthesized `any` vtable `[1 x i8*]` becomes `[2 x i8*]` (dtor + null
-   TypeInfo). Update the doc comments that say "slot 0 = dtor" / `[1 x i8*]`.
+9. `pkg/binate/ir/gen_iface.bn` `ensureAnyImplInfo` / `wrapAsIfaceValue`:
+   **comment-only** (review-corrected — there is *no* `[1 x i8*]` literal to
+   change). `any` is a real registered `ModuleInterface` (`registerUniverseAny`),
+   so its vtable size flows through `IfaceFullVtableSize` and auto-grows `1`→`2`
+   with step 1. The `[1 x i8*]` strings at `gen_iface.bn` are **doc comments**;
+   update them to `[2 x i8*]` (dtor + null TypeInfo) but there is no code/layout
+   edit here.
 10. **Checker method-order doc** `pkg/binate/types/check_iface_extends.bn`
     `ifaceFullMethods`: update the layout comment `[any-block]…` to note the
     2-word any-block. (No logic change — it only orders methods, which are still
@@ -259,8 +294,26 @@ single riskiest change and must be atomic.
 - Unit tests for **every** changed package: `pkg/binate/ir`,
   `pkg/binate/codegen`, `pkg/binate/native/x64`, `pkg/binate/native/aarch64`,
   `pkg/binate/vm`, `pkg/binate/types` (smoke-test-every-package rule).
-- `gen_iface_dispatch_test.bn` and any test asserting concrete slot indices /
-  vtable sizes will need their expected values bumped — update them.
+- **Enumerate the hardcoded-slot/size/byte test assertions from a repo-wide grep,
+  not "any test"** (review-flagged MAJOR — under-scoping here lands "done-but-red"
+  on the very packages Phase 1 must keep green). Build the list with
+  `grep -rn 'IfaceFullVtableSize\|IfaceParentSlotOffset\|\[[0-9].* x i8\*\]\|relroSectionBytes\|ins.Index =\|Index ==' pkg/binate/**/*_test.bn`.
+  At authoring time that set is **at least** these ~10 files, each with baked
+  expected values that shift by +1 slot / +8 bytes:
+  - `codegen/emit_impls_test.bn` (`[2 x i8*]`→`[3 x i8*]` etc.; RC vtable
+    `{ptr,ptr,ptr,ptr}`→6 slots; `Closer {ptr,ptr}`→3).
+  - `codegen/emit_iface_upcast_test.bn` (GEP `i64 1`→`2`, `i64 2`→`3`).
+  - `codegen/emit_iface_call_test.bn` (method-dispatch offsets; dtor GEP `i64 0`
+    stays 0).
+  - `native/aarch64/aarch64_iface_vtable_test.bn` (`relroSectionBytes != 32`→48,
+    `!= 96`→144 — hard byte counts).
+  - `native/x64/x64_iface_test.bn` (`ins.Index = 1` + `8*Index` byte patterns).
+  - `ir/gen_iface_dispatch_test.bn` (`Index == 1/2`, `closerSlot != 1`,
+    `inheritedSlot != 2`, `ownSlot != 3`).
+  - `ir/gen_iface_extends_test.bn` (`IfaceFullVtableSize != 2/2/6`→3/3/9;
+    `IfaceParentSlotOffset` expectations per nesting level).
+  All must be updated **in the same atomic Phase-1 commit**. Re-run the grep at
+  implementation time (line-drift; new tests may have landed).
 - Conformance across **all** backends and modes: `builder-comp` (native LLVM),
   `builder-comp-int` (VM), `builder-comp-comp` (gen2 self-compile), and the
   native-aarch64 cross mode. Any interface-dispatch conformance test exercises
@@ -317,6 +370,17 @@ call `BuildTypeInfo`. Emit `TypeInfo` in the module where the type's dtor is
 emitted (co-location); weak linkage handles generic instantiations emitted in
 multiple modules (same coalescing as `@__ivt`/dtors already use — 0.7). Types
 boxed only into `any` also appear via `ensureAnyImplInfo`'s lazy `ImplInfo`.
+**⚠ Review caveat:** `ensureAnyImplInfo` appends the `(T, any)` `ImplInfo` to the
+**boxing** module's `m.Impls` (lazily, during IR-gen at the box site) — which may
+**not** be the module that emits T's dtor. On the native path this is benign
+because enumeration runs in codegen (`EmitModule`), a strictly *later* pass than
+IR-gen, so each module's `m.Impls` is complete before enumeration and the
+weak-coalesced `TypeInfo` is emitted by *every* module that boxes T (linker keeps
+one). But do **not** rely on strict "co-locate with the dtor" as the emission
+rule — use **"emit `TypeInfo` from every module whose `m.Impls` names `(T, *)`,
+weak"**, so an `any`-only box in a module that doesn't own T's dtor still emits a
+(coalesced) `TypeInfo`. Explicitly confirm the **VM lower path** performs the same
+`m.Impls` walk *after* `ensureAnyImplInfo` has run (ordering parity with codegen).
 
 **Step 2d — `IfaceId` symbols.**
 Emit one weak `IfaceId` `DataGlobal` per interface referenced (from
@@ -335,16 +399,52 @@ automatically as long as the emitter uses the top-level receiver's TypeInfo at
 every nesting level (verify it doesn't accidentally use the parent interface's
 identity).
 
-**Step 2f — cross-mode injection.**
-Extend `pkg/binate/vm/vtable_inject.bn`: register native `TypeInfo` and `IfaceId`
-addresses by mangled name (mirror `registerVtableAddr`). Because the VM uses the
-injected native addresses, pointer-equality within the VM matches compiled code
-trivially (§0.7). For a **pure-VM** type (no native emission), the VM must build
-its own TypeInfo at load/intern — mirror `lowerImplVtables`/`fillVtableLayout`
-which already build in-memory vtables for VM-lowered impls. (Reviewer: confirm
-whether any type is ever VM-lowered without a native counterpart in the current
-build topology; if not, injection alone suffices for now and the VM-native build
-is a flagged follow-up rather than a silent gap.)
+**Step 2f — cross-mode: TypeInfo/IfaceId in the VM. ⚠ SUBSTANTIALLY REVISED per
+review (MAJOR) — this was the plan's biggest hole.** The original "just inject the
+native addresses" story covers **only** native-injected vtables and **fails for
+the default `builder-comp-int` (bytecode) workload**, where the user's own program
+is VM-lowered. Two facts the first draft missed:
+
+1. **No injection channel exists.** `registerVtableAddr` is fed *exclusively* from
+   the reflect package descriptor's `Vtables` table. Injecting TypeInfo/IfaceId
+   addresses **requires extending the reflect descriptor** — a new work item
+   (see §1.1) touching `reflect.bni`, all four `*_pkg_descriptor.bn` writers,
+   `BuildPackageDescriptor`, and VM ingestion (`extern_register.bn` /
+   `vtable_inject.bn`). This is not optional plumbing; without it the VM cannot
+   resolve an assertion-site `&bn_TypeInfo.<T>` / `&IfaceId(J)` to the same token
+   the injected `sat_table` holds.
+2. **VM-lowered impls store func *indices*, not addresses.** `fillVtableLayout`
+   writes 1-based VM func indices into `IfaceVtable.Methods[]`; the VM has **no**
+   mechanism today to materialize a static `TypeInfo` *record* into a stable
+   address, and **no `BC_ADDR`-of-rodata path** for the assertion site to take
+   `&bn_TypeInfo.<T>`. So "mirror `fillVtableLayout`" is not directly applicable —
+   `fillVtableLayout` allocates no record objects.
+
+**The spec (§7.13.14) actually permits the cleaner model the first draft
+avoided:** "each engine may use its **own** native `TypeInfo` for a type and
+compare by pointer-equality *within* its mode ... it is the boolean *result* that
+must coincide, not a shared address." So the VM does **not** need the native
+address — it needs *its own* per-type identity object plus a satisfaction lookup
+that agree on the *result*. Concretely, the VM path is:
+- At load/intern, build a VM-side per-type identity handle (an interned object,
+  keyed by the type's `QualifiedTypeName()` — the VM already interns strings and
+  builds per-impl `IfaceVtable`s in `lowerImplVtables`) and a VM-side satisfaction
+  map (interface-identity → sub-vtable) derived from the **same** `m.Impls`
+  grouping used natively (§0.8). The vtable any-block slot 1 (VM `IfaceVtable`)
+  holds this handle.
+- The assertion's concrete compare and `SatLookup` run against these VM handles;
+  pointer-eq *within the VM* yields the same boolean as the native compare does
+  natively. Cross-mode agreement is on the **result**, per spec — no shared
+  address needed, so the injection channel (fact 1) is needed **only** for values
+  that cross the boundary as native-injected vtables (native code handing an iface
+  value to the VM), where the VM must map the native TypeInfo address back to its
+  own handle. Design that boundary mapping explicitly.
+
+**This elevates the cross-mode work from "open decision #5" to a first-class
+Phase-2 deliverable with its own subtasks** (reflect-descriptor extension; VM
+per-type identity + satisfaction map; the native↔VM boundary mapping). It is the
+single largest correction from the adversarial review. Do **not** treat the VM
+side as "injection suffices" — it does not for bytecode mode.
 
 **Verification for Phase 2:**
 - Self-compile chain green (`builder-comp`, `-int`, `-comp`): the records are
@@ -378,15 +478,34 @@ by parser unit tests.
   field-usage header comment.
 
 **Step 3b — expression postfix `.(`** (`pkg/binate/parser/parse_expr.bn`
-`continuePostfix`): in the `token.DOT` arm, after `p.next()` past `.`, peek for
-`token.LPAREN`. If found: consume `(`; if the next token is `token.TYPE` this is
-a **type-switch head** appearing in expression position — but a bare `x.(type)`
-outside a switch is illegal, so parse it into a marker the switch-parser
-recognizes and reject it elsewhere (see 3c); otherwise parse a type via
-`parseType` (`parse_type.bn`), consume `)`, and build `EXPR_TYPE_ASSERT`. The
-existing selector path (ident after `.`) is the else branch — unchanged.
+`continuePostfix`): **⚠ Review-corrected — the DOT arm must be *restructured*, not
+merely "add an arm."** The current arm (parse_expr.bn ~L246) *unconditionally*
+reads `nameTok := p.tok` and advances to build an `EXPR_SELECTOR`; for `.(` that
+would wrongly produce a selector with `Name = "("`. Rewrite the arm to **branch on
+`token.LPAREN` before consuming a name token**: if `.` is followed by `(`, consume
+`(` and parse an assert/type-switch-head; else fall through to the existing
+selector path. When it is `(`: if the next token is `token.TYPE`, this is a
+**type-switch head** in expression position — parse it into a marker the
+switch-parser recognizes and reject a bare `x.(type)` outside a switch (see 3c);
+otherwise parse an **AssertTarget** (step 3d — *not* `parseType`), consume `)`,
+build `EXPR_TYPE_ASSERT`.
 - Lexer: **no change** — `.(` is `DOT`+`LPAREN`, `type` is `token.TYPE` already
-  (§ recon). Two-token lookahead exists (`peekTok`, `peekTok2`).
+  (§ recon; confirmed `token.TYPE` reserved). Two-token lookahead exists
+  (`peekTok`, `peekTok2`).
+
+**Step 3d — a dedicated `AssertTarget` parser (NEW — do NOT reuse `parseType`).**
+**⚠ Review-flagged (MINOR):** `parseType` treats a leading `*`/`@` as a
+pointer/slice **type constructor**, but per the grammar (`binate.ebnf`) the
+leading `*`/`@` in an `AssertTarget` is **always the recovery kind**, never a
+constructor. `parseType` on `*T` yields `TEXPR_POINTER(T)` (wrong AST shape) and
+would *accept* `x.(*[]T)`, `x.(**T)`, etc. — which must be non-nameable-target
+**compile errors**. Write a small `parseAssertTarget`: optional single `*`|`@`
+(record as the recovery kind), optional `readonly`, then a **`TypeName`** only
+(`parseNamedType` / a bare interface name), rejecting further `*`/`[]`/`func`/
+composite constructors at parse time. Store `{kind, readonly, TypeName}` in the
+node (extend `TypeExpr` or add a small AssertTarget carrier). This is the clean
+place to enforce "nameable target" syntactically; the checker (§4a) then only has
+to resolve the `TypeName` and apply the kind-legality table.
 
 **Step 3c — type-switch statement** (`pkg/binate/parser/parse_stmt.bn`
 `parseSwitchStmt` + `parseCaseClause`):
@@ -398,8 +517,14 @@ existing selector path (ident after `.`) is the else branch — unchanged.
   (`STMT_TYPE_SWITCH`). Handle the optional `v :=` binder (the current switch has
   no init/binder head — add a minimal `ident :=` parse before the scrutinee).
 - `parseCaseClause`: for a type switch, parse `case AssertTargetList:` where each
-  target is a type (`parseType`), not an expression. Reuse `startsType`
-  (`parse_type.bn`) to know a case begins a type. `default:` unchanged.
+  target is an **AssertTarget** (step 3d), not an expression and not a general
+  `parseType`. `default:` unchanged. **⚠ Review-corrected:** `startsType` does
+  **not** exist in `parse_type.bn` (grep-confirmed) — there is nothing to reuse to
+  detect "a case begins a type." Since a type-switch case is *known* to be in type
+  position from the `x.(type)` head, `parseCaseClause` doesn't need a
+  begins-a-type predicate at all — it dispatches on the already-decided
+  type-switch shape and calls `parseAssertTarget` directly. (If a shared predicate
+  is later wanted, write it; do not cite a nonexistent one.)
 
 **Verification for Phase 3:**
 - Parser unit tests (`pkg/binate/parser`): round-trip `x.(*T)`, `x.(@T)`, `x.(T)`,
@@ -425,23 +550,39 @@ dispatch, add an `EXPR_TYPE_ASSERT` arm):
   `TYP_INTERFACE`; reject slice/func/array/struct-literal/`Self`/type-param-less
   targets → `errAssertNonNameable`. (For a `TYP_TYPE_PARAM` target inside a
   generic, defer resolution to monomorphization — see 4d.)
-- Enforce the **recovery-kind table** (§11.12): parse the `K` from the TypeExpr
-  wrappers (`@` → managed recovery, `*` → raw borrow, none → value). Reject
+- Enforce the **recovery-kind table** (§11.12): read `K` from the AssertTarget
+  node (step 3d gives it directly — `@` managed / `*` borrow / none value). Reject
   `@T` recovery from a `*I` source → `errAssertManagedFromRaw`. Element-level
-  `readonly` may be added, not dropped (reuse the readonly-lattice check).
+  `readonly` may be added, not dropped. **⚠ Review note:** there is **no single
+  named readonly-lattice helper** to "reuse" — readonly compatibility is embedded
+  in `AssignableTo`. The add-not-drop enforcement for element `readonly` needs its
+  own small check (compare the target's element-readonly against the boxed type's;
+  reject a drop), not a drop-in call.
 - Result type: **single-expression form** → the recovered type (`@T`/`*T`/`T` or
-  `@J`/`*J`). **Comma-ok form** → a two-result tuple `Type` (`Results =
-  [recovered, bool]`) so the existing `hasExpandableResults` path binds it.
+  `@J`/`*J`). **Comma-ok form** → see 4b (this needs a NEW mechanism, not a reuse).
 
-**Step 4b — comma-ok wiring** (`pkg/binate/types/check_stmt.bn`
-`checkShortVarDecl` / `checkAssignStmt`): the two-result tuple from 4a flows
-through the **existing** `hasExpandableResults` + `Results` mechanism — the same
-path a two-result call uses (there is no separate map-comma-ok path to mimic;
-this IS the path). Confirm `v, ok := x.(*T)` binds `v: *T`, `ok: bool`. The
-**expression** form used where one value is expected must be *rejected* in
-comma-ok position and vice-versa per the usual arity rules — verify the arity
-checks fire correctly (single-value context gets the recovered type; the panic is
-a runtime concern, invisible to the checker).
+**Step 4b — comma-ok wiring. ⚠ SUBSTANTIALLY REVISED per review (MAJOR): this is
+NOT a zero-cost reuse — new mechanism is required at BOTH the checker and IR-gen
+layers.** The first draft claimed `v, ok := x.(K T)` "flows through the existing
+`hasExpandableResults`/`Results` path with no separate mechanism; this IS the
+path." That is **false on inspection**:
+- **Checker:** `hasExpandableResults` (check_stmt.bn) returns true **only** for
+  `TYP_FUNC || TYP_FUNC_VALUE || TYP_MANAGED_FUNC_VALUE`, and `checkCallExpr`
+  feeds it the whole `fnType`. A synthesized 2-tuple `Type` from an
+  `EXPR_TYPE_ASSERT` is none of those kinds, so the destructure branch is never
+  entered. **You must extend the multi-value-RHS path** to recognize an
+  `EXPR_TYPE_ASSERT` RHS (either add a kind it accepts, or special-case the assert
+  node in `checkShortVarDecl`/`checkAssignStmt` to bind `v := recovered`,
+  `ok := bool`). This is new checker wiring.
+- **IR-gen:** `genMultiAssign` (`gen_assign_multi.bn`) evaluates the single RHS
+  and expects an `OP_CALL`-shaped **packed multi-return struct** to `extractvalue`
+  fields from. An assert-expr produces neither a call nor that struct shape. **You
+  must either** make the comma-ok assert lowering *produce* a `{recovered, bool}`
+  packed value the extractor consumes, **or** add a dedicated assert-expr branch in
+  the multi-assign lowering. This is new IR-gen wiring.
+Net: budget comma-ok as **real work at two layers**, not a free ride on the
+call-tuple path. (The single-expression form is comparatively simple — one value,
+runtime panic on miss.)
 
 **Step 4c — type-switch typing** (`pkg/binate/types/check_stmt.bn`, new
 `checkTypeSwitchStmt` modeled on `checkSwitchStmt`):
@@ -466,13 +607,22 @@ Confirm the substituted target flows into IR-gen with the concrete type.
   comma-ok binds two; type-switch per-case binder narrowing). Negative typings:
   non-interface operand; non-nameable target; `@T` from `*I`; dropping element
   readonly; `@T` case in a `*I` switch.
-- Self-compile still green (no lowering yet, so IR-gen must treat the new nodes
-  as not-yet-reachable — ensure a clear "unimplemented" path or that Phase 4 test
-  programs don't reach IR-gen until Phase 5. Alternatively land Phases 4+5
-  together if the checker cannot be exercised without lowering. **Decision to
-  flag:** whether Phase 4 is separately landable depends on whether checker tests
-  can run without IR-gen — likely yes via `pkg/binate/types` unit tests that stop
-  before lowering. If not, merge 4+5.)
+- **⚠ Review-flagged (MAJOR): Phase 4 standalone lands a SILENT miscompile unless
+  an explicit unimplemented-guard is added.** Landing the checker makes `bnc`
+  *accept* assertions program-wide. Any full-pipeline test then reaches IR-gen,
+  where the fallbacks are **silent**: `genExprInner`'s unhandled-kind path returns
+  `b.EmitConstInt(0, TypInt())` (a silent `const 0`), and `genStmt`'s fallback
+  returns `b` unchanged (silently **dropping** a `STMT_TYPE_SWITCH`). No panic, no
+  diagnostic — and self-compile stays green because `bnc`'s own source uses no
+  assertions, so nothing catches it. This is exactly the silent-wrong-code class
+  the project rules forbid. **Mandatory:** if Phase 4 is landed before Phase 5,
+  add an explicit `panic("type assertion: IR-gen not yet implemented")` (or a hard
+  compile error) in the `EXPR_TYPE_ASSERT` / `STMT_TYPE_SWITCH` arms of
+  `genExprInner`/`genStmt`. **Recommendation given this hazard: merge Phases 4 and
+  5** so an accepted assertion always has real lowering — the standalone-checker
+  win is not worth a silent-miscompile window. (Checker *unit* tests in
+  `pkg/binate/types` can still run without IR-gen; that's not the risk — the risk
+  is any conformance/full-pipeline program that reaches IR-gen.)
 
 ---
 
@@ -493,11 +643,24 @@ and (expression form) panics on a miss.
   untouched (no new op to lower four times).
 - **Option B (new op):** an `OP_TYPE_ASSERT` that each backend lowers. More work
   (4 backends + VM), justified only if inline IR can't express the branch cleanly.
-- **Recommendation: Option A.** The assertion is a branch + a compare + a call +
-  a refcount op — all existing IR. Only the **satisfaction scan** wants a helper,
-  and a pure-Binate `rt.SatLookup` (like `rt.BoundsCheck`) works uniformly across
-  native and VM with **no** backend op. This mirrors how divide/shift checks
-  already lower to `rt.*` calls.
+- **Recommendation: Option A for the CONCRETE case; a NEW IR construct is
+  unavoidable for the INTERFACE case.** ⚠ Review-corrected — Option A's "no new
+  op, backends untouched" claim is **wrong for interface targets**. A concrete
+  assertion is indeed a branch + a pointer compare + refcount — all existing IR,
+  no helper even needed (the compare is against the static `&bn_TypeInfo.<T>`).
+  But an **interface** assertion `x.(*J)` must construct `{data, vtable(T,J)}`
+  where the vtable is the **runtime** result of `rt.SatLookup` — and the only
+  iface-value constructor, `EmitIfaceValue`/`OP_IFACE_VALUE`, takes a **static
+  mangled vtable symbol name** (chosen at type-check time; codegen emits
+  `bitcast [N x i8*]* @<name> to i8*` from that literal). There is **no existing
+  way** to build an iface value whose vtable operand is a runtime `*void`. So the
+  interface half needs a **new IR construct** — either extend `OP_IFACE_VALUE` to
+  accept a dynamic (register) vtable operand, or add an `insertvalue`-style
+  primitive that assembles a 2-word iface value from a runtime `data` + runtime
+  `vtable`. Budget this explicitly. The **satisfaction scan** itself can still be a
+  pure-Binate `rt.SatLookup` helper (like `rt.BoundsCheck`, uniform across native
+  and VM); it's the *assembly of the result iface value* from the scan's runtime
+  output that needs the new construct.
 
 **Step 5b — the failed-assertion panic** (`impls/core/common/pkg/builtins/rt/rt.bn`
 + `rt_baremetal.bn`): add `rt.AssertFail(dyn *[]readonly char, target *[]readonly
@@ -553,6 +716,17 @@ the identical test under `-comp` and `-int` and diff output.
 - Bind-scope refcount: a `@` binder retained at case entry must be released at
   case exit (reuse block-scope cleanup). This is the subtlest leak risk in the
   whole feature — add a refcount conformance test with a `@`-binding switch.
+  **⚠ Review — the load-bearing detail the first draft hand-waved:** the existing
+  cleanup (`emitDecForScopeVars`) keys purely on slot *type* and DecRefs managed
+  slots at scope exit, and break/return unwinds are covered by `BreakVarLen` (set
+  at switch entry). But it only fires **if the binder is registered into
+  `ctx.Vars` as a properly-typed managed slot at case entry** — a `@T` binder
+  pushed as a managed slot is auto-RefDec'd; a `*T` borrow-binder pushed as a raw
+  slot is correctly skipped. So the concrete requirement is: **push the per-case
+  binder `v` into `ctx.Vars` with its recovered type/kind at case-scope entry.**
+  Get that right and the existing machinery (including the early-return/`break`
+  unwind path) handles release; miss it and it's the double-free / leak R5 warns
+  of. State this in the impl, don't just say "reuse block-scope cleanup."
 
 **Verification:** type-switch conformance (single/multi/default/binder/unset →
 default/typed-nil matches type/generic targets/`any`), all modes.
@@ -611,25 +785,33 @@ Runtime (expression-form abort):
 | R1 | Any-block growth re-bases method slots → **silent misdispatch** if any of the 4 emitters, 2 producers, size formula, or VM guard is missed | Phase 1 is one atomic commit touching all 8 sites (§0.1–0.4); smoke every backend package + all conformance modes; keep the null-slot phase provably inert before any reader exists |
 | R2 | Satisfaction table not the transitive closure → `x.(*Parent)` wrongly fails | Reuse `collectImplsFromDecl`'s already-flattened `(T, ancestor)` entries (§0.8); test #3 exercises exactly this |
 | R3 | Nested sub-vtable carries parent's TypeInfo instead of leaf's → downcast-after-upcast recovers wrong type | Emitters use the **top-level receiver's** TypeInfo at every nesting level (§2e); test: box, upcast to Parent, assert back to concrete |
-| R4 | Cross-mode identity divergence | VM injects native TypeInfo/IfaceId addresses (§2f) → same addresses, pointer-eq agrees; test #11 diffs `-comp` vs `-int` |
-| R5 | Recovery refcount bug (leak on hit, dangling on miss, double-free in switch binder) | Explicit refcount tests #10; `@`=RefInc / `*`=borrow / value=acquiring-copy discipline (§5d, §6); the compiler must never leak (project rule) |
-| R6 | Duplicate `TypeInfo`/`IfaceId` symbols for generic instantiations across modules → link error | Weak linkage (`DG_WEAK`), same coalescing `@__ivt`/dtors use (§0.7); link-smoke in Phase 2 |
+| R4 | **Cross-mode identity — the biggest hole (review MAJOR).** Address-sharing works only for native-injected vtables; VM-lowered types (the default in `builder-comp-int`) have no TypeInfo materialization | Use the spec-sanctioned **own-native-TypeInfo-per-mode** model (§2f revised): VM builds per-type identity handles + a satisfaction map from the same `m.Impls` grouping; agreement is on the *result*, not the address. Test #11 diffs `-comp` vs `-int` |
+| R5 | Recovery refcount bug (leak on hit, dangling on miss, double-free in switch binder) | Explicit refcount tests #10; `@`=RefInc / `*`=borrow / value=acquiring-copy discipline (§5d, §6); **push the per-case binder into `ctx.Vars` as a typed managed slot** (§6 revised); the compiler must never leak (project rule) |
+| R6 | Duplicate `TypeInfo`/`IfaceId` symbols for generic instantiations across modules → link error | Weak linkage (`DG_WEAK`), same coalescing `@__ivt`/dtors use (§0.7); link-smoke in Phase 2. Note: `identity` self-ref is unprecedented — prefer using the record's own address as identity (§1 revised) |
 | R7 | BUILDER breakage | No new language feature enters cmd/bnc's tree (§0.9); layout edits are `1→2`/`+1→+2`; run full self-compile chain; grep cmd/bnc tree for `.(` (none) |
 | R8 | `*any` upcast (offset-0 reuse) breaks when any-block grows to 2 words | Dtor stays at 0; the upcast points at block start and now spans both words legitimately (§0.5); test any-boxing + dispatch |
+| R9 | **No injection channel for TypeInfo/IfaceId (review MAJOR).** `registerVtableAddr` is fed only from the reflect descriptor's `Vtables` table | **Extend the reflect package descriptor** with TypeInfo/IfaceId tables (`reflect.bni`, all four `*_pkg_descriptor.bn`, `BuildPackageDescriptor`, VM ingestion) — a first-class Phase-2 work item (§1.1, §2f), previously unlisted |
+| R10 | **Comma-ok / interface-value-assembly presented as free reuse but aren't (review MAJOR).** `hasExpandableResults` rejects assert-exprs; `OP_IFACE_VALUE` takes a static vtable symbol | New wiring at checker + `genMultiAssign` for comma-ok (§4b revised); a new IR construct to assemble `{data, runtime-vtable}` for interface targets (§5a revised) — budget both |
+| R11 | **Phase 4 standalone = silent miscompile.** genExpr/genStmt fallbacks silently emit `const 0` / drop the switch | Merge Phases 4+5, or add an explicit unimplemented-panic guard in the new IR-gen arms (§4 verification revised) |
 
 ## 4. Open decisions to raise with the user before/while implementing
 
+*(Several first-draft "open decisions" were resolved to hard findings by the
+2026-07-03 adversarial review — see §6. These remain genuinely open:)*
+
 1. **`IfaceId` token** (§1.1): dedicated per-interface identity symbol vs. name-string
-   comparison. Recommend the symbol.
-2. **TypeInfo builder location** (§2a): layout helpers in `pkg/types`, `DataGlobal`
+   comparison. Recommend the symbol. (Confirmed: no existing per-interface artifact.)
+2. **`identity` field** (§1): self-referential symref (unprecedented in-tree) vs.
+   using the `TypeInfo` record's **own address** as identity (no interior field).
+   Recommend the latter.
+3. **TypeInfo builder location** (§2a): layout helpers in `pkg/types`, `DataGlobal`
    builder in `pkg/ir` — mild stretch of "define in pkg/types." Recommend the split.
-3. **Assertion lowering shape** (§5a): inline-IR-from-primitives + `rt.SatLookup`
-   helper (Option A) vs. a new `OP_TYPE_ASSERT` (Option B). Recommend A.
-4. **Phase 4 vs 4+5 landability** (§4 verification): can the checker be exercised
-   and landed green without lowering? If not, merge Phases 4 and 5.
-5. **Pure-VM types without a native TypeInfo** (§2f): does the current build
-   topology ever VM-lower an impl with no native counterpart? If not, native
-   emission + injection suffices now and VM-native TypeInfo is a flagged follow-up.
+4. **Interface-target IR construct** (§5a): extend `OP_IFACE_VALUE` to accept a
+   dynamic vtable operand vs. a new `insertvalue`-style iface-assembly primitive.
+5. **Phase 4+5 merge** (§4): recommend merging to avoid the silent-miscompile
+   window (R11); confirm.
+6. **Reflect-descriptor extension scope** (R9): confirm extending the reflect
+   descriptor now (needed for VM cross-boundary TypeInfo mapping) vs. staging it.
 
 ## 5. Landing cadence
 
@@ -639,3 +821,74 @@ green (e.g. Phase 5: rt helper + IR-gen can be one commit; the checker error
 messages another). Follow the standard landing procedure (rebase → re-run hygiene
 → smoke every changed package → base-check → cherry-pick → push from local main →
 resync), with per-round explicit approval for each cherry-pick.
+
+**Revised effort shape after review:** the first draft's cost curve was too flat.
+The real weight is (1) Phase 1's atomic ABI shift + its ~10-file test-goldens
+sweep, (2) the **cross-mode/VM** TypeInfo story incl. reflect-descriptor extension
+(R4/R9 — was under-flagged as an "open question"), and (3) comma-ok + interface-
+value-assembly wiring (R10 — was miscalled "free reuse"). Budget accordingly.
+
+---
+
+## 6. Adversarial review findings ledger (2026-07-03)
+
+Consolidated audit trail. Severity is the reviewers'; "disposition" is how the
+plan now handles it. All three reviewers grounded findings in file:line evidence.
+
+**Survived scrutiny (verified, no defect) — the plan's load-bearing claims held:**
+- Phase-1 site inventory (§0.1–0.4) is **complete** — a repo-wide grep found no
+  hidden 5th vtable emitter and confirmed all dispatch readers consume
+  `instr.Index`/`IfaceUpcastSlotOffset` **raw** (only the 2 producers + VM emitter
+  carry the `+1`). The "silent misdispatch via a missed site" crown-jewel does
+  not exist.
+- Transitive-closure reuse (§0.8/R2): `collectImplsFromDecl` **does** register
+  `(T, ancestor)` for every transitive ancestor; grouping `m.Impls` by receiver
+  yields the full satisfaction set. `x.(*Parent)` will work.
+- Leaf-TypeInfo propagation (§2e/R3): all four emitters thread the **top-level
+  receiver** through parent recursion — a receiver-keyed TypeInfo slot is
+  correctly the leaf at every nesting level.
+- Weak coalescing + mangling determinism (R6): impl vtables/dtors/func-value
+  handles are all `DG_WEAK` / `N_WEAK_DEF`; `instantiationMangledName`/`StructName`
+  are pure deterministic string builders → stable across TUs.
+- `*any` upcast survives the 2-word any-block (§0.5/R8); dtor stays at offset 0.
+- Panic diagnostic text + `rt.AssertFail` signature match §17.5.
+
+**MAJOR — folded in:**
+1. **Cross-mode/VM TypeInfo (R4, §2f):** address-sharing covers only native-
+   injected vtables; VM-lowered types (default in bytecode mode) have no TypeInfo
+   materialization and no assertion-site symref resolution. → Rewrote §2f to the
+   spec-sanctioned own-native-TypeInfo-per-mode model (agreement on the *result*).
+2. **No injection channel (R9, §1.1/§2f):** `registerVtableAddr` is fed only from
+   the reflect descriptor's `Vtables` table. → New first-class work item: extend
+   the reflect descriptor with TypeInfo/IfaceId tables across all four writers +
+   VM ingestion.
+3. **Comma-ok is not free reuse (R10, §4b):** `hasExpandableResults` accepts only
+   func kinds, and `genMultiAssign` expects an `OP_CALL`-shaped packed struct. →
+   Rewrote §4b: new wiring required at both checker and IR-gen.
+4. **Interface-value assembly needs a new IR construct (R10, §5a):**
+   `OP_IFACE_VALUE` takes a *static* vtable symbol; an interface assertion's vtable
+   is a *runtime* `SatLookup` result. → Rewrote §5a: Option A holds for concrete
+   targets only; interface targets need a dynamic-vtable iface-assembly construct.
+5. **Phase 4 standalone = silent miscompile (R11, §4):** genExpr/genStmt fallbacks
+   silently emit `const 0` / drop the switch. → Recommend merging Phases 4+5, or a
+   mandatory unimplemented-panic guard.
+
+**MINOR — folded in:**
+- `identity` self-pointer has no in-tree precedent (§1) → prefer the record's own
+  address as identity.
+- `parseType` conflates the recovery-kind prefix with pointer/slice constructors
+  (§3d) → dedicated `parseAssertTarget`.
+- `startsType` cited for reuse **does not exist** (§3c) → removed the citation.
+- `continuePostfix` DOT arm needs restructuring, not just "add an arm" (§3b).
+- "reuse the readonly-lattice check" overstates reuse (§4a) → it's embedded in
+  `AssignableTo`; write the add-not-drop check explicitly.
+- Phase-1 test-goldens sweep must be grep-enumerated (~10 files), not "any test"
+  (§Phase 1 verification) — the one place under-scoping would land "done-but-red."
+- Step 9 (`gen_iface.bn` any-vtable) is **comment-only**, not a `[1 x i8*]`
+  literal edit (auto-tracks via `IfaceFullVtableSize`).
+- `@`-binder release requires pushing the binder into `ctx.Vars` as a typed
+  managed slot (§6) — the load-bearing detail behind "reuse block-scope cleanup."
+
+**NIT / noted:** `<unset>` for the `<dyn>` panic field is implementation-defined
+(acceptable); the `any`-only-boxing enumeration works on the native path but needs
+the "emit from every module naming `(T,*)`" rule + VM-ordering parity (§2c).
