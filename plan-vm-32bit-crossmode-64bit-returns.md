@@ -1,8 +1,30 @@
 # Plan: 32-bit VM host — cross-mode 64-bit SCALAR returns (both directions)
 
-Status: DESIGN v2 (rewritten around Fix Q after `0479813a`; second adversarial
-review pending). Supersedes the v1 retbuf-read-back design, whose premise
-(`int64` rides the retbuf shim) `0479813a` removed.
+Status: **Commit A (forward) IMPLEMENTED + VALIDATED** on worktree work-2
+(`58972f50`) — arm32-VM repro fixed, LP64 unit tests green, conformance
+`stdlib/math/003` passes LP64 + arm32-VM, hygiene clean. **Commit B (reverse) IN
+PROGRESS** — approach revised from the `vm.ReturnHi` side-field to widening
+`execFunc`/`execLoop` to `int64` (see revision note below). Fix Q, after the
+second adversarial review (corrections folded in). Supersedes the v1
+retbuf-read-back design, whose premise (`int64` rides the retbuf shim)
+`0479813a` removed.
+
+**Commit B approach REVISED (2026-07-03).** The `vm.ReturnHi` side-field only
+covers the native→VM-func-value (trampoline) reverse path. But existing unit
+tests (`TestExternFloatBitsViaRegistry` / `TestExternFloatReturnViaRegistry`)
+and the `CallFunc` host API observe a 64-bit result DIRECTLY through `execFunc`,
+which returns `int` and truncates the high word at `execLoop`'s top-level
+BC_RETURN64 return (`vm_exec.bn:136`) — so those tests are already RED on arm32
+(pre-existing, part of the `red-mode-first` arm32 push). Both reverse sub-cases
+are fixed by **widening `execFunc`/`execLoop` to return `int64`** (top-level
+BC_RETURN64 → `joinInt64(retVal, retHi)`; one-word → `cast(int64, retVal)`),
+narrowing the ~16 callers (mostly test call sites: `var result int =
+execFunc(...)` → `int64` + a `cast(int, ...)` where a one-word value is wanted),
+and adding `TrampolineScalar64` (returns `execFunc`'s `int64`) selected by
+`ensureHandle` via a `VMFunc.ResultReg64Scalar` bit. `execFunc`'s value-based
+copy-back range check (`vm_exec_helpers.bn:30-41`) needs `int64`-ified operands
+(a genuine 64-bit scalar value exceeds any 32-bit stack address, so it does not
+spuriously match). This makes the arm32-red direct-`execFunc` tests green too.
 
 Sibling of `plan-vm-32bit-crossmode-64bit-args.md` (the ARG side, landed as
 `a5511a8d` + `83819d60`). Parent: `plan-vm-64bit-on-32bit.md`.
