@@ -334,7 +334,21 @@ Stage-1 LLVM. Run `builder-comp_native_aa64-comp_native_aa64` + `builder-comp`.
 Verify (flip on): HFA through func-value (clone 340), closure, interface (clone 358),
 and a VM mode — native == LLVM, single-program AND cross-module.
 
-**Stage 3 — flip the aa64 switch + comprehensive tests:**
+**Stage 3 — flip the aa64 switch + comprehensive tests — ✅ DONE (`48e3787b`).**
+As landed: the gate is `HfaInSimd()` (`Arch==AA64`), not a hardcoded flag.
+Coverage added: `968_cross_pkg_hfa` (cross-module arg+return), `969_hfa_dispatch`
+(func-value/closure/interface, register path), `970_hfa_dispatch_wide` (spill
+shim), `TestHfaSimdGatedByArch` (arch gate), all green in builder-comp / native
+aa64 / VM; full conformance clean in both backends; negative controls confirmed.
+Additionally `e2e/xmhfa.sh` (`1440a3fe`) covers the **VM↔compiled** cross-mode HFA
+boundary (arg by-address slot + aggregate-return retbuf) that the conformance
+suite structurally can't reach — mutation-tested + adversarially reviewed REAL.
+The `TestHfaCalleeFromC` clang↔native unit test below was **deliberately skipped**:
+native↔clang (C ABI) is not the toolchain correctness bar (native↔LLVM is, which
+968 tests directly), the `canLinkAndRun` harness is macOS-only (silent-skips on
+Linux CI), and hand-built-IR C-driver tests are brittle. Add it only if C-interop
+(syscall escape hatch) confidence is separately wanted; if so, make it
+Linux-runnable, not `otool`-gated. Original plan follows.
 - `AAPCS64_Darwin(): cc.HfaAggregates = true` (the Arch-gated classifier keeps x64
   GP-consistent, so the shared flag is safe).
 - Tests (single-program tests provably can't catch the real bugs — all cross-module
