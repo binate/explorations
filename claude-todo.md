@@ -93,45 +93,6 @@ regression — re-run the single test in isolation to confirm.
 
 ---
 
-## Native arm32 backend (AAPCS32 / ILP32) build-out
-
-### `Self`-parameter method is uncallable through a generic constraint (Self binds to the type param, not its base) — 🟠 OPEN (2026-07-03)
-
-**Severity: minor (obscure `Self` corner; the fix is a semantics decision, not a
-clear defect).** A `Self`-parameter interface method — `eq(other Self)`,
-`grab(rest *[]Self)`, or a variadic `merge(others ...Self)` — is satisfiable and
-directly callable, but **cannot be called THROUGH a generic constraint** when the
-type param is a pointer, because the two `Self` resolutions disagree:
-
-- **Impl-satisfaction** (`methodSigSatisfies`, `check_impl.bn`): `Self` → the impl's
-  **base named type** (`named = recv.ReceiverBaseNamed()`, e.g. `Bag`). Correct, and
-  matches §11 — `010`'s `eq(other Self)` is satisfied by `eq(other Square)` (a value).
-- **Constraint-call binding** (`tryTypeParamMethodCall`, `check_method.bn`):
-  `substituteSelf(param, recvType)` uses `recvType` = the **type param** (`T` = `*Bag`).
-
-So inside `func f[T Eq](a T, b Bag) { a.eq(b) }`, `eq` expects `*Bag` (Self→T) while
-the impl takes `Bag` (Self→base) → "cannot assign Bag to T". **General** — not
-composite- or variadic-specific (the plain `eq(other Self)` reproduces it).
-
-- **Consequence:** a `Self`-parameter method can't be invoked via a constraint with
-  a pointer type param — and a constraint is the ONLY path that reaches such methods
-  (they're object-unsafe through an interface value). So the variadics Phase 6c
-  `substituteSelf`-recursion in `tryTypeParamMethodCall` (correct code) has no
-  end-to-end test.
-- **Repro:** `interface Eq { eq(other Self) bool }` + `impl *Bag` /
-  `func (b *Bag) eq(other Bag) bool` + `func areEq[T Eq](a T, b Bag) bool { return
-  a.eq(b) }`.
-- **NOT a bug in impl-satisfaction** — that works; `*[]Self` is satisfiable and
-  `conformance/regressions/iface-self-in-composite` is a POSITIVE test. (The earlier
-  "satisfaction fails" framing was a test error: the repro impl used `*[]*Bag` where
-  `Self=Bag` wants `*[]Bag`.)
-- **Fix is a semantics decision** — should the constraint call bind `Self` to
-  `base(T)` (matching impl-satisfaction), or should impl-satisfaction use the
-  receiver form? Deferred pending that decision; **do not fix without one**.
-- **Discovered:** 2026-07-03, adding variadics Phase 6 coverage.
-
----
-
 ## Language features — specified, not yet implemented
 
 ### Type assertions, type switches & RTTI — spec'd 2026-07-02, NOT implemented — 🔴 OPEN
@@ -1060,6 +1021,43 @@ triage.
 - (Full resolved diagnosis of the ifaces/impls hygiene-scan extension archived in claude-todo-done.md.)
 
 ## Type-system & checker semantics
+
+### `Self`-parameter method is uncallable through a generic constraint (Self binds to the type param, not its base) — 🟠 OPEN (2026-07-03)
+
+**Severity: minor (obscure `Self` corner; the fix is a semantics decision, not a
+clear defect).** A `Self`-parameter interface method — `eq(other Self)`,
+`grab(rest *[]Self)`, or a variadic `merge(others ...Self)` — is satisfiable and
+directly callable, but **cannot be called THROUGH a generic constraint** when the
+type param is a pointer, because the two `Self` resolutions disagree:
+
+- **Impl-satisfaction** (`methodSigSatisfies`, `check_impl.bn`): `Self` → the impl's
+  **base named type** (`named = recv.ReceiverBaseNamed()`, e.g. `Bag`). Correct, and
+  matches §11 — `010`'s `eq(other Self)` is satisfied by `eq(other Square)` (a value).
+- **Constraint-call binding** (`tryTypeParamMethodCall`, `check_method.bn`):
+  `substituteSelf(param, recvType)` uses `recvType` = the **type param** (`T` = `*Bag`).
+
+So inside `func f[T Eq](a T, b Bag) { a.eq(b) }`, `eq` expects `*Bag` (Self→T) while
+the impl takes `Bag` (Self→base) → "cannot assign Bag to T". **General** — not
+composite- or variadic-specific (the plain `eq(other Self)` reproduces it).
+
+- **Consequence:** a `Self`-parameter method can't be invoked via a constraint with
+  a pointer type param — and a constraint is the ONLY path that reaches such methods
+  (they're object-unsafe through an interface value). So the variadics Phase 6c
+  `substituteSelf`-recursion in `tryTypeParamMethodCall` (correct code) has no
+  end-to-end test.
+- **Repro:** `interface Eq { eq(other Self) bool }` + `impl *Bag` /
+  `func (b *Bag) eq(other Bag) bool` + `func areEq[T Eq](a T, b Bag) bool { return
+  a.eq(b) }`.
+- **NOT a bug in impl-satisfaction** — that works; `*[]Self` is satisfiable and
+  `conformance/regressions/iface-self-in-composite` is a POSITIVE test. (The earlier
+  "satisfaction fails" framing was a test error: the repro impl used `*[]*Bag` where
+  `Self=Bag` wants `*[]Bag`.)
+- **Fix is a semantics decision** — should the constraint call bind `Self` to
+  `base(T)` (matching impl-satisfaction), or should impl-satisfaction use the
+  receiver form? Deferred pending that decision; **do not fix without one**.
+- **Discovered:** 2026-07-03, adding variadics Phase 6 coverage.
+
+---
 
 ### Cross-package method visibility in `.bni`
 - Methods defined on a public type in package `foo` need to be declared
