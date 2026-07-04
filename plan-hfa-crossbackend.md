@@ -374,6 +374,81 @@ opcodes in `asm/x64/x64_fp.bn` (2×f32 into one XMM eightbyte — `movlps`/`movh
 (`<2 x float>` / `double` / `{double,double}` / split `{double,i64}`). Then extend
 the flag/tests to x64 modes (`builder-comp_native_x64*`).
 
+### Stage 4 groundwork (from the 2026-07-04 x64 survey) — the exact wiring
+
+**Why x64 is NOT a mirror of aa64** (clang x86_64 reference, the ABI to match):
+`sumF2(<2 x float>)`, `sumD2(double,double)` [args SPLIT], `sumFD(float,double)`
+[mixed-width IS sse], `sumF3(<2 x float>,float)`, `sumF4(<2 x float>,<2 x float>)`,
+`sumFI(i64)` [float+int eightbyte → INTEGER], `sumD3(ptr byval)` [>16B → MEMORY].
+Returns are FIRST-CLASS AGGREGATES: `mkD2 → {double,double}`, `mkF2 → <2 x float>`,
+`mkD3 → sret`. So the fold unit is the **eightbyte** (not the member), homogeneity
+is NOT required, args are split / returns are packed (role-divergent), and >16B is
+MEMORY (unlike aa64 which keeps ≤4-member/≤32B HFAs in SIMD). `HfaClassify`/`hfaFold`
+is the wrong classifier (member-fold, rejects mixed width, member-capped); the
+single-form `aggCoerceLLTy` can't express the arg-vs-return asymmetry.
+
+1. **Classifier (new `pkg/types/abi_sysv.bn`, shared, BUILDER-safe flat `@[]int`).**
+   `SysVClassify(t) @[]int` → per-eightbyte class list (`EB_INTEGER`/`EB_SSE`); len 0
+   = MEMORY (>16B). An eightbyte is SSE iff every overlapping field byte is float
+   (merge rule: any int/ptr byte → INTEGER). `SysVInSse(t)` = `Arch==X64 &&
+   AggInRegCoercedKind(t) && classify has ≥1 EB_SSE` — the exact set codegen
+   SSE-coerces and that `NeedsSret`/`IsByvalParam` must exempt (but x64 still sends
+   >16B float aggs to MEMORY, unlike aa64). Unit-test: `{f64,f64}`→[SSE,SSE],
+   `{f32,f32}`→[SSE], `{float,double}`→[SSE,SSE], `{double,i64}`→[SSE,INTEGER],
+   `{i32,f32}`→[INTEGER], `>16B`→[].
+2. **LLVM codegen — a NEW parallel x64 path** (not extending `aggCoerceLLTy`; keep the
+   shared alloca/store/load slot idiom — byte image identical, only the type(s) +
+   arg count change). Three spellings keyed by the class list: RETURN first-class
+   agg (`{double,double}`/`<2 x float>`/`{float,double}`/`{<2 x float>,<2 x float>}`/
+   `{double,i64}`); ARG = N split params of the same eightbyte types; PARAM prologue
+   stores each eightbyte-param to its slot offset. Sites (all currently assume 1
+   type ↔ 1 param): `emit_agg_coerce.bn` (speller ~126, param prologue ~154, return
+   ~248, call preamble/emit ~303, result bind ~362, iface ~417), `emit_util.bn`
+   (`writeParamTypeLLVM` ~190 must emit N types; call-arg emit ~304 → N entries),
+   `emit.bn` (extern declares ~201, `funcRetTypes` ~258), `emit_helpers.bn:emitReturn`
+   ~260. Verify via `.ll`-golden unit tests against clang (forced x64 target).
+3. **asm SSE ops — 2×f32 pack/extract** (`asm/x64/x64_fp.bn` is scalar-only today).
+   Options (USER DECISION): (a) **pure-GP** shift-OR `b<<32|a` → one `Movq_gp_to_xmm`
+   (zero new asm — default, unblocks Stage 4); (b) reg-only `UNPCKLPS` (`0F 14 /r`,
+   fits `emitSSEReg` no-helper) + `MOVHLPS` extract; (c) memory-image `MOVLPS xmm,m64`
+   (needs a new `emitSSEMem` helper). The f64 eightbyte needs NO new asm (existing
+   `MOV mem→RAX; Movq_gp_to_xmm`).
+4. **Native x64** (per class list: EB_SSE→`XMM(nsrn++)`, EB_INTEGER→GP). Sites:
+   `x64_call.bn` (caller arg dispatch ~238 branch before generic agg; SSE arm ~50;
+   return collect ~340), `x64_emit_func.bn` (callee param dispatch ~184; float-scalar
+   cursor ~146), `x64_return.bn` (return dispatch ~51; pack ~298). `nsrn` must advance
+   by the EB_SSE count + variadic-AL accounting (`x64_call.bn:306`). Do NOT conflate
+   with the x87 ST0/ST1 multi-return-TUPLE path (`x64_return.bn:233-282`) — a single
+   ≤16B SSE aggregate uses XMM0/XMM1 only, never x87.
+5. **x64 shims** (x64 has every shim file aa64 has, full float-scalar support, but
+   zero aggregate-SSE): eightbyte-split arm (EB_SSE→XMM via existing bitcast, EB_INT→
+   GP) + an `nUserFpRegs` FP-budget/overflow (x64 lacks it — aa64 added it in Stage
+   2b). Sites: `x64_funcvalue_shim.bn` (~93 arg, ~282 budget, ~330 return),
+   `x64_closure_shim{,_float}.bn`, `x64_funcvalue_spill.bn`, `x64_iface.bn`. Needs its
+   own `x64_sse.bn` marshalling helpers (aarch64_hfa.bn is a structural template only
+   — x64 mixes INTEGER/SSE + packs 2×f32).
+6. **Gate:** do NOT widen `HfaInSimd()` to x64 (it drives the AAPCS64 homogeneous
+   fold). Add a SEPARATE `SysVSseInRegs()` (= `Arch==X64`, initially dormant) +
+   `SysVInSse(t)`. `SysV_AMD64()` ctor sets a NEW CallConv flag (not `HfaAggregates`);
+   the `.bni` (common.bni:105-113) already reserves it. Arch-parameterize
+   `NeedsSret`/`IsByvalParam`/`ReturnsHfaInRegs`.
+7. **Staging** (dormant-landable, mirrors aa64): (1) classifier+tests; (2) LLVM
+   codegen (dormant, .ll-golden tests vs clang); (3) asm ops (additive+encoder tests);
+   (4) native x64 + shims (dormant); (5) cross-module verify — flip a test-only x64
+   target, run `builder-comp_native_x64_darwin-comp_native_x64_darwin` (Rosetta,
+   locally runnable) + clang-interop goldens (objdump XMM0/XMM1 vs RAX/RDX — the REAL
+   gate, since today's GP-coercion is self-consistent but WRONG vs clang); (6) flip.
+   Smoke rule: touches `pkg/types`+`codegen`+`native/common`+`native/x64` — smoke ALL.
+
+**Open design questions (USER):** (Q1) 2×f32 pack: pure-GP (default) / `UNPCKLPS` /
+`MOVLPS`? (Q2) classifier home: separate `abi_sysv.bn` (proposed) vs fold into
+`abi_hfa.bn`? (Q3) CallConv flag: new field (proposed) vs `Arch` branching? (Q4)
+ELF `builder-comp_native_x64` is UNUSABLE locally on Apple Silicon (no qemu / no
+x86_64-linux cross-libc) — rely on darwin/Rosetta locally + ELF in CI, or set up
+qemu? (Q5) confirm no x87 for any ≤16B single-agg SSE return (believed none). (Q6)
+confirm supported field-type set (no `long double`/x87) so the classifier stays a
+simple 2-eightbyte SSE/INTEGER merge.
+
 ## Decisions (settled)
 
 1. **x64 scope: OPTION B — full x64 SSE HFA is IN SCOPE (user, 2026-07-02).** This
