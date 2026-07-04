@@ -548,11 +548,13 @@ while keeping every commit green and close to main.
       parens (`(a == b) != (c == d)` → unparseable `a == b != (c == d)`) — fixed
       critical (`41de2e34`, printBinOperand + flattenChain). Also fixed a spurious
       leading blank line (`8a234760`).
+    - **`-w` is crash-safe** ✅ **LANDED** 2026-07-04 (`f048efdb`): temp file in
+      the same directory + `os.Rename` (the earlier "no os.Rename" note was
+      stale). Verified end-to-end (no temp leftover, re-check clean).
     - **Remaining (user decisions / follow-ups):** applying bnfmt to reformat the
       tree + wiring a `format-check.sh` hygiene rule are user calls (don't wire
-      unasked); `-w` atomicity needs `os.Rename`; grouped-member multi-line
-      trailing comments de-align (known step-11d cosmetic limit — valid +
-      idempotent output).
+      unasked); grouped-member multi-line trailing comments de-align (known
+      step-11d cosmetic limit — valid + idempotent output).
 
 ## 15. Effort (anchored to the work, not calendar)
 
