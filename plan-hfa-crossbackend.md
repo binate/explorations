@@ -11,10 +11,12 @@ Stage-1 classifier-agreement carry-forward). **Stage 2b LANDED** (dormant,
 HFAs — verified flip-on across all dispatch kinds + cross-module (native main ->
 LLVM dep); two independent adversarial reviews (one SOUND, one caught+fixed a
 func-value FP-register-budget defect pre-land). `IsAggregateReturn`/
-`AggregateReturnSize` correctly needed NO change (recon). ONE gap remains, failing
-LOUD (SetError, never silent): the func-value stack-spill shim
-(`aarch64_funcvalue_spill.bn`) — an FP-overflowing / wide-arg HFA func-value. **Next: finish the spill shim, then Stage 3 (flip
-+ comprehensive tests).** Supersedes the *staging* of
+`AggregateReturnSize` correctly needed NO change (recon). **Spill shim LANDED**
+(`833576bd`): the func-value stack-spill shim now marshals FP-overflowing /
+wide-arg HFAs (fail-loud guard removed); two independent adversarial reviews
+SOUND (dormancy proven byte-identical; 12 flip programs + disassembly vs the LLVM
+oracle). **ALL NATIVE HFA MARSHALLING IS COMPLETE.** **Next: Stage 3 (flip
+`HfaInSimd()` -> `Arch==AA64` + comprehensive conformance/unit tests).** Supersedes the *staging* of
 `plan-native-hfa-abi.md` (which is marked NEEDS REPLAN). The native aa64 arg path
 from that effort is in-tree, **dormant** (`cc.HfaAggregates = HfaInSimd()`,
 currently false), and correct — it is reused here.
