@@ -29,14 +29,18 @@ decomposition). ILP32 layout background: [`plan-arm32-bare-metal.md`].
   nativeArch regression fix, P3.2, the int64 follow-ups, the conformance-harness
   `OVERRIDE_MODE` fix, **P3.3 (single-aggregate sret, `d9567498`)**, the
   `common_callconv` constructor split (`1fade373`), **OP_MAKE/OP_BOX (finish
-  P3 emit, `b33eb9d6`)**, the experimental CI wiring (`0727d0c1`), and the
-  **`[N x i64]`→`[N x i32]` ILP32 aggregate-coercion ABI fix (`5b65e369`)**.
-  Current native-arm32-baremetal conformance: **1771 passed / 834 failed / 33
-  skipped** (the coercion fix was +17 — `conformance/967` + 16 pre-existing
-  odd-register-aggregate tests the old `[N x i64]` corrupted; remaining failures
-  are fail-loud deferred shapes or real gaps, incl. the int64-xpkg-return hang
-  and five-u8/877). The docs-only repo-wide `[N x i64]`→`[N x iW]` comment sweep
-  landed as `9239279a`.
+  P3 emit, `b33eb9d6`)**, the experimental CI wiring (`0727d0c1`), the
+  **`[N x i64]`→`[N x i32]` ILP32 aggregate-coercion ABI fix (`5b65e369`)**, the
+  docs-only comment sweep (`9239279a`), and the two runtime-hang fixes —
+  **five-u8 aggregate-param PlanFrame 8-round (`f3a8bc91`)** and the **shared
+  `NeedsSret`/`IsAggregateReturn` 64-bit-scalar kind gate (877, `0479813a`)**.
+  Current native-arm32-baremetal conformance: **1779 passed / 841 failed / 33
+  skipped** (the two hang fixes were +8 and resolved the `877` int64-xpkg-return
+  and `struct-param/five-u8` `[10s]` hangs; the only remaining runtime hang is
+  `599_addr_of_slice_elem`, a separate `&s[i]` bug; other failures are fail-loud
+  deferred P4/P5 shapes). The 877 kind-gate also repairs the shared int64-return
+  classification the concurrent ILP32-VM work references (its deferred VM-return
+  dispatch-patch is likely now moot — see claude-todo.md).
 - **Per-increment workflow that's worked every time:** (1) delegate the
   increment to a background `Agent` working in `temp-binate-5` (no `isolation:
   worktree`), mirroring the `native/aarch64` handler where a template exists and

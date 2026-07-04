@@ -103,7 +103,23 @@ regression — re-run the single test in isolation to confirm.
 
 ## Native arm32 backend (AAPCS32 / ILP32) build-out
 
-### Cross-package call to an LLVM-compiled `int64`-returning function wedges native-arm32 — 🟠 OPEN (needs investigation)
+### Cross-package call to an LLVM-compiled `int64`-returning function wedges native-arm32 — ✅ FIXED & LANDED (`0479813a`, 2026-07-03)
+
+**RESOLUTION (`0479813a`).** Root cause was NOT libgcc linkage (the guess below)
+but the shared `types.NeedsSret` / `IsAggregateReturn` misclassification: on ILP32
+a bare 64-bit scalar (int64, SizeOf 8 > threshold 4) was classified as
+sret/aggregate — no aggregate-KIND gate, unlike the arg-side `IsByvalParam`. So
+codegen emitted the LLVM dep as `define void @f(ptr sret(i64), i32)` (expecting a
+retbuf pointer in r0), while the native caller — correctly classifying int64 by
+KIND as a register pair — passed no pointer and read r0:r1; the callee stored the
+int64 through r0 (a user value) → wild store → wedge. Fixed by gating both
+predicates on `isAggregateReturnKind` (at the root: native 877 + the func-value /
+VM int64-return path). `conformance/877_aggregate_abi_xpkg` now passes;
+native-arm32 conformance +8; LP64 byte-identical. **Coordination:** this is the
+same shared classification the concurrent ILP32-VM 64-bit-return work references —
+the fix makes a bare int64 no longer route through the retbuf/aggregate path, so
+`plan-vm-32bit-crossmode-64bit-args.md`'s deferred "Return side" VM-dispatch patch
+is likely now MOOT (re-check before implementing it).
 
 **Severity: MAJOR (hang / no output).** On
 `builder-comp_native_arm32_baremetal`, a native `main` calling an
@@ -2018,35 +2034,30 @@ backend doesn't implement emits a clean COMPILE_ERROR, never silent wrong-code).
 - **soft-float (P5) / VFP hard-float + arm32-linux (P6) / CI wiring (P7)** — see
   the plan doc.
 
-#### MAJOR — three silent runtime miscompiles on native-arm32-baremetal (found by the P4 reconnaissance, 2026-07-02)
+#### native-arm32-baremetal runtime miscompiles (found by the P4 reconnaissance, 2026-07-02) — TWO FIXED, ONE OPEN
 
-These compile CLEAN through the native arm32 backend and then HANG at runtime
-under QEMU (identifiable in a full run by their `[10s]` timeout vs `[0s]/[1s]` for
-fail-loud). They violate the never-silently-miscompile invariant. Scope is
-**native-arm32-only** (that mode is not in CI), so severity is MAJOR not CRITICAL,
-but they are live red on `main` and were UNTRACKED (no xfail, no todo) until now.
-Per the Bug Discovery Protocol each needs an xfail marker + fix:
+Three tests compiled CLEAN through the native arm32 backend and then HANG at
+runtime under QEMU (the `[10s]` timeout signature vs `[0s]/[1s]` for fail-loud) —
+violations of the never-silently-miscompile invariant, native-arm32-only. Runtime
+diagnosis (2026-07-03) root-caused all three; two are now fixed:
 
-- **`conformance/matrix/abi/struct-param/five-u8`** — a 5-byte (2-word) by-value
-  struct param hangs; the `two-int`/`three-int`/`three-u32`/`int-u8`/`u16-int`
-  siblings pass. **Root cause is the plan's already-documented MAJOR latent-P3
-  gap** (plan-native-arm32.md "NEW, MAJOR (latent, P3)"): codegen coerces a
-  ≤16-byte aggregate param to `[N x i64]` (`aggCoerceLLTy`, hardcoded i64), which
-  clang lowers as 8-aligned i64 register PAIRS, but the native AAPCS32
-  word-packing (`common_callconv.bn` `argRegWordsStackWords`) doesn't reproduce
-  that pair-alignment for a 4-aligned struct starting on an odd register. The plan
-  said to fix this "before P3/P4 passes such args" — the backend now exists and the
-  hang is that validation failing. Fix: target-aware `[N x i32]` coercion OR native
-  i64-pair even-register modeling — a SHARED codegen/callconv change, so re-verify
-  LP64 byte-identity (x64/aa64) + pin against `clang -target arm-none-eabi
-  -mfloat-abi=soft`. The SAME reconciliation gates any func-value shim / iface
-  dispatch / multi-return in-register path that passes or returns an aggregate.
-- **`conformance/599_addr_of_slice_elem`** — `make_slice` + `&s[i]` hangs; the
-  test's comment references a prior shared-IR address-of miscompile fixed for other
-  backends, which arm32 still mishandles (likely a localized `arm32_emit.bn`
-  `emitGetElemPtr` / address-of bug).
-- **`conformance/877_aggregate_abi_xpkg`** — cross-package 64-bit aggregate ABI;
-  prints line 1 then hangs.
+- **`conformance/matrix/abi/struct-param/five-u8`** — ✅ FIXED (`f3a8bc91`). The
+  initial hypothesis (the `[N x i64]` coercion pair-alignment gap) was REFUTED by
+  runtime diagnosis: five-u8 is native-to-native (never crosses the native↔LLVM
+  boundary, so the coercion fix `5b65e369` did NOT fix it). Actual cause:
+  `common.PlanFrame` didn't round the aggregate-PARAMETER frame data region up to
+  8 bytes (unlike its sibling branches), so a 5-byte (2-word) struct param's
+  word-store overran the region AND the non-8 `offset` advance misaligned every
+  later frame slot → unaligned deref → Data Abort → hang. Fixed by rounding to 8.
+- **`conformance/877_aggregate_abi_xpkg`** — ✅ FIXED (`0479813a`). NOT an
+  aggregate-ABI bug: it's the shared `NeedsSret`/`IsAggregateReturn` 64-bit-scalar
+  misclassification (see the "Cross-package … int64-returning … wedges" entry
+  above) — its methods return int64. Fixed by the aggregate-KIND gate.
+- **`conformance/599_addr_of_slice_elem`** — 🟠 OPEN. `make_slice` + `&s[i]`
+  hangs (the one remaining `[10s]` hang); the test's comment references a prior
+  shared-IR address-of miscompile fixed for other backends, which arm32 still
+  mishandles (likely a localized `arm32_emit.bn` `emitGetElemPtr` / address-of
+  bug). Its own future increment.
 
 #### P3 GAP (fail-loud, not silent) — OP_MAKE / OP_BOX unimplemented — ✅ FIXED & LANDED (`b33eb9d6`, 2026-07-02)
 
