@@ -427,7 +427,7 @@ high word (r1) is dropped.
   My prior design doc (retbuf read-back) predated `0479813a` and its retbuf premise
   is now void; the flag-derivation + 4-site structure carries over.
 
-### 🏷[LANE 3] MAJOR: 64-bit scalar RETURNS to a NATIVE caller drop the high word (reverse cross-mode) — ✅ FIXED (worktree `627fee33`, awaiting land)
+### 🏷[LANE 3] MAJOR: 64-bit scalar RETURNS to a NATIVE caller drop the high word (reverse cross-mode) — ✅ FIXED & LANDED (`b648501a`, 2026-07-04)
 
 **Severity: MAJOR.** The mirror of the forward item. A VM-side function value /
 top-level VM func returning a bare `int64`/`uint64`/`float64` to a native caller
@@ -435,7 +435,7 @@ dropped the high word two ways on ILP32: `execFunc`/`execLoop` returned `int`
 (truncating the top-level BC_RETURN64), and `ensureHandle` picked
 `TrampolineScalar` (one word) rather than an i64 trampoline.
 
-**FIX (`627fee33`):** widen `execLoop`/`execFunc` to `int64` (top-level
+**FIX (`b648501a`):** widen `execLoop`/`execFunc` to `int64` (top-level
 BC_RETURN64 joins both slots via `joinInt64`; one-word/aggregate results
 sign-extend; byte-identical on LP64); narrow the callers wanting one word; add
 `TrampolineScalar64` (returns `execFunc`'s int64), selected by `ensureHandle` via

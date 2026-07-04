@@ -1,12 +1,15 @@
 # Plan: 32-bit VM host — cross-mode 64-bit SCALAR returns (both directions)
 
-Status: **Commit A (forward) LANDED on main (`a13c96e3`, 2026-07-04)** —
-arm32-VM repro fixed, LP64 unit tests green, conformance `stdlib/math/003`
-passes LP64 + arm32-VM, hygiene clean, minimal adversarial review of the
-implementation found no bugs (coverage gap closed with func-value/iface/indirect
-lowering tests). **Commit B (reverse) IN PROGRESS** — approach revised from the
-`vm.ReturnHi` side-field to widening `execFunc`/`execLoop` to `int64` (see
-revision note below). Fix Q, after the
+Status: **DONE — both directions LANDED on main (2026-07-04).** Forward =
+`a13c96e3` (`_call_shim_scalar64`); reverse = `b648501a` (widen `execFunc`/
+`execLoop` to `int64` + `TrampolineScalar64`); an arm32-vm-unit-unblock literal
+fix = `ca56bd9e`. Both adversarially reviewed (no code bugs), validated on LP64
+(vm + codegen green) AND arm32 (`builder-comp_arm32_linux vm`: reverse tests + 3
+new R1 tests pass), conformance `stdlib/math/003` green, hygiene clean. Follow-ups
+(pre-existing, tracked in `claude-todo.md`): the `lowerFromSource` nil-checker
+helper bug and 6 pre-existing arm32 vm-unit reds exposed by the compile-unblock.
+
+Historical design record below (Fix Q, after the
 second adversarial review (corrections folded in). Supersedes the v1
 retbuf-read-back design, whose premise (`int64` rides the retbuf shim)
 `0479813a` removed.
