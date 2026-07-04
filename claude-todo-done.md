@@ -8,6 +8,27 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ DONE & LANDED (BUG-BASH LANE 3, 2026-07-02/03) — IR integer constants were host-width `int` (blocked the 32-bit-hosted toolchain); now host-independent across IR/codegen/native + VM (int64 + float64 + int↔float casts) on ILP32
+
+The IR stored program integer constants in `Instr.IntVal` typed host-width `int`;
+on a 32-bit host that neither compiled nor could represent a `uint32`/`int64`
+constant — cascading compile failures from `pkg/ir` through codegen/native/vm/cmd.
+Resolved in layers:
+- **Layer 1 (IR + codegen + native)**: host-independent constant path —
+  `Instr.IntVal int→int64`, `EmitConstInt64`/`buf.WriteInt64`, asm 64-bit immediates,
+  native `emitConstInt64` (+ fixed a latent arm64 `emitConstFloat` high-word drop).
+  Commits `879ba38`, `035022c`, `294b5f0`, `075e1f5`.
+- **Layer 2 (VM machine word)**: register == host word; 64-bit values ride register
+  pairs; pair ops engage only when `REG_SLOT < 8` (no-op on a 64-bit host). Full
+  `BC_*64` handler set for int64 (`f7cae70` … `1fd3b9f`) and float64 (`ba1a798` …
+  `769d2e54`).
+- **int↔float CONVERSION casts (last gap)**: `0a8507a1` (8 pair-variant cast opcodes;
+  `lowerCast` gated on `is64BitScalar && REG_SLOT<8`) + `83819d60` (`BC_MOV64` for a
+  pair→pair 64-bit cast — both slots copied, not just the low word).
+- **arm32 unit-test cleanup** (5 int64-boundary tests) done separately — see the
+  "arm32 unit-test cleanup" done record; zero `builder-comp_arm32_linux` unittest
+  xfails remain.
+
 ## ✅ FIXED & LANDED (main `0479813a`, 2026-07-03) — cross-package call to an LLVM-compiled `int64`-returning function wedged native-arm32
 
 **RESOLUTION (`0479813a`).** Root cause was NOT libgcc linkage (the guess below)

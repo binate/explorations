@@ -11,67 +11,25 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
-### HFA-in-SIMD is a CROSS-BACKEND contract — native-only enablement miscompiles — ✅ RESOLVED for AArch64 (Stages 0-3 landed, `48e3787b`, 2026-07-03)
+### HFA-in-SIMD is a CROSS-BACKEND contract — ✅ RESOLVED for AArch64; Stage 4 (x64) remains — 🟡 OPEN
 
-**RESOLUTION.** Executed the cross-backend replan
-(`explorations/plan-hfa-crossbackend.md`): the HFA classifier + LLVM codegen +
-native aa64 (args/returns) + all dispatch shims (func-value / closure / interface,
-incl. the stack-spill path) + the VM cross-mode boundary were all built DORMANT
-behind the single gate `types.HfaInSimd()`, then flipped ON together at Stage 3
-(`48e3787b`: `HfaInSimd()` -> `Arch==AA64`).  Every original defect (cross-module,
-arg-after-HFA, dispatch shims) is fixed and validated by full conformance in two
-backends (`builder-comp` 2647/0, `builder-comp_native_aa64` 2646/0 + 1 unrelated
-flake) plus the cross-module `968` / dispatch `969` / spill `970` tests in
-builder-comp / native aa64 / VM.  Stage 1/2b/spill were each adversarially
-reviewed (one review caught+fixed a func-value FP-register-budget defect).  Landed
-commits: Stage 0 `06f9a8ff`+`d69eded8`; Stage 1 `7692508e`+`9ebf4119`; Stage 2a
-`4bc6fa7c`; Stage 2b `576e7bb3`; spill `833576bd`; Stage 3 flip `48e3787b`.
+HFA (Homogeneous Floating-point Aggregate) passing in SIMD registers is a
+cross-backend ABI contract — the compiler's LLVM backend, native codegen, every
+dispatch shim (func-value / closure / interface, incl. stack-spill), and the VM
+boundary must all agree. **✅ DONE & LANDED for AArch64** via the cross-backend
+replan (`plan-hfa-crossbackend.md`): all sites built dormant behind
+`types.HfaInSimd()`, then flipped ON at `48e3787b` (`HfaInSimd() → Arch==AA64`).
+Staging commits `06f9a8ff`/`d69eded8`/`7692508e`/`9ebf4119`/`4bc6fa7c`/`576e7bb3`/
+`833576bd`/`48e3787b`; validated by full conformance on builder-comp + native-aa64
+plus the cross-module `968` / dispatch `969` / spill `970` tests; each stage
+adversarially reviewed. (The earlier native-only enablement `332b4298` was a
+CRITICAL cross-backend miscompile — deps/shims route through the LLVM backend, which
+GP-coerces HFAs — mitigated by gating off `1a790663`, then fixed by the replan.
+Process lesson: the correctness bar is "native matches the Binate LLVM backend +
+shims", not "native matches clang".)
 
-**ONLY REMAINING: Stage 4 — x64 SysV eightbyte-SSE HFA** (an independent
-per-target effort; `HfaInSimd()` stays false for x64 until then). See the plan.
-
-Original problem writeup (what the replan addressed) follows.
-
-### (original) HFA-in-SIMD native-only enablement miscompiles — 🟠 MITIGATED (gated off `1a790663`), replan OPEN (2026-07-02)
-
-**Severity: CRITICAL wrong-code / SIGSEGV when enabled** (mitigated by gating off).
-`332b4298` enabled Homogeneous Floating-point Aggregate passing in SIMD registers on
-the **native aa64 arg path only**. That path is AAPCS64-correct (a clang caller into a
-native `Hfa2(D2)` callee returns 37), BUT an adversarial review (all reproduced
-native-vs-LLVM on this host) showed enabling it native-only produces reachable
-wrong-code because HFA passing is an **ABI contract shared by every backend + the
-dispatch shims**, and only native args implemented it:
-
-  1. **Cross-module (critical).** bnc's LLVM backend GP-coerces a float struct to
-     `[N x i64]` (x0/x1), not SIMD — `define double @fnS([2 x i64])`
-     (`pkg/binate/codegen/emit_agg_coerce.bn`). Under `-backend native` ONLY the main
-     module is native; every dependency package goes through LLVM. So a native-main HFA
-     call into an LLVM-dep passes SIMD where the callee reads GP → wrong data (≤16B) /
-     SIGSEGV (>16B indirect). Repro: native-main `dep.Sum(D2{5,6})` → 0, LLVM → 56.
-  2. **Arg-after-HFA (critical).** The variadic-family NSRN walkers
-     (`common_callconv_variadic.bn` lines ~38/64/86) inline `if IsFloatScalarTyp{nsrn++}`
-     and never count HFA members, so a fixed FP arg AFTER an HFA is dropped. Repro:
-     `f5(5 scalars, D3 HFA, 42.0)` → native 7, LLVM 42. Fix: use `cc.advanceNsrn(...)`.
-  3. **Dispatch shims (critical).** The aa64 func-value / closure / interface-method
-     shims GP-marshal args (`aarch64_funcvalue_shim.bn` / `aarch64_closure_shim_*`), so
-     an HFA reaching a shim is mismarshalled.
-
-**Mitigation (landed pending):** `1a790663` sets `cc.HfaAggregates = false` — restores
-native==LLVM GP behavior (cross-module Sum 56 on both backends, f5 42, 963/964 still
-pass). The classifier + emitters are kept in-tree, dormant.
-
-**To actually ship HFA (replan — the old native-first staging is wrong):** classify
-HFAs identically in (a) `pkg/binate/codegen` so the LLVM backend emits real HFA/SIMD
-param types (`[N x float]`/`{double,double}` or a form LLVM lowers to v-regs) instead
-of `[N x i64]`; (b) the aa64 dispatch shims; (c) the variadic NSRN walkers; (d) native
-args (done) + returns. Lift `HfaClassify` to a shared location both backends consume.
-Flip `HfaAggregates` on only when all four agree. **Required coverage that would have
-caught this**: a CROSS-MODULE HFA conformance test (native-main importing an HFA-taking
-dep — mirror `337_cross_pkg_struct_arg`'s layout) and an HFA-through-func-value test,
-run in native aa64 mode vs LLVM. Single-program HFA tests (963/964) are self-consistent
-by construction and CANNOT catch this class. **Process lesson**: "native matches clang
-(AAPCS64)" is NOT the correctness bar inside the toolchain — "native matches the Binate
-LLVM backend + shims" is, because deps + dispatch always route through them.
+**ONLY REMAINING: Stage 4 — x64 SysV eightbyte-SSE HFA** (an independent per-target
+effort; `HfaInSimd()` stays false for x64 until then). See `plan-hfa-crossbackend.md`.
 
 ### native-aa64 self-hosted conformance: intermittent timeout flakiness — 🟡 OPEN (2026-07-02)
 
@@ -476,207 +434,6 @@ extend trampoline selection so a 64-bit scalar result on a <8-byte-word host use
 an aggregate/retbuf trampoline, or add a scalar64 trampoline returning the pair.
 Distinct code path from the forward fix; decide with the user whether to bundle.
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 3] IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 + 2 (INT64 + FLOAT64) DONE
-- **Symptom**: under `builder-comp_arm32_linux` unit tests, `pkg/ir`
-  and everything downstream of it (`pkg/native{,/amd64,/arm64,/common}`,
-  `pkg/codegen`, `pkg/vm`, `cmd/{bnc,bni,bnas}`) fail to compile for
-  arm32 with int-width type errors.  `pkg/ir` is the cascade root.
-- **Discovery**: triaging the 14 arm32_linux unit-test failures after
-  type-check errors gained source locations (binate `c011827`,
-  conformance/494).  With locations on, `pkg/ir`'s only *source* error
-  is `gen_util_literals.bn:234` (`intFitsInType` compares against
-  `4294967295` > INT32_MAX), and tracing the value upstream shows the
-  whole literal path is `int`.
-- **Root cause**: the IR stores program integer constants in
-  `Instr.IntVal`, typed `int` (`pkg/ir.bni:356`) — host-width.  The
-  feeding path (`exprIntLitValue`, `bignumToInt`, `parseIntLit`,
-  `EmitConstInt`) is all `int` too.  On a 64-bit host this happens to
-  work (it's really storing a 64-bit *bit pattern* — a `uint64`-max
-  literal lands as the int64 pattern `-1` and codegen emits it fine).
-  On a 32-bit host `int` is 32 bits, so the path neither compiles nor
-  can represent a `uint32`/`int64` constant.  Symbol/codegen output
-  must not depend on host int width.
-- **Severity**: major.  Loud (compile failure) on 32-bit, not a silent
-  64-bit-host miscompile — but it blocks the C-free / 32-bit-hosted
-  self-hosting goal.  `int64` vs `uint64` for the field is immaterial
-  (it's a stored bit pattern reinterpreted by the constant's type);
-  `int64` is the minimal-churn choice since the existing range-check /
-  negation code is written in signed terms whose bounds fit `int64`.
-
-- **Layer 1 — IR + codegen + native (DONE)**: made the program
-  -constant path host-independent.  Landed: binate `879ba38`
-  (asm 64-bit immediates: x64 Imm→int64 + Imm64, finished aarch64
-  Imm consumers in pkg/asm/parse), `035022c` (IR int64 contract),
-  `294b5f0` (wide-constant tests), `075e1f5` (made the int-width
-  -assuming bootstrap/vm tests 32-bit compatible).
-  - `Instr.IntVal` `int` → `int64`.
-  - `exprIntLitValue` / `bignumToInt` return `int64`; `intFitsInType`
-    takes `int64`.  (`parseIntLit` stayed host-`int` — a
-    non-type-checked fallback; the real path takes the bignum branch.)
-  - `EmitConstInt(int)` kept (widens internally) + new
-    `EmitConstInt64(int64)` for the literal path.
-  - `buf.WriteInt64` added; codegen's OP_CONST_INT emit uses it.
-  - `pkg/native/{amd64,arm64}` `emitConstInt64` → `int64`; arm64
-    extracts MOVZ/MOVK chunks via int64 shifts.  Fixed a latent bug:
-    arm64 `emitConstFloat` did `cast(int, bits)` on a 64-bit IEEE
-    pattern (dropped the high word on a 32-bit host) → `cast(int64,…)`.
-  - VM boundary: `lower_instr.bn` `bc.Imm = cast(int, instr.IntVal)`
-    — lossless on a 64-bit host; the truncation-on-32-bit is what
-    Layer 2 addresses.
-  - **Result**: all 14 packages in the arm32_linux unit-test set
-    compile for arm32 (verified locally; runtime validated by the
-    `builder-comp_arm32_linux` CI job).
-
-- **Layer 2 — VM machine word (INT64 PATH DONE)**: `pkg/vm` uses host
-  `int` as its universal machine word — registers, immediates,
-  pointer arithmetic (`bit_cast(int, frameBase) + instr.Imm`),
-  offsets.  So a 32-bit-hosted VM is a 32-bit machine and can't carry
-  64-bit immediates.  Open design question (raised by user): can the
-  VM keep host-sized words for most values and use 64-bit only when
-  necessary?
-  - On a 32-bit host the VM interprets 32-bit-*target* bytecode, where
-    pointers / `int` / sizes / offsets are all 32-bit by definition —
-    so host-word is already correct for the vast majority of values.
-    The 64-bit cases are exactly the explicitly-64-bit ones: `int64` /
-    `uint64` values and large literals.
-  - Two implementations of "64-bit only when necessary":
-    (a) uniform 64-bit value slots + width-aware ops — simplest and
-    correct; on a 32-bit host it costs 64-bit slot storage and 64-bit
-    arithmetic only where the op is 64-bit (the compiler already
-    supports `int64` on 32-bit; bytecode is largely typed already).
-    (b) host-word slots + 64-bit via register pairs / a parallel wide
-    slot, switched by typed opcodes — saves the 32-bit storage but
-    complicates the register model and bytecode (must track which
-    slots are wide).
-  - Recommendation: do (a) first (correctness, minimal model change);
-    treat (b)'s host-word-mostly layout as a later 32-bit perf
-    refinement, not a correctness prerequisite.
-  - **Investigation findings (2026-05-26)**: the change is larger and
-    more entangled than the (a)/(b) framing implies — `int` is a
-    *single conflated word* across three distinct roles, so it can't
-    be swapped to int64 blindly:
-    1. **Register slots.** `regs *int`, accessed `regs[i]`.  But
-       `pushFrame` already budgets `f.NumRegs * 8` bytes/reg
-       (`vm.bn:181`) — 8-byte slots.  On a 64-bit host int==8 so it's
-       consistent; **on a 32-bit host this is a latent stride bug**
-       (8-byte budget, 4-byte `*int` access → registers alias).  So
-       `regs *int → *int64` actually *fixes* this and matches the
-       existing layout.
-    2. **Host pointers.** Registers also hold host addresses via
-       `bit_cast(int, vm.Stack)` / `bit_cast(*uint8, regs[i])`.  With
-       int64 regs on a 32-bit host these become a width mismatch
-       (host ptr 32-bit, reg 64-bit) — `bit_cast` is illegal
-       (size differs); they need explicit widen-on-store /
-       truncate-on-read helpers (`ptrToReg` / `regToPtr`).
-    3. **Target-memory-structure access.** `bit_cast(*int, hdrPtr)`
-       reads managed-slice/refcount headers as `*int`.  These are
-       target-word-sized fields; tying their stride to the register
-       word is wrong if the two ever differ.  Needs separating
-       "VM register word" from "target word".
-  - Surface: ~106 `bit_cast(int,…)/(*uint8,…)/(*int,…)` sites across
-    vm_exec*.bn + vm.bn, plus `BCInstr.Imm int→int64`, register
-    arithmetic, and the memory ops.  This is a multi-step refactor;
-    settle the register-word-vs-target-word model before editing.
-  - **What landed (int64 path)** — model:
-    register == host word; 64-bit values use register pairs; pair ops
-    only engage when `REG_SLOT < 8` (no-op on a 64-bit host).
-    Pointer-vs-target-word ambiguity stays narrow because `bit_cast`
-    sites are at register-vs-pointer boundary — register word stays
-    host `int`, so the ~106 `bit_cast` sites are untouched.
-    - Step 1 (binate `f7cae70`): `REG_SLOT = sizeof(int)`; register
-      area / frame header sized by it.
-    - Step 2a (`ca7def6`, `394a16a`, `ca41a75`): `buildSlotMap` /
-      `regWidths` / `remapRegisters` — id→slot mapping with the
-      audited `BC_RETURN.Dst` exception.
-    - Step 3 (`fd3ca06`, `f764a66`, `be877fd`, `60657fd`, `947205f`,
-      `ebaa077`): full `BC_*64` handler set — `LOAD_IMM64`, `MOV64`,
-      arith / bitwise / shifts / signed+unsigned compares / unary
-      (NEG, BITNOT) / casts (WIDEN_S, WIDEN_U, NARROW, MOV64-bitcast)
-      / pair memory `LOAD64_PAIR` / `STORE64_PAIR`.  Pure compute
-      factored into evalArith64 / evalCmp64 / evalShift64 /
-      evalUnary64 / widen64* — host-tested across the tricky cases.
-    - Step 4 (`925e9bc`, `949ea29`, `ebaa077`): lowering emits the
-      `BC_*64` ops host-word-aware — `OP_CONST_INT`, all binary
-      arith / cmp / shift, load/store, casts, NEG/BITNOT.
-    - Step 2b (`24a5d67` RETURN64, `7353523` direct CALL,
-      `2eaa8f9` indirect/func-value/iface call ABI,
-      `11da9d7` multi-return pair-aware): int64 return + call ABI
-      complete.  `NumParamSlots` + slot-count `Imm` semantics.
-    - Step 6 (`1fd3b9f`): conformance/499 int64 arithmetic E2E.
-  - **Float64-on-32-bit (DONE)**: mirrors the int64 pair pattern.
-    - `ba1a798`: route the existing `BC_FNEG` / `BC_F*` /
-      `BC_SITOF` / `BC_FTOSI` / `BC_F64_TO_F32` / `BC_F32_TO_F64` /
-      `OP_CONST_FLOAT` `bit_cast(int, float64)` hops through
-      int64 — compile-clean on a 32-bit host without yet changing
-      lowering semantics.
-    - `3126655`: `BC_F*64` opcode decls (`BC_FNEG64`,
-      `BC_FADD64..BC_FDIV64`, `BC_FEQ64..BC_FGE64`) + pure
-      `evalFloatArith64` / `evalFloatCmp64` / `evalFloatNeg64`
-      helpers in `vm_exec64.bn` + host-testable unit tests for
-      each helper.
-    - `ae08c1ed`: `execOp64` dispatch glue — joins source pair(s),
-      bit_casts through `int64` to `float64` for the compute,
-      bit_casts back, splits to dst pair (or single-slot bool for
-      compares).  Direct `execOp64(&stackArr[0], instr)` tests
-      cover all three shapes (binary arith, unary FNEG, compare-
-      writes-single-slot).
-    - `00b10e38`: lowering — `lowerBinOp` / `lowerCmpOp` add an
-      `isFloatPair` branch alongside the existing `isIntPair`;
-      `OP_NEG` dispatches `BC_FNEG64`; `OP_CONST_FLOAT` emits
-      `BC_LOAD_IMM64` with `splitInt64` halves when
-      `is64BitScalar(instr.Typ) && REG_SLOT < 8`.
-    - `769d2e54`: gate test for OP_CONST_FLOAT — confirms 64-bit
-      host falls back to `BC_LOAD_IMM` (no spurious pair branch).
-  - **REMAINING GAP — int64 side of int↔float CONVERSION casts is NOT
-    pair-aware (latent; surfaced 2026-06-12 by the int↔float32 VM-fix
-    review).** The "DONE" above covers float *arith/compare* pairs and
-    the *float* side of conversions; it does NOT cover an int64/uint64
-    operand of a `cast` to/from a float:
-    - int→float SOURCE side (`BC_SITOF`/`BC_UITOF`/`BC_SITOF32`/
-      `BC_UITOF32`): the handlers read the int source as a single slot
-      (`regs[instr.Src1]`) and `lowerCast`'s int→float arm has no
-      `is64BitScalar(srcTyp) && REG_SLOT < 8` check, so `cast(float*,
-      <int64>)` on a 32-bit host drops the source's high half. (These
-      handlers ARE dest-pair-aware for the float64 result — the
-      asymmetry is source-only.)
-    - float→int DEST side (`BC_FTOSI`/`BC_FTOUI`/`BC_F32TOSI`/
-      `BC_F32TOUI`): the handlers write a single dest slot via
-      `cast(int, f)` (host int) and `lowerCast`'s float→int arm has no
-      `is64BitScalar(dstTyp)` check, so `cast(<int64/uint64>, <float>)`
-      on a 32-bit host leaves the dest's high slot stale (and truncates
-      through a 32-bit host int). (These handlers ARE source-pair-aware
-      for a float64 source — the asymmetry is dest-only.)
-    Latent, not a live miscompile: no conformance mode runs the bytecode
-    VM on a 32-bit host (the `-int` legs run `bni` natively on the
-    64-bit build host; arm32 modes are comp/native, not VM), and the
-    arm32 `pkg/vm` unit tests don't exercise int64↔float conversion
-    casts. NOT introduced by the int↔float32 fixes (`289420b6`/
-    `3fd7e712`) — the new float32 ops faithfully mirror the existing
-    single-slot float64 ones. Fix (to land before/with any arm32
-    VM-host enablement): add `is64BitScalar` gates in both conversion
-    arms of `lowerCast` and pair-aware source/dest handling
-    (`joinInt64`/`splitInt64`) in the eight handlers, plus direct
-    `execNumericCast` unit tests in `vm_exec64_test.bn` driving a
-    pair-wide int64 source and dest.
-  - **End-to-end arm32 coverage status (2026-05-28)**:
-    - `pkg/vm` source compiles cleanly on arm32 (since `ba1a798`).
-    - Conformance `builder-comp_arm32_linux`: green.
-    - **pkg/vm unit tests on `builder-comp_arm32_linux`: green**
-      (was 16 failures pre-session → 9 → 1 → 0).  The bytecode-VM
-      BC_*64 / BC_F*64 dispatch and slot allocation are now fully
-      end-to-end-validated on a real 32-bit target — including
-      the `TestRepro_StructWithManagedSliceFieldAppend` managed-
-      memory path, which surfaced the hardcoded-LP64 managed-
-      allocation-header offset that `81d31b7c`'s MANAGED_HDR
-      const fixed.
-    - The cascade-revealed packages — pkg/{types, codegen,
-      native/{common,aarch64,x64}} — are also green on arm32 now
-      after the LP64-baked-test cleanup (`11ff9864`, `2d13838d`).
-    - Remaining arm32_linux failures (5) are all the int64-min-
-      boundary cluster in pkg/{bootstrap,buf,ir} — see the
-      "arm32 unit-test cleanup" entry for the bucket.  Unrelated
-      to this work.
-
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
 were switched to `ManagedHeaderSize()` (main `581216d9`) — see [claude-todo-done.md](claude-todo-done.md).
@@ -878,41 +635,22 @@ unused-func WITH `--tests` — a plain run over-flags the 12 production helpers 
 only by tests. Design + full status + the rest of the unused-entity project (now
 done): `explorations/plan-unused-checks.md` and the done log.
 
-### MINOR (hygiene / lint) — investigate the `[managed-to-raw-assign]` findings in `pkg/binate/asm/*` (2026-06-20) — 🟡 OPEN
-The compiler-tree lint-coverage gap is ✅ FIXED & LANDED (`582c1327`): `scripts/hygiene/lint.sh`
-discovery is now recursive over `pkg/`, so all ~23 `pkg/binate/*` compiler packages are bnlint
-targets (the old one-level `pkg/*/` glob matched only `pkg/binate/`, which has no direct `.bn`, after
-the `pkg/parser`→`pkg/binate/parser` reorg — so ZERO compiler packages were linted; only the
-bnlint-RULES check had this gap, since file-length/naming/doc use a recursive `find`).  Two real
-`[unused-import]`s it surfaced (`ir/gen.bn`→ast, `native/aarch64/aarch64_call.bn`→mangle, both
-comment-only) were removed.  **Residual** — 5 asm subpackages are temporarily in `LINT_SKIP`
-(`pkg/binate/asm/{arm32,elf,macho,parse,x64}`) for a `[managed-to-raw-assign]` finding
-(`var data *[]uint8 = sec.Data` — a borrow of a held `@[]uint8`).
+### `[managed-to-raw-assign]` in `pkg/binate/asm/*` — INCREMENT 2 (adopt directives + un-skip) — 🟡 OPEN (BUILDER-gated)
 
-**Per-site audit DONE (2026-06-30, bnc-0.0.10 bnlint + adversarial workflow + source verification of
-the one real bug).** 19 findings across the 5 packages:
-- **1 REAL use-after-free** — `parse/parse.bn:160` (`name = expr` constant def borrowed `tok.Text`,
-  then `LexNext` freed it before the read). ✅ **FIXED & LANDED (main `8a883450`)** — own the name
-  first (`buf.CopyStr`) + regression test `TestParseConstNamePreserved` (verified failing pre-fix);
-  write-up in the done file. The rule was RIGHT here — the skip hid a real UAF.
-- **1 real `[unused-import]`** — `parse/aarch64.bn:3` imported `pkg/binate/asm`, never used. ✅ FIXED
-  (main `8a883450`, same commit).
-- **17 safe-borrow over-flags** — every site in `arm32`/`elf`/`macho`/`x64` (all 9) + 6 of the 8
-  `parse` sites. All borrow a field of a managed owner (`@asm.Section`/`@asm.Assembler`/a `BinBuf`
-  local / a by-value `Token` param / a function-scope buffer) that provably outlives the raw view's
-  synchronous read or in-place patch. The rule conservatively flags `@[]T → *[]T` without lifetime
-  analysis.
-**Un-skip path:** the two real findings are ✅ FIXED (main `8a883450`). The 17 safe-borrow over-flags
-are handled by **suppression: the `// bnlint:allow <rule>` directive mechanism is ✅ LANDED (main
-`91286ab8`)** (decision A — keep the rule strict, annotate each safe borrow with a justification;
-generic across all rules). **Remaining (OPEN, BUILDER-gated) — INCREMENT 2:** adopt the directives +
-un-skip. Add a trailing `// bnlint:allow managed-to-raw-assign — <why the owner outlives the borrow>`
-to each of the 17 sites (the per-site reasons are in the workflow audit / the 5 package sections), and
-drop `pkg/binate/asm/{arm32,elf,macho,parse,x64}` from `LINT_SKIP`. **Gated on the next BUILDER bump**
-because hygiene runs the BUNDLED bnlint (`bnc-0.0.10`), which predates `91286ab8` and would ignore the
-directives → red hygiene until the bump. Do it in ONE commit at the next bump, alongside dropping
-`pkg/binate/interp` (see the BUILDER-lag-lint-skips entry) — i.e. that bump clears ALL remaining
-`LINT_SKIP` entries except any still-pending real findings.
+The compiler-tree lint-coverage gap is ✅ FIXED (`582c1327`, recursive `pkg/`
+discovery), the 19-finding per-site audit is DONE, the 1 real use-after-free
+(`parse/parse.bn:160` constant-name borrow) + 1 real unused-import are ✅ FIXED
+(`8a883450`), and the `// bnlint:allow <rule>` suppression mechanism is ✅ LANDED
+(`91286ab8`) — see the done log. **Remaining (INCREMENT 2):** the 17 safe-borrow
+over-flags (all `arm32`/`elf`/`macho`/`x64` sites + 6 `parse` sites — each a raw
+view of a field of a live `@asm.Section`/`@asm.Assembler`/buffer that outlives the
+synchronous read) are handled by annotation, not a rule change: add a trailing
+`// bnlint:allow managed-to-raw-assign — <why the owner outlives the borrow>` to
+each site and drop `pkg/binate/asm/{arm32,elf,macho,parse,x64}` from `LINT_SKIP`.
+**Gated on the next BUILDER bump** — hygiene runs the bundled `bnc-0.0.10`, which
+predates `91286ab8` and would ignore the directives. Do it in one commit at that
+bump, alongside dropping `pkg/binate/interp` (see the BUILDER-lag-lint-skips entry
+below — that bump clears all remaining `LINT_SKIP` entries).
 
 ### Remove the BUILDER-lag lint skips after a BUILDER bump — 🟡 OPEN (narrowed to `pkg/binate/interp`; gated on next BUILDER bump)
 `scripts/hygiene/lint.sh`'s `LINT_SKIP` group (A) is the BUILDER-lag set — packages the bundled
@@ -1095,11 +833,9 @@ composite- or variadic-specific (the plain `eq(other Self)` reproduces it).
   Fold into that project's tracking when it firms up.
 
 ### `==` / `!=` (and relational) on aggregates — residual (generic re-check corner cases) — 🟢 LOW (triaged 2026-06-30: NOT actionable now)
-The `==`/`!=`/relational aggregate story is ✅ DONE & LANDED — checker rejection
-(binate `60719e01`), struct/array implementation (920a, main `f99f4a4e`),
-generic-function path (920b, `6b748a24`), the sentinel-comparison decision, and the
-generic-aggregate-field re-check (main `076eb525`); full arc archived in
-[claude-todo-done.md](claude-todo-done.md). Two small residuals in the generic
+The `==`/`!=`/relational aggregate story is ✅ DONE & LANDED — full arc (checker
+rejection, struct/array + generic-function impl, sentinel decision, generic-field
+re-check) archived in [claude-todo-done.md](claude-todo-done.md). Two small residuals in the generic
 instantiation re-check remain — **triaged 2026-06-30, neither actionable now**
 (neither is a live miscompile):
 - **(a) Order-dependent — COSMETIC only.** A forward-ref instantiation checked BEFORE
@@ -1805,30 +1541,21 @@ backend doesn't implement emits a clean COMPILE_ERROR, never silent wrong-code).
 - **soft-float (P5) / VFP hard-float + arm32-linux (P6) / CI wiring (P7)** — see
   the plan doc.
 
-#### native-arm32-baremetal runtime miscompiles (found by the P4 reconnaissance, 2026-07-02) — TWO FIXED, ONE OPEN
+#### native-arm32-baremetal runtime miscompiles (found by P4 recon, 2026-07-02) — 🟠 ONE OPEN (two fixed)
 
-Three tests compiled CLEAN through the native arm32 backend and then HANG at
-runtime under QEMU (the `[10s]` timeout signature vs `[0s]/[1s]` for fail-loud) —
-violations of the never-silently-miscompile invariant, native-arm32-only. Runtime
-diagnosis (2026-07-03) root-caused all three; two are now fixed:
+Three tests compiled clean through the native arm32 backend then HANG at runtime
+under QEMU (`[10s]` timeout) — silent-miscompile-invariant violations, arm32-only.
+Two are ✅ FIXED: `matrix/abi/struct-param/five-u8` (`f3a8bc91` — `common.PlanFrame`
+didn't round the aggregate-PARAMETER frame region up to 8 bytes → overrun +
+misaligned later frame slots → Data Abort) and `877_aggregate_abi_xpkg` (`0479813a`
+— the shared `NeedsSret`/`IsAggregateReturn` 64-bit-scalar misclassification, fixed
+by the aggregate-KIND gate; see the done log).
 
-- **`conformance/matrix/abi/struct-param/five-u8`** — ✅ FIXED (`f3a8bc91`). The
-  initial hypothesis (the `[N x i64]` coercion pair-alignment gap) was REFUTED by
-  runtime diagnosis: five-u8 is native-to-native (never crosses the native↔LLVM
-  boundary, so the coercion fix `5b65e369` did NOT fix it). Actual cause:
-  `common.PlanFrame` didn't round the aggregate-PARAMETER frame data region up to
-  8 bytes (unlike its sibling branches), so a 5-byte (2-word) struct param's
-  word-store overran the region AND the non-8 `offset` advance misaligned every
-  later frame slot → unaligned deref → Data Abort → hang. Fixed by rounding to 8.
-- **`conformance/877_aggregate_abi_xpkg`** — ✅ FIXED (`0479813a`). NOT an
-  aggregate-ABI bug: it's the shared `NeedsSret`/`IsAggregateReturn` 64-bit-scalar
-  misclassification (see the "Cross-package … int64-returning … wedges" entry
-  above) — its methods return int64. Fixed by the aggregate-KIND gate.
-- **`conformance/599_addr_of_slice_elem`** — 🟠 OPEN. `make_slice` + `&s[i]`
-  hangs (the one remaining `[10s]` hang); the test's comment references a prior
-  shared-IR address-of miscompile fixed for other backends, which arm32 still
-  mishandles (likely a localized `arm32_emit.bn` `emitGetElemPtr` / address-of
-  bug). Its own future increment.
+- **`conformance/599_addr_of_slice_elem` — 🟠 OPEN.** `make_slice` + `&s[i]` hangs
+  (the one remaining `[10s]` hang); the test's comment references a prior shared-IR
+  address-of miscompile fixed for other backends that arm32 still mishandles (likely
+  a localized `arm32_emit.bn` `emitGetElemPtr` / address-of bug). Its own future
+  increment.
 
 #### MINOR (cross-backend diagnostics) — `iropcode.OpName` missing `OP_CONST_FLOAT`
 
