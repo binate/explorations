@@ -304,31 +304,40 @@ them). Related: `conformance/877_aggregate_abi_xpkg` also hangs on this mode,
 and its methods return int64 — plausibly the SAME int64-return defect rather
 than an aggregate-ABI one.
 
-### `Self` nested in a composite iface-method param (`*[]Self` / `...Self`) fails impl-satisfaction — 🟠 OPEN (2026-07-03)
+### `Self`-parameter method is uncallable through a generic constraint (Self binds to the type param, not its base) — 🟠 OPEN (2026-07-03)
 
-**Severity: minor-major (a spec'd construct is rejected; obscure).** An interface
-method whose parameter nests `Self` inside a composite type — `grab(rest *[]Self)`,
-and hence a variadic `merge(others ...Self)` (body `*[]Self`) — is **not** satisfied
-by a correct impl. `methodSigSatisfies` (`pkg/binate/types/check_impl.bn`) compares
-`substituteSelf(ifaceFt.Params[i].Type, named).Identical(implFt.Params[i+1].Type)`;
-`substituteSelf` (`check_self.bn`) DOES recurse into a slice element, so `*[]Self`
-with `Self=*Bag` should map to `*[]*Bag` and match the impl's `*[]*Bag` — yet the
-impl is rejected ("type Bag does not implement Holder (method `grab` has wrong
-signature)"). **Not variadic-specific:** a plain non-variadic `*[]Self` param
-reproduces it, so the gap is in how the interface method's `Self`-in-composite
-param is *resolved* (likely the inner `Self` is not resolved to `TYP_SELF` when
-nested in a composite, so `substituteSelf` has nothing to substitute), NOT in the
-variadic work.
+**Severity: minor (obscure `Self` corner; the fix is a semantics decision, not a
+clear defect).** A `Self`-parameter interface method — `eq(other Self)`,
+`grab(rest *[]Self)`, or a variadic `merge(others ...Self)` — is satisfiable and
+directly callable, but **cannot be called THROUGH a generic constraint** when the
+type param is a pointer, because the two `Self` resolutions disagree:
 
-- **Impact:** blocks a variadic `...Self` interface / generic-constraint method.
-  The variadics Phase 6c `substituteSelf`-recursion in `tryTypeParamMethodCall`
-  (correct code) therefore has no end-to-end conformance test until this is fixed.
-- **Repro / xfail:** `conformance/regressions/iface-self-in-composite` (`.xfail.all`).
-- **Discovered:** 2026-07-03, adding Phase 6 (variadic method/interface/generic
-  call) coverage.
-- **Proposed fix:** ensure the interface-method param-type resolver marks a nested
-  `Self` (inside `*[]Self` / `@[]Self` / `[N]Self` / `*Self` composites) as
-  `TYP_SELF` so `substituteSelf` substitutes it, then drop the xfail.
+- **Impl-satisfaction** (`methodSigSatisfies`, `check_impl.bn`): `Self` → the impl's
+  **base named type** (`named = recv.ReceiverBaseNamed()`, e.g. `Bag`). Correct, and
+  matches §11 — `010`'s `eq(other Self)` is satisfied by `eq(other Square)` (a value).
+- **Constraint-call binding** (`tryTypeParamMethodCall`, `check_method.bn`):
+  `substituteSelf(param, recvType)` uses `recvType` = the **type param** (`T` = `*Bag`).
+
+So inside `func f[T Eq](a T, b Bag) { a.eq(b) }`, `eq` expects `*Bag` (Self→T) while
+the impl takes `Bag` (Self→base) → "cannot assign Bag to T". **General** — not
+composite- or variadic-specific (the plain `eq(other Self)` reproduces it).
+
+- **Consequence:** a `Self`-parameter method can't be invoked via a constraint with
+  a pointer type param — and a constraint is the ONLY path that reaches such methods
+  (they're object-unsafe through an interface value). So the variadics Phase 6c
+  `substituteSelf`-recursion in `tryTypeParamMethodCall` (correct code) has no
+  end-to-end test.
+- **Repro:** `interface Eq { eq(other Self) bool }` + `impl *Bag` /
+  `func (b *Bag) eq(other Bag) bool` + `func areEq[T Eq](a T, b Bag) bool { return
+  a.eq(b) }`.
+- **NOT a bug in impl-satisfaction** — that works; `*[]Self` is satisfiable and
+  `conformance/regressions/iface-self-in-composite` is a POSITIVE test. (The earlier
+  "satisfaction fails" framing was a test error: the repro impl used `*[]*Bag` where
+  `Self=Bag` wants `*[]Bag`.)
+- **Fix is a semantics decision** — should the constraint call bind `Self` to
+  `base(T)` (matching impl-satisfaction), or should impl-satisfaction use the
+  receiver form? Deferred pending that decision; **do not fix without one**.
+- **Discovered:** 2026-07-03, adding variadics Phase 6 coverage.
 
 ---
 

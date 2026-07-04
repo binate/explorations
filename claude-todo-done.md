@@ -73,10 +73,13 @@ green, adversarially-reviewed phases:
   repo `b77334b`).
 
 Conformance: `spec/10-functions/165-200` + refcount cells in `spec/18-memory`.
-**Filed pre-existing bug** (orthogonal, still OPEN in the active list): a `Self`
-nested in a composite iface-method param (`*[]Self` / `...Self`) fails
-impl-satisfaction — repro `conformance/regressions/iface-self-in-composite`
-(xfail); blocks only the obscure `...Self` constraint-method case.
+**Filed pre-existing issue** (orthogonal, still OPEN in the active list): a
+`Self`-parameter method is uncallable through a generic constraint — the
+constraint binds `Self` to the type param (`*Bag`) while impl-satisfaction binds it
+to the base (`Bag`). General (not composite/variadic-specific); a semantics
+decision, not a clear defect. Impl-satisfaction of `Self`-in-composite itself works
+(`conformance/regressions/iface-self-in-composite` is a positive test); the earlier
+"satisfaction fails" framing was a test error.
 
 ---
 
