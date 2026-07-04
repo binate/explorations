@@ -458,13 +458,24 @@ while keeping every commit green and close to main.
       print_switch.bn. This is *not* token.bn's historical gofmt-tabwriter padding
       (wider, uniform across comment groups) — token.bn is reformatted to this
       canon under step 13.
-    - **11d** — grouped-decl comment interleaving + column alignment — *in
-      progress*. Scope (decided): fix `const`/`var`/`type` group comment
-      interleaving (comments placed in-group, section comments + blank groups
-      preserved) — currently backstopped, mishandling iropcode.bni/vm.bni — AND
-      align member values / trailing comments per run with a clean canon
-      (widest-cell + one space), NOT bit-matching gofmt tabwriter. Those files
-      reformat to our canon under step 13.
+    - **11d** — grouped-decl comment interleaving + column alignment — ✅
+      **LANDED** 2026-07-03 (`6dfd1793`). `const`/`var`/`type` group members now
+      interleave comments (section headers/docs above the member, trailing on the
+      member line, dangling before `)`), preserve blank lines, and align trailing
+      comments per run to (widest body + 1), width-guarded. Grouped members share
+      the keyword's Pos, so the printer recovers each member's real start line
+      from its type/value node (`memberStartPos`) — correct even for multi-line
+      members. Clean canon, not gofmt tabwriter; iropcode.bni/vm.bni reformat
+      under step 13.
+    - **Step-11 adversarial review** (2 read-only agents) found 4 issues, all
+      addressed: struct field-alignment could exceed 100 (fixed, `d838b6fc`,
+      `structRunColumn` width-guard); group comment column could exceed 100
+      (fixed in 11d); multi-line grouped member spurious-blank/comment-hoist
+      (fixed in 11d via `memberStartPos`); inline-case interior-comment guard —
+      evaluated and deliberately not added (a source-single-line case can't hold
+      an own-line interior comment; the only case is mid-expression, which
+      backstops either way, and NOT expanding keeps it closer to source). No
+      drops/dups/token-corruption/non-idempotence found.
 12. **Width-aware wrapping** to 100 cols.
 13. **CLI polish** (`-w`, `--check`, stdout, `--version`), parse-error/degenerate
     handling (§9), README, `_test.bn` per file, repo-wide fixpoint (§11.2).
