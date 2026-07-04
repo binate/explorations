@@ -344,6 +344,50 @@ tables are populated. Still nothing *reads* these (assertions not built), so the
 tree stays green — this phase is validated by inspecting emitted data and by the
 self-compile continuing to pass.
 
+> **Implementation notes (2026-07-04, grounded recon) — architecture decisions
+> for Phase 2, adopted:**
+> - **Collect from the CHECKER's `c.Impls`, not IR-gen's flat `ImplInfo`.** The
+>   `ir.ImplInfo` registry carries only name *strings* (`RecvPkg`/`RecvTypeName`/
+>   `DtorFuncName`) — no `types.Type` — so `SizeOf`/`AlignOf`/`QualifiedTypeName`/
+>   `NeedsDestruction` aren't computable there. The checker's `Impl` struct DOES
+>   carry `RecvType @Type`. So collect one `TypeInfoDesc` per distinct receiver
+>   type in `GenModule` (which receives the checker), store on `Module.TypeInfos`,
+>   and have each backend emit them (mirrors how the reflect Vtables table is
+>   collected once and emitted per-backend). Respects the IR/backend boundary:
+>   layout (size/align) computed in the shared types layer, backends emit bytes.
+> - **Identity = the record's OWN address** (no interior `identity` field) — a
+>   concrete assertion compares `&bn_TypeInfo.<T>` pointers. Dodges the
+>   unprecedented self-referential-weak-symbol hazard (§1 review finding).
+> - **Symbol:** new `mangle.TypeInfoName(pkg, name)` mirroring `ImplVtableName`
+>   (`__ivt.` → a `__typeinfo.`-style prefix over the lp-mangled per-type body);
+>   generic instantiations get distinct symbols automatically (via `StructName`'s
+>   `bn_T` path). Weak linkage (`DG_WEAK`) coalesces cross-module duplicates.
+> - **`BuildTypeInfo` in `pkg/ir`** (new `data_typeinfo.bn`) mirrors
+>   `BuildPackageDescriptor` (node global + name-rodata global; `DataSymref`/
+>   `DataInt`/`DataBytes` terms in a fixed append order = byte order).
+> - **`emitDataGlobal` does NOT auto-propagate:** each backend (LLVM/x64/aarch64)
+>   has its own vtable driver + its own slot-1 placeholder; each must get the
+>   emit pass + the slot-1 wire. arm32 is a no-op skeleton (skip). The VM consumes
+>   the *native* vtable (reads the TypeInfo pointer through the native
+>   relocation), so it needs NO change to carry the slot — only to *read* it,
+>   which is Phase 5.
+>
+> **Increment breakdown (each self-contained + green; nothing reads the slot yet):**
+> - **2.1** — `TypeInfoDesc` + `Module.TypeInfos`; collect in `GenModule`;
+>   `mangle.TypeInfoName`; `BuildTypeInfo` (fields: dtor, size, align, name-ptr,
+>   name-len, **sat_len=0, sat_table=null** for now); emit in LLVM/x64/aarch64 +
+>   wire slot 1. Verify: unit test (record shape + slot-1 ref) + full conformance
+>   on all four modes + hygiene.
+> - **2.2** — populate the satisfaction table: `IfaceId` weak symbols
+>   (`mangle.IfaceIdName`), one `{iface_id, sub-vtable-ptr}` entry per interface in
+>   T's transitive set (from the already-flattened `m.Impls`/`c.Impls` grouping;
+>   sub-vtable offset via `IfaceParentSlotOffset`). Fill `sat_len`/`sat_table`.
+> - **Deferred to Phase 5** (where the VM must *read* TypeInfo): the reflect-
+>   descriptor extension + VM-side per-type identity materialization (revised
+>   §2f). Known gap for 2.x: types boxed **only into `any`** with no explicit
+>   `impl` (the lazy `ensureAnyImplInfo` path) — enumerate via `m.Impls` after
+>   IR-gen, or fold into the `any`-box site; tracked, not silently dropped.
+
 **Step 2a — TypeInfo layout helpers in `pkg/binate/types`.**
 Per the ir/backend guidelines, the record's *layout* is a language-level ABI
 contract → add named field-offset helpers alongside `layout_offsets.bn`
