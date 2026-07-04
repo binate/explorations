@@ -1,7 +1,9 @@
 # Plan: Implementing Type Assertions, Type Switches, and RTTI
 
-**Status:** high-level plan (2026-07-02). A follow-up worker is expected to expand
-each phase into ordered, edit-site-level steps. The **design is settled** and
+**Status:** high-level plan (2026-07-02). The edit-site-level expansion is
+`plan-type-assertions-execution.md` (2026-07-03) — read that for the ordered,
+file-anchored implementation steps; this doc remains the phase overview. The
+**design is settled** and
 **specified** — see spec §11.12 (`iface.assert`, `iface.assert.kind`,
 `iface.assert.absent`, `iface.typeswitch`, `iface.rtti`), §7.13.14
 (`type.layout.typeinfo`), §7.13.8, §13.8 (`expr.type-assert`), §14.10
