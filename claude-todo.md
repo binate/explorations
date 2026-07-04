@@ -1541,21 +1541,28 @@ backend doesn't implement emits a clean COMPILE_ERROR, never silent wrong-code).
 - **soft-float (P5) / VFP hard-float + arm32-linux (P6) / CI wiring (P7)** — see
   the plan doc.
 
-#### native-arm32-baremetal runtime miscompiles (found by P4 recon, 2026-07-02) — 🟠 ONE OPEN (two fixed)
+#### native-arm32-baremetal runtime miscompiles (found by P4 recon, 2026-07-02) — ✅ ALL THREE FIXED (2026-07-03/04)
 
 Three tests compiled clean through the native arm32 backend then HANG at runtime
 under QEMU (`[10s]` timeout) — silent-miscompile-invariant violations, arm32-only.
-Two are ✅ FIXED: `matrix/abi/struct-param/five-u8` (`f3a8bc91` — `common.PlanFrame`
-didn't round the aggregate-PARAMETER frame region up to 8 bytes → overrun +
-misaligned later frame slots → Data Abort) and `877_aggregate_abi_xpkg` (`0479813a`
-— the shared `NeedsSret`/`IsAggregateReturn` 64-bit-scalar misclassification, fixed
-by the aggregate-KIND gate; see the done log).
+All three are now ✅ FIXED (no `[10s]` runtime hangs remain on
+builder-comp_native_arm32_baremetal; conformance 1780/841/32):
 
-- **`conformance/599_addr_of_slice_elem` — 🟠 OPEN.** `make_slice` + `&s[i]` hangs
-  (the one remaining `[10s]` hang); the test's comment references a prior shared-IR
-  address-of miscompile fixed for other backends that arm32 still mishandles (likely
-  a localized `arm32_emit.bn` `emitGetElemPtr` / address-of bug). Its own future
-  increment.
+- `matrix/abi/struct-param/five-u8` (`f3a8bc91`) — `common.PlanFrame` didn't round
+  the aggregate-PARAMETER frame region up to 8 bytes → word-store overrun +
+  misaligned later frame slots → Data Abort.
+- `877_aggregate_abi_xpkg` (`0479813a`) — the shared `NeedsSret`/`IsAggregateReturn`
+  64-bit-scalar misclassification, fixed by the aggregate-KIND gate.
+- `599_addr_of_slice_elem` (`ba2a14ec`) — NOT the arm32-emit bug first suspected: a
+  MAJOR shared-IR wrong-width deref-store. `genAssign`'s `*p = val` (STAR) arm stored
+  the RHS at its OWN width, not the pointee width (unlike the IDENT/SELECTOR arms), so
+  `*pUint8 = 99` emitted a 4-byte `store i32` through an `i8*` — a wide store clobbering
+  neighbor bytes; **latent memory corruption on ALL backends**, visible only on
+  strict-alignment arm32-baremetal (Data Abort → hang). Fixed by an `ensureWidth` in
+  the STAR arm mirroring the sibling arms; an exhaustive audit confirmed it was the
+  SOLE such site. Optional follow-up (inert, doesn't gate): `genMultiAssign`'s IDENT
+  arm omits the same `ensureWidth` — a no-op today (its RHS is always a single-call
+  component already typed at the declared width).
 
 #### MINOR (cross-backend diagnostics) — `iropcode.OpName` missing `OP_CONST_FLOAT`
 

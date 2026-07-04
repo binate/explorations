@@ -31,16 +31,19 @@ decomposition). ILP32 layout background: [`plan-arm32-bare-metal.md`].
   `common_callconv` constructor split (`1fade373`), **OP_MAKE/OP_BOX (finish
   P3 emit, `b33eb9d6`)**, the experimental CI wiring (`0727d0c1`), the
   **`[N x i64]`→`[N x i32]` ILP32 aggregate-coercion ABI fix (`5b65e369`)**, the
-  docs-only comment sweep (`9239279a`), and the two runtime-hang fixes —
-  **five-u8 aggregate-param PlanFrame 8-round (`f3a8bc91`)** and the **shared
-  `NeedsSret`/`IsAggregateReturn` 64-bit-scalar kind gate (877, `0479813a`)**.
-  Current native-arm32-baremetal conformance: **1779 passed / 841 failed / 33
-  skipped** (the two hang fixes were +8 and resolved the `877` int64-xpkg-return
-  and `struct-param/five-u8` `[10s]` hangs; the only remaining runtime hang is
-  `599_addr_of_slice_elem`, a separate `&s[i]` bug; other failures are fail-loud
-  deferred P4/P5 shapes). The 877 kind-gate also repairs the shared int64-return
+  docs-only comment sweep (`9239279a`), and the **three runtime-hang fixes** —
+  five-u8 aggregate-param PlanFrame 8-round (`f3a8bc91`), the shared
+  `NeedsSret`/`IsAggregateReturn` 64-bit-scalar kind gate (877, `0479813a`), and
+  the shared-IR deref-store width coercion (599, `ba2a14ec`).
+  Current native-arm32-baremetal conformance: **1780 passed / 841 failed / 32
+  skipped** — **NO `[10s]` runtime hangs remain**; all three silent-miscompile
+  hangs (877 int64-xpkg-return, struct-param/five-u8 aggregate-param, 599
+  `&s[i]` deref-store) are fixed. Every remaining failure is a fail-loud deferred
+  P4/P5 shape. The 877 kind-gate also repairs the shared int64-return
   classification the concurrent ILP32-VM work references (its deferred VM-return
-  dispatch-patch is likely now moot — see claude-todo.md).
+  dispatch-patch is likely now moot — see claude-todo.md). 599's fix (shared-IR
+  `genAssign` STAR-arm ensureWidth) also corrected a latent wrong-width-store
+  memory-corruption footgun on ALL backends.
 - **Per-increment workflow that's worked every time:** (1) delegate the
   increment to a background `Agent` working in `temp-binate-5` (no `isolation:
   worktree`), mirroring the `native/aarch64` handler where a template exists and
