@@ -502,9 +502,17 @@ while keeping every commit green and close to main.
       delimiter + `...` spread (a spread regression test caught this). Nested
       wrapping composes via real columns; a single element >100 alone is not yet
       sub-wrapped.
-    - **12b** — params / composite-literal elements / type-arg lists (generalize
-      the fill engine) — *next*.
-    - **12c** — long boolean & call chains; **12d** — `// LONG-LINE ALLOWED`
+    - **12b** — parameter-list wrapping — committed (worktree), unlanded. String
+      fill engine (`printStrList` / `fillStrs`); `printParamList` emits its own
+      parens; `sigSuffixLen` reserves the results + ` {` after `)`.
+    - **12c** — composite-literal elements + type-level instantiation args —
+      committed (worktree), unlanded. Reuse the string engine
+      (`printCompositeElems` / `printTypeArgs`); `printStrList` treats a
+      multi-line pre-rendered element as un-fittable (forces wrap). (Type args in
+      expression position already wrap via the call/index path.)
+    - **Step-12 wrapping adversarial review** (4-lens find→verify workflow) — in
+      progress before landing 12b/12c.
+    - **12d** — long boolean & call chains; **12e** — `// LONG-LINE ALLOWED`
       never-reflow — pending.
 13. **CLI polish** (`-w`, `--check`, stdout, `--version`), parse-error/degenerate
     handling (§9), README, `_test.bn` per file, repo-wide fixpoint (§11.2).
