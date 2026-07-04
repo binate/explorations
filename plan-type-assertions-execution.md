@@ -385,15 +385,43 @@ self-compile continuing to pass.
 >   reviewed (4 lenses, no defects; NIT + Phase-5 weak-def hazard folded in).
 >   Verified: full unit + full conformance builder-comp/native-aa64 (2650 each) +
 >   iface VM/gen2, hygiene 15/15.
-> - **2.2** — fill the record from the **checker** (`c.Impls` has `RecvType
->   @Type`): dtor handle, `SizeOf`, `AlignOf`, and the `name` rodata
->   (`QualifiedTypeName`) — collected in `GenModule` into a `Module`-side desc
->   keyed to match the slot symbol (**mind the Phase-5 weak-def hazard above:
->   checker fields must be TU-invariant or emitted from one canonical TU**) —
->   AND populate the **satisfaction table**: `IfaceId` weak symbols
->   (`mangle.IfaceIdName`), one `{iface_id, sub-vtable-ptr}` entry per interface in
->   T's transitive set (from the already-flattened `m.Impls` grouping; sub-vtable
->   offset via `IfaceParentSlotOffset`). Fill `sat_len`/`sat_table`.
+> - **2.2** (split into 2.2a payload, 2.2b sat-table — see grounding). Fill the
+>   record from the **checker**, then populate the satisfaction table.
+>
+> **2.2 grounding (2026-07-04):**
+> - **Resolution path.** `ir.Module.Checker` (`@types.Checker`, set in
+>   `GeneratePackage`/`GenModule`) exposes `PackageType(pkgPath, name) @Type` and
+>   `c.Impls @[]@Impl` (each `Impl` has `RecvType @Type`). So the payload
+>   (`SizeOf`/`AlignOf`/`QualifiedTypeName`) is computable from a `types.Type`.
+> - **THE symbol-match constraint (do NOT get wrong — a mismatch = link error, a
+>   wrong size = SILENT miscompile).** The 2.1 record symbol + vtable slot ref
+>   both key on the FLAT `(RecvPkg, RecvTypeName)` strings. The payload must be
+>   attached to that SAME key, not to a separately-derived checker key (`t.Pkg`
+>   may be a path where `RecvPkg` is a short name — they can differ). **Approach:**
+>   enrich in IR-gen where BOTH are in hand — in/after `collectImplsFromDecl`,
+>   resolve the flat receiver to its base value type (peel the receiver shape) and
+>   record `{SizeOf, AlignOf, QualifiedTypeName, dtorSym}` onto a `Module`-side
+>   `TypeInfoDesc` keyed by `mangle.TypeInfoName(RecvPkg, RecvTypeName)` — the
+>   exact string the slot references. Backends look up the desc by that symbol
+>   (respects the IR/backend boundary: size/align computed in the IR/types layer,
+>   backends only emit bytes — do NOT call the checker from a backend).
+> - **`dtor` is free of the resolution risk:** `ImplInfo.DtorFuncName` already
+>   holds it (the same handle slot 0 uses) — TU-invariant, no `PackageType` call.
+> - **TU-invariance (the Phase-5 weak-def hazard, now due):** `SizeOf`/`AlignOf`
+>   are layout facts (target-parameterized, identical within a link);
+>   `QualifiedTypeName` is canonical; the dtor symbol is deterministic. So the
+>   fields ARE TU-invariant **iff computed on the canonical, alias-peeled base
+>   type**. Compute them that way and weak-from-every-TU coalescing stays correct
+>   (no need to switch to one-canonical-TU emission). Verify with a multi-TU test
+>   (e.g. `378_iface_impl_dup`) that the filled records are byte-identical.
+> - **2.2a** = fill words 0–4 (dtor, size, align, name-ptr, name-len) + emit the
+>   name rodata; sat table stays 0/null. The record gains a name relocation, so it
+>   moves rodata → rodata_relro on native (was reloc-free). Update the 2.1 record
+>   goldens (no longer all-zero; size/align are the host int width in the test).
+> - **2.2b** = satisfaction table: `IfaceId` weak symbols (`mangle.IfaceIdName`),
+>   one `{iface_id, sub-vtable-ptr}` per interface in T's transitive set (from the
+>   already-flattened `m.Impls` grouping; sub-vtable offset via
+>   `IfaceParentSlotOffset`). Fill `sat_len`/`sat_table`.
 > - **Deferred to Phase 5** (where the VM must *read* TypeInfo): the reflect-
 >   descriptor extension + VM-side per-type identity materialization (revised
 >   §2f).
