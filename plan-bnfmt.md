@@ -535,19 +535,19 @@ while keeping every commit green and close to main.
       Pos==End); 12e false positive (match exact `// ` marker). Residual: a single
       atomic operand wider than the line minus ` {` is inherently unfittable
       (the LONG-LINE-ALLOWED case). **Step 12 complete.**
-13. **CLI + wiring** — mostly done (worktree, unlanded):
+13. **CLI + wiring** — ✅ **LANDED** 2026-07-04:
     - `formatSource` wired to `pkg/binate/format` (was identity) — extension-aware
       (`.bni` interface mode), returns parse errors; main reports them to stderr
       and never rewrites on error (§9). CLI (`-w`/`--check`/stdout/`--version`),
       already scaffolded, now drives real formatting; README updated. Verified
-      end-to-end (`42941168`).
+      end-to-end (`97fea816`).
     - **Repo-wide dogfood** (§11.2 check, not yet a wired hygiene rule): bnfmt over
       all **814** `pkg`/`cmd` files → **0 invalid output, 0 non-idempotent** (with
       correct-extension reparse). It found **one real bug**: comparison operators
       are non-associative, but the printer dropped same-precedence comparison
       parens (`(a == b) != (c == d)` → unparseable `a == b != (c == d)`) — fixed
-      critical (`441d74f0`, printBinOperand + flattenChain). Also fixed a spurious
-      leading blank line (`cda0cf9a`).
+      critical (`41de2e34`, printBinOperand + flattenChain). Also fixed a spurious
+      leading blank line (`8a234760`).
     - **Remaining (user decisions / follow-ups):** applying bnfmt to reformat the
       tree + wiring a `format-check.sh` hygiene rule are user calls (don't wire
       unasked); `-w` atomicity needs `os.Rename`; grouped-member multi-line
