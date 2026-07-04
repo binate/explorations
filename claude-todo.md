@@ -326,101 +326,41 @@ the range-lookup-selected shim slot) + `pkg/binate/vm` `vtable_inject`
   typecheck — `scripts/hygiene/lint.sh` temporarily skips pkg/binate/vm +
   pkg/binate/repl + cmd/bni until the next BUILDER bump.
 
-### Compiler/interpreter interop — MAJOR PROJECT
-- **Why this is high priority**: dual-mode execution is a core promise of the
-  Binate language. Compiled-and-interpreted code calling each other (in both
-  directions) is what makes "compile some packages, interpret others" actually
-  useful. We should make this real BEFORE pushing on more language features —
-  large language additions risk locking in design choices that close off
-  interop options.
-- **Likely-already-compatible substrate** (verify rather than redesign):
-  - **In-memory layout of types** is supposed to match across modes. Compiler
-    uses `pkg/types`'s SizeOf/AlignOf/FieldOffset; interpreter uses (or should
-    use) the same. Verify with a small cross-mode struct-pass test.
-  - **Refcounting**: managed allocations carry a header with refcount and a
-    pointer to the destructor, populated at allocation site. Compiled and
-    interpreted code use the same `rt.RefInc` / `rt.RefDec` / `rt.Free`. Free
-    paths invoke the per-type dtor through the header, so a managed value
-    allocated on one side and dropped on the other should clean up correctly.
-    Verify with a cross-mode managed-pointer round-trip.
-- **Direction to start with**: interpreted code calling compiled code. Simpler
-  than the reverse (no need for the compiler to plant trampolines into a
-  running interpreter). Once that works, compiled code calling interpreted
-  code falls out roughly symmetrically.
-- **Granularity: package-level.** For interpreted code in package P to call
-  into a compiled package Q, the interpreter needs:
-  - Q's `.bni` (so the interpreter can type-check P against Q's signatures —
-    this already works today via the existing `.bni` loading path).
-  - **Pointers to Q's compiled functions** (the actual interop primitive).
-- **Proposed mechanism: auto-generated package descriptor.** The compiler emits,
-  for each package Q, a synthetic `const` of a synthetic struct type — call it
-  e.g. `foo.Package` (working name; could be `foo.PackageImpl` or another
-  canonical name) — whose fields are pointers to Q's exported functions in some
-  canonical order (e.g., sorted by mangled name). The interpreter, when it
-  loads compiled package Q, reads that descriptor and binds each field as the
-  function value for the corresponding name in Q's scope. Naming and layout
-  must be canonical so an interpreter built against Q's `.bni` can read Q's
-  descriptor without further metadata.
-- **Symmetry**: the interpreter should produce the same shape on its own end —
-  for each interpreted package, expose a `foo.Package` whose function-pointer
-  fields are trampolines into the interpreter (call into the bytecode VM
-  using the trampoline's bound bytecode/closure-env/types/aliases). That way
-  compiled code calling interpreted code is the same mechanism, mirrored.
-- **Prerequisite — DONE**: function values (see
-  `plan-function-values.md` + `plan-function-values-phase-3.md`).
-  The descriptor's fields are pointers to functions — that's
-  exactly what function values are. The 2-word `{vtable, data}`
-  representation, the `(*uint8 data, <args>)` always-shim
-  convention, the per-function `__shim.<mangled>` shims, the
-  bytecode-side `dispatchCompiledFuncValue` (via
-  `rt._call_shim_scalar`), and the compiled-side `TrampolineScalar`
-  are all in place. The remaining work is the descriptor itself
-  (naming, layout, emission, loading) plus the symmetric VM-side
-  emission for interpreted packages — pure plumbing; no new
-  trampoline machinery needed.
-- **Adjacent cleanup, lighter-weight first step**: see the
-  "VM extern dispatch: name → function-value registry" entry
-  above. A per-VM name → function-value registry with manual
-  registration (no descriptor design needed) replaces
-  `pkg/vm/vm_extern.bn`'s hand-coded switch via the same
-  `dispatchCompiledFuncValue` path Phase 3 already provides.
-  Auto-generated descriptors are the more general form of the
-  same idea — the registry stays as the manual-registration
-  escape hatch for host-only externs that have no Binate-side
-  `.bni` package.
-- **Design open questions** (need a writeup before implementation):
-  - Canonical name for the descriptor — `foo.Package` reads naturally but
-    risks conflicting with user names. `foo.PackageImpl` or a reserved-prefix
-    name (`__pkg_foo`)? Reserve a keyword?
-  - Canonical layout — sort by mangled name? By declaration order in `.bni`?
-    Layout must be agreed-upon by the descriptor's emitter and reader.
-  - Interaction with import aliases (`import alt "pkg/foo"`) and blank imports
-    (`import _ "pkg/foo"`) — see the "Import aliases and blank imports" entry.
-  - What does the descriptor look like for the package being compiled itself
-    (the "self" descriptor)?
-  - How are package-level globals exposed? Functions are the obvious starting
-    point; globals are a separate (but related) interop question.
-  - Versioning: if Q's `.bni` and Q's compiled descriptor disagree (different
-    function set, different layout), how do we detect and report it?
-- **Adjacent in-flight work that affects this**:
-  - "Function values — MAJOR PROJECT" (above) and
-    `plan-function-values.md` — direct prerequisite. Phase 3 of
-    that plan delivers the cross-mode trampoline machinery this
-    work consumes.
-  - "Free-function pointer in managed-allocation header — bug"
-    (above, DONE within a single mode) — Free now dispatches through
-    `header[1]`. Cross-mode allocate-on-one-side / free-on-the-
-    other still requires Phase 3's trampolines to translate
-    `header[1]` between the C-pointer and VM-index conventions.
-  - "Lift function-name qualification into IR" (above) — would simplify name
-    resolution at the interop boundary.
-  - "Import aliases and blank imports" (below) — affects how the descriptor
-    is named at the import site.
-- **Suggested next step**: write a design doc (e.g.
-  `explorations/plan-compiler-interp-interop.md`) that nails down the
-  descriptor name/layout, walks through one concrete cross-mode call end-to-
-  end on each side, and identifies the first concrete code change to make.
-  Don't start implementation until the design is reviewed.
+### Compiler/interpreter interop — MAJOR PROJECT — 🟢 substrate + descriptor LANDED; general user-package table remains (Phase B)
+
+Dual-mode execution (compiled and interpreted code calling each other, both
+directions) is a core Binate promise. The substrate this entry originally
+sketched has largely LANDED; the **live tracker for what remains is the "Package
+descriptors (Phase B)" entry above.**
+
+**Done:**
+- **Substrate verified** (not just assumed): cross-mode in-memory type layout
+  (shared `pkg/types` SizeOf/AlignOf/FieldOffset) and cross-mode refcounting
+  (shared `rt.RefInc`/`RefDec`/`Free`, per-type dtor via the header) — both
+  exercised end-to-end through the static-managed sentinel.
+- **Function values** — the named prerequisite (`plan-function-values*.md`): the
+  2-word `{vtable,data}` rep, `__shim.<mangled>` shims, `dispatchCompiledFuncValue`
+  (via `rt._call_shim_scalar`), and the compiled-side `TrampolineScalar` are all in
+  place.
+- **The package descriptor** — became `reflect.Package` / `__Package()`; works in
+  compiled AND VM modes for the builtins (`d4edd671`, `conformance/532` green in all
+  6 modes), with Globals + Vtables tables populated for cross-environment parity
+  (`55ebcfce`). This settled the old design questions (descriptor name, layout,
+  self-descriptor, globals exposure).
+- **Cross-mode dispatch** (interpreted↔compiled via the func-value shims) — the
+  observable shapes are covered (e2e `7f15b1e9` + the func-value ABI-matrix work;
+  residual native-shim ABI gaps are tracked in the cross-mode-dispatch section
+  above).
+- **VM name→function-value registry** (the entry's "lighter-weight first step") —
+  landed as `registerPackageDescriptorExterns` / `RegisterPackageFunctions` plus
+  the embeddable-interp host-registration path.
+
+**Remaining (all tracked in the "Package descriptors (Phase B)" entry above):** the
+GENERAL Functions-table for USER packages — codegen emits a per-package `Functions`
+table (name + signature + function value per exported func) and the VM
+auto-enumerates all packages' tables via a cross-package registry, replacing the
+hand-maintained `RegisterStandardExterns`. Then Phase C: richer type metadata /
+RTTI for reflection + type assertions.
 
 ### Embeddable-interp — open follow-ups (Inc 2 extern cleanup core landed) — 🟡 OPEN (2026-06-20)
 
