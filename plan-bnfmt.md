@@ -518,8 +518,20 @@ while keeping every commit green and close to main.
       the postfix/composite printers so a nested list reserves its enclosing close
       and a trailing selector after a wrapped composite. No output line >100 across
       reviewed cases.
-    - **12d** — long boolean & call chains; **12e** — `// LONG-LINE ALLOWED`
-      never-reflow — next.
+    - **12d** — binary-operator chain wrapping — committed (worktree), unlanded
+      (`114952cf`). `printBinary` decides wrap-or-single; `flattenChain` flattens
+      the top-level same-precedence left-assoc chain; `printBinaryWrapped` fills,
+      breaking AFTER an operator (continuation +2), reserving the *following*
+      operator's width so it doesn't overflow. Method chains not wrapped (not
+      house style). Source-preserve + width, matching lists.
+    - **12e** — `// LONG-LINE ALLOWED` never-reflow — committed (worktree),
+      unlanded (`c36fd2c7`). A scoped `wrapSuppressed` global (set around a marked
+      statement/decl via `printStmtMaybeNoWrap`/`printDeclMaybeNoWrap`, detected on
+      the node's End line) makes `printArgList`/`printStrList`/`printBinary` render
+      single-line, so a marked long line is not reflowed. The marker is currently
+      unused tree-wide but sanctioned.
+    - **Step-12d/12e adversarial review** (3-lens workflow) — in progress before
+      landing 12d/12e.
 13. **CLI polish** (`-w`, `--check`, stdout, `--version`), parse-error/degenerate
     handling (§9), README, `_test.bn` per file, repo-wide fixpoint (§11.2).
 
