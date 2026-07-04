@@ -502,18 +502,24 @@ while keeping every commit green and close to main.
       delimiter + `...` spread (a spread regression test caught this). Nested
       wrapping composes via real columns; a single element >100 alone is not yet
       sub-wrapped.
-    - **12b** — parameter-list wrapping — committed (worktree), unlanded. String
-      fill engine (`printStrList` / `fillStrs`); `printParamList` emits its own
-      parens; `sigSuffixLen` reserves the results + ` {` after `)`.
-    - **12c** — composite-literal elements + type-level instantiation args —
-      committed (worktree), unlanded. Reuse the string engine
+    - **12b** — parameter-list wrapping — ✅ **LANDED** 2026-07-04 (`9a524abe`).
+      String fill engine (`printStrList` / `fillStrs`); `printParamList` emits its
+      own parens; `sigSuffixLen` reserves the results + ` {` after `)`.
+    - **12c** — composite-literal elements + type-level instantiation args — ✅
+      **LANDED** 2026-07-04 (`3ac4e0ee`). Reuse the string engine
       (`printCompositeElems` / `printTypeArgs`); `printStrList` treats a
-      multi-line pre-rendered element as un-fittable (forces wrap). (Type args in
-      expression position already wrap via the call/index path.)
-    - **Step-12 wrapping adversarial review** (4-lens find→verify workflow) — in
-      progress before landing 12b/12c.
+      multi-line pre-rendered element as un-fittable (forces wrap).
+    - **Step-12 wrapping adversarial review** (4-lens find→verify workflow):
+      confirmed 12 width-cap findings (no idempotence/token/comment defects), all
+      fixed + regression-tested. **Width-cap hardening** ✅ **LANDED**
+      (`ddb46736`): mode-A fallback when mode B's first line would overflow;
+      `printResults` (n≥2) and `printFuncType` param/result lists now wrap.
+      **Tail propagation** ✅ **LANDED** (`65b438af`): a `tail` threaded through
+      the postfix/composite printers so a nested list reserves its enclosing close
+      and a trailing selector after a wrapped composite. No output line >100 across
+      reviewed cases.
     - **12d** — long boolean & call chains; **12e** — `// LONG-LINE ALLOWED`
-      never-reflow — pending.
+      never-reflow — next.
 13. **CLI polish** (`-w`, `--check`, stdout, `--version`), parse-error/degenerate
     handling (§9), README, `_test.bn` per file, repo-wide fixpoint (§11.2).
 
