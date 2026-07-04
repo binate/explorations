@@ -234,7 +234,7 @@ assertions, then type switches.
 
 | Phase | What | Reads the new slot? | Risk |
 |-------|------|---------------------|------|
-| 1 | Grow any-block to 2 words; TypeInfo slot = **null**; re-base methods | no | HIGH (ABI) |
+| 1 | Grow any-block to 2 words; TypeInfo slot = **null**; re-base methods — **✅ LANDED `0734beaa`** | no | HIGH (ABI) |
 | 2 | Emit real `TypeInfo` records; fill the slot; `IfaceId` symbols | no (assert not built yet) | med |
 | 3 | Parser + AST for `x.(K T)` and `switch x.(type)` | — | low |
 | 4 | Checker: assertion + comma-ok + type-switch typing | — | med |
@@ -245,6 +245,15 @@ assertions, then type switches.
 ---
 
 ## Phase 1 — Grow the vtable any-block to two words (null TypeInfo)
+
+> **✅ LANDED 2026-07-04** — main `0734beaa`. Implemented exactly as planned (the
+> 8 lockstep sites, atomic). Adversarially reviewed (four lenses): no correctness
+> defect; the review's MINOR findings (stale layout doc-comments; x64 had no
+> vtable byte-size unit golden, and no positional slot-1 null-TypeInfo golden for
+> the managed-receiver case) were all folded into the landed commit. Verified:
+> full unit suite + full conformance on builder-comp / -int / -comp / native-aa64
+> (all 0 failed), hygiene 15/15. TypeInfo slot ships as a null placeholder;
+> Phase 2 populates it.
 
 **Goal:** every vtable becomes `[dtor, null, method0, method1, …]`; all dispatch
 still works; nothing reads slot 1 yet. This is a pure ABI-shift commit. It is the
