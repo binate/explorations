@@ -466,119 +466,45 @@ I/O to `.bn` + `__c_call`" Phase 2 is superseded by the plan above: `pkg/std/os`
 subsumes the I/O, so there's no reason to convert it in place. Design notes:
 `plan-bootstrap-ccall.md`.)
 
-### Annotations and C function interop
-- **Option E (`__c_call` intrinsic) has a detailed implementation plan:
-  [plan-c-call.md](plan-c-call.md).**
-- Consider implementing annotations (decorators/attributes).
-- Specific use case: annotating functions as C functions.
-  - **Option A**: annotation in `.bni` — callers know the name and calling convention, but mixes interface with implementation.
-  - **Option B**: annotation on the definition (with empty body) — `bnc` generates a trampoline. But empty body is weird (missing return values?).
-  - **Option C**: annotation on a call site, indicating it's a C function call. Maybe a "magic" C package so no annotation is needed at all.
-  - **Option D**: manual trampolines, with a magic C package for declarations.
-  - **Option E**: a `__c_call` compiler intrinsic at the call site, no
-    declaration needed.  Two forms were considered:
-    - **E1 (rejected)**: pass a C prototype string —
-      `__c_call("ssize_t write(int, const void*, size_t)", fd, buf, len)`.
-      Reads nicely, but forces the compiler to parse C and resolve C
-      types, which drags in typedefs, macros, and platform builtins
-      (`__size_t` &c.).  Not practical.
-    - **E2 (preferred)**: pass the C symbol name, an explicit return
-      type, then the argument values already in (or cast to) the
-      Binate types that match the C ABI —
-      `result = __c_call("write", int, cast(int, fd), cast(*uint8, buf), cast(uint, len))`
-      (casts are unnecessary when the variables already have the right
-      type).  Supported argument/return types: scalars, struct types,
-      and pointers to these (to any depth: `*T`, `**T`, …).  This
-      reuses the backends' existing platform-C-ABI lowering (struct
-      sret thresholds, register assignment) — no C parsing, no type
-      resolution, no new ABI logic.  The symbol name is emitted
-      verbatim (no `bn_` mangling); the backend emits the matching
-      `extern`/`declare`.
-  - **C-types alias package (decided)**: a package (e.g. `pkg/c`)
-    pins the Binate↔C scalar correspondence in one place so call sites
-    don't open-code it.  `C_int`/`C_uint` = `i32`/`u32` (C `int` is
-    32-bit on both ILP32 and LP64, *not* target-word-width like Binate
-    `int`); `C_long`/`C_ulong` = target-word (LP64 Unix; matches Binate
-    `int`/`uint`); `C_size_t` = `uint` (pointer-width); `C_char` = `i8`
-    (signedness is platform-dependent in C — note the caveat, but it's
-    promoted on pass so rarely matters).  Plus a sentinel `C_void` for
-    the return-type slot of functions that return nothing.  So the
-    example's `fd` is really `C_int` (= `i32`), not `int`.
-  - **Scope decisions (v1)**:
-    - **Compiled-mode-only to start.** The compiler emits a direct
-      call; the VM would need FFI-style dispatch (resolve the symbol
-      via the extern registry + marshal by the supplied types) — punt
-      that.  `__c_call` outside compiled mode is an error for now.
-    - **Include variadics from the start.** The whole point of
-      `__c_call` is to retire `pkg/bootstrap`'s hand-written C
-      wrappers and the special shim machinery — and several of those
-      OS interfaces are variadic in C (`open(const char*, int, ...)`
-      where `mode` is a vararg; `fcntl`, eventually the `printf`
-      family).  Punting variadics would leave bootstrap unable to go
-      away, defeating the purpose.  So v1 supports them.
-      - **Boundary marker (required).** The call site must declare
-        where fixed args end and variadic args begin — it can't be
-        inferred from the values (`open(path, flags, mode)` is
-        indistinguishable from a 3-fixed-arg call).  Proposed: a
-        `C_varargs` sentinel (or a recognized `...` token) in the
-        argument list:
-        `__c_call("open", C_int, path, flags, C_varargs, mode)`.
-        Everything after the marker is an anonymous/variadic arg.
-      - **Backend work is lopsided.** LLVM path: nearly free — emit
-        `declare i32 @open(i8*, i32, ...)` + a varargs call with the
-        right fixed-arg count, and LLVM does the platform-correct
-        lowering (x86-64 `AL` = vararg float count, darwin-arm64
-        stack-passing, 64-bit-vararg alignment) for us.  Native
-        backends (`pkg/native/{arm64,amd64}`): real work — they emit
-        machine code directly and must implement the vararg
-        convention per target (darwin-arm64 stacks all varargs;
-        x86-64 SysV sets `AL`; AArch64-Linux/arm32 mostly match the
-        fixed convention but 64-bit varargs need 8-byte alignment).
-        This extends the existing `CallConv`/register-assignment
-        logic; needs per-target tests.
-  - **Open considerations for E2 (still to resolve)**:
-    - Confirm the full `pkg/c` scalar table against each target
-      (`C_long` on a 32-bit target, `C_char` signedness, the float
-      types if/when floats land).
-    - Final spelling of the variadic boundary marker (`C_varargs`
-      sentinel vs a `...` token vs an explicit fixed-arg count).
-    - VM/dual-mode FFI dispatch (deferred above) when interpreted-mode
-      `__c_call` is eventually wanted.
-  - **Companion idea — link-requirement annotation (sketch)**: Option E
-    makes a C symbol *callable*; a complementary annotation would make
-    it *resolve at link time* by declaring, at the source level, that
-    using a package requires linking some C library — so the driver
-    adds the flag automatically instead of every consumer passing
-    `--cflag -lm` / `--link-after-objs` by hand.  Prior art:
-    Rust `#[link(name = "m", kind = "static")]`, Go cgo
-    `// #cgo LDFLAGS: -lm`, MSVC `#pragma comment(lib, "foo")`.
-    Natural shape: `#[link("m")]` (optionally a `static`/`dynamic`/
-    `framework` kind), most naturally on the `.bni` since the link
-    requirement is part of the package's contract.  This is also the
-    first real payoff of the general annotations feature this item is
-    about — both Option E and this want it.
-    - **Open wrinkles**:
-      - **Transitivity** — the requirement must propagate through the
-        import graph (aggregate + dedup all declared libs for any
-        binary that transitively imports the package).  Hooks into the
-        loader's `ldr.Order` walk + the driver's `clangArgs` assembly.
-      - **Link ordering** — static archives only supply symbols
-        referenced by *earlier* inputs, so aggregated `-l` entries
-        need correct placement vs. the `.o` files and runtime (the
-        driver already does this for `linkAfterObjs`).
-      - **Search paths** — keep the annotation name-only (`-l`); leave
-        `-L<dir>` to driver flags.
-      - **Platform-conditionality** — a `libm` dep is meaningless on
-        bare-metal arm32 and `framework` kind is macOS-only, so the
-        annotation likely needs to be target-qualifiable.  Ties into
-        the C-free principle: this exists only to interface with
-        existing C systems and should evaporate on freestanding
-        targets.
-      - **Static-spec portability** — even with `kind = static`,
-        expressing it portably is messy (GNU ld `-l:libfoo.a` /
-        `-Wl,-Bstatic`; macOS `ld` has neither), so it may need
-        per-platform lowering in the driver or a full-path escape
-        hatch.
+### Annotations & C function interop — `__c_call` DONE; residual is the `#[link]` companion — 🟡 OPEN (low)
+
+**Option E (`__c_call` intrinsic) was chosen (form E2) and is ✅ DONE & SHIPPED**
+(incl. native variadics; `plan-c-call.md` = "COMPLETE, 2026-06-02"). Call sites use
+`result = __c_call("write", int32, cast(int32, fd), buf, len)` — C symbol name +
+explicit return type + args already in the Binate types matching the C ABI, reusing
+the backends' platform-C-ABI lowering (no C parsing, no `bn_` mangling). It is in
+production across `pkg/builtins/rt` + `pkg/std/os` (open/read/stat/readdir/errno…),
+retiring `pkg/bootstrap`'s hand-written C wrappers as intended. The general `#[…]`
+annotation syntax also landed (as `#[build(…)]`). Options A–D and the E1
+(C-prototype-string) form were rejected — see `plan-c-call.md` / git for that history.
+
+**Chose NOT to build: the `pkg/c` C-types alias package** (`C_int`/`C_long`/
+`C_size_t`/…). Call sites open-code the Binate↔C scalar correspondence directly
+(`int32`, `*uint8`, `uint`, …). Revisit only if that open-coding becomes a real
+maintenance pain. (`__c_call` stays compiled-mode-only; interpreted-mode use is a
+frontend error — VM/dual-mode FFI dispatch is a separate deferred item.)
+
+**Residual — the companion `#[link]` link-requirement annotation (sketch, NOT
+built).** `__c_call` makes a C symbol *callable*; a complementary annotation would
+make it *resolve at link time* — declare at the source level (most naturally in the
+`.bni`, since the link requirement is part of the package's contract) that a package
+needs some C library linked, so the driver adds the flag automatically instead of
+every consumer passing `--cflag -lm` / `--link-after-objs` by hand. Prior art: Rust
+`#[link(name="m")]`, Go cgo `#cgo LDFLAGS`, MSVC `#pragma comment(lib,…)`. Natural
+shape `#[link("m")]` (optional `static`/`dynamic`/`framework` kind). This is the
+first real payoff of the general annotations feature. Open wrinkles:
+- **Transitivity** — propagate + dedup declared libs through the import graph (hook
+  the loader's `ldr.Order` walk + the driver's `clangArgs` assembly).
+- **Link ordering** — static archives supply only symbols referenced by *earlier*
+  inputs, so aggregated `-l` entries need correct placement vs the `.o`s + runtime
+  (the driver already does this for `linkAfterObjs`).
+- **Platform-conditionality** — a `libm` dep is meaningless on bare-metal and
+  `framework` kind is macOS-only, so the annotation likely needs target-qualification
+  (ties into the C-free principle: it should evaporate on freestanding targets).
+- **Static-spec portability** — `kind=static` is messy to express portably (GNU ld
+  `-l:libfoo.a` / `-Wl,-Bstatic`; macOS `ld` has neither) → per-platform driver
+  lowering or a full-path escape hatch.
+- **Search paths** — keep the annotation name-only (`-l`); leave `-L<dir>` to flags.
 
 ## Build constraints (`#[build(EXPR)]`)
 
