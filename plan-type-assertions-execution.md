@@ -384,9 +384,25 @@ self-compile continuing to pass.
 >   sub-vtable offset via `IfaceParentSlotOffset`). Fill `sat_len`/`sat_table`.
 > - **Deferred to Phase 5** (where the VM must *read* TypeInfo): the reflect-
 >   descriptor extension + VM-side per-type identity materialization (revised
->   §2f). Known gap for 2.x: types boxed **only into `any`** with no explicit
->   `impl` (the lazy `ensureAnyImplInfo` path) — enumerate via `m.Impls` after
->   IR-gen, or fold into the `any`-box site; tracked, not silently dropped.
+>   §2f).
+> - **`any`-only-boxing: VERIFIED COVERED (not a gap).** The 2.1 adversarial
+>   review (2026-07-04) confirmed the lazy `ensureAnyImplInfo` append lands in
+>   `m.Impls` during IR-gen, which completes before codegen's `CollectTypeInfoSyms`
+>   runs — and reproduced it by compiling+linking+running programs that box a
+>   cross-package type and a primitive into `*any` with no explicit `impl`: each
+>   emits a local weak `__typeinfo.<T>` for its slot-1 reference. No dangling ref.
+> - **⚠ Phase-5 HAZARD (review-flagged, MINOR) — conflicting weak defs.** The
+>   `__typeinfo.<T>` record is emitted weak from *every TU with a local impl of
+>   `T`* (and every generic-inst site), relying on the linker to coalesce them to
+>   one identity. Today that is safe because the record is **all-zero** — byte-
+>   identical from every TU. But when 2.2/Phase 5 fills `size`/`align`/`name`/`dtor`
+>   from each TU's **own checker**, two TUs that see `T` differently (via an alias
+>   or a divergent import path) would emit **conflicting** weak defs; the linker
+>   silently picks one, no diagnostic. Before filling the payload: either prove the
+>   checker-derived fields are TU-invariant, or emit the record from exactly one
+>   canonical TU (e.g. the type's defining package, like dtors). This is
+>   real-but-latent — the all-zero record masks it now (multi-TU coalescing is
+>   exercised green by `conformance/378_iface_impl_dup`).
 
 **Step 2a — TypeInfo layout helpers in `pkg/binate/types`.**
 Per the ir/backend guidelines, the record's *layout* is a language-level ABI
