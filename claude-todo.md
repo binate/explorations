@@ -302,6 +302,32 @@ them). Related: `conformance/877_aggregate_abi_xpkg` also hangs on this mode,
 and its methods return int64 — plausibly the SAME int64-return defect rather
 than an aggregate-ABI one.
 
+### `Self` nested in a composite iface-method param (`*[]Self` / `...Self`) fails impl-satisfaction — 🟠 OPEN (2026-07-03)
+
+**Severity: minor-major (a spec'd construct is rejected; obscure).** An interface
+method whose parameter nests `Self` inside a composite type — `grab(rest *[]Self)`,
+and hence a variadic `merge(others ...Self)` (body `*[]Self`) — is **not** satisfied
+by a correct impl. `methodSigSatisfies` (`pkg/binate/types/check_impl.bn`) compares
+`substituteSelf(ifaceFt.Params[i].Type, named).Identical(implFt.Params[i+1].Type)`;
+`substituteSelf` (`check_self.bn`) DOES recurse into a slice element, so `*[]Self`
+with `Self=*Bag` should map to `*[]*Bag` and match the impl's `*[]*Bag` — yet the
+impl is rejected ("type Bag does not implement Holder (method `grab` has wrong
+signature)"). **Not variadic-specific:** a plain non-variadic `*[]Self` param
+reproduces it, so the gap is in how the interface method's `Self`-in-composite
+param is *resolved* (likely the inner `Self` is not resolved to `TYP_SELF` when
+nested in a composite, so `substituteSelf` has nothing to substitute), NOT in the
+variadic work.
+
+- **Impact:** blocks a variadic `...Self` interface / generic-constraint method.
+  The variadics Phase 6c `substituteSelf`-recursion in `tryTypeParamMethodCall`
+  (correct code) therefore has no end-to-end conformance test until this is fixed.
+- **Repro / xfail:** `conformance/regressions/iface-self-in-composite` (`.xfail.all`).
+- **Discovered:** 2026-07-03, adding Phase 6 (variadic method/interface/generic
+  call) coverage.
+- **Proposed fix:** ensure the interface-method param-type resolver marks a nested
+  `Self` (inside `*[]Self` / `@[]Self` / `[N]Self` / `*Self` composites) as
+  `TYP_SELF` so `substituteSelf` substitutes it, then drop the xfail.
+
 ---
 
 ## Language features — specified, not yet implemented
