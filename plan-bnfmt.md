@@ -422,7 +422,17 @@ while keeping every commit green and close to main.
    boundary, not exactly inline — perfecting these needs the cursor threaded
    through the expression + interface/group printers (follow-up). Verified by
    token-equality + comment-multiset re-parse (59 format tests); hygiene 15/15.
-10. **Blank-line handling**; file hygiene; `// LONG-LINE ALLOWED` preservation.
+10. **Blank-line handling**; file hygiene — ✅ **LANDED** 2026-07-03
+    (`ee0c2d6d`). A single blank line between statements (in blocks + switch case
+    bodies) is preserved where the source had one, collapsing 2+→1 (gap measured
+    to the next comment-or-node so a comment doesn't spuriously trigger a blank;
+    blanks after `{` / before `}` dropped). `finalizeFile` normalizes output to
+    exactly one final newline, no trailing blank/whitespace. `// LONG-LINE
+    ALLOWED` is preserved as a comment (step 9); never-reflow is step 12. A
+    minimal review fixed a minor stale-interior-comment blank-drop; a documented
+    minor asymmetry remains (blank between a comment and its stmt not preserved).
+    Verified by idempotence (blanks, comments+blanks, interior) + goldens (65
+    format tests); hygiene 15/15.
 11. **Column alignment** (tabwriter).
 12. **Width-aware wrapping** to 100 cols.
 13. **CLI polish** (`-w`, `--check`, stdout, `--version`), parse-error/degenerate
