@@ -83,6 +83,42 @@ decision, not a clear defect. Impl-satisfaction of `Self`-in-composite itself wo
 
 ---
 
+## ✅ DONE & LANDED (main `77ae3c54`, 2026-07-03) — string-literal slicing emitted invalid LLVM
+
+**Was MAJOR** (a valid construct did not compile — hard LLVM verifier error, every
+mode). `genSliceExpr` (`pkg/binate/ir/gen_access.bn`) only array-to-slice-converted
+a `TYP_ARRAY` collection; a string literal `"abc"` (type `[N]readonly char`) yields
+a bare `OP_CONST_STRING` `*readonly char` pointer, so the conversion was skipped and
+the subsequent `EmitSliceLen` did `extractvalue i8* <ptr>, 1`. Triggered by any
+`"lit"[:]` — e.g. the plain `cc("abc"[:])`. **Fix:** `genSliceExpr` materializes an
+`OP_CONST_STRING` collection into a `*[]readonly char` rodata slice
+(`EmitStringToChars`) before the slice logic; result type matches the checker.
+Test: `conformance/regressions/slice-string-literal` (full slice / bounds /
+empty-string / index / var-bind) + the plan's `stringLit[:]...` spread in
+`spec/10-functions/178`. Green comp/int/comp-comp; adversarially reviewed.
+Surfaced writing the variadics Phase 4 spread tests (no existing test had ever
+sliced a string literal).
+
+---
+
+## ✅ DONE & LANDED (main `a2abf36e`, 2026-07-03) — managed-slice literal element leak (`@[]@T{…}`)
+
+**Was MAJOR** (compiler generated leaking code). A fresh managed-slice composite
+literal `@[]@T{…}` was never registered as an end-of-statement cleanup temp (unlike
+a `make_slice` result or a struct/array literal), so the return-path backing-RefInc
+and each element's acquire had nothing to balance them — the backing and every
+managed element ref leaked per occurrence (the tracked "`@[]@I` literal element
+leak", general to any managed element kind: `@T` / `@[]T` / `@func` / `@Iface`).
+The caller's managed-slice dtor gates its element walk on `Refcount(backing) == 1`;
+the unbalanced RefInc left it at 2, so the walk was skipped. **Fix:** register the
+slice as a cleanup temp in `genManagedSliceLit` (mirroring the call-result /
+struct-array-literal paths); move consumers already `consumeTemp` it. Test:
+`conformance/spec/18-memory/148`. Verified by the 825/0 refcount-matrix sweep +
+adversarial review (sound across all 12 consumers). Surfaced writing the variadics
+Phase 4 refcount test.
+
+---
+
 ## ❌ DISMISSED (2026-07-02) — conformance tests in a separate repo
 
 Considered and **decided against**. The proposal (a standalone `binate/conformance`

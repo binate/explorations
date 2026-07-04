@@ -214,29 +214,6 @@ runner retry a timed-out test once before reporting failure. Until then a red
 native-aa64 run with a lone `[3s]` timeout failure is very likely this, not a real
 regression — re-run the single test in isolation to confirm.
 
-### Slicing a string literal (`"abc"[:]`) emitted invalid LLVM — ✅ FIXED & LANDED (main `77ae3c54`, 2026-07-03)
-
-**Severity: MAJOR (a valid language construct did not compile — hard LLVM
-verifier error, in every mode).** `genSliceExpr` (`pkg/binate/ir/gen_access.bn`,
-the array-to-slice arm) only materialized a `{data, len}` slice when the sliced
-collection's type was `TYP_ARRAY`. A **string literal** `"abc"` has type
-`[N]readonly char` (an array), but its `genExpr` yields a bare
-`OP_CONST_STRING` `*readonly char` pointer (not `TYP_ARRAY`) — so the conversion
-was skipped and the subsequent `EmitSliceLen` emitted `extractvalue i8* <ptr>, 1`,
-which fails the LLVM verifier. **Triggered by** any `"lit"[:]` — e.g. the plain
-non-variadic `cc("abc"[:])` (no variadics/spread involved).
-
-- **Fix:** `genSliceExpr` now materializes an `OP_CONST_STRING` collection into a
-  `*[]readonly char` rodata slice (`EmitStringToChars`) before the slice logic;
-  the result type matches the checker (`checkSliceExpr` → `*[]readonly char`).
-- **Test:** `conformance/regressions/slice-string-literal` (now passing — full
-  slice / bounds / empty-string / index / var-bind); the plan's `stringLit[:]...`
-  spread positive was added to `conformance/spec/10-functions/178`. Green
-  comp/int/comp-comp; adversarially reviewed (no defects).
-- **Discovered:** 2026-07-03, writing the variadics Phase 4 spread tests (the
-  plan's `stringLit[:]...` positive spread case — no existing test ever sliced a
-  string literal, so the path was untested).
-
 ---
 
 ## Native arm32 backend (AAPCS32 / ILP32) build-out
@@ -1989,8 +1966,10 @@ candidates for after the loose-axis finish (const-expr folding + ABI
   across assignment-forms, so this would EXTEND rather than start fresh — the
   new axis is construction × consumption depth (esp. the native↔VM trampoline
   path for Class 7, which the refcount matrix does not exercise).
-- **Note**: several `@Iface` lifecycle bugs are already filed (leaks/UAF family,
-  `@[]@I` literal element leak); a matrix would close the long tail.
+- **Note**: several `@Iface` lifecycle bugs are already filed (leaks/UAF family); a
+  matrix would close the long tail. The `@[]@I` literal element leak is now ✅ FIXED
+  (main `a2abf36e` — a general managed-slice-literal element leak across all managed
+  element kinds; see claude-todo-done.md).
 
 ### (b3) Class 3 / Class 8 — point-bugs, NOT matrices
 - Class 3 (cross-package / interface-name type-resolution ordering → `i8*`
