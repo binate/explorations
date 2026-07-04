@@ -453,6 +453,17 @@ managed-header words (pointer-sized) AND slice lengths (int-sized) — a documen
 PointerSize==IntSize" conflation, harmless on every shipping ABI. Untangle header (→
 `ManagedHeaderSize`/ptrSize) from slice-length (→ IntSize) only if a wide-int ILP32 ABI is targeted.
 
+**Do NOT mistake this for a quick width-swap.** Two reasons it stays deferred, not just small:
+(1) **Untestable until a `ptr≠int` target exists** — every current ABI has PointerSize==IntSize
+(LP64 8/8, ILP32 4/4), so the emitted bytes are byte-identical before/after on every backend and
+mode; no test can distinguish a correct fix from a buggy one, and this is a memory-layout contract
+(both backends emit it, `reflect.Package` readers consume it) — the worst place for a silent,
+unverifiable error. (2) **A correct version needs explicit padding, not just widths** — the payload
+is four raw slices `{data: ptr, len: int}`; when `ptr≠int` each `len` no longer fills to the next
+pointer's alignment, so `DataZero` padding terms are required between `len` and the next `data` (the
+current flat-`DataTerm` sequence emits none, relying on `2*w` spacing). Do it WHEN a wide-int ABI is
+built, together with a test that exercises `ptr≠int` (the only thing that validates it).
+
 ## Slimming `pkg/bootstrap`; C interop (`__c_call`)
 
 ### Slim `pkg/bootstrap` toward retirement — 🟡 OPEN
