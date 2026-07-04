@@ -494,6 +494,18 @@ while keeping every commit green and close to main.
       long → width-wrapped, so it rarely matters).
     - Also in step 12: long boolean/call-chain wrapping and `// LONG-LINE ALLOWED`
       never-reflow enforcement.
+    - **12a** — call/index argument-list wrapping — ✅ **LANDED** 2026-07-03
+      (`8d8c700b`). `print_wrap.bn` fill engine (`printArgList` / `fillExprList`);
+      wrap MODE keyed off whether the first element shares the head's source line
+      (idempotent — a width-triggered mode-B wrap would otherwise flip to mode A on
+      the second format); the last element's fit check reserves room for the close
+      delimiter + `...` spread (a spread regression test caught this). Nested
+      wrapping composes via real columns; a single element >100 alone is not yet
+      sub-wrapped.
+    - **12b** — params / composite-literal elements / type-arg lists (generalize
+      the fill engine) — *next*.
+    - **12c** — long boolean & call chains; **12d** — `// LONG-LINE ALLOWED`
+      never-reflow — pending.
 13. **CLI polish** (`-w`, `--check`, stdout, `--version`), parse-error/degenerate
     handling (§9), README, `_test.bn` per file, repo-wide fixpoint (§11.2).
 
