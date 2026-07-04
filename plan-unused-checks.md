@@ -105,14 +105,28 @@ unused-import cross-file gap and add four new "unused" checks.
         dead unexported funcs) the current-source bnlint flags but the bundled
         hygiene bnlint doesn't yet — tracked as a separate follow-up in
         `claude-todo.md` (the bnlint section).
+    - **bnlint `--tests` integration test: ✅ DONE & LANDED** (main `bc3c9e52` +
+      `cb8ad72a`, 2026-07-03). Established the standard **`testdata/` convention**
+      — every tree-discovery `find` in the unit-test runner + 8 hygiene checks
+      (bn-doc, bni-doc, file-length, line-length, lint, naming, test-coverage,
+      file-format) now excludes `*/testdata/*`, so a `testdata/` dir is a fixture
+      that no check lints/runs. Added `cmd/bnlint/testdata/tests_flag/` (clean
+      `fixture.bn`; `fixture_test.bn` with a deliberate unused-func +
+      a `// bnlint:allow`-suppressed one) and `TestLintPackagesTestsFlag`:
+      `tests=false` → 0 diags, `tests=true` → exactly 1 — proving the
+      flag→loader→merge plumbing reaches `_test.bn` AND that `// bnlint:allow`
+      suppresses. (The convention edits are a no-op on the rest of the tree — no
+      other `testdata/` dirs exist.)
     - **Still open before --tests is hygiene-wirable:**
-      - **A bnlint `--tests` integration test** (only the unused-func Test-root
-        behavior is unit-tested so far).
-      - **The 39 production dead-code items** (see `claude-todo.md`).
+      - **The production dead-code items** — ✅ DONE (main `cef6fdec` +
+        `717b694d`; see `claude-todo.md`).
       - **Wiring into hygiene** (`scripts/hygiene/lint.sh` — add `--tests`) is a
-        SEPARATE hook-up decision the user owns; do NOT wire until the above is
-        done AND it's requested. (Also gated on the BUILDER bump that makes the
-        bundled bnlint recognize `// bnlint:allow` + the newer rules.)
+        SEPARATE hook-up decision the user owns; do NOT wire until it's requested.
+        Gated on the BUILDER bump that makes the *bundled* bnlint recognize
+        `--tests` + `// bnlint:allow` + the newer rules (hygiene prefers the
+        bundled bnlint; a current-source bnlint already supports all of it). When
+        wiring, run unused-func WITH `--tests` (a plain run over-flags the 12
+        production helpers used only by tests — see `claude-todo.md`).
 
 This plan is grounded in a full read of `pkg/binate/lint/*`, `pkg/binate/types/*`
 (checker/scope), and `pkg/binate/loader/*`, plus empirical repros. File:line
