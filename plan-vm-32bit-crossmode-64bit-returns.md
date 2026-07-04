@@ -132,25 +132,84 @@ Two commits, one body of work:
 
 ### Commit B — reverse direction (native → bytecode)
 
-5. **Widen `execLoop`/`execFunc` to return `int64`** (`vm_exec.bn`,
-   `vm_exec_helpers.bn`). The top-level BC_RETURN64 return becomes
-   `if isPair { return joinInt64(retVal, retHi) } else { return retVal }`; the
-   single-word return sign-/zero-extends into `int64`. On LP64 `int64 == int`, so
-   this is byte-identical there. Callers narrow: `TrampolineAggregate`'s
-   `resultAddr` and `CallFunc`'s host-facing `int` take `cast(int, ...)` (the
-   value/address rides the low word).
-6. **New `TrampolineScalar64(data, a0..a6) int64`** (`vm.bn`): mirrors
-   `TrampolineScalar` but returns the full `int64` from `execFunc`. `ensureHandle`
-   selects it when the VM func's single result is a 64-bit scalar and
-   `REG_SLOT < 8` (a new `resultIsReg64Scalar(callee)` predicate, parallel to the
-   `ResultMultiWord[0]` aggregate-trampoline selection). The compiled caller's
-   vtable.call type is already `i64(i8*, args)` (`funcSignatureLLVM` /
-   `writeShimResultLLVM`), so an `i64`-returning trampoline matches it in r0:r1.
-   Register `TrampolineScalar64` as an extern like the other two
-   (`extern_register.bn`).
+Review v2 rejected the original "widen `execFunc`/`execLoop` to `int64`" plan: it
+has a 16-call-site blast radius (Binate has no implicit `int64→int` narrowing, so
+every `var result int = execFunc(...)` breaks) AND collides with `execFunc`'s
+value-based copy-back heuristic (`vm_exec_helpers.bn:30-41` treats the result as a
+possible stack address). Instead use a **side-field for the high word** — the
+VM's "r1":
 
-`splitInt64`/`joinInt64` (`lower_slots.bn`) are the shared pair primitives for
-both commits.
+5. **Add `vm.ReturnHi int`** (`vm.bni`/`vm.bn` VM struct). At `execLoop`'s
+   top-level BC_RETURN64 return (`vm_exec.bn:132-136`, the `hdr[0] == -1` branch),
+   set `vm.ReturnHi = retHi` before `return retVal` (`retHi` is 0 for a non-pair
+   return, so this is unconditional and a no-op for one-word results).
+   `execFunc`/`execLoop` keep their `int` return; NO caller sweep, NO copy-back
+   change. Single-threaded + read-immediately-after-return makes the side-field
+   safe (the top-level return is the last write before the trampoline reads it;
+   LIFO nesting preserves it).
+6. **New `TrampolineScalar64(data, a0..a6) int64`** (`vm.bn`): mirrors
+   `TrampolineScalar` but returns `joinInt64(execFunc(...), vm.ReturnHi)` — the low
+   word from `execFunc`, the high word from the side-field. `ensureHandle` selects
+   it when the VM func's single result is a 64-bit scalar and `REG_SLOT < 8`. That
+   needs a per-func bit `VMFunc.ResultReg64Scalar` (VMFunc field + computed in
+   `lowerFunc` as `len(f.Results)==1 && is64BitScalar(types.StripWrappers(
+   f.Results[0])) && REG_SLOT < 8`) — `ResultMultiWord[0]` does not distinguish a
+   64-bit scalar (it is false for one). **Wrapper peeling MUST use `StripWrappers`
+   (alias+readonly+named)**, because `f.Results[0]` is raw (unlike the forward
+   `instr.Typ`, which `stripConstForIR` already peeled) and must agree with
+   `funcSignatureLLVM`→`writeShimResultLLVM` (which declares the compiled caller's
+   `i64(i8*,args)` vtable.call type). A `readonly int64` result that the selector
+   left as `is64BitScalar==false` would mis-pick `TrampolineScalar` (i32) against
+   an `i64` caller — the review-flagged mismatch.
+7. **Register `TrampolineScalar64`** in `extern_register.bn`
+   (`RegisterVmTrampolines`) with an `int64`-return `*func(...)` type, AND extend
+   `isUniversalTrampoline` (`codegen/emit_funcvals.bn:218`) to recognize it (so it
+   is referenced as a raw function address, not wrapped in a data-stripping shim,
+   like the other two). `ensureHandle` (`vm_exec_funcref.bn:169-201`) resolves it
+   via `vm.LookupExtern`, so registration is mandatory.
+
+`splitInt64`/`joinInt64` (`lower_slots.bn`) are the shared pair primitives.
+
+## Review v2 must-fix checklist (implementation)
+
+- **Unpacking mask (critical).** The existing `if retbufSize > 0` guards read the
+  retbuf field RAW: `dispatchCompiledFuncValue` `retbufSize = instr.Aux`
+  (`vm_exec_funcref.bn:346`); `dispatchCompiledIfaceMethod` `retbufSize =
+  (instr.Aux >> 16) & 65535` (`vm_exec_iface.bn:53`). With the scalar64 flag in
+  bit 0 and retbuf now 0 for a scalar, the raw read is `1` → `> 0` TRUE → the
+  scalar wrongly takes the AGGREGATE path. Each site MUST strip the flag bit
+  before the `> 0` test (`retbufFieldBytes`) and extract it separately
+  (`retbufFieldScalar64`). Per-site extraction differs (whole `Aux` for
+  func-value; `(Aux>>16)&65535` for iface).
+- **`Imm` mask at all three BC_CALL readers** (`vm_exec.bn` `>7` guard, extern
+  arg-copy, VM-func arg-copy) — the flag is set on VM-func BC_CALLs too, so the
+  VM-func-arm mask is load-bearing, not defensive.
+- **Double-VM `dispatchNativeIndirect`**: the scalar64 flag rides
+  BC_CALL_INDIRECT's `Aux` (free), derived at lower time with the FULL
+  `is64BitScalar(instr.Typ) && REG_SLOT < 8` predicate (NOT `instr.Typ == int64`,
+  which drops uint64/float64/named).
+- **File-length**: `vm_exec.bn` (494) crosses 500 with both commits — factor the
+  scalar64 read-back into a shared `storeScalar64Result(regs, dst, r int64)` (and
+  the extern-arm handling into a small helper in `vm_extern.bn`, which has room).
+  `vm_exec_iface.bn` (487) is tight; keep the sub-case ≤ a few lines via the
+  helper. Put the const/predicate/pack/unpack helpers in a new focused file
+  `vm_crossmode_ret64.bn`.
+- **`_call_shim_scalar64` needs a `scripts/hygiene/naming.whitelist` entry**
+  (siblings of `_call_shim_scalar` at lines 38-39).
+- **Tests are BLOCKING and observable**: the reverse `TrampolineScalar64` IS
+  directly unit-testable (build a module with an int64-returning func,
+  `ensureHandle`, call `TrampolineScalar64(bit_cast(*uint8, callee.ClosureRec),
+  ...)`, assert the full int64) — commit to it (with the double-VM skip), do not
+  hedge to conformance-only. The forward `runEqDispatch`-style test observes 64
+  bits by having the bytecode `main` CHECK the value in-bytecode and return 1/0
+  (the harness returns `int`), so Commit A is testable without Commit B. Add a
+  pure-predicate test for BOTH `is64BitScalarReturn` and `resultIsReg64Scalar`
+  (host-independent, `wordSize`/`REG_SLOT`-parameterized).
+- **Verify (implementation-time)**: whether a bare transparent alias `type R =
+  int64` reaches shim emission un-resolved. If it does, `is64ScalarUnderlying`
+  (`emit_funcvals_sig.bn`) must peel TYP_ALIAS to agree with the forward flag
+  (which sees an alias-peeled `instr.Typ`); if the checker resolves it first, add
+  a test pinning that and no codegen change is needed.
 
 ## Flag derivation is alias/readonly/named-safe
 
