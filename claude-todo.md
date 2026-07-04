@@ -372,7 +372,18 @@ stdout.
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### 🏷[LANE 3] MAJOR: cross-mode 64-bit scalar RETURNS on ILP32 truncate to the low word — 🟠 OPEN (bug MOVED, not fixed, by `0479813a`)
+### 🏷[LANE 3] MAJOR: cross-mode 64-bit scalar RETURNS on ILP32 truncate to the low word — ✅ FORWARD FIXED & LANDED (`a13c96e3`, 2026-07-04)
+
+**FORWARD direction FIXED (`a13c96e3`).** Added an i64-returning
+`rt._call_shim_scalar64` primitive; the four cross-mode dispatch sites read a
+64-bit scalar return back into the destination register pair via `splitInt64`
+(flag derived at lower time from `is64BitScalar(instr.Typ) && REG_SLOT < 8`,
+packed into the bytecode). arm32-VM repro fixed (`math.Float64bits(3.7)` →
+`4615514078110652826`, `math.Floor(3.7)` → `3.000000`); LP64 no-op; conformance
+`stdlib/math/003` + host-independent predicate/pack/unpack + lowering + in-bytecode
+dispatch tests. Adversarially reviewed (design ×2 + implementation ×1, no bugs).
+The REVERSE direction (below) — `execFunc`/`TrampolineScalar` truncation — is the
+remaining open half of this work.
 
 **Severity: MAJOR.** Cross-mode (bytecode→native) return of a bare
 `int64`/`uint64`/`float64` on the ILP32 VM host loses the high 32 bits. Design

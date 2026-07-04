@@ -1,10 +1,12 @@
 # Plan: 32-bit VM host — cross-mode 64-bit SCALAR returns (both directions)
 
-Status: **Commit A (forward) IMPLEMENTED + VALIDATED** on worktree work-2
-(`58972f50`) — arm32-VM repro fixed, LP64 unit tests green, conformance
-`stdlib/math/003` passes LP64 + arm32-VM, hygiene clean. **Commit B (reverse) IN
-PROGRESS** — approach revised from the `vm.ReturnHi` side-field to widening
-`execFunc`/`execLoop` to `int64` (see revision note below). Fix Q, after the
+Status: **Commit A (forward) LANDED on main (`a13c96e3`, 2026-07-04)** —
+arm32-VM repro fixed, LP64 unit tests green, conformance `stdlib/math/003`
+passes LP64 + arm32-VM, hygiene clean, minimal adversarial review of the
+implementation found no bugs (coverage gap closed with func-value/iface/indirect
+lowering tests). **Commit B (reverse) IN PROGRESS** — approach revised from the
+`vm.ReturnHi` side-field to widening `execFunc`/`execLoop` to `int64` (see
+revision note below). Fix Q, after the
 second adversarial review (corrections folded in). Supersedes the v1
 retbuf-read-back design, whose premise (`int64` rides the retbuf shim)
 `0479813a` removed.
