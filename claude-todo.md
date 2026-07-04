@@ -427,23 +427,56 @@ high word (r1) is dropped.
   My prior design doc (retbuf read-back) predated `0479813a` and its retbuf premise
   is now void; the flag-derivation + 4-site structure carries over.
 
-### 🏷[LANE 3] MAJOR: 64-bit scalar RETURNS to a NATIVE caller drop the high word (reverse cross-mode) — 🟠 OPEN
+### 🏷[LANE 3] MAJOR: 64-bit scalar RETURNS to a NATIVE caller drop the high word (reverse cross-mode) — ✅ FIXED (worktree `627fee33`, awaiting land)
 
-**Severity: MAJOR.** The mirror of the item above, found during its adversarial
-review (2026-07-03). A VM-side function value returning a bare
-`int64`/`uint64`/`float64`, called BY native code, dispatches through
-`TrampolineScalar` — NOT `TrampolineAggregate`: `ensureHandle`
-(`vm_exec_funcref.bn:172-174`) picks the aggregate trampoline only when
-`ResultMultiWord[0] == true`, but that is `isMultiWordField(t) ||
-isVMAddressAggregate(t)` (`lower_func.bn:85`) and both match only
-struct/slice/managed-slice/array/iface/func-value (`lower_instr_helpers.bn:88-128`)
-— a bare 64-bit scalar matches neither. So `TrampolineScalar` runs and returns
-`execFunc(...)` as a single host `int` (`vm.bn:72-95`; docstring: "no floats, no
-aggregates pass through") → 4 bytes on ILP32, high word dropped. Not yet
-reproduced (more setup than the forward repro) but confirmed by inspection. Fix:
-extend trampoline selection so a 64-bit scalar result on a <8-byte-word host uses
-an aggregate/retbuf trampoline, or add a scalar64 trampoline returning the pair.
-Distinct code path from the forward fix; decide with the user whether to bundle.
+**Severity: MAJOR.** The mirror of the forward item. A VM-side function value /
+top-level VM func returning a bare `int64`/`uint64`/`float64` to a native caller
+dropped the high word two ways on ILP32: `execFunc`/`execLoop` returned `int`
+(truncating the top-level BC_RETURN64), and `ensureHandle` picked
+`TrampolineScalar` (one word) rather than an i64 trampoline.
+
+**FIX (`627fee33`):** widen `execLoop`/`execFunc` to `int64` (top-level
+BC_RETURN64 joins both slots via `joinInt64`; one-word/aggregate results
+sign-extend; byte-identical on LP64); narrow the callers wanting one word; add
+`TrampolineScalar64` (returns `execFunc`'s int64), selected by `ensureHandle` via
+a new `VMFunc.ResultReg64Scalar` bit (StripWrappers-peeled to agree with
+`funcSignatureLLVM`), registered + `isUniversalTrampoline`-extended. Adversarially
+reviewed (no code bugs). Validated on LP64 (vm + codegen green) AND arm32
+(`builder-comp_arm32_linux vm`: the reverse tests + 3 new R1 tests —
+`TestLowerFuncResultReg64Scalar`, `TestEnsureHandleSelectsScalar64Trampoline`,
+`TestTrampolineScalar64ReturnsFullInt64` — all pass). The forward direction landed
+as `a13c96e3`.
+
+### 🏷[LANE 3] `lowerFromSource` / `genModule` test helpers pass a NIL checker → int literals > INT32_MAX truncate on a 32-bit host — 🟠 OPEN (found 2026-07-04)
+
+`pkg/binate/vm/lower_test.bn`'s `lowerFromSource` (and `genModule`) create a
+checker (`c.Check(file)`) but then call `ir.GenModule(nil, file)` — passing `nil`
+instead of `c`. With a nil `ctx.Checker`, `exprIntLitValue` (`gen_expr.bn:66`)
+falls back to `parseIntLit` instead of the checker's bignum (LitMag/LitSign), so a
+source literal exceeding the IR-gen HOST's signed-int range wraps: on the
+arm32 unit-test binary (host int = 32-bit at IR-gen time), `5000000000` →
+`705032704`, `2147483648` → wraps. This is a TEST-HELPER bug (real programs go
+through `cmd/bnc`/`cmd/bni` with a real checker), but it makes any
+`lowerFromSource`/`compileAndRun`-based test with a `> INT32_MAX` literal FAIL on
+arm32 — it masqueraded as a "reverse-fix truncation" until isolated (the real fix
+is correct; the test now builds via direct IR `EmitConstInt64`). Fix: pass `c` to
+`GenModule` in both helpers (they already have it). Likely turns 1–2 of the arm32
+vm-unit reds below green.
+
+### 🏷[LANE 3] arm32 `builder-comp_arm32_linux vm` unit package: 6 PRE-EXISTING failures exposed once it compiles — 🟠 OPEN (found 2026-07-04)
+
+The literal-unblock commit (`5b557686`) makes the arm32 vm-unit package COMPILE
+(it previously didn't, hiding all failures). 236 pass, 6 fail — all pre-existing,
+unrelated to the 64-bit-return work:
+- `TestExecUint32HighBitToFloat32`, `TestLowerCastUint32ZeroExtendsToUint64` —
+  likely the nil-checker helper bug above (`2147483648` / `4294967295` literals).
+- `TestRegisterPackageFunctionsCarriesRetbufSize` (hardcodes managed-slice `32`),
+  `TestLowerReturnSingleFuncValue` (hardcodes func-value `16`) — hardcoded LP64
+  sizes; fix to `types.GetTarget().PointerSize`-derived.
+- `TestExecBcIfaceUpcastNativeSource` (hardcodes upcast `offset*8`),
+  `TestVtableInjectRegistry` — fallout from the concurrent `0734beaa` iface
+  vtable-any-block change; likely that lane's to resolve.
+Per red-mode-first: each needs a target-aware fix or an xfail+TODO.
 
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
