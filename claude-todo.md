@@ -1582,9 +1582,10 @@ builder-comp_native_arm32_baremetal; conformance 1780/841/32):
   neighbor bytes; **latent memory corruption on ALL backends**, visible only on
   strict-alignment arm32-baremetal (Data Abort → hang). Fixed by an `ensureWidth` in
   the STAR arm mirroring the sibling arms; an exhaustive audit confirmed it was the
-  SOLE such site. Optional follow-up (inert, doesn't gate): `genMultiAssign`'s IDENT
-  arm omits the same `ensureWidth` — a no-op today (its RHS is always a single-call
-  component already typed at the declared width).
+  SOLE such site. Consistency follow-up landed (`8b9bddbb`): `genMultiAssign`'s
+  IDENT arm now applies the same `ensureWidth` as its SELECTOR sibling (inert
+  today — its RHS is always a single-call component already at the declared width
+  — so all lvalue-store arms are now width-coercion-symmetric).
 
 #### MINOR (cross-backend diagnostics) — `iropcode.OpName` missing `OP_CONST_FLOAT`
 
