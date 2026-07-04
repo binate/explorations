@@ -557,36 +557,67 @@ stdout.
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### 🏷[LANE 3] MAJOR: 64-bit scalar RETURNS via retbuf on ILP32 are broken (cross-mode) — 🟠 OPEN
+### 🏷[LANE 3] MAJOR: cross-mode 64-bit scalar RETURNS on ILP32 truncate to the low word — 🟠 OPEN (bug MOVED, not fixed, by `0479813a`)
 
-**Severity: MAJOR.** (Split out of the now-fixed cross-mode 64-bit-scalar-ARGS
-item — see the done log.) A bare `int64`/`uint64`/`float64` result routes through
-`_call_shim_aggregate` (IsAggregateReturn true at SizeOf 8 > word 4), but the
-dispatch stores the retbuf ADDRESS into `regs[Dst]` (one slot,
-`vm_exec_funcref.bn:356` / `vm_extern.bn:63`) while `regWidths` flags the result
-register WIDE (2 slots, `lower_slots.bn:170`) — `regs[Dst+1]` stays stale and the
-8 bytes are never loaded from the retbuf into the pair. Not exercised by the
-format helpers (they return `int`), so it does NOT block conformance `133`, but
-any cross-mode func value / extern returning a bare 64-bit scalar on ILP32 is
-wrong. Fix shape: aggregate-return dispatch must load the retbuf pair for a
-64-bit *scalar* result rather than storing the pointer.
+**Severity: MAJOR.** Cross-mode (bytecode→native) return of a bare
+`int64`/`uint64`/`float64` on the ILP32 VM host loses the high 32 bits. Design
+doc: `plan-vm-32bit-crossmode-64bit-returns.md`.
 
-- **CONFIRMED REPRO (2026-07-03, arm32-VM)**: `import "pkg/std/math"` (native-
-  injected → cross-mode); `println(math.Floor(3.7))` prints `1083552236*2^-1074`
-  (the retbuf POINTER address read as a float mantissa, not `3.000000`), and
-  `println(math.Float64bits(1.0))` prints `1083552244` (the retbuf pointer low
-  word, not `4607182418800017408`). So the result register gets the retbuf addr;
-  the high slot is stale.
-- **FIX APPROACH**: the dispatcher must distinguish a 64-bit SCALAR retbuf return
-  (load 8 bytes → `regs[Dst]`=lo, `regs[Dst+1]`=hi) from a genuine by-address
-  aggregate (store the retbuf ptr, as today). `instr.Aux` (retbufSize) alone can't
-  tell them apart (a raw slice is also 8 bytes), so stamp a flag at IR-lowering
-  time (lower_call.bn / the OP_CALL* lowering) — e.g. "result is a 64-bit scalar"
-  — and branch on it in dispatchCompiledFuncValue (`vm_exec_funcref.bn:356`),
-  dispatchExternBinding (`vm_extern.bn:63`), and the iface path
-  (dispatchCompiledIfaceMethod). Note the shim's retbuf WRITE side is already fine
-  (it stores the i64 to the retbuf); only the VM read-back is wrong. Design +
-  adversarially-review like the arg-side (`plan-vm-32bit-crossmode-64bit-args.md`).
+**⚠️ `0479813a` MOVED this bug; it did NOT fix it (empirically verified 2026-07-03).**
+The native-arm32 commit `0479813a` gated `IsAggregateReturn`/`NeedsSret` on
+aggregate KIND so a bare 64-bit scalar is a register-PAIR scalar, not sret/retbuf
+— correct, and it fixes native test 877. Its message/todo claims this fixes "the
+func-value / VM paths at the root" and that this item is "likely MOOT." **That is
+wrong for the cross-mode VM path.** After `0479813a`, a 64-bit scalar return no
+longer uses the retbuf shim (`IsAggregateReturn` now false) — it uses the SCALAR
+shim. The per-function shim correctly DECLARES an `i64` return
+(`writeShimResultLLVM` → `shimIntSlotType` = i64; returns in r0:r1), but the VM
+primitive `rt._call_shim_scalar` is `int`-typed (i32 on ILP32), so
+`emitCallIndirect` types the indirect call `i32(...)` and only r0 is read — the
+high word (r1) is dropped.
+
+- **CONFIRMED REPRO (2026-07-03, arm32-VM, main @ `0479813a`)**: `import
+  "pkg/std/math"`; `println(math.Floor(3.7))` prints `0.000000` (float64 3.0 =
+  `0x4008000000000000`, low word 0 → prints 0.0; want `3.000000`);
+  `println(math.Float64bits(1.0))` prints `0` (uint64 `0x3FF0000000000000`, low
+  word 0; want `4607182418800017408`). Both test values have low word 0, so the
+  truncation shows as 0/0.0 — a value with a nonzero low word would show the low
+  32 bits. (Pre-`0479813a` this same repro printed the retbuf POINTER — the OLD
+  form of the bug.)
+- **CORRECTED FIX APPROACH (Fix Q — symmetric with the landed arg-side split)**:
+  the shim already returns i64 correctly; the fix is the VM read side. Add an
+  i64-returning primitive `rt._call_shim_scalar64` (IR-magic, like
+  `_call_shim_scalar`, native OP_CALL_INDIRECT typed `i64(i8*,...)` matching the
+  shim + a bytecode-nested `dispatchNativeIndirect` arm). The VM dispatchers, when
+  the result is a 64-bit scalar on `REG_SLOT < 8`, call it and `splitInt64` the
+  result into `regs[Dst]`=lo / `regs[Dst+1]`=hi instead of `_call_shim_scalar`
+  (which truncates). Flag derived at lower time from `is64BitScalar(instr.Typ) &&
+  REG_SLOT < 8` (same predicate `regWidths` uses). Four dispatch sites:
+  dispatchCompiledFuncValue (`vm_exec_funcref.bn`), dispatchCompiledIfaceMethod
+  (`vm_exec_iface.bn`), the BC_CALL extern arm (`vm_exec.bn`), dispatchExternBinding
+  (`vm_extern.bn`). Alternative (Fix P): re-route 64-bit scalars through the retbuf
+  for cross-mode only (a shim-shape predicate distinct from `IsAggregateReturn`) —
+  reuses `_call_shim_aggregate` but fights `0479813a`'s direction. Fix Q preferred.
+  My prior design doc (retbuf read-back) predated `0479813a` and its retbuf premise
+  is now void; the flag-derivation + 4-site structure carries over.
+
+### 🏷[LANE 3] MAJOR: 64-bit scalar RETURNS to a NATIVE caller drop the high word (reverse cross-mode) — 🟠 OPEN
+
+**Severity: MAJOR.** The mirror of the item above, found during its adversarial
+review (2026-07-03). A VM-side function value returning a bare
+`int64`/`uint64`/`float64`, called BY native code, dispatches through
+`TrampolineScalar` — NOT `TrampolineAggregate`: `ensureHandle`
+(`vm_exec_funcref.bn:172-174`) picks the aggregate trampoline only when
+`ResultMultiWord[0] == true`, but that is `isMultiWordField(t) ||
+isVMAddressAggregate(t)` (`lower_func.bn:85`) and both match only
+struct/slice/managed-slice/array/iface/func-value (`lower_instr_helpers.bn:88-128`)
+— a bare 64-bit scalar matches neither. So `TrampolineScalar` runs and returns
+`execFunc(...)` as a single host `int` (`vm.bn:72-95`; docstring: "no floats, no
+aggregates pass through") → 4 bytes on ILP32, high word dropped. Not yet
+reproduced (more setup than the forward repro) but confirmed by inspection. Fix:
+extend trampoline selection so a 64-bit scalar result on a <8-byte-word host uses
+an aggregate/retbuf trampoline, or add a scalar64 trampoline returning the pair.
+Distinct code path from the forward fix; decide with the user whether to bundle.
 
 ### 🏷[BUG-BASH 2026-06-27 → LANE 3] IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 + 2 (INT64 + FLOAT64) DONE
 - **Symptom**: under `builder-comp_arm32_linux` unit tests, `pkg/ir`
