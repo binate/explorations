@@ -8,6 +8,19 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED (main `b33eb9d6`, 2026-07-02) — native arm32: OP_MAKE / OP_BOX unimplemented (P3 GAP, fail-loud)
+
+`arm32_dispatch.bn` had no `OP_MAKE` / `OP_BOX` case (only `OP_MAKE_SLICE`), so
+`make(T)` / `box(v)` hit the generic "unimplemented IR op make" fail-loud tail —
+the **dominant** native-arm32 failure bucket (~41% of a 195-test sample: make×74,
+box×6) and the blocker for measuring any P4 progress (most iface/func-value tests
+allocate a managed value, so they failed on `make` before reaching P4 code).
+**Resolution:** ported `emitMake` (`rt.Alloc(SizeOf)`) + `emitBox` (`rt.Box`, three
+source shapes) from aa64 with the ILP32 word size. Native-arm32-baremetal
+conformance jumped **1573 → 1754 passed** (+181), no regression, no XPASS.
+Adversarial-reviewed (landable; two minor findings addressed — scalar box boxes
+directly from the spill slot; unit tests for all three box branches).
+
 ## box() of a struct with managed fields did not retain them — use-after-free — ✅ FIXED & LANDED (`16471d71`, 2026-07-02)
 
 **Severity: CRITICAL (silent use-after-free / memory corruption).**

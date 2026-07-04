@@ -1936,19 +1936,6 @@ diagnosis (2026-07-03) root-caused all three; two are now fixed:
   mishandles (likely a localized `arm32_emit.bn` `emitGetElemPtr` / address-of
   bug). Its own future increment.
 
-#### P3 GAP (fail-loud, not silent) — OP_MAKE / OP_BOX unimplemented — ✅ FIXED & LANDED (`b33eb9d6`, 2026-07-02)
-
-`arm32_dispatch.bn` had no `OP_MAKE` / `OP_BOX` case (only `OP_MAKE_SLICE`), so
-`make(T)` / `box(v)` hit the generic "unimplemented IR op make" fail-loud tail —
-the **dominant** native-arm32 failure bucket (~41% of a 195-test sample: make×74,
-box×6) and the blocker for measuring any P4 progress (most iface/func-value tests
-allocate a managed value, so they failed on `make` before reaching P4 code).
-**Resolution:** ported `emitMake` (`rt.Alloc(SizeOf)`) + `emitBox` (`rt.Box`, three
-source shapes) from aa64 with the ILP32 word size. Native-arm32-baremetal
-conformance jumped **1573 → 1754 passed** (+181), no regression, no XPASS.
-Adversarial-reviewed (landable; two minor findings addressed — scalar box boxes
-directly from the spill slot; unit tests for all three box branches).
-
 #### MINOR (cross-backend diagnostics) — `iropcode.OpName` missing `OP_CONST_FLOAT`
 
 `pkg/binate/iropcode/opcodes.bn`'s `OpName` switch lacks an `OP_CONST_FLOAT` case,
