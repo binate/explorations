@@ -8,6 +8,35 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ DONE & LANDED (2026-07-03) — bnlint unused-entity checks (a–e) + file split + `--tests` (lint test files) + testdata convention
+
+The unused-entity lint project (`plan-unused-checks.md`) is complete through the
+`--tests` feature; only the CI hygiene wiring remains (BUILDER-gated — still open
+in `claude-todo.md`).
+
+- **Rules (a) unused-import / (b) unused-local / (c) unused-func / (d) unused-global / (e) unused-type**: all landed as bnlint rules (`51f8e90c`, `11c6bb8e`, `83149f3e`, `b57c6b18`, `7083b65c`), on the file-scoped-imports Phase 0 (`cf0d1cad`) + a shared `refs.bn` reference index, with adversarial-review false-positive fixes. Decisions (user, 2026-07-02): all WARNINGS; reachability for (c), reference-presence for (d)/(e); a type's receiver does NOT count as a use. `(b)` was first (wrongly) done checker-side and reverted (`8d8f7314`) — Binate emits NO compiler diagnostics for unused-X; it is a LINT concern.
+- **File split** (`7f2e2c82`): `scope.bn`→`scope.bn`+`layout.bn`+`layout_offsets.bn`; `check_expr.bn`→`check_expr.bn`+`check_addr.bn`; test files split to match.
+- **`bnlint --tests` (lint test files)**: foundation `fee33041` (loader `TestPackages` + Test-root reachability, which dropped `types --tests` from 1046→109). Test-file triage `6882377b` + `5b4814f0` — **313 findings → 0**: drop pure-ceremony `strings.Builder`s (direct literal assignment), annotate safe borrows with preceding-line `// bnlint:allow`, remove dead test imports/funcs. Integration test `bc3c9e52` + `cb8ad72a` — the `testdata/` ignore convention (unit runner + 8 hygiene checks skip `*/testdata/*`) + `cmd/bnlint/testdata/tests_flag` fixture + `TestLintPackagesTestsFlag` (tests=false → 0 diags, tests=true → exactly 1; also proves `// bnlint:allow` suppresses).
+- Optional, unscheduled refinements: `(b)` block-scope precision + write-only detection; a cleaner loader fix for `DECL_TYPE.Exported` (`(e)` currently works around via a `.bni` same-name peer).
+
+## ✅ DONE & LANDED (main `cef6fdec` + `717b694d`, 2026-07-03) — remove 38 verified-dead production unused imports/funcs
+
+Surfaced by the `bnlint --tests` triage: real dead code the current-source bnlint
+flags but the bundled hygiene bnlint (`bnc-0.0.10`) predates. Removed **19 unused
+imports + 19 dead unexported funcs** (verified 0 references tree-wide; via a
+`--tests` run so test usage counts) across types/codegen/ir/native/asm/vm, plus a
+cascade global (`lastRawSeq`, used only by the removed `emitManagedToRaw`) and 3
+stale comments the removals exposed. The codegen `emit_util` island
+(`emitSliceRef`/`emitManagedToRaw`/`isChar*`/`isStruct*`) was superseded by the
+DataGlobal migration. Verified: 0 dangling refs (9-package adversarial workflow),
+gen1 builds (BUILDER tree still compiles), 17-package unit suite green, hygiene
+15/15.
+
+**Caveat carried forward to the hygiene-wiring item:** the truly-dead set came
+from a `--tests` run. A *plain* run flags 31 unused-func — 12 more — which are
+production helpers used ONLY by tests (not dead). So wiring `--tests` into hygiene
+must run unused-func WITH `--tests`.
+
 ## ✅ DONE & LANDED (2026-07-03) — Variadic functions & spread (`...T` / `expr...`)
 
 Go-style variadics + spread, fully implemented and conformant. Plan:

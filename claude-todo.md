@@ -1297,68 +1297,19 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 
 ## bnlint rules, unused-entity checks & lint skips
 
-### unused-entity checks — all five bnlint rules (a/b/c/d/e) + file split DONE & LANDED (`plan-unused-checks.md`)
+### Wire `bnlint --tests` into hygiene — 🟡 OPEN (BUILDER-gated)
 
-Add unused-locals `(b)` / unused-private-func `(c)` / -global `(d)` / -type `(e)` checks on top of the existing `unused-import` rule. Full design in **`explorations/plan-unused-checks.md`**.
-
-- **Phase 0 (file-scoped imports): ✅ LANDED** (`cf0d1cad` + follow-ons); loader retains `pkg.Files`. This is what unblocked `(a)`.
-- **`(a)` unused-import cross-file gap: ✅ DONE & LANDED** (main `51f8e90c`). Per-file import attribution via `pkg.Files` (was the deduped merged list → sibling-file unused imports silently missed).
-- **shared `refs.bn` index + `(d)` unused-global: ✅ DONE & LANDED** (main `b57c6b18`). Reference-presence; `.bni` export skip; group recursion.
-- **`(e)` unused-type: ✅ DONE & LANDED** (main `7083b65c`). Reference-presence; export via `.bni` same-name peer; self-ref + receiver-ref excluded (receiver does NOT count); generic instantiation heads/args recorded.
-- **Adversarial review (2026-07-02)** fixed two latent-to-narrow false positives in the shared walk (annotation-arg exprs, bare-ident generic-CALL type args), landed with `(e)`. Tree-wide: 0 unused-import/global/type across all 50 packages.
-- **Decisions (2026-07-02, user):** all are **WARNINGS**. Detection: reachability for `(c)`, reference-presence for `(d)`/`(e)`. `(e)` receiver does NOT count as a use.
-- **Latent bugs:** `markBniExportedVars` DECL_GROUP gap ✅ FIXED (`a43c24f7`); `DECL_TYPE` still carries no `Exported` (`(e)` works around via `.bni` peer — a cleaner loader fix remains optional).
-- **`(b)` unused-local: ✅ DONE & LANDED as a BNLINT rule** (main `11c6bb8e`, 2026-07-02). `pkg/binate/lint/unused_local.bn` — flags a function-local var never referenced in its function; CONSERVATIVE (reads AND writes count → no false positives), FLAT per-function scoping (shadowing under-warns), params/`_`/local-consts excluded, closure bodies walked. 21 tests; tree-wide 0; 2-lens adversarial review. **History:** first (wrongly) done CHECKER-side (compiler warning) and reverted (`8d8f7314`) — Binate emits NO compiler diagnostics for unused-X; it is a LINT concern. Optional future refinements (not scheduled): block-scope precision, write-only detection (~231 dead-write locals, would be lint warnings).
-  - **`(c)` unused-func: ✅ DONE & LANDED** (main `83149f3e`) — reachability from roots; dead-code islands flagged; methods excluded; 6 tests; 0 tree-wide.
-  - **File split: ✅ DONE & LANDED** (main `7f2e2c82`, 2026-07-02). `scope.bn` (547) → `scope.bn` + `layout.bn` (Type Layout) + `layout_offsets.bn` (Composite Type Layout); `check_expr.bn` (555) → `check_expr.bn` + `check_addr.bn` (addressability); `scope_test.bn` (591) split to match; new `check_addr_test.bn` (11 branch tests). Pure move (3-lens adversarial review: no blockers/majors), all under the 500-line cap, hygiene green.
-
-### Remove verified-dead PRODUCTION unused-import / unused-func findings — ✅ DONE & LANDED (`cef6fdec` + `717b694d`, 2026-07-03)
-
-**RESOLUTION.** 19 unused imports + 19 dead unexported funcs removed (the count
-was 20 imports when first noted; one had already been fixed concurrently by
-landing time). Landed in two commits: `cef6fdec` (types/codegen/ir front/mid-end)
-+ `717b694d` (native/asm/vm backends). Also removed a cascade global (`lastRawSeq`,
-used only by the removed `emitManagedToRaw`) and refreshed 3 stale comments the
-removals exposed. Verified: per-package `bnlint --tests` = 0 production
-unused-import/func; a 9-package adversarial workflow found 0 dangling refs / 0
-test files touched; gen1 build succeeds (BUILDER tree still compiles); 17-package
-unit suite green; hygiene 15/15.
-
-**Note for the eventual hygiene-wiring:** the authoritative "truly dead" set was
-taken from the `--tests` run, NOT a plain run. A plain (non-`--tests`) bnlint flags
-**31** production unused-func — 12 more than the 19 removed — because those 12 are
-production helpers used ONLY by tests (a plain run can't see the test caller). They
-are NOT dead. So if `bnlint --tests` is ever wired into hygiene, unused-func MUST
-run with `--tests`, or it will false-flag those 12. (They're a separate judgment
-call — "production helper only a test uses": delete-with-test or keep — not
-addressed here.)
-
-Original context: surfaced while triaging `bnlint --tests` findings; real dead
-code the current-source bnlint flags but the bundled hygiene bnlint
-(`bnc-0.0.10`) predates. Removal was BUILDER-safe.
-Do it per-package, verify with a per-package smoke + `scripts/build-bnc.sh` (many
-are in bnc's BUILDER tree).
-
-**20 unused-import (file → unused import):**
-- `asm/parse/aarch64_instr_helpers.bn` → `pkg/binate/asm`; `asm/parse/parse.bn` → `pkg/binate/asm/aarch64`
-- `codegen/emit_ccall.bn` → `pkg/binate/types`; `codegen/emit_impls.bn` → `pkg/binate/types`
-- `ir/gen_flow.bn` → `pkg/binate/buf`; `ir/gen_generic.bn` → `pkg/std/strings`; `ir/gen_init.bn` → `pkg/binate/buf`; `ir/gen_selector.bn` → `pkg/binate/buf`
-- `native/aarch64/aarch64_ops.bn` → `pkg/binate/buf` + `pkg/binate/mangle`
-- `native/arm32/arm32_emit.bn` → `pkg/binate/iropcode`
-- `native/common/common_callconv.bn` → `pkg/binate/ir` + `pkg/binate/iropcode`
-- `native/x64/x64_funcvalue.bn` → `pkg/binate/asm`
-- `types/check_expr_constfold.bn` → `pkg/binate/ast`; `types/checker.bn` → `pkg/binate/token`; `types/types.bn` → `pkg/binate/ast` + `pkg/binate/buf`
-- `vm/lower_data.bn` → `pkg/binate/types`; `vm/lower_instr.bn` → `pkg/builtins/rt`
-
-**19 unused-func (file → dead func):**
-- `asm/parse/arm32.bn` → `expectArm32CommaLabel`; `asm/parse/lex.bn` → `lexPeek`; `asm/x64/x64_sys.bn` → `readI32`
-- `codegen/emit_util.bn` → `emitSliceRef`, `emitManagedToRaw`, `isCharElem`, `isCharElemFromSlice`, `isStructElem`, `isStructElemFromSlice` (superseded by the DataGlobal migration)
-- `ir/gen_copy_emit.bn` → `genStructCopy`; `ir/gen_func.bn` → `lookupLocalVar`; `ir/gen_generic.bn` → `lookupGenericTypeDecl`; `ir/ir.bn` → `makeArgs3`
-- `native/aarch64/aarch64_closure_shim.bn` → `totalCaptureWordsAA64`; `native/aarch64/aarch64_names.bn` → `vtableSymForLLVM`, `shimSymForLLVM`; `native/x64/x64_closure_shim.bn` → `totalCaptureWords_x64`
-- `types/check_generic_type.bn` → `lookupGenericIfaceDecl`, `lookupGenericTypeDecl`
-
-(The 17 PRODUCTION `[managed-to-raw-assign]` findings in `pkg/binate/asm/*` are a
-DIFFERENT, already-tracked follow-up — see the asm INCREMENT-2 entry below.)
+The `--tests` feature (lint a package's `_test.bn` files) is fully built, its
+test-file findings all resolved, and it has an end-to-end test
+(`TestLintPackagesTestsFlag` + the `testdata/` ignore convention). The only
+remaining step is turning it on in CI: add `--tests` to
+`scripts/hygiene/lint.sh`. **Gated on the next BUILDER bump** — hygiene prefers
+the *bundled* bnlint (`bnc-0.0.10`), which predates `--tests`, `// bnlint:allow`,
+and the newer rules (a current-source bnlint already supports all of it). Batch
+with the other BUILDER-bump lint-skip cleanups below. When wiring, run
+unused-func WITH `--tests` — a plain run over-flags the 12 production helpers used
+only by tests. Design + full status + the rest of the unused-entity project (now
+done): `explorations/plan-unused-checks.md` and the done log.
 
 ### MINOR (hygiene / lint) — investigate the `[managed-to-raw-assign]` findings in `pkg/binate/asm/*` (2026-06-20) — 🟡 OPEN
 The compiler-tree lint-coverage gap is ✅ FIXED & LANDED (`582c1327`): `scripts/hygiene/lint.sh`
