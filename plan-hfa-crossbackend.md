@@ -10,6 +10,32 @@ dispatch), each green in builder-comp / native aa64 / VM; negative controls
 confirmed non-SIMD. **The ONLY remaining item is Stage 4 (x64 SysV eightbyte-SSE
 HFA), an independent per-target effort.** History below.
 
+**Stage 4 (x64) progress (2026-07-04):** Step 1 (classifier `abi_sysv.bn`) LANDED
+(`58c2976d`). Step 2 (LLVM codegen) split and landed dormant on the worktree,
+pending cherry-pick: **2a** `SysVEightbyteForm` per-eightbyte form helper
+(`90c32739`); **2b** the LLVM coercion — role-divergent (RETURN = first-class
+`{eb0,eb1}` / bare-eightbyte aggregate; ARG/PARAM = split one LLVM param per
+eightbyte), wired for the DIRECT-call path (define params/return, direct-call
+args/result, funcRetTypes, extern declares), all sub-gated by `types.SysVInSse`
+(`a5c94ad9`). 2a+2b verified: dormant output byte-identical across x64/aa64/arm32;
+all ~40 shapes match clang x86_64 exactly; a temporary gate flip emits IR clang
+accepts and, built for x86_64-darwin + run under Rosetta, returns correct values
+LLVM↔LLVM (30/42/99/12/33/44). Adversarial review (3-lens) returned a clean bill:
+no critical/major defect, dormancy airtight, direct-call path clang-faithful.
+**Step 2c (NOT yet done) — the iface-dispatch + function-value/closure/shim LLVM
+paths (`emit_iface_call.bn`, `emit_funcvals_sig.bn`/`emit_funcvals_shim.bn`) are
+still GP-only (no `SysVInSse` branch).** They are dormant-harmless now (byte-
+identical), but see the flip-blocker below.
+
+> ⛔ **FLIP BLOCKER (Step 6): do NOT flip `SysVSseInRegs()` → `Arch==ARCH_X64`
+> until Step 2c (iface + func-value/closure/shim LLVM SSE-wiring), Step 4 (native
+> x64 + shims), and Step 5 (cross-module Rosetta + clang-interop XMM goldens) are
+> ALL done.** The review confirmed a real (currently dormant) trap: at flip time
+> the callee DEFINITION side is SSE-aware (`emit_debug.bn` gates on `SysVInSse`)
+> but the iface/func-value CALLER sides spell the GP `[N x iW]` form — a register-
+> class mismatch = silent wrong values that the direct-call flip proof does NOT
+> catch. The flip must be gated on 2c+4+5 completeness, not just the direct path.
+
 Stage 0 landed (`06f9a8ff` classifier lift,
 `d69eded8` variadic NSRN fix). **Stage 1 landed** (dormant): prereqs `7692508e`
 (TargetInfo.Arch + the `HfaInSimd()` master gate), codegen lowering `9ebf4119`
