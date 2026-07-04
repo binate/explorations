@@ -737,6 +737,23 @@ stdout.
   mode func value / extern returning a bare 64-bit scalar on ILP32 is wrong. Fix
   shape: aggregate-return dispatch must load the retbuf pair for a 64-bit *scalar*
   result rather than storing the pointer. Discovered by the design-doc review.
+  - **CONFIRMED REPRO (2026-07-03, arm32-VM)**: `import "pkg/std/math"` (native-
+    injected → cross-mode); `println(math.Floor(3.7))` prints
+    `1083552236*2^-1074` (the retbuf POINTER address read as a float mantissa,
+    not `3.000000`), and `println(math.Float64bits(1.0))` prints `1083552244`
+    (the retbuf pointer low word, not `4607182418800017408`).  So the result
+    register gets the retbuf addr; the high slot is stale.
+  - **FIX APPROACH (next session)**: the dispatcher must distinguish a 64-bit
+    SCALAR retbuf return (load 8 bytes → `regs[Dst]`=lo, `regs[Dst+1]`=hi) from a
+    genuine by-address aggregate (store the retbuf ptr, as today).  `instr.Aux`
+    (retbufSize) alone can't tell them apart (a raw slice is also 8 bytes), so
+    stamp a flag at IR-lowering time (lower_call.bn / the OP_CALL* lowering) —
+    e.g. "result is a 64-bit scalar" — and branch on it in
+    dispatchCompiledFuncValue (`vm_exec_funcref.bn:356`), dispatchExternBinding
+    (`vm_extern.bn:63`), and the iface path (dispatchCompiledIfaceMethod).  Note
+    the shim's retbuf WRITE side is already fine (it stores the i64 to the
+    retbuf); only the VM read-back is wrong.  Design + adversarially-review this
+    like the arg-side (`plan-vm-32bit-crossmode-64bit-args.md`).
 
 ### 🏷[BUG-BASH 2026-06-27 → LANE 3] IR integer constants are host-width `int` (blocks 32-bit-hosted toolchain) — LAYER 1 + 2 (INT64 + FLOAT64) DONE
 - **Symptom**: under `builder-comp_arm32_linux` unit tests, `pkg/ir`
