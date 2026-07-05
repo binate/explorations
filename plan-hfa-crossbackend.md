@@ -22,19 +22,25 @@ all ~40 shapes match clang x86_64 exactly; a temporary gate flip emits IR clang
 accepts and, built for x86_64-darwin + run under Rosetta, returns correct values
 LLVM↔LLVM (30/42/99/12/33/44). Adversarial review (3-lens) returned a clean bill:
 no critical/major defect, dormancy airtight, direct-call path clang-faithful.
-**Step 2c (NOT yet done) — the iface-dispatch + function-value/closure/shim LLVM
-paths (`emit_iface_call.bn`, `emit_funcvals_sig.bn`/`emit_funcvals_shim.bn`) are
-still GP-only (no `SysVInSse` branch).** They are dormant-harmless now (byte-
-identical), but see the flip-blocker below.
+**Step 2c LANDED** (dormant): **2c-iface** (`35a74bac`) wires the interface-method
+DISPATCH (register convention) — verified byte-identical + Rosetta (an interface
+passing AND returning an SSE aggregate → 205); minimal adversarial review clean.
+**2c-funcval** (`91f67fce`) wires the func-value / method-value / capturing-closure
+`__shim` paths (their by-address/retbuf dispatch convention is ABI-neutral memory
+and unchanged; SSE is only in the shim's call to the SSE-defined underlying) —
+verified byte-identical + Rosetta (func-values 8B+16B arg/return and a closure
+capturing a 16B SSE aggregate → 6/10/206); minimal adversarial review clean.
+Key finding: every AggRetCoerced aggregate uses the void+retbuf shim (never the
+scalar shim), so there is NO scalar-shim/VM cross-mode entanglement — 2c-funcval
+is entirely LLVM-side. **The LLVM-codegen half of Stage 4 is now COMPLETE.**
 
 > ⛔ **FLIP BLOCKER (Step 6): do NOT flip `SysVSseInRegs()` → `Arch==ARCH_X64`
-> until Step 2c (iface + func-value/closure/shim LLVM SSE-wiring), Step 4 (native
-> x64 + shims), and Step 5 (cross-module Rosetta + clang-interop XMM goldens) are
-> ALL done.** The review confirmed a real (currently dormant) trap: at flip time
-> the callee DEFINITION side is SSE-aware (`emit_debug.bn` gates on `SysVInSse`)
-> but the iface/func-value CALLER sides spell the GP `[N x iW]` form — a register-
-> class mismatch = silent wrong values that the direct-call flip proof does NOT
-> catch. The flip must be gated on 2c+4+5 completeness, not just the direct path.
+> until Step 4 (native x64 + shims) and Step 5 (cross-module Rosetta + clang-
+> interop XMM goldens) are done.** The LLVM-codegen half (2a/2b/2c) is complete and
+> clang-faithful, but the NATIVE x64 backend still packs/returns these aggregates
+> in GP registers; flipping now would make an LLVM callee expect XMM while a native
+> caller passes GP (and vice-versa) — a register-class mismatch = silent wrong
+> values. The single gate flips BOTH halves at once, so both must be SSE-ready.
 
 Stage 0 landed (`06f9a8ff` classifier lift,
 `d69eded8` variadic NSRN fix). **Stage 1 landed** (dormant): prereqs `7692508e`
