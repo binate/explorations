@@ -11,13 +11,13 @@ confirmed non-SIMD. **The ONLY remaining item is Stage 4 (x64 SysV eightbyte-SSE
 HFA), an independent per-target effort.** History below.
 
 **Stage 4 (x64) progress (2026-07-04):** Step 1 (classifier `abi_sysv.bn`) LANDED
-(`58c2976d`). Step 2 (LLVM codegen) split and landed dormant on the worktree,
-pending cherry-pick: **2a** `SysVEightbyteForm` per-eightbyte form helper
-(`90c32739`); **2b** the LLVM coercion — role-divergent (RETURN = first-class
+(`58c2976d`). Step 2 (LLVM codegen) split and LANDED dormant on main: **2a**
+`SysVEightbyteForm` per-eightbyte form helper (`f76f7730`); **2b** the LLVM
+coercion — role-divergent (RETURN = first-class
 `{eb0,eb1}` / bare-eightbyte aggregate; ARG/PARAM = split one LLVM param per
 eightbyte), wired for the DIRECT-call path (define params/return, direct-call
 args/result, funcRetTypes, extern declares), all sub-gated by `types.SysVInSse`
-(`a5c94ad9`). 2a+2b verified: dormant output byte-identical across x64/aa64/arm32;
+(`c1f0cd21`). 2a+2b verified: dormant output byte-identical across x64/aa64/arm32;
 all ~40 shapes match clang x86_64 exactly; a temporary gate flip emits IR clang
 accepts and, built for x86_64-darwin + run under Rosetta, returns correct values
 LLVM↔LLVM (30/42/99/12/33/44). Adversarial review (3-lens) returned a clean bill:
