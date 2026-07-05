@@ -479,8 +479,64 @@ self-compile continuing to pass.
 >     reviewed (6 lenses; clean, one accepted test-naming NIT).
 >   - **2.2b-3** = satisfaction table (words 5–6): `IfaceId` weak symbols
 >     (`mangle.IfaceIdName`), one `{iface_id, sub-vtable-ptr}` per interface in T's
->     transitive set (from the already-flattened `m.Impls` grouping; sub-vtable
->     offset via `IfaceParentSlotOffset`). Fill `sat_len`/`sat_table`.
+>     transitive set (from the already-flattened `m.Impls` grouping). Fill
+>     `sat_len`/`sat_table`.
+>
+>     **⚠ 2.2b-3 RECON (2026-07-05, 5-investigator + synthesis workflow) — a
+>     BLOCKER + resolved facts. AWAITING USER DECISION on the blocker.**
+>     - **⚠ BLOCKER — the sat SET is not TU-invariant (silent wrong-code hazard).**
+>       Every prior word (size/align/dtor/name) is a per-type TU-invariant fact, so
+>       the weak `__typeinfo.<T>` records coalesce byte-identically. The sat table is
+>       NOT: (1) `CollectTypeInfoDescs` walks `m.Impls` only, never `m.ImportedImpls`;
+>       (2) `ensureAnyImplInfo` appends `(T, any)` lazily into the *boxing* module's
+>       `m.Impls`. So module A (`impl T:Dog`, Dog:Animal) emits sat={Dog,Animal},
+>       while module B (only `@any(t)`) emits sat={any} — two weak defs of
+>       `__typeinfo.<T>`, linker picks one arbitrarily → a valid `t.(*Dog)` can fail.
+>       **Root cause is fundamental:** Binate allows **cross-package impls** (no
+>       orphan rule — plan-cross-package-interfaces.md §2), so NO single TU (not even
+>       T's defining package) sees T's complete impl set. `weak_odr` duplicate-OK
+>       fixes per-`(T,J)` *vtables* (byte-identical), but not a per-*type* aggregate.
+>       **The completeness-contract fork (USER'S CALL — changes the record shape
+>       and/or the Phase-5 reader and/or the language):**
+>       (a) **orphan rule** for boxable/assertable types (all impls of T in T's pkg)
+>       — but §2 explicitly rejected an orphan rule;
+>       (b) **distributed per-`(T,J)` satisfaction entries** in a global collection,
+>       each riding weak_odr with its `(T,J)` vtable (complete under cross-package
+>       impls; the assertion scans (TypeInfo,IfaceId)→subvtable globally instead of a
+>       per-type table) — arguably cleanest long-term, but drops the per-type
+>       words-5/6 table shape;
+>       (c) **per-TU-partial** per-type table + a Phase-5 slow-path fallback on miss;
+>       (d) **canonical-TU** emission (Option A) — complete only for same-package
+>       impls; silently incomplete for cross-package ones.
+>     - **RESOLVED (approach-independent): sub-vtable pointer = the standalone
+>       `__ivt.<T>__<J>` symbol at offset 0** — NOT the plan's earlier
+>       `&(T's @__ivt) + IfaceParentSlotOffset*W`. `emitImplVtables` emits a distinct
+>       `__ivt.<T>__<J>` for every row in `m.Impls` (incl. every transitive ancestor),
+>       co-located with the record, and each begins with J's any-block at offset 0
+>       (byte-identical to the offset target). The offset form is under-specified
+>       across multiple hierarchies (no single top-level `@__ivt`; `IfaceParentSlotOffset`
+>       returns −1 for a non-ancestor) and `IfaceParentSlotOffset` is really only the
+>       `OP_IFACE_UPCAST` tool. This also kills the weak+nonzero-addend Mach-O concern.
+>     - **RESOLVED: `mangle.IfaceIdName(pkg,name)` = `buf.Concat("__ifaceid.",
+>       StructName(pkg,name))`** (mirrors `TypeInfoName`; reject the doc's illustrative
+>       `bn_IfaceId.…` — not a real lp kind letter). One weak 1-byte rodata marker per
+>       interface, enumerated from `m.Interfaces` (alias-filtered, deduped), emitted by
+>       a module-level pass mirroring `emitTypeInfos` in all 3 backends (arm32 iface is
+>       a stub — no change). Address-only identity; the Phase-5 assertion site references
+>       the same symbol.
+>     - **RESOLVED: transitive set** — `m.Impls` already holds one deduped, canonical,
+>       alias-resolved row per `(T, listed-iface)` AND per `(T, transitive-ancestor)`
+>       (via `IfaceAncestorClosure` + `moduleHasImpl`). Just partition `m.Impls` by
+>       `(RecvPkg, RecvTypeName)`; extend the existing `CollectTypeInfoDescs` per-type
+>       walk (don't add a parallel pass). Sort entries by IfaceIdName for byte-stable
+>       weak coalescing (the `(T,any)` row appends in nondeterministic order).
+>     - **RESOLVED: len-0 sat tables are possible** (the "≥1 row" floor is incidental)
+>       — gate word 6 on `len>0` (null slot otherwise), mirroring the name-ptr gate.
+>     - **Minor decision:** does `any` get an IfaceId + sat entry, or does Phase-5
+>       `x.(*any)` special-case (trivially true)? Simplest: emit an `any` IfaceId
+>       (harmless, weak, address-only). USER'S CALL, low-stakes.
+>     - **Landable split:** Commit 1 = IfaceId symbols (inert markers, no readers —
+>       UNBLOCKED); Commit 2 = sat array + words 5-6 (BLOCKED on the fork above).
 > - **Deferred to Phase 5** (where the VM must *read* TypeInfo): the reflect-
 >   descriptor extension + VM-side per-type identity materialization (revised
 >   §2f).
