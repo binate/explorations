@@ -466,10 +466,17 @@ self-compile continuing to pass.
 >     TU-invariance holds (the record is emitted only from TUs with a LOCAL impl
 >     of T, where the dtor is a local def). Adversarially reviewed (correctness +
 >     refactor-safety, each built + emitted-LLVM + mutation-tested; no defects).
->   - **2.2b-2** = name (words 3–4): a rodata name blob (`QualifiedTypeName`) via a
->     new sibling `DataGlobal` (the `BuildTypeInfo → @[]@DataGlobal` refactor the
->     sat-table also needs) + word-3 symref + word-4 length. TU-invariant iff the
->     name is canonical (verify with the multi-TU `378` check).
+>   - **2.2b-2 — ✅ LANDED `88e913af`.** Name (words 3–4): a TU-local rodata name
+>     blob holding `RecvTyp.QualifiedTypeName()` (canonical/path-dotted, e.g.
+>     `main.T`) + word-3 symref + word-4 length. `BuildTypeInfo → @[]@DataGlobal`
+>     (`[record, name-blob]`, mirrors BuildPackageDescriptors); word 3 gated on
+>     name presence (no dangling ref). `TypeInfoDesc` carries neutral `Name`/`NameSym`
+>     (NameSym handled like Sym — native-prefixed); exported `types.QualifiedTypeName`;
+>     added `mangle.TypeInfoNameBlobName`. **Consequence:** the name pointer is a
+>     relocation, so EVERY named record now lands in `rodata_relro` (not just
+>     dtor-bearing ones) — native section tests + the vtable-shape tests (their
+>     `emitImplVtables` also emits the record) updated (+56 record). Adversarially
+>     reviewed (6 lenses; clean, one accepted test-naming NIT).
 >   - **2.2b-3** = satisfaction table (words 5–6): `IfaceId` weak symbols
 >     (`mangle.IfaceIdName`), one `{iface_id, sub-vtable-ptr}` per interface in T's
 >     transitive set (from the already-flattened `m.Impls` grouping; sub-vtable

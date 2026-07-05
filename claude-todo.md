@@ -74,9 +74,16 @@ regression — re-run the single test in isolation to confirm.
   relocation moves the record to `rodata_relro`. Native TypeInfo-emission split into
   new `<arch>_typeinfo.bn` (+ tests). Adversarially reviewed (correctness +
   refactor-safety, built/emitted-LLVM/mutation-tested; no defects).
-- **Remaining:** 2.2b-2 (name, words 3–4) + 2.2b-3 (satisfaction table, words 5–6),
-  then the front-end (Phases 3–7: parser/checker/lowering for `x.(K T)`, comma-ok,
-  type switches, the §17.5 panic), plus the cross-mode/VM story deferred to Phase 5.
+- **Phase 2.2b-2 — ✅ LANDED `88e913af`:** name (words 3–4) — a TU-local rodata blob
+  holding `RecvTyp.QualifiedTypeName()` (canonical/path-dotted, e.g. `main.T`) +
+  word-3 pointer + word-4 length. `BuildTypeInfo → @[]@DataGlobal` (`[record,
+  name-blob]`); word 3 gated on name presence. Added `mangle.TypeInfoNameBlobName`,
+  exported `types.QualifiedTypeName`. Consequence: the name-pointer relocation moves
+  EVERY named record to `rodata_relro` (native section + vtable-shape tests updated).
+  Adversarially reviewed — clean.
+- **Remaining:** 2.2b-3 (satisfaction table, words 5–6), then the front-end
+  (Phases 3–7: parser/checker/lowering for `x.(K T)`, comma-ok, type switches, the
+  §17.5 panic), plus the cross-mode/VM story deferred to Phase 5.
 
 **🔧 TODO (detailed) — migrate the TypeInfo record content to a per-type "boxable
 types" registry ("design D").** Increment 2.2a fills `size`/`align` via **design A**:
