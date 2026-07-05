@@ -33,6 +33,10 @@ capturing a 16B SSE aggregate → 6/10/206); minimal adversarial review clean.
 Key finding: every AggRetCoerced aggregate uses the void+retbuf shim (never the
 scalar shim), so there is NO scalar-shim/VM cross-mode entanglement — 2c-funcval
 is entirely LLVM-side. **The LLVM-codegen half of Stage 4 is now COMPLETE.**
+**Step 3 LANDED** (`b26a90c7`): the x64 asm SSE eightbyte memory-image movers
+(`emitSSEMem` + `Movlps_load`/`Movlps_store` 0F 12/13 + `Movss_load`/`Movss_store`
+F3 0F 10/11), `as`-verified, additive + unused until Step 4; minimal review clean.
+**Step 4 (native x64 backend) IN PROGRESS** — the remaining half.
 
 > ⛔ **FLIP BLOCKER (Step 6): do NOT flip `SysVSseInRegs()` → `Arch==ARCH_X64`
 > until Step 4 (native x64 + shims) and Step 5 (cross-module Rosetta + clang-
