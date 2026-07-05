@@ -50,6 +50,7 @@ flag/accounting *pattern*).
 
 ## Sub-steps (each dormant-landable; mirrors aa64 Stage 2's return/shim/spill split)
 
+- **[LANDED 0831eba9] Native SSE RETURN pack:** `cc.SseAggregates` flag + `ReturnsSseInRegs` + `emitSseAggregateReturnPack` (x64_return.bn) — SSE ebs -> XMM0/XMM1 (MOVLPS/MOVSS), INTEGER ebs -> RAX/RDX. Dormant byte-identical; flip-objdump verified {double,double}/{float,double}/mixed; minimal review clean. (Bundled the flag+predicate+return-emitter; the arg-accounting below is still to do.)
 - **4a — CallConv accounting (foundation):** `common.bni` `SseAggregates` field +
   `SysV_AMD64()` set + `argRegWordsStackWords` SSE branch + `ReturnsSseInRegs`.
   No emit yet; pure classification/accounting. Dormant byte-identical. Unit-test
