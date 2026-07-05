@@ -584,16 +584,26 @@ while keeping every commit green and close to main.
       827 files: **0 invalid, 0 non-idempotent** (31 over-100 remain — the
       option-(a) cases below, not StrParts). Parser correctness, token-exactness,
       compiler-path additivity were clean in review.
-    - **Preserve author parens (decided 2026-07-05, not yet implemented):**
-      reverses the earlier "drop redundant value parens" ratification (§16). Binate's
-      **C-like precedence** (`<<`=7, `+/-`=8, `|`=4) makes canonical de-parenthesizing
+    - **Preserve author parens** ✅ **LANDED** 2026-07-05 (`f1e3dc9b`). Reverses the
+      earlier "drop redundant value parens" ratification (§16). Binate's **C-like
+      precedence** (`<<`=7, `+/-`=8, `|`=4) makes canonical de-parenthesizing
       surprising (`1 << (64 - n)` ≡ `1 << 64 - n`, but few read the latter right).
-      Front-end change like StrParts: record author parens on the expr node; the
-      printer preserves them where they disambiguate. **User rule:** collapse
-      `((x))` → `(x)`; drop parens entirely when there's only one thing inside (an
-      atomic primary or a single unary). Preserve one layer around a *compound*
-      (binary) operand. (Semantics were never at risk — the dropped parens were all
-      genuinely redundant under the precedence table; this is a readability call.)
+      Front-end change like StrParts: `Expr.Parenthesized` (a single flag, so nested
+      layers collapse) records the author's grouping; `printBinOperand` keeps a pair
+      around a BINARY operand even when precedence makes it redundant. Parens with no
+      such intent still canonicalize away: around a primary or single unary ("one
+      thing inside") and a top-level parenthesized expr that is not an operand
+      (`return (a + b)`, `if (a == b)`). Additive/compiler-inert (types/ir/codegen
+      green). Minimal adversarial review: **no correctness bugs** across 8 categories
+      (non-assoc comparisons, D4 composite-in-condition, nesting collapse, width,
+      token-gate, idempotence all clean). Dogfood 827 files: 0 invalid, 0
+      non-idempotent.
+    - **Reformat sweep can now resume** — the three fidelity gaps that gated it
+      (section comments, adjacent-string splits, author parens) are all fixed. The
+      residual **30 over-100 files** need **option (a)** first: statement-level
+      expr-list wrapping (return/assign/short-var) + splitting a genuinely-long
+      single string the author did NOT split (with token-gate normalization treating
+      adjacent STRING tokens as equivalent).
 
 ## 15. Effort (anchored to the work, not calendar)
 
