@@ -1490,6 +1490,35 @@ phase status, landed commits, and deferred shapes. Deferrals below are all
 **fail-loud** (a shape the backend doesn't implement emits a clean COMPILE_ERROR,
 never silent wrong-code) — EXCEPT the MAJOR bug just below, which violates that.
 
+**MAJOR — CROSS-BACKEND (arm32 + x64), found 2026-07-04 by the P4-b2 review;
+awaiting decision: big-multi-return FUNC-VALUE call under-reserves outgoing-args
+→ cross-module silent miscompile.** For an `OP_CALL_FUNC_VALUE`/`OP_CALL_HANDLE`
+whose result is a big multi-return tuple (gpWords > NumGpRetRegs, so sret), the
+native EMITTER uses `prefixSlots = 2` (retbuf in R0 + data in R1, via the
+SretInGpArgReg convention) — see arm32_call_indirect.bn `emitCallFuncValue` and
+x64_call_indirect.bn:226-230 (`useRetbuf = aggregateRet || bigMultiRet`). But the
+shared SIZER `callDispatchArgTypesAnyOp` (common_call.bn:132-137, feeding
+PlanFrame's outgoing-args reservation) gates its prefix bump on `aggregateRet`
+which is `!IsMultiReturnCall` — so a big multi-return keeps `prefixSlots = 1` and
+has NO bigMultiRet handling (unlike the direct-`OP_CALL` branch,
+callDispatchArgTypes:91-93, which DOES prepend a slot for CallReturnsBigMultiReturn).
+So emitter(2) vs sizer(1): with 3+ single-word user args the emitter spills the
+3rd user word to SP+0, which PlanFrame never reserved → it overlaps the first
+spill/alloc slot (a 523-class frame-corruption miscompile). SAME-module is
+fail-loud (the arm32 sret shim rejects >2 args), but CROSS-module — an LLVM-dep
+func value called from native main with 3+ args — emits the overlap with NO local
+fail-loud → **silent miscompile at the native↔LLVM boundary**. **x64 has the
+IDENTICAL pre-existing bug** (also SretInGpArgReg=true); aarch64 is safe (X8, no
+SretInGpArgReg, prefixSlots stays 1). LATENT: no conformance test exercises a
+big-multi-return func-value call with ≥3 user args. **Fix** (recommended, fixes
+both, inert on aa64): in callDispatchArgTypesAnyOp's OP_CALL_FUNC_VALUE branch add
+`if cc.SretInGpArgReg && ins.ID >= 0 && cc.CallReturnsBigMultiReturn(ins) {
+prefixSlots = 2 }` — a shared change (touches x64 codegen for this shape, so
+verify x64 units/conformance) + a cross-module conformance test. Alternative:
+arm32-local fail-loud on the overflow case (defers the shape, leaves x64's bug).
+P4-b2 (multi-return, `200bdd05` on temp-5) is otherwise verified green (2007/619,
+0 hangs, 0 regressions) but MUST NOT land with this arm32 hole unfixed.
+
 **MAJOR — FIXED (landed `bc42705e`, 2026-07-04, by-address): the func-value
 consumer miscompiled aggregate ARGS through CROSS-PACKAGE func values.**
 `emitCallFuncValue` (arm32_call_indirect.bn)
