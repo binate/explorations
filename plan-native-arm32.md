@@ -34,13 +34,16 @@ decomposition). ILP32 layout background: [`plan-arm32-bare-metal.md`].
   docs-only comment sweep (`9239279a`), and the **three runtime-hang fixes** —
   five-u8 aggregate-param PlanFrame 8-round (`f3a8bc91`), the shared
   `NeedsSret`/`IsAggregateReturn` 64-bit-scalar kind gate (877, `0479813a`), and
-  the shared-IR deref-store width coercion (599, `ba2a14ec`), and **P4-a
-  (func-value shim sret return-shape + indirect-call dispatch, `a888e9cd`)**.
-  Current native-arm32-baremetal conformance: **1898 passed / 727 failed / 32
-  skipped** (P4-a: +118 pass, no regressions) — **NO `[10s]` runtime hangs remain**; all three silent-miscompile
-  hangs (877 int64-xpkg-return, struct-param/five-u8 aggregate-param, 599
-  `&s[i]` deref-store) are fixed. Every remaining failure is a fail-loud deferred
-  P4/P5 shape. The 877 kind-gate also repairs the shared int64-return
+  the shared-IR deref-store width coercion (599, `ba2a14ec`), **P4-a
+  (func-value shim sret return-shape + indirect-call dispatch, `a888e9cd`)**, and
+  **P4-b1 (small in-register aggregate return + the cross-pkg aggregate-arg
+  by-address MAJOR bug fix, `bc42705e`)**.
+  Current native-arm32-baremetal conformance: **1908 passed / 718 failed / 31
+  skipped** — **0 runtime hangs** (verified via the QEMU "terminating on signal"
+  grep on the FULL verbose output — NOT a `[10s]` grep, which is unreliable on
+  non-verbose output and let a P4-a hang slip). 716/718 failures are clean
+  fail-loud COMPILE_ERROR deferred shapes; the only 2 wrong-output failures are
+  725/727 (pre-existing reflect miscompile, tracked separately). The 877 kind-gate also repairs the shared int64-return
   classification the concurrent ILP32-VM work references (its deferred VM-return
   dispatch-patch is likely now moot — see claude-todo.md). 599's fix (shared-IR
   `genAssign` STAR-arm ensureWidth) also corrected a latent wrong-width-store
@@ -397,14 +400,38 @@ emitScalarVoidShim / emitSretShim (R0-kept sret, no X8) + emitFuncValue
 construction. NO shared/common changes (PlanFrame/callDispatchArgTypesAnyOp/layout
 offsets already target-parameterized; LP64 byte-identical). Adversarial review
 (4 lenses) found 0 defects. Non-capturing func-value construct/call/handle-dispatch
-now run end-to-end under QEMU; conformance **1898/727/32** (+118 pass, 0 `[10s]`
-hangs). Deferred shapes (below) stay fail-loud (verified COMPILE_ERROR).
+now run end-to-end under QEMU; conformance **1898/727/32** (+118 pass). (The P4-a
+land claimed "0 `[10s]` hangs" — WRONG: the hang-detection grep was faulty and
+missed a cross-pkg aggregate-arg silent-miscompile hang, fixed in P4-b below.
+Hang audits MUST grep the QEMU "terminating on signal" message on the FULL
+verbose output.)
+
+**P4-b1 DONE (landed `bc42705e`) — small in-register aggregate return + a MAJOR
+cross-pkg aggregate-arg bug fix:**
+- Small (≤4-byte) in-register aggregate RETURN across callee (`arm32_return.bn`
+  one-word R0 pack), direct-call caller (`arm32_call.bn` R0→data-region collect),
+  func-value consumer (retbuf-in-R0), and func-value SHIM (new `emitPackShim`:
+  push {r4,lr} frame, save retbuf in R4, BL, store R0 through retbuf). Flips
+  `966_return_small_struct` (xfail removed).
+- MAJOR bug fix (silent miscompile since P4-a): the func-value consumer marshaled
+  aggregate ARGS via the direct-call ABI (spread words), but the shim ABI passes a
+  coerced in-register aggregate BY-ADDRESS. Cross-pkg (LLVM shim) mismatch → wild
+  deref → runtime HANG (`889_funcval_small_aggregate`). Fixed by substituting
+  `AggCoercedInReg` args to a 1-word `*uint8` and passing the pointer by-address
+  (matches `EffectiveArgWords` + the LLVM shim). A NON-coerced in-register
+  aggregate arg (slice / iface-value / managed-slice) now fails LOUDLY (a
+  pre-existing cross-backend gap shared with x64/aa64 — see claude-todo.md).
+- No shared/common changes. Conformance **1908/718/31**, **0 hangs** (verified via
+  the QEMU "terminating on signal" grep). 716/718 failures are clean fail-loud
+  COMPILE_ERROR; the only 2 wrong-output failures are `725`/`727` (pre-existing
+  reflect miscompile, unrelated — raised separately).
 
 **Remaining P4 sub-increments (fail-loud today):**
-- **P4-b:** small (≤4-byte) in-register aggregate return/collection PACK — the
-  callee packs into R0 / caller collects from R0 (mirror x64's
-  `emitAggregateReturnPack` + `!bigRet` store); plus multi-return (in-register
-  tuple + >budget sret). Also unblocks the direct-call `966_return_small_struct`.
+- **P4-b2:** multi-return — in-register tuple (callee r0..r3 field-per-register
+  pack + caller `collectMultiReturnFields`) + >budget sret (callee write-through
+  at `FieldOffset` + caller collect). AAPCS32 multi-return ABI already
+  clang-pinned in common. (Follow-ups from P4-b1: the SAME-package aggregate-arg
+  SHIM re-marshaling, and the 725/727 reflect bug.)
 - **P4-c:** interfaces — impl vtables (`arm32_iface.bn` currently PANICs; convert
   to `a.SetError` when implementing), iface-value construct/upcast/dtor, method
   dispatch (`arm32_iface.bn`, template `aarch64_iface.bn`). Biggest bucket.

@@ -1490,9 +1490,9 @@ phase status, landed commits, and deferred shapes. Deferrals below are all
 **fail-loud** (a shape the backend doesn't implement emits a clean COMPILE_ERROR,
 never silent wrong-code) — EXCEPT the MAJOR bug just below, which violates that.
 
-**MAJOR (silent miscompile; found 2026-07-04 during P4-b; FIX IMPLEMENTED
-by-address, awaiting land): the func-value consumer miscompiled aggregate ARGS
-through CROSS-PACKAGE func values.** `emitCallFuncValue` (arm32_call_indirect.bn)
+**MAJOR — FIXED (landed `bc42705e`, 2026-07-04, by-address): the func-value
+consumer miscompiled aggregate ARGS through CROSS-PACKAGE func values.**
+`emitCallFuncValue` (arm32_call_indirect.bn)
 marshals user args via `emitCallArg` — the DIRECT-call ABI, which spreads an
 aggregate as its inline words. But the func-value shim ABI passes an aggregate
 arg BY-ADDRESS (one pointer word the shim re-expands). For a SAME-package func
@@ -1514,7 +1514,7 @@ aggregate-arg func values still fail-loud at SHIM emission (the arm32 shim can't
 re-marshal an aggregate arg yet — `shimUserArgWords` rejects it; that shim
 aggregate re-marshaling is the remaining piece, see below). 64-bit-pair ARGS ride
 emitCallArg's pair placement (matches the shim ABI), so they are NOT fail-loud'd
-in the consumer. Fix awaiting land as part of P4-b's func-value work.
+in the consumer. Fixed as part of P4-b1 (`bc42705e`).
 
 **MAJOR (pre-existing silent miscompile on main; found 2026-07-04 by the proper
 audit): cross-package REFLECT over package functions produces WRONG output.**
