@@ -451,10 +451,29 @@ self-compile continuing to pass.
 > `val.Typ.Elem` resolved) and update the `ImplInfo` — covers boxed/method'd types,
 > not never-boxed-in-module explicit impls. Recommend (a). **2.1 stays landed and
 > correct; 2.2a is parked on this decision.**
-> - **2.2b** = satisfaction table: `IfaceId` weak symbols (`mangle.IfaceIdName`),
->   one `{iface_id, sub-vtable-ptr}` per interface in T's transitive set (from the
->   already-flattened `m.Impls` grouping; sub-vtable offset via
->   `IfaceParentSlotOffset`). Fill `sat_len`/`sat_table`.
+> - **2.2b** = the remaining record fields (dtor + name + satisfaction table),
+>   landing as sub-increments:
+>   - **2.2b-1 — ✅ LANDED `9eba70eb`.** Word 0 destructor handle, filled from the
+>     SAME helper the vtable any-block slot 0 uses (LLVM `implDtorSlotSym`;
+>     newly-extracted native `dtorSlotSym_x64` / `dtorSlotSymNative`) so the
+>     record's dtor word is byte-identical to that slot by construction.
+>     `TypeInfoDesc` carries neutral `DtorFuncName` (per-type, from
+>     `CollectTypeInfoDescs`) → each backend resolves the prefixed `DtorSym`. A
+>     no-dtor type keeps a null word (reloc-free → `rodata`); a dtor type's
+>     relocation moves the record to `rodata_relro`. Also split the native
+>     TypeInfo-emission driver into new `<arch>_typeinfo.bn` (+ tests) — a home
+>     for 2.2b-2/2.2b-3's growth, keeps `aarch64_iface.bn` under the length cap.
+>     TU-invariance holds (the record is emitted only from TUs with a LOCAL impl
+>     of T, where the dtor is a local def). Adversarially reviewed (correctness +
+>     refactor-safety, each built + emitted-LLVM + mutation-tested; no defects).
+>   - **2.2b-2** = name (words 3–4): a rodata name blob (`QualifiedTypeName`) via a
+>     new sibling `DataGlobal` (the `BuildTypeInfo → @[]@DataGlobal` refactor the
+>     sat-table also needs) + word-3 symref + word-4 length. TU-invariant iff the
+>     name is canonical (verify with the multi-TU `378` check).
+>   - **2.2b-3** = satisfaction table (words 5–6): `IfaceId` weak symbols
+>     (`mangle.IfaceIdName`), one `{iface_id, sub-vtable-ptr}` per interface in T's
+>     transitive set (from the already-flattened `m.Impls` grouping; sub-vtable
+>     offset via `IfaceParentSlotOffset`). Fill `sat_len`/`sat_table`.
 > - **Deferred to Phase 5** (where the VM must *read* TypeInfo): the reflect-
 >   descriptor extension + VM-side per-type identity materialization (revised
 >   §2f).

@@ -66,9 +66,17 @@ regression — re-run the single test in isolation to confirm.
   receiver's laid-out type (design A: `ImplInfo.RecvTyp` held, `SizeOf` read at
   codegen; see below). Adversarially reviewed — byte-identical cross-TU records
   verified by compiling `378` + nested-import + ILP32.
-- **Remaining:** 2.2b (name + dtor + satisfaction table), then the front-end
-  (Phases 3–7: parser/checker/lowering for `x.(K T)`, comma-ok, type switches, the
-  §17.5 panic), plus the cross-mode/VM story deferred to Phase 5.
+- **Phase 2.2b-1 — ✅ LANDED `9eba70eb`:** word 0 destructor handle, filled from the
+  SAME helper the vtable any-block slot 0 uses (LLVM `implDtorSlotSym`; extracted
+  native `dtorSlotSym_x64` / `dtorSlotSymNative`) → byte-identical to that slot by
+  construction. `TypeInfoDesc` carries neutral `DtorFuncName`; each backend resolves
+  the prefixed `DtorSym`. No-dtor type → null word (reloc-free `rodata`); dtor type →
+  relocation moves the record to `rodata_relro`. Native TypeInfo-emission split into
+  new `<arch>_typeinfo.bn` (+ tests). Adversarially reviewed (correctness +
+  refactor-safety, built/emitted-LLVM/mutation-tested; no defects).
+- **Remaining:** 2.2b-2 (name, words 3–4) + 2.2b-3 (satisfaction table, words 5–6),
+  then the front-end (Phases 3–7: parser/checker/lowering for `x.(K T)`, comma-ok,
+  type switches, the §17.5 panic), plus the cross-mode/VM story deferred to Phase 5.
 
 **🔧 TODO (detailed) — migrate the TypeInfo record content to a per-type "boxable
 types" registry ("design D").** Increment 2.2a fills `size`/`align` via **design A**:
