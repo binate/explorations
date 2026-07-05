@@ -556,6 +556,42 @@ while keeping every commit green and close to main.
       unasked); grouped-member multi-line trailing comments de-align (known
       step-11d cosmetic limit — valid + idempotent output).
 
+14. **Fidelity hardening + reformat campaign** — IN PROGRESS 2026-07-05:
+    - **Reformat sweep started, then PAUSED and reverted.** Applied bnfmt per-package
+      (mangle, bignum, stringutils landed) — but the output lost author intent in
+      two ways the user flagged: (1) a section-divider comment *between* two nodes
+      was glued onto the next node as its doc comment; (2) redundant parens the
+      author wrote for readability were dropped. All 3 reformats were **reverted**
+      (`45c65e07`, `ecec3c4c`, `e5eecbca`, 2026-07-05) — originals restored
+      byte-for-byte. The sweep resumes only once bnfmt is faithful (below).
+    - **Section-comment fix** ✅ **LANDED** 2026-07-05 (`19756d62`): a comment with
+      a blank line after it, sitting between two decls/statements/fields/cases,
+      keeps that blank (stays a standalone group header) instead of gluing onto the
+      following node. `emitLeadingComments` gained a `blankBeforeNode` param,
+      honored at node-callers, off at dangling-before-close sites. Regression tests
+      (`TestCommentsSectionBetween{Decls,Stmts}`, `…DocNoBlankStaysGlued`).
+    - **Adjacent-string preservation (StrParts)** — committed on `work-6`
+      (`f5407d42`), **NOT landed**. Parser retains adjacent-literal parts
+      (`Expr.StrParts`, raw text + Pos); `Name` stays the merged value for the
+      compiler; bnfmt re-emits the author's split. Fixes the 133→31 over-100-col
+      regression from literal-merging. **Minimal adversarial review found 2 MAJOR
+      issues** to fix before landing: (a) same-line `"a" "b"` is +3 bytes vs merged
+      `"ab"`, so a near-cap line can exceed 100 with no re-break (untested); (b) a
+      multi-part cross-line string nested in a wrapping construct writes `\n`+tabs
+      into the shared builder, desyncing `lineWidth`/`currentLineIndent` → the next
+      sibling packs onto the string's continuation line (non-idempotent). Parser
+      correctness, token-exactness, compiler-path additivity were clean.
+    - **Preserve author parens (decided 2026-07-05, not yet implemented):**
+      reverses the earlier "drop redundant value parens" ratification (§16). Binate's
+      **C-like precedence** (`<<`=7, `+/-`=8, `|`=4) makes canonical de-parenthesizing
+      surprising (`1 << (64 - n)` ≡ `1 << 64 - n`, but few read the latter right).
+      Front-end change like StrParts: record author parens on the expr node; the
+      printer preserves them where they disambiguate. **User rule:** collapse
+      `((x))` → `(x)`; drop parens entirely when there's only one thing inside (an
+      atomic primary or a single unary). Preserve one layer around a *compound*
+      (binary) operand. (Semantics were never at risk — the dropped parens were all
+      genuinely redundant under the precedence table; this is a readability call.)
+
 ## 15. Effort (anchored to the work, not calendar)
 
 - **Front-end (steps 1–2):** the parser `End`-stamping touches ~50 node sites
@@ -589,3 +625,15 @@ formatter; alignment + wrapping make it match house style and be adoptable.
   failure-modes/`-w`-atomicity, and encoding sections; corrected
   `readFile`→`parser.New` coercion, `New`/`NewInterface` branch, `EXPR_*` names,
   and `pkg/binate/…` citations.
+- **2026-07-05 — Preserve author parens (reverses the 2026-07-01 "drop redundant
+  value parens" ratification).** Reformatting real code showed canonical
+  de-parenthesizing is a readability loss under Binate's C-like precedence
+  (`1 << (64 - n)` → `1 << 64 - n`). Decision: keep author parens via a StrParts-style
+  front-end field, collapse `((x))` → `(x)`, drop parens around a single atomic/
+  unary operand ("only one thing inside"), preserve one layer around a compound
+  (binary) operand. Semantics never differed (all dropped parens were redundant
+  under the precedence table); this is purely about intent-preservation. See §14.
+- **2026-07-05 — Reformat sweep is gated on fidelity.** Do not apply bnfmt tree-wide
+  until author-paren preservation lands and the StrParts review findings are fixed;
+  the section-comment fix (`19756d62`) is the first of these. The 3 already-applied
+  reformats were reverted rather than left on main degraded.
