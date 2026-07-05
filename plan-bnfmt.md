@@ -570,17 +570,20 @@ while keeping every commit green and close to main.
       following node. `emitLeadingComments` gained a `blankBeforeNode` param,
       honored at node-callers, off at dangling-before-close sites. Regression tests
       (`TestCommentsSectionBetween{Decls,Stmts}`, `…DocNoBlankStaysGlued`).
-    - **Adjacent-string preservation (StrParts)** — committed on `work-6`
-      (`f5407d42`), **NOT landed**. Parser retains adjacent-literal parts
-      (`Expr.StrParts`, raw text + Pos); `Name` stays the merged value for the
-      compiler; bnfmt re-emits the author's split. Fixes the 133→31 over-100-col
-      regression from literal-merging. **Minimal adversarial review found 2 MAJOR
-      issues** to fix before landing: (a) same-line `"a" "b"` is +3 bytes vs merged
-      `"ab"`, so a near-cap line can exceed 100 with no re-break (untested); (b) a
-      multi-part cross-line string nested in a wrapping construct writes `\n`+tabs
-      into the shared builder, desyncing `lineWidth`/`currentLineIndent` → the next
-      sibling packs onto the string's continuation line (non-idempotent). Parser
-      correctness, token-exactness, compiler-path additivity were clean.
+    - **Adjacent-string preservation (StrParts)** ✅ **LANDED** 2026-07-05
+      (`dab058ed`). Parser retains adjacent-literal parts (`Expr.StrParts`, raw
+      text + Pos); `Name` stays the merged value for the compiler; bnfmt re-emits
+      the author's split. Fixes the 133→31 over-100-col regression from
+      literal-merging. **Minimal adversarial review found 2 MAJOR issues, both
+      fixed + regression-tested before landing:** (a) a same-line `"a" "b"` whose
+      split would exceed the cap but whose merge fits now emits the merge (cap is
+      the hard invariant; semantically identical; idempotent) — confirmed the
+      pre-fix 104-col violation is gone; (b) a cross-line run as a non-last fill
+      element now starts the following element on a fresh continuation line rather
+      than packing onto the string's deep +2 continuation. Post-fix dogfood over
+      827 files: **0 invalid, 0 non-idempotent** (31 over-100 remain — the
+      option-(a) cases below, not StrParts). Parser correctness, token-exactness,
+      compiler-path additivity were clean in review.
     - **Preserve author parens (decided 2026-07-05, not yet implemented):**
       reverses the earlier "drop redundant value parens" ratification (§16). Binate's
       **C-like precedence** (`<<`=7, `+/-`=8, `|`=4) makes canonical de-parenthesizing
