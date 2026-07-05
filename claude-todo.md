@@ -1482,8 +1482,8 @@ phase status, landed commits, and deferred shapes. Deferrals below are all
 **fail-loud** (a shape the backend doesn't implement emits a clean COMPILE_ERROR,
 never silent wrong-code) — EXCEPT the MAJOR bug just below, which violates that.
 
-**MAJOR (silent miscompile on main; found 2026-07-04 during P4-b; fix confirmed,
-awaiting land): the func-value consumer miscompiles aggregate / 64-bit-pair ARGS
+**MAJOR (silent miscompile; found 2026-07-04 during P4-b; FIX IMPLEMENTED
+by-address, awaiting land): the func-value consumer miscompiled aggregate ARGS
 through CROSS-PACKAGE func values.** `emitCallFuncValue` (arm32_call_indirect.bn)
 marshals user args via `emitCallArg` — the DIRECT-call ABI, which spreads an
 aggregate as its inline words. But the func-value shim ABI passes an aggregate
@@ -1499,12 +1499,40 @@ value), which HANGS ([11s] QEMU timeout). **It was MISSED at P4-a land because t
 hang-detection grep (`\[10s\]`) did not match the actual per-test timeout marker
 on non-verbose output — a process miss: hang audits MUST grep the QEMU
 "terminating on signal" message, not a `[Ns]` bracket.** Fix (confirmed: 889 →
-COMPILE_ERROR): a consumer-side fail-loud on aggregate / 64-bit-pair args in
-emitCallFuncValue (restores the invariant; defers the shape). Alternative: fully
-implement the by-address arg convention (mirror x64/aa64 `AggCoercedInReg` →
-substitute to `*uint8` + pass a pointer) to make aggregate-arg func values WORK.
-Likely affects other cross-pkg func values with aggregate/pair args (e.g. closures
-taking struct args). Not P4-b's small-agg-RETURN scope — separately raised.
+COMPILE_ERROR): user chose to fully implement the by-address arg convention
+(mirror x64/aa64 `AggCoercedInReg` → substitute to `*uint8` + pass a pointer), so
+CROSS-package aggregate-arg func values now WORK (889 passes). SAME-package
+aggregate-arg func values still fail-loud at SHIM emission (the arm32 shim can't
+re-marshal an aggregate arg yet — `shimUserArgWords` rejects it; that shim
+aggregate re-marshaling is the remaining piece, see below). 64-bit-pair ARGS ride
+emitCallArg's pair placement (matches the shim ABI), so they are NOT fail-loud'd
+in the consumer. Fix awaiting land as part of P4-b's func-value work.
+
+**MAJOR (pre-existing silent miscompile on main; found 2026-07-04 by the proper
+audit): cross-package REFLECT over package functions produces WRONG output.**
+`725_reflect_package_functions` (prints the function count `3` correctly, then
+FAILS to print the per-function Name/RetbufSize/ParamSlots/Sig — actual output is
+just `3`) and `727_reflect_function_signatures` (prints `5` then wrong). Both
+COMPILE (no COMPILE_ERROR) but produce wrong runtime output — a silent miscompile
+in the cross-pkg reflect / `__Package` descriptor iteration path
+(reflect.Package.Functions, a managed-slice of FunctionInfo aggregates read from
+the LLVM-emitted dep descriptor). **Present since at least P4-a (identical wrong
+output in the P4-a, guard, and by-address runs)** — UNCHANGED by P4-b, unrelated
+to func-value ARGS/RETURNS. Needs its own investigation (managed-slice-of-struct
+iteration and/or the descriptor's string/handle fields at the native↔LLVM
+boundary). These two are the ONLY non-COMPILE_ERROR failures in the 718 native
+arm32 conformance failures — the other 716 are clean fail-loud deferred shapes,
+and there are 0 hangs (verified via the QEMU "terminating on signal" grep on the
+FULL verbose output).
+
+**Follow-up (deferred): SAME-package aggregate-arg func value — the arm32 SHIM's
+aggregate re-marshaling.** The by-address fix above handles the CONSUMER + the
+cross-pkg (LLVM shim) direction. For a SAME-package aggregate-arg func value, the
+arm32 shim must load the by-address pointer and re-expand the aggregate into the
+underlying's real ABI (mirror x64/aa64 `emitShimArgMarshal`'s coerced-agg
+expansion). Currently `shimUserArgWords` fail-louds aggregate args, so
+`matrix/abi/funcval-param/*` (same-pkg) COMPILE_ERROR. Not a hang — a clean
+deferred shape; implement alongside the P4-d spill shim or as its own increment.
 
 **P4-a DONE (landed `a888e9cd`):** func-value / indirect-call consumer path
 (`arm32_call_indirect.bn`) + the shim's big-aggregate R0-sret return shape + all
