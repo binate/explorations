@@ -598,12 +598,41 @@ while keeping every commit green and close to main.
       (non-assoc comparisons, D4 composite-in-condition, nesting collapse, width,
       token-gate, idempotence all clean). Dogfood 827 files: 0 invalid, 0
       non-idempotent.
-    - **Reformat sweep can now resume** — the three fidelity gaps that gated it
-      (section comments, adjacent-string splits, author parens) are all fixed. The
-      residual **30 over-100 files** need **option (a)** first: statement-level
-      expr-list wrapping (return/assign/short-var) + splitting a genuinely-long
-      single string the author did NOT split (with token-gate normalization treating
-      adjacent STRING tokens as equivalent).
+    - **Over-100 wrapping regressions** ✅ **LANDED** 2026-07-05. A whole-tree
+      dogfood found bnfmt was *creating* **47 over-100 lines across 30 files** from
+      **zero** in the source (it collapsed the author's correct wrapping onto over-cap
+      lines) — a regression that blocked the sweep. Root-caused (via a design+verify
+      workflow) to the step-12 wrapping not covering statement/decl/case constructs,
+      in four categories, each fixed as its own commit:
+      - **cat 2 — func-sig comma** (`b268620b`): `fillStrs` reserved the closing
+        suffix only for the last element, so a packed non-last param orphaned its
+        comma to col 101. Reserve the non-last comma (fixes 7 sig files). `fillExprList`
+        left alone (already reserves it; mirroring would double-reserve — caught in review).
+      - **cat 4 — nested-operand tail** (`f4761a50`): a wrapped chain emitted operands
+        with tail 0, so a parenthesized inner chain / a builtin's last arg stayed flat
+        while the trailing `)`/` op` overflowed. Thread `tail` through `printBinOperand`
+        + `printBuiltin` (fixes common/gen_util/vm_exec_pure).
+      - **cat 3 — case-label list** (`bbb421c3`): the one comma-list with no wrapper;
+        add `printCaseLabelWrapped` (mirrors `printStrList`, `case ` head + `:`),
+        honoring a `// LONG-LINE ALLOWED` marker (with the label's trailing comment kept
+        on the line for idempotence). Fixes token.bn/arm32_int64.bn.
+      - **cat 1 — statement/decl RHS** (`e618c6d1`): var/const/assign/short-var RHS and
+        return/assign value lists had no wrapper; add `print_stmtwrap.bn` — a single
+        atomic RHS wraps to a `+1` continuation (self-wrapping values stay inline),
+        value lists fill. Width-only decision, `+1` indent, return stays mode-B
+        (semicolon insertion). Fixes 16 files.
+      - **bonus — `printUnary` tail** (`b91725a6`): forward the tail so `if !f(args)`
+        reserves the clause's ` {` (fixes emit_data_global).
+      Post-fix dogfood: **47 over-100 lines → 1**, 0 invalid, 0 non-idempotent; each
+      commit regression-tested; all fixes adversarially design-reviewed. Reviews'
+      tracked residuals: `printBuiltin` non-last / `__c_call` last-arg (claude-todo).
+    - **Reformat sweep is unblocked once string-splitting lands** — the fidelity gaps
+      (section comments, adjacent-string splits, author parens) and all wrapping
+      regressions are fixed. **The last over-100 line is a ~97-char test-source string
+      that is a call argument** (fits only if split). Per user (2026-07-05), **build
+      string-splitting**: split an over-cap single string literal into adjacent literals
+      across lines, with token-gate normalization treating adjacent STRING tokens as
+      equivalent to the merge. Then the sweep resumes with over100=0.
 
 ## 15. Effort (anchored to the work, not calendar)
 
