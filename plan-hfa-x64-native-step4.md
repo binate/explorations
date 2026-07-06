@@ -60,9 +60,25 @@ flag/accounting *pattern*).
   branch must PRECEDE the general-aggregate branch); `x64_emit_func.bn`
   `spillIncomingParams` eightbyte-store to the param's data-region image
   (`RSP+dataOff+8*eb`).
-- **4c — call args:** `x64_call.bn` arg loop (nsrn already at ~line 98) —
-  eightbyte-walk the source aggregate's stack image into XMM/GP instead of the GP
-  `emitAggregateArg`.
+- **[DONE — worktree 79a3101a + 166d2872, pending land] 4c — call args + param spill:**
+  - *4c-1 accounting (79a3101a):* the dual-file cursor (the #1 hazard).
+    `argRegWordsStackWords` SSE branch places INTEGER eightbytes in GP (from ngrn),
+    SSE eightbytes in XMM (from nsrn); the all-or-nothing both-files fit lives in ONE
+    predicate `sysvSseAggFitsInRegs` that both `argRegWordsStackWords` and
+    `advanceNsrn` consult (advanceNsrn now takes ngrn; the walkers advance nsrn before
+    ngrn so it reads the pre-advance ngrn).  Split `types.SysVInSse` into the gate +
+    a gate-free `types.SysVAggHasSse` so the native predicates (`PassesSseInRegs`,
+    `ReturnsSseInRegs`) are field-gated and the accounting is unit-testable with the
+    field forced on (common_callconv_sse_test.bn: counts, fit/overflow, dual-file cursor).
+  - *4c-2 emit (166d2872):* new `x64_sse.bn` — `emitSseAggregateArg` (caller: image ->
+    XMM/GP arg regs) + `spillSseAggregateParam` (callee: arg regs -> data image),
+    MOVLPS/MOVSS by form, each returning the XMM count so caller/callee NSRN stay in
+    step; wired into `x64_call.bn` arg loop + `x64_emit_func.bn` param spill.  Unit
+    tests x64_sse_test.bn.
+  - *Verified:* unit tests green; conformance/971 dormant-green (builder-comp +
+    native_x64_darwin); under a temporary flip, 971's native build (native main / LLVM
+    dep, Rosetta) matches the all-LLVM reference on EVERY line — return collect + arg
+    marshal + native param spill all cross-module-correct.
 - **4d — dispatch shims:** `x64_funcvalue_shim.bn`, `x64_closure_shim*.bn`,
   `x64_iface.bn` — the by-address/retbuf dispatch convention is UNCHANGED (SSE
   aggregate still arrives as one i8* pointer word); only the shim's move of the
