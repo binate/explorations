@@ -60,8 +60,8 @@ flag/accounting *pattern*).
   branch must PRECEDE the general-aggregate branch); `x64_emit_func.bn`
   `spillIncomingParams` eightbyte-store to the param's data-region image
   (`RSP+dataOff+8*eb`).
-- **[DONE — worktree 79a3101a + 166d2872, pending land] 4c — call args + param spill:**
-  - *4c-1 accounting (79a3101a):* the dual-file cursor (the #1 hazard).
+- **[LANDED 2be49c24 (971) + 79ead028 (4c-1) + ac6faa80 (4c-2)] 4c — call args + param spill:**
+  - *4c-1 accounting (79ead028):* the dual-file cursor (the #1 hazard).
     `argRegWordsStackWords` SSE branch places INTEGER eightbytes in GP (from ngrn),
     SSE eightbytes in XMM (from nsrn); the all-or-nothing both-files fit lives in ONE
     predicate `sysvSseAggFitsInRegs` that both `argRegWordsStackWords` and
@@ -70,7 +70,7 @@ flag/accounting *pattern*).
     a gate-free `types.SysVAggHasSse` so the native predicates (`PassesSseInRegs`,
     `ReturnsSseInRegs`) are field-gated and the accounting is unit-testable with the
     field forced on (common_callconv_sse_test.bn: counts, fit/overflow, dual-file cursor).
-  - *4c-2 emit (166d2872):* new `x64_sse.bn` — `emitSseAggregateArg` (caller: image ->
+  - *4c-2 emit (ac6faa80):* new `x64_sse.bn` — `emitSseAggregateArg` (caller: image ->
     XMM/GP arg regs) + `spillSseAggregateParam` (callee: arg regs -> data image),
     MOVLPS/MOVSS by form, each returning the XMM count so caller/callee NSRN stay in
     step; wired into `x64_call.bn` arg loop + `x64_emit_func.bn` param spill.  Unit
