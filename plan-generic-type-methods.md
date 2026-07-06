@@ -62,10 +62,46 @@ Work is on the `work-2` worktree branch (not yet landed; Phases 1–3 land toget
   its methods are collected gets an incomplete method set; concrete instantiations
   arise in pass 2 after collection, so it hasn't bitten, but a lazy/post-collection
   population would harden it.
-- **Phase 4 — IR-gen** (the big one, unstarted): on-demand `ImplInfo` synthesis
-  (mirror `ensureAnyImplInfo`) + receiver-promoting method-body emission + the two skip
-  sites (`gen_module.bn`, `gen_register_import.bn`) + cross-backend/arm32 tests. Nothing
-  runs yet — this phase makes the feature executable.
+- **Phase 4 — IR-gen: LOCAL case DONE; cross-package IN PROGRESS.** The feature now
+  runs for same-package generic types across every host mode.
+  - **4.1 (commit `5d135bac`)** — skip generic-receiver methods in the concrete-method
+    passes. Key correction to the plan: a generic-receiver method has **empty
+    `d.TypeParams`** (binders come from the receiver), so the existing
+    `len(d.TypeParams) > 0` skip does NOT catch it — left alone it resolves the receiver
+    with `T` unbound (→ int) and mints a malformed `<pkg>..<Method>` name. New helper
+    `receiverGenericInstBase` (mirrors the checker's `receiverBaseInstantiation`) keys
+    the skip on the *receiver* shape; new file `gen_generic_method.bn`.
+  - **4.3 (commit `0a700cd2`)** — emit method bodies per instantiation. New GenCtx
+    registry (`GenericMethodDecls/…Pkgs/…Files`); `ensureInstantiatedStruct` calls
+    `ensureInstantiatedMethods` when it registers a `(decl, args)` struct. Each method
+    lowers like a generic function (subst context + receiver→Params[0] + genFunc), named
+    `<struct-inst>.<method>` — exactly the key the direct-call site derives, so body and
+    call agree. Conformance 514/516/522 (pointer/managed recv, mutating-param method,
+    bound-`T` return, multi-param `Pair[K,V]`).
+  - **4.2 (commit `854618af`)** — on-demand `ImplInfo` at the boxing site
+    (`wrapAsIfaceValue`), mirroring `ensureAnyImplInfo`: when the receiver name carries
+    the `__bn_inst__` marker, `ensureGenericImplInfo` mints the (recv-inst, iface-inst)
+    row + ancestor closure via `makeOwnMethodsImplInfo`. `MethodFuncs` match the emitted
+    bodies; downstream vtable/SatEntry/TypeInfo is name-keyed (no parallel emit).
+    Conformance 447 (single-return vtable dispatch) and 448 (`Next() (T,bool)` through
+    `@Iter[int]` — the managed-iface multi-return ABI shape).
+  - **4.4 — cross-mode verified:** `builder-comp` (x64 LLVM), `builder-comp-int` (VM),
+    `builder-comp-comp` (self-compile) all green for 447/448/514/516/522. `arm32_linux`
+    cannot **execute** locally (no `qemu-arm` on this macOS host) but **cross-compiles**
+    cleanly with correct ILP32 IR: 3-slot vtable, `{i32,i1}` multi-return, `align 4`.
+    Execution deferred to CI. My changes add no target-specific code (they reuse
+    `makeOwnMethodsImplInfo` → the same target-parameterized RTTI/vtable machinery
+    non-generic impls use), so no new target-width hazard.
+  - **Cross-package — IN PROGRESS.** Discovered while writing the cross-package test
+    (449). Three gaps: (1) parser — `.bni` body-parsing gate keyed on `len(typeParams)`,
+    so a generic-receiver method body wasn't parsed (**FIXED**, commit `af9906a3`,
+    `recvIsGenericInstantiation`); (2) checker — imported generic types are stashed in
+    `GenericTypeDecls` with **no placeholder**, so my Phase-3 method population (reads
+    `placeholder.Methods`) finds nothing → `undefined: Get` in the consumer (needs a
+    generic-type-method registry keyed by (pkg, typeName), populated from imported
+    `.bni` too, consulted by `populateInstantiatedStruct`); (3) IR-gen — stash imported
+    generic-method decls (`gen_register_import`/`RegisterGenericDecls`) into
+    `GenericMethodDecls`. (2)+(3) remain. Conformance 449 is the WIP driver.
 
 ## 1. What we are building
 
