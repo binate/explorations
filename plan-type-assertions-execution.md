@@ -588,8 +588,15 @@ self-compile continuing to pass.
 >       data_ifaceid.bn; module-level emit pass in LLVM/x64/aarch64; weak 1-byte
 >       rodata markers, `any` included, aliases skipped; adversarially reviewed —
 >       identity-consistency verified across cross-pkg/alias/generic/any); (3b)
->       per-`(T,J)` SatEntry globals [NEXT — emit into default relro, retention-
->       independent]; (3c) retention = **✅ DECIDED (2026-07-05, user): extend the
+>       per-`(T,J)` SatEntry globals — **✅ LANDED `e12a0a0d`** (`mangle.SatEntryName`
+>       reusing ImplVtableName's (T,J) core; `ir.BuildSatEntry`/`CollectSatEntries`
+>       in data_satentry.bn; emit pass in LLVM/x64/aarch64; one weak
+>       `{&TypeInfo,&IfaceId,&__ivt.<T,J>}` per m.Impls row incl. transitive
+>       ancestors + `(T,any)`; also decoupled the native vtable-shape tests from the
+>       RTTI satellites; adversarially reviewed — identity/completeness/sub-vtable/
+>       TU-invariance verified across cross-pkg/alias/generic/deep-chain/multi-parent/
+>       any/third-party, 0 dangling refs); (3c) retention = **✅ DECIDED (2026-07-05,
+>       user): extend the
 >       per-package REFLECT DESCRIPTOR** with a satisfaction-entries table (the
 >       runtime aggregates across packages like it does vtables) — one mechanism for
 >       native AND VM (the VM already ingests descriptors; sections don't exist

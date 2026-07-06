@@ -241,9 +241,14 @@ decision above — a separate, user-owned call.)
     (weak 1-byte rodata; `mangle.IfaceIdName`; `ir.BuildIfaceId`/`CollectIfaceIdSyms`;
     emit pass in LLVM/x64/aarch64). Adversarially reviewed — identity-consistency
     (marker vs future SatEntry/assertion) verified across cross-pkg/alias/generic/any.
-  - **3b [NEXT]:** per-`(T,J)` `SatEntry{&TypeInfo(T),&IfaceId(J),&__ivt.<T,J>}` globals.
-  - **3c [OPEN decision]:** retention (dedicated linker section vs. reflect-descriptor
-    extension) so the weak entries survive dead-strip.
+  - **3b — ✅ LANDED `e12a0a0d`:** per-`(T,J)` `SatEntry{&TypeInfo(T),&IfaceId(J),
+    &__ivt.<T,J>}` weak globals, one per m.Impls row (transitive ancestors + `(T,any)`
+    included). `mangle.SatEntryName`; `ir.BuildSatEntry`/`CollectSatEntries`; emit pass
+    in LLVM/x64/aarch64. Also decoupled the native vtable-shape tests from the RTTI
+    satellites. Adversarially reviewed — 0 dangling refs across 11 programs.
+  - **3c [NEXT — DECIDED: reflect descriptor]:** retention — extend the per-package
+    reflect descriptor with a satisfaction-entries table + VM ingestion, so the weak
+    entries survive dead-strip (cross-mode; the VM has no linker sections).
   - **Phase 5:** the reader — global `(TypeInfo,IfaceId)→subvtable` lookup + assertion
     /type-switch lowering.
 - **Remaining after 2.2b-3:** the front-end (Phases 3–7: parser/checker/lowering for
