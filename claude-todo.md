@@ -11,6 +11,60 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
+### MAJOR: native aarch64 **ELF** backend silently miscompiles all page-relative data addressing (`R_AARCH64_NONE`) — 🔴 OPEN (found 2026-07-06)
+
+**Severity: MAJOR (silent wrong-code / data-corruption on an accepted target).**
+`bnc --target aarch64-linux -backend native` emits **`R_AARCH64_NONE`** for the
+low-12 half of every page-relative data address — string literals (ADRP+ADD),
+`&global` (ADRP+ADD), and now `__c_global` (the new GOT ADRP+LDR pair). The
+linker treats `R_AARCH64_NONE` as a no-op, so the ADD/LDR imm12 field stays 0:
+the address gets its page bits but not its offset → wrong pointer → silent
+miscompile, **no diagnostic**.
+
+- **Root cause:** `pkg/binate/asm/elf/elf_util.bn` `elfRelocType`'s `EM_AARCH64`
+  arm maps only fixup kinds 100–104 and 0 (branch/ADRP/ADR/abs). The low-12
+  kinds — **`FIX_ADD_LO12`(105), `FIX_LDR_LO12`(106)** (pre-existing) and
+  **`FIX_ADRP_GOT_HI21`(107), `FIX_LD_GOT_LO12`(108)** (added by §5b-1) — fall
+  through to `return 0` = `R_AARCH64_NONE`. Worse, the ELF writer
+  (`pkg/binate/asm/elf/elf.bn:239`) writes `rtype` straight into `r_info` with
+  **no `if rtype < 0` guard** — unlike the Mach-O writer (`macho.bn:384`), which
+  errors loud on an unmapped kind. So the ELF path can't even fail loud.
+- **Discovered:** the §5b-1 adversarial review (2 skeptics) flagged that the §5b
+  aarch64 GOT kinds (107/108) have no ELF mapping; empirically confirmed by
+  `objdump -r main.o` from `--target aarch64-linux -backend native -c` on a
+  trivial `println("hello")` program: `0x0c R_AARCH64_ADR_PREL_PG_HI21 Lstr_0`
+  followed by `0x10 R_AARCH64_NONE Lstr_0` (the string ADD). (Dependency objects
+  route through clang/LLVM and show the *correct* `R_AARCH64_ADR_GOT_PAGE` /
+  `LD64_GOT_LO12_NC` — clang is the oracle for the right reloc numbers.)
+- **Not caught by CI:** there is **no aarch64-linux native conformance/unittest
+  mode** (the `native_aa64` mode is macOS/**Mach-O**, whose path is complete and
+  correct). So this is a real defect on an accepted, invocable target/backend
+  combo that no mode exercises.
+- **§5b-1's role:** pre-existing for 105/106; §5b-1 (`b08b0d1e`, aarch64 Mach-O
+  GOT) *extends* the same silent-`NONE` fallthrough to the GOT kinds 107/108. The
+  **Mach-O aarch64 path §5b-1 actually targets is 100% correct and verified** —
+  this bug is strictly the untested ELF-aarch64-native path.
+- **Proposed fix (two tiers):**
+  1. **Minimal / immediate — fail loud** (upholds the plan §2/§4.7 principle "an
+     unimplemented arch must SetError, never silently emit a wrong reloc"): make
+     `elfRelocType` return `-1` for an unmapped `(kind, machine)` and add the
+     `if rtype < 0 { a.SetError(...) }` guard in `elf.bn`'s emission loop,
+     mirroring Mach-O. Turns silent-miscompile → clean error. Safe for the
+     tested x64/arm32 ELF paths (fully mapped; never hit −1) — verify by running
+     `native_x64` + `arm32_linux` unit/conformance. Note: this makes
+     `--target aarch64-linux -backend native` *refuse* to compile any program
+     with a string literal (i.e. all of them) — which is the honest state, since
+     the feature is unimplemented and CI doesn't use it.
+  2. **Proper — implement the native ELF-aarch64 data + GOT reloc mappings**
+     (matching clang's output): `R_AARCH64_ADD_ABS_LO12_NC`(277),
+     `R_AARCH64_LDST64_ABS_LO12_NC`(286) for 105/106; `R_AARCH64_ADR_GOT_PAGE`
+     (311), `R_AARCH64_LD64_GOT_LO12_NC`(312) for 107/108. Naturally bundled
+     with adding an aarch64-linux native conformance mode (so it's testable).
+- **Bug Discovery Protocol:** no conformance xfail added yet (no aarch64-linux
+  native mode to attach one to); this todo entry is the tracker. A unit test
+  asserting `elfRelocType` errors (or maps correctly) on the aarch64 low-12 kinds
+  is the natural regression guard once a fix is chosen.
+
 ### HFA-in-SIMD is a CROSS-BACKEND contract — ✅ RESOLVED for AArch64; Stage 4 (x64) remains — 🟡 OPEN
 
 HFA (Homogeneous Floating-point Aggregate) passing in SIMD registers is a
