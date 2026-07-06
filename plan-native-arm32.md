@@ -37,11 +37,13 @@ decomposition). ILP32 layout background: [`plan-arm32-bare-metal.md`].
   the shared-IR deref-store width coercion (599, `ba2a14ec`), **P4-a
   (func-value shim sret return-shape + indirect-call dispatch, `a888e9cd`)**, and
   **P4-b1 (small in-register aggregate return + the cross-pkg aggregate-arg
-  by-address MAJOR bug fix, `bc42705e`)**.
-  Current native-arm32-baremetal conformance: **1908 passed / 718 failed / 31
+  by-address MAJOR bug fix, `bc42705e`)**, and **P4-b2 (multi-return + the shared
+  big-multi-return func-value outgoing-args under-reservation fix for arm32 + x64,
+  `e1e49b73`)**.
+  Current native-arm32-baremetal conformance: **2007 passed / 619 failed / 31
   skipped** — **0 runtime hangs** (verified via the QEMU "terminating on signal"
   grep on the FULL verbose output — NOT a `[10s]` grep, which is unreliable on
-  non-verbose output and let a P4-a hang slip). 716/718 failures are clean
+  non-verbose output and let a P4-a hang slip). 617/619 failures are clean
   fail-loud COMPILE_ERROR deferred shapes; the only 2 wrong-output failures are
   725/727 (pre-existing reflect miscompile, tracked separately). The 877 kind-gate also repairs the shared int64-return
   classification the concurrent ILP32-VM work references (its deferred VM-return
@@ -426,12 +428,25 @@ cross-pkg aggregate-arg bug fix:**
   COMPILE_ERROR; the only 2 wrong-output failures are `725`/`727` (pre-existing
   reflect miscompile, unrelated — raised separately).
 
+**P4-b2 DONE (landed `e1e49b73`) — multi-return:** in-register tuple (callee
+`emitMultiReturnPack` field-per-register into r0..r3 + caller
+`collectMultiReturnFields`) + >budget sret (callee `emitMultiReturnSret`
+write-through at `FieldOffset` + caller collect); func-value consumer + shim
+classification (`arm32_funcvalue_multiret.bn`). int64/float64 tuple fields
+fail-loud (even-aligned-pair placement unpinned). **Also fixed a MAJOR shared bug**
+(found by the review): big-multi-return FUNC-VALUE calls under-reserved
+outgoing-args (emitter prefixSlots=2 via SretInGpArgReg vs sizer's 1) → cross-module
+silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
+`callDispatchArgTypesAnyOp` (inert on aarch64). Conformance **2007/619/31** (+99),
+0 hangs; x64 native units + conformance verified green.
+
 **Remaining P4 sub-increments (fail-loud today):**
-- **P4-b2:** multi-return — in-register tuple (callee r0..r3 field-per-register
-  pack + caller `collectMultiReturnFields`) + >budget sret (callee write-through
-  at `FieldOffset` + caller collect). AAPCS32 multi-return ABI already
-  clang-pinned in common. (Follow-ups from P4-b1: the SAME-package aggregate-arg
-  SHIM re-marshaling, and the 725/727 reflect bug.)
+- **Follow-ups from P4-b1/b2 (separate from P4-c/d):** the SAME-package
+  aggregate-arg SHIM re-marshaling; the 725/727 cross-pkg reflect wrong-output;
+  and a **NEW aarch64-native crash** — a cross-pkg big-multi-return func value
+  produces empty output on `builder-comp_native_aa64-comp_native_aa64` (a BLOCKING
+  green mode), a distinct pre-existing bug (aa64 rides X8, not the arm32/x64
+  under-reservation) exposed by the P4-b2 review; see claude-todo.md.
 - **P4-c:** interfaces — impl vtables (`arm32_iface.bn` currently PANICs; convert
   to `a.SetError` when implementing), iface-value construct/upcast/dtor, method
   dispatch (`arm32_iface.bn`, template `aarch64_iface.bn`). Biggest bucket.
