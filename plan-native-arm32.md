@@ -476,7 +476,10 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
     per-impl and gate off only the shim — the future P4-c generic pass should narrow
     arm32 to the per-impl form. (One known test-infra flake tracked in claude-todo.md:
     the shape tests' intermittent LP64-doubling.)
-  - **P4-c.2** — `OP_IFACE_VALUE` + `OP_IFACE_UPCAST` construction ops.
+  - **P4-c.2** — ✅ DONE & LANDED 2026-07-06 (`094d38bf`): `OP_IFACE_VALUE` +
+    `OP_IFACE_UPCAST` construction ops (2-word {data,vtable} build; upcast vtable
+    +offsetSlots*wordBytes; invalid upcast fails loud). Byte-identical to LLVM/aa64
+    (adversarial-reviewed); native conformance 2036/604/0-hangs (+10, no regression).
   - **P4-c.3** — `OP_CALL_IFACE_METHOD` (core, x64 template): two-step LDR
     (vtable then method ptr), spill IP, synth argTypes `[sret?, data, args]` per
     prefixSlots=2, marshal, reload IP, `Blx IP`, collect via the shared
