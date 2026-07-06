@@ -1,9 +1,8 @@
 # Plan: the `__c_global` C-global-variable intrinsic
 
-Status: **Phase 1 IMPLEMENTED + reviewed, rebased on current main, awaiting land**
-(2026-07-06, binate branch `work-3`) — frontend + checker + IR + LLVM backend +
-tests, all green (unit + conformance `982`/`983`/spec `094` +
-`e2e/c-global-environ.sh` + full hygiene 15/15). LLVM path verified end-to-end
+Status: **Phase 1 LANDED on main** (2026-07-06, `ce1634f4`…`7dc86dfb`) — frontend +
+checker + IR + LLVM backend + tests, all green (unit + conformance `982`/`983`/spec
+`094` + `e2e/c-global-environ.sh` + full hygiene 15/15). LLVM path verified end-to-end
 (`__c_global("environ", **char)` reads the real process environment, matched
 byte-for-byte against a C oracle on darwin-arm64). A 3-skeptic adversarial review
 of the implementation confirmed memory-safety (no bogus RefDec), IR-validity for
