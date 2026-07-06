@@ -1256,7 +1256,7 @@ Also allow **parameterized-receiver impls**: `impl *Cursor[T] : Iterator[T]` (Ru
 
 Grammar: `ReceiverType` gains a binding form (`ReceiverBase = QualifiedName [ "[" identifier-list "]" ]`), shared by `MethodDecl` receivers and `ImplDecl`. Spec: §12.1 `gen.no-generic-methods` (narrowed) + new `gen.method.generic-recv` / `gen.impl.generic-recv` (Draft); §11.3 `iface.impl.form`; §10.1/§10.4. Plan: `plan-generic-type-methods.md`.
 
-**No conditional impls** for v1. Only specific instantiations can have `impl` declarations.
+**No conditional impls** for v1 (an `impl` carrying an extra constraint beyond the type's own). **(REVISED — see the "Methods on generic types" DECIDED entry above:** a **parameterized** impl `impl *Cursor[T] : I` binding the type's params for *all* T is now allowed; the old "only specific instantiations can have `impl`" is superseded. The parameterized-vs-specific-instantiation overlap is an open coherence question — spec §12.1 `gen.impl.generic-recv` _Open_ note.)
 
 **Cross-package generics**: generic bodies included in `.bni` files (consumer needs them for instantiation, like C++ templates in headers).
 
