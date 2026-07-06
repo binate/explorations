@@ -49,16 +49,16 @@ runner retry a timed-out test once before reporting failure. Until then a red
 native-aa64 run with a lone `[3s]` timeout failure is very likely this, not a real
 regression — re-run the single test in isolation to confirm.
 
-### func-value SMALL multi-return: native-shim vs LLVM-shim ABI CONFLICT — ✅ FIXED (2026-07-05)
+### func-value SMALL multi-return: native-shim vs LLVM-shim ABI CONFLICT — ✅ FIXED & LANDED (2026-07-06)
 
-**Resolution chosen (2026-07-05): approach (a), full unification — see "RESOLUTION" below.**
+**Resolution: approach (a), full unification — see "RESOLUTION" below.**
 
-**FIXED (2026-07-05), on branch `temp-5` (not yet cherry-picked to main):**
-the native func-value shim/caller/sizer now use retbuf-for-any-multi-return,
-matching the LLVM shim + LLVM caller + VM cross-mode dispatch. Commits:
-- `aa81d020` — extract the shared field-per-class store helpers
+**LANDED to main 2026-07-06** (`7ea33056..03b019d8`): the native func-value
+shim/caller/sizer now use retbuf-for-any-multi-return, matching the LLVM shim +
+LLVM caller + VM cross-mode dispatch. Landed commits:
+- `db20bf3f` — extract the shared field-per-class store helpers
   (`storeMultiReturnTupleFields{_x64,AA64,Arm32}`) from the `collect*` functions.
-- `0c7c0dcf` — the unification: caller passes a retbuf for EVERY multi-return
+- `92b78846` — the unification: caller passes a retbuf for EVERY multi-return
   and stops collecting from return regs; non-capturing + closure + spill shims
   store a small tuple field-per-class through retbuf (big → sret); aa64 gained
   BOTH shim branches (was 971's crash); arm32 small-multiret became a framed
@@ -66,8 +66,26 @@ matching the LLVM shim + LLVM caller + VM cross-mode dispatch. Commits:
   every multiret on ALL CCs incl AAPCS64. Non-goals left untouched:
   OP_CALL_IFACE_METHOD, OP_CALL_INDIRECT's X8 branch, the direct-call collect,
   the VM, and the LLVM/codegen side.
-- `52d3bbc3` — wide cross-pkg conformance coverage (974 sub-word, 975 float3,
-  976 mixed int/float, 977 managed-field leak canary, 978 GP-max).
+- `6788dd3d` — the cross-pkg tests; `435ee1f0` — wide coverage (974 sub-word,
+  975 float3, 976 mixed int/float, 977 managed-field leak canary, 978 GP-max);
+  `03b019d8` — refresh comments stale after the ABI flip. NOTE: during landing
+  the original tests 971/972 were **renumbered to 979/980** (concurrent SSE work
+  had landed `971_cross_pkg_sse` / `972_xpkg_funcval_sse`); 973-978 unchanged.
+
+Reviewed: implementation adversarially reviewed (land-with-nits, 0 blockers) and
+the committed diff re-reviewed (land-with-nits). Independent full verification on
+the landed base: aa64 2659 pass / 0 fail / 0 hangs; x64 2651 pass (8 pre-existing
+build-constraint + stdlib/os fails); arm32 2631 pass (3 pre-existing reflect +
+stdlib/os fails); native unit 5/0; hygiene 15/15.
+
+**Follow-up (major, maintainability — NOT yet done):** arm32's
+`collectMultiReturnFields` (`arm32_call.bn`) and `storeMultiReturnTupleFieldsArm32`
+are two byte-equal copies of the same field-per-class loop; x64/aa64 delegate
+direct-collect to the shared helper, arm32 does not. Verified-equal today, but a
+future edit to one can silently desync the arm32 shim from the arm32 collect —
+exactly the drift the helper extraction was meant to prevent. Refactor arm32
+collect to delegate to the helper (generalize it to take base+baseOff, as x64/aa64
+already do), or at minimum add a lockstep cross-reference + a same-bytes test.
 
 971/972/973 xfail markers removed; all now PASS on host + x64 + aa64 + arm32.
 Full native runs: aa64 2654 pass / 0 fail / 0 hangs; x64 8 fails and arm32 3
