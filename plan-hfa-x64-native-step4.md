@@ -117,8 +117,18 @@ flag/accounting *pattern*).
   **Func-value family is now SSE-complete** (4d-1 return collect + 4d-arg-1/4d-arg-2 arg
   marshal). Remaining: **closure (4d-2)** and **iface (4d-3)** families.
   - **4d-2 — closure shim** (`x64_closure_shim*.bn`): same two moves (arg expand +
-    return collect), plus capture handling is unaffected (captures aren't SSE-coerced
-    the same way — verify).
+    return collect).
+    - **[LANDED 7f7d6d99] 4d-2-ret — return collect:** THREE sites — a closure returning
+      an SSE aggregate has separate register-only-no-float, spill-no-float, and
+      float-parts shims (the dispatcher routes to the float shim iff
+      closureHasFloatParts_x64: any float SCALAR capture/param/scalar-return). All three
+      now branch cc.ReturnsSseInRegs -> emitSseReturnCollectTo. Conformance/985 (float-,
+      int-, and 7-int64-capture closures returning D2/DI, hitting all 3 sites),
+      flip-all-match; reviewed clean (a first pass missed the float-parts site — 985
+      caught it via disassembly).
+    - **4d-2-arg — arg/capture marshal:** an SSE aggregate closure PARAM (and SSE
+      aggregate capture) must expand into XMM/GP by class; the fast/float/spill shims
+      marshal args right-to-left with R11 scratch — wire emitSseShimArgFromPtr in.
   - **4d-3 — iface** (`x64_iface.bn`): the call-site aggregate-return collect
     (`emitCallIfaceMethod`) + any impl-shim-vtable path.
 
