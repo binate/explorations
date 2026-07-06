@@ -640,13 +640,24 @@ while keeping every commit green and close to main.
       (value-preservation, escape safety, idempotence, cap, empty/tiny); the one
       actionable finding (same-line-merge-overflow) was fixed. **Whole-tree dogfood:
       0 over-100, 0 invalid, 0 non-idempotent — bnfmt is faithful across the tree.**
-    - **Reformat sweep RESUMING** (2026-07-05). All fidelity gaps + wrapping
-      regressions fixed; bnfmt is faithful. ~644 files would change (622 pkg/binate,
-      22 cmd) — package-by-package (batches of 3) is impractical at that scale, so the
-      sweep runs in larger area-grouped batches, each verified by its packages' unit
-      tests (+ a conformance smoke) before landing. First re-targets: the 3 reverted
-      packages (mangle, bignum, stringutils) now reformat cleanly (section comments
-      preserved, author parens kept, ≤100).
+    - **Reformat sweep** ✅ **COMPLETE** 2026-07-05/06. bnfmt applied across the whole
+      tree (pkg/binate + cmd) in area-grouped batches, each verified by its packages'
+      unit tests + hygiene (+ the gen1 build, which validates BUILDER-compat for the
+      compiler tree) before landing per-instance-approved:
+      B1 misc/reverted (`cd361603`), B2 front-end (`89a59cbe`), B3 types (`6a03dcc9`),
+      B4 ir (`45bfd0a6`), B5 codegen (`4a9de0cb`), B6 vm+asm (`a39c7ddd`), B7
+      format/lint/repl/interp (`bdfc19f2`), native (`6bafaffc`), cmd (`847d0d8b`), and a
+      cleanup batch (`4663a59b`) for the per-package top-level `pkg/binate/<pkg>.bni`
+      interfaces the by-directory sweep missed (they sit beside the dir, not inside)
+      plus files concurrent workers touched with unformatted code mid-sweep. **Final
+      whole-tree dogfood: 0 would-change, 0 over-100, 0 non-idempotent — the tree is a
+      bnfmt fixed point.** Comment-spacing decision: 2–3 spaces before a trailing
+      comment collapse to 1 (user-accepted).
+    - **Open follow-up (user's call, NOT wired unasked):** the tree won't *stay* a
+      fixed point without enforcement — concurrent workers add unformatted code (≈12
+      drift files accumulated during this sweep alone). A `format-check` hygiene rule
+      (bnfmt-idempotence over changed files) or a pre-commit hook would keep it formatted;
+      wiring it into CI/hooks is a scope decision the user owns.
 
 ## 15. Effort (anchored to the work, not calendar)
 
