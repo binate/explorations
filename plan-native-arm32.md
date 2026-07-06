@@ -463,12 +463,19 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
   Fail-loud-defer generic-impl vtables and int64/float64-in-tuple placement; keep
   nil-iface-dispatch-on-baremetal xfail (no-MMU env limitation).**
   Phases:
-  - **P4-c.1** — impl-vtable + RTTI emission (data side): real `emitImplVtables`
-    (`__ivt`/`__ivtshim`), `collectImplVtableSlotsNative`, mangling helpers, new
-    `arm32_typeinfo.bn` (`emitTypeInfos/IfaceIds/SatEntriesNative`). Port from
-    `aarch64_iface.bn`/`aarch64_typeinfo.bn`. Risk: slot/mangling DRIFT vs the LLVM
-    backend at the cross-TU link boundary — pin `ImplVtableName` + slot count/order
-    with unit tests, not just conformance.
+  - **P4-c.1** — ✅ DONE (data side; commits `15bdc87e` + `3ca73110`, pending land):
+    real `emitImplVtables` (`__ivt`/`__ivtshim`), `collectImplVtableSlotsNative`,
+    mangling helpers, new `arm32_typeinfo.bn`
+    (`emitTypeInfos/IfaceIds/SatEntriesNative`). Ported from
+    `aarch64_iface.bn`/`aarch64_typeinfo.bn`; data laid by shared `ir.BuildImplVtable`
+    (byte/name-identical to LLVM, adversarial-reviewed). Dispatch fail-loud;
+    generic-impl fail-loud. Unit tests pin mangling + slot ORDER (vs shared
+    `mangle.*`/`ir.BuildImplVtable`). NOTE: arm32's generic-impl fail-loud is
+    **whole-module abort** (SetError + return on the first generic impl, dropping
+    the module's non-generic vtables too), vs LLVM/aa64 which emit the raw `__ivt`
+    per-impl and gate off only the shim — the future P4-c generic pass should narrow
+    arm32 to the per-impl form. (One known test-infra flake tracked in claude-todo.md:
+    the shape tests' intermittent LP64-doubling.)
   - **P4-c.2** — `OP_IFACE_VALUE` + `OP_IFACE_UPCAST` construction ops.
   - **P4-c.3** — `OP_CALL_IFACE_METHOD` (core, x64 template): two-step LDR
     (vtable then method ptr), spill IP, synth argTypes `[sret?, data, args]` per

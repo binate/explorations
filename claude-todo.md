@@ -1502,6 +1502,27 @@ Follow-ups split out of the (now-done) static-managed sentinel landing:
 
 ## Testing: harness, runners & conformance coverage
 
+### arm32 iface shape-test intermittent LP64-doubling flake — 🟡 OPEN (2026-07-06)
+
+**Symptom:** `TestEmitImplVtablesNonExtendingShape` / `TestEmitImplVtablesExtendedConcatShape`
+(`pkg/binate/native/arm32/arm32_iface_test.bn`) intermittently fail their relro
+byte-count assertions with EXACTLY the LP64-doubled values (24→48, 72→144), i.e.
+`ir.BuildImplVtable` strided 8-byte slots — the ILP32 target (`IntSize=4`) was not
+in effect at emit time. **Trigger:** full-suite ordered native unit run
+(`scripts/unittest/run.sh builder-comp native`); ~1 in 50; NOT reproducible in
+`--run` isolation. **Root cause: UNKNOWN — needs investigation.** Both tests call
+`setArm32TargetIface()` (sets `IntSize=4`) as their first line, and neither
+`ir.GenModule` nor the parser calls `types.SetTarget` (grep-verified), so nothing
+should reset the global target between the setter and emission — yet it
+intermittently reads 8. Candidates: a global-target ordering/visibility subtlety
+across tests, or genuine gen1 emission nondeterminism (the latter would be a real
+compiler bug). **Diagnostic in place (commit `3ca73110`):** each shape test now
+asserts `types.GetTarget().IntSize == 4` immediately before the byte-count check,
+so a recurrence reports "target leaked to LP64" instead of a confusing count
+mismatch — pinning whether the cause is the target (guard fires) or something else
+(guard passes, count still doubled). Covered by those two tests. Do NOT widen the
+byte-count tolerance to "fix" it — a real word-size regression looks identical.
+
 ### Conformance harness: `pkg0.testing` `--test`-only rules are not conformance-testable
 
 1. **GAP (harness limitation, not a defect) — `pkg0.testing.testfunc` + `pkg0.testing.run` are not
