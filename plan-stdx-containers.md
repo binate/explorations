@@ -1,6 +1,6 @@
 # Plan: `pkg/stdx/containers` — standard container libraries
 
-**Status:** proposed (2026-07-05). Progressive delivery: `vec` → `hashmap` → `set`.
+**Status:** in progress (2026-07-05). Progressive delivery: `vec` **(landed, main `67b2bff3`)** → `hashmap` → `set`.
 
 ## 1. Overview and motivation
 
@@ -299,6 +299,8 @@ multi-return is from free functions not interface dispatch), so they carry no sp
 Land one container at a time, each self-contained and green:
 
 1. **`vec`** — type + `New/Push/Pop/Get/Set/Len/Cap/Items` + cursor + tests.
+   **✅ Landed** (main `67b2bff3`): 12 tests, green under builder-comp + builder-comp-int,
+   adversarially reviewed (memory-model / API / spec-fidelity — no bugs).
 2. **`hashmap`** — type + `New/Put/Get/Has/Remove/Len` + cursor + tests (backward-shift).
 3. **`set`** — type + `New/Add/Has/Remove/Len` + cursor + tests.
 
