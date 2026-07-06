@@ -49,9 +49,44 @@ runner retry a timed-out test once before reporting failure. Until then a red
 native-aa64 run with a lone `[3s]` timeout failure is very likely this, not a real
 regression — re-run the single test in isolation to confirm.
 
-### func-value SMALL multi-return: native-shim vs LLVM-shim ABI CONFLICT — 🟡 IN PROGRESS (2026-07-05)
+### func-value SMALL multi-return: native-shim vs LLVM-shim ABI CONFLICT — ✅ FIXED (2026-07-05)
 
 **Resolution chosen (2026-07-05): approach (a), full unification — see "RESOLUTION" below.**
+
+**FIXED (2026-07-05), on branch `temp-5` (not yet cherry-picked to main):**
+the native func-value shim/caller/sizer now use retbuf-for-any-multi-return,
+matching the LLVM shim + LLVM caller + VM cross-mode dispatch. Commits:
+- `aa81d020` — extract the shared field-per-class store helpers
+  (`storeMultiReturnTupleFields{_x64,AA64,Arm32}`) from the `collect*` functions.
+- `0c7c0dcf` — the unification: caller passes a retbuf for EVERY multi-return
+  and stops collecting from return regs; non-capturing + closure + spill shims
+  store a small tuple field-per-class through retbuf (big → sret); aa64 gained
+  BOTH shim branches (was 971's crash); arm32 small-multiret became a framed
+  store-through-retbuf CALL shim; the shared sizer reserves prefixSlots=2 for
+  every multiret on ALL CCs incl AAPCS64. Non-goals left untouched:
+  OP_CALL_IFACE_METHOD, OP_CALL_INDIRECT's X8 branch, the direct-call collect,
+  the VM, and the LLVM/codegen side.
+- `52d3bbc3` — wide cross-pkg conformance coverage (974 sub-word, 975 float3,
+  976 mixed int/float, 977 managed-field leak canary, 978 GP-max).
+
+971/972/973 xfail markers removed; all now PASS on host + x64 + aa64 + arm32.
+Full native runs: aa64 2654 pass / 0 fail / 0 hangs; x64 8 fails and arm32 3
+fails are ALL pre-existing (build-constraint + stdlib/os + reflect — verified
+identical on the pre-fix base `aa81d020`), none from this change. The 40-test
+same-module funcval-multiret regression set (incl. 705 float closure multiret,
+950 method-value multiret, capturing-closure-multi-return) stays green; managed
+leak balance holds (refcount 1) across native↔native and native↔LLVM corners.
+
+**Cross-mode corners NOT covered (harness limitation, surfaced not deferred):**
+the two latent-broken corners the review named — LLVM-main → native-DEP small-
+multiret, and VM → native-DEP small-multiret — are NOT expressible in the
+conformance harness. In `-backend native` the whole program compiles as
+main-native + deps-LLVM (a single-invocation hybrid: `compileMainNative`); there
+is no per-package backend override to make a DEP native while main is LLVM/VM.
+Exercising those corners would need a new harness capability (per-pkg backend
+mixing) — a substantial harness change outside this task. The native-shim change
+DOES fix those corners (the shim it emits now conforms); they're just untested
+here. Flagged for a follow-up harness decision.
 
 **Severity: major (cross-module silent miscompile at the native↔LLVM boundary).**
 A func value's `vtable.call` slot may point at EITHER a natively-emitted shim
