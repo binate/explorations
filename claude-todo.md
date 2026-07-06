@@ -932,6 +932,26 @@ today, so they are latent, not active):
 Discovered by the wrapping-fix workflow (2026-07-05); the `printBuiltin` doc
 comment points here. Cross-refs `explorations/plan-bnfmt.md` §14.
 
+### `bnfmt-format` hygiene check: switch to the bundled bnfmt after the next release — 🟡 OPEN (2026-07-06)
+
+`scripts/hygiene/bnfmt-format.sh` (added `a58f2f85`) currently BUILDS bnfmt from
+source and caches the binary (`$XDG_CACHE_HOME/binate/bnfmt`, keyed on a hash of
+bnfmt's build inputs) because bnfmt is not in the BUILDER bundle. After the next
+release bundles bnfmt, switch the check to fetch it via `fetch-builder.sh --tool
+bnfmt` (build-from-source as the fallback), mirroring `lint.sh`'s `--tool bnlint`
+— dropping the per-machine build+cache. The switch-point TODO is also in the
+script header. Prereq: `fetch-builder.sh --tool bnfmt` must resolve the bundled
+binary (`make-bundle.sh` already builds `bin/bnfmt`, but verify the fetcher
+recognises the `bnfmt` tool name once a bundle containing it exists).
+
+### `bnfmt-format` scope: sweep + cover the stdlib (impls/ + ifaces/) — 🟢 LOW — OPEN (2026-07-06)
+
+The reformat sweep and `bnfmt-format.sh` cover `pkg/` + `cmd/` only. The stdlib
+under `impls/` + `ifaces/` (~179 files, ~83 would-change) is not yet bnfmt-
+formatted. To bring it under the check: reformat it (a sweep batch, verified by
+the stdlib's tests + a conformance smoke) and add its roots to `$ROOTS` in
+`scripts/hygiene/bnfmt-format.sh`.
+
 ## bnlint rules, unused-entity checks & lint skips
 
 ### Wire `bnlint --tests` into hygiene — 🟡 OPEN (BUILDER-gated)
