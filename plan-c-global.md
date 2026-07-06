@@ -70,20 +70,36 @@ different, harder relocation class. This is the crux, treated in §5.2 and §6.
   the native modes whenever `__c_global` is used in a *dependency* package
   (dependencies always route through LLVM; only the main module honors
   `--backend native`).
-- **Native backend (`comp_native_*` modes only): the hard chunk — and only for
-  external *data*.** Native `__c_call` is already fully implemented (it resolves
-  the verbatim C **function** symbol via a *branch/PLT* relocation, which already
-  handles undefined externals — that is why `498_c_call_basic` runs green on the
-  native modes). `__c_global` needs the symbol's *data address in a register*, a
-  different relocation class (GOT). The native object writers (`asm`/`elf`/`macho`)
-  have **no GOT relocation kinds** at all (verified: the entire fixup-kind set is
-  PC-relative-to-page + absolute; §5.1). A direct, non-GOT reference to a cross-DSO
-  data symbol is **rejected by the PIE linker on macOS** (Mach-O has no copy
-  relocations — external data *must* go through the GOT) and is fragile on Linux
-  (works only via linker-synthesized copy relocations). Since a primary native CI
-  host is **macOS/aarch64** (`comp_native_aa64`), native `__c_global` genuinely
-  requires adding GOT-relocation plumbing — a well-scoped but real sub-project
-  across ~6 files.
+- **Native backend (`comp_native_*` modes only): the hard chunk — and the
+  addressing mode is a function of the LINK MODEL, not the arch.** Native
+  `__c_call` is already fully implemented (it resolves the verbatim C **function**
+  symbol via a *branch/PLT* relocation, which already handles undefined externals
+  — that is why `498_c_call_basic` runs green on the native modes). `__c_global`
+  needs the symbol's *data address in a register*, and how to materialize that
+  splits by link model:
+  - **PIE targets (the Unix-hosted modes: x64-linux, aarch64-linux,
+    aarch64-macOS): GOT-indirect is required — the genuinely hard part.** The
+    native object writers (`asm`/`elf`/`macho`) have **no GOT relocation kinds** at
+    all (verified: the entire fixup-kind set is PC-relative-to-page + absolute;
+    §5.1). A direct, non-GOT reference to a cross-DSO data symbol is **rejected by
+    the PIE linker on macOS** (Mach-O has no copy relocations — external data
+    *must* go through the GOT) and is fragile on Linux (works only via
+    linker-synthesized copy relocations). Since a primary native CI host is
+    **macOS/aarch64** (`comp_native_aa64`), this requires adding GOT-relocation
+    plumbing — a well-scoped sub-project across ~6 files.
+  - **Non-PIE / static targets (arm32-baremetal, and any future
+    `-no-pie`/`-static` mode): absolute direct addressing — the *easy* case, no
+    GOT.** In a static non-PIE link the linker resolves every symbol (including a
+    driver's / board-support C globals statically linked into the image) to a
+    fixed address, so an **absolute** reference works — exactly the MOVW/MOVT-ABS
+    reloc pair the backend already emits for its own globals. The arm32 backend
+    even has the ready-made primitive: `emitSymAddr(a, rd, symPrefixed(sym))`
+    ("materializes the address of an arbitrary already-prefixed symbol via the
+    MOVW/MOVT-ABS pair; marks the symbol global so its relocation resolves").
+    **arm32 `__c_global` is therefore firmly in scope** — bare-metal is where C
+    device-driver / MMIO-register-block interop matters *most* — and needs no new
+    relocation kinds. (`environ` is merely the hosted *example*; a bare-metal
+    consumer reaches a driver's C global the same way.)
 
 This split motivates the phasing in §3.
 
@@ -153,20 +169,20 @@ lowering not implemented yet — the §4.7 fail-loud stub). Phase 2 removes the 
 native-mode `xfail`s (the baremetal one stays — no libc). The exact live-vs-xfail
 set is enumerated in §4.8.
 
-**Phase 2 — native GOT-relocation sub-project + native `OP_C_GLOBAL` lowering.**
-Adds GOT fixup kinds to `asm/{x64,aarch64}` and the matching ELF + Mach-O
-relocation types, then the per-arch `OP_C_GLOBAL` emitter (GOT-indirect load of
-the symbol's address). Un-`xfail`s the native modes. **arm32-native is proposed
-as fail-loud indefinitely** (baremetal-only target, no libc/`environ`); this is a
-scope call for the user (§7), not a unilateral non-goal.
+**Phase 2 — native `OP_C_GLOBAL` lowering (all three arches).** Two sub-parts by
+link model (see §5):
+- **2a — arm32 (non-PIE/static): absolute addressing, no new relocs.** Reuse the
+  existing `emitSymAddr` MOVW/MOVT-ABS pair against the verbatim external symbol.
+  Small; independent of the GOT work.
+- **2b — PIE targets (x64/aarch64): the GOT sub-project.** Add GOT fixup kinds to
+  `asm/{x64,aarch64}` + the matching ELF + Mach-O relocation types, then the
+  per-arch GOT-indirect `OP_C_GLOBAL` emitter. Un-`xfail`s the native PIE modes.
 
-> **User decisions to confirm before Phase 2 (see §7):** (a) is native
-> `OP_C_GLOBAL` in scope now, or is Phase 1 (LLVM + fail-loud native) the
-> deliverable for now? (b) arm32-native fail-loud acceptable? (c) keep the
-> default-PIE link (→ GOT is the right answer) vs. switching bnc's link to
-> `-no-pie`/`-static` (a global link-model change that would let absolute relocs
-> reach external data with no new GOT kinds — but affects *all* output and does
-> not help macOS). The recommendation is **keep PIE + add GOT**.
+> **Resolved decisions (user, 2026-07-05):** (a) **land Phase 1 first**, then do
+> Phase 2. (b) **arm32 is in scope** — not fail-loud; it uses absolute addressing
+> (2a). (c) **keep default-PIE + add GOT** (2b) rather than switching bnc's link
+> to `-no-pie`/`-static`. (d) add **e2e tests for C interop** (§4.8). The only
+> remaining open scope item is the write-through test (§7).
 
 ---
 
@@ -282,10 +298,14 @@ scope call for the user (§7), not a unilateral non-goal.
 ### 4.7 Native — Phase 1 stub (fail-loud)
 
 - **`pkg/binate/native/{aarch64,x64,arm32}/*_dispatch.bn`** — add an
-  `OP_C_GLOBAL` arm that `SetError`s ("native __c_global not yet implemented —
-  needs GOT relocation support; see plan-c-global.md Phase 2") beside the
-  `OP_C_CALL` arm. This makes the native modes fail cleanly (justifying the
-  Phase 1 native-mode `xfail`s) instead of silently miscompiling.
+  `OP_C_GLOBAL` arm that `SetError`s ("native __c_global not yet implemented; see
+  plan-c-global.md Phase 2") beside the `OP_C_CALL` arm. This makes the native
+  modes fail cleanly (justifying the Phase 1 native-mode `xfail`s) instead of
+  silently miscompiling. This is a **temporary Phase-1 stub for all three
+  arches** — Phase 2 replaces each with the real emitter (arm32 via absolute
+  addressing §5a, x64/aarch64 via GOT §5b). It is verified-necessary: x64
+  (`x64_dispatch.bn:466`) and aarch64 (`aarch64_dispatch.bn:391`) both *silently
+  drop* an unhandled op, so without this arm they would miscompile, not error.
 
 ### 4.8 Tests (Phase 1)
 
@@ -316,9 +336,14 @@ scope call for the user (§7), not a unilateral non-goal.
       `builder-comp-comp-comp`, `builder-comp_arm32_linux`.
     - **`xfail` — VM (no FFI):** `builder-comp-int`, `builder-comp-int-int`,
       `builder-comp-comp-int`.
-    - **`xfail` — no libc (permanent):** `builder-comp_arm32_baremetal` and, if
-      run, `builder-comp_native_arm32_baremetal` (baremetal has no `environ` at
-      all — stays `xfail` even after Phase 2).
+    - **`xfail` — no `environ` symbol (permanent):**
+      `builder-comp_arm32_baremetal` and, if run,
+      `builder-comp_native_arm32_baremetal`. **This is a property of the *test*,
+      not the feature** — baremetal has no libc `environ` to link against, so the
+      *environ example* can't run there; `__c_global` itself is fully supported on
+      arm32 (§5a). A bare-metal `__c_global` is exercised by a native unit test
+      (§5a) and could get its own runnable test against a runtime-/BSP-provided C
+      global.
     - **`xfail` — Phase 1 native (data/GOT unimplemented → §4.7 fail-loud;
       removed in Phase 2):** `builder-comp_native_aa64-comp_native_aa64`,
       `builder-comp_native_x64-comp_native_x64`,
@@ -341,12 +366,49 @@ scope call for the user (§7), not a unilateral non-goal.
     set as the environ test.
   - Pick numbers with `conformance/next-number.sh`; `conformance-test-numbers`
     hygiene enforces uniqueness (re-run after any landing rebase).
+- **e2e** (`e2e/*.sh`) — the natural home for *richer* C-interop coverage than the
+  conformance runner allows (e2e scripts drive the **system C compiler** as the
+  authoritative oracle and can link/compare against real platform state; the
+  existing `errno-values.sh` / `readdir-values.sh` / `stat-values.sh` /
+  `print-args.sh` already do this for `__c_call` via `pkg/std/os`). Add
+  `e2e/c-global-environ.sh` (or fold into a broader `e2e/c-interop.sh`): compile a
+  Binate program that walks `__c_global("environ", **char)`, run it, and diff its
+  output against the process's actual environment (or a tiny C program printing
+  `environ`, à la `errno-values.sh`'s ground-truth pattern). This validates the
+  *observable behavior* end-to-end (address correctness, deref, the full C-ABI
+  round-trip), complementing the conformance test's compile-and-run check. It runs
+  on whatever host CI is on (Linux-glibc under CI; the Darwin column when run on a
+  mac). **Wiring it into CI is a separate decision** — the plan adds the script;
+  hooking it into any runner/pipeline is the user's call (per the stay-in-scope
+  rule).
 
 ---
 
-## 5. Phase 2 — native GOT-relocation support
+## 5. Phase 2 — native `OP_C_GLOBAL` lowering
 
-### 5.1 The gap (verified)
+Split by link model. **§5a (arm32, non-PIE/static): reuse the existing absolute
+addressing — no new relocs.** **§5b (PIE targets: x64/aarch64): the GOT
+sub-project.**
+
+### 5a. arm32-baremetal (non-PIE / static) — absolute addressing
+
+A static, non-PIE link (arm32-baremetal is `-ffreestanding -nostartfiles
+-nodefaultlibs` + a linker script) resolves every symbol to a fixed address at
+link time, so an **absolute** MOVW/MOVT-ABS reference to the external symbol works
+— no GOT. The primitive already exists: `native/arm32/arm32_names.bn`'s
+`emitSymAddr(a, rd, label)` ("materializes the address of an arbitrary
+already-prefixed symbol via the MOVW/MOVT-ABS pair; marks the symbol global so its
+relocation resolves"). The arm32 `OP_C_GLOBAL` emitter is essentially
+`emitSymAddr(a, nextReg(rm, ins.ID), symPrefixed(ins.StrVal))`. This is the whole
+of arm32 support — small, and independent of §5b. (The object writer already
+emits R_ARM_MOVW_ABS_NC / MOVT_ABS against undefined external symbols for the
+existing extern-symbol paths, so the reloc resolves against whatever
+driver/board-support object provides the C global. Verify with a native unit test
+pinning the MOVW/MOVT pair against the external symbol.)
+
+### 5b. PIE targets (x64/aarch64) — the GOT sub-project
+
+#### 5b.1 The gap (verified)
 
 The complete native fixup-kind set carries **no GOT kind**:
 `aarch64.bni` `FIX_BRANCH{26,19,14}`, `FIX_ADR_LO21`, `FIX_ADRP_HI21`,
@@ -359,7 +421,7 @@ PC-relative-to-page (ADRP+ADD / RIP-LEA) or absolute (MOVW/MOVT) references —
 correct for internal / intra-image symbols, wrong for a cross-DSO external data
 symbol under PIE.
 
-### 5.2 Why GOT (not the existing relocs)
+#### 5b.2 Why GOT (not the existing relocs)
 
 bnc links a **default PIE** (`cmd/bnc/main.bn:235-258` runs plain
 `clang -o out objs…` with no `-no-pie`/`-static`; clang defaults to `-pie`, and
@@ -376,12 +438,13 @@ macOS is PIE-only). For a preemptible external data symbol in another DSO:
   macOS. GOT-indirect is what clang itself emits for `-fPIE` external-data access.
 
 (Absolute relocs — `R_X86_64_64`, `R_AARCH64_ABS64` — *exist* in the writer but
-do **not** rescue this: an absolute reloc against external data in a PIE is a text
-relocation the linker rejects. The only way absolute works is a global
-`-no-pie`/`-static` link-model switch, which is a §7 user decision, not a local
-workaround.)
+do **not** rescue the **PIE** targets: an absolute reloc against external data in
+a PIE is a text relocation the linker rejects. This is why the PIE targets need
+GOT even though the static arm32 target (§5a) can use absolute directly. The only
+way absolute works for the PIE targets is a global `-no-pie`/`-static` link-model
+switch — decided against (§3): keep PIE + add GOT.)
 
-### 5.3 Edit sites (Phase 2)
+#### 5b.3 Edit sites (GOT sub-project)
 
 - **asm fixup kinds + emitters:**
   - `asm/aarch64.bni` + `asm/aarch64/aarch64_branch.bn`: `FIX_ADRP_GOT_HI21` +
@@ -416,10 +479,10 @@ workaround.)
   - `native/aarch64/{aarch64_dispatch.bn,aarch64_names.bn}`: `ADRP rd, :got:_sym`
     + `LDR rd, [rd, :got_lo12:_sym]`.
   - `native/x64/{x64_dispatch.bn,x64_emit.bn}`: `mov rd, [rip + _sym@GOTPCREL]`.
-  - `native/arm32/arm32_dispatch.bn`: keep fail-loud (§7).
-- **Un-`xfail`** the native modes on the `environ` conformance test.
+  - (arm32 uses the §5a absolute path, not GOT.)
+- **Un-`xfail`** the native PIE modes on the `environ` conformance test.
 
-### 5.4 Correctness oracle & the indirection footgun
+#### 5b.4 Correctness oracle & the indirection footgun
 
 The native GOT lowering must produce **byte-for-byte the same runtime behavior as
 the LLVM `external global` reference** (Phase 1 is the oracle). The signature bug
@@ -474,27 +537,26 @@ compilable and passes its package's unit tests.
 
 ---
 
-## 7. Scope & related (user decisions)
+## 7. Scope & related
 
-Surfaced explicitly rather than pre-decided (per CLAUDE.md "don't unilaterally
-defer scope"):
+**Resolved (user, 2026-07-05):**
+- **Sequencing:** land Phase 1 first, then Phase 2. Phase 1's native-mode `xfail`s
+  must not be presented as "done."
+- **arm32 is in scope**, via absolute addressing (§5a) — *not* fail-loud. Bare
+  metal is where C device-driver / MMIO interop matters most; `environ` is only
+  the hosted example, and using it to bound scope would have been the
+  "invent-a-requirement-to-defer" anti-pattern.
+- **Keep default-PIE + add GOT** (§5b) rather than a `-no-pie`/`-static`
+  link-model switch.
+- **Add e2e C-interop tests** (§4.8).
 
-- **Native Phase 2 now, or later?** Phase 1 (LLVM + fail-loud native) is a
-  complete, tested feature on all default modes. Native support is a real
-  ~6-file GOT sub-project. Recommendation: land Phase 1, then do Phase 2 as a
-  distinct tracked project — **but this is the user's call**, and Phase 1's
-  native-mode `xfail`s must not be presented as "done."
-- **arm32-native fail-loud indefinitely?** Native arm32 is baremetal-only (no
-  libc, no `environ`); arm32-Linux runs on the LLVM path (works). Proposal:
-  `SetError` on native-arm32 `__c_global`. Needs ratification, not a silent
-  non-goal.
-- **PIE vs `-no-pie`/`-static`.** Keeping PIE (recommended) makes GOT the correct
-  mechanism. Switching the link model would let absolute relocs reach external
-  data with no new GOT kinds, but changes *all* output and does not help macOS —
-  a global decision the user owns.
+**Still open (user's call):**
 - **Write-through test.** The spec allows `*p = …`; `environ` is read-mostly and
   portable writable libc scalars are scarce. Whether to add a write test (and
-  against which symbol) is a scope call, not to be dropped silently.
+  against which symbol) is a scope call, not to be dropped silently. (A
+  self-provided writable C global via the e2e path is one option.)
+
+**Related / deliberately out of this plan:**
 - **`pkg/c` C-type aliases** stay **not built** (the `__c_call` decision):
   `__c_global` call sites open-code `int32`/`*uint8`/`**char` directly.
 - **In-tree adoption** (e.g. a `pkg/std/os` `Environ`/`Getenv` on top of
