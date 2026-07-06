@@ -126,9 +126,20 @@ flag/accounting *pattern*).
       int-, and 7-int64-capture closures returning D2/DI, hitting all 3 sites),
       flip-all-match; reviewed clean (a first pass missed the float-parts site — 985
       caught it via disassembly).
-    - **4d-2-arg — arg/capture marshal:** an SSE aggregate closure PARAM (and SSE
-      aggregate capture) must expand into XMM/GP by class; the fast/float/spill shims
-      marshal args right-to-left with R11 scratch — wire emitSseShimArgFromPtr in.
+    - **[LANDED 4afa4d80] 4d-2-arg — arg/capture marshal:** rather than thread NSRN
+      through the GP-only fast shim's right-to-left marshal, ROUTE any SSE-agg
+      param/capture closure to the float-aware shim (which already marshals per class
+      with NSRN) — closureHasFloatParts_x64 returns true for a SysV-SSE aggregate
+      capture/param, GATED on SysVSseInRegs() (dormant routing byte-identical). So the
+      fast + no-float aggregate shims never see an SSE arg under the flip.
+      marshalFloatShimArg_x64 got an in-register SSE branch (RAX address scratch, not
+      R11 — the aggregate-return float shim's struct base is R11; an earlier R11 draft
+      mis-marshalled a capture after an SSE-agg capture, caught in review + negative-
+      tested). Conformance/986_closure_sse_arg (param, capture, mixed, wide, and the
+      aggregate-return capture-clobber regression). KNOWN GAP: a MEMORY-class SSE arg
+      (needs 9+ SSE eightbytes) is untested — unchanged class-agnostic byte-copy.
+
+  **Closure family SSE-complete** (4d-2-ret + 4d-2-arg). Remaining: **iface (4d-3)**.
   - **4d-3 — iface** (`x64_iface.bn`): the call-site aggregate-return collect
     (`emitCallIfaceMethod`) + any impl-shim-vtable path.
 
