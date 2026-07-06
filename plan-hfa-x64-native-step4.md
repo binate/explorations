@@ -85,3 +85,40 @@ flag/accounting *pattern*).
 
 Landing discipline: each sub-step reviewed + dormant byte-identical + Rosetta
 before landing. Flip is Step 6, blocked on 4+5.
+
+## Step 5 findings (cross-module native↔LLVM, Rosetta) — return path
+
+Verified with a temporary gate flip + a native-`main`/LLVM-`dep` two-package
+program under Rosetta (x86_64-darwin), diffing `--backend native` (main native,
+dep LLVM) against the all-LLVM reference build.  Harness in /tmp/sse_xmod
+(forward) and /tmp/sse_rev (reverse); the gate was reverted after each run
+(main stays dormant).
+
+- **Forward (LLVM PACK → native COLLECT), GREEN.** A native `main` calls
+  LLVM-compiled no-arg `Mk*` that return SSE aggregates; native collects via
+  `collectSseAggregateReturn` (4b).  Covered 1×f64, 1×f32, 2×f32, [f64,f64],
+  [2×f32,2×f32], [2×f32,f64], and the mixed dual-file cases [f64,i64] /
+  [i64,f64] / [2×f32,i64] / [f64,{i32,i32}].  All fields read back via
+  `bit_cast` (exact bits, sidestepping the separate native-float32-arith gap)
+  matched the all-LLVM reference EXACTLY; the flip changed the native binary
+  (cmp differs) and the SSE build heavily uses XMM — so this really exercised
+  the SSE collect, not a GP fallback.  This is the REAL ABI gate for 4b (beyond
+  the self-consistent native↔native round-trip).
+
+- **Native RETURN PACK (4a) independently verified CORRECT** by disassembly:
+  `myD2` (returns {f64,f64}) emits `movlps (%r10),%xmm0` / `movlps
+  0x8(%r10),%xmm1` — x→XMM0, y→XMM1 per SysV.
+
+- **Reverse (native PACK → LLVM COLLECT) is blocked on 4d, NOT a 4a/4b bug.**
+  Passing a native func returning an SSE aggregate as a `*func` to an LLVM `dep`
+  that calls it mismatches under the flip — because the native FUNC-VALUE SHIM
+  (`_bn_…__shim`) still GP-collects the underlying's return
+  (`callq myD2; movq %rax,(%r10); movq %rdx,0x8(%r10)`) instead of eightbyte-
+  walking XMM0/XMM1.  That is precisely the unimplemented 4d shim work; on
+  `main` (gate dormant) the shim's GP-collect matches the GP-pack, so there is
+  no live defect.  **4d localization: the shim's post-underlying-call collect
+  must eightbyte-walk (SSE→XMM, INT→GP) — mirror `collectSseAggregateReturn`.**
+
+Still needs Step 4 before FULL Step-5 conformance: 4c call-arg placement +
+param spill (arg direction, both ways) and 4d dispatch-shim SSE collect.  The
+`builder-comp_native_x64_darwin` full-conformance mode is gated on those.
