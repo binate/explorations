@@ -94,11 +94,19 @@ flag/accounting *pattern*).
     Step-5 gap (a native `*func` returning an SSE aggregate, called by an LLVM caller,
     delivered garbage). Verified: unit tests + new conformance/972_xpkg_funcval_sse
     dormant-green (builder-comp / native_x64_darwin / native_aa64) and flip-all-match.
-  - **4d-arg — func-value shim ARG marshal:** an SSE aggregate PARAM must expand the
-    by-address image into XMM/GP by class (`emitSseShimArgFromPtr`, removed from 4d-1
-    as unused) AND the shim's outgoing register-budget accounting must count only the
-    INTEGER eightbytes as GP pressure (else it misroutes to the spill shim). TODO
-    marked in `emitShimArgMarshal_x64`. Includes the spill-shim arg path.
+  - **4d-arg — func-value shim ARG marshal** (an SSE aggregate PARAM expands the
+    by-address image into XMM/GP by class):
+    - **[LANDED b7b09c6e] 4d-arg-1 register-only shim:** `emitSseShimArgFromPtr`
+      (x64_sse.bn) wired into `emitShimArgMarshal_x64`. The shim's outgoing budget
+      still counts an SSE aggregate as its full ArgWords eightbytes — deliberately
+      CONSERVATIVE (guarantees the whole aggregate fits in registers when the
+      register-only shim is chosen, so no MEMORY tail); tightening it to count only
+      INTEGER eightbytes is a perf follow-up. Conformance/981_xpkg_funcval_sse_arg
+      (D2/DI/ID-INTEGER-first/F2), dormant-green + flip-all-match; adversarially
+      reviewed clean (budget-safety confirmed airtight).
+    - **4d-arg-2 spill shim:** the over-budget shim's `emitSpillCoercedAgg_x64` must
+      expand an SSE aggregate into XMM/GP by class (threading NSRN through ccOut's SSE
+      accounting), not all-GP. TODO marked; dormant-safe, the flip is gated on it.
   - **4d-2 — closure shim** (`x64_closure_shim*.bn`): same two moves (arg expand +
     return collect), plus capture handling is unaffected (captures aren't SSE-coerced
     the same way — verify).
