@@ -463,7 +463,7 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
   Fail-loud-defer generic-impl vtables and int64/float64-in-tuple placement; keep
   nil-iface-dispatch-on-baremetal xfail (no-MMU env limitation).**
   Phases:
-  - **P4-c.1** — ✅ DONE (data side; commits `15bdc87e` + `3ca73110`, pending land):
+  - **P4-c.1** — ✅ DONE & LANDED 2026-07-06 (data side; commits `4ebb2321` + `b6179612`):
     real `emitImplVtables` (`__ivt`/`__ivtshim`), `collectImplVtableSlotsNative`,
     mangling helpers, new `arm32_typeinfo.bn`
     (`emitTypeInfos/IfaceIds/SatEntriesNative`). Ported from
