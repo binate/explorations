@@ -8,9 +8,12 @@ byte-for-byte against a C oracle on darwin-arm64). A 3-skeptic adversarial revie
 of the implementation confirmed memory-safety (no bogus RefDec), IR-validity for
 every C-ABI `T` (clang-parsed), and native fail-loud completeness; known minor
 edges (cross-op `@sym` collision → clang redefinition error, fail-loud; inherited
-`readonly *T` over-rejection) documented in §7. Native modes fail loud and are
-`xfail`'d. **Phase 2 (native `OP_C_GLOBAL` lowering — §5) is not started.**
-Planned + adversarially reviewed 2026-07-05.
+`readonly *T` over-rejection) documented in §7 — **both now fixed and landed**
+(2026-07-06: `167f20b0` accept `readonly *T`; `b607f355` reject a symbol used as
+both `__c_call` and `__c_global`), and the spec §16.9 note now reads "implemented
+in compiled mode." **Phase 2 status:** §5a (arm32 absolute addressing) is **DONE**
+on `work-3` (`905cc09c`, unit-tested); **§5b (x64/aarch64 GOT sub-project) is not
+started** — the remaining work. Planned + adversarially reviewed 2026-07-05.
 Sibling of `__c_call` (see `plan-c-call.md`, COMPLETE). Spec §16.9
 (`pkg.cglobal`, `docs/spec/16b-build-constraints.md`), grammar `BuiltinCall` in
 `binate.ebnf` line 482 (`"__c_global" "(" string_literal "," Type ")"`), design
