@@ -629,10 +629,24 @@ while keeping every commit green and close to main.
     - **Reformat sweep is unblocked once string-splitting lands** — the fidelity gaps
       (section comments, adjacent-string splits, author parens) and all wrapping
       regressions are fixed. **The last over-100 line is a ~97-char test-source string
-      that is a call argument** (fits only if split). Per user (2026-07-05), **build
-      string-splitting**: split an over-cap single string literal into adjacent literals
-      across lines, with token-gate normalization treating adjacent STRING tokens as
-      equivalent to the merge. Then the sweep resumes with over100=0.
+      that is a call argument** (fits only if split).
+    - **String-splitting** ✅ **LANDED** 2026-07-05 (`ece60cb1`). Splits an over-cap
+      single string literal into adjacent literals across lines, at escape-unit
+      boundaries (never mid-`\xHH`/`\uHHHH`), preferring a `\n` break; the token gate
+      (`normTokens`) collapses adjacent STRING runs so a split is treated as
+      equivalent to the merge; parts round-trip as StrParts (idempotent). Also splits
+      an author same-line run whose merge overflows (adversarial-review finding).
+      Minimal adversarial review: **split code correct** across 7 attack categories
+      (value-preservation, escape safety, idempotence, cap, empty/tiny); the one
+      actionable finding (same-line-merge-overflow) was fixed. **Whole-tree dogfood:
+      0 over-100, 0 invalid, 0 non-idempotent — bnfmt is faithful across the tree.**
+    - **Reformat sweep RESUMING** (2026-07-05). All fidelity gaps + wrapping
+      regressions fixed; bnfmt is faithful. ~644 files would change (622 pkg/binate,
+      22 cmd) — package-by-package (batches of 3) is impractical at that scale, so the
+      sweep runs in larger area-grouped batches, each verified by its packages' unit
+      tests (+ a conformance smoke) before landing. First re-targets: the 3 reverted
+      packages (mangle, bignum, stringutils) now reformat cleanly (section comments
+      preserved, author parens kept, ≤100).
 
 ## 15. Effort (anchored to the work, not calendar)
 
