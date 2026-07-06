@@ -322,9 +322,15 @@ impls; the parameterized form is the single mechanism. (docs `16a8ca3`.)
     included). `mangle.SatEntryName`; `ir.BuildSatEntry`/`CollectSatEntries`; emit pass
     in LLVM/x64/aarch64. Also decoupled the native vtable-shape tests from the RTTI
     satellites. Adversarially reviewed — 0 dangling refs across 11 programs.
-  - **3c [NEXT — DECIDED: reflect descriptor]:** retention — extend the per-package
-    reflect descriptor with a satisfaction-entries table + VM ingestion, so the weak
-    entries survive dead-strip (cross-mode; the VM has no linker sections).
+  - **3c-1 — ✅ LANDED `e14407dc`:** wire the satentries into the reflect descriptor.
+    Each `__satentry.<T,J>` became a managed `reflect.SatEntryInfo` node (header +
+    inline {Type,Iface,Vtable}); `Package.SatEntries *[]@SatEntryInfo` (after Vtables)
+    lists them, so `__Package` root → descriptor → nodes → referents keeps them alive
+    once `__Package` is rooted (by the reader/VM ingestion) — like the vtable
+    descriptor. arm32+VM pass empty. Adversarially reviewed (incl. linked-binary nm).
+  - **3c-2 [NEXT]:** VM ingestion — `RegisterPackageSatEntries` reads `p.SatEntries`
+    into a VM registry + host wiring, mirroring RegisterPackageVtables (inert until
+    the Phase-5 reader).
   - **Phase 5:** the reader — global `(TypeInfo,IfaceId)→subvtable` lookup + assertion
     /type-switch lowering.
 - **Remaining after 2.2b-3:** the front-end (Phases 3–7: parser/checker/lowering for
