@@ -81,9 +81,29 @@ flag/accounting *pattern*).
     marshal + native param spill all cross-module-correct.
 - **4d — dispatch shims:** `x64_funcvalue_shim.bn`, `x64_closure_shim*.bn`,
   `x64_iface.bn` — the by-address/retbuf dispatch convention is UNCHANGED (SSE
-  aggregate still arrives as one i8* pointer word); only the shim's move of the
-  pointer-image eightbytes INTO the underlying's registers eightbyte-walks
-  (SSE→XMM, INT→GP), exactly mirroring LLVM 2c's `writeShimUnderlyingArg`.
+  aggregate still arrives as one i8* pointer word); only two moves inside the shim
+  become eightbyte-class-aware: (i) the shim's expansion of the by-address
+  pointer-image INTO the underlying's registers (SSE→XMM, INT→GP, mirroring LLVM
+  2c's `writeShimUnderlyingArg` / native `emitSseAggregateArg`), and (ii) the
+  shim's COLLECT of the underlying's SSE return into the retbuf. Broken into:
+  - **[DONE — worktree 8cbf3ec9, pending land] 4d-1 func-value shim RETURN collect:**
+    both shim shapes (register-only `x64_funcvalue_shim.bn` pack + over-budget
+    `x64_funcvalue_spill.bn`) branch on `cc.ReturnsSseInRegs` and call the new shared
+    `emitSseReturnCollectTo` (x64_sse.bn) — XMM0/XMM1 + RAX/RDX → retbuf by class;
+    `collectSseAggregateReturn` (direct call) delegates to it too. Fixes the exact
+    Step-5 gap (a native `*func` returning an SSE aggregate, called by an LLVM caller,
+    delivered garbage). Verified: unit tests + new conformance/972_xpkg_funcval_sse
+    dormant-green (builder-comp / native_x64_darwin / native_aa64) and flip-all-match.
+  - **4d-arg — func-value shim ARG marshal:** an SSE aggregate PARAM must expand the
+    by-address image into XMM/GP by class (`emitSseShimArgFromPtr`, removed from 4d-1
+    as unused) AND the shim's outgoing register-budget accounting must count only the
+    INTEGER eightbytes as GP pressure (else it misroutes to the spill shim). TODO
+    marked in `emitShimArgMarshal_x64`. Includes the spill-shim arg path.
+  - **4d-2 — closure shim** (`x64_closure_shim*.bn`): same two moves (arg expand +
+    return collect), plus capture handling is unaffected (captures aren't SSE-coerced
+    the same way — verify).
+  - **4d-3 — iface** (`x64_iface.bn`): the call-site aggregate-return collect
+    (`emitCallIfaceMethod`) + any impl-shim-vtable path.
 
 ## Open questions / risks (from the survey)
 
