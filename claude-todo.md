@@ -202,6 +202,23 @@ decision above — a separate, user-owned call.)
 
 ## Language features — specified, not yet implemented
 
+### Methods on generic types + parameterized-receiver impls — spec'd 2026-07-05, NOT implemented — 🔴 OPEN
+
+Let a generic type carry methods and satisfy interfaces — the missing piece that
+makes generic interfaces (`Iterator[T]`, `Container[T]`) *implementable* (today
+declarable-only; a generic type currently has no methods → satisfies no
+interface). **Specified** (§12.1 `gen.method.generic-recv` / `gen.impl.generic-recv`,
+`gen.no-generic-methods` narrowed to method-level params only; §11.3
+`iface.impl.form`; §10.1/§10.4; grammar `ReceiverType`/`ReceiverBase`), **not
+implemented**. High-level plan: **[plan-generic-type-methods.md](plan-generic-type-methods.md)**.
+Model: `func (it *Cursor[T]) Next() (T, bool)` — receiver **binds** the type's
+params (constraints inherited, no method-level params); `impl *Cursor[T] :
+Iterator[T]` — parameterized-receiver impl (coverage checked abstractly, vtable +
+distributed-satisfaction-entry per monomorphized instantiation). Method-level type
+params (`map[U]`) stay forbidden (vtable slot would vary). No run-time generic
+dispatch. Makes the §12.4 constraint-check gap load-bearing (per-instantiation
+satisfaction). Distinct enabler for the whole generic-container-with-behavior story.
+
 ### Type assertions, type switches & RTTI — IN PROGRESS (RTTI substrate landing incrementally) — 🟡 OPEN
 
 **Progress (2026-07-04):** the RTTI substrate is landing per
