@@ -54,8 +54,10 @@ Ordered so each phase leaves the tree green.
 1. **Parser / AST.**
    - Method receiver: parse the **binding identifier list** on a generic base
      (`*Cursor[T]`, `(m HashMap[K, V])`) — brackets in a receiver are always
-     binding names (never concrete args; a concrete-arg receiver is a conditional
-     impl, forbidden). Store the bound names on the `MethodDecl` AST.
+     binding names (never concrete args; a concrete-arg receiver is a
+     **specific-instantiation** impl, forbidden — §12.4 `gen.no-conditional-impls`,
+     distinct from a *conditional* impl). Store the bound names on the `MethodDecl`
+     AST.
    - Impl receiver: parse `impl *Cursor[T] : Iterator[T]` — bind `T`, interface
      list references it. Same binding treatment.
    - Keep rejecting a method-level `[…]` after the method name (no `[TypeParams]`
@@ -71,8 +73,8 @@ Ordered so each phase leaves the tree green.
      params) in the method/impl tables, keyed for per-instantiation specialization.
    - Parameterized impl: bind receiver params; run `iface.impl.coverage`
      **abstractly** (`Cursor[T]` provides `Iterator[T]`'s methods, `T` abstract).
-   - Diagnostics: wrong binding-name count vs arity; a conditional (concrete-arg)
-     receiver; a method-level type param.
+   - Diagnostics: wrong binding-name count vs arity; a specific-instantiation
+     (concrete-arg) receiver; a method-level type param.
 
 3. **Monomorphization.**
    - On instantiation (`Cursor[int]`), specialize its methods (`Next() (int,
@@ -99,15 +101,17 @@ Ordered so each phase leaves the tree green.
      (`Box[T Orderable]` method calls `T.Compare`); the trivial `Iterator[T]`
      end-to-end; cross-package parameterized impl.
    - Negative: method-level type param (`map[U]`) rejected; binding-count ≠ arity;
-     conditional impl (`impl Cursor[int] : …`) rejected.
+     specific-instantiation impl (`impl Cursor[int] : …`) rejected (§12.4).
    - All backends + all modes.
 
 ## 4. Key risks / correctness invariants
 
 - **Binding vs. concrete in the receiver** — the parser/checker must treat
   receiver/impl brackets as **binding** names, not type arguments (a concrete-arg
-  receiver is a conditional impl and stays forbidden). Get the disambiguation
-  right, or `impl Cursor[int]` silently means the wrong thing.
+  receiver is a specific-instantiation impl and is forbidden — §12.4). The
+  distinction is **semantic** (predeclared names like `int` are ordinary
+  identifiers): a bracket name that resolves to a type is rejected. Get it right,
+  or `impl Cursor[int]` silently means the wrong thing.
 - **Constraint inheritance** — the method's `T` constraint comes from the type
   declaration, never restated on the method; the checker must fetch it so the body
   can call the constrained methods.
