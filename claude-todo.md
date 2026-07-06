@@ -593,6 +593,28 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 - `bnlint --target`; main-module gating; migrating the `impls/` duplicate trees onto constraints.
 - The separate inline-asm (`#[asm]`) doc that composes with this substrate.
 
+## bnfmt (self-hosted formatter)
+
+### bnfmt builtin/argument wrapping residuals — 🟢 LOW (latent, no in-tree overflow) — OPEN (2026-07-05)
+
+Two narrow cases where a builtin call can still emit a >100 line (found while
+fixing the statement/decl/case wrapping regressions; neither occurs in the tree
+today, so they are latent, not active):
+
+- **Non-last long builtin argument.** `printBuiltin` forwards the closing-`)`
+  reservation (`1 + tail`) only to the LAST value argument (`print_builtin.bn`).
+  A non-last argument that is a wrappable binary landing at cols 97–100 is
+  followed by `, <rest>)` it does not reserve, so it stays flat past the cap.
+  Fix: give non-last args a comma-plus-remaining reservation, or route the whole
+  builtin arg list through `fillExprList` (mirroring `printCall`). None in-tree.
+- **`__c_call` last-arg binary.** `printCCall` writes its args with plain
+  `printExpr` (tail 0), so a `__c_call(..., <long binary>)` whose last arg lands
+  at 97–100 overflows by the un-reserved close paren. Fix: mirror the
+  `printBuiltin` last-arg `printExprTail(…, 1 + tail)` treatment. None in-tree.
+
+Discovered by the wrapping-fix workflow (2026-07-05); the `printBuiltin` doc
+comment points here. Cross-refs `explorations/plan-bnfmt.md` §14.
+
 ## bnlint rules, unused-entity checks & lint skips
 
 ### Wire `bnlint --tests` into hygiene — 🟡 OPEN (BUILDER-gated)
