@@ -331,9 +331,17 @@ impls; the parameterized form is the single mechanism. (docs `16a8ca3`.)
     lists them, so `__Package` root → descriptor → nodes → referents keeps them alive
     once `__Package` is rooted (by the reader/VM ingestion) — like the vtable
     descriptor. arm32+VM pass empty. Adversarially reviewed (incl. linked-binary nm).
-  - **3c-2 [NEXT]:** VM ingestion — `RegisterPackageSatEntries` reads `p.SatEntries`
-    into a VM registry + host wiring, mirroring RegisterPackageVtables (inert until
-    the Phase-5 reader).
+  - **3c-2 — ✅ LANDED `89108b34`:** VM ingestion — `RegisterPackageSatEntries`
+    reads `p.SatEntries` into three parallel per-`@VM` slices via `registerSatEntry`
+    (new `pkg/binate/vm/satentry_inject.bn`), host-wired at `injectPure` /
+    `injectPackageSet` (the two sites the vtable trio uses). No `lookupSatEntry` yet
+    — its only consumer is the Phase-5 reader (a dead file-private func would trip
+    bnlint), so it lands with that reader. Inert (populated-but-unread) until then,
+    like 3a/3b/3c-1. Adversarially reviewed — 0 defects across 11 check points
+    (descriptor read, nil-slice safety, reachability, field placement, iface/impl
+    agreement, refcount, wiring completeness, test adequacy, BUILDER-tree
+    untouched). Note: the earlier "split `emit_impls_test.bn`" follow-up is moot —
+    `file-length.sh` excludes `*_test.bn`.
   - **Phase 5:** the reader — global `(TypeInfo,IfaceId)→subvtable` lookup + assertion
     /type-switch lowering.
 - **Remaining after 2.2b-3:** the front-end (Phases 3–7: parser/checker/lowering for
