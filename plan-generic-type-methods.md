@@ -38,13 +38,34 @@ Work is on the `work-2` worktree branch (not yet landed; Phases 1–3 land toget
   because `RecvType.ReceiverBaseNamed()` is the empty instantiation shell). Shared
   helpers `resolveGenericReceiverDecl` + `installReceiverBinders`.
 
-**For Phase 3 (next):** per-instantiation method-set population + on-demand concrete
-`@Impl` synthesis (assignability). Watch the **method-population ordering hazard** — a
-generic type may be instantiated (and cached) before its method decls are collected,
-so populating instantiation methods at `populateInstantiatedStruct` time may miss
-late-collected methods; a post-collection pass or on-demand population may be needed.
-Substituting the placeholder's abstract method FuncTypes via `substituteTypeParams`
-(index-based) is the mechanism; no AST re-resolution or method-decl stash is required.
+- **Phase 3 — DONE (checker satisfaction; commit `64d1b22f`).** Two parts:
+  (a) `populateInstantiatedStruct` substitutes the placeholder's abstract methods onto
+  each instantiation, so `Box[int]` carries `Get() int` and `b.Get()` resolves via the
+  normal concrete method path. Required extending `substituteTypeParams` to recurse
+  into `TYP_FUNC` (it previously left func params/results untouched).
+  (b) `genericImplSatisfies` (types_assignable.bn) makes a concrete instantiation
+  satisfy the interface its generic type impls, by substituting the impl's receiver
+  binders with the instantiation's concrete args — injected into both interface-value
+  assignability scans (raw + managed). So `impl @Cursor[T] : Iter[T]` makes every
+  `@Cursor[τ]` assignable to `@Iter[τ]` with no per-instantiation impl record (chose
+  substitution-aware matching over eager on-demand `@Impl` synthesis — avoids the
+  ordering hazard, since these checks run in pass 2 after collection).
+
+**Remaining:**
+- **Phase 3c — constraint-path satisfaction.** `typeSatisfiesConstraint`
+  (`check_generic.bn`) has its OWN `c.Impls` scan using concrete `t.Identical(rec.RecvType)`;
+  it does not yet handle a generic-receiver impl, so `func f[I Iter[int]](it I)`
+  instantiated with `Cursor[int]` isn't accepted. Its receiver-kind semantics differ
+  from assignability (constraint satisfaction vs `receiverAssignable`), so it needs a
+  tailored substitution-aware branch. Secondary to the interface-value use.
+- **Method-population ordering hazard** (noted in the code): a type instantiated before
+  its methods are collected gets an incomplete method set; concrete instantiations
+  arise in pass 2 after collection, so it hasn't bitten, but a lazy/post-collection
+  population would harden it.
+- **Phase 4 — IR-gen** (the big one, unstarted): on-demand `ImplInfo` synthesis
+  (mirror `ensureAnyImplInfo`) + receiver-promoting method-body emission + the two skip
+  sites (`gen_module.bn`, `gen_register_import.bn`) + cross-backend/arm32 tests. Nothing
+  runs yet — this phase makes the feature executable.
 
 ## 1. What we are building
 
