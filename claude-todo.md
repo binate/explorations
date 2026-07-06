@@ -11,7 +11,7 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
-### native aarch64 **ELF** backend silently miscompiled all page-relative data addressing (`R_AARCH64_NONE`) — ✅ FIXED (lands with __c_global §5b; residual: no e2e mode) (found + fixed 2026-07-06)
+### native aarch64 **ELF** backend silently miscompiled all page-relative data addressing (`R_AARCH64_NONE`) — ✅ FIXED & LANDED `9e866a43` (residual: no e2e mode) (found + fixed 2026-07-06)
 
 **Was: MAJOR (silent wrong-code on an accepted target).** `bnc --target
 aarch64-linux -backend native` emitted **`R_AARCH64_NONE`** for the low-12 half
@@ -30,9 +30,9 @@ not its offset → wrong pointer → silent miscompile, no diagnostic.
   aarch64 GOT ELF mapping; confirmed by `objdump -r` of a
   `--target aarch64-linux -backend native -c` object (`R_AARCH64_NONE` on the
   string ADD; dep objects route through clang and show the correct relocs).
-- **FIX (user chose "implement the relocs", 2026-07-06)** — commit `2e391e6b`
+- **FIX (user chose "implement the relocs", 2026-07-06)** — **LANDED `9e866a43`**
   (`asm/elf: implement aarch64 data + GOT relocs; fail loud on unmapped kinds`),
-  on work-3 with the __c_global §5b commits, **awaiting landing approval**:
+  with the __c_global §5b aarch64 commit `a4e6f478`:
   - Mapped the four aarch64 ELF relocs, matching clang's -fPIE output:
     105→`R_AARCH64_ADD_ABS_LO12_NC`(277), 106→`LDST64_ABS_LO12_NC`(286),
     107→`ADR_GOT_PAGE`(311), 108→`LD64_GOT_LO12_NC`(312).

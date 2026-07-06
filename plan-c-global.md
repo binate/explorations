@@ -15,7 +15,19 @@ in compiled mode." **Phase 2 status:** §5a (arm32 absolute addressing) is
 **LANDED** (`16bbd98f`) — reviewed (2-skeptic: sound; the arm32 object emits
 `environ` as a UND external with `R_ARM_MOVW_ABS_NC`/`MOVT_ABS`, verified by
 `readelf`); the unit test asserts the UND (`Section == -1`) property. **§5b
-(x64/aarch64 GOT sub-project) is not started** — the remaining work.
+aarch64 is LANDED** (2026-07-06, `a4e6f478` Mach-O GOT + `9e866a43` ELF relocs)
+— reviewed (2 rounds of 2-skeptic): Mach-O path verified end-to-end on
+darwin-arm64 (982 + spec 094 link + run + read the real `environ`; `otool -rv`
+shows `GOTLDP`/`GOTLDPOFF` vs external `_environ`). The review surfaced a
+**MAJOR pre-existing bug**: the native aarch64 **ELF** backend emitted
+`R_AARCH64_NONE` for every page-relative data address (silent miscompile on
+`--target aarch64-linux -backend native`) — **fixed** in `9e866a43` by
+implementing the four aarch64 ELF relocs (matching clang: `ADD_ABS_LO12_NC`,
+`LDST64_ABS_LO12_NC`, `ADR_GOT_PAGE`, `LD64_GOT_LO12_NC`) + a fail-loud guard;
+objdump-verified against clang, unit-tested, but **not e2e** (no aarch64-linux
+native mode/runtime — tracked in `claude-todo.md`). **§5b x64 (ELF + Mach-O GOT)
+is the remaining work** (see §5b.3 for the x64 emitter + `R_X86_64_REX_GOTPCRELX`
+/ `X86_64_RELOC_GOT_LOAD`).
 **Follow-up (deferred, user-approved 2026-07-06):** a runnable arm32-baremetal
 end-to-end test against a linker-script external (e.g. `_stack_top` / `__bss_end`,
 run under `qemu-system-arm`) — would be the first baremetal-live-only conformance
