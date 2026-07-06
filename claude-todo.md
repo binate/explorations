@@ -49,6 +49,79 @@ runner retry a timed-out test once before reporting failure. Until then a red
 native-aa64 run with a lone `[3s]` timeout failure is very likely this, not a real
 regression — re-run the single test in isolation to confirm.
 
+### func-value SMALL multi-return: native-shim vs LLVM-shim ABI CONFLICT — 🔴 OPEN (2026-07-05)
+
+**Severity: major (cross-module silent miscompile at the native↔LLVM boundary).**
+A func value's `vtable.call` slot may point at EITHER a natively-emitted shim
+(same-module closure / func ref) OR an LLVM-emitted shim (cross-package dep). For
+a SMALL multi-return tuple (≤ NumGpRetRegs words, e.g. `(int,int)` / `(u16,u16,u16)`)
+the two shim families use INCOMPATIBLE return conventions, and the caller
+(`emitCallFuncValue`) can't tell which it will reach:
+
+- **LLVM shim** (`pkg/binate/codegen/emit_funcvals_shim.bn`, `emitFuncValueShimAggregate`):
+  `void @__shim(i8* retbuf, i8* data, <args>)` for ANY multi-return — gated on
+  `types.IsAggregateReturn` = `len(results)>1` — stores the whole tuple THROUGH
+  `retbuf` (first arg) and returns void. Caller must pass retbuf + read the result
+  from it.
+- **Native shim** (x64 `pkg/binate/native/x64/x64_funcvalue_shim.bn`
+  `isBigMultiReturn_x64` → `MultiReturnTupleNeedsSret`; aa64
+  `pkg/binate/native/aarch64/aarch64_funcvalue_shim.bn` `shimReturnSize`→0 for any
+  multi-return → scalar/void tail-branch; arm32 `arm32_funcvalue_multiret.bn`):
+  a SMALL multi-return is returned FIELD-PER-REGISTER (RAX/RDX/RCX·XMM / X0..X4 /
+  r0..r3). Caller must collect from return registers.
+
+**Symptom that surfaced it:** `conformance/971_funcval_xpkg_big_multiret` (a BIG
+`(int x5)` cross-pkg multi-return) crashes on aa64: the LLVM shim writes retbuf
+(X0) but the aa64 caller passes data in X0 and collects from return regs → garbage
+/ empty output. On x64/arm32 971 works only coincidentally (their smaller
+NumGpRetRegs makes `(int x5)` needs-sret, so their `useRetbuf = aggregateRet ||
+bigMultiRet` already fires). SMALL cross-pkg multi-returns are LATENTLY
+miscompiled on all three (shim uses retbuf; caller collects from regs).
+
+**Why the obvious fix is WRONG:** the recon proposed keying the caller on
+`IsMultiReturnCall` (retbuf for ANY multi-return, matching the LLVM shim) across
+all 3 backends + the shared sizer. Implemented and tested, that fixes 971 + new
+small cross-pkg tests BUT regresses 40 aa64 tests (all SAME-module
+`funcval-multi-return` matrix cases int/2..5, u16/2..5, f64, managed variants,
+`705_func_value_closure_float_multi_return`, `950_method_value_multiret`,
+`regressions/capturing-closure-multi-return`, etc.) — because it breaks the
+caller's agreement with the NATIVE shim, which returns small multi-returns in
+registers. The two conventions genuinely disagree and the call site can't
+distinguish the callee statically. (Reverted; not landed.)
+
+**Proper fix (needs a design decision — user to prioritize):** make the two shim
+families agree on ONE convention for func-value multi-returns, then key the caller
+on it. Options: (a) make the NATIVE shims use the retbuf-for-any-multi-return
+convention too (match LLVM's `IsAggregateReturn` gate) — then the caller keys on
+`IsMultiReturnCall` as the recon proposed, and both same-module and cross-package
+agree; requires changing `isBigMultiReturn_*` / `shimReturnSize` and the native
+shim emitters + their spill variants + collectMultiReturnFields expectations. Or
+(b) make the LLVM shim return small multi-returns in registers (drop the retbuf
+for small tuples) to match the native register-return convention — but the LLVM
+shim currently leans on `IsAggregateReturn` and first-class-struct return
+lowering, so this is the harder side. Option (a) is likely cleaner (retbuf is the
+uniform shape single-aggregate returns already use). Either way it is a
+cross-backend contract change (all 3 native backends + codegen + VM cross-mode
+dispatch must agree), NOT a caller-only tweak.
+
+**Repro / coverage (all on the CURRENT/baseline tree, no fix applied):**
+- `conformance/971_funcval_xpkg_big_multiret` (BIG `(int x5)` cross-pkg; present,
+  no xfail): FAILS aa64 (garbage/empty); PASSES x64 + arm32 (coincidental —
+  needs-sret there).
+- new `conformance/972_funcval_xpkg_small_multiret2` (`(int,int)`) and
+  `973_funcval_xpkg_small_multiret3` (`(int,int,int)`): SMALL cross-pkg; FAIL on
+  **all three** native backends (x64 / arm32 / aa64) with garbage output (e.g.
+  arm32 973 → `50 / 0 / 1073752014`). PASS on host (builder-comp) — host has no
+  native-shim/LLVM-shim split. These are the direct demonstration of the latent
+  small-multi-return miscompile.
+
+The 40-test aa64 SAME-module set (funcval-multi-return matrix int/2..5 · u16/2..5 ·
+f64 · managed variants · `705` · `950` · `regressions/capturing-closure-multi-return`)
+is the regression guard: any candidate fix must keep those green while making
+971/972/973 pass. NOTE: 972/973 currently have NO xfail markers and FAIL on the
+three native modes — either add `.xfail.<mode>` markers (per Bug Discovery
+Protocol) or land the real fix before these tests go into a default CI run.
+
 ---
 
 ## Language features — specified, not yet implemented
