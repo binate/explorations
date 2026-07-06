@@ -1239,7 +1239,22 @@ func foo[T ComparableStringer, U any](a T, b U) { ... }
 
 **Type checking**: generic body checked once against the constraint. Instantiation only verifies the concrete type satisfies the constraint.
 
-**No generic methods on types** (like Go). Use generic free functions instead.
+**No generic methods on types** (like Go). Use generic free functions instead. **(SUPERSEDED — see next.)**
+
+**Methods on generic types + parameterized-receiver impls — DECIDED 2026-07-05 (spec'd, impl pending)**: relaxes the over-broad `gen.no-generic-methods`, which conflated two distinct things:
+- **Method-level type parameters** — `func (v Vec[T]) map[U](f *func(T) U) …`, where the METHOD introduces its own `[U]`: **stays forbidden**. A vtable slot would vary per `U` → undispatchable (the real object-safety reason; the grammar's `MethodDecl` has no `[TypeParams]` slot, and keeps none).
+- **Methods that use the ENCLOSING generic type's parameter** — `func (it *Cursor[T]) Next() (T, bool)`, where `T` comes from `Cursor[T]` and the method introduces no new type param: **now ALLOWED**. Monomorphizes to a concrete signature (`Cursor[int].Next() (int, bool)`) with a **fixed** vtable slot — no slot-count problem.
+
+Also allow **parameterized-receiver impls**: `impl *Cursor[T] : Iterator[T]` (Rust's `impl<T> Iterator for Cursor<T>`).
+
+**Why:** without this, a generic type can carry no methods → can satisfy **no** interface → generic interfaces (`Iterator[T]`, `Container[T]`) are *declarable but not implementable*, and generic types are second-class (data + generic free functions only, no behavior). The old rule was also **stricter than the Go it cited**: Go allows methods on generic types and forbids only method-level type params; this restores that parity.
+
+**Design:**
+- The receiver's generic base **binds** the type's parameters as fresh names (`*Cursor[T]`, `(m HashMap[K, V])`); constraints are **inherited** from the type declaration (not re-stated), and the binding-name count must equal the type's arity. The method introduces **no** type params of its own.
+- `impl *Cursor[T] : Iterator[T]` binds `T` in the receiver; the interface list references it. Coverage is checked **abstractly** at the impl declaration (`T` abstract), exactly like a non-generic impl; constraint satisfaction + the vtable are resolved **per monomorphized instantiation**.
+- Monomorphization: methods specialized per `(type, type-args)`; a vtable per `(Cursor[int], Iterator[int])` for the interface-VALUE path + a per-instantiation entry in the distributed satisfaction registry (consistent with the no-orphan-rule model); constraint-path calls stay **direct, no vtable** (`gen.mono.constraint-call`). **No run-time generic dispatch.**
+
+Grammar: `ReceiverType` gains a binding form (`ReceiverBase = QualifiedName [ "[" identifier-list "]" ]`), shared by `MethodDecl` receivers and `ImplDecl`. Spec: §12.1 `gen.no-generic-methods` (narrowed) + new `gen.method.generic-recv` / `gen.impl.generic-recv` (Draft); §11.3 `iface.impl.form`; §10.1/§10.4. Plan: `plan-generic-type-methods.md`.
 
 **No conditional impls** for v1. Only specific instantiations can have `impl` declarations.
 
