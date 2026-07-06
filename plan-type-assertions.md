@@ -33,11 +33,16 @@ exhaustiveness). Pinned design:
 - **No `case nil`** (interface values not nil-comparable). Unset (`present`=false)
   → no dynamic type → assertion miss / type-switch `default`; typed-nil → matches
   its type. Absence via `present()`.
-- **RTTI:** a per-type static **`TypeInfo`** (identity, dtor, size, align, name,
-  **satisfaction-table** of `interface → sub-vtable` over the *transitive-closure*
-  of satisfied interfaces), reached via a `*TypeInfo` in every interface vtable's
-  offset-0 **any-block** (beside the dtor). One `TypeInfo` per type **program-wide**;
-  cross-mode agreement is on the *equality result*, not a shared address.
+- **RTTI:** a per-type static **`TypeInfo`** (identity, dtor, size, align, name),
+  reached via a `*TypeInfo` in every interface vtable's offset-0 **any-block**
+  (beside the dtor). One `TypeInfo` per type **program-wide**; cross-mode agreement
+  is on the *equality result*, not a shared address. Interface **satisfaction is
+  NOT in `TypeInfo`** — it is a **distributed `(T, J)` registry** emitted per
+  `impl` site (each `impl T : I` emits an entry for `I` + all transitive ancestors,
+  `weak_odr`-deduped), because cross-package impls (no orphan rule, §11.8) mean no
+  single TU sees a type's complete impl set. An interface assertion looks up
+  `(dynamic-type, J)`. (Spec: §7.13.14 `type.layout.satisfaction`, §11.12
+  `iface.rtti`.)
 
 ## 2. Current state
 
@@ -47,8 +52,9 @@ exhaustiveness). Pinned design:
   backend and the VM must apply **consistently**.
 - **Interface machinery** (impl collection, nominal satisfaction, interface
   extension + the fixed-offset upcast / nested sub-vtables) already exists and is
-  stable — the satisfaction-table is its transitive closure, so it reuses that
-  machinery rather than inventing new lookup.
+  stable — each impl site already knows its interface's transitive ancestors, so
+  the distributed `(T, J)` satisfaction registry reuses that machinery rather than
+  inventing new lookup.
 - `ELLIPSIS`/keyword lexing is fine; `type` is already a reserved keyword (so
   `.(type)` is unambiguous). No RTTI, no `TypeInfo`, no `.(` postfix, and no
   type-switch parsing exist yet.
@@ -60,17 +66,19 @@ Ordered so each phase leaves the tree green.
 
 1. **RTTI substrate (do this first — everything else needs it).**
    - Define the `TypeInfo` record in the **shared layout layer** (`pkg/types`),
-     cross-mode (identity, dtor, size, align, name, satisfaction-table). It is part
-     of the `type.layout.keystone` contract.
+     cross-mode (identity, dtor, size, align, name — **no** satisfaction table). It
+     is part of the `type.layout.keystone` contract.
    - Emit one static `TypeInfo` per concrete type that can be a dynamic type (any
      type constructed into an interface value).
    - Add the `*TypeInfo` slot to the vtable **any-block**; **re-base method slots**
      accordingly in vtable emission AND every dispatch site (IR-gen + all native
      backends + VM). This is the highest-risk change — a slot-index mismatch
      silently misdispatches.
-   - Populate the satisfaction-table as the **transitive closure** of satisfied
-     interfaces (explicit impls + all ancestors), each mapped to the correct
-     nested sub-vtable (the same offset the static upcast uses).
+   - Emit **distributed satisfaction entries** per `impl` site: each `impl T : I`
+     emits `(T, K) → vtable(T, K)` for `I` and every transitive ancestor `K`, into
+     a global `weak_odr`-deduped registry (§7.13.14 `type.layout.satisfaction`) —
+     NOT a per-type table (cross-package impls mean no TU sees the full set). An
+     interface assertion looks up `(dynamic-type, J)`.
    - Ensure every **nested** sub-vtable's any-block carries the **leaf** type's
      `*TypeInfo` (not the parent's) — required for downcast-through-an-upcast.
 
@@ -95,8 +103,8 @@ Ordered so each phase leaves the tree green.
 4. **IR-gen.**
    - Assertion lowering: load vtable; **null-check first** (unset → miss); load
      `*TypeInfo` from the any-block; concrete → `TypeInfo` identity compare;
-     interface → satisfaction-table lookup → form `{data, vtable(T, J)}` (ancestor
-     case = the static upcast after the identity check). Recovery kind: `@T` →
+     interface → distributed `(dynamic-type, J)` satisfaction-registry lookup →
+     form `{data, vtable(T, J)}`. Recovery kind: `@T` →
      RefInc; `*T` → borrow (no refcount); value → field-wise acquiring copy
      (`mem.copy`).
    - Expression form: on miss, raise the **failed-assertion panic** (§17.5).
@@ -125,9 +133,14 @@ Ordered so each phase leaves the tree green.
   Every vtable emitter and every dispatch slot computation (IR-gen, x64, aarch64,
   arm32, VM) must agree on the new layout or dispatch silently corrupts. Smoke-test
   all backends.
-- **Satisfaction-table must be the transitive closure**, not just declared impls,
-  or `x.(*Parent)` wrongly fails (the review's critical). Reuse the
-  interface-extension ancestor set.
+- **Satisfaction is a distributed `(T, J)` registry, not a per-type table** —
+  cross-package impls (no orphan rule, §11.8) mean no TU sees a type's complete
+  impl set, so a per-type table can't be built. Each `impl` site emits `(T, I +
+  transitive ancestors)` into a global `weak_odr` registry; the lookup key is
+  `(dynamic-type, J)`. Missing an ancestor entry makes `x.(*Parent)` wrongly fail
+  (the review's critical); building it per-type instead of per-impl-site is
+  unimplementable under cross-package impls. Reuse the interface-extension ancestor
+  set at each impl site.
 - **Leaf `*TypeInfo` in every nested sub-vtable** — downcast after an upcast must
   still recover the concrete type.
 - **Cross-mode identity is result-agreement, not address-sharing** — do not emit a
