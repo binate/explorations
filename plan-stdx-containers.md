@@ -1,6 +1,6 @@
 # Plan: `pkg/stdx/containers` — standard container libraries
 
-**Status:** in progress (2026-07-05). Progressive delivery: `vec` **(landed, main `67b2bff3`)** → `hashmap` → `set`.
+**Status:** in progress (2026-07-05). Progressive delivery: `vec` **(landed, main `67b2bff3`)** → `hashmap` **(landed, main `969e69fc`)** → `set`.
 
 ## 1. Overview and motivation
 
@@ -302,6 +302,11 @@ Land one container at a time, each self-contained and green:
    **✅ Landed** (main `67b2bff3`): 12 tests, green under builder-comp + builder-comp-int,
    adversarially reviewed (memory-model / API / spec-fidelity — no bugs).
 2. **`hashmap`** — type + `New/Put/Get/Has/Remove/Len` + cursor + tests (backward-shift).
+   **✅ Landed** (main `969e69fc`): 18 tests, green under builder-comp + builder-comp-int,
+   adversarially reviewed (backward-shift verified exhaustively — no bugs). Private
+   generic helpers (`slotFor`/`grow`) inlined: a `.bni` symbol is exported by
+   definition, so a helper in the (body-included) generic `.bni` is public — inline
+   it or export it as `SlotFor`/`Grow`; there is no private-in-`.bni` form.
 3. **`set`** — type + `New/Add/Has/Remove/Len` + cursor + tests.
 
 Each follows the standard worktree flow (commit on the worktree; per-instance approval
