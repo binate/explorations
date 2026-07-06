@@ -1,12 +1,17 @@
 # Plan: the `__c_global` C-global-variable intrinsic
 
-Status: **Phase 1 IMPLEMENTED** (2026-07-06, on binate branch `work-3`, awaiting
-land) — frontend + checker + IR + LLVM backend + tests, all green (unit +
-conformance `972`/`973`/spec `094` + `e2e/c-global-environ.sh` + full hygiene);
-LLVM path verified end-to-end (`__c_global("environ", **char)` reads the real
-process environment, matched byte-for-byte against a C oracle on darwin-arm64).
-Native modes fail loud and are `xfail`'d. **Phase 2 (native `OP_C_GLOBAL`
-lowering — §5) is not started.** Planned + adversarially reviewed 2026-07-05.
+Status: **Phase 1 IMPLEMENTED + reviewed, rebased on current main, awaiting land**
+(2026-07-06, binate branch `work-3`) — frontend + checker + IR + LLVM backend +
+tests, all green (unit + conformance `982`/`983`/spec `094` +
+`e2e/c-global-environ.sh` + full hygiene 15/15). LLVM path verified end-to-end
+(`__c_global("environ", **char)` reads the real process environment, matched
+byte-for-byte against a C oracle on darwin-arm64). A 3-skeptic adversarial review
+of the implementation confirmed memory-safety (no bogus RefDec), IR-validity for
+every C-ABI `T` (clang-parsed), and native fail-loud completeness; known minor
+edges (cross-op `@sym` collision → clang redefinition error, fail-loud; inherited
+`readonly *T` over-rejection) documented in §7. Native modes fail loud and are
+`xfail`'d. **Phase 2 (native `OP_C_GLOBAL` lowering — §5) is not started.**
+Planned + adversarially reviewed 2026-07-05.
 Sibling of `__c_call` (see `plan-c-call.md`, COMPLETE). Spec §16.9
 (`pkg.cglobal`, `docs/spec/16b-build-constraints.md`), grammar `BuiltinCall` in
 `binate.ebnf` line 482 (`"__c_global" "(" string_literal "," Type ")"`), design
