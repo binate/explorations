@@ -253,13 +253,12 @@ distributed-satisfaction-entry per monomorphized instantiation). Method-level ty
 params (`map[U]`) stay forbidden (vtable slot would vary). No run-time generic
 dispatch. Makes the §12.4 constraint-check gap load-bearing (per-instantiation
 satisfaction). Distinct enabler for the whole generic-container-with-behavior story.
-**Open coherence question (needs a decision):** a parameterized impl `impl *Cursor[T] : I`
-overlaps a specific-instantiation impl `impl Cursor[int] : I` (which §12.4
-`gen.no-conditional-impls` currently permits) at `T = int` — two impls of the same
-`(Cursor[int], I)`. Rule unresolved; the clean v1 choice is to forbid a
-specific-instantiation impl where a parameterized one applies (or forbid
-specific-instantiation impls entirely). Flagged _Open_ in spec §12.1
-`gen.impl.generic-recv`.
+**Overlap coherence question — RESOLVED 2026-07-06 (forbid specific-instantiation impls).**
+The parameterized-vs-specific-instantiation impl overlap is removed by forbidding
+specific-instantiation impls (`impl Cursor[int] : I`) in v1 — verified used by ZERO
+code repo-wide + referenced by no other rule (vestigial). §12.4
+`gen.no-conditional-impls` now disallows both conditional and specific-instantiation
+impls; the parameterized form is the single mechanism. (docs `16a8ca3`.)
 
 ### Type assertions, type switches & RTTI — IN PROGRESS (RTTI substrate landing incrementally) — 🟡 OPEN
 
