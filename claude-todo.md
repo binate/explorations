@@ -78,14 +78,17 @@ the landed base: aa64 2659 pass / 0 fail / 0 hangs; x64 2651 pass (8 pre-existin
 build-constraint + stdlib/os fails); arm32 2631 pass (3 pre-existing reflect +
 stdlib/os fails); native unit 5/0; hygiene 15/15.
 
-**Follow-up (major, maintainability — NOT yet done):** arm32's
-`collectMultiReturnFields` (`arm32_call.bn`) and `storeMultiReturnTupleFieldsArm32`
-are two byte-equal copies of the same field-per-class loop; x64/aa64 delegate
-direct-collect to the shared helper, arm32 does not. Verified-equal today, but a
-future edit to one can silently desync the arm32 shim from the arm32 collect —
-exactly the drift the helper extraction was meant to prevent. Refactor arm32
-collect to delegate to the helper (generalize it to take base+baseOff, as x64/aa64
-already do), or at minimum add a lockstep cross-reference + a same-bytes test.
+**Follow-up (major, maintainability) — ✅ DONE & LANDED 2026-07-06 (`aaf9a385`):**
+arm32's `collectMultiReturnFields` and `storeMultiReturnTupleFieldsArm32` were two
+byte-equal copies of the field-per-class loop (x64/aa64 already shared one). Fixed:
+generalized `emitFrameStore`/`emitFrameScalarStore` into `emitBaseStore`/
+`emitBaseScalarStore` (explicit base + large-offset scratch); the frame variants
+became thin wrappers; `storeMultiReturnTupleFieldsArm32` gained base+baseOff+scratch;
+`collectMultiReturnFields` now delegates to it (SP base, spill baseOff, IP scratch)
+so caller-collect and the func-value shim store share ONE implementation and cannot
+drift. Byte-preserving (adversarial-reviewed: wrappers reproduce old bodies exactly,
+`argWordsArm32` == `cc.ArgWords`, delegated collect byte-identical; arm32 full
+2633/3-preexisting/0-hangs). Added `TestStoreMultiReturnTupleFieldsArm32PerField`.
 
 971/972/973 xfail markers removed; all now PASS on host + x64 + aa64 + arm32.
 Full native runs: aa64 2654 pass / 0 fail / 0 hangs; x64 8 fails and arm32 3
