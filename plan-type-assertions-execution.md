@@ -604,6 +604,20 @@ self-compile continuing to pass.
 >       (reflect.bni + 4 `*_pkg_descriptor.bn` + BuildPackageDescriptor) + VM
 >       ingestion. (Phase 5) reader = global `(TypeInfo,IfaceId)→subvtable` lookup +
 >       assertion/type-switch lowering.
+>       **3c recon + shape DECIDED (2026-07-06, user): managed `@SatEntryInfo` nodes,
+>       land 3c-1 (emission) + 3c-2 (VM) both this pass.** The `__satentry.<T,J>`
+>       global becomes the managed node itself: `{2-word static-managed header,
+>       &TypeInfo, &IfaceId, &subvtable}` (5 words, still weak_odr / SatEntryName-keyed),
+>       so it IS a `reflect.SatEntryInfo` (payload `{Type,Iface,Vtable *uint8}`) — data
+>       inline, usable without copying, self-contained so the VM can lower its own nodes
+>       (immortal-static compiled, regular-managed interpreted). Descriptor gains
+>       `Package.SatEntries *[]@SatEntryInfo` (after Vtables) — a backing ptr array to
+>       each `__satentry`+hdr, threaded through `BuildPackageDescriptors`; the 3 emitting
+>       writers (LLVM/x64/aarch64) gather `CollectSatEntries`, arm32+VM pass empty.
+>       Retention: `__Package` root → node → SatEntries array → `__satentry` nodes →
+>       their referents. `BuildSatEntry` gains the header (STATIC_MANAGED_REFCOUNT).
+>       3c-2: the VM's `RegisterPackageSatEntries` ingests `p.SatEntries` (inert until
+>       the Phase-5 reader), mirroring RegisterPackageVtables.
 > - **Deferred to Phase 5** (where the VM must *read* TypeInfo): the reflect-
 >   descriptor extension + VM-side per-type identity materialization (revised
 >   §2f).
