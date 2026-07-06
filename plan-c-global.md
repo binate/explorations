@@ -1,10 +1,22 @@
 # Plan: the `__c_global` C-global-variable intrinsic
 
-Status: PLANNED (2026-07-05). Sibling of `__c_call` (see `plan-c-call.md`,
-COMPLETE). `__c_global` is DECIDED but unimplemented — spec §16.9 (`pkg.cglobal`,
-`docs/spec/16b-build-constraints.md`), grammar `BuiltinCall` in `binate.ebnf`
-line 482 (`"__c_global" "(" string_literal "," Type ")"`), design note in
-`claude-notes.md` (search `__c_global`).
+Status: PLANNED (2026-07-05), reviewed. Sibling of `__c_call` (see
+`plan-c-call.md`, COMPLETE). `__c_global` is DECIDED but unimplemented — spec §16.9
+(`pkg.cglobal`, `docs/spec/16b-build-constraints.md`), grammar `BuiltinCall` in
+`binate.ebnf` line 482 (`"__c_global" "(" string_literal "," Type ")"`), design
+note in `claude-notes.md` (search `__c_global`).
+
+> _Review disposition (3-way adversarial review, 2026-07-05)._ All three
+> reviewers returned "sound-with-fixes" — architecture, two-phase staging, and the
+> whole GOT crux confirmed against the code. Corrections folded in: Mach-O
+> `ARM64_RELOC_GOT_LOAD_PAGEOFF12` is **pcrel=0** not pcrel=1 (§5.3); x64 uses
+> `R_X86_64_REX_GOTPCRELX` and the `-4` fix goes in `elfRelocAddend` (§5.3); the
+> LLVM lowering uses the module's `bitcast <TypeArg>* @sym to i8*` idiom, not an
+> opaque GEP (§4.4); the §6 "BUILDER trap" was overblown — a plain enum-member add
+> needs no dance (§6); BUILDER is `bnc-0.0.10`; the native `xfail` set adds
+> `builder-comp_native_x64-comp_native_x64` and the spec test needs a `.rules`
+> sidecar (§4.8); native `__c_call` already works (branch/PLT) — only external
+> *data* addressing (GOT) is missing, phrasing sharpened (§1, §3).
 
 `__c_global("symbol", T)` yields the **address** of the C global variable named
 `symbol` — emitted **verbatim, no mangling** (exactly like `__c_call`) — as a
@@ -58,15 +70,20 @@ different, harder relocation class. This is the crux, treated in §5.2 and §6.
   the native modes whenever `__c_global` is used in a *dependency* package
   (dependencies always route through LLVM; only the main module honors
   `--backend native`).
-- **Native backend (`comp_native_*` modes only): the hard chunk.** The native
-  object writers (`asm`/`elf`/`macho`) have **no GOT relocation kinds** at all
-  (verified: the entire fixup-kind set is PC-relative-to-page + absolute; §6).
-  A direct, non-GOT reference to a cross-DSO data symbol is **rejected by the PIE
-  linker on macOS** (Mach-O has no copy relocations — external data *must* go
-  through the GOT) and is fragile on Linux (works only via linker-synthesized
-  copy relocations). Since the primary native CI host is **macOS/aarch64**
-  (`comp_native_aa64`), native support genuinely requires adding GOT-relocation
-  plumbing — a well-scoped but real sub-project across ~6 files.
+- **Native backend (`comp_native_*` modes only): the hard chunk — and only for
+  external *data*.** Native `__c_call` is already fully implemented (it resolves
+  the verbatim C **function** symbol via a *branch/PLT* relocation, which already
+  handles undefined externals — that is why `498_c_call_basic` runs green on the
+  native modes). `__c_global` needs the symbol's *data address in a register*, a
+  different relocation class (GOT). The native object writers (`asm`/`elf`/`macho`)
+  have **no GOT relocation kinds** at all (verified: the entire fixup-kind set is
+  PC-relative-to-page + absolute; §5.1). A direct, non-GOT reference to a cross-DSO
+  data symbol is **rejected by the PIE linker on macOS** (Mach-O has no copy
+  relocations — external data *must* go through the GOT) and is fragile on Linux
+  (works only via linker-synthesized copy relocations). Since a primary native CI
+  host is **macOS/aarch64** (`comp_native_aa64`), native `__c_global` genuinely
+  requires adding GOT-relocation plumbing — a well-scoped but real sub-project
+  across ~6 files.
 
 This split motivates the phasing in §3.
 
@@ -128,9 +145,13 @@ Phase 2's native output must match at runtime.
 **Phase 1 — frontend + checker + IR + LLVM backend (+ tests).** Ships
 `__c_global` end-to-end through the LLVM path. The `environ` conformance test runs
 live on the default LLVM modes and is `xfail`'d on the `-int`-terminal modes (VM,
-no FFI), `arm32_baremetal` (no libc), **and** the native modes `comp_native_aa64`
-/ `comp_native_x64_darwin` / native-arm32 (native backend can't emit it yet —
-fail-loud). Phase 2 removes the native-mode `xfail`s.
+no FFI), on `builder-comp_arm32_baremetal` (no libc), **and** on the native
+modes `builder-comp_native_aa64-comp_native_aa64`,
+`builder-comp_native_x64-comp_native_x64`,
+`builder-comp_native_x64_darwin-comp_native_x64_darwin` (native external-data/GOT
+lowering not implemented yet — the §4.7 fail-loud stub). Phase 2 removes the three
+native-mode `xfail`s (the baremetal one stays — no libc). The exact live-vs-xfail
+set is enumerated in §4.8.
 
 **Phase 2 — native GOT-relocation sub-project + native `OP_C_GLOBAL` lowering.**
 Adds GOT fixup kinds to `asm/{x64,aarch64}` and the matching ELF + Mach-O
@@ -183,7 +204,10 @@ scope call for the user (§7), not a unilateral non-goal.
        interpreted (native-only FFI); it is usable only in compiled code") }`
        (no early return — keep surfacing diagnostics, mirroring `checkCCall`).
     2. Defensive nil-`TypeRef` guard → `addCheckError(… "__c_global requires a
-       type argument")`, return `MakePointerType(TypVoid())`.
+       type argument")`, return `TypVoid()` (error-recovery placeholder, matching
+       `checkCCall`'s error paths). This path is unreachable from a well-formed
+       parse — the grammar makes `Type` mandatory — so it fires only on malformed
+       AST after an error is already emitted.
     3. `var t = resolveTypeExpr(c, e.TypeRef)`.
     4. `if !isCCompatibleArgType(t) { addCheckError(… "__c_global type must be a
        scalar or pointer (managed pointers, slices, and structs are not C-ABI
@@ -222,12 +246,19 @@ scope call for the user (§7), not a unilateral non-goal.
   <llvmType(TypeArg)>`. This exactly parallels the module's own imported-extern-var
   decl (`emit.bn:151-157`), differing only in the verbatim (unmangled) name.
 - **`pkg/binate/codegen/emit_instr.bn`** — add `case iropcode.OP_C_GLOBAL:` beside
-  the `OP_C_CALL` case (line 244). Emit `%vID = <address of @sym>` binding the SSA
-  result — a no-op materialization matching the module's current pointer spelling
-  (`getelementptr i8, ptr @sym, i64 0` under opaque pointers, or the `i8*`
-  bitcast form; `llvmType(*T)` is `i8*`). Keeping it a real `%vID` instruction
-  (rather than reusing the `&G` inline-`@sym` value-operand path) sidesteps the
-  `emitPtrRef` mangling branch entirely.
+  the `OP_C_CALL` case (line 244). Emit the SSA result with the module's **own
+  documented global-address-to-`i8*` idiom**:
+  `%vID = bitcast <llvmType(TypeArg)>* @<StrVal> to i8*`. The declared
+  `@<StrVal> = external global <llvmType(TypeArg)>` gives `@<StrVal>` LLVM type
+  `<llvmType(TypeArg)>*`, and `llvmType(*T)` collapses to `i8*` — so the pointee
+  type (`TypeArg`) **must be spelled explicitly** in the bitcast, exactly as
+  `emit_instr.bn:396-413` does for the existing `&global` case (its comment:
+  "`llvmType` collapses a raw pointer to `i8*`, which would mismatch the global
+  symbol's real pointer type — so spell the pointee type (`TypeArg`) explicitly").
+  Do **not** use the opaque-`ptr` GEP spelling; the module emits typed pointers
+  pervasively. A codegen unit test should assert the exact bitcast text. Keeping
+  it a real `%vID` instruction (rather than reusing the `&G` inline-`@sym`
+  value-operand path) sidesteps the `emitPtrRef` mangling branch entirely.
 - **`pkg/binate/codegen/emit.bn`** — call `emitCGlobalDeclares(out, m)` in the
   module preamble immediately after `emitCCallDeclares(out, m)` (line 249), before
   the `out.WriteByte('\n')` at 251.
@@ -271,23 +302,43 @@ scope call for the user (§7), not a unilateral non-goal.
   - `format/print_builtin_test.bn`: `TestPrintCGlobal`.
 - **Conformance** (compiled-only; linking is zero-config — bnc's final link is a
   plain `clang -o … objs` that implicitly links libc, which is exactly why every
-  `__c_call` test uses a libc symbol and nothing else):
+  `__c_call` test uses a libc symbol and nothing else; no companion-`.c` /
+  extra-link path exists and none should be added). The live modes below are all
+  **Linux-glibc** (the CI matrix), where `environ` binds via clang's
+  `external global` — the load-bearing evidence for Phase 1 is the Linux-glibc
+  LLVM path, not a darwin one-off.
   - `NNN_c_global_environ.bn` (+`.expected` = `ok`): `var pp ***char =
     __c_global("environ", **char); var env **char = *pp;` count non-null entries,
     print `ok` if > 0 else `FAIL` (assert-internal pattern → width-stable
     `.expected`). Exercises verbatim external symbol + address-of-global + double
     deref end-to-end.
-    - `xfail`: `builder-comp-int`, `builder-comp-int-int`, `builder-comp-comp-int`
-      (VM, no FFI); `builder-comp_arm32_baremetal` (no libc); **and**
-      `comp_native_aa64`, `comp_native_x64_darwin`, native-arm32 (Phase 1
-      fail-loud native — removed in Phase 2). Runs live on `builder-comp`,
-      `builder-comp-comp`, `builder-comp-comp-comp`, `builder-comp_arm32_linux`
-      (all LLVM).
+    - **Runs live** (all LLVM-backed): `builder-comp`, `builder-comp-comp`,
+      `builder-comp-comp-comp`, `builder-comp_arm32_linux`.
+    - **`xfail` — VM (no FFI):** `builder-comp-int`, `builder-comp-int-int`,
+      `builder-comp-comp-int`.
+    - **`xfail` — no libc (permanent):** `builder-comp_arm32_baremetal` and, if
+      run, `builder-comp_native_arm32_baremetal` (baremetal has no `environ` at
+      all — stays `xfail` even after Phase 2).
+    - **`xfail` — Phase 1 native (data/GOT unimplemented → §4.7 fail-loud;
+      removed in Phase 2):** `builder-comp_native_aa64-comp_native_aa64`,
+      `builder-comp_native_x64-comp_native_x64`,
+      `builder-comp_native_x64_darwin-comp_native_x64_darwin`. **NB:** contrast
+      `498_c_call_basic`, which has **no** native `xfail` (native `__c_call` works
+      via branch/PLT); the native-mode markers here are new *because* native
+      external-data/GOT is the unimplemented gap. Cross-check the exact set of
+      native modes the live blocking modeset runs at implementation time.
   - `NNN_c_global_interp_error.bn` (+`.error`): asserts the checker rejects
-    `__c_global` in interpreted mode; `xfail`'d on compiled/native, live on
-    interpreted — mirroring `961_c_call_interp_error`.
+    `__c_global` in interpreted mode; runs live on the interpreted (`-int`) modes,
+    `xfail`'d on every compiled/native mode. **Copy `961_c_call_interp_error`'s
+    exact 8-marker set** verbatim (`builder-comp`, `builder-comp-comp`,
+    `builder-comp-comp-comp`, `builder-comp_arm32_baremetal`,
+    `builder-comp_arm32_linux`, and the three `builder-comp_native_*` modes) — it
+    differs from the environ test's set.
   - Spec-tree mirror `conformance/spec/16-packages/NNN_cglobal_basic.bn` (§16.9),
-    matching `xfail` set; optionally a `spec/19-execution` divergence note.
+    **with a `NNN_cglobal_basic.rules` sidecar** citing the §16.9 `pkg.cglobal`
+    rule ID(s) — an untagged spec test is a `spec-coverage` hygiene **error**
+    (mirror `092_ccall_basic.rules` / `093_ccall_no_mangle.rules`). Same `xfail`
+    set as the environ test.
   - Pick numbers with `conformance/next-number.sh`; `conformance-test-numbers`
     hygiene enforces uniqueness (re-run after any landing rebase).
 
@@ -340,13 +391,24 @@ workaround.)
     RIP-relative load, `mov r64, [rip + sym@GOTPCREL]`).
 - **ELF writer:** `asm/elf/elf_const.bn` add `R_X86_64_GOTPCREL`(9) /
   `R_X86_64_REX_GOTPCRELX`(42), `R_AARCH64_ADR_GOT_PAGE`(311),
-  `R_AARCH64_LD64_GOT_LO12_NC`(312); `asm/elf/elf_util.bn` add `elfRelocType` arms
-  + the GOTPCREL `-4` addend correction (like PC32). Mark the symbol undefined
-  (`Section < 0`) so it lands as an external reference.
+  `R_AARCH64_LD64_GOT_LO12_NC`(312). The x64 emitter emits
+  **`R_X86_64_REX_GOTPCRELX`(42)** for the REX.W `mov r64, [rip+…]` (the
+  linker-relaxable form; plain `9` also works but forgoes relaxation). `elf_util.bn`
+  needs arms in **two** functions: `elfRelocType` (map the new fixup kinds) **and**
+  `elfRelocAddend` — the `-4` PC-relative addend correction currently fires only
+  for `R_X86_64_PC32`/`PLT32` (`elf_util.bn:266-276`); the new GOTPCREL type must
+  be **added to that `-4` condition** or the reloc lands 4 bytes off. Mark the
+  symbol undefined (`Section < 0`) so it is an external reference.
 - **Mach-O writer:** `asm/macho/macho_const.bn` add `X86_64_RELOC_GOT_LOAD`(3),
   `ARM64_RELOC_GOT_LOAD_PAGE21`(5), `ARM64_RELOC_GOT_LOAD_PAGEOFF12`(6);
-  `asm/macho/macho_reloc.bn` add the `machoRelocType`/`Length`/`PCRel` arms
-  (pcrel=1 for all three).
+  `asm/macho/macho_reloc.bn` add the `machoRelocType`/`Length`/`PCRel` arms.
+  **PC-rel is NOT uniform:** the ADRP-side `ARM64_RELOC_GOT_LOAD_PAGE21` and the
+  x64 `X86_64_RELOC_GOT_LOAD` are **pcrel=1**, but the LDR-side
+  `ARM64_RELOC_GOT_LOAD_PAGEOFF12` is **pcrel=0** — it patches a within-instruction
+  12-bit immediate, matching the existing non-GOT `ARM64_RELOC_PAGEOFF12`, which
+  `machoRelocPCRel` (`macho_reloc.bn:50-62`) already returns 0 for. Emitting
+  pcrel=1 on the PAGEOFF12 produces a malformed reloc ld64 rejects. Add a native
+  unit assertion on the pcrel bit of each of the three GOT relocs.
 - **Native `OP_C_GLOBAL` emitters** (parallel to `emitGlobalAddr`, but GOT +
   external + verbatim `symPrefixed` name, into `nextReg(rm, ins.ID)` as a
   scalar-return SSA result — no arg marshal, no call, spill like `OP_LOAD` not
@@ -366,9 +428,14 @@ to guard against: a GOT slot holds the symbol's *address*; the lowering must loa
 indirection through the GOT — getting this wrong yields the address *of the GOT
 slot* instead of `&environ` (an off-by-one-indirection, data-corruption class).
 Cover with a native unit test **and** the live conformance run on
-`comp_native_aa64` + `comp_native_x64_darwin`; unit assertions on
+`builder-comp_native_aa64-comp_native_aa64`,
+`builder-comp_native_x64-comp_native_x64`, and
+`builder-comp_native_x64_darwin-comp_native_x64_darwin`; unit assertions on
 `macho_reloc` pcrel/length fields are easy to get subtly wrong, so an on-target
-link+run is required, not just byte-pattern assertions.
+link+run is required, not just byte-pattern assertions. (Darwin caveat: direct
+`_environ` access via the GOT is valid for a **main executable** — which is what
+bnc links; the `_NSGetEnviron()` requirement applies only to dylibs/bundles, so it
+does not bite here.)
 
 ---
 
@@ -378,18 +445,26 @@ Every touched package except the `format`/`vm`/native-test files is in `cmd/bnc`
 BUILDER-compiled tree (`token`, `parser`, `types`, `ir`, `iropcode`, `codegen`,
 `asm`, `native`). All Phase 1 code uses only constructs already present in the
 `__c_call` implementation (plain funcs, `if`/`for`, `cast`; no interfaces,
-generics, closures, floats) → stays within the `bnc-0.0.1` BUILDER subset.
+generics, closures, floats) → stays within the current BUILDER's subset
+(`BUILDER_VERSION` = `bnc-0.0.10`).
 
-**The one BUILDER trap:** `cast(int, token.C_GLOBAL)` in `check_builtin.bn`,
-`gen_expr.bn`, etc. references a **brand-new enum member** that the pinned BUILDER
-does not know. Per the CLAUDE.md build-constraint rule, adding a new
-builtin-token member and immediately consuming it across the BUILDER-compiled tree
-is the classic "feature newer than `BUILDER_VERSION`" hazard — the gen1 build can
-fail with `undefined: C_GLOBAL`. **Verify directly** with the current BUILDER
-(`scripts/fetch-builder.sh --tool bnc` on a snippet) before landing; if the
-BUILDER can't see it, the enum-add + first-use must be sequenced so gen1 stays
-green (a BUILDER bump, or the token added in a BUILDER-tolerated way first). This
-is a real risk to surface, not assume away — it gates the whole Phase 1 landing.
+**No special BUILDER dance is needed** — and it is worth being precise about why,
+since the CLAUDE.md build-constraint rule is easy to over-apply here. The BUILDER
+`bnc` resolves `token.C_GLOBAL` by **name-resolving it against the `token`
+package's `.bni` in the tree it is compiling**, not against a baked-in enum in its
+own binary. `token.C_GLOBAL` is a plain `iota` enum member, syntactically
+identical to `token.C_CALL`, which is **already** consumed via
+`cast(int, token.C_CALL)` across the bnc tree (`check_builtin.bn:329`,
+`gen_expr.bn:454`, `parse_builtin.bn:149`) and compiles green under the current
+BUILDER today. The genuine BUILDER-lag hazard (per CLAUDE.md) is a new *syntax /
+spelling* or *renamed exported symbol* the BUILDER's own **frontend** can't parse
+or resolve (e.g. `#[build(...)]`, the `_func_handle` lexer-spelling lag) — **not**
+an ordinary new enum constant referenced from compiled code. The compiler source
+never contains a literal `__c_global("…", …)` *call* (only the tests /
+conformance do, and those are outside the BUILDER-compiled tree), so the BUILDER's
+lexer never has to recognize the `__c_global` keyword string either. A cheap
+`scripts/build-bnc.sh` gen1 smoke after the token+parser commit is sufficient
+confirmation; this is a sanity check, not a landing-gating risk.
 
 Land in small, independently-green commits (per the stay-close-to-main cadence):
 e.g. (1) token + parser + AST-less dispatch + parser tests; (2) checker + tests;
