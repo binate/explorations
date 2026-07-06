@@ -11,9 +11,15 @@ edges (cross-op `@sym` collision → clang redefinition error, fail-loud; inheri
 `readonly *T` over-rejection) documented in §7 — **both now fixed and landed**
 (2026-07-06: `167f20b0` accept `readonly *T`; `b607f355` reject a symbol used as
 both `__c_call` and `__c_global`), and the spec §16.9 note now reads "implemented
-in compiled mode." **Phase 2 status:** §5a (arm32 absolute addressing) is **DONE**
-on `work-3` (`905cc09c`, unit-tested); **§5b (x64/aarch64 GOT sub-project) is not
-started** — the remaining work. Planned + adversarially reviewed 2026-07-05.
+in compiled mode." **Phase 2 status:** §5a (arm32 absolute addressing) is
+**LANDED** (`16bbd98f`) — reviewed (2-skeptic: sound; the arm32 object emits
+`environ` as a UND external with `R_ARM_MOVW_ABS_NC`/`MOVT_ABS`, verified by
+`readelf`); the unit test asserts the UND (`Section == -1`) property. **§5b
+(x64/aarch64 GOT sub-project) is not started** — the remaining work.
+**Follow-up (deferred, user-approved 2026-07-06):** a runnable arm32-baremetal
+end-to-end test against a linker-script external (e.g. `_stack_top` / `__bss_end`,
+run under `qemu-system-arm`) — would be the first baremetal-live-only conformance
+test (~11-mode xfail set). Planned + adversarially reviewed 2026-07-05.
 Sibling of `__c_call` (see `plan-c-call.md`, COMPLETE). Spec §16.9
 (`pkg.cglobal`, `docs/spec/16b-build-constraints.md`), grammar `BuiltinCall` in
 `binate.ebnf` line 482 (`"__c_global" "(" string_literal "," Type ")"`), design
