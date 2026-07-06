@@ -587,8 +587,15 @@ self-compile continuing to pass.
 >       data_ifaceid.bn; module-level emit pass in LLVM/x64/aarch64; weak 1-byte
 >       rodata markers, `any` included, aliases skipped; adversarially reviewed —
 >       identity-consistency verified across cross-pkg/alias/generic/any); (3b)
->       per-`(T,J)` SatEntry globals [NEXT]; (3c) retention mechanism [OPEN:
->       section vs reflect descriptor]; (Phase 5) reader.
+>       per-`(T,J)` SatEntry globals [NEXT — emit into default relro, retention-
+>       independent]; (3c) retention = **✅ DECIDED (2026-07-05, user): extend the
+>       per-package REFLECT DESCRIPTOR** with a satisfaction-entries table (the
+>       runtime aggregates across packages like it does vtables) — one mechanism for
+>       native AND VM (the VM already ingests descriptors; sections don't exist
+>       there), reusing the §2f/R9 cross-mode path; 3c does the descriptor writers
+>       (reflect.bni + 4 `*_pkg_descriptor.bn` + BuildPackageDescriptor) + VM
+>       ingestion. (Phase 5) reader = global `(TypeInfo,IfaceId)→subvtable` lookup +
+>       assertion/type-switch lowering.
 > - **Deferred to Phase 5** (where the VM must *read* TypeInfo): the reflect-
 >   descriptor extension + VM-side per-type identity materialization (revised
 >   §2f).
