@@ -899,25 +899,20 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt builtin/argument wrapping residuals — 🟢 LOW (latent, no in-tree overflow) — OPEN (2026-07-05)
+### bnfmt `printBuiltin` non-last-arg wrapping residual — 🟢 LOW (latent, no in-tree overflow) — OPEN (2026-07-05)
 
-Two narrow cases where a builtin call can still emit a >100 line (found while
-fixing the statement/decl/case wrapping regressions; neither occurs in the tree
-today, so they are latent, not active):
+`printBuiltin` forwards the closing-`)` reservation (`1 + tail`) only to the LAST
+value argument (`print_builtin.bn`).  A non-last argument that is a wrappable
+binary landing at cols 97–100 is followed by `, <rest>)` it does not reserve, so
+it stays flat past the cap.  Fix: give non-last args a comma-plus-remaining
+reservation, or route the whole builtin arg list through `fillExprList` (mirroring
+`printCall`).  Latent — no builtin (`make`/`cast`/…, few args) hits it in-tree.
 
-- **Non-last long builtin argument.** `printBuiltin` forwards the closing-`)`
-  reservation (`1 + tail`) only to the LAST value argument (`print_builtin.bn`).
-  A non-last argument that is a wrappable binary landing at cols 97–100 is
-  followed by `, <rest>)` it does not reserve, so it stays flat past the cap.
-  Fix: give non-last args a comma-plus-remaining reservation, or route the whole
-  builtin arg list through `fillExprList` (mirroring `printCall`). None in-tree.
-- **`__c_call` last-arg binary.** `printCCall` writes its args with plain
-  `printExpr` (tail 0), so a `__c_call(..., <long binary>)` whose last arg lands
-  at 97–100 overflows by the un-reserved close paren. Fix: mirror the
-  `printBuiltin` last-arg `printExprTail(…, 1 + tail)` treatment. None in-tree.
-
-Discovered by the wrapping-fix workflow (2026-07-05); the `printBuiltin` doc
-comment points here. Cross-refs `explorations/plan-bnfmt.md` §14.
+(The `__c_call` case that was filed here is ✅ RESOLVED `d5777f1b`: `printCCall`
+now fill-wraps its whole argument list, not just the last arg — surfaced by
+extending the sweep to the stdlib, where `os.bn`'s syscall wrappers collapsed past
+the cap.)  Discovered by the wrapping-fix workflow (2026-07-05); cross-refs
+`explorations/plan-bnfmt.md` §14.
 
 ### `bnfmt-format` hygiene check: switch to the bundled bnfmt after the next release — 🟡 OPEN (2026-07-06)
 
@@ -931,13 +926,13 @@ script header. Prereq: `fetch-builder.sh --tool bnfmt` must resolve the bundled
 binary (`make-bundle.sh` already builds `bin/bnfmt`, but verify the fetcher
 recognises the `bnfmt` tool name once a bundle containing it exists).
 
-### `bnfmt-format` scope: sweep + cover the stdlib (impls/ + ifaces/) — 🟢 LOW — OPEN (2026-07-06)
+### `bnfmt-format` scope: cover the stdlib (impls/ + ifaces/) — ✅ RESOLVED (2026-07-06)
 
-The reformat sweep and `bnfmt-format.sh` cover `pkg/` + `cmd/` only. The stdlib
-under `impls/` + `ifaces/` (~179 files, ~83 would-change) is not yet bnfmt-
-formatted. To bring it under the check: reformat it (a sweep batch, verified by
-the stdlib's tests + a conformance smoke) and add its roots to `$ROOTS` in
-`scripts/hygiene/bnfmt-format.sh`.
+The stdlib (`impls/` + `ifaces/`) plus `perf/`, `examples/`, and `runtime/` are now
+bnfmt-formatted (`7ef7375f`, needing the `printCCall` wrapping fix `d5777f1b`) and
+covered by `bnfmt-format.sh`'s `$ROOTS`.  Only `conformance/` remains deliberately
+excluded (intentional parse/lexer-error fixtures bnfmt cannot parse + layout-
+sensitive programs).
 
 ## bnlint rules, unused-entity checks & lint skips
 

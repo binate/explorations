@@ -653,11 +653,20 @@ while keeping every commit green and close to main.
       whole-tree dogfood: 0 would-change, 0 over-100, 0 non-idempotent — the tree is a
       bnfmt fixed point.** Comment-spacing decision: 2–3 spaces before a trailing
       comment collapse to 1 (user-accepted).
-    - **Open follow-up (user's call, NOT wired unasked):** the tree won't *stay* a
-      fixed point without enforcement — concurrent workers add unformatted code (≈12
-      drift files accumulated during this sweep alone). A `format-check` hygiene rule
-      (bnfmt-idempotence over changed files) or a pre-commit hook would keep it formatted;
-      wiring it into CI/hooks is a scope decision the user owns.
+    - **Stdlib + rest-of-tree extension** ✅ (2026-07-06). The initial sweep + dogfood
+      scoped to `pkg/` + `cmd/` (a `find pkg cmd` miss — the stdlib lives in `impls/` +
+      `ifaces/`, addressed by package path). Extended to `impls/`, `ifaces/`, `perf/`,
+      `examples/`, `runtime/` (`7ef7375f`). Doing so surfaced a **MAJOR bnfmt bug** (had
+      been mis-filed "none in-tree"): `printCCall` did no width-aware wrapping, so a
+      source-wrapped `__c_call` syscall collapsed onto a >100 line (`os.bn`) — fixed by
+      fill-wrapping the `__c_call` arg list (`d5777f1b`, mirrors `printStrList`).
+      `conformance/` stays excluded (intentional error fixtures bnfmt cannot parse).
+    - **Enforcement** ✅ **DONE** (2026-07-06). `scripts/hygiene/bnfmt-format.sh`
+      (`41dc6c12`) checks every `.bn`/`.bni` under pkg/cmd/impls/ifaces/perf/examples/
+      runtime reflows to itself under bnfmt, so drift is caught as it lands. bnfmt is
+      built-and-cached (keyed on its build-input hash) since it is not in the BUILDER
+      bundle; a TODO (script + claude-todo) records switching to the bundled bnfmt after
+      the next release, mirroring `lint.sh`.
 
 ## 15. Effort (anchored to the work, not calendar)
 
