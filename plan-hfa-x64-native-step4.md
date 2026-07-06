@@ -104,9 +104,18 @@ flag/accounting *pattern*).
       INTEGER eightbytes is a perf follow-up. Conformance/981_xpkg_funcval_sse_arg
       (D2/DI/ID-INTEGER-first/F2), dormant-green + flip-all-match; adversarially
       reviewed clean (budget-safety confirmed airtight).
-    - **4d-arg-2 spill shim:** the over-budget shim's `emitSpillCoercedAgg_x64` must
-      expand an SSE aggregate into XMM/GP by class (threading NSRN through ccOut's SSE
-      accounting), not all-GP. TODO marked; dormant-safe, the flip is gated on it.
+    - **[LANDED bf5e4feb] 4d-arg-2 spill shim:** the over-budget shim's
+      `emitSpillCoercedAgg_x64` now expands an in-register SSE aggregate into XMM/GP by
+      class via emitSseShimArgFromPtr (SSE eb -> XMM(nsrn), INTEGER eb -> argReg(gpDestBase+rs)),
+      with nsrn threaded in/out of the marshal loop; a MEMORY-class aggregate keeps the
+      class-agnostic byte-copy tail. Conformance/984_xpkg_funcval_sse_spill (pure D2 +
+      mixed DI, each with four trailing int64 forcing the spill path); gate-forced-on
+      unit tests in x64_funcvalue_spill_test.bn. Adversarially reviewed clean (nsrn
+      lockstep + no-XMM8+ confirmed). Landing rebased through a concurrent bnfmt reformat
+      conflict (resolved: my nsrn semantics, bnfmt-wrapped) + a 982->984 renumber.
+
+  **Func-value family is now SSE-complete** (4d-1 return collect + 4d-arg-1/4d-arg-2 arg
+  marshal). Remaining: **closure (4d-2)** and **iface (4d-3)** families.
   - **4d-2 — closure shim** (`x64_closure_shim*.bn`): same two moves (arg expand +
     return collect), plus capture handling is unaffected (captures aren't SSE-coerced
     the same way — verify).
