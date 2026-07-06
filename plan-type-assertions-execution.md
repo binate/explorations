@@ -111,16 +111,23 @@ but the new layout must be mirrored there when it does.)
   (`vtable_inject.bn` `registerVtableAddr`, keyed by mangled name → native
   address). TypeInfo follows this exact pattern.
 
-### 0.8 The impl registry already gives us the satisfaction closure
+### 0.8 The impl registry already gives each impl site its ancestor closure
 
 - `pkg/binate/ir/gen_impl.bn` → `collectImplsFromDecl` already registers, for
   each `impl T : Child`, one `ImplInfo` per `(T, Child)` **and** one per
   `(T, ancestor)` for every transitive ancestor (via `IfaceAncestorClosure`).
-  So **grouping `Module.Impls` by `(RecvPkg, RecvTypeName)` yields, per concrete
-  type, the full transitive interface list** the satisfaction table needs — no
-  new closure walk required. The per-interface sub-vtable symbol for each cell is
-  `findImplVtableName` / `mangle.ImplVtableName`; its offset within T's vtable is
-  `IfaceParentSlotOffset`.
+  So each `impl` site already carries the `(T, iface)` closure it needs — the
+  **distributed satisfaction model** (§2.2b ✅ DECISION) emits one `SatEntry` per
+  `m.Impls` row **at that site**, with **no per-type aggregation**. The
+  per-`(T,J)` sub-vtable is the standalone `__ivt.<T>__<J>` symbol at offset 0
+  (`findImplVtableName` / `mangle.ImplVtableName`), **not** `&(@__ivt) +
+  IfaceParentSlotOffset*W` (per the §2.2b RESOLVED note).
+  > **⚠ SUPERSEDED framing.** An earlier draft grouped `Module.Impls` by
+  > `(RecvPkg, RecvTypeName)` to build a *per-type* satisfaction table. That is
+  > **not** used: `m.Impls` is per-TU, so the grouping is **incomplete under
+  > cross-package impls** — no single TU sees T's full impl set (no orphan rule,
+  > `iface.crosspkg.no-orphan`; §2.2b BLOCKER). Satisfaction is distributed
+  > per-`(T,J)`, not per-type. Spec: §7.13.14 `type.layout.satisfaction`.
 
 ### 0.9 BUILDER compatibility
 
@@ -145,23 +152,28 @@ but the new layout must be mirrored there when it does.)
 ## 1. RTTI record shape (implementation choice — informative)
 
 The spec (§7.13.14) fixes the *contents* and cross-mode result-agreement but
-leaves field order and table search structure informative. Proposed record:
+leaves field order and search structure informative. Per the §2.2b ✅ DECISION,
+satisfaction is a **distributed `(T, J)` registry**, NOT a per-type table in
+`TypeInfo` — so `sat_len`/`sat_table` (words 5–6) are **vestigial**, and
+`SatEntry` records are **standalone weak globals** keyed on `(TypeInfo, IfaceId)`,
+emitted at each `impl` site, not owned by `TypeInfo`. Proposed shapes:
 
 ```
 TypeInfo {                      // static, one per concrete type, weak linkage
-    identity:  *TypeInfo        // = &self (self-referential identity token;
-                                //   pointer-equality within a mode is the test)
+    identity:  *TypeInfo        // = &self (or use the record's own address; §1 note)
     dtor:      handle           // same handle as the vtable any-block slot 0
     size:      int              // t.SizeOf()  (target's value, baked at emit)
     align:     int              // t.AlignOf()
     name:      *[]readonly char // t.QualifiedTypeName() into rodata
-    sat_len:   int              // number of satisfaction-table entries
-    sat_table: *SatEntry        // pointer to sat_len contiguous SatEntry records
+    sat_len:   int              // VESTIGIAL — leave null (satisfaction is external; §2.2b)
+    sat_table: *SatEntry        // VESTIGIAL — leave null (may shrink the record to 5 words later)
 }
-SatEntry {
-    iface_id:  *IfaceId         // per-interface identity token (see §1.1)
-    subvtable: *void            // &(T's @__ivt) + IfaceParentSlotOffset*W
-                                //   — the sub-vtable to install on a hit
+SatEntry {                      // standalone weak_odr global, one per (T, J) m.Impls row;
+                                //   keyed on (TypeInfo, IfaceId); NOT pointed to by TypeInfo
+    type_id:   *TypeInfo        // &TypeInfo(T) — the registry key's first half
+    iface_id:  *IfaceId         // &IfaceId(J) — per-interface identity token (see §1.1)
+    subvtable: *void            // &__ivt.<T>__<J> at offset 0 (standalone symbol,
+                                //   NOT &(@__ivt)+IfaceParentSlotOffset*W; §2.2b RESOLVED)
 }
 ```
 
@@ -188,21 +200,23 @@ Notes:
   reflection (§20.3) will need them. The `name` also feeds the failed-assertion
   panic diagnostic (`<dyn> is not <T>`) — the runtime reads `dyn` from the
   scrutinee's `TypeInfo.name`.
-- **`sat_table`** is a flat array scanned linearly. Interface counts per type are
-  tiny (single digits), so linear scan is fine; a sorted/hashed structure is a
-  premature optimization. Search structure is informative.
+- **Satisfaction** is the **distributed `(TypeInfo, IfaceId) → subvtable`
+  registry** of standalone `SatEntry` globals (§2.2b ✅ DECISION), not a per-type
+  array. The Phase-5 reader (`pkg/rt`) scans it (linear or hashed; entry counts are
+  small); the search structure is informative.
 
 ### 1.1 Per-interface identity token (`IfaceId`) — the key sub-decision
 
 An **interface** assertion `x.(*J)` must, at runtime, find "does T satisfy J?"
-by scanning T's `sat_table`. That requires a stable token identifying `J` that
-**both** the table entries (emitted when building T's TypeInfo) **and** the
+by looking up `(dynamic-type, J)` in the global `SatEntry` registry (§2.2b).
+That requires a stable token identifying `J` that **both** the registry entries
+(emitted at each `impl` site) **and** the
 assertion site (which knows J statically) can reference.
 
 **Proposal:** emit one static **`IfaceId`** symbol per interface program-wide
 (weak linkage, deterministic mangled name, e.g. `bn_IfaceId.<mangled J>`). It can
-be a zero-content 1-byte marker — only its *address* matters. The `sat_table`
-entry for J stores `&IfaceId(J)`; the assertion site references `&IfaceId(J)`
+be a zero-content 1-byte marker — only its *address* matters. The `SatEntry` for
+`(T, J)` stores `&IfaceId(J)`; the assertion site references `&IfaceId(J)`
 statically; the scan compares pointers. Cross-mode: the VM injects the native
 `IfaceId` addresses by mangled name (same mechanism as vtable injection, §0.7),
 so pointer-equality agrees. **⚠ Review-flagged (MAJOR) — there is no injection
@@ -385,8 +399,9 @@ self-compile continuing to pass.
 >   reviewed (4 lenses, no defects; NIT + Phase-5 weak-def hazard folded in).
 >   Verified: full unit + full conformance builder-comp/native-aa64 (2650 each) +
 >   iface VM/gen2, hygiene 15/15.
-> - **2.2** (split into 2.2a payload, 2.2b sat-table — see grounding). Fill the
->   record from the **checker**, then populate the satisfaction table.
+> - **2.2** (split into 2.2a payload, 2.2b satisfaction — see grounding). Fill the
+>   record from the **checker**, then emit the **distributed** satisfaction entries
+>   (§2.2b ✅ DECISION — per-`(T,J)` globals, not a per-type table).
 >
 > **2.2 grounding (2026-07-04):**
 > - **Resolution path.** `ir.Module.Checker` (`@types.Checker`, set in
@@ -477,10 +492,13 @@ self-compile continuing to pass.
 >     dtor-bearing ones) — native section tests + the vtable-shape tests (their
 >     `emitImplVtables` also emits the record) updated (+56 record). Adversarially
 >     reviewed (6 lenses; clean, one accepted test-naming NIT).
->   - **2.2b-3** = satisfaction table (words 5–6): `IfaceId` weak symbols
->     (`mangle.IfaceIdName`), one `{iface_id, sub-vtable-ptr}` per interface in T's
->     transitive set (from the already-flattened `m.Impls` grouping). Fill
->     `sat_len`/`sat_table`.
+>   - **2.2b-3** = satisfaction (the `IfaceId` weak symbols + entries). **⚠ The
+>     per-type "words 5–6 table" framing below is SUPERSEDED by the ✅ DECISION at
+>     the end of this block — satisfaction is DISTRIBUTED per-`(T,J)`, not a
+>     per-type table. Read the recon as the trail to that decision.** (Original
+>     framing: `IfaceId` weak symbols via `mangle.IfaceIdName`, one
+>     `{iface_id, sub-vtable-ptr}` per interface in T's transitive set from the
+>     `m.Impls` grouping, filling `sat_len`/`sat_table`.)
 >
 >     **⚠ 2.2b-3 RECON (2026-07-05, 5-investigator + synthesis workflow) — a
 >     BLOCKER + resolved facts. AWAITING USER DECISION on the blocker.**
@@ -665,7 +683,7 @@ is VM-lowered. Two facts the first draft missed:
    `BuildPackageDescriptor`, and VM ingestion (`extern_register.bn` /
    `vtable_inject.bn`). This is not optional plumbing; without it the VM cannot
    resolve an assertion-site `&bn_TypeInfo.<T>` / `&IfaceId(J)` to the same token
-   the injected `sat_table` holds.
+   the injected `SatEntry` globals hold.
 2. **VM-lowered impls store func *indices*, not addresses.** `fillVtableLayout`
    writes 1-based VM func indices into `IfaceVtable.Methods[]`; the VM has **no**
    mechanism today to materialize a static `TypeInfo` *record* into a stable
@@ -928,9 +946,12 @@ from the scrutinee's TypeInfo `name` field (null-vtable case: pass a literal
   `AssertFail` uses only `print`/`println`/`Exit` — trivially fine.
 
 **Step 5c — satisfaction lookup helper** (`rt.bn`): `rt.SatLookup(ti *TypeInfo,
-id *IfaceId) *void` scans `ti.sat_table[0..sat_len]` for `entry.iface_id == id`,
-returns `entry.subvtable` or null. Pure Binate; works in both modes. (The
-concrete-identity compare stays inline — it's one pointer compare, no helper.)
+id *IfaceId) *void` scans the **global `SatEntry` registry** (§2.2b ✅ DECISION —
+distributed per-`(T,J)` globals, itab-like), matching `entry.type_id == ti &&
+entry.iface_id == id`, and returns `entry.subvtable` or null. It does **not** read
+a per-type `ti.sat_table` (that field is vestigial). Pure Binate; works in both
+modes. (The concrete-identity compare stays inline — one pointer compare, no
+helper.)
 
 **Step 5d — recovery refcount discipline** (IR-gen, reuse existing emitters):
 - `@T`/`@J` recovery: `RefInc` the recovered data (retain).
