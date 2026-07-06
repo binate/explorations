@@ -447,9 +447,38 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
   produces empty output on `builder-comp_native_aa64-comp_native_aa64` (a BLOCKING
   green mode), a distinct pre-existing bug (aa64 rides X8, not the arm32/x64
   under-reservation) exposed by the P4-b2 review; see claude-todo.md.
-- **P4-c:** interfaces — impl vtables (`arm32_iface.bn` currently PANICs; convert
-  to `a.SetError` when implementing), iface-value construct/upcast/dtor, method
-  dispatch (`arm32_iface.bn`, template `aarch64_iface.bn`). Biggest bucket.
+- **P4-c:** interfaces — biggest bucket, but a HIGH-CONFIDENCE MECHANICAL PORT
+  (recon 2026-07-06). The interface ABI is platform-agnostic at the shared layers
+  (2-word `{data,vtable}` value, vtable slot layout `[0]=dtor,[1]=*TypeInfo,[2+]=
+  methods`, absolute-slot Index precomputed in IR, the sizer's OP_CALL_IFACE_METHOD
+  branch, all mangling + RTTI builders) and already serves arm32 via the LLVM
+  backend. Every per-target diff is CC parameterization arm32 has from P4-a/b.
+  **Key decision (locked): the CALL path ports from x64, not aa64** — AAPCS32
+  `SretInGpArgReg=true` → `prefixSlots=2`, so arm32 uses x64's `[sret,data,args]`
+  2-slot prefix + spill/reload target (IP can't be held live across arg marshaling),
+  NOT aa64's X8-sret + hold-live. The VTABLE-EMISSION path ports line-for-line from
+  aa64. **Scope (locked 2026-07-06): full 5-phase parity, land per phase; include
+  big-aggregate + multi-return iface returns in the core phase; full RTTI (`__ivt` +
+  `__ivtshim` + `__typeinfo` + `__ifaceid` + `__satentry`) + `OP_IFACE_UPCAST`.
+  Fail-loud-defer generic-impl vtables and int64/float64-in-tuple placement; keep
+  nil-iface-dispatch-on-baremetal xfail (no-MMU env limitation).**
+  Phases:
+  - **P4-c.1** — impl-vtable + RTTI emission (data side): real `emitImplVtables`
+    (`__ivt`/`__ivtshim`), `collectImplVtableSlotsNative`, mangling helpers, new
+    `arm32_typeinfo.bn` (`emitTypeInfos/IfaceIds/SatEntriesNative`). Port from
+    `aarch64_iface.bn`/`aarch64_typeinfo.bn`. Risk: slot/mangling DRIFT vs the LLVM
+    backend at the cross-TU link boundary — pin `ImplVtableName` + slot count/order
+    with unit tests, not just conformance.
+  - **P4-c.2** — `OP_IFACE_VALUE` + `OP_IFACE_UPCAST` construction ops.
+  - **P4-c.3** — `OP_CALL_IFACE_METHOD` (core, x64 template): two-step LDR
+    (vtable then method ptr), spill IP, synth argTypes `[sret?, data, args]` per
+    prefixSlots=2, marshal, reload IP, `Blx IP`, collect via the shared
+    `collectMultiReturnFields`/`storeMultiReturnTupleFieldsArm32`. Highest risk.
+  - **P4-c.4** — `OP_IFACE_DTOR` + managed-iface-value lifecycle.
+  - **P4-c.5** — conformance sweep + xfail reconciliation (`spec/11-interfaces`
+    green on baremetal + linux; a big-return AND a multi-return iface test; a
+    cross-pkg native↔LLVM iface-dispatch test; a dtor lifecycle test; no
+    regression ≥2007).
 - **P4-d:** closures — capturing func values (build on the P4-a shim), the
   over-budget stack-spill shim (tighter R0–R3 budget), non-null dtor slot.
 - **Acceptance**: func-value / closure / interface conformance + unit tests
