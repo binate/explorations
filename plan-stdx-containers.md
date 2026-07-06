@@ -1,6 +1,10 @@
 # Plan: `pkg/stdx/containers` — standard container libraries
 
-**Status:** in progress (2026-07-05). Progressive delivery: `vec` **(landed, main `67b2bff3`)** → `hashmap` **(landed, main `969e69fc`)** → `set`.
+**Status:** all three containers landed (2026-07-06). `vec` **(main `67b2bff3`)** →
+`hashmap` **(main `969e69fc`)** → `set` **(main `7ea33056`)**. Remaining work is the
+§7 deferred items only (a `pkg/stdx/iter` closure-adapter layer, the `Iterator`/
+`Iterable` interfaces once methods-on-generic-types lands, more containers) — none
+started.
 
 ## 1. Overview and motivation
 
@@ -308,6 +312,8 @@ Land one container at a time, each self-contained and green:
    definition, so a helper in the (body-included) generic `.bni` is public — inline
    it or export it as `SlotFor`/`Grow`; there is no private-in-`.bni` form.
 3. **`set`** — type + `New/Add/Has/Remove/Len` + cursor + tests.
+   **✅ Landed** (main `7ea33056`): 18 tests, green under builder-comp + builder-comp-int,
+   adversarially reviewed (faithful transcription of the verified hashmap — no bugs).
 
 Each follows the standard worktree flow (commit on the worktree; per-instance approval
 for the cherry-pick to `main`; hygiene + smoke before landing; resync after).
