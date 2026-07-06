@@ -49,7 +49,9 @@ runner retry a timed-out test once before reporting failure. Until then a red
 native-aa64 run with a lone `[3s]` timeout failure is very likely this, not a real
 regression — re-run the single test in isolation to confirm.
 
-### func-value SMALL multi-return: native-shim vs LLVM-shim ABI CONFLICT — 🔴 OPEN (2026-07-05)
+### func-value SMALL multi-return: native-shim vs LLVM-shim ABI CONFLICT — 🟡 IN PROGRESS (2026-07-05)
+
+**Resolution chosen (2026-07-05): approach (a), full unification — see "RESOLUTION" below.**
 
 **Severity: major (cross-module silent miscompile at the native↔LLVM boundary).**
 A func value's `vtable.call` slot may point at EITHER a natively-emitted shim
@@ -121,6 +123,71 @@ is the regression guard: any candidate fix must keep those green while making
 971/972/973 pass. NOTE: 972/973 currently have NO xfail markers and FAIL on the
 three native modes — either add `.xfail.<mode>` markers (per Bug Discovery
 Protocol) or land the real fix before these tests go into a default CI run.
+
+**RESOLUTION (2026-07-05): approach (a) "retbuf for any multi-return everywhere", full
+unification. Adversarial-reviewed (3 lenses + synthesis); verdict SOUND-WITH-FIXES.**
+
+Key correction from review: (a) is the AUTHORITATIVE target — the LLVM shim
+(`emit_funcvals_shim.bn`), the LLVM caller (`emit_call_funcvalue.bn`), AND the VM
+cross-mode dispatch (`vm_exec_funcref.bn` `dispatchCompiledFuncValue` →
+`_call_shim_aggregate`, keyed on `AggregateReturnSize` which is nonzero for
+`len(results)>1`) ALREADY use retbuf-for-any-multi-return. So **NO VM change and NO
+LLVM/codegen change are needed** — only the native compiled shims + caller + sizer
+diverge. (The VM→native-shim and LLVM-main→native-dep small-multiret paths are
+*also* latently miscompiled today — extra motivation.)
+
+Corrected native-side plan (5 blockers the naive plan missed):
+1. **Store helper.** The new small-multiret shim store must reproduce
+   `collectMultiReturnFields`/`collectMultiReturnTuple` FIELD-PER-REGISTER-BY-CLASS
+   (GP fields from X0../RAX,RDX,RCX at `FieldOffset` with SIZED stores; float-scalar
+   fields from D0../XMM0.. via `Fmov`, x64 3rd/4th float via x87 FSTP; independent
+   GP/FP class counters). Driven off the tuple TYPE (`funcValMultiReturnTuple_*`),
+   NOT `shimReturnSize` (=0 for any multi-return). Extract a shared raw-register
+   store-to-memory helper (no RegMap — shims have none). Do NOT reuse the `usePack`
+   `retSz/8` GP-word dump.
+2. **aa64 has NO working multi-return shim path today** (big OR small — everything
+   tail-branches through the scalar fallthrough; this is the 971 crash). Build BOTH
+   a big (Mov X8,X0 → sret) and small (store-through-retbuf) branch before the
+   scalar fallthrough; set `userBudget=6`; thread a multi-return flag into
+   `emitFuncvalSpillShimAA64`.
+3. **Closure shim family** is a 2nd field-per-register consumer (x64
+   `x64_closure_shim.bn` + `_aggregate` + `_float`; aarch64 `aarch64_closure_shim.bn`
+   + `_float` + `_aggregate`). Captured-receiver method values route here, so
+   flipping the caller regresses same-module `705`/`950`/`capturing-closure-multi-return`
+   unless these flip too. (arm32 exempt — rejects closures loudly.)
+4. **Both spill shims** (`aarch64_funcvalue_spill.bn`, `x64_funcvalue_spill.bn`)
+   hardcode the old convention (aa64's doc: big-multiret arrives scalar-shaped with
+   X8 preset by caller). `srcPrefix=2` for any multiret; big → set sret ptr and
+   forward; small → stash retbuf + field-per-class store.
+5. **arm32 small-multiret** is a pure tail-branch (`emitScalarVoidShim`) → becomes a
+   framed store-through-retbuf CALL shim (save retbuf in R4, drop retbuf+data, shift
+   args, BL, store r0..r3 at FieldOffsets, pop). SHIM_ARG_REG_BUDGET drops by one.
+
+Majors: aa64 caller passes retbuf in **X0** for ANY multiret (NOT X8-from-caller —
+delete the caller-sets-X8 `bigMultiRet` block + its post-call `return`; the shim now
+does `Mov X8,X0` internally), and REMOVE the stale `collectMultiReturnFields` for
+the retbuf'd case; leave `emitCallIndirect`'s X8 branch (OP_CALL_INDIRECT) alone. The
+shared sizer must give `prefixSlots=2` for EVERY multiret on ALL CCs incl. AArch64
+(`aggregateRet || (ins.ID>=0 && IsMultiReturnCall(ins))`, NOT gated on
+`SretInGpArgReg`); edit only the OP_CALL_FUNC_VALUE/OP_CALL_HANDLE branch, leave
+OP_CALL_IFACE_METHOD untouched. Caller (step 2) + sizer (step 4) are a MATCHED ATOMIC
+PAIR per backend (mismatch = PlanFrame outgoing-args overlap = silent stack
+miscompile). Managed multiret: plain pointer-word store (no RefInc/RefDec), no
+double-collect.
+
+Non-goal (verified): OP_CALL_IFACE_METHOD is direct ivt dispatch (no shim) — keeps
+register-based multi-return collect + its sizer branch unchanged. (But method VALUES
+with a captured receiver are closures → covered by blocker 3; re-verify `950`.)
+
+Tests: update `common_call_test.bn:266` (BIG-multiret AAPCS64 sizer prefix 1→2, WILL
+break), `x64_funcvalue_shim_test.bn:33`, `arm32_funcvalue_test.bn:206`+`:226`,
+`arm32_call_indirect_test.bn:353`, `arm32_funcvalue_multiret_test.bn`; ADD a
+small-multiret sizer test (prefix=2 all CCs incl AAPCS64); remove xfails on
+971/972/973; ADD wide cross-pkg coverage — sub-word (u16 xN), float-scalar
+((f64,f64,f64)/(float32,int32)), mixed int/float, managed-field (+ leak checker),
+GP-max (int x8 on aa64), a spilling-arg boundary case, and the two latent cross-mode
+corners (LLVM-main→native-dep, VM→native small-multiret). Smoke native/common +
+native/x64 + native/aarch64 + native/arm32.
 
 **⚠ CI-visibility gap (verified 2026-07-05):** 971/972/973 are **NOT on `main`** —
 they live only on an unmerged branch (`458329f0`, verified not an ancestor of
