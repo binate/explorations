@@ -154,19 +154,19 @@ but the new layout must be mirrored there when it does.)
 The spec (§7.13.14) fixes the *contents* and cross-mode result-agreement but
 leaves field order and search structure informative. Per the §2.2b ✅ DECISION,
 satisfaction is a **distributed `(T, J)` registry**, NOT a per-type table in
-`TypeInfo` — so `sat_len`/`sat_table` (words 5–6) are **vestigial**, and
-`SatEntry` records are **standalone weak globals** keyed on `(TypeInfo, IfaceId)`,
-emitted at each `impl` site, not owned by `TypeInfo`. Proposed shapes:
+`TypeInfo` — so the record carries only its 5 real fields (the `sat_len`/
+`sat_table` words were **✅ dropped**, `89ad8b18`), and `SatEntry` records are
+**standalone weak globals** keyed on `(TypeInfo, IfaceId)`, emitted at each
+`impl` site, not owned by `TypeInfo`. Shapes:
 
 ```
-TypeInfo {                      // static, one per concrete type, weak linkage
-    identity:  *TypeInfo        // = &self (or use the record's own address; §1 note)
+TypeInfo {                      // static, one per concrete type, weak linkage — 5 words
+    identity:  *TypeInfo        // = the record's own ADDRESS (no stored word; §1 note)
     dtor:      handle           // same handle as the vtable any-block slot 0
     size:      int              // t.SizeOf()  (target's value, baked at emit)
     align:     int              // t.AlignOf()
     name:      *[]readonly char // t.QualifiedTypeName() into rodata
-    sat_len:   int              // VESTIGIAL — leave null (satisfaction is external; §2.2b)
-    sat_table: *SatEntry        // VESTIGIAL — leave null (may shrink the record to 5 words later)
+    // satisfaction is NOT here — distributed SatEntry globals (spec type.layout.satisfaction)
 }
 SatEntry {                      // standalone weak_odr global, one per (T, J) m.Impls row;
                                 //   keyed on (TypeInfo, IfaceId); NOT pointed to by TypeInfo
@@ -571,9 +571,10 @@ self-compile continuing to pass.
 >       (incl. transitive ancestors + `(T,any)`), emitted alongside the vtables by
 >       every TU with the impl visible; the linker keeps one. No canonical-emission
 >       change; no coalescing surgery.
->     - **Record words 5-6 become VESTIGIAL** (satisfaction is external) — leave null
->       under the fixed 7-word layout for now; shrinking the record (to 5 words) is an
->       optional later cleanup (layout is informative, all pre-reader).
+>     - **Record words 5-6 (sat_len/sat_table) — ✅ DROPPED `89ad8b18`.** The record
+>       is now the fixed 5-word `[dtor, size, align, name-ptr, name-len]` (40 bytes at
+>       LP64), matching the already-updated spec `type.layout.typeinfo` exactly. No
+>       spec change needed (the spec was updated to the distributed model).
 >     - **Retention (so the weak entries survive dead-strip) — OPEN, settle before the
 >       retention slice:** a dedicated linker section (`__start_/__stop_` bounds;
 >       cross-backend section work) vs. **extending the per-package reflect descriptor**

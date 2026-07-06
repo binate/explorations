@@ -158,7 +158,9 @@ Protocol) or land the real fix before these tests go into a default CI run.
   User's call (spec-grounded: third-party impls are allowed, so a per-type table
   can't be complete AND needs coalescing surgery; a per-`(T,J)` entry is
   byte-identical weak_odr like a vtable → no TU-invariance blocker; Go's itab model).
-  Record words 5–6 are now vestigial (left null). Slices:
+  Record words 5–6 (sat_len/sat_table) were **✅ dropped `89ad8b18`** — the record is
+  now the fixed 5-word `[dtor, size, align, name-ptr, name-len]`, matching the
+  (already-updated) spec `type.layout.typeinfo`. Slices:
   - **3a — ✅ LANDED `a04ae1b8`:** per-interface `__ifaceid.<J>` identity markers
     (weak 1-byte rodata; `mangle.IfaceIdName`; `ir.BuildIfaceId`/`CollectIfaceIdSyms`;
     emit pass in LLVM/x64/aarch64). Adversarially reviewed — identity-consistency
