@@ -537,6 +537,35 @@ self-compile continuing to pass.
 >       (harmless, weak, address-only). USER'S CALL, low-stakes.
 >     - **Landable split:** Commit 1 = IfaceId symbols (inert markers, no readers —
 >       UNBLOCKED); Commit 2 = sat array + words 5-6 (BLOCKED on the fork above).
+>
+>     **✅ DECISION (2026-07-05, user): PLAIN DISTRIBUTED — no per-type sat table.**
+>     Satisfaction is represented by **distributed per-`(T,J)` `SatEntry` globals**,
+>     NOT a per-type table in words 5-6. Rationale (spec-grounded): the spec allows
+>     third-party impls (`iface.crosspkg.no-orphan`) and requires the assertion result
+>     to reflect *every* interface T satisfies (`iface.rtti`, result normative /
+>     layout informative); a per-type table can't be complete under separate
+>     compilation AND needs the coalescing-union fix even for home impls. A per-`(T,J)`
+>     entry is a per-pair fact — byte-identical weak_odr, exactly like `__ivt.<T>__<J>`
+>     — so it captures third-party + `any` with NO TU-invariance blocker. This is Go's
+>     itab model; one uniform mechanism, complete.
+>     - **Each `impl T:J` (any package) emits `SatEntry{&TypeInfo(T), &IfaceId(J),
+>       &__ivt.<T>__<J>}`** — weak_odr, keyed on `(T,J)`, one per `m.Impls` row
+>       (incl. transitive ancestors + `(T,any)`), emitted alongside the vtables by
+>       every TU with the impl visible; the linker keeps one. No canonical-emission
+>       change; no coalescing surgery.
+>     - **Record words 5-6 become VESTIGIAL** (satisfaction is external) — leave null
+>       under the fixed 7-word layout for now; shrinking the record (to 5 words) is an
+>       optional later cleanup (layout is informative, all pre-reader).
+>     - **Retention (so the weak entries survive dead-strip) — OPEN, settle before the
+>       retention slice:** a dedicated linker section (`__start_/__stop_` bounds;
+>       cross-backend section work) vs. **extending the per-package reflect descriptor**
+>       (reuses existing aggregation, is already the §2f cross-mode path). Leaning
+>       reflect-descriptor. Emit-only slices (IfaceId, SatEntry) can land + be
+>       emit-tested before this is decided (dead-strip is harmless while inert).
+>     - **Phase-5 reader:** a global `(TypeInfo, IfaceId) → subvtable` lookup
+>       (itab-like; linear or hashed in `pkg/rt`) + the assertion/type-switch lowering.
+>     - **Re-scoped landable slices:** (3a) IfaceId symbols [UNBLOCKED, next]; (3b)
+>       per-`(T,J)` SatEntry globals; (3c) retention mechanism; (Phase 5) reader.
 > - **Deferred to Phase 5** (where the VM must *read* TypeInfo): the reflect-
 >   descriptor extension + VM-side per-type identity materialization (revised
 >   §2f).
