@@ -86,7 +86,7 @@ flag/accounting *pattern*).
   pointer-image INTO the underlying's registers (SSE→XMM, INT→GP, mirroring LLVM
   2c's `writeShimUnderlyingArg` / native `emitSseAggregateArg`), and (ii) the
   shim's COLLECT of the underlying's SSE return into the retbuf. Broken into:
-  - **[DONE — worktree 8cbf3ec9, pending land] 4d-1 func-value shim RETURN collect:**
+  - **[LANDED e321f57d] 4d-1 func-value shim RETURN collect:**
     both shim shapes (register-only `x64_funcvalue_shim.bn` pack + over-budget
     `x64_funcvalue_spill.bn`) branch on `cc.ReturnsSseInRegs` and call the new shared
     `emitSseReturnCollectTo` (x64_sse.bn) — XMM0/XMM1 + RAX/RDX → retbuf by class;
