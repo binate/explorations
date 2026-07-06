@@ -9,6 +9,43 @@ the change log at the end of §2). The **design is settled** (spec §12.1
 roadmap at edit-site granularity; it does **not** re-litigate design. Paths are under
 `pkg/binate/` unless noted; `.bni` interface files sit beside their dirs.
 
+## 0. Implementation progress (2026-07-06)
+
+Work is on the `work-2` worktree branch (not yet landed; Phases 1–3 land together).
+
+- **Phase 0 — RESOLVED: candidate A.** `preRegisterTypeNames` (`check_decl.bn:291`)
+  creates a `MakeNamedType(d.Name)` placeholder (`TYP_NAMED` with a method slot) for
+  every type decl, including generic ones; abstract methods attach there, and both
+  the body pass and impl coverage find them via `LookupMethod`. Verified facts that
+  drive the rest: the instantiation model is **name-based re-resolution** from the
+  AST; `substituteTypeParams` (`check_generic.bn:222`) matches type params **by
+  `TpIndex`** (owner-agnostic); `Type.Identical` for `TYP_TYPE_PARAM` compares
+  `(TpOwner, TpIndex)`; abstract field access in a method body works via the same
+  machinery as an existing generic free function.
+- **Phase 1 — DONE (commit `18e89b27`).** The checker accepts + body-checks
+  `func (it *Cursor[T]) Next() (T,bool)`. Binders keyed to the type decl
+  (owner=genDecl) so they're Identical across method/impl/type. Abstract method
+  attached to the placeholder with binders on `FuncType.TypeParams`. Also fixed **two
+  pre-existing passes** that resolved a generic-type method's signature without the
+  binders (`undefined: T`): the func sizing check (`check_decl.bn`) and the REPL
+  pending-dep capture (`check_pending.bn`) now skip generic-type methods, like they
+  skip generic functions. New file `check_decl_func_generic.bn`.
+- **Phase 2 — DONE (commit `b5137809`).** The checker accepts `impl *Cursor[T] :
+  Iterator[T]` and checks coverage **abstractly** against the placeholder's method
+  set (the receiver binder and the method binder are Identical by (owner,index), so
+  `Iterator[T].Next` matches `Cursor[T].Next`). `Impl` gained a `Placeholder` field
+  (set only for generic-receiver impls; the satisfaction pass looks methods up there
+  because `RecvType.ReceiverBaseNamed()` is the empty instantiation shell). Shared
+  helpers `resolveGenericReceiverDecl` + `installReceiverBinders`.
+
+**For Phase 3 (next):** per-instantiation method-set population + on-demand concrete
+`@Impl` synthesis (assignability). Watch the **method-population ordering hazard** — a
+generic type may be instantiated (and cached) before its method decls are collected,
+so populating instantiation methods at `populateInstantiatedStruct` time may miss
+late-collected methods; a post-collection pass or on-demand population may be needed.
+Substituting the placeholder's abstract method FuncTypes via `substituteTypeParams`
+(index-based) is the mechanism; no AST re-resolution or method-decl stash is required.
+
 ## 1. What we are building
 
 Let a generic type carry methods and satisfy interfaces — the missing piece that
