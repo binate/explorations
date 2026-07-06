@@ -122,6 +122,15 @@ is the regression guard: any candidate fix must keep those green while making
 three native modes — either add `.xfail.<mode>` markers (per Bug Discovery
 Protocol) or land the real fix before these tests go into a default CI run.
 
+**⚠ CI-visibility gap (verified 2026-07-05):** 971/972/973 are **NOT on `main`** —
+they live only on an unmerged branch (`458329f0`, verified not an ancestor of
+HEAD; `conformance/` on main has 879/881/882 but no 971–973). So on `main` this
+latent cross-package small-multi-return miscompile is **entirely untested in CI**.
+**Follow-up:** land the demonstrators on `main` with `.xfail.<mode>` markers (per
+the Bug Discovery Protocol) even ahead of the real fix, so the regression is
+CI-visible rather than silently absent. (The fix itself is the shim-ABI contract
+decision above — a separate, user-owned call.)
+
 ---
 
 ## Language features — specified, not yet implemented
