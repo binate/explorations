@@ -763,6 +763,195 @@ side as "injection suffices" — it does not for bytecode mode.
 
 ---
 
+## ⬛ UPDATE (2026-07-06) — Phases 3–7 re-grounded; gather/reader decisions made + adversarially reviewed
+
+**This section SUPERSEDES the Phase 3–7 detail below** (dated 2026-07-03/04,
+written before 3a/3b/3c landed and before the reflect-descriptor injection
+channel existed). Where the older text conflicts (line-refs, R9 "no injection
+channel", "`rt.SatLookup` is a mode-uniform pure-Binate helper", "concrete
+assertion needs no helper"), **this update wins**. The data plane is fully
+landed: 2-word any-block (Phase 1 `0734beaa`), `__typeinfo`/`__ifaceid`/
+`__satentry` emission (2.x; 3a `a04ae1b8`; 3b `e12a0a0d`), reflect-descriptor
+`SatEntries` retention (3c-1 `e14407dc`), VM ingestion (3c-2 `89108b34`). Only
+the **reader + front-end** remain. Grounded by a 6-investigator recon and a
+3-lens adversarial review (both 2026-07-06).
+
+### U.1 What the interface lookup actually is
+
+`x.(*J)` is Go's **itab lookup**: `(dynamic TypeInfo*, IfaceId(J)*) → subvtable`
+or null. Two consequences: (1) the performant end-state is a **hash cache built
+once at startup**, so the *gather* mechanism only decides how entries reach that
+build — the perf ceiling is the same either way; (2) only **interface** targets
+need the registry — a **concrete** `x.(T)` is a pointer compare of `vtable[1]`
+against the static `&__typeinfo.<T>`, no enumeration.
+
+### U.2 Resolved decisions (user, 2026-07-06)
+
+- **(a) Native gather = compiler-synthesized root array** over each package's
+  `_pkg_satentries` backing array (the 3c retention array), gathered from
+  **`(ldr.Order deps) ∪ main`** (see must-do M1), emitted on the native main
+  module and referenced from `__entry` so it is a live root. **Justify the array
+  on SCAN-BOUNDING, not retention** — rooting `__Package` already gives dead-strip
+  retention; the array's real job is to hand the reader a *bounded enumerable
+  set*. Rejected: linker `__start_/__stop_` section (genuinely unavailable —
+  `DataGlobal` has no `Section` field, `ir.bni:~854`; greenfield per-object-format
+  boundary-symbol work). **Caveat (documented, not a blocker):** the root is
+  *whole-program-at-invocation* — precompiled `--link-after-objs` objects carrying
+  their own `__satentry`/`_pkg_satentries` are invisible to it. Latent today
+  (`--link-after-objs` is only arm32-baremetal crt0, no impls); separate-
+  compilation / library archives would need recompile-through-bnc or the section
+  fallback.
+- **(reader) = runtime-owned registry object** (native: an `rt` global built at
+  startup into an itab-style hash from the root; VM: the existing per-`@VM`
+  registry from 3c-2). The two readers are **symmetric only for native-carried /
+  injected types**; VM-lowered user types need **d-i** (below). This is orthogonal
+  to (a): it consumes whatever (a) produces at startup.
+- **(b) Interface-value assembly = EXTEND `OP_IFACE_VALUE`** with a dynamic-vtable
+  branch (empty static name ⇒ take the vtable from a register operand); VM gets a
+  sibling `BC_IFACE_VALUE_DYN`. arm32 iface is stubbed → untouched. (Also add one
+  small `OP_DATA_SYM_ADDR` to materialize `&__typeinfo.<T>` / `&__ifaceid.<J>`
+  into a register — no existing primitive does this; `IsGlobalRef` re-mangles.)
+- **(c) Cadence = MERGE Phase 4 checker + Phase 5 concrete lowering.** The
+  `genExprInner`→`EmitConstInt(0)` / `genStmt`→drop fallbacks are *silent*
+  (verified `gen_expr.bn:~164`, `gen_stmt.bn:~141`), so a checker that accepts
+  assertions without lowering is a silent miscompile. Merge closes the window.
+- **(d) VM identity = d-i, now FORCED by the review (must-do M2), not optional.**
+  `lowerImplVtables` (`vm/lower.bn:~248`) must mint a per-VM interned type handle
+  per impl receiver, write it into the null any-block slot `base+1`
+  (`lower.bn:~270-277`), and `registerSatEntry` the VM-lowered `(T,J)` so
+  `lookupSatEntry` resolves VM-lowered types through the *same* registry. The
+  concrete-compare identity token then branches on `ifaceVtIsNative`.
+- **(e) Reader split; `rt` stays reflect-free.** `SatLookup` is NOT one uniform
+  function: native = the root scan/hash; VM = `lookupSatEntry(vm, typeAddr,
+  ifaceAddr)` over the `@VM` slices (mirrors `lookupVtableAddr`). `rt` takes raw
+  `*uint8`/`int` (matching `SatEntryInfo`'s `*uint8` fields) — no `reflect`
+  dependency in Tier-0 `rt`. `rt` only needs `AssertFail`.
+- **(f)** `AssertFail(dyn *[]readonly char, target *[]readonly char)`; the
+  null-vtable / typed-nil miss uses the literal `"<unset>"` for `<dyn>`, pinned in
+  the golden. Panic text (verbatim, `spec §17.5`): `runtime error: type assertion
+  failed: <dyn> is not <T>`.
+
+### U.3 Adversarial must-dos (GO-WITH-CAVEATS; fold into the slices)
+
+- **M1 [CRITICAL] Gather = `ldr.Order ∪ main`, not `ldr.Order` alone.**
+  `ldr.Order` is deps-only; the main module is built *after* the loop
+  (`cmd/bnc/main.bn:~155-224`; `loader.bn:~426`), so as-written every `package
+  main` impl / `@any` box is missed → spurious MISS (349/354/356/357 …). Mirror
+  the existing `initPkgNames` precedent (`main.bn:~188` already appends main's
+  `__init` separately). Applies at **all three driver sites** (main build,
+  `test.bn` runner's synthetic main, and — see M5 — NOT interp).
+- **M2 [CRITICAL, rides with decision d-i] VM-lowered user types are unresolvable
+  without d-i.** Null slot-1 key + zero registered satentries → `builder-comp-int`
+  says MISS where native says HIT (cross-mode violation). d-i is a hard
+  prerequisite of the reader (see decision d). Do not call the readers "symmetric"
+  until d-i lands.
+- **M3 [CRITICAL] Registry fill = the FIRST statement of `__entry`, strictly
+  before `__init_all()`.** Assertions can run in top-level var initializers, which
+  execute *inside* `__init_all` (`gen_init.bn:~181-199,279-280`). `EmitMainEntry`
+  must prepend the rt registry-builder ahead of the `__init_all()` call. Pin with
+  a conformance test that asserts in a top-level var initializer.
+- **M4 [MAJOR] Extern-DATA-declaration step (the `EmitInitDispatcher` precedent
+  does NOT fully transfer).** `EmitInitDispatcher` declares extern *functions*
+  (`NewExternFunc`); the root references cross-TU *data* symbols and **no existing
+  pass auto-declares an undefined data symref** → "undefined value" (LLVM,
+  `emit_data_global.bn:~134`) / "undefined symbol" at `Finalize` (native,
+  `asm.bn:~385`). Add a distinct step: per gathered dep, emit an `IsExtern`
+  `ir.Global` (drives LLVM `external global`) + seed the native symbol via
+  `SetWeak`/`SetGlobal` (`asm.bn:~309`) before the root symrefs it.
+- **M5 [MAJOR] Native-codegen-only gating.** `EmitMainEntry`/`EmitInitDispatcher`
+  are called from `main.bn`, `test.bn`, AND `interp.bn:~175` (which then lowers
+  main to bytecode). A native `{ptr,len}[]` root symref-ing native
+  `_pkg_satentries` is meaningless/erroring in the VM path. Scope the gather+emit
+  to the native-codegen drivers only; do NOT bury it in the shared
+  `EmitMainEntry`.
+- **Caveat C1 (minor):** make the root reference **unconditional** (never gated on
+  "this TU has local impls"), and add a hygiene/unit assertion that every
+  `ldr.Order∪main` package with non-empty `CollectSatEntries` appears in the root
+  list — guards a future "skip when empty" shortcut from silently dropping
+  cross-package impls.
+
+**Survived clean (load-bearing claims that held):** registry lifetime/refcount is
+zero-obligation (`__satentry` nodes carry `STATIC_MANAGED_REFCOUNT`; refcount ops
+gate on `slt 0`, `emit_refcount.bn:~36`, so copying the immortal pointers into a
+hash cannot leak/dangle); `(T,any)` lazy-append, cross-package impls, transitive-
+only leaf deps, and generic-instantiation weak coalescing all gather ≥1×, never 0;
+dead-strip retention holds via the live root; cross-mode agreement is sound for
+injected/native-carried types (`ifaceVtIsNative` discriminates by pointer range).
+
+### U.4 Slice breakdown (ordered, independently landable; dependency-correct)
+
+Each slice leaves the tree green and follows the standard landing procedure
+(per-round approval). **BUILDER: GO, no bump** — `cmd/bnc`'s own source has zero
+`.(` assert syntax (only comment prose); re-run that grep before each
+BUILDER-sensitive land.
+
+- **Slice 1 — Parser + AST (Phase 3).** *BUILDER-sensitive.* `EXPR_TYPE_ASSERT`,
+  `STMT_TYPE_SWITCH`, a dedicated `parseAssertTarget` (NOT `parseType` — the
+  leading `*`/`@` is a recovery kind, not a constructor), restructured
+  `continuePostfix` DOT arm (branch on `LPAREN` before reading a name), a new
+  `Stmt.Binder` field + `CaseClause.Types` field. Conform to `binate.ebnf`
+  (`AssertTarget`/`AssertTargetList`/type-switch alt — the grammar, not the plan,
+  is now the parser contract). Green: parser round-trip + negative-parse tests.
+  Deps: none.
+- **Slice 2 — New IR ops.** `OP_DATA_SYM_ADDR` (materialize a static
+  DataGlobal address into a register — copy the `OP_IFACE_VALUE` vtable-address
+  arms; ~5–8 lines × 3 native backends) + `OP_IFACE_VALUE` dynamic-vtable
+  extension + VM `BC_IFACE_VALUE_DYN`. No lowering logic yet — just the ops + the
+  extern-data-declaration support from **M4**. Green: backend unit tests on op
+  shape; existing static `OP_IFACE_VALUE` tests still pass. Deps: none (∥ Slice 1).
+  arm32 untouched.
+- **Slice 3 — Native SatEntry root (inert).** `EmitSatEntryRoot` beside
+  `EmitInitDispatcher`; gather **`ldr.Order ∪ main`** (**M1**) at the native
+  drivers only (**M5**); extern-data decls (**M4**); **unconditional** root
+  reference (**C1**) + the hygiene/unit completeness assertion. Rooted but
+  *unread* — retains the `__satentry` nodes. Green: link a cross-package program;
+  `nm`/objdump shows `__satentry` symbols survive dead-strip. Deps: Slice 2 (for
+  extern-data support). BUILDER-GO.
+- **Slice 4 — Checker + concrete-assertion lowering (Phases 4+5 merged, M-c).**
+  `EXPR_TYPE_ASSERT` typing (interface operand check via the `present()` pattern;
+  target via `resolveTypeExprAllowInterface` — plain `resolveTypeExpr` rejects a
+  bare interface name; the §11.12 kind table — reject `@T` from raw `*I`, enforce
+  readonly add-not-drop) + concrete lowering (`vtable[1]` load,
+  `OP_DATA_SYM_ADDR(&__typeinfo.<T>)`, `OP_EQ`, branch, recovery refcount) +
+  `AssertFail` in **both** `rt.bn` and `rt_baremetal.bn` + expression-form panic +
+  comma-ok (new checker wiring — `hasExpandableResults` accepts only func kinds;
+  synthesize a `{recovered,bool}` struct shaped for `genMultiAssign`'s
+  `TYP_STRUCT` path). Green: checker accept/reject unit tests; panic golden;
+  refcount goldens (@-hit=+1 then release, *-borrow=no churn) under `-comp` AND
+  `-int`. Deps: 1, 2, 3. BUILDER-GO.
+- **Slice 5 — Interface-target reader (SatLookup split; decisions d-i + e).**
+  Native: build the startup registry/hash (**M3** — fill first in `__entry`) +
+  the hash reader over the Slice-3 root; VM: `lookupSatEntry` over the `@VM`
+  registry + **d-i** (**M2** — `lowerImplVtables` mints interned handles + registers
+  VM-lowered satEntries into the null slot); assemble the result iface value via
+  the dynamic `OP_IFACE_VALUE`; assertion site branches on `ifaceVtIsNative`.
+  Green: interface-target hit/miss over injected AND user-defined types, `-comp`
+  vs `-int` identical boolean. Deps: 4.
+- **Slice 6 — Type-switch (Phase 6).** `checkTypeSwitchStmt` (modeled on
+  `checkSwitchStmt`; per-case narrowing; multi-target/`default` bind scrutinee
+  type; no exhaustiveness/dup/fallthrough) + `genTypeSwitch` (first-match chain
+  over the Slice-5 primitives; **push each `@`-binder into `ctx.Vars` as a typed
+  managed slot** so case-scope cleanup RefDecs it — the subtlest leak risk).
+  Green: type-switch goldens incl. a `@`-binder leak test, both modes. Deps: 4, 5.
+- **Slice 7 — Spec flips + docs (Phase 7).** *Explorations/docs; commit promptly.*
+  Flip the `§11.12`/`§17.5`/`§7.13.14`/`§13.8`/`§14.10` Draft banners + `00-index`
+  rows once conformance is green; keep the panic-text byte-identical to
+  `AssertFail`. Move the item to the done log. Deps: 4–6 landed.
+
+### U.5 Still-open (small spikes during implementation, not blockers)
+
+- Native reader shape once the root exists: a pure-`rt` scan over the root vs. a
+  lowered op (like `OP_BOUNDS_CHECK`) — settle in Slice 5 (couples to whether any
+  single call path must be VM-aware; recon leans split-reader).
+- VM-lowered interned-handle key stability across load order / generic
+  instantiations (`List[int]` vs `List[float]` per-instantiation identity) —
+  confirm in Slice 5.
+- The comma-ok synthesized `{recovered,bool}` must match the exact `_0/_1`
+  field naming `genMultiAssign` expects (`makeMultiReturnStructType`,
+  `gen_func.bn:~17`) — a targeted unit test, not just conformance.
+
+---
+
 ## Phase 3 — Parser + AST for assertions and type switches
 
 **Goal:** parse `x.(K T)` (expression) and `switch [v :=] x.(type) { case K T: }`
