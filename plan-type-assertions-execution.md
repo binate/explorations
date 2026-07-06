@@ -582,8 +582,13 @@ self-compile continuing to pass.
 >       emit-tested before this is decided (dead-strip is harmless while inert).
 >     - **Phase-5 reader:** a global `(TypeInfo, IfaceId) → subvtable` lookup
 >       (itab-like; linear or hashed in `pkg/rt`) + the assertion/type-switch lowering.
->     - **Re-scoped landable slices:** (3a) IfaceId symbols [UNBLOCKED, next]; (3b)
->       per-`(T,J)` SatEntry globals; (3c) retention mechanism; (Phase 5) reader.
+>     - **Re-scoped landable slices:** (3a) IfaceId symbols — **✅ LANDED
+>       `a04ae1b8`** (`mangle.IfaceIdName`; `ir.BuildIfaceId`/`CollectIfaceIdSyms` in
+>       data_ifaceid.bn; module-level emit pass in LLVM/x64/aarch64; weak 1-byte
+>       rodata markers, `any` included, aliases skipped; adversarially reviewed —
+>       identity-consistency verified across cross-pkg/alias/generic/any); (3b)
+>       per-`(T,J)` SatEntry globals [NEXT]; (3c) retention mechanism [OPEN:
+>       section vs reflect descriptor]; (Phase 5) reader.
 > - **Deferred to Phase 5** (where the VM must *read* TypeInfo): the reflect-
 >   descriptor extension + VM-side per-type identity materialization (revised
 >   §2f).

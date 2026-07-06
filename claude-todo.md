@@ -81,9 +81,23 @@ regression — re-run the single test in isolation to confirm.
   exported `types.QualifiedTypeName`. Consequence: the name-pointer relocation moves
   EVERY named record to `rodata_relro` (native section + vtable-shape tests updated).
   Adversarially reviewed — clean.
-- **Remaining:** 2.2b-3 (satisfaction table, words 5–6), then the front-end
-  (Phases 3–7: parser/checker/lowering for `x.(K T)`, comma-ok, type switches, the
-  §17.5 panic), plus the cross-mode/VM story deferred to Phase 5.
+- **Phase 2.2b-3 — satisfaction, DECIDED PLAIN-DISTRIBUTED (not a per-type table).**
+  User's call (spec-grounded: third-party impls are allowed, so a per-type table
+  can't be complete AND needs coalescing surgery; a per-`(T,J)` entry is
+  byte-identical weak_odr like a vtable → no TU-invariance blocker; Go's itab model).
+  Record words 5–6 are now vestigial (left null). Slices:
+  - **3a — ✅ LANDED `a04ae1b8`:** per-interface `__ifaceid.<J>` identity markers
+    (weak 1-byte rodata; `mangle.IfaceIdName`; `ir.BuildIfaceId`/`CollectIfaceIdSyms`;
+    emit pass in LLVM/x64/aarch64). Adversarially reviewed — identity-consistency
+    (marker vs future SatEntry/assertion) verified across cross-pkg/alias/generic/any.
+  - **3b [NEXT]:** per-`(T,J)` `SatEntry{&TypeInfo(T),&IfaceId(J),&__ivt.<T,J>}` globals.
+  - **3c [OPEN decision]:** retention (dedicated linker section vs. reflect-descriptor
+    extension) so the weak entries survive dead-strip.
+  - **Phase 5:** the reader — global `(TypeInfo,IfaceId)→subvtable` lookup + assertion
+    /type-switch lowering.
+- **Remaining after 2.2b-3:** the front-end (Phases 3–7: parser/checker/lowering for
+  `x.(K T)`, comma-ok, type switches, the §17.5 panic), plus the cross-mode/VM story
+  deferred to Phase 5.
 
 **🔧 TODO (detailed) — migrate the TypeInfo record content to a per-type "boxable
 types" registry ("design D").** Increment 2.2a fills `size`/`align` via **design A**:
