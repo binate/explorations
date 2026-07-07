@@ -1,6 +1,21 @@
 # Plan: the `__c_global` C-global-variable intrinsic
 
-Status: **Phase 1 LANDED on main** (2026-07-06, `ce1634f4`…`7dc86dfb`) — frontend +
+Status: **✅ COMPLETE — Phase 1 + Phase 2 (all three arches) LANDED on main**
+(2026-07-06). Native `OP_C_GLOBAL` lowering is done: **arm32 §5a** absolute
+addressing (`16bbd98f`), **aarch64 §5b** Mach-O GOT + the aarch64 ELF-reloc fix
+(`a4e6f478`/`9e866a43`), **x64 §5b** GOT ELF + Mach-O (`8f539fcc`). Conformance
+`982` + spec `094` run LIVE on every FFI-capable mode (all LLVM modes +
+`arm32-linux` + native aarch64-Mach-O + native x64 ELF/Mach-O); the only xfails
+are the VM-int modes (no FFI) and arm32-baremetal (no libc `environ`). Each
+increment was adversarially reviewed (2–3 skeptics) and object-verified against
+clang (`otool`/`objdump` byte-match: aarch64 `GOTLDP`/`GOTLDPOFF`, x64
+`REX_GOTPCRELX`/`GOT_LD`). **Residual follow-ups** (both tracked, both minor):
+(1) no aarch64-linux **native** conformance mode → the aarch64 ELF relocs are
+clang-verified + unit-tested but not link+run-tested (adding the mode would make
+it e2e); (2) the deferred runnable arm32-baremetal test (§below). The historical
+per-phase detail follows.
+
+Status (Phase 1): **LANDED on main** (2026-07-06, `ce1634f4`…`7dc86dfb`) — frontend +
 checker + IR + LLVM backend + tests, all green (unit + conformance `982`/`983`/spec
 `094` + `e2e/c-global-environ.sh` + full hygiene 15/15). LLVM path verified end-to-end
 (`__c_global("environ", **char)` reads the real process environment, matched
