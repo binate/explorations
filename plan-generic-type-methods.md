@@ -11,7 +11,35 @@ roadmap at edit-site granularity; it does **not** re-litigate design. Paths are 
 
 ## 0. Implementation progress (2026-07-06)
 
-Work is on the `work-2` worktree branch (not yet landed; Phases 1–3 land together).
+**LANDED (2026-07-06): methods on generic types, SAME-PACKAGE (local) — complete.**
+10 commits on `main` (`9ee62540` P1, `5901574c` P2, `87c3b0c0` P3, `c0a4f1c1` P4.1,
+`eef3a820` P4.3, `b815006f` P4.2, `5bb7d6db` back-fill fix, `f71b3fdf` lazy-emission
+fix, `edd05034` re-review fixes, `2f9908b9` bnfmt), tip `2f9908b9`. Two adversarial
+review passes (found + fixed 3 ordering bugs then 2 more follow-ups); hygiene 16/16;
+conformance green across builder-comp / -int (VM) / -comp (self-compile); arm32
+cross-compiles with correct ILP32 IR (execution deferred to CI — no qemu-arm on the
+dev host). Tests: conformance 145/146(xfail)/447/448/459/468/469/514/516/522/833 +
+checker/parser/ir unit tests.
+
+**Still open (follow-ups, NOT landed):**
+- **Cross-package** — the parser piece (`.bni` generic-receiver method bodies) is
+  committed on `work-2` (held, not landed); the checker (imported-method registry
+  consulted by `populateInstantiatedStruct`) and IR-gen (stash imported generic-method
+  decls) halves remain. Driver: conformance 449 (removed from tree; recreate for the
+  series).
+- **Method-value on a generic instantiation** — pre-existing invalid-struct-name
+  mangling defect (`Box[int]` raw brackets); conformance 146 is xfail on LLVM-text
+  modes. Tracked in `claude-todo.md`. The lazy-emission trigger for the method-value
+  path is already landed.
+- **Phase 3c** (constraint-path `typeSatisfiesConstraint`) — secondary.
+- **File-length split** — `check_generic_type.bn` (522) / `gen_generic.bn` (529)
+  nudged over the 500 soft warning; split as an immediate follow-up (user-approved
+  land-now / split-after).
+- **Spec/doc sweep** (§5 below) — narrow `gen.no-generic-methods`, mark
+  `gen.method.generic-recv` / `gen.impl.generic-recv` implemented, update
+  `plan-stdx-containers.md`.
+
+The pre-landing detail below is retained for reference.
 
 - **Phase 0 — RESOLVED: candidate A.** `preRegisterTypeNames` (`check_decl.bn:291`)
   creates a `MakeNamedType(d.Name)` placeholder (`TYP_NAMED` with a method slot) for
