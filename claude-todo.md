@@ -53,33 +53,48 @@ native backends' iface call-site is broken.
   stack placement to match SysV/AAPCS64 (and the direct-call path).  Decision (fix
   now vs land the xfail'd tracker and defer) is the user's.
 
-### native arm32: a function frame > ~4095 bytes fails to compile (COMPILE_ERROR) — 🔴 OPEN (found 2026-07-06)
+### native arm32: a function frame > ~4095 bytes fails to compile (COMPILE_ERROR) — ✅ FIXED on temp-5 (pending land), found 2026-07-06
 
 **Severity: MAJOR (valid program fails to compile on an accepted backend) — but
 FAIL-LOUD (a clean COMPILE_ERROR, not a silent miscompile).** A native-arm32
-function whose frame exceeds the ARM 12-bit (4095-byte) immediate-offset range
-fails: `error: native backend failed to emit object (arch=arm32)`.
+function whose frame — or an aggregate it copied — exceeded the ARM 12-bit
+(4095-byte) LDR/STR immediate range failed: `native backend failed to emit
+object (arch=arm32)`.
 
 - **Reproduced (minimal, NON-iface, so it is pre-existing and general — not P4-c):**
   `func main() { var buf [2000]int; buf[0]=1; buf[1999]=2; println(buf[0]+buf[1999]) }`
   ([2000]int = 8000 bytes) → COMPILE_ERROR on `builder-comp_native_arm32_baremetal`.
-- **Root cause: UNKNOWN — needs investigation.** Some large frame-offset load/store
-  (or array-init / prologue) path hits `a.SetError` when the offset > 4095, instead
-  of materializing the address (as `emitFrameStore`/`emitFrameLoad`/`emitFrameAddr`
-  already do). Candidate: a store/load using a bare `MemImm(SP, off)` without the
-  emitFrame*-style IP-materialization fallback for a large `off`.
-- **Secondary finding (diagnostics gap):** the native backend swallows the SPECIFIC
-  `a.SetError` message into the generic "native backend failed to emit object
-  (arch=arm32)" — the precise failing path is not surfaced, making this (and any
-  arm32 emit failure) hard to localize. The backend should print the specific
-  SetError message.
-- **Interaction with P4-c.3 (why it matters now):** the P4-c.3 iface-dispatch
-  method-pointer spill bug (spilling IP directly, fixed in the P4-c.3 commit) only
-  manifests when the spill slot offset > 4095 — i.e. a large frame — which this bug
-  makes fail to compile FIRST. So the iface-spill wrong-code is currently
-  UNREACHABLE (shadowed by this COMPILE_ERROR); the fix is kept so it can't surface
-  silently once this large-frame bug is fixed. A conformance regression test for the
-  iface-spill is therefore not expressible until this is fixed (a unit test guards it).
+- **Root cause (found):** the specific SetError was `arm32: LDR/STR immediate
+  offset out of range (magnitude must fit 4095)`, tripped at offset 4096 by the
+  aggregate word-copy loops — `MemImm(base, off)` where `off` scales with the
+  aggregate SizeOf (emitAggLoad / emitStructCopy zeroing+copying the 8000-byte
+  array). A wider sweep also found SP-relative frame accesses whose offset scales
+  with frame size (aggregate-param spill data regions / incoming-stack slots,
+  outgoing stack args, int64 guard-call stack args) and the inline string-literal
+  STRB loop (8-bit/255 immediate), all bypassing the emitFrame*/emitBase*
+  materializing helpers.
+- **Fix (commit `5e95b93a` on temp-5):** added `emitBaseLoad` (load analogue of
+  `emitBaseStore`) and routed every large-offset-capable access through the
+  IP-materializing helpers; the indirect-large aggregate-param copy now holds the
+  byval source pointer in a pool register so IP is free as the address scratch.
+  Fail-loud preserved for genuinely-unimplemented shapes (floats, int64 pairs).
+- **Diagnostics gap (fixed):** added `common.ReportEmitError`, called from each
+  backend's EmitObject `if a.HasError` path, so the specific SetError reason now
+  prints instead of being swallowed into the generic line (all three native
+  backends).
+- **P4-c.3 unshadowed:** the iface-dispatch method-pointer spill fix (spill via a
+  pool reg, not IP, since a large-frame emitFrameStore uses IP as its own scratch)
+  only manifests when the spill slot offset > 4095 — previously unreachable behind
+  this COMPILE_ERROR. Now covered end-to-end by conformance test
+  `990_native_arm32_iface_large_frame` (iface `*T`-receiver dispatch in a
+  >4095-byte frame → 42). The non-iface large-frame case is
+  `989_native_arm32_large_frame` (→ 3).
+- **Verified:** native unit packages green; hygiene 16/16; full
+  `builder-comp_native_arm32_baremetal` 2236 passed / 418 failed / 35 skipped —
+  passing count up +2 (the two new tests) over the 2234 baseline, 0 hangs, 0
+  XPASS, and every one of the 418 failures is a pre-existing unimplemented-feature
+  fail-loud (floats / closures / generics / HFA-SSE / method values / variadics /
+  cross-pkg), not a regression. NOT yet cherry-picked to main.
 
 ### HFA-in-SIMD is a CROSS-BACKEND contract — ✅ RESOLVED for AArch64; Stage 4 (x64) remains — 🟡 OPEN
 
