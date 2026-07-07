@@ -924,9 +924,12 @@ BUILDER-sensitive land.
   delegation; keeps `emit_instr.bn` under cap). Adversarially reviewed — the
   landed static OP_IFACE_VALUE path (every interface value) is proven functionally
   unchanged (iface conformance builder-comp 46/46, VM 11/11, native-aa64 11/11).
-  Follow-up: strengthen the native iface tests to decode the data-vs-vtable store
-  OFFSET (a pre-existing test-rigor gap — byte/store counts don't catch a slot
-  swap). Deps: none (∥ Slice 1).
+  Follow-up (✅ LANDED `207d0410`): the native dynamic iface tests now decode the
+  data-vs-vtable store OFFSET and pin data→`IfaceValueDataOffset()`,
+  vtable→`IfaceValueVtableOffset()` (source-correlated by emission order,
+  fault-injection-validated on x64/aarch64/arm32) — closing a pre-existing
+  test-rigor gap where byte/store counts couldn't catch a slot swap. Deps: none
+  (∥ Slice 1).
 - **Slice 3 — Native SatEntry root (inert).** `EmitSatEntryRoot` beside
   `EmitInitDispatcher`; gather **`ldr.Order ∪ main`** (**M1**) at the native
   drivers only (**M5**); extern-data decls (**M4**); **unconditional** root
