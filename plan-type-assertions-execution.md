@@ -885,14 +885,24 @@ Each slice leaves the tree green and follows the standard landing procedure
 `.(` assert syntax (only comment prose); re-run that grep before each
 BUILDER-sensitive land.
 
-- **Slice 1 — Parser + AST (Phase 3).** *BUILDER-sensitive.* `EXPR_TYPE_ASSERT`,
-  `STMT_TYPE_SWITCH`, a dedicated `parseAssertTarget` (NOT `parseType` — the
-  leading `*`/`@` is a recovery kind, not a constructor), restructured
-  `continuePostfix` DOT arm (branch on `LPAREN` before reading a name), a new
-  `Stmt.Binder` field + `CaseClause.Types` field. Conform to `binate.ebnf`
-  (`AssertTarget`/`AssertTargetList`/type-switch alt — the grammar, not the plan,
-  is now the parser contract). Green: parser round-trip + negative-parse tests.
-  Deps: none.
+- **Slice 1 — Parser + AST (Phase 3) — ✅ LANDED (2026-07-06, main
+  `ebddfc38`..`46448e0c`, a 5-commit stack).** *BUILDER-sensitive.*
+  `EXPR_TYPE_ASSERT`, `STMT_TYPE_SWITCH`, a dedicated `parseAssertTarget` (NOT
+  `parseType` — the leading `*`/`@` is a recovery kind, not a constructor;
+  produces `*T`=TEXPR_POINTER(named), `@T`=TEXPR_MANAGED(named), value=named,
+  `readonly`=TEXPR_CONST), a restructured `.(` disambiguation across BOTH the
+  primary parser (parseIdentOrCompositeLit no longer eats `.` before `(`) and the
+  postfix loop (`.(type)` terminates the loop as a type-switch head;
+  `.(AssertTarget)` builds the assertion), new `Stmt.Binder` + `CaseClause.Types`
+  fields, and a new `parse_assert.bn`. Conforms to `binate.ebnf` (`AssertTarget`/
+  `AssertTargetList`/type-switch alt + D13). PARSE-ONLY: the checker rejects both
+  new nodes with an interim "not yet supported" diagnostic (removed when Slice
+  4/6 add real checking) — added because `checkStmt` has no default arm and a
+  `STMT_TYPE_SWITCH` would otherwise silently no-op. Adversarially reviewed (GO;
+  27 accept/reject/disambiguation probes, 0 regressions). Two length-driven
+  extractions rode along (composite-lit helpers → `parse_composite.bn`;
+  pending-decl error helpers → `check_pending.bn`) to keep `parse_expr.bn`/
+  `check_expr.bn` under the soft cap. Deps: none.
 - **Slice 2 — New IR ops.** `OP_DATA_SYM_ADDR` (materialize a static
   DataGlobal address into a register — copy the `OP_IFACE_VALUE` vtable-address
   arms; ~5–8 lines × 3 native backends) + `OP_IFACE_VALUE` dynamic-vtable
