@@ -903,13 +903,30 @@ BUILDER-sensitive land.
   extractions rode along (composite-lit helpers → `parse_composite.bn`;
   pending-decl error helpers → `check_pending.bn`) to keep `parse_expr.bn`/
   `check_expr.bn` under the soft cap. Deps: none.
-- **Slice 2 — New IR ops.** `OP_DATA_SYM_ADDR` (materialize a static
-  DataGlobal address into a register — copy the `OP_IFACE_VALUE` vtable-address
-  arms; ~5–8 lines × 3 native backends) + `OP_IFACE_VALUE` dynamic-vtable
-  extension + VM `BC_IFACE_VALUE_DYN`. No lowering logic yet — just the ops + the
-  extern-data-declaration support from **M4**. Green: backend unit tests on op
-  shape; existing static `OP_IFACE_VALUE` tests still pass. Deps: none (∥ Slice 1).
-  arm32 untouched.
+- **Slice 2 — New IR ops — ✅ LANDED (2026-07-06, main `8db770c6` (2a) +
+  `1685d590` (2b)).** `OP_DATA_SYM_ADDR` (materialize a LOCAL weak data-global's
+  address — `&__typeinfo.<T>`/`&__ifaceid.<J>` — into a register; models the
+  `OP_IFACE_VALUE` vtable-address arm with plain local addressing, NOT
+  OP_C_GLOBAL's GOT-indirect load) + `OP_IFACE_VALUE` dynamic-vtable extension
+  (empty `StrVal` ⇒ vtable from `Args[1]` register; new `EmitIfaceValueDyn`).
+  Mechanism only — no lowering emits either yet. **Scope corrections (user calls,
+  2026-07-06):** (1) arm32 is NOT a stub — its iface lowering is fully
+  implemented, so it is a **FOURTH** native site (LLVM/x64/aarch64/arm32), and
+  both ops were wired there. (2) **VM deferred to Slice 5** (native-only): the VM
+  resolves vtables by name→index and has no data-symbol address model, so
+  OP_DATA_SYM_ADDR rides the VM lowerer's loud-fail default and dynamic
+  OP_IFACE_VALUE gets an explicit VM loud-fail (`BC_IFACE_VALUE_DYN` + the VM
+  identity model land in Slice 5, per decision d-i). (3) **M4 extern-data-decl
+  deferred to Slice 3** — bare references to the weak-emitted symbols link fine
+  (the existing OP_IFACE_VALUE vtable path proves it), so M4 belongs where the
+  cross-TU root actually needs it. The LLVM OP_IFACE_VALUE lowering was extracted
+  to `emitIfaceValueLLVM` in `emit_iface_call.bn` (matching the sibling iface-op
+  delegation; keeps `emit_instr.bn` under cap). Adversarially reviewed — the
+  landed static OP_IFACE_VALUE path (every interface value) is proven functionally
+  unchanged (iface conformance builder-comp 46/46, VM 11/11, native-aa64 11/11).
+  Follow-up: strengthen the native iface tests to decode the data-vs-vtable store
+  OFFSET (a pre-existing test-rigor gap — byte/store counts don't catch a slot
+  swap). Deps: none (∥ Slice 1).
 - **Slice 3 — Native SatEntry root (inert).** `EmitSatEntryRoot` beside
   `EmitInitDispatcher`; gather **`ldr.Order ∪ main`** (**M1**) at the native
   drivers only (**M5**); extern-data decls (**M4**); **unconditional** root
