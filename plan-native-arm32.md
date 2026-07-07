@@ -480,10 +480,18 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
     `OP_IFACE_UPCAST` construction ops (2-word {data,vtable} build; upcast vtable
     +offsetSlots*wordBytes; invalid upcast fails loud). Byte-identical to LLVM/aa64
     (adversarial-reviewed); native conformance 2036/604/0-hangs (+10, no regression).
-  - **P4-c.3** — `OP_CALL_IFACE_METHOD` (core, x64 template): two-step LDR
-    (vtable then method ptr), spill IP, synth argTypes `[sret?, data, args]` per
-    prefixSlots=2, marshal, reload IP, `Blx IP`, collect via the shared
-    `collectMultiReturnFields`/`storeMultiReturnTupleFieldsArm32`. Highest risk.
+  - **P4-c.3** — ✅ DONE & LANDED 2026-07-06 (`9c00b2f1` + `c6e2391f`):
+    `OP_CALL_IFACE_METHOD` (core, x64 template): two-step LDR (vtable then method
+    ptr), spill the method ptr via a POOL reg, synth argTypes `[sret?, data, args]`
+    per prefixSlots=2, marshal, reload, `Blx`, collect via the shared
+    `collectMultiReturnFields`/`storeMultiReturnTupleFieldsArm32` (scalar / void /
+    aggregate-sret / multi-return). Adversarial review verified the 3 paramount
+    properties (prefix/sizer match, slot index, return collection) and caught a
+    MAJOR spill bug (method ptr spilled from IP self-corrupts on a >4095-byte frame)
+    → fixed (`c6e2391f`, spill via pool reg; unit-tested — conformance can't reach
+    it, shadowed by the large-frame COMPILE_ERROR bug in claude-todo.md). Native
+    conformance 2097/543/0-hangs (+61 vs P4-c.2); the 543 remaining are documented
+    deferred buckets (143 need the dtor → P4-c.4, float → P5, closures → P4-d).
   - **P4-c.4** — `OP_IFACE_DTOR` + managed-iface-value lifecycle.
   - **P4-c.5** — conformance sweep + xfail reconciliation (`spec/11-interfaces`
     green on baremetal + linux; a big-return AND a multi-return iface test; a
