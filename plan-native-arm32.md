@@ -511,6 +511,22 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
     residuals (P4), capturing closures (P4-d), generics (non-generic-only for now),
     and float (P5) — tracked in their own plan phases, NOT iface-dispatch defects.
     **⇒ P4-c (interfaces) is COMPLETE.**
+- **P4 func-value-shim residuals** (recon 2026-07-07; scoped P0/P1/P2/P3):
+  the shim fail-louds on aggregate args, over-budget (spill) args, and float
+  args/returns. Corrected scope: the 6 `funcval-param` matrix cells each pass ONE
+  <=16B by-value struct → all `AggCoercedInReg` → need REGISTER-ONLY by-address
+  marshaling (not spill); `iface-param` is a SEPARATE path (`emitCallArg`, not the
+  shim). **In progress (user chose P0+P1, defer P2+P3):**
+  - **P0** — measure per-test failure modes (funcval-param vs iface-param path).
+  - **P1** — register-only coerced-aggregate shim marshaling (`emitShimAggregateArgArm32`
+    + `shimUserArgWords`→EffectiveArgWords walker + `needStage`), GP-only; port aa64
+    `emitShimArgMarshalAA64` register path. Unblocks the 6 funcval-param + struct-arg
+    variants (~6-10 tests).
+  - **P2 (deferred)** — over-budget stack-spill shim (`arm32_funcvalue_spill.bn`,
+    high-arity long-tail only; AAPCS32 stack-discipline = silent-miscompile surface).
+  - **P3 (deferred, P5-gated)** — soft-float float args/returns: may be shim-trivial
+    (soft-float rides GP, no fmov) but the wider soft-float pipeline isn't ready →
+    wrong-code risk; a user decision, not an inline relaxation.
 - **P4-d:** closures — capturing func values (build on the P4-a shim), the
   over-budget stack-spill shim (tighter R0–R3 budget), non-null dtor slot.
 - **Acceptance**: func-value / closure / interface conformance + unit tests
