@@ -154,9 +154,12 @@ flag/accounting *pattern*).
     unconditionally) — FOLDED IN and fixed to mirror `emitCall` (overflow spill +
     unconditional `nsrn++` + `NumFpArgRegs`); byte-identical for ≤8-float calls.
     Conformance/987_iface_sse + 988_xpkg_iface_sse (swap 2xf64 SSE arg+ret, fold
-    {f64,i64}<->{i64,f64} dual-file both ways, tag SSE-arg/scalar-int-return),
-    flip-all-match cross-module + negative-tested; gate-forced-on SSE unit tests +
-    float-overflow spill regression tests.
+    {f64,i64}<->{i64,f64} dual-file both ways, tag SSE-arg/scalar-int-return, and
+    mix float-scalar->SSE-agg interleave pinning nsrn threading past the scalar —
+    landed 774fdc8e), flip-all-match cross-module + negative-tested; gate-forced-on
+    SSE unit tests (incl. the float-then-D2 XMM2 nsrn check) + float-overflow spill
+    regression tests.  KNOWN GAP (as with closure 4d-2-arg): a MEMORY-class SSE arg
+    (stackOff >= 0) rides the unchanged class-agnostic byte-copy path, untested.
 
   **Stage-4 dispatch COMPLETE** (direct 4c + func-value 4d-1/4d-arg + closure
   4d-2 + iface 4d-3). Remaining for the x64 SSE project: **Step 5** (full
