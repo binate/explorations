@@ -178,11 +178,40 @@ flag/accounting *pattern*).
   active — not just the ~18 targeted 97x/98x tests.  Flip was reverted after
   (main stays dormant; the live flip is Step 6).
 
-  Remaining for the x64 SSE project: **Step 6** — land the flip
-  `SysVSseInRegs()` -> `GetTarget().Arch == ARCH_X64` to make x64 SSE live
-  (mirrors the aa64 HfaInSimd Stage-3 flip).  NOTE: the 8 pre-existing
-  native_x64_darwin dormant failures are independent of SSE but worth tracking
-  before/around the flip.
+  **[DONE — LANDED ce759c41] Step 6 — flip `SysVSseInRegs()` ->
+  `GetTarget().Arch == ARCH_X64`, making x64 SSE live** (mirrors the aa64
+  HfaInSimd Stage-3 flip).  A ≤16-byte SSE-classified aggregate now rides XMM on
+  x64 across the LLVM backend, the native x64 backend (all four dispatch shapes),
+  and the VM cross-mode boundary; >16-byte float aggregates stay MEMORY.  No-op
+  on non-x64 (arm64 byte-identical).  The stale dormant assertion
+  `TestSysVInSseDormant` became `TestSysVSseGatedByArch` (SSE on for ARCH_X64,
+  off otherwise, mirroring `TestHfaSimdGatedByArch`); the aa64 test's "(Stage 4
+  pending)" reasons updated to "(x64 uses SysV-SSE, not AAPCS64 HFA)".  Verified:
+  types unit tests green (arch-gated test incl.), BUILDER-compilable (gen1 built
+  with the flip), arm64 conformance smoke green; correctness rests on Step 5's
+  zero-regression full-suite gate.
+
+  **The x64 SysV eightbyte-SSE project is COMPLETE.**  x64 now matches aa64: both
+  pass small float aggregates in FP registers per their platform ABI, in lockstep
+  across LLVM + native + VM.
+
+  ## Follow-ups (deferred, tracked separately — "handle other stuff separately")
+
+  - **Broader x64-mode flip verification.** The flip affects ALL x64 targets, but
+    Step 5 exercised only `native_x64_darwin`.  Still to run under the now-live
+    flip: `builder-comp_native_x64-comp_native_x64` (x64 ELF/Linux native) and any
+    LLVM-backend x64 conformance mode.  (The LLVM x64 SSE path IS validated
+    cross-module by the /tmp/sse_* all-LLVM reference builds, just not a full
+    conformance run.)
+  - **8 pre-existing `native_x64_darwin` dormant failures** (SSE-unrelated,
+    unmarked): `731/733/736/737_build_*_select` (arch-expectation: `.expected`
+    hardcodes aarch64, x64 mode correctly yields x64) + `stdlib/os/{006_readdir,
+    008_stat_errors,009_stat,010_modtime_chain}` (Rosetta/x64 fs env).  Plus a
+    pre-existing `TestX64MachoExitsWithCode` unit-test panic (`time.FromUnix:
+    nsec out of range`) in that mode.  Need triage (xfail markers or fixes).
+  - **MEMORY-class SSE arg** (stackOff >= 0, needs 9+ SSE eightbytes) rides the
+    unchanged class-agnostic byte-copy path across all dispatch families —
+    untested (documented gap).
 
 ## Open questions / risks (from the survey)
 
