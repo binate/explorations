@@ -8,6 +8,38 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## Separate compilation was BROKEN (`--pkg` dropped the runtime-dep loads) + now tested — ✅ FIXED & LANDED `08588f23` / `54aac72b` (2026-07-06)
+
+Separate compilation per package — `bnc --pkg <pkg>` to a `.o`, then link the
+independently-built objects — is a stated architecture decision
+(`claude-plan-3.md`) but had **never been exercised end-to-end**, and was in
+fact **broken**: `compileSinglePkg` (`--pkg`) force-loaded only reflect, while
+the whole-program driver and `--test` load rt + bootstrap + reflect + lang.  So
+a `--pkg`'d package that referenced a runtime helper — `rt.BoundsCheck` from ANY
+slice/array index, also DivCheck/ShiftCheck/RefInc/RefDec/println-via-bootstrap
+— emitted the `call` with no matching `declare`, and clang rejected the .ll
+(`use of undefined value`).  Dead-on-arrival for essentially every real package
+(only pure-arithmetic leaves survived; 19 of cmd/bnas's 21 deps failed pre-fix).
+
+- **Fix (`08588f23`):** load all four implicit runtime packages in
+  `compileSinglePkg`, centralized into `ensureRuntimeDepsLoaded` (util.bn) used
+  by all three compile entry points so it can't drift again (that drift is
+  exactly how `--pkg` broke).
+- **New capability (`08588f23`):** `bnc --list-deps <main>` prints a program's
+  full package set (dependency order; user imports + implicit runtime pkgs),
+  the program-assembly counterpart of `--pkg` — enables external
+  separate/incremental build drivers.  Needs no `-o`/`--runtime`.
+- **Test (`54aac72b`):** `e2e/separate-compilation.sh` builds all 21 packages of
+  cmd/bnas via `--pkg` (independent invocations), links, and asserts the result
+  is functionally identical to a canonical whole-program bnas (same `--version`;
+  assembling a fixture `.s` yields byte-identical objects).  Default gen1;
+  `--builder` SKIPs (the shipped BUILDER predates both `--list-deps` and the
+  fix).  Not wired into CI (separate decision).
+- 2-skeptic adversarial review: sound (one built a pre-fix compiler to confirm
+  the test goes red without the fix; confirmed no symbol bloat / dup strong
+  symbols — the `--pkg` object differs from the whole-program one only by
+  link-safe weak interface-id constants).
+
 ## func-value SMALL multi-return: native-shim vs LLVM-shim ABI CONFLICT — ✅ FIXED & LANDED (2026-07-06)
 
 **Resolution: approach (a), full unification — see "RESOLUTION" below.**
