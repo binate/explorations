@@ -84,7 +84,8 @@ Because wrapping is the common case, a **signature-preserving** forwarder —
 `#[c_export("bar")] func bar_(x T) R { return foo.Bar(x) }` — **must** lower to a
 **symbol alias** (`bar` = `foo.Bar`'s mangled symbol) or a tail thunk, not a real
 call frame. The compiler recognizes the trivial-forward shape; the linker does the
-alias. Non-trivial (type-adapting) wrappers stay real functions. Without this,
+alias (the mechanism is backend-specific — LLVM alias / Mach-O `N_INDR` / ELF
+`.set`; §4). Non-trivial (type-adapting) wrappers stay real functions. Without this,
 "a library package of 200 one-line forwarders" would carry real per-call overhead;
 with it, verbatim re-export is free.
 
@@ -93,7 +94,9 @@ with it, verbatim re-export is free.
 - The **init name** is a property of the **final artifact**, not of any library
   package. It is a `bnc` **build flag** (`--init-name`, default derived from the
   artifact), decided by whoever assembles the artifact. It is **not** a
-  package-statement annotation — that is incompatible with merge (§3.5).
+  package-statement annotation — that is incompatible with merge (two merged
+  library packages with different specified names would give one merged init two
+  irreconcilable names; §3.5).
 - **General principle:** a property that must be **unique per final artifact** (init
   name, an output symbol *prefix*, the header name) → a **build flag**; a **per-item
   export** (a function's C name) → **source** (the library package), and must be
@@ -115,8 +118,8 @@ for co-existence), pulling shared deps in **once**, with one runtime, one
 can't be a library-level annotation: two merged libraries with different specified
 names would give one merged init two irreconcilable names — §3.4.)
 
-Idempotent per-package init + weak-symbol dedup could paper over the double-init and
-duplication, but **does not fix version skew**, so it is a fragile partial
+Idempotent per-package init + weak-symbol dedup can hide the double-init and
+duplication, but **version skew remains unaddressed**, so it is a fragile partial
 alternative; merge is preferred.
 
 ### 3.6 Signature rule: "C-ABI-replicable," not scalar/pointer-only
@@ -143,9 +146,10 @@ So the export does **not** gate on "scalar or pointer." Two things become
    *retains* it must call the rt `RefInc`/`RefDec` — exactly the discipline a Binate
    callee already has. Treating a managed value as an opaque struct/pointer is fine
    at the ABI level; the refcount contract is the caller's responsibility.
-2. **Function-value parameters** are *passable* (the 2-word `{vtable, data}` struct)
-   but awkward to *call* from C (they need the trampoline). "Hard to use," not
-   "can't export."
+2. **Function-value parameters** are *passable* (the 2-word `{vtable, data}` struct
+   — deliberately the **reverse** field order of an interface value's
+   `{data, vtable}`, §7.13.9, so a C typedef must match that order) but awkward to
+   *call* from C (they need the trampoline). "Hard to use," not "can't export."
 
 Reject nothing at the ABI level; optionally **lint** a signature that is
 unusable-in-practice from C.
@@ -230,8 +234,10 @@ name is a property of the **final artifact**, which merge is exactly the operati
 that produces. This generalized into the artifact-vs-source split (§3.4).
 
 **Signature constraint.** *Discarded: "scalar or pointer only" (the strict `__c_call`
-mirror).* Too strict — since Binate uses the platform C ABI, aggregates / managed
-values / slices / interface values are all C-declarable with the right typedefs.
+mirror — §16.9 `pkg.ccall` restricts `__c_call`'s args/return to a C-ABI-passable
+scalar or pointer).* Too strict for the export direction — since Binate uses the
+platform C ABI, aggregates / managed values / slices / interface values are all
+C-declarable with the right typedefs.
 *Chosen:* "C-ABI-replicable" (≈ always), with the **managed-refcount discipline** and
 the **function-value-arg** usability caveat as documentation, not an ABI gate (§3.6).
 
@@ -243,10 +249,11 @@ compiles their files as one package (disjoint names), shared deps once, one
 runtime/init. This is also what forced the init name to a build flag.
 
 **Blank imports / unused imports (a side question, resolved by investigation).**
-Binate does **not** make an unused import a compile error (the checker has no such
-check); it is a **bnlint** concern (`unused-import`), suppressible. **`import _
-"pkg/foo"` is supported** (the grammar's `[ identifier ]` alias admits `_`; bnlint
-explicitly exempts blank imports as intentional side-effect imports). Since Binate
+The **compiler** has **no** unused-import check (nothing in `pkg/binate/types` or
+the loader), so an unused import is not a compile error; it is purely a **bnlint**
+concern (the `unused-import` rule, `cmd/bnlint`), suppressible via `bnlint:allow`.
+**`import _ "pkg/foo"` is supported** (the grammar's `[ identifier ]` alias admits
+`_`; bnlint explicitly exempts blank imports as intentional side-effect imports). Since Binate
 has no `init()`, a blank import's "side effect" is pulling the package (+ deps) in
 so its **package-var initializers run** — a ready-made primitive for a library
 package to include a package for init/exposure without naming it.
