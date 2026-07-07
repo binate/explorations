@@ -447,7 +447,8 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
   produces empty output on `builder-comp_native_aa64-comp_native_aa64` (a BLOCKING
   green mode), a distinct pre-existing bug (aa64 rides X8, not the arm32/x64
   under-reservation) exposed by the P4-b2 review; see claude-todo.md.
-- **P4-c:** interfaces — biggest bucket, but a HIGH-CONFIDENCE MECHANICAL PORT
+- **P4-c:** interfaces — ✅ COMPLETE 2026-07-06 (all sub-phases landed). Biggest
+  bucket, and a HIGH-CONFIDENCE MECHANICAL PORT
   (recon 2026-07-06). The interface ABI is platform-agnostic at the shared layers
   (2-word `{data,vtable}` value, vtable slot layout `[0]=dtor,[1]=*TypeInfo,[2+]=
   methods`, absolute-slot Index precomputed in IR, the sizer's OP_CALL_IFACE_METHOD
@@ -500,10 +501,16 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
     2234/418/0-hangs (+137 over 2097) — the managed-receiver/@Iface/lifecycle bucket
     greened (incl. 554_iface_refcount_balance / 368_iface_managed). Remaining 418 are
     other deferred buckets (func-value-shim/P4, closures/P4-d, generics, float/P5).
-  - **P4-c.5** — conformance sweep + xfail reconciliation (`spec/11-interfaces`
-    green on baremetal + linux; a big-return AND a multi-return iface test; a
-    cross-pkg native↔LLVM iface-dispatch test; a dtor lifecycle test; no
-    regression ≥2007).
+  - **P4-c.5** — ✅ DONE 2026-07-06 (sweep + xfail reconciliation): native arm32
+    conformance at 2234/418/0-hangs after P4-c.1-.4; the iface data / value /
+    dispatch / dtor / lifecycle tests are green (incl. cross-pkg iface dispatch,
+    managed-iface refcount balance, iface-value construct/upcast). No iface xfail
+    markers needed reconciling (0 exist for the native arm32 modes — only 2 markers
+    total, both `__c_global`, unrelated; 0 XPASS). The remaining 418 failures are
+    all OTHER incomplete-feature buckets — func-value-shim aggregate/float/spill
+    residuals (P4), capturing closures (P4-d), generics (non-generic-only for now),
+    and float (P5) — tracked in their own plan phases, NOT iface-dispatch defects.
+    **⇒ P4-c (interfaces) is COMPLETE.**
 - **P4-d:** closures — capturing func values (build on the P4-a shim), the
   over-budget stack-spill shim (tighter R0–R3 budget), non-null dtor slot.
 - **Acceptance**: func-value / closure / interface conformance + unit tests
