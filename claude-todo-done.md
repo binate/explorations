@@ -8,6 +8,43 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## ✅ FIXED & LANDED `9e866a43` (2026-07-06) — native aarch64 **ELF** backend silently miscompiled all page-relative data addressing (`R_AARCH64_NONE`)
+
+**Was: MAJOR (silent wrong-code on an accepted target).** `bnc --target
+aarch64-linux -backend native` emitted **`R_AARCH64_NONE`** for the low-12 half
+of every page-relative data address — string literals (ADRP+ADD), `&global`
+(ADRP+ADD), and `__c_global` (the §5b GOT ADRP+LDR pair). `R_AARCH64_NONE` is a
+linker no-op, so the ADD/LDR imm12 stayed 0: the address got its page bits but
+not its offset → wrong pointer → silent miscompile, no diagnostic.
+
+- **Root cause:** `elfRelocType`'s `EM_AARCH64` arm mapped only kinds 100–104 + 0
+  (branch/ADRP/ADR/abs); the low-12 kinds `FIX_ADD_LO12`(105)/`FIX_LDR_LO12`(106)
+  (pre-existing) and the GOT pair `FIX_ADRP_GOT_HI21`(107)/`FIX_LD_GOT_LO12`(108)
+  (added by §5b) fell through to `return 0` = `R_AARCH64_NONE`. The ELF writer
+  also wrote `rtype` into `r_info` with no `rtype < 0` guard (unlike the Mach-O
+  writer), so it couldn't even fail loud.
+- **Discovered:** the __c_global §5b-1 adversarial review (2 skeptics) flagged the
+  missing aarch64 GOT ELF mapping; confirmed by `objdump -r` of a
+  `--target aarch64-linux -backend native -c` object (`R_AARCH64_NONE` on the
+  string ADD; dep objects route through clang and show the correct relocs).
+- **FIX (user chose "implement the relocs")** — **LANDED `9e866a43`**
+  (`asm/elf: implement aarch64 data + GOT relocs; fail loud on unmapped kinds`),
+  with the __c_global §5b aarch64 commit `a4e6f478`:
+  - Mapped the four aarch64 ELF relocs, matching clang's -fPIE output:
+    105→`R_AARCH64_ADD_ABS_LO12_NC`(277), 106→`LDST64_ABS_LO12_NC`(286),
+    107→`ADR_GOT_PAGE`(311), 108→`LD64_GOT_LO12_NC`(312).
+  - `elfRelocType` now returns `-1` for any still-unmapped `(kind, machine)` +
+    the `if rtype < 0 { a.SetError() }` guard in `elf.Write` — a future gap fails
+    loud instead of emitting `R_<arch>_NONE`. (Tested x64/arm32 ELF paths are
+    fully mapped, never hit −1; verified via the asm/elf end-to-end `Write*`
+    tests.)
+  - Verified: `objdump` of an aarch64-linux object shows `ADR_GOT_PAGE` /
+    `LD64_GOT_LO12_NC` for `__c_global("environ")` and `ADD_ABS_LO12_NC` for
+    strings — byte-matching clang. Unit tests pin the mapping + the −1 contract.
+- **Residual (still OPEN, minor):** not run end-to-end — no aarch64-linux native
+  conformance mode / runtime on the CI host. Tracked in `claude-todo.md`
+  ("Add an aarch64-linux native conformance mode").
+
 ## ✅ FIXED & LANDED (main `a13c96e3` forward + `b648501a` reverse + `ca56bd9e` arm32-unblock, 2026-07-04) — cross-mode 64-bit scalar RETURNS on ILP32 truncated the high word (both directions)
 
 On the 32-bit VM host a bare `int64`/`uint64`/`float64` cross-mode return lost its

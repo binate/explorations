@@ -11,47 +11,6 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
-### native aarch64 **ELF** backend silently miscompiled all page-relative data addressing (`R_AARCH64_NONE`) — ✅ FIXED & LANDED `9e866a43` (residual: no e2e mode) (found + fixed 2026-07-06)
-
-**Was: MAJOR (silent wrong-code on an accepted target).** `bnc --target
-aarch64-linux -backend native` emitted **`R_AARCH64_NONE`** for the low-12 half
-of every page-relative data address — string literals (ADRP+ADD), `&global`
-(ADRP+ADD), and `__c_global` (the §5b GOT ADRP+LDR pair). `R_AARCH64_NONE` is a
-linker no-op, so the ADD/LDR imm12 stayed 0: the address got its page bits but
-not its offset → wrong pointer → silent miscompile, no diagnostic.
-
-- **Root cause:** `elfRelocType`'s `EM_AARCH64` arm mapped only kinds 100–104 + 0
-  (branch/ADRP/ADR/abs); the low-12 kinds `FIX_ADD_LO12`(105)/`FIX_LDR_LO12`(106)
-  (pre-existing) and the GOT pair `FIX_ADRP_GOT_HI21`(107)/`FIX_LD_GOT_LO12`(108)
-  (added by §5b) fell through to `return 0` = `R_AARCH64_NONE`. The ELF writer
-  also wrote `rtype` into `r_info` with no `rtype < 0` guard (unlike the Mach-O
-  writer), so it couldn't even fail loud.
-- **Discovered:** the §5b-1 adversarial review (2 skeptics) flagged the missing
-  aarch64 GOT ELF mapping; confirmed by `objdump -r` of a
-  `--target aarch64-linux -backend native -c` object (`R_AARCH64_NONE` on the
-  string ADD; dep objects route through clang and show the correct relocs).
-- **FIX (user chose "implement the relocs", 2026-07-06)** — **LANDED `9e866a43`**
-  (`asm/elf: implement aarch64 data + GOT relocs; fail loud on unmapped kinds`),
-  with the __c_global §5b aarch64 commit `a4e6f478`:
-  - Mapped the four aarch64 ELF relocs, matching clang's -fPIE output:
-    105→`R_AARCH64_ADD_ABS_LO12_NC`(277), 106→`LDST64_ABS_LO12_NC`(286),
-    107→`ADR_GOT_PAGE`(311), 108→`LD64_GOT_LO12_NC`(312).
-  - `elfRelocType` now returns `-1` for any still-unmapped `(kind, machine)` +
-    the `if rtype < 0 { a.SetError() }` guard in `elf.Write` — a future gap fails
-    loud instead of emitting `R_<arch>_NONE`. (Tested x64/arm32 ELF paths are
-    fully mapped, never hit −1; verified via the asm/elf end-to-end `Write*`
-    tests.)
-  - Verified: `objdump` of an aarch64-linux object shows `ADR_GOT_PAGE` /
-    `LD64_GOT_LO12_NC` for `__c_global("environ")` and `ADD_ABS_LO12_NC` for
-    strings — byte-matching clang. Unit tests pin the mapping + the −1 contract.
-- **RESIDUAL (🟡 OPEN, minor):** not run **end-to-end** — there is no
-  aarch64-linux native conformance mode / runtime on the CI host (no
-  qemu-aarch64; the `native_aa64` mode is macOS/Mach-O). The relocs are
-  clang-byte-verified + unit-tested but not link+run-verified. **Adding an
-  aarch64-linux native conformance mode** would make this (and the §5b GOT path)
-  end-to-end tested; it's the natural regression guard. Until then, the aarch64
-  ELF path is "correct per the ABI + matches clang," not "proven to link+run."
-
 ### HFA-in-SIMD is a CROSS-BACKEND contract — ✅ RESOLVED for AArch64; Stage 4 (x64) remains — 🟡 OPEN
 
 HFA (Homogeneous Floating-point Aggregate) passing in SIMD registers is a
@@ -795,6 +754,18 @@ current flat-`DataTerm` sequence emits none, relying on `2*w` spacing). Do it WH
 built, together with a test that exercises `ptr≠int` (the only thing that validates it).
 
 ## Slimming `pkg/bootstrap`; C interop (`__c_call`)
+
+### Add an aarch64-linux **native** conformance mode (e2e for the aarch64 ELF relocs) — 🟡 OPEN, minor (2026-07-06)
+
+The native aarch64 **ELF** data + GOT relocations (`ADD_ABS_LO12_NC`,
+`LDST64_ABS_LO12_NC`, `ADR_GOT_PAGE`, `LD64_GOT_LO12_NC`) landed in `9e866a43`
+— fixing a MAJOR silent-`R_AARCH64_NONE` miscompile (see `claude-todo-done.md`)
+— are clang-byte-verified (`objdump`) + unit-tested, but **not link+run-verified**:
+there is no aarch64-linux native conformance mode (the `native_aa64` mode is
+macOS/Mach-O; no qemu-aarch64 on the CI host). Adding an aarch64-linux native
+mode (analogous to the x64-linux `builder-comp_native_x64` runner, which needs
+qemu-x86_64 off-x86_64) would make the aarch64 ELF path — and the `__c_global`
+§5b GOT lowering — end-to-end tested. The natural regression guard.
 
 ### Slim `pkg/bootstrap` toward retirement — 🟡 OPEN
 
