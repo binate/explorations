@@ -11,6 +11,48 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
+### native iface method call with STACK-SPILLED aggregate args = wrong values (both native backends) — 🔴 OPEN (found 2026-07-06)
+
+**Severity: MAJOR — silent wrong-code.** An interface-method call
+(`OP_CALL_IFACE_METHOD`) whose aggregate args OVERFLOW the arg registers and
+spill to the stack delivers the spilled aggregate(s) WRONG on **both native
+backends**.  DIRECT calls with the same spilled aggregates are CORRECT (so it is
+iface-specific), and the LLVM backend + the bytecode VM are correct — only the
+native backends' iface call-site is broken.
+
+- **Manifestations** (test: iface method `isum5(p1..p5 I2)` with `I2 = {int64,
+  int64}`; the iface `data` ptr takes one GP arg reg so p4/p5 spill; expected
+  `654321`):
+  - **native x64** (`emitCallIfaceMethod`, `x64_iface.bn`): SELF-CONSISTENT but
+    ABI-INCOMPATIBLE with SysV.  All-native single-file PASSES (654321), but a
+    native `main` calling an **LLVM**-compiled iface method gets garbage
+    (`444205007221`) — the native caller spills at an offset the native callee
+    also uses, but which disagrees with SysV/LLVM.  A silent cross-module ABI bug.
+  - **native aa64** (aarch64 iface lowering): WRONG even all-native single-file —
+    `990_iface_agg_spill` fails `builder-comp_native_aa64` with `650321` (the
+    first spilled arg p4 reads 0).
+- **Scope.** Hits GP-path (integer / dormant) aggregates.  FLOAT aggregates
+  spilling through an iface are CORRECT on both backends (x64 SSE-MEMORY +
+  aa64 HFA-MEMORY — `989_sse_mem_arg` passes everywhere), because those ride the
+  SSE/HFA MEMORY paths.  So the defect is the **class-agnostic GP byte-copy of a
+  MEMORY-class aggregate in the iface call-site**, which diverges from `emitCall`'s
+  (correct) direct-call handling — likely the outgoing-args stack-offset accounting
+  with the iface `data`-pointer prefix (and possibly a collision with the iface
+  call's own fn-ptr spill slot).
+- **How discovered.** x64-SSE follow-up #3 (MEMORY-class SSE arg coverage); an
+  integer-aggregate probe through the iface flip-harness diverged native-vs-LLVM.
+  PRE-EXISTING — the `emitAggregateArg` MEMORY branch in the iface arg-loop predates
+  the 4d-3 SSE work (which only added the register-class SSE branch).
+- **Tests.** `conformance/990_iface_agg_spill` (integer aggs) reproduces the aa64
+  manifestation (fails `native_aa64`); the x64 cross-module manifestation needs a
+  native-main/LLVM-dep harness (not a standard conformance mode).  `native_aa64` IS
+  a CI mode, so 990 needs an `.xfail.builder-comp_native_aa64-comp_native_aa64`
+  until fixed.
+- **Proposed fix.** Compare `emitCallIfaceMethod`'s spilled-aggregate path against
+  `emitCall`'s; fix the native x64 + aa64 iface call-sites' MEMORY-class aggregate
+  stack placement to match SysV/AAPCS64 (and the direct-call path).  Decision (fix
+  now vs land the xfail'd tracker and defer) is the user's.
+
 ### native arm32: a function frame > ~4095 bytes fails to compile (COMPILE_ERROR) — 🔴 OPEN (found 2026-07-06)
 
 **Severity: MAJOR (valid program fails to compile on an accepted backend) — but
