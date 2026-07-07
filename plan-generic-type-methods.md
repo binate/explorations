@@ -32,9 +32,10 @@ checker/parser/ir unit tests.
   modes. Tracked in `claude-todo.md`. The lazy-emission trigger for the method-value
   path is already landed.
 - **Phase 3c** (constraint-path `typeSatisfiesConstraint`) — secondary.
-- **File-length split** — `check_generic_type.bn` (522) / `gen_generic.bn` (529)
-  nudged over the 500 soft warning; split as an immediate follow-up (user-approved
-  land-now / split-after).
+- **File-length split** — DONE, landed `98427a40`: `check_generic_backfill.bn`
+  (back-fill helpers, out of `check_generic_type.bn` → 474) and
+  `gen_generic_type_inst.bn` (struct/iface instantiation, out of `gen_generic.bn`
+  → 316), each with a sibling `_test.bn`.
 - **Spec/doc sweep** (§5 below) — narrow `gen.no-generic-methods`, mark
   `gen.method.generic-recv` / `gen.impl.generic-recv` implemented, update
   `plan-stdx-containers.md`.
