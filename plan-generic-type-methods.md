@@ -32,9 +32,18 @@ checker/parser/ir unit tests.
   method decl so IR-gen never saw it (`recvIsGenericInst` added). Checker stashes
   imported method decls (`Checker.ImportedGenericMethodDecls`) and resolves them with
   concrete args at instantiation (`copyImportedGenericMethods`); IR-gen stashes them in
-  `registerImportFieldsAndFuncs` for per-instantiation emission. Conformance 449 green
-  across builder-comp / -int / -comp. **Pending: adversarial review + landing** (needs
-  approval; lands with the two commits).
+  `registerImportFieldsAndFuncs` for per-instantiation emission. Adversarial review
+  (2 commits) found + FIXED three MAJOR defects (all the same empty-TypeParams family):
+  (1) loader `recvBaseName` returned empty for a `@Box[T]` receiver, so `sameFuncDecl`
+  false-matched two generic types' same-named methods and dropped a bystander during
+  merge (miscompile) — now returns the generic base name; (2) the transitive-import
+  stash (`RegisterGenericDecls`) led with `len(TypeParams)==0 continue`, dropping
+  generic-receiver methods for a transitively-reached type (miscompile) — added the
+  skip/stash branch; (3) a renamed receiver binder (`@Pair[A,B]` on `Pair[K,V]`) was
+  spuriously rejected cross-package — `copyImportedGenericMethods` + `emitInstantiatedMethod`
+  now install the method's own binder names. Regression tests 162/163/164. Green across
+  builder-comp / -int / -comp; hygiene 16/16. **Pending: landing** (needs approval; the
+  two commits are `6275cb9f` parser + the amended cross-package commit).
 - **Method-value on a generic instantiation** — pre-existing invalid-struct-name
   mangling defect (`Box[int]` raw brackets); conformance 146 is xfail on LLVM-text
   modes. Tracked in `claude-todo.md`. The lazy-emission trigger for the method-value
