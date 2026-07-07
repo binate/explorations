@@ -224,9 +224,24 @@ flag/accounting *pattern*).
     linked the legacy 32-bit-inode stat/readdir libc symbols instead of the
     `$INODE64` variants.  Fixed os-side (`7049fe52`; see claude-todo-done.md).
     `native_x64_darwin` is now fully green (both are local Rosetta modes, NOT in CI).
-  - **MEMORY-class SSE arg** (stackOff >= 0, needs 9+ SSE eightbytes) rides the
-    unchanged class-agnostic byte-copy path across all dispatch families —
-    untested (documented gap).  ← follow-up #3, in progress.
+  - **MEMORY-class SSE arg** (stackOff >= 0) — **DONE** (follow-up #3).
+    `989_sse_mem_arg` (landed) covers a MEMORY-class SSE aggregate arg through the
+    direct, iface, AND closure paths; verified cross-module (native-main/LLVM-dep
+    flip harness, direct call) + all default modes + native_x64_darwin (SSE gate
+    live) + native_aa64 (HFA-MEMORY).  The SSE MEMORY byte-copy is correct.
+
+  **NEW MAJOR BUG surfaced during #3 (deferred — see claude-todo "native↔LLVM ABI
+  divergence: a GP aggregate that STRADDLES the reg/stack boundary"):** a 16-byte
+  INTEGER aggregate that straddles the GP arg-reg/stack boundary is passed
+  incompatibly — native + clang do all-or-nothing, Binate's LLVM codegen SPLITS it
+  (per-type `[N x i64]` coercion with no register-budget awareness → LLVM splits
+  the straddler across the last GP reg + stack; confirmed via `llc`).  Breaks
+  native↔LLVM interop + C-ABI compat.  NOT iface-specific (a direct straddling call
+  reproduces it).  Plus a separate aa64-native single-file inconsistency.  Root
+  cause + fix plan (shared position-aware arg classifier in pkg/types + byval the
+  memory-class aggregates) fully worked out; tracked by `992_iface_agg_spill`
+  (xfail'd for native_aa64).  Fix deferred to a focused core-ABI effort (it touches
+  the aggregate-param ABI for every function, so it warrants dedicated care).
 
 ## Open questions / risks (from the survey)
 
