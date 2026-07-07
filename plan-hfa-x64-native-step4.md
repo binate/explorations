@@ -162,9 +162,27 @@ flag/accounting *pattern*).
     (stackOff >= 0) rides the unchanged class-agnostic byte-copy path, untested.
 
   **Stage-4 dispatch COMPLETE** (direct 4c + func-value 4d-1/4d-arg + closure
-  4d-2 + iface 4d-3). Remaining for the x64 SSE project: **Step 5** (full
-  `builder-comp_native_x64_darwin` conformance under a temporary flip) then
-  **Step 6** (flip `SysVSseInRegs()` -> `GetTarget().Arch == ARCH_X64`).
+  4d-2 + iface 4d-3).
+
+  **[DONE] Step 5 — full `builder-comp_native_x64_darwin` conformance under a
+  temporary flip (the comprehensive gate).** Ran the whole
+  `builder-comp_native_x64_darwin-comp_native_x64_darwin` suite (native x64
+  backend, executed under Rosetta) dormant then with `SysVSseInRegs()` flipped
+  to `GetTarget().Arch == ARCH_X64`, and diffed.  Both runs: **2661 passed / 8
+  failed / 7 skipped — IDENTICAL sets**; the flipped-vs-dormant regression set is
+  EMPTY.  The 8 failures are pre-existing and unrelated to SSE
+  (`731/733/736/737_build_*_select` + `stdlib/os/{006_readdir,008_stat_errors,
+  009_stat,010_modtime_chain}`) — they fail both ways.  So the whole Stage-4 SSE
+  plumbing (direct + func-value + closure + iface, arg + return, all eightbyte
+  classes incl. dual-file) is correct across the ENTIRE suite with the SSE ABI
+  active — not just the ~18 targeted 97x/98x tests.  Flip was reverted after
+  (main stays dormant; the live flip is Step 6).
+
+  Remaining for the x64 SSE project: **Step 6** — land the flip
+  `SysVSseInRegs()` -> `GetTarget().Arch == ARCH_X64` to make x64 SSE live
+  (mirrors the aa64 HfaInSimd Stage-3 flip).  NOTE: the 8 pre-existing
+  native_x64_darwin dormant failures are independent of SSE but worth tracking
+  before/around the flip.
 
 ## Open questions / risks (from the survey)
 
