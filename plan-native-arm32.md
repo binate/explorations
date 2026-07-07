@@ -492,7 +492,14 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
     it, shadowed by the large-frame COMPILE_ERROR bug in claude-todo.md). Native
     conformance 2097/543/0-hangs (+61 vs P4-c.2); the 543 remaining are documented
     deferred buckets (143 need the dtor → P4-c.4, float → P5, closures → P4-d).
-  - **P4-c.4** — `OP_IFACE_DTOR` + managed-iface-value lifecycle.
+  - **P4-c.4** — ✅ DONE & LANDED 2026-07-06 (`7b99a1cf`): `OP_IFACE_DTOR` — a
+    two-step vtable LOAD (vtable at IfaceValueVtableOffset, then slot 0 = the dtor
+    handle), NOT a call; the invocation happens in the OP_REFDEC → rt.ZeroRefDestroy
+    slow path (which null-guards), mirroring OP_FUNC_VALUE_DTOR. Review LAND (zero
+    issues; refcount fires exactly once, no leak/UAF). Native conformance
+    2234/418/0-hangs (+137 over 2097) — the managed-receiver/@Iface/lifecycle bucket
+    greened (incl. 554_iface_refcount_balance / 368_iface_managed). Remaining 418 are
+    other deferred buckets (func-value-shim/P4, closures/P4-d, generics, float/P5).
   - **P4-c.5** — conformance sweep + xfail reconciliation (`spec/11-interfaces`
     green on baremetal + linux; a big-return AND a multi-return iface test; a
     cross-pkg native↔LLVM iface-dispatch test; a dtor lifecycle test; no
