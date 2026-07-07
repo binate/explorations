@@ -47,8 +47,11 @@ checker/parser/ir unit tests.
   pushed scope (spurious reject) and IR-gen first-match shadow (silent miscompile,
   reachable same-package). Fixed by snapshotting args before aliasing (checker) and
   mapping the receiver binders FIRST (IR-gen). Regression tests 162/163/164/165/166.
-  Green across builder-comp / -int / -comp; hygiene 16/16. **Pending: landing** (needs
-  approval; the two commits are `6275cb9f` parser + the amended cross-package commit).
+  Green across builder-comp / -int / -comp; hygiene 16/16. **LANDED 2026-07-06**:
+  `5051aa59` (parser) + `ba804ca8` (loader + checker + IR-gen), tip `ba804ca8`. With
+  the local feature and the file split, methods-on-generic-types is complete on main.
+  Remaining follow-ups are the pre-existing method-value naming bug (146 xfail,
+  claude-todo), Phase 3c (constraint-path), and the spec/doc sweep (§5).
 - **Method-value on a generic instantiation** — pre-existing invalid-struct-name
   mangling defect (`Box[int]` raw brackets); conformance 146 is xfail on LLVM-text
   modes. Tracked in `claude-todo.md`. The lazy-emission trigger for the method-value
