@@ -22,11 +22,19 @@ dev host). Tests: conformance 145/146(xfail)/447/448/459/468/469/514/516/522/833
 checker/parser/ir unit tests.
 
 **Still open (follow-ups, NOT landed):**
-- **Cross-package** — the parser piece (`.bni` generic-receiver method bodies) is
-  committed on `work-2` (held, not landed); the checker (imported-method registry
-  consulted by `populateInstantiatedStruct`) and IR-gen (stash imported generic-method
-  decls) halves remain. Driver: conformance 449 (removed from tree; recreate for the
-  series).
+- **Cross-package — DONE (on `work-2`, not yet landed).** A consumer can instantiate
+  an imported generic type (`@gbox.Box[int]`) and call its methods. Two commits:
+  `6275cb9f` (parser: `.bni` generic-receiver method bodies) + `0c005316` (loader +
+  checker + IR-gen). The load-bearing insight is that a generic-receiver method has
+  EMPTY decl-level TypeParams, so every "is this generic" test keyed on TypeParams
+  missed it — including the **loader's** `.bni`→merged inclusion test
+  (`d.Body==nil || len(TypeParams)>0`), which silently dropped the body-carrying
+  method decl so IR-gen never saw it (`recvIsGenericInst` added). Checker stashes
+  imported method decls (`Checker.ImportedGenericMethodDecls`) and resolves them with
+  concrete args at instantiation (`copyImportedGenericMethods`); IR-gen stashes them in
+  `registerImportFieldsAndFuncs` for per-instantiation emission. Conformance 449 green
+  across builder-comp / -int / -comp. **Pending: adversarial review + landing** (needs
+  approval; lands with the two commits).
 - **Method-value on a generic instantiation** — pre-existing invalid-struct-name
   mangling defect (`Box[int]` raw brackets); conformance 146 is xfail on LLVM-text
   modes. Tracked in `claude-todo.md`. The lazy-emission trigger for the method-value
