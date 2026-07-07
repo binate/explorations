@@ -214,15 +214,19 @@ flag/accounting *pattern*).
     conformance CI run on a commit >= the flip (ce759c41); the SSE register
     placement is object-format-independent, so an x64-linux-specific SSE regression
     is very unlikely.
-  - **8 pre-existing `native_x64_darwin` dormant failures** (SSE-unrelated,
-    unmarked): `731/733/736/737_build_*_select` (arch-expectation: `.expected`
-    hardcodes aarch64, x64 mode correctly yields x64) + `stdlib/os/{006_readdir,
-    008_stat_errors,009_stat,010_modtime_chain}` (Rosetta/x64 fs env).  Plus a
-    pre-existing `TestX64MachoExitsWithCode` unit-test panic (`time.FromUnix:
-    nsec out of range`) in that mode.  Need triage (xfail markers or fixes).
+  - **8 pre-existing `native_x64_darwin` failures + the `TestX64MachoExitsWithCode`
+    panic — RESOLVED.** Triaged via a workflow (one agent per group).  Two causes:
+    (1) `731/733/736/737_build_*_select` were NOT bugs — the x64 output is correct;
+    `native_x64_darwin` is a CROSS mode so the host-arch `expected.x64` tier never
+    fired.  Fixed with per-mode `expected.<MODE>` overrides (`2f0478c4`).  (2)
+    `stdlib/os/{006_readdir,008_stat_errors,009_stat,010_modtime_chain}` + the
+    `TestX64MachoExitsWithCode` panic were ONE real MAJOR bug — x86_64-darwin `os`
+    linked the legacy 32-bit-inode stat/readdir libc symbols instead of the
+    `$INODE64` variants.  Fixed os-side (`7049fe52`; see claude-todo-done.md).
+    `native_x64_darwin` is now fully green (both are local Rosetta modes, NOT in CI).
   - **MEMORY-class SSE arg** (stackOff >= 0, needs 9+ SSE eightbytes) rides the
     unchanged class-agnostic byte-copy path across all dispatch families —
-    untested (documented gap).
+    untested (documented gap).  ← follow-up #3, in progress.
 
 ## Open questions / risks (from the survey)
 
