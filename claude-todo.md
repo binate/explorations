@@ -11,6 +11,34 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
+### native arm32: a function frame > ~4095 bytes fails to compile (COMPILE_ERROR) — 🔴 OPEN (found 2026-07-06)
+
+**Severity: MAJOR (valid program fails to compile on an accepted backend) — but
+FAIL-LOUD (a clean COMPILE_ERROR, not a silent miscompile).** A native-arm32
+function whose frame exceeds the ARM 12-bit (4095-byte) immediate-offset range
+fails: `error: native backend failed to emit object (arch=arm32)`.
+
+- **Reproduced (minimal, NON-iface, so it is pre-existing and general — not P4-c):**
+  `func main() { var buf [2000]int; buf[0]=1; buf[1999]=2; println(buf[0]+buf[1999]) }`
+  ([2000]int = 8000 bytes) → COMPILE_ERROR on `builder-comp_native_arm32_baremetal`.
+- **Root cause: UNKNOWN — needs investigation.** Some large frame-offset load/store
+  (or array-init / prologue) path hits `a.SetError` when the offset > 4095, instead
+  of materializing the address (as `emitFrameStore`/`emitFrameLoad`/`emitFrameAddr`
+  already do). Candidate: a store/load using a bare `MemImm(SP, off)` without the
+  emitFrame*-style IP-materialization fallback for a large `off`.
+- **Secondary finding (diagnostics gap):** the native backend swallows the SPECIFIC
+  `a.SetError` message into the generic "native backend failed to emit object
+  (arch=arm32)" — the precise failing path is not surfaced, making this (and any
+  arm32 emit failure) hard to localize. The backend should print the specific
+  SetError message.
+- **Interaction with P4-c.3 (why it matters now):** the P4-c.3 iface-dispatch
+  method-pointer spill bug (spilling IP directly, fixed in the P4-c.3 commit) only
+  manifests when the spill slot offset > 4095 — i.e. a large frame — which this bug
+  makes fail to compile FIRST. So the iface-spill wrong-code is currently
+  UNREACHABLE (shadowed by this COMPILE_ERROR); the fix is kept so it can't surface
+  silently once this large-frame bug is fixed. A conformance regression test for the
+  iface-spill is therefore not expressible until this is fixed (a unit test guards it).
+
 ### HFA-in-SIMD is a CROSS-BACKEND contract — ✅ RESOLVED for AArch64; Stage 4 (x64) remains — 🟡 OPEN
 
 HFA (Homogeneous Floating-point Aggregate) passing in SIMD registers is a
