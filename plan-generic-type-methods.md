@@ -41,9 +41,14 @@ checker/parser/ir unit tests.
   generic-receiver methods for a transitively-reached type (miscompile) — added the
   skip/stash branch; (3) a renamed receiver binder (`@Pair[A,B]` on `Pair[K,V]`) was
   spuriously rejected cross-package — `copyImportedGenericMethods` + `emitInstantiatedMethod`
-  now install the method's own binder names. Regression tests 162/163/164. Green across
-  builder-comp / -int / -comp; hygiene 16/16. **Pending: landing** (needs approval; the
-  two commits are `6275cb9f` parser + the amended cross-package commit).
+  now install the method's own binder names. A focused RE-REVIEW of those fixes found a
+  fifth: the renamed-binder handling mishandled a binder that reuses a SIBLING type
+  param's name (a swap `@Pair[V, K]` on `Pair[K, V]`) — checker read-after-write on the
+  pushed scope (spurious reject) and IR-gen first-match shadow (silent miscompile,
+  reachable same-package). Fixed by snapshotting args before aliasing (checker) and
+  mapping the receiver binders FIRST (IR-gen). Regression tests 162/163/164/165/166.
+  Green across builder-comp / -int / -comp; hygiene 16/16. **Pending: landing** (needs
+  approval; the two commits are `6275cb9f` parser + the amended cross-package commit).
 - **Method-value on a generic instantiation** — pre-existing invalid-struct-name
   mangling defect (`Box[int]` raw brackets); conformance 146 is xfail on LLVM-text
   modes. Tracked in `claude-todo.md`. The lazy-emission trigger for the method-value
