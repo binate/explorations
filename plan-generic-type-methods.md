@@ -58,10 +58,25 @@ Work is on the `work-2` worktree branch (not yet landed; Phases 1–3 land toget
   instantiated with `Cursor[int]` isn't accepted. Its receiver-kind semantics differ
   from assignability (constraint satisfaction vs `receiverAssignable`), so it needs a
   tailored substitution-aware branch. Secondary to the interface-value use.
-- **Method-population ordering hazard** (noted in the code): a type instantiated before
-  its methods are collected gets an incomplete method set; concrete instantiations
-  arise in pass 2 after collection, so it hasn't bitten, but a lazy/post-collection
-  population would harden it.
+- **Method-population ordering hazard — HIT, and FIXED.** The adversarial review of
+  Phases 1–4 (2026-07-06) disproved the "hasn't bitten" note: a generic type
+  instantiated as a top-level **var / field / param / receiver** type resolves during
+  pass-1 collection — *before* a later-in-source method decl — so the cached
+  instantiation was baked method-less. Three confirmed, reproduced, same-package
+  defects (all missed by the shipped tests, which only instantiate in `main`):
+  - CRITICAL (IR-gen): methods never emitted → **silent broken link** for valid code
+    (`ensureInstantiatedStruct` fired in pass 1/2, before the pass-3 method registry).
+    Fix (commit `84125fcd`): defer emission to the pass-2 use sites (`genMethodCall` /
+    `wrapAsIfaceValue` → `ensureMethodsForInstName`), recording `(decl, defPkg, args)`
+    on the `ModuleStruct`, mirroring generic-function lazy emission.
+  - CRITICAL (checker): a method body couldn't call a sibling/itself (abstract shell
+    `Box[T]` cached method-less at first-method resolution). Fix (commit `6b70af85`).
+  - MAJOR (checker): var/field/param-before-method → spurious `undefined: <method>`.
+    Fix (commit `6b70af85`): `backfillInstantiationMethods` re-syncs cached
+    instantiations at the end of `collectDecls`.
+  Coverage added: conformance 459 (sibling call), 468 (global-var-before), 469
+  (field-before — the link repro), 833 (param-before) + checker unit tests. All green
+  across builder-comp / -int / -comp; 295 generic+iface tests, 0 regressions.
 - **Phase 4 — IR-gen: LOCAL case DONE; cross-package IN PROGRESS.** The feature now
   runs for same-package generic types across every host mode.
   - **4.1 (commit `5d135bac`)** — skip generic-receiver methods in the concrete-method
