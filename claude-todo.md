@@ -11,49 +11,6 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
-### native x86_64-darwin `os` links the LEGACY (32-bit-inode) stat/readdir libc symbols, not `$INODE64` — 🔴 OPEN (found 2026-07-06)
-
-**Severity: MAJOR — silent data corruption + a panic.** A native **x86_64-darwin**
-Binate program that calls `os.Stat` / `os.Lstat` / `File.Stat` / `os.ReadDir`
-gets garbage `FileInfo` (e.g. `st_size` reads 0) and, because the mis-read
-`st_mtime_nsec` lands on a seconds-magnitude value (~1.78e9 ≥ 1e9),
-`time.FromUnix` **panics** (`nsec out of range [0, 1e9)`). x86_64-darwin ONLY —
-arm64-darwin's bare `_stat` IS the 64-bit-inode variant, and the x64 Linux/CI
-axis has no `$INODE64` split, so `builder-comp` (arm64 host), `native_aa64`, and
-`native_x64` (Linux) all pass; only the Rosetta `native_x64_darwin` mode shows it.
-
-- **Root cause.** On x86_64 macOS, `<sys/stat.h>`/`<dirent.h>` alias
-  `stat`/`lstat`/`fstat`/`readdir`/`opendir` via `__DARWIN_INODE64` to the
-  `_stat$INODE64`… symbols, which fill the modern 144-byte 64-bit-inode `struct
-  stat` / dirent. The plain un-suffixed `_stat`… symbols still exist but are the
-  LEGACY 32-bit-inode functions with a DIFFERENT layout. Binate's
-  `impls/stdlib/pkg/std/os/{stat_io.bn,stat_darwin.bn,readdir_darwin.bn}` replicate
-  the 64-bit-inode layout but `__c_call("stat",…)` emits the **bare** `_stat`
-  (native x64 `symPrefixed` adds only the Mach-O leading `_`; the LLVM path emits
-  the raw symbol too), so libc fills the legacy layout and `os` decodes it at
-  64-bit-inode offsets → garbage.
-- **How discovered.** Triage of the pre-existing `native_x64_darwin` failures during
-  the x64-SSE Step-6 follow-up; confirmed with an x86_64 C probe (bare `_stat`
-  gave `size=0`, `mtime_nsec=1783396731`; `_stat$INODE64` gave the correct values).
-  NOT SSE-related.
-- **Covering tests (all fail `native_x64_darwin`, which is NOT a CI mode — local
-  Rosetta only):** `conformance/stdlib/os/{006_readdir,008_stat_errors,009_stat,
-  010_modtime_chain}` and the unit test `TestX64MachoExitsWithCode`
-  (`pkg/binate/native/x64/x64_link_test.bn`, whose `amdRuntimeFile` helper calls
-  `os.Stat`). readdir has the same defect (`_readdir` legacy vs `_readdir$INODE64`).
-- **Proposed fix (os-side, `$INODE64` passes through `__c_call` verbatim — the `$`
-  is unmangled):** add `impls/stdlib/pkg/std/os/stat_io_darwin_x64.bn` gated
-  `#[build(is(os,"darwin") && is(arch,"x64"))]` with `statFd`/`statPath`/`lstatPath`
-  calling `fstat$INODE64`/`stat$INODE64`/`lstat$INODE64`, and tighten `stat_io.bn`'s
-  build constraint to exclude that combo (bare symbols stay correct for Linux
-  x64/aarch64 + arm64-darwin). Same for `readdir$INODE64` in a darwin-x64 readdir
-  file. (Alternative: the native x64 macho backend rewrites the bare stat-family
-  c-call names to their `$INODE64` variants like clang's `__DARWIN_INODE64` macro —
-  but that only fixes the native backend, not the LLVM x64-darwin path, so the
-  os-side split is preferred.) **Do NOT** pin an `expected`-override for these — that
-  would enshrine corrupted output and hide the miscompile. Decision (fix now vs
-  xfail+defer) is the user's.
-
 ### native arm32: a function frame > ~4095 bytes fails to compile (COMPILE_ERROR) — 🔴 OPEN (found 2026-07-06)
 
 **Severity: MAJOR (valid program fails to compile on an accepted backend) — but

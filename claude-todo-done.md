@@ -8,6 +8,36 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## native x86_64-darwin `os` linked the LEGACY (32-bit-inode) stat/readdir libc symbols, not `$INODE64` — ✅ FIXED & LANDED `7049fe52` (2026-07-06)
+
+**Was MAJOR — silent data corruption + a panic.** A native/LLVM **x86_64-darwin**
+Binate program calling `os.Stat` / `os.Lstat` / `File.Stat` / `os.ReadDir` got
+garbage `FileInfo` (`st_size` read 0) and, because the mis-read `st_mtime_nsec`
+landed on a seconds-magnitude value (~1.78e9 ≥ 1e9), `time.FromUnix` **panicked**
+(`nsec out of range [0, 1e9)`). x86_64-darwin ONLY — arm64-darwin's bare `_stat`
+IS the 64-bit-inode variant, and x64-Linux has no `$INODE64` split.
+
+- **Root cause.** On x86_64 macOS, `<sys/stat.h>`/`<dirent.h>` alias
+  `stat`/`lstat`/`fstat`/`readdir`/`opendir` via `__DARWIN_INODE64` to their
+  `$INODE64` variants (the 64-bit-inode layouts `stat_darwin.bn`/`readdir_darwin.bn`
+  replicate). `__c_call("stat",…)` emitted the **bare** `_stat` (both the native
+  x64 macho path and LLVM emit the symbol verbatim) — the LEGACY 32-bit-inode
+  function with an incompatible layout — so `os` decoded a legacy buffer at
+  64-bit-inode offsets → garbage.
+- **Fix (os-side; `$` passes through `__c_call` verbatim).** New darwin-x64-gated
+  `impls/stdlib/pkg/std/os/stat_io_darwin_x64.bn` (`stat$INODE64`/`lstat$INODE64`/
+  `fstat$INODE64`) + `readdir_darwin_x64.bn` (`readdir$INODE64`); the base
+  `stat_io.bn` / `readdir_darwin.bn` gates now exclude darwin-x64. `opendir`/
+  `closedir` stay shared (verified a bare-`opendir` DIR* works with
+  `readdir$INODE64`). Per-platform `_test.bn` siblings pin the symbol choice.
+- **Discovered + verified.** Triaged during the x64-SSE Step-6 follow-up (a
+  workflow root-caused it against an x86_64 C probe). Fix verified on BOTH backends:
+  native `conformance/stdlib/os/{006,008,009,010}` + `TestX64MachoExitsWithCode` pass
+  under `native_x64_darwin`; the LLVM x86_64-darwin build's `nm -u` shows
+  `_stat$INODE64` and its Rosetta output matches `009_stat.expected`. arm64 default
+  (os conformance 10 + unit 27) unaffected. NOTE: `native_x64_darwin` is NOT a CI
+  mode (local Rosetta only), so these tests don't gate CI.
+
 ## Separate compilation was BROKEN (`--pkg` dropped the runtime-dep loads) + now tested — ✅ FIXED & LANDED `08588f23` / `54aac72b` (2026-07-06)
 
 Separate compilation per package — `bnc --pkg <pkg>` to a `.o`, then link the
