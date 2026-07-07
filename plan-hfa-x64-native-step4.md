@@ -197,12 +197,23 @@ flag/accounting *pattern*).
 
   ## Follow-ups (deferred, tracked separately — "handle other stuff separately")
 
-  - **Broader x64-mode flip verification.** The flip affects ALL x64 targets, but
-    Step 5 exercised only `native_x64_darwin`.  Still to run under the now-live
-    flip: `builder-comp_native_x64-comp_native_x64` (x64 ELF/Linux native) and any
-    LLVM-backend x64 conformance mode.  (The LLVM x64 SSE path IS validated
-    cross-module by the /tmp/sse_* all-LLVM reference builds, just not a full
-    conformance run.)
+  - **Broader x64-mode flip verification — RESOLVED (CI-covered).** The flip
+    affects ALL x64 targets; Step 5 exercised `native_x64_darwin` (runtime, green).
+    The other x64 modes are NOT locally runnable on this arm64 macOS host but ARE
+    exercised by CI on the ubuntu-latest **x86_64** runner with the flip live:
+    - `builder-comp_native_x64-comp_native_x64` (x64 ELF/Linux native) — can't run
+      locally (no Linux libc / qemu; the local attempt failed at the C-runtime
+      LINK with `stdio.h not found`, i.e. AFTER `bnc` emitted the ELF objects
+      cleanly — so the ELF x64 SSE *codegen* is locally confirmed, only the Linux
+      runtime link is unavailable).  Runs natively on the x86_64 CI runner.
+    - **LLVM-x64 SSE** needs no dedicated mode: on the x86_64 CI runner the DEFAULT
+      modes (`builder-comp` etc., bnc's default backend = LLVM, target x86_64-linux)
+      ARE the LLVM-x64 conformance run.  Also cross-validated locally by the
+      /tmp/sse_* all-LLVM x86_64-darwin reference builds.
+    Both CI modes are non-experimental (gating).  Definitive confirmation = a green
+    conformance CI run on a commit >= the flip (ce759c41); the SSE register
+    placement is object-format-independent, so an x64-linux-specific SSE regression
+    is very unlikely.
   - **8 pre-existing `native_x64_darwin` dormant failures** (SSE-unrelated,
     unmarked): `731/733/736/737_build_*_select` (arch-expectation: `.expected`
     hardcodes aarch64, x64 mode correctly yields x64) + `stdlib/os/{006_readdir,
