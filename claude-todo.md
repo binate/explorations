@@ -11,47 +11,50 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
-### native iface method call with STACK-SPILLED aggregate args = wrong values (both native backends) — 🔴 OPEN (found 2026-07-06)
+### native↔LLVM ABI divergence: a GP aggregate that STRADDLES the reg/stack boundary — LLVM splits it, native (+clang) does all-or-nothing — 🔴 OPEN (found 2026-07-06)
 
-**Severity: MAJOR — silent wrong-code.** An interface-method call
-(`OP_CALL_IFACE_METHOD`) whose aggregate args OVERFLOW the arg registers and
-spill to the stack delivers the spilled aggregate(s) WRONG on **both native
-backends**.  DIRECT calls with the same spilled aggregates are CORRECT (so it is
-iface-specific), and the LLVM backend + the bytecode VM are correct — only the
-native backends' iface call-site is broken.
+**Severity: MAJOR — silent wrong-code across the dual-mode boundary (and vs C).**
+A ≤16-byte INTEGER-class aggregate arg that does not fully fit in the remaining
+GP arg registers (some but not all eightbytes would fit) is passed
+INCOMPATIBLY between the two backends:
+- **native backend (x64 confirmed) + clang (the SysV reference): ALL-OR-NOTHING**
+  — the whole aggregate goes to MEMORY, the one free GP reg (e.g. `%r9`) is left
+  unused.  `emitAggregateArg` has `CallConv.SplitAggregates = false`.
+- **Binate's own LLVM codegen: SPLITS** — the first eightbyte rides the last free
+  GP reg (`%r9`), the rest go to the stack.
+- **VM**: correct.
 
-- **Manifestations** (test: iface method `isum5(p1..p5 I2)` with `I2 = {int64,
-  int64}`; the iface `data` ptr takes one GP arg reg so p4/p5 spill; expected
-  `654321`):
-  - **native x64** (`emitCallIfaceMethod`, `x64_iface.bn`): SELF-CONSISTENT but
-    ABI-INCOMPATIBLE with SysV.  All-native single-file PASSES (654321), but a
-    native `main` calling an **LLVM**-compiled iface method gets garbage
-    (`444205007221`) — the native caller spills at an offset the native callee
-    also uses, but which disagrees with SysV/LLVM.  A silent cross-module ABI bug.
-  - **native aa64** (aarch64 iface lowering): WRONG even all-native single-file —
-    `990_iface_agg_spill` fails `builder-comp_native_aa64` with `650321` (the
-    first spilled arg p4 reads 0).
-- **Scope.** Hits GP-path (integer / dormant) aggregates.  FLOAT aggregates
-  spilling through an iface are CORRECT on both backends (x64 SSE-MEMORY +
-  aa64 HFA-MEMORY — `989_sse_mem_arg` passes everywhere), because those ride the
-  SSE/HFA MEMORY paths.  So the defect is the **class-agnostic GP byte-copy of a
-  MEMORY-class aggregate in the iface call-site**, which diverges from `emitCall`'s
-  (correct) direct-call handling — likely the outgoing-args stack-offset accounting
-  with the iface `data`-pointer prefix (and possibly a collision with the iface
-  call's own fn-ptr spill slot).
-- **How discovered.** x64-SSE follow-up #3 (MEMORY-class SSE arg coverage); an
-  integer-aggregate probe through the iface flip-harness diverged native-vs-LLVM.
-  PRE-EXISTING — the `emitAggregateArg` MEMORY branch in the iface arg-loop predates
-  the 4d-3 SSE work (which only added the register-class SSE branch).
-- **Tests.** `conformance/990_iface_agg_spill` (integer aggs) reproduces the aa64
-  manifestation (fails `native_aa64`); the x64 cross-module manifestation needs a
-  native-main/LLVM-dep harness (not a standard conformance mode).  `native_aa64` IS
-  a CI mode, so 990 needs an `.xfail.builder-comp_native_aa64-comp_native_aa64`
-  until fixed.
-- **Proposed fix.** Compare `emitCallIfaceMethod`'s spilled-aggregate path against
-  `emitCall`'s; fix the native x64 + aa64 iface call-sites' MEMORY-class aggregate
-  stack placement to match SysV/AAPCS64 (and the direct-call path).  Decision (fix
-  now vs land the xfail'd tracker and defer) is the user's.
+All-native and all-LLVM programs are each SELF-CONSISTENT (both sides use the
+same rule), so this hid for a long time; it bites at the **native↔LLVM boundary**
+(dual-mode interop — a core feature) AND means Binate-LLVM binaries are NOT
+C-ABI-compatible for such args (clang does all-or-nothing).
+
+- **NOT iface-specific** (initial diagnosis was wrong).  Reproduced with a DIRECT
+  cross-module call `dsum(lead int64, p1..p4 I2)` where `lead`→`%rdi` shifts the
+  I2s so `p3` straddles: native `main` → LLVM `dsum` mismatches (`sse_native` vs
+  `sse_llvm` diverge; LLVM=correct `543219`).  The iface case (`990_iface_agg_spill`)
+  hits it more readily because the iface `data` ptr consumes `%rdi`, straddling `p3`.
+- **Which side is "right":** clang = all-or-nothing, so the **native backend is
+  ABI-correct and the LLVM codegen is WRONG** (it must coerce the aggregate param
+  so LLVM does not split it — mirroring how clang coerces).  Fix lives in the LLVM
+  aggregate-param lowering (`pkg/binate/codegen`), NOT the native call-site.
+- **Separate aa64 bug:** `990_iface_agg_spill` fails `native_aa64` **all-native
+  single-file** (`650321`, spilled `p4` reads 0) — so the aa64 NATIVE backend is
+  INTERNALLY inconsistent for a straddling GP aggregate (caller vs callee disagree),
+  a distinct defect from the x64 native↔LLVM split above.  Needs its own root-cause.
+- **FLOAT aggregates are fine** (x64 SSE-MEMORY + aa64 HFA-MEMORY — `989_sse_mem_arg`
+  passes everywhere); this is a GP-class-only defect.  PRE-EXISTING (predates the
+  x64-SSE work; surfaced during its follow-up #3 MEMORY-arg coverage).
+- **Tests.** `conformance/990_iface_agg_spill` reproduces the aa64 single-file case
+  (fails `native_aa64`, a CI mode → needs an
+  `.xfail.builder-comp_native_aa64-comp_native_aa64` until fixed).  The x64
+  native↔LLVM manifestation needs a native-main/LLVM-dep harness (not a standard
+  conformance mode; /tmp/direct_straddle + /tmp/int_iface reproduce it).
+- **Proposed fix.** (1) LLVM codegen: coerce a straddling GP aggregate param to the
+  all-or-nothing form (match clang/native) — check how `pkg/codegen` lowers by-value
+  aggregate params vs clang's `[N x i64]`/byval coercion.  (2) aa64 native: fix the
+  internal caller/callee disagreement for a straddling GP aggregate.  Decision on
+  scope/approach (this is a core-ABI change, bigger than first thought) is the user's.
 
 ### native arm32: a function frame > ~4095 bytes fails to compile (COMPILE_ERROR) — ✅ FIXED on temp-5 (pending land), found 2026-07-06
 
