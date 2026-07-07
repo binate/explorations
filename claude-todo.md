@@ -56,7 +56,7 @@ C-ABI-compatible for such args (clang does all-or-nothing).
   internal caller/callee disagreement for a straddling GP aggregate.  Decision on
   scope/approach (this is a core-ABI change, bigger than first thought) is the user's.
 
-### native arm32: a function frame > ~4095 bytes fails to compile (COMPILE_ERROR) — ✅ FIXED on temp-5 (pending land), found 2026-07-06
+### native arm32: a function frame > ~4095 bytes fails to compile (COMPILE_ERROR) — ✅ FIXED & LANDED 2026-07-06 (`6ce4b42f`)
 
 **Severity: MAJOR (valid program fails to compile on an accepted backend) — but
 FAIL-LOUD (a clean COMPILE_ERROR, not a silent miscompile).** A native-arm32
@@ -76,7 +76,7 @@ object (arch=arm32)`.
   outgoing stack args, int64 guard-call stack args) and the inline string-literal
   STRB loop (8-bit/255 immediate), all bypassing the emitFrame*/emitBase*
   materializing helpers.
-- **Fix (commit `5e95b93a` on temp-5):** added `emitBaseLoad` (load analogue of
+- **Fix (LANDED `6ce4b42f`):** added `emitBaseLoad` (load analogue of
   `emitBaseStore`) and routed every large-offset-capable access through the
   IP-materializing helpers; the indirect-large aggregate-param copy now holds the
   byval source pointer in a pool register so IP is free as the address scratch.
@@ -91,13 +91,24 @@ object (arch=arm32)`.
   this COMPILE_ERROR. Now covered end-to-end by conformance test
   `990_native_arm32_iface_large_frame` (iface `*T`-receiver dispatch in a
   >4095-byte frame → 42). The non-iface large-frame case is
-  `989_native_arm32_large_frame` (→ 3).
+  `991_native_arm32_large_frame` (→ 3; renumbered from 989 during landing to dodge
+  a concurrent `989_sse_mem_arg`).
 - **Verified:** native unit packages green; hygiene 16/16; full
   `builder-comp_native_arm32_baremetal` 2236 passed / 418 failed / 35 skipped —
   passing count up +2 (the two new tests) over the 2234 baseline, 0 hangs, 0
   XPASS, and every one of the 418 failures is a pre-existing unimplemented-feature
   fail-loud (floats / closures / generics / HFA-SSE / method values / variadics /
-  cross-pkg), not a regression. NOT yet cherry-picked to main.
+  cross-pkg), not a regression.
+- **Residual follow-ups (minor, from the landing review — NOT done):**
+  (1) `emitExtract`'s scalar-field `emitScalarLoad` (arm32_emit.bn) is unguarded for
+  a large field offset — safe today (only built-in headers ≤16 B reach it; user
+  struct fields lower to GEP+LOAD, multi-return takes the guarded branch), so it's a
+  documented latent invariant, not a live bug; `aarch64_emit.bn`'s emitExtract has
+  the identical shape → a SHARED-backend hardening (route through a guarded
+  base-scalar-load) if ever exercised.
+  (2) Pre-existing, orthogonal: `arm32_iface.bn`'s method-slot LDR
+  (`MemImm(IP, wordBytes()*ins.Index)`) overflows the 12-bit immediate only for an
+  interface with >1023 methods — extremely unlikely, untracked-until-now.
 
 ### HFA-in-SIMD is a CROSS-BACKEND contract — ✅ RESOLVED for AArch64; Stage 4 (x64) remains — 🟡 OPEN
 
