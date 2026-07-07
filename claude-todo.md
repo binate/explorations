@@ -32,20 +32,20 @@ C-ABI-compatible for such args (clang does all-or-nothing).
 - **NOT iface-specific** (initial diagnosis was wrong).  Reproduced with a DIRECT
   cross-module call `dsum(lead int64, p1..p4 I2)` where `lead`→`%rdi` shifts the
   I2s so `p3` straddles: native `main` → LLVM `dsum` mismatches (`sse_native` vs
-  `sse_llvm` diverge; LLVM=correct `543219`).  The iface case (`990_iface_agg_spill`)
+  `sse_llvm` diverge; LLVM=correct `543219`).  The iface case (`992_iface_agg_spill`)
   hits it more readily because the iface `data` ptr consumes `%rdi`, straddling `p3`.
 - **Which side is "right":** clang = all-or-nothing, so the **native backend is
   ABI-correct and the LLVM codegen is WRONG** (it must coerce the aggregate param
   so LLVM does not split it — mirroring how clang coerces).  Fix lives in the LLVM
   aggregate-param lowering (`pkg/binate/codegen`), NOT the native call-site.
-- **Separate aa64 bug:** `990_iface_agg_spill` fails `native_aa64` **all-native
+- **Separate aa64 bug:** `992_iface_agg_spill` fails `native_aa64` **all-native
   single-file** (`650321`, spilled `p4` reads 0) — so the aa64 NATIVE backend is
   INTERNALLY inconsistent for a straddling GP aggregate (caller vs callee disagree),
   a distinct defect from the x64 native↔LLVM split above.  Needs its own root-cause.
 - **FLOAT aggregates are fine** (x64 SSE-MEMORY + aa64 HFA-MEMORY — `989_sse_mem_arg`
   passes everywhere); this is a GP-class-only defect.  PRE-EXISTING (predates the
   x64-SSE work; surfaced during its follow-up #3 MEMORY-arg coverage).
-- **Tests.** `conformance/990_iface_agg_spill` reproduces the aa64 single-file case
+- **Tests.** `conformance/992_iface_agg_spill` reproduces the aa64 single-file case
   (fails `native_aa64`, a CI mode → needs an
   `.xfail.builder-comp_native_aa64-comp_native_aa64` until fixed).  The x64
   native↔LLVM manifestation needs a native-main/LLVM-dep harness (not a standard
