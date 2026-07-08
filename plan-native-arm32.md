@@ -516,12 +516,27 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
   args/returns. Corrected scope: the 6 `funcval-param` matrix cells each pass ONE
   <=16B by-value struct → all `AggCoercedInReg` → need REGISTER-ONLY by-address
   marshaling (not spill); `iface-param` is a SEPARATE path (`emitCallArg`, not the
-  shim). **In progress (user chose P0+P1, defer P2+P3):**
-  - **P0** — measure per-test failure modes (funcval-param vs iface-param path).
-  - **P1** — register-only coerced-aggregate shim marshaling (`emitShimAggregateArgArm32`
-    + `shimUserArgWords`→EffectiveArgWords walker + `needStage`), GP-only; port aa64
-    `emitShimArgMarshalAA64` register path. Unblocks the 6 funcval-param + struct-arg
-    variants (~6-10 tests).
+  shim). **P0+P1 LANDED 2026-07-07 (`97e0e5e0`); P2+P3 deferred.**
+  - **P0** ✅ — measured per-test failure modes. Correction: `iface-param` cells
+    ALSO failed via the SAME shim gate (the impl method's `__handle`/`__ivtshim`
+    shim is emitted for every collected ref and hit the struct-arg abort, even
+    though the dispatch call uses `emitCallArg`), so P1 greened all 12 matrix cells.
+  - **P1** ✅ — register-only coerced-aggregate shim marshaling (`emitShimArgMarshalArm32`
+    / `emitShimAggregateArgArm32` in `arm32_funcvalue_marshal.bn`; `shimOutRegs`
+    budget walk + `needStage` staging via a balanced SP scratch), GP-only; ported
+    from aa64/x64 register path. Native `builder-comp_native_arm32_baremetal`
+    2236 → 2271. Adversarial review caught two CRITICALs pre-land, both fixed in
+    the same commit: (1) the marshal omitted the AAPCS32 §6.5-C.3 **even-register-pair
+    bump** for 8-aligned coerced aggregates (int64/float64-field structs) → silent
+    miscompile vs the callee; fixed via a shared `cc.NeedsEvenReg` predicate used by
+    BOTH the shim and `argRegWordsStackWords`, with the budget walk counting pads so
+    an over-budget-after-pad case fails loud. (2) the staging **SP-adjust was inverted**
+    (ADD-then-SUB) → wrote staged words above entry-SP into the caller's frame; fixed
+    to SUB-allocate/ADD-free. Conformance `993_funcval_int64_struct_evenpair` drives
+    the even-pair path end-to-end (mutation-confirmed). Lesson: porting an LP64
+    (x64/aa64) ABI helper to ILP32 (arm32) makes the even-pair bump — inert on LP64 —
+    load-bearing; and a byte-exact unit test against a hand-built reference bakes in a
+    systematic direction bug (the inverted SP-adjust) and cannot catch it.
   - **P2 (deferred)** — over-budget stack-spill shim (`arm32_funcvalue_spill.bn`,
     high-arity long-tail only; AAPCS32 stack-discipline = silent-miscompile surface).
   - **P3 (deferred, P5-gated)** — soft-float float args/returns: may be shim-trivial
