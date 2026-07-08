@@ -930,13 +930,34 @@ BUILDER-sensitive land.
   fault-injection-validated on x64/aarch64/arm32) — closing a pre-existing
   test-rigor gap where byte/store counts couldn't catch a slot swap. Deps: none
   (∥ Slice 1).
-- **Slice 3 — Native SatEntry root (inert).** `EmitSatEntryRoot` beside
-  `EmitInitDispatcher`; gather **`ldr.Order ∪ main`** (**M1**) at the native
-  drivers only (**M5**); extern-data decls (**M4**); **unconditional** root
-  reference (**C1**) + the hygiene/unit completeness assertion. Rooted but
-  *unread* — retains the `__satentry` nodes. Green: link a cross-package program;
-  `nm`/objdump shows `__satentry` symbols survive dead-strip. Deps: Slice 2 (for
-  extern-data support). BUILDER-GO.
+- **Slice 3 — Native SatEntry root (inert) — ✅ LANDED (2026-07-07, main
+  `5cfc6dee`).** `ir.BuildSatEntryRoot` (a `pairs` array of
+  `{&_pkg_satentries,count}` + a `{&pairs,N}` raw-slice header) + Module method
+  `EmitSatEntryRoot` (stashes the gather; injects an OP_DATA_SYM_ADDR reference
+  to the root into `__entry`). Gather **`ldr.Order ∪ main`** (**M1**) at the
+  native drivers only (**M5** — `cmd/bnc` main + `--test`, never `interp.bn`);
+  extern-data decls (**M4** — LLVM `external global` per cross-object dependency
+  `_pkg_satentries`; native `SetGlobal`-seed); **unconditional** root (**C1** —
+  empty `{null,0}` when no impls). Retention is *dual*: the LLVM `__entry`
+  OP_DATA_SYM_ADDR lowers to a no-op `bitcast i8* @root to i8*` that LLVM folds
+  away, so LLVM pins the root in **`@llvm.used`** (the portable retain
+  primitive); the native `__entry` reference is a real LEA/ADRP reloc that
+  retains directly. Adversarial review (self-run + isolation, after the
+  independent agents were rate-limited) caught a **latent native-arm32 bug this
+  exposed**: `arm32_pkg_descriptor.bn` passed `noSatEntries` on a stale premise
+  ("arm32 emits no `__satentry` / panics on impls") — both false; it emits the
+  nodes but never defined the `_pkg_satentries` array, so the root's cross-object
+  reference to a native-arm32 program's own `_pkg_satentries` was an undefined
+  symbol at emit. Fixed with `collectSatEntriesArm32` mirroring x64/aa64 (folded
+  into this commit). Verified: `builder-comp-comp` 2689/0, native-aa64 214/0,
+  LLVM-arm32 213/0, native-arm32 177 pass (36 remaining fails are pre-existing P4
+  backend gaps, confirmed via the green LLVM-arm32 run), `e2e/satentry-retention.sh`
+  (nm-asserts root + own + cross-package-dependency `__satentry` survive
+  dead-strip on both backends), separate-compilation e2e green. Deps: Slice 2.
+  BUILDER-GO. **Note:** retention is now an unconditional per-binary cost (every
+  program retains its dependency closure's RTTI, e.g. `builtins/lang`'s ~52
+  satentry+typeinfo+ivt chains) — acceptable per (a)+C1, but a future pass could
+  gate the root on actual assertion use once Slice 4/6 land.
 - **Slice 4 — Checker + concrete-assertion lowering (Phases 4+5 merged, M-c).**
   `EXPR_TYPE_ASSERT` typing (interface operand check via the `present()` pattern;
   target via `resolveTypeExprAllowInterface` — plain `resolveTypeExpr` rejects a
