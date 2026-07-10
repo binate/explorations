@@ -572,7 +572,24 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
     Coerced aggregates (arrays / named / anon structs, incl. ≤4B) ride the existing
     `AggCoercedInReg` by-address path. **⇒ arm32 func-value shim aggregate-arg support is
     COMPLETE** (P1 coerced + P2 spill + PIECE 2 non-coerced); remaining shim gaps: float
-    args/returns (P5), 64-bit register-pair scalars (P4), capturing closures (P4-d).
+    args/returns (P5), capturing closures (P4-d).
+  - **64-bit register-pair scalars (P4) ✅ LANDED 2026-07-10 (`813836bb`)** — an ILP32
+    int64/uint64 is a 2-word, 8-aligned (`NeedsEvenReg`) register-pair scalar (arm32-unique;
+    aa64/x64 are LP64 so int64 is one reg — no ported template). The shim now marshals it
+    INLINE (2 value-words) with the AAPCS §6.5-C.3 even-pair pad on BOTH the incoming
+    (`srcPrefix+srcWord`) AND outgoing (`gpDestBase+ngrn`) cursors — the dispatch even-aligns
+    the incoming int64 too, so missing the incoming pad reads the value-words from the wrong
+    registers (the silent-miscompile surface, mutation-verified). SPLIT-reachability invariant:
+    an int64 never SPLITs (the even-round sends it whole to a reg pair or the 8-aligned stack).
+    The 5-lens review surfaced a PRE-EXISTING silent-miscompile — an 8-aligned indirect-large
+    (>16B) aggregate func-value arg was even-pair-padded by the dispatch/callee but NOT by the
+    shim's generic branch — which was FOLDED IN: a single `paddedKeepsTypeArm32` predicate
+    (`NeedsEvenReg && !isByAddressAgg && !float` = the args that keep their real dispatch type)
+    now gates every pad site (marshal incoming+outgoing, spill incoming, `shimInWordsArm32`
+    sizing, `shimOutRegs` budget), so shim ↔ dispatch ↔ callee agree at every GP-reg origin.
+    Native conformance 2328 → 2333 (greened `881_funcval_xpkg_struct_return` — a real int64
+    through `time.FromUnix` via a func value — + tests 1018-1021). A focused adversarial review
+    verified the predicate is an exact bijection with the dispatch's `*uint8` substitution.
   - **P3 (deferred, P5-gated)** — soft-float float args/returns: may be shim-trivial
     (soft-float rides GP, no fmov) but the wider soft-float pipeline isn't ready →
     wrong-code risk; a user decision, not an inline relaxation.
