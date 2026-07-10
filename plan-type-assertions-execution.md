@@ -970,6 +970,21 @@ BUILDER-sensitive land.
   `TYP_STRUCT` path). Green: checker accept/reject unit tests; panic golden;
   refcount goldens (@-hit=+1 then release, *-borrow=no churn) under `-comp` AND
   `-int`. Deps: 1, 2, 3. BUILDER-GO.
+  **Scope narrowed (user, 2026-07-09, after recon):** Slice 4 is **compiled-mode
+  concrete assertions only.** Two boundaries, both because they genuinely belong
+  to Slice 5's d-i work: (1) **VM path deferred to Slice 5** — the concrete
+  compare is `iface.vtable[1] == &__typeinfo.<T>`, but VM `vtable[1]` is *null*
+  until Slice 5's d-i mints interned type handles there (decision d-i / M2), so
+  the `-int` refcount/panic goldens move to Slice 5. `OP_DATA_SYM_ADDR` is
+  already VM-loud-fail (Slice 2), so no silent miscompile in the interim. (2)
+  **Interface targets `x.(*J)` interim-rejected** (checker types concrete targets
+  fully; a bare-interface target gets a clear "not yet supported (Slice 5)"
+  diagnostic — the Slice-1 pattern), since interface-target recovery IS the
+  Slice-5 reader. Sub-slices: **4a** expression-form concrete assertion (checker
+  + lowering + `AssertFail` + panic); **4b** comma-ok. The `vtable[1]` (`*TypeInfo`)
+  load reuses `EmitGetElemPtr`+`EmitLoad` (no new IR op — the vtable ptr GEP'd by
+  word index 1); `AssertFail` is a plain `EmitCall("pkg/builtins/rt.AssertFail")`
+  (no new op / backend arm).
 - **Slice 5 — Interface-target reader (SatLookup split; decisions d-i + e).**
   Native: build the startup registry/hash (**M3** — fill first in `__entry`) +
   the hash reader over the Slice-3 root; VM: `lookupSatEntry` over the `@VM`
