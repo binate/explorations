@@ -309,7 +309,16 @@ surface (§20.3).
 
 ## Method values & function values (codegen)
 
-### MAJOR — method VALUE on a generic instantiation emits an invalid struct name — 🔴 OPEN (2026-07-06)
+### MAJOR — method VALUE on a generic instantiation emits an invalid struct name — ✅ RESOLVED (2026-07-09)
+**Fixed** on `work-2` (commit `d452df9e`, pending landing): `gen_method_value`
+remaps the captured-receiver type's base to the IR-gen instantiated struct
+(`remapCapturedBaseToIR`, peeled from the receiver's IR-gen type) when it carries
+the raw bracket spelling, so the closure struct is named `Box__bn_inst__int` not
+`Box[int]`.  146 xfails dropped (now green on all LLVM-text modes; arm32-linux
+cross-compile verified clean — the fix is target-independent).  Coverage: 146
+(pointer/managed receivers + an arg) + 167 (cross-package method value).  Original
+diagnosis follows.
+
 A method value on a monomorphized generic type — `var f = bp.Get` where `bp` is
 `*Box[int]` and `Box[T]` has `func (b *Box[T]) Get() T` — mis-compiles under the
 LLVM backend: `gen_method_value.bn` builds the closure's captured-receiver type
