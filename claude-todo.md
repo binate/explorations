@@ -2144,9 +2144,22 @@ unblock them:
     cleaner).
   - Whether the fns are stored as `*func`/`@func` in the container struct —
     function values exist (non-capturing at BUILDER, capturing in the full
-    language; containers are non-BUILDER, so capturing is available). Each
-    instantiation still monomorphizes; the hash/eq become indirect calls per
-    probe (no interface dispatch).
+    language; containers are non-BUILDER, so capturing is available), BUT a
+    function-value type mentioning the container's type param (`*func(K)` / `@func(K)`)
+    does not yet substitute `K` at instantiation — see the BLOCKER above; this must be
+    fixed before any storage-as-field or fn-parameter form compiles. Once it does: each
+    instantiation still monomorphizes; the hash/eq become indirect calls per probe (no
+    interface dispatch).
+  - **Variant vs base, and the perf tradeoff.** The current `Map`/`Set` deliberately use
+    DIRECT monomorphized `key.Hash()` / `key.Compare()` calls (no indirection). An
+    injected-fn form pays an indirect call per probe + carries fn-value fields. So a
+    separate variant (`HashMapFn[K any, V]`) that leaves the fast `Hashable` `Map`
+    untouched is likely cleaner than making the injected form the base (which would slow
+    the common case) — unless the shared-open-addressing-core refactor (§7 of
+    plan-stdx-containers.md) is done so both share one impl parameterized by the fns.
+    Alternatively, inject an interface (`@Hasher[K]`) instead of raw fns — buildable
+    today (generic interfaces work) but clunkier (a named type + impl per strategy vs a
+    lambda) and adds vtable dispatch.
 
 ## Opportunistic code cleanups
 
