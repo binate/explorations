@@ -252,7 +252,18 @@ runner retry a timed-out test once before reporting failure. Until then a red
 native-aa64 run with a lone `[3s]` timeout failure is very likely this, not a real
 regression — re-run the single test in isolation to confirm.
 
-### MAJOR — generic interface's method signature referencing a sibling generic type (`SiblingType[T]`) fails to resolve during CROSS-PACKAGE impl-satisfaction (`undefined: <sibling>`) — 🔴 OPEN (found 2026-07-09)
+### MAJOR — generic interface's method signature referencing a sibling generic type (`SiblingType[T]`) fails to resolve during CROSS-PACKAGE impl-satisfaction (`undefined: <sibling>`) — ✅ RESOLVED & LANDED 2026-07-10 (`470dfe78`)
+
+**Resolution.** `populateInstantiatedInterface` (`check_generic_type.bn`) now sets
+`c.curPkgPath = genericIfaceDeclPkg(c, d)` around the method/extension resolution,
+mirroring `populateInstantiatedStruct` — so an unqualified same-package sibling
+reference in a generic interface's method signature resolves under the interface's
+DEFINING package, not the impl-site's.  Cross-package regressions
+`conformance/996_xpkg_gen_iface_method_sibling_struct` (sibling generic struct) and
+`997_xpkg_gen_iface_method_sibling_iface` (sibling generic interface, the `Iterable`
+pattern) are green on builder-comp / VM / self-compile; 374 generics/interface
+conformance tests + `pkg/binate/types` unit tests pass.  This unblocks the stdx
+containers' `Iterable[T]` design.
 
 **Severity: MAJOR — spurious reject of valid code (loud COMPILE_ERROR, not a
 miscompile).** Blocks the entire `Iterable[T]` design for the stdx containers (and
@@ -1091,7 +1102,7 @@ predates `91286ab8` and would ignore the directives. Do it in one commit at that
 bump, alongside dropping `pkg/binate/interp` (see the BUILDER-lag-lint-skips entry
 below — that bump clears all remaining `LINT_SKIP` entries).
 
-### Remove the BUILDER-lag lint skips after a BUILDER bump — 🟡 OPEN (narrowed to `pkg/binate/interp`; gated on next BUILDER bump)
+### Remove the BUILDER-lag lint skips after a BUILDER bump — 🟡 OPEN (`pkg/binate/interp` + `pkg/stdx/containers/{vec,hashmap,set}`; gated on next BUILDER bump)
 `scripts/hygiene/lint.sh`'s `LINT_SKIP` group (A) is the BUILDER-lag set — packages the bundled
 bnlint can't typecheck because they use a feature/fix newer than the bundle.
 
@@ -1115,11 +1126,24 @@ assign void to @Package` → `_func_handle argument must be a named function`). 
 (post-rename) bnlint lints interp clean. Action: at the next BUILDER bump (source ≥ `e12a8a3b`), drop
 `pkg/binate/interp` from `LINT_SKIP` and close this entry.
 
+**Also skipped — `pkg/stdx/containers/{vec,hashmap,set}`** (added 2026-07-10, `binate` `ec0855f3`).
+The stdx containers were migrated from generic FREE FUNCTIONS to generic-receiver METHODS
+(`func (v @Vec[T]) Push(x T)`) + parameterized-receiver impls (`impl *Cursor[T] : iter.Iterator[T]`)
+— methods-on-generic-types, newer than `bnc-0.0.10`, so the bundled bnlint aborts at the PARSE pass
+(cascade of `expected ;, got :=` / `expected declaration`). Verified directly: `bnlint-0.0.10` trips
+on vec/hashmap/set but lints the interface-only `pkg/stdx/containers/iter` clean. The packages stay
+fully type-checked + compiled by every conformance mode; only bnlint's style rules pause. **Action:**
+at the next BUILDER bump (source with generic-receiver methods, i.e. ≥ the methods-on-generic-types
+landing), drop `pkg/stdx/containers/{vec,hashmap,set}` from `LINT_SKIP` and re-run lint to confirm the
+containers lint clean.
+
 **Next-bump checklist — the `asm/*` group (B) joins here.** The 5 `pkg/binate/asm/*` skips (real
 safe-borrow over-flags) are un-skipped via the `// bnlint:allow` suppression mechanism (landed main
 `91286ab8`), which is ALSO newer than the bundle — so the same bump that drops `interp` should also
 adopt the 17 asm directives + drop `pkg/binate/asm/{arm32,elf,macho,parse,x64}` (see the asm
-`[managed-to-raw-assign]` audit entry above). One bump clears every remaining `LINT_SKIP` entry.
+`[managed-to-raw-assign]` audit entry above). A bump whose source covers all three lags (the
+`__Package` rename, the `// bnlint:allow` mechanism, and generic-receiver methods) clears every
+remaining `LINT_SKIP` entry — `interp`, the `asm/*` group, and the `stdx/containers` group.
 
 ### Raw-slice escape: decide whether a BROADER best-effort escape lint is wanted — 🟡 NEEDS DECISION
 The original framing ("demote the raw-slice escape TYPE ERROR to a linter rule")
