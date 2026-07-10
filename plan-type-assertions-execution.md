@@ -1003,7 +1003,27 @@ BUILDER-sensitive land.
     998 (HIT `*T`/`@T`), 999 (miss), 1000 (unset), 1001 (cross-pkg HIT); all
     xfail'd on the three `-int` modes (VM lacks `OP_DATA_SYM_ADDR` until Slice 5).
     Unit tests: checker accept/reject, refcount golden, cross-TU/in-module
-    declare split. **4b (comma-ok) still pending.**
+    declare split.
+  - **4b — ✅ LANDED (2026-07-10, main `81e2104e`).** Comma-ok form
+    `v, ok := x.(*T)` / `x.(@T)` (and the `=` form): a HIT yields (recovered,
+    true), a wrong-type or unset-vtable MISS yields (nil, false) without
+    aborting. Checker (`check_assign.bn`, split out of `check_stmt.bn`): a
+    2-target assign/short-var with a type-assert RHS binds (recovered, bool),
+    reusing `checkTypeAssert`'s validation. Lowering (`gen_assert_commaok.bn`,
+    `genTypeAssertCommaOk`): synthesizes the `{recovered, ok}`
+    makeMultiReturnStructType via the **alloca-merge idiom** (branch on
+    null-vtable + type-compare, store {recovered,true} on hit / {nil,false} on
+    both miss paths, load at the merge) — NOT `EmitStructLit`, which is
+    VM-only (OP_STRUCT_LIT/OP_PHI are unlowered in the LLVM/native backends).
+    **Borrow model**: no RefInc in the hit block; the existing multi-return
+    destructure (genShortVar / genMultiAssign, routed via `genMultiValueSource`)
+    copy-RefInc's the target — registering an owned temp would RefDec a garbage
+    pointer on the miss path. Conformance 1002 (HIT *T/@T, wrong + unset MISS,
+    `=`/`:=`, blank targets), same three `-int` xfails. Unit tests: checker
+    accept/reject + refcount golden (borrow: *T churn-free, @T acquires only
+    via the destructure). **Follow-up filed:** `bnfmt` drops type-assertion
+    expressions (MAJOR, `claude-todo.md`) — print_expr.bn has no
+    EXPR_TYPE_ASSERT case; to fix next.
 - **Slice 5 — Interface-target reader (SatLookup split; decisions d-i + e).**
   Native: build the startup registry/hash (**M3** — fill first in `__entry`) +
   the hash reader over the Slice-3 root; VM: `lookupSatEntry` over the `@VM`
