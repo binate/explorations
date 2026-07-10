@@ -320,44 +320,6 @@ round-trips through a return value.  Add a conformance regression once fixed.
 
 ## Language features — specified, not yet implemented
 
-### Methods on generic types + parameterized-receiver impls — ✅ IMPLEMENTED & LANDED 2026-07-06 (Phases 4.1–4.3)
-
-**DONE (stale "not implemented" corrected 2026-07-10).** A generic type carries
-methods and satisfies interfaces via a parameterized-receiver impl, same- and
-cross-package. Landed across Phases 4.1–4.3: `c0a4f1c1` (skip generic-type
-methods in concrete-method passes), `b815006f` (on-demand ImplInfo for
-parameterized-receiver impls — vtable dispatch, the interface-satisfaction leg),
-`eef3a820` + `f71b3fdf` (per-instantiation direct-dispatch method bodies, lazy at
-use sites), `5051aa59` (parse generic-receiver method bodies in `.bni`),
-`ba804ca8` (cross-package methods on generic types), `470dfe78` (generic-iface
-method sigs resolved under the iface's defining package). Tests: conformance
-`145/146/162–166`, `449` (direct methods), `447/448/451–453` (parameterized-impl
-iface dispatch) — green on builder-comp / -int / -comp. Used in the shipped
-stdlib: `impl @Vec[T] : iter.Iterable[T]`, `impl *Cursor[T] : iter.Iterator[T]`,
-`impl @Set[T] : iter.Iterable[T]`, hashmap's `impl *Cursor[K,V] :
-iter.Iterator[Entry[K,V]]`. Design reference retained below.
-
-Let a generic type carry methods and satisfy interfaces — the missing piece that
-makes generic interfaces (`Iterator[T]`, `Container[T]`) *implementable* (today
-declarable-only; a generic type currently has no methods → satisfies no
-interface). **Specified** (§12.1 `gen.method.generic-recv` / `gen.impl.generic-recv`,
-`gen.no-generic-methods` narrowed to method-level params only; §11.3
-`iface.impl.form`; §10.1/§10.4; grammar `ReceiverType`/`ReceiverBase`), **not
-implemented**. High-level plan: **[plan-generic-type-methods.md](plan-generic-type-methods.md)**.
-Model: `func (it *Cursor[T]) Next() (T, bool)` — receiver **binds** the type's
-params (constraints inherited, no method-level params); `impl *Cursor[T] :
-Iterator[T]` — parameterized-receiver impl (coverage checked abstractly, vtable +
-distributed-satisfaction-entry per monomorphized instantiation). Method-level type
-params (`map[U]`) stay forbidden (vtable slot would vary). No run-time generic
-dispatch. Makes the §12.4 constraint-check gap load-bearing (per-instantiation
-satisfaction). Distinct enabler for the whole generic-container-with-behavior story.
-**Overlap coherence question — RESOLVED 2026-07-06 (forbid specific-instantiation impls).**
-The parameterized-vs-specific-instantiation impl overlap is removed by forbidding
-specific-instantiation impls (`impl Cursor[int] : I`) in v1 — verified used by ZERO
-code repo-wide + referenced by no other rule (vestigial). §12.4
-`gen.no-conditional-impls` now disallows both conditional and specific-instantiation
-impls; the parameterized form is the single mechanism. (docs `16a8ca3`.)
-
 ### Type assertions, type switches & RTTI — IN PROGRESS (RTTI substrate landing incrementally) — 🟡 OPEN
 
 **Progress (2026-07-04):** the RTTI substrate is landing per

@@ -11476,3 +11476,26 @@ builder-comp_native_arm32_baremetal; conformance 1780/841/32):
   today — its RHS is always a single-call component already at the declared width
   — so all lvalue-store arms are now width-coercion-symmetric).
 
+### Methods on generic types + parameterized-receiver impls — ✅ IMPLEMENTED & LANDED 2026-07-06 (Phases 4.1–4.3)
+
+A generic type carries methods and satisfies interfaces via a parameterized-receiver
+impl, same- and cross-package. Landed across Phases 4.1–4.3: `c0a4f1c1` (skip
+generic-type methods in concrete-method passes), `b815006f` (on-demand ImplInfo for
+parameterized-receiver impls — vtable dispatch, the interface-satisfaction leg),
+`eef3a820` + `f71b3fdf` (per-instantiation direct-dispatch method bodies, lazy at use
+sites), `5051aa59` (parse generic-receiver method bodies in `.bni`), `ba804ca8`
+(cross-package methods on generic types), `470dfe78` (generic-iface method sigs
+resolved under the iface's defining package). Model: `func (it *Cursor[T]) Next()
+(T, bool)` — receiver **binds** the type's params (no method-level params);
+`impl *Cursor[T] : Iterator[T]` — parameterized-receiver impl (vtable +
+distributed-satisfaction-entry per monomorphized instantiation). Tests: conformance
+`145/146/162–166`, `449` (direct methods), `447/448/451–453` (parameterized-impl
+iface dispatch) — green on builder-comp / -int / -comp. Used in the shipped stdlib:
+`impl @Vec[T] : iter.Iterable[T]`, `impl *Cursor[T] : iter.Iterator[T]`,
+`impl @Set[T] : iter.Iterable[T]`, hashmap's `impl *Cursor[K,V] :
+iter.Iterator[Entry[K,V]]`. Overlap coherence resolved 2026-07-06 by forbidding
+specific-instantiation impls (§12.4 `gen.no-conditional-impls`; docs `16a8ca3`).
+Spec §12.1 `gen.method.generic-recv` / `gen.impl.generic-recv`; design
+[plan-generic-type-methods.md](plan-generic-type-methods.md).
+(Stale "not implemented" TODO entry corrected + moved here 2026-07-10.)
+
