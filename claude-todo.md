@@ -1020,6 +1020,19 @@ at the next BUILDER bump (source with generic-receiver methods, i.e. ≥ the met
 landing), drop `pkg/stdx/containers/{vec,hashmap,set}` from `LINT_SKIP` and re-run lint to confirm the
 containers lint clean.
 
+**Transitive importers join too — and this GATES the container-adoption sweep on a BUILDER bump**
+(2026-07-10, `binate` `6201e154`). Skipping the container packages as DIRECT targets does not cover a
+linted package that IMPORTS one: the bundled bnlint loads `vec.bni` to resolve the import and aborts
+the same way. The first container ADOPTION — `pkg/binate/format` using `vec.Vec` in its wrap engine —
+thus dragged `pkg/binate/format` AND its importer `cmd/bnfmt` into `LINT_SKIP`. This does NOT scale to
+the full sweep (each new adopter drags its whole importer cone into the skip). The clean unblock:
+methods-on-generic-types is IMPLEMENTED & LANDED (2026-07-06, Phases 4.1–4.3) and `VERSION` is already
+`bnc-0.0.11-pre`, so cutting + promoting **`bnc-0.0.11`** to BUILDER puts generic-receiver methods into
+the bundled bnlint and clears the container + `format` + `cmd/bnfmt` skips together — exactly the
+"feature the tree wants to use that the current builder can't compile" that release-process.md names as
+the justification for a bump. Until that bump, either accept per-adopter skips (with their importer
+cones) or hold the sweep. **Drop `pkg/binate/format` + `cmd/bnfmt` from `LINT_SKIP` at the same bump.**
+
 **Next-bump checklist — the `asm/*` group (B) joins here.** The 5 `pkg/binate/asm/*` skips (real
 safe-borrow over-flags) are un-skipped via the `// bnlint:allow` suppression mechanism (landed main
 `91286ab8`), which is ALSO newer than the bundle — so the same bump that drops `interp` should also
