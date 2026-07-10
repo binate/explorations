@@ -159,7 +159,19 @@ treats it as non-destructible anyway. Peel `TYP_READONLY` in `ResolveAlias` (or 
 `NeedsDestruction`/`dtorTypeSuffix`) when `readonly` managed elements become a real
 possibility.
 
-### MAJOR — native func-value dispatch of a NON-COERCED aggregate (slice) to an LLVM-EMITTED shim: first-class vs by-address ABI mismatch → CRASH — 🔴 OPEN (found 2026-07-10)
+### MAJOR — native func-value dispatch of a NON-COERCED aggregate (slice) to an LLVM-EMITTED shim: first-class vs by-address ABI mismatch → CRASH — 🟡 aa64 FIXED & LANDED 2026-07-10 (`b691a3c5`); x64 IN PROGRESS (found 2026-07-10)
+
+**aa64 done (`b691a3c5`, option B, adversarially reviewed):** native aa64
+`emitCallFuncValue` now passes EVERY <=16B func-value aggregate arg (coerced OR
+non-coerced slice/iface-value) BY-ADDRESS as one `*uint8` word, and all shim shapes
+(func-value register/spill + closure fast/spill/aggregate/float) load + re-expand it
+split-aware — matching the LLVM shim's i8* contract.  `isByAddressAggAA64` /
+`shimInWordsForTypeAA64` are the aa64-local levers.  1006 green on native_aa64; full
+native_aa64 conformance 2712/0; conf `1022` covers the closure scalar-before-agg
+fast-path shift.  A latent all-stack-split bug in `emitCoercedUserArgSpillAA64`
+(loaded into `argReg(-1)`) was fixed en route.  **x64 needs the SAME (dispatch +
+emit_funcvals_shim + spill + the closure shims); 1006 stays RED on native_x64 until
+then.**  The straddle fix (`10897e36`) is superseded on aa64 (slices are now 1 word).
 
 **Symptom.** conformance `1006_funcval_xpkg_llvm_shim_dispatch` (a `*func(*[]int) int`
 OBTAINED from an LLVM dep via `fvcb.GetSliceCallback()` then dispatched) CRASHES
