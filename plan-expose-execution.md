@@ -135,6 +135,13 @@ separate ordering.** This resolution is load-bearing for Phases 3 and 5.
 
 ## Phase 1 — Frontend: token / keyword / AST / parser
 
+**✅ STATUS (2026-07-10): LANDED on main — `4f584450`.** Implemented as designed
+(contextual `expose` keyword, `DECL_EXPOSE`, `.bni`-only via `p.interfaceFile`, raw quoted
+path in `Decl.Name`, `parse_expose_test.bn`). A minimal 2-lens adversarial review (parser/AST
+correctness + enum blast-radius; downstream reachability + BUILDER + tests) came back clean —
+notably confirming `DECL_EXPOSE` flows harmlessly through the loader/checker/IR passes (all
+branch on specific kinds and skip unknown ones), so **no "not-yet-implemented" guard is needed**.
+
 **Deliverable:** `expose "pkg/std/foo"` parses into a `DECL_EXPOSE` carrying the path string;
 rejected outside `.bni`. **Deps:** none.
 
@@ -238,6 +245,14 @@ ast unit tests green.
 ---
 
 ## Phase 2 — Loader: dependency edge + surface hand-off
+
+**STATUS (2026-07-10): committed on work-3 (`5b329f38`), awaiting adversarial review + landing.**
+Implemented as designed: `Package.Exposes` field; a pure `collectExposePaths(bniFile)` helper
+(loader_util.bn) read from `bniFile.Decls` directly (the "forwarder trap" — the merged-only
+prepend block is skipped for a pure forwarder); each target appended to both `pkg.Exposes` and
+`pkg.Imports` (deduped) so the existing topo sort + cycle detector handle it for free;
+`loader_expose_test.bn` unit tests. **Follow-up before this lands:** `loader.bn` is now 502
+lines (soft-limit warning) — split it along a natural boundary rather than trimming.
 
 **Deliverable:** exposing P makes P a build-order dependency of A; expose cycles are rejected;
 A carries an enumerable exposed-package list for the checker. **Deps:** 1.
