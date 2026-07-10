@@ -80,6 +80,23 @@ C-ABI-compatible for such args (clang does all-or-nothing).
   byval copy; structs go through the same shim path fine (they're `AggCoercedInReg`, so the
   native dispatch substitutes them to a pointer; slices are not).  Needs native-dispatch
   root-causing before landing.  Do NOT cherry-pick `f11d79e8` as-is.
+- **924 closure STRUCT-CAPTURE marshalling, LLVM x64 — 🔴 OPEN (reddens `builder-comp`
+  on x86_64; found 2026-07-09 via CI triage of the aa64_linux push).**
+  `924_closure_aggregate_stack_bound_capture` (added `20c1d9be` for the NATIVE x64
+  shim spill path — passes `native_x64`) prints `222/100` instead of `315/7` on the
+  **LLVM** x86_64 path. Root cause: the struct/array fix (`7cfa823a`) made the closure
+  BODY take a memory-class aggregate CAPTURE as `ptr byval(%T)`, but the shim's CAPTURE
+  marshalling (`__shim.*` loads the capture from the env struct and) still passes it
+  first-class as `[N x i64]` by value → a define/call ABI mismatch (SysV INTEGER vs
+  MEMORY class; benign on aa64 where both lower to 2 regs, wrong on x64). Position-
+  dependent: needs enough preceding int captures (5, filling rdi..r8) to push the
+  aggregate into MEMORY class — fewer captures pass. So `7cfa823a`'s "closure
+  shim→underlying call" threading covered the body signature + straddle ARGS but NOT
+  the shim's memory-class CAPTURE marshalling. Repro: `bnc --target x86_64-darwin`
+  (LLVM) under Rosetta → 222/100. **Un-redding caveat:** a blanket `.xfail.builder-comp`
+  is WRONG — 924 PASSES on `builder-comp` on an **arm64** host (macOS CI) and fails only
+  on x86_64; the xfail system is mode-keyed, not arch-keyed, so restoring green main
+  needs the fix, an arch-scoped exclusion, or restricting the test to native modes.
 - ✅ DONE — aa64 native internal caller/callee disagreement fixed (`f681d679`).
 
 ### native arm32: a function frame > ~4095 bytes fails to compile (COMPILE_ERROR) — ✅ FIXED & LANDED 2026-07-06 (`6ce4b42f`)
