@@ -1,0 +1,68 @@
+# Plan (brief): matrix tests for expanded generics + type assertions/RTTI
+
+**Status:** brief plan (2026-07-10). Proposes two new `conformance/matrix/` families,
+extending the established matrix pattern (`plan-code-red.md` §7; existing families:
+`refcount`, `dispatch-refcount`, `abi`, `scalar`, `readonly`, …). Grounded in the current
+tree. Not yet built.
+
+## Why now
+The recent MAJOR/CRITICAL bug cluster was almost entirely in these two spaces, and several
+were **false-green because they were only exercised in-package or in one combination**:
+`8d9e7577` (cross-package generic container on a managed element), `c14dd95e`/`aba92526`
+(named-distinct wrapper element, dtor + copy), `42b3bc83` (two instantiations conflated on a
+func-value/array type arg), `2d48f348` (method value on a generic instantiation, pending).
+Point tests miss the cross-axis combinations; a matrix over the axes that hid these makes the
+whole family regression-proof and surfaces the tail.
+
+## A. Generics matrix — buildable NOW (feature is landed)
+`conformance/matrix/generic-managed/` (name TBD). The axes are exactly the ones that hid the
+recent bugs:
+- **type-arg / element kind:** scalar · managed-ptr `@Foo` · managed-slice `@[]char` ·
+  **named-distinct wrapper over a managed** (`type Buf @[]@Box`) · struct-with-managed-field ·
+  array-of-managed · func-value · another generic instantiation.
+- **instantiation site:** **in-package vs cross-package** (the single most bug-dense axis —
+  in-package coincidentally aligns the mangled prefixes, cross-package diverges).
+- **operation:** construct · copy · destroy (empty AND populated — the named-wrapper dtor bug
+  only showed empty) · direct method call · **method value** · **method expression** ·
+  dispatch through a **parameterized-receiver impl** (`impl *Cursor[T] : Iterator[T]`) · through
+  a generic constraint.
+- **backend/mode:** the default mode set (compiled LLVM · VM · native x64/aa64/arm32).
+
+Invariants per cell: **links + runs** (no undefined-symbol / extern-not-found — catches the
+mangler family), **refcount balance** for managed elements (mortal source, RefInc/RefDec net
+zero — catches leak/UAF), and **type distinctness** (two cells differing only in a type arg are
+distinct types — catches `42b3bc83`). Reuse the `refcount`/`dispatch-refcount` generator +
+balance-assertion harness.
+
+## B. Type-assertion / RTTI matrix — design now, land per front-end phase
+`conformance/matrix/type-assert/`. **Gated:** the front-end (`x.(K T)`, comma-ok, type switch)
+is not implemented (RTTI substrate is landing per `plan-type-assertions-execution.md`, front-end
+Phases 3–7 remain). Design the axis grid now so it lands cell-by-cell with the front-end.
+- **source:** `*I` · `@I` · `*any` · `@any`.
+- **recovery kind × target:** `@T` / `*T` / value, against a **concrete** target (scalar ·
+  struct · ptr-to-struct · slice · managed-slice · generic instantiation) and against an
+  **interface** target (direct satisfaction AND **transitive-ancestor** satisfaction).
+- **form:** `x.(K T)` (abort) · `v, ok := x.(K T)` (comma-ok) · type switch (multi-case,
+  default, typed-nil→its-type, unset→default).
+- **outcome:** match · no-match · absent.
+- **mode:** compiled · native · VM — asserting **cross-mode agreement on the result** (the spec's
+  cross-mode-on-the-result requirement).
+
+Invariants: **recovery-kind legality** (`@I`→`@T`/`*T`/value; `*I`→`*T`/value; `@T`-from-`*I`
+rejected — the spec rule, tested as compile-error cells), **match correctness** per form
+(abort vs `ok=false` vs default), **refcount balance** on a successful `@T` recovery from `@I`
+(ownership transfer — a natural extension of the `refcount` family), and **cross-mode result
+agreement**. The failed-assertion abort is a real §17.5 panic — cross-check it lands there.
+
+## Sequencing & scope
+1. **Generics matrix first** (now) — it guards a landed, bug-dense feature and needs no new
+   language support. Start with the `element-kind × in/cross-package × operation` core (the
+   bug-dense sub-grid), add method-value/expression/parameterized-impl axes next.
+2. **Type-assertion matrix** — build the generator + the compile-error (recovery-legality) cells
+   first (those need only the parser/checker), then fill the runtime cells as each RTTI/lowering
+   phase lands, reaching full coverage when Phase 5 (the reader/assertion lowering) is in.
+3. **Adopt, don't wire:** add the matrices + their generators under `conformance/matrix/`; wiring
+   any new hygiene/CI gating is a separate decision (per CLAUDE.md "stay within scope").
+
+Each is a Python generator (mirroring `gen-diff-scalar.py` / `gen-addr-aggregate-matrix.py`)
+emitting cells + `.expected`, with the balance/agreement assertions in the emitted `.bn`.
