@@ -253,7 +253,19 @@ runner retry a timed-out test once before reporting failure. Until then a red
 native-aa64 run with a lone `[3s]` timeout failure is very likely this, not a real
 regression — re-run the single test in isolation to confirm.
 
-### MAJOR — generic instantiations differing only in a function-VALUE type arg are CONFLATED (`Box[@func(int)uint]` == `Box[@func(bool)uint]`) — 🔴 OPEN (found 2026-07-10)
+### MAJOR — generic instantiations differing only in a function-VALUE (or ARRAY) type arg are CONFLATED (`Box[@func(int)uint]` == `Box[@func(bool)uint]`) — ✅ RESOLVED & LANDED 2026-07-10 (`42b3bc83`)
+
+**Resolution.** `typeNameImpl` (`type_name.bn`) now renders func / func-value types with
+their full signature (params+results, `*`/`@` prefix, variadic peeled to `...T`) and
+arrays as `[N]T`, instead of the non-distinct `func(...)` / `<unknown>` / `[...]`
+placeholders that `mangleInstantiatedName` was collapsing.  The ARRAY case was the same
+bug (`Box[[3]int]` == `Box[[5]int]` == `Box[[3]bool]`), found by adversarial review and
+fixed together.  Regressions `conformance/1016` (func-value type arg) + `1017` (array
+type arg); three existing err tests (`165`/`085`/`112`) updated from the placeholder
+messages to the informative form.  (An earlier attempt was briefly blocked by a
+link-phase consumer that assumed the `func(...)`/`[...]` placeholder and crashed on
+method expressions; that consumer was fixed on `main` by a concurrent commit before this
+landed.)
 
 **Severity: MAJOR — type confusion (accepts an assignment between incompatible types;
 a `@func(bool)uint` can be stored where a `@func(int)uint` is expected → wrong-ABI
@@ -283,7 +295,7 @@ types distinctly (params/results) so the instantiation name distinguishes them; 
 named-type identity/assignability for name-based instantiation comparison.  Discovered
 adjacent to the func-value type-traversal fix (`5ffe92b8`), independent of it.
 
-### func-value callee reached through a call result: `obj.Get()(x)` ✅ FIXED (pending land); SELECTOR/INDEX-of-call-result forms 🔴 OPEN (found 2026-07-10)
+### func-value callee reached through a call result: `obj.Get()(x)` ✅ FIXED & LANDED 2026-07-10 (`b00d7383`, conformance/1012); SELECTOR/INDEX-of-call-result forms 🔴 OPEN (found 2026-07-10)
 
 **Severity: MAJOR — valid code fails to compile (LLVM link error).** Verified
 2026-07-10; no generics / no Self involved.  Root cause is NOT shim emission (as first
