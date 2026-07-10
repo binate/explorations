@@ -11,6 +11,48 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
+### MAJOR (bnfmt) — the formatter silently DELETES type-assertion expressions (`x.(*T)`), corrupting source — 🔴 OPEN (found 2026-07-10)
+
+**Symptom.** `bnfmt` (the self-hosted formatter) drops any type-assertion
+expression `x.(T)` / `x.(*T)` / `x.(@T)` that appears on the RHS of an
+assignment or short-var statement — the RHS becomes empty:
+
+```
+a = g.(*int)      -> "a = "            (single-target assign)
+a, ok := g.(*int) -> "a, ok := "       (comma-ok short-var)
+```
+
+A comma-ok CALL RHS (`a, ok := two()`) formats correctly, so the defect is
+specific to the `EXPR_TYPE_ASSERT` AST node, not to multi-assignment.
+
+**Root cause.** `pkg/binate/format/print_expr.bn`'s expression-kind switch
+(the `if k == ast.EXPR_* { ... }` chain, ~lines 221–246) has **no case for
+`ast.EXPR_TYPE_ASSERT`**.  The node was added by the type-assertions parser/AST
+slice (Slice 1) but the printer was never taught to emit it, so a type-assertion
+expression falls through the chain and prints nothing.  (`EXPR_TYPE_ASSERT` does
+not appear anywhere under `pkg/binate/format/`.)
+
+**Blast radius / why it hasn't bitten yet.** The `bnfmt-format` hygiene check
+EXCLUDES `conformance/` (ROOTS = `pkg cmd impls ifaces perf examples runtime`),
+and no *checked* tree file uses a type-assertion expression yet, so hygiene is
+green and no source is being corrupted today.  It is a live corruption risk the
+moment a checked file (an `examples/` program, a stdlib impl, a compiler-tree
+use) uses `x.(*T)` and someone runs `bnfmt -w` on it — the assertion vanishes
+silently.  It already mangles the RTTI conformance tests (998–1002) if bnfmt is
+run on them, which is how it was found (running `bnfmt -w` on the Slice-4b test
+during landing emptied every `x, ok := rg.(*T)`).
+
+**Trigger of discovery.** Landing RTTI Slice 4b: `bnfmt -w conformance/1002_…`
+emptied every comma-ok RHS.
+
+**Proposed fix.** Add an `EXPR_TYPE_ASSERT` case to `print_expr.bn` (a
+`printTypeAssert` that emits `<operand>.(<target-type>)` — the operand via
+`printExpr`, the target via `printType` on `e.TypeRef`, wrapped in `.(` `)`),
+plus a `print_expr_test.bn` round-trip covering `x.(*T)` / `x.(@T)` / value form
+in assignment, short-var, and comma-ok positions.  Small (~15–20 lines + test).
+Part of completing the type-assertions surface (affects the 4a expression form
+too, not just 4b).
+
 ### MAJOR (mangler) — cross-package generic container on a managed element type: destructor mangled-prefix mismatch (both backends) — ✅ FIXED & LANDED 2026-07-10 (`8d9e7577`)
 
 **Symptom.** A generic stdx container (`vec.Vec`, and by the same mechanism
