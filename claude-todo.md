@@ -283,25 +283,33 @@ types distinctly (params/results) so the instantiation name distinguishes them; 
 named-type identity/assignability for name-based instantiation comparison.  Discovered
 adjacent to the func-value type-traversal fix (`5ffe92b8`), independent of it.
 
-### MAJOR — a raw `*func` value returned from a function/method then called emits an UNDEFINED shim symbol (`@bn_F1_...`) — 🔴 OPEN (found 2026-07-10)
+### func-value callee reached through a call result: `obj.Get()(x)` ✅ FIXED (pending land); SELECTOR/INDEX-of-call-result forms 🔴 OPEN (found 2026-07-10)
 
 **Severity: MAJOR — valid code fails to compile (LLVM link error).** Verified
-2026-07-10; no generics / no Self involved.
+2026-07-10; no generics / no Self involved.  Root cause is NOT shim emission (as first
+guessed) but call DISPATCH: `genCall` did not recognize a func-value callee reached
+through a call result, so it fell through to the direct-by-name path where `funcRefName`
+yields "" and a direct call was emitted on a malformed empty symbol (`bn_F1_4_main0_`).
 
-**Symptom.**
-```
-type Box struct { f *func(int) int }
-func (b @Box) Get() *func(int) int { return b.f }
-func one(x int) int { return x + 1 }
-func main() { var b @Box = make(Box); b.f = one; println(b.Get()(10)) }
-// COMPILE_ERROR: main.ll: use of undefined value '@bn_F1_4_main0_'
-```
-The named-function → raw `*func` shim/thunk for `one` is referenced by the call site but
-never emitted.  **Localized:** `var f *func(int)int = one; f(10)` PASSES;
-`b.f = one; b.f(10)` (direct field call) PASSES; the failure requires the raw func-value
-to flow through a RETURN value and THEN be called.  **Fix direction:** func-value shim
-emission (codegen) must materialize the shim for a named function whose raw func-value
-round-trips through a return value.  Add a conformance regression once fixed.
+**✅ FIXED — the callee-is-a-call form `obj.Get()(x)` / `f()(x)`** (a func value returned
+then immediately called): `genCall` now routes an `EXPR_CALL` callee of func-value type
+to `genFuncValueCallExpr` (indirect dispatch).  conformance/1012.  (Landing as a `binate`
+commit; the entry stays until the sibling forms below are also fixed.)
+
+**🔴 STILL OPEN — the callee is a SELECTOR/INDEX whose BASE is a call result:**
+`obj.Get().f(x)`, `getarr()[i](x)`, and deeper chains `obj.Get().h.f(x)` /
+`getcells()[i].f(x)`.  These still emit an undefined symbol (`_bn_F1_4_main…_<Field>` or
+`bn_F1_4_main0_`).  Root cause: the `genCall` SELECTOR/INDEX func-value branch classifies
+via `getSelectorType`, which returns nil for a call-result base (`getIndexElemType` /
+`getSelectorType` have no `EXPR_CALL`-base arm — see gen_access.bn's doc-comment), so the
+func-value branch never fires and the call falls through to the direct-by-name path.
+**Fix direction:** teach `genSelector` / `genExpr` (and `getSelectorType`) to lower a
+selector/index whose base is a call result — the real gap.  **WARNING:** do NOT "fix" it
+by making the call-dispatch branch fall back to `ctx.Checker.ExprType` and route to
+`genFuncValueCallExpr` → `genExpr(e.X)` — that CRASHES the compiler (`index out of
+bounds`) on the deeper chains, because `genExpr` of a selector-over-call-result is the
+very gap being worked around (an adversarial review caught this: it converts a graceful
+link error into an internal panic).  Add xfail conformance coverage for the open forms.
 
 ## Language features — specified, not yet implemented
 
