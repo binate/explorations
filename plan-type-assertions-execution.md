@@ -1032,6 +1032,35 @@ BUILDER-sensitive land.
   the dynamic `OP_IFACE_VALUE`; assertion site branches on `ifaceVtIsNative`.
   Green: interface-target hit/miss over injected AND user-defined types, `-comp`
   vs `-int` identical boolean. Deps: 4.
+  - **5a — ✅ LANDED (2026-07-10, main `2e566227`).** NATIVE/compiled-mode
+    interface-target assertions (expr + comma-ok). rt itab-hash reader
+    (`rt_satregistry.bn`, a new UNCONDITIONAL rt file — reflect-free raw
+    `*uint8`; `BuildSatRegistry` walks `_satentry_root`, `SatLookup` queries the
+    open-addressing hash). M3 fill prepended to `__entry` before `__init_all`
+    (data_satroot.bn, native-gated). **rt registry globals MUST be static-zero
+    (no `= nil`)** — else rt's package `__init` re-zeros the just-built table
+    (found the hard way). Checker un-rejects interface targets (`*J`→
+    MakeInterfaceValueType, `@J`→MakeManagedInterfaceValueType; reject
+    `readonly J`). Lowering `gen_assert_iface.bn` (genInterfaceAssert +
+    genInterfaceAssertCommaOk): `loadVtableSlot(1)`→dyn `*TypeInfo`,
+    `EmitDataSymAddr(&__ifaceid.<J>)`, plain `EmitCall(rt.SatLookup)` (NOT a
+    lowered op — the VM mechanism is a 5b decision), branch, `EmitIfaceValueDyn`,
+    `@J` RefInc / `*J` borrow. **`collectDefinedDataSyms` += `__ifaceid` syms**
+    (first `OP_DATA_SYM_ADDR(&__ifaceid)` consumer; else LLVM redefinition).
+    Conformance 1013 (hit *J/@J, comma-ok hit/miss/@J-managed/unset), 1014 (miss
+    panic), 1015 (ancestor/transitive), xfail'd on 3 -int modes. Unit tests:
+    checker, itab-hash (empty/hit/miss), refcount golden. **Follow-ups:** (i) a
+    cross-package INTERFACE-target conformance test (concrete xpkg = 1001; iface
+    xpkg not yet — symbol keying reasoned-consistent, untested); (ii) an explicit
+    refcount-balance conformance test for @J.
+  - **5b — PENDING.** VM d-i (M2): intern per-VM type handles into the null
+    vtable slot-1; `BC_DATA_SYM_ADDR`; the slot-1 read fix (VM `iv[1]` is a
+    1-based INDEX not a pointer — recon recommends a `BC_IFACE_TYPEINFO` op
+    branching on `ifaceVtIsNative` over changing the iface-value layout);
+    `lookupSatEntry`; register VM-lowered `(T,J)`; `BC_IFACE_VALUE_DYN`; and the
+    VM SatLookup mechanism (route the `rt.SatLookup` call → `lookupSatEntry`, OR
+    introduce `OP_SAT_LOOKUP` — decide in 5b). Cross-mode boundary trap (native-
+    injected slot-1 vs VM synthetic handle). Removes all 15 -int xfails.
 - **Slice 6 — Type-switch (Phase 6).** `checkTypeSwitchStmt` (modeled on
   `checkSwitchStmt`; per-case narrowing; multi-target/`default` bind scrutinee
   type; no exhaustiveness/dup/fallthrough) + `genTypeSwitch` (first-match chain
