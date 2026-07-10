@@ -11,6 +11,60 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
+### MAJOR (mangler) — cross-package generic container on a managed element type: destructor mangled-prefix mismatch (both backends) — 🔴 OPEN (found 2026-07-09)
+
+**Symptom.** A generic stdx container (`vec.Vec`, and by the same mechanism
+`hashmap.Map`/`set.Set`) instantiated in a package OTHER than its own, on a
+MANAGED element/key/value type, fails to build/run in EVERY mode:
+- compiled backend: clang link error, `use of undefined value
+  '@bn_F4_3_pkg4_stdx10_containers3_vec1_16___dtor_ms_mp_Box'`;
+- bytecode VM: runtime `panic: vm: extern not found:
+  pkg/stdx/containers/vec.__dtor_ms_mp_Box`.
+
+**Blast radius.** Any `Vec[T]` / `Map[K,V]` / `Set[T]` whose element/key/value is
+managed — `@[]char` (`__dtor_ms_ms_*`), `@[]readonly char`, a `@Foo` managed
+pointer (`__dtor_ms_mp_Foo`), or a struct with a managed field (`__dtor_ms_Foo`)
+— breaks when instantiated cross-package. Unmanaged elements (`int`, raw `*[]T`,
+structs of primitives) are fine. Since the containers exist to hold managed data
+(`@[]char` strings, `@ast.File`, `@Diagnostic`, ...), this makes them effectively
+unusable cross-package — i.e. for their entire real purpose. It blocks the
+container-adoption effort (the "Adopt stdx/containers Vec ..." opportunistic
+entry) essentially in full, not just its Map/Set half.
+
+**Root cause (mangler / monomorphization).** The synthetic destructor for the
+instantiation's backing/element type is EMITTED with the CONSUMER package's
+mangled prefix (e.g. `bn_F1_4_main1_18___dtor_ms_ms_uint8`, `weak_odr`) but is
+CALLED from the container package's monomorphized code with the CONTAINER
+package's prefix (`bn_F4_3_pkg...vec1_18___dtor_ms_ms_uint8`). The two names
+disagree, so the called symbol is never defined (compiled) / never registered as
+a VM extern (int). The synthetic dtor's "owning package" attribution is
+inconsistent between its definition site and its call site.
+
+**Why it wasn't caught.** The in-package container tests DO exercise managed
+elements — `vec_test`'s `Vec[@cell]`, `hashmap_test`'s `Map[int,@cell]` — but
+because they instantiate INSIDE the container package, the call-prefix and the
+definition-prefix coincide and it links/runs. False green. Every real consumer
+imports the container from another package, where they diverge. (Same family as
+the CLAUDE.md "symbol-prefix collision between unrelated packages is a critical
+mangler bug" note — here a prefix MISMATCH between a synthetic dtor's def and
+call.)
+
+**Proposed fix (needs design).** Give the synthetic element/backing destructor
+for a generic instantiation ONE canonical mangled name that its definition and
+all call sites agree on, independent of which package instantiates — likely a
+`weak_odr` symbol keyed on the TYPE (not the current package), emitted by whoever
+instantiates and deduplicated at link, and registered as a resolvable VM extern.
+The fix belongs in the shared mangling/monomorphization layer so BOTH backends
+and the VM agree (it reproduces identically in comp and int — not a
+backend-specific reloc issue).
+
+**Test.** `conformance/989_vec_managed_elem_xpkg` (cross-package `Vec[@Box]`),
+xfail in all modes; drop the xfails when fixed. An in-package instantiation would
+NOT reproduce it — the test must import the container from `main`. Standalone
+repro: a `main` importing `pkg/stdx/containers/vec` with `var v
+@vec.Vec[@[]char] = vec.New[@[]char]()` fails to link; `Vec[int]` / `Vec[*[]char]`
+are fine.
+
 ### native↔LLVM ABI divergence: a GP aggregate that STRADDLES the reg/stack boundary — LLVM splits it, native (+clang) does all-or-nothing — 🟡 STRUCT/ARRAY x64 FIXED & LANDED 2026-07-09 (`7cfa823a`); slice/iface/func-value follow-up OPEN (found 2026-07-06)
 
 **Severity: MAJOR — silent wrong-code across the dual-mode boundary (and vs C).**
@@ -2281,7 +2335,16 @@ unblock them:
 
 ## Opportunistic code cleanups
 
-### Adopt `stdx/containers` Vec for hand-rolled growable arrays — 🟡 IN PROGRESS (audit 2026-07-09)
+### Adopt `stdx/containers` Vec for hand-rolled growable arrays — 🔴 BLOCKED (audit 2026-07-09)
+- **BLOCKED (2026-07-09)** on the MAJOR mangler bug above ("cross-package generic
+  container on a managed element type: destructor mangled-prefix mismatch"):
+  `Vec[T]` fails to link/run cross-package whenever T is managed (`@[]char`,
+  `@ast.File`, `@Diagnostic`, ...) — which is nearly every site below. Only
+  unmanaged-element Vecs (`int`, raw `*[]T`) work cross-package today. Discovered
+  by starting the formatter conversion (`Vec[@[]readonly char]`), which failed to
+  compile. So "Vec is usable now" (below/earlier) is WRONG for managed elements;
+  the whole adoption waits on that mangler fix. The first commit was reverted;
+  conformance/989 tracks the bug.
 - **What**: the container-adoption audit swept the non-BUILDER tree (vm, interp,
   lint, format, repl, and the cmd/{bni,bnfmt,bnlint} glue — the stdlib itself is
   largely BUILDER-constrained, since cmd/bnc imports std/{os,strings,strconv} and
