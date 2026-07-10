@@ -552,11 +552,27 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
     `TestFuncvalSpillSretEvenPairByteRefArm32` (both mutation-verified). R4 is the
     memory-shuttle scratch (saved/restored); non-coerced-aggregate/float/reg64/closure
     stay fail-loud.
-  - **PIECE 2 (next) — non-coerced in-register aggregate args** (slice / iface-value /
-    managed-slice / anon-struct ≤16B by value): currently fail-loud (`shimOutRegs`).
-    Reuses P2's spill machinery (`emitSpillMarshalArm32`/`emitSpillSrcToMemArm32`); adds a
-    source-shape variant that reads the aggregate's INLINE dispatch words (not a
-    by-address pointer) and places them via the same classifier-driven reg/stack split.
+  - **PIECE 2 ✅ LANDED 2026-07-10 (`a08fdab0`) — non-coerced in-register aggregate args**
+    (slice / iface-value / managed-slice, all ≥8B). User chose OPTION B (by-address, matching
+    the LLVM shim's `shimParamType` contract) over option A (inline, which would extend the
+    tracked native↔LLVM inline/by-address divergence to arm32). A single arm32-local
+    `isByAddressAggArm32` predicate widened the coerced by-address→spread path to cover
+    non-coerced small aggregates (they re-expand their `ArgWords` value-words the same way),
+    with an arm32-local incoming word count (`shimInWordsForTypeArm32` = 1 by-address word,
+    not the shared LP64 `EffectiveArgWords`). Native conformance 2290 → 2319 (greened
+    `364_funcval_slice_arg`, `598_iface_dispatch_multiword_arg`, variadic-funcvalue cells,
+    `iface-byval-17-byte`, etc.). Validated at the REAL boundary by `1006_funcval_xpkg_llvm_shim_dispatch`
+    (native `main` dispatches a func value CREATED in an LLVM-compiled dep, so its shim is
+    LLVM-emitted — nm-proven + mutation-verified: forcing the slice inline crashes). Two
+    adversarial-review scares resolved: (1) the anon-struct "cross-package miscompile" was a
+    FALSE ALARM — source-level anon struct *types* get a synthetic `__anon_N` name so
+    `AggCoercedInReg` is true (coerced/by-address on both sides, always correct); (2) the
+    naive `995` litmus doesn't test the native-dispatch→LLVM-shim boundary (main builds its
+    own native shim), which is why `1006` (func value created in the dep) is the true litmus.
+    Coerced aggregates (arrays / named / anon structs, incl. ≤4B) ride the existing
+    `AggCoercedInReg` by-address path. **⇒ arm32 func-value shim aggregate-arg support is
+    COMPLETE** (P1 coerced + P2 spill + PIECE 2 non-coerced); remaining shim gaps: float
+    args/returns (P5), 64-bit register-pair scalars (P4), capturing closures (P4-d).
   - **P3 (deferred, P5-gated)** — soft-float float args/returns: may be shim-trivial
     (soft-float rides GP, no fmov) but the wider soft-float pipeline isn't ready →
     wrong-code risk; a user decision, not an inline relaxation.
