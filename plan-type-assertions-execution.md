@@ -985,6 +985,25 @@ BUILDER-sensitive land.
   load reuses `EmitGetElemPtr`+`EmitLoad` (no new IR op — the vtable ptr GEP'd by
   word index 1); `AssertFail` is a plain `EmitCall("pkg/builtins/rt.AssertFail")`
   (no new op / backend arm).
+  - **4a — ✅ LANDED (2026-07-10, main `6c512002`).** Expression-form concrete
+    assertions `x.(*T)` / `x.(@T)`, compiled-mode. Checker (`check_assert.bn`):
+    operand must be an interface value (`comparabilityKind`), peels the `*T`/`@T`
+    (+ readonly) target wrapper, resolves via `resolveTypeExprAllowInterface`,
+    interim-rejects interface targets ("interface-target type assertion not yet
+    supported") and value-recovery `x.(T)` ("value-recovery … not yet supported"),
+    rejects `@T` from a raw `*I`. Lowering (`gen_assert.bn`): extract `vtable`
+    (iface idx 1), null-check → unset panic; else load `vtable[1]` (`*TypeInfo`),
+    `OP_DATA_SYM_ADDR(&__typeinfo.<T>)` (its first real consumer), `OP_NE` →
+    wrong-type panic vs hit; hit recovers the pointer (`@T` RefInc+registerTemp,
+    `*T` borrow — no churn). Panic text per §17.5. `rt.AssertFail` added to
+    `rt.bn` + `rt_baremetal.bn` + `rt.bni`. **Cross-package fix (MAJOR, caught in
+    self-review):** `emitDataSymAddrDeclares` emits `external global i8` for
+    OP_DATA_SYM_ADDR symbols not defined in-module (`collectDefinedDataSyms`),
+    else clang rejects the bitcast on a cross-TU `&__typeinfo.<T>`. Conformance
+    998 (HIT `*T`/`@T`), 999 (miss), 1000 (unset), 1001 (cross-pkg HIT); all
+    xfail'd on the three `-int` modes (VM lacks `OP_DATA_SYM_ADDR` until Slice 5).
+    Unit tests: checker accept/reject, refcount golden, cross-TU/in-module
+    declare split. **4b (comma-ok) still pending.**
 - **Slice 5 — Interface-target reader (SatLookup split; decisions d-i + e).**
   Native: build the startup registry/hash (**M3** — fill first in `__entry`) +
   the hash reader over the Slice-3 root; VM: `lookupSatEntry` over the `@VM`
