@@ -8,6 +8,29 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## bnfmt silently DELETED type-assertion expressions (`x.(*T)`), corrupting source — ✅ FIXED & LANDED `951e6809` (2026-07-10)
+
+**Was MAJOR — silent source corruption by the formatter.** `bnfmt` dropped any
+type-assertion expression `x.(T)` / `x.(*T)` / `x.(@T)` on an assignment /
+short-var RHS: `a, ok := g.(*int)` reflowed to `a, ok := ` (empty RHS). A
+comma-ok CALL RHS formatted fine, isolating the defect to the `EXPR_TYPE_ASSERT`
+AST node.
+
+**Root cause.** `pkg/binate/format/print_expr.bn`'s expression-kind switch had
+no `ast.EXPR_TYPE_ASSERT` case — the node was added by the type-assertions
+parser/AST slice but the printer never taught to emit it, so it fell through and
+printed nothing.
+
+**Why it hadn't bitten.** The `bnfmt-format` hygiene check excludes
+`conformance/`, and no checked-tree file used a type-assertion expression yet, so
+nothing was corrupted in practice. Found by running `bnfmt -w` on the RTTI
+Slice-4b conformance test during landing (it emptied every `x, ok := rg.(*T)`).
+
+**Fix.** Added `printTypeAssert` (operand as a postfix head — parenthesized when
+binary/unary — then `.(`, the recovery target via `printType`, `)`) + a
+round-trip test (`x.(*T)` / `x.(@T)` / value / selector operand / binary-headed
+operand). All type-assertions now survive bnfmt.
+
 ## conformance tooling broke at test numbers ≥1000 (discovery, hygiene dup-check, next/renumber) — ✅ FIXED & LANDED `3afb1e0f` (2026-07-10)
 
 **Was MAJOR — silent test non-execution (false-green coverage).** The conformance
