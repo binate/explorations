@@ -333,13 +333,15 @@ for the cherry-pick to `main`; hygiene + smoke before landing; resync after).
 - **Shared open-addressing core** for `hashmap` + `set` — possible refactor once both
   exist and the shape is settled.
 - **Promotion `stdx` → `std/containers`** — once the API is stable.
-- **Known checker gap (awareness, not relied on):** constraint satisfaction is enforced
-  only at generic-**function** instantiation, not generic-**struct** instantiation
-  (`gen.satisfy.struct-iface-unchecked`, spec §12.4). So `Map[BadKey, V]` with a
-  non-`Hashable` `BadKey` is wrongly *accepted* at the struct level and only rejected
-  when a constraint-using free function (`Put`/`Get`/…) is instantiated. Harmless here —
-  any real use instantiates such a function — but worth knowing when reading test
-  failures.
+- **Constraint satisfaction at struct instantiation — enforced (was an open gap, now
+  closed).** A generic struct instantiated with a type arg that does not satisfy its
+  parameter's constraint is rejected at the instantiation site
+  (`checkInstantiationConstraints`, spec §12.4; conformance `spec/12-generics/034`): e.g.
+  `Map[BadKey, V]` with a non-`Hashable` `BadKey` is a compile error. (Historically this
+  was enforced only at generic-*function* instantiation — the
+  `gen.satisfy.struct-iface-unchecked` gap — so a bad key was accepted at the struct level
+  and caught only once a constraint-using function like `Put`/`Get` was instantiated; that
+  gap is closed.)
 
 ## 8. Rationale summary
 
