@@ -537,8 +537,26 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
     (x64/aa64) ABI helper to ILP32 (arm32) makes the even-pair bump — inert on LP64 —
     load-bearing; and a byte-exact unit test against a hand-built reference bakes in a
     systematic direction bug (the inverted SP-adjust) and cannot catch it.
-  - **P2 (deferred)** — over-budget stack-spill shim (`arm32_funcvalue_spill.bn`,
-    high-arity long-tail only; AAPCS32 stack-discipline = silent-miscompile surface).
+  - **P2 (= straddling-agg "PIECE 1") ✅ LANDED 2026-07-09 (`3af44f26`)** — over-budget
+    stack-spill shim (`arm32_funcvalue_spill.bn`). All four shim shapes convert to a
+    framed BL and spill args past R0–R3 to the outgoing-args area; placement DRIVES the
+    shared classifier (`CallArgRegStart`/`CallArgStackOff`/`CallStackBytes`) over the
+    same prefixed sret-ptr + full-cc type list the callee (`emitSpillParam`) uses, so
+    even-pair pad + SPLIT agree at any GP-reg-file origin. Native conformance 2271→2290
+    (+19: 992, 994, managed-multi-return cells). Adversarial review caught a CRITICAL
+    pre-land: the first cut modeled the sret retbuf by *reducing* `NumGpArgRegs` (relative
+    classification), which dropped the even-register-pair parity the retbuf's R0 forces →
+    silent miscompile of an 8-aligned coerced-agg arg through an sret shim (ILP32-unique;
+    the x64/aa64 templates can't exercise reduce-file × active-even-pair). Fixed by the
+    prefixed-full-cc classification above; covered by `994`'s `sretEvenPair` case +
+    `TestFuncvalSpillSretEvenPairByteRefArm32` (both mutation-verified). R4 is the
+    memory-shuttle scratch (saved/restored); non-coerced-aggregate/float/reg64/closure
+    stay fail-loud.
+  - **PIECE 2 (next) — non-coerced in-register aggregate args** (slice / iface-value /
+    managed-slice / anon-struct ≤16B by value): currently fail-loud (`shimOutRegs`).
+    Reuses P2's spill machinery (`emitSpillMarshalArm32`/`emitSpillSrcToMemArm32`); adds a
+    source-shape variant that reads the aggregate's INLINE dispatch words (not a
+    by-address pointer) and places them via the same classifier-driven reg/stack split.
   - **P3 (deferred, P5-gated)** — soft-float float args/returns: may be shim-trivial
     (soft-float rides GP, no fmov) but the wider soft-float pipeline isn't ready →
     wrong-code risk; a user decision, not an inline relaxation.
