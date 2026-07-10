@@ -278,7 +278,22 @@ regression — re-run the single test in isolation to confirm.
 
 ## Language features — specified, not yet implemented
 
-### Methods on generic types + parameterized-receiver impls — spec'd 2026-07-05, NOT implemented — 🔴 OPEN
+### Methods on generic types + parameterized-receiver impls — ✅ IMPLEMENTED & LANDED 2026-07-06 (Phases 4.1–4.3)
+
+**DONE (stale "not implemented" corrected 2026-07-10).** A generic type carries
+methods and satisfies interfaces via a parameterized-receiver impl, same- and
+cross-package. Landed across Phases 4.1–4.3: `c0a4f1c1` (skip generic-type
+methods in concrete-method passes), `b815006f` (on-demand ImplInfo for
+parameterized-receiver impls — vtable dispatch, the interface-satisfaction leg),
+`eef3a820` + `f71b3fdf` (per-instantiation direct-dispatch method bodies, lazy at
+use sites), `5051aa59` (parse generic-receiver method bodies in `.bni`),
+`ba804ca8` (cross-package methods on generic types), `470dfe78` (generic-iface
+method sigs resolved under the iface's defining package). Tests: conformance
+`145/146/162–166`, `449` (direct methods), `447/448/451–453` (parameterized-impl
+iface dispatch) — green on builder-comp / -int / -comp. Used in the shipped
+stdlib: `impl @Vec[T] : iter.Iterable[T]`, `impl *Cursor[T] : iter.Iterator[T]`,
+`impl @Set[T] : iter.Iterable[T]`, hashmap's `impl *Cursor[K,V] :
+iter.Iterator[Entry[K,V]]`. Design reference retained below.
 
 Let a generic type carry methods and satisfy interfaces — the missing piece that
 makes generic interfaces (`Iterator[T]`, `Container[T]`) *implementable* (today
