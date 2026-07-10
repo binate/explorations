@@ -246,13 +246,15 @@ ast unit tests green.
 
 ## Phase 2 — Loader: dependency edge + surface hand-off
 
-**STATUS (2026-07-10): committed on work-3 (`5b329f38`), awaiting adversarial review + landing.**
-Implemented as designed: `Package.Exposes` field; a pure `collectExposePaths(bniFile)` helper
-(loader_util.bn) read from `bniFile.Decls` directly (the "forwarder trap" — the merged-only
-prepend block is skipped for a pure forwarder); each target appended to both `pkg.Exposes` and
-`pkg.Imports` (deduped) so the existing topo sort + cycle detector handle it for free;
-`loader_expose_test.bn` unit tests. **Follow-up before this lands:** `loader.bn` is now 502
-lines (soft-limit warning) — split it along a natural boundary rather than trimming.
+**STATUS (2026-07-10): committed on work-3 (`0592533e`), adversarial review running, awaiting
+landing approval.** Implemented as designed: `Package.Exposes` field; a pure
+`collectExposePaths(bniFile)` helper + a `recordExposes(pkg, bniFile)` helper (both in
+loader_util.bn, read from `bniFile.Decls` directly — the "forwarder trap": the merged-only
+prepend block is skipped for a pure forwarder); each target appended (deduped) to both
+`pkg.Exposes` and `pkg.Imports` so the existing topo sort + cycle detector handle it for free;
+`loader_expose_test.bn` unit tests (collectExposePaths + recordExposes-dedup). The
+`recordExposes`/`collectExposePaths` extraction (vs an inline block) keeps `loader.bn` under
+the 500-line soft limit (489) — the earlier soft-limit warning is resolved.
 
 **Deliverable:** exposing P makes P a build-order dependency of A; expose cycles are rejected;
 A carries an enumerable exposed-package list for the checker. **Deps:** 1.
