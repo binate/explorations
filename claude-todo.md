@@ -136,30 +136,37 @@ Residual (minor, NOT done): the aa64 iface caller (`aarch64_iface.bn`) still dup
 
 (Background/history archived in claude-todo-done.md.)
 
-### MAJOR — native aarch64 **Linux** (AAPCS64) ABI: variadic `__c_call` + narrow sub-word args miscompile — 🔴 OPEN (found 2026-07-10 via aa64_linux triage)
+### native aarch64 **Linux** (AAPCS64) ABI: variadic `__c_call` + narrow sub-word args miscompile — ✅ FIXED & LANDED 2026-07-10 (`9f249201`)
 
 **Severity: MAJOR — silent wrong-code on the aarch64-Linux native path.** The new
 `builder-comp_native_aa64_linux` mode's first clean CI run (`2682 passed / 16 failed`
 after the QEMU_LD_PREFIX loader fix) left **7 real backend failures**, in 2 clusters.
 Both **PASS on `native_aa64` (Darwin/Mach-O) and `native_x64`**, failing ONLY on the
 ELF/Linux aarch64 target → a **Darwin-vs-AAPCS64 divergence** the native aarch64
-backend gets wrong for Linux (it was only ever exercised on Darwin before):
+backend got wrong for Linux (it was only ever exercised on Darwin before):
 
 - **Variadic `__c_call` (5):** `500_c_call_variadic`, `527_c_call_variadic_multi`,
   `530_c_call_variadic_stack`, `regressions/c-call/printf-variadic-{int,float}` —
-  wrong/garbage output. Apple arm64 passes ALL variadic args on the stack; AAPCS64
-  (Linux) passes them like named args (in regs, then stack). The backend looks like
-  it does the Darwin all-on-stack rule unconditionally.
+  Apple arm64 passes ALL variadic args on the stack; AAPCS64 (Linux) fills the arg
+  registers first.
 - **Narrow (sub-word int8/int16) cross-pkg args (3):** `896_cross_pkg_narrow_int8_arg`,
-  `897_cross_pkg_narrow_stack_arg`, `902_cross_pkg_narrow_mixed_arg` — wrong values
-  (46 / 56 / -3232). Same Darwin-vs-AAPCS64 narrow-arg divergence (arg-slot width /
-  caller-vs-callee extension of sub-word integer args).
+  `897_cross_pkg_narrow_stack_arg`, `902_cross_pkg_narrow_mixed_arg` — Apple packs a
+  narrow scalar stack arg tight (1/2/4 bytes); AAPCS64 rounds every stack arg to 8.
 
-**Not yet root-caused** — needs inspecting the aarch64 arg-marshalling
-(`pkg/binate/native/aarch64`) for a variadic path and sub-word arg handling, likely
-target-conditional on Darwin vs Linux. Can emit + diff aarch64 asm locally for both
-targets, but can't RUN aarch64-linux locally (CI-only). The 4 VM-applicability
-failures + 4 build-select expected-mismatches from the same triage are already
+**Root cause + fix (`9f249201`).** The backend hardcoded `common.AAPCS64_Darwin()`
+(the Apple variant — `NaturalSizeStackArgs` + `VariadicStackOnly`) at all 8
+arg-marshalling sites, applying it on ELF/Linux too.  cmd/bnc compiles only the main
+module natively (deps go through clang), so the native main CALLER mismatched the
+clang AAPCS64 callee: it packed narrow stack args tight (`strb [sp]/[sp+1]/[sp+2]`)
+and stacked all varargs, vs clang's 8-byte slots (`ldrb [sp]/[sp+8]/[sp+16]`) +
+register-first varargs.  Fix: `aarch64CC()` selects `AAPCS64()` on ELF vs
+`AAPCS64_Darwin()` on Mach-O (off `objEmitElf`), routed through all 8 sites — the two
+CCs differ ONLY in those two flags, so Darwin emission is byte-identical.  Asm-verified
+both targets + native_aa64 conformance unchanged + unit tests (new
+`TestAarch64CCSelectsByObjFormat`); two adversarial reviews (one empirical, incl. a
+clang/llc cross-check) found no bug.  aarch64-linux run is CI-only.  The 4
+VM-applicability failures + 4 build-select expected-mismatches from the same triage are
+already
 resolved (`b0122e92`, buckets A + C); these 7 are the residual.
 
 ### native arm32: large-offset access hardening — residual from the >4095-byte frame fix (`6ce4b42f`) — 🟢 minor latent
