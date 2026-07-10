@@ -109,109 +109,13 @@ package than the container. Standalone repro: a `main` importing
 @vec.Vec[@[]char] = vec.New[@[]char]()` fails to link; `Vec[int]` / `Vec[*[]char]`
 are fine.
 
-### native↔LLVM ABI divergence: a GP aggregate that STRADDLES the reg/stack boundary — LLVM splits it, native (+clang) does all-or-nothing — ✅ x64 FIXED & LANDED (struct/array `7cfa823a` 2026-07-09; slice/iface/func-value `9dc0d776`+`304759c7` 2026-07-10) (found 2026-07-06)
+### native↔LLVM ABI divergence: a GP aggregate that STRADDLES the reg/stack boundary — ✅ FIXED & LANDED (x64 struct/array `7cfa823a`, slice/iface/func-value `9dc0d776`+`304759c7`, closure-capture `5608a13b`; aa64 `f681d679`) — 🟢 residual: DRY only
 
-**Severity: MAJOR — silent wrong-code across the dual-mode boundary (and vs C).**
-A ≤16-byte INTEGER-class aggregate arg that does not fully fit in the remaining
-GP arg registers (some but not all eightbytes would fit) is passed
-INCOMPATIBLY between the two backends:
-- **native backend (x64 confirmed) + clang (the SysV reference): ALL-OR-NOTHING**
-  — the whole aggregate goes to MEMORY, the one free GP reg (e.g. `%r9`) is left
-  unused.  `emitAggregateArg` has `CallConv.SplitAggregates = false`.
-- **Binate's own LLVM codegen: SPLITS** — the first eightbyte rides the last free
-  GP reg (`%r9`), the rest go to the stack.
-- **VM**: correct.
+All GP-aggregate straddle miscompiles at the native↔LLVM boundary are fixed and landed across x64 (struct/array, slice, iface-value, func-value, closure capture) and aa64 (internal caller/callee).
 
-All-native and all-LLVM programs are each SELF-CONSISTENT (both sides use the
-same rule), so this hid for a long time; it bites at the **native↔LLVM boundary**
-(dual-mode interop — a core feature) AND means Binate-LLVM binaries are NOT
-C-ABI-compatible for such args (clang does all-or-nothing).
+Residual (minor, NOT done): the aa64 iface caller (`aarch64_iface.bn`) still duplicates `aarch64_call.bn`'s aggregate-split marshalling — the duplication is what let the copy diverge originally; extract a shared helper to prevent recurrence.
 
-- **NOT iface-specific** (initial diagnosis was wrong).  Reproduced with a DIRECT
-  cross-module call `dsum(lead int64, p1..p4 I2)` where `lead`→`%rdi` shifts the
-  I2s so `p3` straddles: native `main` → LLVM `dsum` mismatches (`sse_native` vs
-  `sse_llvm` diverge; LLVM=correct `543219`).  The iface case (`992_iface_agg_spill`)
-  hits it more readily because the iface `data` ptr consumes `%rdi`, straddling `p3`.
-- **Which side is "right":** clang = all-or-nothing, so the **native backend is
-  ABI-correct and the LLVM codegen is WRONG** (it must coerce the aggregate param
-  so LLVM does not split it — mirroring how clang coerces).  Fix lives in the LLVM
-  aggregate-param lowering (`pkg/binate/codegen`), NOT the native call-site.
-- **Separate aa64 bug — ✅ FIXED & LANDED 2026-07-09 (`f681d679`).** `992_iface_agg_spill`
-  used to fail `native_aa64` **all-native single-file** (`650321`, spilled `p4` reads 0):
-  `emitCallIfaceMethod` (`aarch64_iface.bn`) OPEN-CODED the aggregate marshaling and
-  loaded ALL words into `argReg(regStart + w)`, so on a straddle the tail word ran past
-  the bank (`argReg` clamps index ≥ 8 to X7) and clobbered an earlier word, while the
-  callee reads the split — an internal caller/callee disagreement. Fixed by mirroring
-  `aarch64_call.bn`'s split (cap register words at `8 - regStart`, spill the tail). Sweep
-  confirmed aa64-only: arm32's iface caller delegates to the shared `emitCallArg` (correct
-  split); x64 is `SplitAggregates=false` (no split). DRY follow-up worth considering: the
-  aa64 iface caller still duplicates `aarch64_call.bn`'s marshaling — that duplication is
-  what let the copy diverge; a shared helper would prevent recurrence.
-- **FLOAT aggregates are fine** (x64 SSE-MEMORY + aa64 HFA-MEMORY — `989_sse_mem_arg`
-  passes everywhere); this is a GP-class-only defect.  PRE-EXISTING (predates the
-  x64-SSE work; surfaced during its follow-up #3 MEMORY-arg coverage).
-- **Tests.** `conformance/992_iface_agg_spill` now PASSES `native_aa64` (the aa64 fix
-  above; its `.xfail.builder-comp_native_aa64-comp_native_aa64` is removed) and pins the
-  aa64 single-file case. `pkg/binate/native/aarch64/aarch64_iface_test.bn`'s
-  `TestEmitCallIfaceMethodStraddlingAggregateSplits` guards the aa64 split at the codegen
-  level. The **x64 native↔LLVM** manifestation is verified by a native-main/LLVM-dep flip
-  harness (not a standard conformance mode; /tmp/direct_straddle + /tmp/int_iface reproduce it).
-- **x64 struct/array — ✅ FIXED & LANDED 2026-07-09 (`7cfa823a`, + `41e5ff4b` `SysVArgInMemory`).**
-  The LLVM codegen now emits a true `ptr byval(<T>) align 8` for a memory-class ≤16-byte
-  STRUCT/ARRAY arg (whole aggregate on the outgoing stack, matching native + clang) instead
-  of the splittable `[N x i64]`.  The position-aware decision (`types.SysVArgInMemory` via
-  `aggMemClass`, x64-only) is threaded — with sret / iface-data-ptr / closure-capture
-  prefixes accounted as native does — at every real-ABI caller: define-line + entry prologue,
-  extern declare, direct OP_CALL, OP_CALL_IFACE_METHOD dispatch, and the func-value / closure
-  shim→underlying call.  A `native/common` cross-check test pins `SysVArgInMemory` to the
-  native SysV walk.  Verified: struct straddle via direct/iface/func-value MATCHES all-LLVM;
-  `native_x64_darwin` conformance 2690 pass / 0 fail.
-- **Slice / iface-value / func-value follow-up — ✅ FIXED & LANDED 2026-07-10 (`9dc0d776`
-  native dispatch + `304759c7` codegen byval).**  Those are also 2-word GP aggregates that
-  straddle (passed first-class → split by LLVM).  It took TWO independent fixes:
-  - **codegen byval (`304759c7`):** `aggMemClass` is now kind-agnostic; the first-class
-    call-site + alloca-hoist + entry-prologue paths byval a memory-class slice / iface- /
-    func-value the SAME as a struct.  Fixes DIRECT and IFACE slice straddles at the
-    native↔LLVM boundary.
-  - **native func-value dispatch (`9dc0d776`):** the func-value-slice SIGSEGV was NOT a
-    byval-copy issue (the earlier WIP guess was wrong) — it was a PRE-EXISTING native-only
-    mismatch (reproduced on the struct-only landed tree).  `emitCallFuncValue` placed a
-    straddling first-class aggregate ALL-OR-NOTHING (SysV MEMORY, via CallArgStackOff) while
-    the func-value shim (`emitFuncvalSpillShim_x64` / `emitShimArgMarshal_x64`) reads its
-    incoming args WORD-POSITIONALLY (word g → argReg(g)/stack).  The stranded GP reg was read
-    as the slice's first word (its data pointer) and dereferenced → crash.  Fixed by placing
-    func-value dispatch args word-positionally (splitting a straddler across the last GP reg +
-    the stack).  SysV-AMD64-specific (aa64's walk already splits).  Covers plain func values
-    AND capturing closures (both lower through `emitCallFuncValue`).
-  - **Tests.** conformance `417_funcval_slice_dispatch_straddle` + `420_closure_slice_dispatch_straddle`
-    each SIGSEGV'd fully-native without the dispatch fix (they ISOLATE it); `emit_mem_byval_test.bn`
-    pins kind-agnostic `aggMemClass` for a raw slice.  As with the struct/array fix, the byval
-    divergence is only observable at the native↔LLVM boundary (all-native OR all-LLVM is
-    self-consistent either way), so DIRECT/IFACE/func-value byval is verified by the
-    native-main/LLVM-dep flip harness, not a standard conformance mode.  Composes with the
-    concurrent 924 capture-byval fix (a closure with a memory-class capture AND straddling
-    slice args round-trips correctly).
-- **924 closure STRUCT-CAPTURE marshalling, LLVM x64 — ✅ FIXED & LANDED 2026-07-09
-  (`5608a13b`).** `924_closure_aggregate_stack_bound_capture` (added `20c1d9be` for
-  the NATIVE x64 shim spill path — passes `native_x64`) printed `222/100` instead of
-  `315/7` on the **LLVM** x86_64 path. Root cause: the struct/array fix (`7cfa823a`)
-  made the closure BODY take a memory-class aggregate CAPTURE as `ptr byval(%T)`, but
-  the shim's CAPTURE marshalling still coerced it to a first-class `[N x i64]` → a
-  define/call ABI mismatch (SysV INTEGER vs MEMORY class; benign on aa64 where both
-  lower to 2 regs, wrong on x64). Position-dependent: needs enough preceding int
-  captures (5, filling rdi..r8) to push the aggregate into MEMORY class — so
-  `7cfa823a`'s "closure shim→underlying call" threading covered the body signature +
-  straddle ARGS but NOT the shim's memory-class CAPTURE marshalling. **Fix** added
-  `closureCaptureInMemFlags` (the position-aware decision the user-arg `closureInMemFlags`
-  already made) and passes a memory-class capture as `ptr byval(<T>) align 8` on its
-  closure-struct field pointer — matching the body's define-line. Scoped to x64
-  `AggInRegCoercedKind`; off-x64 + non-closure emission byte-identical. Guarded by the
-  conformance test itself (now passes on both arm64 + x86_64 `builder-comp`, no xfail
-  needed) + codegen unit test `TestEmitClosureMemClassCaptureByval` (forces x64,
-  arch-independent). Two adversarial reviews (one empirical: isel'd asm = `movq`
-  copies, ran mixed-register/SSE/managed-field/interleaved cases) found no bug.
-  Un-reds `builder-comp` on x86_64 CI.
-- ✅ DONE — aa64 native internal caller/callee disagreement fixed (`f681d679`).
+(Background/history archived in claude-todo-done.md.)
 
 ### MAJOR — native aarch64 **Linux** (AAPCS64) ABI: variadic `__c_call` + narrow sub-word args miscompile — 🔴 OPEN (found 2026-07-10 via aa64_linux triage)
 
@@ -239,79 +143,22 @@ targets, but can't RUN aarch64-linux locally (CI-only). The 4 VM-applicability
 failures + 4 build-select expected-mismatches from the same triage are already
 resolved (`b0122e92`, buckets A + C); these 7 are the residual.
 
-### native arm32: a function frame > ~4095 bytes fails to compile (COMPILE_ERROR) — ✅ FIXED & LANDED 2026-07-06 (`6ce4b42f`)
+### native arm32: large-offset access hardening — residual from the >4095-byte frame fix (`6ce4b42f`) — 🟢 minor latent
 
-**Severity: MAJOR (valid program fails to compile on an accepted backend) — but
-FAIL-LOUD (a clean COMPILE_ERROR, not a silent miscompile).** A native-arm32
-function whose frame — or an aggregate it copied — exceeded the ARM 12-bit
-(4095-byte) LDR/STR immediate range failed: `native backend failed to emit
-object (arch=arm32)`.
+The frame->4095-byte COMPILE_ERROR is FIXED & LANDED (`6ce4b42f`); tests `990_native_arm32_iface_large_frame` + `991_native_arm32_large_frame`. Two minor follow-ups from the landing review remain (NOT done):
 
-- **Reproduced (minimal, NON-iface, so it is pre-existing and general — not P4-c):**
-  `func main() { var buf [2000]int; buf[0]=1; buf[1999]=2; println(buf[0]+buf[1999]) }`
-  ([2000]int = 8000 bytes) → COMPILE_ERROR on `builder-comp_native_arm32_baremetal`.
-- **Root cause (found):** the specific SetError was `arm32: LDR/STR immediate
-  offset out of range (magnitude must fit 4095)`, tripped at offset 4096 by the
-  aggregate word-copy loops — `MemImm(base, off)` where `off` scales with the
-  aggregate SizeOf (emitAggLoad / emitStructCopy zeroing+copying the 8000-byte
-  array). A wider sweep also found SP-relative frame accesses whose offset scales
-  with frame size (aggregate-param spill data regions / incoming-stack slots,
-  outgoing stack args, int64 guard-call stack args) and the inline string-literal
-  STRB loop (8-bit/255 immediate), all bypassing the emitFrame*/emitBase*
-  materializing helpers.
-- **Fix (LANDED `6ce4b42f`):** added `emitBaseLoad` (load analogue of
-  `emitBaseStore`) and routed every large-offset-capable access through the
-  IP-materializing helpers; the indirect-large aggregate-param copy now holds the
-  byval source pointer in a pool register so IP is free as the address scratch.
-  Fail-loud preserved for genuinely-unimplemented shapes (floats, int64 pairs).
-- **Diagnostics gap (fixed):** added `common.ReportEmitError`, called from each
-  backend's EmitObject `if a.HasError` path, so the specific SetError reason now
-  prints instead of being swallowed into the generic line (all three native
-  backends).
-- **P4-c.3 unshadowed:** the iface-dispatch method-pointer spill fix (spill via a
-  pool reg, not IP, since a large-frame emitFrameStore uses IP as its own scratch)
-  only manifests when the spill slot offset > 4095 — previously unreachable behind
-  this COMPILE_ERROR. Now covered end-to-end by conformance test
-  `990_native_arm32_iface_large_frame` (iface `*T`-receiver dispatch in a
-  >4095-byte frame → 42). The non-iface large-frame case is
-  `991_native_arm32_large_frame` (→ 3; renumbered from 989 during landing to dodge
-  a concurrent `989_sse_mem_arg`).
-- **Verified:** native unit packages green; hygiene 16/16; full
-  `builder-comp_native_arm32_baremetal` 2236 passed / 418 failed / 35 skipped —
-  passing count up +2 (the two new tests) over the 2234 baseline, 0 hangs, 0
-  XPASS, and every one of the 418 failures is a pre-existing unimplemented-feature
-  fail-loud (floats / closures / generics / HFA-SSE / method values / variadics /
-  cross-pkg), not a regression.
-- **Residual follow-ups (minor, from the landing review — NOT done):**
-  (1) `emitExtract`'s scalar-field `emitScalarLoad` (arm32_emit.bn) is unguarded for
-  a large field offset — safe today (only built-in headers ≤16 B reach it; user
-  struct fields lower to GEP+LOAD, multi-return takes the guarded branch), so it's a
-  documented latent invariant, not a live bug; `aarch64_emit.bn`'s emitExtract has
-  the identical shape → a SHARED-backend hardening (route through a guarded
-  base-scalar-load) if ever exercised.
-  (2) Pre-existing, orthogonal: `arm32_iface.bn`'s method-slot LDR
-  (`MemImm(IP, wordBytes()*ins.Index)`) overflows the 12-bit immediate only for an
-  interface with >1023 methods — extremely unlikely, untracked-until-now.
+1. `emitExtract`'s scalar-field `emitScalarLoad` (arm32_emit.bn, and identical shape in aarch64_emit.bn) is unguarded for a large field offset — safe today (a documented latent invariant), but a shared-backend hardening (route through a guarded base-scalar-load) if ever exercised.
+2. Pre-existing/orthogonal: `arm32_iface.bn`'s method-slot LDR (`MemImm(IP, wordBytes()*ins.Index)`) overflows the 12-bit immediate only for an interface with >1023 methods.
+
+(Background/history archived in claude-todo-done.md.)
 
 ### HFA-in-SIMD is a CROSS-BACKEND contract — ✅ RESOLVED for AArch64; Stage 4 (x64) remains — 🟡 OPEN
 
-HFA (Homogeneous Floating-point Aggregate) passing in SIMD registers is a
-cross-backend ABI contract — the compiler's LLVM backend, native codegen, every
-dispatch shim (func-value / closure / interface, incl. stack-spill), and the VM
-boundary must all agree. **✅ DONE & LANDED for AArch64** via the cross-backend
-replan (`plan-hfa-crossbackend.md`): all sites built dormant behind
-`types.HfaInSimd()`, then flipped ON at `48e3787b` (`HfaInSimd() → Arch==AA64`).
-Staging commits `06f9a8ff`/`d69eded8`/`7692508e`/`9ebf4119`/`4bc6fa7c`/`576e7bb3`/
-`833576bd`/`48e3787b`; validated by full conformance on builder-comp + native-aa64
-plus the cross-module `968` / dispatch `969` / spill `970` tests; each stage
-adversarially reviewed. (The earlier native-only enablement `332b4298` was a
-CRITICAL cross-backend miscompile — deps/shims route through the LLVM backend, which
-GP-coerces HFAs — mitigated by gating off `1a790663`, then fixed by the replan.
-Process lesson: the correctness bar is "native matches the Binate LLVM backend +
-shims", not "native matches clang".)
+AArch64 HFA-in-SIMD passing is DONE & LANDED (flipped ON at `48e3787b`; validated by conformance + `968`/`969`/`970` tests).
 
-**ONLY REMAINING: Stage 4 — x64 SysV eightbyte-SSE HFA** (an independent per-target
-effort; `HfaInSimd()` stays false for x64 until then). See `plan-hfa-crossbackend.md`.
+ONLY REMAINING: Stage 4 — x64 SysV eightbyte-SSE HFA (an independent per-target effort; `HfaInSimd()` stays false for x64 until then). See `plan-hfa-crossbackend.md`.
+
+(Background/history archived in claude-todo-done.md.)
 
 ### native-aa64 self-hosted conformance: intermittent timeout flakiness — 🟡 OPEN (2026-07-02)
 
@@ -330,95 +177,6 @@ per-test `timeout` (3s is tight when the full sweep saturates the host), or make
 runner retry a timed-out test once before reporting failure. Until then a red
 native-aa64 run with a lone `[3s]` timeout failure is very likely this, not a real
 regression — re-run the single test in isolation to confirm.
-
-### MAJOR — generic interface's method signature referencing a sibling generic type (`SiblingType[T]`) fails to resolve during CROSS-PACKAGE impl-satisfaction (`undefined: <sibling>`) — ✅ RESOLVED & LANDED 2026-07-10 (`470dfe78`)
-
-**Resolution.** `populateInstantiatedInterface` (`check_generic_type.bn`) now sets
-`c.curPkgPath = genericIfaceDeclPkg(c, d)` around the method/extension resolution,
-mirroring `populateInstantiatedStruct` — so an unqualified same-package sibling
-reference in a generic interface's method signature resolves under the interface's
-DEFINING package, not the impl-site's.  Cross-package regressions
-`conformance/996_xpkg_gen_iface_method_sibling_struct` (sibling generic struct) and
-`997_xpkg_gen_iface_method_sibling_iface` (sibling generic interface, the `Iterable`
-pattern) are green on builder-comp / VM / self-compile; 374 generics/interface
-conformance tests + `pkg/binate/types` unit tests pass.  This unblocks the stdx
-containers' `Iterable[T]` design.
-
-**Severity: MAJOR — spurious reject of valid code (loud COMPILE_ERROR, not a
-miscompile).** Blocks the entire `Iterable[T]` design for the stdx containers (and
-any generic interface whose method returns/takes a sibling generic type — e.g.
-`Container[T] { Iter() @Iterator[T] }`, `Factory[T] { Make() @Box[T] }`).
-
-**Symptom.** A generic interface declared in package `P` whose method signature
-references another generic type from `P`, instantiated with the interface's own
-type parameter — e.g. in `pkg/seq.bni`:
-```
-interface Iterator[T any] { Next() (T, bool) }
-interface Iterable[T any] { AsIterator() @Iterator[T] }   // references sibling Iterator[T]
-```
-When a type in a DIFFERENT package `Q` does `impl @Foo : seq.Iterable[int]`, the
-checker rejects it:
-```
-pkg/seq.bni:<line of @Iterator[T]>: undefined: Iterator
-Q/main.bn: type Foo does not implement Iterable[int] (method `AsIterator` has wrong signature)
-```
-The sibling reference is a bare name (`Iterator`) valid in `seq`'s own scope but
-undefined in `Q`'s scope (there it is `seq.Iterator`).
-
-**Root cause (hypothesis, high-confidence).** To check impl-satisfaction against an
-imported GENERIC interface, the checker instantiates it (`Iterable[int]`) and
-re-resolves the interface method's signature type expressions (`@Iterator[T]` with
-`T:=int`). That re-resolution runs in the **impl-site's** scope (`Q`) instead of the
-interface's **defining-package/file** scope (`seq`) — so the bare sibling name is
-undefined. This is exactly the defining-file-scope setup that
-`populateInstantiatedStruct` / `checkInstantiationConstraints` already perform for
-generic STRUCT fields/constraints (see `check_generic_type.bn` "resolved under the
-generic decl's DEFINING-file scope and package"); the generic-INTERFACE
-method-signature instantiation path is missing it. Entry points:
-`check_impl.bn:checkImplCoversInterface` → `ifaceFullMethods(iface)` /
-`methodSigSatisfies(rm.FuncType, im.FuncType, …)`, and wherever an imported generic
-interface's `im.FuncType` type exprs get (lazily) resolved.
-
-**Exact trigger (empirically pinned, 2026-07-09).** Requires ALL of: (1) a GENERIC
-interface, (2) whose method references a sibling generic type instantiated with the
-interface's own type param (`Sibling[T]`, forwarding `T`), (3) checked during a
-CROSS-PACKAGE impl-satisfaction. Ruled OUT as the trigger (each PASSES on its own):
-non-generic outer interface referencing a generic sibling interface
-(`Holder { Get() @Elem[int] }`); generic outer interface referencing a sibling
-non-generic type or a sibling generic STRUCT with a *concrete* arg; sibling struct
-`@Item`. The sibling being a struct vs interface does NOT matter — a generic outer
-interface forwarding `T` into a sibling generic STRUCT (`Wrap[T]{ Make() @Box[T] }`)
-also fails (`undefined: Box`). Same-package impls and merely *using* the interface as
-a variable type both work — only the cross-package impl-satisfaction path re-resolves
-in the wrong scope.
-
-**Minimal repro** (cross-package conformance layout — main + `pkg/s6.bni` +
-`pkg/s6/s6.bn`):
-```
-// pkg/s6.bni
-type Box[T any] struct { v T }
-interface Wrap[T any] { Make() @Box[T] }
-// main.bn
-import "pkg/s6"
-type F struct { base int }
-func (f @F) Make() @s6.Box[int] { var b @s6.Box[int] = make(s6.Box[int]); return b }
-impl @F : s6.Wrap[int]        // COMPILE_ERROR: s6.bni: undefined: Box
-```
-
-**Proposed fix.** In the imported-generic-interface method-signature resolution
-(reached from impl-satisfaction), resolve the method's type expressions under the
-interface's defining-file scope + package with the type params bound to the concrete
-args — mirroring `populateInstantiatedStruct`'s scope setup. Add a conformance
-regression test (the repro above) once fixed; if deferred, land it as an xfail.
-
-**Discovered while** migrating the stdx containers to methods and adding
-`iter.Iterable[T] { AsIterator() @Iterator[T] }` (the vec/set/hashmap
-`impl @Container[T] : iter.Iterable[…]`). The method-migration + `iter.Iterator[T]`
-impls (vec/set) landed fine — only `Iterable[T]` is blocked. The container-side WIP
-diff for Iterable is preserved at `/tmp/iterable-wip.patch` (session-local) and is
-trivially re-derivable (add `Iterable[T]` to `iter.bni`; add
-`AsIterator() @iter.Iterator[T]` + `impl @Container[…] : iter.Iterable[…]` to each
-container).
 
 ## Language features — specified, not yet implemented
 
@@ -785,39 +543,11 @@ the range-lookup-selected shim slot) + `pkg/binate/vm` `vtable_inject`
 
 ### Compiler/interpreter interop — MAJOR PROJECT — 🟢 substrate + descriptor LANDED; general user-package table remains (Phase B)
 
-Dual-mode execution (compiled and interpreted code calling each other, both
-directions) is a core Binate promise. The substrate this entry originally
-sketched has largely LANDED; the **live tracker for what remains is the "Package
-descriptors (Phase B)" entry above.**
+Dual-mode execution substrate is LANDED: shared-layout/refcount cross-mode interop, function values (`{vtable,data}` rep + shims + `dispatchCompiledFuncValue`), the `reflect.Package`/`__Package()` descriptor (compiled + VM builtins, `conformance/532` green in all 6 modes), cross-mode dispatch coverage, and the VM name→function-value registry (`registerPackageDescriptorExterns`).
 
-**Done:**
-- **Substrate verified** (not just assumed): cross-mode in-memory type layout
-  (shared `pkg/types` SizeOf/AlignOf/FieldOffset) and cross-mode refcounting
-  (shared `rt.RefInc`/`RefDec`/`Free`, per-type dtor via the header) — both
-  exercised end-to-end through the static-managed sentinel.
-- **Function values** — the named prerequisite (`plan-function-values*.md`): the
-  2-word `{vtable,data}` rep, `__shim.<mangled>` shims, `dispatchCompiledFuncValue`
-  (via `rt._call_shim_scalar`), and the compiled-side `TrampolineScalar` are all in
-  place.
-- **The package descriptor** — became `reflect.Package` / `__Package()`; works in
-  compiled AND VM modes for the builtins (`d4edd671`, `conformance/532` green in all
-  6 modes), with Globals + Vtables tables populated for cross-environment parity
-  (`55ebcfce`). This settled the old design questions (descriptor name, layout,
-  self-descriptor, globals exposure).
-- **Cross-mode dispatch** (interpreted↔compiled via the func-value shims) — the
-  observable shapes are covered (e2e `7f15b1e9` + the func-value ABI-matrix work;
-  residual native-shim ABI gaps are tracked in the cross-mode-dispatch section
-  above).
-- **VM name→function-value registry** (the entry's "lighter-weight first step") —
-  landed as `registerPackageDescriptorExterns` / `RegisterPackageFunctions` plus
-  the embeddable-interp host-registration path.
+Remaining (LIVE tracker is the "Package descriptors (Phase B)" entry above): the GENERAL Functions-table for USER packages — codegen emits a per-package `Functions` table + the VM auto-enumerates all packages via a cross-package registry, replacing hand-maintained `RegisterStandardExterns`; then Phase C richer type metadata / RTTI.
 
-**Remaining (all tracked in the "Package descriptors (Phase B)" entry above):** the
-GENERAL Functions-table for USER packages — codegen emits a per-package `Functions`
-table (name + signature + function value per exported func) and the VM
-auto-enumerates all packages' tables via a cross-package registry, replacing the
-hand-maintained `RegisterStandardExterns`. Then Phase C: richer type metadata /
-RTTI for reflection + type assertions.
+(Background/history archived in claude-todo-done.md.)
 
 ### Embeddable-interp — open follow-ups (Inc 2 extern cleanup core landed) — 🟡 OPEN (2026-06-20)
 
@@ -2070,11 +1800,10 @@ to assert the path appears in the rendered message.
   for wasm B1 (one worker = one session).
 
 ### REPL — Tier-4 follow-ups + pretty-printer (all five tiers landed) — 🟡 OPEN (low priority)
-All five REPL tiers are landed (archived in [claude-todo-done.md](claude-todo-done.md): Tier 1–2 eval +
-redefinition, Tier 3 forward refs incl. pending types/vars/consts + cycle detection, Tier 4 replace +
-shadow for funcs & methods, Tier 5 mid-session imports `78685ac3`). Residual:
+Residual (all five REPL tiers landed):
 - **Tier 4**: refcount-aware shadow warning (today fires unconditionally); forced-shadow escape hatch (syntax TBD per `claude-notes.md`).
 - **Pretty-printer** (`pkg/replprint`) — deferred until interfaces land (`bootstrap.println` is a temporary hack; don't entrench it).
+(Background/history archived in claude-todo-done.md.)
 
 ## ARM32 bare-metal target
 
@@ -2219,30 +1948,6 @@ plan-native-arm32.md § P4.
   e.g. `401_return_many_scalars`).
 - **soft-float (P5) / VFP hard-float + arm32-linux (P6) / CI wiring (P7)** — see
   the plan doc.
-
-#### native-arm32-baremetal runtime miscompiles (found by P4 recon, 2026-07-02) — ✅ ALL THREE FIXED (2026-07-03/04)
-
-Three tests compiled clean through the native arm32 backend then HANG at runtime
-under QEMU (`[10s]` timeout) — silent-miscompile-invariant violations, arm32-only.
-All three are now ✅ FIXED (no `[10s]` runtime hangs remain on
-builder-comp_native_arm32_baremetal; conformance 1780/841/32):
-
-- `matrix/abi/struct-param/five-u8` (`f3a8bc91`) — `common.PlanFrame` didn't round
-  the aggregate-PARAMETER frame region up to 8 bytes → word-store overrun +
-  misaligned later frame slots → Data Abort.
-- `877_aggregate_abi_xpkg` (`0479813a`) — the shared `NeedsSret`/`IsAggregateReturn`
-  64-bit-scalar misclassification, fixed by the aggregate-KIND gate.
-- `599_addr_of_slice_elem` (`ba2a14ec`) — NOT the arm32-emit bug first suspected: a
-  MAJOR shared-IR wrong-width deref-store. `genAssign`'s `*p = val` (STAR) arm stored
-  the RHS at its OWN width, not the pointee width (unlike the IDENT/SELECTOR arms), so
-  `*pUint8 = 99` emitted a 4-byte `store i32` through an `i8*` — a wide store clobbering
-  neighbor bytes; **latent memory corruption on ALL backends**, visible only on
-  strict-alignment arm32-baremetal (Data Abort → hang). Fixed by an `ensureWidth` in
-  the STAR arm mirroring the sibling arms; an exhaustive audit confirmed it was the
-  SOLE such site. Consistency follow-up landed (`8b9bddbb`): `genMultiAssign`'s
-  IDENT arm now applies the same `ensureWidth` as its SELECTOR sibling (inert
-  today — its RHS is always a single-call component already at the declared width
-  — so all lvalue-store arms are now width-coercion-symmetric).
 
 #### MINOR (cross-backend diagnostics) — `iropcode.OpName` missing `OP_CONST_FLOAT`
 
