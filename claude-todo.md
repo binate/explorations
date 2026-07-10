@@ -2110,7 +2110,117 @@ diagnostics, no pass/fail change.
   (the inventory itself is deferred to a follow-up). Needs review
   pass before any implementation begins.
 
+## stdx containers: Map/Set key-type ergonomics
+
+Motivation for both entries below: the container-adoption audit (2026-07-09,
+see the `Adopt stdx/containers Vec …` opportunistic entry) found that `Vec[T]`
+is usable across the non-BUILDER tools *now*, but `hashmap.Map[K lang.Hashable,
+V]` and `set.Set[T lang.Hashable]` are blocked at nearly every real site —
+because those all key on an *identifier or path name* spelled `@[]char`, and
+only scalar primitives implement `lang.Hashable`
+(`impls/core/common/pkg/builtins/lang/order.bn`; no impl for `@[]char`/`[]char`,
+any slice/pointer, or any struct). Blocked sites include vm's `func_index.bn`
+(an ENTIRE hand-rolled djb2 open-addressing hashmap on the hot func-resolution
+path — the smoking gun), vm `LookupExtern`/`lookupGlobalAddr`/`findIfaceVtable`,
+lint `unused_func` reachability + `refs`/`unused_local` membership, interp/repl
+path-dedup sets, and asm/parse's const symbol table. Two complementary ways to
+unblock them:
+
+### Derived/structural Hashable for aggregates (slices, arrays, structs of Hashables) — 🟡 DESIGN OPEN (2026-07-09)
+- **Idea**: make an aggregate whose components are all `lang.Hashable` itself
+  `lang.Hashable`, derived structurally: a slice `@[]T`/`[]T` and array `[N]T`
+  with `T: Hashable` (Hash = fold over element hashes; Compare = element-wise /
+  lexicographic), and a struct whose fields are all Hashable (Hash = combine
+  field hashes; Compare = field-by-field). Since `char` is Hashable (via its
+  `uint8` alias), this makes `@[]char` — *the* Binate string — Hashable, so
+  identifier/path-name keys "just work" with no new type.
+- **Why this over a dedicated string type** (the user's steer, 2026-07-09):
+  adding a distinct `String` type to be the Hashable key conflicts with the
+  widespread `@[]char`-as-string convention, including `std/strings` (which
+  operates on `@[]char`/`*Builder`, not a string type). We'd end up with two
+  string representations and conversion friction. Structural Hashable keeps
+  `@[]char` as the string and just makes aggregates-of-Hashables usable as keys.
+- **Open design questions**:
+  - Automatic/blanket vs. opt-in: is this a built-in structural rule in the type
+    system, or a conditional generic impl (`impl []T : Hashable where
+    T:Hashable`)? Binate today has NO derived/blanket impls, and the
+    `AllowUniverseRecv` gate restricts who may `impl` on universe
+    primitives/slices — where would these impls live, and can the constraint
+    system express the conditional form?
+  - Hash fold + Compare semantics (which mixing function; is lexicographic the
+    intended slice `Compare`?).
+  - Scope: `@[]T` and `[]T`; arrays `[N]T`; structs. Pointers (`@T`/`*T`) should
+    almost certainly NOT auto-derive (identity-vs-pointee hashing is a footgun) —
+    leave them out.
+  - Cost: `Hash`/`Compare` on `@[]char` is O(len) — fine for map keys.
+- **Payoff**: unblocks the entire compiler-domain Map/Set class in one move,
+  including deleting vm's hand-rolled `func_index.bn` hashmap in favour of
+  `hashmap.Map`. Supersedes the key half of the "168 `slices.Append` in loops"
+  note elsewhere in this file — the same key-ergonomics gap.
+
+### Container variants taking an explicit hash/eq function (not requiring Hashable) — 🟡 DESIGN OPEN (2026-07-09)
+- **Idea**: offer container variants (or constructors) that accept an explicit
+  `hash: *func(T) uint` + `eq`/`compare` function instead of constraining the key
+  to `lang.Hashable`. E.g. a `hashmap.NewWith(hashFn, eqFn)` / a parallel
+  `HashMapFn[K any, V]` type whose K is unconstrained.
+- **Why**: the escape hatch for (a) keys that shouldn't or can't be Hashable,
+  (b) custom hashing/equality (case-insensitive names, hash-by-one-field,
+  pointer-by-identity), and (c) perf-tuned hashers — without forcing a wrapper
+  struct + hand-written `impl : lang.Hashable` at every such site. Complementary
+  to structural Hashable: structural handles the common ergonomic case (name
+  keys); explicit-fn handles the custom/opt-out case.
+- **Open design questions**:
+  - Variant type vs. optional-fn-in-the-existing-Map (the latter mixes
+    constraint-dispatch and fn-dispatch awkwardly; a separate variant is likely
+    cleaner).
+  - Whether the fns are stored as `*func`/`@func` in the container struct —
+    function values exist (non-capturing at BUILDER, capturing in the full
+    language; containers are non-BUILDER, so capturing is available). Each
+    instantiation still monomorphizes; the hash/eq become indirect calls per
+    probe (no interface dispatch).
+
 ## Opportunistic code cleanups
+
+### Adopt `stdx/containers` Vec for hand-rolled growable arrays — 🟡 IN PROGRESS (audit 2026-07-09)
+- **What**: the container-adoption audit swept the non-BUILDER tree (vm, interp,
+  lint, format, repl, and the cmd/{bni,bnfmt,bnlint} glue — the stdlib itself is
+  largely BUILDER-constrained, since cmd/bnc imports std/{os,strings,strconv} and
+  stdx/slices) and found ~30 verified `vec.Vec[T]` adoption sites, all one
+  anti-pattern: building a slice by repeated single-element append (O(n²)). Three
+  spellings, all fixed by `Vec.Push` (amortized O(1)):
+  - Bespoke `appendXxx` recopy helpers (`make_slice(n+1)`+copy): `interp/util.bn`
+    (`appendCharSlice`/`appendFilePtr`/`appendImportSpec`, used across imports/
+    check/externs/interp), `cmd/bni/util.bn` (same trio), `cmd/bnlint/main.bn`
+    (`appendStr`/`appendImport`), repl (`appendByteRepl` O(n²)-per-line
+    accumulator, `appendReplError`). Vec deletes these helpers outright.
+  - `slices.Append` in a loop: the formatter wrap engine (8 near-identical
+    `strs`/`lines` sites: `print_wrap.bn:124/146/169`, `print_builtin.bn:62`,
+    `print_switch.bn:79`, `print_decl.bn:179`, `print_chain.bn:34`,
+    `print_file.bn:113`); vm `lower.bn:263` / `satentry_inject.bn` /
+    `lower_pkg_descriptor.bn` (×5) / `lower_data.bn`.
+  - Manual capacity/length growers (a `@[]T` field + external `N…` counter):
+    `cmd/bnlint/suppress.bn` (`Sups`/`Bad`) + `main.bn:472` (`appendMsg`
+    +`NumDiags`), `cmd/bnfmt/main.bn:174` (`readFile` byte buffer), lint
+    `refs.bn` (`growNames`), `unused_func.bn`, `unused_local.bn`.
+- **Ownership caveat**: `Vec.Items()` is a *view* into the backing, not an owned
+  slice. Vec fits persistent accumulator fields and build-then-hand-to-a-
+  synchronous-consumer; it's a poor fit for build-and-return-an-owned-slice (you'd
+  return the Vec or copy out). This is why the `cmd/bni` `readReplLine`/
+  `appendByteRepl` twin was verified OUT (returns an owned right-sized slice).
+- **Not opportunities** (verified out): `vm.Funcs` (already `slices.Append`; a
+  bare indexed dispatch field — converting ripples through dozens of index sites
+  for zero growth code), vm `vtable_inject` parallel arrays (deliberate
+  struct-of-arrays), `strconv.Append*` (pos-based fixed-dst writers, not
+  containers).
+- **Map/Set half is BLOCKED** on the missing Hashable name key — see the two
+  "stdx containers: Map/Set key-type ergonomics" entries above. Until one of
+  those lands, the symbol-table/dedup-set sites stay linear scans.
+- **How to land**: one site (or one helper-family) per commit, keeping tests +
+  the `bnfmt-format`/unit suites green; start with the formatter wrap engine
+  (uniform, well-tested, synchronous consumer — no ownership wrinkle) or the
+  `interp`/`cmd-bni` append-helper family (deletes the most code). `vec.Vec` IS
+  the "growable container with amortised O(1) append" the earlier "168
+  `slices.Append` in loops" note asked to file for later.
 
 ### Use interfaces more (opportunistic)
 - **Constraint**: now bounded by `BUILDER_VERSION`-pinned bnc
