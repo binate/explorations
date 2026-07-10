@@ -117,6 +117,34 @@ missing helpers only). Test: `conformance/1007_xpkg_named_wrapper_elem`
 (cross-package `Box1[Buf]`, `Buf = @[]@Box`, created-but-never-populated), passes
 both backends. Verified: builder-comp 2704/0 + ir units.
 
+### `genArrayCopy`/`ensureArrayCopy` skip the recursive element-copy helper for a NAMED-distinct wrapper element — link failure (COPY twin of the dtor bug above) — ✅ FIXED & LANDED 2026-07-10 (`aba92526`)
+
+**Symptom.** The copy-emission mirror of the `ensureMsDtor`/`ensureArrayDtor` bug
+above. An array whose element is a named-distinct transparent wrapper — `type Buf
+@[]@Box; type ArrBuf [2]Buf` — emits an array-copy helper that calls an *undefined*
+per-element copy symbol: `use of undefined value @bn_...__copy_ms_mp_Box` (native
+link failure / VM extern-not-found). Reproduces even for an empty/never-populated
+value: the copy helper is emitted unconditionally, so unlike the dtor case there is
+no materialised-element path to incidentally mask it.
+
+**Root cause.** `genArrayCopy` / `ensureArrayCopy` (`pkg/binate/ir/gen_copy_emit.bn`)
+dispatch the array element by its RAW `arrTyp.Elem.Kind`. `ResolveAlias` does not
+peel `TYP_NAMED`, so a named `@[]@Box` wrapper element (a) falls to `genArrayCopy`'s
+generic `else` and calls a `__copy_ms_*` per-element helper that does NOT exist — the
+managed-slice copy is a shared-backing RefInc emitted INLINE, there is no such helper
+— and (b) skips `ensureArrayCopy`'s inner array-copy recursion for a named inner-array
+element. PRE-EXISTING; the exact copy-side counterpart of `c14dd95e` (which fixed only
+the dtor half).
+
+**Fix (LANDED `aba92526`).** `peelTransparent` the `.Elem` before the kind dispatch in
+both `ensureArrayCopy` and `genArrayCopy` — mirroring `genStructCopyWithName`'s field
+peel and the dtor-side peel — so a named wrapper element is classified by its
+underlying kind and takes the managed-slice inline-RefInc arm (or recurses the inner
+array copy). Additive (emits previously-missing helpers only). Test:
+`conformance/1011_named_wrapper_array_copy` (both arms: `[2]Buf` ms-wrapper and
+`[2]NArr` named-array element, empty values), passes builder-comp / -int / -comp; ir
+units green.
+
 ### `readonly` is invisible to `NeedsDestruction`/`dtorTypeSuffix` — cosmetic mismatch now, latent leak later — 🟢 LOW / OPEN (found 2026-07-10, adversarial review of `8d9e7577`)
 
 `ResolveAlias()` peels `TYP_ALIAS` but not `TYP_READONLY`, so (a) `readonly <scalar>`
