@@ -712,17 +712,36 @@ built, together with a test that exercises `ptr≠int` (the only thing that vali
 
 ## Slimming `pkg/bootstrap`; C interop (`__c_call`)
 
-### Add an aarch64-linux **native** conformance mode (e2e for the aarch64 ELF relocs) — 🟡 OPEN, minor (2026-07-06)
+### aarch64-linux **native** conformance mode (e2e for the aarch64 ELF relocs) — 🟢 MODE LANDED (`e8c99290`, 2026-07-09); residuals below
 
 The native aarch64 **ELF** data + GOT relocations (`ADD_ABS_LO12_NC`,
 `LDST64_ABS_LO12_NC`, `ADR_GOT_PAGE`, `LD64_GOT_LO12_NC`) landed in `9e866a43`
 — fixing a MAJOR silent-`R_AARCH64_NONE` miscompile (see `claude-todo-done.md`)
-— are clang-byte-verified (`objdump`) + unit-tested, but **not link+run-verified**:
-there is no aarch64-linux native conformance mode (the `native_aa64` mode is
-macOS/Mach-O; no qemu-aarch64 on the CI host). Adding an aarch64-linux native
-mode (analogous to the x64-linux `builder-comp_native_x64` runner, which needs
-qemu-x86_64 off-x86_64) would make the aarch64 ELF path — and the `__c_global`
-§5b GOT lowering — end-to-end tested. The natural regression guard.
+— were clang-byte-verified (`objdump`) + unit-tested but **not link+run-verified**.
+The `builder-comp_native_aa64_linux-comp_native_aa64_linux` mode (`e8c99290`)
+now closes that: gen1 compiles each test `--backend native --target aarch64-linux`
+and runs it under qemu-aarch64 on the x86_64 CI runner (`gcc-aarch64-linux-gnu`
+cross-libc + `qemu-user-static`), analogous to the x64-linux `builder-comp_native_x64`
+runner. It exercises the aarch64 ELF path — and the `__c_global` §5b GOT lowering
+— end-to-end. Wired **experimental** (continue-on-error) in
+`.github/workflows/conformance-tests.yml`.
+
+**Residuals (🟡 OPEN):**
+1. **First-CI-run triage.** The aarch64-linux native path had never run e2e, so
+   the mode debuts red; its first CI run is what surfaces the actual failures →
+   compute the xfail set / fix the bugs → drop `experimental` once green.
+   Not runnable on the macOS dev host (no aarch64-linux cross-libc / qemu).
+2. **Native arm64 runner via a cross-compiled `linux-arm64` bundle (IN PROGRESS,
+   option 1).** The mode uses qemu-aarch64; a native `ubuntu-24.04-arm` runner
+   would avoid emulation but needs a `linux-arm64` BUILDER bundle, which doesn't
+   exist (`release.yml` ships only linux-x64 / macos-arm64, and `build-*.sh` build
+   for the runner's host arch via a host-arch BUILDER — a chicken-and-egg). Fix:
+   teach `build-{bnc,bni,bnas,bnlint}.sh` + `make-bundle.sh` a cross-target so the
+   x86_64 runner cross-builds the arm64 tools via the existing `bnc-0.0.10-linux-x64`
+   BUILDER + `--target aarch64-linux` (linked with `gcc-aarch64-linux-gnu`), then
+   add `linux-arm64` to the `release.yml` matrix. Care needed: the bnc self-host
+   loop (BUILDER→gen1→gen2) runs the intermediate, so gen1 must stay host-runnable
+   and only the final stage cross-emits. No new release to be cut yet.
 
 ### Slim `pkg/bootstrap` toward retirement — 🟡 OPEN
 
