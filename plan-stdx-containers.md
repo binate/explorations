@@ -110,22 +110,19 @@ for {
     use(x)
 }
 ```
-When `gen.no-generic-methods` is relaxed (and generic-receiver `impl` is allowed),
-this becomes — mechanically — the "natural" shape:
+This migration has **landed** (main `b0c3e4de`, 2026-07-10): `gen.no-generic-methods`
+was relaxed (methods-on-generic-types) and the free functions became — mechanically —
+the "natural" method shape:
 ```
 interface Iterator[T any] { Next() (T, bool) }           // lives in a future pkg/stdx/containers/iter
 func (it *Cursor[T]) Next() (T, bool) { … }              // free fn → method (drop first arg)
 impl *Cursor[T] : Iterator[T]                            // cursor now satisfies the interface
 func (v @Vec[T]) Iter() Cursor[T] { … }                  // free fn → method
 ```
-`Iter`/`Next` keep their names; call sites go from `vec.Next[int](&it)` to `it.Next()`;
-we add two `impl` lines. Nothing structural changes.
-
-**Breadcrumbs (per §3, `3.i` decision):** we do **not** declare the `Iterator[T]` /
-`Iterable[T]` interfaces now (they cannot be implemented by generic types yet, so an
-un-implementable interface would add nothing). Instead each `.bni` carries a short
-comment near the cursor pointing at this section, so the intended future shape is
-recorded in the tree.
+`Iter`/`Next` kept their names; call sites went from `vec.Next[int](&it)` to
+`it.Next()`; the `impl` lines were added. Nothing structural changed. The
+`Iterator[T]` / `Iterable[T]` interfaces now live in `pkg/stdx/containers/iter`, and
+`AsIterator()` produces the boxed `@Iterator[T]` for the dynamic-dispatch path (§7).
 
 **Hard cross-container invariant (so the eventual `impl` sweep is truly mechanical):**
 until interfaces exist, only *comments + reviewer discipline* enforce the shape, so it
@@ -314,16 +311,36 @@ Land one container at a time, each self-contained and green:
 3. **`set`** — type + `New/Add/Has/Remove/Len` + cursor + tests.
    **✅ Landed** (main `7ea33056`): 18 tests, green under builder-comp + builder-comp-int,
    adversarially reviewed (faithful transcription of the verified hashmap — no bugs).
+4. **Methods + iteration protocol** — once methods-on-generic-types landed, all three
+   containers migrated free functions → generic-receiver methods (`v.Push(x)`,
+   `it.Next()`; `New` stays a package-level constructor), and gained
+   `pkg/stdx/containers/iter` with `Iterator[T]` + `Iterable[T]` (see §7).
+   **✅ Landed** (main `b0c3e4de`, 2026-07-10): green under builder-comp +
+   builder-comp-int + builder-comp-comp; adversarially reviewed (method migration and
+   the boxed-iteration work; managed-element + empty-through-boxed coverage added).
+   `vec`/`set`/`hashmap` are on `LINT_SKIP` until the next BUILDER bump (bnlint-0.0.10
+   predates generic-receiver methods) — they stay fully typechecked/compiled by every
+   conformance mode.
 
 Each follows the standard worktree flow (commit on the worktree; per-instance approval
 for the cherry-pick to `main`; hygiene + smoke before landing; resync after).
 
 ## 7. Deferred / open (with rationale)
 
-- **`Iterator[T]` / `Iterable[T]` interfaces** — deferred until methods-on-generic-types
-  (relaxing `gen.no-generic-methods`) and generic-receiver `impl` land. The cursor
-  *shape* stakes the design now; breadcrumb comments record the intended future form.
-  A future `Iterable[T]` returns the boxed `@Iterator[T]` (no associated types).
+- **`Iterator[T]` / `Iterable[T]` interfaces — ✅ LANDED** (main `b0c3e4de`, 2026-07-10).
+  `pkg/stdx/containers/iter` defines `interface Iterator[T any] { Next() (T, bool) }`
+  and `interface Iterable[T any] { AsIterator() @Iterator[T] }`. Each container's
+  `*Cursor` satisfies `Iterator`; each `@Container` is an `Iterable` via `AsIterator`
+  (which allocates a managed cursor and boxes it — dynamic dispatch, unlike the
+  zero-cost concrete `Iter() Cursor[T]`). A map is an `Iterable[Entry[K, V]]`:
+  `hashmap.Entry[K, V] { Key; Val }` is the map's single-element item type, so its
+  cursor yields `(Entry, bool)` and unifies into the same protocol (concrete map
+  iteration is now `e, more := it.Next(); e.Key / e.Val`). Landing this first required
+  migrating the containers from free functions to generic-receiver methods, then a
+  checker fix (`470dfe78`): a generic interface's method referencing a sibling generic
+  type (`@Iterator[T]` in `Iterable[T]`) had failed cross-package impl-satisfaction
+  resolution (`undefined: Iterator`) — it resolved in the impl-site's package instead
+  of the interface's defining package.
 - **`for x in myVec`** (ranging user types) — a language change; deferred until the
   container shapes stabilize, per the decision to wait.
 - **Closure-based lazy adapters** (`Map`/`Filter`/`Take` over `@func() (T, bool)` —
