@@ -36,10 +36,25 @@ zero — catches leak/UAF), and **type distinctness** (two cells differing only 
 distinct types — catches `42b3bc83`). Reuse the `refcount`/`dispatch-refcount` generator +
 balance-assertion harness.
 
-## B. Type-assertion / RTTI matrix — design now, land per front-end phase
-`conformance/matrix/type-assert/`. **Gated:** the front-end (`x.(K T)`, comma-ok, type switch)
-is not implemented (RTTI substrate is landing per `plan-type-assertions-execution.md`, front-end
-Phases 3–7 remain). Design the axis grid now so it lands cell-by-cell with the front-end.
+## B. Type-assertion / RTTI matrix — split by what's landed (corrected 2026-07-10)
+`conformance/matrix/type-assert/`. **NOT wholesale-gated** — the assertion FORM is landed in
+compiled mode. Split the family by feature status:
+- **Assertion cells — BUILDABLE NOW (compiled mode).** `x.(K T)` (abort) and `v, ok := x.(K T)`
+  (comma-ok) are implemented: parser (`parse_assert.bn`), checker (`check_assert.bn`), IR-gen
+  lowering (`gen_assert.bn` / `gen_assert_commaok.bn` / `gen_assert_iface.bn`), with conformance
+  `998`–`1015` already covering concrete `x.(*T)`/`x.(@T)`, interface target, transitive-ancestor,
+  comma-ok, and err/unset cases. So the assertion sub-grid (both forms, concrete + interface
+  targets, AND the recovery-kind-legality compile-error cells — `@T`-from-`*I` rejected, etc.)
+  builds now in the compiled (`builder-comp`) mode.
+- **Type-switch cells — GATED on Phase 6 (IR-gen lowering).** The type-switch form has a parser +
+  partial checker (`check_stmt.bn:97`) but NO IR-gen lowering (no `STMT_TYPE_SWITCH` in
+  `pkg/binate/ir`) and 0 conformance tests. Design the type-switch sub-grid now; land it when
+  Phase 6 lowering is in. (This same Phase-6 lowering also unblocks a `pkg/std/fmt.Print(...*any)`
+  scalar fast-path, which is a type switch — cross-noted; variadics is NOT a blocker there, it's
+  landed + conformant, `conformance/spec/10-functions/165`–`200`.)
+- **VM / cross-mode-agreement axis — GATED on Slice 5.** All RTTI is compiled-mode-only today
+  ("Slice 4"); the VM path is Slice 5. Add the `mode: compiled · native · VM` axis + the
+  cross-mode-result-agreement assertion when Slice 5 lands.
 - **source:** `*I` · `@I` · `*any` · `@any`.
 - **recovery kind × target:** `@T` / `*T` / value, against a **concrete** target (scalar ·
   struct · ptr-to-struct · slice · managed-slice · generic instantiation) and against an
@@ -60,9 +75,10 @@ agreement**. The failed-assertion abort is a real §17.5 panic — cross-check i
 1. **Generics matrix first** (now) — it guards a landed, bug-dense feature and needs no new
    language support. Start with the `element-kind × in/cross-package × operation` core (the
    bug-dense sub-grid), add method-value/expression/parameterized-impl axes next.
-2. **Type-assertion matrix** — build the generator + the compile-error (recovery-legality) cells
-   first (those need only the parser/checker), then fill the runtime cells as each RTTI/lowering
-   phase lands, reaching full coverage when Phase 5 (the reader/assertion lowering) is in.
+2. **Type-assertion matrix** — build the ASSERTION sub-grid NOW in compiled mode (both forms,
+   concrete + interface targets, transitive-ancestor, and the recovery-kind-legality compile-error
+   cells — all landed, see §B). Design (don't yet emit) the type-switch sub-grid; land it with
+   Phase-6 IR-gen lowering. Add the VM / cross-mode-agreement axis with Slice 5.
 3. **Adopt, don't wire:** add the matrices + their generators under `conformance/matrix/`; wiring
    any new hygiene/CI gating is a separate decision (per CLAUDE.md "stay within scope").
 
