@@ -131,7 +131,33 @@ treats it as non-destructible anyway. Peel `TYP_READONLY` in `ResolveAlias` (or 
 `NeedsDestruction`/`dtorTypeSuffix`) when `readonly` managed elements become a real
 possibility.
 
-### MAJOR — native aarch64 FUNC-VALUE / CLOSURE dispatch of a STRADDLING first-class aggregate arg CRASHES (SIGSEGV) — 🔴 OPEN (found 2026-07-10)
+### MAJOR — native func-value dispatch of a NON-COERCED aggregate (slice) to an LLVM-EMITTED shim: first-class vs by-address ABI mismatch → CRASH — 🔴 OPEN (found 2026-07-10)
+
+**Symptom.** conformance `1006_funcval_xpkg_llvm_shim_dispatch` (a `*func(*[]int) int`
+OBTAINED from an LLVM dep via `fvcb.GetSliceCallback()` then dispatched) CRASHES
+(empty output, expected `42`) on `native_aa64`. Red on main — added by the concurrent
+`a08fdab0`, whose native_aa64 gap wasn't run; almost certainly red on native_x64 too.
+NOT the 417/420 straddle bug (that fix `989f3e15` doesn't touch this) and NOT xfail'd.
+
+**Root cause.** When a func value is CREATED in an LLVM dep (main never address-takes
+the underlying), its `@__shim` is emitted BY THE DEP under LLVM, which declares an
+aggregate arg BY-ADDRESS (`i8*`, one pointer word). But native `emitCallFuncValue`
+(x64 + aa64) passes a NON-COERCED aggregate (raw slice / iface-value) FIRST-CLASS
+(inline words). native-DISPATCH → LLVM-EMITTED-shim desyncs — the shim reads the
+first inline word as the slice's data pointer → wild deref / crash. (Coerced
+struct/array args already go by-address via `AggCoercedInReg`; only non-coerced
+slices/iface-values still ride first-class.)
+
+**This is the concurrent arm32 by-address project (`bc42705e` + PIECE 2 `a08fdab0`,
+"option B") extended to aa64 + x64** — same cross-mode i8* contract, remaining
+per-backend pieces. Distinct from 417/420 STRADDLE (native-shim path, first-class both
+sides — `989f3e15` is correct there; option B would later make slices 1 word and moot
+the straddle, no conflict). **Fix:** substitute a non-coerced ≤16B aggregate to a
+1-word `*uint8` in aa64/x64 `emitCallFuncValue` (mirror the `AggCoercedInReg`
+substitution) AND make the NATIVE shim load it by-address, so both the LLVM-shim and
+native-shim paths stay consistent. Verify `1006` green on native_aa64 + native_x64.
+
+### MAJOR — native aarch64 FUNC-VALUE / CLOSURE dispatch of a STRADDLING first-class aggregate arg CRASHES (SIGSEGV) — 🟡 FIX PENDING REVIEW+LAND 2026-07-10 (`989f3e15`, temp-4)
 
 **Symptom.** conformance `417_funcval_slice_dispatch_straddle` and
 `420_closure_slice_dispatch_straddle` (a func value / capturing closure of five
