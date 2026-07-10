@@ -58,10 +58,14 @@ The fix belongs in the shared mangling/monomorphization layer so BOTH backends
 and the VM agree (it reproduces identically in comp and int — not a
 backend-specific reloc issue).
 
-**Test.** `conformance/989_vec_managed_elem_xpkg` (cross-package `Vec[@Box]`),
-xfail in all modes; drop the xfails when fixed. An in-package instantiation would
-NOT reproduce it — the test must import the container from `main`. Standalone
-repro: a `main` importing `pkg/stdx/containers/vec` with `var v
+**Test.** `conformance/995_xpkg_generic_managed_dtor` (LANDED `c3f2cdd9` +
+`97d70feb`), xfail in all modes; drop the xfails when fixed. It uses a
+self-contained generic-container fixture (`pkg/gholder` with a `Holder[T]` over
+`@[]T`) instantiated cross-package on `@Box` — no stdlib import, so it isolates
+the language mechanism and needs no conformance-imports whitelist. An in-package
+instantiation would NOT reproduce it — the test must instantiate from a *different*
+package than the container. Standalone repro: a `main` importing
+`pkg/stdx/containers/vec` with `var v
 @vec.Vec[@[]char] = vec.New[@[]char]()` fails to link; `Vec[int]` / `Vec[*[]char]`
 are fine.
 
@@ -2344,7 +2348,7 @@ unblock them:
   by starting the formatter conversion (`Vec[@[]readonly char]`), which failed to
   compile. So "Vec is usable now" (below/earlier) is WRONG for managed elements;
   the whole adoption waits on that mangler fix. The first commit was reverted;
-  conformance/989 tracks the bug.
+  conformance/995_xpkg_generic_managed_dtor tracks the bug.
 - **What**: the container-adoption audit swept the non-BUILDER tree (vm, interp,
   lint, format, repl, and the cmd/{bni,bnfmt,bnlint} glue — the stdlib itself is
   largely BUILDER-constrained, since cmd/bnc imports std/{os,strings,strconv} and
