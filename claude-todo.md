@@ -157,36 +157,6 @@ the straddle, no conflict). **Fix:** substitute a non-coerced ≤16B aggregate t
 substitution) AND make the NATIVE shim load it by-address, so both the LLVM-shim and
 native-shim paths stay consistent. Verify `1006` green on native_aa64 + native_x64.
 
-### MAJOR — native aarch64 FUNC-VALUE / CLOSURE dispatch of a STRADDLING first-class aggregate arg CRASHES (SIGSEGV) — 🟡 FIX PENDING REVIEW+LAND 2026-07-10 (`989f3e15`, temp-4)
-
-**Symptom.** conformance `417_funcval_slice_dispatch_straddle` and
-`420_closure_slice_dispatch_straddle` (a func value / capturing closure of five
-`*[]int`) SIGSEGV on `builder-comp_native_aa64-comp_native_aa64` — empty output,
-expected `266941` / `266948`. They PASS on native_x64_darwin + all-LLVM.
-
-**Red on main, NOT xfail'd (deliberately — an xfail hides the miscompile).** They
-landed with the x64 straddle fix (`9dc0d776`+`304759c7`) but were only validated on
-native_x64_darwin + builder-comp, never on native_aa64 — a coverage gap in that
-landing. Uncovered 2026-07-10 by the first full native_aa64 run (the DRY-refactor
-validation).
-
-**Root cause (likely — the aa64 analogue of the x64 bug `9dc0d776`).** On AAPCS64 a
-func value of 5 slices straddles X7 (data ptr X0; a,b,c fill X1..X6; d straddles
-X7+stack; e on the stack). The x64 fix made the x64 func-value DISPATCH place args
-WORD-POSITIONALLY to match the shim, which reads incoming args word-positionally
-(word g → argReg(g)/stack). aarch64 `emitCallFuncValue` (aarch64_call_indirect.bn)
-apparently still places a straddling first-class aggregate differently (leaving the
-straddler's first word's register unwritten), so the shim consumes a stale reg as
-the slice's data pointer and dereferences garbage → crash. NEEDS confirmation by
-inspecting the aa64 dispatch vs `emitFuncValueShims`.
-
-**Fix.** Mirror `9dc0d776` in aarch64 `emitCallFuncValue`: place func-value dispatch
-args word-positionally, splitting a straddling first-class aggregate across the last
-core reg + stack. Covers plain func values AND closures (both lower through
-`emitCallFuncValue`). Verify: 417/420 green on native_aa64 + full native_aa64
-conformance. (The DIRECT/IFACE aa64 paths are fine — they split via the shared
-`emitAggregateArg`; this is func-value-dispatch-specific.)
-
 ### native aarch64 **Linux** (AAPCS64) ABI: variadic `__c_call` + narrow sub-word args miscompile — ✅ FIXED & LANDED 2026-07-10 (`9f249201`)
 
 **Severity: MAJOR — silent wrong-code on the aarch64-Linux native path.** The new
