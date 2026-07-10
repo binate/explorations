@@ -36,6 +36,23 @@ Decisions (user, 2026-07-10): (1) preN = tool bundles, not ladder rungs — yes.
 source today is that it's absent from `bnc-0.0.10`'s bundle.  (3) The pre-release
 bundle ships everything.
 
+## Status (2026-07-10)
+
+- **Phase A — LANDED** (`binate` `d20a2b5e`): `CHECK_TOOLS_VERSION` = `bnc-0.0.10`;
+  `fetch-builder --check-tools`, `lint.sh`, `bnfmt-format.sh` wired.
+  Behavior-preserving (bnlint from 0.0.10, bnfmt from source, `LINT_SKIP`
+  unchanged).
+- **Phase B — pre1 TAGGED** (`bnc-0.0.11pre1` → `42b3bc83`), release build pending
+  (queued behind the runner backlog).  `release.yml` marks preN as a GitHub
+  pre-release (`749dde9a`/`b2c1b55d`).  `VERSION` bumped to `bnc-0.0.11pre2` on
+  `main` (`d8d078dd`), and the tag points at the last `pre1`-VERSION commit per the
+  convention.  Local validation green: all 5 tools build with `bnc-0.0.10` at the
+  target; bnlint parses all three containers.
+- **Phase C — PENDING** the published pre1 bundle (fetch-builder must be able to
+  download it): advance `CHECK_TOOLS_VERSION` → `bnc-0.0.11pre1`; drop
+  `pkg/stdx/containers/{vec,hashmap,set}` + `pkg/binate/format` + `cmd/bnfmt` from
+  `LINT_SKIP`; bnfmt-format switches to the bundled bnfmt; verify hygiene.
+
 ## Phases
 
 ### A — infra (behavior-preserving; `CHECK_TOOLS_VERSION` = `bnc-0.0.10`)

@@ -7,12 +7,25 @@ how the moving parts fit together so you don't have to reverse-engineer
 ## Inputs
 
 - **`VERSION`** at repo root — names what `cmd/bnc --version` reports
-  for builds **from the current tree**.  Two shapes:
-  - `bnc-X.Y.Z` — release shape; what `VERSION` says exactly on the
-    commit that gets tagged `bnc-X.Y.Z`.
-  - `bnc-X.Y.Z-pre` — pre-release shape; `-pre` says "this tree is
-    in-progress toward X.Y.Z and not yet a tagged release."  Default
-    state between releases.
+  for builds **from the current tree**.  Shapes:
+  - `bnc-X.Y.Z` — stable-release shape; what `VERSION` says exactly on
+    the commit that gets tagged `bnc-X.Y.Z`.
+  - `bnc-X.Y.ZpreN` — numbered PRE-RELEASE shape (`pre1`, `pre2`, …).  A
+    pre-release is a general toolchain bundle (all tools incl. bnfmt)
+    that we can tag + publish and point `CHECK_TOOLS_VERSION` at, WITHOUT
+    it being a build-ladder rung (only stable `bnc-X.Y.Z` advances
+    `BUILDER_VERSION`).  It's how we dogfood a new feature outside the
+    BUILDER tree — e.g. methods-on-generics for hygiene's bnlint/bnfmt —
+    ahead of a stable cut.  See `plan-check-tools-version.md`.
+  - `bnc-X.Y.Z-pre` — the hyphenated "untagged, in-progress" shape used
+    between stable releases when no pre-release cadence is running.
+  - **VERSION labels the LAST commit carrying that value.**  Many commits
+    in a row can read the same `VERSION`; the one a `bnc-…` tag points at
+    is the last such commit before `VERSION` is bumped.  So to cut a
+    pre-release without leaving `main` parked on the release-shape
+    `VERSION`, bump `VERSION` to the NEXT value first (e.g. `pre1` →
+    `pre2`), then tag the last `pre1`-VERSION commit — everything on
+    `main` up to the bump is captured by that tag.
   - **Kept in sync with `pkg/binate/version/version.bn`.**  That file's
     `var Version = "..."` holds the same identifier **minus the `bnc-`
     builder prefix** — e.g. `VERSION` = `bnc-X.Y.Z`, `version.bn` =
@@ -22,9 +35,17 @@ how the moving parts fit together so you don't have to reverse-engineer
     below (steps 2 and 6) must make the corresponding edit to
     `version.bn` (dropping `bnc-`), or the `version-sync` hygiene check
     fails.
-- **`BUILDER_VERSION`** at repo root — names which prior-release
+- **`BUILDER_VERSION`** at repo root — names which prior STABLE release
   binary `scripts/fetch-builder.sh` downloads to use as the BUILDER
-  during local + CI builds.  Always a concrete `bnc-X.Y.Z` (no `-pre`).
+  during local + CI builds.  Always a concrete stable `bnc-X.Y.Z` (no
+  `-pre` / `preN`); advances only through stable releases (a build-ladder
+  rung).
+- **`CHECK_TOOLS_VERSION`** at repo root — names which release's bundled
+  HYGIENE tools (bnlint, bnfmt) the checks use, via
+  `fetch-builder.sh --check-tools`.  May be a `bnc-X.Y.ZpreN` pre-release
+  AHEAD of `BUILDER_VERSION`, so hygiene can run tools that understand
+  newer non-BUILDER-tree language than the BUILDER the tree builds with.
+  See `plan-check-tools-version.md`.
 - **`.github/workflows/release.yml`** — the release CI.  Triggered
   by push of a tag matching `bnc-*`.  Builds per-platform bundles
   and attaches them to a GitHub release named after the tag.
