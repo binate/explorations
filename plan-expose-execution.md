@@ -378,6 +378,19 @@ Dep: 1 (`ast.DECL_EXPOSE` must exist). Deliverable: expose adds the dep edge (P 
 
 ## Phase 3 — Checker: scope injection (surface merge)
 
+**✅ STATUS (2026-07-10): LANDED on main — `177a330c`.** Implemented as designed:
+`Symbol.HomePkg` field (distinct from PkgPath); `injectExposedSurface` (new
+`bni_scope_expose.bn`) called from `buildScopeFromFile`, copying each `expose "P"`
+target's exported non-`SYM_PKG` symbols into the exposing scope with a SHARED `.Type`
+(identity) and a stamped `HomePkg` (direct P, or a transitively re-exposed symbol's
+preserved origin Q); full field copy incl. `ConstVal/HasConstVal`; the `.bni`→`.bn` merge
+propagates `HomePkg`. To stay under the file-length soft limit, the import-collision cluster
+was split verbatim into `bni_scope_collision.bn` (co-locating the model Phase 5 will follow).
+A minimal 2-lens adversarial review came back clean (injection identity/no-mutation/transitive
+`HomePkg`; byte-identical split; inert for non-`expose` packages, so safe to land before Phase
+4/3.5). Tests exercise type/func/interface identity, transitivity, and nonexistent-target
+no-crash end-to-end via `LoadPackageInterface`.
+
 **Deliverable:** `A.X` type-checks with P's identity for **all** symbol kinds; exposed
 types/impls link once scope-injected here (piggybacking on existing alias identity — test
 `941`); funcs/vars/consts still mis-mangle until Phase 4. **Deps:** 2.
