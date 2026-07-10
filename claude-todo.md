@@ -191,6 +191,84 @@ runner retry a timed-out test once before reporting failure. Until then a red
 native-aa64 run with a lone `[3s]` timeout failure is very likely this, not a real
 regression — re-run the single test in isolation to confirm.
 
+### MAJOR — generic interface's method signature referencing a sibling generic type (`SiblingType[T]`) fails to resolve during CROSS-PACKAGE impl-satisfaction (`undefined: <sibling>`) — 🔴 OPEN (found 2026-07-09)
+
+**Severity: MAJOR — spurious reject of valid code (loud COMPILE_ERROR, not a
+miscompile).** Blocks the entire `Iterable[T]` design for the stdx containers (and
+any generic interface whose method returns/takes a sibling generic type — e.g.
+`Container[T] { Iter() @Iterator[T] }`, `Factory[T] { Make() @Box[T] }`).
+
+**Symptom.** A generic interface declared in package `P` whose method signature
+references another generic type from `P`, instantiated with the interface's own
+type parameter — e.g. in `pkg/seq.bni`:
+```
+interface Iterator[T any] { Next() (T, bool) }
+interface Iterable[T any] { AsIterator() @Iterator[T] }   // references sibling Iterator[T]
+```
+When a type in a DIFFERENT package `Q` does `impl @Foo : seq.Iterable[int]`, the
+checker rejects it:
+```
+pkg/seq.bni:<line of @Iterator[T]>: undefined: Iterator
+Q/main.bn: type Foo does not implement Iterable[int] (method `AsIterator` has wrong signature)
+```
+The sibling reference is a bare name (`Iterator`) valid in `seq`'s own scope but
+undefined in `Q`'s scope (there it is `seq.Iterator`).
+
+**Root cause (hypothesis, high-confidence).** To check impl-satisfaction against an
+imported GENERIC interface, the checker instantiates it (`Iterable[int]`) and
+re-resolves the interface method's signature type expressions (`@Iterator[T]` with
+`T:=int`). That re-resolution runs in the **impl-site's** scope (`Q`) instead of the
+interface's **defining-package/file** scope (`seq`) — so the bare sibling name is
+undefined. This is exactly the defining-file-scope setup that
+`populateInstantiatedStruct` / `checkInstantiationConstraints` already perform for
+generic STRUCT fields/constraints (see `check_generic_type.bn` "resolved under the
+generic decl's DEFINING-file scope and package"); the generic-INTERFACE
+method-signature instantiation path is missing it. Entry points:
+`check_impl.bn:checkImplCoversInterface` → `ifaceFullMethods(iface)` /
+`methodSigSatisfies(rm.FuncType, im.FuncType, …)`, and wherever an imported generic
+interface's `im.FuncType` type exprs get (lazily) resolved.
+
+**Exact trigger (empirically pinned, 2026-07-09).** Requires ALL of: (1) a GENERIC
+interface, (2) whose method references a sibling generic type instantiated with the
+interface's own type param (`Sibling[T]`, forwarding `T`), (3) checked during a
+CROSS-PACKAGE impl-satisfaction. Ruled OUT as the trigger (each PASSES on its own):
+non-generic outer interface referencing a generic sibling interface
+(`Holder { Get() @Elem[int] }`); generic outer interface referencing a sibling
+non-generic type or a sibling generic STRUCT with a *concrete* arg; sibling struct
+`@Item`. The sibling being a struct vs interface does NOT matter — a generic outer
+interface forwarding `T` into a sibling generic STRUCT (`Wrap[T]{ Make() @Box[T] }`)
+also fails (`undefined: Box`). Same-package impls and merely *using* the interface as
+a variable type both work — only the cross-package impl-satisfaction path re-resolves
+in the wrong scope.
+
+**Minimal repro** (cross-package conformance layout — main + `pkg/s6.bni` +
+`pkg/s6/s6.bn`):
+```
+// pkg/s6.bni
+type Box[T any] struct { v T }
+interface Wrap[T any] { Make() @Box[T] }
+// main.bn
+import "pkg/s6"
+type F struct { base int }
+func (f @F) Make() @s6.Box[int] { var b @s6.Box[int] = make(s6.Box[int]); return b }
+impl @F : s6.Wrap[int]        // COMPILE_ERROR: s6.bni: undefined: Box
+```
+
+**Proposed fix.** In the imported-generic-interface method-signature resolution
+(reached from impl-satisfaction), resolve the method's type expressions under the
+interface's defining-file scope + package with the type params bound to the concrete
+args — mirroring `populateInstantiatedStruct`'s scope setup. Add a conformance
+regression test (the repro above) once fixed; if deferred, land it as an xfail.
+
+**Discovered while** migrating the stdx containers to methods and adding
+`iter.Iterable[T] { AsIterator() @Iterator[T] }` (the vec/set/hashmap
+`impl @Container[T] : iter.Iterable[…]`). The method-migration + `iter.Iterator[T]`
+impls (vec/set) landed fine — only `Iterable[T]` is blocked. The container-side WIP
+diff for Iterable is preserved at `/tmp/iterable-wip.patch` (session-local) and is
+trivially re-derivable (add `Iterable[T]` to `iter.bni`; add
+`AsIterator() @iter.Iterator[T]` + `impl @Container[…] : iter.Iterable[…]` to each
+container).
+
 ## Language features — specified, not yet implemented
 
 ### Methods on generic types + parameterized-receiver impls — spec'd 2026-07-05, NOT implemented — 🔴 OPEN
