@@ -1055,6 +1055,62 @@ BUILDER-sensitive land.
   field naming `genMultiAssign` expects (`makeMultiReturnStructType`,
   `gen_func.bn:~17`) — a targeted unit test, not just conformance.
 
+### U.6 Slice 5 approach — settled (2026-07-10, user-confirmed; 6-investigator recon)
+
+**Scope reducer confirmed by recon:** the dynamic-vtable IR construct
+(`EmitIfaceValueDyn`) + `OP_DATA_SYM_ADDR` already landed in Slice 2 across all
+four native backends; the impl registry already carries the transitive-ancestor
+closure (so `x.(*Ancestor)` HITs for free); `recoverPointer` is reused verbatim
+for `@J`/`*J`. Slice 5 is the READER + checker + VM-identity, not new IR
+primitives.
+
+**User decisions (2026-07-10):**
+- **Sequencing = 5a native, then 5b VM d-i.** 5a lands the native reader with
+  new interface tests xfail'd on the three `-int` modes (like 4a/4b); 5b's d-i
+  sweep clears ALL `-int` xfails (998–1002 concrete + the new interface tests).
+- **Native reader = a startup-built itab hash (M3 now)**, not a deferred linear
+  scan. Built from `_satentry_root` as `__entry`'s first statement, before
+  `__init_all` (assertions can run in top-level var inits).
+- **`readonly *J` / `readonly @J` = reject at check time** (an interface value has
+  no inner readonly slot, spec §11.12 iface.value.no-readonly-slot). Concrete
+  targets keep their existing element-readonly handling.
+
+**Reader mechanism = a split lowered op `OP_SAT_LOOKUP(ti, ifaceid) → subvtable`,
+modeled on `OP_BOUNDS_CHECK`.** Native lowers it to `call rt.SatLookup(ti,
+ifaceid)` (queries the native itab-hash global). VM (5b) lowers it to
+`BC_SAT_LOOKUP` whose exec calls the VM's own `lookupSatEntry(vm, ti, ifaceid)`
+over `@VM` state — NOT `rt.SatLookup` (the two registries differ by mode; the
+op is the mode-dispatch point). In 5a the VM loud-fails `OP_SAT_LOOKUP` (like it
+loud-fails `OP_DATA_SYM_ADDR`), so interface conformance tests xfail on `-int`
+until 5b.
+
+**5a work items:** (1) rt itab-hash global + builder (walks `_satentry_root`) +
+`rt.SatLookup` reader (reflect-free, raw `*uint8`/int) in rt.bn + rt_baremetal.bn
++ rt.bni; (2) M3 wiring — prepend the hash-build into `__entry` ahead of
+`__init_all` (in `EmitSatEntryRoot`/data_satroot.bn, native-gated, NOT the shared
+`EmitMainEntry` — M5); (3) `OP_SAT_LOOKUP` op (iropcode + `EmitSatLookup`) +
+native/LLVM lowering to `call rt.SatLookup` + VM loud-fail; (4) checker un-reject
+in check_assert.bn (`*J`→`MakeInterfaceValueType`, `@J`→`MakeManagedInterface
+ValueType`, mirror resolve_type.bn; reject `readonly J`; @J-from-*I already
+covered); (5) `gen_assert_iface.bn` interface-target lowering (expr + comma-ok):
+vtable-null check → `loadVtableSlot(vtable,1)`=dynamic `*TypeInfo` → `EmitData
+SymAddr(IfaceIdName(J))` → `OP_SAT_LOOKUP` → null?→miss : `EmitIfaceValueDyn(data,
+subvtable)` + `recoverPointer`; (6) conformance tests (iface HIT/MISS/xpkg/
+ancestor/comma-ok), xfail'd on `-int`.
+
+**5b work items (VM d-i, M2):** intern per-VM type handles into the null vtable
+slot-1 (`fillVtableLayout`); `BC_DATA_SYM_ADDR` (OP_DATA_SYM_ADDR → interned
+handle); the slot-1 read fix — the VM `iv[1]` is a 1-based INDEX not a pointer,
+so the shared assertion IR's GEP+LOAD derefs a small int → garbage; recon
+recommends a `BC_IFACE_TYPEINFO` op branching on `ifaceVtIsNative` (VM iv →
+`IfaceVtables[iv[1]-1].Methods[1]`; native iv → native `@__ivt` slot-1) over
+changing the iface-value memory layout; `lookupSatEntry`; register VM-lowered
+`(T,J)`; `BC_IFACE_VALUE_DYN`; `BC_SAT_LOOKUP`. **Cross-mode boundary trap
+(likely MAJOR-bug point):** a native-INJECTED iface value in the VM carries a
+native `&__typeinfo` in slot-1 that won't equal the VM synthetic handle unless
+the interner is fed the native address under its `__typeinfo.<T>` symbol — design
+explicitly. Remove all 15 `-int` xfails (998–1002 × 3 modes) once green.
+
 ---
 
 ## Phase 3 — Parser + AST for assertions and type switches
