@@ -173,6 +173,32 @@ C-ABI-compatible for such args (clang does all-or-nothing).
   Un-reds `builder-comp` on x86_64 CI.
 - ✅ DONE — aa64 native internal caller/callee disagreement fixed (`f681d679`).
 
+### MAJOR — native aarch64 **Linux** (AAPCS64) ABI: variadic `__c_call` + narrow sub-word args miscompile — 🔴 OPEN (found 2026-07-10 via aa64_linux triage)
+
+**Severity: MAJOR — silent wrong-code on the aarch64-Linux native path.** The new
+`builder-comp_native_aa64_linux` mode's first clean CI run (`2682 passed / 16 failed`
+after the QEMU_LD_PREFIX loader fix) left **7 real backend failures**, in 2 clusters.
+Both **PASS on `native_aa64` (Darwin/Mach-O) and `native_x64`**, failing ONLY on the
+ELF/Linux aarch64 target → a **Darwin-vs-AAPCS64 divergence** the native aarch64
+backend gets wrong for Linux (it was only ever exercised on Darwin before):
+
+- **Variadic `__c_call` (5):** `500_c_call_variadic`, `527_c_call_variadic_multi`,
+  `530_c_call_variadic_stack`, `regressions/c-call/printf-variadic-{int,float}` —
+  wrong/garbage output. Apple arm64 passes ALL variadic args on the stack; AAPCS64
+  (Linux) passes them like named args (in regs, then stack). The backend looks like
+  it does the Darwin all-on-stack rule unconditionally.
+- **Narrow (sub-word int8/int16) cross-pkg args (3):** `896_cross_pkg_narrow_int8_arg`,
+  `897_cross_pkg_narrow_stack_arg`, `902_cross_pkg_narrow_mixed_arg` — wrong values
+  (46 / 56 / -3232). Same Darwin-vs-AAPCS64 narrow-arg divergence (arg-slot width /
+  caller-vs-callee extension of sub-word integer args).
+
+**Not yet root-caused** — needs inspecting the aarch64 arg-marshalling
+(`pkg/binate/native/aarch64`) for a variadic path and sub-word arg handling, likely
+target-conditional on Darwin vs Linux. Can emit + diff aarch64 asm locally for both
+targets, but can't RUN aarch64-linux locally (CI-only). The 4 VM-applicability
+failures + 4 build-select expected-mismatches from the same triage are already
+resolved (`b0122e92`, buckets A + C); these 7 are the residual.
+
 ### native arm32: a function frame > ~4095 bytes fails to compile (COMPILE_ERROR) — ✅ FIXED & LANDED 2026-07-06 (`6ce4b42f`)
 
 **Severity: MAJOR (valid program fails to compile on an accepted backend) — but
