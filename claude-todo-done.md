@@ -8,6 +8,215 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## MAJOR (mangler) — cross-package generic container on a managed element type: destructor mangled-prefix mismatch (both backends) — ✅ FIXED & LANDED 2026-07-10 (`8d9e7577`)
+
+**Symptom.** A generic stdx container (`vec.Vec`, and by the same mechanism
+`hashmap.Map`/`set.Set`) instantiated in a package OTHER than its own, on a
+MANAGED element/key/value type, fails to build/run in EVERY mode:
+- compiled backend: clang link error, `use of undefined value
+  '@bn_F4_3_pkg4_stdx10_containers3_vec1_16___dtor_ms_mp_Box'`;
+- bytecode VM: runtime `panic: vm: extern not found:
+  pkg/stdx/containers/vec.__dtor_ms_mp_Box`.
+
+**Blast radius.** Any `Vec[T]` / `Map[K,V]` / `Set[T]` whose element/key/value is
+managed — `@[]char` (`__dtor_ms_ms_*`), `@[]readonly char`, a `@Foo` managed
+pointer (`__dtor_ms_mp_Foo`), or a struct with a managed field (`__dtor_ms_Foo`)
+— breaks when instantiated cross-package. Unmanaged elements (`int`, raw `*[]T`,
+structs of primitives) are fine. Since the containers exist to hold managed data
+(`@[]char` strings, `@ast.File`, `@Diagnostic`, ...), this makes them effectively
+unusable cross-package — i.e. for their entire real purpose. It blocks the
+container-adoption effort (the "Adopt stdx/containers Vec ..." opportunistic
+entry) essentially in full, not just its Map/Set half.
+
+**Root cause (mangler / monomorphization).** The synthetic destructor for the
+instantiation's backing/element type is EMITTED with the CONSUMER package's
+mangled prefix (e.g. `bn_F1_4_main1_18___dtor_ms_ms_uint8`, `weak_odr`) but is
+CALLED from the container package's monomorphized code with the CONTAINER
+package's prefix (`bn_F4_3_pkg...vec1_18___dtor_ms_ms_uint8`). The two names
+disagree, so the called symbol is never defined (compiled) / never registered as
+a VM extern (int). The synthetic dtor's "owning package" attribution is
+inconsistent between its definition site and its call site.
+
+**Why it wasn't caught.** The in-package container tests DO exercise managed
+elements — `vec_test`'s `Vec[@cell]`, `hashmap_test`'s `Map[int,@cell]` — but
+because they instantiate INSIDE the container package, the call-prefix and the
+definition-prefix coincide and it links/runs. False green. Every real consumer
+imports the container from another package, where they diverge. (Same family as
+the CLAUDE.md "symbol-prefix collision between unrelated packages is a critical
+mangler bug" note — here a prefix MISMATCH between a synthetic dtor's def and
+call.)
+
+**Fix (LANDED `8d9e7577`).** The real mechanism: `EmitCall`
+(`ir_ops_flow.bn`) qualifies a bare call-target name with the enclosing
+function's `f.ModulePkgPath`.  For a cross-package generic instantiation whose
+struct/element dtor is attributed to the generic's HOME package (for dedup) but
+emitted into the CONSUMER's module, that home package is NOT the module that
+defines the module-local synthetic helper (`ensureMsDtor`/`ensureArrayDtor` emit
+it under `m.PkgPath`).  Added `EmitCallLocal`, which emits the call by its BARE
+name so codegen mangles it with the CURRENT module's package (`modulePkgName`) —
+where the def actually lands; and routed only the managed-slice / array element &
+field dtor+copy calls through it via `isElemDtorModuleLocal(t)` (mirrors
+`elemDtorName`'s own qualified-vs-unqualified kind test).  Struct and
+managed-pointer calls keep the correctly-qualified `EmitCall` path, so
+same-package behaviour is unchanged (there `home == module`, and both backends'
+bare-name mangling — codegen `emit_call.bn`, VM `lower_call.bn` — use the module
+package).  Verified: builder-comp 2695/0 + builder-comp-int 2674/0 full
+conformance, ir/codegen/native/vm units, and a 3-lens adversarial review that
+could not refute it.
+
+**Two PRE-EXISTING, orthogonal bugs surfaced by the adversarial review** (both
+reproduce BEFORE `8d9e7577`; see their own entries below): (1) `ensureMsDtor`/
+`ensureArrayDtor` do not `peelTransparent` the `.Elem` before the recursion guard,
+so a named-distinct wrapper element (`type Buf @[]@Box`) can leave its inner
+helper undefined — a link failure; (2) `readonly` is invisible to
+`NeedsDestruction`/`dtorTypeSuffix` (`ResolveAlias` peels `TYP_ALIAS` but not
+`TYP_READONLY`), a latent leak if `readonly` managed elements ever become
+constructible.
+
+**Test.** `conformance/995_xpkg_generic_managed_dtor` — now PASSES (xfails dropped
+in `8d9e7577`; the marker-add `97d70feb` and initial add `c3f2cdd9` are the
+history). It uses a self-contained generic-container fixture (`pkg/gholder` with
+a `Holder[T]` over `@[]T`) instantiated cross-package on `@Box` (ms_mp) AND
+`@[]char` (ms_ms) — no stdlib import, so it isolates the language mechanism and
+needs no conformance-imports whitelist. An in-package
+instantiation would NOT reproduce it — the test must instantiate from a *different*
+package than the container. Standalone repro: a `main` importing
+`pkg/stdx/containers/vec` with `var v
+@vec.Vec[@[]char] = vec.New[@[]char]()` fails to link; `Vec[int]` / `Vec[*[]char]`
+are fine.
+
+## `ensureMsDtor`/`ensureArrayDtor` skip the recursive element-helper for a NAMED-distinct wrapper element — link failure — ✅ FIXED & LANDED 2026-07-10 (`c14dd95e`)
+
+**Symptom.** A cross-package generic container instantiated on a named-distinct
+transparent managed-slice/array *wrapper* element leaves the inner element dtor
+undefined → `use of undefined value @bn_...__dtor_ms_mp_Box` (and `__dtor_arr2_mp_Box`
+for the array form). Minimal repro: a fixture `pkg/gh3` with `type Box1[T any]
+struct { items @[]T }` + `New[T]`, and in `main`: `type Buf @[]@Box; ...
+gh3.Box1[Buf] = gh3.New[Buf]()`. Also `type Arr [2]@Box`.
+
+**Root cause.** `ensureMsDtor` / `ensureArrayDtor` (`pkg/binate/ir/gen_dtor_emit.bn`
+~210-217, ~229-237) gate their RECURSIVE inner-element-helper emission on the raw
+`msTyp.Elem.Kind == TYP_MANAGED_SLICE`/`TYP_ARRAY`. `ResolveAlias` does NOT peel
+`TYP_NAMED`, so for a `@[]Buf` backing whose `.Elem` is the named `Buf`, the
+recursion is skipped and the inner `__dtor_ms_mp_Box` is never emitted. The outer
+body (correctly peeled) calls it → undefined. When the container is POPULATED, a
+materialised element's RefDec incidentally emits the peeled helper and masks the
+gap — so 995 and any Put-based test pass; the empty/never-materialised case
+exposes it. PRE-EXISTING (reproduces before `8d9e7577`); orthogonal to it (that
+fixed the call ROUTING; this is a missing DEFINITION).
+
+**Fix (LANDED `c14dd95e`).** `peelTransparent` the `.Elem` before the
+`TYP_MANAGED_SLICE`/`TYP_ARRAY` recursion guards in `ensureMsDtor`/
+`ensureArrayDtor` — mirroring the `peelTransparent` the field-walk already
+applies — so a named wrapper is classified by its underlying kind and the inner
+helper is emitted (deduped via `hasName`). Additive change (emits previously-
+missing helpers only). Test: `conformance/1007_xpkg_named_wrapper_elem`
+(cross-package `Box1[Buf]`, `Buf = @[]@Box`, created-but-never-populated), passes
+both backends. Verified: builder-comp 2704/0 + ir units.
+
+## `genArrayCopy`/`ensureArrayCopy` skip the recursive element-copy helper for a NAMED-distinct wrapper element — link failure (COPY twin of the dtor bug above) — ✅ FIXED & LANDED 2026-07-10 (`aba92526`)
+
+**Symptom.** The copy-emission mirror of the `ensureMsDtor`/`ensureArrayDtor` bug
+above. An array whose element is a named-distinct transparent wrapper — `type Buf
+@[]@Box; type ArrBuf [2]Buf` — emits an array-copy helper that calls an *undefined*
+per-element copy symbol: `use of undefined value @bn_...__copy_ms_mp_Box` (native
+link failure / VM extern-not-found). Reproduces even for an empty/never-populated
+value: the copy helper is emitted unconditionally, so unlike the dtor case there is
+no materialised-element path to incidentally mask it.
+
+**Root cause.** `genArrayCopy` / `ensureArrayCopy` (`pkg/binate/ir/gen_copy_emit.bn`)
+dispatch the array element by its RAW `arrTyp.Elem.Kind`. `ResolveAlias` does not
+peel `TYP_NAMED`, so a named `@[]@Box` wrapper element (a) falls to `genArrayCopy`'s
+generic `else` and calls a `__copy_ms_*` per-element helper that does NOT exist — the
+managed-slice copy is a shared-backing RefInc emitted INLINE, there is no such helper
+— and (b) skips `ensureArrayCopy`'s inner array-copy recursion for a named inner-array
+element. PRE-EXISTING; the exact copy-side counterpart of `c14dd95e` (which fixed only
+the dtor half).
+
+**Fix (LANDED `aba92526`).** `peelTransparent` the `.Elem` before the kind dispatch in
+both `ensureArrayCopy` and `genArrayCopy` — mirroring `genStructCopyWithName`'s field
+peel and the dtor-side peel — so a named wrapper element is classified by its
+underlying kind and takes the managed-slice inline-RefInc arm (or recurses the inner
+array copy). Additive (emits previously-missing helpers only). Test:
+`conformance/1011_named_wrapper_array_copy` (both arms: `[2]Buf` ms-wrapper and
+`[2]NArr` named-array element, empty values), passes builder-comp / -int / -comp; ir
+units green.
+
+## native aarch64 **Linux** (AAPCS64) ABI: variadic `__c_call` + narrow sub-word args miscompile — ✅ FIXED & LANDED 2026-07-10 (`9f249201`)
+
+**Severity: MAJOR — silent wrong-code on the aarch64-Linux native path.** The new
+`builder-comp_native_aa64_linux` mode's first clean CI run (`2682 passed / 16 failed`
+after the QEMU_LD_PREFIX loader fix) left **7 real backend failures**, in 2 clusters.
+Both **PASS on `native_aa64` (Darwin/Mach-O) and `native_x64`**, failing ONLY on the
+ELF/Linux aarch64 target → a **Darwin-vs-AAPCS64 divergence** the native aarch64
+backend got wrong for Linux (it was only ever exercised on Darwin before):
+
+- **Variadic `__c_call` (5):** `500_c_call_variadic`, `527_c_call_variadic_multi`,
+  `530_c_call_variadic_stack`, `regressions/c-call/printf-variadic-{int,float}` —
+  Apple arm64 passes ALL variadic args on the stack; AAPCS64 (Linux) fills the arg
+  registers first.
+- **Narrow (sub-word int8/int16) cross-pkg args (3):** `896_cross_pkg_narrow_int8_arg`,
+  `897_cross_pkg_narrow_stack_arg`, `902_cross_pkg_narrow_mixed_arg` — Apple packs a
+  narrow scalar stack arg tight (1/2/4 bytes); AAPCS64 rounds every stack arg to 8.
+
+**Root cause + fix (`9f249201`).** The backend hardcoded `common.AAPCS64_Darwin()`
+(the Apple variant — `NaturalSizeStackArgs` + `VariadicStackOnly`) at all 8
+arg-marshalling sites, applying it on ELF/Linux too.  cmd/bnc compiles only the main
+module natively (deps go through clang), so the native main CALLER mismatched the
+clang AAPCS64 callee: it packed narrow stack args tight (`strb [sp]/[sp+1]/[sp+2]`)
+and stacked all varargs, vs clang's 8-byte slots (`ldrb [sp]/[sp+8]/[sp+16]`) +
+register-first varargs.  Fix: `aarch64CC()` selects `AAPCS64()` on ELF vs
+`AAPCS64_Darwin()` on Mach-O (off `objEmitElf`), routed through all 8 sites — the two
+CCs differ ONLY in those two flags, so Darwin emission is byte-identical.  Asm-verified
+both targets + native_aa64 conformance unchanged + unit tests (new
+`TestAarch64CCSelectsByObjFormat`); two adversarial reviews (one empirical, incl. a
+clang/llc cross-check) found no bug.  aarch64-linux run is CI-only.  The 4
+VM-applicability failures + 4 build-select expected-mismatches from the same triage are
+already
+resolved (`b0122e92`, buckets A + C); these 7 are the residual.
+
+## MAJOR — generic instantiations differing only in a function-VALUE (or ARRAY) type arg are CONFLATED (`Box[@func(int)uint]` == `Box[@func(bool)uint]`) — ✅ RESOLVED & LANDED 2026-07-10 (`42b3bc83`)
+
+**Resolution.** `typeNameImpl` (`type_name.bn`) now renders func / func-value types with
+their full signature (params+results, `*`/`@` prefix, variadic peeled to `...T`) and
+arrays as `[N]T`, instead of the non-distinct `func(...)` / `<unknown>` / `[...]`
+placeholders that `mangleInstantiatedName` was collapsing.  The ARRAY case was the same
+bug (`Box[[3]int]` == `Box[[5]int]` == `Box[[3]bool]`), found by adversarial review and
+fixed together.  Regressions `conformance/1016` (func-value type arg) + `1017` (array
+type arg); three existing err tests (`165`/`085`/`112`) updated from the placeholder
+messages to the informative form.  (An earlier attempt was briefly blocked by a
+link-phase consumer that assumed the `func(...)`/`[...]` placeholder and crashed on
+method expressions; that consumer was fixed on `main` by a concurrent commit before this
+landed.)
+
+**Severity: MAJOR — type confusion (accepts an assignment between incompatible types;
+a `@func(bool)uint` can be stored where a `@func(int)uint` is expected → wrong-ABI
+call).** Verified 2026-07-10 on builder-comp.
+
+**Symptom.** Two instantiations of a generic that differ ONLY in a function-value type
+argument are treated as the same type:
+```
+type Box[T any] struct { fn T }
+var bi @Box[@func(int) uint]
+var bb @Box[@func(bool) uint]
+bi = bb   // WRONGLY ACCEPTED (compiles + runs); should be a type error
+```
+The scalar control (`Box[int]` vs `Box[bool]`) is correctly rejected — so the
+conflation is specific to func-value type args.
+
+**Root cause (hypothesis).** `mangleInstantiatedName` (`check_generic_type.bn:461`)
+builds the instantiation name from `args[i].QualifiedTypeName()`, and a func-value type
+renders as `<unknown>` (`type_name.bn:66` handles `TYP_FUNC` but not the func-VALUE
+kinds — a display-only omission).  So `Box[@func(int)uint]` and `Box[@func(bool)uint]`
+get the same mangled name, and named-type identity/assignability keys on that name →
+conflation.  (An adversarial review argued the instantiation CACHE dedups via
+`Identical` (func-value-aware) and so is safe — but the empirical repro shows conflation
+anyway, so either assignability compares by name or `Identical` has its own gap; needs
+root-cause investigation.)  **Fix direction:** make `type_name.bn` render func-value
+types distinctly (params/results) so the instantiation name distinguishes them; audit
+named-type identity/assignability for name-based instantiation comparison.  Discovered
+adjacent to the func-value type-traversal fix (`5ffe92b8`), independent of it.
+
 ## bnfmt silently DELETED type-assertion expressions (`x.(*T)`), corrupting source — ✅ FIXED & LANDED `951e6809` (2026-07-10)
 
 **Was MAJOR — silent source corruption by the formatter.** `bnfmt` dropped any
