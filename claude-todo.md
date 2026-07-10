@@ -268,6 +268,56 @@ runner retry a timed-out test once before reporting failure. Until then a red
 native-aa64 run with a lone `[3s]` timeout failure is very likely this, not a real
 regression — re-run the single test in isolation to confirm.
 
+### MAJOR — generic instantiations differing only in a function-VALUE type arg are CONFLATED (`Box[@func(int)uint]` == `Box[@func(bool)uint]`) — 🔴 OPEN (found 2026-07-10)
+
+**Severity: MAJOR — type confusion (accepts an assignment between incompatible types;
+a `@func(bool)uint` can be stored where a `@func(int)uint` is expected → wrong-ABI
+call).** Verified 2026-07-10 on builder-comp.
+
+**Symptom.** Two instantiations of a generic that differ ONLY in a function-value type
+argument are treated as the same type:
+```
+type Box[T any] struct { fn T }
+var bi @Box[@func(int) uint]
+var bb @Box[@func(bool) uint]
+bi = bb   // WRONGLY ACCEPTED (compiles + runs); should be a type error
+```
+The scalar control (`Box[int]` vs `Box[bool]`) is correctly rejected — so the
+conflation is specific to func-value type args.
+
+**Root cause (hypothesis).** `mangleInstantiatedName` (`check_generic_type.bn:461`)
+builds the instantiation name from `args[i].QualifiedTypeName()`, and a func-value type
+renders as `<unknown>` (`type_name.bn:66` handles `TYP_FUNC` but not the func-VALUE
+kinds — a display-only omission).  So `Box[@func(int)uint]` and `Box[@func(bool)uint]`
+get the same mangled name, and named-type identity/assignability keys on that name →
+conflation.  (An adversarial review argued the instantiation CACHE dedups via
+`Identical` (func-value-aware) and so is safe — but the empirical repro shows conflation
+anyway, so either assignability compares by name or `Identical` has its own gap; needs
+root-cause investigation.)  **Fix direction:** make `type_name.bn` render func-value
+types distinctly (params/results) so the instantiation name distinguishes them; audit
+named-type identity/assignability for name-based instantiation comparison.  Discovered
+adjacent to the func-value type-traversal fix (`5ffe92b8`), independent of it.
+
+### MAJOR — a raw `*func` value returned from a function/method then called emits an UNDEFINED shim symbol (`@bn_F1_...`) — 🔴 OPEN (found 2026-07-10)
+
+**Severity: MAJOR — valid code fails to compile (LLVM link error).** Verified
+2026-07-10; no generics / no Self involved.
+
+**Symptom.**
+```
+type Box struct { f *func(int) int }
+func (b @Box) Get() *func(int) int { return b.f }
+func one(x int) int { return x + 1 }
+func main() { var b @Box = make(Box); b.f = one; println(b.Get()(10)) }
+// COMPILE_ERROR: main.ll: use of undefined value '@bn_F1_4_main0_'
+```
+The named-function → raw `*func` shim/thunk for `one` is referenced by the call site but
+never emitted.  **Localized:** `var f *func(int)int = one; f(10)` PASSES;
+`b.f = one; b.f(10)` (direct field call) PASSES; the failure requires the raw func-value
+to flow through a RETURN value and THEN be called.  **Fix direction:** func-value shim
+emission (codegen) must materialize the shim for a named function whose raw func-value
+round-trips through a return value.  Add a conformance regression once fixed.
+
 ## Language features — specified, not yet implemented
 
 ### Methods on generic types + parameterized-receiver impls — ✅ IMPLEMENTED & LANDED 2026-07-06 (Phases 4.1–4.3)
