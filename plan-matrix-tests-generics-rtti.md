@@ -10,7 +10,9 @@ The recent MAJOR/CRITICAL bug cluster was almost entirely in these two spaces, a
 were **false-green because they were only exercised in-package or in one combination**:
 `8d9e7577` (cross-package generic container on a managed element), `c14dd95e`/`aba92526`
 (named-distinct wrapper element, dtor + copy), `42b3bc83` (two instantiations conflated on a
-func-value/array type arg), `2d48f348` (method value on a generic instantiation, pending).
+func-value/array type arg), `2d48f348`/`fedbd0c5` (method value on a generic instantiation —
+landed; was false-green because only the direct-call path was tested, not method-value under
+the name-mangling backends).
 Point tests miss the cross-axis combinations; a matrix over the axes that hid these makes the
 whole family regression-proof and surfaces the tail.
 
@@ -66,3 +68,27 @@ agreement**. The failed-assertion abort is a real §17.5 panic — cross-check i
 
 Each is a Python generator (mirroring `gen-diff-scalar.py` / `gen-addr-aggregate-matrix.py`)
 emitting cells + `.expected`, with the balance/agreement assertions in the emitted `.bn`.
+
+## Review corrections (2026-07-10, adversarial review; grounded in the tree)
+Verdict: sound + buildable now. Template = `conformance/gen-dispatch-refcount-matrix.py`
+(near-verbatim); `run.sh` auto-discovers `conformance/matrix/**.bn` (no runner change);
+`pkg/builtins/rt` is auto-allowed by conformance-imports. Load-bearing refinements:
+- **Balance harness uses the RELATIVE form** (`rt.Refcount(po) == before+1` / `== before`,
+  `.expected` = `[1,<v>,1]`), baseline-independent across element kinds (iface baseline is 2).
+- **Cells define their OWN generic container inline** — cross-package via a per-cell
+  `pkg/<name>.bni` body-included generic (mirror `conformance/995`'s `gholder.bni`),
+  in-package via the single `.bn` (mirror `conformance/1011`).  Do NOT `import
+  pkg/stdx/containers/*` — not on the conformance-imports whitelist.
+- **Type-distinctness = compile-error PAIR cells** (`.error` = `cannot assign`), not runtime,
+  with within-kind sub-grids: array LENGTH `[3]` vs `[5]` (mirror `1017`), func SIGNATURE
+  `(int)uint` vs `(bool)uint` (mirror `1016`).
+- **Add the unnamed bug shapes**: `named-array` element `type NArr [3]@Box` (aba92526 arm-ii,
+  mirror `1011`) alongside `named-wrapper` `type Buf @[]@Box`; and method-value-on-generic-
+  CALL-RESULT (`mkbox[int](v).Get`, mirror `168`).  Keep the EMPTY/never-populated destroy
+  variant for the named-wrapper (that hid `c14dd95e`).
+- **Mode scope**: green under the six default modes + native x64/aa64 (via modeset `all`); do
+  NOT expect green under `builder-comp_native_arm32_baremetal` (incomplete P4 backend) — xfail
+  those with a "native-arm32 backend incomplete" note, not a generics finding.
+- **Second wave (defer, after a minimal cell of each compiles)**: method-expression,
+  parameterized-receiver-impl dispatch (`impl *Cursor[T] : Iterator[T]`), generic-constraint
+  dispatch.  Adopt, don't wire (no hygiene/CI `--check` gating without a separate decision).
