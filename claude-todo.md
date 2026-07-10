@@ -69,7 +69,7 @@ package than the container. Standalone repro: a `main` importing
 @vec.Vec[@[]char] = vec.New[@[]char]()` fails to link; `Vec[int]` / `Vec[*[]char]`
 are fine.
 
-### native↔LLVM ABI divergence: a GP aggregate that STRADDLES the reg/stack boundary — LLVM splits it, native (+clang) does all-or-nothing — 🟡 STRUCT/ARRAY x64 FIXED & LANDED 2026-07-09 (`7cfa823a`); slice/iface/func-value follow-up OPEN (found 2026-07-06)
+### native↔LLVM ABI divergence: a GP aggregate that STRADDLES the reg/stack boundary — LLVM splits it, native (+clang) does all-or-nothing — ✅ x64 FIXED & LANDED (struct/array `7cfa823a` 2026-07-09; slice/iface/func-value `9dc0d776`+`304759c7` 2026-07-10) (found 2026-07-06)
 
 **Severity: MAJOR — silent wrong-code across the dual-mode boundary (and vs C).**
 A ≤16-byte INTEGER-class aggregate arg that does not fully fit in the remaining
@@ -126,18 +126,31 @@ C-ABI-compatible for such args (clang does all-or-nothing).
   shim→underlying call.  A `native/common` cross-check test pins `SysVArgInMemory` to the
   native SysV walk.  Verified: struct straddle via direct/iface/func-value MATCHES all-LLVM;
   `native_x64_darwin` conformance 2690 pass / 0 fail.
-- **Slice / iface-value / func-value follow-up — 🔴 OPEN (WIP on branch `temp-4-slices-wip`,
-  commit `f11d79e8`).** Those are also 2-word GP aggregates that straddle (still passed
-  first-class → still split by LLVM).  The WIP extends `aggMemClass` kind-agnostically and
-  wires the first-class call-site + alloca-hoist + prologue paths; **DIRECT and IFACE slice
-  straddles work** (flip harness MATCHES), but a **func-value whose underlying has a
-  memory-class SLICE param SIGSEGVs on the native side** (all-LLVM correct; shim LLVM looks
-  correct — byval + regular `call` after fixing a tail-call-with-byval UAF).  The fault is
-  the native func-value dispatch (`x64_call_indirect`, unchanged) feeding the byval-slice
-  shim — the by-address slice pointer that worked for a first-class load isn't valid for the
-  byval copy; structs go through the same shim path fine (they're `AggCoercedInReg`, so the
-  native dispatch substitutes them to a pointer; slices are not).  Needs native-dispatch
-  root-causing before landing.  Do NOT cherry-pick `f11d79e8` as-is.
+- **Slice / iface-value / func-value follow-up — ✅ FIXED & LANDED 2026-07-10 (`9dc0d776`
+  native dispatch + `304759c7` codegen byval).**  Those are also 2-word GP aggregates that
+  straddle (passed first-class → split by LLVM).  It took TWO independent fixes:
+  - **codegen byval (`304759c7`):** `aggMemClass` is now kind-agnostic; the first-class
+    call-site + alloca-hoist + entry-prologue paths byval a memory-class slice / iface- /
+    func-value the SAME as a struct.  Fixes DIRECT and IFACE slice straddles at the
+    native↔LLVM boundary.
+  - **native func-value dispatch (`9dc0d776`):** the func-value-slice SIGSEGV was NOT a
+    byval-copy issue (the earlier WIP guess was wrong) — it was a PRE-EXISTING native-only
+    mismatch (reproduced on the struct-only landed tree).  `emitCallFuncValue` placed a
+    straddling first-class aggregate ALL-OR-NOTHING (SysV MEMORY, via CallArgStackOff) while
+    the func-value shim (`emitFuncvalSpillShim_x64` / `emitShimArgMarshal_x64`) reads its
+    incoming args WORD-POSITIONALLY (word g → argReg(g)/stack).  The stranded GP reg was read
+    as the slice's first word (its data pointer) and dereferenced → crash.  Fixed by placing
+    func-value dispatch args word-positionally (splitting a straddler across the last GP reg +
+    the stack).  SysV-AMD64-specific (aa64's walk already splits).  Covers plain func values
+    AND capturing closures (both lower through `emitCallFuncValue`).
+  - **Tests.** conformance `417_funcval_slice_dispatch_straddle` + `420_closure_slice_dispatch_straddle`
+    each SIGSEGV'd fully-native without the dispatch fix (they ISOLATE it); `emit_mem_byval_test.bn`
+    pins kind-agnostic `aggMemClass` for a raw slice.  As with the struct/array fix, the byval
+    divergence is only observable at the native↔LLVM boundary (all-native OR all-LLVM is
+    self-consistent either way), so DIRECT/IFACE/func-value byval is verified by the
+    native-main/LLVM-dep flip harness, not a standard conformance mode.  Composes with the
+    concurrent 924 capture-byval fix (a closure with a memory-class capture AND straddling
+    slice args round-trips correctly).
 - **924 closure STRUCT-CAPTURE marshalling, LLVM x64 — ✅ FIXED & LANDED 2026-07-09
   (`5608a13b`).** `924_closure_aggregate_stack_bound_capture` (added `20c1d9be` for
   the NATIVE x64 shim spill path — passes `native_x64`) printed `222/100` instead of
