@@ -38,23 +38,31 @@ C-ABI-compatible for such args (clang does all-or-nothing).
   ABI-correct and the LLVM codegen is WRONG** (it must coerce the aggregate param
   so LLVM does not split it — mirroring how clang coerces).  Fix lives in the LLVM
   aggregate-param lowering (`pkg/binate/codegen`), NOT the native call-site.
-- **Separate aa64 bug:** `992_iface_agg_spill` fails `native_aa64` **all-native
-  single-file** (`650321`, spilled `p4` reads 0) — so the aa64 NATIVE backend is
-  INTERNALLY inconsistent for a straddling GP aggregate (caller vs callee disagree),
-  a distinct defect from the x64 native↔LLVM split above.  Needs its own root-cause.
+- **Separate aa64 bug — ✅ FIXED & LANDED 2026-07-09 (`f681d679`).** `992_iface_agg_spill`
+  used to fail `native_aa64` **all-native single-file** (`650321`, spilled `p4` reads 0):
+  `emitCallIfaceMethod` (`aarch64_iface.bn`) OPEN-CODED the aggregate marshaling and
+  loaded ALL words into `argReg(regStart + w)`, so on a straddle the tail word ran past
+  the bank (`argReg` clamps index ≥ 8 to X7) and clobbered an earlier word, while the
+  callee reads the split — an internal caller/callee disagreement. Fixed by mirroring
+  `aarch64_call.bn`'s split (cap register words at `8 - regStart`, spill the tail). Sweep
+  confirmed aa64-only: arm32's iface caller delegates to the shared `emitCallArg` (correct
+  split); x64 is `SplitAggregates=false` (no split). DRY follow-up worth considering: the
+  aa64 iface caller still duplicates `aarch64_call.bn`'s marshaling — that duplication is
+  what let the copy diverge; a shared helper would prevent recurrence.
 - **FLOAT aggregates are fine** (x64 SSE-MEMORY + aa64 HFA-MEMORY — `989_sse_mem_arg`
   passes everywhere); this is a GP-class-only defect.  PRE-EXISTING (predates the
   x64-SSE work; surfaced during its follow-up #3 MEMORY-arg coverage).
-- **Tests.** `conformance/992_iface_agg_spill` reproduces the aa64 single-file case
-  (fails `native_aa64`, a CI mode → needs an
-  `.xfail.builder-comp_native_aa64-comp_native_aa64` until fixed).  The x64
-  native↔LLVM manifestation needs a native-main/LLVM-dep harness (not a standard
-  conformance mode; /tmp/direct_straddle + /tmp/int_iface reproduce it).
-- **Proposed fix.** (1) LLVM codegen: coerce a straddling GP aggregate param to the
-  all-or-nothing form (match clang/native) — check how `pkg/codegen` lowers by-value
-  aggregate params vs clang's `[N x i64]`/byval coercion.  (2) aa64 native: fix the
-  internal caller/callee disagreement for a straddling GP aggregate.  Decision on
-  scope/approach (this is a core-ABI change, bigger than first thought) is the user's.
+- **Tests.** `conformance/992_iface_agg_spill` now PASSES `native_aa64` (the aa64 fix
+  above; its `.xfail.builder-comp_native_aa64-comp_native_aa64` is removed) and pins the
+  aa64 single-file case. `pkg/binate/native/aarch64/aarch64_iface_test.bn`'s
+  `TestEmitCallIfaceMethodStraddlingAggregateSplits` guards the aa64 split at the codegen
+  level. The **x64 native↔LLVM** manifestation (still open) needs a native-main/LLVM-dep
+  harness (not a standard conformance mode; /tmp/direct_straddle + /tmp/int_iface reproduce it).
+- **Proposed fix.** (1) **STILL OPEN** — LLVM codegen: coerce a straddling GP aggregate
+  param to the all-or-nothing form (match clang/native) — check how `pkg/codegen` lowers
+  by-value aggregate params vs clang's `[N x i64]`/byval coercion. This is the remaining
+  MAJOR (native↔LLVM / C-ABI) part; a core-ABI change, scope/approach is the user's.
+  (2) ✅ DONE — aa64 native internal caller/callee disagreement fixed (`f681d679`).
 
 ### native arm32: a function frame > ~4095 bytes fails to compile (COMPILE_ERROR) — ✅ FIXED & LANDED 2026-07-06 (`6ce4b42f`)
 
