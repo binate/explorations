@@ -735,17 +735,20 @@ runner. It exercises the aarch64 ELF path — and the `__c_global` §5b GOT lowe
    the mode debuts red; its first CI run is what surfaces the actual failures →
    compute the xfail set / fix the bugs → drop `experimental` once green.
    Not runnable on the macOS dev host (no aarch64-linux cross-libc / qemu).
-2. **Native arm64 runner via a cross-compiled `linux-arm64` bundle (IN PROGRESS,
-   option 1).** The mode uses qemu-aarch64; a native `ubuntu-24.04-arm` runner
-   would avoid emulation but needs a `linux-arm64` BUILDER bundle, which doesn't
-   exist (`release.yml` ships only linux-x64 / macos-arm64, and `build-*.sh` build
-   for the runner's host arch via a host-arch BUILDER — a chicken-and-egg). Fix:
-   teach `build-{bnc,bni,bnas,bnlint}.sh` + `make-bundle.sh` a cross-target so the
-   x86_64 runner cross-builds the arm64 tools via the existing `bnc-0.0.10-linux-x64`
-   BUILDER + `--target aarch64-linux` (linked with `gcc-aarch64-linux-gnu`), then
-   add `linux-arm64` to the `release.yml` matrix. Care needed: the bnc self-host
-   loop (BUILDER→gen1→gen2) runs the intermediate, so gen1 must stay host-runnable
-   and only the final stage cross-emits. No new release to be cut yet.
+2. **Native arm64 runner via a cross-compiled `linux-arm64` bundle (option 1) —
+   🟢 plumbing + release-wiring LANDED; awaiting a release cut, then a runner.**
+   Done: `build-{bnc,bni,bnas,bnlint,bnfmt}.sh` + `make-bundle.sh` gained a
+   `--target`/non-host-`--platform` cross-compile path (`ec421c0b`) — Stage 1
+   (BUILDER→gen1) stays host, Stage 2 cross-emits — and `release.yml` gained a
+   `linux-arm64` matrix row that cross-builds on the x86_64 runner via the
+   existing `bnc-0.0.10-linux-x64` BUILDER + `gcc-aarch64-linux-gnu` (`b32c53c9`),
+   breaking the chicken-and-egg. Validated end-to-end on macos-arm64→macos-x64
+   (Rosetta), guarded by `e2e/cross-compile.sh`. **Remaining (🟡 OPEN):** (a) no
+   `linux-arm64` bundle is PUBLISHED yet — it needs a `bnc-*` release cut (the
+   next release will build it; deliberately not cut yet); (b) once published, a
+   native `ubuntu-*-arm` conformance runner (fetch-builder pulling the arm64
+   bundle) could replace the current qemu-aarch64 mode from residual (1)'s
+   `builder-comp_native_aa64_linux`.
 
 ### Slim `pkg/bootstrap` toward retirement — 🟡 OPEN
 
