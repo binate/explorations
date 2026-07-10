@@ -246,15 +246,18 @@ ast unit tests green.
 
 ## Phase 2 — Loader: dependency edge + surface hand-off
 
-**STATUS (2026-07-10): committed on work-3 (`0592533e`), adversarial review running, awaiting
-landing approval.** Implemented as designed: `Package.Exposes` field; a pure
-`collectExposePaths(bniFile)` helper + a `recordExposes(pkg, bniFile)` helper (both in
-loader_util.bn, read from `bniFile.Decls` directly — the "forwarder trap": the merged-only
-prepend block is skipped for a pure forwarder); each target appended (deduped) to both
-`pkg.Exposes` and `pkg.Imports` so the existing topo sort + cycle detector handle it for free;
-`loader_expose_test.bn` unit tests (collectExposePaths + recordExposes-dedup). The
-`recordExposes`/`collectExposePaths` extraction (vs an inline block) keeps `loader.bn` under
-the 500-line soft limit (489) — the earlier soft-limit warning is resolved.
+**✅ STATUS (2026-07-10): LANDED on main — `77eef344`.** Implemented as designed:
+`Package.Exposes` field; a pure `collectExposePaths(bniFile)` helper + a
+`recordExposes(pkg, bniFile)` helper (both in loader_util.bn, read from `bniFile.Decls`
+directly — the "forwarder trap": the merged-only prepend block is skipped for a pure
+forwarder); each target appended (deduped) to both `pkg.Exposes` and `pkg.Imports` so the
+existing topo sort + cycle detector handle it for free; `loader_expose_test.bn` unit tests
+(collectExposePaths + recordExposes-dedup). The `recordExposes`/`collectExposePaths` extraction
+keeps `loader.bn` under the 500-line soft limit (489). A minimal 2-lens adversarial review came
+back clean: loader/placement/cycle-topo correctness, and "safe to land the dep edge before
+Phase 3" (the new `pkg.Imports` edge is inert to every current consumer — the checker iterates
+`ldr.Order`, not `pkg.Imports`, for name resolution; a forwarder used before Phase 3 gives a
+clean `errUndefined`, not a crash).
 
 **Deliverable:** exposing P makes P a build-order dependency of A; expose cycles are rejected;
 A carries an enumerable exposed-package list for the checker. **Deps:** 1.
