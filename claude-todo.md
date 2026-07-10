@@ -328,13 +328,17 @@ surface (§20.3).
 ## Method values & function values (codegen)
 
 ### MAJOR — method VALUE on a generic instantiation emits an invalid struct name — ✅ RESOLVED (2026-07-09)
-**Fixed** on `work-2` (commit `d452df9e`, pending landing): `gen_method_value`
+**Fixed** on `work-2` (commit `2d48f348`, pending landing): `gen_method_value`
 remaps the captured-receiver type's base to the IR-gen instantiated struct
 (`remapCapturedBaseToIR`, peeled from the receiver's IR-gen type) when it carries
 the raw bracket spelling, so the closure struct is named `Box__bn_inst__int` not
-`Box[int]`.  146 xfails dropped (now green on all LLVM-text modes; arm32-linux
-cross-compile verified clean — the fix is target-independent).  Coverage: 146
-(pointer/managed receivers + an arg) + 167 (cross-package method value).  Original
+`Box[int]`.  A focused review found a second shape — a method value on a generic
+FUNCTION-call result (`mkbox[int](55).Get`) — where the receiver's IR-gen type was
+nil (funcRefName can't name a `Gen[T]` head); `instantiatedCalleeResultType`
+resolves it, fixing both the LLVM name and the VM `main.Box[int].Get` extern.  146
+xfails dropped (now green on all LLVM-text modes; arm32-linux cross-compile
+verified clean — the fix is target-independent).  Coverage: 146 (pointer/managed
+receivers + an arg) + 167 (cross-package) + 168 (generic-call-result).  Original
 diagnosis follows.
 
 A method value on a monomorphized generic type — `var f = bp.Get` where `bp` is
