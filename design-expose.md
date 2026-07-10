@@ -1,7 +1,8 @@
 # Design note: `expose` — whole-package re-export
 
-**Status:** design note / proposal (2026-07-10). **Not** ratified, **not** specified,
-**not** implemented. A **core-language** declaration (not an annotation — see Appendix
+**Status:** ratified design (2026-07-10) — recorded as a DECIDED note in `claude-notes.md`.
+Implementation pending: **not** yet specified (no canonical spec chapters/rules yet) and
+**not** yet implemented. A **core-language** declaration (not an annotation — see Appendix
 A) that lets a package's `.bni` re-export another package's entire exported surface,
 for **refactors/renames** (promote `pkg/stdx/foo` → `pkg/std/foo`, leaving a forwarder)
 and **internal package structuring** (an aggregator presenting several packages as one

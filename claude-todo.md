@@ -1317,12 +1317,13 @@ language extension, not a bug fix.
 - Do we support `import _ "pkg/foo"`? Should we? (Side-effect-only imports.)
 - Both interact with the package object naming question above.
 
-### Whole-package re-export (`expose`) — design + plan — 🟡 OPEN (proposal, not ratified)
+### Whole-package re-export (`expose`) — design + plan — 🟡 OPEN (ratified 2026-07-10, impl pending)
 
 A new CORE `.bni` declaration `expose "pkg/std/foo"` that adds another package's entire
 exported surface to this package's surface, for **refactors/renames** (promote
 `pkg/stdx/foo` → `pkg/std/foo`, leaving a forwarder `.bni` with no `.bn`) and **internal
-package structuring** (aggregator). **Design (proposal, adversarially reviewed, NOT
+package structuring** (aggregator). **RATIFIED 2026-07-10** (DECIDED note in
+`claude-notes.md`); spec + impl pending. **Design (adversarially reviewed, not yet
 specified/implemented):** [design-expose.md](design-expose.md). **High-level plan:**
 [plan-expose.md](plan-expose.md). Settled: core declaration (not an annotation); whole-package
 (per-symbol deferred); vars included; **Model 2 = surface-only** (does not touch the exposing
@@ -1332,9 +1333,9 @@ identity, but func/var/const qualified-reference mangling is **spelling-driven**
 (`ir/gen.bn` `resolveImportPkg`), so `expose` must make it follow the **resolved entity's
 home** — new plumbing (stamp the home on injected symbols + a reference-keyed lookup), swept
 across the ~75 `resolveImportPkg`/`buildQualName` sites and gated by a byte-identical-mangling
-test. **Phase 0 is a user decision** (ratify + spec). No backend/codegen work (unlike FFI
-export). Reuses the existing cross-package type-alias substrate (`type X = other.Y`, tests
-`110`/`941`).
+test. **Ratified**; next prerequisite is the formal spec (plan Phase 0), then Phases 1→5. No
+backend/codegen work (unlike FFI export). Reuses the existing cross-package type-alias
+substrate (`type X = other.Y`, tests `110`/`941`).
 
 ## Spec authoring & language-decision residuals
 

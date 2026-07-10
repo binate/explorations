@@ -1,10 +1,11 @@
 # Plan: Implementing `expose` (whole-package re-export)
 
 **Status:** high-level plan (2026-07-10). The **design** is
-**[design-expose.md](design-expose.md)** (a **proposal** — not ratified/specified/
-implemented). This is the implementation roadmap **contingent on ratification** (Phase 0);
-it does not re-litigate the design. Grounded in a codebase survey (the `file:line` cites
-below are real). A future edit-site-level detailed plan would follow once Phase 0 clears.
+**[design-expose.md](design-expose.md)** — **ratified** 2026-07-10 (DECIDED note in
+`claude-notes.md`); not yet specified or implemented. This is the implementation roadmap; it
+does not re-litigate the design. Grounded in a codebase survey (the `file:line` cites below
+are real). Phase 0's ratify step is **done**; the remaining prerequisite is the formal spec.
+A future edit-site-level detailed plan would follow.
 
 Related: the existing cross-package **type-alias** machinery (`type X = other.Y`, conformance
 `110`/`941`) — the identity substrate `expose` reuses; `plan-cross-package-interfaces.md`;
@@ -71,10 +72,12 @@ make func/var/const qualified-reference mangling follow the **resolved entity's 
 **MVP = Phases 1 → 5** (a working forwarder for types + funcs + vars + consts + interfaces,
 with collisions caught). Ordered by dependency.
 
-### Phase 0 — Ratify & specify (prerequisite, user-owned)
-Ratify the design; write the spec (the `pkg.expose.*` rules, the `ExposeDecl` grammar) and
-the DECIDED note in `claude-notes.md`. **Decisions to close first:** contextual-vs-reserved
-`expose` keyword; the resolved-home mangling change (design §3.2); `.bni`-only permitted.
+### Phase 0 — Specify (ratify ✅ done)
+The design is **ratified** (2026-07-10) and recorded as a DECIDED note in `claude-notes.md`.
+Remaining prerequisite before code: write the **formal spec** (the `pkg.expose.*` rules and
+the `ExposeDecl` grammar in `docs/spec`). **Sub-decisions to close during spec:**
+contextual-vs-reserved `expose` keyword; confirm the resolved-home mangling change (design
+§3.2); `.bni`-only permitted.
 
 ### Phase 1 — Frontend: token, keyword, AST, parser
 - Add an `expose` token/keyword (contextual if feasible — check the tree for existing
