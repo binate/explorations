@@ -731,10 +731,15 @@ runner. It exercises the aarch64 ELF path — and the `__c_global` §5b GOT lowe
 `.github/workflows/conformance-tests.yml`.
 
 **Residuals (🟡 OPEN):**
-1. **First-CI-run triage.** The aarch64-linux native path had never run e2e, so
-   the mode debuts red; its first CI run is what surfaces the actual failures →
-   compute the xfail set / fix the bugs → drop `experimental` once green.
-   Not runnable on the macOS dev host (no aarch64-linux cross-libc / qemu).
+1. **First-CI-run triage — 1st pass done, awaiting a clean run.** The debut run
+   (push `e8c99290`) reported 492 pass / 2203 fail, but ~all failures were one
+   runner bug — `qemu-aarch64-static: Could not open '/lib/ld-linux-aarch64.so.1'`
+   (dynamically-linked binaries; qemu-user looked for the loader on the host, not
+   the cross sysroot). Fixed by `QEMU_LD_PREFIX=/usr/aarch64-linux-gnu` in the
+   runner (`2f97732b`), mirroring arm32_linux. The NEXT CI run is what shows the
+   aarch64 native backend's real pass/fail once the loader resolves → then compute
+   the xfail set / fix real bugs → drop `experimental` once green. Not runnable on
+   the macOS dev host (no aarch64-linux cross-libc / qemu).
 2. **Native arm64 runner via a cross-compiled `linux-arm64` bundle (option 1) —
    🟢 plumbing + release-wiring LANDED; awaiting a release cut, then a runner.**
    Done: `build-{bnc,bni,bnas,bnlint,bnfmt}.sh` + `make-bundle.sh` gained a
