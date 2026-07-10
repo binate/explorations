@@ -11,6 +11,58 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
+### native closure AGGREGATE-RETURN fast path: register clobber when ≥2 by-address aggregate params precede a later param → SILENT WRONG-CODE — 🔴 CRITICAL / OPEN, PRE-EXISTING, BOTH BACKENDS (found 2026-07-10, adversarial review of the x64 option-B change)
+
+**Severity.** CRITICAL — silent miscompile / data corruption. A live argument
+register is overwritten before it is read; the callee silently receives a wrong
+value (and would SIGSEGV if the clobbered value is later dereferenced as a
+pointer). No error, no crash in the confirmed cases — just wrong results.
+
+**Symptom / reproductions (all on the current tree; `bnc` built from temp-binate-4).**
+A *capturing* closure that RETURNS a ≤16 B aggregate (pack-return) and whose params
+place two by-address aggregates before a later param, sized to stay on the
+register-only fast path (`capBaseSlot + captureWords + outUserWords ≤ 6`, `nUserWords ≤ 4`):
+- x64, `func(*[]int, *[]int, int64) Pair`, 1 capture → prints **11** (correct **17**): the `int64` (7) is clobbered by the 2nd slice's `len` (1); `10 + 1 = 11`.
+- x64, `func(S16, S16, int64) Pair`, 1 capture (S16 = coerced 16 B struct) → prints **210** (correct 17): `int64` clobbered by `y.q` (200). **← PRE-EXISTING: coerced structs were by-address before option B, so this reproduces WITHOUT any of the option-B change.**
+- aa64 (landed `b691a3c5`): both the slice and coerced-struct forms reproduce identically (**11** / **210**). So the already-landed aa64 has this too.
+
+**Root cause.** `loadClosureAggCallArgs_x64` (x64_closure_shim_aggregate.bn ~150) and
+its aa64 twin `loadClosureAggCallArgsAA64` pick the marshal DIRECTION solely from
+`outBase = capBaseSlot + captureWords`: `outBase ≥ 2` → descending right-to-left,
+else ascending left-to-right. That heuristic is a *lockstep* down-/up-shift argument
+(dest vs source pointwise) and is only sound when incoming and outgoing word cursors
+move in lockstep. A **by-address aggregate DIVERGES the cursors** (1 incoming pointer
+word → `ArgWords ≥ 2` outgoing value words). On the ascending (`outBase < 2`, i.e.
+pack-return + 1 capture-word) path, once two by-address aggregates precede a later
+param the accumulated expansion pushes an earlier param's OUTGOING write up onto a
+later, not-yet-read param's INCOMING register. The `R10`/`R11` pointer-copy only
+protects a by-address param's OWN incoming slot, not a sibling's. (The descending
+path is safe for the same reason the scalar/void closure fast path
+`emitClosureShimFast_x64` — always right-to-left — is safe: high-param outgoing writes
+never reach a lower not-yet-read incoming. The ascending path is the broken one; the
+divergence also breaks its `dest ≤ source` premise.)
+
+**Discovery.** 9-agent adversarial review of the x64 option-B diff (task
+`wg3pfy21p`). One confirmed finding; hand-traced then reproduced end-to-end (compile
++ run under Rosetta for x64, host-native for aa64). The full `native_x64_darwin`
+conformance suite does NOT catch it — no existing test uses a ≥2-by-address-agg
+closure aggregate-return signature (a coverage gap; the suite stays green).
+
+**Relation to option B (`131`, below).** Option B does NOT introduce this — it is
+pre-existing for coerced structs on both backends. Option B **broadens the trigger
+set** to raw slices / iface-values (which it newly routes by-address). The landed
+aa64 option-B (`b691a3c5`) therefore already widened this latent trigger on aa64.
+
+**Proposed fix.** Make the aggregate-return marshal robust to divergent cursors, on
+BOTH backends. Cleanest: STAGE all incoming user-arg dispatch words to a scratch
+frame first, then marshal from memory (no register-permutation hazard) — exactly what
+the func-value register-only shim `emitShimArgMarshal_x64` already does via
+`needStage`. Alternatives: route any divergent-param signature on the `outBase < 2`
+fast path to the stack-spill aggregate shim, or resolve the per-word permutation
+explicitly. Needs a conformance test (capturing closure returning ≤16 B struct,
+`func(*[]int, *[]int, int64)` params, distinct decimal places) exercised on
+`native_x64_darwin` + `native_aa64`, plus the coerced-struct variant.
+
 ### `readonly` is invisible to `NeedsDestruction`/`dtorTypeSuffix` — cosmetic mismatch now, latent leak later — 🟢 LOW / OPEN (found 2026-07-10, adversarial review of `8d9e7577`)
 
 `ResolveAlias()` peels `TYP_ALIAS` but not `TYP_READONLY`, so (a) `readonly <scalar>`
