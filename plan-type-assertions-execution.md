@@ -1049,10 +1049,18 @@ BUILDER-sensitive land.
     (first `OP_DATA_SYM_ADDR(&__ifaceid)` consumer; else LLVM redefinition).
     Conformance 1013 (hit *J/@J, comma-ok hit/miss/@J-managed/unset), 1014 (miss
     panic), 1015 (ancestor/transitive), xfail'd on 3 -int modes. Unit tests:
-    checker, itab-hash (empty/hit/miss), refcount golden. **Follow-ups:** (i) a
-    cross-package INTERFACE-target conformance test (concrete xpkg = 1001; iface
-    xpkg not yet — symbol keying reasoned-consistent, untested); (ii) an explicit
-    refcount-balance conformance test for @J.
+    checker, itab-hash (empty/hit/miss), refcount golden.
+    - **5a follow-ups — ✅ LANDED (2026-07-10, main `2b7a8146`).** 1024
+      (cross-package interface target `s.(*shp.Sized)` — validates the short-name
+      `__ifaceid` symbol agreement across packages), 1025 (`@J` retain
+      refcount-balance via rt.Refcount). Both xfail'd on -int.
+    - **5a leak fix — ✅ LANDED (2026-07-10, main `2f88b262`).** MAJOR (found by
+      adversarial review): `recoverInterfaceValue` registered the raw `*uint8`
+      `data` as the end-of-statement temp, but cleanup dispatches by type and a
+      raw pointer matches no managed predicate — a silent no-op, so a DISCARDED
+      `@J` recovery (`_ = x.(@J)`) leaked one ref (assign/return/arg balanced, so
+      the assign-only tests missed it). Fix: register the fresh `@J`-typed result
+      iface value instead. Regression test 1026 (discard refcount-balance).
   - **5b — PENDING.** VM d-i (M2): intern per-VM type handles into the null
     vtable slot-1; `BC_DATA_SYM_ADDR`; the slot-1 read fix (VM `iv[1]` is a
     1-based INDEX not a pointer — recon recommends a `BC_IFACE_TYPEINFO` op
