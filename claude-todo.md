@@ -320,8 +320,8 @@ then immediately called): `genCall` now routes an `EXPR_CALL` callee of func-val
 to `genFuncValueCallExpr` (indirect dispatch).  conformance/1012.  (Landing as a `binate`
 commit; the entry stays until the sibling forms below are also fixed.)
 
-**✅ FIXED — the callee is a SELECTOR/INDEX whose BASE is a call result** (pending land,
-`binate` `e444a004`, conformance/1018): `obj.Get().f(x)`, `getarr()[i](x)`, and the deeper
+**✅ FIXED & LANDED — the callee is a SELECTOR/INDEX whose BASE is a call result**
+(`binate` `e335caca`, 2026-07-10, conformance/1023): `obj.Get().f(x)`, `getarr()[i](x)`, and the deeper
 chains `obj.Get().h.f(x)` / `getcells()[i].g(x)`.  The right fix was the TYPE-computation
 gap, not a call-dispatch fallback: `getSelectorType` and `getIndexElemType` /
 `indexExprType` now have an `EXPR_CALL`-base arm that takes the checker's resolved type of
