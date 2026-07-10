@@ -8,6 +8,38 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## conformance tooling broke at test numbers ≥1000 (discovery, hygiene dup-check, next/renumber) — ✅ FIXED & LANDED `3afb1e0f` (2026-07-10)
+
+**Was MAJOR — silent test non-execution (false-green coverage).** The conformance
+suite crossed test number 1000 and the tooling hardcoded exactly three digits in
+every enumeration glob (`[0-9][0-9][0-9]_*`) and extracted the number with
+`cut -c1-3`, so 4-digit tests fell through:
+
+- `conformance/run.sh` — the multi-package **directory** glob did not match a
+  4-digit dir, so `1001_xpkg_iface_assert/` (the cross-package assertion test
+  covering Slice 4a's cross-TU `__typeinfo` fix) was **discovered/run in zero
+  modes** while appearing present. (Single-file tests were unaffected — that loop
+  globs `*.bn`.)
+- `scripts/hygiene/conformance-test-numbers.sh` — enumerated with the same 3-digit
+  globs and `cut -c1-3`, so a 4-digit duplicate went uncaught and a naive
+  glob-widen alone would fold `1000`/`1001` → `100`.
+- `conformance/next-number.sh` — sorted in-use numbers **lexically**, so `1000`
+  sorted below `999` and "max" mode returned a colliding number; cap was 999.
+- `conformance/renumber.sh` — accepted/parsed only 3-digit numbers.
+
+**Discovery.** Landing Slice 4a forced a rebase-collision renumber of the four
+assertion tests to 998–1001; Landing-Procedure step 9 (review landed coverage)
+smoke-ran them and `1001_xpkg_iface_assert` came back skipped-not-run.
+
+**Fix.** Widened every glob to `[0-9][0-9][0-9]*_` (≥3 digits), replaced
+`cut -c1-3` with `${name%%_*}`, switched next-number to numeric sort (cap→9999),
+and added a **discovery-completeness guard** to conformance-test-numbers.sh that
+classifies numbered tests digit-agnostically (independent of the enumeration
+glob) and fails if any on-disk test wasn't enumerated — so a future glob
+narrowing can't let a ≥1000 test go dark again (proven load-bearing: reverting
+the glob makes the guard flag 1000+1001, exit 1). `1001_xpkg_iface_assert` now
+runs and passes.
+
 ## native x86_64-darwin `os` linked the LEGACY (32-bit-inode) stat/readdir libc symbols, not `$INODE64` — ✅ FIXED & LANDED `7049fe52` (2026-07-06)
 
 **Was MAJOR — silent data corruption + a panic.** A native/LLVM **x86_64-darwin**

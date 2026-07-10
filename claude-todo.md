@@ -11,46 +11,6 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
-### MAJOR (conformance tooling) — test numbers ≥1000 silently break discovery, hygiene dup-check, and next/renumber tooling — 🔴 OPEN (found 2026-07-10)
-
-**Symptom.** The conformance suite crossed test number 1000 (concurrent workers
-took 994–997; this session added single-file `1000_err_iface_assert_unset` and
-multi-package dir `1001_xpkg_iface_assert/`, both landed on main `6c512002`). The
-tooling hardcodes exactly three digits everywhere, so 4-digit tests fall through:
-
-- **`conformance/run.sh:447`** — the multi-package **directory** discovery glob is
-  `[0-9][0-9][0-9]_*/`. A 4-digit dir test (`1001_…/`) does NOT match and is
-  **silently never discovered or run in any mode**. LIVE on main: `1001_xpkg_iface_assert`
-  (the cross-package assertion test that exists specifically to cover Slice 4a's
-  cross-TU `__typeinfo` fix) is running in **zero** modes → false-green coverage.
-  (Single-file 4-digit tests DO run — line 400's glob is `*.bn`, digit-agnostic —
-  so `1000_…` executes; only *directory* tests are dark.)
-- **`scripts/hygiene/conformance-test-numbers.sh:38,47`** — the dup-number check
-  globs only `[0-9][0-9][0-9]_*`, and lines 44/53 extract the number via
-  `cut -c1-3`. So 4-digit tests are (a) not enumerated → a 4-digit **duplicate
-  number would go uncaught**, and (b) if the glob were naively widened without
-  fixing the `cut`, `1000_…`/`1001_…` would both fold to `100` (false collision
-  with a real `100_…`). The check currently *passes* only because it ignores
-  4-digit tests entirely.
-- **`conformance/next-number.sh:35,43`** — computes the next free number from a
-  3-digit-only scan; past 999 it mis-computes (ignores 4-digit tests → can suggest
-  a colliding number).
-- **`conformance/renumber.sh:42,50,58,62,86`** — the renumber helper is 3-digit-only.
-
-**Root cause.** Pervasive `[0-9][0-9][0-9]` globs + `cut -c1-3` number extraction;
-the numbering scheme implicitly capped at 999. We have now exceeded it.
-
-**Trigger of discovery.** Landing Slice 4a: a rebase collision forced renumbering
-my four assertion tests to 998–1001; Landing-Procedure step 9 (review landed
-coverage) smoke-ran them and `1001_xpkg_iface_assert` came back **skipped, not
-run** — 0 passed / 0 failed, absent from the discovered set.
-
-**Proposed fix.** Widen every glob to ≥3 digits (`[0-9][0-9][0-9]*_` for the
-`_`-terminated forms; adjust the `-prune -o` find in the hygiene check to match)
-AND replace `cut -c1-3` with "leading digits up to the first `_`"
-(`${name%%_*}`). Add a regression guard so a ≥1000 directory test can't go dark
-again. Touches: run.sh, next-number.sh, renumber.sh, conformance-test-numbers.sh.
-
 ### MAJOR (mangler) — cross-package generic container on a managed element type: destructor mangled-prefix mismatch (both backends) — 🔴 OPEN (found 2026-07-09)
 
 **Symptom.** A generic stdx container (`vec.Vec`, and by the same mechanism
