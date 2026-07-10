@@ -18,6 +18,21 @@ against the real tree. Several `file:line` cites in design-expose.md / plan-expo
 **stale or imprecise**; each correction is folded in below as an explicit callout. Where a
 corrected cite exists, this plan uses the **corrected** one.
 
+Adversarial-review note (3-lens minimal review of this doc against the real tree): the cite-
+level grounding held up (the sweep triage, the loader placement trap, the visit-order finding,
+the `@Symbol.PkgPath` fact were all independently re-verified). **One CRITICAL logic hole was
+found by two reviewers independently and is now folded in as Phase 3.5:** resolved-home mangling
+(Phase 4) fixes name *production* but not name *registration* — for a pure forwarder, the
+exposed package is a **transitive-only** import of the consumer, and consumer-side
+func/var/const registration is **direct-import-scoped**, so `pkg/B.X` is emitted but never
+declared/registered → link failure (funcs), loud IR-gen abort (vars), silent wrong-fold
+(consts). Phase 4's "forwarder emits nothing / mangling is a strict extension" claim is only
+half the wire without Phase 3.5. Also folded in: a Phase-5 `checkBodies` cite fix
+(`checker.bn:187-191`, not `bni_scope.bn:189-191`), the Phase-3 injection now reads
+`DECL_EXPOSE` from the already-passed `.bni` AST (no `LoadPackageInterface` signature sweep),
+a const-value-preservation callout on injection, and the grep-union completeness note. Each is
+marked **[REVIEW]** inline.
+
 ---
 
 ## Phase 0 — Ratify & specify (user-owned; GATING)
@@ -427,14 +442,28 @@ into a new `bni_scope_expose.bn`, or a broader Pass-1/Pass-2 split). Do NOT camo
   flows through the shared `@Type`; `HomePkg` on the injected symbol is for uniformity + the
   collision namespace). **This is the doc-omitted helper — do not forget it.**
 - **`bni_scope.bn` `buildScopeFromFile` — inject at lines 228-229** (after the Pass-2 loop
-  ends at 227, before `c.Scope = savedScope; return s` at 229-230): for each exposed path P on
-  A (from `pkg.Exposes`, threaded in), `lookupPackage(c, P)` (guaranteed registered — P
-  precedes A in `ldr.Order`), iterate P's `scope.Syms`, and copy each **exported** symbol into
-  `s` via `defineType`/`defineFunc`/`defineVar`/`defineConst`/`defineInterface`, **sharing the
-  same `.Type` pointer** (preserves type/interface identity for free). **Skip `SYM_PKG`
-  symbols** (P's own import aliases are not part of P's exported surface). Stamp the resolved
-  home (P's path — or, for a Q-origin re-exposed symbol, the symbol's ALREADY-stamped
-  `HomePkg`) onto injected func/var/const.
+  ends at 227, before `c.Scope = savedScope; return s` at 229-230): **[REVIEW] read the exposed
+  paths from `f.Decls`** (scan for `DECL_EXPOSE`) — the `.bni` AST `f` is ALREADY the sole
+  parameter `buildScopeFromFile(c, f)` receives (it is reached only from
+  `LoadPackageInterface`, checker.bn:101), so injection needs **no `pkg.Exposes` threading and
+  no `LoadPackageInterface`/`buildScopeFromFile` signature change** (which would otherwise force
+  a 7-call-site sweep: compile.bn:31/59, interp/check.bn:21/46, repl/session.bn:152,
+  repl/mid_session_import.bn:65, bnlint/main.bn:267). For each exposed path P,
+  `lookupPackage(c, P)` (guaranteed registered — P precedes A in `ldr.Order`), iterate P's
+  `scope.Syms`, and copy each **exported** symbol into `s`, **sharing the same `.Type` pointer**
+  (preserves type/interface identity for free). **Skip `SYM_PKG` symbols** (P's own import
+  aliases are not part of P's exported surface). Stamp the resolved home (P's path — or, for a
+  Q-origin re-exposed symbol, the symbol's ALREADY-stamped `HomePkg`) onto injected
+  func/var/const.
+- **[REVIEW] Copy the FULL `@Symbol`, not via `defineConst`.** `defineConst` (scope.bn:140-146)
+  sets only `Name/Type/Kind` — it does NOT set `ConstVal/HasConstVal` (only `defineConstVal`,
+  scope.bn:151-160, does). An exposed const injected via `defineConst` would **lose its folded
+  value**, which the checker's `evalConstInt` (array dims) and the Phase-4 `gen_const_fold` arms
+  read (`sym.HasConstVal/ConstVal`, types.bni:817-818) — feeding straight into the silent-wrong-
+  value risk. So inject via `make(Symbol)` + **full field copy** (`Name/Type/Kind/PkgPath/
+  ConstVal/HasConstVal` + the new `HomePkg`), the mechanism the CRITICAL bullet below already
+  requires; the named `defineType/defineFunc/defineVar/defineConst/defineInterface` helpers are
+  the *shape* to mirror, not literal calls (they'd drop const values and can't stamp `HomePkg`).
 - **New helper `injectExposedSurface(c, s, exposedPaths)`** (in a split-out
   `bni_scope_expose.bn`): the copy-and-stamp loop. For **transitivity**, since P's scope
   already contains P's own expose-injected symbols (P was visited earlier per `ldr.Order`), a
@@ -481,10 +510,102 @@ kind; types/impls link now; funcs/vars/consts type-check but mis-mangle until Ph
 
 ---
 
+## Phase 3.5 — Consumer-side registration of a forwarder's expose-closure (CRITICAL — added by [REVIEW])
+
+**Deliverable:** in any module that directly imports a forwarder A which exposes P, P's
+**func / const / var** surface is REGISTERED/DECLARED in that module under P's **home** names —
+so the Phase-4 resolved-home reference `pkg/P.X` resolves to a symbol the module actually has.
+**Deps:** 2 (needs `pkg.Exposes`); pairs with 4 (mangling is meaningless without this).
+**MVP-critical — Phase 4's deliverable is NOT met without it.**
+
+### Why this is needed (the gap Phase 4 alone leaves)
+
+Phase 4 makes the 9 reference sites *produce* the name `pkg/P.X`. But emitting the right name is
+only half the wire: the consuming module must also have `pkg/P.X` **registered** (consts in
+`gc.Mod.Consts`, vars in `gc.Mod.GlobalVars`) or **declared** (func externs) under P's home. It
+is not, for the flagship pure-forwarder case:
+
+- The consumer imports forwarder **A**; A's `.bni` has **no** func/const/var decls (only
+  `expose`), so iterating A's own decls registers nothing for the forwarded members.
+- The exposed **P** is a **transitive-only** import (the consumer imports A, not P). The
+  consumer's func/const/var registration is **direct-import-scoped**: imported global-var
+  externs come only from `registerImportVarExtern` (← `ir.RegisterImports`, fed only
+  direct-import files), and plain non-generic funcs of a transitive package are registered only
+  behind the `fileHasGenericDecl` gate (`registerGenericBodyExternDeps`). The transitive pass
+  that DOES run over all of `ldr.Order` (`registerAllStructTypes`) registers **structs /
+  interfaces / generics only — not funcs/consts/vars** (verified: `gen_module.bn:93`,
+  `gen_register_import.bn:297`).
+
+Net, with Phase-4 home-mangling in place but no Phase 3.5:
+- exposed **VAR** read (`gen_selector.bn:303` → `lookupImportedGlobalRead('pkg/P.V')`) misses →
+  the loud IR-gen catch-all abort (a compiler internal error);
+- exposed **FUNC** ref (`gen_util.bn:106` → `gen_call.bn:242`) emits a call to a symbol the
+  module never `declare`d → **link failure / ABI corruption** on native + LLVM;
+- exposed **CONST** fold (`gen_const_fold.bn:{69,244,330,382}`) misses `lookupConst` → the caller
+  substitutes a default → **silent wrong value** (array dim 0, wrong signedness/float-ness).
+
+This is exactly the "dangling-symbol miscompile" the resolved-home sweep was meant to preclude,
+and it hits `NNN_expose_forwarder` / `NNN_expose_var_identity` / `NNN_expose_const_fold`. Phase
+4(b)'s old "B's members are registered under B's path" note assumed registration in the
+consumer; that assumption is false for a transitive-only B — corrected below.
+
+### 3.5(a) Edit sites (reviewer-traced; the implementation MUST re-run the sweep — see below)
+
+The consumer's import-registration is **duplicated across every embedding of the compile
+pipeline**; a repo-wide grep of the registration entry points is mandatory before editing (the
+plan's own "enumerate sweep sites repo-wide, not a guessed subset" rule). Reviewer-traced set to
+confirm and extend: `cmd/bnc/compile_imports.bn` (`registerMainImports` /
+`registerPackageImports` → `ir.RegisterImports` gen_import.bn:156, `registerImportVarExtern`
+gen_import.bn:433-467, `RegisterFuncExterns` gen_register_import.bn:220), and the parallel
+copies in `pkg/binate/interp/imports.bn`, `pkg/binate/repl/ir_imports.bn`, and
+`cmd/bnc/test.bn`. **Do not trust this list as complete** — grep for the `RegisterImports` /
+`registerImportVarExtern` / `RegisterFuncExterns` call sites and cover all of them; a missed
+embedding leaves that host (VM, REPL, test runner) with the same dangling-symbol miscompile.
+
+### 3.5(b) What to add/change
+
+- When collecting a module's **direct** imports for registration, for each direct import that
+  has a non-empty `pkg.Exposes`, also collect that import's **transitive expose-closure**
+  (A exposes P exposes Q → {P, Q, …}) and feed each closure package's `.bni` file into
+  `ir.RegisterImports` / `RegisterFuncExterns` / `registerImportVarExtern` **keyed on the
+  closure package's HOME path** (not A's alias) — so P's consts land in `gc.Mod.Consts`, vars in
+  `gc.Mod.GlobalVars`, and funcs as declared externs, all under P's path. This makes the
+  Phase-4 `pkg/P.X` names resolve to real registered symbols.
+- **Alternative considered:** drop the `fileHasGenericDecl` gate so the extern-only registration
+  runs for ALL of `ldr.Order` (any transitive dep's plain funcs/vars get declared). Simpler, but
+  broader — it changes registration for *every* transitive dep, not just expose-closures, so it
+  risks name/ABI surprises and duplicate-extern handling beyond expose. **Prefer the
+  expose-closure-scoped approach** unless recon shows the broad path is safe and cheaper.
+- De-dup: a closure package reached via both a direct import and an expose must be registered
+  once (guard on already-registered, as `RegisterImports` and the `ldr.Order` passes already do).
+
+### 3.5(c) Tests (acceptance — a name-only test CANNOT catch this)
+
+- The **`NNN_expose_forwarder`** and **`NNN_expose_var_identity`** conformance tests (Phase 6)
+  MUST exercise a **PURE forwarder**: `main` imports **only** A (the forwarder), **not** P, and
+  references an exposed **plain non-generic func** and an exposed **var** through A. Run them in
+  the **compiled + native** modes where a missing `declare` is a hard link error (not just
+  `builder-comp-int`, where the VM's late binding could mask it).
+- **`NNN_expose_const_fold`** is the acceptance gate for the const half: `[fwd.C]int` /
+  `1 << fwd.SHIFT` through a pure forwarder — a fold miss is a silent wrong value, so this
+  detects a Phase-3.5 registration gap that no name test would.
+
+### 3.5(d) Ordering + deliverable
+Dep: 2. Must land **with or before** Phase 4 (Phase 4's forwarder link is not real without it).
+Deliverable: an exposed func/var/const reached through a pure forwarder is registered under P's
+home in every consumer host → the Phase-4 names LINK.
+
+---
+
 ## Phase 4 — Resolved-home mangling for func/var/const (THE CRUX)
 
 **Deliverable:** `A.X` for exposed funcs/vars/consts links to P's symbol; a pure forwarder
-emits nothing; existing mangling byte-identical. **Deps:** 3. **MVP-critical.**
+emits nothing; existing mangling byte-identical. **Deps:** 3 **and 3.5**. **MVP-critical.**
+
+**[REVIEW] Mangling is only HALF the wire.** This phase makes references *produce* `pkg/P.X`;
+**Phase 3.5 makes `pkg/P.X` a registered/declared symbol in the consumer.** Neither alone
+suffices — land 3.5 with or before 4, and treat the forwarder/var/const-fold conformance tests
+(which exercise a *pure* forwarder in compiled + native modes) as the joint acceptance gate.
 
 ### The wire (Phase-3 stamp → reference-keyed IR-gen lookup → chokepoint)
 
@@ -544,6 +665,17 @@ gen_iface_registry, gen_iface, gen_impl_recvname, gen_impl, gen_import_const, ge
 gen_method_value_recv, gen_method_value, gen_method, gen_module, gen_register_import,
 gen_selector_type, gen_selector, gen_type_resolve, gen_util_literals_test, gen_util_literals,
 gen_util, gen.bn`.
+
+**[REVIEW] Completeness rests on the UNION pattern, not the two-symbol one.** Per the plan's own
+"enumerate with a deliberately over-broad pattern" rule, the sweep was cross-checked against the
+broader `resolveImportPkg|buildQualName|methodQualName|buildMethodQualName|qualifyForCurrentModule`.
+The extra qualified-name builders — `methodQualName` (gen_method.bn:21),
+`buildMethodQualName` (gen_method.bn:483), `qualifyForCurrentModule`, `splitQualName` — are all
+**type-identity-keyed** for expose's purposes (method values/expressions route through the
+RECEIVER type's IR-gen name, `buildMethodQualName(gc.PkgPath, recvTypeName, …)` at
+gen_method_value.bn:135 / gen_method.bn:164, which already follows type identity) → **LEAVE**. So
+the 9-site table is complete for func/var/const references, and a future method-value-through-
+expose refinement is explicitly on record as the place to re-triage, not a silent escape.
 
 #### MUST-CHANGE (spelling-driven func/var/const references in USER code)
 
@@ -647,10 +779,15 @@ plan's listed sites (rather than the grep) misses `gen_selector.bn:303`.
   member → P's home).
 - **Registration/read agreement (R4 risk — must be a real LINK, not just a string compare):**
   the resolved-home name emitted at a READ site (`gen_selector.bn:303`) MUST byte-match the
-  name the const/var/func was REGISTERED under. B's members are registered under B's path (via
-  B's own `gen_module`/`gen_register_import` pass); the read from A must resolve `e.X.Name` =
-  A-alias → home = B-path → same dotted name. The Phase-6 conformance forwarder test provides
-  the actual link (a string compare alone would not catch a registration/read disagreement).
+  name the const/var/func was REGISTERED under **in the consuming module**. **[REVIEW]
+  CORRECTION:** an earlier draft said "B's members are registered under B's path via B's own
+  `gen_module`/`gen_register_import` pass" — true in **B's own** module, but the **consumer**
+  that imports only the forwarder A does NOT register B's plain funcs/consts/vars (B is a
+  transitive-only import; consumer registration is direct-import-scoped). That is the Phase-3.5
+  gap. So the byte-match is real ONLY once Phase 3.5 registers B's surface into the consumer
+  under B's home. The Phase-6 conformance forwarder test (pure forwarder, compiled + native
+  modes) provides the actual link — a string compare alone would not catch a registration/read
+  disagreement.
 - **Const-fold value test (R4 risk — the four `gen_const_fold` arms):** a value-level
   conformance test (`[expose.C]int` array dim and/or `1 << expose.SHIFT`) — a name test is
   insufficient because a fold miss is a silent wrong value, not a link error. Put this in the
@@ -704,7 +841,10 @@ Existing patterns to model on:
   enumerates one origin's names via `collectDeclNames`, compares to another origin (import
   aliases), reports "`<alias>`: import alias conflicts with a declaration of the same name" at
   `imp.Pos` — a **single-Pos** message naming both origins textually. Gated to the real target
-  via `checkBodies` (bni_scope.bn:189-191).
+  via `checkBodies` at **`checker.bn:187-191`** (`if checkBodies { … checkImportDeclCollisions(c,
+  merged) }`). **[REVIEW] CORRECTION:** the earlier `bni_scope.bn:189-191` cite was wrong — that
+  is an unrelated const-group loop; `checkImportDeclCollisions` is *defined* at bni_scope.bn:471
+  but *gated* at checker.bn:187-191.
 - `collectDeclNames` (bni_scope.bn:493-510) — recurses groups, skips `DECL_IMPL`/methods,
   establishes which kinds share the namespace.
 
@@ -742,11 +882,17 @@ Pos would dedup into one.
   **Print FULL package paths, not short segments** (two exposed packages with a coinciding
   last segment are distinct surfaces keyed by full Path — disambiguate in the message).
 - **`pkg/binate/types/checker.bn` `checkPackageImpl`:** invoke `checkExposeCollisions` once A's
-  full unioned surface is known (after Phase-3 injection), near 182-206 (around
-  `registerPackage`), **gated by `checkBodies`** exactly as `checkImportDeclCollisions` is
-  (bni_scope.bn:189-191), so a decls-only dependency's own clash is reported when that package
-  is compiled directly, not smeared onto every importer. Thread A's `pkg.Exposes` into
-  `CheckPackage`.
+  full unioned surface is known (after Phase-3 injection), at the **`checker.bn:187-191`**
+  `if checkBodies { … }` block (the real gate — **[REVIEW]** not `bni_scope.bn:189-191`), so a
+  decls-only dependency's own clash is reported when that package is compiled directly, not
+  smeared onto every importer. **[REVIEW] Read exposes from `bni.Decls`** (the `.bni` AST is
+  already a `CheckPackage` param) rather than threading a new `pkg.Exposes` param through
+  `CheckPackage` and its call sites — same simplification as Phase 3 (below).
+- **[REVIEW] Enumerate RAW per-exposed-B `Syms`, never A's collapsed scope.** Because
+  `Scope.Define` silently overwrites same-name symbols (scope.bn:38-43), by the time Phase-3
+  injection finishes, A's `@Scope` holds only the *survivor* of any collision — so the pass must
+  compute collisions across each exposed B's **own** `lookupPackage(c,B).Syms` list (pre-merge)
+  plus A's own decl names, not over A's post-injection `@Scope`.
 
 ### 5(c) New files
 - **`pkg/binate/types/check_expose_collision.bn`** — the pass + message helpers.
@@ -804,7 +950,14 @@ MATCHES identity (design §3: `A.X` IS `B.X`, described as B's) and requires **N
   consumer expecting reflection-by-name over A to return `A.X` gets nothing from A's
   descriptor — the member lives in B's). If the spec later decides A's descriptor must surface
   exposed members, that is a REAL addition (synthesize entries from A's injected `Syms`) —
-  **flag as out-of-first-cut, do not do it silently.**
+  **flag as out-of-first-cut, do not do it silently.** Promote this to a **Phase-0 spec
+  decision** (`pkg.expose.reflect`) rather than "free."
+- **[REVIEW] Separate-compilation caveat.** "Described under B, absent from A" is a *code-path*
+  fact but assumes B's descriptor is actually emitted. Under a `--pkg` build of just the
+  consumer + forwarder (B a transitive-only import), verify B's object/descriptor is present in
+  the link — this ties to the Phase-3.5 registration gap (a transitive-only B whose surface is
+  never pulled in would also have no descriptor). Cover in the `--pkg` / separate-compilation
+  path, not only whole-program.
 
 ### 6(b) Conformance bundle (all NEW dirs; layout per §"Conformance test layout")
 
@@ -850,6 +1003,17 @@ all default modes.
 
 ## Risks & open questions (design carry-forward, with recon resolutions)
 
+- **[REVIEW] CRITICAL — consumer-side registration of the expose-closure (Phase 3.5).** The
+  single biggest gap the review found: resolved-home mangling emits `pkg/P.X`, but the consumer
+  of a *pure forwarder* never registers/declares `pkg/P.X` (P is a transitive-only import;
+  consumer func/var/const registration is direct-import-scoped; the transitive pass covers only
+  structs/interfaces/generics). Result without Phase 3.5: link failure (funcs), loud IR-gen
+  abort (vars), silent wrong-fold (consts). NOW ADDED as Phase 3.5. Residual risk: the
+  registration logic is **duplicated across every pipeline embedding** (bnc, VM, REPL, test
+  runner) — the Phase-3.5 implementation MUST grep the `RegisterImports` /
+  `registerImportVarExtern` / `RegisterFuncExterns` call sites repo-wide and cover all of them.
+  Acceptance is the pure-forwarder conformance tests run in compiled + native modes (a
+  name-only test cannot catch it).
 - **Resolved-home mangling reach (Phase 4).** RESOLVED to a concrete 9-site table above
   (built from the repo-wide grep, not a guessed subset). Two doc mislabels corrected
   (`gen_call.bn:162`, `gen_import_const.bn:41` are LEAVE) and one **doc-missed must-change site
@@ -896,24 +1060,32 @@ all default modes.
 
 ## Recommended first slice
 
-If Phase 0 clears, land **1 → 2 → 3 → 4 → 5** in order:
+If Phase 0 clears, land **1 → 2 → 3 → 3.5 → 4 → 5** in order:
 
 1. **Phase 1 (Frontend)** — contextual `expose` token recognition, `DECL_EXPOSE`,
    `parseExposeDecl` + `DeclKindName` case; parser unit tests. No deps.
 2. **Phase 2 (Loader)** — `Package.Exposes` field, the unconditional expose block after the
    `:366-369` fallback appending P to `pkg.Imports` + `pkg.Exposes`; loader unit tests. Dep 1.
-3. **Phase 3 (Checker/scope)** — `@Symbol.HomePkg`, home-carrying define helpers,
-   `injectExposedSurface` (split into `bni_scope_expose.bn`), injection at bni_scope.bn:228;
-   scope unit tests. Dep 2. (Types/impls link at the end of this phase — free from the alias
-   identity substrate.)
+3. **Phase 3 (Checker/scope)** — `@Symbol.HomePkg`, full-copy injection (preserving
+   `ConstVal/HasConstVal`), `injectExposedSurface` reading `DECL_EXPOSE` from the `.bni` AST
+   (split into `bni_scope_expose.bn`), injection at bni_scope.bn:228; scope unit tests. Dep 2.
+   (Types/impls link at the end of this phase — free from the alias identity substrate.)
+3.5. **[REVIEW] Phase 3.5 (Consumer-side registration)** — register each direct import's
+   transitive expose-closure funcs/consts/vars into the consumer under home names, across ALL
+   pipeline embeddings (bnc/VM/REPL/test). Dep 2; land **with or before** Phase 4. MVP-critical.
 4. **Phase 4 (Resolved-home mangling — the crux)** — `PackageMemberHome`, `buildQualNameHomed`,
-   the 9 must-change reference sites, the byte-identical regression test. Dep 3. MVP-critical.
-5. **Phase 5 (Collision check)** — `check_expose_collision.bn`, gated on `checkBodies`,
-   both-origin single-Pos diagnostics; unit + negative conformance tests. Dep 3.
+   the 9 must-change reference sites, the byte-identical regression test. Deps 3, 3.5.
+   MVP-critical.
+5. **Phase 5 (Collision check)** — `check_expose_collision.bn`, gated on `checkBodies`
+   (checker.bn:187-191), exposes read from `bni.Decls`, raw-per-B-`Syms` enumeration, both-origin
+   single-Pos diagnostics; unit + negative conformance tests. Dep 3.
 
-Each phase is independently landable and keeps the tree green. Phase 6 (reflect confirmation +
-full conformance bundle) follows and is largely test/spec work. The one item with real subtlety
-is **Phase 4**; everything else reuses existing substrate (alias identity, scope helpers,
-dep-graph/cycle machinery, `.bni`-only load path). The promotion (`NNN_expose_forwarder`) +
-var-identity (`NNN_expose_var_identity`) + const-fold (`NNN_expose_const_fold`) conformance
-tests are the acceptance gate for the first cut.
+Each phase is independently landable and keeps the tree green (except 3.5, which pairs with 4 —
+mangling and registration are two halves of one wire and their joint acceptance is the
+pure-forwarder conformance test). Phase 6 (reflect confirmation + full conformance bundle)
+follows and is largely test/spec work. The items with real subtlety are **Phase 4 + Phase 3.5**
+(the two halves of the func/var/const wire); everything else reuses existing substrate (alias
+identity, scope helpers, dep-graph/cycle machinery, `.bni`-only load path). The promotion
+(`NNN_expose_forwarder`) + var-identity (`NNN_expose_var_identity`) + const-fold
+(`NNN_expose_const_fold`) conformance tests — **each exercising a PURE forwarder in compiled +
+native modes** — are the acceptance gate for the first cut.
