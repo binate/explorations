@@ -11,7 +11,7 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
-### native↔LLVM ABI divergence: a GP aggregate that STRADDLES the reg/stack boundary — LLVM splits it, native (+clang) does all-or-nothing — 🔴 OPEN (found 2026-07-06)
+### native↔LLVM ABI divergence: a GP aggregate that STRADDLES the reg/stack boundary — LLVM splits it, native (+clang) does all-or-nothing — 🟡 STRUCT/ARRAY x64 FIXED & LANDED 2026-07-09 (`7cfa823a`); slice/iface/func-value follow-up OPEN (found 2026-07-06)
 
 **Severity: MAJOR — silent wrong-code across the dual-mode boundary (and vs C).**
 A ≤16-byte INTEGER-class aggregate arg that does not fully fit in the remaining
@@ -56,13 +56,31 @@ C-ABI-compatible for such args (clang does all-or-nothing).
   above; its `.xfail.builder-comp_native_aa64-comp_native_aa64` is removed) and pins the
   aa64 single-file case. `pkg/binate/native/aarch64/aarch64_iface_test.bn`'s
   `TestEmitCallIfaceMethodStraddlingAggregateSplits` guards the aa64 split at the codegen
-  level. The **x64 native↔LLVM** manifestation (still open) needs a native-main/LLVM-dep
+  level. The **x64 native↔LLVM** manifestation is verified by a native-main/LLVM-dep flip
   harness (not a standard conformance mode; /tmp/direct_straddle + /tmp/int_iface reproduce it).
-- **Proposed fix.** (1) **STILL OPEN** — LLVM codegen: coerce a straddling GP aggregate
-  param to the all-or-nothing form (match clang/native) — check how `pkg/codegen` lowers
-  by-value aggregate params vs clang's `[N x i64]`/byval coercion. This is the remaining
-  MAJOR (native↔LLVM / C-ABI) part; a core-ABI change, scope/approach is the user's.
-  (2) ✅ DONE — aa64 native internal caller/callee disagreement fixed (`f681d679`).
+- **x64 struct/array — ✅ FIXED & LANDED 2026-07-09 (`7cfa823a`, + `41e5ff4b` `SysVArgInMemory`).**
+  The LLVM codegen now emits a true `ptr byval(<T>) align 8` for a memory-class ≤16-byte
+  STRUCT/ARRAY arg (whole aggregate on the outgoing stack, matching native + clang) instead
+  of the splittable `[N x i64]`.  The position-aware decision (`types.SysVArgInMemory` via
+  `aggMemClass`, x64-only) is threaded — with sret / iface-data-ptr / closure-capture
+  prefixes accounted as native does — at every real-ABI caller: define-line + entry prologue,
+  extern declare, direct OP_CALL, OP_CALL_IFACE_METHOD dispatch, and the func-value / closure
+  shim→underlying call.  A `native/common` cross-check test pins `SysVArgInMemory` to the
+  native SysV walk.  Verified: struct straddle via direct/iface/func-value MATCHES all-LLVM;
+  `native_x64_darwin` conformance 2690 pass / 0 fail.
+- **Slice / iface-value / func-value follow-up — 🔴 OPEN (WIP on branch `temp-4-slices-wip`,
+  commit `f11d79e8`).** Those are also 2-word GP aggregates that straddle (still passed
+  first-class → still split by LLVM).  The WIP extends `aggMemClass` kind-agnostically and
+  wires the first-class call-site + alloca-hoist + prologue paths; **DIRECT and IFACE slice
+  straddles work** (flip harness MATCHES), but a **func-value whose underlying has a
+  memory-class SLICE param SIGSEGVs on the native side** (all-LLVM correct; shim LLVM looks
+  correct — byval + regular `call` after fixing a tail-call-with-byval UAF).  The fault is
+  the native func-value dispatch (`x64_call_indirect`, unchanged) feeding the byval-slice
+  shim — the by-address slice pointer that worked for a first-class load isn't valid for the
+  byval copy; structs go through the same shim path fine (they're `AggCoercedInReg`, so the
+  native dispatch substitutes them to a pointer; slices are not).  Needs native-dispatch
+  root-causing before landing.  Do NOT cherry-pick `f11d79e8` as-is.
+- ✅ DONE — aa64 native internal caller/callee disagreement fixed (`f681d679`).
 
 ### native arm32: a function frame > ~4095 bytes fails to compile (COMPILE_ERROR) — ✅ FIXED & LANDED 2026-07-06 (`6ce4b42f`)
 
