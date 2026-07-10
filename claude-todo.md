@@ -11,7 +11,7 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
-### MAJOR (mangler) — cross-package generic container on a managed element type: destructor mangled-prefix mismatch (both backends) — 🔴 OPEN (found 2026-07-09)
+### MAJOR (mangler) — cross-package generic container on a managed element type: destructor mangled-prefix mismatch (both backends) — ✅ FIXED & LANDED 2026-07-10 (`8d9e7577`)
 
 **Symptom.** A generic stdx container (`vec.Vec`, and by the same mechanism
 `hashmap.Map`/`set.Set`) instantiated in a package OTHER than its own, on a
@@ -49,25 +49,84 @@ the CLAUDE.md "symbol-prefix collision between unrelated packages is a critical
 mangler bug" note — here a prefix MISMATCH between a synthetic dtor's def and
 call.)
 
-**Proposed fix (needs design).** Give the synthetic element/backing destructor
-for a generic instantiation ONE canonical mangled name that its definition and
-all call sites agree on, independent of which package instantiates — likely a
-`weak_odr` symbol keyed on the TYPE (not the current package), emitted by whoever
-instantiates and deduplicated at link, and registered as a resolvable VM extern.
-The fix belongs in the shared mangling/monomorphization layer so BOTH backends
-and the VM agree (it reproduces identically in comp and int — not a
-backend-specific reloc issue).
+**Fix (LANDED `8d9e7577`).** The real mechanism: `EmitCall`
+(`ir_ops_flow.bn`) qualifies a bare call-target name with the enclosing
+function's `f.ModulePkgPath`.  For a cross-package generic instantiation whose
+struct/element dtor is attributed to the generic's HOME package (for dedup) but
+emitted into the CONSUMER's module, that home package is NOT the module that
+defines the module-local synthetic helper (`ensureMsDtor`/`ensureArrayDtor` emit
+it under `m.PkgPath`).  Added `EmitCallLocal`, which emits the call by its BARE
+name so codegen mangles it with the CURRENT module's package (`modulePkgName`) —
+where the def actually lands; and routed only the managed-slice / array element &
+field dtor+copy calls through it via `isElemDtorModuleLocal(t)` (mirrors
+`elemDtorName`'s own qualified-vs-unqualified kind test).  Struct and
+managed-pointer calls keep the correctly-qualified `EmitCall` path, so
+same-package behaviour is unchanged (there `home == module`, and both backends'
+bare-name mangling — codegen `emit_call.bn`, VM `lower_call.bn` — use the module
+package).  Verified: builder-comp 2695/0 + builder-comp-int 2674/0 full
+conformance, ir/codegen/native/vm units, and a 3-lens adversarial review that
+could not refute it.
 
-**Test.** `conformance/995_xpkg_generic_managed_dtor` (LANDED `c3f2cdd9` +
-`97d70feb`), xfail in all modes; drop the xfails when fixed. It uses a
-self-contained generic-container fixture (`pkg/gholder` with a `Holder[T]` over
-`@[]T`) instantiated cross-package on `@Box` — no stdlib import, so it isolates
-the language mechanism and needs no conformance-imports whitelist. An in-package
+**Two PRE-EXISTING, orthogonal bugs surfaced by the adversarial review** (both
+reproduce BEFORE `8d9e7577`; see their own entries below): (1) `ensureMsDtor`/
+`ensureArrayDtor` do not `peelTransparent` the `.Elem` before the recursion guard,
+so a named-distinct wrapper element (`type Buf @[]@Box`) can leave its inner
+helper undefined — a link failure; (2) `readonly` is invisible to
+`NeedsDestruction`/`dtorTypeSuffix` (`ResolveAlias` peels `TYP_ALIAS` but not
+`TYP_READONLY`), a latent leak if `readonly` managed elements ever become
+constructible.
+
+**Test.** `conformance/995_xpkg_generic_managed_dtor` — now PASSES (xfails dropped
+in `8d9e7577`; the marker-add `97d70feb` and initial add `c3f2cdd9` are the
+history). It uses a self-contained generic-container fixture (`pkg/gholder` with
+a `Holder[T]` over `@[]T`) instantiated cross-package on `@Box` (ms_mp) AND
+`@[]char` (ms_ms) — no stdlib import, so it isolates the language mechanism and
+needs no conformance-imports whitelist. An in-package
 instantiation would NOT reproduce it — the test must instantiate from a *different*
 package than the container. Standalone repro: a `main` importing
 `pkg/stdx/containers/vec` with `var v
 @vec.Vec[@[]char] = vec.New[@[]char]()` fails to link; `Vec[int]` / `Vec[*[]char]`
 are fine.
+
+### `ensureMsDtor`/`ensureArrayDtor` skip the recursive element-helper for a NAMED-distinct wrapper element — link failure — 🟠 OPEN (found 2026-07-10, adversarial review of `8d9e7577`)
+
+**Symptom.** A cross-package generic container instantiated on a named-distinct
+transparent managed-slice/array *wrapper* element leaves the inner element dtor
+undefined → `use of undefined value @bn_...__dtor_ms_mp_Box` (and `__dtor_arr2_mp_Box`
+for the array form). Minimal repro: a fixture `pkg/gh3` with `type Box1[T any]
+struct { items @[]T }` + `New[T]`, and in `main`: `type Buf @[]@Box; ...
+gh3.Box1[Buf] = gh3.New[Buf]()`. Also `type Arr [2]@Box`.
+
+**Root cause.** `ensureMsDtor` / `ensureArrayDtor` (`pkg/binate/ir/gen_dtor_emit.bn`
+~210-217, ~229-237) gate their RECURSIVE inner-element-helper emission on the raw
+`msTyp.Elem.Kind == TYP_MANAGED_SLICE`/`TYP_ARRAY`. `ResolveAlias` does NOT peel
+`TYP_NAMED`, so for a `@[]Buf` backing whose `.Elem` is the named `Buf`, the
+recursion is skipped and the inner `__dtor_ms_mp_Box` is never emitted. The outer
+body (correctly peeled) calls it → undefined. When the container is POPULATED, a
+materialised element's RefDec incidentally emits the peeled helper and masks the
+gap — so 995 and any Put-based test pass; the empty/never-materialised case
+exposes it. PRE-EXISTING (reproduces before `8d9e7577`); orthogonal to it (that
+fixed the call ROUTING; this is a missing DEFINITION).
+
+**Fix.** `peelTransparent` (or otherwise resolve `TYP_NAMED`) the `.Elem` before
+the `TYP_MANAGED_SLICE`/`TYP_ARRAY` recursion guards in `ensureMsDtor`/
+`ensureArrayDtor` — mirroring the `peelTransparent` already applied in the
+field-walk sites (`gen_dtor_emit.bn:124,186`). Add a conformance test with a named
+wrapper element instantiated cross-package and never populated.
+
+### `readonly` is invisible to `NeedsDestruction`/`dtorTypeSuffix` — cosmetic mismatch now, latent leak later — 🟢 LOW / OPEN (found 2026-07-10, adversarial review of `8d9e7577`)
+
+`ResolveAlias()` peels `TYP_ALIAS` but not `TYP_READONLY`, so (a) `readonly <scalar>`
+inner elements mangle to `__dtor_ms_ms_unknown` (the `dtorTypeSuffix` fallback,
+`gen_dtor.bn` ~101) instead of their real suffix — benign today (distinct
+allocations; the review confirmed the "unknown" bodies are refcount-equivalent, so
+even a two-distinct-`unknown`-types collision is harmless); and (b)
+`NeedsDestruction(readonly @Box) == false` → a `readonly`-wrapped managed element
+would not be destroyed (a leak) IF such a type were ever constructible. Currently
+unreachable: `readonly @T` fails to parse as a type argument and `NeedsDestruction`
+treats it as non-destructible anyway. Peel `TYP_READONLY` in `ResolveAlias` (or in
+`NeedsDestruction`/`dtorTypeSuffix`) when `readonly` managed elements become a real
+possibility.
 
 ### native↔LLVM ABI divergence: a GP aggregate that STRADDLES the reg/stack boundary — ✅ FIXED & LANDED (x64 struct/array `7cfa823a`, slice/iface/func-value `9dc0d776`+`304759c7`, closure-capture `5608a13b`; aa64 `f681d679`) — 🟢 residual: DRY only
 
@@ -2142,16 +2201,16 @@ unblock them:
 
 ## Opportunistic code cleanups
 
-### Adopt `stdx/containers` Vec for hand-rolled growable arrays — 🔴 BLOCKED (audit 2026-07-09)
-- **BLOCKED (2026-07-09)** on the MAJOR mangler bug above ("cross-package generic
-  container on a managed element type: destructor mangled-prefix mismatch"):
-  `Vec[T]` fails to link/run cross-package whenever T is managed (`@[]char`,
-  `@ast.File`, `@Diagnostic`, ...) — which is nearly every site below. Only
-  unmanaged-element Vecs (`int`, raw `*[]T`) work cross-package today. Discovered
-  by starting the formatter conversion (`Vec[@[]readonly char]`), which failed to
-  compile. So "Vec is usable now" (below/earlier) is WRONG for managed elements;
-  the whole adoption waits on that mangler fix. The first commit was reverted;
-  conformance/995_xpkg_generic_managed_dtor tracks the bug.
+### Adopt `stdx/containers` Vec for hand-rolled growable arrays — 🟡 UNBLOCKED, IN PROGRESS (audit 2026-07-09)
+- **UNBLOCKED 2026-07-10** — the MAJOR mangler bug above that blocked this
+  (cross-package managed-element container dtor/copy mangling) is FIXED & LANDED
+  (`8d9e7577`).  `Vec[T]` (and Map/Set) now link/run cross-package on managed
+  element types.  The formatter conversion (`Vec[@[]readonly char]`, the site that
+  first surfaced the bug) was reverted at the time and can now be redone; that is
+  the natural first adoption to resume.  Caveat: a named-distinct *wrapper* element
+  (`type Buf @[]@X` used as the Vec element) still hits the separate pre-existing
+  `ensureMsDtor`/`ensureArrayDtor` NAMED-recursion bug (see its entry) — plain
+  `@[]char` / `@ast.File` / `@Diagnostic` elements are fine.
 - **What**: the container-adoption audit swept the non-BUILDER tree (vm, interp,
   lint, format, repl, and the cmd/{bni,bnfmt,bnlint} glue — the stdlib itself is
   largely BUILDER-constrained, since cmd/bnc imports std/{os,strings,strconv} and
