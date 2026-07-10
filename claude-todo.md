@@ -130,7 +130,7 @@ package than the container. Standalone repro: a `main` importing
 @vec.Vec[@[]char] = vec.New[@[]char]()` fails to link; `Vec[int]` / `Vec[*[]char]`
 are fine.
 
-### `ensureMsDtor`/`ensureArrayDtor` skip the recursive element-helper for a NAMED-distinct wrapper element — link failure — 🟠 OPEN (found 2026-07-10, adversarial review of `8d9e7577`)
+### `ensureMsDtor`/`ensureArrayDtor` skip the recursive element-helper for a NAMED-distinct wrapper element — link failure — ✅ FIXED & LANDED 2026-07-10 (`c14dd95e`)
 
 **Symptom.** A cross-package generic container instantiated on a named-distinct
 transparent managed-slice/array *wrapper* element leaves the inner element dtor
@@ -150,11 +150,14 @@ gap — so 995 and any Put-based test pass; the empty/never-materialised case
 exposes it. PRE-EXISTING (reproduces before `8d9e7577`); orthogonal to it (that
 fixed the call ROUTING; this is a missing DEFINITION).
 
-**Fix.** `peelTransparent` (or otherwise resolve `TYP_NAMED`) the `.Elem` before
-the `TYP_MANAGED_SLICE`/`TYP_ARRAY` recursion guards in `ensureMsDtor`/
-`ensureArrayDtor` — mirroring the `peelTransparent` already applied in the
-field-walk sites (`gen_dtor_emit.bn:124,186`). Add a conformance test with a named
-wrapper element instantiated cross-package and never populated.
+**Fix (LANDED `c14dd95e`).** `peelTransparent` the `.Elem` before the
+`TYP_MANAGED_SLICE`/`TYP_ARRAY` recursion guards in `ensureMsDtor`/
+`ensureArrayDtor` — mirroring the `peelTransparent` the field-walk already
+applies — so a named wrapper is classified by its underlying kind and the inner
+helper is emitted (deduped via `hasName`). Additive change (emits previously-
+missing helpers only). Test: `conformance/1007_xpkg_named_wrapper_elem`
+(cross-package `Box1[Buf]`, `Buf = @[]@Box`, created-but-never-populated), passes
+both backends. Verified: builder-comp 2704/0 + ir units.
 
 ### `readonly` is invisible to `NeedsDestruction`/`dtorTypeSuffix` — cosmetic mismatch now, latent leak later — 🟢 LOW / OPEN (found 2026-07-10, adversarial review of `8d9e7577`)
 
