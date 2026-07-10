@@ -170,14 +170,6 @@ treats it as non-destructible anyway. Peel `TYP_READONLY` in `ResolveAlias` (or 
 `NeedsDestruction`/`dtorTypeSuffix`) when `readonly` managed elements become a real
 possibility.
 
-### native↔LLVM ABI divergence: a GP aggregate that STRADDLES the reg/stack boundary — ✅ FIXED & LANDED (x64 struct/array `7cfa823a`, slice/iface/func-value `9dc0d776`+`304759c7`, closure-capture `5608a13b`; aa64 `f681d679`) — 🟢 residual: DRY only
-
-All GP-aggregate straddle miscompiles at the native↔LLVM boundary are fixed and landed across x64 (struct/array, slice, iface-value, func-value, closure capture) and aa64 (internal caller/callee).
-
-Residual (minor, NOT done): the aa64 iface caller (`aarch64_iface.bn`) still duplicates `aarch64_call.bn`'s aggregate-split marshalling — the duplication is what let the copy diverge originally; extract a shared helper to prevent recurrence.
-
-(Background/history archived in claude-todo-done.md.)
-
 ### MAJOR — native aarch64 FUNC-VALUE / CLOSURE dispatch of a STRADDLING first-class aggregate arg CRASHES (SIGSEGV) — 🔴 OPEN (found 2026-07-10)
 
 **Symptom.** conformance `417_funcval_slice_dispatch_straddle` and

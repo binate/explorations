@@ -11136,6 +11136,14 @@ actionable residual stayed in the TODO) moved here during a cleanup pass.
 
 ### native↔LLVM ABI divergence: a GP aggregate that STRADDLES the reg/stack boundary — LLVM splits it, native (+clang) does all-or-nothing — ✅ x64 FIXED & LANDED (struct/array `7cfa823a` 2026-07-09; slice/iface/func-value `9dc0d776`+`304759c7` 2026-07-10) (found 2026-07-06)
 
+**DRY follow-up done 2026-07-10 (`c63b25a4`):** the aa64 caller-side duplication
+that let 992 diverge is gone — `emitCall` and `emitCallIfaceMethod` now share one
+`emitAggregateArg` helper (aarch64_call.bn), adversarially reviewed as a
+behavior-preserving pure extraction (native_aa64 conformance 2700 pass). NOTE:
+that same native_aa64 run uncovered a SEPARATE open bug — func-value/closure
+dispatch of a straddling slice SIGSEGVs on aa64 (417/420); see the OPEN entry in
+claude-todo.md.
+
 **Severity: MAJOR — silent wrong-code across the dual-mode boundary (and vs C).**
 A ≤16-byte INTEGER-class aggregate arg that does not fully fit in the remaining
 GP arg registers (some but not all eightbytes would fit) is passed
