@@ -308,20 +308,28 @@ then immediately called): `genCall` now routes an `EXPR_CALL` callee of func-val
 to `genFuncValueCallExpr` (indirect dispatch).  conformance/1012.  (Landing as a `binate`
 commit; the entry stays until the sibling forms below are also fixed.)
 
-**🔴 STILL OPEN — the callee is a SELECTOR/INDEX whose BASE is a call result:**
-`obj.Get().f(x)`, `getarr()[i](x)`, and deeper chains `obj.Get().h.f(x)` /
-`getcells()[i].f(x)`.  These still emit an undefined symbol (`_bn_F1_4_main…_<Field>` or
-`bn_F1_4_main0_`).  Root cause: the `genCall` SELECTOR/INDEX func-value branch classifies
-via `getSelectorType`, which returns nil for a call-result base (`getIndexElemType` /
-`getSelectorType` have no `EXPR_CALL`-base arm — see gen_access.bn's doc-comment), so the
-func-value branch never fires and the call falls through to the direct-by-name path.
-**Fix direction:** teach `genSelector` / `genExpr` (and `getSelectorType`) to lower a
-selector/index whose base is a call result — the real gap.  **WARNING:** do NOT "fix" it
-by making the call-dispatch branch fall back to `ctx.Checker.ExprType` and route to
-`genFuncValueCallExpr` → `genExpr(e.X)` — that CRASHES the compiler (`index out of
-bounds`) on the deeper chains, because `genExpr` of a selector-over-call-result is the
-very gap being worked around (an adversarial review caught this: it converts a graceful
-link error into an internal panic).  Add xfail conformance coverage for the open forms.
+**✅ FIXED — the callee is a SELECTOR/INDEX whose BASE is a call result** (pending land,
+`binate` `e444a004`, conformance/1018): `obj.Get().f(x)`, `getarr()[i](x)`, and the deeper
+chains `obj.Get().h.f(x)` / `getcells()[i].g(x)`.  The right fix was the TYPE-computation
+gap, not a call-dispatch fallback: `getSelectorType` and `getIndexElemType` /
+`indexExprType` now have an `EXPR_CALL`-base arm that takes the checker's resolved type of
+the call (`ctx.Checker.ExprType`).  Once the base type resolves, `genCall`'s func-value
+branch fires and the existing value-lowering (materialize the call result, then access —
+which already worked for a value use like `mk().Get().v`) handles the chains without
+crashing.  (Deliberately NOT the call-dispatch fallback that crashed the deeper chains.)
+
+**🔴 STILL OPEN — DEREF of a call result: `(*mkptr()).f(x)`** (a distinct base kind,
+pre-existing, unrelated to `e444a004`).  Two layers: (1) `getSelectorType`'s
+`EXPR_UNARY(STAR)` arm returns `inner.Elem` UNPEELED, and the checker's managed-ptr
+`.Elem` is a `TYP_NAMED` wrapper over the struct, which the SELECTOR arm's classifier
+(bare `TYP_STRUCT` / `isManagedPtrToStruct` / `isRawPtrToStruct`) doesn't peel → nil →
+undefined-symbol call; (2) the NESTED value read `(*mkbox()).h.inner.v` already PANICS
+(`unresolved selector in IR-gen`) — a deeper `genSelector`/`genExpr` lowering gap for a
+deref-of-call base.  **Fix direction:** `peelTransparent(baseTyp)` in the SELECTOR-arm
+classifier fixes the single-level case, BUT do NOT add it alone — it makes the func-value
+branch fire on the NESTED deref-of-call, routing it into the layer-(2) panic (the Fix A
+trap).  Fix the lowering (layer 2) first / together.  `(*call())` is niche (an `@T` call
+result auto-derefs, so `call().f` is the usual form).  Add xfail coverage.
 
 ## Language features — specified, not yet implemented
 
