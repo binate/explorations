@@ -1601,36 +1601,37 @@ Slice 5.
 
 Adopt the matrices only (wiring CI/hygiene is a separate decision).
 
-### (b2) Lifecycle matrix — Class 6 (`@Iface` / `@[]@I`) + Class 7 (captured-`@func` over-release) — PARTLY ADDRESSED 2026-06-05 (plan-cr-p2-2 step 5)
-- **Status**: the existing `conformance/matrix/refcount` form × type grid already
-  covers Class 6's construction/consumption shapes (the copy-sites are now uniform
-  after the `emitStoreManagedSlot` consolidation), and `604`/`605` add lifecycle-
-  DEPTH balance (a value chained through param/store/pass/return/bind/invoke) for
-  captured-`@func` and cast-from-impl `@Iface`, green in builder-comp/-int/-comp/
-  native-aa64. REMAINING: a true single-program **Class 7 native↔VM trampoline**
-  balance test is not expressible in the single-mode conformance harness (each
-  test runs in one mode) — needs a cross-mode harness; left as a follow-up.
-- **Why a matrix**: Class 6 (`@Iface`/`@[]@I` first-class lifecycle) and Class 7
-  (native call-a-captured-`@func` over-release via the VM trampoline) are
-  lifecycle-completeness classes. Axes would be `managed-kind (@Iface / @[]@I /
-  captured-@func) × construction (make / literal / cast-from-impl / capture) ×
-  consumption (call-method / index / range / pass / return / discard) ×
-  backend`, with a refcount-balance assertion (mortal source).
-- **Status**: the refcount matrix already covers `@Iface`/`@func` as value-types
-  across assignment-forms, so this would EXTEND rather than start fresh — the
-  new axis is construction × consumption depth (esp. the native↔VM trampoline
-  path for Class 7, which the refcount matrix does not exercise).
-- **Note**: several `@Iface` lifecycle bugs are already filed (leaks/UAF family); a
-  matrix would close the long tail. The `@[]@I` literal element leak is now ✅ FIXED
-  (main `a2abf36e` — a general managed-slice-literal element leak across all managed
-  element kinds; see claude-todo-done.md).
+### (b2) Lifecycle matrix — Class 6 (`@Iface` / `@[]@I`) DONE; Class 7 (captured-`@func` over-release) cross-mode balance test remains — 🟡 (re-audited 2026-07-10)
+- **Class 6 (`@Iface` / `@[]@I`) — ✅ DONE.** Covered by the `conformance/matrix/refcount`
+  grid (`@Iface` / `func-value` cells across the `var-init`/`assign`/`multi-assign`/`param`/…
+  sub-axes; copy-sites uniform after the `emitStoreManagedSlot` consolidation) + the
+  lifecycle-DEPTH tests `604_captured_func_lifecycle_depth` / `605_iface_lifecycle_depth` (a value
+  chained param→field-store→by-value-param→return→bind→invoke, refcount back to baseline for
+  captured-`@func` and cast-from-impl `@Iface`). The `@[]@I` literal element leak is ✅ FIXED
+  (`a2abf36e`, on main + done log).
+- **Class 7 (captured-`@func` over-release, native↔VM trampoline) — the ONE remaining item, now
+  UNBLOCKED.** A single-program refcount-balance test of a native call to a captured `@func`
+  through the VM trampoline can't run in the single-mode conformance harness; the stated blocker
+  was "needs a cross-mode harness." **That harness now exists** (`e2e/xmiface.sh` / `e2e/xmhfa.sh`,
+  cross-mode dispatch), so this is buildable — add a captured-`@func` refcount-balance case there.
+  (NB `conformance/matrix/dispatch-refcount/funcval` is NOT this — it's single-mode
+  multi-return-component balance through an indirect call, not the cross-mode over-release.) If
+  built out as a matrix the axes would be `managed-kind × construction × consumption × backend`
+  with a mortal-source refcount-balance assertion, but the concrete gap is just the one cross-mode
+  balance case.
 
-### (b3) Class 3 / Class 8 — point-bugs, NOT matrices
-- Class 3 (cross-package / interface-name type-resolution ordering → `i8*`
-  fallback) and Class 8 (multi-package loader resolution at int-int depth) are
-  one-off ordering/loader bugs, not systematic products. Track them as
-  individual regression tests under `conformance/regressions/` + filed bugs, not
-  as a matrix.
+### (b3) Class 3 / Class 8 — point-bugs, NOT matrices — 🟢 CLASS 8 DONE; CLASS 3 is a recurring family (decision stands) (re-audited 2026-07-10)
+- **Class 8** (multi-package loader resolution at int-int depth → `pkg/builtins/rt` not found)
+  — ✅ FIXED & LANDED (`db18f26b`, 2026-06-05; regressions `136_grouped_imports` +
+  `383_cross_pkg_iface_dtor`; in done log).
+- **Class 3** (cross-package / interface-name type-resolution ordering → `i8*` fallback) turned
+  out NOT to be a one-off point-bug but a **recurring family** — reframed as "**Class E — Named /
+  cross-package type-resolution recurrence**" in `plan-code-red-2.md` (a type reference resolved
+  before its definition is registered, or a wrapper-over-aggregate forgotten in a new storage
+  position → wrong representation `i8*`/`i64`). Recent instances are the named-wrapper /
+  xpkg-generic mangler bugs (`8d9e7577` / `c14dd95e` / `aba92526`), each fixed + regression-tested
+  individually. The **"track each recurrence as a regression, not a matrix" decision STANDS**;
+  only the item's "one-off point-bug" framing was stale.
 
 ### (b4) Differential harness v3 — port `gen-diff-scalar.py` to Binate (dogfood) + flavor B — NOT STARTED
 - **Context**: the property-based differential value-correctness harness
