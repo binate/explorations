@@ -159,6 +159,54 @@ branch fire on the NESTED deref-of-call, routing it into the layer-(2) panic (th
 trap).  Fix the lowering (layer 2) first / together.  `(*call())` is niche (an `@T` call
 result auto-derefs, so `call().f` is the usual form).  Add xfail coverage.
 
+## MAJOR
+
+### `expose`d interface referenced by the re-export spelling mis-compiles to `*int` at dispatch — link failure — 🟠 OPEN (found 2026-07-10)
+
+**Symptom.** With the `expose` whole-package re-export feature: a forwarder
+`pkg/fwd` (`expose "pkg/shapes"`, no `.bn`) re-exports `pkg/shapes`, which defines
+`interface Valuer { val() int }` + `impl *Point : Valuer`.  A consumer that spells
+the interface through the FORWARDER — `var v *fwd.Valuer = &p; v.val()` — fails to
+LINK: `Undefined symbols: _bn_F3_3_pkg8_builtins4_lang2_3_int3_val` (the dispatch
+receiver mis-mangled to `pkg/builtins/lang.int`, the primitive carve-out).  The
+HOME spelling `*shapes.Valuer` compiles and runs correctly (prints 5).  It
+type-checks either way; only the exposed spelling mis-compiles, and only at link
+— a silent-until-link IR-gen defect.  Exposed TYPE / FUNC / VAR / CONST references
+all work; only exposed-INTERFACE method dispatch is broken.  Discovered by the
+Phase-6 conformance bundle test `conformance/1040_expose_type_iface` (the
+interface half).
+
+**Root cause (high confidence — traced in source).** `expose` is a checker/scope-
+only mechanism: `injectExposedSurface` (`types/bni_scope_expose.bn:28-55`) copies
+P's symbols into A's scope sharing the `@types.Type` and stamping `HomePkg`, but
+registers NOTHING under `("pkg/fwd","Valuer")` in IR-gen's per-module interface
+registry `m.Interfaces` (populated only from real `DECL_INTERFACE` nodes via
+`RegisterAllInterfaces`, `gen_module.bn:58-88`).  So `isInterfaceTypeExpr`
+(`gen_iface.bn:44-86`, keying on the AST-written `(te.Pkg="fwd", "Valuer")`) misses
+→ `resolveTypeExpr` falls to the `TypInt()` fallback (`gen_type_resolve.bn:104`) →
+`v : *int` → `isInterfaceMethodCall` returns false → the call lowers as a concrete
+primitive-receiver method (`gen_method.bn:425-471` → `primitiveQualifiedName("int")`
+= `pkg/builtins/lang.int`) → `pkg/builtins/lang.int.val`, undefined.  The Phase-4
+resolved-home mangling (`buildQualNameHomed`, reading `Symbol.HomePkg`) was wired
+into the func/var/const REFERENCE sites ONLY; the TYPE-resolution path
+(`isInterfaceTypeExpr` / `ifaceTypeForName`, `gen_iface.bn:85,165`) has no HomePkg
+awareness, so the one exposed entity whose TYPE identity (not just symbol name)
+must resolve through IR-gen falls through the gap.
+
+**Proposed fix (minimal, mirrors Phase 4).** Teach the two interface-type keying
+sites (`isInterfaceTypeExpr` :85 and `ifaceTypeForName` :165) to consult
+`Checker.PackageMemberHome(resolveImportPkg(te.Pkg), te.Name)` — exactly as
+`buildQualNameHomed` does — and look the interface up under the returned HOME
+`(homePkg, name)`.  Then `*fwd.Valuer` resolves to the `("pkg/shapes","Valuer")`
+interface value and all downstream dispatch (which reads `ifaceTyp.Elem.Pkg`) is
+already correct; no change to `genInterfaceMethodCall`.  Alternative: register an
+interface ALIAS entry `("pkg/fwd","Valuer") → ("pkg/shapes","Valuer")` into
+`m.Interfaces` from a pass over `pkg.Exposes` (the registry already supports alias
+chains via `AliasTarget*`).  **Spec impact:** §16.5.2 `pkg.expose.identity` states
+an exposed interface shares P's identity — true at the checker but NOT honored by
+IR-gen dispatch; the fix makes impl match spec.  **Test:** `1040_expose_type_iface`
+(split the interface half into its own xfail if deferred).
+
 ## Language features — specified, not yet implemented
 
 ### Type assertions, type switches & RTTI — IN PROGRESS (RTTI substrate landing incrementally) — 🟡 OPEN
