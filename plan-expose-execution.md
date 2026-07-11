@@ -644,6 +644,22 @@ home in every consumer host → the Phase-4 names LINK.
 
 ## Phase 4 — Resolved-home mangling for func/var/const (THE CRUX)
 
+**✅ STATUS (2026-07-10): LANDED on main — `c0974f5e`.** Implemented as designed:
+`Checker.PackageMemberHome(pkgPath, name)` (mirrors PackageType, returns a member's stamped
+HomePkg) + `buildQualNameHomed(m, prefix, suffix)` in IR-gen (resolveImportPkg → consult
+PackageMemberHome; a non-empty home replaces the qualifier, else byte-identical to
+buildQualName). The 9 must-change source-selector reference sites (funcRefName chokepoint,
+var read/write/type, func handle, 4 const-fold arms) route through it; all LEAVE sites
+(generic-body CurrentImportAlias, registration, type/impl/interface) keep buildQualName.
+Byte-identical for every non-expose reference (no member carries a HomePkg unless exposed).
+A 2-lens adversarial review returned clean ("SHIP") — sweep completeness, wire correctness,
+proven-load-bearing conformance gate. **With Phase 3.5, the func/var/const wire is complete:
+`conformance/1028_expose_forwarder` (a PURE forwarder reaching an exposed func + var + const,
+main importing only the forwarder) passes on builder-comp (LLVM), builder-comp-int (VM),
+builder-comp-comp (self-host), and native_aa64.** So `expose` now fully re-exports types,
+interfaces, impls, AND funcs/vars/consts by identity. Remaining: Phase 5 (collision check),
+Phase 6 (reflect + conformance bundle polish).
+
 **Deliverable:** `A.X` for exposed funcs/vars/consts links to P's symbol; a pure forwarder
 emits nothing; existing mangling byte-identical. **Deps:** 3 **and 3.5**. **MVP-critical.**
 
