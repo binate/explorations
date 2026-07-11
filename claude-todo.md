@@ -888,16 +888,16 @@ recognises the `bnfmt` tool name once a bundle containing it exists).
 
 ## bnlint rules, unused-entity checks & lint skips
 
-### Wire `bnlint --tests` into hygiene — 🟡 OPEN (BUILDER-gated)
+### Wire `bnlint --tests` into hygiene — 🟡 OPEN (unblocked via CHECK_TOOLS → bnc-0.0.11pre2; folded into the consolidated check-tools-lag entry below)
 
 The `--tests` feature (lint a package's `_test.bn` files) is fully built, its
 test-file findings all resolved, and it has an end-to-end test
 (`TestLintPackagesTestsFlag` + the `testdata/` ignore convention). The only
 remaining step is turning it on in CI: add `--tests` to
-`scripts/hygiene/lint.sh`. **Gated on the next BUILDER bump** — hygiene prefers
-the *bundled* bnlint (`bnc-0.0.10`), which predates `--tests`, `// bnlint:allow`,
-and the newer rules (a current-source bnlint already supports all of it). Batch
-with the other BUILDER-bump lint-skip cleanups below. When wiring, run
+`scripts/hygiene/lint.sh`. **No longer BUILDER-gated** — lint.sh fetches bnlint
+from CHECK_TOOLS_VERSION, and `bnc-0.0.11pre1`/`pre2` bnlint supports `--tests`
+(verified 2026-07-11: `bnlint --tests` runs clean). Do it in the same pass as the
+CHECK_TOOLS → pre2 skip cleanups below. When wiring, run
 unused-func WITH `--tests` — a plain run over-flags the 12 production helpers used
 only by tests. Design + full status + the rest of the unused-entity project (now
 done): `explorations/plan-unused-checks.md` and the done log.
@@ -921,7 +921,14 @@ a program importing both and instantiating both `Default[int]`s compiles and run
 clean. So hash/cmp can un-skip independently of that bug's fix (gated only on the
 methods-on-generics BUILDER bump).
 
-### `[managed-to-raw-assign]` in `pkg/binate/asm/*` — INCREMENT 2 (adopt directives + un-skip) — 🟡 OPEN (BUILDER-gated)
+**Update 2026-07-11 (CHECK_TOOLS_VERSION):** no longer BUILDER-gated — `bnc-0.0.11pre1`/`pre2`
+bnlint (fetched by lint.sh via CHECK_TOOLS_VERSION) parses methods-on-generics. These packages
+currently live on the `work-2` branch, NOT main (`pkg/stdx/hash` + `pkg/stdx/cmp` were added by
+`360d17f1` on work-2; they are absent from main and not in main's `LINT_SKIP`), so there is
+nothing to do on main until they land. When they do, the CHECK_TOOLS → `bnc-0.0.11pre2` step
+(consolidated check-tools-lag entry below) covers them with the rest.
+
+### `[managed-to-raw-assign]` in `pkg/binate/asm/*` — INCREMENT 2 (adopt directives + un-skip) — 🟡 OPEN (unblocked via CHECK_TOOLS → bnc-0.0.11pre2; folded into the consolidated check-tools-lag entry below)
 
 The compiler-tree lint-coverage gap is ✅ FIXED (`582c1327`, recursive `pkg/`
 discovery), the 19-finding per-site audit is DONE, the 1 real use-after-free
@@ -933,14 +940,34 @@ view of a field of a live `@asm.Section`/`@asm.Assembler`/buffer that outlives t
 synchronous read) are handled by annotation, not a rule change: add a trailing
 `// bnlint:allow managed-to-raw-assign — <why the owner outlives the borrow>` to
 each site and drop `pkg/binate/asm/{arm32,elf,macho,parse,x64}` from `LINT_SKIP`.
-**Gated on the next BUILDER bump** — hygiene runs the bundled `bnc-0.0.10`, which
-predates `91286ab8` and would ignore the directives. Do it in one commit at that
-bump, alongside dropping `pkg/binate/interp` (see the BUILDER-lag-lint-skips entry
-below — that bump clears all remaining `LINT_SKIP` entries).
+**No longer BUILDER-gated** — `// bnlint:allow` (`91286ab8`) is in `bnc-0.0.11pre1`/`pre2`
+(verified 2026-07-11), which lint.sh fetches via CHECK_TOOLS_VERSION. Do it in one commit at
+CHECK_TOOLS → `bnc-0.0.11pre2`, alongside dropping `pkg/binate/interp` and the container skips
+(see the consolidated check-tools-lag entry below — that step clears all remaining `LINT_SKIP`
+entries).
 
-### Remove the BUILDER-lag lint skips after a BUILDER bump — 🟡 OPEN (`pkg/binate/interp` + `pkg/stdx/containers/{vec,hashmap,set}`; gated on next BUILDER bump)
-`scripts/hygiene/lint.sh`'s `LINT_SKIP` group (A) is the BUILDER-lag set — packages the bundled
-bnlint can't typecheck because they use a feature/fix newer than the bundle.
+### Clear the check-tools-lag lint skips via CHECK_TOOLS_VERSION → bnc-0.0.11pre2 — 🟡 OPEN (`pkg/binate/interp` + `pkg/stdx/containers/{vec,hashmap,set}` + `pkg/binate/format` + `cmd/bnfmt`; unblocked, execution gated on the pre2 bundle publishing)
+`scripts/hygiene/lint.sh`'s `LINT_SKIP` group (A) is the check-tools-lag set — packages the
+bundled bnlint can't typecheck because they use a feature/fix newer than the bundle.
+
+**REFRAMED (CHECK_TOOLS_VERSION), 2026-07-11 — no longer waits on a BUILDER bump.** `lint.sh`
+fetches its bnlint from CHECK_TOOLS_VERSION (`fetch-builder --check-tools`), decoupled from
+BUILDER, so advancing CHECK_TOOLS_VERSION to a bundle whose bnlint has the needed features
+clears the version-lag skips WITHOUT a build-ladder rung. `bnc-0.0.11pre1`/`pre2` bnlint has
+ALL of them (verified on the post-fix tree): methods-on-generic-types (parses
+vec/hashmap/set + format + cmd/bnfmt), the `__Package` rename (resolves interp's extern refs),
+`// bnlint:allow` (asm suppression), and `--tests`. The container/format/bnfmt drop
+additionally needs the cross-package generic name-collision fix (`66666980`): pre1's bnlint
+lints them CLEAN *individually* but the combined sweep hit that collision, so the drop targets
+**pre2** (= pre1 + the fix), not pre1. **This is Phase C of the CHECK_TOOLS work.** At
+CHECK_TOOLS_VERSION → `bnc-0.0.11pre2` (bundle publishing now), do it all in one pass, folding
+in the sibling entries above: drop container/format/bnfmt; drop `pkg/binate/interp` (after
+fixing its ONE real remaining finding `[unused-func] shortName` at `imports.bn:280:1` — its
+`__Package` version-lag is already cleared by pre1/pre2, so this is now a real finding, not a
+lag); adopt the 17 asm `// bnlint:allow` directives + drop `pkg/binate/asm/{arm32,elf,macho,
+parse,x64}`; and wire `--tests` into lint.sh. (`pkg/stdx/hash` + `pkg/stdx/cmp` — the separate
+entry above — live on the `work-2` branch, not main, so nothing to do here until they land;
+when they do, CHECK_TOOLS → pre2 covers them too.)
 
 **The bnc-0.0.9 lag is CLEARED** (BUILDER is now `bnc-0.0.10`, checked 2026-06-29). `pkg/builtins/rt`
 (the `"void"` `__c_call` spelling) and `pkg/std/os` (the `.bni` free-function-vs-method fix
