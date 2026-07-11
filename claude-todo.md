@@ -1490,23 +1490,36 @@ are the remaining matrix-shaped classes not yet built as their own matrix —
 candidates for after the loose-axis finish (const-expr folding + ABI
 `handle`/`__c_call` shapes).
 
-### Matrix tests for expanded generics + type assertions/RTTI — 🟡 OPEN (brief plan 2026-07-10)
+### Matrix tests for expanded generics + type assertions/RTTI — 🟡 PART A LANDED, PART B OPEN (brief plan 2026-07-10)
 
-Two proposed new `conformance/matrix/` families, motivated by the recent bug cluster (all
-in these spaces, several false-green because tested in-package or in one combination):
-`8d9e7577` xpkg-generic-managed-dtor, `c14dd95e`/`aba92526` named-wrapper dtor/copy,
-`42b3bc83` func-value/array type-arg conflation, `2d48f348` method-value-on-generic. Brief
-plan: [plan-matrix-tests-generics-rtti.md](plan-matrix-tests-generics-rtti.md). (A) **Generics
-matrix — buildable NOW** (feature landed; only point tests 145/146/162–165/1008 exist): axes =
-type-arg/element kind × in-vs-**cross-package** × operation (construct/copy/destroy-empty-and-
-populated/method-call/method-value/expression/parameterized-receiver-impl) × mode; invariants =
-links+runs, refcount balance, type distinctness. (B) **Type-assertion/RTTI matrix — design now,
-land per front-end phase** (the `x.(K T)`/comma-ok/type-switch front-end isn't implemented — 0
-`type_assert`/`type_switch` conformance tests exist; Phases 3–7 remain per
-`plan-type-assertions-execution.md`): axes = source `*I`/`@I`/`*any` × recovery kind × target
-(concrete/interface incl. transitive) × form × outcome × mode; invariants = recovery-kind
-legality, match correctness, `@T`-recovery refcount balance, cross-mode result agreement. Adopt
-the matrices only (wiring CI/hygiene is a separate decision).
+Two new `conformance/matrix/` families, motivated by the recent bug cluster (all in these
+spaces, several false-green because tested in-package or in one combination): `8d9e7577`
+xpkg-generic-managed-dtor, `c14dd95e`/`aba92526` named-wrapper dtor/copy, `42b3bc83`
+func-value/array type-arg conflation, `fedbd0c5` method-value-on-generic. Brief plan:
+[plan-matrix-tests-generics-rtti.md](plan-matrix-tests-generics-rtti.md).
+
+**(A) Generics matrix — ✅ core BUILT & LANDED** as `conformance/matrix/generic-managed/`
+(sub-axes `inpkg` / `xpkg` / `method-value` / `distinct`, ~22 cells + generator; commits
+`591f6945` bug-dense core, `ca3dd5b5` method-value + type-distinctness, `bea54fc2`
+managed-struct + func-value). Invariants in place: links+runs, refcount balance (relative
+form), type-distinctness (compile-error pairs — array-len `[3]`/`[5]`, func-sig
+`(int)uint`/`(bool)uint`), empty/never-populated destroy. **Remaining (the plan's deferred
+"second wave"):** method-**expression** cells, parameterized-receiver-impl dispatch
+(`impl *Cursor[T] : Iterator[T]`), and generic-constraint dispatch.
+
+**(B) Type-assertion/RTTI matrix — ❌ NOT built.** Axes = source `*I`/`@I`/`*any` × recovery
+kind × target (concrete/interface incl. transitive) × form × outcome × mode; invariants =
+recovery-kind legality, match correctness, `@T`-recovery refcount balance, cross-mode result
+agreement. **Status correction (the plan doc's Section B is stale):** type *assertions* ARE
+implemented + conformance-tested — `parse_assert.bn`/`check_assert.bn`/`gen_assert*.bn` +
+conformance `998`–`1015` (concrete, iface, transitive-ancestor, comma-ok) — so the **assertion
+cells are buildable NOW in compiled mode** (incl. the recovery-legality compile-error cells).
+Only the **type-switch** cells are gated (parser exists but **no IR-gen lowering** — execution-
+plan Phase 6), and the **VM / cross-mode-agreement** axis is gated on the VM RTTI path
+(Slice 5). So build B as: assertion cells now → type-switch cells at Phase 6 → VM axis at
+Slice 5.
+
+Adopt the matrices only (wiring CI/hygiene is a separate decision).
 
 ### (b2) Lifecycle matrix — Class 6 (`@Iface` / `@[]@I`) + Class 7 (captured-`@func` over-release) — PARTLY ADDRESSED 2026-06-05 (plan-cr-p2-2 step 5)
 - **Status**: the existing `conformance/matrix/refcount` form × type grid already
