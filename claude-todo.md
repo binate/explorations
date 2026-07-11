@@ -1557,9 +1557,27 @@ byte-count tolerance to "fix" it — a real word-size regression looks identical
   for the spec `e2e/split-paths.sh` validates and
   [`plan-repl.md`](plan-repl.md) for what `e2e/repl.sh` covers.
 
-### MINOR (e2e / BUILDER-lag cleanup) — drop the gen1 build in e2e/stat-values.sh after the next BUILDER bump (2026-06-20) — 🔴 OPEN
+### MINOR (e2e / BUILDER-lag cleanup) — drop the gen1 build in the os-using e2e scripts (stat/readdir/errno) — 🟢 UNBLOCKED & READY (verified 2026-07-10)
 
-`e2e/stat-values.sh` builds gen1 from the tree (`scripts/build-bnc.sh`) and compiles its os.Stat probe through gen1, instead of the simpler `$BUILDER … cmd/bnc -- …` form the other e2e scripts use. Reason: os.Stat depends on the `.bni` free-func/method fix (`796effc7`) and the wholesale-os-injection work, which postdate `BUILDER_VERSION` (bnc-0.0.9) — the pinned BUILDER can't compile os yet. Once BUILDER is bumped past those, revert `e2e/stat-values.sh` to the plain `$BUILDER … cmd/bnc -- …` pattern (drops the ~1-min gen1 build per e2e run).
+`e2e/stat-values.sh` (and its siblings, below) build gen1 from the tree
+(`scripts/build-bnc.sh`) and compile their os probe through gen1, instead of the simpler
+`$BUILDER … cmd/bnc -- …` form the other e2e scripts use. Original reason: os depends on the
+`.bni` free-func/method fix (`796effc7`), which postdated `BUILDER_VERSION` (was bnc-0.0.9) —
+the pinned BUILDER couldn't compile os yet.
+
+**Now unblocked.** BUILDER is `bnc-0.0.10`, and `796effc7` **is contained in `bnc-0.0.10`** —
+so the "next BUILDER bump" already happened. **Verified 2026-07-10** by compiling the actual
+`os.Stat` probe (os + errors + time) with the pinned BUILDER directly (`--iface/--impl
+--base "$BUILDER_LIB" --prepend "$BINATE_DIR"`, `--runtime --base "$BUILDER_LIB"`, exactly
+`e2e/print-args.sh`'s form): it compiled + linked + ran correctly. So the in-script comments
+claiming "the prebuilt BUILDER cannot compile os yet" are **stale**.
+
+**Cleanup (trivial):** revert each script's `build-bnc.sh` gen1 build + gen1-compile block to
+the plain `$BUILDER … cmd/bnc -- …` pattern, and delete the stale comment. Drops the ~1-min
+gen1 build per e2e run. **Applies to THREE scripts, not just the one in the old title:**
+`e2e/stat-values.sh`, `e2e/readdir-values.sh` (identical gen1-build comment/pattern), and
+`e2e/errno-values.sh` (also compiles os). (This is a `binate` code change — do it in a
+worktree and land through the normal cherry-pick flow.)
 
 ### Stdlib conformance suite — optional follow-ups — 🟢 LOW (2026-06-20)
 
