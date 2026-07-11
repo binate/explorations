@@ -8,6 +8,40 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## MINOR (e2e / BUILDER-lag cleanup) — drop the gen1 build in the os-using e2e scripts (stat/readdir) — ✅ DONE & LANDED 2026-07-10 (`78c7e725`)
+
+**DONE & LANDED (`78c7e725`).** `e2e/stat-values.sh` and
+`e2e/readdir-values.sh` now compile their os probe by running cmd/bnc via the pinned
+BUILDER (mirroring `e2e/print-args.sh`'s BUILDER→cmd/bnc form) instead of building a
+gen1 compiler.  Both still PASS and now run in ~1.2 s (was ~1 min).  **Correction to the
+original title:** only TWO scripts applied — `errno-values.sh` (named in the old title)
+does NOT compile os; it awk-extracts `os_errno.bn`'s values and diffs against `<errno.h>`,
+so it has no gen1 build.  The other gen1-building e2e scripts (satentry-retention,
+c-global-environ, separate-compilation, cross-compile) build gen1 for unrelated reasons
+and are out of scope.
+
+Original note (kept for context):
+
+`e2e/stat-values.sh` (and its siblings, below) build gen1 from the tree
+(`scripts/build-bnc.sh`) and compile their os probe through gen1, instead of the simpler
+`$BUILDER … cmd/bnc -- …` form the other e2e scripts use. Original reason: os depends on the
+`.bni` free-func/method fix (`796effc7`), which postdated `BUILDER_VERSION` (was bnc-0.0.9) —
+the pinned BUILDER couldn't compile os yet.
+
+**Now unblocked.** BUILDER is `bnc-0.0.10`, and `796effc7` **is contained in `bnc-0.0.10`** —
+so the "next BUILDER bump" already happened. **Verified 2026-07-10** by compiling the actual
+`os.Stat` probe (os + errors + time) with the pinned BUILDER directly (`--iface/--impl
+--base "$BUILDER_LIB" --prepend "$BINATE_DIR"`, `--runtime --base "$BUILDER_LIB"`, exactly
+`e2e/print-args.sh`'s form): it compiled + linked + ran correctly. So the in-script comments
+claiming "the prebuilt BUILDER cannot compile os yet" are **stale**.
+
+**Cleanup (trivial):** revert each script's `build-bnc.sh` gen1 build + gen1-compile block to
+the plain `$BUILDER … cmd/bnc -- …` pattern, and delete the stale comment. Drops the ~1-min
+gen1 build per e2e run. **Applies to THREE scripts, not just the one in the old title:**
+`e2e/stat-values.sh`, `e2e/readdir-values.sh` (identical gen1-build comment/pattern), and
+`e2e/errno-values.sh` (also compiles os). (This is a `binate` code change — do it in a
+worktree and land through the normal cherry-pick flow.)
+
 ## native closure AGGREGATE-RETURN marshal: register clobber when a by-address aggregate diverges the cursors on the down-shift path → SILENT WRONG-CODE — ✅ FIXED & LANDED 2026-07-10 (`95eab936`), BOTH BACKENDS (found 2026-07-10, adversarial review of the x64 option-B change)
 
 **FIX (`95eab936`, both backends, adversarially-reproduced then verified; a focused 5-dimension adversarial review of the fix itself came back clean).** On the
