@@ -646,7 +646,33 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
     concurrent `/tmp` gen1 deletion; verification rests on the byte-identity of the reachable
     path (unit byte-refs), a gen1-builds smoke, and the review — a clean post-land run
     confirms.
-  - **Phase C** — aggregate + multi-return capturing shims.
+  - **Phase C (planned 2026-07-11, approved)** — aggregate-result + multi-return capturing-
+    closure / method-value shims. Removes the `shimReturnIsNonScalarArm32` fail-loud in
+    `emitClosureShimArm32` and adds the four AAPCS32 result shapes for closures, composing two
+    already-solved axes: the capture-prefix ARG machinery (Phase A/B) and the non-closure
+    RESULT machinery (`emitFuncValueShimBody` / `emitSretShim` / `emitPackShim` /
+    `emitMultiRetPackShim` + `prependSretPtrArm32` + the retbuf-aware `emitSpillMarshalArm32`).
+    - **The crux (X8 vs R0):** arm32 passes the sret buffer pointer in R0 — an ARG register
+      (`SretInGpArgReg`) where the capture-struct base lives — whereas aa64 uses X8 (dedicated
+      indirect-result reg) + X9 (non-arg scratch for the capture base), neither an arg reg. So
+      arm32 must (1) thread a `captureBase` register param through the capture-load helpers
+      (default R0; **R1** for retbuf shapes — the analog of aa64's X9 threading), and (2) for
+      sret prepend a `*uint8` slot into the SAME capture-prefix classify (`[sret]++captures++
+      users`, users at `classifyBase = 1 + NumCaptureParams`) so R0=retbuf stays and the even-
+      pair parity matches the callee; for pack, save retbuf to a frame slot. On 4 arg regs the
+      retbuf prefix over-budgets fast → the framed spill (reusing `emitClosureShimSpillArm32`'s
+      skeleton with `srcPrefix=2`) is the common case.
+    - **Must-add guard:** `closureHasFloatPartsArm32` only rejects a float SCALAR result; a
+      float FIELD of an aggregate/tuple result must ALSO fail loud (P5) before the dispatch —
+      else it silently rides the GP-only store (a miscompile).
+    - **Sub-phases (each independently landable + byte-ref + conformance tested):** C.0 —
+      plumbing: thread `captureBase` (no behavior change; Phase A/B byte-refs stay green).
+      C.1 — big single-aggregate sret. C.2 — small-aggregate pack. C.3 — multi-return (pack +
+      sret, split on `isBigMultiReturnArm32` = gpWords>4, NOT a size rule). New files
+      `arm32_closure_shim_aggregate.bn` + `_spill.bn` (mirror the aa64 split for the length
+      cap). Turns green: `regressions/capturing-closure-{aggregate-return,multi-return}`, 906/
+      907/921–925, 948/952 (method-value sret), 950 (may also need the external
+      `synthMethodValueWrapper` multiret fix — xfail if it bites arm32).
 - **Acceptance**: func-value / closure / interface conformance + unit tests
   pass in native baremetal.
 
