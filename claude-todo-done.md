@@ -8,6 +8,56 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## MAJOR/CRITICAL — cross-package generic-type NAME COLLISION corrupted type-param constraints (valid code failed to compile) — ✅ FIXED & LANDED 2026-07-10 (`66666980`)
+
+**Symptom.** A program that merely IMPORTED two packages, each exporting a generic
+type of the SAME unqualified name carrying a parameterized-receiver impl (`impl
+*Cursor[T] : It[T]`) but with DIFFERENT type-param constraints (`T any` vs
+`T lang.Hashable`), failed to compile with a FALSE `type argument T does not satisfy
+constraint Hashable`.  Any program importing two stdx containers hit it (vec's
+`Cursor[T any]` + set/hashmap's `Cursor[T lang.Hashable]`).  Reproduced with a fresh
+current-tree bnc (not pre1-specific).
+
+**Root cause (confirmed by instrumentation — NOT the open entry's guess).** The open
+entry hypothesized the impl's constraint was registered by unqualified name; the
+ACTUAL mechanism was in method backfill.  `c.GenericInstantiations` accumulates
+across every checked package and `backfillInstantiationMethods` re-syncs the WHOLE
+list under the CURRENT package's scope.  `copyPlaceholderMethods`
+(`pkg/binate/types/check_generic_backfill.bn`) looked the placeholder up by
+UNQUALIFIED name (`c.Scope.Lookup(d.Name)`), so backfilling an instantiation of a
+DIFFERENT package's generic returned the current package's same-named placeholder;
+`substituteTypeParams` then re-instantiated that WRONG type with the other package's
+`T`, and the constraint check reported the foreign `T`'s (`any`) constraint against
+the wrong type's (`Hashable`) requirement.  Import order mattered (the error surfaced
+in the second-imported package); a bare same-named generic without a
+parameterized-receiver impl did not collide (the impl's abstract-self instantiation
+is what seeds the cross-package entry that backfill re-processes).
+
+**Fix (`66666980`).** Trust the by-name scope lookup only when `d` is a
+CURRENT-package generic (`genericTypeDeclPkg(c, d) == c.curPkgPath`); otherwise `d`
+is imported — resolve its own stashed method decls via `copyImportedGenericMethods`
+(the existing imported path a foreign-generic backfill already reached whenever the
+scope lookup returned nil).  One-guard change; adversarially reviewed (guard correct,
+no regressions, no methods lost, ~700 test-runs green).  `conformance/1036` (renamed
+from 1032 during landing to dodge a concurrent `1032_expose_collision_vs_own`) is the
+self-contained minimization — two cell-local packages with colliding `Cursor[T]`
+names, each valid alone; it also instantiates one and calls its generic-receiver
+method so a method-backfill regression is caught.  Full conformance builder-comp 2750
+pass / 0 fail; types unit tests 963 pass.
+
+**Silent-miscompile question (was UNVERIFIED at file time): now moot.** The concern
+was whether the collision could pick the wrong same-named generic's body when
+constraints coincide but bodies differ.  The fix removes the wrong-placeholder path
+entirely (it now only trusts a current-package by-name lookup, which is unambiguous
+within one package), so both the loud false-error and any latent silent-body variant
+are closed.
+
+**Follow-on: Phase C.** This unblocks Phase C of the CHECK_TOOLS_VERSION work in
+principle, but hygiene lint uses the PREBUILT check-tools bundle whose bnlint still
+carries this bug, so Phase C needs a NEW pre-release bundle built from a tree that
+includes `66666980` (see the VERSION-bump / pre-release plan), then advance
+CHECK_TOOLS_VERSION to it + drop the container/format/bnfmt LINT_SKIP entries.
+
 ## Hygiene check: enforce `pkg-layout-spec.md` tier dependency rules — ✅ DONE & LANDED 2026-07-10 (`440f017e`)
 
 `scripts/hygiene/pkg-tiers.sh` statically validates every package's imports against the
