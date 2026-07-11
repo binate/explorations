@@ -8,6 +8,35 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## Check-tools-lag lint skips cleared via CHECK_TOOLS_VERSION → bnc-0.0.11pre2 — ✅ DONE & LANDED 2026-07-11 (`6c1fa4ed`, `45841791`, `e7a54b75`)
+
+Advancing the lint check-tools to `bnc-0.0.11pre2` (whose bnlint parses methods-on-generic-types
+/ parameterized-receiver impls, has the `__Package` rename + `// bnlint:allow` + `--tests`, AND
+carries the cross-package generic name-collision fix `66666980`) cleared EVERY `LINT_SKIP` entry
+without a BUILDER bump — the payoff of the CHECK_TOOLS_VERSION mechanism.  `LINT_SKIP` is now
+**empty**; every package is linted.  Three commits (this consolidates the former "Wire
+`bnlint --tests`", "asm INCREMENT 2", and "Clear the check-tools-lag lint skips" open entries):
+
+- **`6c1fa4ed`** — cleanup of the 28 real findings pre2's stricter bnlint (+ `--tests`) surfaced
+  that `bnc-0.0.10`'s bnlint missed: 23 `[unused-import]`, 3 `[unused-local]` (dead `cc` in arm32
+  marshal tests), 2 `[managed-to-raw-assign]` (a raw slice over a fresh `make_slice` in
+  `ldexp_test` and a live-token-field borrow in `print_type_test`, both made `@[]T`).
+- **`45841791`** — CHECK_TOOLS_VERSION → `bnc-0.0.11pre2`; wire `--tests` into `lint.sh` (lints
+  `_test.bn` files AND counts test-file usage for unused-func, so production helpers used only by
+  tests — e.g. `pkg/binate/mangle`'s `lp*`, interp's `shortName` — are no longer false-flagged);
+  drop `pkg/stdx/containers/{vec,hashmap,set}` + `pkg/binate/format` + `cmd/bnfmt` (methods-on-
+  generics cone) AND `pkg/binate/interp` (its `__Package` version-lag cleared; its lone
+  `shortName` finding was a `--tests` false positive) from `LINT_SKIP`.  bnfmt-format now uses
+  the bundled bnfmt directly.
+- **`e7a54b75`** — adopt the 17 `// bnlint:allow managed-to-raw-assign` directives for the audited
+  safe borrows in `pkg/binate/asm/{arm32,elf,macho,parse,x64}` (each a raw view of a field of a
+  live `@asm.Section`/`@Assembler`/buffer/token that outlives the synchronous read; the 1 real UAF
+  from that audit was fixed earlier in `8a883450`) and drop `asm/*` → LINT_SKIP empty.
+
+Interp folded into the bump commit (not its own) because `--tests` cleared it with no code fix.
+The only remaining check-tools-lag item is `pkg/stdx/hash` + `pkg/stdx/cmp`, which live on the
+`work-2` branch, not main; when they land, the shipped CHECK_TOOLS_VERSION covers them too.
+
 ## Generic-TYPE-method comparison re-check (same-package) — ✅ DONE & LANDED `40463d81` (2026-07-11)
 
 A method on a generic type whose body compares a type-param field
