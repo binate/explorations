@@ -1113,12 +1113,13 @@ BUILDER-sensitive land.
     += `OP_SAT_LOOKUP`, 2 stale comments).  Follow-ups owed: (a) split
     `x64_dispatch.bn` (over the soft length limit since 5b-1); (b) the
     **cross-mode boundary mapping** below.
-  - **5b-2 cross-mode mapping (reflect-descriptor extension) — X.1 LANDED
-    2026-07-11 (`25f6f177`); X.2 NEXT.** Lifts 5b-1's native-injected loud-fail at
-    `BC_IFACE_TYPEINFO` so a `-int` program can concrete/interface-assert on an
-    interface value handed to it by a native-injected package.  X.1 laid the data
-    plane (symbol-name blobs on `__satentry`); X.2 reads them in the VM + lifts
-    the loud-fail + adds the cross-mode conformance test.
+  - **5b-2 cross-mode mapping (reflect-descriptor extension) — DONE: X.1 LANDED
+    2026-07-11 (`25f6f177`), X.2 LANDED 2026-07-11 (`cb010b8a`).** Lifted 5b-1's
+    native-injected loud-fail at `BC_IFACE_TYPEINFO` so a `-int` program can
+    concrete/interface-assert on an interface value handed to it by a
+    native-injected package.  X.1 laid the data plane (symbol-name blobs on
+    `__satentry`); X.2 reads them in the VM + lifted the loud-fail + added the
+    cross-mode conformance test.
 
     **Why a descriptor extension (not a contained VM change).** The VM's
     `BC_DATA_SYM_ADDR` resolves `&__typeinfo.<T>` / `&__ifaceid.<J>` by SYMBOL
@@ -1170,17 +1171,30 @@ BUILDER-sensitive land.
     gen2 self-compile + native link a large satentry-laden program → no
     duplicate-symbol error); hygiene 17/17; 2 adversarial reviews clean.
 
-    **Slice X.2 (VM read + lift loud-fail + test).** `RegisterPackageSatEntries`
-    (`extern_register.bn`): register `dataSym[se.TypeSym] = se.Type` (native), and
-    key the VM satentry as `registerSatEntry(se.Type, ensureIfaceIdSym(se.
-    IfaceSym), se.Vtable)` — native type addr, VM-canonical iface addr, native
-    sub-vtable.  `BC_IFACE_TYPEINFO` (`vm_exec_iface.bn`): replace the
-    native-injected `vmPanic` with `natVt[1]`.  New cross-mode conformance test: a
-    native-only injected package (compiled-only, à la `examples/cinterop` /
-    `__c_global` injection) hands an interface value to a `-int` program that (a)
-    concrete-asserts `y.(*T)` and (b) interface-asserts `y.(*J)` on it; both must
-    HIT and dispatch.  (No such test infra exists — 1013-1026 are pure-VM.)  Then
-    adversarial review + land each slice.
+    **Slice X.2 (VM read + lift loud-fail + test) — LANDED 2026-07-11
+    (`cb010b8a`).** `RegisterPackageSatEntries` (`extern_register.bn`): binds
+    `dataSym[se.TypeSym] = se.Type` (native, via the new `registerDataSymAddr`
+    helper) and keys the VM satentry `registerSatEntry(se.Type,
+    ensureIfaceIdSym(se.IfaceSym), se.Vtable)` — native type addr, VM-canonical
+    iface addr, native sub-vtable.  `BC_IFACE_TYPEINFO` (`vm_exec_iface.bn`): the
+    native-injected `vmPanic` is replaced with `natVt[1]` (the native
+    `&TypeInfo(T)` read from the `@__ivt` slot 1, mirroring `BC_IFACE_DTOR`'s
+    slot-0 read).  **Test-infra finding:** no mechanism exists to inject an
+    ARBITRARY test package native-only (the native-injected set — rt/bootstrap/
+    reflect/pkg-std — is fixed at cmd/bni BUILD time; no dlopen/`--inject`), but
+    the fixed pkg/std set already exposes exported concrete types that impl
+    exported interfaces (`strings.Builder : io.Writer, io.ByteWriter`;
+    `os.File : io.*`).  So the cross-mode test needs NO new infra:
+    `conformance/stdlib/strings/004_cross_mode_iface_assert` builds an
+    `@io.Writer` over a native `@strings.Builder` (a native `@__ivt` value under
+    -int), then concrete-asserts `w.(*strings.Builder)` (HIT), interface-asserts
+    `w.(*io.ByteWriter)` (HIT + native dispatch), and MISSes `w.(*io.Reader)`.
+    Passes all 6 default modes + native-x64 (compiled modes run a normal native
+    assert; -int modes exercise X.2).  Verified: full-suite regression
+    builder-comp-int / builder-comp-comp-int both 2744/0, RTTI-assert cluster
+    12/0 in builder-comp-int-int (the full double-interp suite is too slow to
+    finish in one CI-less run but showed 0 failures across partial passes);
+    vm units 248 green; hygiene 17/17; 2 adversarial reviews clean.
 - **Slice 6 — Type-switch (Phase 6).** `checkTypeSwitchStmt` (modeled on
   `checkSwitchStmt`; per-case narrowing; multi-target/`default` bind scrutinee
   type; no exhaustiveness/dup/fallthrough) + `genTypeSwitch` (first-match chain
