@@ -1113,14 +1113,60 @@ BUILDER-sensitive land.
     += `OP_SAT_LOOKUP`, 2 stale comments).  Follow-ups owed: (a) split
     `x64_dispatch.bn` (over the soft length limit since 5b-1); (b) the
     **cross-mode boundary mapping** below.
-  - **5b-2 cross-mode mapping — PENDING (in progress).** Feed a native-injected
-    package's `__typeinfo`/`__ifaceid` addresses into the VM data-symbol table
-    under their symbols, so both a native-injected iface value's slot-1 read and
-    the asserting side's `BC_DATA_SYM_ADDR` resolve to ONE address (weak-coalesced
-    per symbol).  This also LIFTS 5b-1's native-injected loud-fail at
-    `BC_IFACE_TYPEINFO`.  Needs a new cross-mode conformance test (a native-only
-    injected package handing an iface value to a `-int` program that
-    concrete/interface-asserts on it).
+  - **5b-2 cross-mode mapping (reflect-descriptor extension) — PLANNED (user
+    chose to do it now, 2026-07-11).** Lifts 5b-1's native-injected loud-fail at
+    `BC_IFACE_TYPEINFO` so a `-int` program can concrete/interface-assert on an
+    interface value handed to it by a native-injected package.
+
+    **Why a descriptor extension (not a contained VM change).** The VM's
+    `BC_DATA_SYM_ADDR` resolves `&__typeinfo.<T>` / `&__ifaceid.<J>` by SYMBOL
+    through the dataSym table; to make a native-injected value's RTTI addresses
+    resolvable there, the VM needs the SYMBOLS.  But `reflect.SatEntryInfo`
+    exposes only ADDRESSES (`Type`/`Iface`/`Vtable`), and the `__ifaceid` marker
+    is a 1-byte address-only blob (no name) — so J's symbol CANNOT be recovered
+    at runtime.  The descriptor must carry it.
+
+    **The address-resolution design (worked through; asymmetric on purpose).**
+    For a native-injected value of dynamic type T asserted to J:
+    - slot-1 read (`BC_IFACE_TYPEINFO`, loud-fail lifted → returns `natVt[1]`) =
+      the NATIVE `&TypeInfo(T)`.  So the TYPE identity a satentry keys on, and the
+      `want` a concrete `y.(*T)` compares, must BOTH be the native `&TypeInfo(T)`.
+    - the assertion's `ifaceIdAddr` = `BC_DATA_SYM_ADDR(__ifaceid.<J>)` =
+      `dataSym[__ifaceid.<J>]`, the VM-canonical addr (`ensureIfaceIdSym`).  So the
+      IFACE identity a satentry keys on must be the VM-canonical addr, NOT the
+      native `&IfaceId(J)`.
+    So: **TYPE side = native addr; IFACE side = VM-canonical addr.**  This also
+    keeps VM-built and native satentries agreeing on ONE `__ifaceid.<J>` addr for
+    a J impl'd from both sides (the ODR-coalescing the native linker does for a
+    pure-native program).  No dedup conflict on the TYPE side: a native-only T's
+    impl is not in the `-int` program's `m.Impls`, so `materializeTypeInfos` never
+    materializes `__typeinfo.<T>` — `dataSym[__typeinfo.<T>]` is written ONLY by
+    the injected registration (native addr).
+
+    **Slice X.1 (data plane) — emit but don't read.** Extend the `__satentry.<T,J>`
+    node (`irdata.BuildSatEntry`) with the two mangled SYMBOL strings
+    (`desc.TypeInfoSym`, `desc.IfaceIdSym`, already on `SatEntryDesc`) as
+    TU-local rodata blobs + `{data,len}` pairs AFTER the existing
+    `{TypeInfo,IfaceId,Vtable}` payload; add `TypeSym`/`IfaceSym`
+    `*[]readonly char` fields to `reflect.SatEntryInfo` (after the 3 pointers, so
+    existing offsets + the native reader that reads only the first 3 are
+    unaffected).  Backends need NO change — each emits the node via
+    `BuildSatEntry` + generic `EmitDataGlobal`, and the weak node stays
+    byte-identical across TUs (deterministic symbols) so ODR coalescing holds.
+    Verify: self-compile green (`builder-comp`/`-int`/`-comp`), no duplicate-symbol
+    link error, an irdata unit test pinning the new term shape.
+
+    **Slice X.2 (VM read + lift loud-fail + test).** `RegisterPackageSatEntries`
+    (`extern_register.bn`): register `dataSym[se.TypeSym] = se.Type` (native), and
+    key the VM satentry as `registerSatEntry(se.Type, ensureIfaceIdSym(se.
+    IfaceSym), se.Vtable)` — native type addr, VM-canonical iface addr, native
+    sub-vtable.  `BC_IFACE_TYPEINFO` (`vm_exec_iface.bn`): replace the
+    native-injected `vmPanic` with `natVt[1]`.  New cross-mode conformance test: a
+    native-only injected package (compiled-only, à la `examples/cinterop` /
+    `__c_global` injection) hands an interface value to a `-int` program that (a)
+    concrete-asserts `y.(*T)` and (b) interface-asserts `y.(*J)` on it; both must
+    HIT and dispatch.  (No such test infra exists — 1013-1026 are pure-VM.)  Then
+    adversarial review + land each slice.
 - **Slice 6 — Type-switch (Phase 6).** `checkTypeSwitchStmt` (modeled on
   `checkSwitchStmt`; per-case narrowing; multi-target/`default` bind scrutinee
   type; no exhaustiveness/dup/fallthrough) + `genTypeSwitch` (first-match chain
