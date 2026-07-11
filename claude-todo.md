@@ -3,10 +3,6 @@
 Tracks open work items, grouped by the subsystem / root cause they touch.
 Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
-**BUG BASH 2026-06-27.** Open *bugs* still carry an inline `🏷[BUG-BASH 2026-06-27 → LANE N]`
-tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,types,parser}`;
-2 = IR-gen & native codegen `pkg/binate/{ir,codegen,native/*}`; 3 = VM & cross-mode runtime).
-
 ---
 
 ## CRITICAL
@@ -37,8 +33,7 @@ nil-able param kind (managed/raw pointer, iface-value, func-value), so the IR ar
 matches the parameter (align 4) — mirroring the existing slice handling. Secondary
 defensive: give `TYP_NIL` a pointer-sized `AlignOf`/`SizeOf` in `types/layout.bn` so a stray
 `TYP_NIL` can never mis-pad. NOTE this is a wrong-code / ABI miscompile — raise before any
-workaround. 🏷[BUG-BASH 2026-06-27 → LANE 2]
-
+workaround.
 **Test.** `conformance/247_scope_cleanup_rc` (add `.xfail.builder-comp_native_arm32_baremetal`
 until fixed).
 
@@ -65,8 +60,7 @@ regardless of neighboring globals: declare `heap` with an 8-aligned element type
 `[N]uint64` reinterpreted) so its type alignment is 8, OR have the `.bss` emitter /
 baremetal linker script (`runtime/baremetal_arm32/baremetal.ld`) honor a minimum alignment
 for the arena. USER DECISION NEEDED on the fix layer (arena type vs bss-emitter min-align vs
-linker script). Backend-independent — affects both arm32 backends. 🏷[BUG-BASH 2026-06-27 → LANE 2]
-
+linker script). Backend-independent — affects both arm32 backends.
 **Test.** `conformance/regressions/file-scoped-import-incompatible-sig` (add `.xfail` for
 both arm32-baremetal modes until fixed).
 
@@ -407,7 +401,7 @@ Residual:
 - Downstream interop hand-off (package descriptor; retiring ~30 hand-written `vm_extern` arms) is tracked
   under "Compiler/interpreter interop — MAJOR PROJECT".
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 3] cross-mode coerced-agg func-value ABI — residual native-shim follow-ups
+### cross-mode coerced-agg func-value ABI — residual native-shim follow-ups
 The cross-mode coerced-aggregate-ARG residuals — the iface/func-value by-address
 fix, the >7-arg extern guard, and the sub-word/bool RETURN — LANDED via the by-address
 ABI rework (`233cc82d`) + the >7-arg guard (`17cfc16b`); see claude-todo-done.md. An
@@ -428,7 +422,7 @@ See explorations/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
-### 🏷[BUG-BASH 2026-06-27 → LANE 3] MINOR — cross-mode interface dispatch: residual LP64/HFA/upcast gaps (2026-06-14) — 🟡 OPEN
+### MINOR — cross-mode interface dispatch: residual LP64/HFA/upcast gaps (2026-06-14) — 🟡 OPEN
 
 The shim-route that dispatches a native-only package's interface methods from
 bytecode (landed `93f75f27` + the math/big extension `7c3b17a2`) is exercised by
@@ -661,7 +655,7 @@ stdout.
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### 🏷[LANE 3] `lowerFromSource` / `genModule` test helpers pass a NIL checker → int literals > INT32_MAX truncate on a 32-bit host — 🟠 OPEN (found 2026-07-04)
+### `lowerFromSource` / `genModule` test helpers pass a NIL checker → int literals > INT32_MAX truncate on a 32-bit host — 🟠 OPEN (found 2026-07-04)
 
 `pkg/binate/vm/lower_test.bn`'s `lowerFromSource` (and `genModule`) create a
 checker (`c.Check(file)`) but then call `ir.GenModule(nil, file)` — passing `nil`
@@ -677,7 +671,7 @@ is correct; the test now builds via direct IR `EmitConstInt64`). Fix: pass `c` t
 `GenModule` in both helpers (they already have it). Likely turns 1–2 of the arm32
 vm-unit reds below green.
 
-### 🏷[LANE 3] arm32 `builder-comp_arm32_linux vm` unit package: 6 PRE-EXISTING failures exposed once it compiles — 🟠 OPEN (found 2026-07-04)
+### arm32 `builder-comp_arm32_linux vm` unit package: 6 PRE-EXISTING failures exposed once it compiles — 🟠 OPEN (found 2026-07-04)
 
 The literal-unblock commit (`5b557686`) makes the arm32 vm-unit package COMPILE
 (it previously didn't, hiding all failures). 236 pass, 6 fail — all pre-existing,
