@@ -1451,7 +1451,19 @@ byte-count tolerance to "fix" it — a real word-size regression looks identical
   for the spec `e2e/split-paths.sh` validates and
   [`plan-repl.md`](plan-repl.md) for what `e2e/repl.sh` covers.
 
-### MINOR (e2e / BUILDER-lag cleanup) — drop the gen1 build in the os-using e2e scripts (stat/readdir/errno) — 🟢 UNBLOCKED & READY (verified 2026-07-10)
+### MINOR (e2e / BUILDER-lag cleanup) — drop the gen1 build in the os-using e2e scripts (stat/readdir) — 🟢 DONE, committed `253e2485` (pending land)
+
+**DONE (`253e2485`, pending cherry-pick to main).** `e2e/stat-values.sh` and
+`e2e/readdir-values.sh` now compile their os probe by running cmd/bnc via the pinned
+BUILDER (mirroring `e2e/print-args.sh`'s BUILDER→cmd/bnc form) instead of building a
+gen1 compiler.  Both still PASS and now run in ~1.2 s (was ~1 min).  **Correction to the
+original title:** only TWO scripts applied — `errno-values.sh` (named in the old title)
+does NOT compile os; it awk-extracts `os_errno.bn`'s values and diffs against `<errno.h>`,
+so it has no gen1 build.  The other gen1-building e2e scripts (satentry-retention,
+c-global-environ, separate-compilation, cross-compile) build gen1 for unrelated reasons
+and are out of scope.
+
+Original note (kept for context):
 
 `e2e/stat-values.sh` (and its siblings, below) build gen1 from the tree
 (`scripts/build-bnc.sh`) and compile their os probe through gen1, instead of the simpler
