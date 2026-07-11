@@ -8,6 +8,72 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## Readonly method receivers — ✅ DONE (implemented + spec'd + conformance-tested) (re-audited 2026-07-10)
+
+The old `const`-modifier "Stage 3" (readonly method receivers), previously deferred/gated on
+methods+interfaces, is done — those landed and this landed with them. Value receivers are always
+readonly (`(r readonly T)` accepted-but-redundant); `*readonly T` / `@readonly T` / `readonly T`
+receivers bound what the method may mutate and gate impl-satisfaction (§10 `func.method.impl-receiver`;
+the object-const receiver model, plan-cr2-1 Defect 2b). Checker: `check_method.bn` (`ReceiverBaseNamed`
+peels pointer/managed/readonly; readonly-on-a-value = const object). Conformance:
+`spec/10-functions/040_receiver_kinds_five_shapes`, `056_object_const_readonly_handle_and_recv`,
+`spec/07-types/202_object_readonly_handle_to_mutable_calls_any`,
+`spec/11-interfaces/027_impl_managed_readonly_receiver`.
+
+## Cross-package method visibility in `.bni` — ✅ RESOLVED (re-audited 2026-07-10)
+
+Methods on an exported type are visible to cross-package callers, and `.bni` method declarations are
+supported + signature-matched. Spec: `iface.crosspkg.method-package` (§11 — a method may be declared
+only in its receiver type's defining package) + `func.decl.bni-match` (§10). The
+`.bni`-method-vs-same-named-free-function shadowing bug is fixed (os.Stat, `796effc7`, in this log),
+with checker + loader coverage (`checker_test.bn` free-func+method-no-mismatch, `loader_util_test.bn`
+mark-bni-exported). **De-facto design, settled by the implementation:** a per-method `.bni` decl is
+NOT required for cross-package visibility (methods come with their exported type); `.bni` method decls
+are optional (opaque types / signature docs) and signature-matched when present. Cross-package method
+calls: conformance `331_method_cross_package`. (An explicit spec rule "methods of an exported type are
+visible without a per-method `.bni` decl" would be a minor spec-authoring nicety — fold into the spec
+residuals, not a standalone todo.)
+
+## Spec Ch.16 build-constraint group — reworked; "possible gap" resolved — ✅ (2026-07-10)
+
+The build-constraint conformance tests were re-authored on the real (whole-FILE / IMPORT) gating
+mechanism: `conformance/spec/16-packages/075_build_gate_file` (`pkg.build.gate` / `pkg.build` /
+`pkg.build.variants`) + `076_build_gate_import` (`pkg.build.gate` / `pkg.annotation` / `pkg.build`),
+alongside the surviving `070`/`071`/`072`. The "possible real gap" (an unknown predicate / unknown
+annotation name compiling instead of erroring) is **NOT** a validation gap: the compiler rejects an
+unknown predicate/tag/annotation when a build config is resolved (`buildcfg.bn` `unknownAnnotationErr`
+/ `unknownPredicateErr` / `unknownTagErr`; unit-tested `buildcfg_test.bn:142`/`:150`) — the agent's
+test was malformed (never resolved a build config, so the documented §16.8 caveat applied: unvalidated,
+silently kept). **One residual stays an active todo:** the last uncovered rule `pkg.build.errors` needs
+a conformance `.error` test (unit-tested only; Ch.16 still 21/22 at the conformance level).
+
+## (b3) code-red Class 3 / Class 8 — ✅ RESOLVED (decision stands) (re-audited 2026-07-10)
+
+Class 8 (multi-package loader resolution at int-int depth → `pkg/builtins/rt` not found) is FIXED &
+LANDED (`db18f26b`, 2026-06-05; regressions `136_grouped_imports` + `383_cross_pkg_iface_dtor`). Class
+3 (cross-package / interface-name type-resolution ordering → `i8*` fallback) turned out NOT to be a
+one-off point-bug but a **recurring family** — reframed as "Class E — Named / cross-package
+type-resolution recurrence" in `plan-code-red-2.md`; its instances (`8d9e7577` / `c14dd95e` /
+`aba92526` named-wrapper mangler bugs) are each fixed + regression-tested individually. The "track each
+recurrence as a regression, not a matrix" decision stands; only the "one-off point-bug" framing was
+stale.
+
+## (b2) code-red Class 6 (`@Iface` / `@[]@I`) lifecycle — ✅ DONE (Class 7 test still a todo) (re-audited 2026-07-10)
+
+Class 6 is covered by the `conformance/matrix/refcount` grid (`@Iface` / `func-value` cells across the
+`var-init`/`assign`/`multi-assign`/`param`/… sub-axes; copy-sites uniform after the `emitStoreManagedSlot`
+consolidation) + the lifecycle-DEPTH tests `604_captured_func_lifecycle_depth` / `605_iface_lifecycle_depth`
++ the `@[]@I` literal element-leak fix (`a2abf36e`). The remaining Class 7 (captured-`@func` over-release,
+native↔VM trampoline refcount-balance test) stays an active todo — now UNBLOCKED (the cross-mode harness
+`e2e/xmiface.sh` / `e2e/xmhfa.sh` exists; add a captured-`@func` balance case there).
+
+## (canceled) Collapse `pkg/bootstrap` onto `#[build]` — ❌ WON'T DO (2026-07-10)
+
+Superseded: the plan is to **remove `pkg/bootstrap` altogether** — its remaining surface
+(`Write`/`Args`/`Exec` + the private format helpers, all `print`/`println` internals) is being migrated
+out (see the active "Slim `pkg/bootstrap` toward retirement" todo), so collapsing its PATH-selected
+per-target variants onto `#[build(...)]`-gated declarations is moot. Not doing it.
+
 ## Primary language spec — WRITTEN & maintained in `docs/spec/` — ✅ LARGELY DONE (2026-07-10)
 
 The "minimal primary spec" the **Language spec(s)** todo planned (philosophy: `claude-notes.md`

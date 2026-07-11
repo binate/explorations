@@ -1242,31 +1242,14 @@ Remaining, for a focused follow-up (with the build-constraint rework below):
   (010) and `pkg.import` (001) lack negative tests (package-must-be-a-string-
   literal; no block-scoped import).
 
-### Spec Ch.16 (Packages) — build-constraint group: mostly reworked; only `pkg.build.errors` conformance coverage remains — 🟢 (re-audited 2026-07-10)
-Background: Ch.16 landed at 21/22 rules (`f7ed4eb4`); the build-constraint group had been authored
-on a wrong "gating-active-by-default + decl-level gating + predicate-validation-errors" assumption,
-8 tests removed. **Re-audited against the tree 2026-07-10:**
-
-**✅ DONE — tests re-authored on the real mechanism.** `conformance/spec/16-packages/075_build_gate_file`
-(covers `pkg.build.gate` / `pkg.build` / `pkg.build.variants` — whole-FILE gating via the package
-clause) and `076_build_gate_import` (`pkg.build.gate` / `pkg.annotation` / `pkg.build` — IMPORT
-gating) now exist, alongside the surviving `070_annotation_namespace` / `071_annotation_degenerate`
-/ `072_err_annotation_no_stack`.
-
-**✅ RESOLVED — the "possible gap" is NOT a real validation gap.** The compiler DOES reject an
-unknown predicate / unknown tag / unknown unqualified annotation when a build config is resolved:
-`pkg/binate/buildcfg/buildcfg.bn` (`unknownAnnotationErr` / `unknownPredicateErr` / `unknownTagErr`,
-~275-295), and it's UNIT-tested (`buildcfg_test.bn:142` "unknown predicate is a hard error",
-`:150` "unknown tag is a hard error"). The agent's test that "compiled and ran (printed 0)" was
-malformed — it never resolved a build config, so validation didn't fire (the documented
-`pkg.annotation.namespace` caveat in §16.8: with no build configuration — REPL / bytecode tool /
-unit tests — a typo'd unqualified name is silently kept, not diagnosed).
-
-**🟡 REMAINING — the one gap: `pkg.build.errors` has no CONFORMANCE test.** The behavior is
-unit-tested (above) but `pkg.build.errors` (a `constraint` rule in `rule-ids.txt`) is cited by no
-`.rules` file, so Ch.16 is still 21/22 at the conformance level. Add a conformance `.error` test —
-a `#[build(is(<unknown-predicate>, "x"))]` (or unknown tag) on a required element, run under a
-resolved target so validation fires and the build aborts. That closes the chapter.
+### Spec Ch.16 build-constraint group — only the `pkg.build.errors` conformance test remains — 🟡 (done parts in done log, 2026-07-10)
+The build-constraint rework is done (re-authored `075_build_gate_file` / `076_build_gate_import` on the
+real file/import gating mechanism; the "unknown predicate/annotation" possible-gap was NOT a real
+validation gap — the compiler rejects them under a resolved config, unit-tested — see the done log).
+**Remaining:** the one uncovered rule `pkg.build.errors` needs a conformance `.error` test — a
+`#[build(is(<unknown-predicate>, "x"))]` (or unknown tag) on a *required* element under a resolved
+target, so validation fires and the build aborts. Ch.16 stays 21/22 until then (behavior is
+unit-tested in `buildcfg_test.bn`).
 
 ### Observable optimizations and UB policy — broader question
 - Surfaced while planning const: allowing the compiler to allocate
@@ -1580,37 +1563,11 @@ Slice 5.
 
 Adopt the matrices only (wiring CI/hygiene is a separate decision).
 
-### (b2) Lifecycle matrix — Class 6 (`@Iface` / `@[]@I`) DONE; Class 7 (captured-`@func` over-release) cross-mode balance test remains — 🟡 (re-audited 2026-07-10)
-- **Class 6 (`@Iface` / `@[]@I`) — ✅ DONE.** Covered by the `conformance/matrix/refcount`
-  grid (`@Iface` / `func-value` cells across the `var-init`/`assign`/`multi-assign`/`param`/…
-  sub-axes; copy-sites uniform after the `emitStoreManagedSlot` consolidation) + the
-  lifecycle-DEPTH tests `604_captured_func_lifecycle_depth` / `605_iface_lifecycle_depth` (a value
-  chained param→field-store→by-value-param→return→bind→invoke, refcount back to baseline for
-  captured-`@func` and cast-from-impl `@Iface`). The `@[]@I` literal element leak is ✅ FIXED
-  (`a2abf36e`, on main + done log).
-- **Class 7 (captured-`@func` over-release, native↔VM trampoline) — the ONE remaining item, now
-  UNBLOCKED.** A single-program refcount-balance test of a native call to a captured `@func`
-  through the VM trampoline can't run in the single-mode conformance harness; the stated blocker
-  was "needs a cross-mode harness." **That harness now exists** (`e2e/xmiface.sh` / `e2e/xmhfa.sh`,
-  cross-mode dispatch), so this is buildable — add a captured-`@func` refcount-balance case there.
-  (NB `conformance/matrix/dispatch-refcount/funcval` is NOT this — it's single-mode
-  multi-return-component balance through an indirect call, not the cross-mode over-release.) If
-  built out as a matrix the axes would be `managed-kind × construction × consumption × backend`
-  with a mortal-source refcount-balance assertion, but the concrete gap is just the one cross-mode
-  balance case.
-
-### (b3) Class 3 / Class 8 — point-bugs, NOT matrices — 🟢 CLASS 8 DONE; CLASS 3 is a recurring family (decision stands) (re-audited 2026-07-10)
-- **Class 8** (multi-package loader resolution at int-int depth → `pkg/builtins/rt` not found)
-  — ✅ FIXED & LANDED (`db18f26b`, 2026-06-05; regressions `136_grouped_imports` +
-  `383_cross_pkg_iface_dtor`; in done log).
-- **Class 3** (cross-package / interface-name type-resolution ordering → `i8*` fallback) turned
-  out NOT to be a one-off point-bug but a **recurring family** — reframed as "**Class E — Named /
-  cross-package type-resolution recurrence**" in `plan-code-red-2.md` (a type reference resolved
-  before its definition is registered, or a wrapper-over-aggregate forgotten in a new storage
-  position → wrong representation `i8*`/`i64`). Recent instances are the named-wrapper /
-  xpkg-generic mangler bugs (`8d9e7577` / `c14dd95e` / `aba92526`), each fixed + regression-tested
-  individually. The **"track each recurrence as a regression, not a matrix" decision STANDS**;
-  only the item's "one-off point-bug" framing was stale.
+### (b2 residual) code-red Class 7 — captured-`@func` over-release, native↔VM balance test — 🟡 (Class 6 done, in done log)
+The one remaining lifecycle-matrix item: a single-program refcount-balance test of a native call to a
+captured `@func` through the VM trampoline. UNBLOCKED — the "needs a cross-mode harness" blocker is
+cleared (`e2e/xmiface.sh` / `e2e/xmhfa.sh` exist); add a captured-`@func` refcount-balance case there.
+(`conformance/matrix/dispatch-refcount/funcval` is single-mode multi-return balance, not this.)
 
 ### (b4) Differential harness v3 — port `gen-diff-scalar.py` to Binate (dogfood) + flavor B — NOT STARTED
 - **Context**: the property-based differential value-correctness harness
