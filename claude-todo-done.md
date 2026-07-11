@@ -8,6 +8,31 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## Plan-3 adversarial-review follow-ups (test-hygiene + coverage gaps from `cc2ddcc4` / `997c4c04` / `0c707e1f`) — ✅ DONE & LANDED 2026-07-10
+
+Non-wrong-code items from the adversarial review of the plan-cr2-3 work (the live
+wrong-code findings were fixed & archived long ago).  The three that remained after the
+2026-07-10 re-audit are now all done & landed:
+1. **Over-claimed Defect-6 docstring/README** (`b2620b60`) — the addr-aggregate `global`
+   cell is invariant to storage sizing (store + load use the same width); it pins
+   materialization / `__init`-store / read-back wiring, not "2-word sizing".  Reworded the
+   `gen-addr-aggregate-matrix.py` `top_decl` docstring + the matrix README; generated cells
+   unchanged.
+2. **Missing iface-op multi-return tests** (`65fc3ad5`) — added an aa64 unit test
+   (`aarch64_iface_test.bn`: differential shows collectMultiReturnFields adds one field STR
+   over the scalar collect), an x64 unit test (new `x64_iface_multiret_test.bn` — the iface
+   test file was already at the length cap: a 3-field tuple emits one more per-field store
+   than a 2-field via collectMultiReturnTuple), and conformance
+   `1037_iface_method_multiret_struct` (an iface method returning `(Pair, int)` — an
+   aggregate-component multi-return through the vtable; green on LLVM/VM/native aa64+x64).
+3. **`gen_call.bn` assert** (`cac99265`) — `assertShimHandleScalarResult` panics if a
+   compiler-internal indirect-call magic (`_call_dtor` / `_call_shim_*`) ever carries a
+   multi-return result (scalar/void by construction); non-firing on the tree (bnc
+   self-compiles clean, 604 ir tests pass).
+
+(The 2026-06-08 "DONE since" items — the globals matrix + iface-method-arg-with-global —
+were already resolved; see git history.)
+
 ## MAJOR/CRITICAL — cross-package generic-type NAME COLLISION corrupted type-param constraints (valid code failed to compile) — ✅ FIXED & LANDED 2026-07-10 (`66666980`)
 
 **Symptom.** A program that merely IMPORTED two packages, each exporting a generic
