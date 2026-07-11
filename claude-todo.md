@@ -332,20 +332,38 @@ on the generic paths:
   (home) works.  The checker's `expose` injection/resolution does not admit an
   exposed generic-type reference.  **Test:** `conformance/1042_expose_generic`
   (untracked).
-- **Generic FUNC refs mis-mangle at IR-gen (reachable link failure).**
-  `fwd.Ident[int](7)` (forwarder exposing `func Ident[T any](x T) T`) type-checks
-  but link-fails — the generic-decl lookup keys on the source-spelled pkg, not the
-  home.  Sites (reviewer-confirmed reproducible): `gen_call.bn:162`
-  (`resolveImportPkg(e.X.X.X.Name)` → `homedQualifier(…, e.X.X.Name)`) and
-  `gen_method_value_recv.bn:223` (func-value form).
+- **Generic FUNC call — ✅ slice 1 (fixed, landing).** `fwd.Ident[int](7)`
+  (forwarder exposing `func Ident[T any](x T) T`) type-checked but link-failed;
+  fixed by keying the generic-decl lookup on the home via `homedQualifier` at
+  `gen_call.bn:162`.  Test: `conformance/1046_expose_generic_func`.  The
+  func-VALUE form (`var f = fwd.Ident[int]; f(9)`, `gen_method_value_recv.bn:223`)
+  is **blocked by a separate PRE-EXISTING bug** (see below) — that IR-gen site was
+  reverted (unreachable) and re-adds once the pre-existing bug is fixed.
 - **Generic-TYPE IR-gen sites need the `homedQualifier` remap too**
   (`instantiatedIfaceLookupPkg` in `gen_iface.bn`, the generic-struct head in
   `gen_type_resolve.bn`).  These were added in the non-generic fix then REVERTED
   (unreachable until the checker admits exposed generic types) — re-add here.
 
-**Fix scope (workstream A):** checker support for exposed generic types + the two
-generic-FUNC IR-gen sites + re-add the two generic-TYPE IR-gen sites + tests (1042
-generic-type; a new generic-func-forwarder test).
+**Fix scope (workstream A):** checker support for exposed generic types + the
+generic-FUNC-value IR-gen site (once the pre-existing bug below is fixed) + re-add
+the two generic-TYPE IR-gen sites + tests (1042 generic-type).  Slice 1 (generic
+func CALL) is done.
+
+### Cross-package generic FUNC VALUE mis-compiles — `extractvalue operand must be aggregate type` — 🟠 OPEN (found 2026-07-11)
+
+**Pre-existing, NOT expose-related.** Taking a func value of a cross-package
+generic function and calling it fails to compile: `var f = glib.Ident[int];
+println(f(9))` (where `pkg/glib` exports `func Ident[T any](x T) T`) →
+`COMPILE_ERROR: main.ll:…: error: extractvalue operand must be aggregate type`
+(`%vNN = extractvalue i64 %vMM, 0`).  Fails identically for the HOME spelling
+(`glib.Ident[int]`) and a forwarder spelling (`fwd.Ident[int]`), so it is a
+generic-func-VALUE lowering bug independent of `expose`.  The direct call form
+(`glib.Ident[int](9)` / `fwd.Ident[int](9)`) works.  Discovered while building the
+exposed-generic-func test.  Blocks the `expose` func-value site
+(`gen_method_value_recv.bn:223`), whose `homedQualifier` remap is correct but
+unreachable until this is fixed.  Root cause: unknown — the generic func-value's
+result type or the call-through-a-func-value lowering treats an `i64` scalar
+result as an aggregate.  Needs investigation.
 
 ## Language features — specified, not yet implemented
 
