@@ -545,6 +545,18 @@ kind; types/impls link now; funcs/vars/consts type-check but mis-mangle until Ph
 
 ## Phase 3.5 — Consumer-side registration of a forwarder's expose-closure (CRITICAL — added by [REVIEW])
 
+**✅ STATUS (2026-07-10): LANDED on main — `739e4317`.** Implemented as a single loader
+`ExposeClosure(roots, exclude)` graph-walk helper wired into all four pipeline embeddings
+(cmd/bnc compile + test, VM, REPL) via a per-embedding `appendExposeClosure` that registers
+each closure package under its HOME path (through the embedding's `collectPkgFile`), right
+before every `ir.RegisterImports` call. Repo-wide sweep of the RegisterImports sites; the two
+generic-dep `RegisterFuncExterns` sites correctly untouched. Inert for every existing package
+(empty closure when no import is a forwarder → byte-identical registration input). A 2-lens
+adversarial review found no correctness bug (safety/inertness/no-double-registration/BUILDER
+all verified); a flagged `roots=paths` point was traced to be byte-identical, and the cleaner
+direct-imports form + a proving `root-walked-even-if-excluded` test were adopted. The end-to-end
+pure-forwarder func/var/const link is the JOINT acceptance test with Phase 4.
+
 **Deliverable:** in any module that directly imports a forwarder A which exposes P, P's
 **func / const / var** surface is REGISTERED/DECLARED in that module under P's **home** names —
 so the Phase-4 resolved-home reference `pkg/P.X` resolves to a symbol the module actually has.
