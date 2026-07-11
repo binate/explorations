@@ -859,21 +859,6 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 
 ## bnfmt (self-hosted formatter)
 
-### bnfmt `printBuiltin` non-last-arg wrapping residual — 🟢 LOW (latent, no in-tree overflow) — OPEN (2026-07-05)
-
-`printBuiltin` forwards the closing-`)` reservation (`1 + tail`) only to the LAST
-value argument (`print_builtin.bn`).  A non-last argument that is a wrappable
-binary landing at cols 97–100 is followed by `, <rest>)` it does not reserve, so
-it stays flat past the cap.  Fix: give non-last args a comma-plus-remaining
-reservation, or route the whole builtin arg list through `fillExprList` (mirroring
-`printCall`).  Latent — no builtin (`make`/`cast`/…, few args) hits it in-tree.
-
-(The `__c_call` case that was filed here is ✅ RESOLVED `d5777f1b`: `printCCall`
-now fill-wraps its whole argument list, not just the last arg — surfaced by
-extending the sweep to the stdlib, where `os.bn`'s syscall wrappers collapsed past
-the cap.)  Discovered by the wrapping-fix workflow (2026-07-05); cross-refs
-`explorations/plan-bnfmt.md` §14.
-
 ### `bnfmt-format` hygiene check: switch to the bundled bnfmt after the next release — 🟡 OPEN (2026-07-06)
 
 `scripts/hygiene/bnfmt-format.sh` (added `a58f2f85`) currently BUILDS bnfmt from

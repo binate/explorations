@@ -8,6 +8,26 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## bnfmt `printBuiltin` non-last-arg wrapping residual — ✅ DONE & LANDED `2a88b9d6` (2026-07-11)
+
+`printBuiltin` forwarded the closing-`)` reservation (`1 + tail`) only to the LAST
+value argument, so a wrappable non-last argument (a binary landing near the cap)
+stayed flat while the trailing `, <rest>)` pushed the line past 100. Only
+`same`/`unsafe_index` (the two-operand pure value-arg builtins) can carry a non-last
+value argument — every type-operand builtin (`make`/`make_slice`/`cast`/`bit_cast`/
+`sizeof`/`alignof`) has a hardcoded arity of at most one value arg (verified in the
+parser), so its lone arg is always last and already reserves the close. Fix routes
+the pure value-arg list through `printArgList` exactly like `printCall`: a non-last
+wrappable arg reserves its separator and the list breaks between arguments.
+Regression `TestPrintBuiltinNonLastArgBinarySubWraps` (`print_builtin_test.bn`)
+fails "a line exceeds 100" before the fix. Latent in-tree: the bnfmt-format hygiene
+check shows zero tree-wide diffs, so this is a correctness fix, not a reflow.
+
+(The sibling `__c_call` case was resolved earlier by `d5777f1b`.) Cross-refs
+`explorations/plan-bnfmt.md` §14.
+
+---
+
 ## Readonly method receivers — ✅ DONE (implemented + spec'd + conformance-tested) (re-audited 2026-07-10)
 
 The old `const`-modifier "Stage 3" (readonly method receivers), previously deferred/gated on
