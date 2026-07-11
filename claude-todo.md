@@ -853,13 +853,6 @@ interpreter/VM (`plan-embeddable-interp.md` / `plan-embeddable-vm.md`); sibling 
 
 ## Build constraints (`#[build(EXPR)]`)
 
-### Collapse `pkg/bootstrap` onto `#[build]` — 🟡 OPEN (next, per user 2026-06-19)
-With BUILDER at `bnc-0.0.9` (both `bnc` and `bnlint` parse `#[build]`), `pkg/bootstrap` — whose
-per-target variants are currently PATH-selected and which lives in cmd/bnc's BUILDER-compiled
-tree — can be collapsed onto `#[build(...)]`-gated declarations, the same way `pkg/builtins/build`
-was. See [`plan-impls-constraints-migration.md`](plan-impls-constraints-migration.md). (This was
-the "bonus" of the build.bni-dedup workaround removal, now landed — binate `9c2ac789`, archived in
-[claude-todo-done.md](claude-todo-done.md).)
 
 ### Build constraints (`#[build(EXPR)]`) — deferred follow-ups (arch/os MVP landed) — 🟡 OPEN
 The `#[build(EXPR)]` arch/os MVP is landed at all four granularities (file / decl / import / `.bni`),
@@ -1063,59 +1056,45 @@ composite- or variadic-specific (the plain `eq(other Self)` reproduces it).
 
 ---
 
-### Cross-package method visibility in `.bni`
-- Methods defined on a public type in package `foo` need to be declared
-  in `foo.bni` for callers in other packages to see them — analogous to
-  the existing `.bni` rules for free functions and types (covered by
-  conformance tests 235/236, "Verify .bni vs .bn visibility semantics"
-  is DONE).
-- Currently, methods *do* work cross-package (conformance 330/331 cover
-  it via `pkg/buf.CharBuf` methods called from `main`) because IR-gen's
-  `RegisterImport` registers methods from the imported package's `.bn`
-  source via the loader. That's a happy accident of the loader path, not
-  a deliberate visibility design.
-- Open: should `.bni` method declarations be required for cross-package
-  visibility (matching free functions / types), and should the type
-  checker enforce that? Today methods skip the `.bni` requirement.
-- When picking this up, look at: how `pkg/buf.bni` declares its type but
-  not its methods, yet cross-package callers still resolve them; whether
-  to extend `checkBniSignatureMatch` to methods; whether `.bni` method
-  decls are mandatory or just allowed.
-
-### Readonly method receivers — deferred (gated on methods/interfaces)
-- A method's receiver kind (`*readonly T` / `@readonly T`, plus value
-  receivers — which are always readonly) determines which pointer kinds
-  satisfy an `impl` and bounds what the method may mutate.  See
-  `claude-notes.md` (value receivers always readonly; readonly-restricted
-  dispatch expressed at the impl level; `*readonly T` receiver smoothing
-  auto-takes `&t` at the call site).
-- This was "Stage 3" of the old `const` type modifier.  The rest of that
-  work landed and the type-level modifier is now spelled `readonly`
-  (`plan-const-readonly.md`, COMPLETE 2026-06-03 — `const` split into
-  compile-time `const` / `var` storage / `readonly T` modifier; that
-  plan's three listed deferrals — readonly-slice slicing, `.bni`
-  extern-var, `&pkg.Const` — are all since resolved).
-- Deferred, not abandoned — depends on the methods/interfaces feature.
-  Fold into that project's tracking when it firms up.
-
-### `==` / `!=` (and relational) on aggregates — residual (generic re-check corner cases) — 🟢 LOW (triaged 2026-06-30: NOT actionable now)
+### `==` / `!=` (and relational) on aggregates — residual (generic re-check corner cases) — 🟠 MAJOR ((b) re-triaged 2026-07-10: NOW ACTIONABLE — a live silent-miscompile)
 The `==`/`!=`/relational aggregate story is ✅ DONE & LANDED — full arc (checker
 rejection, struct/array + generic-function impl, sentinel decision, generic-field
 re-check) archived in [claude-todo-done.md](claude-todo-done.md). Two small residuals in the generic
-instantiation re-check remain — **triaged 2026-06-30, neither actionable now**
-(neither is a live miscompile):
+instantiation re-check remain. **Re-triaged 2026-07-10:** (a) is still cosmetic/deferred;
+**(b) has become a LIVE DEFECT** — the feature that blocked it (generic-type methods with a
+type-param receiver) has since landed, so the re-check gap is now reachable, and it is a
+silent miscompile on the VM.
 - **(a) Order-dependent — COSMETIC only.** A forward-ref instantiation checked BEFORE
   the generic's body is type-checked falls back to the loud IR-gen error instead of a
   clean checker rejection (never a silent miscompile, never a false reject — just a
   less-friendly diagnostic in that ordering). A fully order-independent version needs
   a checker sub-pass or an explicit `comparable` constraint — non-trivial work for a
   diagnostic-quality-only gain; deferred.
-- **(b) Generic-TYPE methods — UNREACHABLE (blocked on a future feature).** Verified
-  2026-06-30: bnc does NOT support a method on a generic type with a type-param
-  receiver (`func (b Box[T]) eq(...)` → "method receiver must be a named type",
-  "undefined: T"). So the re-check gap for generic-TYPE-method comparisons cannot be
-  triggered — there is no way to define such a method today. This becomes a real
-  follow-up only if/when generic-type methods land; not a live gap.
+- **(b) Generic-TYPE methods — NOW A LIVE SILENT MISCOMPILE (re-verified 2026-07-10).**
+  The 2026-06-30 triage marked this UNREACHABLE because bnc rejected a method on a generic
+  type with a type-param receiver (`func (b Box[T]) eq(...)` → "method receiver must be a
+  named type"). **That feature has since landed** — both `func (b Box[T]) eq(...)` and the
+  `*Box[T]` receiver form now compile and run. So the re-check gap is reachable, and it
+  bites: a generic-type-method body that compares a type-param FIELD (`b.v == other.v`,
+  `v T`) is NOT re-checked at type instantiation, so instantiating with a NON-comparable
+  type-arg slips past the checker.
+  - **Repro** (`type Box[T] struct { v T }; func (b Box[T]) eq(o Box[T]) bool { return b.v == o.v }`,
+    then `Box[*[]int]{...}.eq(...)`): LLVM emits invalid IR (`icmp eq %BnSlice` →
+    `error: icmp requires integer operands`, clang fails); **the VM silently compiles and
+    runs it, returning a garbage boolean** (`0` even for two bit-identical nil slices) — a
+    silent miscompile. The CORRECT behavior is a clean checker rejection ("slices cannot be
+    compared with == or !="), exactly as the generic-FUNCTION path already gives.
+  - **Severity: MAJOR.** It is a silent miscompile on the VM, but only for user code that is
+    itself ILLEGAL (a non-comparable comparison the checker is supposed to reject); it cannot
+    corrupt a correct program. It is the generic-TYPE-method analog of the generic-FUNCTION
+    gap that item 2 / item 4 already fixed.
+  - **Fix (well-scoped, established pattern):** mirror `instantiateGenericFunc`'s re-check
+    (`check_generic.bn:62-68`, gated by `TpUsedInEq`/`TpUsedInRel`) into generic-TYPE
+    instantiation. A generic type's method body comparing a type-param must stamp the
+    equivalent used-in-eq / used-in-rel flag on the TYPE's type-param, and
+    `buildInstantiatedStruct` (`check_generic_type.bn`) must re-run
+    `checkEqOperands` / `relationalOperandOK` on the concrete type-arg. Add a conformance
+    regression (VM + LLVM + native) and un-block once landed.
 
 ### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
 - **Problem**: with the current rules, `int` (and other predeclared
@@ -1263,25 +1242,31 @@ Remaining, for a focused follow-up (with the build-constraint rework below):
   (010) and `pkg.import` (001) lack negative tests (package-must-be-a-string-
   literal; no block-scoped import).
 
-### Spec Ch.16 (Packages) — build-constraint group needs rework + a possible gap — 2026-06-19
-Ch.16 landed at **21/22 rules** (`spec/16-packages/`, binate `f7ed4eb4`):
-imports / bni / identity / extern groups are green (compiler/VM/gen1/gen2/
-native_aa64). The **build-constraint group** (the `#[build(EXPR)]` rules) was
-authored by a fan-out agent on a wrong "gating-active by default + decl-level
-gating + predicate-validation-errors" assumption; 8 of its tests failed and were
-removed. The real mechanism (per `conformance/737_build_import_select`,
-`747_err_build_bni_dropped`) gates whole FILES (via the package clause) and
-IMPORTS by arch with `#[build(is(arch, …))]`, not individual decls. **Follow-up
-(focused):** re-author the build-constraint tests on the real mechanism, which
-restores the lone GAP **`pkg.build.errors`** (the Constraint: a false constraint
-on a *required* element is an error). Surviving build tests: `070_annotation_
-namespace`, `071_annotation_degenerate`, `072_err_annotation_no_stack`.
-  - **Possible real gap to confirm during that rework:** the agent's
-    `#[build(<unknown-predicate>)]` and `#[build]` with an unknown annotation
-    name **compiled and ran** (printed `0`) instead of erroring — `pkg.build.errors`
-    / `pkg.annotation.namespace` say these should be rejected. Either the tests
-    were malformed (wrong gating context, so the annotation was never validated)
-    or build-constraint validation doesn't fire — determine which.
+### Spec Ch.16 (Packages) — build-constraint group: mostly reworked; only `pkg.build.errors` conformance coverage remains — 🟢 (re-audited 2026-07-10)
+Background: Ch.16 landed at 21/22 rules (`f7ed4eb4`); the build-constraint group had been authored
+on a wrong "gating-active-by-default + decl-level gating + predicate-validation-errors" assumption,
+8 tests removed. **Re-audited against the tree 2026-07-10:**
+
+**✅ DONE — tests re-authored on the real mechanism.** `conformance/spec/16-packages/075_build_gate_file`
+(covers `pkg.build.gate` / `pkg.build` / `pkg.build.variants` — whole-FILE gating via the package
+clause) and `076_build_gate_import` (`pkg.build.gate` / `pkg.annotation` / `pkg.build` — IMPORT
+gating) now exist, alongside the surviving `070_annotation_namespace` / `071_annotation_degenerate`
+/ `072_err_annotation_no_stack`.
+
+**✅ RESOLVED — the "possible gap" is NOT a real validation gap.** The compiler DOES reject an
+unknown predicate / unknown tag / unknown unqualified annotation when a build config is resolved:
+`pkg/binate/buildcfg/buildcfg.bn` (`unknownAnnotationErr` / `unknownPredicateErr` / `unknownTagErr`,
+~275-295), and it's UNIT-tested (`buildcfg_test.bn:142` "unknown predicate is a hard error",
+`:150` "unknown tag is a hard error"). The agent's test that "compiled and ran (printed 0)" was
+malformed — it never resolved a build config, so validation didn't fire (the documented
+`pkg.annotation.namespace` caveat in §16.8: with no build configuration — REPL / bytecode tool /
+unit tests — a typo'd unqualified name is silently kept, not diagnosed).
+
+**🟡 REMAINING — the one gap: `pkg.build.errors` has no CONFORMANCE test.** The behavior is
+unit-tested (above) but `pkg.build.errors` (a `constraint` rule in `rule-ids.txt`) is cited by no
+`.rules` file, so Ch.16 is still 21/22 at the conformance level. Add a conformance `.error` test —
+a `#[build(is(<unknown-predicate>, "x"))]` (or unknown tag) on a required element, run under a
+resolved target so validation fires and the build aborts. That closes the chapter.
 
 ### Observable optimizations and UB policy — broader question
 - Surfaced while planning const: allowing the compiler to allocate
