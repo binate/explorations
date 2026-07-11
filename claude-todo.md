@@ -92,7 +92,28 @@ beyond the fixed case, but the principled fix is an error-suppression / trial mo
 speculative instantiation (route to `c.TentativeErrors` or a probe flag) rather than
 per-caller decl guards.  No standalone repro yet.
 
-### struct field holding a generic type whose method accesses fields through an embedded managed-ptr → IR-gen "unresolved selector" (lookupStructIdx misses the embedded generic struct) — 🔴 MAJOR / OPEN (found 2026-07-11)
+### embedded generic-struct field mis-substitutes the OUTER struct's type params → bogus instantiation → IR-gen "unresolved selector" — 🔴 MAJOR / OPEN (found 2026-07-11)
+
+**DEEPER ROOT CAUSE (pinned via .ll, refined 2026-07-11).** Not merely a registration
+gap — a WRONG type-param substitution.  When `Cursor[int, int, hash.FnHasher[int],
+cmp.FnEq[int]]` is instantiated, its field `t @Table[K, V, H, E]` (K/V/H/E = Cursor's own
+binders) is resolved with H and E substituted to `int` instead of `FnHasher[int]` /
+`FnEq[int]` — yielding a BOGUS `Table[int, int, int, int]` type.  Proof: the emitted .ll
+defines TWO Table structs — the correct `<{...i64, i64, %FnHasher, %FnEq}>` (from `var t
+@Table[...]`) AND a bogus `Table4_...intintintint = <{ %BnManagedSlice x3, i64, i64, i64,
+i64 }>` (h/e are i64, not the policy structs), and `Cursor.Next`'s `it.t.used`/`keys`/`vals`
+GEPs use the BOGUS type (13 uses).  Downstream: `getSelectorType(it.t)` returns the bogus
+type's name, `lookupStructIdx` misses it (it isn't in gc.Mod.Structs), and genSelector's
+catch-all fires the panic + `extractvalue i64` garbage (3 of them = the 3 slot accesses).
+The bogus type's field OFFSETS happen to match (FnHasher/int are both 1 word), so it's the
+NAME/registration that breaks, not the layout.  Likely site: ensureInstantiatedStruct's
+field resolution / resolveTypeExpr's TEXPR_NAMED substitution mapping Cursor's H (binder
+index 2) / E (index 3) to the wrong args — a by-index-vs-by-owner substitution hazard
+(cf. the checker-side genericImplSatisfies guard 6647c49f).  The proper fix is to correct
+the substitution so the field type is `Table[int,int,FnHasher[int],FnEq[int]]`; the
+on-demand-register idea below would only paper over the bogus type.
+
+**ORIGINAL (registration-gap) framing, superseded by the above:**
 
 **ROOT CAUSE (pinned via .ll).** The `extractvalue i64` malformation is IR-gen's
 `genSelector` catch-all — it emits `rt.Panic("internal error: unresolved selector in
