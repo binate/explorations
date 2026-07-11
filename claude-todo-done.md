@@ -8,6 +8,23 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## Primary language spec — WRITTEN & maintained in `docs/spec/` — ✅ LARGELY DONE (2026-07-10)
+
+The "minimal primary spec" the **Language spec(s)** todo planned (philosophy: `claude-notes.md`
+§ "Language specification — primary spec is minimal — DECIDED") is written and actively reconciled
+against the self-hosted implementation. It lives in **`docs/spec/`** (the "separate spec/
+directory" the plan anticipated): **21 numbered chapters** — 01-scope … 21-implementation-defined/UB,
+incl. 07b type-layout, 10b function-values, 14b control-flow, 16b build-constraints, 18 memory-model
+/ reference-counting, 19 dual-mode execution, 20 intrinsic tier-0 packages — plus **Annexes A-D**
+(A grammar-summary generated from the canonical `binate.ebnf`; B implementation-model / IDB index;
+C stability-status table; D rationale). It has a rule-ID apparatus (`<prefix>.<area>.<name>`) and
+two orthogonal status axes (language-design stability × implementation-conformance), and features
+are specified as they land (this session alone: variadics §10.3, type assertions/RTTI §11.12,
+methods-on-generic-types §12). The "packages intrinsically tied to the language" the plan wanted
+are **§20** (`pkg/builtins/{lang,rt}`); `pkg/rt`'s normative surface is §20.2 (marked Draft, pending
+the separate "pkg/rt review" todo). **Remaining spec work is the SECONDARY specs (testing + stdlib)**
+— still tracked as an active todo ("Secondary specs — testing + stdlib").
+
 ## Plan-3 adversarial-review follow-ups (test-hygiene + coverage gaps from `cc2ddcc4` / `997c4c04` / `0c707e1f`) — ✅ DONE & LANDED 2026-07-10
 
 Non-wrong-code items from the adversarial review of the plan-cr2-3 work (the live

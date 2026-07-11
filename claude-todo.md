@@ -1304,24 +1304,18 @@ namespace`, `071_annotation_degenerate`, `072_err_annotation_no_stack`.
   short design note ratifying the policy would be useful when a
   future optimization / feature forces the question.
 
-### Language spec(s) — write the primary spec; later, secondaries
-- See `claude-notes.md` § "Language specification — primary spec is
-  minimal — DECIDED" for the philosophy.
-- **Primary language spec**: syntax, type system, semantics, plus
-  *only* the packages intrinsically tied to the language
-  implementation — `pkg/rt` (after the review below) and a future
-  reflection/introspection package. Includes the one-line note that
-  user files cannot be named `*_test.bn` (reserved).
-- **Minor secondary spec — testing**: `_test.bn` packaging
-  convention + `pkg/builtin/testing`. May fold into primary; TBD.
-- **Major secondary spec(s) — stdlib**: I/O, containers, formatting,
-  string utilities, etc. Probably split across multiple specs by
-  area.
-- **Not started.** Discussion-only at this point. When writing
-  begins, the natural artifact is `explorations/spec-*.md` (or a
-  separate `spec/` directory). The primary spec is gated on the
-  pkg/rt review entry below, since the primary spec describes
-  pkg/rt's normative surface.
+### Secondary specs — testing + stdlib (primary spec is written) — 🟡 OPEN
+The **primary** language spec is **written & maintained in `docs/spec/`** (21 chapters +
+Annexes A-D, canonical `binate.ebnf`, rule-ID apparatus; reconciled as features land) — moved to
+the done log ("Primary language spec — WRITTEN"). Philosophy: `claude-notes.md` § "Language
+specification — primary spec is minimal — DECIDED". Remaining, both **NOT started**:
+- **Minor secondary spec — testing**: the `_test.bn` packaging convention + `pkg/builtins/testing`.
+  May fold into the primary; TBD.
+- **Major secondary spec(s) — stdlib**: I/O, containers, formatting, string utilities, etc. —
+  probably split by area.
+
+Artifact when writing begins: alongside `docs/spec/` or `explorations/spec-*.md`. (The `pkg/rt`
+review below still gates finalizing §20.2's normative surface, currently Draft.)
 
 ### pkg/rt review — decide runtime vs. stdlib vs. internal
 - Today `pkg/rt` is a grab-bag of runtime helpers, refcount
