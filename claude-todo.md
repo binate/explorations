@@ -219,51 +219,51 @@ result auto-derefs, so `call().f` is the usual form).  Add xfail coverage.
 
 ## MAJOR
 
-### `expose`d interface referenced by the re-export spelling mis-compiles to `*int` at dispatch — link failure — 🟠 OPEN (found 2026-07-10)
+The non-generic exposed-type/interface-reference mis-compile is **✅ FIXED +
+LANDED (476e0fb2)** — `homedQualifier` threaded into the non-generic
+type-resolution sites (`isInterfaceTypeExpr`, `ifaceTypeForName`, the struct/alias
+lookup).  Two related gaps found while building the Phase-6 bundle remain open:
 
-**Symptom.** With the `expose` whole-package re-export feature: a forwarder
-`pkg/fwd` (`expose "pkg/shapes"`, no `.bn`) re-exports `pkg/shapes`, which defines
-`interface Valuer { val() int }` + `impl *Point : Valuer`.  A consumer that spells
-the interface through the FORWARDER — `var v *fwd.Valuer = &p; v.val()` — fails to
-LINK: `Undefined symbols: _bn_F3_3_pkg8_builtins4_lang2_3_int3_val` (the dispatch
-receiver mis-mangled to `pkg/builtins/lang.int`, the primitive carve-out).  The
-HOME spelling `*shapes.Valuer` compiles and runs correctly (prints 5).  It
-type-checks either way; only the exposed spelling mis-compiles, and only at link
-— a silent-until-link IR-gen defect.  Exposed TYPE / FUNC / VAR / CONST references
-all work; only exposed-INTERFACE method dispatch is broken.  Discovered by the
-Phase-6 conformance bundle test `conformance/1040_expose_type_iface` (the
-interface half).
+### `expose` corrupts a package's reflection descriptor — crash reflecting an expose-using package — 🟠 OPEN (found 2026-07-10) [workstream B]
 
-**Root cause (high confidence — traced in source).** `expose` is a checker/scope-
-only mechanism: `injectExposedSurface` (`types/bni_scope_expose.bn:28-55`) copies
-P's symbols into A's scope sharing the `@types.Type` and stamping `HomePkg`, but
-registers NOTHING under `("pkg/fwd","Valuer")` in IR-gen's per-module interface
-registry `m.Interfaces` (populated only from real `DECL_INTERFACE` nodes via
-`RegisterAllInterfaces`, `gen_module.bn:58-88`).  So `isInterfaceTypeExpr`
-(`gen_iface.bn:44-86`, keying on the AST-written `(te.Pkg="fwd", "Valuer")`) misses
-→ `resolveTypeExpr` falls to the `TypInt()` fallback (`gen_type_resolve.bn:104`) →
-`v : *int` → `isInterfaceMethodCall` returns false → the call lowers as a concrete
-primitive-receiver method (`gen_method.bn:425-471` → `primitiveQualifiedName("int")`
-= `pkg/builtins/lang.int`) → `pkg/builtins/lang.int.val`, undefined.  The Phase-4
-resolved-home mangling (`buildQualNameHomed`, reading `Symbol.HomePkg`) was wired
-into the func/var/const REFERENCE sites ONLY; the TYPE-resolution path
-(`isInterfaceTypeExpr` / `ifaceTypeForName`, `gen_iface.bn:85,165`) has no HomePkg
-awareness, so the one exposed entity whose TYPE identity (not just symbol name)
-must resolve through IR-gen falls through the gap.
+**Symptom.** Reflecting over a package that USES `expose` truncates/crashes after
+the first function.  An aggregator `pkg/agg` (`func Own() int` + `expose "pkg/inner"`):
+`agg.__Package().Functions` reports len 2, but iterating prints `pkg/agg.Own` then
+stops — a crash on `Functions[1]`.  The SAME aggregator WITHOUT the `expose` line
+reflects correctly (`pkg/agg.Own` + `pkg/agg.__Package`).  So `expose` corrupts the
+declaring package's `__Package()` descriptor function table — most likely the
+exposed funcs leak into the descriptor as dangling entries (they have no `ir.Func`
+in this module, so `collectPackageFuncs` in `codegen/emit_pkg_descriptor.bn`
+emits a bad/short entry, or the count and the emitted entries diverge).  This is a
+**descriptor-emission** bug, distinct from the (fixed) type-resolution one.
+**Test:** `conformance/1041_expose_reflect` (untracked; no `expected` — documents
+the crash; give it `expected` / xfail once fixed).  Contradicts §16.5.2
+`pkg.expose.reflect` (an exposed member should reflect under its HOME, not corrupt
+A's descriptor).
 
-**Proposed fix (minimal, mirrors Phase 4).** Teach the two interface-type keying
-sites (`isInterfaceTypeExpr` :85 and `ifaceTypeForName` :165) to consult
-`Checker.PackageMemberHome(resolveImportPkg(te.Pkg), te.Name)` — exactly as
-`buildQualNameHomed` does — and look the interface up under the returned HOME
-`(homePkg, name)`.  Then `*fwd.Valuer` resolves to the `("pkg/shapes","Valuer")`
-interface value and all downstream dispatch (which reads `ifaceTyp.Elem.Pkg`) is
-already correct; no change to `genInterfaceMethodCall`.  Alternative: register an
-interface ALIAS entry `("pkg/fwd","Valuer") → ("pkg/shapes","Valuer")` into
-`m.Interfaces` from a pass over `pkg.Exposes` (the registry already supports alias
-chains via `AliasTarget*`).  **Spec impact:** §16.5.2 `pkg.expose.identity` states
-an exposed interface shares P's identity — true at the checker but NOT honored by
-IR-gen dispatch; the fix makes impl match spec.  **Test:** `1040_expose_type_iface`
-(split the interface half into its own xfail if deferred).
+### Exposed GENERICS unsupported — generic TYPES rejected by the checker + generic-FUNC refs mis-mangle at IR-gen — 🟠 OPEN (found 2026-07-10) [workstream A]
+
+Three facets, all the same resolved-home root cause as the landed non-generic fix,
+on the generic paths:
+- **Generic TYPES fail at the CHECKER.** `fwd.Box[int]` (forwarder exposing a
+  generic `Box[T]`) → `undefined: Box` before IR-gen runs; `genlib.Box[int]`
+  (home) works.  The checker's `expose` injection/resolution does not admit an
+  exposed generic-type reference.  **Test:** `conformance/1042_expose_generic`
+  (untracked).
+- **Generic FUNC refs mis-mangle at IR-gen (reachable link failure).**
+  `fwd.Ident[int](7)` (forwarder exposing `func Ident[T any](x T) T`) type-checks
+  but link-fails — the generic-decl lookup keys on the source-spelled pkg, not the
+  home.  Sites (reviewer-confirmed reproducible): `gen_call.bn:162`
+  (`resolveImportPkg(e.X.X.X.Name)` → `homedQualifier(…, e.X.X.Name)`) and
+  `gen_method_value_recv.bn:223` (func-value form).
+- **Generic-TYPE IR-gen sites need the `homedQualifier` remap too**
+  (`instantiatedIfaceLookupPkg` in `gen_iface.bn`, the generic-struct head in
+  `gen_type_resolve.bn`).  These were added in the non-generic fix then REVERTED
+  (unreachable until the checker admits exposed generic types) — re-add here.
+
+**Fix scope (workstream A):** checker support for exposed generic types + the two
+generic-FUNC IR-gen sites + re-add the two generic-TYPE IR-gen sites + tests (1042
+generic-type; a new generic-func-forwarder test).
 
 ## Language features — specified, not yet implemented
 
