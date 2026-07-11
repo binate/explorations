@@ -166,6 +166,21 @@ runner retry a timed-out test once before reporting failure. Until then a red
 native-aa64 run with a lone `[3s]` timeout failure is very likely this, not a real
 regression — re-run the single test in isolation to confirm.
 
+### `spec/11-interfaces/052_alias_same_identity` intermittent failure under full-suite load — 🟡 OPEN (2026-07-10)
+
+**Severity: minor (CI flake, not a miscompile).** The *positive* interface-alias test
+`052_alias_same_identity` (iface.alias §11.7 — an alias is the SAME interface object as
+its target) intermittently reports a failure during a full parallel `builder-comp` run
+(observed once in a 2724-pass sweep; then passed 3/3 in isolation immediately after, and
+did NOT fail in the concurrent `builder-comp-comp` run of the same batch). No reproduction
+in isolation. Very likely a timeout / resource-contention flake under the saturated
+full-suite host (that run was 1707s) — same family as the native-aa64 flakiness above,
+not a codegen or checker defect. Discovered while regression-checking the
+generic-instantiation-type-arg landing, whose changes touch only generic-blanket-impl
+constraint satisfaction and instantiation-type-arg lowering — neither of which this
+non-generic test (`impl *Dog : Speaker`, no type args) exercises. Re-run in isolation
+before treating a lone `052` failure as a real regression.
+
 ### func-value callee reached through a call result: `obj.Get()(x)` ✅ FIXED & LANDED 2026-07-10 (`b00d7383`, conformance/1012); SELECTOR/INDEX-of-call-result forms 🔴 OPEN (found 2026-07-10)
 
 **Severity: MAJOR — valid code fails to compile (LLVM link error).** Verified
