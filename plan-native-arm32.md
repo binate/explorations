@@ -666,7 +666,7 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
       float FIELD of an aggregate/tuple result must ALSO fail loud (P5) before the dispatch —
       else it silently rides the GP-only store (a miscompile).
     - **Sub-phases (each independently landable + byte-ref + conformance tested):** C.0 —
-      plumbing: thread `captureBase` (no behavior change; Phase A/B byte-refs stay green).
+      plumbing: thread `captureBase` — ✅ LANDED 2026-07-11 (`55f3076c`, byte-identical).
       C.1 — big single-aggregate sret. C.2 — small-aggregate pack. C.3 — multi-return (pack +
       sret, split on `isBigMultiReturnArm32` = gpWords>4, NOT a size rule). New files
       `arm32_closure_shim_aggregate.bn` + `_spill.bn` (mirror the aa64 split for the length
