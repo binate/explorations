@@ -59,6 +59,53 @@ bug is fixed.  Discovered while verifying Phase C 2026-07-10.
 the receiver type's DEFINING PACKAGE (not unqualified name), so same-named generics
 across packages don't collide.  Then drop 1032's xfails + complete Phase C.
 
+### `impl @T : iter.Iterable` on a type whose params are constrained by OTHER imported generic-interface policies → false "K does not satisfy constraint" — 🔴 MAJOR / OPEN (found 2026-07-10)
+
+**Symptom.** Compiling `pkg/stdx/containers/table` (the shared policy-parameterized
+hash-table engine, B2 of the injected-fn container work) fails at the IMPORTED blanket
+impls that provide the container's type-param constraints:
+
+    ifaces/stdlib/pkg/stdx/hash.bni:32:1  impl Default[K] : Hasher[K]  -> "type argument K does not satisfy constraint Hashable"
+    ifaces/stdlib/pkg/stdx/cmp.bni:35:1   impl Default[K] : Eq[K]      -> "type argument K does not satisfy constraint Comparable"
+
+i.e. the checker re-checks `hash.Default[K lang.Hashable]` / `cmp.Default[K lang.Comparable]`
+and LOSES their type-param bound, reporting a false "K does not satisfy" — even though
+`Default`'s own declaration carries the bound and each impl checks fine in isolation.
+
+**Trigger (bisected in the real table.bni).** A generic type `Table[K any, V any, H
+hash.Hasher[K], E cmp.Eq[K]]` whose params H/E are constrained by two IMPORTED
+generic-interface policies, PLUS `impl @Table[K,V,H,E] : iter.Iterable[Entry[K,V]]` — a
+parameterized-receiver impl to a THIRD imported generic interface whose method
+`AsIterator() @iter.Iterator[T]` returns a nested imported generic-interface value.
+Each smaller piece compiles; the failure appears only when the `@Table : iter.Iterable`
+impl is added:
+  - Table core + the two policy constraints + Put/Get/Has/Remove/Len — compiles.
+  - + Cursor + Iter + Next (value cursor) — compiles.
+  - + `impl *Cursor[K,V,H,E] : iter.Iterator[Entry[K,V]]` — compiles.
+  - + `impl @Table[K,V,H,E] : iter.Iterable[Entry[K,V]]` — FAILS (the above errors).
+
+**What it is NOT.** Not the same-name cross-package collision above (renaming
+cmp.Default -> cmp.Std does not fix it). A single-package local equivalent of the whole
+thing compiles + runs. A single imported policy constraint compiles. A minimal
+3-package repro with a simpler third interface (`First() T`, no nested `@Iterator`
+return) does NOT reproduce — iter.Iterable's nested-`@Iterator`-return shape appears
+load-bearing. Likely the same checker area as the CRITICAL collision above + the recent
+generic-blanket-impl constraint-satisfaction work (`2f8969e8`,
+typeSatisfiesConstraint/genericImplSatisfies).
+
+**Impact.** Blocks B2 (the shared Table core). B1 (`pkg/stdx/{hash,cmp}`) is unaffected
+and landed independently.
+
+**Workaround (UNTAKEN — needs user decision, do not apply silently).** Omit `impl
+@Table : iter.Iterable` from the doubly-constrained generic Table (the value cursor
+Iter/Next + `impl *Cursor : iter.Iterator` DO compile) and provide the boxed Iterable on
+the concrete wrappers (MapFn/Map, whose own params are unconstrained) instead — losing
+Iterable on Table itself.
+
+**Repro / test.** The real `pkg/stdx/containers/table` (B2 WIP, uncommitted). A minimal
+standalone xfail conformance test is TODO (needs iter.Iterable's exact nested-`@Iterator`
+shape reproduced in a cell-local 3-package minimization).
+
 ### `readonly` is invisible to `NeedsDestruction`/`dtorTypeSuffix` — cosmetic mismatch now, latent leak later — 🟢 LOW / OPEN (found 2026-07-10, adversarial review of `8d9e7577`)
 
 `ResolveAlias()` peels `TYP_ALIAS` but not `TYP_READONLY`, so (a) `readonly <scalar>`
