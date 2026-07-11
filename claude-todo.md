@@ -64,7 +64,34 @@ linker script). Backend-independent — affects both arm32 backends.
 **Test.** `conformance/regressions/file-scoped-import-incompatible-sig` (add `.xfail` for
 both arm32-baremetal modes until fixed).
 
-### `impl @T : iter.Iterable` on a type whose params are constrained by OTHER imported generic-interface policies → false "K does not satisfy constraint" — 🔴 MAJOR / OPEN (found 2026-07-10)
+### `impl @T : iter.Iterable` on a type whose params are constrained by OTHER imported generic-interface policies → false "K does not satisfy constraint" — 🟢 FIXED & LANDED (`6647c49f`, 2026-07-11)
+
+**FIX (`6647c49f`, conformance/1041_xpkg_iface_impl_policy).** Root cause: `genericImplSatisfies`
+(pkg/binate/types/types_assignable.bn) substituted `rec.RecvType` with `src`'s type-args BY
+INDEX *before* checking that rec's receiver base is the same generic decl as src's base.
+Verifying `@Table[...] : iter.Iterable` walks EVERY impl in scope; for the unrelated
+`impl hash.Default[K lang.Hashable] : Hasher[K]` it computed
+`substituteTypeParams(Default[K], Table's-args)` — mapping Default's K onto Table's
+UNCONSTRAINED K at index 0 — which re-instantiated `Default[Table's-K]` and, via
+`checkInstantiationConstraints`, emitted the bogus miss.  Fix: guard the substitution —
+bail unless `same(recBase.InstDecl, srcBase.InstDecl)` (rec's receiver-base decl == src's
+base decl), *before* the substitution.  Only short-circuits mismatched-base cases
+`receiverAssignable` would reject anyway, but before the harmful re-instantiation.
+Full builder-comp + builder-comp-comp 2754/0; adversarial-reviewed (guard confirmed sound;
+`same()` identity confirmed correct/sufficient).  Unblocked B2 (the shared Table core).
+
+**RESIDUAL FOLLOW-UP (🟡 latent, from the fix's adversarial review).** The fix patches the
+trigger, not the CLASS: `instantiateGenericDeclWithArgs` (check_generic_type.bn:139) emits
+USER-VISIBLE diagnostics (`checkInstantiationConstraints`→`reportConstraintMiss`; the
+depth>=128 error; `requireSizedType`'s opaque-by-value error) for any uncached (decl,args)
+with NO suppression/trial flag — even when reached from a purely SPECULATIVE impl-match probe
+(`typeSatisfiesConstraint`/`genericImplSatisfies` walking `c.Impls`, or `substituteTypeParams`
+re-instantiating a nested generic whose args "changed").  So a same-decl probe that
+re-instantiates a nested generic could still fire a spurious error.  Not currently triggered
+beyond the fixed case, but the principled fix is an error-suppression / trial mode for
+speculative instantiation (route to `c.TentativeErrors` or a probe flag) rather than
+per-caller decl guards.  No standalone repro yet.
+
 
 **Symptom.** Compiling `pkg/stdx/containers/table` (the shared policy-parameterized
 hash-table engine, B2 of the injected-fn container work) fails at the IMPORTED blanket
