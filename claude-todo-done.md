@@ -8,6 +8,25 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## Hygiene check: enforce `pkg-layout-spec.md` tier dependency rules — ✅ DONE & LANDED 2026-07-10 (`440f017e`)
+
+`scripts/hygiene/pkg-tiers.sh` statically validates every package's imports against the
+tier ordering in `pkg-layout-spec.md`: 0/0b (`pkg/builtins/*`, `pkg/bootstrap`,
+`runtime/<target>/pkg/*`) < 1 (`pkg/std/*`) < 1x (`pkg/stdx/*`) < 2 (`pkg/<org>/*`) < 3
+(app / `cmd/*`).  A package may import only its own tier or lower; a bundled package
+reaching a not-bundled tier (the 2026-06-10 `lang → pkg/binate/buf` bug, binate
+`84818a77`) is flagged at the import line.  The std→stdx refinement is honoured: allowed
+from `.bn` impls, forbidden from `.bni` interfaces.  `*_test.bn` is exempt; sanctioned
+exceptions live in `pkg-tiers.whitelist` (empty — the baseline is clean).
+
+**Wiring (per the user's explicit ask): automatic, no edits needed.**
+`scripts/hygiene/run.sh` auto-discovers every `*.sh`, and `.github/workflows/hygiene.yml`
+enumerates `scripts/hygiene/*.sh` into its per-check CI matrix — so `pkg-tiers` runs in the
+hygiene master (17/17) and gets its own CI job just by dropping the script in.
+
+Verified: clean on the current tree; flags a tier-0→tier-2 import and a std `.bni`→stdx
+import; allows std `.bn`→stdx.
+
 ## Stale-xfail sweep — residuals (the cross-mode CONFORMANCE sweep is done) — ✅ DONE & LANDED 2026-07-10 (`27d8d443`)
 
 The big stale-xfail sweep (all 10 modes via `conformance-xpass.yml`; 121 stale conformance
