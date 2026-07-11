@@ -313,6 +313,25 @@ generic-FUNC-value IR-gen site (once the pre-existing bug below is fixed) + re-a
 the two generic-TYPE IR-gen sites + tests (1042 generic-type).  Slice 1 (generic
 func CALL) is done.
 
+**Slice 2 design decision (2026-07-11, two adversarial reviews).** Chose the
+`homedQualifier` approach (**B**) over registry-forwarding (**A**).  A is SILENTLY
+BROKEN: in IR-gen the package qualifier is BOTH the generic-decl lookup key AND the
+identity/mangling key (`ensureInstantiatedStruct`/`ensureInstantiatedInterface` →
+`instantiationMangledName(…, definingPkg, …)`), so registering the decl under the
+forwarder path makes `fwd.Box[int]` mangle as `pkg/fwd.Box__bn_inst__int` — a type
+DISTINCT from the home `pkg/glib.Box__bn_inst__int` (separate struct/dtor/vtable/
+symbol).  A's "first-match-wins" only rescues the CHECKER (identity from a
+decl-pointer scan, `genericTypeDeclPkg`); IR-gen never consults it.  B remaps the
+qualifier `fwd`→`glib` at both layers via `homedQualifier` (the landed mechanism),
+so both spellings key one home symbol.  **B safeguards (must-do):** (1) inject a
+generic MARKER symbol for exposed generics to carry `HomePkg` (generics have no
+scope symbol today), and GUARD `resolveNamedTypeExpr` so a bare `fwd.Box` (no args)
+errors like `genlib.Box` rather than resolving as a concrete type; (2) remap at the
+checker (`check_generic_type.bn`) AND the two IR-gen generic-type sites; (3) tests:
+cross-spelling identity (`fwd.Box[int]==genlib.Box[int]`), transitive, collision
+diagnosed, bare-ref rejected, a generic-INTERFACE identity case; verify on the VM
+leg too.
+
 ### Cross-package generic FUNC VALUE mis-compiles — `extractvalue operand must be aggregate type` — 🟠 OPEN (found 2026-07-11)
 
 **Pre-existing, NOT expose-related.** Taking a func value of a cross-package
