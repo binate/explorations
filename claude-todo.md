@@ -347,35 +347,6 @@ surface (§20.3).
 
 ## Method values & function values (codegen)
 
-### MAJOR — interface method CALL on a generic-function-call result emits a malformed method symbol — 🔴 OPEN (found 2026-07-10)
-
-**Symptom.** An interface method call on the RESULT of a generic-function call —
-e.g. `id[@Numbered](s).num()` where `id[T any](x T) T` — fails to build/run in
-EVERY mode: compiled backends link-fail (`Undefined symbols … "_bn_F1_4_main2_0_3_num"`,
-referenced from `main`), the VM panics (`extern not found: main..num` — note the
-EMPTY receiver component `..`). `conformance/1027_iface_method_on_generic_call_result`
-reproduces it (xfail all modes).
-
-**Root cause (IR-gen / mangler).** The SIBLING of the method-VALUE case fixed
-below (`2d48f348`/`fedbd0c5`): the receiver's IR-gen type must be resolved from
-the *instantiated* call's result type. `2d48f348` fixed that for method VALUES
-(`instantiatedCalleeResultType` in `gen_method_value`), but the interface-method-
-CALL path (dispatching `.num()` on `id[@Numbered](s)`) does NOT resolve the
-receiver type the same way, so the method reference is mangled with an empty/
-malformed receiver component (`main..num`) that no definition matches. Both
-backends; not a reloc issue.
-
-**Why it was false-green.** 146/167/168 only exercised the method-VALUE-on-generic-
-call-result path (which 2d48f348 fixed); the interface-method-CALL-on-generic-call-
-result path had NO test. Surfaced by the `conformance/matrix/generic-managed` iface
-element (its natural value-use is `At[@Numbered](h,0).num()`).
-
-**Proposed fix.** Route the interface-method-call receiver type through the same
-`instantiatedCalleeResultType` resolution `gen_method_value` uses, so the dispatch
-names the method by the concrete instantiated receiver. Add matrix/conformance
-coverage for iface-method-CALL (not just method-VALUE) on a generic-call result;
-drop 1027's xfails when fixed.
-
 ### Function values — residual follow-ups (the MAJOR PROJECT landed) — 🟡 OPEN (low priority)
 Function values are done across all three phases (archived in [claude-todo-done.md](claude-todo-done.md):
 Phase 1 non-capturing + type/vtable machinery, Phase 2 closures/capture — `plan-function-values-phase-2.md`
@@ -2001,13 +1972,6 @@ plan-native-arm32.md § P4.
   e.g. `401_return_many_scalars`).
 - **soft-float (P5) / VFP hard-float + arm32-linux (P6) / CI wiring (P7)** — see
   the plan doc.
-
-#### MINOR (cross-backend diagnostics) — `iropcode.OpName` missing `OP_CONST_FLOAT`
-
-`pkg/binate/iropcode/opcodes.bn`'s `OpName` switch lacks an `OP_CONST_FLOAT` case,
-so float-const failures mislabel as "unimplemented IR op unknown" across all
-backends/tools. 1-line fix (`case OP_CONST_FLOAT: return "const_float"`); pure
-diagnostics, no pass/fail change.
 
 ### ARM32 bare-metal target — MAJOR PROJECT
 - **Why**: enable Binate as an OS-development language on ARM32

@@ -8,6 +8,51 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## MAJOR — interface method CALL on a call-result receiver emits a malformed (empty-name) method symbol — ✅ FIXED & LANDED 2026-07-10 (`dfbdf1dd`)
+
+**Symptom.** An interface-method call on a call-result receiver — `f(...).M()`,
+including a generic instantiation `id[@Numbered](s).num()` where `id[T any](x T) T`
+— failed to build/run in EVERY mode: compiled backends link-fail (`Undefined
+symbols … "_bn_F1_4_main2_0_3_num"` — the `2_0` is a LENGTH-0 receiver-type name),
+the VM extern-not-found (`main..num`).
+
+**Root cause (IR-gen routing) — NOT what the open entry proposed.** The original
+entry hypothesized this was the SIBLING of the method-VALUE case (`2d48f348`) and
+proposed routing through `instantiatedCalleeResultType`. That was wrong: the
+interface-method-CALL path dispatches through the vtable keyed by the INTERFACE
+name (carried on the evaluated receiver instr), so it needs no
+instantiated-result-type resolution. The actual defect: `isInterfaceMethodCall`
+(`pkg/binate/ir/gen_iface_dispatch.bn`) resolved the receiver type for IDENT /
+SELECTOR / INSTANTIATE_OR_INDEX / UNARY receivers but NOT for an EXPR_CALL
+receiver, so a call-result receiver's type came back nil → the call fell to the
+concrete method path (`genMethodCall`), which named the method off the interface
+value's EMPTY type Name.
+
+**Fix (`dfbdf1dd`).** Add `EXPR_CALL` to the routing predicate in
+`isInterfaceMethodCall`; `getSelectorType` already resolves a call's result type
+via the checker, so an iface-typed call result now routes to
+`genInterfaceMethodCall` (vtable dispatch). One-line change; adversarially
+reviewed (no regressions; the concrete generic-call-result method call was
+confirmed already-correct via `genCallInstantiate`'s mangled-name synthesis, so
+no sibling fix needed).
+
+**Coverage.** The defect was the whole EXPR_CALL-receiver class, broader than the
+"generic call result" the tracker named: the NON-generic `mkNumbered(42).num()`
+was equally broken. `conformance/1027_iface_method_on_generic_call_result`
+(generic) + `conformance/1031_iface_method_on_call_result` (non-generic); both
+were false-green (no prior test exercised an iface-method call on a call result).
+1027's 13 xfails dropped. Green in all 6 default modes + native aa64/arm32 + LLVM
+arm32-baremetal. Surfaced by the `conformance/matrix/generic-managed` iface
+element.
+
+## MINOR (cross-backend diagnostics) — `iropcode.OpName` missing `OP_CONST_FLOAT` — ✅ FIXED & LANDED 2026-07-10 (`6f8682a6`)
+
+`OpName`'s switch (`pkg/binate/iropcode/opcodes.bn`) had cases for
+OP_CONST_INT/BOOL/STRING/NIL but not OP_CONST_FLOAT, so a float-const IR op
+rendered as `"unknown"` in every backend/tool diagnostic that names an op. One
+`case OP_CONST_FLOAT: return "const_float"` line + a `TestOpName` assertion; pure
+diagnostics, no pass/fail change.
+
 ## MAJOR — method VALUE on a generic instantiation emits an invalid struct name — ✅ FIXED & LANDED 2026-07-09 (`fedbd0c5`)
 **Fixed & LANDED on `main` as `fedbd0c5`** (the development commit on `work-2` was `2d48f348`): `gen_method_value`
 remaps the captured-receiver type's base to the IR-gen instantiated struct
