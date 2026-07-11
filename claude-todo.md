@@ -11,6 +11,54 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
+### cross-package generic-type NAME COLLISION corrupts type-param constraints (parameterized-receiver impl) — valid code fails to compile — 🔴 OPEN (found 2026-07-10)
+
+**Symptom.** A program that merely IMPORTS two packages, each exporting a generic
+type of the SAME unqualified name that carries a parameterized-receiver impl
+(`impl *Cursor[T] : It[T]`) but with DIFFERENT type-param constraints, fails to
+compile with a FALSE error `type argument T does not satisfy constraint Hashable`.
+Concretely: importing `pkg/stdx/containers/vec` (`Cursor[T any]`) together with
+`pkg/stdx/containers/set` (`Cursor[T lang.Hashable]`) — or vec + hashmap — fails.
+Reproduced with a FRESH current-tree bnc (NOT pre1-specific).
+`conformance/1032_xpkg_generic_type_name_collision` is the self-contained
+minimization (two cell-local packages cga/cgb, each with `impl *Cursor[T] :
+cit.It[T]`; each compiles alone, only the combination fails; xfail all modes).
+
+**Root cause (checker — specifics need investigation).** The checker appears to
+register a parameterized-receiver impl's receiver-type constraint keyed by the
+UNQUALIFIED type name (`Cursor`), NOT qualified by defining package.  Loading both
+packages collides them: pkg/cgb.Cursor's body `s @HBag[T]` (HBag needs Hashable) is
+re-checked with pkg/cga.Cursor's `T any` constraint → false "not Hashable" (error
+points at cgb.bni:5).  A bare same-named generic WITHOUT a parameterized-receiver
+impl does NOT collide — the impl registration is the trigger.  Likely in the
+impl/interface-satisfaction registry or the generic type-param environment
+(`pkg/binate/types`).
+
+**Severity.** Confirmed LOUD failure (valid code rejected) = MAJOR by precedent
+(cf. the `8d9e7577` "valid code fails to compile" MAJOR).  But the MECHANISM is a
+cross-package unqualified-name symbol collision — the CRITICAL class (cf. CLAUDE.md
+"symbol-prefix collisions between unrelated packages are a critical mangler bug") —
+and it breaks a FUNDAMENTAL operation (importing two stdlib containers).  Whether it
+can ALSO silently miscompile (pick the wrong same-named generic's body/layout when
+the constraints coincide but bodies differ) is UNVERIFIED — a minimal
+same-constraint/different-body probe hit an unrelated `.bni`-body `sizeof` parse
+limitation before I could settle it.  If it can, it is CRITICAL (silent wrong-code).
+Filed here (CRITICAL section) pending that determination + a user severity call.
+
+**Impact / discovered by.** BLOCKS Phase C of the CHECK_TOOLS_VERSION work
+(`plan-check-tools-version.md`): advancing CHECK_TOOLS_VERSION → `bnc-0.0.11pre1`
+and un-skipping `pkg/stdx/containers/{vec,hashmap,set}` + `pkg/binate/format` +
+`cmd/bnfmt` in `scripts/hygiene/lint.sh` makes lint typecheck vec + set + hashmap
+TOGETHER in one bnlint invocation → 8 false Hashable errors → lint red.  The old
+lint.sh masked this by skipping those packages for the (now-cleared)
+methods-on-generics version-lag reason.  So Phase C's version bump itself is ready
+(pre1's bnlint parses the packages fine individually), but it lands only once THIS
+bug is fixed.  Discovered while verifying Phase C 2026-07-10.
+
+**Proposed fix.** Qualify the parameterized-receiver-impl constraint registration by
+the receiver type's DEFINING PACKAGE (not unqualified name), so same-named generics
+across packages don't collide.  Then drop 1032's xfails + complete Phase C.
+
 ### `readonly` is invisible to `NeedsDestruction`/`dtorTypeSuffix` — cosmetic mismatch now, latent leak later — 🟢 LOW / OPEN (found 2026-07-10, adversarial review of `8d9e7577`)
 
 `ResolveAlias()` peels `TYP_ALIAS` but not `TYP_READONLY`, so (a) `readonly <scalar>`
