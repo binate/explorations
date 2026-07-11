@@ -1061,14 +1061,45 @@ BUILDER-sensitive land.
       `@J` recovery (`_ = x.(@J)`) leaked one ref (assign/return/arg balanced, so
       the assign-only tests missed it). Fix: register the fresh `@J`-typed result
       iface value instead. Regression test 1026 (discard refcount-balance).
-  - **5b — PENDING.** VM d-i (M2): intern per-VM type handles into the null
-    vtable slot-1; `BC_DATA_SYM_ADDR`; the slot-1 read fix (VM `iv[1]` is a
-    1-based INDEX not a pointer — recon recommends a `BC_IFACE_TYPEINFO` op
-    branching on `ifaceVtIsNative` over changing the iface-value layout);
-    `lookupSatEntry`; register VM-lowered `(T,J)`; `BC_IFACE_VALUE_DYN`; and the
-    VM SatLookup mechanism (route the `rt.SatLookup` call → `lookupSatEntry`, OR
-    introduce `OP_SAT_LOOKUP` — decide in 5b). Cross-mode boundary trap (native-
-    injected slot-1 vs VM synthetic handle). Removes all 15 -int xfails.
+  - **5b-1 (concrete VM) — ✅ LANDED (2026-07-10, main `380e40f5`).** Concrete
+    `x.(*T)`/`x.(@T)` (expr + comma-ok) run in the bytecode VM; removes the -int
+    xfails on 998-1002. The slot-1 read fix is the recon-recommended **op**
+    (user-confirmed over the layout change AND over a call+intercept — the latter
+    rejected as a hack): new `OP_IFACE_TYPEINFO` reads the dynamic `*TypeInfo`
+    from vtable slot 1, replacing the `loadVtableSlot` GEP+LOAD in
+    `gen_assert*.bn`. It takes the iface VALUE (extracts the vtable word like
+    `OP_IFACE_DTOR`); native (LLVM/x64/aa64/arm32) lower it to the inline slot-1
+    GEP+LOAD they already emitted (arm32's `emitIfaceTypeInfo` lives in
+    `arm32_dispatch.bn`); the VM lowers it to `BC_IFACE_TYPEINFO` branching on
+    `ifaceVtIsNative` (VM word → `IfaceVtables[idx-1].Methods[1]`). d-i is REAL
+    records, not tokens: `materializeTypeInfos` (`lower_typeinfo.bn`) lays the
+    `irdata.BuildTypeInfo` blobs via the existing `lowerDataGlobals` into a
+    session-lifetime data-symbol table (`vm.dataSymNames`/`dataSymAddrs`), run in
+    `LowerModule` before `lowerImplVtables`; `fillVtableLayout` writes each
+    receiver's record addr into slot `base+1`; `BC_DATA_SYM_ADDR` resolves
+    `&__typeinfo.<T>` against the table at exec. Real records so a wrong-type miss
+    reads the dynamic type's NAME (test 999). Rationale for the op (not the layout
+    change): the fnptr migration DELIBERATELY kept `IfaceVtable.Methods`=idx+1
+    ("per-vm dispatch tables; the indices never leave the vm",
+    plan-uniform-native-fnptrs L120), so the index is by-design and the op reuses
+    the same `ifaceVtIsNative` discrimination method dispatch already does.
+    Adversarially reviewed (native/IR clean; VM d-i found 1 MAJOR: a
+    native-INJECTED iface value concrete-asserted in the VM would silently MISS —
+    native `__typeinfo` addr ≠ VM record — now **loud-fails** at
+    `BC_IFACE_TYPEINFO`, the real cross-mode mapping deferred to 5b-2). Unit
+    tests: `lookupDataSymAddr`, `materializeTypeInfos`, `TestLowerEmitsBc
+    IfaceTypeInfo`. Follow-up owed: `vm_exec_iface.bn` split (grew over the soft
+    length limit).
+  - **5b-2 (interface VM) — PENDING.** VM interface-target path: `lookupSatEntry`
+    (re-add — DROPPED from the 5a increment, ~15 lines mirroring
+    `lookupVtableAddr`); register VM-lowered `(T,J)` in `lowerImplVtables`;
+    `BC_IFACE_VALUE_DYN`; the VM SatLookup mechanism (route the `rt.SatLookup`
+    call → `lookupSatEntry`, OR introduce `OP_SAT_LOOKUP` — decide in 5b-2); and
+    the **cross-mode boundary mapping** (feed a native-injected package's
+    `__typeinfo`/`__ifaceid` addresses into the VM data-symbol table under their
+    symbols, so both the injected slot-1 read and `BC_DATA_SYM_ADDR` resolve to
+    one address — this also lifts 5b-1's native-injected loud-fail). Removes the
+    remaining 18 -int xfails (1013-1015 + 1024-1026 × 3 modes).
 - **Slice 6 — Type-switch (Phase 6).** `checkTypeSwitchStmt` (modeled on
   `checkSwitchStmt`; per-case narrowing; multi-target/`default` bind scrutinee
   type; no exhaustiveness/dup/fallthrough) + `genTypeSwitch` (first-match chain
