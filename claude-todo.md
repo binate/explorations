@@ -2085,10 +2085,13 @@ unblock them:
     cleaner).
   - Whether the fns are stored as `*func`/`@func` in the container struct —
     function values exist (non-capturing at BUILDER, capturing in the full
-    language; containers are non-BUILDER, so capturing is available), BUT a
+    language; containers are non-BUILDER, so capturing is available). A
     function-value type mentioning the container's type param (`*func(K)` / `@func(K)`)
-    does not yet substitute `K` at instantiation — see the BLOCKER above; this must be
-    fixed before any storage-as-field or fn-parameter form compiles. Once it does: each
+    now substitutes `K` at instantiation (**RESOLVED** — the func-value type-traversal
+    fixes plus the generic-instantiation-as-constraint-arg work landed `2f8969e8`;
+    conformance `1035_policy_core_dispatch` exercises `FnPolicy[K] struct { hash
+    *func(K) uint }` passed as a constraint-satisfying type arg, and `1034` the plain
+    generic-policy case). So storage-as-field and fn-parameter forms compile now; each
     instantiation still monomorphizes; the hash/eq become indirect calls per probe (no
     interface dispatch).
   - **Variant vs base, and the perf tradeoff.** The current `Map`/`Set` deliberately use
