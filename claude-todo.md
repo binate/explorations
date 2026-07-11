@@ -857,6 +857,25 @@ unused-func WITH `--tests` — a plain run over-flags the 12 production helpers 
 only by tests. Design + full status + the rest of the unused-entity project (now
 done): `explorations/plan-unused-checks.md` and the done log.
 
+### `pkg/stdx/hash` + `pkg/stdx/cmp` in LINT_SKIP — 🟡 OPEN (BUILDER-gated), added 2026-07-10
+
+The injectable key-policy packages (`hash.Hasher[K]`/`Default[K]`/`FnHasher[K]`,
+`cmp.Eq[K]`/`Default[K]`/`FnEq[K]`) use generic-receiver methods
+(`func (h Default[K]) Hash(k K) uint`) and blanket impls (`impl Default[K] :
+Hasher[K]`), both newer than the BUILDER-bundled bnlint — so the bundled bnlint
+aborts at the PARSE pass, same trigger as the container skips. Added to `LINT_SKIP`
+in `scripts/hygiene/lint.sh`; a current-source bnlint accepts both with **zero**
+diagnostics. Drop at the same BUILDER bump as the container skips.
+
+Note: unlike the containers, these do NOT hit the cross-package same-named-generic
+CRITICAL collision above — although `hash.Default[K]` and `cmp.Default[K]` share the
+unqualified name `Default` and each carries a blanket impl with a different
+constraint (`lang.Hashable` vs `lang.Comparable`), their struct bodies are EMPTY, so
+there is no constraint-dependent body to re-check under the wrong constraint. Verified:
+a program importing both and instantiating both `Default[int]`s compiles and runs
+clean. So hash/cmp can un-skip independently of that bug's fix (gated only on the
+methods-on-generics BUILDER bump).
+
 ### `[managed-to-raw-assign]` in `pkg/binate/asm/*` — INCREMENT 2 (adopt directives + un-skip) — 🟡 OPEN (BUILDER-gated)
 
 The compiler-tree lint-coverage gap is ✅ FIXED (`582c1327`, recursive `pkg/`
