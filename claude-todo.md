@@ -11,74 +11,6 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
-### native closure AGGREGATE-RETURN marshal: register clobber when a by-address aggregate diverges the cursors on the down-shift path → SILENT WRONG-CODE — ✅ FIXED & LANDED 2026-07-10 (`95eab936`), BOTH BACKENDS (found 2026-07-10, adversarial review of the x64 option-B change)
-
-**FIX (`95eab936`, both backends, adversarially-reproduced then verified; a focused 5-dimension adversarial review of the fix itself came back clean).** On the
-down-shift marshal path (pack-return + a single capture word — x64
-`loadClosureAggCallArgs_x64` / `emitClosureShimAggregateStackSpill_x64`; aa64
-`loadClosureAggCallArgsAA64` / `emitClosureShimAggregateStackSpillAA64`), when any
-user param is a by-address aggregate, STAGE every incoming dispatch word to a scratch
-frame and marshal from memory (source-order-free) — mirroring the func-value shim's
-`needStage`, so no live incoming register is read after an outgoing write.  The spill
-marshal helpers gained a `stageBase` param that redirects the incoming source to the
-staging region.  conformance `1030_closure_aggret_byaddr_clobber` covers register-only
-+ spill × raw slice + coerced struct (green on native_x64_darwin + native_aa64 + the
-LLVM/interp lanes).  aa64 spill split into `aarch64_closure_shim_aggregate_spill.bn`
-(+ `_test.bn`) to stay under the file-length cap.  Full closure/funcval/aggregate
-sweep 309/0 on both native modes.  Lands after the x64 option-B commit (`a8d93b20`).
-
-Original report (kept for context):
-
-**Severity.** CRITICAL — silent miscompile / data corruption. A live argument
-register is overwritten before it is read; the callee silently receives a wrong
-value (and would SIGSEGV if the clobbered value is later dereferenced as a
-pointer). No error, no crash in the confirmed cases — just wrong results.
-
-**Symptom / reproductions (all on the current tree; `bnc` built from temp-binate-4).**
-A *capturing* closure that RETURNS a ≤16 B aggregate (pack-return) and whose params
-place two by-address aggregates before a later param, sized to stay on the
-register-only fast path (`capBaseSlot + captureWords + outUserWords ≤ 6`, `nUserWords ≤ 4`):
-- x64, `func(*[]int, *[]int, int64) Pair`, 1 capture → prints **11** (correct **17**): the `int64` (7) is clobbered by the 2nd slice's `len` (1); `10 + 1 = 11`.
-- x64, `func(S16, S16, int64) Pair`, 1 capture (S16 = coerced 16 B struct) → prints **210** (correct 17): `int64` clobbered by `y.q` (200). **← PRE-EXISTING: coerced structs were by-address before option B, so this reproduces WITHOUT any of the option-B change.**
-- aa64 (landed `b691a3c5`): both the slice and coerced-struct forms reproduce identically (**11** / **210**). So the already-landed aa64 has this too.
-
-**Root cause.** `loadClosureAggCallArgs_x64` (x64_closure_shim_aggregate.bn ~150) and
-its aa64 twin `loadClosureAggCallArgsAA64` pick the marshal DIRECTION solely from
-`outBase = capBaseSlot + captureWords`: `outBase ≥ 2` → descending right-to-left,
-else ascending left-to-right. That heuristic is a *lockstep* down-/up-shift argument
-(dest vs source pointwise) and is only sound when incoming and outgoing word cursors
-move in lockstep. A **by-address aggregate DIVERGES the cursors** (1 incoming pointer
-word → `ArgWords ≥ 2` outgoing value words). On the ascending (`outBase < 2`, i.e.
-pack-return + 1 capture-word) path, once two by-address aggregates precede a later
-param the accumulated expansion pushes an earlier param's OUTGOING write up onto a
-later, not-yet-read param's INCOMING register. The `R10`/`R11` pointer-copy only
-protects a by-address param's OWN incoming slot, not a sibling's. (The descending
-path is safe for the same reason the scalar/void closure fast path
-`emitClosureShimFast_x64` — always right-to-left — is safe: high-param outgoing writes
-never reach a lower not-yet-read incoming. The ascending path is the broken one; the
-divergence also breaks its `dest ≤ source` premise.)
-
-**Discovery.** 9-agent adversarial review of the x64 option-B diff (task
-`wg3pfy21p`). One confirmed finding; hand-traced then reproduced end-to-end (compile
-+ run under Rosetta for x64, host-native for aa64). The full `native_x64_darwin`
-conformance suite does NOT catch it — no existing test uses a ≥2-by-address-agg
-closure aggregate-return signature (a coverage gap; the suite stays green).
-
-**Relation to option B (`131`, below).** Option B does NOT introduce this — it is
-pre-existing for coerced structs on both backends. Option B **broadens the trigger
-set** to raw slices / iface-values (which it newly routes by-address). The landed
-aa64 option-B (`b691a3c5`) therefore already widened this latent trigger on aa64.
-
-**Proposed fix.** Make the aggregate-return marshal robust to divergent cursors, on
-BOTH backends. Cleanest: STAGE all incoming user-arg dispatch words to a scratch
-frame first, then marshal from memory (no register-permutation hazard) — exactly what
-the func-value register-only shim `emitShimArgMarshal_x64` already does via
-`needStage`. Alternatives: route any divergent-param signature on the `outBase < 2`
-fast path to the stack-spill aggregate shim, or resolve the per-word permutation
-explicitly. Needs a conformance test (capturing closure returning ≤16 B struct,
-`func(*[]int, *[]int, int64)` params, distinct decimal places) exercised on
-`native_x64_darwin` + `native_aa64`, plus the coerced-struct variant.
-
 ### `readonly` is invisible to `NeedsDestruction`/`dtorTypeSuffix` — cosmetic mismatch now, latent leak later — 🟢 LOW / OPEN (found 2026-07-10, adversarial review of `8d9e7577`)
 
 `ResolveAlias()` peels `TYP_ALIAS` but not `TYP_READONLY`, so (a) `readonly <scalar>`
@@ -92,44 +24,6 @@ unreachable: `readonly @T` fails to parse as a type argument and `NeedsDestructi
 treats it as non-destructible anyway. Peel `TYP_READONLY` in `ResolveAlias` (or in
 `NeedsDestruction`/`dtorTypeSuffix`) when `readonly` managed elements become a real
 possibility.
-
-### MAJOR — native func-value dispatch of a NON-COERCED aggregate (slice) to an LLVM-EMITTED shim: first-class vs by-address ABI mismatch → CRASH — ✅ FIXED & LANDED 2026-07-10 (aa64 `b691a3c5`, x64 `8f81756c`) — 1006 GREEN on both native modes (found 2026-07-10)
-
-**aa64 done (`b691a3c5`, option B, adversarially reviewed):** native aa64
-`emitCallFuncValue` now passes EVERY <=16B func-value aggregate arg (coerced OR
-non-coerced slice/iface-value) BY-ADDRESS as one `*uint8` word, and all shim shapes
-(func-value register/spill + closure fast/spill/aggregate/float) load + re-expand it
-split-aware — matching the LLVM shim's i8* contract.  `isByAddressAggAA64` /
-`shimInWordsForTypeAA64` are the aa64-local levers.  1006 green on native_aa64; full
-native_aa64 conformance 2712/0; conf `1022` covers the closure scalar-before-agg
-fast-path shift.  A latent all-stack-split bug in `emitCoercedUserArgSpillAA64`
-(loaded into `argReg(-1)`) was fixed en route.  **x64 needs the SAME (dispatch +
-emit_funcvals_shim + spill + the closure shims); 1006 stays RED on native_x64 until
-then.**  The straddle fix (`10897e36`) is superseded on aa64 (slices are now 1 word).
-
-**Symptom.** conformance `1006_funcval_xpkg_llvm_shim_dispatch` (a `*func(*[]int) int`
-OBTAINED from an LLVM dep via `fvcb.GetSliceCallback()` then dispatched) CRASHES
-(empty output, expected `42`) on `native_aa64`. Red on main — added by the concurrent
-`a08fdab0`, whose native_aa64 gap wasn't run; almost certainly red on native_x64 too.
-NOT the 417/420 straddle bug (that fix `989f3e15` doesn't touch this) and NOT xfail'd.
-
-**Root cause.** When a func value is CREATED in an LLVM dep (main never address-takes
-the underlying), its `@__shim` is emitted BY THE DEP under LLVM, which declares an
-aggregate arg BY-ADDRESS (`i8*`, one pointer word). But native `emitCallFuncValue`
-(x64 + aa64) passes a NON-COERCED aggregate (raw slice / iface-value) FIRST-CLASS
-(inline words). native-DISPATCH → LLVM-EMITTED-shim desyncs — the shim reads the
-first inline word as the slice's data pointer → wild deref / crash. (Coerced
-struct/array args already go by-address via `AggCoercedInReg`; only non-coerced
-slices/iface-values still ride first-class.)
-
-**This is the concurrent arm32 by-address project (`bc42705e` + PIECE 2 `a08fdab0`,
-"option B") extended to aa64 + x64** — same cross-mode i8* contract, remaining
-per-backend pieces. Distinct from 417/420 STRADDLE (native-shim path, first-class both
-sides — `989f3e15` is correct there; option B would later make slices 1 word and moot
-the straddle, no conflict). **Fix:** substitute a non-coerced ≤16B aggregate to a
-1-word `*uint8` in aa64/x64 `emitCallFuncValue` (mirror the `AggCoercedInReg`
-substitution) AND make the NATIVE shim load it by-address, so both the LLVM-shim and
-native-shim paths stay consistent. Verify `1006` green on native_aa64 + native_x64.
 
 ### native arm32: large-offset access hardening — residual from the >4095-byte frame fix (`6ce4b42f`) — 🟢 minor latent
 
