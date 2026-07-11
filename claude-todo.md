@@ -1074,7 +1074,7 @@ language extension, not a bug fix.
 - Do we support `import _ "pkg/foo"`? Should we? (Side-effect-only imports.)
 - Both interact with the package object naming question above.
 
-### Whole-package re-export (`expose`) — design + plan — 🟡 OPEN (ratified 2026-07-10, impl pending)
+### Whole-package re-export (`expose`) — 🟢 IMPLEMENTED + SPECIFIED (2026-07-10; Phase 6 conformance bundle remaining)
 
 A new CORE `.bni` declaration `expose "pkg/std/foo"` that adds another package's entire
 exported surface to this package's surface, for **refactors/renames** (promote
@@ -1090,9 +1090,14 @@ identity, but func/var/const qualified-reference mangling is **spelling-driven**
 (`ir/gen.bn` `resolveImportPkg`), so `expose` must make it follow the **resolved entity's
 home** — new plumbing (stamp the home on injected symbols + a reference-keyed lookup), swept
 across the ~75 `resolveImportPkg`/`buildQualName` sites and gated by a byte-identical-mangling
-test. **Ratified**; next prerequisite is the formal spec (plan Phase 0), then Phases 1→5. No
+test. **Landed:** Phase 0 (spec — `docs/spec` §16.5.2 + `binate.ebnf` `ExposeDecl` + nine
+`pkg.expose.*` rules, docs commits `ea2650e`/`53a20b5`) and Phases 1–5 (parser, loader,
+scope-injection, closure-registration, resolved-home mangling, collision check — final commit
+`76d76d3f`). **Remaining:** Phase 6 (broader conformance bundle + reflect confirmation). Feature
+stays **gated from bnc-tree `.bni` use** until a BUILDER understanding `expose` is pinned. No
 backend/codegen work (unlike FFI export). Reuses the existing cross-package type-alias
-substrate (`type X = other.Y`, tests `110`/`941`).
+substrate (`type X = other.Y`, tests `110`/`941`). See
+[plan-expose-execution.md](plan-expose-execution.md) for per-phase STATUS.
 
 ## Spec authoring & language-decision residuals
 

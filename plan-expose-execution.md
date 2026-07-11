@@ -6,11 +6,13 @@ against the real tree at `/Users/vtl/binate/temp-binate-3` (every `file:line` be
 re-verified — corrections to the doc summaries are called out inline). The **design** is
 **[design-expose.md](design-expose.md)**.
 
-**CONTINGENT ON PHASE 0.** The design is recorded as a note, but implementation is **not yet
-specified** (no canonical `docs/spec` rules/grammar) and **not yet ratified for code**. Treat
-Phase 0 (below) as a gating prerequisite: nothing in Phases 1–6 starts until Phase 0 closes.
-Do **not** read this document as approval to build the feature — it is the map for *if/when*
-Phase 0 clears.
+**STATUS (2026-07-10): Phases 0–5 all LANDED.** The feature is implemented (Phases 1–5 — see
+per-phase STATUS markers below) and specified (Phase 0 — `docs/spec` §16.5.2 + `binate.ebnf`
+`ExposeDecl` + the nine `pkg.expose.*` rules; docs commits `ea2650e` / `53a20b5`). Remaining:
+**Phase 6** (broader conformance bundle + reflect confirmation). The feature stays **gated from
+bnc-tree `.bni` use** until a BUILDER that understands `expose` is pinned (see the BUILDER
+gating rule below). The Phase-0 framing that follows is preserved as the historical record of
+what the phase covered.
 
 Recon note: six subsystem recon passes (R1 frontend, R2 loader, R3 checker/scope, R4
 IR mangling, R5 collision/reflect, R6 identity substrate + test layout + BUILDER) were run
@@ -36,6 +38,13 @@ marked **[REVIEW]** inline.
 ---
 
 ## Phase 0 — Ratify & specify (user-owned; GATING)
+
+**✅ STATUS (2026-07-10): LANDED (spec).** `docs/spec/16-packages-and-program-structure.md`
+§16.5.2 + `docs/spec/binate.ebnf` `ExposeDecl` (contextual keyword) + the nine `pkg.expose.*`
+rules; Annex A and `rule-ids.txt` regenerated (docs commits `ea2650e`, `53a20b5`). Two
+adversarial reviews clean — no MUST FIX; fix-forward applied (accurate interface-identity
+wording + conflict message-form templates). Sub-decisions closed as recommended: **contextual**
+keyword; **resolved-home mangling** in scope (Phase 4, landed); **`.bni`-only** enforced.
 
 Not code. The design note exists; what is missing before any implementation:
 
