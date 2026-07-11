@@ -632,10 +632,20 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
     the materializing wrappers (emitFrameStore / emitFrameLoad / emitBaseLoad), with the
     capture value shuttled through R4 (not IP) so a > 4095 store materialization can't
     clobber it. Byte-identical on every ≤ 4095 path (conformance unchanged at 2460);
-    adversarial-reviewed clean (0 surviving findings). **One guarded corner (follow-up):** a
-    by-address AGGREGATE argument whose stack tail exceeds 4095 needs a second address
-    scratch (IP holds the value pointer) — it fails LOUD via an explicit guard for now; full
-    support is a tracked follow-up.
+    adversarial-reviewed clean (0 surviving findings).
+  - **By-address-agg large-frame full support ✅ LANDED 2026-07-11 (`f74d59ee`)** — the one
+    guarded corner (a by-address AGGREGATE argument whose stack tail exceeds 4095) is now
+    served instead of fail-loud: emitSpillByAddrAggArm32 RE-READS the value-buffer pointer
+    into IP per stack word (R4 is free at the top of each word), loads the value, then
+    materializes the outgoing offset into IP and stores `[SP, IP]`. destOff is monotonic in
+    k, so a small-offset word never follows a large one. Byte-identical on every ≤4095
+    by-address-agg path; the former fail-loud test is now a compile test, and
+    `TestSpillByAddrAggReReadByteRef` pins the re-read sequence byte-for-byte (conformance
+    can't reach >~1024-word frames). Adversarial-reviewed clean (0 surviving findings; all 5
+    invariants verified). NOTE: the pre-fix full conformance run was corrupted by a
+    concurrent `/tmp` gen1 deletion; verification rests on the byte-identity of the reachable
+    path (unit byte-refs), a gen1-builds smoke, and the review — a clean post-land run
+    confirms.
   - **Phase C** — aggregate + multi-return capturing shims.
 - **Acceptance**: func-value / closure / interface conformance + unit tests
   pass in native baremetal.
