@@ -11,9 +11,9 @@ tag routing them to a parallel-worker lane (1 = front-end `pkg/binate/{checker,t
 
 ## CRITICAL
 
-### native closure AGGREGATE-RETURN marshal: register clobber when a by-address aggregate diverges the cursors on the down-shift path → SILENT WRONG-CODE — 🟢 FIXED (committed `ebabb5d3`, pending land), BOTH BACKENDS (found 2026-07-10, adversarial review of the x64 option-B change)
+### native closure AGGREGATE-RETURN marshal: register clobber when a by-address aggregate diverges the cursors on the down-shift path → SILENT WRONG-CODE — ✅ FIXED & LANDED 2026-07-10 (`95eab936`), BOTH BACKENDS (found 2026-07-10, adversarial review of the x64 option-B change)
 
-**FIX (`ebabb5d3`, both backends, adversarially-reproduced then verified).** On the
+**FIX (`95eab936`, both backends, adversarially-reproduced then verified; a focused 5-dimension adversarial review of the fix itself came back clean).** On the
 down-shift marshal path (pack-return + a single capture word — x64
 `loadClosureAggCallArgs_x64` / `emitClosureShimAggregateStackSpill_x64`; aa64
 `loadClosureAggCallArgsAA64` / `emitClosureShimAggregateStackSpillAA64`), when any
@@ -21,7 +21,7 @@ user param is a by-address aggregate, STAGE every incoming dispatch word to a sc
 frame and marshal from memory (source-order-free) — mirroring the func-value shim's
 `needStage`, so no live incoming register is read after an outgoing write.  The spill
 marshal helpers gained a `stageBase` param that redirects the incoming source to the
-staging region.  conformance `1023_closure_aggret_byaddr_clobber` covers register-only
+staging region.  conformance `1030_closure_aggret_byaddr_clobber` covers register-only
 + spill × raw slice + coerced struct (green on native_x64_darwin + native_aa64 + the
 LLVM/interp lanes).  aa64 spill split into `aarch64_closure_shim_aggregate_spill.bn`
 (+ `_test.bn`) to stay under the file-length cap.  Full closure/funcval/aggregate
@@ -93,7 +93,7 @@ treats it as non-destructible anyway. Peel `TYP_READONLY` in `ResolveAlias` (or 
 `NeedsDestruction`/`dtorTypeSuffix`) when `readonly` managed elements become a real
 possibility.
 
-### MAJOR — native func-value dispatch of a NON-COERCED aggregate (slice) to an LLVM-EMITTED shim: first-class vs by-address ABI mismatch → CRASH — 🟡 aa64 FIXED & LANDED 2026-07-10 (`b691a3c5`); x64 IN PROGRESS (found 2026-07-10)
+### MAJOR — native func-value dispatch of a NON-COERCED aggregate (slice) to an LLVM-EMITTED shim: first-class vs by-address ABI mismatch → CRASH — ✅ FIXED & LANDED 2026-07-10 (aa64 `b691a3c5`, x64 `8f81756c`) — 1006 GREEN on both native modes (found 2026-07-10)
 
 **aa64 done (`b691a3c5`, option B, adversarially reviewed):** native aa64
 `emitCallFuncValue` now passes EVERY <=16B func-value aggregate arg (coerced OR
