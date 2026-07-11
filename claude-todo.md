@@ -92,6 +92,44 @@ beyond the fixed case, but the principled fix is an error-suppression / trial mo
 speculative instantiation (route to `c.TentativeErrors` or a probe flag) rather than
 per-caller decl guards.  No standalone repro yet.
 
+### struct field holding ANOTHER package's generic Cursor + calling its multi-return Next → miscodegen (extractvalue on a scalar) / generic compile-HANG — 🔴 MAJOR / OPEN (found 2026-07-11)
+
+**Symptom.** A struct that stores another package's generic cursor as a VALUE FIELD and
+calls its multi-return pointer-receiver `Next`, extracting a component of the returned
+Entry:
+
+    type SC struct { tc table.Cursor[int, int, hash.FnHasher[int], cmp.FnEq[int]] }
+    func (c *SC) Next() (int, bool) {
+        var e table.Entry[int, int]; var ok bool
+        e, ok = c.tc.Next()
+        if !ok { return 0, false }
+        return e.Key, true
+    }
+    impl *SC : iter.Iterator[int]
+
+- CONCRETE form MISCODEGENS: `main.ll: error: extractvalue operand must be aggregate type`
+  — `%vN = extractvalue i64 %vM, 0`, an extractvalue applied to a scalar `i64` rather than
+  the `(Entry, bool)` multi-return aggregate.
+- GENERIC form (`SC[T]` over `table.Cursor[T, unit, ...]`, i.e. setfn's `SetCursor[T]`)
+  COMPILE-HANGS — gen1 builds, then compiling the package loops forever (no output, no
+  error).  Same underlying issue, worse manifestation under a type-param.
+
+**NOT** zero-size V: V=int reproduces the concrete extractvalue error identically.  Likely
+a codegen bug in the multi-return handling of a pointer-receiver method call on a struct
+FIELD (a value-typed nested generic cursor), or the Entry-component extraction after it.
+
+**Discovered by / impact.** Building `setfn.SetFn`'s bare-element iterator — a projecting
+cursor over the shared `table.Cursor` that yields `Entry.Key`.  Blocks SetFn's `Iter()` /
+`AsIterator()` / `iter.Iterable[T]`; SetFn ships with `Add`/`Has`/`Remove`/`Len` only for
+now (its `.bni` carries a TODO).  `mapfn.MapFn` iterates fine because it returns table's
+OWN `AsIterator()` (no projecting field-cursor) — so the trigger is specifically the
+value-field-cursor-projection pattern, not iteration in general.
+
+**Repro.** A ~30-line `main` importing `pkg/stdx/{hash,cmp,containers/table,containers/iter}`
+(needs B1/B2 landed to reference).  A self-contained minimization (a LOCAL generic cursor +
+a projecting field-cursor, no table/hash/cmp) is TODO — that would also confirm whether the
+trigger is cross-package or just the value-field-generic-cursor pattern.
+
 
 **Symptom.** Compiling `pkg/stdx/containers/table` (the shared policy-parameterized
 hash-table engine, B2 of the injected-fn container work) fails at the IMPORTED blanket
