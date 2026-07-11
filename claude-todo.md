@@ -1535,13 +1535,17 @@ func-value/array type-arg conflation, `fedbd0c5` method-value-on-generic. Brief 
 [plan-matrix-tests-generics-rtti.md](plan-matrix-tests-generics-rtti.md).
 
 **(A) Generics matrix — ✅ core BUILT & LANDED** as `conformance/matrix/generic-managed/`
-(sub-axes `inpkg` / `xpkg` / `method-value` / `distinct`, ~22 cells + generator; commits
+(sub-axes `inpkg` / `xpkg` / `method-value` / `distinct`, 18 cells + generator; commits
 `591f6945` bug-dense core, `ca3dd5b5` method-value + type-distinctness, `bea54fc2`
-managed-struct + func-value). Invariants in place: links+runs, refcount balance (relative
-form), type-distinctness (compile-error pairs — array-len `[3]`/`[5]`, func-sig
-`(int)uint`/`(bool)uint`), empty/never-populated destroy. **Remaining (the plan's deferred
-"second wave"):** method-**expression** cells, parameterized-receiver-impl dispatch
-(`impl *Cursor[T] : Iterator[T]`), and generic-constraint dispatch.
+managed-struct + func-value, `a5869af1` iface balance element). Invariants in place:
+links+runs, refcount balance (relative form), type-distinctness (compile-error pairs —
+array-len `[3]`/`[5]`, func-sig `(int)uint`/`(bool)uint`), empty/never-populated destroy.
+The `iface` balance element's `xpkg` cell uses `gh.At[@Numbered](h,0).num()` (iface-method
+CALL on a generic-call result), so it regression-guards conformance/1027 (`dfbdf1dd`).
+**Remaining (the plan's deferred "second wave"):** method-**expression** cells,
+parameterized-receiver-impl dispatch (`impl *Cursor[T] : Iterator[T]`), and
+generic-constraint dispatch; plus array-of-managed / nested-generic element kinds and
+`copy` / `destroy-populated` ops.
 
 **(B) Type-assertion/RTTI matrix — ❌ NOT built.** Axes = source `*I`/`@I`/`*any` × recovery
 kind × target (concrete/interface incl. transitive) × form × outcome × mode; invariants =
