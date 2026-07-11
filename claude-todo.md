@@ -35,89 +35,61 @@ beyond the fixed case, but the principled fix is an error-suppression / trial mo
 speculative instantiation (route to `c.TentativeErrors` or a probe flag) rather than
 per-caller decl guards.  No standalone repro yet.
 
-### embedded generic-struct field mis-substitutes the OUTER struct's type params → bogus instantiation → IR-gen "unresolved selector" — 🔴 MAJOR / OPEN (found 2026-07-11)
+### concrete struct embedding a generic cursor → Cursor.Next emitted before its @Table field type is registered → genSelector catch-all → invalid `extractvalue i64` — 🔴 MAJOR / OPEN (found 2026-07-11)
 
-**DEEPER ROOT CAUSE (pinned via .ll, refined 2026-07-11).** Not merely a registration
-gap — a WRONG type-param substitution.  When `Cursor[int, int, hash.FnHasher[int],
-cmp.FnEq[int]]` is instantiated, its field `t @Table[K, V, H, E]` (K/V/H/E = Cursor's own
-binders) is resolved with H and E substituted to `int` instead of `FnHasher[int]` /
-`FnEq[int]` — yielding a BOGUS `Table[int, int, int, int]` type.  Proof: the emitted .ll
-defines TWO Table structs — the correct `<{...i64, i64, %FnHasher, %FnEq}>` (from `var t
-@Table[...]`) AND a bogus `Table4_...intintintint = <{ %BnManagedSlice x3, i64, i64, i64,
-i64 }>` (h/e are i64, not the policy structs), and `Cursor.Next`'s `it.t.used`/`keys`/`vals`
-GEPs use the BOGUS type (13 uses).  Downstream: `getSelectorType(it.t)` returns the bogus
-type's name, `lookupStructIdx` misses it (it isn't in gc.Mod.Structs), and genSelector's
-catch-all fires the panic + `extractvalue i64` garbage (3 of them = the 3 slot accesses).
-The bogus type's field OFFSETS happen to match (FnHasher/int are both 1 word), so it's the
-NAME/registration that breaks, not the layout.  Likely site: ensureInstantiatedStruct's
-field resolution / resolveTypeExpr's TEXPR_NAMED substitution mapping Cursor's H (binder
-index 2) / E (index 3) to the wrong args — a by-index-vs-by-owner substitution hazard
-(cf. the checker-side genericImplSatisfies guard 6647c49f).  The proper fix is to correct
-the substitution so the field type is `Table[int,int,FnHasher[int],FnEq[int]]`; the
-on-demand-register idea below would only paper over the bogus type.
+**Two symptoms were conflated here; they are DIFFERENT bugs. The GENERIC one (a compile
+hang) is FIXED (286481c1); the CONCRETE one (an `extractvalue i64` link failure) is what
+remains OPEN below.**
 
-**ORIGINAL (registration-gap) framing, superseded by the above:**
+**(1) FIXED — generic projecting cursor looped forever (was reported as a "compile hang").**
+The real fault was NOT a compile hang but a RUNTIME infinite loop miscompiled by IR-gen:
+`applyReceiverConversion` (gen_method.bn) passed a COPY of a non-ident lvalue receiver to a
+`*T` pointer-receiver method instead of its address, so `sc.tc.Next()` (tc an embedded
+generic `Cursor`) advanced a throwaway copy and `sc.tc.i` never moved.  Fixed by taking the
+address via `genSelectorPtr` (commit 286481c1, conformance 1047).  `setfn.SetFn` now
+iterates (`Iter`/`AsIterator`/`iter.Iterable[T]`, 7d4f4559).  The "hang" impression came
+from running the built program, not from the compiler looping.
 
-**ROOT CAUSE (pinned via .ll).** The `extractvalue i64` malformation is IR-gen's
-`genSelector` catch-all — it emits `rt.Panic("internal error: unresolved selector in
-IR-gen (compiler bug)")` + garbage (`add i64 0,0` / `extractvalue i64`) when NO arm
-resolves a selector.  For `it.t.used` inside `table.Cursor[...].Next` (it: *Cursor, `t`:
-`@Table[...]`, `used`: `@[]bool`), the nested-selector arm (gen_selector.bn:162) computes
-`innerTyp = getSelectorType(it.t)` = `@Table[...]`, hits Case 1a (managed-ptr-to-struct),
-then `si = lookupStructIdx(gc, Table_name)` returns **< 0** — the instantiated `Table`
-struct is NOT in `gc.Mod.Structs` at the point `Cursor.Next` is codegen'd.  Every arm's
-`if si >= 0` fails → catch-all panic.  Trigger: a struct EMBEDDING the cursor as a field
-(`type Holder struct { tc table.Cursor[...] }`) causes `Cursor.Next` to be emitted before
-`Table[...]` is registered; a LOCAL cursor var (`var it = t.Iter(); it.Next()`) registers
-`Table` first and works.  Reproduces with a plain `Holder` — no impl / projecting method
-needed.  Not zero-size-V (V=int reproduces).
+**(2) OPEN — concrete struct embedding a generic cursor fails to LINK (`extractvalue i64`).**
+`type Holder struct { tc table.Cursor[int, int, hash.FnHasher[int], cmp.FnEq[int]] }` plus a
+single `h.tc.Next()` emits invalid IR: inside `Cursor.Next`, the nested selector `it.t.cap`
+/ `it.t.used` / `it.t.keys` (it: *Cursor, `t`: `@Table[...]`) is UNRESOLVED — genSelector's
+catch-all fires, emitting a `rt.Panic("... unresolved selector ...")` call + garbage
+`%vN = add i64 0, 0`, and the following field access does `extractvalue i64 %vN, 0` (an
+extractvalue on a scalar).  clang's verifier rejects it: `extractvalue operand must be
+aggregate type`.  This reproduces on the PRE-fix compiler too, so it is independent of (1),
+and it does NOT block SetFn (whose `SetCursor[T]` is GENERIC — it instantiates at a pass-2
+use site where `Table` is already registered, so its `Cursor.Next` resolves `it.t.*`
+correctly).
 
-**FIX DIRECTION.** On-demand-register the missing struct in `genSelector` (and any arm that
-`lookupStructIdx`es a field-base struct): when the lookup misses and `structTyp.InstDecl !=
-nil`, call `ensureInstantiatedStruct(gc, bit_cast(@ast.Decl, structTyp.InstDecl),
-<definingPkg>, structTyp.InstArgs)` then re-lookup — mirroring how `resolveTypeExpr`'s
-TEXPR_INSTANTIATE arm registers it (gen_type_resolve.bn:182).  The fiddly part is deriving
-`<definingPkg>` from the type so the re-registered name equals `structTyp.Name` (the
-`instantiationMangledName` embeds the defining pkg).  Alternatively, ensure a generic
-method's receiver FIELD-type structs are registered when the method is emitted.
+**ROOT CAUSE (pinned via .ll).** At the point `Cursor.Next` is codegen'd for the CONCRETE
+embedding, `lookupStructIdx(gc, <Table inst name>)` returns < 0 — the instantiated `Table`
+struct is not yet in `gc.Mod.Structs`.  A struct embedding the cursor as a value field
+forces `Cursor.Next` to be emitted (during the outer struct's layout) BEFORE `Table[...]`
+is registered; a LOCAL cursor var (`var it = t.Iter(); it.Next()`) registers `Table` first
+and works.  A related SPURIOUS instantiation is also emitted: a bogus
+`Table[int,int,int,int]` (h/e resolved to `int` instead of the policy structs — a
+by-index-vs-by-owner substitution slip when resolving `Cursor`'s field `t @Table[K,V,H,E]`)
+with dead dtor/copy/reflect symbols.  In the generic case the bogus type is emitted but
+harmless (Cursor.Next's real GEPs use the correct Table); in the concrete case the selector
+resolves to nothing at all → the catch-all.  Whether the two share one fix (correct the
+substitution AND register on demand) or are two adjacent slips is TBD.
 
-**Old symptom notes (superseded by the root cause above):**
+**FIX DIRECTION.** Either (a) ensure a generic method's receiver FIELD-type structs are
+registered before/when the method body is emitted (order fix), or (b) on-demand-register
+the missing struct in `genSelector`/`getSelectorType` when `structTyp.InstDecl != nil` (call
+`ensureInstantiatedStruct` then re-lookup — mirroring resolveTypeExpr's TEXPR_INSTANTIATE
+arm, gen_type_resolve.bn:182); the fiddly part of (b) is deriving `<definingPkg>` so the
+re-registered name equals `structTyp.Name`.  Separately, fix the H/E substitution so no bogus
+`Table[int,int,int,int]` is produced at all.
 
-**Symptom.** A struct that stores another package's generic cursor as a VALUE FIELD and
-calls its multi-return pointer-receiver `Next`, extracting a component of the returned
-Entry:
-
-    type SC struct { tc table.Cursor[int, int, hash.FnHasher[int], cmp.FnEq[int]] }
-    func (c *SC) Next() (int, bool) {
-        var e table.Entry[int, int]; var ok bool
-        e, ok = c.tc.Next()
-        if !ok { return 0, false }
-        return e.Key, true
-    }
-    impl *SC : iter.Iterator[int]
-
-- CONCRETE form MISCODEGENS: `main.ll: error: extractvalue operand must be aggregate type`
-  — `%vN = extractvalue i64 %vM, 0`, an extractvalue applied to a scalar `i64` rather than
-  the `(Entry, bool)` multi-return aggregate.
-- GENERIC form (`SC[T]` over `table.Cursor[T, unit, ...]`, i.e. setfn's `SetCursor[T]`)
-  COMPILE-HANGS — gen1 builds, then compiling the package loops forever (no output, no
-  error).  Same underlying issue, worse manifestation under a type-param.
-
-**NOT** zero-size V: V=int reproduces the concrete extractvalue error identically.  Likely
-a codegen bug in the multi-return handling of a pointer-receiver method call on a struct
-FIELD (a value-typed nested generic cursor), or the Entry-component extraction after it.
-
-**Discovered by / impact.** Building `setfn.SetFn`'s bare-element iterator — a projecting
-cursor over the shared `table.Cursor` that yields `Entry.Key`.  Blocks SetFn's `Iter()` /
-`AsIterator()` / `iter.Iterable[T]`; SetFn ships with `Add`/`Has`/`Remove`/`Len` only for
-now (its `.bni` carries a TODO).  `mapfn.MapFn` iterates fine because it returns table's
-OWN `AsIterator()` (no projecting field-cursor) — so the trigger is specifically the
-value-field-cursor-projection pattern, not iteration in general.
-
-**Repro.** A ~30-line `main` importing `pkg/stdx/{hash,cmp,containers/table,containers/iter}`
-(needs B1/B2 landed to reference).  A self-contained minimization (a LOCAL generic cursor +
-a projecting field-cursor, no table/hash/cmp) is TODO — that would also confirm whether the
-trigger is cross-package or just the value-field-generic-cursor pattern.
+**Repro.** `/tmp/holder.bn`-shaped: a plain `main` with `type Holder struct { tc
+table.Cursor[int,int,hash.FnHasher[int],cmp.FnEq[int]] }` + `h.tc.Next()`; importing
+`pkg/stdx/{hash,cmp,containers/table}` (needs B1/B2 landed).  `--emit-llvm` succeeds but the
+`.ll` fails clang verification (`extractvalue operand must be aggregate type`).  A
+self-contained minimization (a LOCAL generic cursor embedded in a concrete struct, no
+table/hash/cmp) is TODO — would confirm whether the trigger is cross-package or just the
+value-field-generic-cursor pattern.
 
 
 **Symptom.** Compiling `pkg/stdx/containers/table` (the shared policy-parameterized
