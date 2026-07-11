@@ -8,6 +8,48 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## MAJOR — method VALUE on a generic instantiation emits an invalid struct name — ✅ FIXED & LANDED 2026-07-09 (`fedbd0c5`)
+**Fixed & LANDED on `main` as `fedbd0c5`** (the development commit on `work-2` was `2d48f348`): `gen_method_value`
+remaps the captured-receiver type's base to the IR-gen instantiated struct
+(`remapCapturedBaseToIR`, peeled from the receiver's IR-gen type) when it carries
+the raw bracket spelling, so the closure struct is named `Box__bn_inst__int` not
+`Box[int]`.  A focused review found a second shape — a method value on a generic
+FUNCTION-call result (`mkbox[int](55).Get`) — where the receiver's IR-gen type was
+nil (funcRefName can't name a `Gen[T]` head); `instantiatedCalleeResultType`
+resolves it, fixing both the LLVM name and the VM `main.Box[int].Get` extern.  146
+xfails dropped (now green on all LLVM-text modes; arm32-linux cross-compile
+verified clean — the fix is target-independent).  Coverage: 146 (pointer/managed
+receivers + an arg) + 167 (cross-package) + 168 (generic-call-result).  Original
+diagnosis follows.
+
+A method value on a monomorphized generic type — `var f = bp.Get` where `bp` is
+`*Box[int]` and `Box[T]` has `func (b *Box[T]) Get() T` — mis-compiles under the
+LLVM backend: `gen_method_value.bn` builds the closure's captured-receiver type
+from the CHECKER's method receiver type (`m.FuncType.Params[0].Type`), whose
+`Name` is the raw source spelling `Box[int]`. IR-gen mangles that verbatim into
+the invalid LLVM identifier `%bn_S1_4_main1_8_Box[int]` (contains `[` `]`), so
+clang aborts (`expected '=' after name`) **before** the linker. The direct-call
+path is unaffected because it uses the IR-gen instantiated type (mangled
+`Box__bn_inst__int`), not the checker type. **Pre-existing** (present before the
+methods-on-generic-types work; discovered during that feature's adversarial
+review). **Passes under the VM** (no LLVM-text stage) — so it was
+mode-specific: red on LLVM-text modes (builder-comp, -comp-comp, -comp-comp-comp,
+arm32 LLVM cross), green on the `int`/VM modes.
+- **Symptom / repro:** conformance `146_generic_type_method_value`.
+  `--emit-llvm` showed the raw-bracket struct name at line ~17.
+- **Root cause:** the method-value path must translate the captured receiver type
+  to its IR-gen instantiated form (mangled name) — as `genMethodCall` does via the
+  resolved `recv.Typ` — instead of using the checker type's `Name` for the closure
+  struct. The `recvTypeName`/`methodQName` in `gen_method_value.bn` are correct
+  (mangled, via `methodValueRecvIRType`); only `capturedTyp` carried the raw name.
+- **Note:** the lazy-emission trigger for the method-value path (a method body
+  reference site the monomorphizer must fire) is fixed (`ensureMethodsForInstName`
+  in `genMethodValue`), verified via `--emit-llvm` (the method body `define`
+  appears) and the VM (146 passes there).
+- **Native modes:** `146` carries no xfail in any mode (native included) — the bug
+  was LLVM-text-specific (native does not emit LLVM text), so native was never
+  affected.
+
 ## MAJOR (mangler) — cross-package generic container on a managed element type: destructor mangled-prefix mismatch (both backends) — ✅ FIXED & LANDED 2026-07-10 (`8d9e7577`)
 
 **Symptom.** A generic stdx container (`vec.Vec`, and by the same mechanism
