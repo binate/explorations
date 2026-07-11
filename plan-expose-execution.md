@@ -873,6 +873,17 @@ extension).
 
 ## Phase 5 — Expose-collision check
 
+**✅ STATUS (2026-07-10): LANDED on main — `76d76d3f`.** Implemented as designed:
+`check_expose_collision.bn` (`checkExposeCollisions`), gated on `checkBodies` in `checker.bn`
+right after `checkImportDeclCollisions`. Enumerates each exposed package's RAW registered
+`Syms` (not the post-injection scope, which `Scope.Define` has already collapsed to one
+survivor per name) plus this package's own decl names, reporting both the two-exposes and the
+expose-vs-own collision with a single-Pos message naming both origins by full path. Negative
+conformance tests `1032_expose_collision_vs_own` + `1033_expose_collision_two_exposes`; unit
+test `check_expose_collision_test.bn`. (Those two negatives were renumbered off 1029/1030 during
+landing — concurrent workers took the lower numbers first.) Completes all five functional phases
+of `expose`; the feature remains gated (no bnc-tree `.bni` uses `expose`) pending Phase 0 (spec).
+
 **Deliverable:** colliding exposes / redeclarations rejected with a clear message naming both
 origins. **Deps:** 3 (its transitive-closure surface).
 
