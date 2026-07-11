@@ -616,10 +616,26 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
     `CallArgRegStart`/`captureWords` step), plus a comment noting surviving captures have
     Σ`ArgWords` == true footprint, plus `TestClosureShimIndirectLargeCaptureSetsError` (24-byte
     `struct{int64,int64,int64}` capture asserts `a.HasError`). Closes the Phase A NIT.
-  - **Phase B (in review)** — capturing stack-spill shim (over-budget R0–R3 budget).
-    Checkpoint `a90bb8e1` (native unit + hygiene green); full native conformance 2417 → **2453**
-    (+36). Agent run ended on a socket error before its own final report, so the 5-lens
-    adversarial review + independent verification are being done here before landing.
+  - **Phase B ✅ LANDED 2026-07-10 (`26978ead`)** — capturing stack-spill shim (framed-BL
+    over-budget shim: incoming-reg staging, CAPTURE-PREFIX classify at classifyBase =
+    NumCaptureParams, stack-bound-capture spill, right-to-left reg-capture loads, BL +
+    teardown). Full native conformance 2417 → **2460** (+43). The 5-lens adversarial review
+    flagged a "critical silent miscompile" in the capture-spill store (value in IP,
+    clobbered by a > 4095 offset materialization) — on rigorous analysis a FALSE POSITIVE
+    (unreachable: any frame large enough trips a loud imm12 error from the staging store /
+    capture load first), but it surfaced the real **large-frame** gap below.
+  - **Large-frame fix ✅ LANDED 2026-07-10 (`fb221c52`)** — both spill paths (closure +
+    pre-existing non-closure) addressed the frame with raw LDR/STR immediates, which trip
+    imm12's loud range error past 4095, so a func value / closure spilling > ~1024 words
+    failed to compile (reachable at a modest count via sub-word captures whose 4-byte
+    outgoing slots outrun the packed struct). Routed every frame-relative access through
+    the materializing wrappers (emitFrameStore / emitFrameLoad / emitBaseLoad), with the
+    capture value shuttled through R4 (not IP) so a > 4095 store materialization can't
+    clobber it. Byte-identical on every ≤ 4095 path (conformance unchanged at 2460);
+    adversarial-reviewed clean (0 surviving findings). **One guarded corner (follow-up):** a
+    by-address AGGREGATE argument whose stack tail exceeds 4095 needs a second address
+    scratch (IP holds the value pointer) — it fails LOUD via an explicit guard for now; full
+    support is a tracked follow-up.
   - **Phase C** — aggregate + multi-return capturing shims.
 - **Acceptance**: func-value / closure / interface conformance + unit tests
   pass in native baremetal.
