@@ -8,6 +8,23 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## Stdlib conformance suite — optional follow-ups — ✅ DONE & LANDED 2026-07-10 (`c31dac39`)
+
+Both optional cleanups are done (`c31dac39`):
+- **Folded the 8 ad-hoc stdlib-importing tests** out of the MAIN conformance set into
+  the `conformance/stdlib/*` subtree (whitelist-exempt, same runner), dropping their 8
+  `conformance-imports.whitelist` entries: 577→`errors/004_cross_pkg_consumer`,
+  662→`errors/005_is_sentinel`, 526/528/535→`strconv/004_parse_cross_pkg` /
+  `005_format_append_cross_pkg` / `006_float_cross_pkg`, 855→`time/003_cross_pkg_consumer`
+  (+ its two int-mode xfails), 663→`io/001_iseof` (new `io` subdir),
+  726→`strings/003_cross_pkg_iface_impl`.
+- **Removed `os_test.bn`'s `TestErrorIfaceUpcast`** — redundant with
+  `stdlib/errors/001_cross_mode_iface_upcast` (its declared cross-mode home, which runs
+  under builder-comp too, so no native coverage lost).
+
+Verified: builder-comp green on the moved tests (incl. the new `io` subdir); the moved
+int-mode xfail resolves (XFAIL in builder-comp-int); os unit tests pass; hygiene 16/16.
+
 ## MINOR (e2e / BUILDER-lag cleanup) — drop the gen1 build in the os-using e2e scripts (stat/readdir) — ✅ DONE & LANDED 2026-07-10 (`78c7e725`)
 
 **DONE & LANDED (`78c7e725`).** `e2e/stat-values.sh` and

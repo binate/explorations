@@ -1504,18 +1504,6 @@ byte-count tolerance to "fix" it — a real word-size regression looks identical
   for the spec `e2e/split-paths.sh` validates and
   [`plan-repl.md`](plan-repl.md) for what `e2e/repl.sh` covers.
 
-### Stdlib conformance suite — optional follow-ups — 🟢 LOW (2026-06-20)
-
-The suite is built and every injected stdlib package has cross-mode coverage
-(moved to claude-todo-done.md). Two optional cleanups remain:
-- Fold the ~8 ad-hoc stdlib-importing tests in the MAIN conformance set
-  (`577_std_errors`, `855_std_time`, `662_errors_is`, `526/528/535_strconv`,
-  `663_io_iseof`, `726_cross_pkg_iface_impl`) into `conformance/stdlib/*` (and
-  drop their `conformance-imports.whitelist` entries).
-- Remove the now-redundant `os_test.bn` `TestErrorIfaceUpcast` (covered by
-  `conformance/stdlib/errors/001`; only runs under `builder-comp` now), or keep
-  it as a native-only smoke.
-
 ### Stale-xfail sweep — residuals (the cross-mode CONFORMANCE sweep is done) — 🟡 OPEN
 The big stale-xfail sweep — all 10 modes via the `conformance-xpass.yml` CI workflow;
 121 stale conformance markers + 8 VM-mode unittest markers removed; per-mode detail +
