@@ -1517,12 +1517,52 @@ methodology — is ✅ DONE; see [claude-todo-done.md](claude-todo-done.md). Two
   substring collision) during the sweep. Worth a look now that `run.sh --exact` no
   longer pulls it into the `value-struct` filter.
 
-### Plan-3 adversarial-review follow-ups (test-hygiene + coverage gaps from `cc2ddcc4` / `997c4c04` / `0c707e1f`) — 2026-06-08
-Non-wrong-code items from the adversarial review of the plan-cr2-3 work; each is small. (The live wrong-code findings are the OP_CAST/iface-arg CRITICAL and the float-multi-return MAJOR (both fixed & archived in claude-todo-done.md).)
-- **Weak / over-claimed Defect-6 pin**: the addr-aggregate `global` cells (`997c4c04`) + their generator docstring/README claim to pin "2-word sizing / mis-sized-to-one-word drops a word" — but store+load are width-consistent so the cell is INVARIANT to allocation size (it pins materialization + `__init`-store + read-back wiring, NOT sizing). Fix the docstring (`gen-addr-aggregate-matrix.py:96-104`) / README / commit framing to match. Also Defect 6 closed using only the two shapes that typecheck; readonly-wrapped + named-over-aggregate + raw `*func()` + uninitialized-nil global companions (the Class-A materialization risk in `plan-code-red-2.md`) were left out — record as an explicit deferral (invoking them is blocked upstream at the call typechecker).
-- **Coverage gaps**: aa64 per-field iface-multi-return collect (`aarch64_iface.bn:204-228`, the exact loop that dropped sub-word fields) has NO unit test (only conformance on aa64); x64 `collectMultiReturnTuple`-for-iface has no unit test for the IFACE op; an aggregate-component iface multi-return tuple (`(Pair,int)`) is uncovered; the iface-method-arg-with-global position is covered by neither a unit test nor 551/573 (see the CRITICAL entry).
-- **Latent fragility (nit)**: `pkg/binate/ir/gen_call.bn` computes `resultTyp` generically and hands it to `EmitCallHandle`/`EmitCallIndirect` (magic-name dispatch) with no structural guard that it isn't a multi-return struct — add a cheap assert so the "these ops never carry a multi-return" invariant is enforced in code, not convention.
-- **Discovery**: 2026-06-08, adversarial multi-agent review of plan-cr2-3 work (6 reviewers → adversarial verify → completeness critic; 21/23 findings confirmed).
+### Plan-3 adversarial-review follow-ups (test-hygiene + coverage gaps from `cc2ddcc4` / `997c4c04` / `0c707e1f`) — 🟡 PARTIALLY RESOLVED (re-audited 2026-07-10)
+Non-wrong-code items from the adversarial review of the plan-cr2-3 work (2026-06-08); each is
+small. (The live wrong-code findings — the OP_CAST/iface-arg CRITICAL and the
+float-multi-return MAJOR — are both fixed & archived in claude-todo-done.md.) **Re-audited
+against the tree 2026-07-10; two sub-items are now DONE (see bottom), the rest remain:**
+
+**STILL REMAINING (explicit):**
+1. **Fix the over-claimed Defect-6 docstring/README (`997c4c04`).** The addr-aggregate `global`
+   cell does NOT pin "2-word sizing / mis-sized-to-one-word drops a word" — store+load are
+   width-consistent, so the cell is **invariant to allocation size**; it actually pins
+   materialization + `__init`-store + read-back wiring. STILL over-claims in
+   `conformance/gen-addr-aggregate-matrix.py` (the `global` docstring, ~lines 98-103: "the
+   storage must be sized for BOTH words … a global mis-sized to one word … drops a word") and
+   `conformance/matrix/addr-aggregate/README.md` (~lines 23, 50). Reword both to "materialization
+   / `__init`-store / read-back wiring, not sizing."
+2. **Three missing iface-multi-return UNIT tests** (the code paths are conformance-covered on
+   aa64 but not unit-tested; the iface unit-test files exist but have NO multi-return case):
+   - **aa64:** `collectMultiReturnFields` for the iface op (`pkg/binate/native/aarch64/aarch64_iface.bn`
+     ~209-213) — add a case to `aarch64_iface_test.bn` (today only `aarch64_funcvalue_multiret_test.bn`
+     exercises the collect, via the func-value path, not the iface op).
+   - **x64:** `collectMultiReturnTuple` for the iface op (`pkg/binate/native/x64/x64_iface.bn:211-223`)
+     — add a case to `x64_iface_test.bn` (no multi-return test there today).
+   - **aggregate-component iface multi-return:** an iface method returning `(struct, scalar)` (a
+     `(Pair,int)`-shaped tuple) is uncovered — `454_generic_iface_multi_method` is multi-*method*
+     (scalar returns), not a multi-*return* with an aggregate component. Verify no test exists,
+     then add one.
+3. **`gen_call.bn` assert (nit).** `pkg/binate/ir/gen_call.bn` computes `resultTyp` (which CAN be a
+   multi-return struct) and hands it to `EmitCallHandle`/`EmitCallIndirect` (the `_call_dtor` /
+   `_call_shim_scalar` magic-name arms) with no guard. The invariant "these shim/handle ops never
+   carry a multi-return" holds by construction (the shims don't multi-return) but isn't enforced —
+   add a cheap assert.
+
+**DONE since 2026-06-08 (removed from scope):**
+- **Defect-6 deferred companion shapes** (readonly-wrapped / named-over-aggregate / raw `*func()` /
+  uninitialized-nil global) — NOT just "record as a deferral"; they were **built** as the `globals`
+  matrix (`conformance/matrix/globals/`, `gen-globals-matrix.py`): `noinit/` covers uninitialized-nil
+  incl. the `named-*` (named-over-aggregate) + `func`/`named-func` cells, and `readonly/struct.bn`
+  covers the readonly-wrapped shape.
+- **iface-method-arg-with-global** — covered by `4a9775cf` ("materialize `&G` used as an OP_CAST
+  source and an aa64 iface-method arg"), which added `aarch64_global_ref_test.bn` +
+  `x64_global_ref_test.bn` + conformance `669_cast_global_addr`. (The old "see the CRITICAL entry"
+  cross-ref is stale — that CRITICAL is archived.) `551`/`573` remain addr-of-global-scalar tests,
+  unrelated.
+
+**Discovery:** 2026-06-08, adversarial multi-agent review of plan-cr2-3 work (6 reviewers →
+adversarial verify → completeness critic; 21/23 findings confirmed).
 
 The code-red conformance-matrix family (`conformance/matrix/`, see
 `plan-code-red.md` §7) has four members realized: `refcount` (Class 1),
