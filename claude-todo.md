@@ -216,24 +216,22 @@ result auto-derefs, so `call().f` is the usual form).  Add xfail coverage.
 The non-generic exposed-type/interface-reference mis-compile is **✅ FIXED +
 LANDED (476e0fb2)** — `homedQualifier` threaded into the non-generic
 type-resolution sites (`isInterfaceTypeExpr`, `ifaceTypeForName`, the struct/alias
-lookup).  Two related gaps found while building the Phase-6 bundle remain open:
+lookup).  Building the Phase-6 bundle surfaced ONE real remaining gap (workstream
+A, below).
 
-### `expose` corrupts a package's reflection descriptor — crash reflecting an expose-using package — 🟠 OPEN (found 2026-07-10) [workstream B]
-
-**Symptom.** Reflecting over a package that USES `expose` truncates/crashes after
-the first function.  An aggregator `pkg/agg` (`func Own() int` + `expose "pkg/inner"`):
-`agg.__Package().Functions` reports len 2, but iterating prints `pkg/agg.Own` then
-stops — a crash on `Functions[1]`.  The SAME aggregator WITHOUT the `expose` line
-reflects correctly (`pkg/agg.Own` + `pkg/agg.__Package`).  So `expose` corrupts the
-declaring package's `__Package()` descriptor function table — most likely the
-exposed funcs leak into the descriptor as dangling entries (they have no `ir.Func`
-in this module, so `collectPackageFuncs` in `codegen/emit_pkg_descriptor.bn`
-emits a bad/short entry, or the count and the emitted entries diverge).  This is a
-**descriptor-emission** bug, distinct from the (fixed) type-resolution one.
-**Test:** `conformance/1041_expose_reflect` (untracked; no `expected` — documents
-the crash; give it `expected` / xfail once fixed).  Contradicts §16.5.2
-`pkg.expose.reflect` (an exposed member should reflect under its HOME, not corrupt
-A's descriptor).
+A suspected reflection-descriptor bug (workstream B) was investigated and
+**REFUTED — `expose` reflection is CORRECT.**  Reflecting over an expose-using
+aggregator (`pkg/agg`: `func Own()` + `expose "pkg/inner"`) lists only agg's OWN
+funcs (`pkg/agg.Own` + the synthesized `pkg/agg.__Package`); the exposed `InnerFn`
+is correctly excluded (it is `IsExtern` in agg's module) and reflects under its
+HOME package `pkg/inner` — spec `pkg.expose.reflect` confirmed.  Test
+`conformance/1041_expose_reflect` PASSES (builder-comp + builder-comp-int).  The
+earlier "crash reflecting after the first function" report was a misdiagnosis: the
+conformance runner truncates its FAIL-message `actual` to `head -3` (`run.sh:313`),
+and the test had no `expected` file (so it always took the FAIL branch), which
+displayed only 3 of the 7 correct output lines.  The binary exits 0 with all 7
+lines.  (Lesson: on a suspicious truncated `actual`, capture the raw program
+output before diagnosing.)
 
 ### Exposed GENERICS unsupported — generic TYPES rejected by the checker + generic-FUNC refs mis-mangle at IR-gen — 🟠 OPEN (found 2026-07-10) [workstream A]
 
