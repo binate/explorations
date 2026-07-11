@@ -1168,45 +1168,45 @@ composite- or variadic-specific (the plain `eq(other Self)` reproduces it).
 
 ---
 
-### `==` / `!=` (and relational) on aggregates — residual (generic re-check corner cases) — 🟠 MAJOR ((b) re-triaged 2026-07-10: NOW ACTIONABLE — a live silent-miscompile)
+### `==` / `!=` (and relational) on aggregates — VM-silent generic-comparison residuals — 🟠 MAJOR (broader class OPEN; same-package (b) fixed 2026-07-11)
 The `==`/`!=`/relational aggregate story is ✅ DONE & LANDED — full arc (checker
 rejection, struct/array + generic-function impl, sentinel decision, generic-field
-re-check) archived in [claude-todo-done.md](claude-todo-done.md). Two small residuals in the generic
-instantiation re-check remain. **Re-triaged 2026-07-10:** (a) is still cosmetic/deferred;
-**(b) has become a LIVE DEFECT** — the feature that blocked it (generic-type methods with a
-type-param receiver) has since landed, so the re-check gap is now reachable, and it is a
-silent miscompile on the VM.
-- **(a) Order-dependent — COSMETIC only.** A forward-ref instantiation checked BEFORE
-  the generic's body is type-checked falls back to the loud IR-gen error instead of a
-  clean checker rejection (never a silent miscompile, never a false reject — just a
-  less-friendly diagnostic in that ordering). A fully order-independent version needs
-  a checker sub-pass or an explicit `comparable` constraint — non-trivial work for a
-  diagnostic-quality-only gain; deferred.
-- **(b) Generic-TYPE methods — NOW A LIVE SILENT MISCOMPILE (re-verified 2026-07-10).**
-  The 2026-06-30 triage marked this UNREACHABLE because bnc rejected a method on a generic
-  type with a type-param receiver (`func (b Box[T]) eq(...)` → "method receiver must be a
-  named type"). **That feature has since landed** — both `func (b Box[T]) eq(...)` and the
-  `*Box[T]` receiver form now compile and run. So the re-check gap is reachable, and it
-  bites: a generic-type-method body that compares a type-param FIELD (`b.v == other.v`,
-  `v T`) is NOT re-checked at type instantiation, so instantiating with a NON-comparable
-  type-arg slips past the checker.
-  - **Repro** (`type Box[T] struct { v T }; func (b Box[T]) eq(o Box[T]) bool { return b.v == o.v }`,
-    then `Box[*[]int]{...}.eq(...)`): LLVM emits invalid IR (`icmp eq %BnSlice` →
-    `error: icmp requires integer operands`, clang fails); **the VM silently compiles and
-    runs it, returning a garbage boolean** (`0` even for two bit-identical nil slices) — a
-    silent miscompile. The CORRECT behavior is a clean checker rejection ("slices cannot be
-    compared with == or !="), exactly as the generic-FUNCTION path already gives.
-  - **Severity: MAJOR.** It is a silent miscompile on the VM, but only for user code that is
-    itself ILLEGAL (a non-comparable comparison the checker is supposed to reject); it cannot
-    corrupt a correct program. It is the generic-TYPE-method analog of the generic-FUNCTION
-    gap that item 2 / item 4 already fixed.
-  - **Fix (well-scoped, established pattern):** mirror `instantiateGenericFunc`'s re-check
-    (`check_generic.bn:62-68`, gated by `TpUsedInEq`/`TpUsedInRel`) into generic-TYPE
-    instantiation. A generic type's method body comparing a type-param must stamp the
-    equivalent used-in-eq / used-in-rel flag on the TYPE's type-param, and
-    `buildInstantiatedStruct` (`check_generic_type.bn`) must re-run
-    `checkEqOperands` / `relationalOperandOK` on the concrete type-arg. Add a conformance
-    regression (VM + LLVM + native) and un-block once landed.
+re-check) archived in [claude-todo-done.md](claude-todo-done.md). The SAME-PACKAGE direct-comparison
+cases are handled for both generic FUNCTIONS (items 2/4) and generic-TYPE METHODS
+(✅ `40463d81`, 2026-07-11 — see done log). What remains is a **broader VM-silent
+miscompile class** shared by BOTH the function and method re-checks, because that
+re-check is **stamp-based and ORDER-DEPENDENT**: type-checking a generic body flips
+`TpUsedInEq`/`TpUsedInRel` on the type-param binder, and the re-check reads that stamp
+at the instantiation. Every path where the stamp is not set on the binder the call
+site reads slips through to IR-gen as a scalar compare on an aggregate — **loud on
+LLVM (clang rejects `icmp %BnSlice`), but a SILENT garbage compare on the VM** (its
+`lowerCmpOp` defaults a slice operand to a one-word pointer-identity compare):
+- **(a) Forward-reference — NOT cosmetic (the earlier triage was wrong).** Stamping and
+  re-checking both live in the one Pass-2 loop over decls in TEXTUAL order; a call
+  checked before the callee's body is walked reads a still-false binder → VM-silent
+  miscompile (loud only on LLVM). Functions and methods alike. (The prior "cosmetic
+  only, never a silent miscompile" note held only for LLVM, so it was wrong.)
+- **(c) Imported cross-package generics.** The consumer builds the callee's `@Type` from
+  the `.bni` SIGNATURE and never walks the body, so its binder is born false — even
+  though the defining package's own `.bn` stamps a DIFFERENT binder instance. So
+  `dep.Eq[*[]int]` / `dep.Box[*[]int]{}.eq(...)` slip through → VM-silent. Functions and
+  methods both (verified).
+- **(d) Transitive through a generic FUNCTION.** A generic method/function body that
+  reaches the comparison by CALLING another generic function is governed by the
+  function path's own re-check (subject to (a)/(c)); the method re-check only covers
+  sibling METHODS of the instantiation.
+- **Fix direction (recon DONE 2026-07-11 — see workflow report):** two complementary
+  moves. (1) a checker SUB-PASS that pre-stamps every generic body (function + method,
+  local + imported) between Pass 1 and Pass 2 — reuses `recordTypeParamComparison` and
+  both existing re-checks UNCHANGED, only fixes stamp timing/coverage; closes (a) fully,
+  (c) once imported bodies are walked with the `.bni` binders (bodies ARE retained;
+  needs a defining-file import-scope sibling array for imported funcs/methods). (2) an
+  IR-gen HARD-ERROR guard in `genBinary` (refuse to lower a scalar compare on a
+  slice/iface/func operand) as a cheap FULL-coverage safety net catching every path at
+  codegen (worse diagnostic, no position). Recommendation from recon: land the IR-gen
+  guard FIRST (small, kills the silent-miscompile class outright), then the sub-pass for
+  good diagnostics. An explicit `comparable` constraint is a third option but a language
+  change. Decision pending user go/no-go.
 
 ### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
 - **Problem**: with the current rules, `int` (and other predeclared

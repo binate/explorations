@@ -8,6 +8,37 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## Generic-TYPE-method comparison re-check (same-package) — ✅ DONE & LANDED `40463d81` (2026-07-11)
+
+A method on a generic type whose body compares a type-param field
+(`func (b Box[T]) eq(o Box[T]) bool { return b.v == o.v }`) was not re-validated when
+the instantiation was used: `Box[*[]int]` (non-comparable raw slice) slipped past the
+checker → IR-gen `icmp` on an aggregate (invalid LLVM / SILENT garbage compare on the
+VM, `0` even for bit-identical operands). This was residual (b) of the aggregate-`==`
+story; it became reachable once methods on generic types with a type-param receiver
+landed. The generic-TYPE-method analogue of the generic-FUNCTION re-check (items 2/4).
+
+`recheckGenericMethodComparisons` (`check_method.bn`, from `tryMethodCall`) reads the
+`TpUsedInEq`/`TpUsedInRel` stamps off the generic type's PLACEHOLDER methods' binders and
+re-runs `checkEqOperands` / `relationalOperandOK` on the receiver's concrete type-args.
+Two subtleties surfaced by adversarial review (both fixed before landing): it re-checks
+EVERY method of the instantiation (calling ANY method monomorphizes ALL of them, so a bad
+comparison in an uncalled/transitively-called sibling still reaches IR-gen); and the
+placeholder is looked up in `c.PackageScope` (not `c.Scope`) so a call-site local
+shadowing the type name cannot disable the check. The check is at the CALL site, not type
+formation — forming `Box[*[]int]` without calling a method stays valid (no false reject).
+
+Tests: conformance `spec/12-generics/073` (eq/slice reject), `074` (relational/slice
+reject), `075` (valid `Box[int].eq` lowers + form-only not rejected), `076` (non-comparing
+sibling call still rejects — monomorphize-all). Unit: 8 `TestCompareGenericMethod*` in
+`check_compare_test.bn` (incl. shadow, sibling-call, transitive). Verified reject on LLVM +
+VM + self-compiled + native x64. Two adversarial reviews (first found 3 real defects, all
+fixed; second confirmed correct + safe). **Residual VM-silent class remains OPEN** (imported
+cross-package, forward-ref, method→generic-function transitive) — shared with the
+generic-FUNCTION path; tracked in [claude-todo.md](claude-todo.md).
+
+---
+
 ## bnfmt `printBuiltin` non-last-arg wrapping residual — ✅ DONE & LANDED `2a88b9d6` (2026-07-11)
 
 `printBuiltin` forwarded the closing-`)` reservation (`1 + tail`) only to the LAST
