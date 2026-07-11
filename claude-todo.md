@@ -1571,19 +1571,6 @@ byte-count tolerance to "fix" it — a real word-size regression looks identical
   for the spec `e2e/split-paths.sh` validates and
   [`plan-repl.md`](plan-repl.md) for what `e2e/repl.sh` covers.
 
-### Stale-xfail sweep — residuals (the cross-mode CONFORMANCE sweep is done) — 🟡 OPEN
-The big stale-xfail sweep — all 10 modes via the `conformance-xpass.yml` CI workflow;
-121 stale conformance markers + 8 VM-mode unittest markers removed; per-mode detail +
-methodology — is ✅ DONE; see [claude-todo-done.md](claude-todo-done.md). Two residuals:
-- **Cross-mode UNITTEST xfails (17)** — UNSWEPT. The unittest `--check-xpass` (binate
-  `ddc624d2`) exists but isn't wired into CI, so the XPASS workflow is conformance-only;
-  the 16 arm32-baremetal + 1 arm32-linux unittest xfails need qemu. Sweep by hand, or
-  wire unittest `--check-xpass` into CI.
-- **`value-struct-large` on `native_x64`** — *not* xfailed there yet crashes (empty
-  output) when run; a real missing-xfail or native_x64 bug, surfaced (then masked by a
-  substring collision) during the sweep. Worth a look now that `run.sh --exact` no
-  longer pulls it into the `value-struct` filter.
-
 ### Plan-3 adversarial-review follow-ups (test-hygiene + coverage gaps from `cc2ddcc4` / `997c4c04` / `0c707e1f`) — 🟡 PARTIALLY RESOLVED (re-audited 2026-07-10)
 Non-wrong-code items from the adversarial review of the plan-cr2-3 work (2026-06-08); each is
 small. (The live wrong-code findings — the OP_CAST/iface-arg CRITICAL and the

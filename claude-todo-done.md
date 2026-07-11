@@ -8,6 +8,26 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## Stale-xfail sweep — residuals (the cross-mode CONFORMANCE sweep is done) — ✅ DONE & LANDED 2026-07-10 (`27d8d443`)
+
+The big stale-xfail sweep (all 10 modes via `conformance-xpass.yml`; 121 stale conformance
+markers + 8 VM-mode unittest markers removed) was already ✅ DONE.  Both residuals are now
+closed:
+- **Cross-mode UNITTEST xfails** — the unittest `--check-xpass` (binate `ddc624d2`) is now
+  wired into CI as `.github/workflows/unit-tests-xpass.yml` (`27d8d443`): a manually-triggered
+  (`workflow_dispatch`) sweep mirroring `conformance-xpass.yml`.  A mode with no unittest
+  xfail markers skips before building the toolchain; a mode with markers runs the whole
+  package suite under `--check-xpass` (XPASS-fails if a marked package now passes).
+  Manual-only because nearly all unittest xfails are the qemu-emulated
+  native-arm32-baremetal lane, which the regular run skips and isn't feasible to sweep
+  locally or on every push.  (Current count: 16 baremetal + 0 arm32-linux — the earlier
+  "17 = 16 + 1 arm32-linux" was stale; the arm32-linux marker is gone.)  Validated
+  end-to-end: the mode guard sweeps only `builder-comp_arm32_baremetal`, and XPASS detection
+  fires on a throwaway stale marker.
+- **`value-struct-large` on `native_x64`** — STALE / already fixed: it PASSES on the
+  native_x64 CI lane (and the x64-darwin equivalent passes locally, 7/9).  No missing xfail,
+  no bug.
+
 ## Stdlib conformance suite — optional follow-ups — ✅ DONE & LANDED 2026-07-10 (`c31dac39`)
 
 Both optional cleanups are done (`c31dac39`):
