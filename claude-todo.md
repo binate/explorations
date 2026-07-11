@@ -7,63 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### native arm32: a bare `nil` argument to a non-slice nil-able param goes to the WRONG arg register (even-pair mis-pad) → data abort / hang — 🔴 MAJOR / OPEN (found 2026-07-10)
-
-**Symptom.** `conformance/247_scope_cleanup_rc` COMPILES then HANGS on
-`builder-comp_native_arm32_baremetal` (qemu killed by the timeout → "terminating on signal
-15"). The hang is a CPU data-abort taken to the zero-filled bare-metal vector table (no
-abort handler), after which the core executes low-memory zeros forever. Native-arm32-
-specific: passes `builder-comp` (LP64) and the LLVM sibling `builder-comp_arm32_baremetal`.
-
-**Root cause.** `makeNode(1, nil)` passes the `nil` argument (param `next @Node`) in **r2**
-instead of **r1**. The native ABI walker `argRegWordsStackWords`
-(`pkg/binate/native/common/common_callconv.bn`) applies the AAPCS32 §6.5 C.3 even-register-
-pair pad via `cc.NeedsEvenReg(t)`; for the nil arg `t` is `TYP_NIL`, and `types.AlignOf()`
-(`pkg/binate/types/layout.bn`) has NO `TYP_NIL` case, so it falls through to `maxAlign()` =
-8 on ILP32 → `NeedsEvenReg(TYP_NIL)` returns true → it pads r1, wasting it. The callee then
-reads uninitialized r1 as `next` and dereferences `next - 8` (the RefInc header) → abort.
-The other arg (`base`, typed `@Node`, align 4) does NOT pad → r1, so the two calls diverge.
-`TYP_NIL` reaches codegen because `coerceArg` (`pkg/binate/ir/gen_call.bn:55`) retypes a
-`nil` argument to the parameter type ONLY when the param is a slice (`isSliceType`); a
-managed-pointer param keeps `TYP_NIL`. (Confirmed via disassembly + qemu/gdb: CPSR mode ABT,
-PC walking low RAM.)
-
-**Proposed fix (root cause).** Broaden `coerceArg`'s nil→param retype beyond slices to every
-nil-able param kind (managed/raw pointer, iface-value, func-value), so the IR arg type
-matches the parameter (align 4) — mirroring the existing slice handling. Secondary
-defensive: give `TYP_NIL` a pointer-sized `AlignOf`/`SizeOf` in `types/layout.bn` so a stray
-`TYP_NIL` can never mis-pad. NOTE this is a wrong-code / ABI miscompile — raise before any
-workaround.
-**Test.** `conformance/247_scope_cleanup_rc` (add `.xfail.builder-comp_native_arm32_baremetal`
-until fixed).
-
-### arm32-baremetal: the bump-allocator `heap` arena has element-align 1, so an odd-sized preceding `.bss` global misaligns EVERY allocation → alignment fault / hang — 🔴 MAJOR / OPEN (found 2026-07-10)
-
-**Symptom.** `conformance/regressions/file-scoped-import-incompatible-sig` COMPILES then
-HANGS on BOTH arm32-baremetal modes (`builder-comp_native_arm32_baremetal` AND the LLVM
-`builder-comp_arm32_baremetal`) — NOT native-specific. The hang is a data-abort (DFSR = 0x1
-Alignment fault, DFAR odd) at an `ldr` on a misaligned SAT-registry table during the pre-
-`main` `BuildSatRegistry` init, taken to the zero vector table → low-memory zeros forever.
-Passes `builder-comp` (LP64, alignment-tolerant).
-
-**Root cause.** `var heap [4194304]uint8` (`impls/core/common/pkg/builtins/rt/
-rt_baremetal.bn:38`) has element type uint8 → type alignment 1. When `pkg/pa`'s 1-byte
-`var b uint8 = 42` lands in `.bss` before it, `heap` is placed at the next byte — an ODD
-address. `RawAlloc` aligns the OFFSET within the arena (`alignUp(bumpPtr, 8)`) but not the
-arena BASE, so every allocation is misaligned; the strict-alignment cortex-a15 baremetal
-image aborts on the first word load. Test 247's heap happened to land aligned only because
-no odd-sized user global preceded it — ANY test whose `.bss` places an odd-sized global
-before the heap misaligns the whole heap on arm32-baremetal.
-
-**Proposed fix.** Force the arena to be word/max-aligned so allocations are aligned
-regardless of neighboring globals: declare `heap` with an 8-aligned element type (e.g.
-`[N]uint64` reinterpreted) so its type alignment is 8, OR have the `.bss` emitter /
-baremetal linker script (`runtime/baremetal_arm32/baremetal.ld`) honor a minimum alignment
-for the arena. USER DECISION NEEDED on the fix layer (arena type vs bss-emitter min-align vs
-linker script). Backend-independent — affects both arm32 backends.
-**Test.** `conformance/regressions/file-scoped-import-incompatible-sig` (add `.xfail` for
-both arm32-baremetal modes until fixed).
-
 ### `impl @T : iter.Iterable` on a type whose params are constrained by OTHER imported generic-interface policies → false "K does not satisfy constraint" — 🟢 FIXED & LANDED (`6647c49f`, 2026-07-11)
 
 **FIX (`6647c49f`, conformance/1041_xpkg_iface_impl_policy).** Root cause: `genericImplSatisfies`

@@ -8,6 +8,31 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## native arm32: bare `nil` arg to a non-slice nil-able param → WRONG arg register (even-pair mis-pad) — ✅ FIXED & LANDED 2026-07-11 (`983a01f6`)
+
+A bare `nil` (type TYP_NIL) passed to a non-slice nil-able param (e.g. `@Node`) landed in the
+WRONG arg register on arm32 → data-abort hang (`247_scope_cleanup_rc`). `types.AlignOf()` had
+no TYP_NIL case → fell through to `maxAlign()` = 8 on ILP32 → the AAPCS32 §6.5 C.3 even-
+register-pair rule padded the nil arg to an even register while the callee (classifying the
+real param `@Node`, align 4) did not — a one-register ABI divergence; the callee then read an
+uninitialized register as the pointer. FIX: `AlignOf(TYP_NIL) = ptrSize()` (SizeOf already
+did). No-op on LP64 (ptrSize == maxAlign == 8); on ILP32 drops 8 → 4, removing the spurious
+pad. Unit-tested by `TestNilAlignmentIsPointerSized` — strengthened to the REAL arm32
+`MaxAlign=8` layout via a new `setTargetArm32()` helper (the original `setTarget32` MaxAlign=4
+config was a born-weak guard that passed even with the fix removed; the strengthened test was
+proven to fail with the fix removed). Adversarial-reviewed clean (LAND, 0 survivors).
+
+## arm32-baremetal: bump-allocator `heap` arena element-align 1 → every allocation misaligned when an odd-sized `.bss` global precedes it — ✅ FIXED & LANDED 2026-07-11 (`35402acf`)
+
+`var heap [N]uint8` (type align 1) could land at an ODD `.bss` address after an odd-sized
+global (the emitter places each global at its `DataGlobal.Align` = type AlignOf); `RawAlloc`
+aligned only the OFFSET into the arena, so every allocation was misaligned → alignment-fault
+hang (`regressions/file-scoped-import-incompatible-sig`), on BOTH arm32 backends (native +
+LLVM). FIX: `var heap [524288]uint64` (type align 8, so the emitter places the arena
+8-aligned) + `RawAlloc` returns `bit_cast(*uint8, &heap[start / 8])` (start is 8-aligned).
+Byte-identical `.bss` size (524288*8 == HEAP_BYTES), zero-init and bounds unchanged.
+Adversarial-reviewed clean (LAND, 0 survivors); passes on both arm32 baremetal modes.
+
 ## Check-tools-lag lint skips cleared via CHECK_TOOLS_VERSION → bnc-0.0.11pre2 — ✅ DONE & LANDED 2026-07-11 (`6c1fa4ed`, `45841791`, `e7a54b75`)
 
 Advancing the lint check-tools to `bnc-0.0.11pre2` (whose bnlint parses methods-on-generic-types
