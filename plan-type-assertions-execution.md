@@ -1113,10 +1113,12 @@ BUILDER-sensitive land.
     += `OP_SAT_LOOKUP`, 2 stale comments).  Follow-ups owed: (a) split
     `x64_dispatch.bn` (over the soft length limit since 5b-1); (b) the
     **cross-mode boundary mapping** below.
-  - **5b-2 cross-mode mapping (reflect-descriptor extension) — PLANNED (user
-    chose to do it now, 2026-07-11).** Lifts 5b-1's native-injected loud-fail at
+  - **5b-2 cross-mode mapping (reflect-descriptor extension) — X.1 LANDED
+    2026-07-11 (`25f6f177`); X.2 NEXT.** Lifts 5b-1's native-injected loud-fail at
     `BC_IFACE_TYPEINFO` so a `-int` program can concrete/interface-assert on an
-    interface value handed to it by a native-injected package.
+    interface value handed to it by a native-injected package.  X.1 laid the data
+    plane (symbol-name blobs on `__satentry`); X.2 reads them in the VM + lifts
+    the loud-fail + adds the cross-mode conformance test.
 
     **Why a descriptor extension (not a contained VM change).** The VM's
     `BC_DATA_SYM_ADDR` resolves `&__typeinfo.<T>` / `&__ifaceid.<J>` by SYMBOL
@@ -1143,18 +1145,30 @@ BUILDER-sensitive land.
     materializes `__typeinfo.<T>` — `dataSym[__typeinfo.<T>]` is written ONLY by
     the injected registration (native addr).
 
-    **Slice X.1 (data plane) — emit but don't read.** Extend the `__satentry.<T,J>`
-    node (`irdata.BuildSatEntry`) with the two mangled SYMBOL strings
-    (`desc.TypeInfoSym`, `desc.IfaceIdSym`, already on `SatEntryDesc`) as
-    TU-local rodata blobs + `{data,len}` pairs AFTER the existing
-    `{TypeInfo,IfaceId,Vtable}` payload; add `TypeSym`/`IfaceSym`
-    `*[]readonly char` fields to `reflect.SatEntryInfo` (after the 3 pointers, so
-    existing offsets + the native reader that reads only the first 3 are
-    unaffected).  Backends need NO change — each emits the node via
-    `BuildSatEntry` + generic `EmitDataGlobal`, and the weak node stays
-    byte-identical across TUs (deterministic symbols) so ODR coalescing holds.
-    Verify: self-compile green (`builder-comp`/`-int`/`-comp`), no duplicate-symbol
-    link error, an irdata unit test pinning the new term shape.
+    **Slice X.1 (data plane) — emit but don't read — LANDED 2026-07-11
+    (`25f6f177`).** Extended the `__satentry.<T,J>` node (`irdata.BuildSatEntry`)
+    with two `{data,len}` slices naming the NEUTRAL `__typeinfo.<T>` /
+    `__ifaceid.<J>` symbols as strings, backed by two TU-local rodata blobs, AFTER
+    the `{TypeInfo,IfaceId,Vtable}` payload; added `TypeSym`/`IfaceSym`
+    `*[]readonly char` to `reflect.SatEntryInfo` (after the 3 pointers, so
+    Type/Iface/Vtable offsets — and both existing readers, `rt_satregistry.bn`'s
+    `seW[0..2]` walk and `extern_register.bn`'s `.Type/.Iface/.Vtable` — are
+    unaffected).  Node grows to 9 words (72B LP64 / 36B ILP32); the reloc-free
+    blobs land in plain rodata.  **Refinement vs the original sketch:** the blob
+    CONTENT must be the NEUTRAL name (what the VM keys `dataSym` on in X.2), but
+    the native backend object-format-prefixes `desc.TypeInfoSym`/`IfaceIdSym` for
+    the payload symrefs — so `SatEntryDesc` gained 4 fields
+    (`TypeSymStr`/`TypeSymBlobSym`/`IfaceSymStr`/`IfaceSymBlobSym`): the `*Str`
+    hold the neutral CONTENT (never prefixed, like `TypeInfoDesc.Name`), the
+    `*BlobSym` the blob SYMBOLS (prefixed, like `NameSym`).  Two new `mangle`
+    fns (`SatEntryTypeSymBlobName`/`SatEntryIfaceSymBlobName`, keyed on the full
+    `(T,J)` core so intra-TU blobs never collide).  Because `BuildSatEntry`'s
+    return became `@[]@DataGlobal` = [node, type-blob, iface-blob], the 4 emit
+    sites (codegen `emit_impls.bn` + x64/arm32/aarch64 `_typeinfo.bn`) loop over
+    the list (mirroring `BuildTypeInfo`).  Verified: 9 changed pkgs' unit tests
+    green; conformance 0-failed in `builder-comp`/`-int`/`-comp`/native-x64 (gen1+
+    gen2 self-compile + native link a large satentry-laden program → no
+    duplicate-symbol error); hygiene 17/17; 2 adversarial reviews clean.
 
     **Slice X.2 (VM read + lift loud-fail + test).** `RegisterPackageSatEntries`
     (`extern_register.bn`): register `dataSym[se.TypeSym] = se.Type` (native), and
