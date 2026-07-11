@@ -92,7 +92,32 @@ beyond the fixed case, but the principled fix is an error-suppression / trial mo
 speculative instantiation (route to `c.TentativeErrors` or a probe flag) rather than
 per-caller decl guards.  No standalone repro yet.
 
-### struct field holding ANOTHER package's generic Cursor + calling its multi-return Next → miscodegen (extractvalue on a scalar) / generic compile-HANG — 🔴 MAJOR / OPEN (found 2026-07-11)
+### struct field holding a generic type whose method accesses fields through an embedded managed-ptr → IR-gen "unresolved selector" (lookupStructIdx misses the embedded generic struct) — 🔴 MAJOR / OPEN (found 2026-07-11)
+
+**ROOT CAUSE (pinned via .ll).** The `extractvalue i64` malformation is IR-gen's
+`genSelector` catch-all — it emits `rt.Panic("internal error: unresolved selector in
+IR-gen (compiler bug)")` + garbage (`add i64 0,0` / `extractvalue i64`) when NO arm
+resolves a selector.  For `it.t.used` inside `table.Cursor[...].Next` (it: *Cursor, `t`:
+`@Table[...]`, `used`: `@[]bool`), the nested-selector arm (gen_selector.bn:162) computes
+`innerTyp = getSelectorType(it.t)` = `@Table[...]`, hits Case 1a (managed-ptr-to-struct),
+then `si = lookupStructIdx(gc, Table_name)` returns **< 0** — the instantiated `Table`
+struct is NOT in `gc.Mod.Structs` at the point `Cursor.Next` is codegen'd.  Every arm's
+`if si >= 0` fails → catch-all panic.  Trigger: a struct EMBEDDING the cursor as a field
+(`type Holder struct { tc table.Cursor[...] }`) causes `Cursor.Next` to be emitted before
+`Table[...]` is registered; a LOCAL cursor var (`var it = t.Iter(); it.Next()`) registers
+`Table` first and works.  Reproduces with a plain `Holder` — no impl / projecting method
+needed.  Not zero-size-V (V=int reproduces).
+
+**FIX DIRECTION.** On-demand-register the missing struct in `genSelector` (and any arm that
+`lookupStructIdx`es a field-base struct): when the lookup misses and `structTyp.InstDecl !=
+nil`, call `ensureInstantiatedStruct(gc, bit_cast(@ast.Decl, structTyp.InstDecl),
+<definingPkg>, structTyp.InstArgs)` then re-lookup — mirroring how `resolveTypeExpr`'s
+TEXPR_INSTANTIATE arm registers it (gen_type_resolve.bn:182).  The fiddly part is deriving
+`<definingPkg>` from the type so the re-registered name equals `structTyp.Name` (the
+`instantiationMangledName` embeds the defining pkg).  Alternatively, ensure a generic
+method's receiver FIELD-type structs are registered when the method is emitted.
+
+**Old symptom notes (superseded by the root cause above):**
 
 **Symptom.** A struct that stores another package's generic cursor as a VALUE FIELD and
 calls its multi-return pointer-receiver `Next`, extracting a component of the returned
