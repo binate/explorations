@@ -610,9 +610,16 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
     Native conformance 2333 → 2417 (~50 closure/method-value cells; managed-capture leak cells
     509/511/515/550/900 pass). 5-lens adversarial review: sound; one NIT — an 8-aligned
     indirect-large (>16B) aggregate CAPTURE fails loud today only via an `ArgWords` over-count,
-    not an explicit guard (correct-today, latent fragility) → follow-up: explicit
-    `isIndirectLargeArm32` capture fail-loud + comment fix.
-  - **Phase B (next)** — capturing stack-spill shim (over-budget R0–R3 budget).
+    not an explicit guard (correct-today, latent fragility).
+  - **Phase A NIT-fix ✅ LANDED 2026-07-10 (`db6e6338`)** — explicit `isIndirectLargeArm32`
+    capture fail-loud in `emitClosureShimArm32`'s capture-counting loop (before the
+    `CallArgRegStart`/`captureWords` step), plus a comment noting surviving captures have
+    Σ`ArgWords` == true footprint, plus `TestClosureShimIndirectLargeCaptureSetsError` (24-byte
+    `struct{int64,int64,int64}` capture asserts `a.HasError`). Closes the Phase A NIT.
+  - **Phase B (in review)** — capturing stack-spill shim (over-budget R0–R3 budget).
+    Checkpoint `a90bb8e1` (native unit + hygiene green); full native conformance 2417 → **2453**
+    (+36). Agent run ended on a socket error before its own final report, so the 5-lens
+    adversarial review + independent verification are being done here before landing.
   - **Phase C** — aggregate + multi-return capturing shims.
 - **Acceptance**: func-value / closure / interface conformance + unit tests
   pass in native baremetal.
