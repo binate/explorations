@@ -1090,16 +1090,37 @@ BUILDER-sensitive land.
     tests: `lookupDataSymAddr`, `materializeTypeInfos`, `TestLowerEmitsBc
     IfaceTypeInfo`. Follow-up owed: `vm_exec_iface.bn` split (grew over the soft
     length limit).
-  - **5b-2 (interface VM) — PENDING.** VM interface-target path: `lookupSatEntry`
-    (re-add — DROPPED from the 5a increment, ~15 lines mirroring
-    `lookupVtableAddr`); register VM-lowered `(T,J)` in `lowerImplVtables`;
-    `BC_IFACE_VALUE_DYN`; the VM SatLookup mechanism (route the `rt.SatLookup`
-    call → `lookupSatEntry`, OR introduce `OP_SAT_LOOKUP` — decide in 5b-2); and
-    the **cross-mode boundary mapping** (feed a native-injected package's
-    `__typeinfo`/`__ifaceid` addresses into the VM data-symbol table under their
-    symbols, so both the injected slot-1 read and `BC_DATA_SYM_ADDR` resolve to
-    one address — this also lifts 5b-1's native-injected loud-fail). Removes the
-    remaining 18 -int xfails (1013-1015 + 1024-1026 × 3 modes).
+  - **5b-2 (interface VM) — ✅ LANDED (2026-07-10, main `f2b74c28`).** VM
+    interface-target path; removes the 18 -int xfails on 1013-1015 + 1024-1026.
+    SatLookup mechanism = new **`OP_SAT_LOOKUP`** op (NOT a call-intercept — the
+    user rejected those in 5b-1): it carries `rt.SatLookup`'s name + args, so the
+    compiled backends lower it by DELEGATING to their `OP_CALL` emission
+    (byte-identical to the call), and only the VM diverges → `BC_SAT_LOOKUP` →
+    `lookupSatEntry` over the `@VM` registry (the native itab-hash is never built
+    in the VM).  VM registry: `materializeIfaceIds` + `ensureIfaceIdSym`
+    (guarantees a non-zero ifaceid addr — a 0 would collapse a satentry key to
+    `(ti, 0)` and mis-HIT); `lowerImplVtables` registers each VM-lowered `(T,J)`
+    keyed by the materialized `(typeinfo, ifaceid)` addresses and valued by the
+    vtable's 1-based `vm.IfaceVtables` index (so the recovered `*J` dispatches
+    through the VM); `BC_IFACE_VALUE_DYN` builds the recovered `{data,
+    subvt-word}`; `ifaceVtIsNative` discriminates VM-index vs native-addr.
+    Adversarially reviewed (IR/native-delegation clean; VM-registry found 1
+    CRITICAL: the recovered iface value grew `vm.SP` but the statement wasn't
+    marked SP-growing → no `OP_SP_RESTORE` → a LOOPED assertion leaked a stack
+    slot per iteration → overflow.  FIX: `noteSPGrowingResult` in
+    `recoverInterfaceValue` + both comma-ok branches; unit test
+    `TestIfaceAssertEmitsSpRestore`.  Plus minors: `ensureIfaceIdSym`, `isCallOp`
+    += `OP_SAT_LOOKUP`, 2 stale comments).  Follow-ups owed: (a) split
+    `x64_dispatch.bn` (over the soft length limit since 5b-1); (b) the
+    **cross-mode boundary mapping** below.
+  - **5b-2 cross-mode mapping — PENDING (in progress).** Feed a native-injected
+    package's `__typeinfo`/`__ifaceid` addresses into the VM data-symbol table
+    under their symbols, so both a native-injected iface value's slot-1 read and
+    the asserting side's `BC_DATA_SYM_ADDR` resolve to ONE address (weak-coalesced
+    per symbol).  This also LIFTS 5b-1's native-injected loud-fail at
+    `BC_IFACE_TYPEINFO`.  Needs a new cross-mode conformance test (a native-only
+    injected package handing an iface value to a `-int` program that
+    concrete/interface-asserts on it).
 - **Slice 6 — Type-switch (Phase 6).** `checkTypeSwitchStmt` (modeled on
   `checkSwitchStmt`; per-case narrowing; multi-target/`default` bind scrutinee
   type; no exhaustiveness/dup/fallthrough) + `genTypeSwitch` (first-match chain
