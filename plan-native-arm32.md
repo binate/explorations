@@ -593,8 +593,27 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
   - **P3 (deferred, P5-gated)** — soft-float float args/returns: may be shim-trivial
     (soft-float rides GP, no fmov) but the wider soft-float pipeline isn't ready →
     wrong-code risk; a user decision, not an inline relaxation.
-- **P4-d:** closures — capturing func values (build on the P4-a shim), the
-  over-budget stack-spill shim (tighter R0–R3 budget), non-null dtor slot.
+- **P4-d:** capturing closures + method values (backend port — the mechanism is fully
+  lowered in shared IR/codegen; arm32 reads the capture-struct layout + wires the shim +
+  non-null dtor slot). Method values ride the closure path for free. Phased A→B→C.
+  - **Phase A ✅ LANDED 2026-07-10 (`99a47f25`)** — memory-safety core + scalar/void FAST
+    shim: (1) non-null dtor emission (`funcValueDtorHandleSymArm32`) for a managed capturing
+    `@func` whose struct `NeedsDestruction`, (2) construction data-slot store (the capture-ptr),
+    (3) `emitClosureShimArm32` (register-only): UP-shift user args by `captureWords`, load
+    captures from `[R0+FieldOffset(i)]` right-to-left (i=0 last so R0 base survives), tail-branch.
+    Sub-parts 1+2 landed together (the never-leak rule — a null dtor on a managed capturing
+    closure silently leaks the capture block). The capture-prepend shifts every user arg's
+    outgoing register parity, so user args classify over the full captures++users list with
+    `gpDestBase = captureWords` (the even-pair machinery from the int64 work). A `forceStage`
+    flag stages incoming words so the UP-shift is clobber-safe (the marshal is otherwise
+    DOWN-shift-only); the 4 non-closure callers pass `forceStage=false` (byte-identical).
+    Native conformance 2333 → 2417 (~50 closure/method-value cells; managed-capture leak cells
+    509/511/515/550/900 pass). 5-lens adversarial review: sound; one NIT — an 8-aligned
+    indirect-large (>16B) aggregate CAPTURE fails loud today only via an `ArgWords` over-count,
+    not an explicit guard (correct-today, latent fragility) → follow-up: explicit
+    `isIndirectLargeArm32` capture fail-loud + comment fix.
+  - **Phase B (next)** — capturing stack-spill shim (over-budget R0–R3 budget).
+  - **Phase C** — aggregate + multi-return capturing shims.
 - **Acceptance**: func-value / closure / interface conformance + unit tests
   pass in native baremetal.
 
