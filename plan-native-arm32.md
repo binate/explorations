@@ -667,8 +667,8 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
       else it silently rides the GP-only store (a miscompile).
     - **Sub-phases (each independently landable + byte-ref + conformance tested):** C.0 —
       plumbing: thread `captureBase` — ✅ LANDED 2026-07-11 (`55f3076c`, byte-identical).
-      C.1 — big single-aggregate sret — ✅ DONE on worktree `temp-5` (`805039d3`, NOT yet
-      cherry-picked to main). Reuses the non-closure sret machinery (`prependSretPtrArm32`
+      C.1 — big single-aggregate sret — ✅ LANDED 2026-07-11 (`868d8768`). Reuses the
+      non-closure sret machinery (`prependSretPtrArm32`
       + retbuf-aware `emitSpillMarshalArm32`) with a capture-prefix classify: users at
       `classifyBase = 1 + NumCaptureParams` over `[*uint8 sret]++captures++users`, captures
       from R1 (`captureBase = R1`); frameless fast path (verified the user marshal never
@@ -676,7 +676,12 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
       cleared) + framed spill (the common case on 4 arg regs). Added the must-add float-in-
       aggregate-result P5 guard (`closureResultHasFloatPartArm32`, risk R3). New files
       `arm32_closure_shim_aggregate{,_spill}.bn` (+ per-file byte-ref tests, mutation-
-      verified). Conformance now GREEN in `builder-comp_native_arm32_baremetal`: 906/907/
+      verified). The sret capture-load path REUSES the C.0-threaded helpers
+      (`emitClosureCaptureSpillArm32` / `emitClosureCaptureRegLoad{,Spill}Arm32`) via a
+      `classifyOff` (0 scalar / 1 sret) + `regBase` (0/1) param rather than duplicating them —
+      so C.0's `captureBase` param is genuinely used and there is ONE canonical copy of the
+      right-to-left capture-load logic (an adversarial review flagged the initial duplication;
+      the unification is byte-identical for both shapes). Conformance now GREEN in `builder-comp_native_arm32_baremetal`: 906/907/
       921–925 (all 7 big-sret closure shapes) and 948/952 (method-value sret). Small-agg
       pack + multi-return STILL fail-loud by intent — `regressions/capturing-closure-
       aggregate-return` (contains a P1 4-byte pack) and `-multi-return` remain COMPILE_ERROR
