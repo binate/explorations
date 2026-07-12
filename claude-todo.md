@@ -109,7 +109,7 @@ The frame->4095-byte COMPILE_ERROR is FIXED & LANDED (`6ce4b42f`); tests `990_na
 
 ## MAJOR
 
-### inferred-type PACKAGE-SCOPE global with a func-reference initializer emits invalid IR — ✅ FIXED (`work-3` 41f2db08, awaiting landing) (found 2026-07-12 via adversarial review of the generic-func-value work)
+### inferred-type PACKAGE-SCOPE global with a func-reference initializer emits invalid IR — ✅ FIXED & LANDED (`f8bd03d2`) (found 2026-07-12 via adversarial review of the generic-func-value work)
 
 `var G = add1` or `var G = glib.Ident[int]` at **package scope** with **no explicit
 type** miscompiled: `resolveGlobalVarType` (`pkg/binate/ir/gen_const.bn`) inferred a
