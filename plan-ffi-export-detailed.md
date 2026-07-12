@@ -18,12 +18,14 @@ survey; verify before editing (the tree moves).
 
 This plan was then **adversarially reviewed** (three lenses — codebase accuracy,
 ordering/completeness, design fidelity/scope — each verifying against the tree) and
-revised accordingly. Notable corrections from that pass: the `EmitInitDispatcher`
-caller list in Phase 5a (the real third caller is `interp.bn:175`, not
-`cmd/bni/main.bn`); the MVP-harness step-2 scaffold (deferred its first "C calls
-Binate" assertion to Phase 3, since no author-controllable symbol exists earlier);
-and the §5b version-skew treatment (merge is the design's *answer* to skew, not a
-detection duty).
+revised; then the design was **ratified (2026-07-11)** and the open decisions
+settled (§5), which are folded throughout. The largest ratification consequence:
+**`bn_init` is library-mode-only** (produced by a new `EmitLibInit`, not by
+touching `EmitInitDispatcher`), which dissolves the review's `EmitInitDispatcher`
+caller-fan-out concern entirely (that path is now never modified). The review also
+fixed the MVP-harness scaffold (defer the first "C calls Binate" assertion past
+`c_export`) and the §5b version-skew treatment (merge is the design's *answer* to
+skew, not a detection duty).
 
 ---
 
@@ -33,14 +35,16 @@ The reconnaissance found the high-level plan **substantially right on structure*
 but wrong or imprecise on several load-bearing specifics. These change effort
 estimates and edit locations, so they lead:
 
-1. **Phase 1 lands mostly in `pkg/binate/mangle`, not `gen_init.bn`.** The plan
-   says "in `gen_init.bn`, promote the dispatcher to a stable `bn_init` symbol."
-   But the dispatcher's IR name is `<root>.__init_all`, and there is **no mangler
-   special-case for it** today (unlike `main.__entry` → `bn_entry`). The stable
-   `bn_init` symbol is created by **adding a mangler special-case** (mirroring
-   `bn_entry`) across four files: `mangle.bn:FuncName`, `mangle_lp.bn` (reserved
-   literal), `mangle_lp_demangle.bn` (sentinel), and a new `KIND_INIT` const in
-   `mangle.bni`. `gen_init.bn` keeps emitting `__init_all`; the mangler renames it.
+1. **`bn_init` is a mangler + new-emit-path change, not a `gen_init.bn` rename of
+   the existing dispatcher.** The plan says "in `gen_init.bn`, promote the
+   dispatcher to a stable `bn_init` symbol." But the existing dispatcher's IR name
+   is `<root>.__init_all` with **no mangler special-case** (unlike `main.__entry` →
+   `bn_entry`). The `bn_init` symbol is a **new reserved literal** (added across
+   `mangle.bn:FuncName` + `mangle_lp.bn` + `mangle_lp_demangle.bn` + a `KIND_INIT`
+   const in `mangle.bni`) emitted by a **new `EmitLibInit`** path — **not** by
+   renaming `EmitInitDispatcher`. *(Ratified 2026-07-11:* `bn_init` is produced
+   **only in library mode**, so ordinary programs and `EmitInitDispatcher`'s callers
+   are untouched — see the Phase-1-folded-into-5a section.)*
 
 2. **`bn_init` is the compiled *linker* symbol; the VM keeps the IR name.** The
    compiled linker symbol (via `mangle.FuncName`) is a **different namespace** from
@@ -121,70 +125,74 @@ estimates and edit locations, so they lead:
 
 Each phase lists: **edit sites** (file — location — change), **tests**,
 **verification** (mode/unit), **BUILDER** exposure, and **gating decisions**.
-MVP path = **1 → 2 → 3 → 5a**, verified behind the harness (§3).
+**MVP path = 2 → 3 → 5a** (the `bn_init` work — former "Phase 1" — folds *into*
+5a; see below), verified behind the harness (§3).
 
-### Phase 1 — `bn_init`: a stable, idempotent well-known symbol
+> **Ratified 2026-07-11 (Phase 0 done):** the design is ratified; the decisions
+> below are settled and folded into each phase. Headline consequence: **`bn_init`
+> is produced *only* in library mode** (it is the library counterpart of
+> `bn_entry` — "like `main`, but without the main module"), so there is **no
+> standalone Phase 1** that touches ordinary programs; the `bn_init` work lands
+> inside library mode (5a). Programs are 100% unchanged.
 
-Promote the init dispatcher to a compiled linker symbol `bn_init`, mirroring
-`bn_entry`, and make it run-once. `bn_entry` stays `bn_init()` + `main.main()`.
+### Phase 1 (folded into 5a) — `bn_init`: the library-mode init symbol
 
-**Edit sites**
-- `pkg/binate/mangle/mangle.bn` — `FuncName` (~L217, beside the `main.__entry` →
-  `bn_entry` case): add `<root>.__init_all` → reserved literal `bn_init`.
-  **Decision:** gate on `pkg=="main"` (like `bn_entry`) or accept **any** root?
-  The library case (5a) needs a non-`main` root, so this likely must **not** be
-  `main`-gated — see gating below.
+`bn_init` is the **library** counterpart of `bn_entry`: a well-known, idempotent,
+compiled linker symbol that runs the facade closure's package inits in dependency
+order. It is emitted **only** in library mode — exactly **one** per artifact — and
+**not** for ordinary programs (which keep `bn_entry` = `main.__init_all()` +
+`main.main()`, unchanged). Because it is a **new emit path**, not a generalization
+of `EmitInitDispatcher`, the existing dispatcher and all its callers are untouched
+(this is what dissolves the old "update interp.bn:175 + test callers" hazard).
+
+**Edit sites** (all exercised only on the library path — land them within 5a)
+- `pkg/binate/ir/gen_init.bn` — a **new `EmitLibInit`** method (parallel to
+  `EmitMainEntry`): emits the facade's dispatcher — the call loop over
+  `initPkgNames` in dependency order (share a private helper with
+  `EmitInitDispatcher`, or duplicate its ~10-line loop) — under a synthetic source
+  name that mangles to `bn_init`, **wrapped in the run-once guard**. `EmitMainEntry`
+  / `EmitInitDispatcher` and their signatures are **unchanged**.
+- `pkg/binate/ir/gen_init.bn` — the **run-once guard** inside `EmitLibInit`: emit a
+  module guard global (`<facade>.__init_done` via `GlobalName`), prepend `if guard {
+  return }; guard = true` before the call loop (guard load + conditional
+  early-return — the first multi-block synthetic init function; **no guard mechanism
+  exists today**). Needed because a host may call the library's `_init` more than
+  once (or several unioned libraries' `_init`s all forward to the one `bn_init`).
+- `pkg/binate/mangle/mangle.bn` — `FuncName` (~L217, beside `main.__entry` →
+  `bn_entry`): map `EmitLibInit`'s synthetic source name → reserved literal
+  `bn_init`. Use a **library-only synthetic name** (not `main.__init_all`) so an
+  ordinary program's `main.__init_all` never triggers it — that keeps `bn_init`
+  strictly library-only.
 - `pkg/binate/mangle/mangle_lp.bn` (~L40) — document `bn_init` as a second reserved
   literal the encoders never produce.
 - `pkg/binate/mangle/mangle_lp_demangle.bn` (~L283) — add a `charsEqual(sym,
   "bn_init")` → `KIND_INIT` sentinel (mangler round-trip tests assert this).
 - `pkg/binate/mangle.bni` (~L173, `KIND_ENTRY int = 7`) — add `KIND_INIT int = 8`.
-- `pkg/binate/ir/gen_init.bn` — `EmitInitDispatcher` (~L228): add the **run-once
-  guard**. Emit a module guard global (`<root>.__init_done` via `GlobalName`),
-  prepend `if guard { return }; guard = true` before the call loop. This turns a
-  currently straight-line single-block function into multi-block (guard load +
-  conditional early-return). **No guard mechanism exists anywhere today** — fully
-  net-new.
-- `pkg/binate/ir/gen_init.bn` — `EmitMainEntry` (~L268): the internal
-  `<pkg>.__init_all` call target is unchanged at the IR level (keep `__init_all`);
-  only its *mangled* form becomes `bn_init`. Keep the `main.main` literal.
 
-**Do NOT edit** `interp.bn` — it keys the dispatcher by IR name `"main.__init_all"`
-(correction #2). Confirm no VM path needs a `bn_init`-named lookup.
+**Do NOT edit** `interp.bn` / `EmitInitDispatcher` — the VM path and ordinary
+programs are unaffected (correction #2).
 
-**Tests:** `gen_init_test.bn` — assert the guard global + conditional emit;
-`mangle_test.bn` / `mangle_lp_demangle_test.bn` — assert `<root>.__init_all` ↔
-`bn_init` round-trips (pattern: `TestFuncNameMainEntry`).
+**Tests:** `gen_init_test.bn` — assert `EmitLibInit` emits the guard global +
+conditional and the `bn_init`-mangling name; `mangle_test.bn` /
+`mangle_lp_demangle_test.bn` — assert the synthetic name ↔ `bn_init` round-trips
+(pattern: `TestFuncNameMainEntry`).
 
-**Verification:** the symbol rename is a behavioral no-op for existing programs
-(same init sequence), but the **guard is net-new emission** — the first module
-guard-global + conditional early-return inside a synthetic init function, on a
-function every backend currently treats as a trivial straight-line skeleton (cf.
-arm32_emit_func.bn:86). So do **not** assert "no-op → all six green"; run an
-explicit per-target checklist: unit-test the multi-block emission in `ir`, then
-confirm each of LLVM + native x64 + native aarch64 + native arm32 (via
-`builder-comp_native_arm32_baremetal`, **not** the LLVM arm32 mode) + the VM
-(`int` modes) executes the guarded `__init_all` correctly. The guard's *effect* is
-observable only if `bn_init` is called twice (a library case, Phase 5a).
+**Verification:** ordinary programs are untouched (no re-verification needed). The
+guard is net-new emission, so exercise `EmitLibInit`'s multi-block output on each
+backend a library targets (LLVM + native x64/aarch64, arm32 later) + confirm
+double-`_init` is idempotent via the harness (§3).
 
-**BUILDER:** `mangle` and `ir` are both in `cmd/bnc`'s BUILDER tree — the edits use
-only existing constructs (const, `if`, string compare), BUILDER-safe; run gen1 to
-confirm.
+**BUILDER:** `mangle` and `ir` are in `cmd/bnc`'s BUILDER tree — BUILDER-safe
+constructs only; run gen1 to confirm.
 
-**Gating decisions (Phase 0):**
-- **Is `bn_init` produced for any root or only `main`?** Design says it runs over
-  "the build root's transitive deps," implying non-`main`-gated. Decide before
-  landing — the mangler case's gate is the crux.
-- **Guard storage:** in-dispatcher guard global (design's lean) vs. an `rt` symbol.
-  In-dispatcher avoids coupling `ir`→`rt`; but for merged libraries (5b) the guard
-  must be a single shared global across the link unit (the facade module is the
-  right home; §3.6-merge resolves the separately-built case).
-- **Init-order spec item.** `bn_init` becomes public ABI; its *within-package*
-  ordering (declaration- vs dependency-order, `buildInitBody` /
-  `VarInitOrder`) becomes part of that contract. Note this is handled in
-  `generatePackageInit`, **separate** from the dispatcher being promoted — so
-  Phase 1's symbol+guard change does not itself touch within-package order.
-  Resolve the spec item before shipping `bn_init` as ABI regardless.
+**Settled decisions:**
+- **Library-only, exactly one.** `bn_init` is produced only in library mode; a
+  program never emits it. (Resolves the old "any root vs main-only" question.)
+- **Guard storage:** the guard global lives in the facade module (one shared guard
+  across the link unit; a unioned 5b build still has one `bn_init` / one guard).
+- **Init order = dependency order (resolved).** Across packages: topological
+  (`ldr.Order`); within a package: `VarInitOrder` (dependency order, source-order
+  fallback). No longer an open spec item.
 
 ### Phase 2 — `#[c_export("name")]` recognition + threading
 
@@ -211,13 +219,14 @@ colocate (correction: `DeclIncluded` doesn't see the decl kind or `Exported`).
   `f.CExportNames`. This mirrors the `Exported`/`Line` copy — the established
   ast.Decl → ir.Func threading path.
 - `pkg/binate/loader/loader.bn` — a **new validation pass** over `merged.Decls`
-  erroring if a decl carries `c_export` but (a) is not `DECL_FUNC`, or (b)
-  `!d.Exported` (not package-public). `d.Exported`/`d.Kind` become known only after
-  `markBniExportedFuncs`/`Vars` (L383-384) — **but those calls sit inside the
-  per-`.bni`-file loop** (which continues merging `.bni` imports through ~L403 and
-  closes at ~L404). So the pass must run **after that loop closes**, over the
-  fully-marked `merged.Decls` — not immediately after the L384 call (which would
-  fire once per bni file, before marking is final).
+  erroring only if a decl carries `c_export` but **is not a top-level `DECL_FUNC`**
+  (a type/var/import/package-clause has no code symbol to alias — a clear user
+  mistake worth rejecting, else it silently no-ops). *(Ratified: **package-public is
+  NOT required** — a private top-level func may be `c_export`'d; a private func
+  still has a compiled symbol to alias. So this pass does **not** check
+  `d.Exported`.)* This runs over the `d.Kind` info; it can sit anywhere after the
+  decls are merged (it no longer depends on `markBniExportedFuncs`, so the
+  per-`.bni`-file-loop timing caveat is moot).
 
 **Tests:** `buildcfg_test.bn` — `#[c_export("foo")]` recognized as always-included;
 malformed args (non-string-lit / zero args) → hard error; `c_export` + a false
@@ -233,19 +242,17 @@ recognition + field use only BUILDER-safe constructs. **Precondition:** `cmd/bnc
 own source must **never** use `#[c_export]` (only `platform_init` and user facades
 do). Run gen1 to confirm the pinned BUILDER parses the amended `buildcfg`/`ir.bni`.
 
-**Gating decisions:**
-- **Enforcement site** for package-public/func-kind (new loader pass — recommended
-  — vs. IR-gen). Loader errors are more ergonomic than IR-gen errors.
-- **Data model:** single `@[]char` (MVP, one alias) vs. `@[]@[]char` (design's
-  multi-name). Design allows multiple; recommend the list from the start (a
-  single-name field silently drops a second export).
-- **Name validation:** legal-C-identifier / uniqueness. Design defers uniqueness to
-  merge (§3.6); a duplicate C name is otherwise only caught at link time (native
-  `DefineLabel` duplicate-label error, or LLVM duplicate-alias). Decide whether
-  Phase 2 pre-rejects.
-- **Adjacent-string-concat name** (`#[c_export("a" "b")]`, `Expr.StrParts`): accept
-  + concat, or reject? Recommend **reject** (require a single unsplit literal) —
-  `buildcfg`'s existing `is()` path never exercises `StrParts`, so it is untested.
+**Settled decisions (ratified 2026-07-11):**
+- **Data model:** `CExportNames @[]@[]char` — a **list** (multiple entries →
+  multiple C names), as the design specifies.
+- **Enforcement:** the **only** hard check is "attaches to a top-level func"
+  (above). **Permissive otherwise** — no legal-C-identifier check, **no uniqueness
+  check**; a bad or duplicate C name surfaces at link time (native `DefineLabel`
+  duplicate-label, or LLVM duplicate-alias). Tighten later only if it proves
+  necessary.
+- **Adjacent-string-concat name** (`#[c_export("a" "b")]`, `Expr.StrParts`):
+  **reject** — require a single unsplit string literal (untested in `buildcfg`'s
+  `is()` path; permissive on the *value*, strict on the *form*).
 
 ### Phase 3 — `c_export` symbol emission (backends)
 
@@ -295,10 +302,10 @@ on CI / aarch64 locally.
 
 **BUILDER:** native backends + codegen are in the tree; edits are BUILDER-safe.
 
-**Gating decisions:** LLVM alias vs. forwarding thunk (thunk reintroduces a call
-frame — the thing Phase 4 exists to remove; prefer the alias); weak-vs-global for
-the alias (a C export is strong `SetGlobal` regardless of the func's linkage);
-duplicate-C-name policy (Phase 2 validator vs. link-time error).
+**Decisions:** use a true LLVM `alias` (not a forwarding thunk — a thunk
+reintroduces the call frame Phase 4 exists to remove); the alias is strong
+`SetGlobal` regardless of the func's linkage; **duplicate C names are a link-time
+error** (permissive front-end, per the ratified name policy — no pre-check).
 
 ### Phase 4 — Trivial-forward → symbol alias (deferrable)
 
@@ -330,20 +337,16 @@ until this phase — correct and sufficient. Phase 4 is load-bearing only for th
   (synthetic import + `LoadImports`), **`ensureRuntimeDepsLoaded`** (mandatory —
   a prior `--pkg` drift bug proves it), `typecheckPackages`, **loop `ldr.Order`
   emitting a `.o` per package** + the facade's own object, build `initPkgNames`
-  across the closure, emit the `bn_init` dispatcher (Phase 1) rooted at the facade —
-  **but NOT `EmitMainEntry`** — then **archive the `.o` set into a `.a`/`.so`** via
-  a net-new `ar`/`libtool`/`clang -shared` invocation (`bootstrap.Exec`). ~150
-  lines; a new file (cmd/bnc files near hygiene length caps).
-- `pkg/binate/ir/gen_init.bn` — the Phase-1 dispatcher generalization actually
-  *lands here* (rooted at the facade, non-`main`). **If** `EmitInitDispatcher`'s
-  signature changes (a root-package param) rather than just generating into the
-  facade's own module, that commit must update **every** caller in one landing step
-  or it won't compile: `cmd/bnc/main.bn:241`, `cmd/bnc/test.bn:209`,
-  **`pkg/binate/interp/interp.bn:175`**, the `ir.bni` decl (~L1178), and the two
-  unit-test call sites `gen_init_test.bn:143` / `:158`. (Note: `cmd/bni/main.bn` is
-  **not** a caller — it loops `vmInst.CallFunc(initPkgNames[i], ...)` directly, so
-  it needs no edit here.) Generating into the facade module without a signature
-  change avoids all of this — prefer it if feasible.
+  across the closure, call the facade module's **`EmitLibInit`** (the folded
+  "Phase 1" — emits the idempotent `bn_init` over the closure) — **but NOT
+  `EmitMainEntry`** (a library has no `main`) — then **archive the `.o` set into a
+  `.a`** via a net-new `ar`/`llvm-ar` invocation (`bootstrap.Exec`). ~150 lines; a
+  new file (cmd/bnc files near hygiene length caps).
+- `pkg/binate/ir/gen_init.bn` — `EmitLibInit` (the new method from the folded
+  Phase 1) is generated **into the facade's own module** (so `m.PkgPath` is the
+  facade). **`EmitInitDispatcher`'s signature is unchanged**, so no existing caller
+  (`cmd/bnc/main.bn:241`, `test.bn:209`, `interp.bn:175`, the two `gen_init_test.bn`
+  sites) is touched — the new path sidesteps the caller-fan-out entirely.
 
 **5b (library union).**
 - `cmd/bnc/args.bn` — the same `--library` field accumulates multiple values.
@@ -369,14 +372,26 @@ Unit tests for the closure-dispatcher and disjoint-name enforcement.
 
 **Verification:** the harness on Linux + macOS.
 
-**Gating decisions:** entry-selection rule (zero/multiple wired-up entries — genuinely
-unimplemented, no "entry function" notion in the driver today; Phase 0 must decide
-require-exactly-one vs. allow-combinations); artifact type (`.a` via `ar`/`llvm-ar`
-vs `.so`/`.dylib` via `clang -shared` — affects platform matrix); whether a
-`Package.Exports` field is warranted (the driver must otherwise scan facade decls
-for the `c_export` annotation to find `_init`).
+**Settled decisions (ratified 2026-07-11):**
+- **Artifact type = `.a`** (static archive, via `ar`/`llvm-ar`). No `.so`/`.dylib`
+  for now.
+- **Mode is selected by the `--library` flag** — explicit, no "entry-selection"
+  ambiguity. The design's "the set of wired-up entries characterizes the build"
+  model (zero/multiple-entries question) belongs to `platform_init`'s pluggable
+  entries, which is **deferred with Phase 6** — not an MVP concern.
+- **Version skew** — not our problem (merge yields one version per shared dep;
+  cross-*separately-built*-lib skew is out of scope).
+
+**Still open (small):** whether a `Package.Exports` field is warranted, or the
+driver just scans facade decls for the `c_export` on `_init`. Implementation
+detail, decide when writing `compileLibrary`.
 
 ### Phase 6 — `pkg/builtins/platform_init`; retire `binate_runtime.c`
+
+> **DEFERRED (2026-07-11) — out of current MVP scope.** Not being done now. Until
+> it lands, `binate_runtime.c` stays; a C-driver-owns-`main` library consumer gets
+> the `bootstrap.*` shims from the shim-only stub or (preferred) avoids them with a
+> pure-compute export (§3). The edit sites below are retained for when it resumes.
 
 **High blast radius** — changes startup *and* the I/O/exec shim linkage for every
 hosted binary (incl. self-hosted `bnc`). Two halves: the entry `main()` and the
@@ -441,6 +456,11 @@ globals read by `Args`, vs. `Args` moves into `platform_init`); whether the curr
 
 ### Phase 7 — Header generator
 
+> **DEFERRED (2026-07-11) — out of current MVP scope.** Not being done now. For the
+> MVP, the C consumer writes the (small) header by hand — a couple of prototypes +
+> the `bn_slice`/`bn_managed_slice`/`bn_iface` typedefs. The generator is a
+> quality-of-life follow-up. Edit sites retained for when it resumes.
+
 100% new code (no header generator exists; blocked on Phase 2's `CExportNames`).
 
 **Edit sites**
@@ -504,20 +524,20 @@ a machine-readable marker). Independent; not an ABI gate.
   + native x64 + native aarch64 (+ arm32). The native side is in the `emitFunc`
   files (not `asm/macho`/`asm/elf` — correction #3). **Smoke every changed backend
   package** (shared-file rule), not one representative.
-- **Init-order spec item** gates Phase 1 shipping `bn_init` as public ABI (see
-  Phase 1 gating).
-- **`native_test_stubs.c`** survives the `binate_runtime.c` retirement — don't
-  delete it with the C file.
+- **Init order** is resolved to **dependency order** (no longer gates anything).
+- **`native_test_stubs.c`** survives the (deferred) `binate_runtime.c` retirement —
+  don't delete it with the C file.
 
 ---
 
-## 3. The C-links-Binate harness (the linchpin — a Phase-0 deliverable)
+## 3. The C-links-Binate harness (the linchpin)
 
-Gates end-to-end verification of Phases 3/5a/6/7. **Does not exist and has no
+Gates end-to-end verification of Phases 3/5a. **Does not exist and has no
 precedent** (correction #11).
 
-**Recommended home: `e2e/ffi-export.sh` (a new e2e script), not a conformance
-mode.** Verified reasons: e2e `*.sh` is auto-discovered by `e2e-tests.yml` as a
+**Home: `e2e/ffi-export.sh` (a new e2e script) — ratified 2026-07-11, not a
+conformance mode.** Verified reasons: e2e `*.sh` is auto-discovered by
+`e2e-tests.yml` as a
 **Linux + macOS** matrix with clang preinstalled and **no workflow edit**; a
 conformance runner's contract (`runner_exec(bn,root) → stdout` diffed vs
 `.expected`) doesn't fit a C-driver test (needs a C source, a Binate artifact, an
@@ -525,19 +545,26 @@ external link, a run of the C binary); `separate-compilation.sh` already
 demonstrates the exact self-contained shape to clone (build gen1, produce objects,
 `clang`-link, run, diff); e2e already has the `$CC` + toolchain-**SKIP** conventions.
 
-**Shape:** build gen1 (`scripts/build-bnc.sh`) → produce the Binate library object(s)
-via `--library` → heredoc a C driver that `#include`s the generated header (Phase 7)
-and calls a `c_export`'d function → `$CC` compile+link driver.c against the Binate
-artifact → run → diff stdout. `$CC`-availability SKIP guard.
+**Shape:** build gen1 (`scripts/build-bnc.sh`) → produce the Binate library `.a`
+via `--library` → heredoc a C driver that declares + calls a `c_export`'d function
+(a **hand-written** prototype — the header generator is deferred, Phase 7) → `$CC`
+compile+link driver.c against the Binate artifact → run → diff stdout.
+`$CC`-availability SKIP guard.
 
-**Ordering dependencies the plan understates for the harness:**
-- The C driver owns `main()`, so the Binate library must be built **without**
-  `binate_runtime.c`'s `main()` **but with** the `bootstrap.*` shims — else the
-  Binate code strands `Write`/`Args`/`Exec` at link. So the harness needs a shim
-  home: it **implicitly depends on Phase 6's shim relocation** OR must link a
-  shim-only C stub. **De-risk:** an MVP harness can link a minimal shim-only C stub
-  (extracted from `binate_runtime.c`) so Phase-3 C-calls-Binate is verifiable
-  **before** Phase 6.
+**The shim problem, and how the MVP dodges it (Phase 6 is deferred):**
+The C driver owns `main()`, so the Binate `.a` must be built **without**
+`binate_runtime.c`'s `main()` (its `main` would collide). But if the exported
+Binate code (or anything `bn_init` runs) calls `bootstrap.Write`/`Args`/`Exec`,
+those live *in* `binate_runtime.c` — which we're not linking — so they'd be
+unresolved. Two ways out:
+- **(preferred for MVP) a pure-compute export** — make the exported function (and
+  the closure's inits) touch no I/O, and let the **C driver print** the result.
+  Then the `.a` references no `bootstrap.*` shim at all (allocation still works —
+  `rt` calls libc `malloc` directly via `__c_call`, no shim), so **no stub is
+  needed** and the harness works with Phase 6 still deferred.
+- **(fallback) a shim-only C stub** — `binate_runtime.c` **with `main()` removed**
+  (just `Write`/`Args`/`Exec`), linked alongside the C driver. Only needed if an
+  exported path does I/O before Phase 6 relocates the shims into Binate.
 - **`.a` archiver is net-new (Phase 5a).** De-risk by linking the raw `.o`(s)
   directly first (like `separate-compilation.sh`), decoupling "C calls Binate" from
   `.a` packaging. Recommend **raw-`.o` first, `.a` follow-up**.
@@ -556,65 +583,66 @@ verifies the **end-to-end** C-calls-Binate contract. Keep both.
 
 ## 4. MVP landing sequence (independently-landable, each green)
 
-The MVP boundary (1+2+3+5a first; 4/6/7/8/9 as "enhancements") is the **plan's
-proposed sequencing** — the design has no phasing notion — and is held under the
-Phase-0 "build this now, in what scope?" decision, not asserted as settled. Given
-that scope call, each unit below keeps the tree green and is cherry-pickable on its
-own.
+Ratified MVP scope: **Phases 2 → 3 → 5a** (the `bn_init`/`EmitLibInit` work — the
+folded "Phase 1" — lands inside 5a). Phase 4 is a later zero-cost optimization;
+**Phases 6 and 7 are deferred**; 8/9 later. Each unit below keeps the tree green
+and is cherry-pickable on its own.
 
-1. **Phase 1** — `bn_init` symbol + guard (mangler + `gen_init` + unit tests).
-   Behavioral no-op for programs; unblocks the library dispatcher.
-2. **Harness scaffold (MVP form)** — `e2e/ffi-export.sh` linking a raw `.o` + a
-   shim-only C stub, establishing the CI lane early (plan's "named early
-   deliverable"). At this step `c_export` does not exist yet, so a Binate function
-   has **no author-controllable linker name** — its only symbol is the mangled
-   `bn_F…`, which §3 forbids the harness from referencing. So step 2 asserts **only
-   the plumbing**: the reverse direction (a C stub defines a symbol the Binate `.o`
-   imports) links and runs. The **first "C calls Binate" assertion is deferred to
-   step 4** (once Phase 3 emits a real `c_export`'d unmangled name to call).
-3. **Phase 2** — `#[c_export]` recognition + threading (buildcfg + loader pass +
-   `ir.Func.CExportNames` + gen_func + unit tests). Verify gen1/BUILDER.
-4. **Phase 3** — alias emission: native second-symbol (x64/aarch64/arm32) + LLVM
-   `alias`; asm + codegen unit tests; **wire the harness to call a real `c_export`'d
-   function** (the true Phase-3 acceptance test).
-5. **Phase 5a** — `--library` mode: `compileLibrary` (new file) + `--library` flag +
-   closure dispatcher + artifact packaging (raw `.o`s first, then `.a`). Harness
-   links the artifact.
+1. **Harness scaffold** — `e2e/ffi-export.sh` establishing the CI lane. `c_export`
+   doesn't exist yet, so there's no author-controllable Binate symbol to call and §3
+   forbids referencing mangled `bn_*`. So step 1 asserts **only the plumbing** — the
+   reverse direction (a C stub defines a symbol a Binate `.o` imports, links, runs).
+   The first "C calls Binate" assertion arrives at step 3.
+2. **Phase 2** — `#[c_export]` recognition + threading (buildcfg branch +
+   top-level-func validation pass + `ir.Func.CExportNames` list + gen_func +
+   unit tests). Verify gen1/BUILDER. Permissive names (link-time collision only).
+3. **Phase 3** — alias emission: native second-symbol (x64/aarch64, arm32 later) +
+   LLVM `alias`; asm + codegen unit tests; **wire the harness to call a real
+   `c_export`'d pure-compute function** (the true acceptance test — the C driver
+   prints the returned value, so no `bootstrap.*` shim is needed, §3).
+4. **Phase 5a** — `--library` mode: `compileLibrary` (new file) + `--library` flag +
+   the closure loop + **`EmitLibInit`** (the idempotent `bn_init` + the mangler
+   `bn_init` literal + `KIND_INIT`) + `.a` archive (raw `.o`s first, then `ar`).
+   Harness links the `.a`, calls the library's `c_export`'d `_init` (→ `bn_init`)
+   then the export.
 
-Then, as the surface matures: **4** (zero-cost re-export), **6** (retire
-`binate_runtime.c` — high blast radius, stage carefully, lets the harness drop its
-shim stub), **7** (header — makes the harness `#include` a tested artifact), **8/9**.
-
-The two heaviest single items remain the **LLVM alias** (Phase 3, the only net-new
-object construct) and **retiring `binate_runtime.c` incl. its I/O shims** (Phase 6,
-high blast radius). Phase 5a is heavier than the high-level plan implied (net-new
-archiver + the `runTestMode`-shaped closure loop, not a thin `compileSinglePkg`
-extension).
+The two heaviest MVP items are the **LLVM `alias`** (Phase 3 — the only net-new
+object construct) and **Phase 5a** (net-new `ar` archiver + `EmitLibInit` + the
+`runTestMode`-shaped closure loop — heavier than the high-level plan's "thin
+`compileSinglePkg` extension" framing). Later, as the surface matures: **4**
+(zero-cost re-export), then the deferred **6** (retire `binate_runtime.c`) and
+**7** (header generator), then **8/9**.
 
 ---
 
-## 5. Open decisions that gate implementation (Phase 0 asks)
+## 5. Decisions (ratified 2026-07-11)
 
-Collected for the ratification round; each blocks the noted phase.
+The design is ratified; the decisions that gated implementation are settled:
 
-- **`bn_init` root gating** — any root or `main`-only? (Phase 1/5a)
-- **`bn_init` guard storage** — in-dispatcher global vs. `rt`; single-shared for
-  merged libraries. (Phase 1/5b)
-- **Init-order spec item** — declaration- vs dependency-order becomes `bn_init`
-  ABI. (Phase 1)
-- **c_export data model** — single name vs. list; enforcement site for
-  package-public; name-legality/uniqueness policy; adjacent-concat handling.
-  (Phase 2)
-- **Entry-selection rule** — zero/multiple wired-up entries; exactly-one vs.
-  combinations. (Phase 5)
-- **Artifact type** — `.a` (ar/llvm-ar) vs `.so`/`.dylib` (clang -shared); platform
-  matrix. (Phase 5a)
-- **Version-skew** — merge already resolves it (one version per shared dep in the
-  closure). Only question: does the user want skew detection across *separately-built*
-  (non-merged) libraries — a distinct, design-rejected direction — or not? (Phase 5b)
-- **`bn_argc`/`bn_argv` home** and whether hosted shims are Binate-`__c_call` or a
-  transitional C stub. (Phase 6)
-- **Harness home + MVP scope** — `e2e/ffi-export.sh`, raw-`.o` first, shim-stub vs.
-  wait-for-Phase-6. (Phase 0)
-- **Header typedef naming/spelling** and the ILP32 return-threshold representation.
-  (Phase 7)
+- **`bn_init` scope** — produced **only in library mode**, exactly one per
+  artifact (the library counterpart of `bn_entry`, "like `main` without the main
+  module"). Programs are unchanged. (Phase 1→5a)
+- **`bn_init` guard** — idempotent run-once guard, guard global in the facade
+  module (one shared guard per link unit). (Phase 1→5a)
+- **Init order** — **dependency order** (resolved): cross-package topological
+  (`ldr.Order`), within-package `VarInitOrder`. No longer an open spec item.
+- **c_export data model** — a **list** (`@[]@[]char`). (Phase 2)
+- **c_export enforcement** — hard-error only "must attach to a top-level func";
+  **package-public NOT required**; **permissive** on names (no identifier/uniqueness
+  check — linker handles collisions); reject adjacent-string-concat form. (Phase 2)
+- **Artifact type** — **`.a`** (static archive, `ar`/`llvm-ar`). No `.so`/`.dylib`
+  now. (Phase 5a)
+- **Build-mode selection** — the explicit **`--library` flag** (no
+  "entry-selection" ambiguity; the design's entry-set-characterizes-the-build model
+  is deferred with Phase 6). (Phase 5)
+- **Version skew** — **out of scope** (merge yields one version per shared dep;
+  cross-separately-built-lib skew is not our problem). (Phase 5b)
+- **Harness** — **`e2e/ffi-export.sh`**; raw-`.o` first then `.a`; **pure-compute
+  export** so no shim stub is needed (§3). (Phase 0)
+- **Phase 6 (retire `binate_runtime.c`) and Phase 7 (header generator)** —
+  **deferred**, out of current MVP scope. The `bn_argc`/`bn_argv` home, the hosted
+  shim implementation, and header typedef spelling are decided when those resume.
+
+**Still open (small, implementation-time):** whether `compileLibrary` gets a
+`Package.Exports` field or just scans facade decls for `_init`; the exact synthetic
+source name that mangles to `bn_init`.
