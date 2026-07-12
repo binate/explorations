@@ -599,11 +599,15 @@ folded "Phase 1" — lands inside 5a). Phase 4 is a later zero-cost optimization
 **Phases 6 and 7 are deferred**; 8/9 later. Each unit below keeps the tree green
 and is cherry-pickable on its own.
 
-**Status (2026-07-11):** Phase 2 **landed** on main as `e213dd42` (adversarially
-reviewed; the review caught a method silent-no-op — `#[c_export]` on a method now
-hard-errors). Next: the harness scaffold + Phase 3 (alias emission). The
-plan-required Phase-2 conformance/e2e compile-smoke was folded into Phase 3, where
-`c_export` actually emits a symbol (so the smoke is meaningful, not a no-op).
+**Status (2026-07-12):** Phases 2 **and 3 landed** on main (`e213dd42`,
+`dd98dc31`), both adversarially reviewed. `#[c_export]` now recognizes, threads,
+placement-checks (method silent-no-op → hard error), and **emits** the C symbol
+on the LLVM path and all three native backends (x64/aarch64/arm32), with an e2e
+harness (`e2e/ffi-export.sh`) that link-and-runs C-calls-Binate on **both** the
+LLVM and native backends. The Phase-3 review's F2 (native link-and-run coverage)
+was closed via a native arm on the e2e harness; the plan's literal `asm/elf` +
+`asm/macho` symbol-writer link tests are a **follow-up** (in progress). Next
+substantive step: **Phase 5a** (`--library` mode).
 
 1. **Harness scaffold** — `e2e/ffi-export.sh` establishing the CI lane. `c_export`
    doesn't exist yet, so there's no author-controllable Binate symbol to call and §3
@@ -614,10 +618,11 @@ plan-required Phase-2 conformance/e2e compile-smoke was folded into Phase 3, whe
    (buildcfg branch + top-level-func placement check incl. method rejection +
    `ir.Func.CExportNames` list + gen_func + unit tests). Names permissive
    (link-time collision only).
-3. **Phase 3** — alias emission: native second-symbol (x64/aarch64, arm32 later) +
-   LLVM `alias`; asm + codegen unit tests; **wire the harness to call a real
-   `c_export`'d pure-compute function** (the true acceptance test — the C driver
-   prints the returned value, so no `bootstrap.*` shim is needed, §3).
+3. **Phase 3** ✅ **(landed `dd98dc31`)** — alias emission: native second-symbol
+   (x64 + aarch64 + arm32) + LLVM `alias i8`; codegen + native-emitFunc unit
+   tests; e2e harness link-and-running C-calls-Binate on **both** the LLVM and
+   native backends (public, private, multi-name exports). Follow-up: the literal
+   `asm/elf` + `asm/macho` symbol-writer link tests.
 4. **Phase 5a** — `--library` mode: `compileLibrary` (new file) + `--library` flag +
    the closure loop + **`EmitLibInit`** (the idempotent `bn_init` + the mangler
    `bn_init` literal + `KIND_INIT`) + `.a` archive (raw `.o`s first, then `ar`).
