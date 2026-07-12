@@ -64,6 +64,34 @@ user-facing decl-body site). pkg/binate/types 997/0, generic/constraint conforma
 adversarially reviewed. The two `populateInstantiated*` functions were extracted to
 `check_generic_populate.bn` (`d51e8c5a`) to keep the file under the length cap.
 
+## opaque-by-value iface-method diagnostic leaked from speculative impl-match probes (the SIZE sibling of the constraint decouple) — ✅ DONE & LANDED (`0532a175`, 2026-07-12)
+
+Same construction-vs-diagnostic conflation as the constraint decouple above, now for the
+opaque-by-value gate. `populateInstantiatedInterface` ran `requireSizedType` on every
+instantiated method's params/results — including for INTERNAL, use-site-less re-instantiations
+by `substituteTypeParams` while probing an impl-match. So checking whether a VALID
+`Consumer[Wrap[Op]]` (Op opaque) satisfied its `Marker` bound walked Wrap's OTHER impl
+`Sink[K]`, speculatively instantiated `Sink[Op]`, and leaked `cannot use an opaque type by
+value` on `put(t Op)` — a FALSE POSITIVE on otherwise-valid code (unlike the constraint case,
+this leaked on VALID programs, so it was a real user-facing defect, not just cascade noise).
+
+FIX: `populateInstantiatedInterface` takes a `userFacing` flag; its two `requireSizedType`
+loops run only when true, so a speculative populate still builds the methods but reports
+nothing. Soundness is preserved by DEFERRING, not dropping, the check:
+`requireInstantiatedIfaceMethodsSized` re-runs the size check on the built `iface.Methods` at
+the first user-facing use, riding the same `ConstraintsChecked` cache latch — so a probe that
+populates the cache first can't swallow a later real opaque-by-value misuse. A genuine
+`@Sink[Op]` still errors (at the method decl for a direct use, at the use site for a cache-first
+use). The `depth>=128` guard is intentionally left un-decoupled — it's a termination backstop,
+not a property-of-user-types diagnostic. pkg/binate/types 1000/0 (3 new regressions:
+no-leak / direct-reject / speculative-then-real reject), generics/opaque/iface conformance
+smoke 199/0, hygiene 17/17, adversarially reviewed.
+
+With this, the speculative-diagnostic-leak CLASS is decoupled for BOTH constraint and size
+diagnostics. The one residual is a REPL-only soundness hole in the shared `ConstraintsChecked`
+latch (it is set even when the user-facing diagnostic is discarded on a `TentativeMode` park),
+tracked as an OPEN MAJOR item in [claude-todo.md](claude-todo.md).
+
 ## Recursive by-value type SIGSEGV — ✅ DONE & LANDED `8c537b1b` (2026-07-11)
 
 A type whose underlying struct or array contains ITSELF by value (`type C struct { self C }`,
