@@ -307,27 +307,35 @@ cross-spelling identity (`fwd.Box[int]==genlib.Box[int]`), transitive, collision
 diagnosed, bare-ref rejected, a generic-INTERFACE identity case; verify on the VM
 leg too.
 
-**Slice 2 status (2026-07-11): IMPLEMENTED, reviewed SAFE TO LAND (commit
-`66834fa7`, pending land).** `IsGeneric` marker on `Symbol`; markers injected for
-exposed generics (own via registry walk + transitive via Syms copy);
-`resolveNamedTypeExpr` bare-ref guard; checker + IR-gen home remap.  Tests 1042
-(struct identity), 1047 (bare-ref rejected), 1048 (generic iface) green on
-builder-comp / -int / -comp; full regression 2772/0.  Implementation review traced
+**Slice 2 (exposed generic types) — ✅ LANDED `821c7c21`.** `IsGeneric` marker on
+`Symbol`; markers injected for exposed generics (own via registry walk + transitive
+via Syms copy); `resolveNamedTypeExpr` bare-ref guard; checker + IR-gen home remap.
+Tests 1042 (struct identity), 1048 (generic iface), 1049 (bare-ref rejected) green
+on builder-comp / -int / -comp; full regression 2772/0; implementation review traced
 identity correct on all three paths (struct/iface/transitive), byte-identical for
-non-exposed.  **Three follow-up gaps it flagged (not blocking):**
-- **Generic expose-collision silently undiagnosed (MAJOR-ish, diagnostic
-  correctness).** `checkExposeCollisions` reads the exposed package's `Syms`, which
-  never contain generics, so two forwarders exposing the same generic name shadow
-  silently — while the non-generic case IS diagnosed (1032/1033).  Fix: also scan
-  the generic-decl registries in the collision pass; add a `.error` test mirroring
-  1033 with a generic `Box` in both exposed packages.
-- **Generic transitivity untested (MINOR).** The `A exposes P exposes Q` (Q
-  generic) path is implemented+traced-correct but has no conformance test (1038 is
-  non-generic).  Add one asserting `a.Gen[int]` identity == `q.Gen[int]`.
-- **Latent nil-`Type` marker paths (MINOR, unreachable today).** `checkSelectorExpr`
-  value-position (`x := fwd.Box`) and `resolveNamedTypeExpr`'s bare-NAME branch lack
-  the `IsGeneric` guard, and the own-`.bn` merge (`checker.bn:173`) drops
-  `IsGeneric`.  Harden: add the guards + propagate the flag in the merge.
+non-exposed.  **All three flagged follow-up gaps done:**
+- **Gap 1 — generic expose-collision now diagnosed — ✅ LANDED `731a12e9`.**
+  `collectExposedSurfaceNames` scans the generic-decl registries too, so two
+  forwarders exposing the same generic name report `X: exposed by both …` (test
+  1051).
+- **Gap 2 — generic transitivity test — ✅ LANDED `af4434ff`.** Test 1052
+  (`a exposes p exposes q`, q generic; `a.Gen[int]` == `q.Gen[int]`).  Writing it
+  CAUGHT a false-positive regression gap 1 had put on main (undeduped registry →
+  spurious self-collision on transitive generics); fixed by deduping the collected
+  names.
+- **Gap 3 — marker nil-`Type` hardening — ✅ LANDED `6507d6a5`.** `IsGeneric` guard
+  added to the bare-NAME resolution + value-position selector paths, and propagated
+  through the `.bni`→`.bn` merge (test 1053).
+
+The whole `expose` feature is now complete + spec'd (§16.5.2): non-generic
+types/interfaces/funcs/vars/consts, generic funcs (call), generic types +
+interfaces, reflect, collision diagnostics — all landed and gated from bnc-tree use
+pending a BUILDER bump.
+
+**Follow-up (hygiene): `pkg/binate/types/checker.bn` is 512 lines (over the 500
+soft cap).** It was already ~509 (pre-existing warning); gap 3's `IsGeneric`-in-merge
+line nudged it over.  Split it along a natural boundary soon (do NOT trim doc lines
+to dodge the cap).
 
 ### Cross-package generic FUNC VALUE mis-compiles — `extractvalue operand must be aggregate type` — 🟠 OPEN (found 2026-07-11)
 
