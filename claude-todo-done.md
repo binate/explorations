@@ -8,6 +8,32 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## `impl @T : iter.Iterable` on doubly-imported-policy-constrained params → false "K does not satisfy constraint" — ✅ DONE & LANDED (`6647c49f`, 2026-07-11)
+
+Compiling `pkg/stdx/containers/table` (B2 of the injected-fn container work) failed at the
+imported blanket impls `impl hash.Default[K lang.Hashable] : Hasher[K]` /
+`impl cmp.Default[K lang.Comparable] : Eq[K]` with a false "type argument K does not satisfy
+constraint" — but only once `impl @Table[K,V,H,E] : iter.Iterable[Entry[K,V]]` (a
+parameterized-receiver impl whose interface has a nested `@Iterator` return) was present.
+Each smaller piece (Table core, the two policy constraints, the value cursor, `impl *Cursor :
+iter.Iterator`) compiled; adding the `@Table : iter.Iterable` impl triggered it.
+
+ROOT CAUSE: `genericImplSatisfies` (types_assignable.bn) substituted `rec.RecvType` with
+`src`'s type-args BY INDEX *before* checking that rec's receiver base is the same generic decl
+as src's.  Verifying `@Table[...] : iter.Iterable` walks EVERY impl in scope; for the
+unrelated `Default[K lang.Hashable]` it computed `substituteTypeParams(Default[K], Table's-args)`
+— mapping Default's K onto Table's UNCONSTRAINED K at index 0 — re-instantiating
+`Default[Table's-K]` and, via `checkInstantiationConstraints`, emitting the bogus miss.  FIX
+(conformance/1041_xpkg_iface_impl_policy): guard the substitution — bail unless
+`same(recBase.InstDecl, srcBase.InstDecl)` before substituting.  Only short-circuits
+mismatched-base cases `receiverAssignable` would reject anyway, before the harmful
+re-instantiation.  builder-comp + builder-comp-comp 2754/0; adversarially reviewed (guard +
+`same()` identity confirmed sound).  Unblocked B2 (the shared Table core).
+
+The fix patched the TRIGGER; the underlying CLASS (speculative generic instantiation leaking
+user-visible diagnostics — no trial/suppression mode) remains tracked as an open latent item
+in the active TODO.
+
 ## embedded / projecting generic cursor over the shared Table engine — three IR-gen bugs — ✅ DONE & LANDED (2026-07-11)
 
 Surfaced building `setfn.SetFn`'s bare-element iterator (a projecting cursor over the shared
