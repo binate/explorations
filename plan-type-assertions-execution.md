@@ -1219,10 +1219,13 @@ BUILDER-sensitive land.
   taken, `continue`).  Green all 7 modes; full-suite regression clean (comp
   2772/0, `-int` 2751/0); 2 adversarial reviews (memory-safety clean, one
   sweep-miss defect fixed).
-- **Slice 7 — Spec flips + docs (Phase 7).** *Explorations/docs; commit promptly.*
-  Flip the `§11.12`/`§17.5`/`§7.13.14`/`§13.8`/`§14.10` Draft banners + `00-index`
-  rows once conformance is green; keep the panic-text byte-identical to
-  `AssertFail`. Move the item to the done log. Deps: 4–6 landed.
+- **Slice 7 — Spec flips + docs (Phase 7) — DONE 2026-07-11 (docs `c00a3f8`).**
+  Flipped the `§11.12` / `§14.10` / `§17.5` Draft banners to implemented and the
+  `§7.13.14` / `§11.12` / `§13.8` / `§14.10` `00-index` maturity rows (the
+  `§7.13.14` / `§13.8` section bodies were already written normative, so no banner
+  there); kept the failed-assertion runtime-error text byte-identical to
+  `rt.AssertFail`.  Moved the project to the todo done log.  **The whole
+  type-assertion / type-switch / RTTI project is now complete.**
 
 ### U.5 Still-open (small spikes during implementation, not blockers)
 
