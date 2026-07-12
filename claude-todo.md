@@ -1894,6 +1894,27 @@ plan-native-arm32.md § P4.
 - **soft-float (P5) / VFP hard-float + arm32-linux (P6) / CI wiring (P7)** — see
   the plan doc.
 
+**MINOR / latent (found 2026-07-11, P4-d Phase C.2 follow-up review): a 0-byte
+aggregate result (`struct{}` / `[0]T`) routes to the arm32 PACK path and
+4-byte-overwrites its 0-byte retbuf.** `shimReturnIsSmallPackAggregateArm32` (and
+the non-closure `emitFuncValueShimBody` dispatch, arm32_funcvalue.bn:290-301) gates
+the pack path on `SizeOf() <= InternalSretBytes` (4) — a `struct{}` has `SizeOf 0`
+and IsAggregateTyp, so 0 ≤ 4 routes it to the pack shim, whose unconditional
+`STR R0, [retbuf]` writes a 4-byte garbage word PAST the end of the 0-byte result
+buffer (silent memory corruption). It IS reachable: a closure / func value returning
+`struct{}` compiles on the LLVM backend (verified) and conformance 1029 has
+zero-size struct values. **FIXED in the CLOSURE pack path** (`emitClosureShimPackCoreArm32`,
+via `emptyAggregatePackResultArm32` — skips the post-BL store + retbuf reload for a
+0-byte single-aggregate result; multi-return is never 0-byte since it has ≥2 fields),
+covered by `TestClosureShimPackEmptyStructResultSkipsStore` (mutation-verified: the
+test fails if the guard is removed). **The NON-closure pack shim (`emitPackShim`,
+arm32_funcvalue.bn:423) has the IDENTICAL unguarded `STR R0, [R4, #0]`** — a plain
+`*func() struct{}` (or non-capturing method value returning `struct{}`) hits the same
+4-byte-past-end store. Left UNFIXED pending a user decision (the closure fix is the
+in-scope P4-d Phase C follow-up; the non-closure shim is the same latent issue in the
+sibling P4-b pack path). The same size class should also be audited on x64/aa64's pack
+emitters (they pack `≤ InternalSretBytes` too) if a 0-byte result can reach them.
+
 ### ARM32 bare-metal target — MAJOR PROJECT
 - **Why**: enable Binate as an OS-development language on ARM32
   bare-metal (Cortex-A and possibly Cortex-M). Bare-metal is the
