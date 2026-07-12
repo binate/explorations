@@ -8,6 +8,40 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## native: 0-byte (`struct{}` / `[0]T`) func-value results mishandled across all 3 native backends — ✅ DONE & LANDED (`7b4303a6`, 2026-07-12)
+
+Surfaced by an adversarial review of an interim non-closure 0-byte pack-store guard
+(`997bed1f`, dropped as superseded): the guard sat on top of two deeper, pre-existing
+defects. Root cause: `types.IsAggregateReturn` is the documented single-source-of-truth
+"does this result ride the retbuf shim shape" predicate that LLVM + the VM already use
+(and which is correctly size-gated so a 0-byte result is void-like), but the native
+backends bypassed it with the kind-only `common.IsAggregateTyp` (no size gate).
+
+- **Bug A (silent miscompile) — a 0-byte-aggregate func-value call was SILENTLY
+  DROPPED.** `IsAggregateTyp(struct{})` = true so the call-site set `aggregateRet` and
+  tried to pass a retbuf, but `PlanFrame` reserves no data region for `dataSz==0`
+  (`common.bn` `dataSz > 0` gate) → `LookupAlloc` returned -1 → `emitCallFuncValue`
+  bare-`return`ed BEFORE the call instruction (arm32:242 / x64:283 / aa64:344) — the
+  underlying was never invoked, its side effects elided. On **all three** native
+  backends.
+- **Bug B — a multi-return with a zero-size field stored a junk word past the tuple**
+  (`storeMultiReturnTupleFieldsArm32` etc. emitted a full-word STR per field incl. the
+  0-byte one).
+
+Fix: route native RESULT classification through `types.IsAggregateReturn` (new
+`IsAggregateReturnTyp` single-type adapter) at the call-site, shim dispatch, callee
+return, and the shared PlanFrame sizer (`common_call.bn`) — verified behavior-identical
+to `IsAggregateTyp` for every reachable result of `SizeOf >= 1`, changing only the
+0-byte case to void-like; the multi-return per-field store/pack skip a 0-byte field
+(no data move, no register consumed — matching x64/LLVM/VM). Removed the now-dead arm32
+0-byte pack guards (incl. the interim landed closure guard `e233b8c3`'s
+`emptyAggregatePackResultArm32`). This **subsumes** the separately-deferred x64/aa64
+scalar-void-fall-through audit (all three call-sites are fixed uniformly). Adversarial
+review 4/4 lenses CLEAN (incl. validating the skip-and-not-consume multi-return
+choice); conformance regressions `funcval-empty-struct-return-side-effect` (Bug A
+side-effect proof, mutation-verified) + `funcval-empty-struct-multiret` (Bug B) green
+on all three native modes + LP64/LLVM + VM.
+
 ## generic-instantiation constraint diagnostics leaked from speculative impl-match probes — ✅ DONE & LANDED (`5e3ee8cb`, 2026-07-12)
 
 Residual/class-fix of the `impl @T : iter.Iterable` false-constraint bug (`6647c49f` patched

@@ -701,14 +701,17 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
       (`e233b8c3`):** 5 pack-shape byte-refs for the pack path (base R5) under a
       by-address-agg user arg / int64-pair user / even-pair-pad int64 capture / SPLIT capture /
       C.3 1-cap-2-user small-multiret — each mutation-verified (a permanent R5→R1 clobber
-      reference must diverge byte-for-byte), plus a guard for a REAL 0-byte-aggregate
-      (`struct{}` / `[0]T`, SizeOf 0) miscompile: such a result routes to the pack path
-      (`SizeOf ≤ InternalSretBytes=4`) but its retbuf is a 0-byte buffer, so the
-      unconditional `STR R0,[retbuf]` wrote a 4-byte garbage word past its end. `emptyAggregate
-      PackResultArm32` skips the post-BL store+reload for it (closure path fixed). The IDENTICAL
-      unguarded store in the NON-closure `emitPackShim` is a still-latent MINOR/MAJOR defect
-      (tracked in claude-todo; x64/aa64 gate `usePack=retSz≥1` so their pack STORE is not hit,
-      but their call-sites still pass a retbuf for 0-byte → a separate open question).
+      reference must diverge byte-for-byte).  A 0-byte-aggregate pack-store guard
+      (`emptyAggregatePackResultArm32`) was originally added here, **but it and the whole
+      pack-store-guard approach were SUPERSEDED + REMOVED by the holistic 0-byte fix
+      `7b4303a6` (2026-07-12):** a further adversarial review found the guard sat atop a
+      DEEPER silent-miscompile — a 0-byte `func() struct{}` call was DROPPED before the call
+      on ALL 3 native backends (the call-site classified `struct{}` as needing a retbuf via
+      the kind-only `IsAggregateTyp`, but `PlanFrame` reserves none for `dataSz==0`, so
+      `emitCallFuncValue` bare-returned before the call). 0-byte results are now routed as
+      void-like everywhere via `types.IsAggregateReturn` (new `IsAggregateReturnTyp` adapter),
+      which ALSO SUBSUMES the x64/aa64 scalar-void-fall-through audit — see the done-log entry
+      "0-byte func-value results mishandled across all 3 native backends".
       **C.3 — multi-return — ✅ LANDED 2026-07-11 (`067f990a`).** Splits on
       `isBigMultiReturnArm32` = `MultiReturnTupleNeedsSret` = gpWords > NumGpRetRegs 4 (a
       WORD-count rule — the identical predicate the callee + non-closure caller use, so the
