@@ -221,40 +221,6 @@ soft cap).** It was already ~509 (pre-existing warning); gap 3's `IsGeneric`-in-
 line nudged it over.  Split it along a natural boundary soon (do NOT trim doc lines
 to dodge the cap).
 
-### Generic function used as a FUNC VALUE in IR-gen — ✅ LANDED `473013ed` (2026-07-12)
-
-A generic-function instantiation used as an rvalue (`var f = glib.Ident[int];
-println(f(9))`, where `pkg/glib` exports `func Ident[T any](x T) T`) previously
-aborted the compile: IR-gen had no path turning an `EXPR_INSTANTIATE_OR_INDEX`
-with a generic head into an `OP_FUNC_VALUE` (the func-value machinery is gated on
-`isFuncRefExpr`, which recognizes only a bare ident / `pkg.Name` selector, so the
-instantiate shape fell through to `genSelector`'s abort).  The direct-call form
-already worked (`genCallInstantiate`) and the checker already typed the rvalue as
-`TYP_FUNC` — the gap was purely IR-gen value construction.
-
-**Fix (IR-gen only):** `genericFuncInstanceName` (`gen_generic.bn`) resolves the
-generic decl (bare head via `CurrentImportAlias` / same-package registry; `pkg.Id`
-head via `homedQualifier` + the pkg-keyed registry, mirroring `genCall`),
-`ensureInstantiated`s the instance, returns its mangled name (or "" for a
-non-instantiation, so ordinary indexing / a shadowing local var falls through).
-Wired into `genExprOrFuncRef` (call-arg / return / field / plain-assign /
-explicit-type var), `genDecl` (`var`), `genShortVar` (`:=`); the shared
-alloc→func-value→store→bind emit factored into `defineFuncValueVar` (`gen_func.bn`).
-The instance is a non-capturing `IsLinkOnce` top-level func → null-data func value
-→ managed-`@func` dtor is a guarded no-op (identical to the bare-ref `var f = add`
-case).  `conformance/1056_generic_func_value` covers every slot (inferred /
-explicit-`@func` / explicit-`*func` var, `:=`, call-arg, return, struct field,
-reassignment; cross- and same-package), green on LLVM / VM / self-host / native
-aarch64 / native x64; IR-shape unit tests + a false-positive guard added.  Two
-adversarial reviews SHIP.
-
-This **unblocks** the exposed generic-func-VALUE form (`var f = fwd.Ident[int]`) —
-`genericFuncInstanceName` already carries the `homedQualifier` remap, so the
-workstream-A re-add can now build on it (verify + re-add `gen_method_value_recv.bn`
-under that workstream, not here).  A pre-existing package-scope-global limitation
-surfaced during review (`var G = <func-ref>` at package scope) is tracked as a
-separate MAJOR above.
-
 ## Language features — specified, not yet implemented
 
 ### Type assertions, type switches & RTTI — ✅ COMPLETE (moved to [claude-todo-done.md](claude-todo-done.md)) — one optional, deferred tightening
