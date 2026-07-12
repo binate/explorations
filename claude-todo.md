@@ -7,40 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### speculative generic instantiation emits an EXTRA (misanchored) diagnostic — CASCADE NOISE on already-invalid code, not a false positive — 🟢 LOW / OPEN (residual of the `6647c49f` fix; investigated 2026-07-11)
-
-`instantiateGenericDeclWithArgs` (pkg/binate/types/check_generic_type.bn:149) runs
-`checkInstantiationConstraints`→`reportConstraintMiss` (also the depth>=128 and
-`requireSizedType` errors) on any uncached `(decl, args)` with no suppression flag — even when
-reached from a purely SPECULATIVE impl-match probe (`typeSatisfiesConstraint` /
-`genericImplSatisfies` walking `c.Impls`; `substituteTypeParams` re-instantiating a nested
-generic whose args "changed", check_generic.bn:299).  So such a probe can emit a
-constraint-miss the user never wrote, ANCHORED AT THE NESTED GENERIC'S DECL (`d.Pos`, which is
-confusing).
-
-**SEVERITY DOWNGRADED after investigation (2026-07-11).** It is NOT a false positive on valid
-code.  Repro'd both ways: `impl Wrap[K any] : Sink[Bar[K]]` where `Bar[K lang.Hashable]` — the
-impl is itself ill-formed (`Bar[K]` needs K Hashable, Wrap's K is `any`), and checking
-`Wrap[Loose] : SomeIface` (Loose non-Hashable) emits BOTH the real impl error AND an extra
-"Loose does not satisfy Hashable" pointing at `Bar`'s declaration.  Making the impl valid
-(`Wrap[K lang.Hashable]`) + instantiating validly (`Wrap[int]`) compiles CLEANLY — no spurious
-error.  The extra diagnostic only ever appears ALONGSIDE a genuine error (an ill-formed impl or
-instantiation), i.e. it is cascade noise, not a rejection of otherwise-valid code.
-
-**Why the obvious fix is UNSAFE (do NOT just suppress).** A suppress-during-speculation flag
-would interact badly with the instantiation CACHE: `instantiateGenericDeclWithArgs` caches the
-result BEFORE the cache-check short-circuits future calls (line 151), so if a speculative probe
-instantiates `Bar[Loose]` with the diagnostic suppressed AND caches it, a LATER *real*
-`Bar[Loose]` use hits the cache, skips `checkInstantiationConstraints`, and the genuine error
-is LOST — a soundness regression.  A safe fix must decouple constraint-checking from the cache:
-either don't cache speculative instantiations (perf/complexity), or check constraints ONLY at
-real use sites (not inside `instantiateGenericDeclWithArgs`) — a non-trivial refactor.
-
-**Recommendation:** given it is LOW (cascade noise on already-erroneous code) and the safe fix
-is a refactor with a soundness hazard, leave documented and revisit only if the noisy extra
-diagnostic on invalid code becomes a real annoyance.  Repro on file: /tmp/spec1.bn (noisy) vs
-/tmp/spec2.bn (clean).
-
 ### `readonly` is invisible to `NeedsDestruction`/`dtorTypeSuffix` — cosmetic mismatch now, latent leak later — 🟢 LOW / OPEN (found 2026-07-10, adversarial review of `8d9e7577`)
 
 `ResolveAlias()` peels `TYP_ALIAS` but not `TYP_READONLY`, so (a) `readonly <scalar>`

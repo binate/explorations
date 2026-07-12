@@ -8,6 +8,28 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## generic-instantiation constraint diagnostics leaked from speculative impl-match probes — ✅ DONE & LANDED (`5e3ee8cb`, 2026-07-12)
+
+Residual/class-fix of the `impl @T : iter.Iterable` false-constraint bug (`6647c49f` patched
+only the trigger). `instantiateGenericDeclWithArgs` emitted a user-visible constraint miss
+("T does not satisfy I") for EVERY uncached `(decl, args)` — including INTERNAL, use-site-less
+re-instantiations by `substituteTypeParams` while probing an impl-match. So checking whether an
+already-broken program's `Wrap[Loose]` satisfies an interface walked an ill-formed
+`impl Wrap[K] : Sink[Bar[K]]`, re-instantiated `Bar[Loose]`, and leaked an extra
+"Loose does not satisfy" anchored at `Bar`'s DECL — a site the user never wrote. Investigation
+established it was cascade noise on already-invalid code, never a false positive on valid code.
+
+FIX: decouple the constraint DIAGNOSTIC from type CONSTRUCTION. `instantiateGenericDeclWithArgs`
+takes a `userFacing` flag; the two user-facing callers (a `Name[args]` type expression, an
+explicit type argument) report a miss at the user's pos, while `substituteTypeParams` (internal)
+only constructs the type. The check runs once per `(decl, args)`, recorded on the cache entry
+(`ConstraintsChecked`), so a speculative instantiation that populates the cache first can't
+swallow a later real miss — the soundness hazard a naive suppress-flag would have introduced.
+Constraints are still verified for every real use (a bad generic field/arg is caught at its
+user-facing decl-body site). pkg/binate/types 997/0, generic/constraint conformance 498/0,
+adversarially reviewed. The two `populateInstantiated*` functions were extracted to
+`check_generic_populate.bn` (`d51e8c5a`) to keep the file under the length cap.
+
 ## Recursive by-value type SIGSEGV — ✅ DONE & LANDED `8c537b1b` (2026-07-11)
 
 A type whose underlying struct or array contains ITSELF by value (`type C struct { self C }`,
