@@ -646,7 +646,7 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
     concurrent `/tmp` gen1 deletion; verification rests on the byte-identity of the reachable
     path (unit byte-refs), a gen1-builds smoke, and the review — a clean post-land run
     confirms.
-  - **Phase C (planned 2026-07-11, approved)** — aggregate-result + multi-return capturing-
+  - **Phase C ✅ COMPLETE 2026-07-11** — aggregate-result + multi-return capturing-
     closure / method-value shims. Removes the `shimReturnIsNonScalarArm32` fail-loud in
     `emitClosureShimArm32` and adds the four AAPCS32 result shapes for closures, composing two
     already-solved axes: the capture-prefix ARG machinery (Phase A/B) and the non-closure
@@ -701,11 +701,30 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
       pack + by-address-agg-user-arg / int64-pair / even-pair-pad captures (base R5→R1
       mutation), and an empty-struct-result guard (degenerate, shared with the non-closure pack
       shim).
-      C.3 — multi-return (pack + sret, split on `isBigMultiReturnArm32` = gpWords>4, NOT a size
-      rule). 950 (may also need the external `synthMethodValueWrapper` multiret fix — xfail if
-      it bites arm32).
+      **C.3 — multi-return — ✅ LANDED 2026-07-11 (`067f990a`).** Splits on
+      `isBigMultiReturnArm32` = `MultiReturnTupleNeedsSret` = gpWords > NumGpRetRegs 4 (a
+      WORD-count rule — the identical predicate the callee + non-closure caller use, so the
+      retbuf-vs-field-register convention can't diverge; e.g. `(int64,int64)` = 16B but 4 GP
+      words → small/pack). BIG (gpWords>4) reuses the C.1 `emitClosureShimSretArm32` UNCHANGED
+      (it's result-shape-agnostic — never reads `Results`, the underlying writes the tuple
+      through the R0 retbuf). SMALL reuses the C.2 pack framing via a shared core
+      `emitClosureShimPackCoreArm32(…, retTuple)` (byte-identical for the C.2 single-aggregate
+      `retTuple=nil` case), with the only delta being the post-BL store —
+      `storeMultiReturnTupleFieldsArm32` (field-per-register through the retbuf, shared with
+      the callee's `emitMultiReturnPack`) instead of a single `STR R0`; an int64 tuple field
+      fails loud (shared `emitScalarStore` sz==8), a clean deferral not a silent narrow store.
+      Byte-ref units + a new EXECUTION conformance test `regressions/closure-multiret-through-
+      value` (a capturing closure returning `(int,int)` [pack] and `(int,@[]int)` [sret]
+      called INDIRECTLY through a helper so the shim can't be devirtualized — forces the shim
+      to run on qemu; passes native arm32 + LP64). Adversarial-reviewed clean (0 survivors; the
+      review's only substantive finding — the shim path was byte-ref-only — was closed by that
+      execution test). `regressions/capturing-closure-multi-return` also now passes.
+      (`950_method_value_multiret` was already fixed by an ancestor and routes through the
+      callee, NOT this shim.)
 - **Acceptance**: func-value / closure / interface conformance + unit tests
-  pass in native baremetal.
+  pass in native baremetal. **Phase C (all closure/method-value result shapes — scalar/void,
+  big-sret, small-pack, multi-return) COMPLETE 2026-07-11; only float parts (P5) and
+  indirect-large captures remain fail-loud on the closure path by design.**
 
 ### P5 — soft-float (baremetal complete)
 - `arm32_float.bn` (soft-float): float args/returns in GP regs (f32→r0,
