@@ -1055,51 +1055,20 @@ composite- or variadic-specific (the plain `eq(other Self)` reproduces it).
 
 ---
 
-### `==` / `!=` (and relational) on aggregates — VM-silent class CLOSED by guard; clean diagnostic via inference-removal — 🟡 (silent miscompile FIXED 2026-07-11; inference-removal pending)
-The `==`/`!=`/relational aggregate story is ✅ DONE & LANDED — full arc (checker
-rejection, struct/array + generic-function impl, sentinel decision, generic-field
-re-check) archived in [claude-todo-done.md](claude-todo-done.md). Same-package direct comparisons are
-handled for generic FUNCTIONS (items 2/4) and generic-TYPE METHODS (`40463d81`). The
-broader class was a set of paths where the STAMP-BASED, ORDER-DEPENDENT re-check misses
-— **(a) forward-reference** (callee body checked after the call), **(c) imported**
-cross-package (consumer never walks the `.bni` body, so its binder is born false), and
-**(d) transitive through a generic FUNCTION** — each reaching IR-gen as a scalar compare
-on a non-comparable operand: loud on LLVM (`icmp %BnSlice`) but a **SILENT garbage
-compare on the VM**.
-
-**✅ The SILENT MISCOMPILE is now CLOSED — IR-gen guard `30bc2bac` (2026-07-11).** A
-defense-in-depth guard in `gen_binary.bn` (`assertComparableScalarCompare` /
-`isNonComparableAggregate`, + the `emitFieldEq` aggregate-leaf) panics rather than lower
-a comparison the checker should have rejected: `==`/`!=` on a slice/iface/func operand,
-or a relational op on any NON-numeric operand (struct/array/pointer/bool — catching the
-struct/array-relational case the eq-only genAggregateEq fork misses, found in review).
-Every residual path (a)/(c)/(d) now fails LOUD and backend-neutral on both LLVM and the
-VM; same-package cases still get the clean checker rejection first.  Full conformance
-green both backends (LLVM 2768, VM 2747), zero false positives; two adversarial reviews.
-Reuses no stamp — re-derives (non-)comparability from the concrete operand type, so it
-is order/import-independent by construction.
-
-**Remaining = the CLEAN per-line DIAGNOSTIC (the guard's message is compiler-bug-flavored,
-no source position).** DECIDED 2026-07-11 (with the user): get it by REMOVING the
-operator-on-type-param inference, NOT by hardening it (the recon's sub-pass option A).
-Evidence driving the call: a repo-wide sweep found **NOTHING real uses `==`/`<` on a
-type-param** — every comparison-bearing generic (stdlib hashmap/set via `lang.Hashable`,
-examples sort via `lang.Orderable`, the compiler itself) goes through the `.Compare()` /
-`.Hash()` METHOD + constraint; only artificial conformance/unit tests use the operator
-inference.  And the language already gates METHOD access on a type-param behind a
-constraint (spec §12.1: `[T any]` = store+move only, no methods), while §13.6 defines
-`==`/`<` for CONCRETE types only (no type-param rule) — so the inference is an unspec'd
-extension inconsistent with the rest of the language.  **Next step (multi-commit,
-language change — needs the exact surface ratified):** make `==`/`<`/`!=`/`<=`/`>=` on a
-type-param an ERROR that directs the user to a constraint — either the existing
-`[T Comparable]` + `.Compare()`/`.Eq()` (method form) or a NEW built-in `[T comparable]`
-operator-constraint (Go-style; a sibling of the method-level `lang.Comparable`, not a
-reuse — primitives impl only `Stringer`, not `Comparable`).  Remove the `TpUsedInEq` /
-`TpUsedInRel` inference machinery + both re-checks; update conformance 064–066 / 073–076
-and the `check_compare_test.bn` generic tests; the IR-gen guard then becomes a
-can't-happen backstop.  Recon report + subsystem maps: workflow `recon-generic-compare-
-vm-silent` (2026-07-11).
-
+### Recursive by-value struct type SIGSEGVs the compiler at decl time — 🟠 MAJOR (compiler crash), filed 2026-07-11
+A struct that contains ITSELF by value crashes bnc with SIGSEGV (exit 139) during
+declaration checking / layout resolution, instead of a clean "recursive struct type"
+rejection.  Repro: `type C struct { self C }` — and via an array field
+`type C struct { items [2]C }` — both exit 139 (verified LLVM host build).  A by-value
+struct cycle has no finite size/layout and must be rejected; only a cycle through a
+POINTER (`@C` / `*C`, e.g. a linked-list node) is legal.  Root cause (unconfirmed): the
+size/layout resolver recurses without a cycle guard.  Surfaced by the adversarial review
+of the type-param-comparison change (`fa2a6e8e`); UNRELATED to it (the checker's
+`containsByValueTypeParam` walk is cycle-safe — it bottoms out at a type-param or a
+pointer).  No conformance test yet: a test that SIGSEGVs the compiler needs careful xfail
+handling so it does not destabilize the runner; add it with the fix (which turns it into
+a clean err-test).  Fix: a recursion/visited guard in the struct layout/size pass with a
+"recursive struct type (contains itself by value)" error.
 ### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
 - **Problem**: with the current rules, `int` (and other predeclared
   primitives) can't implement interfaces. Methods can only be

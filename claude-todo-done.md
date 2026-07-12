@@ -8,6 +8,46 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## `==` / `<` on a type parameter — VM-silent generic-comparison class fully CLOSED — ✅ DONE & LANDED (2026-07-11)
+
+The whole VM-silent generic-comparison miscompile class is closed, in two landed pieces:
+
+**(1) IR-gen defense-in-depth guard — `30bc2bac`.** `gen_binary.bn`
+(`assertComparableScalarCompare` / `isNonComparableAggregate`) + the `emitFieldEq`
+aggregate-leaf panic rather than lower a comparison the checker should have rejected:
+`==`/`!=` on a slice/iface/func operand, or a relational op on any non-numeric operand
+(struct/array/pointer/bool — the struct/array-relational miss the eq-only genAggregateEq
+fork does not cover, found in review).  Re-derives (non-)comparability from the concrete
+operand, so it needs no stamp and is order/import-independent.
+
+**(2) Removed the operator-on-type-param inference; reject at the definition — `fa2a6e8e`.**
+DECIDED with the user (Option 1, method-only) after a repo-wide sweep found NOTHING real
+uses `==`/`<` on a type parameter — every comparison-bearing generic (stdlib hashmap/set,
+examples' sort, the compiler itself) uses the `.Compare()`/`.Hash()` METHOD + constraint;
+only synthetic tests used the operator.  The checker now rejects a comparison whose
+operand IS a type parameter, or a struct/array transitively containing one BY VALUE
+(`containsByValueTypeParam`), at the generic body — spec rule `expr.compare.typeparam`,
+directed to `[T lang.Comparable]` + `a.Compare(b)`.  A parameter behind a pointer
+(`@T`/`*T`) stays legal (identity).  A tagged `switch` matches each case with an implicit
+`==`, so `checkSwitchStmt` runs the same check on the tag — closing a pre-existing
+switch-on-type-param hole that bypassed both the old inference AND the guard (found by
+the adversarial review; VM-silent miscompile).  Because the rejection is at the
+DEFINITION it is order- and import-independent, closing the forward-ref /
+imported-cross-package / transitive paths cleanly (the guard is now a can't-happen
+backstop).  Removed: `recordTypeParamComparison`, `TpUsedInEq`/`TpUsedInRel`,
+`instantiateGenericFunc`'s re-check, `recheckGenericMethodComparisons`.
+
+Tests: `spec/12-generics` consolidated to the distinct rejection shapes (064 / 065 / 069 /
+072 / 073 / 074 / 077 switch-tag) + 071 (parameter behind a pointer — accepted);
+redundant/now-invalid tests removed (constraint+method covered by conformance 434 /
+spec/20-tier0); 772 updated; `check_compare_test.bn` → 5 clean generic tests; vendored
+`rule-ids.txt` synced.  Verified: full unit tests 60/0; full conformance LLVM 2769/0 + VM
+2748/0, zero backstop panics; bnc self-compiles; hygiene green; two adversarial reviews.
+Retires the earlier `40463d81` generic-type-method re-check (its inference is now removed
+in favor of the up-front rejection).
+
+---
+
 ## Type assertions, type switches & RTTI — ✅ COMPLETE (front-end done 2026-07-11) — the whole project landed
 
 Go-style downcasting from an interface value to a concrete type or narrower interface
