@@ -35,7 +35,7 @@ beyond the fixed case, but the principled fix is an error-suppression / trial mo
 speculative instantiation (route to `c.TentativeErrors` or a probe flag) rather than
 per-caller decl guards.  No standalone repro yet.
 
-### concrete struct embedding a generic cursor → Cursor.Next emitted before its @Table field type is registered → genSelector catch-all → invalid `extractvalue i64` — 🔴 MAJOR / OPEN (found 2026-07-11; generic-hang sibling FIXED & LANDED `4c7d8224`+`aee73b4b`)
+### concrete cross-package struct embedding a generic cursor → field resolves under WRONG package → `@int` → genSelector catch-all → invalid `extractvalue i64` — 🟡 MAJOR / FIX FOUND (worktree `1f77640a`, pending broad validation + review + land); generic-hang sibling FIXED & LANDED `4c7d8224`+`aee73b4b` (found 2026-07-11)
 
 **Two symptoms were conflated here; they are DIFFERENT bugs. The GENERIC one (a runtime
 infinite loop) is FIXED & LANDED (`4c7d8224` + `aee73b4b`); the CONCRETE one (an
@@ -54,46 +54,45 @@ nested-selector / slice-element shapes).  `setfn.SetFn` now iterates
 (`Iter`/`AsIterator`/`iter.Iterable[T]`, `aee73b4b`).  The "hang" impression came from
 running the built program, not from the compiler looping.
 
-**(2) OPEN — concrete struct embedding a generic cursor fails to LINK (`extractvalue i64`).**
+**(2) FIX FOUND (worktree `1f77640a`), pending validation + review + land — concrete
+cross-package struct embedding a generic cursor failed to LINK (`extractvalue i64`).**
 `type Holder struct { tc table.Cursor[int, int, hash.FnHasher[int], cmp.FnEq[int]] }` plus a
-single `h.tc.Next()` emits invalid IR: inside `Cursor.Next`, the nested selector `it.t.cap`
-/ `it.t.used` / `it.t.keys` (it: *Cursor, `t`: `@Table[...]`) is UNRESOLVED — genSelector's
-catch-all fires, emitting a `rt.Panic("... unresolved selector ...")` call + garbage
-`%vN = add i64 0, 0`, and the following field access does `extractvalue i64 %vN, 0` (an
-extractvalue on a scalar).  clang's verifier rejects it: `extractvalue operand must be
-aggregate type`.  This reproduces on the PRE-fix compiler too, so it is independent of (1),
-and it does NOT block SetFn (whose `SetCursor[T]` is GENERIC — it instantiates at a pass-2
-use site where `Table` is already registered, so its `Cursor.Next` resolves `it.t.*`
-correctly).
+single `h.tc.Next()` emitted invalid IR: inside `Cursor.Next`, the nested selector `it.t.cap`
+/ `it.t.used` / `it.t.keys` was UNRESOLVED — genSelector's catch-all fired
+(`rt.Panic("... unresolved selector ...")` + garbage `%vN = add i64 0, 0`), and the following
+field access did `extractvalue i64 %vN, 0`, which clang's verifier rejects (`extractvalue
+operand must be aggregate type`).  Reproduced on the pre-fix compiler too, independent of (1);
+did NOT block SetFn (`SetCursor[T]` is GENERIC — Cursor instantiates at a pass-2 use site).
 
-**ROOT CAUSE (pinned via .ll).** At the point `Cursor.Next` is codegen'd for the CONCRETE
-embedding, `lookupStructIdx(gc, <Table inst name>)` returns < 0 — the instantiated `Table`
-struct is not yet in `gc.Mod.Structs`.  A struct embedding the cursor as a value field
-forces `Cursor.Next` to be emitted (during the outer struct's layout) BEFORE `Table[...]`
-is registered; a LOCAL cursor var (`var it = t.Iter(); it.Next()`) registers `Table` first
-and works.  A related SPURIOUS instantiation is also emitted: a bogus
-`Table[int,int,int,int]` (h/e resolved to `int` instead of the policy structs — a
-by-index-vs-by-owner substitution slip when resolving `Cursor`'s field `t @Table[K,V,H,E]`)
-with dead dtor/copy/reflect symbols.  In the generic case the bogus type is emitted but
-harmless (Cursor.Next's real GEPs use the correct Table); in the concrete case the selector
-resolves to nothing at all → the catch-all.  Whether the two share one fix (correct the
-substitution AND register on demand) or are two adjacent slips is TBD.
+**ROOT CAUSE (pinned by instrumenting IR-gen).** NOT an ordering / registration gap — a
+wrong-package generic-DECL lookup.  `ensureInstantiatedStruct` overlaid the generic's
+defining-file imports but left `CurrentImportAlias` unset, so when `Cursor` (defined in
+`table`) is instantiated from `main` (the concrete embed), resolving its field
+`t @Table[K,V,H,E]` looked up the unqualified `Table` generic decl in `main`
+(`resolveTypeExpr` TEXPR_INSTANTIATE → `lookupPkg = gc.PkgPath = main`), missed, and fell to
+the `types.TypInt()` fallback — the field type silently became `@int`.  Then `getSelectorType(it.t)`
+returned `@int`, `it.t.cap`/`used` found no struct, and genSelector's catch-all emitted the
+`extractvalue i64` garbage.  (`ensureInstantiatedInterface` already set `CurrentImportAlias =
+definingPkg`; the struct path did not — that asymmetry was the bug.)
 
-**FIX DIRECTION.** Either (a) ensure a generic method's receiver FIELD-type structs are
-registered before/when the method body is emitted (order fix), or (b) on-demand-register
-the missing struct in `genSelector`/`getSelectorType` when `structTyp.InstDecl != nil` (call
-`ensureInstantiatedStruct` then re-lookup — mirroring resolveTypeExpr's TEXPR_INSTANTIATE
-arm, gen_type_resolve.bn:182); the fiddly part of (b) is deriving `<definingPkg>` so the
-re-registered name equals `structTyp.Name`.  Separately, fix the H/E substitution so no bogus
-`Table[int,int,int,int]` is produced at all.
+**FIX (landed pending approval).** In `ensureInstantiatedStruct`, pin `gc.Mod.CurrentImportAlias
+= buf.CopyStr(definingPkg)` around the field-resolution loop (save/restore), mirroring
+`ensureInstantiatedInterface` and the checker's `populateInstantiatedStruct`.  Verified:
+`/tmp/holder.bn` links + prints 10; `setcur`/setfn still green; `pkg/binate/ir` 604/0;
+setfn/mapfn/table unit tests green.  Because this touches core generic-struct field
+resolution, it needs a broad conformance run before landing (blast radius = every generic
+struct instantiation).  A conformance test for the concrete cross-package embed is still TODO.
 
-**Repro.** `/tmp/holder.bn`-shaped: a plain `main` with `type Holder struct { tc
-table.Cursor[int,int,hash.FnHasher[int],cmp.FnEq[int]] }` + `h.tc.Next()`; importing
-`pkg/stdx/{hash,cmp,containers/table}` (needs B1/B2 landed).  `--emit-llvm` succeeds but the
-`.ll` fails clang verification (`extractvalue operand must be aggregate type`).  A
-self-contained minimization (a LOCAL generic cursor embedded in a concrete struct, no
-table/hash/cmp) is TODO — would confirm whether the trigger is cross-package or just the
-value-field-generic-cursor pattern.
+**RESIDUAL (separate, benign, still OPEN).** The bogus `Table[int,int,int,int]` (h/e resolved
+to `int` — a DIFFERENT slip: the `Table` decl IS found but its H/E binders are out of scope in
+some resolution, so the args fall to `int`) is STILL emitted as dead dtor/copy/reflect symbols.
+It does not break linking or runtime (no value of that type is ever created).  Track + fix
+separately; do not block the (2) fix on it.
+
+**Repro.** `/tmp/holder.bn`: `type Holder struct { tc
+table.Cursor[int,int,hash.FnHasher[int],cmp.FnEq[int]] }` + `h.tc.Next()`, importing
+`pkg/stdx/{hash,cmp,containers/table}`.  Pre-fix: `--emit-llvm` succeeds but the `.ll` fails
+clang verification.  Post-fix (`1f77640a`): links + runs.
 
 
 **Symptom.** Compiling `pkg/stdx/containers/table` (the shared policy-parameterized
