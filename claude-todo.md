@@ -343,21 +343,39 @@ soft cap).** It was already ~509 (pre-existing warning); gap 3's `IsGeneric`-in-
 line nudged it over.  Split it along a natural boundary soon (do NOT trim doc lines
 to dodge the cap).
 
-### Cross-package generic FUNC VALUE mis-compiles — `extractvalue operand must be aggregate type` — 🟠 OPEN (found 2026-07-11)
+### Generic function used as a FUNC VALUE is unimplemented in IR-gen — compile abort — 🟠 OPEN (found 2026-07-11, root-caused)
 
-**Pre-existing, NOT expose-related.** Taking a func value of a cross-package
-generic function and calling it fails to compile: `var f = glib.Ident[int];
-println(f(9))` (where `pkg/glib` exports `func Ident[T any](x T) T`) →
-`COMPILE_ERROR: main.ll:…: error: extractvalue operand must be aggregate type`
-(`%vNN = extractvalue i64 %vMM, 0`).  Fails identically for the HOME spelling
-(`glib.Ident[int]`) and a forwarder spelling (`fwd.Ident[int]`), so it is a
-generic-func-VALUE lowering bug independent of `expose`.  The direct call form
-(`glib.Ident[int](9)` / `fwd.Ident[int](9)`) works.  Discovered while building the
-exposed-generic-func test.  Blocks the `expose` func-value site
-(`gen_method_value_recv.bn:223`), whose `homedQualifier` remap is correct but
-unreachable until this is fixed.  Root cause: unknown — the generic func-value's
-result type or the call-through-a-func-value lowering treats an `i64` scalar
-result as an aggregate.  Needs investigation.
+**A FEATURE GAP, not a miscompile; NOT expose-related; fails LOUD.**  Taking a
+func value of a generic function and calling it — `var f = glib.Ident[int];
+println(f(9))` (where `pkg/glib` exports `func Ident[T any](x T) T`) — aborts the
+compile (`internal error: unresolved selector in IR-gen`, surfacing as invalid
+LLVM `%v = extractvalue i64 %w, 0` — garbage from the abort path, a RED HERRING,
+not a result-type mis-classification).  The DIRECT call `glib.Ident[int](9)` works
+(dedicated `genCallInstantiate` path).  Fails for the plain home spelling too, so
+independent of `expose` — but it blocks the exposed generic-func-VALUE form
+(`fwd.Ident[int]`) and the reverted `gen_method_value_recv.bn` remap.  Repro:
+`conformance/1054_generic_func_value` (untracked; placeholder expected).
+
+**Root cause (high confidence — traced + emitted-IR verified).** IR-gen has NO
+path that turns a generic-function instantiation (`Gen[T]` / `pkg.Gen[T]`, AST
+`EXPR_INSTANTIATE_OR_INDEX`) used as an RVALUE into a function value.  The
+func-value machinery is gated on `isFuncRefExpr` (`gen_util.bn:60-67`), which
+recognizes only a bare ident or `pkg.Name` selector — an instantiate node fails
+it, so it falls through to `genExpr → genSelector`'s abort-panic
+(`gen_selector.bn:346-353`).  (The checker already types the rvalue correctly as
+`TYP_FUNC` via `instantiateGenericFunc`, `check_generic.bn:100`, and accepts
+assignment to `@func` — the gap is purely IR-gen value-construction.)
+
+**Fix scope (IR-gen only, mirrors the direct-call arm):** a new
+`genFuncValueInstantiate` helper in `gen_generic.bn` (reuse `genCallInstantiate`'s
+decl/arg resolution + `ensureInstantiated` for the mangled instance name, then
+`EmitFuncValue(name, fvTyp)`); wire it into `genExprOrFuncRef` (`gen_util.bn:136`);
+fix the inferred-type var-decl synthesis (`gen_stmt.bn:234-243`, which excludes
+`TYP_FUNC`); and cover `:=` (`gen_short_var.bn:92`).  Variant matrix to test:
+cross-pkg + inferred (1054), same-pkg + inferred (currently mis-lowers to an
+undefined `main.f` symbol → link error, same class as #122/#123), explicit
+`@func(int)int` type, and `:=`.  Spot-check the other func-value slots (struct
+field, call arg, return, composite element) that route through `genExprOrFuncRef`.
 
 ## Language features — specified, not yet implemented
 
