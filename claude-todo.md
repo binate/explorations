@@ -7,28 +7,41 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### `readonly` is invisible to `NeedsDestruction`/`dtorTypeSuffix` — cosmetic mismatch now, latent leak later — 🟢 LOW / OPEN (found 2026-07-10, adversarial review of `8d9e7577`)
+### func-value callee reached through a call result: `obj.Get()(x)` ✅ FIXED & LANDED 2026-07-10 (`b00d7383`, conformance/1012); SELECTOR/INDEX-of-call-result forms 🔴 OPEN (found 2026-07-10)
 
-`ResolveAlias()` peels `TYP_ALIAS` but not `TYP_READONLY`, so (a) `readonly <scalar>`
-inner elements mangle to `__dtor_ms_ms_unknown` (the `dtorTypeSuffix` fallback,
-`gen_dtor.bn` ~101) instead of their real suffix — benign today (distinct
-allocations; the review confirmed the "unknown" bodies are refcount-equivalent, so
-even a two-distinct-`unknown`-types collision is harmless); and (b)
-`NeedsDestruction(readonly @Box) == false` → a `readonly`-wrapped managed element
-would not be destroyed (a leak) IF such a type were ever constructible. Currently
-unreachable: `readonly @T` fails to parse as a type argument and `NeedsDestruction`
-treats it as non-destructible anyway. Peel `TYP_READONLY` in `ResolveAlias` (or in
-`NeedsDestruction`/`dtorTypeSuffix`) when `readonly` managed elements become a real
-possibility.
+**Severity: MAJOR — valid code fails to compile (LLVM link error).** Verified
+2026-07-10; no generics / no Self involved.  Root cause is NOT shim emission (as first
+guessed) but call DISPATCH: `genCall` did not recognize a func-value callee reached
+through a call result, so it fell through to the direct-by-name path where `funcRefName`
+yields "" and a direct call was emitted on a malformed empty symbol (`bn_F1_4_main0_`).
 
-### native arm32: large-offset access hardening — residual from the >4095-byte frame fix (`6ce4b42f`) — 🟢 minor latent
+**✅ FIXED — the callee-is-a-call form `obj.Get()(x)` / `f()(x)`** (a func value returned
+then immediately called): `genCall` now routes an `EXPR_CALL` callee of func-value type
+to `genFuncValueCallExpr` (indirect dispatch).  conformance/1012.  (Landing as a `binate`
+commit; the entry stays until the sibling forms below are also fixed.)
 
-The frame->4095-byte COMPILE_ERROR is FIXED & LANDED (`6ce4b42f`); tests `990_native_arm32_iface_large_frame` + `991_native_arm32_large_frame`. Two minor follow-ups from the landing review remain (NOT done):
+**✅ FIXED & LANDED — the callee is a SELECTOR/INDEX whose BASE is a call result**
+(`binate` `e335caca`, 2026-07-10, conformance/1023): `obj.Get().f(x)`, `getarr()[i](x)`, and the deeper
+chains `obj.Get().h.f(x)` / `getcells()[i].g(x)`.  The right fix was the TYPE-computation
+gap, not a call-dispatch fallback: `getSelectorType` and `getIndexElemType` /
+`indexExprType` now have an `EXPR_CALL`-base arm that takes the checker's resolved type of
+the call (`ctx.Checker.ExprType`).  Once the base type resolves, `genCall`'s func-value
+branch fires and the existing value-lowering (materialize the call result, then access —
+which already worked for a value use like `mk().Get().v`) handles the chains without
+crashing.  (Deliberately NOT the call-dispatch fallback that crashed the deeper chains.)
 
-1. `emitExtract`'s scalar-field `emitScalarLoad` (arm32_emit.bn, and identical shape in aarch64_emit.bn) is unguarded for a large field offset — safe today (a documented latent invariant), but a shared-backend hardening (route through a guarded base-scalar-load) if ever exercised.
-2. Pre-existing/orthogonal: `arm32_iface.bn`'s method-slot LDR (`MemImm(IP, wordBytes()*ins.Index)`) overflows the 12-bit immediate only for an interface with >1023 methods.
-
-(Background/history archived in claude-todo-done.md.)
+**🔴 STILL OPEN — DEREF of a call result: `(*mkptr()).f(x)`** (a distinct base kind,
+pre-existing, unrelated to `e444a004`).  Two layers: (1) `getSelectorType`'s
+`EXPR_UNARY(STAR)` arm returns `inner.Elem` UNPEELED, and the checker's managed-ptr
+`.Elem` is a `TYP_NAMED` wrapper over the struct, which the SELECTOR arm's classifier
+(bare `TYP_STRUCT` / `isManagedPtrToStruct` / `isRawPtrToStruct`) doesn't peel → nil →
+undefined-symbol call; (2) the NESTED value read `(*mkbox()).h.inner.v` already PANICS
+(`unresolved selector in IR-gen`) — a deeper `genSelector`/`genExpr` lowering gap for a
+deref-of-call base.  **Fix direction:** `peelTransparent(baseTyp)` in the SELECTOR-arm
+classifier fixes the single-level case, BUT do NOT add it alone — it makes the func-value
+branch fire on the NESTED deref-of-call, routing it into the layer-(2) panic (the Fix A
+trap).  Fix the lowering (layer 2) first / together.  `(*call())` is niche (an `@T` call
+result auto-derefs, so `call().f` is the usual form).  Add xfail coverage.
 
 ### HFA-in-SIMD is a CROSS-BACKEND contract — ✅ RESOLVED for AArch64; Stage 4 (x64) remains — 🟡 OPEN
 
@@ -71,41 +84,28 @@ constraint satisfaction and instantiation-type-arg lowering — neither of which
 non-generic test (`impl *Dog : Speaker`, no type args) exercises. Re-run in isolation
 before treating a lone `052` failure as a real regression.
 
-### func-value callee reached through a call result: `obj.Get()(x)` ✅ FIXED & LANDED 2026-07-10 (`b00d7383`, conformance/1012); SELECTOR/INDEX-of-call-result forms 🔴 OPEN (found 2026-07-10)
+### `readonly` is invisible to `NeedsDestruction`/`dtorTypeSuffix` — cosmetic mismatch now, latent leak later — 🟢 LOW / OPEN (found 2026-07-10, adversarial review of `8d9e7577`)
 
-**Severity: MAJOR — valid code fails to compile (LLVM link error).** Verified
-2026-07-10; no generics / no Self involved.  Root cause is NOT shim emission (as first
-guessed) but call DISPATCH: `genCall` did not recognize a func-value callee reached
-through a call result, so it fell through to the direct-by-name path where `funcRefName`
-yields "" and a direct call was emitted on a malformed empty symbol (`bn_F1_4_main0_`).
+`ResolveAlias()` peels `TYP_ALIAS` but not `TYP_READONLY`, so (a) `readonly <scalar>`
+inner elements mangle to `__dtor_ms_ms_unknown` (the `dtorTypeSuffix` fallback,
+`gen_dtor.bn` ~101) instead of their real suffix — benign today (distinct
+allocations; the review confirmed the "unknown" bodies are refcount-equivalent, so
+even a two-distinct-`unknown`-types collision is harmless); and (b)
+`NeedsDestruction(readonly @Box) == false` → a `readonly`-wrapped managed element
+would not be destroyed (a leak) IF such a type were ever constructible. Currently
+unreachable: `readonly @T` fails to parse as a type argument and `NeedsDestruction`
+treats it as non-destructible anyway. Peel `TYP_READONLY` in `ResolveAlias` (or in
+`NeedsDestruction`/`dtorTypeSuffix`) when `readonly` managed elements become a real
+possibility.
 
-**✅ FIXED — the callee-is-a-call form `obj.Get()(x)` / `f()(x)`** (a func value returned
-then immediately called): `genCall` now routes an `EXPR_CALL` callee of func-value type
-to `genFuncValueCallExpr` (indirect dispatch).  conformance/1012.  (Landing as a `binate`
-commit; the entry stays until the sibling forms below are also fixed.)
+### native arm32: large-offset access hardening — residual from the >4095-byte frame fix (`6ce4b42f`) — 🟢 minor latent
 
-**✅ FIXED & LANDED — the callee is a SELECTOR/INDEX whose BASE is a call result**
-(`binate` `e335caca`, 2026-07-10, conformance/1023): `obj.Get().f(x)`, `getarr()[i](x)`, and the deeper
-chains `obj.Get().h.f(x)` / `getcells()[i].g(x)`.  The right fix was the TYPE-computation
-gap, not a call-dispatch fallback: `getSelectorType` and `getIndexElemType` /
-`indexExprType` now have an `EXPR_CALL`-base arm that takes the checker's resolved type of
-the call (`ctx.Checker.ExprType`).  Once the base type resolves, `genCall`'s func-value
-branch fires and the existing value-lowering (materialize the call result, then access —
-which already worked for a value use like `mk().Get().v`) handles the chains without
-crashing.  (Deliberately NOT the call-dispatch fallback that crashed the deeper chains.)
+The frame->4095-byte COMPILE_ERROR is FIXED & LANDED (`6ce4b42f`); tests `990_native_arm32_iface_large_frame` + `991_native_arm32_large_frame`. Two minor follow-ups from the landing review remain (NOT done):
 
-**🔴 STILL OPEN — DEREF of a call result: `(*mkptr()).f(x)`** (a distinct base kind,
-pre-existing, unrelated to `e444a004`).  Two layers: (1) `getSelectorType`'s
-`EXPR_UNARY(STAR)` arm returns `inner.Elem` UNPEELED, and the checker's managed-ptr
-`.Elem` is a `TYP_NAMED` wrapper over the struct, which the SELECTOR arm's classifier
-(bare `TYP_STRUCT` / `isManagedPtrToStruct` / `isRawPtrToStruct`) doesn't peel → nil →
-undefined-symbol call; (2) the NESTED value read `(*mkbox()).h.inner.v` already PANICS
-(`unresolved selector in IR-gen`) — a deeper `genSelector`/`genExpr` lowering gap for a
-deref-of-call base.  **Fix direction:** `peelTransparent(baseTyp)` in the SELECTOR-arm
-classifier fixes the single-level case, BUT do NOT add it alone — it makes the func-value
-branch fire on the NESTED deref-of-call, routing it into the layer-(2) panic (the Fix A
-trap).  Fix the lowering (layer 2) first / together.  `(*call())` is niche (an `@T` call
-result auto-derefs, so `call().f` is the usual form).  Add xfail coverage.
+1. `emitExtract`'s scalar-field `emitScalarLoad` (arm32_emit.bn, and identical shape in aarch64_emit.bn) is unguarded for a large field offset — safe today (a documented latent invariant), but a shared-backend hardening (route through a guarded base-scalar-load) if ever exercised.
+2. Pre-existing/orthogonal: `arm32_iface.bn`'s method-slot LDR (`MemImm(IP, wordBytes()*ins.Index)`) overflows the 12-bit immediate only for an interface with >1023 methods.
+
+(Background/history archived in claude-todo-done.md.)
 
 ## MAJOR
 
