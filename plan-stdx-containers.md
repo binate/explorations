@@ -266,11 +266,16 @@ type Cursor[T lang.Hashable] struct { s @Set[T]; i int }
 func Iter[T lang.Hashable](s @Set[T]) Cursor[T]
 func Next[T lang.Hashable](it *Cursor[T]) (T, bool)
 ```
-- **Standalone vs wrapping `Map[T, bool]`:** standalone is leaner (no wasted value
-  slice, no zero-size-value edge cases). The cost is duplicating the probe/grow/remove
-  logic with `hashmap`. Factoring a shared generic open-addressing core is a plausible
-  later refactor; for progressive delivery `set` is self-contained. (Flagging the
-  duplication honestly rather than pretending it's free.)
+- **Standalone vs wrapping a shared core — ✅ RESOLVED (folded, main `a96fa1c0`).** `set`
+  and `hashmap` shipped standalone first (leaner, self-contained for progressive delivery,
+  at the cost of duplicating probe/grow/remove). Once the shared policy-parameterized engine
+  `pkg/stdx/containers/table.Table[K, V, H, E]` landed (B1/B2), the duplication was retired:
+  `Set[T]` now wraps `Table[T, Unit, hash.Default[T], cmp.Default[T]]` and `Map[K, V]` wraps
+  `Table[K, V, hash.Default[K], cmp.Default[K]]` — the intrinsic zero-size Default policies
+  monomorphize to the same direct `T.Hash()`/`T.Compare()` calls, so no wasted value slice
+  and no overhead, with one engine instead of three. The projecting `SetCursor` yields bare
+  `T` (Set stores a zero-size `Unit` value). Mirrors the fn-injected `setfn.SetFn` /
+  `mapfn.MapFn`.
 
 ## 5. Testing strategy
 
@@ -371,5 +376,6 @@ for the cherry-pick to `main`; hygiene + smoke before landing; resync after).
 - **No interfaces declared yet** — an un-implementable interface adds nothing; the
   cursor convention + breadcrumbs carry the forward-compat intent.
 - **Backward-shift deletion** — no tombstone degradation; the serious choice.
-- **Standalone `set`** — leaner than wrapping `Map[T, bool]`; duplication flagged.
+- **`set` / `hashmap`** — shipped standalone, then folded onto the shared `table.Table`
+  engine once it landed (main `a96fa1c0`); one engine, no duplicated open-addressing logic.
 - **Header-only (bodies in `.bni`)** — required by call-site monomorphization.
