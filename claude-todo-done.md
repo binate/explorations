@@ -8,6 +8,32 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## inferred-type PACKAGE-SCOPE global with a func-reference initializer emitted invalid IR — ✅ DONE & LANDED (`f8bd03d2`, 2026-07-12)
+
+`var G = add1` or `var G = glib.Ident[int]` at **package scope** with **no explicit
+type** miscompiled: `resolveGlobalVarType` (`pkg/binate/ir/gen_const.bn`) inferred a
+slot type only for literal initializers and returned nil otherwise, so the global
+registered as an opaque 8-byte scalar and its `__init` assignment lowered the
+reference to a zero placeholder (no `OP_FUNC_VALUE`) — invalid IR clang then rejects.
+PRE-EXISTING (identical failure for the landed bare-func-ref-local feature #123); NOT
+introduced by the generic-func-value work (#201).  Failed **loud** at clang, not a
+silent runtime miscompile.  The explicit-type form always worked.
+
+**Fix:** for a non-literal initializer, `resolveGlobalVarType` reads the checker's
+resolved initializer type via `Checker.ExprType(Expr.ResolvedTypeID)` and applies the
+checker's own `TYP_FUNC → @func` decay (`MakeManagedFuncValueType`), or passes an
+already-`@func` type through.  ResolvedTypeID (not the package symbol) is used because
+`main` is checked single-file and never registered, so its scope isn't queryable — but
+the expr type is stamped in both single-file and package checking.  Once the slot type
+is `@func` the existing assignment path (`genAssign → genExprOrFuncRef → EmitFuncValue`)
+handles the rest; the non-capturing func value has null data so the store's old-value
+RefDec + any dtor are guarded no-ops.  Covered by `conformance/1057_global_func_value`
+(bare ref, generic instantiation, explicit type, cross-function read, reassignment) —
+green on LLVM / VM / self-host / native aa64 / native x64; full builder-comp regression
+2783/0; one adversarial review SHIP.  The named/readonly-WRAPPED func-value-global
+variant remains **open** (see claude-todo.md) — a deeper func-value-call-dispatch gap
+that also mis-lowers the call through a wrapped-type global callee.
+
 ## native: 0-byte (`struct{}` / `[0]T`) func-value results mishandled across all 3 native backends — ✅ DONE & LANDED (`7b4303a6`, 2026-07-12)
 
 Surfaced by an adversarial review of an interim non-closure 0-byte pack-store guard

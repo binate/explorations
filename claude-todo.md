@@ -109,41 +109,20 @@ The frame->4095-byte COMPILE_ERROR is FIXED & LANDED (`6ce4b42f`); tests `990_na
 
 ## MAJOR
 
-### inferred-type PACKAGE-SCOPE global with a func-reference initializer emits invalid IR — ✅ FIXED & LANDED (`f8bd03d2`) (found 2026-07-12 via adversarial review of the generic-func-value work)
+### named/readonly-WRAPPED func-value package global emits invalid IR — 🟠 OPEN (found 2026-07-12; sibling of the landed `f8bd03d2` func-ref-global fix)
 
-`var G = add1` or `var G = glib.Ident[int]` at **package scope** with **no explicit
-type** miscompiled: `resolveGlobalVarType` (`pkg/binate/ir/gen_const.bn`) inferred a
-slot type only for literal initializers and returned nil otherwise, so the global
-registered as an opaque 8-byte scalar and its `__init` assignment lowered the
-reference to a zero placeholder (no `OP_FUNC_VALUE`) — invalid IR clang then
-rejects.  PRE-EXISTING (identical failure for the landed bare-func-ref-local
-feature #123); NOT introduced by the generic-func-value work (#201).  Failed
-**loud** at clang, not a silent runtime miscompile.  The explicit-type form always
-worked.
-
-**Fix (`41f2db08`):** for a non-literal initializer, `resolveGlobalVarType` reads
-the checker's resolved initializer type via `Checker.ExprType(Expr.ResolvedTypeID)`
-and applies the checker's own `TYP_FUNC → @func` decay (`MakeManagedFuncValueType`),
-or passes an already-`@func` type through.  ResolvedTypeID (not the package symbol)
-is used because `main` is checked single-file and never registered, so its scope
-isn't queryable — but the expr type is.  Once the slot type is `@func` the existing
-assignment path (`genAssign → genExprOrFuncRef → EmitFuncValue`) handles the rest;
-the non-capturing func value has null data so the store's old-value RefDec + any
-dtor are guarded no-ops.  Covered by `conformance/1057_global_func_value` (bare ref,
-generic instantiation, explicit type, cross-function read, reassignment) — green on
-LLVM / VM / self-host / native aa64 / native x64; full builder-comp regression
-2783/0; one adversarial review SHIP.
-
-**Follow-up (separate, pre-existing, 🟠 OPEN):** a **named/readonly-WRAPPED**
-func-value global — `type Fn @func(int)int; var base Fn = add1; var G = base` —
-still emits invalid IR.  The fix's kind-check doesn't match `TYP_NAMED`-over-`@func`,
-and peeling the wrapper in `resolveGlobalVarType` only half-fixes it: the global's
-slot type becomes `Fn` correctly, but the CALL `G(x)` then mis-lowers to a direct
-call on a function symbol `@bn_F…_G` (instead of a func-value call through the
-global) — a deeper func-value-call-dispatch gap that doesn't peel the named wrapper
-for a global callee.  So the wrapped case needs BOTH a type-inference peel AND a
-call-dispatch fix; fails **loud** (no binary), reproduces on plain HEAD.  The
-analogous local (`var f = base`) works.
+A **named/readonly-WRAPPED** func-value package global — `type Fn @func(int)int;
+var base Fn = add1; var G = base` — still emits invalid IR.  (The plain unwrapped
+forms — `var G = add1`, generic instantiation, `@func`, func literal — are fixed:
+`f8bd03d2`, see [claude-todo-done.md](claude-todo-done.md).)  `resolveGlobalVarType`'s
+kind-check doesn't match `TYP_NAMED`-over-`@func`, and peeling the wrapper there only
+HALF-fixes it: the global's slot type becomes `Fn` correctly, but the CALL `G(x)`
+then mis-lowers to a direct call on a function symbol `@bn_F…_G` (instead of a
+func-value call through the global) — a deeper func-value-call-dispatch gap that
+doesn't peel the named wrapper for a global callee.  So the wrapped case needs BOTH a
+type-inference peel (in `resolveGlobalVarType`) AND a call-dispatch fix (the
+global-callee func-value-call classification).  Fails **loud** (no binary),
+reproduces on plain HEAD.  The analogous LOCAL (`var f = base`) works.
 
 The non-generic exposed-type/interface-reference mis-compile is **✅ FIXED +
 LANDED (476e0fb2)** — `homedQualifier` threaded into the non-generic
