@@ -605,9 +605,10 @@ placement-checks (method silent-no-op → hard error), and **emits** the C symbo
 on the LLVM path and all three native backends (x64/aarch64/arm32), with an e2e
 harness (`e2e/ffi-export.sh`) that link-and-runs C-calls-Binate on **both** the
 LLVM and native backends. The Phase-3 review's F2 (native link-and-run coverage)
-was closed via a native arm on the e2e harness; the plan's literal `asm/elf` +
-`asm/macho` symbol-writer link tests are a **follow-up** (in progress). Next
-substantive step: **Phase 5a** (`--library` mode).
+was closed via a native arm on the e2e harness AND the plan's literal `asm/elf` +
+`asm/macho` symbol-writer link tests (landed as a follow-up, `eb0cff00`;
+adversarially reviewed — proven non-vacuous by a broken-writer reproduction).
+Next substantive step: **Phase 5a** (`--library` mode).
 
 1. **Harness scaffold** — `e2e/ffi-export.sh` establishing the CI lane. `c_export`
    doesn't exist yet, so there's no author-controllable Binate symbol to call and §3
@@ -618,11 +619,11 @@ substantive step: **Phase 5a** (`--library` mode).
    (buildcfg branch + top-level-func placement check incl. method rejection +
    `ir.Func.CExportNames` list + gen_func + unit tests). Names permissive
    (link-time collision only).
-3. **Phase 3** ✅ **(landed `dd98dc31`)** — alias emission: native second-symbol
-   (x64 + aarch64 + arm32) + LLVM `alias i8`; codegen + native-emitFunc unit
-   tests; e2e harness link-and-running C-calls-Binate on **both** the LLVM and
-   native backends (public, private, multi-name exports). Follow-up: the literal
-   `asm/elf` + `asm/macho` symbol-writer link tests.
+3. **Phase 3** ✅ **(landed `dd98dc31`, tests follow-up `eb0cff00`)** — alias
+   emission: native second-symbol (x64 + aarch64 + arm32) + LLVM `alias i8`;
+   codegen + native-emitFunc unit tests; `asm/elf` + `asm/macho` symbol-writer
+   link tests; e2e harness link-and-running C-calls-Binate on **both** the LLVM
+   and native backends (public, private, multi-name exports).
 4. **Phase 5a** — `--library` mode: `compileLibrary` (new file) + `--library` flag +
    the closure loop + **`EmitLibInit`** (the idempotent `bn_init` + the mangler
    `bn_init` literal + `KIND_INIT`) + `.a` archive (raw `.o`s first, then `ar`).
