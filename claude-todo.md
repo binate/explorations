@@ -2124,6 +2124,24 @@ unblock them:
     almost certainly NOT auto-derive (identity-vs-pointee hashing is a footgun) —
     leave them out.
   - Cost: `Hash`/`Compare` on `@[]char` is O(len) — fine for map keys.
+- **Relatedly — should the comparison OPERATORS drive `.Compare`? (folded in 2026-07-11)** The
+  question "should any `==`-capable type automatically have a `.Compare` (with `== iff Compare==0`),
+  and any `<`-capable type a `.Compare` (with `< iff Compare<0`)?" is **the same call as this entry**,
+  one layer down (`Compare`, not `Hash`). The **`<`-side is moot**: the only `<`-capable types are
+  the numeric scalars, which `lang` already ships as `Orderable` with a `<`-consistent `Compare` — no
+  non-scalar type has `<` (operator overloading is off the table). The **`==`-side is the live one**:
+  `==`-capable *aggregates* (structs/arrays, §13.6 `expr.compare.aggregate`) have `==` but **no**
+  `.Compare` today; making them auto-`Comparable` with `== iff Compare==0` **is exactly this
+  structural derivation** (its derived-`Comparable`/`Compare` half). Key: the **consistency guarantee**
+  (`== iff Compare==0`) is only achievable by the compiler *deriving* `Compare` from `==` — a
+  hand-written `Comparable` impl on an `==`-capable struct can silently disagree with `==` (like
+  `Orderable`'s unenforced total-order promise). **So decide `==`→auto-`Compare` HERE:** adopt
+  structural derivation → `==`-capable aggregates are auto-`Comparable` (consistent by construction),
+  `Hashable` following with a component-`Hashable` constraint; keep no-derived-impls → aggregates need
+  explicit impls and operator↔`Compare` consistency is at most a documented, unenforced obligation.
+  (`Equatable`/`Equals` was considered and **rejected** 2026-07-11 — keep just `Comparable`+`Orderable`;
+  equality stays `Compare==0`. And operators are never available on generic type params — spec
+  `expr.compare.typeparam`, §13.6.)
 - **Payoff**: unblocks the entire compiler-domain Map/Set class in one move,
   including deleting vm's hand-rolled `func_index.bn` hashmap in favour of
   `hashmap.Map`. Supersedes the key half of the "168 `slices.Append` in loops"
