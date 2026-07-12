@@ -697,10 +697,18 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
       (2 captures where capture 1 targets R1).  Adversarial-reviewed clean (0 survivors; R5
       survival, frameDelta with the 16-byte push, fail-loud/float-guard/byte-identity all
       traced).  Clears `regressions/capturing-closure-aggregate-return` (its `P1{a int}` is a
-      4-byte pack on ILP32); C.1 big-sret unchanged.  **Follow-up:** a pack-shape byte-ref for
-      pack + by-address-agg-user-arg / int64-pair / even-pair-pad captures (base R5→R1
-      mutation), and an empty-struct-result guard (degenerate, shared with the non-closure pack
-      shim).
+      4-byte pack on ILP32); C.1 big-sret unchanged.  **Follow-up ✅ LANDED 2026-07-11
+      (`e233b8c3`):** 5 pack-shape byte-refs for the pack path (base R5) under a
+      by-address-agg user arg / int64-pair user / even-pair-pad int64 capture / SPLIT capture /
+      C.3 1-cap-2-user small-multiret — each mutation-verified (a permanent R5→R1 clobber
+      reference must diverge byte-for-byte), plus a guard for a REAL 0-byte-aggregate
+      (`struct{}` / `[0]T`, SizeOf 0) miscompile: such a result routes to the pack path
+      (`SizeOf ≤ InternalSretBytes=4`) but its retbuf is a 0-byte buffer, so the
+      unconditional `STR R0,[retbuf]` wrote a 4-byte garbage word past its end. `emptyAggregate
+      PackResultArm32` skips the post-BL store+reload for it (closure path fixed). The IDENTICAL
+      unguarded store in the NON-closure `emitPackShim` is a still-latent MINOR/MAJOR defect
+      (tracked in claude-todo; x64/aa64 gate `usePack=retSz≥1` so their pack STORE is not hit,
+      but their call-sites still pass a retbuf for 0-byte → a separate open question).
       **C.3 — multi-return — ✅ LANDED 2026-07-11 (`067f990a`).** Splits on
       `isBigMultiReturnArm32` = `MultiReturnTupleNeedsSret` = gpWords > NumGpRetRegs 4 (a
       WORD-count rule — the identical predicate the callee + non-closure caller use, so the
