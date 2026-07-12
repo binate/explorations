@@ -361,72 +361,13 @@ result as an aggregate.  Needs investigation.
 
 ## Language features — specified, not yet implemented
 
-### Type assertions, type switches & RTTI — IN PROGRESS (RTTI substrate landing incrementally) — 🟡 OPEN
+### Type assertions, type switches & RTTI — ✅ COMPLETE (moved to [claude-todo-done.md](claude-todo-done.md)) — one optional follow-up
 
-**Progress (2026-07-04):** the RTTI substrate is landing per
-[plan-type-assertions-execution.md](plan-type-assertions-execution.md).
-- **Phase 1 — ✅ LANDED `0734beaa`:** the vtable any-block grew from 1 to 2 words
-  (dtor + `*TypeInfo` placeholder), method slots re-based across all backends + VM.
-- **Phase 2.1 — ✅ LANDED `041a6954`:** one weak `__typeinfo.<T>` record per boxable
-  type (fixed 7-word layout, all fields zero/null), vtable slot 1 wired to it — the
-  per-type *identity* substrate.
-- **Phase 2.2a — ✅ LANDED `8047a72c`:** the record's `size`/`align` filled from the
-  receiver's laid-out type (design A: `ImplInfo.RecvTyp` held, `SizeOf` read at
-  codegen; see below). Adversarially reviewed — byte-identical cross-TU records
-  verified by compiling `378` + nested-import + ILP32.
-- **Phase 2.2b-1 — ✅ LANDED `9eba70eb`:** word 0 destructor handle, filled from the
-  SAME helper the vtable any-block slot 0 uses (LLVM `implDtorSlotSym`; extracted
-  native `dtorSlotSym_x64` / `dtorSlotSymNative`) → byte-identical to that slot by
-  construction. `TypeInfoDesc` carries neutral `DtorFuncName`; each backend resolves
-  the prefixed `DtorSym`. No-dtor type → null word (reloc-free `rodata`); dtor type →
-  relocation moves the record to `rodata_relro`. Native TypeInfo-emission split into
-  new `<arch>_typeinfo.bn` (+ tests). Adversarially reviewed (correctness +
-  refactor-safety, built/emitted-LLVM/mutation-tested; no defects).
-- **Phase 2.2b-2 — ✅ LANDED `88e913af`:** name (words 3–4) — a TU-local rodata blob
-  holding `RecvTyp.QualifiedTypeName()` (canonical/path-dotted, e.g. `main.T`) +
-  word-3 pointer + word-4 length. `BuildTypeInfo → @[]@DataGlobal` (`[record,
-  name-blob]`); word 3 gated on name presence. Added `mangle.TypeInfoNameBlobName`,
-  exported `types.QualifiedTypeName`. Consequence: the name-pointer relocation moves
-  EVERY named record to `rodata_relro` (native section + vtable-shape tests updated).
-  Adversarially reviewed — clean.
-- **Phase 2.2b-3 — satisfaction, DECIDED PLAIN-DISTRIBUTED (not a per-type table).**
-  User's call (spec-grounded: third-party impls are allowed, so a per-type table
-  can't be complete AND needs coalescing surgery; a per-`(T,J)` entry is
-  byte-identical weak_odr like a vtable → no TU-invariance blocker; Go's itab model).
-  Record words 5–6 (sat_len/sat_table) were **✅ dropped `89ad8b18`** — the record is
-  now the fixed 5-word `[dtor, size, align, name-ptr, name-len]`, matching the
-  (already-updated) spec `type.layout.typeinfo`. Slices:
-  - **3a — ✅ LANDED `a04ae1b8`:** per-interface `__ifaceid.<J>` identity markers
-    (weak 1-byte rodata; `mangle.IfaceIdName`; `ir.BuildIfaceId`/`CollectIfaceIdSyms`;
-    emit pass in LLVM/x64/aarch64). Adversarially reviewed — identity-consistency
-    (marker vs future SatEntry/assertion) verified across cross-pkg/alias/generic/any.
-  - **3b — ✅ LANDED `e12a0a0d`:** per-`(T,J)` `SatEntry{&TypeInfo(T),&IfaceId(J),
-    &__ivt.<T,J>}` weak globals, one per m.Impls row (transitive ancestors + `(T,any)`
-    included). `mangle.SatEntryName`; `ir.BuildSatEntry`/`CollectSatEntries`; emit pass
-    in LLVM/x64/aarch64. Also decoupled the native vtable-shape tests from the RTTI
-    satellites. Adversarially reviewed — 0 dangling refs across 11 programs.
-  - **3c-1 — ✅ LANDED `e14407dc`:** wire the satentries into the reflect descriptor.
-    Each `__satentry.<T,J>` became a managed `reflect.SatEntryInfo` node (header +
-    inline {Type,Iface,Vtable}); `Package.SatEntries *[]@SatEntryInfo` (after Vtables)
-    lists them, so `__Package` root → descriptor → nodes → referents keeps them alive
-    once `__Package` is rooted (by the reader/VM ingestion) — like the vtable
-    descriptor. arm32+VM pass empty. Adversarially reviewed (incl. linked-binary nm).
-  - **3c-2 — ✅ LANDED `89108b34`:** VM ingestion — `RegisterPackageSatEntries`
-    reads `p.SatEntries` into three parallel per-`@VM` slices via `registerSatEntry`
-    (new `pkg/binate/vm/satentry_inject.bn`), host-wired at `injectPure` /
-    `injectPackageSet` (the two sites the vtable trio uses). No `lookupSatEntry` yet
-    — its only consumer is the Phase-5 reader (a dead file-private func would trip
-    bnlint), so it lands with that reader. Inert (populated-but-unread) until then,
-    like 3a/3b/3c-1. Adversarially reviewed — 0 defects across 11 check points
-    (descriptor read, nil-slice safety, reachability, field placement, iface/impl
-    agreement, refcount, wiring completeness, test adequacy, BUILDER-tree
-    untouched). Note: the earlier "split `emit_impls_test.bn`" follow-up is moot —
-    `file-length.sh` excludes `*_test.bn`.
-  - **Phase 5:** the reader — global `(TypeInfo,IfaceId)→subvtable` lookup + assertion
-    /type-switch lowering.
-- **Remaining after 2.2b-3:** the front-end (Phases 3–7: parser/checker/lowering for
-  `x.(K T)`, comma-ok, type switches, the §17.5 panic), plus the cross-mode/VM story
-  deferred to Phase 5.
+The full feature — the RTTI substrate (Phases 1–3c-2) and the front-end (Slices
+4–7: `x.(K T)`, comma-ok, type switches, the §17.5 panic, and the cross-mode/VM
+story) — is **landed and conformance-green in every mode**, and the spec Draft
+banners are flipped (done-log entry has the per-phase commit list).  One optional,
+non-blocking cleanup remains:
 
 **🔧 TODO (detailed) — migrate the TypeInfo record content to a per-type "boxable
 types" registry ("design D").** Increment 2.2a fills `size`/`align` via **design A**:
@@ -465,25 +406,6 @@ prevention): null-guard `RecvTyp == nil` in the collector (`SizeOf(nil)` returns
 (not `resolveTypeExpr`'s `TypInt()` fallback for a non-primitive) during bring-up so a
 resolution regression fails loudly; plus a multi-TU byte-identical check
 (`conformance/378_iface_impl_dup`) for the weak-def TU-invariance hazard.
-
-Go-style downcasting from an interface value to a concrete type or narrower
-interface, plus the `TypeInfo` RTTI substrate. **Specified** in the spec (§11.12
-`iface.assert`/`iface.assert.kind`/`iface.assert.absent`/`iface.typeswitch`/`iface.rtti`;
-§7.13.14 `type.layout.typeinfo` + §7.13.8 any-block `*TypeInfo`; §13.8
-`expr.type-assert`; §14.10 `stmt.type-switch`; §17.5 failed-assertion panic) but
-**not implemented**. High-level plan (adversarially reviewed — 3 criticals + 4
-majors fixed before landing): **[plan-type-assertions.md](plan-type-assertions.md)**
-(a follow-up worker expands it into ordered steps). Model: source `*I`/`@I`
-(incl `*any`); target = nameable type with mandatory `*`/`@`/value recovery kind
-(`@I`→`@T`/`*T`/value, `*I`→`*T`/value, `@T`-from-`*I` rejected); concrete match =
-exact identity, interface match = satisfaction **incl transitive ancestors**; both
-`x.(K T)` (aborts) and `v, ok := x.(K T)`; type switch (no `case nil`, unset→default,
-typed-nil→its type); RTTI via a `*TypeInfo` in the vtable any-block (identity +
-dtor + size + align + name + transitive satisfaction-table), one per type
-program-wide, cross-mode agreement on the *result*. **Highest implementation risk:
-the any-block grows to 2 words, re-basing every vtable method slot** — all backends
-+ VM must apply it consistently. Open (no sum types). Seeds the future reflection
-surface (§20.3).
 
 ---
 

@@ -8,6 +8,47 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## Type assertions, type switches & RTTI — ✅ COMPLETE (front-end done 2026-07-11) — the whole project landed
+
+Go-style downcasting from an interface value to a concrete type or narrower interface
+(`x.(K T)` + comma-ok, type switches, the §17.5 failed-assertion panic), plus the
+`TypeInfo` RTTI substrate — all implemented and **conformance-green in every mode**
+(compiled, VM, cross-compiled, and cross-mode: a value from a compiled package asserted
+in the bytecode VM resolves to the same result).  Spec Draft banners flipped to
+implemented (`docs` `c00a3f8`: §11.12 / §7.13.14 / §13.8 / §14.10 / §17.5 + the 00-index
+rows).  Model: source `*I`/`@I`; target a nameable type with mandatory `*`/`@` recovery
+kind (`@T`-from-`*I` rejected; value recovery deferred); concrete match = exact TypeInfo
+identity, interface match = runtime satisfaction incl. transitive ancestors.
+
+**RTTI substrate (Phases 1–3c-2):**
+- Phase 1 `0734beaa` — vtable any-block 1→2 words (dtor + `*TypeInfo`), method slots re-based.
+- Phase 2.1 `041a6954` — one weak `__typeinfo.<T>` per boxable type; vtable slot 1 wired.
+- Phase 2.2a `8047a72c` — size/align from the receiver's laid-out type (design A).
+- Phase 2.2b-1 `9eba70eb` — word-0 dtor handle (same helper as the vtable slot).
+- Phase 2.2b-2 `88e913af` — name (words 3–4, TU-local rodata blob).
+- Phase 2.2b-3 `89ad8b18` — record fixed at 5 words; satisfaction is plain-distributed
+  (per-`(T,J)`), NOT a per-type table.  3a `a04ae1b8` (`__ifaceid.<J>` markers), 3b
+  `e12a0a0d` (`__satentry.<T,J>` weak globals), 3c-1 `e14407dc` (satentries → reflect
+  descriptor), 3c-2 `89108b34` (VM ingestion `RegisterPackageSatEntries`).
+
+**Front-end (Slices 4–7):**
+- Slices 4/5/5a — checker + compiled-mode lowering of `x.(*T)`/`x.(@T)`/`x.(*J)`/`x.(@J)`
+  (concrete + interface targets, expression + comma-ok forms) + the `rt.AssertFail` panic.
+- Slice 5b-1 `380e40f5` (VM concrete assert, `OP_IFACE_TYPEINFO`) + 5b-2 `f2b74c28`
+  (VM interface assert, `OP_SAT_LOOKUP`, `lookupSatEntry`); the recovered-value SP leak
+  fixed via `noteSPGrowingResult`.
+- Cross-mode X.1 `25f6f177` (satentry symbol-name blobs on the reflect descriptor) + X.2
+  `cb010b8a` (VM reads them → lifts the `BC_IFACE_TYPEINFO` native-injected loud-fail;
+  conformance `stdlib/strings/004_cross_mode_iface_assert`).
+- Slice 6 `2a31b58e` — type switches (checker `checkTypeSwitchStmt`, IR `genTypeSwitch`
+  with once-evaluated slot-rooted scrutinee + case-scope `@`-binder cleanup + idempotent
+  SP restore, formatter `printTypeSwitch`, and the new-statement-kind sweeps).  Conformance
+  1054/1055.
+- Slice 7 — spec Draft banners flipped (above).
+
+Residual (optional, non-blocking): the design-A → design-D TypeInfo-registry refactor —
+tracked in [claude-todo.md](claude-todo.md).
+
 ## IR-gen guard: no silent-miscompiled comparison on a non-comparable operand — ✅ DONE & LANDED `30bc2bac` (2026-07-11)
 
 Closes the silent-VM-miscompile class for generic comparisons.  Three residual paths in
