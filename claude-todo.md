@@ -109,6 +109,50 @@ The frame->4095-byte COMPILE_ERROR is FIXED & LANDED (`6ce4b42f`); tests `990_na
 
 ## MAJOR
 
+### `ConstraintsChecked` latch is set even when the user-facing diagnostic is DISCARDED on a REPL park → the deferred re-check is permanently skipped (soundness hole) — 🔴 OPEN (found 2026-07-12 via adversarial review of #182)
+
+**Severity: MAJOR (silent acceptance of ill-typed code) but REPL-ONLY.** The batch
+compiler / CLI never sets `TentativeMode`, so all of CI and normal compilation are
+correct; this only bites the persistent (REPL Tier-3 forward-ref) checker. Shared by
+BOTH #181's constraint diagnostic and #182's opaque-by-value size diagnostic — they ride
+the same `GenericInstantiation.ConstraintsChecked` latch.
+
+**Symptom.** In the persistent checker, a decl that PARKS on a forward reference whose
+body *user-facingly* instantiates a generic type/interface latches
+`entry.ConstraintsChecked = true` (`check_generic_type.bn:218`, in the `if userFacing`
+miss-path arm) — but under `TentativeMode` the diagnostic that arm emits routes to
+`c.TentativeErrors` and is **discarded** when the decl parks (`check_pending.bn` /
+`checker_persistent.bn` migrate tentative errors only on full-resolve, discard on park).
+A later real (non-parking) use then hits the cache with `ConstraintsChecked == true`, so
+the cache-hit deferred block (`check_generic_type.bn:169-175`) skips BOTH
+`checkInstantiationConstraints` and the new `requireInstantiatedIfaceMethodsSized` → a
+genuine "T does not satisfy constraint I" / "cannot use an opaque type by value" is
+silently accepted.
+
+**Root cause.** `ConstraintsChecked` conflates "the user-facing check RAN" with "its
+diagnostics REACHED the user." Under `TentativeMode` those diverge: the check ran, latched
+the flag, then its output was thrown away with the parked decl.
+
+**Repro (REPL only; batch is correct).** `type Op` ; `interface Sink[T any] { put(t T) }`,
+then `type Holder struct { s @Sink[Op]  m Missing }` (parks on undefined `Missing`;
+resolving field `@Sink[Op]` is user-facing → latches + discards), then
+`func direct(s @Sink[Op]) {}` (real use, cache-hit, re-check skipped) → NO error. The
+batch compiler reports `cannot use an opaque type by value` on the same program. The
+constraint variant is analogous with `type Box[T Marker]` + a non-Marker arg.
+
+**Proposed fix.** Don't latch `ConstraintsChecked = true` when the check ran under
+`TentativeMode` — gate the assignment (both the miss-path latch at `:218` and the
+cache-hit latch at `:170`) on `!c.TentativeMode`, so the flag is set only once a
+user-facing use SURVIVES (its diagnostics migrate to `c.Errors`). That keeps the recovery
+armed for the first surviving use; repeated tentative uses stay un-latched and re-arm.
+Needs a persistent-checker unit test (the REPL path is not reachable from the batch
+conformance runner; the review exercised it with temporary in-package tests).
+
+**Not blocking #182.** #182 is correct and sound for the batch path; it *inherits* this
+pre-existing latch weakness from #181, does not introduce it, and does not worsen the
+batch behavior. Fixing the latch touches shared #181 machinery, so it is tracked here as
+its own item for prioritization rather than folded into #182.
+
 ### inferred-type PACKAGE-SCOPE global with a func-reference initializer emits invalid IR — 🔴 OPEN (found 2026-07-12 via adversarial review of the generic-func-value work)
 
 `var G = add1` or `var G = glib.Ident[int]` at **package scope** with **no explicit
