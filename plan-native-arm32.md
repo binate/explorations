@@ -683,11 +683,27 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
       right-to-left capture-load logic (an adversarial review flagged the initial duplication;
       the unification is byte-identical for both shapes). Conformance now GREEN in `builder-comp_native_arm32_baremetal`: 906/907/
       921–925 (all 7 big-sret closure shapes) and 948/952 (method-value sret). Small-agg
-      pack + multi-return STILL fail-loud by intent — `regressions/capturing-closure-
-      aggregate-return` (contains a P1 4-byte pack) and `-multi-return` remain COMPILE_ERROR
-      (C.2/C.3), NOT a regression. C.2 — small-aggregate pack. C.3 — multi-return (pack +
-      sret, split on `isBigMultiReturnArm32` = gpWords>4, NOT a size rule). 950 (may also
-      need the external `synthMethodValueWrapper` multiret fix — xfail if it bites arm32).
+      pack + multi-return STILL fail-loud by intent (at the C.1 cut) — `-multi-return`
+      remains COMPILE_ERROR (C.3), NOT a regression.
+      **C.2 — small-aggregate pack — ✅ LANDED 2026-07-11 (`f12eb8f8`).** A single aggregate
+      result with SizeOf ≤ 4 (returned by value in R0).  Always framed (no tail-branch):
+      captures classify densely from R0 (no sret slot, srcPrefix 2), the retbuf is stashed to
+      a frame slot + reloaded to R4 after the BL for the STR-through-retbuf.  THE CRUX (unlike
+      C.1 sret, capture 0 targets R0 ≠ the R1 data base, so right-to-left doesn't protect the
+      base): the data pointer is RE-HOMED into R5 (a callee-saved reg; the entry push is
+      widened to `{r4,r5,r6,lr}`, R6 = alignment padding), read once from the staged data slot;
+      R5 is never a capture/user/marshal destination, so it survives.  New files
+      `arm32_closure_shim_pack{,_test}.bn`; byte-ref tests incl. the R5-base-survival mutation
+      (2 captures where capture 1 targets R1).  Adversarial-reviewed clean (0 survivors; R5
+      survival, frameDelta with the 16-byte push, fail-loud/float-guard/byte-identity all
+      traced).  Clears `regressions/capturing-closure-aggregate-return` (its `P1{a int}` is a
+      4-byte pack on ILP32); C.1 big-sret unchanged.  **Follow-up:** a pack-shape byte-ref for
+      pack + by-address-agg-user-arg / int64-pair / even-pair-pad captures (base R5→R1
+      mutation), and an empty-struct-result guard (degenerate, shared with the non-closure pack
+      shim).
+      C.3 — multi-return (pack + sret, split on `isBigMultiReturnArm32` = gpWords>4, NOT a size
+      rule). 950 (may also need the external `synthMethodValueWrapper` multiret fix — xfail if
+      it bites arm32).
 - **Acceptance**: func-value / closure / interface conformance + unit tests
   pass in native baremetal.
 
