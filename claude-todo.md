@@ -1704,6 +1704,29 @@ plan-native-arm32.md § P4.
   deferred (P4-b).** Fail-loud today (direct, func-value, and iface paths); not
   yet xfail'd per-test (they sit among the native-arm32 conformance failures,
   e.g. `401_return_many_scalars`).
+- **int64 / uint64 8-byte scalar in the FIELD / MULTI-RETURN-TUPLE / SRET scalar
+  paths — ✅ DONE (2026-07-12, `09df8766` on temp-5, not yet on main).** Previously the caller-collect
+  (`storeMultiReturnTupleFieldsArm32`), the OP_EXTRACT destructure (`emitExtract`),
+  the callee in-register pack (`emitMultiReturnPack`), and the sret write
+  (`emitMultiReturnSret`) all failed LOUDLY (`8-byte scalar store/load needs
+  register pair (P3+)`) on an int64/uint64 tuple field. Now handled as a
+  CONSECUTIVE register pair (NO even-pair bump — AAPCS §6.5 C.3's even rule is
+  argument-only; the small-aggregate return coercion packs fields into r0..r3 in
+  field order, verified against the LLVM sibling: `{int32,int64}` returns the int64
+  in r1:r2, not r2:r3). Helpers `emitExtract64` / `emitPackReturnPair64` (in
+  `arm32_int64_mem.bn`) + the pair branches in the collect/pack/sret loops.
+  Fixed the 5 int64-blocked conformance tests (`stdlib/strconv/002_parse`,
+  `stdlib/time/00{1,2,3}`, `890_chained_method_transitive_struct`) on
+  `builder-comp_native_arm32_baremetal`; new regression
+  `conformance/regressions/multiret-int64-field` (native arm32 + LP64) + byte-ref
+  unit tests (`arm32_int64_multiret_test.bn`, `arm32_int64_mem_test.bn`). NOTE:
+  `stdlib/os/010_modtime_chain` was in the same fail-loud set but its remaining
+  blocker is the bare-metal no-filesystem limitation (`os.Stat("/tmp")` → errNoFS,
+  prints -1 — identical on the LLVM sibling `builder-comp_arm32_baremetal`); now
+  xfail'd on that sibling (inherited by native via OVERRIDE_MODE), matching the
+  sibling os/008/009 baremetal xfails. **STILL fail-loud: a soft-float FLOAT64
+  tuple field** (its FP-in-GP soft-float placement is not yet pinned; P5) — the
+  pack / sret / scalar-store paths keep the loud guard for it.
 - **soft-float (P5) / VFP hard-float + arm32-linux (P6) / CI wiring (P7)** — see
   the plan doc.
 
