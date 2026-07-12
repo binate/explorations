@@ -88,9 +88,44 @@ no-leak / direct-reject / speculative-then-real reject), generics/opaque/iface c
 smoke 199/0, hygiene 17/17, adversarially reviewed.
 
 With this, the speculative-diagnostic-leak CLASS is decoupled for BOTH constraint and size
-diagnostics. The one residual is a REPL-only soundness hole in the shared `ConstraintsChecked`
-latch (it is set even when the user-facing diagnostic is discarded on a `TentativeMode` park),
-tracked as an OPEN MAJOR item in [claude-todo.md](claude-todo.md).
+diagnostics. The one residual — a REPL-only soundness hole in the shared `ConstraintsChecked`
+latch — is fixed in the follow-up below.
+
+## REPL `ConstraintsChecked` latch stranded a genuine diagnostic discarded on a park — ✅ DONE & LANDED (`6af9da55`, 2026-07-12)
+
+Residual of the two decouples above, found by their adversarial reviews. The
+`GenericInstantiation.ConstraintsChecked` latch records that a `(decl, args)` has had its
+user-facing diagnostics (constraint miss + opaque-by-value method size) reported, so a later
+cache-hit skips the deferred re-check. But it was set even when those diagnostics were emitted
+under `TentativeMode` (a REPL forward-ref probe) and then DISCARDED because the enclosing decl
+PARKED. So a genuine misuse reachable only through a later real use was silently accepted:
+`type Holder struct { s @Sink[Op]; m Missing }` (Op opaque) instantiates `Sink[Op]` user-facing
+while resolving the field, under `TentativeMode`; field `m` parks the type on undefined
+`Missing`; the opaque error is discarded AND the latch is set; a later real
+`func direct(s @Sink[Op])` hits the cache with the latch set and reports nothing.
+
+FIX: gate both latch sites (miss-path + cache-hit) on `!c.TentativeMode`, so the flag sticks
+only when the check's diagnostics actually reach the user. A tentative instantiation still RUNS
+the check (emitting to `c.TentativeErrors`, migrated if the decl survives / discarded if it
+parks) but leaves the entry unlatched, so the first surviving real use re-arms and reports.
+REPL-only: the batch compiler / CLI never set `TentativeMode`, so the gates are always-true and
+batch behavior is identical (conformance unaffected by construction).
+
+Notable: a func-based repro does NOT strand — a func SIGNATURE is checked in the strict,
+non-tentative Pass 1 (`collectDecls`, before `TentativeMode` is set), so a generic in a func
+param latches non-tentatively and reports immediately. The stranding decl must be a TYPE (its
+fields are resolved under `TentativeMode` via `checkDeclTypeTentative`); the first test attempt
+used a func and passed on BOTH the fixed and unfixed source (didn't isolate the bug) before the
+repro was corrected. Two persistent-checker regressions (size + constraint variants, in
+`check_pending_test.bn`), revert-checked: each FAILS on the pre-fix source (types 1000/2) and
+PASSES after (1002/0). Hygiene 17/17; adversarially reviewed (no findings — sound, batch-
+invariant, single latch = complete for the class).
+
+Residual (sound, erroneous-REPL-code only): a parked-then-resolved decl and a separate real
+decl that both use the same bad `(decl, args)` can each report it, vs the once-per-`(decl, args)`
+of `5e3ee8cb`; the fuller fix (latch on migrate-delivery) would preserve once-semantics but
+needs the tentative-error lifecycle wired to the latch. Not pursued — the double report is only
+extra diagnostics on already-erroneous code, never a false positive on valid code.
 
 ## Recursive by-value type SIGSEGV — ✅ DONE & LANDED `8c537b1b` (2026-07-11)
 
