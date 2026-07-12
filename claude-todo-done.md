@@ -8,6 +8,31 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## 725/727 cross-package reflect "miscompile" — actually stale arm32 expected files — ✅ DONE & LANDED (`4fe304dd`, 2026-07-12)
+
+Tracked (2026-07-04) as a MAJOR silent miscompile: `725_reflect_package_functions` /
+`727_reflect_function_signatures` produced wrong reflect output on the arm32 modes (the
+original symptom was per-function info not printed at all). By 2026-07-12 the runtime
+symptom was gone (fixed by intervening reflect/descriptor work) and the ONLY residual was
+the `RetbufSize` (= `types.AggregateReturnSize`) for the single-`int64`-return `Add`/`Neg`:
+the arm32 modes produced `0`, the `expected.builder-comp_arm32_{baremetal,linux}` files
+said `8`.
+
+NOT a codegen bug — the arm32 expected files were STALE. Commit `0479813a` (2026-07-03,
+"gate NeedsSret/IsAggregateReturn on aggregate KIND — fix ILP32 64-bit-scalar-return") made
+a single int64/float64 result a register-PAIR return (r0:r1), NOT a retbuf aggregate, so
+`AggregateReturnSize([int64]) == 0` on ILP32 too (matching LP64). The per-mode arm32 expected
+variants (last set 2026-06-21, before that commit) still carried the old `8` and were never
+updated; BOTH arm32 backends (LLVM + native) agree on `0`. Fix: the int64 `RetbufSize` is now
+target-independent (`0` everywhere), so the arm32 variants are byte-identical to the base
+`expected` — dropped them (all arm32 modes fall back to the correct base; native via the
+`OVERRIDE_MODE` sibling tier) and refreshed the two stale test comments. A repo-wide sweep of
+the other 11 tests with arm32 expected variants found NO other stale-`8` cases (the rest are
+legitimate `sizeof`/arch-selection differences). This also un-reds the arm32-LLVM conformance
+modes, which had been failing 725/727 since `0479813a`. Verified green on `builder-comp` (LP64),
+`builder-comp_arm32_baremetal`, `builder-comp_native_arm32_baremetal` (arm32_linux needs
+QEMU_ARM, unavailable locally — covered by the identical base + deleted-identical variant).
+
 ## inferred-type PACKAGE-SCOPE global with a func-reference initializer emitted invalid IR — ✅ DONE & LANDED (`f8bd03d2`, 2026-07-12)
 
 `var G = add1` or `var G = glib.Ident[int]` at **package scope** with **no explicit

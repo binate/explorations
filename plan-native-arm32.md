@@ -45,7 +45,8 @@ decomposition). ILP32 layout background: [`plan-arm32-bare-metal.md`].
   grep on the FULL verbose output — NOT a `[10s]` grep, which is unreliable on
   non-verbose output and let a P4-a hang slip). 617/619 failures are clean
   fail-loud COMPILE_ERROR deferred shapes; the only 2 wrong-output failures are
-  725/727 (pre-existing reflect miscompile, tracked separately). The 877 kind-gate also repairs the shared int64-return
+  725/727 (later found NOT a miscompile — stale arm32 expected files, resolved
+  `4fe304dd`). The 877 kind-gate also repairs the shared int64-return
   classification the concurrent ILP32-VM work references (its deferred VM-return
   dispatch-patch is likely now moot — see claude-todo.md). 599's fix (shared-IR
   `genAssign` STAR-arm ensureWidth) also corrected a latent wrong-width-store
@@ -442,7 +443,8 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
 
 **Remaining P4 sub-increments (fail-loud today):**
 - **Follow-ups from P4-b1/b2 (separate from P4-c/d):** the SAME-package
-  aggregate-arg SHIM re-marshaling; the 725/727 cross-pkg reflect wrong-output;
+  aggregate-arg SHIM re-marshaling (725/727 cross-pkg reflect was NOT a
+  miscompile — stale arm32 expected files, resolved `4fe304dd`; see done log);
   and a **NEW aarch64-native crash** — a cross-pkg big-multi-return func value
   produces empty output on `builder-comp_native_aa64-comp_native_aa64` (a BLOCKING
   green mode), a distinct pre-existing bug (aa64 rides X8, not the arm32/x64

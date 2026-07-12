@@ -1699,22 +1699,11 @@ aggregate re-marshaling is the remaining piece, see below). 64-bit-pair ARGS rid
 emitCallArg's pair placement (matches the shim ABI), so they are NOT fail-loud'd
 in the consumer. Fixed as part of P4-b1 (`bc42705e`).
 
-**MAJOR (pre-existing silent miscompile on main; found 2026-07-04 by the proper
-audit): cross-package REFLECT over package functions produces WRONG output.**
-`725_reflect_package_functions` (prints the function count `3` correctly, then
-FAILS to print the per-function Name/RetbufSize/ParamSlots/Sig — actual output is
-just `3`) and `727_reflect_function_signatures` (prints `5` then wrong). Both
-COMPILE (no COMPILE_ERROR) but produce wrong runtime output — a silent miscompile
-in the cross-pkg reflect / `__Package` descriptor iteration path
-(reflect.Package.Functions, a managed-slice of FunctionInfo aggregates read from
-the LLVM-emitted dep descriptor). **Present since at least P4-a (identical wrong
-output in the P4-a, guard, and by-address runs)** — UNCHANGED by P4-b, unrelated
-to func-value ARGS/RETURNS. Needs its own investigation (managed-slice-of-struct
-iteration and/or the descriptor's string/handle fields at the native↔LLVM
-boundary). These two are the ONLY non-COMPILE_ERROR failures in the 718 native
-arm32 conformance failures — the other 716 are clean fail-loud deferred shapes,
-and there are 0 hangs (verified via the QEMU "terminating on signal" grep on the
-FULL verbose output).
+**725/727 cross-package reflect — ✅ RESOLVED (`4fe304dd`, 2026-07-12; see done log).**
+NOT a miscompile: the 2026-07-04 symptom (per-function info not printed) was fixed by
+intervening reflect/descriptor work, and the residual was STALE arm32 expected files
+(pre-`0479813a` int64 `RetbufSize` 8; a single int64/float64 return is a register-pair,
+RetbufSize 0, on ILP32 too). 725/727 now pass on all native + LLVM arm32 modes + LP64.
 
 **Follow-up (deferred): SAME-package aggregate-arg func value — the arm32 SHIM's
 aggregate re-marshaling.** The by-address fix above handles the CONSUMER + the
