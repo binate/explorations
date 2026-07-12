@@ -180,8 +180,10 @@ re-instantiation.  builder-comp + builder-comp-comp 2754/0; adversarially review
 `same()` identity confirmed sound).  Unblocked B2 (the shared Table core).
 
 The fix patched the TRIGGER; the underlying CLASS (speculative generic instantiation leaking
-user-visible diagnostics — no trial/suppression mode) remains tracked as an open latent item
-in the active TODO.
+user-visible diagnostics) was then fully decoupled: the constraint diagnostic (`5e3ee8cb`) and
+the opaque-by-value size diagnostic (`0532a175`) are both reported only at user-facing sites,
+and the shared cache latch that recovers them was made park-sound (`6af9da55`) — see the done
+entries above.
 
 ## embedded / projecting generic cursor over the shared Table engine — three IR-gen bugs — ✅ DONE & LANDED (2026-07-11)
 
