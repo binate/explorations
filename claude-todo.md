@@ -304,6 +304,28 @@ cross-spelling identity (`fwd.Box[int]==genlib.Box[int]`), transitive, collision
 diagnosed, bare-ref rejected, a generic-INTERFACE identity case; verify on the VM
 leg too.
 
+**Slice 2 status (2026-07-11): IMPLEMENTED, reviewed SAFE TO LAND (commit
+`66834fa7`, pending land).** `IsGeneric` marker on `Symbol`; markers injected for
+exposed generics (own via registry walk + transitive via Syms copy);
+`resolveNamedTypeExpr` bare-ref guard; checker + IR-gen home remap.  Tests 1042
+(struct identity), 1047 (bare-ref rejected), 1048 (generic iface) green on
+builder-comp / -int / -comp; full regression 2772/0.  Implementation review traced
+identity correct on all three paths (struct/iface/transitive), byte-identical for
+non-exposed.  **Three follow-up gaps it flagged (not blocking):**
+- **Generic expose-collision silently undiagnosed (MAJOR-ish, diagnostic
+  correctness).** `checkExposeCollisions` reads the exposed package's `Syms`, which
+  never contain generics, so two forwarders exposing the same generic name shadow
+  silently — while the non-generic case IS diagnosed (1032/1033).  Fix: also scan
+  the generic-decl registries in the collision pass; add a `.error` test mirroring
+  1033 with a generic `Box` in both exposed packages.
+- **Generic transitivity untested (MINOR).** The `A exposes P exposes Q` (Q
+  generic) path is implemented+traced-correct but has no conformance test (1038 is
+  non-generic).  Add one asserting `a.Gen[int]` identity == `q.Gen[int]`.
+- **Latent nil-`Type` marker paths (MINOR, unreachable today).** `checkSelectorExpr`
+  value-position (`x := fwd.Box`) and `resolveNamedTypeExpr`'s bare-NAME branch lack
+  the `IsGeneric` guard, and the own-`.bn` merge (`checker.bn:173`) drops
+  `IsGeneric`.  Harden: add the guards + propagate the flag in the merge.
+
 ### Cross-package generic FUNC VALUE mis-compiles — `extractvalue operand must be aggregate type` — 🟠 OPEN (found 2026-07-11)
 
 **Pre-existing, NOT expose-related.** Taking a func value of a cross-package
