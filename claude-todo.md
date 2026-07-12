@@ -1501,6 +1501,33 @@ cleared (`e2e/xmiface.sh` / `e2e/xmhfa.sh` exist); add a captured-`@func` refcou
 - Candidates: growable collections (Vec[T], Map[K,V] post-generics), I/O abstractions, string utilities, formatting
 - CharBuf is implemented (pkg/buf); broader stdlib design should inform future collection APIs
 
+### `os.Args()` — landed, two open follow-ups
+`os.Args()` (main `0d1555f7`) returns the command-line arguments as a
+fully-readonly `@[]readonly @[]readonly char`, indexed like Go's os.Args
+(element 0 the program name, 1.. the arguments), built once at package init from
+`bootstrap.Args()`.  Compiled-mode-correct; two follow-ups remain:
+
+- **(a) argv[0] is an empty placeholder.** Element 0 (the program name) is left
+  empty because nothing exposes argv[0] yet — `bootstrap.Args()` deliberately
+  returns the arguments only, and its existing consumers (the cmd/* tools) rely
+  on that.  Populate element 0 once a bootstrap primitive surfaces the program
+  name (e.g. a new `bootstrap.ProgName()`/`Arg0()`, or the C runtime storing
+  `bn_argv[0]`).  A pure-additive change; the slot is already reserved.
+- **(b) 🔴 broken under the interpreter — DISCUSS (user will direct).** In the
+  `-int` conformance modes (xfail'd: `builder-comp-int`, `builder-comp-comp-int`,
+  `builder-comp-int-int`) `os.Args()` returns the *host interpreter's* own argv
+  (bni's `-I/-L/program.bn` tokens), not the program's, and reading those strings
+  faults.  Root cause: `pkg/std/os` is injected into the VM as host-native code
+  (so interpreted programs can do file I/O through bni), so `os.Args()` runs
+  *native* and reaches bni's native `bootstrap.Args()` — it never sees the VM
+  arg path.  Confirmed independent of the cached global (a live, no-global
+  `Args()` fails identically).  The `bootstrap.Args()` VM shim
+  (`progArgsAfterDash`, which the user has called "nonsense") only intercepts
+  *direct* interpreted `bootstrap.Args()` calls, and the user explicitly does NOT
+  want an analogous `os.Args` shim.  This is cross-mode plumbing, not an os bug —
+  see also the injected-native-package discussion under "Cross-mode interface
+  dispatch & compiler/interpreter interop".  Test: `conformance/stdlib/os/011_args`.
+
 ### Expand `pkg/slices` beyond `Append` — opportunistic
 - `pkg/slices.Append[T]` is the only generic helper today.  Natural
   additions when call sites demand them (don't add speculatively):
