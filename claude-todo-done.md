@@ -6,8 +6,6 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
----
-
 ## 725/727 cross-package reflect "miscompile" — actually stale arm32 expected files — ✅ DONE & LANDED (`4fe304dd`, 2026-07-12)
 
 Tracked (2026-07-04) as a MAJOR silent miscompile: `725_reflect_package_functions` /
@@ -12492,25 +12490,38 @@ object (arch=arm32)`.
   (`MemImm(IP, wordBytes()*ins.Index)`) overflows the 12-bit immediate only for an
   interface with >1023 methods — extremely unlikely, untracked-until-now.
 
-### HFA-in-SIMD is a CROSS-BACKEND contract — ✅ RESOLVED for AArch64; Stage 4 (x64) remains — 🟡 OPEN
+### HFA-in-SIMD is a CROSS-BACKEND contract — ✅ RESOLVED, both backends (AArch64 `48e3787b`; x64 `ce759c41`)
 
-HFA (Homogeneous Floating-point Aggregate) passing in SIMD registers is a
-cross-backend ABI contract — the compiler's LLVM backend, native codegen, every
-dispatch shim (func-value / closure / interface, incl. stack-spill), and the VM
-boundary must all agree. **✅ DONE & LANDED for AArch64** via the cross-backend
-replan (`plan-hfa-crossbackend.md`): all sites built dormant behind
-`types.HfaInSimd()`, then flipped ON at `48e3787b` (`HfaInSimd() → Arch==AA64`).
-Staging commits `06f9a8ff`/`d69eded8`/`7692508e`/`9ebf4119`/`4bc6fa7c`/`576e7bb3`/
-`833576bd`/`48e3787b`; validated by full conformance on builder-comp + native-aa64
-plus the cross-module `968` / dispatch `969` / spill `970` tests; each stage
-adversarially reviewed. (The earlier native-only enablement `332b4298` was a
-CRITICAL cross-backend miscompile — deps/shims route through the LLVM backend, which
-GP-coerces HFAs — mitigated by gating off `1a790663`, then fixed by the replan.
-Process lesson: the correctness bar is "native matches the Binate LLVM backend +
-shims", not "native matches clang".)
+HFA/eightbyte-float aggregate passing in SIMD/FP registers is a cross-backend ABI
+contract — the compiler's LLVM backend, native codegen, every dispatch shim
+(func-value / closure / interface, incl. stack-spill), and the VM boundary must
+all agree. Now **✅ DONE & LANDED on both backends** via the cross-backend replan
+(`plan-hfa-crossbackend.md`): all sites built dormant, then flipped ON per target.
 
-**ONLY REMAINING: Stage 4 — x64 SysV eightbyte-SSE HFA** (an independent per-target
-effort; `HfaInSimd()` stays false for x64 until then). See `plan-hfa-crossbackend.md`.
+**AArch64 (AAPCS64 HFA in v0..v7).** Flipped ON at `48e3787b` (`HfaInSimd() →
+Arch==AA64`). Staging commits `06f9a8ff`/`d69eded8`/`7692508e`/`9ebf4119`/
+`4bc6fa7c`/`576e7bb3`/`833576bd`/`48e3787b`; validated by full conformance on
+builder-comp + native-aa64 plus the cross-module `968` / dispatch `969` / spill
+`970` tests; each stage adversarially reviewed. (The earlier native-only
+enablement `332b4298` was a CRITICAL cross-backend miscompile — deps/shims route
+through the LLVM backend, which GP-coerces HFAs — mitigated by gating off
+`1a790663`, then fixed by the replan. Process lesson: the correctness bar is
+"native matches the Binate LLVM backend + shims", not "native matches clang".)
+
+**x64 (SysV eightbyte-SSE in XMM).** Flipped ON at `ce759c41` (Stage 4 / Step 6,
+2026-07-06) — `SysVSseInRegs() → Arch==ARCH_X64`. x64 uses this SEPARATE gate, not
+`HfaInSimd()`: a ≤16B aggregate whose eightbytes classify SSE rides XMM (INTEGER
+eightbytes ride GP), but a >16B float aggregate stays in MEMORY (byval/sret) —
+unlike an aa64 HFA. Backed by the full native-x64 Stage-4 stack landed dormant
+over 2026-07-05/06: return pack/collect (4a `0831eba9` / 4b `6847689e`), arg
+emit + accounting (4c `79ead028`/`ac6faa80`), and all dispatch shims — func-value
+register + spill (4d-arg `e321f57d`/`b7b09c6e`/`bf5e4feb`), closure (4d-2
+`7f7d6d99`/`4afa4d80`), interface (4d-3 `76fbcd51`) — plus the LLVM coercion half
+(2a/2b/2c) and asm SSE movers (`b26a90c7`), and conformance `971_cross_pkg_sse`.
+The flip was gated on Step 5's validation: the full `builder-comp_native_x64_darwin`
+suite under Rosetta was byte-identical dormant-vs-flipped — 2661 passed / 8 failed
+/ 7 skipped, zero regressions (the 8 pre-existing and SSE-unrelated). The earlier
+native-only staging in `plan-native-hfa-abi.md` is superseded.
 
 ### MAJOR — generic interface's method signature referencing a sibling generic type (`SiblingType[T]`) fails to resolve during CROSS-PACKAGE impl-satisfaction (`undefined: <sibling>`) — ✅ RESOLVED & LANDED 2026-07-10 (`470dfe78`)
 

@@ -43,14 +43,6 @@ branch fire on the NESTED deref-of-call, routing it into the layer-(2) panic (th
 trap).  Fix the lowering (layer 2) first / together.  `(*call())` is niche (an `@T` call
 result auto-derefs, so `call().f` is the usual form).  Add xfail coverage.
 
-### HFA-in-SIMD is a CROSS-BACKEND contract — ✅ RESOLVED for AArch64; Stage 4 (x64) remains — 🟡 OPEN
-
-AArch64 HFA-in-SIMD passing is DONE & LANDED (flipped ON at `48e3787b`; validated by conformance + `968`/`969`/`970` tests).
-
-ONLY REMAINING: Stage 4 — x64 SysV eightbyte-SSE HFA (an independent per-target effort; `HfaInSimd()` stays false for x64 until then). See `plan-hfa-crossbackend.md`.
-
-(Background/history archived in claude-todo-done.md.)
-
 ### native-aa64 self-hosted conformance: intermittent timeout flakiness — 🟡 OPEN (2026-07-02)
 
 **Severity: minor (CI flake, not a miscompile).** The

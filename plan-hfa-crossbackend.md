@@ -1,14 +1,26 @@
 # Plan: HFA passing as a cross-backend ABI contract
 
-**Status:** ✅ **AArch64 HFA passing is LIVE** (Stages 0-3 landed, 2026-07-03).
+**Status:** ✅ **COMPLETE — HFA-in-SIMD is LIVE on BOTH backends.** AArch64
+(AAPCS64 HFA) flipped ON at `48e3787b` (Stage 3, 2026-07-03); x64 (SysV
+eightbyte-SSE) flipped ON at `ce759c41` (Stage 4 / Step 6, 2026-07-06). Nothing
+remains — this plan is a completed record.
+
 **Stage 3 landed** (`48e3787b`): flipped `HfaInSimd()` -> `Arch==AA64`, enabling
 HFA SIMD passing across the whole toolchain at once. Validated by full conformance
 in two backends — `builder-comp` 2647/0 and `builder-comp_native_aa64` 2646/0
 (+1 HFA-unrelated int-cast flake, passes isolated) — plus new tests 968
 (cross-module native<->LLVM), 969 (register-path dispatch), 970 (spill-shim
 dispatch), each green in builder-comp / native aa64 / VM; negative controls
-confirmed non-SIMD. **The ONLY remaining item is Stage 4 (x64 SysV eightbyte-SSE
-HFA), an independent per-target effort.** History below.
+confirmed non-SIMD.
+
+**Stage 4 landed** (`ce759c41`): flipped `SysVSseInRegs()` -> `Arch==ARCH_X64`,
+enabling x64 SysV eightbyte-SSE aggregate passing across the LLVM backend, the
+native x64 backend (direct + func-value + closure + iface dispatch, incl. the
+stack-spill path), and the VM cross-mode boundary. Unlike aa64, a >16-byte float
+aggregate still passes in MEMORY (byval/sret). Validated by Step 5's gate: the
+full `builder-comp_native_x64_darwin` conformance suite under Rosetta was
+byte-identical dormant-vs-flipped — 2661 passed / 8 failed / 7 skipped, zero
+regressions (the 8 pre-existing and SSE-unrelated). History below.
 
 **Stage 4 (x64) progress (2026-07-04):** Step 1 (classifier `abi_sysv.bn`) LANDED
 (`58c2976d`). Step 2 (LLVM codegen) split and LANDED dormant on main: **2a**
@@ -36,15 +48,20 @@ is entirely LLVM-side. **The LLVM-codegen half of Stage 4 is now COMPLETE.**
 **Step 3 LANDED** (`b26a90c7`): the x64 asm SSE eightbyte memory-image movers
 (`emitSSEMem` + `Movlps_load`/`Movlps_store` 0F 12/13 + `Movss_load`/`Movss_store`
 F3 0F 10/11), `as`-verified, additive + unused until Step 4; minimal review clean.
-**Step 4 (native x64 backend) IN PROGRESS** — the remaining half.
+**Step 4 (native x64 backend) LANDED** — return pack/collect (4a/4b), arg
+emit + accounting (4c), and all dispatch shims (func-value register + spill
+4d-arg, closure 4d-2, interface 4d-3), each dormant. **Step 5 (Rosetta gate)
+and Step 6 (the flip, `ce759c41`) LANDED** — the remaining half is done.
 
-> ⛔ **FLIP BLOCKER (Step 6): do NOT flip `SysVSseInRegs()` → `Arch==ARCH_X64`
-> until Step 4 (native x64 + shims) and Step 5 (cross-module Rosetta + clang-
-> interop XMM goldens) are done.** The LLVM-codegen half (2a/2b/2c) is complete and
-> clang-faithful, but the NATIVE x64 backend still packs/returns these aggregates
-> in GP registers; flipping now would make an LLVM callee expect XMM while a native
-> caller passes GP (and vice-versa) — a register-class mismatch = silent wrong
-> values. The single gate flips BOTH halves at once, so both must be SSE-ready.
+> ✅ **FLIP BLOCKER (Step 6) — SATISFIED and flipped (`ce759c41`).** The blocker
+> required both halves to be SSE-ready before flipping `SysVSseInRegs()` →
+> `Arch==ARCH_X64`, because the single gate flips the LLVM codegen half and the
+> native x64 half at once — flipping with only the LLVM half done would make an
+> LLVM callee expect XMM while a native caller still passed GP (register-class
+> mismatch = silent wrong values). By the flip, the native x64 backend (place +
+> collect by class across direct / func-value / closure / iface dispatch, incl.
+> the stack-spill path) was in place and Step 5's Rosetta gate confirmed
+> byte-identical dormant-vs-flipped conformance, so both halves went SSE together.
 
 Stage 0 landed (`06f9a8ff` classifier lift,
 `d69eded8` variadic NSRN fix). **Stage 1 landed** (dormant): prereqs `7692508e`
