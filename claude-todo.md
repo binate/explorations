@@ -101,6 +101,36 @@ The frame->4095-byte COMPILE_ERROR is FIXED & LANDED (`6ce4b42f`); tests `990_na
 
 ## MAJOR
 
+### field access on a BY-VALUE-returning call result: `getStruct().field = v` silently dropped; `getStruct().sub.y` nested read panics — 🟠 OPEN (found 2026-07-12, adversarial review of the deref-of-call selector fix)
+
+Distinct from (and left unfixed by) the deref-of-call selector fix — that fix covers
+`@T`/`*T`-returning calls and explicit derefs; this is the **by-value struct-returning**
+call `func getW() W` (W a struct, not `@W`).  A by-value call result is a non-addressable
+temporary, so `genSelectorPtr` cannot hand out an lvalue pointer for it.  Two symptoms:
+
+1. **`getW().field = v` is a silent no-op.** The checker ACCEPTS assigning to a field of a
+   non-addressable by-value call result (it correctly rejects `&getW()` — "cannot take the
+   address of a non-addressable value" — but not the field-store form).  IR-gen then has no
+   lvalue to store to, so the write is silently discarded.  A managed field is worse: an
+   IR-gen arm that materialized a temp to address it would RefInc the new value into a temp
+   that is never dtor'd → a **leak** (this is exactly the regression the review caught and
+   the reason the deref-of-call fix's call arm handles ONLY pointer-returning calls, not
+   by-value ones).  **Root cause + right fix:** the CHECKER should reject `getStruct().field
+   = v` (assignment to a field of a non-addressable value), mirroring the `&`-of-temporary
+   rule.  Then IR-gen never sees it.
+
+2. **`getW().sub.y` (nested READ off a by-value call) panics** ("unresolved selector in
+   IR-gen").  `genSelector`'s Case-2 asks `genSelectorPtr` to address the inner by-value
+   field; with no by-value-call arm it returns nil → the panic stub.  (Single-level reads
+   `getW().x` already work via `genSelector`'s own call arm, which materializes a temp for a
+   READ — safe, since a read needs no persistent lvalue.)  A sound fix would materialize the
+   temp AND register it for end-of-statement cleanup (so managed fields are released), gated
+   to the read path only.
+
+Both are pre-existing (the deref-of-call fix neither introduced nor worsened them; it just
+declined to extend the leaky/panicking path).  Add xfail coverage for both forms when
+picked up.
+
 ### named/readonly-WRAPPED func-value package global emits invalid IR — 🟠 OPEN (found 2026-07-12; sibling of the landed `f8bd03d2` func-ref-global fix)
 
 A **named/readonly-WRAPPED** func-value package global — `type Fn @func(int)int;
