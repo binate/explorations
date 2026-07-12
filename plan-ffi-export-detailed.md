@@ -249,8 +249,11 @@ do). Run gen1 to confirm the pinned BUILDER parses the amended `buildcfg`/`ir.bn
   multiple C names), as the design specifies.
 - **Enforcement:** the **only** hard check is "attaches to a top-level func"
   (above). **Permissive otherwise** — no legal-C-identifier check, **no uniqueness
-  check**; a bad or duplicate C name surfaces at link time (native `DefineLabel`
-  duplicate-label, or LLVM duplicate-alias). Tighten later only if it proves
+  check**; a bad or duplicate C name surfaces at **compile (clang / native
+  assembler) or link time depending on backend** (LLVM emits a duplicate-global
+  clang error; the native `DefineLabel` errors on a duplicate label; a
+  cross-object duplicate reaches the system linker). Same outcome — an error, not
+  a silent accept — just a stage that varies. Tighten later only if it proves
   necessary.
 - **Adjacent-string-concat name** (`#[c_export("a" "b")]`, `Expr.StrParts`):
   **reject** — require a single unsplit string literal (untested in `buildcfg`'s
@@ -274,13 +277,19 @@ stays.
   with `builder-comp_native_arm32_baremetal`, not the LLVM arm32 mode.)
 
 **Edit sites (LLVM — the genuinely net-new part)**
-- `pkg/binate/codegen/emit.bn` — the `m.Funcs` loop (~L354) or after each body in
-  `emit_debug.bn:emitFuncDbg`: emit `@<cName> = alias <retTy>, ptr
-  @<mangle.FuncName(modulePkgName, f.Name)>` per name; **no** `_` prefix (clang
-  adds it); skip `f.IsExtern`. First LLVM-`alias` emission in the tree — pin the
-  syntax (opaque-ptr `alias ptr, ptr @f` vs typed) against the clang the toolchain
-  shells to, and get the aliasee/coerced return type right (aggregate-returning
-  exports use the coerced/sret type).
+- `pkg/binate/codegen/emit.bn` — the `m.Funcs` loop (~L354): emit
+  `@"<cName>" = alias i8, ptr @<mangle.FuncName(modulePkgName, f.Name)>` per name;
+  **no** `_` prefix (clang adds it); skip `f.IsExtern`. First LLVM-`alias`
+  emission in the tree. **Landed decision (2026-07-12):** the aliasee-type is a
+  **placeholder `i8`**, *not* the function's real/coerced type. LLVM does not
+  require the alias type to match the aliasee for a same-module alias, and the
+  alias is purely a symbol-table entry at the function entry — the ABI lives on
+  the `define`, so the C caller's declared signature governs it. Verified
+  end-to-end (clang accepts it; the C call is correct) across scalar, aggregate,
+  `sret`, and pointer-param returns — so there is no need to reconstruct the
+  ABI-coerced/`sret` type. The alias name is emitted as a **properly-escaped**
+  LLVM quoted identifier (`@"..."` with `\HH` hex-escaping of `"`, `\`, and
+  non-printable bytes) so a permissive/unusual C name can't produce invalid IR.
 
 **Not required for MVP:** ELF `STT_FUNC` (all symbols are `STT_NOTYPE` today; a
 `c_export` symbol links fine as `STT_NOTYPE` — linkers resolve by name). Upgrading
