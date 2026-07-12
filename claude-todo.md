@@ -135,7 +135,7 @@ it, and runs correctly.
 func-reference / generic-function-instantiation initializer (mirroring the
 in-function `managedFuncValueTypeForName` decay), OR reject a non-inferable global
 initializer with a clean `bnc` diagnostic.  Add a conformance test (currently
-untested; the in-function forms are covered by `conformance/1054_generic_func_value`
+untested; the in-function forms are covered by `conformance/1056_generic_func_value`
 and the bare-ref forms by the #123 tests) with `.xfail` markers for the failing
 compiled modes until fixed.
 
@@ -216,18 +216,20 @@ on the generic paths:
   (forwarder exposing `func Ident[T any](x T) T`) type-checked but link-failed;
   fixed by keying the generic-decl lookup on the home via `homedQualifier` at
   `gen_call.bn:162`.  Test: `conformance/1046_expose_generic_func`.  The
-  func-VALUE form (`var f = fwd.Ident[int]; f(9)`, `gen_method_value_recv.bn:223`)
-  is **blocked by a separate PRE-EXISTING bug** (see below) — that IR-gen site was
-  reverted (unreachable) and re-adds once the pre-existing bug is fixed.
+  func-VALUE form (`var f = fwd.Ident[int]; f(9)`) is now **UNBLOCKED** — the
+  generic-func-value IR-gen path landed (`473013ed`, see below), and its
+  `genericFuncInstanceName` already carries the `homedQualifier` remap, so the
+  exposed spelling should route to the home; verify it (and drop the old reverted
+  `gen_method_value_recv.bn` remap, now superseded) as part of this workstream.
 - **Generic-TYPE IR-gen sites need the `homedQualifier` remap too**
   (`instantiatedIfaceLookupPkg` in `gen_iface.bn`, the generic-struct head in
   `gen_type_resolve.bn`).  These were added in the non-generic fix then REVERTED
   (unreachable until the checker admits exposed generic types) — re-add here.
 
-**Fix scope (workstream A):** checker support for exposed generic types + the
-generic-FUNC-value IR-gen site (once the pre-existing bug below is fixed) + re-add
-the two generic-TYPE IR-gen sites + tests (1042 generic-type).  Slice 1 (generic
-func CALL) is done.
+**Fix scope (workstream A):** checker support for exposed generic types + verify
+the exposed generic-FUNC-VALUE form now that the generic-func-value IR-gen path
+landed (`473013ed`) + re-add the two generic-TYPE IR-gen sites + tests (1042
+generic-type).  Slice 1 (generic func CALL) is done.
 
 **Slice 2 design decision (2026-07-11, two adversarial reviews).** Chose the
 `homedQualifier` approach (**B**) over registry-forwarding (**A**).  A is SILENTLY
@@ -278,39 +280,39 @@ soft cap).** It was already ~509 (pre-existing warning); gap 3's `IsGeneric`-in-
 line nudged it over.  Split it along a natural boundary soon (do NOT trim doc lines
 to dodge the cap).
 
-### Generic function used as a FUNC VALUE is unimplemented in IR-gen — compile abort — 🟠 OPEN (found 2026-07-11, root-caused)
+### Generic function used as a FUNC VALUE in IR-gen — ✅ LANDED `473013ed` (2026-07-12)
 
-**A FEATURE GAP, not a miscompile; NOT expose-related; fails LOUD.**  Taking a
-func value of a generic function and calling it — `var f = glib.Ident[int];
-println(f(9))` (where `pkg/glib` exports `func Ident[T any](x T) T`) — aborts the
-compile (`internal error: unresolved selector in IR-gen`, surfacing as invalid
-LLVM `%v = extractvalue i64 %w, 0` — garbage from the abort path, a RED HERRING,
-not a result-type mis-classification).  The DIRECT call `glib.Ident[int](9)` works
-(dedicated `genCallInstantiate` path).  Fails for the plain home spelling too, so
-independent of `expose` — but it blocks the exposed generic-func-VALUE form
-(`fwd.Ident[int]`) and the reverted `gen_method_value_recv.bn` remap.  Repro:
-`conformance/1054_generic_func_value` (untracked; placeholder expected).
+A generic-function instantiation used as an rvalue (`var f = glib.Ident[int];
+println(f(9))`, where `pkg/glib` exports `func Ident[T any](x T) T`) previously
+aborted the compile: IR-gen had no path turning an `EXPR_INSTANTIATE_OR_INDEX`
+with a generic head into an `OP_FUNC_VALUE` (the func-value machinery is gated on
+`isFuncRefExpr`, which recognizes only a bare ident / `pkg.Name` selector, so the
+instantiate shape fell through to `genSelector`'s abort).  The direct-call form
+already worked (`genCallInstantiate`) and the checker already typed the rvalue as
+`TYP_FUNC` — the gap was purely IR-gen value construction.
 
-**Root cause (high confidence — traced + emitted-IR verified).** IR-gen has NO
-path that turns a generic-function instantiation (`Gen[T]` / `pkg.Gen[T]`, AST
-`EXPR_INSTANTIATE_OR_INDEX`) used as an RVALUE into a function value.  The
-func-value machinery is gated on `isFuncRefExpr` (`gen_util.bn:60-67`), which
-recognizes only a bare ident or `pkg.Name` selector — an instantiate node fails
-it, so it falls through to `genExpr → genSelector`'s abort-panic
-(`gen_selector.bn:346-353`).  (The checker already types the rvalue correctly as
-`TYP_FUNC` via `instantiateGenericFunc`, `check_generic.bn:100`, and accepts
-assignment to `@func` — the gap is purely IR-gen value-construction.)
+**Fix (IR-gen only):** `genericFuncInstanceName` (`gen_generic.bn`) resolves the
+generic decl (bare head via `CurrentImportAlias` / same-package registry; `pkg.Id`
+head via `homedQualifier` + the pkg-keyed registry, mirroring `genCall`),
+`ensureInstantiated`s the instance, returns its mangled name (or "" for a
+non-instantiation, so ordinary indexing / a shadowing local var falls through).
+Wired into `genExprOrFuncRef` (call-arg / return / field / plain-assign /
+explicit-type var), `genDecl` (`var`), `genShortVar` (`:=`); the shared
+alloc→func-value→store→bind emit factored into `defineFuncValueVar` (`gen_func.bn`).
+The instance is a non-capturing `IsLinkOnce` top-level func → null-data func value
+→ managed-`@func` dtor is a guarded no-op (identical to the bare-ref `var f = add`
+case).  `conformance/1056_generic_func_value` covers every slot (inferred /
+explicit-`@func` / explicit-`*func` var, `:=`, call-arg, return, struct field,
+reassignment; cross- and same-package), green on LLVM / VM / self-host / native
+aarch64 / native x64; IR-shape unit tests + a false-positive guard added.  Two
+adversarial reviews SHIP.
 
-**Fix scope (IR-gen only, mirrors the direct-call arm):** a new
-`genFuncValueInstantiate` helper in `gen_generic.bn` (reuse `genCallInstantiate`'s
-decl/arg resolution + `ensureInstantiated` for the mangled instance name, then
-`EmitFuncValue(name, fvTyp)`); wire it into `genExprOrFuncRef` (`gen_util.bn:136`);
-fix the inferred-type var-decl synthesis (`gen_stmt.bn:234-243`, which excludes
-`TYP_FUNC`); and cover `:=` (`gen_short_var.bn:92`).  Variant matrix to test:
-cross-pkg + inferred (1054), same-pkg + inferred (currently mis-lowers to an
-undefined `main.f` symbol → link error, same class as #122/#123), explicit
-`@func(int)int` type, and `:=`.  Spot-check the other func-value slots (struct
-field, call arg, return, composite element) that route through `genExprOrFuncRef`.
+This **unblocks** the exposed generic-func-VALUE form (`var f = fwd.Ident[int]`) —
+`genericFuncInstanceName` already carries the `homedQualifier` remap, so the
+workstream-A re-add can now build on it (verify + re-add `gen_method_value_recv.bn`
+under that workstream, not here).  A pre-existing package-scope-global limitation
+surfaced during review (`var G = <func-ref>` at package scope) is tracked as a
+separate MAJOR above.
 
 ## Language features — specified, not yet implemented
 
