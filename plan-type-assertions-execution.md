@@ -1195,12 +1195,30 @@ BUILDER-sensitive land.
     12/0 in builder-comp-int-int (the full double-interp suite is too slow to
     finish in one CI-less run but showed 0 failures across partial passes);
     vm units 248 green; hygiene 17/17; 2 adversarial reviews clean.
-- **Slice 6 — Type-switch (Phase 6).** `checkTypeSwitchStmt` (modeled on
-  `checkSwitchStmt`; per-case narrowing; multi-target/`default` bind scrutinee
-  type; no exhaustiveness/dup/fallthrough) + `genTypeSwitch` (first-match chain
-  over the Slice-5 primitives; **push each `@`-binder into `ctx.Vars` as a typed
-  managed slot** so case-scope cleanup RefDecs it — the subtlest leak risk).
-  Green: type-switch goldens incl. a `@`-binder leak test, both modes. Deps: 4, 5.
+- **Slice 6 — Type-switch (Phase 6) — LANDED 2026-07-11 (`2a31b58e`).**
+  `checkTypeSwitchStmt` (interface-value scrutinee guard; per-case target
+  validation via a new `assertTargetType` helper extracted from `checkTypeAssert`;
+  single-target → recovered type, multi-target/`default` → scrutinee type; no
+  exhaustiveness/dup/fallthrough) + `genTypeSwitch` (first-match chain of comma-ok
+  asserts over a ONCE-evaluated scrutinee — the comma-ok primitives were refactored
+  into `iv`-cores, `assertCommaOkOn`, so the operand isn't re-evaluated per case).
+  **Three memory-safety points** (recon found two beyond the plan's `@`-binder
+  one): the scrutinee is rooted in a switch-scoped slot so it survives every case
+  (a `@T`/`@J` recovery RefIncs its box — UAF otherwise for `switch foo().(type)`)
+  and is released once at exit; each `@`-binder is defined in its case's OWN scope
+  (`emitDecForScopeVars` RefDecs it at the case exit); each interface comma-ok's
+  `vm.SP` growth is reclaimed with `BC_SP_RESTORE` (idempotent frame-end reset)
+  once the recovered value is copied into a frame slot.  Also added the formatter
+  (`printTypeSwitch` — bnfmt previously DROPPED the statement) and swept the
+  new-statement-kind sites: `stmtTerminates`/`stmtContainsBreak`,
+  `collectVarDepsStmt` (a package-var read in a type switch inside an IIFE/global
+  init was being silently dropped), `lint/lint.bn`, and `lint/refs.bn` (a type or
+  import used ONLY in a case label read as unused — found in adversarial review).
+  Tests: checker/IR/format unit tests + conformance 1054 (behavior) + 1055
+  (refcount: `@`-binder, loop, side-effecting scrutinee, managed multi-target
+  taken, `continue`).  Green all 7 modes; full-suite regression clean (comp
+  2772/0, `-int` 2751/0); 2 adversarial reviews (memory-safety clean, one
+  sweep-miss defect fixed).
 - **Slice 7 — Spec flips + docs (Phase 7).** *Explorations/docs; commit promptly.*
   Flip the `§11.12`/`§17.5`/`§7.13.14`/`§13.8`/`§14.10` Draft banners + `00-index`
   rows once conformance is green; keep the panic-text byte-identical to
