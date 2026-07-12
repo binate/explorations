@@ -8,6 +8,51 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## embedded / projecting generic cursor over the shared Table engine — three IR-gen bugs — ✅ DONE & LANDED (2026-07-11)
+
+Surfaced building `setfn.SetFn`'s bare-element iterator (a projecting cursor over the shared
+`table.Cursor`). Three distinct IR-gen bugs, all fixed and landed:
+
+**(1) pointer-receiver method on a non-ident lvalue receiver got a COPY, not the address —
+`4c7d8224` (+ conformance 1047), `setfn.SetFn` iteration `aee73b4b`.** `applyReceiverConversion`
+(gen_method.bn) passed a COPY of a non-ident addressable-lvalue receiver to a `*T`
+pointer-receiver method instead of its address, so `sc.tc.Next()` (tc an embedded generic
+`Cursor`) advanced a throwaway copy and `sc.tc.i` never moved — the projecting cursor looped
+forever at runtime (the "compile hang" was the *program* hanging, not the compiler). Fixed by
+taking the address via `genSelectorPtr` for ident/field-selector receivers and `genIndexPtr`
+for a bare slice/array element `arr[i]` (a review-found sibling shape with the same
+silent-copy miscompile); temp only for a genuinely non-addressable receiver. Conformance 1047
+covers field-selector / managed-ptr-field / nested-selector / slice-element shapes.
+
+**(2) concrete cross-package struct embedding a generic cursor failed to LINK
+(`extractvalue i64`) — `4c54d4d2` (+ conformance 1050).** `type Holder struct { tc
+table.Cursor[int, int, hash.FnHasher[int], cmp.FnEq[int]] }` + `h.tc.Next()` emitted invalid
+IR: inside `Cursor.Next`, `it.t.cap`/`used`/`keys` was UNRESOLVED, genSelector's catch-all
+fired (a runtime-panic call + garbage `add i64 0, 0`), and the following field access did
+`extractvalue i64` (clang's verifier rejects it). ROOT CAUSE: `ensureInstantiatedStruct` left
+`CurrentImportAlias` unset (its interface twin `ensureInstantiatedInterface` sets it), so
+`Cursor` (defined in `table`) instantiated from `main` resolved its field `t @Table[K,V,H,E]`
+against `main`, missed the generic decl, and fell to the `TypInt()` fallback — the field type
+silently became `@int`. Fixed by pinning `CurrentImportAlias = definingPkg` around the
+field-resolution loop, mirroring the interface path + the checker's `populateInstantiatedStruct`.
+The generic `SetCursor[T]` dodged this because it instantiates at a pass-2 use site.
+
+**(3) bogus `Table[int,int,int,int]` spurious instantiation (benign dead symbols) —
+`d4e74a6a`.** Three passes resolved GENERIC decls with no type-param binders in scope, so a
+generic-typed field/receiver degraded every param to the `TypInt()` fallback and instantiated
+a bogus all-`int` type with dead dtor/copy/reflect symbols: RegisterImports' + gen_self_types'
+struct-field passes populated generic structs' fields, and collectImplsFromDecl resolved a
+parameterized-receiver impl's receiver as a concrete type. Fixed by skipping generic structs
+in those field passes (mirroring gen_register_import / gen_module, which already skip) and
+skipping parameterized-receiver impls in collectImplsFromDecl (mirroring the checker's
+collectImplDecl). Behaviorally inert (the bogus type was never a value). Follow-up `202b9490`
+made the imported-impl path's generic-receiver skip explicit for symmetry.
+
+All three adversarially reviewed (each review's confirmed findings addressed; the false alarms
+verified as such). Repro for (2)/(3): a `main` with `type Holder struct { tc
+table.Cursor[int,int,hash.FnHasher[int],cmp.FnEq[int]] }` + `h.tc.Next()` importing
+`pkg/stdx/{hash,cmp,containers/table}`.
+
 ## `==` / `<` on a type parameter — VM-silent generic-comparison class fully CLOSED — ✅ DONE & LANDED (2026-07-11)
 
 The whole VM-silent generic-comparison miscompile class is closed, in two landed pieces:
