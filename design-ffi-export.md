@@ -1,7 +1,9 @@
 # Design note: FFI Export — exposing Binate functions to C
 
-**Status:** design note / proposal (updated 2026-07-07). **Not** specified, **not**
-implemented. Explores (a) what initialization is needed to link a Binate package
+**Status:** **RATIFIED design (2026-07-11)** — recorded as a DECIDED note in
+`claude-notes.md`. The core-language features are **spec'd as pending** (Draft/pending in
+the spec — specified, not implemented, like §16.9's `__c_global`); **not yet implemented**.
+Explores (a) what initialization is needed to link a Binate package
 (+ transitive deps) into a C program and call a Binate function; (b) how to package
 a *set* of Binate packages as a C library; and (c) how the program **entry/startup
 glue itself** can be Binate code, retiring `runtime/binate_runtime.c`. **No
@@ -12,6 +14,15 @@ driver/codegen. Cross-refs: §17 (`prog.*` init/entry), §16.7 (`pkg.annotation`
 (`pkg.ccall`/`pkg.cglobal`, the FFI boundary), §7.13 (layout, for the C typedefs),
 §11.10 / §20.2 (the `lang` / `rt` builtins carve-outs). Naming (`c_export`,
 `bn_init`, `platform_init`, `link_at`, …) is illustrative and bikeshedable.
+
+**Ratified (2026-07-11) — two decided *properties* (spellings still adjustable):** (1) the
+FFI annotations (`c_export`, and the linker-placement `section`/`link_at`) are **unqualified,
+compiler-recognized** annotations (language-standard, joining `build` — every conformant
+compiler must recognize them and reject typos; they are **not** ignorable `tool.*` metadata,
+and their newness gates them behind a BUILDER bump per §4). (2) `bn_init` / `bn_entry` are a
+**linkage-ABI contract referenceable by literal name** — like today's real `bn_entry` — so the
+`bn_`-family + literal-name-referenceability is decided even though the exact identifiers stay
+adjustable. Everything else marked "illustrative" is genuinely bikeshedable.
 
 ## 1. Motivating use cases
 
@@ -251,9 +262,11 @@ unusable-in-practice from C.
   baremetal linker script (which usually owns the address).
 - **`bn_init` idempotency**: the run-once guard mechanism (a guard global) and where
   it lives (in the dispatcher itself).
-- The **merge driver** ergonomics: repeated `--library <loc>`, disjoint-name
-  enforcement, shared-dep-included-once linking, how the merged unit's dependency set
-  is resolved, and how coexisting `_init`s (vs. one synthesized init) are handled.
+- The **merge driver**: repeated `--library <loc>`, disjoint-name enforcement,
+  shared-dep-included-once linking, and how coexisting `_init`s (vs. one synthesized init) are
+  handled — *ergonomics*. **Correctness obligation (NOT ergonomics):** the merged unit's
+  `bn_init` MUST cover the *correct* transitive closure in valid topological order — that is the
+  soundness core of the embedding claim, not a nicety.
 - The **`bn_init` / `bn_entry` division of labor** (init-only vs. init-then-`main`) —
   an implementation detail; nothing here forces the split now.
 - Whether/how to expose the **rt refcount entry points** (`RefInc`/`RefDec`) to C
