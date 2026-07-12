@@ -590,14 +590,21 @@ folded "Phase 1" — lands inside 5a). Phase 4 is a later zero-cost optimization
 **Phases 6 and 7 are deferred**; 8/9 later. Each unit below keeps the tree green
 and is cherry-pickable on its own.
 
+**Status (2026-07-11):** Phase 2 **landed** on main as `e213dd42` (adversarially
+reviewed; the review caught a method silent-no-op — `#[c_export]` on a method now
+hard-errors). Next: the harness scaffold + Phase 3 (alias emission). The
+plan-required Phase-2 conformance/e2e compile-smoke was folded into Phase 3, where
+`c_export` actually emits a symbol (so the smoke is meaningful, not a no-op).
+
 1. **Harness scaffold** — `e2e/ffi-export.sh` establishing the CI lane. `c_export`
    doesn't exist yet, so there's no author-controllable Binate symbol to call and §3
    forbids referencing mangled `bn_*`. So step 1 asserts **only the plumbing** — the
    reverse direction (a C stub defines a symbol a Binate `.o` imports, links, runs).
    The first "C calls Binate" assertion arrives at step 3.
-2. **Phase 2** — `#[c_export]` recognition + threading (buildcfg branch +
-   top-level-func validation pass + `ir.Func.CExportNames` list + gen_func +
-   unit tests). Verify gen1/BUILDER. Permissive names (link-time collision only).
+2. **Phase 2** ✅ **(landed `e213dd42`)** — `#[c_export]` recognition + threading
+   (buildcfg branch + top-level-func placement check incl. method rejection +
+   `ir.Func.CExportNames` list + gen_func + unit tests). Names permissive
+   (link-time collision only).
 3. **Phase 3** — alias emission: native second-symbol (x64/aarch64, arm32 later) +
    LLVM `alias`; asm + codegen unit tests; **wire the harness to call a real
    `c_export`'d pure-compute function** (the true acceptance test — the C driver
