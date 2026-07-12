@@ -1008,20 +1008,6 @@ composite- or variadic-specific (the plain `eq(other Self)` reproduces it).
 
 ---
 
-### Recursive by-value struct type SIGSEGVs the compiler at decl time — 🟠 MAJOR (compiler crash), filed 2026-07-11
-A struct that contains ITSELF by value crashes bnc with SIGSEGV (exit 139) during
-declaration checking / layout resolution, instead of a clean "recursive struct type"
-rejection.  Repro: `type C struct { self C }` — and via an array field
-`type C struct { items [2]C }` — both exit 139 (verified LLVM host build).  A by-value
-struct cycle has no finite size/layout and must be rejected; only a cycle through a
-POINTER (`@C` / `*C`, e.g. a linked-list node) is legal.  Root cause (unconfirmed): the
-size/layout resolver recurses without a cycle guard.  Surfaced by the adversarial review
-of the type-param-comparison change (`fa2a6e8e`); UNRELATED to it (the checker's
-`containsByValueTypeParam` walk is cycle-safe — it bottoms out at a type-param or a
-pointer).  No conformance test yet: a test that SIGSEGVs the compiler needs careful xfail
-handling so it does not destabilize the runner; add it with the fix (which turns it into
-a clean err-test).  Fix: a recursion/visited guard in the struct layout/size pass with a
-"recursive struct type (contains itself by value)" error.
 ### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
 - **Problem**: with the current rules, `int` (and other predeclared
   primitives) can't implement interfaces. Methods can only be

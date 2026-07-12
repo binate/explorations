@@ -8,6 +8,36 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## Recursive by-value type SIGSEGV — ✅ DONE & LANDED `8c537b1b` (2026-07-11)
+
+A type whose underlying struct or array contains ITSELF by value (`type C struct { self C }`,
+`type C struct { items [2]C }`, `type C [2]C`, or through a named-distinct wrapper
+`type C struct { d D }; type D C`) has no finite layout.  The size / destruction / ABI walks
+that recurse through by-value fields/elements had no cycle guard, so such a type crashed bnc
+with a SIGSEGV at decl time (or, for some wrapper/array shapes, silently compiled to a bogus
+finite `sizeof`).  Surfaced by the adversarial review of the type-param-comparison change.
+
+`checkTypeByValueCycle` (`check_type_redecl.bn`) detects a struct field / array element that
+transitively reaches the named type by value (`typeReachesNamedByValue`, stopping at
+pointers/slices so a `@C`/`*C` recursion stays legal), reports a clean "recursive type: a
+type cannot contain itself by value" error, and POISONS the offending field/element to void so
+the layout walks terminate.  It runs from `checkValueEmbedding` (POST-collection, every named
+underlying filled) for every type decl — so it is decl-order-independent and sees through
+named-distinct wrappers and multi-hop chains.
+
+Two adversarial-review rounds drove it to completeness: a first per-decl (collectTypeDecl)
+cut was order-dependent (missed struct-declared-before-wrapper — still SIGSEGV; a 3-hop
+wrapper — silent miscompile); relocating to checkValueEmbedding closed that; a second review
+found the array sibling (`type C [2]C`) escaping a struct-only check, closed by generalizing
+to array underlyings.  Tests: conformance regressions recursive-struct-by-value /
+recursive-struct-wrapper / recursive-type-array; 11 `check_decl_test.bn` cases (self /
+array-of-self / mutual / wrapper both orders / multi-hop / array / mutual-array + valid
+controls: pointer-recursion, distinct nesting, non-cyclic wrapper, finite array, generics).
+Verified: bnc self-compiles; full conformance LLVM 2779/0 + VM 2758/0; every by-value cycle
+shape rejects cleanly (no SIGSEGV, no silent miscompile), pointer-recursion unaffected.
+
+---
+
 ## `impl @T : iter.Iterable` on doubly-imported-policy-constrained params → false "K does not satisfy constraint" — ✅ DONE & LANDED (`6647c49f`, 2026-07-11)
 
 Compiling `pkg/stdx/containers/table` (B2 of the injected-fn container work) failed at the
