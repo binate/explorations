@@ -222,11 +222,13 @@ colocate (correction: `DeclIncluded` doesn't see the decl kind or `Exported`).
   erroring only if a decl carries `c_export` but **is not a top-level `DECL_FUNC`**
   (a type/var/import/package-clause has no code symbol to alias — a clear user
   mistake worth rejecting, else it silently no-ops). *(Ratified: **package-public is
-  NOT required** — a private top-level func may be `c_export`'d; a private func
-  still has a compiled symbol to alias. So this pass does **not** check
-  `d.Exported`.)* This runs over the `d.Kind` info; it can sit anywhere after the
-  decls are merged (it no longer depends on `markBniExportedFuncs`, so the
-  per-`.bni`-file-loop timing caveat is moot).
+  NOT required** — a private top-level func may be `c_export`'d, because a package
+  that wraps a C library legitimately needs to hand that library a C-callable
+  **callback** which is a private implementation detail, not part of its Binate
+  `.bni` surface. A private func still has a compiled symbol to alias. So this pass
+  does **not** check `d.Exported`.)* This runs over the `d.Kind` info; it can sit
+  anywhere after the decls are merged (it no longer depends on
+  `markBniExportedFuncs`, so the per-`.bni`-file-loop timing caveat is moot).
 
 **Tests:** `buildcfg_test.bn` — `#[c_export("foo")]` recognized as always-included;
 malformed args (non-string-lit / zero args) → hard error; `c_export` + a false
@@ -628,8 +630,10 @@ The design is ratified; the decisions that gated implementation are settled:
   (`ldr.Order`), within-package `VarInitOrder`. No longer an open spec item.
 - **c_export data model** — a **list** (`@[]@[]char`). (Phase 2)
 - **c_export enforcement** — hard-error only "must attach to a top-level func";
-  **package-public NOT required**; **permissive** on names (no identifier/uniqueness
-  check — linker handles collisions); reject adjacent-string-concat form. (Phase 2)
+  **package-public NOT required** (a package wrapping a C library needs to expose a
+  private callback to it — a C-callable symbol that isn't part of the Binate `.bni`
+  surface); **permissive** on names (no identifier/uniqueness check — linker handles
+  collisions); reject adjacent-string-concat form. (Phase 2)
 - **Artifact type** — **`.a`** (static archive, `ar`/`llvm-ar`). No `.so`/`.dylib`
   now. (Phase 5a)
 - **Build-mode selection** — the explicit **`--library` flag** (no
