@@ -35,7 +35,7 @@ beyond the fixed case, but the principled fix is an error-suppression / trial mo
 speculative instantiation (route to `c.TentativeErrors` or a probe flag) rather than
 per-caller decl guards.  No standalone repro yet.
 
-### concrete cross-package struct embedding a generic cursor → field resolves under WRONG package → `@int` → genSelector catch-all → invalid `extractvalue i64` — 🟡 MAJOR / FIX FOUND (worktree `1f77640a`, pending broad validation + review + land); generic-hang sibling FIXED & LANDED `4c7d8224`+`aee73b4b` (found 2026-07-11)
+### concrete cross-package struct embedding a generic cursor → field resolves under WRONG package → `@int` → genSelector catch-all → invalid `extractvalue i64` — 🟢 MAJOR / FIXED & LANDED `4c54d4d2` (+ conformance 1050); generic-hang sibling FIXED & LANDED `4c7d8224`+`aee73b4b` (found 2026-07-11).  RESIDUAL bogus `Table[int,int,int,int]` dead symbols still emitted — separate benign slip, see the RESIDUAL note in this entry.
 
 **Two symptoms were conflated here; they are DIFFERENT bugs. The GENERIC one (a runtime
 infinite loop) is FIXED & LANDED (`4c7d8224` + `aee73b4b`); the CONCRETE one (an
