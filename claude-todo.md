@@ -35,20 +35,24 @@ beyond the fixed case, but the principled fix is an error-suppression / trial mo
 speculative instantiation (route to `c.TentativeErrors` or a probe flag) rather than
 per-caller decl guards.  No standalone repro yet.
 
-### concrete struct embedding a generic cursor → Cursor.Next emitted before its @Table field type is registered → genSelector catch-all → invalid `extractvalue i64` — 🔴 MAJOR / OPEN (found 2026-07-11)
+### concrete struct embedding a generic cursor → Cursor.Next emitted before its @Table field type is registered → genSelector catch-all → invalid `extractvalue i64` — 🔴 MAJOR / OPEN (found 2026-07-11; generic-hang sibling FIXED & LANDED `4c7d8224`+`aee73b4b`)
 
-**Two symptoms were conflated here; they are DIFFERENT bugs. The GENERIC one (a compile
-hang) is FIXED (286481c1); the CONCRETE one (an `extractvalue i64` link failure) is what
-remains OPEN below.**
+**Two symptoms were conflated here; they are DIFFERENT bugs. The GENERIC one (a runtime
+infinite loop) is FIXED & LANDED (`4c7d8224` + `aee73b4b`); the CONCRETE one (an
+`extractvalue i64` link failure) is what remains OPEN below.**
 
-**(1) FIXED — generic projecting cursor looped forever (was reported as a "compile hang").**
-The real fault was NOT a compile hang but a RUNTIME infinite loop miscompiled by IR-gen:
-`applyReceiverConversion` (gen_method.bn) passed a COPY of a non-ident lvalue receiver to a
-`*T` pointer-receiver method instead of its address, so `sc.tc.Next()` (tc an embedded
-generic `Cursor`) advanced a throwaway copy and `sc.tc.i` never moved.  Fixed by taking the
-address via `genSelectorPtr` (commit 286481c1, conformance 1047).  `setfn.SetFn` now
-iterates (`Iter`/`AsIterator`/`iter.Iterable[T]`, 7d4f4559).  The "hang" impression came
-from running the built program, not from the compiler looping.
+**(1) FIXED & LANDED — generic projecting cursor looped forever (was reported as a "compile
+hang").** The real fault was NOT a compile hang but a RUNTIME infinite loop miscompiled by
+IR-gen: `applyReceiverConversion` (gen_method.bn) passed a COPY of a non-ident addressable
+lvalue receiver to a `*T` pointer-receiver method instead of its address, so `sc.tc.Next()`
+(tc an embedded generic `Cursor`) advanced a throwaway copy and `sc.tc.i` never moved.
+Fixed by taking the address via `genSelectorPtr` for ident/field-selector receivers and
+`genIndexPtr` for a bare slice/array element `arr[i]` (a review-found sibling shape that had
+the same silent-copy miscompile); temp only for a non-addressable receiver.  Commit
+`4c7d8224` (fix + conformance 1047, which covers field-selector / managed-ptr-field /
+nested-selector / slice-element shapes).  `setfn.SetFn` now iterates
+(`Iter`/`AsIterator`/`iter.Iterable[T]`, `aee73b4b`).  The "hang" impression came from
+running the built program, not from the compiler looping.
 
 **(2) OPEN — concrete struct embedding a generic cursor fails to LINK (`extractvalue i64`).**
 `type Holder struct { tc table.Cursor[int, int, hash.FnHasher[int], cmp.FnEq[int]] }` plus a
