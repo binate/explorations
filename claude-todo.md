@@ -35,7 +35,7 @@ beyond the fixed case, but the principled fix is an error-suppression / trial mo
 speculative instantiation (route to `c.TentativeErrors` or a probe flag) rather than
 per-caller decl guards.  No standalone repro yet.
 
-### concrete cross-package struct embedding a generic cursor → field resolves under WRONG package → `@int` → genSelector catch-all → invalid `extractvalue i64` — 🟢 MAJOR / FIXED & LANDED `4c54d4d2` (+ conformance 1050); generic-hang sibling FIXED & LANDED `4c7d8224`+`aee73b4b` (found 2026-07-11).  RESIDUAL bogus `Table[int,int,int,int]` dead symbols still emitted — separate benign slip, see the RESIDUAL note in this entry.
+### concrete cross-package struct embedding a generic cursor → field resolves under WRONG package → `@int` → genSelector catch-all → invalid `extractvalue i64` — 🟢 MAJOR / FIXED & LANDED `4c54d4d2` (+ conformance 1050); generic-hang sibling FIXED & LANDED `4c7d8224`+`aee73b4b` (found 2026-07-11).  RESIDUAL bogus `Table[int,int,int,int]` dead symbols — 🟢 FIXED & LANDED `d4e74a6a` (see the RESIDUAL note in this entry).
 
 **Two symptoms were conflated here; they are DIFFERENT bugs. The GENERIC one (a runtime
 infinite loop) is FIXED & LANDED (`4c7d8224` + `aee73b4b`); the CONCRETE one (an
@@ -83,11 +83,17 @@ setfn/mapfn/table unit tests green.  Because this touches core generic-struct fi
 resolution, it needs a broad conformance run before landing (blast radius = every generic
 struct instantiation).  A conformance test for the concrete cross-package embed is still TODO.
 
-**RESIDUAL (separate, benign, still OPEN).** The bogus `Table[int,int,int,int]` (h/e resolved
-to `int` — a DIFFERENT slip: the `Table` decl IS found but its H/E binders are out of scope in
-some resolution, so the args fall to `int`) is STILL emitted as dead dtor/copy/reflect symbols.
-It does not break linking or runtime (no value of that type is ever created).  Track + fix
-separately; do not block the (2) fix on it.
+**RESIDUAL (was separate benign slip) — 🟢 FIXED & LANDED `d4e74a6a`.** The bogus
+`Table[int,int,int,int]` (ALL four params resolved to the `int` fallback, not just H/E) came
+from three passes resolving GENERIC decls with no type-param binders in scope:
+RegisterImports' + gen_self_types' struct-field passes populated generic structs' fields
+(so `Cursor`'s `t @Table[K,V,H,E]` → `Table[int,int,int,int]`), and collectImplsFromDecl
+resolved a parameterized-receiver impl's receiver as a concrete type.  Fixed by skipping
+generic structs in those field passes (mirroring gen_register_import / gen_module, which
+already skip) and skipping parameterized-receiver impls in collectImplsFromDecl (mirroring
+the checker's collectImplDecl).  Behaviorally inert (the bogus type was never a value), so no
+conformance change — coverage is the existing 1050 plus the alignment with two already-correct
+sibling passes; adversarial review clean.
 
 **Repro.** `/tmp/holder.bn`: `type Holder struct { tc
 table.Cursor[int,int,hash.FnHasher[int],cmp.FnEq[int]] }` + `h.tc.Next()`, importing
