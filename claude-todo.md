@@ -318,51 +318,35 @@ field, call arg, return, composite element) that route through `genExprOrFuncRef
 
 ## Language features — specified, not yet implemented
 
-### Type assertions, type switches & RTTI — ✅ COMPLETE (moved to [claude-todo-done.md](claude-todo-done.md)) — one optional follow-up
+### Type assertions, type switches & RTTI — ✅ COMPLETE (moved to [claude-todo-done.md](claude-todo-done.md)) — one optional, deferred tightening
 
 The full feature — the RTTI substrate (Phases 1–3c-2) and the front-end (Slices
 4–7: `x.(K T)`, comma-ok, type switches, the §17.5 panic, and the cross-mode/VM
 story) — is **landed and conformance-green in every mode**, and the spec Draft
-banners are flipped (done-log entry has the per-phase commit list).  One optional,
-non-blocking cleanup remains:
+banners are flipped (done-log entry has the per-phase commit list).
 
-**🔧 TODO (detailed) — migrate the TypeInfo record content to a per-type "boxable
-types" registry ("design D").** Increment 2.2a fills `size`/`align` via **design A**:
-a `RecvTyp @types.Type` field on `ir.ImplInfo` (the `DtorFuncName` twin), captured at
-`ImplInfo` creation (`collectImplsFromDecl` via `resolveTypeExpr(gc, d.TypeRef)` peeled
-to the base value type; `ensureAnyImplInfo` via `val.Typ.Elem`), with `SizeOf`/`AlignOf`
-read at **codegen** (`CollectTypeInfoDescs` in `pkg/binate/ir/data_typeinfo.bn`, after
-the in-place field-population pass — computing at collection reads an empty struct → 0).
-Design A was chosen (2026-07-04, after a 3-investigator + 2-adversarial-critic
-review) as the correct, low-risk *first increment* of the cleaner long-term shape,
-**design D** — a per-type registry holding the laid-out `types.Type`, keyed by the
-`mangle.TypeInfoName` symbol, that is the single home for *all* record content
-(size/align/name from the held type; dtor + satisfaction table from the `m.Impls`
-grouping). Why migrate to D eventually:
-  - **A hangs a per-*type* fact on a per-*(type,iface)* record.** `ImplInfo` is one
-    row per `(receiver, interface)`; `RecvTyp` (and name, later) is a per-type fact
-    stored redundantly on all N rows and deduped in `CollectTypeInfoDescs`. Harmless
-    now, but awkward as the record grows (name, reflect fields).
-  - **The satisfaction table (2.2b) forces a per-type home anyway** — it's built by
-    grouping `m.Impls` by receiver (the transitive-ancestor set), which is exactly a
-    per-type structure. That per-type descriptor list IS the seed of D; A is not
-    throwaway, it's D's first increment.
-  - **Optional tightening (defer):** make the D registry the *single seam* that BOTH
-    `collectImplVtableSlots` (vtable slot-1) and `BuildTypeInfo` read, so the
-    "record symbol == slot reference" invariant holds by construction instead of via
-    two independent `mangle.TypeInfoName` call sites. This refactors landed/tested 2.1
-    slot wiring, so it's a separate, later step — not part of 2.2a/2.2b.
-Rejected alternatives (with reasons, from the review): **B** (name→`m.Structs`
-round-trip at emission) — second divergence-prone identity derivation + a stub-window
-weak-def miscompile risk + misses primitives; **C** (compute in the checker) — moves
-record authorship upstream of where the record lives (`pkg/types`, read by IR-gen) and
-forces reconciling the checker's bracket-form generic-instance names against IR-gen's
-`__bn_inst__` form (silent-if-wrong). **Guards design A must keep** (silent-miscompile
-prevention): null-guard `RecvTyp == nil` in the collector (`SizeOf(nil)` returns
-`ptrSize()`=8, *not* 0 — a plausible-wrong size), and assert `RecvTyp.Kind` is sane
-(not `resolveTypeExpr`'s `TypInt()` fallback for a non-primitive) during bring-up so a
-resolution regression fails loudly; plus a multi-TU byte-identical check
-(`conformance/378_iface_impl_dup`) for the weak-def TU-invariance hazard.
+**✅ DONE — design-D migration (`7f8e6456`, 2026-07-11).** The TypeInfo record
+content (size/align/name/dtor) now lives in a per-**type** registry
+(`Module.TypeInfos`, keyed by the `mangle.TypeInfoName` symbol) instead of the
+per-`(type,iface)` `ImplInfo.RecvTyp` field that `CollectTypeInfoDescs` used to
+dedup by hand.  `registerTypeInfo` (write end, deduped by receiver identity) is
+called 1:1 with each local ImplInfo append (`makeOwnMethodsImplInfo` covers the
+collect + generic paths, `ensureAnyImplInfo` covers `any`), preserving the exact
+distinct-type set and first-appearance order the `m.Impls` walk produced — so the
+byte-identical multi-TU invariant (`conformance/378_iface_impl_dup`) holds
+(pair-dedup is provably equivalent to symbol-dedup: it reuses the same
+`charEq(RecvPkg, RecvTypeName)` comparison `moduleHasImpl`'s vtable-dedup already
+depends on).  The `SizeOf`-at-codegen timing and the null-guard (`SizeOf(nil)`
+returns `ptrSize()`, a plausible-wrong size → guard to 0) are unchanged.  Verified:
+609 `ir` unit tests, native + VM conformance (all three registration paths +
+reflect + 378), hygiene 17/17, minimal adversarial review (no defects).
+
+**🔧 Optional tightening (deferred, low value).** Make the D registry the *single
+seam* that BOTH `collectImplVtableSlots` (vtable slot-1) and `BuildTypeInfo` read,
+so the "record symbol == slot reference" invariant holds by construction instead
+of via two independent `mangle.TypeInfoName` call sites.  A separate, later step —
+it refactors landed/tested 2.1 slot wiring for a robustness nicety, not a
+correctness fix.
 
 ---
 
