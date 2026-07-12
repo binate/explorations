@@ -143,6 +143,36 @@ result auto-derefs, so `call().f` is the usual form).  Add xfail coverage.
 
 ## MAJOR
 
+### inferred-type PACKAGE-SCOPE global with a func-reference initializer emits invalid IR — 🔴 OPEN (found 2026-07-12 via adversarial review of the generic-func-value work)
+
+`var G = add1` or `var G = glib.Ident[int]` at **package scope** with **no explicit
+type** miscompiles.  `resolveGlobalVarType` (`pkg/binate/ir/gen_const.bn:30-45`)
+infers a slot type only for literal initializers and returns nil for a
+func-reference / generic-instantiation initializer, so the global registers as a
+wrong 8-byte scalar (`@G = global { [8 x i8] }`), the `__init` body lowers the RHS
+as a plain value/index (no `OP_FUNC_VALUE`), and a later `G(x)` becomes a direct
+symbol call on the data global — invalid LLVM that clang rejects with the cryptic
+`extractvalue operand must be aggregate type`.  Fails **loud** at clang/link (not a
+silent runtime miscompile), but with a confusing diagnostic rather than a clean
+`bnc` error.
+
+**PRE-EXISTING and independent of the generic-func-value feature** (`work-3`,
+task #201): the identical failure already exists for the landed bare-func-ref
+feature (#123) — `var G = add1` at package scope emits the same broken
+`store i64` + direct `call @…_G`.  The generic-func-value work merely extends the
+latent gap to a new RHS shape; it did not introduce it, and its own touched surface
+(in-function func-value slots) is complete and correct.  The **explicit-type** form
+works: `var G @func(int) int = glib.Ident[int]` builds the `%BnFuncValue`, stores
+it, and runs correctly.
+
+**Fix:** teach `resolveGlobalVarType` to infer a func-value slot type for a
+func-reference / generic-function-instantiation initializer (mirroring the
+in-function `managedFuncValueTypeForName` decay), OR reject a non-inferable global
+initializer with a clean `bnc` diagnostic.  Add a conformance test (currently
+untested; the in-function forms are covered by `conformance/1054_generic_func_value`
+and the bare-ref forms by the #123 tests) with `.xfail` markers for the failing
+compiled modes until fixed.
+
 ### native arm32: 0-byte (`struct{}` / `[0]T`) func-value results mishandled across the pipeline — 🔴 OPEN (found 2026-07-11 via adversarial review)
 
 Surfaced by the adversarial review of the non-closure 0-byte pack-store guard
