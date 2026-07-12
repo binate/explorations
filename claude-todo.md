@@ -1101,45 +1101,50 @@ composite- or variadic-specific (the plain `eq(other Self)` reproduces it).
 
 ---
 
-### `==` / `!=` (and relational) on aggregates — VM-silent generic-comparison residuals — 🟠 MAJOR (broader class OPEN; same-package (b) fixed 2026-07-11)
+### `==` / `!=` (and relational) on aggregates — VM-silent class CLOSED by guard; clean diagnostic via inference-removal — 🟡 (silent miscompile FIXED 2026-07-11; inference-removal pending)
 The `==`/`!=`/relational aggregate story is ✅ DONE & LANDED — full arc (checker
 rejection, struct/array + generic-function impl, sentinel decision, generic-field
-re-check) archived in [claude-todo-done.md](claude-todo-done.md). The SAME-PACKAGE direct-comparison
-cases are handled for both generic FUNCTIONS (items 2/4) and generic-TYPE METHODS
-(✅ `40463d81`, 2026-07-11 — see done log). What remains is a **broader VM-silent
-miscompile class** shared by BOTH the function and method re-checks, because that
-re-check is **stamp-based and ORDER-DEPENDENT**: type-checking a generic body flips
-`TpUsedInEq`/`TpUsedInRel` on the type-param binder, and the re-check reads that stamp
-at the instantiation. Every path where the stamp is not set on the binder the call
-site reads slips through to IR-gen as a scalar compare on an aggregate — **loud on
-LLVM (clang rejects `icmp %BnSlice`), but a SILENT garbage compare on the VM** (its
-`lowerCmpOp` defaults a slice operand to a one-word pointer-identity compare):
-- **(a) Forward-reference — NOT cosmetic (the earlier triage was wrong).** Stamping and
-  re-checking both live in the one Pass-2 loop over decls in TEXTUAL order; a call
-  checked before the callee's body is walked reads a still-false binder → VM-silent
-  miscompile (loud only on LLVM). Functions and methods alike. (The prior "cosmetic
-  only, never a silent miscompile" note held only for LLVM, so it was wrong.)
-- **(c) Imported cross-package generics.** The consumer builds the callee's `@Type` from
-  the `.bni` SIGNATURE and never walks the body, so its binder is born false — even
-  though the defining package's own `.bn` stamps a DIFFERENT binder instance. So
-  `dep.Eq[*[]int]` / `dep.Box[*[]int]{}.eq(...)` slip through → VM-silent. Functions and
-  methods both (verified).
-- **(d) Transitive through a generic FUNCTION.** A generic method/function body that
-  reaches the comparison by CALLING another generic function is governed by the
-  function path's own re-check (subject to (a)/(c)); the method re-check only covers
-  sibling METHODS of the instantiation.
-- **Fix direction (recon DONE 2026-07-11 — see workflow report):** two complementary
-  moves. (1) a checker SUB-PASS that pre-stamps every generic body (function + method,
-  local + imported) between Pass 1 and Pass 2 — reuses `recordTypeParamComparison` and
-  both existing re-checks UNCHANGED, only fixes stamp timing/coverage; closes (a) fully,
-  (c) once imported bodies are walked with the `.bni` binders (bodies ARE retained;
-  needs a defining-file import-scope sibling array for imported funcs/methods). (2) an
-  IR-gen HARD-ERROR guard in `genBinary` (refuse to lower a scalar compare on a
-  slice/iface/func operand) as a cheap FULL-coverage safety net catching every path at
-  codegen (worse diagnostic, no position). Recommendation from recon: land the IR-gen
-  guard FIRST (small, kills the silent-miscompile class outright), then the sub-pass for
-  good diagnostics. An explicit `comparable` constraint is a third option but a language
-  change. Decision pending user go/no-go.
+re-check) archived in [claude-todo-done.md](claude-todo-done.md). Same-package direct comparisons are
+handled for generic FUNCTIONS (items 2/4) and generic-TYPE METHODS (`40463d81`). The
+broader class was a set of paths where the STAMP-BASED, ORDER-DEPENDENT re-check misses
+— **(a) forward-reference** (callee body checked after the call), **(c) imported**
+cross-package (consumer never walks the `.bni` body, so its binder is born false), and
+**(d) transitive through a generic FUNCTION** — each reaching IR-gen as a scalar compare
+on a non-comparable operand: loud on LLVM (`icmp %BnSlice`) but a **SILENT garbage
+compare on the VM**.
+
+**✅ The SILENT MISCOMPILE is now CLOSED — IR-gen guard `30bc2bac` (2026-07-11).** A
+defense-in-depth guard in `gen_binary.bn` (`assertComparableScalarCompare` /
+`isNonComparableAggregate`, + the `emitFieldEq` aggregate-leaf) panics rather than lower
+a comparison the checker should have rejected: `==`/`!=` on a slice/iface/func operand,
+or a relational op on any NON-numeric operand (struct/array/pointer/bool — catching the
+struct/array-relational case the eq-only genAggregateEq fork misses, found in review).
+Every residual path (a)/(c)/(d) now fails LOUD and backend-neutral on both LLVM and the
+VM; same-package cases still get the clean checker rejection first.  Full conformance
+green both backends (LLVM 2768, VM 2747), zero false positives; two adversarial reviews.
+Reuses no stamp — re-derives (non-)comparability from the concrete operand type, so it
+is order/import-independent by construction.
+
+**Remaining = the CLEAN per-line DIAGNOSTIC (the guard's message is compiler-bug-flavored,
+no source position).** DECIDED 2026-07-11 (with the user): get it by REMOVING the
+operator-on-type-param inference, NOT by hardening it (the recon's sub-pass option A).
+Evidence driving the call: a repo-wide sweep found **NOTHING real uses `==`/`<` on a
+type-param** — every comparison-bearing generic (stdlib hashmap/set via `lang.Hashable`,
+examples sort via `lang.Orderable`, the compiler itself) goes through the `.Compare()` /
+`.Hash()` METHOD + constraint; only artificial conformance/unit tests use the operator
+inference.  And the language already gates METHOD access on a type-param behind a
+constraint (spec §12.1: `[T any]` = store+move only, no methods), while §13.6 defines
+`==`/`<` for CONCRETE types only (no type-param rule) — so the inference is an unspec'd
+extension inconsistent with the rest of the language.  **Next step (multi-commit,
+language change — needs the exact surface ratified):** make `==`/`<`/`!=`/`<=`/`>=` on a
+type-param an ERROR that directs the user to a constraint — either the existing
+`[T Comparable]` + `.Compare()`/`.Eq()` (method form) or a NEW built-in `[T comparable]`
+operator-constraint (Go-style; a sibling of the method-level `lang.Comparable`, not a
+reuse — primitives impl only `Stringer`, not `Comparable`).  Remove the `TpUsedInEq` /
+`TpUsedInRel` inference machinery + both re-checks; update conformance 064–066 / 073–076
+and the `check_compare_test.bn` generic tests; the IR-gen guard then becomes a
+can't-happen backstop.  Recon report + subsystem maps: workflow `recon-generic-compare-
+vm-silent` (2026-07-11).
 
 ### `print(42)` and friends: how do primitives implement interfaces? — DESIGN OPEN
 - **Problem**: with the current rules, `int` (and other predeclared

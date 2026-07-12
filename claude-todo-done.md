@@ -8,6 +8,32 @@ no longer resolve in the tree, though git history retains them.
 
 ---
 
+## IR-gen guard: no silent-miscompiled comparison on a non-comparable operand — ✅ DONE & LANDED `30bc2bac` (2026-07-11)
+
+Closes the silent-VM-miscompile class for generic comparisons.  Three residual paths in
+the stamp-based comparison re-check (forward-reference, imported cross-package, transitive-
+through-a-generic-function) let a `==`/`<` on a non-comparable operand reach IR-gen; on
+LLVM clang rejects the `icmp`, but the VM silently emitted a one-word/multi-word garbage
+compare.  A shared IR-layer guard (`assertComparableScalarCompare` / `isNonComparableAggregate`
+in `gen_binary.bn`, + the `emitFieldEq` aggregate-leaf in `gen_eq_aggregate.bn`) panics
+instead: `==`/`!=` on a slice/iface/func operand, or a relational op on ANY non-numeric
+operand (struct/array/pointer/bool — the struct/array-relational miss surfaced in review,
+since the eq-only genAggregateEq fork does not cover `<`).  Re-derives (non-)comparability
+from the concrete operand via the exported TYP_* kinds / `types.IsNumeric`, so it needs no
+stamp and is order/import-independent.  Nil operand exempt (nil-comparison judged by the
+other operand); comparable structs/arrays fork to genAggregateEq whose leaves are guarded.
+
+Defense-in-depth: same-package cases still get the clean checker rejection first; the guard
+catches only what slips past.  The CLEAN per-line diagnostic for the residual paths comes
+from removing the operator-on-type-param inference (tracked in [claude-todo.md](claude-todo.md)),
+after which the guard is a can't-happen backstop.  Verified: bnc self-compiles clean; full
+conformance green on LLVM (2768) and the VM (2747) with zero false-positive panics; every
+residual path fails loud on both backends; valid comparable / form-only / multi-param
+compile+run.  Unit: `TestIsNonComparableAggregateClassifies`.  Two adversarial reviews
+(second found + I fixed the struct/array-relational gap).
+
+---
+
 ## native arm32: bare `nil` arg to a non-slice nil-able param → WRONG arg register (even-pair mis-pad) — ✅ FIXED & LANDED 2026-07-11 (`983a01f6`)
 
 A bare `nil` (type TYP_NIL) passed to a non-slice nil-able param (e.g. `@Node`) landed in the
