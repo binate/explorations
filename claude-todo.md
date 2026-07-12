@@ -1406,7 +1406,7 @@ fully-readonly `@[]readonly @[]readonly char`, indexed like Go's os.Args
   on that.  Populate element 0 once a bootstrap primitive surfaces the program
   name (e.g. a new `bootstrap.ProgName()`/`Arg0()`, or the C runtime storing
   `bn_argv[0]`).  A pure-additive change; the slot is already reserved.
-- **(b) 🔴 broken under the interpreter — DISCUSS (user will direct).** In the
+- **(b) 🔴 broken under the interpreter — DECIDED, impl pending.** In the
   `-int` conformance modes (xfail'd: `builder-comp-int`, `builder-comp-comp-int`,
   `builder-comp-int-int`) `os.Args()` returns the *host interpreter's* own argv
   (bni's `-I/-L/program.bn` tokens), not the program's, and reading those strings
@@ -1414,12 +1414,16 @@ fully-readonly `@[]readonly @[]readonly char`, indexed like Go's os.Args
   (so interpreted programs can do file I/O through bni), so `os.Args()` runs
   *native* and reaches bni's native `bootstrap.Args()` — it never sees the VM
   arg path.  Confirmed independent of the cached global (a live, no-global
-  `Args()` fails identically).  The `bootstrap.Args()` VM shim
-  (`progArgsAfterDash`, which the user has called "nonsense") only intercepts
-  *direct* interpreted `bootstrap.Args()` calls, and the user explicitly does NOT
-  want an analogous `os.Args` shim.  This is cross-mode plumbing, not an os bug —
-  see also the injected-native-package discussion under "Cross-mode interface
-  dispatch & compiler/interpreter interop".  Test: `conformance/stdlib/os/011_args`.
+  `Args()` fails identically).
+  **Decision (2026-07-12, [`design-os-args-vm.md`](design-os-args-vm.md)):** no
+  VM special-casing and no `os.Args` shim.  Instead add
+  `os.SetArgs(args @[]readonly @[]readonly char) @[]readonly @[]readonly char`
+  (replaces the args, returns the previous value for save/restore); bni calls it
+  before executing the interpreted code, and the existing `progArgsAfterDash`
+  VM shim is removed.  Two impl details still open (see the note): how bni
+  determines the program's argv (the `--` convention's fate) and what direct
+  interpreted `bootstrap.Args()` returns afterward.  Test:
+  `conformance/stdlib/os/011_args`.
 
 ### Expand `pkg/slices` beyond `Append` — opportunistic
 - `pkg/slices.Append[T]` is the only generic helper today.  Natural
