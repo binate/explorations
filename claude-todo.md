@@ -7,29 +7,39 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### speculative generic instantiation emits USER-VISIBLE diagnostics — no trial/suppression mode — 🟡 LATENT / OPEN (residual of the `6647c49f` fix; see done log for the fixed trigger)
+### speculative generic instantiation emits an EXTRA (misanchored) diagnostic — CASCADE NOISE on already-invalid code, not a false positive — 🟢 LOW / OPEN (residual of the `6647c49f` fix; investigated 2026-07-11)
 
-`instantiateGenericDeclWithArgs` (pkg/binate/types/check_generic_type.bn:139) emits
-USER-VISIBLE diagnostics for any uncached `(decl, args)` — `checkInstantiationConstraints` →
-`reportConstraintMiss`, the depth>=128 error, and `requireSizedType`'s opaque-by-value error —
-with NO suppression/trial flag.  That is wrong when the instantiation is reached from a purely
-SPECULATIVE impl-match probe: `typeSatisfiesConstraint` / `genericImplSatisfies` walking
-`c.Impls`, or `substituteTypeParams` re-instantiating a nested generic whose args "changed".
-A same-decl probe that re-instantiates a nested generic can still fire a spurious error the
-user never wrote.
+`instantiateGenericDeclWithArgs` (pkg/binate/types/check_generic_type.bn:149) runs
+`checkInstantiationConstraints`→`reportConstraintMiss` (also the depth>=128 and
+`requireSizedType` errors) on any uncached `(decl, args)` with no suppression flag — even when
+reached from a purely SPECULATIVE impl-match probe (`typeSatisfiesConstraint` /
+`genericImplSatisfies` walking `c.Impls`; `substituteTypeParams` re-instantiating a nested
+generic whose args "changed", check_generic.bn:299).  So such a probe can emit a
+constraint-miss the user never wrote, ANCHORED AT THE NESTED GENERIC'S DECL (`d.Pos`, which is
+confusing).
 
-The concrete TRIGGER — verifying `@Table[K,V,H,E] : iter.Iterable[Entry[K,V]]` walked the
-unrelated `impl hash.Default[K lang.Hashable] : Hasher[K]` and re-instantiated
-`Default[Table's-unconstrained-K]`, emitting a false "K does not satisfy Hashable" — was fixed
-at its source (`6647c49f`: the `genericImplSatisfies` base-decl guard; unblocked B2; see the
-done log for the full write-up).  But that patched the trigger, not the CLASS.
+**SEVERITY DOWNGRADED after investigation (2026-07-11).** It is NOT a false positive on valid
+code.  Repro'd both ways: `impl Wrap[K any] : Sink[Bar[K]]` where `Bar[K lang.Hashable]` — the
+impl is itself ill-formed (`Bar[K]` needs K Hashable, Wrap's K is `any`), and checking
+`Wrap[Loose] : SomeIface` (Loose non-Hashable) emits BOTH the real impl error AND an extra
+"Loose does not satisfy Hashable" pointing at `Bar`'s declaration.  Making the impl valid
+(`Wrap[K lang.Hashable]`) + instantiating validly (`Wrap[int]`) compiles CLEANLY — no spurious
+error.  The extra diagnostic only ever appears ALONGSIDE a genuine error (an ill-formed impl or
+instantiation), i.e. it is cascade noise, not a rejection of otherwise-valid code.
 
-**Principled fix:** give the checker an error-suppression / trial mode for speculative
-instantiation — route diagnostics to `c.TentativeErrors` (or gate on a probe flag) so a
-match-probe that instantiates never leaks a user-visible diagnostic; only a real
-(non-speculative) instantiation site reports.  Preferable to sprinkling per-caller decl
-guards.  Not currently triggered beyond the fixed case; a standalone repro (a speculative
-probe that re-instantiates a nested generic whose constraints genuinely fail) is still TODO.
+**Why the obvious fix is UNSAFE (do NOT just suppress).** A suppress-during-speculation flag
+would interact badly with the instantiation CACHE: `instantiateGenericDeclWithArgs` caches the
+result BEFORE the cache-check short-circuits future calls (line 151), so if a speculative probe
+instantiates `Bar[Loose]` with the diagnostic suppressed AND caches it, a LATER *real*
+`Bar[Loose]` use hits the cache, skips `checkInstantiationConstraints`, and the genuine error
+is LOST — a soundness regression.  A safe fix must decouple constraint-checking from the cache:
+either don't cache speculative instantiations (perf/complexity), or check constraints ONLY at
+real use sites (not inside `instantiateGenericDeclWithArgs`) — a non-trivial refactor.
+
+**Recommendation:** given it is LOW (cascade noise on already-erroneous code) and the safe fix
+is a refactor with a soundness hazard, leave documented and revisit only if the noisy extra
+diagnostic on invalid code becomes a real annoyance.  Repro on file: /tmp/spec1.bn (noisy) vs
+/tmp/spec2.bn (clean).
 
 ### `readonly` is invisible to `NeedsDestruction`/`dtorTypeSuffix` — cosmetic mismatch now, latent leak later — 🟢 LOW / OPEN (found 2026-07-10, adversarial review of `8d9e7577`)
 
