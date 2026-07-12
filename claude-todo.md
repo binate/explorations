@@ -133,6 +133,50 @@ result auto-derefs, so `call().f` is the usual form).  Add xfail coverage.
 
 ## MAJOR
 
+### native arm32: 0-byte (`struct{}` / `[0]T`) func-value results mishandled across the pipeline — 🔴 OPEN (found 2026-07-11 via adversarial review)
+
+Surfaced by the adversarial review of the non-closure 0-byte pack-store guard
+(`997bed1f`, held pending this decision). The single-aggregate shim guards are
+CORRECT (closure `e233b8c3`, non-closure `997bed1f`) and matter for cross-mode
+interop (another backend can invoke the shim with a real retbuf), but they do NOT
+fix the actual end-to-end behavior. Two confirmed pre-existing defects:
+
+- **Bug A — single 0-byte-aggregate func-value call is SILENTLY DROPPED (silent
+  miscompile).** `PlanFrame` reserves an alloc retbuf region only `if dataSz > 0`
+  (`pkg/binate/native/common/common.bn:261`), so for a `struct{}`/`[0]T` result
+  `rm.LookupAlloc(ins.ID)` returns -1; `emitCallFuncValue`
+  (`pkg/binate/native/arm32/arm32_call_indirect.bn:242`) then hits a bare
+  `if retbufOff < 0 { return }` BEFORE the `Blx` at :263 — so the underlying is
+  never called and its SIDE EFFECTS are elided. The call-site classifies
+  `struct{}` as `aggregateRet` (`:133`, no SizeOf gate) so it takes the retbuf
+  path but has no retbuf. Affects BOTH closure and non-closure func values.
+  Untested (no conformance exercises `func() struct{}` called via a value).
+- **Bug B — multi-return pack store writes past the logical tuple size for a
+  zero-size field.** `func() (int, struct{})` / `func() (struct{}, struct{})`
+  route to the SMALL multi-return pack store; `storeMultiReturnTupleFieldsArm32`
+  (`pkg/binate/native/arm32/arm32_call.bn:307`) emits a full-word STR per field
+  including zero-size fields (`argWordsArm32` min-1 word), so the trailing/interior
+  `struct{}` field gets a 4-byte STR at its offset — past the logical tuple size
+  (into spill-slot padding for a nonzero tuple; genuinely past a 0-byte slot for an
+  all-empty tuple). Reachable: multi-return uses `LookupSpill` (reserved
+  unconditionally), so it is NOT dropped like Bug A — the shim runs. `997bed1f`'s
+  comment (and `emptyAggregatePackResultArm32`'s doc) FALSELY certify this path
+  safe ("a multi-return tuple always has >= 2 fields, so never 0-byte") — the
+  claim conflates whole-tuple size with per-field size; **correct that comment**
+  regardless of the fix scope.
+
+**Proposed coherent fix (needs a scope decision):** make 0-byte-result handling
+consistent end-to-end on arm32 — the call-site must not drop the call (either
+reserve a degenerate retbuf slot or, cleaner, recognize a 0-byte result needs no
+retbuf and route it without one, consistent with the shim), and the multi-return
+per-field store must skip zero-size fields. The x64/aa64 call-sites share the
+no-SizeOf-gate `aggregateRet` classification and should be audited for the same
+Bug A / the scalar-void-fall-through prefix question. `997bed1f` (guard) is
+correct-but-incomplete; decide whether to land it (comment corrected) as a
+defensive-interop guard or fold it into the holistic fix. Review verdicts:
+guard-correctness CLEAN, test-validity CLEAN, reachability-completeness DEFECT
+(Bug B), abi-interaction DEFECT (Bug A).
+
 The non-generic exposed-type/interface-reference mis-compile is **✅ FIXED +
 LANDED (476e0fb2)** — `homedQualifier` threaded into the non-generic
 type-resolution sites (`isInterfaceTypeExpr`, `ifaceTypeForName`, the struct/alias
