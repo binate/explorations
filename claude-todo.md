@@ -1400,24 +1400,21 @@ fully-readonly `@[]readonly @[]readonly char`, indexed like Go's os.Args
   on that.  Populate element 0 once a bootstrap primitive surfaces the program
   name (e.g. a new `bootstrap.ProgName()`/`Arg0()`, or the C runtime storing
   `bn_argv[0]`).  A pure-additive change; the slot is already reserved.
-- **(b) 🔴 broken under the interpreter — DECIDED, impl pending.** In the
-  `-int` conformance modes (xfail'd: `builder-comp-int`, `builder-comp-comp-int`,
-  `builder-comp-int-int`) `os.Args()` returns the *host interpreter's* own argv
-  (bni's `-I/-L/program.bn` tokens), not the program's, and reading those strings
-  faults.  Root cause: `pkg/std/os` is injected into the VM as host-native code
-  (so interpreted programs can do file I/O through bni), so `os.Args()` runs
-  *native* and reaches bni's native `bootstrap.Args()` — it never sees the VM
-  arg path.  Confirmed independent of the cached global (a live, no-global
-  `Args()` fails identically).
-  **Decision (2026-07-12, [`design-os-args-vm.md`](design-os-args-vm.md)):** no
-  VM special-casing and no `os.Args` shim.  Instead add
-  `os.SetArgs(args @[]readonly @[]readonly char) @[]readonly @[]readonly char`
-  (replaces the args, returns the previous value for save/restore); bni calls it
-  before executing the interpreted code, and the existing `progArgsAfterDash`
-  VM shim is removed.  Two impl details still open (see the note): how bni
-  determines the program's argv (the `--` convention's fate) and what direct
-  interpreted `bootstrap.Args()` returns afterward.  Test:
-  `conformance/stdlib/os/011_args`.
+- **(b) ✅ DONE (2026-07-12) — interpreter now returns the program's own args.**
+  Previously `os.Args()` under the interpreter returned the host bni's own argv
+  (os is injected host-native, so it reached bni's native `bootstrap.Args()`).
+  Fixed per [`design-os-args-vm.md`](design-os-args-vm.md): added
+  `os.SetArgs(@[]readonly @[]readonly char) @[]readonly @[]readonly char`
+  (`a3b39454`); cmd/bni reads its own argv from `os.Args()` and installs the
+  program's argv via `os.SetArgs` before running it, and the `progArgsAfterDash`
+  VM shim is removed (`8984ea2a`).  Both open details settled: bni keeps the `--`
+  convention with the program path at index 0, and direct interpreted
+  `bootstrap.Args()` intentionally diverges (returns bni's argv — so
+  `conformance/487_bootstrap_args` is xfail'd `-int`).  `011_args` now passes in
+  every mode (its `-int` xfails dropped); the with-args path (both compiled and
+  interpreted) is covered by `e2e/os-args.sh` (`11f473f1`).  Note the remaining
+  compiled/interpreted divergence at index 0: empty placeholder compiled, real
+  program path interpreted — converges once follow-up (a) lands.
 
 ### Expand `pkg/slices` beyond `Append` — opportunistic
 - `pkg/slices.Append[T]` is the only generic helper today.  Natural

@@ -66,14 +66,21 @@ makes the interpreted program's `os.Args()` return its own args. The existing
 fine: if bni needs its own args afterward, it saves them first (either the value
 `SetArgs` returns, or by reading `Args()` beforehand).
 
-## Open implementation details (not yet decided)
+## Implemented (2026-07-12)
 
-- **How bni determines the interpreted program's argv.** Today it is "everything
-  after `--`" (the `progArgsAfterDash` convention). With the shim gone, bni still
-  needs a rule for which of its own argv tokens are the program's — keep `--`, or
-  something else — and what to put at index 0 (the program path is a natural
-  choice).
-- **What direct `bootstrap.Args()` calls from interpreted code should return**
-  once `progArgsAfterDash` is removed (they would then reach bni's native
-  `bootstrap.Args()` = bni's argv). Programs should use `os.Args()`; whether the
-  low-level `bootstrap.Args()` divergence is acceptable needs a call.
+Landed as `os.SetArgs` (`a3b39454`), the cmd/bni wiring + shim removal
+(`8984ea2a`), and e2e coverage (`11f473f1`).  cmd/bni reads its own argv from
+`os.Args()` (via `bniArgs`, skipping index 0) and installs the program's argv
+via `setProgramArgs`/`os.SetArgs` before running it; a nested bni reads the argv
+its parent installed, so no `--`-stripping shim is needed to avoid recursion.
+
+Both formerly-open details, as decided by the user:
+
+- **How bni determines the program's argv:** keep the `--` convention (the
+  program's args are everything after `--`), with the **program path at index 0**.
+  So under the interpreter `os.Args()[0]` is the real program path — better than
+  the compiled path's empty placeholder (they converge once the compiled argv[0]
+  follow-up lands).
+- **Direct `bootstrap.Args()` from interpreted code diverges** (returns bni's own
+  argv) — accepted. Programs use `os.Args()`. `conformance/487_bootstrap_args`
+  asserts `bootstrap.Args()`'s content, so it is xfail'd in the `-int` modes.
