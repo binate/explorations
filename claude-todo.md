@@ -38,9 +38,17 @@ managed-scalar arm right beside it.  Add a refcount conformance test.
 ### cast / addressability follow-ups from the by-value-call work — 🟠 OPEN (found 2026-07-13, R1–R3 re-review)
 
 The by-value-call field-access residuals R1–R3 are **FIXED & LANDED** (R1 `c876319d`, R2
-`b6ab8811`, R3 `4bef94b2`; see done log).  Their (re-)review surfaced two further incidental
-pre-existing bugs, both verified NOT caused by that work:
+`b6ab8811`, R3 `4bef94b2`; see done log).  Their (re-)review surfaced three further incidental
+pre-existing bugs, all verified NOT caused by that work:
 
+- **`(*p).ptrMethod()` silently loses its mutation** (found 2026-07-13).  `(*p).bump()`
+  where `p` is `*Inner` and `bump` has a `*Inner` receiver prints the OLD value — the
+  method mutates a discarded COPY of `*p` instead of the pointee (`i.v` stays 1, not 101).
+  A sibling of #176 (`applyReceiverConversion` passing a copy for a non-ident lvalue
+  receiver, gen_method.bn) for the **explicit-deref** receiver shape `(*p)` (EXPR_UNARY
+  STAR) that #176's ident/field/index handling didn't cover.  `(*p)` is addressable
+  (`&*p == p`), so the fix is to pass `p` (the pointer operand) as the receiver address,
+  not materialize `*p`.  Silent miscompile; add a conformance test.
 - **managed-slice → raw-slice cast fails to compile.** `cast(*[]int, someManagedSlice)`
   (a 4-word `@[]T` → 2-word `*[]T`) emits invalid LLVM (`%v defined with type
   %BnManagedSlice but expected %BnSlice`).  emitCast's non-scalar same-representation
