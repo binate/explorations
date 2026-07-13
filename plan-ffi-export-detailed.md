@@ -608,21 +608,30 @@ LLVM and native backends. The Phase-3 review's F2 (native link-and-run coverage)
 was closed via a native arm on the e2e harness AND the plan's literal `asm/elf` +
 `asm/macho` symbol-writer link tests (landed as a follow-up, `eb0cff00`;
 adversarially reviewed — proven non-vacuous by a broken-writer reproduction).
-**Phase 5a is in progress, staged.** Slice **5a-1 landed** (`0d332f0b`): the
-`bn_init` mangler literal + `ir.Module.EmitLibInit` (the library-mode init
-dispatcher, the folded "Phase 1") — reviewed, and probe-confirmed to lower to
-`define void @bn_init()`. It is **not yet wired to a driver** (unused until 5a-2)
-and a no-op for existing code. **Remaining:**
-- **5a-2** — the `--library` driver: `--library` flag (`args.bn`) + a `main.bn`
-  dispatch to a new `compileLibrary` (modeled on `runTestMode`) that loads the
-  facade closure, emits per-package objects + `EmitLibInit` (the `bn_init`
-  dispatcher) + a facade `_init` that calls it, and archives a `.a` (net-new
-  `ar`/`llvm-ar`); plus the harness `--library` arm.
+**Phase 5a MVP is landed** (both slices, adversarially reviewed):
+- **5a-1** (`0d332f0b`): the `bn_init` mangler literal + `ir.Module.EmitLibInit`
+  (the library-mode init dispatcher, the folded "Phase 1"), probe-confirmed to
+  lower to `define void @bn_init()`.
+- **5a-2** (`eb449613`): the `--library` driver — `compileLibrary` loads the
+  facade closure, emits a `.o` per package, emits the facade last carrying
+  `EmitLibInit`'s `bn_init` over the closure's inits (dependency order), and
+  archives a `.a` via `ar rcs`; plus the `--library` flag and the e2e harness's
+  `--library` arm. **End-to-end works:** a C program links the `.a`, calls
+  `bn_init()` once, then the `#[c_export]`'d functions; the harness proves
+  `bn_init` genuinely runs the closure's var-initializers (`ffi_base=40` only
+  after `bn_init`, `0` without).
+
+**Still owed:**
 - **5a-guard** — the run-once idempotency guard for `bn_init` (a guard global +
-  conditional branch, so a host may call `_init` more than once / merged
-  libraries can share one `bn_init`). Deferred to its own slice by agreement
-  (5a-1 emits the straight-line dispatcher); **still owed** per the ratified
-  design.
+  conditional branch, so a host may call the init more than once / merged
+  libraries can share one `bn_init`). Deferred from 5a-1 by agreement (the
+  landed `bn_init` is the straight-line dispatcher); **still owed** per the
+  ratified design.
+- **`pathFileBase` `.o`-name collision** — a MAJOR (but zero-probability-in-tree)
+  pre-existing bug the 5a-2 review surfaced: `pathFileBase` maps `/`→`__` but not
+  `_`, so `a/b` and `a__b` collide on the same `.o` and `--library` (and
+  `main.bn`/`test.bn`) can silently ship a broken artifact. Filed in
+  `claude-todo.md` (MAJOR) — a one-site fix closes all three drivers.
 
 1. **Harness scaffold** — `e2e/ffi-export.sh` establishing the CI lane. `c_export`
    doesn't exist yet, so there's no author-controllable Binate symbol to call and §3
