@@ -441,6 +441,16 @@ would link with no `main`. So Phase 6 is staged:
   `builder-comp` 2797/0/7, `builder-comp-int` 2775/0/29, `builder-comp-comp`
   2797/0/7.  Sets up retiring `bootstrap.Args` (the eventual `main` sets
   `startup.Args` directly).
+- **Bump 1b — `Env`/`SetEnv` stub** ✅ **LANDED `dea8880e` (2026-07-13),
+  adversarially reviewed.** A process-environment seam parallel to Args/SetArgs:
+  a PRIVATE `env @[]readonly @[]readonly char` global in `startup` (empty, no
+  initializer → no `__init`; entries are "NAME=value" POSIX-environ strings) with
+  exported `Env()`/`SetEnv()`, and `os.Env()`/`os.SetEnv()` delegators.  A STUB —
+  `env` is empty until a data source or the entry `main` fills it (no
+  `bootstrap.Env()` yet), and nothing calls it, so it is strictly additive (no
+  behavior change).  `env` stays unexported (unlike `Args`; no direct-write use
+  yet).  Verified: BUILDER-safe (gen1 Stage 1+2); startup+os unit tests; hygiene
+  17/17; `args`-filtered smokes green in all three modes (14/0, 13/0, 14/0).
 - **BUILDER re-pin (user-owned, still needed for the entry `main`).** Rebuild a
   bundle from the landed tree and bump `BUILDER_VERSION` so the pinned BUILDER
   force-includes `startup`.  Required before the entry `main()` can move here
