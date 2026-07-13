@@ -1300,9 +1300,12 @@ cleared (`e2e/xmiface.sh` / `e2e/xmhfa.sh` exist); add a captured-`@func` refcou
 
 - **argv[0] is an empty placeholder on the COMPILED path.** Element 0 (the
   program name) is left empty because nothing exposes argv[0] yet —
-  `bootstrap.Args()` deliberately returns the arguments only, and its existing
-  consumers (the cmd/* tools) rely on that.  Populate element 0 once a bootstrap
-  primitive surfaces the program name (e.g. a new `bootstrap.ProgName()`/`Arg0()`,
+  `bootstrap.Args()` deliberately returns the arguments only, and its one
+  remaining consumer, cmd/bnc (BUILDER-compiled, so it stays on
+  `bootstrap.Args()`), relies on that.  The other out-of-tree tools
+  (bnlint/bnas/bnfmt) now read `os.Args()` instead — see the done log.  Populate
+  element 0 once a bootstrap primitive surfaces the program name (e.g. a new
+  `bootstrap.ProgName()`/`Arg0()`,
   or the C runtime storing `bn_argv[0]`).  A pure-additive change; the slot is
   already reserved.  This also converges the one remaining compiled/interpreted
   divergence — the interpreter already fills index 0 with the real program path

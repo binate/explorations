@@ -26,6 +26,27 @@ double-interp recursion); `e2e/os-args.sh` covers both paths × with/without arg
 todo): the COMPILED path's argv[0] is still an empty placeholder (nothing exposes
 it yet); the interpreter already fills it with the program path.
 
+**Follow-on — out-of-tree tools on `os.Args()` + `bni --test` argv fix (`0eaf459e`,
+2026-07-12).**  The remaining out-of-BUILDER-tree tools — cmd/{bnlint,bnas,bnfmt}
+— now read their command line via `os.Args()` (dropping the reserved index-0
+program-name slot) instead of `bootstrap.Args()`, each via a small `progArgs()`
+helper mirroring cmd/bni's `bniArgs()`.  cmd/bnc stays on `bootstrap.Args()` (it
+is BUILDER-compiled).  Doing so surfaced — and this commit fixes — a regression
+from `8984ea2a`: dropping the arg shim meant an interpreted `bni --test` program's
+`os.Args()`/`bootstrap.Args()` returned bni's OWN command line (the `--test` flag
+plus the `-I`/`-L` compiler search paths), because the `--test` path (unlike the
+normal run path) never installed a program argv.  cmd/bnlint's `findRoot` test
+helper scans argv for a developer-supplied `-I`, so it picked up bni's compiler
+`-I` and ran (then failed with "package not found") the lint integration tests
+that should self-skip — reddening cmd/bnlint under the interpreter unit-test modes
+(`builder-comp-int`, `builder-comp-comp-int`, `builder-comp-int-int`).  Fix: bni's
+`runTests` installs an empty program argv via `os.SetArgs` before running inits
+and tests, so a `--test`'d program's `os.Args()` is just the program-name slot.
+This works only because `findRoot` now reads `os.Args()` (`os.SetArgs` does not
+affect `bootstrap.Args()`, bound directly to the host).  `TestNoBniArgvLeakUnderTest`
+guards the invariant directly (proven to fail without the fix).  Bisected the
+regression to `8984ea2a` (passes at parent `a3b39454`).
+
 ## TypeInfo record content → per-type registry ("design D") — ✅ DONE & LANDED (`7f8e6456`, 2026-07-11)
 
 Follow-up to the type-assertions / RTTI project (below).  The `__typeinfo.<T>`
