@@ -62,7 +62,7 @@ VM conformance, hygiene 17/17, adversarial review (no defects).  The optional
 `collectImplVtableSlots` and `BuildTypeInfo` read) is left as a deferred,
 low-value residual in the todo.
 
-## Exposed GENERICS through `expose` — ✅ CODE COMPLETE, both legs (Slice 2 `821c7c21`; func-value verified) — one test-coverage residual in [claude-todo.md](claude-todo.md)
+## Exposed GENERICS through `expose` — ✅ COMPLETE + COVERED, both legs (Slice 2 `821c7c21`; func-value test `1060` `25bbd8f2`)
 
 Exposing a generic type/interface/func through a forwarder `.bni` (`expose "pkg/glib"`)
 now resolves and mangles to the HOME symbol on every path — the generic tail of the
@@ -97,8 +97,12 @@ as a type DISTINCT from the home `glib.Box[int]` (separate struct/dtor/vtable/sy
 - **Generic-func-VALUE form** (`var f = fwd.Ident[int]; f(9)`): VERIFIED working on
   builder-comp + VM (2026-07-12). `genericFuncInstanceName` (`gen_generic.bn`) already
   carries the `homedQualifier` remap (the generic-func-value IR-gen path landed at
-  `473013ed`). Needs a committed conformance test — the ONE residual, left actionable
-  in claude-todo.md as `1057_expose_generic_func_value`.
+  `473013ed`). Committed conformance test `conformance/1060_expose_generic_func_value`
+  (`25bbd8f2`, 2026-07-12 — numbered 1060 as 1057 was taken by `1057_global_func_value`):
+  mirrors 1056's func-value slots (inferred `var`, explicit `@func`/`*func`, `:=`,
+  call-arg, return, struct field, reassignment) through the `fwd.Ident[int]` forwarder
+  spelling; green on all six default modes.  This closes the last residual — the whole
+  `expose` feature is now fully complete AND covered.
 
 Resolved incidentally (were flagged follow-ups on this entry): the `checker.bn`
 file-length warning (since split — now ~299 lines, well under the 500 cap), and the

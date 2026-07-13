@@ -115,20 +115,6 @@ Both are pre-existing (the deref-of-call fix neither introduced nor worsened the
 declined to extend the leaky/panicking path).  Add xfail coverage for both forms when
 picked up.
 
-### Exposed generics — ✅ CODE COMPLETE (moved to [claude-todo-done.md](claude-todo-done.md)) — one test-coverage residual
-
-All code for exposing generic types/interfaces/funcs through a forwarder landed and
-is spec'd (`expose` §16.5.2): generic funcs (call + func-value), generic types +
-interfaces, transitivity, collision diagnostics. The generic-func-VALUE form
-(`var f = fwd.Ident[int]; f(9)`) is **verified working** on builder-comp + VM
-(2026-07-12). See the done file for the full record + commits.
-
-**Residual (🟢 LOW, actionable):** add `conformance/1057_expose_generic_func_value`
-to lock in the func-value form — mirror `1056_generic_func_value`'s func-value slots
-(inferred `var`, explicit `@func`/`*func`, `:=`, call-arg) through a forwarder
-spelling (`fwd.Ident[int]`, `fwd` exposing `pkg/glib`; expected `1\n2\n3\n4\n5`).
-Binate code change — needs a worktree.
-
 ## Language features — specified, not yet implemented
 
 ### Type assertions, type switches & RTTI — ✅ COMPLETE — one optional, deferred tightening
