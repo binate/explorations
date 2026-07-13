@@ -1940,32 +1940,6 @@ unblock them:
   selectively-opportunistic, not blanket.
 - **How to land**: TBD; needs concrete site survey.
 
-### Replace repeated `WriteStr(literal)` runs with adjacent-string concat (opportunistic)
-- **Pattern**: code that builds output via a CharBuf often calls
-  `WriteStr` many times with adjacent string literals — e.g.
-  `cb.WriteStr("foo"); cb.WriteStr("bar"); cb.WriteStr("baz")`.
-  Binate allows adjacent string literals to be concatenated by
-  juxtaposition (`"foo" "bar" "baz"`), so a single
-  `cb.WriteStr("foo" "bar" "baz")` (split across lines for
-  readability) does the same work in one call.
-- **Why it matters**: each `WriteStr` call is a method dispatch
-  plus a CharBuf grow check.  Collapsing the literals into one
-  call cuts both, and is also less code to read.
-- **Most of these are in tests**, which compounds with the
-  slow-tests theme — every saved WriteStr in a test that runs
-  under boot-comp-int-int (or any interpreted mode) saves
-  bytecode-dispatch overhead × test count.
-- **How to land**: opportunistic, file at a time.  Best
-  candidates: `cmd/bnc/test.bn`'s `genTestRunner`, anywhere
-  building LLVM-IR text, and test fixtures that paste source
-  fragments together a chunk at a time.
-- **First pass landed** (binate `07b21ed`, 2026-05-15): 18 files,
-  ~200 runs coalesced (`cmd/bnc/test.bn`, `cmd/bnc/util.bn`,
-  `cmd/bni/main.bn`, plus check_*_test.bn and emit_*_test.bn /
-  gen_*_test.bn in pkg/types, pkg/codegen, pkg/ir).  The
-  cmd/bnc/test.bn growth (524 → 533) prompted a follow-up split
-  to a new `gen_test_runner.bn` — test.bn now 381 lines.
-
 ### Replace if-return chains with `switch` where applicable (opportunistic)
 - **Pattern**: code that does
   `if x == A { ... return ... }; if x == B { ... return ... }; ...`

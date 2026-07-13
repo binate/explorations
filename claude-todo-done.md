@@ -6,6 +6,17 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Coalesce repeated builder-`Write(literal)` runs via adjacent-string concat — ✅ RETIRED (first pass landed; remainder insignificant)
+
+Opportunistic micro-cleanup: collapse runs of adjacent string-literal writes on a
+builder into one call using juxtaposition concat (`b.Write("foo" "bar")`), saving a
+dispatch + grow-check each. First pass landed (binate `07b21ed`, 2026-05-15: 18
+files, ~200 runs coalesced across `cmd/bnc`/`cmd/bni` + `check_*`/`emit_*`/`gen_*`
+tests; the `cmd/bnc/test.bn` growth prompted the `gen_test_runner.bn` split).
+**Retired** because the API has since moved (`CharBuf.WriteStr` → `strings.Builder`
+`.Write`) and the few remaining merge candidates are insignificant — most are split
+for stylistic/readability reasons and not worth churning. Not pursuing further.
+
 ## Recursive lambdas (`var f = func(x){ … f(…) … }`) — ✅ RESOLVED BY DESIGN (a specified compile error)
 
 A lambda that refers to the very `var` it is bound to is a **specified hard
