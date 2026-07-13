@@ -6,6 +6,26 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `(*p).ptrMethod()` silently lost its mutation (explicit-deref receiver) — ✅ DONE & LANDED (`5d4e8b62`, 2026-07-13)
+
+A `*T`-receiver method called through an EXPLICIT deref `(*p).m()` (p a `*T` / `@T`) mutated
+a discarded COPY of `*p` instead of the pointee — a silent miscompile (`i.v` stayed 1 after
+`(*p).bump()`, not 101).  genMethodCall evaluated `*p` (loading a copy) and
+applyReceiverConversion's value→`*T` arm — which addresses via genSelectorPtr / genIndexPtr,
+both nil for an EXPR_UNARY(STAR) receiver — fell to the materialize-a-temp path.  Sibling of
+#176 for the explicit-deref shape it didn't cover.
+
+FIX: genMethodCall evaluates the POINTER operand p for a deref receiver (`&*p == p`), so the
+existing conversion arms pass it straight through as the `*T` receiver address (identity) or
+load `*p` for a value receiver — p evaluated exactly ONCE.  The first attempt (an
+applyReceiverConversion arm re-evaluating p) was CRITICAL-double-eval — the adversarial review
+caught it (`(*getPtr()).m()` ran getPtr twice and mutated the WRONG object: value from the
+first eval, address from the second); the re-done fix evaluates the operand once at the source
+and is re-review-clean.  Incidentally also fixes `(*getHolder().pf).m()` /
+`(*getHolder().arr[0]).m()` (silent mutation loss too).  conformance/1068 (raw + managed +
+single-eval-of-a-side-effecting-call).  pkg/binate/ir 621/0; builder-comp 2798/0,
+builder-comp-int 2776/0; two adversarial-review rounds.
+
 ## `elemDtorName`/`elemCopyName`/`isElemDtorModuleLocal` peel readonly (defense-in-depth) — ✅ DONE & LANDED (`509c2a0f`, 2026-07-13)
 
 These three element-name helpers (`gen_dtor.bn` / `gen_copy.bn`) resolved alias +
