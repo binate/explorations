@@ -748,14 +748,34 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
   big-sret, small-pack, multi-return) COMPLETE 2026-07-11; only float parts (P5) and
   indirect-large captures remain fail-loud on the closure path by design.**
 
-### P5 — soft-float (baremetal complete)
-- `arm32_float.bn` (soft-float): float args/returns in GP regs (f32→r0,
-  f64→r0:r1); arithmetic → `__aeabi_fadd/fsub/fmul/fdiv`,
-  `__aeabi_dadd/…`, compares → `__aeabi_fcmp*`, conversions →
-  `__aeabi_f2d/d2f/i2f/f2iz/…`. No VFP encoders needed.
-- **Acceptance**: float conformance tests pass in native baremetal;
-  `builder-comp_native_arm32_baremetal` is fully green (or every residual
-  failure is xf?'d with a tracked root-cause todo).
+### P5 — soft-float (in progress)
+Soft-float: a float rides GP registers like an integer of the same width — f32 a
+single word (like int32), f64 an even-aligned register PAIR (like int64) — so
+float args/returns/params reuse the int32 / int64 GP machinery, and only the
+COMPUTE ops need float-specific code (AEABI libcalls, no VFP encoders). Helper
+names + register conventions confirmed against `arm-none-eabi-gcc -mfloat-abi=soft`.
+Split into three landable increments:
+
+- **P5.1 — scalar float COMPUTE — DONE (`ee6a499c`, 2026-07-12).** New
+  `arm32_float.bn` (routing, const, arith, compare, negate, bit_cast) +
+  `arm32_float_cast.bn` (int↔float / f32↔f64 conversions). `instrIsFloat`/
+  `emitInstrFloat` routed BEFORE the int64 pair path (so float64↔int64 conversions
+  reach the AEABI helpers); new `isPair64Typ` (int64|uint64|float64) routes float64
+  LOAD/STORE/EXTRACT through the two-word pair machinery; the dead float fail-louds
+  in emitCastOp/emitBitCast/emitCompare removed. Adversarial-reviewed clean (4
+  lenses). `builder-comp_native_arm32_baremetal`: **242 → 115 failures (127 fixed,
+  zero regressions)**.
+- **P5.2 — float across CALL boundaries (next).** Drop the float fail-louds in
+  arm32_call.bn (emitCallArg / emitCallReturn), arm32_emit_func.bn (emitSpillParam),
+  arm32_return.bn; route f32 through the int32 scalar path and f64 through the
+  int64 pair path via `isPair64Typ`. The shared CallConv already classifies float64
+  as an 8-byte, 8-aligned, 2-word arg (argNeeds8Align keys on AlignOf≥8), so this is
+  pure routing. Flips 287, 562–566, 633, 664, 885–901, etc.
+- **P5.3 — float in aggregates / tuples / closures.** Relax the float-field
+  fail-loud guards in the closure/funcvalue/aggregate shim paths now that scalar
+  float works. Flips 568, 699–707, 883–884, 912–931, 963–970 (hfa), 985 (sse).
+- **Acceptance**: `builder-comp_native_arm32_baremetal` fully green (or every
+  residual failure xfail'd with a tracked root-cause todo).
 
 ### P6 — VFP + hard-float (arm32-linux complete)
 - Confirm float-ABI threading decision (TargetInfo field vs arch string).
