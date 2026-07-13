@@ -658,16 +658,23 @@ adversarially reviewed — proven non-vacuous by a broken-writer reproduction).
   after `bn_init`, `0` without).
 
 **Still owed:**
-- **5a-guard** — the run-once idempotency guard for `bn_init` (a guard global +
-  conditional branch, so a host may call the init more than once / merged
-  libraries can share one `bn_init`). Deferred from 5a-1 by agreement (the
-  landed `bn_init` is the straight-line dispatcher); **still owed** per the
-  ratified design.
+- **5a-guard** ✅ **(landed `a54b36fd`, adversarially reviewed)** — the run-once
+  idempotency guard for `bn_init`. `EmitLibInit` now emits a private zero-init
+  bool guard global `__bninit_done` and a 3-block body (`entry` loads the guard
+  and branches; `run` stores `true` before the init calls; `done` returns), so a
+  host may call `bn_init()` more than once (or merged libraries share one
+  `bn_init`) without re-running any package's var initializers. Tests: IR shape
+  (`TestEmitLibInitIdempotencyGuard`), LLVM lowering
+  (`TestEmitLibInitIdempotencyGuardLowers`), and the e2e `--library` arm now
+  calls `bn_init()` **twice** and asserts a non-idempotent counter stays `1` (a
+  broken guard → `2`). Review verdict: symbol-match invariant airtight, both
+  tests non-vacuous, CFG/zero-init/re-entrancy sound.
 - **`pathFileBase` `.o`-name collision** — a MAJOR (but zero-probability-in-tree)
   pre-existing bug the 5a-2 review surfaced: `pathFileBase` maps `/`→`__` but not
   `_`, so `a/b` and `a__b` collide on the same `.o` and `--library` (and
   `main.bn`/`test.bn`) can silently ship a broken artifact. Filed in
-  `claude-todo.md` (MAJOR) — a one-site fix closes all three drivers.
+  `claude-todo.md` (MAJOR) — a one-site fix closes all three drivers. **IN
+  PROGRESS** (next up).
 
 1. **Harness scaffold** — `e2e/ffi-export.sh` establishing the CI lane. `c_export`
    doesn't exist yet, so there's no author-controllable Binate symbol to call and §3
