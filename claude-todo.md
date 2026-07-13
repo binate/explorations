@@ -55,6 +55,21 @@ work — all **pre-existing** and orthogonal (verified on `31c48ecd`):
 
 Add xfail coverage for R1–R3 when picked up.
 
+**Two further incidental pre-existing bugs surfaced by the re-review of the R1–R3 fix
+(both verified NOT caused by it):**
+
+- **managed-slice → raw-slice cast fails to compile.** `cast(*[]int, someManagedSlice)`
+  (a 4-word `@[]T` → 2-word `*[]T`) emits invalid LLVM (`%v defined with type
+  %BnManagedSlice but expected %BnSlice`).  emitCast's non-scalar same-representation
+  identity path (emit_ops.bn ~L300-330) wrongly assumes managed-slice and raw-slice share
+  a representation; they don't.  Needs a real slice-header reinterpret (take the {ptr,len}
+  of the 4-word managed slice).
+- **`readonly [N]T` element write not rejected.** `var r readonly [3]int; r[1] = 5`
+  compiles, though `readonly` scalar / field writes ARE rejected.  Indexing peels the
+  `readonly` wrapper, so the element type is a plain `int` and `check_assign.bn`'s
+  `lhsType.IsReadonly()` guard (check_assign.bn:54) doesn't fire.  Fix: check readonly-ness
+  of the whole indexed LOCATION, not just the peeled element type.
+
 ## Test-flake watch
 
 Intermittent, load-/environment-dependent test failures tracked for recurrence —
