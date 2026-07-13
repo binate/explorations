@@ -669,12 +669,13 @@ adversarially reviewed — proven non-vacuous by a broken-writer reproduction).
   calls `bn_init()` **twice** and asserts a non-idempotent counter stays `1` (a
   broken guard → `2`). Review verdict: symbol-match invariant airtight, both
   tests non-vacuous, CFG/zero-init/re-entrancy sound.
-- **`pathFileBase` `.o`-name collision** — a MAJOR (but zero-probability-in-tree)
-  pre-existing bug the 5a-2 review surfaced: `pathFileBase` maps `/`→`__` but not
-  `_`, so `a/b` and `a__b` collide on the same `.o` and `--library` (and
-  `main.bn`/`test.bn`) can silently ship a broken artifact. Filed in
-  `claude-todo.md` (MAJOR) — a one-site fix closes all three drivers. **IN
-  PROGRESS** (next up).
+- **`pathFileBase` `.o`-name collision** ✅ **(landed `59ba25f0`, adversarially
+  reviewed)** — the MAJOR the 5a-2 review surfaced: `pathFileBase` mapped `/`→`__`
+  but not `_`, so `a/b` and a literal `a__b` collided on the same `.o` and
+  `--library` (and `main.bn`/`test.bn`) could silently ship a broken artifact.
+  Fixed by also escaping `_`→`_U` (injective; `/`-only common case unchanged), with
+  a non-vacuous injectivity regression test. One-site fix closed all three drivers.
+  See `claude-todo-done.md`.
 
 1. **Harness scaffold** — `e2e/ffi-export.sh` establishing the CI lane. `c_export`
    doesn't exist yet, so there's no author-controllable Binate symbol to call and §3

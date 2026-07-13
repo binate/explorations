@@ -47,28 +47,6 @@ The frame->4095-byte COMPILE_ERROR is FIXED & LANDED (`6ce4b42f`); tests `990_na
 
 ## MAJOR
 
-### `pathFileBase` `.o`-name collision → silently broken artifact — 🟠 OPEN (found 2026-07-12, adversarial review of the `--library` mode)
-
-**Severity: major, but low-probability.** `pathFileBase` (`cmd/bnc/util.bn`) maps a
-package path's `/` → `__` for the per-module intermediate `.o` filename, but leaves a
-literal `_` untouched — so it is **non-injective**: a package `a/b` and a package
-`a__b` both map to base `a__b` → filename `a__b.o`. When two closure packages collide
-this way, the second's `.o` **clobbers the first on disk** before linking/archiving,
-so the missing package's symbols vanish and the build is broken — yet `bnc` exits 0
-and prints its success output. Reproduced end-to-end via `--library a/b` importing
-`a__b`: `ar t` lists `a__b.o` twice, the dep's symbols are `U` everywhere, and the C
-consumer's link fails on `_bn_F1_4_a__b1_1_V`. **Pre-existing and shared** across all
-three per-package emit drivers — the whole-program dependency loop (`main.bn`, ~L208),
-`--test` (`test.bn`, ~L176), and `--library` (`library.bn`); `--library` is just the
-first to *ship* the broken result as a `.a`. In-tree probability is ~zero today (no
-package name contains `__`), so nothing is broken now.
-
-**Fix:** make the member/intermediate names injective — e.g. also escape existing `_`
-(`_` → `_5f`) alongside `/` → `__` in `pathFileBase`, or hash the full path; a single
-`pathFileBase` fix closes all three drivers. Cheaper interim: hard-error on a duplicate
-base within an emit loop instead of silently clobbering. No test exists yet; add one
-(two packages whose paths collide under the current mapping) with the fix.
-
 ### by-value-call field-access residuals (R1–R3) — 🟠 OPEN (found 2026-07-12, adversarial review of the `getStruct().field` fix `3e8fa816`)
 
 The main by-value-call gaps — `getStruct().field = v` silently dropped, and the

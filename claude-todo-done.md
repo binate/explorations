@@ -6,6 +6,28 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `pathFileBase` `.o`-name collision → silently broken artifact — ✅ DONE & LANDED (`59ba25f0`, 2026-07-12)
+
+`pathFileBase` (`cmd/bnc/util.bn`) names each package's intermediate `.o` (and, for
+`--library`, its archive member) by mapping the package path's `/` → `__`, but left a
+literal `_` untouched — so it was **non-injective**: `a/b` and a literal `a__b` both mapped
+to base `a__b`, so the second package's `.o` silently clobbered the first on disk (missing
+symbols, broken build, `bnc` exits 0). Pre-existing and shared across all three per-package
+emit drivers (whole-program dep loop in `main.bn`, `--test` in `test.bn`, `--library` in
+`library.bn`); `--library` was just the first to *ship* the broken result as a `.a`. Found
+2026-07-12 in the adversarial review of `--library` mode.
+
+**Fix:** also escape a literal `_` → `_U` alongside `/` → `__`, restoring injectivity — every
+`_` in the output is either the first char of a `__` pair (a former `/`) or the `_U` escape (a
+former literal `_`), told apart by the following char, so no two distinct paths collide. The
+`/`-only common case is unchanged (`pkg/foo/bar` → `pkg__foo__bar`; zero churn for any path
+without a literal `_`). The names are internal build-dir intermediates + archive members (not
+ABI), so a spelling change is safe. A single `pathFileBase` fix closes all three drivers.
+Tests (`cmd/bnc/util_test.bn`): `/`-only, `_`-escape, plain pass-through, and the injectivity
+regression (`a/b` vs literal `a__b` map to distinct bases) — proven non-vacuous (reverting the
+escape reddens exactly the two gating tests). Adversarially reviewed (injectivity confirmed via
+an inverse-decoder proof + brute-force; consumers verified name-spelling-agnostic).
+
 ## by-value-call field access: `getStruct().field=v` silently dropped + `getStruct().sub.y` nested-read panic — ✅ DONE & LANDED (`3e8fa816`, 2026-07-12)
 
 Field access on a struct returned BY VALUE (`func getW() W`, W a struct not `@W`) — a
