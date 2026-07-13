@@ -115,6 +115,28 @@ Both are pre-existing (the deref-of-call fix neither introduced nor worsened the
 declined to extend the leaky/panicking path).  Add xfail coverage for both forms when
 picked up.
 
+**UPDATE 2026-07-12 — symptoms 1 & 2 FIXED (landing pending):** the checker now rejects
+`getStruct().field = v` / `&getStruct().field` (selectorIsAddressable requires an
+addressable base for a struct-value base; a new assignment-target addressability check),
+and `genSelectorPtr` materializes the by-value call temp for the nested READ.  The
+adversarial review of that fix surfaced THREE further residuals in the same by-value-call
+family, all **pre-existing** and orthogonal (verified on `31c48ecd`):
+
+- **(R1) `getStruct().field.ptrRecvMethod()` — silent no-op + managed leak (rc 1→2).** A
+  pointer-receiver method call takes the receiver address via `genSelectorPtr`, which now
+  routes through the by-value-call struct-value branch (as it did through gen_method.bn's
+  own temp before) → the method mutates a discarded copy; a managed store leaks.  The
+  checker's addressability check guards only the 4 ASSIGNMENT sites, not method receivers.
+  Right fix: reject a pointer-receiver method call on a non-addressable receiver (or
+  materialize+register the receiver temp).
+- **(R2) `getArr()[0].x` (index of a by-value-call ARRAY result) — clang link failure**
+  (`bitcast … expected 'ptr'`).  The checker treats `EXPR_INSTANTIATE_OR_INDEX` as
+  unconditionally addressable, so a write isn't rejected and the read has no IR path.
+- **(R3) `cast(W, v).x` between distinct struct types — codegen `extractvalue` type
+  mismatch.**  Orthogonal to the addressability work.
+
+Add xfail coverage for R1–R3 when picked up.
+
 ## Language features — specified, not yet implemented
 
 ### Type assertions, type switches & RTTI — ✅ COMPLETE — one optional, deferred tightening
