@@ -434,7 +434,11 @@ cross-pkg aggregate-arg bug fix:**
 `collectMultiReturnFields`) + >budget sret (callee `emitMultiReturnSret`
 write-through at `FieldOffset` + caller collect); func-value consumer + shim
 classification (`arm32_funcvalue_multiret.bn`). int64/float64 tuple fields
-fail-loud (even-aligned-pair placement unpinned). **Also fixed a MAJOR shared bug**
+fail-loud'd at the time; **int64/uint64 tuple fields (collect / pack / sret /
+extract) are now DONE (`5651fc8b`, 2026-07-12) — placed as a CONSECUTIVE register
+pair (NO even bump; the AAPCS C.3 even rule is argument-only, verified against
+clang/LLVM), not the even-aligned placement guessed here. float64 tuple fields stay
+fail-loud (P5, soft-float).** **Also fixed a MAJOR shared bug**
 (found by the review): big-multi-return FUNC-VALUE calls under-reserved
 outgoing-args (emitter prefixSlots=2 via SretInGpArgReg vs sizer's 1) → cross-module
 silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in

@@ -1699,7 +1699,7 @@ plan-native-arm32.md § P4.
   yet xfail'd per-test (they sit among the native-arm32 conformance failures,
   e.g. `401_return_many_scalars`).
 - **int64 / uint64 8-byte scalar in the FIELD / MULTI-RETURN-TUPLE / SRET scalar
-  paths — ✅ DONE (2026-07-12, `09df8766` on temp-5, not yet on main).** Previously the caller-collect
+  paths — ✅ DONE & LANDED (2026-07-12, `5651fc8b`).** Previously the caller-collect
   (`storeMultiReturnTupleFieldsArm32`), the OP_EXTRACT destructure (`emitExtract`),
   the callee in-register pack (`emitMultiReturnPack`), and the sret write
   (`emitMultiReturnSret`) all failed LOUDLY (`8-byte scalar store/load needs
@@ -1723,6 +1723,12 @@ plan-native-arm32.md § P4.
   pack / sret / scalar-store paths keep the loud guard for it.
 - **soft-float (P5) / VFP hard-float + arm32-linux (P6) / CI wiring (P7)** — see
   the plan doc.
+
+**✅ RESOLVED (`7b4303a6`, 2026-07-12) — superseded by the holistic 0-byte fix (see
+done log "0-byte func-value results mishandled across all 3 native backends"): a
+0-byte aggregate result is now VOID-LIKE everywhere (routed off the pack path via
+`IsAggregateReturn`), so the pack-store guards described below were REMOVED as dead
+code. The historical write-up is kept below for context.**
 
 **MINOR / latent (found 2026-07-11, P4-d Phase C.2 follow-up review): a 0-byte
 aggregate result (`struct{}` / `[0]T`) routes to the arm32 PACK path and
