@@ -135,8 +135,34 @@ RefDec + any dtor are guarded no-ops.  Covered by `conformance/1057_global_func_
 (bare ref, generic instantiation, explicit type, cross-function read, reassignment) —
 green on LLVM / VM / self-host / native aa64 / native x64; full builder-comp regression
 2783/0; one adversarial review SHIP.  The named/readonly-WRAPPED func-value-global
-variant remains **open** (see claude-todo.md) — a deeper func-value-call-dispatch gap
-that also mis-lowers the call through a wrapped-type global callee.
+variant was fixed as a follow-up (`7bcbead0`, below).
+
+## named/readonly-WRAPPED func-value package global emitted invalid IR — ✅ DONE & LANDED (`7bcbead0`, 2026-07-12)
+
+A package-scope global inferred from a func-value VARIABLE of a NAMED func-value type
+— `type Fn @func(int)int; var base Fn = add1; var G = base` (and the raw `*func`
+counterpart) — emitted invalid IR.  `resolveGlobalVarType` (`pkg/binate/ir/gen_const.bn`)
+read the checker's `ExprType` for the untyped initializer but kind-matched only bare
+`TYP_FUNC` / `TYP_FUNC_VALUE` / `TYP_MANAGED_FUNC_VALUE` — not a `TYP_NAMED` wrapping
+one, which is exactly the checker's view of `base`.  It fell through to nil, so `G`
+registered as an opaque 8-byte scalar; `__init` then stored the 16-byte func value into
+it (a static overrun) AND the call `G(x)` mis-lowered to a direct call on a nonexistent
+function symbol `@bn_F…_G` (undefined-symbol link error; no binary).  Failed **loud**.
+
+The earlier open-entry framing — "needs BOTH a type-inference peel AND a call-dispatch
+fix" — was **wrong**: it was based on an attempt that returned the un-stripped `Fn`.
+IR-gen represents a named non-struct type by its underlying (resolveTypeExpr /
+typeDeclEntryType), so the EXPLICIT form `var base Fn` already registers a stripped
+`@func` slot and works end-to-end.  **Fix (single spot):** peel the inferred
+initializer's checker type with `peelTransparent` before the kind-check, so `var G =
+base` registers the same stripped `@func` slot the explicit form does — byte-identical.
+Both the overrun and the call mis-dispatch fall out of the one strip; no call-classifier
+change is needed (nothing registers a `TYP_NAMED` func-value slot — the explicit-local,
+struct-field, and global-struct-field selector cases already work).  Covered by the
+extended `conformance/1057_global_func_value` (@func- and *func-wrapped named globals,
+inferred / cross-function read / reassignment) + an ir-unit assertion of the stripped
+`TYP_MANAGED_FUNC_VALUE` slot; green on LLVM / VM / self-host / builder-comp-comp-int /
+native aa64 / native x64; 617 ir units; adversarial review (5 angles) no defects.
 
 ## Generic function used as a FUNC VALUE in IR-gen — ✅ DONE & LANDED (`473013ed`, 2026-07-12)
 

@@ -115,21 +115,6 @@ Both are pre-existing (the deref-of-call fix neither introduced nor worsened the
 declined to extend the leaky/panicking path).  Add xfail coverage for both forms when
 picked up.
 
-### named/readonly-WRAPPED func-value package global emits invalid IR — 🟠 OPEN (found 2026-07-12; sibling of the landed `f8bd03d2` func-ref-global fix)
-
-A **named/readonly-WRAPPED** func-value package global — `type Fn @func(int)int;
-var base Fn = add1; var G = base` — still emits invalid IR.  (The plain unwrapped
-forms — `var G = add1`, generic instantiation, `@func`, func literal — are fixed:
-`f8bd03d2`, see [claude-todo-done.md](claude-todo-done.md).)  `resolveGlobalVarType`'s
-kind-check doesn't match `TYP_NAMED`-over-`@func`, and peeling the wrapper there only
-HALF-fixes it: the global's slot type becomes `Fn` correctly, but the CALL `G(x)`
-then mis-lowers to a direct call on a function symbol `@bn_F…_G` (instead of a
-func-value call through the global) — a deeper func-value-call-dispatch gap that
-doesn't peel the named wrapper for a global callee.  So the wrapped case needs BOTH a
-type-inference peel (in `resolveGlobalVarType`) AND a call-dispatch fix (the
-global-callee func-value-call classification).  Fails **loud** (no binary),
-reproduces on plain HEAD.  The analogous LOCAL (`var f = base`) works.
-
 The non-generic exposed-type/interface-reference mis-compile is **✅ FIXED +
 LANDED (476e0fb2)** — `homedQualifier` threaded into the non-generic
 type-resolution sites (`isInterfaceTypeExpr`, `ifaceTypeForName`, the struct/alias
