@@ -44,31 +44,11 @@ balance), different type shape (by-value struct/array, copy side).  **Fix:**
 `emitStructCopy`/`emitStructDtor`), mirroring the release-path peel and the
 managed-scalar arm right beside it.  Add a refcount conformance test.
 
-### by-value-call field-access residuals (R1–R3) — 🟠 OPEN (found 2026-07-12, adversarial review of the `getStruct().field` fix `3e8fa816`)
+### cast / addressability follow-ups from the by-value-call work — 🟠 OPEN (found 2026-07-13, R1–R3 re-review)
 
-The main by-value-call gaps — `getStruct().field = v` silently dropped, and the
-`getStruct().sub.y` nested-read panic — are **FIXED** (`3e8fa816`; see done log).  The review
-of that fix surfaced three further residuals in the same family — `func getW() W`, a struct
-returned BY VALUE (a non-addressable temporary), distinct from the `@T`/`*T` deref-of-call
-work — all **pre-existing** and orthogonal (verified on `31c48ecd`):
-
-- **(R1) `getStruct().field.ptrRecvMethod()` — silent no-op + managed leak (rc 1→2).** A
-  pointer-receiver method call takes the receiver address via `genSelectorPtr`, which now
-  routes through the by-value-call struct-value branch (as it did through gen_method.bn's
-  own temp before) → the method mutates a discarded copy; a managed store leaks.  The
-  checker's addressability check guards only the 4 ASSIGNMENT sites, not method receivers.
-  Right fix: reject a pointer-receiver method call on a non-addressable receiver (or
-  materialize+register the receiver temp).
-- **(R2) `getArr()[0].x` (index of a by-value-call ARRAY result) — clang link failure**
-  (`bitcast … expected 'ptr'`).  The checker treats `EXPR_INSTANTIATE_OR_INDEX` as
-  unconditionally addressable, so a write isn't rejected and the read has no IR path.
-- **(R3) `cast(W, v).x` between distinct struct types — codegen `extractvalue` type
-  mismatch.**  Orthogonal to the addressability work.
-
-Add xfail coverage for R1–R3 when picked up.
-
-**Two further incidental pre-existing bugs surfaced by the re-review of the R1–R3 fix
-(both verified NOT caused by it):**
+The by-value-call field-access residuals R1–R3 are **FIXED & LANDED** (R1 `c876319d`, R2
+`b6ab8811`, R3 `4bef94b2`; see done log).  Their (re-)review surfaced two further incidental
+pre-existing bugs, both verified NOT caused by that work:
 
 - **managed-slice → raw-slice cast fails to compile.** `cast(*[]int, someManagedSlice)`
   (a 4-word `@[]T` → 2-word `*[]T`) emits invalid LLVM (`%v defined with type

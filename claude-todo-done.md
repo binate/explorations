@@ -6,6 +6,41 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## by-value-call field-access residuals R1/R2/R3 — ✅ DONE & LANDED (2026-07-13)
+
+Three pre-existing residuals in the by-value-struct-call family (`func getW() W`, a
+non-addressable temporary), found by the review of the `getStruct().field` fix and each
+landed as its own commit — with a first adversarial review that caught a CRITICAL + 3
+MAJORs, all fixed and re-reviewed clean:
+
+- **R1 (`c876319d`, checker) — reject a pointer-receiver method call / write on a
+  non-addressable value.** `getStruct().field.ptrMethod()` (a `*T` method auto-takes the
+  receiver address) was silently accepted → the method mutated a discarded copy (mutation
+  lost, managed store leaked).  `checkResolvedMethodCall` now rejects a value receiver
+  (srcKind==0) bound to a `*T` receiver (dstKind==1) whose expr is non-addressable.  Paired
+  with an `isAddressable` fix: an `a[i]` INDEX was unconditionally addressable, so
+  `getArr()[i].bump()` / `getArr()[i] = v` escaped every guard — an ARRAY element is now
+  addressable only if the base is (slice/pointer elements stay addressable through the
+  backing).  conformance/1066.  Semantics tightening — user signed off.
+- **R2 (`b6ab8811`, IR-gen) — materialize a by-value array call result for indexing.**
+  `getArr()[i]` / `getArr()[i].f` / `getArr()[i].a.b` emitted invalid LLVM (`[N x T]`
+  lowered as a slice) or panicked (nested).  genIndex materializes the array value for the
+  read; genIndexPtr's r-value fallback returns the element pointer (single base-eval —
+  fixing a double-call — enabling field / nested reads).  Read-only (R1 rejects the writes).
+  conformance/1064.
+- **R3 (`4bef94b2`, codegen) — reinterpret a struct→distinct-struct cast via a scratch
+  alloca.** `cast(B, a)` (distinct same-layout structs) mis-declared the result with the
+  source LLVM type.  emitCast now stores the src struct into a scratch alloca sized to the
+  larger operand by BYTE `SizeOf()` and loads the dst struct — the first review caught that
+  the original slot-sizing guard used `typeBits()` (returns 64 for every struct → dead
+  guard), so a src-bigger cast wrote OUT OF BOUNDS on the stack; fixed.  conformance/1065.
+
+Verified: pkg/binate/types 1002/0, pkg/binate/ir 619/0, pkg/binate/codegen 277/0;
+builder-comp 2795/0, builder-comp-int 2773/0; two adversarial-review rounds (initial +
+post-fix re-review confirming all four findings fixed, no over-rejection of valid code,
+refcount balanced).  Two further incidental pre-existing bugs the re-review surfaced
+(managed-slice→raw-slice cast; readonly-array-element write) remain OPEN in claude-todo.md.
+
 ## `readonly` transparent to destruction (dtor name + NeedsDestruction + dtor body) — ✅ DONE & LANDED (`91d8b0a6`, 2026-07-12)
 
 `ResolveAlias` peels alias but not readonly, so several destruction sites were
