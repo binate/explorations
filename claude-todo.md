@@ -9,31 +9,18 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### `needsStructCopy` is readonly-blind → by-value `readonly S` skips copy-in but runs its dtor → UAF — 🟠 OPEN (found 2026-07-13, adversarial review of the readonly-transparency fix; FIX IN PROGRESS)
+### REPL element-helper emission is readonly-blind (`gen_repl.bn`) → undefined dtor symbol for a REPL struct with a `readonly @[]@T` field — 🟢 LOW / OPEN (found 2026-07-13, review of `bb37a7c9`; FIX IN PROGRESS)
 
-`needsStructCopy` (`pkg/binate/ir/gen_util_refcount.bn:54`) resolves alias + one
-`TYP_NAMED` level but does NOT peel `readonly`.  So for a by-value `readonly S`
-(and `readonly [N]@T`) the acquire side (copy-in, gated on
-`needsStructCopy(readonly S)` → false) is SKIPPED, while the release side peels
-first → `emitStructDtor` fires → an unbalanced RefDec → premature free → **UAF /
-double-free on valid, type-checking code.**  Repro (runs `2/2/1`, should be
-`2/3/2`; LLVM emits a `__dtor_S` call but no `__copy_S`):
-
-    type Child struct { v int }
-    type S struct { c @Child }
-    func main() {
-        var child @Child = make(Child)
-        var base S; base.c = child
-        if true { var rs readonly S = base }   // copy-in skipped; dtor still runs
-    }
-
-**Pre-existing** (byte-identical at `59ba25f0`; the readonly-transparency fix
-`91d8b0a6` can't reach it — `needsStructCopy` short-circuits before
-`NeedsDestruction`).  Same bug CLASS as `91d8b0a6` (readonly-blind copy/dtor
-balance), different type shape (by-value struct/array, copy side).  **Fix:**
-`peelTransparent` at the top of `needsStructCopy` (and defensively
-`emitStructCopy`/`emitStructDtor`), mirroring the release-path peel and the
-managed-scalar arm right beside it.  Add a refcount conformance test.
+`gen_repl.bn:245/355/380` walk a struct's fields via `.Fields[j].Type.ResolveAlias()`
+(readonly-blind) to decide element-helper EMISSION (`ensureMsDtor`/`ensureArrayDtor`),
+whereas the main path (`gen_dtor_emit.bn:124/186`, `gen_copy_emit.bn:89/132`) uses
+`peelTransparent` for the identical walk.  A REPL-defined
+`type S struct { f readonly @[]@Node }` skips `ensureMsDtor` → the struct dtor body
+then calls a never-emitted `__dtor_ms_mp_Node` (undefined symbol) — same class as
+`91d8b0a6`, a DIFFERENT axis (element-helper emission, not by-value balance), and
+**REPL-only** (`cmd/bni2` prompt-defined structs).  **Pre-existing.**  Fix: swap
+those three `ResolveAlias` → `peelTransparent` to match the main path; add a REPL
+test.
 
 ### cast / addressability follow-ups from the by-value-call work — 🟠 OPEN (found 2026-07-13, R1–R3 re-review)
 

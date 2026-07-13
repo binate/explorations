@@ -6,6 +6,27 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `needsStructCopy` readonly-blind → by-value `readonly S` copy/dtor imbalance (UAF) — ✅ DONE & LANDED (`bb37a7c9`, 2026-07-13)
+
+`needsStructCopy` / `emitStructCopy` / `emitStructDtor` (gen_util_refcount.bn)
+resolved alias + one named level but not `readonly`, so a by-value `readonly S`
+(or `readonly [N]@T`) SKIPPED copy-in yet still ran its dtor → an unbalanced
+RefDec → premature free / use-after-free on valid, type-checking code.
+Pre-existing (byte-identical at `59ba25f0`); surfaced by the adversarial review of
+the readonly-transparency fix `91d8b0a6` — same bug class, different shape (copy
+side, by-value).  Fix: `peelTransparent` in all three so acquire/copy/dtor and the
+release path peel identically; this ALSO fixed the multi-level-named struct case
+the one-level peel missed (`type M Inner; type T M` was also unbalanced).
+Adversarially reviewed and confirmed complete — byte-identical codegen for the
+previously-working single-named/alias cases, and `{needsStructCopy, emitStructCopy,
+emitStructDtor}` is the full by-value-aggregate balance-site set.  Test:
+conformance `1067_readonly_struct_copyin_refcount` (2/3/2; the bug was 2/2/1).
+
+That review found one further peripheral in the same class — the REPL's
+element-helper emission (`gen_repl.bn`) is readonly-blind (undefined dtor symbol
+for a REPL struct with a `readonly @[]@T` field) — a different axis, REPL-only,
+tracked in [claude-todo.md](claude-todo.md) and being fixed.
+
 ## by-value-call field-access residuals R1/R2/R3 — ✅ DONE & LANDED (2026-07-13)
 
 Three pre-existing residuals in the by-value-struct-call family (`func getW() W`, a
