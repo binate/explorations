@@ -536,53 +536,21 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 
 ## bnfmt (self-hosted formatter)
 
-### `bnfmt-format` hygiene check: switch to the bundled bnfmt after the next release — 🟡 OPEN (2026-07-06)
-
-`scripts/hygiene/bnfmt-format.sh` (added `a58f2f85`) currently BUILDS bnfmt from
-source and caches the binary (`$XDG_CACHE_HOME/binate/bnfmt`, keyed on a hash of
-bnfmt's build inputs) because bnfmt is not in the BUILDER bundle. After the next
-release bundles bnfmt, switch the check to fetch it via `fetch-builder.sh --tool
-bnfmt` (build-from-source as the fallback), mirroring `lint.sh`'s `--tool bnlint`
-— dropping the per-machine build+cache. The switch-point TODO is also in the
-script header. Prereq: `fetch-builder.sh --tool bnfmt` must resolve the bundled
-binary (`make-bundle.sh` already builds `bin/bnfmt`, but verify the fetcher
-recognises the `bnfmt` tool name once a bundle containing it exists).
-
 ## bnlint rules, unused-entity checks & lint skips
 
-### `pkg/stdx/hash` + `pkg/stdx/cmp` in LINT_SKIP — 🟡 OPEN (BUILDER-gated), added 2026-07-10
+### `LINT_SKIP` — CHECK_TOOLS-lag on the injectable-key-policy + Table container packages — 🟡 OPEN
 
-The injectable key-policy packages (`hash.Hasher[K]`/`Default[K]`/`FnHasher[K]`,
-`cmp.Eq[K]`/`Default[K]`/`FnEq[K]`) use generic-receiver methods
-(`func (h Default[K]) Hash(k K) uint`) and blanket impls (`impl Default[K] :
-Hasher[K]`), both newer than the BUILDER-bundled bnlint — so the bundled bnlint
-aborts at the PARSE pass, same trigger as the container skips. Added to `LINT_SKIP`
-in `scripts/hygiene/lint.sh`; a current-source bnlint accepts both with **zero**
-diagnostics. Drop at the same BUILDER bump as the container skips.
+Main's `scripts/hygiene/lint.sh` skips exactly these from bnlint style checks:
+`pkg/stdx/{hash,cmp}` and `pkg/stdx/containers/{table,mapfn,setfn,hashmap,set}`
+(all on main, under `ifaces/stdlib/` + `impls/stdlib/`). The `bnc-0.0.11pre2`
+bnlint (fetched via CHECK_TOOLS_VERSION) mis-fires the generic constraint check at
+their blanket impls — false "type argument H does not satisfy constraint
+Hasher[T]" / "K does not satisfy Hashable" — because the checker fixes `2f8969e8` /
+`6647c49f` postdate the pre2 bundle. A current-source bnlint lints them clean, and
+every conformance mode still fully type-checks + compiles them. **Drop at the next
+CHECK_TOOLS bump past `6647c49f`** (lint.sh's own comment tracks the same condition).
 
-Note: unlike the containers, these do NOT hit the cross-package same-named-generic
-CRITICAL collision above — although `hash.Default[K]` and `cmp.Default[K]` share the
-unqualified name `Default` and each carries a blanket impl with a different
-constraint (`lang.Hashable` vs `lang.Comparable`), their struct bodies are EMPTY, so
-there is no constraint-dependent body to re-check under the wrong constraint. Verified:
-a program importing both and instantiating both `Default[int]`s compiles and runs
-clean. So hash/cmp can un-skip independently of that bug's fix (gated only on the
-methods-on-generics BUILDER bump).
-
-**Update 2026-07-11 (CHECK_TOOLS_VERSION):** no longer BUILDER-gated — `bnc-0.0.11pre1`/`pre2`
-bnlint (fetched by lint.sh via CHECK_TOOLS_VERSION) parses methods-on-generics. These packages
-currently live on the `work-2` branch, NOT main (`pkg/stdx/hash` + `pkg/stdx/cmp` were added by
-`360d17f1` on work-2; they are absent from main and not in main's `LINT_SKIP`), so there is
-nothing to do on main until they land. When they do, the CHECK_TOOLS → `bnc-0.0.11pre2` step
-(consolidated check-tools-lag entry below) covers them with the rest.
-
-### `pkg/stdx/hash` + `pkg/stdx/cmp` LINT_SKIP — status is now covered by CHECK_TOOLS → pre2 (they land on work-2)
-
-The separate `pkg/stdx/hash` + `pkg/stdx/cmp` entry above is the only remaining check-tools-lag
-item, and it belongs to the `work-2` branch (those packages are not on main). When they land,
-the shipped CHECK_TOOLS_VERSION (`bnc-0.0.11pre2`, whose bnlint parses methods-on-generics) lints
-them with no extra work — same mechanism as the container cone that was just cleared (see the
-done log: "check-tools-lag lint skips cleared via CHECK_TOOLS_VERSION → bnc-0.0.11pre2").
+### check-tools-lag `LINT_SKIP` — cleared-skip history — ⚠️ STALE (all skips below were un-skipped; the only current skip is the stdx entry above)
 
 **The bnc-0.0.9 lag is CLEARED** (BUILDER is now `bnc-0.0.10`, checked 2026-06-29). `pkg/builtins/rt`
 (the `"void"` `__c_call` spelling) and `pkg/std/os` (the `.bni` free-function-vs-method fix
@@ -789,16 +757,6 @@ substrate (`type X = other.Y`, tests `110`/`941`). See
 [plan-expose-execution.md](plan-expose-execution.md) for per-phase STATUS.
 
 ## Spec authoring & language-decision residuals
-
-### Package-level var initialization is declaration-order, not dependency-order — spec decision needed
-`var A int = B + 1; var B int = 10` makes `A == 1` (B is still 0 when A initializes),
-NOT 11 — package-level VAR initialization runs in DECLARATION order, not dependency order.
-`decl.order.forward` guarantees the forward NAME reference resolves (it compiles), but the
-VALUE at init time follows declaration order. Go initializes package vars in dependency
-order; Binate does not, and §9.8 is silent on var-init order. → a spec-vs-impl decision
-(declaration-order vs dependency-order) for `spec-todo.md`. The Ch.9 tests do not assert
-any var-init-order value (forward-ref is tested via a function). Surfaced authoring
-`conformance/spec/09-declarations-and-scope`.
 
 ### §8.5 spec "precision residual" note appears stale — verify and drop
 The §8.5 "Open (precision residual)" note in the conversions spec chapter says a constant

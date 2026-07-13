@@ -6,6 +6,29 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Package-level `var` init is dependency order (not declaration order) — ✅ RESOLVED (decided + landed `444c9c90`; spec corrected `85a70ff`)
+
+Go-style dependency order: each package-level `var` initializer runs after the
+inits of the package vars its initializer directly reads (regardless of declaration
+position / file); a dependency cycle is a compile error. Designer decision + impl
+landed 2026-07-01 (`444c9c90`, `plan-var-init-dependency-order.md`; checker
+`Checker.VarInitOrder`, emitter `ir/gen_init.bn`). Confirmed live: `var A = B+1;
+var B = 10` → `A == 11` in compiler + VM. The stale todo claimed the opposite
+(declaration order, "spec decision needed"); the only real residual was the spec,
+which said "source-declaration order" — now corrected to dependency order +
+`prog.init.var-cycle` (§17.2 / §9.8, `85a70ff`). Known limitation (flagged
+separately, not yet a filed todo): ordering follows DIRECT reads, not reads reached
+only through a named-function call (Go follows calls; Binate does not).
+
+## `bnfmt-format` hygiene check: fetch bundled bnfmt via CHECK_TOOLS_VERSION — ✅ DONE
+
+`scripts/hygiene/bnfmt-format.sh` obtains bnfmt via `fetch-builder.sh --check-tools
+--tool bnfmt` (the CHECK_TOOLS_VERSION bundle, currently `bnc-0.0.11pre2`),
+mirroring lint.sh's bnlint fetch; the old build-from-source + per-machine cache is
+now a dormant fallback that drops out once the bundle ships bnfmt. Supersedes the
+"switch to the bundled bnfmt after the next release" plan — the CHECK_TOOLS_VERSION
+mechanism (decoupled from BUILDER) IS that switch.
+
 ## Interpreted `__c_call` rejected at the FRONTEND (embeddable-interp follow-up) — ✅ DONE & LANDED (`da3bd46a` + `1de21404`, 2026-07-02)
 
 Interpreted code that uses `__c_call` now errors at type-check (`Checker.Interpreted`
