@@ -6,6 +6,36 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `readonly` transparent to destruction (dtor name + NeedsDestruction + dtor body) — ✅ DONE & LANDED (`91d8b0a6`, 2026-07-12)
+
+`ResolveAlias` peels alias but not readonly, so several destruction sites were
+readonly-blind (found 2026-07-10, review of `8d9e7577`; originally filed 🟢 LOW /
+"latent").  Fixed + adversarially reviewed: added `Type.ResolveAliasAndConst()`
+(over the existing private `resolveAliasAndConst`), used it in `NeedsDestruction`
++ `dtorTypeSuffix`, and `peelTransparent`'d the element in `genManagedSliceDtor` +
+`genArrayDtor`.
+
+The "latent" framing was wrong on both halves:
+- **(a) was reachable.** `@[]readonly char` is common (e.g. `os.FileInfo.Name()`);
+  it mangled to `__dtor_ms_unknown` and now correctly shares `@[]char`'s
+  `__dtor_ms_uint8` (equivalent body; de-collides distinct readonly-scalar-element
+  slices).
+- **(b) was worse than latent.** Making `NeedsDestruction(readonly @Box)` true
+  ACTIVATED an incomplete-peel bug in the dtor BODY (the element-kind dispatch) —
+  the adversarial review caught it as a hard BUILD BREAK (undefined
+  `__dtor_mp_Node`) for `@[]readonly @Node`; that's why the body-gen peel is part
+  of this fix.
+
+Tests: unit (`NeedsDestruction` / `dtorTypeSuffix` over readonly scalar+managed
+elements) + conformance `1063_readonly_managed_slice_dtor` (a `@[]readonly @Node`
+built by element-readonly widening — builds, element RefDec'd exactly once).
+Verified builder-comp / -int / -comp; reviewer confirmed name↔body agreement
+across managed-ptr/iface/func/by-value-struct/array element kinds.
+
+The review also surfaced a SEPARATE, pre-existing MAJOR bug in the same class —
+`needsStructCopy` is readonly-blind (by-value `readonly S` → UAF) — tracked under
+MAJOR in [claude-todo.md](claude-todo.md) and being fixed as a follow-up.
+
 ## Package-level `var` init is dependency order (not declaration order) — ✅ RESOLVED (decided + landed `444c9c90`; spec corrected `85a70ff`)
 
 Go-style dependency order: each package-level `var` initializer runs after the

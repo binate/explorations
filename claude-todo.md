@@ -7,20 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### `readonly` is invisible to `NeedsDestruction`/`dtorTypeSuffix` — cosmetic mismatch now, latent leak later — 🟢 LOW / OPEN (found 2026-07-10, adversarial review of `8d9e7577`)
-
-`ResolveAlias()` peels `TYP_ALIAS` but not `TYP_READONLY`, so (a) `readonly <scalar>`
-inner elements mangle to `__dtor_ms_ms_unknown` (the `dtorTypeSuffix` fallback,
-`gen_dtor.bn` ~101) instead of their real suffix — benign today (distinct
-allocations; the review confirmed the "unknown" bodies are refcount-equivalent, so
-even a two-distinct-`unknown`-types collision is harmless); and (b)
-`NeedsDestruction(readonly @Box) == false` → a `readonly`-wrapped managed element
-would not be destroyed (a leak) IF such a type were ever constructible. Currently
-unreachable: `readonly @T` fails to parse as a type argument and `NeedsDestruction`
-treats it as non-destructible anyway. Peel `TYP_READONLY` in `ResolveAlias` (or in
-`NeedsDestruction`/`dtorTypeSuffix`) when `readonly` managed elements become a real
-possibility.
-
 ### native arm32: large-offset access hardening — residual from the >4095-byte frame fix (`6ce4b42f`) — 🟢 minor latent
 
 The frame->4095-byte COMPILE_ERROR is FIXED & LANDED (`6ce4b42f`); tests `990_native_arm32_iface_large_frame` + `991_native_arm32_large_frame`. Two minor follow-ups from the landing review remain (NOT done):
@@ -31,6 +17,32 @@ The frame->4095-byte COMPILE_ERROR is FIXED & LANDED (`6ce4b42f`); tests `990_na
 (Background/history archived in claude-todo-done.md.)
 
 ## MAJOR
+
+### `needsStructCopy` is readonly-blind → by-value `readonly S` skips copy-in but runs its dtor → UAF — 🟠 OPEN (found 2026-07-13, adversarial review of the readonly-transparency fix; FIX IN PROGRESS)
+
+`needsStructCopy` (`pkg/binate/ir/gen_util_refcount.bn:54`) resolves alias + one
+`TYP_NAMED` level but does NOT peel `readonly`.  So for a by-value `readonly S`
+(and `readonly [N]@T`) the acquire side (copy-in, gated on
+`needsStructCopy(readonly S)` → false) is SKIPPED, while the release side peels
+first → `emitStructDtor` fires → an unbalanced RefDec → premature free → **UAF /
+double-free on valid, type-checking code.**  Repro (runs `2/2/1`, should be
+`2/3/2`; LLVM emits a `__dtor_S` call but no `__copy_S`):
+
+    type Child struct { v int }
+    type S struct { c @Child }
+    func main() {
+        var child @Child = make(Child)
+        var base S; base.c = child
+        if true { var rs readonly S = base }   // copy-in skipped; dtor still runs
+    }
+
+**Pre-existing** (byte-identical at `59ba25f0`; the readonly-transparency fix
+`91d8b0a6` can't reach it — `needsStructCopy` short-circuits before
+`NeedsDestruction`).  Same bug CLASS as `91d8b0a6` (readonly-blind copy/dtor
+balance), different type shape (by-value struct/array, copy side).  **Fix:**
+`peelTransparent` at the top of `needsStructCopy` (and defensively
+`emitStructCopy`/`emitStructDtor`), mirroring the release-path peel and the
+managed-scalar arm right beside it.  Add a refcount conformance test.
 
 ### by-value-call field-access residuals (R1–R3) — 🟠 OPEN (found 2026-07-12, adversarial review of the `getStruct().field` fix `3e8fa816`)
 
