@@ -990,6 +990,24 @@ Follow-ups split out of the (now-done) static-managed sentinel landing:
   making the shared `ClosureRec` an immortal sentinel would remove per-instance
   refcount churn on a shared singleton. Optimization, not a correctness gap.
 
+### relro section infra (`__DATA_CONST` / `.data.rel.ro`) for relocatable read-only data — 🟡 OPEN (follow-up from DataGlobal Inc 4b)
+
+Today every **relocatable** read-only blob — the `_Package` descriptor node, the
+info-node tables, the backing arrays, all vtables, the string `.ms` managed-slice
+header — stays in writable `data` rather than rodata, because Mach-O rejects
+relocations out of `__TEXT,__const` (text-relocs) and the object writer has no
+relro section.  These blobs are logically immutable after load; leaving them
+writable is a hardening gap (a stray write corrupts a descriptor/vtable instead of
+faulting), not a correctness bug — `DataGlobal.ReadOnly` already routes
+non-relocatable read-only data (e.g. string bytes) to rodata correctly.
+
+**Fix:** add a relro section — Mach-O `__DATA_CONST,__const` + ELF `.data.rel.ro`
+(`SHF_ALLOC|SHF_WRITE`) — and route relocatable `ReadOnly` `DataGlobal`s there so
+they become read-only-after-load (the dynamic loader applies relocations, then the
+page is remapped read-only).  This is a new object-writer feature
+(segment/section/load-command emission); verify on both formats + arm32.  Low
+urgency (no current miscompile; the writable placement is safe, just unhardened).
+
 ## Performance (double-VM `*-int-int` runtime)
 
 ### pkg/codegen `TestEmitDebug*` dominates `boot-comp-int-int` runtime (perf)
