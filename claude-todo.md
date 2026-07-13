@@ -271,31 +271,9 @@ loader de-rooting) is **✅ DONE & LANDED** — full detail in
 [`plan-embeddable-interp.md`](plan-embeddable-interp.md). Remaining open
 follow-ups (deferred with user sign-off):
 
-- **Interpreted `__c_call` guard — ✅ DONE & LANDED (`da3bd46a`, 2026-07-02),
-  at the FRONTEND (not lower-time).** Interpreted code that uses `__c_call` now
-  errors at type-check (`Checker.Interpreted` → `checkCCall`), and injected /
-  compiled-instance packages load INTERFACE-ONLY (`Loader.InterfaceOnly`), so
-  their native-only `__c_call` impls are never parsed/checked/lowered on the
-  interp path (which also fixes the old `os.Seek`/`cLseek` silently-broken-
-  bytecode problem — the impl isn't lowered at all). Covers the run path
-  (`TypecheckAll`) and the REPL (define + import, both initial-load and
-  mid-session-at-the-prompt). The earlier idea of a *lower-time* impl check was
-  rejected by the user ("too late — do it at the frontend"). Coverage:
-  conformance 961 + `TestCheckCCallInterpretedRejected` + e2e/repl.sh
-  `tier5-mid-session-import-ccall-rejected`.
-- **`--test`-path frontend guard — ✅ DONE & LANDED (`1de21404`, 2026-07-02).**
-  `TypecheckPackages` now sets `Checker.Interpreted`, and `cmd/bni` runTests wires
-  `Loader.InterfaceOnly = interp.NativeOnlyInterfacePaths(cli.Filenames)` (the
-  native-only set — rt + bootstrap + every pkg/std package — minus any that are
-  themselves `--test` targets). So the `--test` path now rejects interpreted
-  `__c_call` at the frontend exactly like the run path and REPL: a `__c_call`
-  package run as its own `--test` target gets a clean "cannot be interpreted"
-  type error instead of `lower_instr`'s default-arm abort, and injected
-  dependencies load interface-only. This ALSO closed the older "runTests /
-  `IsNativeOnlyInVM` unification" follow-up — the runner's interface-only set now
-  derives from the same source (`stdPkgs`) as the skip predicate. Coverage: interp
-  unit tests (`NativeOnlyInterfacePaths` × 4 target-set cases +
-  `TypecheckPackages`-sets-`Interpreted`); adversarially reviewed (no bugs).
+(The interpreted-`__c_call` frontend guards — run/REPL `da3bd46a` and `--test`-path
+`1de21404` — landed and moved to [claude-todo-done.md](claude-todo-done.md).)
+
 - **Globals/vtables-sensitive inject-set test.** `TestNewCustomPkgsRespected`
   proxies on `len(Externs)` (function registration only); add a test that a
   custom set's globals + impl vtables are honored (the `errors.Is`

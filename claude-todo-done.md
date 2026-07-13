@@ -6,6 +6,35 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Interpreted `__c_call` rejected at the FRONTEND (embeddable-interp follow-up) — ✅ DONE & LANDED (`da3bd46a` + `1de21404`, 2026-07-02)
+
+Interpreted code that uses `__c_call` now errors at type-check (`Checker.Interpreted`
+→ `checkCCall`), and injected / compiled-instance packages load INTERFACE-ONLY
+(`Loader.InterfaceOnly`) so their native-only `__c_call` impls are never
+parsed/checked/lowered on the interp path (this also fixed the old
+`os.Seek`/`cLseek` silently-broken-bytecode problem — the impl isn't lowered at
+all). A *lower-time* impl check was rejected by the user ("too late — do it at the
+frontend").
+
+- **Run path + REPL** (`da3bd46a`): covers `TypecheckAll` and the REPL (define +
+  import, both initial-load and mid-session-at-the-prompt). Coverage: conformance
+  961 + `TestCheckCCallInterpretedRejected` + e2e/repl.sh
+  `tier5-mid-session-import-ccall-rejected`.
+- **`--test` path** (`1de21404`): `TypecheckPackages` sets `Checker.Interpreted`, and
+  `cmd/bni` runTests wires `Loader.InterfaceOnly = interp.NativeOnlyInterfacePaths(...)`
+  (rt + bootstrap + every pkg/std package, minus any that are themselves `--test`
+  targets). A `__c_call` package run as its own `--test` target now gets a clean
+  "cannot be interpreted" type error instead of `lower_instr`'s default-arm abort,
+  and injected dependencies load interface-only. This ALSO closed the older
+  "runTests / `IsNativeOnlyInVM` unification" follow-up — the interface-only set now
+  derives from the same `stdPkgs` source as the skip predicate. Coverage: interp
+  unit tests (`NativeOnlyInterfacePaths` × 4 target-set cases +
+  `TypecheckPackages`-sets-`Interpreted`); adversarially reviewed, no bugs.
+
+(Remaining embeddable-interp follow-ups — inject-set globals/vtables test, the
+Layer 2b `@reflect.Package` wrapping helper, optional bootstrap auto-enumerate —
+stay in claude-todo.md; the embeddable-interp core is elsewhere in this file.)
+
 ## Coalesce repeated builder-`Write(literal)` runs via adjacent-string concat — ✅ RETIRED (first pass landed; remainder insignificant)
 
 Opportunistic micro-cleanup: collapse runs of adjacent string-literal writes on a
