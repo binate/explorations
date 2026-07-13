@@ -115,6 +115,28 @@ Files (all in `cmd/bnc`'s BUILDER-compiled tree — stays BUILDER-safe: this add
   comparator (ordering incl. multi-digit + pre-stripping), each predicate
   (`at_least`/`at_most`/`is(version,…)`) with `!`, and the hard-error cases.
 
+### Implementation details (from the 2026-07-13 adversarial review)
+
+- **Strip the literal's enclosing quotes.** `EXPR_STRING_LIT.Name` carries the
+  surrounding quotes verbatim (`parse_primary.bn` sets `e.Name = lit` raw;
+  `is(arch,…)` strips them via `eqLitInner`). The version parser receives
+  `e.Args[1].Name` **with** quotes and must strip them before parsing —
+  test a real `at_least(version, "0.0.11")` (quoted), not a bare token, so this
+  isn't silently missed.
+- **Reject split/adjacent-concatenated version literals.** `"0.0" ".11"` parses
+  to one `EXPR_STRING_LIT` with `StrParts` set. `#[c_export]` explicitly rejects
+  this (`validateCExportArgs`); `is(arch,…)` tolerates it. For the version
+  predicate, **reject** it (matches the strict-parse philosophy — a split version
+  literal is almost certainly a typo) and test it.
+- **Update the predicate diagnostics.** `unknownPredicateErr` currently says
+  "(known predicates: arch, os)" — update it to include `version`. Add a distinct
+  "ordered predicate on a non-`version` key" error for `at_least(arch,…)` /
+  `at_most(os,…)`.
+- **Document `is(version,…)`'s pre-stripping too.** `is(version, "0.0.11")` is
+  **true** on the tree's `0.0.11pre3` (pre stripped for the compare) — intended,
+  but `is` reads as "exact", so state this explicitly alongside the at_least/
+  at_most pre-stripping note, so no one misreads the "exact" naming.
+
 **BUILDER constraint (mirrors `#[c_export]`):** the *current* BUILDER
 (`bnc-0.0.10`) does not understand `at_least`, so **no `#[build(at_least(…))]`
 may appear in `cmd/bnc`'s own BUILDER-compiled tree** until BUILDER is re-pinned
