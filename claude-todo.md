@@ -7,42 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### func-value callee reached through a call result: `obj.Get()(x)` ✅ FIXED & LANDED 2026-07-10 (`b00d7383`, conformance/1012); SELECTOR/INDEX-of-call-result forms 🔴 OPEN (found 2026-07-10)
-
-**Severity: MAJOR — valid code fails to compile (LLVM link error).** Verified
-2026-07-10; no generics / no Self involved.  Root cause is NOT shim emission (as first
-guessed) but call DISPATCH: `genCall` did not recognize a func-value callee reached
-through a call result, so it fell through to the direct-by-name path where `funcRefName`
-yields "" and a direct call was emitted on a malformed empty symbol (`bn_F1_4_main0_`).
-
-**✅ FIXED — the callee-is-a-call form `obj.Get()(x)` / `f()(x)`** (a func value returned
-then immediately called): `genCall` now routes an `EXPR_CALL` callee of func-value type
-to `genFuncValueCallExpr` (indirect dispatch).  conformance/1012.  (Landing as a `binate`
-commit; the entry stays until the sibling forms below are also fixed.)
-
-**✅ FIXED & LANDED — the callee is a SELECTOR/INDEX whose BASE is a call result**
-(`binate` `e335caca`, 2026-07-10, conformance/1023): `obj.Get().f(x)`, `getarr()[i](x)`, and the deeper
-chains `obj.Get().h.f(x)` / `getcells()[i].g(x)`.  The right fix was the TYPE-computation
-gap, not a call-dispatch fallback: `getSelectorType` and `getIndexElemType` /
-`indexExprType` now have an `EXPR_CALL`-base arm that takes the checker's resolved type of
-the call (`ctx.Checker.ExprType`).  Once the base type resolves, `genCall`'s func-value
-branch fires and the existing value-lowering (materialize the call result, then access —
-which already worked for a value use like `mk().Get().v`) handles the chains without
-crashing.  (Deliberately NOT the call-dispatch fallback that crashed the deeper chains.)
-
-**🔴 STILL OPEN — DEREF of a call result: `(*mkptr()).f(x)`** (a distinct base kind,
-pre-existing, unrelated to `e444a004`).  Two layers: (1) `getSelectorType`'s
-`EXPR_UNARY(STAR)` arm returns `inner.Elem` UNPEELED, and the checker's managed-ptr
-`.Elem` is a `TYP_NAMED` wrapper over the struct, which the SELECTOR arm's classifier
-(bare `TYP_STRUCT` / `isManagedPtrToStruct` / `isRawPtrToStruct`) doesn't peel → nil →
-undefined-symbol call; (2) the NESTED value read `(*mkbox()).h.inner.v` already PANICS
-(`unresolved selector in IR-gen`) — a deeper `genSelector`/`genExpr` lowering gap for a
-deref-of-call base.  **Fix direction:** `peelTransparent(baseTyp)` in the SELECTOR-arm
-classifier fixes the single-level case, BUT do NOT add it alone — it makes the func-value
-branch fire on the NESTED deref-of-call, routing it into the layer-(2) panic (the Fix A
-trap).  Fix the lowering (layer 2) first / together.  `(*call())` is niche (an `@T` call
-result auto-derefs, so `call().f` is the usual form).  Add xfail coverage.
-
 ### native-aa64 self-hosted conformance: intermittent timeout flakiness — 🟡 OPEN (2026-07-02)
 
 **Severity: minor (CI flake, not a miscompile).** The

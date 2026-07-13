@@ -6,6 +6,39 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## func-value callee / field access reached through a call result or explicit deref — ✅ DONE & LANDED (all forms; final `31c48ecd`, 2026-07-12)
+
+A family of IR-gen gaps where the base of a call / selector / index is itself a call result
+or an explicit pointer deref.  Fixed in three landings:
+
+- **callee is a call — `obj.Get()(x)` / `f()(x)`** (`b00d7383`, conformance/1012): `genCall`
+  routes an `EXPR_CALL` callee of func-value type to `genFuncValueCallExpr` (indirect
+  dispatch) instead of a direct call on the empty symbol `funcRefName` yields.
+- **callee is a SELECTOR/INDEX whose base is a call result** — `obj.Get().f(x)`,
+  `getarr()[i](x)`, and the deeper `obj.Get().h.f(x)` / `getcells()[i].g(x)` (`e335caca`,
+  conformance/1023): the fix was the TYPE-computation gap — `getSelectorType` /
+  `getIndexElemType` / `indexExprType` gained an `EXPR_CALL`-base arm taking the checker's
+  resolved type — not a call-dispatch fallback.
+- **base is an explicit DEREF of a call / pointer — `(*mkptr()).f(x)`, `(*mkbox()).h.inner.v`,
+  `mkbox().p.x`, and the lvalue `(*ptr).field = v`** (`31c48ecd`, conformance/1058 +/1059):
+  `getSelectorType`'s `*x` arm returned the managed-ptr `.Elem` UNPEELED (a TYP_NAMED wrapper
+  over the struct), so the SELECTOR classifier's bare TYP_STRUCT test missed it → a
+  func-value-field callee typed nil (link error) and a nested read got no inner type; and
+  `genSelectorPtr` had no `(*P).field` / `call().field` arm → nested access / assignment
+  through one returned nil → an unresolved-selector panic (read) or a discarded-copy store
+  (write).  Fix: peel in `getSelectorType`; add a `genSelectorPtr` deref arm that addresses
+  the field THROUGH the pointer (`&*P == P`, no copy — which also fixes the PRE-EXISTING
+  `(*ptr).field = v` write miscompile that silently stored to a copy, data corruption on
+  valid code) and a pointer-returning-`call().field` arm.  A first attempt added a call-arm
+  BY-VALUE-struct branch that materialized a temp; the adversarial review caught that it
+  LEAKED a managed-field write (`getW().mfield = v`), so it was dropped — a by-value call
+  result is non-addressable and the construct should be rejected by the checker (tracked in
+  claude-todo.md).  Verified: pkg/binate/ir 615/0, builder-comp 2785/0, builder-comp-int
+  2763/0, refcount balance (conformance/1058) confirmed.  (The earlier "Fix A trap" warning
+  — that peeling `getSelectorType` alone would route nested deref-of-call func calls into the
+  panic — turned out stale: the tree had evolved since 2026-07-10 and the peel alone fixed
+  those forms cleanly.)
+
 ## 725/727 cross-package reflect "miscompile" — actually stale arm32 expected files — ✅ DONE & LANDED (`4fe304dd`, 2026-07-12)
 
 Tracked (2026-07-04) as a MAJOR silent miscompile: `725_reflect_package_functions` /
