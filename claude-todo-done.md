@@ -6,6 +6,54 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Exposed GENERICS through `expose` — ✅ CODE COMPLETE, both legs (Slice 2 `821c7c21`; func-value verified) — one test-coverage residual in [claude-todo.md](claude-todo.md)
+
+Exposing a generic type/interface/func through a forwarder `.bni` (`expose "pkg/glib"`)
+now resolves and mangles to the HOME symbol on every path — the generic tail of the
+`expose` feature (§16.5.2). Root cause was the same resolved-home issue as the
+non-generic fix: in IR-gen the package qualifier is BOTH the generic-decl lookup key
+AND the identity/mangling key, so the forwarder spelling `fwd.Box[int]` must remap
+`fwd`→`glib` (via `homedQualifier`) at the checker AND IR-gen layers, else it mangles
+as a type DISTINCT from the home `glib.Box[int]` (separate struct/dtor/vtable/symbol).
+
+- **Slice 1 — generic FUNC call** (`fwd.Ident[int](7)`): keyed the generic-decl
+  lookup on the home via `homedQualifier` at `gen_call.bn`. Test
+  `1046_expose_generic_func`.
+- **Slice 2 — generic TYPES + interfaces** (`fwd.Box[int]`) — `821c7c21`. Chose the
+  `homedQualifier` remap (**B**) over registry-forwarding (**A**, silently broken — it
+  rescues only the checker's decl-pointer identity scan, never IR-gen's mangling key).
+  Added an `IsGeneric` marker on `Symbol` (generics had no scope symbol) to carry
+  `HomePkg`; injected markers for exposed generics (own via registry walk + transitive
+  via `Syms` copy); guarded `resolveNamedTypeExpr` so a bare `fwd.Box` (no args) errors
+  like the home rather than resolving as a concrete type; remapped at the checker
+  (`check_generic_type.bn`) + both IR-gen generic-type sites (`gen_iface.bn`,
+  `gen_type_resolve.bn`). Tests 1042 (struct identity), 1048 (generic iface), 1049
+  (bare-ref rejected) green on builder-comp / -int / -comp; full regression 2772/0,
+  byte-identical for non-exposed.
+  - **Gap 1 — generic collision diagnosed** (`731a12e9`): `collectExposedSurfaceNames`
+    scans the generic-decl registries too (test 1051).
+  - **Gap 2 — generic transitivity** (`af4434ff`): test 1052 (`a exposes p exposes q`,
+    q generic); writing it caught + fixed a false-positive self-collision gap 1 had put
+    on main (undeduped registry).
+  - **Gap 3 — marker nil-`Type` hardening** (`6507d6a5`): `IsGeneric` guard on the
+    bare-name resolution + value-position selector paths, propagated through the
+    `.bni`→`.bn` merge (test 1053).
+- **Generic-func-VALUE form** (`var f = fwd.Ident[int]; f(9)`): VERIFIED working on
+  builder-comp + VM (2026-07-12). `genericFuncInstanceName` (`gen_generic.bn`) already
+  carries the `homedQualifier` remap (the generic-func-value IR-gen path landed at
+  `473013ed`). Needs a committed conformance test — the ONE residual, left actionable
+  in claude-todo.md as `1057_expose_generic_func_value`.
+
+Resolved incidentally (were flagged follow-ups on this entry): the `checker.bn`
+file-length warning (since split — now ~299 lines, well under the 500 cap), and the
+"drop the reverted `gen_method_value_recv.bn` remap" cleanup (that file has no stale
+home-remap left).
+
+The whole `expose` feature is complete + spec'd (§16.5.2): non-generic
+types/interfaces/funcs/vars/consts, generic funcs (call + value), generic types +
+interfaces, reflect, collision diagnostics — all landed, gated from bnc-tree use
+pending a BUILDER bump.
+
 ## func-value callee / field access reached through a call result or explicit deref — ✅ DONE & LANDED (all forms; final `31c48ecd`, 2026-07-12)
 
 A family of IR-gen gaps where the base of a call / selector / index is itself a call result

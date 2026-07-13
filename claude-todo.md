@@ -130,82 +130,19 @@ displayed only 3 of the 7 correct output lines.  The binary exits 0 with all 7
 lines.  (Lesson: on a suspicious truncated `actual`, capture the raw program
 output before diagnosing.)
 
-### Exposed GENERICS unsupported — generic TYPES rejected by the checker + generic-FUNC refs mis-mangle at IR-gen — 🟠 OPEN (found 2026-07-10) [workstream A]
+### Exposed generics — ✅ CODE COMPLETE (moved to [claude-todo-done.md](claude-todo-done.md)) — one test-coverage residual
 
-Three facets, all the same resolved-home root cause as the landed non-generic fix,
-on the generic paths:
-- **Generic TYPES fail at the CHECKER.** `fwd.Box[int]` (forwarder exposing a
-  generic `Box[T]`) → `undefined: Box` before IR-gen runs; `genlib.Box[int]`
-  (home) works.  The checker's `expose` injection/resolution does not admit an
-  exposed generic-type reference.  **Test:** `conformance/1042_expose_generic`
-  (untracked).
-- **Generic FUNC call — ✅ slice 1 (fixed, landing).** `fwd.Ident[int](7)`
-  (forwarder exposing `func Ident[T any](x T) T`) type-checked but link-failed;
-  fixed by keying the generic-decl lookup on the home via `homedQualifier` at
-  `gen_call.bn:162`.  Test: `conformance/1046_expose_generic_func`.  The
-  func-VALUE form (`var f = fwd.Ident[int]; f(9)`) is now **UNBLOCKED** — the
-  generic-func-value IR-gen path landed (`473013ed`, see below), and its
-  `genericFuncInstanceName` already carries the `homedQualifier` remap, so the
-  exposed spelling should route to the home; verify it (and drop the old reverted
-  `gen_method_value_recv.bn` remap, now superseded) as part of this workstream.
-- **Generic-TYPE IR-gen sites need the `homedQualifier` remap too**
-  (`instantiatedIfaceLookupPkg` in `gen_iface.bn`, the generic-struct head in
-  `gen_type_resolve.bn`).  These were added in the non-generic fix then REVERTED
-  (unreachable until the checker admits exposed generic types) — re-add here.
+All code for exposing generic types/interfaces/funcs through a forwarder landed and
+is spec'd (`expose` §16.5.2): generic funcs (call + func-value), generic types +
+interfaces, transitivity, collision diagnostics. The generic-func-VALUE form
+(`var f = fwd.Ident[int]; f(9)`) is **verified working** on builder-comp + VM
+(2026-07-12). See the done file for the full record + commits.
 
-**Fix scope (workstream A):** checker support for exposed generic types + verify
-the exposed generic-FUNC-VALUE form now that the generic-func-value IR-gen path
-landed (`473013ed`) + re-add the two generic-TYPE IR-gen sites + tests (1042
-generic-type).  Slice 1 (generic func CALL) is done.
-
-**Slice 2 design decision (2026-07-11, two adversarial reviews).** Chose the
-`homedQualifier` approach (**B**) over registry-forwarding (**A**).  A is SILENTLY
-BROKEN: in IR-gen the package qualifier is BOTH the generic-decl lookup key AND the
-identity/mangling key (`ensureInstantiatedStruct`/`ensureInstantiatedInterface` →
-`instantiationMangledName(…, definingPkg, …)`), so registering the decl under the
-forwarder path makes `fwd.Box[int]` mangle as `pkg/fwd.Box__bn_inst__int` — a type
-DISTINCT from the home `pkg/glib.Box__bn_inst__int` (separate struct/dtor/vtable/
-symbol).  A's "first-match-wins" only rescues the CHECKER (identity from a
-decl-pointer scan, `genericTypeDeclPkg`); IR-gen never consults it.  B remaps the
-qualifier `fwd`→`glib` at both layers via `homedQualifier` (the landed mechanism),
-so both spellings key one home symbol.  **B safeguards (must-do):** (1) inject a
-generic MARKER symbol for exposed generics to carry `HomePkg` (generics have no
-scope symbol today), and GUARD `resolveNamedTypeExpr` so a bare `fwd.Box` (no args)
-errors like `genlib.Box` rather than resolving as a concrete type; (2) remap at the
-checker (`check_generic_type.bn`) AND the two IR-gen generic-type sites; (3) tests:
-cross-spelling identity (`fwd.Box[int]==genlib.Box[int]`), transitive, collision
-diagnosed, bare-ref rejected, a generic-INTERFACE identity case; verify on the VM
-leg too.
-
-**Slice 2 (exposed generic types) — ✅ LANDED `821c7c21`.** `IsGeneric` marker on
-`Symbol`; markers injected for exposed generics (own via registry walk + transitive
-via Syms copy); `resolveNamedTypeExpr` bare-ref guard; checker + IR-gen home remap.
-Tests 1042 (struct identity), 1048 (generic iface), 1049 (bare-ref rejected) green
-on builder-comp / -int / -comp; full regression 2772/0; implementation review traced
-identity correct on all three paths (struct/iface/transitive), byte-identical for
-non-exposed.  **All three flagged follow-up gaps done:**
-- **Gap 1 — generic expose-collision now diagnosed — ✅ LANDED `731a12e9`.**
-  `collectExposedSurfaceNames` scans the generic-decl registries too, so two
-  forwarders exposing the same generic name report `X: exposed by both …` (test
-  1051).
-- **Gap 2 — generic transitivity test — ✅ LANDED `af4434ff`.** Test 1052
-  (`a exposes p exposes q`, q generic; `a.Gen[int]` == `q.Gen[int]`).  Writing it
-  CAUGHT a false-positive regression gap 1 had put on main (undeduped registry →
-  spurious self-collision on transitive generics); fixed by deduping the collected
-  names.
-- **Gap 3 — marker nil-`Type` hardening — ✅ LANDED `6507d6a5`.** `IsGeneric` guard
-  added to the bare-NAME resolution + value-position selector paths, and propagated
-  through the `.bni`→`.bn` merge (test 1053).
-
-The whole `expose` feature is now complete + spec'd (§16.5.2): non-generic
-types/interfaces/funcs/vars/consts, generic funcs (call), generic types +
-interfaces, reflect, collision diagnostics — all landed and gated from bnc-tree use
-pending a BUILDER bump.
-
-**Follow-up (hygiene): `pkg/binate/types/checker.bn` is 512 lines (over the 500
-soft cap).** It was already ~509 (pre-existing warning); gap 3's `IsGeneric`-in-merge
-line nudged it over.  Split it along a natural boundary soon (do NOT trim doc lines
-to dodge the cap).
+**Residual (🟢 LOW, actionable):** add `conformance/1057_expose_generic_func_value`
+to lock in the func-value form — mirror `1056_generic_func_value`'s func-value slots
+(inferred `var`, explicit `@func`/`*func`, `:=`, call-arg) through a forwarder
+spelling (`fwd.Ident[int]`, `fwd` exposing `pkg/glib`; expected `1\n2\n3\n4\n5`).
+Binate code change — needs a worktree.
 
 ## Language features — specified, not yet implemented
 
