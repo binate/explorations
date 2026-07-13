@@ -424,11 +424,33 @@ would link with no `main`. So Phase 6 is staged:
   conformance `builder-comp` 2792/0/7, `builder-comp-int` 2770/0/29,
   `builder-comp-comp` 2792/0/7 (the self-compile mode — gen2 links `startup` —
   validates the restaging premise).
-- **BUILDER re-pin (user-owned, next).** Rebuild a bundle from the landed tree
-  and bump `BUILDER_VERSION` so the pinned BUILDER force-includes `startup`.
-  Nothing below can land until BUILDER carries `startup`.
-- **Bumps 1+ — real content** (below): the entry `main()`, then the `Write`/
-  `Args`/`Exec` shim flips (atomic per symbol), then drop `binate_runtime.c`.
+- **Bump 1a — args seam moved into `startup`** ✅ **LANDED `de86828a`
+  (2026-07-13), adversarially reviewed.** `startup` gains its first real content:
+  the command-line-args seam (`Args` exported global + `SetArgs`, moved verbatim
+  from `pkg/std/os`, `args`→`Args`); `os.Args`/`os.SetArgs` become thin
+  delegators and `os` imports `startup`.  Motivation: argv is an entry concern
+  (the future `main` sets `startup.Args` directly), and this preserves the bni
+  VM args-isolation seam (os is injected host-native, so os.Args reaches the
+  host's `startup.Args`).  **Needed NO BUILDER re-pin** — unlike the entry
+  `main`, the args content rides `os`'s import of `startup`, which BUILDER
+  already follows, so it enters gen1 via the import graph rather than the
+  force-load set (empirically: gen1 builds through BUILDER Stage 1 + self-
+  compiles Stage 2).  It also makes `startup` non-anodyne (a package `__init`
+  now runs in every hosted binary — a `bootstrap.Args()` call, harmless, was
+  `os.__init` before).  Verified: hygiene 17/17; unit tests; conformance
+  `builder-comp` 2797/0/7, `builder-comp-int` 2775/0/29, `builder-comp-comp`
+  2797/0/7.  Sets up retiring `bootstrap.Args` (the eventual `main` sets
+  `startup.Args` directly).
+- **BUILDER re-pin (user-owned, still needed for the entry `main`).** Rebuild a
+  bundle from the landed tree and bump `BUILDER_VERSION` so the pinned BUILDER
+  force-includes `startup`.  Required before the entry `main()` can move here
+  (the entry is the program root — force-included, not reachable via the import
+  graph — so BUILDER's force-load set must carry `startup`).  Import-graph
+  content like the args seam above does NOT need it.
+- **Bumps 1+ — remaining real content** (below, needs the re-pin): the entry
+  `main()`, then the `Write`/`Args`/`Exec` shim flips (atomic per symbol) — incl.
+  rewriting `main` to set `startup.Args` directly and retire `bootstrap.Args` —
+  then drop `binate_runtime.c`.
 
 **High blast radius** — changes startup *and* the I/O/exec shim linkage for every
 hosted binary (incl. self-hosted `bnc`). Two halves: the entry `main()` and the
