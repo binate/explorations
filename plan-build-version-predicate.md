@@ -60,32 +60,43 @@ convention and forces the validator to accept `(key,lit)` and `(lit,key)`.
 
 ### Version string format + comparator
 
-**Strict format: `X.Y.Z[pre[N]]`** — exactly three dot-separated digit-runs,
-optionally followed by `pre` optionally followed by digits. Anything else is a
-hard error (no best-effort parse):
+**Strict format: `X.Y.Z[-pre[N]]`** — exactly three dot-separated digit-runs,
+optionally followed by the **hyphenated** `-pre` optionally followed by digits.
+Anything else is a hard error (no best-effort parse):
 
-- Valid: `0.0.11`, `0.0.11pre`, `0.0.11pre3`.
+- Valid: `0.0.11` (release), `0.0.11-pre` (untagged working tree), `0.0.11-pre3`
+  (tagged prerelease).
 - Rejected: `0.0`, `0.0.11.4` (4th component — never silently dropped),
+  `0.0.11pre3` (**non-hyphenated** prerelease — prerelease is always hyphenated),
   `0.0.11-rc1`, `0.0.11beta`, `1.2.x`, `v1.2.3`, empty.
 - Defensive: tolerate/strip a leading `bnc-` (the `BUILDER_VERSION` file carries
   it; `version.Version` does not — the gate compares `version.Version` against a
   bare literal, so no prefix is in play, but a stray prefixed literal must not
   silently mis-parse to `0.0.0`).
 
-**Comparison:** strip the `pre[N]` suffix (so `X.Y.Zpre[N]` == `X.Y.Z`), then
+> **Format decided (2026-07-13):** prerelease is **hyphenated** (`-pre[N]`),
+> consistent with semver and with the pre-existing `X.Y.Z-pre` untagged form in
+> `version.bn`'s docstring / `version-sync` / `make-bundle`. The current
+> `version.Version` was renamed `0.0.11pre3` → **`0.0.11-pre3`** (the missing
+> hyphen was a slip), and `version-sync.sh` now **format-checks** VERSION against
+> `X.Y.Z[-pre[N]]` so a non-canonical version can't silently break every
+> version-gated build.
+
+**Comparison:** strip the `-pre[N]` suffix (so `X.Y.Z-pre[N]` == `X.Y.Z`), then
 compare `(X, Y, Z)` **numerically** (major, then minor, then patch — `0.0.11` >
 `0.0.9`, not lexical). Rationale for pre-stripping: a prerelease of X.Y.Z is
 developing *toward* X.Y.Z's behaviour, so it should gate like X.Y.Z; and it
-avoids the gotcha that the tree's `0.0.11pre3` would otherwise fall *below* an
+avoids the gotcha that the tree's `0.0.11-pre3` would otherwise fall *below* an
 `at_least("0.0.11")` gate. The cost — the comparator can't distinguish a release
 from its prereleases — is a non-need for bootstrap staging (new gate boundaries
-are made by bumping X.Y.Z, the normal workflow). Diverges from semver (which
-orders prerelease identifiers); documented as a deliberate bespoke rule.
+are made by bumping X.Y.Z, the normal workflow). Diverges from semver's
+*ordering* of prerelease identifiers (we discard them); a deliberate bespoke
+rule.
 
 ### `BuildConfig.Version`
 
 Add a `Version` field to `BuildConfig` carrying the **compiling compiler's own**
-version string (`version.Version`, currently `0.0.11pre3`), set in `HostConfig()`
+version string (`version.Version`, currently `0.0.11-pre3`), set in `HostConfig()`
 / `ConfigForTarget()` / `mkConfig()`. Consistent with how `Arch`/`Os` are stored
 as raw strings and matched at eval time (`archMatches`/`osMatches`). The version
 comparator parses both the config version and the literal at eval time; a
@@ -108,7 +119,7 @@ Files (all in `cmd/bnc`'s BUILDER-compiled tree — stays BUILDER-safe: this add
   - `evalCall`: recognize `at_least` / `at_most` (route to the version
     comparator); keep `is` (extended for the `version` key).
   - `evalIs`: handle the `version` key (exact equality via the comparator).
-  - New: a strict `X.Y.Z[pre[N]]` parser + numeric comparator + the
+  - New: a strict `X.Y.Z[-pre[N]]` parser + numeric comparator + the
     error diagnostics (malformed version literal; ordered predicate on a
     non-`version` key).
 - `pkg/binate/buildcfg/buildcfg_test.bn`: parser (valid/invalid forms),
@@ -133,7 +144,7 @@ Files (all in `cmd/bnc`'s BUILDER-compiled tree — stays BUILDER-safe: this add
   "ordered predicate on a non-`version` key" error for `at_least(arch,…)` /
   `at_most(os,…)`.
 - **Document `is(version,…)`'s pre-stripping too.** `is(version, "0.0.11")` is
-  **true** on the tree's `0.0.11pre3` (pre stripped for the compare) — intended,
+  **true** on the tree's `0.0.11-pre3` (pre stripped for the compare) — intended,
   but `is` reads as "exact", so state this explicitly alongside the at_least/
   at_most pre-stripping note, so no one misreads the "exact" naming.
 
@@ -177,5 +188,6 @@ tree is bumped to at the main-move bump.
 - **Semver prerelease ordering** (`pre < pre1 < … < release`): rejected in favour
   of pre-stripping (`X.Y.Zpre[N]` == `X.Y.Z`) — simpler comparator, and gates a
   prerelease like the release it targets.
-- **Strict version format `X.Y.Z[pre[N]]`, error otherwise:** ratified (no
+- **Strict version format `X.Y.Z[-pre[N]]` (hyphenated prerelease), error
+  otherwise:** ratified (no
   best-effort parse; a 4th numeric component or unknown tag is an error).
