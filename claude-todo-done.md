@@ -6,6 +6,41 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `os.Args()` + interpreter arg plumbing (`os.SetArgs`) — ✅ DONE & LANDED (2026-07-12) — one compiled-argv[0] follow-up in [claude-todo.md](claude-todo.md)
+
+`os.Args()` (`0d1555f7`) returns the command-line arguments as a fully-readonly
+`@[]readonly @[]readonly char` (element 0 the program name, 1.. the arguments),
+built once at package init; the readonly element type makes the shared cached
+slice unmodifiable by callers (verified compiled + adversarially reviewed).
+
+Interpreted-mode fix (`design-os-args-vm.md`): os is injected host-native, so a
+naive `os.Args()` under cmd/bni returned the host bni's own argv.  Fixed WITHOUT
+VM special-casing — added `os.SetArgs(newArgs) → previous` (`a3b39454`); cmd/bni
+reads its own argv from `os.Args()` and installs the program's argv via
+`os.SetArgs` before running it (element 0 = the program path), and the
+`progArgsAfterDash` VM shim was removed (`8984ea2a`).  Direct interpreted
+`bootstrap.Args()` intentionally diverges (returns the host argv) —
+`487_bootstrap_args` xfail'd `-int`.  `011_args` passes every mode (no
+double-interp recursion); `e2e/os-args.sh` covers both paths × with/without args
+(`11f473f1`).  Both parts adversarially reviewed (no defects).  Residual (in
+todo): the COMPILED path's argv[0] is still an empty placeholder (nothing exposes
+it yet); the interpreter already fills it with the program path.
+
+## TypeInfo record content → per-type registry ("design D") — ✅ DONE & LANDED (`7f8e6456`, 2026-07-11)
+
+Follow-up to the type-assertions / RTTI project (below).  The `__typeinfo.<T>`
+record content (size/align/name/dtor) now lives in a per-TYPE registry
+(`Module.TypeInfos`, keyed by `mangle.TypeInfoName`) instead of the
+per-`(type,iface)` `ImplInfo.RecvTyp` field that `CollectTypeInfoDescs` deduped
+by hand.  `registerTypeInfo` (deduped by receiver identity) is called 1:1 with
+each local ImplInfo append, preserving the exact distinct-type set and
+first-appearance order — so the byte-identical multi-TU invariant
+(`conformance/378_iface_impl_dup`) holds.  Verified: 609 ir unit tests, native +
+VM conformance, hygiene 17/17, adversarial review (no defects).  The optional
+"single-seam" tightening (make the registry the one seam both
+`collectImplVtableSlots` and `BuildTypeInfo` read) is left as a deferred,
+low-value residual in the todo.
+
 ## Exposed GENERICS through `expose` — ✅ CODE COMPLETE, both legs (Slice 2 `821c7c21`; func-value verified) — one test-coverage residual in [claude-todo.md](claude-todo.md)
 
 Exposing a generic type/interface/func through a forwarder `.bni` (`expose "pkg/glib"`)

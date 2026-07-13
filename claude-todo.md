@@ -115,26 +115,6 @@ Both are pre-existing (the deref-of-call fix neither introduced nor worsened the
 declined to extend the leaky/panicking path).  Add xfail coverage for both forms when
 picked up.
 
-The non-generic exposed-type/interface-reference mis-compile is **✅ FIXED +
-LANDED (476e0fb2)** — `homedQualifier` threaded into the non-generic
-type-resolution sites (`isInterfaceTypeExpr`, `ifaceTypeForName`, the struct/alias
-lookup).  Building the Phase-6 bundle surfaced ONE real remaining gap (workstream
-A, below).
-
-A suspected reflection-descriptor bug (workstream B) was investigated and
-**REFUTED — `expose` reflection is CORRECT.**  Reflecting over an expose-using
-aggregator (`pkg/agg`: `func Own()` + `expose "pkg/inner"`) lists only agg's OWN
-funcs (`pkg/agg.Own` + the synthesized `pkg/agg.__Package`); the exposed `InnerFn`
-is correctly excluded (it is `IsExtern` in agg's module) and reflects under its
-HOME package `pkg/inner` — spec `pkg.expose.reflect` confirmed.  Test
-`conformance/1041_expose_reflect` PASSES (builder-comp + builder-comp-int).  The
-earlier "crash reflecting after the first function" report was a misdiagnosis: the
-conformance runner truncates its FAIL-message `actual` to `head -3` (`run.sh:313`),
-and the test had no `expected` file (so it always took the FAIL branch), which
-displayed only 3 of the 7 correct output lines.  The binary exits 0 with all 7
-lines.  (Lesson: on a suspicious truncated `actual`, capture the raw program
-output before diagnosing.)
-
 ### Exposed generics — ✅ CODE COMPLETE (moved to [claude-todo-done.md](claude-todo-done.md)) — one test-coverage residual
 
 All code for exposing generic types/interfaces/funcs through a forwarder landed and
@@ -151,35 +131,19 @@ Binate code change — needs a worktree.
 
 ## Language features — specified, not yet implemented
 
-### Type assertions, type switches & RTTI — ✅ COMPLETE (moved to [claude-todo-done.md](claude-todo-done.md)) — one optional, deferred tightening
+### Type assertions, type switches & RTTI — ✅ COMPLETE — one optional, deferred tightening
 
-The full feature — the RTTI substrate (Phases 1–3c-2) and the front-end (Slices
-4–7: `x.(K T)`, comma-ok, type switches, the §17.5 panic, and the cross-mode/VM
-story) — is **landed and conformance-green in every mode**, and the spec Draft
-banners are flipped (done-log entry has the per-phase commit list).
+The whole feature (RTTI substrate + front-end: `x.(K T)`, comma-ok, type
+switches, the §17.5 panic, the cross-mode/VM story) **and** the design-D
+TypeInfo-registry migration are landed and conformance-green in every mode; the
+spec Draft banners are flipped.  See the done log for the full record.  One
+optional residual:
 
-**✅ DONE — design-D migration (`7f8e6456`, 2026-07-11).** The TypeInfo record
-content (size/align/name/dtor) now lives in a per-**type** registry
-(`Module.TypeInfos`, keyed by the `mangle.TypeInfoName` symbol) instead of the
-per-`(type,iface)` `ImplInfo.RecvTyp` field that `CollectTypeInfoDescs` used to
-dedup by hand.  `registerTypeInfo` (write end, deduped by receiver identity) is
-called 1:1 with each local ImplInfo append (`makeOwnMethodsImplInfo` covers the
-collect + generic paths, `ensureAnyImplInfo` covers `any`), preserving the exact
-distinct-type set and first-appearance order the `m.Impls` walk produced — so the
-byte-identical multi-TU invariant (`conformance/378_iface_impl_dup`) holds
-(pair-dedup is provably equivalent to symbol-dedup: it reuses the same
-`charEq(RecvPkg, RecvTypeName)` comparison `moduleHasImpl`'s vtable-dedup already
-depends on).  The `SizeOf`-at-codegen timing and the null-guard (`SizeOf(nil)`
-returns `ptrSize()`, a plausible-wrong size → guard to 0) are unchanged.  Verified:
-609 `ir` unit tests, native + VM conformance (all three registration paths +
-reflect + 378), hygiene 17/17, minimal adversarial review (no defects).
-
-**🔧 Optional tightening (deferred, low value).** Make the D registry the *single
-seam* that BOTH `collectImplVtableSlots` (vtable slot-1) and `BuildTypeInfo` read,
-so the "record symbol == slot reference" invariant holds by construction instead
-of via two independent `mangle.TypeInfoName` call sites.  A separate, later step —
-it refactors landed/tested 2.1 slot wiring for a robustness nicety, not a
-correctness fix.
+**🔧 Optional tightening (deferred, low value).** Make the design-D registry the
+*single seam* that BOTH `collectImplVtableSlots` (vtable slot-1) and
+`BuildTypeInfo` read, so the "record symbol == slot reference" invariant holds by
+construction instead of via two independent `mangle.TypeInfoName` call sites.  A
+separate, later step — a robustness nicety, not a correctness fix.
 
 ---
 
@@ -1330,33 +1294,19 @@ cleared (`e2e/xmiface.sh` / `e2e/xmhfa.sh` exist); add a captured-`@func` refcou
 - Candidates: growable collections (Vec[T], Map[K,V] post-generics), I/O abstractions, string utilities, formatting
 - CharBuf is implemented (pkg/buf); broader stdlib design should inform future collection APIs
 
-### `os.Args()` — landed, two open follow-ups
-`os.Args()` (main `0d1555f7`) returns the command-line arguments as a
-fully-readonly `@[]readonly @[]readonly char`, indexed like Go's os.Args
-(element 0 the program name, 1.. the arguments), built once at package init from
-`bootstrap.Args()`.  Compiled-mode-correct; two follow-ups remain:
+### `os.Args()` — one open follow-up (argv[0] on the compiled path)
+`os.Args()` is landed and correct in every mode, including under the interpreter
+(SetArgs + bni wiring — see the done log).  One follow-up remains:
 
-- **(a) argv[0] is an empty placeholder.** Element 0 (the program name) is left
-  empty because nothing exposes argv[0] yet — `bootstrap.Args()` deliberately
-  returns the arguments only, and its existing consumers (the cmd/* tools) rely
-  on that.  Populate element 0 once a bootstrap primitive surfaces the program
-  name (e.g. a new `bootstrap.ProgName()`/`Arg0()`, or the C runtime storing
-  `bn_argv[0]`).  A pure-additive change; the slot is already reserved.
-- **(b) ✅ DONE (2026-07-12) — interpreter now returns the program's own args.**
-  Previously `os.Args()` under the interpreter returned the host bni's own argv
-  (os is injected host-native, so it reached bni's native `bootstrap.Args()`).
-  Fixed per [`design-os-args-vm.md`](design-os-args-vm.md): added
-  `os.SetArgs(@[]readonly @[]readonly char) @[]readonly @[]readonly char`
-  (`a3b39454`); cmd/bni reads its own argv from `os.Args()` and installs the
-  program's argv via `os.SetArgs` before running it, and the `progArgsAfterDash`
-  VM shim is removed (`8984ea2a`).  Both open details settled: bni keeps the `--`
-  convention with the program path at index 0, and direct interpreted
-  `bootstrap.Args()` intentionally diverges (returns bni's argv — so
-  `conformance/487_bootstrap_args` is xfail'd `-int`).  `011_args` now passes in
-  every mode (its `-int` xfails dropped); the with-args path (both compiled and
-  interpreted) is covered by `e2e/os-args.sh` (`11f473f1`).  Note the remaining
-  compiled/interpreted divergence at index 0: empty placeholder compiled, real
-  program path interpreted — converges once follow-up (a) lands.
+- **argv[0] is an empty placeholder on the COMPILED path.** Element 0 (the
+  program name) is left empty because nothing exposes argv[0] yet —
+  `bootstrap.Args()` deliberately returns the arguments only, and its existing
+  consumers (the cmd/* tools) rely on that.  Populate element 0 once a bootstrap
+  primitive surfaces the program name (e.g. a new `bootstrap.ProgName()`/`Arg0()`,
+  or the C runtime storing `bn_argv[0]`).  A pure-additive change; the slot is
+  already reserved.  This also converges the one remaining compiled/interpreted
+  divergence — the interpreter already fills index 0 with the real program path
+  via `os.SetArgs`.
 
 ### Expand `pkg/slices` beyond `Append` — opportunistic
 - `pkg/slices.Append[T]` is the only generic helper today.  Natural
