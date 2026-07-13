@@ -7,21 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### `spec/11-interfaces/052_alias_same_identity` intermittent failure under full-suite load — 🟡 OPEN (2026-07-10)
-
-**Severity: minor (CI flake, not a miscompile).** The *positive* interface-alias test
-`052_alias_same_identity` (iface.alias §11.7 — an alias is the SAME interface object as
-its target) intermittently reports a failure during a full parallel `builder-comp` run
-(observed once in a 2724-pass sweep; then passed 3/3 in isolation immediately after, and
-did NOT fail in the concurrent `builder-comp-comp` run of the same batch). No reproduction
-in isolation. Very likely a timeout / resource-contention flake under the saturated
-full-suite host (that run was 1707s) — same family as the native-aa64 flakiness above,
-not a codegen or checker defect. Discovered while regression-checking the
-generic-instantiation-type-arg landing, whose changes touch only generic-blanket-impl
-constraint satisfaction and instantiation-type-arg lowering — neither of which this
-non-generic test (`impl *Dog : Speaker`, no type args) exercises. Re-run in isolation
-before treating a lone `052` failure as a real regression.
-
 ### `readonly` is invisible to `NeedsDestruction`/`dtorTypeSuffix` — cosmetic mismatch now, latent leak later — 🟢 LOW / OPEN (found 2026-07-10, adversarial review of `8d9e7577`)
 
 `ResolveAlias()` peels `TYP_ALIAS` but not `TYP_READONLY`, so (a) `readonly <scalar>`
@@ -69,6 +54,55 @@ work — all **pre-existing** and orthogonal (verified on `31c48ecd`):
   mismatch.**  Orthogonal to the addressability work.
 
 Add xfail coverage for R1–R3 when picked up.
+
+## Test-flake watch
+
+Intermittent, load-/environment-dependent test failures tracked for recurrence —
+NOT known defects and NOT critical.  Before treating a red one as a real
+regression, **re-run the named test in isolation.**  Each entry notes the date(s)
+observed.
+
+### `spec/11-interfaces/052_alias_same_identity` — suspected environmental one-off (observed 2026-07-10)
+
+The positive interface-alias test (iface.alias §11.7 — an alias is the SAME
+interface object as its target; `impl *Dog : Speaker`, no generics) reported a
+single failure during a saturated full multi-mode `builder-comp` batch (a
+2724-pass sweep, 1707s), then passed 3/3 in isolation and did NOT fail in the
+concurrent `builder-comp-comp` run of the same batch.  The test is deterministic
+(exact `"ok"` output; its `.rules` file is spec-rule coverage, not output
+matching).  **Not a timeout, and not the native-aa64 family:** `builder-comp` has
+NO per-test `timeout` (neither the runner nor `run.sh`), and within a mode tests
+run sequentially — the "parallel"/saturation is from running several modes at
+once.  So the lone failure was almost certainly a transient environmental glitch
+(a fork/alloc/OS-level hiccup under extreme load), not a codegen/checker/harness
+defect.  The failure mode was not captured; the harness prints the actual output
+on FAIL, so a recurrence will finally reveal it.
+
+### arm32 iface shape-test intermittent LP64-doubling flake (observed 2026-07-06) — suspected REAL bug, needs investigation
+
+Unlike 052 above, this one points at a possible genuine defect (a global-target
+state leak or emission nondeterminism), not mere environmental noise — kept here
+because it is intermittent, but it should be investigated on recurrence, not
+dismissed.
+
+**Symptom:** `TestEmitImplVtablesNonExtendingShape` / `TestEmitImplVtablesExtendedConcatShape`
+(`pkg/binate/native/arm32/arm32_iface_test.bn`) intermittently fail their relro
+byte-count assertions with EXACTLY the LP64-doubled values (24→48, 72→144), i.e.
+`ir.BuildImplVtable` strided 8-byte slots — the ILP32 target (`IntSize=4`) was not
+in effect at emit time. **Trigger:** full-suite ordered native unit run
+(`scripts/unittest/run.sh builder-comp native`); ~1 in 50; NOT reproducible in
+`--run` isolation. **Root cause: UNKNOWN — needs investigation.** Both tests call
+`setArm32TargetIface()` (sets `IntSize=4`) as their first line, and neither
+`ir.GenModule` nor the parser calls `types.SetTarget` (grep-verified), so nothing
+should reset the global target between the setter and emission — yet it
+intermittently reads 8. Candidates: a global-target ordering/visibility subtlety
+across tests, or genuine gen1 emission nondeterminism (the latter would be a real
+compiler bug). **Diagnostic in place (commit `3ca73110`):** each shape test now
+asserts `types.GetTarget().IntSize == 4` immediately before the byte-count check,
+so a recurrence reports "target leaked to LP64" instead of a confusing count
+mismatch — pinning whether the cause is the target (guard fires) or something else
+(guard passes, count still doubled). Covered by those two tests. Do NOT widen the
+byte-count tolerance to "fix" it — a real word-size regression looks identical.
 
 ## Language features — specified, not yet implemented
 
@@ -1052,27 +1086,6 @@ Follow-ups split out of the (now-done) static-managed sentinel landing:
 - **STATUS 2026-06-10 — GREEN** (unit run on `3342460e`): all 8 `builder-comp-int-int` shards pass (2.5–26.7 min) and `builder-comp-int` / `-comp-int` pass. **Margin note**: shard 4/8 ran 26.7 min — ~89% of the 30-min cap; the 8-shard + skip set is sufficient but thin, so if the int-int suite grows it may need a 9th–10th shard or one more skip before it times out again. (The remaining unit reds — `arm32_{linux,baremetal}`, `native_x64` — are separate modes, not this. NOTE: `native_x64` was NOT "WIP" — it was broken by an ELF PC32 reloc bug, fixed 2026-06-14 `dd74c91e`; that native_x64 ELF PC32 reloc bug is fixed and archived in claude-todo-done.md.)
 
 ## Testing: harness, runners & conformance coverage
-
-### arm32 iface shape-test intermittent LP64-doubling flake — 🟡 OPEN (2026-07-06)
-
-**Symptom:** `TestEmitImplVtablesNonExtendingShape` / `TestEmitImplVtablesExtendedConcatShape`
-(`pkg/binate/native/arm32/arm32_iface_test.bn`) intermittently fail their relro
-byte-count assertions with EXACTLY the LP64-doubled values (24→48, 72→144), i.e.
-`ir.BuildImplVtable` strided 8-byte slots — the ILP32 target (`IntSize=4`) was not
-in effect at emit time. **Trigger:** full-suite ordered native unit run
-(`scripts/unittest/run.sh builder-comp native`); ~1 in 50; NOT reproducible in
-`--run` isolation. **Root cause: UNKNOWN — needs investigation.** Both tests call
-`setArm32TargetIface()` (sets `IntSize=4`) as their first line, and neither
-`ir.GenModule` nor the parser calls `types.SetTarget` (grep-verified), so nothing
-should reset the global target between the setter and emission — yet it
-intermittently reads 8. Candidates: a global-target ordering/visibility subtlety
-across tests, or genuine gen1 emission nondeterminism (the latter would be a real
-compiler bug). **Diagnostic in place (commit `3ca73110`):** each shape test now
-asserts `types.GetTarget().IntSize == 4` immediately before the byte-count check,
-so a recurrence reports "target leaked to LP64" instead of a confusing count
-mismatch — pinning whether the cause is the target (guard fires) or something else
-(guard passes, count still doubled). Covered by those two tests. Do NOT widen the
-byte-count tolerance to "fix" it — a real word-size regression looks identical.
 
 ### Conformance harness: `pkg0.testing` `--test`-only rules are not conformance-testable
 
