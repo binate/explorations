@@ -64,45 +64,19 @@ observed.
 
 ### `spec/11-interfaces/052_alias_same_identity` — suspected environmental one-off (observed 2026-07-10)
 
-The positive interface-alias test (iface.alias §11.7 — an alias is the SAME
-interface object as its target; `impl *Dog : Speaker`, no generics) reported a
-single failure during a saturated full multi-mode `builder-comp` batch (a
-2724-pass sweep, 1707s), then passed 3/3 in isolation and did NOT fail in the
-concurrent `builder-comp-comp` run of the same batch.  The test is deterministic
-(exact `"ok"` output; its `.rules` file is spec-rule coverage, not output
-matching).  **Not a timeout, and not the native-aa64 family:** `builder-comp` has
-NO per-test `timeout` (neither the runner nor `run.sh`), and within a mode tests
-run sequentially — the "parallel"/saturation is from running several modes at
-once.  So the lone failure was almost certainly a transient environmental glitch
-(a fork/alloc/OS-level hiccup under extreme load), not a codegen/checker/harness
-defect.  The failure mode was not captured; the harness prints the actual output
-on FAIL, so a recurrence will finally reveal it.
+One failure during a saturated multi-mode `builder-comp` sweep; passed 3/3 in
+isolation and clean in the concurrent `builder-comp-comp` run. The test is
+deterministic (exact `"ok"`), `builder-comp` has no per-test timeout, and tests
+run sequentially within a mode — so the lone red was almost certainly a transient
+OS-level hiccup under load, not a real defect. A recurrence will reveal it.
 
 ### arm32 iface shape-test intermittent LP64-doubling flake (observed 2026-07-06) — suspected REAL bug, needs investigation
 
-Unlike 052 above, this one points at a possible genuine defect (a global-target
-state leak or emission nondeterminism), not mere environmental noise — kept here
-because it is intermittent, but it should be investigated on recurrence, not
-dismissed.
-
-**Symptom:** `TestEmitImplVtablesNonExtendingShape` / `TestEmitImplVtablesExtendedConcatShape`
-(`pkg/binate/native/arm32/arm32_iface_test.bn`) intermittently fail their relro
-byte-count assertions with EXACTLY the LP64-doubled values (24→48, 72→144), i.e.
-`ir.BuildImplVtable` strided 8-byte slots — the ILP32 target (`IntSize=4`) was not
-in effect at emit time. **Trigger:** full-suite ordered native unit run
-(`scripts/unittest/run.sh builder-comp native`); ~1 in 50; NOT reproducible in
-`--run` isolation. **Root cause: UNKNOWN — needs investigation.** Both tests call
-`setArm32TargetIface()` (sets `IntSize=4`) as their first line, and neither
-`ir.GenModule` nor the parser calls `types.SetTarget` (grep-verified), so nothing
-should reset the global target between the setter and emission — yet it
-intermittently reads 8. Candidates: a global-target ordering/visibility subtlety
-across tests, or genuine gen1 emission nondeterminism (the latter would be a real
-compiler bug). **Diagnostic in place (commit `3ca73110`):** each shape test now
-asserts `types.GetTarget().IntSize == 4` immediately before the byte-count check,
-so a recurrence reports "target leaked to LP64" instead of a confusing count
-mismatch — pinning whether the cause is the target (guard fires) or something else
-(guard passes, count still doubled). Covered by those two tests. Do NOT widen the
-byte-count tolerance to "fix" it — a real word-size regression looks identical.
+`TestEmitImplVtables{NonExtending,ExtendedConcat}Shape` (`arm32_iface_test.bn`)
+~1/50 in the full ordered native unit run (never in `--run` isolation) fail relro
+byte-counts with EXACTLY LP64-doubled values (24→48, 72→144) — ILP32 `IntSize=4`
+not in effect at emit. Root cause UNKNOWN (target-global leak or a real gen1
+emission-nondeterminism bug); guard `3ca73110` pins it, and do NOT widen the tolerance.
 
 ## Language features — specified, not yet implemented
 
