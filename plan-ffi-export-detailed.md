@@ -397,12 +397,38 @@ Unit tests for the closure-dispatcher and disjoint-name enforcement.
 driver just scans facade decls for the `c_export` on `_init`. Implementation
 detail, decide when writing `compileLibrary`.
 
-### Phase 6 — `pkg/builtins/platform_init`; retire `binate_runtime.c`
+### Phase 6 — `pkg/builtins/startup`; retire `binate_runtime.c`
 
-> **DEFERRED (2026-07-11) — out of current MVP scope.** Not being done now. Until
-> it lands, `binate_runtime.c` stays; a C-driver-owns-`main` library consumer gets
-> the `bootstrap.*` shims from the shim-only stub or (preferred) avoids them with a
-> pure-compute export (§3). The edit sites below are retained for when it resumes.
+> **Package renamed `platform_init` → `startup` (2026-07-13).** The underscore
+> clashed with the single-word builtins convention (`rt`/`lang`/`reflect`/`build`/
+> `testing`); `startup` names the role (the startup counterpart to `rt`'s runtime
+> *services*). References to `platform_init` below are the old spelling — read as
+> `startup`.
+
+**Staging (needs multiple BUILDER bumps).** The entry `main` can only move into
+`startup` once a BUILDER that force-includes `startup` is pinned — gen1 is
+`cmd/bnc` linked BY BUILDER, so if `main` moved to `startup` while BUILDER didn't
+force-include it (and `binate_runtime.c` were dropped), a BUILDER-linked gen1
+would link with no `main`. So Phase 6 is staged:
+
+- **Bump 0 — anodyne `startup` + force-include** ✅ **LANDED `6c694b14`
+  (2026-07-13), adversarially reviewed.** A decl-free `.bni`-only package
+  (`ifaces/core/pkg/builtins/startup.bni`, parallel to `reflect`), force-loaded
+  by `cmd/bnc`'s `ensureRuntimeDepsLoaded` (`ensureStartupLoaded`) so it reaches
+  every hosted link. Deliberately ANODYNE (no exported surface, no functions, no
+  init — links only the same dead-strippable reflect descriptor + `__Package`
+  accessor every package carries), because the *current* BUILDER doesn't
+  force-include it: `startup` is present in tree-built artifacts (gen2, every
+  compiled program) but absent in BUILDER-linked gen1 — an empty package makes
+  that asymmetry harmless. Verified: hygiene 17/17; cmd/bnc unit tests;
+  conformance `builder-comp` 2792/0/7, `builder-comp-int` 2770/0/29,
+  `builder-comp-comp` 2792/0/7 (the self-compile mode — gen2 links `startup` —
+  validates the restaging premise).
+- **BUILDER re-pin (user-owned, next).** Rebuild a bundle from the landed tree
+  and bump `BUILDER_VERSION` so the pinned BUILDER force-includes `startup`.
+  Nothing below can land until BUILDER carries `startup`.
+- **Bumps 1+ — real content** (below): the entry `main()`, then the `Write`/
+  `Args`/`Exec` shim flips (atomic per symbol), then drop `binate_runtime.c`.
 
 **High blast radius** — changes startup *and* the I/O/exec shim linkage for every
 hosted binary (incl. self-hosted `bnc`). Two halves: the entry `main()` and the
