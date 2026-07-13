@@ -7,24 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### native-aa64 self-hosted conformance: intermittent timeout flakiness — 🟡 OPEN (2026-07-02)
-
-**Severity: minor (CI flake, not a miscompile).** The
-`builder-comp_native_aa64-comp_native_aa64` conformance mode intermittently reports
-1–2 spurious failures per full 2606-test run: a *correct* compiled test binary that
-occasionally hits the runner's `timeout 3` (`conformance/runners/…native_aa64….sh`)
-and yields empty output. **Non-deterministic** — different tests fail run-to-run and
-none reproduce in isolation. Observed independently on two full runs:
-`iota-repeat` + `shr/16/signed` on one tree, `311_err_index_assign_oob` on another
-(baseline) — so it is **pre-existing**, not tied to any one change (discovered while
-regression-checking the HFA stage-1 landing). The compiled code is byte-identical
-across compiles (only Mach-O metadata differs), so this is a timeout-under-load / rare
-runtime-slowness issue, not a codegen defect. Possible fixes to investigate: raise the
-per-test `timeout` (3s is tight when the full sweep saturates the host), or make the
-runner retry a timed-out test once before reporting failure. Until then a red
-native-aa64 run with a lone `[3s]` timeout failure is very likely this, not a real
-regression — re-run the single test in isolation to confirm.
-
 ### `spec/11-interfaces/052_alias_same_identity` intermittent failure under full-suite load — 🟡 OPEN (2026-07-10)
 
 **Severity: minor (CI flake, not a miscompile).** The *positive* interface-alias test

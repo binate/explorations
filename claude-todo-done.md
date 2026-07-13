@@ -6,6 +6,21 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## native-aa64 conformance intermittent timeout flakiness — ✅ RESOLVED (`4d516985`, 2026-07-12)
+
+The `builder-comp_native_aa64-comp_native_aa64` runner intermittently reported
+1–2 spurious failures per full 2606-test sweep: a *correct* compiled binary that
+occasionally hit the runner's `timeout 3` and yielded empty output
+(non-deterministic — different tests each run, never reproduced in isolation).
+Root cause: that runner uniquely capped each test at 3s — a value inherited from
+an older runner — while every sibling native runner (native_aa64_LINUX,
+native_x64[_darwin], the arm32 family) uses 10s; under a saturated parallel sweep
+a correct binary sometimes couldn't finish within 3s.  Fix: raise it to 10s,
+matching the convention (still a safety cap against a genuinely runaway /
+infinite-loop test, ~3× headroom).  Reasoned resolution — the flake is
+non-reproducible on demand, so this addresses the documented root cause (an
+outlier timeout) rather than being verified empirically flake-free.
+
 ## `os.Args()` + interpreter arg plumbing (`os.SetArgs`) — ✅ DONE & LANDED (2026-07-12) — one compiled-argv[0] follow-up in [claude-todo.md](claude-todo.md)
 
 `os.Args()` (`0d1555f7`) returns the command-line arguments as a fully-readonly
