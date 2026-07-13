@@ -599,6 +599,42 @@ folded "Phase 1" — lands inside 5a). Phase 4 is a later zero-cost optimization
 **Phases 6 and 7 are deferred**; 8/9 later. Each unit below keeps the tree green
 and is cherry-pickable on its own.
 
+### Next-up implementation notes (2026-07-12)
+
+**(1) `bn_init` idempotency guard.** Make the landed `EmitLibInit`
+(`pkg/binate/ir/gen_init.bn`) run-once. Today it is a single straight-line
+`entry` block: call each `<pkg>.__init` → return. Add a module guard global + a
+conditional early-return:
+- Add a guard global: `var g @ir.Global = make(ir.Global); g.Name =
+  "__bninit_done"; g.Typ = <bool type>; m.AddGlobal(g)` (Init nil ⇒ zero). Its
+  symbol mangles via `GlobalName(modulePkgName, "__bninit_done")`.
+- Reference it in the body via an `IsGlobalRef` pseudo-Instr (copy the pattern in
+  `gen_func.bn` lookupVar global path: `make(Instr); ID=-1;
+  Op=iropcode.OP_ALLOC; StrVal="__bninit_done"; Typ=MakePointerType(bool);
+  TypeArg=bool; IsGlobalRef=true`). StrVal MUST equal `g.Name` so def and ref
+  mangle to the same symbol.
+- Three blocks: `entry` loads the guard → `EmitBranch(guardVal, doneBlk,
+  runBlk)`; `runBlk` `EmitStore(guardRef, EmitConstBool(true))` then the call
+  loop then `EmitJump(doneBlk)`; `doneBlk` `EmitReturn`. @Block API: `EmitLoad`,
+  `EmitStore`, `EmitConstBool`, `EmitBranch(cond,then,else)`, `EmitJump`,
+  `AddBlock`, `EmitReturn`.
+- Tests: `gen_init_test` (guard global + branch structure); `codegen`
+  `emit_libinit_test` (the multi-block `@bn_init` still compiles); harness — call
+  `bn_init()` TWICE and assert an init side-effect (e.g. an exported counter
+  incremented by a var-initializer runs once). Verify the guard emits on LLVM +
+  each native backend (multi-block synthetic init is net-new codegen).
+
+**(2) `pathFileBase` `.o`-name collision (MAJOR, `claude-todo.md`).**
+`pathFileBase` (`cmd/bnc/util.bn`) maps `/`→`__` but leaves `_` untouched ⇒
+non-injective (`a/b` and `a__b` both → `a__b`). Fix by making it injective: escape
+the escape — e.g. first replace `_`→`_u` (or `_5f`) then `/`→`_s` (or keep `__`
+but escape a literal `_` first), or hash the path. A single `pathFileBase` fix
+closes all three drivers (`main.bn` dep loop, `test.bn`, `library.bn`). Add a unit
+test: two package paths that collide under the OLD mapping map to DISTINCT bases
+under the new one. Verify no existing intermediate/object name assumptions break
+(grep for pathFileBase consumers; the names are internal build-dir intermediates
++ archive members, not ABI, so a spelling change is safe).
+
 **Status (2026-07-12):** Phases 2 **and 3 landed** on main (`e213dd42`,
 `dd98dc31`), both adversarially reviewed. `#[c_export]` now recognizes, threads,
 placement-checks (method silent-no-op → hard error), and **emits** the C symbol
