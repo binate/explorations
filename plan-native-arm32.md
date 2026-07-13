@@ -469,6 +469,11 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
   `__ivtshim` + `__typeinfo` + `__ifaceid` + `__satentry`) + `OP_IFACE_UPCAST`.
   Fail-loud-defer generic-impl vtables and int64/float64-in-tuple placement; keep
   nil-iface-dispatch-on-baremetal xfail (no-MMU env limitation).**
+  **UPDATE 2026-07-12:** both fail-loud deferrals are now DONE — generic-impl
+  vtable emission (`edafa86d`, mirroring x64/aa64: emit the raw `__ivt` for every
+  impl incl. generic instantiations, gate `__ivtshim` + the descriptor row to
+  non-generic; fixes 447/448/1041) and int64/uint64-in-tuple placement
+  (`5651fc8b`). Only FLOAT64-in-tuple remains deferred (P5 soft-float).
   Phases:
   - **P4-c.1** — ✅ DONE & LANDED 2026-07-06 (data side; commits `4ebb2321` + `b6179612`):
     real `emitImplVtables` (`__ivt`/`__ivtshim`), `collectImplVtableSlotsNative`,
