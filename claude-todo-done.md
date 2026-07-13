@@ -6,6 +6,17 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Recursive lambdas (`var f = func(x){ … f(…) … }`) — ✅ RESOLVED BY DESIGN (a specified compile error)
+
+A lambda that refers to the very `var` it is bound to is a **specified hard
+compile error**, not pending work: the name is not in scope inside its own
+initializer and capture is by-value. Pinned by rule `func.closure.recursion`
+(§10) and conformance `spec/10-functions/122_err_closure_recursion_var.bn`
+(expects `undefined: …`, no xfail). The idiom is a named top-level function; a
+Y-combinator is the value-level workaround. (Was a residual on the retired
+"Function values — residual follow-ups" entry — "revisit now that Phase 2
+capture is settled"; the decision is now made.)
+
 ## `pathFileBase` `.o`-name collision → silently broken artifact — ✅ DONE & LANDED (`59ba25f0`, 2026-07-12)
 
 `pathFileBase` (`cmd/bnc/util.bn`) names each package's intermediate `.o` (and, for

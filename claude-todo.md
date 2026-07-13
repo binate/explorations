@@ -124,18 +124,6 @@ separate, later step — a robustness nicety, not a correctness fix.
 
 ## Method values & function values (codegen)
 
-### Function values — residual follow-ups (the MAJOR PROJECT landed) — 🟡 OPEN (low priority)
-Function values are done across all three phases (archived in [claude-todo-done.md](claude-todo-done.md):
-Phase 1 non-capturing + type/vtable machinery, Phase 2 closures/capture — `plan-function-values-phase-2.md`
-is "COMPLETE (shipped)", conformance 338–344 + 501/508–510/513…, Phase 3 cross-mode trampolines).
-Residual:
-- Broader cross-mode trampoline signature shapes beyond `TrampolineScalar` (floats, aggregates, >7 args) —
-  add when a path actually reaches them.
-- Recursive lambdas (`var f = func(x){ … f(…) … }`) — non-goal during Phase 1; revisit now that Phase 2
-  capture is settled (Y-combinator is the current workaround).
-- Downstream interop hand-off (package descriptor; retiring ~30 hand-written `vm_extern` arms) is tracked
-  under "Compiler/interpreter interop — MAJOR PROJECT".
-
 ### cross-mode coerced-agg func-value ABI — residual native-shim follow-ups
 The cross-mode coerced-aggregate-ARG residuals — the iface/func-value by-address
 fix, the >7-arg extern guard, and the sub-word/bool RETURN — LANDED via the by-address
@@ -295,7 +283,9 @@ the range-lookup-selected shim slot) + `pkg/binate/vm` `vtable_inject`
 
 Dual-mode execution substrate is LANDED: shared-layout/refcount cross-mode interop, function values (`{vtable,data}` rep + shims + `dispatchCompiledFuncValue`), the `reflect.Package`/`__Package()` descriptor (compiled + VM builtins, `conformance/532` green in all 6 modes), cross-mode dispatch coverage, and the VM name→function-value registry (`registerPackageDescriptorExterns`).
 
-Remaining (LIVE tracker is the "Package descriptors (Phase B)" entry above): the GENERAL Functions-table for USER packages — codegen emits a per-package `Functions` table + the VM auto-enumerates all packages via a cross-package registry, replacing hand-maintained `RegisterStandardExterns`; then Phase C richer type metadata / RTTI.
+Remaining (LIVE tracker is the "Package descriptors (Phase B)" entry above): the GENERAL Functions-table for USER packages — codegen emits a per-package `Functions` table + the VM auto-enumerates all packages via a cross-package registry, replacing hand-maintained `RegisterStandardExterns` (now down to ~11 `RegisterExtern` arms; `vm_extern` dispatch is already table-driven); then Phase C richer type metadata / RTTI.
+
+Dormant cross-mode func-value residual (folded in from the retired "Function values — residual follow-ups" entry): the one trampoline ARG shape not yet covered is **float args in V/FP registers** — nothing reaches it today (float scalars ride the integer banks; aggregate returns use `TrampolineAggregate`, ILP32 i64 returns use `TrampolineScalar64`, and >7 args fail loud by design, `17cfc16b`). Add a float-V-reg trampoline if/when a path actually needs it.
 
 (Background/history archived in claude-todo-done.md.)
 
