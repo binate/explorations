@@ -6,6 +6,26 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## REPL element-helper emission readonly-blind (`gen_repl.bn`) → undefined dtor symbol for a REPL `readonly @[]@T`-field struct — ✅ DONE & LANDED (`97ff5f12`, 2026-07-13)
+
+`ensureReplStructHelpers` and the REPL pending-registration passes walked a
+struct's fields via `.ResolveAlias()` (readonly-blind) to decide element-helper
+EMISSION (`ensureMsDtor`/`ensureArrayDtor`), while the main path uses
+`peelTransparent`.  So a REPL-defined `type S struct { f readonly @[]@Node }`
+skipped `ensureMsDtor` → the struct dtor body's call to `__dtor_ms_mp_Node` was
+never emitted → `vm: extern not found` panic (REPL-only, `cmd/bni2`).
+Pre-existing; found by the review of `bb37a7c9`.  Fix: the three field-walk sites
+use `peelTransparent`, matching the main path.  Adversarially reviewed and proven
+end-to-end (live REPL: fixed runs clean, parent panics on the exact symbol); test
+`TestGenDeclReadonlyManagedSliceFieldEmitsElemHelper` (fails without the fix).
+
+This **fully closes the readonly-blindness class** (found via the review chain of
+the readonly-transparency fix): main-path dtor naming + bodies (`91d8b0a6`),
+`NeedsDestruction` (`91d8b0a6`), by-value copy/dtor balance (`bb37a7c9`), and REPL
+element-helper emission (`97ff5f12`).  One masked-not-live same-shape site remains
+(`elemDtorName`'s internal `ResolveAlias` — all callers pre-peel), tracked as a
+defense-in-depth follow-up in [claude-todo.md](claude-todo.md).
+
 ## `needsStructCopy` readonly-blind → by-value `readonly S` copy/dtor imbalance (UAF) — ✅ DONE & LANDED (`bb37a7c9`, 2026-07-13)
 
 `needsStructCopy` / `emitStructCopy` / `emitStructDtor` (gen_util_refcount.bn)
