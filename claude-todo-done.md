@@ -6,6 +6,21 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `elemDtorName`/`elemCopyName`/`isElemDtorModuleLocal` peel readonly (defense-in-depth) — ✅ DONE & LANDED (`509c2a0f`, 2026-07-13)
+
+These three element-name helpers (`gen_dtor.bn` / `gen_copy.bn`) resolved alias +
+named but not `readonly`, so a readonly-wrapped `@[]T` / `[N]T` would take the
+qualified-name (non-slice/array) branch instead of the local ms/array-dtor name.
+**Masked, not a live bug** — every caller already `peelTransparent`s before calling
+them (`gen_dtor_emit_bodies.bn`, `gen_copy_emit.bn`, `gen_util_refcount.bn`;
+reviewer-confirmed), so no reachable case mis-dispatches.  Peel readonly here too so
+a future un-peeled caller can't reintroduce the readonly-blind undefined-symbol
+class.  No new test: the mis-dispatch is unreachable, so nothing fails without the
+change — pure hardening (verified no regression: ir unit suite + a
+struct/dtor/copy/readonly/array conformance smoke, byte-identical since
+`peelTransparent` == `ResolveAlias` for the pre-peeled inputs callers pass).  This
+is the last same-shape site of the readonly-blindness class (see the entry below).
+
 ## REPL element-helper emission readonly-blind (`gen_repl.bn`) → undefined dtor symbol for a REPL `readonly @[]@T`-field struct — ✅ DONE & LANDED (`97ff5f12`, 2026-07-13)
 
 `ensureReplStructHelpers` and the REPL pending-registration passes walked a
@@ -21,10 +36,10 @@ end-to-end (live REPL: fixed runs clean, parent panics on the exact symbol); tes
 
 This **fully closes the readonly-blindness class** (found via the review chain of
 the readonly-transparency fix): main-path dtor naming + bodies (`91d8b0a6`),
-`NeedsDestruction` (`91d8b0a6`), by-value copy/dtor balance (`bb37a7c9`), and REPL
-element-helper emission (`97ff5f12`).  One masked-not-live same-shape site remains
-(`elemDtorName`'s internal `ResolveAlias` — all callers pre-peel), tracked as a
-defense-in-depth follow-up in [claude-todo.md](claude-todo.md).
+`NeedsDestruction` (`91d8b0a6`), by-value copy/dtor balance (`bb37a7c9`), REPL
+element-helper emission (`97ff5f12`), and the element-name helpers
+(`elemDtorName` / `elemCopyName` / `isElemDtorModuleLocal`, `509c2a0f` —
+defense-in-depth; see the entry above).
 
 ## `needsStructCopy` readonly-blind → by-value `readonly S` copy/dtor imbalance (UAF) — ✅ DONE & LANDED (`bb37a7c9`, 2026-07-13)
 

@@ -9,19 +9,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### `elemDtorName`/`elemCopyName`/`isElemDtorModuleLocal` peel alias but not readonly — masked today; peel for defense-in-depth — 🟢 LOW / OPEN (found 2026-07-13, review of `97ff5f12`; FIX IN PROGRESS)
-
-`elemDtorName` / `elemCopyName` / `isElemDtorModuleLocal` (`gen_dtor.bn` /
-`gen_copy.bn`) resolve alias + named but NOT `readonly`.  **Masked, not a live
-bug:** all 7 callers already `peelTransparent` before calling them
-(`gen_dtor_emit_bodies.bn:58/147/256`, `gen_copy_emit.bn:210/277`,
-`gen_util_refcount.bn:73/93`), so they cannot mis-dispatch today.  Peel readonly
-there too (defense-in-depth) so a future un-peeled caller can't reintroduce the
-readonly-blind undefined-symbol class.  This is the last same-shape site of that
-class — main-path bodies/naming, `NeedsDestruction`, by-value copy/dtor balance,
-and REPL element-helper emission are all now peeled (`91d8b0a6` / `bb37a7c9` /
-`97ff5f12`).
-
 ### cast / addressability follow-ups from the by-value-call work — 🟠 OPEN (found 2026-07-13, R1–R3 re-review)
 
 The by-value-call field-access residuals R1–R3 are **FIXED & LANDED** (R1 `c876319d`, R2
