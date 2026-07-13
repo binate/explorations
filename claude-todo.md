@@ -505,8 +505,27 @@ host-default config overridable per `--target`, through `c7249552` (conformance 
 full design in [`plan-build-constraints.md`](plan-build-constraints.md), archived in
 [claude-todo-done.md](claude-todo-done.md). Still deferred (none started):
 - Vocabulary beyond arch/os: `triple` / `backend` / `libc` / `ptrsize` / `version` with `is` / `at_least` / `at_most`.
+  (The **`version`** slice is now designed + planned — see the dedicated entry below.)
 - `bnlint --target`; main-module gating; migrating the `impls/` duplicate trees onto constraints.
 - The separate inline-asm (`#[asm]`) doc that composes with this substrate.
+
+### Compiler-version predicate (`at_least` / `at_most` / `is(version, …)`) — 🟠 PLANNED (design ratified 2026-07-13)
+Full design + implementation plan in
+[`plan-build-version-predicate.md`](plan-build-version-predicate.md).  Adds a
+compiler-version gate to `#[build]`: `at_least(version, "X.Y.Z")` / `at_most(…)`
+(ordered, version-key only) + `is(version, "X.Y.Z")` (exact) + the existing `!`
+for inverses; a strict `X.Y.Z[pre[N]]` parser (the `pre` suffix stripped for
+comparison, numeric per-component compare, hard error otherwise); and a new
+`BuildConfig.Version` fed from `pkg/binate/version`'s `version.Version`.
+**Motivation:** it is the bootstrap mechanism for moving the program `main` out
+of `runtime/binate_runtime.c` into `pkg/builtins/startup` (Phase 6 /
+design-ffi-export.md §3.3).  The BUILDER stage links the *bundle's* frozen `.c`
+`main`, so the Binate `main` must be gated `at_least(version, <threshold>)` to
+dodge a duplicate-`main` clash (BUILDER excludes it → bundle `main`; gen1 includes
+it → tree `main`).  **First bump = the predicate machinery + tests only** (no
+main-move; that follows a BUILDER re-pin).  BUILDER constraint: no
+`#[build(at_least(…))]` in `cmd/bnc`'s own BUILDER-compiled tree until BUILDER is
+re-pinned to support it (mirrors the `#[c_export]` constraint).
 
 ## bnfmt (self-hosted formatter)
 
