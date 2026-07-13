@@ -765,15 +765,33 @@ Split into three landable increments:
   in emitCastOp/emitBitCast/emitCompare removed. Adversarial-reviewed clean (4
   lenses). `builder-comp_native_arm32_baremetal`: **242 → 115 failures (127 fixed,
   zero regressions)**.
-- **P5.2 — float across CALL boundaries (next).** Drop the float fail-louds in
-  arm32_call.bn (emitCallArg / emitCallReturn), arm32_emit_func.bn (emitSpillParam),
-  arm32_return.bn; route f32 through the int32 scalar path and f64 through the
-  int64 pair path via `isPair64Typ`. The shared CallConv already classifies float64
-  as an 8-byte, 8-aligned, 2-word arg (argNeeds8Align keys on AlignOf≥8), so this is
-  pure routing. Flips 287, 562–566, 633, 664, 885–901, etc.
-- **P5.3 — float in aggregates / tuples / closures.** Relax the float-field
-  fail-loud guards in the closure/funcvalue/aggregate shim paths now that scalar
-  float works. Flips 568, 699–707, 883–884, 912–931, 963–970 (hfa), 985 (sse).
+- **P5.2 — float across DIRECT CALL boundaries — DONE (`cc20fad0`, 2026-07-13).**
+  Dropped the float fail-louds in arm32_call.bn (emitCallArg / emitCallReturn),
+  arm32_emit_func.bn (emitSpillParam), arm32_return.bn; float32 rides the int32
+  scalar path, float64 the int64 pair path via `isPair64Typ` (the shared CallConv
+  already classifies float64 as an 8-byte 8-aligned 2-word arg). DIRECT-call float
+  works (287, 646, 885, 886, 887). Func-value / interface calls reach their target
+  through the func-value SHIM ABI (all-int, coerces a float scalar to one GP word);
+  a scalar **float64** arg there is mis-placed, so `indirectCallHasWideFloatArgArm32`
+  fails those LOUD (P5.3) at emitCallFuncValue / emitCallIfaceMethod — a fail-loud
+  guard that closes a would-be silent-miscompile (975/988). 115 → 71 failures, ZERO
+  miscompiles, ZERO regressions. Two supporting changes landed with it:
+  - **Transparent-wrapper peel fix (MAJOR, review-found):** the 64-bit value-shape
+    predicates (isReg64Scalar, isUnsigned64, isFloatTyp, floatBitWidth) now peel
+    via `types.StripWrappers` (alias / readonly / named), not `UnwrapNamed`
+    (named-only). A named-only peel classified a `readonly float64` / `readonly
+    int64` scalar arg as NOT a register pair → 1-word-placed → silent miscompile
+    (and slipped the shim guard, since the shim substitution peels transparent).
+    Covered by `conformance/regressions/readonly-wrapped-64bit-arg`.
+  - **arm32_iface split (`8760ed5c`):** the runtime DISPATCH ops moved to
+    `arm32_iface_dispatch.bn` (arm32_iface.bn kept the __ivt / RTTI DATA side), a
+    pure-move refactor to keep arm32_iface.bn under the 600-line cap.
+- **P5.3 — float across the func-value SHIM + in aggregates / tuples / closures.**
+  Make the func-value shim ABI marshal a scalar float64 arg (2 GP words, not the
+  all-int 1-word coercion) and float results, then drop the
+  indirectCallHasWideFloatArgArm32 guard; relax the float-field fail-loud guards in
+  the closure/funcvalue/aggregate shim paths. Flips 562–566, 568, 633, 699–707,
+  883–884, 912–931, 963–970 (hfa), 985 (sse), 975/988, etc.
 - **Acceptance**: `builder-comp_native_arm32_baremetal` fully green (or every
   residual failure xfail'd with a tracked root-cause todo).
 

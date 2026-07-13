@@ -29,6 +29,30 @@ pre-existing bugs; one is now fixed, two remain:
   `lhsType.IsReadonly()` guard (check_assign.bn:54) doesn't fire.  Fix: check readonly-ness
   of the whole indexed LOCATION, not just the peeled element type.
 
+### native/arm32: `UnwrapNamed` should be `StripWrappers` at the 32-bit signedness / field-offset sites — 🟠 OPEN (found 2026-07-13, P5.2 shim-guard review)
+
+P5.2 (`cc20fad0`) fixed the 64-bit value-SHAPE predicates (isReg64Scalar, isUnsigned64,
+isFloatTyp, floatBitWidth) to peel ALL transparent wrappers via `types.StripWrappers`
+(alias / readonly / named) instead of `common.UnwrapNamed` (named-only), because a
+named-only peel classified a `readonly float64` / `readonly int64` scalar arg as NOT a
+register pair → 1-word-placed → silent miscompile.  The SAME named-only-peel bug remains
+in ~11 OTHER arm32-backend sites that make value-shape / signedness / offset decisions on
+a possibly-wrapped type — all latent (no conformance test passes a readonly/alias-wrapped
+value through them today), same root cause, each a potential silent wrong-code:
+- **Signedness** (a `readonly uint32` / alias would be treated as SIGNED → wrong compare /
+  div / shr): arm32_compare.bn:49 (isUnsigned in emitCompare), arm32_ops.bn:247 (isUnsigned
+  in emitBinop div/rem/shr), and the sub-word signed/width reads at arm32_emit.bn:91,261.
+- **Struct field OFFSET** (extracting a field from a `readonly`/alias-wrapped struct would
+  mis-offset): arm32_emit.bn:84 (emitExtract), arm32_int64_mem.bn:94 (emitExtract64) — the
+  latter specifically flagged by the P5.2 review as a would-mis-offset-an-int64-field case.
+- **Cast src/target width**: arm32_ops.bn:377-378 (emitCast), arm32_int64_cast.bn:69,85,
+  arm32_rodata.bn:44.
+
+Fix: audit each site (grep `common.UnwrapNamed` in pkg/binate/native/arm32) and switch the
+ones that make a value-shape/signedness/offset decision to `types.StripWrappers`; add a
+conformance regression exercising a readonly/alias-wrapped unsigned compare + a wrapped
+struct-field extract.  Verify no site legitimately WANTS the named-only peel first.
+
 ## Test-flake watch
 
 Intermittent, load-/environment-dependent test failures tracked for recurrence —
