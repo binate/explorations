@@ -6,6 +6,35 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## by-value-call field access: `getStruct().field=v` silently dropped + `getStruct().sub.y` nested-read panic — ✅ DONE & LANDED (`3e8fa816`, 2026-07-12)
+
+Field access on a struct returned BY VALUE (`func getW() W`, W a struct not `@W`) — a
+non-addressable temporary.  Two symptoms:
+
+- **`getW().field = v` silently accepted → store dropped into a discarded copy** (a no-op; a
+  managed field would leak), and **`&getW().field` wrongly compiled.**  Root cause: two
+  checker gaps — `selectorIsAddressable` (check_addr.bn) checked the base's TYPE (a struct
+  with the field) but not whether the base was ADDRESSABLE, and `checkAssignStmt`
+  (check_assign.bn) validated const-ness / assignability but not target addressability.  Fix
+  (Go's rule — an assignment / `&` target must be addressable): `selectorIsAddressable` now
+  requires `isAddressable(base)` for a struct-VALUE base (a POINTER base stays addressable
+  through the pointer, so `mkPtr().f` / `p.f` are unaffected), and a new
+  `checkAssignTargetAddressable` rejects a non-addressable target at all four assignment
+  sites (simple / compound / multi-return / comma-ok).  Semantics tightening — user signed
+  off.
+- **`getW().sub.y` (nested read through a by-value struct intermediate field) panicked**
+  ("unresolved selector in IR-gen") — `genSelectorPtr` had no by-value-call arm.  Added one
+  that materializes the temp and GEPs the field; safe because symptom 1's checker reject
+  means it is not reached as an assignment lvalue.  The read is refcount-balanced (the copy
+  shares the `genExpr`-registered result's refs).  A managed-ptr intermediate (`getW().mp.v`)
+  already worked via a different genSelector path.
+
+conformance/1062 (nested reads) + 1061 (the two rejections).  pkg/binate/types 1002/0,
+pkg/binate/ir 617/0; builder-comp 2788/0, builder-comp-int 2766/0; adversarially reviewed
+(no over/under-rejection, balance confirmed).  Three pre-existing residuals in the same
+family (R1 pointer-receiver method call on a by-value-call field; R2 index-of-call-array
+link failure; R3 cast-between-structs) remain OPEN — see claude-todo.md.
+
 ## native-aa64 conformance intermittent timeout flakiness — ✅ RESOLVED (`4d516985`, 2026-07-12)
 
 The `builder-comp_native_aa64-comp_native_aa64` runner intermittently reported

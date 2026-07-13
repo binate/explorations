@@ -69,40 +69,13 @@ package name contains `__`), so nothing is broken now.
 base within an emit loop instead of silently clobbering. No test exists yet; add one
 (two packages whose paths collide under the current mapping) with the fix.
 
-Distinct from (and left unfixed by) the deref-of-call selector fix — that fix covers
-`@T`/`*T`-returning calls and explicit derefs; this is the **by-value struct-returning**
-call `func getW() W` (W a struct, not `@W`).  A by-value call result is a non-addressable
-temporary, so `genSelectorPtr` cannot hand out an lvalue pointer for it.  Two symptoms:
+### by-value-call field-access residuals (R1–R3) — 🟠 OPEN (found 2026-07-12, adversarial review of the `getStruct().field` fix `3e8fa816`)
 
-1. **`getW().field = v` is a silent no-op.** The checker ACCEPTS assigning to a field of a
-   non-addressable by-value call result (it correctly rejects `&getW()` — "cannot take the
-   address of a non-addressable value" — but not the field-store form).  IR-gen then has no
-   lvalue to store to, so the write is silently discarded.  A managed field is worse: an
-   IR-gen arm that materialized a temp to address it would RefInc the new value into a temp
-   that is never dtor'd → a **leak** (this is exactly the regression the review caught and
-   the reason the deref-of-call fix's call arm handles ONLY pointer-returning calls, not
-   by-value ones).  **Root cause + right fix:** the CHECKER should reject `getStruct().field
-   = v` (assignment to a field of a non-addressable value), mirroring the `&`-of-temporary
-   rule.  Then IR-gen never sees it.
-
-2. **`getW().sub.y` (nested READ off a by-value call) panics** ("unresolved selector in
-   IR-gen").  `genSelector`'s Case-2 asks `genSelectorPtr` to address the inner by-value
-   field; with no by-value-call arm it returns nil → the panic stub.  (Single-level reads
-   `getW().x` already work via `genSelector`'s own call arm, which materializes a temp for a
-   READ — safe, since a read needs no persistent lvalue.)  A sound fix would materialize the
-   temp AND register it for end-of-statement cleanup (so managed fields are released), gated
-   to the read path only.
-
-Both are pre-existing (the deref-of-call fix neither introduced nor worsened them; it just
-declined to extend the leaky/panicking path).  Add xfail coverage for both forms when
-picked up.
-
-**UPDATE 2026-07-12 — symptoms 1 & 2 FIXED (landing pending):** the checker now rejects
-`getStruct().field = v` / `&getStruct().field` (selectorIsAddressable requires an
-addressable base for a struct-value base; a new assignment-target addressability check),
-and `genSelectorPtr` materializes the by-value call temp for the nested READ.  The
-adversarial review of that fix surfaced THREE further residuals in the same by-value-call
-family, all **pre-existing** and orthogonal (verified on `31c48ecd`):
+The main by-value-call gaps — `getStruct().field = v` silently dropped, and the
+`getStruct().sub.y` nested-read panic — are **FIXED** (`3e8fa816`; see done log).  The review
+of that fix surfaced three further residuals in the same family — `func getW() W`, a struct
+returned BY VALUE (a non-addressable temporary), distinct from the `@T`/`*T` deref-of-call
+work — all **pre-existing** and orthogonal (verified on `31c48ecd`):
 
 - **(R1) `getStruct().field.ptrRecvMethod()` — silent no-op + managed leak (rc 1→2).** A
   pointer-receiver method call takes the receiver address via `genSelectorPtr`, which now
