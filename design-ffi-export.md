@@ -8,12 +8,13 @@ Explores (a) what initialization is needed to link a Binate package
 a *set* of Binate packages as a C library; and (c) how the program **entry/startup
 glue itself** can be Binate code, retiring `runtime/binate_runtime.c`. **No
 core-language / grammar change is proposed** — the feature is annotations (which fit
-the existing annotation grammar) + a `pkg/builtins/platform_init` package +
+the existing annotation grammar) + a `pkg/builtins/startup` package +
 driver/codegen. Cross-refs: §17 (`prog.*` init/entry), §16.7 (`pkg.annotation`),
 §16.8 (`pkg.build` constraints — the entry glue is build-conditional), §16.9
 (`pkg.ccall`/`pkg.cglobal`, the FFI boundary), §7.13 (layout, for the C typedefs),
 §11.10 / §20.2 (the `lang` / `rt` builtins carve-outs). Naming (`c_export`,
-`bn_init`, `platform_init`, `link_at`, …) is illustrative and bikeshedable.
+`bn_init`, `link_at`, …) is illustrative and bikeshedable — except the
+entry/startup package name, now decided: `startup` (2026-07-13).
 
 **Ratified (2026-07-11) — two decided *properties* (spellings still adjustable):** (1) the
 FFI annotations (`c_export`, and the linker-placement `section`/`link_at`) are **unqualified,
@@ -124,9 +125,9 @@ exit) — those are *platform* facts. Instead:
   build unit**, which is precisely why co-linking two *separately-built* libraries
   would collide on `bn_init` (or weak-dedup to one — the version-skew hazard §3.6),
   and why merge (§3.6) is required.
-- **The entry/startup functions live in a builtins package `pkg/builtins/platform_init`**
+- **The entry/startup functions live in a builtins package `pkg/builtins/startup`**
   — separate from `rt` (`rt` is runtime *services*: alloc/refcount/exit, §20.2;
-  `platform_init` is *startup*). Being a builtins package it is **path-special** (may
+  `startup` is the *entry/startup* glue). Being a builtins package it is **path-special** (may
   run pre-init, inherits the same bespoke treatment as the `lang` carve-out §11.10 /
   `rt` §20.2), and it holds **build-conditional** (`#[build(...)]`) entry functions:
   - **hosted / C runtime:**
@@ -271,7 +272,7 @@ unusable-in-practice from C.
   an implementation detail; nothing here forces the split now.
 - Whether/how to expose the **rt refcount entry points** (`RefInc`/`RefDec`) to C
   callers that retain managed values.
-- **`bn_argc` / `bn_argv`**: with the entry glue in `platform_init`, argv capture is
+- **`bn_argc` / `bn_argv`**: with the entry glue in `startup`, argv capture is
   that package's **build-conditional (hosted-only)** code, not compiler-hardcoded; a
   freestanding/library build simply omits it.
 - Interaction with a future **"suppress mangled name"** (a separate visibility /
@@ -279,7 +280,7 @@ unusable-in-practice from C.
 - **BUILDER compatibility:** the annotations are compiler-recognized and the
   driver/codegen is outside `cmd/bnc`'s tree, so no BUILDER-subset constraint — but
   the new annotations must be recognized by the compiler *building* the library, and
-  `pkg/builtins/platform_init` is built like the other builtins.
+  `pkg/builtins/startup` is built like the other builtins.
 
 ---
 
@@ -358,7 +359,7 @@ packages get their special properties by path already.)*
 **A dedicated `raw` / `bare` package mode (for the entry glue).** *Considered: a
 package mode that "compiles raw code, no init, no deps, force-included"* for writing
 pre-init glue (the C `main` replacement). *Discarded as unnecessary:* the entry glue
-lives in `pkg/builtins/platform_init`, and the builtins packages are **already
+lives in `pkg/builtins/startup`, and the builtins packages are **already
 path-special** (the `lang` primitive-impl carve-out §11.10, `rt` as the runtime
 contract §20.2), so the glue inherits the pre-init / raw treatment by *being there* —
 no user-facing `raw` mode to invent, and the multi-file question above never arises.
@@ -384,7 +385,7 @@ c_export'd function calling the well-known `bn_init`, the merge conflict evapora
 force to a build flag. The build flag survives only for input-dir / merge selection.
 
 **`binate_runtime.c` → a builtins package.** *Decided:* the C startup glue is
-runtime-floor code that belongs in a `pkg/builtins/*` package (`platform_init`,
+runtime-floor code that belongs in a `pkg/builtins/*` package (`startup`,
 sibling to `rt`), not a standalone top-level C file — as C now (pure cohesion) or
 rewritten in Binate later via `#[c_export("main")]` (the C-free end state).
 
