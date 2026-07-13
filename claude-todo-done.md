@@ -81,9 +81,9 @@ landed 2026-07-01 (`444c9c90`, `plan-var-init-dependency-order.md`; checker
 var B = 10` → `A == 11` in compiler + VM. The stale todo claimed the opposite
 (declaration order, "spec decision needed"); the only real residual was the spec,
 which said "source-declaration order" — now corrected to dependency order +
-`prog.init.var-cycle` (§17.2 / §9.8, `85a70ff`). Known limitation (flagged
-separately, not yet a filed todo): ordering follows DIRECT reads, not reads reached
-only through a named-function call (Go follows calls; Binate does not).
+`prog.init.var-cycle` (§17.2 / §9.8, `85a70ff`). Known limitation (deferred, tracked
+in [claude-todo-v2.md](claude-todo-v2.md)): ordering follows DIRECT reads, not reads
+reached only through a named-function call (Go follows calls; Binate does not).
 
 ## `bnfmt-format` hygiene check: fetch bundled bnfmt via CHECK_TOOLS_VERSION — ✅ DONE
 
@@ -822,8 +822,8 @@ Adversarial-reviewed clean (LAND, 0 survivors); passes on both arm32 baremetal m
 Advancing the lint check-tools to `bnc-0.0.11pre2` (whose bnlint parses methods-on-generic-types
 / parameterized-receiver impls, has the `__Package` rename + `// bnlint:allow` + `--tests`, AND
 carries the cross-package generic name-collision fix `66666980`) cleared EVERY `LINT_SKIP` entry
-without a BUILDER bump — the payoff of the CHECK_TOOLS_VERSION mechanism.  `LINT_SKIP` is now
-**empty**; every package is linted.  Three commits (this consolidates the former "Wire
+without a BUILDER bump — the payoff of the CHECK_TOOLS_VERSION mechanism.  `LINT_SKIP` was
+**emptied** at this landing (it has since regained a stdx skip — see the tail note).  Three commits (this consolidates the former "Wire
 `bnlint --tests`", "asm INCREMENT 2", and "Clear the check-tools-lag lint skips" open entries):
 
 - **`6c1fa4ed`** — cleanup of the 28 real findings pre2's stricter bnlint (+ `--tests`) surfaced
@@ -843,8 +843,10 @@ without a BUILDER bump — the payoff of the CHECK_TOOLS_VERSION mechanism.  `LI
   from that audit was fixed earlier in `8a883450`) and drop `asm/*` → LINT_SKIP empty.
 
 Interp folded into the bump commit (not its own) because `--tests` cleared it with no code fix.
-The only remaining check-tools-lag item is `pkg/stdx/hash` + `pkg/stdx/cmp`, which live on the
-`work-2` branch, not main; when they land, the shipped CHECK_TOOLS_VERSION covers them too.
+`LINT_SKIP` was empty at this landing; it has SINCE regained `pkg/stdx/{hash,cmp}` +
+`pkg/stdx/containers/{table,mapfn,setfn,hashmap,set}` — those packages are on main and hit a NEWER
+pre2 constraint-check lag (fixed by `6647c49f`, which postdates the pre2 bundle). That skip is a
+separate, still-open item tracked in claude-todo.md.
 
 ## Generic-TYPE-method comparison re-check (same-package) — ✅ DONE & LANDED `40463d81` (2026-07-11)
 
@@ -1297,7 +1299,7 @@ rendered as `"unknown"` in every backend/tool diagnostic that names an op. One
 diagnostics, no pass/fail change.
 
 ## MAJOR — method VALUE on a generic instantiation emits an invalid struct name — ✅ FIXED & LANDED 2026-07-09 (`fedbd0c5`)
-**Fixed & LANDED on `main` as `fedbd0c5`** (the development commit on `work-2` was `2d48f348`): `gen_method_value`
+**Fixed & LANDED on `main` as `fedbd0c5`**: `gen_method_value`
 remaps the captured-receiver type's base to the IR-gen instantiated struct
 (`remapCapturedBaseToIR`, peeled from the receiver's IR-gen type) when it carries
 the raw bracket spelling, so the closure struct is named `Box__bn_inst__int` not
@@ -7893,7 +7895,7 @@ are **zero** aliased imports (`import <ident> "..."`) anywhere in `pkg/` or
   source pointer ("the consumer handles the bytes"). For `return container[i]` that
   alias pointed into the local's backing, which the function's cleanup RefDec'd
   (freed/zeroed) before the sret copy ran, so the return read freed memory.
-- **Fix (binate `30f21816`, work-3)**: the VM frame planner (`lower_func.bn`) now
+- **Fix (binate `30f21816`)**: the VM frame planner (`lower_func.bn`) now
   reserves an own region for every aggregate `OP_LOAD` (`isAggregateLoadTyp`,
   matching native `common.IsAggregateTyp`); a new `BC_LOAD_AGGREGATE` bytecode copies
   the loaded bytes into that region and points the result there, so the load owns its
@@ -8733,7 +8735,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
 - **Verification**: all 16 lifecycle shapes (return×6 / var-init / assign / composite / struct-by-value-copy / multi-consumer / discard / reassign / 1000-iter loop / self-assign) rt.Refcount-balanced, adversarially adjudicated.  Conformance 370/383/473/521/545/546 green in builder-comp / -int / -comp-comp / native aa64+x64.  (520 still fails in `-int` = the separate pre-existing "call through nil interface value" VM bug; 383 fails only in `-int-int` = the pre-existing cross-package double-interp loader limit, which also fails 136_grouped_imports.)
 - **Why MAJOR/critical**: #1 is a silent UAF; #2/#3 are silent leaks (violate the "compiler must NEVER leak" invariant).  Blocks `plan-std-errors.md` Part 1.
 - **Tests**: 546 (method-value, catches UAF) exists; add a new rt.Refcount-*balance* conformance test (catches leaks) for the return / discard / reassign / param shapes before landing.
-- **Status**: FIX IMPLEMENTED + verified on worktree (branch `work-1`); adding the balance conformance test, then full regression + cherry-pick.  Part 0 (`present`) already landed.  See `plan-std-errors.md`.
+- **Status**: FIX IMPLEMENTED + verified; adding the balance conformance test, then full regression + cherry-pick.  Part 0 (`present`) already landed.  See `plan-std-errors.md`.
 
 ### ~~Short-var single-bind `x := s` of a managed struct-by-value skips the copy~~ — FIXED + LANDED 2026-06-05 (binate `b0eb7299`, plan-cr-p2-2 step 3; routed through `emitStoreManagedSlot`; matrix short-var/ident/managed-struct un-xfailed)
 - **Symptom**: `x := src` where `src` is a struct with a managed field copies the

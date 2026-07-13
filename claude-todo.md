@@ -556,60 +556,6 @@ Hasher[T]" / "K does not satisfy Hashable" — because the checker fixes `2f8969
 every conformance mode still fully type-checks + compiles them. **Drop at the next
 CHECK_TOOLS bump past `6647c49f`** (lint.sh's own comment tracks the same condition).
 
-### check-tools-lag `LINT_SKIP` — cleared-skip history — ⚠️ STALE (all skips below were un-skipped; the only current skip is the stdx entry above)
-
-**The bnc-0.0.9 lag is CLEARED** (BUILDER is now `bnc-0.0.10`, checked 2026-06-29). `pkg/builtins/rt`
-(the `"void"` `__c_call` spelling) and `pkg/std/os` (the `.bni` free-function-vs-method fix
-`796effc7`), plus their importer chain `pkg/binate/{vm,repl}` + `cmd/{bni,bnas,bnlint}`, all lint
-**clean** under the bnc-0.0.10 bundled bnlint (verified each directly). Dropped from `LINT_SKIP` —
-restoring style-lint coverage on those seven packages, hygiene 15/15 — in `binate` lint.sh change
-`c5a14146`.
-
-**Still skipped — `pkg/binate/interp`**, but for a *newer* lag (not the rt/os one). **Root-caused
-(2026-06-30): a synthesized-accessor NAME skew, not a missing bnlint capability — so the next bump
-fixes it and NO linter work is needed.** The compiler-synthesized reflect accessor was renamed
-`_Package` → `__Package` in `e12a8a3b` ("fix CRITICAL … close silent collision", 2026-06-26), which
-postdates the bnc-0.0.10 release (`cdea9b9f`, 2026-06-23). interp's extern-registration references the
-new name as a func value (`rt.__Package`, `reflect.__Package`, `errors.__Package`, …), but the bundled
-bnc-0.0.10 checker still synthesizes/resolves the OLD `_Package` (verified: `emit_pkg_descriptor.bn`
-mangles `"_Package"` at cdea9b9f, `"__Package"` at HEAD), so `<pkg>.__Package` is undefined under the
-bundle — cascading to all four errors (`undefined: __Package` → `cannot call non-function` → `cannot
-assign void to @Package` → `_func_handle argument must be a named function`). A current-source
-(post-rename) bnlint lints interp clean. Action: at the next BUILDER bump (source ≥ `e12a8a3b`), drop
-`pkg/binate/interp` from `LINT_SKIP` and close this entry.
-
-**Also skipped — `pkg/stdx/containers/{vec,hashmap,set}`** (added 2026-07-10, `binate` `ec0855f3`).
-The stdx containers were migrated from generic FREE FUNCTIONS to generic-receiver METHODS
-(`func (v @Vec[T]) Push(x T)`) + parameterized-receiver impls (`impl *Cursor[T] : iter.Iterator[T]`)
-— methods-on-generic-types, newer than `bnc-0.0.10`, so the bundled bnlint aborts at the PARSE pass
-(cascade of `expected ;, got :=` / `expected declaration`). Verified directly: `bnlint-0.0.10` trips
-on vec/hashmap/set but lints the interface-only `pkg/stdx/containers/iter` clean. The packages stay
-fully type-checked + compiled by every conformance mode; only bnlint's style rules pause. **Action:**
-at the next BUILDER bump (source with generic-receiver methods, i.e. ≥ the methods-on-generic-types
-landing), drop `pkg/stdx/containers/{vec,hashmap,set}` from `LINT_SKIP` and re-run lint to confirm the
-containers lint clean.
-
-**Transitive importers join too — and this GATES the container-adoption sweep on a BUILDER bump**
-(2026-07-10, `binate` `6201e154`). Skipping the container packages as DIRECT targets does not cover a
-linted package that IMPORTS one: the bundled bnlint loads `vec.bni` to resolve the import and aborts
-the same way. The first container ADOPTION — `pkg/binate/format` using `vec.Vec` in its wrap engine —
-thus dragged `pkg/binate/format` AND its importer `cmd/bnfmt` into `LINT_SKIP`. This does NOT scale to
-the full sweep (each new adopter drags its whole importer cone into the skip). The clean unblock:
-methods-on-generic-types is IMPLEMENTED & LANDED (2026-07-06, Phases 4.1–4.3) and `VERSION` is already
-`bnc-0.0.11-pre`, so cutting + promoting **`bnc-0.0.11`** to BUILDER puts generic-receiver methods into
-the bundled bnlint and clears the container + `format` + `cmd/bnfmt` skips together — exactly the
-"feature the tree wants to use that the current builder can't compile" that release-process.md names as
-the justification for a bump. Until that bump, either accept per-adopter skips (with their importer
-cones) or hold the sweep. **Drop `pkg/binate/format` + `cmd/bnfmt` from `LINT_SKIP` at the same bump.**
-
-**Next-bump checklist — the `asm/*` group (B) joins here.** The 5 `pkg/binate/asm/*` skips (real
-safe-borrow over-flags) are un-skipped via the `// bnlint:allow` suppression mechanism (landed main
-`91286ab8`), which is ALSO newer than the bundle — so the same bump that drops `interp` should also
-adopt the 17 asm directives + drop `pkg/binate/asm/{arm32,elf,macho,parse,x64}` (see the asm
-`[managed-to-raw-assign]` audit entry above). A bump whose source covers all three lags (the
-`__Package` rename, the `// bnlint:allow` mechanism, and generic-receiver methods) clears every
-remaining `LINT_SKIP` entry — `interp`, the `asm/*` group, and the `stdx/containers` group.
-
 ### Raw-slice escape: decide whether a BROADER best-effort escape lint is wanted — 🟡 NEEDS DECISION
 The original framing ("demote the raw-slice escape TYPE ERROR to a linter rule")
 is obsolete: there is NO type-check rejection for raw-slice escape (the checker
