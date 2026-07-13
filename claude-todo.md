@@ -7,15 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### native arm32: large-offset access hardening — residual from the >4095-byte frame fix (`6ce4b42f`) — 🟢 minor latent
-
-The frame->4095-byte COMPILE_ERROR is FIXED & LANDED (`6ce4b42f`); tests `990_native_arm32_iface_large_frame` + `991_native_arm32_large_frame`. Two minor follow-ups from the landing review remain (NOT done):
-
-1. `emitExtract`'s scalar-field `emitScalarLoad` (arm32_emit.bn, and identical shape in aarch64_emit.bn) is unguarded for a large field offset — safe today (a documented latent invariant), but a shared-backend hardening (route through a guarded base-scalar-load) if ever exercised.
-2. Pre-existing/orthogonal: `arm32_iface.bn`'s method-slot LDR (`MemImm(IP, wordBytes()*ins.Index)`) overflows the 12-bit immediate only for an interface with >1023 methods.
-
-(Background/history archived in claude-todo-done.md.)
-
 ## MAJOR
 
 ### `needsStructCopy` is readonly-blind → by-value `readonly S` skips copy-in but runs its dtor → UAF — 🟠 OPEN (found 2026-07-13, adversarial review of the readonly-transparency fix; FIX IN PROGRESS)

@@ -12851,16 +12851,21 @@ object (arch=arm32)`.
   XPASS, and every one of the 418 failures is a pre-existing unimplemented-feature
   fail-loud (floats / closures / generics / HFA-SSE / method values / variadics /
   cross-pkg), not a regression.
-- **Residual follow-ups (minor, from the landing review — NOT done):**
-  (1) `emitExtract`'s scalar-field `emitScalarLoad` (arm32_emit.bn) is unguarded for
-  a large field offset — safe today (only built-in headers ≤16 B reach it; user
-  struct fields lower to GEP+LOAD, multi-return takes the guarded branch), so it's a
-  documented latent invariant, not a live bug; `aarch64_emit.bn`'s emitExtract has
-  the identical shape → a SHARED-backend hardening (route through a guarded
-  base-scalar-load) if ever exercised.
-  (2) Pre-existing, orthogonal: `arm32_iface.bn`'s method-slot LDR
-  (`MemImm(IP, wordBytes()*ins.Index)`) overflows the 12-bit immediate only for an
-  interface with >1023 methods — extremely unlikely, untracked-until-now.
+- **Residual follow-ups (minor, from the landing review) — ✅ RESOLVED & LANDED
+  (`8f436fc8`, 2026-07-13):** both were arm32-only — aarch64's asm layer already
+  materializes an over-range LDR/STR immediate into X17 (`emitLdrStr`), so its
+  emitExtract needed no change. (1) `emitExtract`'s scalar-field load now routes
+  through the new guarded `emitBaseScalarLoad` (the load analogue of
+  `emitBaseScalarStore`; `emitFrameScalarLoad` delegates to it, byte-identical).
+  (2) `arm32_iface.bn`'s method-slot LDR now routes through `emitBaseLoad`,
+  materializing the offset for a >1023-method interface (base and dest are both IP,
+  so the now-dead `ivAddr` pool reg is the scratch). Both are byte-identical for
+  every reachable offset. Tests: `emitBaseScalarLoad` small/large-word/large-byte +
+  a >1023-method iface dispatch that materializes the slot offset (proven to fail
+  without the fix). Verified: arm32 native unit 261/261; hygiene 17/17; full
+  `builder-comp_native_arm32_baremetal` 2518 passed / 242 failed / 35 skipped — every
+  failure a pre-existing deferred float/HFA/SSE fail-loud, 0 regression (`990`/`991`
+  still pass).
 
 ### HFA-in-SIMD is a CROSS-BACKEND contract — ✅ RESOLVED, both backends (AArch64 `48e3787b`; x64 `ce759c41`)
 
