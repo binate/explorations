@@ -6,6 +6,30 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## readonly array element write not rejected (assignment and ++/--) — ✅ DONE & LANDED (`d8816e04`, 2026-07-13)
+
+`var r readonly [3]int; r[1] = 5` / `r[1]++` / `r[0].x = 5` compiled, though a readonly
+struct's FIELD write is rejected.  A readonly array is a read-only VALUE — its elements
+inherit the const, like a readonly struct's fields.  Two coupled gaps:
+
+- **checkIndexExpr** (check_expr_access.bn) peeled the `readonly` wrapper and returned the
+  bare element type, so the assignment-target const check (IsReadonly) never fired for
+  `r[i]`.  Now re-wraps the element in `readonly` when a readonly wrapper is crossed
+  reaching an ARRAY (mirroring checkSelectorExpr's field-const propagation).  A slice /
+  pointer is unchanged: its outer readonly is HANDLE-const, not element-const
+  (element-const is `*[]readonly T`, carried by the element type).
+- **STMT_INC_DEC** (check_stmt.bn) gated only on const SYMBOLS, never a readonly TYPE, so
+  `r[i]++` — and, pre-existing and more general, `x++` on a `readonly int` / `s.f--` on a
+  readonly field — silently mutated the const.  Added the same `IsReadonly` const-location
+  guard the `=` / `+=` paths already have (which also closes that general hole).
+
+Reads and readonly-array parameters unaffected (the readonly element copies out to a
+mutable local).  conformance/1070 (reject `=` and `++`), 1071 (read stays legal).
+pkg/binate/types 1002/0; builder-comp 2803/0, builder-comp-int 2781/0; adversarially
+reviewed (no false positives on reads, slices unaffected, baseConst precise — the review
+found the inc/dec hole and proposed the guard implemented here).  This closes the whole
+by-value-call cast/addressability follow-up set (with `5d4e8b62`, `57ef8be2`).
+
 ## managed-slice → raw-slice cast emitted invalid LLVM — ✅ DONE & LANDED (`57ef8be2`, 2026-07-13)
 
 `cast(*[]T, m)` where m is `@[]T` mis-compiled: gen_expr's CAST-builtin arm emitted OP_CAST,

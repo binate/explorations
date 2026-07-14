@@ -9,23 +9,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### cast / addressability follow-ups from the by-value-call work — 🟠 OPEN (found 2026-07-13, R1–R3 re-review)
-
-The by-value-call field-access residuals R1–R3 are **FIXED & LANDED** (R1 `c876319d`, R2
-`b6ab8811`, R3 `4bef94b2`; see done log).  Their (re-)review surfaced three further incidental
-pre-existing bugs; one is now fixed, two remain:
-
-- ✅ **`(*p).ptrMethod()` silently loses its mutation — FIXED & LANDED (`5d4e8b62`).**
-  genMethodCall now evaluates the pointer operand for a deref receiver (see done log).
-- ✅ **managed-slice → raw-slice cast fails to compile — FIXED & LANDED (`57ef8be2`).**
-  `cast(*[]T, m)` now emits the `{data,len}` OP_MANAGED_TO_RAW decay (spec §7.6), the same
-  as the implicit decay, instead of a mis-typed OP_CAST (see done log).
-- **`readonly [N]T` element write not rejected.** `var r readonly [3]int; r[1] = 5`
-  compiles, though `readonly` scalar / field writes ARE rejected.  Indexing peels the
-  `readonly` wrapper, so the element type is a plain `int` and `check_assign.bn`'s
-  `lhsType.IsReadonly()` guard (check_assign.bn:54) doesn't fire.  Fix: check readonly-ness
-  of the whole indexed LOCATION, not just the peeled element type.
-
 ### native/arm32: `UnwrapNamed` should be `StripWrappers` at the 32-bit signedness / field-offset sites — 🟠 OPEN (found 2026-07-13, P5.2 shim-guard review)
 
 P5.2 (`cc20fad0`) fixed the 64-bit value-SHAPE predicates (isReg64Scalar, isUnsigned64,
