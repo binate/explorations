@@ -6,6 +6,25 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## cmd/bnc `TestNativeArchForTargetDefaultsHostArch`: host-hardcoded arch assertion — ✅ DONE & LANDED (`16faf5f9`, 2026-07-13)
+
+Unit tests were red on `builder-comp` / `-comp-comp` / `-comp-comp-int` (the `-comp*`
+modes a release requires green) since 2026-07-03, passing only on the macOS arm64
+`native_aa64` job.  `cmd/bnc/target_test.bn`'s `TestNativeArchForTargetDefaultsAarch64`
+asserted `nativeArchForTarget()` == "aarch64", but `7692508e` (2026-07-03) had made the
+function correctly return the compiled-in HOST arch (build.Arch: "x86_64" on amd64,
+"arm32", else "aarch64") — as its own docstring mandates ("Hardcoding 'aarch64' here
+misdirects a host native build on an x86_64 host to the arm64 backend").  The FUNCTION
+was correct; the TEST (and its doc comment) were stale.
+
+Fix: made the assertion host-aware (`want` mirrors the function's host branch exactly) and
+renamed it `TestNativeArchForTargetDefaultsHostArch`.  Adversarial review confirmed the
+mapping is byte-identical for all three arches and that every OTHER `nativeArchForTarget()`
+test first calls `applyTarget` (a non-empty triple), so none had the same latent host
+dependency.  Found in the 2026-07-13 release pre-check CI triage.  Does NOT fully green the
+Unit workflow on its own — the `builder-comp_native_x64-comp_native_x64` "Unknown mode"
+missing-runner gap remains (see claude-todo.md).
+
 ## readonly array element write not rejected (assignment and ++/--) — ✅ DONE & LANDED (`d8816e04`, 2026-07-13)
 
 `var r readonly [3]int; r[1] = 5` / `r[1]++` / `r[0].x = 5` compiled, though a readonly

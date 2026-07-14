@@ -71,25 +71,6 @@ so these gate the next release.  The conformance one is the MAJOR
 `1029_zero_size_struct_method` regression above.  (Perf's red is a non-blocking
 infra gap — see the native_x64-runner entry.)  Only Code hygiene is green.
 
-### cmd/bnc `TestNativeArchForTargetDefaultsAarch64`: stale host-hardcoded assertion — 🔵 IN PROGRESS (2026-07-13)
-
-Symptom: Unit tests red on `builder-comp` / `builder-comp-comp` /
-`builder-comp-comp-int` (the `-comp*` modes a release requires green); passes on
-the macOS arm64 `native_aa64` job.  `cmd/bnc/target_test.bn`'s
-`TestNativeArchForTargetDefaultsAarch64` asserts `nativeArchForTarget()` == "aarch64",
-but the function (`target.bn:215` default branch) correctly returns the compiled-in
-HOST arch — "x86_64" on the x86_64 Linux runners — per its own docstring
-("Hardcoding 'aarch64' here misdirects a host native build on an x86_64 host to the
-arm64 backend").
-
-Root cause: `7692508e` (2026-07-03) made `nativeArchForTarget` host-aware but left
-the test (and its doc comment) hardcoding "aarch64".  The FUNCTION is correct; the
-TEST is stale.  NOT a code bug — do not "fix" the function.
-
-Fix: make the test host-aware (expect `build.Arch`'s arch: x86_64 / arm32 /
-aarch64), rename to `TestNativeArchForTargetDefaultsHostArch`, refresh the stale
-doc comment.  Covered by `cmd/bnc/target_test.bn`.
-
 ### E2E red pile-up (6 failing scenarios) — 🔵 IN PROGRESS (found 2026-07-13)
 
 E2E went green→red at `54aac72b` (2026-07-07) and accumulated failures as new
