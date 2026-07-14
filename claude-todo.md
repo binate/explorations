@@ -33,33 +33,63 @@ ones that make a value-shape/signedness/offset decision to `types.StripWrappers`
 conformance regression exercising a readonly/alias-wrapped unsigned compare + a wrapped
 struct-field extract.  Verify no site legitimately WANTS the named-only peel first.
 
-### conformance `1029_zero_size_struct_method`: native backends miscompile zero-size-struct receiver calls — 🔴 NEW REGRESSION, OPEN (found 2026-07-13 release pre-check)
+### conformance `1029_zero_size_struct_method`: native backend reads the receiver of a zero-size slice-element method call from an uninitialized stack slot (SIGSEGV) — 🔴 LATENT MISCOMPILE, EXPOSED, OPEN (found 2026-07-13 release pre-check; root-caused 2026-07-13)
 
-Symptom: `1029_zero_size_struct_method` prints only `42` instead of the expected
-three lines `42` / `7` / `42` on the native x64 backend
-(`builder-comp_native_x64-comp_native_x64`, a NON-experimental mode → reddens the
-whole Conformance workflow), and identically on native aa64
-(`builder-comp_native_aa64_linux`, experimental).  The direct zero-size receiver
-call `e.Val()` prints (42); the generic-type-param receiver call `run[Empty](e)`
-(→7) and the zero-size slice-element receiver call `arr[1].Val()` (→42) emit
-NOTHING.  LLVM modes stay green → this is native-lowering-specific.
+Symptom: on the native x64 backend (`builder-comp_native_x64-comp_native_x64`, a
+NON-experimental mode → reddens the whole Conformance workflow) — reproduced
+locally on `builder-comp_native_x64_darwin` under Rosetta — `1029` prints `42` /
+`7`, then **SIGSEGVs** (exit 139) on the third line `arr[1].Val()` (the zero-size
+slice-element receiver).  LLVM modes stay green, and native aa64/macOS (Mach-O)
+happens to pass — the fault is luck-of-the-stack (see below), so which native
+targets crash varies.  (The original CI symptom "prints only 42, rest emit
+NOTHING" was a different manifestation of the same luck.)
 
-Root cause: UNKNOWN — needs investigation.  Bisected to the window
-`0d332f0b..de86828a`: x64 green through `0d332f0b` (2026-07-12, run 29208920817),
-first red at `de86828a` (2026-07-13, run 29284775179), red since.  Test 1029 landed
-`cdd8ec43` (2026-07-10) and passed on x64 for two days, so the test is NOT the
-cause.  Prime suspects (shared IR paths the natives lower differently from LLVM):
-`bb37a7c9` (peelTransparent in needsStructCopy/emitStructCopy/emitStructDtor),
-`91d8b0a6` (readonly transparent to destruction), `b6ab8811` (materialize by-value
-array call result).
+Root cause (root-caused, not a guess): a **native-backend miscompile of the
+value-receiver load for a zero-size struct fetched as a slice element**.  Minimal
+repro (NO generics / interface / impl needed):
+
+    type Empty struct {}
+    func (e Empty) Val() int { return 42 }
+    func main() {
+        var e Empty
+        var arr @[]Empty = make_slice(Empty, 2)
+        arr[0] = e
+        println(arr[1].Val())   // SIGSEGV
+    }
+
+Disasm+lldb (x64): the element pointer for `arr[1]` is computed into `0xe0(%rsp)`,
+but the receiver is then loaded from `0xe8(%rsp)` — one 8-byte slot PAST it, a slot
+this function never writes — and dereferenced (`movq (%r10),%rdi` with `r10 = 0x1`,
+EXC_BAD_ACCESS @ 0x1).  For a NON-zero element the element-load copies the struct
+bytes into that value slot; for a zero-size element the load is elided (0 bytes),
+so the slot stays uninitialized, yet the receiver-prep still reads it.  Whether the
+leftover garbage there is a mapped address (works, prints junk-but-42) or not
+(faults) is pure luck — which is why `arr[1].Val()` alone (`I`) or without the
+preceding `arr[0]=e` store passes, while the store variant faults.  The IR is fine
+(LLVM lowers the same ops correctly); the gap is native-lowering-only.
+
+Exposure, NOT cause: bisected (locally, native_x64_darwin) to first-bad
+`de86828a` ("move the command-line-args seam from os to startup") — but that
+commit's ONLY compiler-side hunk (`cmd/bnc/util.bn`) is **comment-only**.  What it
+really did: gave `pkg/builtins/startup` a package `__init` (force-loaded into every
+hosted binary) that runs one managed allocation (`argvWithProgName(bootstrap.Args())`)
+before `main`, shifting the pre-`main` stack/heap garbage and flipping the luck
+above from "mapped" to "0x1".  So `de86828a` EXPOSED a pre-existing latent
+native-lowering bug; it did not introduce it.  The three suspects the earlier note
+guessed (`bb37a7c9`, `91d8b0a6`, `b6ab8811`) are all EXONERATED (each is an
+ancestor of the bisect-GOOD `97ff5f12`, and `b6ab8811` tested GOOD directly).
 
 Discovery: 2026-07-13 release pre-check CI triage (conformance run 57ef8be2 /
 29295407563).  Untracked before this; no `.xfail` marker for 1029 in any mode.
 
-Fix: root-cause within the bisect window and fix the native zero-size-result
-lowering (a 0-byte aggregate receiver/result path).  This is a real wrong-code
-miscompile — do NOT `.xfail` it without user sign-off.  BLOCKS a release
-(conformance regression on the previously-green native_x64 `-comp` mode).
+Fix (proposed, not yet started): in the native backend, a zero-size aggregate
+value load/copy must still DEFINE its destination value/slot (or the consumer must
+use the element pointer directly for a zero-size receiver) instead of leaving the
+slot uninitialized and reading one word past.  Likely in the shared native
+value-materialization / call-arg-and-receiver path (`pkg/binate/native/common`,
+mirrored in x64 + aarch64), not the IR.  This is a real wrong-code miscompile — do
+NOT `.xfail` it without user sign-off.  BLOCKS a release (conformance regression on
+the previously-green native_x64 `-comp` mode).
 
 ## CI red on main — release pre-check batch (found 2026-07-13)
 
