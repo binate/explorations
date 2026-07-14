@@ -533,14 +533,20 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 - `bnlint --target`; main-module gating; migrating the `impls/` duplicate trees onto constraints.
 - The separate inline-asm (`#[asm]`) doc that composes with this substrate.
 
-### Compiler-version predicate (`at_least` / `at_most` / `is(version, …)`) — 🟠 PLANNED (design ratified 2026-07-13)
+### Compiler-version predicate (`at_least` / `at_most` / `is(version, …)`) — 🟢 FIRST BUMP LANDED (`dedbb620`, 2026-07-13); main-move + re-pin remain
 Full design + implementation plan in
 [`plan-build-version-predicate.md`](plan-build-version-predicate.md).  Adds a
 compiler-version gate to `#[build]`: `at_least(version, "X.Y.Z")` / `at_most(…)`
 (ordered, version-key only) + `is(version, "X.Y.Z")` (exact) + the existing `!`
-for inverses; a strict `X.Y.Z[pre[N]]` parser (the `pre` suffix stripped for
-comparison, numeric per-component compare, hard error otherwise); and a new
-`BuildConfig.Version` fed from `pkg/binate/version`'s `version.Version`.
+for inverses; a strict `X.Y.Z[-pre[N]]` parser (the hyphenated `-pre` suffix
+stripped for comparison, numeric per-component compare, hard error otherwise);
+and a new `BuildConfig.Version` fed from `pkg/binate/version`'s `version.Version`.
+**LANDED (2026-07-13, adversarially reviewed):** the predicate machinery
+(`dedbb620`) + the version-format convention it needs — prerelease is now
+hyphenated (`X.Y.Z-preN`), `version.Version` renamed `0.0.11pre3`→`0.0.11-pre3`,
+and `version-sync.sh` format-checks VERSION (`e31750b8`).  **Still TODO:** the
+BUILDER re-pin, then the actual main-move bump (gate `startup`'s `#[c_export]`
+`main` on `at_least(version, <threshold>)` + delete the tree's C `main`).
 **Motivation:** it is the bootstrap mechanism for moving the program `main` out
 of `runtime/binate_runtime.c` into `pkg/builtins/startup` (Phase 6 /
 design-ffi-export.md §3.3).  The BUILDER stage links the *bundle's* frozen `.c`
