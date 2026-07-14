@@ -90,7 +90,7 @@ Fix: make the test host-aware (expect `build.Arch`'s arch: x86_64 / arm32 /
 aarch64), rename to `TestNativeArchForTargetDefaultsHostArch`, refresh the stale
 doc comment.  Covered by `cmd/bnc/target_test.bn`.
 
-### E2E red pile-up (6 failing scenarios) — 🟠 OPEN (found 2026-07-13)
+### E2E red pile-up (6 failing scenarios) — 🔵 IN PROGRESS (found 2026-07-13)
 
 E2E went green→red at `54aac72b` (2026-07-07) and accumulated failures as new
 `e2e/*.sh` scripts landed (each runs the moment it lands; none tracked, and there
