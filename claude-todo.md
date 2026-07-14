@@ -110,11 +110,19 @@ failures:
 - **split-paths (bnc leg)** — BUILDER-skew wrong IR: `pkg__builtins__rt.ll` icmp
   "'%vN' defined with type 'ptr' but expected 'i64'", clang fails.  The stale
   BUILDER's compiled-in codegen emits a mis-typed ptr/int compare for current
-  rt.bn.  (See release-process.md "BUILDER-skew traps".)
+  rt.bn.  (See release-process.md "BUILDER-skew traps".)  → **RELEASE-RESOLVED**:
+  pure BUILDER-skew — bumping `BUILDER_VERSION` to `bnc-0.0.11` (the release cycle)
+  makes the BUILDER's codegen match current source; NO code fix needed.  Re-verify
+  green after the bump (it also flips separate-compilation's BUILDER leg from SKIP
+  to a real check).
 - **separate-compilation (gen1 leg)** — `bnc --list-deps cmd/bnas` emits an
   `error:` line into stdout, polluting the dep loop → it tries to build a package
   literally named `error:` ("package \"error:\" not found").  Born red at
-  `54aac72b`.
+  `54aac72b`.  → Does NOT reproduce locally on macOS arm64: full
+  `separate-compilation.sh` PASSES (gen1, 22 pkgs separately compiled + linked,
+  byte-identical) and `--list-deps cmd/bnas` is clean (22 deps, empty stderr, no
+  `error:`).  So this is x86_64-linux-specific or a bad-runner environmental —
+  needs the x86_64 CI log to root-cause (bucket b).
 - **ffi-export (--library leg)** — the gen1 `--library` static archive's closure
   omits pkg/bootstrap symbols: `undefined reference to bn_..._Args` / `..._Write`.
   Real `--library` archive-closure defect.  Flapping (passes some runs).
