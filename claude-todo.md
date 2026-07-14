@@ -631,6 +631,38 @@ Hasher[T]" / "K does not satisfy Hashable" — because the checker fixes `2f8969
 every conformance mode still fully type-checks + compiles them. **Drop at the next
 CHECK_TOOLS bump past `6647c49f`** (lint.sh's own comment tracks the same condition).
 
+### `unused-func` false-positives on an all-`.bni` (all-generic) package's exported API — 🟠 OPEN (found 2026-07-14, examples repo bnc-0.0.11 bump)
+
+`bnc-0.0.11`'s new `unused-func` rule flags EVERY exported function of an
+all-`.bni` package (generic bodies in the `.bni`, no `.bn` — e.g. the
+`examples/generics/pkg/{vec,sort,hashmap}` libraries: `New`, `Push`, `Items`, …)
+as "unused function", though they are the package's public API.
+
+Root cause: `unused_func.bn:97` exempts exported funcs (`if d.Exported { return
+false }`), and the loader's `markBniExportedFuncs` (`loader_util.bn:214`) is meant
+to set `Exported=true` on every merged `DECL_FUNC` whose name appears in the
+`.bni` — its own comment explicitly calls out the prepended generic/extern func
+decls. But on **bnlint's** lint path that flag is NOT set for an all-`.bni`
+package, so the rule treats the public API as unexported dead code. (Likely bnlint
+builds the `merged` AST it lints without running `markBniExportedFuncs`, or
+`sameFuncDecl` fails to match a generic signature — needs pinpointing.) The
+ordinary case — sig in `.bni`, body in `.bn` — is marked correctly and is NOT
+flagged, which is why only all-`.bni` packages trip it (`unused-global` /
+`unused-type` avoid this by checking `.bni`-membership directly rather than the
+`Exported` flag: `unused_type.bn`'s `isExportedType`, `unused_global.bn`).
+
+Repro: `bnlint pkg/vec` (no `--tests`) on an all-generic library → every exported
+func flagged. `bnlint --tests …` HIDES it (test roots reach the funcs) but only
+when the API is fully test-covered; an untested exported generic func in an
+all-`.bni` package would still be false-flagged.
+
+Discovered bumping `examples` to `bnc-0.0.11`; worked around there by running
+`bnlint --tests` in its `lint.sh` (also the correct config independently). Proper
+fix: ensure `Exported` is set for all-`.bni`-package funcs on bnlint's lint path,
+or have `unused-func` treat a `.bni`-declared func as exported (mirror
+`unused_type`/`unused_global`). Add a bnlint unit test: an all-`.bni` generic
+package's exported func must NOT be flagged `unused-func`.
+
 ### Raw-slice escape: decide whether a BROADER best-effort escape lint is wanted — 🟡 NEEDS DECISION
 The original framing ("demote the raw-slice escape TYPE ERROR to a linter rule")
 is obsolete: there is NO type-check rejection for raw-slice escape (the checker
