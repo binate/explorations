@@ -138,7 +138,7 @@ failures:
   is ACCEPTED; programs use os.Args()).  Fully superseded by `os-args.sh` (the
   interpreter path via os.Args) + `conformance/487_bootstrap_args` (bootstrap.Args
   content, compiled).
-- **cross-compile (ubuntu)** — ✅ FIXED (`d96de7fd`).  NOT a missing package: the
+- **cross-compile (ubuntu)** — ✅ FIXED (`20c7dbcd`).  NOT a missing package: the
   script's `clang_can_target` skip-probe compiled a HEADER-FREE TU, so it wrongly
   reported the aarch64 cross-libc present and the real build then failed on
   `bits/libc-header-start.h`.  The probe now `#include <stdio.h>` → ubuntu correctly
@@ -153,7 +153,7 @@ failures:
 
 Status (2026-07-13): **print-args DELETED** + **ffi-export --library arm SKIPPED**
 (`a7d4bb0e`), **e2e xfail/skip mechanism LANDED** (`4075eca1`), and **cross-compile
-FIXED** (`d96de7fd`, skip-probe).  **split-paths** is release-resolved (BUILDER
+FIXED** (`20c7dbcd`, skip-probe).  **split-paths** is release-resolved (BUILDER
 bump).  The CI-log pass (bucket b) found the last two are **REAL x86_64-linux bugs,
 NOT infra** — so the mechanism is deliberately NOT applied to them (blind `xfail`
 would mask real defects):
@@ -163,7 +163,7 @@ would mask real defects):
 Both need an x86_64-linux repro (unavailable on the macOS dev host) — track as real
 bugs, not gate-masking.
 
-### native_x64 mode: no unit or perf runner script → "Unknown mode" — 🟠 OPEN (found 2026-07-13)
+### native_x64 mode: no unit or perf runner script → "Unknown mode" — 🔵 IN PROGRESS (found 2026-07-13)
 
 `builder-comp_native_x64-comp_native_x64` is listed in `scripts/modesets/all`
 (added `b3ba3a42`, 2026-06-05) but has NO runner in `scripts/unittest/runners/`
