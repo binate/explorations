@@ -108,30 +108,6 @@ would mask real defects):
 Both need an x86_64-linux repro (unavailable on the macOS dev host) — track as real
 bugs, not gate-masking.
 
-### native_x64 mode: no unit or perf runner script → "Unknown mode" — 🔵 RUNNERS LANDED (`39e06dcd`); CI-marker follow-up (found 2026-07-13)
-
-`builder-comp_native_x64-comp_native_x64` is listed in `scripts/modesets/all`
-(added `b3ba3a42`, 2026-06-05) but had NO runner in `scripts/unittest/runners/`
-NOR `perf/runners/` — so `scripts/unittest/run.sh` and `perf/run.sh` both exited 1
-with "Unknown mode".  This was the SOLE cause of the Perf-tests red and one
-contributor to the Unit-tests red.
-
-Fix (landed `39e06dcd`): ADDED both runners — the correct fix, NOT exclude
-(native_x64 is a first-class CI-covered backend per
-`plan-backend-objformat-decoupling.md`; native_aa64 has both).  They mirror the
-conformance native_x64 runner's compile path (GEN1 + `--backend native --target
-x86_64-linux`) in the aa64 unit/perf runner interface.  Verified on macOS:
-run.sh / perf/run.sh now dispatch (no "Unknown mode"); the setup probe fails
-gracefully off an x86_64 host.
-
-**Remaining (CI follow-up):** the native_x64 unit/perf pass-fail set can't be
-produced on an arm64 macOS dev host — it needs the ubuntu-x86_64 CI run.  Once CI
-runs the mode, add per-package `.xfail.builder-comp_native_x64-comp_native_x64`
-markers for any real failures (the `1029` fix `9cc0272a` should reduce them).
-Minor: the conformance native_x64 runner's clang probe is the header-free (weak)
-form — strengthen it to `#include <stdio.h>` like the new runners (and
-cross-compile.sh `20c7dbcd`) for consistency.
-
 ## Test-flake watch
 
 Intermittent, load-/environment-dependent test failures tracked for recurrence —

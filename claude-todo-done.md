@@ -6,6 +6,30 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## native_x64 mode: missing unit + perf runners ("Unknown mode") — ✅ DONE & LANDED (`39e06dcd`, 2026-07-14)
+
+`builder-comp_native_x64-comp_native_x64` is in `scripts/modesets/all` (so it drives
+the unit + perf CI matrices) and has a conformance runner (2800 passing), but had NO
+unit or perf runner — so `scripts/unittest/run.sh` and `perf/run.sh` exited 1 with
+"Unknown mode", reddening both gates.
+
+Fix: ADDED both runners (`39e06dcd`) — the correct fix, NOT exclude (native_x64 is a
+first-class CI-covered backend per `plan-backend-objformat-decoupling.md`; native_aa64
+has both).  They mirror the conformance native_x64 runner's compile path (GEN1 +
+`--backend native --target x86_64-linux`, through pkg/binate/native/x64's SysV-AMD64/ELF
+backend) in the aa64 unit/perf runner interface.
+
+CI result (runs 29313048351 / 29313048374 on `39e06dcd`): both green with NO markers
+needed — unit `61 passed, 0 failed, 0 xfail, 0 skipped`; perf green.  The native x64
+backend fully compiles + runs every unit package + the perf suite, so the stale
+"amd64 lowers only a subset of ops" note in the native_x64_darwin runner is obsolete.
+Found in the 2026-07-13 release pre-check CI triage.
+
+Residual (minor, optional): the conformance native_x64 runner's clang probe is the
+header-free (weak) form — strengthen it to `#include <stdio.h>` like the new runners
+and cross-compile.sh (`20c7dbcd`) for consistency (a header-free probe passes even
+without the cross-libc; harmless on the x86_64 CI host, wrong on a cross host).
+
 ## conformance `1029_zero_size_struct_method`: native backend counted a zero-size aggregate as 1 argument word, not 0 (SIGSEGV) — ✅ DONE & LANDED (`9cc0272a`, 2026-07-13)
 
 A zero-size struct (`struct{}` / `[0]T`) passed BY VALUE crashed on the native
