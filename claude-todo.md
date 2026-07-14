@@ -33,6 +33,107 @@ ones that make a value-shape/signedness/offset decision to `types.StripWrappers`
 conformance regression exercising a readonly/alias-wrapped unsigned compare + a wrapped
 struct-field extract.  Verify no site legitimately WANTS the named-only peel first.
 
+### conformance `1029_zero_size_struct_method`: native backends miscompile zero-size-struct receiver calls — 🔴 NEW REGRESSION, OPEN (found 2026-07-13 release pre-check)
+
+Symptom: `1029_zero_size_struct_method` prints only `42` instead of the expected
+three lines `42` / `7` / `42` on the native x64 backend
+(`builder-comp_native_x64-comp_native_x64`, a NON-experimental mode → reddens the
+whole Conformance workflow), and identically on native aa64
+(`builder-comp_native_aa64_linux`, experimental).  The direct zero-size receiver
+call `e.Val()` prints (42); the generic-type-param receiver call `run[Empty](e)`
+(→7) and the zero-size slice-element receiver call `arr[1].Val()` (→42) emit
+NOTHING.  LLVM modes stay green → this is native-lowering-specific.
+
+Root cause: UNKNOWN — needs investigation.  Bisected to the window
+`0d332f0b..de86828a`: x64 green through `0d332f0b` (2026-07-12, run 29208920817),
+first red at `de86828a` (2026-07-13, run 29284775179), red since.  Test 1029 landed
+`cdd8ec43` (2026-07-10) and passed on x64 for two days, so the test is NOT the
+cause.  Prime suspects (shared IR paths the natives lower differently from LLVM):
+`bb37a7c9` (peelTransparent in needsStructCopy/emitStructCopy/emitStructDtor),
+`91d8b0a6` (readonly transparent to destruction), `b6ab8811` (materialize by-value
+array call result).
+
+Discovery: 2026-07-13 release pre-check CI triage (conformance run 57ef8be2 /
+29295407563).  Untracked before this; no `.xfail` marker for 1029 in any mode.
+
+Fix: root-cause within the bisect window and fix the native zero-size-result
+lowering (a 0-byte aggregate receiver/result path).  This is a real wrong-code
+miscompile — do NOT `.xfail` it without user sign-off.  BLOCKS a release
+(conformance regression on the previously-green native_x64 `-comp` mode).
+
+## CI red on main — release pre-check batch (found 2026-07-13)
+
+Main's Unit / Conformance / E2E CI have been red for 1–2 weeks with UNTRACKED
+failures; a 2026-07-13 release pre-check triaged all four red suites (latest
+completed run on `57ef8be2`).  Per `release-process.md`, E2E / Conformance /
+hygiene failures on modes that were green on the previous release BLOCK a release,
+so these gate the next release.  The conformance one is the MAJOR
+`1029_zero_size_struct_method` regression above.  (Perf's red is a non-blocking
+infra gap — see the native_x64-runner entry.)  Only Code hygiene is green.
+
+### cmd/bnc `TestNativeArchForTargetDefaultsAarch64`: stale host-hardcoded assertion — 🔵 IN PROGRESS (2026-07-13)
+
+Symptom: Unit tests red on `builder-comp` / `builder-comp-comp` /
+`builder-comp-comp-int` (the `-comp*` modes a release requires green); passes on
+the macOS arm64 `native_aa64` job.  `cmd/bnc/target_test.bn`'s
+`TestNativeArchForTargetDefaultsAarch64` asserts `nativeArchForTarget()` == "aarch64",
+but the function (`target.bn:215` default branch) correctly returns the compiled-in
+HOST arch — "x86_64" on the x86_64 Linux runners — per its own docstring
+("Hardcoding 'aarch64' here misdirects a host native build on an x86_64 host to the
+arm64 backend").
+
+Root cause: `7692508e` (2026-07-03) made `nativeArchForTarget` host-aware but left
+the test (and its doc comment) hardcoding "aarch64".  The FUNCTION is correct; the
+TEST is stale.  NOT a code bug — do not "fix" the function.
+
+Fix: make the test host-aware (expect `build.Arch`'s arch: x86_64 / arm32 /
+aarch64), rename to `TestNativeArchForTargetDefaultsHostArch`, refresh the stale
+doc comment.  Covered by `cmd/bnc/target_test.bn`.
+
+### E2E red pile-up (6 failing scenarios) — 🟠 OPEN (found 2026-07-13)
+
+E2E went green→red at `54aac72b` (2026-07-07) and accumulated failures as new
+`e2e/*.sh` scripts landed (each runs the moment it lands; none tracked, and there
+is no e2e xfail mechanism).  Latest run `57ef8be2` (29295407584) — six independent
+failures:
+- **split-paths (bnc leg)** — BUILDER-skew wrong IR: `pkg__builtins__rt.ll` icmp
+  "'%vN' defined with type 'ptr' but expected 'i64'", clang fails.  The stale
+  BUILDER's compiled-in codegen emits a mis-typed ptr/int compare for current
+  rt.bn.  (See release-process.md "BUILDER-skew traps".)
+- **separate-compilation (gen1 leg)** — `bnc --list-deps cmd/bnas` emits an
+  `error:` line into stdout, polluting the dep loop → it tries to build a package
+  literally named `error:` ("package \"error:\" not found").  Born red at
+  `54aac72b`.
+- **ffi-export (--library leg)** — the gen1 `--library` static archive's closure
+  omits pkg/bootstrap symbols: `undefined reference to bn_..._Args` / `..._Write`.
+  Real `--library` archive-closure defect.  Flapping (passes some runs).
+- **print-args (bni leg)** — the bootstrap.Args shim doesn't strip the pre-`--`
+  compiler args; bni prints the raw argv.  Flapping.  (Distinct from the already-
+  tracked bni-under-bni `registerPureCExterns` SKIP.)
+- **cross-compile (ubuntu)** — `build-bnc.sh --target aarch64-linux` fails: missing
+  aarch64 cross headers (`bits/libc-header-start.h`).  Infra/runner-setup (macOS
+  passes); the script's sysroot probe doesn't gate it.
+- **satentry-retention (ubuntu)** — native compile/link fails, ubuntu-only (macOS
+  passes); same missing-cross-toolchain class.
+
+Fix: disposition each — fix the real toolchain defects (`--list-deps` stdout
+pollution, `--library` closure, print-args arg-stripping); resolve the split-paths
+BUILDER-skew (release BUILDER bump, or route the leg through gen1); and gate/skip
+the ubuntu cross-toolchain cases on toolchain availability (or install the sysroot
+in CI).  Consider adding an e2e xfail/skip mechanism so known-infra cases don't red
+the gate.
+
+### native_x64 mode: no unit or perf runner script → "Unknown mode" — 🟠 OPEN (found 2026-07-13)
+
+`builder-comp_native_x64-comp_native_x64` is listed in `scripts/modesets/all`
+(added `b3ba3a42`, 2026-06-05) but has NO runner in `scripts/unittest/runners/`
+NOR `perf/runners/` — so `scripts/unittest/run.sh` and `perf/run.sh` both exit 1
+with "Unknown mode" before running anything.  This is the SOLE cause of the
+Perf-tests red (non-blocking — no perf regression, just a harness gap) and one
+contributor to the Unit-tests red.  Fix: add the two missing runner scripts (mirror
+the aa64 / x64_darwin ones) OR exclude native_x64 from the unit + perf matrices (as
+`arm32_*` already is).  Conformance already covers this mode via its own runner.
+
 ## Test-flake watch
 
 Intermittent, load-/environment-dependent test failures tracked for recurrence —
