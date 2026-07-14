@@ -84,10 +84,20 @@ bundle ships everything.
 - Verify hygiene green.  `BUILDER_VERSION` never moved.
 
 ## Notes / open details
-- **version-sync** strips the `bnc-` prefix, so `bnc-0.0.11pre1` / `"0.0.11pre1"`
-  validate.  The current in-tree `-pre` shape (`bnc-0.0.11-pre`) maps to the `preN`
-  iteration marker; stable `bnc-0.0.11` (no `preN`) is cut later if/when the BUILDER
-  is advanced.
+- **Version-format note (2026-07-13):** the `bnc-0.0.11pre1` / `bnc-0.0.11pre2`
+  tags and the current `CHECK_TOOLS_VERSION` are spelled WITHOUT a hyphen — they
+  predate the hyphenated-prerelease convention (`X.Y.Z-preN`, landed 2026-07-13;
+  see `release-process.md`).  Those already-published tags keep their
+  non-hyphenated names, so the `preN` spellings throughout this doc are the
+  historical ones.  Going forward, `VERSION` (now `bnc-0.0.11-pre3`) and every
+  future pre-release use the hyphenated `-preN` form (`-pre1`, `-pre2`, …), which
+  version-sync's format check now requires — so a re-cut today would write
+  `version.bn → "0.0.11-preN"`, not `"0.0.11preN"`.
+- **version-sync** strips the `bnc-` prefix, so a tag and its package literal name
+  the same build (e.g. `bnc-0.0.11pre1` ↔ `"0.0.11pre1"`).  When pre1/pre2 were
+  cut, version-sync had no format check; it does now (hyphenated `-preN` required),
+  and the current in-tree shape is `bnc-0.0.11-pre3`.  Stable `bnc-0.0.11` (no
+  `-preN` suffix) is cut later if/when the BUILDER is advanced.
 - **release.yml** already triggers on `bnc-*`, so `preN` tags build with no trigger
   change.
 - Removing the container/`format`/`cmd/bnfmt` `LINT_SKIP` entries and the
