@@ -17,12 +17,9 @@ pre-existing bugs; one is now fixed, two remain:
 
 - ✅ **`(*p).ptrMethod()` silently loses its mutation — FIXED & LANDED (`5d4e8b62`).**
   genMethodCall now evaluates the pointer operand for a deref receiver (see done log).
-- **managed-slice → raw-slice cast fails to compile.** `cast(*[]int, someManagedSlice)`
-  (a 4-word `@[]T` → 2-word `*[]T`) emits invalid LLVM (`%v defined with type
-  %BnManagedSlice but expected %BnSlice`).  emitCast's non-scalar same-representation
-  identity path (emit_ops.bn ~L300-330) wrongly assumes managed-slice and raw-slice share
-  a representation; they don't.  Needs a real slice-header reinterpret (take the {ptr,len}
-  of the 4-word managed slice).
+- ✅ **managed-slice → raw-slice cast fails to compile — FIXED & LANDED (`57ef8be2`).**
+  `cast(*[]T, m)` now emits the `{data,len}` OP_MANAGED_TO_RAW decay (spec §7.6), the same
+  as the implicit decay, instead of a mis-typed OP_CAST (see done log).
 - **`readonly [N]T` element write not rejected.** `var r readonly [3]int; r[1] = 5`
   compiles, though `readonly` scalar / field writes ARE rejected.  Indexing peels the
   `readonly` wrapper, so the element type is a plain `int` and `check_assign.bn`'s

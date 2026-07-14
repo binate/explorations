@@ -6,6 +6,20 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## managed-slice → raw-slice cast emitted invalid LLVM — ✅ DONE & LANDED (`57ef8be2`, 2026-07-13)
+
+`cast(*[]T, m)` where m is `@[]T` mis-compiled: gen_expr's CAST-builtin arm emitted OP_CAST,
+which for a managed-slice → raw-slice conversion mis-declared the result's LLVM type
+(`%BnManagedSlice` = {ptr,i64,ptr,i64} used as `%BnSlice` = {ptr,i64}) — clang rejected it.
+The `@[]T → *[]T` decay (spec §7.6) is a {data,len} field EXTRACTION, not a bit-reinterpret;
+the IMPLICIT decay (arg / assignment / return) already emits OP_MANAGED_TO_RAW.  FIX: the
+explicit cast emits the same OP_MANAGED_TO_RAW when the source is a managed slice and the
+target a raw slice (`isManagedSliceType(src) && peelReadonly(dst).Kind == TYP_SLICE`) — a
+borrow (no retain), as the implicit decay does.  conformance/1069 (int + readonly-element).
+pkg/binate/ir 622/0; builder-comp 2800/0, builder-comp-int 2778/0; adversarially reviewed
+(IR byte-identical to the implicit decay, refcount balanced, guard precise, VM path via
+BC_MOV — no findings).
+
 ## `(*p).ptrMethod()` silently lost its mutation (explicit-deref receiver) — ✅ DONE & LANDED (`5d4e8b62`, 2026-07-13)
 
 A `*T`-receiver method called through an EXPLICIT deref `(*p).m()` (p a `*T` / `@T`) mutated
