@@ -6,6 +6,41 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## conformance `1029_zero_size_struct_method`: native backend counted a zero-size aggregate as 1 argument word, not 0 (SIGSEGV) — ✅ DONE & LANDED (`9cc0272a`, 2026-07-13)
+
+A zero-size struct (`struct{}` / `[0]T`) passed BY VALUE crashed on the native
+backends.  `1029` (`arr[0]=e; arr[1].Val()` on `arr @[]Empty`) printed `42` / `7`
+then SIGSEGV'd on the zero-size slice-element receiver `arr[1].Val()` on native x64
+(non-experimental `-comp` mode) and native aa64-linux; LLVM/VM stayed green.
+
+Root cause (bisected + disasm/lldb): `argWords` (`common_call.bn`) and its arm32
+duplicate `argWordsArm32` clamped the per-arg word count to a minimum of 1
+(`ceil(SizeOf/wordBytes); if w<1 {w=1}`).  A zero-size aggregate → 1 word instead
+of 0, so a zero-size by-value arg occupied one argument word; the caller filled it
+by loading from the value's storage (an uninitialized slot for a 0-byte load) and a
+method value-receiver callee dereferenced it → EXC_BAD_ACCESS.  Crashing was
+luck-of-the-stack, which is why it surfaced only after `de86828a` (comment-only
+compiler hunk; it merely added a `startup` `__init` allocation that shifted the
+pre-`main` stack) — that commit EXPOSED, did not cause, the bug.  The three suspects
+the original note guessed (`bb37a7c9` / `91d8b0a6` / `b6ab8811`) were EXONERATED
+(all ancestors of the bisect-GOOD `97ff5f12`).  LLVM passes zero-size-by-value in
+zero registers/stack; the native backends now match.
+
+Fix: remove the min-of-1 clamp from both word-count helpers so a zero-size aggregate
+is 0 words — the placement classifier, per-arg emit loops, callee spill, and shim
+paths all read them, so 0 stays self-consistent (nothing placed, no cursor
+advances).  Scalars (SizeOf 1–8) still round to ≥1.  Two now-redundant local
+`SizeOf()==0 → nWords=0` guards (aarch64 / arm32 return-field-store) dropped and
+their stale "min-of-1" comments fixed.  Adversarially reviewed (no defect: every
+`ArgWords`/`EffectiveArgWords`/`shimInWords*` consumer across x64/aarch64/arm32
+traced; `shimInWordsForType*` returns 1 for zero-size but is used symmetrically).
+
+Tests: `TestArgWordsZeroSizeStructIsZero` (native/common) pins ArgWords(struct{})==0;
+`conformance/1072_zero_size_arg_register_placement` covers a zero-size slice-element
+value passed as a plain by-value ARGUMENT (crashes pre-fix, `42/7/99` post-fix;
+complements 1029's receiver path).  Verified: 1029 + 1072 correct on native x64 +
+aa64 + LLVM + VM; native unit suites 5/0; full native aa64 conformance 2798/0.
+
 ## cmd/bnc `TestNativeArchForTargetDefaultsHostArch`: host-hardcoded arch assertion — ✅ DONE & LANDED (`16faf5f9`, 2026-07-13)
 
 Unit tests were red on `builder-comp` / `-comp-comp` / `-comp-comp-int` (the `-comp*`
