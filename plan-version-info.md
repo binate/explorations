@@ -16,9 +16,9 @@ inside compiled programs.
 not a runtime essential), collocated under `pkg/binate/`. It exports:
 
     // Version names the tools build this came from.  Format
-    // `bnc-X.Y.Z` for a tagged release; `bnc-X.Y.Z-pre` for a
-    // working-tree build between releases.
-    const Version *[]const char = "bnc-X.Y.Z(-pre)"
+    // `bnc-X.Y.Z` for a tagged release; `bnc-X.Y.Z-preN` for a
+    // working-tree build between releases (starting at `-pre1`).
+    const Version *[]const char = "bnc-X.Y.Z(-preN)"
 
 Key decisions and their rationale:
 
@@ -42,8 +42,8 @@ Key decisions and their rationale:
 
 Both the release-cut and post-release flows in
 `explorations/release-process.md` must regenerate the version package
-after editing `VERSION` (release-cut drops `-pre`, post-release bumps
-the next `-pre`); `hygiene/run.sh` fails if it's forgotten.
+after editing `VERSION` (release-cut drops the `-preN` suffix, post-release
+bumps to the next `-pre1`); `hygiene/run.sh` fails if it's forgotten.
 
 ## Phase 2 (TODO) — `pkg/builtins/buildinfo`
 

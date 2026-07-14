@@ -30,11 +30,11 @@ advance it when there's a substantial language gain to justify the
 extra generation — e.g. a feature the tree wants to *use* that the
 current builder can't compile.  The cut/promote dance:
 
-1. `VERSION` → `bnc-X.Y.Z` (drop `-pre`), commit, push, tag
+1. `VERSION` → `bnc-X.Y.Z` (drop the `-preN` suffix), commit, push, tag
    `bnc-X.Y.Z` → release workflow builds + publishes the tarballs.
 2. After the release succeeds, verify `scripts/fetch-builder.sh`
    resolves the new version and a smoke build passes.
-3. `BUILDER_VERSION` → `bnc-X.Y.Z`; `VERSION` → `bnc-X.Y.(Z+1)-pre`;
+3. `BUILDER_VERSION` → `bnc-X.Y.Z`; `VERSION` → `bnc-X.Y.(Z+1)-pre1`;
    commit, push.
 
 (0.0.2 is a cautionary example: it was cut to unblock generics, but

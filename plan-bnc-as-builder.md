@@ -37,10 +37,10 @@ The fetcher script branches on the prefix.  Once a real `bnc-X.Y.Z` lands, `boot
 
 ### `VERSION`
 
-A file at the repo root containing the *current* version this branch is heading toward.  Working-tree convention: `bnc-X.Y.Z-pre` for any commit that isn't itself a release; the release commit drops the `-pre` suffix and gets the tag.
+A file at the repo root containing the *current* version this branch is heading toward.  Working-tree convention: `bnc-X.Y.Z-preN` (starting at `-pre1` right after a release) for any commit that isn't itself a release; the release commit drops the `-preN` suffix and gets the tag.
 
 ```
-bnc-0.0.2-pre
+bnc-0.0.2-pre1
 ```
 
 `VERSION` is hand-maintained.  Drift from git tags is avoided by checking in CI that the release commit's `VERSION` matches the tag being pushed.
@@ -110,7 +110,7 @@ If a contributor is on an unsupported platform (e.g., FreeBSD), there's no prebu
 
 ### Drift between `VERSION` and tags
 
-CI check on the release workflow: `VERSION` (sans `-pre`) must equal the pushed tag.  Mismatch fails the release.
+CI check on the release workflow: `VERSION` (sans the `-preN` suffix) must equal the pushed tag.  Mismatch fails the release.
 
 ### Multiple builders coexisting
 

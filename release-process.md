@@ -10,15 +10,16 @@ how the moving parts fit together so you don't have to reverse-engineer
   for builds **from the current tree**.  Shapes:
   - `bnc-X.Y.Z` — stable-release shape; what `VERSION` says exactly on
     the commit that gets tagged `bnc-X.Y.Z`.
-  - `bnc-X.Y.ZpreN` — numbered PRE-RELEASE shape (`pre1`, `pre2`, …).  A
+  - `bnc-X.Y.Z-preN` — numbered PRE-RELEASE shape (`-pre1`, `-pre2`, …).  A
     pre-release is a general toolchain bundle (all tools incl. bnfmt)
     that we can tag + publish and point `CHECK_TOOLS_VERSION` at, WITHOUT
     it being a build-ladder rung (only stable `bnc-X.Y.Z` advances
     `BUILDER_VERSION`).  It's how we dogfood a new feature outside the
     BUILDER tree — e.g. methods-on-generics for hygiene's bnlint/bnfmt —
     ahead of a stable cut.  See `plan-check-tools-version.md`.
-  - `bnc-X.Y.Z-pre` — the hyphenated "untagged, in-progress" shape used
-    between stable releases when no pre-release cadence is running.
+  - `bnc-X.Y.Z-preN` — the "untagged, in-progress" shape used between
+    stable releases; the working tree starts at `-pre1` right after a
+    release and increments (`-pre2`, …) from there.
   - **VERSION labels the LAST commit carrying that value.**  Many commits
     in a row can read the same `VERSION`; the one a `bnc-…` tag points at
     is the last such commit before `VERSION` is bumped.  So to cut a
@@ -38,7 +39,7 @@ how the moving parts fit together so you don't have to reverse-engineer
 - **`BUILDER_VERSION`** at repo root — names which prior STABLE release
   binary `scripts/fetch-builder.sh` downloads to use as the BUILDER
   during local + CI builds.  Always a concrete stable `bnc-X.Y.Z` (no
-  `-pre` / `preN`); advances only through stable releases (a build-ladder
+  `-preN` suffix); advances only through stable releases (a build-ladder
   rung).
 - **`CHECK_TOOLS_VERSION`** at repo root — names which release's bundled
   HYGIENE tools (bnlint, bnfmt) the checks use, via
@@ -96,9 +97,9 @@ the package-layout / hardcoded-symbol / runtime / build-script
 changes that this release ought to capture should already be
 committed and pushed.
 
-### 2. Drop `-pre` from `VERSION`
+### 2. Drop the `-preN` suffix from `VERSION`
 
-Edit `VERSION` from `bnc-X.Y.Z-pre` → `bnc-X.Y.Z`.  This is the
+Edit `VERSION` from `bnc-X.Y.Z-preN` → `bnc-X.Y.Z`.  This is the
 commit that will be tagged.  **Make the corresponding edit to
 `pkg/binate/version/version.bn`'s `var Version = "..."`, dropping the
 `bnc-` prefix** (i.e. `var Version *[]readonly char = "X.Y.Z"`) — the
@@ -109,7 +110,7 @@ Commit shape:
 
     Release bnc-X.Y.Z
 
-    Drop -pre suffix; this commit will be tagged bnc-X.Y.Z.
+    Drop -preN suffix; this commit will be tagged bnc-X.Y.Z.
 
 Push to `main`.
 
@@ -121,8 +122,8 @@ checkout (`~/binate/binate`):
     git tag bnc-X.Y.Z
     git push origin bnc-X.Y.Z
 
-The tag push triggers `release.yml`.  Don't tag a `-pre` commit; the
-release CI happily builds whatever the tag points at, and a `-pre`
+The tag push triggers `release.yml`.  Don't tag a `-preN` commit; the
+release CI happily builds whatever the tag points at, and a `-preN`
 build would ship as a "release" with a broken version string.
 
 ### 4. Verify the release
@@ -201,16 +202,16 @@ the just-shipped release the new BUILDER everyone uses.
 
 ### 6. Bump `VERSION` to the next pre-release
 
-Edit `VERSION` from `bnc-X.Y.Z` → `bnc-X.Y.(Z+1)-pre`.  This marks
-the tree as "post-X.Y.Z, in-progress toward X.Y.(Z+1)."  The `-pre`
+Edit `VERSION` from `bnc-X.Y.Z` → `bnc-X.Y.(Z+1)-pre1`.  This marks
+the tree as "post-X.Y.Z, in-progress toward X.Y.(Z+1)."  The `-preN`
 suffix is what flags a build as "not a tagged release."  **Make the
 corresponding edit to `pkg/binate/version/version.bn`'s `var Version`,
-dropping the `bnc-` prefix** (i.e. `"X.Y.(Z+1)-pre"`) — version-sync
+dropping the `bnc-` prefix** (i.e. `"X.Y.(Z+1)-pre1"`) — version-sync
 strips `VERSION`'s `bnc-` before comparing.
 
 Combine with the BUILDER_VERSION bump into one commit:
 
-    Post-release: bump BUILDER_VERSION → bnc-X.Y.Z, VERSION → bnc-X.Y.(Z+1)-pre
+    Post-release: bump BUILDER_VERSION → bnc-X.Y.Z, VERSION → bnc-X.Y.(Z+1)-pre1
 
 Push to main.  CI re-runs against the new BUILDER; verify it stays
 green.
@@ -264,7 +265,7 @@ if the release already exists from a prior failed run).
 
 ## Why two `VERSION` bumps
 
-The `-pre` ↔ release-shape dance keeps the in-tree `VERSION` manifest
+The `-preN` ↔ release-shape dance keeps the in-tree `VERSION` manifest
 honest with what each commit represents.  (`cmd/bnc` — and
 bni/bnas/bnlint — now expose `--version`, reporting `<tool>-` +
 `version.Version`, kept in sync with `VERSION` by the `version-sync`
@@ -272,15 +273,15 @@ hygiene check.  The `VERSION` file itself is still a written-down
 convention the release-cut workflow and human readers rely on, not read
 by any build script.)
 
-- Anything built from a commit whose `VERSION` says `bnc-X.Y.Z-pre`
+- Anything built from a commit whose `VERSION` says `bnc-X.Y.Z-preN`
   is "in-progress toward X.Y.Z" — clearly **not** a tagged release.
 - The tagged commit itself says `bnc-X.Y.Z` exactly — the file's
   state on disk at that commit matches what `git tag bnc-X.Y.Z`
   named.
-- The very next commit on `main` says `bnc-X.Y.(Z+1)-pre` — so the
+- The very next commit on `main` says `bnc-X.Y.(Z+1)-pre1` — so the
   tree state after the tag is again clearly "between releases."
 
-If you forget step 6 (bump VERSION to next `-pre`), every commit on
+If you forget step 6 (bump VERSION to next `-pre1`), every commit on
 main between this release and the next would still claim to be
 `bnc-X.Y.Z` in-tree even though only one of them was actually tagged.
 Don't forget.
@@ -331,7 +332,7 @@ will fail and you'll have to clean up the partial release.
 
 ## Pitfalls / checklist before tagging
 
-- [ ] `VERSION` is `bnc-X.Y.Z` exactly (no `-pre`).
+- [ ] `VERSION` is `bnc-X.Y.Z` exactly (no `-preN` suffix).
 - [ ] `BUILDER_VERSION` is the PREVIOUS release (not the one you're
       cutting — that doesn't exist yet).
 - [ ] CI on the prepare-release commit is green for `-comp*` modes.
@@ -339,11 +340,11 @@ will fail and you'll have to clean up the partial release.
       consume (currently: `pkg/`, `runtime/`, `ifaces/`, `impls/`).
 - [ ] The tag points at the commit whose `VERSION` reads `bnc-X.Y.Z`.
       (`git log --oneline -1 bnc-X.Y.Z` should be the release-prep
-      commit, not a `-pre` commit.)
+      commit, not a `-preN` commit.)
 
 After:
 
 - [ ] Bundle works against a small smoke test.
 - [ ] `BUILDER_VERSION` bumped to the new release.
-- [ ] `VERSION` bumped to the next `-pre`.
+- [ ] `VERSION` bumped to the next prerelease (`-pre1`).
 - [ ] CI on the post-release commit is green.
