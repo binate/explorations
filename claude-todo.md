@@ -138,23 +138,30 @@ failures:
   is ACCEPTED; programs use os.Args()).  Fully superseded by `os-args.sh` (the
   interpreter path via os.Args) + `conformance/487_bootstrap_args` (bootstrap.Args
   content, compiled).
-- **cross-compile (ubuntu)** — `build-bnc.sh --target aarch64-linux` fails: missing
-  aarch64 cross headers (`bits/libc-header-start.h`).  Infra/runner-setup (macOS
-  passes); the script's sysroot probe doesn't gate it.
-- **satentry-retention (ubuntu)** — native compile/link fails, ubuntu-only (macOS
-  passes).  NOT the aarch64 cross-toolchain (that's cross-compile) — this is an
-  ubuntu-x86_64-NATIVE compile/link failure; unreproducible on macOS, needs the
-  ubuntu CI log to root-cause (bucket b, alongside separate-compilation).
+- **cross-compile (ubuntu)** — ✅ FIXED (`d96de7fd`).  NOT a missing package: the
+  script's `clang_can_target` skip-probe compiled a HEADER-FREE TU, so it wrongly
+  reported the aarch64 cross-libc present and the real build then failed on
+  `bits/libc-header-start.h`.  The probe now `#include <stdio.h>` → ubuntu correctly
+  SKIPs (macOS still runs via x86_64-darwin).  (Installing `gcc-aarch64-linux-gnu`
+  on the runner would flip it to real ubuntu cross coverage — a separate CI choice.)
+- **satentry-retention (ubuntu)** — 🔴 REAL x86_64-linux bug, OPEN.  CI job
+  86971203015: the `native` arm's object is rejected by ld — `main.o: file format
+  not recognized` → `linker command failed`.  The x64 NATIVE backend emits an object
+  Linux ld can't read (likely Mach-O where ELF is expected, or malformed); the `llvm`
+  arm passes.  Unreproducible on macOS.  Do NOT `xfail` — real native-backend defect,
+  possibly related to the native_x64 issues above.
 
 Status (2026-07-13): **print-args DELETED** + **ffi-export --library arm SKIPPED**
-(`a7d4bb0e`), and the **e2e xfail/skip mechanism LANDED** (`4075eca1`:
-`scripts/e2e-run.sh` + CI wired through it — per-OS `.skip`/`.xfail` markers,
-XPASS-detecting).  **split-paths** is release-resolved (BUILDER bump).  Remaining
-(per the agreed plan): **cross-compile** → install `gcc-aarch64-linux-gnu` in the
-e2e Linux step (the real fix; can't be verified off-CI); **satentry-retention** +
-**separate-compilation** → pull the ubuntu/x86_64 CI logs to root-cause before
-marking anything (blind `xfail` on the primary CI arch would mask a real bug).  The
-mechanism is ready to `xfail` whichever turn out to be genuine infra.
+(`a7d4bb0e`), **e2e xfail/skip mechanism LANDED** (`4075eca1`), and **cross-compile
+FIXED** (`d96de7fd`, skip-probe).  **split-paths** is release-resolved (BUILDER
+bump).  The CI-log pass (bucket b) found the last two are **REAL x86_64-linux bugs,
+NOT infra** — so the mechanism is deliberately NOT applied to them (blind `xfail`
+would mask real defects):
+  - **separate-compilation** (CI job 86971203026) — `--list-deps cmd/bnas` emits an
+    `error:` line to stdout on x86_64-linux (clean on macOS), polluting the dep loop.
+  - **satentry-retention** — the native-backend `main.o` format bug above.
+Both need an x86_64-linux repro (unavailable on the macOS dev host) — track as real
+bugs, not gate-masking.
 
 ### native_x64 mode: no unit or perf runner script → "Unknown mode" — 🟠 OPEN (found 2026-07-13)
 
