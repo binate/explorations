@@ -123,24 +123,36 @@ failures:
   byte-identical) and `--list-deps cmd/bnas` is clean (22 deps, empty stderr, no
   `error:`).  So this is x86_64-linux-specific or a bad-runner environmental —
   needs the x86_64 CI log to root-cause (bucket b).
-- **ffi-export (--library leg)** — the gen1 `--library` static archive's closure
-  omits pkg/bootstrap symbols: `undefined reference to bn_..._Args` / `..._Write`.
-  Real `--library` archive-closure defect.  Flapping (passes some runs).
-- **print-args (bni leg)** — the bootstrap.Args shim doesn't strip the pre-`--`
-  compiler args; bni prints the raw argv.  Flapping.  (Distinct from the already-
-  tracked bni-under-bni `registerPureCExterns` SKIP.)
+- **ffi-export (--library leg)** — ✅ SKIPPED (`671a5e90`).  NOT an archive-closure
+  bug: the facade's closure references `bootstrap.Write` (via rt) + `bootstrap.Args`
+  (via force-included startup), whose symbols are defined in `binate_runtime.c` —
+  which the `--library` archive doesn't bundle and a C-owns-main driver can't link
+  (binate_runtime.c has its own `main`).  The archive-build check stays; the
+  C-driver link+run is SKIPPED pending the **Phase-6 runtime main-move** (move
+  `main` out of `binate_runtime.c` → a main-less runtime the archive consumer can
+  link).  Un-skip `check_library`'s link+run when the main-move lands (see the
+  compiler-version-predicate / main-move entry below).
+- **print-args (bni leg)** — ✅ DELETED (`671a5e90`).  NOT a code bug: it tested
+  `bootstrap.Args()` scoping under bni, which `8984ea2a` (2026-07-12) deliberately
+  removed per design-os-args-vm.md (bootstrap.Args() diverging under the interpreter
+  is ACCEPTED; programs use os.Args()).  Fully superseded by `os-args.sh` (the
+  interpreter path via os.Args) + `conformance/487_bootstrap_args` (bootstrap.Args
+  content, compiled).
 - **cross-compile (ubuntu)** — `build-bnc.sh --target aarch64-linux` fails: missing
   aarch64 cross headers (`bits/libc-header-start.h`).  Infra/runner-setup (macOS
   passes); the script's sysroot probe doesn't gate it.
 - **satentry-retention (ubuntu)** — native compile/link fails, ubuntu-only (macOS
   passes); same missing-cross-toolchain class.
 
-Fix: disposition each — fix the real toolchain defects (`--list-deps` stdout
-pollution, `--library` closure, print-args arg-stripping); resolve the split-paths
-BUILDER-skew (release BUILDER bump, or route the leg through gen1); and gate/skip
-the ubuntu cross-toolchain cases on toolchain availability (or install the sysroot
-in CI).  Consider adding an e2e xfail/skip mechanism so known-infra cases don't red
-the gate.
+Status (2026-07-13): **print-args DELETED** + **ffi-export --library arm SKIPPED**
+(`671a5e90`) — both were tests over-asserting the accepted design / a pending phase,
+NOT code bugs.  **split-paths** is release-resolved (BUILDER bump).  Remaining:
+**separate-compilation** (bucket b — needs the x86_64-linux CI log; passes locally on
+macOS) and **cross-compile** + **satentry** (bucket d — ubuntu cross-toolchain infra;
+a CI decision: gate on toolchain availability / install the aarch64 sysroot).  The
+last enabler is an **e2e xfail/skip mechanism** (per-OS markers, like conformance's
+`.xfail.<mode>`) so the bucket-d / host-specific cases don't red the gate — in
+progress.
 
 ### native_x64 mode: no unit or perf runner script → "Unknown mode" — 🟠 OPEN (found 2026-07-13)
 
@@ -646,7 +658,10 @@ and a new `BuildConfig.Version` fed from `pkg/binate/version`'s `version.Version
 hyphenated (`X.Y.Z-preN`), `version.Version` renamed `0.0.11pre3`→`0.0.11-pre3`,
 and `version-sync.sh` format-checks VERSION (`e31750b8`).  **Still TODO:** the
 BUILDER re-pin, then the actual main-move bump (gate `startup`'s `#[c_export]`
-`main` on `at_least(version, <threshold>)` + delete the tree's C `main`).
+`main` on `at_least(version, <threshold>)` + delete the tree's C `main`).  When the
+main-move lands (a main-less `binate_runtime.c`), also un-skip
+`e2e/ffi-export.sh`'s `check_library` link+run — it was skipped in `671a5e90`
+because a C-owns-main driver can't link the current `main`-carrying runtime.
 **Motivation:** it is the bootstrap mechanism for moving the program `main` out
 of `runtime/binate_runtime.c` into `pkg/builtins/startup` (Phase 6 /
 design-ffi-export.md §3.3).  The BUILDER stage links the *bundle's* frozen `.c`
