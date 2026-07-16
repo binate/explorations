@@ -6,6 +6,50 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Replace if-return chains with `switch` where applicable (opportunistic) — ✅ DONE & LANDED (2026-07-16)
+
+Opportunistically convert `if x == A { … } else if x == B { … } …` chains
+(equality on a single scrutinee) into `switch x { case A: … }`, so the
+mutual-exclusivity is explicit and an exhaustiveness check has a hook.
+
+**First batch (2026-05-25/26):** the big per-op dispatchers —
+`pkg/vm/vm_exec_pure.bn` + `vm_exec_helpers.bn` (`b4456ab`, `e4e7d29`),
+`pkg/codegen/emit_instr.bn` (`2d6d0f7`), `pkg/native/arm64/arm64_dispatch.bn`
+(`3756acc`). Where a chain mixes equality cases with op-RANGE checks, the range
+arms stay as guards alongside the switch. This work flushed out a CRITICAL
+case-scope miscompile (managed local in a `case` body), since fixed (`4306197`).
+
+**Second batch (2026-07-16, `55ba09f3`..`d316bfa3` — 16 commits):** a repo-wide
+survey (`grep`-driven, maximal `if`/`else-if` chains where every arm is
+`SAME_LHS == const`) found all remaining clean single-scrutinee equality chains;
+converted ~29 chains across 16 files, one commit per file:
+codegen (`emit_alloca_hoist` 10-arm op-dispatch, `emit_debug_types`,
+`emit_data_global`), native (`x64_float` ×2, `aarch64_float`, `arm32_int64`,
+`arm32_int64_cast`), `vm/lower_pkg_descriptor` ×2, `types/checker_errors` ×2,
+`ir/gen_dtor_emit_bodies` ×3, `ir/gen_copy_emit` ×2, `asm/aarch64/aarch64_arith`
+×6, `asm/aarch64/aarch64_sys`, `asm/parse/parse` (numeric cases),
+`parser/parse_decl` (multi-value cases), `buildcfg`. All behavior-preserving;
+full `builder-comp` unit tests 61/0, hygiene 17/17.
+
+**Deliberately left as `if`/`else-if` (NOT switch candidates), so the todo is now
+retired as no longer applicable:**
+- Compound arms — `pt != nil && pt.Kind == X`, `instr.Op == OP_X && <guard>` —
+  are not equality on a single scrutinee (`gen_print`, `gen_flow`,
+  `gen_assign_parallel`/`_multi`, `vm/lower_func`, `bignum`).
+- Wrapper peel-loops whose last arm carries an extra guard
+  (`t.Kind == TYP_NAMED && t.Underlying != nil`): `check_opaque`, `abi_return`,
+  `ir_ops`, `check_expr_access`, `gen_refcount_pred`.
+- `asm/parse/x64`'s `tok.Kind` loop: its `else { break }` targets the enclosing
+  `for`, and Binate is Go-like (`gen_flow.bn`: `break` in a `switch` exits the
+  switch, not the loop), so a naive conversion would silently change control
+  flow. (Rewritable via `continue`-per-case + a trailing `break`, but declined
+  for this sweep.)
+- Char-equality + op-RANGE tails (`emit_module_util` string-escape,
+  `lexer/scan`) and `op == cast(int, token.X)` cascades (`check_expr_constfold`):
+  borderline restructures, out of the clean set.
+- 2-arm chains (e.g. `aarch64_arith`'s `Mvn`/`Mov`): a 2-case switch is no
+  clearer than the `if`/`else`.
+
 ## `bni --test` clean-argv guard re-homed into a `cmd/bni` test — ✅ DONE & LANDED (`b0d633d1`, 2026-07-16)
 
 Follow-up to `bfd07b3e`, which removed `cmd/bnlint`'s `TestNoBniArgvLeakUnderTest`

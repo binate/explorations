@@ -1720,38 +1720,6 @@ unblock them:
   selectively-opportunistic, not blanket.
 - **How to land**: TBD; needs concrete site survey.
 
-### Replace if-return chains with `switch` where applicable (opportunistic)
-- **Pattern**: code that does
-  `if x == A { ... return ... }; if x == B { ... return ... }; ...`
-  over many cases.  Common in op-dispatchers, kind-handlers, and
-  predicates.
-- **Why it matters**: a `switch` makes the structure obvious (all
-  cases over the same scrutinee, mutually exclusive), gives the
-  type-checker a hook for exhaustiveness checking if/when it
-  lands, and reads more naturally.
-- **Watch out for**: chains where the conditions aren't really
-  equality on a single scrutinee — those genuinely are
-  if/else-if and should stay.  Also: the bootstrap subset
-  supports `switch`, so this isn't restricted to non-bootstrap
-  code (unlike the interface TODO above).
-- **How to land**: opportunistic.  Top candidates: the per-op
-  dispatchers in `pkg/native/arm64/arm64_dispatch.bn`,
-  `pkg/codegen/emit_instr.bn`, `pkg/vm/vm_exec*.bn`, and
-  `pkg/ir/ir_ops.bn`'s opName / similar string-form helpers.
-- **Landed (2026-05-25/26)**: the big per-op dispatchers are
-  converted — `pkg/vm/vm_exec_pure.bn` + `vm_exec_helpers.bn`
-  (binate `b4456ab`, `e4e7d29`), `pkg/codegen/emit_instr.bn`
-  (`2d6d0f7`), `pkg/native/arm64/arm64_dispatch.bn` (`3756acc`).
-  Where a chain mixes equality cases with op-RANGE checks
-  (emit_instr's OP_ADD..OP_SHR / OP_EQ..OP_GE; arm64_dispatch's
-  emitCompare/emitBinop/emitUnop delegates), the range arms stay
-  as guards alongside the switch.  `ir_ops.bn`'s opName was
-  already a switch — nothing to do there.  This work flushed out
-  a CRITICAL case-scope miscompile (managed local in a `case`
-  body), since fixed (`4306197`; archived in claude-todo-done.md).
-  Remaining candidates are smaller / lower-value (assorted
-  if-chains in cmd/* and pkg/* tools).
-
 ### Clean up conformance tests to use array literal + `arr[:]` pattern
 - `arr[:]` works in compiled mode; conformance tests using `make_slice` + indexed assignment for static data could use `[N]T{...}` + `arr[:]` instead
 - Consider adding slice literal syntax (`*[]T{...}`) as sugar
