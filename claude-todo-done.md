@@ -6,6 +6,19 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Two stale "not yet implemented" spec notes dropped (§8.5 precision residual, §13.6 aggregate `==`) — ✅ DONE (`5460393`)
+
+Both spec notes claimed a feature was unimplemented; both had since landed — verified and corrected.
+- **§8.5 conversions "precision residual"** claimed a constant ≥ 2^63 reached through a bitwise/shift op
+  "is not yet rejected". Verified stale: `1 << 63`, `0x4000000000000000 << 1`, the note's exact `const A
+  uint64 = …; cast(int64, A << 1)`, and bitwise `& / |` forms all now reject "constant does not fit the
+  cast target type"; the positive control `1 << 62` (fits) still compiles. Note dropped (the general rule
+  `conv.cast.const-not-laundered` already covers it).
+- **§13.6 `expr.compare.aggregate`** said struct/array `==`/`!=` "is currently rejected (not yet
+  implemented)". Verified stale (impl `f99f4a4e`; conformance `490`/`491`; scratch test confirms correct
+  element-wise results): reworded to the working rule — a struct/array supports `==`/`!=` iff every
+  field/element is comparable (recursively), compared element-wise.
+
 ## `unused-func` false-positives on an all-`.bni` (all-generic) package's exported API — ✅ DONE & LANDED (`ae80282f`, 2026-07-15)
 
 `bnc-0.0.11`'s `unused-func` rule flagged EVERY exported function of an all-`.bni`

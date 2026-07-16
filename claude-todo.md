@@ -729,26 +729,6 @@ language extension, not a bug fix.
 
 ## Spec authoring & language-decision residuals
 
-### §8.5 spec "precision residual" note appears stale — verify and drop
-The §8.5 "Open (precision residual)" note in the conversions spec chapter says a constant
-≥ 2^63 reached through a bitwise/shift op "is not yet rejected": `cast(int64, 0x4000000000000000 << 1)`. That exact
-example — and `cast(int64, 1 << 63)` — now **reject** ("constant does not fit the cast
-target type"). The bitwise-const fold may have been fixed; verify (other patterns?) and, if
-so, drop the §8.5 residual note (like the Ch.13 generic-unparsed/d4-paren stale notes). No
-born-stale xfail added (rejection is the correct behavior). Surfaced authoring
-`conformance/spec/08-conversions`.
-
-### §13.6 `expr.compare.aggregate` is STALE — struct/array `==`/`!=` IS implemented — update the spec
-Reported by a worker 2026-07-11. The rule (`docs/spec/13-expressions.md:130-134`) still says
-"**Implementation gap:** this lowering is not implemented, so `==`/`!=` on a struct or array is
-currently rejected (‘not yet implemented’)." That is stale — struct/array element-wise equality is
-**implemented & landed** (`f99f4a4e` "ir/types: implement struct/array equality (==/!=)
-field/element-wise"; conformance `490_nested_anon_struct_equiv` / `491_anon_struct_managed_field_equiv`;
-see the archived "`==`/`!=` on aggregates" done entry). **Fix:** reword §13.6 to state the working
-element-wise-comparable rule (a struct/array is comparable iff every field/element is), drop the
-"not implemented / rejected" gap text, and bump the implementation-conformance status (Annex C).
-(The remaining generic-re-check corner cases are separately tracked and NOT a spec gap.)
-
 ### Relational-comparison chain (`a < b < c`) diagnostic reach — nicety
 The `expr.compare.relational` rule: `a < b < c` is correctly rejected in every context, but the
 dedicated "comparison operators do not chain" message fires only for the identifier-leading
