@@ -6,6 +6,37 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Use `@[]@[]char{...}` composite literals (opportunistic) — ✅ DONE & RETIRED (`10aa66d8`, 2026-07-16)
+
+Goal: replace known-fixed-length runs of `args = appendCharSlice(args, "foo");
+…("bar")` with `@[]@[]char{"foo", "bar", …}` literals (now that
+managed-slice-of-managed-slice literals are supported — BUILDER is `bnc-0.0.11`,
+not the `bnc-0.0.1` the original note cited).
+
+A repo-wide survey found the premise doesn't hold: **there are no known-static
+multi-literal runs.** Every `append*CharSlice` site is an *incremental* builder
+that a composite literal can't express:
+- The named primary candidates — `cmd/bnc/{main,test,compile,target}.bn` clang/link
+  args — interleave string literals with computed values (`oFile`, `targetTriple`,
+  `extraClangFlags[cf]`) inside `if`/`for`, or append to a passed-in slice
+  (`appendCompileStripFlags`). Not known-static.
+- `interp`/`repl` import lists build two parallel slices (`aliases`, `paths`) from
+  loop values with scattered single literal appends — not a run on one variable.
+- A scan for ≥2 consecutive literal appends to the same variable found exactly two
+  length-2 runs, both non-convertible (`target.bn` extends a param in a
+  conditional; `compile.bn`'s `-c`/`-o` are immediately followed by computed
+  `oFile`/`llFile`).
+- Three test files (`repl/util_test`, `interp/util_test`, `cmd/bnc/util_test`) call
+  the append helpers because they *test the helpers*, so they keep the append form.
+
+The only genuinely-convertible sites were the three single-element target-set
+fixtures in `pkg/binate/interp/externs_test.bn`
+(`var t @[]@[]char; t = appendCharSlice(t, "pkg/std/os")` → `@[]@[]char{"pkg/std/os"}`),
+converted in `10aa66d8` (interp 25/25, hygiene 17/17). With those done and no other
+candidates existing, the todo is retired. (BUILDER support for the literal was moot:
+none of the convertible sites are in cmd/bnc's BUILDER-compiled tree — `interp` is
+built by `bnc`, which supports the shape.)
+
 ## Container variants with explicit hash/eq functions (not requiring Hashable) — ✅ DONE (shipped as `mapfn.MapFn` / `setfn.SetFn`)
 
 The design (opened 2026-07-09) is resolved and implemented: hash-based container

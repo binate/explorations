@@ -1696,28 +1696,6 @@ unblock them:
   iface construction was a codegen bug (now fixed, see
   conformance/495).
 
-### Use `@[]@[]char{...}` composite literals (opportunistic)
-- **Constraint**: previously forbidden because bootstrap didn't
-  support managed-slice-of-managed-slice composite literals; now
-  unlocked everywhere (bnc-0.0.1 supports them).  Mirrors the
-  unconstraint situation for `cmd/bnlint`'s tests, which already
-  use this shape.
-- **Pattern to replace**: a known-fixed-length run of
-  `args = appendCharSlice(args, "foo"); args = appendCharSlice(args, "bar"); ...`
-  → `var args @[]@[]char = @[]@[]char{"foo", "bar", ...}`.  Same
-  shape for `appendRawCharSlice` (since string literals are
-  already `*[]const char`).  When the run mixes constants with
-  computed values, leave it alone — the literal form only helps
-  for known-static sets.
-- **Candidates**: argv construction in build scripts (e.g.
-  `cmd/bnc/{main,test,compile}.bn` clang-args setup), test
-  scaffolding (anywhere a test builds a known `@[]@[]char`
-  fixture), and short fixed sets of import paths.
-- **Why bother**: cuts line count, removes a runtime O(n²)
-  rebuild pattern (each `appendCharSlice` allocates a new
-  slice + copies), and matches the language's expressive
-  default instead of the bootstrap workaround.
-
 ### Use function values to collapse explicit dispatch shims (opportunistic)
 - **Constraint**: function values are unlocked now that
   cmd/bnc is no longer bootstrap-bound; bnc-0.0.1 has the
