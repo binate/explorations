@@ -6,6 +6,48 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## LLVM-codegen arm32: 8-aligned ≤16B aggregate arg coerced to `[N x i32]` (no even-pad) → cross-backend miscompile — ✅ FIXED & LANDED (`f02cda07`, 2026-07-16)
+
+A CRITICAL silent cross-backend ABI miscompile.  cmd/bnc compiles the main module
+with the native backend but dependency packages with LLVM, so a cross-package call is
+a native↔LLVM boundary that must agree byte-for-byte on how a ≤16-byte aggregate
+travels by value.  The in-register aggregate coercion (`pkg/binate/codegen/emit_agg_coerce.bn`)
+unconditionally used i32 elements (`[N x i32]`) on ILP32.  For an 8-ALIGNED aggregate
+(one containing an int64 / float64) that is WRONG: a 4-aligned `[N x i32]` does NOT
+trigger LLVM's AAPCS §6.5 C.3 even-register bump, so an LLVM-compiled callee read the
+struct one register earlier than the native caller (which even-pads via `NeedsEvenReg`)
+placed it — silent argument corruption.
+
+**Symptom / discovery.** `988_xpkg_iface_sse`: `s.tag(D2) int` (D2 = `struct{x float64;
+y float64}`, 16B) returned `100` (just the receiver's base) instead of `159` — the D2
+arg arrived ZERO — while `s.swap(D2) D2` on the same iface worked and the in-package
+twin `987_iface_sse` passed.  `swap`/`fold` return >16B via sret (recv→r1, aggregate
+starts at even r2 → pad coincides); `tag`/`mix` return scalars (recv→r0, aggregate at
+odd r1 → the divergence bites).  Root-caused by disassembling both 987 (all-native) and
+988 (native main + LLVM deps) and confirmed against `clang -target arm-none-eabi
+-mfloat-abi=soft` (which places a two-double struct after a pointer arg at r2:r3,
+skipping r1 — it EVEN-PADS, matching native + AAPCS32 §6.5 C.3).  The native backend was
+CORRECT; the LLVM coercion was wrong.
+
+**Fix.** `aggCoerceElemBytes` is now ALIGNMENT-aware — on ILP32 it returns 8 (i64
+elements → `[N x i64]`) for an aggregate with `AlignOf() >= 8`, else 4 (i32).  An
+8-aligned struct/array always has SizeOf a multiple of 8 (size padded to alignment), so
+`[N x i64]` is byte-exact and word-count-parity holds with native's ceil(SizeOf/4)
+packing.  Both caller and callee coerce through the same helper, so LLVM↔LLVM stays
+self-consistent AND now matches native + clang.  No-op on LP64 (always i64) and for
+4-aligned ILP32 aggregates; the 8-aligned RETURN case is unreachable on ILP32 (NeedsSret
+threshold 4 → any ≥8B aggregate is sret).  It keys on the SAME `t.AlignOf() >= 8`
+predicate native's `argNeeds8Align` uses, so the two decide even-pad on identical peeled
+alignment.  Unit: `TestAggCoerce8AlignedStructIsI64OnILP32` (+ the 4-aligned complement)
+via a new `setTargetArm32()` fixture (real AAPCS32 MaxAlign=8, unlike setTarget32's
+MaxAlign=4, under which the fix would have been inert).  Adversarial-reviewed clean (all
+six angles: SizeOf-multiple-of-8, word-count parity, AlignOf peeling, return side, alloca
+slot, SSE/HFA non-interaction).
+
+**Result.** `builder-comp_arm32_baremetal` (LLVM) **2776/0** (no LLVM↔LLVM regression) and
+`builder-comp_native_arm32_baremetal` (native) **2776/0** — the native arm32 backend is
+now FULLY GREEN (from 2705/71 at the start of the P5.3 soft-float work).
+
 ## Use function values to collapse explicit dispatch shims (opportunistic) — ✅ SURVEYED & RETIRED — no actionable sites (2026-07-16)
 
 Goal: find places routing through a `kind` int + per-kind dispatch table where the

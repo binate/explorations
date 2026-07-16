@@ -7,55 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### LLVM-codegen arm32: an 8-aligned ≤16B aggregate ARG is coerced to `[N x i32]` (no even-pad), diverging from AAPCS32 / clang / the native backend → cross-backend miscompile — 🔴 OPEN CRITICAL (found 2026-07-16)
-
-**Severity: CRITICAL** — a silent cross-backend ABI miscompile: an 8-byte-aligned,
-≤16-byte struct passed by value at an ODD register cursor is placed one register off
-between an LLVM-compiled and a native-compiled translation unit, corrupting the arg.
-
-**Symptom.** `988_xpkg_iface_sse` (native arm32 mode): `s.tag(D2) int` (D2 =
-`struct{x float64; y float64}`, 16B, 8-aligned) returns `100` (just `b.base`) instead
-of `159` — the D2 arg arrives as ZERO.  `s.swap(D2) D2` on the same iface WORKS.  The
-in-package twin `987_iface_sse` PASSES.
-
-**Root cause (CONFIRMED via disassembly + clang + spec).** In the native arm32 mode the
-test's `main` is compiled with the **native** backend but its dependency package
-`pkg/shapes` (incl. `Box.tag`) with the **LLVM** backend — a native↔LLVM boundary.  The
-two backends disagree on the AAPCS32 §6.5 C.3 even-register-pair rule for an 8-aligned
-aggregate at an odd cursor:
-- **Native** (`emitCallIfaceMethod` + `NeedsEvenReg`): a scalar-returning `tag(recv, D2)`
-  puts recv in r0, then D2 EVEN-PADS to **r2:r3 + stack** (r1 skipped).  CORRECT.
-- **LLVM codegen** (`pkg/binate/codegen/emit_agg_coerce.bn`, `aggCoerceLLTy` /
-  `aggCoerceElemBytes`): coerces D2 to **`[4 x i32]`** (4-aligned), stripping the 8-byte
-  alignment, so LLVM does NOT even-pad — `Box.tag` reads D2 starting at **r1**.  WRONG.
-- Ground truth: `clang -target arm-none-eabi -mfloat-abi=soft` on `int tag(void*, struct
-  D2)` places `v.x` in **r2:r3** (r1 skipped), `v.y` on the stack — i.e. it EVEN-PADS,
-  matching native.  AAPCS32 §6.5 C.3 requires it.  A design comment in
-  `emit_agg_coerce.bn` (~lines 34–39) claiming "clang coerces to `[N x i32]`, 4-aligned,
-  and the native side never even-bumps a naturally-4-aligned aggregate" is factually
-  wrong for an 8-aligned aggregate.
-
-**Why swap works, tag fails; why in-package works.** `swap`/`fold` return >16B via
-AAPCS32 sret, so the dispatch prepends sret+data (prefixSlots=2): recv→r1, the aggregate
-starts at r2 = already even, so native's even-pad and LLVM's no-pad COINCIDE.  `tag`/`mix`
-return scalars (prefixSlots=1): recv→r0, aggregate at odd r1 — the only case the pad
-divergence bites.  In-package (987) both sides are native (both even-pad) → self-consistent.
-
-**Scope.** NOT a live PURE-LLVM production bug (LLVM↔LLVM is internally self-consistent —
-both sides omit the pad — so `builder-comp_arm32_baremetal` passes).  But it is a real
-AAPCS32 divergence that corrupts ANY 8-aligned ≤16B aggregate arg at an odd cursor across
-a native↔LLVM boundary — iface dispatch AND **direct cross-package calls** — so it blocks
-native/LLVM interop (a stated design goal) and native-arm32 completion.
-
-**Proposed fix.** `pkg/binate/codegen/emit_agg_coerce.bn`: on ILP32, coerce an aggregate
-with `AlignOf() >= 8` to **`[N x i64]`** (N = ceil(SizeOf/8)), not `[N x i32]`, so LLVM
-applies the §6.5 C.3 even-register bump like clang + native.  A genuinely 4-aligned
-aggregate keeps `[N x i32]`.  Both caller and callee coerce through the same helper, so
-LLVM↔LLVM stays self-consistent AND now matches native.  **MUST run the full
-`builder-comp_arm32_baremetal` LLVM sweep (~2634) to confirm no LLVM↔LLVM regression**
-before landing, since it changes the LLVM aggregate ABI broadly.  Test coverage:
-`988_xpkg_iface_sse` reproduces it (currently red, no xfail marker).
-
 ## MAJOR
 
 ### Type-switch / interface-assertion over a `*any` whose boxed dynamic type is a SLICE segfaults — 🔴 OPEN MAJOR (found 2026-07-16)

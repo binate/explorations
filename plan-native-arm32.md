@@ -819,20 +819,22 @@ Split into three landable increments:
   fail-loud.  `builder-comp_native_arm32_baremetal`: **29 → 1 failure (28 fixed,
   zero regressions)** — flipped 569, 697, 699–707, 710, 883–884, 891–892, 912–931,
   969, 985–986.
-- **REMAINING (1) — `988_xpkg_iface_sse` (cross-package interface aggregate-arg
-  marshal).** NOT a closure / float bug: a cross-package interface method with an
-  aggregate arg and a SCALAR return loses the aggregate arg (`tag(D2) int` returns
-  just `b.base`, dropping `v.x`/`v.y`), while the aggregate-RETURN method on the same
-  iface works (`swap(D2) D2` → correct).  The in-package twin `987_iface_sse` PASSES,
-  so it is cross-package specific — a P4-c iface concern (the float fields of D2 are
-  incidental; the bug is the aggregate arg not reaching the cross-TU shim under the
-  scalar-return dispatch shape).  Root cause needs investigation (the iface
-  consumer's aggregate-arg placement vs the cross-package shim's by-address
-  expectation, or the cross-TU vtable/shim wiring).  Was 975/988 in the P5.2 notes
-  above; 975 is fixed, 988 remains.
-- **Acceptance**: `builder-comp_native_arm32_baremetal` fully green (or every
-  residual failure xfail'd with a tracked root-cause todo).  Now at **2775 / 1**
-  (only 988).
+- **`988_xpkg_iface_sse` — DONE (`f02cda07`, 2026-07-16).** NOT a closure / float / native
+  bug: a CRITICAL LLVM-codegen ABI defect the native arm32 work surfaced.  The in-register
+  aggregate coercion (`pkg/binate/codegen/emit_agg_coerce.bn`) coerced an 8-ALIGNED ≤16B
+  aggregate to `[N x i32]` on ILP32, stripping the 8-byte alignment so LLVM omitted the
+  AAPCS §6.5 C.3 even-register bump — while the native caller (which even-pads via
+  `NeedsEvenReg`) placed it one register higher.  A scalar-returning cross-package iface
+  method taking a two-float64 struct (`tag(D2) int`) placed the D2 at an odd cursor and the
+  LLVM-compiled callee read it one register off → the arg arrived ZERO.  Root-caused via
+  disassembly of 987 (all-native, passes) vs 988 (native main + LLVM deps) and confirmed
+  against clang (which EVEN-PADS, matching native + the spec — so native was right, the LLVM
+  coercion wrong).  Fixed by making the coercion alignment-aware (`[N x i64]` for an
+  8-aligned aggregate).  See done log `f02cda07`.  Verified: LLVM arm32 **2776/0** (no
+  LLVM↔LLVM regression) + native arm32 **2776/0**.
+- **Acceptance — MET.** `builder-comp_native_arm32_baremetal` is **FULLY GREEN: 2776 / 0**
+  (from 2705 / 71 at the start of the P5.3 soft-float work).  `builder-comp_arm32_baremetal`
+  (LLVM) is also 2776 / 0.
 
 ### P6 — VFP + hard-float (arm32-linux complete)
 - Confirm float-ABI threading decision (TargetInfo field vs arch string).
