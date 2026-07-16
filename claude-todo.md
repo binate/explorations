@@ -762,10 +762,20 @@ Remaining, for a focused follow-up (with the build-constraint rework below):
 The build-constraint rework is done (re-authored `075_build_gate_file` / `076_build_gate_import` on the
 real file/import gating mechanism; the "unknown predicate/annotation" possible-gap was NOT a real
 validation gap — the compiler rejects them under a resolved config, unit-tested — see the done log).
-**Remaining:** the one uncovered rule `pkg.build.errors` needs a conformance `.error` test — a
-`#[build(is(<unknown-predicate>, "x"))]` (or unknown tag) on a *required* element under a resolved
-target, so validation fires and the build aborts. Ch.16 stays 21/22 until then (behavior is
+**Remaining:** the one uncovered rule `pkg.build.errors` needs a conformance `.error` test (or a
+small suite) — a `#[build(...)]` whose predicate FAILS TO EVALUATE on a *required* element under a
+resolved target, so validation fires and the build aborts. Ch.16 stays 21/22 until then (behavior is
 unit-tested in `buildcfg_test.bn`).
+
+**Scope grew (the version predicate landed `dedbb620`, 2026-07-13; spec `038d98e`):** `pkg.build.errors`
+now covers more than the original "unknown predicate/annotation" framing, so the test(s) should exercise
+the expanded set — each a distinct `#[build(...)]` on a required element under a resolved target:
+- unknown unqualified annotation; unknown predicate or tag (the original cases);
+- **unknown predicate function** — a call that isn't `is`/`at_least`/`at_most` (e.g. `gt(version,"1.0.0")`);
+- **ordered matcher on a non-`version` key** — `at_least(arch, "x64")` / `at_most(os, "linux")`;
+- **malformed or adjacent-concatenated `version` literal** — `at_least(version, "0.0")` / `at_least(version, "0.0" ".11")`;
+- a disallowed operator (a bare `<`/`==`) or otherwise malformed expression.
+(Behavior for all of these is already unit-tested in `buildcfg_test.bn`; this is the conformance-side gap.)
 
 ### Observable optimizations and UB policy — broader question
 - Surfaced while planning const: allowing the compiler to allocate
