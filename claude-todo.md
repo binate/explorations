@@ -500,29 +500,16 @@ predates the fix and still mis-fires.  **DROP `setfn` from LINT_SKIP at the next
 CHECK_TOOLS bump past `962450cf`** — that closes this entry.  (See the done log for the
 fix's full root-cause writeup.)
 
-### bnlint's `lintPackages` integration tests self-skip in CI — 🟠 OPEN (2026-07-15; agreed follow-up to `ae80282f`)
+### Move the `bni --test` clean-argv guard into a `cmd/bni` test — 🟢 MINOR (2026-07-16; follow-up to `bfd07b3e`)
 
-`cmd/bnlint`'s integration tests (`TestLintPackagesClean`,
-`TestLintPackagesTestsFlag`, `TestLintPackagesAllBniGeneric`) call `findRoot()`,
-which reads `-I` from the test binary's own argv (`main_test.bn:600`). The
-unit-test runner invokes the compiled test binary with NO `-I`
-(`scripts/unittest/runners/builder-comp.sh` runs `"$testbin"` bare), so
-`findRoot()` returns "" and every such test **self-skips** — they only run under
-a manual `bnlint -I`. So `TestLintPackagesAllBniGeneric` (the all-`.bni`
-unused-func regression guard added with the fix `ae80282f`) currently provides
-**no automated coverage** of the loader branch it targets.
-
-Fix (option 3, user-chosen 2026-07-15): pass `-I <root>` / `-L <root>` to the
-compiled test binary in the unit-test runner(s) so these integration tests
-actually run — while NOT reintroducing the argv-leak the bni `--test` path guards
-against (`TestNoBniArgvLeakUnderTest`: bni's own `--test`/`-I`/`-L` must never
-leak into a test program's `os.Args()`). This is unit-test-**runner** (CI-runner)
-plumbing, which is why it was split out of the fix commit.
-
-Also nudged by `ae80282f` (pre-existing, minor): `pkg/binate/loader/loader.bn`
-is ~536 lines, over the 500-line soft-limit **warning** (was already ~530 before
-the fix). Not a hard failure; wants a proper split along natural boundaries when
-convenient.
+`bfd07b3e` removed `cmd/bnlint`'s `TestNoBniArgvLeakUnderTest`, which was the only
+test asserting that a program run under `bni --test` sees a clean `os.Args()` (no
+`--test`/`-I`/`-L` leaking in from bni's own command line). That invariant is still
+enforced in code (`cmd/bni` installs an empty program argv via `setProgramArgs` on
+the `--test` path), but is now untested. The test lived in the wrong package — it
+asserted a `cmd/bni` property from `cmd/bnlint`, where it only mattered because the
+now-deleted `findRoot()` read argv. Proper home is a `cmd/bni` test asserting the
+`--test` clean-argv install. Small; add when convenient.
 
 ### Raw-slice escape: decide whether a BROADER best-effort escape lint is wanted — 🟡 NEEDS DECISION
 The original framing ("demote the raw-slice escape TYPE ERROR to a linter rule")

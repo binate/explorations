@@ -6,6 +6,43 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## bnlint integration tests: silent-skip footgun removed + bnlint-self e2e added — ✅ DONE & LANDED (`bfd07b3e`, 2026-07-16)
+
+`cmd/bnlint`'s `lintPackages` integration tests used `findRoot()` to scrape the
+repo root from a `-I` token in the test binary's argv, then `if len(root) == 0 {
+return "" }` — a SILENT skip (`TestResult` is pass/fail with no skip sentinel, so
+"" reads as PASS). The runner never passed `-I` to the compiled test binary, so
+these tests silently self-skipped in CI (fake green). `TestLintPackagesClean` was
+in fact permanently broken — it linted `pkg/binate/ast`, whose transitive deps
+(`pkg/std/strconv`, …) live in the split `ifaces/`+`impls/` trees, unreachable
+from a single search path — it would have FAILED had it ever run. (Supersedes the
+earlier "wire the self-skip into CI" plan: the right fix is to kill the skips, not
+feed the tests a root via argv, which fights `TestNoBniArgvLeakUnderTest`.)
+
+Fix: remove `findRoot()` + the `len(root)==0` skips; the 3 surviving integration
+tests pass a CWD-relative root `"."` and run unconditionally (missing package →
+loud failure). `scripts/unittest/run.sh` `cd`s to `$BINATE_DIR` so a test binary's
+CWD is the repo root deterministically (no-op for every other package — they use
+absolute paths). Removed `TestLintPackagesClean` (broken + redundant — linting a
+real stdlib-dependent package is an integration concern) and
+`TestNoBniArgvLeakUnderTest` (only existed to guard `findRoot`). Added
+`scripts/hygiene/lint.sh --from-source` (build bnlint from the tree, not the pinned
+CHECK_TOOLS bundle) and `e2e/bnlint-self.sh` (builds the tree's bnlint and lints
+the whole repo — hygiene's `lint.sh` uses the PINNED tool, so it never tested the
+tree's bnlint; this does, auto-discovered by the e2e matrix on Linux+macOS). Added
+`scripts/unittest/cmd-bnlint.xfail.builder-comp_arm32_baremetal` — the integration
+tests now do real `os.Stat`/`os.ReadDir`, which `errNoFS` under arm32-baremetal
+QEMU semihosting (no filesystem), like `cmd-bnc`/`cmd-bni`.
+
+Adversarially reviewed (found the baremetal FS xfail, fixed + confirmed
+55-pass/2-fail → xfail). Verified: builder-comp bnlint/loader/asm green,
+interpreter mode green, `e2e/bnlint-self.sh` PASS (tree's bnlint lints the repo
+clean), hygiene 17/17, the 3 integration tests execute+pass (were silently
+skipping). Landed through a conflict with `eb4acc0b` (the main.bn→main_util.bn
+split, a pure code move) — resolved by re-applying the edits onto the post-split
+`main_test.bn`. Minor follow-up tracked in [claude-todo.md](claude-todo.md): move
+the `bni --test` clean-argv guard into a `cmd/bni` test.
+
 ## Generic-instantiation cache conflated `readonly`-differing type args (`Identical` peels readonly) — ✅ DONE & LANDED (`962450cf`, 2026-07-16)
 
 **Was a MAJOR compile-time bug** (not bnlint-only, as an earlier reading wrongly
