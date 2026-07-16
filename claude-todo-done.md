@@ -31,6 +31,15 @@ codegen (`emit_alloca_hoist` 10-arm op-dispatch, `emit_debug_types`,
 `parser/parse_decl` (multi-value cases), `buildcfg`. All behavior-preserving;
 full `builder-comp` unit tests 61/0, hygiene 17/17.
 
+**Follow-up (`75df6bdc`, 2026-07-16):** `asm/parse/x64`'s memory-operand
+`tok.Kind` loop — a single-scrutinee equality chain whose `else { break }`
+targets the enclosing `for` (Binate is Go-like: a `break` inside a `switch`
+exits the switch, not the loop, so a naive conversion would silently change
+control flow). Converted by putting `continue` in each recognized `case` and a
+single `break` after the switch, reached only when a token opens no component
+(the old `else`); the `]` guard stays ahead of the switch. Behavior-preserving;
+`asm/parse` 96/96, hygiene 17/17.
+
 **Deliberately left as `if`/`else-if` (NOT switch candidates), so the todo is now
 retired as no longer applicable:**
 - Compound arms — `pt != nil && pt.Kind == X`, `instr.Op == OP_X && <guard>` —
@@ -39,11 +48,6 @@ retired as no longer applicable:**
 - Wrapper peel-loops whose last arm carries an extra guard
   (`t.Kind == TYP_NAMED && t.Underlying != nil`): `check_opaque`, `abi_return`,
   `ir_ops`, `check_expr_access`, `gen_refcount_pred`.
-- `asm/parse/x64`'s `tok.Kind` loop: its `else { break }` targets the enclosing
-  `for`, and Binate is Go-like (`gen_flow.bn`: `break` in a `switch` exits the
-  switch, not the loop), so a naive conversion would silently change control
-  flow. (Rewritable via `continue`-per-case + a trailing `break`, but declined
-  for this sweep.)
 - Char-equality + op-RANGE tails (`emit_module_util` string-escape,
   `lexer/scan`) and `op == cast(int, token.X)` cascades (`check_expr_constfold`):
   borderline restructures, out of the clean set.
