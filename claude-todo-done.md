@@ -151,9 +151,14 @@ matching the sibling div/shift tests. Also updated a now-stale comment in
 `vm_crossmode_ret64_test.bn` that had justified direct-IR over `lowerFromSource` by
 "the latter passes a nil checker." Adversarially reviewed before landing.
 
-Verified vm package green on LP64 (no regression); arm32 confirmation left to the
-`builder-comp_arm32_linux vm` CI lane. Fixed 2 of the 6 arm32 `builder-comp_arm32_linux
-vm` reds; the other 4 landed separately (next entry).
+Verified vm package green on LP64 (no regression). arm32 CI (run `29479264481`,
+commit `34a3c8f1`) confirmed `TestLowerCastUint32ZeroExtendsToUint64` now passes on
+`builder-comp_arm32_linux`. The OTHER nil-checker-attributed red,
+`TestExecUint32HighBitToFloat32`, still fails there — it is NOT the literal bug (its
+literal is fine now) but a separate VM uint→float conversion bug on a 32-bit host,
+now tracked in [claude-todo.md](claude-todo.md) ("VM `cast(float32/64, uintN)`
+mis-rounds high-bit unsigned values"). So this commit fixes 1 of the 2
+nil-checker-attributed reds; the 4 hardcoded-size reds landed separately (next entry).
 
 ## arm32 `builder-comp_arm32_linux vm`: 4 test-only LP64-hardcode reds — ✅ DONE & LANDED (`e14d8f2c`, 2026-07-16)
 
