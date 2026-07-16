@@ -741,22 +741,6 @@ language extension, not a bug fix.
 - Do we support `import _ "pkg/foo"`? Should we? (Side-effect-only imports.)
 - Both interact with the package object naming question above.
 
-### Whole-package re-export (`expose`) — 🟢 IMPLEMENTED + SPECIFIED + TESTED — one passive residual
-
-The core `.bni` declaration `expose "pkg/std/foo"` re-exports another package's whole
-exported surface (for refactors/renames — promote `pkg/stdx/foo` → `pkg/std/foo` behind a
-forwarder `.bni` — and internal aggregation): identity-preserving (A.X *is* B.X), flat,
-transitive, surface-only (Model 2, not a dot-import), vars included, collisions-are-errors.
-**Landed** (`76d76d3f`): parser / loader / scope-injection / closure-registration /
-resolved-home mangling (the crux — func/var/const mangling was spelling-driven, now follows
-the resolved entity's home across the ~75 `resolveImportPkg`/`buildQualName` sites) /
-collision check, plus reflect + the conformance bundle (`1028`/`1032`–`1053`, 17 tests).
-**Spec'd**: §16.5.2 + `binate.ebnf` `ExposeDecl` + nine `pkg.expose.*` rules. No
-backend/codegen work. Design/plan: [design-expose.md](design-expose.md),
-[plan-expose-execution.md](plan-expose-execution.md).
-**Only residual (passive):** gated from `cmd/bnc`'s own `.bni` use until a BUILDER
-understanding `expose` is pinned — clears on the next BUILDER bump.
-
 ## Spec authoring & language-decision residuals
 
 ### §8.5 spec "precision residual" note appears stale — verify and drop

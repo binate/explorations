@@ -6,6 +6,23 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Whole-package re-export (`expose`) — ✅ DONE (implemented + specified + tested; BUILDER gate cleared at `bnc-0.0.11`)
+
+The core `.bni` declaration `expose "pkg/std/foo"` re-exports another package's whole
+exported surface (for refactors/renames — promote `pkg/stdx/foo` → `pkg/std/foo`
+behind a forwarder `.bni` — and internal aggregation): identity-preserving (A.X *is*
+B.X), flat, transitive, surface-only (Model 2, not a dot-import), vars included,
+collisions-are-errors. **Implemented** (`76d76d3f`): parser / loader / scope-injection
+/ closure-registration / resolved-home mangling (the crux — func/var/const mangling
+was spelling-driven, now follows the resolved entity's home across the ~75
+`resolveImportPkg`/`buildQualName` sites) / collision check, plus reflect + the
+17-test conformance bundle (`1028`/`1032`–`1053`). **Specified**: §16.5.2 +
+`binate.ebnf` `ExposeDecl` + nine `pkg.expose.*` rules. No backend/codegen work.
+Design/plan: `design-expose.md`, `plan-expose-execution.md`. The last residual — the
+feature was gated from `cmd/bnc`'s own `.bni` use until a BUILDER understood `expose`
+— cleared when BUILDER bumped to `bnc-0.0.11` (`a5feb8ca`, 2026-07-14; its source
+postdates the expose landing).
+
 ## E2E red pile-up (6 scenarios, release pre-check) — ✅ ALL RESOLVED (2026-07-13 → 2026-07-15)
 
 The 2026-07-13 release pre-check found E2E red since 2026-07-07 (`54aac72b`) — six
