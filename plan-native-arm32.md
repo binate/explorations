@@ -805,15 +805,34 @@ Split into three landable increments:
   `builder-comp_native_arm32_baremetal`: **71 → 29 failures (42 fixed, zero
   regressions)**.  Flipped 562–566, 568, 632, 633, 649, 683, 888, 894, 901, 970, 975,
   987 + the matrix/abi `*multi-return*/f64/*` set.
-- **P5.3 pt 2 — float in CAPTURING CLOSURES (+ hfa/sse-closure shapes) — TODO.**
-  The remaining 29 failures are all capturing-closure float shapes: relax
-  `closureHasFloatPartsArm32` (float capture / param / scalar result) and
-  `closureResultHasFloatPartArm32` (float leaf in an aggregate/tuple result) in
-  `arm32_closure_shim.bn`, and verify the closure capture-load + closure spill paths
-  place a float64 pair correctly.  Flips 569, 697, 699–707, 710, 883–884, 891–892,
-  912–931, 969, 985–986, 988.
+- **P5.3 pt 2 — float in CAPTURING CLOSURES — DONE (`5213aa41`, 2026-07-16).** On
+  soft-float a closure's float parts need no float-specific handling: a float PARAM
+  rides the shared shim marshal (`emitShimArgMarshalArm32`, isPair64Typ — pt 1), a
+  float CAPTURE is loaded from the capture struct by-word like an int capture (a
+  float64's even-pair pad routes it to the closure spill shim), and a float RESULT
+  (scalar OR a float FIELD of an aggregate / multi-return) rides the GP-only
+  tail-branch / sret / pack — a soft-float aggregate is just bytes.  So the two
+  fail-loud guards (`closureHasFloatPartsArm32`, `closureResultHasFloatPartArm32`, +
+  the dead `typHasFloatLeafArm32`) were the only thing deferring these; removing them
+  enabled every closure float shape with NO new code.  Five float-fail-loud unit
+  pins flipped to assert clean lowering; the indirect-large aggregate capture stays
+  fail-loud.  `builder-comp_native_arm32_baremetal`: **29 → 1 failure (28 fixed,
+  zero regressions)** — flipped 569, 697, 699–707, 710, 883–884, 891–892, 912–931,
+  969, 985–986.
+- **REMAINING (1) — `988_xpkg_iface_sse` (cross-package interface aggregate-arg
+  marshal).** NOT a closure / float bug: a cross-package interface method with an
+  aggregate arg and a SCALAR return loses the aggregate arg (`tag(D2) int` returns
+  just `b.base`, dropping `v.x`/`v.y`), while the aggregate-RETURN method on the same
+  iface works (`swap(D2) D2` → correct).  The in-package twin `987_iface_sse` PASSES,
+  so it is cross-package specific — a P4-c iface concern (the float fields of D2 are
+  incidental; the bug is the aggregate arg not reaching the cross-TU shim under the
+  scalar-return dispatch shape).  Root cause needs investigation (the iface
+  consumer's aggregate-arg placement vs the cross-package shim's by-address
+  expectation, or the cross-TU vtable/shim wiring).  Was 975/988 in the P5.2 notes
+  above; 975 is fixed, 988 remains.
 - **Acceptance**: `builder-comp_native_arm32_baremetal` fully green (or every
-  residual failure xfail'd with a tracked root-cause todo).
+  residual failure xfail'd with a tracked root-cause todo).  Now at **2775 / 1**
+  (only 988).
 
 ### P6 — VFP + hard-float (arm32-linux complete)
 - Confirm float-ABI threading decision (TargetInfo field vs arch string).
