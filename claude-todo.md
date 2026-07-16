@@ -106,83 +106,14 @@ isolation.  Add a regression test: a bnlint integration fixture (cf. the `bnlint
 testdata harness) linting two packages in the poisoning order must exit clean.  Until fixed,
 `pkg/stdx/containers/setfn` cannot rejoin the lint set.
 
-## CI red on main — release pre-check batch (found 2026-07-13)
+## CI red on main — release pre-check batch (found 2026-07-13) — ✅ ALL RESOLVED (moved to done log)
 
-Main's Unit / Conformance / E2E CI have been red for 1–2 weeks with UNTRACKED
-failures; a 2026-07-13 release pre-check triaged all four red suites (latest
-completed run on `57ef8be2`).  Per `release-process.md`, E2E / Conformance /
-hygiene failures on modes that were green on the previous release BLOCK a release,
-so these gate the next release.  The conformance one — the MAJOR
-`1029_zero_size_struct_method` native miscompile — is now **FIXED & LANDED**
-(`9cc0272a`; see the done log): the native backends counted a zero-size aggregate
-as one argument word instead of zero, so a zero-size by-value receiver/arg read
-from an uninitialized slot.  (Perf's red is a non-blocking infra gap — see the
-native_x64-runner entry.)  Only Code hygiene is green.
-
-### E2E red pile-up (6 failing scenarios) — 🔵 IN PROGRESS (found 2026-07-13)
-
-E2E went green→red at `54aac72b` (2026-07-07) and accumulated failures as new
-`e2e/*.sh` scripts landed (each runs the moment it lands; none tracked, and there
-is no e2e xfail mechanism).  Latest run `57ef8be2` (29295407584) — six independent
-failures:
-- **split-paths (bnc leg)** — BUILDER-skew wrong IR: `pkg__builtins__rt.ll` icmp
-  "'%vN' defined with type 'ptr' but expected 'i64'", clang fails.  The stale
-  BUILDER's compiled-in codegen emits a mis-typed ptr/int compare for current
-  rt.bn.  (See release-process.md "BUILDER-skew traps".)  → ✅ **RELEASE-RESOLVED,
-  CONFIRMED**: pure BUILDER-skew — the `BUILDER_VERSION` bump to `bnc-0.0.11` (landed
-  with the release) makes the BUILDER's codegen match current source; NO code fix
-  needed.  Verified green both OSes on `a5feb8ca` (BUILDER `bnc-0.0.11`), vs failure
-  on `39e06dcd` (BUILDER `bnc-0.0.10`).
-- **separate-compilation (gen1 leg)** — 🔵 INSTRUMENTED (`021b43e5`); root pending
-  CI.  `bnc --list-deps cmd/bnas` emits an `error:` line to stdout (bnc prints loader
-  errors on the SAME stream as the dep list), polluting the dep loop → it built a
-  package named `error:`.  UNREPRODUCIBLE off the CI runners: clean on local macOS
-  (30× + full script), a linux/amd64 bundle run, AND a linux/arm64 gen1 build via
-  build-bnc.sh (all tried) — so the trigger is GHA-runner-specific and the real error
-  was invisible.  `021b43e5` fixes the script's missing `--list-deps` exit-code check
-  so the NEXT CI run prints the actual error to root-cause from.  (Deeper follow-up:
-  bnc routing loader errors to stdout is wrong for machine-readable --list-deps.)
-- **ffi-export (--library leg)** — ✅ SKIPPED (`a7d4bb0e`).  NOT an archive-closure
-  bug: the facade's closure references `bootstrap.Write` (via rt) + `bootstrap.Args`
-  (via force-included startup), whose symbols are defined in `binate_runtime.c` —
-  which the `--library` archive doesn't bundle and a C-owns-main driver can't link
-  (binate_runtime.c has its own `main`).  The archive-build check stays; the
-  C-driver link+run is SKIPPED pending the **Phase-6 runtime main-move** (move
-  `main` out of `binate_runtime.c` → a main-less runtime the archive consumer can
-  link).  Un-skip `check_library`'s link+run when the main-move lands (see the
-  compiler-version-predicate / main-move entry below).
-- **print-args (bni leg)** — ✅ DELETED (`a7d4bb0e`).  NOT a code bug: it tested
-  `bootstrap.Args()` scoping under bni, which `8984ea2a` (2026-07-12) deliberately
-  removed per design-os-args-vm.md (bootstrap.Args() diverging under the interpreter
-  is ACCEPTED; programs use os.Args()).  Fully superseded by `os-args.sh` (the
-  interpreter path via os.Args) + `conformance/487_bootstrap_args` (bootstrap.Args
-  content, compiled).
-- **cross-compile (ubuntu)** — ✅ FIXED (`20c7dbcd`).  NOT a missing package: the
-  script's `clang_can_target` skip-probe compiled a HEADER-FREE TU, so it wrongly
-  reported the aarch64 cross-libc present and the real build then failed on
-  `bits/libc-header-start.h`.  The probe now `#include <stdio.h>` → ubuntu correctly
-  SKIPs (macOS still runs via x86_64-darwin).  (Installing `gcc-aarch64-linux-gnu`
-  on the runner would flip it to real ubuntu cross coverage — a separate CI choice.)
-- **satentry-retention (ubuntu)** — ✅ FIXED (`daa8f68b`).  Root cause: a real
-  `--backend native`-on-Linux bug — `nativeObjFormatForTarget()` hardcoded `"macho"`
-  for the host default (build.OS-unaware, unlike its `build.Arch` sibling
-  nativeArchForTarget), so a bare `--backend native` build on a Linux host emitted a
-  Mach-O object GNU ld rejects ("file format not recognized").  Now host-aware via
-  `build.OS` (Mach-O on Darwin, ELF on Linux/baremetal); macOS unchanged.  The
-  `TestNativeObjFormatForTarget` unit test hardcoded "macho" too — also made
-  host-aware (mirrors the earlier TestNativeArchForTargetDefaultsHostArch fix).
-
-Status (updated 2026-07-15): all six scenarios resolved-or-instrumented.
-**print-args DELETED** + **ffi-export --library arm SKIPPED** (`a7d4bb0e`), **e2e
-xfail/skip mechanism LANDED** (`4075eca1`), **cross-compile FIXED** (`20c7dbcd`,
-skip-probe), **satentry-retention FIXED** (`daa8f68b`, the `--backend native` Mach-O-
-on-Linux bug above), and **separate-compilation INSTRUMENTED** (`021b43e5` — the only
-one still failing; unreproducible off-CI across macOS + linux/amd64 + linux/arm64, so
-the fix surfaces the real error on the next CI run to root-cause from).  **split-paths**
-is release-resolved — CONFIRMED green both OSes on `a5feb8ca` (BUILDER `bnc-0.0.11`) vs
-failure on `39e06dcd` (BUILDER `bnc-0.0.10`).  When the next E2E run lands, confirm
-satentry green and capture separate-compilation's now-visible `--list-deps` error.
-
+The 2026-07-13 release pre-check triaged four red CI suites; every item is now
+resolved and recorded in [claude-todo-done.md](claude-todo-done.md): the MAJOR
+`1029_zero_size_struct_method` native miscompile (`9cc0272a`), the native_x64
+unit/perf runner gap (`39e06dcd`), and the six-scenario **E2E red pile-up**
+(`a7d4bb0e` / `4075eca1` / `20c7dbcd` / `daa8f68b` / `d366b591`, + split-paths
+release-resolved by the `bnc-0.0.11` BUILDER bump).
 ## Test-flake watch
 
 Intermittent, load-/environment-dependent test failures tracked for recurrence —

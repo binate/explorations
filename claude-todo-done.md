@@ -6,6 +6,47 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## E2E red pile-up (6 scenarios, release pre-check) — ✅ ALL RESOLVED (2026-07-13 → 2026-07-15)
+
+The 2026-07-13 release pre-check found E2E red since 2026-07-07 (`54aac72b`) — six
+independent failures piled up untracked as new `e2e/*.sh` scripts landed (each ran
+the moment it landed; there was no e2e xfail/skip mechanism).  All six resolved:
+
+- **print-args** — DELETED (`a7d4bb0e`).  Stale test: asserted `bootstrap.Args()`
+  scoping under bni, which `8984ea2a` deliberately removed (design-os-args-vm.md — the
+  divergence is ACCEPTED, programs use `os.Args()`).  Superseded by `os-args.sh` +
+  `conformance/487_bootstrap_args`.
+- **ffi-export (--library leg)** — SKIPPED (`a7d4bb0e`), pending the Phase-6 runtime
+  main-move.  Not an archive-closure bug: the closure references `bootstrap.Write`/`Args`
+  (in `binate_runtime.c`), which the archive can't bundle and a C-owns-main driver can't
+  link (it has its own `main`).  Un-skip `check_library`'s link+run when the main-move
+  lands (tracked in the compiler-version-predicate entry, claude-todo.md).
+- **cross-compile** — FIXED (`20c7dbcd`).  Weak skip-probe: `clang_can_target` compiled
+  a HEADER-FREE TU, wrongly reporting the aarch64 cross-libc present; the real build then
+  failed on `bits/libc-header-start.h`.  Probe now `#include <stdio.h>` → ubuntu SKIPs.
+- **split-paths** — RELEASE-RESOLVED (BUILDER bump to `bnc-0.0.11`).  Pure BUILDER-skew
+  (`rt.ll` icmp ptr/i64); no code fix.  Confirmed green both OSes on `a5feb8ca` vs
+  failure on `39e06dcd`.
+- **satentry-retention** — FIXED (`daa8f68b`).  A real `--backend native`-on-Linux bug:
+  `nativeObjFormatForTarget()` hardcoded `"macho"` for the host default (build.OS-unaware,
+  unlike its `build.Arch` sibling nativeArchForTarget), so a Linux-host bare
+  `--backend native` build emitted a Mach-O object GNU ld rejects.  Now host-aware via
+  `build.OS`.  Confirmed green both OSes on CI (run 29474251755).
+- **separate-compilation** — FIXED (`d366b591`; diagnostic `021b43e5`).  A relative-path
+  TEST bug, not a compiler bug: `TARGET="cmd/bnas"` was resolved by bnc against the CWD,
+  and CI runs e2e scripts from the workspace root (`binate/scripts/e2e-run.sh …`), so it
+  became `<workspace>/cmd/bnas` → "cannot read cmd/bnas".  Unreproducible for a week
+  because every local + Docker repro (macOS, linux/amd64, linux/arm64 gen1) ran from
+  inside the binate dir.  `021b43e5` (a `--list-deps` exit-code check) surfaced the
+  swallowed error; `d366b591` makes the target absolute (`$BINATE_DIR/cmd/bnas`),
+  matching the other e2e scripts.  Verified end-to-end from a wrong CWD.
+
+Also landed here: the **e2e per-OS skip/xfail marker mechanism** (`4075eca1`,
+`scripts/e2e-run.sh`) — the missing piece that let these pile up untracked.  Sibling
+release-pre-check items have their own done entries: the MAJOR
+`1029_zero_size_struct_method` native miscompile (`9cc0272a`) and the native_x64
+unit/perf runners (`39e06dcd`).
+
 ## native/arm32: `UnwrapNamed` → `StripWrappers` at the 32-bit value-shape sites — ✅ SWEPT & LANDED (`c911c591`, 2026-07-15)
 
 Follow-up to the P5.2 shim-guard review (`cc20fad0`), which had fixed the *64-bit*
