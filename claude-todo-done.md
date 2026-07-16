@@ -6,6 +6,42 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Use function values to collapse explicit dispatch shims (opportunistic) — ✅ SURVEYED & RETIRED — no actionable sites (2026-07-16)
+
+Goal: find places routing through a `kind` int + per-kind dispatch table where the
+data flow would be clearer as "the caller hands us the function it wants invoked"
+(replace the selector with a `*func(...)` / `@func(...)` value). Explicitly framed
+as selectively-opportunistic (each call adds indirect-call overhead), "not blanket."
+
+A thorough survey (six area passes + spot-check) found **no actionable candidates.**
+The codebase's int-selector dispatch is, essentially without exception, one of:
+- **Data-driven** — the selector is read off an IR opcode (`ins.Op`), token
+  (`p.tok.Typ`), type (`t.Kind`), relocation kind, or other parsed/runtime value.
+  The caller has *data*, not a known function, so a function value can't replace the
+  dispatch — it *is* correctly a switch (this is exactly what the "if-chain → switch"
+  sweep, `55ba09f3`..`d316bfa3`/`75df6bdc`, turned these into). Covers `emit*`,
+  `condForOp`, `foldBitwise`, `OpName`, the VM exec loop, etc.
+- **Predicate / name-map** (`isCapturableKind`, `OpName`) — not handler dispatch.
+- **Selector-is-also-data** — `makeGenericMarker(…,kind)` stores kind on the Symbol;
+  `parseFuncTypeBody(…,kind)` stores `te.Kind = kind`; `RegisterExtern`'s size is the
+  retbuf width. Fails "selector only picks a handler."
+- **Different-operand-of-same-op** width switches — not different behaviors.
+
+The only two shape-matches, both in `asm/parse/parse.bn` (a BUILDER-compiled file, so
+only non-capturing `*func` allowed there), are **declined**:
+`parseSymbolDirective(…,binding)` is a trivial 2-way branch (BIND_GLOBAL/WEAK, LOCAL a
+no-op) over `@Assembler` **methods** `SetGlobal`/`SetWeak` — a function value would
+bind the `p.Asm` receiver → a capturing closure, unsupported under BUILDER `bnc-0.0.11`
+in that tree; and `parseDataDirective(…,size)` dispatches to `EmitUint{8,16,32,64}`,
+which have **different signatures** (can't share one func-value type) and where `size`
+also carries the byte width.
+
+Where function-value / interface adoption *was* a win, it already landed:
+`cmd/bnc`'s `Backend` interface (`compileModule`), lint's `*func(...)` rule-walkers
+(`walkExprFuncLits`/`walkStmtFuncLits`), and the `*func` extern tables in
+`interp/externs.bn` and `vm/extern_register.bn`. So the todo is retired as surveyed
+with nothing to act on.
+
 ## Use `@[]@[]char{...}` composite literals (opportunistic) — ✅ DONE & RETIRED (`10aa66d8`, 2026-07-16)
 
 Goal: replace known-fixed-length runs of `args = appendCharSlice(args, "foo");

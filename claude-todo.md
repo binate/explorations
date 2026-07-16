@@ -1748,20 +1748,6 @@ unblock them:
   iface construction was a codegen bug (now fixed, see
   conformance/495).
 
-### Use function values to collapse explicit dispatch shims (opportunistic)
-- **Constraint**: function values are unlocked now that
-  cmd/bnc is no longer bootstrap-bound; bnc-0.0.1 has the
-  function-value machinery (see plan-function-values-phase-3
-  in `claude-todo-done.md`).
-- **Pattern to look for**: places where we route through a
-  `kind` int + a per-kind dispatch table, when the data flow
-  would be clearer as "the caller hands us the function it
-  wants invoked".  Candidates need a closer look before they're
-  fully scoped — function-value adoption isn't always a win
-  (each call adds an indirect-call overhead), so this is
-  selectively-opportunistic, not blanket.
-- **How to land**: TBD; needs concrete site survey.
-
 ### Clean up conformance tests to use array literal + `arr[:]` pattern
 - `arr[:]` works in compiled mode; conformance tests using `make_slice` + indexed assignment for static data could use `[N]T{...}` + `arr[:]` instead
 - Consider adding slice literal syntax (`*[]T{...}`) as sugar
