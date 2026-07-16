@@ -805,7 +805,7 @@ Split into three landable increments:
   `builder-comp_native_arm32_baremetal`: **71 → 29 failures (42 fixed, zero
   regressions)**.  Flipped 562–566, 568, 632, 633, 649, 683, 888, 894, 901, 970, 975,
   987 + the matrix/abi `*multi-return*/f64/*` set.
-- **P5.3 pt 2 — float in CAPTURING CLOSURES — DONE (`5213aa41`, 2026-07-16).** On
+- **P5.3 pt 2 — float in CAPTURING CLOSURES — DONE (`f27cf9ca`, 2026-07-16).** On
   soft-float a closure's float parts need no float-specific handling: a float PARAM
   rides the shared shim marshal (`emitShimArgMarshalArm32`, isPair64Typ — pt 1), a
   float CAPTURE is loaded from the capture struct by-word like an int capture (a
