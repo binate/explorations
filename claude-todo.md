@@ -488,17 +488,6 @@ predates the fix and still mis-fires.  **DROP `setfn` from LINT_SKIP at the next
 CHECK_TOOLS bump past `962450cf`** — that closes this entry.  (See the done log for the
 fix's full root-cause writeup.)
 
-### Move the `bni --test` clean-argv guard into a `cmd/bni` test — 🟢 MINOR (2026-07-16; follow-up to `bfd07b3e`)
-
-`bfd07b3e` removed `cmd/bnlint`'s `TestNoBniArgvLeakUnderTest`, which was the only
-test asserting that a program run under `bni --test` sees a clean `os.Args()` (no
-`--test`/`-I`/`-L` leaking in from bni's own command line). That invariant is still
-enforced in code (`cmd/bni` installs an empty program argv via `setProgramArgs` on
-the `--test` path), but is now untested. The test lived in the wrong package — it
-asserted a `cmd/bni` property from `cmd/bnlint`, where it only mattered because the
-now-deleted `findRoot()` read argv. Proper home is a `cmd/bni` test asserting the
-`--test` clean-argv install. Small; add when convenient.
-
 ### Raw-slice escape: decide whether a BROADER best-effort escape lint is wanted — 🟡 NEEDS DECISION
 The original framing ("demote the raw-slice escape TYPE ERROR to a linter rule")
 is obsolete: there is NO type-check rejection for raw-slice escape (the checker

@@ -6,6 +6,18 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `bni --test` clean-argv guard re-homed into a `cmd/bni` test — ✅ DONE & LANDED (`b0d633d1`, 2026-07-16)
+
+Follow-up to `bfd07b3e`, which removed `cmd/bnlint`'s `TestNoBniArgvLeakUnderTest`
+(it only lived there because the now-deleted `findRoot()` scanned argv). Re-homed
+the guard to `cmd/bni/args_test.bn` as `TestNoBniArgvLeakUnderTest`: it asserts, via
+`bniArgs()` (os.Args() minus the program-name slot), that no `--test`/`-I`/`-L`
+leaks into a program's argv under `bni --test` — the invariant `runTests` enforces
+by installing an empty program argv through `setProgramArgs`. Meaningful under the
+interpreter unit-test modes (builder-comp-int…), where cmd/bni's own tests run under
+an outer `bni --test`; trivially clean under the compiled path. Verified: cmd/bni
+green under builder-comp and builder-comp-int, test executes+passes, hygiene 17/17.
+
 ## native/arm32: float scalar arg OVERFLOW-to-stack in the func-value / iface shim corrupts the stack → hang — ✅ ROOT-CAUSED & FIXED (`63c7a545`, 2026-07-16)
 
 Found while landing P5.3 pt 1 (soft-float scalar float through the func-value / iface
