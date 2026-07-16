@@ -43,68 +43,62 @@ store (aa64: `Sxtb`/`Sxth` / `Uxtb`/`Uxth`, retSz 1/2 only — leave 4; arm32:
 `signed char`/`int16` negative return, compared) run on native aa64 — pure Binate
 cannot exercise it.
 
-### bnlint multi-root typecheck leaks checker state across roots → order-dependent spurious `@[]readonly uint8 → @[]uint8` error — 🔴 OPEN MAJOR (found 2026-07-15)
+### Generic-instantiation cache conflates `readonly`-differing type args (`Identical` peels readonly) → wrong monomorphization / spurious `@[]readonly uint8` error — 🔴 OPEN MAJOR (found 2026-07-15, FIX IN PROGRESS work-3)
 
-**Severity: MAJOR, and confirmed bnlint-specific (normal `bnc` compilation is
-structurally immune).**  A `pkg/binate/types` cross-root state leak in bnlint's
-single-checker multi-root path: `lintPackages` (`cmd/bnlint/main.bn:258`) uses ONE
-`@types.Checker` to BODY-check EVERY lint target plus decl-check their deps, in one
-pass over `ldr.Order`.  `c.GenericInstantiations` accumulates across every checked
-package and is NEVER reset (only `slices.Append` at `check_generic_type.bn:214`), and
-`backfillInstantiationMethods` (called per-package in `collectDecls`,
-`check_decl.bn:111`) re-processes the WHOLE cross-package list under the current
-package's scope.  So checking target `setfn` sees the instantiation state left by
-target `format` — specifically format's body-level `vec.Vec[@[]readonly char]`
-(`print_wrap.bn:124,148`) leaks a `readonly` slice-element into setfn's typecheck.
-Order-dependent because `ldr.Order` is seeded by the CLI target order.
+**Severity: MAJOR — affects normal `bnc` COMPILATION, not just bnlint.**  (An earlier
+reading called this "bnlint-specific / compilation immune"; that was WRONG — a single
+package reproduces it at compile time, see below.)
 
-Confirmed scope (why compilation is immune): the leak needs (a) `format` body-checked
-as a TARGET — its `printCompositeElems` is what instantiates `vec.Vec[@[]readonly
-char]`; a mere compilation DEP is only decl-checked, so its bodies never instantiate
-it — AND (b) `setfn`'s TEST code body-checked (`--tests`) — the victim `@[]char`
-(==`@[]uint8`) assignments are in `setfn_test.bn`; `bnlint` WITHOUT `--tests`, and any
-`bnc` compile (never compiles test files, one body-checked root + decl-only deps), are
-both clean.  So no compiled-code miscompile; the impact is bnlint's own multi-target
-lint (and, latently, any future in-process consumer that body-checks multiple
-independent roots in one checker — an LSP/REPL).  The exact readonly-producing
-micro-step (which substitution/backfill/populate step attaches the `readonly`) is not
-yet pinned — copyImportedGenericMethods already guards against re-adding methods
-(`check_generic_backfill.bn:79`), so it is likely NOT the backfill re-add but an
-earlier substitution reusing a shared node; needs one instrumentation pass.
+**Root cause (confirmed):** the generic-instantiation cache keys on `Identical`, which
+peels `readonly` (`Identical`→`resolveAliasAndConst`, and `types_const.bn:48` strips
+`TYP_READONLY`).  So `Identical(@[]char, @[]readonly char)` == true, and
+`lookupCachedInstantiationEntry` (`check_generic_type.bn:378`) treats `Foo[@[]char]`
+and `Foo[@[]readonly char]` as the SAME instantiation — returning whichever was cached
+first.  But they are DISTINCT monomorphizations (substituted method signatures differ:
+`get() @[]char` vs `get() @[]readonly char`), and their mangled identity names already
+differ (`typeNameImpl` keeps `readonly `).  So the cache hands back the wrong-typed
+instantiation: a later `Foo[@[]char]` gets the cached `Foo[@[]readonly char]`, whose
+`get()` returns `@[]readonly char` → `var x @[]char = b.get()` fails "cannot assign
+@[]readonly uint8 to @[]uint8".
 
-**Minimal reproducer** (deterministic):
+**Minimal reproducer (plain compilation, single package):**
 ```
-bnlint --tests -I <iface> -L <impl> pkg/binate/format pkg/stdx/containers/setfn
-→ "cannot assign @[]readonly uint8 to @[]uint8" ×2, then "type errors found, aborting lint"
+type Box[T any] struct { v T }
+func (b @Box[T]) get() T { return b.v }
+func poison() { var ro @Box[@[]readonly char] = make(Box[@[]readonly char]); _ = ro }
+func main() {
+	poison()
+	var b @Box[@[]char] = make(Box[@[]char])
+	var x @[]char = b.get()   // frozen bnc-0.0.11: "cannot assign @[]readonly uint8 to @[]uint8"
+	println(len(x))
+}
 ```
-Reverse order (`… setfn format`), or either package ALONE, → clean.  Reproduced on BOTH
-the frozen `bnc-0.0.11` bnlint AND a freshly built current-source `bnlint-0.0.12-pre1`;
-the checker source is byte-identical since the `bnc-0.0.11` tag `891da37d` (only version
-files changed), so this is LIVE on main, not a frozen-bundle artifact.
+Order matters (poison instantiated first).  Also reproduces via bnlint's multi-root
+lint (`bnlint --tests … pkg/binate/format pkg/stdx/containers/setfn`): `format`
+instantiates `vec.Vec[@[]readonly char]` (→ `iter.Iterator[@[]readonly char]`) before
+`setfn`'s test code instantiates `iter.Iterator[@[]char]` — that path is what blocked
+dropping the `setfn` LINT_SKIP.  Reproduced on frozen `bnc-0.0.11` AND current-source
+(checker byte-identical since the `bnc-0.0.11` tag `891da37d`), so LIVE on main.
 
-**Root-cause hypothesis:** `pkg/binate/format`'s dependency closure pulls in
-`pkg/std/strings`, whose `Builder.Write(p *[]readonly uint8)` / `Builder.String()
-@[]readonly char` intern a `readonly uint8` slice-element type into shared checker state
-that is NOT reset between roots.  `setfn` (element type `@[]char`, char==uint8) then
-resolves an assignment that should be `@[]uint8 → @[]uint8` against the leaked
-`readonly uint8` element → spurious error.  Needs pinpointing: which registry/interner in
-`pkg/binate/types` (a slice-element cache? a `@Checker`/`@Module` field not re-initialized
-in bnlint's per-root loop?) carries the `readonly` element across roots.  The error carries
-NO source location — itself a minor defect (a hard assignment error should point at a site);
-pinpointing likely needs instrumenting the assignability-check emit path.
+**Potential soundness (worse direction — worth an adversarial check):** here the cache
+returns a readonly variant for a non-readonly request → spurious REJECT (loud, safe).
+The REVERSE order — a non-readonly instantiation cached first, then a `Foo[readonly …]`
+request — would return the NON-readonly instantiation for the readonly one, silently
+DROPPING `readonly`, which could let a write through a should-be-`readonly` value pass
+the checker (silent miscompile / readonly bypass).  Not yet demonstrated; same cache-key
+bug.
 
-**How discovered:** doing the `LINT_SKIP` todo (drop the injectable-key-policy + Table
-container skip now that CHECK_TOOLS is `bnc-0.0.11`, which carries the constraint fixes
-2f8969e8/6647c49f).  The constraint false-positive IS gone, but dropping the skip surfaced
-this — it was MASKED before because pre2's constraint error aborted the typecheck before
-reaching it.  Blocks dropping the `setfn` part of the LINT_SKIP (see that entry).
+**Fix (implemented on work-3, verifying):** add `IdenticalStrict` — Identical but with
+`readonly` SIGNIFICANT (peels alias only, keeps readonly at every depth) — and key the
+instantiation cache on it (`lookupCachedInstantiationEntry`).  `Identical`'s general
+behavior is left byte-unchanged (a semantics-sensitive predicate; not touched).
+Regression: a conformance test (the Box repro) + a `types` unit test
+(`TestIdenticalStrictReadonly`).  Once landed, drop `setfn` from LINT_SKIP.
 
-**Proposed fix:** ensure the checker fully resets its type/instantiation state between roots
-on bnlint's multi-root path (fresh `@Checker`/`@Module` per root, or clear the leaking
-interner) — the correct-by-construction option that also finishes the embeddability
-isolation.  Add a regression test: a bnlint integration fixture (cf. the `bnlint --tests`
-testdata harness) linting two packages in the poisoning order must exit clean.  Until fixed,
-`pkg/stdx/containers/setfn` cannot rejoin the lint set.
+**Broader observation (separate, for the user):** `Identical` peeling `readonly` is
+arguably a latent bug for OTHER callers too (two types you cannot assign between are not
+"identical").  The cache fix does not touch that; whether `Identical` itself should
+distinguish readonly is a separate semantics call.
 
 ## Test-flake watch
 
