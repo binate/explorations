@@ -67,6 +67,53 @@ ones that make a value-shape/signedness/offset decision to `types.StripWrappers`
 conformance regression exercising a readonly/alias-wrapped unsigned compare + a wrapped
 struct-field extract.  Verify no site legitimately WANTS the named-only peel first.
 
+### bnlint multi-root typecheck leaks checker state across roots → order-dependent spurious `@[]readonly uint8 → @[]uint8` error — 🔴 OPEN MAJOR (found 2026-07-15)
+
+**Severity: MAJOR** — a `pkg/binate/types` cross-module state leak: when ONE `bnlint`
+process type-checks multiple package roots, a type interned while checking an EARLIER
+root leaks into a LATER root's typecheck and yields a spurious assignment error.
+Order-dependent (a hallmark of un-reset shared state).  Not an observed compiled-code
+miscompile — `bnc` compiles one root per process, so end-user builds are unaffected;
+the blast radius is multi-root/in-process consumers (`bnlint` today; a future
+LSP/REPL/embedder — this is a remaining leak in the "eliminate global state / embeddable
+checker" effort, e.g. the `@Checker`/`@Module`/`@GenCtx` threading).  Open question to
+investigate: could the same leak cause spurious ACCEPTANCE (a missed error) or wrong-type
+resolution, not just this spurious rejection?
+
+**Minimal reproducer** (deterministic):
+```
+bnlint --tests -I <iface> -L <impl> pkg/binate/format pkg/stdx/containers/setfn
+→ "cannot assign @[]readonly uint8 to @[]uint8" ×2, then "type errors found, aborting lint"
+```
+Reverse order (`… setfn format`), or either package ALONE, → clean.  Reproduced on BOTH
+the frozen `bnc-0.0.11` bnlint AND a freshly built current-source `bnlint-0.0.12-pre1`;
+the checker source is byte-identical since the `bnc-0.0.11` tag `891da37d` (only version
+files changed), so this is LIVE on main, not a frozen-bundle artifact.
+
+**Root-cause hypothesis:** `pkg/binate/format`'s dependency closure pulls in
+`pkg/std/strings`, whose `Builder.Write(p *[]readonly uint8)` / `Builder.String()
+@[]readonly char` intern a `readonly uint8` slice-element type into shared checker state
+that is NOT reset between roots.  `setfn` (element type `@[]char`, char==uint8) then
+resolves an assignment that should be `@[]uint8 → @[]uint8` against the leaked
+`readonly uint8` element → spurious error.  Needs pinpointing: which registry/interner in
+`pkg/binate/types` (a slice-element cache? a `@Checker`/`@Module` field not re-initialized
+in bnlint's per-root loop?) carries the `readonly` element across roots.  The error carries
+NO source location — itself a minor defect (a hard assignment error should point at a site);
+pinpointing likely needs instrumenting the assignability-check emit path.
+
+**How discovered:** doing the `LINT_SKIP` todo (drop the injectable-key-policy + Table
+container skip now that CHECK_TOOLS is `bnc-0.0.11`, which carries the constraint fixes
+2f8969e8/6647c49f).  The constraint false-positive IS gone, but dropping the skip surfaced
+this — it was MASKED before because pre2's constraint error aborted the typecheck before
+reaching it.  Blocks dropping the `setfn` part of the LINT_SKIP (see that entry).
+
+**Proposed fix:** ensure the checker fully resets its type/instantiation state between roots
+on bnlint's multi-root path (fresh `@Checker`/`@Module` per root, or clear the leaking
+interner) — the correct-by-construction option that also finishes the embeddability
+isolation.  Add a regression test: a bnlint integration fixture (cf. the `bnlint --tests`
+testdata harness) linting two packages in the poisoning order must exit clean.  Until fixed,
+`pkg/stdx/containers/setfn` cannot rejoin the lint set.
+
 ## CI red on main — release pre-check batch (found 2026-07-13)
 
 Main's Unit / Conformance / E2E CI have been red for 1–2 weeks with UNTRACKED
@@ -597,17 +644,35 @@ until the re-pin (mirrors `#[c_export]`).
 
 ## bnlint rules, unused-entity checks & lint skips
 
-### `LINT_SKIP` — CHECK_TOOLS-lag on the injectable-key-policy + Table container packages — 🟡 OPEN
+### `LINT_SKIP` — now blocked on the multi-root checker state-leak (only `setfn` left) — 🟡 OPEN (updated 2026-07-15)
 
-Main's `scripts/hygiene/lint.sh` skips exactly these from bnlint style checks:
+Main's `scripts/hygiene/lint.sh` skips these from bnlint style checks:
 `pkg/stdx/{hash,cmp}` and `pkg/stdx/containers/{table,mapfn,setfn,hashmap,set}`
-(all on main, under `ifaces/stdlib/` + `impls/stdlib/`). The `bnc-0.0.11pre2`
-bnlint (fetched via CHECK_TOOLS_VERSION) mis-fires the generic constraint check at
-their blanket impls — false "type argument H does not satisfy constraint
-Hasher[T]" / "K does not satisfy Hashable" — because the checker fixes `2f8969e8` /
-`6647c49f` postdate the pre2 bundle. A current-source bnlint lints them clean, and
-every conformance mode still fully type-checks + compiles them. **Drop at the next
-CHECK_TOOLS bump past `6647c49f`** (lint.sh's own comment tracks the same condition).
+(all on main, under `ifaces/stdlib/` + `impls/stdlib/`). The original reason —
+`bnc-0.0.11pre2`'s bnlint mis-firing the generic constraint check ("type argument H
+does not satisfy constraint Hasher[T]" / "K does not satisfy Hashable") at their
+blanket impls because the checker fixes `2f8969e8` / `6647c49f` postdated pre2 — is
+**RESOLVED**: CHECK_TOOLS_VERSION is now `bnc-0.0.11` (contains both fixes), and the
+constraint false-positive is gone.
+
+**But the skip cannot simply be dropped.** Dropping it and running the full
+`lint.sh` (all packages, file order) surfaced TWO things:
+- **3 genuine dead imports** — `import "pkg/builtins/lang"` unused in
+  `hash_test.bn` / `cmp_test.bn` / `table_test.bn` (masked while the packages were
+  skipped). Removing them is a clean, correct cleanup (verified: they compile +
+  test-pass without it). Ready to fold into the drop.
+- **A blocker: the multi-root checker state-leak MAJOR** (see the MAJOR section,
+  "bnlint multi-root typecheck leaks checker state across roots"). In the full-set
+  lint, `pkg/stdx/containers/setfn` typechecks after `pkg/binate/format` and gets a
+  spurious `cannot assign @[]readonly uint8 to @[]uint8` ×2. Order-dependent; live
+  on main. The other 6 skipped packages lint clean in the full set — **only `setfn`
+  is blocked.**
+
+Options (user's call): (a) fix the checker state-leak MAJOR first, then drop the
+whole skip + the 3 dead imports in one commit; (b) partial drop now — un-skip the 6
+clean packages + remove the 3 dead imports, leave ONLY `setfn` skipped with a
+comment pointing at the MAJOR; (c) leave the full skip, just re-point its comment at
+the new blocker. Whichever, the setfn skip stays until the MAJOR is fixed.
 
 ### `unused-func` false-positives on an all-`.bni` (all-generic) package's exported API — 🟠 OPEN (found 2026-07-14, examples repo bnc-0.0.11 bump)
 
