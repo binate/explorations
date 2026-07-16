@@ -6,6 +6,27 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Container variants with explicit hash/eq functions (not requiring Hashable) — ✅ DONE (shipped as `mapfn.MapFn` / `setfn.SetFn`)
+
+The design (opened 2026-07-09) is resolved and implemented: hash-based container
+variants whose key hashing + equality are INJECTED functions, so the key type is
+unconstrained (no wrapper type + hand-written `impl : lang.Hashable`) — the escape
+hatch for pointer-identity keys, case-insensitive text, hash-by-one-field, perf-tuned
+hashers, or opting out of `Hashable`.
+- `mapfn.MapFn[K any, V any]` / `setfn.SetFn[T any]`, via `NewMapFn(hashFn *func(K)
+  uint, eqFn *func(K, K) bool)` / `NewSetFn(...)`.
+- Built on the shared open-addressing engine `table.Table[K, V, H, E]` (the §7
+  shared-core refactor, main `b0c3e4de`, 2026-07-10) parameterized by the policy types
+  `hash.FnHasher[K]` / `cmp.FnEq[K]` (built from raw fns via `hash.Fn` / `cmp.Fn`). The
+  intrinsic `Default[K lang.Hashable]` / `Default[K lang.Comparable]` policies keep
+  direct `k.Hash()` / `Compare` dispatch; only the Fn variants pay an indirect call.
+- Every open design question resolved as the entry anticipated: separate variant type;
+  fns stored as `*func` behind policy types; shared Table core; a raw-fn API over the
+  `Hasher[K]` / `Eq[K]` policy interfaces. Tests: `mapfn_test.bn`, `setfn_test.bn`.
+
+(These packages sit in `LINT_SKIP` for the separate CHECK_TOOLS-lag — a lint version
+lag, not a functional gap; tracked in its own entry.)
+
 ## Replace if-return chains with `switch` where applicable (opportunistic) — ✅ DONE & LANDED (2026-07-16)
 
 Opportunistically convert `if x == A { … } else if x == B { … } …` chains

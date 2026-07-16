@@ -1597,43 +1597,6 @@ unblock them:
   `hashmap.Map`. Supersedes the key half of the "168 `slices.Append` in loops"
   note elsewhere in this file — the same key-ergonomics gap.
 
-### Container variants taking an explicit hash/eq function (not requiring Hashable) — 🟡 DESIGN OPEN (2026-07-09)
-- **Idea**: offer container variants (or constructors) that accept an explicit
-  `hash: *func(T) uint` + `eq`/`compare` function instead of constraining the key
-  to `lang.Hashable`. E.g. a `hashmap.NewWith(hashFn, eqFn)` / a parallel
-  `HashMapFn[K any, V]` type whose K is unconstrained.
-- **Why**: the escape hatch for (a) keys that shouldn't or can't be Hashable,
-  (b) custom hashing/equality (case-insensitive names, hash-by-one-field,
-  pointer-by-identity), and (c) perf-tuned hashers — without forcing a wrapper
-  struct + hand-written `impl : lang.Hashable` at every such site. Complementary
-  to structural Hashable: structural handles the common ergonomic case (name
-  keys); explicit-fn handles the custom/opt-out case.
-- **Open design questions**:
-  - Variant type vs. optional-fn-in-the-existing-Map (the latter mixes
-    constraint-dispatch and fn-dispatch awkwardly; a separate variant is likely
-    cleaner).
-  - Whether the fns are stored as `*func`/`@func` in the container struct —
-    function values exist (non-capturing at BUILDER, capturing in the full
-    language; containers are non-BUILDER, so capturing is available). A
-    function-value type mentioning the container's type param (`*func(K)` / `@func(K)`)
-    now substitutes `K` at instantiation (**RESOLVED** — the func-value type-traversal
-    fixes plus the generic-instantiation-as-constraint-arg work landed `2f8969e8`;
-    conformance `1035_policy_core_dispatch` exercises `FnPolicy[K] struct { hash
-    *func(K) uint }` passed as a constraint-satisfying type arg, and `1034` the plain
-    generic-policy case). So storage-as-field and fn-parameter forms compile now; each
-    instantiation still monomorphizes; the hash/eq become indirect calls per probe (no
-    interface dispatch).
-  - **Variant vs base, and the perf tradeoff.** The current `Map`/`Set` deliberately use
-    DIRECT monomorphized `key.Hash()` / `key.Compare()` calls (no indirection). An
-    injected-fn form pays an indirect call per probe + carries fn-value fields. So a
-    separate variant (`HashMapFn[K any, V]`) that leaves the fast `Hashable` `Map`
-    untouched is likely cleaner than making the injected form the base (which would slow
-    the common case) — unless the shared-open-addressing-core refactor (§7 of
-    plan-stdx-containers.md) is done so both share one impl parameterized by the fns.
-    Alternatively, inject an interface (`@Hasher[K]`) instead of raw fns — buildable
-    today (generic interfaces work) but clunkier (a named type + impl per strategy vs a
-    lambda) and adds vtable dispatch.
-
 ## Opportunistic code cleanups
 
 ### Adopt `stdx/containers` Vec for hand-rolled growable arrays — 🟡 UNBLOCKED, IN PROGRESS (audit 2026-07-09)
