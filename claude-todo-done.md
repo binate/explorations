@@ -184,6 +184,27 @@ sized floats by their real type, so only the func-value branch changed.  Covered
 cases.  Landed as part of P5.3 pt 1 (`63c7a545`): `builder-comp_native_arm32_baremetal`
 2705/71 → 2747/29 (42 non-closure float cases fixed, zero regressions).
 
+## `entrypoint` build-config dimension — startup `main` entry is mode-gated — ✅ DONE & LANDED (`8eb5f8c9`, 2026-07-16)
+
+Follow-up to the entry-point move (`c4607a71`), which had introduced a defect: with
+`main` moved into the force-loaded `startup` package, a `--library` build emitted a
+spurious `main` (colliding with the C driver's) plus a dangling `bn_entry` (a library
+has no `main` package).  Fixed by gating the entry on the build's entry point rather
+than the OS: new build-config dimension `entrypoint` (is(entrypoint, "main"|"start"|
+"init"); field on BuildConfig, recognized in evalIs, defaulted by mkConfig —
+baremetal "start", libc host "main", POSITIVELY enumerated so a future non-libc OS
+fails loud; cmd/bnc's --library path overrides to "init").  startup's `Args`/entry
+split into args_main.bn (main → `_entry`), args_baremetal.bn (start + BUILDER
+transitional → bootstrap.Args seed), args_init.bn (init → empty Args, no entry).  A
+--library archive now has no `main`.  No BUILDER re-pin: each gate leads with a
+version predicate that short-circuits `&&`/`||` before the unknown `entrypoint` key is
+evaluated under BUILDER (0.0.11).  Adversarially reviewed (safe to land; its one note
+— restore the "loud error on a future non-libc OS" net — was fixed by the positive
+enumeration).  Verified: builder-comp 2804/0, builder-comp-int 2783/0, baremetal
+011_args, `bnc --library` archive main-less, buildcfg 44/44, hygiene 17/17.  Residual
+follow-ups (check_library un-skip needs the shim relocation; lang/testing injection;
+BUILDER-0.0.12 gate cleanup) tracked in claude-todo.md.
+
 ## Compiler-version predicate + hosted entry-point move — ✅ DONE & LANDED (`c4607a71`, 2026-07-16)
 
 The `#[build]` compiler-version gate (`at_least`/`at_most`/`is(version, …)` +

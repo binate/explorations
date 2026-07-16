@@ -542,24 +542,30 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 - The separate inline-asm (`#[asm]`) doc that composes with this substrate.
 
 ### Entry-point move DONE — follow-ups: check_library un-skip, builtins injection, BUILDER-0.0.12 cleanup — 🟡 OPEN
-The `#[build]` compiler-version predicate + the hosted entry-point move it existed
-for have **landed** (`c4607a71`, 2026-07-16 — see claude-todo-done.md): the C `main`
-in `runtime/binate_runtime.c` is now `pkg/builtins/startup._entry`, `bootstrap.Args`
-is retired, and `startup` is a native-only+injected VM package.  Residual follow-ups:
-- **Un-skip `e2e/ffi-export.sh`'s `check_library` link+run** (skipped `a7d4bb0e`): the
-  tree's `binate_runtime.c` now has no `main`, so a C-owns-main driver can link the
-  `--library` archive.  Still needs the export path to touch no `bootstrap.Write`/`Exec`
-  (those shims remain in the C runtime) OR those shims moved to Binate — design-ffi-export.md Phase 6.
+The hosted entry-point move (`c4607a71`) + the `entrypoint` build dimension that
+gates it (`8eb5f8c9`, 2026-07-16 — see claude-todo-done.md) have landed: the C `main`
+is now `pkg/builtins/startup._entry`, gated `at_least(version, "0.0.12") &&
+is(entrypoint, "main")`; `bootstrap.Args` retired; `startup` native-only+injected in
+the VM.  Residual follow-ups:
+- **Un-skip `e2e/ffi-export.sh`'s `check_library` link+run** (skipped `a7d4bb0e`):
+  `8eb5f8c9` removed the last hard blocker — a `--library` build sets entrypoint
+  "init", so the archive has NO `main` (args_main.bn's `_entry` gated out) and no
+  dangling `bn_entry`.  What remains is the SHIM problem: the export path (and
+  anything bn_init runs) must touch no `bootstrap.Write`/`Exec` (those live in the
+  un-bundled C runtime) — so use a pure-compute export or move the shims into
+  Binate — design-ffi-export.md Phase 6.
 - **Inject the remaining builtins in the VM** (`lang`, `testing`) via the
   `builtinPkgs()` mechanism `c4607a71` added (rt/reflect/startup done).  `lang` is
   lowered today (force-loaded for `.String()`); `testing` is not in cmd/bni's link
   graph (referencing it from interp forces a new dep); `build` is compile-time-only.
   User: "we should be injecting *everything* in builtins."  Verify under -int + --test.
-- **Future BUILDER-0.0.12 gate cleanup:** `_entry`'s gate `at_least(version, "0.0.12")`
-  is false for BUILDER (0.0.11 → bundle C `main`).  When BUILDER re-pins to ≥0.0.12 the
-  gate goes vestigially-true; confirm the re-pinned bundle's frozen `binate_runtime.c`
-  is already main-less (built post-`c4607a71`) so there is no duplicate `main`, then the
-  version half of the gate can retire.
+- **Future BUILDER-0.0.12 gate cleanup:** the startup entry gates lead with a version
+  predicate (`at_least(0.0.12)` / `at_most(0.0.11)`) purely so BUILDER (0.0.11, which
+  predates the `entrypoint` key) short-circuits before evaluating it.  When BUILDER
+  re-pins to ≥0.0.12: confirm the re-pinned bundle's frozen `binate_runtime.c` is
+  already main-less (built post-`c4607a71`) so there is no duplicate `main`, then the
+  version halves can retire, leaving pure `is(entrypoint, ...)` gates (args_baremetal.bn
+  becomes the pure "start" seed; args_main/args_init lose their `at_least` guard).
 
 ## bnfmt (self-hosted formatter)
 
