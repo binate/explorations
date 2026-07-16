@@ -52,70 +52,6 @@ arg.  Needs a focused spill-shim debug (disassemble the 565 shim).
 Covered by `565_func_value_float_mixed` + `888_func_value_float_arg_overflow` (both native
 arm32).  Do NOT land P5.3 pt 1 as-is (`6a12b80d`) — it turns fail-loud into a hang.
 
-### Generic-instantiation cache conflates `readonly`-differing type args (`Identical` peels readonly) → wrong monomorphization / spurious `@[]readonly uint8` error — 🟠 OPEN MAJOR — fix ready, HELD from landing (found 2026-07-15)
-
-**Severity: MAJOR — affects normal `bnc` COMPILATION, not just bnlint.**  (An earlier
-reading called this "bnlint-specific / compilation immune"; that was WRONG — a single
-package reproduces it at compile time, see below.)
-
-**Root cause (confirmed):** the generic-instantiation cache keys on `Identical`, which
-peels `readonly` (`Identical`→`resolveAliasAndConst`, and `types_const.bn:48` strips
-`TYP_READONLY`).  So `Identical(@[]char, @[]readonly char)` == true, and
-`lookupCachedInstantiationEntry` (`check_generic_type.bn:378`) treats `Foo[@[]char]`
-and `Foo[@[]readonly char]` as the SAME instantiation — returning whichever was cached
-first.  But they are DISTINCT monomorphizations (substituted method signatures differ:
-`get() @[]char` vs `get() @[]readonly char`), and their mangled identity names already
-differ (`typeNameImpl` keeps `readonly `).  So the cache hands back the wrong-typed
-instantiation: a later `Foo[@[]char]` gets the cached `Foo[@[]readonly char]`, whose
-`get()` returns `@[]readonly char` → `var x @[]char = b.get()` fails "cannot assign
-@[]readonly uint8 to @[]uint8".
-
-**Minimal reproducer (plain compilation, single package):**
-```
-type Box[T any] struct { v T }
-func (b @Box[T]) get() T { return b.v }
-func poison() { var ro @Box[@[]readonly char] = make(Box[@[]readonly char]); _ = ro }
-func main() {
-	poison()
-	var b @Box[@[]char] = make(Box[@[]char])
-	var x @[]char = b.get()   // frozen bnc-0.0.11: "cannot assign @[]readonly uint8 to @[]uint8"
-	println(len(x))
-}
-```
-Order matters (poison instantiated first).  Also reproduces via bnlint's multi-root
-lint (`bnlint --tests … pkg/binate/format pkg/stdx/containers/setfn`): `format`
-instantiates `vec.Vec[@[]readonly char]` (→ `iter.Iterator[@[]readonly char]`) before
-`setfn`'s test code instantiates `iter.Iterator[@[]char]` — that path is what blocked
-dropping the `setfn` LINT_SKIP.  Reproduced on frozen `bnc-0.0.11` AND current-source
-(checker byte-identical since the `bnc-0.0.11` tag `891da37d`), so LIVE on main.
-
-**Potential soundness (worse direction — worth an adversarial check):** here the cache
-returns a readonly variant for a non-readonly request → spurious REJECT (loud, safe).
-The REVERSE order — a non-readonly instantiation cached first, then a `Foo[readonly …]`
-request — would return the NON-readonly instantiation for the readonly one, silently
-DROPPING `readonly`, which could let a write through a should-be-`readonly` value pass
-the checker (silent miscompile / readonly bypass).  Not yet demonstrated; same cache-key
-bug.
-
-**Fix (implemented + verified; NOT yet landed):** add `IdenticalStrict` — Identical but
-with `readonly` SIGNIFICANT (peels alias only, keeps readonly at every depth) — and key
-the instantiation cache on it (`lookupCachedInstantiationEntry`).  `Identical`'s general
-behavior is left byte-unchanged (a semantics-sensitive predicate; not touched).  Split
-`Identical`+`IdenticalStrict` (and their tests) into `types_identical{,_test}.bn` for the
-file-length cap.  Regression: conformance `1073_generic_inst_readonly_arg_distinct` (the
-Box repro) + `types.TestIdenticalStrictReadonly`.  Verified green: conformance
-builder-comp (2805/0), gen2 self-host, VM, types unit tests, gen1 BUILDER-compat, hygiene.
-**Held from landing** pending the tree-wide file-length cleanup: local main's tightened
-file-length hygiene check (`82b114a3`) is currently red on ~12 pre-existing warn-state
-files (none from this fix); landing waits for the tree to go green.  Once landed, drop
-`setfn` from LINT_SKIP at the next CHECK_TOOLS bump past this fix (hygiene lint uses the
-frozen `bnc-0.0.11` bnlint).
-
-**Broader observation (separate, for the user):** `Identical` peeling `readonly` is
-arguably a latent bug for OTHER callers too (two types you cannot assign between are not
-"identical").  The cache fix does not touch that; whether `Identical` itself should
-distinguish readonly is a separate semantics call.
-
 ## Test-flake watch
 
 Intermittent, load-/environment-dependent test failures tracked for recurrence —
@@ -540,7 +476,7 @@ until the re-pin (mirrors `#[c_export]`).
 
 ## bnlint rules, unused-entity checks & lint skips
 
-### `LINT_SKIP` — partial drop landed; only `setfn` remains (blocked on the multi-root checker leak) — 🟡 OPEN (updated 2026-07-15)
+### `LINT_SKIP` — only `setfn` remains; its checker bug is fixed, now just a CHECK_TOOLS version-lag — 🟡 OPEN (updated 2026-07-16)
 
 The original reason for this skip — `bnc-0.0.11pre2`'s bnlint mis-firing the generic
 constraint check ("type argument H does not satisfy constraint Hasher[T]" / "K does
@@ -554,12 +490,15 @@ CHECK_TOOLS_VERSION is now `bnc-0.0.11` (contains both fixes).
 `hash_test.bn` / `cmp_test.bn` / `table_test.bn`). `scripts/hygiene/lint.sh` now lints
 all six; full hygiene green.
 
-**Remaining:** `pkg/stdx/containers/setfn` stays skipped — NOT a version-lag, but the
-live multi-root checker state-leak MAJOR (see the MAJOR section, "bnlint multi-root
-typecheck leaks checker state across roots"): in the whole-tree lint, setfn
-type-checks after `pkg/binate/format` and gets a spurious `cannot assign @[]readonly
-uint8 to @[]uint8` ×2 (order-dependent; live on main).  **DROP `setfn` from LINT_SKIP
-once that MAJOR is fixed** — that closes this entry.
+**Remaining:** `pkg/stdx/containers/setfn` stays skipped.  The underlying checker
+bug — the generic-instantiation cache conflating `readonly`-differing type args, which
+made setfn's `iter.Iterator[@[]char]` pick up `format`'s cached
+`iter.Iterator[@[]readonly char]` (spurious `cannot assign @[]readonly uint8 to
+@[]uint8`) — is now **FIXED & LANDED (`962450cf`)**.  So the setfn skip is now a pure
+CHECK_TOOLS **version-lag**: hygiene's lint uses the frozen `bnc-0.0.11` bnlint, which
+predates the fix and still mis-fires.  **DROP `setfn` from LINT_SKIP at the next
+CHECK_TOOLS bump past `962450cf`** — that closes this entry.  (See the done log for the
+fix's full root-cause writeup.)
 
 ### bnlint's `lintPackages` integration tests self-skip in CI — 🟠 OPEN (2026-07-15; agreed follow-up to `ae80282f`)
 

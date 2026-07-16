@@ -6,6 +6,40 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Generic-instantiation cache conflated `readonly`-differing type args (`Identical` peels readonly) — ✅ DONE & LANDED (`962450cf`, 2026-07-16)
+
+**Was a MAJOR compile-time bug** (not bnlint-only, as an earlier reading wrongly
+concluded).  `lookupCachedInstantiationEntry` keyed the generic-instantiation cache on
+`Identical`, which peels `readonly` (`resolveAliasAndConst`).  So
+`Identical(@[]char, @[]readonly char)` == true and the cache treated `Foo[@[]char]` /
+`Foo[@[]readonly char]` as ONE instantiation, returning whichever was cached first — a
+DISTINCT monomorphization (their substituted method signatures differ; mangled names
+already differ).  A later `Foo[@[]char]` got the cached `Foo[@[]readonly char]`, whose
+method returns `@[]readonly char`, failing "cannot assign @[]readonly uint8 to @[]uint8".
+Single-package repro (`conformance/1073_generic_inst_readonly_arg_distinct`): instantiate
+`Box[@[]readonly char]` then `Box[@[]char]`, read `Box.get()`.  Also surfaced via bnlint's
+multi-root lint (`format`'s `vec.Vec[@[]readonly char]` poisoning `setfn`'s
+`iter.Iterator[@[]char]`), which had blocked dropping the `setfn` LINT_SKIP.
+
+**Fix:** added `IdenticalStrict` — Identical but with `readonly` SIGNIFICANT (peels alias
+only; keeps readonly at every depth) — and keyed the instantiation cache on it;
+`Identical`'s general behavior left byte-unchanged.  Regression: `conformance/1073` +
+`types.TestIdenticalStrictReadonly`.  Split `Identical`+`IdenticalStrict` (and tests) into
+`types_identical{,_test}.bn` for the file-length cap — this collided (add/add) with a
+concurrent worker's independent file-length split of the same file; resolved by grafting
+`IdenticalStrict`+its test onto their landed split.  Verified: conformance builder-comp
+(2805/0), gen2 self-host, VM, types unit tests, gen1 BUILDER-compat, hygiene 17/17.
+
+**Open follow-ups (NOT part of this landing):** (1) drop `setfn` from `LINT_SKIP` at the
+next CHECK_TOOLS bump past `962450cf` — hygiene's lint uses the frozen `bnc-0.0.11` bnlint
+which still has the bug (tracked in the LINT_SKIP active-todo entry); (2) adversarial check
+of the REVERSE-order soundness angle — a non-readonly instantiation cached first, then a
+`Foo[readonly …]` request, would (pre-fix) have returned the non-readonly instantiation,
+silently DROPPING `readonly` (a potential readonly-bypass miscompile); the cache-key fix
+closes it, but a targeted test is worth adding; (3) open semantics question — whether
+`Identical` ITSELF should distinguish `readonly` (two types you cannot assign between are
+arguably not "identical"); not touched here.
+
 ## Import aliases + blank (side-effect) imports — ✅ BOTH SUPPORTED & SPECIFIED
 
 Answered the ancient "do we support these?" questions — verified against
