@@ -786,12 +786,32 @@ Split into three landable increments:
   - **arm32_iface split (`8760ed5c`):** the runtime DISPATCH ops moved to
     `arm32_iface_dispatch.bn` (arm32_iface.bn kept the __ivt / RTTI DATA side), a
     pure-move refactor to keep arm32_iface.bn under the 600-line cap.
-- **P5.3 — float across the func-value SHIM + in aggregates / tuples / closures.**
-  Make the func-value shim ABI marshal a scalar float64 arg (2 GP words, not the
-  all-int 1-word coercion) and float results, then drop the
-  indirectCallHasWideFloatArgArm32 guard; relax the float-field fail-loud guards in
-  the closure/funcvalue/aggregate shim paths. Flips 562–566, 568, 633, 699–707,
-  883–884, 912–931, 963–970 (hfa), 985 (sse), 975/988, etc.
+- **P5.3 pt 1 — scalar + tuple-field float through the func-value / iface SHIM —
+  DONE (`63c7a545`, 2026-07-16).** On soft-float a float scalar rides GP like its
+  same-width integer (float32 = 1 word, float64 = an even-aligned register pair), so
+  the non-closure func-value / iface dispatch needed the fail-loud guards dropped and
+  the value-movement pair sites generalized from int64/uint64 (`isReg64Scalar`) to
+  `isPair64Typ` (int64/uint64/float64): the consumer stops coercing a float to a
+  1-word `*uint8` (letting it ride emitCallArg's real-type lowering), the shim marshal
+  routes a float64 through the inline-pair branch + even-pair pad, the float-return
+  fail-loud is gone (a float scalar return rides the tail-branch), and the
+  multi-return tuple-field pack/collect handle a float64 field.  **Also fixed a MAJOR
+  latent bug this exposed** (see done log `63c7a545`): the SHARED PlanFrame sizer
+  `callDispatchArgTypesAnyOp` (`common_call.bn`) sized a func-value float arg as a
+  1-word `*uint8`, under-reserving a float64's 2-word ILP32 stack footprint → an
+  overflow arg the emitter spilled corrupted a caller local (a hang, 565/888); now
+  sized as its same-width integer (no-op on LP64).  Unit: byte-exact float64
+  shim-marshal proofs + a common-package sizer regression.
+  `builder-comp_native_arm32_baremetal`: **71 → 29 failures (42 fixed, zero
+  regressions)**.  Flipped 562–566, 568, 632, 633, 649, 683, 888, 894, 901, 970, 975,
+  987 + the matrix/abi `*multi-return*/f64/*` set.
+- **P5.3 pt 2 — float in CAPTURING CLOSURES (+ hfa/sse-closure shapes) — TODO.**
+  The remaining 29 failures are all capturing-closure float shapes: relax
+  `closureHasFloatPartsArm32` (float capture / param / scalar result) and
+  `closureResultHasFloatPartArm32` (float leaf in an aggregate/tuple result) in
+  `arm32_closure_shim.bn`, and verify the closure capture-load + closure spill paths
+  place a float64 pair correctly.  Flips 569, 697, 699–707, 710, 883–884, 891–892,
+  912–931, 969, 985–986, 988.
 - **Acceptance**: `builder-comp_native_arm32_baremetal` fully green (or every
   residual failure xfail'd with a tracked root-cause todo).
 

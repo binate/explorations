@@ -6,6 +6,36 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## native/arm32: float scalar arg OVERFLOW-to-stack in the func-value / iface shim corrupts the stack → hang — ✅ ROOT-CAUSED & FIXED (`63c7a545`, 2026-07-16)
+
+Found while landing P5.3 pt 1 (soft-float scalar float through the func-value / iface
+shim): removing the broad `indirectCallHasWideFloatArgArm32` fail-loud correctly enabled
+the 40 register-fitting float cases but EXPOSED a latent spill-path bug — a func value /
+interface call whose args include a float64 that overflows to the outgoing-args stack
+hung (`565_func_value_float_mixed`, `888_func_value_float_arg_overflow`).  The change had
+turned a clean COMPILE_ERROR (fail-loud) into a crash.
+
+**Root cause (pinned).** NOT the arm32 spill shim (its marshal + `outBytes =
+CallStackBytes(realTypes)` were correct).  The bug was in the SHARED PlanFrame sizer
+`callDispatchArgTypesAnyOp` (`pkg/binate/native/common/common_call.bn`): for an
+OP_CALL_FUNC_VALUE it substituted EVERY float scalar to a 1-word `*uint8`.  Correct for a
+float32 (and for any float on LP64, where an 8-byte float is one 8-byte word), but a
+float64 on ILP32 is a 2-word EVEN-ALIGNED pair.  So PlanFrame sized the dispatch as
+`data, int, float64-as-1-word, int` = 4 words fitting R0..R3 and reserved ZERO
+outgoing-args stack — while `emitCallFuncValue` (P5.3 pt 1) placed the float64 as a real
+2-word pair and spilled the TRAILING int to the outgoing stack, past the unreserved area,
+into a caller local → the hang (with a benign value it survived; `f(3,2.5,4)`'s `4`
+corrupted a live slot).
+
+**Fix.** Size a func-value dispatch's float arg as its same-width GP INTEGER — a float
+wider than one word → `int64` (2 words even-aligned on ILP32), else a 1-word `*uint8` —
+so the outgoing-args reservation matches the emitter.  No-op on LP64 (float64 → int64 is
+one 8-byte word either way; float32 → `*uint8` unchanged); the iface dispatch already
+sized floats by their real type, so only the func-value branch changed.  Covered by
+`common_call_test.bn TestCallDispatchFuncValueFloat64ReservesStack` + the two conformance
+cases.  Landed as part of P5.3 pt 1 (`63c7a545`): `builder-comp_native_arm32_baremetal`
+2705/71 → 2747/29 (42 non-closure float cases fixed, zero regressions).
+
 ## Compiler-version predicate + hosted entry-point move — ✅ DONE & LANDED (`c4607a71`, 2026-07-16)
 
 The `#[build]` compiler-version gate (`at_least`/`at_most`/`is(version, …)` +
