@@ -172,7 +172,7 @@ See explorations/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
-### MINOR — cross-mode interface dispatch: residual LP64/HFA gaps (2026-06-14) — 🟡 OPEN
+### MINOR — cross-mode interface dispatch: residual LP64-host latent gap (2026-06-14) — 🟡 OPEN
 
 The shim-route that dispatches a native-only package's interface methods from
 bytecode (landed `93f75f27` + the math/big extension `7c3b17a2`) is exercised by
@@ -203,37 +203,16 @@ Latent, LP64-host-only (NOT active — default VM modes run a 64-bit host):
 - 64-bit-scalar args pack as 2 slots on a 32-bit host (`argSlots`); the dispatch
   reads them as positional shim args.
 
-Separately (PRE-EXISTING, independent of the VM): the native backend has no HFA
-classification — a struct of ≤4 same-kind floats (an AAPCS64/SysV Homogeneous
-Floating-point Aggregate) is passed as a GP aggregate, because the arg classifier
-(`common_call.bn:156`) only special-cases SCALAR floats (`IsFloatScalarTyp`), with
-no struct-of-floats → SIMD branch; the LLVM side relies on LLVM to classify HFAs.
-**NOT a reachable native-dispatch miscompile** (verified 2026-07-02: 2-double,
-3-double/24B, 4×float32, and float-struct-return iface dispatch all pass on native
-aa64 + x64) — native is SELF-CONSISTENT (caller + callee both use GP), so pure-native
-is correct. It is a latent **ABI-NONCONFORMANCE**: native uses GP where the standard
-ABI uses SIMD (v0–v7 / XMM), so a mismatch is reachable only at a cross-ABI boundary
-— a C-extern with an HFA-by-value arg (rare), mixed LLVM/native modules (not a normal
-build), or a VM→native cross-mode dispatch of an HFA-struct arg (the `e2e/xmiface`
-coverage tested only a scalar float, not an HFA struct). **In progress** (2026-07-02,
-user-requested): classify HFAs → SIMD in the native arg/return classifier on aa64 +
-x64 to match AAPCS64/SysV. See `plan-native-hfa-abi.md`.
-  - **Stage 1 (aa64 HFA ARGS) was landed (`332b4298`) then GATED BACK OFF
-    (`1a790663`, 2026-07-02) — see the CRITICAL "HFA-in-SIMD cross-backend mismatch"
-    entry at the top of this file.** The native aa64 arg path is AAPCS64-correct
-    (verified against a clang caller), but enabling it native-only produced reachable
-    wrong-code / SIGSEGVs: an adversarial review found the LLVM backend GP-coerces
-    float structs to `[N x i64]` (so native-main↔LLVM-dep HFA calls disagree), the aa64
-    dispatch shims GP-marshal, and the variadic NSRN walkers drop a fixed FP arg after
-    an HFA. The classifier + emitters remain in-tree, dormant. `conformance/963` and
-    `964` still pass (both backends GP again). **HFA can only flip on once the LLVM
-    backend + dispatch shims + variadic walkers classify HFAs identically — it is a
-    coordinated CROSS-BACKEND project, not a native-only stage.**
-  - **Replan needed**: the old "stage 1 = native args, stage 2 = native return, …"
-    decomposition is wrong (each piece must land in native + LLVM + shims together, and
-    the flag flips on only at the end). See `plan-native-hfa-abi.md`.
-  - Note: full float32 HFA *value* verification is also blocked by the separate CRITICAL
-    float32 expression-typing miscompile (top of this file).
+Separately (was PRE-EXISTING): the native backend GP-coerced HFAs (a struct of ≤4
+same-kind floats) instead of SIMD-passing them — a latent ABI-nonconformance
+reachable only at a cross-ABI / cross-mode boundary. **RESOLVED**: HFA-in-SIMD landed
+on both backends (aa64 `48e3787b`, x64 `ce759c41`) as the coordinated cross-backend
+project it needed to be — LLVM codegen + both native backends + the dispatch shims +
+the VM cross-mode boundary now classify HFAs identically (tests `968`–`971`). See the
+done log, "HFA-in-SIMD is a CROSS-BACKEND contract". (The old "`e2e/xmiface` tested
+only a scalar float, not an HFA struct" concern is moot — `969_hfa_dispatch` covers
+HFA structs through the func-value / closure / interface dispatch kinds, run
+cross-mode in the `-int` modes.)
 
 ### Package descriptors (Phase B) — `__Package()` works in compiled + VM modes (builtins); general Functions-table still future
 - **Status**: compiled-mode AND VM-mode `__Package()` landed (binate
