@@ -141,14 +141,15 @@ failures:
   makes the BUILDER's codegen match current source; NO code fix needed.  Re-verify
   green after the bump (it also flips separate-compilation's BUILDER leg from SKIP
   to a real check).
-- **separate-compilation (gen1 leg)** — `bnc --list-deps cmd/bnas` emits an
-  `error:` line into stdout, polluting the dep loop → it tries to build a package
-  literally named `error:` ("package \"error:\" not found").  Born red at
-  `54aac72b`.  → Does NOT reproduce locally on macOS arm64: full
-  `separate-compilation.sh` PASSES (gen1, 22 pkgs separately compiled + linked,
-  byte-identical) and `--list-deps cmd/bnas` is clean (22 deps, empty stderr, no
-  `error:`).  So this is x86_64-linux-specific or a bad-runner environmental —
-  needs the x86_64 CI log to root-cause (bucket b).
+- **separate-compilation (gen1 leg)** — 🔵 INSTRUMENTED (`021b43e5`); root pending
+  CI.  `bnc --list-deps cmd/bnas` emits an `error:` line to stdout (bnc prints loader
+  errors on the SAME stream as the dep list), polluting the dep loop → it built a
+  package named `error:`.  UNREPRODUCIBLE off the CI runners: clean on local macOS
+  (30× + full script), a linux/amd64 bundle run, AND a linux/arm64 gen1 build via
+  build-bnc.sh (all tried) — so the trigger is GHA-runner-specific and the real error
+  was invisible.  `021b43e5` fixes the script's missing `--list-deps` exit-code check
+  so the NEXT CI run prints the actual error to root-cause from.  (Deeper follow-up:
+  bnc routing loader errors to stdout is wrong for machine-readable --list-deps.)
 - **ffi-export (--library leg)** — ✅ SKIPPED (`a7d4bb0e`).  NOT an archive-closure
   bug: the facade's closure references `bootstrap.Write` (via rt) + `bootstrap.Args`
   (via force-included startup), whose symbols are defined in `binate_runtime.c` —
@@ -170,24 +171,25 @@ failures:
   `bits/libc-header-start.h`.  The probe now `#include <stdio.h>` → ubuntu correctly
   SKIPs (macOS still runs via x86_64-darwin).  (Installing `gcc-aarch64-linux-gnu`
   on the runner would flip it to real ubuntu cross coverage — a separate CI choice.)
-- **satentry-retention (ubuntu)** — 🔴 REAL x86_64-linux bug, OPEN.  CI job
-  86971203015: the `native` arm's object is rejected by ld — `main.o: file format
-  not recognized` → `linker command failed`.  The x64 NATIVE backend emits an object
-  Linux ld can't read (likely Mach-O where ELF is expected, or malformed); the `llvm`
-  arm passes.  Unreproducible on macOS.  Do NOT `xfail` — real native-backend defect,
-  possibly related to the native_x64 issues above.
+- **satentry-retention (ubuntu)** — ✅ FIXED (`daa8f68b`).  Root cause: a real
+  `--backend native`-on-Linux bug — `nativeObjFormatForTarget()` hardcoded `"macho"`
+  for the host default (build.OS-unaware, unlike its `build.Arch` sibling
+  nativeArchForTarget), so a bare `--backend native` build on a Linux host emitted a
+  Mach-O object GNU ld rejects ("file format not recognized").  Now host-aware via
+  `build.OS` (Mach-O on Darwin, ELF on Linux/baremetal); macOS unchanged.  The
+  `TestNativeObjFormatForTarget` unit test hardcoded "macho" too — also made
+  host-aware (mirrors the earlier TestNativeArchForTargetDefaultsHostArch fix).
 
-Status (2026-07-13): **print-args DELETED** + **ffi-export --library arm SKIPPED**
-(`a7d4bb0e`), **e2e xfail/skip mechanism LANDED** (`4075eca1`), and **cross-compile
-FIXED** (`20c7dbcd`, skip-probe).  **split-paths** is release-resolved (BUILDER
-bump).  The CI-log pass (bucket b) found the last two are **REAL x86_64-linux bugs,
-NOT infra** — so the mechanism is deliberately NOT applied to them (blind `xfail`
-would mask real defects):
-  - **separate-compilation** (CI job 86971203026) — `--list-deps cmd/bnas` emits an
-    `error:` line to stdout on x86_64-linux (clean on macOS), polluting the dep loop.
-  - **satentry-retention** — the native-backend `main.o` format bug above.
-Both need an x86_64-linux repro (unavailable on the macOS dev host) — track as real
-bugs, not gate-masking.
+Status (updated 2026-07-15): all six scenarios resolved-or-instrumented.
+**print-args DELETED** + **ffi-export --library arm SKIPPED** (`a7d4bb0e`), **e2e
+xfail/skip mechanism LANDED** (`4075eca1`), **cross-compile FIXED** (`20c7dbcd`,
+skip-probe), **satentry-retention FIXED** (`daa8f68b`, the `--backend native` Mach-O-
+on-Linux bug above), and **separate-compilation INSTRUMENTED** (`021b43e5` — the only
+one still failing; unreproducible off-CI across macOS + linux/amd64 + linux/arm64, so
+the fix surfaces the real error on the next CI run to root-cause from).  **split-paths**
+is release-resolved (the BUILDER bump to `bnc-0.0.11` landed with the release, so it
+should now be green — verify).  When the next E2E run lands, confirm satentry green and
+capture separate-compilation's now-visible `--list-deps` error.
 
 ## Test-flake watch
 
