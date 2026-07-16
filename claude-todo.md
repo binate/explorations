@@ -646,35 +646,26 @@ until the re-pin (mirrors `#[c_export]`).
 
 ## bnlint rules, unused-entity checks & lint skips
 
-### `LINT_SKIP` — now blocked on the multi-root checker state-leak (only `setfn` left) — 🟡 OPEN (updated 2026-07-15)
+### `LINT_SKIP` — partial drop landed; only `setfn` remains (blocked on the multi-root checker leak) — 🟡 OPEN (updated 2026-07-15)
 
-Main's `scripts/hygiene/lint.sh` skips these from bnlint style checks:
-`pkg/stdx/{hash,cmp}` and `pkg/stdx/containers/{table,mapfn,setfn,hashmap,set}`
-(all on main, under `ifaces/stdlib/` + `impls/stdlib/`). The original reason —
-`bnc-0.0.11pre2`'s bnlint mis-firing the generic constraint check ("type argument H
-does not satisfy constraint Hasher[T]" / "K does not satisfy Hashable") at their
-blanket impls because the checker fixes `2f8969e8` / `6647c49f` postdated pre2 — is
-**RESOLVED**: CHECK_TOOLS_VERSION is now `bnc-0.0.11` (contains both fixes), and the
-constraint false-positive is gone.
+The original reason for this skip — `bnc-0.0.11pre2`'s bnlint mis-firing the generic
+constraint check ("type argument H does not satisfy constraint Hasher[T]" / "K does
+not satisfy Hashable") at the injectable-key-policy + Table container blanket impls,
+because the checker fixes `2f8969e8` / `6647c49f` postdated pre2 — is **RESOLVED**:
+CHECK_TOOLS_VERSION is now `bnc-0.0.11` (contains both fixes).
 
-**But the skip cannot simply be dropped.** Dropping it and running the full
-`lint.sh` (all packages, file order) surfaced TWO things:
-- **3 genuine dead imports** — `import "pkg/builtins/lang"` unused in
-  `hash_test.bn` / `cmp_test.bn` / `table_test.bn` (masked while the packages were
-  skipped). Removing them is a clean, correct cleanup (verified: they compile +
-  test-pass without it). Ready to fold into the drop.
-- **A blocker: the multi-root checker state-leak MAJOR** (see the MAJOR section,
-  "bnlint multi-root typecheck leaks checker state across roots"). In the full-set
-  lint, `pkg/stdx/containers/setfn` typechecks after `pkg/binate/format` and gets a
-  spurious `cannot assign @[]readonly uint8 to @[]uint8` ×2. Order-dependent; live
-  on main. The other 6 skipped packages lint clean in the full set — **only `setfn`
-  is blocked.**
+**Partial drop LANDED (`2dbff394`):** un-skipped the 6 now-clean packages
+(`pkg/stdx/{hash,cmp}` + `pkg/stdx/containers/{table,mapfn,hashmap,set}`) and removed
+3 genuine dead `pkg/builtins/lang` imports the skip had masked (in
+`hash_test.bn` / `cmp_test.bn` / `table_test.bn`). `scripts/hygiene/lint.sh` now lints
+all six; full hygiene green.
 
-Options (user's call): (a) fix the checker state-leak MAJOR first, then drop the
-whole skip + the 3 dead imports in one commit; (b) partial drop now — un-skip the 6
-clean packages + remove the 3 dead imports, leave ONLY `setfn` skipped with a
-comment pointing at the MAJOR; (c) leave the full skip, just re-point its comment at
-the new blocker. Whichever, the setfn skip stays until the MAJOR is fixed.
+**Remaining:** `pkg/stdx/containers/setfn` stays skipped — NOT a version-lag, but the
+live multi-root checker state-leak MAJOR (see the MAJOR section, "bnlint multi-root
+typecheck leaks checker state across roots"): in the whole-tree lint, setfn
+type-checks after `pkg/binate/format` and gets a spurious `cannot assign @[]readonly
+uint8 to @[]uint8` ×2 (order-dependent; live on main).  **DROP `setfn` from LINT_SKIP
+once that MAJOR is fixed** — that closes this entry.
 
 ### `unused-func` false-positives on an all-`.bni` (all-generic) package's exported API — 🟠 OPEN (found 2026-07-14, examples repo bnc-0.0.11 bump)
 
