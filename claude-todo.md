@@ -136,11 +136,11 @@ failures:
 - **split-paths (bnc leg)** — BUILDER-skew wrong IR: `pkg__builtins__rt.ll` icmp
   "'%vN' defined with type 'ptr' but expected 'i64'", clang fails.  The stale
   BUILDER's compiled-in codegen emits a mis-typed ptr/int compare for current
-  rt.bn.  (See release-process.md "BUILDER-skew traps".)  → **RELEASE-RESOLVED**:
-  pure BUILDER-skew — bumping `BUILDER_VERSION` to `bnc-0.0.11` (the release cycle)
-  makes the BUILDER's codegen match current source; NO code fix needed.  Re-verify
-  green after the bump (it also flips separate-compilation's BUILDER leg from SKIP
-  to a real check).
+  rt.bn.  (See release-process.md "BUILDER-skew traps".)  → ✅ **RELEASE-RESOLVED,
+  CONFIRMED**: pure BUILDER-skew — the `BUILDER_VERSION` bump to `bnc-0.0.11` (landed
+  with the release) makes the BUILDER's codegen match current source; NO code fix
+  needed.  Verified green both OSes on `a5feb8ca` (BUILDER `bnc-0.0.11`), vs failure
+  on `39e06dcd` (BUILDER `bnc-0.0.10`).
 - **separate-compilation (gen1 leg)** — 🔵 INSTRUMENTED (`021b43e5`); root pending
   CI.  `bnc --list-deps cmd/bnas` emits an `error:` line to stdout (bnc prints loader
   errors on the SAME stream as the dep list), polluting the dep loop → it built a
@@ -187,9 +187,9 @@ skip-probe), **satentry-retention FIXED** (`daa8f68b`, the `--backend native` Ma
 on-Linux bug above), and **separate-compilation INSTRUMENTED** (`021b43e5` — the only
 one still failing; unreproducible off-CI across macOS + linux/amd64 + linux/arm64, so
 the fix surfaces the real error on the next CI run to root-cause from).  **split-paths**
-is release-resolved (the BUILDER bump to `bnc-0.0.11` landed with the release, so it
-should now be green — verify).  When the next E2E run lands, confirm satentry green and
-capture separate-compilation's now-visible `--list-deps` error.
+is release-resolved — CONFIRMED green both OSes on `a5feb8ca` (BUILDER `bnc-0.0.11`) vs
+failure on `39e06dcd` (BUILDER `bnc-0.0.10`).  When the next E2E run lands, confirm
+satentry green and capture separate-compilation's now-visible `--list-deps` error.
 
 ## Test-flake watch
 
