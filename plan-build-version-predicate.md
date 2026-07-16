@@ -1,6 +1,12 @@
 # Plan: `#[build]` compiler-version predicate (`at_least` / `at_most` / `is(version, …)`)
 
-Status: **PLANNED** (design ratified 2026-07-13; not yet implemented).
+Status: **Predicate machinery LANDED** (`dedbb620`, 2026-07-13; design ratified the
+same day) — `at_least`/`at_most`/`is(version, …)` + `BuildConfig.Version` + the
+strict `X.Y.Z[-pre[N]]` parser/comparator, spec'd in §16.8 (`pkg.build`,
+`pkg.build.version`). The **main-move** ("How it gets used later", below) is a
+SEPARATE future effort gated behind a BUILDER re-pin — NOT yet done. Per the BUILDER
+constraint below, the predicate is not yet usable inside `cmd/bnc`'s own
+BUILDER-compiled tree until BUILDER is re-pinned to a version that understands it.
 
 ## Motivation
 
