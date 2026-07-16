@@ -221,6 +221,47 @@ header-free (weak) form — strengthen it to `#include <stdio.h>` like the new r
 and cross-compile.sh (`20c7dbcd`) for consistency (a header-free probe passes even
 without the cross-libc; harmless on the x86_64 CI host, wrong on a cross host).
 
+## native aa64/arm32: a sub-word integer CALL RETURN was not canonicalized → wrong C-interop comparison — ✅ DONE & LANDED (`eeb7b400`, 2026-07-15)
+
+`aarch64.collectScalarReturn` and arm32's `emitCallReturn` scalar path spilled the
+raw return register (`X0`/`R0`) with NO sub-word sign/zero-extension.  x64 already
+canonicalized every sub-word call return (`x64_call.bn` Movsx/Movzx/Movsxd);
+aa64/arm32 never got the equivalent.  Binate's OWN functions return a
+64-bit-canonical sub-word (a Binate `int8 -1` is `0xFFFF..FF`), so Binate↔Binate is
+masked — but a FOREIGN (C / cross-ABI) callee follows AAPCS64 and returns a value
+whose bits above the result width are unspecified (clang `signed char -1` →
+`mov w0,#-1` → `x0 = 0x00000000FFFFFFFF`; an `(int)`-truncating callee leaves x0's
+upper 32 DIRTY).  aa64 compares/does arithmetic at 64 bits, so a foreign sub-word
+return used DIRECTLY (comparison / arithmetic, not via a widening cast which
+re-narrows) read the wrong value: `if c_signed_char_func() == -1` / `if c_int_func()
+== 5` was FALSE on aarch64.  Silent wrong-code at the C-interop boundary; discovered
+while verifying the func-value ("cross-mode coerced-agg") interop thread — which had
+filed the sub-word-RETURN concern as "VM-only / cosmetic"; it was NOT.
+
+Fix: sign/zero-extend a sub-word integer return to the canonical width before the
+spill.  aa64 via a shared `canonicalizeSubWordReturn` (Sxtb/Sxth/Sxtw signed;
+Uxtb/Uxth/Uxtw unsigned; int8/int16/int32), applied by BOTH `collectScalarReturn`
+(direct/indirect/func-value) and the all-int-shim `emitCallHandle` path, with a FLOAT
+GUARD (a float32 rides x0 via the shim and SizeOf 4 would otherwise be Sxtw'd).
+arm32 via `emitWidthExtend` for int8/int16 — int32 IS the full ILP32 word there;
+arm32's indirect/func-value path already routes through emitCallReturn.
+
+**int32 was ALSO broken on aa64** — the initial cut (int8/int16 only) shipped a
+false "int32 is compared at 32-bit / needs no fixup" rationale; the adversarial
+review disproved it (aa64 `Cmp` is 64-bit `sf=1`; a dirty-upper foreign int32 `== 5`
+printed 0).  Fixed by extending the helper to `sz==4` (Sxtw/Uxtw); the re-review
+confirmed idempotency on Binate-internal int32 returns (native == LLVM) and that only
+int32/uint32 reach `sz==4` (no enum/char32/rune/int128; aggregates routed away;
+pointers are 8 bytes).
+
+Regression test: `e2e/c-subword-return.sh` — a Binate program __c_call's C functions
+returning a negative int8/int16, a uint8, and a dirty-upper int32 (a truncating
+callee fed `0xBEEF<<48 | 5` — the case a clean `return -1;` clang lowers as an
+upper-zeroing `mov w0` would not exercise).  Fails pre-fix on native aa64
+(`0 0 1 1 -5`), passes post-fix (`1 1 1 1 -5`); green on LLVM; auto-run on
+macOS(aa64)+Linux(x64) by the e2e workflow.  Verified: full native aa64 conformance
+2804/0; native/{common,x64,aarch64,arm32} unit suites 5/0.
+
 ## conformance `1029_zero_size_struct_method`: native backend counted a zero-size aggregate as 1 argument word, not 0 (SIGSEGV) — ✅ DONE & LANDED (`9cc0272a`, 2026-07-13)
 
 A zero-size struct (`struct{}` / `[0]T`) passed BY VALUE crashed on the native

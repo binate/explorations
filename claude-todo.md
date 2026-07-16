@@ -9,40 +9,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### native aa64/arm32: a sub-word integer CALL RETURN is not canonicalized → wrong C-interop comparison — 🟠 IN PROGRESS (found 2026-07-15, func-value ABI interop review)
-
-`aarch64.collectScalarReturn` (`aarch64_call.bn:380`) and arm32's `emitCallReturn`
-scalar path (`arm32_call.bn:266`) spill the raw return register (`X0`/`R0`) with NO
-sub-word sign/zero-extension.  x64 canonicalizes every sub-word call return via
-`Movsx`/`Movzx`/`Movsxd` (`x64_call.bn:404-438`); aa64/arm32 never got the
-equivalent.  Binate's OWN functions return a 64-bit-canonical sub-word (a Binate
-`int8 -1` is `0xFFFF..FF`), so Binate↔Binate is masked — but a FOREIGN (C /
-cross-ABI) callee follows AAPCS64 and returns only a 32-bit-extended value
-(clang `signed char -1` → `mov w0,#-1` → `x0 = 0x00000000FFFFFFFF`).  Native code
-then uses that raw register directly: `if c_signed_char_func() == -1` is FALSE on
-aarch64 (confirmed: prints 0; the Binate↔Binate control prints 1).  Silent
-wrong-code at the C-interop boundary.
-
-Scope (empirically pinned): SIGNED `int8`/`int16` with the high bit set, from a
-foreign callee, used DIRECTLY (comparison / 64-bit arithmetic), not through a
-widening `cast` (the cast incidentally re-narrows).  int32 is SAFE on aa64 (compared
-at 32-bit / re-narrowed — even a dirty-upper int32 return compares correctly), so it
-must NOT be touched; unsigned is safe (clang zero-extends cleanly); x86-64 is immune.
-Latent — no conformance test calls a C function returning a sub-word and compares it
-(pure-Binate can't reproduce it: only a foreign callee returns a non-64-bit-canonical
-sub-word).
-
-Reframes the "cross-mode coerced-agg func-value ABI" item's sub-word-RETURN
-follow-up, which was filed as "VM-only / cosmetic" — it is NOT: there is a reachable
-NATIVE miscompile in the same class.
-
-Fix: mirror x64 — in `collectScalarReturn` (aa64) / `emitCallReturn` scalar (arm32),
-sign/zero-extend a sub-word integer return to the canonical width before the spill
-store (aa64: `Sxtb`/`Sxth` / `Uxtb`/`Uxth`, retSz 1/2 only — leave 4; arm32:
-`emitWidthExtend`, retSz 1/2).  Regression test must be an e2e C-interop test (a C
-`signed char`/`int16` negative return, compared) run on native aa64 — pure Binate
-cannot exercise it.
-
 ### Generic-instantiation cache conflates `readonly`-differing type args (`Identical` peels readonly) → wrong monomorphization / spurious `@[]readonly uint8` error — 🔴 OPEN MAJOR (found 2026-07-15, FIX IN PROGRESS work-3)
 
 **Severity: MAJOR — affects normal `bnc` COMPILATION, not just bnlint.**  (An earlier
