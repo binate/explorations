@@ -11,10 +11,11 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ### Type-switch / interface-assertion over a `*any` whose boxed dynamic type is a SLICE segfaults — 🔴 OPEN MAJOR (found 2026-07-16)
 
-**Severity: MAJOR** — a runtime crash (SIGSEGV) on a well-typed program: a
-`switch v.(type)` (or `v.(*J)` assertion) over a `*any` value whose boxed
-dynamic type is a *slice* type crashes instead of falling to `default` / the
-comma-ok `false` path.
+**Severity: MAJOR** — a runtime crash (SIGSEGV) on a well-typed program: ANY
+concrete type-compare (a `case *T:` in a `switch v.(type)`, OR an `x.(*T)`
+assertion — comma-ok or expression form) over a `*any`/`@any` whose boxed
+dynamic type is a type WITHOUT RTTI nominal identity (currently: any slice type)
+reads a garbage vtable word and crashes.
 
 **Symptom / minimal repro.**
 
@@ -24,7 +25,7 @@ func describe(v *any) {
     case *int:
         println("int")
     default:
-        println("other")   // never reached
+        println("other")   // should be reached; instead: SIGSEGV
     }
 }
 func main() {
@@ -33,21 +34,43 @@ func main() {
 }
 ```
 
-Boxing itself is fine — `takesAny(&s)` with no switch runs cleanly; the crash is
-specifically in the RTTI type-match step when the scrutinee's dynamic type is a
-slice. `describe(&i)` / `describe(&b)` / `describe(&f)` (named-type pointees)
-work correctly through the same switch.
+Characterized (all confirmed empirically 2026-07-16):
+- Fires on the type-COMPARE, not the case type. `case *int` has identity; you
+  can't even write `case *@[]char` (parser rejects a slice target). It's the
+  SCRUTINEE's boxed type lacking identity that triggers it.
+- NOT switch-specific: a comma-ok `v.(*int)` assertion over the same box crashes
+  identically.
+- NOT refcount-related: a RAW-slice box (`*[]char`, no dtor) crashes too.
+- A bare `default` (no compare) is SAFE — nothing reads the vtable. Pure boxing
+  (`takesAny(&s)`, no match) is SAFE.
 
-**Root cause (hypothesis — needs confirmation).** Type assertions are
-named-type-only (`case *@[]char` is rejected at compile time: "type-assertion
-target must be a named type … a slice … cannot be asserted"). So the compiler
-never emits an assertable RTTI/`__typeinfo` record for a slice type, yet a slice
-value CAN still be boxed into `*any` (the `(T, any)` box row is formed for
-`T = @[]char`). At the type-switch match site the runtime walks the boxed
-dynamic type's TypeInfo and dereferences a null/absent record for the slice
-type. Either the match must tolerate a slice dynamic type (treat it as "matches
-nothing but `any`/default") or boxing a slice into `any` must be rejected up
-front — but a silent crash is wrong either way.
+**Root cause (CONFIRMED via LLVM diff + lldb).** Boxing a name-less type into
+`any` produces a STRUCTURALLY-INVALID interface value. The RTTI/box machinery
+keys type identity on `mangle.TypeInfoName(pkg, name)`, but a slice has no name
+(`gen_iface.receiverBaseTypeName` returns empty for `TYP_SLICE`), so
+`wrapAsIfaceValue` → `ensureAnyImplInfo`/`findImplVtableName` can't synthesize a
+`(slice, any)` vtable and hits `return nil` (`gen_iface.bn:250`). The emitted
+"box" is then just the bare data pointer: a well-formed box passes a 2-word
+`%BnIfaceValue` (slot 0 = data, slot 1 = `@__ivt.…__any`), but the slice case
+emits `call @…_f(i8* %v2)` — a SINGLE pointer where the callee expects the
+2-word struct. The match's `EmitIfaceTypeInfo` then loads `vtable[1]` off an
+uninitialized garbage word (lldb: `ldr x8,[x8,#8]` with `x8 = 3`) →
+EXC_BAD_ACCESS. The defect is a disagreement between the two sides: BOXING
+accepts a name-less type (silently emitting a half-built value); MATCHING assumes
+every box carries a valid vtable/TypeInfo.
+
+**Fixable INDEPENDENTLY of the fmt / slice-identity (proposal B) work.** A
+well-typed program must never segfault, and boxing a slice into `any` is
+currently accepted, so a match over it must be at worst a clean guaranteed-MISS.
+Two options: (i) make the box WELL-FORMED — even a name-less type gets a real,
+emitted `__ivt`+`__typeinfo` (name-less types can share one opaque record, since
+no `case` can name them), so a compare is a safe miss; forward-compatible with B,
+no semantics change. (ii) REJECT at the checker — boxing a type with no RTTI
+identity into `any` is a compile error (conservative; contradicts the note's
+slices-in-`any` design and breaks `default`-only slice boxing). (i) is the "give
+name-less boxes a valid TypeInfo" half of B minus the §11.12 parser relaxation;
+B later upgrades the shared opaque record to distinct structural identities +
+allows `case *[]char`.
 
 **How discovered.** fmt-package design recon (the decided `...*any` +
 type-switch print direction, claude-notes.md:252). This crash — together with
@@ -56,10 +79,10 @@ the named-type-only assertion rule and the fact that slice types can't impl
 working path through `...*any` today; it forces a language-level decision on how
 `fmt.Print("hello")` recovers a string operand.
 
-**Proposed fix.** Decide the semantics (reject slice→`any` box, OR make the
-type-match tolerate a non-assertable slice dynamic type and fall through), then
-implement. Add a conformance test (`switch` over a slice-typed `*any` box →
-`default`) once the intended behavior is chosen; mark `.xfail` until fixed.
+**Test plan.** Add a conformance test: a `switch` over a slice-typed `*any` box
+(named cases + `default`) reaching `default`, plus a comma-ok `v.(*int)` over
+the same box yielding `ok == false` — both must run without crashing. Mark
+`.xfail` in every mode until the fix lands.
 
 ## Test-flake watch
 
