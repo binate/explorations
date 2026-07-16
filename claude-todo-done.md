@@ -6,6 +6,32 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Clean up conformance tests to use array literal + `arr[:]` pattern — ✅ SURVEYED & RETIRED (`f7c1e9c4`, 2026-07-16)
+
+Goal: conformance tests using `make_slice(T,N)` + indexed assignment for STATIC
+data could use `[N]T{...}` array literal + `arr[:]` instead. (The entry's second
+bullet — add `*[]T{...}` slice-literal *sugar* — was split out into its own active
+todo, since it is a language feature, not a test cleanup.)
+
+Feasibility confirmed (`[N]T{...}` used in 61 conformance files, `arr[:]` in 29,
+all modes green). But a survey of 56 `make_slice`-using tests found **only one**
+genuine candidate: the premise mostly doesn't hold, because tests that want static
+data *already* use `[N]T{...}`, and the remaining `make_slice`+fill tests are
+deliberate — the managed/heap/RC/named-slice/dtor nature is the point, or the slice
+escapes (returned / stored in a managed field / captured), the fill RHS isn't a
+constant, it needs `@[]T` downstream, or it deliberately contrasts a slice-element
+path against an array-element one. (Calibration excludes: `711` returns the slice;
+`159` tests heap sub-word stores; `739` contrasts `++` on slice vs array element.)
+
+The sole candidate — `conformance/799_bit_cast_raw_slice.bn` — was converted
+(`f7c1e9c4`): its mutable byte buffer is used only as a raw slice (`buf[:]` → bit_cast
+→ reads), never `@[]uint8`, never escaping `main`, so `var buf [2]uint8 = [2]uint8{200,
+5}` + `buf[:]` replaces `make_slice` + two indexed stores. Same `{ptr,len}` raw slice
+feeds the bit_cast, so the retype coverage (incl. the native `add %BnSlice, 0`
+regression this test pins) is unchanged; verified green under builder-comp,
+builder-comp-int, and native aa64. With that done and no other candidates, the cleanup
+is retired.
+
 ## LLVM-codegen arm32: 8-aligned ≤16B aggregate arg coerced to `[N x i32]` (no even-pad) → cross-backend miscompile — ✅ FIXED & LANDED (`f02cda07`, 2026-07-16)
 
 A CRITICAL silent cross-backend ABI miscompile.  cmd/bnc compiles the main module

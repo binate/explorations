@@ -1705,6 +1705,17 @@ unblock them:
   iface construction was a codegen bug (now fixed, see
   conformance/495).
 
-### Clean up conformance tests to use array literal + `arr[:]` pattern
-- `arr[:]` works in compiled mode; conformance tests using `make_slice` + indexed assignment for static data could use `[N]T{...}` + `arr[:]` instead
-- Consider adding slice literal syntax (`*[]T{...}`) as sugar
+### Consider raw-slice-literal sugar `*[]T{...}` (language feature)
+- Today a raw slice over static data is spelled `[N]T{...}` + `arr[:]`
+  (a named array local, then a slice view).  Sugar `*[]T{...}` would let
+  a raw slice literal be written directly.
+- **Open design question**: where does the backing array live and how
+  long?  The literal must materialize a backing (a stack temp) whose
+  lifetime covers every use of the resulting `*[]T` borrow — same
+  lifetime concern as `arr[:]` today, but implicit.  Needs a concrete
+  rule (e.g. backing has the enclosing statement's / block's lifetime)
+  before it can be specced; get sign-off on semantics before any impl.
+- Parser + typecheck + codegen work; not a mechanical change.  Was the
+  second bullet of the (now retired) "clean up conformance tests to use
+  array literal + `arr[:]`" cleanup — split out because it is a language
+  feature, not a test cleanup.
