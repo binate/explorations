@@ -172,7 +172,7 @@ See explorations/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
-### MINOR — cross-mode interface dispatch: residual LP64/HFA/upcast gaps (2026-06-14) — 🟡 OPEN
+### MINOR — cross-mode interface dispatch: residual LP64/HFA gaps (2026-06-14) — 🟡 OPEN
 
 The shim-route that dispatches a native-only package's interface methods from
 bytecode (landed `93f75f27` + the math/big extension `7c3b17a2`) is exercised by
@@ -234,30 +234,6 @@ x64 to match AAPCS64/SysV. See `plan-native-hfa-abi.md`.
     the flag flips on only at the end). See `plan-native-hfa-abi.md`.
   - Note: full float32 HFA *value* verification is also blocked by the separate CRITICAL
     float32 expression-typing miscompile (top of this file).
-
-**Native-source iface UPCAST offset>0 — ✅ FIXED & LANDED (`7f832f64`,
-2026-07-02).** The VM's `BC_IFACE_UPCAST` native-source branch
-(`vm_exec_iface.bn`) advances the native vtable word by `offset*8`, mirroring
-`emit_iface_upcast.bn`. A REAL-parent upcast (offset>0) advances the word to the
-parent sub-block — INTERIOR to the base `@__ivt` — and a method call on the
-result used to do `lookupShimVtable(base + offset*8)`, an exact-match MISS →
-loud "no shim vtable" abort. The old "unreachable, no stdlib interface extends
-another" claim was WRONG: the embeddable interp (`Interp.New` with a custom
-inject-set) lets an embedder inject a native package whose `interface B : A` is
-dispatched from bytecode — a valid program that aborted (surfaced by the user,
-2026-07-02). Fix: carry each vtable's slot count in `reflect.VtableInfo.SlotCount`
-(threaded through `ir.PkgVtableEntry` + `buildVtableInfoNode` + all four gathers —
-codegen, native x64/arm32/aarch64, and the VM bytecode gather) and make
-`lookupShimVtable` a bounded RANGE lookup: match the vtable whose extent
-`[base, base + SlotCount*8)` contains the word, return `shim + (rawAddr − base)`;
-out-of-extent → 0 (loud abort preserved). Offset 0 (`@X→@any`, `@X→*X` decay)
-resolves to the shim base exactly as before. Coverage: `e2e/xmiface.sh`
-(`cross-mode-iface-parent-upcast`: native-injected `Ext : Base` + a 3-level
-`C1 : B1 : A1` transitive upcast, offset>1; and a VALUE-receiver parent method AT
-offset>0 — case (g), `80cf34b6` — proving the iv-dispatch thunk resolves through
-the range-lookup-selected shim slot) + `pkg/binate/vm` `vtable_inject`
-(interior/boundary/out-of-extent) + descriptor unit tests. Adversarially reviewed
-(no bugs). No known coverage gaps remain.
 
 ### Package descriptors (Phase B) — `__Package()` works in compiled + VM modes (builtins); general Functions-table still future
 - **Status**: compiled-mode AND VM-mode `__Package()` landed (binate
@@ -588,32 +564,21 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 - `bnlint --target`; main-module gating; migrating the `impls/` duplicate trees onto constraints.
 - The separate inline-asm (`#[asm]`) doc that composes with this substrate.
 
-### Compiler-version predicate (`at_least` / `at_most` / `is(version, …)`) — 🟢 FIRST BUMP LANDED (`dedbb620`, 2026-07-13); main-move + re-pin remain
-Full design + implementation plan in
-[`plan-build-version-predicate.md`](plan-build-version-predicate.md).  Adds a
-compiler-version gate to `#[build]`: `at_least(version, "X.Y.Z")` / `at_most(…)`
-(ordered, version-key only) + `is(version, "X.Y.Z")` (exact) + the existing `!`
-for inverses; a strict `X.Y.Z[-pre[N]]` parser (the hyphenated `-pre` suffix
-stripped for comparison, numeric per-component compare, hard error otherwise);
-and a new `BuildConfig.Version` fed from `pkg/binate/version`'s `version.Version`.
-**LANDED (2026-07-13, adversarially reviewed):** the predicate machinery
-(`dedbb620`) + the version-format convention it needs — prerelease is now
-hyphenated (`X.Y.Z-preN`), `version.Version` renamed `0.0.11pre3`→`0.0.11-pre3`,
-and `version-sync.sh` format-checks VERSION (`e31750b8`).  **Still TODO:** the
-BUILDER re-pin, then the actual main-move bump (gate `startup`'s `#[c_export]`
-`main` on `at_least(version, <threshold>)` + delete the tree's C `main`).  When the
-main-move lands (a main-less `binate_runtime.c`), also un-skip
-`e2e/ffi-export.sh`'s `check_library` link+run — it was skipped in `a7d4bb0e`
-because a C-owns-main driver can't link the current `main`-carrying runtime.
-**Motivation:** it is the bootstrap mechanism for moving the program `main` out
-of `runtime/binate_runtime.c` into `pkg/builtins/startup` (Phase 6 /
-design-ffi-export.md §3.3).  The BUILDER stage links the *bundle's* frozen `.c`
-`main`, so the Binate `main` must be gated `at_least(version, <threshold>)` to
-dodge a duplicate-`main` clash (BUILDER excludes it → bundle `main`; gen1 includes
-it → tree `main`).  **First bump = the predicate machinery + tests only** (no
-main-move; that follows a BUILDER re-pin).  BUILDER constraint: no
-`#[build(at_least(…))]` in `cmd/bnc`'s own BUILDER-compiled tree until BUILDER is
-re-pinned to support it (mirrors the `#[c_export]` constraint).
+### Compiler-version predicate for `#[build]` — 🟢 MACHINERY LANDED (`dedbb620`, 2026-07-13); main-move remains
+The `#[build]` compiler-version gate — `at_least`/`at_most`/`is(version, "X.Y.Z")`
+(strict `X.Y.Z[-pre[N]]`, `-pre` stripped, numeric compare) + `BuildConfig.Version`
+— is **landed** (`dedbb620`; version-format hyphenation + `version-sync` check
+`e31750b8`) and **spec'd** (§16.8 `pkg.build` / `pkg.build.version`). Design/status:
+[plan-build-version-predicate.md](plan-build-version-predicate.md).
+
+**Remaining — the main-move it exists for (gated behind a BUILDER re-pin):** re-pin
+BUILDER to a version understanding `at_least`; then bump the tree version and gate
+`startup`'s `#[c_export("main")]` on `at_least(version, <threshold>)` + delete the
+tree's `binate_runtime.c` `main` (BUILDER excludes it → bundle `main`; gen1 includes
+it → tree `main`; motivation: FFI-export Phase 6 / design-ffi-export.md §3.3). When
+it lands, un-skip `e2e/ffi-export.sh`'s `check_library` link+run (skipped in
+`a7d4bb0e`). BUILDER constraint: no `#[build(at_least(…))]` in `cmd/bnc`'s own tree
+until the re-pin (mirrors `#[c_export]`).
 
 ## bnfmt (self-hosted formatter)
 
@@ -790,30 +755,21 @@ language extension, not a bug fix.
 - Do we support `import _ "pkg/foo"`? Should we? (Side-effect-only imports.)
 - Both interact with the package object naming question above.
 
-### Whole-package re-export (`expose`) — 🟢 IMPLEMENTED + SPECIFIED (2026-07-10; Phase 6 conformance bundle remaining)
+### Whole-package re-export (`expose`) — 🟢 IMPLEMENTED + SPECIFIED + TESTED — one passive residual
 
-A new CORE `.bni` declaration `expose "pkg/std/foo"` that adds another package's entire
-exported surface to this package's surface, for **refactors/renames** (promote
-`pkg/stdx/foo` → `pkg/std/foo`, leaving a forwarder `.bni` with no `.bn`) and **internal
-package structuring** (aggregator). **RATIFIED 2026-07-10** (DECIDED note in
-`claude-notes.md`); spec + impl pending. **Design (adversarially reviewed, not yet
-specified/implemented):** [design-expose.md](design-expose.md). **High-level plan:**
-[plan-expose.md](plan-expose.md). Settled: core declaration (not an annotation); whole-package
-(per-symbol deferred); vars included; **Model 2 = surface-only** (does not touch the exposing
-package's local scope — not a dot-import); identity-preserving (A.X *is* B.X), flat,
-transitive, collisions-are-errors. The crux (plan Phase 4): types/impls already follow
-identity, but func/var/const qualified-reference mangling is **spelling-driven**
-(`ir/gen.bn` `resolveImportPkg`), so `expose` must make it follow the **resolved entity's
-home** — new plumbing (stamp the home on injected symbols + a reference-keyed lookup), swept
-across the ~75 `resolveImportPkg`/`buildQualName` sites and gated by a byte-identical-mangling
-test. **Landed:** Phase 0 (spec — `docs/spec` §16.5.2 + `binate.ebnf` `ExposeDecl` + nine
-`pkg.expose.*` rules, docs commits `ea2650e`/`53a20b5`) and Phases 1–5 (parser, loader,
-scope-injection, closure-registration, resolved-home mangling, collision check — final commit
-`76d76d3f`). **Remaining:** Phase 6 (broader conformance bundle + reflect confirmation). Feature
-stays **gated from bnc-tree `.bni` use** until a BUILDER understanding `expose` is pinned. No
-backend/codegen work (unlike FFI export). Reuses the existing cross-package type-alias
-substrate (`type X = other.Y`, tests `110`/`941`). See
-[plan-expose-execution.md](plan-expose-execution.md) for per-phase STATUS.
+The core `.bni` declaration `expose "pkg/std/foo"` re-exports another package's whole
+exported surface (for refactors/renames — promote `pkg/stdx/foo` → `pkg/std/foo` behind a
+forwarder `.bni` — and internal aggregation): identity-preserving (A.X *is* B.X), flat,
+transitive, surface-only (Model 2, not a dot-import), vars included, collisions-are-errors.
+**Landed** (`76d76d3f`): parser / loader / scope-injection / closure-registration /
+resolved-home mangling (the crux — func/var/const mangling was spelling-driven, now follows
+the resolved entity's home across the ~75 `resolveImportPkg`/`buildQualName` sites) /
+collision check, plus reflect + the conformance bundle (`1028`/`1032`–`1053`, 17 tests).
+**Spec'd**: §16.5.2 + `binate.ebnf` `ExposeDecl` + nine `pkg.expose.*` rules. No
+backend/codegen work. Design/plan: [design-expose.md](design-expose.md),
+[plan-expose-execution.md](plan-expose-execution.md).
+**Only residual (passive):** gated from `cmd/bnc`'s own `.bni` use until a BUILDER
+understanding `expose` is pinned — clears on the next BUILDER bump.
 
 ## Spec authoring & language-decision residuals
 

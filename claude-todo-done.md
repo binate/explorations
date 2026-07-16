@@ -6,6 +6,22 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Native-source iface UPCAST offset>0 (cross-mode dispatch) — ✅ FIXED & LANDED (`7f832f64`, 2026-07-02)
+
+The VM's `BC_IFACE_UPCAST` native-source branch advances the native vtable word by
+`offset*8`; a real-parent upcast (offset>0) points INTERIOR to the base `@__ivt`, so
+a subsequent method call's exact-match `lookupShimVtable(base + offset*8)` MISSED →
+loud "no shim vtable" abort. Reachable via the embeddable interp (an injected native
+package whose `interface B : A` is dispatched from bytecode — surfaced by the user).
+Fix: carry each vtable's `SlotCount` (via `reflect.VtableInfo`, threaded through
+`ir.PkgVtableEntry` + all four gathers — codegen, native x64/arm32/aarch64, VM) and
+make `lookupShimVtable` a bounded RANGE lookup (match the vtable whose
+`[base, base+SlotCount*8)` contains the word; out-of-extent → 0, loud abort kept).
+Offset 0 (`@X→@any`, `@X→*X` decay) resolves to the shim base as before. Coverage:
+`e2e/xmiface.sh` (parent-upcast + 3-level transitive + value-receiver-at-offset>0,
+`80cf34b6`) + `pkg/binate/vm` `vtable_inject` + descriptor unit tests. Adversarially
+reviewed; no coverage gaps remain.
+
 ## native_x64 mode: missing unit + perf runners ("Unknown mode") — ✅ DONE & LANDED (`39e06dcd`, 2026-07-14)
 
 `builder-comp_native_x64-comp_native_x64` is in `scripts/modesets/all` (so it drives
