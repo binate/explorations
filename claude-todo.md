@@ -9,6 +9,49 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### native/arm32: a float scalar arg that OVERFLOWS to the outgoing stack in the func-value / iface SHIM corrupts the stack → hang — 🔴 OPEN MAJOR (found 2026-07-16, P5.3 pt 1)
+
+**Severity: MAJOR** — a runtime stack corruption / hang (not silent wrong-code that
+spreads, but a crash) on the native arm32 backend for a specific func-value / interface
+dispatch shape.
+
+**Symptom.** A NON-capturing func value / interface method whose args include a float
+scalar that does NOT fit the register budget (overflows to the outgoing-args stack)
+mis-marshals through the spill shim and corrupts the stack → `qemu-system-arm:
+terminating on signal 15` (hang).  Reproduced by conformance
+`565_func_value_float_mixed` (`f(int, float64, int)` — the trailing int overflows; the
+call `f(3,2.5,4)` hangs, while `f(0,2.5,0)` happens to survive because the corrupting
+store writes 0) and `888_func_value_float_arg_overflow` (9 × float64 → deep spill →
+hang).  The REGISTER-fitting float cases are correct (P5.3 pt 1 fixed 40 of them).
+
+**How discovered.** P5.3 pt 1 (`6a12b80d` on a work branch — not yet landed) removed the
+broad `indirectCallHasWideFloatArgArm32` fail-loud that had deferred ALL float64 func-value
+/ iface args.  Removing it correctly enabled the register cases but EXPOSED this latent
+spill-path bug: the func-value / iface SPILL shim
+(`pkg/binate/native/arm32/arm32_funcvalue_spill.bn`, `emitFuncvalSpillShimArm32` /
+`emitSpillMarshalArm32`) was written when float args were unreachable (its header notes
+"Float returns stay fail-loud (P5)"), and a float64 (2-word, even-aligned) arg that
+overflows to the outgoing stack is not correctly placed.  So the change turned a clean
+COMPILE_ERROR (fail-loud) into a hang.
+
+**Root cause (NOT yet pinned).** The on-paper marshal math for `(int, float64, int)` looks
+correct (int R1→R0, float64 R2:R3 stays, trailing int from entry-stack → outgoing stack),
+so the bug is subtle: a candidate is the `frameDelta` / incoming-stack-word translation in
+`emitSpillSrcToMemArm32` / `emitSpillSrcToRegArm32` (the shim SUBs SP for its frame, so an
+incoming stack word must be read at `[sp + innerBytes + (g-4)*4]`, not `[sp + (g-4)*4]`),
+or the even-pair-pad interaction on the incoming cursor when a float64 precedes a stacked
+arg.  Needs a focused spill-shim debug (disassemble the 565 shim).
+
+**Proposed fix options (user to decide — see P5.3 pt 1 not-yet-landed):**
+- (A) Land the 40 register wins now behind a NARROW fail-loud (a float scalar param in the
+  func-value / iface SPILL emitter → `a.SetError`, restoring clean fail-loud for JUST the
+  overflow shape; the register cases stay green).  Fix the spill path as a follow-up.
+- (B) Root-cause + fix the spill-shim float64 stack placement now, landing pt 1 complete
+  (all 42 non-closure float cases incl. 565 / 888).
+
+Covered by `565_func_value_float_mixed` + `888_func_value_float_arg_overflow` (both native
+arm32).  Do NOT land P5.3 pt 1 as-is (`6a12b80d`) — it turns fail-loud into a hang.
+
 ### Generic-instantiation cache conflates `readonly`-differing type args (`Identical` peels readonly) → wrong monomorphization / spurious `@[]readonly uint8` error — 🔴 OPEN MAJOR (found 2026-07-15, FIX IN PROGRESS work-3)
 
 **Severity: MAJOR — affects normal `bnc` COMPILATION, not just bnlint.**  (An earlier
