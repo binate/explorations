@@ -298,22 +298,6 @@ stdout.
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### arm32 `builder-comp_arm32_linux vm` unit package: 4 remaining PRE-EXISTING failures — 🟠 OPEN (found 2026-07-04)
-
-The literal-unblock commit (`5b557686`) made the arm32 vm-unit package COMPILE
-(it previously didn't, hiding all failures). Of the 6 exposed failures, 2 were the
-nil-checker test-helper bug (`TestExecUint32HighBitToFloat32`,
-`TestLowerCastUint32ZeroExtendsToUint64` — `2147483648` / `4294967295` literals),
-fixed in `34a3c8f1` (see [claude-todo-done.md](claude-todo-done.md)). The remaining
-4, all pre-existing and unrelated to the 64-bit-return work:
-- `TestRegisterPackageFunctionsCarriesRetbufSize` (hardcodes managed-slice `32`),
-  `TestLowerReturnSingleFuncValue` (hardcodes func-value `16`) — hardcoded LP64
-  sizes; fix to `types.GetTarget().PointerSize`-derived.
-- `TestExecBcIfaceUpcastNativeSource` (hardcodes upcast `offset*8`),
-  `TestVtableInjectRegistry` — fallout from the concurrent `0734beaa` iface
-  vtable-any-block change; likely that lane's to resolve.
-Per red-mode-first: each needs a target-aware fix or an xfail+TODO.
-
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
 were switched to `ManagedHeaderSize()` (main `581216d9`) — see [claude-todo-done.md](claude-todo-done.md).

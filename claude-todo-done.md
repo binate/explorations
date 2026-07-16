@@ -40,9 +40,30 @@ matching the sibling div/shift tests. Also updated a now-stale comment in
 "the latter passes a nil checker." Adversarially reviewed before landing.
 
 Verified vm package green on LP64 (no regression); arm32 confirmation left to the
-`builder-comp_arm32_linux vm` CI lane. Fixes 2 of the 6 arm32 `builder-comp_arm32_linux
-vm` reds; the other 4 (hardcoded LP64 sizes / vtable-lane fallout) remain in the active
-todo.
+`builder-comp_arm32_linux vm` CI lane. Fixed 2 of the 6 arm32 `builder-comp_arm32_linux
+vm` reds; the other 4 landed separately (next entry).
+
+## arm32 `builder-comp_arm32_linux vm`: 4 test-only LP64-hardcode reds — ✅ DONE & LANDED (`e14d8f2c`, 2026-07-16)
+
+The other 4 of the 6 arm32 vm reds exposed once `builder-comp_arm32_linux`'s vm package
+began compiling (`5b557686`). All four were **test-only** LP64 hardcodes — the production
+code they exercise already scales by `types.GetTarget().PointerSize` (verified: no
+production defect), so they were green on LP64 but red on the 32-bit-hosted arm32 unit
+binary. Fixed each test to derive its expectation from `PointerSize`, matching production;
+behavior-neutral on LP64 (`w = 8` reproduces the old literals):
+- `TestRegisterPackageFunctionsCarriesRetbufSize` hardcoded RetbufSize `32` for
+  `rt.MakeManagedSlice` → `MakeManagedSliceType(TypUint8()).SizeOf()` (`4*ptrSize`: LP64 32,
+  ILP32 16; production stamps `AggregateReturnSize`, which agrees).
+- `TestLowerReturnSingleFuncValue` hardcoded a func-value size of `16` →
+  `2 * GetTarget().PointerSize` (`2*ptrSize`).
+- `TestExecBcIfaceUpcastNativeSource` hardcoded an upcast advance of `offset*8` →
+  `offset * GetTarget().PointerSize`, matching `execIfaceOp` (vm_exec_iface.bn).
+- `TestVtableInjectRegistry` hardcoded an 8-byte vtable slot stride in its extent offsets →
+  multiples of `w = GetTarget().PointerSize`, matching `lookupShimVtable` (vtable_inject.bn).
+The `0734beaa` vtable-any-block attribution in the old todo was a red herring — production was
+already target-aware; only the tests lagged. Adversarial review confirmed no missed 7th red
+(every other `*8`/`!=16` in vm tests is host-independent) and no production change. vm package
+green on LP64; whole "6 arm32 vm reds" entry now closed.
 
 ## Two stale "not yet implemented" spec notes dropped (§8.5 precision residual, §13.6 aggregate `==`) — ✅ DONE (`5460393`)
 
