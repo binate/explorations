@@ -6,6 +6,29 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Compiler-version predicate + hosted entry-point move — ✅ DONE & LANDED (`c4607a71`, 2026-07-16)
+
+The `#[build]` compiler-version gate (`at_least`/`at_most`/`is(version, …)` +
+`BuildConfig.Version`, strict `X.Y.Z[-pre[N]]`, `-pre`-stripped numeric compare) landed
+`dedbb620` (2026-07-13; version-format hyphenation + `version-sync` check `e31750b8`),
+spec'd §16.8.  The main-move it exists for landed `c4607a71` (2026-07-16): the C `main`
+in `runtime/binate_runtime.c` is replaced by `pkg/builtins/startup._entry`
+(`#[c_export("main")]`, gated `at_least(version, "0.0.12") && (is(os,"linux") ||
+is(os,"darwin"))`), which captures the real argv — incl. argv[0], finally filling the
+reserved program-name slot — into `startup.Args`, then calls bn_entry.  `bootstrap.Args`
+retired (conformance/spec/17-program/011 → `startup.Args`, 487 deleted, interp/vm extern
+bindings removed).  baremetal keeps the legacy `argvWithProgName(bootstrap.Args())` seed
+(args_legacy.bn, gated `at_most(0.0.11) || is(os,"baremetal")` — its `_start`/crt0 calls
+bn_entry directly, so `_entry` never runs there).  `startup` also became a native-only +
+injected VM package via a general `builtinPkgs()` single-source-of-truth (rt/reflect/
+startup) feeding IsNativeOnlyInVM / RegisterStandardExterns / the interface-only load set
+/ isCompiled, binding `startup.Args` to the one native cell.  An adversarial review
+caught (and this fixed) a baremetal regression where a version-only gate left
+`startup.Args` nil there.  Verified: builder-comp 2803/0, builder-comp-int 2782/0,
+baremetal 011_args, e2e/os-args 4/4 (now asserting argv[0] populated), hygiene 17/17.
+Residual follow-ups (check_library un-skip, lang/testing injection, BUILDER-0.0.12 gate
+cleanup) tracked in claude-todo.md.
+
 ## bnlint integration tests: silent-skip footgun removed + bnlint-self e2e added — ✅ DONE & LANDED (`bfd07b3e`, 2026-07-16)
 
 `cmd/bnlint`'s `lintPackages` integration tests used `findRoot()` to scrape the

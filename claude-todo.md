@@ -456,21 +456,25 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 - `bnlint --target`; main-module gating; migrating the `impls/` duplicate trees onto constraints.
 - The separate inline-asm (`#[asm]`) doc that composes with this substrate.
 
-### Compiler-version predicate for `#[build]` — 🟢 MACHINERY LANDED (`dedbb620`, 2026-07-13); main-move remains
-The `#[build]` compiler-version gate — `at_least`/`at_most`/`is(version, "X.Y.Z")`
-(strict `X.Y.Z[-pre[N]]`, `-pre` stripped, numeric compare) + `BuildConfig.Version`
-— is **landed** (`dedbb620`; version-format hyphenation + `version-sync` check
-`e31750b8`) and **spec'd** (§16.8 `pkg.build` / `pkg.build.version`). Design/status:
-[plan-build-version-predicate.md](plan-build-version-predicate.md).
-
-**Remaining — the main-move it exists for (gated behind a BUILDER re-pin):** re-pin
-BUILDER to a version understanding `at_least`; then bump the tree version and gate
-`startup`'s `#[c_export("main")]` on `at_least(version, <threshold>)` + delete the
-tree's `binate_runtime.c` `main` (BUILDER excludes it → bundle `main`; gen1 includes
-it → tree `main`; motivation: FFI-export Phase 6 / design-ffi-export.md §3.3). When
-it lands, un-skip `e2e/ffi-export.sh`'s `check_library` link+run (skipped in
-`a7d4bb0e`). BUILDER constraint: no `#[build(at_least(…))]` in `cmd/bnc`'s own tree
-until the re-pin (mirrors `#[c_export]`).
+### Entry-point move DONE — follow-ups: check_library un-skip, builtins injection, BUILDER-0.0.12 cleanup — 🟡 OPEN
+The `#[build]` compiler-version predicate + the hosted entry-point move it existed
+for have **landed** (`c4607a71`, 2026-07-16 — see claude-todo-done.md): the C `main`
+in `runtime/binate_runtime.c` is now `pkg/builtins/startup._entry`, `bootstrap.Args`
+is retired, and `startup` is a native-only+injected VM package.  Residual follow-ups:
+- **Un-skip `e2e/ffi-export.sh`'s `check_library` link+run** (skipped `a7d4bb0e`): the
+  tree's `binate_runtime.c` now has no `main`, so a C-owns-main driver can link the
+  `--library` archive.  Still needs the export path to touch no `bootstrap.Write`/`Exec`
+  (those shims remain in the C runtime) OR those shims moved to Binate — design-ffi-export.md Phase 6.
+- **Inject the remaining builtins in the VM** (`lang`, `testing`) via the
+  `builtinPkgs()` mechanism `c4607a71` added (rt/reflect/startup done).  `lang` is
+  lowered today (force-loaded for `.String()`); `testing` is not in cmd/bni's link
+  graph (referencing it from interp forces a new dep); `build` is compile-time-only.
+  User: "we should be injecting *everything* in builtins."  Verify under -int + --test.
+- **Future BUILDER-0.0.12 gate cleanup:** `_entry`'s gate `at_least(version, "0.0.12")`
+  is false for BUILDER (0.0.11 → bundle C `main`).  When BUILDER re-pins to ≥0.0.12 the
+  gate goes vestigially-true; confirm the re-pinned bundle's frozen `binate_runtime.c`
+  is already main-less (built post-`c4607a71`) so there is no duplicate `main`, then the
+  version half of the gate can retire.
 
 ## bnfmt (self-hosted formatter)
 
