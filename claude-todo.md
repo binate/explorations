@@ -45,16 +45,32 @@ cannot exercise it.
 
 ### bnlint multi-root typecheck leaks checker state across roots → order-dependent spurious `@[]readonly uint8 → @[]uint8` error — 🔴 OPEN MAJOR (found 2026-07-15)
 
-**Severity: MAJOR** — a `pkg/binate/types` cross-module state leak: when ONE `bnlint`
-process type-checks multiple package roots, a type interned while checking an EARLIER
-root leaks into a LATER root's typecheck and yields a spurious assignment error.
-Order-dependent (a hallmark of un-reset shared state).  Not an observed compiled-code
-miscompile — `bnc` compiles one root per process, so end-user builds are unaffected;
-the blast radius is multi-root/in-process consumers (`bnlint` today; a future
-LSP/REPL/embedder — this is a remaining leak in the "eliminate global state / embeddable
-checker" effort, e.g. the `@Checker`/`@Module`/`@GenCtx` threading).  Open question to
-investigate: could the same leak cause spurious ACCEPTANCE (a missed error) or wrong-type
-resolution, not just this spurious rejection?
+**Severity: MAJOR, and confirmed bnlint-specific (normal `bnc` compilation is
+structurally immune).**  A `pkg/binate/types` cross-root state leak in bnlint's
+single-checker multi-root path: `lintPackages` (`cmd/bnlint/main.bn:258`) uses ONE
+`@types.Checker` to BODY-check EVERY lint target plus decl-check their deps, in one
+pass over `ldr.Order`.  `c.GenericInstantiations` accumulates across every checked
+package and is NEVER reset (only `slices.Append` at `check_generic_type.bn:214`), and
+`backfillInstantiationMethods` (called per-package in `collectDecls`,
+`check_decl.bn:111`) re-processes the WHOLE cross-package list under the current
+package's scope.  So checking target `setfn` sees the instantiation state left by
+target `format` — specifically format's body-level `vec.Vec[@[]readonly char]`
+(`print_wrap.bn:124,148`) leaks a `readonly` slice-element into setfn's typecheck.
+Order-dependent because `ldr.Order` is seeded by the CLI target order.
+
+Confirmed scope (why compilation is immune): the leak needs (a) `format` body-checked
+as a TARGET — its `printCompositeElems` is what instantiates `vec.Vec[@[]readonly
+char]`; a mere compilation DEP is only decl-checked, so its bodies never instantiate
+it — AND (b) `setfn`'s TEST code body-checked (`--tests`) — the victim `@[]char`
+(==`@[]uint8`) assignments are in `setfn_test.bn`; `bnlint` WITHOUT `--tests`, and any
+`bnc` compile (never compiles test files, one body-checked root + decl-only deps), are
+both clean.  So no compiled-code miscompile; the impact is bnlint's own multi-target
+lint (and, latently, any future in-process consumer that body-checks multiple
+independent roots in one checker — an LSP/REPL).  The exact readonly-producing
+micro-step (which substitution/backfill/populate step attaches the `readonly`) is not
+yet pinned — copyImportedGenericMethods already guards against re-adding methods
+(`check_generic_backfill.bn:79`), so it is likely NOT the backfill re-add but an
+earlier substitution reusing a shared node; needs one instrumentation pass.
 
 **Minimal reproducer** (deterministic):
 ```
