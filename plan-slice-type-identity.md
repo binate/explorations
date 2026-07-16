@@ -21,13 +21,17 @@ strict subset of this work and lands first.
 ## 2. Background: the MAJOR crash (independent of this feature)
 
 Boxing a **name-less** type (currently: any slice) into `any` produces a
-**structurally invalid** interface value. `wrapAsIfaceValue → ensureAnyImplInfo /
-findImplVtableName` can't synthesize a `(slice, any)` vtable (a slice has no name;
-`receiverBaseTypeName` returns empty) and hits `return nil`, so the "box" is a
-bare data pointer where a 2-word `%BnIfaceValue` is expected. Any concrete
-type-compare over that box (`case *int:`, `x.(*int)`) then loads `vtable[1]` off a
-garbage word → SIGSEGV. A well-typed program must never segfault, so this is a
-MAJOR in its own right, fixable **before and independent of** the feature.
+**structurally invalid** interface value. The repro boxes `&s` (a `*@[]char`),
+which passes the pointer-shape guard at `gen_iface.bn:196`; then
+`receiverBaseTypeName` returns empty for the slice pointee, so `wrapAsIfaceValue`
+bails at its `len(srcName) == 0` guard (`:207`) and returns `nil` — it never
+reaches the `ensureAnyImplInfo`/`findImplVtableName` synthesis at `:236`–`:250`.
+The "box" is then a bare data pointer where a 2-word `%BnIfaceValue` is expected,
+and any concrete type-compare over it (`case *int:`, `x.(*int)`) loads `vtable[1]`
+off a garbage word → SIGSEGV. A well-typed program must never segfault, so this is
+a MAJOR in its own right, fixable **before and independent of** the feature. (A
+*bare* slice value would bail earlier at the `:196` pointer-shape guard, but that
+is a clean checker error, not this crash.)
 
 ## 3. Two layers
 
@@ -57,17 +61,27 @@ Each phase is independently landable and keeps every mode green.
   genuinely new primitive. Unit tests: distinct spellings → distinct symbols;
   **alias collapse** (`char`≡`uint8` ⇒ `@[]char` and `@[]uint8` share a symbol);
   nested `@[]@[]char`.
-- **Phase 2 — boxing keys on structural identity.** Slice boxing synthesizes a
-  real `(slice, any)` ImplInfo + vtable and `registerTypeInfo`s on the structural
-  symbol (replacing the opaque record **for slices only**; unnamed
-  struct/array/func keep the opaque record). `@[]char` ≠ `*[]int` now.
+- **Phase 2 — boxing keys on structural identity.** The concrete change is at the
+  `:207` guard: instead of bailing when `receiverBaseTypeName` is empty, derive a
+  **structural** name so the existing `:236`–`:250` synthesis path runs —
+  producing a real `(slice, any)` ImplInfo + vtable and `registerTypeInfo`
+  keyed on the structural symbol (replacing the opaque record **for slices only**;
+  unnamed struct/array/func keep the opaque record). `@[]char` ≠ `*[]int` now. No
+  box *representation* change is needed for the address (`&s`) form — its data slot
+  already holds a pointer to the slice header (it passes `:196`). *(Boxing a
+  **bare** multi-word slice value — the shape fmt args may take — is a separate
+  question: it needs the value materialized so its address can be boxed, or it
+  stays a checker error; deferred to Phase 5 / ratification, not needed for the
+  crash fix or for `&s`-form boxing.)*
 - **Phase 3 — match + recovery.** `typeInfoSymFor` derives the structural symbol
   for a slice target; the identity compare Just Works. **Recovery detail to pin
-  precisely** (the one under-specified spot): a slice is multi-word, so the box
-  holds a **pointer to the slice header**; recovery reads that pointer and copies
-  the slice out **by value** (one more indirection than a pointer target;
-  managed-slice copy acquires backing per `mem.copy`). Verify **exact-match** — a
-  `@[]char` box must NOT match `case @[]readonly char:`.
+  precisely** (the one under-specified spot): the box holds a pointer to the slice
+  header, and recovery reads that pointer and copies the slice out **by value**
+  (one more indirection than a pointer target; managed-slice copy acquires backing
+  per `mem.copy`). Verify **exact-match** — a `@[]char` box must NOT match `case
+  @[]readonly char:`. Independent of Phase 2's boxing change (boxing produces the
+  record; this phase consumes it on a match), so the two land in either order once
+  Phase 4 admits the target.
 - **Phase 4 — parser/checker §11.12 relaxation.** Admit a slice target in
   `AssertTarget` (`parseAssertTargetName`); keep func/array/struct/`Self`
   rejected. Checker resolves the slice target and drives the structural compare.

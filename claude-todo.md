@@ -48,8 +48,12 @@ Characterized (all confirmed empirically 2026-07-16):
 `any` produces a STRUCTURALLY-INVALID interface value. The RTTI/box machinery
 keys type identity on `mangle.TypeInfoName(pkg, name)`, but a slice has no name
 (`gen_iface.receiverBaseTypeName` returns empty for `TYP_SLICE`), so
-`wrapAsIfaceValue` → `ensureAnyImplInfo`/`findImplVtableName` can't synthesize a
-`(slice, any)` vtable and hits `return nil` (`gen_iface.bn:250`). The emitted
+`wrapAsIfaceValue` bails at its `len(srcName) == 0` guard (`gen_iface.bn:207`) and
+returns `nil` — it never reaches the `ensureAnyImplInfo`/`findImplVtableName`
+synthesis path (`:236`–`:250`), which only runs once a receiver *has* a name. (The
+repro boxes `&s`, a `*@[]char`, which passes the pointer-shape guard at `:196`; a
+*bare* slice value would be stopped at `:196` instead, but that is a clean checker
+error, not this crash — the crash needs the pointer-to-slice form.) The emitted
 "box" is then just the bare data pointer: a well-formed box passes a 2-word
 `%BnIfaceValue` (slot 0 = data, slot 1 = `@__ivt.…__any`), but the slice case
 emits `call @…_f(i8* %v2)` — a SINGLE pointer where the callee expects the
