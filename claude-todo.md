@@ -332,29 +332,14 @@ stdout.
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### `lowerFromSource` / `genModule` test helpers pass a NIL checker → int literals > INT32_MAX truncate on a 32-bit host — 🟠 OPEN (found 2026-07-04)
+### arm32 `builder-comp_arm32_linux vm` unit package: 4 remaining PRE-EXISTING failures — 🟠 OPEN (found 2026-07-04)
 
-`pkg/binate/vm/lower_test.bn`'s `lowerFromSource` (and `genModule`) create a
-checker (`c.Check(file)`) but then call `ir.GenModule(nil, file)` — passing `nil`
-instead of `c`. With a nil `ctx.Checker`, `exprIntLitValue` (`gen_expr.bn:66`)
-falls back to `parseIntLit` instead of the checker's bignum (LitMag/LitSign), so a
-source literal exceeding the IR-gen HOST's signed-int range wraps: on the
-arm32 unit-test binary (host int = 32-bit at IR-gen time), `5000000000` →
-`705032704`, `2147483648` → wraps. This is a TEST-HELPER bug (real programs go
-through `cmd/bnc`/`cmd/bni` with a real checker), but it makes any
-`lowerFromSource`/`compileAndRun`-based test with a `> INT32_MAX` literal FAIL on
-arm32 — it masqueraded as a "reverse-fix truncation" until isolated (the real fix
-is correct; the test now builds via direct IR `EmitConstInt64`). Fix: pass `c` to
-`GenModule` in both helpers (they already have it). Likely turns 1–2 of the arm32
-vm-unit reds below green.
-
-### arm32 `builder-comp_arm32_linux vm` unit package: 6 PRE-EXISTING failures exposed once it compiles — 🟠 OPEN (found 2026-07-04)
-
-The literal-unblock commit (`5b557686`) makes the arm32 vm-unit package COMPILE
-(it previously didn't, hiding all failures). 236 pass, 6 fail — all pre-existing,
-unrelated to the 64-bit-return work:
-- `TestExecUint32HighBitToFloat32`, `TestLowerCastUint32ZeroExtendsToUint64` —
-  likely the nil-checker helper bug above (`2147483648` / `4294967295` literals).
+The literal-unblock commit (`5b557686`) made the arm32 vm-unit package COMPILE
+(it previously didn't, hiding all failures). Of the 6 exposed failures, 2 were the
+nil-checker test-helper bug (`TestExecUint32HighBitToFloat32`,
+`TestLowerCastUint32ZeroExtendsToUint64` — `2147483648` / `4294967295` literals),
+fixed in `34a3c8f1` (see [claude-todo-done.md](claude-todo-done.md)). The remaining
+4, all pre-existing and unrelated to the 64-bit-return work:
 - `TestRegisterPackageFunctionsCarriesRetbufSize` (hardcodes managed-slice `32`),
   `TestLowerReturnSingleFuncValue` (hardcodes func-value `16`) — hardcoded LP64
   sizes; fix to `types.GetTarget().PointerSize`-derived.

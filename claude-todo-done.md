@@ -6,6 +6,44 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `pkg/binate/vm` test helpers passed a NIL checker → int literals > INT32_MAX truncated on a 32-bit host — ✅ DONE & LANDED (`34a3c8f1`, 2026-07-15)
+
+Eight `pkg/binate/vm` test helpers built a `types.Checker` and ran `c.Check(file)`
+to resolve the AST, then passed `nil` (not `c`) to `ir.GenModule`. With a nil
+`ctx.Checker`, `exprIntLitValue` (`gen_util_literals.bn`) falls back to `parseIntLit`
+— host-`int` arithmetic — instead of the checker's bignum (`LitMag`/`LitSign`), so on
+a 32-bit-hosted compiler (the arm32 unit binary) any source literal `> INT32_MAX`
+wrapped (`4294967295` truncated, `2147483648` wrapped). Test-helper-only: real
+programs compile through `cmd/bnc`/`cmd/bni` with a real checker
+(`GeneratePackage(checker, …)`); `GenModule` is a test-only single-file wrapper — but
+it reddened any `lowerFromSource`/`compileAndRun` test with a `> INT32_MAX` literal on
+arm32.
+
+The todo named only `lower_test.bn`'s two helpers, but the two arm32 reds
+(`TestLowerCastUint32ZeroExtendsToUint64`, `TestExecUint32HighBitToFloat32`) route
+through `compileAndRun` in `vm_test.bn`, not those helpers — so a repo-wide sweep was
+required. Threaded the already-built `c` at all 8 sites: `lowerFromSource` /
+`genModule` (lower_test.bn), `compileAndRun` + the three `TestLowerOneFunc*`
+(vm_test.bn), `runMechModule` (vm_extern_mechanism_test.bn), `buildLoopVM`
+(vm_poll_test.bn). Behavior-neutral on LP64 (`parseIntLit` == bignum at 64-bit int).
+Left alone: `ir_test.bn`'s deliberate `genFromSource`(nil)/`genFromSourceWithChecker`(real)
+pair, and the no-checker structural tests (native/iface, codegen-emit,
+gen_module_single) that never type-check and use no large literals.
+
+Consequential fix: `TestLowerArithOpcodes` lowered a *constant* expr `3 + 4 * 5 - 2`
+and asserted `BC_ADD/MUL/SUB` — but with a real checker `genBinary`'s Phase-A4 fold
+collapses a constant arithmetic expr to one `OP_CONST_INT` (the real-compile
+behavior), emitting no arithmetic opcodes; the test only passed via the nil-checker
+no-fold artifact. Gave it runtime operands (`func f(a int, b int) int { return a + b * a - b }`),
+matching the sibling div/shift tests. Also updated a now-stale comment in
+`vm_crossmode_ret64_test.bn` that had justified direct-IR over `lowerFromSource` by
+"the latter passes a nil checker." Adversarially reviewed before landing.
+
+Verified vm package green on LP64 (no regression); arm32 confirmation left to the
+`builder-comp_arm32_linux vm` CI lane. Fixes 2 of the 6 arm32 `builder-comp_arm32_linux
+vm` reds; the other 4 (hardcoded LP64 sizes / vtable-lane fallout) remain in the active
+todo.
+
 ## Two stale "not yet implemented" spec notes dropped (§8.5 precision residual, §13.6 aggregate `==`) — ✅ DONE (`5460393`)
 
 Both spec notes claimed a feature was unimplemented; both had since landed — verified and corrected.
