@@ -510,13 +510,22 @@ the VM.  Residual follow-ups:
   lowered today (force-loaded for `.String()`); `testing` is not in cmd/bni's link
   graph (referencing it from interp forces a new dep); `build` is compile-time-only.
   User: "we should be injecting *everything* in builtins."  Verify under -int + --test.
-- **Future BUILDER-0.0.12 gate cleanup:** the startup entry gates lead with a version
-  predicate (`at_least(0.0.12)` / `at_most(0.0.11)`) purely so BUILDER (0.0.11, which
-  predates the `entrypoint` key) short-circuits before evaluating it.  When BUILDER
-  re-pins to ≥0.0.12: confirm the re-pinned bundle's frozen `binate_runtime.c` is
-  already main-less (built post-`c4607a71`) so there is no duplicate `main`, then the
-  version halves can retire, leaving pure `is(entrypoint, ...)` gates (args_baremetal.bn
-  becomes the pure "start" seed; args_main/args_init lose their `at_least` guard).
+- **Future BUILDER-0.0.12 gate cleanup — also fully retires `bootstrap.Args`:** the
+  startup entry gates lead with a version predicate (`at_least(0.0.12)` /
+  `at_most(0.0.11)`) purely so BUILDER (0.0.11, which predates the `entrypoint` key)
+  short-circuits before evaluating it.  When BUILDER re-pins to ≥0.0.12: confirm the
+  re-pinned bundle's frozen `binate_runtime.c` is already main-less (built
+  post-`c4607a71`) so there is no duplicate `main`, then the version halves can retire,
+  leaving pure `is(entrypoint, ...)` gates (args_baremetal.bn becomes the pure "start"
+  seed; args_main/args_init lose their `at_least` guard).  This ALSO unblocks fully
+  retiring `bootstrap.Args`: its one remaining use is args_baremetal.bn's
+  `argvWithProgName(bootstrap.Args())`, needed today ONLY because a BUILDER-built gen1
+  reads its real argv through the frozen bundle's C `main` → `bootstrap.Args`.  Post
+  re-pin, every gen1 uses `startup._entry`, so args_baremetal (now "start"-only) can
+  seed `Args` from an empty argv (baremetal has no command line), and `bootstrap.Args`
+  — its `bootstrap.bni` decl and the baremetal impl `func Args()` — can be deleted
+  outright.  (User chose 2026-07-16 to fold this into the re-pin cleanup rather than a
+  partial isolation now.)
 
 ## bnfmt (self-hosted formatter)
 
