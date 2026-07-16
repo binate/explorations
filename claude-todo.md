@@ -52,7 +52,7 @@ arg.  Needs a focused spill-shim debug (disassemble the 565 shim).
 Covered by `565_func_value_float_mixed` + `888_func_value_float_arg_overflow` (both native
 arm32).  Do NOT land P5.3 pt 1 as-is (`6a12b80d`) — it turns fail-loud into a hang.
 
-### Generic-instantiation cache conflates `readonly`-differing type args (`Identical` peels readonly) → wrong monomorphization / spurious `@[]readonly uint8` error — 🔴 OPEN MAJOR (found 2026-07-15, FIX IN PROGRESS work-3)
+### Generic-instantiation cache conflates `readonly`-differing type args (`Identical` peels readonly) → wrong monomorphization / spurious `@[]readonly uint8` error — 🟠 OPEN MAJOR — fix ready, HELD from landing (found 2026-07-15)
 
 **Severity: MAJOR — affects normal `bnc` COMPILATION, not just bnlint.**  (An earlier
 reading called this "bnlint-specific / compilation immune"; that was WRONG — a single
@@ -97,12 +97,19 @@ DROPPING `readonly`, which could let a write through a should-be-`readonly` valu
 the checker (silent miscompile / readonly bypass).  Not yet demonstrated; same cache-key
 bug.
 
-**Fix (implemented on work-3, verifying):** add `IdenticalStrict` — Identical but with
-`readonly` SIGNIFICANT (peels alias only, keeps readonly at every depth) — and key the
-instantiation cache on it (`lookupCachedInstantiationEntry`).  `Identical`'s general
-behavior is left byte-unchanged (a semantics-sensitive predicate; not touched).
-Regression: a conformance test (the Box repro) + a `types` unit test
-(`TestIdenticalStrictReadonly`).  Once landed, drop `setfn` from LINT_SKIP.
+**Fix (implemented + verified; NOT yet landed):** add `IdenticalStrict` — Identical but
+with `readonly` SIGNIFICANT (peels alias only, keeps readonly at every depth) — and key
+the instantiation cache on it (`lookupCachedInstantiationEntry`).  `Identical`'s general
+behavior is left byte-unchanged (a semantics-sensitive predicate; not touched).  Split
+`Identical`+`IdenticalStrict` (and their tests) into `types_identical{,_test}.bn` for the
+file-length cap.  Regression: conformance `1073_generic_inst_readonly_arg_distinct` (the
+Box repro) + `types.TestIdenticalStrictReadonly`.  Verified green: conformance
+builder-comp (2805/0), gen2 self-host, VM, types unit tests, gen1 BUILDER-compat, hygiene.
+**Held from landing** pending the tree-wide file-length cleanup: local main's tightened
+file-length hygiene check (`82b114a3`) is currently red on ~12 pre-existing warn-state
+files (none from this fix); landing waits for the tree to go green.  Once landed, drop
+`setfn` from LINT_SKIP at the next CHECK_TOOLS bump past this fix (hygiene lint uses the
+frozen `bnc-0.0.11` bnlint).
 
 **Broader observation (separate, for the user):** `Identical` peeling `readonly` is
 arguably a latent bug for OTHER callers too (two types you cannot assign between are not
