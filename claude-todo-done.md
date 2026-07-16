@@ -6,6 +6,39 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## native/arm32: `UnwrapNamed` → `StripWrappers` at the 32-bit value-shape sites — ✅ SWEPT & LANDED (`c911c591`, 2026-07-15)
+
+Follow-up to the P5.2 shim-guard review (`cc20fad0`), which had fixed the *64-bit*
+value-shape predicates.  The same named-only-peel pattern (`common.UnwrapNamed`, which
+peels only `TYP_NAMED`) appeared at ~11 OTHER arm32-backend sites that make a value-shape /
+signedness / struct-field-offset / cast-width decision by reading a Type FIELD (`.Signed`,
+`.Kind`, `.Width`) — fields that do NOT delegate through a `TYP_READONLY` wrapper node
+(whose `Signed`/`Width` default to 0).  So a `readonly int32` operand read `.Signed == false`
+→ picked the UNSIGNED compare family (LO) instead of signed (LT); a `readonly`-wrapped struct
+read `.Kind != TYP_STRUCT` → used a flat word*index offset instead of `FieldOffset`.  All
+switched to `types.StripWrappers` (alias + readonly + named).
+
+Sites swept (11 across 6 files): `arm32_compare.bn:49` (isUnsigned), `arm32_ops.bn:257`
+(div/rem/shr isUnsigned) + `:387-388` (emitCast width/sign), `arm32_emit.bn:84` (extract
+field offset) + `:91,262` (sub-word load sign), `arm32_int64_cast.bn:69,85` (int64-widen
+sign), `arm32_int64_mem.bn:94` (extract64 field offset), `arm32_rodata.bn:44` (array
+recognition).
+
+**Finding — these were defense-in-depth, NOT live miscompiles.** The checker strips
+`readonly`/alias upstream of every one of these positions (compare/binop rvalues, extract
+sources, cast operands), so no conformance path reaches them carrying a wrapped type today
+— a mutation probe (`conformance/regressions/readonly-value-shape`, since removed) passed
+*with and without* the fix, i.e. the change is conformance-invisible.  The sweep hardens the
+backend against a future checker/IR change that lets a wrapped type through, and makes every
+arm32 value-shape site agree with the peel discipline the 64-bit predicates already adopted.
+
+Because the miscompile is unreachable through the checker, the two guards directly construct
+wrapped IR types (bypassing the checker) to exercise the peel — both VERIFIED to fail before
+the fix: `TestCompareReadonlySignedLtUsesLt` (a `readonly int32` `<` must emit signed `COND_LT`,
+not unsigned `COND_LO`) and `TestExtract64ReadonlyStructMatchesPlain` (an int64-field extract
+from a `readonly`-wrapped `(int32,int64)` tuple must be byte-identical to the plain-tuple
+extract).  Hygiene 17/17; no conformance movement (as expected).
+
 ## Native-source iface UPCAST offset>0 (cross-mode dispatch) — ✅ FIXED & LANDED (`7f832f64`, 2026-07-02)
 
 The VM's `BC_IFACE_UPCAST` native-source branch advances the native vtable word by
