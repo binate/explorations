@@ -58,6 +58,58 @@ before landing, since it changes the LLVM aggregate ABI broadly.  Test coverage:
 
 ## MAJOR
 
+### Type-switch / interface-assertion over a `*any` whose boxed dynamic type is a SLICE segfaults — 🔴 OPEN MAJOR (found 2026-07-16)
+
+**Severity: MAJOR** — a runtime crash (SIGSEGV) on a well-typed program: a
+`switch v.(type)` (or `v.(*J)` assertion) over a `*any` value whose boxed
+dynamic type is a *slice* type crashes instead of falling to `default` / the
+comma-ok `false` path.
+
+**Symptom / minimal repro.**
+
+```
+func describe(v *any) {
+    switch v.(type) {
+    case *int:
+        println("int")
+    default:
+        println("other")   // never reached
+    }
+}
+func main() {
+    var s @[]char = "hi"
+    describe(&s)            // pointee is @[]char (a slice) → SIGSEGV (exit 139)
+}
+```
+
+Boxing itself is fine — `takesAny(&s)` with no switch runs cleanly; the crash is
+specifically in the RTTI type-match step when the scrutinee's dynamic type is a
+slice. `describe(&i)` / `describe(&b)` / `describe(&f)` (named-type pointees)
+work correctly through the same switch.
+
+**Root cause (hypothesis — needs confirmation).** Type assertions are
+named-type-only (`case *@[]char` is rejected at compile time: "type-assertion
+target must be a named type … a slice … cannot be asserted"). So the compiler
+never emits an assertable RTTI/`__typeinfo` record for a slice type, yet a slice
+value CAN still be boxed into `*any` (the `(T, any)` box row is formed for
+`T = @[]char`). At the type-switch match site the runtime walks the boxed
+dynamic type's TypeInfo and dereferences a null/absent record for the slice
+type. Either the match must tolerate a slice dynamic type (treat it as "matches
+nothing but `any`/default") or boxing a slice into `any` must be rejected up
+front — but a silent crash is wrong either way.
+
+**How discovered.** fmt-package design recon (the decided `...*any` +
+type-switch print direction, claude-notes.md:252). This crash — together with
+the named-type-only assertion rule and the fact that slice types can't impl
+`lang.Stringer` (receiver must be named) — is why a raw `@[]char` string has NO
+working path through `...*any` today; it forces a language-level decision on how
+`fmt.Print("hello")` recovers a string operand.
+
+**Proposed fix.** Decide the semantics (reject slice→`any` box, OR make the
+type-match tolerate a non-assertable slice dynamic type and fall through), then
+implement. Add a conformance test (`switch` over a slice-typed `*any` box →
+`default`) once the intended behavior is chosen; mark `.xfail` until fixed.
+
 ## Test-flake watch
 
 Intermittent, load-/environment-dependent test failures tracked for recurrence —
