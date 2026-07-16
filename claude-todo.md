@@ -582,37 +582,29 @@ type-checks after `pkg/binate/format` and gets a spurious `cannot assign @[]read
 uint8 to @[]uint8` ×2 (order-dependent; live on main).  **DROP `setfn` from LINT_SKIP
 once that MAJOR is fixed** — that closes this entry.
 
-### `unused-func` false-positives on an all-`.bni` (all-generic) package's exported API — 🟠 OPEN (found 2026-07-14, examples repo bnc-0.0.11 bump)
+### bnlint's `lintPackages` integration tests self-skip in CI — 🟠 OPEN (2026-07-15; agreed follow-up to `ae80282f`)
 
-`bnc-0.0.11`'s new `unused-func` rule flags EVERY exported function of an
-all-`.bni` package (generic bodies in the `.bni`, no `.bn` — e.g. the
-`examples/generics/pkg/{vec,sort,hashmap}` libraries: `New`, `Push`, `Items`, …)
-as "unused function", though they are the package's public API.
+`cmd/bnlint`'s integration tests (`TestLintPackagesClean`,
+`TestLintPackagesTestsFlag`, `TestLintPackagesAllBniGeneric`) call `findRoot()`,
+which reads `-I` from the test binary's own argv (`main_test.bn:600`). The
+unit-test runner invokes the compiled test binary with NO `-I`
+(`scripts/unittest/runners/builder-comp.sh` runs `"$testbin"` bare), so
+`findRoot()` returns "" and every such test **self-skips** — they only run under
+a manual `bnlint -I`. So `TestLintPackagesAllBniGeneric` (the all-`.bni`
+unused-func regression guard added with the fix `ae80282f`) currently provides
+**no automated coverage** of the loader branch it targets.
 
-Root cause: `unused_func.bn:97` exempts exported funcs (`if d.Exported { return
-false }`), and the loader's `markBniExportedFuncs` (`loader_util.bn:214`) is meant
-to set `Exported=true` on every merged `DECL_FUNC` whose name appears in the
-`.bni` — its own comment explicitly calls out the prepended generic/extern func
-decls. But on **bnlint's** lint path that flag is NOT set for an all-`.bni`
-package, so the rule treats the public API as unexported dead code. (Likely bnlint
-builds the `merged` AST it lints without running `markBniExportedFuncs`, or
-`sameFuncDecl` fails to match a generic signature — needs pinpointing.) The
-ordinary case — sig in `.bni`, body in `.bn` — is marked correctly and is NOT
-flagged, which is why only all-`.bni` packages trip it (`unused-global` /
-`unused-type` avoid this by checking `.bni`-membership directly rather than the
-`Exported` flag: `unused_type.bn`'s `isExportedType`, `unused_global.bn`).
+Fix (option 3, user-chosen 2026-07-15): pass `-I <root>` / `-L <root>` to the
+compiled test binary in the unit-test runner(s) so these integration tests
+actually run — while NOT reintroducing the argv-leak the bni `--test` path guards
+against (`TestNoBniArgvLeakUnderTest`: bni's own `--test`/`-I`/`-L` must never
+leak into a test program's `os.Args()`). This is unit-test-**runner** (CI-runner)
+plumbing, which is why it was split out of the fix commit.
 
-Repro: `bnlint pkg/vec` (no `--tests`) on an all-generic library → every exported
-func flagged. `bnlint --tests …` HIDES it (test roots reach the funcs) but only
-when the API is fully test-covered; an untested exported generic func in an
-all-`.bni` package would still be false-flagged.
-
-Discovered bumping `examples` to `bnc-0.0.11`; worked around there by running
-`bnlint --tests` in its `lint.sh` (also the correct config independently). Proper
-fix: ensure `Exported` is set for all-`.bni`-package funcs on bnlint's lint path,
-or have `unused-func` treat a `.bni`-declared func as exported (mirror
-`unused_type`/`unused_global`). Add a bnlint unit test: an all-`.bni` generic
-package's exported func must NOT be flagged `unused-func`.
+Also nudged by `ae80282f` (pre-existing, minor): `pkg/binate/loader/loader.bn`
+is ~536 lines, over the 500-line soft-limit **warning** (was already ~530 before
+the fix). Not a hard failure; wants a proper split along natural boundaries when
+convenient.
 
 ### Raw-slice escape: decide whether a BROADER best-effort escape lint is wanted — 🟡 NEEDS DECISION
 The original framing ("demote the raw-slice escape TYPE ERROR to a linter rule")

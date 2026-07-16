@@ -6,6 +6,39 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `unused-func` false-positives on an all-`.bni` (all-generic) package's exported API — ✅ DONE & LANDED (`ae80282f`, 2026-07-15)
+
+`bnc-0.0.11`'s `unused-func` rule flagged EVERY exported function of an all-`.bni`
+package (generic bodies in the `.bni`, no `.bn` — e.g. a generics library's `New` /
+`Push` / `Items`) as "unused function", though they are the package's public API.
+
+Root cause (pinpointed): the loader's merge overlay that runs `markBniExportedFuncs`
+(setting `Exported=true` on `.bni`-declared funcs, which `unused_func.bn` treats as
+roots) is guarded on `merged != nil` (`loader.bn` ~L317). An all-`.bni` package has
+no `.bn`, so `merged` is nil there and the overlay is skipped entirely — its `.bni`
+funcs stayed `Exported=false` and were flagged as private dead code. (Not a
+`sameFuncDecl` mismatch; the guarded branch was simply never reached.)
+
+Fix: mark exported funcs in the all-`.bni` fallback branch too (`loader.bn`, one
+`markBniExportedFuncs` call). Inert for codegen/VM — a generic template gets no base
+`ir.Func`, a per-instantiation func drops the template's `Exported` (the synthetic
+decl in `gen_generic.bn` omits it), and InterfaceOnly packages are not lowered — so
+no func-value table / package-descriptor change; the only behavioral consumer is
+bnlint's `unused-func`. No `markBniExportedVars` (an all-`.bni` package has no `.bn`
+for a var's storage, so a `.bni` var is a storage-less extern with nothing to mark,
+and `unused-global` exempts `FromBNI` vars directly). Loader is the correct layer
+(adversarial review confirmed): `DECL_FUNC` HAS an `Exported` flag the loader owns
+and codegen also consumes, so fixing the flag beats mirroring `unused_type`'s
+`FromBNI` check in the lint rule (which would leave `ir.Func.Exported` wrong).
+
+Tests: all-`.bni` fixture `cmd/bnlint/testdata/generic_bni.bni` linted end-to-end by
+`TestLintPackagesAllBniGeneric` (0 diags), plus in-memory
+`TestMarkBniExportedFuncsBniOnly` (self-merge marking). Verified RED→GREEN via direct
+`bnlint` (2 false positives → 0); VM conformance 2781/0; loader+bnlint units green.
+Follow-up (agreed): the bnlint integration tests self-skip in CI without `-I` — wire
+them into the unit-test runner (tracked in [claude-todo.md](claude-todo.md)). The
+examples repo had independently worked around this by running `bnlint --tests`.
+
 ## Whole-package re-export (`expose`) — ✅ DONE (implemented + specified + tested; BUILDER gate cleared at `bnc-0.0.11`)
 
 The core `.bni` declaration `expose "pkg/std/foo"` re-exports another package's whole
