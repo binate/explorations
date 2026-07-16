@@ -6,6 +6,24 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Import aliases + blank (side-effect) imports — ✅ BOTH SUPPORTED & SPECIFIED
+
+Answered the ancient "do we support these?" questions — verified against
+grammar/spec/parser and empirically:
+- **Aliases** (`import bar "pkg/foo"; bar.Val()`): supported. Grammar `ImportSpec =
+  [ identifier ] string_literal`; spec §16.3 `pkg.import` (a member is referenced
+  qualified via the alias); parser `parseImportSpec` sets `spec.Alias`. Compiles,
+  links, runs.
+- **Blank / side-effect imports** (`import _ "pkg/foo"`): supported and Go-like.
+  Binds no qualifier (checker `bni_scope_collision.bn`: "blank imports introduce no
+  name"); exempt from the `unused-import` lint (`lint/unused_import.bn`: "intentional
+  side-effect imports"); the package still joins the transitive closure and is
+  initialized (verified: a blank-imported package's global initializer ran its side
+  effect before `main`). Now spec'd as `pkg.import.blank` (§16.3).
+
+The entry's third bullet — "interacts with the package object naming question above"
+— was a dangling cross-ref (no such entry) and is moot.
+
 ## `pkg/binate/vm` test helpers passed a NIL checker → int literals > INT32_MAX truncated on a 32-bit host — ✅ DONE & LANDED (`34a3c8f1`, 2026-07-15)
 
 Eight `pkg/binate/vm` test helpers built a `types.Checker` and ran `c.Check(file)`

@@ -657,11 +657,6 @@ language extension, not a bug fix.
 - Missing-return check (test 245) uses Go-style termination analysis simplified: RETURN terminates; `panic(...)` terminates; BLOCK terminates if last stmt does; IF terminates if both branches do; FOR with no condition and no `break` in body terminates; SWITCH with default and all cases terminating (no break) terminates.
 - **Labeled break**: Binate currently has no labels. If/when we add them, termination analysis needs to track labels — a `break L` inside a nested for doesn't break the inner for (contrary to the current "any break disqualifies enclosing for/switch" rule). Revisit when labels are on the table.
 
-### Import aliases and blank imports
-- Do we support Go-like `import somethingelse "pkg/foo"` currently? We'll likely need this.
-- Do we support `import _ "pkg/foo"`? Should we? (Side-effect-only imports.)
-- Both interact with the package object naming question above.
-
 ## Spec authoring & language-decision residuals
 
 ### Relational-comparison chain (`a < b < c`) diagnostic reach — nicety
