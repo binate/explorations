@@ -106,14 +106,6 @@ isolation.  Add a regression test: a bnlint integration fixture (cf. the `bnlint
 testdata harness) linting two packages in the poisoning order must exit clean.  Until fixed,
 `pkg/stdx/containers/setfn` cannot rejoin the lint set.
 
-## CI red on main — release pre-check batch (found 2026-07-13) — ✅ ALL RESOLVED (moved to done log)
-
-The 2026-07-13 release pre-check triaged four red CI suites; every item is now
-resolved and recorded in [claude-todo-done.md](claude-todo-done.md): the MAJOR
-`1029_zero_size_struct_method` native miscompile (`9cc0272a`), the native_x64
-unit/perf runner gap (`39e06dcd`), and the six-scenario **E2E red pile-up**
-(`a7d4bb0e` / `4075eca1` / `20c7dbcd` / `daa8f68b` / `d366b591`, + split-paths
-release-resolved by the `bnc-0.0.11` BUILDER bump).
 ## Test-flake watch
 
 Intermittent, load-/environment-dependent test failures tracked for recurrence —
