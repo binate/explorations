@@ -162,7 +162,14 @@ needs no `FRAME_HDR` change (reuses `callerPC`).
     `Instr.PadBlock`; `AddFaultPad`/`EmitUnwindReturn` builders; `OP_UNWIND_RETURN`
     is a terminator. Unit-tested via a hand-built pad. Empty `FaultPads` ⇒
     byte-identical to before.
-  - **2a-2 — IR-gen emission (next, the invasive part).** Hook each faulting/call
+  - **2a-2 — IR-gen emission ✅ LANDED (`a743e92f`, 2026-07-17). Inc 2a COMPLETE.**
+    Emits a pad for every OP_BOUNDS_CHECK (genBoundsCheck -> attachFaultPad ->
+    emitPadCleanup); the branching-cleanup subtlety below is handled via
+    Func.PadEmitMode (AddBlock routes pad-continuation blocks into FaultPads) and
+    findBlockOffset resolving over combinedBlocks. gen1 builds with pads emitted
+    throughout; conformance smoke (slices/arrays/index) green on builder-comp AND
+    builder-comp-int; the compiled backends stay untouched. div/shift/nil/call pad
+    emission pairs with Inc 3. (Original scoping note below.) Hook each faulting/call
     op emission site (bounds/div/shift/nil-check + calls) to snapshot the live
     managed set (`ctx.Vars` managed subset + `ctx.Temps`) into a pad (`AddFaultPad`
     + a NON-clearing `emitPadCleanup` reusing the RefDec emitters) terminated by
