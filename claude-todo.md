@@ -262,6 +262,40 @@ stdout.
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
+### `builder-comp_arm32_linux` unit lane triage — 🟡 IN PROGRESS (10 failed pkgs → ~5 root causes)
+
+Triaged from CI run `29550055785` (10 failed / 51 passed). The "10 packages"
+collapse to a handful of root causes; several are one bug cascading. Buckets:
+
+- **A — `floatSignMask` untyped `1 << 31` overflows int32 → build error cascading
+  to `native`, `native/arm32`, `cmd/bnc`. ✅ DONE** (`b87c841e`) — build it as a
+  typed shift `cast(int, 1) << 31` (wraps, not range-checked), mirroring
+  x64_float's `cast(int64, 1) << 63`.
+- **B — VM `cast(float32/64, uintN)` mis-round (`vm`, 1 test). ✅ DONE** (`36683dac`,
+  see [claude-todo-done.md](claude-todo-done.md)).
+- **C — constant range-checking uses host `int` width (the deep one). 🟠 OPEN.**
+  `types`: `TestCheckCastHighMagnitudeConstRejected`, `…ConstArithmeticExact`,
+  `…ConstBitwiseExact` (all `cast(int64, 2^63)` overflow checks). `ir`:
+  `gen_const_fold_test.bn:258/274/278` won't compile — `constValueFitsSignedTarget(2147483648, …)`
+  can't pass 2^31 as an `int` param on ILP32. The checker/IR represents integer
+  constants in host `int`, so on a 32-bit host it can't correctly range-check
+  int64-target casts. Likely needs a wide (int64/bignum) constant representation
+  — assess scope before diving in; may be substantial.
+- **D — float-literal parse exponent wraps at the int32 boundary. 🟠 OPEN.**
+  `native/common`: `TestParseFloatHugeExponent` (`ParseFloatLitToBits("1e4294967296")`,
+  exponent 2^32 should saturate to +Inf but wraps because the exponent accumulates
+  in a host `int`). `asm/parse` has a 1-failed likely-sibling (unconfirmed).
+- **E — host-dependent codegen assertions. 🟠 OPEN (needs investigation).**
+  `asm/elf`: `TestWriteElfX64RelocPltVsPc` (x64 reloc PC32 vs PLT32). `native/aarch64`:
+  `TestEmitCallFuncValueNoArgsVoid` ("5 instrs (20 bytes)"). Both emit for a fixed
+  target yet fail only on a 32-bit HOST → a host-int assumption in the emitter or
+  the assertion.
+
+Note: the lane is not locally runnable on the macOS dev host (no qemu-arm /
+arm-linux cross-toolchain), but the *check*-phase bugs (A, C) reproduce locally by
+compiling `--target arm32-linux` (the constant fit-check is target-based); run/emit
+bugs (B, D, E) need the CI lane or a Linux box.
+
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
 were switched to `ManagedHeaderSize()` (main `581216d9`) — see [claude-todo-done.md](claude-todo-done.md).
