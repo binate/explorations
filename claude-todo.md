@@ -1695,51 +1695,107 @@ unblock them:
   the "growable container with amortised O(1) append" the earlier "168
   `slices.Append` in loops" note asked to file for later.
 
-### Use interfaces more (opportunistic)
-- **Constraint**: now bounded by `BUILDER_VERSION`-pinned bnc
-  rather than the historical bootstrap subset — cmd/bnc no longer
-  has to be bootstrap-runnable now that boot mode is gone (binate
-  `c1be3cc`, 2026-05-21).  bnc-0.0.1 (the current BUILDER) supports
-  interfaces, so anything in cmd/bnc's dep tree is fair game too.
-  Generics are NOT in bnc-0.0.1, but interfaces are.
-- **Candidates that look natural**: anywhere we currently
-  switch on a kind tag with a dispatch table (e.g. opcode
-  handlers, AST visitors, asm encoders) is the textbook shape
-  where an interface compresses the dispatch.  Print/format
-  helpers that take a kind + value pair are another easy lift.
-  pkg/ast's tagged-union nodes (DECL_*, EXPR_*, STMT_*, TEXPR_*
-  Kind enums + switch-on-Kind in pkg/{parser,types,ir,codegen,
-  loader}) is the biggest single target but also the longest
-  refactor — touches every layer.
-- **How to land**: pick one site per PR, define the interface
-  alongside, methodify the concrete types, drop the dispatch
-  switch.  Keeps each step small enough that conformance +
-  unit-tests stay green.  Mirrors the
-  `migrate-to-method-form-opportunistic` pattern from
-  `claude-todo-done.md` (DONE 2026-05-13).
-- **Recon finding (2026-05-26)**: there is NO clean *small*
-  retrofit target.  The candidates above split into two
-  unappealing buckets: (a) enum→value lookups (reloc maps,
-  opName, the emitInstr op dispatch) where `switch` is genuinely
-  the right tool and an interface would mean manufacturing one
-  empty marker type per enum value — pure ceremony; and (b)
-  monolithic tagged unions (`ast.Stmt`/`Decl`, `ir.Instr`) where
-  a real interface means splitting a struct that touches every
-  layer.  So "use interfaces more" here is a deliberate design
-  choice, not opportunistic cleanup.
-- **Landed (2026-05-26): driver `Backend` interface** (binate
-  `0ee0faa`, `bda81ca`, `6dacb23`).  The genuinely-valuable use
-  found: `cmd/bnc/compile.bn`'s `Backend` interface
-  (`compileModule`) with `llvmBackend` / `nativeBackend` impls,
-  dispatched via `compileModuleVia`.  This collapsed the
-  duplicated driver flow — `compileMainNative` is gone, `main()`
-  picks the backend and the LLVM/native paths are unified.
-  pkg/native also got an internal arch `Backend`
-  (arm64/amd64).  These are the first non-synthetic interface
-  users beyond pkg/std's `Stringer`.  NOTE: interface values
-  must be constructed from locals, not package globals — `&global`
-  iface construction was a codegen bug (now fixed, see
+### Use interfaces more (where an interface is the best/natural design)
+- **Framing (2026-07-16)**: the bar is NOT "opportunistic / cheap
+  cleanup".  The question is *what is the best/natural implementation*
+  for a given piece of code — and where an interface is that, but we
+  used a lesser pattern (often because interfaces landed late, not
+  because they were unwanted), it should be converted *eventually*, with
+  the honest caveat that the cost may be high.  Evaluate each candidate
+  by payoff (quality / consistency / bug-resistance / clarity) balanced
+  against conversion cost — not by whether it's a quick win.
+- **Constraint**: interfaces are supported by the current BUILDER
+  (`bnc-0.0.11`), so all of cmd/bnc's dep tree is fair game.  (Generics
+  too now, but they're not needed for interface adoption.)  NOTE:
+  interface values must be constructed from locals, not package globals
+  — `&global` iface construction was a codegen bug (fixed; see
   conformance/495).
+- **Candidate 1 — native arch emit (NEAR-TERM; natural interface).**
+  `pkg/binate/native/{aarch64,x64,arm32}` each have a ~30-line
+  `EmitObject` that is the *same algorithm* (FinalizeStrings → `asm.New`
+  → text section → per-func `emitFunc` loop → shims/strings/globals/
+  vtables/descriptor/SatEntry → `ResolveFixups` → `Finalize` → write)
+  over per-arch primitives, plus byte-identical name helpers
+  (`stringLabel`/`stringMSSym`/`globalSymFor`) and near-identical
+  `emitStringTable`/`emitGlobals`.  The natural design is the skeleton
+  written ONCE against a `common.ArchEmitter` interface (`wordBytes`,
+  `emitFunc`, `resolveFixups`, `writeObject`, prefix set/clear, …) with
+  three impls — a real "use interfaces more" instance, not ceremony.
+  Tracked/executed under its own todo (see "De-duplicate the triplicated
+  native EmitObject").
+- **Candidate 2 — AST/IR tagged unions (LONG-TERM; genuinely
+  debatable, HIGH cost).** `ast.Expr/Stmt/Decl/TypeExpr` + `ir.Instr`
+  (~138 kinds) are one wide struct + `Kind`/`Op` tag, dispatched at
+  ~2200 sites across ~228 files.  This is the *expression problem*:
+  tagged-union+switch makes adding a PASS cheap and a KIND expensive;
+  interfaces/visitors invert it.  A compiler adds passes far more often
+  than kinds, so tagged-union+switch is a standard, defensible design
+  here — but "defensible" isn't "obviously best", and the missing-case
+  fragility is real (no exhaustiveness checking; an unhandled op silently
+  emits `; unhandled op N`).  Do NOT dismiss it as settled; but its main
+  safety payoff is far cheaper via exhaustiveness checking (see that
+  todo) than a 228-file rewrite.  If ever converted, it's a deliberate,
+  staged, multi-month project.
+- **Candidate 3 — minor**: the `asm/{elf,macho}` object writers share a
+  `Write(@asm.Assembler, path, …)` shape selected by a static branch;
+  a small `Writer` interface is plausible but low-payoff.  The asm
+  instruction encoders and the enum→value string maps (`OpName`,
+  `*KindName`) are NOT interface targets (different operand types /
+  pure enum→value where `switch` is correct — an interface there is one
+  empty marker type per value).
+- **Landed (2026-05-26): driver `Backend` interface** (binate
+  `0ee0faa`, `bda81ca`, `6dacb23`): `cmd/bnc/compile.bn`'s `Backend`
+  (`compileModule`, `llvmBackend`/`nativeBackend`) collapsed the
+  duplicated driver flow; pkg/native got an internal arch `Backend`.
+  These + `ReplSession` are the only compiler-internal interfaces so far
+  — the point above is that this is under-use to correct where natural,
+  not a sign interfaces don't fit.
+
+### De-duplicate the triplicated native `EmitObject` (→ `common` ArchEmitter)
+- **Found by the 2026-07-16 interface survey.**  `pkg/binate/native/
+  {aarch64,x64,arm32}` triplicate: (a) byte-identical name helpers
+  `stringLabel`/`stringMSSym`/`globalSymFor` (in each `*_names.bn`) and
+  `objFmtEq`/`stripQuotes`; (b) near-identical `emitStringTable`/
+  `emitGlobals` (differ only in the word-size default, derivable from
+  `asm.New`'s arg); (c) the ~30-line `EmitObject` skeleton itself
+  (same algorithm, per-arch primitives).  Plus a consistency wart: the
+  object-format sym-prefix state is spelled two ways — aarch64
+  `var objEmitElf bool`, x64 `var objSymPrefix *[]readonly char` (same
+  Mach-O/ELF capability; arm32's identity `symPrefixed` is justified,
+  it's ELF-only).
+- **Plan (staged, each step green across all three backends)**:
+  1. Hoist the identical free-function helpers into
+     `pkg/binate/native/common` (name helpers + `objFmtEq`/`stripQuotes`
+     + `emitStringTable`/`emitGlobals` parameterized by word size).
+     Low-risk, deletes ~60–90 lines of triplication.
+  2. Unify the sym-prefix state on one spelling in `common`.
+  3. Write the `EmitObject` skeleton ONCE against a
+     `common.ArchEmitter` interface (`wordBytes`, `emitFunc`,
+     `resolveFixups`, `writeObject`, prefix set/clear, …) with three
+     impls — the natural polymorphic design (see "Use interfaces more",
+     candidate 1).
+- **Blast radius**: `pkg/binate/native/common` + the 3 arch packages
+  (`*.bn`, `*_names.bn`).  Smoke MUST cover `native/common` AND all
+  three arch packages' unit tests (shared-file rule), plus a native
+  conformance mode.  No BUILDER concern (native/x64, native/arm32 are
+  built by bnc, not BUILDER-compiled).
+
+### Exhaustiveness checking for `Kind`/`Op` tagged-union dispatch
+- **Found by the 2026-07-16 interface survey** as the cheap way to buy
+  the one real safety payoff people reach for interfaces to get, without
+  the 228-file AST/IR rewrite (see "Use interfaces more", candidate 2).
+- **Problem**: Binate has NO switch/exhaustiveness checking.  Adding a
+  new `EXPR_`/`STMT_`/`DECL_`/`TEXPR_`/`OP_` kind means hand-finding every
+  `switch`/if-chain that must handle it; a missed site silently falls
+  through (`codegen/emit_instr.bn` emits a literal `; unhandled op N`
+  comment and returns).  ~2200 dispatch sites, no safety net.
+- **Options**: (a) a `bnlint` rule that knows the closed kind families
+  and flags a `switch`/if-chain over one that omits a case (no `default`
+  escape hatch, or a marked-exhaustive form); (b) a compiler feature —
+  an exhaustive `switch` form over a closed const family that errors on a
+  missing case.  (a) is lower-cost and non-invasive; start there.
+- Pairs with the "if-return chains → switch" work (done) — exhaustiveness
+  is the "type-checker hook" that work noted a `switch` would give.
 
 ### Consider raw-slice-literal sugar `*[]T{...}` (language feature)
 - Today a raw slice over static data is spelled `[N]T{...}` + `arr[:]`
