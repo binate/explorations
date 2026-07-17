@@ -1658,7 +1658,12 @@ unblock them:
     (`appendCharSlice`/`appendFilePtr`/`appendImportSpec`, used across imports/
     check/externs/interp), `cmd/bni/util.bn` (same trio), `cmd/bnlint/main.bn`
     (`appendStr`/`appendImport`), repl (`appendByteRepl` O(n²)-per-line
-    accumulator, `appendReplError`). Vec deletes these helpers outright.
+    accumulator, `appendReplError`). Converting all callers deletes these helpers
+    outright — but partial adoption (convert the LOOP callers, leave 1-element
+    error builders + the helper) is fine incrementally.  ✅ `interp.bn`'s three
+    LOOP accumulators (`New`'s `ifOnly`, `LoadProgram`'s `lerrs`/`initPkgNames`)
+    landed `3c1fb103`; `appendCharSlice` stays for interp's single-append error
+    builders + its `check`/`imports`/`externs` callers (and `cmd/bni`).
   - `slices.Append` in a loop: the formatter wrap engine — ✅ **DONE**
     (`print_wrap.bn`'s 3 sites landed earlier; `print_builtin`/`print_decl`/
     `print_switch`/`print_file` landed `40410619`).  `print_chain.bn`'s
