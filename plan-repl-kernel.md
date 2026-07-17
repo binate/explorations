@@ -302,19 +302,26 @@ transport's fields into the `Kernel` would be over-fitting one example.
 
 ## Increments (each self-contained + green)
 
-**Inc 1 — reshape the surface (critical path).**
+**Inc 1 — reshape the surface (critical path). ✅ LANDED on `main` (`6910166f`..`6fa25ae5`, 2026-07-16; verified by a 3-lens adversarial review that caught two land blockers — a dead `cmd/bni/repl_test.bn` `ReplIO` reference and 3 hygiene failures — fixed in Inc 1b-4).**
 Rename per the table; split `Step`→`Execute`+`IsComplete`; add `KernelInfo()`;
 turn per-turn errors into `Result.Err @[]Diagnostic` (stop `s.errln(...)`, collect
 instead — every error path loops, so it's genuinely plural); turn the engine's
 informational output (`decl.bn`/`mid_session_import.bn` "loaded"/"parked"/
 "resolved"/cycle/shadow announcements) into `Result.Notices`; drop `ReplIO`; add
 `RunReadLoop`; rewire `cmd/bni` onto it. Evaluated-code output still goes to fd 1
-(unchanged); `Display` empty. **Green end-to-end:** the CLI REPL is
-behavior-identical (it renders Notices/Err/Display from `Result`); the surface is
-the new one.
-*Verify Inc 1 is truly behavior-identical:* enumerate every current
-`s.out`/`s.outln`/`s.err` site and confirm each maps to a `Notices`/`Err` entry
-the CLI renders — none silently dropped. `e2e/repl.sh` passes unchanged.
+(unchanged); `Display` empty; `Complete`/`Inspect` land as stubs (Inc 2/3).
+**Green end-to-end:** `repl` + `cmd/bni` unit tests, hygiene 17/17, `e2e/repl.sh`
+55/0; the CLI renders Notices/Err from `Result`.
+
+**One accepted behavior change (NOT byte-identical).** Notices are now returned
+as `Result` DATA and rendered *after* `Execute` returns, while evaluated-code
+`println` still streams to fd 1 *during* eval — so a single turn that both emits a
+Notice AND runs printing user code renders them in the *reverse* order vs. the old
+immediate-write sink. The only reachable case is a parked `var x = f()` whose
+initializer prints, resolved via `retryPending` in the same turn (old: the
+"resolved" notice then the output; new: the output then the notice). This is an
+inherent, accepted consequence of the notices-as-data model (Decision #3) —
+cosmetic and narrow; an `e2e` case pins the chosen order (follow-up).
 
 **Inc 2 — `Complete`.**
 *Prerequisite:* `pkg/binate/types` exposes no enumeration/prefix API (`Scope` has
