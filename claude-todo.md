@@ -9,6 +9,29 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### Native link-and-run tests fail (`_main` undefined) after the entry-point move — 🔴 OPEN (found 2026-07-16)
+
+**Severity: MAJOR** — three native link-and-run unit tests are RED on main; the
+`clang` link fails with `Undefined symbols for architecture ...: "_main"`:
+- `pkg/binate/native/x64`: `TestX64MachoExitsWithCode`
+- `pkg/binate/native/aarch64`: `TestEmitCallExitsWithCode`, `TestEmitEmptyMainLinksAndRuns`
+
+**Root cause (pointer — not confirmed with the author)**: `c4607a71` ("Move the
+process entry into Binate; retire bootstrap.Args; inject startup in the VM")
+removed the C `main()` — `runtime/binate_runtime.c` and
+`runtime/native_test_stubs.c` no longer define it. These tests emit a Binate
+`__entry` object and link it against that runtime expecting the runtime to supply
+a C `main` (→ `_main`); with `main` gone, the link has no entry symbol.
+
+**Discovered** 2026-07-16 while hoisting shared native helpers into `common`
+(`4255c5ad`); proven PRE-EXISTING — the identical three failures reproduce on the
+base without those changes, and the hoist adds none.
+
+**Fix (entry-point-move author's call)**: update the three link tests for the new
+Binate-entry model — provide a test-only C `main` stub that calls `bn_entry`, or
+link whatever startup/entry object the new model produces so the emitted
+`__entry` has an entry point.
+
 ### Type-switch / interface-assertion over a `*any` whose boxed dynamic type is a SLICE segfaults — 🔴 OPEN MAJOR (found 2026-07-16)
 
 **Severity: MAJOR** — a runtime crash (SIGSEGV) on a well-typed program: ANY
