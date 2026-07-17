@@ -147,30 +147,88 @@ injected**. So the VM can inject a **VM-specific** `rt.Abort`/`rt.Panic` — no
 physical `rt` source split needed; it's an injection override. The faulting user
 op behaves "as if the user code called `rt.Panic`/`rt.Abort` itself."
 
-### The open question (the scope-required part)
-**What should the VM-injected `rt.Abort`/`rt.Panic` do to terminate JUST the
-interpreted program, not the host?** I.e. how does it unwind the VM exec back to
-the VM's caller (REPL / test-runner / embedder)?
+### Ratified design (2026-07-16): unified cleanup-pad unwind
 
-Candidate (looks feasible, needs confirmation): the **VM call stack is data**
-(`vm.Stack`, frames at offsets), not the host stack — so the user program's call
-frames are not on the host stack. At fault time the host stack is shallow (exec
-loop → `rt.DivCheck` → injected abort). So the injected `rt.Abort` could **set a
-VM fault flag + message and return**; the exec loop checks the flag after the
-faulting op and **abandons the VM frames** (popping them — running dtors where
-required for refcount correctness?) back to the `CallFunc`/exec entry, which
-returns a fault result to the host. No `setjmp`/`longjmp` needed (good — C-free),
-because the unwind is over *data* frames, not host frames.
+A recon pass settled the "open question", and the answer **unifies Plan 2 with
+the REPL's Stage-7 "break"** (`plan-repl-embeddable.md`):
 
-Things to pin down when scoping Plan 2:
-- Which rt entry points get the VM-injected variant: the user-fault handlers
-  (`BoundsFail`/`DivFail`/`ShiftFail` via `*Check`) **plus** the VM's own
-  nil-deref / stack-overflow / call-through-nil guards (move them off `rt.Exit`
-  onto the same recoverable path).
-- The unwind's interaction with **refcounting** — abandoned VM frames may hold
-  managed values that must be RefDec'd as the frames are popped (else a fault
-  leaks). This is the trickiest correctness point.
-- Whether the recoverable fault surfaces to the host as a value (an
-  `@errors.Error`-shaped result from `CallFunc`) or a VM state the caller polls.
-- The compiled side is unchanged (its `rt.*Check` stays fatal — there is nothing
-  to unwind to).
+- **The unwind IS over data frames** (confirmed): `execLoop` (`vm_exec.bn:20`)
+  is iterative — `BC_CALL` pushes frames on `vm.Stack`, no host recursion. So a
+  fault deep in a user call is unwound by popping data frames back to `execFunc`
+  → `CallFunc`; no `setjmp`/`longjmp` (C-free).
+- **Naive frame-discard LEAKS** (the trickiest point, now pinned): RefDec is
+  emitted as **inline `BC_REFDEC` bytecode at specific PCs**; the VM keeps no
+  runtime enumeration of a frame's live managed values, and `BC_RETURN` runs
+  only the single `freeOnPop` slot — NOT scope cleanup. Skipping-to-return
+  abandons the RefDec opcodes ⇒ leak, which violates the strict never-leak rule.
+  So a leak-accepting unwind is not an option.
+- **The leak-free answer already has a design: cleanup pads.**
+  `plan-repl-embeddable.md` **Stage 7 (break)** specifies exactly the machinery
+  Plan 2 needs — per-open-scope **cleanup landing pads** (a PC that runs the
+  RefDec/scope-exit code for currently-open scopes) plus a **VM unwind mode**
+  (innermost frame outward: jump to the frame's pad, run it, pop via the
+  existing `BC_RETURN`/`freeOnPop`/`BC_SP_RESTORE` path, repeat to the top
+  frame). **A fault is an internally-triggered break**; `POLL_BREAK` (Ctrl-C) is
+  the external trigger. Same cleanup-pad + unwind-mode, different trigger. Plan 2
+  does NOT need Stage 6's suspend/resume (a fault aborts to the prompt; it does
+  not pause).
+
+**Chosen approach (user, 2026-07-16): build the shared cleanup-pad + VM
+unwind-mode once**, drive it from the fault sites now, and reuse it for Stage-7
+break later — over a leak-accepting first cut or a conservative frame-scan.
+
+Refinement from recon (finalized in Inc 3): rather than shadow-injecting a
+VM-specific `rt.Abort`/`rt.Panic` into the extern registry, the VM's own guard
+sites call an internal `setFault(msg)` directly, and the bounds/div/shift checks
+move inline into the VM's `BC_*_CHECK` handlers (they currently delegate to the
+injected `rt.BoundsCheck`/`DivCheck`/`ShiftCheck`, which fault internally). Same
+effect — the VM observes the fault and unwinds — with one fewer moving part (no
+registry shadow, no reliance on a native handler "returning"). The compiled path
+is untouched: compiled code calls `rt.*Check` directly and stays fatal.
+
+### Scope boundaries (named, not silently deferred)
+
+- **Outermost-`execLoop` only.** Cooperative unwind is sound only when the VM
+  stack does not interleave with a live *native* frame on the host stack. A
+  fault under a native callback (`execExtern → native callback → CallFunc → …`)
+  cannot unwind through the host-stack frame — that case **stays fatal** until
+  heap frames land (the mid-callback gate Stage 6/7 already carry — see
+  `plan-repl-embeddable.md`). The top-level REPL / test-runner case (host →
+  `CallFunc` → pure VM → fault) is the target and is not gated.
+- **Native-extern SIGSEGV is a separate concern.** A wild-pointer deref *inside*
+  a native extern called from the VM (e.g. handing a bad pointer to
+  `rt.Refcount`) raises an OS signal that cooperative data-frame unwind cannot
+  catch; it needs a host signal handler. Out of Plan 2; tracked separately (the
+  2026-06-30 robustness note in `claude-todo.md`).
+- All 6 fault kinds are in scope. Stack-overflow is safely recoverable — its
+  guard (`pushFrame`, `vm.bn:259`) fires *before* `vm.SP` advances.
+
+### Increment plan
+
+Each increment stays green and lands small; the IR-gen pad design (2a) gets its
+own detailed design + adversarial review before code.
+
+- **Inc 1 — fault carrier + REPL surface (host-facing contract).** `@VM`:
+  `VM_STATUS_FAULTED` + `FaultMsg @[]char`, reset in `CallFunc`/`CallByVMFunc`.
+  `repl.Execute` maps a faulted VM status onto **`EXEC_ERROR`** (chosen over a
+  new `EXEC_FAULTED`: a faulting turn is a failed turn like a compile error —
+  fewer driver-facing concepts) plus a `Diagnostic` carrying `FaultMsg`. Inert
+  (nothing sets `FAULTED` yet). The `cmd/bni` `runProgram` + test-runner
+  fault-read wiring lands with Inc 3, where faults actually fire and it is
+  end-to-end testable (rather than as unexercised code here).
+- **Inc 2a — IR-gen cleanup landing pads (the long pole).** Emit per-open-scope
+  cleanup pads + a per-frame "current unwind PC" the compiler maintains at
+  scope/statement boundaries (reusing the scope-exit RefDec code IR-gen already
+  emits), including in-flight mid-statement temps. Standalone design +
+  adversarial review first.
+- **Inc 2b — VM unwind mode.** On `FAULTED`, `execLoop` runs each frame's pad
+  then pops to the top frame → returns a sentinel; `execFunc`/`CallFunc` surface
+  the fault. Leak-free because 2a's pads run. Conformance per managed-state shape
+  asserting host-survives AND refcount balance.
+- **Inc 3 — wire the 8 guard sites + non-REPL hosts.** Convert bounds/div/shift +
+  nil-deref + stack-overflow + 3× call-through-nil from `println + rt.Exit(1)`
+  to `setFault(...)` + enter unwind, gated to the outermost `execLoop`. Wire
+  `cmd/bni` `runProgram` + the test-runner (count a fault as a failed test, then
+  continue). Conformance per fault kind.
+- **Inc 4 (later — not Plan 2).** `POLL_BREAK` drives the same unwind (Stage-7
+  break) for free.

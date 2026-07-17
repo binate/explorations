@@ -221,7 +221,7 @@ Remaining increments (all parked, none started):
 
 ## VM runtime faults & the rt.Exit/abort/panic paradigm
 
-### rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟡 SCOPE REQUIRED (2026-06-20)
+### rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟢 SCOPED; approach ratified, Inc 1 in progress (2026-07-16)
 
 **Related robustness gap (filed 2026-06-30):** a bad-pointer deref inside a NATIVE EXTERN
 called from the VM (e.g. handing a wild pointer to `rt.Refcount`) SIGSEGVs the VM host with
@@ -239,12 +239,23 @@ User-code runtime faults (bounds / divide / shift / nil-deref / stack-overflow /
 call-through-nil) should be RECOVERABLE in the VM (the host REPL / test-runner /
 embedder survives a bad interpreted program) while staying fatal in compiled
 code. The 6 VM user-fault sites are deliberately still on `rt.Exit(1)` pending
-this. Approach (per user): rt is already injected into the VM, so a faulting user
-op already calls the *injected* `rt.Panic`/`rt.Abort`; inject a VM-specific
-variant that unwinds the VM's DATA-stack frames (`vm.Stack`) back to `CallFunc`
-instead of killing the host (no longjmp — the user call stack is data, not the
-host stack). Open: the exec-loop unwind mechanism + refcount-correct frame
-teardown.
+this.
+
+**Ratified approach (2026-07-16), full design in
+[`plan-rt-abort-panic.md`](plan-rt-abort-panic.md):** a fault is an
+internally-triggered *break* — the "refcount-correct teardown" open question is
+answered by the **cleanup-pad + VM-unwind-mode** machinery already designed for
+`plan-repl-embeddable.md` **Stage 7 (break)**. Naive frame-discard LEAKS (RefDec
+is inline `BC_REFDEC` bytecode at PCs; `BC_RETURN` runs only `freeOnPop`, not
+scope cleanup), so we build the shared cleanup-pad unwind once and drive it from
+both the fault sites (Plan 2) and `POLL_BREAK` (Stage 7). Recoverable only at the
+outermost `execLoop` (a fault under a live native callback stays fatal —
+mid-callback gate, needs heap frames); native-extern SIGSEGV stays separate
+(needs a host signal handler — the robustness gap above). Increments: **Inc 1**
+fault carrier (`VM_STATUS_FAULTED`/`FaultMsg`) + `repl.Execute`→`EXEC_ERROR`
+surface *(in progress)*; **Inc 2a** IR-gen cleanup pads (long pole; own design +
+review); **Inc 2b** VM unwind mode; **Inc 3** wire the 8 guard sites +
+`cmd/bni`/test-runner. `EXEC_ERROR` reused over a new `EXEC_FAULTED`.
 
 Related smaller follow-up: route panic / `runtime error:` / VM diagnostics to
 **stderr** (fd 2) — deferred out of Plan 1 (infra exists: `bootstrap.Write(fd)`,
