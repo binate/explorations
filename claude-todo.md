@@ -348,18 +348,18 @@ Follow-ups surfaced during the triage (pre-existing, not introduced):
   - Residual nit (pre-existing, LP64-only, out of scope): REPL `GenConstMember`
     (`gen_repl.bn`) folds host-int only (no stamp consult) — REPL runs on the dev host,
     so no ILP32 impact.
-- 🟢 **`ir`/`vm`/`std` arm32_baremetal xfails share the now-fixed literal/fit-check
-  cause — removal candidates pending a baremetal-lane run.** The baremetal unit lane
-  has 17 package xfails in two groups: 14 PERMANENT ("require host filesystem /
-  subprocess / native-host arch — can't run under baremetal QEMU semihosting"), and
-  **3 — `pkg-binate-{ir,vm,std}` — citing "tests use literals that exceed int32 range;
-  AssignableTo fit-check rejects on arm32 ILP32"**, which Bucket C (`5b5987d7`) fixed.
-  Those 3 don't need host FS/subprocess, so with the fit-check fixed they should
-  compile AND run under baremetal semihosting (`ir` type-checks + emits cleanly for
-  `--target arm32-baremetal`, verified). But confirming the tests PASS there needs the
-  baremetal lane (no local `qemu-system-arm`/`gcc-arm-none-eabi`; `unit-tests-xpass`
-  hasn't run recently). Drop the 3 markers once a baremetal run (or `unit-tests-xpass`)
-  confirms XPASS; do NOT remove blindly (the lane is otherwise broadly immature).
+- 🟢 **arm32_baremetal xfails whose "literals exceed int32" cause is fixed — REMOVED
+  (`02dbb8e0`), awaiting CI confirmation.** The baremetal unit lane had 17 package
+  xfails: 13 PERMANENT ("require host filesystem / subprocess / native-host arch —
+  can't run under baremetal QEMU semihosting") + **4 citing "tests use literals that
+  exceed int32 range; AssignableTo fit-check rejects on arm32 ILP32"** — the cause
+  Bucket C (`5b5987d7`) + IR-gen ModuleConst.Val (`2bf360fc`) fixed. Removed all 4:
+  `pkg-binate-{ir,vm,buf}` (real packages — each verified to type-check + emit cleanly
+  for `--target arm32-baremetal`, 0 fit-check errors) and `pkg-std` (a dead/orphaned
+  marker: exact-match lookup, no `package "pkg/std"` exists). Not locally runnable
+  (no qemu-system-arm/gcc-arm-none-eabi), so CI is the confirmation: run `29604623344`
+  (unit-tests.yml, arm32_baremetal). If ir/vm/buf pass there → done; if any reds at
+  runtime, re-add that marker with the real reason (fix-forward).
 
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
