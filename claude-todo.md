@@ -63,18 +63,24 @@ EXC_BAD_ACCESS. The defect is a disagreement between the two sides: BOXING
 accepts a name-less type (silently emitting a half-built value); MATCHING assumes
 every box carries a valid vtable/TypeInfo.
 
-**Fixable INDEPENDENTLY of the fmt / slice-identity (proposal B) work.** A
-well-typed program must never segfault, and boxing a slice into `any` is
-currently accepted, so a match over it must be at worst a clean guaranteed-MISS.
-Two options: (i) make the box WELL-FORMED — even a name-less type gets a real,
-emitted `__ivt`+`__typeinfo` (name-less types can share one opaque record, since
-no `case` can name them), so a compare is a safe miss; forward-compatible with B,
-no semantics change. (ii) REJECT at the checker — boxing a type with no RTTI
-identity into `any` is a compile error (conservative; contradicts the note's
-slices-in-`any` design and breaks `default`-only slice boxing). (i) is the "give
-name-less boxes a valid TypeInfo" half of B minus the §11.12 parser relaxation;
-B later upgrades the shared opaque record to distinct structural identities +
-allows `case *[]char`.
+**Fix — being done as Phase 0 of `plan-slice-type-identity.md`.** Make the
+name-less box WELL-FORMED: it gets a real, emitted shared-opaque `__ivt`+
+`__typeinfo` (sentinel `(pkg/builtins/rt, __nameless)`, weak-coalesced) so a
+compare is a safe guaranteed-MISS. Forward-compatible with proposal B (which
+later upgrades the slice subset to distinct structural identities + allows
+`case *[]char`). No semantics change.
+
+**Split into RAW vs MANAGED (adversarial review, 2026-07-16):**
+- **RAW `*any`** — the tracked crash + the fmt-relevant path. Null-dtor is
+  correct (borrow, no RefInc/RefDec). This is Phase 0, in progress.
+- **MANAGED `@any`** — a name-less *managed* pointee (`var a @any = box(s)`,
+  `s @[]char` → `@(@[]char)`) ALSO crashes today, but the shared-opaque null-dtor
+  fix would turn it into a LEAK: `@any` RefIncs at construction and drops via
+  `emitManagedIfaceValueRefDec`, whose null-slot-0 path falls to plain `rt.Free`
+  (`gen_util_refcount.bn:201`), skipping the inner backing RefDec. Needs a *real*
+  dtor for the name-less managed type, OR a checker rejection — a separate
+  decision, tracked in `plan-slice-type-identity.md` §9. Phase 0 leaves this path
+  bailing (still the pre-existing crash — not regressed, not fixed).
 
 **How discovered.** fmt-package design recon (the decided `...*any` +
 type-switch print direction, claude-notes.md:252). This crash — together with
