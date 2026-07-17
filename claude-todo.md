@@ -105,13 +105,50 @@ emission-nondeterminism bug); guard `3ca73110` pins it, and do NOT widen the tol
 
 ## Language features — specified, not yet implemented
 
-### Type assertions, type switches & RTTI — ✅ COMPLETE — one optional, deferred tightening
+### Type assertions, type switches & RTTI — pointer/slice forms COMPLETE; value-recovery NOT implemented
 
-The whole feature (RTTI substrate + front-end: `x.(K T)`, comma-ok, type
-switches, the §17.5 panic, the cross-mode/VM story) **and** the design-D
-TypeInfo-registry migration are landed and conformance-green in every mode; the
-spec Draft banners are flipped.  See the done log for the full record.  One
-optional residual:
+The pointer/slice forms (RTTI substrate + front-end: `x.(*T)` / `x.(@T)` /
+`x.(*[]T)` / `x.(@[]T)`, comma-ok, type switches, the §17.5 panic, the
+cross-mode/VM story) **and** the design-D TypeInfo-registry migration are landed
+and conformance-green in every mode; the spec Draft banners are flipped.  See the
+done log for the full record.  Two residuals — one a genuine missing form, one an
+optional nicety:
+
+**🔴 Value-recovery type assertion `x.(T)` (T a value type) — NOT yet implemented.**
+The third recovery form — recover a *value* T (a field-wise copy of the pointee),
+not a `*T`/`@T` pointer — is checker-rejected: `check_assert.bn:80-83` emits
+"value-recovery type assertion not yet supported" (shared `assertTargetType`, so
+BOTH `x.(int)` and `case int:` are rejected; `gen_assert.bn:13` notes IR-gen is
+gated behind the same rejection). This was carved out "deferred to a follow-up"
+when the assertion feature landed but never got its own todo (only a passing aside
+in the done log) — hence this entry.
+
+- **Intended semantics** (already sketched at `check_assert.bn:125`): `x.(T)`
+  yields a value T — a field-wise copy of the pointee. The box's data slot holds a
+  pointer to the value; recovery LOADs/copies it (mirrors the slice-recovery
+  load-through-pointer that Chunk 2b added, `ff36c82a`). A scalar T
+  (int/bool/float/char) is a trivial load, no refcount. A struct T with managed
+  (`@`) fields needs a **retaining** field-wise copy (RefInc the managed
+  sub-fields — the recovered value co-owns), so recovery from a raw `*I` is sound
+  (the copy acquires its own refs, like slice recovery — unlike `@T`, which needs
+  `@I`). Exact-identity holds: `type Money int` is NOT caught by `case int:`.
+- **Where it's exercised.** A value-typed box exists today via `box(v)` → `@T` →
+  `@any` (verified: `var a @any = box(i)` compiles), so value-recovery is testable
+  standalone — it does NOT depend on the separate implicit-variadic-boxing feature.
+- **Scope / open question.** Land scalar-only first, or scalar + struct copy
+  together? The struct case adds the retaining-copy refcount work; scalar-only
+  unblocks the fmt fast-path (`case int:`) immediately.
+- **Motivation.** Completes §11.12's third form and unblocks the value-based `fmt`
+  fast-path per `claude-notes.md:252` (`case int:` / `case Money:`).
+- **Tests to add** (Bug Discovery Protocol): conformance boxing a scalar +
+  recovering it; a managed-field struct (refcount balance, no leak/double-free);
+  `Money`≠`int` exact-identity; checker unit tests for the now-accepted form.
+- **Separate follow-up (NOT this item): implicit variadic value→`*any` boxing** —
+  so `fmt.Print("hi", 42)` works without an explicit `&` per arg (materialize a
+  stack temp + box its address, recording the VALUE type). A new implicit
+  conversion → needs owner sign-off (a language-semantics change). Flagged in
+  `plan-slice-type-identity.md` Phase 5. Value-recovery is the *recover* half; this
+  is the *box* half — together they give the Go-ergonomic `fmt`.
 
 **🔧 Optional tightening (deferred, low value).** Make the design-D registry the
 *single seam* that BOTH `collectImplVtableSlots` (vtable slot-1) and
