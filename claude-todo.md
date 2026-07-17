@@ -303,11 +303,20 @@ collapse to a handful of root causes; several are one bug cascading. Buckets:
   overflow int32 only under absurd multi-hundred-MB inputs — untracked, not worth a
   fix. `asm/parse`'s remaining 1-failed (a separate float-parse test, unconfirmed)
   is folded into E's investigation.
-- **E — host-dependent codegen assertions. 🟠 OPEN (needs investigation).**
-  `asm/elf`: `TestWriteElfX64RelocPltVsPc` (x64 reloc PC32 vs PLT32). `native/aarch64`:
-  `TestEmitCallFuncValueNoArgsVoid` ("5 instrs (20 bytes)"). Both emit for a fixed
-  target yet fail only on a 32-bit HOST → a host-int assumption in the emitter or
-  the assertion.
+- **E — host-dependent codegen assertions (2 test-only) ✅ DONE** (`278b35fd`).
+  Both were test-only host-int-width bugs (production emitters correct):
+  `asm/elf TestWriteElfX64RelocPltVsPc` read the 64-bit `r_info` via a host-`int`
+  `rdU64` (symIdx high word dropped on ILP32 → every reloc looked UNDEF) — now reads
+  the two 32-bit halves directly; `native/aarch64 TestEmitCallFuncValueNoArgsVoid`
+  was missing the `setTarget64()` its siblings have (GetTarget() reflected the
+  32-bit host → wrong emit) — now pinned.
+- **E' / asm/parse — assembler stores immediates in host `int`. 🟠 OPEN (SUBSTANTIAL).**
+  `TestParseData` (`.uint32 0xDEADBEEF`): the asm lexer accumulates numeric literals
+  into host `int` (`lex.bn` `val`, `Token.Ival`, `expr.bn` `ExprResult.Val`, ~64
+  downstream encoder sites), so a uint32 immediate ≥ 2^31 (or any 64-bit immediate)
+  can't be represented on ILP32. Same class as C — needs widening the assembler's
+  number type to `int64` end-to-end. User approved doing it (2026-07-17, "do both,
+  one at a time"): asm/parse first, then C, each reviewed + landed.
 
 Note: the lane is not locally runnable on the macOS dev host (no qemu-arm /
 arm-linux cross-toolchain), but the *check*-phase bugs (A, C) reproduce locally by
