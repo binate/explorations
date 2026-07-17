@@ -6,6 +6,32 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Native link-and-run tests fixed after the entry-point move (`_main` undefined) — ✅ FIXED & LANDED (`37302809`, 2026-07-16)
+
+The entry-point move (`c4607a71`) removed the C `main` from runtime/binate_runtime.c
+(it moved into the Binate startup package, `startup._entry`).  Three pkg/binate/native/*
+link-and-run unit tests — x64 `TestX64MachoExitsWithCode`; aarch64
+`TestEmitCallExitsWithCode`, `TestEmitEmptyMainLinksAndRuns` — emit a Binate `__entry`
+(`bn_entry`) and link it against binate_runtime.c + native_test_stubs.c, expecting the
+runtime to supply the C `main` crt0 calls, so the link went red with `_main` undefined.
+Fixed by giving runtime/native_test_stubs.c a WEAK test `main` that hands off to
+`bn_entry` (the old C `main`'s shape) — scoped to those tests (only they link that stub),
+weak so any real `main` overrides it; also refreshed three stale test comments that
+described the caller as the C runtime's `main`.  All three pass; adversarially reviewed
+(weak-override validated on Mach-O).  A regression this session's author should have
+caught by smoking native/* alongside the shared-runtime change.
+
+## e2e/ffi-export check_library un-skipped — the --library end-to-end runs — ✅ DONE & LANDED (`d6ca2977`, 2026-07-16)
+
+With the entry-point move making binate_runtime.c main-less, the last blocker to the
+`--library` end-to-end fell.  `check_library` now links the `bnc --library` archive into
+a C driver (owns `main`) + the now-main-less binate_runtime.c (resolves the one external
+`bootstrap.Write` ref, no `main` collision), calls `bn_init()` twice then the exports, and
+asserts `42 42 42 99 40 1` — ffi_base==40 proves the package initializers ran,
+ffi_counter==1 proves the run-once guard held across two bn_init() calls.  ffi-export.sh:
+3 passed, 0 failed, 0 skipped.  Adversarially reviewed (assertion discriminating against
+0/1/2/3-init drivers; no dup-symbol; runs on both CI OSes).
+
 ## Name-less box into raw `*any` segfault (slice/array/func type-compare) — ✅ DONE (`742b6f8e`, 2026-07-16)
 
 Boxing a name-less type (a slice / array / func-value, through any depth of

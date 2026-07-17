@@ -9,29 +9,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### Native link-and-run tests fail (`_main` undefined) after the entry-point move — 🔴 OPEN (found 2026-07-16)
-
-**Severity: MAJOR** — three native link-and-run unit tests are RED on main; the
-`clang` link fails with `Undefined symbols for architecture ...: "_main"`:
-- `pkg/binate/native/x64`: `TestX64MachoExitsWithCode`
-- `pkg/binate/native/aarch64`: `TestEmitCallExitsWithCode`, `TestEmitEmptyMainLinksAndRuns`
-
-**Root cause (pointer — not confirmed with the author)**: `c4607a71` ("Move the
-process entry into Binate; retire bootstrap.Args; inject startup in the VM")
-removed the C `main()` — `runtime/binate_runtime.c` and
-`runtime/native_test_stubs.c` no longer define it. These tests emit a Binate
-`__entry` object and link it against that runtime expecting the runtime to supply
-a C `main` (→ `_main`); with `main` gone, the link has no entry symbol.
-
-**Discovered** 2026-07-16 while hoisting shared native helpers into `common`
-(`4255c5ad`); proven PRE-EXISTING — the identical three failures reproduce on the
-base without those changes, and the hoist adds none.
-
-**Fix (entry-point-move author's call)**: update the three link tests for the new
-Binate-entry model — provide a test-only C `main` stub that calls `bn_entry`, or
-link whatever startup/entry object the new model produces so the emitted
-`__entry` has an entry point.
-
 ### Name-less MANAGED pointee boxed into `@any` segfaults (would-leak under the raw fix) — 🔴 OPEN MAJOR (found 2026-07-16)
 
 **Severity: MAJOR** — a runtime crash on a well-typed program. The RAW `*any`
@@ -465,19 +442,12 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 - `bnlint --target`; main-module gating; migrating the `impls/` duplicate trees onto constraints.
 - The separate inline-asm (`#[asm]`) doc that composes with this substrate.
 
-### Entry-point move DONE — follow-ups: check_library un-skip, builtins injection, BUILDER-0.0.12 cleanup — 🟡 OPEN
+### Entry-point move DONE — follow-ups: builtins injection, BUILDER-0.0.12 cleanup — 🟡 OPEN
 The hosted entry-point move (`c4607a71`) + the `entrypoint` build dimension that
 gates it (`8eb5f8c9`, 2026-07-16 — see claude-todo-done.md) have landed: the C `main`
 is now `pkg/builtins/startup._entry`, gated `at_least(version, "0.0.12") &&
 is(entrypoint, "main")`; `bootstrap.Args` retired; `startup` native-only+injected in
 the VM.  Residual follow-ups:
-- **Un-skip `e2e/ffi-export.sh`'s `check_library` link+run** (skipped `a7d4bb0e`):
-  `8eb5f8c9` removed the last hard blocker — a `--library` build sets entrypoint
-  "init", so the archive has NO `main` (args_main.bn's `_entry` gated out) and no
-  dangling `bn_entry`.  What remains is the SHIM problem: the export path (and
-  anything bn_init runs) must touch no `bootstrap.Write`/`Exec` (those live in the
-  un-bundled C runtime) — so use a pure-compute export or move the shims into
-  Binate — design-ffi-export.md Phase 6.
 - **Inject the remaining builtins in the VM** (`lang`, `testing`) via the
   `builtinPkgs()` mechanism `c4607a71` added (rt/reflect/startup done).  `lang` is
   lowered today (force-loaded for `.String()`); `testing` is not in cmd/bni's link
