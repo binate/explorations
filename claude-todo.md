@@ -152,25 +152,6 @@ See explorations/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
-### Verify the cross-mode 64-bit-scalar-ARG shim path on ILP32 — 🟡 OPEN (MINOR, latent)
-
-The cross-mode dispatch shims (`dispatchCompiledIfaceMethod`, `dispatchExternBinding`
-in `pkg/binate/vm`) read user args as POSITIONAL shim slots (`a0..a6`). The
-by-address-vs-by-value classification is now target-aware (`types.IsAggregateArg`
-gates on aggregate KIND *and* `SizeOf > GetTarget().PointerSize`, so an 8-byte SCALAR
-`int64`/`float64` correctly stays by-value on ILP32). The remaining gap: a by-value
-64-bit scalar arg occupies TWO slots on a 32-bit host, and it is unverified whether
-the per-function shim reassembles those two words into an AAPCS-aligned i64 register
-pair (vs mis-slotting the following args). Untested end-to-end — `e2e/xmiface`'s
-`Scale(2.5)` float64 arg is one slot on the 64-bit hosts it runs on, and the
-`arm32_linux` lane doesn't drive native-injected cross-mode dispatch. **Action**:
-trace the shim arg-marshaling for a 64-bit scalar param to confirm correct-or-broken
-(a code trace is doable now; a full end-to-end test needs an ILP32 cross-mode-dispatch
-path). Latent — no active 32-bit cross-mode path today; becomes reachable the moment a
-native-arm32 embedding does cross-mode dispatch with a 64-bit scalar arg. (Residual 1
-— the LP64-host aggregate-return `> 8` threshold — and HFA-in-SIMD are RESOLVED; see
-[claude-todo-done.md](claude-todo-done.md).)
-
 ### Package descriptors (Phase B) — `__Package()` works in compiled + VM modes (builtins); general Functions-table still future
 - **Status**: compiled-mode AND VM-mode `__Package()` landed (binate
   `feadde2c`, VM-mode for the builtin packages).  The general interop

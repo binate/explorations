@@ -6,7 +6,7 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
-## Cross-mode interface dispatch: 4 untested shapes covered; LP64-host aggregate-return threshold + HFA passing resolved — ✅ DONE
+## Cross-mode interface dispatch: 4 untested shapes covered; ILP32 residuals (aggregate-return threshold + 64-bit-scalar arg) + HFA passing resolved — ✅ DONE
 
 Cross-mode dispatch of a native-only package's interface methods from bytecode
 (`93f75f27` + math/big extension `7c3b17a2`) is exercised by conformance 726
@@ -27,10 +27,26 @@ runtime `resultSize > 8`. `types.IsAggregateReturn` is now `SizeOf > GetTarget()
 PointerSize` (target-aware; abi_return.bn), and the aggregate / scalar64 / one-word-
 scalar shape is stamped 3-way at IR-gen (`AggregateReturnSize` +
 `is64BitScalarReturn(t, wordSize)`, packed into `instr.Aux`) and read by both dispatch
-sites — correct on ILP32 (int64/float64 return as a register pair). (The arg-side
-residual — a by-value 64-bit scalar arg as 2 slots through the shim — is narrowed and
-still open; see the active todo "Verify the cross-mode 64-bit-scalar-ARG shim path on
-ILP32".)
+sites — correct on ILP32 (int64/float64 return as a register pair).
+
+Residual 2 (arg-side: a by-value 64-bit scalar arg = 2 slots on ILP32) — ALSO RESOLVED
+by the ILP32 / println-of-unsigned work, verified consistent across every layer by a
+2026-07-16 trace: `argSlots` returns 2 for a 64-bit scalar when `REG_SLOT < 8`
+(lower_slots.bn); `is64ScalarShimSplit` (emit_funcvals_sig.bn) makes the per-function
+shim declare that param as two i32 slots and reassemble them little-endian
+(`zext`/`shl`/`or`, `bitcast` for float64) — its doc states it exists so "the __shim
+consumes exactly the slots the bytecode dispatcher passes"; the two classifiers
+(`is64BitScalar` VM-side, `is64ScalarUnderlying` codegen-side) agree on {int64, uint64,
+float64, untyped-float}; and all three dispatchers read `n = slot count` positionally
+into `a0..a6`, so the pair lands little-endian [lo, hi] matching the shim (mirrors the
+VM's `joinInt64`). Covered by `TestEmitShim64BitArgSplitILP32` (shim codegen) and
+`conformance/1020_funcval_xpkg_int64_scalar_arg` (a cross-package `(int, int64)` func
+value validating the AAPCS §6.5 even-pair rule on arm32 — no xfail, runs green in every
+mode). The one untested SLIVER is the exact combination "VM interpreter on a 32-bit host
+dispatching a 64-bit-arg cross-mode call" (1020 covers native-arm32 + VM-on-64-bit; the
+codegen test covers the shim) — a mechanical slot-copy over the same validated shim,
+correct-by-construction; an optional `builder-comp_arm32_linux` vm-unit test would fully
+close that coverage gap but no defect is expected.
 
 HFA passing (was PRE-EXISTING): the native backends GP-coerced HFAs (a struct of ≤4
 same-kind floats) instead of SIMD-passing them — a latent ABI-nonconformance reachable
