@@ -343,3 +343,29 @@ need their own dtor answer — a smaller follow-up once the slice path proves th
 mechanism.
 
 Tracked in `claude-todo.md` alongside the (now-narrowed) MAJOR crash entry.
+
+## 10. Open finding: element-`readonly` stripped at box sites — HIT-phase blocker (found 2026-07-16)
+
+Surfaced by the adversarial review of the Phase-1+2 structural-identity chunk
+(`7c600d41`). The structural mangler (`mangleTypeArg` / `namelessAnySrcName`)
+correctly distinguishes an element-`readonly` slice (`@[]readonly int` → `Mr…` ≠
+`@[]int` → `M…`) — but at a REAL box site the type reaching `wrapAsIfaceValue`
+has already **dropped** the element-level `readonly`: `var r *[]readonly char =
+s[0:len(s)]; box(&r)` and `var r2 *[]char; box(&r2)` BOTH emit the *same*
+`__nameless_sN0_5_uint8` record (no `r` tag). Same for `@[]readonly int` vs
+`@[]int`.
+
+**Benign now** (Phase 1+2 is inert — both boxes MISS regardless), **but a
+blocker for the HIT phase**: §5.1 ratified that element-`readonly` is a DISTINCT
+identity (`@[]char` box must NOT match `case @[]readonly char:`). If box sites
+can't preserve `readonly`, that distinctness is unimplementable — a `*[]char`
+value would HIT `case *[]readonly char:` (or vice-versa).
+
+The gap is **upstream** (checker / type-representation loses element-`readonly`
+on a slice by the time it reaches the box site), not in the mangler. Before the
+HIT phase (Phase 3/4) either: (a) fix the representation so a box site sees the
+element-`readonly`, or (b) revisit the §5.1 ratified distinctness (e.g. collapse
+readonly for slice-in-`any` identity — a spec change needing owner sign-off).
+**Owner decision needed before Phase 3/4.** A conformance test asserting
+`*[]readonly char` and `*[]char` boxes have distinct identities should land WITH
+the fix (it would fail today, documenting the gap).
