@@ -9,40 +9,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### Bare QUALIFIED value type rejected as an explicit generic type-argument (`Generic[pkg.T]()`) — 🔴 OPEN (found 2026-07-17)
-
-**Severity: major (loud, not silent)** — a legitimate generic instantiation fails to
-compile, so generic containers over a BY-VALUE cross-package struct are impossible
-without a workaround.  `bnc` rejects a bare qualified value type as an explicit
-type-argument:
-
-    var v @vec.Vec[token.Pos] = vec.New[token.Pos]()
-    // pt.bn:6:48: unsupported type-argument form (use a named type, *T, @T, @[]T, or *[]T)
-    // pt.bn:6:52: cannot assign @Vec[void] to @Vec[Pos]
-
-The type-argument resolves to `void`.  **Characterized (minimal repro, gen1 `bnc`):**
-- `vec.New[token.Pos]()` (bare QUALIFIED value struct) — rejected.
-- `vec.New[@token.Pos]()` (`@`-qualified) — OK.
-- `vec.New[Local]()` (bare UNQUALIFIED local struct) — OK.
-- `vec.New[int]()` / `vec.New[@[]char]()` / `@[]T` etc. — OK.
-- The SAME `token.Pos` in a TYPE-expression position (`@vec.Vec[token.Pos]` field decl)
-  resolves correctly to `@Vec[Pos]` — only the generic-function explicit type-arg list
-  mishandles it.
-
-**Root cause (hypothesis):** the type-argument-form checker's "named type" acceptance
-path matches an unqualified identifier but not a qualified selector expression
-(`pkg.Type`), even though the general type-expression resolver handles it and the `@`-
-qualified form is accepted.  The allowed-forms error message ("a named type, *T, @T,
-@[]T, or *[]T") omits `pkg.T`.
-
-**Discovered:** converting `pkg/binate/lint/unused_local.bn`'s parallel
-`Poss @[]token.Pos` accumulator to `vec.Vec[token.Pos]` during the Vec-adoption sweep;
-that one conversion is BLOCKED (the `@token.Pos` workaround would box a tiny value
-struct — wasteful — so it was NOT taken).  The other lint accumulators (`unused_func`,
-`refs`) key on `@[]@[]char`/`@ast.Decl` (a `@`-qualified pointer), so they are NOT
-blocked.  **Needs:** a conformance regression test (multi-package: a lib value struct +
-a main doing `vec.Vec[lib.V]`), xfail'd until fixed, then the type-arg-form checker fix.
-
 ### Name-less MANAGED pointee boxed into `@any` segfaults (would-leak under the raw fix) — 🔴 OPEN MAJOR (found 2026-07-16)
 
 **Severity: MAJOR** — a runtime crash on a well-typed program. The RAW `*any`

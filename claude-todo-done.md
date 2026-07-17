@@ -6,6 +6,30 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Bare QUALIFIED value type rejected as an explicit generic type-argument (`Generic[pkg.T]()`) — ✅ FIXED (2026-07-17)
+
+`bnc` rejected a bare package-qualified value type (e.g. `token.Pos`) as an explicit
+generic type-argument — "unsupported type-argument form", and the arg resolved to
+`void` (a compiled monomorph spelling `var z T` emitted `alloca void`, rejected by
+LLVM).  The `@`-qualified form (`@pkg.T`) and bare unqualified names both worked; only
+the bare qualified selector was missing.
+
+**Root cause:** two mirrored resolvers each lacked an EXPR_SELECTOR arm —
+`types/check_generic.bn` `typeArgFromExpr` (checker) and `ir/gen_generic.bn`
+`exprToTypeExpr` (IR-gen's mirror).
+
+**Fixed (`3f68fd7a`, + line-length fix-forward `3cde72ea`):** add an EXPR_SELECTOR arm
+to both — the checker resolves `pkg.T` via `resolveQualifiedSym`; the IR-gen mirror
+synthesizes a qualified `TEXPR_NAMED` (Pkg + Name), the same shape the EXPR_INSTANTIATE
+selector-head arm already builds.  Error message now lists `pkg.T`.  Conformance `1083`
+(a helper value struct as an explicit qualified type-arg to a generic function) covers
+it, green across builder-comp / -comp-comp / -int / -comp-comp-int.  Adversarially
+reviewed (incl. the import-alias case + checker↔IR-gen agreement).
+
+**Downstream:** unblocks the compiler for `vec.Vec[token.Pos]` (the
+`lint/unused_local.bn` conversion that surfaced it).  The hygiene bnlint still needs the
+fix carried into CHECK_TOOLS — the `bnc-0.0.12-pre2` bump (in progress) does that.
+
 ## §7.13.6 null-backing / immortal-ref — generalized to a lifetime-based contract — ✅ DONE (2026-07-17, docs `819fe53`)
 
 The spec characterized a null-backing managed-slice (`backing == null`, non-null
