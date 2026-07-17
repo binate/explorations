@@ -54,31 +54,54 @@ Each phase is independently landable and keeps every mode green. Verify = unit
 tests of touched packages (§8.5 smoke map) + targeted conformance, NOT the full
 suite (landing discipline). Recon-confirmed facts backing each step: §8.
 
-### Phase 0 — Layer A (crash fix). *No spec change. Lands now as the MAJOR fix.*
+### Phase 0 — Layer A (crash fix, RAW `*any` only). *No spec change. Lands now as the MAJOR fix.*
+
+**Scope — RAW iface only (adversarial-review finding).** Phase 0 fixes the
+name-less box crash for the **raw** iface value (`*any`, `TYP_INTERFACE_VALUE`)
+— the tracked MAJOR and the fmt-relevant path. The **managed** iface (`@any`)
+name-less case is a *separate* problem, deliberately NOT handled here — see the
+"Managed `@any`" note below and §9.
 
 **Change.** `ir/gen_iface.bn wrapAsIfaceValue`, at the `:206`–`:207` guard: when
 `receiverBaseTypeName(val.Typ)` is empty AND the pointee is a boxable-but-
-name-less type (it passed the `:196` pointer-shape guard but has no nominal
-name — slice / array / func), do NOT bail. Substitute a **single reserved
-sentinel identity** and fall through to the existing `isUniverseAny` synthesis at
-`:236`–`:239`, passing `val.Typ.Elem` as the record's `recvTyp` (valid
-size/align/name). The rest (`ensureAnyImplInfo` → `registerTypeInfo` `:301` →
-`findImplVtableName` → `EmitIfaceValue`) is unchanged and already correct.
+name-less type (passed the `:196` pointer-shape guard, no nominal name) AND
+`dstTyp.Kind == TYP_INTERFACE_VALUE` (raw), do NOT bail. Substitute a **single
+reserved sentinel identity** and fall through to the existing `isUniverseAny`
+synthesis at `:236`–`:239`, passing `val.Typ.Elem` as the record's `recvTyp`
+(valid size/align/name). For a **managed** dst (`TYP_INTERFACE_VALUE_MANAGED`)
+with a name-less pointee, keep the current bail unchanged (§9). The rest
+(`ensureAnyImplInfo` → `registerTypeInfo` `:301` → `findImplVtableName` →
+`EmitIfaceValue`) is unchanged and already correct.
 
-- **Sentinel choice (impl detail — flag in review).** Fixed `(recvPkg, recvName)`
-  — e.g. `("pkg/builtins/rt", "__nameless")` — so all name-less boxes share ONE
-  weak-coalesced record program-wide (`__typeinfo`/`__ivt` are `DG_WEAK`, §8.2). A
-  per-package sentinel (`recvPkg` defaulting to `ctx.Gc.PkgPath`) is also correct
-  but proliferates symbols. `implDtorFuncName("pkg/builtins/rt", "__nameless")`
-  names a non-existent dtor → `implDtorSlotSym` returns empty → **null dtor slot**
-  (safe; §8.1). A name-less value only enters `any` via the `&s` *borrow* into
-  `*any` (a bare slice fails `:196`; `@any` needs a `@T` managed-ptr, `:201`), so
-  the box never owns the slice and a null dtor is exactly right.
+- **Add an `isBoxableNamelessType(t)` helper** (review nit) — true for the kinds
+  that pass `:196` but have no nominal name — rather than an implicit
+  "receiverBaseTypeName was empty" test, so the intent is explicit and future
+  kinds aren't silently swept in.
+- **Sentinel choice.** Fixed `(recvPkg, recvName)` — `("pkg/builtins/rt",
+  "__nameless")` — so all name-less boxes share ONE weak-coalesced record
+  program-wide (`__typeinfo`/`__ivt` are `DG_WEAK`, §8.2; VM materializes it via
+  `CollectTypeInfoDescs`, review-confirmed). A per-package sentinel is also
+  correct but proliferates symbols. `implDtorFuncName("pkg/builtins/rt",
+  "__nameless")` names a non-existent dtor → `implDtorSlotSym` returns empty →
+  **null dtor slot** — which is *correct only for the raw borrow* (no RefInc, no
+  ownership; §8.1). *(Cross-TU cosmetic: the record's name blob is whichever
+  slice type registered first in the surviving TU; only matters for an expr-form
+  panic message, never for correctness.)*
 
-**Why no leak / mis-drop.** The opaque record is never a match *hit* (no `case`
-names a slice pre-Phase-4), so its content (size/align/name from the
-first-registered slice's `recvTyp`) is cosmetic — only its stable ADDRESS
-matters, every compare is a miss, and the `*any` borrow path does no RefInc/Dec.
+**Why no leak / mis-drop (raw).** A raw `*any` does no RefInc at construction
+(`:256` RefInc is managed-only) and no RefDec at drop — it borrows. The opaque
+record is never a match *hit* (no `case` names a slice pre-Phase-4), so its
+content is cosmetic; only its stable ADDRESS matters and every compare is a miss.
+
+**Managed `@any` — deliberately out of Phase 0 (see §9).** A name-less *managed*
+pointee CAN reach `@any` (e.g. `var a @any = box(s)` where `s @[]char` →
+`@(@[]char)`), and it crashes today (same degenerate box). But there a null dtor
+would **leak**: `@any` RefIncs at `:256` and drops via `emitManagedIfaceValueRefDec`,
+whose null-slot-0 path falls through to plain `rt.Free` (`gen_util_refcount.bn:201`)
+— freeing the cell but skipping the inner slice's backing RefDec. Fixing it needs
+a *real* dtor for the name-less managed type (or a checker rejection), so it is
+tracked separately (§9). Phase 0 leaves the managed path bailing (still the
+pre-existing crash — not regressed, but not fixed).
 
 **Test.** New conformance `1074_any_box_nameless_no_crash` (positive): a
 `switch v.(type)` with `case *int:` + `default`, and a comma-ok `v.(*int)`, both
@@ -89,9 +112,11 @@ expr-form `v.(*int)` over the same box panics CLEANLY via `rt.AssertFail` instea
 of crashing.)*
 
 **Verify.** `./scripts/unittest/run.sh builder-comp pkg/binate/ir` +
-`pkg/binate/codegen`; `./conformance/run.sh builder-comp 1074`, `builder-comp-int`
-(VM path), one native mode; `./scripts/hygiene/run.sh`. On landing: move the
-`claude-todo.md` MAJOR entry to the done log.
+`pkg/binate/codegen`; `./conformance/run.sh builder-comp 1074` AND
+`builder-comp-int 1074` (VM path — MANDATORY, review-flagged) AND one native
+mode; `./scripts/hygiene/run.sh`. On landing: narrow the `claude-todo.md` MAJOR
+entry to the still-open managed `@any` case (§9), moving the raw fix to the done
+log.
 
 ### Phase 1 — structural mangling primitive. *(Layer B; no behavior change yet.)*
 
@@ -137,10 +162,13 @@ symbol for a slice target; the slot-1 compare (`gen_assert.bn:45–52`,
 (`gen_assert.bn:126`) today returns the data slot AS the target type. But a slice
 target (`case *[]readonly char:`) is a *slice type*, not pointer-recovery `*T`:
 the box's data slot holds `&s` (a pointer to the slice header), so recovery must
-**load the slice value** from that pointer (one extra indirection), and a
-managed-slice recovery must acquire backing (RefInc, `mem.copy`). Add a
-slice-target branch to `recoverPointer`. Verify **exact-match**: `@[]char` box ≠
-`case @[]readonly char:`, `*[]char` ≠ `@[]char`.
+**load the slice value** (the 2-/4-word header) from that pointer — one extra
+indirection. **Refcount (review-corrected):** the box is a `&s` *borrow*, so the
+recovered slice shares `s`'s backing and must NOT RefInc — a blind RefInc on the
+borrow path double-counts. (Only the deferred bare-value boxing of §4-Phase-2
+would own backing and need `mem.copy`/RefInc.) Pin the exact borrow semantics
+when writing the branch. Add a slice-target branch to `recoverPointer`; verify
+**exact-match**: `@[]char` box ≠ `case @[]readonly char:`, `*[]char` ≠ `@[]char`.
 
 **Test.** conformance: box `&s` (`@[]char`), recover via `case @[]char:`, observe
 the bytes; `@[]readonly char` box does NOT hit `case @[]char:`; managed-recovery
@@ -266,3 +294,33 @@ is the **Draft→Provisional** flip once the implementation is conformance-green
 - Smoke map: `gen_iface.bn` → `pkg/binate/ir`; `emit_impls.bn` →
   `pkg/binate/codegen`; `mangle.bn` → `pkg/binate/mangle`; typeinfo →
   `pkg/binate/ir` + `pkg/binate/irdata`; `parse_assert.bn` → `pkg/binate/parser`.
+
+## 9. Related follow-up: name-less MANAGED pointee into `@any` (crash → would-leak)
+
+Surfaced by the Phase-0 adversarial review. Boxing a name-less **managed**
+pointee into a managed iface value crashes today, same degenerate-box root cause
+as the raw case:
+
+```
+var s @[]char = "hi"
+var a @any = box(s)   // box(s) : @(@[]char) — managed-ptr, name-less pointee
+// type-compare or scope-exit drop over `a` → SIGSEGV (exit 139, confirmed)
+```
+
+Unlike the raw case, Phase 0's shared-opaque-with-null-dtor fix would convert the
+crash into a **memory leak**: `@any` RefIncs its data at construction
+(`gen_iface.bn:256`) and drops via `emitManagedIfaceValueRefDec`, whose
+null-slot-0 path falls through to plain `rt.Free` (`gen_util_refcount.bn:201`) —
+freeing the outer cell but skipping the inner slice/backing cleanup. Trading a
+detectable crash for a silent leak is the wrong direction (Memory-Management
+rule). Same applies to a managed func-value pointee.
+
+**Options (owner's call — not part of Phase 0):**
+- **(a) Correct dtor.** Emit / reference the boxed name-less managed type's real
+  drop (RefDec the pointee) in the any-block slot 0, instead of null. Sound but
+  needs a dtor symbol for a name-less managed type (no `__dtor_<name>` exists).
+- **(b) Reject at the checker.** Make boxing a name-less managed pointee into a
+  managed iface a compile error (a small semantics tightening — no crash, no
+  leak; you can always box into `*any` instead). Cheapest; needs sign-off.
+
+Tracked in `claude-todo.md` alongside the (now-narrowed) MAJOR crash entry.
