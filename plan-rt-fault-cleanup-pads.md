@@ -150,12 +150,25 @@ needs no `FRAME_HDR` change (reuses `callerPC`).
 
 ## 7. Increment split
 
-- **Inc 2a (IR-gen + lowering — inert):** emit region pads + build the per-`VMFunc`
-  fault table (option A). Pads are appended after the body (body PCs unchanged) and
-  **unreferenced** — nothing jumps to them yet, so 2a is a true no-op at runtime and
-  lands green independently. Unit tests: lowering emits the expected pad bytecode +
-  table entries for representative functions (managed local, nested scope, loop
-  body, mid-statement temp, managed-field struct dtor, multi-block short-circuit).
+- **Inc 2a (IR-gen + lowering — inert).** Split into three green sub-commits
+  (layering refinement: pads live in a separate `ir.Func.FaultPads` list OFF
+  `Func.Blocks`, so the compiled backends — which iterate only `Blocks` — need NO
+  changes; only the VM lowers pads):
+  - **2a-0 — plumbing ✅ LANDED (`54ed2260`).** `Func.FaultPads` + `Instr.PadBlock`
+    fields, `OP_UNWIND_RETURN`/`BC_UNWIND_RETURN`, `VMFunc.FaultTable`, inert arms.
+  - **2a-1 — VM lowering ✅ LANDED (`b4c7b106`).** `lower_func` lowers
+    `combinedBlocks = Blocks ++ FaultPads` (pad PCs after the body) and builds
+    `VMFunc.FaultTable` (sorted `(resumePC, padPC)` pairs) from each op's
+    `Instr.PadBlock`; `AddFaultPad`/`EmitUnwindReturn` builders; `OP_UNWIND_RETURN`
+    is a terminator. Unit-tested via a hand-built pad. Empty `FaultPads` ⇒
+    byte-identical to before.
+  - **2a-2 — IR-gen emission (next, the invasive part).** Hook each faulting/call
+    op emission site (bounds/div/shift/nil-check + calls) to snapshot the live
+    managed set (`ctx.Vars` managed subset + `ctx.Temps`) into a pad (`AddFaultPad`
+    + a NON-clearing `emitPadCleanup` reusing the RefDec emitters) terminated by
+    `EmitUnwindReturn`, and set `instr.PadBlock`. Tested by lowering real faulting
+    functions (`FaultTable` non-empty; pad RefDecs the live set). Still inert at
+    runtime until 2b.
 - **Inc 2b (VM unwind mode):** add `BC_UNWIND_RETURN` + the exec-loop unwind
   (fault→pad→pop→`callerPC` lookup→…→top→host), the cleanup-context fatal-guard
   flag (§6), and wire the **bounds** guard as the single proving consumer.
