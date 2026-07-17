@@ -1,7 +1,9 @@
 # Plan: structural type-identity for slices (`proposal-slice-type-identity`)
 
-Status: **DRAFT / proposed** — spec updated as Draft (pending ratification), impl
-not started. Owner-decision points flagged in §5.
+Status: **Spec RATIFIED** (2026-07-16) — the design (exact-match structural
+identity + the `AssertTarget` grammar) is locked and in the canonical `binate.ebnf`;
+`iface.assert.slice` is **Draft** on the stability axis only because it is **not yet
+implemented**. Impl not started. Remaining owner choice is sequencing (§5).
 
 ## 1. Goal
 
@@ -71,7 +73,7 @@ Each phase is independently landable and keeps every mode green.
   already holds a pointer to the slice header (it passes `:196`). *(Boxing a
   **bare** multi-word slice value — the shape fmt args may take — is a separate
   question: it needs the value materialized so its address can be boxed, or it
-  stays a checker error; deferred to Phase 5 / ratification, not needed for the
+  stays a checker error; deferred to Phase 5 / fmt adoption, not needed for the
   crash fix or for `&s`-form boxing.)*
 - **Phase 3 — match + recovery.** `typeInfoSymFor` derives the structural symbol
   for a slice target; the identity compare Just Works. **Recovery detail to pin
@@ -83,28 +85,36 @@ Each phase is independently landable and keeps every mode green.
   record; this phase consumes it on a match), so the two land in either order once
   Phase 4 admits the target.
 - **Phase 4 — parser/checker §11.12 relaxation.** Admit a slice target in
-  `AssertTarget` (`parseAssertTargetName`); keep func/array/struct/`Self`
-  rejected. Checker resolves the slice target and drives the structural compare.
-  *(Gated on the §5(1) ratification decision.)*
-- **Phase 5 — spec flip + fmt adoption.** On ratification: flip
-  `iface.assert.slice` Draft→Provisional, add the slice-target production to the
-  canonical `binate.ebnf`, and let fmt's `...*any` fast-path use slice `case`s
-  (one `case` per accepted string spelling — a library concern).
+  `AssertTarget` (`parseAssertTargetName`) per the ratified production
+  (`( "*" | "@" ) "[" "]" Type`); keep func/array/struct/`Self` rejected. Checker
+  resolves the slice target and drives the structural compare. *(Design ratified —
+  no longer gated.)*
+- **Phase 5 — impl-complete flip + fmt adoption.** Once implemented and
+  conformance-green, flip `iface.assert.slice` Draft→Provisional on the stability
+  axis (the grammar is already in `binate.ebnf`), and let fmt's `...*any` fast-path
+  use slice `case`s (one `case` per accepted string spelling — a library concern).
+  This phase also settles **bare multi-word slice-value boxing** for fmt args (see
+  Phase 2's note): materialize-and-box-the-address, or keep it a checker error.
 
-## 5. Open decisions (need owner sign-off)
+## 5. Decisions
 
-1. **Exact-match distinctness (semantics — owner's call).** Treat
-   element-`readonly` and managed-vs-raw as **distinct** identities (⇒ `@[]char`
-   box does not match `case @[]readonly char:`). This is the **sound** choice —
-   collapsing them would silently drop/add `readonly` or confuse the 2-word vs
-   4-word representations — but it is a language-semantics decision and it drives
-   the fmt "one case per spelling" wart. **Blocks Phase 4/5.**
-2. **Grammar form.** `AssertTarget = ( [ "*" | "@" ] [ "readonly" ] TypeName ) |
-   SliceType`. Confirm the slice target is value-recovery-only (the leading
-   `@`/`*` is the slice's managed/raw marker, not a recovery-kind prefix).
+**Ratified (2026-07-16):**
+
+1. **Exact-match distinctness** — element-`readonly` and managed-vs-raw are
+   **distinct** identities (⇒ `@[]char` box does not match `case @[]readonly
+   char:`). The sound choice (collapsing would silently drop/add `readonly` or
+   confuse the 2-word vs 4-word representations); it drives the fmt "one case per
+   spelling" wart, accepted as a library concern.
+2. **Grammar form** — `AssertTarget = ( [ "*" | "@" ] [ "readonly" ] TypeName ) |
+   ( ( "*" | "@" ) "[" "]" Type )`; slice target is value-recovery-only (the
+   leading `@`/`*` is the slice's managed/raw marker, not a recovery-kind prefix).
+   In `binate.ebnf` + Annex A.
+
+**Remaining — owner's operational call (not a spec blocker):**
+
 3. **Sequencing.** Land Phase 0 (crash fix) **now** as an independent MAJOR
    regardless of fmt timing, then Phases 1–5 when fmt work starts — or do B in one
-   shot if fmt is imminent (avoids touching boxing/match twice). Owner's call.
+   shot if fmt is imminent (avoids touching boxing/match twice).
 
 ## 6. Non-goals
 
@@ -118,8 +128,11 @@ Each phase is independently landable and keeps every mode green.
 
 ## 7. Spec status
 
-Landed as Draft (this change): §11.12 `iface.assert.slice` (+ carve-out in
-`iface.assert`, caveat in the "Implemented" note), and the §7.13.14
-`type.layout.typeinfo` name-less-types note (Layer A baseline + Layer B upgrade).
-`rule-ids.txt` regenerated. Flip to Provisional + `binate.ebnf` grammar happen at
-Phase 5 on ratification.
+**Ratified as Draft** (design locked, not yet implemented): §11.12
+`iface.assert.slice` (+ carve-out in `iface.assert`, present-tense inlined grammar,
+caveat in the "Implemented" note, chapter badge), the §7.13.14
+`type.layout.typeinfo` name-less-types note (Layer A baseline + Layer B upgrade),
+and the `AssertTarget` production in the canonical `binate.ebnf` (propagated to
+Annex A). `rule-ids.txt` unchanged (no new rule-ID). The only remaining spec move
+is the **Draft→Provisional** flip once the implementation is conformance-green
+(Phase 5).
