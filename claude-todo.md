@@ -310,13 +310,17 @@ collapse to a handful of root causes; several are one bug cascading. Buckets:
   the two 32-bit halves directly; `native/aarch64 TestEmitCallFuncValueNoArgsVoid`
   was missing the `setTarget64()` its siblings have (GetTarget() reflected the
   32-bit host → wrong emit) — now pinned.
-- **E' / asm/parse — assembler stores immediates in host `int`. 🟠 OPEN (SUBSTANTIAL).**
-  `TestParseData` (`.uint32 0xDEADBEEF`): the asm lexer accumulates numeric literals
-  into host `int` (`lex.bn` `val`, `Token.Ival`, `expr.bn` `ExprResult.Val`, ~64
-  downstream encoder sites), so a uint32 immediate ≥ 2^31 (or any 64-bit immediate)
-  can't be represented on ILP32. Same class as C — needs widening the assembler's
-  number type to `int64` end-to-end. User approved doing it (2026-07-17, "do both,
-  one at a time"): asm/parse first, then C, each reviewed + landed.
+- **E' / asm/parse — assembler stored immediates in host `int`. ✅ DONE** (`72f00cf4`).
+  `TestParseData` (`.uint32 0xDEADBEEF`): the asm lexer accumulated numeric literals
+  into host `int`, so a uint32 immediate ≥ 2^31 overflowed on ILP32. Widened the
+  assembler's immediate representation to `int64` end-to-end (lexer accumulators,
+  `Token.Ival`, `ExprResult.Val`, `ConstVals`, `exprOk`/`makeIntTok`/`defineConst`/
+  `lookupConst`); data directives already narrow via `cast(uintN, Val)` so they now
+  carry the full value; instruction/small-value call sites `cast(int, …)` at the
+  boundary (shared asm encoder libs keep `int` immediate params). No external
+  consumer reads the low-level fields. Adversarial review HOLDS; arm32_linux
+  `TestParseData` is the runtime guard. Residual (pre-existing, unchanged): x64 >32-bit
+  instruction immediates still truncate on ILP32 via the asm libs' `int`-typed `Imm`.
 
 Note: the lane is not locally runnable on the macOS dev host (no qemu-arm /
 arm-linux cross-toolchain), but the *check*-phase bugs (A, C) reproduce locally by
