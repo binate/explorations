@@ -1732,12 +1732,22 @@ unblock them:
   Mach-O/ELF capability; arm32's identity `symPrefixed` is justified,
   it's ELF-only).
 - **Plan (staged, each step green across all three backends)**:
-  1. Hoist the identical free-function helpers into
-     `pkg/binate/native/common` (name helpers + `objFmtEq`/`stripQuotes`
-     + `emitStringTable`/`emitGlobals` parameterized by word size).
-     Low-risk, deletes ~60–90 lines of triplication.
-  2. Unify the sym-prefix state on one spelling in `common`.
-  3. Write the `EmitObject` skeleton ONCE against a
+  1. ✅ **LANDED (`7680fcad`, 2026-07-16)**: hoisted the three PURE,
+     zero-dependency identical helpers — `StringLabel`/`StripQuotes`/
+     `ObjFmtEq` — into `pkg/binate/native/common` (exported via
+     `common.bni`), rewired call sites, dropped the redundant per-backend
+     tests (pinned once in `common_names_test.bn`).  Adversarially
+     reviewed clean.
+  2. Unify `symPrefixed` + the object-format prefix state (aarch64
+     `objEmitElf bool` / x64 `objSymPrefix *[]readonly char` / arm32
+     identity) into `common` — the ENABLER: `stringMSSym`,
+     `emitStringTable`, `globalSymFor`, `emitGlobals` all transitively
+     depend on the per-backend `symPrefixed` (108 call sites), so they
+     can't hoist until this lands.  Also the consistency fix.
+  3. Hoist the now-unblocked shared helpers (`stringMSSym`,
+     `emitStringTable`/`emitGlobals` parameterized by word size, and
+     `globalSymFor` where the arm32 diff is only the prefix).
+  4. Write the `EmitObject` skeleton ONCE against a
      `common.ArchEmitter` interface (`wordBytes`, `emitFunc`,
      `resolveFixups`, `writeObject`, prefix set/clear, …) with three
      impls — the natural polymorphic design (see "Use interfaces more",
