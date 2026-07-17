@@ -192,21 +192,52 @@ needs no `FRAME_HDR` change (reuses `callerPC`).
     2a-1 review's finding #3). `emitPadCleanup` must return the pad's EXIT block
     (where `EmitUnwindReturn` goes); `instr.PadBlock` is the ENTRY block. So 2a-2 is
     a genuine sub-project, not just N call-site edits — size it accordingly.
-- **Inc 2b (VM unwind mode):** add `BC_UNWIND_RETURN` + the exec-loop unwind
-  (fault→pad→pop→`callerPC` lookup→…→top→host), the cleanup-context fatal-guard
-  flag (§6), and wire the **bounds** guard as the single proving consumer.
-  Conformance: a bounds-fault leaves the host alive, `EXEC_ERROR` + message, **and
-  refcounts balance** (leak assertion) across managed-state shapes (bare `@T`,
-  nested `@[]T` w/ element dtor, `@func` closure, nested calls, mid-statement temp).
-- **Inc 3:** wire the remaining 7 guard sites + `cmd/bni` `runProgram` + the
-  test-runner (fault = failed test, continue).
+- **Inc 2b (VM unwind mode) ✅ LANDED (`4efcd212`, 2026-07-17).** `BC_UNWIND_RETURN`
+  exec handler + `setFault` / `dispatchFaultPad` / `lookupFaultPad`
+  (`vm_fault.bn`), with the **bounds** guard as the single proving consumer.
+  Three refinements to the original 2b plan, forced during implementation (all keep
+  the agreed scope — top-level bounds recovery):
+  - **`FaultRaised` transient flag, distinct from `Status`.** The recorded plan
+    branched to a pad on a bare `Status == VM_STATUS_FAULTED` check after
+    `execManagedMemoryOp`; that RE-FIRES on every managed-memory op that merely runs
+    DURING the unwind (a passing bounds check, a `RefInc` in a destructor sub-frame
+    the pad's RefDec cascade spawns — Status is still FAULTED then). `setFault` now
+    also sets `FaultRaised`; the exec loop CONSUMES it (clears) the instant it
+    dispatches, so a mid-unwind managed op never re-dispatches.
+  - **Entry-frame gate; nested faults keep the LEGACY fatal path, not `vmPanic`.**
+    Only an ENTRY-frame fault (frame `savedPC == -1`) recovers. A NESTED fault has
+    no call-site pad to unwind through in 2b, so `dispatchFaultPad` prints exactly
+    the message `rt.BoundsFail` would and `rt.Exit(1)`s — **byte-identical** to
+    pre-Plan-2 behavior. The plan's proposed `vmPanic` fallback would have changed
+    the output and reddened the existing bounds-fault conformance goldens
+    (`310`/`929`/`314`, run under `-int`); the legacy path preserves them.
+  - **`BC_UNWIND_RETURN` handles only the entry frame in 2b** (asserts `savedPC ==
+    -1`, returns to host). The cross-frame pop (fault→pad→pop→`callerPC`
+    lookup→…→top) needs call-site pads and moves to Inc 3 with its own test, rather
+    than shipping untested speculative pop logic. The §6 cleanup-context fatal-guard
+    flag was likewise **not needed** for 2b and defers to Inc 3.
+  - **Test is a VM unit test, not conformance.** A standalone program's `main` runs
+    NESTED under `main.__entry`, so a conformance program can't reach the
+    entry-frame path — entry-frame recovery is the REPL/embedder scenario.
+    `vm_test.bn TestEntryFrameBoundsFaultRecovers` drives a prompt (a managed slice
+    then an out-of-bounds index) through `CallByVMFunc` (entry frame) and asserts
+    host survival + `Status == FAULTED` + message + a clean following turn.
+    `vm_fault_test.bn` unit-tests the helpers. Existing bounds conformance proves
+    the nested-fatal path unchanged.
+- **Inc 3:** cross-frame unwind = **call-site pads** (so a fault in a nested call
+  unwinds to the caller's pad and up to the host); wire the remaining 7 guard sites
+  (div / shift / nil-deref / 3× call-through-nil); the §6 cleanup-context fatal-guard
+  flag; `cmd/bni` `runProgram`; and the test-runner (fault = failed test, continue
+  — a Test faulting in its own entry-frame body currently returns `Status == FAULTED`
+  that the runner does not yet check).
 
 ## 8. Open questions for the user
 
 1. **Fork §5: static table (A, recommended + locked at 2a) vs frame slot (B).**
-2. Inc 2b wires only the **bounds** guard as the proving cut (rest in Inc 3) —
-   acceptable, or wire all 8 in 2b?
-3. Anything in §6 to scope differently.
+   RESOLVED: A (static fault→pad table), landed across 2a/2b.
+2. Inc 2b wires only the **bounds** guard as the proving cut (rest in Inc 3).
+   RESOLVED: bounds-only proving cut, landed (`4efcd212`).
+3. Anything in §6 to scope differently. — §6 fatal-guard flag deferred to Inc 3.
 
 ## 9. Adversarial design-review resolutions (2026-07-17)
 
