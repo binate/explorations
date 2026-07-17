@@ -6,6 +6,42 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## De-duplicate the triplicated native `EmitObject` (→ `common` ArchEmitter) — ✅ DONE (skeleton unified); helper de-dup declined-as-blocked (2026-07-17)
+
+The three native backends (aarch64/x64/arm32) triplicated a ~30-line `EmitObject`
+skeleton + identical name/emit helpers.  Resolved in two achieved pieces, with a
+third deliberately declined:
+
+**Achieved — pure name helpers hoisted (`7680fcad`, 2026-07-16):**
+`StringLabel`/`StripQuotes`/`ObjFmtEq` → `common` (the zero-dependency identical
+ones).
+
+**Achieved — the skeleton unified via a `common.ArchEmitter` interface (`171a2ead`
+aarch64; `0efd790d` x64+arm32, 2026-07-17):** the ~30-line `EmitObject` algorithm
+is now written ONCE in `common.EmitObject`, driven through a `common.ArchEmitter`
+interface (14 per-arch primitives: `WordBytes`, `SetPrefix`/`ClearPrefix`,
+`SymPrefixed`, `ArchName`, `EmitFunc`, `EmitFuncValueShims`, `EmitStringTable`,
+`EmitGlobals`, `EmitFuncValueVtables`, `EmitImplVtables`, `EmitPackageDescriptor`,
+`ResolveFixups`, `WriteObject`).  Each backend supplies a thin emitter impl; its own
+`EmitObject` just builds it and delegates.  First cross-package interface impl in the
+compiler tree (BUILDER `bnc-0.0.11` compiles it) and the genuine "use interfaces
+more" payoff.  Each commit adversarially reviewed clean; verified via native
+conformance in all three native modes (aa64 5/5, x64-darwin 5/5, arm32-baremetal
+4/4) + unit tests.  Design point settled: `symPrefixed` CANNOT be one shared
+`common` global — aarch64 defaults to Mach-O `_`, x64 to ELF bare, both test-pinned
+platform conventions; hence `SymPrefixed` is a per-arch method.
+
+**Declined-as-blocked — moving `emitStringTable`/`stringMSSym`/`emitGlobals` into
+`common`:** these depend on the per-backend naming helpers `stringMSSym` /
+`globalSymFor` (which apply the per-backend `symPrefixed`), and those are ALSO called
+from the per-backend RODATA lowering (`aarch64_rodata.bn:123` etc.) and package
+descriptor, where no `ArchEmitter` is in scope — so they can't move to `common`
+taking an `e`.  The only routes are a `StringMSSym` interface method (partial de-dup
+that leaks an internal naming detail onto the interface — not worth it) or the
+rejected `symPrefixed` unification.  Net: the big triplication (the skeleton) is
+gone; the residual per-backend helper triplication stays, deliberately.  (A WIP
+attempt was reverted when the rodata dependency surfaced.)
+
 ## Native link-and-run tests fixed after the entry-point move (`_main` undefined) — ✅ FIXED & LANDED (`37302809`, 2026-07-16)
 
 The entry-point move (`c4607a71`) removed the C `main` from runtime/binate_runtime.c
