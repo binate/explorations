@@ -1674,11 +1674,14 @@ unblock them:
     error builders + the helper) is fine incrementally.  ✅ `interp.bn`'s three
     LOOP accumulators (`New`'s `ifOnly`, `LoadProgram`'s `lerrs`/`initPkgNames`)
     landed `3c1fb103`; ✅ `cmd/bni/main.bn`'s `--test`-path loop accumulators
-    (`initPkgNames`, `testNames`) landed `c91173e7`.  `appendCharSlice`/`appendFilePtr`
-    stay for the single-append error/field builders + interp's `check`/`imports`/
-    `externs` callers and `cmd/bni`'s `args.bn`/`util.bn` (the `result`/`out`
-    local loops + `ProgArgs`/`BniPaths`/`ImplPaths`/`Filenames`/`TestPackages`
-    field accumulators are still open).
+    (`initPkgNames`, `testNames`) landed `c91173e7`; ✅ interp `check.bn`
+    (`formatCheckErrors`) + `externs.bn` (`NativeOnlyInterfacePaths`, and its
+    `appendNonTargetPaths` helper switched to push-in-place on a `@Vec`) landed
+    `4d6f65c9`.  `appendCharSlice`/`appendFilePtr` stay for the single-append
+    error/field builders + interp's `imports.bn` pointer-threaded callers and
+    `cmd/bni`'s `args.bn`/`util.bn` (the `result`/`out` local loops +
+    `ProgArgs`/`BniPaths`/`ImplPaths`/`Filenames`/`TestPackages` field
+    accumulators are still open).
   - `slices.Append` in a loop: the formatter wrap engine — ✅ **DONE**
     (`print_wrap.bn`'s 3 sites landed earlier; `print_builtin`/`print_decl`/
     `print_switch`/`print_file` landed `40410619`).  `print_chain.bn`'s
