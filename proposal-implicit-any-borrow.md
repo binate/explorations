@@ -1,9 +1,14 @@
 # Proposal: implicit borrow when constructing a raw interface value from a value (`proposal-implicit-any-borrow`)
 
-Status: **PROPOSAL — under review. Revised after adversarial review (2026-07-17).** A
-language-semantics change (relaxes a Stable rule, `iface.construct.no-implicit`). Motivated
-by `fmt.Print`; the "boxing" half of the decided `...*any` fmt direction
+Status: **RATIFIED — Draft, pending implementation** (2026-07-17; spec `docs f8cdd0a`).
+A language-semantics change (relaxes a Stable rule, `iface.construct.no-implicit`).
+Motivated by `fmt.Print`; the "boxing" half of the decided `...*any` fmt direction
 (`claude-notes.md:252`). Pairs with `proposal-slice-type-identity` (the *recovery* half).
+Adversarially reviewed (SOUND-WITH-MUST-FIXES; all fixes folded in). The two open
+questions were resolved by adopting the recommendations: **all raw `*Iface`** (not
+`*any`-only), and the rvalue form permitted at **argument + `var`/`:=`-init** positions.
+Spec'd as Draft in `docs/spec` (§11.4 `iface.construct.value-borrow`); a `bnlint` rule
+for the escaping-borrow visibility gap (§4) remains a companion implementation item.
 
 > **What the review changed.** The earlier draft claimed the implicit form is "identical to
 > explicit `&`, so allowed uniformly in all positions." Review found that is true only for
@@ -155,16 +160,16 @@ borrowing positions. The two halves relate differently:
 - **Memory-model cross-ref (§18)** — the constructed `*Iface` is a raw borrow (`mem.raw-uaf`);
   the auto-temp is a statement/binding-scoped temporary (§18.4).
 
-## 8. Open questions for ratification
+## 8. Decisions & remaining follow-ups
 
-1. **Scope: `*any` only, or all raw `*Iface`?** The auto-`&`/auto-temp logic is
-   interface-agnostic — nothing about `any` is special. Recommend **all raw `*Iface`**;
-   `any`-only is the conservative first step.
-2. **Rvalue scope (2b): init+argument, or argument-only?** Argument-only is the most
-   conservative (an argument can't escape — no binding to return), but it breaks the *literal*
-   extract-local (`o := MyOptions{Any: 42}; foo(o)`). Init+argument allows it, at the cost of
-   an escape hole if the bound variable is later returned — the **same** hole lvalue-var-init
-   already has, mitigated by the §4 lint. Recommend **init+argument** for consistency with 2a.
+**RESOLVED at ratification (2026-07-17):**
+1. **Scope** — **all raw `*Iface`** (not `*any`-only). The auto-`&`/auto-temp logic is
+   interface-agnostic; nothing about `any` is special.
+2. **Rvalue scope (2b)** — **argument + `var`/`:=`-init** (not argument-only). Preserves the
+   literal extract-local (`o := MyOptions{Any: 42}; foo(o)`); the escape-if-the-bound-var-is-
+   returned hole is the same one lvalue-var-init has, mitigated by the §4 `bnlint` rule.
+
+**Follow-ups for implementation:**
 3. **The auto-temp mechanism (2b)** is the one genuinely new thing — a compiler-materialized
    stack local with a binding/statement-scoped lifetime. Stack (not heap), so no
    *heap*-transparency breach, but it is an implicit materialization. Acceptable, or should
