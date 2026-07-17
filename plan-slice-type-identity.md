@@ -1,9 +1,16 @@
 # Plan: structural type-identity for slices (`proposal-slice-type-identity`)
 
-Status: **Spec RATIFIED** (2026-07-16) — the design (exact-match structural
-identity + the `AssertTarget` grammar) is locked and in the canonical `binate.ebnf`;
-`iface.assert.slice` is **Draft** on the stability axis only because it is **not yet
-implemented**. Impl not started. Remaining owner choice is sequencing (§5).
+Status: **Implemented through Phase 4** (2026-07-17). The design (exact-match
+structural identity + the `AssertTarget` grammar) is locked in the canonical
+`binate.ebnf`, and the end-to-end feature — a name-less box with structural
+identity (Chunk 1), element-`readonly` preserved in it (Chunk 2a), and a slice as
+an assertion / type-switch target that HITS and recovers by value (Chunk 2b:
+Phases 3+4, `ff36c82a`) — is landed and green across all modes. A slice can now be
+the dynamic type of an `any` box AND a written `case`/assertion target;
+element-`readonly` and managed-vs-raw are distinct identities (§5.1). Only **Phase
+5** remains: flip `iface.assert.slice` Draft→Provisional on the stability axis and
+adopt slice `case`s in fmt (a separate follow-up plan). Also still open: the
+name-less **managed** `@any` real-dtor follow-up (§9).
 
 ## 1. Goal
 
@@ -167,7 +174,24 @@ deferred to Phase 5, not needed for the crash fix or `&s`-form.)*
 `default` and do not alias (still no crash, no *hit* until Phase 4). **Verify.**
 ir + codegen unit tests; conformance; hygiene.
 
-### Phase 3 — match + recovery. *(Layer B; consumes Phase 2's records.)*
+### Phase 3 — match + recovery. ✅ LANDED `ff36c82a` (2026-07-17, "Chunk 2b" — combined with Phase 4).
+
+Landed together with Phase 4 as one cohesive commit (the target must parse,
+type-check, match, AND recover, or the intermediate state is dead/broken).
+`typeInfoSymFor` keys a slice target on the same `namelessAnySrcName` identity the
+box stamped; recovery LOADS the slice value through the `&s` data slot
+(`emitRecoveredValue`); the expr form owns `@[]T` (`emitManagedSliceRefInc` +
+release), comma-ok / type-switch borrow. Two adversarial-review findings were
+root-caused and fixed in the same commit: (1) **named-element** slices diverged
+because the box dropped the package on named leaves — fixed by
+`mergeQualifiedReadonly`, which re-inserts the checker `readonly` onto the IR
+type's fully-qualified structure; (2) **alias-hidden `readonly`** (`type ROChar =
+readonly char`) was silently dropped — fixed by peeling transparent aliases on the
+checker side (mirroring `stripConstForIR`). The name-less identity helpers moved to
+`gen_iface_nameless.bn` (file-length). Tests: conformance 1077 (HIT+recover), 1078
+(exact-match distinctness), 1079 (refcount balance), 1080 (named-element same-pkg),
+1081 (cross-pkg no-collision), 1082 (alias-hidden readonly); checker unit tests.
+Verified LLVM / VM / native-aa64 / comp-comp + hygiene.
 
 **Change.** `ir/gen_assert.bn typeInfoSymFor` derives the Phase-1 structural
 symbol for a slice target; the slot-1 compare (`gen_assert.bn:45–52`,
@@ -191,7 +215,7 @@ refcount balance (no leak / no double-free, loop form). **Verify.** ir + codegen
 unit tests; conformance incl. `builder-comp-int` (refcount parity); hygiene.
 *(Land after Phase 4 admits the target; Phases 2/3 order-independent once it is.)*
 
-### Phase 4 — parser/checker §11.12 relaxation. *(Design ratified — not gated.)*
+### Phase 4 — parser/checker §11.12 relaxation. ✅ LANDED `ff36c82a` (2026-07-17, with Phase 3 as "Chunk 2b").
 
 `parser/parse_assert.bn parseAssertTargetName` (`:69`–`:99`): admit a **slice**
 target in `AssertTarget` per the ratified production
