@@ -397,6 +397,19 @@ and they all hang off `print`/`println`:
    `Write()` and the private format helpers, so retiring them frees the entire
    rest of bootstrap's surface.
 
+**In flight — `os.Remove()` added, one `Exec("rm")` use to convert (BUILDER-gated):**
+`pkg/std/os` now has `Remove()` (libc `__c_call("remove", ...)` — `remove(3)`, i.e.
+unlink/rmdir — plus a baremetal stub). `cmd/bnc/util.bn`'s `remove()` helper still
+shells out via `bootstrap.Exec("rm", ["-f", path])`; converting it to `_ =
+os.Remove(path)` (discard the error, matching `rm -f`'s missing-file tolerance) is
+**BUILDER-bump-gated**. Empirically confirmed (2026-07-17): the pinned BUILDER
+(`bnc-0.0.11`) resolves `pkg/std/os` against its embedded stdlib snapshot, which
+predates `Remove`, so the Stage-1 gen1 build fails `cmd/bnc/util.bn: undefined:
+Remove`. Do the swap once `BUILDER_VERSION` is bumped to a release that includes
+`os.Remove`. (This is a partial down-payment on step 1 — it retires the `rm` use;
+`Exec` itself stays until its other callers, the `clang`/`ar` link invocations, also
+have an `os` equivalent.)
+
 **Residual (small, separable):** wire `ensureLangLoaded` + `appendLangImport` into
 the repl's import setup (`pkg/binate/repl/{ir_imports,session,util}.bn`) so
 `myInt.String()` works at the repl too — the rest of the "primitive `.String()`
