@@ -333,22 +333,33 @@ compiling `--target arm32-linux` (the constant fit-check is target-based); run/e
 bugs (B, D, E) need the CI lane or a Linux box.
 
 Follow-ups surfaced during the triage (pre-existing, not introduced):
-- 🟠 **MAJOR (latent) — IR-gen truncates a named 64-bit const on an ILP32 host.**
-  `ir.ModuleConst.Val` is a host `int` (`ir.bni:20`); the named-const codegen path
-  funnels through it (`gen_const.bn` `mc.Val = cast(int, bignumToInt(...))`,
-  `gen_import_const.bn`, `gen_util_literals.bn` `parseIntLit`), so a named
-  `const X uint64 = 0x100000001` reads back as 1 at codegen on a genuine 32-bit-int
-  host. **No impact today** — the compiled (non-test) tree has no named const ≥ 2^32
-  (surfaced only via the Bucket-C *checker* unit tests, not a runtime miscompile),
-  and IR-gen's DIRECT int-literal path is already int64-correct. After Bucket C the
-  *checker* is 64-bit-const-correct on ILP32 while this IR-gen named-const path is
-  not, so a future 64-bit named const would silently miscompile on real ILP32. Fix:
-  widen `ModuleConst.Val` to int64 + the folds/emitters feeding it. Raised per the
-  bug-discovery protocol (2026-07-17, multi-lens review of `5b5987d7`).
-- 🟢 `scripts/unittest/pkg-binate-ir.xfail.builder-comp_arm32_baremetal` (`5d63349b`)
-  cites the const fit-check bug Bucket C fixed; likely now stale. `ir` type-checks +
-  emits cleanly for arm32-baremetal, but confirming the *tests pass* there needs the
-  baremetal lane to run (not local). Re-evaluate / drop the marker once runnable.
+- ✅ **DONE — IR-gen truncated a named 64-bit const on an ILP32 host** (`2bf360fc`).
+  `ir.ModuleConst.Val` was a host `int`; the named-const codegen path funneled through
+  it (the exact `bignumToInt` stamp was `cast(int, …)`-narrowed, and it emitted via
+  `EmitConstInt`), so a named `const X uint64 = 0x100000001` read back as 1 at codegen
+  on a 32-bit-int host. Widened `ModuleConst.Val` to int64 + the feeding/reading
+  paths (drop the cast on the exact stamp paths incl. `importConstStampVal`; cast the
+  host-int `evalConstExpr`/iota fallbacks at the boundary; emit via `EmitConstInt64`;
+  `lookupConst` narrows for the host-int fold). Mirror of Bucket C on the IR-gen side,
+  so the checker↔IR-gen const contract is now 64-bit-correct on ILP32. 4-lens review
+  HOLDS (it caught the guard test using the nil-checker `genFromSource` — inert on
+  LP64, red on arm32_linux — now `genFromSourceWithChecker`). Guard:
+  `TestGenNamedConstAbove32BitsNotTruncated` on the arm32_linux lane.
+  - Residual nit (pre-existing, LP64-only, out of scope): REPL `GenConstMember`
+    (`gen_repl.bn`) folds host-int only (no stamp consult) — REPL runs on the dev host,
+    so no ILP32 impact.
+- 🟢 **`ir`/`vm`/`std` arm32_baremetal xfails share the now-fixed literal/fit-check
+  cause — removal candidates pending a baremetal-lane run.** The baremetal unit lane
+  has 17 package xfails in two groups: 14 PERMANENT ("require host filesystem /
+  subprocess / native-host arch — can't run under baremetal QEMU semihosting"), and
+  **3 — `pkg-binate-{ir,vm,std}` — citing "tests use literals that exceed int32 range;
+  AssignableTo fit-check rejects on arm32 ILP32"**, which Bucket C (`5b5987d7`) fixed.
+  Those 3 don't need host FS/subprocess, so with the fit-check fixed they should
+  compile AND run under baremetal semihosting (`ir` type-checks + emits cleanly for
+  `--target arm32-baremetal`, verified). But confirming the tests PASS there needs the
+  baremetal lane (no local `qemu-system-arm`/`gcc-arm-none-eabi`; `unit-tests-xpass`
+  hasn't run recently). Drop the 3 markers once a baremetal run (or `unit-tests-xpass`)
+  confirms XPASS; do NOT remove blindly (the lane is otherwise broadly immature).
 
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
