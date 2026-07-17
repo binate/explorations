@@ -6,6 +6,39 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## VM `cast(float32/64, uintN)` mis-rounds high-bit unsigned values on a 32-bit host — ✅ DONE (`36683dac`, 2026-07-16)
+
+`pkg/binate/vm`'s `TestExecUint32HighBitToFloat32` failed only in the
+`builder-comp_arm32_linux` unit lane (32-bit host): `cast(float32, uint32 2^31)`
+followed by `cast(uint32, f)` did not round-trip to `2^31`.
+
+**Corrected root cause.** The original todo hypothesis (a signed `sitofp` where the
+source is unsigned) was slightly off: the handlers already convert *through* `uint64`.
+The real defect is one step earlier — the **widening to `uint64`**. In `BC_UITOF` /
+`BC_UITOF32` (`vm_exec_cast.bn`), `cast(uint64, regs[Src1])` widens a **signed** host
+`int`. On an ILP32 host a `uint32`/`uint` value with the high bit set (e.g. `2^31`)
+fills the whole 32-bit slot and reads back negative, so the widening **sign-extends**
+(`0x…80000000 → 0xFFFFFFFF80000000`) → a huge wrong-magnitude float. On LP64 the same
+cast is a same-width reinterpret, so it only showed on arm32_linux.
+
+**Fix.** A `zeroExtendHostWord(v, slotBytes)` helper masks to the host word before
+widening, used at both single-slot unsigned int→float call sites; the mask makes the
+result independent of `cast(uint64, int32)`'s extension direction. The pair variants
+(`BC_UI64TOF*`) and the float→uint direction were audited and were already correct
+(64-bit sources route to the pair variants; float→uint narrows, never widens).
+Corrected the stale `vm_exec_cast.bn` header comment (claimed these handlers were a
+dead path on a 32-bit host — they split/join register pairs there now, which is what
+let the sign-extension slip in).
+
+**Tests.** `TestZeroExtendHostWordZeroExtends` exercises the `slotBytes==4` masking on
+a 64-bit host (host-testable; the handlers themselves take the `REG_SLOT==8` branch and
+can't reproduce it), mutation-verified. `TestExecUint32HighBitToFloat64` mirrors the
+existing float32 end-to-end round-trip test so both fixed call sites — not just
+float32 — have an arm32_linux regression guard. Verified: vm unit tests green on LP64,
+hygiene 17/17. (End-to-end ILP32 confirmation is the CI arm32_linux lane, which the
+macOS dev host cannot run — no qemu-arm / cross-toolchain. That lane remains broadly
+red from a separate pre-existing pile of ~10 packages, untriaged here.)
+
 ## Cross-mode interface dispatch: 4 untested shapes covered; ILP32 residuals (aggregate-return threshold + 64-bit-scalar arg) + HFA passing resolved — ✅ DONE
 
 Cross-mode dispatch of a native-only package's interface methods from bytecode

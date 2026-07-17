@@ -307,33 +307,6 @@ stdout.
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### VM `cast(float32/64, uintN)` mis-rounds high-bit unsigned values on a 32-bit host — 🟠 OPEN (found 2026-07-16)
-
-`pkg/binate/vm`'s `TestExecUint32HighBitToFloat32` fails ONLY in the
-`builder-comp_arm32_linux` unit lane (32-bit host): `cast(float32, uint32 2^31)`
-followed by `cast(uint32, f)` does not round-trip to `2^31` (assertion
-"cast(float32, uint32 2^31) must round-trip to 2^31"). Confirmed on CI run
-`29479264481` (commit `34a3c8f1`) — and NOT the nil-checker literal bug: the sibling
-`TestLowerCastUint32ZeroExtendsToUint64` (which THAT commit fixed) now passes, so the
-`2147483648` literal reaches the VM correctly; the failure is in the conversion, not
-the literal. (The old "6 arm32 vm reds" todo lumped this test with the nil-checker
-bug as "likely" — that attribution was wrong.)
-
-**Suspected root cause (needs confirmation):** the VM's uint→float / float→uint cast
-path (bytecode exec helper in `vm_exec_helpers.bn`, or the cast lowering) uses a
-SIGNED conversion (`sitofp`/`fptosi`-equivalent) where the source is unsigned. On a
-64-bit host a `uint32` `2^31` sits as a positive value in the 64-bit VM register, so
-signed conversion is still correct — which is why the test passes on LP64. On a 32-bit
-host the `uint32` occupies a 32-bit signed register, so `2^31` reads as negative and
-signed→float yields `-2^31`, breaking the round-trip. Fix: use unsigned int↔float
-conversion for unsigned source/target types in the VM cast path (and audit the same
-for `uint64`/`float64`). Covered by `TestExecUint32HighBitToFloat32` (already present,
-red on arm32_linux). NOTE: unit-test xfails are per-PACKAGE, so an
-`.xfail.builder-comp_arm32_linux` on vm would mask every other vm test — deliberately
-NOT added; the `builder-comp_arm32_linux` lane is broadly red regardless (as of run
-`29479264481`, ~10 packages fail: vm, types, ir, asm/parse, asm/elf, native{,/aarch64,
-/arm32,/common}, cmd/bnc — a separate pre-existing pile, not triaged here).
-
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
 were switched to `ManagedHeaderSize()` (main `581216d9`) — see [claude-todo-done.md](claude-todo-done.md).
