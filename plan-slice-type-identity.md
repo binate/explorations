@@ -50,51 +50,121 @@ is a clean checker error, not this crash.)
 
 ## 4. Phased execution
 
-Each phase is independently landable and keeps every mode green.
+Each phase is independently landable and keeps every mode green. Verify = unit
+tests of touched packages (§8.5 smoke map) + targeted conformance, NOT the full
+suite (landing discipline). Recon-confirmed facts backing each step: §8.
 
-- **Phase 0 — Layer A (crash fix).** Name-less box → shared opaque
-  `__ivt`+`__typeinfo`; `wrapAsIfaceValue` stops bailing for a name-less type.
-  Conformance test: `switch`/`case *int:`/`default` **and** comma-ok `v.(*int)`
-  over a slice-typed `*any` box → reaches `default` / `ok == false`, no crash;
-  raw-slice box too (no-dtor path). Ship as its own MAJOR fix. *(No spec change.)*
-- **Phase 1 — structural mangling primitive.** New mangler entry: a stable
-  `__typeinfo.<…>` symbol derived from a slice `@types.Type`, encoding
-  `{ managed | raw, element-readonly?, element-type }` **recursively**. The one
-  genuinely new primitive. Unit tests: distinct spellings → distinct symbols;
-  **alias collapse** (`char`≡`uint8` ⇒ `@[]char` and `@[]uint8` share a symbol);
-  nested `@[]@[]char`.
-- **Phase 2 — boxing keys on structural identity.** The concrete change is at the
-  `:207` guard: instead of bailing when `receiverBaseTypeName` is empty, derive a
-  **structural** name so the existing `:236`–`:250` synthesis path runs —
-  producing a real `(slice, any)` ImplInfo + vtable and `registerTypeInfo`
-  keyed on the structural symbol (replacing the opaque record **for slices only**;
-  unnamed struct/array/func keep the opaque record). `@[]char` ≠ `*[]int` now. No
-  box *representation* change is needed for the address (`&s`) form — its data slot
-  already holds a pointer to the slice header (it passes `:196`). *(Boxing a
-  **bare** multi-word slice value — the shape fmt args may take — is a separate
-  question: it needs the value materialized so its address can be boxed, or it
-  stays a checker error; deferred to Phase 5 / fmt adoption, not needed for the
-  crash fix or for `&s`-form boxing.)*
-- **Phase 3 — match + recovery.** `typeInfoSymFor` derives the structural symbol
-  for a slice target; the identity compare Just Works. **Recovery detail to pin
-  precisely** (the one under-specified spot): the box holds a pointer to the slice
-  header, and recovery reads that pointer and copies the slice out **by value**
-  (one more indirection than a pointer target; managed-slice copy acquires backing
-  per `mem.copy`). Verify **exact-match** — a `@[]char` box must NOT match `case
-  @[]readonly char:`. Independent of Phase 2's boxing change (boxing produces the
-  record; this phase consumes it on a match), so the two land in either order once
-  Phase 4 admits the target.
-- **Phase 4 — parser/checker §11.12 relaxation.** Admit a slice target in
-  `AssertTarget` (`parseAssertTargetName`) per the ratified production
-  (`( "*" | "@" ) "[" "]" Type`); keep func/array/struct/`Self` rejected. Checker
-  resolves the slice target and drives the structural compare. *(Design ratified —
-  no longer gated.)*
-- **Phase 5 — impl-complete flip + fmt adoption.** Once implemented and
-  conformance-green, flip `iface.assert.slice` Draft→Provisional on the stability
-  axis (the grammar is already in `binate.ebnf`), and let fmt's `...*any` fast-path
-  use slice `case`s (one `case` per accepted string spelling — a library concern).
-  This phase also settles **bare multi-word slice-value boxing** for fmt args (see
-  Phase 2's note): materialize-and-box-the-address, or keep it a checker error.
+### Phase 0 — Layer A (crash fix). *No spec change. Lands now as the MAJOR fix.*
+
+**Change.** `ir/gen_iface.bn wrapAsIfaceValue`, at the `:206`–`:207` guard: when
+`receiverBaseTypeName(val.Typ)` is empty AND the pointee is a boxable-but-
+name-less type (it passed the `:196` pointer-shape guard but has no nominal
+name — slice / array / func), do NOT bail. Substitute a **single reserved
+sentinel identity** and fall through to the existing `isUniverseAny` synthesis at
+`:236`–`:239`, passing `val.Typ.Elem` as the record's `recvTyp` (valid
+size/align/name). The rest (`ensureAnyImplInfo` → `registerTypeInfo` `:301` →
+`findImplVtableName` → `EmitIfaceValue`) is unchanged and already correct.
+
+- **Sentinel choice (impl detail — flag in review).** Fixed `(recvPkg, recvName)`
+  — e.g. `("pkg/builtins/rt", "__nameless")` — so all name-less boxes share ONE
+  weak-coalesced record program-wide (`__typeinfo`/`__ivt` are `DG_WEAK`, §8.2). A
+  per-package sentinel (`recvPkg` defaulting to `ctx.Gc.PkgPath`) is also correct
+  but proliferates symbols. `implDtorFuncName("pkg/builtins/rt", "__nameless")`
+  names a non-existent dtor → `implDtorSlotSym` returns empty → **null dtor slot**
+  (safe; §8.1). A name-less value only enters `any` via the `&s` *borrow* into
+  `*any` (a bare slice fails `:196`; `@any` needs a `@T` managed-ptr, `:201`), so
+  the box never owns the slice and a null dtor is exactly right.
+
+**Why no leak / mis-drop.** The opaque record is never a match *hit* (no `case`
+names a slice pre-Phase-4), so its content (size/align/name from the
+first-registered slice's `recvTyp`) is cosmetic — only its stable ADDRESS
+matters, every compare is a miss, and the `*any` borrow path does no RefInc/Dec.
+
+**Test.** New conformance `1074_any_box_nameless_no_crash` (positive): a
+`switch v.(type)` with `case *int:` + `default`, and a comma-ok `v.(*int)`, both
+over a `*any` boxing `&s` (`s @[]char`) AND over a raw-slice box (`*[]char`, the
+no-dtor path) — reach `default` / `ok == false`, program completes, exact
+`.expected`. PASSes in every mode (no xfail). *(Optional companion error-test:
+expr-form `v.(*int)` over the same box panics CLEANLY via `rt.AssertFail` instead
+of crashing.)*
+
+**Verify.** `./scripts/unittest/run.sh builder-comp pkg/binate/ir` +
+`pkg/binate/codegen`; `./conformance/run.sh builder-comp 1074`, `builder-comp-int`
+(VM path), one native mode; `./scripts/hygiene/run.sh`. On landing: move the
+`claude-todo.md` MAJOR entry to the done log.
+
+### Phase 1 — structural mangling primitive. *(Layer B; no behavior change yet.)*
+
+**Change.** `pkg/binate/mangle`: add an entry deriving a stable `__typeinfo.` /
+`__ivt` core from a slice `@types.Type`, encoding `{ raw (TYP_SLICE=10) | managed
+(TYP_MANAGED_SLICE=11), element-readonly (TYP_READONLY wrapper on .Elem),
+element-type }` **recursively**. Reuse `lpTypeArgSlice` (`'s'+inner`) /
+`lpTypeArgMslice` (`'M'+inner`) (`mangle_lp.bn:195–213`) — they already lp-encode
+raw/managed slices for generic instantiation, element recursing through the same
+pipeline. No new alias logic: `char`/`uint8`/`byte` are the *same singleton Type*
+(§8.3), so `@[]char` ≡ `@[]uint8` mangles identically for free.
+
+**Unit tests** (`pkg/binate/mangle/*_test.bn`): distinct spellings → distinct
+symbols (`@[]char` ≠ `*[]char` ≠ `@[]readonly char` ≠ `*[]int`); alias-collapse
+(`@[]char` == `@[]uint8` == `@[]byte`); nested `@[]@[]char`; no double-encoded
+element in the `bn_V` core. **Verify.** mangle unit tests; hygiene.
+
+### Phase 2 — boxing keys slices on structural identity. *(Layer B.)*
+
+**Change.** Same `:207` site Phase 0 touched: when the pointee is a **slice**,
+derive its Phase-1 *structural* name (instead of the shared opaque sentinel), so
+`ensureAnyImplInfo` + `registerTypeInfo` produce a real `(slice, any)` ImplInfo +
+vtable keyed on the structural symbol. Unnamed struct/array/func keep the shared
+opaque record. Now `@[]char` and `*[]int` have **distinct** `__typeinfo`
+addresses. No box *representation* change — the `&s` data slot already holds a
+pointer to the slice header (passed `:196`).
+
+*(Boxing a **bare** multi-word slice value — a shape fmt args might take — needs
+the value materialized so its address can be boxed, or stays a checker error;
+deferred to Phase 5, not needed for the crash fix or `&s`-form.)*
+
+**Test.** conformance: distinct slice boxes (`@[]char`, `*[]int`) each reach
+`default` and do not alias (still no crash, no *hit* until Phase 4). **Verify.**
+ir + codegen unit tests; conformance; hygiene.
+
+### Phase 3 — match + recovery. *(Layer B; consumes Phase 2's records.)*
+
+**Change.** `ir/gen_assert.bn typeInfoSymFor` derives the Phase-1 structural
+symbol for a slice target; the slot-1 compare (`gen_assert.bn:45–52`,
+`gen_assert_commaok.bn:69–75`, `gen_type_switch.bn`) then Just Works.
+
+**The one genuinely new bit — recovery is by-value, not pointer.** `recoverPointer`
+(`gen_assert.bn:126`) today returns the data slot AS the target type. But a slice
+target (`case *[]readonly char:`) is a *slice type*, not pointer-recovery `*T`:
+the box's data slot holds `&s` (a pointer to the slice header), so recovery must
+**load the slice value** from that pointer (one extra indirection), and a
+managed-slice recovery must acquire backing (RefInc, `mem.copy`). Add a
+slice-target branch to `recoverPointer`. Verify **exact-match**: `@[]char` box ≠
+`case @[]readonly char:`, `*[]char` ≠ `@[]char`.
+
+**Test.** conformance: box `&s` (`@[]char`), recover via `case @[]char:`, observe
+the bytes; `@[]readonly char` box does NOT hit `case @[]char:`; managed-recovery
+refcount balance (no leak / no double-free, loop form). **Verify.** ir + codegen
+unit tests; conformance incl. `builder-comp-int` (refcount parity); hygiene.
+*(Land after Phase 4 admits the target; Phases 2/3 order-independent once it is.)*
+
+### Phase 4 — parser/checker §11.12 relaxation. *(Design ratified — not gated.)*
+
+`parser/parse_assert.bn parseAssertTargetName` (`:69`–`:99`): admit a **slice**
+target in `AssertTarget` per the ratified production
+`( ( "*" | "@" ) "[" "]" Type )`; keep func/array/struct/`Self` rejected (current
+`errMsg` stays for those). Checker resolves the slice target and drives the
+structural compare. **Test.** `case *[]char:` now type-checks; func/array/struct
+targets still error (keep existing `.error` tests green). **Verify.** parser +
+types unit tests; §11.12 `.error` conformance tests; hygiene.
+
+### Phase 5 — impl-complete flip + fmt adoption. *(On conformance-green.)*
+
+Flip `iface.assert.slice` Draft→Provisional on the stability axis (grammar
+already in `binate.ebnf`); let fmt's `...*any` fast-path use slice `case`s (one
+`case` per accepted string spelling — a library concern). Settle **bare
+multi-word slice-value boxing** for fmt args (Phase 2 note): materialize-and-box-
+the-address, or keep it a checker error. fmt itself is a separate follow-up plan.
 
 ## 5. Decisions
 
@@ -136,3 +206,63 @@ and the `AssertTarget` production in the canonical `binate.ebnf` (propagated to
 Annex A). `rule-ids.txt` unchanged (no new rule-ID). The only remaining spec move
 is the **Draft→Provisional** flip once the implementation is conformance-green
 (Phase 5).
+
+## 8. Recon-confirmed facts (2026-07-16)
+
+### 8.1 Vtable emission (Phase 0)
+- `ensureAnyImplInfo` (`ir/gen_iface.bn:280`) appends the ImplInfo AND calls
+  `registerTypeInfo` (`:301`) — the coupling that guarantees slot-1 `__typeinfo`
+  exists. `ensureGenericImplInfo` (`ir/gen_generic_method.bn:234`) is the working
+  precedent for synthetic recv-names.
+- `implDtorFuncName` (`ir/gen_impl.bn:429`) → `""` when no dtor; `implDtorSlotSym`
+  (`codegen/emit_impls.bn:323`) → `""` (null slot) when dtor empty OR
+  `lookupModuleFunc(m, dtorName) == nil` — so **no dangling dtor symbol**.
+- `emitImplVtable` (`codegen/emit_impls.bn:222`) walks `m.Impls` with **no check**
+  that `RecvTypeName` is a declared type; `BuildImplVtable`
+  (`irdata/data_impl_vtable.bn:21`) emits `[N x i8*]`, empty slot → null reloc.
+- **Risk:** slot-1 undefined if the opaque name isn't `registerTypeInfo`'d — the
+  `:301` coupling covers it, so Phase 0 must reach `ensureAnyImplInfo`, not an
+  early return.
+
+### 8.2 TypeInfo record (Phases 0–3)
+- 5-word layout (IntSize each): `[dtor, size, align, name-ptr, name-len]`
+  (`irdata/data_typeinfo.bn:13`). Empty name → null ptr + 0 len, no blob; empty
+  dtor → null. `DG_WEAK` → one survivor per symbol program-wide.
+- `registerTypeInfo` dedups on `(RecvPkg, RecvTypeName)`; first `recvTyp` wins;
+  size/align/name read at codegen (`CollectTypeInfoDescs`, `ir/data_typeinfo.bn:53`).
+  Cosmetic for the opaque record (address-only identity).
+- Miss path never reads the record (`gen_assert_commaok`, `gen_type_switch`); only
+  expr-form's *panic* path reads the name (`gen_assert.bn:58`) — safe with a valid
+  opaque record.
+
+### 8.3 Types + mangler (Phases 1–2)
+- `TYP_SLICE=10` (raw `*[]T`), `TYP_MANAGED_SLICE=11` (`@[]T`); element in `.Elem`;
+  element-`readonly` = `TYP_READONLY` wrapper on `.Elem`.
+- `char`/`uint8`/`byte` = one singleton (`predeclaredUint8`) — alias-collapse is
+  free (pointer identity, not a `TYP_ALIAS` wrapper).
+- Reuse `lpTypeArgSlice`/`lpTypeArgMslice` (`mangle_lp.bn:195–213`). `TypeInfoName`
+  = `"__typeinfo." + StructName(pkg, name)` (`mangle.bn:304`); need a structural
+  variant taking a slice `@types.Type`. `receiverBaseTypeName` (`gen_iface.bn:332`)
+  returns `""` for slices — the site to extend.
+
+### 8.4 Match + recovery (Phase 3)
+- iface value = 2 words `{data(0), vtable(1)}` (`types/layout_offsets.bn:48`);
+  vtable any-block = 2 words `{dtor(0), *TypeInfo(1)}`. `EmitIfaceTypeInfo`
+  (`ir/ir_ops_iface.bn:93`) loads slot-1, no record deref.
+- `recoverPointer` (`gen_assert.bn:126`) returns the data slot as the target type
+  + RefInc for `@T`. **Slice target needs a by-value load** (data slot holds
+  `&slice`; target is the slice value) — the new branch.
+
+### 8.5 Test infra + smoke map (all phases)
+- Next free conformance number: **1074**. Modes (`scripts/modesets/all`, 10):
+  `builder-comp`, `builder-comp-int`, `builder-comp-int-int`, `builder-comp-comp`,
+  `builder-comp-comp-int`, `builder-comp-comp-comp`,
+  `builder-comp_native_aa64-comp_native_aa64`,
+  `builder-comp_native_x64-comp_native_x64`, `builder-comp_arm32_linux`,
+  `builder-comp_arm32_baremetal`. Basic = `builder-comp`, `builder-comp-int`.
+- One conformance test: `./conformance/run.sh <mode> <filter>` (substring;
+  `--exact` for full). Unit: `./scripts/unittest/run.sh <mode> <pkgfilter>`.
+  Hygiene: `./scripts/hygiene/run.sh`.
+- Smoke map: `gen_iface.bn` → `pkg/binate/ir`; `emit_impls.bn` →
+  `pkg/binate/codegen`; `mangle.bn` → `pkg/binate/mangle`; typeinfo →
+  `pkg/binate/ir` + `pkg/binate/irdata`; `parse_assert.bn` → `pkg/binate/parser`.
