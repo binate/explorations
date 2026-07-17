@@ -619,6 +619,20 @@ the VM.  Residual follow-ups:
   outright.  (User chose 2026-07-16 to fold this into the re-pin cleanup rather than a
   partial isolation now.)
 
+## Conformance matrix generators — port to Binate (dogfood)
+
+### Port the `conformance/gen-*.py` matrix generators to Binate — 🟡 SCOPED, not started (2026-07-17)
+Rewrite the 15 `conformance/gen-*.py` generators (~4,270 LOC) as a self-hosted
+Binate tool, retiring the Python — every generator's docstring already flags
+this as the intended end state. Full plan (strategy, tiers, phases, verification
+discipline, the two float-rendering traps): [plan-genmatrix-port.md](plan-genmatrix-port.md).
+Chosen approach: **C→A** — incremental, byte-diff-gated per generator,
+converging on full dogfood. New `pkg/conformance/gen` genlib + `cmd/genmatrix`;
+run under the **bundled (CHECK_TOOLS) `bni`** (no build step). Gated on two
+external deps: `os.MkdirAll` landing in the tree (being implemented separately),
+and a CHECK_TOOLS bundle whose injected `os` ships it (bump `CHECK_TOOLS_VERSION`
+after it lands; interim runner is a from-tree `bni`).
+
 ## bnfmt (self-hosted formatter)
 
 ## bnlint rules, unused-entity checks & lint skips
