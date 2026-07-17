@@ -169,6 +169,22 @@ needs no `FRAME_HDR` change (reuses `callerPC`).
     `EmitUnwindReturn`, and set `instr.PadBlock`. Tested by lowering real faulting
     functions (`FaultTable` non-empty; pad RefDecs the live set). Still inert at
     runtime until 2b.
+
+    **SUBTLETY surfaced (2026-07-17) — pad cleanup can BRANCH.** The RefDec
+    emitters are not all straight-line: `emitManagedIfaceValueRefDec`
+    (`gen_util_refcount.bn:215`) and `emitManagedFuncValueRefDec` (`:411`) — and a
+    managed-*element* slice RefDec — create new blocks via `AddBlock` +
+    `EmitBranch`/`EmitJump`. So a pad that cleans up an iface-value / func-value /
+    managed-element-slice local is **multi-block**. Two consequences the emission
+    must handle: (1) those continuation blocks must go into `Func.FaultPads`, NOT
+    `Func.Blocks` (else the compiled backends emit them) — needs `AddBlock` to
+    honor a `Func.PadEmitMode` flag set around `emitPadCleanup`; (2) the intra-pad
+    branches target `FaultPads` blocks, but `lower_func`'s `findBlockOffset`
+    currently resolves only over `f.Blocks` — it must resolve over
+    `combinedBlocks` so pad-internal branches map to the right PC (this is also the
+    2a-1 review's finding #3). `emitPadCleanup` must return the pad's EXIT block
+    (where `EmitUnwindReturn` goes); `instr.PadBlock` is the ENTRY block. So 2a-2 is
+    a genuine sub-project, not just N call-site edits — size it accordingly.
 - **Inc 2b (VM unwind mode):** add `BC_UNWIND_RETURN` + the exec-loop unwind
   (fault→pad→pop→`callerPC` lookup→…→top→host), the cleanup-context fatal-guard
   flag (§6), and wire the **bounds** guard as the single proving consumer.
