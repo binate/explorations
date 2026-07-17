@@ -321,9 +321,10 @@ immediate-write sink. The only reachable case is a parked `var x = f()` whose
 initializer prints, resolved via `retryPending` in the same turn (old: the
 "resolved" notice then the output; new: the output then the notice). This is an
 inherent, accepted consequence of the notices-as-data model (Decision #3) —
-cosmetic and narrow; an `e2e` case pins the chosen order (follow-up).
+cosmetic and narrow; the `e2e` case `kernel-notice-renders-after-eval-output`
+pins the chosen order (landed on `main`, `f17ea5dc`).
 
-**Inc 2 — `Complete`.**
+**Inc 2 — `Complete`. ⏸ DEFERRED (2026-07-16 — not needed currently; the stub stays).**
 *Prerequisite:* `pkg/binate/types` exposes no enumeration/prefix API (`Scope` has
 only exact-name `Lookup`). Add a scope-enumeration API (walk the `Scope.Syms`
 parent chain; enumerate an imported package's exported members) — this lands in a
@@ -331,7 +332,7 @@ parent chain; enumerate an imported package's exported members) — this lands i
 pass. Then `Complete` tokenizes to `cursorPos`, isolates the partial identifier,
 and enumerates matches.
 
-**Inc 3 — `Inspect`.**
+**Inc 3 — `Inspect`. ⏸ DEFERRED (2026-07-16 — not needed currently; the stub stays).**
 *Prerequisite:* `Symbol` carries no doc field and no source-span/decl back-ref, so
 a signature/doc is unavailable at inspect time — retaining it is a checker
 data-model change. Scope the MVP to kind + type (available on `Symbol` today);
