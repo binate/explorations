@@ -94,11 +94,15 @@ into `a0..a6`, so the pair lands little-endian [lo, hi] matching the shim (mirro
 VM's `joinInt64`). Covered by `TestEmitShim64BitArgSplitILP32` (shim codegen) and
 `conformance/1020_funcval_xpkg_int64_scalar_arg` (a cross-package `(int, int64)` func
 value validating the AAPCS §6.5 even-pair rule on arm32 — no xfail, runs green in every
-mode). The one untested SLIVER is the exact combination "VM interpreter on a 32-bit host
+mode). The last SLIVER — the exact combination "VM interpreter on a 32-bit host
 dispatching a 64-bit-arg cross-mode call" (1020 covers native-arm32 + VM-on-64-bit; the
-codegen test covers the shim) — a mechanical slot-copy over the same validated shim,
-correct-by-construction; an optional `builder-comp_arm32_linux` vm-unit test would fully
-close that coverage gap but no defect is expected.
+codegen test covers the shim) — is now CLOSED by `TestMechExternI64ScalarArg`
+(`vm_extern_mechanism_test.bn`, landed `45963220`): it drives an `(int, int64, int)`
+native extern through `execExtern → dispatchExternBinding →` the per-function shim, so
+the int64's 2-slot ILP32 pair is reassembled and the flanking scalar args must not skew.
+Confirmed GREEN on `builder-comp_arm32_linux` (run 29554035946 — vm package 251 passed) —
+so the ILP32 64-bit-scalar-arg cross-mode path is now empirically verified, not just
+correct-by-construction. No defect, as expected.
 
 HFA passing (was PRE-EXISTING): the native backends GP-coerced HFAs (a struct of ≤4
 same-kind floats) instead of SIMD-passing them — a latent ABI-nonconformance reachable
