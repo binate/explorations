@@ -548,7 +548,7 @@ the VM.  Residual follow-ups:
 
 ## bnlint rules, unused-entity checks & lint skips
 
-### `LINT_SKIP` — only `setfn` remains; its checker bug is fixed, now just a CHECK_TOOLS version-lag — 🟡 OPEN (updated 2026-07-16)
+### Bump CHECK_TOOLS past `962450cf` (likely a pre-release) — multi-root leak now BLOCKS Vec adoption; `LINT_SKIP` can't quarantine it — 🟡 OPEN, ELEVATED (updated 2026-07-17)
 
 The original reason for this skip — `bnc-0.0.11pre2`'s bnlint mis-firing the generic
 constraint check ("type argument H does not satisfy constraint Hasher[T]" / "K does
@@ -571,6 +571,32 @@ CHECK_TOOLS **version-lag**: hygiene's lint uses the frozen `bnc-0.0.11` bnlint,
 predates the fix and still mis-fires.  **DROP `setfn` from LINT_SKIP at the next
 CHECK_TOOLS bump past `962450cf`** — that closes this entry.  (See the done log for the
 fix's full root-cause writeup.)
+
+**ELEVATED 2026-07-17 — this now BLOCKS the Vec-adoption work, and `LINT_SKIP` cannot
+work around it.**  Adopting `vec.Vec` in the vm's `lower_pkg_descriptor.bn` (a correct
+change — accepted by `bnc`, all unit tests + reflection/generic conformance green,
+adversarially reviewed) tips the SAME frozen-bnlint multi-root leak onto a NEW victim:
+`pkg/binate/repl/loop_test.bn`'s `var lines @[]@[]uint8 = make_slice(@[]uint8, 2)` is
+mis-typechecked as `@[]@[]readonly uint8` (`cannot assign @[]@[]readonly uint8 to
+@[]@[]uint8`), reddening hygiene lint.  Confirmed the class: repl linted ALONE is clean;
+`format`+`vm`+`repl` in one bnlint process leaks; from-source bnlint (post-`962450cf`)
+does not leak.  **`LINT_SKIP` is futile here** (verified): unlike setfn (whose victim is
+setfn's own non-test code, excluded via TARGETS), the victim is a TEST file that
+bnlint's `--tests` discovers GLOBALLY, independent of TARGETS — skipping `pkg/binate/repl`
+AND its importer `cmd/bni` still leaves `loop_test.bn` typechecked and red.  So the leak
+is a moving target across the Vec sweep (any conversion that adds a `@[]char`/`@[]readonly
+char` `vec.Vec` instantiation can re-tip it onto some `@[]@[]uint8`/`@[]@[]char` site),
+and the only real unblock is the CHECK_TOOLS bump.  The vm conversion is **held**
+(unlanded) pending this.  **Wrinkle in the bump:** the from-source (post-fix) bnlint
+surfaces a DIFFERENT false positive it currently masks — it flags
+`impls/core/common/pkg/builtins/startup/args_main.bn`'s `#[c_export("main")] _entry` as
+`[unused-func]` (an entry point is reachable via crt0/C, invisible to bnlint's
+reachability).  So a bump must ALSO treat `#[c_export]` functions as reachability roots
+(or suppress), else it trades the type-leak for an `_entry` unused-func red.  Also FIX the
+stale `scripts/hygiene/lint.sh` comment (lines ~34-44) which claims the leak is "NOT a
+version-lag — a bump will not clear it"; `962450cf` makes that false (a bump DOES clear
+it).  (The user chose 2026-07-17 to elevate this to a CHECK_TOOLS bump / pre-release
+rather than a `LINT_SKIP` workaround, after `LINT_SKIP` was shown futile.)
 
 ### Raw-slice escape: decide whether a BROADER best-effort escape lint is wanted — 🟡 NEEDS DECISION
 The original framing ("demote the raw-slice escape TYPE ERROR to a linter rule")
