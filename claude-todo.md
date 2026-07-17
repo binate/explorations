@@ -1762,10 +1762,16 @@ unblock them:
      - 2a. ✅ **LANDED (`171a2ead`, 2026-07-16)**: interface + skeleton +
        **aarch64** delegates (first cross-package impl in the compiler
        tree; BUILDER bnc-0.0.11 compiles it).  Adversarially reviewed clean.
-     - 2b. **x64** delegates (mirror aarch64's emitter).
-     - 2c. **arm32** delegates (its `SetPrefix`/`ClearPrefix` are no-ops,
-       `SymPrefixed` identity; ELF-only writer).
-  3. Once all three delegate, move the byte-identical `emitStringTable` /
+     - 2b. ✅ **LANDED (`0efd790d`, 2026-07-17)**: **x64** delegates.
+       Adversarially reviewed clean (the x64-vs-aarch64 deltas — string-
+       prefix global, macho-first writer — correctly preserved).
+     - 2c. ✅ **LANDED (`0efd790d`, 2026-07-17)**: **arm32** delegates
+       (no-op prefix, identity `SymPrefixed`, ELF-only writer,
+       `WordBytes()==4` ILP32).  Adversarially reviewed clean.  All three
+       backends now route through `common.EmitObject`; the skeleton is
+       written once.
+  3. **NEXT** — once all three delegate (now done), move the byte-identical
+     `emitStringTable` /
      `stringMSSym` (and `emitGlobals`, where the arm32 diff is only the
      prefix) into `common` as functions taking the `ArchEmitter` (calling
      `e.SymPrefixed`), and drop them from the interface — the de-dup payoff.
