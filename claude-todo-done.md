@@ -6,6 +6,41 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Cross-mode interface dispatch: 4 untested shapes covered; LP64-host aggregate-return threshold + HFA passing resolved — ✅ DONE
+
+Cross-mode dispatch of a native-only package's interface methods from bytecode
+(`93f75f27` + math/big extension `7c3b17a2`) is exercised by conformance 726
+(`strings.Builder` via `io.Writer`) and 577 (`errors.Error`). An adversarial review
+found four more shapes untested (each needing a synthetic native-only fixture, since
+no stdlib impl hits them); ✅ covered by `e2e/xmiface.sh` (`7f15b1e9`, 2026-07-01) — a
+custom host injects a fixture's `__Package()` into the VM inject-set while the
+dispatching main runs as bytecode:
+- VALUE-receiver iface method (iv-dispatch thunk deref) — `Double()` → 42.
+- MULTIPLE aggregate args (the `a1/a2` by-address slots) — `Combine(Pair,Pair)` → 110.
+- A FLOAT arg (int-slot → FP bitcast) — `Scale(2.5)` → 20.
+- The `n>6` user-arg overflow guard (negative test; the loud vmPanic also proves the
+  fixture is genuinely native-injected — a bytecode-lowered fixture would print 28).
+
+Residual 1 (LP64-host aggregate-return threshold) — RESOLVED by the 64-bit-return
+work: `dispatchCompiledIfaceMethod` / `dispatchExternBinding` no longer hardcode a
+runtime `resultSize > 8`. `types.IsAggregateReturn` is now `SizeOf > GetTarget().-
+PointerSize` (target-aware; abi_return.bn), and the aggregate / scalar64 / one-word-
+scalar shape is stamped 3-way at IR-gen (`AggregateReturnSize` +
+`is64BitScalarReturn(t, wordSize)`, packed into `instr.Aux`) and read by both dispatch
+sites — correct on ILP32 (int64/float64 return as a register pair). (The arg-side
+residual — a by-value 64-bit scalar arg as 2 slots through the shim — is narrowed and
+still open; see the active todo "Verify the cross-mode 64-bit-scalar-ARG shim path on
+ILP32".)
+
+HFA passing (was PRE-EXISTING): the native backends GP-coerced HFAs (a struct of ≤4
+same-kind floats) instead of SIMD-passing them — a latent ABI-nonconformance reachable
+only at a cross-ABI / cross-mode boundary. RESOLVED: HFA-in-SIMD landed on both
+backends (aa64 `48e3787b`, x64 `ce759c41`) as a coordinated cross-backend project —
+LLVM codegen + both native backends + the dispatch shims + the VM cross-mode boundary
+now classify HFAs identically (tests `968`–`971`); `969_hfa_dispatch` covers HFA
+structs through the func-value / closure / interface dispatch kinds cross-mode in the
+`-int` modes. See also the done-log "HFA-in-SIMD is a CROSS-BACKEND contract".
+
 ## FFI export (`#[c_export]`) MVP + entry-move — ✅ DONE & LANDED (Phases 2/3/5a/6, 2026-07)
 
 The outbound C-interop MVP — expose Binate functions to C, and write the program's

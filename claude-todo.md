@@ -152,47 +152,24 @@ See explorations/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
-### MINOR — cross-mode interface dispatch: residual LP64-host latent gap (2026-06-14) — 🟡 OPEN
+### Verify the cross-mode 64-bit-scalar-ARG shim path on ILP32 — 🟡 OPEN (MINOR, latent)
 
-The shim-route that dispatches a native-only package's interface methods from
-bytecode (landed `93f75f27` + the math/big extension `7c3b17a2`) is exercised by
-726 (`strings.Builder` via `io.Writer`: a raw-slice arg, a scalar arg, a no-arg
-method; scalar + multi-return) and 577 (`errors.Error`: no-arg, multi-return).
-An adversarial review found four more shapes UNTESTED — each needed a SYNTHETIC
-native-only test package, since no stdlib impl hits them. ✅ NOW COVERED by
-`e2e/xmiface.sh` (main `7f15b1e9`, 2026-07-01): a custom host injects a fixture
-package's `__Package()` into the VM inject-set (`Interp.isCompiled` → its impls
-dispatch natively) while the dispatching main runs as bytecode —
-
-- A VALUE-receiver iface method (the iv-dispatch thunk deref; `a0` = the iv-data
-  ptr the thunk derefs; 410 covered native-to-native only) — `Double()` → 42.
-- A method with MULTIPLE aggregate args (the `a1/a2` by-address slots) —
-  `Combine(Pair,Pair)` → 110.
-- A FLOAT arg (the shim's int-slot → FP bitcast path) — `Scale(2.5)` → 20.
-- The `n>6` user-arg overflow guard (a negative test) — the loud vmPanic, which,
-  being specific to the cross-mode path, also proves the fixture is genuinely
-  native-injected (a bytecode-lowered fixture would print 28, not panic).
-
-Residuals (still open):
-
-Latent, LP64-host-only (NOT active — default VM modes run a 64-bit host):
-- `dispatchCompiledIfaceMethod`'s `resultSize > 8` aggregate-vs-scalar threshold
-  (and `dispatchExternBinding`'s identical one) must track `isAggregateReturn`'s
-  `> target.PointerSize`; on an ILP32 VM host a 5–8-byte aggregate return would
-  pick the wrong shim shape. (Now commented in `vm_exec_iface.bn`.)
-- 64-bit-scalar args pack as 2 slots on a 32-bit host (`argSlots`); the dispatch
-  reads them as positional shim args.
-
-Separately (was PRE-EXISTING): the native backend GP-coerced HFAs (a struct of ≤4
-same-kind floats) instead of SIMD-passing them — a latent ABI-nonconformance
-reachable only at a cross-ABI / cross-mode boundary. **RESOLVED**: HFA-in-SIMD landed
-on both backends (aa64 `48e3787b`, x64 `ce759c41`) as the coordinated cross-backend
-project it needed to be — LLVM codegen + both native backends + the dispatch shims +
-the VM cross-mode boundary now classify HFAs identically (tests `968`–`971`). See the
-done log, "HFA-in-SIMD is a CROSS-BACKEND contract". (The old "`e2e/xmiface` tested
-only a scalar float, not an HFA struct" concern is moot — `969_hfa_dispatch` covers
-HFA structs through the func-value / closure / interface dispatch kinds, run
-cross-mode in the `-int` modes.)
+The cross-mode dispatch shims (`dispatchCompiledIfaceMethod`, `dispatchExternBinding`
+in `pkg/binate/vm`) read user args as POSITIONAL shim slots (`a0..a6`). The
+by-address-vs-by-value classification is now target-aware (`types.IsAggregateArg`
+gates on aggregate KIND *and* `SizeOf > GetTarget().PointerSize`, so an 8-byte SCALAR
+`int64`/`float64` correctly stays by-value on ILP32). The remaining gap: a by-value
+64-bit scalar arg occupies TWO slots on a 32-bit host, and it is unverified whether
+the per-function shim reassembles those two words into an AAPCS-aligned i64 register
+pair (vs mis-slotting the following args). Untested end-to-end — `e2e/xmiface`'s
+`Scale(2.5)` float64 arg is one slot on the 64-bit hosts it runs on, and the
+`arm32_linux` lane doesn't drive native-injected cross-mode dispatch. **Action**:
+trace the shim arg-marshaling for a 64-bit scalar param to confirm correct-or-broken
+(a code trace is doable now; a full end-to-end test needs an ILP32 cross-mode-dispatch
+path). Latent — no active 32-bit cross-mode path today; becomes reachable the moment a
+native-arm32 embedding does cross-mode dispatch with a 64-bit scalar arg. (Residual 1
+— the LP64-host aggregate-return `> 8` threshold — and HFA-in-SIMD are RESOLVED; see
+[claude-todo-done.md](claude-todo-done.md).)
 
 ### Package descriptors (Phase B) — `__Package()` works in compiled + VM modes (builtins); general Functions-table still future
 - **Status**: compiled-mode AND VM-mode `__Package()` landed (binate
