@@ -88,26 +88,49 @@ values.
 - **`cmd/genmatrix/`** (new) — thin tool: a registry of generators; no args =
   regenerate all, `--check` = fail if any would change, `<name>` = one
   generator. Mirrors `cmd/bnfmt` structure.
-- **`scripts/build-genmatrix.sh`** (new) — modeled on `scripts/build-bnfmt.sh`:
-  BUILDER → gen1 → final, `-o <path>` required, `mktemp -d` scratch (so
-  concurrent worktree builds don't clobber).
+- **`scripts/run-genmatrix.sh`** (new, convenience) — wraps `bni cmd/genmatrix`
+  with the standard `-I`/`-L` search paths (as the e2e harness does), so a
+  regenerate is one command against a standing `bni`. A *compiled*
+  `scripts/build-genmatrix.sh` (BUILDER → gen1 → final, like `build-bnfmt.sh`,
+  `-o <path>` + `mktemp -d` scratch) stays an optional later speed optimization
+  — not required to start (see Run mode).
 
 *(Naming `pkg/conformance/gen` + `cmd/genmatrix` is a proposal; adjust if a
 different home is preferred. It is a new top-level under the root impl tier, not
 a `pkg/binate` compiler package nor a `pkg/std` stdlib package.)*
 
-### Run mode: compiled, not interpreted
+### Run mode: interpreted via `bni`
 
-Run the built tool **compiled** (gen1 → native binary, like `bnfmt`). Do NOT
-assume interpreting via `bni` buys backend-independence: the bytecode VM does no
-FFI (`__c_call` is never lowered — `pkg/binate/vm/lower.bn`), so `pkg/std/os`
-(the entire file-writing layer, including `MkdirAll`) loads *interface-only*
-under `bni` and works only via a **natively-compiled injected `os`** — which
-needs the very backend/link chain interpretation was supposed to sidestep. A
-generator is fundamentally file-writing, so there is no interpreted escape from
-the backend. The robustness net for "toolchain broken while regenerating" is
-therefore **committed output + Python retained as documented break-glass until
-Phase 6**, not a run-mode choice.
+Run the generator **interpreted under `bni`** (the bytecode VM), not as a
+compiled binary. You build `bni` once (a standing shared tool —
+`scripts/build-bni.sh`, already built by CI), then edit-and-run the generator
+with **no rebuild step**: `bni cmd/genmatrix -- <args>` (bni splits program args
+at `--` and installs them via `os.SetArgs`). Recompiling the generator on every
+edit (BUILDER → gen1 → final) is the friction this avoids.
+
+File I/O works despite the VM doing no FFI (`__c_call` is never lowered —
+`pkg/binate/vm/lower.bn`): `bni` **injects the full native `os`** into the
+interpreted program (`pkg/binate/interp/externs.bn` —
+`RegisterPackageFunctions` over `os.__Package`, so every `os` method, including
+`Create`/`Write`/`MkdirAll`, runs as bni's linked native impl). Real files get
+written — the same mechanism already lets `bni`-run programs use
+`os.Args`/`os.ReadDir` (the `os-args` / `os-env` / `readdir-values` e2e tests).
+
+Interpretation is also the **better** fit for the generators' "must run even
+when the toolchain is broken" intent, not a compromise of it: the generator's
+*computation* runs as interpreted bytecode (front-end → VM), so a codegen /
+native-backend regression cannot miscompile the generator logic and bake wrong
+output into the very tests meant to catch it. A **compiled** generator (emitted
+through gen1's codegen) carries exactly that hazard. The only native code a bni
+run touches is the standing bni binary (built and validated earlier) and its
+injected `os`.
+
+Scope of the robustness claim (the one narrow thing interpretation does *not*
+buy): building `bni` at all needs the backend (to compile `os` + the VM), so a
+total cold rebuild from broken source is not rescued by interpreting — but that
+is not the regenerate loop (you keep a standing `bni`). The real net for the
+rare "broken while regenerating" case remains committed output + Python
+break-glass until Phase 6.
 
 ## Verification discipline (the core of the incremental strategy)
 
@@ -142,9 +165,9 @@ decisions).
 - `pkg/conformance/gen` skeleton: fs/driver + emit + int-oracle helpers (no
   float rendering yet).
 - `cmd/genmatrix` skeleton + registry + `--check`.
-- `scripts/build-genmatrix.sh`.
-- The byte-diff verification harness (a script that builds `genmatrix`, runs it
-  to a scratch dir, and diffs against committed `matrix/`).
+- `scripts/run-genmatrix.sh` (the `bni cmd/genmatrix` wrapper).
+- The byte-diff verification harness (a script that runs `genmatrix` under `bni`
+  to a scratch dir and diffs against committed `matrix/`).
 - Port **one** easy generator end-to-end to validate the whole pipeline. Use
   `gen-nested-index-matrix.py` (119 LOC, smallest, static table, no oracle).
 - Depends on `os.MkdirAll` (assumed).
