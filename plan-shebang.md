@@ -36,15 +36,22 @@ discipline).
 ### Commit 1 — lexer `#!` skip  *(the core; unblocks parsing everywhere)*
 - **Change:** `pkg/binate/lexer/lexer.bn` `newLexer`, immediately after the
   initial `l.advance()` (which loads byte 0 into `l.ch`, `l.pos == 0`): if
-  `l.ch == '#' && l.peek() == '!'`, skip to end of line — reuse the existing
-  line-skip path (advance until `l.ch == '\n' || l.ch == '\0'`, then the existing
-  `newline()`/advance so `l.line` becomes 2). Guard on `l.pos == 0` (guaranteed at
-  this call site — do not skip a `#!` anywhere later).
+  `l.ch == '#' && l.peek() == '!'`, skip to end of line. **Hand-write the skip** —
+  there is **no** reusable line-skip helper (`skipLineComment` in `scan.bn` is
+  `//`-specific and *records a comment*, so it can't be reused): write
+  `for l.ch != '\n' && l.ch != '\0' { l.advance() }` then `if l.ch == '\n' {
+  l.newline(); l.advance() }`. **Order matters:** call `l.newline()` **before** the
+  `advance()` that consumes the `\n` (this is how `skipWhitespace` in `scan.bn`
+  does it — `newline()` sets `l.lineAt` to the position past the `\n`), else line-2
+  **columns** are off by one. Guard on `l.pos == 0` (guaranteed at this call site —
+  do not skip a `#!` anywhere later). `l.peek()` past EOF safely returns `'\0'`.
 - **Tests** (`pkg/binate/lexer/*_test.bn`): first token after a `#!` line is the
-  real first token; `l.line`/positions correct (package clause = line 2);
-  **no-trailing-newline** shebang-only file lexes clean (EOF terminates the skip);
-  bare `#!`+EOF; a `#!` NOT at offset 0 still lexes as `HASH`/`NOT` (unchanged); a
-  leading `#[build(...)]` annotation still parses (not masked). Plus a **conformance
+  real first token; `l.line` **and column** correct (package clause = line 2, col
+  1); **no-trailing-newline** shebang-only file lexes clean (EOF terminates the
+  skip); bare `#!`+EOF; **CRLF** shebang (`#!...\r\n`) — the `\r` is consumed as
+  line-2 leading whitespace, clean; a `#!` NOT at offset 0 still lexes as
+  `HASH`/`NOT` (unchanged); a leading `#[build(...)]` annotation still parses (not
+  masked). Plus a **conformance
   test** tagged `lex.shebang`: a `.bn` whose first line is `#!/usr/bin/env -S bni
   -x` and whose `main` prints a sentinel — compiles + runs to the sentinel in every
   mode (exercises the skip in both compiler and VM lexer paths).
@@ -64,17 +71,29 @@ discipline).
 ### Commit 3 — `bni -x` script mode  *(argument-taking scripts)*
 - **Change:** `cmd/bni/args.bn` — add `Script bool` to `CLIArgs`; in `parseArgs`,
   a `-x` flag sets it; then the **first** non-flag arg is the sole `Filenames`
-  entry and **every** subsequent arg goes to `ProgArgs` (an implicit `--` right
-  after the file — do not treat them as filenames). `cmd/bni/main.bn`
-  `runProgram`: when `Script`, require exactly one filename (error otherwise;
-  reject a directory) — the existing `progName = Filenames[0]` +
-  `setProgramArgs(progName, ProgArgs)` path then delivers `argv[0] = script`,
-  rest = user args, unchanged.
+  entry and **every** subsequent arg goes to `ProgArgs` — including a literal `--`
+  (once the script file is seen in `-x` mode, nothing after it is a bni flag or
+  separator). `cmd/bni/main.bn` `runProgram`: when `Script`, require exactly one
+  filename and **reject a directory BEFORE `expandDirArgs`** (`main.bn:70`), else a
+  dir silently fans out to multiple `Filenames` and breaks the exactly-one
+  contract. The existing `progName = Filenames[0]` (captured pre-expansion,
+  `main.bn:67`) + `setProgramArgs(progName, ProgArgs)` then delivers
+  `argv[0] = script`, rest = user args, unchanged.
+- **MUST also gate the pre-parse flag scan (`main.bn:26–38`) — latent bug.** That
+  loop scans **all** args (until a `--`) and prints bni's version on `--version`.
+  Under `-x`, a script arg that looks like `--version` (or `--test` / `--repl`,
+  recognized in `parseArgs` at `args.bn:63–74`) would be eaten by **bni** and never
+  reach the script. In `-x` mode the version scan must **stop at the script
+  filename** (everything after it is program argv), and `parseArgs`'s flag
+  recognition must not fire on post-file args. Handle `-x` detection early enough
+  that both respect it.
 - **Tests** (`cmd/bni/args_test.bn`, `main_test.bn`): `-x s.bn a b -c` →
-  `Filenames == [s.bn]`, `ProgArgs == [a, b, -c]` (flags after the file are NOT
-  consumed by bni); `-x` with zero files errors; `-I dir -x s.bn a` still honors
-  `-I` (bni flags precede the file). A run test: a script reading `os.Args` under
-  `-x` sees `[s.bn, a, b, -c]`.
+  `Filenames == [s.bn]`, `ProgArgs == [a, b, -c]` (flags after the file NOT
+  consumed by bni); **`-x s.bn --version` → the script runs and receives
+  `--version`** (bni does NOT print its version); **`-x s.bn -- a` → `ProgArgs ==
+  [--, a]`** (literal `--` passed through); `-x` with zero files errors; `-x` on a
+  directory errors; `-I dir -x s.bn a` still honors `-I` (bni flags precede the
+  file). A run test: a script reading `os.Args` under `-x` sees `[s.bn, a, b, -c]`.
 
 ### Commit 4 — end-to-end executable-script test  *(needs Commits 1 + 3)*
 - **Change:** an `e2e/` test: write a `.bn` with `#!/usr/bin/env -S bni -x`, `chmod
@@ -82,9 +101,12 @@ discipline).
   consideration (flag for the implementer):** the shebang needs `bni` resolvable —
   either `bni` on `PATH` for the test, or generate the script with an absolute
   interpreter path (`#!<abs>/bni -x`) at test time; and the test must set the
-  executable bit. If `e2e/` has no precedent for exec-bit/PATH scripts, this may
-  warrant a small harness helper rather than being forced into the conformance
-  runner.
+  executable bit. **Confirmed: `e2e/` has NO precedent** for exec-bit / `env -S`
+  scripts — existing e2e tests invoke the built binary directly by path. So this
+  commit introduces a genuinely new harness pattern (build `bni` → generate a
+  `chmod +x` script with `#!<abs>/bni -x` → exec it); **budget for it** rather than
+  cloning an existing e2e, and keep it out of the conformance runner (which just
+  dispatches `.bn` files through `bnc`/`bni`, with no exec-bit notion).
 
 ## 4. Open considerations / risks
 
