@@ -1731,20 +1731,33 @@ unblock them:
      `common.bni`), rewired call sites, dropped the redundant per-backend
      tests (pinned once in `common_names_test.bn`).  Adversarially
      reviewed clean.
-  2. Unify `symPrefixed` + the object-format prefix state (aarch64
-     `objEmitElf bool` / x64 `objSymPrefix *[]readonly char` / arm32
-     identity) into `common` — the ENABLER: `stringMSSym`,
-     `emitStringTable`, `globalSymFor`, `emitGlobals` all transitively
-     depend on the per-backend `symPrefixed` (108 call sites), so they
-     can't hoist until this lands.  Also the consistency fix.
-  3. Hoist the now-unblocked shared helpers (`stringMSSym`,
-     `emitStringTable`/`emitGlobals` parameterized by word size, and
-     `globalSymFor` where the arm32 diff is only the prefix).
-  4. Write the `EmitObject` skeleton ONCE against a
-     `common.ArchEmitter` interface (`wordBytes`, `emitFunc`,
-     `resolveFixups`, `writeObject`, prefix set/clear, …) with three
-     impls — the natural polymorphic design (see "Use interfaces more",
-     candidate 1).
+     **Design correction (found while scoping step 2)**: `symPrefixed`
+     CANNOT be unified into one shared `common` global — aarch64 defaults
+     its prefix to Mach-O `_` and x64 to ELF bare, and both defaults are
+     test-pinned native-platform conventions (`TestSymPrefixedMachoDefault`
+     / `TestSymForNoUnderscorePrefix`).  A single shared-global default
+     would break one.  So `symPrefixed` stays per-backend, exposed as a
+     `common.ArchEmitter.SymPrefixed` method; the shared skeleton + the
+     identical helpers call `e.SymPrefixed(...)`.  Steps 2–4 collapse into
+     the ArchEmitter interface below.
+  2. **`common.ArchEmitter` interface + shared `common.EmitObject`
+     skeleton, one backend at a time** (the natural polymorphic design;
+     "Use interfaces more" candidate 1).  ArchEmitter has the 14 genuinely
+     per-arch primitives (`WordBytes`, `SetPrefix`/`ClearPrefix`,
+     `SymPrefixed`, `ArchName`, `EmitFunc`, `EmitFuncValueShims`,
+     `EmitStringTable`, `EmitGlobals`, `EmitFuncValueVtables`,
+     `EmitImplVtables`, `EmitPackageDescriptor`, `ResolveFixups`,
+     `WriteObject`); `EmitObject` runs the invariant sequence once.
+     - 2a. ✅ **LANDED (`171a2ead`, 2026-07-16)**: interface + skeleton +
+       **aarch64** delegates (first cross-package impl in the compiler
+       tree; BUILDER bnc-0.0.11 compiles it).  Adversarially reviewed clean.
+     - 2b. **x64** delegates (mirror aarch64's emitter).
+     - 2c. **arm32** delegates (its `SetPrefix`/`ClearPrefix` are no-ops,
+       `SymPrefixed` identity; ELF-only writer).
+  3. Once all three delegate, move the byte-identical `emitStringTable` /
+     `stringMSSym` (and `emitGlobals`, where the arm32 diff is only the
+     prefix) into `common` as functions taking the `ArchEmitter` (calling
+     `e.SymPrefixed`), and drop them from the interface — the de-dup payoff.
 - **Blast radius**: `pkg/binate/native/common` + the 3 arch packages
   (`*.bn`, `*_names.bn`).  Smoke MUST cover `native/common` AND all
   three arch packages' unit tests (shared-file rule), plus a native
