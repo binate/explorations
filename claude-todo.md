@@ -552,7 +552,23 @@ the VM.  Residual follow-ups:
 
 ## bnlint rules, unused-entity checks & lint skips
 
-### Bump CHECK_TOOLS past `962450cf` (likely a pre-release) — multi-root leak now BLOCKS Vec adoption; `LINT_SKIP` can't quarantine it — 🟡 OPEN, ELEVATED (updated 2026-07-17)
+### Bump CHECK_TOOLS past `962450cf` (likely a pre-release) — multi-root leak now BLOCKS Vec adoption; `LINT_SKIP` can't quarantine it — 🟡 IN PROGRESS (updated 2026-07-17)
+
+**IN PROGRESS 2026-07-17 — cutting `bnc-0.0.12-pre1` as the new CHECK_TOOLS bundle:**
+1. ✅ bnlint `#[c_export]`-as-reachability-root fix LANDED (`fc956a2f`) — clears the
+   `_entry` unused-func false positive a post-`962450cf` bnlint would otherwise surface
+   (from-source lint of the whole tree is now clean: no leak, no `_entry`).
+2. ✅ pre-release cut: tag `bnc-0.0.12-pre1` pushed at `54ed2260` (the last commit with
+   `bnc-0.0.12-pre1` in VERSION — carries both `962450cf` and `fc956a2f`; hygiene
+   17/17-verified before tagging).  Release CI (`release.yml`) builds+publishes the
+   3-platform bundle.
+3. ✅ dev bumped to `bnc-0.0.12-pre2` (`f3c889fa`) BEFORE tagging, so the pre1 commit is
+   frozen/known and the tag points at an explicit hash, not a moving HEAD.
+4. ⏳ REMAINING once the pre1 bundle publishes: set `CHECK_TOOLS_VERSION` →
+   `bnc-0.0.12-pre1`; DROP `setfn` from `LINT_SKIP` (leak gone under the new bnlint) and
+   fix the stale `scripts/hygiene/lint.sh` comment (it claims "a bump will not clear it" —
+   `962450cf` makes that false); verify full hygiene green; then land the held vm
+   `lower_pkg_descriptor` Vec conversion (which tipped the leak — the reason for the bump).
 
 The original reason for this skip — `bnc-0.0.11pre2`'s bnlint mis-firing the generic
 constraint check ("type argument H does not satisfy constraint Hasher[T]" / "K does
