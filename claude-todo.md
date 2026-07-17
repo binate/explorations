@@ -284,14 +284,19 @@ collapse to a handful of root causes; several are one bug cascading. Buckets:
   x64_float's `cast(int64, 1) << 63`.
 - **B — VM `cast(float32/64, uintN)` mis-round (`vm`, 1 test). ✅ DONE** (`36683dac`,
   see [claude-todo-done.md](claude-todo-done.md)).
-- **C — constant range-checking uses host `int` width (the deep one). 🟠 OPEN.**
-  `types`: `TestCheckCastHighMagnitudeConstRejected`, `…ConstArithmeticExact`,
-  `…ConstBitwiseExact` (all `cast(int64, 2^63)` overflow checks). `ir`:
-  `gen_const_fold_test.bn:258/274/278` won't compile — `constValueFitsSignedTarget(2147483648, …)`
-  can't pass 2^31 as an `int` param on ILP32. The checker/IR represents integer
-  constants in host `int`, so on a 32-bit host it can't correctly range-check
-  int64-target casts. Likely needs a wide (int64/bignum) constant representation
-  — assess scope before diving in; may be substantial.
+- **C — constant range-checking used host `int` width. ✅ DONE** (`5b5987d7`).
+  `types` cast-overflow tests + the `ir` build error both stemmed from the checker
+  caching a const's folded value in `Symbol.ConstVal` as a host `int` (and the
+  fold-and-store path narrowing to host int before storing), so a 64-bit const
+  (`0x8000000000000000`) was truncated on ILP32 before the exact cast-fit check
+  (`foldConstNum`) read it. Widened the const-value representation to `int64`
+  end-to-end (`ConstVal`, `defineConstVal`, the exact folds `litIntValue`/
+  `foldConstIntValue`/`constIntFor`, `attachConstLitVal`; new `bignum.FromInt64`/
+  `Num.ToInt64`); the host-int fallback (`evalConstIntValue`) and IR-gen's
+  host-int path are unchanged (checker↔IR-gen contract preserved — IR-gen never
+  reads `Symbol.ConstVal`). Also widened the IR-gen guard `constValueFitsSignedTarget`
+  (param + `1<<(w-1)` bounds) to int64. Multi-lens adversarial review (4 lenses +
+  synthesis) HOLDS. Guards: the 3 `types` tests + the `ir` build on arm32_linux.
 - **D — float-literal parse exponent wraps at the int32 boundary. ✅ DONE** (`f4f2b605`).
   strconv `lexFloat`/`lexHexFloat` capped the exponent accumulator at `< 1e9` but
   the guard runs before `expVal * 10 + digit`, so expVal reached ~1e10 and overflowed
@@ -326,6 +331,24 @@ Note: the lane is not locally runnable on the macOS dev host (no qemu-arm /
 arm-linux cross-toolchain), but the *check*-phase bugs (A, C) reproduce locally by
 compiling `--target arm32-linux` (the constant fit-check is target-based); run/emit
 bugs (B, D, E) need the CI lane or a Linux box.
+
+Follow-ups surfaced during the triage (pre-existing, not introduced):
+- 🟠 **MAJOR (latent) — IR-gen truncates a named 64-bit const on an ILP32 host.**
+  `ir.ModuleConst.Val` is a host `int` (`ir.bni:20`); the named-const codegen path
+  funnels through it (`gen_const.bn` `mc.Val = cast(int, bignumToInt(...))`,
+  `gen_import_const.bn`, `gen_util_literals.bn` `parseIntLit`), so a named
+  `const X uint64 = 0x100000001` reads back as 1 at codegen on a genuine 32-bit-int
+  host. **No impact today** — the compiled (non-test) tree has no named const ≥ 2^32
+  (surfaced only via the Bucket-C *checker* unit tests, not a runtime miscompile),
+  and IR-gen's DIRECT int-literal path is already int64-correct. After Bucket C the
+  *checker* is 64-bit-const-correct on ILP32 while this IR-gen named-const path is
+  not, so a future 64-bit named const would silently miscompile on real ILP32. Fix:
+  widen `ModuleConst.Val` to int64 + the folds/emitters feeding it. Raised per the
+  bug-discovery protocol (2026-07-17, multi-lens review of `5b5987d7`).
+- 🟢 `scripts/unittest/pkg-binate-ir.xfail.builder-comp_arm32_baremetal` (`5d63349b`)
+  cites the const fit-check bug Bucket C fixed; likely now stale. `ir` type-checks +
+  emits cleanly for arm32-baremetal, but confirming the *tests pass* there needs the
+  baremetal lane to run (not local). Re-evaluate / drop the marker once runnable.
 
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
