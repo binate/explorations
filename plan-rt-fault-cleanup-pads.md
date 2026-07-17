@@ -193,3 +193,32 @@ as clarifications (no redesign):
 - **[minor] VMFunc table dtor cost** → §5: plain int-slice, trivial teardown.
   **[minor] Inc 2a inertness** → §7: pads appended (body PCs unchanged), unreferenced.
   **[minor] fork lock-in** → §5: A locked at 2a, B reserved.
+
+## 10. Fork verdict — Option A (2026-07-17, adversarial A-vs-B review)
+
+A brief adversarial A-vs-B review (two grounded advocates) confirms **Option A**.
+The B advocate's one decisive-severity argument — "A needs a post-PC-assignment
+re-walk with the live-set context destroyed" — is defeated, and defeating it fixes
+A's implementation approach:
+
+- **How A's table is built (no re-walk):** the fault-op → pad-block association is
+  made in **IR-gen**, where the live-set (`ctx.Vars`/`ctx.Temps`) is available. Each
+  potentially-faulting IR op (and each call op) carries a **pad-block reference**,
+  exactly like `OP_BRANCH`/`OP_JUMP` carry target blocks; **lowering** then resolves
+  both the op's bytecode PC and the pad-block's PC via its existing block-offset
+  machinery (`lower_instr.bn:219-234`, `blockOffsets`) and records the `(opPC,
+  padPC)` pair. So the table build is a compile-time annotation resolved by
+  machinery that already exists — **zero runtime cost, no fourth pass**.
+- **Why not B:** B's per-live-set-change store is real hot-path bytecode (~20-100
+  stores/function, one per managed temp/var/scope/statement), and B's `FRAME_HDR`
+  6→7 growth taxes *every* `BC_RETURN` (7 header loads vs 6) and every frame-touching
+  site (`hdr[5]` freeOnPop index shift at `vm_exec.bn:153`/`408`/`436` — off-by-one
+  corruption risk). Both advocates' pro-B fallbacks require faults to be *frequent*
+  (used as control flow); they are rare by premise.
+
+**Pad structure decision (implementation):** each region's pad is a **flat** RefDec
+sequence for that region's full live-set (all open-scope vars + current-statement
+temps), reusing the return-path emitters — NOT intra-frame per-scope chaining.
+Cross-*frame* chaining (`BC_UNWIND_RETURN` → caller's pad via `callerPC` lookup)
+remains. Flat-per-region is simpler to emit/verify; the DRY per-scope-chained
+variant (less bytecode for deep nesting) is a possible later refinement.
