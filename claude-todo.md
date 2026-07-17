@@ -292,10 +292,17 @@ collapse to a handful of root causes; several are one bug cascading. Buckets:
   constants in host `int`, so on a 32-bit host it can't correctly range-check
   int64-target casts. Likely needs a wide (int64/bignum) constant representation
   — assess scope before diving in; may be substantial.
-- **D — float-literal parse exponent wraps at the int32 boundary. 🟠 OPEN.**
-  `native/common`: `TestParseFloatHugeExponent` (`ParseFloatLitToBits("1e4294967296")`,
-  exponent 2^32 should saturate to +Inf but wraps because the exponent accumulates
-  in a host `int`). `asm/parse` has a 1-failed likely-sibling (unconfirmed).
+- **D — float-literal parse exponent wraps at the int32 boundary. ✅ DONE** (`f4f2b605`).
+  strconv `lexFloat`/`lexHexFloat` capped the exponent accumulator at `< 1e9` but
+  the guard runs before `expVal * 10 + digit`, so expVal reached ~1e10 and overflowed
+  int32 on ILP32 (corrupting decExp → `1e4294967296` didn't saturate to +Inf). Fixed
+  by lowering both caps to `1e8` (largest power of ten where `*10 + digit` stays in
+  int32); result-preserving on every host (such exponents saturate to Inf/0 anyway).
+  `native/common`'s `TestParseFloatHugeExponent` is the arm32_linux guard. Residual
+  (pre-existing, not this bug): `decExp = expVal - fracDigits` / `4*fracHex` could
+  overflow int32 only under absurd multi-hundred-MB inputs — untracked, not worth a
+  fix. `asm/parse`'s remaining 1-failed (a separate float-parse test, unconfirmed)
+  is folded into E's investigation.
 - **E — host-dependent codegen assertions. 🟠 OPEN (needs investigation).**
   `asm/elf`: `TestWriteElfX64RelocPltVsPc` (x64 reloc PC32 vs PLT32). `native/aarch64`:
   `TestEmitCallFuncValueNoArgsVoid` ("5 instrs (20 bytes)"). Both emit for a fixed
