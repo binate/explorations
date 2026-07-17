@@ -321,12 +321,25 @@ freeing the outer cell but skipping the inner slice/backing cleanup. Trading a
 detectable crash for a silent leak is the wrong direction (Memory-Management
 rule). Same applies to a managed func-value pointee.
 
-**Options (owner's call — not part of Phase 0):**
-- **(a) Correct dtor.** Emit / reference the boxed name-less managed type's real
-  drop (RefDec the pointee) in the any-block slot 0, instead of null. Sound but
-  needs a dtor symbol for a name-less managed type (no `__dtor_<name>` exists).
-- **(b) Reject at the checker.** Make boxing a name-less managed pointee into a
-  managed iface a compile error (a small semantics tightening — no crash, no
-  leak; you can always box into `*any` instead). Cheapest; needs sign-off.
+**DECIDED (2026-07-16): (a) — correct dtor.** A constructed managed value MUST
+have its cleanup run (the "compiler never generates leaking code" invariant);
+rejecting the construct (b) is an arbitrary carve-out, not a principled fix.
+- **(a) Correct dtor** — emit / reference the boxed managed type's real drop
+  (RefDec the pointee) in the any-block slot 0, instead of null.
+- ~~(b) Reject at the checker~~ — declined (bans a well-typed construct to dodge
+  the work).
+
+**Implementation — folded into the feature, not a separate opaque-dtor patch.**
+The real dtor a slice-typed managed box needs is exactly what Phase 2/3 produces
+once slices get a structural `(slice, any)` ImplInfo: extend the boxing change to
+run for the MANAGED iface too (drop the `dstTyp.Kind == TYP_INTERFACE_VALUE`
+raw-only gate for slices) and carry the slice's real dtor in that ImplInfo. Open
+sub-question to resolve in Phase 2: whether a managed-slice type already has a
+CALLABLE dtor symbol the any-block can point at, or one must be synthesized
+(managed-slice drop is currently inline logic — `emitManagedSliceRefDec`,
+`gen_util_refcount.bn:224` — not a named function). Unnamed struct/array/func
+managed boxes (outside the slice feature) keep the shared opaque record and still
+need their own dtor answer — a smaller follow-up once the slice path proves the
+mechanism.
 
 Tracked in `claude-todo.md` alongside the (now-narrowed) MAJOR crash entry.

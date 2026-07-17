@@ -58,12 +58,16 @@ only); the managed path keeps bailing (still the pre-existing crash). Note the
 *direct* form `var a @any = box(s)` is checker-rejected (`cannot assign @[]uint8
 to @any`); the crash is reached via the explicitly-typed managed-ptr form above.
 
-**Fix options (owner's call — `plan-slice-type-identity.md` §9):** (a) emit /
-reference a REAL dtor for the boxed name-less managed type (RefDec the pointee) in
-the any-block slot 0; or (b) reject boxing a name-less managed pointee into a
-managed iface at the checker (a small semantics tightening — no crash, no leak;
-box into `*any` instead). Add a conformance test (currently a bare SIGSEGV, so
-mark it `.xfail` until the fix lands) once the direction is chosen.
+**Fix — DECIDED (a): emit a REAL dtor** for the boxed managed type (RefDec the
+pointee) in the any-block slot 0 (`plan-slice-type-identity.md` §9). (b)
+checker-rejection declined — a constructed managed value must have its cleanup
+run; banning the construct is an arbitrary carve-out. Being folded into the slice
+feature (Phase 2/3): the same structural `(slice, any)` ImplInfo the feature adds
+carries the real slice dtor, so the managed slice box becomes well-formed once the
+raw-only gate is dropped for slices. Open sub-question: whether a managed-slice
+type has a callable dtor symbol or one must be synthesized (drop is inline today,
+`emitManagedSliceRefDec`). Add a conformance test (bare SIGSEGV now → `.xfail`)
+when the Phase-2 mechanism lands.
 
 ## Test-flake watch
 
