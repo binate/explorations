@@ -51,7 +51,7 @@ values.
   may use the **full language** (closures, generics, interfaces). The generator
   tool inherits this: the Tier-3 closure/dispatch-table generators need it.
 
-## External dependency (assumed landing separately)
+## External dependencies (assumed landing separately)
 
 - **`os.Mkdir` / `os.MkdirAll`** — currently absent everywhere (zero hits). The
   generators materialize nested coordinate dirs
@@ -59,6 +59,10 @@ values.
   not parents). This is being implemented independently. This plan assumes a
   `MkdirAll(path, perm) @errors.Error`-shaped primitive lands in `pkg/std/os`;
   Phase 0 adjusts to its actual signature.
+- **A CHECK_TOOLS bundle whose `bni` ships `os.MkdirAll`.** The generator runs
+  under the bundled `bni`, which injects the *bundle's* `os` (see Run mode), so
+  `CHECK_TOOLS_VERSION` must be bumped to include `MkdirAll` after it lands.
+  Until then, a from-tree `bni` (`scripts/build-bni.sh`) is the interim runner.
 
 ## Architecture
 
@@ -88,49 +92,60 @@ values.
 - **`cmd/genmatrix/`** (new) — thin tool: a registry of generators; no args =
   regenerate all, `--check` = fail if any would change, `<name>` = one
   generator. Mirrors `cmd/bnfmt` structure.
-- **`scripts/run-genmatrix.sh`** (new, convenience) — wraps `bni cmd/genmatrix`
-  with the standard `-I`/`-L` search paths (as the e2e harness does), so a
-  regenerate is one command against a standing `bni`. A *compiled*
-  `scripts/build-genmatrix.sh` (BUILDER → gen1 → final, like `build-bnfmt.sh`,
-  `-o <path>` + `mktemp -d` scratch) stays an optional later speed optimization
-  — not required to start (see Run mode).
+- **`scripts/run-genmatrix.sh`** (new, convenience) — resolves the bundled `bni`
+  (`fetch-builder.sh --tool bni --check-tools`) and runs `bni cmd/genmatrix` with
+  the standard `-I`/`-L` search paths (as the e2e harness does), so a regenerate
+  is one command with no build. A *compiled* `scripts/build-genmatrix.sh`
+  (BUILDER → gen1 → final, like `build-bnfmt.sh`, `-o <path>` + `mktemp -d`
+  scratch) stays an optional later speed optimization — not required (see Run
+  mode).
 
 *(Naming `pkg/conformance/gen` + `cmd/genmatrix` is a proposal; adjust if a
 different home is preferred. It is a new top-level under the root impl tier, not
 a `pkg/binate` compiler package nor a `pkg/std` stdlib package.)*
 
-### Run mode: interpreted via `bni`
+### Run mode: the bundled (CHECK_TOOLS) `bni`
 
-Run the generator **interpreted under `bni`** (the bytecode VM), not as a
-compiled binary. You build `bni` once (a standing shared tool —
-`scripts/build-bni.sh`, already built by CI), then edit-and-run the generator
-with **no rebuild step**: `bni cmd/genmatrix -- <args>` (bni splits program args
-at `--` and installs them via `os.SetArgs`). Recompiling the generator on every
-edit (BUILDER → gen1 → final) is the friction this avoids.
+Run the generator under the **prebuilt bundled `bni`** — not a self-built one,
+not a compiled generator binary. `scripts/fetch-builder.sh --tool bni
+--check-tools` resolves the pinned CHECK_TOOLS bundle's `bni` (the release
+tarball ships `bin/{bnc,bni,bnas,bnlint,bnfmt}`; `--check-tools` selects
+CHECK_TOOLS, the newer pinned set that "may be a pre-release ahead of the
+BUILDER" — the same fetch path hygiene uses for its pinned `bnlint`/`bnfmt`). So
+there is **no build step at all**: fetch the pinned interpreter and run
+`bni cmd/genmatrix -- <args>` (bni splits program args at `--` and installs them
+via `os.SetArgs`).
 
 File I/O works despite the VM doing no FFI (`__c_call` is never lowered —
-`pkg/binate/vm/lower.bn`): `bni` **injects the full native `os`** into the
-interpreted program (`pkg/binate/interp/externs.bn` —
-`RegisterPackageFunctions` over `os.__Package`, so every `os` method, including
-`Create`/`Write`/`MkdirAll`, runs as bni's linked native impl). Real files get
-written — the same mechanism already lets `bni`-run programs use
+`pkg/binate/vm/lower.bn`): `bni` **injects the native `os`** into the interpreted
+program (`pkg/binate/interp/externs.bn` — `RegisterPackageFunctions` over
+`os.__Package`, so every `os` method runs as bni's linked native impl). Real
+files get written — the same mechanism already lets `bni`-run programs use
 `os.Args`/`os.ReadDir` (the `os-args` / `os-env` / `readdir-values` e2e tests).
 
-Interpretation is also the **better** fit for the generators' "must run even
-when the toolchain is broken" intent, not a compromise of it: the generator's
-*computation* runs as interpreted bytecode (front-end → VM), so a codegen /
-native-backend regression cannot miscompile the generator logic and bake wrong
-output into the very tests meant to catch it. A **compiled** generator (emitted
-through gen1's codegen) carries exactly that hazard. The only native code a bni
-run touches is the standing bni binary (built and validated earlier) and its
-injected `os`.
+This makes the "must run even when the toolchain is broken" property concrete
+and strong — better than compiled, not a compromise: the generator runs on a
+**pinned, known-good interpreter fully decoupled from the current source tree**.
+A codegen/native-backend regression in the tree cannot touch it — the
+generator's logic is interpreted bytecode, and even the `bni` binary and its
+native `os` come from the pinned bundle, not from a build of the (possibly
+broken) current source. The "a cold rebuild of `bni` needs the backend" caveat
+evaporates entirely: you never build `bni`, you fetch it. A **compiled**
+generator (emitted through gen1's codegen) would instead risk baking a codegen
+bug straight into the tests meant to catch it.
 
-Scope of the robustness claim (the one narrow thing interpretation does *not*
-buy): building `bni` at all needs the backend (to compile `os` + the VM), so a
-total cold rebuild from broken source is not rescued by interpreting — but that
-is not the regenerate loop (you keep a standing `bni`). The real net for the
-rare "broken while regenerating" case remains committed output + Python
-break-glass until Phase 6.
+**The one real constraint — the injected `os` is the *bundle's* `os`.** Because
+the VM does no FFI, `bni` services the generator's `os` calls with the native
+`os` compiled into *that* bni binary, i.e. the CHECK_TOOLS bundle's snapshot. So
+the generator may only use `os`/stdlib functions present in that bundle — in
+particular **`os.MkdirAll` must be in the CHECK_TOOLS bundle**. Once `MkdirAll`
+lands in the tree, `CHECK_TOOLS_VERSION` must be bumped to a bundle that ships
+it before the generator can run bundled. This is the injected-`os` analogue of
+the standing "verify the BUILDER supports a new feature before relying on it"
+rule (see plan-check-tools-version.md). Interim, before that bump, a from-tree
+`bni` (`scripts/build-bni.sh`, whose injected `os` is the tree's) runs it — the
+same fallback if a generator ever needs an `os` function newer than the latest
+CHECK_TOOLS.
 
 ## Verification discipline (the core of the incremental strategy)
 
@@ -165,12 +180,13 @@ decisions).
 - `pkg/conformance/gen` skeleton: fs/driver + emit + int-oracle helpers (no
   float rendering yet).
 - `cmd/genmatrix` skeleton + registry + `--check`.
-- `scripts/run-genmatrix.sh` (the `bni cmd/genmatrix` wrapper).
+- `scripts/run-genmatrix.sh` (the bundled-`bni` wrapper).
 - The byte-diff verification harness (a script that runs `genmatrix` under `bni`
   to a scratch dir and diffs against committed `matrix/`).
 - Port **one** easy generator end-to-end to validate the whole pipeline. Use
   `gen-nested-index-matrix.py` (119 LOC, smallest, static table, no oracle).
-- Depends on `os.MkdirAll` (assumed).
+- Depends on `os.MkdirAll` in the tree, and — to run bundled — a CHECK_TOOLS
+  bundle that ships it (else use a from-tree `bni` interim; see Run mode).
 
 ### Phase 1 — Tier 1: the remaining easy generators (5)
 Static tables, hardcoded/self-checking expected, no maps, no oracle, no
