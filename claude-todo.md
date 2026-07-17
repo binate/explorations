@@ -1627,11 +1627,14 @@ unblock them:
     check/externs/interp), `cmd/bni/util.bn` (same trio), `cmd/bnlint/main.bn`
     (`appendStr`/`appendImport`), repl (`appendByteRepl` O(n²)-per-line
     accumulator, `appendReplError`). Vec deletes these helpers outright.
-  - `slices.Append` in a loop: the formatter wrap engine (8 near-identical
-    `strs`/`lines` sites: `print_wrap.bn:124/146/169`, `print_builtin.bn:62`,
-    `print_switch.bn:79`, `print_decl.bn:179`, `print_chain.bn:34`,
-    `print_file.bn:113`); vm `lower.bn:263` / `satentry_inject.bn` /
-    `lower_pkg_descriptor.bn` (×5) / `lower_data.bn`.
+  - `slices.Append` in a loop: the formatter wrap engine — ✅ **DONE**
+    (`print_wrap.bn`'s 3 sites landed earlier; `print_builtin`/`print_decl`/
+    `print_switch`/`print_file` landed `40410619`).  `print_chain.bn`'s
+    `flattenChain` is intentionally left on `slices.Append`: it merges a
+    recursively-returned slice rather than building from empty, so Vec would not
+    simplify it, and chain lengths are small.  STILL OPEN in this spelling: vm
+    `lower.bn:263` / `satentry_inject.bn` / `lower_pkg_descriptor.bn` (×5) /
+    `lower_data.bn`.
   - Manual capacity/length growers (a `@[]T` field + external `N…` counter):
     `cmd/bnlint/suppress.bn` (`Sups`/`Bad`) + `main.bn:472` (`appendMsg`
     +`NumDiags`), `cmd/bnfmt/main.bn:174` (`readFile` byte buffer), lint
@@ -1650,8 +1653,9 @@ unblock them:
   "stdx containers: Map/Set key-type ergonomics" entries above. Until one of
   those lands, the symbol-table/dedup-set sites stay linear scans.
 - **How to land**: one site (or one helper-family) per commit, keeping tests +
-  the `bnfmt-format`/unit suites green; start with the formatter wrap engine
-  (uniform, well-tested, synchronous consumer — no ownership wrinkle) or the
+  the `bnfmt-format`/unit suites green.  The formatter wrap engine is done (see
+  above); next-cleanest candidates are the vm `lower_pkg_descriptor.bn`/
+  `lower_data.bn` accumulator sites (highest density) or the
   `interp`/`cmd-bni` append-helper family (deletes the most code). `vec.Vec` IS
   the "growable container with amortised O(1) append" the earlier "168
   `slices.Append` in loops" note asked to file for later.
