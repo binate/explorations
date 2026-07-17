@@ -224,12 +224,37 @@ needs no `FRAME_HDR` change (reuses `callerPC`).
     host survival + `Status == FAULTED` + message + a clean following turn.
     `vm_fault_test.bn` unit-tests the helpers. Existing bounds conformance proves
     the nested-fatal path unchanged.
-- **Inc 3:** cross-frame unwind = **call-site pads** (so a fault in a nested call
-  unwinds to the caller's pad and up to the host); wire the remaining 7 guard sites
-  (div / shift / nil-deref / 3× call-through-nil); the §6 cleanup-context fatal-guard
-  flag; `cmd/bni` `runProgram`; and the test-runner (fault = failed test, continue
-  — a Test faulting in its own entry-frame body currently returns `Status == FAULTED`
-  that the runner does not yet check).
+- **Inc 3 — cross-frame recovery + remaining guards + host policy.** Architecture
+  steer (user): recovery is **embedder policy**, not a VM property — the VM must
+  ALWAYS unwind to the entry frame and return `Status = FAULTED` + `FaultMsg`, and
+  never `print`/`exit` itself. Each host decides: REPL → diagnostic (Inc 1); `bni`
+  run → print + exit 1; `bni --test` → failed test; another embedder → its own
+  call. "`bni` is just another embedder." The 2b in-VM `println + rt.Exit`
+  (dispatchFaultPad's nested branch) is a staging expedient, removed at the flip.
+  Chosen split: **gate-kept staging** (land the VM mechanism behind the entry-frame
+  gate first, then flip on call-site pads).
+  - **Inc 3a-1 ✅ LANDED (2026-07-17).** `frameLocals` prep refactor (`6b8da0cb`);
+    `BC_UNWIND_RETURN` now pops its frame and continues at the caller's call-site
+    pad (`lookupFaultPad(caller, callerPC)`), entry frame → host (`ed3a8f36`); and
+    `cmd/bni --test` checks `Status == FAULTED` → failed test + continue, fixing the
+    silent-pass hole 2b opened (`b96ec779`, with `e2e/bni-test-fault.sh`). The
+    entry-frame gate STAYS, so real nested faults are still legacy-fatal and the
+    cross-frame pop is inert for real programs — exercised only by a hand-built
+    two-frame lowering test (callee body = `OP_UNWIND_RETURN` bypasses the gate).
+  - **Inc 3a-2 (the flip) — pending.** IR-gen `attachFaultPad` after every call op
+    (`gen_call.bn`'s `EmitCall`/`EmitCallHandle`/`EmitCallIndirect`/
+    `EmitCallFuncValue`/`EmitCallIfaceMethod`, wrapped like `genBoundsCheck`);
+    remove the entry-frame gate; `interp.RunMain` maps `FAULTED` → the fault message
+    as a run-error so `cmd/bni runProgram` prints it + exits 1. Conformance
+    `310`/`929`/`314` stay green (a nested `main` fault now unwinds to `__entry` and
+    the host prints the same message + exit 1). Needs a memory-safety review — every
+    call-site pad must RefDec exactly the caller's live set (the ownership transfers
+    in `coerceArg` — moved iface `consumeTemp`'d out, RefInc'd copies callee-owned,
+    borrowed `@[]T` temp caller-side — already make this consistent).
+  - **Inc 3b — pending.** Wire the remaining guards (div / shift / nil-deref / 3×
+    call-through-nil) onto `setFault` + pads.
+  - **Inc 3c — pending.** The §6 cleanup-context fatal-guard flag (a fault inside a
+    dtor / pad is fatal).
 
 ## 8. Open questions for the user
 
