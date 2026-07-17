@@ -1775,23 +1775,6 @@ unblock them:
   — the point above is that this is under-use to correct where natural,
   not a sign interfaces don't fit.
 
-### Exhaustiveness checking for `Kind`/`Op` tagged-union dispatch
-- **Found by the 2026-07-16 interface survey** as the cheap way to buy
-  the one real safety payoff people reach for interfaces to get, without
-  the 228-file AST/IR rewrite (see "Use interfaces more", candidate 2).
-- **Problem**: Binate has NO switch/exhaustiveness checking.  Adding a
-  new `EXPR_`/`STMT_`/`DECL_`/`TEXPR_`/`OP_` kind means hand-finding every
-  `switch`/if-chain that must handle it; a missed site silently falls
-  through (`codegen/emit_instr.bn` emits a literal `; unhandled op N`
-  comment and returns).  ~2200 dispatch sites, no safety net.
-- **Options**: (a) a `bnlint` rule that knows the closed kind families
-  and flags a `switch`/if-chain over one that omits a case (no `default`
-  escape hatch, or a marked-exhaustive form); (b) a compiler feature —
-  an exhaustive `switch` form over a closed const family that errors on a
-  missing case.  (a) is lower-cost and non-invasive; start there.
-- Pairs with the "if-return chains → switch" work (done) — exhaustiveness
-  is the "type-checker hook" that work noted a `switch` would give.
-
 ### Consider raw-slice-literal sugar `*[]T{...}` (language feature)
 - Today a raw slice over static data is spelled `[N]T{...}` + `arr[:]`
   (a named array local, then a slice view).  Sugar `*[]T{...}` would let
