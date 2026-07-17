@@ -264,6 +264,32 @@ follow-ups (deferred with user sign-off):
   `RegisterPackageFunctions` (they qualify — exported, non-extern), leaving only
   the 9 extern C-I/O entries hand-bound.
 
+### `repl.Kernel` reshape (embeddable REPL → request/reply kernel) — Inc 1 ✅ LANDED; Inc 2/3/4 parked — 🟡 OPEN (2026-07-16)
+
+`pkg/binate/repl` was reshaped from a line-push read-loop
+(`Init`/`Step`/`ReplIO`) into a request/reply **`Kernel`** (`Execute` +
+`IsComplete` + `KernelInfo` + `Complete`/`Inspect` + `RunReadLoop`; notices /
+errors returned as `Result` DATA, not a sink). **Inc 1 is ✅ DONE & LANDED** on
+`main` (`6910166f`..`6fa25ae5`, plus the e2e ordering-pin `f17ea5dc`) — verified
+green (repl + cmd/bni unit tests, hygiene 17/17, `e2e/repl.sh` 56/0) and hardened
+by a 3-lens adversarial review (which caught two land blockers, fixed pre-land).
+Plan + full design: [`plan-repl-kernel.md`](plan-repl-kernel.md).
+
+Remaining increments (all parked, none started):
+
+- **Inc 2 — `Complete`** (tab-completion) and **Inc 3 — `Inspect`**
+  (introspection): ⏸ DEFERRED (2026-07-16, user: not needed currently) — the
+  interface stubs stay. Both need NEW `pkg/binate/types` API (a **shared,
+  BUILDER-tree** package): a `Scope`-enumeration API for `Complete`, and `Symbol`
+  doc/signature retention for `Inspect`. That shared-package API is a design
+  decision to settle before starting either.
+- **Inc 4 — result display** (`Result.Display`, the `Out[n]` value echo): future
+  — needs a new `pkg/replprint` pretty-printer (was gated on interfaces+generics,
+  which have landed).
+- **Evaluated-code output / stdin capture** — deferred to package-impl injection
+  (`plan-repl-kernel.md` Decision #4); untouched. Full side-effect capture is
+  impossible in general.
+
 ## VM runtime faults & the rt.Exit/abort/panic paradigm
 
 ### rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟡 SCOPE REQUIRED (2026-06-20)
