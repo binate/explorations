@@ -1729,9 +1729,16 @@ unblock them:
     this spelling: vm `lower.bn:263` (marginal — single call, not a build loop) /
     `satentry_inject.bn` / `lower_data.bn`.
   - Manual capacity/length growers (a `@[]T` field + external `N…` counter):
-    `cmd/bnlint/suppress.bn` (`Sups`/`Bad`) + `main.bn:472` (`appendMsg`
+    ✅ lint `unused_func.bn` (`funcReach`'s CNames/CDecls/Work/Reach) landed
+    `5e7a95a8` (dropped NC/NW/NR + the doubling/growNames boilerplate).  STILL
+    OPEN: `cmd/bnlint/suppress.bn` (`Sups`/`Bad`) + `main.bn:472` (`appendMsg`
     +`NumDiags`), `cmd/bnfmt/main.bn:174` (`readFile` byte buffer), lint
-    `refs.bn` (`growNames`), `unused_func.bn`, `unused_local.bn`.
+    `refs.bn` (`growNames` — the shared helper; deletable once refs +
+    unused_local convert), `unused_local.bn`.  ⛔ **`unused_local.bn` is BLOCKED**:
+    its `Poss @[]token.Pos` parallel array can't become `vec.Vec[token.Pos]` —
+    bnc rejects a bare qualified value type as a generic type-arg (see the MAJOR
+    bug entry, 2026-07-17).  `refs.bn`/`unused_func` key on `@[]@[]char`/`@ast.Decl`
+    so they're unaffected.
 - **Ownership caveat**: `Vec.Items()` is a *view* into the backing, not an owned
   slice. Vec fits persistent accumulator fields and build-then-hand-to-a-
   synchronous-consumer; it's a poor fit for build-and-return-an-owned-slice (you'd
