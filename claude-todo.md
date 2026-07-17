@@ -1662,8 +1662,12 @@ unblock them:
     outright — but partial adoption (convert the LOOP callers, leave 1-element
     error builders + the helper) is fine incrementally.  ✅ `interp.bn`'s three
     LOOP accumulators (`New`'s `ifOnly`, `LoadProgram`'s `lerrs`/`initPkgNames`)
-    landed `3c1fb103`; `appendCharSlice` stays for interp's single-append error
-    builders + its `check`/`imports`/`externs` callers (and `cmd/bni`).
+    landed `3c1fb103`; ✅ `cmd/bni/main.bn`'s `--test`-path loop accumulators
+    (`initPkgNames`, `testNames`) landed `c91173e7`.  `appendCharSlice`/`appendFilePtr`
+    stay for the single-append error/field builders + interp's `check`/`imports`/
+    `externs` callers and `cmd/bni`'s `args.bn`/`util.bn` (the `result`/`out`
+    local loops + `ProgArgs`/`BniPaths`/`ImplPaths`/`Filenames`/`TestPackages`
+    field accumulators are still open).
   - `slices.Append` in a loop: the formatter wrap engine — ✅ **DONE**
     (`print_wrap.bn`'s 3 sites landed earlier; `print_builtin`/`print_decl`/
     `print_switch`/`print_file` landed `40410619`).  `print_chain.bn`'s
