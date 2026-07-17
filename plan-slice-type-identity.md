@@ -124,6 +124,15 @@ mode; `./scripts/hygiene/run.sh`. On landing: narrow the `claude-todo.md` MAJOR
 entry to the still-open managed `@any` case (§9), moving the raw fix to the done
 log.
 
+### Phase 1+2 (raw) — structural mangling primitive + boxing. ✅ LANDED `724cd6df` (2026-07-16).
+
+*(Combined into one "Chunk 1": the primitive `namelessAnySrcName` reuses the
+existing `mangleTypeArg`, and the raw-`*any` box branch keys each name-less type
+on its own structural `pkg/builtins/rt.__nameless_<lp>` identity — superseding
+Phase 0's single shared-opaque sentinel. Still a clean MISS (inert) until the
+HIT phase; conformance 1075 guards the wire-in via the per-type panic name. The
+§10 readonly gap remains a HIT-phase blocker.)*
+
 ### Phase 1 — structural mangling primitive. *(Layer B; no behavior change yet.)*
 
 **Change.** `pkg/binate/mangle`: add an entry deriving a stable `__typeinfo.` /
