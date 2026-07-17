@@ -1,8 +1,10 @@
 # Plan: `#!` shebang support (`proposal-shebang`)
 
-Status: **Spec RATIFIED** (2026-07-17, Draft — design locked, not yet
-implemented). Impl to be done by someone else; this plan stages it. Spec:
-§5.2 `lex.shebang` (normative) + §17.3.1 note (`bni -x` script mode, informative).
+Status: **IMPLEMENTED** — all four commits landed on main 2026-07-17 (see the
+per-commit hashes below); spec RATIFIED (Draft). Spec: §5.2 `lex.shebang`
+(normative) + §17.3.1 note (`bni -x` script mode, informative). Remaining: flip
+the spec's `lex.shebang` Draft→Stable once the CI lanes confirm green (§6, a docs
+change — not code).
 
 ## 1. Goal
 
@@ -33,7 +35,7 @@ Each commit is independently landable and keeps every mode green. Verify = unit
 tests of touched packages + targeted conformance, NOT the full suite (landing
 discipline).
 
-### Commit 1 — lexer `#!` skip  *(the core; unblocks parsing everywhere)*
+### Commit 1 — lexer `#!` skip  *(the core; unblocks parsing everywhere)* — ✅ LANDED (`2f3b27f1`)
 - **Change:** `pkg/binate/lexer/lexer.bn` `newLexer`, immediately after the
   initial `l.advance()` (which loads byte 0 into `l.ch`, `l.pos == 0`): if
   `l.ch == '#' && l.peek() == '!'`, skip to end of line. **Hand-write the skip** —
@@ -59,7 +61,7 @@ discipline).
   already runs via `./foo.bn` once the file is `chmod +x` and the shebang names a
   working interpreter line (arg-taking needs Commit 3).
 
-### Commit 2 — `bnfmt` preserves the shebang  *(depends on Commit 1)*
+### Commit 2 — `bnfmt` preserves the shebang  *(depends on Commit 1)* — ✅ LANDED (`575562bd`)
 - **Change:** `cmd/bnfmt/main.bn` — before formatting, detect a byte-0 `#!` in the
   raw `src`, capture that first line, and re-emit it verbatim as the first output
   line (then the formatted body). (Without Commit 1 bnfmt can't even parse a
@@ -68,7 +70,13 @@ discipline).
   preserved byte-for-byte); **idempotence** (`bnfmt(bnfmt(x)) == bnfmt(x)`); a file
   without a shebang is unchanged by this path.
 
-### Commit 3 — `bni -x` script mode  *(argument-taking scripts)*
+### Commit 3 — `bni -x` script mode  *(argument-taking scripts)* — ✅ LANDED (`28ca7899`)
+
+Note: `--version` was folded into `parseArgs` (a `Version` flag) rather than
+gating the pre-parse scan in place — one detection point so the version check and
+flag recognition both respect `-x`. A benign side effect: `bni -run --version` now
+treats `--version` as `-run`'s value (the old position-agnostic scan wrongly
+printed bni's version there); the shebang path is unaffected.
 - **Change:** `cmd/bni/args.bn` — add `Script bool` to `CLIArgs`; in `parseArgs`,
   a `-x` flag sets it; then the **first** non-flag arg is the sole `Filenames`
   entry and **every** subsequent arg goes to `ProgArgs` — including a literal `--`
@@ -95,7 +103,16 @@ discipline).
   directory errors; `-I dir -x s.bn a` still honors `-I` (bni flags precede the
   file). A run test: a script reading `os.Args` under `-x` sees `[s.bn, a, b, -c]`.
 
-### Commit 4 — end-to-end executable-script test  *(needs Commits 1 + 3)*
+### Commit 4 — end-to-end executable-script test  *(needs Commits 1 + 3)* — ✅ LANDED (`4a0095e1`)
+
+Implemented as `e2e/shebang-exec.sh`. Two harness realities the plan under-specified:
+(1) bni has no built-in stdlib location (resolveRoot), so the shebang MUST supply
+`-I`/`-L`; the script uses `#!/usr/bin/env -S <bni> -x -I <iface> -L <impl>` (env/bni
+are binaries — a shell-script wrapper would hit the kernel's no-nested-shebang rule).
+(2) The full checkout `-I`/`-L` paths blow past the kernel's ~256-byte shebang-line
+cap (silent truncation), so the test uses a short tmp base and symlinks each
+search-path component to a 1-char name (line ~187 bytes), with a defensive length
+guard that fails loud rather than letting the kernel truncate.
 - **Change:** an `e2e/` test: write a `.bn` with `#!/usr/bin/env -S bni -x`, `chmod
   +x`, execute `./script.bn one two`, assert it prints its args. **Harness
   consideration (flag for the implementer):** the shebang needs `bni` resolvable —
@@ -131,5 +148,8 @@ discipline).
 ## 6. Spec status
 
 Ratified as Draft (committed): §5.2 `lex.shebang` (normative) + §17.3.1 script-mode
-note (informative). `rule-ids.txt` gained `lex.shebang`. Flip Draft→Stable/Provisional
-once Commits 1–4 land conformance-green.
+note (informative). `docs/spec/rule-ids.txt` gained `lex.shebang`; the vendored
+`scripts/spec-coverage/rule-ids.txt` was updated with it in Commit 1. **Commits 1–4
+have landed** (hashes above), so the Draft→Stable/Provisional flip is now UNBLOCKED —
+a docs change, pending confirmation that the conformance + e2e CI lanes are green on
+main.
