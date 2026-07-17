@@ -6,6 +6,27 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## FFI export (`#[c_export]`) MVP + entry-move — ✅ DONE & LANDED (Phases 2/3/5a/6, 2026-07)
+
+The outbound C-interop MVP — expose Binate functions to C, and write the program's
+startup glue in Binate — landed (design-ffi-export.md / plan-ffi-export-detailed.md):
+- **`#[c_export("name")]`** (Phase 2 `e213dd42`, Phase 3 `dd98dc31` + follow-up
+  `eb0cff00`): an unqualified, compiler-recognized annotation emitting an additional
+  unmangled C symbol aliasing a `.bni`-public func (LLVM + native backends), with an
+  e2e C-links-Binate harness.
+- **`bnc --library` + `bn_init`** (Phase 5a `0d332f0b` / `eb449613`): build a facade
+  package + its closure into a C-callable `.a`; `bn_init` is the hardcoded, idempotent,
+  build-root-rooted init dispatcher (promotion of `main.__init_all`), `bn_entry` =
+  `bn_init(); main.main()`.
+- **Entry-move** (Phase 6): the C `main` in `runtime/binate_runtime.c` became the Binate
+  `startup._entry` (`#[c_export("main")]`) — the design's `platform_init` package,
+  renamed `startup` — gated by the `entrypoint` build dimension so a hosted program
+  gets it and baremetal/library don't (`c4607a71` + `8eb5f8c9`; see the dedicated done
+  entries).
+Post-MVP follow-ons (header generator, trivial-forward alias opt, merge mode, signature
+lint) tracked in claude-todo.md.  The baremetal linker-placement idea is a linker
+concern (plan-linker.md), not FFI-export.
+
 ## Clean up conformance tests to use array literal + `arr[:]` pattern — ✅ SURVEYED & RETIRED (`f7c1e9c4`, 2026-07-16)
 
 Goal: conformance tests using `make_slice(T,N)` + indexed assignment for STATIC

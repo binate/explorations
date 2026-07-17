@@ -489,22 +489,30 @@ first real payoff of the general annotations feature. Open wrinkles:
   lowering or a full-path escape hatch.
 - **Search paths** — keep the annotation name-only (`-l`); leave `-L<dir>` to flags.
 
-### FFI **export** (`#[c_export]`) — expose Binate to C — 🟡 OPEN (proposal, not ratified)
+### FFI export (`#[c_export]`) — post-MVP follow-ons (core + entry-move landed) — 🟡 OPEN
 
-The outbound counterpart to `__c_call`/`__c_global`: expose Binate functions **to** C,
-and write the program's startup glue in Binate. **Design (proposal, reworked +
-adversarially reviewed, NOT specified/implemented):**
-[design-ffi-export.md](design-ffi-export.md). **High-level implementation roadmap:**
-[plan-ffi-export.md](plan-ffi-export.md). Scope: a `#[c_export("name")]` annotation
-(additional unmangled C symbol; no grammar change); hardcoded well-known `bn_init`
-(build-root-rooted, idempotent — the promotion of `main.__init_all`) / `bn_entry`; a
-new `pkg/builtins/platform_init` package of build-conditional entry functions that
-**retires `runtime/binate_runtime.c`**; a `bnc --library`/merge build mode; a
-trivial-forward→symbol-alias optimization; a header generator; a baremetal
-linker-placement annotation. **Phase 0 is a user decision** (ratify + spec before
-building); MVP path is plan Phases 1→2→3→5a. Motivating use case = the embeddable
-interpreter/VM (`plan-embeddable-interp.md` / `plan-embeddable-vm.md`); sibling to the
-`#[link]` companion above (same annotation family).
+The outbound C-interop core landed (see claude-todo-done.md): `#[c_export("name")]` +
+alias emission (Phases 2/3), `bnc --library` + `bn_init`/`bn_entry` (Phase 5a), and the
+entry-move (`startup._entry` replacing `binate_runtime.c`'s `main` — the design's
+`platform_init` package, renamed `startup`; Phase 6).  Design:
+[design-ffi-export.md](design-ffi-export.md); roadmap:
+[plan-ffi-export-detailed.md](plan-ffi-export-detailed.md).  Remaining follow-ons (all
+post-MVP, none started):
+- **Header generator** (Phase 7): emit a C `.h` for a facade's `#[c_export]` surface (a
+  new `pkg/binate/codegen/emit_c_header.bn`).  Deferred at MVP — the C consumer
+  hand-writes the small header for now.
+- **Trivial-forward → symbol-alias optimization** (§3.4): a signature-preserving
+  `#[c_export] func bar_(x) R { return foo.Bar(x) }` should lower to a symbol alias
+  (`bar` = `foo.Bar`'s mangled symbol) / tail thunk, not a real call frame.
+- **Merge build mode** (§3.6): co-link separately-built libraries without a `bn_init`
+  collision.
+- **Signature lint** (Phase 9, optional): a bnlint rule flagging C-unusable
+  `#[c_export]` signatures (e.g. func-value params needing the trampoline).
+
+The design's Phase 8 (baremetal linker-placement annotation) is NOT an FFI-export
+concern — it is a linker-placement problem, tracked in [plan-linker.md](plan-linker.md).
+The `--library` end-to-end (`check_library`) un-skip is in the entry-point-move
+follow-ups above (blocked on the shim relocation, not `main`).
 
 ## Build constraints (`#[build(EXPR)]`)
 
