@@ -353,7 +353,25 @@ mechanism.
 
 Tracked in `claude-todo.md` alongside the (now-narrowed) MAJOR crash entry.
 
-## 10. Open finding: element-`readonly` stripped at box sites — HIT-phase blocker (found 2026-07-16)
+## 10. Element-`readonly` at box sites — ✅ RESOLVED `183dc7a4` (2026-07-17)
+
+**Chunk 2a fixed it** (the owner-crucial correctness piece): `wrapAsIfaceValue`
+now threads the boxed source expression's UN-STRIPPED checker type
+(`Checker.ExprType(expr.ResolvedTypeID)`) and keys the name-less identity + its
+`__typeinfo` record on that, so element-`readonly` (and, as a bonus,
+pointer-level `readonly`) survives the IR's layout-transparent strip.
+`*[]readonly char` (`__nameless_srN…`) and `*[]char` (`__nameless_sN…`) now have
+DISTINCT identities. Conformance `1076` pins it; the adversarial review verified
+`ExprType` returns the source type (never the `*any` target) across 8 box
+contexts, that source/value shapes align by construction (checker admits only
+`*T`/`@T` sources), and that the un-stripped recvTyp is layout-identical for
+slice/array/func (SizeOf peels readonly). **HIT-phase carry-over (nit):** the
+`srcExprTyp == nil` fallback silently reverts to the stripped identity — harmless
+today (unreachable: `ResolvedTypeID` always populated; HIT is checker-rejected),
+but when the HIT phase lands it must **fail-loud** if `srcExprTyp` is nil for a
+readonly-bearing source, rather than resurrect the write-through-readonly hole.
+
+Original finding (now resolved) below, for the record:
 
 Surfaced by the adversarial review of the Phase-1+2 structural-identity chunk
 (`7c600d41`). The structural mangler (`mangleTypeArg` / `namelessAnySrcName`)
