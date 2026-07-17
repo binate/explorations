@@ -221,7 +221,7 @@ Remaining increments (all parked, none started):
 
 ## VM runtime faults & the rt.Exit/abort/panic paradigm
 
-### rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟢 SCOPED; approach ratified, Inc 1 in progress (2026-07-16)
+### rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟢 SCOPED; Inc 1 LANDED (`6dd89502`), Inc 2a next (2026-07-17)
 
 **Related robustness gap (filed 2026-06-30):** a bad-pointer deref inside a NATIVE EXTERN
 called from the VM (e.g. handing a wild pointer to `rt.Refcount`) SIGSEGVs the VM host with
@@ -253,7 +253,7 @@ outermost `execLoop` (a fault under a live native callback stays fatal —
 mid-callback gate, needs heap frames); native-extern SIGSEGV stays separate
 (needs a host signal handler — the robustness gap above). Increments: **Inc 1**
 fault carrier (`VM_STATUS_FAULTED`/`FaultMsg`) + `repl.Execute`→`EXEC_ERROR`
-surface *(in progress)*; **Inc 2a** IR-gen cleanup pads (long pole; own design +
+surface *(✅ LANDED `6dd89502`)*; **Inc 2a** IR-gen cleanup pads (long pole; own design +
 review); **Inc 2b** VM unwind mode; **Inc 3** wire the 8 guard sites +
 `cmd/bni`/test-runner. `EXEC_ERROR` reused over a new `EXEC_FAULTED`.
 

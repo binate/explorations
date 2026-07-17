@@ -208,7 +208,8 @@ is untouched: compiled code calls `rt.*Check` directly and stays fatal.
 Each increment stays green and lands small; the IR-gen pad design (2a) gets its
 own detailed design + adversarial review before code.
 
-- **Inc 1 — fault carrier + REPL surface (host-facing contract).** `@VM`:
+- **Inc 1 — fault carrier + REPL surface (host-facing contract). ✅ LANDED
+  (`6dd89502`, 2026-07-17).** `@VM`:
   `VM_STATUS_FAULTED` + `FaultMsg @[]char`, reset in `CallFunc`/`CallByVMFunc`.
   `repl.Execute` maps a faulted VM status onto **`EXEC_ERROR`** (chosen over a
   new `EXEC_FAULTED`: a faulting turn is a failed turn like a compile error —
