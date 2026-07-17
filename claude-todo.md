@@ -1677,11 +1677,13 @@ unblock them:
     (`initPkgNames`, `testNames`) landed `c91173e7`; ✅ interp `check.bn`
     (`formatCheckErrors`) + `externs.bn` (`NativeOnlyInterfacePaths`, and its
     `appendNonTargetPaths` helper switched to push-in-place on a `@Vec`) landed
-    `4d6f65c9`.  `appendCharSlice`/`appendFilePtr` stay for the single-append
-    error/field builders + interp's `imports.bn` pointer-threaded callers and
-    `cmd/bni`'s `args.bn`/`util.bn` (the `result`/`out` local loops +
-    `ProgArgs`/`BniPaths`/`ImplPaths`/`Filenames`/`TestPackages` field
-    accumulators are still open).
+    `4d6f65c9`; ✅ `cmd/bni`'s `splitColon` (`util.bn`) + `expandDirArgs`
+    (`args.bn`) local loops landed `81d1a5c4`.  `appendCharSlice`/`appendFilePtr`
+    stay for the single-append error/field builders + interp's `imports.bn`
+    pointer-threaded callers and `cmd/bni`'s `parseArgs` struct-field accumulators
+    (`ProgArgs`/`BniPaths`/`ImplPaths`/`Filenames`/`TestPackages` — rippling, still
+    open).  Also still open: `cmd/bnlint` (`appendStr`/`appendImport`/`appendMsg`)
+    and repl (`appendByteRepl`/`appendReplError`).
   - `slices.Append` in a loop: the formatter wrap engine — ✅ **DONE**
     (`print_wrap.bn`'s 3 sites landed earlier; `print_builtin`/`print_decl`/
     `print_switch`/`print_file` landed `40410619`).  `print_chain.bn`'s
