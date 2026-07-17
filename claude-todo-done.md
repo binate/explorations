@@ -6,6 +6,35 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## §7.13.6 null-backing / immortal-ref — generalized to a lifetime-based contract — ✅ DONE (2026-07-17, docs `819fe53`)
+
+The spec characterized a null-backing managed-slice (`backing == null`, non-null
+`data`) as "a view of immortal static read-only data", and `§18.2 mem.immortal` as
+program-image / static-managed. Both were **overly restrictive**: the null-refptr
+(unowned) contract and the immortal sentinel are about a value **outliving every
+reference** to it — a **lifetime** contract, not a storage class. rodata is one
+realization (and on a target with no read-only-data section, an immortal reference
+is how such data is held at all).
+
+Generalized (docs `819fe53`, adversarially reviewed SOUND): §7.13.6
+`type.layout.slice-managed.backing` — a null backing is a non-owning view of
+**effectively-immortal storage** (outlives every reference); rodata the canonical
+example, not the definition; soundness rests on the **producer** guaranteeing the
+referent outlives every reference (borrow discipline, §18.1/§18.7). The
+managed-elements-must-be-immortal side-condition is unchanged. §18.2 `mem.immortal`
+reframed as lifetime-based so it actually backs that citation. Rule-IDs unchanged.
+
+**Correction to the original todo's premise.** The todo cited the hosted `_entry`
+glue as a "concrete non-rodata producer now in the tree" that *borrows* argv into
+`Args` as null-backing views. That was inaccurate: `args_main.bn` **copies** each
+argv C-string into an **owned** `make_slice` allocation (verified by code + full git
+history + a whole-tree producer census — rodata string/const-byte-composite literals
+are the *only* current null-backing producer, and there is no safe user-surface to
+construct one). The generalization was done anyway because it is correct on its own
+merits — per direction, the immortal-ref contract is genuinely lifetime-based and
+predates rodata — and it is forward-compatible with any future immortal-storage
+producer.
+
 ## CHECK_TOOLS bump to `bnc-0.0.12-pre1` — multi-root bnlint leak cleared, `LINT_SKIP` now empty — ✅ DONE (2026-07-17)
 
 The frozen CHECK_TOOLS bnlint (`bnc-0.0.11`) carried a multi-root checker-state-leak:

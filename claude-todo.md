@@ -699,27 +699,6 @@ language extension, not a bug fix.
 
 ## Spec authoring & language-decision residuals
 
-### §7.13.6 null-backing view — generalize "immortal static read-only data" to "effectively immortal" — nicety (found 2026-07-17)
-`type.layout.slice-managed.backing` (docs/spec/07b-type-layout.md) characterizes a
-null-backing managed-slice (`backing == null`, non-null `data`) as "a view of immortal
-static read-only data (e.g. a `@[]readonly char` literal when compiled)", and the
-environment-lifetime note frames the lifetime as the program image / rodata. That is too
-narrow: rodata is one *example* of a valid producer, not the constraint. The operational
-contract of a null backing is purely "unowned — `RefInc`/`RefDec` no-op, never freed"
-(§18.2 `mem.immortal`); it may back **any** data that is *effectively immortal relative to
-every reference to the slice* — i.e. outlives all references — with soundness resting on the
-borrow discipline (§18.1 `mem.managed-vs-raw` / §18.7 `mem.raw-uaf`: the programmer ensures
-the referent outlives the borrow). Concrete non-rodata producer now in the tree: the hosted
-`_entry` glue (`impls/core/common/pkg/builtins/startup/args_main.bn`) borrows the process's
-C `argv` strings into `Args` as null-backing `@[]readonly char` views — argv is `_entry`'s
-own parameter, so it outlives the whole program. (The same applies to `environ` once
-`env.bn` stops being a stub.)
-**Amend:** reword the null-backing bullet + environment-lifetime note so "immortal static
-read-only data" reads as one *example* of "effectively-immortal storage", and state the
-operational contract + borrow-discipline obligation as the actual rule. Keep the existing
-constraint that any **managed** elements held by an unowned backing must themselves be
-immortal (unchanged — argv holds only `char`, non-managed). Rule-IDs unchanged.
-
 ### Relational-comparison chain (`a < b < c`) diagnostic reach — nicety
 The `expr.compare.relational` rule: `a < b < c` is correctly rejected in every context, but the
 dedicated "comparison operators do not chain" message fires only for the identifier-leading
