@@ -6,6 +6,40 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## CHECK_TOOLS bump to `bnc-0.0.12-pre1` — multi-root bnlint leak cleared, `LINT_SKIP` now empty — ✅ DONE (2026-07-17)
+
+The frozen CHECK_TOOLS bnlint (`bnc-0.0.11`) carried a multi-root checker-state-leak:
+within ONE bnlint process, a package interning a `readonly uint8` slice element (e.g.
+`pkg/binate/format`, via `strings.Builder.Write` or a `vec.Vec[@[]readonly char]` site)
+leaked that element type into a later-linted target's typecheck, spuriously rejecting an
+`@[]char` (== @[]uint8) assignment (`cannot assign @[]readonly uint8 to @[]uint8`).  The
+underlying checker bug (generic-instantiation cache conflating `readonly`-differing type
+args) was FIXED at `962450cf`, but the frozen bundle predated it, so `setfn` stayed
+`LINT_SKIP`'d as a pure version-lag.
+
+**Forced by the Vec-adoption sweep:** adopting `vec.Vec` in vm `lower_pkg_descriptor.bn`
+added `@[]char`-element instantiations that re-tipped the leak onto a NEW victim,
+`pkg/binate/repl/loop_test.bn` (a `@[]@[]uint8` `make_slice`), reddening hygiene lint.
+`LINT_SKIP` could not quarantine it cleanly (the victim shifts with the instantiation set
+across the sweep), so the durable fix was to bump CHECK_TOOLS past `962450cf`.
+
+**Cut `bnc-0.0.12-pre1` as the new CHECK_TOOLS bundle:**
+- `fc956a2f` — bnlint treats `#[c_export]` functions as unused-func reachability roots
+  (else the post-fix bnlint flags `startup._entry`, a C-called entry point, as
+  `[unused-func]`).
+- `f3c889fa` — dev bumped to `bnc-0.0.12-pre2` FIRST, so the pre1 commit is frozen/known
+  and the tag points at an explicit hash (C before B).
+- tag `bnc-0.0.12-pre1` at `54ed2260` (the last pre1-VERSION commit; hygiene 17/17 before
+  tagging) → `release.yml` built+published the 3-platform bundle.
+- `cf59c395` — `CHECK_TOOLS_VERSION` → `bnc-0.0.12-pre1`; `LINT_SKIP` dropped its last
+  entry (`setfn`) → now EMPTY (whole tree lints clean); stale `lint.sh` + `bnfmt-format.sh`
+  comments corrected.
+- `512dc219` — the vm `lower_pkg_descriptor` Vec conversion that forced the bump, now
+  green under the new bnlint.
+
+Full hygiene 17/17 verified with CHECK_TOOLS=`bnc-0.0.12-pre1` (setfn + repl + vm all lint
+clean).  BUILDER_VERSION stays `bnc-0.0.11` (CHECK_TOOLS is decoupled).
+
 ## De-duplicate the triplicated native `EmitObject` (→ `common` ArchEmitter) — ✅ DONE (skeleton unified); helper de-dup declined-as-blocked (2026-07-17)
 
 The three native backends (aarch64/x64/arm32) triplicated a ~30-line `EmitObject`

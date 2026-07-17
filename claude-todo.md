@@ -575,72 +575,6 @@ the VM.  Residual follow-ups:
 
 ## bnlint rules, unused-entity checks & lint skips
 
-### Bump CHECK_TOOLS past `962450cf` (likely a pre-release) — multi-root leak now BLOCKS Vec adoption; `LINT_SKIP` can't quarantine it — 🟡 IN PROGRESS (updated 2026-07-17)
-
-**IN PROGRESS 2026-07-17 — cutting `bnc-0.0.12-pre1` as the new CHECK_TOOLS bundle:**
-1. ✅ bnlint `#[c_export]`-as-reachability-root fix LANDED (`fc956a2f`) — clears the
-   `_entry` unused-func false positive a post-`962450cf` bnlint would otherwise surface
-   (from-source lint of the whole tree is now clean: no leak, no `_entry`).
-2. ✅ pre-release cut: tag `bnc-0.0.12-pre1` pushed at `54ed2260` (the last commit with
-   `bnc-0.0.12-pre1` in VERSION — carries both `962450cf` and `fc956a2f`; hygiene
-   17/17-verified before tagging).  Release CI (`release.yml`) builds+publishes the
-   3-platform bundle.
-3. ✅ dev bumped to `bnc-0.0.12-pre2` (`f3c889fa`) BEFORE tagging, so the pre1 commit is
-   frozen/known and the tag points at an explicit hash, not a moving HEAD.
-4. ⏳ REMAINING once the pre1 bundle publishes: set `CHECK_TOOLS_VERSION` →
-   `bnc-0.0.12-pre1`; DROP `setfn` from `LINT_SKIP` (leak gone under the new bnlint) and
-   fix the stale `scripts/hygiene/lint.sh` comment (it claims "a bump will not clear it" —
-   `962450cf` makes that false); verify full hygiene green; then land the held vm
-   `lower_pkg_descriptor` Vec conversion (which tipped the leak — the reason for the bump).
-
-The original reason for this skip — `bnc-0.0.11pre2`'s bnlint mis-firing the generic
-constraint check ("type argument H does not satisfy constraint Hasher[T]" / "K does
-not satisfy Hashable") at the injectable-key-policy + Table container blanket impls,
-because the checker fixes `2f8969e8` / `6647c49f` postdated pre2 — is **RESOLVED**:
-CHECK_TOOLS_VERSION is now `bnc-0.0.11` (contains both fixes).
-
-**Partial drop LANDED (`2dbff394`):** un-skipped the 6 now-clean packages
-(`pkg/stdx/{hash,cmp}` + `pkg/stdx/containers/{table,mapfn,hashmap,set}`) and removed
-3 genuine dead `pkg/builtins/lang` imports the skip had masked (in
-`hash_test.bn` / `cmp_test.bn` / `table_test.bn`). `scripts/hygiene/lint.sh` now lints
-all six; full hygiene green.
-
-**Remaining:** `pkg/stdx/containers/setfn` stays skipped.  The underlying checker
-bug — the generic-instantiation cache conflating `readonly`-differing type args, which
-made setfn's `iter.Iterator[@[]char]` pick up `format`'s cached
-`iter.Iterator[@[]readonly char]` (spurious `cannot assign @[]readonly uint8 to
-@[]uint8`) — is now **FIXED & LANDED (`962450cf`)**.  So the setfn skip is now a pure
-CHECK_TOOLS **version-lag**: hygiene's lint uses the frozen `bnc-0.0.11` bnlint, which
-predates the fix and still mis-fires.  **DROP `setfn` from LINT_SKIP at the next
-CHECK_TOOLS bump past `962450cf`** — that closes this entry.  (See the done log for the
-fix's full root-cause writeup.)
-
-**ELEVATED 2026-07-17 — this now BLOCKS the Vec-adoption work, and `LINT_SKIP` cannot
-work around it.**  Adopting `vec.Vec` in the vm's `lower_pkg_descriptor.bn` (a correct
-change — accepted by `bnc`, all unit tests + reflection/generic conformance green,
-adversarially reviewed) tips the SAME frozen-bnlint multi-root leak onto a NEW victim:
-`pkg/binate/repl/loop_test.bn`'s `var lines @[]@[]uint8 = make_slice(@[]uint8, 2)` is
-mis-typechecked as `@[]@[]readonly uint8` (`cannot assign @[]@[]readonly uint8 to
-@[]@[]uint8`), reddening hygiene lint.  Confirmed the class: repl linted ALONE is clean;
-`format`+`vm`+`repl` in one bnlint process leaks; from-source bnlint (post-`962450cf`)
-does not leak.  **`LINT_SKIP` is futile here** (verified): unlike setfn (whose victim is
-setfn's own non-test code, excluded via TARGETS), the victim is a TEST file that
-bnlint's `--tests` discovers GLOBALLY, independent of TARGETS — skipping `pkg/binate/repl`
-AND its importer `cmd/bni` still leaves `loop_test.bn` typechecked and red.  So the leak
-is a moving target across the Vec sweep (any conversion that adds a `@[]char`/`@[]readonly
-char` `vec.Vec` instantiation can re-tip it onto some `@[]@[]uint8`/`@[]@[]char` site),
-and the only real unblock is the CHECK_TOOLS bump.  The vm conversion is **held**
-(unlanded) pending this.  **Wrinkle in the bump:** the from-source (post-fix) bnlint
-surfaces a DIFFERENT false positive it currently masks — it flags
-`impls/core/common/pkg/builtins/startup/args_main.bn`'s `#[c_export("main")] _entry` as
-`[unused-func]` (an entry point is reachable via crt0/C, invisible to bnlint's
-reachability).  So a bump must ALSO treat `#[c_export]` functions as reachability roots
-(or suppress), else it trades the type-leak for an `_entry` unused-func red.  Also FIX the
-stale `scripts/hygiene/lint.sh` comment (lines ~34-44) which claims the leak is "NOT a
-version-lag — a bump will not clear it"; `962450cf` makes that false (a bump DOES clear
-it).  (The user chose 2026-07-17 to elevate this to a CHECK_TOOLS bump / pre-release
-rather than a `LINT_SKIP` workaround, after `LINT_SKIP` was shown futile.)
-
 ### Raw-slice escape: decide whether a BROADER best-effort escape lint is wanted — 🟡 NEEDS DECISION
 The original framing ("demote the raw-slice escape TYPE ERROR to a linter rule")
 is obsolete: there is NO type-check rejection for raw-slice escape (the checker
@@ -1751,9 +1685,11 @@ unblock them:
     `print_switch`/`print_file` landed `40410619`).  `print_chain.bn`'s
     `flattenChain` is intentionally left on `slices.Append`: it merges a
     recursively-returned slice rather than building from empty, so Vec would not
-    simplify it, and chain lengths are small.  STILL OPEN in this spelling: vm
-    `lower.bn:263` / `satentry_inject.bn` / `lower_pkg_descriptor.bn` (×5) /
-    `lower_data.bn`.
+    simplify it, and chain lengths are small.  ✅ vm `lower_pkg_descriptor.bn`'s 5
+    local build-loops (lowerDataGlobals / gatherPackageFuncs / funcValueTypeOf /
+    gatherPackageGlobals / gatherPackageVtables) landed `512dc219`.  STILL OPEN in
+    this spelling: vm `lower.bn:263` (marginal — single call, not a build loop) /
+    `satentry_inject.bn` / `lower_data.bn`.
   - Manual capacity/length growers (a `@[]T` field + external `N…` counter):
     `cmd/bnlint/suppress.bn` (`Sups`/`Bad`) + `main.bn:472` (`appendMsg`
     +`NumDiags`), `cmd/bnfmt/main.bn:174` (`readFile` byte buffer), lint
@@ -1771,13 +1707,17 @@ unblock them:
 - **Map/Set half is BLOCKED** on the missing Hashable name key — see the two
   "stdx containers: Map/Set key-type ergonomics" entries above. Until one of
   those lands, the symbol-table/dedup-set sites stay linear scans.
+- **Frozen-bnlint blocker RESOLVED 2026-07-17**: adding `vec.Vec[@[]readonly char]`
+  instantiations was re-tipping the CHECK_TOOLS bnlint's multi-root leak onto unrelated
+  packages' `@[]@[]uint8`/`@[]@[]char` sites (it hit `repl/loop_test.bn` after the vm
+  conversion).  CHECK_TOOLS is now bumped to `bnc-0.0.12-pre1` (past the `962450cf` fix;
+  see the done log), so the sweep can add Vec instantiations freely without re-tipping.
 - **How to land**: one site (or one helper-family) per commit, keeping tests +
-  the `bnfmt-format`/unit suites green.  The formatter wrap engine is done (see
-  above); next-cleanest candidates are the vm `lower_pkg_descriptor.bn`/
-  `lower_data.bn` accumulator sites (highest density) or the
-  `interp`/`cmd-bni` append-helper family (deletes the most code). `vec.Vec` IS
-  the "growable container with amortised O(1) append" the earlier "168
-  `slices.Append` in loops" note asked to file for later.
+  the `bnfmt-format`/unit suites green.  Formatter wrap engine + vm
+  `lower_pkg_descriptor` are done (see above); next-cleanest candidates are the vm
+  `lower_data.bn` accumulator sites or the `interp`/`cmd-bni` append-helper family
+  (deletes the most code). `vec.Vec` IS the "growable container with amortised O(1)
+  append" the earlier "168 `slices.Append` in loops" note asked to file for later.
 
 ### Use interfaces more (where an interface is the best/natural design)
 - **Framing (2026-07-16)**: the bar is NOT "opportunistic / cheap
