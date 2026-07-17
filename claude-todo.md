@@ -32,90 +32,38 @@ Binate-entry model — provide a test-only C `main` stub that calls `bn_entry`, 
 link whatever startup/entry object the new model produces so the emitted
 `__entry` has an entry point.
 
-### Type-switch / interface-assertion over a `*any` whose boxed dynamic type is a SLICE segfaults — 🔴 OPEN MAJOR (found 2026-07-16)
+### Name-less MANAGED pointee boxed into `@any` segfaults (would-leak under the raw fix) — 🔴 OPEN MAJOR (found 2026-07-16)
 
-**Severity: MAJOR** — a runtime crash (SIGSEGV) on a well-typed program: ANY
-concrete type-compare (a `case *T:` in a `switch v.(type)`, OR an `x.(*T)`
-assertion — comma-ok or expression form) over a `*any`/`@any` whose boxed
-dynamic type is a type WITHOUT RTTI nominal identity (currently: any slice type)
-reads a garbage vtable word and crashes.
+**Severity: MAJOR** — a runtime crash on a well-typed program. The RAW `*any`
+half of the name-less-box segfault is FIXED (`742b6f8e`; see the done log). The
+MANAGED `@any` half remains: boxing a name-less *managed* pointee into `@any`
+still produces a degenerate box and crashes.
 
-**Symptom / minimal repro.**
+**Repro.**
 
 ```
-func describe(v *any) {
-    switch v.(type) {
-    case *int:
-        println("int")
-    default:
-        println("other")   // should be reached; instead: SIGSEGV
-    }
-}
-func main() {
-    var s @[]char = "hi"
-    describe(&s)            // pointee is @[]char (a slice) → SIGSEGV (exit 139)
-}
+var s @[]char = "hi"
+var b @(@[]char) = box(s)   // managed-ptr, name-less pointee
+takesMgdAny(b)              // @any param → SIGSEGV (exit 139) on drop / a compare
 ```
 
-Characterized (all confirmed empirically 2026-07-16):
-- Fires on the type-COMPARE, not the case type. `case *int` has identity; you
-  can't even write `case *@[]char` (parser rejects a slice target). It's the
-  SCRUTINEE's boxed type lacking identity that triggers it.
-- NOT switch-specific: a comma-ok `v.(*int)` assertion over the same box crashes
-  identically.
-- NOT refcount-related: a RAW-slice box (`*[]char`, no dtor) crashes too.
-- A bare `default` (no compare) is SAFE — nothing reads the vtable. Pure boxing
-  (`takesAny(&s)`, no match) is SAFE.
+**Why the raw fix doesn't cover it.** The raw fix routes name-less RAW boxes
+through a shared-opaque `__ivt`/`__typeinfo` with a NULL dtor — correct because a
+raw `*any` only BORROWS. But `@any` OWNS its data (RefIncs at construction) and
+drops via `emitManagedIfaceValueRefDec`, whose null-slot-0 path falls to plain
+`rt.Free` (`gen_util_refcount.bn:201`), skipping the inner backing RefDec — so the
+same shared-opaque fix would turn the crash into a LEAK. `742b6f8e` therefore
+gates the sentinel substitution on `dstTyp.Kind == TYP_INTERFACE_VALUE` (raw
+only); the managed path keeps bailing (still the pre-existing crash). Note the
+*direct* form `var a @any = box(s)` is checker-rejected (`cannot assign @[]uint8
+to @any`); the crash is reached via the explicitly-typed managed-ptr form above.
 
-**Root cause (CONFIRMED via LLVM diff + lldb).** Boxing a name-less type into
-`any` produces a STRUCTURALLY-INVALID interface value. The RTTI/box machinery
-keys type identity on `mangle.TypeInfoName(pkg, name)`, but a slice has no name
-(`gen_iface.receiverBaseTypeName` returns empty for `TYP_SLICE`), so
-`wrapAsIfaceValue` bails at its `len(srcName) == 0` guard (`gen_iface.bn:207`) and
-returns `nil` — it never reaches the `ensureAnyImplInfo`/`findImplVtableName`
-synthesis path (`:236`–`:250`), which only runs once a receiver *has* a name. (The
-repro boxes `&s`, a `*@[]char`, which passes the pointer-shape guard at `:196`; a
-*bare* slice value would be stopped at `:196` instead, but that is a clean checker
-error, not this crash — the crash needs the pointer-to-slice form.) The emitted
-"box" is then just the bare data pointer: a well-formed box passes a 2-word
-`%BnIfaceValue` (slot 0 = data, slot 1 = `@__ivt.…__any`), but the slice case
-emits `call @…_f(i8* %v2)` — a SINGLE pointer where the callee expects the
-2-word struct. The match's `EmitIfaceTypeInfo` then loads `vtable[1]` off an
-uninitialized garbage word (lldb: `ldr x8,[x8,#8]` with `x8 = 3`) →
-EXC_BAD_ACCESS. The defect is a disagreement between the two sides: BOXING
-accepts a name-less type (silently emitting a half-built value); MATCHING assumes
-every box carries a valid vtable/TypeInfo.
-
-**Fix — being done as Phase 0 of `plan-slice-type-identity.md`.** Make the
-name-less box WELL-FORMED: it gets a real, emitted shared-opaque `__ivt`+
-`__typeinfo` (sentinel `(pkg/builtins/rt, __nameless)`, weak-coalesced) so a
-compare is a safe guaranteed-MISS. Forward-compatible with proposal B (which
-later upgrades the slice subset to distinct structural identities + allows
-`case *[]char`). No semantics change.
-
-**Split into RAW vs MANAGED (adversarial review, 2026-07-16):**
-- **RAW `*any`** — the tracked crash + the fmt-relevant path. Null-dtor is
-  correct (borrow, no RefInc/RefDec). This is Phase 0, in progress.
-- **MANAGED `@any`** — a name-less *managed* pointee (`var a @any = box(s)`,
-  `s @[]char` → `@(@[]char)`) ALSO crashes today, but the shared-opaque null-dtor
-  fix would turn it into a LEAK: `@any` RefIncs at construction and drops via
-  `emitManagedIfaceValueRefDec`, whose null-slot-0 path falls to plain `rt.Free`
-  (`gen_util_refcount.bn:201`), skipping the inner backing RefDec. Needs a *real*
-  dtor for the name-less managed type, OR a checker rejection — a separate
-  decision, tracked in `plan-slice-type-identity.md` §9. Phase 0 leaves this path
-  bailing (still the pre-existing crash — not regressed, not fixed).
-
-**How discovered.** fmt-package design recon (the decided `...*any` +
-type-switch print direction, claude-notes.md:252). This crash — together with
-the named-type-only assertion rule and the fact that slice types can't impl
-`lang.Stringer` (receiver must be named) — is why a raw `@[]char` string has NO
-working path through `...*any` today; it forces a language-level decision on how
-`fmt.Print("hello")` recovers a string operand.
-
-**Test plan.** Add a conformance test: a `switch` over a slice-typed `*any` box
-(named cases + `default`) reaching `default`, plus a comma-ok `v.(*int)` over
-the same box yielding `ok == false` — both must run without crashing. Mark
-`.xfail` in every mode until the fix lands.
+**Fix options (owner's call — `plan-slice-type-identity.md` §9):** (a) emit /
+reference a REAL dtor for the boxed name-less managed type (RefDec the pointee) in
+the any-block slot 0; or (b) reject boxing a name-less managed pointee into a
+managed iface at the checker (a small semantics tightening — no crash, no leak;
+box into `*any` instead). Add a conformance test (currently a bare SIGSEGV, so
+mark it `.xfail` until the fix lands) once the direction is chosen.
 
 ## Test-flake watch
 

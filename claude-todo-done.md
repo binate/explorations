@@ -6,6 +6,25 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Name-less box into raw `*any` segfault (slice/array/func type-compare) — ✅ DONE (`742b6f8e`, 2026-07-16)
+
+Boxing a name-less type (a slice / array / func-value, through any depth of
+pointer nesting) into a raw `*any` bailed at `wrapAsIfaceValue`'s empty-source-
+name guard (`gen_iface.bn:207`), leaving a degenerate 1-word value where a 2-word
+`{data, vtable}` iface value is expected; any concrete type-compare over it (a
+`case *T:` or an `x.(*T)` assertion) then loaded `vtable[1]` off a garbage word
+and SIGSEGV'd. Fixed by routing such a source through the universe-`any`
+synthesis under a reserved sentinel identity (`pkg/builtins/rt.__nameless`) whose
+`__ivt`/`__typeinfo` are real weak-coalesced records with a null dtor — so the
+box is well-formed and every compare is a guaranteed miss (a name-less type can
+never be a `case` target, §11.12). `isBoxableNamelessType` peels the same
+pointer/managed-ptr/readonly wrappers `receiverBaseTypeName` peels, so nested
+`**@[]char` is covered too (found by adversarial review of the diff). Scoped to
+raw `*any` (null dtor = correct borrow); the managed `@any` half would leak and
+stays open (see the active MAJOR entry + `plan-slice-type-identity.md` §9). Phase
+0 of that plan; conformance `1074` (no-crash across slice/array/func/nested) +
+`1075` (expr-form clean panic). Verified across LLVM / VM / native-aa64 + hygiene.
+
 ## VM `cast(float32/64, uintN)` mis-rounds high-bit unsigned values on a 32-bit host — ✅ DONE (`36683dac`, 2026-07-16)
 
 `pkg/binate/vm`'s `TestExecUint32HighBitToFloat32` failed only in the

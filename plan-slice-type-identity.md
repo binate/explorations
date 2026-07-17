@@ -54,7 +54,13 @@ Each phase is independently landable and keeps every mode green. Verify = unit
 tests of touched packages (§8.5 smoke map) + targeted conformance, NOT the full
 suite (landing discipline). Recon-confirmed facts backing each step: §8.
 
-### Phase 0 — Layer A (crash fix, RAW `*any` only). *No spec change. Lands now as the MAJOR fix.*
+### Phase 0 — Layer A (crash fix, RAW `*any` only). ✅ LANDED `742b6f8e` (2026-07-16). *No spec change.*
+
+*(Landed as described below. The adversarial diff review added: nested-pointer
+coverage — `isBoxableNamelessType` peels wrappers to any depth, matching
+`receiverBaseTypeName` — plus conformance `1074` extended to slice/array/func/
+nested and `1075` for the expr-form clean panic. Verified LLVM / VM / native-aa64
++ hygiene 17/17.)*
 
 **Scope — RAW iface only (adversarial-review finding).** Phase 0 fixes the
 name-less box crash for the **raw** iface value (`*any`, `TYP_INTERFACE_VALUE`)
