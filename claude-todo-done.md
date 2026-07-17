@@ -6,6 +6,31 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Scalar value-recovery type assertion `x.(T)` + VM sub-word extract fix — ✅ DONE (`89b41531`, 2026-07-17)
+
+The third §11.12 recovery form: recover a scalar VALUE (int/bool/float, incl.
+char, the sized ints/uints, and named scalars like `type Money int`) from an
+interface box — `x.(int)`, `case int:`, `v, ok := a.(int)`.  A plain no-refcount
+load through the box's data pointer (mirrors the slice-recovery load-through-
+pointer of `ff36c82a`); exact-identity preserved (`Money` ≠ `int`); the comma-ok
+MISS path materializes a typed zero (not `EmitConstNil`, which would emit a
+pointer-nil `i8*` mistyping a scalar field).  `IsScalar()` gates it (it peels
+named types but excludes anything managed-bearing, so the no-refcount path never
+copies a managed value).  Value structs (retaining field-wise copy) stay
+deferred — see the active-todo entry.
+
+Bundled with it: a **pre-existing MAJOR VM defect** the feature exposed.  The
+bytecode VM's `BC_EXTRACT` read a full machine word regardless of field width, so
+a SUB-WORD field (bool/char) in a byte-packed struct over-read past the field.
+The comma-ok `{char,bool}` value-recovery result is the first such struct the VM
+ever saw (pointer/slice recovery always gave a word-size field 0), so a stored
+`false` ok read back non-zero → a wrong type-switch match (type confusion),
+VM-only.  Fixed by a sized, extension-correct load (field byte-size + sign bit
+packed into `Aux`, an immediate — not `Src2`, a register the slot-remap pass
+rewrites).  Full VM conformance sweep stayed green (2796/0).  Two adversarial
+reviews (front-end + VM): both SOUND.  Conformance 1086/1087/1088; checker unit
+tests.  Verified LLVM / VM / double-VM / native-aa64 / comp-comp / comp-comp-int.
+
 ## Bare QUALIFIED value type rejected as an explicit generic type-argument (`Generic[pkg.T]()`) — ✅ FIXED (2026-07-17)
 
 `bnc` rejected a bare package-qualified value type (e.g. `token.Pos`) as an explicit

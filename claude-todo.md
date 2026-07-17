@@ -80,41 +80,47 @@ and conformance-green in every mode; the spec Draft banners are flipped.  See th
 done log for the full record.  Two residuals — one a genuine missing form, one an
 optional nicety:
 
-**🔴 Value-recovery type assertion `x.(T)` (T a value type) — NOT yet implemented.**
-The third recovery form — recover a *value* T (a field-wise copy of the pointee),
-not a `*T`/`@T` pointer — is checker-rejected: `check_assert.bn:80-83` emits
-"value-recovery type assertion not yet supported" (shared `assertTargetType`, so
-BOTH `x.(int)` and `case int:` are rejected; `gen_assert.bn:13` notes IR-gen is
-gated behind the same rejection). This was carved out "deferred to a follow-up"
-when the assertion feature landed but never got its own todo (only a passing aside
-in the done log) — hence this entry.
+**Value-recovery type assertion `x.(T)` — SCALARS done (`89b41531`); structs +
+ergonomics remain.**  The third §11.12 recovery form now recovers a scalar VALUE
+(int/bool/float, incl. char, the sized ints/uints, and named scalars like
+`type Money int`) from an interface box — `x.(int)`, `case int:`,
+`v, ok := a.(int)` — a plain no-refcount load through the box's data pointer, with
+exact-identity preserved (`Money` ≠ `int`).  Bundled: a pre-existing VM
+`BC_EXTRACT` sub-word over-read fix (a `{char,bool}` comma-ok result was the first
+byte-packed sub-word extract the VM ever saw → a wrong `ok` → type confusion).
+Tests: conformance 1086/1087/1088 + checker unit tests.  See the done log.
 
-- **Intended semantics** (already sketched at `check_assert.bn:125`): `x.(T)`
-  yields a value T — a field-wise copy of the pointee. The box's data slot holds a
-  pointer to the value; recovery LOADs/copies it (mirrors the slice-recovery
-  load-through-pointer that Chunk 2b added, `ff36c82a`). A scalar T
-  (int/bool/float/char) is a trivial load, no refcount. A struct T with managed
-  (`@`) fields needs a **retaining** field-wise copy (RefInc the managed
-  sub-fields — the recovered value co-owns), so recovery from a raw `*I` is sound
-  (the copy acquires its own refs, like slice recovery — unlike `@T`, which needs
-  `@I`). Exact-identity holds: `type Money int` is NOT caught by `case int:`.
-- **Where it's exercised.** A value-typed box exists today via `box(v)` → `@T` →
-  `@any` (verified: `var a @any = box(i)` compiles), so value-recovery is testable
-  standalone — it does NOT depend on the separate implicit-variadic-boxing feature.
-- **Scope / open question.** Land scalar-only first, or scalar + struct copy
-  together? The struct case adds the retaining-copy refcount work; scalar-only
-  unblocks the fmt fast-path (`case int:`) immediately.
-- **Motivation.** Completes §11.12's third form and unblocks the value-based `fmt`
-  fast-path per `claude-notes.md:252` (`case int:` / `case Money:`).
-- **Tests to add** (Bug Discovery Protocol): conformance boxing a scalar +
-  recovering it; a managed-field struct (refcount balance, no leak/double-free);
-  `Money`≠`int` exact-identity; checker unit tests for the now-accepted form.
-- **Separate follow-up (NOT this item): implicit variadic value→`*any` boxing** —
-  so `fmt.Print("hi", 42)` works without an explicit `&` per arg (materialize a
-  stack temp + box its address, recording the VALUE type). A new implicit
-  conversion → needs owner sign-off (a language-semantics change). Flagged in
-  `plan-slice-type-identity.md` Phase 5. Value-recovery is the *recover* half; this
-  is the *box* half — together they give the Go-ergonomic `fmt`.
+Remaining:
+
+- **🔴 Struct value-recovery (`x.(SomeStruct)`) — deferred.**  A value struct needs
+  a RETAINING field-wise copy (RefInc each managed field — the recovered value
+  co-owns; sound from a raw `*I` since the copy acquires its own refs, unlike
+  `@T`).  Currently rejected ("other value types … are not yet supported",
+  `check_assert.bn`).  Named types over pointers/slices (`type Handle *int`) fall
+  here too.  Add refcount-balance conformance (no leak / double-free) when done.
+- **🔴 Implicit variadic value→`*any` boxing — the OTHER half for ergonomic fmt.**
+  So `fmt.Print("hi", 42)` works without an explicit `&` per arg (materialize a
+  stack temp + box its address, recording the VALUE type).  A NEW implicit
+  conversion → needs owner sign-off (a language-semantics change).  Flagged in
+  `plan-slice-type-identity.md` Phase 5.  Value-recovery is the *recover* half;
+  this is the *box* half — together they give the Go-ergonomic `fmt`.
+- **🔧 Cleanup: VM `BC_EXTRACT` sign-extend should adopt `narrowToWidth`.**  The
+  landed fix sign-extends inline (mirroring BC_LOAD8's `1<<bits` pattern, with its
+  latent 32-bit-host full-width-shift edge).  A concurrent commit added
+  `narrowToWidth(v, bits, signed)` (vm_exec_helpers.bn) which is host-portable;
+  BC_EXTRACT's value-load arm should use it.  Non-observable on a 64-bit host.
+
+**🔴 `box(<untyped constant>)` miscompiles — codegen crash (found 2026-07-17).**
+`box(42)` / `box(2.5)` / `box(7+1)` emit INVALID LLVM (`extractvalue operand must
+be aggregate type`) and SEGFAULT on the VM, even in isolation (`func f(a @any){};
+f(box(42))`).  `box('Z')`, `box(true)`, `box(<typed var>)`, `box(cast(int, 7))`
+all work.  **Root cause:** an untyped int/float constant is not defaulted to its
+concrete type before boxing.  **Pre-existing** (BUILDER `bnc-0.0.11` also
+link-fails `box(42)`); untouched by the value-recovery work (which only ever boxes
+typed vars).  **Relevance:** it's the natural companion to the value-based fmt
+(`render(box(42), box(2.5), …)`), so it should be fixed (default the untyped
+constant, or a clean checker error) with a conformance test.  Found by both
+adversarial reviews of `89b41531`.
 
 **🔧 Optional tightening (deferred, low value).** Make the design-D registry the
 *single seam* that BOTH `collectImplVtableSlots` (vtable slot-1) and
