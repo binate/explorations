@@ -506,6 +506,34 @@ built, together with a test that exercises `ptr≠int` (the only thing that vali
 
 ## Slimming `pkg/bootstrap`; C interop (`__c_call`)
 
+### `pkg/std/os/sys` — low-level libc-syscall layer (os-family foundation) — 🟡 IN PROGRESS (Stage 1)
+
+Design: `explorations/design-syscall.md` (decisions ratified 2026-07-18:
+**os-family-internal** package at `pkg/std/os/sys`, **staged** rollout). A single
+low-level home for thin, error-returning, EINTR-retrying wrappers over the libc
+calls the os family uses, so `errno`→`errors.Error` classification + the per-OS
+`errno()` accessor live in ONE place and `errno` is fully hidden from callers.
+Prompted by `os/process` needing the same errno handling as `os` without leaking
+`os.Errno`/`os.FailErrno` onto `os` or duplicating the classifier.
+
+- **Stage 1 (now):** build `pkg/std/os/sys` with the errno foundation (accessor +
+  classifier, **moved** out of `os` so there is one copy; add the `ENOEXEC` arm,
+  keep `os`'s per-OS `EAGAIN` handling) + the **process wrappers** (`Fork`,
+  `Waitpid`, `Accessible`, `Getenv`, and the noreturn allocation-free
+  `ChildExecOrExit`); register in `stdPkgs()`; `os/process` uses them (errno
+  hidden, EAGAIN fixed); route `os`'s errno step through `sys`'s classifier (so
+  classification is single-source immediately) while `os`'s I/O keeps its
+  `__c_call`s for now.
+- **Stage 2 (🟡 follow-up):** port `os`'s file I/O + `stat`/`readdir` onto `sys`
+  wrappers, deleting the last of `os`'s raw `__c_call`s. Large, delicate (os is
+  tested across every mode, both native backends, arm32) — do it in small green
+  steps.
+- Optional: a `bnlint` rule flagging any importer of `pkg/std/os/sys` outside
+  `pkg/std/os*` (enforce the internal boundary, since Binate has no `internal/`).
+
+Ships in the same future release as `os/process`; BUILDER-gating is unchanged
+(gen1 uses the frozen `os`, so source-`os`-importing-`sys` is gen1-safe).
+
 ### `pkg/std/os/process` — retire `bootstrap.Exec` — 🟡 IN PROGRESS (Phase A landing; Phase B BUILDER-gated)
 
 Implements `explorations/design-os-process.md` per
@@ -520,10 +548,12 @@ compiles `cmd/bnc`'s stdlib from the FROZEN BUILDER bundle (`--base "$blib"`), s
 released bundle and `BUILDER_VERSION` is bumped.
 
 - **Phase A (not gated):** add `pkg/std/os/process` (hosted + baremetal), register
-  in `stdPkgs()`, export `os.Errno`/`os.FailErrno` + fix `errnoToBase` to map
-  `ENOEXEC→Unsupported`, unit tests + a conformance test. Non-destructive
-  (`bootstrap.Exec` stays). **Must ship in the next release** so Phase B can bump
-  BUILDER to a bundle carrying it.
+  in `stdPkgs()`, unit tests + a conformance test. Non-destructive (`bootstrap.Exec`
+  stays). **Must ship in the next release** so Phase B can bump BUILDER to a bundle
+  carrying it. **Errno is handled via the new `pkg/std/os/sys` layer** (see below /
+  `design-syscall.md`), NOT via `os.Errno`/`os.FailErrno` (rejected as leaky) nor a
+  self-contained duplicate (rejected as drift — the Commit-1 review found an EAGAIN
+  misclassification in the duplicate).
 - **Phase B (🔴 GATED on a release + `BUILDER_VERSION` bump to a bundle containing
   `os/process`):** migrate `cmd/bnc` production callers (Commit 2), migrate the 7
   asm/native test harnesses (44 sites, Commit 3 — technically ungated, bundled

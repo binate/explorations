@@ -1,6 +1,6 @@
 # Design: `pkg/std/syscall` — low-level libc-syscall wrappers (the os family's shared foundation)
 
-Status: **DESIGN — 2026-07-18, proposed.** Prompted by the `os/process` work
+Status: **DESIGN — 2026-07-18, decisions ratified.** Prompted by the `os/process` work
 (`design-os-process.md`): `os` and the new `os/process` both make raw libc calls
 and both must turn `errno` into an `errors.Error`, but `os`'s errno machinery is
 private and unreachable from the sibling `os/process`. Exposing it on `os`
@@ -53,24 +53,17 @@ The intricate per-OS/arch machinery (the `osStat`/`osDirent` struct layouts, the
 a low-level syscall package; `os` keeps only the portable `File`/`FileInfo`/
 `FileMode`/`DirEntry` types and the policy on top.
 
-## 3. Visibility — DECISION FOR USER
+## 3. Visibility — DECIDED: os-family-internal at `pkg/std/os/sys`
 
-Is `pkg/std/syscall` a **public** stdlib package (users may `import "pkg/std/
-syscall"` and call `syscall.Fork` etc., Go-style — powerful but very Unix-specific
-and easy to misuse), or **os-family-internal** (only `os`/`os/process` import it;
-users go through `os`)?
-
-- **Public low-level** — matches Go; simplest (no enforcement needed); but exposes
-  a raw fork/exec/wait/read surface as a supported API on a language that leans
-  C-free, which invites Unix-specific user code the stdlib would then have to keep
-  stable.
-- **Internal to the os family** — cleaner boundary (errno AND raw syscalls both
-  hidden from users; `os` is the public face); needs an `internal`-style
-  convention. **Does Binate have/want an `internal/` mechanism?** If not, this is
-  a convention + a lint rule, or the package simply lives at `pkg/std/os/syscall`
-  and is documented "os-family only." *(Recommended: internal — it is the reason
-  we rejected `os.Errno`; a public `syscall.Errno`-style surface reintroduces the
-  same low-level exposure one package over.)*
+The package lives at **`pkg/std/os/sys`** (nested under `os`) and is documented
+**"os-family only — not a supported public API."** Only `os` and `os/process`
+import it; users go through `os`. Binate has **no `internal/` loader mechanism**
+(verified), so the boundary is **convention + docs**, optionally backed by a
+`bnlint` rule that flags any importer of `pkg/std/os/sys` outside `pkg/std/os*`.
+This keeps both `errno` AND the raw fork/exec/wait/read surface out of users'
+hands — the same reasoning that ruled out `os.Errno`/`os.FailErrno`; a public
+`syscall`-style package would reintroduce that low-level exposure one package
+over.
 
 ## 4. API shape (illustrative)
 
@@ -79,12 +72,17 @@ package "pkg/std/syscall"
 import "pkg/std/errors"
 
 // Process (what os/process needs):
-func Fork() (int, @errors.Error)                 // pid; 0 in child
-func Execv(path *[]readonly char, argv *char2)   @errors.Error   // returns only on failure
-func Execve(path *[]readonly char, argv, envp *char2) @errors.Error
+func Fork() (int, @errors.Error)                 // pid; 0 in child; parent-side error
 func Waitpid(pid int) (int, @errors.Error)       // raw status word; EINTR retried
-func Access(path *[]readonly char, mode int) @errors.Error
+func Accessible(path *[]readonly char) @errors.Error   // access(X_OK) — hides the mode bit
 func Getenv(name *[]readonly char) (@[]char, bool)
+// ChildExecOrExit runs ONLY in the forked child: raw execve (execv when envp is
+// null) then _exit(127) on failure.  It is NORETURN and ALLOCATION-FREE — an
+// error-returning Execve would allocate the error in the async-signal-safe child
+// (forbidden between fork and exec), so the child-exec primitive cannot classify;
+// the parent observes a failed exec as the child's _exit(127).  Takes the
+// pre-hoisted raw char*/char** pointers (built parent-side by os/process).
+func ChildExecOrExit(path *uint8, argv *uint8, envp *uint8)
 
 // File I/O (what os needs; os.File methods become thin wrappers):
 func Read(fd int, p *[]uint8) (int, @errors.Error)          // EINTR retried; EOF is io.EOF
@@ -101,7 +99,7 @@ since it's process-semantics not a syscall). `argv`/`envp` `char**` building sta
 in `os/process` (it's process-specific marshalling), OR moves here as a helper —
 minor, decide during implementation.
 
-## 5. Scope / staging — DECISION FOR USER
+## 5. Scope / staging — DECIDED: staged (option B)
 
 Porting **all** of `os`'s I/O (the ~28 libc calls across `os.bn` + 4 `readdir*` +
 3 `stat_io*` files, all tested across every conformance mode, both native

@@ -89,20 +89,21 @@ This is the documented "bump `BUILDER_VERSION`" case, not a language-subset case
   code=(s>>8)&0xff; signaled=!exited; signal=s&0x7f`. **Verify on both platforms**
   via the conformance test.
 
-### errno mapping
-- **Fix `errnoToBase`: add an `ENOEXEC (errno 8, shared Linux/mac) →
-  errors.Unsupported` arm** (+ an `os_errno_test` case). Today it's unmapped →
-  `errors.Unknown`, contradicting design §4.5. This is a change to
-  `impls/stdlib/pkg/std/os/os_errno.bn` (a `cmd/bnc`-cone file — gen1-safe because
-  gen1 reads the frozen `os`, and `cmd/bnc` doesn't consume this arm).
-- **Export `os.Errno() int` and `os.FailErrno(op @[]readonly char) @errors.Error`**
-  from `pkg/std/os` (`.bni` + wrap the existing private ones; identical
-  signature). `os/process` imports `os` (parent — no cycle) and calls
-  `os.Errno()` to branch the PATH walk (ENOENT/ENOTDIR → next dir; EACCES →
-  remember) and `os.FailErrno("execve")` to build start-errors. `os/process`
-  defines its own local `ENOENT=2`/`ENOTDIR=20`/`EACCES=13` consts (shared values)
-  for branching. These exports are gen1-invisible (consumed only inside
-  source-compiled `os/process`), so they are NOT bundle-gated for Phase A.
+### errno mapping — via the `pkg/std/os/sys` layer (SUPERSEDES the earlier plan)
+
+The earlier "export `os.Errno`/`os.FailErrno`" idea was rejected (leaks errno onto
+the high-level `os`) and a self-contained duplicate was rejected (drift; the
+Commit-1 review found an EAGAIN misclassification). Per the 2026-07-18 decision,
+errno is owned by a new **os-family-internal low-level layer `pkg/std/os/sys`**
+(see `explorations/design-syscall.md`), which both `os` and `os/process` build on;
+`errno` is fully hidden behind error-returning wrappers. So `os/process`'s errno
+step (its local `sysErrno`/`mapStartErrno`/`startErrno`) is **deleted** and its raw
+`__c_call`s become `sys.Fork()/Waitpid()/Accessible()/Getenv()/ChildExecOrExit()`
+— which also fixes the EAGAIN classification centrally. The wait-status decoder and
+`char**` building stay in `os/process`. The `ENOEXEC` arm + the EAGAIN fix land in
+`sys`'s single classifier (moved from `os`'s `errnoToBase`). Staged: Stage 1 builds
+`sys` + rewires `os/process` + routes `os`'s errno through `sys`'s classifier;
+Stage 2 (tracked follow-up) wraps `os`'s file I/O.
 
 ## 4. Two-phase sequencing
 
