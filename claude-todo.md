@@ -407,8 +407,13 @@ triage — ILP32 int-width root causes". What remains:
   **by value** all through the lexer/parser (`LexNext` returns `(Lexer, Token)`), so an
   `int64` field (8-byte alignment + bigger struct on ILP32) now flows through every
   parse. Effect on the `builder-comp_arm32_linux` (LLVM arm32) unit lane, from CI:
-  - pre-E' (run `29550055785`): `TestParseMov` **PASSED**; the only asm/parse segv was
-    later, at `TestParseFloatHugeExponent`.
+  - pre-E' (run `29550055785`): `TestParseMov` **PASSED**; the asm/parse segv came
+    later, at an UNNAMED test (the crash killed the binary before it printed the test
+    name) — NOT `TestParseFloatHugeExponent`, which is native/common's test (bucket D,
+    fixed by `f4f2b605`).  asm/parse uses BOTH `LexNext` (2-value) and `ParseExpr`
+    (`(Lexer, Token, ExprResult)`, 3-value) large multi-returns, so the sret fix below
+    addresses the whole large-multi-return class, likely clearing every asm/parse segv
+    (CI confirms which tests pass).
   - post-E' (run `29604623344`, `02dbb8e0`, which INCLUDES `72f00cf4`): asm/parse
     **segfaults at `TestParseMov`** (`qemu: uncaught target signal 11`) — a test with
     NO immediate and NO float, i.e. purely `Token`-by-value. PASS→SEGV attributable
