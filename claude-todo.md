@@ -9,6 +9,37 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### `&(named-distinct-raw-slice)[i]` segfaults — `genIndexPtr` doesn't peel the wrapper — 🔴 OPEN MAJOR (found 2026-07-18)
+
+**Severity: MAJOR** — a runtime crash (SIGSEGV) writing through a bogus address
+on a well-typed program.  **Pre-existing** — surfaced during the value-borrow
+Commit 1 review, NOT introduced by it (no interface/borrow involved; the address
+path is byte-identical to the pre-refactor inline `&` code in `genUnary`).
+
+**Repro** (`rc=139`, no output):
+
+```
+type RBuf *[]int
+func main() {
+	var b RBuf = make_slice(int, 3)
+	var q *int = &b[0]   // SIGSEGV path
+	*q = 8
+	println(b[0])
+}
+```
+
+The assignment form `b[0] = 8` works, and plain (non-named-distinct) `&s[0]`
+works — only **named-distinct raw-slice + address-of** crashes.
+
+**Root cause.** `genIndexPtr` (pkg/binate/ir) does not peel the named-distinct
+raw-slice wrapper (`type RBuf *[]int`), so it returns nil for `b[0]`;
+`genLValueAddr` (and the `&`-arm it was factored from) then falls through to
+`genExpr(b[0])`, which returns the *loaded element value* (0) as if it were the
+element address, and `*q = 8` writes through it.  Fix: peel named-distinct (and
+alias/readonly) wrappers in `genIndexPtr`'s raw-slice arm, as `checkIndexExpr`
+already does via `peelNamedBounded`.  **TODO: add an xfail'd conformance test**
+for the repro (crashes in compiled modes) alongside the fix.
+
 ### Name-less MANAGED pointee boxed into `@any` segfaults (would-leak under the raw fix) — 🔴 OPEN MAJOR (found 2026-07-16)
 
 **Severity: MAJOR** — a runtime crash on a well-typed program. The RAW `*any`
@@ -98,12 +129,16 @@ Remaining:
   `@T`).  Currently rejected ("other value types … are not yet supported",
   `check_assert.bn`).  Named types over pointers/slices (`type Handle *int`) fall
   here too.  Add refcount-balance conformance (no leak / double-free) when done.
-- **🔴 Implicit variadic value→`*any` boxing — the OTHER half for ergonomic fmt.**
-  So `fmt.Print("hi", 42)` works without an explicit `&` per arg (materialize a
-  stack temp + box its address, recording the VALUE type).  A NEW implicit
-  conversion → needs owner sign-off (a language-semantics change).  Flagged in
-  `plan-slice-type-identity.md` Phase 5.  Value-recovery is the *recover* half;
-  this is the *box* half — together they give the Go-ergonomic `fmt`.
+- **🟡 Implicit value→`*any` boxing (`iface.construct.value-borrow`) — Commit 1
+  LANDED (`8230e7fd`, 2026-07-18); Commits 2–4 remain.**  Full plan + staging:
+  [plan-value-borrow.md](plan-value-borrow.md).  Commit 1 = the ADDRESSABLE
+  case (`fmt.Print(x)` / `Opts{Any: x}` → implicit `&x`, all positions).
+  Remaining: **Commit 2** — the non-addressable RVALUE case (`fmt.Print(42)`:
+  materialize a stack temp + box its address; the positional borrow-vs-store
+  check; managed-carrying temps need scope-routed cleanup — see the plan);
+  **Commit 3** — the `bnlint` escaping-borrow rule; **Commit 4** — flip the spec
+  rule Draft→Provisional.  Value-recovery is the *recover* half; this is the
+  *box* half — together they give the Go-ergonomic `fmt`.
 - **🔧 Cleanup: VM `BC_EXTRACT` sign-extend should adopt `narrowToWidth`.**  The
   landed fix sign-extends inline (mirroring BC_LOAD8's `1<<bits` pattern, with its
   latent 32-bit-host full-width-shift edge).  A concurrent commit added

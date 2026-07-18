@@ -1,9 +1,21 @@
 # Plan: implement `iface.construct.value-borrow`
 
-Status: **design ratified — Draft, pending implementation** (spec `docs f8cdd0a`;
-`proposal-implicit-any-borrow`). This plans the *implementation* of the boxing half of
-the `...*any` `fmt` direction. Scope is the value-borrow language feature **only** (the
-`fmt` library itself is a separate, already-underway effort).
+Status: **Commit 1 LANDED (`8230e7fd`, 2026-07-18); Commits 2–4 pending** (spec
+`docs f8cdd0a`; `proposal-implicit-any-borrow`). This plans the *implementation* of the
+boxing half of the `...*any` `fmt` direction. Scope is the value-borrow language feature
+**only** (the `fmt` library itself is a separate, already-underway effort).
+
+> **Commit 1 (lvalue auto-`&`, all positions) is landed.** Adversarial review found and
+> fixed two IR-gen/checker bugs before landing: (a) a name-less source (func value / slice)
+> into `*any` panicked/mis-keyed `wrapAsIfaceValue` because the borrow passed the source's
+> value type — fixed by passing `MakePointerType(ExprType(e))` (matching the synthetic
+> `&e`); (b) a **pre-existing** `isAddressable` over-approximation admitted a generic-func
+> instantiation `f[T]` as addressable, so the borrow silently boxed a func value (and
+> explicit `&f[T]` emitted malformed IR) — fixed by teaching `isAddressable` that `f[T]` is
+> not an lvalue. Conformance 086 (positive), 087 (name-less sources), 088 (generic-inst
+> rejected); 035 re-targeted; 379 → positive. A **pre-existing, orthogonal** segfault
+> (`&(named-distinct-raw-slice)[i]`, `genIndexPtr` doesn't peel the wrapper) was surfaced
+> during review and is tracked separately in `claude-todo.md` — NOT introduced by this work.
 
 > This revision expands the original plan with execution-grade detail grounded in the
 > current tree (checker `pkg/binate/types`, IR-gen `pkg/binate/ir`, spec
