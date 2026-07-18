@@ -141,8 +141,7 @@ pointer of `ff36c82a`); exact-identity preserved (`Money` ≠ `int`); the comma-
 MISS path materializes a typed zero (not `EmitConstNil`, which would emit a
 pointer-nil `i8*` mistyping a scalar field).  `IsScalar()` gates it (it peels
 named types but excludes anything managed-bearing, so the no-refcount path never
-copies a managed value).  Value structs (retaining field-wise copy) stay
-deferred — see the active-todo entry.
+copies a managed value).  Value structs / arrays landed next (`21d4c38e`, below).
 
 Bundled with it: a **pre-existing MAJOR VM defect** the feature exposed.  The
 bytecode VM's `BC_EXTRACT` read a full machine word regardless of field width, so
@@ -155,6 +154,30 @@ packed into `Aux`, an immediate — not `Src2`, a register the slot-remap pass
 rewrites).  Full VM conformance sweep stayed green (2796/0).  Two adversarial
 reviews (front-end + VM): both SOUND.  Conformance 1086/1087/1088; checker unit
 tests.  Verified LLVM / VM / double-VM / native-aa64 / comp-comp / comp-comp-int.
+
+## Struct / array value-recovery type assertion `x.(S)` — ✅ DONE (`21d4c38e`, 2026-07-18)
+
+Widened value-recovery (§11.12) from scalars to value STRUCTS and ARRAYS:
+`x.(S)` / `case S:` / `v, ok := a.(S)` recovers a struct/array VALUE from an
+interface box.  **Checker-only change** — the existing IR-gen already handled it:
+`emitRecoveredValue` LOADs the struct as a BORROW (data slot → pointer to the box's
+struct → load bits, sharing the box's managed-field references) and the DESTINATION
+copy-ACQUIRES (RefInc) the managed fields — a type-switch binder store, a comma-ok
+destructure, or a var-decl — balanced by the recovered value's scope-exit struct
+dtor.  The `{struct,bool}` comma-ok result is a transient multi-return tuple (never
+`registerTemp`'d), so its field-0 borrow is never double-RefDec'd.  So the change is
+just the gate (`isValueRecoverable`: a scalar OR a struct/array underlying).  Named
+types over pointers/slices, interfaces (which recover via `*J` / `@J`), and opaque
+named types stay rejected.
+
+Conformance 1094 (POD + managed-field + exact-identity + comma-ok hit/miss) + 1093
+(refcount balance across switch / comma-ok / expr for a managed `@[]char` field);
+checker unit tests flipped struct-rejected → -accepted + a named-over-pointer
+rejection.  Adversarial review: REFCOUNT-SOUND across every form × field kind
+(`@[]char`, `@int`, multiple managed fields, nested struct, `[3]@[]char` array) on
+both LLVM and VM — no leak / UAF / double-free / missing-acquire.  The review also
+surfaced a pre-existing, newly-reachable `x.(S).field` / `x.(*T).field` selector
+IR-gen gap (loud panic, no refcount hole) — tracked in the active todo.
 
 ## Bare QUALIFIED value type rejected as an explicit generic type-argument (`Generic[pkg.T]()`) — ✅ FIXED (2026-07-17)
 

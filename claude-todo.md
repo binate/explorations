@@ -111,8 +111,8 @@ and conformance-green in every mode; the spec Draft banners are flipped.  See th
 done log for the full record.  Two residuals — one a genuine missing form, one an
 optional nicety:
 
-**Value-recovery type assertion `x.(T)` — SCALARS done (`89b41531`); structs +
-ergonomics remain.**  The third §11.12 recovery form now recovers a scalar VALUE
+**Value-recovery type assertion `x.(T)` — SCALARS + STRUCTS done (`89b41531`,
+`21d4c38e`); ergonomics remain.**  The third §11.12 recovery form now recovers a scalar VALUE
 (int/bool/float, incl. char, the sized ints/uints, and named scalars like
 `type Money int`) from an interface box — `x.(int)`, `case int:`,
 `v, ok := a.(int)` — a plain no-refcount load through the box's data pointer, with
@@ -123,12 +123,23 @@ Tests: conformance 1086/1087/1088 + checker unit tests.  See the done log.
 
 Remaining:
 
-- **🔴 Struct value-recovery (`x.(SomeStruct)`) — deferred.**  A value struct needs
-  a RETAINING field-wise copy (RefInc each managed field — the recovered value
-  co-owns; sound from a raw `*I` since the copy acquires its own refs, unlike
-  `@T`).  Currently rejected ("other value types … are not yet supported",
-  `check_assert.bn`).  Named types over pointers/slices (`type Handle *int`) fall
-  here too.  Add refcount-balance conformance (no leak / double-free) when done.
+- **🔴 Selector directly on a value-/pointer-recovery expression (`x.(T).field` /
+  `x.(*T).field`) crashes in IR-gen — NEWLY REACHABLE.**  `genSelector`
+  (`pkg/binate/ir/gen_selector.bn`) has base arms for `EXPR_IDENT` /
+  `EXPR_INSTANTIATE_OR_INDEX` / `EXPR_SELECTOR` / `EXPR_CALL` / `EXPR_BUILTIN` /
+  `EXPR_COMPOSITE` / `EXPR_UNARY`(deref) but **none for `EXPR_TYPE_ASSERT`**, so a
+  selector whose base is a type-assertion falls through: `v.(Named).tag` →
+  `panic: unresolved selector in IR-gen`, `len(v.(Named).name)` → invalid LLVM
+  (`extractvalue i64`).  **Pre-existing** — `x.(*T).field` (pointer recovery, predates
+  struct value-recovery) crashes identically; it was just unreachable for the value
+  form because the checker rejected `x.(Named)` until `21d4c38e`.  Always LOUD (panic /
+  compile-error), never a silent miscompile, so no refcount hole.  The bind-then-select
+  idiom (`switch v := ...; _ = v.name`, as conf 1093/1094 do) is unaffected.  **Fix:**
+  add an `EXPR_TYPE_ASSERT` base arm to `genSelector` mirroring the `EXPR_UNARY`(deref)
+  arm — it already handles all three shapes `genExpr` returns for an assert base
+  (managed-ptr-to-struct, raw-ptr-to-struct, struct-value: alloca+store+GEP+load).
+  Fixes BOTH forms at once.  Add a conformance test for `x.(T).field` + `x.(*T).field`.
+  (Found by the struct value-recovery adversarial review, 2026-07-18.)
 - **🟡 Implicit value→`*any` boxing (`iface.construct.value-borrow`) — Commit 1
   LANDED (`8230e7fd`, 2026-07-18); Commits 2–4 remain.**  Full plan + staging:
   [plan-value-borrow.md](plan-value-borrow.md).  Commit 1 = the ADDRESSABLE
