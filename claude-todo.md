@@ -63,36 +63,34 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/plan-rt-fault-cleanup-pads.md`).
 
-### Multi-return assignment into an array-field element target silently drops the store — 🔴 OPEN MAJOR (found 2026-07-18)
+### Multi-return into a NESTED-array-index target silently drops the store — 🔴 OPEN MAJOR (found 2026-07-18)
 
-**Severity: MAJOR** — a SILENT miscompile (wrong code, no diagnostic, exit 0) on a
-well-typed program.  **Pre-existing** — reproduces with NO type assertion and on the
-pre-`3090ab84` compiler; surfaced by the selector-on-assert-base adversarial review.
+**Severity: MAJOR** — a SILENT miscompile (wrong code, no diagnostic, exit 0).
+**Pre-existing** and unrelated to the type-assert work; surfaced by the review of the
+non-ident-array-field multi-return fix (`cae1fbb0`, below).
 
-**Repro** (prints `0`, not `11`):
+**Repro** (prints `51`, not `11`):
 
 ```
-type AB struct { arr [4]int }
 func two() (int, int) { return 11, 22 }
 func main() {
-	var ab AB
+	var a [2][3]int
+	a[1][1] = 51
 	var y int
-	ab.arr[2], y = two()   // element store DROPPED
-	println(ab.arr[2])     // 0  (bug); should be 11
-	println(y)             // 22 (fine)
+	a[1][1], y = two()   // element store DROPPED
+	println(a[1][1])     // 51 (bug); should be 11
+	println(y)           // 22
 }
 ```
 
-Only the **multi-return** path is affected: the single-assign (`ab.arr[2] = v`, via
-`genAssign`) and parallel-assign (`resolveParallelIndexTarget`) paths both address a
-selector/pointer array-field base via `genSelectorPtr` and work.  **Root cause:**
-`emitIndexStore` (`pkg/binate/ir/gen_assign_multi.bn`, ~:20-30) recovers the array
-pointer only when `lhs.X.Kind == EXPR_IDENT`; a struct/pointer array-field base
-(`t.arr[i]`, `p.arr[i]`) leaves `arrPtr` nil and emits nothing.  **Fix:** address the
-base via `genSelectorPtr` (mirroring the single-/parallel-assign paths) when it isn't
-a bare ident.  A reproducing test is staged at
-`conformance/1097_multi_return_array_field_target.bn` (`.expected` = 11/22; needs
-xfail markers for every execution mode until fixed, OR delete once fixed).
+Affects the **multi-return** AND **parallel-assign** paths (`a[1][1], a[1][2] = 77,88`
+also drops).  The single-assign path handles it via an `isNestedArrayBase →
+genIndexPtr` special-case (`gen_control.bn:293`), which neither `genMultiAssign`
+(`emitIndexStore`) nor `resolveParallelIndexTarget` mirrors — a nested-array base
+loads a COPY of the inner array and stores into the copy.  **Fix:** route a
+nested-array-index base through `genIndexPtr` in both `genMultiAssign` and
+`resolveParallelIndexTarget`, mirroring single-assign.  (The sibling non-ident
+array-FIELD / deref multi-return drop is FIXED — `cae1fbb0`, below.)
 
 ### `&(named-distinct-raw-slice)[i]` segfaults — `genIndexPtr` doesn't peel the wrapper — 🔴 OPEN MAJOR (found 2026-07-18)
 
