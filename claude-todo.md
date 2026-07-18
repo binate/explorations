@@ -358,8 +358,9 @@ collapse to a handful of root causes; several are one bug cascading. Buckets:
   `native/common`'s `TestParseFloatHugeExponent` is the arm32_linux guard. Residual
   (pre-existing, not this bug): `decExp = expVal - fracDigits` / `4*fracHex` could
   overflow int32 only under absurd multi-hundred-MB inputs — untracked, not worth a
-  fix. `asm/parse`'s remaining 1-failed (a separate float-parse test, unconfirmed)
-  is folded into E's investigation.
+  fix. `asm/parse`'s remaining 1-failed was **`TestParseFloatHugeExponent`, and it
+  SEGFAULTS** (not an assertion) on arm32_linux — see the MAJOR segv note below; it
+  is a *separate, pre-existing* crash (present pre-E', at a point past `TestParseMov`).
 - **E — host-dependent codegen assertions (2 test-only) ✅ DONE** (`278b35fd`).
   Both were test-only host-int-width bugs (production emitters correct):
   `asm/elf TestWriteElfX64RelocPltVsPc` read the 64-bit `r_info` via a host-`int`
@@ -378,6 +379,42 @@ collapse to a handful of root causes; several are one bug cascading. Buckets:
   consumer reads the low-level fields. Adversarial review HOLDS; arm32_linux
   `TestParseData` is the runtime guard. Residual (pre-existing, unchanged): x64 >32-bit
   instruction immediates still truncate on ILP32 via the asm libs' `int`-typed `Imm`.
+
+- **⚠️ MAJOR — E' EXPOSED an int64-in-by-value-struct layout/ABI segfault on ILP32
+  (`asm/parse` `TestParseMov`). 🔴 OPEN — needs an arm32 env.** E' widened
+  `Token.Ival` and `ExprResult.Val` from `int`→`int64`. `Token` is returned/passed
+  **by value** all through the lexer/parser (`LexNext` returns `(Lexer, Token)`), so an
+  `int64` field (8-byte alignment + bigger struct on ILP32) now flows through every
+  parse. Effect on the `builder-comp_arm32_linux` (LLVM arm32) unit lane, from CI:
+  - pre-E' (run `29550055785`): `TestParseMov` **PASSED**; the only asm/parse segv was
+    later, at `TestParseFloatHugeExponent`.
+  - post-E' (run `29604623344`, `02dbb8e0`, which INCLUDES `72f00cf4`): asm/parse
+    **segfaults at `TestParseMov`** (`qemu: uncaught target signal 11`) — a test with
+    NO immediate and NO float, i.e. purely `Token`-by-value. PASS→SEGV attributable
+    solely to the field-type change.
+  Strong hypothesis: **int64 fields in by-value structs are mis-laid-out or
+  mis-passed on ILP32** — either a shared `pkg/types` layout defect (struct size/field
+  offset/8-byte alignment with an int64 member) or the LLVM arm32 backend's
+  struct-by-value/sret ABI for a 64-bit member. If shared-layout, it affects ANY int64
+  struct field on a 32-bit target (broad correctness), not just the assembler.
+  NOT locally reproducible (no qemu-arm / arm cross-toolchain on the macOS dev host)
+  and CI is backlogged (every newer Unit-tests run queued). Do NOT "fix" by reverting
+  E' — that reintroduces the `TestParseData` immediate-overflow bug AND merely moves
+  the segv back to the float test, hiding the underlying int64-struct-ABI defect. The
+  real fix is to root-cause int64-struct layout/ABI on ILP32 (needs an arm32 Linux box
+  or qemu-user). Guard once fixed: `TestParseMov` on the arm32_linux lane (already
+  present — it just crashes). Discovered 2026-07-18 while confirming follow-up #2's CI.
+
+- **ir host/target sizeof-portability test reds (3 tests) — 🟡 OPEN, test-only, NOT a
+  miscompile.** `pkg/binate/ir` `TestGenSizeofInt`, `TestGenSizeofSlice`,
+  `TestNeedsHintNarrowing` FAIL on arm32_linux (run `29604623344`). Each derives its
+  expectation from the *host* (`cast(int64, sizeof(int))` / `sizeof(ptr)` / `8*sizeof(int)`),
+  but `genFromSource` calls `GenModule(nil, file)` with no target, so IR-gen lays out
+  for a fixed (LP64) target — host and target coincide on a 64-bit host (green) and
+  diverge on a 32-bit host (red). `TestEvalConstExprSizeofInt8` (sizeof=1, host-agnostic)
+  PASSES, confirming the pattern. Pre-existing (files untouched by the int64 work); the
+  fix is test-side: compute `expected` from the *target* the harness lays out for (or
+  make `genFromSource` target-parameterized), not from host `sizeof`.
 
 Note: the lane is not locally runnable on the macOS dev host (no qemu-arm /
 arm-linux cross-toolchain), but the *check*-phase bugs (A, C) reproduce locally by
@@ -400,8 +437,8 @@ Follow-ups surfaced during the triage (pre-existing, not introduced):
   - Residual nit (pre-existing, LP64-only, out of scope): REPL `GenConstMember`
     (`gen_repl.bn`) folds host-int only (no stamp consult) — REPL runs on the dev host,
     so no ILP32 impact.
-- 🟢 **arm32_baremetal xfails whose "literals exceed int32" cause is fixed — REMOVED
-  (`02dbb8e0`), awaiting CI confirmation.** The baremetal unit lane had 17 package
+- 🟡 **arm32_baremetal xfails whose "literals exceed int32" cause is fixed — REMOVED
+  (`02dbb8e0`), CI confirmation STILL PENDING.** The baremetal unit lane had 17 package
   xfails: 13 PERMANENT ("require host filesystem / subprocess / native-host arch —
   can't run under baremetal QEMU semihosting") + **4 citing "tests use literals that
   exceed int32 range; AssignableTo fit-check rejects on arm32 ILP32"** — the cause
@@ -409,9 +446,13 @@ Follow-ups surfaced during the triage (pre-existing, not introduced):
   `pkg-binate-{ir,vm,buf}` (real packages — each verified to type-check + emit cleanly
   for `--target arm32-baremetal`, 0 fit-check errors) and `pkg-std` (a dead/orphaned
   marker: exact-match lookup, no `package "pkg/std"` exists). Not locally runnable
-  (no qemu-system-arm/gcc-arm-none-eabi), so CI is the confirmation: run `29604623344`
-  (unit-tests.yml, arm32_baremetal). If ir/vm/buf pass there → done; if any reds at
-  runtime, re-add that marker with the real reason (fix-forward).
+  (no qemu-system-arm/gcc-arm-none-eabi), so CI is the confirmation — but run
+  `29604623344`'s **`arm32_baremetal` job was CANCELLED** (the run was superseded by
+  later pushes; its `arm32_linux` sibling had already FAILED on the segv above). So the
+  ir/vm/buf baremetal xfail removal is UNCONFIRMED, and every newer Unit-tests run is
+  queued. Re-confirm on the next completed Unit-tests run that reaches the
+  `arm32_baremetal` job; if ir/vm/buf pass there → done; if any red at runtime, re-add
+  that marker with the real reason (fix-forward).
 
 ### `data_pkg_descriptor.bn` header/slice-width conflation — 🟢 LOW (non-urgent cleanup)
 The `GetTarget().IntSize` "footgun" was a MISDIAGNOSIS and the native-accessor header reads
