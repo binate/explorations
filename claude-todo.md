@@ -178,16 +178,17 @@ Tests: conformance 1086/1087/1088 + checker unit tests.  See the done log.
 
 Remaining:
 
-- **🟡 Implicit value→`*any` boxing (`iface.construct.value-borrow`) — Commit 1
-  LANDED (`8230e7fd`, 2026-07-18); Commits 2–4 remain.**  Full plan + staging:
-  [plan-value-borrow.md](plan-value-borrow.md).  Commit 1 = the ADDRESSABLE
-  case (`fmt.Print(x)` / `Opts{Any: x}` → implicit `&x`, all positions).
-  Remaining: **Commit 2** — the non-addressable RVALUE case (`fmt.Print(42)`:
-  materialize a stack temp + box its address; the positional borrow-vs-store
-  check; managed-carrying temps need scope-routed cleanup — see the plan);
-  **Commit 3** — the `bnlint` escaping-borrow rule; **Commit 4** — flip the spec
-  rule Draft→Provisional.  Value-recovery is the *recover* half; this is the
-  *box* half — together they give the Go-ergonomic `fmt`.
+- **🟡 Implicit value→`*any` boxing (`iface.construct.value-borrow`) — Commits
+  1–2 LANDED; Commits 3–4 remain.**  Full plan:
+  [plan-value-borrow.md](plan-value-borrow.md).  **Commit 1** (`8230e7fd`) = the
+  ADDRESSABLE case (`fmt.Print(x)` / `Opts{Any: x}` → implicit `&x`, all
+  positions).  **Commit 2** (`87c97d08`) = the non-addressable RVALUE case
+  (`fmt.Print(42)`: materialize a temp + box its address; the positional
+  borrow-vs-store check; managed-carrying temps enroll as scope-scoped managed
+  locals — refcount-balanced).  Remaining: **Commit 3** — the `bnlint`
+  escaping-borrow rule; **Commit 4** — flip the spec rule Draft→Provisional.
+  Value-recovery is the *recover* half; this is the *box* half — together they
+  give the Go-ergonomic `fmt`.
 - **🔧 Remove the temporary `pkg/stdx/fmt` lint-skip at the next CHECK_TOOLS bump.**
   `pkg/stdx/fmt` (landed `10d0876b`) is in `scripts/hygiene/lint.sh` LINT_SKIP
   because the pinned CHECK_TOOLS bnlint (bnc-0.0.12-pre2) typechecks fmt.bn's

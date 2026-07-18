@@ -1,6 +1,7 @@
 # Plan: implement `iface.construct.value-borrow`
 
-Status: **Commit 1 LANDED (`8230e7fd`, 2026-07-18); Commits 2–4 pending** (spec
+Status: **Commits 1–2 LANDED (`8230e7fd` lvalue; `87c97d08` rvalue, 2026-07-18);
+Commits 3–4 pending** (spec
 `docs f8cdd0a`; `proposal-implicit-any-borrow`). This plans the *implementation* of the
 boxing half of the `...*any` `fmt` direction. Scope is the value-borrow language feature
 **only** (the `fmt` library itself is a separate, already-underway effort).
