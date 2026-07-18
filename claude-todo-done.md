@@ -209,6 +209,23 @@ rewrites).  Full VM conformance sweep stayed green (2796/0).  Two adversarial
 reviews (front-end + VM): both SOUND.  Conformance 1086/1087/1088; checker unit
 tests.  Verified LLVM / VM / double-VM / native-aa64 / comp-comp / comp-comp-int.
 
+## Multi-return into a non-ident array target silently dropped the store — ✅ FIXED (`9659579f`, 2026-07-18)
+
+A multi-RETURN assignment whose target was an array element on a non-identifier base
+— `t.arr[i], y = f()` (struct/pointer array field), `(*p)[i], y = f()` (deref of a
+pointer-to-array) — silently DROPPED the element store (the passed-in `collection` is
+a loaded COPY, so the store landed on the copy).  A MAJOR silent miscompile,
+pre-existing, surfaced by the selector-on-assert review.  Root cause: `emitIndexStore`
+recovered the array's address only for an `EXPR_IDENT` base.  Fix: mirror the
+single-assign (`genAssign`) and parallel-assign array-store arms in full — IDENT →
+lookupVar, SELECTOR → genSelectorPtr, UNARY-STAR → genExpr(p) — with the block
+re-sync (composes with the assert-selector threading: `a.(*T).arr[i], y = f()`).
+Managed elements stay Axiom-5-balanced (identical to the IDENT base).  Two review
+passes (the first caught the incomplete mirror — the deref arm was missing);
+conformance 1100; LLVM / VM / comp-comp / native-aa64; full builder-comp clean.  The
+sibling NESTED-array case (`a[j][i], y = f()`, also in parallel-assign) stays OPEN
+MAJOR in claude-todo.md.
+
 ## Selector / lvalue / receiver on a type-assertion base — ✅ DONE (`97c483c9` read, `9890c1a3` write+chain+threading, 2026-07-18)
 
 A type-assertion used as a selector / index / lvalue / loop-post / method-value
