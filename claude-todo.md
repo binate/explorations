@@ -1781,11 +1781,14 @@ unblock them:
   holds `Diags @vec.Vec[Diagnostic]`, the redundant `NumDiags` was dropped, and the ~27
   reader sites (lint.bn + `lint_test`/`unused_import_test`/`func_value_escape_test` +
   `cmd/bnlint`) were converted to `Diags.Len()`/`Diags.Get(i)`.
-  REMAINING higher-ripple sites (all VM, user OK'd taking them on 2026-07-18): `curNames`
-  (`lower_data.bn`:36 — aliases into `vmf.Names`), `vm.IfaceVtables` (`lower.bn`:279 —
-  iface dispatch), `vm.Funcs` (@VMFunc table indexed all through execution —
-  `lower.bn`:38/90/210, `lower_pkg_descriptor.bn`:411; watch the hot-path read overhead
-  of Get vs `[]`).
+  `curNames` LANDED (`49e32171`): `@vec.Vec[@[]char]`, handed to `vmf.Names` via
+  `.Items()` so the hot BC_CALL name reads stay slice-indexed (no Get overhead).
+  REMAINING higher-ripple VM sites (user OK'd 2026-07-18): `vm.IfaceVtables`
+  (`lower.bn`:279 append + ~8 reads on the iface-dispatch path — clean registry-like,
+  acceptable Get overhead) and `vm.Funcs` (@VMFunc table, 42 refs: append ×4 + one
+  index-write `lower.bn`:86 `vm.Funcs[existing]=vmf` → `.Set` + ~15 reads on the
+  HOTTEST path, `vm.Funcs[funcIdx]` per call; the Get indirection lands on every call
+  — build-time O(n²)→O(n) win vs a small per-call read cost; surface to the user).
 - **UNBLOCKED 2026-07-10** — the MAJOR cross-package generic-container mangler bug
   that blocked this (cross-package managed-element container dtor/copy mangling) is
   FIXED & LANDED (`8d9e7577`; entry in claude-todo-done.md).  `Vec[T]` (and Map/Set)
