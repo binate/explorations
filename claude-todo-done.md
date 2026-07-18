@@ -6,6 +6,53 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `builder-comp_arm32_linux` unit lane triage — ILP32 int-width root causes — ✅ DONE (`b87c841e`, `5b5987d7`, `f4f2b605`, `278b35fd`, `72f00cf4`, `2bf360fc`, 2026-07-16..18)
+
+Triaged from CI run `29550055785` (10 failed / 51 passed on the LLVM `builder-comp_arm32_linux`
+unit lane). The 10 packages collapsed to a handful of ILP32 host-vs-target int-width root
+causes, each fixed and guarded by an arm32_linux test. (VM `cast(floatN, uintN)` mis-round —
+bucket B, `36683dac` — has its own entry above.)
+
+- **A — `floatSignMask` untyped `1 << 31` overflowed int32** → build error cascading to
+  `native`/`native/arm32`/`cmd/bnc`. Built as a typed wrapping shift `cast(int, 1) << 31`
+  (mirrors x64_float's `cast(int64, 1) << 63`). `b87c841e`.
+- **C — constant range-checking used host `int` width** (`types` cast-overflow tests + an
+  `ir` build error). The checker cached a const's folded value in `Symbol.ConstVal` as host
+  `int`, truncating a 64-bit const (`0x8000000000000000`) on ILP32 before the exact cast-fit
+  check read it. Widened the const-value representation to `int64` end-to-end (`ConstVal`,
+  `defineConstVal`, the exact folds, `bignum.FromInt64`/`Num.ToInt64`, the IR-gen guard
+  `constValueFitsSignedTarget`); the host-int fallback + IR-gen host-int path are unchanged,
+  preserving the checker↔IR-gen contract (IR-gen never reads `Symbol.ConstVal`). `5b5987d7`.
+- **D — float-literal parse exponent wrapped at the int32 boundary.** strconv
+  `lexFloat`/`lexHexFloat` capped the exponent accumulator at `< 1e9`, but before
+  `expVal*10 + digit`, so it reached ~1e10 and overflowed int32 on ILP32 (corrupting decExp
+  so `1e4294967296` didn't saturate to +Inf). Lowered both caps to `1e8` (largest power of
+  ten where `*10 + digit` stays in int32); result-preserving on every host. Guard:
+  `native/common TestParseFloatHugeExponent`. `f4f2b605`.
+- **E — two test-only host-int-width codegen-test bugs** (production emitters correct):
+  `asm/elf TestWriteElfX64RelocPltVsPc` read a 64-bit `r_info` via a host-`int` `rdU64`
+  (symIdx high word dropped on ILP32 → every reloc looked UNDEF) — now reads the two 32-bit
+  halves; `native/aarch64 TestEmitCallFuncValueNoArgsVoid` lacked the `setTarget64()` its
+  siblings have — now pinned. `278b35fd`.
+- **E′ — assembler stored immediates in host `int`** (`asm/parse TestParseData`,
+  `.uint32 0xDEADBEEF` ≥ 2^31 overflowed on ILP32). Widened the assembler's immediate
+  representation to `int64` end-to-end (lexer accumulators, `Token.Ival`, `ExprResult.Val`,
+  `ConstVals`); data directives narrow via `cast(uintN, Val)`, call sites `cast(int, …)` at
+  the boundary. Guard: `asm/parse TestParseData`. Residual (pre-existing): x64 >32-bit
+  instruction immediates still truncate via the asm libs' `int`-typed `Imm`. `72f00cf4`.
+- **Follow-up — IR-gen truncated a named 64-bit const on an ILP32 host** (`2bf360fc`).
+  `ir.ModuleConst.Val` was a host `int`, so a named `const X uint64 = 0x100000001` read back
+  as 1 at codegen on a 32-bit-int host. Widened `ModuleConst.Val` to int64 + the feeding/
+  reading paths (emit via `EmitConstInt64`) — the mirror of bucket C on the IR-gen side, so
+  the const contract is now 64-bit-correct on ILP32 end-to-end. Guard:
+  `TestGenNamedConstAbove32BitsNotTruncated`. (Residual LP64-only nit: REPL `GenConstMember`
+  folds host-int only — no ILP32 impact.)
+
+Three items from this triage stayed OPEN in the active todo (see claude-todo.md): the
+int64-in-by-value-struct ABI segv that E′ EXPOSED (`asm/parse TestParseMov`, needs an arm32
+env), the `ir` host/target sizeof-portability test reds (test-only), and the
+`arm32_baremetal` xfail removal (`02dbb8e0`) pending CI confirmation.
+
 ## pkg/stdx/fmt (minimal formatted I/O) + type-assertion match-site `__typeinfo` emit — ✅ DONE (`e25fb3fe`, `10d0876b`, 2026-07-17)
 
 The `fmt` goal's first cut.  Two commits:

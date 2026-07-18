@@ -325,60 +325,12 @@ stdout.
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### `builder-comp_arm32_linux` unit lane triage — 🟡 IN PROGRESS (10 failed pkgs → ~5 root causes)
+### `builder-comp_arm32_linux` unit lane triage — remaining reds — 🔴 1 MAJOR + 🟡 test-only + CI-confirm
 
-Triaged from CI run `29550055785` (10 failed / 51 passed). The "10 packages"
-collapse to a handful of root causes; several are one bug cascading. Buckets:
-
-- **A — `floatSignMask` untyped `1 << 31` overflows int32 → build error cascading
-  to `native`, `native/arm32`, `cmd/bnc`. ✅ DONE** (`b87c841e`) — build it as a
-  typed shift `cast(int, 1) << 31` (wraps, not range-checked), mirroring
-  x64_float's `cast(int64, 1) << 63`.
-- **B — VM `cast(float32/64, uintN)` mis-round (`vm`, 1 test). ✅ DONE** (`36683dac`,
-  see [claude-todo-done.md](claude-todo-done.md)).
-- **C — constant range-checking used host `int` width. ✅ DONE** (`5b5987d7`).
-  `types` cast-overflow tests + the `ir` build error both stemmed from the checker
-  caching a const's folded value in `Symbol.ConstVal` as a host `int` (and the
-  fold-and-store path narrowing to host int before storing), so a 64-bit const
-  (`0x8000000000000000`) was truncated on ILP32 before the exact cast-fit check
-  (`foldConstNum`) read it. Widened the const-value representation to `int64`
-  end-to-end (`ConstVal`, `defineConstVal`, the exact folds `litIntValue`/
-  `foldConstIntValue`/`constIntFor`, `attachConstLitVal`; new `bignum.FromInt64`/
-  `Num.ToInt64`); the host-int fallback (`evalConstIntValue`) and IR-gen's
-  host-int path are unchanged (checker↔IR-gen contract preserved — IR-gen never
-  reads `Symbol.ConstVal`). Also widened the IR-gen guard `constValueFitsSignedTarget`
-  (param + `1<<(w-1)` bounds) to int64. Multi-lens adversarial review (4 lenses +
-  synthesis) HOLDS. Guards: the 3 `types` tests + the `ir` build on arm32_linux.
-- **D — float-literal parse exponent wraps at the int32 boundary. ✅ DONE** (`f4f2b605`).
-  strconv `lexFloat`/`lexHexFloat` capped the exponent accumulator at `< 1e9` but
-  the guard runs before `expVal * 10 + digit`, so expVal reached ~1e10 and overflowed
-  int32 on ILP32 (corrupting decExp → `1e4294967296` didn't saturate to +Inf). Fixed
-  by lowering both caps to `1e8` (largest power of ten where `*10 + digit` stays in
-  int32); result-preserving on every host (such exponents saturate to Inf/0 anyway).
-  `native/common`'s `TestParseFloatHugeExponent` is the arm32_linux guard. Residual
-  (pre-existing, not this bug): `decExp = expVal - fracDigits` / `4*fracHex` could
-  overflow int32 only under absurd multi-hundred-MB inputs — untracked, not worth a
-  fix. `asm/parse`'s remaining 1-failed was **`TestParseFloatHugeExponent`, and it
-  SEGFAULTS** (not an assertion) on arm32_linux — see the MAJOR segv note below; it
-  is a *separate, pre-existing* crash (present pre-E', at a point past `TestParseMov`).
-- **E — host-dependent codegen assertions (2 test-only) ✅ DONE** (`278b35fd`).
-  Both were test-only host-int-width bugs (production emitters correct):
-  `asm/elf TestWriteElfX64RelocPltVsPc` read the 64-bit `r_info` via a host-`int`
-  `rdU64` (symIdx high word dropped on ILP32 → every reloc looked UNDEF) — now reads
-  the two 32-bit halves directly; `native/aarch64 TestEmitCallFuncValueNoArgsVoid`
-  was missing the `setTarget64()` its siblings have (GetTarget() reflected the
-  32-bit host → wrong emit) — now pinned.
-- **E' / asm/parse — assembler stored immediates in host `int`. ✅ DONE** (`72f00cf4`).
-  `TestParseData` (`.uint32 0xDEADBEEF`): the asm lexer accumulated numeric literals
-  into host `int`, so a uint32 immediate ≥ 2^31 overflowed on ILP32. Widened the
-  assembler's immediate representation to `int64` end-to-end (lexer accumulators,
-  `Token.Ival`, `ExprResult.Val`, `ConstVals`, `exprOk`/`makeIntTok`/`defineConst`/
-  `lookupConst`); data directives already narrow via `cast(uintN, Val)` so they now
-  carry the full value; instruction/small-value call sites `cast(int, …)` at the
-  boundary (shared asm encoder libs keep `int` immediate params). No external
-  consumer reads the low-level fields. Adversarial review HOLDS; arm32_linux
-  `TestParseData` is the runtime guard. Residual (pre-existing, unchanged): x64 >32-bit
-  instruction immediates still truncate on ILP32 via the asm libs' `int`-typed `Imm`.
+The ILP32 host-vs-target int-width root causes from CI run `29550055785` (buckets A–E′,
+plus the IR-gen named-const follow-up) are all fixed and landed — summarized in
+[claude-todo-done.md](claude-todo-done.md) under "`builder-comp_arm32_linux` unit lane
+triage — ILP32 int-width root causes". What remains:
 
 - **⚠️ MAJOR — E' EXPOSED an int64-in-by-value-struct layout/ABI segfault on ILP32
   (`asm/parse` `TestParseMov`). 🔴 OPEN — needs an arm32 env.** E' widened
@@ -417,26 +369,11 @@ collapse to a handful of root causes; several are one bug cascading. Buckets:
   make `genFromSource` target-parameterized), not from host `sizeof`.
 
 Note: the lane is not locally runnable on the macOS dev host (no qemu-arm /
-arm-linux cross-toolchain), but the *check*-phase bugs (A, C) reproduce locally by
-compiling `--target arm32-linux` (the constant fit-check is target-based); run/emit
-bugs (B, D, E) need the CI lane or a Linux box.
+arm-linux cross-toolchain). Check-phase bugs (e.g. the constant fit-check) reproduce
+locally by compiling `--target arm32-linux`; run/emit bugs need the CI lane or a
+Linux box.
 
 Follow-ups surfaced during the triage (pre-existing, not introduced):
-- ✅ **DONE — IR-gen truncated a named 64-bit const on an ILP32 host** (`2bf360fc`).
-  `ir.ModuleConst.Val` was a host `int`; the named-const codegen path funneled through
-  it (the exact `bignumToInt` stamp was `cast(int, …)`-narrowed, and it emitted via
-  `EmitConstInt`), so a named `const X uint64 = 0x100000001` read back as 1 at codegen
-  on a 32-bit-int host. Widened `ModuleConst.Val` to int64 + the feeding/reading
-  paths (drop the cast on the exact stamp paths incl. `importConstStampVal`; cast the
-  host-int `evalConstExpr`/iota fallbacks at the boundary; emit via `EmitConstInt64`;
-  `lookupConst` narrows for the host-int fold). Mirror of Bucket C on the IR-gen side,
-  so the checker↔IR-gen const contract is now 64-bit-correct on ILP32. 4-lens review
-  HOLDS (it caught the guard test using the nil-checker `genFromSource` — inert on
-  LP64, red on arm32_linux — now `genFromSourceWithChecker`). Guard:
-  `TestGenNamedConstAbove32BitsNotTruncated` on the arm32_linux lane.
-  - Residual nit (pre-existing, LP64-only, out of scope): REPL `GenConstMember`
-    (`gen_repl.bn`) folds host-int only (no stamp consult) — REPL runs on the dev host,
-    so no ILP32 impact.
 - 🟡 **arm32_baremetal xfails whose "literals exceed int32" cause is fixed — REMOVED
   (`02dbb8e0`), CI confirmation STILL PENDING.** The baremetal unit lane had 17 package
   xfails: 13 PERMANENT ("require host filesystem / subprocess / native-host arch —
