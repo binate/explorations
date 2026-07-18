@@ -6,6 +6,22 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## bnfmt: accept multiple files per run; --check names offending files — ✅ DONE (`7821afd0`, 2026-07-18)
+
+bnfmt was single-file (a second path errored "multiple input files not supported").
+`main()` now collects any number of input paths (a `@vec.Vec[@[]char]`) and processes
+each independently: `-w` rewrites each; `--check` names each unformatted file on
+stderr (`<path>: not formatted`) and exits non-zero if any file is unformatted or
+fails to parse (one file's parse error no longer skips the rest); the default (stdout)
+mode still takes exactly one file (concatenating to stdout has no per-file boundary)
+and errors clearly on more.  `--check` was previously silent on which file was
+unformatted -- callers needed a per-file wrapper.  Guard: `e2e/bnfmt.sh` (single/multi
+`--check`, offending-file naming, `-w` batch, stdout-rejects-multiple).
+
+The hygiene-speedup payoff -- batching `bnfmt-format` into one `bnfmt --check`
+invocation (~1,219 forks / ~7.5s -> sub-second) -- is tracked as an active todo in
+claude-todo.md, gated on a CHECK_TOOLS bump that ships this bnfmt.
+
 ## bnfmt: strip trailing whitespace inside comments — ✅ DONE (`ed3a523c`, 2026-07-18)
 
 bnfmt normalized trailing whitespace on code lines but left it INSIDE comments
