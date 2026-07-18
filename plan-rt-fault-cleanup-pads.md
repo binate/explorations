@@ -291,11 +291,27 @@ needs no `FRAME_HDR` change (reuses `callerPC`).
     **Review note for the stack-overflow follow-up:** `CleanupDepth` is per-VM and NOT
     saved/restored across a nested `execFunc`/`execLoop` re-entry — inert now (dtors are
     guard-free), but a re-entrant cleanup path would need to account for it.
-  - **Still fatal (remaining follow-ups):** call-through-nil (inline in `execLoop`:
-    `BC_CALL_INDIRECT` + `BC_CALL_IFACE_METHOD` — now in `vm_exec_ifacecall.bn` — nil
-    checks); stack-overflow (`pushFrame`; recovering mid-push is subtle, and depends on
-    3c to keep a dtor-chain overflow fatal); nil-deref (`OP_NIL_CHECK` is UN-emitted by
-    IR-gen — needs IR-gen to emit nil checks first).
+  - **call-through-nil ✅ LANDED (`106f3cce`, 2026-07-18).** A method call through a
+    nil interface value (`execCallIfaceMethod` ivAddr/vtIdxPlus == 0) and a call
+    through a nil function value (`dispatchCompiledFuncValue` vtable == 0 — the REAL
+    path: a nil `@func` is `{vtable:0,data:0}`, so `data==0` routes there, NOT the
+    `execCallFuncValue` fvAddr==0 guard) are now recoverable via `setFault` +
+    `consumeFaultToPad` (a shared helper factoring the clear-FaultRaised +
+    CleanupDepth++ + dispatch used at all three fault-origin sites).  Message: the
+    specific `runtime error: call of nil {interface,function} value`.  **Scope finding
+    (user-ratified):** `BC_CALL_INDIRECT` is NOT a user-facing call-through-nil site —
+    post-Phase-4 its sole emitter is the internal `_call_shim_*` magics, so a nil there
+    is a corrupt handle/vtable (internal invariant), reclassified from `println+rt.Exit`
+    to `vmPanic` (adversarial review confirmed the emitter is internal-only).  Tests:
+    conformance 386 + its spec twin `spec/11-interfaces/082` updated to the recoverable
+    message (still xfail on compiled, which SEGV); new conformance 1092 (nil func-value);
+    VM unit tests for both.  Reviews: 1 blocker (a stale spec-twin golden the message
+    sweep missed — 082 — plus stale doc refs), fixed + a repo-wide re-sweep confirmed
+    complete; core logic clean.
+  - **Still fatal (remaining follow-ups):** stack-overflow (`pushFrame`; recovering
+    mid-push is subtle, and depends on 3c to keep a dtor-chain overflow fatal);
+    nil-deref (`OP_NIL_CHECK` is UN-emitted by IR-gen — needs IR-gen to emit nil checks
+    first, then wire like div/shift).
 
 ## 8. Open questions for the user
 
