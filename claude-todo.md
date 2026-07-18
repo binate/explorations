@@ -1737,21 +1737,19 @@ unblock them:
   (`88340933`, also dropped the redundant `NumDiags` counter + `appendMsg` helper),
   cmd/bni `parseArgs` CLIArgs fields (`e1da62a1`, all four accumulators;
   `expandDirArgs` now returns a Vec).  The pre2-INDEPENDENT sites are now EXHAUSTED.
-  COMMITTED BUT (WAS) BLOCKED on the pre2 CHECK_TOOLS
-  bump: lint `unused_local` (element `Vec[token.Pos]` — a bare QUALIFIED value type;
-  the frozen `bnc-0.0.12-pre1` bnlint rejects it, so it needs the generic-type-arg fix
-  `3f68fd7a` carried into CHECK_TOOLS) and lint `refs` (deletes the `growNames` helper,
-  so it depends on `unused_local` no longer using it — transitively pre2-blocked).
-  Both are on the local work branch (`backup-stack`), plus the Phase-D commit
-  (`CHECK_TOOLS_VERSION` → `bnc-0.0.12-pre2`).
-- **pre2 has PUBLISHED (2026-07-17).** `bnc-0.0.12-pre2` (tag at `3cde72ea`, dev on
-  `-pre3` `f60f4dac`) sat QUEUED ~5h in `release.yml` (GitHub runner overload, not a
-  code problem) and then built+published all 3 platform bundles + SHA256SUMS.  Now:
-  rebase `backup-stack` onto main (its suppress commit drops — landed as `c12d0238`),
-  set `CHECK_TOOLS_VERSION` → `bnc-0.0.12-pre2` (Phase D `bb2ad150`), verify full
-  hygiene under pre2's bnlint, then land Phase D → unused_local → refs (which lint
-  clean once CHECK_TOOLS carries `3f68fd7a`).  Re-verify no new xfail is born-stale
-  and that unused_local/refs still fail under pre1 / pass under pre2 before landing.
+  The pre2-DEPENDENT stack is ALSO LANDED (2026-07-17): Phase D CHECK_TOOLS bump →
+  `bnc-0.0.12-pre2` (`45d5ad75`), lint `unused_local` (`5b098f34`, `Vec[token.Pos]`
+  dropped NDecl/NRef), lint `refs` (`aa8b0f4b`, 4 fields → Vec, **deletes `growNames`**,
+  updates `unused_func`'s one loop).  The `backup-stack` local branch is now fully
+  landed (suppress→`c12d0238`, and these three) and can be deleted.
+- **pre2 PUBLISHED + STACK LANDED (2026-07-17).** `bnc-0.0.12-pre2` (tag at `3cde72ea`,
+  dev on `-pre3` `f60f4dac`) sat QUEUED ~5h in `release.yml` (GitHub runner overload,
+  not a code problem), then built+published all 3 bundles + SHA256SUMS.  CHECK_TOOLS is
+  now `bnc-0.0.12-pre2` on main; hygiene 17/17 under it.  Confirmed load-bearing before
+  landing: with CHECK_TOOLS forced back to pre1 the lint check failed with the exact
+  generic-type-arg bug (`unsupported type-argument form` / `cannot assign @Vec[void]
+  to @Vec[Pos]`), so `unused_local`'s `Vec[token.Pos]` genuinely needs pre2 — not
+  born-stale.
 - **make(VM) fixture NOTE:** `satentry_inject` + `lower_data` (landed above) showed
   `make(VM)` is NOT the sole VM constructor — several vm tests build via bare
   `make(VM)`, and a Vec field left nil there nil-derefs, so any test touching a
