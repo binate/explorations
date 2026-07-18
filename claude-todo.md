@@ -1734,31 +1734,32 @@ unblock them:
   cmd/bni `splitColon`/`expandDirArgs` (`81d1a5c4`), lint `unused_func` (`5e7a95a8`),
   cmd/bnlint `suppress` (`c12d0238`), vm `satentry_inject` (`05491135`), vm
   `lower_data` global table (`670d0fc8`), cmd/bnlint `appendMsg`/`LintResult.Messages`
-  (`88340933`, also dropped the redundant `NumDiags` counter + `appendMsg` helper).
-  COMMITTED BUT BLOCKED on the pre2 CHECK_TOOLS
+  (`88340933`, also dropped the redundant `NumDiags` counter + `appendMsg` helper),
+  cmd/bni `parseArgs` CLIArgs fields (`e1da62a1`, all four accumulators;
+  `expandDirArgs` now returns a Vec).  The pre2-INDEPENDENT sites are now EXHAUSTED.
+  COMMITTED BUT (WAS) BLOCKED on the pre2 CHECK_TOOLS
   bump: lint `unused_local` (element `Vec[token.Pos]` — a bare QUALIFIED value type;
   the frozen `bnc-0.0.12-pre1` bnlint rejects it, so it needs the generic-type-arg fix
   `3f68fd7a` carried into CHECK_TOOLS) and lint `refs` (deletes the `growNames` helper,
   so it depends on `unused_local` no longer using it — transitively pre2-blocked).
   Both are on the local work branch (`backup-stack`), plus the Phase-D commit
   (`CHECK_TOOLS_VERSION` → `bnc-0.0.12-pre2`).
-- **The pre2 bump is IN FLIGHT and STUCK.** `bnc-0.0.12-pre1` is the current
-  CHECK_TOOLS (its bnlint lacks `3f68fd7a`).  Cut `bnc-0.0.12-pre2` to carry the fix:
-  dev bumped to `-pre3` (`f60f4dac`), tag `bnc-0.0.12-pre2` pushed at `3cde72ea` — but
-  the `release.yml` CI run has sat QUEUED for 3+h (GitHub Actions runner exhaustion /
-  overload, not a code problem).  When it publishes: rebase `backup-stack` onto main,
-  set `CHECK_TOOLS_VERSION` → `bnc-0.0.12-pre2` (Phase D), verify full hygiene, then
-  land unused_local + refs (which now lint clean).
-- **Remaining pre2-INDEPENDENT sites (landable anytime — pre1-acceptable element
-  types):** cmd/bni `parseArgs` struct fields (`ProgArgs`/`BniPaths`/`ImplPaths`/
-  `Filenames`; ripple through cmd/bni readers).  NOTE: `satentry_inject` +
-  `lower_data` (landed above) showed `make(VM)` is NOT the sole VM constructor —
-  several vm tests build via bare `make(VM)`, and a Vec field left nil there
-  nil-derefs, so any test touching a converted registry must build via `NewVM`.  The
-  remaining vm-field sweeps (`curNames`, `vtableInj*`, `dataSym*`) will keep eroding
-  the "bare make(VM) suffices" fixture contract; at some point it may be worth
-  switching ALL vm-test `make(VM)` → `NewVM` in one pass (a separate decision for the
-  user, not folded silently into a conversion).
+- **pre2 has PUBLISHED (2026-07-17).** `bnc-0.0.12-pre2` (tag at `3cde72ea`, dev on
+  `-pre3` `f60f4dac`) sat QUEUED ~5h in `release.yml` (GitHub runner overload, not a
+  code problem) and then built+published all 3 platform bundles + SHA256SUMS.  Now:
+  rebase `backup-stack` onto main (its suppress commit drops — landed as `c12d0238`),
+  set `CHECK_TOOLS_VERSION` → `bnc-0.0.12-pre2` (Phase D `bb2ad150`), verify full
+  hygiene under pre2's bnlint, then land Phase D → unused_local → refs (which lint
+  clean once CHECK_TOOLS carries `3f68fd7a`).  Re-verify no new xfail is born-stale
+  and that unused_local/refs still fail under pre1 / pass under pre2 before landing.
+- **make(VM) fixture NOTE:** `satentry_inject` + `lower_data` (landed above) showed
+  `make(VM)` is NOT the sole VM constructor — several vm tests build via bare
+  `make(VM)`, and a Vec field left nil there nil-derefs, so any test touching a
+  converted registry must build via `NewVM`.  The remaining vm-field sweeps
+  (`curNames`, `vtableInj*`, `dataSym*`) will keep eroding the "bare make(VM)
+  suffices" fixture contract; at some point it may be worth switching ALL vm-test
+  `make(VM)` → `NewVM` in one pass (a separate decision for the user, not folded
+  silently into a conversion).
 - **UNBLOCKED 2026-07-10** — the MAJOR cross-package generic-container mangler bug
   that blocked this (cross-package managed-element container dtor/copy mangling) is
   FIXED & LANDED (`8d9e7577`; entry in claude-todo-done.md).  `Vec[T]` (and Map/Set)
