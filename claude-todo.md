@@ -344,18 +344,38 @@ triage — ILP32 int-width root causes". What remains:
     **segfaults at `TestParseMov`** (`qemu: uncaught target signal 11`) — a test with
     NO immediate and NO float, i.e. purely `Token`-by-value. PASS→SEGV attributable
     solely to the field-type change.
-  Strong hypothesis: **int64 fields in by-value structs are mis-laid-out or
-  mis-passed on ILP32** — either a shared `pkg/types` layout defect (struct size/field
-  offset/8-byte alignment with an int64 member) or the LLVM arm32 backend's
-  struct-by-value/sret ABI for a 64-bit member. If shared-layout, it affects ANY int64
-  struct field on a 32-bit target (broad correctness), not just the assembler.
-  NOT locally reproducible (no qemu-arm / arm cross-toolchain on the macOS dev host)
-  and CI is backlogged (every newer Unit-tests run queued). Do NOT "fix" by reverting
-  E' — that reintroduces the `TestParseData` immediate-overflow bug AND merely moves
-  the segv back to the float test, hiding the underlying int64-struct-ABI defect. The
-  real fix is to root-cause int64-struct layout/ABI on ILP32 (needs an arm32 Linux box
-  or qemu-user). Guard once fixed: `TestParseMov` on the arm32_linux lane (already
-  present — it just crashes). Discovered 2026-07-18 while confirming follow-up #2's CI.
+  **Local investigation (2026-07-18, via the builder bnc-0.0.11 `--emit-llvm
+  --target arm32-linux`) REFUTED the naive layout theory and refined the suspect:**
+  - `cmd/bnc` `setArm32Layout()` sets `MaxAlign=8` (AAPCS-correct), so `AlignOf(int64)`
+    = 8; and Binate emits **packed** LLVM structs (`<{...}>`) with **explicit `[N x i8]`
+    padding members**, so layout is fully Binate-controlled (no pkg/types-vs-LLVM
+    mismatch is even possible). Verified on both a minimal `{int, int64, int}`
+    (`<{ i32, [4 x i8], i64, i32, [4 x i8] }>`, Ival @8) and a faithful
+    `Token`-shaped `{int, @[]char, int64, int, int}` (`<{ i32, %BnManagedSlice,
+    [4 x i8], i64, i32, i32 }>`, Ival @24, 8-aligned) — GEPs self-consistent, LP64
+    equivalents correct. **Struct layout is NOT the bug.**
+  - The real suspect is the **multi-value return**. `LexNext (Lexer, Token)` is emitted
+    as a raw by-value first-class aggregate `define {%Lexer, %Token} @…` — NOT sret.
+    Per `pkg/binate/codegen/emit_agg_coerce.bn:69-76`, a multi-return is an ANONYMOUS
+    `{T1,T2,…}` struct that is **deliberately excluded from BOTH the sret (>16-byte)
+    and the `[N x iW]` coercion paths** that single returns use — it is emitted raw and
+    left to LLVM to legalize, *regardless of size*. So a single large struct return
+    goes through `sret align 8`, but a large multi-return (here 44 B, `{Lexer, Token}`)
+    does not. Before E' that FCA held an `int32` Ival (worked — `TestParseMov` PASSED);
+    E' made it an **i64**, and `TestParseMov`'s `ParseLine("mov x0, x1")` calls `LexNext`
+    on every token, so PASS→SEGV correlates exactly with the i64 entering the FCA return.
+    Strong hypothesis: **the arm32 LLVM backend mis-lowers a large by-value FCA return
+    containing an i64** (or the raw-FCA multi-return convention needs sret on arm32 for
+    >16-byte / i64-containing results, as single returns get). x86_64 uses the identical
+    raw-FCA strategy and works (SysV handles it), so the divergence is arm32-specific.
+  Confirmation still needs arm32 EXECUTION (not available locally: no qemu-arm / arm
+  cross-toolchain on the macOS dev host; CI backlogged — every newer Unit-tests run
+  queued). Candidate fix directions (for the arm32 env): route large / i64-containing
+  multi-returns through sret like single large returns; or find the LLVM-arm32 FCA-return
+  lowering defect. Do NOT "fix" by reverting E' — that reintroduces the `TestParseData`
+  immediate-overflow bug AND merely moves the segv back to the float test, hiding this.
+  Guard once fixed: `TestParseMov` on the arm32_linux lane (already present — it just
+  crashes today). Discovered 2026-07-18 while confirming follow-up #2's CI.
 
 - **ir host/target sizeof-portability test reds (3 tests) — 🟡 OPEN, test-only, NOT a
   miscompile.** `pkg/binate/ir` `TestGenSizeofInt`, `TestGenSizeofSlice`,
