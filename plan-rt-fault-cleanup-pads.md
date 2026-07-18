@@ -262,10 +262,19 @@ needs no `FRAME_HDR` change (reuses `callerPC`).
     invisible to compiled backends). Memory-safety review: one MAJOR finding (the
     `gen_method` gap), fixed + regression-tested; all other claims held. Cross-frame
     recovery is now LIVE for bounds faults in any call depth.
-  - **Inc 3b — pending.** Wire the remaining guards (div / shift / nil-deref / 3×
-    call-through-nil) onto `setFault` + pads.
+  - **Inc 3b ✅ LANDED (`da66f20a`, 2026-07-17).** Divide-fault (divide-by-zero +
+    signed MIN/-1 overflow) and negative-shift are now recoverable, wired exactly
+    like bounds: `attachFaultPad` after `OP_DIV_CHECK` / `OP_SHIFT_CHECK`
+    (`emitDivCheckGuard` / `emitShiftCheckGuard` now take `ctx`); the VM guards
+    `setFault` (inlining `rt.DivCheck` / `rt.ShiftCheck`'s compares, with the
+    identical `runtime error: …` text). 606 conformance green under
+    `builder-comp-int`. **Still fatal (follow-ups):** nil-deref (`OP_NIL_CHECK` is
+    currently UN-emitted by IR-gen — making it recoverable needs IR-gen to emit nil
+    checks first); call-through-nil (inline in `execLoop`); stack-overflow
+    (`pushFrame`).
   - **Inc 3c — pending.** The §6 cleanup-context fatal-guard flag (a fault inside a
-    dtor / pad is fatal).
+    dtor / pad is fatal — currently such a fault hits `dispatchFaultPad`'s vmPanic or
+    re-dispatches; needs a VM "in-cleanup" flag that makes a guard fault fatal).
 
 ## 8. Open questions for the user
 
