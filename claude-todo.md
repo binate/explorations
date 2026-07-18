@@ -179,16 +179,20 @@ Tests: conformance 1086/1087/1088 + checker unit tests.  See the done log.
 Remaining:
 
 - **🟡 Implicit value→`*any` boxing (`iface.construct.value-borrow`) — Commits
-  1–2 LANDED; Commits 3–4 remain.**  Full plan:
+  1, 2, 4 LANDED; Commit 3 remains.**  Full plan:
   [plan-value-borrow.md](plan-value-borrow.md).  **Commit 1** (`8230e7fd`) = the
   ADDRESSABLE case (`fmt.Print(x)` / `Opts{Any: x}` → implicit `&x`, all
   positions).  **Commit 2** (`87c97d08`) = the non-addressable RVALUE case
   (`fmt.Print(42)`: materialize a temp + box its address; the positional
   borrow-vs-store check; managed-carrying temps enroll as scope-scoped managed
-  locals — refcount-balanced).  Remaining: **Commit 3** — the `bnlint`
-  escaping-borrow rule; **Commit 4** — flip the spec rule Draft→Provisional.
-  Value-recovery is the *recover* half; this is the *box* half — together they
-  give the Go-ergonomic `fmt`.
+  locals — refcount-balanced).  **Commit 4** (docs `a2de73a`/`9cfb7b9`) flipped
+  the spec rule Draft→Provisional.  Remaining: **Commit 3** — the `bnlint`
+  escaping-borrow rule (`pkg/binate/lint`): flag a raw `*Iface` built from a local
+  or a materialised rvalue temp (implicit or explicit `&`) that ESCAPES via a
+  *later* statement (`return iv`, `heapObj.f = iv`) — the UAF the checker's
+  construction-time position rule can't catch; model on the existing
+  `raw-slice-return` lint; needs escape analysis + its own review.  The box half
+  is functionally complete; value-recovery is the *recover* half.
 - **🔧 Remove the temporary `pkg/stdx/fmt` lint-skip at the next CHECK_TOOLS bump.**
   `pkg/stdx/fmt` (landed `10d0876b`) is in `scripts/hygiene/lint.sh` LINT_SKIP
   because the pinned CHECK_TOOLS bnlint (bnc-0.0.12-pre2) typechecks fmt.bn's
