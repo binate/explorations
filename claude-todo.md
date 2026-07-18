@@ -470,6 +470,39 @@ built, together with a test that exercises `ptr≠int` (the only thing that vali
 
 ## Slimming `pkg/bootstrap`; C interop (`__c_call`)
 
+### `pkg/std/os/process` — retire `bootstrap.Exec` — 🟡 IN PROGRESS (Phase A landing; Phase B BUILDER-gated)
+
+Implements `explorations/design-os-process.md` per
+`explorations/plan-os-process.md` (full retirement, reviewed adversarially).
+A synchronous subprocess API (`Run`/`RunArgs`/`RunArgsPath`/`LookPath`,
+`ExitStatus`, `Options`) as an injected `__c_call` stdlib package, replacing the
+lossy `bootstrap.Exec` C shim.
+
+**Two phases — the split is forced by the BUILDER bundle gate.** `build_gen1`
+compiles `cmd/bnc`'s stdlib from the FROZEN BUILDER bundle (`--base "$blib"`), so
+`cmd/bnc` cannot import a brand-new `pkg/std/os/process` until it ships in a
+released bundle and `BUILDER_VERSION` is bumped.
+
+- **Phase A (not gated):** add `pkg/std/os/process` (hosted + baremetal), register
+  in `stdPkgs()`, export `os.Errno`/`os.FailErrno` + fix `errnoToBase` to map
+  `ENOEXEC→Unsupported`, unit tests + a conformance test. Non-destructive
+  (`bootstrap.Exec` stays). **Must ship in the next release** so Phase B can bump
+  BUILDER to a bundle carrying it.
+- **Phase B (🔴 GATED on a release + `BUILDER_VERSION` bump to a bundle containing
+  `os/process`):** migrate `cmd/bnc` production callers (Commit 2), migrate the 7
+  asm/native test harnesses (44 sites, Commit 3 — technically ungated, bundled
+  here for an atomic migration), then delete `bootstrap.Exec` entirely — `.bni`
+  decl, C shim, baremetal stub, both VM extern registrations
+  (`externs.bn`/`extern_test_helpers_test.bn`), `conformance/273_bootstrap_exec.*`,
+  `README.md:171`, and ~6 prose comments (Commit 4).
+
+Key implementation constraints (see plan §3/§5): child branch must **hoist**
+`dataOf(argv/envp)` before `fork` (allocation-free child); `waitpid` EINTR loop;
+`Run` takes `*readonly Options` so call sites use `&process.Options{...}`; new
+conformance test needs only `.xfail.builder-comp_arm32_baremetal` (native mode
+inherits via OVERRIDE_MODE) and **must be run under `builder-comp_arm32_linux`
+(qemu-user) before landing**.
+
 ### aarch64-linux **native** conformance mode (e2e for the aarch64 ELF relocs) — 🟢 MODE LANDED (`e8c99290`, 2026-07-09); residuals below
 
 The native aarch64 **ELF** data + GOT relocations (`ADD_ABS_LO12_NC`,

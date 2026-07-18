@@ -1,195 +1,193 @@
 # Plan: implement `pkg/std/os/process`, retire `bootstrap.Exec`
 
-Status: **PLAN — 2026-07-18.** Executes `explorations/design-os-process.md` (the
-ratified design; read it first). This doc records the recon-verified facts, two
-corrections to the design's implementation notes, the file-by-file changes, the
-commit breakdown, and the risks. User decision on scope: **full retirement**
-(migrate every caller incl. the internal test harnesses, delete `bootstrap.Exec`
-entirely), keeping everything **BUILDER-gated** (the migrated `cmd/bnc` cone +
-`os/process` must stay compilable by the pinned BUILDER, `bnc-0.0.11`).
+Status: **PLAN — 2026-07-18, revised after adversarial review.** Executes
+`explorations/design-os-process.md` (read it first). User decision: **full
+retirement, "obviously BUILDER gated."** The gate is decisive and splits the work
+into two phases (§4).
 
-## 1. Recon-verified facts (the load-bearing ones)
+## 1. Recon-verified facts
 
-1. **The bytecode VM does not execute `__c_call` at all** — it's native-only,
-   rejected at type-check in interpreted mode
-   (`pkg/binate/types/check_c_interop.bn`; `pkg/binate/vm/lower.bn` has no
-   `OP_C_CALL` arm). `bootstrap.Exec` runs under `bni` only because it's a
-   monolithic **C-runtime shim registered as a VM extern**
-   (`registerBootstrapExterns` in `pkg/binate/interp/externs.bn`).
+1. **The VM never executes `__c_call`** (native-only; `check_c_interop.bn`,
+   `vm/lower.bn` has no `OP_C_CALL` arm). `pkg/std/os` runs under `bni` by being
+   **injected as a native instance** — listed in `stdPkgs()` in
+   `pkg/binate/interp/externs.bn`; that one table drives lowering-skip
+   (`IsNativeOnlyInVM`), injection (`InjectStdlibExterns`/`StandardPackages`), and
+   interface-only load (`NativeOnlyInterfacePaths`). Hygiene
+   `stdlib-injected.sh` enforces a `stdPkgs()` entry for every
+   `ifaces/stdlib/pkg/std/*.bni`.
+2. **`os/process` is a normal injected `__c_call` package**, exactly like
+   `pkg/std/os`: raw syscalls (`fork`, `execv`/`execve`, `waitpid`, `getenv`,
+   `access`) via `__c_call`; `Options`/argv-envp-build/PATH-walk/status-decode in
+   Binate; **no new C shim** (C-free directive).
+3. **BUILDER feature-set is safe.** `cmd/bnc` already imports `pkg/std/os`, so
+   `__c_call`, `#[build(...)]`, `@errors.Error` interfaces, methods, multi-return
+   are all proven BUILDER-`0.0.11`-compilable. The one addition — **variadic
+   function definitions** (`RunArgs`/`RunArgsPath`) — was verified against the
+   real BUILDER for **both** individual-arg calls **and** spread `f(slice...)`,
+   plus the `Options{Args:@[]readonly @[]readonly char}` field assigned from
+   `@[]@[]char`. (Assignability confirmed in the type checker: `@[]@[]char →
+   @[]readonly @[]readonly char` via `Identical`+`dropsConst` const-widening;
+   string-literal → `*[]readonly char` via `isStringWritableSliceTarget`.)
+4. **Caller set (repo-wide, multiple patterns):** 14 files reference
+   `bootstrap.Exec` in code — Production (5) `cmd/bnc/{compile,main,library,
+   test,util}.bn`; VM registration (2) `pkg/binate/interp/externs.bn`,
+   `pkg/binate/vm/extern_test_helpers_test.bn`; test harnesses (7)
+   `pkg/binate/asm/{elf/elf_test,macho/macho_test,macho/macho_x64_test,
+   parse/aarch64_instr_test}.bn`, `pkg/binate/native/{aarch64/aarch64_test,
+   aarch64/aarch64_dispatch_test,x64/x64_link_test}.bn` (**44 call sites**). Plus
+   two doc/prose touchpoints: `conformance/273_bootstrap_exec.*`, the baremetal
+   stub `impls/core/baremetal/pkg/bootstrap/bootstrap.bn`, `README.md:171`, and
+   ~6 prose comments (`externs.bn`, `extern_test_helpers_test.bn`,
+   `bootstrap.bni`, the baremetal stub, `runtime/binate_runtime.c`).
 
-2. **`pkg/std/os` uses `__c_call` freely and runs under `bni` by being injected
-   as a native instance** — never lowered. A package is injected/native-only iff
-   it is listed in the `stdPkgs()` table in `pkg/binate/interp/externs.bn`; that
-   ONE table drives the lowering-skip (`IsNativeOnlyInVM`), the injection
-   (`InjectStdlibExterns` / `StandardPackages`), and the interface-only load
-   (`NativeOnlyInterfacePaths`). Hygiene `scripts/hygiene/stdlib-injected.sh`
-   enforces that every `ifaces/stdlib/pkg/std/*.bni` has a `stdPkgs()` entry.
+## 2. THE decisive gate — gen1 resolves `cmd/bnc`'s stdlib from the FROZEN bundle
 
-3. **`cmd/bnc` already imports `pkg/std/os`** (in `compile/target/main/library/
-   test/util.bn`), so `pkg/std/os`'s full feature set — `__c_call`,
-   `#[build(...)]` annotations, `@errors.Error` interfaces, struct methods,
-   multi-return — is **already proven BUILDER-`0.0.11`-compilable** (gen1 builds
-   today). `os/process` reuses exactly that set. Its one addition —
-   **variadic function definitions** (`RunArgs`/`RunArgsPath`) — was verified
-   directly against the real BUILDER: a probe with a variadic def + individual-arg
-   call + a private-field struct with `*readonly`-receiver methods + `@errors.Error`
-   return + `present()` compiled and ran cleanly under `bnc-0.0.11`.
+`scripts/lib/build-compilers.sh` `build_gen1` compiles `cmd/bnc` with the pinned
+BUILDER using **`--base "$blib"` (the frozen `bnc-0.0.11` bundle)** for stdlib
+`-I`/`-L`; only `pkg/binate` + `pkg/bootstrap` come from source (`--prepend
+"$BINATE_DIR"`). The bundle ships `pkg/std/os.bni` as a **file** (no `os/`
+subdir). Therefore:
 
-4. **The caller set is repo-wide 12 files, not the 5 the design's §7 lists** (see
-   §3 correction B).
+- **`cmd/bnc` cannot import a brand-new `pkg/std/os/process` until it ships in a
+  released bundle and `BUILDER_VERSION` is bumped** — else gen1 fails "package
+  `pkg/std/os/process` not found" (reproduced with the real BUILDER). Same for any
+  **new `pkg/std/os` export** `cmd/bnc` would consume directly.
+- **Everything else uses source stdlib** (`--base "$BINATE_DIR"`): gen2, native,
+  bni, and the unittest `builder-comp` runner. So `os/process` itself, its
+  registration in `externs.bn` (not in `cmd/bnc`'s cone), and the 7 test-harness
+  migrations (test files compiled with source stdlib) are **NOT gated**.
 
-## 2. Implementation model (settled)
+This is the documented "bump `BUILDER_VERSION`" case, not a language-subset case.
 
-`os/process` is a **normal injected stdlib package** implemented in Binate over
-raw `__c_call` syscalls, exactly like `pkg/std/os`:
+## 3. Implementation notes (marshalling, errno) — with review fixes
 
-- Raw syscalls via `__c_call`: `fork`, `execv` (inherit env), `execve` (explicit
-  env), `waitpid`, `getenv` (PATH source), `access` (pre-fork existence/perm
-  check). All fixed-arity (no variadic `__c_call`, which isn't supported).
-- Everything else in Binate: `Options` handling, argv/envp `char**` building,
-  the manual PATH walk, wait-status decode, `ExitStatus` accessors.
-- **No new C shim.** This matches the C-free directive ("C only for syscalls")
-  and lets the old `Exec` C shim be deleted rather than replaced.
-
-Under `bni`, a program importing `os/process` gets it **injected** (native), so
-its `__c_call`s run against libc — the same path `pkg/std/os` already uses.
-
-### Marshalling idioms (from `pkg/std/os`)
-- `cPath(name) @[]uint8` — NUL-terminated copy of a `*[]readonly char`.
-- `dataOfManaged(p @[]uint8) *uint8` = `bit_cast(*uint8, bit_cast(*int, &p)[0])`;
-  a `*[]*uint8` variant yields the `char**` data pointer.
-- NULL pointer = `bit_cast(*uint8, 0)`; void call = `__c_call("sym", "void", …)`.
-- **argv/envp build in the parent before fork, held live in managed locals**
-  (`@[]@[]uint8` keeps the C strings alive; `@[]*uint8` is the pointer array with
-  a `bit_cast(*uint8,0)` terminator). Refcounting frees them after `waitpid` at
-  scope end — no manual free, no leak, and the child (which only `execve`s +
-  `_exit`s, no allocation) never touches refcounts. Satisfies design footgun #7.
+### Marshalling (from `pkg/std/os` idioms)
+- `cPath(name) @[]uint8` (NUL-terminated); `dataOfManaged(p) *uint8` =
+  `bit_cast(*uint8, bit_cast(*int,&p)[0])`; NULL = `bit_cast(*uint8,0)`; void call
+  = `__c_call("sym","void",…)`.
+- **argv/envp built in the PARENT before `fork`.** A `@[]@[]uint8` holds the C
+  strings alive; a `@[]*uint8` is the pointer array (each = `dataOfManaged` of a
+  buffer) with a `bit_cast(*uint8,0)` terminator; its `.data` (offset 0,
+  pointer-width elements) is a valid `char**`. **Both slices must be
+  function-scope managed locals held live past `waitpid`** — the `@[]*uint8` is a
+  pure borrow view and does NOT keep the buffers alive; do NOT `consumeTemp` the
+  buffer slice into the pointer array.
+- **MANDATORY: hoist the raw pointers before `fork`.** Compute `progData`,
+  `argvData`, `envpData` as raw `*uint8` locals in the parent. The child branch
+  must be EXACTLY `if pid==0 { __c_call("execve"/"execv","void", progData,
+  argvData[, envpData]); __c_call("_exit","void",127); panic("unreachable") }` —
+  no Binate helper calls, no slice indexing (would emit a bounds check), no
+  managed-value ops. This keeps the child allocation-/refcount-free and
+  async-signal-safe (equivalent to the old C shim's execve-only child). The
+  trailing `panic` terminates the block so no post-fork cleanup IR follows `_exit`
+  (which the compiler does not know is noreturn). `_exit` (not `exit`) bypasses
+  atexit/stdio-flush.
+- **`waitpid` EINTR loop** — retry while return is `-1` and `errno()==EINTR`
+  (matching `os.bn`'s read/write/open idiom; fixes the current shim's latent
+  dropped-status bug).
+- Status decode in Binate (one Linux+mac decoder): `exited=(s&0x7f)==0;
+  code=(s>>8)&0xff; signaled=!exited; signal=s&0x7f`. **Verify on both platforms**
+  via the conformance test.
 
 ### errno mapping
-Reuse `pkg/std/os`'s errno machinery rather than duplicating `errnoToBase`:
-export a small `os.FailErrno(op @[]readonly char) @errors.Error` (and
-`os.Errno() int` if needed) from `pkg/std/os`; `os/process` imports `os` (its
-parent — no cycle) and calls `os.FailErrno("execve")` etc. right after the failed
-syscall in the **parent** (design §6 keeps start-failure detection parent-side via
-`access`/`LookPath`, so errno is read where it's clean). `FailErrno` already
-panics on `EBADF`/`EFAULT` (programmer error) — inherited for free.
+- **Fix `errnoToBase`: add an `ENOEXEC (errno 8, shared Linux/mac) →
+  errors.Unsupported` arm** (+ an `os_errno_test` case). Today it's unmapped →
+  `errors.Unknown`, contradicting design §4.5. This is a change to
+  `impls/stdlib/pkg/std/os/os_errno.bn` (a `cmd/bnc`-cone file — gen1-safe because
+  gen1 reads the frozen `os`, and `cmd/bnc` doesn't consume this arm).
+- **Export `os.Errno() int` and `os.FailErrno(op @[]readonly char) @errors.Error`**
+  from `pkg/std/os` (`.bni` + wrap the existing private ones; identical
+  signature). `os/process` imports `os` (parent — no cycle) and calls
+  `os.Errno()` to branch the PATH walk (ENOENT/ENOTDIR → next dir; EACCES →
+  remember) and `os.FailErrno("execve")` to build start-errors. `os/process`
+  defines its own local `ENOENT=2`/`ENOTDIR=20`/`EACCES=13` consts (shared values)
+  for branching. These exports are gen1-invisible (consumed only inside
+  source-compiled `os/process`), so they are NOT bundle-gated for Phase A.
 
-## 3. Two corrections to the design's implementation notes
+## 4. Two-phase sequencing
 
-**A. §5 "VM extern — re-home `bootstrap.Exec` to the new fork/exec/wait
-primitive."** Does not apply. With the injected-package model there is no extern
-to re-home: `os/process` is a full injected package (added to `stdPkgs()`), and
-the `bootstrap.Exec` extern registration is simply **deleted** (in
-`externs.bn` and `pkg/binate/vm/extern_test_helpers_test.bn`). This is strictly
-better (consistent with all other stdlib, hygiene-enforced) and meets §5's actual
-goal ("`bni` can run subprocess code"). §5's own `getenv` line already assumes
-`__c_call`, confirming the injected-`__c_call` model is the intent.
+**Phase A — now (not gated).** Land `os/process` so it can ship in the next
+release; nothing destructive.
+- **Commit 1 — add `pkg/std/os/process`.** New files
+  `ifaces/stdlib/pkg/std/os/process.bni`, `impls/stdlib/pkg/std/os/process/{process.bn
+  (ExitStatus+Options value types, unconstrained), run.bn (#[build(!is(os,
+  "baremetal"))]), run_baremetal.bn (#[build(is(os,"baremetal"))])}`; the
+  `stdPkgs()` entry + import in `externs.bn`; the `os.Errno`/`os.FailErrno`
+  exports and the `ENOEXEC` fix in `pkg/std/os`. Tests: unit
+  (`LookPath`, PATH walk over a temp layout, status-word decode with crafted
+  values, `Options` env selection, and a focused **`@[]*uint8` dtor-safety test**
+  — build the pointer array, drop it, confirm the still-live buffer slice's data
+  is intact / not freed); a **conformance test** (run `/usr/bin/true` →
+  `Success()`, `/usr/bin/false` → `Code()==1`, a not-found → `present(err)` +
+  `errors.Is(NotFound)`; a signal case if feasible). `bootstrap.Exec` untouched.
 
-**B. §7 caller list is incomplete.** §7 lists only the 5 `cmd/bnc` files. A
-repo-wide grep (`bootstrap\.Exec`) finds **12 files**:
-- Production (5): `cmd/bnc/{compile,main,library,test,util}.bn`.
-- VM extern registration (2): `pkg/binate/interp/externs.bn`,
-  `pkg/binate/vm/extern_test_helpers_test.bn`.
-- **Internal asm/native test harnesses (7, ~35 sites)** — the omission:
-  `pkg/binate/asm/{elf/elf_test,macho/macho_test,macho/macho_x64_test,
-  parse/aarch64_instr_test}.bn`,
-  `pkg/binate/native/{aarch64/aarch64_test,aarch64/aarch64_dispatch_test,
-  x64/x64_link_test}.bn`.
-- Plus the conformance test `conformance/273_bootstrap_exec.bn` and the baremetal
-  stub `impls/core/baremetal/pkg/bootstrap/bootstrap.bn`.
+**Phase B — after a released bundle carries `os/process` and `BUILDER_VERSION` is
+bumped** (tracked in `claude-todo.md`; a release event, the project's call). Do
+NOT start until the bump.
+- **Commit 2 — migrate `cmd/bnc` production callers** (`compile/main/library/
+  test/util.bn`): bare tool names → `&process.Options{SearchPath:true, Args:…}`;
+  `int` → `status,err := …; if present(err){fail}; …status.Code()/Success()`.
+  **Note the `&` — `Run` takes `*readonly Options`; a value literal won't
+  type-check.**
+- **Commit 3 — migrate the 7 asm/native test harnesses** (44 sites). Uniform
+  rewrite via a tiny per-package helper `execExit(prog, args @[]@[]char) int`
+  (calls `process.Run(prog, &process.Options{SearchPath:true, Args:args})`,
+  returns `status.Code()` or `-1` on start-error/signal — the old `Exec`
+  contract) to keep churn ~1:1. `SearchPath:true` reproduces `execvp`'s
+  always-search and is correct for absolute `exePath`s (contain `/` → used
+  directly). (Not gated — could be pulled into Phase A for early validation if the
+  user prefers; default is Phase B for an atomic migration.)
+- **Commit 4 — retire `bootstrap.Exec`.** Delete: `.bni` decl, C shim
+  (`runtime/binate_runtime.c`), baremetal stub, both extern registrations
+  (`externs.bn`, `extern_test_helpers_test.bn`), `conformance/273_bootstrap_exec.*`
+  (subsumed by Commit 1's test), **the `README.md:171` `Exec` table row**, and the
+  ~6 prose comments still naming `Exec`. Runtime deletion is safe: gen1 links the
+  frozen bundle runtime (keeps the symbol, harmless), gen2 links the current tree
+  (symbol gone, no emitted caller).
 
-Full retirement (user's call) migrates all of them. The test harnesses are in
-`cmd/bnc`'s BUILDER cone, so their migrated form must stay BUILDER-compilable
-(simple `Run`/`Options`/`present`/`.Code()` — verified safe).
+## 5. Risks & mitigations
 
-## 4. New package layout
+- **BUILDER gate (Phase B)** — see §2. Do not migrate `cmd/bnc` pre-bump.
+- **fork/exec safety** — the mandatory hoist (§3) makes the child
+  execve+_exit-only; COW isolation + `_exit`/execve both noreturn ⇒ the child
+  touches no refcounted state; verified equivalent to today's C-shim fork.
+- **`@[]*uint8` is new to the codebase** — layout/dtor verified sound (raw-ptr
+  element has `NeedsDestruction()==false`, so cleanup RefDecs only the backing,
+  never frees the borrowed C strings); still add the focused dtor test (Commit 1).
+- **wait-status portability** — one decoder; conformance test must pass on
+  Linux+mac.
+- **`builder-comp_arm32_linux` (qemu-user, in `modesets/all`, NON-experimental)**
+  — the new `fork`/`execve`/`getenv`/`access`/PATH-walk pattern differs from the
+  old monolithic C shim; qemu-user fork emulation is fragile. **Before landing
+  Commit 1, RUN the new conformance test under `builder-comp_arm32_linux`.** If it
+  fails, root-cause + fix or add `.xfail.builder-comp_arm32_linux` with a note
+  (Bug Discovery Protocol) — do not assume parity.
+- **baremetal xfail** — the new conformance test needs **only**
+  `.xfail.builder-comp_arm32_baremetal` (the LLVM sibling marker); the native mode
+  `builder-comp_native_arm32_baremetal` **inherits it via `OVERRIDE_MODE`** — do
+  NOT add a separate native marker.
+- **PATH-search default flip** — callers passing bare names get `SearchPath:true`
+  explicitly (Phase B sweep).
+- **LookPath env tension (v1)** — public `LookPath(program)` uses ambient PATH
+  (`getenv`); the internal search helper takes the PATH string (from `Options.Env`
+  when replacing, else `getenv`). Document that search+replace-env uses `Env`'s
+  PATH internally while public `LookPath` is ambient-only.
 
-```
-ifaces/stdlib/pkg/std/os/process.bni        # single unconstrained interface
-impls/stdlib/pkg/std/os/process/
-    process.bn        # ExitStatus + Options value types + methods (unconstrained)
-    run.bn            # #[build(!is(os,"baremetal"))] Run/RunArgs/RunArgsPath/LookPath + internals
-    run_baremetal.bn  # #[build(is(os,"baremetal"))]  fail-loud stubs (errors.Unsupported)
-    *_test.bn         # unit tests: LookPath, PATH walk, status decode, Options env selection
-```
+## 6. Design-doc corrections (fold into an "Implementation corrections" note)
 
-`process.bni` declares the types (incl. `ExitStatus`'s private fields, per the
-`os.bni` convention), the accessor methods, `Options`, and the four functions —
-**once, unconstrained** (the `.bni` is target-neutral; the build system selects
-`run.bn` vs `run_baremetal.bn`). Nested-package paths resolve automatically
-(`ifaces/stdlib/pkg/std/os/process.bni` + `impls/stdlib/pkg/std/os/process/`;
-precedent: `pkg/std/math/big`).
+- §5 "re-home the VM extern" → **obsolete**: injected-package model, delete the
+  extern (per user's full-retirement decision).
+- §7 caller list → undercounts by 7 test harnesses + README + prose comments (§1.4).
+- §4.5 "ENOEXEC→Unsupported" → **not true today**; add the arm (§3).
+- §4.3 / footgun #1 "`os.Env()` is an empty stub" → **false on hosted targets**
+  (entry glue populates it via `captureEnv`). The inherit-via-`execv` conclusion
+  still stands, but the reason is avoiding envp marshalling + snapshot-vs-live
+  staleness, not emptiness.
 
-## 5. Commit breakdown (each green, BUILDER-safe, small)
+## 7. Out of scope / follow-ups
 
-**Commit 1 — add `pkg/std/os/process` (no removals).**
-- New package files (§4); `Run`/`RunArgs`/`RunArgsPath`/`LookPath`, hosted +
-  baremetal.
-- `pkg/binate/interp/externs.bn`: `import "pkg/std/os/process"` + a `stdPkgs()`
-  entry (satisfies `stdlib-injected` hygiene).
-- Export `os.FailErrno`/`os.Errno` from `pkg/std/os` (`.bni` + impl) if reused.
-- Unit tests (LookPath, PATH walk on a temp layout, status-word decode with
-  crafted values, Options env selection) + a new conformance test (`/usr/bin/true`
-  → `Success()`, `/usr/bin/false` → `Code()==1`, a not-found start-error →
-  `present(err)` + `errors.Is(NotFound)`; signal case if feasible) with a
-  baremetal `.xfail`. `bootstrap.Exec` untouched — everything still green.
-
-**Commit 2 — migrate `cmd/bnc` production callers** (`compile/main/library/
-test/util.bn`) to `os/process`. Bare tool names (`clang`/`ar`/`rm`) → search form
-(`Options{SearchPath:true, Args:…}`); return shape `int` → `status,err := …; if
-present(err) { fail }; …status.Code()/Success()`. `bootstrap.Exec` still present
-(used by the test harnesses). Green.
-
-**Commit 3 — migrate the 7 asm/native test harnesses** (~35 sites). Uniform
-rewrite: each `bootstrap.Exec(prog, args) → int` becomes
-`process.Run(prog, process.Options{SearchPath:true, Args:args})` (uniform
-`SearchPath:true` reproduces `execvp`'s always-search semantics and is also
-correct for absolute `exePath`s, which contain `/` so LookPath uses them
-directly). To keep churn ~1:1, add a tiny per-package test helper
-`execExit(prog, args @[]@[]char) int` (returns `status.Code()`, or `-1` on
-start-error/signal — the old `Exec` contract) so the ~35 call sites change
-minimally. Keep helpers BUILDER-subset. `bootstrap.Exec` now unused. Green.
-
-**Commit 4 — retire `bootstrap.Exec`.**
-- Delete: the `.bni` decl (`ifaces/core/pkg/bootstrap.bni`), the C shim
-  (`bn_…Exec` in `runtime/binate_runtime.c`), the baremetal stub
-  (`impls/core/baremetal/pkg/bootstrap/bootstrap.bn`), and the two extern
-  registrations (`externs.bn`, `extern_test_helpers_test.bn`).
-- Delete `conformance/273_bootstrap_exec.*` (its coverage is subsumed by
-  Commit 1's `os/process` conformance test). Green — nothing references `Exec`.
-
-(2 and 3 could merge if the user prefers fewer landings; kept separate for
-smaller, reviewable, easily-landable commits per "stay close to main".)
-
-## 6. Risks & mitigations
-
-- **`fork()` via `__c_call`.** The child runs a minimal Binate branch
-  (`if pid==0 { __c_call("execve"/"execv", …); __c_call("_exit","void",127) }`)
-  with argv/envp already built pre-fork — no allocation, only `execve`+`_exit`,
-  async-signal-safe, equivalent to today's C-shim child path. Forks the whole
-  process (incl. under injected-`bni`), same as today.
-- **wait-status decode portability.** One decoder for Linux+mac low-byte layout
-  (`exited=(s&0x7f)==0; code=(s>>8)&0xff; signaled=!exited; signal=s&0x7f`);
-  **verify on both platforms** via the conformance test (the design mandates it).
-- **PATH-search default flip.** New default is exact-path; production callers and
-  test harnesses that pass bare names get `SearchPath:true` explicitly (design
-  footgun #9). Covered by the caller sweep.
-- **`char**` NULL terminator** — `bit_cast(*uint8,0)`, matching `os` readdir's
-  nil idiom.
-- **BUILDER gate** — after Commits 2/3 add `os/process` (and, transitively,
-  variadics) into `cmd/bnc`'s cone, run a real BUILDER gen1 build (or the
-  `builder-comp*` conformance modes) to confirm the pinned `bnc-0.0.11` still
-  compiles the cone. (Probe already passed; this is the full-tree confirmation.)
-- **baremetal `.xfail`** — the new conformance test can't run a process on
-  freestanding arm32; add the matching `.xfail.builder-comp_native_arm32_baremetal`
-  (and the LLVM arm32 baremetal mode if it runs conformance).
-
-## 7. Out of scope / follow-ups (not done here without a decision)
-
-- **Workspace `CLAUDE.md` "bnc's tree" list is stale** — it omits `pkg/std/os`
-  (already imported by `cmd/bnc`) and now `pkg/std/os/process` + `pkg/std/errors`.
-  Flag to the user; it's a workspace-repo edit (shared checkout), not part of the
-  binate code change.
+- **Phase B** — gated on the release + `BUILDER_VERSION` bump (todo entry).
+- Workspace `CLAUDE.md` "bnc's tree" list is stale (omits `pkg/std/os`, now also
+  `pkg/std/os/process`) — flag to the user; workspace-repo edit.
 - Design §9 futures: async `Start`/`@Process`, portable signal enum, real
-  `os.Env()` data source (retires the `getenv` shim), v1.1 self-pipe for precise
-  direct-exec errno. None blocks v1.
+  `os.Env()` data source (retires `getenv`), v1.1 self-pipe.

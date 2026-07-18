@@ -1,8 +1,26 @@
 # Design: `pkg/std/os/process` — synchronous subprocess execution (replaces `bootstrap.Exec`)
 
-Status: **DESIGN — ratified in discussion 2026-07-17, not yet implemented.** Replaces
+Status: **DESIGN — ratified in discussion 2026-07-17, being implemented.** Replaces
 `bootstrap.Exec`. Stdlib API (not core language), so no spec change; this doc is the
-authority for the implementer.
+authority for the implementer, **subject to the implementation corrections below**.
+See `explorations/plan-os-process.md` for the execution plan and commit breakdown.
+
+**Implementation corrections (2026-07-18, from adversarial review of the plan):**
+- **§5 "re-home the VM extern"** is obsolete. `os/process` is a normal *injected*
+  stdlib package (listed in `stdPkgs()`), so its `__c_call`s run natively under `bni`
+  with no extern; the `bootstrap.Exec` VM extern is simply **deleted**, not re-homed.
+- **§7 caller list undercounts.** Beyond the 5 `cmd/bnc` files there are 7 internal
+  asm/native test harnesses (44 sites), plus `README.md` and ~6 prose comments. Full
+  retirement (the ratified scope) migrates all of them.
+- **§4.5 "ENOEXEC→Unsupported" is not true today** — `errnoToBase` does not map
+  `ENOEXEC`; the implementation adds that arm.
+- **§4.3 / footgun #1 "`os.Env()` is an empty stub"** is false on hosted targets
+  (the entry glue populates it via `captureEnv`). Inherit-via-`execv` is still
+  correct, but because it avoids envp marshalling + snapshot-vs-live staleness.
+- **BUILDER gate:** `cmd/bnc` cannot import `os/process` until it ships in a released
+  bundle and `BUILDER_VERSION` is bumped (gen1 resolves `cmd/bnc`'s stdlib from the
+  frozen bundle). So the `cmd/bnc` migration + `Exec` deletion are a **second phase**,
+  gated on that bump; adding `os/process` itself is not gated.
 
 ## 1. Goal & scope
 
