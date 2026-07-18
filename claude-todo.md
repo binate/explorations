@@ -123,23 +123,32 @@ Tests: conformance 1086/1087/1088 + checker unit tests.  See the done log.
 
 Remaining:
 
-- **🔴 Selector directly on a value-/pointer-recovery expression (`x.(T).field` /
-  `x.(*T).field`) crashes in IR-gen — NEWLY REACHABLE.**  `genSelector`
-  (`pkg/binate/ir/gen_selector.bn`) has base arms for `EXPR_IDENT` /
-  `EXPR_INSTANTIATE_OR_INDEX` / `EXPR_SELECTOR` / `EXPR_CALL` / `EXPR_BUILTIN` /
-  `EXPR_COMPOSITE` / `EXPR_UNARY`(deref) but **none for `EXPR_TYPE_ASSERT`**, so a
-  selector whose base is a type-assertion falls through: `v.(Named).tag` →
-  `panic: unresolved selector in IR-gen`, `len(v.(Named).name)` → invalid LLVM
-  (`extractvalue i64`).  **Pre-existing** — `x.(*T).field` (pointer recovery, predates
-  struct value-recovery) crashes identically; it was just unreachable for the value
-  form because the checker rejected `x.(Named)` until `21d4c38e`.  Always LOUD (panic /
-  compile-error), never a silent miscompile, so no refcount hole.  The bind-then-select
-  idiom (`switch v := ...; _ = v.name`, as conf 1093/1094 do) is unaffected.  **Fix:**
-  add an `EXPR_TYPE_ASSERT` base arm to `genSelector` mirroring the `EXPR_UNARY`(deref)
-  arm — it already handles all three shapes `genExpr` returns for an assert base
-  (managed-ptr-to-struct, raw-ptr-to-struct, struct-value: alloca+store+GEP+load).
-  Fixes BOTH forms at once.  Add a conformance test for `x.(T).field` + `x.(*T).field`.
-  (Found by the struct value-recovery adversarial review, 2026-07-18.)
+- **🔴 Selector-on-assertion-base: READ landed (`97c483c9`); WRITE + CHAIN remain
+  — one a MAJOR SILENT miscompile.**  The read half — `x.(S).field` value recovery
+  and `x.(*T).field` / `x.(@T).field` pointer recovery — now lowers correctly
+  (`genSelector` EXPR_TYPE_ASSERT arm, conf 1095, refcount-sound review).  Two
+  sibling gaps in the *same feature* remain, both pre-existing but newly reachable
+  now that the read works (user chose "land read-only, fix rest next", 2026-07-18):
+    - **DEFECT 1 — 🔴 MAJOR, SILENT wrong-code.**  `x.(*T).field = v` /
+      `x.(@T).field = v` compile clean, run to exit 0, and **silently DROP the
+      store** (`b.(*PBox).v = 100; println(pb.v)` prints `42`).  Root cause:
+      `pkg/binate/ir/gen_selector_ptr.bn` `genSelectorPtr` has no `EXPR_TYPE_ASSERT`
+      lvalue arm → returns nil → the assignment no-ops.  On main NOW.  (Value-recovery
+      *writes* `x.(S).a = v` are correctly checker-rejected — "non-addressable" — so
+      only the two pointer-write forms drop.)  Fix: add an `EXPR_TYPE_ASSERT` lvalue
+      arm mirroring `genSelectorPtr`'s `EXPR_CALL` arm (pointer-recovery → GEP through
+      the pointer = a real lvalue; value-recovery → alloca+store+GEP, a throwaway-copy
+      lvalue only ever reached by reads/method-receivers).
+    - **DEFECT 2 — 🟠 loud crash.**  Chained `x.(S).f1.f2` compiles clean then panics
+      at runtime (`unresolved selector in IR-gen`).  Root cause:
+      `pkg/binate/ir/gen_selector_type.bn` `getSelectorType` has no `EXPR_TYPE_ASSERT`
+      arm → the inner selector types nil → `genSelector`'s EXPR_SELECTOR arm falls
+      through to the poisoned fallback.  Fix: add `EXPR_TYPE_ASSERT` →
+      `peelTransparent(resolveTypeExpr(ctx.Gc, e.TypeRef))`.
+  Both share the read-arm's fix shape (mirror the EXPR_CALL arm already in each file).
+  Land as one reviewed commit with conformance for the silent write-drop (both `*T`
+  and `@T`) + the chained read.  (Found by the selector-read adversarial review,
+  2026-07-18.)
 - **🟡 Implicit value→`*any` boxing (`iface.construct.value-borrow`) — Commit 1
   LANDED (`8230e7fd`, 2026-07-18); Commits 2–4 remain.**  Full plan + staging:
   [plan-value-borrow.md](plan-value-borrow.md).  Commit 1 = the ADDRESSABLE
