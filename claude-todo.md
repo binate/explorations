@@ -1749,11 +1749,12 @@ unblock them:
 - **make(VM) fixture sweep DONE (`25e8d883`).** All vm-test `make(VM)` were switched
   to `NewVM(1024)` in one commit (user chose this path 2026-07-17), so `NewVM` is now
   the sole test VM constructor and the remaining VM-field Vec conversions no longer
-  nil-deref their fixtures.  REMAINING vm-registry Vec sites (now unblocked, standing
-  grant): `vtable_inject.bn` (vtableInj*Names/Addrs/Shims/Sizes), `lower_data.bn`
+  nil-deref their fixtures.  `vtable_inject.bn` (vtableInj*Names/Addrs/Shims/Sizes)
+  LANDED (`3b4dad5d`).  REMAINING vm-registry Vec sites (standing grant): `lower_data.bn`
   `curNames`, plus the `slices.Append` sites in `lower.bn` / `lower_typeinfo.bn` /
-  `lower_pkg_descriptor.bn`.  Non-vm clean sites also remain: `format/print_chain.bn`,
-  `repl/session.bn`, `repl/mid_session_import.bn`, `lint/lint.bn` (manual doubling).
+  `lower_pkg_descriptor.bn` (dataSym* etc.).  Non-vm clean sites also remain:
+  `format/print_chain.bn`, `repl/session.bn`, `repl/mid_session_import.bn`,
+  `lint/lint.bn` (manual doubling).
 - **UNBLOCKED 2026-07-10** — the MAJOR cross-package generic-container mangler bug
   that blocked this (cross-package managed-element container dtor/copy mangling) is
   FIXED & LANDED (`8d9e7577`; entry in claude-todo-done.md).  `Vec[T]` (and Map/Set)
