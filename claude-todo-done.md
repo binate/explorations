@@ -155,6 +155,36 @@ rewrites).  Full VM conformance sweep stayed green (2796/0).  Two adversarial
 reviews (front-end + VM): both SOUND.  Conformance 1086/1087/1088; checker unit
 tests.  Verified LLVM / VM / double-VM / native-aa64 / comp-comp / comp-comp-int.
 
+## Selector / lvalue / receiver on a type-assertion base — ✅ DONE (`97c483c9` read, `9890c1a3` write+chain+threading, 2026-07-18)
+
+A type-assertion used as a selector / index / lvalue / loop-post / method-value
+base — `x.(S).field`, `x.(*T).field = v`, `x.(S).a.b`, `x.(*T).arr[i].field`,
+`*(x.(*int)) = v`, `for …; x.(*T).n = …`, `a.(*T).Method` — now lowers correctly.
+Surfaced by the struct-value-recovery review: enabling the *read* (`x.(S).field`,
+`97c483c9`) exposed that the write / chain / threading halves were broken.
+
+Root insight: `x.(T)` is the **first expression in the language that splits the
+current block** (its MISS-abort branch), violating the pervasive IR-gen assumption
+that expression evaluation never changes the current block.  Fix = two new arms
+(genSelectorPtr EXPR_TYPE_ASSERT lvalue arm — a MAJOR SILENT write-drop before, the
+store was dropped; getSelectorType EXPR_TYPE_ASSERT typing arm — a chained-selector
+panic before) + **nine block-threading re-syncs** (`b = ctx.CurBlock` after a
+splitting sub-eval, or threading a discarded genStmt continuation) across
+gen_control / gen_selector / gen_selector_ptr / gen_flow (for-post — also fixed a
+PRE-EXISTING non-assert `for …; t.n++` drop) / gen_method_value*.  Two distinct bug
+classes (stale-`b`-after-sub-eval, and discarded-genStmt-continuation).
+
+FOUR adversarial review passes drained the bug family (each of the first three found
+more: index-through-genIndexPtr, deref-assign, for-post + method-value); pass 4 came
+back CLEAN after a repo-wide two-class audit, cross-checked by an independent
+grep-audit.  Conformance 1095 (reads), 1096 (writes / chains / index / deref-assign),
+1098 (for-post + method-value); write path refcount-balanced.  Full builder-comp
+conformance clean (2829 passed); LLVM / VM / comp-comp / native-aa64.
+
+Two PRE-EXISTING non-assert silent miscompiles were surfaced along the way: the
+for-post field inc-dec (fixed here, bundled) and the multi-return-into-array-field
+store drop (`ab.arr[2], y = two()` — tracked as an OPEN MAJOR in claude-todo.md).
+
 ## Struct / array value-recovery type assertion `x.(S)` — ✅ DONE (`21d4c38e`, 2026-07-18)
 
 Widened value-recovery (§11.12) from scalars to value STRUCTS and ARRAYS:
