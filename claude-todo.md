@@ -1744,13 +1744,16 @@ unblock them:
   (@VMFunc table, indexed all through execution — `lower.bn`:38/90/210,
   `lower_pkg_descriptor.bn`:411), `vm.IfaceVtables` (`lower.bn`:279), and `curNames`
   (`lower_data.bn`:36 — aliases into `vmf.Names`, deliberately skipped so far).
-  Non-vm sites: `format/print_chain.bn` LANDED (`9229bef9`, flattenChain accumulators).
-  REMAINING non-vm: `repl` `ProcessedPkgs` field (`session.bn` + `mid_session_import.bn`
-  + `session_test.bn`; needs init in BOTH kernel constructors — assembleSession AND the
-  `setupReplState` test helper, which currently leaves it nil), and `lint/lint.bn`
-  `Result.Diags` (manual-doubling accumulator; but `Result` is the PUBLIC LintFile
-  return read cross-package by `cmd/bnlint` `r.NumDiags`/`r.Diags[j]` — a wider ripple,
-  like the LintResult.Messages conversion).
+  The EASY non-vm sites are DONE: `format/print_chain.bn` (`9229bef9`, flattenChain
+  accumulators) and `repl` `ProcessedPkgs` (`8baabe11`, field → Vec, inited in BOTH
+  kernel constructors — assembleSession AND the `setupReplState` test helper).
+  RECLASSIFIED as HIGHER-RIPPLE (defer with the vm Funcs/IfaceVtables/curNames batch):
+  `lint/lint.bn` `Result.Diags` — it looked like a simple manual-doubling accumulator,
+  but `Result` is the PUBLIC `LintFile` return, and `Diags`/`NumDiags` are read at ~27
+  sites across `lint.bn` + 3 lint test files (`lint_test`, `unused_import_test`,
+  `func_value_escape_test`) + `cmd/bnlint` `r.NumDiags`/`r.Diags[j]`; dropping the
+  public `NumDiags` (redundant with `Diags.Len()`) ripples through all of them
+  (parseArgs-tier, like the LintResult.Messages conversion already done).
 - **UNBLOCKED 2026-07-10** — the MAJOR cross-package generic-container mangler bug
   that blocked this (cross-package managed-element container dtor/copy mangling) is
   FIXED & LANDED (`8d9e7577`; entry in claude-todo-done.md).  `Vec[T]` (and Map/Set)
