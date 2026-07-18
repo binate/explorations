@@ -9,6 +9,32 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
+
+**Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
+call-through-nil / stack-overflow — Plan 2) raised inside a **re-entrant** `execFunc`
+(a VM function dispatched from COMPILED code through a trampoline / `_call_shim_*`
+during an outer `execLoop`) is silently swallowed instead of propagating. The nested
+`execFunc` unwinds to *its* entry frame, clears `FaultRaised`, and returns
+`Status = FAULTED` + a garbage `0` to the trampoline; neither `execFunc` (after
+`execLoop`) nor `execExternCall` re-checks `vm.Status` / `FaultRaised`, so the OUTER
+loop continues on the bogus result rather than continuing the unwind (or aborting). A
+faulting VM callback thus returns `0` to its compiled caller instead of the program
+aborting.
+
+**Pre-existing + affects ALL recoverable faults** (not introduced by the stack-overflow
+work — surfaced by its adversarial review, `022a76ac`). Trigger is narrow: a
+cross-mode callback (compiled higher-order fn → VM-side callback) whose callback
+faults. The unwind only reaches the host cleanly when the *outermost* `execLoop` is the
+one that faults.
+
+**Fix direction:** after a nested `execFunc` returns with `Status == VM_STATUS_FAULTED`,
+propagate rather than swallow — the trampoline / `execExternCall` should re-raise
+(re-`setFault` + re-dispatch in the outer frame, or bail the outer `execLoop`). Needs a
+test: a compiled/native higher-order fn calling a VM callback that indexes OOB, asserting
+the program aborts (not returns 0). Tracked against Plan 2
+(`explorations/plan-rt-fault-cleanup-pads.md`).
+
 ### Multi-return assignment into an array-field element target silently drops the store — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a SILENT miscompile (wrong code, no diagnostic, exit 0) on a
