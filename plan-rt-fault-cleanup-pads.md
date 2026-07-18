@@ -272,9 +272,30 @@ needs no `FRAME_HDR` change (reuses `callerPC`).
     currently UN-emitted by IR-gen — making it recoverable needs IR-gen to emit nil
     checks first); call-through-nil (inline in `execLoop`); stack-overflow
     (`pushFrame`).
-  - **Inc 3c — pending.** The §6 cleanup-context fatal-guard flag (a fault inside a
-    dtor / pad is fatal — currently such a fault hits `dispatchFaultPad`'s vmPanic or
-    re-dispatches; needs a VM "in-cleanup" flag that makes a guard fault fatal).
+  - **Inc 3c ✅ LANDED (`4a0cc0ad`, 2026-07-17).** The §6 cleanup-context fatal-guard.
+    A per-VM `CleanupDepth` counter is incremented on pad entry (the fault consume
+    point + the pop-loop's caller-pad entry) and dtor-frame push (the two
+    `BC_REFDEC_INLINE_FAST` dtor arms), decremented on pad exit (`BC_UNWIND_RETURN`)
+    and dtor-frame pop (`BC_RETURN` when `freeOnPop != 0`, which marks exactly a dtor
+    frame — verified the only non-zero `hdr[5]` writers are those two pushes).
+    `setFault` turns fatal (`vmPanicName`) whenever `CleanupDepth != 0`
+    (`faultDuringCleanup`, factored so the decision is unit-testable — the fatal branch
+    itself terminates the process). Reset per host `Call*`. Inert for the
+    currently-recoverable guards (bounds/divide/shift never appear in a dtor or pad, so
+    no observable change; conformance untouched) — it is the safety substrate the
+    stack-overflow-recovery follow-up needs. Adversarial review CLEAN (counter proven
+    balanced across every path; the `freeOnPop`⟺dtor invariant holds; the fatal branch
+    is depth-0-unreachable today). Also extracted `BC_CALL_IFACE_METHOD` →
+    `execCallIfaceMethod` (`vm_exec_ifacecall.bn`, mirroring `execCallFuncValue`) to
+    keep `vm_exec.bn` under the file-length limit after the counter additions.
+    **Review note for the stack-overflow follow-up:** `CleanupDepth` is per-VM and NOT
+    saved/restored across a nested `execFunc`/`execLoop` re-entry — inert now (dtors are
+    guard-free), but a re-entrant cleanup path would need to account for it.
+  - **Still fatal (remaining follow-ups):** call-through-nil (inline in `execLoop`:
+    `BC_CALL_INDIRECT` + `BC_CALL_IFACE_METHOD` — now in `vm_exec_ifacecall.bn` — nil
+    checks); stack-overflow (`pushFrame`; recovering mid-push is subtle, and depends on
+    3c to keep a dtor-chain overflow fatal); nil-deref (`OP_NIL_CHECK` is UN-emitted by
+    IR-gen — needs IR-gen to emit nil checks first).
 
 ## 8. Open questions for the user
 
