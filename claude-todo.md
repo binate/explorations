@@ -139,11 +139,6 @@ Remaining:
   **Commit 3** — the `bnlint` escaping-borrow rule; **Commit 4** — flip the spec
   rule Draft→Provisional.  Value-recovery is the *recover* half; this is the
   *box* half — together they give the Go-ergonomic `fmt`.
-- **🔧 Cleanup: VM `BC_EXTRACT` sign-extend should adopt `narrowToWidth`.**  The
-  landed fix sign-extends inline (mirroring BC_LOAD8's `1<<bits` pattern, with its
-  latent 32-bit-host full-width-shift edge).  A concurrent commit added
-  `narrowToWidth(v, bits, signed)` (vm_exec_helpers.bn) which is host-portable;
-  BC_EXTRACT's value-load arm should use it.  Non-observable on a 64-bit host.
 - **🔧 Remove the temporary `pkg/stdx/fmt` lint-skip at the next CHECK_TOOLS bump.**
   `pkg/stdx/fmt` (landed `10d0876b`) is in `scripts/hygiene/lint.sh` LINT_SKIP
   because the pinned CHECK_TOOLS bnlint (bnc-0.0.12-pre2) typechecks fmt.bn's
