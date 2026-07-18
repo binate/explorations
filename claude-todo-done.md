@@ -6,6 +6,25 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## bnfmt: strip trailing whitespace inside comments — ✅ DONE (`ed3a523c`, 2026-07-18)
+
+bnfmt normalized trailing whitespace on code lines but left it INSIDE comments
+(`bnfmt --check` passed on `func f() {} // note   `, and on trailing spaces/tabs on
+the interior lines of a `/* ... */` block), because a comment's captured text is
+emitted verbatim and `finalizeFile` only trimmed the file's ends.  `finalizeFile`
+(pkg/binate/format/print_file.bn) now strips trailing spaces and tabs from EVERY
+output line — one chokepoint enforcing file-format.sh's `[ \t]+$` rule regardless of
+source.  Safe for string literals (a Binate string can't span lines and its closing
+`"` follows any interior spaces, so string whitespace never reaches line-end) and
+width-neutral (strips only the final bytes, after every wrapping decision).  CRLF
+block-comment interior `\r`s are left as-is (only spaces/tabs are stripped; the lexer
+deliberately keeps them).  Guard: `pkg/binate/format TestCommentsStripTrailingWhitespace`.
+
+Unblocks (not yet done): the `file-format` hygiene check could drop its line-based
+trailing-whitespace scan of `.bn`/`.bni` (see `13882263`) now that bnfmt covers that
+concern for Binate files — a separate hygiene-config change, left for the user to
+decide.
+
 ## `builder-comp_arm32_linux` unit lane triage — ILP32 int-width root causes — ✅ DONE (`b87c841e`, `5b5987d7`, `f4f2b605`, `278b35fd`, `72f00cf4`, `2bf360fc`, 2026-07-16..18)
 
 Triaged from CI run `29550055785` (10 failed / 51 passed on the LLVM `builder-comp_arm32_linux`

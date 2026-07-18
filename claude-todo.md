@@ -648,17 +648,6 @@ after it lands; interim runner is a from-tree `bni`).
 
 ## bnfmt (self-hosted formatter)
 
-### Strip trailing whitespace inside comments — 🟡 OPEN
-bnfmt normalizes trailing whitespace on code lines but leaves it INSIDE comments:
-`bnfmt --check` passes on `func f() {} // note   ` (three trailing spaces) and on
-a trailing tab in a comment or inside a `/* ... */` block, and `bnfmt -w` is a
-no-op on them (verified 2026-07-17). A formatter should strip trailing whitespace
-everywhere, comments included. Found while optimizing the `file-format` hygiene
-check: because bnfmt misses this, `file-format` must keep its line-based
-trailing-whitespace check on `.bn`/`.bni` (see `13882263`); fixing bnfmt would let
-that check drop `.bn`/`.bni` entirely (bnfmt would then cover all of file-format's
-concerns for Binate files).
-
 ### Accept more than one file per run — 🟡 OPEN
 bnfmt is single-file: `bnfmt [-w|--check] <file>` and a second path errors with
 "multiple input files not supported". The `bnfmt-format` hygiene check therefore
