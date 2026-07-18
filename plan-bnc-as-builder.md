@@ -2,6 +2,8 @@
 
 Status: COMPLETE (shipped); kept for design rationale. The bootstrap interpreter has been retired, `BUILDER_VERSION` advanced past the transition, and the `builder` runner modes are canonical. This doc is retained as the sole written record of the `BUILDER_VERSION`/`VERSION` convention, the chicken-and-egg release loop, and the rebuild-from-source escape-hatch base case.
 
+**Update (2026-07-17):** the `bootstrap-*` `BUILDER_VERSION` scheme — the automated form of the escape hatch described below — has since been removed from `fetch-builder.sh` (a `bootstrap-*` value now errors), along with its shape-adapter wrapper and every `../bootstrap` sibling-checkout in CI. The bootstrap repo remains on GitHub as the historical base case for building `bnc-0.0.1` from scratch, but rebuilding from it is now a manual procedure rather than a wired-in `BUILDER_VERSION` scheme. Landed in `db2c76a5` (fetcher + wrapper), `e3ef2334` (test/build scripts), `d1684d8f` (CI workflows).
+
 The bootstrap interpreter (`bootstrap/` Go program) has run its course as the canonical first-stage compiler.  It is slow (every test compile pays the interp tax), restricts the language to a "bootstrap subset" that we maintain by hand, and ties the binate repo's CI/dev story to a sibling repo's working tree.  Replace it with a tagged binary of a previous `bnc` release.  Day-to-day development uses the prebuilt binary; the ladder back to the bootstrap interpreter exists only as an escape hatch for when no prebuilt is available.
 
 ## Goals
