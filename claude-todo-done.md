@@ -6,6 +6,30 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## pkg/stdx/fmt (minimal formatted I/O) + type-assertion match-site `__typeinfo` emit — ✅ DONE (`e25fb3fe`, `10d0876b`, 2026-07-17)
+
+The `fmt` goal's first cut.  Two commits:
+
+- **`e25fb3fe` — ir: emit `__typeinfo.<T>` at match sites, not only box sites.**  A
+  `case T:` / `x.(T)` compares the box's slot-1 `*TypeInfo` against `&__typeinfo.<T>`;
+  that record was emitted only at BOX sites, so a match against a type never boxed
+  program-wide left the symbol dangling → an undefined-symbol LINK error.
+  `typeInfoSymFor` (the single match chokepoint) now also EMITS the record via
+  `ensureAnyImplInfo` (same (recvPkg, recvName, recvTyp) the box side uses → weak,
+  coalesces).  Symbol unchanged → HIT/MISS untouched; a match-only type with no
+  dtor gets a null dtor slot (no new undefined symbol).  Conformance 1089.
+  Adversarial review SOUND; full LLVM sweep 2819/0, full VM sweep 2799/0.  (fmt is
+  the thing that hit this — it matches char-slice/scalar spellings a caller may not
+  box.)
+- **`10d0876b` — stdx/fmt.**  `pkg/stdx/fmt`: Fprint/Fprintln/Sprint/Sprintln/
+  Print/Println over `...*any`, dispatching at run time on the char-slice
+  "strings" (slice recovery) + scalars (value recovery), writing to an io.Writer;
+  Sprint via strings.Builder, Print via os.Stdout; Go's spacing rules.  Operands
+  are `&`-addressed until the implicit value→`*any` boxing half lands (see the
+  active todo).  Unit tests + conformance 1090.  `pkg/stdx/fmt` is TEMPORARILY in
+  lint.sh LINT_SKIP (pre2 bnlint rejects `case int:` value-recovery) — tracked for
+  removal at the next CHECK_TOOLS bump.
+
 ## Scalar value-recovery type assertion `x.(T)` + VM sub-word extract fix — ✅ DONE (`89b41531`, 2026-07-17)
 
 The third §11.12 recovery form: recover a scalar VALUE (int/bool/float, incl.

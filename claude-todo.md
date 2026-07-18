@@ -109,6 +109,15 @@ Remaining:
   latent 32-bit-host full-width-shift edge).  A concurrent commit added
   `narrowToWidth(v, bits, signed)` (vm_exec_helpers.bn) which is host-portable;
   BC_EXTRACT's value-load arm should use it.  Non-observable on a 64-bit host.
+- **🔧 Remove the temporary `pkg/stdx/fmt` lint-skip at the next CHECK_TOOLS bump.**
+  `pkg/stdx/fmt` (landed `10d0876b`) is in `scripts/hygiene/lint.sh` LINT_SKIP
+  because the pinned CHECK_TOOLS bnlint (bnc-0.0.12-pre2) typechecks fmt.bn's
+  `case int:` value-recovery and rejects it — value-recovery (`89b41531`) landed
+  after pre2.  pre2 bnfmt (parse-only) formats fmt fine, so ONLY lint is skipped.
+  When `CHECK_TOOLS_VERSION` moves past pre2 to a bundle carrying value-recovery,
+  set LINT_SKIP back to `""`, delete the TEMPORARY comment block, and re-run
+  hygiene to confirm fmt lints clean (`89b41531` must be an ancestor of the new
+  CHECK_TOOLS tag — check with `git merge-base --is-ancestor`).
 
 **🔴 `box(<untyped constant>)` miscompiles — codegen crash (found 2026-07-17).**
 `box(42)` / `box(2.5)` / `box(7+1)` emit INVALID LLVM (`extractvalue operand must
