@@ -59,10 +59,17 @@ of a non-nil pointer just passes).
 
 ## Increments
 
-- **N1 (VM guard becomes recoverable — inert).** `BC_NIL_CHECK` handler →
-  `setFault` (recoverable); attach-pad wiring proven by a hand-built-pad VM unit test
-  (like the 2a/2b cross-frame tests). Compiled `OP_NIL_CHECK` → no-op arm. Nothing emits
-  `OP_NIL_CHECK` yet, so this is inert for real programs (conformance unchanged).
+- **N1 ✅ LANDED (`49ad00ef`, 2026-07-18).** `BC_NIL_CHECK` handler → `setFault`
+  (recoverable — was `println + rt.Exit`); the exec loop's managed-memory consume point
+  dispatches it to the op's cleanup pad exactly like bounds/divide/shift.  Proven by a
+  hand-built-pad VM unit test (`TestNilCheckFaultRecovers`: nil const 0 → OP_NIL_CHECK
+  with a PadBlock → unwind → host FAULTED + message).  `EmitNilCheck` now returns the
+  check `@Instr` (zero prior callers; `.bni` synced).  Inert for real programs — nothing
+  emits `OP_NIL_CHECK` yet (that is N2), conformance unchanged.  Review CLEAN after one
+  MINOR fix (the `.bni` signature/doc had not been updated to match the `.bn` — it slips
+  past gen1 because the `.bni`⟷`.bn` agreement check does not cover methods).  The
+  **compiled `OP_NIL_CHECK` → no-op arm moves to N2** (bundled with emission, so the
+  compiled path is testable in the same increment).
 - **N2 (IR-gen emission, gated + elision).** IR-gen emits `OP_NIL_CHECK` + pad before
   each pointer deref, behind `GenContext.emitNilChecks` (default off ⇒ zero change), with
   the (a)+(b) elision above. Unit tests: flag on ⇒ checks at un-elided derefs, elided at
