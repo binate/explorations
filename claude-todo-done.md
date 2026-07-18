@@ -14393,3 +14393,53 @@ core reg + stack. Covers plain func values AND closures (both lower through
 conformance. (The DIRECT/IFACE aa64 paths are fine — they split via the shared
 `emitAggregateArg`; this is func-value-dispatch-specific.)
 
+### Adopt `stdx/containers` Vec for hand-rolled growable arrays — ✅ COMPLETE 2026-07-18
+The non-BUILDER tree (vm, interp, lint, format, repl, cmd/{bni,bnfmt,bnlint}) had
+~30 hand-rolled O(n²) growable-array accumulators — repeated single-element
+`slices.Append`, bespoke `appendXxx` recopy helpers, and manual `@[]T` + `N…`
+counter doublers. ALL production sites are now `vec.Vec[T]` (`Push` amortized O(1)).
+Zero `slices.Append` remain in production code across that tree (verified 2026-07-18);
+remaining `slices.Append` are test-only (testing the helper, or one-off test setup),
+and `vm/func_index.bn`'s `* 2` is an open-addressing HASHMAP (a separate Map/Set
+effort — still blocked on the Hashable-name-key ergonomics, see the Map/Set entries),
+not a Vec candidate.
+
+Landed commits (all with adversarial review + the full landing discipline):
+formatter wrap engine `40410619`; vm `lower_pkg_descriptor` `512dc219`; interp
+`New`/`LoadProgram` `3c1fb103`; cmd/bni `--test` `c91173e7`; interp `check`/`externs`
+`4d6f65c9`; cmd/bni `splitColon`/`expandDirArgs` `81d1a5c4`; lint `unused_func`
+`5e7a95a8`; cmd/bnlint `suppress` `c12d0238`; vm `satentry_inject` `05491135`; vm
+`lower_data` global table `670d0fc8`; cmd/bnlint `appendMsg`/`LintResult.Messages`
+(dropped redundant `NumDiags`) `88340933`; cmd/bni `parseArgs` CLIArgs fields
+`e1da62a1`; **pre2 stack** — Phase D CHECK_TOOLS→`bnc-0.0.12-pre2` `45d5ad75`, lint
+`unused_local` (`Vec[token.Pos]`, dropped NDecl/NRef) `5b098f34`, lint `refs` (deletes
+`growNames`) `aa8b0f4b`; make(VM)→NewVM test-fixture sweep `25e8d883`; vm
+`vtable_inject` `3b4dad5d`; vm `dataSym` `75f4029a`; format `print_chain` (flattenChain)
+`9229bef9`; repl `ProcessedPkgs` `8baabe11`; lint `Result.Diags` (dropped `NumDiags`)
+`e8137658`; vm `curNames` (handed to `vmf.Names` via `.Items()` so hot reads stay
+slice-indexed) `49e32171`; vm `IfaceVtables` `12360af1`; **vm `Funcs`** (the function
+table — the last + hottest + largest site, 22 files) `f5e75fff`.
+
+Key learnings (superseded the 2026-07-09 audit, which had mis-scoped some of these):
+- **`vm.Funcs` was WRONGLY dismissed as "not an opportunity"** ("zero growth code").
+  It IS an O(n²) build: because `@VMFunc` is managed, each `slices.Append` re-copied
+  the array AND bumped every element's refcount, so building the compiler's thousands
+  of functions was O(n²) in refcount ops. Converted with the user's go-ahead after
+  surfacing the hot-path read trade-off (Get adds +1 indirection, but once per call —
+  negligible vs the build win). Same reasoning applied to `print_chain`'s `flattenChain`
+  (also wrongly "intentionally left").
+- **`make(VM)` was NOT the sole VM constructor** — several vm tests used bare
+  `make(VM)`, relying on nil-slices-read-as-empty. A nil `@Vec` derefs, so converting
+  any VM field forced a fixture fix; done wholesale (`25e8d883`) so NewVM is now the
+  sole test constructor. Same pattern for the repl kernel (`setupReplState`).
+- **`Vec.Items()` is a backing-retaining view** — lets a per-func scratch Vec (`curNames`)
+  be handed to a persistent slice field (`vmf.Names`) with the hot reads staying
+  slice-indexed, and lets a Vec field be passed to a `@[]T`-taking helper unchanged.
+- **The pre2/CHECK_TOOLS arc**: `unused_local`'s `Vec[token.Pos]` needed a bnc
+  generic-type-arg fix (`3f68fd7a`) that a frozen CHECK_TOOLS bnlint lacked; resolved by
+  cutting `bnc-0.0.12-pre2` and bumping `CHECK_TOOLS_VERSION`. The frozen-bnlint
+  multi-root leak on `vec.Vec[@[]readonly char]` sites was resolved earlier by the
+  pre1 bump (past `962450cf`).
+- The **Map/Set half stays BLOCKED** on the Hashable-name-key ergonomics (separate
+  entries); symbol-table/dedup-set sites remain linear scans until then.
+

@@ -1824,7 +1824,14 @@ unblock them:
 
 ## Opportunistic code cleanups
 
-### Adopt `stdx/containers` Vec for hand-rolled growable arrays — 🟡 UNBLOCKED, IN PROGRESS (audit 2026-07-09)
+### Adopt `stdx/containers` Vec for hand-rolled growable arrays — ✅ COMPLETE 2026-07-18
+- **DONE 2026-07-18 — full record + all landed commits + learnings are in
+  `claude-todo-done.md`.** Every production growable-array accumulator in the
+  non-BUILDER tree (vm, interp, lint, format, repl, cmd/{bni,bnfmt,bnlint}) is now
+  `vec.Vec[T]`; zero `slices.Append` remain in production code there.  The last (and
+  hottest) site, vm `Funcs`, landed `f5e75fff`.  The Map/Set half stays blocked on
+  Hashable-name-key ergonomics (separate entries).  The detail below is the historical
+  in-progress audit, superseded by the done-log entry — it can be deleted.
 - **STATUS 2026-07-17 (sweep well underway).** LANDED: formatter wrap engine
   (`40410619`), vm `lower_pkg_descriptor` (`512dc219`), interp `New`/`LoadProgram`
   (`3c1fb103`), cmd/bni `--test` (`c91173e7`), interp `check`/`externs` (`4d6f65c9`),
