@@ -14524,6 +14524,18 @@ Key learnings (superseded the 2026-07-09 audit, which had mis-scoped some of the
   cutting `bnc-0.0.12-pre2` and bumping `CHECK_TOOLS_VERSION`. The frozen-bnlint
   multi-root leak on `vec.Vec[@[]readonly char]` sites was resolved earlier by the
   pre1 bump (past `962450cf`).
-- The **Map/Set half stays BLOCKED** on the Hashable-name-key ergonomics (separate
-  entries); symbol-table/dedup-set sites remain linear scans until then.
+- **Map/Set half NOT done (but NOT blocked — correction).** An earlier note here
+  wrongly said Map/Set adoption was "blocked on Hashable-name-key ergonomics." That
+  is false: the function-taking `containers/mapfn.MapFn[K any, V]` /
+  `containers/setfn.SetFn[T any]` — `NewMapFn(hashFn *func(K) uint, eqFn *func(K,K)
+  bool)` / `NewSetFn(...)` — key on ANY type via explicit hash+eq functions, so they
+  handle `@[]char` name keys WITHOUT `lang.Hashable`.  Only the INTRINSIC
+  `hashmap.Map[K lang.Hashable]` / `set.Set[T lang.Hashable]` path is awkward for
+  name keys (structural-Hashable derivation is design-open — the "Map/Set key-type
+  ergonomics" entries), and that path is a nicety, not a prerequisite.  So the
+  name-keyed dedup/lookup sites (vm `func_index.bn`'s hand-rolled djb2 hashmap,
+  `LookupExtern`/`lookupGlobalAddr`/`findIfaceVtable`, lint reachability/membership
+  scans, interp/repl path-dedup, asm/parse const symbol table) CAN adopt MapFn/SetFn
+  now — this sweep just didn't (it did the Vec half only).  That is un-done work, not
+  blocked work.
 

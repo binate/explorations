@@ -1848,8 +1848,10 @@ unblock them:
   `claude-todo-done.md`.** Every production growable-array accumulator in the
   non-BUILDER tree (vm, interp, lint, format, repl, cmd/{bni,bnfmt,bnlint}) is now
   `vec.Vec[T]`; zero `slices.Append` remain in production code there.  The last (and
-  hottest) site, vm `Funcs`, landed `f5e75fff`.  The Map/Set half stays blocked on
-  Hashable-name-key ergonomics (separate entries).
+  hottest) site, vm `Funcs`, landed `f5e75fff`.  The Map/Set half is un-done but NOT
+  blocked: the function-taking `containers/mapfn.MapFn` / `setfn.SetFn` (key = any type
+  + explicit hash+eq fns) handle `@[]char` name keys without `lang.Hashable`, so the
+  name-keyed dedup/lookup sites can adopt them now — see the done-log correction.
 
 ### Use interfaces more (where an interface is the best/natural design)
 - **Framing (2026-07-16)**: the bar is NOT "opportunistic / cheap
