@@ -6,6 +6,60 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Large multi-value returns → sret (arm32 `asm/parse` segfault + ir sizeof reds) — ✅ DONE (`98c956f0`, `2515041f`, `5dd3f3f8`, 2026-07-18)
+
+**Symptom.** `builder-comp_arm32_linux` unit lane: `pkg/binate/asm/parse` SIGSEGV'd
+(`qemu: uncaught target signal 11`) at `TestParseMov` once `Token.Ival` was widened
+`int`→`int64` (`72f00cf4`); `pkg/binate/ir` `TestGenSizeofInt`/`TestGenSizeofSlice`/
+`TestNeedsHintNarrowing` failed there too.
+
+**Root cause (segv).** NOT a struct-layout bug — that was refuted by local `--emit-llvm
+--target arm32-linux` inspection: `cmd/bnc setArm32Layout()` sets `MaxAlign=8` (AAPCS),
+and Binate emits packed LLVM structs with explicit `[N x i8]` padding, so int64 struct
+fields are 8-aligned correctly (verified minimal + Token-shaped fixtures). The real
+cause: the LLVM backend emitted a MULTI-value return as a raw by-value first-class
+aggregate `define {T1,T2} @f` (never sret, regardless of size — `emit_agg_coerce.bn`
+excludes the anonymous tuple from both the sret and `[N x iW]` coercion paths). LLVM's
+arm32 backend mis-lowers a large by-value FCA return that contains an i64. The NATIVE
+backends already sret such returns by a register-COUNT rule (`CallConv.MultiReturn-
+TupleNeedsSret` — GP-word count vs `NumGpRetRegs`, FP-field count vs `NumFpRetRegs+
+NumX87RetRegs`, NOT the 16-byte single-aggregate rule), so LLVM diverged from native.
+
+**Fix.** Route large multi-returns through sret in the LLVM codegen using the SAME
+register-count predicate native uses (read from `native/common`'s `CallConv` via a new
+`callConvForTarget()` in `emit_types.bn`; no import cycle — `native/common` is in
+`cmd/bnc`'s BUILDER tree). Applied to ALL three call paths so def and every caller agree:
+- direct call: def emits `void @f(ptr sret({T1,T2}) align 8, …)`, OP_RETURN stores the
+  packed tuple through `%v.retbuf` + `ret void`, the func-ret-type manifest marks it
+  `IsSret` so the call site allocas + passes `ptr sret` + loads back (`emit_debug.bn`,
+  `emit_value.bn`, `emit.bn`); extern declares match (`98c956f0`).
+- func-value / closure shims: `funcValueUsesSret` returns true for a large multi-return
+  (was hardcoded false via `len(Results)!=1`) — the shim passes its retbuf as the sret
+  arg (`98c956f0`).
+- **interface-method dispatch**: `singleResultUsesSret` decides the anonymous tuple by
+  the register-count rule too — the LLVM iface dispatch was a THIRD path left on the
+  register-FCA convention (found in adversarial review of the diff), so it called the
+  now-sret'd def register-style (silent corruption; native iface dispatch already sret's)
+  (`5dd3f3f8`).
+Small tuples (within the return-register budget) keep the raw `{T1,T2}` FCA path
+unchanged, so typical LP64 multi-returns emit identically; only over-budget tuples change
+(x64's 3 return regs converge with native).
+
+**ir sizeof reds** were a separate test-portability bug (`2515041f`): the tests computed
+`expected` from the compile-time `sizeof(int)`/`sizeof(*uint8)` (the test binary's own
+target width) while `GenModule`/`needsHintNarrowing` use the ambient layout target — they
+now read the SAME types API (`TypInt().SizeOf()`, `MakeSliceType(...).SizeOf()`,
+`GetTarget().IntSize*8`).
+
+**Guards.** conformance `1097` (direct + func-value) + `1099` (interface), each a large
+`(Big, int)` multi-return with a >int32 int64 field, round-tripping every component;
+codegen register-count unit tests for the func-value + interface predicates (5-word tuple
+sret's on arm32+x64 but not aa64 — proving register-count, not size). Validated:
+builder-comp `2822/0/7`, self-host builder-comp-comp `2822/0/7`, hygiene 17/17, arm32
+`--emit-llvm` sret across all three paths (clang-lowered to objects), host round-trips.
+The arm32_linux RUNTIME confirmation is the next completed CI Unit-tests run (no qemu-arm
+on the dev host).
+
 ## bnfmt: accept multiple files per run; --check names offending files — ✅ DONE (`7821afd0`, 2026-07-18)
 
 bnfmt was single-file (a second path errored "multiple input files not supported").

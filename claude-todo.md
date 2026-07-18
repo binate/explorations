@@ -394,73 +394,31 @@ stdout.
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### `builder-comp_arm32_linux` unit lane triage — remaining reds — 🔴 1 MAJOR + 🟡 test-only + CI-confirm
+### `builder-comp_arm32_linux` unit lane triage — 🟢 all known reds fixed+landed; CI-confirm pending
 
 The ILP32 host-vs-target int-width root causes from CI run `29550055785` (buckets A–E′,
-plus the IR-gen named-const follow-up) are all fixed and landed — summarized in
-[claude-todo-done.md](claude-todo-done.md) under "`builder-comp_arm32_linux` unit lane
-triage — ILP32 int-width root causes". What remains:
+plus the IR-gen named-const follow-up), the large-multi-return-FCA segfault, and the ir
+sizeof test-portability reds are all fixed and landed — see [claude-todo-done.md](claude-todo-done.md).
+What remains is CI confirmation (the lane isn't locally runnable — no qemu-arm):
 
-- **⚠️ MAJOR — E' EXPOSED an int64-in-by-value-struct layout/ABI segfault on ILP32
-  (`asm/parse` `TestParseMov`). 🔴 OPEN — needs an arm32 env.** E' widened
-  `Token.Ival` and `ExprResult.Val` from `int`→`int64`. `Token` is returned/passed
-  **by value** all through the lexer/parser (`LexNext` returns `(Lexer, Token)`), so an
-  `int64` field (8-byte alignment + bigger struct on ILP32) now flows through every
-  parse. Effect on the `builder-comp_arm32_linux` (LLVM arm32) unit lane, from CI:
-  - pre-E' (run `29550055785`): `TestParseMov` **PASSED**; the asm/parse segv came
-    later, at an UNNAMED test (the crash killed the binary before it printed the test
-    name) — NOT `TestParseFloatHugeExponent`, which is native/common's test (bucket D,
-    fixed by `f4f2b605`).  asm/parse uses BOTH `LexNext` (2-value) and `ParseExpr`
-    (`(Lexer, Token, ExprResult)`, 3-value) large multi-returns, so the sret fix below
-    addresses the whole large-multi-return class, likely clearing every asm/parse segv
-    (CI confirms which tests pass).
-  - post-E' (run `29604623344`, `02dbb8e0`, which INCLUDES `72f00cf4`): asm/parse
-    **segfaults at `TestParseMov`** (`qemu: uncaught target signal 11`) — a test with
-    NO immediate and NO float, i.e. purely `Token`-by-value. PASS→SEGV attributable
-    solely to the field-type change.
-  **Local investigation (2026-07-18, via the builder bnc-0.0.11 `--emit-llvm
-  --target arm32-linux`) REFUTED the naive layout theory and refined the suspect:**
-  - `cmd/bnc` `setArm32Layout()` sets `MaxAlign=8` (AAPCS-correct), so `AlignOf(int64)`
-    = 8; and Binate emits **packed** LLVM structs (`<{...}>`) with **explicit `[N x i8]`
-    padding members**, so layout is fully Binate-controlled (no pkg/types-vs-LLVM
-    mismatch is even possible). Verified on both a minimal `{int, int64, int}`
-    (`<{ i32, [4 x i8], i64, i32, [4 x i8] }>`, Ival @8) and a faithful
-    `Token`-shaped `{int, @[]char, int64, int, int}` (`<{ i32, %BnManagedSlice,
-    [4 x i8], i64, i32, i32 }>`, Ival @24, 8-aligned) — GEPs self-consistent, LP64
-    equivalents correct. **Struct layout is NOT the bug.**
-  - The real suspect is the **multi-value return**. `LexNext (Lexer, Token)` is emitted
-    as a raw by-value first-class aggregate `define {%Lexer, %Token} @…` — NOT sret.
-    Per `pkg/binate/codegen/emit_agg_coerce.bn:69-76`, a multi-return is an ANONYMOUS
-    `{T1,T2,…}` struct that is **deliberately excluded from BOTH the sret (>16-byte)
-    and the `[N x iW]` coercion paths** that single returns use — it is emitted raw and
-    left to LLVM to legalize, *regardless of size*. So a single large struct return
-    goes through `sret align 8`, but a large multi-return (here 44 B, `{Lexer, Token}`)
-    does not. Before E' that FCA held an `int32` Ival (worked — `TestParseMov` PASSED);
-    E' made it an **i64**, and `TestParseMov`'s `ParseLine("mov x0, x1")` calls `LexNext`
-    on every token, so PASS→SEGV correlates exactly with the i64 entering the FCA return.
-    Strong hypothesis: **the arm32 LLVM backend mis-lowers a large by-value FCA return
-    containing an i64** (or the raw-FCA multi-return convention needs sret on arm32 for
-    >16-byte / i64-containing results, as single returns get). x86_64 uses the identical
-    raw-FCA strategy and works (SysV handles it), so the divergence is arm32-specific.
-  Confirmation still needs arm32 EXECUTION (not available locally: no qemu-arm / arm
-  cross-toolchain on the macOS dev host; CI backlogged — every newer Unit-tests run
-  queued). Candidate fix directions (for the arm32 env): route large / i64-containing
-  multi-returns through sret like single large returns; or find the LLVM-arm32 FCA-return
-  lowering defect. Do NOT "fix" by reverting E' — that reintroduces the `TestParseData`
-  immediate-overflow bug AND merely moves the segv back to the float test, hiding this.
-  Guard once fixed: `TestParseMov` on the arm32_linux lane (already present — it just
-  crashes today). Discovered 2026-07-18 while confirming follow-up #2's CI.
-
-- **ir host/target sizeof-portability test reds (3 tests) — 🟡 OPEN, test-only, NOT a
-  miscompile.** `pkg/binate/ir` `TestGenSizeofInt`, `TestGenSizeofSlice`,
-  `TestNeedsHintNarrowing` FAIL on arm32_linux (run `29604623344`). Each derives its
-  expectation from the *host* (`cast(int64, sizeof(int))` / `sizeof(ptr)` / `8*sizeof(int)`),
-  but `genFromSource` calls `GenModule(nil, file)` with no target, so IR-gen lays out
-  for a fixed (LP64) target — host and target coincide on a 64-bit host (green) and
-  diverge on a 32-bit host (red). `TestEvalConstExprSizeofInt8` (sizeof=1, host-agnostic)
-  PASSES, confirming the pattern. Pre-existing (files untouched by the int64 work); the
-  fix is test-side: compute `expected` from the *target* the harness lays out for (or
-  make `genFromSource` target-parameterized), not from host `sizeof`.
+- **✅ FIXED & LANDED — the large-multi-return arm32 segfault + the ir sizeof
+  test-portability reds** (`98c956f0` + `5dd3f3f8` + `2515041f`, 2026-07-18). The
+  `asm/parse` `TestParseMov` segv was NOT a layout bug (refuted: `MaxAlign=8`, packed
+  structs with explicit padding) — the LLVM backend emitted a large multi-value return
+  as a raw by-value first-class aggregate `{T1,T2}` (never sret, regardless of size),
+  which arm32 mis-lowers when the tuple contains an int64. Fixed by routing large
+  multi-returns through sret on the register-COUNT rule the native backends already use,
+  across ALL three call paths: direct call + func-value/closure shims (`98c956f0`) and
+  interface-method dispatch (`5dd3f3f8`, a third path caught in adversarial review). The
+  3 ir sizeof/hint-narrowing reds were a test-portability bug (expected from host
+  `sizeof` vs the ambient layout target) — fixed test-side (`2515041f`). Guards:
+  conformance `1097` (direct + func-value) + `1099` (interface), each round-tripping a
+  >int32 int64 field; codegen register-count unit tests. Validated locally as far as
+  possible: builder-comp `2822/0/7` + self-host builder-comp-comp `2822/0/7` + arm32
+  `--emit-llvm` sret across all paths (clang-lowered) + host round-trips. Full story in
+  [claude-todo-done.md](claude-todo-done.md). **arm32_linux RUNTIME confirmation is the
+  next completed CI Unit-tests run** (not locally runnable: no qemu-arm) — if any
+  asm/parse or ir red remains there, reopen with the specifics.
 
 Note: the lane is not locally runnable on the macOS dev host (no qemu-arm /
 arm-linux cross-toolchain). Check-phase bugs (e.g. the constant fit-check) reproduce
