@@ -641,6 +641,28 @@ after it lands; interim runner is a from-tree `bni`).
 
 ## bnfmt (self-hosted formatter)
 
+### Strip trailing whitespace inside comments — 🟡 OPEN
+bnfmt normalizes trailing whitespace on code lines but leaves it INSIDE comments:
+`bnfmt --check` passes on `func f() {} // note   ` (three trailing spaces) and on
+a trailing tab in a comment or inside a `/* ... */` block, and `bnfmt -w` is a
+no-op on them (verified 2026-07-17). A formatter should strip trailing whitespace
+everywhere, comments included. Found while optimizing the `file-format` hygiene
+check: because bnfmt misses this, `file-format` must keep its line-based
+trailing-whitespace check on `.bn`/`.bni` (see `13882263`); fixing bnfmt would let
+that check drop `.bn`/`.bni` entirely (bnfmt would then cover all of file-format's
+concerns for Binate files).
+
+### Accept more than one file per run — 🟡 OPEN
+bnfmt is single-file: `bnfmt [-w|--check] <file>` and a second path errors with
+"multiple input files not supported". The `bnfmt-format` hygiene check therefore
+runs `bnfmt --check` once PER FILE (~1,219 forks, ~7.5s), and can't be batched the
+way the other hygiene checks were (one awk over all files) — the only speedup left
+is `xargs -P` parallelism (~3x on a 10-core dev host, less on CI's fewer cores).
+Multi-file support (check/format all paths in one process) would amortize startup
+and let `bnfmt-format` drop to ~sub-second, like the batched checks. Should also
+make `--check` name the offending file(s) on failure (it is currently silent, so
+callers need a per-file wrapper to identify which file was unformatted).
+
 ## bnlint rules, unused-entity checks & lint skips
 
 ### Raw-slice escape: decide whether a BROADER best-effort escape lint is wanted — 🟡 NEEDS DECISION
