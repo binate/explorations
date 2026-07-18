@@ -308,10 +308,29 @@ needs no `FRAME_HDR` change (reuses `callerPC`).
     VM unit tests for both.  Reviews: 1 blocker (a stale spec-twin golden the message
     sweep missed — 082 — plus stale doc refs), fixed + a repo-wide re-sweep confirmed
     complete; core logic clean.
-  - **Still fatal (remaining follow-ups):** stack-overflow (`pushFrame`; recovering
-    mid-push is subtle, and depends on 3c to keep a dtor-chain overflow fatal);
-    nil-deref (`OP_NIL_CHECK` is UN-emitted by IR-gen — needs IR-gen to emit nil checks
-    first, then wire like div/shift).
+  - **stack-overflow ✅ LANDED (`151392c9`, 2026-07-18).** A configurable per-VM
+    `StackRedZone` (default `StackSize/16`) reserves unwind headroom: a NORMAL user-call
+    `pushFrame` (`CleanupDepth == 0`) stops `StackRedZone` short of the end, a cleanup
+    push (`CleanupDepth > 0` — the two BC_REFDEC dtor arms now `CleanupDepth++` BEFORE
+    the push) gets the FULL stack.  Because popping frees space as the unwind proceeds,
+    the red zone only has to cover the faulting frame's deepest single dtor cascade; a
+    cascade deeper than the whole stack overflows with `CleanupDepth > 0` and stays
+    fatal (§6).  So recovery is **best-effort**: deep-recursion overflow recovers, an
+    overflow whose own cleanup exceeds the red zone is fatal.  `pushFrame` `setFault`s +
+    returns a `-1` sentinel; the four user push sites check `FaultRaised` (execFunc's
+    entry frame → FAULTED to host; BC_CALL / iface-method / func-value → the call pad).
+    Also extracted `ensureHandle` → `vm_funcvalue_handle.bn` for file length.  Tests:
+    VM unit (recursion recovers + CleanupDepth balanced + reusable) + conformance 1105
+    (VM-only; xfail compiled/native, which native-stack-overflow with no message).
+    Adversarial review CLEAN (sentinel provably unreachable at the two dtor sites via
+    increment-before-push; no leak on the unwind; ensureHandle verbatim); the review
+    surfaced a **pre-existing** MAJOR (a fault inside a re-entrant `execFunc` /
+    native→VM callback is swallowed — tracked in `claude-todo.md`).  Landed through a
+    concurrent `vm.Funcs → vec.Vec` migration (mechanical `.Get()` conflict resolution).
+  - **Still fatal (last follow-up):** nil-deref (`OP_NIL_CHECK` is UN-emitted by IR-gen
+    — the guard exists but IR-gen never inserts it at pointer derefs; making it
+    recoverable is the LARGER piece: IR-gen must first emit nil checks at derefs, then
+    wire the VM guard like div/shift).
 
 ## 8. Open questions for the user
 
