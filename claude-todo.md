@@ -119,18 +119,6 @@ Remaining:
   hygiene to confirm fmt lints clean (`89b41531` must be an ancestor of the new
   CHECK_TOOLS tag — check with `git merge-base --is-ancestor`).
 
-**🔴 `box(<untyped constant>)` miscompiles — codegen crash (found 2026-07-17).**
-`box(42)` / `box(2.5)` / `box(7+1)` emit INVALID LLVM (`extractvalue operand must
-be aggregate type`) and SEGFAULT on the VM, even in isolation (`func f(a @any){};
-f(box(42))`).  `box('Z')`, `box(true)`, `box(<typed var>)`, `box(cast(int, 7))`
-all work.  **Root cause:** an untyped int/float constant is not defaulted to its
-concrete type before boxing.  **Pre-existing** (BUILDER `bnc-0.0.11` also
-link-fails `box(42)`); untouched by the value-recovery work (which only ever boxes
-typed vars).  **Relevance:** it's the natural companion to the value-based fmt
-(`render(box(42), box(2.5), …)`), so it should be fixed (default the untyped
-constant, or a clean checker error) with a conformance test.  Found by both
-adversarial reviews of `89b41531`.
-
 **🔧 Optional tightening (deferred, low value).** Make the design-D registry the
 *single seam* that BOTH `collectImplVtableSlots` (vtable slot-1) and
 `BuildTypeInfo` read, so the "record symbol == slot reference" invariant holds by

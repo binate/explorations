@@ -91,6 +91,22 @@ int64-in-by-value-struct ABI segv that E′ EXPOSED (`asm/parse TestParseMov`, n
 env), the `ir` host/target sizeof-portability test reds (test-only), and the
 `arm32_baremetal` xfail removal (`02dbb8e0`) pending CI confirmation.
 
+## `box(<untyped constant>)` boxed at the untyped type (degenerate box) — ✅ FIXED (`75464e33`, 2026-07-17)
+
+`box(42)` / `box(2.5)` / `box(true)` / `box(7+1)` reached IR-gen with no type
+context; the box arm boxed at the operand's UNTYPED type, so the `@untyped-int` →
+`@any` coercion found no concrete identity — no `__typeinfo` emitted, a degenerate
+box that a later `case int:` MISSED (and earlier some paths emitted invalid LLVM /
+segfaulted).  The checker's box arm already default-typed the operand
+(`defaultType`, check_builtin.bn) and reported the box expression as `@int`; IR-gen
+disagreed.  Fixed in `gen_builtin.bn`: `defaultUntypedType` maps the operand's
+untyped kind (int/float64/bool) at the box site — a no-op for a concrete type or an
+alloca result.  Conformance 1091; box/assert/value-recovery smoke clean (LLVM/VM),
+ir+types units.  Adversarial review SOUND.  (Pre-existing, found by both
+value-recovery reviews; the natural companion to the value-based fmt fast-path.
+Two pre-existing, untouched divergences remain out of scope: `box(bareFunc)` and
+`box("literal")` boxing as `@(*readonly uint8)`.)
+
 ## pkg/stdx/fmt (minimal formatted I/O) + type-assertion match-site `__typeinfo` emit — ✅ DONE (`e25fb3fe`, `10d0876b`, 2026-07-17)
 
 The `fmt` goal's first cut.  Two commits:
