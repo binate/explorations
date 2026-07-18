@@ -458,68 +458,58 @@ built, together with a test that exercises `ptr≠int` (the only thing that vali
 
 ## Slimming `pkg/bootstrap`; C interop (`__c_call`)
 
-### `pkg/std/os/sys` — low-level libc-syscall layer (os-family foundation) — 🟡 IN PROGRESS (Stage 1)
+### `pkg/std/os/sys` — low-level libc-syscall layer (os-family foundation) — 🟢 Stage 1 LANDED (`0d0b3a62`); Stage 2 open
 
-Design: `explorations/design-syscall.md` (decisions ratified 2026-07-18:
-**os-family-internal** package at `pkg/std/os/sys`, **staged** rollout). A single
-low-level home for thin, error-returning, EINTR-retrying wrappers over the libc
-calls the os family uses, so `errno`→`errors.Error` classification + the per-OS
-`errno()` accessor live in ONE place and `errno` is fully hidden from callers.
-Prompted by `os/process` needing the same errno handling as `os` without leaking
-`os.Errno`/`os.FailErrno` onto `os` or duplicating the classifier.
+Design: `explorations/design-syscall.md` (os-family-internal `pkg/std/os/sys`,
+staged). One low-level home for thin, error-returning, EINTR-retrying libc-syscall
+wrappers so `errno`→`errors.Error` classification + the per-OS `errno()` accessor
+live in ONE place and `errno` is hidden from callers.
 
-- **Stage 1 (now):** build `pkg/std/os/sys` with the errno foundation (accessor +
-  classifier, **moved** out of `os` so there is one copy; add the `ENOEXEC` arm,
-  keep `os`'s per-OS `EAGAIN` handling) + the **process wrappers** (`Fork`,
-  `Waitpid`, `Accessible`, `Getenv`, and the noreturn allocation-free
-  `ChildExecOrExit`); register in `stdPkgs()`; `os/process` uses them (errno
-  hidden, EAGAIN fixed); route `os`'s errno step through `sys`'s classifier (so
-  classification is single-source immediately) while `os`'s I/O keeps its
-  `__c_call`s for now.
+**Stage 1 LANDED (`0d0b3a62`)** — `pkg/std/os/sys` built (errno accessor +
+classifier moved out of `os`, ENOEXEC arm added, per-OS EAGAIN kept; `FailErrno` /
+`Interrupted` + process wrappers `Fork`/`Waitpid`/`Accessible`/`Getenv`/noreturn
+`ChildExecOrExit`); `os` rewired onto it; `os/process` built on it. Validated on
+host modes + e2e/errno-values + 2 review rounds. (Moved to done log.)
+
+Remaining:
 - **Stage 2 (🟡 follow-up):** port `os`'s file I/O + `stat`/`readdir` onto `sys`
-  wrappers, deleting the last of `os`'s raw `__c_call`s. Large, delicate (os is
-  tested across every mode, both native backends, arm32) — do it in small green
-  steps.
+  wrappers, deleting the last of `os`'s raw `__c_call`s (currently `os` still does
+  its own `__c_call`s and only routes the errno step through `sys`). Large,
+  delicate (os is tested across every mode, both native backends, arm32) — do it
+  in small green steps.
 - Optional: a `bnlint` rule flagging any importer of `pkg/std/os/sys` outside
   `pkg/std/os*` (enforce the internal boundary, since Binate has no `internal/`).
 
-Ships in the same future release as `os/process`; BUILDER-gating is unchanged
-(gen1 uses the frozen `os`, so source-`os`-importing-`sys` is gen1-safe).
-
-### `pkg/std/os/process` — retire `bootstrap.Exec` — 🟡 IN PROGRESS (Phase A landing; Phase B BUILDER-gated)
+### `pkg/std/os/process` — retire `bootstrap.Exec` — 🟢 Phase A LANDED (`0d0b3a62`); Phase B BUILDER-gated
 
 Implements `explorations/design-os-process.md` per
-`explorations/plan-os-process.md` (full retirement, reviewed adversarially).
-A synchronous subprocess API (`Run`/`RunArgs`/`RunArgsPath`/`LookPath`,
-`ExitStatus`, `Options`) as an injected `__c_call` stdlib package, replacing the
-lossy `bootstrap.Exec` C shim.
+`explorations/plan-os-process.md`. A synchronous subprocess API
+(`Run`/`RunArgs`/`RunArgsPath`/`LookPath`, `ExitStatus`, `Options`) as an injected
+stdlib package built on `pkg/std/os/sys` (errno hidden), replacing the lossy
+`bootstrap.Exec` C shim.
 
-**Two phases — the split is forced by the BUILDER bundle gate.** `build_gen1`
-compiles `cmd/bnc`'s stdlib from the FROZEN BUILDER bundle (`--base "$blib"`), so
-`cmd/bnc` cannot import a brand-new `pkg/std/os/process` until it ships in a
-released bundle and `BUILDER_VERSION` is bumped.
+**Phase A LANDED (`0d0b3a62`)** — `pkg/std/os/process` added (hosted + baremetal),
+registered in `stdPkgs()`, on the `sys` layer (so no errno duplication; the EAGAIN
+misclassification a review found is fixed centrally). Conformance test +
+per-file unit tests (incl. env-replace + empty-env execve + not-found). Validated
+on host modes. Must ship in the next release so Phase B can bump BUILDER.
 
-- **Phase A (not gated):** add `pkg/std/os/process` (hosted + baremetal), register
-  in `stdPkgs()`, unit tests + a conformance test. Non-destructive (`bootstrap.Exec`
-  stays). **Must ship in the next release** so Phase B can bump BUILDER to a bundle
-  carrying it. **Errno is handled via the new `pkg/std/os/sys` layer** (see below /
-  `design-syscall.md`), NOT via `os.Errno`/`os.FailErrno` (rejected as leaky) nor a
-  self-contained duplicate (rejected as drift — the Commit-1 review found an EAGAIN
-  misclassification in the duplicate).
-- **Phase B (🔴 GATED on a release + `BUILDER_VERSION` bump to a bundle containing
-  `os/process`):** migrate `cmd/bnc` production callers (Commit 2), migrate the 7
-  asm/native test harnesses (44 sites, Commit 3 — technically ungated, bundled
-  here for an atomic migration), then delete `bootstrap.Exec` entirely — `.bni`
-  decl, C shim, baremetal stub, both VM extern registrations
-  (`externs.bn`/`extern_test_helpers_test.bn`), `conformance/273_bootstrap_exec.*`,
-  `README.md:171`, and ~6 prose comments (Commit 4).
+**Phase B (🔴 GATED on a release + `BUILDER_VERSION` bump to a bundle containing
+`os/process`+`os/sys`; `build_gen1` compiles `cmd/bnc`'s stdlib from the FROZEN
+bundle, so `cmd/bnc` cannot import the new packages until they ship):** migrate
+`cmd/bnc` production callers (Commit 2), migrate the 7 asm/native test harnesses
+(44 sites, Commit 3 — technically ungated, bundled for an atomic migration), then
+delete `bootstrap.Exec` entirely — `.bni` decl, C shim, baremetal stub, both VM
+extern registrations (`externs.bn`/`extern_test_helpers_test.bn`),
+`conformance/273_bootstrap_exec.*`, `README.md:171`, and ~6 prose comments (Commit
+4). Migrated call sites use `&process.Options{...}` (Run takes `*readonly Options`)
+or `process.RunArgsPath` (variadic).
 
-Key implementation constraints (see plan §3/§5): child branch must **hoist**
-`dataOf(argv/envp)` before `fork` (allocation-free child); `waitpid` EINTR loop;
-`Run` takes `*readonly Options` so call sites use `&process.Options{...}`; new
-conformance test needs only `.xfail.builder-comp_arm32_baremetal` (native mode
-inherits via OVERRIDE_MODE) and **must be run under `builder-comp_arm32_linux`
-(qemu-user) before landing**.
+**v1 residuals (design §6, tracked):** exec-failure precision — a `+x`
+non-executable/bad-format file passes the parent-side `sys.Accessible` (access
+X_OK) check, then execve fails child-side and surfaces as the child's `_exit(127)`
+rather than a typed start error; the v1.1 self-pipe (write end `O_CLOEXEC`) would
+report the exact errno. Also `access(X_OK)` accepts a searchable directory.
 
 ### aarch64-linux **native** conformance mode (e2e for the aarch64 ELF relocs) — 🟢 MODE LANDED (`e8c99290`, 2026-07-09); residuals below
 

@@ -1,9 +1,11 @@
 # Plan: implement `pkg/std/os/process`, retire `bootstrap.Exec`
 
-Status: **PLAN — 2026-07-18, revised after adversarial review.** Executes
+Status: **Phase A LANDED (`0d0b3a62`, 2026-07-18); Phase B BUILDER-gated.** Executes
 `explorations/design-os-process.md` (read it first). User decision: **full
 retirement, "obviously BUILDER gated."** The gate is decisive and splits the work
-into two phases (§4).
+into two phases (§4). Errno is handled via the `pkg/std/os/sys` layer
+(`design-syscall.md`), NOT the `os.Errno`/`os.FailErrno` approach §3 originally
+described (rejected as leaky); see the todo/done for the landed shape.
 
 ## 1. Recon-verified facts
 

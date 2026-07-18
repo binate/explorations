@@ -6,6 +6,33 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `pkg/std/os/sys` layer + `os`-rewire + `pkg/std/os/process` (Stage 1 / Phase A) — ✅ DONE (`0d0b3a62`, 2026-07-18)
+
+Landed the os-family's low-level libc-syscall layer and the new subprocess package
+on it (designs: `design-syscall.md`, `design-os-process.md`; plan:
+`plan-os-process.md`). What landed:
+- **`pkg/std/os/sys`** (os-family-internal): the errno `errno()` accessor +
+  `errno→errors.Error` classifier MOVED out of `os` (one copy; added the `ENOEXEC`
+  arm, kept per-OS EAGAIN 11/35), exposed only as `FailErrno`/`Interrupted`; process
+  wrappers `Fork`/`Waitpid`/`Accessible`/`Getenv` + the noreturn allocation-free
+  `ChildExecOrExit`. `errno` fully hidden from callers.
+- **`os` rewired** onto `sys` (`failErrno`→`sys.FailErrno`, `errno()!=EINTR`→
+  `!sys.Interrupted()`); `e2e/errno-values.sh` repointed to `sys/errno.bn` + ENOEXEC.
+- **`pkg/std/os/process`** (Run/RunArgs/RunArgsPath/LookPath, ExitStatus, Options)
+  built on `sys` — so no errno duplication; the EAGAIN misclassification the first
+  review found is fixed centrally.
+
+Design journey: the errno-sharing need first tried self-contained duplication
+(rejected — EAGAIN drift bug), then `os.Errno`/`os.FailErrno` exports (rejected as
+leaky onto the high-level `os`); the user chose a proper low-level syscall layer,
+staged (Stage 1 = foundation + os-errno-routing + os/process; Stage 2 = port os's
+I/O onto wrappers, still open in the todo). Validated: unit + conformance
+`stdlib/os` on `builder-comp`/`-int`/`-int-int`/`-comp`, `e2e/errno-values.sh`
+(34 values), hygiene 17/17, two adversarial review rounds (all findings addressed,
+incl. the CI-redding stale `e2e/errno-values.sh` path). **Still open** (in todo):
+`os/sys` Stage 2 (port os I/O); `os/process` Phase B (cmd/bnc migration +
+`bootstrap.Exec` deletion), BUILDER-gated on a release carrying these packages.
+
 ## Bump CHECK_TOOLS_VERSION → bnc-0.0.12-pre3; drop the `pkg/stdx/fmt` lint-skip — ✅ DONE (`3915444e`, `564b15e1`, 2026-07-18)
 
 pre3 (tag `10d0876b`) carries scalar value-recovery (`89b41531`), which pre2's
