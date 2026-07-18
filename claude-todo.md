@@ -1706,6 +1706,32 @@ unblock them:
 ## Opportunistic code cleanups
 
 ### Adopt `stdx/containers` Vec for hand-rolled growable arrays — 🟡 UNBLOCKED, IN PROGRESS (audit 2026-07-09)
+- **STATUS 2026-07-17 (sweep well underway).** LANDED: formatter wrap engine
+  (`40410619`), vm `lower_pkg_descriptor` (`512dc219`), interp `New`/`LoadProgram`
+  (`3c1fb103`), cmd/bni `--test` (`c91173e7`), interp `check`/`externs` (`4d6f65c9`),
+  cmd/bni `splitColon`/`expandDirArgs` (`81d1a5c4`), lint `unused_func` (`5e7a95a8`),
+  cmd/bnlint `suppress` (`c12d0238`).  COMMITTED BUT BLOCKED on the pre2 CHECK_TOOLS
+  bump: lint `unused_local` (element `Vec[token.Pos]` — a bare QUALIFIED value type;
+  the frozen `bnc-0.0.12-pre1` bnlint rejects it, so it needs the generic-type-arg fix
+  `3f68fd7a` carried into CHECK_TOOLS) and lint `refs` (deletes the `growNames` helper,
+  so it depends on `unused_local` no longer using it — transitively pre2-blocked).
+  Both are on the local work branch (`backup-stack`), plus the Phase-D commit
+  (`CHECK_TOOLS_VERSION` → `bnc-0.0.12-pre2`).
+- **The pre2 bump is IN FLIGHT and STUCK.** `bnc-0.0.12-pre1` is the current
+  CHECK_TOOLS (its bnlint lacks `3f68fd7a`).  Cut `bnc-0.0.12-pre2` to carry the fix:
+  dev bumped to `-pre3` (`f60f4dac`), tag `bnc-0.0.12-pre2` pushed at `3cde72ea` — but
+  the `release.yml` CI run has sat QUEUED for 3+h (GitHub Actions runner exhaustion /
+  overload, not a code problem).  When it publishes: rebase `backup-stack` onto main,
+  set `CHECK_TOOLS_VERSION` → `bnc-0.0.12-pre2` (Phase D), verify full hygiene, then
+  land unused_local + refs (which now lint clean).
+- **Remaining pre2-INDEPENDENT sites (landable anytime — pre1-acceptable element
+  types):** vm `satentry_inject` (`Vec[int]`; NewVM is the sole VM constructor, so
+  add the 3 field inits there), vm `lower_data`'s globalNames/globalAddrs
+  (`Vec[@[]char]`/`Vec[int]`; NOTE curNames ripples into `vmf.Names` — convert only the
+  global* pair), cmd/bnlint `appendMsg` (`Vec[@[]readonly char]`; move the `Messages`
+  init to the top of `lintPackages` for nil-safety, and it shares a test with
+  `appendStr`), cmd/bni `parseArgs` struct fields (`ProgArgs`/`BniPaths`/`ImplPaths`/
+  `Filenames`; ripple through cmd/bni readers).
 - **UNBLOCKED 2026-07-10** — the MAJOR cross-package generic-container mangler bug
   that blocked this (cross-package managed-element container dtor/copy mangling) is
   FIXED & LANDED (`8d9e7577`; entry in claude-todo-done.md).  `Vec[T]` (and Map/Set)
