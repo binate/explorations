@@ -20,10 +20,13 @@ width-neutral (strips only the final bytes, after every wrapping decision).  CRL
 block-comment interior `\r`s are left as-is (only spaces/tabs are stripped; the lexer
 deliberately keeps them).  Guard: `pkg/binate/format TestCommentsStripTrailingWhitespace`.
 
-Unblocks (not yet done): the `file-format` hygiene check could drop its line-based
-trailing-whitespace scan of `.bn`/`.bni` (see `13882263`) now that bnfmt covers that
-concern for Binate files — a separate hygiene-config change, left for the user to
-decide.
+Follow-up (done, `7b298956`): dropped the `file-format` hygiene check's line-based
+trailing-whitespace scan of `.bn`/`.bni` (see `13882263`) — bnfmt (via the bnfmt-format
+check) is now canonical for all of .bn/.bni's whitespace hygiene, so file-format scans
+.sh/.md/.yml only.  Transient caveat: hygiene's bnfmt-format runs the CHECK_TOOLS
+bundle's bnfmt, which lags main, so comment-trailing-whitespace in .bn/.bni is fully
+re-covered once CHECK_TOOLS_VERSION reaches a bundle containing `ed3a523c` (self-healing
+at the next bump; the tree is clean in the meantime).
 
 ## `builder-comp_arm32_linux` unit lane triage — ILP32 int-width root causes — ✅ DONE (`b87c841e`, `5b5987d7`, `f4f2b605`, `278b35fd`, `72f00cf4`, `2bf360fc`, 2026-07-16..18)
 
