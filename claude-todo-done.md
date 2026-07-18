@@ -6,6 +6,20 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Bump CHECK_TOOLS_VERSION → bnc-0.0.12-pre3; drop the `pkg/stdx/fmt` lint-skip — ✅ DONE (`3915444e`, `564b15e1`, 2026-07-18)
+
+pre3 (tag `10d0876b`) carries scalar value-recovery (`89b41531`), which pre2's
+bnlint lacked — so the temporary `pkg/stdx/fmt` LINT_SKIP (added because pre2's
+bnlint rejected fmt.bn's `case int:` value-recovery) is no longer needed. Bumped
+`CHECK_TOOLS_VERSION` pre2→pre3 (`3915444e`), then set `LINT_SKIP=""` (no skips
+today), moved `pkg/stdx/fmt` to lint.sh's "previously skipped, now linted"
+changelog, and refreshed the pre2→pre3 version references in lint.sh /
+bnfmt-format.sh (`564b15e1`). Verified: pre3 bnlint lints `pkg/stdx/fmt` clean
+(rc 0); full hygiene 17/17 with the pre3 bundle's bnlint + bnfmt. The other
+CHECK_TOOLS-gated todos stay open — they need features NOT in pre3: bnfmt
+multi-file batching (needs a bundle ≥ `7821afd0`) and the genmatrix port (needs a
+bundle whose injected `os` ships `MkdirAll`).
+
 ## Large multi-value returns → sret (arm32 `asm/parse` segfault + ir sizeof reds) — ✅ DONE (`98c956f0`, `2515041f`, `5dd3f3f8`, 2026-07-18)
 
 **Symptom.** `builder-comp_arm32_linux` unit lane: `pkg/binate/asm/parse` SIGSEGV'd

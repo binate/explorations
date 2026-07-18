@@ -193,15 +193,6 @@ Remaining:
   construction-time position rule can't catch; model on the existing
   `raw-slice-return` lint; needs escape analysis + its own review.  The box half
   is functionally complete; value-recovery is the *recover* half.
-- **🔧 Remove the temporary `pkg/stdx/fmt` lint-skip at the next CHECK_TOOLS bump.**
-  `pkg/stdx/fmt` (landed `10d0876b`) is in `scripts/hygiene/lint.sh` LINT_SKIP
-  because the pinned CHECK_TOOLS bnlint (bnc-0.0.12-pre2) typechecks fmt.bn's
-  `case int:` value-recovery and rejects it — value-recovery (`89b41531`) landed
-  after pre2.  pre2 bnfmt (parse-only) formats fmt fine, so ONLY lint is skipped.
-  When `CHECK_TOOLS_VERSION` moves past pre2 to a bundle carrying value-recovery,
-  set LINT_SKIP back to `""`, delete the TEMPORARY comment block, and re-run
-  hygiene to confirm fmt lints clean (`89b41531` must be an ancestor of the new
-  CHECK_TOOLS tag — check with `git merge-base --is-ancestor`).
 
 **🔧 Optional tightening (deferred, low value).** Make the design-D registry the
 *single seam* that BOTH `collectImplVtableSlots` (vtable slot-1) and
