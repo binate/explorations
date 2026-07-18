@@ -101,19 +101,34 @@ func canBorrowValueIntoRawIface(c @Checker, srcExpr @ast.Expr, srcType @Type, ds
 //     else (storing: assign/field/return)            → false
 ```
 
-Each construction site calls this when `AssignableTo` returns false, passing its **statically
-known** `posKind` (borrowing vs storing — no dataflow needed; §4 tabulates all sites) and the
-source expr it **already has in hand** (it already reads `<expr>.Pos` for `errCannotAssign`).
-This localizes the whole feature to the ~9 raw-iface-constructing sites; the type-only chain and
-its 64 test call sites are untouched.
+The source expr the helper needs is **already in hand** at every site (each already reads
+`<expr>.Pos` for `errCannotAssign`). The `posKind`, however, **cannot** simply be passed as a
+site argument, because of composite literals (§4): `f(Opts{Any: 42})` emits the element's
+assignability error **synchronously inside `checkExpr(argExpr)` → `checkCompositeLit` →
+`checkStructLit`** (`check_expr_composite.bn:130`), deep below the argument site — the outer
+site never gets to run a fallback for that element. So `posKind` must be **threaded into
+`checkExpr`**, exactly like the existing `ExpectedFVType` transient hint.
 
-*(Rejected alternative: threading a `posKind` param through `AssignableTo` — touches the
-`.bni` decl, 2 internal recursions at `types_assignable.bn:96/100`, all ~20 callers, the 3
-comparison-only callers `check_expr_binop.bn:115/129` + `check_stmt.bn:295` that must pass a
-meaningless kind, and all 64 test sites. A transient `Checker` field avoids the test churn but
-must be set at **leaf granularity** — a coarse "set STORING around the composite literal" leaks
-into a nested call-arg check `S{f: g(x)}` and misclassifies `g`'s argument. The expr-aware
-side-helper is cleaner than both and is the established pattern.)*
+**Mechanism: a transient `Checker.borrowPosKind` field, managed like `ExpectedFVType`**
+(`check_expr.bn:33-40` — set, check the sub-expr, restore). A borrowing site (var-init,
+call-arg) sets it to BORROWING around its `checkExpr`/`AssignableTo`; a storing site leaves the
+default STORING; a composite literal in a borrowing position propagates its own kind to each
+element check and **restores** between elements. `canBorrowValueIntoRawIface` reads
+`borrowPosKind` (arg/var-init vs store) plus `isAddressable(c, srcExpr)` (2a vs 2b). The
+save/restore discipline is what makes it **leaf-granular** and safe: a nested call element
+`S{f: g(x)}` re-enters `checkExpr(g(x))`, whose own arg-check sets/restores `borrowPosKind` for
+`g`'s argument, so the outer literal's kind cannot leak into `g(x)` — the same reason
+`ExpectedFVType` doesn't leak. *(An earlier draft dismissed the field approach over exactly this
+leak; `ExpectedFVType` is the working precedent that the worry is unfounded under save/restore.)*
+The comparison-only callers (`check_expr_binop.bn:115/129`, `check_stmt.bn:295`) never set the
+field and never reach the borrow helper.
+
+Net churn: the type-only `AssignableTo` chain and its 64 test call sites stay **untouched**; the
+addition is one `Checker` field + a set/restore at the ~11 borrowing sites + the borrow helper.
+*(Rejected alternative: a `posKind` **param** on `AssignableTo` — touches the `.bni` decl, the
+2 internal recursions at `types_assignable.bn:96/100`, all ~20 callers, the 3 comparison-only
+callers, and all 64 test sites. Strictly more churn than the transient field, which matches
+precedent.)*
 
 ### Commit 1 — lvalue auto-`&` (2a), all positions
 - **Checker.** Factor the impl-reachability loop (`canAssignToRawInterfaceValue:274-284`) into
@@ -125,7 +140,7 @@ side-helper is cleaner than both and is the established pattern.)*
   `!AssignableTo → try borrow` fallback at the **all-position** sites (both borrowing and
   storing — an *addressable* borrow is legal everywhere, exactly like `&x`).
 - **IR-gen.** For an addressable value source, emit the **address-of** and feed the existing
-  pointer path. There is no unified `emitAddrOfLvalue`; `genUnary` (`gen_expr.bn:172-208`) is
+  pointer path. There is no unified `emitAddrOfLvalue`; `genUnary` (`gen_expr.bn:173`) is
   the address-of dispatcher (`&ident`→`lookupVar`; `&a[i]`→`genIndexPtr`; `&s.f`→
   `genSelectorPtr`; `&*p`→the pointer). Factor that AMP-arm dispatch into a reusable
   `genLValueAddr(ctx, b, e @ast.Expr) @Instr` and call it from the value-borrow path so the
@@ -149,33 +164,65 @@ side-helper is cleaner than both and is the established pattern.)*
   bespoke "temporary would dangle" diagnostic — decide, then pin `035.error` to it). This is
   the crux — see §4 for the exact site classification and the composite-literal recursion.
 - **IR-gen** (`wrapAsIfaceValue` caller path). For a non-addressable value source, **materialise**
-  a stack temp: `slot := b.EmitAlloc(T); b.EmitStore(slot, v)` → `slot` is a frame-lived `*T`
-  (the same `OP_ALLOC`/`OP_STORE` primitives the variadic packer uses,
-  `gen_variadic.bn:42/48`), fed to the existing box path. **`T` must be the DEFAULTED concrete
-  type** — for an untyped constant source (`fmt.Print(42)` → int, `2.5` → float64) call
-  `defaultType` (`checker_util.bn:40`) to pick the alloca element type; allocating the *untyped*
-  type is what would re-trip the `box(<untyped constant>)` class of crash (§5). No `OP_BOX`, no
-  heap, no `RefInc` (raw borrow).
-- **Lifetime is checker-enforced, not IR-scoped.** The `EmitAlloc` temp is **frame**-lived, so
-  it is valid across the whole statement (argument case) and across the binding's scope
-  (var-init case: the binding cannot outlive the frame). The checker's rejection of the escape
-  positions (assign/field/return, §4) is what guarantees the boxed `*any` never outlives the
-  temp's frame — so IR-gen needs **no** special per-position temp scoping; a plain frame alloca
-  suffices. (Do **not** `registerTemp` it for statement-end RefDec — there is nothing to
-  RefDec on a raw borrow, and statement-end release is exactly the semantics we must *not*
-  apply to the var-init case.)
-- **Tests:** `fmt.Print(42, "hi")` compiles + runs; an expression arg `f(a+b)`; rvalue
-  var-init `o := Opts{Any: 42}; use(o)` and `var iv *any = 42; use(iv)`; a **cross-statement**
+  a stack temp: `slot := b.EmitAlloc(T); <store v into slot>` → `slot` is a frame-lived `*T`
+  (the same `OP_ALLOC` the variadic packer uses, `gen_variadic.bn:42`), fed to the existing box
+  path. **`T` must be the DEFAULTED concrete type** — for an untyped constant source
+  (`fmt.Print(42)` → int, `2.5` → float64) call `defaultType` (`checker_util.bn:40`) to pick the
+  alloca element type; allocating the *untyped* type is what would re-trip the
+  `box(<untyped constant>)` class of crash (§5). No `OP_BOX`, no heap; the outer `*any` borrow
+  itself takes no `RefInc`.
+- **The temp's OWN contents need refcount handling — split by source shape (CRITICAL, easy to
+  miss).** The store is **not** always a plain `EmitStore`:
+  - **Pointer-/managed-free value** (a scalar, or a **string literal** — a null-backing
+    `@[]readonly char`, refcount-inert): a plain `b.EmitStore(slot, v)` is complete; the alloca
+    is frame-lived and needs no cleanup. This covers the immediate scalar/string `fmt` path.
+  - **Value carrying managed members** (a struct with `@T`/`@[]T` fields, or a heap-backed
+    managed-slice): copying `v` into the temp takes **ownership** of those references, so the
+    store must go through the managed-aware copy (`emitStoreManagedSlot` / `needsStructCopy`,
+    as the variadic packer does at `gen_variadic.bn:43-44` — `if needsStructCopy(arrTyp) {
+    registerTemp(ctx, arrPtr) }`) and the temp's managed fields **must** be RefDec'd, or the
+    compiler leaks (violating the hard never-leak invariant). Crucially the **cleanup scope is
+    position-dependent**: an **argument** temp can use statement-end cleanup (`registerTemp`,
+    like the packer — the borrow doesn't outlive the call), but a **var/`:=`-init** temp must be
+    RefDec'd at the **binding's scope end**, not statement end — statement-end RefDec would free
+    the fields while the frame-lived `*any` still points at them (UAF). So this case **does**
+    need per-position temp scoping. → **This is a real design item, not free.** Options: (i) build
+    scope-scoped cleanup for the var-init managed case; or (ii) stage it — Commit 2 handles only
+    pointer-/managed-free sources (the scalar + string-literal `fmt` path, which is the motivating
+    use), and managed-carrying value sources land in a follow-up commit with the scope-scoped
+    cleanup. **Decision for the owner** (don't unilaterally defer): which of (i)/(ii). Either way,
+    Commit 2 must never emit a plain `EmitStore` of a managed-carrying value with no cleanup.
+- **Lifetime: checker-enforced *at construction*, ordinary raw-UAF thereafter.** The `EmitAlloc`
+  temp is **frame**-lived (verified: `OP_ALLOC` is entry-hoisted in LLVM and a fixed frame slot
+  in native/VM; `registerTemp`/`ctx.Temps` is a managed-RefDec list, not a stack-slot reuser), so
+  a pointer-free temp is valid across the statement (argument) and across the binding's scope
+  (var-init). The checker's rejection of the escape *construction* positions (assign/field/return,
+  §4) stops the temp being **built directly into** a longer-lived location. It does **not**, and
+  cannot, stop a later statement from escaping an already-built named borrow (`var iv *any = 42;
+  … ; return iv` — `return iv` re-checks `iv` as an iface-value→iface-value assignment
+  (`types_assignable.bn:250-262`), which never reaches the borrow helper, so it is accepted and
+  UAFs). That is the **ordinary raw-pointer escape hazard** (same as `var p *T = &local; return
+  p`), which the spec explicitly leaves to the `bnlint` rule (Commit 3), not the checker. Do not
+  overclaim the position rule as full lifetime enforcement.
+- **Tests:** `fmt.Print(42, "hi")` compiles + runs; an expression arg `f(a+b)`; rvalue var-init
+  `o := Opts{Any: 42}; use(o)` and `var iv *any = 42; use(iv)`; a **cross-statement**
   frame-liveness case (`var iv *any = 42; <other stmts>; use(iv)` prints correctly, proving the
-  temp is frame- not statement-scoped); **rejections** — `someStruct.field = 42`, `arr[i] = 42`,
-  `return SomeIface{Any: 42}` each `.error`. Run in `builder-comp` **and** `builder-comp-int`.
+  temp is frame- not statement-scoped); a **managed-field source** case (a value type carrying an
+  `@[]char`/`@T`) in both an argument and a var-init position, checked for **no leak** (RefDec
+  balance) and correct value — this is the case the scalar tests miss; **rejections** —
+  `someStruct.field = 42`, `arr[i] = 42`, `return SomeIface{Any: 42}` each `.error`. Run in
+  `builder-comp` **and** `builder-comp-int`.
 
 ### Commit 3 — `bnlint` escaping-borrow rule
 The implicit lvalue borrow (2a) has **no visible `&`**, so an escaping raw interface value
-built from a local reads like value construction and existing raw-escape lints miss it. Add
-a `bnlint` rule (`pkg/binate/lint`) flagging a raw interface value constructed from a local
-that escapes (implicit **or** explicit `&`). Per the compiler-emits-no-warnings rule this is
-a lint, not a checker error; wiring it into hygiene/CI is a separate decision (don't).
+built from a local reads like value construction and existing raw-escape lints miss it. And per
+the Commit-2 lifetime note, the checker's position rule only guards *construction* — a named
+`*any` borrow can still escape via a later statement (`var iv *any = 42; … return iv`), which no
+checker path catches. Add a `bnlint` rule (`pkg/binate/lint`) flagging a raw interface value —
+built from a **local or a materialized rvalue temporary** (2b), implicit **or** explicit `&` —
+that escapes (returned, or stored into a longer-lived location). The rvalue-temp escape must be
+in scope, not just named-local escapes. Per the compiler-emits-no-warnings rule this is a lint,
+not a checker error; wiring it into hygiene/CI is a separate decision (don't).
 
 ### Commit 4 — flip Draft→Provisional
 Once Commits 1–2 are conformance-green in every mode, flip `iface.construct.value-borrow`
@@ -193,8 +240,8 @@ value-borrow from the "two Draft rules" list, leaving only §11.12 `iface.assert
 The rvalue rule (2b) needs each construction site to declare whether it is a **borrowing**
 position (argument, `var`/`:=`-init — temp co-scopes) or a **storing** position (assignment,
 field/element store, `return` — temp would dangle). This is **statically known per site** (no
-dataflow), so each site passes a fixed `posKind` into `canBorrowValueIntoRawIface`. Full site
-inventory (from recon; line numbers current):
+dataflow), so each site sets `Checker.borrowPosKind` (§3.0) around its check, which the borrow
+helper then reads. Full site inventory (from recon; line numbers current):
 
 | Context | Site(s) | posKind | Notes |
 |---|---|---|---|
@@ -208,16 +255,20 @@ inventory (from recon; line numbers current):
 | ==/!=/<… operand | `check_expr_binop.bn:115, 129` | **exclude** | comparison, symmetric — must **not** invoke the borrow helper |
 | switch case vs tag | `check_stmt.bn:295` | **exclude** | comparison |
 
-**Composite-literal recursion.** A nested literal's elements are stores *automatically*
-(every composite-element site is intrinsically a store; a nested `S{inner: T{...}}` re-enters
-`checkExpr`→`checkCompositeLit` and each leaf establishes its own kind). What the plan needs
-is the *inheritance* direction: a literal in a **borrowing** position (`o := Opts{Any: 42}`,
+**Composite-literal recursion.** A composite element's assignability error is emitted
+**synchronously inside `checkExpr(literal)` → `checkCompositeLit` → `checkStructLit`**
+(`check_expr_composite.bn:130`), below the enclosing site — so the enclosing site cannot run a
+fallback for it, and the element leaf itself must consult the `posKind`. What the plan needs is
+the *inheritance* direction: a literal in a **borrowing** position (`o := Opts{Any: 42}`,
 `f(Opts{Any: 42})`) must let its elements borrow, while `someStruct.field = Opts{Any: 42}`
-must not. Implement by passing the literal's own `posKind` down to its element checks (a
-parameter on the composite-lit checker, defaulting to storing) — **not** via a coarse
-`Checker` field set around the literal, which would leak into a nested call element
-`S{f: g(x)}` (checked at a *borrowing* arg site) and misclassify `g`'s argument. Leaf
-granularity is mandatory.
+must not. Deliver via the `Checker.borrowPosKind` field (§3.0): the borrowing site sets it
+BORROWING before `checkExpr(literal)`; `checkCompositeLit` for a borrowing literal propagates
+it to each element check and **restores** it between elements. The save/restore discipline (the
+`ExpectedFVType` pattern) is what keeps this leaf-granular — a nested **call** element
+`S{f: g(x)}` re-enters `checkExpr(g(x))`, whose arg-check sets/restores the field for `g`'s
+argument, so the literal's kind cannot leak into `g(x)`. Leaf granularity is mandatory, and the
+save/restore field is the vehicle that achieves it (an earlier draft wrongly rejected the field
+over a leak that save/restore prevents).
 
 ## 5. Related items (NOT this plan, but adjacent — flag for the implementer)
 
@@ -274,8 +325,11 @@ raw-only; no migration.
   `OP_IFACE_VALUE` path is touched). Both backends consume `OP_IFACE_VALUE` `Args[0]`
   verbatim, so no per-backend *construction* edit — but **verify the one native/VM asymmetry**:
   a 2a auto-`&` of a **global** lvalue yields an `IsGlobalRef` pseudo-instr (ID=-1) that the
-  native path special-cases (`emit_iface_call.bn:380-394`) and the VM path does not — confirm
-  the VM (`vm_exec_iface.bn`, `BC_IFACE_VALUE`) boxes a global-address `Args[0]` correctly.
+  native x64 path special-cases (`pkg/binate/native/x64/` — `x64_regmap.bn`, `x64_emit.bn`,
+  `x64_iface.bn`) and the VM path does not — confirm the VM (`vm_exec_iface.bn`,
+  `BC_IFACE_VALUE`) boxes a global-address `Args[0]` correctly. (Risk is low: a 2a auto-`&` of a
+  global emits IR **identical** to the already-working explicit `&global`, so this is a
+  regression-check, not new codegen.)
 - **Conformance:** the new positive + negative tests in **`builder-comp`** (LLVM) **and**
   **`builder-comp-int`** (VM boxing path) + one native mode; plus the frame-liveness
   cross-statement test. `scripts/hygiene/run.sh`.
