@@ -1711,7 +1711,9 @@ unblock them:
   (`3c1fb103`), cmd/bni `--test` (`c91173e7`), interp `check`/`externs` (`4d6f65c9`),
   cmd/bni `splitColon`/`expandDirArgs` (`81d1a5c4`), lint `unused_func` (`5e7a95a8`),
   cmd/bnlint `suppress` (`c12d0238`), vm `satentry_inject` (`05491135`), vm
-  `lower_data` global table (`670d0fc8`).  COMMITTED BUT BLOCKED on the pre2 CHECK_TOOLS
+  `lower_data` global table (`670d0fc8`), cmd/bnlint `appendMsg`/`LintResult.Messages`
+  (`88340933`, also dropped the redundant `NumDiags` counter + `appendMsg` helper).
+  COMMITTED BUT BLOCKED on the pre2 CHECK_TOOLS
   bump: lint `unused_local` (element `Vec[token.Pos]` — a bare QUALIFIED value type;
   the frozen `bnc-0.0.12-pre1` bnlint rejects it, so it needs the generic-type-arg fix
   `3f68fd7a` carried into CHECK_TOOLS) and lint `refs` (deletes the `growNames` helper,
@@ -1726,9 +1728,7 @@ unblock them:
   set `CHECK_TOOLS_VERSION` → `bnc-0.0.12-pre2` (Phase D), verify full hygiene, then
   land unused_local + refs (which now lint clean).
 - **Remaining pre2-INDEPENDENT sites (landable anytime — pre1-acceptable element
-  types):** cmd/bnlint `appendMsg` (`Vec[@[]readonly char]`; move the `Messages`
-  init to the top of `lintPackages` for nil-safety, and it shares a test with
-  `appendStr`), cmd/bni `parseArgs` struct fields (`ProgArgs`/`BniPaths`/`ImplPaths`/
+  types):** cmd/bni `parseArgs` struct fields (`ProgArgs`/`BniPaths`/`ImplPaths`/
   `Filenames`; ripple through cmd/bni readers).  NOTE: `satentry_inject` +
   `lower_data` (landed above) showed `make(VM)` is NOT the sole VM constructor —
   several vm tests build via bare `make(VM)`, and a Vec field left nil there
