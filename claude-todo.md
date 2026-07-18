@@ -1757,14 +1757,14 @@ unblock them:
   generic-type-arg bug (`unsupported type-argument form` / `cannot assign @Vec[void]
   to @Vec[Pos]`), so `unused_local`'s `Vec[token.Pos]` genuinely needs pre2 — not
   born-stale.
-- **make(VM) fixture NOTE:** `satentry_inject` + `lower_data` (landed above) showed
-  `make(VM)` is NOT the sole VM constructor — several vm tests build via bare
-  `make(VM)`, and a Vec field left nil there nil-derefs, so any test touching a
-  converted registry must build via `NewVM`.  The remaining vm-field sweeps
-  (`curNames`, `vtableInj*`, `dataSym*`) will keep eroding the "bare make(VM)
-  suffices" fixture contract; at some point it may be worth switching ALL vm-test
-  `make(VM)` → `NewVM` in one pass (a separate decision for the user, not folded
-  silently into a conversion).
+- **make(VM) fixture sweep DONE (`25e8d883`).** All vm-test `make(VM)` were switched
+  to `NewVM(1024)` in one commit (user chose this path 2026-07-17), so `NewVM` is now
+  the sole test VM constructor and the remaining VM-field Vec conversions no longer
+  nil-deref their fixtures.  REMAINING vm-registry Vec sites (now unblocked, standing
+  grant): `vtable_inject.bn` (vtableInj*Names/Addrs/Shims/Sizes), `lower_data.bn`
+  `curNames`, plus the `slices.Append` sites in `lower.bn` / `lower_typeinfo.bn` /
+  `lower_pkg_descriptor.bn`.  Non-vm clean sites also remain: `format/print_chain.bn`,
+  `repl/session.bn`, `repl/mid_session_import.bn`, `lint/lint.bn` (manual doubling).
 - **UNBLOCKED 2026-07-10** — the MAJOR cross-package generic-container mangler bug
   that blocked this (cross-package managed-element container dtor/copy mangling) is
   FIXED & LANDED (`8d9e7577`; entry in claude-todo-done.md).  `Vec[T]` (and Map/Set)
