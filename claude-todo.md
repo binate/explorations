@@ -1747,13 +1747,15 @@ unblock them:
   The EASY non-vm sites are DONE: `format/print_chain.bn` (`9229bef9`, flattenChain
   accumulators) and `repl` `ProcessedPkgs` (`8baabe11`, field → Vec, inited in BOTH
   kernel constructors — assembleSession AND the `setupReplState` test helper).
-  RECLASSIFIED as HIGHER-RIPPLE (defer with the vm Funcs/IfaceVtables/curNames batch):
-  `lint/lint.bn` `Result.Diags` — it looked like a simple manual-doubling accumulator,
-  but `Result` is the PUBLIC `LintFile` return, and `Diags`/`NumDiags` are read at ~27
-  sites across `lint.bn` + 3 lint test files (`lint_test`, `unused_import_test`,
-  `func_value_escape_test`) + `cmd/bnlint` `r.NumDiags`/`r.Diags[j]`; dropping the
-  public `NumDiags` (redundant with `Diags.Len()`) ripples through all of them
-  (parseArgs-tier, like the LintResult.Messages conversion already done).
+  `lint/lint.bn` `Result.Diags` LANDED (`e8137658`): the PUBLIC `LintFile` `Result` now
+  holds `Diags @vec.Vec[Diagnostic]`, the redundant `NumDiags` was dropped, and the ~27
+  reader sites (lint.bn + `lint_test`/`unused_import_test`/`func_value_escape_test` +
+  `cmd/bnlint`) were converted to `Diags.Len()`/`Diags.Get(i)`.
+  REMAINING higher-ripple sites (all VM, user OK'd taking them on 2026-07-18): `curNames`
+  (`lower_data.bn`:36 — aliases into `vmf.Names`), `vm.IfaceVtables` (`lower.bn`:279 —
+  iface dispatch), `vm.Funcs` (@VMFunc table indexed all through execution —
+  `lower.bn`:38/90/210, `lower_pkg_descriptor.bn`:411; watch the hot-path read overhead
+  of Get vs `[]`).
 - **UNBLOCKED 2026-07-10** — the MAJOR cross-package generic-container mangler bug
   that blocked this (cross-package managed-element container dtor/copy mangling) is
   FIXED & LANDED (`8d9e7577`; entry in claude-todo-done.md).  `Vec[T]` (and Map/Set)
