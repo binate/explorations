@@ -1710,7 +1710,8 @@ unblock them:
   (`40410619`), vm `lower_pkg_descriptor` (`512dc219`), interp `New`/`LoadProgram`
   (`3c1fb103`), cmd/bni `--test` (`c91173e7`), interp `check`/`externs` (`4d6f65c9`),
   cmd/bni `splitColon`/`expandDirArgs` (`81d1a5c4`), lint `unused_func` (`5e7a95a8`),
-  cmd/bnlint `suppress` (`c12d0238`).  COMMITTED BUT BLOCKED on the pre2 CHECK_TOOLS
+  cmd/bnlint `suppress` (`c12d0238`), vm `satentry_inject` (`05491135`).  COMMITTED
+  BUT BLOCKED on the pre2 CHECK_TOOLS
   bump: lint `unused_local` (element `Vec[token.Pos]` — a bare QUALIFIED value type;
   the frozen `bnc-0.0.12-pre1` bnlint rejects it, so it needs the generic-type-arg fix
   `3f68fd7a` carried into CHECK_TOOLS) and lint `refs` (deletes the `growNames` helper,
@@ -1725,13 +1726,15 @@ unblock them:
   set `CHECK_TOOLS_VERSION` → `bnc-0.0.12-pre2` (Phase D), verify full hygiene, then
   land unused_local + refs (which now lint clean).
 - **Remaining pre2-INDEPENDENT sites (landable anytime — pre1-acceptable element
-  types):** vm `satentry_inject` (`Vec[int]`; NewVM is the sole VM constructor, so
-  add the 3 field inits there), vm `lower_data`'s globalNames/globalAddrs
+  types):** vm `lower_data`'s globalNames/globalAddrs
   (`Vec[@[]char]`/`Vec[int]`; NOTE curNames ripples into `vmf.Names` — convert only the
   global* pair), cmd/bnlint `appendMsg` (`Vec[@[]readonly char]`; move the `Messages`
   init to the top of `lintPackages` for nil-safety, and it shares a test with
   `appendStr`), cmd/bni `parseArgs` struct fields (`ProgArgs`/`BniPaths`/`ImplPaths`/
-  `Filenames`; ripple through cmd/bni readers).
+  `Filenames`; ripple through cmd/bni readers).  NOTE: `satentry_inject` (landed
+  above) showed `make(VM)` is NOT the sole constructor — several vm tests build via
+  bare `make(VM)`; a Vec field left nil there nil-derefs, so any test touching the
+  converted registry must build via `NewVM`.
 - **UNBLOCKED 2026-07-10** — the MAJOR cross-package generic-container mangler bug
   that blocked this (cross-package managed-element container dtor/copy mangling) is
   FIXED & LANDED (`8d9e7577`; entry in claude-todo-done.md).  `Vec[T]` (and Map/Set)
