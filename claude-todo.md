@@ -1783,12 +1783,15 @@ unblock them:
   `cmd/bnlint`) were converted to `Diags.Len()`/`Diags.Get(i)`.
   `curNames` LANDED (`49e32171`): `@vec.Vec[@[]char]`, handed to `vmf.Names` via
   `.Items()` so the hot BC_CALL name reads stay slice-indexed (no Get overhead).
-  REMAINING higher-ripple VM sites (user OK'd 2026-07-18): `vm.IfaceVtables`
-  (`lower.bn`:279 append + ~8 reads on the iface-dispatch path — clean registry-like,
-  acceptable Get overhead) and `vm.Funcs` (@VMFunc table, 42 refs: append ×4 + one
+  `vm.IfaceVtables` LANDED (`12360af1`): `@vec.Vec[@IfaceVtable]`, 1-based indexing
+  preserved, inited in NewVM (a pre-registration bounds `.Len()` would deref nil).
+  ONLY REMAINING sweep site: `vm.Funcs` (@VMFunc table, 42 refs: append ×4 + one
   index-write `lower.bn`:86 `vm.Funcs[existing]=vmf` → `.Set` + ~15 reads on the
-  HOTTEST path, `vm.Funcs[funcIdx]` per call; the Get indirection lands on every call
-  — build-time O(n²)→O(n) win vs a small per-call read cost; surface to the user).
+  HOTTEST path — `vm.Funcs[funcIdx]` once per call). Trade-off surfaced to the user
+  2026-07-18: build-time O(n²)→O(n) (incl. O(n²) refcount bumps for the compiler's
+  ~thousands of functions — a real win) vs +1 pointer-indirection per call read
+  (negligible: once per call, not per instruction). Awaiting the user's go/no-go on
+  converting the VM's hottest structure.
 - **UNBLOCKED 2026-07-10** — the MAJOR cross-package generic-container mangler bug
   that blocked this (cross-package managed-element container dtor/copy mangling) is
   FIXED & LANDED (`8d9e7577`; entry in claude-todo-done.md).  `Vec[T]` (and Map/Set)
