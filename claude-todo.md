@@ -1744,8 +1744,13 @@ unblock them:
   (@VMFunc table, indexed all through execution — `lower.bn`:38/90/210,
   `lower_pkg_descriptor.bn`:411), `vm.IfaceVtables` (`lower.bn`:279), and `curNames`
   (`lower_data.bn`:36 — aliases into `vmf.Names`, deliberately skipped so far).
-  Non-vm clean sites also remain: `format/print_chain.bn`, `repl/session.bn`,
-  `repl/mid_session_import.bn`, `lint/lint.bn` (manual doubling).
+  Non-vm sites: `format/print_chain.bn` LANDED (`9229bef9`, flattenChain accumulators).
+  REMAINING non-vm: `repl` `ProcessedPkgs` field (`session.bn` + `mid_session_import.bn`
+  + `session_test.bn`; needs init in BOTH kernel constructors — assembleSession AND the
+  `setupReplState` test helper, which currently leaves it nil), and `lint/lint.bn`
+  `Result.Diags` (manual-doubling accumulator; but `Result` is the PUBLIC LintFile
+  return read cross-package by `cmd/bnlint` `r.NumDiags`/`r.Diags[j]` — a wider ripple,
+  like the LintResult.Messages conversion).
 - **UNBLOCKED 2026-07-10** — the MAJOR cross-package generic-container mangler bug
   that blocked this (cross-package managed-element container dtor/copy mangling) is
   FIXED & LANDED (`8d9e7577`; entry in claude-todo-done.md).  `Vec[T]` (and Map/Set)
