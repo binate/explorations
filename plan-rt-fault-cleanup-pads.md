@@ -241,16 +241,27 @@ needs no `FRAME_HDR` change (reuses `callerPC`).
     entry-frame gate STAYS, so real nested faults are still legacy-fatal and the
     cross-frame pop is inert for real programs — exercised only by a hand-built
     two-frame lowering test (callee body = `OP_UNWIND_RETURN` bypasses the gate).
-  - **Inc 3a-2 (the flip) — pending.** IR-gen `attachFaultPad` after every call op
-    (`gen_call.bn`'s `EmitCall`/`EmitCallHandle`/`EmitCallIndirect`/
-    `EmitCallFuncValue`/`EmitCallIfaceMethod`, wrapped like `genBoundsCheck`);
-    remove the entry-frame gate; `interp.RunMain` maps `FAULTED` → the fault message
-    as a run-error so `cmd/bni runProgram` prints it + exits 1. Conformance
-    `310`/`929`/`314` stay green (a nested `main` fault now unwinds to `__entry` and
-    the host prints the same message + exit 1). Needs a memory-safety review — every
-    call-site pad must RefDec exactly the caller's live set (the ownership transfers
-    in `coerceArg` — moved iface `consumeTemp`'d out, RefInc'd copies callee-owned,
-    borrowed `@[]T` temp caller-side — already make this consistent).
+  - **Inc 3a-2 (the flip) ✅ LANDED (2026-07-17).** Call-site pads (`05976a9f`,
+    inert) + the flip (`8c3c2bf8`). IR-gen `attachFaultPad` after every USER-level
+    call op — direct (`gen_call.bn` `EmitCall`), func-value (`EmitCallFuncValue`),
+    iface-method (`gen_iface_dispatch.bn`), and concrete method (`gen_method.bn`,
+    added after an adversarial memory-safety review found it un-padded). The
+    internal magics (`EmitCallHandle`/`EmitCallIndirect` = `_call_dtor`/`_call_shim_*`)
+    and the synthetic entry/wrapper frames (`__entry`, init dispatcher, iv-thunks,
+    method-value wrappers) stay unpadded — they carry no managed cleanup. The VM
+    handles them via the **pop-loop**: `BC_UNWIND_RETURN` pops each frame, runs the
+    caller's call-site pad if present, or — if the caller has NO pad and an EMPTY
+    `FaultTable` (a synthetic frame) — pops it transparently; a non-empty table
+    missing a pad is a lowering gap → `vmPanic` (Option B, chosen by the user over
+    padding every synthetic site). `dispatchFaultPad` lost the entry-frame gate + the
+    in-VM `println`/`rt.Exit`: the VM now ALWAYS unwinds to the host and returns
+    `Status = FAULTED`; the embedder picks policy (`interp.RunMain` surfaces the
+    message as a run-error → `cmd/bni runProgram` prints + exits 1). Conformance
+    `310`/`929`/`314` stay green (nested `main` fault → same message + exit 1);
+    1125 tests green under `builder-comp-int`, 648 under `builder-comp`/LLVM (pads
+    invisible to compiled backends). Memory-safety review: one MAJOR finding (the
+    `gen_method` gap), fixed + regression-tested; all other claims held. Cross-frame
+    recovery is now LIVE for bounds faults in any call depth.
   - **Inc 3b — pending.** Wire the remaining guards (div / shift / nil-deref / 3×
     call-through-nil) onto `setFault` + pads.
   - **Inc 3c — pending.** The §6 cleanup-context fatal-guard flag (a fault inside a
