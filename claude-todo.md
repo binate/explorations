@@ -1749,12 +1749,16 @@ unblock them:
 - **make(VM) fixture sweep DONE (`25e8d883`).** All vm-test `make(VM)` were switched
   to `NewVM(1024)` in one commit (user chose this path 2026-07-17), so `NewVM` is now
   the sole test VM constructor and the remaining VM-field Vec conversions no longer
-  nil-deref their fixtures.  `vtable_inject.bn` (vtableInj*Names/Addrs/Shims/Sizes)
-  LANDED (`3b4dad5d`).  REMAINING vm-registry Vec sites (standing grant): `lower_data.bn`
-  `curNames`, plus the `slices.Append` sites in `lower.bn` / `lower_typeinfo.bn` /
-  `lower_pkg_descriptor.bn` (dataSym* etc.).  Non-vm clean sites also remain:
-  `format/print_chain.bn`, `repl/session.bn`, `repl/mid_session_import.bn`,
-  `lint/lint.bn` (manual doubling).
+  nil-deref their fixtures.  All FOUR clean per-VM registries are now LANDED:
+  `vtable_inject` (`3b4dad5d`) and `dataSym` (`75f4029a`), on top of `satentry`
+  (`05491135`) + `global` (`670d0fc8`).  REMAINING vm `slices.Append` sites are NOT
+  clean registries — they are heavily-read / aliased core structures, so each is a
+  larger ripple (like parseArgs) that may warrant a per-site decision: `vm.Funcs`
+  (@VMFunc table, indexed all through execution — `lower.bn`:38/90/210,
+  `lower_pkg_descriptor.bn`:411), `vm.IfaceVtables` (`lower.bn`:279), and `curNames`
+  (`lower_data.bn`:36 — aliases into `vmf.Names`, deliberately skipped so far).
+  Non-vm clean sites also remain: `format/print_chain.bn`, `repl/session.bn`,
+  `repl/mid_session_import.bn`, `lint/lint.bn` (manual doubling).
 - **UNBLOCKED 2026-07-10** — the MAJOR cross-package generic-container mangler bug
   that blocked this (cross-package managed-element container dtor/copy mangling) is
   FIXED & LANDED (`8d9e7577`; entry in claude-todo-done.md).  `Vec[T]` (and Map/Set)
