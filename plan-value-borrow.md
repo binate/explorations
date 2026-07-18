@@ -172,26 +172,41 @@ precedent.)*
   `box(<untyped constant>)` class of crash (§5). No `OP_BOX`, no heap; the outer `*any` borrow
   itself takes no `RefInc`.
 - **The temp's OWN contents need refcount handling — split by source shape (CRITICAL, easy to
-  miss).** The store is **not** always a plain `EmitStore`:
+  miss).** The store is **not** always a plain `EmitStore`, and the cleanup **scope is routed by
+  `borrowPosKind`** (the same kind the checker computes; §4). Handle all shapes — do **not** stage
+  managed sources out, because "not yet supported" cannot mean "accepted-and-not-lowered" (that is
+  the leak/UAF); it would force a throwaway checker gate rejecting managed-carrying value sources
+  (a recursive managed-member walk + bespoke diagnostic + a temporary, surprising language rule to
+  later delete) — net-additional work, not less. Both halves reuse existing machinery:
   - **Pointer-/managed-free value** (a scalar, or a **string literal** — a null-backing
-    `@[]readonly char`, refcount-inert): a plain `b.EmitStore(slot, v)` is complete; the alloca
-    is frame-lived and needs no cleanup. This covers the immediate scalar/string `fmt` path.
+    `@[]readonly char`, refcount-inert): a plain `b.EmitStore(slot, v)` is complete; the frame-lived
+    alloca needs no cleanup in any position. Covers the immediate scalar/string `fmt` path.
   - **Value carrying managed members** (a struct with `@T`/`@[]T` fields, or a heap-backed
-    managed-slice): copying `v` into the temp takes **ownership** of those references, so the
-    store must go through the managed-aware copy (`emitStoreManagedSlot` / `needsStructCopy`,
-    as the variadic packer does at `gen_variadic.bn:43-44` — `if needsStructCopy(arrTyp) {
-    registerTemp(ctx, arrPtr) }`) and the temp's managed fields **must** be RefDec'd, or the
-    compiler leaks (violating the hard never-leak invariant). Crucially the **cleanup scope is
-    position-dependent**: an **argument** temp can use statement-end cleanup (`registerTemp`,
-    like the packer — the borrow doesn't outlive the call), but a **var/`:=`-init** temp must be
-    RefDec'd at the **binding's scope end**, not statement end — statement-end RefDec would free
-    the fields while the frame-lived `*any` still points at them (UAF). So this case **does**
-    need per-position temp scoping. → **This is a real design item, not free.** Options: (i) build
-    scope-scoped cleanup for the var-init managed case; or (ii) stage it — Commit 2 handles only
-    pointer-/managed-free sources (the scalar + string-literal `fmt` path, which is the motivating
-    use), and managed-carrying value sources land in a follow-up commit with the scope-scoped
-    cleanup. **Decision for the owner** (don't unilaterally defer): which of (i)/(ii). Either way,
-    Commit 2 must never emit a plain `EmitStore` of a managed-carrying value with no cleanup.
+    managed-slice): the copy into the temp takes **ownership**, so the store goes through the
+    managed-aware copy (`emitStoreManagedSlot` / `needsStructCopy`) and the temp's managed members
+    **must** be RefDec'd (never a bare `EmitStore` — that leaks, violating the hard never-leak
+    invariant). Cleanup scope by position:
+    - **Argument** (`borrowPosKind == BORROWING`, call-arg): statement-end cleanup via
+      `registerTemp(ctx, slot)` — exactly what the variadic packer already does
+      (`gen_variadic.bn:43-44`, `if needsStructCopy(arrTyp) { registerTemp(ctx, arrPtr) }`). The
+      borrow can't outlive the call, so statement-end is correct. Essentially free.
+    - **`var`/`:=`-init** (`borrowPosKind == BORROWING`, decl-init): **scope**-end cleanup, not
+      statement-end — statement-end RefDec would free the members while the frame-lived `*any`
+      still points at them (UAF). Route the temp into Binate's **existing scope-scoped
+      managed-local cleanup** — the same path named managed locals use (`ctx.Vars` +
+      `emitDecForManagedLocals` / `emitDecForScopeVars`, with the per-type dtor emitters
+      `emitStructDtor` / `emitManagedSliceRefDec` / … already written in `gen_local_cleanup.bn`).
+      **The one spot to pin down in implementation:** whether an *anonymous* alloca can be added to
+      that scope-cleanup set directly, or whether a small scope-scoped temp list (a scope analogue
+      of `ctx.Temps`, drained at scope exit alongside `ctx.Vars`) must be added. The dtor emitters
+      exist either way; this is a registration/routing addition, not a new subsystem.
+  - IR-gen must know arg-vs-var-init to pick the cleanup scope (inert for pointer-free sources,
+    which need no cleanup). It is a separate pass from the checker, so it does **not** read the
+    checker's transient `borrowPosKind`; it distinguishes structurally at the two construction
+    callers — `gen_stmt.bn:380` is the **decl-init** (var-init → scope cleanup); the **call-arg**
+    path reaches `gen_util.bn:223` via `genExprOrFuncRef` (arg → `registerTemp`). If that
+    structural split proves ambiguous for any path, have the checker record the materialize-scope
+    decision in the construction's resolved info for IR-gen to read (a small, explicit hand-off).
 - **Lifetime: checker-enforced *at construction*, ordinary raw-UAF thereafter.** The `EmitAlloc`
   temp is **frame**-lived (verified: `OP_ALLOC` is entry-hoisted in LLVM and a fixed frame slot
   in native/VM; `registerTemp`/`ctx.Temps` is a managed-RefDec list, not a stack-slot reuser), so
