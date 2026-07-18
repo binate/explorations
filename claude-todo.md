@@ -9,6 +9,34 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### value-borrow 2b: managed-carrying rvalue materialisation LEAKS — currently gated off — 🔴 OPEN MAJOR (found 2026-07-18)
+
+**Severity: MAJOR** — a compiler-generated leak (never-leak invariant).  Found
+by the value-borrow Commit 2 adversarial review.  Materialising a NON-addressable
+MANAGED-carrying rvalue (a managed-slice / managed func value / managed iface
+value, or a struct/array with a managed member) into a stack temp for a raw
+`*Iface` borrow copies the managed reference but never RefDec's it — a leak (both
+managed-slice and struct-with-managed-field confirmed leaking).
+
+**Currently GATED OFF**, not live: `canBorrowValueIntoRawIface`
+(`check_addr.bn`) rejects a managed-carrying rvalue source via
+`valueTypeCarriesManaged` ("cannot assign @[]int to \*any"; conformance
+`spec/11-interfaces/091`).  So Commit 2 shipped only POINTER-FREE rvalue borrows
+(scalars, string literals, pointer-free structs) — those cannot leak (no managed
+refs).  The ADDRESSABLE (2a) managed borrow is fine (`&x`, no copy).
+
+**To lift the gate** (allow managed-carrying rvalue borrows): the IR-gen
+materialisation in `genExprOrFuncRef` (`gen_util.bn`, the 2b branch — the buggy
+`emitStoreManagedSlot` + `registerTemp` path is retained but unreachable) needs a
+refcount-correct copy that (a) balances the RefInc of the copy with a RefDec, and
+(b) routes cleanup by position: an ARGUMENT temp uses statement-end cleanup
+(recovery is within the statement), a VAR-INIT temp needs SCOPE-end cleanup so it
+co-scopes with the binding (only matters once struct value-recovery lands and a
+var-init'd `*any` can be read back).  Then remove the `valueTypeCarriesManaged`
+gate and re-target/expand `091`.  Diagnose the current leak first (it was not
+root-caused — `emitStoreManagedSlot`/`registerTemp`/`emitTempCleanupBody`
+interaction for a whole-value managed alloca temp).
+
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
