@@ -82,33 +82,36 @@ of a non-nil pointer just passes).
   per-backend `OP_NIL_CHECK → 0 bytes`.  Review CLEAN (2 NITs folded: field-name
   doc-sync + a non-vacuous elision assertion).  Default-off ⇒ byte-identical IR, so
   conformance unchanged.
-- **N2b (field derefs — refactor to unify, then instrument).** Reconnaissance
-  during N2b found the plan under-scoped this: field-deref lowering is DUPLICATED
-  across `genSelector` (reads, ~13 pointer-follow GEP sites) and `genSelectorPtr`
-  (writes/receivers/address-of, ~11 sites) — plus ~15 more for index — so wiring a
-  check at every site is ~40 near-identical hand-instrumented edits.  **User
-  decision: refactor to unify first** (rather than grind or scope down).  Approach:
-  - `genSelectorPtr` gains a `forDeref` param and nil-checks each FOLLOWED pointer
+- **N2b — READY (validated, awaiting landing; field derefs).** Reconnaissance found
+  the plan under-scoped this: field-deref lowering is DUPLICATED across
+  `genSelector` (reads, ~13 pointer-follow GEP sites) and `genSelectorPtr`
+  (writes/receivers/address-of, ~11 sites).  The unify path (route reads through
+  `genSelectorPtr`) was **investigated and rejected**: the two functions are
+  SEMANTICALLY divergent — a read materializes a value-struct base (`genExpr(*p)` →
+  alloca → GEP) while a write must address it in place (`genExpr(p)` → GEP through
+  the pointer; a materialized copy would drop the store).  `forDeref` doesn't
+  distinguish read from write, so unifying would need a *new* read/write flag that
+  ADDS complexity rather than removing duplication.  **User decision: grind — keep
+  the two functions**, instrument each directly (the read/write duplication is a
+  pre-existing structural choice, tracked as a separate refactor question, not this
+  feature's job).  What landed:
+  - `genSelectorPtr` gains a `forDeref` param, nil-checking each FOLLOWED pointer
     before its GEP (`emitDerefNilCheck`, gated on `GenCtx.EmitNilChecks`).  Deref
-    callers pass `true`; address-of (`&p.field`, method-receiver address) pass
-    `false` so a nil base is NOT faulted (deref-only semantics — the user's other
-    N2 decision).  The recursion passes `true` (a chained `p.a.b` loads `p.a`
-    through to reach `.b`).  ← DONE (foundation; field writes/receivers covered).
-  - Then **route `genSelector`'s field-access READS through `genSelectorPtr`**
-    (`fieldPtr = genSelectorPtr(ctx, b, e, true)` then `EmitLoad(fieldPtr,
-    fieldPtr.Typ.Elem)`), deleting the duplicated inline read branches.  The check
-    then lives in ONE place and reads are covered for free.  **Preserve the
-    non-field tail** (package-qualified consts, imported extern var reads via
-    `lookupImportedGlobalRead`) — `genSelectorPtr`'s `genImportedVarLvalue` would
-    otherwise intercept an imported-var read differently, so scope the delegation
-    to genuine field accesses (e.g. only load when the result is an
-    `OP_GET_FIELD_PTR`).
-  - **Validate behavior-preservation with full conformance** (flag off must be
-    byte-identical — genSelector is a hot, edge-case-laden path: borrow semantics
-    for by-value call/type-assert results, block re-sync after assert splits,
-    conformance 456 / 1058).  Then unit tests for the flag-on checks.
-- **N2c (index derefs).** Same unify-then-instrument for `genIndex`/`genIndexPtr`
-  (index reads + writes), routing reads through `genIndexPtr` where equivalent.
+    callers pass `true`; address-of (`&p.field` via `genLValueAddr`, the
+    method-receiver address) pass `false` so a nil base is NOT faulted (deref-only
+    semantics — the user's other N2 decision).  The recursion passes `true` (a
+    chained `p.a.b` loads `p.a` through to reach `.b`).  All 12 callers updated.
+  - `genSelector`'s ~13 inline pointer-follow READ sites nil-check the followed
+    pointer before the GEP (`emitNilCheckIfEnabled` — reads are always derefs).
+    Value-struct / element / composite / borrow-copy bases follow no user pointer
+    and stay unchecked.
+  - Verified: ir unit tests (read/write emit a check; `&p.x` + value-struct emit
+    none; flag-off none); **builder-comp conformance 2838/0** and
+    **builder-comp-int 2819/0** (flag-off byte-identical — the genSelector rewrite
+    is behavior-preserving); gen1 built.  Review CLEAN.
+- **N2c (index derefs).** Instrument `genIndex`/`genIndexPtr` directly (same
+  grind, keeping the read/write split), nil-checking the collection pointer before
+  each element GEP.
 - **N2d (intra-block dedup elision (b)).** A per-block already-checked SSA-id set
   so `p.x + p.y` / `p.a.b` emit ONE check for a repeated pointer; skip repeats.
 - **N3 (embedder opt-in + end-to-end).** Plumb the flag through the pipeline
