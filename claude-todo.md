@@ -35,35 +35,6 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/plan-rt-fault-cleanup-pads.md`).
 
-### Multi-return into a NESTED-array-index target silently drops the store — 🔴 OPEN MAJOR (found 2026-07-18)
-
-**Severity: MAJOR** — a SILENT miscompile (wrong code, no diagnostic, exit 0).
-**Pre-existing** and unrelated to the type-assert work; surfaced by the review of the
-non-ident-array-field multi-return fix (`cae1fbb0`, below).
-
-**Repro** (prints `51`, not `11`):
-
-```
-func two() (int, int) { return 11, 22 }
-func main() {
-	var a [2][3]int
-	a[1][1] = 51
-	var y int
-	a[1][1], y = two()   // element store DROPPED
-	println(a[1][1])     // 51 (bug); should be 11
-	println(y)           // 22
-}
-```
-
-Affects the **multi-return** AND **parallel-assign** paths (`a[1][1], a[1][2] = 77,88`
-also drops).  The single-assign path handles it via an `isNestedArrayBase →
-genIndexPtr` special-case (`gen_control.bn:293`), which neither `genMultiAssign`
-(`emitIndexStore`) nor `resolveParallelIndexTarget` mirrors — a nested-array base
-loads a COPY of the inner array and stores into the copy.  **Fix:** route a
-nested-array-index base through `genIndexPtr` in both `genMultiAssign` and
-`resolveParallelIndexTarget`, mirroring single-assign.  (The sibling non-ident
-array-FIELD / deref multi-return drop is FIXED — `cae1fbb0`, below.)
-
 ### `&(named-distinct-raw-slice)[i]` segfaults — `genIndexPtr` doesn't peel the wrapper — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a runtime crash (SIGSEGV) writing through a bogus address

@@ -349,6 +349,18 @@ rewrites).  Full VM conformance sweep stayed green (2796/0).  Two adversarial
 reviews (front-end + VM): both SOUND.  Conformance 1086/1087/1088; checker unit
 tests.  Verified LLVM / VM / double-VM / native-aa64 / comp-comp / comp-comp-int.
 
+## Multi-return / parallel assign into a NESTED-array target silently dropped the store — ✅ FIXED (`c6050047`, 2026-07-18)
+
+A multi-RETURN (`a[j][i], y = f()`) or PARALLEL (`a[j][i], a[j][k] = …`) assignment
+into a nested-array element silently DROPPED the store — the inner array `a[j]` loaded
+as an r-value has no backing pointer, so genMultiAssign (emitIndexStore) and
+resolveParallelIndexTarget left it unaddressed.  Only the single-assign path
+special-cased it (isNestedArrayBase → genIndexPtr).  Mirrored that in both paths
+(resolve the element pointer in-place via genIndexPtr, checked by type so lhs.X isn't
+generated twice).  Managed elements stay Axiom-5-balanced.  Adversarial review SOUND
+(correctness, double-eval-once, refcount balance both paths, no regression).
+Conformance 1103; LLVM / VM / comp-comp / native-aa64.  (FU1 of the §9 follow-ups.)
+
 ## Box a managed slice with OWNING semantics; `@any` box crash/leak fixed (§9) — ✅ DONE (`75769ddd`, 2026-07-18)
 
 Boxing a managed slice (`box(s)` for `s @[]char` → `@(@[]char)`) and boxing that into
