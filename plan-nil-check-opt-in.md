@@ -82,12 +82,35 @@ of a non-nil pointer just passes).
   per-backend `OP_NIL_CHECK → 0 bytes`.  Review CLEAN (2 NITs folded: field-name
   doc-sync + a non-vacuous elision assertion).  Default-off ⇒ byte-identical IR, so
   conformance unchanged.
-- **N2b (remaining deref sites + intra-block dedup).** Wire `emitNilCheckIfEnabled`
-  into the other deref sites — `genSelectorPtr`, `genIndex`/`genIndexPtr`, method
-  receiver — and add the dominating-check dedup elision (b) (a per-block already-
-  checked SSA-id set; catches `p.x + p.y` / `p.a.b` intra-block redundancy).  Unit
-  tests per site: flag on ⇒ checks at un-elided derefs, elided at non-nil / already-
-  checked ones; flag off ⇒ no `OP_NIL_CHECK`.
+- **N2b (field derefs — refactor to unify, then instrument).** Reconnaissance
+  during N2b found the plan under-scoped this: field-deref lowering is DUPLICATED
+  across `genSelector` (reads, ~13 pointer-follow GEP sites) and `genSelectorPtr`
+  (writes/receivers/address-of, ~11 sites) — plus ~15 more for index — so wiring a
+  check at every site is ~40 near-identical hand-instrumented edits.  **User
+  decision: refactor to unify first** (rather than grind or scope down).  Approach:
+  - `genSelectorPtr` gains a `forDeref` param and nil-checks each FOLLOWED pointer
+    before its GEP (`emitDerefNilCheck`, gated on `GenCtx.EmitNilChecks`).  Deref
+    callers pass `true`; address-of (`&p.field`, method-receiver address) pass
+    `false` so a nil base is NOT faulted (deref-only semantics — the user's other
+    N2 decision).  The recursion passes `true` (a chained `p.a.b` loads `p.a`
+    through to reach `.b`).  ← DONE (foundation; field writes/receivers covered).
+  - Then **route `genSelector`'s field-access READS through `genSelectorPtr`**
+    (`fieldPtr = genSelectorPtr(ctx, b, e, true)` then `EmitLoad(fieldPtr,
+    fieldPtr.Typ.Elem)`), deleting the duplicated inline read branches.  The check
+    then lives in ONE place and reads are covered for free.  **Preserve the
+    non-field tail** (package-qualified consts, imported extern var reads via
+    `lookupImportedGlobalRead`) — `genSelectorPtr`'s `genImportedVarLvalue` would
+    otherwise intercept an imported-var read differently, so scope the delegation
+    to genuine field accesses (e.g. only load when the result is an
+    `OP_GET_FIELD_PTR`).
+  - **Validate behavior-preservation with full conformance** (flag off must be
+    byte-identical — genSelector is a hot, edge-case-laden path: borrow semantics
+    for by-value call/type-assert results, block re-sync after assert splits,
+    conformance 456 / 1058).  Then unit tests for the flag-on checks.
+- **N2c (index derefs).** Same unify-then-instrument for `genIndex`/`genIndexPtr`
+  (index reads + writes), routing reads through `genIndexPtr` where equivalent.
+- **N2d (intra-block dedup elision (b)).** A per-block already-checked SSA-id set
+  so `p.x + p.y` / `p.a.b` emit ONE check for a repeated pointer; skip repeats.
 - **N3 (embedder opt-in + end-to-end).** Plumb the flag through the pipeline
   (`interp` / `cmd/bni`): REPL → on; `bni <prog>` run → **off** by default with a
   `--check-nil` opt-in; `bni --test` → **on** (tests want safety). Conformance: a nil
