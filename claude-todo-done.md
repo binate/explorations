@@ -33,7 +33,7 @@ incl. the CI-redding stale `e2e/errno-values.sh` path). **Still open** (in todo)
 `os/sys` Stage 2 (port os I/O); `os/process` Phase B (cmd/bnc migration +
 `bootstrap.Exec` deletion), BUILDER-gated on a release carrying these packages.
 
-## `pkg/std/os/sys` Stage 2a+2b+2c — port os's syscalls onto `sys` wrappers — ✅ DONE (`a886ec06`, `20840a58`, `e4b72c42`, 2026-07-18)
+## `pkg/std/os/sys` Stage 2 (2a–2d) — port os's syscalls onto `sys` wrappers — ✅ DONE (`a886ec06`, `20840a58`, `e4b72c42`, `518ab9fc`, 2026-07-18)
 
 Stage 2 of the syscall-layer work (`design-syscall.md`): moved `os`'s remaining
 raw libc syscalls into the os-family-internal `pkg/std/os/sys` layer, in small
@@ -59,11 +59,23 @@ green landable steps, so `os` no longer issues any `__c_call`.
   Corrected a stale premise: `e2e/stat-values.sh` prepends source over the frozen
   bundle, so it DOES exercise source — verified green on darwin-arm64, and its
   source-path comment was updated to `sys/stat_<target>.bn`.
+- **2d (`518ab9fc`)** — opendir/readdir/closedir: `sys/readdir.bn` owns the DIR*
+  wrappers, the struct dirent decode (`direntType`/`direntName`), the "."/".."
+  filter, and `sys.ReadDir` (full open→loop→close) returning owned `(name, raw
+  d_type)` entries as `@[]@sys.DirEnt` (another EXPORTED-field struct); the 3
+  per-(os,arch) `readdir_{linux,darwin,darwin_x64}.bn` (osDirent + `D_NAME_OFF` +
+  the `readdir64`/`readdir`/`readdir$INODE64` symbol) moved verbatim. `os readdir.bn`
+  keeps `DT_*` + `modeFromDType` + `ReadDir` (now maps `sys.DirEnt`→`DirEntry`).
+  `os.bn` dropped the now-dead `cPath`/`dataOfManaged` — os issues ZERO `__c_call`s.
+  `e2e/readdir-values.sh` (also source-prepended) verified green; its source-path
+  comment updated to `sys/readdir_<target>.bn`.
 
 Each step: validated on host modes (unit + conformance `stdlib/os` builder-comp/
--int, hygiene 17/17) + a minimal adversarial review (all behavior-preserving; no
-defects). **Still open** (in todo): Stage 2d (readdir onto `sys`); `os/process`
-Phase B (cmd/bnc migration + `bootstrap.Exec` deletion), BUILDER-gated.
+-int, hygiene 17/17, the source-prepended `e2e/{stat,readdir}-values.sh` on
+darwin-arm64) + a minimal adversarial review (all behavior-preserving; no
+defects). **Still open** (in todo): the optional `bnlint` boundary rule for
+`pkg/std/os/sys` importers; `os/process` Phase B (cmd/bnc migration +
+`bootstrap.Exec` deletion), BUILDER-gated on a release carrying these packages.
 
 ## Bump CHECK_TOOLS_VERSION → bnc-0.0.12-pre3; drop the `pkg/stdx/fmt` lint-skip — ✅ DONE (`3915444e`, `564b15e1`, 2026-07-18)
 

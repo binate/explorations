@@ -453,7 +453,7 @@ built, together with a test that exercises `ptr≠int` (the only thing that vali
 
 ## Slimming `pkg/bootstrap`; C interop (`__c_call`)
 
-### `pkg/std/os/sys` — low-level libc-syscall layer (os-family foundation) — 🟢 Stage 1 LANDED (`0d0b3a62`); Stage 2 open
+### `pkg/std/os/sys` — low-level libc-syscall layer (os-family foundation) — 🟢 Stages 1–2 LANDED; only an optional lint rule remains
 
 Design: `explorations/design-syscall.md` (os-family-internal `pkg/std/os/sys`,
 staged). One low-level home for thin, error-returning, EINTR-retrying libc-syscall
@@ -466,26 +466,15 @@ classifier moved out of `os`, ENOEXEC arm added, per-OS EAGAIN kept; `FailErrno`
 `ChildExecOrExit`); `os` rewired onto it; `os/process` built on it. Validated on
 host modes + e2e/errno-values + 2 review rounds. (Moved to done log.)
 
-Remaining:
-- **Stage 2 — port `os`'s remaining syscalls onto `sys` wrappers, in small green
-  steps.** 🟢 **2a+2b+2c LANDED (`a886ec06`, `20840a58`, `e4b72c42`):** fd I/O
-  (read/write/close/pread/pwrite/lseek, per-arch LFS `*64` kept) + `open` (2a),
-  mkdir/rename/remove + exit (2b) moved to `sys/io.bn`; stat/lstat/fstat (2c) — the
-  3 wrapper variants `stat_io{,_arm32,_darwin_x64}.bn` + the 4 `osStat` structs +
-  `fill` moved to `sys`, exposed as `sys.Stat`/`Lstat`/`Fstat` returning a portable
-  `sys.StatInfo` (EXPORTED-field struct in `sys.bni`, read cross-package by `os`).
-  `os.bn` + `os stat.bn` now have ZERO `__c_call`s and delegate, keeping only stream
-  semantics, the portable `O_*`→native flag translation, and the `S_IF*`→FileMode
-  glue (`modeFromStat`/`fileInfoFromStat`). (2a+2b+2c moved to done log.)
+**Stage 2 LANDED (`a886ec06`, `20840a58`, `e4b72c42`, `518ab9fc`)** — ported all
+of `os`'s remaining syscalls onto `sys` wrappers in small green steps: fd I/O +
+`open` (2a), mkdir/rename/remove + exit (2b), stat/lstat/fstat + `osStat` (2c),
+opendir/readdir/closedir + `osDirent` (2d). `os` now issues ZERO `__c_call`s —
+it delegates to `sys` (which retries EINTR + classifies errno) and keeps only
+stream semantics, the portable `O_*`→native flag translation, and the FileMode
+glue (`modeFromStat`/`modeFromDType`/`fileInfoFromStat`). (Moved to done log.)
 
-  🟡 **2d — opendir/readdir/closedir onto `sys`.** Move `readdir{,_linux,_darwin,
-  _darwin_x64}.bn` (opendir/readdir/closedir + per-OS `osDirent` + `D_NAME_OFF`)
-  to `sys`; expose a `sys.ReadDir(path)` returning owned (name, d_type) entries; os
-  `readdir.bn` keeps the DirEntry/FileMode glue. **Note:** `e2e/readdir-values.sh`
-  (like `e2e/stat-values.sh`) compiles its probe with source prepended over the
-  frozen bundle, so it DOES exercise source — verify it after the move (a source
-  comment path likely needs updating too). A delicate per-OS/arch struct move; keep
-  it a separate landable commit with careful, well-validated attention.
+Remaining:
 - Optional: a `bnlint` rule flagging any importer of `pkg/std/os/sys` outside
   `pkg/std/os*` (enforce the internal boundary, since Binate has no `internal/`).
 
