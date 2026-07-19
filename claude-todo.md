@@ -476,16 +476,26 @@ misclassification a review found is fixed centrally). Conformance test +
 per-file unit tests (incl. env-replace + empty-env execve + not-found). Validated
 on host modes. Must ship in the next release so Phase B can bump BUILDER.
 
+**Commit 3 LANDED (`786f8feb`)** — the 7 asm/native test harnesses (44 sites,
+`asm/{macho,parse,elf}` + `native/{x64,aarch64}`) migrated off `bootstrap.Exec`
+onto `os/process`, via a per-package test helper `execExit(prog, args @[]@[]char)
+int` (wraps `process.Run(&Options{SearchPath:true, Args})`, returns the old
+exit-code contract). Pulled forward out of Phase B (ungated: test files compile
+against source, and `os/process` is injected as its native instance in `stdPkgs()`
+so `process.Run` runs natively in comp AND int). Validated builder-comp +
+builder-comp-int for all 5 packages (host toolchain present → exec paths ran, incl.
+the exit-42 Rosetta assertion). (Moved to done log.)
+
 **Phase B (🔴 GATED on a release + `BUILDER_VERSION` bump to a bundle containing
 `os/process`+`os/sys`; `build_gen1` compiles `cmd/bnc`'s stdlib from the FROZEN
 bundle, so `cmd/bnc` cannot import the new packages until they ship):** migrate
-`cmd/bnc` production callers (Commit 2), migrate the 7 asm/native test harnesses
-(44 sites, Commit 3 — technically ungated, bundled for an atomic migration), then
-delete `bootstrap.Exec` entirely — `.bni` decl, C shim, baremetal stub, both VM
-extern registrations (`externs.bn`/`extern_test_helpers_test.bn`),
-`conformance/273_bootstrap_exec.*`, `README.md:171`, and ~6 prose comments (Commit
-4). Migrated call sites use `&process.Options{...}` (Run takes `*readonly Options`)
-or `process.RunArgsPath` (variadic).
+`cmd/bnc`'s 5 production callers (`compile/main/library/test/util.bn`) off
+`bootstrap.Exec` (Commit 2), then delete `bootstrap.Exec` entirely — `.bni` decl, C
+shim, baremetal stub, both VM extern registrations
+(`externs.bn`/`extern_test_helpers_test.bn`), `conformance/273_bootstrap_exec.*`,
+`README.md:171`, and ~6 prose comments (Commit 4). Migrated call sites use
+`&process.Options{...}` (Run takes `*readonly Options`) or `process.RunArgsPath`
+(variadic).
 
 **v1 residuals (design §6, tracked):** exec-failure precision — a `+x`
 non-executable/bad-format file passes the parent-side `sys.Accessible` (access

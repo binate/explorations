@@ -106,6 +106,32 @@ defects). **Still open** (in todo): the optional `bnlint` boundary rule for
 `pkg/std/os/sys` importers; `os/process` Phase B (cmd/bnc migration +
 `bootstrap.Exec` deletion), BUILDER-gated on a release carrying these packages.
 
+## `os/process` Commit 3 — migrate the 7 asm/native test harnesses off `bootstrap.Exec` — ✅ DONE (`786f8feb`, 2026-07-18)
+
+`plan-os-process.md` Commit 3, pulled forward out of Phase B (the user's call).
+Migrated the 7 asm/native test harnesses (44 call sites, 5 packages:
+`asm/{macho,parse,elf}` + `native/{x64,aarch64}`) from `bootstrap.Exec` to
+`pkg/std/os/process`. Each package got a test-local helper `execExit(prog, args
+@[]@[]char) int` — wraps `process.Run(prog, &Options{SearchPath:true, Args:args})`
+and returns the old contract (child exit code, or -1 on a start error / signal
+death) — so the call sites changed ~1:1 (`bootstrap.Exec` → `execExit`, drop the
+`bootstrap` import). `SearchPath:true` reproduces `execvp`'s always-search (a
+'/'-bearing exePath runs directly).
+
+**Why it's ungated** (the analysis that let it be pulled forward): these are
+`_test.bn` files, compiled by gen1 against the SOURCE stdlib, not by the frozen
+BUILDER bundle — so importing the post-`bnc-0.0.11` `os/process` from a test is
+fine; and `os/process` is in `stdPkgs()`, so it's injected into the VM as its one
+compiled native instance, meaning `process.Run`'s `__c_call`s run natively in
+`builder-comp-int` too (not un-runnable bytecode). Validated builder-comp +
+builder-comp-int green for all 5 packages, with the host toolchain present so the
+exec paths actually ran (`TestX64MachoExitsWithCode` links via clang and runs the
+x86-64 binary under Rosetta, asserting exit 42 through `process.Run`); hygiene
+17/17; a clean adversarial review (contract-faithful at all 44 sites; the only
+behavioral delta — not-found returns -1 vs the old 127 — is unobservable, since
+every site treats a missing tool as `!= 0`). **Still open:** Phase B (cmd/bnc
+Commit 2 + `bootstrap.Exec` deletion Commit 4), BUILDER-gated.
+
 ## Bump CHECK_TOOLS_VERSION → bnc-0.0.12-pre3; drop the `pkg/stdx/fmt` lint-skip — ✅ DONE (`3915444e`, `564b15e1`, 2026-07-18)
 
 pre3 (tag `10d0876b`) carries scalar value-recovery (`89b41531`), which pre2's
