@@ -24,7 +24,7 @@ choice. User decisions (2026-07-18):
 
 ## Design
 
-**Opt-in at gen time.** A `GenContext` (→ `GenModule`) flag `emitNilChecks`, default
+**Opt-in at gen time.** A per-compilation `GenCtx.EmitNilChecks` flag, default
 **off**. When on, IR-gen emits `OP_NIL_CHECK ptr` + `attachFaultPad` immediately before
 each pointer deref (load/store/field/elem through a pointer), for ALL pointer kinds.
 When off: nothing emitted — byte-for-byte current behavior (no ops, no pads, no bloat).
@@ -70,10 +70,24 @@ of a non-nil pointer just passes).
   past gen1 because the `.bni`⟷`.bn` agreement check does not cover methods).  The
   **compiled `OP_NIL_CHECK` → no-op arm moves to N2** (bundled with emission, so the
   compiled path is testable in the same increment).
-- **N2 (IR-gen emission, gated + elision).** IR-gen emits `OP_NIL_CHECK` + pad before
-  each pointer deref, behind `GenContext.emitNilChecks` (default off ⇒ zero change), with
-  the (a)+(b) elision above. Unit tests: flag on ⇒ checks at un-elided derefs, elided at
-  non-nil ones; flag off ⇒ no `OP_NIL_CHECK`.
+- **N2a ✅ LANDED (`3cabb1c2`, 2026-07-18).** The gated-emission foundation +
+  proving cut.  `GenCtx.EmitNilChecks` (default off); `emitNilCheckIfEnabled` /
+  `isProvablyNonNil` (gen_local_cleanup.bn) — the flag gate + construction-non-nil
+  elision (a) (skip when the pointer's op is `OP_ALLOC` / `OP_BOX` / `OP_MAKE` /
+  `OP_MAKE_SLICE`; base-relative GEPs deliberately NOT elided — that's (b), N2b).
+  Wired at the ONE deref site `genUnary`'s `*p` STAR as the proving cut.  Compiled
+  no-op arms: LLVM (emit_instr.bn) + explicit aarch64/arm32 arms (arm32 needs it to
+  dodge its fail-loud tail); x64 no-ops via its silent tail.  Unit tests: flag on ⇒
+  padded `OP_NIL_CHECK` at `*p`; flag off ⇒ none; `*(&x)` still loads but elides;
+  per-backend `OP_NIL_CHECK → 0 bytes`.  Review CLEAN (2 NITs folded: field-name
+  doc-sync + a non-vacuous elision assertion).  Default-off ⇒ byte-identical IR, so
+  conformance unchanged.
+- **N2b (remaining deref sites + intra-block dedup).** Wire `emitNilCheckIfEnabled`
+  into the other deref sites — `genSelectorPtr`, `genIndex`/`genIndexPtr`, method
+  receiver — and add the dominating-check dedup elision (b) (a per-block already-
+  checked SSA-id set; catches `p.x + p.y` / `p.a.b` intra-block redundancy).  Unit
+  tests per site: flag on ⇒ checks at un-elided derefs, elided at non-nil / already-
+  checked ones; flag off ⇒ no `OP_NIL_CHECK`.
 - **N3 (embedder opt-in + end-to-end).** Plumb the flag through the pipeline
   (`interp` / `cmd/bni`): REPL → on; `bni <prog>` run → **off** by default with a
   `--check-nil` opt-in; `bni --test` → **on** (tests want safety). Conformance: a nil
@@ -85,8 +99,8 @@ of a non-nil pointer just passes).
 - `bni <prog>` run: nil-checks **off** by default (`--check-nil` to enable) — keeps a
   plain run C-like/fast.
 - `bni --test`: nil-checks **on** — a test suite wants host survival + a clear message.
-- Elision: (a) construction-non-nil + (b) intra-block dedup in N2; cross-block dominator
-  elision deferred.
+- Elision: (a) construction-non-nil landed in N2a + (b) intra-block dedup in N2b;
+  cross-block dominator elision deferred.
 
 ## Verification
 
