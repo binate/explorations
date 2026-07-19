@@ -1756,6 +1756,26 @@ emitters (they pack `≤ InternalSretBytes` too) if a 0-byte result can reach th
 
 ## stdx containers: Map/Set key-type ergonomics
 
+**STATUS 2026-07-18 — the Fn-variant unblock path is DONE for the lint sites.**
+The function-taking `containers/mapfn.MapFn[K any,V]` / `setfn.SetFn[T any]` (key on
+ANY type via explicit hash+eq fns — NO `lang.Hashable`) is the first of the two
+unblock ways below, and it is now adopted where it cleanly fits.  LANDED (lint
+cluster, keyed on the owned `@[]char` via a shared `nameHash` djb2 + `nameEq` in
+`pkg/binate/lint/namekey.bn`): `unused_local.Refs`→SetFn (`578f60a0`); the shared
+`refIndex` `ValNames`→SetFn + `TypeNames`→counting `MapFn[@[]char,int]` (renamed
+`TypeCounts` — unused-type needs the COUNT, not membership) (`954ad648`);
+`unused_func` funcReach `Reach`→SetFn + `CNames`→`MapFn[@[]char,int]` (`0486c6c4`);
+and `refIndex`'s per-file qualifier set as a composite-key `SetFn[qualKey{File,Name}]`
+(`f6f89eab`).  DECLINED (verified + adversarially confirmed): the VM name-keyed
+lookups — `func_index.bn` (already an O(1) hand-rolled djb2 map; converting is pure
+code-churn), `lookupGlobalAddr`/`lookupDataSymAddr`/`findIfaceVtable`/`LookupExtern`/
+`lookupVtableAddr`.  They take BORROWED `*[]readonly char` / string-literal keys
+(incl. the public `LookupFunc(*[]readonly char)` API and interp's `"main.__entry"`),
+which MapFn's uniform-OWNED-`K` interface can't serve without a per-lookup `@[]char`
+copy; their insert-owned / lookup-borrowed asymmetry is the correct design.  The
+INTRINSIC `hashmap.Map[K lang.Hashable]`/`set.Set` path (the two `###` sub-entries
+below) stays design-open, but is a nicety — not needed for the adoption above.
+
 Motivation for both entries below: the container-adoption audit (2026-07-09,
 see the `Adopt stdx/containers Vec …` opportunistic entry) found that `Vec[T]`
 is usable across the non-BUILDER tools *now*, but `hashmap.Map[K lang.Hashable,
