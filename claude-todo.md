@@ -95,42 +95,37 @@ alias/readonly) wrappers in `genIndexPtr`'s raw-slice arm, as `checkIndexExpr`
 already does via `peelNamedBounded`.  **TODO: add an xfail'd conformance test**
 for the repro (crashes in compiled modes) alongside the fix.
 
-### Name-less MANAGED pointee boxed into `@any` segfaults (would-leak under the raw fix) — 🔴 OPEN MAJOR (found 2026-07-16)
+### Name-less NON-slice managed pointee boxed into `@any` emits invalid LLVM — 🟠 OPEN (found 2026-07-18)
 
-**Severity: MAJOR** — a runtime crash on a well-typed program. The RAW `*any`
-half of the name-less-box segfault is FIXED (`742b6f8e`; see the done log). The
-MANAGED `@any` half remains: boxing a name-less *managed* pointee into `@any`
-still produces a degenerate box and crashes.
+Follow-up carved out of the name-less-managed-slice `@any` fix (`75769ddd`, done
+log): the managed-SLICE case is fixed (owns + drops correctly), but a name-less
+managed pointee that is NOT a managed slice still bails in `wrapAsIfaceValue`
+(returns nil), and the caller then `extractvalue`s an `i8*` as an aggregate →
+invalid LLVM (a clang compile failure, not a runtime crash).
 
-**Repro.**
+**Repros** (both fail at clang, `extractvalue operand must be aggregate type`):
+`var a @any = box(box(keep))` (type `@(@(@[]int))`, ptr-to-ptr-to-slice);
+`var mp @(*[]int) = box(raw); var a @any = mp` (managed ptr to a RAW slice).
+Pre-existing (the `@(*[]int)` form is untouched by `75769ddd`); `@(@(@[]int))` works
+in every ordinary position, only `@any`-boxing fails.
 
-```
-var s @[]char = "hi"
-var b @(@[]char) = box(s)   // managed-ptr, name-less pointee
-takesMgdAny(b)              // @any param → SIGSEGV (exit 139) on drop / a compare
-```
+**Fix — two options:** (a) support these pointees in managed `@any` like the slice
+case (a name-less managed-ptr / func pointee needs its own owning dtor answer — a
+raw-slice pointee BORROWS, so a null slot 0 is actually correct there), or (b) turn
+the `wrapAsIfaceValue` nil-bail into a hard **type-checker rejection** so it can
+never fall through to invalid codegen.  (b) is the smaller, safe stopgap.
 
-**Why the raw fix doesn't cover it.** The raw fix routes name-less RAW boxes
-through a shared-opaque `__ivt`/`__typeinfo` with a NULL dtor — correct because a
-raw `*any` only BORROWS. But `@any` OWNS its data (RefIncs at construction) and
-drops via `emitManagedIfaceValueRefDec`, whose null-slot-0 path falls to plain
-`rt.Free` (`gen_util_refcount.bn:201`), skipping the inner backing RefDec — so the
-same shared-opaque fix would turn the crash into a LEAK. `742b6f8e` therefore
-gates the sentinel substitution on `dstTyp.Kind == TYP_INTERFACE_VALUE` (raw
-only); the managed path keeps bailing (still the pre-existing crash). Note the
-*direct* form `var a @any = box(s)` is checker-rejected (`cannot assign @[]uint8
-to @any`); the crash is reached via the explicitly-typed managed-ptr form above.
+### box() of a bare managed PTR / FUNC / IFACE operand does not retain — 🟠 OPEN (found 2026-07-18)
 
-**Fix — DECIDED (a): emit a REAL dtor** for the boxed managed type (RefDec the
-pointee) in the any-block slot 0 (`plan-slice-type-identity.md` §9). (b)
-checker-rejection declined — a constructed managed value must have its cleanup
-run; banning the construct is an arbitrary carve-out. Being folded into the slice
-feature (Phase 2/3): the same structural `(slice, any)` ImplInfo the feature adds
-carries the real slice dtor, so the managed slice box becomes well-formed once the
-raw-only gate is dropped for slices. Open sub-question: whether a managed-slice
-type has a callable dtor symbol or one must be synthesized (drop is inline today,
-`emitManagedSliceRefDec`). Add a conformance test (bare SIGSEGV now → `.xfail`)
-when the Phase-2 mechanism lands.
+Follow-up from the same fix.  `box()` now retains a bare managed-SLICE operand (and
+already retained struct managed fields), but a bare managed-ptr / func-value /
+iface-value operand — `box(mp)` for `mp @Node` → `@(@Node)` — still does a
+NON-owning shallow copy (no RefInc), the same class of latent use-after-free the
+slice case had (the box dangles if it outlives the source).  Verified: `box(@Node)`
+leaves the pointee RC unchanged.  Extend the box arm + `emitManagedPtrRefDec` (and
+the dtor-emission walks) to these operand kinds, mirroring the managed-slice
+treatment — the drop side needs a `@(@T)` / `@(@func)` pointee dtor analogous to the
+`@(@[]T)` ms-dtor arm.
 
 ## Test-flake watch
 

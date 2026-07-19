@@ -250,6 +250,41 @@ rewrites).  Full VM conformance sweep stayed green (2796/0).  Two adversarial
 reviews (front-end + VM): both SOUND.  Conformance 1086/1087/1088; checker unit
 tests.  Verified LLVM / VM / double-VM / native-aa64 / comp-comp / comp-comp-int.
 
+## Box a managed slice with OWNING semantics; `@any` box crash/leak fixed (§9) — ✅ DONE (`75769ddd`, 2026-07-18)
+
+Boxing a managed slice (`box(s)` for `s @[]char` → `@(@[]char)`) and boxing that into
+a managed `@any` were both broken: the `@any` box CRASHED (SIGSEGV) on drop, and the
+underlying `@(@[]char)` box did not own its backing (a silent use-after-free when it
+outlived the source).  Root cause: `@(@[]T)` (a managed pointer to a managed slice)
+was never treated as an OWNING refcounted type.  Made it one — the parts interlock,
+so they landed together:
+  1. **box() retains a bare managed-slice operand** (RefInc the backing; it already
+     retained struct managed fields).  A bare managed ptr / func / iface operand
+     keeps its non-retaining behavior — a tracked follow-up.
+  2. **The `@(@[]T)` drop cleans the pointee** — emitManagedPtrRefDec now RefDecs
+     through the managed-slice dtor `__dtor_ms_<elem>` (peeling the pointee so a
+     named-distinct `@(Buf)` releases the same dtor the box arm acquired).
+  3. **The name-less managed-slice `@any` box is admitted** with its any-block slot 0
+     = the ms-dtor, DtorFuncName = `QualifyName(m.PkgPath, "__dtor_ms_<elem>")` so
+     implDtorSlotSym resolves it (raw `*any` still borrows → null slot 0).
+  4. **The pointee ms-dtor is emitted for `@(@[]T)` nested in any aggregate** — all
+     four dtor-emission field/element walks (generateNonStructDtors' local-struct AND
+     anon-tuple, ensureMsDtor's element, ensureArrayDtor's element) descend into a
+     `@(@[]T)`, closing an undefined-symbol link failure.
+
+Every drop path RefDecs the backing exactly once — plain local, struct field, ms /
+array element, sole-owner `@any` slot-0, named `@(Buf)`, generic `Box[@[]int]`,
+cross-package multi-return tuple.  No crash, no leak, no double-free, no UAF.  This
+replaces the misconceived first attempt (an inert slot-0 dtor + a false ownership
+claim, caught by the FIRST adversarial verification round — box turned out non-owning,
+so the fix had to make `@(@[]T)` genuinely own).  THREE adversarial verification
+rounds (ownership/refcount, box + emitManagedPtrRefDec blast-radius, cross-mode,
+completeness) each found real bugs, all fixed + re-verified.  Conformance 1101
+(`@any` recover / identity / sole-owner / UAF), 1102 (named / struct-field /
+ms-element refcount).  Verified LLVM / VM / comp-comp / native-aa64; full builder-comp
+conformance clean.  Two out-of-scope follow-ups filed (non-slice name-less `@any`
+pointee → invalid LLVM; box(managed-ptr/func) non-ownership).
+
 ## Multi-return into a non-ident array target silently dropped the store — ✅ FIXED (`9659579f`, 2026-07-18)
 
 A multi-RETURN assignment whose target was an array element on a non-identifier base
