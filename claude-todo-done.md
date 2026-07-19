@@ -6,6 +6,35 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Implicit value→`*any` boxing (`iface.construct.value-borrow`) — ✅ DONE (all 4 commits landed, 2026-07-18)
+
+The implicit value-borrow of spec §11.4 (a value-typed source constructing a raw
+`*Iface`/`*any` with no explicit `&`). Full plan: `plan-value-borrow.md`.
+
+- **Commit 1** (`8230e7fd`) — the ADDRESSABLE case (`fmt.Print(x)` / `Opts{Any: x}`
+  → implicit `&x`, all positions).
+- **Commit 2** (`87c97d08`) — the non-addressable RVALUE case (`fmt.Print(42)`:
+  materialize a temp + box its address; the positional borrow-vs-store check;
+  managed-carrying temps enroll as scope-scoped managed locals — refcount-balanced).
+- **Commit 3** (`342a6478`) — the `bnlint` escaping-borrow rule
+  (`iface-borrow-escape`, `pkg/binate/lint/iface_borrow_escape{,_util}.bn`): flags a
+  raw `*Iface`/`*any` borrowing frame-local storage that escapes via `return` or a
+  store into a location that doesn't root in the frame (through a pointer/managed
+  handle, or into a global) — the UAF the checker's construction-time position rule
+  can't catch. A dedicated scope-aware walk (lexical scope stack, nearest-binding
+  name resolution, per-scope reassignment-drop). Also flags the spec canonical
+  aggregate footgun `Opts{Any: x}` returned/stored by value (composite at the escape
+  site + `var`/`:=` var initialised by such a composite). Three adversarial review
+  rounds; documented under-warn gaps (field-mutation aggregate, box-the-aggregate,
+  conditional-reassignment, explicit-`&` into a non-`any` slot, nested func literals)
+  and one over-warn shared with `func-value-escape` (store through a pointer aliasing
+  a local — needs alias analysis). NOT wired into hygiene/CI (separate decision).
+- **Commit 4** (docs `a2de73a`/`9cfb7b9`) — flipped the spec rule
+  Draft→Provisional.
+
+The box half is complete; value-recovery (the *recover* half, §11.12) is tracked
+separately.
+
 ## `pkg/std/os/sys` layer + `os`-rewire + `pkg/std/os/process` (Stage 1 / Phase A) — ✅ DONE (`0d0b3a62`, 2026-07-18)
 
 Landed the os-family's low-level libc-syscall layer and the new subprocess package

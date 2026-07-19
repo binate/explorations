@@ -173,22 +173,6 @@ Tests: conformance 1086/1087/1088 + checker unit tests.  See the done log.
 
 Remaining:
 
-- **🟡 Implicit value→`*any` boxing (`iface.construct.value-borrow`) — Commits
-  1, 2, 4 LANDED; Commit 3 remains.**  Full plan:
-  [plan-value-borrow.md](plan-value-borrow.md).  **Commit 1** (`8230e7fd`) = the
-  ADDRESSABLE case (`fmt.Print(x)` / `Opts{Any: x}` → implicit `&x`, all
-  positions).  **Commit 2** (`87c97d08`) = the non-addressable RVALUE case
-  (`fmt.Print(42)`: materialize a temp + box its address; the positional
-  borrow-vs-store check; managed-carrying temps enroll as scope-scoped managed
-  locals — refcount-balanced).  **Commit 4** (docs `a2de73a`/`9cfb7b9`) flipped
-  the spec rule Draft→Provisional.  Remaining: **Commit 3** — the `bnlint`
-  escaping-borrow rule (`pkg/binate/lint`): flag a raw `*Iface` built from a local
-  or a materialised rvalue temp (implicit or explicit `&`) that ESCAPES via a
-  *later* statement (`return iv`, `heapObj.f = iv`) — the UAF the checker's
-  construction-time position rule can't catch; model on the existing
-  `raw-slice-return` lint; needs escape analysis + its own review.  The box half
-  is functionally complete; value-recovery is the *recover* half.
-
 **🔧 Optional tightening (deferred, low value).** Make the design-D registry the
 *single seam* that BOTH `collectImplVtableSlots` (vtable slot-1) and
 `BuildTypeInfo` read, so the "record symbol == slot reference" invariant holds by
