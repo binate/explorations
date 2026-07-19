@@ -6,6 +6,27 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `&(named-distinct-slice)[i]` segfaults — `genIndexPtr`'s slice arms don't peel — ✅ DONE 2026-07-18
+
+**Fix** (`82eff7e4`, `pkg/binate/ir/gen_access.bn`): `genIndexPtr`'s three slice
+arms (IDENT base, SELECTOR field base, r-value call base) gated on
+`isSliceType(<un-peeled type>)` and read `.Elem` from `peelReadonly(...)`.
+`isSliceType` peels only `readonly`, not named-distinct (TYP_NAMED, body on
+`.Underlying`) or alias — so a named-distinct slice (`type RBuf *[]int` /
+`type MBuf @[]int`) failed the gate, the arm fell through, and the caller
+handed back the loaded element VALUE as if it were an address (a wild pointer
+→ SIGSEGV on write-through).  Peeled transparent wrappers (`peelTransparent`:
+readonly + named-distinct + alias) before the gate and the `.Elem` read in all
+three arms, mirroring the array arms (already peeled) and the store path
+(`gen_control.bn` slice-set, covered by `927_named_slice_index_store`).  The
+checker already accepted these programs (`checkIndexExpr` peels via
+`peelNamedBounded`); only IR-gen dropped the wrapper.  Pinned by conformance
+`1106` (IDENT), `1107` (SELECTOR field), `1108` (r-value call) — the
+named-distinct variants of 599/600/623; each SIGSEGVs without the fix.
+Adversarially reviewed clean.  The POINTER-arm sibling (same root cause,
+manifests as invalid LLVM rather than SIGSEGV) remains open — see
+`claude-todo.md`.
+
 ## Implicit value→`*any` boxing (`iface.construct.value-borrow`) — ✅ DONE (all 4 commits landed, 2026-07-18)
 
 The implicit value-borrow of spec §11.4 (a value-typed source constructing a raw

@@ -35,36 +35,43 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/plan-rt-fault-cleanup-pads.md`).
 
-### `&(named-distinct-raw-slice)[i]` segfaults — `genIndexPtr` doesn't peel the wrapper — 🔴 OPEN MAJOR (found 2026-07-18)
+### `genIndexPtr` doesn't peel named-distinct wrappers in its POINTER arms — 🔴 OPEN MAJOR (found 2026-07-18)
 
-**Severity: MAJOR** — a runtime crash (SIGSEGV) writing through a bogus address
-on a well-typed program.  **Pre-existing** — surfaced during the value-borrow
-Commit 1 review, NOT introduced by it (no interface/borrow involved; the address
-path is byte-identical to the pre-refactor inline `&` code in `genUnary`).
+**Severity: MAJOR** — invalid codegen on a well-typed program.  The SLICE-arm
+half of this defect (address-of a named-distinct *slice* element) is FIXED and
+landed (`82eff7e4`, tests `1106`/`1107`/`1108` — see claude-todo-done.md); this
+is the sibling POINTER-arm half, surfaced by that fix's adversarial review.
 
-**Repro** (`rc=139`, no output):
+**Repro** (`COMPILE_ERROR: invalid getelementptr indices`):
 
 ```
-type RBuf *[]int
+type P *int
 func main() {
-	var b RBuf = make_slice(int, 3)
-	var q *int = &b[0]   // SIGSEGV path
-	*q = 8
-	println(b[0])
+	var arr [3]int
+	var p P = &arr[0]
+	var q *int = &p[1]   // invalid LLVM GEP
+	*q = 9
+	println(arr[1])
 }
 ```
 
-The assignment form `b[0] = 8` works, and plain (non-named-distinct) `&s[0]`
-works — only **named-distinct raw-slice + address-of** crashes.
+**Root cause.** `genIndexPtr` (`pkg/binate/ir/gen_access.bn`) classifies the
+base off the UN-peeled `.Kind`: the IDENT pointer arm gates on
+`arrTyp.Kind == TYP_POINTER` and the r-value pointer sub-arm on
+`baseVal.Typ.Kind == TYP_POINTER`.  A named-distinct pointer (`type P *int`) is
+TYP_NAMED, so both fall through; the caller then emits a two-index GEP on a
+pointer (invalid IR).  Same root cause as the just-fixed slice arms — that fix
+peeled the slice arms but not the pointer arms.  **Fix:** peel transparent
+wrappers (`peelTransparent`) before the pointer-`Kind` checks and read `.Elem`
+from the peeled type, mirroring the slice-arm fix.  Add a conformance test for
+the repro.
 
-**Root cause.** `genIndexPtr` (pkg/binate/ir) does not peel the named-distinct
-raw-slice wrapper (`type RBuf *[]int`), so it returns nil for `b[0]`;
-`genLValueAddr` (and the `&`-arm it was factored from) then falls through to
-`genExpr(b[0])`, which returns the *loaded element value* (0) as if it were the
-element address, and `*q = 8` writes through it.  Fix: peel named-distinct (and
-alias/readonly) wrappers in `genIndexPtr`'s raw-slice arm, as `checkIndexExpr`
-already does via `peelNamedBounded`.  **TODO: add an xfail'd conformance test**
-for the repro (crashes in compiled modes) alongside the fix.
+**Related, needs its own investigation (do NOT fold into the pointer fix):**
+(a) the SELECTOR arm has NO pointer sub-arm at all, so `&s.p[i]` for a pointer
+FIELD is likely unhandled regardless of named-ness (a pre-existing gap, not
+named-distinct-specific).  (b) `isSliceType(<un-peeled>)` call sites in
+`gen_call.bn` / `gen_control.bn` may have analogous named-distinct gaps —
+different functions/operations, flagged by the slice-arm fix's review.
 
 ### Name-less NON-slice managed pointee boxed into `@any` emits invalid LLVM — 🟠 OPEN (found 2026-07-18)
 
