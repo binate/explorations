@@ -93,17 +93,17 @@ raw-slice pointee BORROWS, so a null slot 0 is actually correct there), or (b) t
 the `wrapAsIfaceValue` nil-bail into a hard **type-checker rejection** so it can
 never fall through to invalid codegen.  (b) is the smaller, safe stopgap.
 
-### box() of a bare managed PTR / FUNC / IFACE operand does not retain — 🟠 OPEN (found 2026-07-18)
+### box() of a bare managed FUNC / IFACE operand does not retain — 🟠 OPEN (found 2026-07-18)
 
-Follow-up from the same fix.  `box()` now retains a bare managed-SLICE operand (and
-already retained struct managed fields), but a bare managed-ptr / func-value /
-iface-value operand — `box(mp)` for `mp @Node` → `@(@Node)` — still does a
-NON-owning shallow copy (no RefInc), the same class of latent use-after-free the
-slice case had (the box dangles if it outlives the source).  Verified: `box(@Node)`
-leaves the pointee RC unchanged.  Extend the box arm + `emitManagedPtrRefDec` (and
-the dtor-emission walks) to these operand kinds, mirroring the managed-slice
-treatment — the drop side needs a `@(@T)` / `@(@func)` pointee dtor analogous to the
-`@(@[]T)` ms-dtor arm.
+Follow-up from the same fix.  `box()` now retains a bare managed-SLICE operand
+(§9, `75769ddd`) and a bare managed-PTR operand (`box(mp)` for `mp @Node` →
+`@(@Node)`, FU3 `d4c2f808`), and already retained struct managed fields — but a
+bare managed FUNC-value or IFACE-value operand still does a NON-owning shallow copy
+(no RefInc), the same class of latent use-after-free (the box dangles if it
+outlives the source).  Extend the box arm + `emitManagedPtrRefDec` (and the
+dtor-emission walks) to these two operand kinds, mirroring the managed-slice / ptr
+treatment — the drop side needs a `@(@func)` / `@(@I)` pointee dtor analogous to the
+`@(@[]T)` ms-dtor and `@(@T)` mp-dtor arms.
 
 ## Test-flake watch
 

@@ -6,6 +6,38 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Box a managed POINTER with OWNING semantics — `@(@T)` is a first-class owning type (§9 pattern, FU3) — ✅ DONE (`d4c2f808`, 2026-07-19)
+
+Boxing a bare managed pointer (`box(mp)` for `mp @Node` → `@(@Node)`) did a
+NON-owning shallow copy (no RefInc) — the same latent use-after-free the §9
+managed-slice case had: the box dangles if it outlives its source.  Made `@(@T)`
+(a managed pointer to a managed pointer) a first-class OWNING refcounted type,
+mirroring the §9 `@(@[]T)` fix:
+  1. **box() retains a bare managed-ptr operand** — RefInc the pointee (the box
+     arm's `isManagedPtrType` branch).  A managed FUNC / IFACE operand still keeps
+     its non-retaining behavior — the remaining tracked follow-up.
+  2. **The `@(@T)` drop cleans the pointee** — emitManagedPtrRefDec's new
+     managed-ptr arm RefDecs through the managed-pointer dtor `__dtor_mp_<T>`
+     (peeling the pointee, so a named-distinct `@(Handle)` releases the same dtor
+     the box arm acquired).
+  3. **Full named-dtor pipeline** — registerPendingMpDtor → `m.PendingMpDtors`
+     work-list → drained (in generateNonStructDtors AND the REPL helper) →
+     ensureMpDtor → genManagedPtrDtor + AddFunc; dedup mirrors the ms-dtor list.
+  4. **The pointee mp-dtor is emitted for `@(@T)` nested in any aggregate** — all
+     four dtor-emission field/element walks descend into `@(@T)` via a factored
+     `ensureNestedMptrPointeeDtor` helper (ms pointee → ensureMsDtor, mp pointee →
+     ensureMpDtor), closing the undefined-symbol link failure.
+
+Every drop path RefDecs the pointee exactly once — bare local, struct field, ms /
+array element, nested `@(@(@Node))`, named-distinct `@(Handle)`, `@any` (named
+pointee).  No leak, double-free, or UAF.  Adversarial verification: 4/5 lenses
+SOUND (ownership/refcount, box blast-radius, `@(@T)`-drop blast-radius, §9
+interaction/completeness, cross-mode across all six backends); the lone flagged
+item is FU2's own box→`@any` leak, explicitly out of scope.  Full `builder-comp`
+conformance: 2840 passed, 0 failed.  Conformance 1104 (bare / struct field / ms /
+array / nested / UAF).  Temp-cleanup helpers split out to `gen_temp_cleanup.bn`
+(+ test) to stay under the file-length cap.  (FU3 of the §9 follow-ups.)
+
 ## `&(named-distinct-slice)[i]` segfaults — `genIndexPtr`'s slice arms don't peel — ✅ DONE 2026-07-18
 
 **Fix** (`82eff7e4`, `pkg/binate/ir/gen_access.bn`): `genIndexPtr`'s three slice
