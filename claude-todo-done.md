@@ -33,6 +33,38 @@ incl. the CI-redding stale `e2e/errno-values.sh` path). **Still open** (in todo)
 `os/sys` Stage 2 (port os I/O); `os/process` Phase B (cmd/bnc migration +
 `bootstrap.Exec` deletion), BUILDER-gated on a release carrying these packages.
 
+## `pkg/std/os/sys` Stage 2a+2b+2c — port os's syscalls onto `sys` wrappers — ✅ DONE (`a886ec06`, `20840a58`, `e4b72c42`, 2026-07-18)
+
+Stage 2 of the syscall-layer work (`design-syscall.md`): moved `os`'s remaining
+raw libc syscalls into the os-family-internal `pkg/std/os/sys` layer, in small
+green landable steps, so `os` no longer issues any `__c_call`.
+- **2a (`a886ec06`)** — fd I/O: read/write/close/pread/pwrite/lseek + open moved
+  to `sys/io.bn` (per-arch LFS `*64` selection for the offset-bearing calls kept
+  intact); `os.File` methods delegate, supplying stream semantics (empty read, EOF,
+  short write) on top.
+- **2b (`20840a58`)** — mkdir/rename/remove + exit moved to `sys`; `os.bn` reaches
+  ZERO `__c_call`s, keeping only the portable `O_*`→native open-flag translation.
+  `os.Exit` now routes through `sys.Exit` (a latent LP64 ABI fix: `exit(int)` takes
+  a 32-bit C int, so `cast(int32, code)`).
+- **2c (`e4b72c42`)** — stat/lstat/fstat: the 3 wrapper variants
+  `stat_io{,_arm32,_darwin_x64}.bn` (raw `stat`/`stat64`/`stat$INODE64` calls) + the
+  4 per-(os,arch) `osStat` structs + `fill` moved to `sys`; exposed as
+  `sys.Stat`/`Lstat`/`Fstat` returning a portable `sys.StatInfo` (an EXPORTED-field
+  struct declared in `sys.bni`, read cross-package by `os` — capital fields are
+  exported, per `token.Pos`). `os stat.bn` keeps the `S_IF*`→FileMode glue
+  (`modeFromStat`/`fileInfoFromStat`) and Stat/Lstat/File.Stat, now delegating.
+  Tests reorganized: `sys` gains direct wrapper coverage (char-device reads via
+  `/dev/null`, NotFound classification, per-(os,arch) size-layout probes over
+  `statPath`); `os` gains a non-gated `TestStatSize` + `TestStatNonexistent`.
+  Corrected a stale premise: `e2e/stat-values.sh` prepends source over the frozen
+  bundle, so it DOES exercise source — verified green on darwin-arm64, and its
+  source-path comment was updated to `sys/stat_<target>.bn`.
+
+Each step: validated on host modes (unit + conformance `stdlib/os` builder-comp/
+-int, hygiene 17/17) + a minimal adversarial review (all behavior-preserving; no
+defects). **Still open** (in todo): Stage 2d (readdir onto `sys`); `os/process`
+Phase B (cmd/bnc migration + `bootstrap.Exec` deletion), BUILDER-gated.
+
 ## Bump CHECK_TOOLS_VERSION → bnc-0.0.12-pre3; drop the `pkg/stdx/fmt` lint-skip — ✅ DONE (`3915444e`, `564b15e1`, 2026-07-18)
 
 pre3 (tag `10d0876b`) carries scalar value-recovery (`89b41531`), which pre2's

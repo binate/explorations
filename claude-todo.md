@@ -468,36 +468,24 @@ host modes + e2e/errno-values + 2 review rounds. (Moved to done log.)
 
 Remaining:
 - **Stage 2 — port `os`'s remaining syscalls onto `sys` wrappers, in small green
-  steps.** 🟢 **2a+2b LANDED (`a886ec06`, `20840a58`):** fd I/O (read/write/close/
-  pread/pwrite/lseek, per-arch LFS `*64` kept) + `open` (2a) and mkdir/rename/
-  remove + exit (2b) moved to `sys/io.bn`; `os.bn` now has ZERO `__c_call`s and
-  delegates, supplying only stream semantics + the portable `O_*`→native flag
-  translation.
-
-  🟡 **2c — stat/fstat/lstat onto `sys`.** Move to `sys`: the 3 wrapper variants
-  `stat_io{,_arm32,_darwin_x64}.bn` (statPath/lstatPath/statFd → the raw `stat`/
-  `stat64`/`stat$INODE64` calls) and the 4 `osStat` struct variants
-  `stat_{darwin,linux_x64,linux_aarch64,linux_arm32}.bn`, plus `fill` + the
-  `statbuf` struct (from os `stat.bn`). Expose `sys.Stat(path)`/`sys.Lstat(path)`/
-  `sys.Fstat(fd)` returning a portable stat result + error (EINTR loop moves into
-  `sys`). `os` `stat.bn` KEEPS `modeFromStat` (POSIX `S_IF*`→FileMode) +
-  `fileInfoFromStat` + Stat/Lstat/File.Stat (delegating). **Design Q:** the
-  portable result — `sys.StatInfo` with EXPORTED (capital) fields if Binate allows
-  cross-package field reads (verify: `Options.Args` etc. suggest capital=exported),
-  else accessor methods (ExitStatus pattern) or a multi-return. Split `stat_test.bn`
-  (modeFromStat/fileInfoFromStat tests stay in os; fill test → sys). **Note:**
-  `e2e/stat-values.sh` compiles its probe against the FROZEN bundle os (not source),
-  so it is NOT a gate for the move — only a comment (line 6-7) references the source
-  path. Only darwin-arm64 is host-validatable; linux/arm32/darwin-x64 are CI-only.
+  steps.** 🟢 **2a+2b+2c LANDED (`a886ec06`, `20840a58`, `e4b72c42`):** fd I/O
+  (read/write/close/pread/pwrite/lseek, per-arch LFS `*64` kept) + `open` (2a),
+  mkdir/rename/remove + exit (2b) moved to `sys/io.bn`; stat/lstat/fstat (2c) — the
+  3 wrapper variants `stat_io{,_arm32,_darwin_x64}.bn` + the 4 `osStat` structs +
+  `fill` moved to `sys`, exposed as `sys.Stat`/`Lstat`/`Fstat` returning a portable
+  `sys.StatInfo` (EXPORTED-field struct in `sys.bni`, read cross-package by `os`).
+  `os.bn` + `os stat.bn` now have ZERO `__c_call`s and delegate, keeping only stream
+  semantics, the portable `O_*`→native flag translation, and the `S_IF*`→FileMode
+  glue (`modeFromStat`/`fileInfoFromStat`). (2a+2b+2c moved to done log.)
 
   🟡 **2d — opendir/readdir/closedir onto `sys`.** Move `readdir{,_linux,_darwin,
   _darwin_x64}.bn` (opendir/readdir/closedir + per-OS `osDirent` + `D_NAME_OFF`)
   to `sys`; expose a `sys.ReadDir(path)` returning owned (name, d_type) entries; os
-  `readdir.bn` keeps the DirEntry/FileMode glue. Same frozen-vs-source e2e note
-  (`e2e/readdir-values.sh`).
-
-  Each of 2c/2d is a separate landable commit; both are delicate per-OS/arch struct
-  moves best done with careful, well-validated attention.
+  `readdir.bn` keeps the DirEntry/FileMode glue. **Note:** `e2e/readdir-values.sh`
+  (like `e2e/stat-values.sh`) compiles its probe with source prepended over the
+  frozen bundle, so it DOES exercise source — verify it after the move (a source
+  comment path likely needs updating too). A delicate per-OS/arch struct move; keep
+  it a separate landable commit with careful, well-validated attention.
 - Optional: a `bnlint` rule flagging any importer of `pkg/std/os/sys` outside
   `pkg/std/os*` (enforce the internal boundary, since Binate has no `internal/`).
 
