@@ -467,11 +467,15 @@ classifier moved out of `os`, ENOEXEC arm added, per-OS EAGAIN kept; `FailErrno`
 host modes + e2e/errno-values + 2 review rounds. (Moved to done log.)
 
 Remaining:
-- **Stage 2 (🟡 follow-up):** port `os`'s file I/O + `stat`/`readdir` onto `sys`
-  wrappers, deleting the last of `os`'s raw `__c_call`s (currently `os` still does
-  its own `__c_call`s and only routes the errno step through `sys`). Large,
-  delicate (os is tested across every mode, both native backends, arm32) — do it
-  in small green steps.
+- **Stage 2 — port `os`'s remaining syscalls onto `sys` wrappers, in small green
+  steps.** 🟢 **2a+2b LANDED (`a886ec06`, `20840a58`):** fd I/O (read/write/close/
+  pread/pwrite/lseek, per-arch LFS `*64` kept) + `open` (2a) and mkdir/rename/
+  remove + exit (2b) moved to `sys/io.bn`; `os.bn` now has ZERO `__c_call`s and
+  delegates, supplying only stream semantics + the portable `O_*`→native flag
+  translation. 🟡 **Remaining: 2c** — stat/fstat/lstat + the per-OS/arch `osStat`
+  layouts (`stat`/`stat64`/`stat$INODE64`) onto `sys` (`os` stat.bn/stat_io*.bn);
+  🟡 **2d** — opendir/readdir/closedir + per-OS `osDirent`. These carry the
+  delicate per-OS/arch struct machinery; each is a separate landable commit.
 - Optional: a `bnlint` rule flagging any importer of `pkg/std/os/sys` outside
   `pkg/std/os*` (enforce the internal boundary, since Binate has no `internal/`).
 
