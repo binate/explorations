@@ -6,6 +6,24 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Pointer-index READ `p[i]` of a named-distinct pointer → invalid LLVM — `emitGetElemPtr` doesn't peel the operand — ✅ DONE 2026-07-19
+
+**Fix** (`846c5771`, `pkg/binate/codegen/emit_helpers.bn`): `p[i]` where
+`type P *int` emitted `invalid getelementptr indices`.  `genIndex` classifies
+the base off the peeled type (so a named pointer reaches the pointer arm) but
+passes the UN-peeled operand to `OP_GET_ELEM_PTR`.  The LLVM backend's
+`emitGetElemPtr` then chose single- vs double-index GEP off the operand's raw
+`.Kind`: a named-distinct pointer is TYP_NAMED (not TYP_POINTER), so `isPtrVal`
+was false and it took the double-index array-alloca path — `getelementptr T,
+T* %p, i64 0, i64 idx` on a scalar pointer, which the LLVM verifier rejects.
+Added `peelReprType` (named-distinct / alias / readonly → representation type)
+and peeled the operand type before the pointer-kind test.  Native backends were
+unaffected (they classify the base by alloca/global/value, not type kind).
+Pinned by `1109_named_ptr_index_read` (compile error without the fix); 551/0 in
+the index/pointer/slice/array/named conformance family, codegen unit tests
+green.  Discovered while testing the `genIndexPtr` address-of pointer-arm fix
+(the address-of `&p[i]` half is tracked separately in claude-todo.md).
+
 ## Box a managed POINTER with OWNING semantics — `@(@T)` is a first-class owning type (§9 pattern, FU3) — ✅ DONE (`d4c2f808`, 2026-07-19)
 
 Boxing a bare managed pointer (`box(mp)` for `mp @Node` → `@(@Node)`) did a

@@ -66,6 +66,16 @@ wrappers (`peelTransparent`) before the pointer-`Kind` checks and read `.Elem`
 from the peeled type, mirroring the slice-arm fix.  Add a conformance test for
 the repro.
 
+**Read-path sibling — found + FIXED (`846c5771`).** Testing the above surfaced a
+DISTINCT MAJOR defect: the pointer-index *READ* `p[i]` of a named pointer also
+emitted invalid LLVM.  `genIndex` classifies off the peeled type but passes the
+UN-peeled operand to `OP_GET_ELEM_PTR`; the LLVM backend's `emitGetElemPtr`
+(`pkg/binate/codegen/emit_helpers.bn`) then decided the GEP form off the raw
+operand `.Kind` (TYP_NAMED → double-index array path → invalid GEP on a scalar
+pointer).  Fixed by peeling the operand type there (test `1109`); native
+backends were unaffected.  See claude-todo-done.md.  This entry's REMAINING work
+is the address-of routing (`genIndexPtr` pointer arms) above.
+
 **Related, needs its own investigation (do NOT fold into the pointer fix):**
 (a) the SELECTOR arm has NO pointer sub-arm at all, so `&s.p[i]` for a pointer
 FIELD is likely unhandled regardless of named-ness (a pre-existing gap, not
