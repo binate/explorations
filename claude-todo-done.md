@@ -6,6 +6,41 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Box a name-less / nominal managed POINTEE into `@any` with OWNING semantics (FU2) — ✅ DONE (`a88dbc2f`, 2026-07-20)
+
+A managed `@any` whose data pointer's pointee is itself a managed slice / ptr
+(`@(@[]T)` / `@(@T)`) must drop that pointee through the pointee's OWN dtor
+(`__dtor_ms` / `__dtor_mp`) or it leaks / emits invalid LLVM.  Extends §9
+(`75769ddd`, managed-slice-into-`@any`) and FU3 (`d4c2f808`, `@(@T)` owning) to the
+general managed-pointee case.  Shapes fixed:
+  - `@(@(@[]int))` / `@(*[]int)` (name-less pointee) — used to bail in
+    `wrapAsIfaceValue` → caller `extractvalue`d an `i8*` → invalid LLVM.
+  - `@(@Node)` (NOMINAL leaf) — compiled but silently LEAKED (receiverBaseTypeName
+    over-peels both `@`s to "Node", picking Node's STRUCT dtor for slot 0 and
+    colliding with a plain `@Node` box's `(pkg,"Node",any)` row).
+  - named-distinct / readonly wrappers (`type H @Node`, `readonly @[]int`) — leaked
+    (their TYP_NAMED / TYP_READONLY kind missed the managed-slice/ptr predicate).
+
+Root cause is one: the box owns a managed POINTEE, but the code keyed the any-block
+on the fully-peeled leaf.  Fix (`pkg/binate/ir/gen_iface.bn`): when `val.Typ.Elem`
+`peelTransparent`'s to a managed slice/ptr, take the STRUCTURAL-identity path
+(namelessAnySrcName + the pointee's mp/ms-dtor) BEFORE the over-peel — even for a
+nominal leaf — and REGISTER the peeled type (a readonly wrapper's `.Elem` is the
+underlying managed slice/ptr, so registering the wrapper would emit a duplicate
+element-iterating dtor under the same readonly-collapsed name — a link failure).  A
+borrowing raw-slice pointee (`@(*[]int)`) keeps a null slot 0 (the any-drop's RefDec
+frees the cell).  Split the any-block helpers into `gen_iface_anybox.bn` (+ tests)
+for the file-length cap.
+
+Three adversarial rounds found and fixed three defects (name-less-non-slice bail,
+`@(@Node)` over-peel leak, named-distinct leak, readonly duplicate-dtor).  The last
+pointee kinds — a managed ptr to an array-of-managed / a managed func-value — have
+no owning dtor yet (they leak on a NORMAL drop too, since `emitManagedPtrRefDec` has
+no array / func-value arm) and now FAIL LOUD ("not yet supported") instead of
+emitting invalid LLVM; the owning treatment is FU4 (active todo).  Conformance 1114
+(9 balanced shapes) + 1115 (fail-loud negative), across LLVM / VM / comp-comp /
+native-aa64 / native-x64.
+
 ## Named-distinct SLICE param misses arg coercion → SILENT garbage — ✅ DONE 2026-07-20
 
 **Fix** (`7ace2aa6`, `pkg/binate/ir/gen_call.bn`): `coerceArg` classified the

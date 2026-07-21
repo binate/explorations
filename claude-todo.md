@@ -168,25 +168,36 @@ MAJOR entries at the top of this section:** (a) `&s.p[i]` for a raw-pointer FIEL
 store paths were also checked and are FINE (`p[i] = v` uses the peeled `collSt`
 and the operand goes through the landed backend GEP fix `846c5771`).
 
-### Name-less NON-slice managed pointee boxed into `@any` emits invalid LLVM — 🟠 OPEN (found 2026-07-18)
+### FU4: array-of-managed / func-value managed POINTEE owning treatment — 🟠 OPEN (MAJOR leak, found 2026-07-20)
 
-Follow-up carved out of the name-less-managed-slice `@any` fix (`75769ddd`, done
-log): the managed-SLICE case is fixed (owns + drops correctly), but a name-less
-managed pointee that is NOT a managed slice still bails in `wrapAsIfaceValue`
-(returns nil), and the caller then `extractvalue`s an `i8*` as an aggregate →
-invalid LLVM (a clang compile failure, not a runtime crash).
+Follow-up carved out of FU2 (`a88dbc2f`, done log).  FU2 gave `@(@X)` (managed ptr
+to a managed slice / ptr) OWNING semantics everywhere including `@any`.  Two pointee
+kinds are still NOT owned: a managed pointer to an **array-of-managed** (`@([N]@Node)`)
+and a managed pointer to a **managed func-value** (`@(@func())`).
 
-**Repros** (both fail at clang, `extractvalue operand must be aggregate type`):
-`var a @any = box(box(keep))` (type `@(@(@[]int))`, ptr-to-ptr-to-slice);
-`var mp @(*[]int) = box(raw); var a @any = mp` (managed ptr to a RAW slice).
-Pre-existing (the `@(*[]int)` form is untouched by `75769ddd`); `@(@(@[]int))` works
-in every ordinary position, only `@any`-boxing fails.
+**MAJOR — they leak on EVERY drop, not just `@any`:** `emitManagedPtrRefDec`
+(`pkg/binate/ir/gen_util_refcount.bn`) has arms for a struct / managed-slice /
+managed-ptr pointee but falls through to a plain `RefDec` for an array / func-value
+pointee — so the array elements / captured record are never cleaned.  Confirmed:
+`box(arr)` for `arr [2]@Node` in a 100-iter scope-drop loop leaks the element `@Node`
+100/100 (a plain local drop, no `@any` involved).
 
-**Fix — two options:** (a) support these pointees in managed `@any` like the slice
-case (a name-less managed-ptr / func pointee needs its own owning dtor answer — a
-raw-slice pointee BORROWS, so a null slot 0 is actually correct there), or (b) turn
-the `wrapAsIfaceValue` nil-bail into a hard **type-checker rejection** so it can
-never fall through to invalid codegen.  (b) is the smaller, safe stopgap.
+Boxing these into `@any` currently **fails loud** ("not yet supported", the guard in
+`wrapAsIfaceValue`, conformance `1115_managed_aggregate_pointee_any_unsupported`,
+negative) — an interim stopgap so it does not emit invalid LLVM.  When FU4 lands,
+**remove that guard and 1115** and let the box become valid.
+
+**Fix — mirror FU3's `@(@T)` owning treatment for the two new pointee kinds:**
+(1) box-owning arm in `gen_builtin.bn` (RefInc / emitStructCopy the array-of-managed
+/ func-value operand); (2) `emitManagedPtrRefDec` array + func-value pointee arms
+(→ `__dtor_arr<N>_<elem>` via `ensureArrayDtor`/`genArrayDtor`, → the func-value dtor
+via `emitManagedFuncValueRefDec`); (3) the four dtor-emission field/element walks
+descend into these pointees; (4) `ensureAnyImplInfo` slot-0 = the array / func-value
+dtor + admit them in `wrapAsIfaceValue` (drop the fail-loud guard).  Add conformance
+for the NORMAL-drop balance (bare / field / element / nested) AND the `@any` balance,
+across modes.  Note there is no array/func-value analogue of the pending-dtor
+work-list yet — array dtors are emitted via `ensureArrayDtor` during the struct /
+element walk, so FU4 needs an equivalent trigger from the box / `@any` sites.
 
 ### box() of a bare managed FUNC / IFACE operand does not retain — 🟠 OPEN (found 2026-07-18)
 
