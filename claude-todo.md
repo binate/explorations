@@ -34,25 +34,44 @@ cross-package):
 - `(St, int)` → **CRASH** (SIGSEGV) — so it is NOT the interface; a struct tuple
   member is the trigger.
 - single `St` return → OK · `(int, @errors.Error)` → OK.
-- Same code **single-file (same package) does NOT reproduce** → the sret-vs-
-  register classification diverges between the caller (classifies from the
-  `.bni`) and the callee (from the `.bn`).
+- Same code **single-file (same package) does NOT reproduce** — because there the
+  callee is compiled by the SAME native backend as the caller, so both use the
+  same (register) rule and agree.
 
-**Scope.** Native aarch64 only (`builder-comp_native_aa64-comp_native_aa64` and
-`_native_aa64_linux`). The `native_x64` CI job passed; LLVM backends fine.
-**Likely a pre-existing latent bug newly EXPOSED** by the os/process package
-(landed `0d0b3a62`, 2026-07-18) — the first conformance test to return a
-cross-package `(struct, X)` multi-value on native_aa64.
+**Root cause (CONFIRMED via instrumentation + `llc`).** `native_aa64` is a HYBRID
+build: only `cmd/bnc`'s main module goes native; every DEPENDENCY (incl. the
+callee `Mk`/`Run`) is compiled by **LLVM**. Codegen emits a multi-return as a
+first-class-aggregate return BY VALUE — `declare {%St, %BnIfaceValue} @…Mk(i1)` —
+and lets **LLVM's AArch64 backend choose the machine ABI**. LLVM cannot legalize
+a struct that contains a `[N x i8]` byte-array member into return registers, so
+it **srets** such an FCA return (via `x8`). Binate emits alignment padding as
+explicit `[N x i8]` arrays (`{bool,int,int}` → `<{ i1, [7 x i8], i64, i64 }>`), so
+the callee srets. Meanwhile the NATIVE caller's classifier
+(`MultiReturnTupleNeedsSret`, `pkg/binate/native/common/common_callconv_return.bn`)
+decides by flat **GP-word count** (`≤ 8 GP words → registers`) and doesn't model
+the byte-array-member case, so it uses registers and never sets `x8`. `llc`
+boundary (verified, arm64-apple-darwin): `<{i64,i64}>`/`<{i64,i64,i64}>` members →
+registers even packed/24 B; a member with a `[N x i8]` padding array
+(`<{i1,[7xi8],i64}>`, 16 B) → sret, alone OR as a tuple field. So the discriminant
+is **byte-array padding members**, not size or word count. (Note: the SINGLE-agg
+native rule `SizeOf > 16` also technically diverges from LLVM for a
+byte-array-padded 16-B struct returned alone, but Binate never hits that today.)
 
-**Fix direction (unconfirmed):** make the native aarch64 return-ABI
-classification (sret vs register-pair) identical on both sides for a multi-value
-return containing an aggregate member — the caller must set up `x8` and read the
-result from memory whenever the callee returns via sret. Root the divergence in
-the shared classification (does the caller compute it from the `.bni`-imported
-type and the callee from the `.bn`, producing different answers for a tuple with
-a struct member?). Guard with a conformance test that returns a cross-package
-`(struct, iface)` and `(struct, int)` and checks the values, run under
-`builder-comp_native_aa64-comp_native_aa64`.
+**Fix options (needs a decision):**
+- (A) *Native-side, minimal:* extend `MultiReturnTupleNeedsSret` (and the
+  single-agg `Func/CallReturnsBigAggregate`) to also sret when a field is (or
+  recursively contains) an aggregate with a byte-array padding member — mirror
+  LLVM's non-register-legalizable condition. Preserves the register-return
+  optimization for `(int,@Error)` etc. Risk: mirrors an LLVM-internal heuristic
+  (fragile across LLVM versions / shapes).
+- (B) *Codegen-side, robust:* emit an explicit `sret` attribute on multi-return /
+  aggregate returns per ONE Binate-owned rule (e.g. `SizeOf > 16`), so LLVM obeys
+  Binate's decision instead of applying its own implicit FCA legalization; the
+  native rule then matches trivially. Removes the prediction fragility but changes
+  the ABI of currently-register-returned tuples like `(int,@Error)` (conformance
+  526) to sret — a deliberate perf/ABI shift.
+Guard with a conformance test returning a cross-package `(struct, iface)` and
+`(struct, int)` (values checked) under `builder-comp_native_aa64-comp_native_aa64`.
 
 **Test/xfail status:** the failing conformance test (`stdlib/os/process/001_run`)
 already exists and is red on native_aa64; no xfail added yet (pending the user's
