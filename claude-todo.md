@@ -62,6 +62,42 @@ xfail'd, mark BOTH `builder-comp_native_aa64-comp_native_aa64` and
 
 ## MAJOR
 
+### Named-distinct SLICE param misses arg coercion → SILENT garbage — 🔴 OPEN MAJOR (found 2026-07-20)
+
+**Severity: MAJOR — silent miscompile** (wrong value, exit 0, no diagnostic).
+`coerceArg` (`pkg/binate/ir/gen_call.bn`) classifies the PARAM type with
+un-peeled `isSliceType(paramTyp)` / `peelReadonly(paramTyp).Kind`, so for a
+named-distinct slice param the checker ACCEPTS the call but codegen SKIPS the
+coercion and passes garbage.  Confirmed repros (each exits 0 with a wrong value):
+
+- **string literal → named char-slice param** (line 49): `type Str *[]readonly
+  char; func flen(s Str) int { return len(s) }; flen("hello")` prints a garbage
+  word (e.g. `4362459948`), not `5` — the literal is never materialized to
+  {data,len}.
+- **managed slice → named raw-slice param** (line 62): `type RS *[]int; func
+  first(s RS) int { return s[0] }; first(m)` prints garbage, not `42` — the
+  `@[]T → *[]T` narrowing is skipped.
+- **`nil` → named slice param** (line 55): not retyped to the param's slice type.
+
+**Root cause / fix:** `isSliceType` peels only readonly and `peelReadonly` peels
+only readonly — neither sees through named-distinct.  Peel the param type
+(`peelTransparent`) before the classification in `coerceArg`.  Found by auditing
+item (3b) of the named-distinct-pointer-transparency entry below.  Add conformance
+tests for all three.
+
+### `&s.p[i]` — address-of an element of a raw-POINTER FIELD → SIGSEGV — 🔴 OPEN MAJOR (found 2026-07-20)
+
+**Severity: MAJOR — runtime crash** on well-typed code (NOT named-distinct
+specific: a plain `type S struct { p *int }; &s.p[i]` crashes).  `genIndexPtr`'s
+SELECTOR arm (`pkg/binate/ir/gen_access.bn`) has array + slice sub-arms but NO
+pointer sub-arm, so `&s.p[i]` for a raw-pointer field falls through → `genIndexPtr`
+returns nil → `genLValueAddr` uses the loaded pointer VALUE as the element address
+(a wild pointer, SIGSEGV on write).  The READ `s.p[i]` and STORE `s.p[i] = v` both
+work (they don't route through genIndexPtr).  **Fix:** add a pointer sub-arm to the
+SELECTOR block — `genExpr`/`genSelectorPtr` to get the field's pointer value, then
+GEP — mirroring the r-value pointer arm.  Add a `&s.p[i]` conformance test.  Found
+by auditing item (3a) below.
+
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
@@ -112,12 +148,13 @@ currently UNREACHABLE because (1) rejects `*p` first.  Fix together with (1)
 (peel `ptrVal.Typ` there); add a `&(*p)[i]` conformance test once (1) lets it
 compile.
 
-**(3) Un-audited (from the pointer-fix reviews — do NOT assume broken):**
-(a) `genIndexPtr`'s SELECTOR arm has NO pointer sub-arm, so `&s.p[i]` for a
-pointer FIELD is likely unhandled regardless of named-ness (a pre-existing gap,
-not named-distinct-specific).  (b) `isSliceType(<un-peeled>)` call sites in
-`gen_call.bn` / `gen_control.bn` may have analogous named-distinct gaps —
-different functions/operations.
+**(3) AUDITED (2026-07-20) — both CONFIRMED real bugs, promoted to their own
+MAJOR entries at the top of this section:** (a) `&s.p[i]` for a raw-pointer FIELD
+→ SIGSEGV (genIndexPtr SELECTOR arm has no pointer sub-arm; not named-specific).
+(b) named-distinct SLICE param misses arg coercion in `coerceArg` (gen_call.bn)
+→ SILENT garbage (string-literal / managed→raw / nil).  The `gen_control.bn`
+store paths were also checked and are FINE (`p[i] = v` uses the peeled `collSt`
+and the operand goes through the landed backend GEP fix `846c5771`).
 
 ### Name-less NON-slice managed pointee boxed into `@any` emits invalid LLVM — 🟠 OPEN (found 2026-07-18)
 
