@@ -7,6 +7,59 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### Native aarch64: cross-package multi-return with a struct member miscompiles (caller/callee sret disagreement) — 🔴 OPEN CRITICAL (found 2026-07-20)
+
+**Severity: CRITICAL** — wrong-code / ABI mismatch in the **native aarch64**
+backend. A cross-package multi-value return whose tuple contains an **aggregate
+struct** member is classified inconsistently between caller and callee: the
+**callee returns via sret** (reads `x8` as the indirect-result pointer and stores
+the return tuple there), but the **caller does NOT set up `x8`** (it expects the
+value in registers `x0`/`x1`). `x8` arrives holding a **stale interface-vtable
+constant** (a `__DATA_CONST` read-only address left in the register), so the
+callee's return-value stores fault → **SIGBUS/SIGSEGV**, empty output.
+
+**How discovered.** CI `native_aa64` conformance red on the new
+`stdlib/os/process/001_run` (2835 passed, 1 failed): `process.Run` returns
+`(ExitStatus, @errors.Error)` — `ExitStatus = {exited bool, code int, signal
+int}` (24 B) + the interface value (16 B). Crash at `Run`'s return-value
+construction (`strb w?, [x9]`) with `x9` = the incoming `x8` = a stale
+`errors.errorImpl` vtable address.
+
+**Minimal reproducer (no os/process).** A helper package `pkg/demo` with
+`func Mk(fail bool) (St, @errors.Error)` where `St = {bool,int,int}`, called
+cross-package from `main`, crashes identically (`x8` at `Mk` entry = the
+`errorImpl` vtable const; `main` never writes `x8`). Trigger map (all
+cross-package):
+- `(St, @errors.Error)` → **CRASH** (SIGBUS)
+- `(St, int)` → **CRASH** (SIGSEGV) — so it is NOT the interface; a struct tuple
+  member is the trigger.
+- single `St` return → OK · `(int, @errors.Error)` → OK.
+- Same code **single-file (same package) does NOT reproduce** → the sret-vs-
+  register classification diverges between the caller (classifies from the
+  `.bni`) and the callee (from the `.bn`).
+
+**Scope.** Native aarch64 only (`builder-comp_native_aa64-comp_native_aa64` and
+`_native_aa64_linux`). The `native_x64` CI job passed; LLVM backends fine.
+**Likely a pre-existing latent bug newly EXPOSED** by the os/process package
+(landed `0d0b3a62`, 2026-07-18) — the first conformance test to return a
+cross-package `(struct, X)` multi-value on native_aa64.
+
+**Fix direction (unconfirmed):** make the native aarch64 return-ABI
+classification (sret vs register-pair) identical on both sides for a multi-value
+return containing an aggregate member — the caller must set up `x8` and read the
+result from memory whenever the callee returns via sret. Root the divergence in
+the shared classification (does the caller compute it from the `.bni`-imported
+type and the callee from the `.bn`, producing different answers for a tuple with
+a struct member?). Guard with a conformance test that returns a cross-package
+`(struct, iface)` and `(struct, int)` and checks the values, run under
+`builder-comp_native_aa64-comp_native_aa64`.
+
+**Test/xfail status:** the failing conformance test (`stdlib/os/process/001_run`)
+already exists and is red on native_aa64; no xfail added yet (pending the user's
+call on xfail-and-track vs fix-now — see "Raise Critical Bugs" protocol). If
+xfail'd, mark BOTH `builder-comp_native_aa64-comp_native_aa64` and
+`builder-comp_native_aa64_linux-comp_native_aa64_linux`.
+
 ## MAJOR
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
