@@ -57,19 +57,35 @@ is **byte-array padding members**, not size or word count. (Note: the SINGLE-agg
 native rule `SizeOf > 16` also technically diverges from LLVM for a
 byte-array-padded 16-B struct returned alone, but Binate never hits that today.)
 
-**Fix options (needs a decision):**
-- (A) *Native-side, minimal:* extend `MultiReturnTupleNeedsSret` (and the
-  single-agg `Func/CallReturnsBigAggregate`) to also sret when a field is (or
-  recursively contains) an aggregate with a byte-array padding member — mirror
-  LLVM's non-register-legalizable condition. Preserves the register-return
-  optimization for `(int,@Error)` etc. Risk: mirrors an LLVM-internal heuristic
-  (fragile across LLVM versions / shapes).
-- (B) *Codegen-side, robust:* emit an explicit `sret` attribute on multi-return /
-  aggregate returns per ONE Binate-owned rule (e.g. `SizeOf > 16`), so LLVM obeys
-  Binate's decision instead of applying its own implicit FCA legalization; the
-  native rule then matches trivially. Removes the prediction fragility but changes
-  the ABI of currently-register-returned tuples like `(int,@Error)` (conformance
-  526) to sret — a deliberate perf/ABI shift.
+**(A) ruled out — LLVM's trigger is a legalization QUIRK, not a clean predicate**
+(verified via `llc` on arm64-apple-darwin). Among 16-byte structs: `<{i8,[7 x
+i8],i64}>` srets but `<{i16,[6 x i8],i64}>` and `<{i32,[4 x i8],i64}>` do NOT — it
+depends on the leading-field width vs pad-array size (an eightbyte integer-
+coercion quirk), and it flips for tuples too. A native mirror would have to
+replicate this internal heuristic exactly (no over-approx slack — caller and
+callee must agree byte-for-byte), so it is fragile across LLVM versions/shapes.
+
+**The real seam.** BOTH codegen (`multiRetNeedsSret(f) =
+callConvForTarget().FuncReturnsBigMultiReturn(f)`, `emit_types.bn:64`) and the
+native backend use the SAME word-count `MultiReturnTupleNeedsSret`, so the two
+Binate sides agree *with each other* (FCA-by-value, register intent). LLVM-only
+modes work because LLVM is self-consistent (its own caller+callee both apply the
+quirk). Only the NATIVE caller trusts Binate's prediction and diverges from the
+LLVM-compiled callee. Codegen already emits a COERCED register form
+(`aggCoerceLLTy`, `[N x iW]`) for a single in-register aggregate return
+(`emit.bn:212`) — but for a multi-return it emits the RAW tuple struct
+(`emit.bn:224`), whose `<{i1,[7 x i8],…}>` member is what LLVM quirk-srets.
+
+**Fix options (codegen-side; needs a decision):**
+- (B) *force explicit `sret`* for multi-returns per a Binate-owned rule so LLVM
+  obeys instead of quirking. Simple, robust; but shifts currently-register-
+  returned tuples (`(int,@Error)`, conformance 526) to sret — an ABI/perf change.
+- (C-coerce) *emit the coerced register form* (`aggCoerceLLTy`/`[N x iW]`) for a
+  register-intent multi-return, exactly as codegen already does for single in-
+  register aggregates, so LLVM register-returns it consistently. Preserves the
+  register-return optimization (no ABI shift) and reuses existing machinery;
+  needs verifying LLVM register-returns the coerced tuple and the native word-
+  collect reads it. Likely the cleanest.
 Guard with a conformance test returning a cross-package `(struct, iface)` and
 `(struct, int)` (values checked) under `builder-comp_native_aa64-comp_native_aa64`.
 
