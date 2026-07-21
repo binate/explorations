@@ -97,29 +97,6 @@ xfail'd, mark BOTH `builder-comp_native_aa64-comp_native_aa64` and
 
 ## MAJOR
 
-### Named-distinct SLICE param misses arg coercion → SILENT garbage — 🔴 OPEN MAJOR (found 2026-07-20)
-
-**Severity: MAJOR — silent miscompile** (wrong value, exit 0, no diagnostic).
-`coerceArg` (`pkg/binate/ir/gen_call.bn`) classifies the PARAM type with
-un-peeled `isSliceType(paramTyp)` / `peelReadonly(paramTyp).Kind`, so for a
-named-distinct slice param the checker ACCEPTS the call but codegen SKIPS the
-coercion and passes garbage.  Confirmed repros (each exits 0 with a wrong value):
-
-- **string literal → named char-slice param** (line 49): `type Str *[]readonly
-  char; func flen(s Str) int { return len(s) }; flen("hello")` prints a garbage
-  word (e.g. `4362459948`), not `5` — the literal is never materialized to
-  {data,len}.
-- **managed slice → named raw-slice param** (line 62): `type RS *[]int; func
-  first(s RS) int { return s[0] }; first(m)` prints garbage, not `42` — the
-  `@[]T → *[]T` narrowing is skipped.
-- **`nil` → named slice param** (line 55): not retyped to the param's slice type.
-
-**Root cause / fix:** `isSliceType` peels only readonly and `peelReadonly` peels
-only readonly — neither sees through named-distinct.  Peel the param type
-(`peelTransparent`) before the classification in `coerceArg`.  Found by auditing
-item (3b) of the named-distinct-pointer-transparency entry below.  Add conformance
-tests for all three.
-
 ### `&s.p[i]` — address-of an element of a raw-POINTER FIELD → SIGSEGV — 🔴 OPEN MAJOR (found 2026-07-20)
 
 **Severity: MAJOR — runtime crash** on well-typed code (NOT named-distinct

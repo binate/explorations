@@ -6,6 +6,24 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Named-distinct SLICE param misses arg coercion → SILENT garbage — ✅ DONE 2026-07-20
+
+**Fix** (`7ace2aa6`, `pkg/binate/ir/gen_call.bn`): `coerceArg` classified the
+PARAM type with un-peeled `isSliceType(paramTyp)` / `peelReadonly(paramTyp).Kind`
+(both peel readonly but NOT named-distinct), so for a named-distinct slice param
+(`type Str *[]readonly char`, `type RS *[]int`) the checker accepted the call but
+codegen SKIPPED the slice coercion and passed garbage (silent miscompile — wrong
+value, exit 0): a string literal → named char-slice param was not materialized to
+{data,len} (`flen("hello")` → garbage, not 5), and a managed slice → named
+raw-slice param skipped the `@[]T → *[]T` narrowing (`first(m)` → garbage).  Peel
+the param type (`peelTransparent`) once and drive all three slice coercions off
+it, passing the peeled slice type to `EmitStringToChars`.  Pinned by `1112`
+(string literal) + `1113` (managed→raw); each yields garbage without the fix.
+Full builder-comp suite 0-failed; adversarially reviewed clean.  The `nil` →
+named-slice branch is separately blocked by the checker (`cannot assign nil to
+<Named>`), so it is unreachable for now (peeled for consistency).  Found by
+auditing the named-distinct-pointer-transparency review findings.
+
 ## `&(named-distinct-pointer)[i]` crashes — `genIndexPtr`'s pointer arms don't peel — ✅ DONE 2026-07-19
 
 **Fix** (`17bb5d44`, `pkg/binate/ir/gen_access.bn`): taking the address of an
