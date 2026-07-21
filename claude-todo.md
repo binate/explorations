@@ -88,53 +88,36 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/plan-rt-fault-cleanup-pads.md`).
 
-### `genIndexPtr` doesn't peel named-distinct wrappers in its POINTER arms — 🔴 OPEN MAJOR (found 2026-07-18)
+### Named-distinct pointer transparency: `*p` deref rejected by the checker; latent `(*p)[i]` codegen arm — 🟠 OPEN (found 2026-07-20)
 
-**Severity: MAJOR** — invalid codegen on a well-typed program.  The SLICE-arm
-half of this defect (address-of a named-distinct *slice* element) is FIXED and
-landed (`82eff7e4`, tests `1106`/`1107`/`1108` — see claude-todo-done.md); this
-is the sibling POINTER-arm half, surfaced by that fix's adversarial review.
+Named-distinct pointer/slice INDEXING (`p[i]` read + `&p[i]` address-of, incl.
+the slice variants) is now fully peeled and works — landed `82eff7e4` (slice
+address-of), `846c5771` (pointer read), `17bb5d44` (pointer address-of); all in
+claude-todo-done.md.  What REMAINS is named-distinct pointer DEREFERENCE and a
+couple of un-audited un-peeled sites.
 
-**Repro** (`COMPILE_ERROR: invalid getelementptr indices`):
+**(1) The checker rejects `*p` for a named-distinct pointer** (found via the
+`17bb5d44` review).  `type P *int; var p P = &x; *p` → `cannot dereference
+non-pointer` (a COMPILE error on well-typed-looking code).  Indexing a named
+pointer peels (`checkIndexExpr` via `peelNamedBounded`), but the DEREF type rule
+does not — an inconsistency.  **Fix:** peel named-distinct / alias / readonly in
+the checker's `*`-deref rule (`pkg/binate/types`), as indexing already does; add
+a `println(*p)` conformance test.  Reachable and user-facing; also blocks (2).
 
-```
-type P *int
-func main() {
-	var arr [3]int
-	var p P = &arr[0]
-	var q *int = &p[1]   // invalid LLVM GEP
-	*q = 9
-	println(arr[1])
-}
-```
+**(2) Latent — `genIndexPtr`'s UNARY `(*p)[i]` deref arm is un-peeled.**  The
+`e.X.Kind == EXPR_UNARY && STAR` arm (`pkg/binate/ir/gen_access.bn`) gates on
+`ptrVal.Typ.Kind == TYP_POINTER` (un-peeled), so `&(*p)[i]` for a named
+pointer-to-array (`type PA *([3]int)`) would fall through — but this is
+currently UNREACHABLE because (1) rejects `*p` first.  Fix together with (1)
+(peel `ptrVal.Typ` there); add a `&(*p)[i]` conformance test once (1) lets it
+compile.
 
-**Root cause.** `genIndexPtr` (`pkg/binate/ir/gen_access.bn`) classifies the
-base off the UN-peeled `.Kind`: the IDENT pointer arm gates on
-`arrTyp.Kind == TYP_POINTER` and the r-value pointer sub-arm on
-`baseVal.Typ.Kind == TYP_POINTER`.  A named-distinct pointer (`type P *int`) is
-TYP_NAMED, so both fall through; the caller then emits a two-index GEP on a
-pointer (invalid IR).  Same root cause as the just-fixed slice arms — that fix
-peeled the slice arms but not the pointer arms.  **Fix:** peel transparent
-wrappers (`peelTransparent`) before the pointer-`Kind` checks and read `.Elem`
-from the peeled type, mirroring the slice-arm fix.  Add a conformance test for
-the repro.
-
-**Read-path sibling — found + FIXED (`846c5771`).** Testing the above surfaced a
-DISTINCT MAJOR defect: the pointer-index *READ* `p[i]` of a named pointer also
-emitted invalid LLVM.  `genIndex` classifies off the peeled type but passes the
-UN-peeled operand to `OP_GET_ELEM_PTR`; the LLVM backend's `emitGetElemPtr`
-(`pkg/binate/codegen/emit_helpers.bn`) then decided the GEP form off the raw
-operand `.Kind` (TYP_NAMED → double-index array path → invalid GEP on a scalar
-pointer).  Fixed by peeling the operand type there (test `1109`); native
-backends were unaffected.  See claude-todo-done.md.  This entry's REMAINING work
-is the address-of routing (`genIndexPtr` pointer arms) above.
-
-**Related, needs its own investigation (do NOT fold into the pointer fix):**
-(a) the SELECTOR arm has NO pointer sub-arm at all, so `&s.p[i]` for a pointer
-FIELD is likely unhandled regardless of named-ness (a pre-existing gap, not
-named-distinct-specific).  (b) `isSliceType(<un-peeled>)` call sites in
+**(3) Un-audited (from the pointer-fix reviews — do NOT assume broken):**
+(a) `genIndexPtr`'s SELECTOR arm has NO pointer sub-arm, so `&s.p[i]` for a
+pointer FIELD is likely unhandled regardless of named-ness (a pre-existing gap,
+not named-distinct-specific).  (b) `isSliceType(<un-peeled>)` call sites in
 `gen_call.bn` / `gen_control.bn` may have analogous named-distinct gaps —
-different functions/operations, flagged by the slice-arm fix's review.
+different functions/operations.
 
 ### Name-less NON-slice managed pointee boxed into `@any` emits invalid LLVM — 🟠 OPEN (found 2026-07-18)
 

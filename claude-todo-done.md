@@ -6,6 +6,22 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `&(named-distinct-pointer)[i]` crashes — `genIndexPtr`'s pointer arms don't peel — ✅ DONE 2026-07-19
+
+**Fix** (`17bb5d44`, `pkg/binate/ir/gen_access.bn`): taking the address of an
+element of a named-distinct pointer (`type P *int`; `&p[i]`) SIGSEGV'd.
+`genIndexPtr`'s IDENT pointer arm gated on `arrTyp.Kind == TYP_POINTER` and its
+r-value pointer sub-arm on `baseVal.Typ.Kind == TYP_POINTER` — both un-peeled.
+A named-distinct pointer is TYP_NAMED, so both fell through, `genIndexPtr`
+returned nil, and `genLValueAddr` used the loaded pointer VALUE as the element
+address (a wild pointer, SIGSEGV on write).  Classify off the peeled type in
+both arms (IDENT reuses `arrUnd` and loads with it; r-value reads `baseSt.Elem`),
+mirroring the slice-arm fix (`82eff7e4`).  Pinned by `1110` (IDENT `&p[i]`) +
+`1111` (r-value `&get()[i]`); each crashes without the fix.  Adversarially
+reviewed clean.  Together with the read-path fix (`846c5771`) this completes
+named-distinct pointer INDEXING (read + address-of).  A deeper deref gap remains
+(the checker rejects `*p` for a named pointer) — see claude-todo.md.
+
 ## Pointer-index READ `p[i]` of a named-distinct pointer → invalid LLVM — `emitGetElemPtr` doesn't peel the operand — ✅ DONE 2026-07-19
 
 **Fix** (`846c5771`, `pkg/binate/codegen/emit_helpers.bn`): `p[i]` where
