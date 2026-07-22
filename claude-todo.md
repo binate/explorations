@@ -97,19 +97,6 @@ xfail'd, mark BOTH `builder-comp_native_aa64-comp_native_aa64` and
 
 ## MAJOR
 
-### `&s.p[i]` — address-of an element of a raw-POINTER FIELD → SIGSEGV — 🔴 OPEN MAJOR (found 2026-07-20)
-
-**Severity: MAJOR — runtime crash** on well-typed code (NOT named-distinct
-specific: a plain `type S struct { p *int }; &s.p[i]` crashes).  `genIndexPtr`'s
-SELECTOR arm (`pkg/binate/ir/gen_access.bn`) has array + slice sub-arms but NO
-pointer sub-arm, so `&s.p[i]` for a raw-pointer field falls through → `genIndexPtr`
-returns nil → `genLValueAddr` uses the loaded pointer VALUE as the element address
-(a wild pointer, SIGSEGV on write).  The READ `s.p[i]` and STORE `s.p[i] = v` both
-work (they don't route through genIndexPtr).  **Fix:** add a pointer sub-arm to the
-SELECTOR block — `genExpr`/`genSelectorPtr` to get the field's pointer value, then
-GEP — mirroring the r-value pointer arm.  Add a `&s.p[i]` conformance test.  Found
-by auditing item (3a) below.
-
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
@@ -160,13 +147,15 @@ currently UNREACHABLE because (1) rejects `*p` first.  Fix together with (1)
 (peel `ptrVal.Typ` there); add a `&(*p)[i]` conformance test once (1) lets it
 compile.
 
-**(3) AUDITED (2026-07-20) — both CONFIRMED real bugs, promoted to their own
-MAJOR entries at the top of this section:** (a) `&s.p[i]` for a raw-pointer FIELD
-→ SIGSEGV (genIndexPtr SELECTOR arm has no pointer sub-arm; not named-specific).
-(b) named-distinct SLICE param misses arg coercion in `coerceArg` (gen_call.bn)
-→ SILENT garbage (string-literal / managed→raw / nil).  The `gen_control.bn`
-store paths were also checked and are FINE (`p[i] = v` uses the peeled `collSt`
-and the operand goes through the landed backend GEP fix `846c5771`).
+**(3) AUDITED (2026-07-20) — both were CONFIRMED real bugs and are now FIXED
+(see claude-todo-done.md):** (a) `&s.p[i]` for a raw-pointer FIELD → SIGSEGV
+(genIndexPtr SELECTOR arm had no pointer sub-arm; not named-specific) — fixed
+`f24cfd92`.  (b) named-distinct SLICE param missed arg coercion in `coerceArg`
+(gen_call.bn) → SILENT garbage (string-literal / managed→raw) — fixed `7ace2aa6`.
+The `gen_control.bn` store paths were also checked and are FINE (`p[i] = v` uses
+the peeled `collSt` and the operand goes through the backend GEP fix `846c5771`).
+Only items (1) [checker `*p` deref] and (2) [latent `(*p)[i]` codegen arm] above
+remain open in this entry.
 
 ### FU4: array-of-managed / func-value managed POINTEE owning treatment — 🟠 OPEN (MAJOR leak, found 2026-07-20)
 

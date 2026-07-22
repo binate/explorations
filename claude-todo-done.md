@@ -6,6 +6,24 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `&s.p[i]` — address-of an element of a raw-POINTER FIELD → SIGSEGV — ✅ DONE 2026-07-21
+
+**Fix** (`f24cfd92`, `pkg/binate/ir/gen_access.bn`): `genIndexPtr`'s SELECTOR arm
+had array + slice sub-arms but NO pointer sub-arm, so taking the address of an
+element of a raw-pointer field (`type S struct { p *int }; &s.p[i]`) fell through
+→ `genIndexPtr` returned nil → `genLValueAddr` used the loaded pointer VALUE as the
+element address (a wild pointer, SIGSEGV on write).  NOT named-distinct-specific —
+a plain `*int` field crashed.  Added a pointer sub-arm: `genExpr` the selector to
+load the pointer field value, then GEP through it, mirroring the IDENT pointer arm
+(no bounds check — pointers carry no length); `collArr` is peeled, so a
+named-distinct pointer field is recognized too.  The READ `s.p[i]` and STORE
+`s.p[i] = v` already worked (they don't route through genIndexPtr).  Pinned by
+`1116` (plain + named-distinct pointer field); crashes without the fix.
+Adversarially reviewed clean.  Found by auditing the named-distinct-transparency
+review findings.  (A separate pre-existing gap remains: `&s.mp[i]` for a MANAGED
+pointer field — TYP_MANAGED_PTR — is unhandled in all of genIndexPtr's pointer
+arms, but managed-pointer indexing is likely checker-rejected; not pursued.)
+
 ## Box a name-less / nominal managed POINTEE into `@any` with OWNING semantics (FU2) — ✅ DONE (`a88dbc2f`, 2026-07-20)
 
 A managed `@any` whose data pointer's pointee is itself a managed slice / ptr
