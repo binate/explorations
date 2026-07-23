@@ -82,7 +82,7 @@ of a non-nil pointer just passes).
   per-backend `OP_NIL_CHECK → 0 bytes`.  Review CLEAN (2 NITs folded: field-name
   doc-sync + a non-vacuous elision assertion).  Default-off ⇒ byte-identical IR, so
   conformance unchanged.
-- **N2b — READY (validated, awaiting landing; field derefs).** Reconnaissance found
+- **N2b ✅ LANDED (`626440f4`, 2026-07-19 — field derefs).** Reconnaissance found
   the plan under-scoped this: field-deref lowering is DUPLICATED across
   `genSelector` (reads, ~13 pointer-follow GEP sites) and `genSelectorPtr`
   (writes/receivers/address-of, ~11 sites).  The unify path (route reads through
