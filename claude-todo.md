@@ -9,20 +9,30 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ### Native aarch64: cross-package multi-return with a struct member miscompiles (caller/callee sret disagreement) — 🟡 FIX IN VALIDATION (found 2026-07-20; (C-coerce) fix implemented 2026-07-23, on work-1)
 
-**Fix landed on work-1 (not yet on main):** codegen now COERCES each struct/array
-field of a register-returned multi-return tuple to its `[N x iW]` form
-(`multiReturnCoercedLLTy`), so LLVM register-returns the tuple (no `[N x i8]`-pad
-quirk-sret) matching the native per-field collect.  Byte-identical, so
-return/call reinterpret through a shared slot; scalar-only tuples (`(int,@Error)`)
-are unchanged (no ABI shift).  All three call shapes handled — direct
-(`emit_call.bn`/`emit_value.bn`), iface-method (`emit_iface_call.bn`), func-value
-shim (`emit_funcvals_shim.bn`); helpers in `emit_agg_coerce.bn`.  Commits
-`c9415a1d` (core) + `ba7beb11` (iface/shim).  Verified on native_aa64:
-`stdlib/os/process/001_run` passes; cross-package direct `(St,@Error)`→7,1,
-`(St,int)`→7,9, iface-method→107, func-value→42; `(int,@Error)` unchanged;
-`spec/11-interfaces` 70/0; codegen unit tests green.  **Remaining: full
-conformance matrix (native_aa64/x64/aa64_linux/arm32 + LLVM + self-host) in
-progress, then land.**  Original root-cause analysis below.
+**Fix ready on work-1 (not yet on main) — awaiting landing approval.** codegen
+COERCES each struct/array field of a register-returned multi-return tuple to its
+`[N x iW]` form (`multiReturnCoercedLLTy`), so LLVM register-returns the tuple (no
+`[N x i8]`-pad quirk-sret) matching the native per-field collect.  Byte-identical,
+so return/call reinterpret through a shared slot; scalar-only tuples
+(`(int,@Error)`) are unchanged (no ABI shift).  All three call shapes handled —
+direct (`emit_call.bn`/`emit_value.bn`), iface-method (`emit_iface_call.bn`),
+func-value shim (`emit_funcvals_shim.bn`); helpers in `emit_agg_coerce.bn`.
+**Gated to ARCH_AA64** (`multiRetCoercionActive`): the quirk is specific to LLVM's
+AArch64 return legalization (proven via `llc`); x64/arm32 use different return
+ABIs that don't exhibit it (native_x64 CI passes the same shape), so their
+emission is left byte-identical to before (untestable locally; CI stalled).
+Commits `c9415a1d` (core) + `ba7beb11` (iface/shim) + `72ca0afe` (gate).
+
+**Validation (gated tree, all locally-runnable):** native_aa64 conformance
+**2848/0** (definitive gated run); builder-comp LLVM 2848/0; builder-comp-comp
+self-host 2848/0; builder-comp-int VM 2829/0; full unit tests 64 pkgs 0-fail;
+hygiene 17/17.  Reproducers on native_aa64: `stdlib/os/process/001_run` passes;
+cross-package direct `(St,@Error)`→7,1, `(St,int)`→7,9, iface-method→107,
+func-value→42; `(int,@Error)` unchanged.  **NOT locally runnable (need CI):
+native_x64, native_aa64_linux, LLVM/native arm32 — but the aa64 gate makes
+x64/arm32 byte-identical to their currently-passing emission, and aa64_linux
+mirrors the validated aa64_darwin (same ARCH_AA64/AAPCS64 codegen).**  Original
+root-cause analysis below.
 
 
 
