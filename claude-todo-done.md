@@ -6,6 +6,36 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Array-of-managed managed POINTEE owning treatment + `@any` round-trip (FU4 Part A) — ✅ DONE (`e984cf2d`, 2026-07-23)
+
+A managed pointer to an array-of-managed (`@([N]@Node)`, the shape `box(arr)`
+produces for an array with managed elements) was not owned on the drop side:
+`emitManagedPtrRefDec` had arms for a struct / managed-slice / managed-ptr pointee
+but fell through to a bare RefDec for an array pointee -- so the array elements
+LEAKED on EVERY drop (100/100 on a plain scope-drop), and boxing it into `@any` hit
+FU2's fail-loud guard.  (The box/copy side already RefIncs the elements via
+emitStructCopy, so this was a pure drop-side / `@any`-admission gap.)
+
+Fix: an array-pointee arm in `emitManagedPtrRefDec` (RefDec through the array dtor
+`__dtor_arr<N>_<elem>`, which genArrayDtor already iterates + RefDecs), registered via
+the struct-dtor work-list whose drain already routes an array through ensureArrayDtor;
+`ensureNestedMptrPointeeDtor` descends into a `@([N]@Node)` field/element; admitted
+into managed `@any` (wrapAsIfaceValue + ensureAnyImplInfo, slot 0 = the array dtor),
+guard narrowed to func-value / anon-struct.  The `@any` RECOVER path was completed
+too: the box keys an owning array pointee on `namelessAnySrcName(the pointee)` (a
+name-less array structurally, a named array by name -- distinct named types stay
+distinct), so `typeInfoSymFor` now derives a managed-ptr-to-owning-array target's
+`__typeinfo` from `namelessAnySrcName(recoveredTyp.Elem)` -- `x.(@Arr2)` / `case @Arr2`
+HITS instead of aborting / silently missing.
+
+Two adversarial rounds: the first (blast-radius + cross-mode SOUND) found the box
+had no matching recover path (a silent type-switch miss); the recover fix landed and
+the second round came back SOUND (no false hits, distinct named types stay distinct,
+refcount-balanced, assert-path regression-free).  Conformance 1117 (bare / struct
+field / ms element / nested `@(@([N]@Node))` / `@any` box / `@any` recover); 1115
+repurposed to the func-value fail-loud negative.  LLVM / VM / comp-comp / native-aa64
+/ native-x64.  The func-value pointee remains guarded -- FU4 Part B (active todo).
+
 ## `&s.p[i]` — address-of an element of a raw-POINTER FIELD → SIGSEGV — ✅ DONE 2026-07-21
 
 **Fix** (`f24cfd92`, `pkg/binate/ir/gen_access.bn`): `genIndexPtr`'s SELECTOR arm

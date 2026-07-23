@@ -157,36 +157,37 @@ the peeled `collSt` and the operand goes through the backend GEP fix `846c5771`)
 Only items (1) [checker `*p` deref] and (2) [latent `(*p)[i]` codegen arm] above
 remain open in this entry.
 
-### FU4: array-of-managed / func-value managed POINTEE owning treatment — 🟠 OPEN (MAJOR leak, found 2026-07-20)
+### FU4 Part B: func-value managed POINTEE owning treatment — 🟠 OPEN (MAJOR leak, found 2026-07-20)
 
-Follow-up carved out of FU2 (`a88dbc2f`, done log).  FU2 gave `@(@X)` (managed ptr
-to a managed slice / ptr) OWNING semantics everywhere including `@any`.  Two pointee
-kinds are still NOT owned: a managed pointer to an **array-of-managed** (`@([N]@Node)`)
-and a managed pointer to a **managed func-value** (`@(@func())`).
+Follow-up carved out of FU2 (`a88dbc2f`, done log).  FU4 Part A (`e984cf2d`, done
+log) landed the **array-of-managed** pointee (`@([N]@Node)`): drop + `@any` box +
+recover round-trip.  The remaining un-owned pointee kind is a managed pointer to a
+**managed func-value** (`@(@func())`).
 
-**MAJOR — they leak on EVERY drop, not just `@any`:** `emitManagedPtrRefDec`
-(`pkg/binate/ir/gen_util_refcount.bn`) has arms for a struct / managed-slice /
-managed-ptr pointee but falls through to a plain `RefDec` for an array / func-value
-pointee — so the array elements / captured record are never cleaned.  Confirmed:
-`box(arr)` for `arr [2]@Node` in a 100-iter scope-drop loop leaks the element `@Node`
-100/100 (a plain local drop, no `@any` involved).
+**MAJOR — it leaks on EVERY drop, not just `@any`:** `emitManagedPtrRefDec`
+(`pkg/binate/ir/gen_util_refcount.bn`) still falls through to a plain `RefDec` for a
+func-value pointee, so the captured record is never cleaned.  Unlike the array case
+(where box/copy already RefInc'd the elements), `box(f)` for a `@func()` operand does
+NOT retain it either — `needsStructCopy` is false for a func-value and the box arm
+has no func-value branch — so this needs BOTH the box-owning and the drop arm.
 
-Boxing these into `@any` currently **fails loud** ("not yet supported", the guard in
+Boxing it into `@any` currently **fails loud** ("not yet supported", the guard in
 `wrapAsIfaceValue`, conformance `1115_managed_aggregate_pointee_any_unsupported`,
-negative) — an interim stopgap so it does not emit invalid LLVM.  When FU4 lands,
-**remove that guard and 1115** and let the box become valid.
+negative).  When Part B lands, **remove that guard and 1115** and let the box become
+valid.
 
-**Fix — mirror FU3's `@(@T)` owning treatment for the two new pointee kinds:**
-(1) box-owning arm in `gen_builtin.bn` (RefInc / emitStructCopy the array-of-managed
-/ func-value operand); (2) `emitManagedPtrRefDec` array + func-value pointee arms
-(→ `__dtor_arr<N>_<elem>` via `ensureArrayDtor`/`genArrayDtor`, → the func-value dtor
-via `emitManagedFuncValueRefDec`); (3) the four dtor-emission field/element walks
-descend into these pointees; (4) `ensureAnyImplInfo` slot-0 = the array / func-value
-dtor + admit them in `wrapAsIfaceValue` (drop the fail-loud guard).  Add conformance
-for the NORMAL-drop balance (bare / field / element / nested) AND the `@any` balance,
-across modes.  Note there is no array/func-value analogue of the pending-dtor
-work-list yet — array dtors are emitted via `ensureArrayDtor` during the struct /
-element walk, so FU4 needs an equivalent trigger from the box / `@any` sites.
+**Fix — mirror the array/FU3 owning treatment for the func-value pointee:**
+(1) box-owning arm in `gen_builtin.bn` (`emitManagedFuncValueRefInc` the operand —
+that helper already exists, used by the copy / param / return paths); (2) an
+`emitManagedPtrRefDec` func-value-pointee arm (a new `genManagedFuncValueDtor` body:
+load the `@func()` at the cell + `emitManagedFuncValueRefDec` — note that helper
+returns a `@Block` since it splits on a null-data guard, so the dtor body threads the
+block); (3) a trigger to emit that dtor (the func-value dtor is signature-INDEPENDENT
+— dtorNameForType(`@func()`) = `__dtor_func`, one body — so a module boolean flag may
+suffice rather than a per-type work-list); (4) `ensureNestedMptrPointeeDtor` +
+`ensureAnyImplInfo` + `wrapAsIfaceValue` admit it, dropping the guard.  Add
+conformance for NORMAL-drop balance (bare / field / element) AND `@any` balance +
+recover, across modes.  Also covers the anon-managed-struct pointee if trivial.
 
 ### box() of a bare managed FUNC / IFACE operand does not retain — 🟠 OPEN (found 2026-07-18)
 
