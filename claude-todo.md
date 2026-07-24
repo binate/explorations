@@ -9,6 +9,52 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### native arm32: int64/uint64/float64 multi-return-tuple COLLECT hangs at runtime — 🔴 OPEN MAJOR (found 2026-07-23)
+
+A full `builder-comp_native_arm32_baremetal` conformance run at main `2a5c7ac8` is
+**2813 passed / 10 failed / 38 skipped** — a big improvement over the stale ~611-fail
+baseline (P5 soft-float has largely landed). But **6–7 of the 10 remaining failures are
+the int64/wide-field MULTI-RETURN-COLLECT tests that the "int64 register-pair" bullet
+below marks `✅ DONE & LANDED (5651fc8b, 2026-07-12)`** — they hang now (QEMU
+`terminating on signal 15` at the ~10s timeout), so that DONE claim is contradicted by
+reproducible reality (re-run twice, deterministic; none xfail-marked, so they count as
+real reds):
+
+- `regressions/multiret-int64-field` — hang (the guard test the 5651fc8b fix itself added)
+- `stdlib/strconv/002_parse` (`ParseUint/ParseInt` → `(uint64/int64, @Error)`) — prints
+  correct values THEN hangs
+- `stdlib/strconv/004_parse_cross_pkg` — correct output then hang
+- `stdlib/time/00{1,2,3}` (`time.Point` int64 sec / int32 nsec, `ToUnix()` `(int64,int32)`) —
+  001/002 hang with no output; 003 prints correct output then hangs
+- `683_cross_pkg_mr_float` — `(int,float64)` / `(float64,float64)` multi-return collect, hang
+- `890_chained_method_transitive_struct` — hang (also in 5651fc8b's "fixed" list)
+
+**Correct-output-then-hang** (strconv, time/003) says compute is fine but program
+termination / a post-collect path loops; **no-output hangs** (multiret-int64, time/001/002,
+683) hang before/at flush. `multiret-int64-field`'s own comment names the suspect native
+functions: the caller-collect `storeMultiReturnTupleFieldsArm32` and the OP_EXTRACT
+destructure `emitExtract64`.
+
+**Regression vs never-verified — UNKNOWN, needs a bisect.** The `native/arm32` unit tests
+(incl. `arm32_int64_multiret_test.bn` byte-ref fixtures) PASS, so the encoding the unit
+tests pin is unchanged — the hang is in a shape/runtime path they don't cover. 16 commits
+touched `pkg/binate/native/arm32` since `5651fc8b` (the P5 soft-float push), several on the
+exact paths: `8f436fc8` (route `emitExtract` scalar-load through large-offset guards —
+the collect path), `325bffb2`/`7dca86bf` (int64 compare/binop dispatch → switch),
+`c911c591` (StripWrappers at value-shape sites). So it's plausibly a regression in that
+window; OR the 5651fc8b "fixed the 5 tests" claim was made with the faulty `[10s]`
+hang-detection grep the plan doc elsewhere documents (§ P4-a's wrong "0 hangs" claim), i.e.
+never truly green. Bisect (checkout `5651fc8b`, run `regressions/multiret-int64-field`)
+disambiguates.
+
+**Proposed next step (needs a scope decision):** root-cause via a QEMU/gdb run on the
+simplest case (`regressions/multiret-int64-field`) — likely one fix clears ~6–7 of the 10.
+Do NOT trust the "DONE" bullet below until this is resolved; correct its status when fixed.
+Distinct residual failures (not this cluster): `1090_fmt_basic` (a fast crash in the
+`pkg/stdx/fmt` `...*any` variadic + float64-boxing path, [2s] empty output — not a hang) and
+`stdlib/os/011_args` (baremetal `os.Args()` returns len 0; the test's documented contract is
+a 1-element slice with an empty argv[0] placeholder — a small bounded fix).
+
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
@@ -1508,7 +1554,11 @@ plan-native-arm32.md § P4.
   yet xfail'd per-test (they sit among the native-arm32 conformance failures,
   e.g. `401_return_many_scalars`).
 - **int64 / uint64 8-byte scalar in the FIELD / MULTI-RETURN-TUPLE / SRET scalar
-  paths — ✅ DONE & LANDED (2026-07-12, `5651fc8b`).** Previously the caller-collect
+  paths — 🔴 REOPENED 2026-07-23: the conformance tests below HANG again (see the MAJOR
+  "int64/uint64/float64 multi-return-tuple COLLECT hangs" entry at the top of this file);
+  the byte-ref unit tests still pass, so this landed encoding is intact but a shape/runtime
+  path regressed or was never runtime-verified. Original landing (2026-07-12, `5651fc8b`)
+  below, status now contradicted.** Previously the caller-collect
   (`storeMultiReturnTupleFieldsArm32`), the OP_EXTRACT destructure (`emitExtract`),
   the callee in-register pack (`emitMultiReturnPack`), and the sret write
   (`emitMultiReturnSret`) all failed LOUDLY (`8-byte scalar store/load needs
