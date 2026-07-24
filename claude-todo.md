@@ -9,6 +9,41 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### `2a5c7ac8` (packed anonymous structs) regressed native_aa64 multi-return collection — 🔴 OPEN MAJOR (found 2026-07-24)
+
+**Severity: MAJOR** — `2a5c7ac8` ("codegen: emit anonymous structs
+packed-with-padding (fix arm32 multi-return dtor segv)") broke **4 native_aa64
+conformance tests** on main: `stdlib/strconv/002_parse`,
+`stdlib/strconv/004_parse_cross_pkg`, `stdlib/os/004_read_byte_write_byte`, and
+its own new `regressions/multiret-int64-field`.
+
+**Attribution (hard evidence, NOT the aa64 multi-return-struct fix `275cc807`):**
+at `275cc807` (the multi-return-struct sret fix, immediately BEFORE `2a5c7ac8`),
+those 3 stdlib tests **PASS** on native_aa64 (verified: 3/0); on the combined base
+(`b6304150`) they FAIL (full run: 2849 passed, **4 failed**). All 4 failing tests
+return **scalar/iface** multi-return tuples (`(uint64,@Error)`, `(uint8,@Error)`,
+`(int64,int32)`, `(int32,int64)`) — which have NO struct/array field, so the
+aa64-coercion fix's `multiRetTypeHasCoercibleField` gate returns false and its code
+is **inert** for them. So the break is `2a5c7ac8`'s, exposed only on native_aa64
+(CI stalled → likely landed with arm32-only local validation).
+
+**Root cause — needs the `2a5c7ac8` author (partial recon):** the change makes
+`multiReturnType`/`multiReturnType_args` emit the anonymous tuple as packed
+`<{...}>` with explicit `[N x i8]` padding (`anonStructLL`). In isolation, `llc`
+shows packed scalar/iface tuples (`<{i64,%I}>`, `<{i64,i32}>`, `<{i32,i64}>`)
+still **register-return** on arm64-apple-darwin (so it is NOT a packed→sret quirk
+like the struct-field bug). The break is therefore in the packed emission's
+byte-layout / the native per-field collect (`storeMultiReturnTupleFieldsAA64`) or
+the `emitExtract64` destructure reading the packed tuple slot at the wrong offset
+on LP64 aa64.  Reproduce: `./conformance/run.sh
+builder-comp_native_aa64-comp_native_aa64 stdlib/strconv/002_parse` (or the other
+three).  Guard/tie-in: the aa64 fix's dedicated test
+`1119_xpkg_multiret_struct_field` (struct-field tuple) still PASSES on the combined
+base, so the two changes coexist for struct-field tuples; only scalar/iface/int64
+tuples regressed.
+
+
+
 ### native arm32: multi-return tuple return-ABI mismatch — LLVM padding MEMBERS shift FCA return registers — 🔴 OPEN MAJOR (found 2026-07-23; root-caused 2026-07-24 → commit `2a5c7ac8`)
 
 A full `builder-comp_native_arm32_baremetal` conformance run at main `2a5c7ac8` is
