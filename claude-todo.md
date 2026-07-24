@@ -9,51 +9,66 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### native arm32: int64/uint64/float64 multi-return-tuple COLLECT hangs at runtime — 🔴 OPEN MAJOR (found 2026-07-23)
+### native arm32: multi-return tuple return-ABI mismatch — LLVM padding MEMBERS shift FCA return registers — 🔴 OPEN MAJOR (found 2026-07-23; root-caused 2026-07-24 → commit `2a5c7ac8`)
 
 A full `builder-comp_native_arm32_baremetal` conformance run at main `2a5c7ac8` is
 **2813 passed / 10 failed / 38 skipped** — a big improvement over the stale ~611-fail
-baseline (P5 soft-float has largely landed). But **6–7 of the 10 remaining failures are
-the int64/wide-field MULTI-RETURN-COLLECT tests that the "int64 register-pair" bullet
-below marks `✅ DONE & LANDED (5651fc8b, 2026-07-12)`** — they hang now (QEMU
-`terminating on signal 15` at the ~10s timeout), so that DONE claim is contradicted by
-reproducible reality (re-run twice, deterministic; none xfail-marked, so they count as
-real reds):
+baseline (P5 soft-float has largely landed). **7–8 of the 10 failures are wide-field
+MULTI-RETURN tests that hang** (QEMU `terminating on signal 15` at the ~10s timeout;
+re-run twice, deterministic; none xfail-marked, so they count as real reds):
 
-- `regressions/multiret-int64-field` — hang (the guard test the 5651fc8b fix itself added)
-- `stdlib/strconv/002_parse` (`ParseUint/ParseInt` → `(uint64/int64, @Error)`) — prints
-  correct values THEN hangs
-- `stdlib/strconv/004_parse_cross_pkg` — correct output then hang
-- `stdlib/time/00{1,2,3}` (`time.Point` int64 sec / int32 nsec, `ToUnix()` `(int64,int32)`) —
-  001/002 hang with no output; 003 prints correct output then hangs
-- `683_cross_pkg_mr_float` — `(int,float64)` / `(float64,float64)` multi-return collect, hang
-- `890_chained_method_transitive_struct` — hang (also in 5651fc8b's "fixed" list)
+- `regressions/multiret-int64-field` — hang (native `main` collects an LLVM callee's
+  `(int64,int32)`/`(int32,int64)`/`(uint64,int32)` tuples) — **bisect-confirmed regressor**
+- `stdlib/strconv/002_parse`, `004_parse_cross_pkg` (`ParseBool` → `(bool,@Error)` etc.) —
+  print correct values THEN hang
+- `stdlib/time/00{1,2,3}` (`time.Point` int64/int32; `ToUnix()` `(int64,int32)`) — 001/002
+  hang silent, 003 correct-output-then-hang
+- `683_cross_pkg_mr_float` — `(int,float64)`/`(float64,float64)` collect, hang
+- `890_chained_method_transitive_struct` — hang (aggregate return via chained methods;
+  same FCA family, not yet individually bisected)
 
-**Correct-output-then-hang** (strconv, time/003) says compute is fine but program
-termination / a post-collect path loops; **no-output hangs** (multiret-int64, time/001/002,
-683) hang before/at flush. `multiret-int64-field`'s own comment names the suspect native
-functions: the caller-collect `storeMultiReturnTupleFieldsArm32` and the OP_EXTRACT
-destructure `emitExtract64`.
+**ROOT CAUSE — CONFIRMED (bisect + emitted LLVM, 2026-07-24): today's commit `2a5c7ac8`
+("emit anonymous structs packed-with-padding", the arm32_linux `asm/parse` dtor-segv fix).**
+Full unrestricted bisect over `5651fc8b..2a5c7ac8`: `2bfd9c14` GOOD, `2a5c7ac8` first BAD;
+`multiret-int64-field` passes at `5651fc8b` and every intervening commit. So it is NEITHER a
+P5-window regression NOR a stale 5651fc8b claim — my earlier
+`storeMultiReturnTupleFieldsArm32` / P5-commit guesses were REFUTED by the bisect (the
+`native/arm32` unit tests pass because that code is unchanged; 5651fc8b's int64 work was
+correct as landed).
 
-**Regression vs never-verified — UNKNOWN, needs a bisect.** The `native/arm32` unit tests
-(incl. `arm32_int64_multiret_test.bn` byte-ref fixtures) PASS, so the encoding the unit
-tests pin is unchanged — the hang is in a shape/runtime path they don't cover. 16 commits
-touched `pkg/binate/native/arm32` since `5651fc8b` (the P5 soft-float push), several on the
-exact paths: `8f436fc8` (route `emitExtract` scalar-load through large-offset guards —
-the collect path), `325bffb2`/`7dca86bf` (int64 compare/binop dispatch → switch),
-`c911c591` (StripWrappers at value-shape sites). So it's plausibly a regression in that
-window; OR the 5651fc8b "fixed the 5 tests" claim was made with the faulty `[10s]`
-hang-detection grep the plan doc elsewhere documents (§ P4-a's wrong "0 hangs" claim), i.e.
-never truly green. Bisect (checkout `5651fc8b`, run `regressions/multiret-int64-field`)
-disambiguates.
+Mechanism: `2a5c7ac8` made the LLVM backend emit multi-return tuples PACKED with explicit
+`[N x i8]` padding MEMBERS **as the function's return (first-class-aggregate) type** — e.g.
+`Trail() (int32,int64)` → `<{ i32, [4 x i8], i64 }>` (pad is FCA index 1, BETWEEN the
+fields); `(bool,@Error)` → `<{ i1, [3 x i8], %BnIfaceValue }>`. Within LLVM it is
+self-consistent (`insertvalue`/`extractvalue` use the remapped indices), so EVERY all-LLVM
+mode is green (arm32_linux, LP64, self-host) — which is exactly why the landing verification
+missed it: it never ran `native_arm32_baremetal`, the only mode with a native caller reading
+an LLVM callee's tuple. That native collect reads RETURN REGISTERS by field position, and
+LLVM's FCA lowering gives the `[N x i8]` padding member its OWN return register — shifting
+the real fields (Trail's i64 → r2:r3 while native reads r1:r2; the `@Error` of `(bool,@Error)`
+→ wrong regs → native RefDec's a GARBAGE managed pointer at scope exit = the
+"correct-output-then-hang"). A cross-backend (native↔LLVM) return-ABI break. Tuples whose
+padding is only TRAILING (e.g. `(int64,int32)`) keep the real fields' registers unshifted
+and still work; the break is specifically padding-member-BEFORE-a-field shapes.
 
-**Proposed next step (needs a scope decision):** root-cause via a QEMU/gdb run on the
-simplest case (`regressions/multiret-int64-field`) — likely one fix clears ~6–7 of the 10.
-Do NOT trust the "DONE" bullet below until this is resolved; correct its status when fixed.
-Distinct residual failures (not this cluster): `1090_fmt_basic` (a fast crash in the
-`pkg/stdx/fmt` `...*any` variadic + float64-boxing path, [2s] empty output — not a hang) and
-`stdlib/os/011_args` (baremetal `os.Args()` returns len 0; the test's documented contract is
-a 1-element slice with an empty argv[0] placeholder — a small bounded fix).
+**FIX DIRECTION (fix-forward — a plain revert of `2a5c7ac8` reopens the arm32_linux
+`asm/parse` segv it fixed).** Decouple the two concerns `2a5c7ac8` conflated: the FCA
+return-ABI type (the `define` return type, `call` result, `ret`, and the build/destructure
+`insertvalue`/`extractvalue`) must be the FLAT tuple `{T1,T2,…}` with NO padding members
+(padding members perturb FCA return registers); the packed-with-explicit-`[N x i8]`-padding
+layout belongs ONLY to the IN-MEMORY tuple the destructor field-GEPs (and struct copy/load),
+where byte offsets must match `types.FieldOffset`. Pure-scalar tuples (the int64 tests) have
+no dtor → flat-FCA alone fixes them; managed-field tuples (the original segv case) keep the
+packed in-memory temp and transfer field-wise between the flat FCA and it. **Process guard:
+add `builder-comp_native_arm32_baremetal` to the pre-land smoke for ANY multi-return /
+anon-struct / aggregate-return codegen change — this defect class is INVISIBLE to all-LLVM
+and all-LP64 modes** (the "smoke-test every package you changed" rule missed it because the
+mode, not the package, is what exposes it).
+
+Distinct residual failures (NOT this FCA cluster): `1090_fmt_basic` (fast crash in
+`pkg/stdx/fmt` `...*any` + float64-boxing, [2s] empty output — not a hang) and
+`stdlib/os/011_args` (baremetal `os.Args()` returns len 0; documented contract is a 1-element
+empty-argv[0] placeholder — small bounded fix).
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
@@ -1554,11 +1569,11 @@ plan-native-arm32.md § P4.
   yet xfail'd per-test (they sit among the native-arm32 conformance failures,
   e.g. `401_return_many_scalars`).
 - **int64 / uint64 8-byte scalar in the FIELD / MULTI-RETURN-TUPLE / SRET scalar
-  paths — 🔴 REOPENED 2026-07-23: the conformance tests below HANG again (see the MAJOR
-  "int64/uint64/float64 multi-return-tuple COLLECT hangs" entry at the top of this file);
-  the byte-ref unit tests still pass, so this landed encoding is intact but a shape/runtime
-  path regressed or was never runtime-verified. Original landing (2026-07-12, `5651fc8b`)
-  below, status now contradicted.** Previously the caller-collect
+  paths — ✅ correct as landed (2026-07-12, `5651fc8b`); its conformance tests currently
+  HANG but the cause is NOT this commit — bisect (2026-07-24) pins the regressor as
+  `2a5c7ac8` (see the MAJOR "multi-return tuple return-ABI mismatch" entry at the top). This
+  code + its byte-ref unit tests are intact; leave as-is, the fix lands on the LLVM-emission
+  side.** Previously the caller-collect
   (`storeMultiReturnTupleFieldsArm32`), the OP_EXTRACT destructure (`emitExtract`),
   the callee in-register pack (`emitMultiReturnPack`), and the sret write
   (`emitMultiReturnSret`) all failed LOUDLY (`8-byte scalar store/load needs
