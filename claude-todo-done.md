@@ -6,6 +6,36 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Managed func-value POINTEE owning treatment (FU4 Part B) — ✅ DONE (`2bfd9c14`, 2026-07-23)
+
+Completes FU4.  A managed pointer to a managed func-value (`@(@func())`, the shape
+`box(f)` produces for a capturing `@func()`) was not owned: `box(f)` did a
+non-retaining shallow copy (needsStructCopy is false for a func-value, no box arm),
+and `emitManagedPtrRefDec` fell through to a bare RefDec for a func-value pointee.
+So the captured record was neither RefInc'd on box nor RefDec'd on drop — balanced
+when box + source dropped together, but a USE-AFTER-FREE (SIGSEGV) when the box
+outlived the source, and boxing into `@any` hit Part A's fail-loud guard.
+
+Fix (mirrors FU3 `@(@T)` / Part A `@([N]@Node)`): box-owning arm
+(`emitManagedFuncValueRefInc` the operand); an `emitManagedPtrRefDec` func-value arm
+RefDec'ing through the func-value dtor `__dtor_func`; `genManagedFuncValueDtor` (load
+the `@func()` at the cell + `emitManagedFuncValueRefDec`, which fetches the closure
+dtor from the value's OWN vtable — so ONE signature-INDEPENDENT `__dtor_func` body
+serves every func type, flagged via a boolean `Module.NeedsFuncValueDtor` rather than
+a per-type work-list); `ensureFuncValueDtor` + the generateNonStructDtors / REPL
+drains + the `ensureNestedMptrPointeeDtor` descent emit it; admitted into managed
+`@any` (slot 0 = `__dtor_func`).  The fail-loud guard now covers only an anonymous
+managed struct pointee (not constructible today — a defensive net; conformance 1115
+removed).
+
+Adversarial review SOUND on all three lenses (ownership, box/drop blast-radius,
+cross-mode); pre-checks confirmed the single-body dedup (two signatures → one
+weak_odr `__dtor_func`, no invalid redefinition) and the non-capturing (null-data)
+guard.  Conformance 1118 (bare balance / box-outlives-source UAF-now-42 / `@any`
+balance) + unit tests pinning genManagedFuncValueDtor.  LLVM / VM / comp-comp /
+native-aa64 / native-x64.  This also completes the box-of-bare-`@func` owning case
+(the FUNC half of the box-FUNC/IFACE follow-up; only IFACE-value remains).
+
 ## Native aarch64: cross-package multi-return with a struct member miscompiled (sret ABI mismatch) — ✅ FIXED & LANDED (`ba01f286`+`a84ec790`+`275cc807`, 2026-07-23)
 
 **Was CRITICAL** — wrong-code/ABI mismatch in the native aarch64 backend.

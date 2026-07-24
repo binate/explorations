@@ -69,49 +69,18 @@ the peeled `collSt` and the operand goes through the backend GEP fix `846c5771`)
 Only items (1) [checker `*p` deref] and (2) [latent `(*p)[i]` codegen arm] above
 remain open in this entry.
 
-### FU4 Part B: func-value managed POINTEE owning treatment — 🟠 OPEN (MAJOR leak, found 2026-07-20)
-
-Follow-up carved out of FU2 (`a88dbc2f`, done log).  FU4 Part A (`e984cf2d`, done
-log) landed the **array-of-managed** pointee (`@([N]@Node)`): drop + `@any` box +
-recover round-trip.  The remaining un-owned pointee kind is a managed pointer to a
-**managed func-value** (`@(@func())`).
-
-**MAJOR — it leaks on EVERY drop, not just `@any`:** `emitManagedPtrRefDec`
-(`pkg/binate/ir/gen_util_refcount.bn`) still falls through to a plain `RefDec` for a
-func-value pointee, so the captured record is never cleaned.  Unlike the array case
-(where box/copy already RefInc'd the elements), `box(f)` for a `@func()` operand does
-NOT retain it either — `needsStructCopy` is false for a func-value and the box arm
-has no func-value branch — so this needs BOTH the box-owning and the drop arm.
-
-Boxing it into `@any` currently **fails loud** ("not yet supported", the guard in
-`wrapAsIfaceValue`, conformance `1115_managed_aggregate_pointee_any_unsupported`,
-negative).  When Part B lands, **remove that guard and 1115** and let the box become
-valid.
-
-**Fix — mirror the array/FU3 owning treatment for the func-value pointee:**
-(1) box-owning arm in `gen_builtin.bn` (`emitManagedFuncValueRefInc` the operand —
-that helper already exists, used by the copy / param / return paths); (2) an
-`emitManagedPtrRefDec` func-value-pointee arm (a new `genManagedFuncValueDtor` body:
-load the `@func()` at the cell + `emitManagedFuncValueRefDec` — note that helper
-returns a `@Block` since it splits on a null-data guard, so the dtor body threads the
-block); (3) a trigger to emit that dtor (the func-value dtor is signature-INDEPENDENT
-— dtorNameForType(`@func()`) = `__dtor_func`, one body — so a module boolean flag may
-suffice rather than a per-type work-list); (4) `ensureNestedMptrPointeeDtor` +
-`ensureAnyImplInfo` + `wrapAsIfaceValue` admit it, dropping the guard.  Add
-conformance for NORMAL-drop balance (bare / field / element) AND `@any` balance +
-recover, across modes.  Also covers the anon-managed-struct pointee if trivial.
-
-### box() of a bare managed FUNC / IFACE operand does not retain — 🟠 OPEN (found 2026-07-18)
+### box() of a bare managed IFACE operand does not retain — 🟠 OPEN (found 2026-07-18)
 
 Follow-up from the same fix.  `box()` now retains a bare managed-SLICE operand
-(§9, `75769ddd`) and a bare managed-PTR operand (`box(mp)` for `mp @Node` →
-`@(@Node)`, FU3 `d4c2f808`), and already retained struct managed fields — but a
-bare managed FUNC-value or IFACE-value operand still does a NON-owning shallow copy
-(no RefInc), the same class of latent use-after-free (the box dangles if it
-outlives the source).  Extend the box arm + `emitManagedPtrRefDec` (and the
-dtor-emission walks) to these two operand kinds, mirroring the managed-slice / ptr
-treatment — the drop side needs a `@(@func)` / `@(@I)` pointee dtor analogous to the
-`@(@[]T)` ms-dtor and `@(@T)` mp-dtor arms.
+(§9, `75769ddd`), a bare managed-PTR operand (`box(mp)` for `mp @Node` → `@(@Node)`,
+FU3 `d4c2f808`), a managed FUNC-value operand (FU4 Part B `2bfd9c14`), and already
+retained struct managed fields — but a bare managed IFACE-value operand still does a
+NON-owning shallow copy (no RefInc), the same class of latent use-after-free (the
+box dangles if it outlives the source).  Extend the box arm + `emitManagedPtrRefDec`
+(and the dtor-emission walks) to the iface-value operand, mirroring the managed-
+slice / ptr / func-value treatment — the drop side needs a `@(@I)` pointee dtor
+analogous to the `@(@[]T)` ms-dtor, `@(@T)` mp-dtor, and `@(@func())` `__dtor_func`
+arms.
 
 ## Test-flake watch
 
