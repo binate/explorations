@@ -6,6 +6,56 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Native aarch64: cross-package multi-return with a struct member miscompiled (sret ABI mismatch) — ✅ FIXED & LANDED (`ba01f286`+`a84ec790`+`275cc807`, 2026-07-23)
+
+**Was CRITICAL** — wrong-code/ABI mismatch in the native aarch64 backend.
+Discovered via CI `native_aa64` conformance red on the new `stdlib/os/process/001_run`
+(`process.Run` returns `(ExitStatus, @errors.Error)`).
+
+**Root cause (confirmed via instrumentation + `llc`).** `native_aa64` is a HYBRID
+build: `cmd/bnc`'s main module goes native, every dependency (incl. the callee)
+via LLVM. Codegen emitted a multi-return as a first-class-aggregate BY VALUE and
+let LLVM choose the machine ABI. LLVM's AArch64 return legalization CANNOT split a
+struct containing a `[N x i8]` byte-array padding member into registers, so it
+**srets** such an FCA return (via `x8`) — and Binate emits alignment padding as
+explicit `[N x i8]` arrays (`{bool,int,int}` → `<{ i1, [7 x i8], i64, i64 }>`), so
+the LLVM callee srets. The native caller's classifier (`MultiReturnTupleNeedsSret`,
+flat GP-word count) didn't model this, used registers, and never set `x8` — which
+arrived holding a stale interface-vtable const (read-only) → SIGBUS. LLVM-only
+modes worked because LLVM is self-consistent (caller+callee both quirk); only the
+native↔LLVM boundary diverged. The trigger is a struct tuple member (`(St,int)`
+crashed too, not just the interface); the discriminant is the byte-array padding
+member (an LLVM eightbyte-coercion quirk — `<{i8,[7 x i8],i64}>` srets but
+`<{i16,[6 x i8],i64}>` doesn't), NOT size/word count — so a native mirror (option
+A) was ruled out as fragile.
+
+**Fix (C-coerce).** Codegen now coerces each struct/array FIELD of a
+register-returned multi-return tuple to its `[N x iW]` form
+(`multiReturnCoercedLLTy`), so LLVM register-returns the tuple (no padding member
+to quirk on), matching the native per-field collect. Byte-identical, so the
+return/call reinterpret through a shared slot; scalar-only tuples (`(int,@Error)`)
+are unchanged (no ABI shift, conformance 526 untouched). Reuses the existing
+single-aggregate coercion machinery; handles all three call shapes — direct
+(`emit_call.bn`/`emit_value.bn`), iface-method (`emit_iface_call.bn`), func-value
+shim (`emit_funcvals_shim.bn`); helpers in `emit_agg_coerce.bn`. **Gated to
+ARCH_AA64** (`multiRetCoercionActive`) since the quirk is AArch64-specific; x64
+(SysV) and arm32 (AAPCS32) don't exhibit it (native_x64 CI passed the same shape),
+so their emission is left byte-identical to before.
+
+**Validation (all locally-runnable, on the landed tree):** native_aa64 conformance
+**2848/0**; builder-comp LLVM 2848/0; builder-comp-comp self-host 2848/0;
+builder-comp-int VM 2829/0; full unit tests (64 pkgs) 0-fail; hygiene 17/17.
+Reproducers on native_aa64: `os/process/001_run` passes; cross-package direct
+`(St,@Error)`→7,1, `(St,int)`→7,9, iface-method→107, func-value→42.
+
+**CI-confirm pending (not locally runnable, CI stalled at time of landing):**
+`native_x64`, `native_aa64_linux`, LLVM/native arm32. The aa64 gate makes
+x64/arm32 byte-identical to their previously-passing emission (safe by
+construction); `native_aa64_linux` is the only newly-affected mode and mirrors the
+validated `native_aa64` darwin (same ARCH_AA64/AAPCS64 return-ABI codegen, differs
+only in OS/binary format). Reviewed as three adversarial rounds were applied
+during design; full root-cause thread preserved in this entry.
+
 ## Array-of-managed managed POINTEE owning treatment + `@any` round-trip (FU4 Part A) — ✅ DONE (`e984cf2d`, 2026-07-23)
 
 A managed pointer to an array-of-managed (`@([N]@Node)`, the shape `box(arr)`
