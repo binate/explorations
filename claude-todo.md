@@ -322,31 +322,34 @@ stdout.
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### `builder-comp_arm32_linux` unit lane triage — 🟢 all known reds fixed+landed; CI-confirm pending
+### `builder-comp_arm32_linux` unit lane triage — 🟢 all known reds fixed+landed & confirmed
 
 The ILP32 host-vs-target int-width root causes from CI run `29550055785` (buckets A–E′,
-plus the IR-gen named-const follow-up), the large-multi-return-FCA segfault, and the ir
-sizeof test-portability reds are all fixed and landed — see [claude-todo-done.md](claude-todo-done.md).
-What remains is CI confirmation (the lane isn't locally runnable — no qemu-arm):
+plus the IR-gen named-const follow-up), the large-by-value-FCA multi-return sret fix, the
+anonymous-multi-return-tuple dtor-layout segv (the actual `asm/parse TestParseMov`
+crash), and the ir sizeof test-portability reds are all fixed and landed — see
+[claude-todo-done.md](claude-todo-done.md). The lane is reproducible locally via a
+qemu-arm cross-run (Docker + qemu-user) and now passes end-to-end there; the only
+arm32-family item still awaiting a CI signal is the baremetal-xfail removal below.
 
-- **✅ FIXED & LANDED — the large-multi-return arm32 segfault + the ir sizeof
-  test-portability reds** (`98c956f0` + `5dd3f3f8` + `2515041f`, 2026-07-18). The
-  `asm/parse` `TestParseMov` segv was NOT a layout bug (refuted: `MaxAlign=8`, packed
-  structs with explicit padding) — the LLVM backend emitted a large multi-value return
-  as a raw by-value first-class aggregate `{T1,T2}` (never sret, regardless of size),
-  which arm32 mis-lowers when the tuple contains an int64. Fixed by routing large
-  multi-returns through sret on the register-COUNT rule the native backends already use,
-  across ALL three call paths: direct call + func-value/closure shims (`98c956f0`) and
-  interface-method dispatch (`5dd3f3f8`, a third path caught in adversarial review). The
-  3 ir sizeof/hint-narrowing reds were a test-portability bug (expected from host
-  `sizeof` vs the ambient layout target) — fixed test-side (`2515041f`). Guards:
-  conformance `1097` (direct + func-value) + `1099` (interface), each round-tripping a
-  >int32 int64 field; codegen register-count unit tests. Validated locally as far as
-  possible: builder-comp `2822/0/7` + self-host builder-comp-comp `2822/0/7` + arm32
-  `--emit-llvm` sret across all paths (clang-lowered) + host round-trips. Full story in
-  [claude-todo-done.md](claude-todo-done.md). **arm32_linux RUNTIME confirmation is the
-  next completed CI Unit-tests run** (not locally runnable: no qemu-arm) — if any
-  asm/parse or ir red remains there, reopen with the specifics.
+- **✅ FIXED & LANDED + locally confirmed — the `asm/parse TestParseMov` segv + the ir
+  sizeof reds.** The segv (surfaced when `Token.Ival` widened `int`→`int64`, `72f00cf4`)
+  WAS a struct-layout bug — contrary to the earlier "not a layout bug" call recorded
+  under the sret fix, which was the mis-diagnosis. Anonymous multi-return tuples
+  (`{T1,T2}`) were emitted FLAT while every named struct is emitted packed-with-explicit-
+  `[N x i8]`-padding, so the generated tuple destructor's field-GEP landed at the wrong
+  byte offset for a member needing alignment padding (an int64 on ILP32), read a bogus
+  managed pointer, and SIGSEGV'd. Fixed (`2a5c7ac8`) by emitting anonymous structs in the
+  SAME packed-with-padding form as named ones and applying the `structLLVMIndex`
+  source→LLVM field remap uniformly across all five consumers (GET_FIELD_PTR, SSA struct
+  copy + load, insert/extractvalue, func-value/closure shim). The separate large-multi-
+  return sret fix (`98c956f0` + `5dd3f3f8`) was a REAL fix for a distinct latent bug (a
+  large by-value FCA multi-return containing an int64; guards conformance `1097`/`1099`)
+  but did NOT resolve `TestParseMov`. The 3 ir sizeof/hint-narrowing reds were test-
+  portability (`2515041f`). Verified on real arm32 (qemu-arm cross-run): the pre-fix
+  build reproduces the segv, the fix clears it, and the full `arm32_linux` lane runs green
+  (`62/0`); plus LP64 `2835/0/9`, self-host `2835/0/9`. Full story in
+  [claude-todo-done.md](claude-todo-done.md).
 
 Note: the lane is not locally runnable on the macOS dev host (no qemu-arm /
 arm-linux cross-toolchain). Check-phase bugs (e.g. the constant fit-check) reproduce

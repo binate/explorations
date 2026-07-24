@@ -6,6 +6,53 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Anonymous multi-return tuples emitted FLAT → arm32 dtor SIGSEGV (the real `asm/parse TestParseMov` crash) — ✅ DONE (`2a5c7ac8`, 2026-07-23)
+
+**Symptom.** `builder-comp_arm32_linux` unit lane: `pkg/binate/asm/parse` SIGSEGV'd at
+`TestParseMov` (`qemu: uncaught target signal 11`) once `Token.Ival` widened
+`int`→`int64` (`72f00cf4`). This is the SAME symptom the large-multi-return sret fix
+(`98c956f0`/`5dd3f3f8`, below) was credited with resolving — but it did NOT: CI showed
+the segv persisting with that fix landed, and a qemu-arm repro pinned a distinct root
+cause. The "NOT a struct-layout bug" call in that entry was the mis-diagnosis; it WAS a
+layout bug.
+
+**Root cause.** The LLVM backend emitted anonymous multi-return result tuples (`{T1,T2}`)
+as FLAT, default-layout LLVM structs, while every NAMED struct is emitted PACKED
+(`<{ ... }>`, alignment 1) with explicit `[N x i8]` padding members plus a source→LLVM
+field-index remap (`structLLVMIndex`) so field GEPs match `types.FieldOffset`. The
+compiler-generated tuple DESTRUCTOR (`genStructDtor`) field-accesses each managed member
+by its SOURCE field index; with the anon tuple emitted flat, that GEP resolved to the
+wrong byte offset whenever a member needed alignment padding before it — e.g. a
+`(bool, @Iface)` tuple, or a Token-shaped tuple whose int64 forces 8-alignment on ILP32.
+The dtor then loaded a bogus "managed pointer" from the mis-offset slot and RefDec'd
+through it → SIGSEGV. LP64 masked it (different padding), so it surfaced only on arm32
+and only after the int64 widening changed the tuple's padding.
+
+**Fix (`2a5c7ac8`).** Emit anonymous structs (multi-return tuples and the `_args`
+variants) in the SAME packed-with-explicit-padding form as named structs — new
+`anonStructLL` in `emit_types.bn` builds `types.MakeStructType("", fields)` and walks its
+`StructLayout()` to emit `[N x i8]` padding + trailing padding. Then apply the
+`structLLVMIndex` source→LLVM field remap UNIFORMLY (it is identity for non-structs)
+across all FIVE consumers that index into a tuple, so none is left on the raw index:
+GET_FIELD_PTR (`emit_helpers.bn`), SSA struct copy + load (`emit_copy_ssa.bn`,
+`emit_copy_ssa_load.bn`), insert/extractvalue on return/extract (`emit_value.bn`), and
+the func-value / closure shim result type (`emit_funcvals_sig.bn` — the missed consumer
+that broke repl+bni in a first cut, caught by adversarial review + re-audit). The prior
+per-site `len(t.Name) > 0` "named only" guards are all removed.
+
+**Guards.** codegen `TestAnonTupleDtorFieldGepIndex` + `…ManagedSlice` (assert the packed
+`<{ i1, … }>` form and the GEP landing at remapped index 2, not raw 1);
+`TestEmitClosureShimAggregateReturnUsesRetbuf` updated to the packed
+`store <{ i64, i64 }>` shape. Verified locally on real arm32 (qemu-arm cross-run): the
+pre-fix build reproduces the `TestParseMov` segv, the fix clears it, and the full
+`arm32_linux` lane runs green (`62/0`); plus LP64 `2835/0/9`, self-host builder-comp-comp
+`2835/0/9`, codegen units green, hygiene 17/17, adversarial review PASS.
+
+Same CLASS as binate `5f4a8eaf` (2026-06-03, anon-tuple dtor GEP index vs alignment
+padding), but that fix predated the packed-struct emission scheme; the flat-vs-packed
+anon-tuple emission reintroduced the divergence, now closed by making anon emission
+byte-identical to named.
+
 ## Managed func-value POINTEE owning treatment (FU4 Part B) — ✅ DONE (`2bfd9c14`, 2026-07-23)
 
 Completes FU4.  A managed pointer to a managed func-value (`@(@func())`, the shape
@@ -414,14 +461,24 @@ CHECK_TOOLS-gated todos stay open — they need features NOT in pre3: bnfmt
 multi-file batching (needs a bundle ≥ `7821afd0`) and the genmatrix port (needs a
 bundle whose injected `os` ships `MkdirAll`).
 
-## Large multi-value returns → sret (arm32 `asm/parse` segfault + ir sizeof reds) — ✅ DONE (`98c956f0`, `2515041f`, `5dd3f3f8`, 2026-07-18)
+## Large multi-value returns → sret (large by-value-FCA multi-return with int64; + ir sizeof reds) — ✅ DONE (`98c956f0`, `2515041f`, `5dd3f3f8`, 2026-07-18)
+
+> **Correction (2026-07-23).** This entry originally credited the sret change with
+> resolving the `asm/parse TestParseMov` arm32 segv, and the "Root cause (segv)"
+> paragraph below called it "NOT a struct-layout bug." Both were wrong. The sret change
+> is a real, independent fix — a large by-value first-class-aggregate multi-return
+> containing an int64, guarded by conformance `1097`/`1099` — but the actual
+> `TestParseMov` segv WAS a layout bug in anonymous multi-return tuples, fixed separately
+> by `2a5c7ac8` (see the entry near the top of this file). The by-value-FCA analysis
+> below stands as the sret rationale; only its `TestParseMov`/segv attribution is
+> superseded.
 
 **Symptom.** `builder-comp_arm32_linux` unit lane: `pkg/binate/asm/parse` SIGSEGV'd
 (`qemu: uncaught target signal 11`) at `TestParseMov` once `Token.Ival` was widened
 `int`→`int64` (`72f00cf4`); `pkg/binate/ir` `TestGenSizeofInt`/`TestGenSizeofSlice`/
 `TestNeedsHintNarrowing` failed there too.
 
-**Root cause (segv).** NOT a struct-layout bug — that was refuted by local `--emit-llvm
+**Root cause (the large-FCA multi-return bug — NOT the `TestParseMov` segv; see Correction above).** This was believed to be NOT a struct-layout bug — refuted, incorrectly for the anon tuple, by local `--emit-llvm
 --target arm32-linux` inspection: `cmd/bnc setArm32Layout()` sets `MaxAlign=8` (AAPCS),
 and Binate emits packed LLVM structs with explicit `[N x i8]` padding, so int64 struct
 fields are 8-aligned correctly (verified minimal + Token-shaped fixtures). The real
