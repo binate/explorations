@@ -9,23 +9,35 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### `2a5c7ac8` (packed anonymous structs) regressed native_aa64 multi-return collection — 🔴 OPEN MAJOR (found 2026-07-24)
+### `2a5c7ac8` (packed anonymous structs) regressed native multi-return collection — 🔴 OPEN MAJOR (found 2026-07-24; **CI-CONFIRMED broader 2026-07-25**)
 
 **Severity: MAJOR** — `2a5c7ac8` ("codegen: emit anonymous structs
-packed-with-padding (fix arm32 multi-return dtor segv)") broke **4 native_aa64
-conformance tests** on main: `stdlib/strconv/002_parse`,
-`stdlib/strconv/004_parse_cross_pkg`, `stdlib/os/004_read_byte_write_byte`, and
-its own new `regressions/multiret-int64-field`.
+packed-with-padding (fix arm32 multi-return dtor segv)") broke native multi-return
+collection. **Now that CI has recovered (2026-07-25), it is confirmed BROADER than
+the initial aa64-only finding: it hits BOTH native backends.**
+- **native_x64: 2844 passed, 10 FAILED** — `890_chained_method_transitive_struct`,
+  `stdlib/math/big/003_divmod`, `stdlib/os/004_read_byte_write_byte`,
+  `stdlib/os/010_modtime_chain`, `stdlib/strconv/002_parse`,
+  `stdlib/strconv/004_parse_cross_pkg`, `stdlib/time/001_negative_pre_epoch`,
+  `stdlib/time/002_point_roundtrip`, `stdlib/time/003_cross_pkg_consumer`,
+  `regressions/multiret-int64-field`.
+- **native_aa64: 2850 passed, 4 FAILED** — `stdlib/os/004_read_byte_write_byte`,
+  `stdlib/strconv/002_parse`, `stdlib/strconv/004_parse_cross_pkg`,
+  `regressions/multiret-int64-field`.
+(arm32_linux also shows 2 multi-return reds — `698_cross_pkg_mr_float3`,
+`715_x87_mr` — possibly related; the `2a5c7ac8` author should check.)
 
 **Attribution (hard evidence, NOT the aa64 multi-return-struct fix `275cc807`):**
 at `275cc807` (the multi-return-struct sret fix, immediately BEFORE `2a5c7ac8`),
-those 3 stdlib tests **PASS** on native_aa64 (verified: 3/0); on the combined base
-(`b6304150`) they FAIL (full run: 2849 passed, **4 failed**). All 4 failing tests
-return **scalar/iface** multi-return tuples (`(uint64,@Error)`, `(uint8,@Error)`,
-`(int64,int32)`, `(int32,int64)`) — which have NO struct/array field, so the
-aa64-coercion fix's `multiRetTypeHasCoercibleField` gate returns false and its code
-is **inert** for them. So the break is `2a5c7ac8`'s, exposed only on native_aa64
-(CI stalled → likely landed with arm32-only local validation).
+the stdlib tests **PASS** on native_aa64 (verified locally: 3/0); on the combined
+base they FAIL. The aa64-coercion fix (`275cc807`) is **gated to ARCH_AA64 and
+inert** for these tuples (they are scalar/iface/int64 — no struct/array field, so
+`multiRetTypeHasCoercibleField`=false) AND does not run on x64 at all — yet
+native_x64 is hit too (10 tests). So the break is unambiguously `2a5c7ac8`'s,
+target-agnostic; it was landed while CI was stalled (likely arm32-only local
+validation). The aa64 fix's own guard `1119_xpkg_multiret_struct_field`
+(struct-field tuple) still PASSES on the combined base — the two coexist for
+struct-field tuples; only scalar/iface/int64/time-struct tuples regressed.
 
 **Root cause — needs the `2a5c7ac8` author (partial recon):** the change makes
 `multiReturnType`/`multiReturnType_args` emit the anonymous tuple as packed
