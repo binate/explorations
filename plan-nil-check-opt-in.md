@@ -109,9 +109,19 @@ of a non-nil pointer just passes).
     none; flag-off none); **builder-comp conformance 2838/0** and
     **builder-comp-int 2819/0** (flag-off byte-identical — the genSelector rewrite
     is behavior-preserving); gen1 built.  Review CLEAN.
-- **N2c (index derefs).** Instrument `genIndex`/`genIndexPtr` directly (same
-  grind, keeping the read/write split), nil-checking the collection pointer before
-  each element GEP.
+- **N2c ✅ LANDED (`b659a8b7`, 2026-07-23 — index derefs).** Instrumented
+  `genIndex` / `genIndexPtr` directly (same grind, keeping the read/write split),
+  nil-checking the RAW POINTER indexed through before each element GEP.  Only raw
+  pointers need it — array bases are an alloca (non-nil), slice bases get a bounds
+  check that catches a nil/short slice.  `genIndexPtr` gained a `forDeref` param
+  (10 callers; address-of `&p[i]` + method-receiver pass false, so `&nilp[i]`
+  doesn't fault).  `genIndex`'s raw-pointer read check is gated on `checked`, so
+  `unsafe_index(p, i)` opts out of ALL guards (bounds + nil — **user decision**).
+  `(*p)[i]` is covered by N2a's `*p` check.  The three index-STORE paths
+  (single-assign gen_control, multi-assign emitIndexStore, parallel-assign
+  resolveParallelIndexTarget) each nil-check the pointer directly (they don't route
+  through genIndexPtr).  Verified: ir unit tests; **builder-comp 2852/0** and
+  **builder-comp-int 2833/0** (flag-off byte-identical); gen1 built.  Review CLEAN.
 - **N2d (intra-block dedup elision (b)).** A per-block already-checked SSA-id set
   so `p.x + p.y` / `p.a.b` emit ONE check for a repeated pointer; skip repeats.
 - **N3 (embedder opt-in + end-to-end).** Plumb the flag through the pipeline
