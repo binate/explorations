@@ -165,19 +165,6 @@ the peeled `collSt` and the operand goes through the backend GEP fix `846c5771`)
 Only items (1) [checker `*p` deref] and (2) [latent `(*p)[i]` codegen arm] above
 remain open in this entry.
 
-### box() of a bare managed IFACE operand does not retain — 🟠 OPEN (found 2026-07-18)
-
-Follow-up from the same fix.  `box()` now retains a bare managed-SLICE operand
-(§9, `75769ddd`), a bare managed-PTR operand (`box(mp)` for `mp @Node` → `@(@Node)`,
-FU3 `d4c2f808`), a managed FUNC-value operand (FU4 Part B `2bfd9c14`), and already
-retained struct managed fields — but a bare managed IFACE-value operand still does a
-NON-owning shallow copy (no RefInc), the same class of latent use-after-free (the
-box dangles if it outlives the source).  Extend the box arm + `emitManagedPtrRefDec`
-(and the dtor-emission walks) to the iface-value operand, mirroring the managed-
-slice / ptr / func-value treatment — the drop side needs a `@(@I)` pointee dtor
-analogous to the `@(@[]T)` ms-dtor, `@(@T)` mp-dtor, and `@(@func())` `__dtor_func`
-arms.
-
 ## Test-flake watch
 
 Intermittent, load-/environment-dependent test failures tracked for recurrence —

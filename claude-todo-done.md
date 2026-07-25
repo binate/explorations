@@ -6,6 +6,37 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Managed IFACE-value POINTEE owning treatment — completes the box-operand family — ✅ DONE (`d39d4e6a`, 2026-07-24)
+
+A managed pointer to a managed iface-value (`@(@I)`, the shape `box(iv)` produces
+for a `@Greeter`) was not owned: `box(iv)` did a non-retaining shallow copy (no box
+arm for a managed iface-value), and `emitManagedPtrRefDec` fell through to a bare
+RefDec for an iface-value pointee — so the iface value's data slot (the receiver) was
+neither RefInc'd on box nor RefDec'd on drop.  Balanced when box + source dropped
+together, but a USE-AFTER-FREE when the box outlived the source (the receiver freed
+early; a recovered iface value read freed memory / a stale value).
+
+Fix (mirrors FU4 Part B `@(@func())`): box-owning arm (`emitManagedIfaceValueRefInc`
+the operand — RefIncs the data slot); an `emitManagedPtrRefDec` iface-value arm
+RefDec'ing through `__dtor_interface`; `genManagedIfaceValueDtor` (load the `@I` at
+the cell + `emitManagedIfaceValueRefDec`, which fetches the RECEIVER dtor from the
+value's OWN vtable — so ONE interface-INDEPENDENT `__dtor_interface` serves every
+interface, flagged via a boolean `Module.NeedsIfaceValueDtor`); `ensureIfaceValueDtor`
++ the drains + the `ensureNestedMptrPointeeDtor` descent; admitted into managed
+`@any` (slot 0 = `__dtor_interface`).
+
+Adversarial review SOUND on all three lenses (ownership, blast-radius, cross-mode);
+the empty/unset iface is null-safe, a raw-receiver impl can't be assigned into a
+managed `@I` (checker rejects), and the single-body dedup holds (two interfaces → one
+weak_odr `__dtor_interface`).  Conformance 1120 (bare balance / struct field /
+box-outlives-source UAF-now-42 / `@any` balance) + unit tests pinning
+genManagedIfaceValueDtor.  LLVM / VM / comp-comp / native-aa64 / native-x64.
+
+This **completes the whole box-of-bare-managed-operand owning family**: managed slice
+(§9 `75769ddd`), managed ptr (FU3 `d4c2f808`), array-of-managed + managed func-value
+(FU4 `e984cf2d` + `2bfd9c14`), and now managed iface-value.  Every bare managed
+operand `box()` retains, and every `@(@X)` drop releases.
+
 ## Anonymous multi-return tuples emitted FLAT → arm32 dtor SIGSEGV (the real `asm/parse TestParseMov` crash) — ✅ DONE (`2a5c7ac8`, 2026-07-23)
 
 **Symptom.** `builder-comp_arm32_linux` unit lane: `pkg/binate/asm/parse` SIGSEGV'd at
