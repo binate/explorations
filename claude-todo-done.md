@@ -6,6 +6,56 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## native arm32/x64/aa64: multi-return tuple return-ABI mismatch (LLVM padding MEMBERS shift FCA return registers) — ✅ DONE (`d72f7154`, 2026-07-25; regressor `2a5c7ac8`)
+
+**Symptom.** A full `builder-comp_native_arm32_baremetal` run regressed to 10 fails; 8 were
+wide-field MULTI-RETURN tests that HANG under QEMU (`terminating on signal 15` at the ~10s
+timeout) — `regressions/multiret-int64-field`, `stdlib/strconv/00{2,4}`, `stdlib/time/00{1,2,3}`,
+`683_cross_pkg_mr_float`, `890_chained_method_transitive_struct`. Native x64 + aa64 crashed
+on the same shapes (`multiret-int64-field`, fast, empty output). All-LLVM and all-LP64 modes
+were green.
+
+**Root cause — bisect-confirmed.** Full unrestricted bisect over `5651fc8b..2a5c7ac8`
+(`multiret-int64-field` as the target): `2bfd9c14` GOOD, **`2a5c7ac8` first BAD** — the
+"emit anonymous structs packed-with-padding" commit (itself the fix for the arm32_linux
+`asm/parse` dtor segv). Earlier `storeMultiReturnTupleFieldsArm32` / P5-window guesses were
+REFUTED by the bisect. `2a5c7ac8` emitted multi-return tuples PACKED with explicit `[N x i8]`
+padding MEMBERS and used that as the tuple's first-class-aggregate RETURN type — e.g.
+`(int32,int64)` → `<{ i32, [4 x i8], i64 }>`, `(bool,@Error)` → `<{ i1, [3 x i8], %BnIfaceValue }>`.
+All-LLVM is self-consistent (insert/extractvalue use the remapped indices), which is why
+`2a5c7ac8`'s verification — which never ran a `native_*` mode — missed it. But a native caller
+reading an LLVM callee reads RETURN REGISTERS by field position, and LLVM gives each `[N x i8]`
+member its OWN return register (on aa64 a padded struct member even forces the sret/x8 fallback),
+shifting the real field: Trail's int64 → r2:r3 while native reads r1:r2; `(bool,@Error)`'s
+managed `@Error` → wrong regs → native RefDec's a garbage pointer at scope exit (the
+"correct-output-then-hang").
+
+**Fix (`d72f7154`).** Keep the packed layout for the IN-MEMORY tuple (dtor field-GEP, sret
+buffer, struct copy, and their `structLLVMIndex` remaps — the `asm/parse` fix stays intact),
+but reinterpret the raw packed tuple to a FLAT, padding-member-free boundary type at the
+ret/call/define boundary. Reuses the existing aa64 coerced-bridge (store raw packed →
+`%mrret.slot` → load flat → ret flat), broadening its trigger from "aa64 + an `[N x iW]`-
+coercible struct/array field" to "any register-returned multi-return with a padding member
+(`multiRetHasPadding`) OR an aa64-coercible field". `multiReturnCoercedLLTy` now gates its
+struct-field `[N x iW]` coercion by arch (`multiRetCoercionActive` = aa64) so x64/arm32 keep
+the plain `%name`/scalar flat form. The func-value path is unchanged (`writeFuncResultsLLVM`
+stays the raw packed form): a multi-field tuple is `isAggregateReturn`, returned via a memory
+RETBUF where the packed byte layout is correct — the shim already spells the underlying-call
+type via its own `multiRetResultsCoerced` check, agreeing with the broadened flat define. (A
+first cut that also changed `writeFuncResultsLLVM` regressed `funcval-{big-multi-return-args,
+empty-struct-multiret}`; reverted after confirming those pass at clean `2a5c7ac8`.) The
+multi-return coercion group split out of `emit_agg_coerce.bn` into `emit_multiret_coerce.bn`
+(file-length).
+
+**Guard.** `emit_multiret_coerce_test.bn` asserts a padded tuple rets the flat boundary while
+an unpadded one stays direct-packed — a unit check in the standard `builder-comp` suite, since
+this defect class is invisible to all-LLVM/LP64 (the conformance guards only fire on `native_*`).
+**Process lesson:** ANY multi-return / anon-struct / aggregate-return codegen change must be
+smoke-tested on a `native_*` mode before landing — a native caller reading an LLVM callee is
+the only thing that exposes a return-ABI desync. Verified: full native arm32 `2821/2`
+(2 remaining are pre-existing non-FCA — `1090_fmt_basic`, `os/011_args`), full native x64 +
+aa64 `2852/0`, full LP64 + self-host `2852/0`, codegen units, hygiene 17/17.
+
 ## Managed IFACE-value POINTEE owning treatment — completes the box-operand family — ✅ DONE (`d39d4e6a`, 2026-07-24)
 
 A managed pointer to a managed iface-value (`@(@I)`, the shape `box(iv)` produces
