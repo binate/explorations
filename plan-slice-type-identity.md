@@ -229,9 +229,25 @@ types unit tests; §11.12 `.error` conformance tests; hygiene.
 
 Flip `iface.assert.slice` Draft→Provisional on the stability axis (grammar
 already in `binate.ebnf`); let fmt's `...*any` fast-path use slice `case`s (one
-`case` per accepted string spelling — a library concern). Settle **bare
-multi-word slice-value boxing** for fmt args (Phase 2 note): materialize-and-box-
-the-address, or keep it a checker error. fmt itself is a separate follow-up plan.
+`case` per accepted string spelling — a library concern).
+
+**Bare multi-word slice-value boxing (Phase 2 note) — RESOLVED via
+materialize-and-box-the-address (`9d04870b`).** A general slice *rvalue*
+(e.g. `ms[:]`, a `@[]char`/`*[]char` from a call or reslice) already boxed with
+its correct char-slice identity through the pre-existing value-borrow path
+(`genExprOrFuncRef`'s 2b materialize-a-temp arm — `genLValueAddr` returns nil for
+it, so it takes the slice-value materialization). The ONE broken sub-case was a
+bare **string literal** (`fmt.Print("hi")`): its natural type is `[N]readonly
+char` (array), and `genLValueAddr` decayed that array to a `*char` element
+pointer, so the box carried a single `char` (`lang.uint8`) identity that every
+char-slice `case` silently missed → `%!?(unknown)`. Fixed in `gen_util.bn`: an
+`EXPR_STRING_LIT` borrow source is decayed to its canonical `*[]readonly char`
+(`EmitStringToChars` → `OP_RODATA_SLICE`, a zero-copy alias of the static
+`{data, len}`), materialized into a frame-lived temp, and its address boxed —
+yielding the `__nameless_srN0_5_uint8` identity a `case *[]readonly char:`
+recovers. A raw slice borrows, so there is no refcount / cleanup. Conformance
+1133 pins the language-level recovery; 1090 gained bare-operand fmt cases. fmt
+itself is a separate follow-up plan.
 
 ## 5. Decisions
 
