@@ -50,24 +50,45 @@ struct-field register-multi-return is a deferred native-arm32 sub-case (cf. the 
 "multi-return … deferred (P4-b)"), xfail it on native arm32 with a P4 todo. Do NOT silently
 work around.
 
-### Struct-field register multi-return — two UNVERIFIED audit flags (need a targeted repro) — 🟠 OPEN (flagged 2026-07-28)
+### aa64 register multi-return: struct/array field at a non-8-aligned offset silently miscompiled — 🔴 OPEN MAJOR (CONFIRMED 2026-07-29; audit flag (i))
 
-Surfaced by the adversarial audit that found the now-FIXED **capturing-closure padded
-multi-return** miscompile (fixed `bb3cd109`, full write-up in
-[claude-todo-done.md](claude-todo-done.md)). NEITHER of these is independently confirmed — do
-NOT treat as a live bug until reproduced:
-- **(i) aa64 register multi-return with a struct/array field at a NON-word byte offset** (e.g.
-  `(int32, struct{int8})`). The aa64 field-coercion (`multiReturnCoercedLLTy`'s `[N x iW]`
-  spelling) may not reproduce the packed field's byte offset, so the store-packed → `%mrret.slot`
-  → load-flat reinterpret would over-read. Claimed (UNVERIFIED) repro:
-  `(int32, struct{int8=99})` → `(55555, 1)`. Claimed PRE-EXISTING (predates `d72f7154`). If real,
-  its own (likely CRITICAL) bug.
-- **(ii) x64/arm32 register multi-return with a small multi-leaf / interior-padded struct field**
-  may diverge from the native whole-word collect. This MAY simply BE the native-arm32 `(St, int)`
-  `1119` entry above — check that first.
+**Severity: MAJOR — silent wrong-code on aa64 (LP64) incl. plain builder-comp.** Flagged
+(UNVERIFIED) by the adversarial audit behind the now-fixed capturing-closure padded multi-return
+(`bb3cd109`); NOW CONFIRMED by an independent adversarial review + repro (2026-07-29).
 
-Cheap to settle: a `(int32, struct{int8})` / `(struct{int32;int32}, int)` conformance probe
-across the native + LLVM lanes, mirroring `conformance/regressions/closure-multiret-padded`.
+A register-returned multi-return tuple whose STRUCT or ARRAY field sits at a non-8-aligned byte
+offset — e.g. `(int32, P)` / `(bool, P)` with `P` an align-4 `struct{x int32; y int32}`, or
+`(int32, [2]int32)` — reads the field's low word from the WRONG bytes on aa64.
+
+**Confirmed repro** (builder-comp, pure-LLVM aa64 host): a DIRECT call `func mk() (int32, P)`
+returning `{99, {x:10, y:20}}` prints `99, 1, 20` — `P.x` is GARBAGE (1, not 10); `P.y` (byte 8,
+matching both layouts) survives. A capturing closure of the same shape corrupts identically.
+
+**Root cause — the coerced-bridge `multiReturnCoercedLLTy` (emit_multiret_coerce.bn).** On aa64
+it spells a struct/array field as its `[N x i64]` coerced form; `[1 x i64]` is 8-aligned, so in
+the FLAT tuple `{ i32, [1 x i64] }` the field lands at byte 8 — but the RAW packed tuple
+`<{ i32, %P }>` (which the callee builds + the caller loads) places `P` at byte 4
+(types.FieldOffset). The store-flat / load-raw reinterpret (callee `ret` via `%mrret.slot`; call
+bind via `.mrRB`; the func-value + closure retbufs) then reads the field's low word from the
+wrong offset.
+
+**PRE-EXISTING, not `d72f7154` / `97aad481` / `bb3cd109`.** The DIRECT-call path
+(emitMultiRetCoercedReturn / emitMultiRetCallResultBind), untouched by all of them, is corrupted
+identically — the defect is in the shared bridge, inherited by direct calls, the func-value
+shim, and the closure shim (all faithfully mirror the flat callee type). aa64-ONLY: on x64/arm32
+`multiRetCoercionActive()` is false, so a non-padded struct-field tuple stays raw + correct — why
+CI never caught it.
+
+**Fix direction:** `multiReturnCoercedLLTy` must emit a flat type whose natural LLVM field
+offsets match the raw packed `types.FieldOffset` layout — keep explicit `[K x i8]` alignment
+members (dropping only the members that would cost a return register), or pad so an
+`[N x iW]`-coerced field lands at its real offset, rather than letting LLVM's 8-alignment of
+`[N x i64]` bump it. Guards: a direct + a func-value + a closure `(int32, struct{int32,int32})`
+cross-package multi-return on aa64. Do NOT work around.
+
+**Audit flag (ii)** (x64/arm32 register multi-return with a small/interior-padded struct field
+diverging from the native whole-word collect) is likely the native-arm32 `(St, int)` `1119`
+entry above — a different mechanism (arm32 does not coerce struct fields); track it there.
 
 
 
