@@ -45,6 +45,54 @@ to pin the culprit, then root-cause the native-arm32 `(St, int)` collect
 (`storeMultiReturnTupleFieldsArm32` / the struct-field store into the tuple slot) and
 fix. Do NOT work around — it is a silent partial-miscompile on a shipping backend.
 
+### Capturing-closure PADDED multi-return silently miscompiled — 🔴 OPEN CRITICAL (regression from `d72f7154`, found + confirmed 2026-07-28)
+
+**Severity: CRITICAL — silent wrong-code, ALL LP64 modes incl. plain `builder-comp`**
+(NOT native-specific; broader than the native-arm32 `(St, int)` entry above). A CAPTURING
+closure whose func-value type returns a register-returned multi-return tuple WITH a padding
+member — e.g. `@func() (int32, int64)` (int64 at offset 8, after 4 bytes of pad) — silently
+returns garbage for the field past the padding.
+
+**Confirmed repro** (INDEPENDENT, `builder-comp` = all-LLVM host, aa64): a capturing closure
+`var cl @func() (int32, int64) = func() (int32, int64) { return n32, big }` with `n32=42`,
+`big=7000000000`, `c1, c2 = cl()` prints `42` then **`32`** (expected `7000000000`). A direct
+top-level `func() (int32,int64)` AND a NON-capturing func-value of the same type both return
+correctly — only the CAPTURING closure is wrong.
+
+**Root cause (confirmed in code + by the func-value/closure asymmetry).** `d72f7154` routes a
+register-returned PADDED multi-return through a flat, padding-member-free FCA boundary
+(`multiReturnCoercedLLTy`) at the ret/call/define boundary, and added the matching `coercedMR`
+branch to the FUNC-VALUE shim (`emit_funcvals_shim.bn:369` `multiRetResultsCoerced` →
+`multiReturnCoercedLLTyResults`) — but did NOT update the CAPTURING-CLOSURE shim.
+`emit_funcvals_closure.bn`'s `emitClosureShimAggregate` register-return path still spells the
+RAW PACKED `<{i32,[4xi8],i64}>` (via `writeFuncResultsLLVM`) for its internal call to the now-
+FLAT closure-body `define {i32,i64}`. (`d72f7154`'s diff touches `emit_funcvals_sig.bn` but NOT
+`emit_funcvals_closure.bn`.) clang SILENTLY bitcasts the fnptr type mismatch (not a loud
+verifier error), so the int64 is read from the wrong slot → garbage. Pre-`d72f7154`,
+`funcMultiRetCoerced` did not fire for scalar padded tuples (both sides raw-packed → agreed),
+so the closure path worked — hence a clean `d72f7154` regression.
+
+**Why dormant in CI.** The only capturing-closure-multiret test
+(`conformance/regressions/capturing-closure-multi-return`) uses `{int,int}` (word-aligned, NO
+padding → `multiRetHasPadding` false, bridge never fires). No test covers a PADDED scalar tuple
+through a capturing closure; the guard unit test `emit_multiret_coerce_test.bn` covers only the
+direct-return path.
+
+**Proposed fix.** Mirror the func-value shim's `coercedMR` branch into
+`emitClosureShimAggregate`'s register-return path (`emit_funcvals_closure.bn` ~311-322). Add a
+regression conformance test: a capturing closure returning `(int32,int64)` AND `(int64,int32)`
+(TRAILING-pad — the exact shape the fix's own comment names as the arm32 hang, currently
+unguarded); and close the `emit_multiret_coerce_test.bn` guard gaps (trailing-pad-only case;
+a closure/call-side assertion). Do NOT work around.
+
+**Also surfaced by the same adversarial audit — NOT independently confirmed, needs a targeted
+repro before fixing:** (i) a PRE-EXISTING (predates `d72f7154`) aa64 register multi-return with
+a struct/array field at a NON-word byte offset (e.g. `(int32, struct{int8})`) may be lossy
+through the coercion slot — claimed repro `(int32, struct{int8=99})` → `(55555, 1)`; (ii) an
+x64/arm32 register multi-return with a small multi-leaf / interior-padded struct field may
+diverge from the native whole-word collect — this MAY be the same defect as the native-arm32
+`1119` entry above.
+
 
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
