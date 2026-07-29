@@ -122,8 +122,22 @@ of a non-nil pointer just passes).
   resolveParallelIndexTarget) each nil-check the pointer directly (they don't route
   through genIndexPtr).  Verified: ir unit tests; **builder-comp 2852/0** and
   **builder-comp-int 2833/0** (flag-off byte-identical); gen1 built.  Review CLEAN.
-- **N2d (intra-block dedup elision (b)).** A per-block already-checked SSA-id set
-  so `p.x + p.y` / `p.a.b` emit ONE check for a repeated pointer; skip repeats.
+- **N2d ✅ LANDED (`c983518d`, 2026-07-28 — intra-block dedup elision (b)).**
+  `p.x + p.y` / `p[0] + p[1]` emit ONE OP_NIL_CHECK when checks are on.
+  `Block.NilCheckedSlots` holds the source-slot ids established non-nil in a block;
+  `nilDedupKey` keys a deref on its LOAD's OP_ALLOC source (a real local/param slot,
+  id ≥ 0) so two loads of the same variable share a key — else on the value's own
+  id.  SOUNDNESS: `addInstr` (the sole append choke point) clears the set on any op
+  not in a conservative pure whitelist (`nilDedupPreservingOp` — store / call /
+  destructor / unknown all invalidate).  Intra-block only (fresh blocks re-check).
+  Purely an optimization on opt-in checks — default off byte-identical
+  (**builder-comp 2854/0, builder-comp-int 2835/0**).  A **5-lens adversarial
+  soundness workflow** (the flag-off conformance suite can't reach this) caught and
+  drove fixes for TWO real would-be-SEGV holes before landing — a `**f()`
+  load-source false-dedup and an all-globals-share-`-1` key collision — both pinned
+  with regression tests; re-verified CLEAN across all lenses.
+- The **N2 emission phase is COMPLETE** (N2a `*p` / N2b field / N2c index / N2d
+  dedup).  Only N3 (turning the flag on) remains.
 - **N3 (embedder opt-in + end-to-end).** Plumb the flag through the pipeline
   (`interp` / `cmd/bni`): REPL → on; `bni <prog>` run → **off** by default with a
   `--check-nil` opt-in; `bni --test` → **on** (tests want safety). Conformance: a nil
