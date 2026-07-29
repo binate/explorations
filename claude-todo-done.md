@@ -6,7 +6,25 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
-## bare-metal residual conformance fails: os/011_args + 1090_fmt_basic — ✅ DONE (`935d4e27`, `27861ea8`, 2026-07-28)
+## Named-distinct pointer must NOT satisfy its underlying's interfaces — ✅ DONE (`96c85b86`, 2026-07-29)
+
+`type PS *S; impl *S : Getter; var g *Getter = ps` compiled then crashed: the
+named-distinct transparency arm of `AssignableTo` (`types_assignable.bn`) decayed
+`PS→*S` BEFORE the interface-satisfaction check, so `*S` was seen and admitted.
+But a named-distinct type does not inherit its underlying's methods (so `ps.m()`
+non-deref is rejected), hence it must not inherit interface SATISFACTION either.
+Fix: skip the src-underlying decay for an interface-value destination
+(`resolveAliasAndConst(dst)` + kind check for `TYP_INTERFACE_VALUE` /
+`_MANAGED`); the source's own type then reaches `canAssignToRawInterfaceValue`,
+which already rejects a `TYP_NAMED` source (raw and managed).  `var q *S = ps`,
+`var g *Getter = &s`, universal `*any`, and a direct `impl PS` (via the borrow
+path) are all unaffected.  Adversarially reviewed clean.  Test
+`1134_err_named_ptr_iface`.  (Also relocated `arrayLengthsMatch` /
+`stringLitFitsArray` to `types_query.bn` for the file-length cap.)  This was item
+(1) of the two named-distinct-pointer follow-ups; a concurrent session had
+independently fixed the same item on a work branch — this landed first, so that
+duplicate is dropped.  Item (2) (managed-ptr nested-array deref) is being landed
+separately by that session — see claude-todo.md.
 
 The two conformance tests left failing on the native-arm32 baremetal lane after the
 multi-return FCA fix (`d72f7154`). Parallel diagnostic agents established that NEITHER

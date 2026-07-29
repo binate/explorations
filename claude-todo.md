@@ -127,6 +127,16 @@ the program aborts (not returns 0). Tracked against Plan 2
 
 ### Named-distinct pointer: interface satisfaction + managed-ptr nested-array deref — ✅ FIXED, pending land (2026-07-28)
 
+**⚠️ COORDINATION (2026-07-29): item (1) was ALSO fixed independently by another
+session and has LANDED on main — commit `96c85b86` (`types_assignable.bn`: guards
+the named-distinct→underlying assignability decay against an interface-value
+destination via `resolveAliasAndConst` + kind check; test
+`1134_err_named_ptr_iface`).  So the item-(1) work described below (the
+`isInterfaceValueType` version, test `1131_named_ptr_iface_reject`) is now a
+DUPLICATE — DROP it; also note its `1131`/`1132` test numbers already collide with
+landed coverage tests (`1131_named_ptr_deref_assign`, `1132_named_ptr_deref_field`,
+both on main).  Item (2) below is UNAFFECTED and still needs landing.**
+
 Both residual gaps from the named-distinct-pointer transparency project (parent in
 claude-todo-done.md) are FIXED and verified on the work branch; pending land
 approval, after which this moves to claude-todo-done.md with the landed commit.
