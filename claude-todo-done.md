@@ -6,6 +6,46 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Capturing-closure padded multi-return miscompiled (LLVM closure-shim/define type divergence) — ✅ DONE (`bb3cd109`, 2026-07-29; regression from `d72f7154`)
+
+A CAPTURING closure whose func-value type returns a register-returned multi-return tuple with a
+PADDING member — e.g. `@func() (int32, int64)` — silently returned garbage for the field past the
+padding (a wrong-slot read gave 32, not 7000000000). Found by an adversarial audit of the
+(separately-resolved) `2a5c7ac8`/`d72f7154` multi-return work, then INDEPENDENTLY reproduced.
+
+**Root cause.** `d72f7154` routes a register-returned padded multi-return through a FLAT,
+padding-member-free FCA boundary (`multiReturnCoercedLLTy`) at the ret/call/define boundary, and
+added the matching coerced-spelling branch to the FUNC-VALUE shim (`emit_funcvals_shim.bn`) — but
+NOT to the capturing-closure shim (`emit_funcvals_closure.bn`'s `emitClosureShimAggregate`, which
+`d72f7154`'s diff never touched). So the closure-body `define` returned the flat `{i32,i64}` while
+the closure shim still spelled the raw packed `<{i32,[4xi8],i64}>` for its internal call; clang
+SILENTLY bitcasts the fnptr mismatch (no verifier error) and the int64 reads from the wrong slot.
+A clean `d72f7154` regression — pre-fix `funcMultiRetCoerced` didn't fire for scalar padded
+tuples, so both sides were raw-packed and agreed.
+
+**LLVM-BACKEND-ONLY** (correcting the audit's "all LP64 modes incl native" overclaim):
+`emit_funcvals_closure.bn` is the LLVM-codegen shim, so it manifests in `builder-comp` (confirmed
+on the aa64 host); the NATIVE backends have their own closure shims and were EMPIRICALLY verified
+already-correct (`native_aa64` passes the regression test on the PRE-fix tree), and the VM runs
+bytecode. Dormant in CI: the only capturing-closure-multiret test used unpadded `{int,int}`
+(no padding member → the bridge never fires).
+
+**Fix (`bb3cd109`).** Route the closure shim's register-return path (`%rb` reinterpret, call,
+store) through the SAME coerced spelling the func-value shim uses, via a new shared
+`writeShimResultLLTy` helper that BOTH shims now call (so the divergence cannot recur).
+`coercedMR` is false for sret / single-result, so those keep the raw spelling (byte-identical
+retbuf image, so the caller's raw load still reads correctly).
+
+**Verification.** Regression `conformance/regressions/closure-multiret-padded` (interior-pad
+`(int32,int64)` + trailing-pad `(int64,int32)`, each via direct / func-value / capturing-closure;
+ILP32-portable via `yn(x == cast(int64, ...))`) green on builder-comp / -int / native_aa64 /
+native_x64. Full builder-comp suite 2865/0. Unit guards `TestClosureShimPaddedMultiReturnCoerced`
+(revert-verified to go red) + `TestTrailingPadMultiReturnUsesFlatFCA` (closes the unexercised
+`multiRetHasPadding` trailing-pad branch). A read-only adversarial review of the fix confirmed it
+correct/complete/byte-identical on untouched paths, and caught the test's original ILP32
+non-portability (int64 printed via `cast(int,...)`), fixed before landing. Two UNVERIFIED
+struct-field multi-return concerns the audit also raised are tracked in the todo (needs-repro).
+
 ## Named-distinct pointer must NOT satisfy its underlying's interfaces — ✅ DONE (`96c85b86`, 2026-07-29)
 
 `type PS *S; impl *S : Getter; var g *Getter = ps` compiled then crashed: the
