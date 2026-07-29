@@ -6,6 +6,34 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Named-distinct pointer transparency: `*p` dereference + all deref codegen — ✅ DONE 2026-07-28
+
+The `type P *T` / `@T` (named-distinct pointer) transparency project.  Indexing
+(`p[i]`, `&p[i]`) had already landed (`82eff7e4` / `846c5771` / `17bb5d44`); this
+finishes DEREFERENCE and every codegen path a `*p` reaches.
+
+- **`&s.p[i]` pointer-field SIGSEGV** (`f24cfd92`) and **coerceArg named-slice
+  param silent-garbage** (`7ace2aa6`) — the earlier audit bugs.
+- **Field access `ps.a` / `arr[0].a`** (`4c172b28`, commit 1): `genSelectorPtr`
+  read `.Elem` off the un-peeled named pointer (nil → structTyp.Name faulted);
+  moved the peel to `peelTransparent(peelTransparent(X).Elem)` (pointer wrapper
+  then pointee readonly/named).  Pre-existing, reachable without `*p`.
+- **`*p` dereference enabled + all deref codegen** (`63bec576`, commit 2): checker
+  `*`-deref peels (peelNamedBounded); genUnary STAR pointee type; genIndexPtr
+  UNARY `(*p)[i]`; getSelectorType deref; `*p = v` incl. aggregate/managed
+  (Axiom-5); multi-return `*p, y = f()` (a NEW arm — the deref target was silently
+  DROPPED for PLAIN pointers too); parallel `*p1,*p2=`; `(*p)++`; method dispatch
+  `(*ps).m()` (receiver base resolved off the pointee; applyReceiverConversion
+  classifies the receiver shape off the peeled type) — a named pointer does NOT
+  inherit the pointee's methods, so only the explicit-deref form reaches them;
+  slice-VARIABLE assignment coercion (string-literal / nil / managed→raw).
+
+Full builder-comp suite 0-failed; a 12-agent adversarial review found exactly one
+regression (a managed-pointer `indexExprType` scope-creep → double-eval of
+side-effecting nested indices), reverted before landing.  Conformance 1124-1130.
+Two follow-ups remain (see claude-todo.md): interface satisfaction for a named
+pointer, and a pre-existing managed-pointer-to-nested-array deref-index bug.
+
 ## `cast` / `bit_cast` to a rejected type (incl. via a generic type parameter) → invalid LLVM — ✅ DONE (`4903faad`, 2026-07-28)
 
 `cast(T, v)` where the result/operand is a type the builtin can't form -- an

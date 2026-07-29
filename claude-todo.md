@@ -95,39 +95,31 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/plan-rt-fault-cleanup-pads.md`).
 
-### Named-distinct pointer transparency: `*p` deref rejected by the checker; latent `(*p)[i]` codegen arm — 🟠 OPEN (found 2026-07-20)
+### Named-distinct pointer: interface satisfaction + managed-ptr nested-array deref — 🟠 OPEN (2026-07-28)
 
-Named-distinct pointer/slice INDEXING (`p[i]` read + `&p[i]` address-of, incl.
-the slice variants) is now fully peeled and works — landed `82eff7e4` (slice
-address-of), `846c5771` (pointer read), `17bb5d44` (pointer address-of); all in
-claude-todo-done.md.  What REMAINS is named-distinct pointer DEREFERENCE and a
-couple of un-audited un-peeled sites.
+Named-distinct pointer DEREFERENCE + all deref codegen landed (`4c172b28`,
+`63bec576`; the whole transparency project incl. indexing/coercion is in
+claude-todo-done.md).  Two residual gaps surfaced during that work:
 
-**(1) The checker rejects `*p` for a named-distinct pointer** (found via the
-`17bb5d44` review).  `type P *int; var p P = &x; *p` → `cannot dereference
-non-pointer` (a COMPILE error on well-typed-looking code).  Indexing a named
-pointer peels (`checkIndexExpr` via `peelNamedBounded`), but the DEREF type rule
-does not — an inconsistency.  **Fix:** peel named-distinct / alias / readonly in
-the checker's `*`-deref rule (`pkg/binate/types`), as indexing already does; add
-a `println(*p)` conformance test.  Reachable and user-facing; also blocks (2).
+**(1) A named pointer wrongly SATISFIES an interface its underlying satisfies.**
+`type PS *S; impl *S : Getter; var g *Getter = ps` compiles (then crashes at
+runtime) even though a named-distinct type does NOT inherit its underlying's
+methods (so `ps.m()` non-deref is correctly rejected, and PS has no methods of
+its own).  DECIDED (2026-07-28, with the user): PS must NOT satisfy the interface
+— the fix is a **checker rejection** of the assignment, not codegen.  The obvious
+paths (`canAssignToRawInterfaceValue` / `receiverAssignable` / `receiverShape`)
+already reject a `TYP_NAMED` pointer source, so acceptance is via ANOTHER path —
+trace it (likely an implicit named-ptr→underlying decay or a value-borrow admit).
+Add a rejection conformance test.
 
-**(2) Latent — `genIndexPtr`'s UNARY `(*p)[i]` deref arm is un-peeled.**  The
-`e.X.Kind == EXPR_UNARY && STAR` arm (`pkg/binate/ir/gen_access.bn`) gates on
-`ptrVal.Typ.Kind == TYP_POINTER` (un-peeled), so `&(*p)[i]` for a named
-pointer-to-array (`type PA *([3]int)`) would fall through — but this is
-currently UNREACHABLE because (1) rejects `*p` first.  Fix together with (1)
-(peel `ptrVal.Typ` there); add a `&(*p)[i]` conformance test once (1) lets it
-compile.
-
-**(3) AUDITED (2026-07-20) — both were CONFIRMED real bugs and are now FIXED
-(see claude-todo-done.md):** (a) `&s.p[i]` for a raw-pointer FIELD → SIGSEGV
-(genIndexPtr SELECTOR arm had no pointer sub-arm; not named-specific) — fixed
-`f24cfd92`.  (b) named-distinct SLICE param missed arg coercion in `coerceArg`
-(gen_call.bn) → SILENT garbage (string-literal / managed→raw) — fixed `7ace2aa6`.
-The `gen_control.bn` store paths were also checked and are FINE (`p[i] = v` uses
-the peeled `collSt` and the operand goes through the backend GEP fix `846c5771`).
-Only items (1) [checker `*p` deref] and (2) [latent `(*p)[i]` codegen arm] above
-remain open in this entry.
+**(2) Pre-existing: managed-pointer-to-nested-array deref-index miscompiles.**
+`mp @([2][2]int); (*mp)[i][j]` reads the wrong value (0), independent of any
+named-distinct wrapper (surfaced by the sweep's adversarial review, which also
+caught a transient double-eval that was reverted with the scope-creep change).
+`genIndexPtr`'s deref arm (`gen_access.bn` ~259) handles only `TYP_POINTER`, not
+`TYP_MANAGED_PTR`, so a managed pointer to an array is not treated as the array's
+backing address (unlike `genIndex`'s own array arm, which does).  Low priority
+(managed-pointer-to-array is rare).
 
 ## Test-flake watch
 
