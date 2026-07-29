@@ -6,6 +6,50 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## bare-metal residual conformance fails: os/011_args + 1090_fmt_basic — ✅ DONE (`935d4e27`, `27861ea8`, 2026-07-28)
+
+The two conformance tests left failing on the native-arm32 baremetal lane after the
+multi-return FCA fix (`d72f7154`). Parallel diagnostic agents established that NEITHER
+is a native-arm32-backend defect — BOTH are baremetal-general (the LLVM baremetal sibling
+`builder-comp_arm32_baremetal` fails each identically), i.e. runtime/startup gaps that
+merely surfaced in the native lane. My "native-arm32 gap" framing for both was wrong.
+
+**`stdlib/os/011_args` — FIXED (`935d4e27`).** `os.Args()` returned len 0 on baremetal,
+violating the Go-shape invariant (element 0 is always the program-name slot → len ≥ 1)
+the test pins. Root cause: a bare-metal image (entrypoint "start") reaches bn_entry via
+crt0 `_start` with NO argv-installing entry — only the hosted `args_main.bn` (gated
+`is(entrypoint,"main")`) installs argv — so the shared `args` cell stayed at its zero
+value. Fix: a new build-gated `impls/core/common/pkg/builtins/startup/args_baremetal.bn`
+(`is(entrypoint,"start")`) whose startup-`__init` side effect installs a 1-element
+`args` with an empty-placeholder element 0 ({null,0,null,0} — a bare-metal target has no
+command line), mirroring the hosted `args_main.bn` pattern. It is the only writer of
+`args` on a start-entry image (no clobber); hosted excludes it (args_main installs real
+argv); --library left empty deliberately (the C host provides argv via os.SetArgs).
+Whitelisted for test-coverage like args_main.bn (build-excluded from the hosted unit-test
+build; exercised end-to-end by 011_args). Verified: 011_args passes on BOTH baremetal
+lanes (native + LLVM — both were red), stays green hosted + VM; 001_hello smoke + startup
+unit tests pass; hygiene 17/17.
+
+**`1090_fmt_basic` — xfail'd on baremetal (`27861ea8`); NOT a bug.** `fmt` routes output
+through `os.Stdout`, which is a deliberately-nil `@File` on baremetal (`os_baremetal.bn`:
+"a bare-metal target has no standard output" — its `Write` returns `errNoFS`), so `fmt`
+emits nothing there and 1090's expected text is unattainable. Proven not-a-codegen-bug:
+`fmt.Sprint` (bypasses os.Stdout, writing to a strings.Builder) formats EVERY operand —
+string, int, bool, float64 (soft-float) — correctly on native arm32; the LLVM baremetal
+sibling fails 1090 identically; and the `println` builtin prints on baremetal because it
+goes straight to semihosting SYS_WRITEC, bypassing `os`. So the suspected native
+lowerings (`...*any` variadic, `&`-boxing incl. float64, `[N x %BnIfaceValue]` backing,
+AAPCS32 aggregate-arg coercion, the multi-return tuple) are all correct. User decision
+(2026-07-28): preserve the "bare-metal has no stdout" design and xfail the test rather
+than wire os.Stdout to semihosting (semihosting is a debug-only crutch absent on real HW).
+A single `conformance/1090_fmt_basic.xfail.builder-comp_arm32_baremetal` marker covers
+both baremetal lanes (the native lane inherits it via run.sh OVERRIDE_MODE). If a future
+change wires baremetal os.Stdout to semihosting so fmt works, the runner's XPASS check
+will flag the now-stale marker to remove.
+
+Diagnosis was run as a parallel 2-agent workflow (one per bug) producing minimal repros +
+root-cause + fix proposals, then adversarially reviewed and implemented + verified inline.
+
 ## Named-distinct pointer transparency: `*p` dereference + all deref codegen — ✅ DONE 2026-07-28
 
 The `type P *T` / `@T` (named-distinct pointer) transparency project.  Indexing

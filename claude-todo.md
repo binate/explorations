@@ -56,19 +56,6 @@ tuples regressed.
 
 
 
-### native arm32 baremetal: 2 residual conformance fails (non-FCA) — 🟡 follow-ups
-
-The multi-return-tuple return-ABI regression (all the wide-field hang tests) is ✅ FIXED &
-LANDED (`d72f7154`, see [claude-todo-done.md](claude-todo-done.md)).  A full
-`builder-comp_native_arm32_baremetal` run is now **2821 passed / 2 failed / 38 skipped**; the
-2 remaining are pre-existing, non-FCA native-arm32 gaps (green on LLVM/VM):
-
-- `1090_fmt_basic` — fast crash ([2s], empty output) in `pkg/stdx/fmt`'s `...*any` variadic +
-  float64-boxing path (NOT a hang).  A native-arm32 variadic-`*any` / float-boxing gap.
-- `stdlib/os/011_args` — baremetal `os.Args()` returns len 0, but the test's documented
-  contract is a 1-element slice (an empty argv[0] placeholder).  A small bounded fix in the
-  baremetal entry / `os.Args` path.
-
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
