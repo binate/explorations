@@ -707,6 +707,29 @@ builder-comp `2822/0/7`, self-host builder-comp-comp `2822/0/7`, hygiene 17/17, 
 The arm32_linux RUNTIME confirmation is the next completed CI Unit-tests run (no qemu-arm
 on the dev host).
 
+## native arm32: int64/uint64 register-pair in field / multi-return-tuple / sret scalar paths — ✅ DONE (`5651fc8b`, 2026-07-12)
+
+Previously the caller-collect (`storeMultiReturnTupleFieldsArm32`), the OP_EXTRACT
+destructure (`emitExtract`), the callee in-register pack (`emitMultiReturnPack`), and the
+sret write (`emitMultiReturnSret`) all failed LOUDLY ("8-byte scalar store/load needs
+register pair (P3+)") on an int64/uint64 tuple field. Now handled as a CONSECUTIVE register
+pair (NO even-pair bump — AAPCS §6.5 C.3's even rule is argument-only; the small-aggregate
+return coercion packs fields into r0..r3 in field order, verified against the LLVM sibling:
+`{int32,int64}` returns the int64 in r1:r2, not r2:r3). Helpers `emitExtract64` /
+`emitPackReturnPair64` (in `arm32_int64_mem.bn`) + the pair branches in the collect / pack /
+sret loops. Fixed the 5 int64-blocked conformance tests (`stdlib/strconv/002_parse`,
+`stdlib/time/00{1,2,3}`, `890_chained_method_transitive_struct`) on
+`builder-comp_native_arm32_baremetal`; guard `conformance/regressions/multiret-int64-field`
+(native arm32 + LP64) + byte-ref unit tests (`arm32_int64_multiret_test.bn`,
+`arm32_int64_mem_test.bn`).
+
+These conformance tests briefly regressed (hung) via `2a5c7ac8`'s FCA-return-padding bug,
+fixed on the LLVM-emission side by `d72f7154` (above); this int64 code was correct and
+untouched throughout. A soft-float FLOAT64 tuple field stayed fail-loud pending P5 soft-float
+(tracked in claude-todo.md). `stdlib/os/010_modtime_chain` was in the same fail-loud set but
+its remaining blocker is the bare-metal no-filesystem limitation (`os.Stat("/tmp")` →
+errNoFS) — now xfail'd on the sibling, inherited by native via OVERRIDE_MODE.
+
 ## bnfmt: accept multiple files per run; --check names offending files — ✅ DONE (`7821afd0`, 2026-07-18)
 
 bnfmt was single-file (a second path errored "multiple input files not supported").

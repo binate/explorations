@@ -348,41 +348,14 @@ stdout.
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
-### `builder-comp_arm32_linux` unit lane triage — 🟢 all known reds fixed+landed & confirmed
+### `builder-comp_arm32_baremetal` unit lane: ir/vm/buf xfail-removal CI confirmation — 🟡 OPEN
 
-The ILP32 host-vs-target int-width root causes from CI run `29550055785` (buckets A–E′,
-plus the IR-gen named-const follow-up), the large-by-value-FCA multi-return sret fix, the
-anonymous-multi-return-tuple dtor-layout segv (the actual `asm/parse TestParseMov`
-crash), and the ir sizeof test-portability reds are all fixed and landed — see
-[claude-todo-done.md](claude-todo-done.md). The lane is reproducible locally via a
-qemu-arm cross-run (Docker + qemu-user) and now passes end-to-end there; the only
-arm32-family item still awaiting a CI signal is the baremetal-xfail removal below.
-
-- **✅ FIXED & LANDED + locally confirmed — the `asm/parse TestParseMov` segv + the ir
-  sizeof reds.** The segv (surfaced when `Token.Ival` widened `int`→`int64`, `72f00cf4`)
-  WAS a struct-layout bug — contrary to the earlier "not a layout bug" call recorded
-  under the sret fix, which was the mis-diagnosis. Anonymous multi-return tuples
-  (`{T1,T2}`) were emitted FLAT while every named struct is emitted packed-with-explicit-
-  `[N x i8]`-padding, so the generated tuple destructor's field-GEP landed at the wrong
-  byte offset for a member needing alignment padding (an int64 on ILP32), read a bogus
-  managed pointer, and SIGSEGV'd. Fixed (`2a5c7ac8`) by emitting anonymous structs in the
-  SAME packed-with-padding form as named ones and applying the `structLLVMIndex`
-  source→LLVM field remap uniformly across all five consumers (GET_FIELD_PTR, SSA struct
-  copy + load, insert/extractvalue, func-value/closure shim). The separate large-multi-
-  return sret fix (`98c956f0` + `5dd3f3f8`) was a REAL fix for a distinct latent bug (a
-  large by-value FCA multi-return containing an int64; guards conformance `1097`/`1099`)
-  but did NOT resolve `TestParseMov`. The 3 ir sizeof/hint-narrowing reds were test-
-  portability (`2515041f`). Verified on real arm32 (qemu-arm cross-run): the pre-fix
-  build reproduces the segv, the fix clears it, and the full `arm32_linux` lane runs green
-  (`62/0`); plus LP64 `2835/0/9`, self-host `2835/0/9`. Full story in
-  [claude-todo-done.md](claude-todo-done.md).
-
-Note: the lane is not locally runnable on the macOS dev host (no qemu-arm /
-arm-linux cross-toolchain). Check-phase bugs (e.g. the constant fit-check) reproduce
-locally by compiling `--target arm32-linux`; run/emit bugs need the CI lane or a
-Linux box.
-
-Follow-ups surfaced during the triage (pre-existing, not introduced):
+The `builder-comp_arm32_linux` unit-lane reds — the ILP32 int-width buckets, the
+large-by-value-FCA multi-return sret fix, the anonymous-multi-return-tuple dtor segv (the
+`asm/parse TestParseMov` crash), and the ir sizeof test-portability reds — are all FIXED &
+LANDED; see [claude-todo-done.md](claude-todo-done.md). The one still-open arm32 unit-lane
+item is the baremetal ir/vm/buf xfail removal below (pre-existing, not introduced by the
+above; awaiting a CI signal):
 - 🟡 **arm32_baremetal xfails whose "literals exceed int32" cause is fixed — REMOVED
   (`02dbb8e0`), CI confirmation STILL PENDING.** The baremetal unit lane had 17 package
   xfails: 13 PERMANENT ("require host filesystem / subprocess / native-host arch —
@@ -1533,32 +1506,6 @@ plan-native-arm32.md § P4.
   deferred (P4-b).** Fail-loud today (direct, func-value, and iface paths); not
   yet xfail'd per-test (they sit among the native-arm32 conformance failures,
   e.g. `401_return_many_scalars`).
-- **int64 / uint64 8-byte scalar in the FIELD / MULTI-RETURN-TUPLE / SRET scalar
-  paths — ✅ DONE & LANDED (2026-07-12, `5651fc8b`); this code is correct and intact.  Its
-  conformance tests briefly regressed (hung) via `2a5c7ac8`'s FCA-return-padding bug, which
-  was fixed on the LLVM-emission side by `d72f7154` (see claude-todo-done.md); not this
-  commit's code.** Previously the caller-collect
-  (`storeMultiReturnTupleFieldsArm32`), the OP_EXTRACT destructure (`emitExtract`),
-  the callee in-register pack (`emitMultiReturnPack`), and the sret write
-  (`emitMultiReturnSret`) all failed LOUDLY (`8-byte scalar store/load needs
-  register pair (P3+)`) on an int64/uint64 tuple field. Now handled as a
-  CONSECUTIVE register pair (NO even-pair bump — AAPCS §6.5 C.3's even rule is
-  argument-only; the small-aggregate return coercion packs fields into r0..r3 in
-  field order, verified against the LLVM sibling: `{int32,int64}` returns the int64
-  in r1:r2, not r2:r3). Helpers `emitExtract64` / `emitPackReturnPair64` (in
-  `arm32_int64_mem.bn`) + the pair branches in the collect/pack/sret loops.
-  Fixed the 5 int64-blocked conformance tests (`stdlib/strconv/002_parse`,
-  `stdlib/time/00{1,2,3}`, `890_chained_method_transitive_struct`) on
-  `builder-comp_native_arm32_baremetal`; new regression
-  `conformance/regressions/multiret-int64-field` (native arm32 + LP64) + byte-ref
-  unit tests (`arm32_int64_multiret_test.bn`, `arm32_int64_mem_test.bn`). NOTE:
-  `stdlib/os/010_modtime_chain` was in the same fail-loud set but its remaining
-  blocker is the bare-metal no-filesystem limitation (`os.Stat("/tmp")` → errNoFS,
-  prints -1 — identical on the LLVM sibling `builder-comp_arm32_baremetal`); now
-  xfail'd on that sibling (inherited by native via OVERRIDE_MODE), matching the
-  sibling os/008/009 baremetal xfails. **STILL fail-loud: a soft-float FLOAT64
-  tuple field** (its FP-in-GP soft-float placement is not yet pinned; P5) — the
-  pack / sret / scalar-store paths keep the loud guard for it.
 - **soft-float (P5) / VFP hard-float + arm32-linux (P6) / CI wiring (P7)** — see
   the plan doc.
 
