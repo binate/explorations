@@ -9,50 +9,41 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### `2a5c7ac8` (packed anonymous structs) regressed native multi-return collection — 🔴 OPEN MAJOR (found 2026-07-24; **CI-CONFIRMED broader 2026-07-25**)
+### native arm32 baremetal: cross-package `(St, int)` struct-field multi-return collect crashes — 🔴 OPEN MAJOR (regression since `d72f7154`, found 2026-07-28)
 
-**Severity: MAJOR** — `2a5c7ac8` ("codegen: emit anonymous structs
-packed-with-padding (fix arm32 multi-return dtor segv)") broke native multi-return
-collection. **Now that CI has recovered (2026-07-25), it is confirmed BROADER than
-the initial aa64-only finding: it hits BOTH native backends.**
-- **native_x64: 2844 passed, 10 FAILED** — `890_chained_method_transitive_struct`,
-  `stdlib/math/big/003_divmod`, `stdlib/os/004_read_byte_write_byte`,
-  `stdlib/os/010_modtime_chain`, `stdlib/strconv/002_parse`,
-  `stdlib/strconv/004_parse_cross_pkg`, `stdlib/time/001_negative_pre_epoch`,
-  `stdlib/time/002_point_roundtrip`, `stdlib/time/003_cross_pkg_consumer`,
-  `regressions/multiret-int64-field`.
-- **native_aa64: 2850 passed, 4 FAILED** — `stdlib/os/004_read_byte_write_byte`,
-  `stdlib/strconv/002_parse`, `stdlib/strconv/004_parse_cross_pkg`,
-  `regressions/multiret-int64-field`.
-(arm32_linux also shows 2 multi-return reds — `698_cross_pkg_mr_float3`,
-`715_x87_mr` — possibly related; the `2a5c7ac8` author should check.)
+(The earlier `2a5c7ac8`-regressed-native-multi-return-collection MAJOR entry is
+RESOLVED — fixed by `d72f7154`, full write-up in [claude-todo-done.md](claude-todo-done.md);
+its arm32_linux `698_cross_pkg_mr_float3` / `715_x87_mr` caveat is also cleared (both
+green on the LLVM + native baremetal lanes). This entry is a NEW, narrower regression
+found during that cleanup's full-lane confirmation.)
 
-**Attribution (hard evidence, NOT the aa64 multi-return-struct fix `275cc807`):**
-at `275cc807` (the multi-return-struct sret fix, immediately BEFORE `2a5c7ac8`),
-the stdlib tests **PASS** on native_aa64 (verified locally: 3/0); on the combined
-base they FAIL. The aa64-coercion fix (`275cc807`) is **gated to ARCH_AA64 and
-inert** for these tuples (they are scalar/iface/int64 — no struct/array field, so
-`multiRetTypeHasCoercibleField`=false) AND does not run on x64 at all — yet
-native_x64 is hit too (10 tests). So the break is unambiguously `2a5c7ac8`'s,
-target-agnostic; it was landed while CI was stalled (likely arm32-only local
-validation). The aa64 fix's own guard `1119_xpkg_multiret_struct_field`
-(struct-field tuple) still PASSES on the combined base — the two coexist for
-struct-field tuples; only scalar/iface/int64/time-struct tuples regressed.
+**Severity: MAJOR (silent wrong-code / partial crash).**
+`conformance/1119_xpkg_multiret_struct_field` REGRESSED on
+`builder-comp_native_arm32_baremetal`: it prints the first 3 of 5 expected lines
+(`7 9 1`) then crashes before `20`/`200`. The crash is at `s, n = mrpkg.mkStInt(20)` —
+a CROSS-PACKAGE multi-return `(St, int)` (a STRUCT field + a scalar) collected by the
+native-arm32 `main` from an LLVM-compiled callee. The earlier `(St, @any)` collects in
+the same test (lines `7 9`, `1`) work; only the `(St, int)` collect crashes.
 
-**Root cause — needs the `2a5c7ac8` author (partial recon):** the change makes
-`multiReturnType`/`multiReturnType_args` emit the anonymous tuple as packed
-`<{...}>` with explicit `[N x i8]` padding (`anonStructLL`). In isolation, `llc`
-shows packed scalar/iface tuples (`<{i64,%I}>`, `<{i64,i32}>`, `<{i32,i64}>`)
-still **register-return** on arm64-apple-darwin (so it is NOT a packed→sret quirk
-like the struct-field bug). The break is therefore in the packed emission's
-byte-layout / the native per-field collect (`storeMultiReturnTupleFieldsAA64`) or
-the `emitExtract64` destructure reading the packed tuple slot at the wrong offset
-on LP64 aa64.  Reproduce: `./conformance/run.sh
-builder-comp_native_aa64-comp_native_aa64 stdlib/strconv/002_parse` (or the other
-three).  Guard/tie-in: the aa64 fix's dedicated test
-`1119_xpkg_multiret_struct_field` (struct-field tuple) still PASSES on the combined
-base, so the two changes coexist for struct-field tuples; only scalar/iface/int64
-tuples regressed.
+**NATIVE-ARM32-SPECIFIC.** 1119 PASSES on `builder-comp` (LLVM host),
+`builder-comp_arm32_baremetal` (LLVM arm32), `builder-comp_native_x64_darwin-…`
+(native x64), AND `builder-comp_native_aa64-…` (native aa64) — only the native arm32
+backend's struct-field multi-return collect is wrong. Deterministic (re-run 3×, same
+partial output; `[0-1s]`, a fast crash, not a hang).
+
+**Regressor window.** 1119 PASSED at `d72f7154` (the full native-arm32 lane was 2821/2
+then — only 1090 + os/011, no 1119), so it regressed via a concurrent commit in
+`d72f7154..HEAD`. Candidates (ir/codegen changes that could touch native-arm32 struct /
+field-access / multi-return lowering): **`4c172b28`** ("peel named-distinct pointer
+wrappers in genSelectorPtr field access" — struct field access; strong candidate),
+`63bec576` ("dereference named-distinct pointers; deref codegen transparent"),
+`c983518d` / `b659a8b7` (Plan 2 nil-check changes).
+
+**Next step:** bisect `git bisect` over `d72f7154..HEAD` running
+`./conformance/run.sh builder-comp_native_arm32_baremetal 1119_xpkg_multiret_struct_field`
+to pin the culprit, then root-cause the native-arm32 `(St, int)` collect
+(`storeMultiReturnTupleFieldsArm32` / the struct-field store into the tuple slot) and
+fix. Do NOT work around — it is a silent partial-miscompile on a shipping backend.
 
 
 
