@@ -9,21 +9,19 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### Compiler panic reading `(*p)[i].x` (deref-index-then-selector) — 🔴 OPEN MAJOR (found 2026-07-28)
+### Compiler panic reading `(*p)[i].x` (deref-index-then-selector) — ✅ FIXED, pending land (found 2026-07-28; fixed 2026-07-29)
 
-**Severity: MAJOR** — the compiler PANICS ("internal error: unresolved selector in
-IR-gen (compiler bug)") when READING a field off a deref-indexed struct element:
-`(*p)[i].x` where `p` is a pointer to an array of structs.  The STORE `(*p)[i].x =
-v` works; only the r-value READ panics.  Non-deref `a[i].x` works.  Hits BOTH raw
-`*([N]S)` and managed `@([N]S)` pointers, so it is NOT managed-specific — the
-selector IR-gen (`getSelectorType` / `genSelectorPtr`) does not resolve a
-deref-index base.  Pre-existing (independent of the named-distinct fixes — the raw
-path is unchanged by them); surfaced during the named-distinct-pointer follow-up
-sweep.  Repro / guard: `conformance/1134_deref_index_selector_read` (`xfail.all`) —
-still to be created; the named-distinct follow-up landed (`13e1e6cd`) WITHOUT it,
-and 1133 was since taken by the fmt string-literal-borrow test (`9d04870b`), so use
-1134.  Fix: teach the selector IR-gen path to resolve a `(*p)[i]` base (mirror how
-`genIndexPtr`'s deref arm / `indexExprType` handle it).
+**Severity: MAJOR (resolved).** The compiler PANICKED ("internal error: unresolved
+selector in IR-gen (compiler bug)") when READING a field off a deref-indexed struct
+element `(*p)[i].x`, and silently DROPPED the corresponding STORE, for BOTH raw
+`*([N]S)` and managed `@([N]S)` pointers.  Root cause: `getIndexElemType`
+(`gen_slice.bn`) had no deref (`*p`) base arm, so `genSelector` / `genSelectorPtr`
+saw a nil elem type with a non-nil elem ptr and fell through to the poisoned panic
+(read) / an r-value temp (store).  **FIXED (pending land) in the Group A deref-index
+codegen commit** (rebased onto main; also completes the slice/pointer POINTEE case
+that returned nil in `genIndexPtr`'s deref arm).  Guard: `conformance/1137_deref_
+index_selector_read` (positive — array/slice/pointer/managed, read+store).  Moves
+to claude-todo-done.md with the landed hash.
 
 ### native arm32 baremetal: cross-package `(St, int)` struct-field multi-return collect crashes — 🔴 OPEN (native-arm32 gap, born-failing since `b6304150`; found 2026-07-28)
 
@@ -118,46 +116,45 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/plan-rt-fault-cleanup-pads.md`).
 
-### Named-distinct pointer: interface satisfaction + managed-ptr nested-array deref — ✅ FIXED, pending land (2026-07-28)
+### Named-distinct pointer follow-up: gap-2 (managed deref-index store) FIXED pending land; universe-`any` support DEFERRED (2026-07-28..29)
 
-**⚠️ COORDINATION (2026-07-29): item (1) was ALSO fixed independently by another
-session and has LANDED on main — commit `96c85b86` (`types_assignable.bn`: guards
-the named-distinct→underlying assignability decay against an interface-value
-destination via `resolveAliasAndConst` + kind check; test
-`1134_err_named_ptr_iface`).  So the item-(1) work described below (the
-`isInterfaceValueType` version, test `1131_named_ptr_iface_reject`) is now a
-DUPLICATE — DROP it; also note its `1131`/`1132` test numbers already collide with
-landed coverage tests (`1131_named_ptr_deref_assign`, `1132_named_ptr_deref_field`,
-both on main).  Item (2) below is UNAFFECTED and still needs landing.**
+Residual items from the named-distinct-pointer transparency project (parent in
+claude-todo-done.md).  **Item (1) — a named-distinct pointer must not satisfy its
+underlying's interface — was fixed independently and LANDED on main (`96c85b86`,
+`types_assignable.bn`); my duplicate `isInterfaceValueType` version was DROPPED
+(and its `1131`/`1132` numbers collided with landed coverage tests anyway).**
 
-Both residual gaps from the named-distinct-pointer transparency project (parent in
-claude-todo-done.md) are FIXED and verified on the work branch; pending land
-approval, after which this moves to claude-todo-done.md with the landed commit.
+**(2) Managed-ptr-to-array deref-index STORE — ✅ FIXED, pending land.** `(*mp)[i][j]
+= v` silently dropped the store: `indexExprType`'s deref case (`gen_slice.bn`) and
+`genIndexPtr`'s deref arm (`gen_access.bn`) matched only raw `TYP_POINTER`; extended
+to `TYP_MANAGED_PTR` (the managed value IS the pointee backing).  Lands together
+with the `(*p)[i].x` panic/store fix in the Group A deref-index codegen commit
+(rebased onto main; test `1136_managed_ptr_nested_store`).  → moves to done with the
+landed hash.
 
-**(1) Named pointer wrongly satisfied an interface — FIXED (checker rejection).**
-`var g *Getter = ps` (`type PS *S; impl *S : Getter`) is now REJECTED ("cannot
-assign PS to *Getter").  Root cause: `AssignableTo`'s named-distinct transparency
-arm decayed `PS→*S` BEFORE the interface-satisfaction check, so it saw a genuine
-`*S`.  Fix (`types_assignable.bn`): guard the src-decay so it does not fire toward
-an interface-value dst (`isInterfaceValueType`); PS then reaches
-`canAssignToRawInterfaceValue` / value-borrow un-peeled, both of which reject a
-`TYP_NAMED` source.  Universal `*any` still works (not an interface-value dst);
-legit composite decay (`@[]int = buf`) unaffected.  Rejected at var-init / arg /
-return positions and for `@Iface`.  Conformance `1131_named_ptr_iface_reject`.
-
-**(2) Managed-ptr-to-array deref-index STORE — FIXED.**  `(*mp)[i][j] = v` now
-stores correctly (was silently dropped).  Needed TWO sites: `indexExprType`'s
-deref case (`gen_slice.bn`) so `isNestedArrayBase` recognizes the array (else the
-store took the r-value fallback), AND `genIndexPtr`'s deref arm (`gen_access.bn`)
-— both matched only raw `TYP_POINTER`; extended to `TYP_MANAGED_PTR` (the managed
-value IS the pointee backing).  Reads already worked (`genIndex`); single-level
-`(*mp)[i] = v` already worked.  Conformance `1132_managed_ptr_nested_store`.
-
-Verified: builder-comp full 2866/0; 1131/1132 pass builder-comp / -int /
-native_aa64; types+ir unit tests 0-fail; adversarial edge sweep (compound / 3D /
-array-of-array / named-managed-ptr stores; arg/return/managed reject positions)
-all correct.  The sweep also surfaced a SEPARATE pre-existing panic — reading
-`(*p)[i].x` — now tracked as its own MAJOR above (`1133`, xfail).
+**(3) Named-distinct pointer → universe `any` (`*any` / `@any`) — 🟠 DEFERRED (rework).**
+Boxing a named-distinct pointer into universal `*any`/`@any` never worked
+end-to-end in codegen (a multi-path, pre-existing cluster), surfaced when the
+now-landed gap-1 (`96c85b86`) exposed the checker side.  A worktree prototype (three
+codegen peels — `wrapAsIfaceValue`, `canBorrowValueIntoRawIface`,
+`isBorrowableValueSource` — plus an `any`-exemption on the gap-1 guard) got `*any` +
+`@any` construction AND recovery working (erase-to-underlying identity, builder-comp
+2868/0), BUT a two-round adversarial review found it still incomplete, so it was NOT
+landed:
+  - **(3a)** a named-distinct pointer with its OWN `impl PS : I` is wrongly REJECTED
+    into `*I` — a REGRESSION vs pre-fix (which accepted it, dispatching PS's own
+    method).  The correct rule is "reject *inherited* satisfaction (via `impl *S`),
+    allow *own-impl* satisfaction (via `impl PS`)", which CONFLICTS with the
+    any-erasure identity (own-impl needs `PS`'s vtable identity; `any` erases to
+    `S`) — so `wrapAsIfaceValue`'s name key must be CONDITIONAL on
+    `isUniverseAny(iface)`.  **NB: verify whether the landed `96c85b86` gap-1 has
+    this same own-impl over-rejection.**
+  - **(3b)** a named-distinct pointer to a NAMELESS pointee (`type NRA *([2]int)`)
+    boxed into `any` PANICS (`wrapAsIfaceValue`'s name-less path doesn't peel the
+    named-distinct wrapper on `srcExprTyp`).
+  Redo as a careful, separately-scoped effort (reconcile with `96c85b86` + the
+  `9d04870b` `*any` string-literal work); the worktree prototype + these adversarial
+  findings are the starting point.
 
 ## Test-flake watch
 
