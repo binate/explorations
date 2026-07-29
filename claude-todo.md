@@ -19,10 +19,11 @@ v` works; only the r-value READ panics.  Non-deref `a[i].x` works.  Hits BOTH ra
 selector IR-gen (`getSelectorType` / `genSelectorPtr`) does not resolve a
 deref-index base.  Pre-existing (independent of the named-distinct fixes — the raw
 path is unchanged by them); surfaced during the named-distinct-pointer follow-up
-sweep.  Repro / guard: `conformance/1133_deref_index_selector_read` (`xfail.all`,
-lands with the named-distinct follow-up).  Fix: teach the selector IR-gen path to
-resolve a `(*p)[i]` base (mirror how `genIndexPtr`'s deref arm / `indexExprType`
-handle it).
+sweep.  Repro / guard: `conformance/1134_deref_index_selector_read` (`xfail.all`) —
+still to be created; the named-distinct follow-up landed (`13e1e6cd`) WITHOUT it,
+and 1133 was since taken by the fmt string-literal-borrow test (`9d04870b`), so use
+1134.  Fix: teach the selector IR-gen path to resolve a `(*p)[i]` base (mirror how
+`genIndexPtr`'s deref arm / `indexExprType` handle it).
 
 ### native arm32 baremetal: cross-package `(St, int)` struct-field multi-return collect crashes — 🔴 OPEN (native-arm32 gap, born-failing since `b6304150`; found 2026-07-28)
 
@@ -217,6 +218,25 @@ Remaining:
 `BuildTypeInfo` read, so the "record symbol == slot reference" invariant holds by
 construction instead of via two independent `mangle.TypeInfoName` call sites.  A
 separate, later step — a robustness nicety, not a correctness fix.
+
+### `iface.construct.value-borrow`: indirect escape of a borrowed `*any` is not caught — 🟢 LOW / known-limitation (found 2026-07-29)
+
+The implicit value→`*any` borrow (`iface.construct.value-borrow`) is admitted only
+at BORROWING positions (argument / var-init) and the checker rejects the DIRECT
+escape (`return "hi"`, `v = "hi"`, `b.field = "hi"` — all rejected).  But the
+INDIRECT escape slips through: once the borrow lands in a `*any` variable, copying
+that variable out of scope dangles it —
+`func g() *any { var v *any = "hi"; return v }` compiles, and the caller then reads
+a `*any` box that borrows `g`'s dead frame temp (UAF: an empty/garbage recover).
+This is **consistent with Binate's raw-pointer semantics** (no escape analysis;
+`func g() *int { var n int = 5; return &n }` compiles the same way — user error via
+the escape hatch) and affects **scalars too** (`var v *any = n; return v`), not just
+string literals — so it is NOT specific to the `9d04870b` string-literal box, which
+merely changed the dangling profile from "points at static rodata" to "points at a
+frame alloca".  The direct-form rejection is a cheap syntactic gate, not a real
+lifetime check.  Fix (if ever): a genuine escape/lifetime check for raw
+value-borrows; string literals should ride the SAME mechanism as scalars.  Until
+then this is the documented raw-borrow behavior, tracked for awareness.
 
 ---
 
