@@ -732,25 +732,37 @@ the VM.  Residual follow-ups:
 
 ## Standard library — pkg/stdx/fmt
 
-### fmt Printf follow-ups (width / precision / flags, `%x`/`%q` on more types) — 🟡 OPEN (lean core landed `2dc07f46`, 2026-07-29)
+### fmt Printf follow-ups (small remaining verb/flag gaps) — 🟡 OPEN (lean core `2dc07f46` + width/precision/flags `d01a2774`, 2026-07-29)
 
 The Printf/Sprintf/Fprintf **lean core** landed (`2dc07f46`): verbs `%v %d %s %t %f
 %g %e %x %X %o %b %c %q %%` with Go-style error verbs, over the `...*any` operands.
-Deferred to this follow-up (the user chose "lean core, then follow-up" 2026-07-29):
+**Width / precision / flags landed** (`d01a2774`): `%[flags][width][.prec]verb` —
+`-` left-justify, `0` zero-pad (every verb, sign-aware for numbers), `+`/space sign,
+width, and precision (float digits / min integer digits / string truncation);
+verified byte-for-byte against Go 1.26.3 across ~2800 generated cases, incl. Inf/NaN
+(signed, space-padded).
 
-- **Width / precision / flags** — `%5d`, `%-10s`, `%.2f`, `%8.2f`, `%+d`, `%08d`,
-  space-flag.  The format walker (`impls/stdlib/pkg/stdx/fmt/fmt_printf.bn`,
-  `formatInto`/`formatVerb`) currently parses only `%<verb>`; extend it to parse the
-  optional `[flags][width][.precision]` between `%` and the verb, and thread them
-  into the per-verb formatters (strconv already takes a precision for floats;
-  padding is a post-format pad).
+Still deferred (all render as visible error verbs, never silently):
+
+- **`#` alternate form** (`%#x` → `0xff`, `%#o` → `0o…`).
+- **`*` argument-driven width/precision** (`%*d`).
 - **`%x`/`%X` on a string** → hex-encode the bytes (Go: `%x` of `"hi"` → `6869`);
-  currently an error verb.
-- **`%q` on a char/int** → single-quoted (`'A'`); currently an error verb.
+  currently an error verb.  **`%q` on a char/int** → single-quoted (`'A'`).
+- **`+`/space sign flags on `%v` of a number** — `% v` of 7 is `7`, Go ` 7`; apply
+  the sign in `emitDefault` (needs to detect a numeric arg + its sign).
+- Some **malformed formats** differ from Go — a bare `%.` (precision, no verb)
+  renders `%!(NOVERB)` where Go treats the `.` as a bad verb (`%!.(...)`).
+- **Error-verb internal padding** — `%8d` of a string is `%!d(string=hi)`; Go pads
+  the value inside (`%!d(string=      hi)`).  Niche; the error is still visible.
 - Consider `%p` (pointer), `%U` (unicode), `%+v`/`%#v` — only if a use appears.
 
-Tests to extend when landing: unit tests `fmt_printf_test.bn` (`&`-boxed operands
-until CHECK_TOOLS carries value-borrow — see below), conformance `1135_fmt_printf`.
+(NB: not a bug — Binate's `-0.0` LITERAL is a genuine negative zero, so `fmt`
+signs it exactly as Go signs a real `math.Copysign(0,-1)`; Go constant-folds the
+`-0.0` literal to `+0.0`.  A language constant-folding difference, not a fmt one.)
+
+Tests: unit tests `fmt_printf_test.bn` + `fmt_printf_fields_test.bn` (`&`-boxed
+operands until CHECK_TOOLS carries value-borrow — see below), conformance
+`1135_fmt_printf`.
 
 **Note (CHECK_TOOLS lag):** the hygiene `lint` bnlint (`CHECK_TOOLS_VERSION`,
 bnc-0.0.12-pre3) predates the implicit value→`*any` borrow, so LINTED stdlib code
