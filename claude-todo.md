@@ -602,6 +602,18 @@ Remove`. Do the swap once `BUILDER_VERSION` is bumped to a release that includes
 `Exec` itself stays until its other callers, the `clang`/`ar` link invocations, also
 have an `os` equivalent.)
 
+**Partial down-payment on step 3 — non-BUILDER CLI tools migrated to `pkg/stdx/fmt`
+(2026-07-29):** `cmd/{bni,bnas,bnfmt,bnlint}` now emit all user-facing stdout/stderr
+via `pkg/stdx/fmt` (`Print`/`Println`/`Fprint`) instead of the `print`/`println`
+builtins — dropping the manual `strconv.Itoa`/`strings.Builder` scaffolding and the
+raw-vs-managed `printErr` overload split (fmt's `...*any` absorbs both). Landed
+`0b57ba04`/`71fdf553`/`896a7db1`, gated behind `CHECK_TOOLS_VERSION` → `bnc-0.0.12-pre4`
+(`89cf3432`, with the `bnc-0.0.12-pre4` release cut for it): pre3's pinned bnlint
+predates the implicit value-borrow-into-`*any` boxing the call sites need. `print`/
+`println` still stand for the BUILDER-compiled tree (`cmd/bnc` + deps) and the runtime —
+they can't use fmt (it needs interfaces/generics/variadics outside the BUILDER subset) —
+plus `examples`; full deprecation stays blocked on those.
+
 **Residual (small, separable):** wire `ensureLangLoaded` + `appendLangImport` into
 the repl's import setup (`pkg/binate/repl/{ir_imports,session,util}.bn`) so
 `myInt.String()` works at the repl too — the rest of the "primitive `.String()`
