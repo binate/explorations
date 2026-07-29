@@ -24,41 +24,30 @@ lands with the named-distinct follow-up).  Fix: teach the selector IR-gen path t
 resolve a `(*p)[i]` base (mirror how `genIndexPtr`'s deref arm / `indexExprType`
 handle it).
 
-### native arm32 baremetal: cross-package `(St, int)` struct-field multi-return collect crashes — 🔴 OPEN MAJOR (regression since `d72f7154`, found 2026-07-28)
+### native arm32 baremetal: cross-package `(St, int)` struct-field multi-return collect crashes — 🔴 OPEN (native-arm32 gap, born-failing since `b6304150`; found 2026-07-28)
 
-(The earlier `2a5c7ac8`-regressed-native-multi-return-collection MAJOR entry is
-RESOLVED — fixed by `d72f7154`, full write-up in [claude-todo-done.md](claude-todo-done.md);
-its arm32_linux `698_cross_pkg_mr_float3` / `715_x87_mr` caveat is also cleared (both
-green on the LLVM + native baremetal lanes). This entry is a NEW, narrower regression
-found during that cleanup's full-lane confirmation.)
+`conformance/1119_xpkg_multiret_struct_field` FAILS on `builder-comp_native_arm32_baremetal`:
+it prints the first 3 of 5 expected lines (`7 9 1`) then crashes before `20`/`200`. The crash
+is at `s, n = mrpkg.mkStInt(20)` — a CROSS-PACKAGE multi-return `(St, int)` (a STRUCT field + a
+scalar) collected by the native-arm32 `main` from an LLVM-compiled callee. The earlier
+`(St, @any)` collects in the same test (`7 9`, `1`) work; only the `(St, int)` collect crashes.
 
-**Severity: MAJOR (silent wrong-code / partial crash).**
-`conformance/1119_xpkg_multiret_struct_field` REGRESSED on
-`builder-comp_native_arm32_baremetal`: it prints the first 3 of 5 expected lines
-(`7 9 1`) then crashes before `20`/`200`. The crash is at `s, n = mrpkg.mkStInt(20)` —
-a CROSS-PACKAGE multi-return `(St, int)` (a STRUCT field + a scalar) collected by the
-native-arm32 `main` from an LLVM-compiled callee. The earlier `(St, @any)` collects in
-the same test (lines `7 9`, `1`) work; only the `(St, int)` collect crashes.
+**NATIVE-ARM32-SPECIFIC + NOT a recent regression.** 1119 PASSES on `builder-comp` (LLVM host),
+`builder-comp_arm32_baremetal` (LLVM arm32), native x64, AND native aa64 — only the native
+arm32 backend's struct-field multi-return collect is wrong. Deterministic. A bisect established
+it fails at its OWN add-commit `b6304150` (which added it as the native-AA64 sret-fix guard,
+verified on aa64, with NO arm32 xfail) — so it has been RED on native arm32 since it was added,
+unnoticed because native arm32 is not CI-gated. NOT caused by `d72f7154` / `b659a8b7` /
+`4c172b28` (an earlier bisect over `d72f7154..HEAD` was INVALID — 1119 already fails at
+`d72f7154`, and `b659a8b7`'s diff is provably inert with `EmitNilChecks` off).
 
-**NATIVE-ARM32-SPECIFIC.** 1119 PASSES on `builder-comp` (LLVM host),
-`builder-comp_arm32_baremetal` (LLVM arm32), `builder-comp_native_x64_darwin-…`
-(native x64), AND `builder-comp_native_aa64-…` (native aa64) — only the native arm32
-backend's struct-field multi-return collect is wrong. Deterministic (re-run 3×, same
-partial output; `[0-1s]`, a fast crash, not a hang).
-
-**Regressor window.** 1119 PASSED at `d72f7154` (the full native-arm32 lane was 2821/2
-then — only 1090 + os/011, no 1119), so it regressed via a concurrent commit in
-`d72f7154..HEAD`. Candidates (ir/codegen changes that could touch native-arm32 struct /
-field-access / multi-return lowering): **`4c172b28`** ("peel named-distinct pointer
-wrappers in genSelectorPtr field access" — struct field access; strong candidate),
-`63bec576` ("dereference named-distinct pointers; deref codegen transparent"),
-`c983518d` / `b659a8b7` (Plan 2 nil-check changes).
-
-**Next step:** bisect `git bisect` over `d72f7154..HEAD` running
-`./conformance/run.sh builder-comp_native_arm32_baremetal 1119_xpkg_multiret_struct_field`
-to pin the culprit, then root-cause the native-arm32 `(St, int)` collect
-(`storeMultiReturnTupleFieldsArm32` / the struct-field store into the tuple slot) and
-fix. Do NOT work around — it is a silent partial-miscompile on a shipping backend.
+**Likely the same defect as the CRITICAL closure entry's audit point (ii)** — an x64/arm32
+register multi-return with a small / interior-padded struct field diverging from the native
+whole-word collect. Fix: root-cause the native-arm32 `(St, int)` collect
+(`storeMultiReturnTupleFieldsArm32` / the struct-field store into the tuple slot); OR, if
+struct-field register-multi-return is a deferred native-arm32 sub-case (cf. the P4 tracker's
+"multi-return … deferred (P4-b)"), xfail it on native arm32 with a P4 todo. Do NOT silently
+work around.
 
 ### Capturing-closure PADDED multi-return silently miscompiled — 🔴 OPEN CRITICAL (regression from `d72f7154`, found + confirmed 2026-07-28)
 
