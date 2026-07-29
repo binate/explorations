@@ -6,6 +6,33 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Deref-index `(*p)[i]` element store + selector read/store miscompiled/panicked across pointee kinds — ✅ DONE (`b2f74f53`, 2026-07-29)
+
+Two silent miscompiles + a compiler panic in the deref-index codegen for a pointer
+to a collection, fixed together (`pkg/binate/ir/gen_access.bn`, `gen_slice.bn`;
+tests `1136_managed_ptr_nested_store`, `1137_deref_index_selector_read`):
+
+- **Managed-ptr-to-array element STORE** `(*mp)[i][j] = v` was silently dropped:
+  `indexExprType`'s deref case and `genIndexPtr`'s deref arm matched only raw
+  `TYP_POINTER`, so `isNestedArrayBase` was false and the store took the r-value
+  fallback.  Extended to `TYP_MANAGED_PTR` (a managed pointer's value IS the pointee
+  backing).  Reads already worked (`genIndex`).
+- **Field off a deref-indexed struct element** `(*p)[i].x` PANICKED on READ
+  ("unresolved selector in IR-gen") and DROPPED the STORE (raw AND managed):
+  `getIndexElemType` had no deref (`*p`) base arm, so `genSelector`/`genSelectorPtr`
+  saw a nil elem type with a non-nil elem ptr and fell through to the poisoned panic
+  / an r-value temp.  Added a deref arm delegating to `indexExprType`.  Non-deref
+  `a[i].x` was unaffected.
+- **Slice / pointer POINTEE** `(*sp)[i].x = v` (where `*sp` is a slice or raw
+  pointer) dropped the store: `genIndexPtr`'s deref arm handled only an ARRAY
+  pointee; added slice + pointer branches mirroring the nested-index / r-value arms.
+
+Was the "Group A" split of a larger named-distinct-pointer follow-up (the interface
+item landed separately as `96c85b86`; universe-`any` support is a deferred rework in
+claude-todo.md).  Two adversarial-review rounds on the full changeset plus a final
+minimal review of Group A alone (0 defects) preceded landing; builder-comp full
+conformance 2872/0, hygiene 17/17, 1136/1137 green on builder-comp + native_aa64.
+
 ## Capturing-closure padded multi-return miscompiled (LLVM closure-shim/define type divergence) — ✅ DONE (`bb3cd109`, 2026-07-29; regression from `d72f7154`)
 
 A CAPTURING closure whose func-value type returns a register-returned multi-return tuple with a

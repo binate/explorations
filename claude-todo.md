@@ -9,20 +9,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### Compiler panic reading `(*p)[i].x` (deref-index-then-selector) — ✅ FIXED, pending land (found 2026-07-28; fixed 2026-07-29)
-
-**Severity: MAJOR (resolved).** The compiler PANICKED ("internal error: unresolved
-selector in IR-gen (compiler bug)") when READING a field off a deref-indexed struct
-element `(*p)[i].x`, and silently DROPPED the corresponding STORE, for BOTH raw
-`*([N]S)` and managed `@([N]S)` pointers.  Root cause: `getIndexElemType`
-(`gen_slice.bn`) had no deref (`*p`) base arm, so `genSelector` / `genSelectorPtr`
-saw a nil elem type with a non-nil elem ptr and fell through to the poisoned panic
-(read) / an r-value temp (store).  **FIXED (pending land) in the Group A deref-index
-codegen commit** (rebased onto main; also completes the slice/pointer POINTEE case
-that returned nil in `genIndexPtr`'s deref arm).  Guard: `conformance/1137_deref_
-index_selector_read` (positive — array/slice/pointer/managed, read+store).  Moves
-to claude-todo-done.md with the landed hash.
-
 ### native arm32 baremetal: cross-package `(St, int)` struct-field multi-return collect crashes — 🔴 OPEN (native-arm32 gap, born-failing since `b6304150`; found 2026-07-28)
 
 `conformance/1119_xpkg_multiret_struct_field` FAILS on `builder-comp_native_arm32_baremetal`:
@@ -116,23 +102,16 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/plan-rt-fault-cleanup-pads.md`).
 
-### Named-distinct pointer follow-up: gap-2 (managed deref-index store) FIXED pending land; universe-`any` support DEFERRED (2026-07-28..29)
+### Named-distinct pointer → universe `any` (`*any` / `@any`) — 🟠 DEFERRED (rework) (2026-07-28..29)
 
-Residual items from the named-distinct-pointer transparency project (parent in
-claude-todo-done.md).  **Item (1) — a named-distinct pointer must not satisfy its
-underlying's interface — was fixed independently and LANDED on main (`96c85b86`,
-`types_assignable.bn`); my duplicate `isInterfaceValueType` version was DROPPED
-(and its `1131`/`1132` numbers collided with landed coverage tests anyway).**
+Follow-up from the named-distinct-pointer transparency project (parent in
+claude-todo-done.md).  Sibling items are DONE: item (1) — a named-distinct pointer
+must not satisfy its underlying's interface — landed independently on main
+(`96c85b86`); item (2) — managed-ptr-to-array deref-index STORE plus the `(*p)[i].x`
+read-panic / dropped-store (across array/slice/pointer/managed pointees) — landed as
+`b2f74f53` (tests `1136_managed_ptr_nested_store`, `1137_deref_index_selector_read`).
+Remaining:
 
-**(2) Managed-ptr-to-array deref-index STORE — ✅ FIXED, pending land.** `(*mp)[i][j]
-= v` silently dropped the store: `indexExprType`'s deref case (`gen_slice.bn`) and
-`genIndexPtr`'s deref arm (`gen_access.bn`) matched only raw `TYP_POINTER`; extended
-to `TYP_MANAGED_PTR` (the managed value IS the pointee backing).  Lands together
-with the `(*p)[i].x` panic/store fix in the Group A deref-index codegen commit
-(rebased onto main; test `1136_managed_ptr_nested_store`).  → moves to done with the
-landed hash.
-
-**(3) Named-distinct pointer → universe `any` (`*any` / `@any`) — 🟠 DEFERRED (rework).**
 Boxing a named-distinct pointer into universal `*any`/`@any` never worked
 end-to-end in codegen (a multi-path, pre-existing cluster), surfaced when the
 now-landed gap-1 (`96c85b86`) exposed the checker side.  A worktree prototype (three
