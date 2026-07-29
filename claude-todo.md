@@ -738,6 +738,36 @@ the VM.  Residual follow-ups:
   outright.  (User chose 2026-07-16 to fold this into the re-pin cleanup rather than a
   partial isolation now.)
 
+## Standard library — pkg/stdx/fmt
+
+### fmt Printf follow-ups (width / precision / flags, `%x`/`%q` on more types) — 🟡 OPEN (lean core landed `2dc07f46`, 2026-07-29)
+
+The Printf/Sprintf/Fprintf **lean core** landed (`2dc07f46`): verbs `%v %d %s %t %f
+%g %e %x %X %o %b %c %q %%` with Go-style error verbs, over the `...*any` operands.
+Deferred to this follow-up (the user chose "lean core, then follow-up" 2026-07-29):
+
+- **Width / precision / flags** — `%5d`, `%-10s`, `%.2f`, `%8.2f`, `%+d`, `%08d`,
+  space-flag.  The format walker (`impls/stdlib/pkg/stdx/fmt/fmt_printf.bn`,
+  `formatInto`/`formatVerb`) currently parses only `%<verb>`; extend it to parse the
+  optional `[flags][width][.precision]` between `%` and the verb, and thread them
+  into the per-verb formatters (strconv already takes a precision for floats;
+  padding is a post-format pad).
+- **`%x`/`%X` on a string** → hex-encode the bytes (Go: `%x` of `"hi"` → `6869`);
+  currently an error verb.
+- **`%q` on a char/int** → single-quoted (`'A'`); currently an error verb.
+- Consider `%p` (pointer), `%U` (unicode), `%+v`/`%#v` — only if a use appears.
+
+Tests to extend when landing: unit tests `fmt_printf_test.bn` (`&`-boxed operands
+until CHECK_TOOLS carries value-borrow — see below), conformance `1135_fmt_printf`.
+
+**Note (CHECK_TOOLS lag):** the hygiene `lint` bnlint (`CHECK_TOOLS_VERSION`,
+bnc-0.0.12-pre3) predates the implicit value→`*any` borrow, so LINTED stdlib code
+(incl. fmt's own tests) must `&`-box operands (`Sprintf("%d", &n)`), not pass them
+bare.  A CHECK_TOOLS bump to a bundle carrying value-borrow (the `9d04870b`
+string-literal box + the earlier scalar/var value-borrow) would let those tests
+drop the `&`.  The non-linted conformance tests (1090/1135) already use the bare
+form.
+
 ## Conformance matrix generators — port to Binate (dogfood)
 
 ### Port the `conformance/gen-*.py` matrix generators to Binate — 🟡 SCOPED, not started (2026-07-17)
