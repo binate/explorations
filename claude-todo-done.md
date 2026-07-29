@@ -6,6 +6,35 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `cast` / `bit_cast` to a rejected type (incl. via a generic type parameter) → invalid LLVM — ✅ DONE (`4903faad`, 2026-07-28)
+
+`cast(T, v)` where the result/operand is a type the builtin can't form -- an
+interface value for `cast` (a 2-word `{data, vtable}`); any aggregate (managed-slice
+/ struct / array / func-value / interface value) for `bit_cast` -- was accepted and
+lowered to an OP_CAST / OP_BITCAST that mis-declared the LLVM type (`%BnIfaceValue`
+used as a 1-word pointer, invalid IR, clang failure).  The `cast` arm did no
+operand-shape validation at all; `bit_cast` had one (isBitCastRejectedAggregate) but
+only for the DIRECT form.
+
+Fix (both builtins, two guards each): a CHECKER rejection for the direct form
+(`cast`: a new interface-value check in check_builtin.bn + the isInterfaceValueType
+predicate; `bit_cast`: the pre-existing aggregate check), AND a CODEGEN backstop in
+gen_builtin.bn's CAST / BIT_CAST arms.  The codegen backstop closes the
+generic-substitution blind spot: inside a generic body `cast(T, x)` / `bit_cast(T, x)`
+sees an ABSTRACT type parameter at definition time, so when T instantiates to the
+rejected type it appears only at codegen, past the checker -- the backstop guards
+again on the concrete substituted types (via ir predicates isIfaceValueKind /
+isBitCastRejectedAggregateKind) and fails loud rather than emit invalid LLVM.
+
+The valid domain is preserved: scalar conversions, same-layout struct-to-struct cast
+(spec §8.5, conformance 1065), the managed->raw slice decay (`cast(*[]T, m)`), and
+valid bit_casts (scalar / pointer / managed-ptr / raw-slice retype), including their
+generic forms.  Surfaced by the box-operand owning review; the generic-path gaps for
+BOTH builtins were each caught by an adversarial round (generic cast → generic
+bit_cast → SOUND).  Recover a concrete type from an interface with a type ASSERTION
+(`x.(@T)`), never a cast.  Conformance 1121 (direct cast) + 1122 (generic cast) + 1123
+(generic bit_cast) + checker unit tests.  LLVM / VM / comp-comp; self-hosts.
+
 ## native arm32/x64/aa64: multi-return tuple return-ABI mismatch (LLVM padding MEMBERS shift FCA return registers) — ✅ DONE (`d72f7154`, 2026-07-25; regressor `2a5c7ac8`)
 
 **Symptom.** A full `builder-comp_native_arm32_baremetal` run regressed to 10 fails; 8 were

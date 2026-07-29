@@ -129,27 +129,6 @@ the peeled `collSt` and the operand goes through the backend GEP fix `846c5771`)
 Only items (1) [checker `*p` deref] and (2) [latent `(*p)[i]` codegen arm] above
 remain open in this entry.
 
-### `cast(T, ifaceValue)` accepted by the checker → invalid LLVM — 🟠 OPEN (found 2026-07-24)
-
-`cast(T, v)` where `v` is an interface value (`@any` / `@I`, a 2-word
-`{data, vtable}`) and `T` is a concrete type is ACCEPTED by the checker but emits
-invalid LLVM.  Repro (clang fails):
-
-    var m @Thing = make(Thing); m.x = 42
-    var a @any = m
-    var back @Thing = cast(@Thing, a)   // `'%v8' defined with type '%BnIfaceValue …' but expected 'i64'`
-
-Pre-existing and orthogonal to the box-operand owning work (surfaced by that
-review); reproduces for a plain `@Thing` with no interface, so it is not
-iface-specific.  Root cause: `cast` is missing the aggregate-operand rejection that
-`bit_cast` already has (`bit_cast` errors "does not support managed-slice, struct,
-array, or other aggregate operands"); an interface value is a 2-word aggregate, so
-`cast`-reinterpreting it to a 1-word `@T` is a size/shape mismatch.  **Fix:** the
-checker should REJECT `cast`/`bit_cast` with an interface-value operand (mirror the
-existing aggregate-operand rejection — see the managed-slice→raw-slice cast fix
-`188`).  Recovering a concrete type from an interface value is the job of a type
-ASSERTION (`a.(@T)`), not `cast`.
-
 ## Test-flake watch
 
 Intermittent, load-/environment-dependent test failures tracked for recurrence —
