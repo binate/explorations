@@ -9,6 +9,21 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### Compiler panic reading `(*p)[i].x` (deref-index-then-selector) — 🔴 OPEN MAJOR (found 2026-07-28)
+
+**Severity: MAJOR** — the compiler PANICS ("internal error: unresolved selector in
+IR-gen (compiler bug)") when READING a field off a deref-indexed struct element:
+`(*p)[i].x` where `p` is a pointer to an array of structs.  The STORE `(*p)[i].x =
+v` works; only the r-value READ panics.  Non-deref `a[i].x` works.  Hits BOTH raw
+`*([N]S)` and managed `@([N]S)` pointers, so it is NOT managed-specific — the
+selector IR-gen (`getSelectorType` / `genSelectorPtr`) does not resolve a
+deref-index base.  Pre-existing (independent of the named-distinct fixes — the raw
+path is unchanged by them); surfaced during the named-distinct-pointer follow-up
+sweep.  Repro / guard: `conformance/1133_deref_index_selector_read` (`xfail.all`,
+lands with the named-distinct follow-up).  Fix: teach the selector IR-gen path to
+resolve a `(*p)[i]` base (mirror how `genIndexPtr`'s deref arm / `indexExprType`
+handle it).
+
 ### native arm32 baremetal: cross-package `(St, int)` struct-field multi-return collect crashes — 🔴 OPEN MAJOR (regression since `d72f7154`, found 2026-07-28)
 
 (The earlier `2a5c7ac8`-regressed-native-multi-return-collection MAJOR entry is
@@ -121,31 +136,36 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/plan-rt-fault-cleanup-pads.md`).
 
-### Named-distinct pointer: interface satisfaction + managed-ptr nested-array deref — 🟠 OPEN (2026-07-28)
+### Named-distinct pointer: interface satisfaction + managed-ptr nested-array deref — ✅ FIXED, pending land (2026-07-28)
 
-Named-distinct pointer DEREFERENCE + all deref codegen landed (`4c172b28`,
-`63bec576`; the whole transparency project incl. indexing/coercion is in
-claude-todo-done.md).  Two residual gaps surfaced during that work:
+Both residual gaps from the named-distinct-pointer transparency project (parent in
+claude-todo-done.md) are FIXED and verified on the work branch; pending land
+approval, after which this moves to claude-todo-done.md with the landed commit.
 
-**(1) A named pointer wrongly SATISFIES an interface its underlying satisfies.**
-`type PS *S; impl *S : Getter; var g *Getter = ps` compiles (then crashes at
-runtime) even though a named-distinct type does NOT inherit its underlying's
-methods (so `ps.m()` non-deref is correctly rejected, and PS has no methods of
-its own).  DECIDED (2026-07-28, with the user): PS must NOT satisfy the interface
-— the fix is a **checker rejection** of the assignment, not codegen.  The obvious
-paths (`canAssignToRawInterfaceValue` / `receiverAssignable` / `receiverShape`)
-already reject a `TYP_NAMED` pointer source, so acceptance is via ANOTHER path —
-trace it (likely an implicit named-ptr→underlying decay or a value-borrow admit).
-Add a rejection conformance test.
+**(1) Named pointer wrongly satisfied an interface — FIXED (checker rejection).**
+`var g *Getter = ps` (`type PS *S; impl *S : Getter`) is now REJECTED ("cannot
+assign PS to *Getter").  Root cause: `AssignableTo`'s named-distinct transparency
+arm decayed `PS→*S` BEFORE the interface-satisfaction check, so it saw a genuine
+`*S`.  Fix (`types_assignable.bn`): guard the src-decay so it does not fire toward
+an interface-value dst (`isInterfaceValueType`); PS then reaches
+`canAssignToRawInterfaceValue` / value-borrow un-peeled, both of which reject a
+`TYP_NAMED` source.  Universal `*any` still works (not an interface-value dst);
+legit composite decay (`@[]int = buf`) unaffected.  Rejected at var-init / arg /
+return positions and for `@Iface`.  Conformance `1131_named_ptr_iface_reject`.
 
-**(2) Pre-existing: managed-pointer-to-nested-array deref-index miscompiles.**
-`mp @([2][2]int); (*mp)[i][j]` reads the wrong value (0), independent of any
-named-distinct wrapper (surfaced by the sweep's adversarial review, which also
-caught a transient double-eval that was reverted with the scope-creep change).
-`genIndexPtr`'s deref arm (`gen_access.bn` ~259) handles only `TYP_POINTER`, not
-`TYP_MANAGED_PTR`, so a managed pointer to an array is not treated as the array's
-backing address (unlike `genIndex`'s own array arm, which does).  Low priority
-(managed-pointer-to-array is rare).
+**(2) Managed-ptr-to-array deref-index STORE — FIXED.**  `(*mp)[i][j] = v` now
+stores correctly (was silently dropped).  Needed TWO sites: `indexExprType`'s
+deref case (`gen_slice.bn`) so `isNestedArrayBase` recognizes the array (else the
+store took the r-value fallback), AND `genIndexPtr`'s deref arm (`gen_access.bn`)
+— both matched only raw `TYP_POINTER`; extended to `TYP_MANAGED_PTR` (the managed
+value IS the pointee backing).  Reads already worked (`genIndex`); single-level
+`(*mp)[i] = v` already worked.  Conformance `1132_managed_ptr_nested_store`.
+
+Verified: builder-comp full 2866/0; 1131/1132 pass builder-comp / -int /
+native_aa64; types+ir unit tests 0-fail; adversarial edge sweep (compound / 3D /
+array-of-array / named-managed-ptr stores; arg/return/managed reject positions)
+all correct.  The sweep also surfaced a SEPARATE pre-existing panic — reading
+`(*p)[i].x` — now tracked as its own MAJOR above (`1133`, xfail).
 
 ## Test-flake watch
 
