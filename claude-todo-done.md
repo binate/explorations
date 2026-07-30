@@ -6,6 +6,35 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## native arm32: cross-package struct/array-field multi-return sret'd by LLVM vs collected in registers by native — ✅ DONE (`6d16981c`, 2026-07-29)
+
+`conformance/1119_xpkg_multiret_struct_field` crashed on `builder-comp_native_arm32_baremetal`
+(printed `7 9 1`, then died at the `(St, int)` collect). Root cause was NOT the native collect —
+`storeMultiReturnTupleFieldsArm32` was already correct — but the shared LLVM multi-return
+coercion bridge:
+
+- In native-arm32 mode `main` is native but deps (the `mkStInt` callee) go through LLVM. For a
+  register-returned `(St, int)` (St = `{bool,int,int}`), LLVM's ARM backend flattens the raw packed
+  `<{ <{i1,[3xi8],i32,i32}>, i32 }>` into more than 4 legalized return parts and returns the 16-byte
+  tuple via sret (an r0 buffer), while the native caller classifies it as register-returned by word
+  count (gpWords ≤ 4) and reads r0..r3 — no sret buffer is passed, so the LLVM callee writes through
+  garbage r0 and crashes.
+- The flat-FCA coercion bridge (`multiReturnCoercedLLTy`) that spells a struct/array field as its
+  register-friendly `[N x iW]` form (so LLVM keeps the tuple in registers) was gated to aa64 only,
+  its comment wrongly claiming arm32's AAPCS32 return ABI didn't exhibit the divergence. Fix: enable
+  `multiRetCoercionActive()` on arm32 too. ILP32's `[N x iW]` element size is alignment-aware
+  (`aggCoerceElemBytes`), so a word-multiple / 8-aligned coerced field is offset-faithful and matches
+  native's per-field word collect. x64 stays excluded (its SysV eightbyte coercion already agrees;
+  1119 passed on native x64).
+- Not a recent regression — red on native arm32 since 1119's own add-commit `b6304150`, unnoticed
+  because native arm32 is not CI-gated. Verified: 1119 now passes on native arm32 and stays green on
+  LLVM arm32 / native x64 / native aa64; full native-arm32 + LLVM-arm32 sweeps 2839 pass / 0 fail.
+  Unit test `TestArm32StructFieldMultiReturnCoerced`.
+
+An adversarial review of the fix surfaced a distinct, PRE-EXISTING sub-word hole in the SAME bridge
+(a sub-word aggregate field word-rounds and shifts the following field) — tracked under the
+`multiReturnCoercedLLTy` offset-faithfulness entry in claude-todo.md, NOT fixed here.
+
 ## Deref-index `(*p)[i]` element store + selector read/store miscompiled/panicked across pointee kinds — ✅ DONE (`b2f74f53`, 2026-07-29)
 
 Two silent miscompiles + a compiler panic in the deref-index codegen for a pointer
