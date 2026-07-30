@@ -723,7 +723,7 @@ the VM.  Residual follow-ups:
 
 ## Standard library — pkg/stdx/fmt
 
-### fmt Printf follow-ups (small remaining verb/flag gaps) — 🟡 OPEN (lean core `2dc07f46` + width/precision/flags `d01a2774`, 2026-07-29)
+### fmt Printf follow-ups (small remaining verb/flag gaps) — 🟡 OPEN (lean core `2dc07f46` + width/precision/flags `d01a2774` + #/string-hex/*/%q-char `caedd9da`, 2026-07-29)
 
 The Printf/Sprintf/Fprintf **lean core** landed (`2dc07f46`): verbs `%v %d %s %t %f
 %g %e %x %X %o %b %c %q %%` with Go-style error verbs, over the `...*any` operands.
@@ -731,16 +731,21 @@ The Printf/Sprintf/Fprintf **lean core** landed (`2dc07f46`): verbs `%v %d %s %t
 `-` left-justify, `0` zero-pad (every verb, sign-aware for numbers), `+`/space sign,
 width, and precision (float digits / min integer digits / string truncation);
 verified byte-for-byte against Go 1.26.3 across ~2800 generated cases, incl. Inf/NaN
-(signed, space-padded).
+(signed, space-padded).  **`#` / string-hex / `*` / `%q`-char landed** (`caedd9da`):
+`#` alternate form (0x/0X/0b + octal ensure-leading-0; hex/binary zero-pad prefix
+counts toward width, an intentional divergence from Go); `%x`/`%X` hex-encode a
+string (space-separated, `#`-prefixed, precision-limited); `*`/`.*` operand-driven
+width/precision (bad operand → `%!(BADWIDTH)`/`%!(BADPREC)`); `%q` of a char/int
+with full control escapes.  Go-verified.
 
-Still deferred (all render as visible error verbs, never silently):
+Still deferred (all render as visible error verbs / documented divergences, never
+silently):
 
-- **`#` alternate form** (`%#x` → `0xff`, `%#o` → `0o…`).
-- **`*` argument-driven width/precision** (`%*d`).
-- **`%x`/`%X` on a string** → hex-encode the bytes (Go: `%x` of `"hi"` → `6869`);
-  currently an error verb.  **`%q` on a char/int** → single-quoted (`'A'`).
 - **`+`/space sign flags on `%v` of a number** — `% v` of 7 is `7`, Go ` 7`; apply
   the sign in `emitDefault` (needs to detect a numeric arg + its sign).
+- **`#` on a FLOAT** — `%#g` keeps trailing zeros (`3.00000`), `%#.0f`/`%#.0e`
+  keep the decimal point (`3.`); currently `#` is ignored for floats.
+- **`%#q`** → Go uses raw-string backquotes (`` `hi` ``); Binate stays `"hi"`.
 - Some **malformed formats** differ from Go — a bare `%.` (precision, no verb)
   renders `%!(NOVERB)` where Go treats the `.` as a bad verb (`%!.(...)`).
 - **Error-verb internal padding** — `%8d` of a string is `%!d(string=hi)`; Go pads
