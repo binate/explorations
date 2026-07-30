@@ -21,10 +21,28 @@ first FAIL `5dd3f3f8` (19:55). The range is the **sret / large-multi-value-retur
 work in `pkg/binate/codegen`:
 - `98c956f0` "codegen: route large multi-value returns through sret, converging with native"
 - `5dd3f3f8` "codegen: also sret large multi-returns through interface dispatch"
-(`2515041f` between them is test-only.) The `bni` binary is native-x64 code compiled from
-`cmd/bni`'s tree (repl/interp/vm); one of these sret changes miscompiles a
-large-multi-return-through-interface pattern in that tree on x64, so the **`bni` binary
-itself crashes** in the repl path (not the interpreted repl input).
+(`2515041f` between them is test-only.) **Pinpointed to `98c956f0`** (2026-07-29): a debug
+x64 build at `2515041f` (has `98c956f0`, NOT `5dd3f3f8`) already crashes, and `98c956f0^`
+== `9890c1a3` (the last PASS) — so `98c956f0` is the sole culprit; `5dd3f3f8` (the
+iface-dispatch follow-up) is unrelated to this DIRECT-call crash. The `bni` binary is
+native-x64 (LLVM-backend) code compiled from `cmd/bni`'s tree, so the **`bni` binary itself
+crashes** in the repl path (not the interpreted repl input).
+
+**Exact mechanism (reproduced on x86_64-darwin under Rosetta; lldb):** crash is in
+`repl.NewKernel` at `session.bn:193` — `registerExterns(vmInst)`, a call through NewKernel's
+LAST param `registerExterns @func(@vm.VM)` (a 2-word managed func value), which arrives
+**corrupted** (null code ptr). NewKernel returns `(@Kernel, @[]Error)` = 5 GP words > x64's
+3 return regs, so `98c956f0` sret's it: the hidden sret pointer takes arg-register **RDI**,
+shifting the 5 params up one register. With the 4 by-pointer slice params in RSI/RDX/RCX/R8,
+the 2-word `registerExterns` straddles the register/stack boundary (R9 + one stack word),
+and **caller and callee disagree on that spilled word's stack offset by 8 bytes** (caller
+writes `(%rsp)`; callee reads `0x378(%rsp)` = one slot too high = uninitialised stack) → the
+func value is garbage → calling it faults.
+
+**Why x64-only:** arm64/AAPCS passes the indirect-result pointer in the DEDICATED **X8** (not
+an arg register) with 8 arg registers, so sret consumes no arg slot and nothing spills. x64
+SysV has 6 arg registers and sret eats RDI, forcing the spill. The bug fires exactly when an
+sret return coincides with a (managed) param that straddles/spills to the stack.
 
 **Coverage gap — conformance does NOT catch it.** On `5dd3f3f8`,
 `builder-comp_native_x64-comp_native_x64` (ubuntu) is GREEN, including the sret tests the
@@ -33,12 +51,19 @@ crashing pattern is one the conformance PROGRAMS don't exercise but `bni`'s own 
 does — a native-x64 sret conformance hole. On main ~10 days, unnoticed because repl e2e's
 red was masked by the also-red `xmhfa`/`xmiface` e2e jobs (general "E2E red" state).
 
-**Not yet pinpointed to `98c956f0` vs `5dd3f3f8`** (5dd3f3f8's "through interface dispatch"
-is the prime suspect given the repl's interface-heavy path). Likely related to the
-`(St, int)` register-multi-return sret defects already noted below / in the closure
-CRITICAL entry. **Next step:** reproduce on linux/amd64 (docker available) — build `bni` at
-each commit, run `bni --repl` under gdb for a backtrace — then add a native-x64 conformance
-test reproducing the crashing sret shape and fix the register/ABI handling.
+Likely the same family as the `(St, int)` register/stack multi-return sret defects noted
+below / in the closure CRITICAL entry (all: an sret/multi-return + a register/stack boundary
+that the def and call disagree on).
+
+**Fix direction (codegen/ABI — sensitive, NOT yet done):** for an sret'd function, the LLVM
+emission must agree between the callee `define` and every call site on the stack-passed
+portion of a register/stack-straddling aggregate param. Since clang lowers a matched
+signature identically, the def and call `.ll` signatures must currently diverge for this
+case — likely how the func-value (`@func`) param is spelled once sret prepends a param
+(`emit_debug.bn` def vs `emit.bn` call vs `emit_funcvals.bn`). **Next:** build the minimal
+repro (a `(@[]int,@[]int)`-returning fn taking 4 slice params + a trailing `@func` it calls)
+as a native-x64 conformance test, diff its def-vs-call `.ll` to find the divergence, fix the
+emission, and confirm `bni --repl` (x64) + repl e2e go green.
 
 ### `multiReturnCoercedLLTy` is not offset-faithful: register multi-return struct/array field read from wrong bytes — 🔴 OPEN MAJOR (aa64 non-8-aligned + arm32 sub-word; CONFIRMED 2026-07-29)
 
