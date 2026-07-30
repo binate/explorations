@@ -9,6 +9,37 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### native x64: `bni --repl` segfaults on Linux x86-64 (sret large-multi-return miscompile) — repl e2e 55/56 fail — 🔴 OPEN (regression since 2026-07-18; found 2026-07-29)
+
+`e2e/repl.sh` reports `1 passed, 55 failed` on **ubuntu-latest (x86-64 Linux) only** —
+every case (incl. the trivial `basic-call`) dies with `Segmentation fault (core dumped)`
+before any output. macOS arm64 (`test (repl, macos-latest)`) and a local macOS-arm64
+`bni --repl` build both run it correctly, so this is **native-x64-specific**.
+
+**Root cause (bisected via CI e2e history):** last PASS `9890c1a3` (2026-07-18 18:53) →
+first FAIL `5dd3f3f8` (19:55). The range is the **sret / large-multi-value-return ABI**
+work in `pkg/binate/codegen`:
+- `98c956f0` "codegen: route large multi-value returns through sret, converging with native"
+- `5dd3f3f8` "codegen: also sret large multi-returns through interface dispatch"
+(`2515041f` between them is test-only.) The `bni` binary is native-x64 code compiled from
+`cmd/bni`'s tree (repl/interp/vm); one of these sret changes miscompiles a
+large-multi-return-through-interface pattern in that tree on x64, so the **`bni` binary
+itself crashes** in the repl path (not the interpreted repl input).
+
+**Coverage gap — conformance does NOT catch it.** On `5dd3f3f8`,
+`builder-comp_native_x64-comp_native_x64` (ubuntu) is GREEN, including the sret tests the
+range added (`1097_big_multiret_sret_int64`, `1099_iface_multiret_sret_int64`). So the
+crashing pattern is one the conformance PROGRAMS don't exercise but `bni`'s own repl code
+does — a native-x64 sret conformance hole. On main ~10 days, unnoticed because repl e2e's
+red was masked by the also-red `xmhfa`/`xmiface` e2e jobs (general "E2E red" state).
+
+**Not yet pinpointed to `98c956f0` vs `5dd3f3f8`** (5dd3f3f8's "through interface dispatch"
+is the prime suspect given the repl's interface-heavy path). Likely related to the
+`(St, int)` register-multi-return sret defects already noted below / in the closure
+CRITICAL entry. **Next step:** reproduce on linux/amd64 (docker available) — build `bni` at
+each commit, run `bni --repl` under gdb for a backtrace — then add a native-x64 conformance
+test reproducing the crashing sret shape and fix the register/ABI handling.
+
 ### native arm32 baremetal: cross-package `(St, int)` struct-field multi-return collect crashes — 🔴 OPEN (native-arm32 gap, born-failing since `b6304150`; found 2026-07-28)
 
 `conformance/1119_xpkg_multiret_struct_field` FAILS on `builder-comp_native_arm32_baremetal`:
