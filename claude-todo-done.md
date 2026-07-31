@@ -6,6 +6,31 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## native x64: `bni --repl` segfaulted on x86-64 (cross-pkg sret multi-return ABI mismatch) — ✅ DONE (`cbc856b4`, 2026-07-30)
+
+`e2e/repl.sh` was `1 passed, 55 failed` on ubuntu-x64 ONLY (every case, incl. the trivial
+`basic-call`, SIGSEGV'd before any output); macOS arm64 was fine. Bisected the regression to
+`98c956f0` (2026-07-18, "route large multi-value returns through sret"). Root cause:
+`NewExternFunc` built an extern `ir.Func` with `f.Results` set but `f.MultiReturnType` left nil,
+so codegen's `FuncReturnsBigMultiReturn` bailed to false — a CROSS-MODULE call to a large
+multi-return callee emitted the pre-sret register-FCA convention (`declare <{T1,T2}> @f(…,
+%BnFuncValue)`) while the defining module sret'd it (`define void @f(ptr sret(…), …, ptr
+byval(%BnFuncValue))`). On x64/SysV the sret pointer eats arg-register RDI, so a trailing
+register/stack-straddling `@func` param landed at different stack offsets on the two sides → the
+callee read a garbage func value → faulted calling it (`repl.NewKernel` →
+`registerExterns(vmInst)`, session.bn:193). x64-only because AAPCS64 uses the dedicated X8 for
+the indirect-result pointer + 8 arg regs (nothing spills); native_x64 conformance stayed green
+because its test PROGRAMS don't hit the sret-return + straddling-func-value-param shape bni's
+own repl code does.
+
+Fix (`cbc856b4`): populate `f.MultiReturnType` in `NewExternFunc` for a multi-return, exactly as
+`gen_func.bn` does for a local func, so an imported extern's sret decision matches the
+definition's by construction. `conformance/1139_xpkg_sret_multiret_funcval_param` reproduces it
+(SIGSEGV pre-fix on x64 → `42/2/99` post-fix); verified end-to-end via `bni --repl` on
+x86_64-darwin (segfault → `> 14`) plus ir+codegen unit tests and the xpkg/multiret/funcval/sret
+conformance set (175). Found while investigating the pre-existing repl e2e red during the
+pkg/stdx/fmt CLI-tools migration.
+
 ## native arm32: cross-package struct/array-field multi-return sret'd by LLVM vs collected in registers by native — ✅ DONE (`6d16981c`, 2026-07-29)
 
 `conformance/1119_xpkg_multiret_struct_field` crashed on `builder-comp_native_arm32_baremetal`
