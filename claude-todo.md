@@ -761,10 +761,19 @@ verified byte-for-byte against Go 1.26.3 across ~2800 generated cases, incl. Inf
 counts toward width, an intentional divergence from Go); `%x`/`%X` hex-encode a
 string (space-separated, `#`-prefixed, precision-limited); `*`/`.*` operand-driven
 width/precision (bad operand → `%!(BADWIDTH)`/`%!(BADPREC)`); `%q` of a char/int
-with full control escapes.  Go-verified.
+with full control escapes.  Go-verified.  **Custom formatting landed** (`04e0b3d7`):
+a type implementing `lang.Stringer` formats via `String()` on `%v`/`%s`/Print (a
+runtime `arg.(*lang.Stringer)` assertion after the built-in fast-path).  `%s` of a
+non-string renders it like `%v` (fmt's own scalar formatting, then Stringer for a
+user type) — fmt does its OWN formatting for built-ins, not lang's simple
+`String()`.  Adversarially reviewed (no leak/UAF, cross-mode identical).
 
-Still deferred (all render as visible error verbs / documented divergences, never
-silently):
+The remaining fmt LAYER is **struct/default reflection** for `%v` of an aggregate
+without a `String()` (currently `%!?(unknown)`) — rides on package descriptors
+(Phase B); larger, separate.
+
+Still deferred (small verb/flag gaps — all render as visible error verbs /
+documented divergences, never silently):
 
 - **`+`/space sign flags on `%v` of a number** — `% v` of 7 is `7`, Go ` 7`; apply
   the sign in `emitDefault` (needs to detect a numeric arg + its sign).
