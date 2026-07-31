@@ -9,42 +9,32 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### `multiReturnCoercedLLTy` is not offset-faithful: register multi-return struct/array field read from wrong bytes — 🔴 OPEN MAJOR (aa64 non-8-aligned + arm32 sub-word; CONFIRMED 2026-07-29)
+### native arm32: sub-word aggregate field at a NON-word-aligned offset in a multi-return is broken (all paths) — 🔴 OPEN (pre-existing arm32 backend hole; found 2026-07-30)
 
-**Severity: MAJOR — silent wrong-code.** The flat-FCA coercion bridge (`emit_multiret_coerce.bn`,
-`multiReturnCoercedLLTy`) reinterprets a register-returned multi-return between its raw packed
-`<{…}>` build and a flat `{…}` boundary through a shared memory slot (callee `ret` via
-`%mrret.slot`; call bind via `.mrRB`; the func-value + closure retbufs). Correctness requires the
-flat type's LLVM member offsets to equal the raw `types.FieldOffset`. Two shapes violate that and
-silently corrupt a field:
+The offset-faithful multi-return field bridge landed (`8a81c6dc`, see claude-todo-done.md) fixed the
+aa64 + x64 point-(i) miscompiles and the arm32 word-multiple / array-FIRST sub-word cases everywhere.
+One residual shape remains broken, on **arm32 only**: a register-returned multi-return whose struct/
+array FIELD is SUB-WORD (align < 4, e.g. `[3]int8` / `struct{3×int8}`) AND sits at a NON-word-aligned
+raw offset — the `(int8, Tri)` "array-LAST" shape (a sub-4-aligned scalar first, then the sub-word
+aggregate at an odd byte).  aa64 + x64 handle it (unaligned tolerated in hardware).  It is broken on
+arm32 across EVERY path:
 
-- **(i) aa64 — struct/array field at a NON-8-ALIGNED offset.** e.g. `(int32, P)` / `(bool, P)` with
-  P an align-4 `struct{int32,int32}`, or `(int32,[2]int32)`. The field is coerced to `[N x i64]`
-  (8-aligned); in the non-packed flat `{ i32, [1 x i64] }` it lands at byte 8, but the raw tuple
-  places P at byte 4. Confirmed repro (pure-LLVM aa64): `func mk() (int32, P)` returning
-  `{99,{10,20}}` prints `99, 1, 20` — P.x GARBAGE, P.y (byte 8, matches both layouts) survives. The
-  DIRECT-call path is corrupted, so it is inherited by the func-value + closure shims too. aa64-only:
-  x64 uses its own SysV eightbyte coercion; arm32 coerces an align-4 aggregate to `[N x i32]` (byte 4,
-  correct).
-- **(ii) arm32 — SUB-WORD-sized aggregate field.** e.g. `([3]int8, int8)` / `(struct{3×int8}, int8)`.
-  The field is word-ROUNDED (`[3]int8` → `[1 x i32]`, 4 bytes), shifting the FOLLOWING sub-4-aligned
-  field past its raw FieldOffset. Confirmed end-to-end (native arm32, cross-package): `([3]int8,int8)`
-  returning `({11,22,33}, 99)` prints `11 22 33 0` — the trailing int8 (99) LOST. PRE-EXISTING (the
-  raw form mismatched native too); surfaced by the adversarial review of `6d16981c`, which enabled
-  arm32 coercion and fixed the word-multiple case but not this sub-word one. Not in conformance (the
-  array-field tests 1100/1103 use word-sized `int`).
+- **native collect** (`storeMultiReturnTupleFieldsArm32`, `arm32_call.bn`): stores the aggregate
+  field as a full-word `str` at the odd FieldOffset — an UNALIGNED word store that FAULTS on
+  strict-align bare-metal (appears as a hang; no fault handler).  Pre-existing (this file predates
+  the bridge work — it hung on native arm32 before `8a81c6dc` too).
+- **LLVM field-offset bridge** (`emit_multiret_coerce.bn`): the coerced `[1 x i32]` load/store at the
+  odd offset is `align 1`, but LLVM's armv7 backend emits an unaligned `ldr`/`str` (unless
+  `-mno-unaligned-access`) → also faults on strict-align bare-metal.
+- **sret fallback** (tried, reverted): routing this shape to sret via an arm32-only
+  `MultiReturnTupleNeedsSret` addition made pure-LLVM arm32 wrong-output (`88,0,66`) and native arm32
+  still hung — the native sret path ALSO mishandles a sub-word multi-return tuple.
 
-Both are the SAME root: `multiReturnCoercedLLTy` must place each field at its raw `types.FieldOffset`.
-
-**Fix direction.** Explicit `[K x i8]` padding MEMBERS do NOT work — VERIFIED they each claim their
-own return register (an `<{ i32, [4 x i8], i64 }>` return uses w0,w1,w2,w3,w4,x5 — 6 registers,
-desyncing native). Instead choose each field's coerced type + placement so its NATURAL (unpacked)
-offset equals FieldOffset AND its register layout matches native's per-field word collect. Note the
-aa64 tension: native reads an 8-byte aggregate as ONE x-register, so the field must stay `[N x i64]`
-(a `[2 x i32]` splits into w1/w2, but native reads x1) yet also land at byte 4 — needs per-field
-packing without padding members. On arm32 a sub-word field must not word-round past the next field.
-Guards (add + xfail on discovery): direct + func-value + closure `(int32, struct{int32,int32})` on
-aa64, and `([3]int8, int8)` on native arm32. Do NOT work around.
+**Fix direction (needs native-backend work):** teach the native arm32 collect (and its sret path) to
+byte-wise-access a sub-word aggregate field at a non-word offset, and make the LLVM side byte-wise for
+that access (`-mno-unaligned-access` on arm32-baremetal, or byte-wise IR in the bridge).  EXOTIC — no
+real or conformance code hits it (the array-field tests 1100/1103 use word-sized `int`), so low
+priority.  Add a conformance test `(int8, Tri)` (xfail native arm32) when fixing.  Do NOT work around.
 
 
 

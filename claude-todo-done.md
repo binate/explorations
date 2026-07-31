@@ -6,6 +6,38 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Multi-return struct/array field coercion made offset-faithful (aa64 + x64 + arm32) — ✅ DONE (`8a81c6dc`, 2026-07-30)
+
+A register-returned multi-return tuple with a struct/array FIELD was silently miscompiled at the
+native<->LLVM boundary on every backend, because LLVM's return lowering expands/relocates such a
+field differently than the native caller's per-field word collect:
+
+- **aa64 (point-(i))**: `(int32, P)` with P an align-4 `{int32,int32}` printed `99, 1, 20` — P.x
+  garbage, INCL. the default builder-comp lane.  The flat coercion spelled P `[1 x i64]` (8-aligned);
+  in a non-packed flat tuple LLVM bumped it to byte 8 vs the raw byte 4, so the raw<->flat reinterpret
+  (`%mrret.slot` / `.mrRB` / the shim retbufs) read the field from the wrong bytes.  Inherited by the
+  direct call, the func-value shim, and the closure shim.
+- **x64**: the same `(int32, P)` printed `99, 10, 0` — P.y lost.  LLVM returns a first-class integer
+  aggregate as ONE GP register PER i32/i64 LEAF (EAX,EDX,ECX) while native read an 8-byte aggregate
+  field as one word register.  x64 was NOT coercing multi-return fields at all.
+- **arm32 (word-multiple / array-first)**: covered by the same bridge (the earlier `6d16981c` enabled
+  arm32 coercion; this makes the reinterpret offset-faithful).
+
+Fix (`pkg/binate/codegen/emit_multiret_coerce.bn` + the func-value/closure shims):
+(1) enable `multiRetCoercionActive` on x64 too, so a struct/array field coerces to `[N x iW]` and LLVM
+returns it in exactly ceil(size/W) word registers matching native; (2) reinterpret raw<->flat
+FIELD-BY-FIELD at each field's true `types.FieldOffset` — a gather on return + `emitScatterFlatValue`
+for the call-result bind and both shims, `align 1` — instead of a whole-struct load/store of the flat
+type whose own LLVM alignment misplaces a coerced field.  New cross-package test
+`1140_multiret_field_offset` (point-(i) `(int32,P)` + array-first `(Tri,int8)`).  Verified green: full
+conformance sweeps on host / native aa64 / native x64 / LLVM arm32 / native arm32; codegen unit tests;
+hygiene 17/17.  (Landed on top of the concurrent `cbc856b4`, which fixes a DIFFERENT x64 multi-return
+bug — large sret externs — re-verified they coexist.)
+
+The adversarial review + landing surfaced a residual PRE-EXISTING arm32 hole — a sub-word aggregate
+field at a NON-word-aligned offset (the `(int8, Tri)` "array-last" shape) — broken on arm32 across all
+paths, NOT fixed here; tracked as an OPEN entry in claude-todo.md.
+
 ## native x64: `bni --repl` segfaulted on x86-64 (cross-pkg sret multi-return ABI mismatch) — ✅ DONE (`cbc856b4`, 2026-07-30)
 
 `e2e/repl.sh` was `1 passed, 55 failed` on ubuntu-x64 ONLY (every case, incl. the trivial
