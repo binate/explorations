@@ -36,32 +36,25 @@ a SILENT wrong-code miscompile of a valid, accepted program.
 
 ## MAJOR
 
-### native arm32: sub-word aggregate field at a NON-word-aligned offset in a multi-return is broken (all paths) — 🔴 OPEN (pre-existing arm32 backend hole; found 2026-07-30)
+### native arm32: closure capture of a sub-word aggregate faults (last strict-align site) — 🔴 OPEN (pre-existing; found 2026-07-31)
 
-The offset-faithful multi-return field bridge landed (`8a81c6dc`, see claude-todo-done.md) fixed the
-aa64 + x64 point-(i) miscompiles and the arm32 word-multiple / array-FIRST sub-word cases everywhere.
-One residual shape remains broken, on **arm32 only**: a register-returned multi-return whose struct/
-array FIELD is SUB-WORD (align < 4, e.g. `[3]int8` / `struct{3×int8}`) AND sits at a NON-word-aligned
-raw offset — the `(int8, Tri)` "array-LAST" shape (a sub-4-aligned scalar first, then the sub-word
-aggregate at an odd byte).  aa64 + x64 handle it (unaligned tolerated in hardware).  It is broken on
-arm32 across EVERY path:
+The general native-arm32 strict-align aggregate fix landed (`c1403072`, see claude-todo-done.md) —
+struct copy, aggregate value load, sret return/write, byval, and the multi-return register collect
+are all byte-wise-safe now, so every non-closure sub-word-aggregate shape works on native arm32.  One
+site remains: a CLOSURE capturing a sub-word aggregate (align < wordBytes, e.g. `Tri = {a,b,c int8}`).
+The capture is stored in the compiler-internal closure struct at a packed (odd) offset, and the shim
+reads it back with a word LDR — which FAULTS on strict-align MMU-less arm32 (hang).  Confirmed:
+a closure capturing an `int8` then a `Tri` hangs on native arm32.
 
-- **native collect** (`storeMultiReturnTupleFieldsArm32`, `arm32_call.bn`): stores the aggregate
-  field as a full-word `str` at the odd FieldOffset — an UNALIGNED word store that FAULTS on
-  strict-align bare-metal (appears as a hang; no fault handler).  Pre-existing (this file predates
-  the bridge work — it hung on native arm32 before `8a81c6dc` too).
-- **LLVM field-offset bridge** (`emit_multiret_coerce.bn`): the coerced `[1 x i32]` load/store at the
-  odd offset is `align 1`, but LLVM's armv7 backend emits an unaligned `ldr`/`str` (unless
-  `-mno-unaligned-access`) → also faults on strict-align bare-metal.
-- **sret fallback** (tried, reverted): routing this shape to sret via an arm32-only
-  `MultiReturnTupleNeedsSret` addition made pure-LLVM arm32 wrong-output (`88,0,66`) and native arm32
-  still hung — the native sret path ALSO mishandles a sub-word multi-return tuple.
+The faulting reads are in `arm32_closure_shim_spill.bn` (`emitClosureCaptureSpillArm32`,
+`emitClosureCaptureRegLoadSpillArm32`) and any fast-path capture-load variants.
 
-**Fix direction (needs native-backend work):** teach the native arm32 collect (and its sret path) to
-byte-wise-access a sub-word aggregate field at a non-word offset, and make the LLVM side byte-wise for
-that access (`-mno-unaligned-access` on arm32-baremetal, or byte-wise IR in the bridge).  EXOTIC — no
-real or conformance code hits it (the array-field tests 1100/1103 use word-sized `int`), so low
-priority.  Add a conformance test `(int8, Tri)` (xfail native arm32) when fixing.  Do NOT work around.
+**Fix direction (two options):** (a) word-ALIGN the capture fields in the internal closure struct
+(`buildClosureStructType`, pkg/binate/ir/gen_func_lit.bn) — it is compiler-internal (creator + shim,
+same module), so aligning it makes creation + every capture read aligned in ONE place; or (b) byte-wise
+the closure capture load/spill functions (per-function, mirrors the landed collect fix).  (a) is likely
+cleaner.  Add a conformance test (a closure capturing a sub-word aggregate) when fixing.  Do NOT work
+around.
 
 
 

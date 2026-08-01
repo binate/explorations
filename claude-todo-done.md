@@ -6,6 +6,32 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## native arm32: strict-align-safe unaligned aggregate access — ✅ DONE (`c1403072`, 2026-08-01)
+
+MMU-less / bare-metal arm32 runs with strict-alignment memory: an unaligned word LDR/STR faults
+(no fault-and-fixup handler → hang).  The packed struct layout can place a SUB-word-aligned
+aggregate (AlignOf < wordBytes — a struct/array of int8/int16) at a non-word-aligned address (e.g.
+field `t` of `struct { x int8; t Tri }` at byte 1), and the native arm32 backend emitted word
+LDR/STR for aggregate copies/loads — which faulted for such an aggregate.  This started as the
+"array-last `(int8, Tri)` multi-return" hole but proved GENERAL: a plain `u = s.t`, passing /
+returning a sub-word aggregate, and big-sret multi-returns all hung too (no conformance test caught
+it — they all use word-aligned aggregates).
+
+Fix — one alignment-aware helper `emitAggMemcpyArm32` (arm32_aggcopy.bn): BYTE-WISE (LDRB/STRB) when
+`aggNeedsBytewiseArm32` (AlignOf < wordBytes), else word-by-word.  Routed into every native aggregate
+copy site — emitStructCopy, emitAggLoad (arm32_emit.bn), emitSretReturn, emitMultiReturnSret
+(arm32_return.bn), byval param copy (arm32_emit_func.bn) — plus a byte-wise store path
+(storeAggFieldBytewiseArm32) in the multi-return register collect (arm32_call.bn) for a field at a
+non-word-aligned tuple offset.  LLVM lane: arm32-baremetal gains `-mno-unaligned-access` (arm32-linux
+omits it — kernel traps-and-emulates).  Conformance `1148_arm32_unaligned_aggregate` (struct copy,
+pass, return, array-last multi-return of a sub-word aggregate) passes on host / native aa64 / native
+x64 / LLVM arm32 / native arm32; adversarial review clean (5/5); both full arm32 sweeps 2845/0;
+aa64/x64/host unaffected (arm32-package-only change).  The load-into-register read sites (arg
+marshal, multi-return pack) are safe by a structural invariant (PlanFrame 8-rounds every materialized
+aggregate; rvalues are materialized via emitAggLoad before any word read).
+
+CLOSURE captures of a sub-word aggregate remain broken (a separate site) — tracked in claude-todo.md.
+
 ## Value-receiver interface dispatch over-released the receiver's managed fields — ✅ RESOLVED (landed `790e9fcd`, 2026-08-01)
 
 A struct value carrying a managed field, boxed into a raw `*Iface` and dispatched through
