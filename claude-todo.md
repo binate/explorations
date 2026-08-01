@@ -29,8 +29,8 @@ dispatch are both balanced — only the value-receiver **iface-thunk** path is w
   paths never hit this), so it is landable independently.
 - **IR-level → all backends:** the thunk emits IR consumed by the VM and every native/
   LLVM backend, so it fails in every conformance mode.
-- **Test:** `conformance/1141_value_recv_iface_managed_field_refcount` asserts the
-  correct balanced behavior; xfail'd in all CI-gated modes.
+- **Test:** `conformance/1146_value_recv_iface_managed_field_refcount` asserts the
+  correct balanced behavior; xfail'd in all CI-gated modes (landed `a1a1c72b`).
 - **Fix:** in `genIvRecvThunk`, RefInc the loaded receiver value's managed fields before
   forwarding to the value-receiver method (mirror the caller-side RefInc a direct value-
   receiver call performs), so the callee's cleanup RefDec balances (net 0). Then remove
@@ -121,39 +121,6 @@ propagate rather than swallow — the trampoline / `execExternCall` should re-ra
 test: a compiled/native higher-order fn calling a VM callback that indexes OOB, asserting
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/plan-rt-fault-cleanup-pads.md`).
-
-### Named-distinct pointer → universe `any` (`*any` / `@any`) — 🟠 DEFERRED (rework) (2026-07-28..29)
-
-Follow-up from the named-distinct-pointer transparency project (parent in
-claude-todo-done.md).  Sibling items are DONE: item (1) — a named-distinct pointer
-must not satisfy its underlying's interface — landed independently on main
-(`96c85b86`); item (2) — managed-ptr-to-array deref-index STORE plus the `(*p)[i].x`
-read-panic / dropped-store (across array/slice/pointer/managed pointees) — landed as
-`b2f74f53` (tests `1136_managed_ptr_nested_store`, `1137_deref_index_selector_read`).
-Remaining:
-
-Boxing a named-distinct pointer into universal `*any`/`@any` never worked
-end-to-end in codegen (a multi-path, pre-existing cluster), surfaced when the
-now-landed gap-1 (`96c85b86`) exposed the checker side.  A worktree prototype (three
-codegen peels — `wrapAsIfaceValue`, `canBorrowValueIntoRawIface`,
-`isBorrowableValueSource` — plus an `any`-exemption on the gap-1 guard) got `*any` +
-`@any` construction AND recovery working (erase-to-underlying identity, builder-comp
-2868/0), BUT a two-round adversarial review found it still incomplete, so it was NOT
-landed:
-  - **(3a)** a named-distinct pointer with its OWN `impl PS : I` is wrongly REJECTED
-    into `*I` — a REGRESSION vs pre-fix (which accepted it, dispatching PS's own
-    method).  The correct rule is "reject *inherited* satisfaction (via `impl *S`),
-    allow *own-impl* satisfaction (via `impl PS`)", which CONFLICTS with the
-    any-erasure identity (own-impl needs `PS`'s vtable identity; `any` erases to
-    `S`) — so `wrapAsIfaceValue`'s name key must be CONDITIONAL on
-    `isUniverseAny(iface)`.  **NB: verify whether the landed `96c85b86` gap-1 has
-    this same own-impl over-rejection.**
-  - **(3b)** a named-distinct pointer to a NAMELESS pointee (`type NRA *([2]int)`)
-    boxed into `any` PANICS (`wrapAsIfaceValue`'s name-less path doesn't peel the
-    named-distinct wrapper on `srcExprTyp`).
-  Redo as a careful, separately-scoped effort (reconcile with `96c85b86` + the
-  `9d04870b` `*any` string-literal work); the worktree prototype + these adversarial
-  findings are the starting point.
 
 ## Test-flake watch
 

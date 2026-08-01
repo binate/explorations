@@ -6,6 +6,40 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Named-distinct pointer boxes into interface values (raw + managed, one convention) — ✅ RESOLVED (landed `1fd4ed68`, 2026-07-31)
+
+Completed the named-distinct-pointer → interface story (the deferred rework follow-up to
+the transparency project; siblings landed earlier as `96c85b86` (no inherited
+satisfaction) and `b2f74f53` (deref-index store)).  A named-distinct pointer — raw
+(`type PS *S`) or managed (`type PMS @S`) — now boxes into interface values via a SINGLE
+direct-box / no-thunk convention:
+
+- **Universe `*any`/`@any`:** accepted, ERASING to the underlying concrete type — recover
+  via `.(*S)`/`.(@S)`; `.(PS)`/`.(PMS)` not value-recoverable; pointee dtor, no leak.
+  (Resolves the old (3b) nameless-pointee `any` panic.)
+- **User interface with an OWN `impl PS : I`/`impl PMS : I`:** accepted, PRESERVING the
+  named identity (dispatch runs the named type's method); works for `*Iface` AND `@Iface`,
+  incl. a managed pointer into a raw `*Iface`.  (Resolves the old (3a) own-impl
+  over-rejection — `wrapAsIfaceValue`'s name key is conditional on `isUniverseAny`.)
+- **Inherited satisfaction** (only `impl *S`/`impl @S`) stays REJECTED.
+
+Mechanism: unify on direct-box (the pointer value IS the receiver; no value-receiver deref
+thunk) via peels in `types_assignable.bn` (pointer-shape gate), `gen_util.bn`
+(`isBorrowableValueSource`), `gen_iv_thunk.bn` (`needsRecvThunk`), `gen_iface.bn`
+(`wrapAsIfaceValue`), `gen_iface_nameless.bn` (`isBoxableNamelessType`).  An owning
+`@Iface` over a managed named-distinct pointer keys its slot-0 dtor on the POINTEE via the
+shared `boxSlot0DtorName` (extracted from the erased-`any` path so both paths agree) — and
+that helper's ARRAY case is UNCONDITIONAL (no collection-time `NeedsDestruction()` gate,
+which is blind to post-layout struct destructibility and leaked `@([N]S)`); codegen's
+post-layout dtor-emission gating decides slot liveness.  Verified by three adversarial
+review rounds (the array-of-destructible-struct leak was the last one caught + fixed).
+Tests `1143`/`1144`/`1145`; full conformance 2875/0.
+
+Two PRE-EXISTING, orthogonal bugs surfaced by the reviews (both reproduce on baseline,
+neither caused by this work): the value-receiver iface-dispatch over-release (CRITICAL,
+xfail `1146`, landed `a1a1c72b`) and the `(*p)()` func-value-deref-call miscompile (MAJOR)
+— both tracked in claude-todo.md.
+
 ## `pkg/binate/repl` compiled unit tests infinite-looped — ✅ RESOLVED by concurrent codegen work (was a stale-base miscompile; found 2026-07-31, gone on `0b31e8e1`)
 
 While validating the nil-check N3 landing, `scripts/unittest/run.sh builder-comp
