@@ -144,25 +144,36 @@ word1  size                 (unchanged)
 word2  align                (unchanged)
 word3  name ptr             (unchanged)
 word4  name len             (unchanged)
-word5  KIND                 (NEW: enum — scalar-int/uint/float/bool, string,
-                             struct, array, slice, ptr, iface, func, other)
-word6  field count          (NEW: 0 for non-structs)
-word7  fields ptr           (NEW: &__typefields.<T>, or null)
+word5  KIND                 (NEW: enum — int/uint/float/bool, string, struct,
+                             array, slice, ptr, iface, func, other)
+word6  fields ptr           (NEW: &__typefields.<T>, or null)
+word7  field count          (NEW: 0 for non-structs)
 ```
+
+Words 6–7 are deliberately ordered `{ptr, len}` so a `*[]FieldInfo` raw slice
+overlays them directly (§3.3). The KIND at word5 is a *coarse* discriminator; a
+field's exact width comes from the per-field `size` (below), so fmt can load a
+scalar without dereferencing anything.
 
 `__typefields.<T>` is a new TU-local rodata/static blob (following the
 `__typeinfo_name.<T>` name-blob precedent — reloc-safe, emitted alongside the weak
-record), an array of `FieldEntry`:
+record), an array of `FieldEntry` (6 words each):
 
 ```
-FieldEntry { name-ptr, name-len, offset, field-kind, field-typeinfo-ptr }
+FieldEntry { name-ptr, name-len, offset, field-kind, size, field-typeinfo-ptr }
 ```
 
-`field-typeinfo-ptr` = `&__typeinfo.<fieldType>` when the field's type has its own
-record (enables recursion into nested structs); else null (fmt renders it from
-`field-kind` alone, or opaque). Words 0–4 keep their offsets, so every existing
-assertion reader (which reads words 0–4 by fixed offset and compares the record
-ADDRESS for identity) is unaffected — the extra trailing words are inert to them.
+Field names are concatenated into ONE TU-local `__typenames.<T>` blob; each
+`name-ptr` is a symref to it with the field's byte offset as the addend (so a
+struct adds exactly two new symbols — `__typefields.<T>` + `__typenames.<T>` —
+regardless of field count, not one blob per field). `size` = the field type's
+`SizeOf()`, so fmt loads a scalar of the right width from `field-kind` + `size`
+alone. `field-typeinfo-ptr` = `&__typeinfo.<fieldType>` when the field's type has
+its own record (enables recursion into nested structs); **null until P3** — P1/P2
+leave it null (see §6), so there are NO cross-record references and every backend
+stays transparent. Words 0–4 keep their offsets, so every existing assertion reader
+(which reads words 0–4 by fixed offset and compares the record ADDRESS for
+identity) is unaffected — the extra trailing words are inert to them.
 
 **Why extend the record, not add a `reflect.Package.Types` table:** the value →
 vtable slot-1 → `*TypeInfo` path already exists at runtime; hanging fields off the
@@ -194,17 +205,37 @@ pointer arithmetic (`bit_cast`/offset) + a typed load — contained in a small
 ### 3.3 reflect API surface (`pkg/builtins/reflect`)
 
 ```
-type TypeInfo struct { Kind int; Name *[]readonly char; Fields *[]@FieldInfo }
-type FieldInfo struct { Name *[]readonly char; Offset int; Kind int; Type ... }
-func TypeOf(x *any) *TypeInfo    // thin wrapper over OP_IFACE_TYPEINFO
+// Overlaid on the 8-word __typeinfo record (field offsets == word offsets):
+type TypeInfo struct {
+    Dtor   *uint8            // word 0
+    Size   int               // word 1
+    Align  int               // word 2
+    Name   *[]readonly char  // words 3-4 ({ptr,len})
+    Kind   int               // word 5
+    Fields *[]FieldInfo      // words 6-7 ({ptr,len}) -> the __typefields blob
+}
+// Overlaid on the 6-word FieldEntry:
+type FieldInfo struct {
+    Name   *[]readonly char  // words 0-1
+    Offset int               // word 2
+    Kind   int               // word 3
+    Size   int               // word 4
+    Type   *uint8            // word 5 (&__typeinfo.<fieldType>; null until P3)
+}
+func TypeOf(x *any) *TypeInfo   // -> EmitBitCast(EmitIfaceTypeInfo(x))
+func DataOf(x *any) *uint8      // -> EmitExtract(x, IfaceValueDataIndex())
 ```
 
 `TypeInfo`/`FieldInfo` are **overlaid directly on the raw record / field-entry byte
 layout** (§0.5), so `TypeOf` is a cast rather than a marshaler and the byte contract
-lives in one place. fmt obtains the operand's data word via a new `reflect.DataOf(x
-*any) *uint8` op mirroring `OP_IFACE_TYPEINFO` (§0.4), then reads fields itself
-(§3.2). (A general "read field value into an `*any`" is deferred with the re-box
-question.)
+lives in one place; `reflect.TypeOf(x).Fields` is a real `*[]FieldInfo` a caller can
+index. Both are compiler intrinsics intercepted by qualified name in `gen_call.bn`
+(the `_call_dtor` precedent): `TypeOf` bit-casts `EmitIfaceTypeInfo`'s `*uint8`
+result to `*TypeInfo`; `DataOf` extracts the iface value's data word
+(`IfaceValueDataIndex()==0`) — a plain load, backend-uniform, so **no new op is
+needed** (the §0.4 "DataOf op" is subsumed by `EmitExtract`). Their `.bni` decls are
+type-check shapes only (no impl body, like `_call_dtor`). (A general "read field
+value into an `*any`" is deferred with the re-box question.)
 
 ### 3.4 Coverage — nested field types
 
@@ -260,11 +291,22 @@ on 2026-07-31. Proceed on all of these.
 
 ## 6. Phasing
 
-- **P1 — field-table RTTI.** Add KIND + field table to `__typeinfo` (irdata bytes,
-  `ir` gather with transitive force-emit, all five backends + VM), plus the
-  `reflect.TypeInfo`/`FieldInfo` surface and `reflect.TypeOf`. Test: a conformance
-  program reads `reflect.TypeOf(&s).Fields` and prints names/offsets/kinds. No fmt
-  change yet. This is the bulk of the compiler work.
+- **P1 — field-table RTTI (no cross-record refs).** Add KIND + a field table to
+  `__typeinfo` (irdata bytes: extend `TypeInfoDesc` + `BuildTypeInfo`; `ir` gather:
+  derive KIND, build the field descs with name/offset/kind/size and a **null**
+  field-typeinfo-ptr), plus the `reflect.TypeInfo`/`FieldInfo` surface and
+  `reflect.TypeOf`/`DataOf` (gen_call intrinsics). Because the field-typeinfo-ptr is
+  null, there are NO cross-record DT_SYMREFs: LLVM/native/VM all lower the new blobs
+  transparently via the existing `BuildTypeInfo` loop (native only needs `symPrefixed`
+  on the two new per-type symbols `FieldsSym`/`NamesSym`). Test: a conformance program
+  reads `reflect.TypeOf(&s).Fields` and prints names/offsets/kinds/sizes across
+  LLVM/VM/native. No fmt change yet.
+- **P1.5 (was "P1 force-emit") — moved into P3.** Transitive force-emit, the VM
+  two-phase allocate-then-backpatch (§0.3), LLVM external-global decls for cross-TU
+  records, and native `symPrefixed` on per-field typeinfo refs all land in **P3**,
+  which is the first consumer of the field-typeinfo-ptr (recursion). Deferred here
+  because the pointer is inert until then and folding it into P1 buys nothing but
+  risk (user-ratified 2026-08-01).
 - **P2 — fmt scalar/string structs.** `writeArg` default renders a struct with
   scalar/string fields as `{…}` via read-bytes-per-kind (no recursion). Go-diff.
 - **P3 — recursion.** Nested struct fields recurse via their `*TypeInfo`.
