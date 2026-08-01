@@ -38,6 +38,33 @@ dispatch are both balanced — only the value-receiver **iface-thunk** path is w
 
 ## MAJOR
 
+### `pkg/binate/repl` unit-test suite infinite-loops (~100% CPU) — 🔴 OPEN (pre-existing Plan-2 repl code; found 2026-07-31)
+
+Running the `pkg/binate/repl` unit tests hangs: a compiled `test_bin` spins at ~99% CPU
+indefinitely (observed >1 day of burned CPU time — genuine spin, not sleep). Deterministic
+— reproduces on clean `main` with the nil-check N3 repl edits reverted, so it is **NOT**
+caused by N3. `interp` passes (25 tests) and is unaffected; the hang is `repl`-specific and
+is the second package run, which is why a filtered `builder-comp cmd/bni interp repl` run
+prints exactly one `.` (interp) then hangs.
+
+- **Where:** the recently-reworked Plan-2 REPL surface (`RunReadLoop` / `Execute`, commits
+  `6dd89502` / `f248dd26` / `8baabe11`). Not yet bisected to the exact `Test*`;
+  `RunReadLoop` (`loop.bn`) itself terminates on eof, so the spin is most likely inside a
+  `Kernel.Execute` / `IsComplete` a repl test drives (candidate:
+  `TestRunReadLoopAccumulatesMultiLine`, which `Execute`s `for i:=0;i<1;i++ {}`).
+- **CI exposure:** `scripts/unittest` runs `pkg/binate/repl` under `builder-comp` in CI
+  (`modesets/all`) with **no** skip/xfail marker — so the repl shard should hang / time out
+  in CI too, unless it is stdin/timing-dependent and only reproduces locally. Whether the
+  repl shard specifically times out on `main` is unconfirmed (recent unit-test runs show
+  failures for other reasons).
+- **Impact:** the `repl` package cannot be unit-tested; blocks run-validating any repl
+  change (bit the N3 landing — the repl wiring compiles + mirrors the `--test` wiring but
+  could not be run-validated).
+- **Next steps:** (1) run the repl `test_bin` directly with live per-test output (or bisect
+  via `bni --test --run`/`--skip`) to name the hanging `Test*`; (2) root-cause the loop;
+  (3) add a temporary tracked `.skip`/`.xfail` marker for the culprit so the rest of the
+  suite runs, then fix. Per the user (2026-07-31), this is the next task after N3.
+
 ### native arm32: sub-word aggregate field at a NON-word-aligned offset in a multi-return is broken (all paths) — 🔴 OPEN (pre-existing arm32 backend hole; found 2026-07-30)
 
 The offset-faithful multi-return field bridge landed (`8a81c6dc`, see claude-todo-done.md) fixed the

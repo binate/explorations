@@ -137,19 +137,36 @@ of a non-nil pointer just passes).
   load-source false-dedup and an all-globals-share-`-1` key collision — both pinned
   with regression tests; re-verified CLEAN across all lenses.
 - The **N2 emission phase is COMPLETE** (N2a `*p` / N2b field / N2c index / N2d
-  dedup).  Only N3 (turning the flag on) remains.
-- **N3 (embedder opt-in + end-to-end).** Plumb the flag through the pipeline
-  (`interp` / `cmd/bni`): REPL → on; `bni <prog>` run → **off** by default with a
-  `--check-nil` opt-in; `bni --test` → **on** (tests want safety). Conformance: a nil
-  deref recovers under the VM with checks on (message + exit 1), xfail on compiled
-  (SEGV, no message) — the 386/1105 pattern.
+  dedup), and **N3 turned the flag on** — the feature is fully landed (see below).
+- **N3 ✅ LANDED (`de9a7c05`, 2026-07-31 — embedder opt-in + end-to-end).**  The
+  flag is plumbed through the pipeline and turned on per the confirmed matrix
+  (REPL → on; `bni <prog>` run → **off** by default behind `--check-nil`; `bni
+  --test` → **on**).  Wiring: `cmd/bni` gains a `--check-nil` flag
+  (`CLIArgs.CheckNil`); `@interp.Interp` gains an `EmitNilChecks` field +
+  `SetEmitNilChecks` setter, and `LoadProgram` copies it onto every gen context.
+  A gotcha surfaced by the build smoke: a host in `cmd/bni` reaches `@Interp`
+  through its **method surface** — the package ships no `.bni`, so a cross-package
+  struct-field *write* (`it.EmitNilChecks = …`) is rejected (`cannot access field
+  on this type`); the knob had to be a setter method, not a field write.  The
+  run/test/REPL IR-gen loops are duplicated (not a shared helper), so each was
+  wired independently.  End-to-end: conformance `1142_nil_pointer_deref` recovers
+  under the VM ("nil pointer dereference", exit 1) and is xfail'd on every
+  compiled backend (native-arm32 inherits the LLVM arm32 sibling xfail via
+  `run.sh`'s `OVERRIDE_MODE`); a per-test `.check-nil` marker makes `run.sh` pass
+  `--check-nil` on the 4 VM/int runners (compiled runners ignore it).
+  `e2e/bni-nil-check.sh` proves `--check-nil` recovers + a plain run stays
+  crash-on-nil.  Adversarial review (4 lenses + verify) CLEAN; conformance +
+  e2e + interp unit tests green.  **The whole nil-deref feature (N1–N3) is now
+  COMPLETE.**  (Repl unit tests could not be run-validated because of a
+  pre-existing infinite loop in `pkg/binate/repl`'s suite — unrelated to this
+  work; see the claude-todo entry.)
 
-## Sub-decisions (proposed, confirm at N3)
+## Sub-decisions (CONFIRMED at N3, 2026-07-31)
 
 - `bni <prog>` run: nil-checks **off** by default (`--check-nil` to enable) — keeps a
   plain run C-like/fast.
-- `bni --test`: nil-checks **on** — a test suite wants host survival + a clear message.
-- Elision: (a) construction-non-nil landed in N2a + (b) intra-block dedup in N2b;
+- `bni --test` and the REPL: nil-checks **on** — host survival + a clear message.
+- Elision: (a) construction-non-nil landed in N2a + (b) intra-block dedup in N2d;
   cross-block dominator elision deferred.
 
 ## Verification
