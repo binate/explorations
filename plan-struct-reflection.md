@@ -2,7 +2,83 @@
 
 Status: **DRAFT — for ratification.** Design only; no code landed. Written 2026-07-30
 from a recon sweep of the RTTI / reflect / types / fmt substrate (workflow
-`wf_69ec9265-9c4`).
+`wf_69ec9265-9c4`). **Revised 2026-07-31 per an adversarial design review** — see §0.
+
+## 0. Design-review outcome & folded-in revisions (2026-07-31)
+
+Verdict: **SOUND WITH REVISIONS.** The two load-bearing assumptions were
+code-validated and HOLD: (a) the weak record can grow 5→8 words — words 0–4 keep
+their offsets and there is NO hard-coded `5`-word/stride assumption anywhere (only
+doc comments); (b) read-bytes-per-kind IS mode-portable — the recon's worry that
+"the VM vtable word is a table index, not a pointer" does NOT extend to DATA words:
+a boxed struct's data word is a genuine host address (`vm_exec_helpers.bn:321-335`
+`BC_LOAD64`/`BC_STACK_ALLOC` on real `*uint8`), so `bit_cast(*int, dataPtr+off)[0]`
+lowers to a real load in both modes. Read-bytes-per-kind is therefore also strictly
+SAFER than a re-box (it is a pure borrow — see §7). Nothing is a dead end.
+
+Five issues must be designed out; all are folded into the sections below:
+
+1. **(MAJOR, §3.4) ODR corruption — a struct's own field table MUST be
+   unconditional & TU-invariant.** The record is weak/ODR-coalesced; today words
+   0–4 are TU-invariant so all copies are byte-identical. If word6/word7 (field
+   count / fields-ptr) depend on whether *that TU* reflected T, a TU that only
+   *asserts* T could emit an empty-field copy that wins coalescing → reflection
+   silently returns zero fields, non-deterministically by link order. FIX: for a
+   struct kind, word6/word7 are a **pure function of the type definition** — every
+   TU that emits T's record emits its full field table. The "render opaque" option
+   is admissible ONLY for a *nested field type you decline to force-emit*, NEVER for
+   a struct's own record. (Resolves open-decision-3's ambiguity.)
+
+2. **(MAJOR, §4) Determinism — `CollectTypeInfoDescs` is called ~5× (LLVM
+   `emitTypeInfos` + `collectDefinedDataSyms`, 3 native backends, VM) and its output
+   must be byte-identical every time,** or the "defined" set and "emitted" set
+   diverge → a force-emitted `__typeinfo.<Inner>` gets both a weak definition and an
+   `external` decl → LLVM redefinition error. FIX: run the transitive force-emit as
+   a **one-time pre-pass that populates `m.TypeInfos` before any backend runs**,
+   keeping `CollectTypeInfoDescs` pure; add a check that the emitted-set == the
+   defined-set.
+
+3. **(MAJOR, P3 blocker, §4) VM cross-record symref.** `materializeTypeInfos`
+   lowers one type per batch and resolves `DT_SYMREF` only against the current
+   batch's names (`lower_pkg_descriptor.bn:99-135`), so a field table's
+   `field-typeinfo-ptr → __typeinfo.<Inner>` (a *different* batch) resolves to null.
+   Harmless at P1/P2 (the word is unused until recursion) but a hard P3 blocker; the
+   plan's "resolve via lookupDataSymAddr like SatEntry" was wrong (SatEntry resolves
+   AFTER all typeinfos exist; field tables are built inside materialization). FIX:
+   restructure `materializeTypeInfos` into **two phases — allocate+register every
+   record & field-blob first, then back-patch each `field-typeinfo-ptr` via
+   `lookupDataSymAddr`** (cycle-proof). Named as a P3 VM slice.
+
+4. **(MAJOR, §3.2/§3.3, bites P2) The data-word accessor is a real new primitive.**
+   read-bytes-per-kind avoids box-*from*-(addr,TypeInfo) but still needs to obtain
+   the operand's DATA word; `OP_IFACE_TYPEINFO` extracts vtable-slot-1 only, and fmt
+   (pure Binate) can't emit `EmitExtract(iv, 0)`. FIX: add a **`reflect.DataOf(x
+   *any) *uint8` op mirroring `OP_IFACE_TYPEINFO`** (preferred over blessing fmt to
+   `bit_cast` into iface internals, so the ABI stays encapsulated). Add to P2 scope.
+
+5. **(MAJOR/MINOR, §3.3) `reflect.TypeOf` is not a "thin wrapper".** The raw 8-word
+   record layout ≠ the `TypeInfo` struct, so `TypeOf` must marshal (walk
+   `__typefields.<T>`, build `FieldInfo`s). FIX: **overlay the `reflect.TypeInfo` /
+   `FieldInfo` structs directly on the raw record/entry layout** so `TypeOf` is a
+   cast and the byte contract lives in ONE place (also read by fmt's own helper).
+   Re-budget P1 for the marshaler if overlay proves impractical.
+
+Minors folded in: force-emit follows **only by-value struct fields** in P1–P3 (so
+the closure terminates without a visited-set; pointer/slice fields render opaque
+until P4, which must then carry a visited-set for cycles); each native backend
+(x64/arm32/aarch64) must `symPrefixed` every new field-blob / field-typeinfo /
+per-field-name symbol (mechanical but real, mirror the `NameSym` precedent); the
+KIND enum is a cross-artifact contract (compiler emits, stdlib+VM read) so its
+numeric values are **pinned in spec §7.13.14** like `iropcode`; kind derivation
+peels `TYP_READONLY` (a `readonly int` field must kind as int); `char`==`uint8`
+so a `*[]char` byte buffer renders as text and a bare `char`/`uint8` field as a
+number (matches Go `byte`); `&s` and `s` are indistinguishable (`%v` prints `{…}`,
+never Go's `&{…}`); validate the in-VM `int↔float64` reinterpret at P2; the "5-word"
+doc/spec sites to update are `irdata.bni:128`, `irdata/data_typeinfo.bn:13`,
+`vm_exec_iface.bn:303`, and spec §7.13.14. Refcount: read-bytes-per-kind is a
+**pure borrow** (reads a `@[]char`/`@T` field through the still-live parent, builds
+raw views like writeArg's existing cases, never RefInc/RefDec/free) — §7 states
+this as an explicit invariant the helper must preserve.
 
 ## 1. Goal
 
@@ -121,8 +197,12 @@ type FieldInfo struct { Name *[]readonly char; Offset int; Kind int; Type ... }
 func TypeOf(x *any) *TypeInfo    // thin wrapper over OP_IFACE_TYPEINFO
 ```
 
-fmt reads field bytes itself (§3.2); the reflect API just surfaces the metadata.
-(A general "read field value into an `*any`" is deferred with the re-box question.)
+`TypeInfo`/`FieldInfo` are **overlaid directly on the raw record / field-entry byte
+layout** (§0.5), so `TypeOf` is a cast rather than a marshaler and the byte contract
+lives in one place. fmt obtains the operand's data word via a new `reflect.DataOf(x
+*any) *uint8` op mirroring `OP_IFACE_TYPEINFO` (§0.4), then reads fields itself
+(§3.2). (A general "read field value into an `*any`" is deferred with the re-box
+question.)
 
 ### 3.4 Coverage — nested field types
 
@@ -148,25 +228,25 @@ struct opaquely.
   record addresses differ) and resolved via the existing data-symbol table
   (`lookupDataSymAddr`), exactly as `SatEntryInfo.TypeSym` does today.
 
-## 5. Open decisions (need ratification before coding)
+## 5. Decisions
 
-1. **Record shape**: extend the record to 8 words (recommended) vs a parallel
-   `reflect.Package.Types` table. (Spec §7.13.14 update either way.)
-2. **Rendering**: read-bytes-per-kind (recommended, avoids a new box op) vs a
-   runtime box-from-(addr,TypeInfo) primitive (more general, enables a full
-   `reflect` later).
-3. **Nested coverage**: transitive force-emit field-type records (recommended) vs
-   render unrecorded nested structs opaquely (`main.Inner{…}` name only).
-4. **`%v` output format**: Go's `%v` of a struct is `{3 4}` (values only); `%+v`
-   is `{x:3 y:4}`. Ship `%v` = `{3 4}` first and `%+v` later, or go straight to
-   `{x:3 y:4}` for `%v`? (Recommend: match Go — `%v`=`{3 4}`, `%+v`=`{x:3 y:4}`.)
-5. **Kinds in scope for P1/P2**: scalars + string + nested struct first;
-   arrays/slices/pointers/ifaces render opaque until a later phase.
-6. **Cycles / depth**: a self-referential struct (via a raw/managed pointer field)
-   needs a depth cap or seen-set once pointer fields are rendered (P4). Until then,
-   pointer fields render opaque, so no cycle risk.
-7. **Anonymous/unnamed struct types**: emit a record + fields, or skip
-   (render opaque)?
+**Resolved by the §0 design review (proceed on these):**
+1. **Record shape** — extend `__typeinfo` to 8 words (validated offset-safe; no
+   `Package.Types` table).
+2. **Rendering** — read-bytes-per-kind (validated feasible cross-mode AND a pure
+   borrow; no runtime re-box), PLUS the small `reflect.DataOf` data-word op (§0.4).
+3. **Nested coverage** — transitively force-emit records for by-value struct field
+   types; a struct's OWN record always carries its full field table (§0.1);
+   "opaque" applies only to a declined nested type.
+5. **Kinds P1/P2** — scalars + string + nested struct first; arrays/slices/
+   pointers/ifaces render opaque until P4.
+6. **Cycles** — no risk until P4 (pointer fields opaque until then); P4's
+   pointer-following closure carries a visited-set.
+
+**Still your call (please ratify):**
+4. **`%v` output format** — recommend matching Go: `%v` = `{3 4}` (values only),
+   `%+v` = `{x:3 y:4}` (names). OK, or do you want names in plain `%v`?
+7. **Anonymous/unnamed struct types** — emit a record + fields, or render opaque?
 
 ## 6. Phasing
 
