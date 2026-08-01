@@ -6,6 +6,29 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `pkg/binate/repl` compiled unit tests infinite-looped — ✅ RESOLVED by concurrent codegen work (was a stale-base miscompile; found 2026-07-31, gone on `0b31e8e1`)
+
+While validating the nil-check N3 landing, `scripts/unittest/run.sh builder-comp
+pkg/binate/repl` hung: the **bnc-compiled** `test_bin` spun at ~99% CPU indefinitely
+(observed >1 day of burned CPU time — a genuine infinite loop, not sleep). It was NOT a
+repl-logic bug and NOT caused by N3: `bni --test pkg/binate/repl` (VM/interpreted) ran all
+72 tests fine — so `bnc`'s **native codegen** miscompiled some repl function into a spin
+while the VM ran the identical IR correctly (a native↔VM divergence).
+
+Root of the false alarm: I reproduced it on my **stale base `c983518d`** (the N3 worktree
+base). By the time N3 rebased onto current local main `0b31e8e1` (20 commits ahead) the
+miscompile was already **fixed by concurrent codegen work in that window** — both the
+interpreted and the bnc-compiled repl suites then pass all 72 tests, and the authoritative
+`builder-comp pkg/binate/repl` runner is green (1 passed, 0 failed). Not bisected to the
+exact fixing commit (it was already gone once I rebased); likely candidates in
+`c983518d..0b31e8e1` are the multi-return-coercion / selector-store codegen fixes
+(`8a81c6dc` multi-return offset-faithful, `b2f74f53` deref-index `(*p)[i]` + selector
+read/store across pointee kinds, `6d16981c`, `cbc856b4`).
+
+**Process lesson:** before investing in deep diagnosis of a "pre-existing" hang/failure,
+rebase/resync onto current main first — it may already be fixed upstream (here, a stretch
+of diagnosis chased a bug a concurrent commit had already resolved).
+
 ## Multi-return struct/array field coercion made offset-faithful (aa64 + x64 + arm32) — ✅ DONE (`8a81c6dc`, 2026-07-30)
 
 A register-returned multi-return tuple with a struct/array FIELD was silently miscompiled at the
