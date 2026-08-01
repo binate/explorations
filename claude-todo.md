@@ -7,33 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
-### Multi-return VALUE-receiver method dispatched through an interface silently miscompiles (returns garbage) — 🔴 OPEN (pre-existing; found 2026-08-01)
-
-A value-receiver method with MULTIPLE return values (`func (v V) pair() (int, int)`),
-dispatched through an interface value (`var s *Pair = v; p, q = s.pair()`), returns
-GARBAGE — the callee receives the iv data-slot POINTER where its ABI expects the struct
-VALUE (first field reads the pointer bits, second reads 0). Compiles cleanly and exits 0:
-a SILENT wrong-code miscompile of a valid, accepted program.
-
-- **Root cause:** `needsRecvThunk` (`pkg/binate/ir/gen_iv_thunk.bn`) returns false when
-  `len(f.Results) > 1`, so no value-receiver deref thunk is generated; the vtable slot
-  points directly at the method and iv dispatch passes the data-slot pointer as the
-  receiver. A KNOWN deferred gap (the code comment says multi-return "isn't thunked yet —
-  the sret ABI requires extra plumbing"), but it SILENTLY MISCOMPILES rather than failing
-  loud. `genIvRecvThunk`'s own multi-return handling (MultiReturnType copy + else-branch)
-  is dead code behind that gate.
-- **Pre-existing / orthogonal:** reproduces identically on baseline `main`; the value-
-  receiver-thunk RefInc fix does not touch this path (no thunk is generated). Direct calls
-  `v.pair()` and pointer-receiver multi-return dispatch are both correct — only value-
-  receiver + multi-return + iface breaks.
-- **Secondary:** with a managed receiver field, the owning-copy callee RefDecs the garbage
-  receiver's field pointer (the boxed data-slot allocation) on scope cleanup — an
-  out-of-contract refcount write (heap-corruption / UAF risk).
-- **Fix options:** (a) generate a multi-return-capable value-receiver thunk (plumb the
-  sret ABI through `genIvRecvThunk`); or (b) have the CHECKER reject a multi-return value-
-  receiver interface method (fail-loud instead of silent-miscompile) until (a) is done.
-  Add a conformance test (assert correct values; xfail until fixed).
-
 ## MAJOR
 
 ### native arm32: closure capture of a sub-word aggregate faults (last strict-align site) — 🔴 OPEN (pre-existing; found 2026-07-31)

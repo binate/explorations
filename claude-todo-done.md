@@ -6,6 +6,29 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Multi-return value-receiver iface dispatch silently miscompiled — ✅ RESOLVED (landed `bb973b2d`, 2026-08-01)
+
+A value-receiver method with MULTIPLE return values (`func (v V) pair() (int, int)`),
+dispatched through an interface value, silently returned GARBAGE: `needsRecvThunk` gated
+out `len(f.Results) > 1`, so no iv-dispatch receiver thunk was generated — the vtable slot
+pointed directly at the method and iv dispatch passed the data-slot POINTER where the
+method's ABI expects the receiver VALUE. Compiled cleanly, exited 0 (silent wrong-code);
+with a managed receiver field the owning-copy callee also RefDec'd the garbage receiver
+field pointer (out-of-contract refcount write). Pre-existing (reproduced on baseline); a
+known deferred gap ("sret ABI requires extra plumbing") that miscompiled instead of
+failing loud. Surfaced by the adversarial review of the value-receiver over-release fix.
+
+Fix: thunk any result arity. `needsRecvThunk` drops the multi-return gate; `genIvRecvThunk`
+forwards a multi-return call by EXTRACTing each field of the packed MultiReturnType result
+and re-returning via `EmitReturnTyped` (a bare `EmitReturn` of the packed struct mismatched
+the multi-value result signature — invalid IR), mirroring `gen_return.bn`'s `return f(...)`
+tuple-forwarding. Managed result ownership transfers straight through (no extra RefInc, no
+temp-cleanup dec) and composes with the thunk's receiver managed-field RefInc. Test
+`conformance/1149_multiret_value_recv_iface`; full conformance 2882/0; adversarial review
+clean across correctness (2/3/4/8-arity, all widths, struct/managed/slice/func-value
+results, generics, mixed-arity vtable-slot stability), managed-result ownership (100/1000/
+3000-iter scaling + OOM control), and no single-return/pointer-receiver regression.
+
 ## e2e: xmhfa/xmiface hosts read argv via os.Args, not the retired bootstrap.Args — ✅ DONE (`b8be31dc`, 2026-08-01)
 
 The xmhfa and xmiface e2e hosts read their argv via `bootstrap.Args()`, retired for
