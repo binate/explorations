@@ -38,7 +38,7 @@ dispatch are both balanced — only the value-receiver **iface-thunk** path is w
 
 ## MAJOR
 
-### `(*p)()` — calling a func value through a pointer-dereference — miscompiles to a direct call to an undefined symbol — 🔴 OPEN (pre-existing; found 2026-07-31)
+### `(*p)()` — calling a func value through a pointer-dereference — miscompiles to a direct call to an undefined symbol — 🟡 IN PROGRESS (pre-existing; found 2026-07-31)
 
 Calling a func value obtained by dereferencing a pointer, `(*p)()`, is valid Binate
 (`*p` yields the `@func()` / `*func()` value, `()` invokes it) and the checker accepts
@@ -62,10 +62,12 @@ the loaded pointer value, so clang aborts: `error: use of undefined value
 - **Works (controls):** binding first — `var g @func() int = *p; g()` — compiles and
   runs; so do `getf()()`, `arr[0]()`, `h.f()`. Only the pointer-deref-as-callee form is
   broken.
+- **Test:** `conformance/1147_funcval_deref_call` asserts the correct output (42);
+  xfail'd in all CI-gated modes (IR-level → every mode).
 - **Fix direction:** the fused `(*p)()` lowering must LOAD the func value from `*p` and
   issue an indirect call through it (as the deref-to-local desugaring already does), not
-  compute a direct call target from the deref expression. Add a conformance test
-  (assert it runs; xfail until fixed).
+  compute a direct call target from the deref expression. IN PROGRESS — remove the 1147
+  xfail markers when fixed.
 
 ### native arm32: sub-word aggregate field at a NON-word-aligned offset in a multi-return is broken (all paths) — 🔴 OPEN (pre-existing arm32 backend hole; found 2026-07-30)
 
