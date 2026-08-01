@@ -1,8 +1,10 @@
 # Plan: struct reflection for `fmt` `%v` (field-table RTTI + runtime rendering)
 
-Status: **DRAFT — for ratification.** Design only; no code landed. Written 2026-07-30
-from a recon sweep of the RTTI / reflect / types / fmt substrate (workflow
-`wf_69ec9265-9c4`). **Revised 2026-07-31 per an adversarial design review** — see §0.
+Status: **RATIFIED — ready for P1.** Design settled: the §0 adversarial review
+resolved decisions 1/2/3/5/6, and the user ratified 4 & 7 on 2026-07-31 (see §5). No
+code landed yet. Written 2026-07-30 from a recon sweep of the RTTI / reflect / types /
+fmt substrate (workflow `wf_69ec9265-9c4`); revised 2026-07-31 per the design review
+(see §0).
 
 ## 0. Design-review outcome & folded-in revisions (2026-07-31)
 
@@ -230,7 +232,9 @@ struct opaquely.
 
 ## 5. Decisions
 
-**Resolved by the §0 design review (proceed on these):**
+All settled — the §0 design review resolved 1/2/3/5/6, and the user ratified 4 & 7
+on 2026-07-31. Proceed on all of these.
+
 1. **Record shape** — extend `__typeinfo` to 8 words (validated offset-safe; no
    `Package.Types` table).
 2. **Rendering** — read-bytes-per-kind (validated feasible cross-mode AND a pure
@@ -238,15 +242,21 @@ struct opaquely.
 3. **Nested coverage** — transitively force-emit records for by-value struct field
    types; a struct's OWN record always carries its full field table (§0.1);
    "opaque" applies only to a declined nested type.
+4. **`%v` output format** *(user-ratified 2026-07-31)* — match Go: `%v` = `{3 4}`
+   (values only), `%+v` = `{x:3 y:4}` (field names). `%#v` (Go-syntax) stays a
+   non-goal. The renderer keys the `name:` prefix off `Spec.plus` (already parsed).
 5. **Kinds P1/P2** — scalars + string + nested struct first; arrays/slices/
    pointers/ifaces render opaque until P4.
 6. **Cycles** — no risk until P4 (pointer fields opaque until then); P4's
    pointer-following closure carries a visited-set.
-
-**Still your call (please ratify):**
-4. **`%v` output format** — recommend matching Go: `%v` = `{3 4}` (values only),
-   `%+v` = `{x:3 y:4}` (names). OK, or do you want names in plain `%v`?
-7. **Anonymous/unnamed struct types** — emit a record + fields, or render opaque?
+7. **Anonymous/unnamed struct types** *(user-ratified 2026-07-31)* — emit a record +
+   full field table uniformly with named structs. The field-table machinery is keyed
+   on the mangled symbol + `Fields`, not on having a user name, so this is the default
+   path (rendering opaque would need *extra* suppression code). Consequences: `%v` of
+   an anon struct renders `{…}` identically to a named one (matches Go), and P3
+   recursion into an anon struct field works uniformly. The `name` word reuses the
+   existing `__nameless_<shape>` record name (used only by `%T`/panics — out of scope
+   here).
 
 ## 6. Phasing
 
