@@ -34,35 +34,6 @@ a SILENT wrong-code miscompile of a valid, accepted program.
   receiver interface method (fail-loud instead of silent-miscompile) until (a) is done.
   Add a conformance test (assert correct values; xfail until fixed).
 
-### Value-receiver interface dispatch over-releases (double-free / UAF) the receiver's managed fields — 🔴 OPEN (pre-existing; found 2026-07-31)
-
-A struct **value** carrying a managed field (`type V struct { leaf @Leaf; ... }`),
-boxed into a raw `*Iface` and dispatched through a **value-receiver** method, is
-over-released by one ref on the managed field per dispatch. With live keep-alive refs
-it presents as a silent reverse-leak/over-release (`rc` delta −1/dispatch); without
-them the field's box is freed early and the next read is a **use-after-free** (SIGTRAP
-/ exit 133). A direct value-receiver call `v.sum()` and a pointer-receiver `*V`
-dispatch are both balanced — only the value-receiver **iface-thunk** path is wrong.
-
-- **Root cause:** `genIvRecvThunk` (`pkg/binate/ir/gen_iv_thunk.bn`) does a bare
-  `EmitLoad(ptrRef, origRecvTyp)` of the receiver struct and forwards it via
-  `EmitCall` **without RefInc'ing the struct's managed fields**, while the owning-copy-
-  convention value-receiver callee RefDecs them on cleanup → net −1 per dispatch.
-- **Pre-existing / not the named-distinct work:** reproduces identically on baseline
-  `main` (Jul-29 `bnc`), and on PLAIN value-receiver structs (no named-distinct type).
-  Surfaced by the adversarial review of the named-distinct-pointer → interface rework
-  (`6fbef41d`); that commit only adds a `needsRecvThunk` early-return for named-distinct
-  *pointer* receivers and leaves `genIvRecvThunk` untouched (its pointer-shaped, no-thunk
-  paths never hit this), so it is landable independently.
-- **IR-level → all backends:** the thunk emits IR consumed by the VM and every native/
-  LLVM backend, so it fails in every conformance mode.
-- **Test:** `conformance/1146_value_recv_iface_managed_field_refcount` asserts the
-  correct balanced behavior; xfail'd in all CI-gated modes (landed `a1a1c72b`).
-- **Fix:** in `genIvRecvThunk`, RefInc the loaded receiver value's managed fields before
-  forwarding to the value-receiver method (mirror the caller-side RefInc a direct value-
-  receiver call performs), so the callee's cleanup RefDec balances (net 0). Then remove
-  the 1141 xfail markers.
-
 ## MAJOR
 
 ### native arm32: sub-word aggregate field at a NON-word-aligned offset in a multi-return is broken (all paths) — 🔴 OPEN (pre-existing arm32 backend hole; found 2026-07-30)
@@ -327,7 +298,7 @@ Remaining increments (all parked, none started):
 
 ## VM runtime faults & the rt.Exit/abort/panic paradigm
 
-### rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟢 SCOPED; Inc 1 LANDED (`6dd89502`), Inc 2a next (2026-07-17)
+### rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟢 CORE COMPLETE (all six faults recoverable; Inc 1/2a/2b/3 landed, nil-deref N1–N3 last — `de9a7c05`, 2026-07-31); RESIDUAL follow-ups only
 
 **Related robustness gap (filed 2026-06-30):** a bad-pointer deref inside a NATIVE EXTERN
 called from the VM (e.g. handing a wild pointer to `rt.Refcount`) SIGSEGVs the VM host with

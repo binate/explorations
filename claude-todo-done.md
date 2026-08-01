@@ -6,6 +6,29 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Value-receiver interface dispatch over-released the receiver's managed fields — ✅ RESOLVED (landed `790e9fcd`, 2026-08-01)
+
+A struct value carrying a managed field, boxed into a raw `*Iface` and dispatched through
+a VALUE-receiver method, over-released the field by one ref per dispatch: the iv-dispatch
+receiver thunk (`genIvRecvThunk`) loaded the receiver and forwarded it to the owning-copy-
+convention callee (which RefDecs the managed fields on scope cleanup) WITHOUT RefInc-ing
+them → net −1 per dispatch (silent reverse-leak with live refs; use-after-free once the
+count hit 0). A direct value-receiver call and a pointer-receiver dispatch were both
+balanced — only the value-receiver iface-thunk path was wrong. Pre-existing (reproduced on
+baseline); surfaced by the adversarial review of the named-distinct-pointer → interface
+rework.
+
+Fix: the thunk RefIncs the receiver's managed fields on entry (`needsStructCopy`-gated
+`emitStructCopy` on the receiver pointer, before the load), mirroring `coerceArg`'s
+by-value struct-copy RefInc on the regular call path. `emitStructCopy` reaches the module's
+dtor/copy work-lists via `f.Mod`, which the synthesized thunk did not set — so
+`genIvRecvThunk` now takes the `@Module` and sets `thunk.Mod`, as body-gen does for a user
+function. Test `conformance/1146_value_recv_iface_managed_field_refcount` (was xfail, markers
+removed); full conformance 2881/0; adversarial review clean for single-return value
+receivers (all balanced, no new over-RefInc leak, cross-package correct). The review also
+surfaced a DISTINCT pre-existing CRITICAL bug — multi-return value-receiver iface dispatch
+silently miscompiles (the sret thunk isn't plumbed) — tracked separately in claude-todo.md.
+
 ## `(*p)()` — func-value call through a pointer-dereference miscompiled — ✅ RESOLVED (landed `c251ad3e`, 2026-08-01)
 
 Calling a func value obtained by dereferencing a pointer, `(*p)()`, mis-lowered to a
