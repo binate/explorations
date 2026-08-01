@@ -30,13 +30,42 @@ dispatch are both balanced — only the value-receiver **iface-thunk** path is w
 - **IR-level → all backends:** the thunk emits IR consumed by the VM and every native/
   LLVM backend, so it fails in every conformance mode.
 - **Test:** `conformance/1141_value_recv_iface_managed_field_refcount` asserts the
-  correct balanced behavior; xfail'd in all CI-gated modes (commit `8f6723b8`).
+  correct balanced behavior; xfail'd in all CI-gated modes.
 - **Fix:** in `genIvRecvThunk`, RefInc the loaded receiver value's managed fields before
   forwarding to the value-receiver method (mirror the caller-side RefInc a direct value-
   receiver call performs), so the callee's cleanup RefDec balances (net 0). Then remove
   the 1141 xfail markers.
 
 ## MAJOR
+
+### `(*p)()` — calling a func value through a pointer-dereference — miscompiles to a direct call to an undefined symbol — 🔴 OPEN (pre-existing; found 2026-07-31)
+
+Calling a func value obtained by dereferencing a pointer, `(*p)()`, is valid Binate
+(`*p` yields the `@func()` / `*func()` value, `()` invokes it) and the checker accepts
+it — but codegen lowers the FUSED deref-and-call into a **direct** call to a bogus,
+never-defined mangled symbol (`@bn_F1_4_main0_`) instead of an **indirect** call through
+the loaded pointer value, so clang aborts: `error: use of undefined value
+'@bn_F1_4_main0_'`.
+
+- **Pre-existing / orthogonal:** reproduces identically on baseline `main` (Jul-29
+  `bnc`). Needs no box, no interface, no impl, no named-distinct type — a bare raw pointer
+  to a func-value local is enough: `var f @func() int = ...; var p *(@func() int) = &f;
+  (*p)()`. Surfaced by the adversarial review of the named-distinct-pointer → interface
+  work (it blocks a method `func (q X) k() int { return (*q)() }` on a func-value-pointee
+  wrapper `X @(@func() int)`, though box+drop of that wrapper is itself leak-clean).
+- **Target miscomputed, not merely mis-linked:** the module defines the literal as
+  `@bn_F1_4_mainN_..._funclit_0`; `@bn_F1_4_main0_` is neither that nor `main`, so the
+  call TARGET is wrong — a latent silent-wrong-call risk if that bogus name ever collides
+  with a real symbol. Reproduces for managed `@func` and raw `*func`, capturing and
+  non-capturing, with and without args, and even for a NAMED top-level function bound to
+  the pointer (zero closure literals in the program).
+- **Works (controls):** binding first — `var g @func() int = *p; g()` — compiles and
+  runs; so do `getf()()`, `arr[0]()`, `h.f()`. Only the pointer-deref-as-callee form is
+  broken.
+- **Fix direction:** the fused `(*p)()` lowering must LOAD the func value from `*p` and
+  issue an indirect call through it (as the deref-to-local desugaring already does), not
+  compute a direct call target from the deref expression. Add a conformance test
+  (assert it runs; xfail until fixed).
 
 ### native arm32: sub-word aggregate field at a NON-word-aligned offset in a multi-return is broken (all paths) — 🔴 OPEN (pre-existing arm32 backend hole; found 2026-07-30)
 
