@@ -313,10 +313,10 @@ and the VM internal-abort migration through `panic()`) is DONE & LANDED** — se
 claude-todo-done.md.
 
 User-code runtime faults (bounds / divide / shift / nil-deref / stack-overflow /
-call-through-nil) should be RECOVERABLE in the VM (the host REPL / test-runner /
+call-through-nil) are now RECOVERABLE in the VM (the host REPL / test-runner /
 embedder survives a bad interpreted program) while staying fatal in compiled
-code. The 6 VM user-fault sites are deliberately still on `rt.Exit(1)` pending
-this.
+code: all six VM user-fault sites raise a recoverable fault (`VM_STATUS_FAULTED`)
+instead of `rt.Exit(1)`.
 
 **Ratified approach (2026-07-16), full design in
 [`plan-rt-abort-panic.md`](plan-rt-abort-panic.md):** a fault is an
@@ -328,11 +328,15 @@ scope cleanup), so we build the shared cleanup-pad unwind once and drive it from
 both the fault sites (Plan 2) and `POLL_BREAK` (Stage 7). Recoverable only at the
 outermost `execLoop` (a fault under a live native callback stays fatal —
 mid-callback gate, needs heap frames); native-extern SIGSEGV stays separate
-(needs a host signal handler — the robustness gap above). Increments: **Inc 1**
-fault carrier (`VM_STATUS_FAULTED`/`FaultMsg`) + `repl.Execute`→`EXEC_ERROR`
-surface *(✅ LANDED `6dd89502`)*; **Inc 2a** IR-gen cleanup pads (long pole; own design +
-review); **Inc 2b** VM unwind mode; **Inc 3** wire the 8 guard sites +
-`cmd/bni`/test-runner. `EXEC_ERROR` reused over a new `EXEC_FAULTED`.
+(needs a host signal handler — the robustness gap above). Increments (all
+✅ LANDED): **Inc 1** fault carrier (`VM_STATUS_FAULTED`/`FaultMsg`) +
+`repl.Execute`→`EXEC_ERROR` surface (`6dd89502`); **Inc 2a** IR-gen cleanup pads;
+**Inc 2b** VM unwind mode; **Inc 3** wire the guard sites + `cmd/bni`/test-runner.
+The sixth fault, opt-in nil-deref, landed last as N1–N3 (`de9a7c05`; see
+[`plan-nil-check-opt-in.md`](plan-nil-check-opt-in.md)). `EXEC_ERROR` reused over a
+new `EXEC_FAULTED`. What REMAINS open here: the native-extern SIGSEGV guard and
+the stderr-routing follow-up below (plus the re-entrant-execFunc swallow, filed
+separately in MAJOR).
 
 Related smaller follow-up: route panic / `runtime error:` / VM diagnostics to
 **stderr** (fd 2) — deferred out of Plan 1 (infra exists: `bootstrap.Write(fd)`,
