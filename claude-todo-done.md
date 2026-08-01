@@ -6,6 +6,29 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `(*p)()` — func-value call through a pointer-dereference miscompiled — ✅ RESOLVED (landed `c251ad3e`, 2026-08-01)
+
+Calling a func value obtained by dereferencing a pointer, `(*p)()`, mis-lowered to a
+DIRECT call on a malformed, never-defined mangled symbol (`@bn_..._main0_`) instead of an
+INDIRECT call through the loaded func value — a `use of undefined value` build failure.
+`genCall` classified func-value callees only by expression KIND (selector / index /
+local-ident / func-literal / call-result); a pointer-dereference callee (EXPR_UNARY(STAR))
+matched none and fell to the direct-by-name path with an empty name. Pre-existing
+(reproduced on baseline; needs no box / interface / named-distinct type); surfaced by the
+adversarial review of the named-distinct-pointer → interface work (it blocked a method
+`func (q X) k() int { return (*q)() }` on a func-value-pointee wrapper).
+
+Fix: after computing the direct-call `name`, a general fallback (`gen_call.bn`) — when
+`name` is empty AND the callee's resolved type is a func value — dispatches through
+`genFuncValueCallExpr` (indirect). Two subtleties, both caught by adversarial review: gate
+on `len(name) == 0` (a METHOD EXPRESSION `T.M` is func-value-typed but callable by symbol,
+so a type-only check wrongly rerouted it — the empty-name gate excludes it); and
+`peelTransparent`, not `peelReadonly`, on the callee type (a NAMED-DISTINCT func value
+`type Fn *func()int` is `TYP_NAMED`, which `peelReadonly` misses). Test
+`conformance/1147_funcval_deref_call` covers bare, raw-named-distinct, and managed-named-
+distinct deref-call shapes; full conformance 2880/0; review clean. Was tracked xfail
+(landed `88016a3e`, since removed).
+
 ## Named-distinct pointer boxes into interface values (raw + managed, one convention) — ✅ RESOLVED (landed `1fd4ed68`, 2026-07-31)
 
 Completed the named-distinct-pointer → interface story (the deferred rework follow-up to
