@@ -6,6 +6,24 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## e2e: xmhfa/xmiface hosts read argv via os.Args, not the retired bootstrap.Args — ✅ DONE (`b8be31dc`, 2026-08-01)
+
+The xmhfa and xmiface e2e hosts read their argv via `bootstrap.Args()`, retired for
+hosted builds when argv moved to `pkg/builtins/startup` behind `os.Args()`
+(`bootstrap.Args` now survives only as a bare-metal stub returning empty). So the host
+link failed on every target — `undefined reference to bn_F2_3_pkg9_bootstrap1_4_Args` —
+and both e2e jobs (ubuntu + macos) had been red for weeks, masked by the general "E2E
+red" state (this + the x64 repl segfault). Fix (`b8be31dc`): bridge `os.Args()` the same
+way cmd/bni / cmd/bnas do — a `progArgs()` helper drops the program-name slot (os.Args is
+Go-style, index 0 = program name) and copies each element into an owned `@[]char`
+(os.Args's element slots are readonly and won't borrow straight into the `*[]readonly
+char` the host's readFile / parser.New / splitColon take), reproducing bootstrap.Args's
+no-program-name shape so the arg indices are unchanged. Test-only; the VM↔compiled-code
+dispatch under test was always fine (xmhfa 2/2, xmiface 3/3 locally). With the repl sret
+fix (`cbc856b4`) these were the last E2E reds — the full E2E workflow is now green on both
+platforms (run 30688721435). Found while cleaning up the pre-existing E2E red that the
+pkg/stdx/fmt CLI-tools migration surfaced.
+
 ## native arm32: strict-align-safe unaligned aggregate access — ✅ DONE (`c1403072`, 2026-08-01)
 
 MMU-less / bare-metal arm32 runs with strict-alignment memory: an unaligned word LDR/STR faults
