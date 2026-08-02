@@ -1,6 +1,6 @@
 # Plan: native arm32 backend (`pkg/binate/native/arm32`)
 
-Status: **IN PROGRESS** (started 2026-07-01). Goal: a native (direct
+Status: **P0–P5 DONE** — baremetal soft-float is FULLY GREEN (`builder-comp_native_arm32_baremetal` 2851/0, only the legit `982_c_global_environ` xfail). **P6 (VFP + hard-float, `arm32-linux` native) is the next / active phase** (zero VFP encoders yet); P7 (blocking-modeset promotion + unit sweep) after. (Started 2026-07-01.) Goal: a native (direct
 IR→object) code generator for 32-bit ARM, hooked up analogously to the
 existing **LLVM** arm32 path — i.e. serving BOTH `--target arm32-baremetal`
 and `--target arm32-linux`, run under QEMU by the same runners, but with the
@@ -40,7 +40,7 @@ decomposition). ILP32 layout background: [`plan-arm32-bare-metal.md`].
   by-address MAJOR bug fix, `bc42705e`)**, and **P4-b2 (multi-return + the shared
   big-multi-return func-value outgoing-args under-reservation fix for arm32 + x64,
   `e1e49b73`)**.
-  Current native-arm32-baremetal conformance: **2007 passed / 619 failed / 31
+  Native-arm32-baremetal conformance AT THE P4-b2 PICKUP (⚠️ STALE — baremetal is now FULLY GREEN 2851/0 through P5; see the Status line): **2007 passed / 619 failed / 31
   skipped** — **0 runtime hangs** (verified via the QEMU "terminating on signal"
   grep on the FULL verbose output — NOT a `[10s]` grep, which is unreliable on
   non-verbose output and let a P4-a hang slip). 617/619 failures are clean
@@ -748,7 +748,7 @@ silent miscompile on arm32 AND x64; fixed with a gated `prefixSlots=2` bump in
   big-sret, small-pack, multi-return) COMPLETE 2026-07-11; only float parts (P5) and
   indirect-large captures remain fail-loud on the closure path by design.**
 
-### P5 — soft-float (in progress)
+### P5 — soft-float — DONE (baremetal FULLY GREEN 2851/0)
 Soft-float: a float rides GP registers like an integer of the same width — f32 a
 single word (like int32), f64 an even-aligned register PAIR (like int64) — so
 float args/returns/params reuse the int32 / int64 GP machinery, and only the
@@ -855,7 +855,7 @@ Split into three landable increments:
   Deliberately NOT in `scripts/modesets/all` (keeps it out of unit/perf/xpass).
   Toolchain is auto-covered (mode string contains `arm32_baremetal`).
 - **Remaining:** promote to a blocking `modesets/all` entry once the backend is
-  complete (needs the 832 failures driven to 0 or tracked xfails first); wire the
+  complete (baremetal is now FULLY GREEN 2851/0, so this prerequisite is MET — remaining is the promotion itself + wiring the arm32-linux native mode when P6 lands); wire the
   arm32-linux native mode when P6 lands; full unit-test sweep in the native modes.
 
 ## Adversarial review findings (post-P0/P1, 2026-07-01)

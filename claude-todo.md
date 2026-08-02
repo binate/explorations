@@ -1415,30 +1415,16 @@ Residual (all five REPL tiers landed):
 
 ### native arm32 backend — IN PROGRESS (live tracker: [plan-native-arm32.md](plan-native-arm32.md))
 
-The `pkg/binate/native/arm32` backend (P0–P4-a done; P4-b/c/d + P5–P7 remaining)
-is tracked in detail in `plan-native-arm32.md`; that doc is authoritative for
-phase status, landed commits, and deferred shapes. Deferrals below are all
-**fail-loud** (a shape the backend doesn't implement emits a clean COMPILE_ERROR,
-never silent wrong-code) — EXCEPT the MAJOR bug just below, which violates that.
-
-**FOLLOW-UP (aarch64-native, pre-existing, found 2026-07-05): cross-package
-big-multi-return FUNC-VALUE call CRASHES on aarch64 native (empty output).**
-Distinct from the arm32/x64 under-reservation bug below (aa64 has no
-SretInGpArgReg, rides X8, so the sizer/emitter agree — not an under-reservation).
-Exposed by a cross-module test (a dep `func F5(a,b,c int) (int,int,int,int,int)`
-exported as `*func(int,int,int) (int,int,int,int,int)` via `Get5()`, called from
-native main and printed) which PASSES on host + native arm32 + native x64 but
-produces EMPTY output on `builder-comp_native_aa64-comp_native_aa64`.  889
-(cross-pkg func value, NON-big-multi-return) passes on aa64, so it is the
-big-multi-return shape specifically.  Likely the func-value shim ABI wants the
-retbuf as a PREFIX ARG (the x64/arm32 convention) but aa64's emitCallFuncValue
-uses X8 — a native↔LLVM boundary mismatch; needs investigation.  **aa64 native is
-in `scripts/modesets/all` (a BLOCKING mode) and is currently 100% green (0
-xfails)** — so this is a latent MAJOR bug on a blocking mode (untested until now).
-The repro test was NOT committed (would redden aa64); recreate it (the F5/Get5
-program above, expected `10 20 30 30 50` for args 10,20,30) when fixing aa64, and
-add it to the P4-c/aa64 acceptance once green.  User decision (2026-07-05): land
-the arm32/x64 fix now, do aa64 as a follow-up.
+The `pkg/binate/native/arm32` backend is tracked in detail in
+`plan-native-arm32.md`; that doc is authoritative for phase status, landed
+commits, and deferred shapes.  **Status: P0–P5 done** — baremetal soft-float is
+FULLY GREEN (`builder-comp_native_arm32_baremetal` 2851/0, only the legitimate
+`982_c_global_environ` xfail: no libc `environ` on baremetal to link).  **Remaining:
+P6 (VFP + hard-float for `arm32-linux` native — `asm/arm32` has zero VFP encoders
+yet) and P7 (promote baremetal to a blocking modeset + full unit sweep).**  Deferrals
+below are all **fail-loud** (a shape the backend doesn't implement emits a clean
+COMPILE_ERROR, never silent wrong-code).  The FIXED/RESOLVED notes below are retained
+for context; the historical fix records also live in claude-todo-done.md.
 
 **MAJOR — FIXED (arm32 + x64) in P4-b2 (`bce99096`), found 2026-07-04 by the
 P4-b2 review: big-multi-return FUNC-VALUE call under-reserves outgoing-args →
