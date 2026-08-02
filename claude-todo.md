@@ -369,7 +369,7 @@ Remaining:
 - Optional: a `bnlint` rule flagging any importer of `pkg/std/os/sys` outside
   `pkg/std/os*` (enforce the internal boundary, since Binate has no `internal/`).
 
-### `pkg/std/os/process` — retire `bootstrap.Exec` — 🟢 Phase A LANDED (`0d0b3a62`); Phase B BUILDER-gated
+### `pkg/std/os/process` — retire `bootstrap.Exec` — 🟡 Phase A + Commits 2–3 LANDED; only Commit 4 (delete `bootstrap.Exec`) remains
 
 Implements `explorations/design-os-process.md` per
 `explorations/plan-os-process.md`. A synchronous subprocess API
@@ -393,16 +393,24 @@ so `process.Run` runs natively in comp AND int). Validated builder-comp +
 builder-comp-int for all 5 packages (host toolchain present → exec paths ran, incl.
 the exit-42 Rosetta assertion). (Moved to done log.)
 
-**Phase B (🔴 GATED on a release + `BUILDER_VERSION` bump to a bundle containing
-`os/process`+`os/sys`; `build_gen1` compiles `cmd/bnc`'s stdlib from the FROZEN
-bundle, so `cmd/bnc` cannot import the new packages until they ship):** migrate
-`cmd/bnc`'s 5 production callers (`compile/main/library/test/util.bn`) off
-`bootstrap.Exec` (Commit 2), then delete `bootstrap.Exec` entirely — `.bni` decl, C
-shim, baremetal stub, both VM extern registrations
+**Commit 2 LANDED (`62b4a828`)** — the gate cleared when `BUILDER_VERSION` bumped
+to `bnc-0.0.12` (its frozen bundle ships `os/process`, so `build_gen1` can import
+it into `cmd/bnc`). `cmd/bnc`'s 5 production callers (`compile/main/library/
+test/util.bn`) migrated off `bootstrap.Exec` onto `process.Run(prog,
+&process.Options{SearchPath:true, Args})`; `exitCode != 0` → `present(err) ||
+!status.Success()` (same failure set, and additionally reports the fork() failure
+the old shim silently returned 0 for). Verified via a real-BUILDER-0.0.12 gen1
+build (clang/ar/rm/test-link paths all run) + `conformance/570` extended with the
+all-blank `_, _ =` managed-discard shape. (Moved to done log.)
+
+**Commit 4 (🔴 remaining — the actual retirement):** now unblocked (Commit 2
+removed the last *production* caller; only the VM extern + its dedicated test
+remain). Delete `bootstrap.Exec` entirely — `.bni` decl, C shim
+(`runtime/binate_runtime.c`), baremetal stub, both VM extern registrations
 (`externs.bn`/`extern_test_helpers_test.bn`), `conformance/273_bootstrap_exec.*`,
-`README.md:171`, and ~6 prose comments (Commit 4). Migrated call sites use
-`&process.Options{...}` (Run takes `*readonly Options`) or `process.RunArgsPath`
-(variadic).
+the `README.md:171` `Exec` row, and the ~6 prose comments still naming `Exec`.
+Runtime deletion is safe: gen1 links the frozen bundle runtime (symbol stays,
+harmless), gen2 links the current tree (symbol gone, no emitted caller).
 
 **v1 residuals (design §6, tracked):** exec-failure precision — a `+x`
 non-executable/bad-format file passes the parent-side `sys.Accessible` (access
