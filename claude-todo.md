@@ -67,85 +67,6 @@ exported form there (the example's TODO records it).
 package can export a function returning a generic instantiated on its own
 `impl`ed type.
 
-### `bnc --test` miscompiles the generated test-runner main's fmt / `*any` dispatch — 🔴 OPEN MAJOR, LATENT (found 2026-08-02)
-
-**Severity: MAJOR (silent miscompilation), currently LATENT** — nothing triggers it
-today because the generated test runner still uses the `print`/`println` builtins.
-It bites the moment the runner (the synthetic `package "main"` that `bnc --test`
-generates in `cmd/bnc/gen_test_runner.bn`) is converted to emit its output via
-`pkg/stdx/fmt` — which is a prerequisite for retiring `print`/`println` (see "Slim
-`pkg/bootstrap` toward retirement", step 3).
-
-**Symptom:** with the runner converted to `fmt.Println(...)` / `fmt.Print(...)`, a
-test binary built by `bnc --test` prints the FIRST BYTE of each string operand as an
-integer instead of the string (`fmt.Println("=== RUN …")` → `61` = `'='`;
-`fmt.Println("--- PASS …")` → `45` = `'-'`) and then SIGSEGVs. So every RUN/PASS/FAIL
-line is corrupted — the whole unit-test harness would break.
-
-**Scope (well-characterized — it is NOT "fmt is broken in test binaries"):**
-- The SAME generated runner source compiled **whole-program** (`bnc <dir>`) runs
-  perfectly (correct RUN/PASS/FAIL + the merged `FAIL\t<n> passed, <m> failed`).
-- A test **function** that itself calls fmt (e.g. `fmt.Sprint("x=", 42)` inside a
-  `Test*` in a normal package) works fine under `bnc --test` — the test passes.
-- Only the synthetic **runner main's own** fmt / `*any` dispatch misbehaves, and only
-  in `--test` mode. This points at how `registerTestRunnerImports` (cmd/bnc/test.bn)
-  sets up the runner main's reflection / interface-dispatch metadata vs
-  `registerMainImports` (cmd/bnc/compile_imports.bn) for a real program entry.
-
-**ROOT CAUSE (found 2026-08-02, via an LLVM-IR diff of the runner main compiled
-whole-program vs `--test`):** the generated runner is **IR-gen'd without ever being
-type-checked**. `runTestMode` (test.bn) runs `typecheckPackages(ldr)` and only THEN
-calls `genTestRunner` + parses `runnerFile`; the runner is never handed to
-`checker.Check(...)`, so its AST expression nodes carry unset `ResolvedTypeID`s. IR-gen's
-`*any` boxing (`emitVariadicTail` → `coerceCompositeElement` / `wrapAsIfaceValue`) derives
-the boxed operand's dynamic type from the checker's resolved type of that operand — so with
-no resolved type a bare STRING literal (`"=== RUN …"`, a `*[]readonly char`) boxes as its
-`char`/`uint8` ELEMENT: the IR stamps `data_ptr → &firstByte` + the `uint8` ivt instead of
-`data_ptr → sliceHeader` + the `*[]readonly uint8` ivt. fmt then reads a one-byte scalar
-(`'='` = 61) and, chasing the mis-shaped box, SIGSEGVs. The whole-program driver
-(`main.bn`/`typecheckAll`) type-checks its main file (`c.Check(mainFile)`), so its boxing
-gets the right slice type — which is why whole-program works and a fmt call inside a normal
-(checked) test function works.
-
-The OLD `print`/`println` runner is immune because the print/println **builtins** don't
-read `Checker.ExprType` for their operands (their IR-gen lowering handles the arg directly);
-only real-function `*any` boxing does.
-
-**The naive fix — just `checker.Check(runnerFile)` before IR-gen — does NOT work as-is;
-it exposes two further problems (both need solving):**
-1. **The generated runner source is itself ill-typed** and only ever "worked" because it
-   was never checked: `_runnerFilter` does `var args @[]readonly @[]readonly char =
-   os.Args()` and passes `args[i]` to `_runnerStreq(a *[]readonly char, …)` — `cannot
-   assign readonly @[]readonly uint8 to *[]readonly uint8` (the same os.Args readonly-slot
-   issue cmd/bnc/cmd/bnas solve with a `progArgs` copy loop). Fix: regenerate that helper
-   well-typed.
-2. **The checker can't resolve the test packages' `Test*` functions** (`undefined:
-   TestPasses`): cross-package name resolution goes through a package's `.bni` interface,
-   and test funcs live in `_test.bn`, never in the interface. IR-gen sidesteps this via
-   `registerTestRunnerImports` (it registers the MERGED test files); the checker would need
-   an analogous "test-aware" view of the test packages to check `alias.TestName()` calls.
-
-**Fix options (design call):**
-- **(A) Type-check the runner properly** — regenerate a well-typed runner (fix #1) + give
-  the checker a test-aware view of test packages so it resolves `Test*` (fix #2), then
-  `checker.Check(runnerFile)`. Correct and localized to cmd/bnc, but #2 touches the
-  checker's cross-package resolution.
-- **(C) Make IR-gen's `*any` boxing not depend on the checker's `ResolvedTypeID`** — derive
-  the boxed operand's dynamic type from the IR value's own `val.Typ` (which IR-gen already
-  tracks) with a correct readonly-identity, falling back to the checker only for the
-  readonly refinement. More robust generally (any un-checked-but-IR-gen'd code boxes
-  correctly), but changes shared boxing type-resolution and needs care across box sites.
-
-Reproduction captured in this session's scratchpad: `troot/` synthetic pkg; whole-program
-runner IR (`ir_wp.ll`, boxes `…rt…___nameless_srN0_5_uint8` slice ivt) vs `--test` runner IR
-(`ir_test.ll`, boxes `…lang…uint8` scalar ivt). A regression test isn't cleanly addable
-before the fix (reproducing it *is* converting the runner, which breaks all unit tests) —
-add an e2e `bnc --test` test over an fmt-emitting runner once the fix lands.
-
-**Blocks:** converting `cmd/bnc/gen_test_runner.bn` to fmt, hence step 3 of the bootstrap
-retirement (the runner is one of the last two `print`/`println` holdouts, with the perf
-fixtures).
-
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
@@ -615,11 +536,16 @@ have an `os` equivalent.)
   out-of-memory handler. Retiring `print`/`println` here needs a separate design (a
   non-allocating rt-local formatter, or fmt layered so its scalar path is alloc-free) —
   to be pondered separately.
-- **The generated test runner** (`cmd/bnc/gen_test_runner.bn`'s emitted `println`/`print`
-  template strings, whose sink is `bootstrap.Write`) and the **perf fixtures**
-  (`perf/*.bn`): being converted next.
+- **The perf fixtures** (`perf/*.bn`): deliberately LEFT on `println` — converting adds
+  fmt's transitive compile (~3.5× on `001_fib`) to the timed per-test compile, polluting
+  the benchmark; treated like conformance until the perf harness reports compile/run/total
+  separately (see the perf-harness todo under Testing).
 - **`conformance/` and `examples/`:** separate (conformance handled as its own decision;
   examples build from prebuilt bundles).
+- ✅ **The generated test runner** — DONE (`10b2d772`, 2026-08-02): `cmd/bnc`'s `--test`
+  runner now emits via fmt; this required root-causing + fixing a latent `--test`
+  miscompilation (the runner was IR-gen'd un-type-checked, so fmt's `*any` boxing typed a
+  string literal as its `char` element). See the done log.
 
 Full `print`/`println` deprecation (and the `Write()`/format-helper bootstrap surface
 they alone keep alive) stays blocked on the runtime holdout above.

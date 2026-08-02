@@ -6,6 +6,43 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `bnc --test` runner emits via fmt; fixes a latent `--test` `*any`-boxing miscompilation — ✅ DONE (`10b2d772`, 2026-08-02)
+
+The `cmd/bnc` `--test` generated runner now emits its RUN / PASS / FAIL / summary
+lines through `pkg/stdx/fmt` (no `print`/`println` builtins, no `bootstrap` import) —
+the last compiler-owned `print`/`println` holdout (only the runtime + perf fixtures
+remain; see the retirement item in the active todo).
+
+**The bug it uncovered (was MAJOR, latent):** `runTestMode` generated the runner AFTER
+`typecheckPackages` and IR-gen'd it WITHOUT ever type-checking it, so its AST nodes
+carried no resolved types. fmt's `...*any` boxing reads the operand's checker-resolved
+type to decide what to box, so an un-checked string literal boxed as its `char` ELEMENT
+(`data_ptr → &firstByte` + the `uint8` ivt) instead of a `*[]readonly char` slice —
+fmt then printed the first byte as a number (`"=== RUN…"` → `61`) and SIGSEGV'd. The
+`print`/`println` builtins were immune only because their IR-gen lowering doesn't consult
+the checker for operand types. Whole-program compiles work because `typecheckAll` checks
+the main file; diagnosed via an LLVM-IR diff of the runner main compiled whole-program
+(boxes the `*[]readonly uint8` slice ivt) vs `--test` (boxes the `uint8` scalar ivt).
+
+**Fix (three coupled parts, one commit):**
+1. `checker.Check(runnerFile)` in `runTestMode` — the actual fix (populates the resolved
+   types fmt's boxing reads), mirroring the whole-program `typecheckAll` path.
+2. Well-typed runner source — `_runnerFilter` was passing `os.Args()` readonly-managed
+   elements to `*[]readonly char` helpers (ill-typed, only "worked" unchecked); it now
+   copies argv into owned `@[]char` via a generated `_runnerArgs`, like cmd/bnc's progArgs.
+3. New `Checker.ExposeTestFunc` — test funcs live in `_test.bn` and are absent from a
+   package's `.bni`, so the checker couldn't resolve the runner's `pkg.TestName()`; this
+   registers each discovered test func into its package scope as `func() @[]char` (the
+   erased shape the discovery filter guarantees — `TestResult` is a true `= @[]char` alias).
+
+Output is byte-for-byte identical (drops the per-count `.String()`, fmt renders ints), so
+the harness parses it unchanged. Adversarially reviewed (memory / checker side-effects /
+output bytes / erasure soundness all confirmed). Verified: builder-comp across
+token/lexer/irdata/iropcode, `pkg/binate/types` (1018), `pkg/stdx/fmt` (32, tested THROUGH
+the fmt runner), `cmd/bnc` (126, incl. a new emits-fmt regression test); synthetic
+pass+fail package renders RUN/PASS/FAIL + `FAIL\t1 passed, 1 failed`, exit 1, and `--run`
+filtering all correct.
+
 ## `os/process` Phase B (Commits 2 + 4) — `cmd/bnc` migration + `bootstrap.Exec` retirement — ✅ DONE (`91f56d47`, 2026-08-02)
 
 The BUILDER-gated tail of the `bootstrap.Exec` → `pkg/std/os/process` project
