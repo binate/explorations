@@ -1217,6 +1217,24 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
 
 ## Testing: harness, runners & conformance coverage
 
+### Perf harness: report compile, run, AND total (compile+run) — 🟡 OPEN (do soon)
+
+`perf/run.sh` already times per-test **compile** and **run** separately (ms), but the
+comparison story should be sharpened: present compile, run, AND the **total (compile+run)**,
+so both useful comparisons are first-class:
+- **compile+run vs interpreted-run** — the realistic apples-to-apples: a compiled mode's
+  end-to-end cost (which now legitimately includes compiling pulled-in stdlib) against an
+  interpreted mode's run. This matters more as tests grow real stdlib deps (e.g. anything
+  that adopts `pkg/stdx/fmt` drags fmt's transitive closure into the compile — measured ~3.5×
+  on `001_fib`: 0.21s→0.76s; that's why the perf fixtures stay on `println` for now, see the
+  bootstrap-retirement holdouts).
+- **run-only** — still valuable, especially *among* compiled modes, where compile cost is
+  noise for the thing being compared.
+
+Likely a `perf/summarize.sh` presentation change (add the total column + framing) rather than
+a `run.sh` measurement change, since run.sh already captures both numbers. Motivated by the
+perf-fmt-conversion trade-off (deferred deliberately).
+
 ### Conformance harness: `pkg0.testing` `--test`-only rules are not conformance-testable
 
 1. **GAP (harness limitation, not a defect) — `pkg0.testing.testfunc` + `pkg0.testing.run` are not
