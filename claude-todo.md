@@ -9,6 +9,64 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### A package's own `.bni` cannot name a generic instantiated on a type the package `impl`s — 🔴 OPEN MAJOR (found 2026-08-02)
+
+**Severity: MAJOR (checker false-rejection).** Nothing is miscompiled — legitimate
+code simply fails to build — but it blocks an entire class of API: a package that
+defines a key/element type cannot export anything whose type mentions a generic
+instantiated on it. Concretely, a package defining a `lang.Hashable` wrapper (the
+only way to key a map on text today, since no slice implements `Hashable`) cannot
+declare `func Counts(…) @hashmap.Map[Word, int]` in its `.bni`.
+
+**Symptom:** `type argument <T> does not satisfy constraint <C>` for an `impl` that
+is right there in the same package — often a few lines above in the very same
+`.bni`.
+
+**Minimal repro** (no stdlib; `pkg/g.bni` plus a `pkg/g/g.bn` holding the bodies):
+
+    package "pkg/g"
+
+    interface Sizer { Size() int }
+    type Box[T Sizer] struct { V T }
+    type Item struct { N int }
+    func (i Item) Size() int
+    impl Item : Sizer
+    func Make(n int) @Box[Item]     // type argument Item does not satisfy constraint Sizer
+
+**Scope, from bisecting on released bnc-0.0.12** — the instantiation is rejected
+ONLY where it appears, not by what it says:
+
+| the instantiation is mentioned in            | result   |
+|----------------------------------------------|----------|
+| the declaring package's own `.bni`            | REJECTED |
+| the declaring package's `.bn`                 | works    |
+| a DIFFERENT package's `.bni`                  | works    |
+| a consumer's `.bn`                            | works    |
+
+Invariant to everything else tried: whether the `impl` is written in the `.bni` or
+in the `.bn`; whether the generic is local (`Box[T]` above) or imported
+(`hashmap.Map[K, V]`, `set.Set[T]`); whether the mention is a function signature,
+a result type, or a struct field type; and `impl`-before-use ordering (the repro
+has the `impl` first). A constraint of `any` is unaffected (`@vec.Vec[Word]` is
+fine), as is a type argument whose impl comes from another package
+(`@set.Set[int]` is fine — `int`'s impl lives in `pkg/builtins/lang`).
+
+**Likely area:** impl registration versus the checking of a package's own
+interface file — the `.bni` appears to be constraint-checked before the package's
+own impls are entered into whatever table `satisfiesConstraint` consults. Three
+relatives are in the done log (`6647c49f`, `614e6eea`, and the unsubstituted-`X`
+constraint bug), all in the same constraint-satisfaction machinery.
+
+**Discovered** writing the `containers` example in binate/examples, which wanted
+exactly the rejected shape. That example WORKS AROUND it (user-authorized,
+2026-08-02) by building the map at the call site instead of exporting a
+map-returning function; when this is fixed and a release ships it, restore the
+exported form there (the example's TODO records it).
+
+**Tests:** a checker unit test for the repro above, plus a conformance test that a
+package can export a function returning a generic instantiated on its own
+`impl`ed type.
+
 ### `bnc --test` miscompiles the generated test-runner main's fmt / `*any` dispatch — 🔴 OPEN MAJOR, LATENT (found 2026-08-02)
 
 **Severity: MAJOR (silent miscompilation), currently LATENT** — nothing triggers it
