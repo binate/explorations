@@ -645,8 +645,21 @@ user type) — fmt does its OWN formatting for built-ins, not lang's simple
 `String()`.  Adversarially reviewed (no leak/UAF, cross-mode identical).
 
 The remaining fmt LAYER is **struct/default reflection** for `%v` of an aggregate
-without a `String()` (currently `%!?(unknown)`) — rides on package descriptors
-(Phase B); larger, separate.
+without a `String()` (currently `%!?(unknown)`), per `plan-struct-reflection.md`.
+**P1 LANDED (`133db88d`):** the RTTI substrate + reflect API — the per-type
+`__typeinfo` record grew 5→8 words (`… KIND, fields-ptr, field-count`) with
+per-struct `__typefields`/`__typefieldnames` blobs; `reflect.TypeInfo`/`FieldInfo`
+(overlaid on the record/entry bytes) + `reflect.TypeOf`/`DataOf` intrinsics
+(conformance `1150`, LP64/VM/native + an ILP32 `.expected` for arm32-linux). A
+prereq raw-ptr-to-struct inline-selector compiler-panic fix (`f().x` for `f() *T`)
+also landed (`4b281158`, conformance `1151`). REMAINING: **P2** — `writeArg` renders
+a scalar/string-field struct as `{…}` via read-bytes-per-kind (no recursion);
+**P3** — recurse into nested struct fields (adds transitive force-emit, the VM
+two-phase materialize, LLVM cross-TU externs, and populates the per-field
+typeinfo-ptr, NULL in P1); **P4** — arrays/slices/pointers in fields, `%+v` names,
+cycle guard. `%v`=`{3 4}` / `%+v`=`{x:3 y:4}` and anon structs get records
+(user-ratified). Spec §7.13.14 update (8-word record + KIND enum) pending in the
+docs repo.
 
 Still deferred (small verb/flag gaps — all render as visible error verbs /
 documented divergences, never silently):

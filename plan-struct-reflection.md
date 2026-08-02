@@ -1,10 +1,14 @@
 # Plan: struct reflection for `fmt` `%v` (field-table RTTI + runtime rendering)
 
-Status: **RATIFIED — ready for P1.** Design settled: the §0 adversarial review
-resolved decisions 1/2/3/5/6, and the user ratified 4 & 7 on 2026-07-31 (see §5). No
-code landed yet. Written 2026-07-30 from a recon sweep of the RTTI / reflect / types /
+Status: **P1 LANDED (`133db88d`); P2–P4 remaining.** Design settled: the §0
+adversarial review resolved decisions 1/2/3/5/6, and the user ratified 4 & 7 on
+2026-07-31 (see §5). P1 (field-table RTTI + reflect API) landed 2026-08-01 —
+conformance `1150`, plus a prereq raw-ptr-to-struct selector fix (`4b281158`,
+conformance `1151`); a pre-land adversarial review (`wf_fe852b03-8b7`) caught the
+missing ILP32 arm32-linux `.expected` and a bare-form intercept hazard, both fixed
+before landing. Written 2026-07-30 from a recon sweep of the RTTI / reflect / types /
 fmt substrate (workflow `wf_69ec9265-9c4`); revised 2026-07-31 per the design review
-(see §0).
+(see §0). Spec §7.13.14 update (docs repo) still pending.
 
 ## 0. Design-review outcome & folded-in revisions (2026-07-31)
 
@@ -291,7 +295,8 @@ on 2026-07-31. Proceed on all of these.
 
 ## 6. Phasing
 
-- **P1 — field-table RTTI (no cross-record refs).** Add KIND + a field table to
+- **P1 — field-table RTTI (no cross-record refs). ✅ LANDED `133db88d`** (+ prereq
+  selector fix `4b281158`). Add KIND + a field table to
   `__typeinfo` (irdata bytes: extend `TypeInfoDesc` + `BuildTypeInfo`; `ir` gather:
   derive KIND, build the field descs with name/offset/kind/size and a **null**
   field-typeinfo-ptr), plus the `reflect.TypeInfo`/`FieldInfo` surface and
