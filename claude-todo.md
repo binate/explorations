@@ -402,31 +402,6 @@ built, together with a test that exercises `ptr≠int` (the only thing that vali
 
 ## Slimming `pkg/bootstrap`; C interop (`__c_call`)
 
-### `pkg/std/os/sys` — low-level libc-syscall layer (os-family foundation) — 🟢 Stages 1–2 LANDED; only an optional lint rule remains
-
-Design: `explorations/design-syscall.md` (os-family-internal `pkg/std/os/sys`,
-staged). One low-level home for thin, error-returning, EINTR-retrying libc-syscall
-wrappers so `errno`→`errors.Error` classification + the per-OS `errno()` accessor
-live in ONE place and `errno` is hidden from callers.
-
-**Stage 1 LANDED (`0d0b3a62`)** — `pkg/std/os/sys` built (errno accessor +
-classifier moved out of `os`, ENOEXEC arm added, per-OS EAGAIN kept; `FailErrno` /
-`Interrupted` + process wrappers `Fork`/`Waitpid`/`Accessible`/`Getenv`/noreturn
-`ChildExecOrExit`); `os` rewired onto it; `os/process` built on it. Validated on
-host modes + e2e/errno-values + 2 review rounds. (Moved to done log.)
-
-**Stage 2 LANDED (`a886ec06`, `20840a58`, `e4b72c42`, `518ab9fc`)** — ported all
-of `os`'s remaining syscalls onto `sys` wrappers in small green steps: fd I/O +
-`open` (2a), mkdir/rename/remove + exit (2b), stat/lstat/fstat + `osStat` (2c),
-opendir/readdir/closedir + `osDirent` (2d). `os` now issues ZERO `__c_call`s —
-it delegates to `sys` (which retries EINTR + classifies errno) and keeps only
-stream semantics, the portable `O_*`→native flag translation, and the FileMode
-glue (`modeFromStat`/`modeFromDType`/`fileInfoFromStat`). (Moved to done log.)
-
-Remaining:
-- Optional: a `bnlint` rule flagging any importer of `pkg/std/os/sys` outside
-  `pkg/std/os*` (enforce the internal boundary, since Binate has no `internal/`).
-
 ### `pkg/std/os/process` — v1.1 residual: exec-failure precision — 🟡 OPEN (low, post-1.0)
 
 The `bootstrap.Exec` → `pkg/std/os/process` migration is **fully landed** (Phase A

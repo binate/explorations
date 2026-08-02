@@ -6,6 +6,28 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `pkg/std/os/sys` boundary enforcement — confine os/sys to the os family (closes the syscall-layer tracker) — ✅ DONE (`18f8980c`, 2026-08-02)
+
+Closes the `pkg/std/os/sys` syscall-layer project. Stages 1–2 (the layer +
+`os`-rewire + the 2a–2d syscall ports) landed earlier — see the two `os/sys` DONE
+entries below (`0d0b3a62`; `a886ec06`/`20840a58`/`e4b72c42`/`518ab9fc`); `os` now
+issues zero `__c_call`s.
+
+The only open item was an *optional* rule flagging any importer of
+`pkg/std/os/sys` outside the os family (enforce the internal boundary — Binate has
+no `internal/`). Resolved:
+- **Declined a `bnlint` rule** — bnlint runs on arbitrary user code, and an
+  external consumer of a shipped bundle may have a legitimate reason to reach
+  os/sys for OS-specific code; forbidding it there would overreach.
+- **Added a hygiene check instead** (`scripts/hygiene/os-sys-consumers.sh` +
+  `.whitelist`, `18f8980c`): only the os family (`*/pkg/std/os/*` — os,
+  os/process, future os/*) may import `pkg/std/os/sys`; any other importer in the
+  repo is a violation. It enforces "OS-specific code stays inside os" within OUR
+  stdlib only, without constraining external consumers. The VM's stdlib-injection
+  glue (`pkg/binate/interp/externs.bn`) is whitelisted — it injects os/sys as a
+  native instance, not as a consumer. Auto-discovered by `scripts/hygiene/run.sh`
+  (18 checks).
+
 ## `bnc --test` runner emits via fmt; fixes a latent `--test` `*any`-boxing miscompilation — ✅ DONE (`10b2d772`, 2026-08-02)
 
 The `cmd/bnc` `--test` generated runner now emits its RUN / PASS / FAIL / summary
