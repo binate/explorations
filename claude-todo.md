@@ -9,6 +9,73 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### VM SIGSEGVs in `errors.Is` when the error is a USER-defined `errors.Error` — 🔴 OPEN MAJOR (found 2026-08-02)
+
+**Severity: MAJOR (hard crash on correct code).** `bni` segfaults; the identical
+program compiled with `bnc` is fine. It hits any program that defines its own
+error type — the documented, encouraged way to carry structured failure data —
+and then classifies it, which is what `errors.Is` is *for*. It also breaks that
+program's unit tests under `bni --test`, so a package can be green compiled and
+crash interpreted.
+
+**Minimal repro** (released bnc-0.0.12; SIGSEGV under `bni`, correct under `bnc`):
+
+    package "main"
+
+    import "pkg/std/errors"
+
+    type leaf struct { tag int }
+
+    func (e @leaf) Error() @[]readonly char { return "leaf" }
+    func (e @leaf) Unwrap() @errors.Error { var none @errors.Error; return none }
+
+    impl @leaf : errors.Error
+
+    func main() {
+        var l @leaf = make(leaf)
+        var as @errors.Error = l
+        println(errors.Is(as, as))   // <- SIGSEGV under bni
+    }
+
+Note `errors.Is(as, as)` matches on the FIRST `same(cur, target)` compare inside
+`Is` — before `Unwrap` is ever called — so the crash does not need the chain walk.
+
+**What does NOT crash** (each verified under `bni`, and this is the useful part —
+it rules out the obvious suspects):
+
+- `errors.Is` on a STDLIB-made error (`errors.New` / `Wrap` / `Rooted`, and the
+  base singletons). Only a user-defined implementation triggers it.
+- Calling the user error's own `Error()` and `Unwrap()` through the interface
+  value, from user code.
+- `same(as, base)`, `same(as, as)`, and `present(as)` in user code.
+- A **local reimplementation of `errors.Is`** (same `present` / `same` /
+  `Unwrap()` loop) in the user's own package, walking the same user error —
+  returns the right answer. So the algorithm and the dispatch both work; what
+  differs is only that the loop lives in `pkg/std/errors`.
+- `fmt.Fprintf` into a user-defined `@io.Writer` — stdlib code calling a
+  user impl through a managed interface value is fine in general.
+- A synthetic clone of the whole shape in probe packages: a two-method
+  interface, a self-referential interface (`Next() @Rec`), an interface with
+  impls in two different packages, and a cross-package `Walk(r, target)` doing
+  `present`/`same`/`Next` — all correct. The synthetic version does NOT
+  reproduce, so something specific to `pkg/std/errors` is involved.
+
+**Not yet known:** where it faults (an `lldb -b` run over the bundle's `bni` hung
+and was abandoned; no VM-source debugging from an examples checkout), and whether
+current `main` still has it — the only local `main` bundle predates
+`binate-paths` and could not run the repro. Verify both before fixing.
+
+**Discovered** writing the `errors` example in binate/examples, whose `ParseError`
+(a concrete error type carrying a line number) is exactly the repro shape: the
+example runs compiled and dies interpreted, and its unit tests pass every
+assertion over stdlib errors then crash on the first `errors.Is` over a
+`ParseError`. That example is BLOCKED on this — it cannot be a both-modes example
+until this is fixed.
+
+**Tests:** a conformance test for the repro (it must run under `builder-comp-int`,
+where the VM leg is what fails), plus a `pkg/std/errors` unit test that
+classifies a locally-defined error type.
+
 ### A package's own `.bni` cannot name a generic instantiated on a type the package `impl`s — 🔴 OPEN MAJOR (found 2026-08-02)
 
 **Severity: MAJOR (checker false-rejection).** Nothing is miscompiled — legitimate
