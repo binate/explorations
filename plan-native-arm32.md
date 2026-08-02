@@ -868,19 +868,52 @@ Increments:
   byte-exact test; `S0..S31`(=iota+32) / `D0..D31`(=iota+64) consts. No codegen
   change yet (tests are the callers). VMOV-immediate / VABS omitted (float consts
   will ride a literal-pool VLDR in inc 3).
-- **inc 2 — hard-float ABI threading (Option a):** add `TargetInfo.FloatABI`
-  (`FloatABIType` enum) + `types.Arm32HardFloat()`; stamp hard for `arm32-linux`
-  in `setArm32Layout`; wire the gate into `AAPCS32()` (NumFpArgRegs/NumFpRetRegs =
-  8, HfaAggregates) + the FP-reg arg/return value-movement in the arm32 backend.
-- **inc 3 — hard-float compute path:** an `arm32_float.bn` hard-float variant
-  emitting VFP (via inc-1 encoders) instead of AEABI libcalls, with the GP↔VFP
-  boundary VMOVs; keep int64↔float on AEABI (flagged decision); literal-pool VLDR
-  for `OP_CONST_FLOAT` (needs a PC-relative VFP-load fixup, imm8<<2-scaled).
-- **inc 4 — wire the mode:** drop the `nativeArchForTarget` `""` guard for
-  `arm-linux-gnueabihf`; add `conformance/runners/builder-comp_native_arm32_linux.sh`
-  (clone the LLVM linux runner + `--backend native`, qemu-arm user-mode; hard-float,
-  so no `-mfloat-abi=soft` and no `--link-after-objs libgcc`). `OVERRIDE_MODE` falls
-  back to the LLVM linux `.xfail`/`.expected` automatically.
+- **inc 2 — inert ABI plumbing — ✅ DONE (`5da010bc`, 2026-08-02).** Added
+  `TargetInfo.FloatABI` (plain int: `FLOAT_ABI_DEFAULT`/`SOFT`/`HARD`) +
+  `types.SetFloatABI` + the shared gate `types.Arm32HardFloat()` (== ARCH_ARM32
+  && FloatABI == FLOAT_ABI_HARD), and wired a gated override into
+  `common.AAPCS32()` (when the gate: NumFpArgRegs=8, NumFpRetRegs=4,
+  HfaAggregates). Landed INERT — nothing stamps a real target HARD, so the gate
+  is false everywhere and AAPCS32() is byte-identical to soft-float; no mode
+  changes. (Plain int, not a distinct `FloatABIType`, per BUILDER precedent.)
+
+  **Design-review findings (2026-08-02) that reshaped the rest of P6:**
+  (1) Do NOT stamp arm32-linux HARD until the native mode is enabled to validate
+  it — `callConvForTarget()` feeds the LLVM backend's multi-return sret
+  classification, so stamping HARD while native arm32-linux is still off changes
+  ONLY the green LLVM `builder-comp_arm32_linux` mode (flips ~7 green
+  float-multi-return tests: `matrix/abi/multi-return/f64/{3,4,5}`,
+  `funcval-multi-return/f64/*`, `698_cross_pkg_mr_float3`) for zero benefit, and
+  on an UNVERIFIED `NumFpRetRegs` (AAPCS-VFP returns HFAs in ≤4 regs; 8 would
+  SIGSEGV `f64/5`). (2) The hard-float arg/return work is NOT just direct-call
+  "mirror aa64" — it also hits the func-value/closure/iface SHIM family (which
+  passes floats in GP as a soft-float coincidence) AND needs the AAPCS-VFP
+  register BACK-FILL in the classifier (`advanceNsrn`: S0..S15/D0..D7 share a
+  bank; the aa64 `nsrn+1` model is wrong). (3) None of the native FP-movement is
+  testable until the native arm32-linux mode exists (baremetal is soft) — so it
+  all lands with the mode, not before.
+- **inc 3 — native arm32-linux BRING-UP (the consolidated hard-float increment).**
+  Everything required for `builder-comp_native_arm32_linux` to go green, landed
+  together so each piece is live + validated by the new mode: the VFP COMPUTE
+  path (`arm32_float.bn` hard-float variant emitting VFP via the inc-1 encoders
+  instead of AEABI libcalls, with GP↔VFP boundary VMOVs; keep int64↔float on the
+  AEABI libcall per the flagged decision); `OP_CONST_FLOAT` via a literal-pool
+  VLDR (new PC-relative VFP-load fixup, imm8<<2-scaled); the DIRECT-call FP-reg
+  arg/return movement (`emitCallArg`/`emitCallReturn`/`emitSpillParam`/
+  `emitReturn` + multi-return pack/collect); the classifier's AAPCS-VFP back-fill;
+  the empirical `NumFpRetRegs` pin against clang's literal-FCA return lowering;
+  the HARD stamp (in `applyTarget`'s arm32-linux branch, AFTER `setArm32Layout`'s
+  SetTarget); drop the `nativeArchForTarget` `""` guard; add
+  `conformance/runners/builder-comp_native_arm32_linux.sh` (clone the LLVM linux
+  runner + `--backend native`, qemu-arm user-mode, hard-float — no
+  `-mfloat-abi=soft`, no `--link-after-objs libgcc`; `OVERRIDE_MODE` falls back to
+  the LLVM linux `.xfail`/`.expected`). **OPEN decision for this increment:** float
+  through the func-value/closure/iface shims — extend scope to handle it now
+  (GP↔FP marshal + float-return shim shape + dispatch float→i32/i64), OR
+  fail-loud (`SetError` when `Arm32HardFloat()`) and defer to inc 4 (mirrors P5's
+  direct-call-before-shims staging). Will be sub-split during implementation.
+- **inc 4 — float through the shims** (if inc 3 fail-loud-deferred them): drop the
+  func-value/closure/iface float fail-louds; GP↔FP marshal + float-return shim.
 - **Acceptance**: `builder-comp_native_arm32_linux` green. (Modeset/CI promotion is
   a separate P7, user-owned.)
 
