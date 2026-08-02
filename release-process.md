@@ -190,15 +190,27 @@ still exercises the real pipeline):
 If anything's wrong, delete the GitHub release + tag and start over
 — don't ship a bad release just because the tag is already there.
 
-### 5. Bump `BUILDER_VERSION`
+### 5. Bump `BUILDER_VERSION` and `CHECK_TOOLS_VERSION`
 
 Once the release is verified good, point the checkout at it:
 
-    BUILDER_VERSION:  bnc-<old> → bnc-X.Y.Z
+    BUILDER_VERSION:      bnc-<old> → bnc-X.Y.Z
+    CHECK_TOOLS_VERSION:  bnc-<old-preN> → bnc-X.Y.Z
 
-`scripts/fetch-builder.sh` reads this file to resolve which release
-to download as the BUILDER for local + CI builds.  Bumping it makes
-the just-shipped release the new BUILDER everyone uses.
+`scripts/fetch-builder.sh` reads `BUILDER_VERSION` to resolve which
+release to download as the BUILDER for local + CI builds; bumping it
+makes the just-shipped release the new BUILDER everyone uses.
+
+`CHECK_TOOLS_VERSION` names the release whose bundled HYGIENE tools
+(bnlint, bnfmt) the checks run.  Between releases it runs AHEAD of the
+old BUILDER on a `bnc-X.Y.Z-preN` pre-release, so hygiene can use newer
+tool language than the BUILDER understands.  The just-shipped stable
+bundles those tool improvements (and everything since), so RESET
+`CHECK_TOOLS_VERSION` to it as well — otherwise hygiene keeps running
+the now-superseded pre-release tools.  It advances to fresh
+`bnc-X.Y.(Z+1)-preN` pre-releases again later, as newer tool language is
+dogfooded ahead of the next stable cut.  (Unlike `VERSION`, this file
+has NO `version.bn` counterpart — `version-sync` pairs only `VERSION`.)
 
 ### 6. Bump `VERSION` to the next pre-release
 
@@ -209,12 +221,13 @@ corresponding edit to `pkg/binate/version/version.bn`'s `var Version`,
 dropping the `bnc-` prefix** (i.e. `"X.Y.(Z+1)-pre1"`) — version-sync
 strips `VERSION`'s `bnc-` before comparing.
 
-Combine with the BUILDER_VERSION bump into one commit:
+Combine with the BUILDER_VERSION + CHECK_TOOLS_VERSION bumps (step 5)
+into one commit:
 
-    Post-release: bump BUILDER_VERSION → bnc-X.Y.Z, VERSION → bnc-X.Y.(Z+1)-pre1
+    Post-release: bump BUILDER_VERSION → bnc-X.Y.Z, CHECK_TOOLS_VERSION → bnc-X.Y.Z, VERSION → bnc-X.Y.(Z+1)-pre1
 
-Push to main.  CI re-runs against the new BUILDER; verify it stays
-green.
+(This is the shape the last release used — `a5feb8ca`.)  Push to main.
+CI re-runs against the new BUILDER; verify it stays green.
 
 ### 7. Watch CI on the post-release commit
 
