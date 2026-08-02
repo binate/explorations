@@ -34,27 +34,55 @@ line is corrupted — the whole unit-test harness would break.
   sets up the runner main's reflection / interface-dispatch metadata vs
   `registerMainImports` (cmd/bnc/compile_imports.bn) for a real program entry.
 
-**Ruled out (tested, did NOT fix it):**
-- The vestigial `import "pkg/bootstrap"` the runner still emits (removed it — no change).
-- Adding the `registerGenericBodyExternDeps(ldr, directImports, "main", gc)` call that
-  `registerMainImports` has but `registerTestRunnerImports` lacks (added it — no change;
-  it may still be a real latent gap, but it is not this bug's cause).
+**ROOT CAUSE (found 2026-08-02, via an LLVM-IR diff of the runner main compiled
+whole-program vs `--test`):** the generated runner is **IR-gen'd without ever being
+type-checked**. `runTestMode` (test.bn) runs `typecheckPackages(ldr)` and only THEN
+calls `genTestRunner` + parses `runnerFile`; the runner is never handed to
+`checker.Check(...)`, so its AST expression nodes carry unset `ResolvedTypeID`s. IR-gen's
+`*any` boxing (`emitVariadicTail` → `coerceCompositeElement` / `wrapAsIfaceValue`) derives
+the boxed operand's dynamic type from the checker's resolved type of that operand — so with
+no resolved type a bare STRING literal (`"=== RUN …"`, a `*[]readonly char`) boxes as its
+`char`/`uint8` ELEMENT: the IR stamps `data_ptr → &firstByte` + the `uint8` ivt instead of
+`data_ptr → sliceHeader` + the `*[]readonly uint8` ivt. fmt then reads a one-byte scalar
+(`'='` = 61) and, chasing the mis-shaped box, SIGSEGVs. The whole-program driver
+(`main.bn`/`typecheckAll`) type-checks its main file (`c.Check(mainFile)`), so its boxing
+gets the right slice type — which is why whole-program works and a fmt call inside a normal
+(checked) test function works.
 
-**Root cause: unknown — needs investigation.** The misdispatch (string operand read as
-a scalar/char) + SIGSEGV smells like a wrong/missing type-descriptor or interface-vtable
-identity in the runner main's module vs the separately-compiled fmt object — i.e. the
-`*any` boxing site in the runner stamps a descriptor that fmt's dispatch doesn't match.
-Whole-program works, so the whole-program main path sets something up that the `--test`
-runner-main path does not.
+The OLD `print`/`println` runner is immune because the print/println **builtins** don't
+read `Checker.ExprType` for their operands (their IR-gen lowering handles the arg directly);
+only real-function `*any` boxing does.
 
-**Proposed next step:** diff the runner-main compilation in `runTestMode` (test.bn) against
-the whole-program main compilation in `main.bn` for everything touching reflection /
-`__Package` / type-descriptor / impl-vtable registration and SatEntry emission, and find
-what the `--test` path omits. A clean regression test isn't easy to add before the fix
-(the bug lives in the runner-generation path itself, so reproducing it *is* converting the
-runner, which breaks all unit tests) — add an e2e test that runs `bnc --test` on a package
-with an fmt-emitting runner once the fix lands. Reproduction is captured in this session's
-scratchpad (`troot/` synthetic pkg + the whole-program vs `--test` comparison).
+**The naive fix — just `checker.Check(runnerFile)` before IR-gen — does NOT work as-is;
+it exposes two further problems (both need solving):**
+1. **The generated runner source is itself ill-typed** and only ever "worked" because it
+   was never checked: `_runnerFilter` does `var args @[]readonly @[]readonly char =
+   os.Args()` and passes `args[i]` to `_runnerStreq(a *[]readonly char, …)` — `cannot
+   assign readonly @[]readonly uint8 to *[]readonly uint8` (the same os.Args readonly-slot
+   issue cmd/bnc/cmd/bnas solve with a `progArgs` copy loop). Fix: regenerate that helper
+   well-typed.
+2. **The checker can't resolve the test packages' `Test*` functions** (`undefined:
+   TestPasses`): cross-package name resolution goes through a package's `.bni` interface,
+   and test funcs live in `_test.bn`, never in the interface. IR-gen sidesteps this via
+   `registerTestRunnerImports` (it registers the MERGED test files); the checker would need
+   an analogous "test-aware" view of the test packages to check `alias.TestName()` calls.
+
+**Fix options (design call):**
+- **(A) Type-check the runner properly** — regenerate a well-typed runner (fix #1) + give
+  the checker a test-aware view of test packages so it resolves `Test*` (fix #2), then
+  `checker.Check(runnerFile)`. Correct and localized to cmd/bnc, but #2 touches the
+  checker's cross-package resolution.
+- **(C) Make IR-gen's `*any` boxing not depend on the checker's `ResolvedTypeID`** — derive
+  the boxed operand's dynamic type from the IR value's own `val.Typ` (which IR-gen already
+  tracks) with a correct readonly-identity, falling back to the checker only for the
+  readonly refinement. More robust generally (any un-checked-but-IR-gen'd code boxes
+  correctly), but changes shared boxing type-resolution and needs care across box sites.
+
+Reproduction captured in this session's scratchpad: `troot/` synthetic pkg; whole-program
+runner IR (`ir_wp.ll`, boxes `…rt…___nameless_srN0_5_uint8` slice ivt) vs `--test` runner IR
+(`ir_test.ll`, boxes `…lang…uint8` scalar ivt). A regression test isn't cleanly addable
+before the fix (reproducing it *is* converting the runner, which breaks all unit tests) —
+add an e2e `bnc --test` test over an fmt-emitting runner once the fix lands.
 
 **Blocks:** converting `cmd/bnc/gen_test_runner.bn` to fmt, hence step 3 of the bootstrap
 retirement (the runner is one of the last two `print`/`println` holdouts, with the perf
