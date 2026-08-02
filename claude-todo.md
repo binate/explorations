@@ -9,6 +9,57 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### `bnc --test` miscompiles the generated test-runner main's fmt / `*any` dispatch — 🔴 OPEN MAJOR, LATENT (found 2026-08-02)
+
+**Severity: MAJOR (silent miscompilation), currently LATENT** — nothing triggers it
+today because the generated test runner still uses the `print`/`println` builtins.
+It bites the moment the runner (the synthetic `package "main"` that `bnc --test`
+generates in `cmd/bnc/gen_test_runner.bn`) is converted to emit its output via
+`pkg/stdx/fmt` — which is a prerequisite for retiring `print`/`println` (see "Slim
+`pkg/bootstrap` toward retirement", step 3).
+
+**Symptom:** with the runner converted to `fmt.Println(...)` / `fmt.Print(...)`, a
+test binary built by `bnc --test` prints the FIRST BYTE of each string operand as an
+integer instead of the string (`fmt.Println("=== RUN …")` → `61` = `'='`;
+`fmt.Println("--- PASS …")` → `45` = `'-'`) and then SIGSEGVs. So every RUN/PASS/FAIL
+line is corrupted — the whole unit-test harness would break.
+
+**Scope (well-characterized — it is NOT "fmt is broken in test binaries"):**
+- The SAME generated runner source compiled **whole-program** (`bnc <dir>`) runs
+  perfectly (correct RUN/PASS/FAIL + the merged `FAIL\t<n> passed, <m> failed`).
+- A test **function** that itself calls fmt (e.g. `fmt.Sprint("x=", 42)` inside a
+  `Test*` in a normal package) works fine under `bnc --test` — the test passes.
+- Only the synthetic **runner main's own** fmt / `*any` dispatch misbehaves, and only
+  in `--test` mode. This points at how `registerTestRunnerImports` (cmd/bnc/test.bn)
+  sets up the runner main's reflection / interface-dispatch metadata vs
+  `registerMainImports` (cmd/bnc/compile_imports.bn) for a real program entry.
+
+**Ruled out (tested, did NOT fix it):**
+- The vestigial `import "pkg/bootstrap"` the runner still emits (removed it — no change).
+- Adding the `registerGenericBodyExternDeps(ldr, directImports, "main", gc)` call that
+  `registerMainImports` has but `registerTestRunnerImports` lacks (added it — no change;
+  it may still be a real latent gap, but it is not this bug's cause).
+
+**Root cause: unknown — needs investigation.** The misdispatch (string operand read as
+a scalar/char) + SIGSEGV smells like a wrong/missing type-descriptor or interface-vtable
+identity in the runner main's module vs the separately-compiled fmt object — i.e. the
+`*any` boxing site in the runner stamps a descriptor that fmt's dispatch doesn't match.
+Whole-program works, so the whole-program main path sets something up that the `--test`
+runner-main path does not.
+
+**Proposed next step:** diff the runner-main compilation in `runTestMode` (test.bn) against
+the whole-program main compilation in `main.bn` for everything touching reflection /
+`__Package` / type-descriptor / impl-vtable registration and SatEntry emission, and find
+what the `--test` path omits. A clean regression test isn't easy to add before the fix
+(the bug lives in the runner-generation path itself, so reproducing it *is* converting the
+runner, which breaks all unit tests) — add an e2e test that runs `bnc --test` on a package
+with an fmt-emitting runner once the fix lands. Reproduction is captured in this session's
+scratchpad (`troot/` synthetic pkg + the whole-program vs `--test` comparison).
+
+**Blocks:** converting `cmd/bnc/gen_test_runner.bn` to fmt, hence step 3 of the bootstrap
+retirement (the runner is one of the last two `print`/`println` holdouts, with the perf
+fixtures).
+
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
