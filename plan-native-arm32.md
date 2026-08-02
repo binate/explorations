@@ -836,16 +836,53 @@ Split into three landable increments:
   (from 2705 / 71 at the start of the P5.3 soft-float work).  `builder-comp_arm32_baremetal`
   (LLVM) is also 2776 / 0.
 
-### P6 — VFP + hard-float (arm32-linux complete)
-- Confirm float-ABI threading decision (TargetInfo field vs arch string).
-- Add VFP encoders to `asm/arm32` (VLDR/VSTR/VMOV core↔VFP, VADD/VSUB/VMUL/
-  VDIV .f32/.f64, VNEG, VCMP + VMRS APSR_nzcv, VCVT int↔float & f32↔f64).
-- Add AAPCS-VFP CallConv variant (NumFpArgRegs>0, IsFloatScalar routing like
-  aarch64) + hard-float `arm32_float.bn` path.
-- `nativeArchForTarget` → arm32 (hard-float) for `arm-linux-gnueabihf`; add
-  `builder-comp_native_arm32_linux` runners (clone LLVM linux runner +
-  `--backend native`, qemu-arm user-mode).
-- **Acceptance**: `builder-comp_native_arm32_linux` green.
+### P6 — VFP + hard-float (arm32-linux) — IN PROGRESS
+
+Recon (2026-08-02) mapped the four sub-pieces; all VFP encodings validated
+byte-exact against `arm-none-eabi-as`.
+
+**Float-ABI threading — chosen approach: Option (a)** — a `TargetInfo` float-ABI
+field exposed via a shared `types.Arm32HardFloat()` gate wired INSIDE
+`common.AAPCS32()`, mirroring `types.HfaInSimd()` / `SysVSseInRegs()`. The
+arg/return classifier already routes floats to FP regs when `NumFpArgRegs > 0`
+(no fork needed); putting the gate in the constructor flips all ~7 hardcoded
+`AAPCS32()` sites, the func-value/closure shims, AND codegen's
+`callConvForTarget()` with zero call-site churn — the only option that keeps
+codegen and native in lockstep across the native↔LLVM link (the hazard the
+current `arm32-linux → ""` native guard dodges). `arm32-linux` is already
+hard-float on the LLVM side (the `gnueabihf` triple). `setArm32Layout()`
+(cmd/bnc/target.bn) stamps `ARCH_ARM32` for BOTH baremetal(soft) and
+linux(hard), so `Arch` alone cannot discriminate — hence a new field, not a new
+arch. (User confirmation of Option (a) pending.)
+
+**Flagged decision — `int64`/`uint64` ↔ float casts have NO single VFP
+instruction** (VFP `VCVT` converts only 32-bit integer operands). Recommend
+KEEPING those specific casts on the AEABI libcall (matches soft-float, correct,
+minimal); the alternative is a longer VFP sequence. Decide at inc 3.
+
+Increments:
+- **inc 1 — VFP encoders in `asm/arm32` — ✅ DONE (`ba040890`, 2026-08-02).** 40
+  encoders (VADD/VSUB/VMUL/VDIV .F32/.F64, VNEG, VMOV core↔fp + core-pair↔double
+  + reg-copy, VCMP/VCMPE + VMRS APSR_nzcv, VCVT int↔float & f32↔f64, VLDR/VSTR
+  .32/.64) in `arm32_vfp.bn`, each pinned by an `arm-none-eabi-as`-verified
+  byte-exact test; `S0..S31`(=iota+32) / `D0..D31`(=iota+64) consts. No codegen
+  change yet (tests are the callers). VMOV-immediate / VABS omitted (float consts
+  will ride a literal-pool VLDR in inc 3).
+- **inc 2 — hard-float ABI threading (Option a):** add `TargetInfo.FloatABI`
+  (`FloatABIType` enum) + `types.Arm32HardFloat()`; stamp hard for `arm32-linux`
+  in `setArm32Layout`; wire the gate into `AAPCS32()` (NumFpArgRegs/NumFpRetRegs =
+  8, HfaAggregates) + the FP-reg arg/return value-movement in the arm32 backend.
+- **inc 3 — hard-float compute path:** an `arm32_float.bn` hard-float variant
+  emitting VFP (via inc-1 encoders) instead of AEABI libcalls, with the GP↔VFP
+  boundary VMOVs; keep int64↔float on AEABI (flagged decision); literal-pool VLDR
+  for `OP_CONST_FLOAT` (needs a PC-relative VFP-load fixup, imm8<<2-scaled).
+- **inc 4 — wire the mode:** drop the `nativeArchForTarget` `""` guard for
+  `arm-linux-gnueabihf`; add `conformance/runners/builder-comp_native_arm32_linux.sh`
+  (clone the LLVM linux runner + `--backend native`, qemu-arm user-mode; hard-float,
+  so no `-mfloat-abi=soft` and no `--link-after-objs libgcc`). `OVERRIDE_MODE` falls
+  back to the LLVM linux `.xfail`/`.expected` automatically.
+- **Acceptance**: `builder-comp_native_arm32_linux` green. (Modeset/CI promotion is
+  a separate P7, user-owned.)
 
 ### P7 — CI integration + full sweep
 - **DONE (partial, `0727d0c1`, 2026-07-03):** `builder-comp_native_arm32_baremetal`
