@@ -1,6 +1,6 @@
 # Plan: struct reflection for `fmt` `%v` (field-table RTTI + runtime rendering)
 
-Status: **P1 LANDED (`133db88d`); P2–P4 remaining.** Design settled: the §0
+Status: **P1 (`133db88d`) + P2 (`2ef97634`) LANDED; P3–P4 remaining.** Design settled: the §0
 adversarial review resolved decisions 1/2/3/5/6, and the user ratified 4 & 7 on
 2026-07-31 (see §5). P1 (field-table RTTI + reflect API) landed 2026-08-01 —
 conformance `1150`, plus a prereq raw-ptr-to-struct selector fix (`4b281158`,
@@ -312,7 +312,8 @@ on 2026-07-31. Proceed on all of these.
   which is the first consumer of the field-typeinfo-ptr (recursion). Deferred here
   because the pointer is inert until then and folding it into P1 buys nothing but
   risk (user-ratified 2026-08-01).
-- **P2 — fmt scalar/string structs.** `writeArg` default renders a struct with
+- **P2 — fmt scalar/string structs. ✅ LANDED `2ef97634`** (conformance `1157`).
+  `writeArg` default renders a struct with
   scalar/string fields as `{…}` via read-bytes-per-kind (no recursion). Go-diff.
 - **P3 — recursion.** Nested struct fields recurse via their `*TypeInfo`.
 - **P4 — aggregates in fields.** Arrays/slices/pointers, `%+v` names, cycle guard.

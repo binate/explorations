@@ -652,14 +652,18 @@ per-struct `__typefields`/`__typefieldnames` blobs; `reflect.TypeInfo`/`FieldInf
 (overlaid on the record/entry bytes) + `reflect.TypeOf`/`DataOf` intrinsics
 (conformance `1150`, LP64/VM/native + an ILP32 `.expected` for arm32-linux). A
 prereq raw-ptr-to-struct inline-selector compiler-panic fix (`f().x` for `f() *T`)
-also landed (`4b281158`, conformance `1151`). REMAINING: **P2** — `writeArg` renders
-a scalar/string-field struct as `{…}` via read-bytes-per-kind (no recursion);
-**P3** — recurse into nested struct fields (adds transitive force-emit, the VM
-two-phase materialize, LLVM cross-TU externs, and populates the per-field
-typeinfo-ptr, NULL in P1); **P4** — arrays/slices/pointers in fields, `%+v` names,
-cycle guard. `%v`=`{3 4}` / `%+v`=`{x:3 y:4}` and anon structs get records
-(user-ratified). Spec §7.13.14 update (8-word record + KIND enum) pending in the
-docs repo.
+also landed (`4b281158`, conformance `1151`). Spec §7.13.14 updated in the docs repo
+(8-word record + KIND enum).
+**P2 LANDED (`2ef97634`):** `writeArg`'s default renders a by-value struct without a
+`String()` as `{f0 f1 ...}` via read-bytes-per-kind (`fmt_reflect.bn`) — scalars +
+char-slices in full, nested-struct/array/slice/pointer FIELDS as `{...}`/`[...]`/
+`<...>` placeholders; a raw `*T` boxes as its pointee so `&s`≡`s` (both `{…}`);
+conformance `1157` (LP64/VM/native; values not offsets, so no ILP32 override).
+REMAINING: **P3** — recurse into nested struct fields (adds transitive force-emit,
+the VM two-phase materialize, LLVM cross-TU externs, and populates the per-field
+typeinfo-ptr, NULL in P1/P2); **P4** — arrays/slices/pointers in fields, `%+v` names
+(`%v`=`{3 4}` / `%+v`=`{x:3 y:4}`, user-ratified), cycle guard. Anon structs get
+records (user-ratified).
 
 Still deferred (small verb/flag gaps — all render as visible error verbs /
 documented divergences, never silently):
