@@ -775,6 +775,59 @@ string-literal box + the earlier scalar/var value-borrow) would let those tests
 drop the `&`.  The non-linted conformance tests (1090/1135) already use the bare
 form.
 
+### fmt recognizes only six scalar types — `uint`, sized ints and `char` render as error verbs — 🟡 OPEN (2026-08-02)
+
+`writeArg`'s dispatch covers `int`, `int64`, `uint64`, `bool`, `float32`,
+`float64`, the four char-slice spellings, and `lang.Stringer`.  Every other
+scalar falls through to the unrecognized-type arm, so an ordinary operand
+renders as a visible error verb instead of a number (released bnc-0.0.12,
+byte-identical compiled and interpreted):
+
+    i8=%!d(?=-8)  i16=%!d(?=-16)  i32=%!d(?=-32)  i64=-64
+    u=%!d(?=5)    u8=%!d(?=8)     u32=%!d(?=32)   u64=64
+    c=%!c(?=90)   f32=1.5         f64=2.5         b=true
+
+Two of the gaps hurt: **`uint`** is a core type (it is what `lang.Hashable.Hash()`
+returns), and **`char`** is the element of every Binate string — `%c` of a `char`
+is about the most natural formatting call there is, and it is exactly the one
+that fails.  Callers must write `cast(int, x)` at every site.
+
+Fix: extend the dispatch to the fixed-width integers (`int8/16/32`,
+`uint8/16/32`) and word-sized `uint`, widening to `int64`/`uint64` ahead of the
+existing digit emitters.  `char` follows from `uint8` (its alias), but decide how
+`%c`/`%q` should treat a `char` versus a small integer.  This is a completeness /
+ergonomics gap, not a correctness one — the error verb is visible, never a silent
+wrong rendering — and it is NOT covered by the struct-reflection work above (a
+sized int is a scalar, not an aggregate).  Tests: one case per scalar type in
+`fmt_printf_test.bn`.  Found while writing the standard-library example series in
+binate/examples.
+
+### `lang.Stringer` returns `@[]char`, but every string producer returns `@[]readonly char` — 🟡 OPEN (2026-08-02)
+
+`Stringer.String()` is declared to return `@[]char` (mutable), while the natural
+ways to produce the result all hand back `@[]readonly char`: `fmt.Sprintf`,
+`fmt.Sprint`, and `strings.Builder.String()`.  So the idiomatic implementation
+
+    func (p *readonly point) String() @[]char {
+        return fmt.Sprintf("(%d,%d)", p.x, p.y)
+    }
+
+does not compile (`cannot assign @[]readonly uint8 to @[]uint8`), and the
+implementer has to write `cast(@[]char, fmt.Sprintf(…))` — casting `readonly`
+away from a slice that was freshly allocated for them.  That is sound here, but
+it is exactly the cast that is *unsound* elsewhere (dropping `readonly` from a
+view of static or shared data), so teaching it as the standard way to implement
+Stringer is bad.
+
+Options: **(a)** change `Stringer.String()` to `@[]readonly char` — a rendering
+is a value the caller only reads, and `@[]char → @[]readonly char` is implicit,
+so an impl that still returns a mutable slice keeps satisfying it (what breaks is
+a *caller* holding the result as `@[]char`); **(b)** have the producers return
+`@[]char`; **(c)** keep it and document the cast.  (a) looks right, but it is a
+signature change in `pkg/builtins/lang` that every implementer sees — user's
+call.  Found while writing the standard-library example series in
+binate/examples.
+
 ## Conformance matrix generators — port to Binate (dogfood)
 
 ### Port the `conformance/gen-*.py` matrix generators to Binate — 🟡 SCOPED, not started (2026-07-17)
@@ -1380,6 +1433,25 @@ cleared (`e2e/xmiface.sh` / `e2e/xmhfa.sh` exist); add a captured-`@func` refcou
   later when the surface is being intentionally pulled into a
   proper stdlib effort.
 
+### `pkg/std/time` has no clock — no `Now()`, no `Sleep` — 🟡 OPEN (2026-08-02)
+
+`time` can build a `Point` only from `FromUnix`, and the sole Point that comes
+from outside the program is a file's `ModTime` (`os.Stat`).  Nothing in the
+stdlib reads the current time: there is no `time.Now()`, and `pkg/std/os/sys`
+(the libc-syscall layer, which is where such a primitive would enter) exposes no
+`clock_gettime`/`gettimeofday`.  There is no `Sleep` either.  So a program cannot
+time itself, stamp an event, seed from the clock, or wait.
+
+What it needs: a `sys` entry point over `clock_gettime` via `__c_call`, a
+`time.Now() Point` on top of it, and the bare-metal variant failing with
+`errors.Unsupported` like the rest of the os family.  Wall-versus-monotonic is a
+real design call, and `Point`'s own doc comment already frames it ("carries no
+clock identity"): a monotonic reading is not on the same timeline as a wall-clock
+one, so decide whether monotonic gets its own type or `Now()` is wall-only.
+`Sleep` (`nanosleep`) is a separate, smaller addition.  Found while writing the
+standard-library example series in binate/examples — the planned `time` example
+can only do arithmetic over constructed Points and file mtimes.
+
 ### `os` errors carry only the op, not the failing path (P3)
 `pkg/std/os` `failErrno(op)` renders e.g. `"open: not found"`, but
 plan-std-error-hierarchy.md §7 specifies context `(path, op)` —
@@ -1392,6 +1464,42 @@ richness, not classification). Tests: extend the `TestOpen*Classified` cases
 to assert the path appears in the rendered message.
 
 ## Package management & search paths
+
+### A deployed toolchain finds no packages of its own — which blocks `#!` scripts — 🟡 OPEN (2026-08-02)
+
+`bni` and `bnc` have no default search path at all.  A released bundle's
+`bin/bni` does not consult its sibling `lib/`, so even a script that imports
+nothing fails on the core packages every program needs:
+
+    $ bni -x noimports.bn
+    package "pkg/bootstrap" not found
+    package "pkg/builtins/lang" not found
+    package "pkg/builtins/reflect" not found
+
+Every invocation therefore has to pass the whole `-I`/`-L` formula, which is why
+every caller shells out to `binate-paths` first.  For a shell script that is
+merely verbose; for a **shebang** it is fatal.  A `#!` line must be literal — it
+cannot compute anything — and the kernel truncates it at ~256 bytes (Linux).  A
+bundle in the standard cache location already yields `-I` of 264 chars and `-L`
+of 353: each one alone exceeds the cap.  So `bni -x` (spec §17.3.1) works only
+for a caller who can shorten the paths first: `e2e/shebang-exec.sh` symlinks
+every search-path component to a one-character name, which no real script can do.
+The shebang feature is effectively unusable as shipped.
+
+Fix — either, ideally both:
+
+- **A default root relative to the executable.**  A tool at `<prefix>/bin/bni`
+  defaults its search paths to `<prefix>/lib` (exactly the bundle layout), so an
+  installed toolchain works with no flags at all and `#!/usr/bin/env -S bni -x`
+  becomes a complete, portable shebang.  Explicit `-I`/`-L` still override.
+- **The env-var fallback** (`BINATE_PACKAGE_INTERFACE_PATH` /
+  `BINATE_PACKAGE_IMPL_PATH`) — the Stage 7 entry below.  It helps a caller who
+  controls the environment, but does not rescue a script someone else runs, so it
+  does not substitute for the default root.
+
+Found while writing the standard-library example series in binate/examples (a
+`scripting` example must stamp a runnable script with shortened paths rather than
+ship one that runs).
 
 ### Package manager — sketch a design
 - We don't have one yet. The current model is "everything lives under a
@@ -1429,10 +1537,13 @@ to assert the path appears in the rendered message.
 - Add `BINATE_PACKAGE_INTERFACE_PATH` / `BINATE_PACKAGE_IMPL_PATH`
   (long names match `LD_LIBRARY_PATH`/`PYTHONPATH` style; aliases TBD)
   as the fallback when CLI flags are absent.
-- Gated on adding `bootstrap.Getenv` (a few lines of C + Go-interp
-  glue). Deferred because direct shell invocations of bnc/bni today
-  can construct CLI arguments — the env-var fallback is convenience
-  for users invoking the tools by hand.
+- The old gate (adding `bootstrap.Getenv`) is **gone**: `pkg/std/os/sys.Getenv`
+  ships as of bnc-0.0.12.
+- The old rationale for deferring — "direct shell invocations can construct CLI
+  arguments" — does not hold everywhere: a `#!` line is literal and length-capped
+  and can construct nothing, so it cannot build the `-I`/`-L` formula.  See the
+  "A deployed toolchain finds no packages of its own" entry above; a default root
+  relative to the executable is the stronger fix, with this as the override.
 - See [`plan-package-search-paths.md`](plan-package-search-paths.md)
   § "Env vars".
 
