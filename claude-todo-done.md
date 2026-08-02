@@ -6,6 +6,36 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## native arm32: strict-align-safe closure capture reads (last strict-align site) — ✅ DONE (`5b49afc5`, 2026-08-01)
+
+The last native-arm32 strict-align gap after the general aggregate fix (`c1403072`): a
+capturing closure packs its captures into a compiler-internal closure struct and marshals
+them as the underlying's leading args by reading each capture word from `[captureBase +
+FieldOffset]`. A SUB-word-aligned capture (an `int8`/`int16` scalar, OR an aggregate of
+them — `AlignOf < wordBytes`, e.g. `Tri = {a,b,c int8}`) can pack at a NON-word offset, so
+the shim's word LDR of it faults on strict-align MMU-less arm32 (hang). Also covered a
+pre-existing latent variant: a narrow SCALAR capture at a non-word offset (e.g. two `int8`
+captures → the second at offset 1) had the same fault.
+
+Fix (chose option (b), byte-wise in the backend — not (a) word-aligning the closure struct):
+option (a) would have needed a `WordAlignFields` property threaded through all four shared
+`pkg/types` layout functions (`FieldOffset`/`StructLayout`/`SizeOf`/`AlignOf`) — a shared-
+layout change motivated by an arm32-only constraint, pessimizing other targets — whereas (b)
+keeps strict-align handling in the arm32 backend, consistent with `c1403072` and the IR/
+backend boundary. New `emitBytewiseWordLoadArm32` (LDRB + ORR-shift) in `arm32_aggcopy.bn`;
+`closureCaptureNeedsBytewiseArm32` predicate routes such closures away from the frameless
+fast paths (scalar + sret, which have only IP free — too few to byte-assemble a word) to the
+FRAMED spill path (R4 saved + staged arg regs free); the two framed capture-read helpers
+(`emitClosureCaptureSpillArm32`, `emitClosureCaptureRegLoadSpillArm32`) byte-assemble a sub-
+word capture. `int`/pointer/`int64` captures (align ≥ 4) keep the fast word-LDR path. Pack /
+multiret closures were already framed, so the helper fix covers them with no new guard.
+
+Tests `conformance/1153`–`1156` (reg-load, stack-spill, pack-return, sret-return; each
+captures a sub-word field at a non-word offset the old word LDR would fault on). Native arm32
+full sweep 2851/0; host + arm32 unit tests unaffected (arm32-package-only); hygiene 17/17;
+adversarial review clean (register aliasing at every call site, routing completeness incl.
+the multiret compositions, multi-word/split byte-count math, non-sub-word captures unchanged).
+
 ## Multi-return value-receiver iface dispatch silently miscompiled — ✅ RESOLVED (landed `bb973b2d`, 2026-08-01)
 
 A value-receiver method with MULTIPLE return values (`func (v V) pair() (int, int)`),

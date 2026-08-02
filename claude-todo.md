@@ -9,28 +9,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### native arm32: closure capture of a sub-word aggregate faults (last strict-align site) — 🔴 OPEN (pre-existing; found 2026-07-31)
-
-The general native-arm32 strict-align aggregate fix landed (`c1403072`, see claude-todo-done.md) —
-struct copy, aggregate value load, sret return/write, byval, and the multi-return register collect
-are all byte-wise-safe now, so every non-closure sub-word-aggregate shape works on native arm32.  One
-site remains: a CLOSURE capturing a sub-word aggregate (align < wordBytes, e.g. `Tri = {a,b,c int8}`).
-The capture is stored in the compiler-internal closure struct at a packed (odd) offset, and the shim
-reads it back with a word LDR — which FAULTS on strict-align MMU-less arm32 (hang).  Confirmed:
-a closure capturing an `int8` then a `Tri` hangs on native arm32.
-
-The faulting reads are in `arm32_closure_shim_spill.bn` (`emitClosureCaptureSpillArm32`,
-`emitClosureCaptureRegLoadSpillArm32`) and any fast-path capture-load variants.
-
-**Fix direction (two options):** (a) word-ALIGN the capture fields in the internal closure struct
-(`buildClosureStructType`, pkg/binate/ir/gen_func_lit.bn) — it is compiler-internal (creator + shim,
-same module), so aligning it makes creation + every capture read aligned in ONE place; or (b) byte-wise
-the closure capture load/spill functions (per-function, mirrors the landed collect fix).  (a) is likely
-cleaner.  Add a conformance test (a closure capturing a sub-word aggregate) when fixing.  Do NOT work
-around.
-
-
-
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
