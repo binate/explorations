@@ -369,54 +369,16 @@ Remaining:
 - Optional: a `bnlint` rule flagging any importer of `pkg/std/os/sys` outside
   `pkg/std/os*` (enforce the internal boundary, since Binate has no `internal/`).
 
-### `pkg/std/os/process` — retire `bootstrap.Exec` — 🟡 Phase A + Commits 2–3 LANDED; only Commit 4 (delete `bootstrap.Exec`) remains
+### `pkg/std/os/process` — v1.1 residual: exec-failure precision — 🟡 OPEN (low, post-1.0)
 
-Implements `explorations/design-os-process.md` per
-`explorations/plan-os-process.md`. A synchronous subprocess API
-(`Run`/`RunArgs`/`RunArgsPath`/`LookPath`, `ExitStatus`, `Options`) as an injected
-stdlib package built on `pkg/std/os/sys` (errno hidden), replacing the lossy
-`bootstrap.Exec` C shim.
-
-**Phase A LANDED (`0d0b3a62`)** — `pkg/std/os/process` added (hosted + baremetal),
-registered in `stdPkgs()`, on the `sys` layer (so no errno duplication; the EAGAIN
-misclassification a review found is fixed centrally). Conformance test +
-per-file unit tests (incl. env-replace + empty-env execve + not-found). Validated
-on host modes. Must ship in the next release so Phase B can bump BUILDER.
-
-**Commit 3 LANDED (`786f8feb`)** — the 7 asm/native test harnesses (44 sites,
-`asm/{macho,parse,elf}` + `native/{x64,aarch64}`) migrated off `bootstrap.Exec`
-onto `os/process`, via a per-package test helper `execExit(prog, args @[]@[]char)
-int` (wraps `process.Run(&Options{SearchPath:true, Args})`, returns the old
-exit-code contract). Pulled forward out of Phase B (ungated: test files compile
-against source, and `os/process` is injected as its native instance in `stdPkgs()`
-so `process.Run` runs natively in comp AND int). Validated builder-comp +
-builder-comp-int for all 5 packages (host toolchain present → exec paths ran, incl.
-the exit-42 Rosetta assertion). (Moved to done log.)
-
-**Commit 2 LANDED (`62b4a828`)** — the gate cleared when `BUILDER_VERSION` bumped
-to `bnc-0.0.12` (its frozen bundle ships `os/process`, so `build_gen1` can import
-it into `cmd/bnc`). `cmd/bnc`'s 5 production callers (`compile/main/library/
-test/util.bn`) migrated off `bootstrap.Exec` onto `process.Run(prog,
-&process.Options{SearchPath:true, Args})`; `exitCode != 0` → `present(err) ||
-!status.Success()` (same failure set, and additionally reports the fork() failure
-the old shim silently returned 0 for). Verified via a real-BUILDER-0.0.12 gen1
-build (clang/ar/rm/test-link paths all run) + `conformance/570` extended with the
-all-blank `_, _ =` managed-discard shape. (Moved to done log.)
-
-**Commit 4 (🔴 remaining — the actual retirement):** now unblocked (Commit 2
-removed the last *production* caller; only the VM extern + its dedicated test
-remain). Delete `bootstrap.Exec` entirely — `.bni` decl, C shim
-(`runtime/binate_runtime.c`), baremetal stub, both VM extern registrations
-(`externs.bn`/`extern_test_helpers_test.bn`), `conformance/273_bootstrap_exec.*`,
-the `README.md:171` `Exec` row, and the ~6 prose comments still naming `Exec`.
-Runtime deletion is safe: gen1 links the frozen bundle runtime (symbol stays,
-harmless), gen2 links the current tree (symbol gone, no emitted caller).
-
-**v1 residuals (design §6, tracked):** exec-failure precision — a `+x`
-non-executable/bad-format file passes the parent-side `sys.Accessible` (access
-X_OK) check, then execve fails child-side and surfaces as the child's `_exit(127)`
-rather than a typed start error; the v1.1 self-pipe (write end `O_CLOEXEC`) would
-report the exact errno. Also `access(X_OK)` accepts a searchable directory.
+The `bootstrap.Exec` → `pkg/std/os/process` migration is **fully landed** (Phase A
+`0d0b3a62`, Commit 3 `786f8feb`, Commit 2 `62b4a828`, Commit 4 `91f56d47`; see the
+done log — `bootstrap.Exec` is gone from the tree). Remaining is a v1.1 quality
+gap (design §6): a `+x` non-executable/bad-format file passes the parent-side
+`sys.Accessible` (`access` X_OK) check, then execve fails child-side and surfaces
+as the child's `_exit(127)` rather than a typed start error; a self-pipe (write
+end `O_CLOEXEC`) would report the exact errno. Also `access(X_OK)` accepts a
+searchable directory.
 
 ### aarch64-linux **native** conformance mode (e2e for the aarch64 ELF relocs) — 🟢 MODE LANDED (`e8c99290`, 2026-07-09); residuals below
 

@@ -6,6 +6,38 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `os/process` Phase B (Commits 2 + 4) — `cmd/bnc` migration + `bootstrap.Exec` retirement — ✅ DONE (`91f56d47`, 2026-08-02)
+
+The BUILDER-gated tail of the `bootstrap.Exec` → `pkg/std/os/process` project
+(Phase A `0d0b3a62` and Commit 3 `786f8feb` are separate done entries below).
+`bootstrap.Exec` is now fully gone from the tree.
+
+- **Commit 2 (`62b4a828`)** — unblocked by the `BUILDER_VERSION` → `bnc-0.0.12`
+  bump (its frozen bundle ships `os/process`, so `build_gen1` resolves it for
+  `cmd/bnc`'s stdlib `-I`/`-L`). `cmd/bnc`'s 5 production callers
+  (`compile/main/library/test/util.bn`) migrated to `process.Run(prog,
+  &process.Options{SearchPath:true, Args})`; the old `exitCode != 0` became
+  `present(err) || !status.Success()` — same failure set {non-zero exit,
+  tool-not-found, signal death}, and additionally reports the `fork()` failure the
+  old shim silently returned 0 (success) for. Verified with a real-BUILDER-0.0.12
+  gen1 build (clang `-c` / clang link / `ar` / `rm` / `--test` link paths all run).
+  `conformance/570` extended with the all-blank `_, _ =` managed-discard shape
+  (the `util.bn` `remove()` pattern).
+- **Commit 4 (`91f56d47`)** — `bootstrap.Exec` deleted entirely: the `.bni` decl,
+  the `bn_..._Exec` C shim in `runtime/binate_runtime.c` (+ its orphaned
+  `slice_to_cstr` helper and `<string.h>`/`<sys/wait.h>` includes), the baremetal
+  stub, both VM extern registrations (`externs.bn` / `extern_test_helpers_test.bn`),
+  `conformance/273_bootstrap_exec.*` (subsumed by
+  `conformance/stdlib/os/process/001_run`), the README Exec row, and the prose
+  comments naming Exec. Safe across the build ladder: gen1 links the frozen bundle
+  runtime (symbol present, now unreferenced), gen2 links the current-tree runtime
+  (symbol gone, no emitted caller). Verified: builder-comp 2889/0, builder-comp-int
+  2871/0, gen2 self-host (builder-comp-comp), pkg/binate/{vm,interp} unit tests,
+  arm32-baremetal 21/0, hygiene 17/17.
+
+Residual v1.1 quality gap (exec-failure precision) remains tracked in
+claude-todo.md.
+
 ## native arm32: strict-align-safe closure capture reads (last strict-align site) — ✅ DONE (`5b49afc5`, 2026-08-01)
 
 The last native-arm32 strict-align gap after the general aggregate fix (`c1403072`): a
