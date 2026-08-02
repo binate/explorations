@@ -1,7 +1,8 @@
 # Plan: struct reflection for `fmt` `%v` (field-table RTTI + runtime rendering)
 
-Status: **P1 (`133db88d`) + P2 (`2ef97634`) + P3 (`6a8b7f8f`) LANDED; P4 + anon-struct
-mangler remaining.** Design settled: the §0
+Status: **P1 (`133db88d`) + P2 (`2ef97634`) + P3 (`6a8b7f8f`) + P4a `%+v` (`f7a3ec06`)
+LANDED; P4b (array/slice/pointer fields + cycle guard) + anon-struct mangler
+remaining.** Design settled: the §0
 adversarial review resolved decisions 1/2/3/5/6, and the user ratified 4 & 7 on
 2026-07-31 (see §5). P1 (field-table RTTI + reflect API) landed 2026-08-01 —
 conformance `1150`, plus a prereq raw-ptr-to-struct selector fix (`4b281158`,
@@ -325,6 +326,11 @@ on 2026-07-31. Proceed on all of these.
   TU-invariant) — a structural `mangleTypeArg` `TYP_STRUCT` arm is the follow-up
   prerequisite for anon-struct records (decision 7).
 - **P4 — aggregates in fields.** Arrays/slices/pointers, `%+v` names, cycle guard.
+  - **P4a — `%+v` field names. ✅ LANDED `f7a3ec06`** (conformance `1159`).  fmt-only
+    (`withNames` flag; putDefaultNamed keeps Stringer winning).  `{x:3 y:4}`.
+  - **P4b — array/slice/pointer fields + cycle guard.** REMAINING.  Needs an RTTI
+    element/pointee-type extension (per array/slice/pointer FieldEntry) + fmt code to
+    walk elements / follow pointers, with a visited-set cycle guard for pointers.
 
 Each phase lands independently (P1 is self-contained and useful for any reflection
 consumer; P2/P3/P4 are incremental fmt behavior), verified across LLVM/VM/native

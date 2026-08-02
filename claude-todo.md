@@ -796,12 +796,21 @@ LLVM needed no edit (force-emit keeps refs in-module weak).  Anonymous struct
 fields render `{...}` (their synthetic `__anon_N` name is occurrence-ordered, not
 TU-invariant — unsafe as a weak-record key).  Conformance `1158` (nested/deep/
 shared/anon) across LP64/VM/native; 1157 updated.
-REMAINING: **P4** — arrays/slices/pointers in fields, `%+v` names (`%v`=`{3 4}` /
-`%+v`=`{x:3 y:4}`, user-ratified), cycle guard.  Plus a FOLLOW-UP prerequisite for
-anon-struct records (decision 7, still unmet): a STRUCTURAL `TYP_STRUCT` arm in
-`mangleTypeArg` (currently anon structs mangle to `__anon_N`/`<unknown>`, neither
-structural nor TU-invariant) — until then anon structs (top-level AND as fields)
-render opaque / `{...}`.
+**P4a LANDED (`f7a3ec06`):** `%+v` labels a struct's fields `{x:3 y:4}` (recursively
+for nested structs), while `%v` stays `{3 4}` — fmt-only (a `withNames` flag through
+writeStructReflect/writeStructAt/writeFieldByKind; Printf's emitDefault routes
+`%+v` via putDefaultNamed, which still honors a Stringer struct's `String()`).
+Conformance `1159`.
+REMAINING: **P4b** — array / non-char-slice / pointer FIELDS (currently `[...]` /
+`<...>` placeholders).  Needs an RTTI element/pointee-type extension (each array/
+slice FieldEntry carries its element type's KIND/size/typeinfo; pointer fields
+carry the pointee's) + fmt code to walk the array (inline N) or slice header
+({data,len}) and render each element, and to follow a pointer to its pointee.
+Pointer-following also needs a CYCLE GUARD (visited-set) — pointer graphs can
+cycle, unlike by-value nesting.  Plus a FOLLOW-UP prerequisite for anon-struct
+records (decision 7, still unmet): a STRUCTURAL `TYP_STRUCT` arm in `mangleTypeArg`
+(anon structs mangle to `__anon_N`, not TU-invariant) — until then anon structs
+(top-level AND as fields) render opaque / `{...}`.
 
 Still deferred (small verb/flag gaps — all render as visible error verbs /
 documented divergences, never silently):
