@@ -76,63 +76,43 @@ until this is fixed.
 where the VM leg is what fails), plus a `pkg/std/errors` unit test that
 classifies a locally-defined error type.
 
-### A package's own `.bni` cannot name a generic instantiated on a type the package `impl`s — 🔴 OPEN MAJOR (found 2026-08-02)
+### A generic instantiation is wrongly rejected when the type-arg's `impl` is declared AFTER the use site — 🔴 OPEN MAJOR (found 2026-08-02)
 
-**Severity: MAJOR (checker false-rejection).** Nothing is miscompiled — legitimate
-code simply fails to build — but it blocks an entire class of API: a package that
-defines a key/element type cannot export anything whose type mentions a generic
-instantiated on it. Concretely, a package defining a `lang.Hashable` wrapper (the
-only way to key a map on text today, since no slice implements `Hashable`) cannot
-declare `func Counts(…) @hashmap.Map[Word, int]` in its `.bni`.
+**Severity: MAJOR (checker false-rejection).** Order-dependent constraint check:
+a generic instantiated on a type is rejected when that type's `impl` appears
+LATER in source order than the use site — even in a single file, no `.bni`
+involved. Top-level decls are supposed to be order-independent (that is what
+`preRegisterTypeNames` is for), so this is a bug.
 
-**Symptom:** `type argument <T> does not satisfy constraint <C>` for an `impl` that
-is right there in the same package — often a few lines above in the very same
-`.bni`.
-
-**Minimal repro** (no stdlib; `pkg/g.bni` plus a `pkg/g/g.bn` holding the bodies):
-
-    package "pkg/g"
+**Minimal repro** (single `.bn`, no `.bni`; rejected on current `main`):
 
     interface Sizer { Size() int }
     type Box[T Sizer] struct { V T }
     type Item struct { N int }
-    func (i Item) Size() int
-    impl Item : Sizer
-    func Make(n int) @Box[Item]     // type argument Item does not satisfy constraint Sizer
+    func Make() @Box[Item] { … }   // rejected: "Item does not satisfy constraint Sizer"
+    func (i Item) Size() int { … }
+    impl Item : Sizer              // impl comes AFTER the use → wrongly rejected
 
-**Scope, from bisecting on released bnc-0.0.12** — the instantiation is rejected
-ONLY where it appears, not by what it says:
+Move the `impl` above `Make` and it compiles. **Root cause:** `collectDeclsBody`
+(check_decl.bn) collects impls INLINE in decl order, so a function whose signature
+is constraint-checked before a later `impl` consults an incomplete `c.Impls`. The
+constraint check latches (`ConstraintsChecked`), so the premature miss sticks.
 
-| the instantiation is mentioned in            | result   |
-|----------------------------------------------|----------|
-| the declaring package's own `.bni`            | REJECTED |
-| the declaring package's `.bn`                 | works    |
-| a DIFFERENT package's `.bni`                  | works    |
-| a consumer's `.bn`                            | works    |
+**Relation to the just-landed `.bni` fix (`ff505c92`):** that fix handles
+impl-**before**-use (the `.bni` surface-build case); this is the orthogonal
+impl-**after**-use case and is NOT covered by it. Discovered while stress-testing
+that fix (impl-as-last-decl variant).
 
-Invariant to everything else tried: whether the `impl` is written in the `.bni` or
-in the `.bn`; whether the generic is local (`Box[T]` above) or imported
-(`hashmap.Map[K, V]`, `set.Set[T]`); whether the mention is a function signature,
-a result type, or a struct field type; and `impl`-before-use ordering (the repro
-has the `impl` first). A constraint of `any` is unaffected (`@vec.Vec[Word]` is
-fine), as is a type argument whose impl comes from another package
-(`@set.Set[int]` is fine — `int`'s impl lives in `pkg/builtins/lang`).
+**Likely fix:** collect all of a package's impls before resolving any signature
+that constraint-checks (order-independence), which needs interface pre-registration
+added to the collection path — or defer all instantiation constraint checks to a
+post-collection pass. Three relatives are in the done log (`6647c49f`,
+`614e6eea`, and the unsubstituted-`X` constraint bug), all in the same
+constraint-satisfaction machinery.
 
-**Likely area:** impl registration versus the checking of a package's own
-interface file — the `.bni` appears to be constraint-checked before the package's
-own impls are entered into whatever table `satisfiesConstraint` consults. Three
-relatives are in the done log (`6647c49f`, `614e6eea`, and the unsubstituted-`X`
-constraint bug), all in the same constraint-satisfaction machinery.
-
-**Discovered** writing the `containers` example in binate/examples, which wanted
-exactly the rejected shape. That example WORKS AROUND it (user-authorized,
-2026-08-02) by building the map at the call site instead of exporting a
-map-returning function; when this is fixed and a release ships it, restore the
-exported form there (the example's TODO records it).
-
-**Tests:** a checker unit test for the repro above, plus a conformance test that a
-package can export a function returning a generic instantiated on its own
-`impl`ed type.
+**Tests:** a checker unit test for the single-file repro above, plus a conformance
+test that a package compiles a generic use whose type-arg's `impl` is declared
+after it.
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 

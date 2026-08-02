@@ -6,6 +6,41 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## A package's own `.bni` could not name a generic instantiated on a type it `impl`s — ✅ DONE (`ff505c92`, 2026-08-02)
+
+**Was:** a checker false-rejection — `type argument <T> does not satisfy
+constraint <C>` for a generic instantiated on a type the SAME package `impl`s,
+whenever the instantiation was mentioned in the package's OWN `.bni` (a
+`func Make() @Box[Item]` above `impl Item : Sizer`). It blocked exporting anything
+whose `.bni` type mentions such a generic (e.g. a `lang.Hashable`-keyed
+map-returning function).
+
+**Root cause:** `buildScopeFromFile` (LoadPackageInterface) resolves a package's
+`.bni` signatures — instantiating any generic they name — BEFORE the package's own
+impls are collected into `c.Impls` (impls are collected in the later CheckPackage
+pass, from the merged decl list). So the instantiation was constraint-checked
+against an `Impls` list that did not yet contain the impl.
+
+**Fix:** a `Checker.BuildingIfaceScope` flag makes `buildScopeFromFile` resolve
+instantiations non-user-facing — built and cached for identity, but the constraint
+check skipped and NOT latched — so the authoritative check re-fires at the first
+real user-facing resolution in CheckPackage, where `c.Impls` is complete. Extern
+vars (`var X T` / `var ( … )`) are the one `.bni` decl kind the loader does not
+prepend into the merged decls (they would double-register against the `.bn`'s
+storage), so `checkPackageImpl` re-resolves the `.bni`'s extern var types
+explicitly after collectDecls — otherwise a `var G @Box[Bad]` violation would have
+been silently DROPPED (a soundness regression the adversarial review caught before
+landing). Tests: a checker unit test (LoadPackageInterface of such a `.bni` reports
+no error), conformance `1160_bni_generic_on_own_impl` (func result + extern var,
+both on an own-`impl`'d generic; runs) and `1161_bni_extern_var_constraint_reject`
+(a `.bni` extern var on a type with no impl is still rejected).
+
+**Follow-up:** the orthogonal impl-**after**-use ordering false-rejection (a
+separate pre-existing bug this surfaced) is tracked in the active todo. The
+`containers` example in binate/examples still uses its user-authorized workaround
+(build the map at the call site) — restore the exported form there once a bnc
+release ships this fix (the example's own TODO records it).
+
 ## `pkg/std/os/sys` boundary enforcement — confine os/sys to the os family (closes the syscall-layer tracker) — ✅ DONE (`18f8980c`, 2026-08-02)
 
 Closes the `pkg/std/os/sys` syscall-layer project. Stages 1–2 (the layer +
