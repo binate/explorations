@@ -1,6 +1,7 @@
 # Plan: struct reflection for `fmt` `%v` (field-table RTTI + runtime rendering)
 
-Status: **P1 (`133db88d`) + P2 (`2ef97634`) LANDED; P3–P4 remaining.** Design settled: the §0
+Status: **P1 (`133db88d`) + P2 (`2ef97634`) + P3 (`6a8b7f8f`) LANDED; P4 + anon-struct
+mangler remaining.** Design settled: the §0
 adversarial review resolved decisions 1/2/3/5/6, and the user ratified 4 & 7 on
 2026-07-31 (see §5). P1 (field-table RTTI + reflect API) landed 2026-08-01 —
 conformance `1150`, plus a prereq raw-ptr-to-struct selector fix (`4b281158`,
@@ -315,7 +316,14 @@ on 2026-07-31. Proceed on all of these.
 - **P2 — fmt scalar/string structs. ✅ LANDED `2ef97634`** (conformance `1157`).
   `writeArg` default renders a struct with
   scalar/string fields as `{…}` via read-bytes-per-kind (no recursion). Go-diff.
-- **P3 — recursion.** Nested struct fields recurse via their `*TypeInfo`.
+- **P3 — recursion. ✅ LANDED `6a8b7f8f`** (conformance `1158`).  Nested by-value
+  NAMED struct fields recurse via their `*TypeInfo`: CollectTypeInfoDescs became a
+  deterministic pure worklist closure that force-emits each reachable named struct
+  field type's record + field table (populating the per-field typeinfo-ptr); VM
+  `materializeTypeInfos` went two-phase; native prefixes the per-field symbol; LLVM
+  unchanged.  Anonymous struct fields render `{...}` (their `__anon_N` name is not
+  TU-invariant) — a structural `mangleTypeArg` `TYP_STRUCT` arm is the follow-up
+  prerequisite for anon-struct records (decision 7).
 - **P4 — aggregates in fields.** Arrays/slices/pointers, `%+v` names, cycle guard.
 
 Each phase lands independently (P1 is self-contained and useful for any reflection

@@ -700,11 +700,22 @@ also landed (`4b281158`, conformance `1151`). Spec §7.13.14 updated in the docs
 char-slices in full, nested-struct/array/slice/pointer FIELDS as `{...}`/`[...]`/
 `<...>` placeholders; a raw `*T` boxes as its pointee so `&s`≡`s` (both `{…}`);
 conformance `1157` (LP64/VM/native; values not offsets, so no ILP32 override).
-REMAINING: **P3** — recurse into nested struct fields (adds transitive force-emit,
-the VM two-phase materialize, LLVM cross-TU externs, and populates the per-field
-typeinfo-ptr, NULL in P1/P2); **P4** — arrays/slices/pointers in fields, `%+v` names
-(`%v`=`{3 4}` / `%+v`=`{x:3 y:4}`, user-ratified), cycle guard. Anon structs get
-records (user-ratified).
+**P3 LANDED (`6a8b7f8f`):** fmt %v recurses into nested by-value NAMED struct
+fields — `{1 {9} 2}`, deep `{1 {2 {3}}}`.  CollectTypeInfoDescs became a
+deterministic pure worklist closure that force-emits a record (with field table)
+for every reachable named struct field type (populating the per-field typeinfo-ptr
+that was NULL in P1/P2); VM `materializeTypeInfos` went two-phase (allocate+register
+all, then back-patch the cross-record ptr); native prefixes the per-field symbol;
+LLVM needed no edit (force-emit keeps refs in-module weak).  Anonymous struct
+fields render `{...}` (their synthetic `__anon_N` name is occurrence-ordered, not
+TU-invariant — unsafe as a weak-record key).  Conformance `1158` (nested/deep/
+shared/anon) across LP64/VM/native; 1157 updated.
+REMAINING: **P4** — arrays/slices/pointers in fields, `%+v` names (`%v`=`{3 4}` /
+`%+v`=`{x:3 y:4}`, user-ratified), cycle guard.  Plus a FOLLOW-UP prerequisite for
+anon-struct records (decision 7, still unmet): a STRUCTURAL `TYP_STRUCT` arm in
+`mangleTypeArg` (currently anon structs mangle to `__anon_N`/`<unknown>`, neither
+structural nor TU-invariant) — until then anon structs (top-level AND as fields)
+render opaque / `{...}`.
 
 Still deferred (small verb/flag gaps — all render as visible error verbs /
 documented divergences, never silently):
