@@ -455,17 +455,37 @@ Remove`. Do the swap once `BUILDER_VERSION` is bumped to a release that includes
 `Exec` itself stays until its other callers, the `clang`/`ar` link invocations, also
 have an `os` equivalent.)
 
-**Partial down-payment on step 3 — non-BUILDER CLI tools migrated to `pkg/stdx/fmt`
-(2026-07-29):** `cmd/{bni,bnas,bnfmt,bnlint}` now emit all user-facing stdout/stderr
-via `pkg/stdx/fmt` (`Print`/`Println`/`Fprint`) instead of the `print`/`println`
-builtins — dropping the manual `strconv.Itoa`/`strings.Builder` scaffolding and the
-raw-vs-managed `printErr` overload split (fmt's `...*any` absorbs both). Landed
-`0b57ba04`/`71fdf553`/`896a7db1`, gated behind `CHECK_TOOLS_VERSION` → `bnc-0.0.12-pre4`
-(`89cf3432`, with the `bnc-0.0.12-pre4` release cut for it): pre3's pinned bnlint
-predates the implicit value-borrow-into-`*any` boxing the call sites need. `print`/
-`println` still stand for the BUILDER-compiled tree (`cmd/bnc` + deps) and the runtime —
-they can't use fmt (it needs interfaces/generics/variadics outside the BUILDER subset) —
-plus `examples`; full deprecation stays blocked on those.
+**Progress on step 3 — most of the tree migrated to `pkg/stdx/fmt`:**
+- **Wave 1 — non-BUILDER CLI tools (2026-07-29):** `cmd/{bni,bnas,bnfmt,bnlint}` emit
+  all user-facing stdout/stderr via `pkg/stdx/fmt` (`Print`/`Println`/`Fprint`) instead
+  of the `print`/`println` builtins — dropping the manual `strconv.Itoa`/`strings.Builder`
+  scaffolding and the raw-vs-managed `printErr` overload split (fmt's `...*any` absorbs
+  both). Landed `0b57ba04`/`71fdf553`/`896a7db1`, gated behind `CHECK_TOOLS_VERSION` →
+  `bnc-0.0.12-pre4` (`89cf3432`): pre3's pinned bnlint predates the implicit
+  value-borrow-into-`*any` boxing the call sites need.
+- **Wave 2 — the BUILDER-compiled tree (2026-08-02), now that `BUILDER_VERSION` is
+  `bnc-0.0.12`:** the old "can't use fmt in the BUILDER tree" blocker is GONE — BUILDER
+  0.0.12 compiles fmt (variadics + `...*any` implicit boxing + reflection are all
+  in-subset; verified by a direct BUILDER compile of fmt before the sweep). `cmd/bnc`'s
+  driver diagnostics (`0d266ac0`), the compiler-internal diagnostics in
+  `pkg/binate/{ir,native}` (`acaa06a7`, also folding away three `strconv.Itoa` regmap
+  uses), and one `pkg/binate/vm` test diagnostic (`8c15394c`) now all go through fmt.
+
+**Remaining `print`/`println` holdouts (what step 3 still needs):**
+- **The runtime — `pkg/builtins/rt/{rt.bn,rt_baremetal.bn}`:** the panic / OOB / OOM /
+  divide-by-zero / type-assertion handlers. These CANNOT simply move to fmt: fmt depends
+  on rt (→ circular import), and an allocating formatter must not run inside an
+  out-of-memory handler. Retiring `print`/`println` here needs a separate design (a
+  non-allocating rt-local formatter, or fmt layered so its scalar path is alloc-free) —
+  to be pondered separately.
+- **The generated test runner** (`cmd/bnc/gen_test_runner.bn`'s emitted `println`/`print`
+  template strings, whose sink is `bootstrap.Write`) and the **perf fixtures**
+  (`perf/*.bn`): being converted next.
+- **`conformance/` and `examples/`:** separate (conformance handled as its own decision;
+  examples build from prebuilt bundles).
+
+Full `print`/`println` deprecation (and the `Write()`/format-helper bootstrap surface
+they alone keep alive) stays blocked on the runtime holdout above.
 
 **Residual (small, separable):** wire `ensureLangLoaded` + `appendLangImport` into
 the repl's import setup (`pkg/binate/repl/{ir_imports,session,util}.bn`) so
