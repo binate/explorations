@@ -126,6 +126,21 @@ The tag push triggers `release.yml`.  Don't tag a `-preN` commit; the
 release CI happily builds whatever the tag points at, and a `-preN`
 build would ship as a "release" with a broken version string.
 
+**Immediately after tagging, bump `VERSION` → `bnc-X.Y.(Z+1)-pre1`** in a
+SEPARATE, VERSION-only commit (`BUILDER_VERSION` / `CHECK_TOOLS_VERSION`
+stay put — they wait for validation, step 5).  `VERSION` labels the LAST
+commit carrying it, so with concurrent landing any commit that lands on
+top of the tagged one before you bump would ALSO read `bnc-X.Y.Z`,
+leaving the tag not on the last `X.Y.Z` commit.  Bumping now — before the
+slow `release.yml` build + validation — closes that window.  Make the
+paired `version.bn` edit → `"X.Y.(Z+1)-pre1"` (version-sync pairs only
+`VERSION`).
+
+    Post-release: bump VERSION -> bnc-X.Y.(Z+1)-pre1
+
+Push it.  (This SPLITS the old single post-release commit: the VERSION
+label moves immediately, the build-ladder advance waits — see step 6.)
+
 ### 4. Verify the release
 
 Watch the `Release` workflow in GitHub Actions.  When all matrix
@@ -159,10 +174,10 @@ still exercises the real pipeline):
        RT=$("./<bundle>/bin/binate-paths" --runtime --base "$LIB")
        cat > hello.bn <<EOF
        package "main"
-       import "pkg/bootstrap"
+       import "pkg/builtins/rt"
        func main() {
            println("hello bnc-X.Y.Z")
-           bootstrap.Exit(0)
+           rt.Exit(0)
        }
        EOF
        "$BNC" -I "$I" -L "$L" --runtime "$RT" -o hello hello.bn
@@ -175,13 +190,13 @@ still exercises the real pipeline):
 
        cat > carveout.bn <<EOF
        package "main"
-       import "pkg/bootstrap"
+       import "pkg/builtins/rt"
        import "pkg/builtins/lang"
        func main() {
            var x int = 42
            var s *lang.Stringer = &x
            println(s.String())  // expect: 42
-           bootstrap.Exit(0)
+           rt.Exit(0)
        }
        EOF
        # ... same compile incantation ...
@@ -212,22 +227,26 @@ the now-superseded pre-release tools.  It advances to fresh
 dogfooded ahead of the next stable cut.  (Unlike `VERSION`, this file
 has NO `version.bn` counterpart — `version-sync` pairs only `VERSION`.)
 
-### 6. Bump `VERSION` to the next pre-release
+### 6. Commit the `BUILDER_VERSION` + `CHECK_TOOLS_VERSION` bumps
 
-Edit `VERSION` from `bnc-X.Y.Z` → `bnc-X.Y.(Z+1)-pre1`.  This marks
-the tree as "post-X.Y.Z, in-progress toward X.Y.(Z+1)."  The `-preN`
-suffix is what flags a build as "not a tagged release."  **Make the
-corresponding edit to `pkg/binate/version/version.bn`'s `var Version`,
-dropping the `bnc-` prefix** (i.e. `"X.Y.(Z+1)-pre1"`) — version-sync
-strips `VERSION`'s `bnc-` before comparing.
+`VERSION` was already bumped to `bnc-X.Y.(Z+1)-pre1` right after tagging
+(step 3), so this post-validation commit lands ONLY the step-5
+`BUILDER_VERSION` + `CHECK_TOOLS_VERSION` bumps — the irreversible
+build-ladder advance, held until the release is verified good:
 
-Combine with the BUILDER_VERSION + CHECK_TOOLS_VERSION bumps (step 5)
-into one commit:
+    Post-release: bump BUILDER_VERSION -> bnc-X.Y.Z, CHECK_TOOLS_VERSION -> bnc-X.Y.Z
 
-    Post-release: bump BUILDER_VERSION → bnc-X.Y.Z, CHECK_TOOLS_VERSION → bnc-X.Y.Z, VERSION → bnc-X.Y.(Z+1)-pre1
+Push to main.  CI re-runs against the new BUILDER; verify it stays green.
 
-(This is the shape the last release used — `a5feb8ca`.)  Push to main.
-CI re-runs against the new BUILDER; verify it stays green.
+(Historically all three moved in ONE post-release commit — e.g.
+`a5feb8ca` — which is fine only when nothing lands between tag and
+post-release.  Under concurrent landing that leaves stray `X.Y.Z`-VERSION
+commits after the tag, so the VERSION bump is split out to
+immediately-after-tag per step 3, and this commit carries just the
+BUILDER/tools advance.  Optionally sanity-build the tree against the
+freshly-downloaded BUILDER — `scripts/fetch-builder.sh` +
+`scripts/build-bnc.sh` — before pushing, to catch a BUILDER↔source skew
+locally instead of in everyone's CI.)
 
 ### 7. Watch CI on the post-release commit
 
