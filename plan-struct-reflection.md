@@ -1,8 +1,9 @@
 # Plan: struct reflection for `fmt` `%v` (field-table RTTI + runtime rendering)
 
 Status: **P1 (`133db88d`) + P2 (`2ef97634`) + P3 (`6a8b7f8f`) + P4a `%+v` (`f7a3ec06`)
-+ P4b-1 array/slice fields + cycle guard (`d52211ae`) LANDED; P4b-2 (pointer fields)
-+ anon-struct mangler remaining.** Design settled: the §0
++ P4b-1 array/slice fields + cycle guard (`d52211ae`) + P4b-2 pointer fields
+(`30663c5f`) ALL LANDED; struct reflection for fmt is COMPLETE. Only the
+anon-struct mangler follow-up (decision 7) remains.** Design settled: the §0
 adversarial review resolved decisions 1/2/3/5/6, and the user ratified 4 & 7 on
 2026-07-31 (see §5). P1 (field-table RTTI + reflect API) landed 2026-08-01 —
 conformance `1150`, plus a prereq raw-ptr-to-struct selector fix (`4b281158`,
@@ -339,10 +340,17 @@ on 2026-07-31. Proceed on all of these.
     stay `[...]`.  A `(base, TypeInfo)`-keyed on-stack cycle guard (reflectCtx, 64-deep)
     renders a re-entered struct as `{...}` — pulled forward from P4b-2 since slice
     recursion is the first cycle vector.  Spec §7.13.14 updated (docs `e0f6649`).
-  - **P4b-2 — pointer fields.** REMAINING.  Needs a pointee-type RTTI extension
-    (per pointer FieldEntry) + fmt code to follow a pointer field (a `<...>`
-    placeholder today) into its pointee, extending the existing cycle guard to
-    pointer targets (the reflectCtx `(base, type)` stack already generalizes to it).
+  - **P4b-2 — pointer fields. ✅ LANDED `30663c5f`** (conformance `1163`).  A pointer
+    field (raw `*T` / managed `@T`) is followed to its pointee, `&`-prefixed (`&{3 4}`,
+    `&5`), `<nil>` for nil; cycle-guarded (`&{...}`).  Reused the P4b-1 element slots
+    (pointee kind/size/record ride ElemKind/ElemSize/word-5; `elemTypeOf` peels a
+    pointer to `.Elem`) — no new FieldEntry fields.  Rendering convention (`&`-prefix,
+    `<nil>`, one level deep) user-ratified 2026-08-02 (a deliberate divergence from
+    Go's non-deterministic embedded-pointer hex address).  Fixed a MAJOR latent
+    defect: a force-emitted (reflection-only) record must not reference the pointee's
+    cross-package DTOR HANDLE (`@__handle.…__dtor_T`, defined only in T's own TU) — it
+    now carries a null dtor (aligning native/LLVM with the VM; cleanup never uses the
+    record's word-0), which also hardened the P4b-1 array/slice case.
 
 Each phase lands independently (P1 is self-contained and useful for any reflection
 consumer; P2/P3/P4 are incremental fmt behavior), verified across LLVM/VM/native

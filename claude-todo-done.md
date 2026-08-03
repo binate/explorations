@@ -6,6 +6,50 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Struct/default reflection for fmt `%v`/`%+v` (per `plan-struct-reflection.md`) — ✅ DONE (`133db88d`…`30663c5f`, 2026-08-02)
+
+`fmt.Printf("%v"/"%+v", s)` on a struct/aggregate without a `String()` (was
+`%!?(unknown)`) now renders its fields, reusing the per-type `__typeinfo` RTTI.
+Landed in phases; the anon-struct mangler follow-up (decision 7) is the sole
+remaining gap and stays in the active todo.
+
+- **P1 (`133db88d`, conformance `1150`):** RTTI substrate + reflect API — the per-type
+  `__typeinfo` record grew 5→8 words (`… KIND, fields-ptr, field-count`) with per-struct
+  `__typefields`/`__typefieldnames` blobs; `reflect.TypeInfo`/`FieldInfo` (overlaid on
+  the record/entry bytes) + `reflect.TypeOf`/`DataOf` intrinsics. Prereq raw-ptr-to-
+  struct inline-selector panic fix (`f().x` for `f() *T`) landed too (`4b281158`, conf
+  `1151`). Spec §7.13.14 (8-word record + pinned KIND enum).
+- **P2 (`2ef97634`, conf `1157`):** `writeArg` default renders a by-value struct as
+  `{f0 f1 ...}` via read-bytes-per-kind; scalars + char-slices in full, aggregates as
+  placeholders; a raw `*T` boxes as its pointee so `&s`≡`s`.
+- **P3 (`6a8b7f8f`, conf `1158`):** recurse into nested by-value NAMED struct fields.
+  CollectTypeInfoDescs became a deterministic pure worklist closure force-emitting a
+  record (+ field table) per reachable field-type; VM `materializeTypeInfos` went
+  two-phase (allocate+register, then back-patch cross-record ptrs).
+- **P4a (`f7a3ec06`, conf `1159`):** `%+v` labels fields `{x:3 y:4}` (recursive),
+  fmt-only via a `withNames` flag; putDefaultNamed still honors a Stringer's `String()`.
+- **P4b-1 (`d52211ae`, conf `1162`):** array / non-char-slice fields render their
+  elements (`{[1 2 3] 9}`, `{[{1 2} {3 4}]}`, nil → `[]`). FieldEntry grew 6→8 words
+  (`+{elem-kind, elem-size}`; word-5 → the ELEMENT record) across all four emitters via
+  the single `buildFieldTable`. A `(base, TypeInfo)`-keyed on-stack CYCLE GUARD
+  (reflectCtx, 64-deep) renders a re-entered struct `{...}` — pulled forward because
+  slice-of-struct recursion is the first cycle vector; keyed on (base, type) so a
+  single-field wrapper isn't falsely flagged.
+- **P4b-2 (`30663c5f`, conf `1163`):** pointer fields (raw `*T` / managed `@T`) are
+  followed to the pointee, `&`-prefixed (`&{3 4}`, `&5`), `<nil>` for nil, cycle-guarded
+  (`&{...}`). Reused the P4b-1 element slots (pointee kind/size/record); no new
+  FieldEntry fields. Convention (`&`-prefix, `<nil>`, one level) user-ratified — a
+  deliberate divergence from Go's non-deterministic embedded-pointer hex address. Fixed
+  a MAJOR latent defect: a force-emit (reflection-only) record must not reference the
+  pointee's cross-package DTOR HANDLE (`@__handle.…__dtor_T`, defined only in T's TU) —
+  it now carries a null dtor (cleanup never uses the record's word-0; aligns native/LLVM
+  with the VM), which surfaced as `use of undefined value` compiling `pkg/binate/repl`
+  (a `@ir.FuncSig` field) under VM mode and also hardened the P4b-1 array/slice case.
+
+All phases: cross-mode green (LLVM/VM/native-aa64/gen2), adversarially reviewed, spec
+§7.13.14 kept in sync. Remaining fmt gaps (Stringer/Printf flag edge cases, anon-struct
+records) tracked in the active todo.
+
 ## A generic instantiation was wrongly rejected when the type-arg's `impl` was declared AFTER the use — ✅ DONE (`8476b8be`, 2026-08-02)
 
 **Was:** an order-dependent checker false-rejection — a generic instantiated on a

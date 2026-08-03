@@ -807,56 +807,20 @@ non-string renders it like `%v` (fmt's own scalar formatting, then Stringer for 
 user type) — fmt does its OWN formatting for built-ins, not lang's simple
 `String()`.  Adversarially reviewed (no leak/UAF, cross-mode identical).
 
-The remaining fmt LAYER is **struct/default reflection** for `%v` of an aggregate
-without a `String()` (currently `%!?(unknown)`), per `plan-struct-reflection.md`.
-**P1 LANDED (`133db88d`):** the RTTI substrate + reflect API — the per-type
-`__typeinfo` record grew 5→8 words (`… KIND, fields-ptr, field-count`) with
-per-struct `__typefields`/`__typefieldnames` blobs; `reflect.TypeInfo`/`FieldInfo`
-(overlaid on the record/entry bytes) + `reflect.TypeOf`/`DataOf` intrinsics
-(conformance `1150`, LP64/VM/native + an ILP32 `.expected` for arm32-linux). A
-prereq raw-ptr-to-struct inline-selector compiler-panic fix (`f().x` for `f() *T`)
-also landed (`4b281158`, conformance `1151`). Spec §7.13.14 updated in the docs repo
-(8-word record + KIND enum).
-**P2 LANDED (`2ef97634`):** `writeArg`'s default renders a by-value struct without a
-`String()` as `{f0 f1 ...}` via read-bytes-per-kind (`fmt_reflect.bn`) — scalars +
-char-slices in full, nested-struct/array/slice/pointer FIELDS as `{...}`/`[...]`/
-`<...>` placeholders; a raw `*T` boxes as its pointee so `&s`≡`s` (both `{…}`);
-conformance `1157` (LP64/VM/native; values not offsets, so no ILP32 override).
-**P3 LANDED (`6a8b7f8f`):** fmt %v recurses into nested by-value NAMED struct
-fields — `{1 {9} 2}`, deep `{1 {2 {3}}}`.  CollectTypeInfoDescs became a
-deterministic pure worklist closure that force-emits a record (with field table)
-for every reachable named struct field type (populating the per-field typeinfo-ptr
-that was NULL in P1/P2); VM `materializeTypeInfos` went two-phase (allocate+register
-all, then back-patch the cross-record ptr); native prefixes the per-field symbol;
-LLVM needed no edit (force-emit keeps refs in-module weak).  Anonymous struct
-fields render `{...}` (their synthetic `__anon_N` name is occurrence-ordered, not
-TU-invariant — unsafe as a weak-record key).  Conformance `1158` (nested/deep/
-shared/anon) across LP64/VM/native; 1157 updated.
-**P4a LANDED (`f7a3ec06`):** `%+v` labels a struct's fields `{x:3 y:4}` (recursively
-for nested structs), while `%v` stays `{3 4}` — fmt-only (a `withNames` flag through
-writeStructReflect/writeStructAt/writeFieldByKind; Printf's emitDefault routes
-`%+v` via putDefaultNamed, which still honors a Stringer struct's `String()`).
-Conformance `1159`.
-**P4b-1 LANDED (`d52211ae`):** array / non-char-slice FIELDS render their elements
-`{[1 2 3] 9}`, `{[{1 2} {3 4}]}` (struct elements recurse; nil → `[]`; nested-
-aggregate elements stay `[...]`).  FieldEntry grew 6→8 words (`+{elem-kind, elem-
-size}`; word-5 typeinfo-ptr repurposed to the ELEMENT record for array/slice fields)
-across all four emitters via the single `buildFieldTable`; force-emit extended to
-element struct types; VM back-patches at the 8-word stride.  A `(base, TypeInfo)`-
-keyed on-stack CYCLE GUARD (reflectCtx, 64-deep) renders a re-entered struct as
-`{...}` — pulled forward because slice-of-struct recursion (`type T struct { kids
-@[]T }` with `t.kids[0] = t`) is the first cycle vector; keyed on (base, type) so a
-single-field wrapper isn't falsely flagged.  Conformance `1162` (array/slice/slice-
-of-struct/nested/cycle/wrapper) across LP64/VM/native/gen2; spec §7.13.14 + FieldInfo
-overlay updated (docs `e0f6649`).
-REMAINING: **P4b-2** — pointer FIELDS (currently a `<...>` placeholder).  Needs a
-pointee-type RTTI extension (each pointer FieldEntry carries the pointee's KIND/size/
-typeinfo) + fmt code to follow a pointer to its pointee, extending the existing
-reflectCtx cycle guard to pointer targets (the `(base, type)` stack already
-generalizes).  Plus a FOLLOW-UP prerequisite for anon-struct records (decision 7,
-still unmet): a STRUCTURAL `TYP_STRUCT` arm in `mangleTypeArg` (anon structs mangle
-to `__anon_N`, not TU-invariant) — until then anon structs (top-level AND as fields)
-render opaque / `{...}`.
+The struct/default-reflection fmt LAYER (`%v`/`%+v` of an aggregate without a
+`String()`, per `plan-struct-reflection.md`) is **COMPLETE** — P1 (RTTI substrate +
+reflect API, `133db88d`) → P2 (`2ef97634`) → P3 (`6a8b7f8f`) → P4a `%+v` (`f7a3ec06`)
+→ P4b-1 array/slice fields + cycle guard (`d52211ae`) → P4b-2 pointer fields
+(`30663c5f`) all landed.  See `claude-todo-done.md` for the per-phase summary.  ONE
+follow-up remains:
+
+- **Anon-struct records (decision 7, still unmet):** add a STRUCTURAL `TYP_STRUCT` arm
+  to `mangleTypeArg` so anonymous structs get a TU-invariant weak-record key (they
+  mangle to an occurrence-ordered `__anon_N` today — unsafe as a shared key, so
+  `fieldStructName` skips them).  Until then an anonymous struct — top-level AND as a
+  by-value / element / pointee field — renders opaque `{...}` instead of its fields.
+  This is the sole gap between current fmt struct rendering and full coverage; when it
+  lands, drop the `isAnonStructName` skip and add anon-struct conformance coverage.
 
 Still deferred (small verb/flag gaps — all render as visible error verbs /
 documented divergences, never silently):
