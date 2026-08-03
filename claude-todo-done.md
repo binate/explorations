@@ -438,6 +438,41 @@ full sweep 2851/0; host + arm32 unit tests unaffected (arm32-package-only); hygi
 adversarial review clean (register aliasing at every call site, routing completeness incl.
 the multiret compositions, multi-word/split byte-count math, non-sub-word captures unchanged).
 
+## native arm32 backend P0–P5 (soft-float) + ARM32 bare-metal QEMU path — ✅ DELIVERED (green), 2026-08-03
+
+The `pkg/binate/native/arm32` backend (IR→ELF32, the `pkg/binate/native/arm64` sibling)
+is complete through P5: `builder-comp_native_arm32_baremetal` is FULLY GREEN (2851/0,
+only the legit `982_c_global_environ` xfail — no libc `environ` on baremetal). P6 (VFP +
+hard-float for `arm32-linux` native) is in progress and P7 (blocking-modeset promotion +
+unit sweep) remains — both tracked live in `explorations/plan-native-arm32.md` (the
+authoritative phase/commit log). Moved here from the active todo (which now carries only
+a status breadcrumb + the plan-doc pointer).
+
+This also retires the old **ARM32 bare-metal — MAJOR PROJECT** planning entry: its
+"what's missing" (the IR→machine-code lowering) is delivered, and the QEMU-baremetal
+runtime/boot/linker story it sketched works (conformance runs under `qemu-system-arm`
+semihosting). The asm-side prerequisites it listed are done too: `pkg/binate/asm/arm32`
+(ARMv7-A + now VFP encoders), `pkg/binate/asm/elf` (ELF32 + ARM relocs), `cmd/bnas`
+`.arch arm32`. The remaining bare-metal AMBITION — real-hardware OS-dev beyond QEMU
+(UART drivers, MMU, per-board crt0/linker, a bare-metal `bootstrap.bni`) — stays a future
+goal in the DRAFT `explorations/plan-arm32-bare-metal.md`; a breadcrumb for it remains in
+the active todo.
+
+Historical native-arm32 fix records moved here from the todo (fuller detail in
+plan-native-arm32.md's phase log):
+- **P4-a (`a888e9cd`):** func-value / indirect-call consumer path + the shim's
+  big-aggregate R0-sret return shape + all six dispatch cases.
+- **P4-b2 (`bce99096`):** big-multi-return func-value call under-reserved outgoing-args
+  (shared `callDispatchArgTypesAnyOp` gated its prefix bump on `aggregateRet`, so a big
+  multi-return kept `prefixSlots=1` while the emitter used 2 → a cross-module
+  frame-corruption silent miscompile at the native↔LLVM boundary; fixed by bumping
+  `prefixSlots=2` gated on `SretInGpArgReg`, fixing arm32 + x64, byte-identical on aa64).
+- **P4-b1 (`bc42705e`), 0-byte func-value results (`7b4303a6`), 725/727 stale expected
+  files (`4fe304dd`):** already recorded in their own done entries.
+- The P4-a/P4-b **deferred shapes** (≤4-byte in-register aggregate return, multi-return
+  in-register/sret collection, same-package aggregate-arg shim re-marshaling) are all
+  IMPLEMENTED now — baremetal is green with no per-shape xfails beyond `982`.
+
 ## Multi-return value-receiver iface dispatch silently miscompiled — ✅ RESOLVED (landed `bb973b2d`, 2026-08-01)
 
 A value-receiver method with MULTIPLE return values (`func (v V) pair() (int, int)`),
