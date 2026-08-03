@@ -98,3 +98,24 @@ tree can't use the new type until a BUILDER ships it). Expression-problem note (
 the "use interfaces more" done entry): tagged-union+switch stays the right dispatch
 shape for a pass-heavy compiler; this is about *typing* the tag, not replacing the
 dispatch with vtables.
+
+## RTTI: make the design-D registry the single seam for the `__typeinfo.<T>` symbol
+
+A robustness nicety left over from the (now-complete) type-assertions / type-switch /
+RTTI work — see the "Type assertions, type switches & RTTI — COMPLETE" done entry.
+Deferred here because nothing wants it any time soon.
+
+The `__typeinfo.<T>` record symbol is produced at ~5 independent
+`mangle.TypeInfoName(RecvPkg, RecvTypeName)` call sites: the vtable slot-1 writers
+`collectImplVtableSlots` (LLVM, `emit_impls.bn`) and `collectImplVtableSlotsNative`
+(x64 / arm32 / aarch64 `*_iface.bn`), plus the record builder `buildTypeInfoDesc`
+(`ir/data_typeinfo.bn`, → `desc.Sym`). The tightening: store the symbol once on the
+`TypeInfoEntry` and have both ends read it through a single registry accessor (e.g.
+`ir.TypeInfoSymFor`), so the "record symbol == slot-1 reference" invariant holds by
+construction rather than by call-site agreement.
+
+**Why v2, not now:** the invariant already holds today — every site calls the SAME
+pure `mangle.TypeInfoName` with the same receiver-identity pair, so the risk is low.
+And the fix is a cross-backend change (one new registry accessor + 5 call sites across
+all four backends + VM, each needing verification) for a robustness nicety, not a
+correctness fix.

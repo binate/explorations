@@ -159,31 +159,6 @@ emission-nondeterminism bug); guard `3ca73110` pins it, and do NOT widen the tol
 
 ## Language features — specified, not yet implemented
 
-### RTTI: make the design-D registry the single seam for the `__typeinfo.<T>` symbol — 🔧 OPTIONAL / LOW-VALUE (deferred)
-
-Type assertions / type switches / RTTI are otherwise **complete** — the
-pointer/slice forms (`x.(*T)` / `x.(@T)` / `x.(*[]T)` / `x.(@[]T)`, comma-ok,
-type switches, the §17.5 panic, cross-mode/VM), value-recovery `x.(T)` for
-scalars + structs, and the design-D TypeInfo-registry migration all landed and
-are conformance-green in every mode, with the spec Draft banners flipped.  See
-the done log.  This is the one deferred nicety left.
-
-The `__typeinfo.<T>` record symbol is produced at ~5 independent
-`mangle.TypeInfoName(RecvPkg, RecvTypeName)` call sites: the vtable slot-1
-writers `collectImplVtableSlots` (LLVM, `emit_impls.bn`) and
-`collectImplVtableSlotsNative` (x64 / arm32 / aarch64 `*_iface.bn`), plus the
-record builder `buildTypeInfoDesc` (`ir/data_typeinfo.bn`, → `desc.Sym`).  The
-"record symbol == slot-1 reference" invariant holds *today* because every site
-calls the SAME pure function with the same receiver-identity pair — so the risk
-is already low.  The tightening: store the symbol once on the `TypeInfoEntry`
-and have both ends read it through a single registry accessor (e.g.
-`ir.TypeInfoSymFor`), so the invariant holds by construction rather than by
-call-site agreement.
-
-**Why deferred:** a cross-backend change (one new registry accessor + 5 call
-sites across all four backends + VM, each needing verification) for a robustness
-nicety, not a correctness fix.  Not a quick win.
-
 ### `iface.construct.value-borrow`: indirect escape of a borrowed `*any` is not caught — 🟢 LOW / known-limitation (found 2026-07-29)
 
 The implicit value→`*any` borrow (`iface.construct.value-borrow`) is admitted only

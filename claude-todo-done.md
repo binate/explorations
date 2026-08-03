@@ -31,8 +31,8 @@ the ~5 `mangle.TypeInfoName` call sites (4 backends' vtable slot-1 + `buildTypeI
 through a single registry accessor so the "record symbol == slot-1 reference"
 invariant holds by construction rather than by call-site agreement. It is a
 cross-backend change, not a correctness fix, and the invariant already holds via
-the shared pure `mangle.TypeInfoName`; it stays tracked as a slim entry in
-[claude-todo.md](claude-todo.md), not a blocker on this feature.
+the shared pure `mangle.TypeInfoName`; it is deferred to
+[claude-todo-v2.md](claude-todo-v2.md) (post-1.0), not a blocker on this feature.
 
 ## String literal into a distinct-named char slice/array destination miscompiled — ✅ DONE (`ccc0fbaa`, 2026-08-03)
 
