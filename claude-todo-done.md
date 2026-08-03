@@ -6,6 +6,33 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## String literal into a distinct-named char slice/array destination miscompiled — ✅ DONE (`ccc0fbaa`, 2026-08-03)
+
+**Was:** `var r Str = "..."` where `type Str @[]char` (a distinct named char-slice) —
+and every other string-literal init context except a simple-lvalue assignment: struct
+/ array composite-literal elements, index-assign into a managed-slice element,
+`return`, an outer-`readonly` underlying, a two-level named chain, and the analogous
+distinct-named `[N]char` array — miscompiled. The string→slice/{ptr,len}/array
+materialization gates (`isCharSliceType` / `isCharArrayType`) and materializers
+(`EmitStringToChars` / `EmitRodataArray`) peeled only an outer `readonly`, never
+`TYP_NAMED`/`TYP_ALIAS`, so a named destination failed the structural Kind test: the
+raw string data pointer was stored into the slice slot with a garbage length word —
+and for a *managed* destination the store-side classifier (which does peel named)
+RefInc'd it as a 4-word header (`extractvalue i8* %v, 2`, rejected by the LLVM
+verifier). The simple-assignment path had already been fixed for this class
+(`conformance/1127`); the other contexts were missed. Surfaced by making
+`testing.TestResult` a distinct named type (`testing_test.bn` does `var r TestResult
+= ""`) — see the paired `19f9d86c`.
+
+**Fix:** peel transparent wrappers (readonly + named + alias, via `peelTransparent`)
+at both the gate predicates and the materializers, so a named char-slice/array
+destination materializes exactly like its underlying `@[]char` / `[N]char`;
+`gen_print` guards its managed-vs-raw test the same way. `conformance/1170` exercises
+every init context and reads the bytes back (green across LLVM / VM / gen2 /
+native-aa64). Residual follow-ups filed in claude-todo.md: the fmt named-type
+`%!?(unknown)` footgun (extended the existing entry) and a checker gap for
+shorter-than-N string→named-array assignability.
+
 ## fmt recognized only six scalar types — `uint`, the sized ints, and `char` rendered as error verbs — ✅ DONE (`558cf051`, 2026-08-03)
 
 **Was:** fmt's `*any` operand dispatch matched only `int` / `int64` / `uint64`, so

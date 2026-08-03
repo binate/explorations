@@ -755,6 +755,17 @@ must come from the reflection path, not a `case int32:` arm). Tests: a `type Cel
 int` (no String()) under `%v`/`%d`, plus a Stringer'd named type confirming String()
 still wins under `%v`/`%s`.
 
+**Also affects a named SLICE, not just scalars (confirmed 2026-08-03):** the same
+`%!?(unknown)` hits a distinct named char-slice — e.g. `testing.TestResult` once it
+became `type TestResult @[]char` (`19f9d86c`): `fmt.Println(aTestResult)` prints
+`%!?(unknown)` because the boxed dynamic type is the named `TestResult`, not the
+structural `@[]char` that fmt's char-slice arm matches. Latent today (the `--test`
+runner assigns the result into an `@[]char` before printing), but the same footgun.
+A general fix — peel transparent wrappers (named/alias) in the `*any` value
+formatter's dispatch before matching, so any distinct named type renders as its
+underlying — would cover both the scalar and the slice manifestations (Stringer
+still wins first; a named type WITH a `String()` already dispatches correctly).
+
 ### fmt cannot print an `os.Args()` / `os.Env()` element — a `readonly`-qualified slice misses every case — 🟡 OPEN (2026-08-03)
 
 Distinct from the missing-scalars entry above: this is about the *qualifier*, not
@@ -813,6 +824,23 @@ signature change in `pkg/builtins/lang` that every implementer sees — user's
 call.  Found while writing the standard-library example series in
 binate/examples.
 
+## Test runner (`bnc --test`)
+
+### `--test` discovery matches TestResult by spelling, not by resolved type — 🟢 LOW (2026-08-03)
+
+`isTestResultReturn` (`cmd/bnc/test.bn`) recognizes a test by the *spelling* of its
+return type — qualified `testing.TestResult`, or a bare `TestResult` when the package
+declares `type TestResult` locally (the `pkg/builtins/testing` own-`_test` case). It
+does not resolve the type through the checker, so it would miss `testing` imported
+under a non-default alias, and would not follow a future `testing.TestResult =
+sys.TestResult` alias chain — the planned split that lets `pkg/builtins/lang`'s tests
+depend on a lang-free `testing/sys` package without a `testing → lang → testing`
+import cycle. Fix: resolve the single return type through the loader/checker to the
+canonical named `testing.TestResult` (now a distinct named type, `19f9d86c`) and match
+on identity. Referenced by the TODO comment in `isTestResultReturn`.
+
+---
+
 ## Conformance matrix generators — port to Binate (dogfood)
 
 ### Port the `conformance/gen-*.py` matrix generators to Binate — 🟡 SCOPED, not started (2026-07-17)
@@ -859,6 +887,24 @@ hatch" sufficient (close this out)?
 - (Full resolved diagnosis of the ifaces/impls hygiene-scan extension archived in claude-todo-done.md.)
 
 ## Type-system & checker semantics
+
+### string → distinct-named `[N]char` rejects a shorter literal the un-named form accepts — 🟢 LOW (2026-08-03)
+
+**Severity: low (niche; the exact-length case works).** The checker accepts a
+shorter string literal into a plain char array (zero-padded) but rejects it into a
+distinct named char array:
+
+    var a [6]char = "ab"     // OK — zero-padded to {a,b,0,0,0,0}
+    type Arr [6]char
+    var b Arr = "ab"         // ERROR: cannot assign [2]readonly uint8 to Arr
+
+The exact-length case works for both (`[5]char` / `Arr [5]char` = a 5-char string —
+what the landed `conformance/1170` exercises), so string→named-char-array
+*materialization* is correct (irgen commit `ccc0fbaa`); only the *shorter-than-N*
+**assignability** path fails to peel the named wrapper. Distinct layer from that
+codegen fix — this is a checker-assignability gap. Found while adversarially testing
+the materialization fix. Fix: apply the string→char-array length-permissive
+assignability rule through a distinct-named `[N]char` (peel to the underlying array).
 
 ### `Self`-parameter method is uncallable through a generic constraint (Self binds to the type param, not its base) — 🟠 OPEN (2026-07-03)
 
