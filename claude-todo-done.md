@@ -6,6 +6,29 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## A nested generic instantiation reached only through a `.bni`-surface signature skipped its constraint check — ✅ DONE (`0293fd2b`, 2026-08-03)
+
+**Was:** a soundness hole (missing diagnostic on ill-typed code) introduced by the
+Bug A `.bni`-deferral commit `ff505c92` (verified by git-archive A/B). A generic
+instantiation nested inside a type reached ONLY through a package's `.bni`-surface
+signature — `func Make() @Outer[int]` where `Outer` has field `@Box[Bad]`, `Bad`
+with no impl — was silently accepted. `buildScopeFromFile` (BuildingIfaceScope)
+deferred the nested `@Box[Bad]` check, but `CheckPackage` cache-hit `Outer[int]`
+and never re-populated the nested field, so it was never re-fired; the extern-var
+backstop covered only direct `.bni` extern vars.
+
+**Fix:** extend the pending-list recording gate in `instantiateGenericDeclWithArgs`
+from `c.CollectingDecls` to `c.CollectingDecls || c.BuildingIfaceScope`, so every
+`.bni`-surface deferred check (including nested ones) is recorded and replayed by
+the same package's later `CheckPackage` (`recheckDeferredConstraints`). This
+subsumes the extern-var backstop (a `.bni` extern var's type is resolved during
+buildScopeFromFile like any signature), so `recheckBniExternVarConstraints` /
+`recheckBniVarType` were removed — one mechanism for every deferred check. Adversarial
+review found no dropped-check or false-reject; the cross-package case matches the
+pre-Bug-A BUILDER oracle. Test: conformance
+`1166_bni_nested_generic_constraint_reject`; `1161_bni_extern_var_constraint_reject`
+now exercises the pending-list path for extern vars.
+
 ## Entry-point-move follow-ups: testing injection + BUILDER-0.0.12 gate cleanup — ✅ DONE (`03b78300` + `43ca8b2a`, 2026-08)
 
 Follow-ups to the hosted entry-point move (`c4607a71`) + the `entrypoint` build
