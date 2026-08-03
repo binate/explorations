@@ -6,6 +6,31 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## A generic instantiation was wrongly rejected when the type-arg's `impl` was declared AFTER the use — ✅ DONE (`8476b8be`, 2026-08-02)
+
+**Was:** an order-dependent checker false-rejection — a generic instantiated on a
+type was rejected when that type's `impl` appeared later in source order than the
+use (`func Make() @Box[Item]` above `impl Item : Sizer`), even in a single file.
+It hit free functions, interface method signatures, struct fields, vars, type
+aliases / named-distinct wrappers, interface extension parents and alias targets,
+and generic-receiver method signatures.
+
+**Fix:** defer generic-instantiation constraint checks across the batch collection
+(`Checker.CollectingDecls`), recording each deferred check as a
+`PendingConstraintCheck` (decl, args, use position), and replay them via
+`recheckDeferredConstraints` once collectDeclsBody has recorded every impl.
+Recording what was actually deferred — not re-walking decls by kind — keeps the
+replay complete (an enumeration approach missed several use-site shapes, caught by
+adversarial review). A naive collect-impls-before-signatures reorder cannot work
+(impls need interface aliases resolved during interface collection, while interface
+method signatures can name own-impl'd generics — so neither order satisfies both).
+Tests: checker unit tests (both reject and accept-after-impl directions for every
+shape) + conformance 1164/1165_generic_impl_after_use.
+
+**Follow-up:** the adversarial review of this fix surfaced a distinct PRE-EXISTING
+soundness hole — a nested generic reached only through a `.bni`-surface signature
+skips its check, introduced by Bug A (`ff505c92`) — tracked in the active todo.
+
 ## A package's own `.bni` could not name a generic instantiated on a type it `impl`s — ✅ DONE (`ff505c92`, 2026-08-02)
 
 **Was:** a checker false-rejection — `type argument <T> does not satisfy

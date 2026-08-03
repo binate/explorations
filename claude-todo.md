@@ -164,43 +164,49 @@ until this is fixed.
 where the VM leg is what fails), plus a `pkg/std/errors` unit test that
 classifies a locally-defined error type.
 
-### A generic instantiation is wrongly rejected when the type-arg's `impl` is declared AFTER the use site — 🔴 OPEN MAJOR (found 2026-08-02)
+### A nested generic instantiation reached only through a `.bni`-surface signature skips its constraint check — 🔴 OPEN MAJOR (found 2026-08-02)
 
-**Severity: MAJOR (checker false-rejection).** Order-dependent constraint check:
-a generic instantiated on a type is rejected when that type's `impl` appears
-LATER in source order than the use site — even in a single file, no `.bni`
-involved. Top-level decls are supposed to be order-independent (that is what
-`preRegisterTypeNames` is for), so this is a bug.
+**Severity: MAJOR (soundness — missing diagnostic on ill-typed code).** A generic
+instantiation nested inside a type that is reached ONLY through a package's
+`.bni`-surface signature — never named directly in a body — is silently accepted
+even when its type-arg satisfies no impl anywhere. It compiles through to codegen;
+the pre-Bug-A compiler rejected it. (Fix is the NEXT task per the user, 2026-08-02.)
 
-**Minimal repro** (single `.bn`, no `.bni`; rejected on current `main`):
+**Minimal repro** (`pkg/glib.bni` + a consumer that imports it):
 
+    // pkg/glib.bni
     interface Sizer { Size() int }
-    type Box[T Sizer] struct { V T }
-    type Item struct { N int }
-    func Make() @Box[Item] { … }   // rejected: "Item does not satisfy constraint Sizer"
-    func (i Item) Size() int { … }
-    impl Item : Sizer              // impl comes AFTER the use → wrongly rejected
+    type Box[T Sizer] struct { v T }
+    type Bad struct { n int }          // NO impl Bad : Sizer anywhere
+    type Outer[U any] struct { inner @Box[Bad] }
+    func Make() @Outer[int]
 
-Move the `impl` above `Make` and it compiles. **Root cause:** `collectDeclsBody`
-(check_decl.bn) collects impls INLINE in decl order, so a function whose signature
-is constraint-checked before a later `impl` consults an incomplete `c.Impls`. The
-constraint check latches (`ConstraintsChecked`), so the premature miss sticks.
+Consumer: `import "pkg/glib"; … glib.Make()`. Current `main` ACCEPTS (the nested
+`@Box[Bad]`'s constraint is dropped); the released bnc-0.0.12 BUILDER rejects
+`Bad does not satisfy constraint Sizer`.
 
-**Relation to the just-landed `.bni` fix (`ff505c92`):** that fix handles
-impl-**before**-use (the `.bni` surface-build case); this is the orthogonal
-impl-**after**-use case and is NOT covered by it. Discovered while stress-testing
-that fix (impl-as-last-decl variant).
+**Root cause / attribution:** introduced by the Bug A `.bni`-deferral commit
+`ff505c92` (verified by git-archive A/B: grandparent REJECT → `ff505c92` ACCEPT).
+`buildScopeFromFile` (under `BuildingIfaceScope`) resolves the `.bni` func sig
+`@Outer[int]`, populating its nested field `@Box[Bad]` and DEFERRING that check —
+but `CheckPackage` cache-hits `Outer[int]` and never re-populates the nested field,
+so the check is never re-fired. The Bug A extern-var backstop
+(`recheckBniExternVarConstraints`) does not cover this nested-via-signature shape.
 
-**Likely fix:** collect all of a package's impls before resolving any signature
-that constraint-checks (order-independence), which needs interface pre-registration
-added to the collection path — or defer all instantiation constraint checks to a
-post-collection pass. Three relatives are in the done log (`6647c49f`,
-`614e6eea`, and the unsubstituted-`X` constraint bug), all in the same
-constraint-satisfaction machinery.
+**Validated fix:** the order-independence commit (`8476b8be`) added a pending-list
+(`PendingConstraintCheck` / `recheckDeferredConstraints`) that records every
+deferred check and replays it once impls are complete. Extend the recording gate in
+`instantiateGenericDeclWithArgs` from `c.CollectingDecls` to
+`c.CollectingDecls || c.BuildingIfaceScope`, so `.bni`-surface deferred checks
+(including nested ones) are recorded and replayed by the same package's later
+`CheckPackage`. Tested: fixes this repro; all Bug A cases (own-`.bni` valid,
+extern-var valid, extern-var genuine-miss rejected) and the order-independence
+cases still behave correctly. Likely makes the extern-var backstop redundant
+(verify + remove if so).
 
-**Tests:** a checker unit test for the single-file repro above, plus a conformance
-test that a package compiles a generic use whose type-arg's `impl` is declared
-after it.
+**Tests:** a conformance/checker test that a nested generic instantiation reached
+only through a `.bni` signature is rejected when its type-arg satisfies no impl.
+Discovered by adversarial review of the order-independence fix (`8476b8be`).
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
