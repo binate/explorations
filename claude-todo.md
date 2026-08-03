@@ -9,7 +9,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### VM SIGSEGVs in `errors.Is` when the error is a USER-defined `errors.Error` — 🔴 OPEN MAJOR (found 2026-08-02)
+### VM SIGSEGVs in `errors.Is` when the error is a USER-defined `errors.Error` — 🔴 OPEN MAJOR — ROOT-CAUSED (found 2026-08-02)
 
 **Severity: MAJOR (hard crash on correct code).** `bni` segfaults; the identical
 program compiled with `bnc` is fine. It hits any program that defines its own
@@ -64,8 +64,38 @@ it rules out the obvious suspects):
 `bnc-0.0.13-pre1` bundle from `scripts/make-bundle.sh`, not just the released
 `bnc-0.0.12`): identical SIGSEGV, same repro.
 
-**Not yet known:** where it faults — an `lldb -b` run over the bundle's `bni`
-hung and was abandoned.
+**ROOT CAUSE (found 2026-08-02).** An interface value is a two-word
+`{data, vtable_word}` fat pointer, and `vtable_word` has TWO representations the
+VM discriminates BY RANGE (`ifaceVtIsNative`, `pkg/binate/vm/vm_exec_iface.bn`):
+a **1-based index into `vm.IfaceVtables`** for a bytecode-lowered impl (a small
+int — the crash's `0x35` = 53), or a **native `@__ivt` address** for an
+injected-compiled impl. The VM's OWN dispatch range-checks the word and handles
+both. But an INJECTED-NATIVE function — `errors` is in `stdPkgs()`, so `errors.Is`
+runs as compiled native code — was codegen'd to treat `vtable_word` as a native
+pointer UNCONDITIONALLY (no range check). So a bytecode (user) impl's iface value
+reaching native `errors.Is` gets its index (53) dereferenced as a pointer →
+SIGSEGV. `same`/`present` only COMPARE / null-check the word (never deref), which
+is why they pass; the fault is the RefDec of the `@Error` args on `return true`
+(`Is+308: ldr x1,[x23]` with `x23 = vtable = 0x35`, loading the dtor at
+`vtable[0]`), and `Unwrap` dispatch (`ldr x8,[x24,#0x18]`) would fault the same.
+Evidence (lldb over the bundle `bni`): on entry to native `errors.Is`, args are
+`{data=0x…f410 (valid — refcount 4 at data-0x10, native type-desc at data-0x08),
+vtable=0x35}`; the bytecode→native extern-call marshalling (`vm_extern.bn`) packs
+args raw and does NOT translate the vtable word. Every clue fits: injected
+`errors` (native) over a bytecode impl crashes; a user-package reimplementation of
+`Is` (bytecode) over the same impl is fine (VM dispatch resolves the index); `fmt`
+is fine because `pkg/stdx/fmt` is LOWERED (bytecode), not injected.
+
+**Fix direction (MAJOR — a new interop mechanism, not a patch).** No native
+trampoline vtable is built for a bytecode impl today — `vm.IfaceVtables` holds
+only the VM-index vtable (`lower.bn`). The fix: build a NATIVE shim vtable per
+bytecode impl (slot 0 = a native dtor trampoline; method slots = native
+trampolines that re-enter the VM — analogous to the func-value cross-mode
+`@__handle` machinery in `vm_funcvalue_handle.bn`) and substitute its native
+pointer for the vtable word at the bytecode→native marshalling boundary
+(`vm_extern.bn` arg packing) for every interface-typed argument (recursively, for
+the value the injected fn may RefDec or dispatch). Surfaced for a scope decision
+before implementing.
 
 **Discovered** writing the `errors` example in binate/examples, whose `ParseError`
 (a concrete error type carrying a line number) is exactly the repro shape: the
