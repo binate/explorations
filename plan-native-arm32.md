@@ -937,11 +937,14 @@ Increments:
     2-lens review clean. Non-blocking: MultiReturnTupleNeedsSret's fpCount>4 sret
     threshold is symmetric across native/LLVM (no mismatch — verified) but conservative
     vs clang's raw-FCA lowering; a possible future optimization, not a correctness gap.)
-  - **3d — fail-loud shim guards (deferred float-through-shims):** re-add the 4
+  - **3d — fail-loud shim guards — ✅ DONE (`1907b09f`, 2026-08-03).** re-add the 4
     float guards P5.3 (`63c7a545`/`f27cf9ca`) dropped, now gated on
     `types.Arm32HardFloat()`, at the 4 shim entry points (`emitClosureShimArm32`,
     `emitFuncValueShimBody`, `emitCallFuncValue`, `emitCallIfaceMethod`); fix the
     one stale test (`TestEmitCallIfaceMethodFloat64ArgSetsError`).
+    (Also guards `emitCallIndirect`; all detect predicates recurse into aggregate/HFA
+    leaves — a review caught + fixed a non-recursive closure param/capture check that
+    would have let an HFA param/capture slip through. Inert; unit-tested.)
   - **3e — mode activation:** `applyTarget` stamps `FLOAT_ABI_HARD` for arm32-linux
     (AFTER `setArm32Layout`'s SetTarget; baremetal stays soft); drop the
     `nativeArchForTarget` `""` guard; add `conformance/runners/
