@@ -6,6 +6,35 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## fmt recognized only six scalar types — `uint`, the sized ints, and `char` rendered as error verbs — ✅ DONE (`558cf051`, 2026-08-03)
+
+**Was:** fmt's `*any` operand dispatch matched only `int` / `int64` / `uint64`, so
+`int8/16/32`, `uint8/16/32`, word-sized `uint`, and `char` (== `uint8`) fell through
+to the error-verb path — `%c` of a `char`, the most natural formatting call for a
+Binate string element, rendered `%!c(?=90)`, and callers had to write `cast(int, x)`
+at every site. A completeness/ergonomics gap (visible error verb, never a silent
+wrong rendering). Found writing the standard-library example series in
+binate/examples.
+
+**Fix:** a shared classifier `intOperand(arg) -> (int64, uint64, signed, ok)` widens
+any integer scalar (sign-extend signed, zero-extend unsigned), routed through every
+integer-dispatch site — `writeArg` (`%v`), `emitDecimal` (`%d`), `emitBase`
+(`%x/%X/%o/%b`), `emitChar` (`%c`), `emitQuote` (`%q`), `isIntArg` (padding/sign), and
+`argAsInt` (the `*` width / `.*` precision extractor — Go accepts any integer kind
+there too, so the initial "plain int only" carve-out was dropped after the review
+flagged it). `argTypeName` extended in parallel so an inapplicable verb names the type
+accurately (`%!f(int8=-8)`). `char` is `uint8`, so `%v`/`%d` of a `char` renders its
+numeric byte value (matching Go's `byte`) while `%c`/`%q` render the character — no
+runtime distinction is possible, same dynamic type. A NAMED integer type is a distinct
+dynamic type that `intOperand` deliberately does not match, so a `type Money int` with
+its own `String()` still dispatches through `lang.Stringer` (guarded by a test).
+Tests: per-width `%d`/`%v`/`%c`/`%q`/`%x`/`%o`/`%b` + sign-aware zero-pad + sized-int
+`*` width/precision + named-int-not-swallowed guard, in `fmt_printf_{fields_,}test.bn`;
+conformance `1169_fmt_int_widths` (byte-identical LLVM + VM + native aarch64). Left a
+follow-up in the active todo: a named SCALAR with no `String()` still renders
+`%!?(unknown)` (Go reflects into the underlying kind) — needs a top-level
+scalar-reflection path.
+
 ## VM float64 negation was `0.0 - x`, so `-x` of a zero lost its sign — compiled and interpreted disagreed — ✅ DONE (`58b01a2b`, 2026-08-03)
 
 **Was:** a MAJOR silent cross-mode divergence. The VM computed float64 `-x` as

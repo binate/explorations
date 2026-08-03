@@ -723,32 +723,37 @@ string-literal box + the earlier scalar/var value-borrow) would let those tests
 drop the `&`.  The non-linted conformance tests (1090/1135) already use the bare
 form.
 
-### fmt recognizes only six scalar types — `uint`, sized ints and `char` render as error verbs — 🟡 OPEN (2026-08-02)
+### fmt: a named scalar type renders as `%!?(unknown)`, not its underlying value — 🟡 OPEN (2026-08-03)
 
-`writeArg`'s dispatch covers `int`, `int64`, `uint64`, `bool`, `float32`,
-`float64`, the four char-slice spellings, and `lang.Stringer`.  Every other
-scalar falls through to the unrecognized-type arm, so an ordinary operand
-renders as a visible error verb instead of a number (released bnc-0.0.12,
-byte-identical compiled and interpreted):
+Follow-up from the all-integer-widths fix (landed `558cf051`): fmt now renders every
+BUILT-IN integer width, but a NAMED scalar type is still not rendered by value.
 
-    i8=%!d(?=-8)  i16=%!d(?=-16)  i32=%!d(?=-32)  i64=-64
-    u=%!d(?=5)    u8=%!d(?=8)     u32=%!d(?=32)   u64=64
-    c=%!c(?=90)   f32=1.5         f64=2.5         b=true
+    type Celsius int
+    var t Celsius = 20
+    fmt.Printf("%v %d", &t, &t)   // %!?(unknown) %!d(?=%!?(unknown))
 
-Two of the gaps hurt: **`uint`** is a core type (it is what `lang.Hashable.Hash()`
-returns), and **`char`** is the element of every Binate string — `%c` of a `char`
-is about the most natural formatting call there is, and it is exactly the one
-that fails.  Callers must write `cast(int, x)` at every site.
+A named type is a distinct dynamic type, so it matches none of fmt's built-in
+`case int:` / etc. arms — this is deliberate: it is what lets a `type Money int`
+with its own `String()` still dispatch through `lang.Stringer` rather than print as
+a bare number. But when the named type has NO `String()`, fmt has no fallback:
+unlike a struct (which `%v` field-dumps via reflection), a top-level named SCALAR has
+no reflection path, so it lands on the `%!?(unknown)` placeholder. Real Go reflects
+into the underlying kind and prints the value (`%v` → `20`, `%d` → `20`; note `%d`
+does NOT consult Stringer).
 
-Fix: extend the dispatch to the fixed-width integers (`int8/16/32`,
-`uint8/16/32`) and word-sized `uint`, widening to `int64`/`uint64` ahead of the
-existing digit emitters.  `char` follows from `uint8` (its alias), but decide how
-`%c`/`%q` should treat a `char` versus a small integer.  This is a completeness /
-ergonomics gap, not a correctness one — the error verb is visible, never a silent
-wrong rendering — and it is NOT covered by the struct-reflection work above (a
-sized int is a scalar, not an aggregate).  Tests: one case per scalar type in
-`fmt_printf_test.bn`.  Found while writing the standard-library example series in
-binate/examples.
+Fix: give the `*any` value formatter a top-level scalar-reflection path — when the
+dynamic type is a named scalar (a `reflect.TypeInfo` of KIND_INT/UINT/FLOAT/BOOL with
+no struct field table), read its size+kind and render it like a struct field's scalar
+(the machinery already exists — `writeValue` in `fmt_reflect.bn` formats a scalar
+from (kind, size, ptr)). Stringer still wins first. Decide whether `%d`/`%x`/`%c` of
+a named integer should also render via the underlying kind (Go: yes). NOT a
+regression — named scalars never rendered; surfaced by the adversarial review of the
+widths fix. When this lands, update `TestSprintfNamedIntNotSwallowed` in
+`fmt_printf_fields_test.bn` (its `%!?(unknown)` / `%!d(?=42)` expectations become the
+rendered value; the "not swallowed by intOperand" invariant still holds — the value
+must come from the reflection path, not a `case int32:` arm). Tests: a `type Celsius
+int` (no String()) under `%v`/`%d`, plus a Stringer'd named type confirming String()
+still wins under `%v`/`%s`.
 
 ### fmt cannot print an `os.Args()` / `os.Env()` element — a `readonly`-qualified slice misses every case — 🟡 OPEN (2026-08-03)
 
