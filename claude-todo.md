@@ -736,40 +736,24 @@ user type) — fmt does its OWN formatting for built-ins, not lang's simple
 `String()`.  Adversarially reviewed (no leak/UAF, cross-mode identical).
 
 The struct/default-reflection fmt LAYER (`%v`/`%+v` of an aggregate without a
-`String()`, per `plan-struct-reflection.md`) is **COMPLETE** — P1 (RTTI substrate +
-reflect API, `133db88d`) → P2 (`2ef97634`) → P3 (`6a8b7f8f`) → P4a `%+v` (`f7a3ec06`)
-→ P4b-1 array/slice fields + cycle guard (`d52211ae`) → P4b-2 pointer fields
-(`30663c5f`) all landed.  See `claude-todo-done.md` for the per-phase summary.  ONE
-follow-up remains:
+`String()`, per `plan-struct-reflection.md`) is **COMPLETE** — P1 (`133db88d`) → P2
+(`2ef97634`) → P3 (`6a8b7f8f`) → P4a (`f7a3ec06`) → P4b-1 (`d52211ae`) → P4b-2
+(`30663c5f`) → anon-struct records / decision 7 (`7a99660f` + `3b6e0b03`) all landed.
+Anonymous structs now render their fields (via a structural, TU-invariant identity)
+both as a field and as a top-level boxed value, with readable `struct { … }` names.
+Every ratified rendering decision is implemented; see `claude-todo-done.md` for the
+per-phase summary.
 
-- **Anon-struct records (decision 7) — IN PROGRESS.** Give anonymous structs a
-  structural, TU-invariant identity so they render their fields (`{7 {a:9}}` instead
-  of `{7 {...}}`).  User-ratified (2026-08-03): readable `struct { … }` type name; FULL
-  scope (fmt records + box/assert, so top-level boxed anon structs are TU-invariant
-  too, not just anon FIELDS).  Design (grounded by an understand-workflow + reading the
-  box/dtor sites):
-  - Checker treats anon structs purely structurally with an EMPTY name; the
-    occurrence-ordered `__anon_<N>` is an IR-gen-only artifact (gen_type_resolve.bn) and
-    never reaches diagnostics.  So a structural rename does not touch checker identity.
-  - Substrate: new `LpTypeArgStruct` mangle token (`S <fc> "_" (Ident TypeArg){fc}`) +
-    its `Demangle` skip (mangle_lp.bn / mangle_lp_demangle.bn) — CODED.
-  - Wiring: a `TYP_STRUCT` arm in `mangleTypeArg` gated to anon-only (a blanket arm
-    would re-mangle NAMED structs used as generic args → churn every `__bn_inst__`);
-    route anon structs through the reserved structural identity
-    `pkg/builtins/rt.__nameless_<lp>` (namelessAnySrcName) at the three typeinfo sites —
-    `fieldStructName` (drop the isAnonStructName skip), the raw-`*any` box
-    (wrapAsIfaceValue), and the assert (typeInfoSymFor) — so all key byte-identically.
-    `typeNameImpl` gets an anon arm rendering `struct { … }` from FIELDS (readable %T +
-    the record's TU-invariant name word).  Bonus: the mangleTypeArg arm also fixes a
-    latent `Box[struct{a int}]` cross-TU symbol-divergence bug.
-  - KEY SAFETY FINDINGS (de-risking "Full"): (a) the record's word-0 dtor is never used
-    for cleanup (cleanup runs via the any-block slot-0 / RefDec), so the structural
-    record needs NO dtor entanglement — decouple the typeinfo identity from dtor naming.
-    (b) fmt boxes into RAW `*any`, which BORROWS (slot-0 dtor null) — so no leak even for
-    a managed-field anon struct; the leak-prone MANAGED `@any` box of an anon managed
-    struct pointee is already a fail-loud/deferred case (gen_iface.bn:362), untouched
-    here.  Deferred edge: field-level `readonly` in an anon struct's assert identity
-    (mergeQualifiedReadonly doesn't yet recurse struct fields) — rare, tracked.
+Two genuinely-inert deferred edges (both confirmed unreachable in an adversarial
+review, so nothing renders wrong today — tracked only so they aren't forgotten):
+- A `readonly`-bearing anon-struct FIELD's assert-identity would use the stripped
+  form (`mergeQualifiedReadonly` doesn't recurse struct fields).  Inert because
+  anon-struct assert TARGETS are parser-rejected, so anon-struct record identity is
+  used only for fmt rendering, where `readonly @[]char` and `@[]char` render alike.
+- `mangleTypeArg`'s struct arm gates on the `__anon_` prefix while `typeNameImpl`'s
+  anon arm also accepts an EMPTY name; an empty-name struct reaching `mangleTypeArg`
+  would fall to the (linker-unsafe) named leaf.  Unreached — IR-gen always stamps
+  `__anon_<N>` before mangle time.  A one-line defensive gate alignment would close it.
 
 Still deferred (small verb/flag gaps — all render as visible error verbs /
 documented divergences, never silently):

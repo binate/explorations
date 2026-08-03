@@ -1,9 +1,10 @@
 # Plan: struct reflection for `fmt` `%v` (field-table RTTI + runtime rendering)
 
 Status: **P1 (`133db88d`) + P2 (`2ef97634`) + P3 (`6a8b7f8f`) + P4a `%+v` (`f7a3ec06`)
-+ P4b-1 array/slice fields + cycle guard (`d52211ae`) + P4b-2 pointer fields
-(`30663c5f`) ALL LANDED; struct reflection for fmt is COMPLETE. Only the
-anon-struct mangler follow-up (decision 7) remains.** Design settled: the §0
++ P4b-1 array/slice + cycle guard (`d52211ae`) + P4b-2 pointer fields (`30663c5f`) +
+anon-struct records / decision 7 (`7a99660f` + `3b6e0b03`) ALL LANDED. Struct
+reflection for fmt is COMPLETE — every ratified rendering decision is implemented.**
+Design settled: the §0
 adversarial review resolved decisions 1/2/3/5/6, and the user ratified 4 & 7 on
 2026-07-31 (see §5). P1 (field-table RTTI + reflect API) landed 2026-08-01 —
 conformance `1150`, plus a prereq raw-ptr-to-struct selector fix (`4b281158`,

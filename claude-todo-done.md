@@ -92,12 +92,12 @@ every mode/version, so it cancels in exactly the comparisons the suite exists fo
 reviewed (the `total=` arithmetic and the awk field-extraction confirmed sound); verified
 run.sh on compile + no-compile modes and summarize.sh's three-table rendering.
 
-## Struct/default reflection for fmt `%v`/`%+v` (per `plan-struct-reflection.md`) — ✅ DONE (`133db88d`…`30663c5f`, 2026-08-02)
+## Struct/default reflection for fmt `%v`/`%+v` (per `plan-struct-reflection.md`) — ✅ DONE (`133db88d`…`3b6e0b03`, 2026-08-02..03)
 
 `fmt.Printf("%v"/"%+v", s)` on a struct/aggregate without a `String()` (was
 `%!?(unknown)`) now renders its fields, reusing the per-type `__typeinfo` RTTI.
-Landed in phases; the anon-struct mangler follow-up (decision 7) is the sole
-remaining gap and stays in the active todo.
+Landed in phases; ALL ratified rendering decisions (incl. decision 7, anonymous
+structs) are implemented — the project is complete.
 
 - **P1 (`133db88d`, conformance `1150`):** RTTI substrate + reflect API — the per-type
   `__typeinfo` record grew 5→8 words (`… KIND, fields-ptr, field-count`) with per-struct
@@ -131,10 +131,27 @@ remaining gap and stays in the active todo.
   it now carries a null dtor (cleanup never uses the record's word-0; aligns native/LLVM
   with the VM), which surfaced as `use of undefined value` compiling `pkg/binate/repl`
   (a `@ir.FuncSig` field) under VM mode and also hardened the P4b-1 array/slice case.
+- **Anon-struct records / decision 7 (`7a99660f` part 1 + `3b6e0b03` part 2, conf `1167`,
+  1158 updated):** anonymous structs render their FIELDS (`{7 {8 9}}` / `{k:7 an:{a:8
+  b:9}}`) — as a field AND as a top-level boxed value — instead of the `{...}`
+  placeholder, with readable `struct { … }` type names.  Part 1 added a structural,
+  TU-invariant `LpTypeArgStruct` mangle token + a `TYP_STRUCT` arm in `mangleTypeArg`
+  (gated anon-only), which alone also fixed a latent `Box[struct{a int}]` cross-TU
+  symbol-divergence bug.  Part 2 keyed the anon record on the reserved structural
+  identity `pkg/builtins/rt.__nameless_<lp>` at the field (`fieldStructName`) and raw-
+  `*any` box (`wrapAsIfaceValue`) sites — byte-identical, so a top-level boxed anon
+  struct's record is TU-invariant too (fixing a pre-existing cross-TU record-collision
+  latent bug) — and taught `typeNameImpl` to render `struct { … }` from fields (readable
+  %T / diagnostics — upgrading the old `<unknown>`/`__anon_N` — + the record's name
+  word).  The record KEY (identifier-safe mangle) and NAME word (readable) are decoupled;
+  the word-0 dtor stays null (unused for cleanup), and a raw box borrows so no leak.
+  Anon-struct assert targets are parser-rejected, so the assert side needed no change.
+  Two genuinely-inert deferred edges (readonly anon field in assert identity; a
+  mangle/typeName gate asymmetry) noted in the active todo.
 
 All phases: cross-mode green (LLVM/VM/native-aa64/gen2), adversarially reviewed, spec
-§7.13.14 kept in sync. Remaining fmt gaps (Stringer/Printf flag edge cases, anon-struct
-records) tracked in the active todo.
+§7.13.14 kept in sync, full unit + full conformance sweep clean.  Remaining fmt gaps
+(Stringer/Printf flag edge cases) tracked in the active todo.
 
 ## A generic instantiation was wrongly rejected when the type-arg's `impl` was declared AFTER the use — ✅ DONE (`8476b8be`, 2026-08-02)
 
