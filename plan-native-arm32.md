@@ -910,11 +910,22 @@ Increments:
     (Inert; unit-tested — back-fill worked example + 16-slot boundary + stack-poison
     + a !VfpBackfill regression guard. Tracked follow-ups, documented in-code and
     inert: HFA-through-the-mask and variadic-floats-in-GP land with 3c/3e.)
-  - **3b — VFP compute path + const:** `emitInstrFloat` branches on
-    `types.Arm32HardFloat()`: arith/neg → `Vadd`…/`Vneg`; compares → `Vcmp` +
-    `VmrsApsrNzcv` + NaN-safe cond-mov (`MI`/`LS` for `<`/`<=`, mirroring aa64);
-    casts → `Vcvt` (int64/uint64↔float STAYS AEABI — the flagged decision); const →
-    GP-materialize + VMOV. All inc-1 encoders already exist — zero new asm work.
+  - **3b — VFP compute path — ✅ DONE (`8377b5e6`, 2026-08-02).** `emitInstrFloat`
+    branches on `types.Arm32HardFloat()` (hard bodies in `arm32_float_hard.bn`):
+    arith/neg → `Vadd`…/`Vneg`; compares → `Vcmp` + `VmrsApsrNzcv` + NaN-safe
+    cond-mov (`MI`/`LS` for `<`/`<=`, NOT `LT`/`LE`, mirroring aa64); casts → `Vcvt`
+    (int operand crossed through an S reg; int64/uint64↔float STAYS AEABI — the
+    flagged decision). Compute is GP→VFP-scratch→GP (floats home in GP slots). All
+    inc-1 encoders already exist — zero new asm work. **`OP_CONST_FLOAT` /
+    `OP_BIT_CAST` stay on the pure-GP path (NOT the earlier-planned '+ VMOV'):** a
+    float homes in a GP slot in BOTH ABIs, so const bits / reinterpreted bits must
+    land in GP for consumers; the VMOV-to-VFP happens at the consuming op. Matches
+    aarch64 (`emitConstFloat` = GP materialize; bit_cast = plain `Mov`); the literal
+    '+ VMOV' would have stranded the value in a VFP reg (silent miscompile). Inert;
+    2-lens adversarial review clean (VFP words re-verified vs arm-none-eabi-as).
+    **Follow-up for 3c/3e (inert now):** under gnueabihf the AEABI int64↔float
+    helpers return the double in `d0`, not `r0:r1` — the AEABI-kept int64↔float
+    marshalling needs the hard-float return convention once the mode is stamped.
   - **3c — direct-call FP-movement:** `emitCallArg`/`emitCallReturn`/
     `emitSpillParam`/`emitReturn`/`emitMultiReturnPack`/collect — VMOV-cross or
     VLDR/VSTR-direct via `CallArgFpReg` (3a); peel float64 off the `isPair64Typ`
