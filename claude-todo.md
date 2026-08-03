@@ -9,6 +9,62 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
+### VM float64 negation is `0.0 - x`, so `-x` of a zero loses the sign — compiled and interpreted disagree — 🔴 OPEN MAJOR (found 2026-08-02)
+
+**Severity: MAJOR (silent wrong value, and a cross-mode divergence).** Not a
+crash — the two execution modes simply compute different values for `-x` when x
+is a zero, which breaks the dual-mode contract that a value is a value in either
+mode. Narrow in reach (only ±0 is affected: for every nonzero x, `0 - x` and
+`-x` are bit-identical) but it is a core arithmetic operator, and a negative zero
+is observable — `math.Signbit`, `1/x` → ∓Inf, and the bit pattern.
+
+**Repro** (released bnc-0.0.12 and a main-built bnc-0.0.13-pre1; `zero(1)`
+returns a runtime +0.0 that no constant folding can reach):
+
+    var lit float64 = -0.0
+    var neg float64 = -zero(1)
+
+    compiled:      literal -0.0  bits 0x8000000000000000 signbit true
+                   runtime -x    bits 0x8000000000000000 signbit true
+    interpreted:   literal -0.0  bits 0x0000000000000000 signbit false
+                   runtime -x    bits 0x0000000000000000 signbit false
+
+`math.Copysign(0.0, -1.0)` and `-1.0 * x` produce a correct −0.0 in BOTH modes,
+so only the negation operator is wrong.
+
+**Root cause** — `pkg/binate/vm/vm_exec_pure.bn`, `execUnaryOp`:
+
+    case BC_FNEG:
+        var x float64 = bit_cast(float64, cast(int64, regs[instr.Src1]))
+        regs[instr.Dst] = cast(int, bit_cast(int64, 0.0 - x))
+
+IEEE negation is a **sign-bit flip**; `0.0 - x` is a different function, because
+under round-to-nearest `0.0 - 0.0` is `+0.0`. The register-pair path has the same
+bug (`vm_exec64.bn`: `if op == BC_FNEG64 { return 0.0 - a, true }`). The fix is
+already written correctly one case below, for float32:
+
+    case BC_F32NEG:
+        // IEEE negate is a sign-bit flip; for float32 that's bit 31 …
+        regs[instr.Dst] = cast(int, cast(uint32, regs[instr.Src1]) ^ (1 << 31))
+
+float64 wants the same thing on bit 63.
+
+**Noticed and dismissed once already**, which is why this needs a note and not
+just a patch: `vm_exec64_test.bn`'s `TestEvalFloatNeg64` records "(The
+`0 - 0 == +0` IEEE-default-rounding rule means FNEG64 of 0.0 stays bit-identical
+to 0.0; that's the same behavior as BC_FNEG, not a distinction worth testing.)"
+— true of the implementation, but the implementation is the thing that is wrong,
+and it was compared against `BC_FNEG` (equally wrong) rather than against
+compiled mode.
+
+**Tests:** a conformance test asserting `Float64bits(-x) == 0x8000000000000000`
+for a runtime `x = +0.0` (it must run under an `-int` mode, where the VM leg is
+what fails), and a VM unit test that negating ±0.0 flips the sign — replacing the
+comment above.
+
+**Discovered** writing the `math` example in binate/examples: its float tour
+prints the IEEE class and bit pattern of `-0.0`, and the two modes disagreed.
+
 ### VM SIGSEGVs in `errors.Is` when the error is a USER-defined `errors.Error` — 🔴 OPEN MAJOR — ROOT-CAUSED (found 2026-08-02)
 
 **Severity: MAJOR (hard crash on correct code).** `bni` segfaults; the identical
