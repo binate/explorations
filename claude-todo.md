@@ -736,15 +736,9 @@ user type) — fmt does its OWN formatting for built-ins, not lang's simple
 `String()`.  Adversarially reviewed (no leak/UAF, cross-mode identical).
 
 The struct/default-reflection fmt LAYER (`%v`/`%+v` of an aggregate without a
-`String()`, per `plan-struct-reflection.md`) is **COMPLETE** — P1 (`133db88d`) → P2
-(`2ef97634`) → P3 (`6a8b7f8f`) → P4a (`f7a3ec06`) → P4b-1 (`d52211ae`) → P4b-2
-(`30663c5f`) → anon-struct records / decision 7 (`7a99660f` + `3b6e0b03`) all landed.
-Anonymous structs now render their fields (via a structural, TU-invariant identity)
-both as a field and as a top-level boxed value, with readable `struct { … }` names.
-Every ratified rendering decision is implemented; see `claude-todo-done.md` for the
-per-phase summary.
-
-Two genuinely-inert deferred edges (both confirmed unreachable in an adversarial
+`String()`, per `plan-struct-reflection.md`) is **COMPLETE** — P1…P4b-2 + anon-struct
+records / decision 7 all landed (per-phase summary in `claude-todo-done.md`).  Two
+genuinely-inert deferred edges remain (both confirmed unreachable in an adversarial
 review, so nothing renders wrong today — tracked only so they aren't forgotten):
 - A `readonly`-bearing anon-struct FIELD's assert-identity would use the stripped
   form (`mergeQualifiedReadonly` doesn't recurse struct fields).  Inert because
