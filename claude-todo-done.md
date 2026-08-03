@@ -161,6 +161,26 @@ shape) + conformance 1164/1165_generic_impl_after_use.
 soundness hole — a nested generic reached only through a `.bni`-surface signature
 skips its check, introduced by Bug A (`ff505c92`) — tracked in the active todo.
 
+## `os.Args()` argv[0] on the compiled path — ✅ DONE (`c4607a71`, 2026-07-16)
+
+**Was:** element 0 of `os.Args()` was an empty placeholder in a COMPILED binary,
+because nothing exposed argv[0] — the interpreter filled it with the real program
+path via `os.SetArgs`, so the two modes disagreed about the one slot.
+
+**Resolved by the entry move** (`c4607a71`, "Move the process entry into Binate;
+retire bootstrap.Args; inject startup in the VM"): `_entry(argc, argv, envp)` in
+`impls/core/common/pkg/builtins/startup/args_main.bn` now captures the real argv
+"keeping every element including argv[0] (the program name)", borrowed in place
+since argv's storage outlives the program.
+
+**Verified on released bnc-0.0.12** (2026-08-03, from binate/examples): a
+compiled binary reports `argv0 [/…/out/probe/pz]`, and the same source under
+`bni -x` reports the script path — both non-empty, each naming what actually
+started the program. So the compiled/interpreted divergence the entry tracked is
+gone; what remains is a *difference in kind* (binary path vs script path), which
+is correct rather than a gap, and is what the `scripting` example uses to tell
+the two apart.
+
 ## A package's own `.bni` could not name a generic instantiated on a type it `impl`s — ✅ DONE (`ff505c92`, 2026-08-02)
 
 **Was:** a checker false-rejection — `type argument <T> does not satisfy

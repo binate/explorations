@@ -1436,23 +1436,6 @@ cleared (`e2e/xmiface.sh` / `e2e/xmhfa.sh` exist); add a captured-`@func` refcou
 - Candidates: growable collections (Vec[T], Map[K,V] post-generics), I/O abstractions, string utilities, formatting
 - CharBuf is implemented (pkg/buf); broader stdlib design should inform future collection APIs
 
-### `os.Args()` — one open follow-up (argv[0] on the compiled path)
-`os.Args()` is landed and correct in every mode, including under the interpreter
-(SetArgs + bni wiring — see the done log).  One follow-up remains:
-
-- **argv[0] is an empty placeholder on the COMPILED path.** Element 0 (the
-  program name) is left empty because nothing exposes argv[0] yet —
-  `bootstrap.Args()` deliberately returns the arguments only, and its one
-  remaining consumer, cmd/bnc (BUILDER-compiled, so it stays on
-  `bootstrap.Args()`), relies on that.  The other out-of-tree tools
-  (bnlint/bnas/bnfmt) now read `os.Args()` instead — see the done log.  Populate
-  element 0 once a bootstrap primitive surfaces the program name (e.g. a new
-  `bootstrap.ProgName()`/`Arg0()`,
-  or the C runtime storing `bn_argv[0]`).  A pure-additive change; the slot is
-  already reserved.  This also converges the one remaining compiled/interpreted
-  divergence — the interpreter already fills index 0 with the real program path
-  via `os.SetArgs`.
-
 ### Expand `pkg/slices` beyond `Append` — opportunistic
 - `pkg/slices.Append[T]` is the only generic helper today.  Natural
   additions when call sites demand them (don't add speculatively):
