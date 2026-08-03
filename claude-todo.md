@@ -643,13 +643,10 @@ have an `os` equivalent.)
   sink (`rtWriteRaw`: `write(2)` / semihost) + `abortWithMessage(...*any)`, deduped into a
   target-neutral `rt_diag.bn`. The fault handlers now Abort (not Exit — `rt.Exit` removed)
   and use no print/println / no bootstrap. See the done log.
-- **The perf fixtures** (`perf/*.bn`): still on `println`, only because it isn't done yet —
-  NOT for a measurement reason. Converting adds fmt's transitive closure to the timed per-test
-  COMPILE (~+0.5s on `001_fib`), but the separately-measured RUN time is unaffected (fmt is one
-  call at the end), and that compile offset is identical across every mode and version, so it
-  cancels in exactly the comparisons the suite exists for (compiled-vs-interpreted, gen1/gen2,
-  regression-vs-last-commit). Safe to convert whenever; independent of the perf-harness
-  total-column todo under Testing.
+- ✅ **The perf fixtures** (`perf/*.bn`) — DONE (`7b395154`, 2026-08-02): `001_fib` /
+  `002_many_funcs` emit via `fmt.Println`. The added fmt compile cost is a constant offset
+  that cancels in the suite's mode/version comparisons; alongside it the perf harness now
+  reports Total (compile+run) + the separate Compile/Run breakdown (`8300afdc`). See the done log.
 - **`conformance/` and `examples/`:** separate (conformance handled as its own decision;
   examples build from prebuilt bundles).
 - ✅ **The generated test runner** — DONE (`10b2d772`, 2026-08-02): `cmd/bnc`'s `--test`
@@ -657,11 +654,10 @@ have an `os` equivalent.)
   miscompilation (the runner was IR-gen'd un-type-checked, so fmt's `*any` boxing typed a
   string literal as its `char` element). See the done log.
 
-All library, compiler, and runtime code is now off `print`/`println` (the CLIs, the
-BUILDER tree, the `--test` runner, and rt). Full deprecation of the builtins (and the
-`Write()`/format-helper bootstrap surface they alone keep alive) now only awaits the perf
-fixtures (not yet converted — no blocker; see above) and the separate conformance / examples
-decisions.
+All library, compiler, and runtime code is now off `print`/`println` — the CLIs, the BUILDER
+tree, the `--test` runner, rt, AND the perf fixtures. The only remaining users of the builtins
+are `conformance/` and `examples/` (separate decisions); once those are handled, the builtins
+(and the `Write()`/format-helper bootstrap surface they alone keep alive) can be removed.
 
 **Residual (small, separable):** wire `ensureLangLoaded` + `appendLangImport` into
 the repl's import setup (`pkg/binate/repl/{ir_imports,session,util}.bn`) so
@@ -1315,24 +1311,6 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
 - **STATUS 2026-06-10 — GREEN** (unit run on `3342460e`): all 8 `builder-comp-int-int` shards pass (2.5–26.7 min) and `builder-comp-int` / `-comp-int` pass. **Margin note**: shard 4/8 ran 26.7 min — ~89% of the 30-min cap; the 8-shard + skip set is sufficient but thin, so if the int-int suite grows it may need a 9th–10th shard or one more skip before it times out again. (The remaining unit reds — `arm32_{linux,baremetal}`, `native_x64` — are separate modes, not this. NOTE: `native_x64` was NOT "WIP" — it was broken by an ELF PC32 reloc bug, fixed 2026-06-14 `dd74c91e`; that native_x64 ELF PC32 reloc bug is fixed and archived in claude-todo-done.md.)
 
 ## Testing: harness, runners & conformance coverage
-
-### Perf harness: report compile, run, AND total (compile+run) — 🟡 OPEN (do soon)
-
-`perf/run.sh` already times per-test **compile** and **run** separately (ms), but the
-comparison story should be sharpened: present compile, run, AND the **total (compile+run)**,
-so both useful comparisons are first-class:
-- **compile+run vs interpreted-run** — the realistic apples-to-apples: a compiled mode's
-  end-to-end cost (which now legitimately includes compiling pulled-in stdlib) against an
-  interpreted mode's run. This matters more as tests grow real stdlib deps (e.g. anything
-  that adopts `pkg/stdx/fmt` drags fmt's transitive closure into the compile — ~+0.5s on
-  `001_fib`, a constant offset that cancels in mode/version comparisons but is visible in the
-  raw end-to-end number, which is exactly why showing compile / run / total all three helps).
-- **run-only** — still valuable, especially *among* compiled modes, where compile cost is
-  noise for the thing being compared.
-
-Likely a `perf/summarize.sh` presentation change (add the total column + framing) rather than
-a `run.sh` measurement change, since run.sh already captures both numbers. Raised alongside
-the perf/fmt discussion, but useful independently of whether the fixtures adopt fmt.
 
 ### Conformance harness: `pkg0.testing` `--test`-only rules are not conformance-testable
 

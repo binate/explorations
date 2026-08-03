@@ -6,6 +6,27 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## perf fixtures → fmt; perf harness reports Total + Compile/Run breakdown — ✅ DONE (`7b395154`, `8300afdc`, 2026-08-02)
+
+Takes the perf fixtures off `print`/`println` and (motivated by that) sharpens the perf
+harness's timing report. Completes the "report compile, run, AND total" harness todo.
+
+- **`7b395154`** — `perf/{001_fib,002_many_funcs}.bn` emit via `fmt.Println` instead of the
+  `println` builtin. Output unchanged (832040 / 239), so the `.expected` files stand.
+- **`8300afdc`** — `run.sh` now emits `total=` (compile+run; `== run` for a no-compile mode)
+  alongside `compile=`/`run=`; `summarize.sh` (the CI markdown summary) renders three
+  test×mode tables — **Total (compile+run)**, **Compile**, **Run** — instead of the old
+  run-only table. So both comparisons are first-class: compile+run vs an interpreted-mode run
+  (realistic apples-to-apples, now that compiled fixtures pull in real stdlib), and run-only
+  (useful among compiled modes). SKIP/COMPILE_ERROR/absent cells render distinctly.
+
+Correcting the record: I had repeatedly (and wrongly) called the added fmt compile cost
+"pollution" of the benchmark. It is not — compile and run are timed separately (the run
+signal is untouched), and the fmt compile cost is a constant offset present identically in
+every mode/version, so it cancels in exactly the comparisons the suite exists for. Adversarially
+reviewed (the `total=` arithmetic and the awk field-extraction confirmed sound); verified
+run.sh on compile + no-compile modes and summarize.sh's three-table rendering.
+
 ## Struct/default reflection for fmt `%v`/`%+v` (per `plan-struct-reflection.md`) — ✅ DONE (`133db88d`…`30663c5f`, 2026-08-02)
 
 `fmt.Printf("%v"/"%+v", s)` on a struct/aggregate without a `String()` (was
