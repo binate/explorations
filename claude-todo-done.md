@@ -6,6 +6,30 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `pkg/bootstrap` slimming: `Exec()` and `Args()` retired — ✅ DONE (2026-08-03)
+
+Two of the last non-`print`/`println` primitives are gone from `pkg/bootstrap`,
+part of slimming it toward retirement (the umbrella entry stays open in
+[claude-todo.md](claude-todo.md) for the remaining `print`/`println` deprecation).
+
+- **`Exec()` retired** — every subprocess spawn migrated to `pkg/std/os/process`
+  (`process.Run` / `RunArgs`): bnc's `clang` compile/link (`compile.bn`, `main.bn`,
+  `test.bn`), the `ar` archive step (`library.bn`), and the `rm` helper
+  (`util.bn`). Callers moved first (`62b4a828`), then `bootstrap.Exec` was deleted
+  outright (`91f56d47`) — no in-place rename (that hits the Stage-1 pinned-runtime
+  link wall). `impls/core/.../pkg/bootstrap/bootstrap.bn` and
+  `ifaces/core/pkg/bootstrap.bni` no longer define it.
+- **`Args()` retired** — argv now reaches a program through the Binate process
+  entry: `startup.Args()` (`pkg/builtins/startup`, captured at the hosted entry,
+  borrowed in place) with `os.Args()` as the public accessor; the VM injects
+  startup so interpreted programs see argv too. `bootstrap.Args` was unbound and
+  then deleted (`c4607a71`, made a single-global function `32e647e9`, dead-guard
+  cleanup `43ca8b2a`). Bare-metal installs a 1-element empty-placeholder argv
+  (`935d4e27`).
+
+The `pkg/bootstrap` surface is now just `Write()` + the five `format*` helpers,
+all of which exist solely to serve the `print`/`println` builtins.
+
 ## Type assertions, type switches & RTTI — COMPLETE (one optional low-value tightening remains tracked) — ✅ DONE (2026-08-03)
 
 The whole §11.12 / §7.13 area is implemented and conformance-green in every mode,

@@ -437,37 +437,21 @@ runner. It exercises the aarch64 ELF path — and the `__c_global` §5b GOT lowe
 
 **`pkg/libc` is GONE** (retired: Memcpy/Memset became pure-Binate byte loops;
 Malloc/Calloc/Free, Exit, and the rest all migrated out — see the done log / git
-history). **`pkg/bootstrap` is now seriously slimmed** — only four things remain,
-and they all hang off `print`/`println`:
+history).  **`Exec()` and `Args()` are now GONE too** (see the done log): every
+subprocess spawn moved to `pkg/std/os/process.Run` (bnc's `clang` / `ar` / `rm`
+invocations all use it — `62b4a828`, `91f56d47`), and argv now reaches a program
+through `startup.Args()` (`pkg/builtins/startup`) / `os.Args()` (`c4607a71`,
+`43ca8b2a`).  So the old plan's step 1 (replace `Exec()`) and step 2 (support
+`Args()`) are both **DONE**.  **`pkg/bootstrap` is now down to just two things,
+and they exist ONLY to serve `print`/`println`:**
 
 - **`Write()`** — the raw stdout/stderr sink, called internally by `print`/`println`.
 - **the "private" format helpers** (`formatInt`/`formatInt64`/`formatUint`/
   `formatBool`/`formatFloat`) — also `print`/`println` internals.
-- **`Args()`** — process argv; not yet replaced (no libc fn returns argv, so a
-  minimal platform hook is unavoidable).
-- **`Exec()`** — subprocess spawn; not yet replaced.
 
-**Actionable plan (what's left to retire bootstrap):**
-1. **Replace `Exec()`** with an equivalent in `pkg/std/os`.
-2. **Support `Args()`** in `pkg/std/os` + `pkg/builtins/rt` (or similar) — decide
-   where the argv hook lives (it can't be pure `__c_call`; a minimal platform hook
-   is required).
-3. **Deprecate `print`/`println`.** They are the *only* remaining users of
-   `Write()` and the private format helpers, so retiring them frees the entire
-   rest of bootstrap's surface.
-
-**In flight — `os.Remove()` added, one `Exec("rm")` use to convert (BUILDER-gated):**
-`pkg/std/os` now has `Remove()` (libc `__c_call("remove", ...)` — `remove(3)`, i.e.
-unlink/rmdir — plus a baremetal stub). `cmd/bnc/util.bn`'s `remove()` helper still
-shells out via `bootstrap.Exec("rm", ["-f", path])`; converting it to `_ =
-os.Remove(path)` (discard the error, matching `rm -f`'s missing-file tolerance) is
-**BUILDER-bump-gated**. Empirically confirmed (2026-07-17): the pinned BUILDER
-(`bnc-0.0.11`) resolves `pkg/std/os` against its embedded stdlib snapshot, which
-predates `Remove`, so the Stage-1 gen1 build fails `cmd/bnc/util.bn: undefined:
-Remove`. Do the swap once `BUILDER_VERSION` is bumped to a release that includes
-`os.Remove`. (This is a partial down-payment on step 1 — it retires the `rm` use;
-`Exec` itself stays until its other callers, the `clang`/`ar` link invocations, also
-have an `os` equivalent.)
+**Step 3 — deprecate `print`/`println` — is all that's left to retire bootstrap.**
+They are the *only* remaining users of `Write()` and the private format helpers, so
+retiring them frees the entire rest of bootstrap's surface.
 
 **Progress on step 3 — most of the tree migrated to `pkg/stdx/fmt`:**
 - **Wave 1 — non-BUILDER CLI tools (2026-07-29):** `cmd/{bni,bnas,bnfmt,bnlint}` emit
@@ -508,10 +492,22 @@ tree, the `--test` runner, rt, AND the perf fixtures. The only remaining users o
 are `conformance/` and `examples/` (separate decisions); once those are handled, the builtins
 (and the `Write()`/format-helper bootstrap surface they alone keep alive) can be removed.
 
-**Residual (small, separable):** wire `ensureLangLoaded` + `appendLangImport` into
-the repl's import setup (`pkg/binate/repl/{ir_imports,session,util}.bn`) so
-`myInt.String()` works at the repl too — the rest of the "primitive `.String()`
-without importing `lang`" work is done (compiled + VM).
+**Residual (small, separable) — repl `.String()`:** wire `ensureLangLoaded` +
+`appendLangImport` into the repl's import setup
+(`pkg/binate/repl/{ir_imports,session,util}.bn`) so `myInt.String()` works at the
+repl too — the rest of the "primitive `.String()` without importing `lang`" work
+is done (compiled + VM).
+
+**Residual (small, separable) — migrate `remove()` off `rm` to `os.Remove`:**
+`cmd/bnc/util.bn`'s `remove()` still shells out via `process.Run("rm", {"-f",
+path})`; `pkg/std/os` has `Remove(name) @errors.Error`, so the native swap is `_ =
+os.Remove(path)` (discard the error, matching `rm -f`'s missing-file tolerance —
+`Remove` of a nonexistent path returns an error `rm -f` would ignore). Avoids a
+subprocess spawn + a `rm` PATH dependency. **BUILDER-snapshot-gated:** `cmd/bnc` is
+BUILDER-compiled, so this needs the pinned BUILDER's embedded stdlib to resolve
+`os.Remove` (BUILDER 0.0.11 predated it; verify BUILDER 0.0.12 with a direct
+BUILDER compile of the swapped `util.bn` before landing, else gate on the next
+`BUILDER_VERSION` bump).
 
 **Constraints (still apply):** migrate callers OUT — never rename bootstrap's
 C-symbol-resolved I/O in place. An in-place rename hits a Stage-1 link wall (gen1
