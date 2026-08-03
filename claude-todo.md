@@ -60,10 +60,12 @@ it rules out the obvious suspects):
   `present`/`same`/`Next` — all correct. The synthetic version does NOT
   reproduce, so something specific to `pkg/std/errors` is involved.
 
-**Not yet known:** where it faults (an `lldb -b` run over the bundle's `bni` hung
-and was abandoned; no VM-source debugging from an examples checkout), and whether
-current `main` still has it — the only local `main` bundle predates
-`binate-paths` and could not run the repro. Verify both before fixing.
+**Still present on `main`** (verified 2026-08-02 against a freshly built
+`bnc-0.0.13-pre1` bundle from `scripts/make-bundle.sh`, not just the released
+`bnc-0.0.12`): identical SIGSEGV, same repro.
+
+**Not yet known:** where it faults — an `lldb -b` run over the bundle's `bni`
+hung and was abandoned.
 
 **Discovered** writing the `errors` example in binate/examples, whose `ParseError`
 (a concrete error type carrying a line number) is exactly the repro shape: the
