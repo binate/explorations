@@ -159,32 +159,30 @@ emission-nondeterminism bug); guard `3ca73110` pins it, and do NOT widen the tol
 
 ## Language features — specified, not yet implemented
 
-### Type assertions, type switches & RTTI — pointer/slice forms COMPLETE; value-recovery NOT implemented
+### RTTI: make the design-D registry the single seam for the `__typeinfo.<T>` symbol — 🔧 OPTIONAL / LOW-VALUE (deferred)
 
-The pointer/slice forms (RTTI substrate + front-end: `x.(*T)` / `x.(@T)` /
-`x.(*[]T)` / `x.(@[]T)`, comma-ok, type switches, the §17.5 panic, the
-cross-mode/VM story) **and** the design-D TypeInfo-registry migration are landed
-and conformance-green in every mode; the spec Draft banners are flipped.  See the
-done log for the full record.  Two residuals — one a genuine missing form, one an
-optional nicety:
+Type assertions / type switches / RTTI are otherwise **complete** — the
+pointer/slice forms (`x.(*T)` / `x.(@T)` / `x.(*[]T)` / `x.(@[]T)`, comma-ok,
+type switches, the §17.5 panic, cross-mode/VM), value-recovery `x.(T)` for
+scalars + structs, and the design-D TypeInfo-registry migration all landed and
+are conformance-green in every mode, with the spec Draft banners flipped.  See
+the done log.  This is the one deferred nicety left.
 
-**Value-recovery type assertion `x.(T)` — SCALARS + STRUCTS done (`89b41531`,
-`21d4c38e`); ergonomics remain.**  The third §11.12 recovery form now recovers a scalar VALUE
-(int/bool/float, incl. char, the sized ints/uints, and named scalars like
-`type Money int`) from an interface box — `x.(int)`, `case int:`,
-`v, ok := a.(int)` — a plain no-refcount load through the box's data pointer, with
-exact-identity preserved (`Money` ≠ `int`).  Bundled: a pre-existing VM
-`BC_EXTRACT` sub-word over-read fix (a `{char,bool}` comma-ok result was the first
-byte-packed sub-word extract the VM ever saw → a wrong `ok` → type confusion).
-Tests: conformance 1086/1087/1088 + checker unit tests.  See the done log.
+The `__typeinfo.<T>` record symbol is produced at ~5 independent
+`mangle.TypeInfoName(RecvPkg, RecvTypeName)` call sites: the vtable slot-1
+writers `collectImplVtableSlots` (LLVM, `emit_impls.bn`) and
+`collectImplVtableSlotsNative` (x64 / arm32 / aarch64 `*_iface.bn`), plus the
+record builder `buildTypeInfoDesc` (`ir/data_typeinfo.bn`, → `desc.Sym`).  The
+"record symbol == slot-1 reference" invariant holds *today* because every site
+calls the SAME pure function with the same receiver-identity pair — so the risk
+is already low.  The tightening: store the symbol once on the `TypeInfoEntry`
+and have both ends read it through a single registry accessor (e.g.
+`ir.TypeInfoSymFor`), so the invariant holds by construction rather than by
+call-site agreement.
 
-Remaining:
-
-**🔧 Optional tightening (deferred, low value).** Make the design-D registry the
-*single seam* that BOTH `collectImplVtableSlots` (vtable slot-1) and
-`BuildTypeInfo` read, so the "record symbol == slot reference" invariant holds by
-construction instead of via two independent `mangle.TypeInfoName` call sites.  A
-separate, later step — a robustness nicety, not a correctness fix.
+**Why deferred:** a cross-backend change (one new registry accessor + 5 call
+sites across all four backends + VM, each needing verification) for a robustness
+nicety, not a correctness fix.  Not a quick win.
 
 ### `iface.construct.value-borrow`: indirect escape of a borrowed `*any` is not caught — 🟢 LOW / known-limitation (found 2026-07-29)
 

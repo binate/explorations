@@ -6,6 +6,34 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Type assertions, type switches & RTTI — COMPLETE (one optional low-value tightening remains tracked) — ✅ DONE (2026-08-03)
+
+The whole §11.12 / §7.13 area is implemented and conformance-green in every mode,
+spec Draft banners flipped:
+
+- **Pointer/slice forms** — `x.(*T)` / `x.(@T)` / `x.(*[]T)` / `x.(@[]T)`, comma-ok,
+  type switches, the §17.5 panic, and the cross-mode/VM story. RTTI substrate +
+  front-end. (Recorded in earlier done-log entries.)
+- **Design-D TypeInfo-registry migration** — the per-type `__typeinfo.<T>` record
+  home (`m.TypeInfos` / `TypeInfoEntry`) replacing the per-(type,iface) RecvTyp
+  field. (Recorded in earlier done-log entries.)
+- **Value-recovery `x.(T)` for SCALARS + STRUCTS** (`89b41531`, `21d4c38e`) — the
+  third §11.12 form recovers a scalar or struct VALUE from an interface box
+  (`x.(int)`, `case int:`, `v, ok := a.(int)`, incl. char / sized ints+uints /
+  named scalars like `type Money int`, with exact identity `Money` ≠ `int`) — a
+  no-refcount load through the box's data pointer. Bundled a pre-existing VM
+  `BC_EXTRACT` sub-word over-read fix (a `{char,bool}` comma-ok result was the
+  first byte-packed sub-word extract the VM saw → wrong `ok` → type confusion).
+  Tests: conformance 1086/1087/1088 + checker unit tests.
+
+The one remaining item is an **optional, low-value robustness tightening** — route
+the ~5 `mangle.TypeInfoName` call sites (4 backends' vtable slot-1 + `buildTypeInfoDesc`)
+through a single registry accessor so the "record symbol == slot-1 reference"
+invariant holds by construction rather than by call-site agreement. It is a
+cross-backend change, not a correctness fix, and the invariant already holds via
+the shared pure `mangle.TypeInfoName`; it stays tracked as a slim entry in
+[claude-todo.md](claude-todo.md), not a blocker on this feature.
+
 ## String literal into a distinct-named char slice/array destination miscompiled — ✅ DONE (`ccc0fbaa`, 2026-08-03)
 
 **Was:** `var r Str = "..."` where `type Str @[]char` (a distinct named char-slice) —
