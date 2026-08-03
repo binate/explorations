@@ -1,8 +1,8 @@
 # Plan: struct reflection for `fmt` `%v` (field-table RTTI + runtime rendering)
 
 Status: **P1 (`133db88d`) + P2 (`2ef97634`) + P3 (`6a8b7f8f`) + P4a `%+v` (`f7a3ec06`)
-LANDED; P4b (array/slice/pointer fields + cycle guard) + anon-struct mangler
-remaining.** Design settled: the §0
++ P4b-1 array/slice fields + cycle guard (`d52211ae`) LANDED; P4b-2 (pointer fields)
++ anon-struct mangler remaining.** Design settled: the §0
 adversarial review resolved decisions 1/2/3/5/6, and the user ratified 4 & 7 on
 2026-07-31 (see §5). P1 (field-table RTTI + reflect API) landed 2026-08-01 —
 conformance `1150`, plus a prereq raw-ptr-to-struct selector fix (`4b281158`,
@@ -284,8 +284,11 @@ on 2026-07-31. Proceed on all of these.
    non-goal. The renderer keys the `name:` prefix off `Spec.plus` (already parsed).
 5. **Kinds P1/P2** — scalars + string + nested struct first; arrays/slices/
    pointers/ifaces render opaque until P4.
-6. **Cycles** — no risk until P4 (pointer fields opaque until then); P4's
-   pointer-following closure carries a visited-set.
+6. **Cycles** — no risk until P4b, where indirection first recurses.  Slices (not
+   pointers) turned out to be the first vector: P4b-1's slice-of-struct element
+   recursion can re-enter a struct (`type T struct { kids @[]T }` with
+   `t.kids[0] = t`), so the visited-set (a `(base, TypeInfo)` on-stack stack) landed
+   with P4b-1; P4b-2's pointer-following reuses it.
 7. **Anonymous/unnamed struct types** *(user-ratified 2026-07-31)* — emit a record +
    full field table uniformly with named structs. The field-table machinery is keyed
    on the mangled symbol + `Fields`, not on having a user name, so this is the default
@@ -328,9 +331,18 @@ on 2026-07-31. Proceed on all of these.
 - **P4 — aggregates in fields.** Arrays/slices/pointers, `%+v` names, cycle guard.
   - **P4a — `%+v` field names. ✅ LANDED `f7a3ec06`** (conformance `1159`).  fmt-only
     (`withNames` flag; putDefaultNamed keeps Stringer winning).  `{x:3 y:4}`.
-  - **P4b — array/slice/pointer fields + cycle guard.** REMAINING.  Needs an RTTI
-    element/pointee-type extension (per array/slice/pointer FieldEntry) + fmt code to
-    walk elements / follow pointers, with a visited-set cycle guard for pointers.
+  - **P4b-1 — array / (non-char) slice fields + cycle guard. ✅ LANDED `d52211ae`**
+    (conformance `1162`).  FieldEntry grew 6→8 words (`+{elem-kind, elem-size}`; word-5
+    typeinfo-ptr repurposed to the ELEMENT record for array/slice fields); force-emit
+    extended to element struct types; VM back-patch at the 8-word stride.  fmt walks
+    elements (`{[1 2 3] 9}`, `{[{1 2} {3 4}]}`, nil → `[]`); nested-aggregate elements
+    stay `[...]`.  A `(base, TypeInfo)`-keyed on-stack cycle guard (reflectCtx, 64-deep)
+    renders a re-entered struct as `{...}` — pulled forward from P4b-2 since slice
+    recursion is the first cycle vector.  Spec §7.13.14 updated (docs `e0f6649`).
+  - **P4b-2 — pointer fields.** REMAINING.  Needs a pointee-type RTTI extension
+    (per pointer FieldEntry) + fmt code to follow a pointer field (a `<...>`
+    placeholder today) into its pointee, extending the existing cycle guard to
+    pointer targets (the reflectCtx `(base, type)` stack already generalizes to it).
 
 Each phase lands independently (P1 is self-contained and useful for any reflection
 consumer; P2/P3/P4 are incremental fmt behavior), verified across LLVM/VM/native
