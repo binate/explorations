@@ -6,6 +6,27 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Entry-point-move follow-ups: testing injection + BUILDER-0.0.12 gate cleanup — ✅ DONE (`03b78300` + `43ca8b2a`, 2026-08)
+
+Follow-ups to the hosted entry-point move (`c4607a71`) + the `entrypoint` build
+dimension (`8eb5f8c9`).  (The remaining un-injected builtin, `lang`, is a bigger
+increment tracked separately in the active todo.)
+
+- **`testing` injected as a native builtin** (`03b78300`, 2026-08-02): the type-only
+  `testing` package got a code-free stub `.bn` so the compiler emits its
+  `__Package()`, then was added to interp/externs.bn `builtinPkgs()` + the descriptor
+  hand-bindings.  Its injected descriptor is empty (TestResult is a `.bni` type
+  alias, no runtime surface), so injection is behavior-transparent (`bni --test`
+  unaffected; hygiene 18/18).  `build` stays out (compile-time-only).
+- **BUILDER-0.0.12 gate cleanup + `bootstrap.Args` retirement** (`43ca8b2a`,
+  2026-08-03): with the re-pin to `bnc-0.0.12` (`467d7664`) landed and the 0.0.12
+  bundle's frozen runtime confirmed main-less, dropped the redundant
+  `at_least(version, "0.0.12")` guard from both startup entry gates (→ pure
+  `is(entrypoint, "main")` / `is(entrypoint, "start")`) and deleted the dead
+  `bootstrap.Args` (`.bni` decl + baremetal impl; no callers, not bound, hosted C
+  provider gone).  Verified: builder-comp gen1+bni rebuild (25 conformance) + os.Args
+  e2e 6/6 + builder-comp_arm32_baremetal 17/0.
+
 ## perf fixtures → fmt; perf harness reports Total + Compile/Run breakdown — ✅ DONE (`7b395154`, `8300afdc`, 2026-08-02)
 
 Takes the perf fixtures off `print`/`println` and (motivated by that) sharpens the perf

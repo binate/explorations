@@ -756,52 +756,30 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 - `bnlint --target`; main-module gating; migrating the `impls/` duplicate trees onto constraints.
 - The separate inline-asm (`#[asm]`) doc that composes with this substrate.
 
-### Entry-point move DONE — follow-ups — 🟢 MOSTLY DONE (testing injection `03b78300` + BUILDER-0.0.12 cleanup `43ca8b2a` landed; only lang VM-injection remains, scoped below as a standalone future increment)
-The hosted entry-point move (`c4607a71`) + the `entrypoint` build dimension that
-gates it (`8eb5f8c9`, 2026-07-16 — see claude-todo-done.md) have landed: the C `main`
-is now `pkg/builtins/startup._entry`, gated `at_least(version, "0.0.12") &&
-is(entrypoint, "main")`; `bootstrap.Args` retired; `startup` native-only+injected in
-the VM.  Residual follow-ups:
-- **Inject the remaining builtins in the VM** — `testing` ✅ DONE (`03b78300`,
-  2026-08-02): the type-only `testing` package got a code-free stub `.bn` so the
-  compiler emits its `__Package()`, then was added to `builtinPkgs()` + the
-  descriptor hand-bindings (interp/externs.bn).  Its injected descriptor is empty
-  (TestResult is a `.bni` type alias, no runtime surface), so injection is
-  behavior-transparent (build links `testing.__Package`; `bni --test` transparent;
-  hygiene 18/18).  `build` stays out (compile-time-only, no runtime surface).
-  **`lang` DEFERRED — a real increment, NOT the quick follow-up this bullet
-  implied (a spike proved it):** adding lang to `builtinPkgs` + keeping `lang.bn`
-  loaded (a carve-out from the interface-only lists) is INSUFFICIENT — lang's
-  primitive-impl methods (`int.String`, `uint8.String`, `int64.String`,
-  `float64.String`, `int.Compare`, …) are reached by DIRECT calls
-  (`primitiveQualifiedName` → `pkg/builtins/lang.int.String`), but VM injection
-  binds externs only from the reflect descriptor's Functions table, which
-  `collectPackageFuncs` (codegen/emit_pkg_descriptor.bn) builds from `f.Exported`
-  — and impl methods are NOT marked Exported (only top-level `.bni` funcs/vars are,
-  via markBniExported{Funcs,Vars}; there is no method/impl Exported-marker).  So an
-  injected lang's direct method calls crash `vm: extern not found` (spike:
-  conformance 411/415/434/653/664 all failed).  Injected packages' methods work
-  today only via VTABLES (iface dispatch); lang uniquely uses direct calls.  Two
-  routes to inject lang, both real work: **(a)** extend the shared package
-  descriptor to include impl/primitive methods so `RegisterPackageFunctions`
-  auto-binds them — the general fix (any injected pkg's direct method calls would
-  then work), but touches the shared descriptor emitters (both backends + irdata)
-  with byte-identical/hygiene risk on EVERY package's descriptor; **(b)** hand-bind
-  lang's ~25 primitive methods as externs in interp (like
-  `registerBootstrapExterns`) — localized, no codegen change, but tedious to
-  enumerate + lang-specific.  Leave lang lowered (it works fine) until this is
-  picked up as its own increment.
-- **BUILDER-0.0.12 gate cleanup + `bootstrap.Args` retirement — ✅ DONE (`43ca8b2a`,
-  2026-08-03).**  The re-pin to `bnc-0.0.12` (`467d7664`) is landed, and the 0.0.12
-  bundle's frozen `binate_runtime.c` is confirmed main-less, so the startup entry
-  gates no longer need the `at_least(version, "0.0.12")` half that shielded a
-  pre-0.0.12 BUILDER — dropped from both (args_main → pure `is(entrypoint, "main")`,
-  args_baremetal → pure `is(entrypoint, "start")`).  `bootstrap.Args` was already
-  fully unwired (no callers, not bound as an extern, the hosted C provider gone in
-  the main-less runtime), so its `bootstrap.bni` decl + baremetal impl were deleted
-  outright.  Verified: builder-comp gen1+bni rebuild (25 conformance) + os.Args e2e
-  6/6 (main entry installs argv) + builder-comp_arm32_baremetal 17/0 (start entry +
-  baremetal bootstrap).
+### Inject `pkg/builtins/lang` into the VM — 🟡 OPEN (deferred; scoped, spike-verified 2026-08-03)
+
+The last un-injected runtime builtin.  (The rest of the entry-point-move follow-ups
+— `testing` injection + the BUILDER-0.0.12 gate cleanup + `bootstrap.Args`
+retirement — landed; see claude-todo-done.md.)  A spike proved lang is a REAL
+increment, not a quick add: adding lang to interp/externs.bn `builtinPkgs()` +
+keeping `lang.bn` loaded (a carve-out from the interface-only lists) is
+INSUFFICIENT — lang's primitive-impl methods (`int.String`, `uint8.String`,
+`int64.String`, `float64.String`, `int.Compare`, …) are reached by DIRECT calls
+(`primitiveQualifiedName` → `pkg/builtins/lang.int.String`), but VM injection binds
+externs only from the reflect descriptor's Functions table, which
+`collectPackageFuncs` (codegen/emit_pkg_descriptor.bn) builds from `f.Exported` — and
+impl methods are NOT marked Exported (only top-level `.bni` funcs/vars are, via
+markBniExported{Funcs,Vars}; there is no method/impl Exported-marker).  So an injected
+lang's direct method calls crash `vm: extern not found` (spike: conformance
+411/415/434/653/664 all failed).  Injected packages' methods work today only via
+VTABLES (iface dispatch); lang uniquely uses direct calls.  Two routes, both real
+work: **(a)** extend the shared package descriptor to include impl/primitive methods
+so `RegisterPackageFunctions` auto-binds them — the general fix (any injected pkg's
+direct method calls would then work), but touches the shared descriptor emitters
+(both backends + irdata) with byte-identical/hygiene risk on EVERY package's
+descriptor; **(b)** hand-bind lang's ~25 primitive methods as externs in interp (like
+`registerBootstrapExterns`) — localized, no codegen change, but tedious + lang-
+specific.  Leave lang lowered (it works fine) until picked up.
 
 ## Standard library — pkg/stdx/fmt
 
