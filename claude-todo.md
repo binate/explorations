@@ -760,7 +760,7 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 - `bnlint --target`; main-module gating; migrating the `impls/` duplicate trees onto constraints.
 - The separate inline-asm (`#[asm]`) doc that composes with this substrate.
 
-### Entry-point move DONE — follow-ups: builtins injection, BUILDER-0.0.12 cleanup — 🟡 OPEN
+### Entry-point move DONE — follow-ups — 🟢 MOSTLY DONE (testing injection `03b78300` + BUILDER-0.0.12 cleanup `43ca8b2a` landed; only lang VM-injection remains, scoped below as a standalone future increment)
 The hosted entry-point move (`c4607a71`) + the `entrypoint` build dimension that
 gates it (`8eb5f8c9`, 2026-07-16 — see claude-todo-done.md) have landed: the C `main`
 is now `pkg/builtins/startup._entry`, gated `at_least(version, "0.0.12") &&
@@ -795,22 +795,17 @@ the VM.  Residual follow-ups:
   `registerBootstrapExterns`) — localized, no codegen change, but tedious to
   enumerate + lang-specific.  Leave lang lowered (it works fine) until this is
   picked up as its own increment.
-- **Future BUILDER-0.0.12 gate cleanup — also fully retires `bootstrap.Args`:** the
-  startup entry gates lead with a version predicate (`at_least(0.0.12)` /
-  `at_most(0.0.11)`) purely so BUILDER (0.0.11, which predates the `entrypoint` key)
-  short-circuits before evaluating it.  When BUILDER re-pins to ≥0.0.12: confirm the
-  re-pinned bundle's frozen `binate_runtime.c` is already main-less (built
-  post-`c4607a71`) so there is no duplicate `main`, then the version halves can retire,
-  leaving pure `is(entrypoint, ...)` gates (args_baremetal.bn becomes the pure "start"
-  seed; args_main/args_init lose their `at_least` guard).  This ALSO unblocks fully
-  retiring `bootstrap.Args`: its one remaining use is args_baremetal.bn's
-  `argvWithProgName(bootstrap.Args())`, needed today ONLY because a BUILDER-built gen1
-  reads its real argv through the frozen bundle's C `main` → `bootstrap.Args`.  Post
-  re-pin, every gen1 uses `startup._entry`, so args_baremetal (now "start"-only) can
-  seed `Args` from an empty argv (baremetal has no command line), and `bootstrap.Args`
-  — its `bootstrap.bni` decl and the baremetal impl `func Args()` — can be deleted
-  outright.  (User chose 2026-07-16 to fold this into the re-pin cleanup rather than a
-  partial isolation now.)
+- **BUILDER-0.0.12 gate cleanup + `bootstrap.Args` retirement — ✅ DONE (`43ca8b2a`,
+  2026-08-03).**  The re-pin to `bnc-0.0.12` (`467d7664`) is landed, and the 0.0.12
+  bundle's frozen `binate_runtime.c` is confirmed main-less, so the startup entry
+  gates no longer need the `at_least(version, "0.0.12")` half that shielded a
+  pre-0.0.12 BUILDER — dropped from both (args_main → pure `is(entrypoint, "main")`,
+  args_baremetal → pure `is(entrypoint, "start")`).  `bootstrap.Args` was already
+  fully unwired (no callers, not bound as an extern, the hosted C provider gone in
+  the main-less runtime), so its `bootstrap.bni` decl + baremetal impl were deleted
+  outright.  Verified: builder-comp gen1+bni rebuild (25 conformance) + os.Args e2e
+  6/6 (main entry installs argv) + builder-comp_arm32_baremetal 17/0 (start entry +
+  baremetal bootstrap).
 
 ## Standard library — pkg/stdx/fmt
 
