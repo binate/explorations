@@ -926,13 +926,17 @@ Increments:
     **Follow-up for 3c/3e (inert now):** under gnueabihf the AEABI int64↔float
     helpers return the double in `d0`, not `r0:r1` — the AEABI-kept int64↔float
     marshalling needs the hard-float return convention once the mode is stamped.
-  - **3c — direct-call FP-movement:** `emitCallArg`/`emitCallReturn`/
+  - **3c — direct-call FP-movement — ✅ DONE (`5554966d`, 2026-08-02).** `emitCallArg`/`emitCallReturn`/
     `emitSpillParam`/`emitReturn`/`emitMultiReturnPack`/collect — VMOV-cross or
     VLDR/VSTR-direct via `CallArgFpReg` (3a); peel float64 off the `isPair64Typ`
     r-pair path onto a single D reg (silent-miscompile hazard if missed);
     materialize the address when a frame/field offset exceeds VLDR/VSTR's ±1020.
     Multiret return placement pinned against the LLVM sibling. (`emitMultiReturnSret`
     is memory-layout only → ABI-invariant, no VFP change.)
+    (Placement pinned to clang literal-FCA; float64-peel at all 5 sites; inert;
+    2-lens review clean. Non-blocking: MultiReturnTupleNeedsSret's fpCount>4 sret
+    threshold is symmetric across native/LLVM (no mismatch — verified) but conservative
+    vs clang's raw-FCA lowering; a possible future optimization, not a correctness gap.)
   - **3d — fail-loud shim guards (deferred float-through-shims):** re-add the 4
     float guards P5.3 (`63c7a545`/`f27cf9ca`) dropped, now gated on
     `types.Arm32HardFloat()`, at the 4 shim entry points (`emitClosureShimArm32`,
