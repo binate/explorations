@@ -643,10 +643,13 @@ have an `os` equivalent.)
   sink (`rtWriteRaw`: `write(2)` / semihost) + `abortWithMessage(...*any)`, deduped into a
   target-neutral `rt_diag.bn`. The fault handlers now Abort (not Exit — `rt.Exit` removed)
   and use no print/println / no bootstrap. See the done log.
-- **The perf fixtures** (`perf/*.bn`): deliberately LEFT on `println` — converting adds
-  fmt's transitive compile (~3.5× on `001_fib`) to the timed per-test compile, polluting
-  the benchmark; treated like conformance until the perf harness reports compile/run/total
-  separately (see the perf-harness todo under Testing).
+- **The perf fixtures** (`perf/*.bn`): still on `println`, only because it isn't done yet —
+  NOT for a measurement reason. Converting adds fmt's transitive closure to the timed per-test
+  COMPILE (~+0.5s on `001_fib`), but the separately-measured RUN time is unaffected (fmt is one
+  call at the end), and that compile offset is identical across every mode and version, so it
+  cancels in exactly the comparisons the suite exists for (compiled-vs-interpreted, gen1/gen2,
+  regression-vs-last-commit). Safe to convert whenever; independent of the perf-harness
+  total-column todo under Testing.
 - **`conformance/` and `examples/`:** separate (conformance handled as its own decision;
   examples build from prebuilt bundles).
 - ✅ **The generated test runner** — DONE (`10b2d772`, 2026-08-02): `cmd/bnc`'s `--test`
@@ -656,9 +659,9 @@ have an `os` equivalent.)
 
 All library, compiler, and runtime code is now off `print`/`println` (the CLIs, the
 BUILDER tree, the `--test` runner, and rt). Full deprecation of the builtins (and the
-`Write()`/format-helper bootstrap surface they alone keep alive) now only awaits the
-deliberately-left perf fixtures (gated on the perf-harness change) and the separate
-conformance / examples decisions.
+`Write()`/format-helper bootstrap surface they alone keep alive) now only awaits the perf
+fixtures (not yet converted — no blocker; see above) and the separate conformance / examples
+decisions.
 
 **Residual (small, separable):** wire `ensureLangLoaded` + `appendLangImport` into
 the repl's import setup (`pkg/binate/repl/{ir_imports,session,util}.bn`) so
@@ -1302,15 +1305,15 @@ so both useful comparisons are first-class:
 - **compile+run vs interpreted-run** — the realistic apples-to-apples: a compiled mode's
   end-to-end cost (which now legitimately includes compiling pulled-in stdlib) against an
   interpreted mode's run. This matters more as tests grow real stdlib deps (e.g. anything
-  that adopts `pkg/stdx/fmt` drags fmt's transitive closure into the compile — measured ~3.5×
-  on `001_fib`: 0.21s→0.76s; that's why the perf fixtures stay on `println` for now, see the
-  bootstrap-retirement holdouts).
+  that adopts `pkg/stdx/fmt` drags fmt's transitive closure into the compile — ~+0.5s on
+  `001_fib`, a constant offset that cancels in mode/version comparisons but is visible in the
+  raw end-to-end number, which is exactly why showing compile / run / total all three helps).
 - **run-only** — still valuable, especially *among* compiled modes, where compile cost is
   noise for the thing being compared.
 
 Likely a `perf/summarize.sh` presentation change (add the total column + framing) rather than
-a `run.sh` measurement change, since run.sh already captures both numbers. Motivated by the
-perf-fmt-conversion trade-off (deferred deliberately).
+a `run.sh` measurement change, since run.sh already captures both numbers. Raised alongside
+the perf/fmt discussion, but useful independently of whether the fixtures adopt fmt.
 
 ### Conformance harness: `pkg0.testing` `--test`-only rules are not conformance-testable
 
