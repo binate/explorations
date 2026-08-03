@@ -480,15 +480,6 @@ Related smaller follow-up: route panic / `runtime error:` / VM diagnostics to
 `bootstrap.STDERR = 2`); a real behavior change for anything scraping them off
 stdout.
 
-### `rt.Exit` paradigm: `exit` vs `abort`/`panic` — DISCUSS
-- `rt.Exit` (→ libc `exit`) is the wrong model in general: process exit
-  is meaningless in an embedded/freestanding environment, and the
-  runtime mostly invokes it for *abort* conditions (OOM, bounds-fail,
-  refcount corruption). `abort`/`panic` is likely the right paradigm.
-- Surfaced 2026-06-03 alongside the `__c_call`/drop-libc work; that
-  change preserves `Exit`→`exit` behavior, so this is a clean,
-  independent follow-up. Needs a design discussion before any change.
-
 ## 32-bit-host toolchain: IR constant width & VM machine word
 
 ### `builder-comp_arm32_baremetal` unit lane: ir/vm/buf xfail-removal CI confirmation — 🟡 OPEN
@@ -640,12 +631,12 @@ have an `os` equivalent.)
   uses), and one `pkg/binate/vm` test diagnostic (`8c15394c`) now all go through fmt.
 
 **Remaining `print`/`println` holdouts (what step 3 still needs):**
-- **The runtime — `pkg/builtins/rt/{rt.bn,rt_baremetal.bn}`:** the panic / OOB / OOM /
-  divide-by-zero / type-assertion handlers. These CANNOT simply move to fmt: fmt depends
-  on rt (→ circular import), and an allocating formatter must not run inside an
-  out-of-memory handler. Retiring `print`/`println` here needs a separate design (a
-  non-allocating rt-local formatter, or fmt layered so its scalar path is alloc-free) —
-  to be pondered separately.
+- ✅ **The runtime — `pkg/builtins/rt`** — DONE (`8ddaec6a`, 2026-08-02): the reason rt was
+  the "last blocker" (fmt's circular dependency on rt + the no-alloc OOM-handler constraint)
+  is resolved by rt owning its diagnostics — an alloc-free `rtFormatInt` + a per-target raw
+  sink (`rtWriteRaw`: `write(2)` / semihost) + `abortWithMessage(...*any)`, deduped into a
+  target-neutral `rt_diag.bn`. The fault handlers now Abort (not Exit — `rt.Exit` removed)
+  and use no print/println / no bootstrap. See the done log.
 - **The perf fixtures** (`perf/*.bn`): deliberately LEFT on `println` — converting adds
   fmt's transitive compile (~3.5× on `001_fib`) to the timed per-test compile, polluting
   the benchmark; treated like conformance until the perf harness reports compile/run/total
@@ -657,8 +648,11 @@ have an `os` equivalent.)
   miscompilation (the runner was IR-gen'd un-type-checked, so fmt's `*any` boxing typed a
   string literal as its `char` element). See the done log.
 
-Full `print`/`println` deprecation (and the `Write()`/format-helper bootstrap surface
-they alone keep alive) stays blocked on the runtime holdout above.
+All library, compiler, and runtime code is now off `print`/`println` (the CLIs, the
+BUILDER tree, the `--test` runner, and rt). Full deprecation of the builtins (and the
+`Write()`/format-helper bootstrap surface they alone keep alive) now only awaits the
+deliberately-left perf fixtures (gated on the perf-harness change) and the separate
+conformance / examples decisions.
 
 **Residual (small, separable):** wire `ensureLangLoaded` + `appendLangImport` into
 the repl's import setup (`pkg/binate/repl/{ir_imports,session,util}.bn`) so

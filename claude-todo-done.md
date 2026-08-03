@@ -63,6 +63,41 @@ no `internal/`). Resolved:
   native instance, not as a consumer. Auto-discovered by `scripts/hygiene/run.sh`
   (18 checks).
 
+## rt owns its diagnostics (formatter + `abortWithMessage`); fault handlers Abort; `rt.Exit` retired — ✅ DONE (`8ddaec6a`, 2026-08-02)
+
+Resolves the runtime holdout of the `print`/`println` retirement (step 3 of "Slim
+`pkg/bootstrap`") and the old "`rt.Exit` paradigm — DISCUSS" item, in one change.
+
+**Why rt was the last blocker, and how it's sidestepped:** rt's fault handlers formatted +
+printed via the `print`/`println` builtins (→ `bootstrap.Write` / `bootstrap.format*`). rt
+can't use `pkg/stdx/fmt` (fmt depends on rt → circular; fmt allocates, and the OOM handler
+must not allocate). So rt now owns a tiny alloc-free formatter instead of leaning on either:
+- `rtFormatInt` — alloc-free int→decimal into a caller stack buffer (ported from
+  `bootstrap.formatInt`).
+- `rtWriteRaw` — per-target raw stdout sink: `write(2)` on the hosted target, a
+  `semihost.SemihostWriteChar` loop on bare-metal.
+- `abortWithMessage(...*any)` — writes each string/int operand through those, then `Abort()`.
+
+Per the chosen architecture, the formatter + `abortWithMessage` + all the fault handlers
+(`BoundsFail`/`DivFail`/`ShiftFail`/`AssertFail`, the alloc/mem/`make_slice` traps, `Panic`)
+moved into a new **target-neutral `rt_diag.bn`** that calls the per-target `rtWriteRaw` /
+`Abort` — removing the verbatim host↔bare-metal duplication of every handler (net −124 lines
+in rt).
+
+**Exit → Abort:** the fault paths now terminate via `Abort()` (SIGABRT / semihost nonzero
+exit), not `Exit` — a runtime fault is abnormal termination, not a graceful `exit`. `rt.Exit`
+had no callers left once the handlers moved off it (`os.Exit` is a separate `sys.Exit` path),
+so it's removed from the impls and the `.bni`; the VM auto-enumerates rt's exported surface,
+so the extern registration follows (the smoke-check now asserts `rt.Abort`). Conformance is
+transparent to the code change — the runner strips `Aborted` and matches the `runtime error:`
+`.error` text, not the exit code.
+
+Output is byte-for-byte identical. Adversarially reviewed (OOM-path alloc-freeness traced
+through the variadic-pack/boxing IR, formatter correctness, output fidelity, removal
+completeness — all clean). Verified: host builder-comp (16 conformance fault tests, rt 29 /
+vm 271 unit, 5 direct fault programs) and bare-metal builder-comp_arm32_baremetal via qemu
+(4 conformance fault tests — the semihost `rtWriteRaw` path).
+
 ## `bnc --test` runner emits via fmt; fixes a latent `--test` `*any`-boxing miscompilation — ✅ DONE (`10b2d772`, 2026-08-02)
 
 The `cmd/bnc` `--test` generated runner now emits its RUN / PASS / FAIL / summary
