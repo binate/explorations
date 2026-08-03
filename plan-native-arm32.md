@@ -901,12 +901,15 @@ Increments:
   PC reach is only ±1020). Fail-loud-defer is SHIMS-ONLY — the direct-call float
   path is the core feature, implemented here. Sub-split (3a–3d inert + unit-tested;
   3e activates + validates the mode end-to-end):
-  - **3a — classifier AAPCS-VFP back-fill:** a `VfpBackfill` CallConv flag (set in
+  - **3a — classifier AAPCS-VFP back-fill — ✅ DONE (`ba8b9593`, 2026-08-02).** a `VfpBackfill` CallConv flag (set in
     `AAPCS32()`'s hard branch) + a 16-slot S-occupancy allocator (single/double
     slots, even-alignment, back-fill, stack-poison latch) + a new
     `CallArgFpReg(argTypes,i)→(slot,isDouble)` method (the `(regStart,regWords,
     stackWords)` triple can't name a back-filled S/D reg). !VfpBackfill keeps the
     existing monotonic path byte-identical (aa64/x64/soft untouched).
+    (Inert; unit-tested — back-fill worked example + 16-slot boundary + stack-poison
+    + a !VfpBackfill regression guard. Tracked follow-ups, documented in-code and
+    inert: HFA-through-the-mask and variadic-floats-in-GP land with 3c/3e.)
   - **3b — VFP compute path + const:** `emitInstrFloat` branches on
     `types.Arm32HardFloat()`: arith/neg → `Vadd`…/`Vneg`; compares → `Vcmp` +
     `VmrsApsrNzcv` + NaN-safe cond-mov (`MI`/`LS` for `<`/`<=`, mirroring aa64);
