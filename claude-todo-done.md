@@ -6,6 +6,26 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## VM float64 negation was `0.0 - x`, so `-x` of a zero lost its sign — compiled and interpreted disagreed — ✅ DONE (`58b01a2b`, 2026-08-03)
+
+**Was:** a MAJOR silent cross-mode divergence. The VM computed float64 `-x` as
+`0.0 - x`, which under round-to-nearest collapses `-0.0` to `+0.0`. IEEE negation
+is a sign-bit flip, so the two functions differ only at ±0 — but a negative zero
+is observable (bit pattern, `math.Signbit`, `1/x → -Inf`). The native backends
+already flip the bit, so negating a runtime `+0.0` gave `-0.0` compiled and `+0.0`
+interpreted, breaking the dual-mode contract. The `-0.0` literal took the same
+runtime-FNEG path and was equally wrong interpreted. Discovered writing the `math`
+example in binate/examples (its float tour prints the class/bits of `-0.0`).
+
+**Fix:** flip bit 63 at both VM negation sites, using the x64/arm32 house idiom
+`cast(int64, 1) << 63`: the single-register `BC_FNEG` (`vm_exec_pure.bn`,
+`execUnaryOp`) and the register-pair `evalFloatNeg64` (`vm_exec64.bn`). Tests:
+conformance `1168_float64_neg_zero_signbit` asserts a runtime `+0.0` (opaque to
+constant folding) negates to `0x8000000000000000` under the `-int` modes — verified
+failing `0/0/0` pre-fix; VM unit tests assert ±0 flips the sign for both paths,
+replacing `TestEvalFloatNeg64`'s earlier comment that dismissed the ±0 case as
+"not a distinction worth testing".
+
 ## A nested generic instantiation reached only through a `.bni`-surface signature skipped its constraint check — ✅ DONE (`0293fd2b`, 2026-08-03)
 
 **Was:** a soundness hole (missing diagnostic on ill-typed code) introduced by the
