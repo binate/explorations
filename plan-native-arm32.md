@@ -945,7 +945,7 @@ Increments:
     (Also guards `emitCallIndirect`; all detect predicates recurse into aggregate/HFA
     leaves — a review caught + fixed a non-recursive closure param/capture check that
     would have let an HFA param/capture slip through. Inert; unit-tested.)
-  - **3e — mode activation:** `applyTarget` stamps `FLOAT_ABI_HARD` for arm32-linux
+  - **3e — mode activation — ✅ DONE (`e021425c`, 2026-08-03).** `applyTarget` stamps `FLOAT_ABI_HARD` for arm32-linux
     (AFTER `setArm32Layout`'s SetTarget; baremetal stays soft); drop the
     `nativeArchForTarget` `""` guard; add `conformance/runners/
     builder-comp_native_arm32_linux.sh` (clone the LLVM linux runner +
@@ -956,6 +956,27 @@ Increments:
   func-value/closure/iface float fail-louds; GP↔FP marshal + float-return shim.
 - **Acceptance**: `builder-comp_native_arm32_linux` green. (Modeset/CI promotion is
   a separate P7, user-owned.)
+
+  **inc 3e note:** native arm32-linux hard-float is now LIVE — float SCALARS ride VFP
+  (args in s0-s15/d0-d7 with back-fill, VADD/VCVT/VCMP compute, results in s0/d0) and
+  float MULTI-RETURN tuples ride the in-register FCA (fpCount<=4).  Validated locally at
+  the codegen level (native objdump + native-vs-LLVM shape agreement + 2 re-reviews);
+  the end-to-end qemu-arm RUN is CI-only (this host has no qemu-user/cross-glibc), same
+  as the existing LLVM arm32-linux mode — so `builder-comp_native_arm32_linux` "green"
+  is pending the CI run.  A design review caught + fixed a MAJOR would-be silent
+  miscompile: `HfaAggregates` is left FALSE (single float-aggregate HFA rides the
+  soft-style GP-coerce/sret path, self-consistent native<->LLVM), deferring true VFP-HFA
+  to inc 3f.  Wiring the mode into the CI conformance matrix is a separate, user-owned
+  step (not done here).
+
+- **inc 3f — deferred hard-float shapes (follow-up, fail-loud today):**
+  - single float-aggregate (HFA struct/array) args/params/returns in the VFP register
+    file (d0-d3 pack/collect) + reconcile codegen's `NeedsSret` for arm32-hard (today
+    they ride GP/sret like soft — correct + self-consistent, just not gnueabihf-VFP).
+  - float through the func-value/closure/iface/indirect SHIMS (fail-loud via the inc-3d
+    guards; needs the GP<->VFP marshal + float-return shim shapes).
+  - the AEABI int64<->float helper result convention under gnueabihf (returns the double
+    in d0, not r0:r1) — the int64<->float casts stay on AEABI (inc 3b flagged decision).
 
 ### P7 — CI integration + full sweep
 - **DONE (partial, `0727d0c1`, 2026-07-03):** `builder-comp_native_arm32_baremetal`
