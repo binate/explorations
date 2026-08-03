@@ -441,50 +441,26 @@ Remaining increments (all parked, none started):
 
 ## VM runtime faults & the rt.Exit/abort/panic paradigm
 
-### rt.Abort/rt.Panic Plan 2 — make user-code VM faults recoverable (host survives) — 🟢 CORE COMPLETE (all six faults recoverable; Inc 1/2a/2b/3 landed, nil-deref N1–N3 last — `de9a7c05`, 2026-07-31); RESIDUAL follow-ups only
+### VM user-code faults — residual follow-ups (Plan 2 core is DONE) — 🟡 OPEN
 
-**Related robustness gap (filed 2026-06-30):** a bad-pointer deref inside a NATIVE EXTERN
-called from the VM (e.g. handing a wild pointer to `rt.Refcount`) SIGSEGVs the VM host with
-NO guard — it is not one of the 6 guarded VM user-fault sites (bounds/divide/shift/nil-deref/
-stack-overflow/call-through-nil), and there is no signal handler in `pkg/binate/vm` / `cmd/bni`
-/ `rt`. Surfaced while resolving the "VM refcount halt" probe-artifact (see done file). If
-this VM-fault-recovery work is picked up, the native-extern boundary should be considered too.
+Plan 2 (`rt.Abort`/`rt.Panic`) made all six VM user-code faults (bounds / divide /
+shift / nil-deref / stack-overflow / call-through-nil) RECOVERABLE — the host
+(REPL / test-runner / embedder) survives a bad interpreted program while compiled
+code stays fatal.  Core landed (Plan 1 primitives; Inc 1/2a/2b/3 cleanup-pad
+unwind; nil-deref N1–N3 last, `de9a7c05`); see claude-todo-done.md and
+[`plan-rt-abort-panic.md`](plan-rt-abort-panic.md).  Still open:
 
-Plan doc: [`plan-rt-abort-panic.md`](plan-rt-abort-panic.md). **Plan 1 (the
-`rt.Abort`/`rt.Panic` primitives, the `panic()` single-string + lowering change,
-and the VM internal-abort migration through `panic()`) is DONE & LANDED** — see
-claude-todo-done.md.
-
-User-code runtime faults (bounds / divide / shift / nil-deref / stack-overflow /
-call-through-nil) are now RECOVERABLE in the VM (the host REPL / test-runner /
-embedder survives a bad interpreted program) while staying fatal in compiled
-code: all six VM user-fault sites raise a recoverable fault (`VM_STATUS_FAULTED`)
-instead of `rt.Exit(1)`.
-
-**Ratified approach (2026-07-16), full design in
-[`plan-rt-abort-panic.md`](plan-rt-abort-panic.md):** a fault is an
-internally-triggered *break* — the "refcount-correct teardown" open question is
-answered by the **cleanup-pad + VM-unwind-mode** machinery already designed for
-`plan-repl-embeddable.md` **Stage 7 (break)**. Naive frame-discard LEAKS (RefDec
-is inline `BC_REFDEC` bytecode at PCs; `BC_RETURN` runs only `freeOnPop`, not
-scope cleanup), so we build the shared cleanup-pad unwind once and drive it from
-both the fault sites (Plan 2) and `POLL_BREAK` (Stage 7). Recoverable only at the
-outermost `execLoop` (a fault under a live native callback stays fatal —
-mid-callback gate, needs heap frames); native-extern SIGSEGV stays separate
-(needs a host signal handler — the robustness gap above). Increments (all
-✅ LANDED): **Inc 1** fault carrier (`VM_STATUS_FAULTED`/`FaultMsg`) +
-`repl.Execute`→`EXEC_ERROR` surface (`6dd89502`); **Inc 2a** IR-gen cleanup pads;
-**Inc 2b** VM unwind mode; **Inc 3** wire the guard sites + `cmd/bni`/test-runner.
-The sixth fault, opt-in nil-deref, landed last as N1–N3 (`de9a7c05`; see
-[`plan-nil-check-opt-in.md`](plan-nil-check-opt-in.md)). `EXEC_ERROR` reused over a
-new `EXEC_FAULTED`. What REMAINS open here: the native-extern SIGSEGV guard and
-the stderr-routing follow-up below (plus the re-entrant-execFunc swallow, filed
-separately in MAJOR).
-
-Related smaller follow-up: route panic / `runtime error:` / VM diagnostics to
-**stderr** (fd 2) — deferred out of Plan 1 (infra exists: `bootstrap.Write(fd)`,
-`bootstrap.STDERR = 2`); a real behavior change for anything scraping them off
-stdout.
+- **Native-extern SIGSEGV is unguarded (filed 2026-06-30).** A bad-pointer deref
+  inside a NATIVE EXTERN called from the VM (e.g. handing a wild pointer to
+  `rt.Refcount`) SIGSEGVs the VM host with no guard — it is not one of the six
+  guarded VM user-fault sites, and there is no signal handler in `pkg/binate/vm` /
+  `cmd/bni` / `rt`.  Recoverable faults stop at the outermost `execLoop`; a fault
+  under a live native callback stays fatal (mid-callback gate, needs heap frames),
+  so this native-extern boundary needs a host signal handler to be recoverable.
+- **Route panic / `runtime error:` / VM diagnostics to stderr (fd 2)** — deferred
+  out of Plan 1 (infra exists: `bootstrap.Write(fd)`, `bootstrap.STDERR = 2`); a
+  real behavior change for anything scraping them off stdout.
+- (Separately filed under MAJOR: the re-entrant-`execFunc` fault-swallow.)
 
 ## 32-bit-host toolchain: IR constant width & VM machine word
 

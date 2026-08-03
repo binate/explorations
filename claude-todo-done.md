@@ -27,6 +27,27 @@ increment tracked separately in the active todo.)
   provider gone).  Verified: builder-comp gen1+bni rebuild (25 conformance) + os.Args
   e2e 6/6 + builder-comp_arm32_baremetal 17/0.
 
+## Plan 2 — recoverable VM user-code faults (core) — ✅ DONE (through `de9a7c05`, 2026-07)
+
+All six VM user-code faults (bounds / divide / shift / nil-deref / stack-overflow /
+call-through-nil) are now recoverable: the VM raises `VM_STATUS_FAULTED` + a message
+instead of `rt.Exit(1)`, so the host (REPL / test-runner / embedder) survives a bad
+interpreted program while compiled code stays fatal.  Design:
+[`plan-rt-abort-panic.md`](plan-rt-abort-panic.md) (+ nil-deref in
+[`plan-nil-check-opt-in.md`](plan-nil-check-opt-in.md)).
+
+- **Plan 1:** the `rt.Abort`/`rt.Panic` primitives + `panic()` single-string lowering
+  + VM internal-abort migration through `panic()`.
+- **Inc 1:** fault carrier (`VM_STATUS_FAULTED`/`FaultMsg`) + `repl.Execute`→
+  `EXEC_ERROR` surface (`6dd89502`).  **Inc 2a:** IR-gen cleanup pads — the shared
+  cleanup-pad + VM-unwind-mode machinery (naive frame-discard would leak, since
+  RefDec is inline `BC_REFDEC` at PCs; the same unwind drives POLL_BREAK / Stage 7).
+  **Inc 2b:** VM unwind mode.  **Inc 3:** wire the guard sites + `cmd/bni`/test-runner.
+- **Sixth fault**, opt-in nil-deref, landed last as N1–N3 (`de9a7c05`, 2026-07-31).
+
+Residuals still tracked in the active todo: native-extern SIGSEGV guard, stderr
+routing, and the re-entrant-`execFunc` fault-swallow.
+
 ## perf fixtures → fmt; perf harness reports Total + Compile/Run breakdown — ✅ DONE (`7b395154`, `8300afdc`, 2026-08-02)
 
 Takes the perf fixtures off `print`/`println` and (motivated by that) sharpens the perf
