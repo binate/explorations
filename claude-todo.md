@@ -851,6 +851,38 @@ sized int is a scalar, not an aggregate).  Tests: one case per scalar type in
 `fmt_printf_test.bn`.  Found while writing the standard-library example series in
 binate/examples.
 
+### fmt cannot print an `os.Args()` / `os.Env()` element — a `readonly`-qualified slice misses every case — 🟡 OPEN (2026-08-03)
+
+Distinct from the missing-scalars entry above: this is about the *qualifier*, not
+the element type, and it hits the single most common thing a program prints.
+
+    var a @[]readonly @[]readonly char = os.Args()
+    fmt.Printf("[%s]", a[1])            // [%!?(unknown)]
+    var s @[]readonly char = a[1]
+    fmt.Printf("[%s]", s)               // [world]        <- identical bytes
+
+`os.Args()` and `os.Env()` return `@[]readonly @[]readonly char` — fully readonly,
+element slots included — so an element has type **`readonly @[]readonly char`**,
+and fmt's dispatch has no case for a `readonly`-qualified managed-slice. Only the
+four unqualified spellings match. Copying into an unqualified local fixes it,
+which is the tell that the VALUE is fine and only the type match fails; keeping
+the qualifier on the local (`var b readonly @[]readonly char = a[1]`) still
+misses.
+
+So today a program cannot print its own command-line arguments or environment
+entries directly — the first thing most programs do. Verified on released
+bnc-0.0.12, compiled and interpreted alike.
+
+Fix: match the char-slice cases irrespective of an outer `readonly` qualifier
+(strip it where the dynamic type is compared, as the assignment above evidently
+does). Worth auditing the other `*any`-consuming paths for the same
+qualifier-blindness — `lang.Stringer` recovery included.
+
+Tests: a `fmt_printf_test.bn` case boxing a `readonly @[]readonly char`, and an
+e2e that prints `os.Args()[1]` (`e2e/os-args.sh` already has the harness for it).
+Found while writing the `scripting` example in binate/examples, whose whole point
+is a script echoing its arguments.
+
 ### `lang.Stringer` returns `@[]char`, but every string producer returns `@[]readonly char` — 🟡 OPEN (2026-08-02)
 
 `Stringer.String()` is declared to return `@[]char` (mutable), while the natural
