@@ -164,50 +164,6 @@ until this is fixed.
 where the VM leg is what fails), plus a `pkg/std/errors` unit test that
 classifies a locally-defined error type.
 
-### A nested generic instantiation reached only through a `.bni`-surface signature skips its constraint check — 🔴 OPEN MAJOR (found 2026-08-02)
-
-**Severity: MAJOR (soundness — missing diagnostic on ill-typed code).** A generic
-instantiation nested inside a type that is reached ONLY through a package's
-`.bni`-surface signature — never named directly in a body — is silently accepted
-even when its type-arg satisfies no impl anywhere. It compiles through to codegen;
-the pre-Bug-A compiler rejected it. (Fix is the NEXT task per the user, 2026-08-02.)
-
-**Minimal repro** (`pkg/glib.bni` + a consumer that imports it):
-
-    // pkg/glib.bni
-    interface Sizer { Size() int }
-    type Box[T Sizer] struct { v T }
-    type Bad struct { n int }          // NO impl Bad : Sizer anywhere
-    type Outer[U any] struct { inner @Box[Bad] }
-    func Make() @Outer[int]
-
-Consumer: `import "pkg/glib"; … glib.Make()`. Current `main` ACCEPTS (the nested
-`@Box[Bad]`'s constraint is dropped); the released bnc-0.0.12 BUILDER rejects
-`Bad does not satisfy constraint Sizer`.
-
-**Root cause / attribution:** introduced by the Bug A `.bni`-deferral commit
-`ff505c92` (verified by git-archive A/B: grandparent REJECT → `ff505c92` ACCEPT).
-`buildScopeFromFile` (under `BuildingIfaceScope`) resolves the `.bni` func sig
-`@Outer[int]`, populating its nested field `@Box[Bad]` and DEFERRING that check —
-but `CheckPackage` cache-hits `Outer[int]` and never re-populates the nested field,
-so the check is never re-fired. The Bug A extern-var backstop
-(`recheckBniExternVarConstraints`) does not cover this nested-via-signature shape.
-
-**Validated fix:** the order-independence commit (`8476b8be`) added a pending-list
-(`PendingConstraintCheck` / `recheckDeferredConstraints`) that records every
-deferred check and replays it once impls are complete. Extend the recording gate in
-`instantiateGenericDeclWithArgs` from `c.CollectingDecls` to
-`c.CollectingDecls || c.BuildingIfaceScope`, so `.bni`-surface deferred checks
-(including nested ones) are recorded and replayed by the same package's later
-`CheckPackage`. Tested: fixes this repro; all Bug A cases (own-`.bni` valid,
-extern-var valid, extern-var genuine-miss rejected) and the order-independence
-cases still behave correctly. Likely makes the extern-var backstop redundant
-(verify + remove if so).
-
-**Tests:** a conformance/checker test that a nested generic instantiation reached
-only through a `.bni` signature is rejected when its type-arg satisfies no impl.
-Discovered by adversarial review of the order-independence fix (`8476b8be`).
-
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
@@ -786,13 +742,34 @@ reflect API, `133db88d`) → P2 (`2ef97634`) → P3 (`6a8b7f8f`) → P4a `%+v` (
 (`30663c5f`) all landed.  See `claude-todo-done.md` for the per-phase summary.  ONE
 follow-up remains:
 
-- **Anon-struct records (decision 7, still unmet):** add a STRUCTURAL `TYP_STRUCT` arm
-  to `mangleTypeArg` so anonymous structs get a TU-invariant weak-record key (they
-  mangle to an occurrence-ordered `__anon_N` today — unsafe as a shared key, so
-  `fieldStructName` skips them).  Until then an anonymous struct — top-level AND as a
-  by-value / element / pointee field — renders opaque `{...}` instead of its fields.
-  This is the sole gap between current fmt struct rendering and full coverage; when it
-  lands, drop the `isAnonStructName` skip and add anon-struct conformance coverage.
+- **Anon-struct records (decision 7) — IN PROGRESS.** Give anonymous structs a
+  structural, TU-invariant identity so they render their fields (`{7 {a:9}}` instead
+  of `{7 {...}}`).  User-ratified (2026-08-03): readable `struct { … }` type name; FULL
+  scope (fmt records + box/assert, so top-level boxed anon structs are TU-invariant
+  too, not just anon FIELDS).  Design (grounded by an understand-workflow + reading the
+  box/dtor sites):
+  - Checker treats anon structs purely structurally with an EMPTY name; the
+    occurrence-ordered `__anon_<N>` is an IR-gen-only artifact (gen_type_resolve.bn) and
+    never reaches diagnostics.  So a structural rename does not touch checker identity.
+  - Substrate: new `LpTypeArgStruct` mangle token (`S <fc> "_" (Ident TypeArg){fc}`) +
+    its `Demangle` skip (mangle_lp.bn / mangle_lp_demangle.bn) — CODED.
+  - Wiring: a `TYP_STRUCT` arm in `mangleTypeArg` gated to anon-only (a blanket arm
+    would re-mangle NAMED structs used as generic args → churn every `__bn_inst__`);
+    route anon structs through the reserved structural identity
+    `pkg/builtins/rt.__nameless_<lp>` (namelessAnySrcName) at the three typeinfo sites —
+    `fieldStructName` (drop the isAnonStructName skip), the raw-`*any` box
+    (wrapAsIfaceValue), and the assert (typeInfoSymFor) — so all key byte-identically.
+    `typeNameImpl` gets an anon arm rendering `struct { … }` from FIELDS (readable %T +
+    the record's TU-invariant name word).  Bonus: the mangleTypeArg arm also fixes a
+    latent `Box[struct{a int}]` cross-TU symbol-divergence bug.
+  - KEY SAFETY FINDINGS (de-risking "Full"): (a) the record's word-0 dtor is never used
+    for cleanup (cleanup runs via the any-block slot-0 / RefDec), so the structural
+    record needs NO dtor entanglement — decouple the typeinfo identity from dtor naming.
+    (b) fmt boxes into RAW `*any`, which BORROWS (slot-0 dtor null) — so no leak even for
+    a managed-field anon struct; the leak-prone MANAGED `@any` box of an anon managed
+    struct pointee is already a fail-loud/deferred case (gen_iface.bn:362), untouched
+    here.  Deferred edge: field-level `readonly` in an anon struct's assert identity
+    (mergeQualifiedReadonly doesn't yet recurse struct fields) — rare, tracked.
 
 Still deferred (small verb/flag gaps — all render as visible error verbs /
 documented divergences, never silently):
