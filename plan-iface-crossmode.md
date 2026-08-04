@@ -31,6 +31,13 @@ trampolines (`ensureHandle`, `vm_funcvalue_handle.bn`).
 
 ## Stages (each keeps the tree green)
 
+**Status (2026-08-03): S1 + S2 LANDED on `main`** — S1 `56826ba8` (dispatch → handles,
+all four backends + shared frame sizer + regression tests 1178/1179), S2 `5324048b`
+(VM builds native handle-vtables for bytecode impls + substitutes at
+`dispatchExternBinding`; repro 1180). Both landed with a minimal adversarial review.
+The `errors.Is` MAJOR is FIXED. **S3 below remains** (return-direction / nested-iface /
+sibling dispatchers — those cases still crash under the VM, a documented gap).
+
 - **S1 — native dispatch → handle-based (behavior-preserving refactor).** Make
   `@__ivt` method slots handles (`useHandles=true`; unify with `@__ivtshim`), and
   change iface method-call codegen — LLVM `emit_iface_call.bn`, native

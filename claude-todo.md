@@ -9,7 +9,21 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### VM SIGSEGVs in `errors.Is` when the error is a USER-defined `errors.Error` — 🔴 OPEN MAJOR — ROOT-CAUSED (found 2026-08-02)
+### VM SIGSEGVs in `errors.Is` when the error is a USER-defined `errors.Error` — 🟢 FIXED (S1 `56826ba8` + S2 `5324048b`, 2026-08-03); S3 completeness is a tracked follow-up
+
+**FIXED on main (2026-08-03) per `explorations/plan-iface-crossmode.md`.** Native
+interface method dispatch was unified onto the func-value HANDLE convention across
+all four backends (S1 `56826ba8`), then the VM builds a native handle-vtable per
+bytecode impl and substitutes it for the VM-index vtable word of interface
+ARGUMENTS at `dispatchExternBinding` (S2 `5324048b`) — so a user-defined error
+survives classification by injected-native `errors.Is` under the VM. Both landed
+with a minimal adversarial review + regression tests (conformance/1178/1179/1180).
+**Remaining (plan S3, tracked):** the RETURN direction (a user `Unwrap` returning
+another user impl), iface nested in struct args/returns, and the sibling
+dispatchers (`dispatchCompiledFuncValue`/`dispatchCompiledIfaceMethod`) — those
+cases still crash under the VM (documented gap; they fault, never silently return
+a wrong result, and are no worse than pre-fix). The root-cause writeup below is
+retained for reference; move this whole entry to the done log once S3 lands.
 
 **Severity: MAJOR (hard crash on correct code).** `bni` segfaults; the identical
 program compiled with `bnc` is fine. It hits any program that defines its own
