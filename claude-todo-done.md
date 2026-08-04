@@ -30,6 +30,15 @@ part of slimming it toward retirement (the umbrella entry stays open in
 The `pkg/bootstrap` surface is now just `Write()` + the five `format*` helpers,
 all of which exist solely to serve the `print`/`println` builtins.
 
+**Follow-on (`904d3bac`):** `cmd/bnc`'s `remove()` helper also moved off shelling
+out to `rm` — it now calls `os.Remove(path)` (error discarded, matching `rm -f`'s
+missing-file tolerance) instead of `process.Run("rm", …)`, dropping a subprocess
+spawn + the `rm` PATH dependency for every temp-file cleanup (`.ll`/`.o`/`.a`; all
+callers pass regular files). The old BUILDER-snapshot gating is cleared — BUILDER
+`0.0.12` resolves `os.Remove` (gen1/gen2 build clean; a compile+run leaves no temp
+files behind); `pkg/bootstrap`'s stale package doc comment (still advertising
+`Args`) was also corrected (`64a8fbb9`).
+
 ## Type assertions, type switches & RTTI — COMPLETE (one optional low-value tightening remains tracked) — ✅ DONE (2026-08-03)
 
 The whole §11.12 / §7.13 area is implemented and conformance-green in every mode,

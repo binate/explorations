@@ -498,17 +498,6 @@ are `conformance/` and `examples/` (separate decisions); once those are handled,
 repl too — the rest of the "primitive `.String()` without importing `lang`" work
 is done (compiled + VM).
 
-**Residual (small, separable) — migrate `remove()` off `rm` to `os.Remove`:**
-`cmd/bnc/util.bn`'s `remove()` still shells out via `process.Run("rm", {"-f",
-path})`; `pkg/std/os` has `Remove(name) @errors.Error`, so the native swap is `_ =
-os.Remove(path)` (discard the error, matching `rm -f`'s missing-file tolerance —
-`Remove` of a nonexistent path returns an error `rm -f` would ignore). Avoids a
-subprocess spawn + a `rm` PATH dependency. **BUILDER-snapshot-gated:** `cmd/bnc` is
-BUILDER-compiled, so this needs the pinned BUILDER's embedded stdlib to resolve
-`os.Remove` (BUILDER 0.0.11 predated it; verify BUILDER 0.0.12 with a direct
-BUILDER compile of the swapped `util.bn` before landing, else gate on the next
-`BUILDER_VERSION` bump).
-
 **Constraints (still apply):** migrate callers OUT — never rename bootstrap's
 C-symbol-resolved I/O in place. An in-place rename hits a Stage-1 link wall (gen1
 links BUILDER's *pinned* runtime, which only defines the OLD mangled I/O symbols),
