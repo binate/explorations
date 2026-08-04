@@ -6,6 +6,84 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## Cross-package `.bni` type-alias to a distinct-named type mis-lowered to scalar `i64` — ✅ DONE (`7b4a02ef`, 2026-08-03)
+
+**Was:** a MAJOR silent miscompile. A `.bni` type alias whose TARGET is a distinct
+named type in ANOTHER package — `type Alias = other.Named` (e.g. `testing.TestResult =
+sys.TestResult`) — mis-lowered wherever it was materialized: a `var r Alias = "…"` init
+emitted `extractvalue i64` (invalid IR under LLVM; a scalar-sized slot natively). Three
+cascading gaps, all rooted in IR-gen re-resolving types from the AST independently of
+the checker:
+
+- **IR-gen (the deep one).** The type-alias registration loops in `RegisterStructTypes`
+  (`gen_module.bn`) and `RegisterSelfTypes` (`gen_self_types.bn`) resolved each alias's
+  target WITHOUT `pushFileImports`, so the target's short package prefix (`sys`) wasn't
+  mapped to its full path; the qualified lookup missed and `resolveTypeExpr` fell back to
+  `types.TypInt()` — the alias froze to `int`. (The sibling struct-FIELD loop already
+  wrapped itself in `pushFileImports`; the alias loops were the omission.)
+- **checker `AssignableTo`** (`types_assignable.bn`): the unnamed→named-distinct
+  transparency arm tested `Kind` without peeling `TYP_ALIAS`, so `@[]char → Alias`
+  (unnamed source, alias-to-named dest, same underlying) was mis-evaluated.
+- **codegen `llvmType`** (`emit_types.bn`): didn't peel `TYP_ALIAS` to its target.
+
+**Fix:** wrap the two alias loops (+ the test-only singular `RegisterImport`,
+`gen_register_import.bn`) in `pushFileImports`/`popFileImports` so the alias target
+resolves under the DEFINING file's own imports (the same overlay the field loop uses);
+peel `TYP_ALIAS` via `ResolveAlias()` in the checker's named-distinct arm; peel
+`TYP_ALIAS` to `.Target` in `llvmType`. Guard: self-contained multi-package
+`conformance/1181_bni_crosspkg_alias_named_slice` (`inner.Str` → `mid.Alias = inner.Str`
+→ `main` reads it) — `extractvalue i64` pre-fix, green across LLVM / VM / gen2 /
+native-aa64 post-fix. `types_assignable.bn` split (`types_assignable_iface.bn` +
+`_test.bn`) to stay under the file-length cap. Root-caused via a debug-instrumented
+workflow that printed the `IRGEN-MISS qual=sys.TestResult` with an empty alias map.
+
+## `testing.Print`/`Println` + a lang-free `testing/sys` sink — ✅ DONE (`eba239a2`, 2026-08-03)
+
+The retirement path for the `print`/`println` builtins in TEST programs (the umbrella
+`print`/`println` deprecation stays open in the active todo). Adds
+`testing.Print(args ...*any)` / `Println(...)` matching the retired builtins
+byte-for-byte: char-slices written verbatim, everything else via
+`arg.(*lang.Stringer).String()`, a single space between adjacent operands, and a
+trailing newline for `Println`.
+
+- **Canonical `TestResult` moved to a lang-free `pkg/builtins/testing/sys`** — `type
+  TestResult @[]char` (the distinct named type, `19f9d86c`) now lives in
+  `testing/sys.bni`; `testing.TestResult = sys.TestResult` re-aliases it. This breaks the
+  `testing → lang → testing` import cycle a direct `testing`-owned canonical type would
+  create once `testing`'s impl imports `lang` for `Stringer`. `lang_test.bn` +
+  `order_test.bn` import `testing/sys` and use `sys.TestResult`.
+- **`sys.WriteStdout(ptr, n)`** is the per-target byte sink — host `write(2)` on fd 1 via
+  `__c_call` (`sys_host.bn`), bare-metal semihosting console (`sys_baremetal.bn`,
+  `#[build(is(os,"baremetal"))]`).
+- **VM injection** — `testing/sys` is injected as a native builtin (`interp/externs.bn`:
+  import, descriptor extern, `builtinPkgs()` entry) because it makes a `__c_call`;
+  without injection its `__c_call` lowers to un-interpretable bytecode and breaks every
+  test build. (The paired cross-pkg-alias fix `7b4a02ef` is a hard prerequisite —
+  `testing.TestResult = sys.TestResult` is exactly the mis-lowered alias shape.)
+- **Discovery** — `cmd/bnc/test.bn`'s `isTestResultReturn` matches `sys.TestResult`
+  alongside `testing.TestResult` (still spelling-based; identity-resolution follow-up in
+  the active todo).
+
+Verified: builder-comp 64/64, conformance-LLVM 2902/2902, VM 52/52, gen2 64/64,
+native-aa64. `sys_host.bn`/`sys_baremetal.bn` test-coverage-whitelisted (a `__c_call` /
+semihost stdout write isn't unit-testable in isolation). Coverage follow-up in the
+active todo: an end-to-end `testing.Println` conformance test that also proves the VM's
+cross-mode `lang.Stringer` dispatch (deferred spike).
+
+## `bnc-0.0.13-pre1` tagged + `CHECK_TOOLS_VERSION` bumped to it — ✅ DONE (`61b755a1` + `f49f8851`, 2026-08-03)
+
+The pinned bnlint bundle (`CHECK_TOOLS_VERSION`) lagged the checker's cross-pkg-alias
+`AssignableTo` fix (`7b4a02ef`), so `bnc-0.0.12` bnlint rejected the `testing.TestResult
+= sys.TestResult` tree-wide (verified a pure pinned-tool lag via `lint.sh --from-source`
+rc=0). Bumped it:
+
+- `61b755a1` — `VERSION` + `version.bn` `0.0.13-pre1 → 0.0.13-pre2` (the working-tree
+  prerelease increments off the release being tagged).
+- tag `bnc-0.0.13-pre1` on `7b4a02ef` → CI built + published the bundle (4 assets).
+- `f49f8851` — `CHECK_TOOLS_VERSION` `bnc-0.0.12 → bnc-0.0.13-pre1`.
+
+Hygiene 18/18 with the pre1 bnlint accepting the alias.
+
 ## fmt renders a named SCALAR type via reflection under every verb — ✅ DONE (`75d6e57c`, 2026-08-03)
 
 **Was:** a named scalar type (`type Celsius int` / `Ratio float64` / `Flag bool`) is a

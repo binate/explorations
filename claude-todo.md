@@ -786,15 +786,16 @@ binate/examples.
 ### `--test` discovery matches TestResult by spelling, not by resolved type — 🟢 LOW (2026-08-03)
 
 `isTestResultReturn` (`cmd/bnc/test.bn`) recognizes a test by the *spelling* of its
-return type — qualified `testing.TestResult`, or a bare `TestResult` when the package
-declares `type TestResult` locally (the `pkg/builtins/testing` own-`_test` case). It
-does not resolve the type through the checker, so it would miss `testing` imported
-under a non-default alias, and would not follow a future `testing.TestResult =
-sys.TestResult` alias chain — the planned split that lets `pkg/builtins/lang`'s tests
-depend on a lang-free `testing/sys` package without a `testing → lang → testing`
-import cycle. Fix: resolve the single return type through the loader/checker to the
-canonical named `testing.TestResult` (now a distinct named type, `19f9d86c`) and match
-on identity. Referenced by the TODO comment in `isTestResultReturn`.
+return type — qualified `testing.TestResult` OR `sys.TestResult` (the canonical named
+type now lives in `pkg/builtins/testing/sys`; `testing.TestResult = sys.TestResult`
+re-aliases it, `eba239a2`), or a bare `TestResult` when the package declares `type
+TestResult` locally (the `pkg/builtins/testing` own-`_test` case). It does not resolve
+the type through the checker, so it would miss `testing`/`sys` imported under a
+non-default alias, and matching each new alias spelling by hand (the `sys.TestResult`
+arm was itself such a patch) doesn't scale. Fix: resolve the single return type through
+the loader/checker to the canonical named `sys.TestResult` (a distinct named type,
+`19f9d86c`) and match on identity. Referenced by the TODO comment in
+`isTestResultReturn`.
 
 ---
 
