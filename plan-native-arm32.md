@@ -978,6 +978,31 @@ Increments:
   - the AEABI int64<->float helper result convention under gnueabihf (returns the double
     in d0, not r0:r1) — the int64<->float casts stay on AEABI (inc 3b flagged decision).
 
+- **inc 3g — link-level fixes (the ACTUAL native arm32-linux blocker) — ✅ DONE
+  (`d9b186d8`, 2026-08-03).**  The first end-to-end CI run of
+  `builder-comp_native_arm32_linux` (once the mode was wired in, `a0c4f301`) revealed the
+  mode failed ~2319/2394 tests at the **link step** — NOT the inc-3f float shapes.  Three
+  arm32-specific defects in the native ELF/link path (the first was the foreseen "revisit
+  at P6" `e_flags=0` MINOR in the review-findings section below), fixed together:
+  - e_flags was 0 ("EABI version 0") → GNU `arm-linux-gnueabihf-ld` refused to merge with
+    the EABI-ver-5 clang dep objects.  `elf.Write` now stamps `EF_ARM_EABI_VER5`
+    (0x05000000) for every arm32 object — matching clang, which uses the same value for
+    hard and soft (the float ABI is NOT encoded in e_flags).
+  - hard-float objects passed floats in VFP registers but did not declare it → a new
+    `.ARM.attributes` section (`Tag_ABI_VFP_args`=VFP-registers, plus `Tag_CPU_arch`=v7 /
+    `Tag_FP_arch`=VFPv3) now declares the VFP convention exactly as clang/gcc do
+    (`elf_arm_attrs.bn`; soft/baremetal emit none — ld tolerates absence).  Verified
+    `arm-none-eabi-ld -r` merges the native hard object against a clang hard object at rc=0.
+  - the absolute (non-PIC) MOVW/MOVT code model needs `-no-pie` (the gnueabihf driver
+    defaults to `-pie`, which rejects `R_ARM_MOVW_ABS_NC`) — applied at BOTH link sites
+    (program link + `--test` binary link) via a shared `appendTargetLinkFlags` helper,
+    scoped to native arm32-linux (aarch64 native is PC-relative, the LLVM arm32 path emits
+    PIC — neither needs it).
+  aarch64/x86-64 ELF output is unchanged; baremetal native stays green (2863/0).  This
+  clears the link wall; the remaining native arm32-linux failures are the inc-3f float
+  shapes (a small tail).  The green e2e RESULT is pending the next CI run (this host has no
+  cross-ld / gnueabihf glibc; validated locally via objdump + readelf -A + the rc=0 merge).
+
 ### P7 — CI integration + full sweep
 - **DONE (partial, `0727d0c1`, 2026-07-03):** `builder-comp_native_arm32_baremetal`
   is wired into `.github/workflows/conformance-tests.yml` as an **experimental**
@@ -985,9 +1010,18 @@ Increments:
   `builder-comp_arm32_linux_int` — user-approved ("add as experimental extra").
   Deliberately NOT in `scripts/modesets/all` (keeps it out of unit/perf/xpass).
   Toolchain is auto-covered (mode string contains `arm32_baremetal`).
-- **Remaining:** promote to a blocking `modesets/all` entry once the backend is
-  complete (baremetal is now FULLY GREEN 2851/0, so this prerequisite is MET — remaining is the promotion itself + wiring the arm32-linux native mode when P6 lands); wire the
-  arm32-linux native mode when P6 lands; full unit-test sweep in the native modes.
+- **DONE (`a0c4f301`, 2026-08-03):** `builder-comp_native_arm32_linux` wired into the
+  conformance matrix as an **experimental** (non-blocking) entry, same pattern.
+- **Remaining:**
+  - Confirm the next CI run shows the inc-3g link fixes cleared native arm32-linux's
+    link wall (was ~2319/2394 failing at link; should drop to the inc-3f float-shape tail).
+  - Promote `builder-comp_native_arm32_baremetal` to a blocking `scripts/modesets/all`
+    entry — baremetal is FULLY GREEN (2863/0), so this prerequisite is MET; the promotion
+    itself is the remaining step.
+  - Promote `builder-comp_native_arm32_linux` to blocking once it is green in CI (gated on
+    inc 3f closing the float-shape tail — the native `--test` unit sweep is itself blocked
+    on inc-3f's float-through-shims, see inc 3g).
+  - Full unit-test sweep in the native modes.
 
 ## Adversarial review findings (post-P0/P1, 2026-07-01)
 
@@ -1032,8 +1066,10 @@ A minimal adversarial review of P0 (landed `98d5bef6`) and P1 (worktree
   filled by `TestWriteArm32ElfMovwMovtReloc` (folded into the P1 commit) — it drives
   `MovwLabel;MovtLabel;Finalize;WriteARM32` and reads back `.rela.text` to pin the emitted
   reloc types (43/44), offsets, symbol, and addend.
-- MINOR (pre-existing): ELF `e_flags=0` (not `EF_ARM_EABI_VER5`) — tolerated by ld/lld in
-  bare-metal tests but may surface when linking EABI5 libgcc/libc in P2/P6; revisit at P2.
+- MINOR (pre-existing) → **RESOLVED (`d9b186d8`, inc 3g).** ELF `e_flags=0` (not
+  `EF_ARM_EABI_VER5`) — tolerated by lld in bare-metal tests but, exactly as foreseen here,
+  it surfaced under GNU `arm-linux-gnueabihf-ld` at P6 ("EABI version 0" → merge refused).
+  Now stamped `EF_ARM_EABI_VER5` for every arm32 object (see inc 3g).
 
 ## Open questions / risks
 
