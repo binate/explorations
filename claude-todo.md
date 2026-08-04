@@ -681,48 +681,33 @@ string-literal box + the earlier scalar/var value-borrow) would let those tests
 drop the `&`.  The non-linted conformance tests (1090/1135) already use the bare
 form.
 
-### fmt: a named scalar type renders as `%!?(unknown)`, not its underlying value — 🟡 OPEN (2026-08-03)
+### fmt: a named NON-scalar type (slice/etc.) renders as `%!?(unknown)` — 🟡 OPEN (2026-08-03)
 
-Follow-up from the all-integer-widths fix (landed `558cf051`): fmt now renders every
-BUILT-IN integer width, but a NAMED scalar type is still not rendered by value.
+Named SCALARS (int/uint/float/bool) now render via reflection under every verb (done
+`75d6e57c` — see the done log). The same `%!?(unknown)` still hits a distinct named
+NON-scalar type that `scalarReflect` doesn't cover and that has no `String()`:
 
-    type Celsius int
-    var t Celsius = 20
-    fmt.Printf("%v %d", &t, &t)   // %!?(unknown) %!d(?=%!?(unknown))
+- A named char-SLICE — e.g. `testing.TestResult` once it became `type TestResult
+  @[]char` (`19f9d86c`): `fmt.Println(aTestResult)` prints `%!?(unknown)` because the
+  boxed dynamic type is the named `TestResult`, not the structural `@[]char` that
+  fmt's char-slice arm matches. Latent today (the `--test` runner assigns the result
+  into an `@[]char` before printing), but the same footgun. Go prints the text.
 
-A named type is a distinct dynamic type, so it matches none of fmt's built-in
-`case int:` / etc. arms — this is deliberate: it is what lets a `type Money int`
-with its own `String()` still dispatch through `lang.Stringer` rather than print as
-a bare number. But when the named type has NO `String()`, fmt has no fallback:
-unlike a struct (which `%v` field-dumps via reflection), a top-level named SCALAR has
-no reflection path, so it lands on the `%!?(unknown)` placeholder. Real Go reflects
-into the underlying kind and prints the value (`%v` → `20`, `%d` → `20`; note `%d`
-does NOT consult Stringer).
+Fix: peel transparent wrappers (named/alias) in the `*any` value formatter's dispatch
+before matching, so any distinct named type renders as its underlying — this
+generalizes the scalar-reflection path (`scalarReflect` in `fmt_reflect.bn`, which
+today returns false for KIND_STRING/STRUCT/…) to the char-slice (and other structural)
+kinds. Stringer still wins first (a named type WITH a `String()` already dispatches
+correctly).
 
-Fix: give the `*any` value formatter a top-level scalar-reflection path — when the
-dynamic type is a named scalar (a `reflect.TypeInfo` of KIND_INT/UINT/FLOAT/BOOL with
-no struct field table), read its size+kind and render it like a struct field's scalar
-(the machinery already exists — `writeValue` in `fmt_reflect.bn` formats a scalar
-from (kind, size, ptr)). Stringer still wins first. Decide whether `%d`/`%x`/`%c` of
-a named integer should also render via the underlying kind (Go: yes). NOT a
-regression — named scalars never rendered; surfaced by the adversarial review of the
-widths fix. When this lands, update `TestSprintfNamedIntNotSwallowed` in
-`fmt_printf_fields_test.bn` (its `%!?(unknown)` / `%!d(?=42)` expectations become the
-rendered value; the "not swallowed by intOperand" invariant still holds — the value
-must come from the reflection path, not a `case int32:` arm). Tests: a `type Celsius
-int` (no String()) under `%v`/`%d`, plus a Stringer'd named type confirming String()
-still wins under `%v`/`%s`.
-
-**Also affects a named SLICE, not just scalars (confirmed 2026-08-03):** the same
-`%!?(unknown)` hits a distinct named char-slice — e.g. `testing.TestResult` once it
-became `type TestResult @[]char` (`19f9d86c`): `fmt.Println(aTestResult)` prints
-`%!?(unknown)` because the boxed dynamic type is the named `TestResult`, not the
-structural `@[]char` that fmt's char-slice arm matches. Latent today (the `--test`
-runner assigns the result into an `@[]char` before printing), but the same footgun.
-A general fix — peel transparent wrappers (named/alias) in the `*any` value
-formatter's dispatch before matching, so any distinct named type renders as its
-underlying — would cover both the scalar and the slice manifestations (Stringer
-still wins first; a named type WITH a `String()` already dispatches correctly).
+**Minor sign-aware edge (from the named-scalar review, `75d6e57c`):** `signAwareFor('v')`
+treats any integer-kind operand as sign-aware, but `%v` of a named int WITH a user
+`String()` renders that OPAQUE text — so `%08v` of such a value whose `String()` starts
+with `-` splits the sign (`-000x`) instead of front-padding (`000-x`), diverging from
+Go (which treats Stringer output as an opaque string). Rare (needs a named int with a
+sign-prefixed `String()` under the `0` flag + width). A clean fix must distinguish
+"renders as a number" from "renders via Stringer" for the sign-aware decision, e.g.
+`intOperandBuiltin(arg).ok || (scalarReflect numeric && !tryStringer)`.
 
 ### fmt cannot print an `os.Args()` / `os.Env()` element — a `readonly`-qualified slice misses every case — 🟡 OPEN (2026-08-03)
 

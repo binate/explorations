@@ -6,6 +6,36 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## fmt renders a named SCALAR type via reflection under every verb — ✅ DONE (`75d6e57c`, 2026-08-03)
+
+**Was:** a named scalar type (`type Celsius int` / `Ratio float64` / `Flag bool`) is a
+distinct dynamic type that inherits none of its underlying's impls, so it matched none
+of fmt's built-in type cases and rendered `%!?(unknown)`. (Built-in scalars were
+already covered by the widths fix `558cf051` + the fact that Binate scalars implement
+`lang.Stringer`.)
+
+**Fix:** a shared `scalarReflect(arg) -> (kind, size, ptr, ok)` (reflect.TypeOf/DataOf,
+true for KIND_INT/UINT/FLOAT/BOOL). `intOperand` gained a reflection fallback so every
+typed integer verb (%d/%x/%o/%b/%c/%q, width) renders a named int numerically;
+emitFloat/emitBool/isFloatArg/isFiniteFloatArg got the parallel fallback for named
+float/bool; argTypeName names a named type via its RTTI record for an inapplicable
+verb. `writeArg`'s %v/%s default is a three-tier order that PRESERVES fmt's
+"format built-ins with its own strconv" rule (even though Binate scalars all implement
+`lang.Stringer`): (1) `intOperandBuiltin` — a built-in integer via fmt's strconv,
+checked FIRST so it never defers to its lang `String()`; (2) `tryStringer` — a user
+`String()` wins for a named type / struct (%v/%s, matching Go); (3) `scalarReflect` — a
+named scalar without a `String()` via `writeValue`. Typed verbs don't consult Stringer,
+so a named int with a `String()` prints its number under %d but its `String()` under
+%v — matching Go. Tests: `TestSprintfNamedScalar` + conformance `1171_fmt_named_scalar`
+(byte-identical LLVM + VM + native aarch64).
+
+**Investigation note:** en route, a boxed built-in `int` satisfying `.(*lang.Stringer)`
+looked like spurious interface-satisfaction, and was escalated as a compiler bug — but
+root-causing found it is CORRECT: Binate scalars implement `Stringer` by design
+(`impl int/bool/float64 : Stringer`, lang.bn; conformance 1138 relies on it). No
+compiler bug. Two minor edges remain open (named NON-scalar rendering + a `%0Nv`
+sign-aware corner) — see the active todo.
+
 ## `pkg/bootstrap` slimming: `Exec()` and `Args()` retired — ✅ DONE (2026-08-03)
 
 Two of the last non-`print`/`println` primitives are gone from `pkg/bootstrap`,
