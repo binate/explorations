@@ -35,6 +35,31 @@ test: a compiled/native higher-order fn calling a VM callback that indexes OOB, 
 the program aborts (not returns 0). Tracked against Plan 2
 (`explorations/plan-rt-fault-cleanup-pads.md`).
 
+## Documentation hygiene
+
+### Code comments reference only normative docs + TODOs; rehome the implementation "specs" — 🟡 OPEN
+
+Policy (in effect): code comments must not reference plan/design/notes docs.
+The only doc references allowed in comments are **normative docs** (the
+specification under `docs/spec/`) and clearly-labeled TODOs. Plan/design-doc
+pointers (`plan-*.md`, `design-*.md`, `notes-*.md`) are being stripped repo-wide
+so each comment stands on its own (Comments Stand Alone). Deferred follow-ups:
+
+1. **`ir-backend-guidelines.md` needs a real home.** It is an implementation
+   "spec" (the authoritative IR / backend / layout boundary), currently just a
+   loose `explorations/` doc. Code-comment references to it are **kept for now**
+   (treated as normative). Give it a proper home — a spec annex or a docs/
+   implementation-spec section — so those references point at a real spec.
+2. **`pkg-layout-spec.md` needs splitting + cleanup.** It mixes external
+   (normative) and internal (implementation) specification; split the two and
+   clean up. Code-comment references to it are **kept for now**.
+3. **`claude-notes.md` code references (~41) — replace with spec references
+   where they belong in the spec.** During the comment-sweep, pure-pointer
+   `claude-notes.md` references whose comments stand alone are stripped; where a
+   comment genuinely needs the normative content, the pointer should be replaced
+   with the corresponding spec reference rather than deleted. Any such
+   references left un-stripped by the sweep are tracked here.
+
 ## Test-flake watch
 
 Intermittent, load-/environment-dependent test failures tracked for recurrence —
