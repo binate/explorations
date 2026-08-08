@@ -112,15 +112,20 @@ from injected-native code under the VM. Each landed after a minimal adversarial 
 Tests: conformance 1178/1179/1180 (S1/S2) + 1190/1191/1192 (S3), all under
 `builder-comp-int` (the VM leg that failed).
 
-**Remaining follow-ups (tracked in `plan-iface-crossmode.md`, both EMBEDDER-only — not
-constructible via the conformance harness, so no impact on normal compiled/interpreted
-programs):** (1) a nested interface value in a by-value struct **ARGUMENT** to an injected
-function (return-side nesting IS handled; the arg side would need a per-call field-offset
-side-table — no injected stdlib function has such a signature); (2) S3 narrowed the
-func-value `Aux` retbuf field to 16 bits (placing the iface bitmap at `Aux[16,22]`), which
-only bites an embedder injecting a native function returning a ≥64 KB by-value aggregate
-called as a func value — cheap fix (move the 7-bit bitmap to free `Aux[23,31]`) noted in
-the plan.
+**Follow-ups — BOTH RESOLVED (S4 `1651c29f`, 2026-08-08).** The "embedder-only" framing was
+superseded per the directive that injecting a package is a GENERAL capability, so both were
+fixed properly: (1) a nested interface value in a by-value struct **ARGUMENT** to an
+injected function is now substituted — the flat top-level iface bitmap was replaced with a
+per-call recursive ARG-IFACE-LAYOUT (the caller-side analog of the return-side
+`ResultIfaceVtOffsets`), handling top-level AND nested-in-struct/array iface args at all
+three dispatch sites (`dispatchExternBinding` + the two sibling dispatchers); tested via a
+crafted-package injection VM unit test. (2) Removing the bitmap from `Imm`/`Aux` vacated the
+bits, restoring the func-value + iface-method retbuf fields to full width (the proper fix,
+not relocating the bitmap), with fail-loud guards added on the narrowed fields. Landed on
+top of the concurrent cross-mode `testing.Println` work (`9d0a1b14`), merging its orthogonal
+`sliceIfaceBits` (slice-of-iface elements) mechanism with the arg-layout — the two target
+disjoint arg slots (the layout deliberately does not recurse into slices). Both the fix and
+the merge resolution were review-clean.
 
 ## testing.Println works under the bytecode VM: cross-mode variadic marshalling + RTTI — ✅ DONE (`236cf255` + `9d0a1b14`, 2026-08-07)
 

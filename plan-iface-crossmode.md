@@ -39,18 +39,22 @@ RETURNS + sibling dispatchers `dispatchCompiledFuncValue`/`dispatchCompiledIface
 tests 1190/1191/1192). Each landed after a minimal adversarial review. The `errors.Is`
 MAJOR is FIXED and the realistic generality is complete — a bytecode (user) interface
 impl now works when passed to, dispatched by, RefDec'd by, AND returned from
-injected-native code under the VM. **Two documented follow-ups remain, both
-embedder-only (not constructible via the conformance harness, so untested here):**
-1. A nested interface value in a by-value struct **ARGUMENT** to an injected function.
-   Return-side struct nesting IS handled (`collectIfaceVtOffsets` recurses); the arg
-   side needs a per-call field-offset side-table (the 7-bit `Imm`/`Aux` bitmap can't
-   carry per-arg offset lists). No injected stdlib function has such a signature.
-2. S3 narrowed the func-value `Aux` retbuf field to 16 bits (was effectively uncapped)
-   by placing the iface bitmap at `Aux[16,22]`; only bites an embedder injecting a
-   native function returning a **≥64 KB by-value aggregate** called as a func value.
-   Cheap fix: move the 7-bit bitmap to free `Aux[23,31]`, restoring the wider retbuf
-   field (matches the pre-existing 16-bit cap on the iface-method path, which could be
-   widened the same way).
+injected-native code under the VM. **The two former follow-ups are now ALSO RESOLVED
+(S4 `1651c29f`, 2026-08-08)** — injecting a package is a GENERAL capability, so both were
+fixed properly rather than left embedder-only:
+1. **Nested interface value in a by-value struct ARGUMENT — DONE.** The flat top-level
+   iface bitmap was replaced with a per-call recursive ARG-IFACE-LAYOUT (`VMFunc.
+   ArgIfaceLayouts`; `buildArgIfaceLayout` in `lower_slots.bn`; `substArgSlotIface`/
+   `substituteLayoutArgs` in `vm_iface_crossmode.bn`) — the caller-side analog of the
+   return-side `ResultIfaceVtOffsets`, recursing into struct/array fields, applied at all
+   three dispatch sites. Tested via a crafted-package injection VM unit test (the general
+   capability, since a conformance `.bn` can't call `RegisterExtern`).
+2. **Retbuf-field narrowing — DONE.** Removing the bitmap from `Imm`/`Aux` vacated the bits,
+   restoring the func-value + iface-method retbuf fields to full width (the proper fix, not
+   relocating the bitmap), with fail-loud guards on the narrowed fields. Merged with the
+   concurrent cross-mode `testing.Println` `sliceIfaceBits` mechanism (disjoint arg slots;
+   the layout deliberately doesn't recurse into slices). Both the fix and the merge were
+   review-clean. **The interface-crossmode project is complete.**
 
 - **S1 — native dispatch → handle-based (behavior-preserving refactor).** Make
   `@__ivt` method slots handles (`useHandles=true`; unify with `@__ivtshim`), and
