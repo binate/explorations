@@ -76,7 +76,12 @@ builder-comp-comp 2911/0; unit tests ir/codegen/vm/interp + native x64/aarch64/a
 hygiene 18/18. 1182 passes all modes incl. nested; the ~29 direct-primitive-call tests
 (411 stringer, 412 compare, tier0, generic-constraint) pass. Builds on the partial RTTI
 registration landed earlier in `9d0a1b14` (typeinfos/ifaceids only); this completes the
-functions/direct-call half.
+functions/direct-call half. Follow-up `dfa4437d` adds a direct `ir` unit test for the
+`IsPrimitiveMethod` flag (primitive value receiver flagged, `*Point` pointer receiver
+not). 1182 was subsequently confirmed passing across the FULL mode matrix — all six
+default modes + native aa64/x64 + LLVM & native arm32 baremetal (arm32-linux only unrun
+locally, gated on a missing `qemu-arm`) — so `testing.Print`/`Println` is ready to adopt
+in conformance test programs (the `print`/`println` retirement target).
 
 ## VM SIGSEGV in `errors.Is` over a USER-defined `errors.Error` — cross-mode iface dispatch — ✅ DONE (S1 `56826ba8` / S2 `5324048b` / S3 `885c5d8b`, 2026-08-03..07)
 
