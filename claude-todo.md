@@ -566,8 +566,7 @@ text):
 
 Fix: reuse the KIND_STRING reflection recovery — ideally a shared
 `stringDynamic(arg) -> (bytes, ok)` helper peeling named/alias/readonly — at these
-sites too. A real-`os.Args()`→fmt e2e is still worth adding (conformance `1196`
-covers the exact dynamic type synthetically; `e2e/os-args.sh` has the harness).
+sites too.
 
 **Minor sign-aware edge (from the named-scalar review, `75d6e57c`):**
 `signAwareFor('v')` treats any integer-kind operand as sign-aware, but `%v` of a

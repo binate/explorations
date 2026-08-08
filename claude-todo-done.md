@@ -275,9 +275,11 @@ words, no alloc/RefInc. Stringer still wins first. Because `%s`/`%v`/`%+v`/the e
 verbs funnel their default through writeArg, the one change covers Print/Println/
 Sprint + Printf `%s`/`%v`. Test: conformance `1196_fmt_wrapped_string` (named +
 readonly, via Println/%s/%v), green compiled and interpreted; revert-check confirmed
-both facets rendered `%!?(unknown)` without the fix. Residual auxiliary-classifier
-blindness (argIsString / isStringArg / emitBase / emitQuote — all render visibly)
-tracked in `claude-todo.md`.
+both facets rendered `%!?(unknown)` without the fix. `e2e/fmt-os-args.sh`
+(`5e2c9aed`) additionally pins the REAL `os.Args()` element through fmt `%s` on
+both the compiled and interpreted paths (the conformance runner passes no args).
+Residual auxiliary-classifier blindness (argIsString / isStringArg / emitBase /
+emitQuote — all render visibly) tracked in `claude-todo.md`.
 
 ## fmt renders a named SCALAR type via reflection under every verb — ✅ DONE (`75d6e57c`, 2026-08-03)
 
