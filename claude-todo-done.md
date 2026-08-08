@@ -6,6 +6,50 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## VM SIGSEGV in `errors.Is` over a USER-defined `errors.Error` — cross-mode iface dispatch — ✅ DONE (S1 `56826ba8` / S2 `5324048b` / S3 `885c5d8b`, 2026-08-03..07)
+
+**Was:** a MAJOR hard crash — `bni` (VM) segfaulted classifying a user-defined error via
+injected-native `errors.Is`, while the same program compiled with `bnc` ran fine. It hit
+any program that defines its own error type (the encouraged way to carry structured
+failure data) and then calls `errors.Is` over it, and broke that program's `bni --test`
+run (green compiled, crash interpreted). Minimal repro: a `@leaf : errors.Error` impl and
+`errors.Is(as, as)` → SIGSEGV under `bni`, correct under `bnc`. Discovered writing the
+`errors` example in binate/examples (a `ParseError` carrying a line number), which was
+blocked on this.
+
+**Root cause:** an interface value is a `{data, vtable_word}` fat pointer, and the VM
+discriminates `vtable_word` BY RANGE (`ifaceVtIsNative`): a 1-based index into
+`vm.IfaceVtables` for a bytecode-lowered impl (a small int — the crash's `0x35` = 53) vs a
+native `@__ivt` address for an injected-compiled impl. An INJECTED-NATIVE function
+(`errors` is in `stdPkgs()`, so `errors.Is` runs as compiled native) was codegen'd to
+treat `vtable_word` as a native pointer UNCONDITIONALLY, and the bytecode→native
+marshalling packed args raw without translating the word. So a bytecode (user) impl's
+iface value reaching native `errors.Is` had its index (53) dereferenced as a pointer →
+SIGSEGV (on the `@Error` arg RefDec / `Unwrap` dispatch; `same`/`present` only compare the
+word, never deref, which is why they passed).
+
+**Fix** (per `explorations/plan-iface-crossmode.md`): unify native interface method
+dispatch onto the func-value HANDLE convention across all four backends (S1 `56826ba8`);
+have the VM build a native handle-vtable per bytecode impl and substitute it for the
+VM-index vtable word of interface ARGUMENTS at `dispatchExternBinding` (S2 `5324048b`);
+extend to the RETURN direction (a native fn returning an `@iface`), iface nested in
+by-value struct RETURNS, and the sibling dispatchers
+(`dispatchCompiledFuncValue`/`dispatchCompiledIfaceMethod`) (S3 `885c5d8b`). A bytecode
+(user) interface impl now works when passed to, dispatched by, RefDec'd by, AND returned
+from injected-native code under the VM. Each landed after a minimal adversarial review.
+Tests: conformance 1178/1179/1180 (S1/S2) + 1190/1191/1192 (S3), all under
+`builder-comp-int` (the VM leg that failed).
+
+**Remaining follow-ups (tracked in `plan-iface-crossmode.md`, both EMBEDDER-only — not
+constructible via the conformance harness, so no impact on normal compiled/interpreted
+programs):** (1) a nested interface value in a by-value struct **ARGUMENT** to an injected
+function (return-side nesting IS handled; the arg side would need a per-call field-offset
+side-table — no injected stdlib function has such a signature); (2) S3 narrowed the
+func-value `Aux` retbuf field to 16 bits (placing the iface bitmap at `Aux[16,22]`), which
+only bites an embedder injecting a native function returning a ≥64 KB by-value aggregate
+called as a func value — cheap fix (move the 7-bit bitmap to free `Aux[23,31]`) noted in
+the plan.
+
 ## testing.Println works under the bytecode VM: cross-mode variadic marshalling + RTTI — ✅ DONE (`236cf255` + `9d0a1b14`, 2026-08-07)
 
 Completes the `testing.Println` VM story (the feature landed `eba239a2`; this makes it
