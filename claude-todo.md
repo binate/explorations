@@ -544,40 +544,30 @@ string-literal box + the earlier scalar/var value-borrow) would let those tests
 drop the `&`.  The non-linted conformance tests (1090/1135) already use the bare
 form.
 
-### fmt char-slice dispatch matches only exact structural spellings — a named or `readonly`-qualified char-slice renders `%!?(unknown)` — 🟡 OPEN (2026-08-03)
+### fmt: auxiliary `*any` classifiers still match char-slices by exact spelling (named / `readonly` blind) — 🟢 LOW (2026-08-08)
 
-`writeArg` (`fmt.bn`) matches char-slices by the four exact type spellings
-(`*[]char`, `*[]readonly char`, `@[]char`, `@[]readonly char`) and peels no
-transparent wrappers — so two kinds of value that ARE char-slices miss every case
-and fall through to `%!?(unknown)`:
+The main value-rendering path is fixed: `writeArg` now recovers a wrapped/qualified
+char-slice via reflection (dynamic type peels to KIND_STRING), so Print/Println/Sprint
++ Printf `%s`/`%v`/`%+v` render an `os.Args()`/`os.Env()` element (`readonly
+@[]readonly char`) and a named `type X @[]char` as text, not `%!?(unknown)` — landed
+`ce758276` (conformance `1196_fmt_wrapped_string`; see done log). The SAME
+qualifier/wrapper blindness remains in the auxiliary classifiers, which still switch
+on only the four exact spellings — all lower-impact (they render VISIBLY, never wrong
+text):
 
-- **Outer `readonly` qualifier — high priority (the single most common thing a
-  program prints).** `os.Args()`/`os.Env()` return `@[]readonly @[]readonly char`,
-  so an element has type `readonly @[]readonly char`, which isn't one of the four:
+- `argIsString` (`fmt.bn`) — Fprint's Go-style inter-operand spacing rule; a named /
+  `readonly` char-slice reads as non-string, so `fmt.Print(a, b)` may add a space Go
+  omits (only Fprint spacing; the text itself renders fine).
+- `isStringArg` (`fmt_printf_fields.bn`) — `zeroPadFor`'s `%08x`-of-a-string zero-pad
+  decision.
+- `emitBase` (`%x`/`%X`) and `emitQuote` (`%q`) char-slice switches
+  (`fmt_printf_fields.bn` / `fmt_printf_quote.bn`) — a named / `readonly` string hits
+  `default → emitBadVerb` (an error verb) instead of being hex-encoded / quoted.
 
-      var a @[]readonly @[]readonly char = os.Args()
-      fmt.Printf("[%s]", a[1])   // [%!?(unknown)]
-      var s @[]readonly char = a[1]
-      fmt.Printf("[%s]", s)      // [world]   <- identical bytes
-
-  Copying into an unqualified local fixes it — the tell that the VALUE is fine and
-  only the type match fails (keeping the qualifier, `var b readonly @[]readonly
-  char = a[1]`, still misses). So a program cannot print its own argv/env directly.
-  Verified on released bnc-0.0.12, compiled and interpreted alike.
-
-- **Named char-slice.** `type TestResult @[]char` (now
-  `pkg/builtins/testing/sys.TestResult`): the boxed dynamic type is the named
-  `TestResult`, not the structural `@[]char`. Latent today (the `--test` runner
-  assigns the result into an `@[]char` before printing), but the same footgun. Go
-  prints the text.
-
-Fix: before the char-slice match, peel transparent wrappers (named/alias) AND strip
-an outer `readonly` where the dynamic type is compared — generalizing the
-named-SCALAR reflection path (`scalarReflect` in `fmt_reflect.bn`, today false for
-KIND_STRING/STRUCT/…) to the structural kinds. Stringer still wins first (a named
-type WITH a `String()` already dispatches correctly). Worth auditing the other
-`*any`-consuming paths (`lang.Stringer` recovery included) for the same
-qualifier/wrapper blindness.
+Fix: reuse the KIND_STRING reflection recovery — ideally a shared
+`stringDynamic(arg) -> (bytes, ok)` helper peeling named/alias/readonly — at these
+sites too. A real-`os.Args()`→fmt e2e is still worth adding (conformance `1196`
+covers the exact dynamic type synthetically; `e2e/os-args.sh` has the harness).
 
 **Minor sign-aware edge (from the named-scalar review, `75d6e57c`):**
 `signAwareFor('v')` treats any integer-kind operand as sign-aware, but `%v` of a
@@ -587,11 +577,6 @@ front-padding (`000-x`), diverging from Go (which treats Stringer output as an
 opaque string). Rare. A clean fix must distinguish "renders as a number" from
 "renders via Stringer" for the sign-aware decision, e.g. `intOperandBuiltin(arg).ok
 || (scalarReflect numeric && !tryStringer)`.
-
-Tests: `fmt_printf_test.bn` cases boxing a `readonly @[]readonly char` and a named
-char-slice, plus an e2e printing `os.Args()[1]` (`e2e/os-args.sh` already has the
-harness). Found writing the `scripting` example in binate/examples (a script echoing
-its arguments).
 
 ### `lang.Stringer` returns `@[]char`, but every string producer returns `@[]readonly char` — 🟡 OPEN (2026-08-02)
 

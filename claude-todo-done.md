@@ -252,6 +252,28 @@ rc=0). Bumped it:
 
 Hygiene 18/18 with the pre1 bnlint accepting the alias.
 
+## fmt renders a NAMED / `readonly`-qualified char-slice as text (not `%!?(unknown)`) — ✅ DONE (`ce758276`, 2026-08-08)
+
+`writeArg`'s fast type switch matched char-slices by the four exact spellings only
+(`*[]char` / `*[]readonly char` / `@[]char` / `@[]readonly char`), peeling no
+wrappers — so a value that IS a char-slice but whose dynamic type carried a NAMED
+wrapper (`type TestResult @[]char`) or an outer `readonly` qualifier fell through to
+`%!?(unknown)`. The `readonly` facet hit the commonest case: `os.Args()`/`os.Env()`
+return `@[]readonly @[]readonly char`, so an element is `readonly @[]readonly char`
+and `fmt.Printf("%s", os.Args()[1])` rendered `%!?(unknown)`.
+
+Fix (one dispatch site): after the built-in / Stringer / named-scalar steps, recover
+a char-slice whose dynamic type peels to KIND_STRING (typeKind's peelToRepr already
+strips readonly/alias/named; isCharElem peels the element's readonly) and render it
+through writeValue's KIND_STRING arm — a pure borrow of the value's {data, len}
+words, no alloc/RefInc. Stringer still wins first. Because `%s`/`%v`/`%+v`/the error
+verbs funnel their default through writeArg, the one change covers Print/Println/
+Sprint + Printf `%s`/`%v`. Test: conformance `1196_fmt_wrapped_string` (named +
+readonly, via Println/%s/%v), green compiled and interpreted; revert-check confirmed
+both facets rendered `%!?(unknown)` without the fix. Residual auxiliary-classifier
+blindness (argIsString / isStringArg / emitBase / emitQuote — all render visibly)
+tracked in `claude-todo.md`.
+
 ## fmt renders a named SCALAR type via reflection under every verb — ✅ DONE (`75d6e57c`, 2026-08-03)
 
 **Was:** a named scalar type (`type Celsius int` / `Ratio float64` / `Flag bool`) is a
