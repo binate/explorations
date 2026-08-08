@@ -13,7 +13,7 @@ Sibling/related work: the FFI **annotation family** (`plan-c-call.md` `__c_call`
 `plan-c-global.md` `__c_global`, the `#[link]` companion sketch in `claude-todo.md`);
 the **motivating use case** (`plan-embeddable-interp.md` / `plan-embeddable-vm.md` /
 `plan-repl-embeddable.md`); `plan-extern-var.md` (`.bni` externs); the **symbol/alias
-& object-format** work (`plan-linker.md`, `plan-macho-dysymtab.md`,
+& object-format** work (`plan-linker.md`, `done/plan-macho-dysymtab.md`,
 `plan-backend-objformat-decoupling.md`); and the **baremetal** entry
 (`plan-arm32-bare-metal.md`).
 
@@ -152,7 +152,7 @@ this plan alone.)
 - **Deliverable:** `#[c_export("foo")] func Foo()` yields a callable C symbol `foo`.
   **Deps:** 2. **This is the MVP-critical emission piece.**
 - **Risks:** the alias primitive is net-new in three object paths (ties to
-  `plan-macho-dysymtab.md` / `plan-linker.md`); getting all three is the bulk of the work.
+  `done/plan-macho-dysymtab.md` / `plan-linker.md`); getting all three is the bulk of the work.
 
 ### Phase 4 — Trivial-forward → symbol alias
 - Recognize the signature-preserving forwarder shape and lower it to a **symbol alias**

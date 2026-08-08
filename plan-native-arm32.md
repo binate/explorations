@@ -14,7 +14,7 @@ derisks the whole pipeline (ELF32 emission, QEMU boot, AAPCS32 ABI, `__aeabi`
 arm32 path was built (baremetal was its v1 — see
 [`plan-arm32-bare-metal.md`](plan-arm32-bare-metal.md)).
 
-Sibling precedents: [`plan-native-x64.md`](plan-native-x64.md) (the second
+Sibling precedents: [`done/plan-native-x64.md`](done/plan-native-x64.md) (the second
 native backend — proves the per-arch package pattern) and the existing
 `pkg/binate/native/aarch64` (the template this backend mirrors 1:1 in file
 decomposition). ILP32 layout background: [`plan-arm32-bare-metal.md`].

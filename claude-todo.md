@@ -229,7 +229,7 @@ See explorations/plan-funcvalue-byaddr-abi.md.
   `packageAccessorType`), IR-gen registers it as an imported extern so calls
   resolve + a `declare` emits (`gen_import.bn`), and `reflect` is force-loaded
   (`ensureReflectLoaded`).  Drives a real immortal node through the compiled
-  RefInc/RefDec sentinel end-to-end (see [`plan-static-managed-sentinel.md`]).
+  RefInc/RefDec sentinel end-to-end (see [`done/plan-static-managed-sentinel.md`]).
 - **What works (VM mode, binate `feadde2c`)**: the earlier "Functions-table
   is genuinely required" finding was too pessimistic.  `__Package` is already
   a real exported per-module symbol, and the IR/func-value path already

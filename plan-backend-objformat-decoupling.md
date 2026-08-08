@@ -10,14 +10,12 @@ format" observation, the design that was acted on, and the four
 resolved decisions behind it.
 
 Complements (does not replace):
-- [`plan-native-x64.md`](plan-native-x64.md) — building out the
+- [`done/plan-native-x64.md`](done/plan-native-x64.md) — building out the
   x86-64 op coverage. That plan picks Linux-ELF as the first runtime
   target and treats macOS-x86-64 as "best-effort / later"; this doc
   argues the Mach-O axis is nearly free *and* unlocks local
   verification, and pins down the one mechanism that plan leaves open
   (symbol-prefix convention).
-- [`plan-x64-elf-e2e.md`](plan-x64-elf-e2e.md) — x86-64 ELF
-  end-to-end tests on Linux CI.
 - [`ir-backend-guidelines.md`](ir-backend-guidelines.md) — the IR /
   backend / layout boundary this work stays within.
 
@@ -53,13 +51,13 @@ backend on Apple-Silicon dev machines**:
   runs locally via `arch -x86_64` (Rosetta 2). That turns amd64 from
   "unit-test-only" into "end-to-end-verifiable on the same machine
   that develops it" — the single biggest safety improvement for
-  building out the amd64 op coverage in `plan-native-x64.md`.
+  building out the amd64 op coverage in `done/plan-native-x64.md`.
 
 Symmetric future win: arm64 → ELF unlocks arm64-Linux without LLVM,
 and shares the format-axis machinery with the arm32 bare-metal/Linux
 work.
 
-CI's primary x86-64 target stays Linux-ELF (per `plan-native-x64.md`
+CI's primary x86-64 target stays Linux-ELF (per `done/plan-native-x64.md`
 decision 2); this doc does not change that. It adds the Mach-O axis
 for **local dev verification** and makes the format a real parameter.
 
@@ -125,7 +123,7 @@ decision 3), so *not* extra knobs:
 x86-64 uses SysV-AMD64 on both macOS and Linux; aarch64 uses AAPCS64
 on both (modulo corners). So calling convention is **arch-determined,
 not OS-determined** — no work needed on that axis. (Windows/Win64 is
-an explicit non-goal, per `plan-native-x64.md`.)
+an explicit non-goal, per `done/plan-native-x64.md`.)
 
 ## Design
 
@@ -215,10 +213,10 @@ So the off-diagonal cells are local-only / optional:
 ## Non-goals
 
 - Changing the CI gate target (stays Linux-ELF per
-  `plan-native-x64.md`).
+  `done/plan-native-x64.md`).
 - Windows/Win64, PIC, AVX — inherited non-goals from
-  `plan-native-x64.md`.
-- Building out amd64 op coverage — that's `plan-native-x64.md`'s job;
+  `done/plan-native-x64.md`.
+- Building out amd64 op coverage — that's `done/plan-native-x64.md`'s job;
   this doc only makes that work locally verifiable.
 
 ## Resolved decisions (2026-05-26 discussion)

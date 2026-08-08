@@ -50,7 +50,7 @@ critical reflection consumer in Binate. RTTI / structured type metadata (Phase A
   - accessor: `mangle.FuncName(pkg, "__Package")` → `bn_F...`
 - The node is an **immortal static-managed** `reflect.Package` riding the
   `rt.STATIC_REFCOUNT` sentinel (see
-  [`plan-static-managed-sentinel.md`](plan-static-managed-sentinel.md)): a 2-word
+  [`done/plan-static-managed-sentinel.md`](done/plan-static-managed-sentinel.md)): a 2-word
   header `{Refcount=STATIC sentinel, FreeFn=0}` laid immediately in front of the
   payload `{Name.data → _pkgname, Name.len = N}`. RefInc/RefDec on the returned
   `@reflect.Package` are no-ops.

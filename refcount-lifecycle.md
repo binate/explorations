@@ -258,11 +258,11 @@ gets a new one).
 where `*[]char` (or `*[]T`) borrows from `@[]char` (or `@[]T`) that gets
 freed by struct dtors. This requires migrating such borrowing sites to use
 `@[]T` (which owns) rather than `*[]T` (which borrows). See
-`design-refcount-axioms.md`.
+`done/design-refcount-axioms.md`.
 
 ## Future (deferred)
 
 - Move optimization for function arguments (skip callee RefInc + temp RefDec)
-- Struct temp cleanup (test 226) — see `design-refcount-axioms.md`
+- Struct temp cleanup (test 226) — see `done/design-refcount-axioms.md`
 - RefInc on slice element reads and struct field reads of @T (currently
   relies on the container staying alive)

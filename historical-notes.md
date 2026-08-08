@@ -57,7 +57,7 @@ landing commit(s)/test(s). Removed 2026-06-04 unless noted.
   no-op RefInc/RefDec on null.
 - **plan-struct-temp-cleanup.md** — RESOLVED (test 226, no xfail). Writeup
   of four failed statement-level attempts before the principled slow-path
-  in `design-refcount-axioms.md`. Nugget: struct-return-move skips the
+  in `done/design-refcount-axioms.md`. Nugget: struct-return-move skips the
   dtor but left an extra field RefInc (the root cause).
 - **plan-vm-64bit-on-32bit.md** — COMPLETE / arm32-validated 2026-05-28
   (commit trail in `claude-todo.md`). Nuggets: "register size == host word

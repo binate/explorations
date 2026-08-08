@@ -14314,7 +14314,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
 - **Conformance tests**: 222 (struct copy managed), 223 (nested struct copy), 224 (struct field assign), 225 (managed ptr scope cleanup).
 - **Detailed writeup**: `explorations/bug-struct-copy-refcount.md`
 - **Plans**: `explorations/plan-copy-constructors.md`, `explorations/plan-interp-struct-copy-refcount.md`
-- **Principled slow path** (2026-04-11): always copy on return, always dtor at scope exit, register struct call results as temps. Tests 226 and 227 now pass on compiled modes. See `design-refcount-axioms.md`.
+- **Principled slow path** (2026-04-11): always copy on return, always dtor at scope exit, register struct call results as temps. Tests 226 and 227 now pass on compiled modes. See `done/design-refcount-axioms.md`.
 - **[]char UAF migration** (2026-04-12): the slow path exposes latent UAFs where `*[]char` (or `*[]T`) borrows from `@[]char` (or `@[]T`) that gets freed by struct dtors. Systematic migration of function return types and callers. Key fixes: `EmitModule`, `llvmType`, `pathJoin`, `FuncRetType` fields, `parser.Errors`/`CheckerErrors` callers, `sliceToChars`/`StrOf` callers, `concatChars`, `quotePath`, test helpers. Also fixed: slice element assignment for nested struct fields (was only handling top-level `@T`/`@[]T`), multi-return assignment for struct variables (missing save-copy-destroy).
 - **Status**: 187/187 conformance on boot-comp, boot-comp-comp, boot-comp-comp-comp. **26/26 boot-comp unit tests pass.** Zero failures.
 - **`--cflag` option** added to bnc for passing flags to clang (e.g., `--cflag -fsanitize=address`). Used with libgmalloc to debug UAFs.
@@ -14377,7 +14377,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
 
 ### ~~Phase 3: unify strings as composite-literal sugar~~ — DONE
 - Plan: `plan-composite-literal-generalization.md` § Phase 3 +
-  `plan-phase3-string-unification.md` (sub-plan).
+  `done/plan-phase3-string-unification.md` (sub-plan).
 - End state: no string-specific IR ops, no `TYP_STRING` kind. String
   literals flow through the same `OP_RODATA_*` ops as user-written
   const-byte composite literals. Backend lowerings are uniform.
