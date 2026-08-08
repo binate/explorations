@@ -998,10 +998,33 @@ Increments:
     (program link + `--test` binary link) via a shared `appendTargetLinkFlags` helper,
     scoped to native arm32-linux (aarch64 native is PC-relative, the LLVM arm32 path emits
     PIC — neither needs it).
-  aarch64/x86-64 ELF output is unchanged; baremetal native stays green (2863/0).  This
-  clears the link wall; the remaining native arm32-linux failures are the inc-3f float
-  shapes (a small tail).  The green e2e RESULT is pending the next CI run (this host has no
-  cross-ld / gnueabihf glibc; validated locally via objdump + readelf -A + the rc=0 merge).
+  aarch64/x86-64 ELF output is unchanged; baremetal native stays green.  The next CI run
+  confirmed the link wall cleared (EABI/PIE link errors → 0) — but it did NOT drop to the
+  inc-3f float tail as hoped; it exposed the DEEPER blocker below (inc 3h): binaries now
+  LINKED but produced zero output.
+
+- **inc 3h — REL relocations (the ACTUAL cause of "links but no output") — ✅ DONE
+  (`4ab2315a`, 2026-08-07).**  With the link wall cleared, the next CI run showed native
+  arm32-linux binaries LINKED and exited cleanly but produced ZERO stdout (~2284 tests;
+  only `empty_main` "passed"; float-free `001_hello` too) — NOT inc-3f, and the LLVM
+  arm32-linux sibling was green (so the env is fine).  Root cause: the native ELF writer
+  emitted **RELA** relocations, but the ARM 32-bit psABI mandates **REL**, and GNU
+  `arm-linux-gnueabihf-ld` (bfd) is REL-only and IGNORES `r_addend` — so it computed
+  `S + 0 - P`, landing every cross-object branch 8 bytes past the callee (→ no output) and
+  every data pointer at the symbol base (→ corrupt reflect/vtable/typeinfo).  Baremetal
+  escaped only because it links with lld (which honors the RELA addend) — NOT because RELA
+  was ever correct for ARM.  Fix: emit REL for EM_ARM (SHT_REL / `.rel.*` / 8-byte
+  Elf32_Rel, no addend word), baking every addend into the field in place
+  (`arm32.ResolveFixups` → `bakeRelAddend`): a branch's `-8` → imm24 `0xfffffe`
+  (byte-identical to clang); a word-absolute reloc (the generic **kind-0** data pointers
+  from the shared data-global emitter, plus FIX_ABS32) → whole-word addend.  Two
+  adversarial reviewers INDEPENDENTLY caught that an interim cut baked only the
+  arm32-specific kinds 200-203 and DROPPED the generic kind-0 data addends (reflect payload
+  `+8`/`+16`), which empirically regressed 6 baremetal iface/type_switch tests; baking
+  kind 0 too restores them.  Verified: REL objects with addends baked (readelf/objdump); all
+  5 ARM fixup kinds covered; baremetal native GREEN (2865/0); 2 new unit tests
+  (`TestBlCrossObjectBakesMinus8`, `TestKind0AbsBakesAddend`).  The arm32-linux green e2e is
+  CI-only (no local qemu-arm/glibc) — pending the next CI run.
 
 ### P7 — CI integration + full sweep
 - **DONE (partial, `0727d0c1`, 2026-07-03):** `builder-comp_native_arm32_baremetal`
@@ -1013,8 +1036,9 @@ Increments:
 - **DONE (`a0c4f301`, 2026-08-03):** `builder-comp_native_arm32_linux` wired into the
   conformance matrix as an **experimental** (non-blocking) entry, same pattern.
 - **Remaining:**
-  - Confirm the next CI run shows the inc-3g link fixes cleared native arm32-linux's
-    link wall (was ~2319/2394 failing at link; should drop to the inc-3f float-shape tail).
+  - Confirm the next CI run shows inc-3g + inc-3h cleared native arm32-linux end-to-end
+    (link wall AND the REL no-output bug both fixed); the residual should now be just the
+    inc-3f float-shape tail (~65 fail-loud shapes).
   - Promote `builder-comp_native_arm32_baremetal` to a blocking `scripts/modesets/all`
     entry — baremetal is FULLY GREEN (2863/0), so this prerequisite is MET; the promotion
     itself is the remaining step.
@@ -1059,13 +1083,18 @@ A minimal adversarial review of P0 (landed `98d5bef6`) and P1 (worktree
 **P1 — correct and complete for what it claims:**
 - Extend encodings + MOVW/MOVT-label fixup recording/offset + ResolveFixups deferral +
   elfRelocType gating all verified bit-exact / correct.
-- RELA-for-ARM (the commit's hedge) empirically refuted as a blocker: both
-  `arm-none-eabi-ld` and `ld.lld` accept + correctly apply RELA
-  R_ARM_MOVW_ABS_NC/MOVT_ABS/ABS32. Not a P2 blocker.
+- RELA-for-ARM — **this earlier "not a blocker" conclusion was WRONG and is now
+  CORRECTED by inc 3h (`4ab2315a`).** It tested only `arm-none-eabi-ld` and `ld.lld`,
+  BOTH of which honor the RELA `r_addend` — but the arm32-LINUX system linker,
+  GNU `arm-linux-gnueabihf-ld` (bfd), is REL-only for ARM and DROPS `r_addend`, mislinking
+  every cross-object ref. RELA-for-ARM violates the psABI; the fix emits REL. Lesson: to
+  judge a linker-compat question, test the ACTUAL target linker (gnueabihf bfd), not
+  whichever local `ld` is handy.
 - RESOLVED: the end-to-end gap (no test drove MOVW/MOVT-ABS through the ELF writer) is
-  filled by `TestWriteArm32ElfMovwMovtReloc` (folded into the P1 commit) — it drives
-  `MovwLabel;MovtLabel;Finalize;WriteARM32` and reads back `.rela.text` to pin the emitted
-  reloc types (43/44), offsets, symbol, and addend.
+  filled by `TestWriteArm32ElfMovwMovtReloc` — it drives
+  `MovwLabel;MovtLabel;Finalize;WriteARM32` and reads back the reloc table to pin the
+  emitted reloc types (43/44), offsets, and symbol.  (Updated by inc 3h: ARM now emits REL,
+  so the test reads `.rel.text` / 8-byte `Elf32_Rel`, not `.rela.text`.)
 - MINOR (pre-existing) → **RESOLVED (`d9b186d8`, inc 3g).** ELF `e_flags=0` (not
   `EF_ARM_EABI_VER5`) — tolerated by lld in bare-metal tests but, exactly as foreseen here,
   it surfaced under GNU `arm-linux-gnueabihf-ld` at P6 ("EABI version 0" → merge refused).
