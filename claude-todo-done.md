@@ -6,6 +6,28 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## string → distinct-named `[N]char` accepts a shorter literal (like the un-named form) — ✅ DONE (`dece7c89`, 2026-08-08)
+
+The checker accepted a shorter string literal into a plain char array (zero-padded)
+but rejected it into a distinct-named char array — `var b [6]char = "ab"` OK, but
+`type Arr [6]char; var b Arr = "ab"` → "cannot assign [2]readonly uint8 to Arr". The
+exact-length named case already worked (via `AssignableTo`'s named-distinct
+transparency arm), and materialization was already correct (`ccc0fbaa`,
+`conformance/1170`); the gap was purely the *shorter-than-N* **assignability** rule.
+
+Root cause: the permissive zero-pad rule lives only in `stringLitInitFitsArray`
+(var-decl + struct-literal-element sites), whose target predicates
+(`isStringWritableArrayTarget` / `stringLitFitsArray`) peel only alias + readonly via
+`peelOuterConstAndAlias`, which stops at `TYP_NAMED` — so a named char array was never
+seen as a writable array target. Fix: peel the named wrapper with `peelNamedBounded`
+on the target before the predicates, mirroring the transparency arm. One-line change
+in `check_expr_composite.bn`; IR-gen needed nothing (`isCharArrayType` already peels).
+Covered by 7 unit tests in `string_lit_test.bn` (plain / two-level chain /
+readonly-element, exact-length regression, over-long still rejected, named non-char
+rejected, struct-field site) and `conformance/1194` (zero-padded tail across all
+contexts, green on LLVM / VM / self-compile / arm32-baremetal). Found while
+adversarially testing the `ccc0fbaa` materialization fix.
+
 ## `pkg/builtins/lang` injected into the VM (last builtin) + nested double-VM cross-mode RTTI fixed — ✅ DONE (`54e6c0c7`, 2026-08-08)
 
 Closes the two residuals the `testing.Println` work spawned: the **lang-in-VM injection**

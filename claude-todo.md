@@ -686,24 +686,6 @@ hatch" sufficient (close this out)?
 
 ## Type-system & checker semantics
 
-### string → distinct-named `[N]char` rejects a shorter literal the un-named form accepts — 🟢 LOW (2026-08-03)
-
-**Severity: low (niche; the exact-length case works).** The checker accepts a
-shorter string literal into a plain char array (zero-padded) but rejects it into a
-distinct named char array:
-
-    var a [6]char = "ab"     // OK — zero-padded to {a,b,0,0,0,0}
-    type Arr [6]char
-    var b Arr = "ab"         // ERROR: cannot assign [2]readonly uint8 to Arr
-
-The exact-length case works for both (`[5]char` / `Arr [5]char` = a 5-char string —
-what the landed `conformance/1170` exercises), so string→named-char-array
-*materialization* is correct (irgen commit `ccc0fbaa`); only the *shorter-than-N*
-**assignability** path fails to peel the named wrapper. Distinct layer from that
-codegen fix — this is a checker-assignability gap. Found while adversarially testing
-the materialization fix. Fix: apply the string→char-array length-permissive
-assignability rule through a distinct-named `[N]char` (peel to the underlying array).
-
 ### `Self`-parameter method is uncallable through a generic constraint (Self binds to the type param, not its base) — 🟠 OPEN (2026-07-03)
 
 **Severity: minor (obscure `Self` corner; the fix is a semantics decision, not a
