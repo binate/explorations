@@ -10567,7 +10567,7 @@ TODO), but untracked here.
 
 ### ~~Recursive closure via self-reassignment returns the snapshot value — ✅ NOT A BUG (documented capture-by-value); optional future ergonomic~~ — 2026-06-11
 - **What was observed**: `var g @func(int) int = func(x int) int { return 0 }; g = func(x int) int { if x <= 1 { return 1 }; return x * g(x-1) }; println(g(5))` → **0**, not 120.  Initially mis-filed as a MAJOR bug during the #123 review; on checking the design it is **intended behavior**.
-- **Resolution — this is the documented, intentional semantics.** `plan-function-values-phase-2.md` §"Capture semantics: always by value": *"Captured locals are snapshot at the moment of the literal's evaluation … Writes to the original outside the closure, after the closure is constructed, are not visible."*  Its own example `x := 5; f := func() int { return x }; x = 10; f()` → `5` is the same mechanism (verified: a scalar capture-then-reassign returns the snapshot; a captured **pointer**'s pointee mutation IS visible — capture a pointer for shared mutable state).  And §"recursion": recursive lambdas are **"Not supported"** explicitly — *"the body would close over the nil/old value the var has at literal-evaluation time, not the closure itself."*  The recursive case captures the `return 0` stub.
+- **Resolution — this is the documented, intentional semantics.** `done/plan-function-values-phase-2.md` §"Capture semantics: always by value": *"Captured locals are snapshot at the moment of the literal's evaluation … Writes to the original outside the closure, after the closure is constructed, are not visible."*  Its own example `x := 5; f := func() int { return x }; x = 10; f()` → `5` is the same mechanism (verified: a scalar capture-then-reassign returns the snapshot; a captured **pointer**'s pointee mutation IS visible — capture a pointer for shared mutable state).  And §"recursion": recursive lambdas are **"Not supported"** explicitly — *"the body would close over the nil/old value the var has at literal-evaluation time, not the closure itself."*  The recursive case captures the `return 0` stub.
 - **Idiomatic recursion**: a NAMED top-level function (self-reference is a static symbol, not a capture) — works; or the documented explicit self-passing form `var step Step = func(self *Step, x int) int { … (*self)(self, x-1) }`.
 - **Only-residual (optional, NOT a bug)**: the recursive-closure form *silently* yields the snapshot rather than a diagnostic.  The design deferred a diagnostic ("cheaper to add later than to take away"); a future ergonomic could warn when a closure captures a var that is `nil`/uninitialized at capture and called within the body.  No action unless the user wants the diagnostic.
 
@@ -10949,7 +10949,7 @@ TODO), but untracked here.
   x86_64-linux `builder-comp_native_x64-comp_native_x64` lane).
 
 ### ~~Float function-values are silently miscompiled in the VM (`-int` modes)~~ — FIXED on main (`7abc3809`)
-- **Plan**: [`plan-float-arg-shim.md`](plan-float-arg-shim.md). Design A
+- **Plan**: [`done/plan-float-arg-shim.md`](done/plan-float-arg-shim.md). Design A
   (uniform all-`int` shim ABI) approved + landed on main `7abc3809`
   (2026-06-03), verified across all default LLVM modes + codegen/vm unit
   tests, hygiene clean. Unblocks the bootstrap native-only work below.
@@ -12462,7 +12462,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
   the MAJOR entries below): `&globalScalar` compiled (`551`), cross-pkg
   managed-ptr value-copy crash (`559`), field-write through an imported
   ptr var (`561`).
-- **Plan**: [`plan-extern-var.md`](plan-extern-var.md).
+- **Plan**: [`done/plan-extern-var.md`](done/plan-extern-var.md).
 - **Discovery**: 2026-06-02, plan-const-readonly step 8.
 
 ### ~~`&G` (address of a global scalar as a value) miscompiles in the compiled backend~~ — RESOLVED 2026-06-03 (binate `99655f4e`)
@@ -13963,7 +13963,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
   throughout.  Documented in CLAUDE.md.
 
 ### Interface embedding/extension — DONE 2026-05-13
-- **Plan**: `plan-interface-embedding.md`.  Design ratified in
+- **Plan**: `done/plan-interface-embedding.md`.  Design ratified in
   `claude-notes.md` § "Interfaces" (extension paragraph) and
   detailed in `claude-discussion-detailed-notes.md` § "Interface
   Extension".  Vtable layout from `claude-plan-1.md` § 2.3.
@@ -14034,7 +14034,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
 - **Downstream**: unblocks `plan-primitives-impl-interfaces.md`
   Slice 2b (`Comparable` / `Orderable` / `Hashable` for
   primitives) and the constrained-generics path in
-  `plan-generics.md` (Slice 3).
+  `done/plan-generics.md` (Slice 3).
 
 ### ~~Method receivers (no interfaces)~~ — DONE
 - Methods supported across all four execution paths: boot (Go
@@ -15121,13 +15121,13 @@ arm32-linux on an x64 host — is carried forward to claude-todo.md. Body kept a
 ### ~~Function values — MAJOR PROJECT (interop prerequisite)~~ — ✅ DONE — all three phases landed (Phase 1 non-capturing, Phase 2 closures/capture, Phase 3 cross-mode trampolines)
 
 All three phases landed. The body's "Phase 2 DEFERRABLE" framing is the pre-completion snapshot —
-`plan-function-values-phase-2.md` is now "COMPLETE (shipped)" (closures + capture; conformance
+`done/plan-function-values-phase-2.md` is now "COMPLETE (shipped)" (closures + capture; conformance
 501/508–510/513). Residual follow-ups (broader trampoline signatures, recursive lambdas, and the
 downstream interop hand-off — tracked under the Compiler/interpreter interop entry) carried forward
 to claude-todo.md. Body kept as the design + phasing record.
 
-- **Plan docs**: `explorations/plan-function-values.md` (parent;
-  Phase 1 COMPLETE) + `explorations/plan-function-values-phase-3.md`
+- **Plan docs**: `explorations/done/plan-function-values.md` (parent;
+  Phase 1 COMPLETE) + `explorations/done/plan-function-values-phase-3.md`
   (cross-mode trampolines; Slices 3.1, 3.1.5, 3.2, 3.3, 3.4 all
   LANDED).
 - **Phase 1 COMPLETE (2026-05-01)**: A.1–A.7 all landed. Type
@@ -15140,7 +15140,7 @@ to claude-todo.md. Body kept as the design + phasing record.
   and capture-rejection. `pkg/ir/gen_call.bn` and
   `pkg/ir/gen_func_lit.bn` extracted to keep file-length hygiene
   clean.
-- **Phase 3 LANDED (per plan-function-values-phase-3.md)**:
+- **Phase 3 LANDED (per done/plan-function-values-phase-3.md)**:
   cross-mode trampolines bridge compiled ↔ VM through a uniform
   always-shim convention `<ret>(*uint8 data, <args>)`. Compiled
   side: per-function `__shim.<mangled>` set in each `__vt.<mangled>`'s
@@ -15225,7 +15225,7 @@ to claude-todo.md. Body kept as the design + phasing record.
   - **Phase 3 — cross-mode trampolines.** LANDED. Per-signature
     (currently per-return-shape: TrampolineScalar) trampolines
     bridge compiled ↔ VM through the always-shim convention.
-    See plan-function-values-phase-3.md for slice-by-slice detail
+    See done/plan-function-values-phase-3.md for slice-by-slice detail
     and the "Phase 3 LANDED" bullet above for the LANDED summary.
     Unlocks the broader interop work; doesn't require Phase 2.
 - **Recursive lambdas — explicit non-goal for Phase 1.** Go-style
@@ -15500,7 +15500,7 @@ to claude-todo.md.
     entrench the hack.  See "Pretty-printer" in plan-repl.md and
     the auto-`println` deferral note.
 - **Decisions / non-decisions in adjacent work to pressure-test**:
-  - **Function values** (`plan-function-values.md`): a function value
+  - **Function values** (`done/plan-function-values.md`): a function value
     must be a *stable identity for what it refers to*, not for the
     bytes of the underlying body. Re-binding the body of an
     interpreted function does not invalidate function values pointing

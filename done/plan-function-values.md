@@ -46,7 +46,7 @@ That promotes function values to an upstream prerequisite for:
 
 `rt.CallDtor` retirement is *not* part of this plan — it lands
 ahead of Phase 1 via the `OP_CALL_INDIRECT` IR op (see
-`done/plan-call-indirect.md`). That op also turns out to be the
+`plan-call-indirect.md`). That op also turns out to be the
 primitive Phase 1's vtable-indirect call sequence is built on,
 so it's upstream of this plan in both senses.
 
@@ -412,7 +412,7 @@ values:
 ## Relationship to `rt.CallDtor` retirement and `OP_CALL_INDIRECT`
 
 `rt.CallDtor` retirement landed via a separate, lighter-weight
-path: the `OP_CALL_INDIRECT` IR op (see `done/plan-call-indirect.md`,
+path: the `OP_CALL_INDIRECT` IR op (see `plan-call-indirect.md`,
 status LANDED). RefDec calls a compiler-internal helper
 `_call_dtor` whose `.bni` declaration is just a type-checking
 shape; IR-gen recognizes the symbol and emits `OP_CALL_INDIRECT`.
@@ -456,7 +456,7 @@ What's not shared:
 
 ## Cross-references
 
-- `done/plan-call-indirect.md` — upstream prerequisite. Defines the
+- `plan-call-indirect.md` — upstream prerequisite. Defines the
   `OP_CALL_INDIRECT` IR op that this plan's vtable-indirect call
   sequence is built on. Lands first; retires `rt.CallDtor` as
   its first concrete consumer.
@@ -489,7 +489,7 @@ What's not shared:
   default was reversed in Phase 3 on IR-gen-cost grounds (see
   "Per-shape `call` shim" above and `plan-function-values-phase-3.md`).
 - ~~**CallDtor retirement path**~~ — DECIDED: separate plan
-  (`done/plan-call-indirect.md`). The `OP_CALL_INDIRECT` IR op also
+  (`plan-call-indirect.md`). The `OP_CALL_INDIRECT` IR op also
   serves as Phase 1's foundation.
 - **Vtable type identity across packages**: two
   `*func(int) int` from different packages must use the same

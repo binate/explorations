@@ -339,7 +339,7 @@ Load-bearing subtleties discovered during the B.1..B.6 implementation
 
 - [plan-function-values.md](plan-function-values.md) — Phase 1
   substrate + Phase 3 trampolines. This plan slots between.
-- [done/plan-call-indirect.md](done/plan-call-indirect.md) — IR primitive
+- [plan-call-indirect.md](plan-call-indirect.md) — IR primitive
   that vtable dispatch is built on.
 - [claude-discussion-detailed-notes.md](claude-discussion-detailed-notes.md)
   §"Closures" — source of the by-value capture decision.

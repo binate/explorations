@@ -332,7 +332,7 @@ warning.
     definition" — this plan implements that decision for the
     remaining decl kinds.
 
-  - **`plan-function-values.md`:** no direct interaction.
+  - **`done/plan-function-values.md`:** no direct interaction.
     Function value identity is about stable handles to a
     binding; pending decls don't yet have a binding to point
     at.

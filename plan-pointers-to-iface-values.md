@@ -140,7 +140,7 @@ array / field composition.
 - `claude-notes.md` § "Interfaces" — design summary (line 421
   enumerates the pointer-to-iv shapes)
 - `plan-interface-syntax-revision.md` — base iface-value design
-- `plan-interface-embedding.md` — interface extension (orthogonal
+- `done/plan-interface-embedding.md` — interface extension (orthogonal
   but the same vtable-shape machinery)
 - `claude-todo.md` § "Pointers to interface values" — TODO entry
   this plan supersedes

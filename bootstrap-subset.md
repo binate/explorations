@@ -305,7 +305,7 @@ func divmod(a int, b int) (int, int) { return a / b, a % b }
 **Supported (added 2026-05-01):**
 - Function values (`*func(...)` / `@func(...)`) and non-capturing
   function literals `func(x int) int { ... }` — Phase 1 of
-  `plan-function-values.md` (Slices A.1–A.7). Cross-mode dispatch
+  `done/plan-function-values.md` (Slices A.1–A.7). Cross-mode dispatch
   (compiled ↔ VM) also LANDED via Phase 3 (Slices 3.1–3.4).
   Conformance tests 338–342 + 344 cover each slice.
 
@@ -523,7 +523,7 @@ structures for different key/value types).
 ### Function Literals and Closures
 Non-capturing function literals (`func(x int) int { ... }`) are supported, as are
 function values (`*func(...)` / `@func(...)`) — see Phase 1 of
-`plan-function-values.md`. Closures (literals that capture enclosing-scope locals)
+`done/plan-function-values.md`. Closures (literals that capture enclosing-scope locals)
 and method values (`x.M`) are not yet supported and depend on Phase 2 capture
 design.
 

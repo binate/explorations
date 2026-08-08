@@ -12,7 +12,7 @@ reviewed against the codebase; the phase scoping below reflects that pass.
 Sibling/related work: the FFI **annotation family** (`done/plan-c-call.md` `__c_call` ✅,
 `plan-c-global.md` `__c_global`, the `#[link]` companion sketch in `claude-todo.md`);
 the **motivating use case** (`plan-embeddable-interp.md` / `plan-embeddable-vm.md` /
-`plan-repl-embeddable.md`); `plan-extern-var.md` (`.bni` externs); the **symbol/alias
+`plan-repl-embeddable.md`); `done/plan-extern-var.md` (`.bni` externs); the **symbol/alias
 & object-format** work (`plan-linker.md`, `done/plan-macho-dysymtab.md`,
 `done/plan-backend-objformat-decoupling.md`); and the **baremetal** entry
 (`plan-arm32-bare-metal.md`).

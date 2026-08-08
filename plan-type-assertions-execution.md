@@ -511,7 +511,7 @@ self-compile continuing to pass.
 >       while module B (only `@any(t)`) emits sat={any} — two weak defs of
 >       `__typeinfo.<T>`, linker picks one arbitrarily → a valid `t.(*Dog)` can fail.
 >       **Root cause is fundamental:** Binate allows **cross-package impls** (no
->       orphan rule — plan-cross-package-interfaces.md §2), so NO single TU (not even
+>       orphan rule — done/plan-cross-package-interfaces.md §2), so NO single TU (not even
 >       T's defining package) sees T's complete impl set. `weak_odr` duplicate-OK
 >       fixes per-`(T,J)` *vtables* (byte-identical), but not a per-*type* aggregate.
 >       **The completeness-contract fork (USER'S CALL — changes the record shape

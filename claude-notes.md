@@ -608,7 +608,7 @@ Cross-package interfaces are feature-complete (canonical (R, I) mangling, qualif
 
 **`Self` type in interface declarations** (implemented 2026-05-13): a reserved type identifier valid only inside interface method signatures. Substituted with the receiver type at impl-collection time; methods that mention `Self` in non-receiver positions are rejected at interface-value call sites (object-unsafe per Rust's terminology) and reachable only through generic constraints where the implementing type is statically known. See dedicated section above for the full design.
 
-**Interface extension** (implemented 2026-05-13, plan-interface-embedding.md): syntax `interface X : I1, I2, ... { methods }`, mirroring `impl T : I1, I2`. Parents are listed once between `:` and `{` — no interspersing parents and methods, no anonymous embedding (Binate has no anonymous interfaces). Empty body is allowed. Distinct from aliases: `interface X = A` is an alias (same identity); `interface X : A {}` is a distinct interface that requires exactly A's methods. `impl T : Child` transitively satisfies all ancestors. `*Child → *Parent` is a static, nominal upcast — no runtime query (Binate is nominally typed; there is no Go-style structural satisfaction check). Cross-package extension (parent in another package) works the same.
+**Interface extension** (implemented 2026-05-13, done/plan-interface-embedding.md): syntax `interface X : I1, I2, ... { methods }`, mirroring `impl T : I1, I2`. Parents are listed once between `:` and `{` — no interspersing parents and methods, no anonymous embedding (Binate has no anonymous interfaces). Empty body is allowed. Distinct from aliases: `interface X = A` is an alias (same identity); `interface X : A {}` is a distinct interface that requires exactly A's methods. `impl T : Child` transitively satisfies all ancestors. `*Child → *Parent` is a static, nominal upcast — no runtime query (Binate is nominally typed; there is no Go-style structural satisfaction check). Cross-package extension (parent in another package) works the same.
 
 **Vtable layout for extension** (per `claude-plan-1.md` § 2.3 and `claude-discussion-detailed-notes.md` § "Interface Extension"): the vtable for `(R, X)` where `interface X : I1, I2 { own1; own2 }` is the concatenation `[any-block][full vtable of (R, I1)][full vtable of (R, I2)][R's own1, own2]`. All interfaces implicitly extend `any`, so every interface vtable starts with the `any`-block at offset 0 — holds the destructor pointer and is the natural home for further language-defined slots (e.g., a `*TypeInfo` pointer if RTTI is added). Layout is recursive: each parent's "full vtable" itself starts with its own `any`-block. Conversion `*X → *Parent` is a fixed compile-time pointer offset; no swap, no lookup. Some `any`-block content is duplicated at every nested origin in exchange for uniform fixed-offset conversion.
 
@@ -774,7 +774,7 @@ The practical effect: `*Comparable` is a useful type for interface-value variabl
 
 **Open: Self in struct types.**  Could `type Foo struct { next *Self }` work as syntactic sugar for the self-recursive case?  Currently expressed via the type's own name: `type Foo struct { next *Foo }`.  Not motivated by anything; defer.
 
-**Status.**  DECIDED 2026-05-12.  Implementation tracked downstream when the relevant slice lands (`plan-primitives-impl-interfaces.md` Slice 2b uses Self for `Comparable` / `Orderable` / `Hashable`; `plan-generics.md` constraint check uses it for `[T Comparable]`-style constraints).
+**Status.**  DECIDED 2026-05-12.  Implementation tracked downstream when the relevant slice lands (`plan-primitives-impl-interfaces.md` Slice 2b uses Self for `Comparable` / `Orderable` / `Hashable`; `done/plan-generics.md` constraint check uses it for `[T Comparable]`-style constraints).
 
 ### Syntax direction — DECIDED
 
@@ -1211,12 +1211,12 @@ form); cross-shape smoothing applies:
   footgun: capture-by-value snapshots the variable's pre-assignment
   value, so the closure closes over a stale value, not itself, and a
   recursive self-call silently misbehaves — recursive lambdas are
-  unsupported by design, see plan-function-values-phase-2.md). The
+  unsupported by design, see done/plan-function-values-phase-2.md). The
   compiler stays silent (errors-only policy); the linter flags it.
   Implemented in `pkg/binate/lint/recursive_closure_capture.bn`
   (binate `b634773d`).
 
-Cross-reference: [plan-function-values-phase-2.md](plan-
+Cross-reference: [done/plan-function-values-phase-2.md](plan-
 function-values-phase-2.md) for the implementation slices
 B.1..B.6 (capture analysis, closure struct / dtor / shim,
 heap-alloc for `@func`, method values, linter rules, docs)
