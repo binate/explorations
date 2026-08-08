@@ -974,11 +974,45 @@ Increments:
     returns in the VFP register file (d0-d3 pack/collect) + reconcile codegen's `NeedsSret`
     for arm32-hard.  NOT failing today — HFAs ride the GP/sret path, self-consistent
     native↔LLVM; this is gnueabihf-VFP correctness polish, the largest piece.
-  - **(b) float through the func-value/closure/iface/indirect SHIMS — OPEN, the failing
-    tail.** Currently fail-loud via the inc-3d guards (~65 conformance fails in the post-3h
-    CI run: 46 func-value + 12 iface + 4 closure + 3 shim); needs the GP↔VFP marshal +
-    float-return shim shapes.  Also blocks the native `--test` unit sweep (the test-runner
-    harness itself uses a float func-value shim → P7 prerequisite).
+  - **(b) float through the func-value/closure/iface/indirect SHIMS — the failing tail
+    (~65 fails), sub-split by marshal mechanism (recon + adversarial review 2026-08-08).**
+    A scalar float rides a VFP register on BOTH the shim's incoming ABI and the underlying's
+    (the synthetic GP data/retbuf/receiver prefix consumes no VFP register — `CallArgFpReg`
+    walks a float-only occupancy mask, so VFP placement is prefix-insensitive), so it passes
+    through untouched.  A float INSIDE a single aggregate rides the GP-coerce/by-address/sret
+    path (HfaAggregates false, native↔LLVM agree — this is NOT the VFP-HFA of (a); the recon
+    corrected the earlier "in-aggregate ⇒ needs (a)" framing).  A float leaf in a
+    REGISTER-returned multi-return tuple rides a VFP return register (d0-d3) that the shim's
+    GP-only multiret store can't read (a silent-miscompile trap — the "scalar float only"
+    framing was itself incomplete).  Buckets:
+    - **(b1) scalar float params/returns — func-value/method/iface/indirect — ✅ DONE
+      (`4a6b765f`, 2026-08-08).**  The shared shim GP marshal SKIPS float scalars
+      (`hardFloatShimSkipArm32`) — they ride VFP, invisible to the GP cursor; the func-value
+      shim-body guard + the 3 call-site guards narrow from "any float leaf" to the still-
+      unhandled shapes (`funcValueShimUnhandledFloatB1Arm32` / `callInstrUnhandledFloatB1Arm32`
+      in `arm32_shim_float.bn`); the over-budget spill shim + closures stay fail-loud.
+      Validated: native/arm32 unit tests (marshal-skip proven by the 4-vs-8-byte tail-branch
+      delta + the 8-vs-9-doubles VFP-bank-spill boundary), a native arm32-linux compile
+      (objdump: shims are bare tail-branches, call sites VMOV floats to/from VFP), conformance
+      1195 (host/VM/baremetal-native), 3-lens adversarial review clean.
+    - **(b1b) scalar float params/returns through the CLOSURE shim body — OPEN.**  Reuses the
+      b1a marshal-skip; only the closure guard (`closureHasFloatPartsArm32` /
+      `closureResultHasFloatPartArm32`) needs narrowing.  A float CAPTURE stays fail-loud (b4).
+    - **(b2) float-in-single-aggregate through the shims — OPEN, pure guard-narrow.**  Already
+      rides the existing GP-coerce/sret/pack path; narrow the guards to allow it (verify the
+      emitters copy a float-containing aggregate and the LLVM shim emits i8*/retbuf, not
+      VFP-HFA).  ~9 conformance tests (706, 883/884, 969/970, 985-989).
+    - **(b3) float leaf in a REGISTER-returned multi-return tuple — OPEN, silent-miscompile
+      trap.**  Wire the shim multiret collect/store (`emitMultiRetPackShim` /
+      `storeMultiReturnTupleFieldsArm32` / the spill usePackMulti) to the FP-aware VFP-return
+      handling (mirror `arm32_call_hard.bn`).  MUST stay fail-loud until done.  ~19 test cells
+      (705, 975, 976 + matrix).
+    - **(b4) float CAPTURES in closures + VFP-bank-spill / spill-shim-float follow-ups —
+      OPEN.**  A float capture needs a memory→VFP load (VLDR from the closure data block) plus
+      a VFP up-shift of float user params by the float-capture FP-reg count; plus the deferred
+      VFP-bank-spilled-float and over-budget-spill-shim-float marshals.
+    Closing (b1b)+(b2)+(b3) unblocks the native `--test` unit sweep (the test-runner harness
+    itself uses a float func-value shim → P7 prerequisite).
   - **(c) int64↔float casts under gnueabihf — ✅ DONE / NO CODE NEEDED (test `e02d8b24`,
     2026-08-08).**  The concern (inc-3b kept int64↔float on the AEABI libcalls) turned out
     already-correct: the `__aeabi_*` helpers use the SOFT (core-register) convention even
