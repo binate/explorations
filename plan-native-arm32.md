@@ -969,14 +969,26 @@ Increments:
   to inc 3f.  Wiring the mode into the CI conformance matrix is a separate, user-owned
   step (not done here).
 
-- **inc 3f — deferred hard-float shapes (follow-up, fail-loud today):**
-  - single float-aggregate (HFA struct/array) args/params/returns in the VFP register
-    file (d0-d3 pack/collect) + reconcile codegen's `NeedsSret` for arm32-hard (today
-    they ride GP/sret like soft — correct + self-consistent, just not gnueabihf-VFP).
-  - float through the func-value/closure/iface/indirect SHIMS (fail-loud via the inc-3d
-    guards; needs the GP<->VFP marshal + float-return shim shapes).
-  - the AEABI int64<->float helper result convention under gnueabihf (returns the double
-    in d0, not r0:r1) — the int64<->float casts stay on AEABI (inc 3b flagged decision).
+- **inc 3f — deferred hard-float shapes:**
+  - **(a) HFA in VFP — OPEN.** single float-aggregate (HFA struct/array) args/params/
+    returns in the VFP register file (d0-d3 pack/collect) + reconcile codegen's `NeedsSret`
+    for arm32-hard.  NOT failing today — HFAs ride the GP/sret path, self-consistent
+    native↔LLVM; this is gnueabihf-VFP correctness polish, the largest piece.
+  - **(b) float through the func-value/closure/iface/indirect SHIMS — OPEN, the failing
+    tail.** Currently fail-loud via the inc-3d guards (~65 conformance fails in the post-3h
+    CI run: 46 func-value + 12 iface + 4 closure + 3 shim); needs the GP↔VFP marshal +
+    float-return shim shapes.  Also blocks the native `--test` unit sweep (the test-runner
+    harness itself uses a float func-value shim → P7 prerequisite).
+  - **(c) int64↔float casts under gnueabihf — ✅ DONE / NO CODE NEEDED (test `e02d8b24`,
+    2026-08-08).**  The concern (inc-3b kept int64↔float on the AEABI libcalls) turned out
+    already-correct: the `__aeabi_*` helpers use the SOFT (core-register) convention even
+    under hard-float, and the native float value-placement already marshals the float
+    between VFP and core around the soft call (verified all 6 variants —
+    l2d/ul2d/l2f/d2lz/d2ulz/f2lz — match clang: `vmov d0,r0,r1` after / `vstr;ldr` arg
+    before).  The plan's earlier "returns the double in d0" framing was backwards.  Only
+    gap was coverage (282/732 test 32-bit int only), filled by conformance 1193
+    (64-bit int64/uint64 ↔ f32/f64, values > 2^32; passes host/VM/gen2/baremetal-native,
+    runs in CI for native arm32-linux).
 
 - **inc 3g — link-level fixes (the ACTUAL native arm32-linux blocker) — ✅ DONE
   (`d9b186d8`, 2026-08-03).**  The first end-to-end CI run of
