@@ -79,7 +79,7 @@ func-value FP-register-budget defect pre-land). `IsAggregateReturn`/
 wide-arg HFAs (fail-loud guard removed); two independent adversarial reviews
 SOUND (dormancy proven byte-identical; 12 flip programs + disassembly vs the LLVM
 oracle). **ALL NATIVE HFA MARSHALLING IS COMPLETE.** Supersedes the *staging* of
-`plan-native-hfa-abi.md` (which is marked NEEDS REPLAN). The native aa64 arg path
+the earlier native-first HFA staging (abandoned as unworkable). The native aa64 arg path
 from that effort is in-tree, **dormant** (`cc.HfaAggregates = HfaInSimd()`,
 currently false), and correct — it is reused here.
 

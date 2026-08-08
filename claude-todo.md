@@ -102,7 +102,7 @@ Smaller follow-ups remain:
 (The x64 closure-shim soft-length split and the conditional func-value spill staging are
 ✅ DONE & LANDED — see claude-todo-done.md.)
 
-See explorations/plan-funcvalue-byaddr-abi.md.
+See explorations/done/plan-funcvalue-byaddr-abi.md.
 
 ## Cross-mode interface dispatch & compiler/interpreter interop
 
@@ -198,7 +198,7 @@ errors returned as `Result` DATA, not a sink). **Inc 1 is ✅ DONE & LANDED** on
 `main` (`6910166f`..`6fa25ae5`, plus the e2e ordering-pin `f17ea5dc`) — verified
 green (repl + cmd/bni unit tests, hygiene 17/17, `e2e/repl.sh` 56/0) and hardened
 by a 3-lens adversarial review (which caught two land blockers, fixed pre-land).
-Plan + full design: [`plan-repl-kernel.md`](plan-repl-kernel.md).
+Plan + full design: [`done/plan-repl-kernel.md`](done/plan-repl-kernel.md).
 
 Remaining increments (all parked, none started):
 
@@ -212,7 +212,7 @@ Remaining increments (all parked, none started):
   — needs a new `pkg/replprint` pretty-printer (was gated on interfaces+generics,
   which have landed).
 - **Evaluated-code output / stdin capture** — deferred to package-impl injection
-  (`plan-repl-kernel.md` Decision #4); untouched. Full side-effect capture is
+  (`done/plan-repl-kernel.md` Decision #4); untouched. Full side-effect capture is
   impossible in general.
 
 ## VM runtime faults & the rt.Exit/abort/panic paradigm
@@ -461,7 +461,7 @@ alias emission (Phases 2/3), `bnc --library` + `bn_init`/`bn_entry` (Phase 5a), 
 entry-move (`startup._entry` replacing `binate_runtime.c`'s `main` — the design's
 `platform_init` package, renamed `startup`; Phase 6).  Design:
 [design-ffi-export.md](design-ffi-export.md); roadmap:
-[plan-ffi-export-detailed.md](plan-ffi-export-detailed.md).  Remaining follow-ons (all
+[done/plan-ffi-export-detailed.md](done/plan-ffi-export-detailed.md).  Remaining follow-ons (all
 post-MVP, none started):
 - **Header generator** (Phase 7): emit a C `.h` for a facade's `#[c_export]` surface (a
   new `pkg/binate/codegen/emit_c_header.bn`).  Deferred at MVP — the C consumer
@@ -1099,7 +1099,7 @@ urgency (no current miscompile; the writable placement is safe, just unhardened)
     layer for "the REPL works end-to-end".
 - See [`plan-package-search-paths.md`](plan-package-search-paths.md)
   for the spec `e2e/split-paths.sh` validates and
-  [`plan-repl.md`](plan-repl.md) for what `e2e/repl.sh` covers.
+  [`done/plan-repl.md`](done/plan-repl.md) for what `e2e/repl.sh` covers.
 
 ### Matrix tests for expanded generics + type assertions/RTTI — 🟡 PART A LANDED, PART B OPEN (brief plan 2026-07-10)
 
@@ -1147,7 +1147,7 @@ cleared (`e2e/xmiface.sh` / `e2e/xmhfa.sh` exist); add a captured-`@func` refcou
   (`conformance/matrix/scalar-diff`, oracle = spec) is realized through v2 —
   shifts, conversions, arithmetic, comparisons, bitwise; 123 cells / 5415
   tuples; generator `conformance/gen-diff-scalar.py` (Python). See
-  `plan-differential-testing.md` (phasing item 3) for the full design.
+  `done/plan-differential-testing.md` (phasing item 3) for the full design.
 - **v3 scope** (the remaining phase):
   1. **Port the generator to Binate** — rewrite `gen-diff-scalar.py` as a `.bn`
      program so the harness dogfoods the language on a real codegen-shaped task

@@ -9,7 +9,7 @@
 > while a compiled binary runs, package descriptors, cross-mode
 > trampolines) are explicitly out of scope here — they belong to
 > the broader compiler/interpreter interop work and depend on
-> `done/plan-function-values.md`.
+> `plan-function-values.md`.
 
 ## Scope and rationale
 
@@ -388,7 +388,7 @@ implementation:
 
 ## Adjacencies and pressure-tests
 
-- **`done/plan-function-values.md`**: when it moves out of DRAFT,
+- **`plan-function-values.md`**: when it moves out of DRAFT,
   add an explicit clause: "a function value is a stable
   identity for *what it refers to*, not for the bytes of the
   underlying body. Re-binding the body of an interpreted
@@ -419,7 +419,7 @@ implementation:
   here.
 - `plan-repl-tier3-pending-types.md` — Tier 3 pending
   types / vars / consts and cycle detection.
-- `done/plan-function-values.md` — orthogonal at the frontend,
+- `plan-function-values.md` — orthogonal at the frontend,
   paired at the backend (function-value identity stability is
   a hot-swap prerequisite).
 - `claude-todo.md` § "Compiler/interpreter interop — MAJOR

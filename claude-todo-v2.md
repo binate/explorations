@@ -21,7 +21,7 @@ initializer.
 This is a **documented limitation** (accepted for v1), specified as such in §17.2
 `prog.init.order` / `prog.init.var-cycle` (the edge definition is scoped to direct
 reads, and the "not a zero" guarantee is likewise scoped). Landed decision +
-implementation: `plan-var-init-dependency-order.md` (`444c9c90`); spec corrected in
+implementation: `done/plan-var-init-dependency-order.md` (`444c9c90`); spec corrected in
 `85a70ff`. The impl's own note lives at `pkg/binate/types/check_var_resolve.bn`
 (the "transitive-through-functions gap").
 

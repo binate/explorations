@@ -105,7 +105,7 @@ iface value reaching native `errors.Is` had its index (53) dereferenced as a poi
 SIGSEGV (on the `@Error` arg RefDec / `Unwrap` dispatch; `same`/`present` only compare the
 word, never deref, which is why they passed).
 
-**Fix** (per `explorations/plan-iface-crossmode.md`): unify native interface method
+**Fix** (per `explorations/done/plan-iface-crossmode.md`): unify native interface method
 dispatch onto the func-value HANDLE convention across all four backends (S1 `56826ba8`);
 have the VM build a native handle-vtable per bytecode impl and substitute it for the
 VM-index vtable word of interface ARGUMENTS at `dispatchExternBinding` (S2 `5324048b`);
@@ -499,7 +499,7 @@ call-through-nil) are now recoverable: the VM raises `VM_STATUS_FAULTED` + a mes
 instead of `rt.Exit(1)`, so the host (REPL / test-runner / embedder) survives a bad
 interpreted program while compiled code stays fatal.  Design:
 [`plan-rt-abort-panic.md`](plan-rt-abort-panic.md) (+ nil-deref in
-[`plan-nil-check-opt-in.md`](plan-nil-check-opt-in.md)).
+[`done/plan-nil-check-opt-in.md`](done/plan-nil-check-opt-in.md)).
 
 - **Plan 1:** the `rt.Abort`/`rt.Panic` primitives + `panic()` single-string lowering
   + VM internal-abort migration through `panic()`.
@@ -558,7 +558,7 @@ against Go 1.26.3 (~2800 generated cases, incl. Inf/NaN). Conformance
   `%v` — fmt does its OWN formatting for built-ins, not lang's simple
   `String()`. Adversarially reviewed (no leak/UAF, cross-mode identical).
 
-## Struct/default reflection for fmt `%v`/`%+v` (per `plan-struct-reflection.md`) — ✅ DONE (`133db88d`…`3b6e0b03`, 2026-08-02..03)
+## Struct/default reflection for fmt `%v`/`%+v` (per `done/plan-struct-reflection.md`) — ✅ DONE (`133db88d`…`3b6e0b03`, 2026-08-02..03)
 
 `fmt.Printf("%v"/"%+v", s)` on a struct/aggregate without a `String()` (was
 `%!?(unknown)`) now renders its fields, reusing the per-type `__typeinfo` RTTI.
@@ -1731,7 +1731,7 @@ manifests as invalid LLVM rather than SIGSEGV) remains open — see
 ## Implicit value→`*any` boxing (`iface.construct.value-borrow`) — ✅ DONE (all 4 commits landed, 2026-07-18)
 
 The implicit value-borrow of spec §11.4 (a value-typed source constructing a raw
-`*Iface`/`*any` with no explicit `&`). Full plan: `plan-value-borrow.md`.
+`*Iface`/`*any` with no explicit `&`). Full plan: `done/plan-value-borrow.md`.
 
 - **Commit 1** (`8230e7fd`) — the ADDRESSABLE case (`fmt.Print(x)` / `Opts{Any: x}`
   → implicit `&x`, all positions).
@@ -1760,8 +1760,8 @@ separately.
 ## `pkg/std/os/sys` layer + `os`-rewire + `pkg/std/os/process` (Stage 1 / Phase A) — ✅ DONE (`0d0b3a62`, 2026-07-18)
 
 Landed the os-family's low-level libc-syscall layer and the new subprocess package
-on it (designs: `design-syscall.md`, `design-os-process.md`; plan:
-`plan-os-process.md`). What landed:
+on it (designs: `done/design-syscall.md`, `done/design-os-process.md`; plan:
+`done/plan-os-process.md`). What landed:
 - **`pkg/std/os/sys`** (os-family-internal): the errno `errno()` accessor +
   `errno→errors.Error` classifier MOVED out of `os` (one copy; added the `ENOEXEC`
   arm, kept per-OS EAGAIN 11/35), exposed only as `FailErrno`/`Interrupted`; process
@@ -1786,7 +1786,7 @@ incl. the CI-redding stale `e2e/errno-values.sh` path). **Still open** (in todo)
 
 ## `pkg/std/os/sys` Stage 2 (2a–2d) — port os's syscalls onto `sys` wrappers — ✅ DONE (`a886ec06`, `20840a58`, `e4b72c42`, `518ab9fc`, 2026-07-18)
 
-Stage 2 of the syscall-layer work (`design-syscall.md`): moved `os`'s remaining
+Stage 2 of the syscall-layer work (`done/design-syscall.md`): moved `os`'s remaining
 raw libc syscalls into the os-family-internal `pkg/std/os/sys` layer, in small
 green landable steps, so `os` no longer issues any `__c_call`.
 - **2a (`a886ec06`)** — fd I/O: read/write/close/pread/pwrite/lseek + open moved
@@ -1830,7 +1830,7 @@ defects). **Still open** (in todo): the optional `bnlint` boundary rule for
 
 ## `os/process` Commit 3 — migrate the 7 asm/native test harnesses off `bootstrap.Exec` — ✅ DONE (`786f8feb`, 2026-07-18)
 
-`plan-os-process.md` Commit 3, pulled forward out of Phase B (the user's call).
+`done/plan-os-process.md` Commit 3, pulled forward out of Phase B (the user's call).
 Migrated the 7 asm/native test harnesses (44 call sites, 5 packages:
 `asm/{macho,parse,elf}` + `native/{x64,aarch64}`) from `bootstrap.Exec` to
 `pkg/std/os/process`. Each package got a test-local helper `execExit(prog, args
@@ -2481,7 +2481,7 @@ structs through the func-value / closure / interface dispatch kinds cross-mode i
 ## FFI export (`#[c_export]`) MVP + entry-move — ✅ DONE & LANDED (Phases 2/3/5a/6, 2026-07)
 
 The outbound C-interop MVP — expose Binate functions to C, and write the program's
-startup glue in Binate — landed (design-ffi-export.md / plan-ffi-export-detailed.md):
+startup glue in Binate — landed (design-ffi-export.md / done/plan-ffi-export-detailed.md):
 - **`#[c_export("name")]`** (Phase 2 `e213dd42`, Phase 3 `dd98dc31` + follow-up
   `eb0cff00`): an unqualified, compiler-recognized annotation emitting an additional
   unmangled C symbol aliasing a `.bni`-public func (LLVM + native backends), with an
@@ -3000,7 +3000,7 @@ was spelling-driven, now follows the resolved entity's home across the ~75
 `resolveImportPkg`/`buildQualName` sites) / collision check, plus reflect + the
 17-test conformance bundle (`1028`/`1032`–`1053`). **Specified**: §16.5.2 +
 `binate.ebnf` `ExposeDecl` + nine `pkg.expose.*` rules. No backend/codegen work.
-Design/plan: `design-expose.md`, `plan-expose-execution.md`. The last residual — the
+Design/plan: `done/design-expose.md`, `plan-expose-execution.md`. The last residual — the
 feature was gated from `cmd/bnc`'s own `.bni` use until a BUILDER understood `expose`
 — cleared when BUILDER bumped to `bnc-0.0.11` (`a5feb8ca`, 2026-07-14; its source
 postdates the expose landing).
@@ -3012,7 +3012,7 @@ independent failures piled up untracked as new `e2e/*.sh` scripts landed (each r
 the moment it landed; there was no e2e xfail/skip mechanism).  All six resolved:
 
 - **print-args** — DELETED (`a7d4bb0e`).  Stale test: asserted `bootstrap.Args()`
-  scoping under bni, which `8984ea2a` deliberately removed (design-os-args-vm.md — the
+  scoping under bni, which `8984ea2a` deliberately removed (done/design-os-args-vm.md — the
   divergence is ACCEPTED, programs use `os.Args()`).  Superseded by `os-args.sh` +
   `conformance/487_bootstrap_args`.
 - **ffi-export (--library leg)** — SKIPPED (`a7d4bb0e`), pending the Phase-6 runtime
@@ -3398,7 +3398,7 @@ MAJOR in [claude-todo.md](claude-todo.md) and being fixed as a follow-up.
 Go-style dependency order: each package-level `var` initializer runs after the
 inits of the package vars its initializer directly reads (regardless of declaration
 position / file); a dependency cycle is a compile error. Designer decision + impl
-landed 2026-07-01 (`444c9c90`, `plan-var-init-dependency-order.md`; checker
+landed 2026-07-01 (`444c9c90`, `done/plan-var-init-dependency-order.md`; checker
 `Checker.VarInitOrder`, emitter `ir/gen_init.bn`). Confirmed live: `var A = B+1;
 var B = 10` → `A == 11` in compiler + VM. The stale todo claimed the opposite
 (declaration order, "spec decision needed"); the only real residual was the spec,
@@ -3540,7 +3540,7 @@ outlier timeout) rather than being verified empirically flake-free.
 built once at package init; the readonly element type makes the shared cached
 slice unmodifiable by callers (verified compiled + adversarially reviewed).
 
-Interpreted-mode fix (`design-os-args-vm.md`): os is injected host-native, so a
+Interpreted-mode fix (`done/design-os-args-vm.md`): os is injected host-native, so a
 naive `os.Args()` under cmd/bni returned the host bni's own argv.  Fixed WITHOUT
 VM special-casing — added `os.SetArgs(newArgs) → previous` (`a3b39454`); cmd/bni
 reads its own argv from `os.Args()` and installs the program's argv via
@@ -4217,7 +4217,7 @@ fails "a line exceeds 100" before the fix. Latent in-tree: the bnfmt-format hygi
 check shows zero tree-wide diffs, so this is a correctness fix, not a reflow.
 
 (The sibling `__c_call` case was resolved earlier by `d5777f1b`.) Cross-refs
-`explorations/plan-bnfmt.md` §14.
+`explorations/done/plan-bnfmt.md` §14.
 
 ---
 
@@ -5270,7 +5270,7 @@ correcting its "likely MOOT" claim).
 Each direction: design + implementation adversarial reviews (no code bugs), LP64
 (vm + codegen green) AND arm32 (reverse tests + 3 new R1 tests pass), conformance
 `stdlib/math/003` green, hygiene clean. Design record:
-`plan-vm-32bit-crossmode-64bit-returns.md`. (Sibling of the landed 64-bit-ARGS fix,
+`done/plan-vm-32bit-crossmode-64bit-returns.md`. (Sibling of the landed 64-bit-ARGS fix,
 `a5511a8d`+`83819d60`.)
 
 ## ✅ DONE & LANDED (BUG-BASH LANE 3, 2026-07-02/03) — IR integer constants were host-width `int` (blocked the 32-bit-hosted toolchain); now host-independent across IR/codegen/native + VM (int64 + float64 + int↔float casts) on ILP32
@@ -5309,7 +5309,7 @@ VM int64-return path). `conformance/877_aggregate_abi_xpkg` now passes;
 native-arm32 conformance +8; LP64 byte-identical. **Coordination:** this is the
 same shared classification the concurrent ILP32-VM 64-bit-return work references —
 the fix makes a bare int64 no longer route through the retbuf/aggregate path, so
-`plan-vm-32bit-crossmode-64bit-args.md`'s deferred "Return side" VM-dispatch patch
+`done/plan-vm-32bit-crossmode-64bit-args.md`'s deferred "Return side" VM-dispatch patch
 was NOT made moot by it — the re-check found `0479813a` MOVED that VM-side return bug rather than eliminating it (now the two cross-mode 64-bit-scalar-RETURNS entries in claude-todo.md).
 
 **Severity: MAJOR (hang / no output).** On
@@ -5443,7 +5443,7 @@ float32/float64 operand pair, and untyped-float-constant coercion ignores a floa
 sibling operand.
 
 **Discovery.** Surfaced while verifying float32 HFA passing for the native HFA ABI
-work (`plan-native-hfa-abi.md`) — HFA *passing* is fine (field reads correct); the
+work — HFA *passing* is fine (field reads correct); the
 value check failed only because the float32 *arithmetic* used to verify it is itself
 miscompiled. Reproduces with plain float32 locals, zero HFA involvement.
 
@@ -5511,7 +5511,7 @@ but the LLVM callee with `[N x i64]` reads r2:r3.
   all args as `int`(=i32), so the reconstructed indirect-call type has no `i64`
   to even-align while AAPCS32 even-aligns the shim's `i64` → the following `buf`
   arg reads garbage → the formatter derefs a bad pointer. LP64-invisible.
-- **Fix (designed + adversarially reviewed)**: `plan-vm-32bit-crossmode-64bit-args.md`.
+- **Fix (designed + adversarially reviewed)**: `done/plan-vm-32bit-crossmode-64bit-args.md`.
   Slot-based shim arg ABI on ILP32 via a shared `slotTypesFor` helper across all
   six signature sites + the native caller's arg preamble.
 
@@ -5547,8 +5547,8 @@ must run unused-func WITH `--tests`.
 ## ✅ DONE & LANDED (2026-07-03) — Variadic functions & spread (`...T` / `expr...`)
 
 Go-style variadics + spread, fully implemented and conformant. Plan:
-[plan-variadics-detailed.md](plan-variadics-detailed.md) (from
-[plan-variadics.md](plan-variadics.md)). **Model:** final param `name ...T` → body
+[done/plan-variadics-detailed.md](done/plan-variadics-detailed.md) (from
+[done/plan-variadics.md](done/plan-variadics.md)). **Model:** final param `name ...T` → body
 type raw `*[]T` (borrow, stack-backed, **zero heap alloc**); `expr...` spread
 (exclusive, Go-style); variadic-ness is part of func-type identity (`*func(...T)`,
 variadic interface/impl methods, method values); at every indirect boundary
@@ -5816,7 +5816,7 @@ transitive cycle is rejected with a "variable initialization cycle" error.
 `check_var_resolve.bn` computes a stable source-ordered DFS over syntactic
 dependency edges (mirroring the const-resolve template) stored per-package on
 the Checker; `gen_init.bn` `buildInitBody` emits in that order with a
-source-order fallback. See `plan-var-init-dependency-order.md`. Independent
+source-order fallback. See `done/plan-var-init-dependency-order.md`. Independent
 review found + fixed a grouped-local-in-IIFE missed-read before landing.
 
 ## ✅ DONE & LANDED (main `7f15b1e9`, 2026-07-01, BUG-BASH LANE 3) — e2e cross-mode iface dispatch coverage (the 4 untested shapes)
@@ -6750,7 +6750,7 @@ iface-values / float scalars; preserves LLVM↔native interchangeability).
 Validated: full conformance builder-comp (2484) + builder-comp-int (2459);
 builder-comp_native_aa64 + builder-comp_native_x64_darwin (937/938/889 + agg/closure/
 funcval); unit vm 207 / codegen 246 / native aa64 143 / x64 231; hygiene 15/15.
-Follow-ups (NOT blocking; see claude-todo.md + plan-funcvalue-byaddr-abi.md): the
+Follow-ups (NOT blocking; see claude-todo.md + done/plan-funcvalue-byaddr-abi.md): the
 iface-path/sub-word observable unit fixture (item 3), the optional shim-extends RETURN
 cleanup, and the x64_closure_shim.bn soft-length split.
 
@@ -7521,7 +7521,7 @@ Unified every module-level static-data blob onto one backend-neutral
 native backends each lower through ONE `emitDataGlobal` — so byte layout is
 described once and cannot drift between backends. This killed the
 LLVM-only-divergence bug class structurally (~10 per-kind emitters → ~2). Full
-blow-by-blow in [`plan-codegen-data-global.md`](plan-codegen-data-global.md).
+blow-by-blow in [`done/plan-codegen-data-global.md`](done/plan-codegen-data-global.md).
 
 Phases (all LANDED, each green on full LLVM gen1+gen2 + native-aa64 self-host +
 adversarial review):
@@ -7975,7 +7975,7 @@ leaves builder-comp red). The native backends and `pkg/types` are unchanged
 (already `[N x i64]`); the C-extern ABI is untouched. Test:
 `conformance/877_aggregate_abi_xpkg` (cross-pkg by-value `{i64,i32}` trailing-pad,
 `{i32,i32}` sub-word, `{i8,i64}` leading-pad). Plan doc:
-`plan-codegen-aggregate-abi-coercion.md`.
+`done/plan-codegen-aggregate-abi-coercion.md`.
 
 **Validation.** Full native-aa64 sweep **1902/0**, full builder-comp **1908/0**,
 VM + gen2 self-host + codegen unit tests green, hygiene 15/15; the time tests
@@ -8325,7 +8325,7 @@ guard). Slices:
        every pointer level (`**Box[Opaque]` / `@(*Box[Opaque])`), with a
        visited-name set so `type P *P` terminates.
 conformance/{809,824,827,828,838,839,842,846,851} + extensive unit coverage.
-Plan: plan-opaque-step2.md. No residuals.
+Plan: done/plan-opaque-step2.md. No residuals.
 
 ### ~~Cast/shift const-fold silent-miscompile class — checker/IR-gen const-fold asymmetry~~ — ✅ FIXED+LANDED (2026-06-15 .. 2026-06-17)
 
@@ -8361,7 +8361,7 @@ Remaining open residual (tracked elsewhere): the proper IR-gen transitive-`.bni`
 
 ### ~~Type-system (opaque) — `make`/`make_slice`/`sizeof`/`alignof` on an opaque type not gated~~ — ✅ FIXED+LANDED `fe9e131e` (2026-06-16)
 
-The ratified design (plan-type-decls.md) says make / sizeof / alignof on an
+The ratified design (done/plan-type-decls.md) says make / sizeof / alignof on an
 opaque type (a forward decl whose layout isn't visible — a pure opaque type
 defined in C/asm, or a cross-package opaque export seen only through the
 exporter's .bni) must be rejected; the checker enforced only field access, so
@@ -8796,7 +8796,7 @@ bug now tracked in claude-todo.md). Green on builder-comp / -int / -comp.
 
 ### Interface syntax revision — *Stringer / @Stringer + top-level decl — ✅ DONE (`iv == nil` is intentionally REJECTED by design — use `present(iv)`; not a gap)
 **Split 2026-06-14**: resolved bulk archived here; the open residual is tracked as a slim follow-up entry in claude-todo.md.
-- **Plan doc**: `explorations/plan-interface-syntax-revision.md`
+- **Plan doc**: `explorations/done/plan-interface-syntax-revision.md`
   (RATIFIED 2026-05-01).
 - **Implementation status (audited 2026-05-22 / 2026-05-23)**:
   Plan §1–§5 all landed.  §6 (`any` universal interface) landed
@@ -9756,7 +9756,7 @@ result while `TestReadAtWriteAt` fails gracefully on the SAME first dispatch.
   `pkg/binate/ir/gen_cast_float.bn`) — every backend + the VM inherits it, no
   per-backend logic. `conformance/732_float_int_saturation` green on builder-comp,
   builder-comp-int (VM), gen2/gen3, native aa64 + x64; unit tests + spec updated.
-  Plan: `plan-float-int-saturation.md`.
+  Plan: `done/plan-float-int-saturation.md`.
 - **✅ Commit 2 LANDED (binate `068749c8`)**: `gen-diff-scalar.py` float→int matrix
   re-enabled with a `saturate_to_int` oracle — sweeps the 2^(N-1)/2^N thresholds,
   doubles, negations, and exact ±Inf/NaN bit patterns across every width int8…int64
@@ -9775,7 +9775,7 @@ result while `TestReadAtWriteAt` fails gracefully on the SAME first dispatch.
   panic-free. Matches Rust `as` (since 1.45) and WASM `trunc_sat`. arm64
   (`FCVTZS`/`FCVTZU`) already conforms. **Saturation is to the TARGET width**
   (`cast(int8, 1000.0)` → `127`, NOT `int64`-saturate then modular-narrow). Plan:
-  `plan-float-int-saturation.md`.
+  `done/plan-float-int-saturation.md`.
 
 - **Symptom**: converting a float that is `±Inf`, `NaN`, or outside the integer
   range to an int yields a **different value per target ISA**, with no defined
@@ -9912,7 +9912,7 @@ result while `TestReadAtWriteAt` fails gracefully on the SAME first dispatch.
   relational × signedness × width) across LLVM/VM/gen2/native; full builder-comp
   conformance 1069/0.  `math.Pow` reverted to Go's faithful `4096 < xe`
   (binate `f7d6446b`).  The systematic home for this class is the scalar
-  matrix's named-but-unbuilt "comparisons" axis (plan-differential-testing.md v2).
+  matrix's named-but-unbuilt "comparisons" axis (done/plan-differential-testing.md v2).
 - **Symptom (was)**: `5 < xe` where `var xe int = -1` evaluated to **true** (`5 < -1` is
   false).  An untyped integer literal on the LEFT of `<` / `<=` / `>` / `>=`,
   compared against a SIGNED `int` variable, emits an unsigned compare — so a
@@ -9944,7 +9944,7 @@ result while `TestReadAtWriteAt` fails gracefully on the SAME first dispatch.
 - **Test (TODO when fixing)**: `conformance/matrix/scalar` (or a regression) — a
   comparison cell with the literal on the LEFT against a negative signed var, all
   four relationals, all signed widths; this is the "comparisons — signed vs
-  unsigned at width boundaries" axis already named in `plan-differential-testing.md`
+  unsigned at width boundaries" axis already named in `done/plan-differential-testing.md`
   (v2).  xfail until fixed.
 
 ### ~~Whole-array (aggregate) `=` assignment is silently dropped~~ — FIXED 2026-06-06 (binate, gen_control.bn)
@@ -10012,7 +10012,7 @@ result while `TestReadAtWriteAt` fails gracefully on the SAME first dispatch.
 - **Test (TODO when fixing)**: codegen unit test asserting a `double`/`float`
   global emits a float zero, plus a conformance cell reading back a global float.
 
-### ~~Plan-1 adversarial review (2026-06-06) — regressions + completeness gaps from the const/slice fixes — ✅ ALL FIXED+LANDED except ONE REPL-only leftover (parked-member iota-repeat~~ — see "Minor follow-ups" below; tracked in plan-cr2-followup.md Plan B)
+### ~~Plan-1 adversarial review (2026-06-06) — regressions + completeness gaps from the const/slice fixes — ✅ ALL FIXED+LANDED except ONE REPL-only leftover (parked-member iota-repeat~~ — see "Minor follow-ups" below; tracked in done/plan-cr2-followup.md Plan B)
 
 The Plan-1 fixes (binate 1.1-1.6, landed 2026-06-05) were adversarially
 reviewed. Real defects found, several wrong-code on main. Listed worst-first.
@@ -10084,7 +10084,7 @@ Discovery Protocol) — most don't have one yet.
 #### Minor follow-ups (adversarial review 2026-06-06)
 - ~~bool-logic (`&&`/`||`/`!`) const-folding has no test~~ — ✅ FIXED (binate `1d41aa62`): adding the test surfaced a real miscompile (a bool const referencing another bool const, `const C bool = !A`, misfolded to int 0 — evalConstBool had no ident arm); fixed via lookupConstBool + ident/selector arms.  Conformance 642 + evalConstBool unit tests; gen_const folding helpers split into gen_const_fold.bn.
 - REPL parked-member + iota-repeat — ✅ effectively RESOLVED (note was stale); investigated 2026-06-12. The headline ("a bare member after a PARKED member gets plain iota") does NOT reproduce: `checkGroupDeclTentative` (`check_pending.bn:383-406`) SYNTHESIZES a repeat decl carrying the preceding `prevExpr`+`effTypeRef` for a bare member, so the bare member PARKS with that expression and `GenConstMember` re-folds it (its `d.Value != nil`), AND `prevExpr`/`prevTypeRef` are carried across a parked member there. Pinned by the passing e2e `tier3-pending-const-group-bare-iota-repeat` (`const ( B0 int = M << iota; B1 ); const M int = 2` → `B1 == 4`, NOT plain iota). The `genConstGroup` parked-branch not carrying `prevExpr`/`prevTyp` is **non-manifesting**: a bare member after a parked member is itself ALWAYS parked (→ `GenConstMember`, never `genConstGroup`'s resolved-bare branch), so the `prevExpr` carry is unreachable; and a value-bearing no-type member is typed UNTYPED by the tentative checker (it only synthesizes the inherited type for BARE members), so `genConstGroup` leaving `prevTyp` unset MATCHES the checker. An attempted "consistency" fix (carry `prevTyp`/`prevExpr` across the parked position) was a no-op observably (`const ( A uint8 = M; B = 250 )` → `B + 10 == 260`, untyped, fix or not) and would have made `genConstGroup` type B `uint8` while the checker types it untyped — REVERTED. **Semantics sub-question — ✅ RESOLVED (user, 2026-06-12): Go-style is correct; normal/REPL consistency is the only requirement, and it holds.** Empirically tested all four quadrants (width-sensitive ops to expose the actual type): a BARE member inherits the preceding type — `const ( A uint8 = …; B ); B << 1` → 144 (uint8 wrap) — in BOTH the normal compile AND the REPL-after-parked path (`const ( A uint8 = M; B ); M = 200; B << 1` → 144, NOT 400). A VALUE-BEARING no-type member is UNTYPED — `B = 250; B + 10` → 260 — in BOTH paths. So the REPL does NOT diverge from the normal compile in any case, and the behavior matches Go (bare inherits value+type; a value-bearing member is its own untyped value). The earlier "normal inherits, REPL doesn't" framing was imprecise: `genConstGroup`'s `memberTyp = prevTyp` sets the inherited type in `moduleConsts` for a value-bearing member, but that is NON-MANIFESTING (the checker types it untyped and that wins for expression folding; `genConstGroup`'s own comment even says inheritance is "across BARE members"). No action: behavior is correct + consistent. (The non-manifesting `genConstGroup` value-bearing-inherit detail is left as-is — changing it is churn with no observable effect.)
-- ~~named-float / named distinct scalar type mis-lowering~~ — ✅ FIXED + LANDED (binate `b43a0057` LLVM + shared type/IR-gen, `5b64b44a` VM, `0ca49975` native aa64/x64).  IR-gen now registers a named distinct non-struct type as a `TYP_NAMED` carrying its name (bare for the current package / REPL / self-types, qualified for imports — mirroring named structs, so method-dispatch keys agree) with `.Underlying` set, via a shared `typeDeclEntryType` helper at the six registration sites; resolveTypeExpr returns the TYP_NAMED.  Every Kind/Width/Signed-based lowering decision peels TYP_NAMED (codegen llvmType/typeBits/typeWidth/isUnsigned/emitBinop/emitCmp/emitCast/emitBitCast/OP_NEG/funcval-ABI + emitCopyRec/emitZeroRec; ir gen_print/gen_dtor/shift+divide signedness; VM via vmUnwrapNamed; native via common.UnwrapNamed).  types IsInteger/IsFloat now recurse and IsBool gained the peel.  Checker `resolveBuiltinScalarTypeDecls` fills a named-over-builtin underlying before top-level consts resolve (so `const C Rate = 0.5` over `type Rate float64` typechecks).  Also fixed a latent miscompile this surfaced: a named struct method-value receiver wider than one word was copied/zeroed as a single i64 (the int fallback masked it).  Conformance 646-652 (float, value+pointer methods, struct/array/managed-slice members, func/multi-return, sized-int width+sign, named-float const, cross-package value+method) green on every runnable mode; unit tests pin the codegen/types peels.  **Plan: `plan-named-distinct-scalar-types.md`.**
+- ~~named-float / named distinct scalar type mis-lowering~~ — ✅ FIXED + LANDED (binate `b43a0057` LLVM + shared type/IR-gen, `5b64b44a` VM, `0ca49975` native aa64/x64).  IR-gen now registers a named distinct non-struct type as a `TYP_NAMED` carrying its name (bare for the current package / REPL / self-types, qualified for imports — mirroring named structs, so method-dispatch keys agree) with `.Underlying` set, via a shared `typeDeclEntryType` helper at the six registration sites; resolveTypeExpr returns the TYP_NAMED.  Every Kind/Width/Signed-based lowering decision peels TYP_NAMED (codegen llvmType/typeBits/typeWidth/isUnsigned/emitBinop/emitCmp/emitCast/emitBitCast/OP_NEG/funcval-ABI + emitCopyRec/emitZeroRec; ir gen_print/gen_dtor/shift+divide signedness; VM via vmUnwrapNamed; native via common.UnwrapNamed).  types IsInteger/IsFloat now recurse and IsBool gained the peel.  Checker `resolveBuiltinScalarTypeDecls` fills a named-over-builtin underlying before top-level consts resolve (so `const C Rate = 0.5` over `type Rate float64` typechecks).  Also fixed a latent miscompile this surfaced: a named struct method-value receiver wider than one word was copied/zeroed as a single i64 (the int fallback masked it).  Conformance 646-652 (float, value+pointer methods, struct/array/managed-slice members, func/multi-return, sized-int width+sign, named-float const, cross-package value+method) green on every runnable mode; unit tests pin the codegen/types peels.  **Plan: `done/plan-named-distinct-scalar-types.md`.**
 - ~~negative / div-by-zero array dims have no clean diagnostic~~ — ✅ FIXED (binate `a341b521`): evalConstInt now reports a negative length and a fully-known div/mod-by-zero dimension.  Conformance 643 / 644 error tests.
 - ~~bare iota-repeat member type uses the GROUP (first-member) type~~ — ✅ FIXED (binate `9af67422`): genConstGroup tracks prevTyp alongside prevExpr, so a bare member inherits the PRECEDING member's type.  Conformance 645.
 - ~~stale comments~~ — ✅ DONE (binate `73046ef3`): iota-repeat.bn comment updated to the fixed runtime (1,2,4,8).  The aarch64 "D-regs at offset 100" comment is already gone from the tree (recent float work removed it).
@@ -10385,7 +10385,7 @@ Discovery Protocol) — most don't have one yet.
   itself (plain, non-named `int8`/`int16`/`int32` MIN/-1 ARE detected — they
   keep their TYP_INT width through widenType).
 - **Discovered**: 2026-06-05 by the adversarial coverage review of the
-  divide-fault guard (plan-divide-by-zero.md). The guard itself is correct;
+  divide-fault guard (done/plan-divide-by-zero.md). The guard itself is correct;
   this is the one width-dependent corner it can't reach because the type info
   is already gone.
 - **Proper fix**: make `widenType` preserve a named integer type (or at least
@@ -10406,7 +10406,7 @@ Discovery Protocol) — most don't have one yet.
 - **Symptom**: `var y uint32 = 1; y <<= 40; println(cast(int, y))` printed `256` (= `1 << (40 & 31)`) on `builder-comp`, not the spec's `0` (count 40 ≥ width 32). The expression form `y = y << 40` correctly gives `0` (fixed at the CRITICAL "shift by ≥ bit width" entry, binate `32fde83d`). Native aa64 gave the correct `0` — so this was an LLVM-path divergence. `uint8 x <<= 9` happened to read `0` (the `1<<9=512` result is narrowed to `uint8` → 0, masking the bug); only a width where the masked count stays in range (`uint32 <<= 40` → `<<8`) exposed it.
 - **Root cause (path-parity)**: the overshift guard (`emitGuardedShift`) was applied on the expression-shift path but NOT on the compound-assign path — `emitCompoundBinop` (`pkg/binate/ir/gen_control.bn`) lowered `<<=`/`>>=` without routing through `emitGuardedShift`. Classic Code-Red-2 path-parity gap: a guard added to one of N sibling lowerings (expr-shift) was never mirrored into the others (compound-assign). See `plan-code-red-2.md`.
 - **Fix (landed, binate `fa265629`)**: route compound `OP_SHL`/`OP_SHR` through `emitGuardedShift` in `emitCompoundBinop`, mirroring `genBinaryExpr`, keeping the in-range-const fast path. **Companion fix in the same commit**: `emitCompoundBinop` now width-coerces both operands to the lvalue type internally (only the IDENT arm did so before), so a sub-word element/field/deref compound assign no longer keeps an untyped-int count/operand at int64 and emits width-mismatched IR — latent for sub-word non-IDENT compound assigns generally (a `uint32` `a[0] += 5` would have emitted `add i32, i64`), previously unexercised.
-- **Severity**: MAJOR — was silent wrong-code, but narrow (a compile-time shift count ≥ width in a compound-assign).  Plan-1 defect (7) in `plan-cr2-1-frontend.md`.
+- **Severity**: MAJOR — was silent wrong-code, but narrow (a compile-time shift count ≥ width in a compound-assign).  Plan-1 defect (7) in `done/plan-cr2-1-frontend.md`.
 - **Test**: `conformance/659_compound_shift_overshift` — `<<=`/`>>=` overshift across variable / array-elem / slice-elem / nested-array-elem / field / deref lvalues at uint32 & int32, runtime + out-of-range-const counts, self-checking (target-stable 0/1).  Green on builder-comp{,-comp,-comp-comp}, builder-comp-int{,-int}, -comp-comp-int, native aa64.  (Exhaustive `op × lvalue-form` compound-assign coverage — incl. sub-word non-shift arith that the companion width fix also repairs — is the `conformance/matrix/operator` follow-up, §3.3.)
 - **Discovery**: 2026-06-07, Code-Red-2 probing of path-parity predictions (the operator pattern).
 
@@ -10635,7 +10635,7 @@ TODO), but untracked here.
   Byte-identical, green across all modes + self-host. (b) **Dedup-mismatch guard —
   LANDED `15f1fae2`.** `addStructDef` now aborts as a codegen precondition when a
   mangled-name match has a disagreeing field layout (`structShapesMatch`), instead
-  of silently keeping the first. See `plan-cr2-optionb.md`.
+  of silently keeping the first. See `done/plan-cr2-optionb.md`.
 - **Symptom**: building `cmd/bni` via gen1 (any `-int` mode: `builder-comp-int` / `builder-comp-int-int` / `builder-comp-comp-int`) fails — `clang … pkg__binate__loader.ll: error: invalid getelementptr indices` on `getelementptr %bn_pkg__binate__loader__Package, …Package* %v.sc, i32 0, i32 4`. The emitted `Package` LLVM struct type has fewer fields than the field-4 GEP expects. Deterministic (reproduced 3×, fresh build dirs).
 - **Bisected**: builds `bni` cleanly at `27c1ee8b` (b0402d04's parent); FAILS at `b0402d04`. So `b0402d04` ("codegen: discover struct types reachable only through globals", plan-cr2-2 Defect 2) is the culprit. NOT caused by the plan-cr2-3 Defect-1 commit (`68616b20`, native/VM only) — the regression reproduces at `b0402d04` without it.
 - **Root cause (direction — needs confirmation)**: `b0402d04` added an `m.Globals` scan to `collectStructTypes` plus `TYP_NAMED→.Underlying` / `TYP_ARRAY→.Elem` recursion arms to `discoverStructFromType`. Claimed "purely additive," but in **cmd/bni's** module (which has globals cmd/bnc lacks — `builder-comp-comp`/gen2 appeared to still build, so the trigger is bni-module-specific) the new discovery emits the `Package` struct type with a wrong/truncated body (likely the `TYP_NAMED` arm registering the underlying struct under a name that collides via `addStructDef` dedup, OR an `m.Globals`-discovered path emitting a partial def), so a later field-read GEP into field 4 is out of range. Inspect the emitted `loader.ll` `%bn_pkg__binate__loader__Package = type {…}` def vs the GEP.
@@ -10870,7 +10870,7 @@ TODO), but untracked here.
 - **Why**: this implicit, CWD-dependent resolution caused the Lane A CI conformance break — deeply-nested conformance cells, compiled from CI's workspace-root CWD (checkout one dir deeper, under `binate/`), resolved empty → runtime dropped → every deep `-comp*` cell failed to link. The immediate release-blocker fix made the conformance runners pass explicit `--runtime` (binate `a256c893`). With that, **no caller relies on auto-resolution** — `scripts/build-*.sh`, `e2e/*.sh`, `scripts/lib/build-compilers.sh` (gen1), and the `release-process.md` smoke tests all already pass `--runtime`.
 - **Direction**: (1) Confirm no remaining caller depends on `findRuntime` (grep repo + scripts + any embedder). (2) Delete `findRuntime` + its call in `main.bn:85-88`. (3) When a host-runtime-linking compile is requested without `--runtime`, **error clearly** ("no host runtime: pass --runtime <binate_runtime.c>") instead of silently dropping it. Only error when a runtime is actually needed — baremetal targets use `appendTargetRuntime` (`target.bn`), and `-c`/VM/interpret paths don't link a host runtime.
 - **Caveats**: `cmd/bnc` is BUILDER-compiled — deleting a function + adding an error stays BUILDER-`bnc-0.0.7`-compatible. Update any docs that mention runtime auto-resolution.
-- **Discovery**: 2026-06-10, Lane A root-cause (`plan-bnc-0.0.8-release-blockers.md`): the depth-correlated CI failure (615 flat cells PASS, whole `matrix/` tree FAIL) traced to `findRuntime`'s CWD-relative fallback.
+- **Discovery**: 2026-06-10, Lane A root-cause (`done/plan-bnc-0.0.8-release-blockers.md`): the depth-correlated CI failure (615 flat cells PASS, whole `matrix/` tree FAIL) traced to `findRuntime`'s CWD-relative fallback.
 - **RESOLVED 2026-06-10 (binate `aa757361`; the `arm32_linux` runner --runtime fix `328582d7` is what surfaced it)**: `findRuntime` deleted; `main.bn` + `test.bn` error if `--runtime` is absent when linking, exempting `--emit-llvm` / `-c` and bare-metal (`suppressHostRuntime`). **The "Why" claim above that "no caller relies on auto-resolution" was WRONG** — ~13 in-tree LINKING sites silently depended on `findRuntime` and had to be given explicit `--runtime` (via `binate-paths --runtime`): `build-compilers.sh` gen2/native/interp, `build-{bnc,bni,bnas,bnlint}.sh` Stage-2 (both branches), the 5 native unittest runners, the 4 compiling perf runners, e2e repl/print-args/verify-ir, and the `arm32_linux` conformance+unit runners. Validated across every locally-runnable compile mode (conformance/unittest/perf comp+native, e2e, make-bundle, check-alloca) + the error/baremetal paths; arm32 confirmed on CI.
 
 ### ~~Float `!=` is ORDERED (`NaN != NaN` is false) — diverges from IEEE/Go/C; `==` and `!=` not complementary for NaN~~ — FIXED 2026-06-06 (binate `8f78575f`)
@@ -10886,7 +10886,7 @@ TODO), but untracked here.
   `SETNP` (NaN-gate); aarch64 `aarch64_float.bn` adds a `Csel … COND_VC` to
   zero the unordered result. `==` (`oeq`) and the four relationals (`olt`/`ole`/
   `ogt`/`oge`) are already correct; only `!=` is wrong.
-- **Fix** (Phase 0 of `plan-std-math.md`): `one`→`une` (LLVM); `SETNE OR SETP`
+- **Fix** (Phase 0 of `done/plan-std-math.md`): `one`→`une` (LLVM); `SETNE OR SETP`
   (x64); delete the aarch64 `OP_NE` Csel block; VM is fixed transitively
   (recompile) + a test. `oeq`/`une` are exact complements, restoring
   complementarity. Pin with a conformance cell (NaN compares + complementarity)
@@ -10901,7 +10901,7 @@ TODO), but untracked here.
 - **Why never caught**: `Unwrap() @Error` is the FIRST self-referential interface method in the codebase (an interface method whose return type is its own — or any not-yet-registered — interface).  All prior interface methods return scalars / `@[]char` / managed pointers, where the managed-ptr fallback and the correct type coincide at the LLVM level.
 - **Severity**: MAJOR — in-package ABI mismatch for a whole class of interface (anything self-referential: builders, linked nodes, iterator-returns-iterator, and `Unwrap`).  Verifier-loud here, silent on store-only dispatch paths.
 - **Fix (landed `77499153`)**: two layers.  `types/check_interface.bn` defines the interface symbol BEFORE resolving its method/parent signatures (matching the `.bni` bni_scope pre-registration, for in-`.bn` decls).  `ir/gen_iface_registry.bn` appends an identity stub to `moduleInterfaces` and points `currentImportAlias` at the interface's package before resolving method results (so a self-ref resolves even in the cross-package `RegisterAllInterfaces` pre-pass), then overwrites the stub.  Defining the interface early would let `interface A : A` resolve A as its own parent, so `resolveInterfaceExtension` now rejects self-extension explicitly.  Tests: `575_self_ref_iface_method` + `TestInterfaceSelfReferentialMethod`.
-- **Discovery**: 2026-06-03, implementing `plan-std-errors.md` Part 1 — `pkg/std/errors`'s in-package unit tests (`TestNewUnwrapEmpty`/`TestWrapUnwrapCause`/`TestChainWalk` all call `.Unwrap()`).  Pre-existing latent bug.  Distinct from (but same managed-ptr-fallback symptom as) the cross-package entry below.
+- **Discovery**: 2026-06-03, implementing `done/plan-std-errors.md` Part 1 — `pkg/std/errors`'s in-package unit tests (`TestNewUnwrapEmpty`/`TestWrapUnwrapCause`/`TestChainWalk` all call `.Unwrap()`).  Pre-existing latent bug.  Distinct from (but same managed-ptr-fallback symptom as) the cross-package entry below.
 
 ### ~~Multi-return of a `@func` component was miscompiled — capture lost (LLVM) + invalid closure-data kind (VM)~~ — FIXED 2026-06-03
 - **Was**: a function returning a tuple with a function-value component — `func two(...) (int, @func(int) int)` — was wrong-coded for the `@func` slot.  `two(false)` returns `(0, adder(10))` (a capturing `func(x){ return x + n }`, n=10); `f(5)` then gave `5` not `15` in LLVM (capture `n` read as 0) and crashed `vm: unsupported function-value data kind: 0` in the VM.
@@ -10909,7 +10909,7 @@ TODO), but untracked here.
   - **LLVM/IR (capture loss)**: fixed by the multi-assign managed-target refcount work (binate `0b3f4abe` + `6c4d45b0`) — the `@func` component was under-retained through the multi-value path, so the closure record was freed before invocation.  (Landed independently for the multi-assign CRITICAL bug; it also closed the LLVM half here.)
   - **VM (invalid closure data)**: binate `98f65edb`.  Once the closure record was valid again, the only remaining issue was the VM packing a 16-byte address-based `@func` component as one scalar word — the same shape as the iface case `578`.  Generalized `isVMInterfaceValue` → `isVMAddressAggregate` (iface + func) for both the multi-return result-layout classification and the EXTRACT pointer-mode.  (578 deliberately scoped to iface because the LLVM half was still broken then; with that fixed, extending to `@func` completes it cleanly.)
 - **Tests**: `579_multi_return_func_value` (empty + capturing `@func` component, reassignment, invocation) — green in all six default modes.  Single-return `@func` stays pinned by 534/542/555.
-- **Discovery**: 2026-06-03, while fixing the `@Iface` multi-return VM bug for `plan-std-errors.md` (the `(T, @Error)` error-return pattern).  Was pre-existing.
+- **Discovery**: 2026-06-03, while fixing the `@Iface` multi-return VM bug for `done/plan-std-errors.md` (the `(T, @Error)` error-return pattern).  Was pre-existing.
 
 ### ~~`551`/`573` native-aa64 `&G`-as-rvalue~~ — FIXED 2026-06-04 (binate `9a0f4f9a`)
 - **Was**: taking a top-level global's address as a VALUE (`&G` as an
@@ -11459,7 +11459,7 @@ The VM and both native backends computed float32 `+ - * /`, unary negate, and al
 - **Why never caught**: errors is the FIRST cross-package function whose return type is an interface value.  The mis-resolution is INVISIBLE for managed-pointer (`@T`) and managed-slice (`@[]T`) returns — those lower to `i8*` / `%BnManagedSlice` whether resolved correctly or as the managed-ptr fallback — and strconv/big return exactly those.  An interface value is the first return type where correct (`%BnIfaceValue`, 2-word) and fallback (`i8*`, 1-word) diverge.  In-package compilation is fine (there the interface is under `currentModulePkgPath`), so `pkg/std/errors` itself builds; only the consumer mis-resolves.
 - **Severity**: MAJOR — a cross-package ABI mismatch.  Here the LLVM verifier happens to reject it (the copy machinery's `extractvalue` on an `i8*`); on any codegen path that does NOT extractvalue the result (e.g. a `@Iface`-returning function whose result is only stored/passed, not retained at the call site) it would be a **silent miscompile** — caller reads a 1-word return, callee wrote a 2-word value.  Also affects `*Iface` returns by the same path.  (Almost certainly also `@func` / `*func` returns from a cross-package function whose signature spells the func-value type via a NAMED alias — not the structural `@func(...)` form, which resolves context-free — though unconfirmed.)
 - **Fix (landed `cb8c0f1a`)**: in `isInterfaceTypeExpr` and `ifaceTypeForName` (`gen_iface.bn`), a bare name that misses under `currentModulePkgPath` now also tries `currentImportAlias` (keying the produced `TYP_INTERFACE` on the resolved full path), mirroring `gen_util.bn`'s `TEXPR_NAMED` arm.  Test: `576_cross_pkg_iface_return` (and the `577_std_errors` cross-package suite).
-- **Discovery**: 2026-06-03, implementing `plan-std-errors.md` Part 1 (`pkg/std/errors`).  Pre-existing latent bug, exposed by the first cross-package interface-value return.
+- **Discovery**: 2026-06-03, implementing `done/plan-std-errors.md` Part 1 (`pkg/std/errors`).  Pre-existing latent bug, exposed by the first cross-package interface-value return.
 
 ### Conformance int-int mode: `136_grouped_imports` + `383_cross_pkg_iface_dtor` fail with "pkg/builtins/rt not found" — FIXED+LANDED (binate `db18f26b`, 2026-06-05)
 - **Symptom**: on `builder-comp-int-int` (the double-VM default mode),
@@ -11596,7 +11596,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
 - **Root cause (two layers)**: (1) PRE-EXISTING checker hole — `canAssignToInterfaceValue` / `canAssignToManagedInterfaceValue` (`pkg/binate/types/types_assignable.bn:185` / `:234`) short-circuit `if len(iface.Methods) == 0 { return true }`, accepting an iface-value upcast to ANY zero-method target, not just `any`/same/ancestor. For such an upcast `IfaceParentSlotOffset` (`pkg/binate/ir/gen_iface_extends.bn:145`) returns −1 (target is not `any`, not same-canonical, not a parent). (2) REGRESSION — `ca155319` added `if offset < 0 { panic(...) }` to all three offset-based upcast lowerings (`emit_iface_upcast.bn:38`, `aarch64_dispatch.bn`, `x64_dispatch.bn`) on the FALSE premise (stated in the comment) that "the checker should never produce a negative offset." It does. R2-3 turned a latent-but-running path into a hard compile abort.
 - **VM divergence (X2b, separate/pre-existing)**: the VM (`vm_exec_iface.bn`) doesn't use IfaceParentSlotOffset; it looks up a `(T, target)` vtable by name (`findIfaceVtable`), never registered → runtime abort `vm: iface_upcast: target vtable not found`. Its only zero-method shortcut matches literal `any`, not a user empty interface. So the SAME accepted upcast now has THREE behaviors: pre-R2-3 LLVM/native = works; post-R2-3 LLVM/native = compile abort; VM = runtime abort.
 - **Severity**: CRITICAL — a newly-added assert aborts the compile of previously-accepted code on all offset-based backends; the exact "panic false-fires on valid code" class this review exists to catch. (Loud abort, not silent miscompile; gated on the checker hole + an unusual shape, so the 140-cell iface suite stayed green, and R2-3's own 685 covers only the empty-interface decay.)
-- **ROOT CAUSE is a DUCK-TYPING checker hole (confirmed 2026-06-09 with the user — Binate is nominal, no structural typing).** Design docs are unambiguous: `any` is THE single built-in/universe universal interface (`claude-notes.md:575` "a small, closed, language-defined set… `any` is the primary one"; `plan-interface-syntax-revision.md §6`); a USER-declared `interface Empty {}` is a NOMINAL marker interface requiring an explicit `impl`. The four `len(iface.Methods)==0 { return true }` sites (`types_assignable.bn:185/194/234/240`) are a too-broad proxy for "is `any`". IR already has the correct predicate `isUniverseAny()` (`gen_iface.bn:446`: `Kind==TYP_INTERFACE && len(Pkg)==0 && Name=="any"`). The hole is SYSTEMATIC, not upcast-only: a CONCRETE `*T -> *Empty` with NO `impl *T : Empty` ALSO compiles today (runtime-verified). Correct fix core = gate those 4 sites on a checker `isUniverseAny` instead of `len(Methods)==0`; then `*Speaker -> *Empty` and `*T -> *Empty` are rejected, `*any`/`@any` still work, and the −1/panic path is unreachable on valid code (panic stays as defense-in-depth). The earlier "(B) make any zero-method target universal" idea is REFUTED by the docs — do not do it.
+- **ROOT CAUSE is a DUCK-TYPING checker hole (confirmed 2026-06-09 with the user — Binate is nominal, no structural typing).** Design docs are unambiguous: `any` is THE single built-in/universe universal interface (`claude-notes.md:575` "a small, closed, language-defined set… `any` is the primary one"; `done/plan-interface-syntax-revision.md §6`); a USER-declared `interface Empty {}` is a NOMINAL marker interface requiring an explicit `impl`. The four `len(iface.Methods)==0 { return true }` sites (`types_assignable.bn:185/194/234/240`) are a too-broad proxy for "is `any`". IR already has the correct predicate `isUniverseAny()` (`gen_iface.bn:446`: `Kind==TYP_INTERFACE && len(Pkg)==0 && Name=="any"`). The hole is SYSTEMATIC, not upcast-only: a CONCRETE `*T -> *Empty` with NO `impl *T : Empty` ALSO compiles today (runtime-verified). Correct fix core = gate those 4 sites on a checker `isUniverseAny` instead of `len(Methods)==0`; then `*Speaker -> *Empty` and `*T -> *Empty` are rejected, `*any`/`@any` still work, and the −1/panic path is unreachable on valid code (panic stays as defense-in-depth). The earlier "(B) make any zero-method target universal" idea is REFUTED by the docs — do not do it.
 - **SECONDARY DESIGN FORK this surfaces (USER-OWNED) — managed→raw iface-value decay.** Tightening also rejects `@E -> *E` (the empty decay conformance 685 exercises). Turns out `@Iface -> *Iface` decay is ALREADY rejected for NON-empty interfaces (`@Speaker -> *Speaker` → "cannot assign @Speaker to *Speaker", runtime-verified); the empty case only ever worked via this same hole, so 685 tests buggy behavior. Decide: **(A)** decay stays unsupported for all interfaces — rewrite/drop 685, and R2-3's same-canonical→0 machinery (`gen_iface_extends.bn:160-165`) becomes dead → remove; minimal + consistent. **(B)** make `@Iface -> *Iface` decay a real supported op for all interfaces (mirroring `@T -> *T` at `types_assignable.bn:77`) via a reflexive same-interface acceptance — keep+extend 685 to non-empty; R2-3's same-canonical→0 stays. (`isDescendantInterface` is NOT reflexive today — `types_assignable.bn:259`.)
 - **All four upcast consumers** (LLVM/aa64/x64/VM) auto-resolve once the checker rejects the bad upcast (IR/codegen/VM never see it). Add reject cells for both concrete `*T -> *Empty` (no impl) and iface-value `*Speaker -> *Empty` (raw + managed).
 - **Test (to add)**: `conformance/NNN_err_iface_assign_unrelated_empty` (`.error`) covering concrete + iface-value sources; plus the 685 decision (A: drop/rewrite, B: extend to non-empty) per the fork.
@@ -12047,7 +12047,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
 
 ### ~~Managed-interface-value refcount lifecycle is unwired — FAMILY of leaks + 1 UAF~~ — FIXED + LANDED (core wired 2026-06-03; residual closed 2026-06-05 plan-cr-p2-2 steps 2+5: the iface-method-DISPATCH result leak — `genInterfaceMethodCall` registered nothing — via `registerManagedCallResult` (binate `f5410fcf`), and the per-arm `@Iface`/`@func` copy switches consolidated onto `emitStoreManagedSlot` (binate `ce2c8175`); b2 depth coverage `605`)
 - **Root cause (CONFIRMED)**: managed interface values (`@Iface`) were added to the language, but the refcount *lifecycle* machinery in `pkg/binate/ir` was only ever wired for managed-ptr / managed-slice / struct — **never iface**.  Three distinct sites are missing the `isManagedIfaceValueType` case, producing three bugs:
-  1. **UAF — return a named-local `@Iface`** (`func f() @I { var s @I = q; return s }` → `f().m()` reads freed data).  `gen_return.bn`'s Axiom-3 retain loop has no iface case, so a *borrowed* (loaded) iface return is never retained for the caller; the source local's scope-exit RefDec frees it.  (The original target bug; found 2026-06-03 building `plan-std-errors.md` Part 1, where `errors.New`/`Wrap` return `@Error`.)
+  1. **UAF — return a named-local `@Iface`** (`func f() @I { var s @I = q; return s }` → `f().m()` reads freed data).  `gen_return.bn`'s Axiom-3 retain loop has no iface case, so a *borrowed* (loaded) iface return is never retained for the caller; the source local's scope-exit RefDec frees it.  (The original target bug; found 2026-06-03 building `done/plan-std-errors.md` Part 1, where `errors.New`/`Wrap` return `@Error`.)
   2. **LEAK — discarded / non-moved iface temp** (`makeFoo(inner)` as a bare statement → inner rc 1→2, dtor never runs).  `emitTempCleanupBody` (gen_util_refcount.bn:292) RefDec's managed-ptr/slice/struct temps but **skips iface temps**, even though they are registered in `ctx.Temps` (gen_call.bn:252).  **Pre-existing**, independent of the return path (reproduces on Part-0 `bnc`).
   3. **LEAK — reassigning an `@Iface` local** (`var f @I = a; f = b` → `a`'s old iface value is overwritten without a RefDec → leaked).  `gen_assign` doesn't RefDec the previous managed-interface value.  **Pre-existing.**
 - **Why these were never caught**: NO conformance test returns / discards / reassigns a managed interface value — every `@…` test uses managed *pointers* (`@Counter`/`@Item`/…).  520 is the only test that returns an `@Foo`, and only via the *boxed-on-return* shape (which happens to be balanced).
@@ -12055,9 +12055,9 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
 - **Fix (chosen: principled / uniform, 2026-06-03)**: wired `@Iface` through the refcount machinery everywhere `@func` / `@[]T` already go.  Added `isFreshManagedIfaceValue` (gen_refcount_pred); iface RefDec in `emitTempCleanupBody`/`Since`; the consume-fresh / RefInc-borrowed hybrid at every copy-site (return / var-init / `:=` / assign / index-range / composite / slice-literal element); iface struct/array copy+dtor field cases (gen_copy_emit, gen_dtor_emit_bodies); registration of iface call/method results (gen_call, gen_method); and `NeedsDestruction → true` for `TYP_INTERFACE_VALUE_MANAGED` (types_query — was making the struct-field handling dead code).
   - **Params/args use the MOVE model, NOT the copy model** (this is the subtle part): an iface param gets NO entry RefInc; the caller MOVES a fresh arg in via `consumeTemp` or RefInc's a borrowed one (gen_call/gen_method arg sites), and the param's scope-exit RefDec releases that single ref.  Reason: the bytecode VM passes a 2-word iface value on transient `vm.SP` that the call reclaims, so the copy model (caller retains + cleans its arg COPY post-call) reads freed stack and crashes (370/383 in `-int`).  `@T` can use the copy model only because it's 1 word in a stable local.
 - **Verification**: all 16 lifecycle shapes (return×6 / var-init / assign / composite / struct-by-value-copy / multi-consumer / discard / reassign / 1000-iter loop / self-assign) rt.Refcount-balanced, adversarially adjudicated.  Conformance 370/383/473/521/545/546 green in builder-comp / -int / -comp-comp / native aa64+x64.  (520 still fails in `-int` = the separate pre-existing "call through nil interface value" VM bug; 383 fails only in `-int-int` = the pre-existing cross-package double-interp loader limit, which also fails 136_grouped_imports.)
-- **Why MAJOR/critical**: #1 is a silent UAF; #2/#3 are silent leaks (violate the "compiler must NEVER leak" invariant).  Blocks `plan-std-errors.md` Part 1.
+- **Why MAJOR/critical**: #1 is a silent UAF; #2/#3 are silent leaks (violate the "compiler must NEVER leak" invariant).  Blocks `done/plan-std-errors.md` Part 1.
 - **Tests**: 546 (method-value, catches UAF) exists; add a new rt.Refcount-*balance* conformance test (catches leaks) for the return / discard / reassign / param shapes before landing.
-- **Status**: FIX IMPLEMENTED + verified; adding the balance conformance test, then full regression + cherry-pick.  Part 0 (`present`) already landed.  See `plan-std-errors.md`.
+- **Status**: FIX IMPLEMENTED + verified; adding the balance conformance test, then full regression + cherry-pick.  Part 0 (`present`) already landed.  See `done/plan-std-errors.md`.
 
 ### ~~Short-var single-bind `x := s` of a managed struct-by-value skips the copy~~ — FIXED + LANDED 2026-06-05 (binate `b0eb7299`, plan-cr-p2-2 step 3; routed through `emitStoreManagedSlot`; matrix short-var/ident/managed-struct un-xfailed)
 - **Symptom**: `x := src` where `src` is a struct with a managed field copies the
@@ -12283,7 +12283,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
   *signed sub-word* type's `MIN/-1` divide escapes detection because
   IR-gen's `widenType` collapses named ints to plain `int` before the guard
   — see the MINOR entry in `claude-todo.md`.
-- Plan: `plan-divide-by-zero.md`. Ratified contract was `plan-code-red.md` §8 #14.
+- Plan: `done/plan-divide-by-zero.md`. Ratified contract was `plan-code-red.md` §8 #14.
 
 ### ~~VM clobbers ≥2 distinct global addresses in one instruction (shared `globalReg`)~~ — RESOLVED 2026-06-03 (binate `d5d31b13`)
 - **Was**: silent wrong-code in the bytecode VM when ONE instruction took
@@ -12680,7 +12680,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
   so it arguably belongs in a neutral layer rather than under `native/`.
 
 ### ~~`pkg/std/math/big.Nat` + `strconv` float formatting (Dragon4 dtoa)~~ — DONE 2026-06-03
-- Plan: [`plan-strconv-float.md`](plan-strconv-float.md) (now marked COMPLETE).
+- Plan: [`done/plan-strconv-float.md`](done/plan-strconv-float.md) (now marked COMPLETE).
 - **What landed**: `pkg/std/math/big.Nat` — a complete ILP32-correct
   arbitrary-precision unsigned integer (Add/Sub/Mul/MulUint32/Shl/Shr/
   DivMod via Knuth Algorithm D / DivModUint32 / Cmp / BitLen / …). On top
@@ -12701,7 +12701,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
   [claude-todo.md](claude-todo.md) (`conformance/536`).
 
 ### ~~Drop `pkg/libc` via `__c_call` in `rt`~~ — DONE 2026-06-03 (binate `e56e4d0c` + `aa017052`)
-- Plan: [`plan-rt-ccall-drop-libc.md`](plan-rt-ccall-drop-libc.md)
+- Plan: [`done/plan-rt-ccall-drop-libc.md`](done/plan-rt-ccall-drop-libc.md)
   (Approach A — native-only rt — chosen over the BC_C_CALL opcode; rt
   is fundamental enough to mandate "rt must be native", and the future
   is package-level native registration via the `_Package` infra).
@@ -12974,10 +12974,10 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
 - **Root cause**: `genExprInner`'s `EXPR_INT_LIT` branch (pkg/ir/gen_expr.bn:34) unconditionally emitted the literal at `types.TypUntypedInt()`.  `TypUntypedInt` has `Width=0`, so `llvmType` fell through to `intLL()` — i64 on LP64, **i32 on `--target arm32-linux`**.  The literal text was widened to int64 by `exprIntLitValue` (via the type checker's bignum-fold), but the LLVM emit type dropped back to host int, so the IR-text writer's i32 literal silently wrapped.  `genIntLitWithHint` papered over this for the most common case (bare `EXPR_INT_LIT` argument to `cast(T, …)` or `var x T = …`), but didn't peek through `EXPR_UNARY`, so `cast(T, -lit)` fell through to the buggy path.
 - **Resolution**: added `tryFoldOversizedConst` in `pkg/ir/gen_util_literals.bn`, dispatched from `genExprInner`'s EXPR_UNARY / EXPR_BINARY branches.  When the type checker's bignum-fold on the resolved type carries a magnitude that exceeds the target's host-int signed range, emit a single OP_CONST_INT at int64 directly — bypassing the recursive `genExpr` that would emit the leaf literal at TypUntypedInt → intLL() = i32 on the 32-bit target.  No-op on LP64 — `targetIntBits >= 64` short-circuits.  Tests: `TestGenCastNegLitOverflowingHostIntPromotesToInt64` (unit), `conformance/507_int64_min_via_unary_minus` (end-to-end).  Companion fix-up `8981d5bf` locks LP64 around `TestGenUnaryMinusOnInt64Preserves`.
 
-### ~~Type definitions duplicated between `.bni` and `.bn` — silent miscompile on mismatch~~ — FIXED 2026-05-29 (binate `f18b2e39`..`553649fc`, plan-type-decls.md series)
+### ~~Type definitions duplicated between `.bni` and `.bn` — silent miscompile on mismatch~~ — FIXED 2026-05-29 (binate `f18b2e39`..`553649fc`, done/plan-type-decls.md series)
 - **Was**: when a struct was declared in `pkg/foo.bni` AND in `pkg/foo/foo.bn` with DIFFERENT field lists, the compiler accepted the program and silently emitted machine code that mis-resolved the mismatched field(s).  Discovered via Stage 4 of done/plan-c-call.md (binate `0d0f35b7`): `common.bni` declared `CallConv.VariadicStackOnly bool` as the 8th field, but `common_callconv.bn`'s impl-side `struct` only listed 7 fields (missing VariadicStackOnly).  The type checker accepted `cc.VariadicStackOnly = true`, but pkg/codegen lowered the field access to GEP index 0 (the first field, NumGpArgRegs) and emitted an `i64` store of the zext'd `i1` — overwriting NumGpArgRegs with 1 instead of setting the trailing bool.  Took a full debug session to track down; classic silent-miscompile shape.
 - **Why it mattered**: any package whose bni/bn pair drifted (a field added to one without the other, or fields reordered) silently miscompiled, with the symptom landing far from the cause.  Easy to hit during refactoring; impossible to diagnose without reading the emitted LLVM IR.
-- **Resolution**: full plan-type-decls.md series — the proper "single source of truth" fix rather than a stop-gap validator.  Phase 1 (`f18b2e39`) added forward-decl syntax `type S` (no body) to parser/AST.  Phase 2 (`42c10d6c`) extended the type checker to handle forward decls + warn on mismatched duplicates.  Phase 3a (`7a6af095`) made bni loading forward-decl-safe.  Phase 4 (`f3447cba`, `0c7d93d8`, `e8f27e07`, `c9308b16`) cleaned up all 5 pre-existing duplicates in tree (pkg/native/common, pkg/rt, pkg/ir, pkg/builtins/testing).  Phase 5 (`0166ce0c`) flipped the mismatched-duplicate warning to a hard error — the original silent-miscompile shape is now structurally impossible.  Phase 3b (`553649fc`) made cross-package opaque handles round-trip cleanly through codegen.
+- **Resolution**: full done/plan-type-decls.md series — the proper "single source of truth" fix rather than a stop-gap validator.  Phase 1 (`f18b2e39`) added forward-decl syntax `type S` (no body) to parser/AST.  Phase 2 (`42c10d6c`) extended the type checker to handle forward decls + warn on mismatched duplicates.  Phase 3a (`7a6af095`) made bni loading forward-decl-safe.  Phase 4 (`f3447cba`, `0c7d93d8`, `e8f27e07`, `c9308b16`) cleaned up all 5 pre-existing duplicates in tree (pkg/native/common, pkg/rt, pkg/ir, pkg/builtins/testing).  Phase 5 (`0166ce0c`) flipped the mismatched-duplicate warning to a hard error — the original silent-miscompile shape is now structurally impossible.  Phase 3b (`553649fc`) made cross-package opaque handles round-trip cleanly through codegen.
 - **Test**: `conformance/514_opaque_handle_cross_pkg/` exercises the opaque-handle pattern end-to-end; `pkg/types/check_decl_test.bn` covers the duplicate-detection / forward-decl-acceptance unit cases.
 
 ### ~~Mangler collides symbols from packages with the same last-segment short name~~ — FIXED 2026-05-27 (binate `7f989ad` + `f7f8f04`), un-rename follow-up `dd05118`
@@ -13232,7 +13232,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
   for heap-allocated source handles) → managed `@VMFuncHandle
   HandleAddr` that RegisterExtern populates with a binding-owned
   copy.  Ownership test pinned in `24fb091`.
-- Phase 4 plan doc (`plan-uniform-native-fnptrs.md`) updated to
+- Phase 4 plan doc (`done/plan-uniform-native-fnptrs.md`) updated to
   mark Phase 4 LANDED in binate `42f463f`.
 - **Original context** (kept for posterity): Phase 4 landed at
   binate `666ecc0` with a stop-gap (emitManagedPtrRefDec emits
@@ -13362,12 +13362,12 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
   fields, allocated via `make(...)` in `vm_exec_funcref.bn:ensureHandle`.
   VMFunc's auto-emitted dtor refdec's all three on death; no leak.
 - Same fix for `ExternBinding.HandleAddr` — now `@VMFuncHandle`.
-- Phase 4 of `plan-uniform-native-fnptrs.md` is the umbrella that
+- Phase 4 of `done/plan-uniform-native-fnptrs.md` is the umbrella that
   carried this in (along with the dtor-handle interop fix and the
   aa64 handler additions).
 
 ### ~~pkg/vm:TestExecRefIncRefDecInline crashes under boot-comp-int-int~~ — FIXED
-- Phases 1–3 of `plan-uniform-native-fnptrs.md` landed
+- Phases 1–3 of `done/plan-uniform-native-fnptrs.md` landed
   (`9561a3b`, `c557870`).  Pre-existing diagnostic detail retained
   below for context.
 - **Repro**: `./scripts/unittest/run.sh boot-comp-int-int pkg/vm`.
@@ -13507,7 +13507,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
   pairing.
 
 ### ~~Pointers to interface values~~ — DONE 2026-05-21
-- **Plan**: `plan-pointers-to-iface-values.md` (sliced P.1–P.5).
+- **Plan**: `done/plan-pointers-to-iface-values.md` (sliced P.1–P.5).
   Slices P.1 (audit) + P.2 (fix `@(*I)` / `@(@I)` deref-
   dispatch) LANDED 2026-05-20; P.3 (smoothing for pointer-to-iv
   receivers) + P.4 (iv-in-slice / iv-in-array element-write)
@@ -15104,7 +15104,7 @@ arm32-linux on an x64 host — is carried forward to claude-todo.md. Body kept a
   limitation, *not* a backend result — no x64 xfails placed), and `arm32-linux`
   needs `qemu-arm` (skipped). Re-check on an x64 host: the aa64 sub-word defect
   very likely has an x64 analog needing its own xfails.
-- **Discovery**: 2026-06-06, differential-harness v1 (plan-differential-testing.md).
+- **Discovery**: 2026-06-06, differential-harness v1 (done/plan-differential-testing.md).
 - **v2 (arith/cmp/bitwise) — LANDED 2026-06-06** (binate `42ad4fa0` fix +
   `e71de1e0` harness): 123 cells / 5415 tuples total. v2 found+fixed the LLVM
   `~` bug (`bitnot-result-type`, above). Remaining divergences, all xfailed
@@ -15236,7 +15236,7 @@ to claude-todo.md. Body kept as the design + phasing record.
 - **Backend dependency**: function values share the vtable layout
   and dispatch path with interfaces, but **not** the frontend
   interface syntax. They depend on the runtime/codegen vtable
-  machinery, not on `plan-interface-syntax-revision.md`. Either
+  machinery, not on `done/plan-interface-syntax-revision.md`. Either
   plan can land first; both share the backend.
 - **Method values** (`x.M`, `T.M`) and **closures** are folded
   under this plan rather than tracked separately.
@@ -15338,7 +15338,7 @@ note is superseded by the "ALL STAGES LANDED" line right below it. Residual — 
 shadow warning + forced-shadow escape hatch, and the interfaces-gated pretty-printer — carried forward
 to claude-todo.md.
 
-- **Status**: `bni --repl <file.bn|dir>` ships.  `plan-repl.md` is
+- **Status**: `bni --repl <file.bn|dir>` ships.  `done/plan-repl.md` is
   the live source of truth for per-step state — commit tables,
   verified behaviors, deviations from the original plan, and the
   per-tier remaining-follow-ups list.  Briefly:
@@ -15363,11 +15363,11 @@ to claude-todo.md.
     `78685ac3`.  `import "pkg/foo"` at the prompt loads pkg/foo
     transitively, type-checks, IR-gens, lowers, and defines the
     package symbol in the session scope.
-- **Remaining REPL work**, per plan-repl.md:
+- **Remaining REPL work**, per done/plan-repl.md:
   - ~~**Tier 3**: pending types / vars / consts; cycle
     detection.~~  **ALL STAGES LANDED** 2026-05-28 → 2026-05-29
     via 9 commits on main; see
-    [`plan-repl-tier3-pending-types.md`](plan-repl-tier3-pending-types.md)
+    [`done/plan-repl-tier3-pending-types.md`](done/plan-repl-tier3-pending-types.md)
     for the per-stage commit table.  Every top-level decl
     kind parks on forward-referenced dependencies; use-site
     propagation works through sized contexts (struct field,
@@ -15447,7 +15447,7 @@ to claude-todo.md.
     `LookupFunc` is O(1).  Eager CallCache fill keeps shadow
     semantics correct.)*
 - **Tiered plan** (each tier shippable on its own; see
-  `plan-repl.md` for entry-point names, per-step commit tables,
+  `done/plan-repl.md` for entry-point names, per-step commit tables,
   and the live follow-up state):
   1. ~~**Load-then-poke.**~~ **LANDED (2026-04-30).** Load a `.bn`
      module the normal way; prompt accepts immediate-mode entries.
@@ -15482,7 +15482,7 @@ to claude-todo.md.
      c.RegisterReplImport to make `foo.X` resolvable from
      subsequent prompt entries.
 - **What's free / "should-do-now-anyway"**:
-  - ~~The audit itself~~ — done; `plan-repl.md` is the live doc.
+  - ~~The audit itself~~ — done; `done/plan-repl.md` is the live doc.
   - ~~Per-decl entry points exposed opportunistically when the
     relevant code is touched for unrelated reasons.~~  Done as part
     of Tier 1 + Tier 2 (parser ParseExpr / ParseStmtList /
@@ -15497,7 +15497,7 @@ to claude-todo.md.
     `pkg/buf.CharBuf`). Useful well beyond REPL.  **Deferred until
     interfaces land** — `bootstrap.println` is a temporary hack
     scheduled for removal; building features on top of it would
-    entrench the hack.  See "Pretty-printer" in plan-repl.md and
+    entrench the hack.  See "Pretty-printer" in done/plan-repl.md and
     the auto-`println` deferral note.
 - **Decisions / non-decisions in adjacent work to pressure-test**:
   - **Function values** (`done/plan-function-values.md`): a function value
@@ -15516,7 +15516,7 @@ to claude-todo.md.
   - **IR/backend cleanup**: no closed-world assumptions in the shared
     layer.
 - **What this entry is NOT**:
-  - A REPL implementation plan — that lives in `plan-repl.md`.
+  - A REPL implementation plan — that lives in `done/plan-repl.md`.
   - A relitigation of REPL semantics — those are decided; if they
     change, update `claude-notes.md` first.
 - **Open design questions worth pinning before Tier 1 starts** —
@@ -15925,7 +15925,7 @@ is overstated and it WIDENED the prefix set.  **Fix:** make leaf tokens
 self-delimiting — length-count the named-type token, or use distinct escapes for
 `.` vs `/` vs literal `_`.  The same 2-to-1 fold lives in `mangle.bn`'s
 `writeBnDotted`, so the robust fix belongs in the SHARED mangle pipeline, not
-only here.  **Approved plan: `plan-mangle-invertible.md`** — length-prefixed
+only here.  **Approved plan: `done/plan-mangle-invertible.md`** — length-prefixed
 (Itanium-style) invertible encoding across the whole mangle pipeline, a full
 structured demangler, and a `demangle(mangle(x))==x` round-trip + injectivity
 test suite (the real injectivity verifier).  Not BUILDER-gated.  The named-axis
@@ -16197,7 +16197,7 @@ HFA/eightbyte-float aggregate passing in SIMD/FP registers is a cross-backend AB
 contract — the compiler's LLVM backend, native codegen, every dispatch shim
 (func-value / closure / interface, incl. stack-spill), and the VM boundary must
 all agree. Now **✅ DONE & LANDED on both backends** via the cross-backend replan
-(`plan-hfa-crossbackend.md`): all sites built dormant, then flipped ON per target.
+(`done/plan-hfa-crossbackend.md`): all sites built dormant, then flipped ON per target.
 
 **AArch64 (AAPCS64 HFA in v0..v7).** Flipped ON at `48e3787b` (`HfaInSimd() →
 Arch==AA64`). Staging commits `06f9a8ff`/`d69eded8`/`7692508e`/`9ebf4119`/
@@ -16222,7 +16222,7 @@ register + spill (4d-arg `e321f57d`/`b7b09c6e`/`bf5e4feb`), closure (4d-2
 The flip was gated on Step 5's validation: the full `builder-comp_native_x64_darwin`
 suite under Rosetta was byte-identical dormant-vs-flipped — 2661 passed / 8 failed
 / 7 skipped, zero regressions (the 8 pre-existing and SSE-unrelated). The earlier
-native-only staging in `plan-native-hfa-abi.md` is superseded.
+native-only staging in the native-first HFA staging proposal is superseded.
 
 ### MAJOR — generic interface's method signature referencing a sibling generic type (`SiblingType[T]`) fails to resolve during CROSS-PACKAGE impl-satisfaction (`undefined: <sibling>`) — ✅ RESOLVED & LANDED 2026-07-10 (`470dfe78`)
 

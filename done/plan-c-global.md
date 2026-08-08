@@ -47,7 +47,7 @@ is the remaining work** (see §5b.3 for the x64 emitter + `R_X86_64_REX_GOTPCREL
 end-to-end test against a linker-script external (e.g. `_stack_top` / `__bss_end`,
 run under `qemu-system-arm`) — would be the first baremetal-live-only conformance
 test (~11-mode xfail set). Planned + adversarially reviewed 2026-07-05.
-Sibling of `__c_call` (see `done/plan-c-call.md`, COMPLETE). Spec §16.9
+Sibling of `__c_call` (see `plan-c-call.md`, COMPLETE). Spec §16.9
 (`pkg.cglobal`, `docs/spec/16b-build-constraints.md`), grammar `BuiltinCall` in
 `binate.ebnf` line 482 (`"__c_global" "(" string_literal "," Type ")"`), design
 note in `claude-notes.md` (search `__c_global`).
@@ -607,7 +607,7 @@ compilable and passes its package's unit tests.
   `__c_global` call sites open-code `int32`/`*uint8`/`**char` directly.
 - **In-tree adoption** (e.g. a `pkg/std/os` `Environ`/`Getenv` on top of
   `__c_global`) is a **separate** follow-on, not bundled here — same as
-  `done/plan-c-call.md` scoped `pkg/bootstrap` retirement separately.
+  `plan-c-call.md` scoped `pkg/bootstrap` retirement separately.
 - **Symbol-collision edge:** if one program used the same name in both `__c_call`
   and `__c_global`, the two LLVM declare-sweeps would emit conflicting
   `declare @sym(...)` + `@sym = external global …` (ill-formed). Rare (a symbol is

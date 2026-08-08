@@ -267,7 +267,7 @@ as follows:
   pre-revision design and needs to be updated to match this plan.
   TODO once Phase 2 (bare-name-as-type-expression) lands.
 - `claude-discussion-detailed-notes.md` § 6 — full design history.
-- `done/plan-function-values.md` — function values reuse the vtable
+- `plan-function-values.md` — function values reuse the vtable
   machinery from this plan but are independent at the *frontend*
   level (function values are structural, not user-declared
   interfaces).

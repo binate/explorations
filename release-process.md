@@ -16,7 +16,7 @@ how the moving parts fit together so you don't have to reverse-engineer
     it being a build-ladder rung (only stable `bnc-X.Y.Z` advances
     `BUILDER_VERSION`).  It's how we dogfood a new feature outside the
     BUILDER tree — e.g. methods-on-generics for hygiene's bnlint/bnfmt —
-    ahead of a stable cut.  See `plan-check-tools-version.md`.
+    ahead of a stable cut.  See `done/plan-check-tools-version.md`.
   - `bnc-X.Y.Z-preN` — the "untagged, in-progress" shape used between
     stable releases; the working tree starts at `-pre1` right after a
     release and increments (`-pre2`, …) from there.
@@ -46,7 +46,7 @@ how the moving parts fit together so you don't have to reverse-engineer
   `fetch-builder.sh --check-tools`.  May be a `bnc-X.Y.ZpreN` pre-release
   AHEAD of `BUILDER_VERSION`, so hygiene can run tools that understand
   newer non-BUILDER-tree language than the BUILDER the tree builds with.
-  See `plan-check-tools-version.md`.
+  See `done/plan-check-tools-version.md`.
 - **`.github/workflows/release.yml`** — the release CI.  Triggered
   by push of a tag matching `bnc-*`.  Builds per-platform bundles
   and attaches them to a GitHub release named after the tag.

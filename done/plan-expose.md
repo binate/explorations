@@ -8,7 +8,7 @@ are real). Phase 0's ratify step is **done**; the remaining prerequisite is the 
 A future edit-site-level detailed plan would follow.
 
 Related: the existing cross-package **type-alias** machinery (`type X = other.Y`, conformance
-`110`/`941`) — the identity substrate `expose` reuses; `done/plan-cross-package-interfaces.md`;
+`110`/`941`) — the identity substrate `expose` reuses; `plan-cross-package-interfaces.md`;
 the `.bni` interface contract (§16.5).
 
 ## 1. What we are building

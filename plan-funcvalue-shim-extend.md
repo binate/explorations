@@ -56,8 +56,7 @@ already work; the risk is a REGRESSION when relocating. Approach:
    bool). They MUST stay green after the change on all modes (VM + native + LLVM).
 2. Add a NATIVE-only test that a func-value/iface shim returning e.g. `int8(-1)`
    is seen as full-width `-1` by the caller (would have needed the VM narrow before;
-   proves the shim now extends). A cross-ABI C-driver style test (see
-   plan-native-hfa-abi.md) could pin it if a pure-native test is self-consistent.
+   proves the shim now extends). A cross-ABI C-driver style test could pin it if a pure-native test is self-consistent.
 3. Sequence: add all backends' shim extends FIRST (verify green), THEN drop the VM
    narrow (verify still green) — never drop the VM narrow before the shims extend.
 

@@ -164,6 +164,6 @@ filters on `d.TypeRef != nil && d.TypeRef.Kind == ast.TEXPR_STRUCT`).
 
 5. **Generic types** (needs thought): same model would make
    `type Container[T any]` in .bni a forward decl with full body in .bn
-   (or in .bni for fully exported generics).  But per done/plan-generics.md,
+   (or in .bni for fully exported generics).  But per plan-generics.md,
    generics get monomorphized per-package, so opaque generics may not
    make sense.

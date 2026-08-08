@@ -36,7 +36,7 @@ small overlap with `pkg/binate/repl` is deliberate duplication tracked
 by the shared-helper audit TODO. Work happened in worktree
 `temp-binate-4` / branch `repl-embeddable`.
 
-Companion docs: [`plan-repl.md`](plan-repl.md) (the shipped 5-tier
+Companion docs: [`done/plan-repl.md`](done/plan-repl.md) (the shipped 5-tier
 REPL), [`pkg-layout-spec.md`](pkg-layout-spec.md) (tier-2 placement),
 [`plan-wasm-browser.md`](plan-wasm-browser.md) (the downstream B1
 consumer), [`plan-bni-heap-frames.md`](plan-bni-heap-frames.md) (gates
@@ -189,7 +189,7 @@ struct StepResult {
   Counter int   // In[n] index for the next input (== current turn's n while NeedMore)
   Depth   int   // open-bracket continuation depth; 0 ⇒ primary prompt, >0 ⇒ continuation
   // (future) result-type / pretty-printed summary for a rich prompt —
-  // deferred to the pretty-printer (pkg/replprint), see plan-repl.md.
+  // deferred to the pretty-printer (pkg/replprint), see done/plan-repl.md.
 }
 // Host convenience: Continuation := Depth > 0.
 

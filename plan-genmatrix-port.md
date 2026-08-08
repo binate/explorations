@@ -142,7 +142,7 @@ particular **`os.MkdirAll` must be in the CHECK_TOOLS bundle**. Once `MkdirAll`
 lands in the tree, `CHECK_TOOLS_VERSION` must be bumped to a bundle that ships
 it before the generator can run bundled. This is the injected-`os` analogue of
 the standing "verify the BUILDER supports a new feature before relying on it"
-rule (see plan-check-tools-version.md). Interim, before that bump, a from-tree
+rule (see done/plan-check-tools-version.md). Interim, before that bump, a from-tree
 `bni` (`scripts/build-bni.sh`, whose injected `os` is the tree's) runs it — the
 same fallback if a generator ever needs an `os` function newer than the latest
 CHECK_TOOLS.

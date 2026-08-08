@@ -58,7 +58,7 @@ be relitigated here:
 1. **No duck-typing.**  Type-T-satisfies-interface-I is
    answered by an explicit `impl` declaration (own or
    compiler-synthesized), not by a structural method-shape
-   match.  Per `plan-interface-syntax-revision.md`.
+   match.  Per `done/plan-interface-syntax-revision.md`.
 2. **`impl` is a real declaration with real codegen.**  Each
    `(T, I)` pair produces a real vtable (`__ivt.bn_<recv_pkg>__
    <recv>__<iface_pkg>__<iface>`) per the cross-package
@@ -295,7 +295,7 @@ interface Hashable : Comparable {
 ### Why one `Compare` method instead of separate `Equals` / `Less` / `Compare`
 
 Once `impl` declarations are explicit (per
-`plan-interface-syntax-revision.md`'s no-duck-typing stance),
+`done/plan-interface-syntax-revision.md`'s no-duck-typing stance),
 we can use a single method whose semantic contract is layered
 via interface extension:
 
@@ -580,7 +580,7 @@ variadics support (not yet implemented).
   `any` precedent that Option 1 builds on.
 - `done/plan-generics.md` § "Hard dependency: primitives-implement-
   interfaces" — generics is the largest downstream consumer.
-- `plan-interface-syntax-revision.md` — `impl T : I` syntax
+- `done/plan-interface-syntax-revision.md` — `impl T : I` syntax
   and the no-duck-typing stance.
 - `done/plan-cross-package-interfaces.md` — `impl` may live in any
   package; the methods on T live with T's defining package.

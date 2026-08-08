@@ -9,12 +9,12 @@ edit-site-level detailed plan (`plan-ffi-export-detailed.md`) would follow, grou
 in a repo-wide survey, once Phase 0 clears. This plan was itself adversarially
 reviewed against the codebase; the phase scoping below reflects that pass.
 
-Sibling/related work: the FFI **annotation family** (`done/plan-c-call.md` `__c_call` ✅,
+Sibling/related work: the FFI **annotation family** (`plan-c-call.md` `__c_call` ✅,
 `plan-c-global.md` `__c_global`, the `#[link]` companion sketch in `claude-todo.md`);
 the **motivating use case** (`plan-embeddable-interp.md` / `plan-embeddable-vm.md` /
-`plan-repl-embeddable.md`); `done/plan-extern-var.md` (`.bni` externs); the **symbol/alias
-& object-format** work (`plan-linker.md`, `done/plan-macho-dysymtab.md`,
-`done/plan-backend-objformat-decoupling.md`); and the **baremetal** entry
+`plan-repl-embeddable.md`); `plan-extern-var.md` (`.bni` externs); the **symbol/alias
+& object-format** work (`plan-linker.md`, `plan-macho-dysymtab.md`,
+`plan-backend-objformat-decoupling.md`); and the **baremetal** entry
 (`plan-arm32-bare-metal.md`).
 
 ## 1. What we are building
@@ -74,7 +74,7 @@ Binate. From the design note, the moving parts are:
   there as **always-included** (never misread as a `build`-style drop predicate).
   `buildcfg` is itself in `cmd/bnc`'s BUILDER-compiled tree (imported by
   `cmd/bnc/target.bn:187`) — so the BUILDER caveat (§4) applies to the recognition edit.
-- **Verbatim-symbol path** — `__c_call` (`done/plan-c-call.md`) already emits C symbol
+- **Verbatim-symbol path** — `__c_call` (`plan-c-call.md`) already emits C symbol
   names **unmangled/verbatim** through the backends' platform-C-ABI lowering. c_export's
   emitted alias reuses that "verbatim, no `bn_` mangling" discipline (`pkg/mangle` +
   the backends).
@@ -152,7 +152,7 @@ this plan alone.)
 - **Deliverable:** `#[c_export("foo")] func Foo()` yields a callable C symbol `foo`.
   **Deps:** 2. **This is the MVP-critical emission piece.**
 - **Risks:** the alias primitive is net-new in three object paths (ties to
-  `done/plan-macho-dysymtab.md` / `plan-linker.md`); getting all three is the bulk of the work.
+  `plan-macho-dysymtab.md` / `plan-linker.md`); getting all three is the bulk of the work.
 
 ### Phase 4 — Trivial-forward → symbol alias
 - Recognize the signature-preserving forwarder shape and lower it to a **symbol alias**

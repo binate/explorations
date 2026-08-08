@@ -96,7 +96,7 @@ keeps the C surface smaller (one shared `write` stub instead of one
 per print variant). `OP_PANIC` lowers to `rt.Exit` (a Binate wrapper
 over `rt.c_exit`); the runtime manifest is now empty and the
 `OP_CALL_BUILTIN` opcode + plumbing have been removed. See
-`plan-print-builtin-runtime-decoupling.md` and `claude-todo.md` for
+`done/plan-print-builtin-runtime-decoupling.md` and `claude-todo.md` for
 the multi-step rollout.
 
 `formatFloat` is fixed-point (`integer.6digits`) with a

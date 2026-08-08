@@ -294,7 +294,7 @@ stays.
 **Not required for MVP:** ELF `STT_FUNC` (all symbols are `STT_NOTYPE` today; a
 `c_export` symbol links fine as `STT_NOTYPE` — linkers resolve by name). Upgrading
 needs a type field on the shared `asm.Symbol` model — a larger, optional change.
-`N_INDR`/`.set` are **not** needed. `done/plan-macho-dysymtab.md` (dysymtab already
+`N_INDR`/`.set` are **not** needed. `plan-macho-dysymtab.md` (dysymtab already
 emitted) and `plan-linker.md` (system linker consumes aliases) are **not**
 blockers.
 
