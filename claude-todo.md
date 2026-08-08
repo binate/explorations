@@ -629,6 +629,17 @@ descriptor; **(b)** hand-bind lang's ~25 primitive methods as externs in interp 
 `registerBootstrapExterns`) — localized, no codegen change, but tedious + lang-
 specific.  Leave lang lowered (it works fine) until picked up.
 
+**Partial registration landed (`9d0a1b14`, 2026-08-07) — lang's RTTI identity symbols,
+NOT its functions.**  `RegisterPackageRttiSyms` (interp/externs.bn calls it for lang at
+VM setup) binds lang's native `__typeinfo.<T>` + `__ifaceid.<J>` data symbols so a
+bytecode-boxed lang value asserted by injected-native code (`testing.Println`'s
+`arg.(*lang.Stringer)`) resolves cross-mode — lang scalars via a native `g_satTable` HIT,
+user types implementing a lang interface via the new `rt.SatLookup` VM-registry fallback.
+This is deliberately the RTTI-identity subset (typeinfos + ifaceids only, no satentries /
+vtables / functions — those would split-brain against the lowered lang), so it does NOT
+close this item: lang's DIRECT method calls still need route (a) or (b) above.  So the
+gap is now narrower — only the primitive-method direct-call binding remains.
+
 ## Standard library — pkg/stdx/fmt
 
 ### fmt Printf follow-ups (small remaining verb/flag gaps) — 🟡 OPEN (lean core `2dc07f46` + width/precision/flags `d01a2774` + #/string-hex/*/%q-char `caedd9da`, 2026-07-29)
@@ -785,17 +796,34 @@ binate/examples.
 
 ### `--test` discovery matches TestResult by spelling, not by resolved type — 🟢 LOW (2026-08-03)
 
-`isTestResultReturn` (`cmd/bnc/test.bn`) recognizes a test by the *spelling* of its
-return type — qualified `testing.TestResult` OR `sys.TestResult` (the canonical named
-type now lives in `pkg/builtins/testing/sys`; `testing.TestResult = sys.TestResult`
-re-aliases it, `eba239a2`), or a bare `TestResult` when the package declares `type
-TestResult` locally (the `pkg/builtins/testing` own-`_test` case). It does not resolve
-the type through the checker, so it would miss `testing`/`sys` imported under a
-non-default alias, and matching each new alias spelling by hand (the `sys.TestResult`
-arm was itself such a patch) doesn't scale. Fix: resolve the single return type through
-the loader/checker to the canonical named `sys.TestResult` (a distinct named type,
-`19f9d86c`) and match on identity. Referenced by the TODO comment in
-`isTestResultReturn`.
+`isTestResultReturn` — in BOTH runners now, `cmd/bnc/test.bn` (compiled) and
+`cmd/bni/main.bn` (bytecode VM), brought to parity in `236cf255` — recognizes a test by
+the *spelling* of its return type: qualified `testing.TestResult` OR `sys.TestResult`
+(the canonical named type lives in `pkg/builtins/testing/sys`; `testing.TestResult =
+sys.TestResult` re-aliases it, `eba239a2`), or a bare `TestResult` when the package
+declares `type TestResult` locally (the `pkg/builtins/testing` own-`_test` case, via
+`hasLocalTestResultType`). Neither resolves the type through the checker, so both would
+miss `testing`/`sys` imported under a non-default alias, and matching each new alias
+spelling by hand (the `sys.TestResult` and bare-local arms were both such patches, and
+cmd/bni had to be patched separately) doesn't scale. Fix: resolve the single return type
+through the loader/checker to the canonical named `sys.TestResult` (a distinct named
+type, `19f9d86c`) and match on identity, in one shared helper both runners call.
+Referenced by the TODO comment in `cmd/bnc/test.bn`'s `isTestResultReturn`.
+
+### Cross-mode RTTI on VM-boxed values fails in the NESTED double-VM mode — 🟢 LOW (2026-08-07)
+
+`testing.Println`'s injected-native `arg.(*lang.Stringer)` on a bytecode-boxed value
+resolves in the single-VM modes (builder-comp-int, builder-comp-comp-int — the fix in
+`9d0a1b14`: native `rt.SatLookup` MISS → VM-registry fallback + lang native typeinfo/
+ifaceid registration), but NOT in `builder-comp-int-int`, where cmd/bni itself runs as
+bytecode in an OUTER VM so the native typeinfo/ifaceid/satentry identities don't line up
+across the two layers.  `conformance/1182_testing_println` is `.xfail.builder-comp-int-int`
+for this.  It is the SAME nested-boundary identity limitation that already xfails ~31
+tests in that mode (incl. `385_iface_nil_dispatch` and the `c_call` family), not specific
+to RTTI — a fix would need the general two-layer identity reconciliation, not a
+testing-specific patch.  Matters for the `println` → `testing.Println` conformance sweep:
+the swept tests would xfail this one mode (like c_call does today) unless the nested-VM
+identity story is solved first.
 
 ---
 

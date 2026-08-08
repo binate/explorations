@@ -6,6 +6,53 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## testing.Println works under the bytecode VM: cross-mode variadic marshalling + RTTI — ✅ DONE (`236cf255` + `9d0a1b14`, 2026-08-07)
+
+Completes the `testing.Println` VM story (the feature landed `eba239a2`; this makes it
+actually WORK interpreted).  testing is injected native-only, so
+`testing.Println(args ...*any)` runs as NATIVE code and asserts `arg.(*lang.Stringer)`
+on each boxed operand — which failed (first a crash, then wrong output) for a value a
+BYTECODE program boxed.  Three defects, all fixed:
+
+- **Discovery (Bug 2, `236cf255`).**  `cmd/bni`'s `--test` `isTestResultReturn` matched
+  only qualified `testing.TestResult`, silently skipping tests that return
+  `sys.TestResult` (lang's ~40 Stringer tests) or a bare `TestResult` (testing's own two
+  tests) — 0 tests read as green, not skipped.  Now matches `sys` + a bare local
+  `TestResult` (via `hasLocalTestResultType`), mirroring `cmd/bnc/test.bn`.
+- **Variadic slice-of-iface marshalling crash (`9d0a1b14`).**  The `*any` elements of the
+  variadic slice carry VM-index vtable words a native callee dereferenced → SIGSEGV.  The
+  cross-mode marshalling (`substituteIfaceArgs`/`substTopLevelIfaceSlot`) translated such
+  words only for TOP-LEVEL iface args, never values NESTED in a slice.
+  `substituteSliceIfaceArgs` (vm_iface_native_vt.bn) extends it to the raw-slice-of-raw-iface
+  arg a `...*any` packs, flagged per slot via a bitmap in `BC_CALL.Src2`
+  (`argIsSliceOfRawIface` + a `remapRegisters` exception).  Its scratch bump — the first
+  sized by a runtime slice length — is bounds-checked (fail loud, not overflow).
+- **Cross-mode RTTI (`9d0a1b14`).**  native `rt.SatLookup` only sees the process's linked
+  `g_satTable`, so it MISSED for a type whose `(T,J)` satentry lives only VM-side (a USER
+  type entirely).  Two parts: (1) `rt.SatLookup` gained an optional MISS fallback
+  (`SetSatFallback`/`g_satFallback`, a BUILDER-safe `*func` gated by `present()`); the VM
+  installs `satFallbackFn`, which re-enters the executing VM's own registry
+  (`lookupSatEntry`) and translates a VM-index result to a native handle-vtable so the
+  recovered value's method re-enters the VM — `dispatchExternBinding` publishes the
+  executing VM via `g_crossModeVmAddr` (re-entrant save/restore).  (2) `RegisterPackageRttiSyms`
+  registers lang's native `__typeinfo.<T>` AND `__ifaceid.<J>` so a boxed lang scalar
+  carries the native typeinfo (native HIT) and the VM registry's iface key coincides with
+  the native `&__ifaceid` the assertion presents (so the user-type fallback HITs the iface,
+  not just the type).
+
+`testing.Println` now renders every operand — builtins and user `Stringer`s — identically
+compiled and interpreted.  `conformance/1182` guards it end to end; **xfail'd on
+builder-comp-int-int** (nested double-VM cross-layer identity — the class already xfailing
+~31 tests there, incl. iface-dispatch + the c_call family; tracked in claude-todo.md).
+Landed on top of a concurrent cross-mode-iface refactor (`885c5d8b`, plan-iface-crossmode
+S3), reconciled by a rebase (a keep-both-adjacent-helpers conflict; everything else
+auto-merged — 885c5d8b's `substTopLevelIfaceSlot` and this work's fallback coexist).
+Verified: builder-comp-int 2893/0, native RTTI unaffected (fallback no-op when unset),
+vm/interp/rt unit tests green (279/25/29), hygiene 18/18.  Adversarial-reviewed (two lenses
+on the big commit); both findings — the scratch bounds check and the bare-`TestResult`
+discovery gap — fixed before landing.  This UNBLOCKS the conformance `println` →
+`testing.Println` sweep (its remaining prerequisite was cross-mode `testing.Println`).
+
 ## Cross-package `.bni` type-alias to a distinct-named type mis-lowered to scalar `i64` — ✅ DONE (`7b4a02ef`, 2026-08-03)
 
 **Was:** a MAJOR silent miscompile. A `.bni` type alias whose TARGET is a distinct
