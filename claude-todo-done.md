@@ -428,6 +428,30 @@ every mode/version, so it cancels in exactly the comparisons the suite exists fo
 reviewed (the `total=` arithmetic and the awk field-extraction confirmed sound); verified
 run.sh on compile + no-compile modes and summarize.sh's three-table rendering.
 
+## fmt Printf/Sprintf/Fprintf — verb-directed core, width/precision/flags, `#`/hex/`*`/`%q`, custom `lang.Stringer` — ✅ DONE (`2dc07f46`, `d01a2774`, `caedd9da`, `04e0b3d7`, 2026-07-29)
+
+Formatted I/O over the type-erased `...*any` operands, verified byte-for-byte
+against Go 1.26.3 (~2800 generated cases, incl. Inf/NaN). Conformance
+`1135_fmt_printf`. Residual small verb/flag gaps stay tracked in
+`claude-todo.md` (fmt Printf residuals).
+
+- **Lean core (`2dc07f46`):** verbs `%v %d %s %t %f %g %e %x %X %o %b %c %q %%`
+  with Go-style error verbs.
+- **Width/precision/flags (`d01a2774`):** `%[flags][width][.prec]verb` — `-`
+  left-justify, `0` zero-pad (every verb, sign-aware for numbers), `+`/space
+  sign, width, precision (float digits / min integer digits / string
+  truncation).
+- **`#` / string-hex / `*` / `%q`-char (`caedd9da`):** `#` alternate form
+  (0x/0X/0b + octal ensure-leading-0; hex/binary zero-pad prefix counts toward
+  width — an intentional divergence from Go); `%x`/`%X` hex-encode a string;
+  `*`/`.*` operand-driven width/precision (bad operand → `%!(BADWIDTH)` /
+  `%!(BADPREC)`); `%q` of a char/int with full control escapes.
+- **Custom formatting (`04e0b3d7`):** a type implementing `lang.Stringer`
+  formats via `String()` on `%v`/`%s`/Print (a runtime `arg.(*lang.Stringer)`
+  assertion after the built-in fast-path). `%s` of a non-string renders like
+  `%v` — fmt does its OWN formatting for built-ins, not lang's simple
+  `String()`. Adversarially reviewed (no leak/UAF, cross-mode identical).
+
 ## Struct/default reflection for fmt `%v`/`%+v` (per `plan-struct-reflection.md`) — ✅ DONE (`133db88d`…`3b6e0b03`, 2026-08-02..03)
 
 `fmt.Printf("%v"/"%+v", s)` on a struct/aggregate without a `String()` (was

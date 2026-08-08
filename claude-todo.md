@@ -530,31 +530,17 @@ gap is now narrower — only the primitive-method direct-call binding remains.
 
 ## Standard library — pkg/stdx/fmt
 
-### fmt Printf follow-ups (small remaining verb/flag gaps) — 🟡 OPEN (lean core `2dc07f46` + width/precision/flags `d01a2774` + #/string-hex/*/%q-char `caedd9da`, 2026-07-29)
+### fmt Printf — residual verb/flag gaps + two inert latent edges — 🟡 OPEN
 
-The Printf/Sprintf/Fprintf **lean core** landed (`2dc07f46`): verbs `%v %d %s %t %f
-%g %e %x %X %o %b %c %q %%` with Go-style error verbs, over the `...*any` operands.
-**Width / precision / flags landed** (`d01a2774`): `%[flags][width][.prec]verb` —
-`-` left-justify, `0` zero-pad (every verb, sign-aware for numbers), `+`/space sign,
-width, and precision (float digits / min integer digits / string truncation);
-verified byte-for-byte against Go 1.26.3 across ~2800 generated cases, incl. Inf/NaN
-(signed, space-padded).  **`#` / string-hex / `*` / `%q`-char landed** (`caedd9da`):
-`#` alternate form (0x/0X/0b + octal ensure-leading-0; hex/binary zero-pad prefix
-counts toward width, an intentional divergence from Go); `%x`/`%X` hex-encode a
-string (space-separated, `#`-prefixed, precision-limited); `*`/`.*` operand-driven
-width/precision (bad operand → `%!(BADWIDTH)`/`%!(BADPREC)`); `%q` of a char/int
-with full control escapes.  Go-verified.  **Custom formatting landed** (`04e0b3d7`):
-a type implementing `lang.Stringer` formats via `String()` on `%v`/`%s`/Print (a
-runtime `arg.(*lang.Stringer)` assertion after the built-in fast-path).  `%s` of a
-non-string renders it like `%v` (fmt's own scalar formatting, then Stringer for a
-user type) — fmt does its OWN formatting for built-ins, not lang's simple
-`String()`.  Adversarially reviewed (no leak/UAF, cross-mode identical).
+Printf/Sprintf/Fprintf are complete for the common path — the verb-directed core,
+width/precision/flags, `#`/string-hex/`*`/`%q`, and custom `lang.Stringer`
+formatting all landed (see the done log). What's left: small verb/flag gaps (below),
+plus two inert latent edges carried over from the struct-reflection layer.
 
-The struct/default-reflection fmt LAYER (`%v`/`%+v` of an aggregate without a
-`String()`, per `plan-struct-reflection.md`) is **COMPLETE** — P1…P4b-2 + anon-struct
-records / decision 7 all landed (per-phase summary in `claude-todo-done.md`).  Two
-genuinely-inert deferred edges remain (both confirmed unreachable in an adversarial
-review, so nothing renders wrong today — tracked only so they aren't forgotten):
+Struct/default reflection (`%v`/`%+v` of an aggregate without a `String()`) is also
+complete (per-phase summary in `claude-todo-done.md`). Two genuinely-inert deferred
+edges remain from it — both confirmed unreachable in an adversarial review, so
+nothing renders wrong today; tracked only so they aren't forgotten:
 - A `readonly`-bearing anon-struct FIELD's assert-identity would use the stripped
   form (`mergeQualifiedReadonly` doesn't recurse struct fields).  Inert because
   anon-struct assert TARGETS are parser-rejected, so anon-struct record identity is
@@ -594,65 +580,54 @@ string-literal box + the earlier scalar/var value-borrow) would let those tests
 drop the `&`.  The non-linted conformance tests (1090/1135) already use the bare
 form.
 
-### fmt: a named NON-scalar type (slice/etc.) renders as `%!?(unknown)` — 🟡 OPEN (2026-08-03)
+### fmt char-slice dispatch matches only exact structural spellings — a named or `readonly`-qualified char-slice renders `%!?(unknown)` — 🟡 OPEN (2026-08-03)
 
-Named SCALARS (int/uint/float/bool) now render via reflection under every verb (done
-`75d6e57c` — see the done log). The same `%!?(unknown)` still hits a distinct named
-NON-scalar type that `scalarReflect` doesn't cover and that has no `String()`:
+`writeArg` (`fmt.bn`) matches char-slices by the four exact type spellings
+(`*[]char`, `*[]readonly char`, `@[]char`, `@[]readonly char`) and peels no
+transparent wrappers — so two kinds of value that ARE char-slices miss every case
+and fall through to `%!?(unknown)`:
 
-- A named char-SLICE — e.g. `testing.TestResult` once it became `type TestResult
-  @[]char` (`19f9d86c`): `fmt.Println(aTestResult)` prints `%!?(unknown)` because the
-  boxed dynamic type is the named `TestResult`, not the structural `@[]char` that
-  fmt's char-slice arm matches. Latent today (the `--test` runner assigns the result
-  into an `@[]char` before printing), but the same footgun. Go prints the text.
+- **Outer `readonly` qualifier — high priority (the single most common thing a
+  program prints).** `os.Args()`/`os.Env()` return `@[]readonly @[]readonly char`,
+  so an element has type `readonly @[]readonly char`, which isn't one of the four:
 
-Fix: peel transparent wrappers (named/alias) in the `*any` value formatter's dispatch
-before matching, so any distinct named type renders as its underlying — this
-generalizes the scalar-reflection path (`scalarReflect` in `fmt_reflect.bn`, which
-today returns false for KIND_STRING/STRUCT/…) to the char-slice (and other structural)
-kinds. Stringer still wins first (a named type WITH a `String()` already dispatches
-correctly).
+      var a @[]readonly @[]readonly char = os.Args()
+      fmt.Printf("[%s]", a[1])   // [%!?(unknown)]
+      var s @[]readonly char = a[1]
+      fmt.Printf("[%s]", s)      // [world]   <- identical bytes
 
-**Minor sign-aware edge (from the named-scalar review, `75d6e57c`):** `signAwareFor('v')`
-treats any integer-kind operand as sign-aware, but `%v` of a named int WITH a user
-`String()` renders that OPAQUE text — so `%08v` of such a value whose `String()` starts
-with `-` splits the sign (`-000x`) instead of front-padding (`000-x`), diverging from
-Go (which treats Stringer output as an opaque string). Rare (needs a named int with a
-sign-prefixed `String()` under the `0` flag + width). A clean fix must distinguish
-"renders as a number" from "renders via Stringer" for the sign-aware decision, e.g.
-`intOperandBuiltin(arg).ok || (scalarReflect numeric && !tryStringer)`.
+  Copying into an unqualified local fixes it — the tell that the VALUE is fine and
+  only the type match fails (keeping the qualifier, `var b readonly @[]readonly
+  char = a[1]`, still misses). So a program cannot print its own argv/env directly.
+  Verified on released bnc-0.0.12, compiled and interpreted alike.
 
-### fmt cannot print an `os.Args()` / `os.Env()` element — a `readonly`-qualified slice misses every case — 🟡 OPEN (2026-08-03)
+- **Named char-slice.** `type TestResult @[]char` (now
+  `pkg/builtins/testing/sys.TestResult`): the boxed dynamic type is the named
+  `TestResult`, not the structural `@[]char`. Latent today (the `--test` runner
+  assigns the result into an `@[]char` before printing), but the same footgun. Go
+  prints the text.
 
-Distinct from the missing-scalars entry above: this is about the *qualifier*, not
-the element type, and it hits the single most common thing a program prints.
+Fix: before the char-slice match, peel transparent wrappers (named/alias) AND strip
+an outer `readonly` where the dynamic type is compared — generalizing the
+named-SCALAR reflection path (`scalarReflect` in `fmt_reflect.bn`, today false for
+KIND_STRING/STRUCT/…) to the structural kinds. Stringer still wins first (a named
+type WITH a `String()` already dispatches correctly). Worth auditing the other
+`*any`-consuming paths (`lang.Stringer` recovery included) for the same
+qualifier/wrapper blindness.
 
-    var a @[]readonly @[]readonly char = os.Args()
-    fmt.Printf("[%s]", a[1])            // [%!?(unknown)]
-    var s @[]readonly char = a[1]
-    fmt.Printf("[%s]", s)               // [world]        <- identical bytes
+**Minor sign-aware edge (from the named-scalar review, `75d6e57c`):**
+`signAwareFor('v')` treats any integer-kind operand as sign-aware, but `%v` of a
+named int WITH a user `String()` renders that OPAQUE text — so `%08v` of such a
+value whose `String()` starts with `-` splits the sign (`-000x`) instead of
+front-padding (`000-x`), diverging from Go (which treats Stringer output as an
+opaque string). Rare. A clean fix must distinguish "renders as a number" from
+"renders via Stringer" for the sign-aware decision, e.g. `intOperandBuiltin(arg).ok
+|| (scalarReflect numeric && !tryStringer)`.
 
-`os.Args()` and `os.Env()` return `@[]readonly @[]readonly char` — fully readonly,
-element slots included — so an element has type **`readonly @[]readonly char`**,
-and fmt's dispatch has no case for a `readonly`-qualified managed-slice. Only the
-four unqualified spellings match. Copying into an unqualified local fixes it,
-which is the tell that the VALUE is fine and only the type match fails; keeping
-the qualifier on the local (`var b readonly @[]readonly char = a[1]`) still
-misses.
-
-So today a program cannot print its own command-line arguments or environment
-entries directly — the first thing most programs do. Verified on released
-bnc-0.0.12, compiled and interpreted alike.
-
-Fix: match the char-slice cases irrespective of an outer `readonly` qualifier
-(strip it where the dynamic type is compared, as the assignment above evidently
-does). Worth auditing the other `*any`-consuming paths for the same
-qualifier-blindness — `lang.Stringer` recovery included.
-
-Tests: a `fmt_printf_test.bn` case boxing a `readonly @[]readonly char`, and an
-e2e that prints `os.Args()[1]` (`e2e/os-args.sh` already has the harness for it).
-Found while writing the `scripting` example in binate/examples, whose whole point
-is a script echoing its arguments.
+Tests: `fmt_printf_test.bn` cases boxing a `readonly @[]readonly char` and a named
+char-slice, plus an e2e printing `os.Args()[1]` (`e2e/os-args.sh` already has the
+harness). Found writing the `scripting` example in binate/examples (a script echoing
+its arguments).
 
 ### `lang.Stringer` returns `@[]char`, but every string producer returns `@[]readonly char` — 🟡 OPEN (2026-08-02)
 
