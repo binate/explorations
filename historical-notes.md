@@ -35,7 +35,7 @@ landing commit(s)/test(s). Removed 2026-06-04 unless noted.
 - **plan-codegen-byval-spill-hoist.md** — LANDED (`440485b0` + `d9800429`,
   2026-06-02). A call-site byval-spill `alloca` leaked per loop iteration;
   fix hoists it to the entry block (LLVM idiom: allocas belong in entry).
-- **plan-const-nonint.md** — superseded by `plan-const-readonly.md`
+- **plan-const-nonint.md** — superseded by `done/plan-const-readonly.md`
   (Phase A shipped scalar-only, Phase B composites CANCELED, Phase C
   became `var readonly *T`). Nugget: Binate `const` is an immutable
   *variable*, not a reducible-to-immediate constant (also in

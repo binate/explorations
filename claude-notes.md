@@ -285,7 +285,7 @@ rule.")
 - **`same(a, b)`**: reference identity — true iff `a` and `b` denote the same underlying thing: pointers (same address), interface values (same `{data, vtable}`), slices (same view `{data, len}`). Operands must have the same static type; function values (no canonical identity) and value types are excluded. Returns `bool`. See `plan-same-builtin.md`.
 - **Builtins are keywords** (not predeclared names): `make`, `make_slice`, `box`, `cast`, `bit_cast`, `len`, `unsafe_index`, `sizeof`, `alignof`, `present`, `same`. The type-taking ones (`make` / `cast` / `sizeof` / …) can't be parsed as regular function calls; the value-taking ones (`len` / `unsafe_index` / `present` / `same`) are keywords so they stay reserved and uniformly lowered.
 
-### Const-ness — DECIDED (revised 2026-06-01; see `plan-const-readonly.md` for the migration sequence)
+### Const-ness — DECIDED (revised 2026-06-01; see `done/plan-const-readonly.md` for the migration sequence)
 
 Two related but distinct concepts: compile-time constants (no storage)
 and read-only access (a property of types).  Each has its own keyword

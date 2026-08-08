@@ -523,20 +523,19 @@ aggregate build).
 (VM Phase 1 is DONE — bootstrap is native-only in the VM, format helpers
 registered as externs; main `a7fabc7a` + `7abc3809`. The older "convert bootstrap
 I/O to `.bn` + `__c_call`" Phase 2 is superseded by the plan above: `pkg/std/os`
-subsumes the I/O, so there's no reason to convert it in place. Design notes:
-`plan-bootstrap-ccall.md`.)
+subsumes the I/O, so there's no reason to convert it in place.)
 
 ### Annotations & C function interop — `__c_call` DONE; residual is the `#[link]` companion — 🟡 OPEN (low)
 
 **Option E (`__c_call` intrinsic) was chosen (form E2) and is ✅ DONE & SHIPPED**
-(incl. native variadics; `plan-c-call.md` = "COMPLETE, 2026-06-02"). Call sites use
+(incl. native variadics; `done/plan-c-call.md` = "COMPLETE, 2026-06-02"). Call sites use
 `result = __c_call("write", int32, cast(int32, fd), buf, len)` — C symbol name +
 explicit return type + args already in the Binate types matching the C ABI, reusing
 the backends' platform-C-ABI lowering (no C parsing, no `bn_` mangling). It is in
 production across `pkg/builtins/rt` + `pkg/std/os` (open/read/stat/readdir/errno…),
 retiring `pkg/bootstrap`'s hand-written C wrappers as intended. The general `#[…]`
 annotation syntax also landed (as `#[build(…)]`). Options A–D and the E1
-(C-prototype-string) form were rejected — see `plan-c-call.md` / git for that history.
+(C-prototype-string) form were rejected — see `done/plan-c-call.md` / git for that history.
 
 **Chose NOT to build: the `pkg/c` C-types alias package** (`C_int`/`C_long`/
 `C_size_t`/…). Call sites open-code the Binate↔C scalar correspondence directly

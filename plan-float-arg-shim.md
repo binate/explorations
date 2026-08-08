@@ -1,8 +1,8 @@
 # Plan: float-argument support for the function-value / extern shim path
 
 Status: **COMPLETE (mechanism shipped on main, `7abc3809`, Design A);
-kept for design rationale.** Unblocks the bootstrap native-only work in
-[`plan-bootstrap-ccall.md`](plan-bootstrap-ccall.md).
+kept for design rationale.** Unblocks the bootstrap native-only work (making
+`pkg/bootstrap` native-only in the VM).
 
 ## Testing note (discovered during implementation)
 
@@ -108,7 +108,8 @@ types). Strictly more work across strictly more layers, against the
 
 ## Relation to other work
 
-Prerequisite for `plan-bootstrap-ccall.md` (bootstrap native-only). The
+Prerequisite for the bootstrap native-only work (making `pkg/bootstrap`
+native-only in the VM). The
 machinery is the same all-shim convention proven by the rt work
 (`plan-rt-ccall-drop-libc.md`). Bug Discovery Protocol: the new
 func-value-float tests + their pre-fix failing state in `-int` modes are

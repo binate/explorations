@@ -21,7 +21,7 @@ annotations in `rt`, and `pkg/libc` + `libc_stubs.c` + the
 
 This is the first concrete instance of the "slim `pkg/libc` / migrate
 callers OUT" todo, and makes `__c_call` the canonical C boundary (per
-`plan-c-call.md` §8).
+`done/plan-c-call.md` §8).
 
 **Note: this is NOT C-freedom.** `__c_call("malloc")` still hard-links
 `malloc`/`free`/`exit`. It removes the `pkg/libc` indirection *layer*,

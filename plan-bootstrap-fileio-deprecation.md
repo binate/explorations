@@ -31,12 +31,6 @@ The landing arc (all 2026-06-26):
 This doc's original classification (which conformance tests consumed the
 surface, and how to handle each) is below as the record.
 
-Related: [`plan-bootstrap-ccall.md`](plan-bootstrap-ccall.md) (convert the C
-I/O impls to `.bn` + `__c_call`, a separate axis).
-
-Related: [`plan-bootstrap-ccall.md`](plan-bootstrap-ccall.md) (convert the C
-I/O impls to `.bn` + `__c_call`, a separate axis).
-
 ## Remaining bootstrap-file-IO consumers (post-migration)
 
 1. **Conformance tests** — classified below.
