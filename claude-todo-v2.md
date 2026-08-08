@@ -34,6 +34,34 @@ carve-out.
 
 ---
 
+## `iface.construct.value-borrow`: indirect escape of a borrowed `*any` is not caught
+
+A **documented limitation** (accepted for v1; found 2026-07-29). The implicit
+value→`*any` borrow (`iface.construct.value-borrow`) is admitted only at BORROWING
+positions (argument / var-init) and the checker rejects the DIRECT escape
+(`return "hi"`, `v = "hi"`, `b.field = "hi"` — all rejected). But the INDIRECT escape
+slips through: once the borrow lands in a `*any` variable, copying that variable out of
+scope dangles it — `func g() *any { var v *any = "hi"; return v }` compiles, and the
+caller then reads a `*any` box that borrows `g`'s dead frame temp (UAF: an empty/garbage
+recover).
+
+This is **consistent with Binate's raw-pointer semantics** (no escape analysis;
+`func g() *int { var n int = 5; return &n }` compiles the same way — user error via the
+escape hatch) and affects **scalars too** (`var v *any = n; return v`), not just string
+literals — so it is NOT specific to the `9d04870b` string-literal box, which merely
+changed the dangling profile from "points at static rodata" to "points at a frame
+alloca". The direct-form rejection is a cheap syntactic gate, not a real lifetime check.
+
+**v2 work:** make the escape gate CONSISTENT — either extend the direct-escape rejection
+to catch the indirect case (a real escape/lifetime check scoped to the implicit
+value-borrow — warranted because the borrow is INVISIBLE, unlike an explicit `&n`), or
+drop the direct gate to match raw-pointer semantics. Genuinely low priority: a full
+lifetime check runs against Binate's no-escape-analysis design, which is why it's
+deferred rather than active. String literals should ride the SAME mechanism as scalars
+whichever way it goes. Until then this is the documented raw-borrow behavior.
+
+---
+
 ## Exhaustiveness checking for `Kind`/`Op` tagged-union dispatch
 
 Deferred from the active todo (2026-07-17) after scoping showed the payoff is
