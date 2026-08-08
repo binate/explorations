@@ -9,7 +9,7 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### VM SIGSEGVs in `errors.Is` when the error is a USER-defined `errors.Error` — 🟢 FIXED (S1 `56826ba8` + S2 `5324048b`, 2026-08-03); S3 completeness is a tracked follow-up
+### VM SIGSEGVs in `errors.Is` when the error is a USER-defined `errors.Error` — 🟢 FIXED — S1/S2/S3 all landed (`56826ba8`/`5324048b`/`885c5d8b`, 2026-08-07); move to done log (only 2 embedder-only follow-ups remain, tracked in plan-iface-crossmode.md)
 
 **FIXED on main (2026-08-03) per `explorations/plan-iface-crossmode.md`.** Native
 interface method dispatch was unified onto the func-value HANDLE convention across

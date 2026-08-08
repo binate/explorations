@@ -31,12 +31,26 @@ trampolines (`ensureHandle`, `vm_funcvalue_handle.bn`).
 
 ## Stages (each keeps the tree green)
 
-**Status (2026-08-03): S1 + S2 LANDED on `main`** — S1 `56826ba8` (dispatch → handles,
-all four backends + shared frame sizer + regression tests 1178/1179), S2 `5324048b`
-(VM builds native handle-vtables for bytecode impls + substitutes at
-`dispatchExternBinding`; repro 1180). Both landed with a minimal adversarial review.
-The `errors.Is` MAJOR is FIXED. **S3 below remains** (return-direction / nested-iface /
-sibling dispatchers — those cases still crash under the VM, a documented gap).
+**Status (2026-08-07): S1 + S2 + S3 ALL LANDED on `main`.** S1 `56826ba8` (dispatch →
+handles, all four backends + shared frame sizer + regression tests 1178/1179), S2
+`5324048b` (VM builds native handle-vtables for bytecode impls + substitutes at
+`dispatchExternBinding`; repro 1180), S3 `885c5d8b` (return-direction + nested-in-struct
+RETURNS + sibling dispatchers `dispatchCompiledFuncValue`/`dispatchCompiledIfaceMethod`;
+tests 1190/1191/1192). Each landed after a minimal adversarial review. The `errors.Is`
+MAJOR is FIXED and the realistic generality is complete — a bytecode (user) interface
+impl now works when passed to, dispatched by, RefDec'd by, AND returned from
+injected-native code under the VM. **Two documented follow-ups remain, both
+embedder-only (not constructible via the conformance harness, so untested here):**
+1. A nested interface value in a by-value struct **ARGUMENT** to an injected function.
+   Return-side struct nesting IS handled (`collectIfaceVtOffsets` recurses); the arg
+   side needs a per-call field-offset side-table (the 7-bit `Imm`/`Aux` bitmap can't
+   carry per-arg offset lists). No injected stdlib function has such a signature.
+2. S3 narrowed the func-value `Aux` retbuf field to 16 bits (was effectively uncapped)
+   by placing the iface bitmap at `Aux[16,22]`; only bites an embedder injecting a
+   native function returning a **≥64 KB by-value aggregate** called as a func value.
+   Cheap fix: move the 7-bit bitmap to free `Aux[23,31]`, restoring the wider retbuf
+   field (matches the pre-existing 16-bit cap on the iface-method path, which could be
+   widened the same way).
 
 - **S1 — native dispatch → handle-based (behavior-preserving refactor).** Make
   `@__ivt` method slots handles (`useHandles=true`; unify with `@__ivtshim`), and
