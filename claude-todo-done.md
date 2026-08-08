@@ -6,6 +6,56 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `pkg/builtins/lang` injected into the VM (last builtin) + nested double-VM cross-mode RTTI fixed — ✅ DONE (`54e6c0c7`, 2026-08-08)
+
+Closes the two residuals the `testing.Println` work spawned: the **lang-in-VM injection**
+(the last un-injected runtime builtin) and the **nested double-VM cross-mode RTTI**
+failure. Injecting lang makes its typeinfo/ifaceid identities native across ALL VM
+layers, so `conformance/1182_testing_println` now passes every mode (its
+`.xfail.builder-comp-int-int` was removed).
+
+**What the injection needed — three layers:**
+1. **RTTI identity** (interp/externs.bn): lang joins `builtinPkgs()` (injected +
+   lowering-skipped); its native `__typeinfo.<T>`/`__ifaceid.<J>` are registered
+   (`RegisterPackageRttiSyms`) BEFORE `injectPackageSet`, so both the injection's own
+   satentry keys and a USER type's lowered satentry coalesce (`ensureIfaceIdSym`) to the
+   native ifaceid the native assertion presents.
+2. **Checker visibility** (interp/{externs,interp}.bn): unlike a `__c_call` package,
+   lang's primitive impls are pure Binate and the checker needs them, so lang is the one
+   `builtinPkgs` entry EXCLUDED from the interface-only load set — in BOTH build sites
+   (`appendNonTargetPaths` + interp.bn's own `ifOnly` loop; the third load path, the
+   REPL, already hard-set `{rt,bootstrap}`).
+3. **Direct-call binding** (ir + every descriptor emitter — route (a), the general fix):
+   lang's primitive methods are reached by DIRECT call (`pkg/builtins/lang.int.String`),
+   not a vtable, so an injected lang's descriptor must list them. New
+   `ir.Func.IsPrimitiveMethod` flag (set in `genMethod` when the receiver is a universe
+   primitive) force-includes them in the reflect Functions table + force-emits their
+   func-value handle (mirroring `IsStructDtor`). That descriptor/func-value filter is
+   duplicated per-emitter — the LLVM codegen, all three native backends' descriptor +
+   funcvalue gathers, and the VM's own descriptor lowering — and ALL nine sites were
+   updated so the descriptor stays the single source of truth and cannot drift across
+   backends. (An adversarial review caught the first cut updating only the two LLVM
+   sites; the fix swept repo-wide on the `!f.IsStructDtor` filter pattern.) Only lang
+   defines primitive methods — the checker rejects primitive-receiver methods elsewhere —
+   so only lang's descriptor grows.
+
+**Correcting the prior pessimism:** the nested-VM RTTI failure was previously filed as
+"the SAME nested-boundary identity limitation that xfails ~31 tests (incl. the `c_call`
+family), needing general two-layer identity reconciliation." That was WRONG. The
+c_call/FFI xfails in `builder-comp-int-int` are a **permanent non-goal** (the VM has no
+FFI, so a `__c_call` cannot run interpreted) — a different class entirely. The RTTI case
+was fixable and is now fixed by making lang's identities native everywhere; no "general
+reconciliation" was needed. (The `385_iface_nil_dispatch` / c_call xfails in that mode
+are unaffected and remain for their own reasons.)
+
+**Verified:** aa64 native cross-mode 2912/0 (post-edit, end-to-end exercise of the native
+descriptor+handle path), native builder-comp 2911/0, builder-comp-int 2893/0, gen2
+builder-comp-comp 2911/0; unit tests ir/codegen/vm/interp + native x64/aarch64/arm32;
+hygiene 18/18. 1182 passes all modes incl. nested; the ~29 direct-primitive-call tests
+(411 stringer, 412 compare, tier0, generic-constraint) pass. Builds on the partial RTTI
+registration landed earlier in `9d0a1b14` (typeinfos/ifaceids only); this completes the
+functions/direct-call half.
+
 ## VM SIGSEGV in `errors.Is` over a USER-defined `errors.Error` — cross-mode iface dispatch — ✅ DONE (S1 `56826ba8` / S2 `5324048b` / S3 `885c5d8b`, 2026-08-03..07)
 
 **Was:** a MAJOR hard crash — `bni` (VM) segfaulted classifying a user-defined error via

@@ -492,42 +492,6 @@ full design in [`plan-build-constraints.md`](plan-build-constraints.md), archive
 - `bnlint --target`; main-module gating; migrating the `impls/` duplicate trees onto constraints.
 - The separate inline-asm (`#[asm]`) doc that composes with this substrate.
 
-### Inject `pkg/builtins/lang` into the VM — 🟡 OPEN (deferred; scoped, spike-verified 2026-08-03)
-
-The last un-injected runtime builtin.  (The rest of the entry-point-move follow-ups
-— `testing` injection + the BUILDER-0.0.12 gate cleanup + `bootstrap.Args`
-retirement — landed; see claude-todo-done.md.)  A spike proved lang is a REAL
-increment, not a quick add: adding lang to interp/externs.bn `builtinPkgs()` +
-keeping `lang.bn` loaded (a carve-out from the interface-only lists) is
-INSUFFICIENT — lang's primitive-impl methods (`int.String`, `uint8.String`,
-`int64.String`, `float64.String`, `int.Compare`, …) are reached by DIRECT calls
-(`primitiveQualifiedName` → `pkg/builtins/lang.int.String`), but VM injection binds
-externs only from the reflect descriptor's Functions table, which
-`collectPackageFuncs` (codegen/emit_pkg_descriptor.bn) builds from `f.Exported` — and
-impl methods are NOT marked Exported (only top-level `.bni` funcs/vars are, via
-markBniExported{Funcs,Vars}; there is no method/impl Exported-marker).  So an injected
-lang's direct method calls crash `vm: extern not found` (spike: conformance
-411/415/434/653/664 all failed).  Injected packages' methods work today only via
-VTABLES (iface dispatch); lang uniquely uses direct calls.  Two routes, both real
-work: **(a)** extend the shared package descriptor to include impl/primitive methods
-so `RegisterPackageFunctions` auto-binds them — the general fix (any injected pkg's
-direct method calls would then work), but touches the shared descriptor emitters
-(both backends + irdata) with byte-identical/hygiene risk on EVERY package's
-descriptor; **(b)** hand-bind lang's ~25 primitive methods as externs in interp (like
-`registerBootstrapExterns`) — localized, no codegen change, but tedious + lang-
-specific.  Leave lang lowered (it works fine) until picked up.
-
-**Partial registration landed (`9d0a1b14`, 2026-08-07) — lang's RTTI identity symbols,
-NOT its functions.**  `RegisterPackageRttiSyms` (interp/externs.bn calls it for lang at
-VM setup) binds lang's native `__typeinfo.<T>` + `__ifaceid.<J>` data symbols so a
-bytecode-boxed lang value asserted by injected-native code (`testing.Println`'s
-`arg.(*lang.Stringer)`) resolves cross-mode — lang scalars via a native `g_satTable` HIT,
-user types implementing a lang interface via the new `rt.SatLookup` VM-registry fallback.
-This is deliberately the RTTI-identity subset (typeinfos + ifaceids only, no satentries /
-vtables / functions — those would split-brain against the lowered lang), so it does NOT
-close this item: lang's DIRECT method calls still need route (a) or (b) above.  So the
-gap is now narrower — only the primitive-method direct-call binding remains.
-
 ## Standard library — pkg/stdx/fmt
 
 ### fmt Printf — residual verb/flag gaps + two inert latent edges — 🟡 OPEN
@@ -672,21 +636,6 @@ cmd/bni had to be patched separately) doesn't scale. Fix: resolve the single ret
 through the loader/checker to the canonical named `sys.TestResult` (a distinct named
 type, `19f9d86c`) and match on identity, in one shared helper both runners call.
 Referenced by the TODO comment in `cmd/bnc/test.bn`'s `isTestResultReturn`.
-
-### Cross-mode RTTI on VM-boxed values fails in the NESTED double-VM mode — 🟢 LOW (2026-08-07)
-
-`testing.Println`'s injected-native `arg.(*lang.Stringer)` on a bytecode-boxed value
-resolves in the single-VM modes (builder-comp-int, builder-comp-comp-int — the fix in
-`9d0a1b14`: native `rt.SatLookup` MISS → VM-registry fallback + lang native typeinfo/
-ifaceid registration), but NOT in `builder-comp-int-int`, where cmd/bni itself runs as
-bytecode in an OUTER VM so the native typeinfo/ifaceid/satentry identities don't line up
-across the two layers.  `conformance/1182_testing_println` is `.xfail.builder-comp-int-int`
-for this.  It is the SAME nested-boundary identity limitation that already xfails ~31
-tests in that mode (incl. `385_iface_nil_dispatch` and the `c_call` family), not specific
-to RTTI — a fix would need the general two-layer identity reconciliation, not a
-testing-specific patch.  Matters for the `println` → `testing.Println` conformance sweep:
-the swept tests would xfail this one mode (like c_call does today) unless the nested-VM
-identity story is solved first.
 
 ---
 
