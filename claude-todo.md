@@ -44,6 +44,29 @@ no bnfmt.
 
 ## MAJOR
 
+### `any`-boxing of a NAMED-pointer deref (`*p`, `type P *int`) captures the address, not the value — 🔴 OPEN MAJOR (found 2026-08-08)
+
+**Severity: MAJOR** — passing `*p` (the dereference of a named-distinct pointer,
+`type P *int`) to a variadic `...*any` parameter boxes the POINTER ADDRESS instead
+of the dereferenced value. `testing.Println(*p)` with `p P = &x; x = 5` prints a
+raw address (e.g. `6126380152`) rather than `5`. A silent wrong-value.
+
+**Discovered:** the print/println → testing.Println conformance sweep.
+`conformance/1125_named_ptr_deref` diverges under testing.Println (it is kept on
+the builtin for now). The BUILTIN `println(*p)` is correct — it formats `*p`
+directly — so this is NOT a testing.writeArg gap: the boxed value is already wrong
+before writeArg ever sees it.
+
+**Root cause (unconfirmed — needs investigation):** likely the `any`-boxing of a
+named-pointer-deref rvalue takes address-of `p` rather than loading `*p`, mirroring
+the (already-fixed) `genUnary` named-pointer-deref codegen bug that 1125's own
+comment describes. Non-named pointer derefs boxed into `any` are believed fine —
+confirm with a `*q` (`q *int`) vs `*p` (`P *int`) A/B.
+
+**Fix + test:** correct the named-pointer-deref `any`-boxing; then convert
+`1125_named_ptr_deref` to testing.Println (it currently stays on the builtin,
+alongside 001_hello and the four builtin-specific print/println tests).
+
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
