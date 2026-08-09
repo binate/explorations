@@ -5517,7 +5517,7 @@ but the LLVM callee with `[N x i64]` reads r2:r3.
 
 ## ✅ DONE & LANDED (2026-07-03) — bnlint unused-entity checks (a–e) + file split + `--tests` (lint test files) + testdata convention
 
-The unused-entity lint project (`plan-unused-checks.md`) is complete through the
+The unused-entity lint project (`done/plan-unused-checks.md`) is complete through the
 `--tests` feature; only the CI hygiene wiring remains (BUILDER-gated — still open
 in `claude-todo.md`).
 
@@ -5651,7 +5651,7 @@ The package-scoped-imports CRITICAL (all wrong-code facets) was already resolved
   to `pa.V()` (`*uint8`) and fail the `int` return with a result-type/ABI
   mismatch. File-scoped imports keep each file's `dep` distinct → A()=42, B()=7.
 - **Checker unused-import handling** — always delegated to the separate
-  "unused-entity checks" project (`plan-unused-checks.md`), which owns it
+  "unused-entity checks" project (`done/plan-unused-checks.md`), which owns it
   (in progress); nothing LANE-1-specific remains here.
 
 ## ✅ DONE & LANDED (main `a43c24f7` + `2eba382f`, 2026-07-02) — grouped vars EXPORTED via a .bni (cross-package)
