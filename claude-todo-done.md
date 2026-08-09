@@ -6,6 +6,30 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## bnfmt drops a const-expression array dimension — `[cast(int, 5)]int` → `[]int` (code corruption) — ✅ DONE (`bd6dc25e`, 2026-08-08)
+
+`bnfmt` rewrote an array type whose dimension was a non-trivial const expression
+into a bare slice: `var a [cast(int, 5)]int` formatted to `var a []int`, dropping
+the dimension. Since bare `[]T` is retired raw-slice syntax the parser rejects, a
+formatted file then failed to compile (a fail-loud corruption; had it still parsed
+it would have been a silent miscompile).
+
+**Root cause:** `printArrayLen` (`pkg/binate/format/print_type.bn`) printed the
+dimension by writing `te.Len.Name` — a field populated only for a *leaf* node
+(`EXPR_INT_LIT` / `EXPR_IDENT`). A compound dimension (`cast(int, 5)` is an
+`EXPR_BUILTIN`, `N + 1` an `EXPR_BINARY`) has an empty `.Name`, so nothing was
+written. The original comment already flagged this as unfinished ("Complex length
+expressions … await the expression printer, a later step").
+
+**Fix:** route the dimension through the general expression printer `printExpr`,
+which prints a leaf identically to the old path (`b.Write(e.Name)` for
+int-lit/ident — no regression on `[3]int` / `[N]char`) and reproduces any compound
+expression verbatim. `TestPrintTypeArray` extended with `[cast(int, 5)]int`,
+`[N + 1]int`, `[1 << 3]char` (all fail pre-fix: the token-equality round-trip sees
+the dropped dimension). Verified with the built `bnfmt` over the cited conformance
+files (810/814/849/644/818/821/823) — every compound dimension now survives and
+formatting is idempotent. Adversarially reviewed before landing (LAND verdict).
+
 ## Generic constraint satisfaction accepts a GENERIC-RECEIVER impl (Phase 3c of generic-type-methods) — ✅ DONE (already implemented; unit-guarded `f8fcd3fa`, 2026-08-08)
 
 A generic function whose type parameter is constrained by a *generic* interface
