@@ -13881,7 +13881,7 @@ be rejected like a named constant. Fix: also reject `&` of a literal operand.
   resolves to the symbol's absolute address.
 
 ### ~~Inline RefInc / fast-path inline RefDec (perf)~~ — DONE
-- **Plan doc**: `explorations/plan-refcount-inlining.md` (Status: DONE).
+- **Plan doc**: `explorations/done/plan-refcount-inlining.md` (Status: DONE).
 - New IR ops `OP_REFINC` / `OP_REFDEC` added alongside the old `OP_REFCOUNT_INC` / `OP_REFCOUNT_DEC`; IR-gen switched to emit the new ops; old emitters (`EmitRefcountInc` / `EmitRefcountDec` / `EmitRefcountDecDtor`) deleted in favor of `EmitRefInc` / `EmitRefDec` / `EmitRefDecDtor`.
 - All three backends (LLVM, VM, native arm64) lower the new ops inline:
   - LLVM: nil-check diamond + header GEP at -16 + load/{add,sub}/store, with a slow-path call to `@bn_rt__ZeroRefDestroy` for RefDec when the count hits zero.

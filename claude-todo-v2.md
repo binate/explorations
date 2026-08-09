@@ -147,3 +147,17 @@ pure `mangle.TypeInfoName` with the same receiver-identity pair, so the risk is 
 And the fix is a cross-backend change (one new registry accessor + 5 call sites across
 all four backends + VM, each needing verification) for a robustness nicety, not a
 correctness fix.
+
+## x64 inline RefInc/RefDec (retire the `rt.RefInc`/`rt.RefDec` runtime calls)
+
+The refcount-inlining project (see `done/plan-refcount-inlining.md`) inlined the
+hot `RefInc`/`RefDec` paths on LLVM codegen, aarch64, arm32, and the bytecode VM
+(header nil-check + load/add/store, no runtime call). The **x64 native backend is
+the one holdout** — `emitRefInc`/`emitRefDec` in `pkg/binate/native/x64/x64_managed.bn`
+still emit a slow-path `call bn_rt__RefInc` / `bn_rt__RefDec`, so those two runtime
+functions (`impls/core/.../pkg/builtins/rt/rt.bn`) can't yet be retired.
+
+**v2 work:** give x64 an inline RefInc/RefDec fast path mirroring aarch64
+(`aarch64_refcount.bn`'s CBZ/nil-check + inline header mutation). Once x64 inlines,
+`rt.RefInc`/`rt.RefDec` have no remaining caller and can be deleted along with their
+`.bni` decls. A perf + cleanup optimization, deliberately deferred as a follow-on.
