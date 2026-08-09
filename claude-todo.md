@@ -40,6 +40,16 @@ the pointer, don't take its address); then convert BOTH `1125_named_ptr_deref` a
 `1142_nil_pointer_deref` to testing.Println (they currently stay on the builtin,
 alongside 001_hello and the four builtin-specific print/println tests).
 
+**Blocks two e2e tests too:** the same fix unblocks `e2e/bni-nil-check.sh` and
+`e2e/bni-test-nil.sh`, which keep `println(p.val)` on the builtin for the identical
+reason — the `--check-nil` fault must fire on the nil field access, but boxing
+`p.val` into `...*any` takes its address so nil is never dereferenced. Convert both
+once the boxing is fixed. (`e2e/repl.sh` also still uses the builtins, but for an
+unrelated reason — its `println`/`print` are REPL *input* typed at the `bni --repl`
+prompt, where the builtin needs no import; converting it is a separate REPL-input
+capability question, not this boxing fix. All three must land before the
+print/println builtins can actually be removed.)
+
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
