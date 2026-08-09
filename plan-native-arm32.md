@@ -995,9 +995,24 @@ Increments:
       delta + the 8-vs-9-doubles VFP-bank-spill boundary), a native arm32-linux compile
       (objdump: shims are bare tail-branches, call sites VMOV floats to/from VFP), conformance
       1195 (host/VM/baremetal-native), 3-lens adversarial review clean.
-    - **(b1b) scalar float params/returns through the CLOSURE shim body — OPEN.**  Reuses the
-      b1a marshal-skip; only the closure guard (`closureHasFloatPartsArm32` /
-      `closureResultHasFloatPartArm32`) needs narrowing.  A float CAPTURE stays fail-loud (b4).
+    - **(b1b) scalar float params/returns through the CLOSURE shim body — ✅ DONE
+      (`df331f91`, 2026-08-08).**  Reuses the b1a marshal-skip; the closure guard narrows to
+      `closureShimUnhandledFloatB1bArm32` (the func-value unhandled shapes OR any float leaf
+      in a CAPTURE -> b4).  A 3-lens adversarial review of the first cut caught a CRITICAL
+      silent miscompile (2 lenses independently): a scalar float PARAM with a non-float
+      AGGREGATE / MULTI-RETURN result reached the GP-only `emitSpillMarshalArm32` (via the
+      pack / big-sret-spill closure emitters, which — unlike the register-only marshal — lack
+      the float skip).  Fixed before landing: the guard also fails loud on
+      `anyFloatScalarParamArm32 && closureResultIsAggOrMultiArm32` (scoping b1b to
+      scalar/void-result float shapes), plus backstop fail-loud float guards were added at
+      `emitClosureShimPackCoreArm32` + `emitClosureShimAggregateSretSpillArm32` so all 4
+      `emitSpillMarshalArm32` callers are now float-guarded (self-defending vs a future guard
+      change).  Re-review of the fix clean.  Validated: native/arm32 unit tests (scalar param/
+      return lower; float param + agg / multi-return / GP-overflow-spill all fail loud; the 4
+      capture/HFA/agg-result HARD tests stay fail-loud); hard-float closure-shim objdump
+      (`ldr r0,[r0]; b <underlying>` — capture to GP, float untouched in VFP); conformance
+      1197.  Follow-up: a dedicated hard-float closure byte-ref unit test (the lowering tests
+      assert no-error+body; conformance 1197 runs soft on baremetal).
     - **(b2) float-in-single-aggregate through the shims — OPEN, pure guard-narrow.**  Already
       rides the existing GP-coerce/sret/pack path; narrow the guards to allow it (verify the
       emitters copy a float-containing aggregate and the LLVM shim emits i8*/retbuf, not
