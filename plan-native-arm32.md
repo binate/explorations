@@ -1014,19 +1014,40 @@ Increments:
       1197; and hard-float closure byte-ref unit tests (`7faf2f37`) pinning that a scalar
       float param/return emits ONLY the capture load + tail-branch (float skipped to VFP),
       byte-identical to the no-arg shim (mutation-verified).
-    - **(b2) float-in-single-aggregate through the shims — OPEN, pure guard-narrow.**  Already
-      rides the existing GP-coerce/sret/pack path; narrow the guards to allow it (verify the
-      emitters copy a float-containing aggregate and the LLVM shim emits i8*/retbuf, not
-      VFP-HFA).  ~9 conformance tests (706, 883/884, 969/970, 985-989).
+    - **(b2) float-in-single-aggregate through the shims — ✅ DONE (`e1b8ef42`,
+      2026-08-08).**  A float nested in a single aggregate (param / return / capture) is
+      GP-coerced, NOT VFP-HFA: `HfaInSimd()` is false for arm32 and is the SINGLE shared gate
+      both backends read (native `cc.HfaAggregates = HfaInSimd()`; LLVM `emit_agg_coerce`
+      gates its SIMD form on it), so they provably agree and it rides the float-AGNOSTIC
+      raw-word GP paths (by-address re-expand, sret/pack, by-word capture load).  The guards
+      changed from "any float LEAF" (`typHasFloatLeafArm32`) → "a SCALAR float that rides VFP"
+      (`IsFloatScalarTyp`); the spill/pack/sret backstops became PARAMS-only
+      (`funcValueShimHasScalarFloatParamArm32` — a scalar float RETURN rides a VFP return reg
+      the GP teardown never touches).  Deleted the now-dead
+      `closureHasFloatPartsArm32`/`closureResultHasFloatPartArm32`.  3-lens adversarial review
+      clean (float-in-agg float-agnostic on every path; the b1b GP-only-marshal bug class does
+      NOT recur).  **Scope correction:** the recon's "~9 in-aggregate tests" was optimistic —
+      only 970 (wide HFAs) + 989 (memory-class) are PURE float-in-agg and now compile; the
+      other 7 (706, 883, 884, 969, 985 capture a bare scalar float → b4; 986, 987 pass a bare
+      scalar float param that overflows to the spill → b4/spill follow-up) need b4, NOT b2.  So
+      **b4 (scalar float captures) is the bigger unlock for the HFA-dispatch tests.**
     - **(b3) float leaf in a REGISTER-returned multi-return tuple — OPEN, silent-miscompile
       trap.**  Wire the shim multiret collect/store (`emitMultiRetPackShim` /
       `storeMultiReturnTupleFieldsArm32` / the spill usePackMulti) to the FP-aware VFP-return
       handling (mirror `arm32_call_hard.bn`).  MUST stay fail-loud until done.  ~19 test cells
-      (705, 975, 976 + matrix).
-    - **(b4) float CAPTURES in closures + VFP-bank-spill / spill-shim-float follow-ups —
-      OPEN.**  A float capture needs a memory→VFP load (VLDR from the closure data block) plus
-      a VFP up-shift of float user params by the float-capture FP-reg count; plus the deferred
-      VFP-bank-spilled-float and over-budget-spill-shim-float marshals.
+      (705, 975, 976 + matrix).  **b2 reminder:** the pack / sret-spill emitter backstops now
+      key only on scalar-float PARAM/CAPTURE (`funcValueShimHasScalarFloatParamArm32` ||
+      `anyCaptureHasScalarFloatArm32`), leaning on the TOP guard
+      (`funcValueShimUnhandledFloatB1Arm32`) to fail-loud a multi-return-float — so when b3
+      un-guards a register-multiret float at the top, it must also make those GP-only emitters'
+      multiret store FP-aware (or they will silently miscompile a multiret-float that overflows).
+    - **(b4) float CAPTURES in closures + VFP-bank-spill / spill-shim-float follow-ups — OPEN,
+      the bigger unlock (see b2 scope correction).**  A scalar float capture needs a
+      memory→VFP load (VLDR from the closure data block) plus a VFP up-shift of float user
+      params by the float-capture FP-reg count; plus the deferred VFP-bank-spilled-float and
+      over-budget-spill-shim scalar-float marshals (the spill/backstop guards currently
+      fail-loud on a scalar float PARAM — 986/987/970's overflow cases).  Clears 706, 883, 884,
+      969, 985 (scalar float captures) + 986, 987 (scalar float params through the spill).
     Closing (b1b)+(b2)+(b3) unblocks the native `--test` unit sweep (the test-runner harness
     itself uses a float func-value shim → P7 prerequisite).
   - **(c) int64↔float casts under gnueabihf — ✅ DONE / NO CODE NEEDED (test `e02d8b24`,
