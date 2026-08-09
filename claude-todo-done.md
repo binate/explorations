@@ -6,6 +6,34 @@ Some older entries reference design/plan docs that have since been archived (see
 [historical-notes.md](historical-notes.md)) or removed outright; those filenames may
 no longer resolve in the tree, though git history retains them.
 
+## `any`-boxing of a pointer-deref / field-access into `*any` — wrong value (Bug A) + skipped nil-check (Bug B) — ✅ DONE (Bug A `85f4851ad`, Bug B `b1490e2ca`, 2026-08-09)
+
+The original entry conflated TWO distinct root causes in the implicit value-borrow
+that boxes an addressable value source into a raw `*any` (`genExprOrFuncRef`,
+`pkg/binate/ir/gen_util.bn`):
+
+- **Bug A (wrong value).** Boxing `*p` where `type P *int` boxed the POINTER
+  ADDRESS, not `*p` — `testing.Println(*p)` printed a raw address. The
+  addressable-vs-rvalue classification tested `lp.Typ.Kind` against `TYP_POINTER`
+  WITHOUT peeling the named wrapper; `genLValueAddr` of `&*p == p` yields a value
+  typed `P` (TYP_NAMED), so a named-pointer deref fell to the rvalue path and stored
+  the pointer into a value slot. Fix: peel transparent wrappers before the test
+  (mirrors `genUnary`'s already-fixed deref). Regression: `conformance/1198`; `1125`
+  converted to `testing.Println`.
+- **Bug B (nil-check skipped).** The value-borrow boxes a field/deref BY REFERENCE
+  via `genLValueAddr` (forDeref=false → never faults), so `testing.Println(p.val)` on
+  a nil `@Node` boxed `nil+offset` and the VM `--check-nil` fault never fired. Fix:
+  `genBorrowSourceAddr` nil-checks the base — a deref nil-checks the pointer, a field
+  computes its address with `genSelectorPtr(forDeref=true)`. Inert when `--check-nil`
+  is off (byte-identical IR). Regression: `1142` converted to `testing.Println`; `1199`
+  added (deref-nil sibling).
+
+Both adversarially reviewed (no correctness holes); full `builder-comp` conformance
+green (2917 passed) after each. **Remaining follow-ups (tracked in claude-todo.md,
+LOW):** convert the last builtin-`println` nil holdouts (`e2e/bni-nil-check.sh`,
+`e2e/bni-test-nil.sh`) now that the boxing is fixed; and the index-through-a-nil-base
+value-borrow nil-check (the sibling `genBorrowSourceAddr` does not yet cover).
+
 ## bnfmt drops a const-expression array dimension — `[cast(int, 5)]int` → `[]int` (code corruption) — ✅ DONE (`bd6dc25e`, 2026-08-08)
 
 `bnfmt` rewrote an array type whose dimension was a non-trivial const expression

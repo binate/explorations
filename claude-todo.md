@@ -7,49 +7,6 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## MAJOR
 
-### `any`-boxing of a NAMED-pointer deref (`*p`, `type P *int`) captures the address, not the value — 🔴 OPEN MAJOR (found 2026-08-08)
-
-**Severity: MAJOR** — passing `*p` (the dereference of a named-distinct pointer,
-`type P *int`) to a variadic `...*any` parameter boxes the POINTER ADDRESS instead
-of the dereferenced value. `testing.Println(*p)` with `p P = &x; x = 5` prints a
-raw address (e.g. `6126380152`) rather than `5`. A silent wrong-value.
-
-**Discovered:** the print/println → testing.Println conformance sweep.
-`conformance/1125_named_ptr_deref` diverges under testing.Println (it is kept on
-the builtin for now). The BUILTIN `println(*p)` is correct — it formats `*p`
-directly — so this is NOT a testing.writeArg gap: the boxed value is already wrong
-before writeArg ever sees it.
-
-**Root cause (unconfirmed — needs investigation):** likely the `any`-boxing of a
-named-pointer-deref rvalue takes address-of `p` rather than loading `*p`, mirroring
-the (already-fixed) `genUnary` named-pointer-deref codegen bug that 1125's own
-comment describes. Non-named pointer derefs boxed into `any` are believed fine —
-confirm with a `*q` (`q *int`) vs `*p` (`P *int`) A/B.
-
-**Second symptom — `1142_nil_pointer_deref`:** `testing.Println(p.val)` with
-`p @Node = nil` does NOT raise the VM's `--check-nil` "nil pointer dereference"
-fault (the builtin `println(p.val)` does), so 1142 went red in the VM modes and is
-likewise kept on the builtin. Same shape: boxing the field access `p.val` into
-`...*any` takes the field ADDRESS (`p + offset`) rather than loading through `p`,
-so nil `p` is never dereferenced and no check fires. This strongly suggests a
-SINGLE root cause spanning both 1125 and 1142 — the `any`-box of a
-pointer-deref / field-access rvalue is an address-of, not a load.
-
-**Fix + test:** correct the pointer-deref/field-access `any`-boxing (load through
-the pointer, don't take its address); then convert BOTH `1125_named_ptr_deref` and
-`1142_nil_pointer_deref` to testing.Println (they currently stay on the builtin,
-alongside 001_hello and the four builtin-specific print/println tests).
-
-**Blocks two e2e tests too:** the same fix unblocks `e2e/bni-nil-check.sh` and
-`e2e/bni-test-nil.sh`, which keep `println(p.val)` on the builtin for the identical
-reason — the `--check-nil` fault must fire on the nil field access, but boxing
-`p.val` into `...*any` takes its address so nil is never dereferenced. Convert both
-once the boxing is fixed. (`e2e/repl.sh` also still uses the builtins, but for an
-unrelated reason — its `println`/`print` are REPL *input* typed at the `bni --repl`
-prompt, where the builtin needs no import; converting it is a separate REPL-input
-capability question, not this boxing fix. All three must land before the
-print/println builtins can actually be removed.)
-
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
 
 **Severity: MAJOR** — a recoverable user-code fault (bounds / divide / shift /
@@ -257,6 +214,30 @@ Remaining increments (all parked, none started):
   impossible in general.
 
 ## VM runtime faults & the rt.Exit/abort/panic paradigm
+
+### Finish the builtin-`println` nil-deref holdouts + index-through-nil value-borrow nil-check — 🟢 LOW (2026-08-09)
+
+Fallout now unblocked by the `any`-box pointer-deref/field nil-check fix (done log:
+Bug A `85f4851ad`, Bug B `b1490e2ca`).
+
+- **e2e conversions (unblocked).** `e2e/bni-nil-check.sh` (fixture `nilderef.bn`,
+  `println(p.val)` on a nil `@Node` — needs the `pkg/builtins/testing` import) and
+  `e2e/bni-test-nil.sh` (fixture `faultynil_test.bn` `TestNilDeref`, `println(p.val)`
+  — already imports testing) kept the builtin only because `testing.Println(p.val)`
+  boxing dropped the nil-check; that now fires through the box, so convert both to
+  `testing.Println`. These may be picked up by the in-flight print→testing sweep, or
+  done on request. (`e2e/repl.sh` stays on the builtins for an UNRELATED reason — its
+  `println`/`print` are REPL *input* at the `bni --repl` prompt, a separate
+  REPL-input-capability question.) All the builtin holdouts must go before the
+  print/println builtins can be removed.
+- **Index-through-nil sibling.** `genBorrowSourceAddr` (`pkg/binate/ir/gen_util.bn`)
+  nil-checks the base for a value-borrowed DEREF (`*p`) and FIELD-access (`p.f`) into
+  `...*any`, but an INDEX operand (`slice[i]` / `ptr[i]`) falls back to
+  `genLValueAddr` → `genIndexPtr(forDeref=false)`, so a value-borrow of an element
+  through a nil base does NOT fault under `--check-nil` (same class as the fixed
+  field/deref gap). Only affects `--check-nil` fault-timing, not value correctness —
+  hence LOW. Fix: nil-check an index operand's base in `genBorrowSourceAddr`
+  (`genIndexPtr(forDeref=true)`), with a conformance test mirroring 1199.
 
 ### VM user-code faults — residual follow-ups (Plan 2 core is DONE) — 🟡 OPEN
 
