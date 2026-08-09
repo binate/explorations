@@ -7,6 +7,41 @@ Completed items live in [claude-todo-done.md](claude-todo-done.md).
 
 ## CRITICAL
 
+### bnfmt drops a const-expression array dimension — `[cast(int, 5)]int` → `[]int` (code corruption) — 🔴 OPEN CRITICAL (found 2026-08-08)
+
+**Severity: CRITICAL** — `bnfmt` rewrites an array type whose dimension is a
+non-trivial const expression into a BARE SLICE: `var a [cast(int, 5)]int` formats
+to `var a []int`, dropping the dimension entirely. The result is not even valid
+syntax (bare `[]T` is retired — the parser rejects it: `bare "[" "]" is no longer
+valid raw-slice syntax`), so a formatted file fails to compile; had the mangled
+form still parsed it would be a silent miscompile instead.
+
+**Discovered:** running `bnfmt -w` over conformance tests during the print/println
+→ testing.Println sweep; every const-array-dimension test
+(`810_const_shift_and_dim_positive`, `814_const_dim_builtin_positive`,
+`849_forward_const_array_dim`, `644/818/821/823_*`, …) came out corrupted.
+Reproduces on the PRISTINE file, so it is NOT conversion-related: `bnfmt
+conformance/810_const_shift_and_dim_positive.bn` turns `[cast(int, 5)]int` into
+`[]int`.
+
+**Why it hasn't bitten before:** `scripts/hygiene/bnfmt-format.sh` DELIBERATELY
+EXCLUDES `conformance/` (it holds intentional edge-case programs), so these files
+are never bnfmt-checked, and the rest of the bnfmt-covered tree apparently has no
+`[constExpr]T` array dimension that bnfmt would touch.
+
+**Root cause (unconfirmed — needs investigation):** likely the array-type
+formatting path in `pkg/binate/format*` only handles a literal-int dimension (or
+the empty `[]`) and falls through to emitting `[]` for a non-literal dimension
+expression.
+
+**Fix:** the array-type formatter must reproduce the dimension expression
+verbatim. Add a bnfmt unit test feeding `[cast(int, 5)]int`, `[N]int` (const
+ident), `[3]int` and asserting round-trip identity.
+
+**Sweep impact:** conformance files must NOT be run through bnfmt (matching the
+hygiene exclusion); the print/println sweep converts with the perl script only,
+no bnfmt.
+
 ## MAJOR
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
