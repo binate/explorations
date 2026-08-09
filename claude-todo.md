@@ -63,8 +63,18 @@ the (already-fixed) `genUnary` named-pointer-deref codegen bug that 1125's own
 comment describes. Non-named pointer derefs boxed into `any` are believed fine —
 confirm with a `*q` (`q *int`) vs `*p` (`P *int`) A/B.
 
-**Fix + test:** correct the named-pointer-deref `any`-boxing; then convert
-`1125_named_ptr_deref` to testing.Println (it currently stays on the builtin,
+**Second symptom — `1142_nil_pointer_deref`:** `testing.Println(p.val)` with
+`p @Node = nil` does NOT raise the VM's `--check-nil` "nil pointer dereference"
+fault (the builtin `println(p.val)` does), so 1142 went red in the VM modes and is
+likewise kept on the builtin. Same shape: boxing the field access `p.val` into
+`...*any` takes the field ADDRESS (`p + offset`) rather than loading through `p`,
+so nil `p` is never dereferenced and no check fires. This strongly suggests a
+SINGLE root cause spanning both 1125 and 1142 — the `any`-box of a
+pointer-deref / field-access rvalue is an address-of, not a load.
+
+**Fix + test:** correct the pointer-deref/field-access `any`-boxing (load through
+the pointer, don't take its address); then convert BOTH `1125_named_ptr_deref` and
+`1142_nil_pointer_deref` to testing.Println (they currently stay on the builtin,
 alongside 001_hello and the four builtin-specific print/println tests).
 
 ### Recoverable VM fault inside a RE-ENTRANT execFunc (native→VM callback) is swallowed — 🔴 OPEN MAJOR (found 2026-07-18)
