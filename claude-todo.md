@@ -101,7 +101,7 @@ propagate rather than swallow — the trampoline / `execExternCall` should re-ra
 (re-`setFault` + re-dispatch in the outer frame, or bail the outer `execLoop`). Needs a
 test: a compiled/native higher-order fn calling a VM callback that indexes OOB, asserting
 the program aborts (not returns 0). Tracked against Plan 2
-(`explorations/plan-rt-fault-cleanup-pads.md`).
+(`explorations/done/plan-rt-fault-cleanup-pads.md`).
 
 ## Documentation hygiene
 
@@ -292,7 +292,7 @@ shift / nil-deref / stack-overflow / call-through-nil) RECOVERABLE — the host
 (REPL / test-runner / embedder) survives a bad interpreted program while compiled
 code stays fatal.  Core landed (Plan 1 primitives; Inc 1/2a/2b/3 cleanup-pad
 unwind; nil-deref N1–N3 last, `de9a7c05`); see claude-todo-done.md and
-[`plan-rt-abort-panic.md`](plan-rt-abort-panic.md).  Still open:
+[`plan-rt-abort-panic.md`](done/plan-rt-abort-panic.md).  Still open:
 
 - **Native-extern SIGSEGV is unguarded (filed 2026-06-30).** A bad-pointer deref
   inside a NATIVE EXTERN called from the VM (e.g. handing a wild pointer to
@@ -353,6 +353,20 @@ current flat-`DataTerm` sequence emits none, relying on `2*w` spacing). Do it WH
 built, together with a test that exercises `ptr≠int` (the only thing that validates it).
 
 ## Slimming `pkg/bootstrap`; C interop (`__c_call`)
+
+### Eliminate the last C runtime shim + native syscall allocator (libc-free) — 🟡 OPEN (future)
+
+Residual goals of the now-archived [`done/runtime-abstraction-plan.md`](done/runtime-abstraction-plan.md)
+(Phase 3). Steps 3.1–3.3 shipped and the rest was delivered via a *different*
+architecture (`rt_stubs.c` gone — `pkg/rt` calls libc directly through `__c_call`;
+the entry-point moved to `pkg/builtins/startup._entry`, `c4607a71`; libc-free
+targets use the libc/baremetal impls split). Two goals remain genuinely unbuilt:
+- **Fully eliminate `runtime/binate_runtime.c`** — down to a 69-line
+  `bootstrap.Write` shim (the last hosted C function); fold it into the Binate /
+  `__c_call` surface so a hosted binary needs no bespoke C runtime file.
+- **Native syscall allocator for bare metal** — step 3.7's optional pure-Binate /
+  syscall-backed allocator so a truly libc-free bare-metal image (no `__c_call`
+  into libc) can allocate. Matters most for the native-arm32 bare-metal path.
 
 ### `pkg/std/os/process` — v1.1 residual: exec-failure precision — 🟡 OPEN (low, post-1.0)
 
@@ -1495,6 +1509,20 @@ Residual (all five REPL tiers landed):
 - **Tier 4**: refcount-aware shadow warning (today fires unconditionally); forced-shadow escape hatch (syntax TBD per `claude-notes.md`).
 - **Pretty-printer** (`pkg/replprint`) — deferred until interfaces land (`bootstrap.println` is a temporary hack; don't entrench it).
 (Background/history archived in claude-todo-done.md.)
+
+### REPL: continuable suspend/resume (Stage 6) — 🟡 OPEN (future)
+
+Was Stage 6 of the now-archived [`done/plan-repl-embeddable.md`](done/plan-repl-embeddable.md)
+(the rest of that plan landed; its API was superseded by the `Kernel` reshape,
+design in [`done/plan-repl-kernel.md`](done/plan-repl-kernel.md)). **What**: pause a
+running evaluation and resume it later — the VM frame stack is heap-resident so
+pure-interpreted execution is suspendable in principle, but the active frame's
+control state (`pc`, `funcIdx`, `regs`, `frameBase`) is host-stack-local in
+`execLoop`, so the active frame needs a side-field to hold its resume pc.
+**When**: only if a host needs pause/resume (e.g. a wasm worker yielding to the
+event loop mid-eval); not needed for the current Kernel request/reply model.
+Tracked here so archiving the plan doesn't strand it; belongs under the Kernel
+design if picked up.
 
 ## ARM32 bare-metal / native arm32 backend
 

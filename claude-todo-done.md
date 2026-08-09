@@ -522,7 +522,7 @@ All six VM user-code faults (bounds / divide / shift / nil-deref / stack-overflo
 call-through-nil) are now recoverable: the VM raises `VM_STATUS_FAULTED` + a message
 instead of `rt.Exit(1)`, so the host (REPL / test-runner / embedder) survives a bad
 interpreted program while compiled code stays fatal.  Design:
-[`plan-rt-abort-panic.md`](plan-rt-abort-panic.md) (+ nil-deref in
+[`plan-rt-abort-panic.md`](done/plan-rt-abort-panic.md) (+ nil-deref in
 [`done/plan-nil-check-opt-in.md`](done/plan-nil-check-opt-in.md)).
 
 - **Plan 1:** the `rt.Abort`/`rt.Panic` primitives + `panic()` single-string lowering
@@ -4290,7 +4290,7 @@ Class 8 (multi-package loader resolution at int-int depth → `pkg/builtins/rt` 
 LANDED (`db18f26b`, 2026-06-05; regressions `136_grouped_imports` + `383_cross_pkg_iface_dtor`). Class
 3 (cross-package / interface-name type-resolution ordering → `i8*` fallback) turned out NOT to be a
 one-off point-bug but a **recurring family** — reframed as "Class E — Named / cross-package
-type-resolution recurrence" in `plan-code-red-2.md`; its instances (`8d9e7577` / `c14dd95e` /
+type-resolution recurrence" in `done/plan-code-red-2.md`; its instances (`8d9e7577` / `c14dd95e` /
 `aba92526` named-wrapper mangler bugs) are each fixed + regression-tested individually. The "track each
 recurrence as a regression, not a matrix" decision stands; only the "one-off point-bug" framing was
 stale.
@@ -8095,7 +8095,7 @@ same-segment collision remains a separate OPEN follow-up in claude-todo.md.)
 
 ## rt.Abort() / rt.Panic() + simplify panic(); unify the VM abort idioms (Plan 1) (2026-06-20) — ✅ DONE
 
-Plan doc: explorations/plan-rt-abort-panic.md (Plan 1). Plan 2 (recoverable VM
+Plan doc: explorations/done/plan-rt-abort-panic.md (Plan 1). Plan 2 (recoverable VM
 user-faults) stays open in claude-todo.md.
 
 - `rt.Abort()` (C `abort()`/SIGABRT; baremetal nonzero semihost exit) +
@@ -8606,7 +8606,7 @@ The embeddable engine landed as `pkg/binate/repl` (interface in
 `ReplIO` sink, `Init()`/`Step()→StepResult`, an inert v1 interrupt seam
 (`SetPoll`). `cmd/bni` is rewired to drive it (`cmd/bni/repl.bn` imports
 `pkg/binate/repl`, calls `NewReplSession`/`Init`/`Step`). Plan doc
-`plan-repl-embeddable.md`: "Stages 1–5 DONE (2026-06-02)". Stages 6/7 are
+`done/plan-repl-embeddable.md`: "Stages 1–5 DONE (2026-06-02)". Stages 6/7 are
 FUTURE/out-of-v1-scope, tracked there.
 
 ### ~~Unknown escapes silently dropped (spec Ch.5)~~ — ✅ REJECTED+LANDED (binate `be30129e`; conformance 791; 2026-06-15)
@@ -9478,7 +9478,7 @@ import-and-rename: `buf.Builder`→`strings.Builder`, `buf.WriteInt`→`stringut
 the codegen `strings` StringConst identifier renamed `strs` to avoid the import
 clash; `buf` keeps only CopyStr/Concat).  Detail retained as a UAF-gotcha reference.
 
-Full plan: [plan-buf-deprecation.md](plan-buf-deprecation.md).
+Full plan: [plan-buf-deprecation.md](done/plan-buf-deprecation.md).
 
 Retire the bespoke `buf.CharBuf` byte-buffer for the stdlib `strings.Builder`.
 - **Landed:** `strings.Builder`; `pkg/binate/stringutils` (binate `04c67dd3`) supplying the Builder-method gap as free functions over `*strings.Builder` (`WriteInt`/`WriteInt64`/`WriteHexByte`); the `.bni`-impl-registration fix (`3d147369`) that unblocks Builder-through-`io.Writer`. `stringutils.Freeze` was dropped (`7350bdd1`) — it equals `buf.CopyStr(b.String())`. **ALL out-of-cone callers migrated 2026-06-12** (the complete out-of-cone `CharBuf` set, verified `CharBuf`-free after): `cmd/bnlint` `ab076c5d`, `cmd/bnas` `e10472da`, `cmd/bni` `fd8ccefc`, `pkg/binate/repl` `dc50ef48`, `pkg/binate/vm` `27efd23a`, `pkg/binate/lint` `f7ce3d89`.
@@ -10184,7 +10184,7 @@ Discovery Protocol) — most don't have one yet.
   dtor` is GREEN in `builder-comp` / `-int` / `-int-int` — so the int-int
   multi-package loader bug the bullet warned about is also resolved.  No
   separate `@Iface` VM-leak remains (520's VM-mode rc-balance proves it).
-- **Unblocks the REPL interrupt seam (Stage 5 of `plan-repl-embeddable.md`)
+- **Unblocks the REPL interrupt seam (Stage 5 of `done/plan-repl-embeddable.md`)
   — DONE.**  `vm.SetPoll(poll @func(@VM) int) { vm.Poll = poll }` is the
   param→field `@func` store; with the acquire arms a CAPTURING poll no
   longer UAFs.  Capturing-poll seam tests added and green in every int
@@ -10428,7 +10428,7 @@ Discovery Protocol) — most don't have one yet.
 
 ### ~~Compound shift-assign (`<<=` / `>>=`) bypasses the overshift guard~~ — FIXED + LANDED (binate `fa265629`)
 - **Symptom**: `var y uint32 = 1; y <<= 40; println(cast(int, y))` printed `256` (= `1 << (40 & 31)`) on `builder-comp`, not the spec's `0` (count 40 ≥ width 32). The expression form `y = y << 40` correctly gives `0` (fixed at the CRITICAL "shift by ≥ bit width" entry, binate `32fde83d`). Native aa64 gave the correct `0` — so this was an LLVM-path divergence. `uint8 x <<= 9` happened to read `0` (the `1<<9=512` result is narrowed to `uint8` → 0, masking the bug); only a width where the masked count stays in range (`uint32 <<= 40` → `<<8`) exposed it.
-- **Root cause (path-parity)**: the overshift guard (`emitGuardedShift`) was applied on the expression-shift path but NOT on the compound-assign path — `emitCompoundBinop` (`pkg/binate/ir/gen_control.bn`) lowered `<<=`/`>>=` without routing through `emitGuardedShift`. Classic Code-Red-2 path-parity gap: a guard added to one of N sibling lowerings (expr-shift) was never mirrored into the others (compound-assign). See `plan-code-red-2.md`.
+- **Root cause (path-parity)**: the overshift guard (`emitGuardedShift`) was applied on the expression-shift path but NOT on the compound-assign path — `emitCompoundBinop` (`pkg/binate/ir/gen_control.bn`) lowered `<<=`/`>>=` without routing through `emitGuardedShift`. Classic Code-Red-2 path-parity gap: a guard added to one of N sibling lowerings (expr-shift) was never mirrored into the others (compound-assign). See `done/plan-code-red-2.md`.
 - **Fix (landed, binate `fa265629`)**: route compound `OP_SHL`/`OP_SHR` through `emitGuardedShift` in `emitCompoundBinop`, mirroring `genBinaryExpr`, keeping the in-range-const fast path. **Companion fix in the same commit**: `emitCompoundBinop` now width-coerces both operands to the lvalue type internally (only the IDENT arm did so before), so a sub-word element/field/deref compound assign no longer keeps an untyped-int count/operand at int64 and emits width-mismatched IR — latent for sub-word non-IDENT compound assigns generally (a `uint32` `a[0] += 5` would have emitted `add i32, i64`), previously unexercised.
 - **Severity**: MAJOR — was silent wrong-code, but narrow (a compile-time shift count ≥ width in a compound-assign).  Plan-1 defect (7) in `done/plan-cr2-1-frontend.md`.
 - **Test**: `conformance/659_compound_shift_overshift` — `<<=`/`>>=` overshift across variable / array-elem / slice-elem / nested-array-elem / field / deref lvalues at uint32 & int32, runtime + out-of-range-const counts, self-checking (target-stable 0/1).  Green on builder-comp{,-comp,-comp-comp}, builder-comp-int{,-int}, -comp-comp-int, native aa64.  (Exhaustive `op × lvalue-form` compound-assign coverage — incl. sub-word non-shift arith that the companion width fix also repairs — is the `conformance/matrix/operator` follow-up, §3.3.)
