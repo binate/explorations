@@ -49,7 +49,7 @@ clock-reading syscall.
 The errno work used a per-target directory tree (`impls/targets/`). That has
 since been **replaced by file-level build constraints** — `#[build(is(os,
 "darwin"))]`, `#[build(is(arch, "aarch64") && is(os, "darwin"))]`, `!is(...)`,
-`&&` — see `plan-build-constraints.md` and `plan-impls-constraints-migration.md`.
+`&&` — see `plan-build-constraints.md` and `done/plan-impls-constraints-migration.md`.
 `os` now lives in one directory (`impls/stdlib/common/pkg/std/os/`) with
 per-OS files gated by tags (`internal_darwin.bn` / `internal_linux.bn`,
 `os_baremetal.bn`); per-OS *values* (open flags, the errno table) still use

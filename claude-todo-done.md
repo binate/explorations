@@ -15573,7 +15573,7 @@ collapse (the "bonus" below) is carried forward to claude-todo.md as its own ent
   `TARGET_DIR` from binate-paths.  Each is comment-flagged in-tree
   (`TEMPORARY`/`Remove once BUILDER`).  Full plan +
   workaround list in
-  [`plan-impls-constraints-migration.md`](plan-impls-constraints-migration.md).
+  [`done/plan-impls-constraints-migration.md`](done/plan-impls-constraints-migration.md).
 - **Bonus**: the same bump would also let `pkg/bootstrap` be collapsed onto
   `#[build]` (it's in cmd/bnc's BUILDER-compiled tree, currently left
   path-selected — see that plan doc).

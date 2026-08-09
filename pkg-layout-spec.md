@@ -130,7 +130,7 @@ impls/
 
 Platform selection happens via `#[build(...)]` constraints on the files of a
 package (see [`plan-build-constraints.md`](plan-build-constraints.md) and
-[`plan-impls-constraints-migration.md`](plan-impls-constraints-migration.md)),
+[`done/plan-impls-constraints-migration.md`](done/plan-impls-constraints-migration.md)),
 not by choosing a `libc/` vs `baremetal/` directory. In `impls/core/`, the
 `libc/` and `baremetal/` platform dirs survive only for `pkg/bootstrap`, which
 is still path-selected, so its files sit under `common/`. **`impls/stdlib/` has
@@ -181,7 +181,7 @@ been removed — per-target impls are arch/os-gated files instead.
    remaining whole-directory-selected package is `pkg/bootstrap`, kept in
    `impls/core/{libc,baremetal}/` because the current prebuilt BUILDER
    predates `#[build(...)]` parsing and bootstrap is in its compiled tree —
-   see [`plan-impls-constraints-migration.md`](plan-impls-constraints-migration.md).)
+   see [`done/plan-impls-constraints-migration.md`](done/plan-impls-constraints-migration.md).)
    Distinct from the per-file rule above, the single `impls/stdlib/common -> .`
    symlink is a DIRECTORY-level transitional shim (not a code-sharing
    workaround): it lets the `impls/stdlib/common` search root — which the
