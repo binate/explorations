@@ -1,8 +1,12 @@
 # Design note: FFI Export — exposing Binate functions to C
 
-**Status:** **RATIFIED design (2026-07-11)** — recorded as a DECIDED note in
-`claude-notes.md`. The core-language features are **spec'd as pending** (Draft/pending in
-the spec — specified, not implemented, like §16.9's `__c_global`); **not yet implemented**.
+**Status:** **RATIFIED (2026-07-11); MVP IMPLEMENTED — residuals open.** The
+`#[c_export]` alias emission, `bnc --library` + `bn_init`/`bn_entry`, and the
+entry-move (`pkg/builtins/startup._entry` replacing `binate_runtime.c`'s `main`,
+`c4607a71`) all LANDED (see claude-todo-done.md "FFI export MVP + entry-move"). Still
+open (tracked in `claude-todo.md`): the C header generator (Phase 7), the
+trivial-forward→alias optimization (§3.4), the merge/co-link build mode (§3.6), and
+the optional signature lint (Phase 9).
 Explores (a) what initialization is needed to link a Binate package
 (+ transitive deps) into a C program and call a Binate function; (b) how to package
 a *set* of Binate packages as a C library; and (c) how the program **entry/startup

@@ -1,10 +1,12 @@
 # Plan: ARM32 Bare-Metal Target
 
-> **Status: DRAFT** — initial sketch for review. Not yet ratified;
-> details (board choice, runtime split, milestone gating) likely to
-> shift before implementation begins. See the corresponding entry in
-> `claude-todo.md` ("ARM32 bare-metal target — MAJOR PROJECT") for
-> the original framing.
+> **Status: LARGELY DELIVERED — future ambition remains.** The arm32-linux
+> (LLVM, ~2634 passing) and bare-metal QEMU-semihosting paths, and the native
+> `pkg/binate/native/arm32` backend (P0–P5 soft-float, green), all LANDED
+> (claude-todo-done.md, 2026-08-03). What remains is the beyond-QEMU real-hardware
+> OS-dev ambition (per-board crt0 / linker scripts, UART drivers, MMU / page
+> tables, real Cortex-A board bring-up) — tracked FUTURE in `claude-todo.md`
+> ("ARM32 bare-metal OS endgame"); this doc is kept as its design home.
 
 ## Why
 

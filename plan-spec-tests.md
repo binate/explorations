@@ -5,8 +5,12 @@ spec now has ~480 declared rule-IDs across Ch.3–21 + Annex A; this is the plan
 tie the **testable** ones to executable tests and derive the
 implementation-conformance ledger (Annex C) mechanically.
 
-**Status: design.** *Building* the tagging/coverage tooling and *wiring CI* are
-separate go-aheads, each its own decision. Spec tests are authored in the
+**Status: LARGELY BUILT — Phase C + `--run` open.** The coverage tooling
+(`scripts/spec-coverage/`), the per-chapter `conformance/spec/` tests (Ch.05–20), and
+CI wiring (hygiene + spec-sync, 2026-06-26) all LANDED. Still open (tracked in
+`claude-todo.md`): Phase C — retrofit the ~500 existing `conformance/` tests with
+`.rules` tags — and the `spec-coverage --run` increment (the report is static-only
+today). Spec tests are authored in the
 **`binate`** repo → a coordinated worktree when we start.
 
 ---

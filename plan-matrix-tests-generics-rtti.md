@@ -1,9 +1,12 @@
 # Plan (brief): matrix tests for expanded generics + type assertions/RTTI
 
-**Status:** brief plan (2026-07-10). Proposes two new `conformance/matrix/` families,
-extending the established matrix pattern (`plan-code-red.md` §7; existing families:
-`refcount`, `dispatch-refcount`, `abi`, `scalar`, `readonly`, …). Grounded in the current
-tree. Not yet built.
+**Status:** brief plan (2026-07-10); **Part A BUILT, Part B open.** Proposes two new
+`conformance/matrix/` families, extending the established matrix pattern
+(`plan-code-red.md` §7). **Part A (generics)** landed as
+`conformance/matrix/generic-managed/` (25 cells; see `claude-todo.md`). **Part B
+(type-assertion / RTTI)** is not built — `conformance/matrix/type-assert/` still to
+come (tracked in `claude-todo.md`), along with Part A's second-wave axes
+(method-expression, parameterized-receiver, generic-constraint dispatch).
 
 ## Why now
 The recent MAJOR/CRITICAL bug cluster was almost entirely in these two spaces, and several

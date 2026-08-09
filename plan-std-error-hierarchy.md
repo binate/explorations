@@ -1,8 +1,14 @@
 # Plan: stdlib standard failure hierarchy
 
-Status: DESIGN (2026-06-11). Builds on the shipped `@errors.Error`
-interface (`Error()` + `Unwrap()`) and `errors.Is` in
-`ifaces/stdlib/pkg/std/errors.bni` / `impls/stdlib/common/pkg/std/errors/`.
+Status: **SUBSTANTIALLY IMPLEMENTED — migration residuals open.** The §2 base
+singleton hierarchy (InvalidArgument, NotFound, OutOfRange, BadData, … + New/Wrap/Is
++ Rooted) and the §7 errno mapping (`errnoToBase`) LANDED in
+`ifaces/stdlib/pkg/std/errors.bni` / `impls/stdlib/.../os/sys/errno.bn`. Still open
+(tracked in `claude-todo.md`): strconv parse errors don't root in a base
+(`numError.Unwrap()` returns empty — the §7/§9 syntax→BadData / overflow→OutOfRange
+mapping never happened), and os errors carry only the op, not the failing path (P3).
+Builds on the shipped `@errors.Error` interface (`Error()` + `Unwrap()`) and
+`errors.Is` in `ifaces/stdlib/pkg/std/errors.bni` / `impls/stdlib/common/pkg/std/errors/`.
 Tree + mechanism are §§1–6; §7 is the `os` errno mapping; §8 collects the
 open questions that survive (a 3-critic adversarial review of an earlier
 draft is folded in; the questions it raised that have since been resolved

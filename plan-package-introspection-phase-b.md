@@ -1,9 +1,13 @@
 # Plan: Package introspection — Phase B (function-value table + auto-injection)
 
-**Status: NOT STARTED** — design ratified; the owner resolved the key B0 calls on
-2026-06-10 (see "Owner decisions" below), so the B0 `FunctionInfo` ABI is locked.
-One design question stays open — whether/how an interpreted package gets a real
-`__Package()` (see B2). This plan supersedes the Phase-B sections of
+**Status: B0 + B1 (for builtins) LANDED — B2/B3 open.** `reflect.Package` grew its
+`Functions *[]@FunctionInfo` table with the locked B0 ABI, and B1's
+`RegisterPackageFunctions` auto-enumerates a package's exported functions into the
+VM. Still open (tracked in `claude-todo.md`): B2 — an interpreted/bytecode USER
+package getting a real `__Package()` + Functions table (the one design question the
+owner left open) — and B3, the cross-package registry / `PackageByName`. The owner
+resolved the key B0 calls on 2026-06-10 (see "Owner decisions" below), so the B0
+`FunctionInfo` ABI is locked. This plan supersedes the Phase-B sections of
 [`notes-package-introspection.md`](notes-package-introspection.md) (the design notes)
 and refines the `claude-todo.md` entry "Package descriptors (Phase B) — general
 Functions-table still future".

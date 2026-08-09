@@ -1,8 +1,13 @@
 # Build Constraints — Design Proposals
 
-**Status: DESIGN / proposals.** Lays out the design space, the chosen syntax,
-and the implementation shape for conditional compilation in Binate, with
-tradeoffs, so the user can ratify. Concrete follow-up to the `claude-todo.md`
+**Status: PARTIALLY IMPLEMENTED — design doc for the rest.** The `#[build(EXPR)]`
+core landed: the `arch`/`os` MVP plus the `version` (`at_least`/`at_most`/`is`) and
+`entrypoint` predicates (`pkg/binate/buildcfg`; conformance `731`/`733` green). Still
+open (tracked in `claude-todo.md`): the deferred predicate vocabulary (triple /
+backend / libc / ptrsize / intsize), `bnlint --target` + hygiene `--target` tooling,
+main-module gating, migrating the duplicate `impls/` trees onto constraints (retiring
+the symlink workaround), and the §11 open user-decisions. This doc lays out the
+design space for that remaining work. Concrete follow-up to the `claude-todo.md`
 entry "Per-file build constraints — conditional file inclusion/exclusion by
 target — DESIGN" — but generalized, per the user's direction, from *per-file* to
 **per-declaration**. Anchors verified against the tree (binate `main`, 2026-06);
