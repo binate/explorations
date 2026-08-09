@@ -1,6 +1,6 @@
 # Plan: native arm32 backend (`pkg/binate/native/arm32`)
 
-Status: **P0–P5 DONE** — baremetal soft-float is FULLY GREEN (`builder-comp_native_arm32_baremetal` 2851/0, only the legit `982_c_global_environ` xfail). **P6 (VFP + hard-float, `arm32-linux` native) is IN PROGRESS** — the VFP encoders (`ba040890`), hard-float activation (`e021425c`), and REL relocs (`4ab2315a`) landed; the open tail is inc 3f float-through-shims (HFA-in-VFP, float-in-single-aggregate, float-leaf-in-multi-return, float-captures-in-closures — all fail-loud today, ~65 arm32-linux fails). P7 (blocking-modeset promotion + unit sweep) after. (Started 2026-07-01.) Goal: a native (direct
+Status: **P0–P5 DONE** — baremetal soft-float is FULLY GREEN (`builder-comp_native_arm32_baremetal` 2851/0, only the legit `982_c_global_environ` xfail). **P6 (VFP + hard-float, `arm32-linux` native) is IN PROGRESS** — the VFP encoders (`ba040890`), hard-float activation (`e021425c`), and REL relocs (`4ab2315a`) landed; inc 3f float-through-shims is closing shape-by-shape — scalar-float-through-shims (b1/b1b), float-in-single-aggregate (b2, `e1b8ef42`), and float-leaf-in-multi-return (b3, `8fa0f3956`) are DONE; the open tail is HFA-in-VFP (inc 3f a) and float-captures-in-closures + the VFP-bank-spill / over-budget-spill scalar-float-param marshals (b4). P7 (blocking-modeset promotion + unit sweep) after. (Started 2026-07-01.) Goal: a native (direct
 IR→object) code generator for 32-bit ARM, hooked up analogously to the
 existing **LLVM** arm32 path — i.e. serving BOTH `--target arm32-baremetal`
 and `--target arm32-linux`, run under QEMU by the same runners, but with the
@@ -1031,16 +1031,31 @@ Increments:
       other 7 (706, 883, 884, 969, 985 capture a bare scalar float → b4; 986, 987 pass a bare
       scalar float param that overflows to the spill → b4/spill follow-up) need b4, NOT b2.  So
       **b4 (scalar float captures) is the bigger unlock for the HFA-dispatch tests.**
-    - **(b3) float leaf in a REGISTER-returned multi-return tuple — OPEN, silent-miscompile
-      trap.**  Wire the shim multiret collect/store (`emitMultiRetPackShim` /
-      `storeMultiReturnTupleFieldsArm32` / the spill usePackMulti) to the FP-aware VFP-return
-      handling (mirror `arm32_call_hard.bn`).  MUST stay fail-loud until done.  ~19 test cells
-      (705, 975, 976 + matrix).  **b2 reminder:** the pack / sret-spill emitter backstops now
-      key only on scalar-float PARAM/CAPTURE (`funcValueShimHasScalarFloatParamArm32` ||
-      `anyCaptureHasScalarFloatArm32`), leaning on the TOP guard
-      (`funcValueShimUnhandledFloatB1Arm32`) to fail-loud a multi-return-float — so when b3
-      un-guards a register-multiret float at the top, it must also make those GP-only emitters'
-      multiret store FP-aware (or they will silently miscompile a multiret-float that overflows).
+    - **(b3) float leaf in a REGISTER-returned multi-return tuple — ✅ DONE (`8fa0f3956`,
+      2026-08-09).**  The shim multiret store-through-retbuf is now FP-aware: a new
+      `storeMultiReturnTupleFieldsHardArm32` (the hard-float twin of the GP
+      `storeMultiReturnTupleFieldsArm32`) VSTRs each float field from its CPRC-allocated S/D
+      return register while non-float fields keep the shared GP store at an independent retGp
+      cursor; `collectMultiReturnFieldsHard` (the caller collect) delegates to it, so caller
+      collect and shim store share ONE loop.  A hard/soft dispatcher
+      `storeMultiReturnTupleFieldsShimArm32` (mirrors `collectMultiReturnFields`'s dispatch)
+      routes all three shim store sites (`emitMultiRetPackShim`, the spill `usePackMulti`,
+      `emitClosureShimPackCoreArm32`): float-containing tuple → FP-aware under hard-float,
+      float-free / soft-float → GP-only byte-for-byte.  The b2-reminder is satisfied — the
+      GP-only pack/sret-spill emitters' multiret store went FP-aware together with the top-guard
+      narrowing, so no silent multiret-float miscompile.  Guard narrowing:
+      `funcValueShimUnhandledFloatB1Arm32` + `callInstrUnhandledFloatB1Arm32` no longer fail-loud
+      a multi-return-float (small tuple → FP-aware store; big/sret → written through the retbuf
+      by the underlying; call sites already collected via `collectMultiReturnFieldsHard`).  The
+      sret split (`isBigMultiReturnArm32` → `MultiReturnTupleNeedsSret`) is the same hard-float-
+      aware classifier the callee and caller use, so all agree by construction; `CallArgFpReg`
+      fail-louds on an overflow slot so a disagreement can't silently miscompile.  A scalar float
+      PARAM/CAPTURE through the GP-only pack arg-marshal / capture load STAYS fail-loud → b4.
+      Verified: unit 332/332 (byte-ref through SP + retbuf bases, dispatcher routing, guard-flip
+      predicates); hard-float compile-only e2e (func-value / closure / over-budget-spill multiret
+      shims emit cleanly, disasm confirms `vstr d0,[r4]` + `str r0,[r4,#8]`); soft-float baremetal
+      no regression (705/975/976 + float-capture/agg green); hygiene 18/18; 3-lens adversarial
+      review clean (classifier-consistency concern refuted; two stale-comment nits fixed).
     - **(b4) float CAPTURES in closures + VFP-bank-spill / spill-shim-float follow-ups — OPEN,
       the bigger unlock (see b2 scope correction).**  A scalar float capture needs a
       memory→VFP load (VLDR from the closure data block) plus a VFP up-shift of float user
