@@ -1196,6 +1196,18 @@ cleared (`e2e/xmiface.sh` / `e2e/xmhfa.sh` exist); add a captured-`@func` refcou
 
 ## Standard library & libraries
 
+### `pkg/std/os` follow-ons split out of the (completed) os.Stat work — 🟢 LOW
+
+Two small `pkg/std/os` items surfaced by the finished `os.Stat`/`FileInfo`/`FileMode`
+work (`done/plan-os-stat.md`), neither actionable within that plan:
+- **`FileMode.String()`** — a `Stringer` for `FileMode` (the `drwxr-xr-x`-style
+  rendering). Not implemented (no `String` method in `impls/stdlib/pkg/std/os/mode.bn`);
+  the plan deferred it "with the formatting layer." Small — pure bit-to-char formatting.
+- **`os.Symlink`** — no `func Symlink` exists in the os iface/impls, so an `Lstat`
+  on a *real* symlink can't be exercised end-to-end (the `S_IFLNK → ModeSymlink`
+  mapping is unit-tested only). Adding `os.Symlink` (small/med, `symlink(2)` `__c_call`
+  + baremetal stub) unblocks that e2e test.
+
 ### Standard library design
 - Candidates: growable collections (Vec[T], Map[K,V] post-generics), I/O abstractions, string utilities, formatting
 - CharBuf is implemented (pkg/buf); broader stdlib design should inform future collection APIs

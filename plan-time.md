@@ -130,7 +130,7 @@ syscall results.)
 
 ## Status
 
-- `Point` + `Delta` — built (Stage 1 of `plan-os-stat.md`), with a cross-mode
+- `Point` + `Delta` — built (Stage 1 of `done/plan-os-stat.md`), with a cross-mode
   conformance test (`conformance/853_std_time.bn`); landing.
 - `Clock` + `Reading[C]` + ordering guarantees — designed here; built with
   `Now()`/clock-reading later.

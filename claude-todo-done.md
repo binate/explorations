@@ -2386,7 +2386,7 @@ never be a `case` target, §11.12). `isBoxableNamelessType` peels the same
 pointer/managed-ptr/readonly wrappers `receiverBaseTypeName` peels, so nested
 `**@[]char` is covered too (found by adversarial review of the diff). Scoped to
 raw `*any` (null dtor = correct borrow); the managed `@any` half would leak and
-stays open (see the active MAJOR entry + `plan-slice-type-identity.md` §9). Phase
+stays open (see the active MAJOR entry + `done/plan-slice-type-identity.md` §9). Phase
 0 of that plan; conformance `1074` (no-crash across slice/array/func/nested) +
 `1075` (expr-form clean panic). Verified across LLVM / VM / native-aa64 + hygiene.
 
@@ -3000,7 +3000,7 @@ was spelling-driven, now follows the resolved entity's home across the ~75
 `resolveImportPkg`/`buildQualName` sites) / collision check, plus reflect + the
 17-test conformance bundle (`1028`/`1032`–`1053`). **Specified**: §16.5.2 +
 `binate.ebnf` `ExposeDecl` + nine `pkg.expose.*` rules. No backend/codegen work.
-Design/plan: `done/design-expose.md`, `plan-expose-execution.md`. The last residual — the
+Design/plan: `done/design-expose.md`, `done/plan-expose-execution.md`. The last residual — the
 feature was gated from `cmd/bnc`'s own `.bni` use until a BUILDER understood `expose`
 — cleared when BUILDER bumped to `bnc-0.0.11` (`a5feb8ca`, 2026-07-14; its source
 postdates the expose landing).

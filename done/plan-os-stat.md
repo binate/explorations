@@ -49,7 +49,7 @@ clock-reading syscall.
 The errno work used a per-target directory tree (`impls/targets/`). That has
 since been **replaced by file-level build constraints** — `#[build(is(os,
 "darwin"))]`, `#[build(is(arch, "aarch64") && is(os, "darwin"))]`, `!is(...)`,
-`&&` — see `plan-build-constraints.md` and `done/plan-impls-constraints-migration.md`.
+`&&` — see `plan-build-constraints.md` and `plan-impls-constraints-migration.md`.
 `os` now lives in one directory (`impls/stdlib/common/pkg/std/os/`) with
 per-OS files gated by tags (`internal_darwin.bn` / `internal_linux.bn`,
 `os_baremetal.bn`); per-OS *values* (open flags, the errno table) still use
@@ -78,7 +78,7 @@ C cross-check the errno table uses. The boundary lets us not pre-commit: start
 at B and migrate to A when direct-syscall infra exists, at the cost of one file.
 
 Open ABI check for *both*: `__c_call` passing a pointer-to-Binate-struct
-out-param (`&out`) — confirm against `done/plan-c-call.md` before Stage 5 lands.
+out-param (`&out`) — confirm against `plan-c-call.md` before Stage 5 lands.
 
 ## Deferred / open questions
 

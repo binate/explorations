@@ -1,10 +1,10 @@
 # Execution plan: `expose` — edit-site-level implementation plan
 
 **Status:** edit-site-level execution plan (2026-07-10). This EXPANDS the high-level
-**[done/plan-expose.md](done/plan-expose.md)** into concrete file/function/line edit sites, grounded
+**[plan-expose.md](plan-expose.md)** into concrete file/function/line edit sites, grounded
 against the real tree at `/Users/vtl/binate/temp-binate-3` (every `file:line` below was
 re-verified — corrections to the doc summaries are called out inline). The **design** is
-**[done/design-expose.md](done/design-expose.md)**.
+**[design-expose.md](design-expose.md)**.
 
 **STATUS (2026-07-10): Phases 0–5 all LANDED.** The feature is implemented (Phases 1–5 — see
 per-phase STATUS markers below) and specified (Phase 0 — `docs/spec` §16.5.2 + `binate.ebnf`
@@ -16,7 +16,7 @@ what the phase covered.
 
 Recon note: six subsystem recon passes (R1 frontend, R2 loader, R3 checker/scope, R4
 IR mangling, R5 collision/reflect, R6 identity substrate + test layout + BUILDER) were run
-against the real tree. Several `file:line` cites in done/design-expose.md / done/plan-expose.md were
+against the real tree. Several `file:line` cites in design-expose.md / plan-expose.md were
 **stale or imprecise**; each correction is folded in below as an explicit callout. Where a
 corrected cite exists, this plan uses the **corrected** one.
 
