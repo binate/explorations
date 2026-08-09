@@ -1,6 +1,6 @@
 # Plan: native arm32 backend (`pkg/binate/native/arm32`)
 
-Status: **P0–P5 DONE** — baremetal soft-float is FULLY GREEN (`builder-comp_native_arm32_baremetal` 2851/0, only the legit `982_c_global_environ` xfail). **P6 (VFP + hard-float, `arm32-linux` native) is IN PROGRESS** — the VFP encoders (`ba040890`), hard-float activation (`e021425c`), and REL relocs (`4ab2315a`) landed; inc 3f float-through-shims is closing shape-by-shape — scalar-float-through-shims (b1/b1b), float-in-single-aggregate (b2, `e1b8ef42`), and float-leaf-in-multi-return (b3, `8fa0f3956`) are DONE; the open tail is HFA-in-VFP (inc 3f a) and float-captures-in-closures + the VFP-bank-spill / over-budget-spill scalar-float-param marshals (b4). P7 (blocking-modeset promotion + unit sweep) after. (Started 2026-07-01.) Goal: a native (direct
+Status: **P0–P5 DONE** — baremetal soft-float is FULLY GREEN (`builder-comp_native_arm32_baremetal` 2851/0, only the legit `982_c_global_environ` xfail). **P6 (VFP + hard-float, `arm32-linux` native) is IN PROGRESS** — the VFP encoders (`ba040890`), hard-float activation (`e021425c`), and REL relocs (`4ab2315a`) landed; inc 3f float-through-shims is closing shape-by-shape — scalar-float-through-shims (b1/b1b), float-in-single-aggregate (b2, `e1b8ef42`), float-leaf-in-multi-return (b3, `8fa0f3956`), and float-scalar-CAPTURES-in-closures (b4a, `82c7bb803`) are DONE; the open tail is HFA-in-VFP (inc 3f a) and the b4 follow-ups — float user-param VFP up-shift when a float param coexists with float captures (b4b) and the VFP-bank-spill / over-budget-spill scalar-float-param marshals (b4c). P7 (blocking-modeset promotion + unit sweep) after. (Started 2026-07-01.) Goal: a native (direct
 IR→object) code generator for 32-bit ARM, hooked up analogously to the
 existing **LLVM** arm32 path — i.e. serving BOTH `--target arm32-baremetal`
 and `--target arm32-linux`, run under QEMU by the same runners, but with the
@@ -1056,13 +1056,38 @@ Increments:
       shims emit cleanly, disasm confirms `vstr d0,[r4]` + `str r0,[r4,#8]`); soft-float baremetal
       no regression (705/975/976 + float-capture/agg green); hygiene 18/18; 3-lens adversarial
       review clean (classifier-consistency concern refuted; two stale-comment nits fixed).
-    - **(b4) float CAPTURES in closures + VFP-bank-spill / spill-shim-float follow-ups — OPEN,
-      the bigger unlock (see b2 scope correction).**  A scalar float capture needs a
-      memory→VFP load (VLDR from the closure data block) plus a VFP up-shift of float user
-      params by the float-capture FP-reg count; plus the deferred VFP-bank-spilled-float and
-      over-budget-spill-shim scalar-float marshals (the spill/backstop guards currently
-      fail-loud on a scalar float PARAM — 986/987/970's overflow cases).  Clears 706, 883, 884,
-      969, 985 (scalar float captures) + 986, 987 (scalar float params through the spill).
+    - **(b4) float CAPTURES in closures + VFP-bank-spill / spill-shim-float follow-ups — the
+      bigger unlock (see b2 scope correction); decomposed into b4a/b4b/b4c.**
+      - **(b4a) float scalar CAPTURES (no coexisting float scalar param) — ✅ DONE
+        (`82c7bb803`, 2026-08-09).**  A scalar float capture rides a VFP register (the
+        underlying takes it as a leading VFP param), which the GP-only capture load could not
+        place.  New `vfpLoadBaseHard` (arm32_call_hard.bn, the load twin of vfpStoreBaseHard)
+        + `emitClosureCaptureVfpLoadArm32` (arm32_closure_shim_spill.bn) VLDR each in-VFP-reg
+        float capture from `[captureBase + FieldOffset]` into its CPRC S/D register
+        (`CallArgFpReg`).  It runs BEFORE the user-arg marshal — the base-liveness key: a float
+        capture consumes NO GP word, so a GP user arg can land in the closure-data base register
+        (R0 scalar/void, R1 sret) and the marshal would clobber it; loading the VFP captures
+        first, while the base is live, sidesteps that (a GP capture still keeps users off the
+        base; the pack core's re-homed R5 survives regardless).  This is simpler than re-homing
+        the base — no frame change.  A bank-overflowed float capture rides the outgoing stack as
+        raw words (emitClosureCaptureSpillArm32).  Float-capture closures route to their FRAMED
+        variants (the fast path's dense GP captureWords cursor mis-counts a float capture).  The
+        guard (`closureShimUnhandledFloatB1bArm32`) + the three framed-emitter backstops now flag
+        a float capture only when a float scalar PARAM coexists (b4b).  Clears 969 (float64 cap +
+        GP-coerced D2 param + float64 scalar return) and 985 (two float64 captures, no params,
+        sret).  Verified: unit 335/335 (byte-ref VLDR through the R0 + R1 bases, cap+param
+        fail-loud boundary, soft-float negative control); hard-float compile-only e2e (disasm
+        `vldr d0,[r0]` / `vldr d0,[r1]`+`vldr d1,[r1,#8]`); soft-float baremetal no regression;
+        hygiene 18/18; 3-lens adversarial review clean (base-liveness/clobber lens confirmed no
+        clobber; only stale-comment nits, fixed).
+      - **(b4b) float user-param VFP UP-SHIFT — OPEN.**  When a closure has BOTH float scalar
+        captures AND float scalar params, each float param must VMOV up from its incoming
+        `CallArgFpReg(userTypes, j)` slot to its outgoing `CallArgFpReg(argTypes,
+        NumCaptureParams+j)` slot (the captures occupy the leading VFP slots).  Add to the framed
+        emitters alongside the capture load; narrow the cap+param fail-loud.  Clears 706, 883, 884.
+      - **(b4c) scalar float PARAM through the over-budget spill / VFP-bank-spill — OPEN.**  The
+        spill/backstop guards fail-loud on a scalar float PARAM (986/987/970's overflow cases).
+        Clears 986, 987.
     Closing (b1b)+(b2)+(b3) unblocks the native `--test` unit sweep (the test-runner harness
     itself uses a float func-value shim → P7 prerequisite).
   - **(c) int64↔float casts under gnueabihf — ✅ DONE / NO CODE NEEDED (test `e02d8b24`,
