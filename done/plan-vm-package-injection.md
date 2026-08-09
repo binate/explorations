@@ -31,16 +31,15 @@ in EVERY environment is the deliverable, not a feature waiting on one named call
 That reframes the remainders below as **consistency/completeness** work, not
 "no consumer."
 
-**Remainders (tracked in `claude-todo.md`, NOT blockers — the project is
-complete):**
-- **Globals/Vtables tables** are emitted empty for a bytecode package's own
-  descriptor. Native emits them; for cross-environment parity the bytecode
-  descriptor should too (globals → runtime `lookupGlobalAddr`; vtables →
-  `vm.IfaceVtables`), via a runtime back-patch like Value (the addresses aren't
-  static symbols).
+**Remainders (both non-blockers; the project is complete):**
+- **Globals/Vtables tables** — RESOLVED (`55ebcfce`, 2026-06-30): the bytecode
+  descriptor now populates Globals (one `reflect.GlobalInfo` per `.bni`-exported
+  global, `Addr` back-patched to runtime storage via `lookupGlobalAddr`) and
+  Vtables (by Name — a bytecode impl has no native `@__ivt` address, so the
+  mangled Name is the portable reflective info).
 - **`__c_call` `FunctionInfo.Value`** is null in the VM descriptor where native
-  emits a callable handle — a latent cross-environment parity gap (no supported
-  config triggers it today; proper fix is native-handle binding).
+  emits a callable handle — a latent, inert cross-environment parity gap (no
+  supported config triggers it today; proper fix is native-handle binding).
 
 > **Structural note (post-Part-A, 2026):** the hardcoded extern table this plan
 > originally targeted (`extern_register_std.bn`) is gone. The VM now exposes

@@ -1,12 +1,20 @@
 # Plan: `#[build]` compiler-version predicate (`at_least` / `at_most` / `is(version, …)`)
 
-Status: **Predicate machinery LANDED** (`dedbb620`, 2026-07-13; design ratified the
-same day) — `at_least`/`at_most`/`is(version, …)` + `BuildConfig.Version` + the
-strict `X.Y.Z[-pre[N]]` parser/comparator, spec'd in §16.8 (`pkg.build`,
-`pkg.build.version`). The **main-move** ("How it gets used later", below) is a
-SEPARATE future effort gated behind a BUILDER re-pin — NOT yet done. Per the BUILDER
-constraint below, the predicate is not yet usable inside `cmd/bnc`'s own
-BUILDER-compiled tree until BUILDER is re-pinned to a version that understands it.
+Status: **✅ COMPLETE — both halves landed.**
+
+- **Predicate machinery** LANDED (`dedbb620`, 2026-07-13; design ratified the same
+  day) — `at_least`/`at_most`/`is(version, …)` + `BuildConfig.Version` + the strict
+  `X.Y.Z[-pre[N]]` parser/comparator, spec'd in §16.8 (`pkg.build`,
+  `pkg.build.version`).
+- **The main-move it motivated** (retire the C `main`; move the process entry into
+  Binate) LANDED (`c4607a71` + `8eb5f8c9`, 2026-07-16): the tree's
+  `binate_runtime.c` no longer defines `main` ("No `main` here"); the entry is
+  `impls/core/common/pkg/builtins/startup`, `#[c_export]`'d as the unmangled
+  `main`. Notably the entry ended up gated by a **new `entrypoint` predicate**
+  (`#[build(is(entrypoint, "main"))]`) rather than the `at_least(version, …)` gate
+  this plan proposed — a cleaner mechanism; the version predicate still landed and
+  serves BUILDER-version staging. The transitional pre-0.0.12 version guards were
+  retired once BUILDER re-pinned to 0.0.12 (`43ca8b2a`, 2026-08-03).
 
 ## Motivation
 

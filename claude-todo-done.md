@@ -6471,7 +6471,7 @@ equivalent of `codegen/emit_pkg_descriptor.bn` / `native/*/_pkg_descriptor.bn`.
   (3) Part 2b (drop the hardcoded extern table, enumerate `__Package().Functions`
   cross-mode) — was found to be ALREADY COMPLETE (Part A `a8ba52f2` + stdlib
   injection); the VM-package-injection project is closed out. Plan:
-  `plan-vm-package-injection.md`.
+  `done/plan-vm-package-injection.md`.
 
 ## ✅ FIXED & LANDED (main `55ebcfce`, 2026-06-30, BUG-BASH LANE 3) — bytecode reflect.Package Globals + Vtables tables populated (cross-environment descriptor parity)
 
